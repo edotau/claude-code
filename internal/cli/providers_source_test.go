@@ -42,7 +42,7 @@ func TestProviderCredentialSources(t *testing.T) {
 	for source, auth := range auths {
 		name := "fake-" + strings.ReplaceAll(source, ".", "-")
 		rows[name] = &providers.Provider{
-			Name: name, Kind: providers.DialectOpenAI, BaseURL: "https://example.invalid", Auth: auth,
+			Name: name, Protocol: providers.ProtocolOpenAI, BaseURL: "https://example.invalid", Auth: auth,
 		}
 	}
 	raw, err := json.Marshal(map[string]any{"default": "fake-none",

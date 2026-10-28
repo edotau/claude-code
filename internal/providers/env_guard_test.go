@@ -6,7 +6,7 @@ import (
 )
 
 func envOverlay(key string) string {
-	return `{"providers":{"anthropic":{"e":{"kind":"anthropic","base_url":"https://e","auth":{"type":"none"},"env":{"` + key + `":"v"}}}}}`
+	return `{"providers":{"anthropic":{"e":{"protocol":"anthropic","base_url":"https://e","auth":{"type":"none"},"env":{"` + key + `":"v"}}}}}`
 }
 
 func TestValidateRejectsHarnessOwnedEnvKeys(t *testing.T) {
@@ -35,5 +35,5 @@ func TestValidateRejectsCredentialSegmentEnvKeys(t *testing.T) {
 	}
 }
 
-const sessionProviders = `"gw":{"kind":"anthropic","base_url":"https://gw.example/anthropic","auth":{"type":"none"},"models":{"opus":"o","sonnet":"s"}},` +
-	`"plain":{"kind":"anthropic","base_url":"https://plain.example/anthropic","auth":{"type":"none"},"models":{"opus":"o"}}`
+const sessionProviders = `"gw":{"protocol":"anthropic","base_url":"https://gw.example/anthropic","auth":{"type":"none"},"models":{"opus":"o","sonnet":"s"}},` +
+	`"plain":{"protocol":"anthropic","base_url":"https://plain.example/anthropic","auth":{"type":"none"},"models":{"opus":"o"}}`

@@ -128,8 +128,8 @@ func TestListModelsNonDatabricksUsesV1Models(t *testing.T) {
 	cases := []struct {
 		name, kind, path string
 	}{
-		{"anthropic", DialectAnthropic, "/v1/models"},
-		{"openai", DialectOpenAI, "/models"},
+		{"anthropic", ProtocolAnthropic, "/v1/models"},
+		{"openai", ProtocolOpenAI, "/models"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -144,7 +144,7 @@ func TestListModelsNonDatabricksUsesV1Models(t *testing.T) {
 			}))
 			t.Cleanup(srv.Close)
 			t.Setenv("PLAIN_LIVE_TEST_TOKEN", "tok-plain")
-			p := &Provider{Name: "plain-live-test", Kind: tc.kind, BaseURL: srv.URL,
+			p := &Provider{Name: "plain-live-test", Protocol: tc.kind, BaseURL: srv.URL,
 				Auth: Auth{Type: AuthKey, Env: "PLAIN_LIVE_TEST_TOKEN"}}
 
 			got, err := ListModels(context.Background(), nil, p)

@@ -202,10 +202,10 @@ func logContextStats(log io.Writer, ctxFiles Context) {
 // printCommand logs the resolved request line for --print-command and returns the Result it would send.
 func printCommand(reg *providers.Registry, sel providers.Selection, p *providers.Provider, model string,
 	ctxFiles Context, prompt string, log io.Writer) agent.Result {
-	route, ok := p.Route(providers.DialectAnthropic)
+	route, ok := p.Route(providers.ProtocolAnthropic)
 	suffix := "/v1/messages"
 	if !ok {
-		route, _ = p.Route(providers.DialectOpenAI)
+		route, _ = p.Route(providers.ProtocolOpenAI)
 		suffix = "/chat/completions"
 	}
 	shown := agyModel(reg, sel, p, model) // a slot name or provider:id resolves the way agent.Run will

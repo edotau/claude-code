@@ -18,10 +18,10 @@ func TestWireGatewayDerivation(t *testing.T) {
 	if p.BaseURL != wireHost+"/ai-gateway/anthropic" {
 		t.Errorf("BaseURL = %q", p.BaseURL)
 	}
-	if got := p.Routes[DialectResponses]; got != wireHost+"/ai-gateway/codex/v1" {
+	if got := p.Routes[ProtocolResponses]; got != wireHost+"/ai-gateway/codex/v1" {
 		t.Errorf("responses route = %q", got)
 	}
-	if _, ok := p.Routes[DialectOpenAI]; ok {
+	if _, ok := p.Routes[ProtocolOpenAI]; ok {
 		t.Errorf("gateway must have no openai route: %v", p.Routes)
 	}
 	if p.ModelPrefix != "system.ai." {
@@ -41,7 +41,7 @@ func TestWireServingDefaultUnchanged(t *testing.T) {
 		if p.BaseURL != wireHost+"/serving-endpoints/anthropic" {
 			t.Errorf("%q: BaseURL = %q", opts, p.BaseURL)
 		}
-		for _, d := range []string{DialectOpenAI, DialectResponses} {
+		for _, d := range []string{ProtocolOpenAI, ProtocolResponses} {
 			if p.Routes[d] != wireHost+"/serving-endpoints" {
 				t.Errorf("%q: route %s = %q", opts, d, p.Routes[d])
 			}

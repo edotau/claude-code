@@ -21,7 +21,7 @@ func mintRow(t *testing.T, name, kind, clientID, serverURL string) *Provider {
 	vaulttest.UseKeyring(t)
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	cmdCache.Delete(name)
-	return &Provider{Name: name, Provider: GroupDatabricks, Kind: DialectAnthropic, BaseURL: serverURL + "/serving-endpoints/anthropic",
+	return &Provider{Name: name, Provider: GroupDatabricks, Protocol: ProtocolAnthropic, BaseURL: serverURL + "/serving-endpoints/anthropic",
 		Auth: Auth{Type: kind, ClientID: clientID, TTL: 1800}}
 }
 
@@ -167,7 +167,7 @@ func TestKindChangeGuardCoversEmptyToKindAndForce(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	vaulttest.UseKeyring(t)
 	if err := SetProviderFields("guard-row", map[string]any{
-		"kind": "anthropic", "base_url": "https://example.cloud.databricks.com/x", "auth": map[string]any{"type": "key", "command": "true"},
+		"protocol": "anthropic", "base_url": "https://example.cloud.databricks.com/x", "auth": map[string]any{"type": "key", "command": "true"},
 	}); err != nil {
 		t.Fatal(err)
 	}

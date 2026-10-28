@@ -35,7 +35,7 @@ func captureRouteStdout(t *testing.T, fn func() int) (string, int) {
 // TestRouteVerbJSON: the pick's JSON carries weights, per-dimension scores, totals and each skip's gate.
 func TestRouteVerbJSON(t *testing.T) {
 	dir := vaulttest.Use(t)
-	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"github":{"work":{"kind":"openai",
+	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"github":{"work":{"protocol":"openai",
 		"base_url":"https://api.githubcopilot.com","auth":{"type":"cli","login":"copilot"},"login":"work-user"}}}}`)
 	vaulttest.Put(t, vault.Pins, providers.PinCopilotProfile, "work")
 	if err := os.MkdirAll(filepath.Join(dir, "bin"), 0o755); err != nil {

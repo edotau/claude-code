@@ -70,9 +70,9 @@ func liveModelEntries(ctx context.Context, p *Provider) ([]liveModelEntry, error
 	url, anthropicDialect := "", false
 	if host := presetHost(p.Host); p.Preset == PresetDatabricks && host != "" {
 		url = host + "/api/2.0/serving-endpoints"
-	} else if r, ok := p.Route(DialectAnthropic); ok {
+	} else if r, ok := p.Route(ProtocolAnthropic); ok {
 		url, anthropicDialect = r+"/v1/models", true
-	} else if r, ok := p.Route(DialectOpenAI); ok {
+	} else if r, ok := p.Route(ProtocolOpenAI); ok {
 		url = r + "/models"
 	} else {
 		return nil, fmt.Errorf("%s has no route that lists models", p.Name)

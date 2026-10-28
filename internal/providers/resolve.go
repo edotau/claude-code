@@ -100,7 +100,7 @@ func (s Selection) ClientModel(slot string) string {
 // NeedsRouter reports whether the session must go through the loopback router: a slot crosses
 // providers, the provider has no Anthropic route (needs translation), or a failover ladder is configured.
 func (s Selection) NeedsRouter(reg *Registry) bool {
-	if _, ok := s.Provider.Route(DialectAnthropic); !ok {
+	if _, ok := s.Provider.Route(ProtocolAnthropic); !ok {
 		return true
 	}
 	for _, t := range s.Slots {
@@ -115,10 +115,10 @@ func (s Selection) NeedsRouter(reg *Registry) bool {
 // PrefersOpenAI reports whether model must use p's OpenAI route even though p has an Anthropic one:
 // a non-Claude model on a provider serving both (one gateway, two paths) needs the router's translation.
 func PrefersOpenAI(p *Provider, model string) bool {
-	if _, ok := p.Route(DialectAnthropic); !ok {
+	if _, ok := p.Route(ProtocolAnthropic); !ok {
 		return false
 	}
-	if _, ok := p.Route(DialectOpenAI); !ok {
+	if _, ok := p.Route(ProtocolOpenAI); !ok {
 		return false
 	}
 	return !strings.Contains(strings.ToLower(model), "claude")

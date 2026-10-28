@@ -120,7 +120,7 @@ func TestCopilotQuotaHandoffNeverResumesOnGitHubLogin(t *testing.T) {
 // "<profile>:<tier>" resolves like --provider <profile> --model <tier>; anything else is left alone.
 func TestResolveTargetProfileTierRewrite(t *testing.T) {
 	vaulttest.UseKeyring(t)
-	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"databricks":{"dev":{"kind":"anthropic","base_url":"http://127.0.0.1:1",`+
+	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"databricks":{"dev":{"protocol":"anthropic","base_url":"http://127.0.0.1:1",`+
 		`"auth":{"type":"key","env":"DEV_TEST_KEY"},"models":{"opus":"claude-opus-5-5","sonnet":"claude-sonnet-5","haiku":"claude-haiku-4-5"}}}}}`)
 	_, want, err := resolveTarget(Request{Provider: "dev", Model: "opus"})
 	if err != nil || want.Provider == nil || want.Provider.Name != "dev" {
@@ -264,7 +264,7 @@ func TestCopilotRunnerResumePromptRedacted(t *testing.T) {
 	vaulttest.UseKeyring(t)
 	fakeCopilotBin(t)
 	// UseKeyring relocates the vault; reseed the alice profile and its pin alongside dev
-	pinGitHubProfile(t, "alice", `"databricks":{"dev":{"kind":"anthropic","base_url":"http://127.0.0.1:1",`+
+	pinGitHubProfile(t, "alice", `"databricks":{"dev":{"protocol":"anthropic","base_url":"http://127.0.0.1:1",`+
 		`"auth":{"type":"key","env":"DEV_TEST_KEY"},"models":{"opus":"claude-opus-5-5","sonnet":"claude-sonnet-5"}}}`)
 	secret := tok("ghs_")
 	var prompts []string

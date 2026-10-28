@@ -27,7 +27,7 @@ func authEnv(t *testing.T, row string) *[]markCall {
 	return &calls
 }
 
-const u2mNoToken = `{"kind":"anthropic","base_url":"http://127.0.0.1:1","auth":{"type":"oauth"},"models":{"opus":"m"}}`
+const u2mNoToken = `{"protocol":"anthropic","base_url":"http://127.0.0.1:1","auth":{"type":"oauth"},"models":{"opus":"m"}}`
 
 func twoLegs(first, second *fakeRunner) Chain {
 	return Chain{Want: first.Name(), Legs: []Leg{{Agent: first, Account: first.Name() + ":agauth"}, {Agent: second}}}
@@ -59,7 +59,7 @@ func TestSealedAuthLegRecoversOnceThenMovesOn(t *testing.T) {
 
 // A transient Recover failure (the auth.command itself failing) never marks the account.
 func TestTransientRecoverFailureDoesNotMark(t *testing.T) {
-	calls := authEnv(t, `{"kind":"anthropic","base_url":"http://127.0.0.1:1","auth":{"type":"key","command":"exit 1"},"models":{"opus":"m"}}`)
+	calls := authEnv(t, `{"protocol":"anthropic","base_url":"http://127.0.0.1:1","auth":{"type":"key","command":"exit 1"},"models":{"opus":"m"}}`)
 	first := &fakeRunner{name: "codex", errs: []error{errors.New("HTTP 401 unauthorized")}, emptyAnswer: true}
 	second := &fakeRunner{name: "gemini", errs: []error{nil}}
 	_, _ = RunWithFallback(context.Background(), twoLegs(first, second), Request{Prompt: "p"}, io.Discard, nil)
@@ -70,7 +70,7 @@ func TestTransientRecoverFailureDoesNotMark(t *testing.T) {
 
 // A first-attempt error that itself carries a login-required verdict (no Recover ran) is condemned too.
 func TestWrappedLoginRequiredOnFirstAttemptMarksAndMovesOn(t *testing.T) {
-	calls := authEnv(t, `{"kind":"anthropic","base_url":"http://127.0.0.1:1","auth":{"type":"key","env":"AGAUTH_UNSET"},"models":{"opus":"m"}}`)
+	calls := authEnv(t, `{"protocol":"anthropic","base_url":"http://127.0.0.1:1","auth":{"type":"key","env":"AGAUTH_UNSET"},"models":{"opus":"m"}}`)
 	first := &fakeRunner{name: "claude", errs: []error{fmt.Errorf("agauth: %w", providers.ErrNeedsLogin)}, emptyAnswer: true}
 	second := &fakeRunner{name: "gemini", errs: []error{nil}}
 	res, err := RunWithFallback(context.Background(), twoLegs(first, second), Request{Prompt: "p"}, io.Discard, nil)

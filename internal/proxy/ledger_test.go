@@ -36,7 +36,7 @@ func TestRelayedRequestWritesLedgerForNonKeyAuth(t *testing.T) {
 		io.WriteString(w, `{"type":"message","content":[],"usage":{"input_tokens":7,"output_tokens":3,"cache_read_input_tokens":2}}`)
 	})
 	t.Setenv("DATABRICKS_PROD_PAT", "tok")
-	row := fmt.Sprintf(`{"provider":"databricks","kind":"anthropic","base_url":%q,"auth":{"type":"pat"},`+
+	row := fmt.Sprintf(`{"provider":"databricks","protocol":"anthropic","base_url":%q,"auth":{"type":"pat"},`+
 		`"models":{"opus":"m-opus","haiku":"m-haiku"}}`, up.URL)
 	srv := setup(t, `{"default":"prod","providers":{"databricks":{"prod":`+row+`}}}`)
 	resp := post(t, srv.URL+"/p/prod/v1/messages", `{"model":"m-haiku"}`,
@@ -99,7 +99,7 @@ func TestLedgerAttributionHeaders(t *testing.T) {
 				io.WriteString(w, `{"type":"message","content":[],"usage":{"input_tokens":1,"output_tokens":1}}`)
 			})
 			t.Setenv("DATABRICKS_PROD_PAT", "tok")
-			row := fmt.Sprintf(`{"provider":"databricks","kind":"anthropic","base_url":%q,"auth":{"type":"pat"},`+
+			row := fmt.Sprintf(`{"provider":"databricks","protocol":"anthropic","base_url":%q,"auth":{"type":"pat"},`+
 				`"models":{"opus":"m-opus","haiku":"m-haiku"}}`, up.URL)
 			srv := setup(t, `{"default":"prod","providers":{"databricks":{"prod":`+row+`}}}`)
 			resp := post(t, srv.URL+"/p/prod/v1/messages", `{"model":"m-haiku"}`, tc.hdr)
@@ -139,7 +139,7 @@ func TestLedgerDirectProviderNamed(t *testing.T) {
 		io.WriteString(w, `{"type":"message","content":[],"usage":{"input_tokens":4,"output_tokens":1}}`)
 	})
 	t.Setenv("DIRECT_TEST_KEY", "k")
-	row := fmt.Sprintf(`{"kind":"anthropic","base_url":%q,"auth":{"type":"key","header":"x-api-key","env":"DIRECT_TEST_KEY"},`+
+	row := fmt.Sprintf(`{"protocol":"anthropic","base_url":%q,"auth":{"type":"key","header":"x-api-key","env":"DIRECT_TEST_KEY"},`+
 		`"models":{"opus":"m-opus","haiku":"m-haiku"}}`, up.URL)
 	srv := setup(t, `{"default":"direct","providers":{"anthropic":{"direct":`+row+`}}}`)
 	if resp := post(t, srv.URL+"/p/direct/v1/messages", `{"model":"m-haiku"}`, nil); resp.StatusCode != 200 {

@@ -42,7 +42,7 @@ func workableCopilotPin(t *testing.T, user string) {
 		t.Fatal(err)
 	}
 	t.Setenv("GH_CONFIG_DIR", dir)
-	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"github":{"work":{"kind":"openai",`+
+	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"github":{"work":{"protocol":"openai",`+
 		`"base_url":"https://api.githubcopilot.com","login":"`+user+`","auth":{"type":"cli","login":"copilot"}}}}}`)
 	setPins(t, map[string]string{providers.PinCopilotProfile: "work"})
 	prev := vendors.CopilotUsedPct

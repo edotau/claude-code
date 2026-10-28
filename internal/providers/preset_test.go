@@ -13,7 +13,7 @@ import (
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
-const testBase = `{"providers": {"anthropic": {"a": {"kind": "anthropic", "base_url": "https://a", "auth": {"type": "none"}}}}}`
+const testBase = `{"providers": {"anthropic": {"a": {"protocol": "anthropic", "base_url": "https://a", "auth": {"type": "none"}}}}}`
 
 func parseOverlay(t *testing.T, overlay string) (*Registry, error) {
 	t.Helper()
@@ -34,15 +34,15 @@ func mustParse(t *testing.T, overlay string) *Registry {
 func TestPresetExpansion(t *testing.T) {
 	reg := mustParse(t, `{"providers": {"databricks": {"dbx": {"preset": "databricks", "host": "https://adb-1.azuredatabricks.net/", "cliProfile": "work"}}}}`)
 	p := reg.Providers["dbx"]
-	if p.Kind != DialectAnthropic || p.BaseURL != "https://adb-1.azuredatabricks.net/serving-endpoints/anthropic" {
-		t.Errorf("kind/base = %q %q", p.Kind, p.BaseURL)
+	if p.Protocol != ProtocolAnthropic || p.BaseURL != "https://adb-1.azuredatabricks.net/serving-endpoints/anthropic" {
+		t.Errorf("kind/base = %q %q", p.Protocol, p.BaseURL)
 	}
-	for _, d := range []string{DialectOpenAI, DialectResponses} {
+	for _, d := range []string{ProtocolOpenAI, ProtocolResponses} {
 		if got, ok := p.Route(d); !ok || got != "https://adb-1.azuredatabricks.net/serving-endpoints" {
 			t.Errorf("Route(%s) = %q %v", d, got, ok)
 		}
 	}
-	if got, _ := p.Route(DialectAnthropic); got != p.BaseURL {
+	if got, _ := p.Route(ProtocolAnthropic); got != p.BaseURL {
 		t.Errorf("Route(anthropic) = %q", got)
 	}
 	if p.Auth.Type != AuthKey || p.Auth.TTL != 1800 {
@@ -77,16 +77,16 @@ func TestPresetWithoutCLIProfileLeavesCommandsEmpty(t *testing.T) {
 
 func TestPresetExplicitFieldsWin(t *testing.T) {
 	p := mustParse(t, `{"providers": {"databricks": {"dbx": {"preset": "databricks", "host": "https://h.example.com", "cliProfile": "work",
-		"kind": "openai", "base_url": "https://own/base", "routes": {"openai": "https://own/oa"},
+		"protocol": "openai", "base_url": "https://own/base", "routes": {"openai": "https://own/oa"},
 		"auth": {"type":"key","header":"x-api-key", "ttl": 60, "command": "echo mine", "refreshCommand": "echo fresh"},
 		"models": {"opus": "my-opus"}, "env": {"CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS": "0", "OTHER": "x"}}}}}`).Providers["dbx"]
-	if p.Kind != "openai" || p.BaseURL != "https://own/base" {
-		t.Errorf("kind/base overridden: %q %q", p.Kind, p.BaseURL)
+	if p.Protocol != "openai" || p.BaseURL != "https://own/base" {
+		t.Errorf("kind/base overridden: %q %q", p.Protocol, p.BaseURL)
 	}
-	if got, _ := p.Route(DialectOpenAI); got != "https://own/oa" {
+	if got, _ := p.Route(ProtocolOpenAI); got != "https://own/oa" {
 		t.Errorf("openai route = %q", got)
 	}
-	if got, _ := p.Route(DialectResponses); got != "https://h.example.com/serving-endpoints" {
+	if got, _ := p.Route(ProtocolResponses); got != "https://h.example.com/serving-endpoints" {
 		t.Errorf("responses route = %q", got)
 	}
 	if p.Auth.Type != AuthKey || p.Auth.Header != HeaderXAPIKey || p.Auth.TTL != 60 || p.Auth.Command != "echo mine" || p.Auth.RefreshCommand != "echo fresh" {
@@ -101,7 +101,7 @@ func TestPresetExplicitFieldsWin(t *testing.T) {
 }
 
 func TestNoPresetProviderUnchanged(t *testing.T) {
-	reg := mustParse(t, `{"providers": {"anthropic": {"plain": {"kind": "anthropic", "base_url": "https://p", "auth": {"type": "none"}}}}}`)
+	reg := mustParse(t, `{"providers": {"anthropic": {"plain": {"protocol": "anthropic", "base_url": "https://p", "auth": {"type": "none"}}}}}`)
 	p := reg.Providers["plain"]
 	if p.Models != nil || p.Env != nil || p.Routes != nil || p.BaseURL != "https://p" || p.Auth.TTL != 0 || p.Auth.Command != "" {
 		t.Errorf("no-preset provider changed: %+v", p)
@@ -119,7 +119,7 @@ func TestExpandPresetsDoesNotMutateSharedMaps(t *testing.T) {
 
 func TestValidatePresetAndEnvRejections(t *testing.T) {
 	const ok = `"preset": "databricks", "host": "https://h.example.com"`
-	const plain = `"kind": "anthropic", "base_url": "https://x", "auth": {"type": "none"}`
+	const plain = `"protocol": "anthropic", "base_url": "https://x", "auth": {"type": "none"}`
 	cases := []struct{ name, entry, want string }{
 		{"unknown preset", `"preset": "nope", "host": "https://h.example.com"`, "unknown preset"},
 		{"http host", `"preset": "databricks", "host": "http://h.example.com"`, "absolute https"},

@@ -12,7 +12,7 @@ import (
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
-const ghProfileRow = `"kind":"openai","base_url":"https://api.githubcopilot.com","auth":{"type":"cli","login":"copilot"},` +
+const ghProfileRow = `"protocol":"openai","base_url":"https://api.githubcopilot.com","auth":{"type":"cli","login":"copilot"},` +
 	`"models":{"opus":"gpt-6.1-sol","sonnet":"claude-sonnet-5.5","haiku":"auto"}`
 
 // ghArgsOnPin runs the launch-token path with COPILOT_PROFILE=pin on a migrated hermetic vault and returns gh's argv.

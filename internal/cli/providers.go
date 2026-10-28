@@ -41,7 +41,7 @@ func configureProviderList(name, format string) int {
 	if err != nil {
 		return fail("%v", err)
 	}
-	fmt.Printf("profile   %s\nkind      %s\nauth      %s", p.Name, p.Kind, p.Auth.Method())
+	fmt.Printf("profile   %s\nprotocol  %s\nauth      %s", p.Name, p.Protocol, p.Auth.Method())
 	if p.Auth.Env != "" {
 		fmt.Printf(" (%s)", p.Auth.Env)
 	}

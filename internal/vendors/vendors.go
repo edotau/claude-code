@@ -36,10 +36,10 @@ type Spec struct {
 }
 
 var specs = []Spec{
-	{Name: "codex", Binary: "codex", Dialect: providers.DialectResponses, Dialects: []string{providers.DialectResponses}},
-	{Name: "gemini", Binary: "agy", Dialect: providers.DialectGemini, Dialects: []string{providers.DialectGemini}},
-	{Name: "opencode", Binary: "opencode", Dialect: providers.DialectAnthropic, Dialects: []string{providers.DialectAnthropic, providers.DialectGemini, providers.DialectOpenAI}},
-	{Name: "copilot", Binary: "copilot", Dialect: providers.DialectAnthropic, Dialects: []string{providers.DialectAnthropic, providers.DialectOpenAI}},
+	{Name: "codex", Binary: "codex", Dialect: providers.ProtocolResponses, Dialects: []string{providers.ProtocolResponses}},
+	{Name: "gemini", Binary: "agy", Dialect: providers.ProtocolGemini, Dialects: []string{providers.ProtocolGemini}},
+	{Name: "opencode", Binary: "opencode", Dialect: providers.ProtocolAnthropic, Dialects: []string{providers.ProtocolAnthropic, providers.ProtocolGemini, providers.ProtocolOpenAI}},
+	{Name: "copilot", Binary: "copilot", Dialect: providers.ProtocolAnthropic, Dialects: []string{providers.ProtocolAnthropic, providers.ProtocolOpenAI}},
 }
 
 // Names lists the vendors in roster order.
@@ -440,8 +440,8 @@ func routerRoute(ctx context.Context, vendor string, p *providers.Provider, dial
 	base := sess
 	switch {
 	case vendor == "codex": // codex appends /responses to base_url
-		base = sess + "/" + providers.DialectResponses
-	case dialect == providers.DialectOpenAI, dialect == providers.DialectGemini:
+		base = sess + "/" + providers.ProtocolResponses
+	case dialect == providers.ProtocolOpenAI, dialect == providers.ProtocolGemini:
 		base = sess + "/" + dialect
 	}
 	rp := *p
@@ -647,16 +647,16 @@ func opencode(p *providers.Provider, dialect, base, model, cred string, routed b
 	ref := "{env:" + OpenCodeKeyEnv + "}"
 	// Native SDKs keep provider-specific state (Gemini 3 thought signatures) the openai-compatible shim drops.
 	switch dialect {
-	case providers.DialectAnthropic:
+	case providers.ProtocolAnthropic:
 		npm, options["baseURL"] = "@ai-sdk/anthropic", base+"/v1"
-	case providers.DialectGemini:
+	case providers.ProtocolGemini:
 		npm, options["baseURL"] = "@ai-sdk/google", base+"/v1beta"
 	}
 	var env []string
 	if cred != "" {
 		env = append(env, OpenCodeKeyEnv+"="+cred)
 		options["apiKey"] = ref
-		native := dialect == providers.DialectAnthropic || (dialect == providers.DialectGemini && isGateway(base))
+		native := dialect == providers.ProtocolAnthropic || (dialect == providers.ProtocolGemini && isGateway(base))
 		if native && p.Auth.HeaderStyle() == providers.HeaderBearer {
 			headers["Authorization"] = "Bearer " + ref
 		}
@@ -668,7 +668,7 @@ func opencode(p *providers.Provider, dialect, base, model, cred string, routed b
 		return opencodeDatabricks(p, id, dialect, base, model, cred, routed, env)
 	}
 	menu := opencodeModels(p, model, h)
-	if routed && dialect == providers.DialectAnthropic {
+	if routed && dialect == providers.ProtocolAnthropic {
 		for id, m := range menu { // the router cannot relay fine-grained tool streaming
 			if entry, ok := m.(map[string]any); ok {
 				entry["options"] = map[string]any{"toolStreaming": false}
@@ -721,10 +721,10 @@ func opencode(p *providers.Provider, dialect, base, model, cred string, routed b
 // opencodeDatabricks is the interactive databricks launch: the curated menu split over a chat provider
 // (openai-compatible) and a Responses provider (<id>-gpt, @ai-sdk/openai), since GPT-6 rejects chat tool calls.
 func opencodeDatabricks(p *providers.Provider, id, dialect, base, model, cred string, routed bool, env []string) ([]string, []string, error) { // env already holds the key
-	chatBase, respBase := p.Routes[providers.DialectOpenAI], p.Routes[providers.DialectResponses]
+	chatBase, respBase := p.Routes[providers.ProtocolOpenAI], p.Routes[providers.ProtocolResponses]
 	if routed { // base is the session base plus the dialect suffix routerRoute added
 		sess := strings.TrimSuffix(base, "/"+dialect)
-		chatBase, respBase = sess+"/"+providers.DialectOpenAI, sess+"/"+providers.DialectResponses
+		chatBase, respBase = sess+"/"+providers.ProtocolOpenAI, sess+"/"+providers.ProtocolResponses
 	}
 	if chatBase == "" || respBase == "" {
 		return nil, nil, fmt.Errorf("opencode: provider %s lacks an openai or responses route", p.Name)
@@ -882,7 +882,7 @@ func copilot(
 	p *providers.Provider, dialect, base, model string, window int, cred string, h *Headless,
 ) ([]string, []string, error) {
 	typ := "openai"
-	if dialect == providers.DialectAnthropic {
+	if dialect == providers.ProtocolAnthropic {
 		typ = "anthropic"
 	}
 	env := []string{

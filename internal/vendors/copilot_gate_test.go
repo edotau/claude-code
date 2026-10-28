@@ -28,7 +28,7 @@ func gateReg(t *testing.T, ok map[string]bool) *providers.Registry {
 			Name: env, Provider: providers.GroupDatabricks, Preset: providers.PresetDatabricks, ModelPrefix: "databricks-",
 			Models: map[string]string{"opus": "databricks-claude-opus-5-5"},
 			Auth:   providers.Auth{Type: providers.AuthKey, Env: key},
-			Routes: map[string]string{providers.DialectOpenAI: "https://h.example.com/serving-endpoints"},
+			Routes: map[string]string{providers.ProtocolOpenAI: "https://h.example.com/serving-endpoints"},
 		}
 	}
 	return reg
@@ -222,7 +222,7 @@ func TestCopilotFallbackSkipsPinnedRowWithFailingCredential(t *testing.T) {
 			Name: "workspace-x", Provider: providers.GroupDatabricks, Preset: providers.PresetDatabricks, ModelPrefix: "databricks-",
 			Models: map[string]string{"opus": "databricks-claude-opus-5-5"},
 			Auth:   providers.Auth{Type: providers.AuthKey, Env: env},
-			Routes: map[string]string{providers.DialectOpenAI: "https://h.example.com/serving-endpoints"},
+			Routes: map[string]string{providers.ProtocolOpenAI: "https://h.example.com/serving-endpoints"},
 		}
 	}
 	t.Run("failing pin skipped", func(t *testing.T) {

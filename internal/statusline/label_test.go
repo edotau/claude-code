@@ -97,8 +97,8 @@ func TestProviderLabelAnthropicFamilyRows(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	reg.Providers["anthropic-work"] = &providers.Provider{Name: "anthropic-work", Provider: "anthropic", BaseURL: "https://api.anthropic.com", Kind: providers.DialectAnthropic}
-	reg.Providers["acme"] = &providers.Provider{Name: "acme", Provider: "anthropic", BaseURL: "https://gw.anthropic.com", Kind: providers.DialectAnthropic}
+	reg.Providers["anthropic-work"] = &providers.Provider{Name: "anthropic-work", Provider: "anthropic", BaseURL: "https://api.anthropic.com", Protocol: providers.ProtocolAnthropic}
+	reg.Providers["acme"] = &providers.Provider{Name: "acme", Provider: "anthropic", BaseURL: "https://gw.anthropic.com", Protocol: providers.ProtocolAnthropic}
 	prev := registry
 	t.Cleanup(func() { registry = prev })
 	registry = func() *providers.Registry { return reg }

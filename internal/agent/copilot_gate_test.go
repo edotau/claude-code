@@ -20,7 +20,7 @@ import (
 )
 
 // ghRow is a github (Copilot) profile row body without its login field.
-const ghRow = `"kind":"openai","base_url":"https://api.githubcopilot.com","auth":{"type":"cli","login":"copilot"},` +
+const ghRow = `"protocol":"openai","base_url":"https://api.githubcopilot.com","auth":{"type":"cli","login":"copilot"},` +
 	`"models":{"opus":"auto","sonnet":"auto","haiku":"auto"}`
 
 // ghProfiles is the overlay's "github" entry: one profile per login, named after it, whose login field is it.
@@ -175,7 +175,7 @@ func TestCopilotRunnerQuotaTriggersHandoff(t *testing.T) {
 	vaulttest.UseKeyring(t)
 	fakeCopilotBin(t) // after the vault helper, which may relocate the config dir
 	// UseKeyring relocates the vault; reseed the alice profile and its pin alongside dev
-	pinGitHubProfile(t, "alice", `"databricks":{"dev":{"kind":"anthropic","base_url":"http://127.0.0.1:1",`+
+	pinGitHubProfile(t, "alice", `"databricks":{"dev":{"protocol":"anthropic","base_url":"http://127.0.0.1:1",`+
 		`"auth":{"type":"key","env":"DEV_TEST_KEY"},"models":{"opus":"claude-opus-5-5"}}}`)
 	calls := stubAsk(t, func(n int) (copilotsdk.Result, error) {
 		if n == 1 {

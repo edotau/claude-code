@@ -123,7 +123,7 @@ func TestConfigDirIsDefault(t *testing.T) {
 }
 
 func TestClaudeDirect(t *testing.T) {
-	hermetic(t, `{"fallback": [], "providers": {"anthropic": {"gw": {"kind": "anthropic", "base_url": "https://gw.example/anthropic",
+	hermetic(t, `{"fallback": [], "providers": {"anthropic": {"gw": {"protocol": "anthropic", "base_url": "https://gw.example/anthropic",
 		"auth": {"type":"key", "env": "TEST_GW_KEY"}, "headers": {"X-B": "2", "X-A": "1"},
 		"models": {"opus": "claude-opus-4-6", "haiku": "claude-haiku-4-5"}}}}}`)
 	t.Setenv("TEST_GW_KEY", "secret-value")
@@ -256,7 +256,7 @@ func TestRedactQuotedTable(t *testing.T) {
 }
 
 func TestClaudeRouter(t *testing.T) {
-	hermetic(t, `{"providers": {"openai": {"ollama": {"kind": "openai", "base_url": "http://127.0.0.1:11434/v1", "auth": {"type": "none"},
+	hermetic(t, `{"providers": {"openai": {"ollama": {"protocol": "openai", "base_url": "http://127.0.0.1:11434/v1", "auth": {"type": "none"},
 		"models": {"opus": "qwen3-coder", "sonnet": "qwen3-coder", "haiku": "qwen3-coder"}}}}}`) // ollama is no longer built in
 	p, err := Claude(context.Background(), Options{Provider: "ollama"}, nil)
 	if err != nil {
@@ -279,7 +279,7 @@ func TestClaudeRouter(t *testing.T) {
 // --model takes an alias (the tier's own resolution, so pins apply), a version or a wire id; the provider:model
 // form is gone, and the verb's tier stays the main model unless --model names another family.
 func TestClaudeModelFlag(t *testing.T) {
-	hermetic(t, `{"providers": {"openai": {"ollama": {"kind": "openai", "base_url": "http://127.0.0.1:11434/v1", "auth": {"type": "none"},
+	hermetic(t, `{"providers": {"openai": {"ollama": {"protocol": "openai", "base_url": "http://127.0.0.1:11434/v1", "auth": {"type": "none"},
 		"models": {"opus": "qwen3-coder", "sonnet": "qwen3-sonnet", "haiku": "qwen3-haiku"}}}}}`)
 	for _, tc := range []struct {
 		name string
@@ -333,9 +333,9 @@ func TestHelperBinPrefersInstalled(t *testing.T) {
 
 // Every launch, routed or direct, exports CLAUDE_PROFILE so the session's statusline stays on its own provider.
 func TestLaunchExportsHarnessProvider(t *testing.T) {
-	hermetic(t, `{"fallback": [], "providers": {"anthropic": {"gw": {"kind": "anthropic", "base_url": "https://gw.example/anthropic",
+	hermetic(t, `{"fallback": [], "providers": {"anthropic": {"gw": {"protocol": "anthropic", "base_url": "https://gw.example/anthropic",
 		"auth": {"type":"key", "env": "TEST_GW_KEY"}, "models": {"opus": "claude-opus-4-6"}}},
-		"openai": {"ollama": {"kind": "openai", "base_url": "http://127.0.0.1:11434/v1", "auth": {"type": "none"},
+		"openai": {"ollama": {"protocol": "openai", "base_url": "http://127.0.0.1:11434/v1", "auth": {"type": "none"},
 		"models": {"opus": "qwen3-coder", "sonnet": "qwen3-coder", "haiku": "qwen3-coder"}}}}}`)
 	t.Setenv("TEST_GW_KEY", "secret-value")
 	for _, name := range []string{"gw", "ollama"} { // direct, routed

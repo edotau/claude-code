@@ -102,7 +102,7 @@ func checkProfile(row *providers.Provider, name, model string, wires []string) [
 
 // probe sends one max_tokens=1 message on p's Anthropic route and classifies the reply.
 func probe(ctx context.Context, p *providers.Provider, tok, model string) string {
-	base, ok := p.Route(providers.DialectAnthropic)
+	base, ok := p.Route(providers.ProtocolAnthropic)
 	if !ok {
 		return "no anthropic route"
 	}

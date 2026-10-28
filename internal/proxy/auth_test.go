@@ -87,7 +87,7 @@ func setupRouter(t *testing.T, overlay string, tweak func(*Router)) *httptest.Se
 
 // u2mRow is a sealed-auth row with no sealed refresh token: minting yields providers.ErrNeedsLogin.
 func u2mRow(base string) string {
-	return fmt.Sprintf(`{"kind":"anthropic","base_url":%q,"auth":{"type":"oauth"},"models":{"opus":"m1-opus","haiku":"m1-haiku"}}`, base)
+	return fmt.Sprintf(`{"protocol":"anthropic","base_url":%q,"auth":{"type":"oauth"},"models":{"opus":"m1-opus","haiku":"m1-haiku"}}`, base)
 }
 
 func body(t *testing.T, r *http.Response) string {
@@ -124,7 +124,7 @@ func TestTransientRefreshFailureMovesOnWithoutMarking(t *testing.T) {
 	g := useGate(t)
 	up2 := newUpstream(t, ok)
 	t.Setenv("UP2_KEY", "k2")
-	srv := setupRouter(t, `{"default":"up1","fallback":["up2"],"providers":{"anthropic":{"up1":{"kind":"anthropic","base_url":"`+up2.URL+
+	srv := setupRouter(t, `{"default":"up1","fallback":["up2"],"providers":{"anthropic":{"up1":{"protocol":"anthropic","base_url":"`+up2.URL+
 		`","auth":{"type":"key","command":"exit 1"},"models":{"opus":"m1"}},"up2":`+
 		anthropicProvider(up2.URL, "UP2_KEY", `{"opus":"m2-opus"}`)+`}}}`, nil)
 
@@ -234,7 +234,7 @@ func sealedPAT(t *testing.T, base string) string {
 	if err := providers.SealSecret(providers.SecretName(providers.GroupDatabricks, "patrow", providers.AuthPAT), "pat-value"); err != nil {
 		t.Fatal(err)
 	}
-	return fmt.Sprintf(`{"kind":"anthropic","base_url":%q,"auth":{"type":"pat"},"models":{"opus":"m1"}}`, base)
+	return fmt.Sprintf(`{"protocol":"anthropic","base_url":%q,"auth":{"type":"pat"},"models":{"opus":"m1"}}`, base)
 }
 
 func invalidTokenUp(t *testing.T) *upstream {
@@ -297,7 +297,7 @@ func TestPassthroughCondemnedRefreshAnswers502AndMarks(t *testing.T) {
 		t.Run(method, func(t *testing.T) {
 			g := useGate(t)
 			up := newRawUp(t, okRaw)
-			srv := setupRouter(t, fmt.Sprintf(`{"default":"up1","providers":{"databricks":{"up1":{"kind":"openai","base_url":%q,`+
+			srv := setupRouter(t, fmt.Sprintf(`{"default":"up1","providers":{"databricks":{"up1":{"protocol":"openai","base_url":%q,`+
 				`"auth":{"type":"oauth"},"models":{"opus":"m"}}}}}`, up.URL+"/v1"), nil)
 			resp := ptDo(t, method, srv.URL+"/p/up1/openai/models", "{}", nil)
 			b := body(t, resp)
@@ -331,7 +331,7 @@ func tlsUpstream(t *testing.T) (*httptest.Server, *rawUp) {
 }
 
 func subOverlay(base string) string {
-	return fmt.Sprintf(`{"default":"sub","providers":{"anthropic":{"sub":{"kind":"anthropic","base_url":%q,"auth":{"type":"cli"},"models":{"opus":"m"}}}}}`, base)
+	return fmt.Sprintf(`{"default":"sub","providers":{"anthropic":{"sub":{"protocol":"anthropic","base_url":%q,"auth":{"type":"cli"},"models":{"opus":"m"}}}}}`, base)
 }
 
 func allHeaderValues(h http.Header) string {

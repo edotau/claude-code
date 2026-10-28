@@ -66,8 +66,8 @@ func presetHost(host string) string {
 
 func expandDatabricks(p *Provider) {
 	host := presetHost(p.Host)
-	if p.Kind == "" {
-		p.Kind = DialectAnthropic
+	if p.Protocol == "" {
+		p.Protocol = ProtocolAnthropic
 	}
 	if p.isGateway() {
 		expandGateway(p, host)
@@ -113,7 +113,7 @@ func expandServing(p *Provider, host string) {
 	if p.BaseURL == "" {
 		p.BaseURL = host + "/serving-endpoints/anthropic"
 	}
-	for _, d := range []string{DialectOpenAI, DialectResponses} {
+	for _, d := range []string{ProtocolOpenAI, ProtocolResponses} {
 		if p.Routes[d] == "" {
 			p.Routes = withKey(p.Routes, d, host+"/serving-endpoints")
 		}
@@ -128,8 +128,8 @@ func expandGateway(p *Provider, host string) {
 	if p.BaseURL == "" {
 		p.BaseURL = host + "/ai-gateway/anthropic"
 	}
-	if p.Routes[DialectResponses] == "" {
-		p.Routes = withKey(p.Routes, DialectResponses, host+"/ai-gateway/codex/v1")
+	if p.Routes[ProtocolResponses] == "" {
+		p.Routes = withKey(p.Routes, ProtocolResponses, host+"/ai-gateway/codex/v1")
 	}
 	if p.ModelPrefix == "" {
 		p.ModelPrefix = gatewayModelPrefix

@@ -67,7 +67,7 @@ func setupRegistry(t *testing.T, srv *httptest.Server) {
 	t.Setenv("CLAUDE_CONFIG_DIR", dir)
 	t.Setenv("TEST_GEM_KEY", "gem-key")
 	body := fmt.Sprintf(`{"providers":{
-	  "google":{"tgem":{"kind":"openai","base_url":%q,"auth":{"type":"key","env":"TEST_GEM_KEY"},"models":{"opus":"g-pro","sonnet":"g-flash","haiku":"g-lite"}}}}}`,
+	  "google":{"tgem":{"protocol":"openai","base_url":%q,"auth":{"type":"key","env":"TEST_GEM_KEY"},"models":{"opus":"g-pro","sonnet":"g-flash","haiku":"g-lite"}}}}}`,
 		srv.URL+"/v1")
 	vaulttest.Put(t, vault.Overlay, "providers", body)
 }
@@ -435,7 +435,7 @@ func setupGeminiProviderOverride(t *testing.T, srv *httptest.Server) {
 	dir := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", dir)
 	body := fmt.Sprintf(`{"providers":{
-	  "google":{"antigravity":{"kind":"openai","base_url":%q,"auth":{"type":"cli","login":"gemini"},"models":{"opus":"g-pro","sonnet":"g-flash","haiku":"g-lite"}}}}}`,
+	  "google":{"antigravity":{"protocol":"openai","base_url":%q,"auth":{"type":"cli","login":"gemini"},"models":{"opus":"g-pro","sonnet":"g-flash","haiku":"g-lite"}}}}}`,
 		srv.URL+"/v1")
 	vaulttest.Put(t, vault.Overlay, "providers", body)
 }

@@ -61,7 +61,7 @@ func ProbeEndpoints(ctx context.Context, p *Provider, targets []CheckTarget, o C
 	if host == "" {
 		return nil, fmt.Errorf("%s has no https workspace host to probe", p.Name)
 	}
-	chatBase, respBase := host+"/serving-endpoints", p.Routes[DialectResponses]
+	chatBase, respBase := host+"/serving-endpoints", p.Routes[ProtocolResponses]
 	if respBase == "" {
 		respBase = chatBase
 	}

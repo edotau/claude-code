@@ -26,7 +26,7 @@ func parsePassthrough(path string) (provider, dialect, rest string, ok bool) {
 		return "", "", "", false
 	}
 	switch parts[1] {
-	case providers.DialectOpenAI, providers.DialectResponses, providers.DialectGemini:
+	case providers.ProtocolOpenAI, providers.ProtocolResponses, providers.ProtocolGemini:
 		return parts[0], parts[1], parts[2], true
 	}
 	return "", "", "", false

@@ -6,8 +6,8 @@ import (
 )
 
 const nestedTestDoc = `{"default":"work","providers":{
- "anthropic":{"work":{"kind":"anthropic","base_url":"https://api.anthropic.com","auth":{"type":"key"}}},
- "openai":{"scratch":{"kind":"openai","base_url":"https://api.openai.com/v1","auth":{"type":"key"}}}}}`
+ "anthropic":{"work":{"protocol":"anthropic","base_url":"https://api.anthropic.com","auth":{"type":"key"}}},
+ "openai":{"scratch":{"protocol":"openai","base_url":"https://api.openai.com/v1","auth":{"type":"key"}}}}}`
 
 func TestParseNestedByProvider(t *testing.T) {
 	reg, err := Parse(defaultsJSON, []byte(nestedTestDoc))
@@ -46,9 +46,9 @@ func TestBuiltinProfileNames(t *testing.T) {
 
 func TestDuplicateProfileRejected(t *testing.T) {
 	cases := map[string]string{
-		"two providers in one doc": `{"providers":{"anthropic":{"dup":{"kind":"anthropic","base_url":"https://x","auth":{"type":"none"}}},` +
-			`"openai":{"dup":{"kind":"openai","base_url":"https://y","auth":{"type":"none"}}}}}`,
-		"overlay profile owned by another provider": `{"providers":{"openai":{"max":{"kind":"openai","base_url":"https://y","auth":{"type":"none"}}}}}`,
+		"two providers in one doc": `{"providers":{"anthropic":{"dup":{"protocol":"anthropic","base_url":"https://x","auth":{"type":"none"}}},` +
+			`"openai":{"dup":{"protocol":"openai","base_url":"https://y","auth":{"type":"none"}}}}}`,
+		"overlay profile owned by another provider": `{"providers":{"openai":{"max":{"protocol":"openai","base_url":"https://y","auth":{"type":"none"}}}}}`,
 	}
 	for name, doc := range cases {
 		_, err := Parse(defaultsJSON, []byte(doc))
@@ -106,7 +106,7 @@ func TestRoutingCellsAcceptClaudeIDsAndAliases(t *testing.T) {
 }
 
 func TestDuplicateOpencodeIDRejected(t *testing.T) {
-	doc := `{"providers":{"openai":{"openai":{"kind":"openai","base_url":"https://api.openai.com/v1","auth":{"type":"key"},"opencodeID":"openai"}}}}`
+	doc := `{"providers":{"openai":{"openai":{"protocol":"openai","base_url":"https://api.openai.com/v1","auth":{"type":"key"},"opencodeID":"openai"}}}}`
 	if _, err := Parse(defaultsJSON, []byte(doc)); err == nil || !strings.Contains(err.Error(), "both claim opencodeID") {
 		t.Errorf("err = %v, want an opencodeID ownership rejection", err)
 	}

@@ -36,7 +36,7 @@ func fakeModelsServer(t *testing.T, ids []string) *httptest.Server {
 
 // fakeProvider is a minimal, unauthenticated openai-dialect provider pointed at a local httptest server.
 func fakeProvider(baseURL string) *providers.Provider {
-	return &providers.Provider{Name: "fake", Kind: providers.DialectOpenAI, BaseURL: baseURL, Auth: providers.Auth{Type: providers.AuthNone}}
+	return &providers.Provider{Name: "fake", Protocol: providers.ProtocolOpenAI, BaseURL: baseURL, Auth: providers.Auth{Type: providers.AuthNone}}
 }
 
 // cliScratch isolates CLAUDE_CONFIG_DIR, every credential env var, and PATH (no real copilot/gh/etc.
@@ -190,11 +190,11 @@ func TestListLiveSubscriptionFallbackNeverPrintsToken(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 	p := &providers.Provider{
-		Name:    "sub",
-		Kind:    providers.DialectAnthropic,
-		BaseURL: srv.URL,
-		Auth:    providers.Auth{Type: providers.AuthCLI},
-		Models:  map[string]string{"opus": "claude-opus-5-5"},
+		Name:     "sub",
+		Protocol: providers.ProtocolAnthropic,
+		BaseURL:  srv.URL,
+		Auth:     providers.Auth{Type: providers.AuthCLI},
+		Models:   map[string]string{"opus": "claude-opus-5-5"},
 	}
 	reg := &providers.Registry{}
 	code, stdout, stderr := captureOutput(t, func() int { return listLive(reg, p, outfmt.Text) })

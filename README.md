@@ -86,9 +86,9 @@ replaces the built-in; `null` removes it). Each entry is a **profile** (an accou
   "fallback": ["example", "anthropic"],         // 429/5xx ladder (implies the proxy)
   "providers": {
     "example": {
-      "kind": "anthropic",                       // dialect base_url speaks
+      "protocol": "anthropic",                       // protocol base_url speaks
       "base_url": "https://llm.example.com",
-      "routes": {"openai": "/v1"},               // extra dialects on the same endpoint
+      "routes": {"openai": "/v1"},               // extra protocols on the same endpoint
       "auth": {"type": "key", "env": "EXAMPLE_API_KEY"},
       "models": {"opus": "claude-opus-5", "sonnet": "claude-sonnet-5", "haiku": "gpt-5-nano"}
     },
@@ -99,7 +99,7 @@ replaces the built-in; `null` removes it). Each entry is a **profile** (an accou
 
 | Field | Meaning |
 | --- | --- |
-| `kind` | `anthropic` · `openai` · `responses` · `gemini` |
+| `protocol` | `anthropic` · `openai` · `responses` · `gemini` |
 | `auth.type` | `oauth` · `m2m` · `pat` · `key` · `cli` (the agent's own login; `auth.login` names the CLI) · `none`; optional `auth.header` |
 | `models` | model alias → model id |
 | `headers` | sent on every upstream request |
@@ -208,7 +208,7 @@ is `ai-gateway`.
 | Registry | profiles nested under their provider | `providers: {databricks: {qa: {…}}, anthropic: {max: {…}}}` |
 | Vault secret | the tree path flattened, stopping at auth; a profile named after its provider is written once | `DATABRICKS_PROD_OAUTH`, `ANTHROPIC_KEY` |
 | Route account key | `<provider>·<profile>` | `anthropic·max` |
-| Header | optional `auth.header` (`x-api-key` \| `bearer`); defaults from the kind | — |
+| Header | optional `auth.header` (`x-api-key` \| `bearer`); defaults from the protocol | — |
 
 Rules: one vault entry per profile (an `oauth` entry seals `{refresh, access}` together); pins are read from the vault,
 never from inherited env; vendor-read env (`ANTHROPIC_*`, `CLAUDE_CODE_*`, `COPILOT_*`) is never renamed, only

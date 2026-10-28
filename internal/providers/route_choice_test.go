@@ -23,8 +23,8 @@ func TestNeedsRouterNonClaudeSlotOnDualRouteProvider(t *testing.T) {
 
 func TestNeedsRouterTwinShapedUnchanged(t *testing.T) {
 	reg := mustParse(t, `{"providers": {"databricks": {
-"tw": {"kind":"anthropic","base_url":"https://h/anthropic","auth":{"type":"none"},"models":{"opus":"databricks-claude-opus-5-5"}},
-"tw-oai": {"kind":"openai","base_url":"https://h","auth":{"type":"none"},"models":{"opus":"databricks-gpt-5-5"}}}}}`)
+"tw": {"protocol":"anthropic","base_url":"https://h/anthropic","auth":{"type":"none"},"models":{"opus":"databricks-claude-opus-5-5"}},
+"tw-oai": {"protocol":"openai","base_url":"https://h","auth":{"type":"none"},"models":{"opus":"databricks-gpt-5-5"}}}}}`)
 	tw, oai := reg.Providers["tw"], reg.Providers["tw-oai"]
 	cases := []struct {
 		name string

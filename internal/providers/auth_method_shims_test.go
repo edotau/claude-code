@@ -33,7 +33,7 @@ func TestAuthMethodPerType(t *testing.T) {
 
 func TestRetiredAuthSpellingsAreRejected(t *testing.T) {
 	for _, typ := range []string{"bearer", "u2m", "oauth-m2m", "api-key", "passthrough"} {
-		doc := `{"providers":{"anthropic":{"x":{"kind":"anthropic","base_url":"https://x.example","auth":{"type":"` + typ + `"}}}}}`
+		doc := `{"providers":{"anthropic":{"x":{"protocol":"anthropic","base_url":"https://x.example","auth":{"type":"` + typ + `"}}}}}`
 		if _, err := parseOverlay(t, doc); err == nil || !strings.Contains(err.Error(), "unknown") {
 			t.Errorf("retired auth type %q: err = %v, want an unknown-type error", typ, err)
 		}
@@ -41,7 +41,7 @@ func TestRetiredAuthSpellingsAreRejected(t *testing.T) {
 }
 
 func TestFlatOverlayIsNotReadByTheRuntime(t *testing.T) {
-	flat := `{"providers":{"gw":{"kind":"anthropic","base_url":"https://gw.example","auth":{"type":"none"}}}}`
+	flat := `{"providers":{"gw":{"protocol":"anthropic","base_url":"https://gw.example","auth":{"type":"none"}}}}`
 	reg, err := parseOverlay(t, flat)
 	if err == nil {
 		if reg.Providers["gw"] != nil {
@@ -55,7 +55,7 @@ func TestFlatOverlayIsNotReadByTheRuntime(t *testing.T) {
 }
 
 func TestOneMIsIgnoredOnLoad(t *testing.T) {
-	doc := `{"providers":{"anthropic":{"x":{"kind":"anthropic","base_url":"https://x.example","auth":{"type":"none"},"one_m":true}}}}`
+	doc := `{"providers":{"anthropic":{"x":{"protocol":"anthropic","base_url":"https://x.example","auth":{"type":"none"},"one_m":true}}}}`
 	reg, err := parseOverlay(t, doc)
 	if err != nil {
 		t.Fatalf("one_m must not break loading: %v", err)

@@ -76,7 +76,7 @@ func TestProbeValueRejectsInvalidCandidateBeforeRequest(t *testing.T) {
 	}))
 	defer srv.Close()
 	p := &providers.Provider{
-		Name: "invalid-candidate", Kind: providers.DialectAnthropic, BaseURL: srv.URL,
+		Name: "invalid-candidate", Protocol: providers.ProtocolAnthropic, BaseURL: srv.URL,
 		Auth: providers.Auth{Type: providers.AuthKey, Header: providers.HeaderXAPIKey, Env: name},
 	}
 	status, detail := probeValue(p, name, candidate)

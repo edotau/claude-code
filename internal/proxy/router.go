@@ -226,8 +226,8 @@ func unroutable(p *providers.Provider, clientAuth bool) string {
 	if p.Auth.Method() == providers.AuthCLI && !clientAuth {
 		return fmt.Sprintf("provider %s uses passthrough auth but the request carries no client credential; launch it as the session provider (claude-code switch %s) so its login reaches the router", p.Name, p.Name)
 	}
-	_, a := p.Route(providers.DialectAnthropic)
-	_, o := p.Route(providers.DialectOpenAI)
+	_, a := p.Route(providers.ProtocolAnthropic)
+	_, o := p.Route(providers.ProtocolOpenAI)
 	if !a && !o {
 		return fmt.Sprintf("provider %s has no anthropic or openai route (dialects: %s)", p.Name, strings.Join(p.Dialects(), ","))
 	}
@@ -442,7 +442,7 @@ func (r *Router) markDead(t providers.Target) {
 
 // try runs one attempt. done=false means nothing was written and err says why (the caller may fail over).
 func (r *Router) try(w *statusWriter, in *http.Request, body []byte, t providers.Target, clientModel string, count, last bool) (bool, error) {
-	if route, ok := t.Provider.Route(providers.DialectAnthropic); ok && !providers.PrefersOpenAI(t.Provider, t.Model) {
+	if route, ok := t.Provider.Route(providers.ProtocolAnthropic); ok && !providers.PrefersOpenAI(t.Provider, t.Model) {
 		return r.tryAnthropic(w, in, body, t, route, count, last)
 	}
 	if count {
@@ -580,7 +580,7 @@ func logLedgerUsage(in *http.Request, p *providers.Provider, model string, u led
 
 func (r *Router) tryOpenAI(w *statusWriter, in *http.Request, body []byte, t providers.Target, clientModel string, last bool) (bool, error) {
 	p := t.Provider
-	route, _ := p.Route(providers.DialectOpenAI)
+	route, _ := p.Route(providers.ProtocolOpenAI)
 	out, stream, err := translate.ToChatRequest(body, t.Model)
 	if err != nil {
 		return false, err

@@ -30,7 +30,7 @@ func env(t *testing.T) {
 }
 
 func row(name string, a providers.Auth) *providers.Provider {
-	p := &providers.Provider{Name: name, Kind: providers.DialectAnthropic, Auth: a}
+	p := &providers.Provider{Name: name, Protocol: providers.ProtocolAnthropic, Auth: a}
 	if a.Sealed() {
 		p.Provider = providers.GroupDatabricks // sealed secret names derive from the provider key
 	}
@@ -184,7 +184,7 @@ func TestSecretCheckRejectedOn401(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(map[string]any{"error": "invalid_client", "error_description": "bad"})
 	}))
 	t.Cleanup(srv.Close)
-	p := &providers.Provider{Name: "sp-rej", Provider: providers.GroupDatabricks, Kind: providers.DialectAnthropic, BaseURL: srv.URL + "/serving-endpoints/anthropic",
+	p := &providers.Provider{Name: "sp-rej", Provider: providers.GroupDatabricks, Protocol: providers.ProtocolAnthropic, BaseURL: srv.URL + "/serving-endpoints/anthropic",
 		Auth: providers.Auth{Type: providers.AuthM2M, ClientID: "cid", TTL: 1800}}
 	if err := providers.SealSecret(providers.AuthSecretName(p), "s3cret-value"); err != nil {
 		t.Fatal(err)

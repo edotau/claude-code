@@ -15,12 +15,12 @@ import (
 	"github.com/edotau/claude-code/internal/secrets/shapes"
 )
 
-// Wire dialects a provider route can speak.
+// Wire protocols a provider route can speak.
 const (
-	DialectAnthropic = "anthropic" // POST {route}/v1/messages
-	DialectOpenAI    = "openai"    // POST {route}/chat/completions
-	DialectResponses = "responses" // POST {route}/responses
-	DialectGemini    = "gemini"    // Google-native generateContent
+	ProtocolAnthropic = "anthropic" // POST {route}/v1/messages
+	ProtocolOpenAI    = "openai"    // POST {route}/chat/completions
+	ProtocolResponses = "responses" // POST {route}/responses
+	ProtocolGemini    = "gemini"    // Google-native generateContent
 )
 
 // Provider is one upstream: a direct API or a gateway exposing several dialects under one host.
@@ -30,13 +30,13 @@ type Provider struct {
 	Provider string `json:"provider,omitempty"`
 	// Login is the account login on the provider (a GitHub user for a github profile); not a secret.
 	Login string `json:"login,omitempty"`
-	// Kind is the dialect BaseURL itself speaks; Routes add further dialects (gateway paths).
-	Kind    string            `json:"kind"`
-	BaseURL string            `json:"base_url"`
-	Routes  map[string]string `json:"routes,omitempty"` // dialect → path suffix or absolute URL
-	Auth    Auth              `json:"auth"`
-	Models  map[string]string `json:"models,omitempty"` // slot (opus/sonnet/haiku/fable) → model id
-	Headers map[string]string `json:"headers,omitempty"`
+	// Protocol is the wire protocol BaseURL itself speaks; Routes add further dialects (gateway paths).
+	Protocol string            `json:"protocol"`
+	BaseURL  string            `json:"base_url"`
+	Routes   map[string]string `json:"routes,omitempty"` // dialect → path suffix or absolute URL
+	Auth     Auth              `json:"auth"`
+	Models   map[string]string `json:"models,omitempty"` // slot (opus/sonnet/haiku/fable) → model id
+	Headers  map[string]string `json:"headers,omitempty"`
 	// OpencodeFallback is the model id opencode's own render substitutes whenever a slot resolves to
 	// "auto" (a router alias some CLIs serve but opencode's provider catalog does not list).
 	OpencodeFallback string `json:"opencode_fallback,omitempty"`
@@ -45,7 +45,7 @@ type Provider struct {
 	// OpencodeID is this provider's key in opencode's own auth.json/provider catalog (e.g. "openai",
 	// "github-copilot", "google", "nvidia"); empty means the opencode hub cannot route to it.
 	OpencodeID string `json:"opencodeID,omitempty"`
-	// Preset names an expansion ("databricks") that derives kind/base_url/routes/auth/models/env at load.
+	// Preset names an expansion ("databricks") that derives protocol/base_url/routes/auth/models/env at load.
 	Preset string `json:"preset,omitempty"`
 	// Host is the one workspace URL a preset derives from (https, no path).
 	Host string `json:"host,omitempty"`
@@ -61,13 +61,13 @@ type Provider struct {
 
 const oneMMarker = "[1m]"
 
-// UnmarshalJSON decodes a row and resolves a key row's default header from its kind.
+// UnmarshalJSON decodes a row and resolves a key row's default header from its protocol.
 func (p *Provider) UnmarshalJSON(b []byte) error {
 	type plain Provider // no UnmarshalJSON, so the alias cannot recurse
 	if err := json.Unmarshal(b, (*plain)(p)); err != nil {
 		return err
 	}
-	p.Auth.resolveKeyHeader(p.Kind)
+	p.Auth.resolveKeyHeader(p.Protocol)
 	return nil
 }
 
@@ -106,7 +106,7 @@ func (p Provider) APIKeyAuth() bool {
 }
 
 // Route returns the base URL serving dialect: an explicit route (absolute, or a path joined onto
-// BaseURL), else BaseURL itself when dialect == Kind.
+// BaseURL), else BaseURL itself when dialect == Protocol.
 func (p Provider) Route(dialect string) (string, bool) {
 	if r, ok := p.Routes[dialect]; ok && r != "" {
 		if u, err := url.Parse(r); err == nil && u.IsAbs() {
@@ -114,7 +114,7 @@ func (p Provider) Route(dialect string) (string, bool) {
 		}
 		return strings.TrimRight(p.BaseURL, "/") + "/" + strings.Trim(r, "/"), true
 	}
-	if dialect == p.Kind && p.BaseURL != "" {
+	if dialect == p.Protocol && p.BaseURL != "" {
 		return strings.TrimRight(p.BaseURL, "/"), true
 	}
 	return "", false
@@ -123,8 +123,8 @@ func (p Provider) Route(dialect string) (string, bool) {
 // Dialects lists every dialect the provider can serve, sorted.
 func (p Provider) Dialects() []string {
 	seen := map[string]bool{}
-	if p.Kind != "" && p.BaseURL != "" {
-		seen[p.Kind] = true
+	if p.Protocol != "" && p.BaseURL != "" {
+		seen[p.Protocol] = true
 	}
 	for d, r := range p.Routes {
 		if r != "" {
@@ -287,7 +287,7 @@ func (r *Registry) Names() []string {
 // Validate reports registry errors: unknown dialects, missing base URLs, dangling default/fallback names.
 func (r *Registry) Validate() error {
 	var errs []string
-	valid := map[string]bool{DialectAnthropic: true, DialectOpenAI: true, DialectResponses: true, DialectGemini: true}
+	valid := map[string]bool{ProtocolAnthropic: true, ProtocolOpenAI: true, ProtocolResponses: true, ProtocolGemini: true}
 	for _, n := range r.Names() {
 		errs = append(errs, validateProvider(n, r.Providers[n], valid)...)
 	}
@@ -341,8 +341,8 @@ func validateSecretNames(r *Registry) []string {
 // validateProvider checks one provider's dialect, routes, and auth shape.
 func validateProvider(n string, p *Provider, valid map[string]bool) []string {
 	var errs []string
-	if !valid[p.Kind] {
-		errs = append(errs, fmt.Sprintf("%s: kind %q is not a dialect", n, p.Kind))
+	if !valid[p.Protocol] {
+		errs = append(errs, fmt.Sprintf("%s: protocol %q is not supported", n, p.Protocol))
 	}
 	if p.BaseURL == "" && len(p.Routes) == 0 {
 		errs = append(errs, n+": needs base_url or routes")

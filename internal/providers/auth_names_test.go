@@ -24,7 +24,7 @@ func TestAuthMappingTable(t *testing.T) {
 	}
 	for _, c := range cases {
 		var p Provider
-		if err := json.Unmarshal([]byte(`{"kind":"`+c.kind+`","auth":`+c.auth+`}`), &p); err != nil {
+		if err := json.Unmarshal([]byte(`{"protocol":"`+c.kind+`","auth":`+c.auth+`}`), &p); err != nil {
 			t.Fatalf("%s: %v", c.name, err)
 		}
 		if p.Auth.Method() != c.method || p.Auth.HeaderStyle() != c.header {
@@ -40,13 +40,13 @@ func TestAuthMappingTable(t *testing.T) {
 func TestAPIKeyAuthStaysTrueForTokenSendingRows(t *testing.T) {
 	for _, auth := range []string{`{"type":"key"}`, `{"type":"pat"}`, `{"type":"m2m","clientId":"c"}`, `{"type":"oauth"}`} {
 		var p Provider
-		if err := json.Unmarshal([]byte(`{"kind":"openai","auth":`+auth+`}`), &p); err != nil || !p.APIKeyAuth() {
+		if err := json.Unmarshal([]byte(`{"protocol":"openai","auth":`+auth+`}`), &p); err != nil || !p.APIKeyAuth() {
 			t.Errorf("%s: APIKeyAuth = %v, %v", auth, p.APIKeyAuth(), err)
 		}
 	}
 	for _, auth := range []string{`{"type":"cli"}`, `{"type":"none"}`} {
 		var p Provider
-		_ = json.Unmarshal([]byte(`{"kind":"openai","auth":`+auth+`}`), &p)
+		_ = json.Unmarshal([]byte(`{"protocol":"openai","auth":`+auth+`}`), &p)
 		if p.APIKeyAuth() {
 			t.Errorf("%s: APIKeyAuth must be false", auth)
 		}
@@ -120,7 +120,7 @@ func TestOAuthValueRoundTrip(t *testing.T) {
 
 func TestKeyRowCredentialFallsBackToAuthEnv(t *testing.T) {
 	load(t)
-	p := &Provider{Name: "anthropic", Provider: "anthropic", Kind: DialectAnthropic, Auth: Auth{Type: AuthKey, Header: HeaderXAPIKey, Env: "ANTHROPIC_API_KEY"}}
+	p := &Provider{Name: "anthropic", Provider: "anthropic", Protocol: ProtocolAnthropic, Auth: Auth{Type: AuthKey, Header: HeaderXAPIKey, Env: "ANTHROPIC_API_KEY"}}
 	t.Setenv("ANTHROPIC_API_KEY", "")
 	if CredentialPresent(p) {
 		t.Fatal("present before any secret")

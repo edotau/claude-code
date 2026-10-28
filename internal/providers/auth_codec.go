@@ -22,7 +22,7 @@ func (a *Auth) resolveKeyHeader(kind string) {
 		return
 	}
 	a.Header = HeaderBearer
-	if kind == DialectAnthropic {
+	if kind == ProtocolAnthropic {
 		a.Header = HeaderXAPIKey
 	}
 }

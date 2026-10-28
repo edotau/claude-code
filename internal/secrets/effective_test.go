@@ -67,7 +67,7 @@ func TestCrossCallerAgreeEnvWinsButGetPrefersVault(t *testing.T) {
 	vaulttest.Secret(t, "CROSS_NAME", "vault-value")
 	t.Setenv("CROSS_NAME", "env-value")
 	p := &providers.Provider{
-		Name: "x", Kind: providers.DialectAnthropic,
+		Name: "x", Protocol: providers.ProtocolAnthropic,
 		Auth: providers.Auth{Type: providers.AuthKey, Header: providers.HeaderXAPIKey, Env: "CROSS_NAME"},
 	}
 	cv, err := providers.Credential(context.Background(), p)

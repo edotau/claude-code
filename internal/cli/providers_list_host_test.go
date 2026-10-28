@@ -12,7 +12,7 @@ func TestProviderListJSONCarriesHostNoSecret(t *testing.T) {
 	useVaultTest(t)
 	const secret = "dapi-list-secret-value-123456"
 	err := providers.SetProviderFields("dbx-host", map[string]any{
-		"kind": "anthropic", "preset": "databricks", "host": "https://example.cloud.databricks.com",
+		"protocol": "anthropic", "preset": "databricks", "host": "https://example.cloud.databricks.com",
 		"auth": map[string]any{"type": "pat", "accountId": "1234abcd-0000", "workspaceId": "42"},
 	})
 	if err != nil {
@@ -48,7 +48,7 @@ func TestProviderListJSONCarriesHostNoSecret(t *testing.T) {
 func TestUnsupportedAuthTypeWriteRefused(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	err := providers.SetProviderFields("dbx-bad", map[string]any{
-		"kind": "anthropic", "base_url": "https://example.cloud.databricks.com/serving-endpoints/anthropic",
+		"protocol": "anthropic", "base_url": "https://example.cloud.databricks.com/serving-endpoints/anthropic",
 		"auth": map[string]any{"type": "external-browser"},
 	})
 	if err == nil || !strings.Contains(err.Error(), `auth.type "external-browser" unknown`) {

@@ -27,7 +27,7 @@ func TestValidateAcceptsDistinctSealedSecretNames(t *testing.T) {
 }
 
 func m2mBaseRow(base string) string {
-	return `{"kind":"anthropic","base_url":"` + base + `/serving-endpoints/anthropic",` +
+	return `{"protocol":"anthropic","base_url":"` + base + `/serving-endpoints/anthropic",` +
 		`"auth":{"type":"m2m","clientId":"sp-client"}}`
 }
 
