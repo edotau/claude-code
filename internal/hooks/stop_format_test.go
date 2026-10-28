@@ -28,7 +28,7 @@ func TestStopFormatOnlySessionWrites(t *testing.T) {
 	tr := filepath.Join(t.TempDir(), "t.jsonl")
 	rec := fmt.Sprintf(`{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Write","input":{"file_path":%q}}]}}`+"\n", mine)
 	_ = os.WriteFile(tr, []byte(rec), 0o600)
-	StopFormat(strings.NewReader(fmt.Sprintf(`{"cwd":%q,"transcript_path":%q}`, repo, tr)))
+	stopFormat(ParseInput(strings.NewReader(fmt.Sprintf(`{"cwd":%q,"transcript_path":%q}`, repo, tr))))
 	if b, _ := os.ReadFile(mine); string(b) == ugly {
 		t.Error("session-written file was not formatted")
 	}
@@ -41,7 +41,7 @@ func TestStopFormatOnlySessionWrites(t *testing.T) {
 	}
 	_ = os.Remove(mine)
 	_ = os.Remove(theirs)
-	StopFormat(strings.NewReader(fmt.Sprintf(`{"cwd":%q,"transcript_path":%q}`, repo, tr)))
+	stopFormat(ParseInput(strings.NewReader(fmt.Sprintf(`{"cwd":%q,"transcript_path":%q}`, repo, tr))))
 	if _, err := os.Stat(stamps[0]); !os.IsNotExist(err) {
 		t.Error("a clean tree must drop the stale stamp file")
 	}

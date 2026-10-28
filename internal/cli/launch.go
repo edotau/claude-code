@@ -173,10 +173,10 @@ func runPlan(plan launch.Plan, opts launch.Options, err error) int {
 var hookPage = helptext.Page{
 	Usage: "claude-code hook <name> < payload.json",
 	About: "Run one lifecycle hook on the event JSON on stdin; settings.json and the agent hook files invoke it.",
-	Hint: "names: bash-guard|docs-placement|agent-effort|agent-routed|workflow-lint|\n" +
+	Hint: "names: bash-guard|docs-placement|agent-effort|workflow-lint|\n" +
 		"       agent-inflight|agent-inflight-tag|agent-inflight-post|subagent-stop|\n" +
-		"       plan-mirror|save-plan|access-trace|context-checkpoint|stop-format|\n" +
-		"       session-harvest|session-start|wsl-path-normalize|memory-recall|\n" +
+		"       plan-mirror|save-plan|access-trace|stop|\n" +
+		"       session-start|wsl-path-normalize|memory-recall|\n" +
 		"       session-harvest-end|pre-compact|worktree-create|worktree-remove",
 }
 

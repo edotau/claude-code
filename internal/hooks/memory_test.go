@@ -61,7 +61,9 @@ func TestSessionHarvestTriggerAndReharvest(t *testing.T) {
 	tr := filepath.Join(t.TempDir(), "t.jsonl")
 	cwd := t.TempDir()
 	calls := stubSpawn(t, true)
-	run := func() int { return SessionHarvest(strings.NewReader(harvestPayload(tr, cwd)), &bytes.Buffer{}) }
+	run := func() int {
+		return sessionHarvest(ParseInput(strings.NewReader(harvestPayload(tr, cwd))), &bytes.Buffer{})
+	}
 
 	writeEdits(t, tr, 2)
 	if run() != ExitProceed || calls.Load() != 0 {
@@ -115,7 +117,7 @@ func TestSessionHarvestSpawnFailureBlocksThrice(t *testing.T) {
 	codes := []int{}
 	for range 5 {
 		var errb bytes.Buffer
-		codes = append(codes, SessionHarvest(strings.NewReader(harvestPayload(tr, cwd)), &errb))
+		codes = append(codes, sessionHarvest(ParseInput(strings.NewReader(harvestPayload(tr, cwd))), &errb))
 		if codes[len(codes)-1] == ExitBlock && !strings.Contains(errb.String(), "claude-code memory update") {
 			t.Errorf("block reason %q", errb.String())
 		}
@@ -126,12 +128,12 @@ func TestSessionHarvestSpawnFailureBlocksThrice(t *testing.T) {
 
 	// Evidence releases the gate: a bank write after the stamp.
 	_ = os.Remove(stampPath("s1"))
-	SessionHarvest(strings.NewReader(harvestPayload(tr, cwd)), &bytes.Buffer{})
+	sessionHarvest(ParseInput(strings.NewReader(harvestPayload(tr, cwd))), &bytes.Buffer{})
 	writeStamp(stampPath("s1"), time.Now().Add(-time.Minute), "1", 5)
 	if _, err := memory.Init(cwd); err != nil {
 		t.Fatal(err)
 	}
-	if got := SessionHarvest(strings.NewReader(harvestPayload(tr, cwd)), &bytes.Buffer{}); got != ExitProceed {
+	if got := sessionHarvest(ParseInput(strings.NewReader(harvestPayload(tr, cwd))), &bytes.Buffer{}); got != ExitProceed {
 		t.Error("a bank write after the prompt must release the gate")
 	}
 }
@@ -226,7 +228,7 @@ func assertPausedSuppressesHarvest(t *testing.T, cwd string) {
 	writeEdits(t, tr, 20)
 	calls := stubSpawn(t, false)
 	var errb bytes.Buffer
-	if code := SessionHarvest(strings.NewReader(harvestPayload(tr, cwd)), &errb); code != ExitProceed || calls.Load() != 0 || errb.Len() != 0 {
+	if code := sessionHarvest(ParseInput(strings.NewReader(harvestPayload(tr, cwd))), &errb); code != ExitProceed || calls.Load() != 0 || errb.Len() != 0 {
 		t.Errorf("paused Stop: code=%d spawns=%d stderr=%q", code, calls.Load(), errb.String())
 	}
 	if SessionHarvestEnd(strings.NewReader(harvestPayload(tr, cwd))); calls.Load() != 0 {
@@ -619,7 +621,7 @@ func TestCountEditsIncludesSubagentEdits(t *testing.T) {
 	cwd := t.TempDir()
 	calls := stubSpawn(t, true)
 	payload := fmt.Sprintf(`{"session_id":"sub-session","cwd":%q,"transcript_path":%q}`, cwd, tr)
-	if code := SessionHarvest(strings.NewReader(payload), &bytes.Buffer{}); code != ExitProceed || calls.Load() != 1 {
+	if code := sessionHarvest(ParseInput(strings.NewReader(payload)), &bytes.Buffer{}); code != ExitProceed || calls.Load() != 1 {
 		t.Fatalf("subagent edits must arm the harvest gate: code=%d calls=%d", code, calls.Load())
 	}
 }
@@ -641,7 +643,7 @@ func TestCountEditsGitCommitWeightArmsGate(t *testing.T) {
 	cwd := t.TempDir()
 	calls := stubSpawn(t, true)
 	payload := fmt.Sprintf(`{"session_id":"commit-session","cwd":%q,"transcript_path":%q}`, cwd, tr)
-	if code := SessionHarvest(strings.NewReader(payload), &bytes.Buffer{}); code != ExitProceed || calls.Load() != 1 {
+	if code := sessionHarvest(ParseInput(strings.NewReader(payload)), &bytes.Buffer{}); code != ExitProceed || calls.Load() != 1 {
 		t.Fatalf("a bare git commit must arm the harvest gate: code=%d calls=%d", code, calls.Load())
 	}
 }
@@ -985,7 +987,7 @@ func TestReadStampCatchupStateDoesNotBreakParsing(t *testing.T) {
 	cwd := t.TempDir()
 	stubSpawn(t, false)
 	var errb bytes.Buffer
-	code := SessionHarvest(strings.NewReader(fmt.Sprintf(`{"session_id":"x","cwd":%q,"transcript_path":%q}`, cwd, tr)), &errb)
+	code := sessionHarvest(ParseInput(strings.NewReader(fmt.Sprintf(`{"session_id":"x","cwd":%q,"transcript_path":%q}`, cwd, tr))), &errb)
 	if code != ExitBlock && code != ExitProceed {
 		t.Errorf("unexpected exit code %d parsing a catchup stamp", code)
 	}

@@ -141,9 +141,6 @@ var retiredKeys = []string{"autoMemoryDirectory"}
 // runtimeKeys are written by Claude Code itself (e.g. /effort → modelSettings): merge keeps them, drift ignores them.
 var runtimeKeys = []string{"modelSettings"}
 
-// retiredEnvPrefix drops the retired claude-dbx harness's env keys, which no template owns and merge would keep.
-const retiredEnvPrefix = "CLAUDE_CODE_DBX_"
-
 // retiredEnvKeys are env keys a template once set; merge would keep them after the template drops them.
 var retiredEnvKeys = []string{"CLAUDE_CODE_DISABLE_VIRTUAL_SCROLL"}
 
@@ -185,7 +182,7 @@ func Merge(existing, rendered []byte, dropped []string) ([]byte, Summary, error)
 		switch k {
 		case "env":
 			if merged, err = mergeObject(ex.vals[k], v); err == nil {
-				merged, err = dropPrefixed(merged, retiredEnvPrefix, &sum)
+				merged, err = dropRetiredEnv(merged, &sum)
 			}
 		case "permissions":
 			merged, err = mergePermissions(ex.vals[k], v)
@@ -203,15 +200,15 @@ func Merge(existing, rendered []byte, dropped []string) ([]byte, Summary, error)
 	return out, sum, err
 }
 
-// dropPrefixed removes keys starting with prefix or listed in retiredEnvKeys, recording each as retired.
-func dropPrefixed(raw json.RawMessage, prefix string, sum *Summary) (json.RawMessage, error) {
+// dropRetiredEnv removes keys listed in retiredEnvKeys, recording each as retired.
+func dropRetiredEnv(raw json.RawMessage, sum *Summary) (json.RawMessage, error) {
 	o, err := parseObject(raw)
 	if err != nil {
 		return nil, err
 	}
 	kept := &object{vals: map[string]json.RawMessage{}}
 	for _, k := range o.keys {
-		if strings.HasPrefix(k, prefix) || slices.Contains(retiredEnvKeys, k) {
+		if slices.Contains(retiredEnvKeys, k) {
 			sum.Retired = append(sum.Retired, "env."+k)
 			continue
 		}

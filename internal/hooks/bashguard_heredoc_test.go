@@ -137,13 +137,3 @@ func TestBashGuardBlockMessageShowsOriginalCommand(t *testing.T) {
 		t.Errorf("block message dropped the original command: %s", errb.String())
 	}
 }
-
-// Both retired hook names run the same guard a pre-install session or vendor hook file still calls.
-func TestRetiredHookNamesStillGuard(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	cmd := "bash <<'EOF'\nsudo rm -rf /\nEOF"
-	var errb bytes.Buffer
-	if got := Run("safety", bashPayload(cmd), io.Discard, &errb); got != ExitBlock {
-		t.Errorf("hook safety: got %d want ExitBlock (%s)", got, errb.String())
-	}
-}

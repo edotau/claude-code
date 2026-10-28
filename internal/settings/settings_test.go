@@ -92,7 +92,7 @@ func TestMergePreservesForeign(t *testing.T) {
 		}
 	}
 	stop := strings.Join(cmds["Stop"], "\n")
-	if !strings.Contains(stop, "orca-hook && echo '<done>'") || strings.Contains(stop, "retired-hook") || !strings.Contains(stop, "hook stop-format") {
+	if !strings.Contains(stop, "orca-hook && echo '<done>'") || strings.Contains(stop, "retired-hook") || !strings.Contains(stop, "hook stop") {
 		t.Errorf("Stop hooks wrong: %q", cmds["Stop"])
 	}
 	// PreToolUse carries every registry PreToolUse spec: bash-guard, docs-placement, agent-inflight.
@@ -232,16 +232,16 @@ func TestMergeDropsRetiredKeys(t *testing.T) {
 	}
 }
 
-func TestMergeDropsRetiredDbxEnvKeys(t *testing.T) {
-	in := `{"env":{"CLAUDE_CODE_DBX_HOST":"x","CLAUDE_CODE_DISABLE_VIRTUAL_SCROLL":"1","KEEP":"1"}}`
+func TestMergeDropsRetiredEnvKeys(t *testing.T) {
+	in := `{"env":{"CLAUDE_CODE_DISABLE_VIRTUAL_SCROLL":"1","KEEP":"1"}}`
 	out, sum, err := Merge([]byte(in), []byte(`{"env":{"A":"b"}}`), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if s := string(out); strings.Contains(s, "CLAUDE_CODE_DBX_HOST") || strings.Contains(s, "VIRTUAL_SCROLL") || !strings.Contains(s, `"KEEP"`) {
+	if s := string(out); strings.Contains(s, "VIRTUAL_SCROLL") || !strings.Contains(s, `"KEEP"`) {
 		t.Errorf("merged env = %s", s)
 	}
-	if !slices.Contains(sum.Retired, "env.CLAUDE_CODE_DBX_HOST") || !slices.Contains(sum.Retired, "env.CLAUDE_CODE_DISABLE_VIRTUAL_SCROLL") {
+	if !slices.Contains(sum.Retired, "env.CLAUDE_CODE_DISABLE_VIRTUAL_SCROLL") {
 		t.Errorf("retired = %v", sum.Retired)
 	}
 }

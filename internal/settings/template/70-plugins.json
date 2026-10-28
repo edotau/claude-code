@@ -1,16 +1,9 @@
 {
   "enabledPlugins": {
     "databricks@claude-plugins-official": false,
-    "impeccable@impeccable": true,
     "gopls-lsp@claude-plugins-official": true
   },
   "extraKnownMarketplaces": {
-    "impeccable": {
-      "source": {
-        "source": "git",
-        "url": "https://github.com/pbakaus/impeccable.git"
-      }
-    },
     "claude-plugins-official": {
       "source": {
         "source": "github",

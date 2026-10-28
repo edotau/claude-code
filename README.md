@@ -315,14 +315,12 @@ Declared in `internal/hookspec/hookspec.go`, implemented in `internal/hooks/`. T
 | --- | --- | --- |
 | `bash-guard` | PreToolUse Bash | Blocks destructive commands (`rm -rf /`, force-push main, `curl \| sh`, git resets in `~/.claude`); routes noisy output through rtk |
 | `docs-placement` | PreToolUse Write/Edit | Blocks new `.md` at a repo root or ignored `docs/`; enforces the plan template |
-| `agent-effort` | PreToolUse Agent | Fills an unset subagent model (low → haiku, else sonnet); logs the decision; appends up to 3 memory recall pointers to the spawn prompt |
-| `agent-routed` | SubagentStart | Records the subagent's actual launch model against `agent-effort`'s decision log |
+| `agent-effort` | PreToolUse Agent | Fills an unset subagent model (low → haiku, else sonnet); appends up to 3 memory recall pointers to the spawn prompt |
 | `workflow-lint` | PreToolUse Workflow | Pins unpinned inline agents to sonnet |
-| `agent-inflight*` | Pre/PostToolUse Agent | Caps concurrent dispatches at 8 |
+| `agent-inflight*` | Pre/PostToolUse Agent | Caps concurrent dispatches at 24 |
 | `subagent-stop` | SubagentStop | Retires the stopping subagent's inflight entry |
 | `plan-mirror` / `save-plan` | PostToolUse | Dated plan copies under `plans/`; files the approved plan |
-| `context-checkpoint` | Stop | At ≥85% context, pauses once for a handoff |
-| `stop-format` | Stop | Formats files edited this turn |
+| `stop` | Stop | At ≥85% context, pauses once for a handoff; then saves the session to memory and formats files edited this turn |
 | `session-start` | SessionStart | Injects the memory catalog and this repo's active context |
 | `memory-recall` | UserPromptSubmit | Injects up to 3 matching memory blocks |
 | `wsl-path-normalize` | UserPromptSubmit | Maps pasted Windows paths to `/mnt/…` |

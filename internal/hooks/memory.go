@@ -214,10 +214,9 @@ func scaffoldSafe(cwd string) bool {
 	return top != "" && paths.SamePath(top, cwd)
 }
 
-// SessionHarvest (Stop) dispatches a detached `memory update` once a session has substantive edits;
+// sessionHarvest (Stop) dispatches a detached `memory update` once a session has substantive edits;
 // with no spawn possible it blocks at most harvestMaxBlocks times asking for `claude-code memory update`.
-func SessionHarvest(r io.Reader, stderr io.Writer) int {
-	in := ParseInput(r)
+func sessionHarvest(in *Input, stderr io.Writer) int {
 	if !harvestable(in) {
 		return ExitProceed
 	}

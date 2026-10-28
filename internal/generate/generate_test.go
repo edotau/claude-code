@@ -716,21 +716,3 @@ func TestScratchConfigDirSkipsVendorWritesWithoutFlag(t *testing.T) {
 		t.Fatalf("--vendors must still write copilot hooks: %v", err)
 	}
 }
-
-// TestMergeCodexHooksDropsRetiredDbx: claude-dbx hooks are dropped; Orca and other foreign hooks stay.
-func TestMergeCodexHooksDropsRetiredDbx(t *testing.T) {
-	existing := `{"hooks":{
-"SessionEnd":[{"hooks":[{"type":"command","command":"${CLAUDE_CODE_DBX_BIN:-$HOME/.claude/bin/claude-dbx} hook session-harvest end || true","timeout":10}]}],
-"Stop":[{"hooks":[{"type":"command","command":"orca-hook stop"},{"type":"command","command":"$HOME/.claude/bin/claude-dbx hook stop-format"}]}]}}`
-	got, err := mergeCodexHooks([]byte(existing), []byte(`{"hooks":{}}`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	s := string(got)
-	if strings.Contains(s, "claude-dbx") || strings.Contains(s, "SessionEnd") {
-		t.Errorf("retired claude-dbx hooks kept:\n%s", s)
-	}
-	if !strings.Contains(s, "orca-hook stop") {
-		t.Errorf("foreign Orca hook dropped:\n%s", s)
-	}
-}
