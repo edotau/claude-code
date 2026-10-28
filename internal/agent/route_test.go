@@ -26,6 +26,20 @@ func TestResolveAccountNamesActualBackend(t *testing.T) {
 	}
 }
 
+// The session's profile (env) beats the vault pin, and a codex login cell keeps its own account.
+func TestResolveAccountFollowsSessionProfile(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	setPin(t, providers.PinProfile, "anthropic")
+	t.Setenv("OPENAI_API_KEY", "sk-test-not-real")
+	t.Setenv(providers.EnvSessionProfile, "openai")
+	if acct, _ := resolveAccount("claude", router.Cell{Model: "claude-sonnet-5-5"}); acct != "openai·openai" {
+		t.Errorf("claude account = %q, want the session profile openai·openai", acct)
+	}
+	if acct, _ := resolveAccount("codex", router.Cell{Model: "gpt-6.1-sol", Account: "openai·chatgpt"}); acct != "" {
+		t.Errorf("codex login cell account = %q, want it kept (empty override)", acct)
+	}
+}
+
 // An explicit backend stays one leg, records its own quota failure, and is skipped without an attempt after.
 func TestExplicitChainRecordsAndGates(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())

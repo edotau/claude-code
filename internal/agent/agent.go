@@ -182,7 +182,7 @@ func resolveTarget(req Request) (*providers.Registry, providers.Target, error) {
 	if name, slot, ok := strings.Cut(req.Model, ":"); ok && slices.Contains(models.Slots, slot) && reg.Providers[name] != nil {
 		req.Provider, req.Model = name, slot
 	}
-	sel, err := providers.Select(reg, req.Provider)
+	sel, err := providers.Select(reg, cmp.Or(req.Provider, registeredSession(reg)))
 	if sel.Provider == nil || (err != nil && req.Model == "") {
 		return nil, providers.Target{}, err
 	}
@@ -502,4 +502,12 @@ func ExplicitBackend(req Request) bool {
 	}
 	reg, _ := providers.Load()
 	return namesProvider(reg, req.Model)
+}
+
+// registeredSession is the session's profile when the registry has it, else "": it beats the vault pin.
+func registeredSession(reg *providers.Registry) string {
+	if name := providers.SessionProfile(); reg != nil && reg.Providers[name] != nil {
+		return name
+	}
+	return ""
 }
