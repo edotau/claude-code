@@ -108,7 +108,7 @@ func TestTokenLeftBoundaries(t *testing.T) {
 	}
 }
 
-// An oauth or m2m profile shows "<auth>:<time left>"; key, cli and unknown profiles keep 5h/7d or nothing.
+// Only the anthropic cli (max) session shows 5h/7d; every other one shows its token time left or nothing.
 func TestLimitsSegmentTokenVsPassthrough(t *testing.T) {
 	hermetic(t)
 	future := time.Now().Add(24 * time.Hour).Unix()
@@ -131,7 +131,10 @@ func TestLimitsSegmentTokenVsPassthrough(t *testing.T) {
 	registry = func() *providers.Registry { return reg }
 	writeTokenExpiry(t, "dbx-u2m", time.Now().Add(42*time.Minute+30*time.Second))
 	writeTokenExpiry(t, "dbx-m2m", time.Now().Add(65*time.Minute+30*time.Second))
-	writeTokenExpiry(t, "openai", time.Now().Add(42*time.Minute))
+	reg.Providers["dbx-key"] = &providers.Provider{Name: "dbx-key", Provider: "databricks",
+		Auth: providers.Auth{Type: providers.AuthKey, Command: "x"}}
+	writeTokenExpiry(t, "dbx-key", time.Now().Add(42*time.Minute+30*time.Second))
+	writeTokenExpiry(t, "max", time.Now().Add(42*time.Minute))
 
 	if got := limitsSegment(in, "dbx-u2m"); got != "oauth:42m" {
 		t.Errorf("oauth profile with a record: %q, want oauth:42m", got)
@@ -139,14 +142,17 @@ func TestLimitsSegmentTokenVsPassthrough(t *testing.T) {
 	if got := limitsSegment(in, "dbx-m2m"); got != "m2m:1h05m" {
 		t.Errorf("m2m profile with a record: %q, want m2m:1h05m", got)
 	}
-	if got := limitsSegment(in, "openai"); got != "5h:23% 7d:41%" {
-		t.Errorf("key profile must not show a countdown: %q", got)
+	if got := limitsSegment(in, "dbx-key"); got != "oauth:42m" {
+		t.Errorf("key+command profile with a record: %q, want oauth:42m", got)
+	}
+	if got := limitsSegment(in, "openai"); got != "" {
+		t.Errorf("non-subscription profile without a record: %q, want empty", got)
 	}
 	if got := limitsSegment(in, "max"); got != "5h:23% 7d:41%" {
-		t.Errorf("passthrough provider: %q, want 5h/7d", got)
+		t.Errorf("subscription session: %q, want 5h/7d only, even with an expiry record", got)
 	}
-	if got := limitsSegment(in, "no-such-provider"); got != "5h:23% 7d:41%" {
-		t.Errorf("unknown provider: %q, want 5h/7d", got)
+	if got := limitsSegment(in, "no-such-provider"); got != "" {
+		t.Errorf("unknown provider: %q, want empty", got)
 	}
 }
 
@@ -159,5 +165,52 @@ func writeTokenExpiry(t *testing.T, name string, exp time.Time) {
 	}
 	if err := os.WriteFile(filepath.Join(dir, name+".json"), []byte(fmt.Sprintf(`{"exp":%d}`, exp.Unix())), 0o600); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// useSessions swaps the statusline registry for one holding the given profile rows.
+func useSessions(t *testing.T, rows ...*providers.Provider) {
+	t.Helper()
+	reg, err := providers.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range rows {
+		reg.Providers[p.Name] = p
+	}
+	prev := registry
+	t.Cleanup(func() { registry = prev })
+	registry = func() *providers.Registry { return reg }
+}
+
+// A databricks key+command session never shows 5h/7d from a fresh subscription cache; with a record it shows oauth, never tok.
+func TestLimitsSegmentKeyCommandIgnoresSubscriptionCache(t *testing.T) {
+	hermetic(t)
+	future := time.Now().Add(24 * time.Hour)
+	writeLimitsCache(t, time.Now(), 23, 41, future, future)
+	useSessions(t, &providers.Provider{Name: "dbx-key", Provider: "databricks",
+		Auth: providers.Auth{Type: providers.AuthKey, Command: "x"}})
+	if got := limitsSegment(Input{}, "dbx-key"); got != "" {
+		t.Errorf("no record, fresh cache: %q, want empty", got)
+	}
+	writeTokenExpiry(t, "dbx-key", time.Now().Add(42*time.Minute+30*time.Second))
+	got := limitsSegment(Input{}, "dbx-key")
+	if got != "oauth:42m" || strings.Contains(got, "tok") {
+		t.Errorf("with record: %q, want oauth:42m", got)
+	}
+}
+
+// An anthropic cli (max) session shows 7d from a fresh cache and nothing from a stale one.
+func TestLimitsSegmentAnthropicCacheFreshVsStale(t *testing.T) {
+	hermetic(t)
+	future := time.Now().Add(24 * time.Hour)
+	useSessions(t, &providers.Provider{Name: "maxx", Provider: "anthropic", Auth: providers.Auth{Type: providers.AuthCLI}})
+	writeLimitsCache(t, time.Now(), 23, 41, future, future)
+	if got := limitsSegment(Input{}, "maxx"); !strings.Contains(got, "7d:41%") {
+		t.Errorf("fresh cache: %q, want 7d:41%%", got)
+	}
+	writeLimitsCache(t, time.Now().Add(-7*time.Hour), 23, 41, future, future)
+	if got := limitsSegment(Input{}, "maxx"); got != "" {
+		t.Errorf("stale cache: %q, want empty", got)
 	}
 }

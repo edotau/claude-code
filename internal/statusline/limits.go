@@ -15,16 +15,16 @@ import (
 // limitsCacheMaxAge bounds how stale internal/usage's oauth-usage cache may be before it is ignored.
 const limitsCacheMaxAge = 6 * time.Hour
 
-// limitsSegment is "5h:N% 7d:N%": the statusline payload's rate_limits, else internal/usage's cache file.
-// A window with no fresh data, or whose reset already passed, is omitted; "" when both are.
-// A known non-passthrough session provider shows its token's time left instead ("oauth:42m").
+// limitsSegment is "5h:N% 7d:N%" on the first-party subscription session only: the payload's rate_limits, else
+// internal/usage's cache file; a window with no fresh data or a passed reset is omitted. Any other session shows
+// its credential's time left ("oauth:42m", "tok:42m") when an expiry is recorded, else "".
 func limitsSegment(in Input, session string) string {
-	if method := tokenMethod(session); method != "" {
+	if !onSubscription(session) {
 		exp, ok := providers.TokenExpiry(session)
 		if !ok {
 			return ""
 		}
-		return tokenLeft(method, exp, time.Now())
+		return tokenLeft(tokenLabel(session), exp, time.Now())
 	}
 	five, week := limitsFromPayload(in)
 	if five < 0 && week < 0 {
@@ -40,23 +40,29 @@ func limitsSegment(in Input, session string) string {
 	return strings.Join(parts, " ")
 }
 
-// tokenMethod is the profile's auth word when the harness mints it a short-lived token (oauth, m2m); else "".
-func tokenMethod(session string) string {
+// onSubscription is true when the session profile row is first-party Anthropic on its cli (passthrough) login.
+func onSubscription(session string) bool {
 	reg := registry()
 	if reg == nil {
-		return ""
+		return false
 	}
 	p := reg.Providers[session]
-	if p == nil {
-		return ""
-	}
-	if m := p.Auth.Method(); m == providers.AuthOAuth || m == providers.AuthM2M {
-		return m
-	}
-	return ""
+	return p != nil && p.Provider == "anthropic" && p.Auth.Method() == providers.AuthCLI
 }
 
-// tokenLeft renders the time until exp: "oauth:42m", "m2m:1h05m", "oauth:<1m", or "oauth:exp" once past.
+// tokenLabel names the credential in the countdown: "m2m" for a service principal, else "oauth" (a recorded expiry is an OAuth JWT).
+func tokenLabel(session string) string {
+	if reg := registry(); reg != nil {
+		if p := reg.Providers[session]; p != nil {
+			if p.Auth.Method() == providers.AuthM2M {
+				return providers.AuthM2M
+			}
+		}
+	}
+	return providers.AuthOAuth
+}
+
+// tokenLeft renders the time until exp: "oauth:42m", "tok:1h05m", "oauth:<1m", or "oauth:exp" once past.
 func tokenLeft(method string, exp, now time.Time) string {
 	left := exp.Sub(now)
 	switch {
