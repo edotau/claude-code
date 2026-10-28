@@ -268,7 +268,7 @@ func TestSubmenuRowLabels(t *testing.T) {
 	d := &dialog{reg: reg, out: discardWriter{}}
 	cases := map[string]string{
 		"claude":   "Subscription,API key,Login,OAuth token",
-		"codex":    "Subscription,API key,Login",
+		"codex":    "Subscription,API key,Login,Settings",
 		"gemini":   "Subscription,Login",
 		"opencode": "", // state only; the page is runOpencodePage
 		"copilot":  "Subscription,API key,Login,User",

@@ -347,28 +347,41 @@ func resealSecrets(t *Tx, old, next *Key) error {
 	if curKid != "" && curKid != old.Kid {
 		return ErrWrongKey
 	}
-	for _, name := range t.Names(Secrets) {
-		r, ok, rerr := t.Record(name)
-		if rerr != nil {
-			return rerr
-		}
-		if !ok {
-			return fmt.Errorf("vault: invalid record %q", name)
-		}
-		plain, e := old.Open(name, r)
-		if e != nil {
-			return e
-		}
-		r.Sealed = next.Seal(name, plain)
-		r.Kid = next.Kid
-		if e := t.PutRecord(name, r); e != nil {
-			return e
+	for _, bucket := range []string{Secrets, SettingsBackups} {
+		if err := resealBucket(t, bucket, old, next); err != nil {
+			return err
 		}
 	}
 	if err := retireKid(t, old.Kid); err != nil {
 		return err
 	}
 	return t.Put(Meta, "kid", next.Kid)
+}
+
+func resealBucket(t *Tx, bucket string, old, next *Key) error {
+	for _, name := range t.Names(bucket) {
+		r, ok, rerr := t.RecordIn(bucket, name)
+		if rerr != nil {
+			return rerr
+		}
+		if !ok {
+			return fmt.Errorf("vault: invalid record %q", name)
+		}
+		plain, e := old.openIn(bucket, name, r)
+		if e != nil {
+			return e
+		}
+		if bucket == SettingsBackups {
+			r.Sealed = next.SealSettingsBackup(name, plain)
+		} else {
+			r.Sealed = next.Seal(name, plain)
+		}
+		r.Kid = next.Kid
+		if e := t.PutRecordIn(bucket, name, r); e != nil {
+			return e
+		}
+	}
+	return nil
 }
 
 // rotateKeyLocked runs the body of RotateKey under the "<vault>.key" file lock.
@@ -522,6 +535,15 @@ func UpdateSealed(fn func(*Tx, *Key) error) error {
 // ReadSecret reads one record and its kid in a single coherent View, then opens it with the key
 // for that exact kid, retrying once if a concurrent rotation invalidated the key mid-read (R3).
 func ReadSecret(name string) (value string, found bool, err error) {
+	return readSealed(Secrets, name)
+}
+
+// ReadSettingsBackup opens a config record using the same coherent key lookup as credentials.
+func ReadSettingsBackup(name string) (value string, found bool, err error) {
+	return readSealed(SettingsBackups, name)
+}
+
+func readSealed(bucket, name string) (value string, found bool, err error) {
 	for attempt := range 2 {
 		var id, kid, command string
 		var record Record
@@ -531,7 +553,7 @@ func ReadSecret(name string) (value string, found bool, err error) {
 			kid, _ = t.Get(Meta, "kid")
 			command, _ = t.Get(Meta, "key_command")
 			var rerr error
-			record, ok, rerr = t.Record(name)
+			record, ok, rerr = t.RecordIn(bucket, name)
 			return rerr
 		}); verr != nil {
 			return "", false, verr
@@ -547,7 +569,7 @@ func ReadSecret(name string) (value string, found bool, err error) {
 			}
 			return "", false, kerr
 		}
-		v, oerr := k.Open(name, record)
+		v, oerr := k.openIn(bucket, name, record)
 		if oerr != nil {
 			if errors.Is(oerr, ErrWrongKey) && attempt == 0 {
 				invalidateKey()

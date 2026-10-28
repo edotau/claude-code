@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/codexsettings"
 	"github.com/edotau/claude-code/internal/paths"
 )
 
@@ -67,18 +68,36 @@ func vendorBaselinePath(label, path string) string {
 
 // writeVendorBaseline caches next as the baseline for path's next commitFile call.
 func writeVendorBaseline(label, path string, next []byte) error {
+	if label == "codex" {
+		return codexsettings.SaveBaseline(path, next)
+	}
 	return paths.AtomicWrite(vendorBaselinePath(label, path), next, 0o600)
 }
 
 // lostLinesFor reports theirs' (the current on-disk file) lines that are absent from both the saved
 // baseline and the about-to-be-written next: edits the user made since the last render that this write
 // would erase. No baseline yet means no basis for comparison (today's seed-and-write behavior).
-func lostLinesFor(label, path string, theirs, next []byte) []string {
-	base, err := os.ReadFile(vendorBaselinePath(label, path))
-	if err != nil {
-		return nil
+func lostLinesFor(label, path string, theirs, next []byte) ([]string, error) {
+	var base []byte
+	var err error
+	if label == "codex" {
+		base, err = codexsettings.LoadBaseline(path)
+	} else {
+		base, err = os.ReadFile(vendorBaselinePath(label, path))
+		if err != nil {
+			return nil, nil
+		}
 	}
-	return lostLines(theirs, base, next)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	if base == nil {
+		return nil, nil
+	}
+	return lostLines(theirs, base, next), nil
 }
 
 // lostLines returns theirs-only lines (trimmed, non-blank, de-duplicated) that are in neither base nor next.
@@ -118,19 +137,31 @@ func printLostLines(out io.Writer, lines []string) {
 type labelPath struct{ label, path string }
 
 // vendorLabelPaths lists the files commitFile writes for one top-level vendor name.
-func vendorLabelPaths(vendor, home string) []labelPath {
+func vendorLabelPaths(vendor, home string) ([]labelPath, error) {
+	if vendor == "codex" {
+		path, err := codexsettings.ConfigPath(home)
+		if err != nil {
+			return nil, err
+		}
+		return []labelPath{{"codex", path}}, nil
+	}
+	if home == "" {
+		var err error
+		home, err = os.UserHomeDir()
+		if err != nil {
+			return nil, err
+		}
+	}
 	switch vendor {
-	case "codex":
-		return []labelPath{{"codex", filepath.Join(home, ".codex", "config.toml")}}
 	case "gemini":
-		return []labelPath{{"gemini-settings", filepath.Join(home, ".gemini", "antigravity-cli", "settings.json")}}
+		return []labelPath{{"gemini-settings", filepath.Join(home, ".gemini", "antigravity-cli", "settings.json")}}, nil
 	case "copilot":
 		return []labelPath{
 			{"copilot-hooks", filepath.Join(home, ".copilot", "hooks", "claude-code-harness.json")},
 			{"copilot-settings", filepath.Join(home, ".copilot", "settings.json")},
-		}
+		}, nil
 	}
-	return nil
+	return nil, nil
 }
 
 // Revert restores each selected vendor's files to their newest backup version (falling back to the
@@ -144,16 +175,12 @@ func Revert(o Options) error {
 	if out == nil {
 		out = os.Stdout
 	}
-	home := o.Home
-	if home == "" {
-		var err error
-		home, err = os.UserHomeDir()
+	for _, a := range agents {
+		files, err := vendorLabelPaths(a, o.Home)
 		if err != nil {
 			return fmt.Errorf("generate: %w", err)
 		}
-	}
-	for _, a := range agents {
-		for _, lp := range vendorLabelPaths(a, home) {
+		for _, lp := range files {
 			if err := revertOne(lp.label, lp.path, o.DryRun, out); err != nil {
 				return err
 			}
@@ -165,6 +192,9 @@ func Revert(o Options) error {
 // revertOne restores path from its newest "<path>.backup.<stamp>" version, or the plain ".backup"
 // when no version remains, and removes a restored version so the next revert goes further back.
 func revertOne(label, path string, dryRun bool, out io.Writer) error {
+	if label == "codex" {
+		return restoreCodexConfig(path, dryRun, out)
+	}
 	versions, err := versionsOf(path)
 	if err != nil {
 		return fmt.Errorf("%s: %w", label, err)

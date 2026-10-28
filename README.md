@@ -43,8 +43,9 @@ claude-code --resume    # a leading flag passes to claude, on the session provid
 
 ```bash
 claude-code configure                 # interactive menu: providers, logins/keys, models, agents; Submit seals keys
-claude-code configure models          # one page (provider|models|agents|router|github|remote|browser|claude|routing|databricks|doctor)
+claude-code configure models          # one page (provider|models|agents|router|github|remote|browser|claude|codex|routing|databricks|doctor)
 claude-code configure claude          # per-machine settings overrides; team defaults stay in the template
+claude-code configure codex           # vault-backed reasoning effort and output verbosity
 claude-code configure --check         # report only; exit 1 if anything is unset
 claude-code configure --reset [--out f|--check|--dry-run]   # render settings + agent CLI configs
 claude-code configure --restore [--agent a,b]       # restore agent CLI configs from backup
@@ -61,6 +62,12 @@ claude-code theme vscode [--check|--dry-run]             # merge VS Code setting
 - On a terminal, `configure --reset` prompts before overwriting hand-edited lines it would otherwise lose; a
   non-interactive run (launch, `configure`, `make install`) writes and warns instead. Each overwrite keeps 5
   timestamped backups; `configure --restore` steps an agent CLI file back one version at a time.
+- Codex preferences are saved in the vault and applied to `$CODEX_HOME/config.toml` (default
+  `~/.codex/config.toml`). Its config snapshots and comparison baseline are encrypted in the vault instead of
+  written as plaintext backups. The last five snapshots per config path are kept;
+  `configure --restore --agent codex` restores the preceding version and its managed preferences.
+  Provider configuration, hook trust, and unknown native settings are preserved. Check and dry-run do not write.
+  An unavailable vault key aborts changed Codex writes.
 - From a worktree, render only that checkout:
   `CLAUDE_CONFIG_DIR="$PWD" claude-code configure --reset --out "$PWD/settings.json"`
   (agent CLI homes are skipped unless `--agents`).
@@ -122,6 +129,9 @@ Precedence: `--profile` → vault pin `CLAUDE_PROFILE` → registry `default`. M
 `state/vault.db` holds pins, custom launch env, provider/agent overlays (`providers`, `agents`) and `key_command` as
 one JSON document, plus sealed secrets. `vault edit` opens it in `$EDITOR` and saves atomically; secrets never appear
 in it.
+
+Codex's validated preferences use the `codex-settings` overlay. Full config backups use a separate encrypted
+`settings_backups` collection: they rotate with the vault key and are excluded from credential exports.
 
 `vault list` hides empty sections (`--format json` keeps all), shows secrets as `<prefix>***  N chars`, caps column
 widths and marks failing entries with ✗ first.

@@ -11,14 +11,15 @@ import (
 	"strings"
 )
 
-// secretsInfo is the HKDF info label for the secrets-sealing subkey; a future encrypted bucket
-// gets its own label, deriving a distinct subkey from the same root.
+// Each encrypted collection derives a distinct subkey from the same vault-scoped root.
 const secretsInfo = "claude-code/vault/v1/secrets"
+const settingsBackupsInfo = "claude-code/vault/v1/settings-backups"
 
 type Key struct {
-	Kid  string
-	aead cipher.AEAD
-	raw  string // the base64 value this key was parsed from; rotation retains it as-is (R4)
+	Kid         string
+	aead        cipher.AEAD
+	backupsAEAD cipher.AEAD
+	raw         string // the base64 value this key was parsed from; rotation retains it as-is (R4)
 }
 
 // parseKey turns a base64 master-key value into a Key scoped to vaultID. Kid identifies the root
@@ -43,8 +44,20 @@ func parseKey(value, vaultID string) (*Key, error) {
 	if err != nil {
 		return nil, err
 	}
+	backupSub, err := hkdf.Key(sha256.New, root, []byte(vaultID), settingsBackupsInfo, 32)
+	if err != nil {
+		return nil, err
+	}
+	backupBlock, err := aes.NewCipher(backupSub)
+	if err != nil {
+		return nil, err
+	}
+	backupAEAD, err := cipher.NewGCMWithRandomNonce(backupBlock)
+	if err != nil {
+		return nil, err
+	}
 	sum := sha256.Sum256(root)
-	return &Key{Kid: hex.EncodeToString(sum[:])[:16], aead: aead, raw: trimmed}, nil
+	return &Key{Kid: hex.EncodeToString(sum[:])[:16], aead: aead, backupsAEAD: backupAEAD, raw: trimmed}, nil
 }
 
 // Raw returns the base64-encoded master key value k was parsed from — the same encoding
@@ -60,5 +73,21 @@ func (k *Key) Open(name string, r Record) (string, error) {
 		return "", ErrWrongKey
 	}
 	v, err := k.aead.Open(nil, nil, r.Sealed, []byte(secretsInfo+"/"+name))
+	return string(v), err
+}
+
+// SealSettingsBackup encrypts a snapshot without sharing the credential collection's key or AAD.
+func (k *Key) SealSettingsBackup(name, value string) []byte {
+	return k.backupsAEAD.Seal(nil, nil, []byte(value), []byte(settingsBackupsInfo+"/"+name))
+}
+
+func (k *Key) openIn(bucket, name string, r Record) (string, error) {
+	if bucket == Secrets {
+		return k.Open(name, r)
+	}
+	if r.Kid != k.Kid {
+		return "", ErrWrongKey
+	}
+	v, err := k.backupsAEAD.Open(nil, nil, r.Sealed, []byte(settingsBackupsInfo+"/"+name))
 	return string(v), err
 }

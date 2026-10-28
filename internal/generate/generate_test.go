@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/codexsettings"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -19,7 +20,7 @@ import (
 // renders instead of skipping), and returns the vendor-config home dir.
 func scratch(t *testing.T) string {
 	t.Helper()
-	configDir := t.TempDir()
+	configDir := vaulttest.Use(t)
 	home := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", configDir)
 	t.Setenv("GEMINI_CLI_HOME", filepath.Join(home, ".gemini-cli-home-unused"))
@@ -219,12 +220,15 @@ func TestForeignKeysSurviveAndBackupIsWritten(t *testing.T) {
 	if bannerIdx > tableIdx {
 		t.Errorf("managed banner (%d) must precede the pre-existing [projects] table (%d):\n%s", bannerIdx, tableIdx, got)
 	}
-	if _, err := os.Stat(codexPath + ".backup"); err != nil {
-		t.Errorf("expected a .backup file: %v", err)
+	if _, err := os.Stat(codexPath + ".backup"); !os.IsNotExist(err) {
+		t.Fatalf("plaintext backup must not be written: %v", err)
 	}
-	backup, _ := os.ReadFile(codexPath + ".backup")
-	if string(backup) != foreign {
-		t.Errorf("backup = %q, want original content %q", backup, foreign)
+	backup, found, err := codexsettings.LatestBackup(codexPath)
+	if err != nil || !found {
+		t.Fatalf("encrypted backup missing: found=%v err=%v", found, err)
+	}
+	if string(backup.Data) != foreign {
+		t.Errorf("encrypted backup did not retain original bytes")
 	}
 
 	ocGot, err := os.ReadFile(ocPath)
@@ -282,7 +286,7 @@ func TestVendorBaselineSeededOnFirstWrite(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	base, err := os.ReadFile(vendorBaselinePath("codex", codexPath))
+	base, err := codexsettings.LoadBaseline(codexPath)
 	if err != nil {
 		t.Fatalf("no baseline seeded: %v", err)
 	}
@@ -302,14 +306,23 @@ func TestVendorBaselineSeededWhenUnchanged(t *testing.T) {
 	if _, err := Run(opts()); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Remove(vendorBaselinePath("codex", codexPath)); err != nil {
+	if err := vault.Update(func(tx *vault.Tx) error {
+		for _, name := range tx.Names(vault.SettingsBackups) {
+			if strings.HasPrefix(name, "codex-baseline/") {
+				if err := tx.Put(vault.SettingsBackups, name, ""); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+	}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := Run(opts()); err != nil {
 		t.Fatal(err)
 	}
 	raw, _ := os.ReadFile(codexPath)
-	base, err := os.ReadFile(vendorBaselinePath("codex", codexPath))
+	base, err := codexsettings.LoadBaseline(codexPath)
 	if err != nil {
 		t.Fatalf("unchanged render seeded no baseline: %v", err)
 	}
@@ -486,6 +499,7 @@ func TestVersionFilesCappedAtFive(t *testing.T) {
 // TestRevertRestoresNewestThenStepsBack: --revert restores the most recent version, consumes it
 // (removes the version file), and a second --revert steps one version further back.
 func TestRevertRestoresNewestThenStepsBack(t *testing.T) {
+	vaulttest.Use(t)
 	home := t.TempDir()
 	codexPath := filepath.Join(home, ".codex", "config.toml")
 	if err := os.MkdirAll(filepath.Dir(codexPath), 0o755); err != nil {
@@ -495,13 +509,15 @@ func TestRevertRestoresNewestThenStepsBack(t *testing.T) {
 	if err := os.WriteFile(codexPath, []byte(current), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	olderPath := codexPath + ".backup.20260101T000000Z"
-	newerPath := codexPath + ".backup.20260102T000000Z"
-	if err := os.WriteFile(olderPath, []byte(older), 0o600); err != nil {
+	if err := codexsettings.Backup(codexPath, []byte(older), true); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(newerPath, []byte(newer), 0o600); err != nil {
+	if err := codexsettings.Backup(codexPath, []byte(newer), true); err != nil {
 		t.Fatal(err)
+	}
+	newest, found, err := codexsettings.LatestBackup(codexPath)
+	if err != nil || !found {
+		t.Fatalf("backup missing: %v", err)
 	}
 
 	if err := Revert(Options{Home: home, Agents: []string{"codex"}, Out: &bytes.Buffer{}}); err != nil {
@@ -514,8 +530,13 @@ func TestRevertRestoresNewestThenStepsBack(t *testing.T) {
 	if string(got) != newer {
 		t.Fatalf("first revert: got %q, want newest version %q", got, newer)
 	}
-	if _, err := os.Stat(newerPath); !os.IsNotExist(err) {
-		t.Errorf("newest version must be consumed, stat err = %v", err)
+	if err := vault.View(func(tx *vault.Tx) error {
+		if _, found := tx.Get(vault.SettingsBackups, newest.Name); found {
+			t.Error("restored snapshot was not consumed")
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
 	}
 
 	if err := Revert(Options{Home: home, Agents: []string{"codex"}, Out: &bytes.Buffer{}}); err != nil {
@@ -677,6 +698,7 @@ func TestScratchConfigDirSkipsVendorWritesWithoutFlag(t *testing.T) {
 	scratch(t) // sets CLAUDE_CONFIG_DIR + a keyed provider overlay; its own returned Home is unused here
 	vendorHome := t.TempDir()
 	t.Setenv("HOME", vendorHome)
+	t.Setenv("CODEX_HOME", filepath.Join(vendorHome, ".codex"))
 
 	var out bytes.Buffer
 	drift, err := Run(Options{Out: &out, Agents: []string{"codex", "opencode", "gemini", "copilot"}})

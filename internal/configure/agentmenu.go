@@ -224,6 +224,7 @@ func codexMenu(d *dialog) agentMenu {
 		{"Login", "codex login · browser sign-in, refreshes the session", "", func() bool {
 			return signIn(d, "codex", []string{"codex", "login"})
 		}},
+		{"Settings", "reasoning effort and verbosity · vault preferences", "", func() bool { return runCodexSettings(d) }},
 	}}
 }
 
