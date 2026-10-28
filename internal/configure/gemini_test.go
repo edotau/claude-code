@@ -86,7 +86,8 @@ func TestRunAgyStopsDescendants(t *testing.T) {
 	dir := t.TempDir()
 	pidFileSh := filepath.Join(dir, "sh.pid")
 	pidFile := filepath.Join(dir, "child.pid")
-	script := "sleep 0.1; echo tok > '" + marker + "'; echo $$ > '" + pidFileSh + "'; sleep 30 & echo $! > '" + pidFile + "'; wait"
+	// Marker last: a slow runner's poll must not kill the shell before the child and its pidfile exist.
+	script := "echo $$ > '" + pidFileSh + "'; sleep 30 & echo $! > '" + pidFile + "'; sleep 0.1; echo tok > '" + marker + "'; wait"
 	fakeAgyCommand(t, script)
 	origPoll, origGrace := agySignInPoll, agyStopGrace
 	t.Cleanup(func() { agySignInPoll, agyStopGrace = origPoll, origGrace })
