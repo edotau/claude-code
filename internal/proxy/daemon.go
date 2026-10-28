@@ -189,16 +189,18 @@ func Serve(ctx context.Context, port int) error {
 		return err
 	}
 	st := State{PID: os.Getpid(), Port: ln.Addr().(*net.TCPAddr).Port, Started: time.Now().UTC()}
-	data, _ := json.Marshal(st)
-	if err := paths.AtomicWrite(stateFile(), data, 0o600); err != nil {
-		_ = ln.Close()
-		return err
-	}
-	defer func() {
-		if cur, err := ReadState(); err == nil && cur.PID == st.PID && cur.Port == st.Port {
-			_ = os.Remove(stateFile())
+	if !ownedElsewhere(st) { // a side proxy (--port N) must not clobber a live daemon's router.json
+		data, _ := json.Marshal(st)
+		if err := paths.AtomicWrite(stateFile(), data, 0o600); err != nil {
+			_ = ln.Close()
+			return err
 		}
-	}()
+		defer func() {
+			if cur, err := ReadState(); err == nil && cur.PID == st.PID && cur.Port == st.Port {
+				_ = os.Remove(stateFile())
+			}
+		}()
+	}
 	srv := &http.Server{Handler: newRouter(secret), ReadHeaderTimeout: 30 * time.Second, IdleTimeout: 120 * time.Second}
 	fmt.Fprintf(os.Stderr, "proxy: listening on %s (pid %d)\n", Base(st.Port), st.PID)
 	errc := make(chan error, 1)
@@ -221,6 +223,12 @@ func Serve(ctx context.Context, port int) error {
 		return err
 	}
 	return nil
+}
+
+// ownedElsewhere reports a live router on another port already holding router.json.
+func ownedElsewhere(st State) bool {
+	cur, err := ReadState()
+	return err == nil && cur.PID != 0 && cur.PID != st.PID && cur.Port != st.Port && alive(cur.PID)
 }
 
 // Stop SIGTERMs a healthy router and waits briefly for it to exit; a stale router.json is removed.

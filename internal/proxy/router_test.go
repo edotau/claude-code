@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -933,5 +934,29 @@ func TestChatPathPromptTooLong(t *testing.T) {
 	if resp.StatusCode != 400 || e.Error.Type != "invalid_request_error" ||
 		e.Error.Message != "prompt is too long: 1177204 tokens > 1000000 maximum" || strings.Contains(string(b), "leak-me") {
 		t.Fatalf("status %d body %s", resp.StatusCode, b)
+	}
+}
+
+// Regression: a side proxy (--serve --port N) must neither overwrite nor delete a live daemon's router.json.
+func TestServeSideProxyKeepsDaemonState(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	daemon := State{PID: os.Getppid(), Port: 1, Started: time.Now().UTC()} // a live pid on another port
+	data, _ := json.Marshal(daemon)
+	if err := paths.AtomicWrite(stateFile(), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- Serve(ctx, 0) }()
+	time.Sleep(200 * time.Millisecond)
+	if cur, err := ReadState(); err != nil || cur.PID != daemon.PID || cur.Port != daemon.Port {
+		t.Fatalf("while serving, router.json = %+v, %v; want the daemon's %+v", cur, err, daemon)
+	}
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if cur, err := ReadState(); err != nil || cur.PID != daemon.PID {
+		t.Fatalf("after the side proxy exits, router.json = %+v, %v; want the daemon's kept", cur, err)
 	}
 }
