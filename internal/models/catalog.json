@@ -12,10 +12,10 @@
     "dotted": {"dotted": true}
   },
   "models": [
-    {"id": "claude-opus-5-5", "name": "Claude Opus 5.5", "version": "5-5", "thinking": true},
-    {"id": "claude-sonnet-5-5", "name": "Claude Sonnet 5.5", "version": "5-5", "thinking": true},
-    {"id": "claude-haiku-5-5", "name": "Claude Haiku 5.5", "version": "5-5", "thinking": true},
-    {"id": "claude-fable-5-1", "name": "Claude Fable 5.1", "version": "5-1", "thinking": true},
+    {"id": "claude-opus-5-5", "name": "Claude Opus 5.5", "version": "5-5", "thinking": true, "limits": {"context": 1000000, "output": 128000}},
+    {"id": "claude-sonnet-5-5", "name": "Claude Sonnet 5.5", "version": "5-5", "thinking": true, "limits": {"context": 1000000, "output": 128000}},
+    {"id": "claude-haiku-5-5", "name": "Claude Haiku 5.5", "version": "5-5", "thinking": true, "limits": {"context": 1000000, "output": 128000}},
+    {"id": "claude-fable-5-1", "name": "Claude Fable 5.1", "version": "5-1", "thinking": true, "limits": {"context": 1000000, "output": 128000}},
     {"id": "gpt-6-1-sol", "name": "GPT-6.1 Sol", "version": "6-1", "thinking": true, "responses_only": true},
     {"id": "gpt-6-astra", "name": "GPT-6 Astra", "thinking": true, "responses_only": true},
     {"id": "gpt-6-luna", "name": "GPT-6 Luna", "thinking": true},

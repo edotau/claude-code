@@ -64,11 +64,30 @@ const MaxOutputTokens = 32_000
 
 // MaxPromptTokens is the window minus the output cap and a 10% margin, so copilot compacts before the endpoint
 // refuses; 0 (unset) when the window is too small for that.
-func MaxPromptTokens(window int) int {
-	if window <= MaxOutputTokens {
+func MaxPromptTokens(window int) int { return PromptTokens(window, MaxOutputTokens) }
+
+// PromptTokens is MaxPromptTokens for an explicit output cap.
+func PromptTokens(window, output int) int {
+	if window <= output {
 		return 0
 	}
-	return window - MaxOutputTokens - window/10
+	return window - output - window/10
+}
+
+// Caps returns id's context window and output cap: window and MaxOutputTokens, lowered by any documented catalog limit.
+func Caps(window int, id string) (ctx, output int) {
+	ctx, output = window, MaxOutputTokens
+	l, ok := models.Limits(id)
+	if !ok {
+		return ctx, output
+	}
+	if l.Context > 0 { // catalog limits only lower the gated window and the output cap, never raise them
+		ctx = min(ctx, l.Context)
+	}
+	if l.Output > 0 {
+		output = min(output, l.Output)
+	}
+	return ctx, output
 }
 
 // WellKnownModel maps a gateway Claude id to copilot's catalog form (claude-sonnet-5.5); other ids pass through.
