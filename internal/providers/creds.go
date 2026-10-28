@@ -13,8 +13,10 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/secrets/shapes"
 )
 
 // ErrPassthrough means the provider forwards the client's own auth; there is no credential to mint.
@@ -204,13 +206,66 @@ func runAuthCommand(ctx context.Context, p *Provider, cmd string) (string, error
 	defer cancel()
 	out, err := exec.CommandContext(ctx, "sh", "-c", cmd).Output()
 	if err != nil {
-		return "", fmt.Errorf("%s: auth command failed: %w", p.Name, err)
+		return "", authCommandError(ctx, p, err)
 	}
 	v := strings.TrimSpace(string(out))
-	if v == "" {
+	if v == "" || v == "null" { // `jq -r .access_token` prints null when the upstream call failed
 		return "", fmt.Errorf("%s: auth command printed nothing", p.Name)
 	}
+	if strings.ContainsFunc(v, func(r rune) bool { return unicode.IsSpace(r) || unicode.IsControl(r) }) {
+		return "", fmt.Errorf("%s: auth command printed more than one bare token", p.Name)
+	}
 	return v, nil
+}
+
+// networkMarkers in a failed auth command's stderr mean the issuer was unreachable, not that the login expired.
+var networkMarkers = []string{"timed out", "timeout", "connection refused", "connection reset", "no such host",
+	"could not resolve", "temporary failure", "unavailable", "dns", "proxy", "tls", "certificate"}
+
+// authCommandError classifies a failed auth command (cli|network|auth) and carries its redacted stderr.
+func authCommandError(ctx context.Context, p *Provider, err error) error {
+	if ctx.Err() != nil {
+		return fmt.Errorf("%s: auth command failed (network: timed out): %w", p.Name, err)
+	}
+	var ee *exec.ExitError
+	detail := ""
+	if errors.As(err, &ee) {
+		detail = redactDetail(string(ee.Stderr))
+	}
+	kind := "auth: log in again for this provider"
+	switch low := strings.ToLower(detail); {
+	case ee != nil && ee.ExitCode() == 127:
+		kind = "cli: command not found"
+	case slices.ContainsFunc(networkMarkers, func(m string) bool { return strings.Contains(low, m) }):
+		kind = "network: check the connection or VPN"
+	}
+	if detail != "" {
+		return fmt.Errorf("%s: auth command failed (%s): %w: %s", p.Name, kind, err, detail)
+	}
+	return fmt.Errorf("%s: auth command failed (%s): %w", p.Name, kind, err)
+}
+
+// redactDetail is stderr's last non-empty line, ≤160 chars, with credential-shaped words masked.
+func redactDetail(stderr string) string {
+	lines := strings.FieldsFunc(stderr, func(r rune) bool { return r == '\n' || r == '\r' })
+	if len(lines) == 0 {
+		return ""
+	}
+	words := strings.Fields(shapes.Redact(lines[len(lines)-1]))
+	for i, w := range words {
+		key := strings.ToLower(strings.TrimRight(w, ":="))
+		if i+1 < len(words) && slices.Contains([]string{"token", "access_token", "bearer", "authorization"}, key) {
+			words[i+1] = "REDACTED"
+		}
+		if strings.HasPrefix(w, "eyJ") { // a JWT; shapes.Looks covers the prefixed key families
+			words[i] = "REDACTED"
+		}
+	}
+	out := strings.Join(words, " ")
+	if len(out) > 160 {
+		out = out[:160] + "…"
+	}
+	return out
 }
 
 // CredentialPresent checks configured credential sources without decrypting or running commands.

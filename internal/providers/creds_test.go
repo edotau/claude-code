@@ -147,3 +147,27 @@ func TestCredentialPresentWithoutDecrypting(t *testing.T) {
 		}
 	}
 }
+
+// TestRunAuthCommandFailures: malformed output is refused, failures are classified, stderr secrets are masked.
+func TestRunAuthCommandFailures(t *testing.T) {
+	p := &Provider{Name: "row"}
+	cases := []struct{ cmd, want, absent string }{
+		{`echo null`, "printed nothing", ""},
+		{`printf 'tok1\ntok2\n'`, "more than one bare token", "tok1"},
+		{`echo "dial tcp: lookup x: no such host, token eyJabc.def.ghi" >&2; exit 1`, "(network:", "eyJabc"},
+		{`echo "invalid refresh token: dapiSECRET" >&2; exit 1`, "(auth:", "dapiSECRET"},
+		{`definitely-not-a-command-xyz`, "(cli: command not found)", ""},
+	}
+	for _, c := range cases {
+		_, err := runAuthCommand(context.Background(), p, c.cmd)
+		if err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("%s: err = %v; want it to contain %q", c.cmd, err, c.want)
+		}
+		if c.absent != "" && err != nil && strings.Contains(err.Error(), c.absent) {
+			t.Errorf("%s: err leaks %q: %v", c.cmd, c.absent, err)
+		}
+	}
+	if v, err := runAuthCommand(context.Background(), p, `echo '  tok  '`); err != nil || v != "tok" {
+		t.Errorf("good token = %q, %v; want tok, nil", v, err)
+	}
+}
