@@ -28,7 +28,7 @@ var memorySubs = []memorySub{
 	{"init", "", "create the repo's bank"},
 	{"review", "", "doctor + stats for the banks; --candidates ranks promotions"},
 	{"promote", "<id> --to <target>", "move or surface one block (home|rules|skill|claude-md)"},
-	{"update", "", "harvest a finished session (--transcript); bare prints the procedure"},
+	{"update", "", "harvest the live session (or --transcript); none found prints the procedure"},
 	{"dream", "", "consolidate the bank when due (--force, --dry-run)"},
 }
 
@@ -320,17 +320,10 @@ func cmdMemoryUpdate(args []string) int {
 	fs := memoryFlagSet("update")
 	transcript := fs.String("transcript", "", "finished session's transcript")
 	cwd := fs.String("cwd", "", "project root whose bank to harvest (default: cwd)")
-	session := fs.String("session", "", "finished session's id (outcome recorded under state/harvest/memory)")
+	session := fs.String("session", "", "finished session's id (outcome recorded in state/memory/harvest-result-<id>)")
+	dryRun := fs.Bool("dry-run", false, "print the resolved transcript and session; harvest nothing")
 	if code, done := helptext.Parse(fs, args); done {
 		return code
-	}
-	if *transcript == "" { // a live session: print the narrative procedure instead of refusing outright
-		ref, err := memory.Reference("update")
-		if err != nil {
-			return fail("memory update: %v", err)
-		}
-		fmt.Println(ref)
-		return 0
 	}
 	root := *cwd
 	if root == "" {
@@ -338,6 +331,24 @@ func cmdMemoryUpdate(args []string) int {
 		if root, err = os.Getwd(); err != nil {
 			return fail("memory update: %v", err)
 		}
+	}
+	if *transcript == "" && *session == "" { // a live session harvests itself
+		*session = os.Getenv(memory.SessionIDEnv)
+	}
+	if *transcript == "" {
+		*transcript = memory.LiveTranscript(root, *session)
+	}
+	if *transcript == "" { // no resolvable session: print the narrative procedure instead of refusing outright
+		ref, err := memory.Reference("update")
+		if err != nil {
+			return fail("memory update: %v", err)
+		}
+		fmt.Println(ref)
+		return 0
+	}
+	if *dryRun {
+		fmt.Printf("memory update (dry run): session %s, transcript %s, bank %s\n", *session, *transcript, memory.Dir(root))
+		return 0
 	}
 	claude, err := launch.ClaudeBinary() // "" is fine here: Run (memoryAgent) handles the harvest, Claude is only its fallback
 	if err != nil {

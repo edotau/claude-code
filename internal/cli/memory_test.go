@@ -690,3 +690,27 @@ func TestMemoryUsageListsOnlyPublicVerbsAndPrivateStillDispatch(t *testing.T) {
 		t.Errorf("private verb \"path\" failed to dispatch: code=%d stderr=%q", code, stderr)
 	}
 }
+
+// TestMemoryUpdateLiveSession: bare `memory update` resolves the live session's transcript from SessionIDEnv.
+func TestMemoryUpdateLiveSession(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	dir := t.TempDir()
+	tr := filepath.Join(cfg, "projects", memory.ProjectSlug(dir), "live-1.jsonl")
+	if err := os.MkdirAll(filepath.Dir(tr), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(tr, []byte("{}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(memory.SessionIDEnv, "live-1")
+	code, out, _ := captureOutput(t, func() int { return cmdMemoryUpdate([]string{"--dry-run", "--cwd", dir}) })
+	if code != 0 || !strings.Contains(out, tr) {
+		t.Errorf("live session: code=%d out=%q, want the transcript %s", code, out, tr)
+	}
+	t.Setenv(memory.SessionIDEnv, "")
+	code, out, _ = captureOutput(t, func() int { return cmdMemoryUpdate([]string{"--dry-run", "--cwd", dir}) })
+	if code != 0 || strings.Contains(out, "dry run") {
+		t.Errorf("no session: code=%d out=%q, want the procedure, not a dry run", code, out)
+	}
+}
