@@ -187,7 +187,7 @@ func TestOpencodeMenuHelpWithin80Cols(t *testing.T) {
 		if strings.TrimSpace(out) == "" {
 			t.Errorf("%s -h printed nothing", verb)
 		}
-		for _, l := range strings.Split(out, "\n") {
+		for l := range strings.SplitSeq(out, "\n") {
 			if n := len([]rune(l)); n > 80 {
 				t.Errorf("%s help line %d cols: %q", verb, n, l)
 			}

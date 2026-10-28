@@ -56,8 +56,7 @@ func TestSealedAuthRefreshDuringInflightMintRunsForcedMint(t *testing.T) {
 			p := mintRow(t, "sf-refresh-"+k.kind, k.kind, k.clientID, srv.URL)
 			sealFor(t, p, k.secret)
 			var wg sync.WaitGroup
-			wg.Add(1)
-			go func() { defer wg.Done(); _, _ = Credential(context.Background(), p) }()
+			wg.Go(func() { _, _ = Credential(context.Background(), p) })
 			deadline := time.Now().Add(5 * time.Second)
 			for posts.Load() == 0 {
 				if time.Now().After(deadline) {

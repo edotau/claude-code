@@ -2,20 +2,21 @@ package providers
 
 import (
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
 func orderDoc(names ...string) []byte {
-	rows := ""
+	var rows strings.Builder
 	for i, n := range names {
 		if i > 0 {
-			rows += ","
+			rows.WriteString(",")
 		}
-		rows += `"` + n + `":{"preset":"databricks","host":"https://` + n + `.cloud.databricks.com"}`
+		rows.WriteString(`"` + n + `":{"preset":"databricks","host":"https://` + n + `.cloud.databricks.com"}`)
 	}
-	return []byte(`{"providers":{"databricks":{` + rows + `}}}`)
+	return []byte(`{"providers":{"databricks":{` + rows.String() + `}}}`)
 }
 
 func TestProfilesOfReorderedDocReordersOutput(t *testing.T) {

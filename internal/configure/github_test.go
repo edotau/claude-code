@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io/fs"
+	"maps"
 	"strings"
 	"testing"
 
@@ -52,9 +53,7 @@ func flatOverlayRows(t *testing.T, raw json.RawMessage) map[string]json.RawMessa
 	}
 	flat := map[string]json.RawMessage{}
 	for _, rows := range nested {
-		for profile, row := range rows {
-			flat[profile] = row
-		}
+		maps.Copy(flat, rows)
 	}
 	return flat
 }

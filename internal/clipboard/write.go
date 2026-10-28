@@ -34,8 +34,7 @@ var run = func(ctx context.Context, stdin []byte, name string, args ...string) (
 	cmd.Stdout = &out
 	if err := cmd.Run(); err != nil {
 		// Command name and status only: never stderr or stdin, which may echo the value.
-		var ee *exec.ExitError
-		if errors.As(err, &ee) {
+		if ee, ok := errors.AsType[*exec.ExitError](err); ok {
 			return nil, fmt.Errorf("%s: exit status %d", name, ee.ExitCode())
 		}
 		return nil, fmt.Errorf("%s: could not run", name)
@@ -48,16 +47,16 @@ var spawnClear = func(self string, args []string, stdin []byte) error {
 	// A real pipe filled before Start: a bytes.Reader is copied by a goroutine that dies when we exit.
 	r, w, err := os.Pipe()
 	if err != nil {
-		return fmt.Errorf("clip-clear: could not start")
+		return errors.New("clip-clear: could not start")
 	}
 	defer r.Close()
 	_, werr := w.Write(stdin)
-	w.Close()
+	_ = w.Close()
 	cmd := exec.Command(self, args...)
 	cmd.Stdin = r
 	proc.Detach(cmd)
 	if werr != nil || cmd.Start() != nil {
-		return fmt.Errorf("clip-clear: could not start")
+		return errors.New("clip-clear: could not start")
 	}
 	return cmd.Process.Release()
 }

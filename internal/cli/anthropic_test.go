@@ -20,8 +20,7 @@ func TestAnthropicSecretMissingOffTTYNamesVaultSet(t *testing.T) {
 			t.Errorf("%s: err = %v", mode, err)
 		}
 	}
-	o := launch.AnthropicOptions{Mode: launch.AuthOAuth, Name: "MISSING_KEY_FOR_TEST"}
-	o.PrintEnv = true
+	o := launch.AnthropicOptions{Mode: launch.AuthOAuth, Name: "MISSING_KEY_FOR_TEST", PrintEnv: true}
 	if _, err := anthropicSecret(o); err == nil || !strings.Contains(err.Error(), "claude-code vault set MISSING_KEY_FOR_TEST") {
 		t.Errorf("--print-env: err = %v", err)
 	}

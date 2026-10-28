@@ -3,6 +3,7 @@ package proxy
 import (
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -45,9 +46,7 @@ func useGate(t *testing.T) *fakeGate {
 		Marked: func() func(string, time.Time) (string, bool) {
 			g.mu.Lock()
 			snap := map[string]string{}
-			for k, v := range g.marks {
-				snap[k] = v
-			}
+			maps.Copy(snap, g.marks)
 			g.mu.Unlock()
 			return func(a string, _ time.Time) (string, bool) { r, ok := snap[a]; return r, ok }
 		},

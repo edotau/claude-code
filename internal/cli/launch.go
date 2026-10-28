@@ -130,7 +130,7 @@ func runSetupToken() {
 		fmt.Fprintln(os.Stderr, "claude-code:", err)
 		return
 	}
-	cmd := exec.Command(bin, "setup-token")
+	cmd := exec.CommandContext(context.Background(), bin, "setup-token")
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
 	if err := cmd.Run(); err != nil {
 		fmt.Fprintln(os.Stderr, "claude-code: claude setup-token:", err)

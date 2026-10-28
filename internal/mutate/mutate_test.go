@@ -26,8 +26,7 @@ func TestApply(t *testing.T) {
 func exitErr(t *testing.T) error {
 	t.Helper()
 	err := exec.Command("sh", "-c", "exit 1").Run()
-	var ee *exec.ExitError
-	if !errors.As(err, &ee) {
+	if _, ok := errors.AsType[*exec.ExitError](err); !ok {
 		t.Fatalf("setup: %v", err)
 	}
 	return err

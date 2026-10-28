@@ -126,7 +126,8 @@ func openLoginURL(url string) error {
 	if runtime.GOOS == "darwin" {
 		bin = "open"
 	}
-	return exec.Command(bin, url).Start()
+	// The opener outlives this call, so it is not tied to a cancellable ctx.
+	return exec.CommandContext(context.Background(), bin, url).Start()
 }
 
 // loginHost is the workspace a login would talk to, for display.

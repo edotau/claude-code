@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -31,12 +32,7 @@ func (r *pathRecorder) hit(req *http.Request) {
 func (r *pathRecorder) saw(path string) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	for _, p := range r.paths {
-		if p == path {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(r.paths, path)
 }
 
 // trustTestTLS lets http.DefaultClient (used by liveModelEntries) call an httptest TLS server.

@@ -152,8 +152,8 @@ func (c *catalog) lookup(s string) string {
 	if id, ok := c.byWire[s]; ok {
 		return id
 	}
-	if i := strings.LastIndexByte(s, '/'); i >= 0 {
-		if id := c.lookup(s[i+1:]); id != "" {
+	if _, after, ok := strings.CutLast(s, "/"); ok {
+		if id := c.lookup(after); id != "" {
 			return id
 		}
 	}

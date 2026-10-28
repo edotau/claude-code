@@ -2,6 +2,7 @@ package providers
 
 import (
 	"cmp"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -44,7 +45,7 @@ func ValidAgentActive(agent, v string) error {
 		return nil
 	case AgentOff:
 		if agent == "claude" {
-			return fmt.Errorf("claude is always on")
+			return errors.New("claude is always on")
 		}
 		return nil
 	}

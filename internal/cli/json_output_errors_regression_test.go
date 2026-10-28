@@ -106,7 +106,7 @@ func TestWorktreeListEmptyJSONIsArray(t *testing.T) {
 	if strings.TrimSpace(out) == "null" {
 		t.Errorf("empty list produced null, want []")
 	}
-	var entries []map[string]interface{}
+	var entries []map[string]any
 	if err := json.Unmarshal([]byte(out), &entries); err != nil {
 		t.Errorf("invalid JSON: %v, output=%q", err, out)
 	}
@@ -158,7 +158,7 @@ func TestGeminiBridgeJSONOutput(t *testing.T) {
 
 	if code == 0 && strings.TrimSpace(out) != "" {
 		// Output should be valid JSON
-		var result interface{}
+		var result any
 		if err := json.Unmarshal([]byte(out), &result); err != nil {
 			t.Errorf("gemini --print-env --format json output is not valid JSON: %v\noutput=%q", err, out)
 		}

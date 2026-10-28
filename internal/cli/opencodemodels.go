@@ -2,11 +2,13 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
 	"os/signal"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -105,7 +107,7 @@ func cmdOpencodeMenu(args []string) int {
 		if !ok {
 			return fail("%s is not in the menu", providers.MenuID(pos[0]))
 		}
-		return opencodeMenuWrite(next, fmt.Sprintf("removed %s", providers.MenuID(pos[0])), fail)
+		return opencodeMenuWrite(next, "removed "+providers.MenuID(pos[0]), fail)
 	case "import":
 		if len(pos) != 1 {
 			return fail("usage: claude-code opencode models import <file> [--apply]")
@@ -136,7 +138,7 @@ func opencodeProvider(name string) (*providers.Registry, *providers.Provider, er
 	}
 	if name == "" {
 		if name = providers.Pin(providers.PinOpencodeProfile); name == "" {
-			return nil, nil, fmt.Errorf("no profile pinned for opencode; pass --profile")
+			return nil, nil, errors.New("no profile pinned for opencode; pass --profile")
 		}
 	}
 	p, err := reg.Get(name)
@@ -364,7 +366,7 @@ func opencodeMenuCheck(ids []string, all bool, provider string, timeout time.Dur
 	for _, r := range results {
 		code, lat, tools := "-", "-", "-"
 		if r.HTTP > 0 {
-			code = fmt.Sprint(r.HTTP)
+			code = strconv.Itoa(r.HTTP)
 		}
 		if r.Status != "missing" {
 			lat = fmt.Sprintf("%dms", r.LatencyMS)

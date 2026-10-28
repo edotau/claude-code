@@ -57,12 +57,14 @@ func listenLoopback(first int) (net.Listener, int, error) {
 		first = defaultPort
 	}
 	last := max(maxPort, first)
+	var lc net.ListenConfig
+	ctx := context.Background()
 	for p := first; p <= last; p++ {
-		ln4, err := net.Listen("tcp4", net.JoinHostPort("127.0.0.1", strconv.Itoa(p)))
+		ln4, err := lc.Listen(ctx, "tcp4", net.JoinHostPort("127.0.0.1", strconv.Itoa(p)))
 		if err != nil {
 			continue
 		}
-		ln6, err := net.Listen("tcp6", net.JoinHostPort("::1", strconv.Itoa(p)))
+		ln6, err := lc.Listen(ctx, "tcp6", net.JoinHostPort("::1", strconv.Itoa(p)))
 		switch {
 		case err == nil:
 			return newDualListener(ln4, ln6), p, nil
