@@ -54,7 +54,9 @@ func prepareCopilotRegistry(ctx context.Context, t providers.Target) (*copilotRe
 	if err != nil {
 		return nil, err
 	}
-	cr := copilotreg.Build(t.Provider.Name, t.Provider, eps, base)
+	rp := *t.Provider
+	rp.Headers = map[string]string{proxy.AgentHeader: "copilot"} // the router adds the provider's own headers upstream
+	cr := copilotreg.Build(t.Provider.Name, &rp, eps, base)
 	ref, err := cr.Select(copilotreg.Choice{Requested: []string{models.Strip1M(t.Model)}})
 	if err != nil {
 		return nil, fmt.Errorf("copilot: %w", err)

@@ -313,6 +313,11 @@ claude-code usage --days 7                             # subagent token usage; c
   when the `COPILOT_GITHUB_USER` pin has credits verified < 95%; else it falls back to the Databricks profile (never
   the other GitHub account) and prints `copilot: <user> N% of credits used — using databricks profile <p>`. Usage rows
   read `databricks/<model>` (BYOK, no credits) vs `github·copilot/<model>`. Prompt cap = window − 32k − 10%.
+- Interactive `copilot` on a Databricks profile has native `/model` across the profile's served models: a per-launch
+  registry (0600, per pid) and a private login-free `COPILOT_HOME` (`state/copilot/registry-home`); the proxy takes a
+  session token, so no secret sits on disk. An unregistered model fails closed; `--direct` keeps the single-model
+  route. macOS is refused until the Keychain check lands (use `--direct`). `ask --agent copilot` uses the same
+  registry via the SDK.
 - Without `--tools`, agents are read-only. Gemini runs only on `agy` and its Google sign-in.
 - `gemini bridge` inlines tracked files only and always skips `.env*`, `state/`, keys.
 - `agents sync` renders under `state/projections/<agent>/`, installs into `~/.codex`, `~/.copilot`, `~/.gemini`,

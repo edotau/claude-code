@@ -93,7 +93,7 @@ cell (see Pins).
   − 10% (≈148k on 200k, ≈868k on a `one_m` profile). Headless mid-task quota writes a handoff in
   `memory/<bank>/handoffs` and returns `KindQuota` with `handoff` in the JSON envelope; the loop carries that
   handoff to the next dispatch (a Databricks dispatch only when a pin or `--profile` names one). Interactive copilot
-  cannot hand off.
+  cannot hand off. Copilot now switches models within a Databricks profile (`/model`, registry; `--direct` = one model).
 - **Explicit profile** (`--profile`): one dispatch, no fallback, but gated and marked on its own account.
 - **Credential route** (`internal/vendors/routes.go`, `<agent> setup` → route row): opencode uses its own `opencode`
   login (Go plan; else the vault `OPENCODE_API_KEY`), then its GitHub Copilot login; copilot its pinned GitHub
