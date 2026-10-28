@@ -498,7 +498,7 @@ func (r *Router) markDead(t providers.Target) {
 
 // try runs one attempt. done=false means nothing was written and err says why (the caller may fail over).
 func (r *Router) try(w *statusWriter, in *http.Request, body []byte, t providers.Target, clientModel string, count, last bool) (bool, error) {
-	if route, ok := t.Provider.Route(providers.ProtocolAnthropic); ok && !providers.PrefersOpenAI(t.Provider, t.Model) {
+	if route, ok := providers.AnthropicRoute(t.Provider, t.Model); ok {
 		return r.tryAnthropic(w, in, body, t, route, count, last)
 	}
 	if count {
@@ -507,6 +507,15 @@ func (r *Router) try(w *statusWriter, in *http.Request, body []byte, t providers
 			return false, err
 		}
 		writeJSON(w, http.StatusOK, out)
+		return true, nil
+	}
+	wire, servable, why := providers.WireFor(t.Provider, t.Model)
+	if !servable {
+		writeError(w, http.StatusBadRequest, why)
+		return true, nil
+	}
+	if wire == providers.ProtocolResponses { // the translate path has no Responses wire
+		writeError(w, http.StatusBadRequest, providers.ClaudeCodeError(t.Provider, t.Model).Error())
 		return true, nil
 	}
 	return r.tryOpenAI(w, in, body, t, clientModel, last)

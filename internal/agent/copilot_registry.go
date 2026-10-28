@@ -33,13 +33,6 @@ type copilotRegistryRoute struct {
 	home      vendors.CopilotPrivateHome
 }
 
-// copilotRegistryEligible: a keyed Databricks profile routed through the proxy (not --direct, not a GitHub login).
-func copilotRegistryEligible(req Request, t providers.Target) bool {
-	p := t.Provider
-	return p != nil && !req.Direct && p.Preset == providers.PresetDatabricks && p.Auth.Login == "" &&
-		p.Auth.Method() != providers.AuthNone && p.Auth.Method() != providers.AuthCLI
-}
-
 // prepareCopilotRegistry discovers what t's profile serves, selects t.Model and mints a token for this process.
 func prepareCopilotRegistry(ctx context.Context, t providers.Target) (*copilotRegistryRoute, error) {
 	reg, err := providers.Load()
@@ -57,6 +50,9 @@ func prepareCopilotRegistry(ctx context.Context, t providers.Target) (*copilotRe
 	rp := *t.Provider
 	rp.Headers = map[string]string{proxy.AgentHeader: "copilot"} // the router adds the provider's own headers upstream
 	cr := copilotreg.Build(t.Provider.Name, &rp, eps, base)
+	if cr.Note != "" {
+		eventLogFor(ctx).emit("note", cr.Note)
+	}
 	ref, err := cr.Select(vendors.CopilotChoice([]string{models.Strip1M(t.Model)}))
 	if err != nil {
 		return nil, fmt.Errorf("copilot: %w", err)

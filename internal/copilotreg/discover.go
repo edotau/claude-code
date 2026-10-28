@@ -40,22 +40,15 @@ func ServingChatRows(infos []providers.ModelInfo, menu []providers.OpencodeModel
 	return out
 }
 
-// NonClaudeWire: passthrough wire (openai|responses) + canonical id for a non-Claude model on a routed Databricks row.
-func NonClaudeWire(p *providers.Provider, dialect, model string, routed bool) (wire, modelID string) {
-	if !routed || p.Preset != providers.PresetDatabricks || dialect != providers.ProtocolAnthropic {
-		return "", ""
+// EndpointWire is the passthrough wire for model on the Databricks row p (providers.WireFor) and its canonical id; a
+// Claude model, or any model on another row, rides anthropic. ok is false, with why, when p has no route serving it.
+func EndpointWire(p *providers.Provider, model string) (wire, canonical string, ok bool, why string) {
+	canonical = canonicalOf(model)
+	if p.Preset != providers.PresetDatabricks || models.FamilyKind(canonical) == models.FamilyClaude {
+		return providers.ProtocolAnthropic, canonical, true, ""
 	}
-	canonical, _, ok := models.Resolve(model)
-	if !ok {
-		canonical = strings.TrimPrefix(model, models.DatabricksPrefix)
-	}
-	if models.FamilyKind(canonical) == models.FamilyClaude {
-		return "", ""
-	}
-	if providers.ServesResponses(p, model) {
-		return providers.ProtocolResponses, canonical
-	}
-	return providers.ProtocolOpenAI, canonical
+	wire, ok, why = providers.WireFor(p, model)
+	return wire, canonical, ok, why
 }
 
 // MaxOutputTokens is the output cap current Claude/GPT tiers accept; a catalog-less id needs one.

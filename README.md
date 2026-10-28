@@ -203,6 +203,7 @@ argv run without a shell). No key file is written. Headless boxes set `HARNESS_V
 | auth | how a profile proves who it is | `oauth` `m2m` `pat` `key` `cli` `none` |
 | model | what `--model` takes | an alias (`opus`, follows the table), a version (`opus-5-5`, pinned) or a full wire id |
 | proxy · router | the loopback daemon · the agent + model pick | `gateway proxy` · `gateway router` |
+| wire | the protocol a model rides on a profile, one rule (`providers.WireFor`): Claude → `anthropic`, Responses-only → `responses`, else `openai`; a profile without that route does not serve the model | `anthropic` `openai` `responses` |
 
 `oauth` = a user login whose token the harness holds; `m2m` = a service-principal secret; `pat` = personal access
 token; `key` = API key; `cli` = the agent's own CLI verified the user (an optional headless token may be sealed);
@@ -319,7 +320,10 @@ claude-code usage --days 7                             # subagent token usage; c
   `usage`, `duration_ms`, `fallback*`, `handoff` and `transport` (attempts, retries, first-event and max-gap ms).
   Claude-only isolation flags: `--no-persist`, `--safe-mode`, `--debug-file <path>`.
 - `opencode` on a Databricks row runs three providers: `<row>` (chat), `<row>-gpt` (Responses) and `<row>-claude`
-  (native Anthropic); a `--model` not on the row's menu is refused.
+  (native Anthropic); a `--model` not on the row's menu is refused. An `ai-gateway` row has no openai route, so its
+  chat models (and the copilot registry's) are left out with a one-line note.
+- Claude Code on a Responses-only model (`gpt-5.5`) is refused at launch and by the router: it has no Responses
+  translation; use `codex` or `copilot`.
 - Copilot dispatches follow the session's profile through the proxy (`/p/<profile>`, BYOK, `COPILOT_OFFLINE=true`, no
   Copilot credits); `--model <profile>:<tier>` picks a model alias on another profile. The GitHub login is used only
   when the `COPILOT_PROFILE` pin has credits verified < 95%; else it falls back to the Databricks profile (never

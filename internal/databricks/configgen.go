@@ -132,7 +132,13 @@ func (o Options) checkModel() error {
 	if o.Target == TargetCodex && isClaude {
 		return fmt.Errorf("model %q: the Responses route serves GPT models only", o.Model)
 	}
-	if o.Target == TargetClaude && providers.PrefersOpenAI(o.P, o.Model) {
+	if o.Target != TargetClaude {
+		return nil
+	}
+	if err := providers.ClaudeCodeError(o.P, o.Model); err != nil {
+		return err
+	}
+	if wire, ok, _ := providers.WireFor(o.P, o.Model); ok && wire != providers.ProtocolAnthropic {
 		return fmt.Errorf("model %q: a non-Claude model for Claude Code needs the router, which break-glass avoids", o.Model)
 	}
 	return nil

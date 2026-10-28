@@ -106,10 +106,17 @@ func (c CopilotRegistry) Revoke() {
 	}
 }
 
+// CopilotRegistryEligible: a keyed Databricks profile the router can mint a session for (not direct, not a login,
+// not auth none/cli — the router cannot authenticate those rows).
+func CopilotRegistryEligible(direct bool, t providers.Target) bool {
+	p := t.Provider
+	return p != nil && !direct && p.Preset == providers.PresetDatabricks && p.Auth.Login == "" &&
+		p.Auth.Method() != providers.AuthNone && p.Auth.Method() != providers.AuthCLI
+}
+
 // UsesCopilotRegistry reports whether t is a Databricks row whose copilot launch runs on the registry.
 func UsesCopilotRegistry(ctx context.Context, t providers.Target) bool {
-	return !isDirect(ctx) && t.Provider != nil && t.Provider.Auth.Login == "" &&
-		t.Provider.Preset == providers.PresetDatabricks
+	return CopilotRegistryEligible(isDirect(ctx), t)
 }
 
 // ConfigureCopilotRegistry builds the registry launch for t; errors are fatal (no plain fallback); dry mints nothing.
@@ -154,6 +161,9 @@ func ConfigureCopilotRegistry(
 	// OFFLINE removes /login but needs the registry file at startup; the SDK path has none, so it stays here.
 	out.Env = append([]string{"COPILOT_PROVIDERS_CONFIG=" + file, "COPILOT_OFFLINE=true"}, ph.Env...)
 	out.Unset, out.Warnings = ph.Unset, ph.Warnings
+	if r.Note != "" {
+		out.Warnings = append(out.Warnings, r.Note)
+	}
 	out.Argv = append([]string{"--model", ref}, copilotPinArgv()...)
 	out.Args = rest
 	return out, nil

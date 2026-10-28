@@ -16,7 +16,9 @@ func ep(id string) Endpoint {
 }
 
 func dbx() *providers.Provider {
-	return &providers.Provider{Preset: providers.PresetDatabricks, Headers: map[string]string{"X-H": "v"}}
+	h := "https://h.example.com"
+	return &providers.Provider{Preset: providers.PresetDatabricks, Headers: map[string]string{"X-H": "v"}, Routes: map[string]string{
+		providers.ProtocolAnthropic: h, providers.ProtocolOpenAI: h + "/serving-endpoints", providers.ProtocolResponses: h + "/serving-endpoints"}}
 }
 
 type rendered struct {

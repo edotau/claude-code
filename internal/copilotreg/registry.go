@@ -3,6 +3,7 @@ package copilotreg
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/edotau/claude-code/internal/copilotsdk"
@@ -38,6 +39,7 @@ type Registry struct {
 	Profile   string
 	Providers []Provider
 	Models    []Model
+	Note      string // one line naming the endpoints dropped because the profile has no route for them; "" when none
 }
 
 // Ref is the CLI's selection string for m.
@@ -56,10 +58,12 @@ func Build(profile string, p *providers.Provider, eps []Endpoint, routerBase str
 	r := Registry{Profile: profile}
 	base := strings.TrimRight(routerBase, "/") + "/p/" + profile
 	seen, used := map[string]bool{}, map[string]bool{}
+	var dropped []string
 	for _, ep := range eps {
-		wire, canonical := NonClaudeWire(p, providers.ProtocolAnthropic, ep.ID, true)
-		if wire == "" {
-			wire, canonical = providers.ProtocolAnthropic, canonicalOf(ep.ID)
+		wire, canonical, ok, _ := EndpointWire(p, ep.ID)
+		if !ok {
+			dropped = append(dropped, ep.ID)
+			continue
 		}
 		if seen[canonical] {
 			continue
@@ -76,6 +80,10 @@ func Build(profile string, p *providers.Provider, eps []Endpoint, routerBase str
 			Tested: ep.Tested, MaxPromptTokens: PromptTokens(window, output), MaxContextWindowTokens: window,
 			MaxOutputTokens: output,
 		})
+	}
+	if len(dropped) > 0 {
+		r.Note = fmt.Sprintf("copilot: %s has no route for %d endpoint(s), left out of the model menu: %s", profile, len(dropped),
+			strings.Join(dropped, ", "))
 	}
 	return r
 }

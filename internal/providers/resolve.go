@@ -97,31 +97,19 @@ func (s Selection) ClientModel(slot string) string {
 	return t.ClientModel()
 }
 
-// NeedsRouter reports whether the session must go through the loopback router: a slot crosses
-// providers, the provider has no Anthropic route (needs translation), or a failover ladder is configured.
+// NeedsRouter reports whether the session must go through the loopback router: a slot crosses providers, a model
+// rides a wire other than anthropic (AnthropicRoute), the provider has no Anthropic route, or a failover ladder is set.
 func (s Selection) NeedsRouter(reg *Registry) bool {
 	if _, ok := s.Provider.Route(ProtocolAnthropic); !ok {
 		return true
 	}
 	for _, t := range s.Slots {
-		if t.Provider != s.Provider || PrefersOpenAI(t.Provider, t.Model) {
+		if _, ok := AnthropicRoute(t.Provider, t.Model); t.Provider != s.Provider || !ok {
 			return true
 		}
 	}
 	// A login session stays direct even with a fallback ladder: a loopback ANTHROPIC_BASE_URL disables Remote Control.
 	return len(reg.Fallback) > 0 && s.Provider.Auth.Type != AuthCLI
-}
-
-// PrefersOpenAI reports whether model must use p's OpenAI route even though p has an Anthropic one:
-// a non-Claude model on a provider serving both (one gateway, two paths) needs the router's translation.
-func PrefersOpenAI(p *Provider, model string) bool {
-	if _, ok := p.Route(ProtocolAnthropic); !ok {
-		return false
-	}
-	if _, ok := p.Route(ProtocolOpenAI); !ok {
-		return false
-	}
-	return models.FamilyKind(model) != models.FamilyClaude
 }
 
 // FailoverTarget maps a request that failed on from/model to the equivalent model on next: same slot

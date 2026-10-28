@@ -309,6 +309,11 @@ func sessionProviders(sel providers.Selection) []*providers.Provider {
 // returns the apiKeyHelper command for the overlay.
 func configureRouting(ctx context.Context, o Options, reg *providers.Registry, sel providers.Selection, p *providers.Provider, passthrough bool, self string, plan *Plan) (string, error) {
 	helper := shellQuote(helperBin(self)) + " token --profile " + shellQuote(p.Name)
+	for _, t := range sel.Slots {
+		if err := providers.ClaudeCodeError(t.Provider, t.Model); err != nil {
+			return "", err
+		}
+	}
 	if sel.NeedsRouter(reg) {
 		for _, t := range sel.Slots {
 			if t.Provider.Auth.Method() == providers.AuthCLI && !passthrough {

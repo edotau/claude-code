@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -36,7 +37,7 @@ func claudeOneShot(ctx context.Context, req Request, stream io.Writer) (res Resu
 	}
 	var answer strings.Builder
 	w := io.MultiWriter(stream, &answer)
-	if base, ok := p.Route(providers.ProtocolAnthropic); ok {
+	if base, ok := providers.AnthropicRoute(p, t.Model); ok {
 		out, err := anthropicsdk.Stream(ctx, anthropicsdk.Request{
 			BaseURL: base, Model: t.Model, Prompt: prompt, Effort: req.Effort, MaxTokens: apiMaxTokens,
 			Authorize: func(ctx context.Context, h http.Header) error { return providers.Authorize(ctx, p, h) },
@@ -48,10 +49,13 @@ func claudeOneShot(ctx context.Context, req Request, stream io.Writer) (res Resu
 		logAPIRun(ctx, res, err)
 		return res, true, err
 	}
-	base, found := p.Route(providers.ProtocolOpenAI)
-	if !found {
-		return res, true, &Error{Kind: KindFatal, Agent: "claude", Err: fmt.Errorf("profile %s has neither an anthropic nor an openai route", p.Name)}
+	if err := providers.ClaudeCodeError(p, t.Model); err != nil { // Responses-only: the one-shot has no such wire
+		return res, true, &Error{Kind: KindFatal, Agent: "claude", Err: err}
 	}
+	if _, servable, why := providers.WireFor(p, t.Model); !servable {
+		return res, true, &Error{Kind: KindFatal, Agent: "claude", Err: errors.New(why)}
+	}
+	base, _ := p.Route(providers.ProtocolOpenAI)
 	usage, model, err := chatStream(ctx, base, p, t.Model, prompt, req.Effort, w)
 	if model != "" {
 		res.Model = model
