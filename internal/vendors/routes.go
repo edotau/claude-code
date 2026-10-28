@@ -61,6 +61,15 @@ func describeOpenCodeRoute(reg *providers.Registry) RouteInfo {
 // describeCopilotRoute: 1) copilot's GitHub login on a workable pin; 2) the Databricks fallback; 3) BYOK with the
 // registry anthropic provider's key; 4) none.
 func describeCopilotRoute(reg *providers.Registry) RouteInfo {
+	if pin := providers.Pin(providers.PinCopilotProfile); reg != nil && databricksUsable(reg.Providers[pin]) { // a pinned Databricks profile is the route
+		p := reg.Providers[pin]
+		model := p.Models[models.Opus]
+		if m := providers.Pin(providers.PinCopilotModel); m != "" {
+			model = p.WireModel(models.Strip1M(m))
+		}
+		return RouteInfo{Agent: "copilot", Leg: LegDatabricks, Provider: p.Name, Model: model,
+			Reason: "copilot: pinned databricks profile " + p.Name, OK: true}
+	}
 	detail, workable := copilotHeadroom(context.Background(), CopilotPinLogin())
 	if a, ok := copilotAuthSource(); ok && workable {
 		if p, ok := loginProvider(reg, "github", "copilot"); ok {

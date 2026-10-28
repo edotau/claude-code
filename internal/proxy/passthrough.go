@@ -5,6 +5,7 @@ import (
 	"cmp"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/translate"
 )
 
 // noForward are inbound credentials and transport headers; egress auth is re-added by send.
@@ -78,6 +80,9 @@ func (r *Router) passthrough(w http.ResponseWriter, in *http.Request, provider, 
 			return
 		}
 		model = passthroughModel(body)
+		if dialect == providers.ProtocolOpenAI && strings.HasSuffix(rest, "chat/completions") && translate.IsGeminiModel(model) {
+			body = fixGeminiChat(body)
+		}
 	}
 	target := route + "/" + rest
 	if in.URL.RawQuery != "" {
@@ -92,11 +97,116 @@ func (r *Router) passthrough(w http.ResponseWriter, in *http.Request, provider, 
 		}
 	})
 	if err != nil {
+		var failure *fallbackError
+		if errors.As(err, &failure) && failure.auth {
+			writeError(sw, http.StatusUnauthorized, fmt.Sprintf("proxy: %s: authentication failed; run `claude-code databricks login --profile %s`", p.Name, p.Name))
+			return
+		}
 		writeError(sw, http.StatusBadGateway, "proxy: "+p.Name+": "+err.Error())
 		return
 	}
 	extra = passthroughDiag(resp)
+	var tail *tailBuffer
+	if metered(p) && in.Method == http.MethodPost && resp.StatusCode == http.StatusOK && dialect != providers.ProtocolGemini {
+		tail = &tailBuffer{}
+		resp.Body = struct {
+			io.Reader
+			io.Closer
+		}{io.TeeReader(resp.Body, tail), resp.Body}
+	}
 	relay(sw, resp)
+	if tail != nil {
+		logLedgerUsage(in, p, model, scrapeUsage(tail.buf))
+	}
+}
+
+// fixGeminiChat drops stream_options and fills a missing thoughtSignature on assistant tool_calls; else body as is.
+func fixGeminiChat(body []byte) []byte {
+	var top map[string]json.RawMessage
+	if json.Unmarshal(body, &top) != nil {
+		return body
+	}
+	changed := false
+	if _, ok := top["stream_options"]; ok {
+		delete(top, "stream_options")
+		changed = true
+	}
+	var msgs []map[string]json.RawMessage
+	if json.Unmarshal(top["messages"], &msgs) == nil {
+		for _, m := range msgs {
+			var calls []map[string]json.RawMessage
+			if json.Unmarshal(m["tool_calls"], &calls) != nil {
+				continue
+			}
+			touched := false
+			for _, c := range calls {
+				if c == nil { // a null entry: nothing to sign, and writing to it would panic
+					continue
+				}
+				_, sig := c["thoughtSignature"]
+				_, extra := c["extra_content"]
+				if !sig && !extra {
+					c["thoughtSignature"] = json.RawMessage(`"` + translate.SkipThoughtSignature + `"`)
+					touched = true
+				}
+			}
+			if touched {
+				m["tool_calls"], _ = json.Marshal(calls)
+				changed = true
+			}
+		}
+		if changed {
+			top["messages"], _ = json.Marshal(msgs)
+		}
+	}
+	if !changed {
+		return body
+	}
+	out, err := json.Marshal(top)
+	if err != nil {
+		return body
+	}
+	return out
+}
+
+// tailBuffer keeps the last tailCap bytes written, so a stream's closing usage chunk survives without buffering it all.
+type tailBuffer struct{ buf []byte }
+
+const tailCap = 256 << 10
+
+func (t *tailBuffer) Write(p []byte) (int, error) {
+	t.buf = append(t.buf, p...)
+	if len(t.buf) > 2*tailCap {
+		t.buf = append([]byte(nil), t.buf[len(t.buf)-tailCap:]...)
+	}
+	return len(p), nil
+}
+
+// scrapeUsage reads the last usage object in either dialect: chat prompt/completion or responses input/output tokens.
+func scrapeUsage(body []byte) ledgerUsage {
+	if u := scrapeChatUsage(body); u.input != 0 || u.output != 0 || u.cacheRead != 0 {
+		return u
+	}
+	matches := usageBlockRE.FindAll(body, -1)
+	if len(matches) == 0 {
+		return ledgerUsage{}
+	}
+	var raw struct {
+		Input   int `json:"input_tokens"`
+		Output  int `json:"output_tokens"`
+		Details *struct {
+			Cached int `json:"cached_tokens"`
+		} `json:"input_tokens_details"`
+	}
+	if json.Unmarshal(wrapUsage(matches[len(matches)-1]), &raw) != nil {
+		return ledgerUsage{}
+	}
+	u := ledgerUsage{input: raw.Input, output: raw.Output}
+	if raw.Details != nil && raw.Details.Cached > 0 && raw.Details.Cached <= u.input {
+		u.cacheRead = raw.Details.Cached
+		u.input -= u.cacheRead
+	}
+	return u
 }
 
 // attemptsKey carries a passthrough's upstream-attempt counter into sendMethod (auth refresh replays count).

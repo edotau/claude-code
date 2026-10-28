@@ -13,9 +13,9 @@ import (
 type streamChunk struct {
 	Choices []struct {
 		Delta struct {
-			Content   string       `json:"content"`
-			Refusal   string       `json:"refusal"`
-			ToolCalls []inToolCall `json:"tool_calls"`
+			Content   json.RawMessage `json:"content"`
+			Refusal   string          `json:"refusal"`
+			ToolCalls []inToolCall    `json:"tool_calls"`
 		} `json:"delta"`
 		FinishReason string `json:"finish_reason"`
 	} `json:"choices"`
@@ -187,7 +187,7 @@ func (s *streamer) handle(payload []byte) (bool, error) {
 		s.usage = c.Usage
 	}
 	for _, ch := range c.Choices[:min(len(c.Choices), 1)] {
-		if text := ch.Delta.Content + ch.Delta.Refusal; text != "" {
+		if text := contentText(ch.Delta.Content) + ch.Delta.Refusal; text != "" {
 			if err := s.text(text); err != nil {
 				return false, err
 			}
