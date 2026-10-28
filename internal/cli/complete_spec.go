@@ -108,7 +108,6 @@ func buildSpecTree() map[string]*compNode {
 			"export":        {args: []func() []string{secretNames}, flags: []flagInfo{flag("out")}},
 			"edit":          {},
 			"rotate-secret": {flags: []flagInfo{boolFlag("force")}},
-			"migrate":       {flags: []flagInfo{boolFlag("apply"), formatFlag()}},
 		}},
 		"databricks": {sub: map[string]*compNode{
 			"check": {flags: []flagInfo{boolFlag("all"), valuedFlag("profile", providerNames), boolFlag("1m"), flag("model")}},

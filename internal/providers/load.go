@@ -68,9 +68,6 @@ func Load() (*Registry, error) {
 	return Parse(defaultsJSON, doc)
 }
 
-// ParseOverlay merges the embedded defaults with overlay (nil = the defaults alone) without reading the vault.
-func ParseOverlay(overlay []byte) (*Registry, error) { return Parse(defaultsJSON, overlay) }
-
 // Validate checks an overlay merged with the embedded defaults.
 func Validate(overlay []byte) error {
 	_, err := Parse(defaultsJSON, overlay)
