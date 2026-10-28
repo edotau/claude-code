@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -208,8 +209,20 @@ func TestClearOnSuccessLiftsOwnMark(t *testing.T) {
 	if resp := post(t, srv.URL+"/p/up1/v1/messages", `{"model":"m1"}`, nil); resp.StatusCode != 200 {
 		t.Fatalf("status %d after recovery", resp.StatusCode)
 	}
-	if _, ok := g.marked("up1"); ok || len(g.cleared) != 1 || g.cleared[0] != "provider:up1" {
-		t.Fatalf("mark not cleared on success: marks=%v cleared=%v", g.marks, g.cleared)
+	// the handler clears after streaming the reply, so the client can return first: wait for it
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		_, ok := g.marked("up1")
+		g.mu.Lock()
+		cleared := slices.Clone(g.cleared)
+		g.mu.Unlock()
+		if !ok && len(cleared) == 1 && cleared[0] == "provider:up1" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("mark not cleared on success: cleared=%v", cleared)
+		}
+		time.Sleep(5 * time.Millisecond)
 	}
 }
 
