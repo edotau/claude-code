@@ -70,7 +70,7 @@ type Transport struct {
 
 // Caps declares which Request fields an agent honors; Prompt, Timeout and Attach are always honored
 // (every agent has at least an inline-block fallback for Attach).
-type Caps struct{ Model, Provider, Effort, WorkDir, SessionID, Tools, NoTools, Autonomous, Memory, Isolation bool }
+type Caps struct{ Model, Provider, Effort, WorkDir, SessionID, Tools, NoTools, Autonomous, Memory, NoPersist, SafeMode, DebugFile bool }
 
 // Agent is one agent backend.
 type Runner interface {
@@ -115,9 +115,9 @@ func applyCaps(c Caps, req Request) (Request, []string) {
 	drop(c.NoTools, req.NoTools, "--no-tools", func() { req.NoTools = false })
 	drop(c.Autonomous, req.Autonomous, "--autonomous", func() { req.Autonomous = false })
 	drop(c.Memory, req.EnableMemory, "--enable-memory", func() { req.EnableMemory = false })
-	drop(c.Isolation, req.NoPersist, "--no-persist", func() { req.NoPersist = false })
-	drop(c.Isolation, req.SafeMode, "--safe-mode", func() { req.SafeMode = false })
-	drop(c.Isolation, req.DebugFile != "", "--debug-file="+req.DebugFile, func() { req.DebugFile = "" })
+	drop(c.NoPersist, req.NoPersist, "--no-persist", func() { req.NoPersist = false })
+	drop(c.SafeMode, req.SafeMode, "--safe-mode", func() { req.SafeMode = false })
+	drop(c.DebugFile, req.DebugFile != "", "--debug-file="+req.DebugFile, func() { req.DebugFile = "" })
 	return req, dropped
 }
 
