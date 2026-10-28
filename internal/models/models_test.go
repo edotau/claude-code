@@ -14,6 +14,8 @@ func TestParseAndKnobs(t *testing.T) {
 		{"claude-haiku-4-5-20251001", "haiku", "claude-haiku-4-5-20251001", "31999"},
 		{"claude-sonnet-4-20250514", "sonnet", "claude-sonnet-4-20250514", "31999"},
 		{"anthropic/claude-opus-4-8", "opus", "anthropic/claude-opus-4-8[1m]", ""},
+		{"databricks-claude-haiku-5-5", "haiku", "databricks-claude-haiku-5-5", "31999"},
+		{"databricks-claude-sonnet-4-6", "sonnet", "databricks-claude-sonnet-4-6[1m]", "31999"},
 		{"gpt-5", "", "gpt-5", ""},
 	}
 	for _, c := range cases {
