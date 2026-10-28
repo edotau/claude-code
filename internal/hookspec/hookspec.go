@@ -14,6 +14,12 @@ const HookBin = "$HOME/.claude/bin/claude-code"
 // AgentEnv identifies the agent invoking a hook with a shared payload contract.
 const AgentEnv = "HARNESS_HOOK_AGENT"
 
+// CodexProfileEnv identifies the inherited provider for native Codex child routing.
+const CodexProfileEnv = "HARNESS_CODEX_PROFILE"
+
+// CodexCatalogEnv identifies the validated catalog supplied to the inherited Codex session.
+const CodexCatalogEnv = "HARNESS_CODEX_CATALOG"
+
 // Claude Code lifecycle event names.
 const (
 	EventPreToolUse         = "PreToolUse"
@@ -38,6 +44,7 @@ type Spec struct {
 	Timeout       int      // seconds; always rendered
 	Gate          bool     // preserve blocking exits; other Copilot hooks are advisory
 	Vendors       []string // explicit allowlist for non-Claude sessions
+	VendorOnly    bool     // omitted from Claude's hook chain
 	Async         bool     // runs in the background: never delays the tool call (only for hooks that cannot block)
 	StatusMessage string   // spinner text Claude Code shows while the hook runs
 }
@@ -60,6 +67,10 @@ var Registry = []Spec{
 	{Name: "docs-placement", Event: EventPreToolUse, Matcher: "Write|Edit", Timeout: 5, StatusMessage: "Checking doc placement", Gate: true, Vendors: []string{"codex", "copilot"}},
 	// An unset dispatch model is filled from the local prompt-complexity classifier (low→haiku, else sonnet).
 	{Name: "agent-effort", Event: EventPreToolUse, Matcher: "Agent|Task", Timeout: 5},
+	{Name: "codex-agent-route", Event: EventPreToolUse, Matcher: ".*spawn_agent$", Timeout: 5, Vendors: []string{"codex"}, VendorOnly: true},
+	{Name: "codex-routing-result", Event: EventPostToolUse, Matcher: ".*spawn_agent$", Timeout: 5, Vendors: []string{"codex"}, VendorOnly: true},
+	{Name: "codex-routing-start", Event: EventSessionStart, Timeout: 5, Vendors: []string{"codex"}, VendorOnly: true},
+	{Name: "codex-subagent-start", Event: EventSubagentStart, Timeout: 5, Vendors: []string{"codex"}, VendorOnly: true},
 	// An inline Workflow script's unpinned agent() leaves are pinned to sonnet (else they inherit the session model).
 	{Name: "workflow-lint", Event: EventPreToolUse, Matcher: "Workflow", Timeout: 5},
 	// Machine-wide subagent cap: pre counts and blocks, tag binds the marker to the agent id, post retires it.
@@ -107,6 +118,9 @@ type Group struct {
 func Events() map[string][]Group {
 	block := map[string][]Group{}
 	for _, s := range Registry {
+		if s.VendorOnly {
+			continue
+		}
 		groups := block[s.Event]
 		h := Hook{Type: "command", Command: s.Command(), Timeout: s.Timeout, Async: s.Async, StatusMessage: s.StatusMessage}
 		if n := len(groups); n > 0 && groups[n-1].Matcher == s.Matcher {
