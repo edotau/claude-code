@@ -58,10 +58,10 @@ type Result struct {
 	Fallback       string     `json:"fallback,omitempty"`        // set to the original agent's name when it ran instead
 	FallbackReason string     `json:"fallback_reason,omitempty"` // why the original agent was unavailable
 	Handoff        string     `json:"handoff,omitempty"`         // hand-off file written when a copilot leg hit its quota
-	Transport      *Transport `json:"transport,omitempty"`       // claude only: stream health
+	Transport      *Transport `json:"transport,omitempty"`       // stream health; fields an agent can't report stay absent
 }
 
-// Transport is the claude stream's health: what the API layer recovered from and how steady the stream was.
+// Transport is a run's stream health: attempts, retries the agent recovered from, and how steady the stream was.
 type Transport struct {
 	Attempts      int   `json:"attempts"`                 // tries the outer retry loop made
 	Retries       int   `json:"retries,omitempty"`        // api_retry events Claude recovered from
