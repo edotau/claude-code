@@ -30,6 +30,7 @@ type columnWidths struct {
 	subType    int
 	subStatus  int
 	sessStatus int
+	sessLabel  int // 0 when no session carries a registry name, keeping the bare shortID layout
 }
 
 // computeColumnWidths walks every subagent in the tree (direct and nested inside workflow runs).
@@ -40,7 +41,10 @@ func computeColumnWidths(tree *Tree) columnWidths {
 		c.subStatus = max(c.subStatus, len(sub.Status))
 	}
 	for _, s := range tree.Sessions {
-		c.sessStatus = max(c.sessStatus, len(s.Status))
+		c.sessStatus = max(c.sessStatus, len(sessionStatusText(s)))
+		if s.Name != "" {
+			c.sessLabel = max(c.sessLabel, 8, min(runeLen(s.Name), maxSessionLabel))
+		}
 		for _, sub := range s.Subagents {
 			grow(sub)
 		}
@@ -124,7 +128,8 @@ func renderSession(w io.Writer, s Session, now time.Time, cols columnWidths, wid
 	if title == "" {
 		title = "(no prompt yet)"
 	}
-	prefix := fmt.Sprintf("  %s  %-*s  %-6s  %-8s", shortID(s.ID), cols.sessStatus, s.Status, age(s.Updated, now), s.Branch)
+	prefix := fmt.Sprintf("  %s  %-*s  %-6s  %-8s", sessionLabel(s, cols.sessLabel), cols.sessStatus,
+		sessionStatusText(s), age(s.Updated, now), s.Branch)
 	fmt.Fprintln(w, fitRow(prefix, title, "", width))
 	for _, sub := range s.Subagents {
 		renderSubagent(w, sub, now, cols, width, home, s.Cwd)
@@ -132,6 +137,32 @@ func renderSession(w io.Writer, s Session, now time.Time, cols columnWidths, wid
 	for _, run := range s.Workflows {
 		renderWorkflowRun(w, run, now, cols, width, home, s.Cwd)
 	}
+}
+
+// maxSessionLabel caps the session-name column so a long registry name can't crowd out the title.
+const maxSessionLabel = 24
+
+// sessionLabel is the row's lead column: the registry name when set, else shortID, padded to width runes.
+func sessionLabel(s Session, width int) string {
+	label := shortID(s.ID)
+	if width == 0 {
+		return label
+	}
+	if s.Name != "" {
+		label = s.Name
+		if runeLen(label) > width {
+			label = string([]rune(label)[:width-1]) + "…"
+		}
+	}
+	return label + strings.Repeat(" ", width-runeLen(label))
+}
+
+// sessionStatusText shows the CLI's own idle|busy|waiting for a live session, else the transcript status.
+func sessionStatusText(s Session) string {
+	if s.Live && s.CLIStatus != "" {
+		return s.CLIStatus
+	}
+	return s.Status
 }
 
 // statusGlyph renders a Subagent.Status as a single-character marker for a --watch-sized glance.
