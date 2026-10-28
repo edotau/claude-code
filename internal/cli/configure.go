@@ -67,6 +67,7 @@ func cmdConfigure(args []string) int {
 	restore := fs.Bool("restore", false, "put agent configs back from their timestamped backups")
 	out := fs.String("out", "", "with --reset: write the render here (after a timestamped backup)")
 	agents := fs.Bool("agents", false, "with --reset: render agent configs even off the default ~/.claude")
+	noAgents := fs.Bool("no-agents", false, "with --reset: settings.json only, skip the agent configs")
 	list := fs.Bool("list", false, "with provider: list profiles and credential state")
 	all := fs.Bool("all", false, "with provider: check every profile's sign-in and log in where needed")
 	format := outfmt.Flag(fs)
@@ -116,10 +117,10 @@ func cmdConfigure(args []string) int {
 		return configureProviderList(name, *format)
 	}
 	if *reset || *restore {
-		return configureRender(*reset, *restore, section, *agent, *out, *check, *dryRun, *agents)
+		return configureRender(*reset, *restore, section, *agent, *out, *check, *dryRun, *agents, *noAgents)
 	}
-	if *out != "" || *agents {
-		return fail("configure: --out and --agents need --reset")
+	if *out != "" || *agents || *noAgents {
+		return fail("configure: --out, --agents and --no-agents need --reset")
 	}
 	return configure.Run(configure.Options{
 		Provider: *provider, Vendor: *agent, DryRun: *dryRun, Check: *check, All: *all, Profile: profile,
@@ -128,13 +129,13 @@ func cmdConfigure(args []string) int {
 }
 
 // configureRender runs --reset / --restore; the agent flag is a comma list there.
-func configureRender(reset, restore bool, section, agents, out string, check, dryRun, renderAgents bool) int {
+func configureRender(reset, restore bool, section, agents, out string, check, dryRun, renderAgents, noAgents bool) int {
 	switch {
 	case reset && restore:
 		return fail("configure: --reset and --restore are mutually exclusive")
 	case section != "":
 		return fail("configure: --reset/--restore take no page (got %q)", section)
-	case restore && (check || out != "" || renderAgents):
+	case restore && (check || out != "" || renderAgents || noAgents):
 		return fail("configure: --restore takes only --agent and --dry-run")
 	}
 	// the engine skips unknown names silently, so a typo would render nothing; reject it here
@@ -149,7 +150,10 @@ func configureRender(reset, restore bool, section, agents, out string, check, dr
 	if check && dryRun {
 		return fail("configure: --check and --dry-run are mutually exclusive")
 	}
-	return cmdReset(agents, out, check, dryRun, renderAgents)
+	if noAgents && (renderAgents || agents != "") {
+		return fail("configure: --no-agents excludes --agents and --agent")
+	}
+	return cmdReset(agents, out, check, dryRun, renderAgents, noAgents)
 }
 
 // isTTY reports whether f is a terminal (the interactive gate for prompts and login offers).

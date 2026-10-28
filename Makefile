@@ -203,7 +203,7 @@ lint-%: compile mdsmith  # (helper) one lint kind: $(LINT_WHAT) deep; CHECK=1 on
 	help) out="$$($(MAKE) --no-print-directory help | sed 's/\x1b\[[0-9;]*m//g' | awk \
 			'length>80 && substr($$0,20) ~ / / {print "over 80: " $$0} /^   / && !/^                   [^ ]/ {print "misaligned continuation: " $$0}')"; \
 		if [ -n "$$out" ]; then echo "help rows break the wrap rule:"; echo "$$out"; exit 1; fi ;; \
-	settings) CLAUDE_CONFIG_DIR=$(CURDIR) $(BIN) configure --reset --check ;; \
+	settings) CLAUDE_CONFIG_DIR=$(CURDIR) $(BIN) configure --reset --check --no-agents ;; \
 	docs) $(MDSMITH) $(if $(filter 1,$(CHECK)),check,fix); \
 		live="$${CLAUDE_CONFIG_DIR:-$$HOME/.claude}"; \
 		if [ "$$(realpath "$(CURDIR)" 2>/dev/null)" = "$$(realpath "$$live" 2>/dev/null)" ]; then \

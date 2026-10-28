@@ -189,7 +189,7 @@ func cmdHook(args []string) int {
 }
 
 // cmdReset is `configure --reset`: render settings.json and the agent configs from the templates.
-func cmdReset(agents, out string, check, dryRun, vendors bool) int {
+func cmdReset(agents, out string, check, dryRun, vendors, noAgents bool) int {
 	if out == "" && !check && !dryRun { // bare --reset writes the live settings.json
 		out = launch.SettingsFile()
 	}
@@ -197,9 +197,12 @@ func cmdReset(agents, out string, check, dryRun, vendors bool) int {
 	if err != nil {
 		return fail("%v", err)
 	}
-	prepared, drift, err := renderVendorConfigs(agents, out, check, dryRun, vendors)
-	if err != nil {
-		return fail("%v", err)
+	var prepared *generate.Prepared
+	var drift bool
+	if !noAgents { // --no-agents: lint checks the repo's settings, not this machine's agent configs
+		if prepared, drift, err = renderVendorConfigs(agents, out, check, dryRun, vendors); err != nil {
+			return fail("%v", err)
+		}
 	}
 	snapshotSettingsHistory(out, dryRun, check)
 	outDrift, err := writeSettingsOutput(out, check, dryRun, data)
@@ -210,8 +213,10 @@ func cmdReset(agents, out string, check, dryRun, vendors bool) int {
 	if err != nil {
 		return fail("%v", err)
 	}
-	if err := prepared.Apply(); err != nil {
-		return fail("%v", err)
+	if prepared != nil {
+		if err := prepared.Apply(); err != nil {
+			return fail("%v", err)
+		}
 	}
 	if check && (drift || outDrift || winDrift) {
 		return 1
