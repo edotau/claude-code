@@ -44,7 +44,7 @@ func statusOne(t Tool) Status {
 	s.Path = path
 	s.LocalBin = strings.HasPrefix(path, localBinDir()+string(filepath.Separator))
 	s.NPMGlobal = npmPrefixFromBinary(path) != ""
-	s.Version = firstVersionLine(path)
+	s.Version = versionLine(path)
 	return s
 }
 
