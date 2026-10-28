@@ -30,6 +30,7 @@ func TestMain(m *testing.M) {
 	os.Setenv("HARNESS_VAULT_KEY", base64.StdEncoding.EncodeToString(make([]byte, 32)))
 	mintSession = func(context.Context, string, int) (string, error) { return "", errors.New("session mint is stubbed") }
 	revokeSession = func(context.Context, string) error { return nil }
+	copilotGOOS = "linux" // registry tests run on the macOS runner too; the darwin refusal test sets darwin itself
 	ensureRouter = func(context.Context) (string, error) { return testRouterBase, nil }
 	routerSecret = func() (string, error) { return testRouterSecret, nil }
 	code := m.Run()
