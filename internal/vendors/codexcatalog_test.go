@@ -2,6 +2,7 @@ package vendors
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"maps"
 	"os"
@@ -10,7 +11,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/hookspec"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/providers"
 )
 
 func TestCodexCatalogArgsDatabricks(t *testing.T) {
@@ -187,6 +190,46 @@ esac
 		t.Error("failed validation changed the previous catalog")
 	}
 	checkCalls([]string{"version", "bundled", "validation", "version", "version", "bundled", "validation"})
+
+	if err := os.Remove(filepath.Join(paths.ConfigDir(), "reject")); err != nil {
+		t.Fatal(err)
+	}
+	profile.Auth.Type = providers.AuthNone
+	target := providers.Target{Provider: profile, Model: "databricks-gpt-6-1-sol"}
+	checkLaunch := func(wantCatalog string) {
+		t.Helper()
+		env, argv, err := Configure(context.Background(), "codex", target, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		markers := envMap(env)
+		if markers[hookspec.CodexProfileEnv] != profile.Name {
+			t.Errorf("inherited profile = %q, want %q", markers[hookspec.CodexProfileEnv], profile.Name)
+		}
+		catalog, present := markers[hookspec.CodexCatalogEnv]
+		if !present || catalog != wantCatalog {
+			t.Errorf("inherited catalog = %q (present %v), want %q", catalog, present, wantCatalog)
+		}
+		var catalogArgs []string
+		for _, arg := range argv {
+			if strings.HasPrefix(arg, "model_catalog_json=") {
+				catalogArgs = append(catalogArgs, arg)
+			}
+		}
+		if wantCatalog == "" {
+			if len(catalogArgs) != 0 {
+				t.Errorf("failed catalog leaked into argv: %q", catalogArgs)
+			}
+		} else if !reflect.DeepEqual(catalogArgs, []string{"model_catalog_json=" + tomlStr(wantCatalog)}) {
+			t.Errorf("catalog marker disagrees with CLI override: marker %q, args %q", catalog, catalogArgs)
+		}
+	}
+	checkLaunch(path)
+	if err := os.Remove(keyPath); err != nil {
+		t.Fatal(err)
+	}
+	write(filepath.Join(paths.ConfigDir(), "reject"), "", 0o600)
+	checkLaunch("")
 }
 
 // TestCodexCatalogArgsSkipsOtherProviders: a non-Databricks provider gets no catalog flag.

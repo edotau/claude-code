@@ -64,6 +64,7 @@ func DoctorChecks() (checks []Check, ok bool) {
 	}
 	bin, err := ClaudeBinary()
 	check(err == nil, true, "claude binary", orErr(bin, err))
+	checks = append(checks, codexConfigChecks()...)
 	reg, err := providers.Load()
 	check(err == nil, true, "provider registry", orErr("vault overlay/providers", err))
 	if reg != nil {

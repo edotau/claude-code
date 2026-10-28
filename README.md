@@ -59,6 +59,8 @@ claude-code theme vscode [--check|--dry-run]             # merge VS Code setting
   Codex/Copilot hooks. Keys are referenced by env var, exported only by a routed launch. opencode's own
   `~/.config/opencode/` is never written (its model/MCP/theme come from a tracked overlay, `OPENCODE_CONFIG` /
   `OPENCODE_TUI_CONFIG`, injected at launch — `internal/vendors/template/`).
+- The versioned `codex-settings.toml` convenience symlink points at `~/.codex/config.toml` when installed in
+  `~/.claude`; configuration contents, authentication, and sessions stay local.
 - On a terminal, `configure --reset` prompts before overwriting hand-edited lines it would otherwise lose; a
   non-interactive run (launch, `configure`, `make install`) writes and warns instead. Each overwrite keeps 5
   timestamped backups; `configure --restore` steps an agent CLI file back one version at a time.
@@ -271,6 +273,21 @@ claude-code gateway proxy [--start|--stop|--status]   # bare = --status
 claude-code gateway proxy --serve --port 18765        # foreground
 claude-code gateway router [--model M] [--task "<text>"]   # agent + model pick
 ```
+
+Native Codex `spawn_agent` calls use the existing Codex routing cells when launched through a Databricks
+profile with a validated model catalog. Only explicitly fresh children (`fork_turns="none"` or
+`fork_context=false`) with no model/effort pin or custom agent type qualify. The child keeps its inherited
+provider; the selected model must support Responses and be listed in that session's catalog. Exact provider
+model IDs and all other spawn arguments are preserved.
+
+Codex-only hooks record session starts, routing decisions, spawn results, and child models under
+`state/harness/codex/routing-<session-hash>.jsonl` (0600), without prompts or raw payloads. A decision is
+verified only when the spawn result supplies an agent ID that joins it to a child-start event; otherwise
+`matches_router_decision` stays `null`. Codex versions returning only a task name cannot verify the match.
+
+`claude-code doctor` reports machine Codex configuration and the user config under `CODEX_HOME` (default
+`~/.codex`). These checks inspect file metadata only: machine policy presence leaves the effective route
+unverified. Config generation also respects `CODEX_HOME`.
 
 ## Tailscale
 

@@ -16,7 +16,7 @@ var vendorEvents = map[string]string{
 func CodexJSON() ([]byte, error) {
 	events := map[string][]Group{}
 	for _, s := range Registry {
-		if !slices.Contains(s.Vendors, "codex") || vendorEvents[s.Event] == "" {
+		if !slices.Contains(s.Vendors, "codex") {
 			continue
 		}
 		h := Hook{Type: "command", Command: AgentEnv + "=codex " + s.Command(), Timeout: s.Timeout, Async: s.Async, StatusMessage: s.StatusMessage}

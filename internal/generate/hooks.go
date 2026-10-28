@@ -358,6 +358,7 @@ func codexTrustEntries(path string, mergedHooks []byte) (map[string]string, erro
 	events := map[string]string{
 		hookspec.EventPreToolUse: "pre_tool_use", hookspec.EventPostToolUse: "post_tool_use",
 		hookspec.EventUserPromptSubmit: "user_prompt_submit",
+		hookspec.EventSessionStart:     "session_start", hookspec.EventSubagentStart: "subagent_start",
 	}
 	path = codexHookSourcePath(path)
 	entries := map[string]string{}

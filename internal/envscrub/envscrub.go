@@ -21,6 +21,7 @@ var Deny = []string{
 	// outlive a parent shell (the launcher stamps its own after the scrub). Vendor-read *_MODEL names stay.
 	"CLAUDE_PROFILE", "CLAUDE_MODEL", "CLAUDE_OPUS_MODEL", "CLAUDE_SONNET_MODEL", "CLAUDE_HAIKU_MODEL", "CLAUDE_FABLE_MODEL",
 	"COPILOT_PROFILE", "CODEX_PROFILE", "GEMINI_PROFILE", "OPENCODE_PROFILE",
+	"HARNESS_CODEX_PROFILE", "HARNESS_CODEX_CATALOG",
 }
 
 // KeepEnvVar opts bare shims back into an inherited name; their argv belongs to the vendor, not the harness.

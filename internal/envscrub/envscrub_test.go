@@ -101,7 +101,8 @@ func TestScrubVendorHonoursKeep(t *testing.T) {
 // Stale session marker and vault-only pins are dropped; vendor-read *_MODEL names pass through.
 func TestScrubPinNames(t *testing.T) {
 	drop := []string{"CLAUDE_PROFILE", "CLAUDE_MODEL", "CLAUDE_OPUS_MODEL", "CLAUDE_SONNET_MODEL", "CLAUDE_HAIKU_MODEL",
-		"CLAUDE_FABLE_MODEL", "COPILOT_PROFILE", "CODEX_PROFILE", "GEMINI_PROFILE", "OPENCODE_PROFILE"}
+		"CLAUDE_FABLE_MODEL", "COPILOT_PROFILE", "CODEX_PROFILE", "GEMINI_PROFILE", "OPENCODE_PROFILE",
+		"HARNESS_CODEX_PROFILE", "HARNESS_CODEX_CATALOG"}
 	keep := []string{"COPILOT_MODEL", "GEMINI_MODEL", "CODEX_MODEL", "OPENCODE_MODEL", "CLAUDE_CODE_SUBAGENT_MODEL", "CLAUDE_CONFIG_DIR"}
 	var environ []string
 	for _, k := range append(slices.Clone(drop), keep...) {
