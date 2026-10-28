@@ -29,7 +29,8 @@ type Record struct {
 	Status         string    `json:"status"` // running | ok | error
 	Error          string    `json:"error,omitempty"`
 	Provider       string    `json:"provider,omitempty"`
-	Model          string    `json:"model,omitempty"`
+	Model          string    `json:"model,omitempty"`         // as the runner reported it; may be empty
+	Invoked        string    `json:"invoked_model,omitempty"` // the model the last hop was asked to run; Request keeps the original
 	SessionID      string    `json:"session_id,omitempty"`
 	Duration       string    `json:"duration,omitempty"`
 	Fallback       string    `json:"fallback,omitempty"` // the original runner's name, when it ran instead
@@ -87,6 +88,7 @@ func (r Record) Save() error {
 // Finish records the outcome of the run.
 func (r *Record) Finish(res Result, err error, took time.Duration) {
 	r.Status, r.Provider, r.Model, r.SessionID = "ok", res.Provider, res.Model, res.SessionID
+	r.Invoked = res.Invoked
 	r.Fallback, r.FallbackReason = res.Fallback, res.FallbackReason
 	if res.Fallback != "" {
 		r.RanAs = res.Agent

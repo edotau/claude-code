@@ -1,7 +1,9 @@
 package agent
 
 import (
+	"context"
 	"encoding/json"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -307,5 +309,41 @@ func TestFreshBackgroundRecordReadsBackAlive(t *testing.T) {
 	}
 	if got.Status != "running" || !got.Alive() {
 		t.Errorf("read back status=%q alive=%v, want running/true", got.Status, got.Alive())
+	}
+}
+
+// The record keeps the original request, and the model a fallback hop was asked to run survives Finish even when
+// the runner reports no model; the reported Model stays empty rather than echoing the invocation.
+func TestRecordKeepsRequestAndInvokedModel(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("HOME", t.TempDir())
+	first := &pinFallbackRunner{name: "codex", err: &Error{Kind: KindQuota, Agent: "codex", Err: io.EOF}}
+	second := &pinFallbackRunner{name: "claude", res: Result{Answer: "ok"}}
+	chain := Chain{Want: "codex", Legs: []Leg{
+		{Agent: first, Model: "prof:gpt-6-astra"},
+		{Agent: second, Model: "prof:claude-sonnet-5-5"},
+	}}
+	req := Request{Prompt: "p", Model: "gpt-6-astra"}
+	rec := NewRecord("codex", req, time.Date(2026, 10, 28, 1, 0, 0, 0, time.UTC))
+	res, err := RunWithFallback(context.Background(), chain, req, io.Discard, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec.Finish(res, err, time.Second)
+	if err := rec.Save(); err != nil {
+		t.Fatal(err)
+	}
+	got, err := LoadRecord(rec.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Request.Model != "gpt-6-astra" {
+		t.Errorf("request model = %q, the retry source must stay the original", got.Request.Model)
+	}
+	if got.Invoked != "prof:claude-sonnet-5-5" || got.RanAs != "claude" {
+		t.Errorf("invoked %q ran_as %q, want the fallback hop's model", got.Invoked, got.RanAs)
+	}
+	if got.Model != "" {
+		t.Errorf("model = %q: a runner that reported none must not be filled from the invocation", got.Model)
 	}
 }
