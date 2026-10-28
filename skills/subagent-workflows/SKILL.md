@@ -48,6 +48,8 @@ The one definition of what passes manager → leaf → manager. Agent files poin
 - A code-changing leaf also gets the forced `TASK:`/`ISSUE:` lines verbatim — action-point lines transfer only in the
   prompt.
 - `Return:` the report below. Size the model to the task (Sonnet leaf by default; raise effort before model).
+- Before a cross-session `SendMessage`, run `claude-code agents tree --running` and pick the recipient by cwd +
+  task, not by name.
 
 **Report (out)** — lead with the outcome: the verdict word for a review, the status word for a change, the findings
 for a read-only research dispatch. Verdict words come first and alone, one closed vocabulary per mode

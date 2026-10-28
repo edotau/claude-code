@@ -114,18 +114,24 @@ func targets() []target {
 			globs: func() []string { return []string{g("state", "projections", "*")} }, ageless: true, optIn: true,
 		},
 		{
+			// A dead pid's registry entry is garbage at any age; live pids and non-numeric names are kept.
+			name: "session-registry", doc: "dead sessions/<pid> registry entries (live pids kept)",
+			globs: func() []string {
+				return []string{g("sessions", "*.json"), g("sessions", "*.key")}
+			},
+			ageless: true,
+			keep:    keepLiveSession,
+		},
+		{
 			// Transcripts feed `claude --resume` and `usage`; opt-in so a bare sweep never drops a session
-			// someone meant to resume. projects/<slug>/memory (auto-memory) matches neither glob. The
-			// sessions/<pid>.json|.key registry entries are pruned too, but only for dead pids.
-			name: "sessions", doc: "projects/<slug> transcripts + dead sessions/<pid> registry entries (opt-in)",
+			// someone meant to resume. projects/<slug>/memory (auto-memory) matches neither glob.
+			name: "sessions", doc: "projects/<slug> transcripts (opt-in)",
 			globs: func() []string {
 				return []string{
 					g("projects", "*", "*.jsonl"), g("projects", "*", "????????-????-????-????-????????????"),
-					g("sessions", "*.json"), g("sessions", "*.key"),
 				}
 			},
 			optIn: true,
-			keep:  keepLiveSession,
 		},
 		{
 			name: "cli-caches", doc: "Claude Code CLI rebuildable caches/logs: cache/, image-cache/, debug/, statsig/, logs/, usage-data/, stats-cache.json, mcp-needs-auth-cache.json",
@@ -245,18 +251,10 @@ func confirmSessions(selected []target, cutoff time.Time, olderThan string, auto
 		return true
 	}
 	repos := map[string]bool{}
-	var transcripts, deadEntries int
 	for _, h := range hits {
-		dir := filepath.Base(filepath.Dir(h))
-		if dir == "sessions" {
-			deadEntries++
-			continue
-		}
-		transcripts++
-		repos[dir] = true
+		repos[filepath.Base(filepath.Dir(h))] = true
 	}
-	fmt.Fprintf(errw, "sessions: %d transcript%s, %d dead-session entr%s (%s) older\n",
-		transcripts, pluralWord(transcripts, "", "s"), deadEntries, pluralWord(deadEntries, "y", "ies"), humanBytes(size))
+	fmt.Fprintf(errw, "sessions: %d transcript%s (%s) older\n", len(hits), pluralWord(len(hits), "", "s"), humanBytes(size))
 	fmt.Fprintf(errw, "  than %s across %d repo%s\n", olderThan, len(repos), pluralWord(len(repos), "", "s"))
 	if autoYes {
 		return true

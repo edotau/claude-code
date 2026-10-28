@@ -114,11 +114,17 @@ type Session struct {
 	Tokens    Tokens        `json:"tokens"`
 	Subagents []Subagent    `json:"subagents"`
 	Workflows []WorkflowRun `json:"workflows,omitempty"`
+	Name      string        `json:"name,omitempty"`      // live registry (sessions/<pid>.json) name
+	PID       int           `json:"pid,omitempty"`       // live CLI process id
+	Live      bool          `json:"live,omitempty"`      // a live registry entry names this session
+	CLIStatus string        `json:"cliStatus,omitempty"` // registry status: idle|busy|waiting
+	Kind      string        `json:"kind,omitempty"`      // registry kind: interactive|bg
 }
 
 // Tree is the stable `agents tree --format json` schema: {sessions:[{id, project, cwd, branch,
 // title, updated, status, tokens, subagents:[{id, type, description, status, depth, tokens,
-// lastTool, updated}], workflows:[{id, name, status, updated, phases:[{name, agents:[...]}]}]}]}.
+// lastTool, updated}], workflows:[{id, name, status, updated, phases:[{name, agents:[...]}]}]}]};
+// a live session also carries name, pid, live, cliStatus, kind from ~/.claude/sessions/<pid>.json.
 type Tree struct {
 	Sessions   []Session `json:"sessions"`
 	Dispatches []Leg     `json:"dispatches,omitempty"` // --running only: live dispatch jobs machine-wide
@@ -149,10 +155,21 @@ func Build(claudeDir string, opts Options) (*Tree, error) {
 	if err != nil {
 		return nil, err
 	}
+	reg := readRegistry(claudeDir)
+	if opts.Running && opts.Session == "" {
+		have := map[string]bool{}
+		for _, f := range sessionFiles {
+			have[strings.TrimSuffix(filepath.Base(f), ".jsonl")] = true
+		}
+		sessionFiles = append(sessionFiles, liveTranscripts(claudeDir, reg, have)...)
+	}
 	tree := &Tree{}
 	for _, f := range sessionFiles {
 		s := buildSession(f, now)
-		if opts.Running && !sessionHasActivity(s) {
+		if e, ok := reg[s.ID]; ok {
+			s = applyRegistry(s, e)
+		}
+		if opts.Running && !s.Live && !sessionHasActivity(s) {
 			continue
 		}
 		if opts.Running {
@@ -490,7 +507,7 @@ func FilterIdleSessions(sessions []Session) []Session { return filterIdleSession
 func filterIdleSessions(sessions []Session) []Session {
 	var kept []Session
 	for _, s := range sessions {
-		if s.Status == statusIdle && len(s.Subagents) == 0 && len(s.Workflows) == 0 {
+		if !s.Live && s.Status == statusIdle && len(s.Subagents) == 0 && len(s.Workflows) == 0 {
 			continue
 		}
 		kept = append(kept, s)

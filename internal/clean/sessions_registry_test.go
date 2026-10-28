@@ -24,7 +24,7 @@ func seedRegistryEntry(t *testing.T, dir, name string, mtime time.Time) (jsonPat
 }
 
 // TestSessionsRegistryDeadPidOldEntryRemoved: a dead pid's registry pair, aged past --older-than,
-// is removed under --target sessions --yes.
+// is removed under --target session-registry --yes.
 func TestSessionsRegistryDeadPidOldEntryRemoved(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", dir)
@@ -36,11 +36,11 @@ func TestSessionsRegistryDeadPidOldEntryRemoved(t *testing.T) {
 	jsonPath, keyPath := seedRegistryEntry(t, dir, "4242", old)
 
 	var out, errw bytes.Buffer
-	if code := Run([]string{"--target", "sessions", "--yes"}, &out, &errw); code != 0 {
-		t.Fatalf("Run --target sessions --yes = %d, want 0: %s", code, errw.String())
+	if code := Run([]string{"--target", "session-registry", "--yes"}, &out, &errw); code != 0 {
+		t.Fatalf("Run --target session-registry --yes = %d, want 0: %s", code, errw.String())
 	}
 	if exists(t, jsonPath) || exists(t, keyPath) {
-		t.Error("dead pid's old registry entry survived --target sessions --yes")
+		t.Error("dead pid's old registry entry survived --target session-registry --yes")
 	}
 }
 
@@ -57,8 +57,8 @@ func TestSessionsRegistryAlivePidKept(t *testing.T) {
 	jsonPath, keyPath := seedRegistryEntry(t, dir, "4242", old)
 
 	var out, errw bytes.Buffer
-	if code := Run([]string{"--target", "sessions", "--yes"}, &out, &errw); code != 0 {
-		t.Fatalf("Run --target sessions --yes = %d, want 0: %s", code, errw.String())
+	if code := Run([]string{"--target", "session-registry", "--yes"}, &out, &errw); code != 0 {
+		t.Fatalf("Run --target session-registry --yes = %d, want 0: %s", code, errw.String())
 	}
 	if !exists(t, jsonPath) || !exists(t, keyPath) {
 		t.Error("alive pid's registry entry was removed")
@@ -68,17 +68,17 @@ func TestSessionsRegistryAlivePidKept(t *testing.T) {
 	pidAlive = func(int) bool { return false }
 	out.Reset()
 	errw.Reset()
-	if code := Run([]string{"--target", "sessions", "--yes"}, &out, &errw); code != 0 {
-		t.Fatalf("Run --target sessions --yes = %d, want 0: %s", code, errw.String())
+	if code := Run([]string{"--target", "session-registry", "--yes"}, &out, &errw); code != 0 {
+		t.Fatalf("Run --target session-registry --yes = %d, want 0: %s", code, errw.String())
 	}
 	if exists(t, jsonPath) || exists(t, keyPath) {
 		t.Error("inverted stub (dead) should have removed the entry — pidAlive stub has no effect")
 	}
 }
 
-// TestSessionsRegistryDeadPidRecentEntryKept: a dead pid's registry pair newer than --older-than
-// survives — the age gate still applies on top of the liveness filter.
-func TestSessionsRegistryDeadPidRecentEntryKept(t *testing.T) {
+// TestSessionsRegistryDeadPidRecentEntryRemoved: a dead pid's registry pair newer than --older-than
+// is still removed — session-registry is ageless.
+func TestSessionsRegistryDeadPidRecentEntryRemoved(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", dir)
 	oldPidAlive := pidAlive
@@ -88,11 +88,11 @@ func TestSessionsRegistryDeadPidRecentEntryKept(t *testing.T) {
 	jsonPath, keyPath := seedRegistryEntry(t, dir, "4242", time.Now())
 
 	var out, errw bytes.Buffer
-	if code := Run([]string{"--target", "sessions", "--yes"}, &out, &errw); code != 0 {
-		t.Fatalf("Run --target sessions --yes = %d, want 0: %s", code, errw.String())
+	if code := Run([]string{"--target", "session-registry", "--yes"}, &out, &errw); code != 0 {
+		t.Fatalf("Run --target session-registry --yes = %d, want 0: %s", code, errw.String())
 	}
-	if !exists(t, jsonPath) || !exists(t, keyPath) {
-		t.Error("dead pid's recent registry entry was removed despite being inside --older-than")
+	if exists(t, jsonPath) || exists(t, keyPath) {
+		t.Error("dead pid's recent registry entry survived; session-registry is ageless")
 	}
 }
 
@@ -109,32 +109,42 @@ func TestSessionsRegistryUnparsableNameKept(t *testing.T) {
 	jsonPath, keyPath := seedRegistryEntry(t, dir, "notapid", old)
 
 	var out, errw bytes.Buffer
-	if code := Run([]string{"--target", "sessions", "--yes"}, &out, &errw); code != 0 {
-		t.Fatalf("Run --target sessions --yes = %d, want 0: %s", code, errw.String())
+	if code := Run([]string{"--target", "session-registry", "--yes"}, &out, &errw); code != 0 {
+		t.Fatalf("Run --target session-registry --yes = %d, want 0: %s", code, errw.String())
 	}
 	if !exists(t, jsonPath) || !exists(t, keyPath) {
 		t.Error("unparsable registry entry name was removed; an unparsable pid prefix must be kept")
 	}
 }
 
-// TestSessionsRegistryUntouchedWithoutTargetFlag: a bare `clean` (no --target sessions) never
-// looks at the registry at all, dead pid or not.
-func TestSessionsRegistryUntouchedWithoutTargetFlag(t *testing.T) {
+// TestSessionsRegistrySplitFromSessionsTarget: bare clean prunes dead registry entries and keeps live
+// ones; --target sessions (transcripts only) leaves the registry alone.
+func TestSessionsRegistrySplitFromSessionsTarget(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", dir)
 	oldPidAlive := pidAlive
-	pidAlive = func(int) bool { return false }
+	pidAlive = func(pid int) bool { return pid == 1111 }
 	t.Cleanup(func() { pidAlive = oldPidAlive })
 
 	old := time.Now().Add(-40 * 24 * time.Hour)
-	jsonPath, keyPath := seedRegistryEntry(t, dir, "4242", old)
+	deadJSON, deadKey := seedRegistryEntry(t, dir, "4242", old)
+	liveJSON, liveKey := seedRegistryEntry(t, dir, "1111", old)
 
 	var out, errw bytes.Buffer
-	if code := Run(nil, &out, &errw); code != 0 {
-		t.Fatalf("bare Run = %d, want 0: %s", code, errw.String())
+	if code := Run([]string{"--target", "sessions", "--yes"}, &out, &errw); code != 0 {
+		t.Fatalf("Run --target sessions = %d: %s", code, errw.String())
 	}
-	if !exists(t, jsonPath) || !exists(t, keyPath) {
-		t.Error("bare clean (no --target sessions) swept the session registry; sessions is opt-in")
+	if !exists(t, deadJSON) || !exists(t, deadKey) {
+		t.Error("--target sessions removed registry files; they belong to session-registry")
+	}
+	if code := Run(nil, &out, &errw); code != 0 {
+		t.Fatalf("bare Run = %d: %s", code, errw.String())
+	}
+	if exists(t, deadJSON) || exists(t, deadKey) {
+		t.Error("bare clean left a dead pid's registry entry")
+	}
+	if !exists(t, liveJSON) || !exists(t, liveKey) {
+		t.Error("bare clean removed a live pid's registry entry")
 	}
 }
 
