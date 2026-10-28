@@ -468,7 +468,7 @@ func seedVaultListFixture(t *testing.T) {
 	vaulttest.Put(t, vault.Pins, "HARNESS_PROVIDER", "anthropic")
 	vaulttest.Put(t, vault.Env, "KEEP_ENV", "keepvalue")
 	vaulttest.Put(t, vault.Overlay, "providers",
-		`{"default":"anthropic","fallback":["one","two"],"providers":{"openai":null,"custom":{"models":{"opus":"m1"}}}}`)
+		`{"default":"anthropic","fallback":["one","two"],"providers":{"openai":null,"anthropic":{"custom":{"models":{"opus":"m1"}}}}}`)
 	vaulttest.Put(t, vault.Overlay, "agents", `{}`)
 	vaulttest.Put(t, vault.Overlay, "settings", `{"env":{"FOO":"bar"},"flag":true}`)
 	vaulttest.Put(t, vault.Meta, "key_command", `["pass","show","x"]`)
@@ -508,8 +508,8 @@ func TestVaultListTextFixtureFlattensEverySection(t *testing.T) {
 		t.Errorf("stdout = %q, want the empty AGENTS overlay hidden from a bare list", stdout)
 	}
 	for _, row := range []string{
-		"NAME KIND AUTH OPUS SONNET HAIKU OPENCODE FALLBACK",
-		"custom m1", "openai (remove…", // KIND is capped at 8 runes
+		"NAME PROVIDER AUTH OPUS",
+		"custom anthropic m1", "openai openai (removed)",
 	} {
 		if !strings.Contains(strings.Join(strings.Fields(stdout), " "), row) {
 			t.Errorf("missing provider table row %q", row)

@@ -81,7 +81,7 @@ func TestVaultListProviderAndVendorTables(t *testing.T) {
 	useVaultTest(t)
 	t.Setenv("COLUMNS", "200")
 	vaulttest.Put(t, vault.Overlay, "providers", `{
-		"providers":{"fake":{"kind":"openai","auth":{"type":"none"},"models":{"sonnet":"fake-sonnet"}}},
+		"providers":{"openai":{"fake":{"auth":{"type":"none"},"models":{"sonnet":"fake-sonnet"}}}},
 		"agentPlans":{"copilot":[{"tier":"standard","id":"fake-plan"}]},
 		"routing":{"opencode":{"ladder":["one","two"]}}}`)
 	vaulttest.Put(t, vault.Overlay, "agents", `{"agents":{"opencode":{
@@ -95,8 +95,7 @@ func TestVaultListProviderAndVendorTables(t *testing.T) {
 	}
 	normalized := strings.Join(strings.Fields(stdout), " ")
 	for _, want := range []string{
-		"NAME KIND AUTH OPUS SONNET HAIKU OPENCODE FALLBACK", "fake openai none fake-sonnet",
-		"PLANS", "AGENT MODEL ID", "copilot standard fake-plan",
+		"NAME PROVIDER AUTH SONNET", "fake openai none fake-sonnet",
 		"ROUTING", "opencode.ladder[0] one", "opencode.ladder[1] two",
 		"AGENTS opencode", "launch.env.FAKE_ENV enabled", "launch.args --fake", "future.enabled true",
 	} {
@@ -114,9 +113,37 @@ func TestVaultProvidersGroupsPresetRows(t *testing.T) {
 	old := vaultCredOK
 	vaultCredOK = func(name string) bool { return name != "prod" }
 	t.Cleanup(func() { vaultCredOK = old })
-	raw := `{"providers":{"prod":{"preset":"databricks"},"dev":{"preset":"databricks"},"qa":{"preset":"databricks"}}}`
+	raw := `{"providers":{"databricks":{"prod":{"preset":"databricks"},"dev":{"preset":"databricks"},"qa":{"preset":"databricks"}}}}`
 	got := strings.Join(strings.Fields(vaultProvidersText(json.RawMessage(raw), 200)), " ")
-	if !strings.Contains(got, "databricks preset ✗prod ✓dev ✓qa") {
+	if !strings.Contains(got, "databricks databricks ✗prod ✓dev ✓qa") {
 		t.Errorf("preset rows not grouped failures-first, then env order, with leading marks:\n%s", got)
+	}
+}
+
+// TestVaultListNestedOverlayRowsPerProfileNoPlans: profiles render one row each under PROVIDER; no KIND, no PLANS.
+func TestVaultListNestedOverlayRowsPerProfileNoPlans(t *testing.T) {
+	useVaultTest(t)
+	t.Setenv("COLUMNS", "200")
+	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{
+		"databricks":{"dev":{"auth":{"type":"none"},"models":{"opus":"o1"}},"qa":{"auth":{"type":"none"}}},
+		"local":{"ollama":null}, "github":{"empty":{}}},
+		"agentPlans":{"copilot":[{"tier":"standard","id":"fake-plan"}]}}`)
+	code, stdout, _ := captureOutput(t, func() int { return cmdVault([]string{"list", "providers", "--format", "text"}) })
+	if code != 0 {
+		t.Fatalf("exit %d", code)
+	}
+	got := strings.Join(strings.Fields(stdout), " ")
+	for _, want := range []string{"NAME PROVIDER AUTH OPUS", "dev databricks none o1", "qa databricks none", "ollama local (removed)"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in:\n%s", want, stdout)
+		}
+	}
+	if strings.Contains(stdout, "PLANS") || strings.Contains(stdout, "KIND") || strings.Contains(stdout, "SONNET") {
+		t.Errorf("PLANS, KIND and all-empty columns must be hidden:\n%s", stdout)
+	}
+	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"local":{"ollama":null},"github":{"empty":{}}}}`)
+	_, stdout, _ = captureOutput(t, func() int { return cmdVault([]string{"list", "--format", "text"}) })
+	if strings.Contains(stdout, "PROVIDERS") {
+		t.Errorf("a section with only empty/removed rows must not render:\n%s", stdout)
 	}
 }
