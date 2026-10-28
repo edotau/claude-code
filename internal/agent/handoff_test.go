@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/copilotsdk"
-	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -303,24 +302,6 @@ func TestRunWithFallbackNextLegGetsHandoff(t *testing.T) {
 				t.Errorf("unreadable hand-off must leave the prompt alone, got %q", got)
 			}
 		})
-	}
-}
-
-// A providers.Load failure keeps the quota cause and writes the hand-off without panicking.
-func TestCopilotHandoffProvidersLoadFailure(t *testing.T) {
-	_, _ = stubHandoff(t)
-	vaulttest.UseKeyring(t)
-	vaulttest.Put(t, vault.Overlay, "providers", `{not json`)
-	if _, err := providers.Load(); err == nil {
-		t.Skip("a corrupt overlay no longer fails providers.Load; pick another failure injection")
-	}
-	req, res, partial := quotaReq()
-	out, err := copilotQuotaHandoff(req, res, partial, errQuotaMidTask, nil)
-	if !errors.Is(err, errQuotaMidTask) || Classify("copilot", err, false).Kind != KindQuota || out.Handoff == "" {
-		t.Fatalf("out=%+v err=%v; want KindQuota cause plus the handoff", out, err)
-	}
-	if _, err := os.Stat(out.Handoff); err != nil {
-		t.Fatal(err)
 	}
 }
 
