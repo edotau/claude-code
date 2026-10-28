@@ -45,7 +45,8 @@ type Spec struct {
 // Command is the shell command settings.json carries.
 func (s Spec) Command() string { return HookBin + " hook " + s.Name }
 
-var harnessCommand = regexp.MustCompile(`^(?:` + AgentEnv + `=\w+ )?` + regexp.QuoteMeta(HookBin) + ` `)
+// Any HARNESS_HOOK_* marker counts, so a renamed marker's stale entries are replaced on render, not kept as foreign.
+var harnessCommand = regexp.MustCompile(`^(?:HARNESS_HOOK_[A-Z]+=\w+ )?` + regexp.QuoteMeta(HookBin) + ` `)
 
 // IsHarness reports whether a hook command belongs to this harness, including vendor-marked commands.
 func IsHarness(command string) bool {
