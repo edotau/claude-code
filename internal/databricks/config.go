@@ -46,6 +46,7 @@ var rescuePage = helptext.Page{
 
 func bind(fs *flag.FlagSet, f *cfgFlags, authDef string, withOut bool) {
 	fs.StringVar(&f.profile, "profile", "", "Databricks profile (default: session, pinned, else the first)")
+	fs.StringVar(&f.profile, "p", "", "shorthand for --profile")
 	fs.StringVar(&f.host, "host", "", "https://host override, skips the vault")
 	fs.StringVar(&f.wire, "wire", "", "ai-gateway or serving (default: the row's, else serving)")
 	fs.StringVar(&f.model, "model", "", "model override, canonical or wire id")
