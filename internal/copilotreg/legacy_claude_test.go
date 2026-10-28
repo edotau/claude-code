@@ -16,14 +16,14 @@ func TestLegacyClaudeStaysAnthropic(t *testing.T) {
 		Routes: map[string]string{providers.ProtocolAnthropic: host, providers.ProtocolOpenAI: host + "/serving-endpoints"},
 	}
 	for _, id := range []string{"claude-3-7-sonnet", "databricks-claude-3-7-sonnet", "us.anthropic.claude-3-5-sonnet-20241022-v2:0"} {
-		if providers.PrefersOpenAI(p, id) {
-			t.Errorf("PrefersOpenAI(%q) = true, want false", id)
+		if _, ok := providers.AnthropicRoute(p, id); !ok {
+			t.Errorf("AnthropicRoute(%q) not ok, want the anthropic route", id)
 		}
-		if w, m := NonClaudeWire(p, providers.ProtocolAnthropic, id, true); w != "" || m != "" {
-			t.Errorf("NonClaudeWire(%q) = %q,%q, want anthropic wire", id, w, m)
+		if w, _, ok, _ := EndpointWire(p, id); !ok || w != providers.ProtocolAnthropic {
+			t.Errorf("EndpointWire(%q) = %q,%v, want anthropic wire", id, w, ok)
 		}
 	}
-	if !providers.PrefersOpenAI(p, "databricks-kimi-k3") {
-		t.Error("PrefersOpenAI(kimi) = false, want true")
+	if _, ok := providers.AnthropicRoute(p, "databricks-kimi-k3"); ok {
+		t.Error("AnthropicRoute(kimi) ok, want false")
 	}
 }

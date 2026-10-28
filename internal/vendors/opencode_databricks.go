@@ -18,14 +18,14 @@ func opencodeDatabricks(p *providers.Provider, id, dialect, base, model, cred st
 	if r, ok := p.Route(providers.ProtocolAnthropic); ok {
 		claudeBase = r + "/v1"
 	}
+	if respBase == "" {
+		return nil, nil, fmt.Errorf("opencode: provider %s lacks a responses route", p.Name)
+	}
 	if routed { // base is the session base plus the dialect suffix routerRoute added
 		spec, _ := Lookup("opencode")
 		sfx := spec.RouterSuffix
 		sess := strings.TrimSuffix(base, sfx[dialect])
 		chatBase, respBase, claudeBase = sess+sfx[providers.ProtocolOpenAI], sess+sfx[providers.ProtocolResponses], sess+sfx[providers.ProtocolAnthropic]+"/v1"
-	}
-	if chatBase == "" || respBase == "" {
-		return nil, nil, fmt.Errorf("opencode: provider %s lacks an openai or responses route", p.Name)
 	}
 	ref := "{env:" + OpenCodeKeyEnv + "}"
 	opts := func(b string, bearer bool) map[string]any {
@@ -45,20 +45,9 @@ func opencodeDatabricks(p *providers.Provider, id, dialect, base, model, cred st
 		}
 		return o
 	}
-	chat, resp, claude := map[string]any{}, map[string]any{}, map[string]any{}
-	allowed := map[string]bool{}
-	for _, m := range providers.OpencodeMenu() {
-		wire := menuWire(p, m.ID) // the catalog spells the id the way this row serves it
-		allowed[wire] = true
-		entry := map[string]any{"name": m.Label + " · " + p.Name}
-		switch {
-		case m.Responses:
-			resp[wire] = entry
-		case claudeBase != "" && models.FamilyKind(m.ID) == models.FamilyClaude:
-			claude[wire] = claudeEntry(entry)
-		default:
-			chat[wire] = entry
-		}
+	chat, resp, claude, allowed, dropped := splitMenu(p, claudeBase != "")
+	if len(dropped) > 0 {
+		fmt.Fprintf(catalogWarn, "opencode: %s has no openai route; left out of the menu: %s\n", p.Name, strings.Join(dropped, ", "))
 	}
 	for _, slot := range models.Slots {
 		if s := models.Strip1M(p.Models[slot]); s != "" {
@@ -78,12 +67,17 @@ func opencodeDatabricks(p *providers.Provider, id, dialect, base, model, cred st
 		if claudeBase != "" && models.FamilyKind(model) == models.FamilyClaude { // a tier slot off the curated menu
 			claude[model], defID = claudeEntry(map[string]any{"name": model}), defID+"-claude"
 		} else {
+			if _, ok, why := providers.WireFor(p, model); !ok {
+				return nil, nil, fmt.Errorf("opencode: model %q: %s", model, why)
+			}
 			chat[model] = map[string]any{"name": model}
 		}
 	}
 	prov := map[string]any{
-		id:          map[string]any{"npm": "@ai-sdk/openai-compatible", "name": p.Name + " (claude-code)", "options": opts(chatBase, false), "models": chat},
 		id + "-gpt": map[string]any{"npm": "@ai-sdk/openai", "name": p.Name + " GPT (claude-code)", "options": opts(respBase, false), "models": resp},
+	}
+	if len(chat) > 0 {
+		prov[id] = map[string]any{"npm": "@ai-sdk/openai-compatible", "name": p.Name + " (claude-code)", "options": opts(chatBase, false), "models": chat}
 	}
 	if claudeBase != "" {
 		prov[id+"-claude"] = map[string]any{"npm": "@ai-sdk/anthropic", "name": p.Name + " Claude (claude-code)", "options": opts(claudeBase, true), "models": claude}
@@ -93,6 +87,29 @@ func opencodeDatabricks(p *providers.Provider, id, dialect, base, model, cred st
 		return nil, nil, err
 	}
 	return append(env, "OPENCODE_CONFIG_CONTENT="+string(body)), nil, nil
+}
+
+// splitMenu sorts the menu over the chat, Responses and Claude providers by wire; dropped are labels p has no route for.
+func splitMenu(p *providers.Provider, claudeRoute bool) (chat, resp, claude map[string]any, allowed map[string]bool, dropped []string) {
+	chat, resp, claude, allowed = map[string]any{}, map[string]any{}, map[string]any{}, map[string]bool{}
+	for _, m := range providers.OpencodeMenu() {
+		wire := menuWire(p, m.ID) // the catalog spells the id the way this row serves it
+		allowed[wire] = true
+		entry := map[string]any{"name": m.Label + " · " + p.Name}
+		switch {
+		case m.Responses:
+			resp[wire] = entry
+		case claudeRoute && models.FamilyKind(m.ID) == models.FamilyClaude:
+			claude[wire] = claudeEntry(entry)
+		default:
+			if _, ok, _ := providers.WireFor(p, wire); !ok { // no openai route (ai-gateway): the chat endpoint would 404
+				dropped = append(dropped, m.Label)
+				continue
+			}
+			chat[wire] = entry
+		}
+	}
+	return chat, resp, claude, allowed, dropped
 }
 
 // claudeEntry marks a Claude menu entry: no tool streaming (the router cannot relay it).

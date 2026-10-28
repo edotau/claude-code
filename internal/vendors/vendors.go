@@ -172,23 +172,10 @@ func databricksUsable(p *providers.Provider) bool {
 // ErrOwnLogin means the vendor should run on the credentials its own CLI stores (no harness route injected).
 var ErrOwnLogin = errors.New("agent runs on its own login")
 
-// CanServe reports whether p is usable by vendor name: a login provider naming it, or a route on one
-// of the dialects the vendor speaks.
+// CanServe reports whether p is usable by vendor name (providers.Serves without the reason).
 func CanServe(name string, p *providers.Provider) bool {
-	// A cli-auth provider carries a login only its own agent can forward; a dialect match is not enough.
-	if p.Auth.Login != "" || p.Auth.Method() == providers.AuthCLI {
-		return p.Auth.Login == name
-	}
-	spec, ok := Lookup(name)
-	if !ok {
-		return false
-	}
-	for _, d := range spec.Dialects {
-		if _, ok := p.Route(d); ok {
-			return true
-		}
-	}
-	return false
+	ok, _ := providers.Serves(name, p, "")
+	return ok
 }
 
 // fallbackTarget is each vendor's own route to a working credential when the session provider has none.
@@ -342,8 +329,8 @@ func configureRoute(ctx context.Context, name string, t providers.Target, h *Hea
 	if p.Auth.Login != "" {
 		return login(name, p, models.Strip1M(t.Model), h)
 	}
-	if len(spec.Dialects) == 0 {
-		return nil, nil, fmt.Errorf("%s: %s has no custom base URL; it runs only on its Google sign-in, not provider %s", name, spec.Binary, p.Name)
+	if ok, why := providers.Serves(name, p, ""); !ok {
+		return nil, nil, fmt.Errorf("%s: %s", name, why)
 	}
 	dialect, base := "", ""
 	for _, d := range spec.Dialects {
@@ -351,13 +338,6 @@ func configureRoute(ctx context.Context, name string, t providers.Target, h *Hea
 			dialect, base = d, r
 			break
 		}
-	}
-	if dialect == "" {
-		return nil, nil, fmt.Errorf("%s: provider %s serves no %s route (it has %s)", name, p.Name,
-			strings.Join(spec.Dialects, "/"), strings.Join(p.Dialects(), ","))
-	}
-	if p.Auth.Method() == providers.AuthCLI {
-		return nil, nil, fmt.Errorf("%s: provider %s uses cli (subscription) auth, which %s cannot use; pick a keyed provider", name, p.Name, name)
 	}
 	model := p.WireModel(models.Strip1M(t.Model)) // idempotent: targets not built by ResolveAgent get the wire id too
 	var cred string
@@ -825,9 +805,16 @@ func copilot(
 	if dialect == providers.ProtocolAnthropic {
 		typ = "anthropic"
 	}
-	wire, modelID := copilotreg.NonClaudeWire(p, dialect, model, routed)
-	if wire != "" { // non-Claude on a routed Databricks row: the router's verbatim openai|responses passthrough
-		typ, base = "openai", base+"/"+wire
+	wire, modelID := "", ""
+	if routed && dialect == providers.ProtocolAnthropic && models.FamilyKind(model) != models.FamilyClaude {
+		w, canonical, ok, why := copilotreg.EndpointWire(p, model)
+		if !ok {
+			return nil, nil, fmt.Errorf("copilot: %s", why)
+		}
+		if w != providers.ProtocolAnthropic { // the router's openai|responses passthrough
+			wire, modelID = w, canonical
+			typ, base = "openai", base+"/"+wire
+		}
 	}
 	window, output := copilotreg.Caps(window, model)
 	env := []string{
