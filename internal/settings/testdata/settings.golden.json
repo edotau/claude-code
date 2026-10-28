@@ -30,7 +30,9 @@
       "Agent",
       "WebFetch(*)",
       "Bash(go *)",
-      "Bash(claude-code *)"
+      "Bash(claude-code *)",
+      "Bash(gofmt -l *)",
+      "Bash(systemctl --user is-active *)"
     ],
     "deny": [
       "Bash(rm -rf /)",
