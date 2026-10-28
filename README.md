@@ -59,8 +59,6 @@ claude-code theme vscode [--check|--dry-run]             # merge VS Code setting
   Codex/Copilot hooks. Keys are referenced by env var, exported only by a routed launch. opencode's own
   `~/.config/opencode/` is never written (its model/MCP/theme come from a tracked overlay, `OPENCODE_CONFIG` /
   `OPENCODE_TUI_CONFIG`, injected at launch — `internal/vendors/template/`).
-- The versioned `codex-settings.toml` convenience symlink points at `~/.codex/config.toml` when installed in
-  `~/.claude`; configuration contents, authentication, and sessions stay local.
 - On a terminal, `configure --reset` prompts before overwriting hand-edited lines it would otherwise lose; a
   non-interactive run (launch, `configure`, `make install`) writes and warns instead. Each overwrite keeps 5
   timestamped backups; `configure --restore` steps an agent CLI file back one version at a time.
