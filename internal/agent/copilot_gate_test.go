@@ -165,37 +165,32 @@ func TestCopilotRunnerEmptyAnswerIsFatal(t *testing.T) {
 	}
 }
 
-// A 402 on the GitHub-login target runs the hand-off path: it marks copilot:<pin>, writes the hand-off and resumes once on Databricks.
+// A 402 marks the pinned GitHub account and writes a hand-off without rerunning the SDK.
 func TestCopilotRunnerQuotaTriggersHandoff(t *testing.T) {
-	dir, marked := stubHandoff(t, func(*providers.Registry, string) (providers.Target, string, error) {
-		return providers.Target{Provider: &providers.Provider{Name: "dev"}, Model: "databricks-claude-opus-5-5"}, "using dev", nil
-	})
-	ghLogin(t, "alice", 10) // after stubHandoff: pins alice as the workable gh login
-	t.Setenv("DEV_TEST_KEY", "k")
-	vaulttest.UseKeyring(t)
-	fakeCopilotBin(t) // after the vault helper, which may relocate the config dir
-	// UseKeyring relocates the vault; reseed the alice profile and its pin alongside dev
-	pinGitHubProfile(t, "alice", `"databricks":{"dev":{"protocol":"anthropic","base_url":"http://127.0.0.1:1",`+
-		`"auth":{"type":"key","env":"DEV_TEST_KEY"},"models":{"opus":"claude-opus-5-5"}}}`)
+	dir, marked := stubHandoff(t)
+	ghLogin(t, "alice", 10)
+	fakeCopilotBin(t)
 	calls := stubAsk(t, func(n int) (copilotsdk.Result, error) {
-		if n == 1 {
-			return copilotsdk.Result{Text: "Step 1 done.", SessionID: "0a1b2c3d-4e5f-6789-abcd-ef0123456789"}, errQuotaMidTask
+		if n != 1 {
+			t.Fatal("quota handoff must not rerun the SDK")
 		}
-		return copilotsdk.Result{Text: "finished on dev"}, nil
+		return copilotsdk.Result{Text: "Step 1 done.", SessionID: "0a1b2c3d-4e5f-6789-abcd-ef0123456789"}, errQuotaMidTask
 	})
-	var out strings.Builder
-	res, err := copilotRunner{}.Run(context.Background(), Request{Prompt: "Refactor foo", Model: "opus", Provider: "personal", Direct: true}, &out)
-	if err != nil || res.Answer != "finished on dev" || res.Provider != "dev" {
-		t.Fatalf("res=%+v err=%v; want the resumed answer from dev", res, err)
+	res, err := copilotRunner{}.Run(context.Background(), Request{Prompt: "Refactor foo", Model: "opus", Provider: "personal", Direct: true}, io.Discard)
+	if !errors.Is(err, errQuotaMidTask) || Classify("copilot", err, false).Kind != KindQuota {
+		t.Fatalf("res=%+v err=%v; want the KindQuota cause", res, err)
 	}
-	if *calls != 2 {
-		t.Errorf("SDK calls = %d, want 2 (GitHub leg, then one resume)", *calls)
+	if *calls != 1 {
+		t.Errorf("SDK calls = %d, want 1", *calls)
 	}
 	if len(*marked) != 1 || (*marked)[0] != "github·alice" {
 		t.Errorf("marked = %v, want github·alice", *marked)
 	}
-	if !strings.HasPrefix(res.Handoff, dir) {
-		t.Errorf("handoff = %q, want a file under %s", res.Handoff, dir)
+	if filepath.Dir(res.Handoff) != dir {
+		t.Fatalf("handoff = %q, want a file under %s", res.Handoff, dir)
+	}
+	if _, err := os.Stat(res.Handoff); err != nil {
+		t.Fatal(err)
 	}
 }
 

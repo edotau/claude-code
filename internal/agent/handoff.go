@@ -2,12 +2,10 @@ package agent
 
 import (
 	"cmp"
-	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -18,50 +16,25 @@ import (
 	"github.com/edotau/claude-code/internal/copilotsdk"
 	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/models"
-	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/secrets/shapes"
-	"github.com/edotau/claude-code/internal/vendors"
 )
 
 // Seams for the mid-leg quota hand-off; tests replace them.
-var (
-	handoffDir      = func(root string) string { return memory.HandoffsDir(memory.Dir(root)) }
-	copilotFallback = vendors.CopilotFallback
-)
+var handoffDir = func(root string) string { return memory.HandoffsDir(memory.Dir(root)) }
 
-// copilotQuotaHandoff: a GitHub-login copilot leg hit its quota mid-task — mark the account, write the hand-off (creds
-// masked), resume the same session once on the Databricks fallback; with none, return the quota error plus the path.
-func copilotQuotaHandoff(ctx context.Context, req Request, res Result, partial copilotsdk.Result, cause error,
-	creds []string, rerun func(context.Context, Request, io.Writer) (Result, error), stream io.Writer) (Result, error) {
+// copilotQuotaHandoff marks the exhausted account and returns a redacted handoff for the next fallback leg.
+func copilotQuotaHandoff(req Request, res Result, partial copilotsdk.Result, cause error, creds []string) (Result, error) {
 	acct := copilotLoginAccount()
 	noteQuota(Leg{Account: acct, Billing: router.BillSubscription}, Classify("copilot", cause, false))
 	res.SessionID = cmp.Or(partial.SessionID, res.SessionID)
-	path, doc, werr := writeCopilotHandoff(req, res, partial.Text, acct, cause, creds)
+	path, _, werr := writeCopilotHandoff(req, res, partial.Text, acct, cause, creds)
 	if werr != nil {
 		fmt.Fprintf(os.Stderr, "copilot: quota exhausted mid-task; handoff not written: %v\n", werr)
 		return res, cause
 	}
 	res.Handoff = path
-	reg, lerr := providers.Load()
-	if lerr != nil {
-		fmt.Fprintf(os.Stderr, "copilot: quota exhausted mid-task; providers: %v — handoff: %s\n", lerr, path)
-		return res, cause
-	}
-	ft, note, ferr := copilotFallback(reg, cmp.Or(strings.TrimPrefix(acct, "github·"), "GitHub login")+
-		" quota exhausted mid-task")
-	if ferr != nil || ft.Provider == nil || ft.Provider.Auth.Login == "copilot" { // never resume on a GitHub login
-		fmt.Fprintf(os.Stderr, "copilot: quota exhausted mid-task; no Databricks fallback — handoff: %s\n", path)
-		return res, cause
-	}
-	fmt.Fprintf(os.Stderr, "%s; resuming session once — handoff: %s\n", note, path)
-	rreq := req
-	// Copilot sessions are local, so the fallback resumes the same one with its instructions and tool history.
-	rreq.Provider, rreq.Model, rreq.SessionID = ft.Provider.Name, resumeSlot(req.Model), res.SessionID
-	rreq.Prompt = handoffPrompt(doc)
-	out, err := rerun(ctx, rreq, stream)
-	out.Handoff = path
-	return out, err
+	return res, cause
 }
 
 // handoffPrompt frames a hand-off as data for the leg that picks the task up.
