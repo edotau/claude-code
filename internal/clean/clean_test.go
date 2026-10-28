@@ -47,8 +47,8 @@ func seedDebris(t *testing.T) string {
 		"state/harness/agents-inflight/agent-123-aaa",
 		"state/harness/router.log",
 		"state/harness/dispatch/20260101-aaaa.log",
-		".memory-cache/backups/settings.json.bak-20260101-000000",
-		".memory-cache/backups/settings.json.bak",
+		"state/harness/backups/settings.json.bak-20260101-000000",
+		"state/harness/backups/settings.json.bak",
 		"backups/.claude.json.backup.1700000000000",
 		"jobs/job-aaa/output.log",
 		"file-history/f-aaa/v1",
@@ -128,7 +128,7 @@ func TestCleanAppliesByDefault(t *testing.T) {
 		"state/harness/checkpoint/sess-aaa", "state/harness/simplified/sess-aaa",
 		"state/harness/stop-format/abc123.json", "state/harness/agents-inflight/agent-123-aaa",
 		"state/harness/router.log", "state/harness/dispatch/20260101-aaaa.log",
-		".memory-cache/backups/settings.json.bak-20260101-000000",
+		"state/harness/backups/settings.json.bak-20260101-000000",
 		"jobs/job-aaa", "file-history/f-aaa", "session-env/sess-aaa.json", "paste-cache/p-aaa.txt",
 		"shell-snapshots/snap-aaa.sh", "todos/sess-aaa.json", "cache/model-x.json", "image-cache/img-aaa.png",
 		"debug/debug-aaa.log", "statsig/stat-aaa.json", "logs/log-aaa.log", "usage-data/usage-aaa.json",
@@ -452,7 +452,7 @@ func TestCleanListShowsBackupsTarget(t *testing.T) {
 	if code := Run([]string{"--list"}, &out, &errw); code != 0 {
 		t.Fatalf("Run --list = %d, want 0", code)
 	}
-	if !strings.Contains(out.String(), "settings-backups") || !strings.Contains(out.String(), ".memory-cache/backups") {
+	if !strings.Contains(out.String(), "settings-backups") || !strings.Contains(out.String(), "state/harness/backups") {
 		t.Errorf("--list missing the renamed target:\n%s", out.String())
 	}
 	if strings.Contains(out.String(), "settings.json.bak[") {
@@ -461,7 +461,7 @@ func TestCleanListShowsBackupsTarget(t *testing.T) {
 }
 
 // TestCleanOnlyTouchesCacheBackupsNotUnrelatedRootDotfiles: the new CacheDir glob never reaches outside
-// .memory-cache/backups — a root-level file that merely starts with the same prefix survives.
+// state/harness/backups — a root-level file that merely starts with the same prefix survives.
 func TestCleanOnlyTouchesCacheBackupsNotUnrelatedRootDotfiles(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", dir)
@@ -470,7 +470,7 @@ func TestCleanOnlyTouchesCacheBackupsNotUnrelatedRootDotfiles(t *testing.T) {
 	var out, errw bytes.Buffer
 	Run(nil, &out, &errw)
 	if !exists(t, unrelated) {
-		t.Errorf("clean swept a root file outside .memory-cache/backups: %s", unrelated)
+		t.Errorf("clean swept a root file outside state/harness/backups: %s", unrelated)
 	}
 }
 

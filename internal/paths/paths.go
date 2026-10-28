@@ -25,8 +25,8 @@ func ConfigDir() string {
 // BinDir is the install target for the claude-code binary and its bare-name shims.
 func BinDir() string { return filepath.Join(ConfigDir(), "bin") }
 
-// CacheDir is the one hidden harness cache: backups, shadow history, vendor disk caches.
-func CacheDir() string { return filepath.Join(ConfigDir(), ".memory-cache") }
+// CacheDir holds backups, shadow history and vendor disk caches; it is the harness state dir.
+func CacheDir() string { return StateDir() }
 
 // BackupPath maps src to its mirrored backup location under CacheDir, tagged with now; pure, no I/O.
 func BackupPath(src string, now time.Time) string {

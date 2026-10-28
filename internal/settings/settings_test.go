@@ -121,7 +121,7 @@ func TestMergePreservesForeign(t *testing.T) {
 }
 
 // hermeticCacheDir isolates CLAUDE_CONFIG_DIR so WriteWithBackup's paths.BackupPath never touches
-// the real ~/.claude/.memory-cache.
+// the real ~/.claude/state/harness.
 func hermeticCacheDir(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()

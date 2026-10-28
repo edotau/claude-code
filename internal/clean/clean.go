@@ -85,7 +85,7 @@ func targets() []target {
 			globs: func() []string { return []string{s("router.log")} },
 		},
 		{
-			name: "settings-backups", doc: ".memory-cache/backups/** (harness) + backups/.claude.json.backup.* (CLI)",
+			name: "settings-backups", doc: "state/harness/backups/** (harness) + backups/.claude.json.backup.* (CLI)",
 			globs: func() []string {
 				return []string{filepath.Join(paths.CacheDir(), "backups", "*"), g("backups", ".claude.json.backup.*")}
 			},
