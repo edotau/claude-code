@@ -67,21 +67,26 @@ did not, so the gap is visible.
 
 ## Testing
 
-**Minimum coverage: 80%.** Three test types, all required:
+**Tests verify logic, not a coverage number.** Per feature, the minimum is one test that spans the functions it
+involves end to end; then the corner cases known while building it; then, as bugs are caught, one regression test
+per bug that fails without the fix. Nothing more unless asked — no coverage waves, no exhaustive matrices.
 
-1. **Unit** — individual functions, utilities, components
-2. **Integration** — API endpoints, database operations
-3. **E2E** — critical user flows (framework per language)
+- **Mock only real boundaries** — network, model calls, the clock, external CLIs (`gh`, `databricks`). Everything else
+  runs real code against a hermetic config dir.
+- **No fixtures for states the code can no longer produce.** A refactor that breaks only tests means the tests were
+  coupled to structure: delete or rewrite them against behavior, don't repair them.
+- **A test that cannot fail when the code is wrong is deleted**, not kept.
+- **Renames, moves and deletions need no new tests** — the build and the existing behavior tests are the check.
 
 Live first, then tests: [procedure][proc].
 
 Where nothing can be run live: [spec-pinned checks][spec-pinned-checks].
 
-### RULE — every code dispatch carries a test agent, concurrently
+### RULE — a test agent only when the change needs one
 
-**Any dispatch of agents to write or change code MUST include at least one agent owning tests,
-launched in the SAME message as the implementation agent(s).** Not after they return; not "if
-there's time". One code agent still means one test agent — the minimum is one, not zero.
+Dispatch a test agent alongside the implementer, in the SAME message, only when the change **adds a feature** (it
+writes the one spanning test plus known corner cases) or **fixes a bug** (the regression test). A rename, move,
+deletion or refactor gets none: the implementer keeps its own build and existing tests green.
 
 Ownership split: [ownership table][ownership-table].
 

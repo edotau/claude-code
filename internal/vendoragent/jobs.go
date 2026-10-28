@@ -26,6 +26,11 @@ var executable = os.Executable
 // the caller already saved rec as "running" before calling Spawn, and the --job child saves its own
 // PID once it starts, so a post-Start save here could overwrite a fast child's finished status.
 func Spawn(rec *agent.Record, extra []string) error {
+	return SpawnArgv(rec, append([]string{"ask", "--job", rec.ID}, extra...), nil)
+}
+
+// SpawnArgv is Spawn for an arbitrary claude-code argv, with env appended to the child's environment.
+func SpawnArgv(rec *agent.Record, argv, env []string) error {
 	exe, err := executable()
 	if err != nil {
 		return err
@@ -40,9 +45,9 @@ func Spawn(rec *agent.Record, extra []string) error {
 	if proc.IsSelfUnderTest(exe) {
 		return errors.New("vendoragent: refusing to relaunch the test binary as a job")
 	}
-	argv := append([]string{"ask", "--job", rec.ID}, extra...)
 	cmd := exec.CommandContext(context.Background(), exe, argv...) // detached child must outlive this process, not any caller ctx
 	cmd.Stdout, cmd.Stderr = logFile, logFile
+	cmd.Env = append(os.Environ(), env...)
 	proc.Detach(cmd)
 	if err := cmd.Start(); err != nil {
 		return err
