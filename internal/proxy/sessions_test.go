@@ -113,3 +113,33 @@ func TestSessionTokenDiesWithReusedPidAndOnRevoke(t *testing.T) {
 		t.Fatalf("revoked token = %d, want 401", c)
 	}
 }
+
+func TestSessionTokenKeepsLivenessCheckUnderFrequentRequests(t *testing.T) {
+	g := newSessionRig(t)
+	tok := g.mint(t, "dev")
+	use := func() int { c, _ := g.call(t, "/p/dev/v1/messages", `{}`, tok); return c }
+	for range 5 { // requests 1s apart never reach the 2s window on their own
+		g.advance(time.Second)
+		if use() == http.StatusUnauthorized {
+			t.Fatal("live token rejected")
+		}
+	}
+	g.setStart("999") // the process died and its pid was reused
+	for range 3 {
+		g.advance(time.Second)
+		if use() == http.StatusUnauthorized {
+			return
+		}
+	}
+	t.Fatal("token outlived its process under frequent requests")
+}
+
+func TestSessionMintPrunesDeadProcesses(t *testing.T) {
+	g := newSessionRig(t)
+	for range sessionMax {
+		g.mint(t, "dev")
+	}
+	g.setStart("999") // every minted process is gone
+	g.advance(time.Second)
+	g.mint(t, "dev")
+}

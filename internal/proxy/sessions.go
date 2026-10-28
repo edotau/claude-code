@@ -73,6 +73,13 @@ func (s *sessionStore) mint(profile string, pid int) (string, error) {
 			delete(s.m, k)
 		}
 	}
+	if len(s.m) >= sessionMax { // exited-but-unexpired sessions must not block a new mint
+		for k, v := range s.m {
+			if !s.stillBound(v) {
+				delete(s.m, k)
+			}
+		}
+	}
 	if len(s.m) >= sessionMax {
 		return "", errors.New("too many live session tokens")
 	}
@@ -103,14 +110,17 @@ func (s *sessionStore) accept(tok, profile string) bool {
 	if ses == nil {
 		return false
 	}
-	if !now.Before(ses.expires) || (now.Sub(ses.checked) >= sessionVerify && !s.stillBound(ses)) {
+	recheck := now.Sub(ses.checked) >= sessionVerify
+	if !now.Before(ses.expires) || (recheck && !s.stillBound(ses)) {
 		delete(s.m, tok)
 		return false
 	}
 	if ses.profile != profile {
 		return false
 	}
-	ses.checked = now
+	if recheck { // only a passed liveness check refreshes the trust window
+		ses.checked = now
+	}
 	ses.expires = now.Add(sessionTTL)
 	return true
 }

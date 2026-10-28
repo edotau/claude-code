@@ -4,6 +4,7 @@ package proxy
 
 import (
 	"bytes"
+	"context"
 	"crypto/subtle"
 	"encoding/json"
 	"errors"
@@ -119,6 +120,9 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		writeError(w, http.StatusUnauthorized, "proxy: missing or wrong client secret (apiKeyHelper: claude-code token --proxy)")
 		return
 	}
+	if !r.secretOK(req) { // a session token: pin its profile for the resolved target and fallbacks
+		req = req.WithContext(context.WithValue(req.Context(), scopeKey{}, profileOfPath(req.URL.Path)))
+	}
 	// Past auth, Authorization survives only as the client's own credential (secret sent in ClientHeader).
 	if req.Header.Get(ClientHeader) == "" {
 		req.Header.Del("Authorization")
@@ -150,6 +154,45 @@ type fallbackError struct {
 
 func (e *fallbackError) Unwrap() error { return e.error }
 
+// scopeKey carries the profile a session token is confined to; absent for the router secret.
+type scopeKey struct{}
+
+// sessionScope is the profile a session-token request is confined to.
+func sessionScope(in *http.Request) (string, bool) {
+	scope, ok := in.Context().Value(scopeKey{}).(string)
+	return scope, ok
+}
+
+// resolveTarget maps the path profile and requested model to a target, writing the error when it cannot.
+func resolveTarget(w http.ResponseWriter, in *http.Request, reg *providers.Registry, session, model string) (providers.Target, bool) {
+	sess, err := reg.Get(session)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "proxy: "+err.Error())
+		return providers.Target{}, false
+	}
+	target := providers.ParseTarget(reg, model, sess)
+	return target, scopeAllows(w, in, target)
+}
+
+// scopeAllows rejects with 403 a resolved target outside a session token's profile.
+func scopeAllows(w http.ResponseWriter, in *http.Request, t providers.Target) bool {
+	scope, scoped := sessionScope(in)
+	if scoped && t.Provider.Name != scope {
+		writeError(w, http.StatusForbidden, "proxy: session token is limited to profile "+scope)
+		return false
+	}
+	return true
+}
+
+// confineLadder drops fallback providers outside a session token's profile; they hold other credentials.
+func confineLadder(in *http.Request, ladder []providers.Target) []providers.Target {
+	scope, scoped := sessionScope(in)
+	if !scoped {
+		return ladder
+	}
+	return slices.DeleteFunc(ladder, func(t providers.Target) bool { return t.Provider.Name != scope })
+}
+
 // route resolves the target and walks the attempt ladder; it returns what the log line names.
 func (r *Router) route(w *statusWriter, in *http.Request, session string, count bool) (string, string, int) {
 	body, err := io.ReadAll(io.LimitReader(in.Body, maxBody+1))
@@ -173,12 +216,10 @@ func (r *Router) route(w *statusWriter, in *http.Request, session string, count 
 		writeError(w, http.StatusInternalServerError, "proxy: "+err.Error())
 		return session, head.Model, 0
 	}
-	sess, err := reg.Get(session)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "proxy: "+err.Error())
+	target, ok := resolveTarget(w, in, reg, session, head.Model)
+	if !ok {
 		return session, head.Model, 0
 	}
-	target := providers.ParseTarget(reg, head.Model, sess)
 	clientAuth := in.Header.Get("Authorization") != "" || r.oauthToken() != "" // the sealed token authenticates passthrough
 	if msg := unroutable(target.Provider, clientAuth); msg != "" {
 		writeError(w, http.StatusBadRequest, "proxy: "+msg)
@@ -186,6 +227,7 @@ func (r *Router) route(w *statusWriter, in *http.Request, session string, count 
 	}
 	clientModel := models.Strip1M(head.Model)
 	ladder := r.attempts(reg, target, clientAuth)
+	ladder = confineLadder(in, ladder)
 	var lastErr error
 	for i := 0; i < len(ladder); i++ { // indexed: a hard-quota failure inserts the demoted model right after t
 		t := ladder[i]
