@@ -190,7 +190,7 @@ func checkHelpFormat(t *testing.T, path []string, parents []string) {
 		switch path[0] {
 		case "copilot", "codex", "gemini", "opencode":
 			switch path[1] {
-			case "cancel", "models", "resume", "on", "off":
+			case "cancel", "catalog", "models", "resume", "on", "off":
 				flagless[strings.Join(path, " ")] = true
 			}
 		}

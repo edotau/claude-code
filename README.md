@@ -288,12 +288,16 @@ claude-code agents                                     # agents and availability
 claude-code ask --agent codex "Review this branch."    # one-shot; --format json, --tools, --effort
 claude-code ask --log | --retry <id>                   # recent dispatches; replay one
 claude-code opencode --profile ollama --model qwen3-coder   # interactive; -- forces passthrough
+claude-code codex catalog                             # the agent's model catalog; also copilot|gemini|opencode
+claude-code opencode catalog list|add|remove|import|reset|check   # inspect, edit or probe the model menu
 claude-code codex review --adversarial --base main     # per-agent verbs; claude-code codex -h lists them
 claude-code gemini bridge --dirs internal "<task>"     # one 1M-context sweep via agy
 claude-code agents sync [--dry-run|--check]            # project agents/ + CLAUDE.md into every agent CLI
 claude-code usage --days 7                             # subagent token usage; copilot on BYOK = databricks/<model>
 ```
 
+- `catalog` lists an agent's model catalog; `--model` selects the model for this launch. The agent subcommand
+  `models` remains a compatibility alias for `catalog`; top-level `claude-code models` is unchanged.
 - Copilot dispatches follow the session's profile through the proxy (`/p/<profile>`, BYOK, `COPILOT_OFFLINE=true`, no
   Copilot credits); `--model <profile>:<tier>` picks a model alias on another profile. The GitHub login is used only
   when the `COPILOT_GITHUB_USER` pin has credits verified < 95%; else it falls back to the Databricks profile (never

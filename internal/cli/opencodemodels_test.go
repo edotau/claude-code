@@ -37,7 +37,7 @@ func ocMenuEnv(t *testing.T) {
 
 func ocMenu(t *testing.T, args ...string) (int, string, string) {
 	t.Helper()
-	return captureOutput(t, func() int { return cmdOpencodeMenu(args) })
+	return captureOutput(t, func() int { return vendorVerb("opencode", append([]string{"catalog"}, args...)) })
 }
 
 func menuIDs() []string {
@@ -184,13 +184,31 @@ func TestOpencodeMenuHelpWithin80Cols(t *testing.T) {
 	for _, verb := range opencodeMenuVerbs {
 		_, stdout, stderr := ocMenu(t, verb, "-h")
 		out := stdout + stderr
-		if strings.TrimSpace(out) == "" {
-			t.Errorf("%s -h printed nothing", verb)
+		if !strings.Contains(out, "usage: claude-code opencode catalog "+verb) {
+			t.Errorf("%s -h missing canonical usage: %s", verb, out)
 		}
 		for l := range strings.SplitSeq(out, "\n") {
 			if n := len([]rune(l)); n > 80 {
 				t.Errorf("%s help line %d cols: %q", verb, n, l)
 			}
 		}
+	}
+}
+
+func TestOpencodeMenuModelsAlias(t *testing.T) {
+	ocMenuEnv(t)
+	code, stdout, stderr := ocMenu(t, "list", "--format", "json")
+	aliasCode, aliasOut, aliasErr := captureOutput(t, func() int {
+		return vendorVerb("opencode", []string{"models", "list", "--format", "json"})
+	})
+	if code != 0 || aliasCode != code || aliasOut != stdout || aliasErr != stderr {
+		t.Fatalf("list alias differs: catalog=(%d, %q, %q) models=(%d, %q, %q)",
+			code, stdout, stderr, aliasCode, aliasOut, aliasErr)
+	}
+	code, _, stderr = captureOutput(t, func() int {
+		return vendorVerb("opencode", []string{"models", "remove"})
+	})
+	if code != 1 || !strings.Contains(stderr, "opencode catalog remove: usage: claude-code opencode catalog remove <id>") {
+		t.Errorf("alias diagnostic: code=%d stderr=%q", code, stderr)
 	}
 }

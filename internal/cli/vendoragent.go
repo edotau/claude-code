@@ -20,7 +20,7 @@ import (
 
 // vendorSubverbs are the words vendorVerb routes to cmdVendorSub.
 var vendorSubverbs = map[string]bool{
-	"resume": true, "status": true, "tail": true, "result": true, "cancel": true, "setup": true, "models": true,
+	"resume": true, "status": true, "tail": true, "result": true, "cancel": true, "setup": true, "catalog": true, "models": true,
 	"review": true, "transfer": true, "explore": true, "profile": true, "on": true, "off": true,
 }
 
@@ -49,14 +49,14 @@ func vendorPage(vendor string) helptext.Page {
 		{"result", "a finished job's answer + session"},
 		{"cancel", "interrupt a running job"},
 		{"setup", "binary, login, route, projection; --format json"},
-		{"models", "the agent's own model catalog"},
+		{"catalog", "the agent's own model catalog"},
 		{"profile", "show or set " + vendor + "'s profile pin"},
 		{"on", "route to " + vendor + " again"},
 		{"off", "stop routing to " + vendor},
 	}
 	if vendor == "opencode" {
-		rows[slices.IndexFunc(rows, func(r [2]string) bool { return r[0] == "models" })][1] =
-			"model catalog; list|add|remove|import|reset edit the menu"
+		rows[slices.IndexFunc(rows, func(r [2]string) bool { return r[0] == "catalog" })][1] =
+			"model catalog; list|add|remove|import|reset|check the menu"
 	}
 	if a, ok := vendoragent.Lookup(vendor); ok {
 		rows = append(rows, a.ExtraUsage...)
@@ -67,6 +67,7 @@ func vendorPage(vendor string) helptext.Page {
 		Commands: rows,
 		Flags:    vendorLaunchFlags(vendor),
 		Hint: "claude-code " + vendor + " <command> -h lists that command's flags.\n" +
+			"models is a compatibility alias for catalog.\n" +
 			"claude-code " + vendor + " " + helptext.DocsFlag + " prints " + vendorBinary(vendor) + "'s own help.",
 	}
 }
@@ -80,7 +81,7 @@ var vendorSubPages = map[string][2]string{
 	"result":   {"result [id] [flags]", "A finished job's answer (default: the newest), its session and resume command."},
 	"cancel":   {"cancel", "Interrupt a running %s job (default: the single running job in this repo)."},
 	"setup":    {"setup [flags]", "Check %s's binary, login, route and projection; exits 1 when one fails."},
-	"models":   {"models [--profile p]", "The %s CLI's own model catalog, or a note that it has none."},
+	"catalog":  {"catalog [--profile p]", "The %s CLI's own model catalog, or a note that it has none. models is a compatibility alias."},
 	"review":   {"review [flags] [focus…]", "Review a diff with %s; trailing words name the focus."},
 	"explore":  {"explore [flags] <question>", "Scan the code and research the web with %s, then return a brief."},
 	"profile":  {"profile [<profile>|--clear]", "Show %s's profile pin, or set %[1]s to <profile> (--clear unpins)."},
@@ -114,7 +115,7 @@ func newVendorFlags(vendor, verb string) *flag.FlagSet {
 	return helptext.NewFlagSet(vendor+" "+verb, vendorSubPage(vendor, verb))
 }
 
-// cmdVendorSub dispatches an agent's background-job and setup subverbs (resume/status/result/cancel/setup/models).
+// cmdVendorSub dispatches an agent's background-job and setup subverbs (resume/status/result/cancel/setup/catalog).
 func cmdVendorSub(vendor string, args []string) int {
 	switch args[0] {
 	case "resume":
@@ -129,11 +130,11 @@ func cmdVendorSub(vendor string, args []string) int {
 		return cmdVendorCancel(vendor, args[1:])
 	case "setup":
 		return cmdVendorSetup(vendor, args[1:])
-	case "models":
+	case "catalog", "models":
 		if isOpencodeMenuVerb(vendor, args[1:]) {
 			return cmdOpencodeMenu(args[1:])
 		}
-		if vendorSubHelp(vendor, "models", args[1:]) {
+		if vendorSubHelp(vendor, "catalog", args[1:]) {
 			return 0
 		}
 		return cmdVendorModels(vendor, args[1:])
@@ -425,7 +426,7 @@ func cmdVendorTransfer(vendor string, args []string) int {
 	return code
 }
 
-// cmdVendorModels is `claude-code <v> models`: the agent's own catalog, or a note that it has none.
+// cmdVendorModels is `claude-code <v> catalog` (alias models): the agent's own catalog, or a note that it has none.
 func cmdVendorModels(vendor string, args []string) int {
 	a, ok := vendoragent.Lookup(vendor)
 	if !ok {
@@ -433,14 +434,14 @@ func cmdVendorModels(vendor string, args []string) int {
 	}
 	format := outfmt.Text
 	if vendor == "copilot" {
-		fs := newVendorFlags(vendor, "models")
+		fs := newVendorFlags(vendor, "catalog")
 		profile := fs.String("profile", "", "list this profile's models (default: the session profile)")
 		f := outfmt.Flag(fs)
 		if code, done := helptext.Parse(fs, args); done {
 			return code
 		}
 		if err := outfmt.Check(*f); err != nil {
-			return fail("%s models: %v", vendor, err)
+			return fail("%s catalog: %v", vendor, err)
 		}
 		format = *f
 		reg, err := providers.Load()
@@ -449,7 +450,7 @@ func cmdVendorModels(vendor string, args []string) int {
 		}
 		cat, err := vendoragent.CopilotModelSource(context.Background(), reg, *profile)
 		if err != nil {
-			return fail("%s models: %v", vendor, err)
+			return fail("%s catalog: %v", vendor, err)
 		}
 		if cat.Databricks {
 			return printCopilotCatalog(vendor, cat, format)
@@ -458,7 +459,7 @@ func cmdVendorModels(vendor string, args []string) int {
 			fmt.Println(cat.Source)
 		}
 	} else if len(args) > 0 {
-		fmt.Fprintf(os.Stderr, "error: %s models: unexpected argument %q\n", vendor, args[0])
+		fmt.Fprintf(os.Stderr, "error: %s catalog: unexpected argument %q\n", vendor, args[0])
 		return 2
 	}
 	switch {
@@ -485,7 +486,7 @@ func cmdVendorModels(vendor string, args []string) int {
 func printCopilotCatalog(vendor string, cat vendoragent.CopilotCatalog, format string) int {
 	if format == outfmt.JSON {
 		if err := outfmt.Write(os.Stdout, cat); err != nil {
-			return fail("%s models: %v", vendor, err)
+			return fail("%s catalog: %v", vendor, err)
 		}
 		return 0
 	}
@@ -508,7 +509,7 @@ func printCopilotCatalog(vendor string, cat vendoragent.CopilotCatalog, format s
 // vendorLaunchFlags lists the harness flags a bare launch consumes (launch.ParseArgs) for the help page.
 func vendorLaunchFlags(vendor string) *flag.FlagSet {
 	fs := helptext.NewFlagSet(vendor, helptext.Page{Usage: "claude-code " + vendor}) // display only; ParseArgs parses
-	fs.String("model", "", "alias, version or wire id for this launch")
+	fs.String("model", "", "select the model for this launch")
 	fs.String("profile", "", "profile for this launch")
 	fs.Bool("direct", false, "skip the proxy; hand the CLI the profile route")
 	fs.Bool("print-env", false, "print the resolved binary, argv and env; do not launch")

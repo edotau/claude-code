@@ -178,7 +178,7 @@ func buildSpecTree() map[string]*compNode {
 	}
 	tree["anthropic"] = &compNode{flags: []flagInfo{boolFlag("oauth"), boolFlag("x-api-key"), flag("model"),
 		boolFlag("print-env"), flag("keep-env")}}
-	// Agent verbs: ask/resume/review/transfer/status/result/cancel/setup/models, same shape per agent.
+	// Agent verbs: ask/resume/review/transfer/status/result/cancel/setup/catalog, same shape per agent.
 	for _, v := range []string{"codex", "copilot", "opencode"} {
 		tree[v] = &compNode{sub: vendorSubNodes(askFlags)}
 	}
@@ -209,7 +209,7 @@ func dbxCfgFlags(withOut bool) []flagInfo {
 }
 
 // vendorSubNodes is the one builder for every agent verb's completion subtree (codex, copilot,
-// opencode, gemini): ask/resume/review/transfer/status/result/cancel/setup/models, same shape per agent.
+// opencode, gemini): ask/resume/review/transfer/status/result/cancel/setup/catalog, same shape per agent.
 func vendorSubNodes(askFlags []flagInfo) map[string]*compNode {
 	flag := func(name string) flagInfo { return flagInfo{name: name} }
 	boolFlag := func(name string) flagInfo { return flagInfo{name: name, isBool: true} }
@@ -229,6 +229,7 @@ func vendorSubNodes(askFlags []flagInfo) map[string]*compNode {
 		"on":       {},
 		"off":      {},
 		"setup":    {flags: []flagInfo{formatFlag()}},
+		"catalog":  {},
 		"models":   {},
 	}
 }
