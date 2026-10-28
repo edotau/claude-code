@@ -78,7 +78,7 @@ var vendorSubPages = map[string][2]string{
 	"result":   {"result [id] [flags]", "A finished job's answer (default: the newest), its session and resume command."},
 	"cancel":   {"cancel", "Interrupt a running %s job (default: the single running job in this repo)."},
 	"setup":    {"setup [flags]", "Check %s's binary, login, route and projection; exits 1 when one fails."},
-	"models":   {"models", "The %s CLI's own model catalog, or a note that it has none."},
+	"models":   {"models [--profile p]", "The %s CLI's own model catalog, or a note that it has none."},
 	"review":   {"review [flags] [focus…]", "Review a diff with %s; trailing words name the focus."},
 	"explore":  {"explore [flags] <question>", "Scan the code and research the web with %s, then return a brief."},
 	"env":      {"env [<profile>|--clear]", "Show %s's profile pin, or set %[1]s to <profile> (--clear unpins)."},
@@ -132,7 +132,7 @@ func cmdVendorSub(vendor string, args []string) int {
 		if vendorSubHelp(vendor, "models", args[1:]) {
 			return 0
 		}
-		return cmdVendorModels(vendor)
+		return cmdVendorModels(vendor, args[1:])
 	case "review":
 		return cmdVendorReview(vendor, args[1:])
 	case "explore":
@@ -420,10 +420,40 @@ func cmdVendorTransfer(vendor string, args []string) int {
 }
 
 // cmdVendorModels is `claude-code <v> models`: the agent's own catalog, or a note that it has none.
-func cmdVendorModels(vendor string) int {
+func cmdVendorModels(vendor string, args []string) int {
 	a, ok := vendoragent.Lookup(vendor)
 	if !ok {
 		return fail("unknown agent %q", vendor)
+	}
+	format := outfmt.Text
+	if vendor == "copilot" {
+		fs := newVendorFlags(vendor, "models")
+		profile := fs.String("profile", "", "list this profile's models (default: the session profile)")
+		f := outfmt.Flag(fs)
+		if code, done := helptext.Parse(fs, args); done {
+			return code
+		}
+		if err := outfmt.Check(*f); err != nil {
+			return fail("%s models: %v", vendor, err)
+		}
+		format = *f
+		reg, err := providers.Load()
+		if err != nil {
+			return fail("%v", err)
+		}
+		cat, err := vendoragent.CopilotModelSource(context.Background(), reg, *profile)
+		if err != nil {
+			return fail("%s models: %v", vendor, err)
+		}
+		if cat.Databricks {
+			return printCopilotCatalog(vendor, cat, format)
+		}
+		if format == outfmt.Text {
+			fmt.Println(cat.Source)
+		}
+	} else if len(args) > 0 {
+		fmt.Fprintf(os.Stderr, "error: %s models: unexpected argument %q\n", vendor, args[0])
+		return 2
 	}
 	switch {
 	case a.ModelsProvider != "":
@@ -433,7 +463,7 @@ func cmdVendorModels(vendor string) int {
 		}
 		for _, n := range reg.ProfilesOf(a.ModelsProvider) {
 			if reg.Providers[n].Auth.Login == vendor {
-				return cmdModels([]string{"--live", "--profile", n})
+				return cmdModels([]string{"--live", "--profile", n, "--format", format})
 			}
 		}
 		return fail("%s: no %s profile with a %s login", vendor, a.ModelsProvider, vendor)
@@ -443,6 +473,30 @@ func cmdVendorModels(vendor string) int {
 		fmt.Printf("%s: no model catalog\n", vendor)
 		return 0
 	}
+}
+
+// printCopilotCatalog prints a Databricks row's chat endpoints as a NAME / TESTED table, or JSON.
+func printCopilotCatalog(vendor string, cat vendoragent.CopilotCatalog, format string) int {
+	if format == outfmt.JSON {
+		if err := outfmt.Write(os.Stdout, cat); err != nil {
+			return fail("%s models: %v", vendor, err)
+		}
+		return 0
+	}
+	fmt.Println(cat.Source)
+	w := len("NAME")
+	for _, r := range cat.Rows {
+		w = max(w, len(r.ID))
+	}
+	fmt.Printf("%-*s  %s\n", w, "NAME", "TESTED")
+	for _, r := range cat.Rows {
+		mark := ""
+		if r.Tested {
+			mark = "tested"
+		}
+		fmt.Println(strings.TrimRight(fmt.Sprintf("%-*s  %s", w, r.ID, mark), " "))
+	}
+	return 0
 }
 
 // vendorLaunchFlags lists the harness flags a bare launch consumes (launch.ParseArgs) for the help page.
