@@ -12,7 +12,7 @@ import (
 func TestClaudePlanUnsetsRoutingAndOTLPKeys(t *testing.T) {
 	vaulttest.Use(t)
 	hermetic(t, "")
-	p, err := Claude(context.Background(), Options{Provider: "subscription"}, nil)
+	p, err := Claude(context.Background(), Options{Provider: "max"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

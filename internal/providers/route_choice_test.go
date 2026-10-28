@@ -4,7 +4,7 @@ import "testing"
 
 func presetSel(t *testing.T, opus, sonnet string) (*Registry, Selection) {
 	t.Helper()
-	reg := mustParse(t, `{"providers": {"dbx": {"preset": "databricks", "host": "https://adb-1.azuredatabricks.net", "cliProfile": "w"}}}`)
+	reg := mustParse(t, `{"providers": {"databricks": {"dbx": {"preset": "databricks", "host": "https://adb-1.azuredatabricks.net", "cliProfile": "w"}}}}`)
 	p := reg.Providers["dbx"]
 	return reg, Selection{Provider: p, Slots: map[string]Target{
 		"opus": {Provider: p, Model: opus}, "sonnet": {Provider: p, Model: sonnet}}}
@@ -22,9 +22,9 @@ func TestNeedsRouterNonClaudeSlotOnDualRouteProvider(t *testing.T) {
 }
 
 func TestNeedsRouterTwinShapedUnchanged(t *testing.T) {
-	reg := mustParse(t, `{"providers": {
+	reg := mustParse(t, `{"providers": {"databricks": {
 "tw": {"kind":"anthropic","base_url":"https://h/anthropic","auth":{"type":"none"},"models":{"opus":"databricks-claude-opus-5-5"}},
-"tw-oai": {"kind":"openai","base_url":"https://h","auth":{"type":"none"},"models":{"opus":"databricks-gpt-5-5"}}}}`)
+"tw-oai": {"kind":"openai","base_url":"https://h","auth":{"type":"none"},"models":{"opus":"databricks-gpt-5-5"}}}}}`)
 	tw, oai := reg.Providers["tw"], reg.Providers["tw-oai"]
 	cases := []struct {
 		name string

@@ -6,7 +6,7 @@ import (
 )
 
 func envOverlay(key string) string {
-	return `{"providers":{"e":{"kind":"anthropic","base_url":"https://e","auth":{"type":"none"},"env":{"` + key + `":"v"}}}}`
+	return `{"providers":{"anthropic":{"e":{"kind":"anthropic","base_url":"https://e","auth":{"type":"none"},"env":{"` + key + `":"v"}}}}}`
 }
 
 func TestValidateRejectsHarnessOwnedEnvKeys(t *testing.T) {

@@ -103,3 +103,5 @@ coverage.*
 
 /policy-limits.json*
 /remote-settings.json*
+/tmp.*/
+/.vaultcopy.*/

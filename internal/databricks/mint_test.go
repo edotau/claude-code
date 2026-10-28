@@ -99,8 +99,8 @@ func TestMintVerbErrorPathsHideToken(t *testing.T) {
 		noToken(t, "stdout", stdout)
 		noToken(t, "stderr", stderr)
 	}
-	seedOverlay(t, `{"providers":{"mrow":{"kind":"anthropic","base_url":"http://127.0.0.1:1",`+
-		`"auth":{"type":"key","command":"echo `+mintToken+`; exit 3"}}}}`)
+	seedOverlay(t, `{"providers":{"databricks":{"mrow":{"kind":"anthropic","base_url":"http://127.0.0.1:1",`+
+		`"auth":{"type":"key","command":"echo `+mintToken+`; exit 3"}}}}}`)
 	code, stdout, stderr := captureOutput(t, func() int { return mint([]string{"--profile", "mrow", "--copy"}) })
 	if code == 0 {
 		t.Errorf("failing command: exit 0")
@@ -219,8 +219,8 @@ func TestSwitchAuthTypeM2MNeedsClientID(t *testing.T) {
 	if overlayDoc(t) != before {
 		t.Error("failed switch wrote the overlay")
 	}
-	seedOverlay(t, `{"providers":{"mrow":{"kind":"anthropic","base_url":"http://127.0.0.1:1",`+
-		`"auth":{"type":"key","command":"true","type":"m2m","clientId":"cid"}}}}`)
+	seedOverlay(t, `{"providers":{"databricks":{"mrow":{"kind":"anthropic","base_url":"http://127.0.0.1:1",`+
+		`"auth":{"type":"key","command":"true","type":"m2m","clientId":"cid"}}}}}`)
 	reg, err := providers.Load()
 	if err != nil {
 		t.Fatal(err)

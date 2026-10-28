@@ -8,6 +8,8 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/vault"
+	"github.com/edotau/claude-code/internal/vault/vaulttest"
 	"github.com/edotau/claude-code/internal/vendors"
 )
 
@@ -31,7 +33,7 @@ func doctorScratch(t *testing.T) (xdgData string) {
 	return xdgData
 }
 
-// workableCopilotPin pins user as a gh login (a scratch hosts.yml) with 10% of its Copilot credits used.
+// workableCopilotPin pins a github profile whose login is user (a scratch hosts.yml) with 10% of its credits used.
 func workableCopilotPin(t *testing.T, user string) {
 	t.Helper()
 	dir := t.TempDir()
@@ -40,7 +42,9 @@ func workableCopilotPin(t *testing.T, user string) {
 		t.Fatal(err)
 	}
 	t.Setenv("GH_CONFIG_DIR", dir)
-	setPins(t, map[string]string{providers.PinCopilotProfile: user})
+	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"github":{"work":{"kind":"openai",`+
+		`"base_url":"https://api.githubcopilot.com","login":"`+user+`","auth":{"type":"cli","login":"copilot"}}}}}`)
+	setPins(t, map[string]string{providers.PinCopilotProfile: "work"})
 	prev := vendors.CopilotUsedPct
 	vendors.CopilotUsedPct = func(context.Context, string) (float64, bool) { return 10, true }
 	t.Cleanup(func() { vendors.CopilotUsedPct = prev })

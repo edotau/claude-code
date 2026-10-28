@@ -122,7 +122,7 @@ func TestSetProviderFieldsPreservesPreviousDoc(t *testing.T) {
 
 func TestSetProviderFieldsRefusesInvalidOverlay(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	const prior = `{"providers":{"openai":{"kind":"openai","base_url":"https://example.com/v1","auth":{"type":"none"}}}}`
+	const prior = `{"providers":{"openai":{"openai":{"kind":"openai","base_url":"https://example.com/v1","auth":{"type":"none"}}}}}`
 	vaulttest.Put(t, vault.Overlay, "providers", prior)
 	vaulttest.Put(t, vault.Overlay, "providers.prev", "{}")
 	if err := Validate([]byte(prior)); err != nil {

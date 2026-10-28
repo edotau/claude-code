@@ -18,7 +18,7 @@ func ocMenuEnv(t *testing.T) {
 	t.Helper()
 	vaulttest.Use(t)
 	t.Setenv("PATH", t.TempDir())
-	t.Setenv("PROVIDER_OCFAKE_PAT", "dapi-oc-secret")
+	t.Setenv("DATABRICKS_OCFAKE_PAT", "dapi-oc-secret")
 	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(`{"endpoints":[
 {"name":"databricks-glm-5-2","task":"llm/v1/chat","state":{"ready":"READY"}},
@@ -29,7 +29,7 @@ func ocMenuEnv(t *testing.T) {
 	http.DefaultClient.Transport = srv.Client().Transport
 	t.Cleanup(func() { http.DefaultClient.Transport = old; srv.Close() })
 	err := providers.SetProviderFields("ocfake", map[string]any{"preset": "databricks", "host": srv.URL,
-		"auth": map[string]any{"type":"pat"}})
+		"auth": map[string]any{"type": "pat"}})
 	if err != nil {
 		t.Fatal(err)
 	}

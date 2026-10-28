@@ -9,7 +9,7 @@ const wireHost = "https://example.cloud.databricks.com"
 
 func wireProvider(t *testing.T, opts string) *Provider {
 	t.Helper()
-	reg := mustParse(t, `{"providers": {"dbx": {"preset": "databricks", "host": "`+wireHost+`"`+opts+`}}}`)
+	reg := mustParse(t, `{"providers": {"databricks": {"dbx": {"preset": "databricks", "host": "`+wireHost+`"`+opts+`}}}}`)
 	return reg.Providers["dbx"]
 }
 
@@ -56,7 +56,7 @@ func TestWireServingDefaultUnchanged(t *testing.T) {
 }
 
 func TestWireUnknownRejected(t *testing.T) {
-	_, err := parseOverlay(t, `{"providers": {"dbx": {"preset": "databricks", "host": "`+wireHost+`", "options": {"wire": "bogus"}}}}`)
+	_, err := parseOverlay(t, `{"providers": {"databricks": {"dbx": {"preset": "databricks", "host": "`+wireHost+`", "options": {"wire": "bogus"}}}}}`)
 	if err == nil || !strings.Contains(err.Error(), "options.wire") {
 		t.Fatalf("err = %v, want options.wire rejection", err)
 	}
@@ -83,7 +83,7 @@ func TestWireModelPrefixThenDots(t *testing.T) {
 }
 
 func TestWireModelsStored(t *testing.T) {
-	p := wireProvider(t, `, "options": {"wire": "gateway", "models": {"claude-sonnet-5-5": {"x": 1}}}`)
+	p := wireProvider(t, `, "options": {"wire": "ai-gateway", "models": {"claude-sonnet-5-5": {"x": 1}}}`)
 	if p.Options.Models["claude-sonnet-5-5"]["x"] == nil {
 		t.Errorf("Options.Models not stored: %v", p.Options.Models)
 	}

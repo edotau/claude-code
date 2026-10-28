@@ -21,7 +21,8 @@ import (
 func stubHandoff(t *testing.T, fb func(*providers.Registry, string) (providers.Target, string, error)) (string, *[]string) {
 	t.Helper()
 	dir := t.TempDir()
-	setPin(t, providers.PinCopilotProfile, "edotau")
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	pinGitHubProfile(t, "edotau", "")
 	var marked []string
 	oDir, oFb, oLoad, oMark := handoffDir, copilotFallback, loadState, markExhausted
 	handoffDir = func(string) string { return dir }
@@ -36,7 +37,7 @@ var errQuotaMidTask = errors.New("send prompt: session error: 402 You have excee
 
 func quotaReq() (Request, Result, copilotsdk.Result) {
 	req := Request{Prompt: "Refactor foo; token ghp_" + strings.Repeat("a", 36), Model: "opus", WorkDir: "/tmp/repo"}
-	res := Result{Agent: "copilot", Provider: "github-copilot", Model: "claude-opus-4.5"}
+	res := Result{Agent: "copilot", Provider: "personal", Model: "claude-opus-4.5"}
 	return req, res, copilotsdk.Result{Text: "Step 1 done.", SessionID: "0a1b2c3d-4e5f-6789-abcd-ef0123456789"}
 }
 
@@ -103,7 +104,7 @@ func TestCopilotQuotaHandoffWithoutFallbackReturnsQuota(t *testing.T) {
 
 func TestCopilotQuotaHandoffNeverResumesOnGitHubLogin(t *testing.T) {
 	_, _ = stubHandoff(t, func(*providers.Registry, string) (providers.Target, string, error) {
-		return providers.Target{Provider: &providers.Provider{Name: "github-copilot",
+		return providers.Target{Provider: &providers.Provider{Name: "personal", Provider: "github",
 			Auth: providers.Auth{Login: "copilot"}}}, "", nil
 	})
 	req, res, partial := quotaReq()
@@ -119,8 +120,8 @@ func TestCopilotQuotaHandoffNeverResumesOnGitHubLogin(t *testing.T) {
 // "<profile>:<tier>" resolves like --provider <profile> --model <tier>; anything else is left alone.
 func TestResolveTargetProfileTierRewrite(t *testing.T) {
 	vaulttest.UseKeyring(t)
-	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"dev":{"kind":"anthropic","base_url":"http://127.0.0.1:1",`+
-		`"auth":{"type":"key","env":"DEV_TEST_KEY"},"models":{"opus":"claude-opus-5-5","sonnet":"claude-sonnet-5","haiku":"claude-haiku-4-5"}}}}`)
+	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"databricks":{"dev":{"kind":"anthropic","base_url":"http://127.0.0.1:1",`+
+		`"auth":{"type":"key","env":"DEV_TEST_KEY"},"models":{"opus":"claude-opus-5-5","sonnet":"claude-sonnet-5","haiku":"claude-haiku-4-5"}}}}}`)
 	_, want, err := resolveTarget(Request{Provider: "dev", Model: "opus"})
 	if err != nil || want.Provider == nil || want.Provider.Name != "dev" {
 		t.Fatalf("baseline --provider dev --model opus = %+v, %v", want, err)
@@ -155,8 +156,8 @@ func TestResolveTargetProfileTierRewrite(t *testing.T) {
 		if !ExplicitBackend(req) {
 			t.Error("ExplicitBackend(dev:opus) must stay true")
 		}
-		if acct, _ := explicitAccount(&fakeRunner{name: "claude"}, req); acct != "local·dev" {
-			t.Errorf("explicitAccount = %q, want local·dev", acct)
+		if acct, _ := explicitAccount(&fakeRunner{name: "claude"}, req); acct != "databricks·dev" {
+			t.Errorf("explicitAccount = %q, want databricks·dev", acct)
 		}
 	})
 }
@@ -261,10 +262,10 @@ func TestCopilotRunnerResumePromptRedacted(t *testing.T) {
 	ghLogin(t, "alice", 10)
 	t.Setenv("DEV_TEST_KEY", "k")
 	vaulttest.UseKeyring(t)
-	setPin(t, providers.PinCopilotProfile, "alice") // UseKeyring relocates the vault; reseed the pin
 	fakeCopilotBin(t)
-	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"dev":{"kind":"anthropic","base_url":"http://127.0.0.1:1",`+
-		`"auth":{"type":"key","env":"DEV_TEST_KEY"},"models":{"opus":"claude-opus-5-5","sonnet":"claude-sonnet-5"}}}}`)
+	// UseKeyring relocates the vault; reseed the alice profile and its pin alongside dev
+	pinGitHubProfile(t, "alice", `"databricks":{"dev":{"kind":"anthropic","base_url":"http://127.0.0.1:1",`+
+		`"auth":{"type":"key","env":"DEV_TEST_KEY"},"models":{"opus":"claude-opus-5-5","sonnet":"claude-sonnet-5"}}}`)
 	secret := tok("ghs_")
 	var prompts []string
 	prev := copilotAsk
@@ -276,7 +277,7 @@ func TestCopilotRunnerResumePromptRedacted(t *testing.T) {
 		return copilotsdk.Result{Text: "done"}, nil
 	}
 	t.Cleanup(func() { copilotAsk = prev })
-	res, err := copilotRunner{}.Run(context.Background(), Request{Prompt: "do it " + secret, Model: "sonnet", Provider: "github-copilot", Direct: true}, io.Discard)
+	res, err := copilotRunner{}.Run(context.Background(), Request{Prompt: "do it " + secret, Model: "sonnet", Provider: "personal", Direct: true}, io.Discard)
 	if err != nil || len(prompts) != 2 {
 		t.Fatalf("res=%+v err=%v prompts=%d", res, err, len(prompts))
 	}
@@ -312,14 +313,14 @@ func TestCopilotHandoffResumeKeepsTierAndSession(t *testing.T) {
 	}
 }
 
-// (2) `--provider github-copilot --model sonnet` over the gate lands on the fallback's sonnet model.
+// (2) `--provider personal --model sonnet` over the gate lands on the fallback's sonnet model.
 func TestVendorTargetNoteGatedKeepsSonnetTier(t *testing.T) {
 	ghLogin(t, "alice", 99)
 	t.Setenv("DEV_TEST_KEY", "k")
 	vaulttest.UseKeyring(t)
-	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"dev":{"preset":"databricks","host":"https://adb-1.azuredatabricks.net",`+
-		`"auth":{"type":"key","env":"DEV_TEST_KEY"},"models":{"opus":"databricks-claude-opus-5-5","sonnet":"databricks-claude-sonnet-5-5"}}}}`)
-	tg, _, _, err := vendorTargetNote(Request{Prompt: "p", Provider: "github-copilot", Model: "sonnet"}, "copilot")
+	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"databricks":{"dev":{"preset":"databricks","host":"https://adb-1.azuredatabricks.net",`+
+		`"auth":{"type":"key","env":"DEV_TEST_KEY"},"models":{"opus":"databricks-claude-opus-5-5","sonnet":"databricks-claude-sonnet-5-5"}}}}}`)
+	tg, _, _, err := vendorTargetNote(Request{Prompt: "p", Provider: "personal", Model: "sonnet"}, "copilot")
 	if err != nil || tg.Provider == nil || tg.Provider.Name != "dev" || tg.Model != "databricks-claude-sonnet-5-5" {
 		t.Fatalf("target = %+v err=%v, want dev / databricks-claude-sonnet-5-5", tg, err)
 	}

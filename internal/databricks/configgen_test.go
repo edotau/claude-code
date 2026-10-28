@@ -10,7 +10,7 @@ import (
 
 func row(t *testing.T, wire string) *providers.Provider {
 	t.Helper()
-	doc := `{"providers":{"databricks-dev":{"preset":"databricks","host":"https://x.example.com","options":{"wire":"` + wire + `"}}}}`
+	doc := `{"providers":{"databricks":{"databricks-dev":{"preset":"databricks","host":"https://x.example.com","options":{"wire":"` + wire + `"}}}}}`
 	reg, _ := providers.Parse([]byte("{}"), []byte(doc))
 	p := reg.Providers["databricks-dev"]
 	if p == nil || p.BaseURL == "" {
@@ -51,7 +51,7 @@ func TestClaudeServingHarness(t *testing.T) {
 }
 
 func TestClaudeGatewayCLISetUnset(t *testing.T) {
-	o := base(t, TargetClaude, "gateway")
+	o := base(t, TargetClaude, "ai-gateway")
 	o.Auth, o.Set, o.Unset = AuthCLI, []string{"FOO=1"}, []string{"ENABLE_TOOL_SEARCH"}
 	r, err := Render(o)
 	if err != nil {
@@ -81,7 +81,7 @@ func TestCodex(t *testing.T) {
 			t.Errorf("missing %q in\n%s", w, r.Text)
 		}
 	}
-	r, err = Render(base(t, TargetCodex, "gateway"))
+	r, err = Render(base(t, TargetCodex, "ai-gateway"))
 	if err != nil || !strings.HasPrefix(r.Text, "# gateway") || !strings.Contains(r.Text, "https://x.example.com/ai-gateway/codex/v1") {
 		t.Errorf("gateway %v:\n%s", err, r.Text)
 	}
@@ -116,7 +116,7 @@ func TestRejects(t *testing.T) {
 func TestCodexModelAndNameFollowWire(t *testing.T) {
 	cases := []struct{ wire, model, wantModel, wantName string }{
 		{"serving", "system.ai.gpt-6-1-sol", `model = "databricks-gpt-6-1-sol"`, `name = "Databricks serving"`},
-		{"gateway", "databricks-gpt-6-1-sol", `model = "system.ai.gpt-6-1-sol"`, `name = "Databricks AI Gateway"`},
+		{"ai-gateway", "databricks-gpt-6-1-sol", `model = "system.ai.gpt-6-1-sol"`, `name = "Databricks AI Gateway"`},
 	}
 	for _, c := range cases {
 		t.Run(c.wire, func(t *testing.T) {

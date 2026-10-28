@@ -15,7 +15,7 @@ const (
 )
 
 func TestProviderEnvLandsInPlanSet(t *testing.T) {
-	hermetic(t, `{`+noModels+`,"providers":{`+gwProv+`,`+ptProv+`}}`)
+	hermetic(t, `{`+noModels+`,"providers":{"anthropic":{`+gwProv+`,`+ptProv+`}}}`)
 	t.Setenv("GW_REGION", "")
 	t.Setenv("GW_TIER", "")
 	for _, prov := range []string{"gw", "pt"} {
@@ -33,7 +33,7 @@ func TestProviderEnvLandsInPlanSet(t *testing.T) {
 }
 
 func TestProviderEnvSkipsProcessAndCustomEnv(t *testing.T) {
-	hermetic(t, `{`+noModels+`,"providers":{`+gwProv+`}}`)
+	hermetic(t, `{`+noModels+`,"providers":{"anthropic":{`+gwProv+`}}}`)
 	t.Setenv("GW_REGION", "from-process")
 	t.Setenv("GW_TIER", "")
 	old := customEnv
@@ -51,7 +51,7 @@ func TestProviderEnvSkipsProcessAndCustomEnv(t *testing.T) {
 }
 
 func TestNilProviderEnvLeavesOverlayExact(t *testing.T) {
-	hermetic(t, `{`+noModels+`,"providers":{`+plainGw+`}}`)
+	hermetic(t, `{`+noModels+`,"providers":{"anthropic":{`+plainGw+`}}}`)
 	p, err := Claude(context.Background(), Options{Provider: "plain"}, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -67,7 +67,7 @@ func TestNilProviderEnvLeavesOverlayExact(t *testing.T) {
 	}
 }
 
-const profileDoc = `{` + noModels + `,"providers":{` + gwProv + `,` + plainGw + `}}`
+const profileDoc = `{` + noModels + `,"providers":{"anthropic":{` + gwProv + `,` + plainGw + `}}}`
 
 func profileFixtureLaunch(t *testing.T) {
 	t.Helper()

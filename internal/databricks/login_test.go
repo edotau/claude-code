@@ -12,7 +12,7 @@ func seedU2MRow(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	err := providers.SetProviderFields("dbx-u2m", map[string]any{
 		"kind": "anthropic", "preset": "databricks", "host": "https://example.cloud.databricks.com",
-		"auth": map[string]any{"type":"oauth"},
+		"auth": map[string]any{"type": "oauth"},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -39,7 +39,7 @@ func TestVaultLoginRefusesRowWithAnotherAuthType(t *testing.T) {
 	useVaultTest(t)
 	err := providers.SetProviderFields("dbx-pat", map[string]any{
 		"kind": "anthropic", "preset": "databricks", "host": "https://example.cloud.databricks.com",
-		"auth": map[string]any{"type":"pat"},
+		"auth": map[string]any{"type": "pat"},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -62,6 +62,7 @@ func TestLoginAndMintRefusePositionalRow(t *testing.T) {
 
 // -p is --profile's shorthand on both commands.
 func TestLoginAndMintTakeShorthandP(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir()) // scratch vault: never the real overlay
 	for _, run := range []func([]string) int{login, mint} {
 		_, _, stderr := captureOutput(t, func() int { return run([]string{"-p", "no-such-row", "--dry-run"}) })
 		if !strings.Contains(stderr, "no-such-row") || strings.Contains(stderr, "flag provided but not defined") {

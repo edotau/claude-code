@@ -19,7 +19,7 @@ func seedCLIProfileRow(t *testing.T) {
 		"kind": "anthropic", "preset": "databricks", "host": "https://example.cloud.databricks.com",
 		"cliProfile": "dev",
 		"auth": map[string]any{
-			"type":"key", "command": "databricks auth token -p dev -o json | jq -r .access_token",
+			"type": "key", "command": "databricks auth token -p dev -o json | jq -r .access_token",
 			"refreshCommand": "my-custom-refresh",
 		},
 	})

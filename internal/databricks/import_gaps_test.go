@@ -110,7 +110,7 @@ func TestVaultImportExistingRowSkippedUnlessReplace(t *testing.T) {
 	useVaultTest(t)
 	if err := providers.SetProviderFields("pat-one", map[string]any{
 		"kind": "anthropic", "base_url": "https://old.example.cloud.databricks.com/serving-endpoints/anthropic",
-		"auth": map[string]any{"type":"pat"},
+		"auth": map[string]any{"type": "pat"},
 	}); err != nil {
 		t.Fatal(err)
 	}

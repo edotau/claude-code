@@ -10,7 +10,7 @@ const dbxRow = `"dbx":{"preset":"databricks","host":"https://adb-1.azuredatabric
 	`"models":{"opus":"databricks-claude-opus-5-5","sonnet":"databricks-claude-sonnet-5-5"}}`
 
 func TestPresetRowNonClaudeModelGoesThroughRouter(t *testing.T) {
-	hermetic(t, `{`+noModels+`,"providers":{`+dbxRow+`}}`)
+	hermetic(t, `{`+noModels+`,"providers":{"databricks":{`+dbxRow+`}}}`)
 	p, err := Claude(context.Background(), Options{Provider: "dbx", Model: "databricks-gpt-5-5"}, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -21,7 +21,7 @@ func TestPresetRowNonClaudeModelGoesThroughRouter(t *testing.T) {
 }
 
 func TestPresetRowClaudeModelStaysDirect(t *testing.T) {
-	hermetic(t, `{`+noModels+`,"providers":{`+dbxRow+`}}`)
+	hermetic(t, `{`+noModels+`,"providers":{"databricks":{`+dbxRow+`}}}`)
 	p, err := Claude(context.Background(), Options{Provider: "dbx", Model: "databricks-claude-opus-5-5"}, nil)
 	if err != nil {
 		t.Fatal(err)

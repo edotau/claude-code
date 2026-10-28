@@ -22,6 +22,7 @@ func load(reg *providers.Registry, ghUser string) (*Table, error) {
 
 func testTable(t *testing.T) *Table {
 	t.Helper()
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir()) // scratch vault: never the real pins or logins
 	// a bare table.json load carries no registry, so set the defaults.json-shaped opencode free-tier
 	// policy explicitly: zen-free may serve sonnet/haiku, same as production's merged registry.
 	reg := &providers.Registry{Routing: providers.Routing{Opencode: providers.OpencodeRouting{FreeTiers: &[]string{"sonnet", "haiku"}}}}

@@ -234,7 +234,7 @@ func builtinEntry(name string) (map[string]json.RawMessage, error) {
 	return out, nil
 }
 
-// overlayAuthTypes maps each overlay row to its sealed auth type (oauth, m2m, pat); rows without one map to "".
+// overlayAuthTypes maps every overlay row to its sealed auth type (oauth, m2m, pat), or "" when it has none.
 func overlayAuthTypes(doc []byte) map[string]string {
 	out := map[string]string{}
 	reg, err := decodeRegistry(doc, builtinProviders())
@@ -242,10 +242,12 @@ func overlayAuthTypes(doc []byte) map[string]string {
 		return out
 	}
 	for n, p := range reg.Providers {
-		if p != nil {
-			if sealedAuth(p.Auth.Type) {
-				out[n] = p.Auth.Type
-			}
+		if p == nil {
+			continue
+		}
+		out[n] = ""
+		if sealedAuth(p.Auth.Type) {
+			out[n] = p.Auth.Type
 		}
 	}
 	return out

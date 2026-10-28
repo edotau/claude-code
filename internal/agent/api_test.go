@@ -27,8 +27,8 @@ func registry(t *testing.T, srv *httptest.Server) {
 	t.Setenv("TEST_ANTH_KEY", "anth-key")
 	t.Setenv("TEST_OAI_KEY", "oai-key")
 	body := fmt.Sprintf(`{"providers":{
-	  "tanth":{"kind":"anthropic","base_url":%q,"auth":{"type":"key","header":"x-api-key","env":"TEST_ANTH_KEY"},"models":{"opus":"claude-opus-5","haiku":"claude-haiku-4-5"}},
-	  "toai":{"kind":"openai","base_url":%q,"auth":{"type":"key","env":"TEST_OAI_KEY"},"models":{"opus":"gpt-x"}}}}`, srv.URL, srv.URL+"/v1")
+	  "anthropic":{"tanth":{"kind":"anthropic","base_url":%q,"auth":{"type":"key","header":"x-api-key","env":"TEST_ANTH_KEY"},"models":{"opus":"claude-opus-5","haiku":"claude-haiku-4-5"}}},
+	  "openai":{"toai":{"kind":"openai","base_url":%q,"auth":{"type":"key","env":"TEST_OAI_KEY"},"models":{"opus":"gpt-x"}}}}}`, srv.URL, srv.URL+"/v1")
 	vaulttest.Put(t, vault.Overlay, "providers", body)
 }
 

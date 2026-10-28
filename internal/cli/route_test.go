@@ -35,7 +35,9 @@ func captureRouteStdout(t *testing.T, fn func() int) (string, int) {
 // TestRouteVerbJSON: the pick's JSON carries weights, per-dimension scores, totals and each skip's gate.
 func TestRouteVerbJSON(t *testing.T) {
 	dir := vaulttest.Use(t)
-	vaulttest.Put(t, vault.Pins, providers.PinCopilotProfile, "work-user")
+	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"github":{"work":{"kind":"openai",
+		"base_url":"https://api.githubcopilot.com","auth":{"type":"cli","login":"copilot"},"login":"work-user"}}}}`)
+	vaulttest.Put(t, vault.Pins, providers.PinCopilotProfile, "work")
 	if err := os.MkdirAll(filepath.Join(dir, "bin"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -49,7 +51,7 @@ func TestRouteVerbJSON(t *testing.T) {
 	router.GHAccounts = func() []string { return []string{"work-user"} }
 	t.Cleanup(func() { router.GHAccounts = oldGH })
 	t.Cleanup(func() { routeRefresh = nil })
-	if err := router.MarkExhausted("github·work-user", time.Now().Add(240*time.Hour), time.Now(), "402"); err != nil {
+	if err := router.MarkExhausted("github·work", time.Now().Add(240*time.Hour), time.Now(), "402"); err != nil {
 		t.Fatal(err)
 	}
 	out, code := captureRouteStdout(t, func() int {
@@ -71,7 +73,7 @@ func TestRouteVerbJSON(t *testing.T) {
 			skip = &res.Skipped[i]
 		}
 	}
-	if skip == nil || skip.Gate != router.GateExhausted || !strings.Contains(skip.Reason, "github·work-user exhausted until") {
+	if skip == nil || skip.Gate != router.GateExhausted || !strings.Contains(skip.Reason, "github·work exhausted until") {
 		t.Errorf("copilot skip = %+v in %+v", skip, res.Skipped)
 	}
 	if c := res.Candidates[len(res.Candidates)-1]; c.Agent != "claude" || c.Model != "claude-sonnet-5-5" || c.Scores == nil {

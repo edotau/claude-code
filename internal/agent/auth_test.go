@@ -19,7 +19,7 @@ type markCall struct{ account, reason string }
 func authEnv(t *testing.T, row string) *[]markCall {
 	t.Helper()
 	vaulttest.UseKeyring(t)
-	vaulttest.Put(t, vault.Overlay, "providers", `{"default":"agauth","providers":{"agauth":`+row+`}}`)
+	vaulttest.Put(t, vault.Overlay, "providers", `{"default":"agauth","providers":{"anthropic":{"agauth":`+row+`}}}`)
 	var calls []markCall
 	prev := markAuth
 	markAuth = func(a, r string) error { calls = append(calls, markCall{a, r}); return nil }
