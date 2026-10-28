@@ -8,7 +8,7 @@
 
 ## Tasks
 
-- [ ] Phase 1.1 — Add --attach to the copilot runner — runner: claude — owns: internal/agent/vendor.go
-- [ ] Phase 1.2 — Fix 3 findings in the hooks package — runner: copilot — owns: internal/hooks/safety.go
+- [ ] Phase 1.1 — Add --attach to the copilot runner — agent: claude — owns: internal/agent/vendor.go
+- [ ] Phase 1.2 — Fix 3 findings in the hooks package — agent: copilot — owns: internal/hooks/safety.go
 - [ ] Live check on the real surface
 - [ ] Scoped tests for the touched packages

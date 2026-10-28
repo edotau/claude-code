@@ -11,27 +11,28 @@ import (
 	"github.com/edotau/claude-code/internal/usageledger"
 )
 
-// ledgerAgg is one provider+model row for the API KEYS section: tokens over today / 30d / all-time.
+// ledgerAgg is one provider+profile+model row for the API KEYS section: tokens over today / 30d / all-time.
 type ledgerAgg struct {
-	Provider string `json:"provider"`
+	Provider string `json:"provider"` // the platform
+	Profile  string `json:"profile,omitempty"`
 	Model    string `json:"model"`
 	Today    int    `json:"today"`
 	Last30d  int    `json:"last_30d"`
 	AllTime  int    `json:"all_time"`
 }
 
-// aggregateLedger rolls entries up per provider+model, sorted by provider then model.
+// aggregateLedger rolls entries up per provider+profile+model, sorted by provider, profile, then model.
 func aggregateLedger(entries []usageledger.Entry, now time.Time) []ledgerAgg {
-	type key struct{ provider, model string }
+	type key struct{ provider, profile, model string }
 	byKey := map[key]*ledgerAgg{}
 	var order []key
 	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location()) // local midnight, not UTC
 	cutoff30 := now.Add(-30 * 24 * time.Hour)
 	for _, e := range entries {
-		k := key{e.Provider, e.Model}
+		k := key{e.Provider, e.ProfileName(), e.Model}
 		a, ok := byKey[k]
 		if !ok {
-			a = &ledgerAgg{Provider: e.Provider, Model: e.Model}
+			a = &ledgerAgg{Provider: e.Provider, Profile: k.profile, Model: e.Model}
 			byKey[k] = a
 			order = append(order, k)
 		}
@@ -45,7 +46,7 @@ func aggregateLedger(entries []usageledger.Entry, now time.Time) []ledgerAgg {
 		}
 	}
 	slices.SortFunc(order, func(a, b key) int {
-		return cmp.Or(cmp.Compare(a.provider, b.provider), cmp.Compare(a.model, b.model))
+		return cmp.Or(cmp.Compare(a.provider, b.provider), cmp.Compare(a.profile, b.profile), cmp.Compare(a.model, b.model))
 	})
 	out := make([]ledgerAgg, len(order))
 	for i, k := range order {
@@ -75,4 +76,12 @@ func humanTokens(n int) string {
 	default:
 		return strconv.Itoa(n)
 	}
+}
+
+// rowLabel is "<provider>·<profile>", the provider alone when the profile is empty or bears its name.
+func rowLabel(provider, profile string) string {
+	if profile == "" || profile == provider {
+		return provider
+	}
+	return provider + "·" + profile
 }

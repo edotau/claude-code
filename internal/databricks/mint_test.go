@@ -27,8 +27,8 @@ func mintRow(t *testing.T, status int) *httptest.Server {
 		fmt.Fprint(w, `{"data":[]}`)
 	}))
 	t.Cleanup(srv.Close)
-	seedOverlay(t, fmt.Sprintf(`{"providers":{"mrow":{"kind":"anthropic","base_url":%q,`+
-		`"auth":{"type":"bearer","command":"printf %s"}}}}`, srv.URL, mintToken))
+	seedOverlay(t, fmt.Sprintf(`{"providers":{"databricks":{"mrow":{"kind":"anthropic","base_url":%q,`+
+		`"auth":{"type":"key","command":"printf %s"}}}}}`, srv.URL, mintToken))
 	return srv
 }
 
@@ -72,7 +72,7 @@ func TestMintResultHidesToken(t *testing.T) {
 	if err != nil || tok != mintToken {
 		t.Fatalf("tok %q err %v", tok, err)
 	}
-	if res.Provider != "mrow" || res.AuthType != "command" || res.Len != len(mintToken) {
+	if res.Provider != "mrow" || res.AuthType != "key" || res.Len != len(mintToken) {
 		t.Errorf("result %+v", res)
 	}
 	noToken(t, "MintResult", fmt.Sprintf("%+v", res))
@@ -82,7 +82,7 @@ func TestMintResultHidesToken(t *testing.T) {
 func TestMintVerbNeverPrintsToken(t *testing.T) {
 	mintRow(t, 200)
 	code, stdout, stderr := captureOutput(t, func() int { return mint([]string{"--profile", "mrow"}) })
-	if code != 0 || !strings.Contains(stdout, "mrow · command · minted · 21 chars") {
+	if code != 0 || !strings.Contains(stdout, "mrow · key · minted · 21 chars") {
 		t.Fatalf("exit %d stdout %q stderr %q", code, stdout, stderr)
 	}
 	noToken(t, "stdout", stdout)
@@ -91,7 +91,7 @@ func TestMintVerbNeverPrintsToken(t *testing.T) {
 
 func TestMintVerbErrorPathsHideToken(t *testing.T) {
 	mintRow(t, 200)
-	for _, args := range [][]string{{"nope"}, {}, {"mrow", "--bogus"}} {
+	for _, args := range [][]string{{"nope"}, {"mrow", "--bogus"}} {
 		code, stdout, stderr := captureOutput(t, func() int { return mint(args) })
 		if code == 0 {
 			t.Errorf("%v: exit 0", args)
@@ -100,7 +100,7 @@ func TestMintVerbErrorPathsHideToken(t *testing.T) {
 		noToken(t, "stderr", stderr)
 	}
 	seedOverlay(t, `{"providers":{"mrow":{"kind":"anthropic","base_url":"http://127.0.0.1:1",`+
-		`"auth":{"type":"bearer","command":"echo `+mintToken+`; exit 3"}}}}`)
+		`"auth":{"type":"key","command":"echo `+mintToken+`; exit 3"}}}}`)
 	code, stdout, stderr := captureOutput(t, func() int { return mint([]string{"--profile", "mrow", "--copy"}) })
 	if code == 0 {
 		t.Errorf("failing command: exit 0")
@@ -165,7 +165,7 @@ func TestSetPATStoresAndVerifies(t *testing.T) {
 	if err != nil || status != "verified" {
 		t.Fatalf("status %q err %v", status, err)
 	}
-	if v, ok, _ := vault.ReadSecret(providers.SecretNameFor("mrow", providers.AuthPAT)); !ok || v != "dapi-NEW" {
+	if v, ok, _ := vault.ReadSecret(providers.SecretName(providers.GroupDatabricks, "mrow", providers.AuthPAT)); !ok || v != "dapi-NEW" {
 		t.Errorf("stored %q ok=%v", v, ok)
 	}
 	if !strings.Contains(overlayDoc(t), providers.AuthPAT) {
@@ -175,7 +175,7 @@ func TestSetPATStoresAndVerifies(t *testing.T) {
 
 func TestSetPATRejectedKeepsOldValue(t *testing.T) {
 	mintRow(t, 401)
-	name := providers.SecretNameFor("mrow", providers.AuthPAT)
+	name := providers.SecretName(providers.GroupDatabricks, "mrow", providers.AuthPAT)
 	if err := secrets.Store(name, "dapi-OLD"); err != nil {
 		t.Fatal(err)
 	}
@@ -197,7 +197,7 @@ func TestSetPATRejectedWithoutOldDeletesSecret(t *testing.T) {
 	if _, err := SetPAT(context.Background(), "mrow", "dapi-BAD"); err == nil {
 		t.Fatal("want error")
 	}
-	if v, ok, _ := vault.ReadSecret(providers.SecretNameFor("mrow", providers.AuthPAT)); ok {
+	if v, ok, _ := vault.ReadSecret(providers.SecretName(providers.GroupDatabricks, "mrow", providers.AuthPAT)); ok {
 		t.Errorf("rejected PAT left behind: %q", v)
 	}
 }
@@ -213,20 +213,20 @@ func TestSwitchAuthTypeM2MNeedsClientID(t *testing.T) {
 	mintRow(t, 200)
 	before := overlayDoc(t)
 	p := &providers.Provider{Name: "mrow"}
-	if err := switchAuthType(p, providers.AuthOAuthM2M, false); err == nil || !strings.Contains(err.Error(), "claude-code vault edit") {
+	if err := switchAuthType(p, providers.AuthM2M, false); err == nil || !strings.Contains(err.Error(), "claude-code vault edit") {
 		t.Fatalf("err %v", err)
 	}
 	if overlayDoc(t) != before {
 		t.Error("failed switch wrote the overlay")
 	}
 	seedOverlay(t, `{"providers":{"mrow":{"kind":"anthropic","base_url":"http://127.0.0.1:1",`+
-		`"auth":{"type":"bearer","command":"true","authType":"oauth-m2m","clientId":"cid"}}}}`)
+		`"auth":{"type":"key","command":"true","type":"m2m","clientId":"cid"}}}}`)
 	reg, err := providers.Load()
 	if err != nil {
 		t.Fatal(err)
 	}
 	p, _ = reg.Get("mrow")
-	if err := switchAuthType(p, providers.AuthOAuthM2M, true); err != nil {
+	if err := switchAuthType(p, providers.AuthM2M, true); err != nil {
 		t.Errorf("with clientId: %v", err)
 	}
 	if err := switchAuthType(p, "bogus", true); err == nil {
@@ -247,12 +247,12 @@ func TestSwitchAuthTypeDiffAndRollbackHintUnchanged(t *testing.T) {
 	if code != 1 || out.Len() != 0 {
 		t.Fatalf("exit %d out %q", code, out.String())
 	}
-	for _, want := range []string{`"authType"`, "u2m", "kept custom auth.refreshCommand"} {
+	for _, want := range []string{`"type": "oauth"`, "kept custom auth.refreshCommand"} {
 		if !strings.Contains(stdout, want) {
 			t.Errorf("diff missing %q:\n%s", want, stdout)
 		}
 	}
-	for _, want := range []string{"auth.authType of dbx-dev is now u2m (was \"\")", "providers.prev"} {
+	for _, want := range []string{"auth.type of dbx-dev is now oauth (was \"key\")", "providers.prev"} {
 		if !strings.Contains(stderr, want) {
 			t.Errorf("rollback hint missing %q:\n%s", want, stderr)
 		}

@@ -9,7 +9,6 @@ import (
 
 	"github.com/edotau/claude-code/internal/clipboard"
 	"github.com/edotau/claude-code/internal/databricks"
-	"github.com/edotau/claude-code/internal/profile"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/tui"
 )
@@ -25,8 +24,10 @@ var (
 	dbxSchedule = clipboard.ScheduleClear
 )
 
-// dbxAgents are the agents "Apply to agents" can repoint one at a time.
-var dbxAgents = []string{"session", "codex", "copilot", "opencode"}
+// dbxAgents maps each agent "Apply to agents" can repoint to its <AGENT>_PROFILE pin (copilot's is a GitHub login).
+var dbxAgents = []struct{ name, pin string }{
+	{"claude", providers.PinProfile}, {"codex", providers.PinCodexProfile}, {"opencode", providers.PinOpencodeProfile},
+}
 
 // dbxState is one env's authType and its no-network expiry text ("token expires in 52m", "no login").
 func dbxState(reg *providers.Registry, env string) (authType, text string, ok bool) {
@@ -37,9 +38,9 @@ func dbxState(reg *providers.Registry, env string) (authType, text string, ok bo
 	if p == nil {
 		return "", "no login", false
 	}
-	authType = p.Auth.AuthType
-	if authType == "" {
-		authType = "command"
+	authType = "command"
+	if p.Auth.Sealed() {
+		authType = p.Auth.Type
 	}
 	if !providers.CredentialPresent(p) {
 		return authType, "no login", false
@@ -66,7 +67,7 @@ func dbxDur(d time.Duration) string {
 // databricksRow is the settings row: the first env holding a login (else the first configured), its authType and expiry.
 func databricksRow(d *dialog) homeRow {
 	env, state, check := "", "not configured", "no login"
-	for _, e := range providers.DatabricksEnvs {
+	for _, e := range dbxProfileNames(d.reg) {
 		at, text, ok := dbxState(d.reg, e)
 		if at == "" {
 			continue
@@ -84,7 +85,7 @@ func runDatabricks(d *dialog) bool {
 		runDatabricksPage(d)
 		return true
 	}
-	for _, e := range providers.DatabricksEnvs {
+	for _, e := range dbxProfileNames(d.reg) {
 		at, text, _ := dbxState(d.reg, e)
 		if at == "" {
 			at = "-"
@@ -98,8 +99,8 @@ func runDatabricks(d *dialog) bool {
 func runDatabricksPage(d *dialog) {
 	start := 0
 	for {
-		rows := make([][2]string, len(providers.DatabricksEnvs))
-		for i, e := range providers.DatabricksEnvs {
+		rows := make([][2]string, len(dbxProfileNames(d.reg)))
+		for i, e := range dbxProfileNames(d.reg) {
 			at, text, _ := dbxState(d.reg, e)
 			if at == "" {
 				at = "-"
@@ -111,7 +112,7 @@ func runDatabricksPage(d *dialog) {
 			return
 		}
 		start = idx
-		runDatabricksEnv(d, providers.DatabricksEnvs[idx])
+		runDatabricksEnv(d, dbxProfileNames(d.reg)[idx])
 	}
 }
 
@@ -185,7 +186,7 @@ func dbxMintNow(d *dialog, env string, copyIt bool) {
 	}
 	if err := dbxCopy(ctx, tok); err != nil {
 		if errors.Is(err, clipboard.ErrNoClipboard) {
-			d.printf("%s: no clipboard here; the agents fetch via the router\n", env)
+			d.printf("%s: no clipboard here; the agents fetch via the proxy\n", env)
 			return
 		}
 		d.printf("%s: copy: %v\n", env, err)
@@ -198,34 +199,46 @@ func dbxMintNow(d *dialog, env string, copyIt bool) {
 	d.printf("%s · copied · clears in %ds\n", env, int(clipboard.DefaultClearAfter/time.Second))
 }
 
-// dbxApply repoints all four agents (profile DEFAULT) or one agent to env, printing the overlay diff.
+// dbxProfiles lists the registry's Databricks profiles.
+func dbxProfileNames(reg *providers.Registry) []string {
+	if reg == nil {
+		return nil
+	}
+	return providers.DatabricksProfiles(reg)
+}
+
+// dbxApply pins one agent's <AGENT>_PROFILE (or all of them) to the profile.
 func dbxApply(d *dialog, env string) {
-	rows := [][2]string{{"All four agents", "profile DEFAULT -> " + env}}
+	rows := [][2]string{{"All agents", "pin every agent to " + env}}
 	for _, a := range dbxAgents {
-		rows = append(rows, [2]string{a, "this agent only"})
+		rows = append(rows, [2]string{a.name, "this agent only"})
 	}
 	idx, err := dbxPick("apply "+env+" to", rows, 0)
 	if err != nil || idx < 0 {
 		return
 	}
-	reg, err := providers.Load()
+	pins := map[string]string{}
+	for i, a := range dbxAgents {
+		if idx == 0 || idx == i+1 {
+			pins[a.pin] = env
+		}
+	}
+	diff, err := providers.PinDiff(pins)
 	if err != nil {
 		d.printf("%s: apply: %v\n", env, err)
 		return
 	}
-	var oldDoc, newDoc []byte
-	if idx == 0 {
-		oldDoc, newDoc, err = profile.UseAccount(true, reg, "DEFAULT", env)
-	} else {
-		oldDoc, newDoc, err = profile.UseAgentAccount(true, reg, dbxAgents[idx-1], env)
+	if len(diff) == 0 {
+		d.printf("%s: already applied\n", env)
+		return
 	}
-	if err != nil {
+	if err := providers.SetPins(pins); err != nil {
 		d.printf("%s: apply: %v\n", env, err)
 		return
 	}
 	d.changed = true
-	if !profile.PrintDiff(d.out, oldDoc, newDoc) {
-		d.printf("%s: already applied\n", env)
+	for _, l := range diff {
+		d.println(l)
 	}
 }
 

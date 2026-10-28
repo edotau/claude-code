@@ -8,11 +8,11 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/route"
+	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/vendors"
 )
 
-// scratchRepo makes a throwaway git repo (no commits needed — route.IsWorkRepo only reads the origin
+// scratchRepo makes a throwaway git repo (no commits needed — router.IsWorkRepo only reads the origin
 // remote) with origin set to url, so a test controls exactly what "the repo this leg runs in" looks like.
 func scratchRepo(t *testing.T, origin string) string {
 	t.Helper()
@@ -41,7 +41,7 @@ func setupWorkdirFixture(t *testing.T) {
 // TestResolveAskChainWorkRepoFromWorkdirNotCwd is the wiring's teeth: cwd is a personal repo (would pick
 // the free Zen leg on its own) but --workdir names a work repo (its remote matches a configured
 // workRepoMarkers entry) — the opencode sub-pick must see the work repo and skip straight to the paid
-// opencode:go leg, never zen-free. workRepoMarkers defaults to none, so this test configures one.
+// opencode·go leg, never zen-free. workRepoMarkers defaults to none, so this test configures one.
 func TestResolveAskChainWorkRepoFromWorkdirNotCwd(t *testing.T) {
 	setupWorkdirFixture(t)
 	t.Setenv("HARNESS_VAULT_KEY", base64.StdEncoding.EncodeToString(make([]byte, 32)))
@@ -55,18 +55,18 @@ func TestResolveAskChainWorkRepoFromWorkdirNotCwd(t *testing.T) {
 	work := scratchRepo(t, "https://git.corp.example/scm/x/y.git")
 	t.Chdir(personal)
 
-	_, chain, err := resolveAskChain("opencode", "", "", "test prompt", agent.FallbackVendors, false, work)
+	_, chain, err := resolveAskChain("opencode", "", "", "test prompt", agent.FallbackAgents, false, work)
 	if err != nil {
 		t.Fatalf("resolveAskChain() = %v", err)
 	}
 	if len(chain.Legs) == 0 {
 		t.Fatal("no legs routed")
 	}
-	if chain.Legs[0].Billing == route.BillFree {
+	if chain.Legs[0].Billing == router.BillFree {
 		t.Errorf("leg = %+v, want no free zen-free candidate: --workdir names a work repo even though cwd is personal", chain.Legs[0])
 	}
-	if chain.Legs[0].Account != "opencode:go" {
-		t.Errorf("leg.Account = %q, want opencode:go (free blocked on the work repo)", chain.Legs[0].Account)
+	if chain.Legs[0].Account != "opencode·go" {
+		t.Errorf("leg.Account = %q, want opencode·go (free blocked on the work repo)", chain.Legs[0].Account)
 	}
 }
 
@@ -77,11 +77,11 @@ func TestResolveAskChainWorkRepoDefaultsToCwdWhenWorkdirEmpty(t *testing.T) {
 	personal := scratchRepo(t, "https://github.com/edotau/claude-code.git")
 	t.Chdir(personal)
 
-	_, chain, err := resolveAskChain("opencode", "", "", "test prompt", agent.FallbackVendors, false, "")
+	_, chain, err := resolveAskChain("opencode", "", "", "test prompt", agent.FallbackAgents, false, "")
 	if err != nil {
 		t.Fatalf("resolveAskChain() = %v", err)
 	}
-	if len(chain.Legs) == 0 || chain.Legs[0].Billing != route.BillFree {
+	if len(chain.Legs) == 0 || chain.Legs[0].Billing != router.BillFree {
 		t.Errorf("leg = %+v, want the free zen-free candidate on a personal cwd with no --workdir override", chain.Legs[0])
 	}
 }

@@ -40,7 +40,10 @@ func TestCheckPipedReportsAbsentKeysAndExitsOne(t *testing.T) {
 	cfg, home := t.TempDir(), t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	t.Setenv("HOME", home)
-	t.Setenv("HARNESS_PROVIDER", "openai")
+	vaulttest.Use(t) // pins are vault-only: seed the openai pin, then assert --check leaves the vault bytes alone
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	vaulttest.Put(t, vault.Pins, providers.PinProfile, "openai")
+	vaultBefore, _ := os.ReadFile(filepath.Join(cfg, "state", "vault.db"))
 	t.Setenv("OPENAI_API_KEY", "")
 	t.Setenv("GEMINI_API_KEY", "")
 	t.Setenv("GH_TOKEN", "")
@@ -57,7 +60,7 @@ func TestCheckPipedReportsAbsentKeysAndExitsOne(t *testing.T) {
 	if ents, _ := os.ReadDir(home); len(ents) != 0 {
 		t.Errorf("--check wrote into HOME: %v", ents)
 	}
-	if _, err := os.Stat(filepath.Join(cfg, "state", "vault.db")); err == nil {
+	if after, _ := os.ReadFile(filepath.Join(cfg, "state", "vault.db")); !bytes.Equal(after, vaultBefore) {
 		t.Error("--check wrote vault.db")
 	}
 }
@@ -68,7 +71,6 @@ func TestVendorKeyTargetRejectsForeignPassthrough(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	t.Setenv("HOME", home)
 	t.Setenv("CODEX_HOME", home)
-	t.Setenv("HARNESS_PROVIDER", "subscription")
 	t.Setenv("OPENAI_API_KEY", "")
 	t.Setenv("PATH", t.TempDir())
 	out, _ := runKeysCheck(t, Options{Check: true, Vendor: "codex", Home: home, In: strings.NewReader("")})
@@ -91,7 +93,6 @@ func TestVendorOnOwnConfigReadsAbsentUnderNewChain(t *testing.T) {
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", xdg)
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
-	t.Setenv("HARNESS_PROVIDER", "subscription")
 	t.Setenv("PATH", t.TempDir())
 	for _, k := range []string{"ANTHROPIC_API_KEY", "GEMINI_API_KEY", "GH_TOKEN", "GITHUB_TOKEN", "COPILOT_GITHUB_TOKEN"} {
 		t.Setenv(k, "")
@@ -160,7 +161,6 @@ func TestCheckStaysReadOnlyWithRotatableCredential(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	t.Setenv("HOME", home)
 	t.Setenv("CODEX_HOME", codexHome)
-	t.Setenv("HARNESS_PROVIDER", "subscription")
 	t.Setenv("PATH", t.TempDir()) // no codex binary: forces the auth.json file check, never execs a CLI
 	if err := os.WriteFile(filepath.Join(codexHome, "auth.json"), []byte(`{"tokens":{"access_token":"x"}}`), 0o600); err != nil {
 		t.Fatal(err)

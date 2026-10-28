@@ -23,9 +23,10 @@ import (
 	"github.com/edotau/claude-code/internal/transcript"
 )
 
-// agentModel is one provider+model row under an agentUsage.
+// agentModel is one provider+profile+model row under an agentUsage.
 type agentModel struct {
 	Provider string  `json:"provider"`
+	Profile  string  `json:"profile,omitempty"`
 	Model    string  `json:"model"`
 	Turns    int     `json:"turns"`
 	Tokens   int     `json:"tokens"`
@@ -442,7 +443,7 @@ func opencodeUsage(ctx context.Context, cutoff time.Time) agentUsage {
 	_ = json.Unmarshal(modelsOut, &rows)
 	models := make([]agentModel, 0, len(rows))
 	for _, r := range rows {
-		models = append(models, agentModel(r))
+		models = append(models, agentModel{Provider: r.Provider, Model: r.Model, Turns: r.Turns, Tokens: r.Tokens, CostUSD: r.CostUSD})
 	}
 	sortModelsByTokens(models)
 
@@ -556,7 +557,8 @@ func copilotUsage(ctx context.Context, cutoff time.Time) agentUsage {
 	_ = json.Unmarshal(modelsOut, &rows)
 	byModel := make([]agentModel, 0, len(rows))
 	for _, r := range rows {
-		byModel = append(byModel, agentModel{Provider: copilotProvider(r), Model: r.Model, Turns: r.Turns, Tokens: r.Tokens})
+		prov, profile, _ := strings.Cut(copilotProvider(r), "·")
+		byModel = append(byModel, agentModel{Provider: prov, Profile: profile, Model: r.Model, Turns: r.Turns, Tokens: r.Tokens})
 	}
 	sortModelsByTokens(byModel)
 
@@ -581,7 +583,7 @@ func printAgentsSection(out io.Writer, agents []agentUsage, days int) {
 			a.Agent, "(total)", humanTokens(a.Tokens), a.Turns, a.Sessions, costStr(a.CostUSD))
 		for _, m := range a.Models {
 			fmt.Fprintf(out, "%-10s %-40s %12s %8d %8s %10s\n",
-				"", m.Provider+"/"+m.Model, humanTokens(m.Tokens), m.Turns, "-", costStr(m.CostUSD))
+				"", rowLabel(m.Provider, m.Profile)+"/"+m.Model, humanTokens(m.Tokens), m.Turns, "-", costStr(m.CostUSD))
 		}
 	}
 }

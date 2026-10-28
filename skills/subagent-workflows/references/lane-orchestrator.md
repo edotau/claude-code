@@ -1,7 +1,7 @@
 # Lane Orchestrator
 
 Many leaf-sized tasks across disjoint packages: the manager splits them into lanes; one Claude subagent per lane
-fans out vendor leaves through `claude-code ask` (which does not count against the 8-agent inflight cap), verifies
+fans out agent leaves through `claude-code ask` (which does not count against the 24-agent inflight cap), verifies
 each leaf in an isolated copy, and commits it.
 
 | Role | Who | Does | Never |
@@ -12,15 +12,15 @@ each leaf in an isolated copy, and commits it.
 
 ## Lane plan
 
-`plans/<date>-<slug>/lanes/<lane>.md`, holding only a checklist:
+`lanes/<lane>.md` beside the plan (plan home: `rules/harness/docs-placement.md`), holding only a checklist:
 
 ```markdown
-- [ ] <verb> <object> — runner: <copilot|codex|gemini|opencode|claude> — owns: <files>
-- [x] <verb> <object> — runner: copilot — owns: internal/foo/bar.go — a1b2c3d
+- [ ] <verb> <object> — agent: <copilot|codex|gemini|opencode|claude> — owns: <files>
+- [x] <verb> <object> — agent: copilot — owns: internal/foo/bar.go — a1b2c3d
 ```
 
-Leaf size and the checklist line format: `agents/Plan.md` → `## Tasks` (25–40-item legs timed out, 5–10 finished).
-Runners per [cost-routing.md](cost-routing.md).
+Leaf size and the checklist line format: `agents/Plan.md` → `## Tasks` (25–40-item dispatches timed out, 5–10 finished).
+Agents per [cost-routing.md](cost-routing.md).
 
 ## Dispatch
 
@@ -30,7 +30,7 @@ Bug fixes first capture RED with no copy: `git show HEAD:<file>` to scratch, map
 ```bash
 iso="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/skills/subagent-workflows/scripts/isolate.sh"
 mkdir -p /tmp/claude-1000/<lane>; s=$(date +%s)
-claude-code ask --agent <runner> --fallback none --tools --autonomous --attach <lane.md> --timeout 45m \
+claude-code ask --agent <agent> --fallback none --tools --autonomous --attach <lane.md> --timeout 45m \
   --workdir <worktree> "<brief>" > /tmp/claude-1000/<lane>/<leaf>.out 2>&1
 echo "<leaf> exit=$? wall=$(( $(date +%s)-s ))s" >> /tmp/claude-1000/<lane>/status
 ```
@@ -57,5 +57,5 @@ A finding outside the leaf's files becomes a new line in this lane (same package
 
 Red at any step: re-dispatch once with the failure output, or fix a small gap in-lane; still red → report it unticked.
 
-Failure-bucket classification from a past run (recovery_policy, tool_execution, tool_selection, tool_arguments,
-state_orchestration): `memory/claude-code/decisionLog.md` → "Lane-orchestrator failure buckets".
+Failure buckets from a past run: recovery_policy, tool_execution, tool_selection, tool_arguments, state_orchestration
+(`memory/claude-code/archive/progress-2026-10.md`).

@@ -15,9 +15,8 @@ import (
 const (
 	defaultSection  = "DEFAULT"      // the CLI's fallback profile; its values never inherit into named profiles
 	settingsSection = "__settings__" // the CLI's own bookkeeping block, not a profile
-	// EnvConfigFile and EnvConfigProfile are the CLI's own variables, read by name only.
-	EnvConfigFile    = "DATABRICKS_CONFIG_FILE"
-	EnvConfigProfile = "DATABRICKS_CONFIG_PROFILE"
+	// EnvConfigFile is the CLI's own variable, read by name only.
+	EnvConfigFile = "DATABRICKS_CONFIG_FILE"
 )
 
 // profile is one parsed section including secrets; it never leaves this package.
@@ -39,9 +38,6 @@ func DefaultPath() string {
 	}
 	return filepath.Join(home, ".databrickscfg")
 }
-
-// DefaultProfile is $DATABRICKS_CONFIG_PROFILE ("" = every profile).
-func DefaultProfile() string { return os.Getenv(EnvConfigProfile) }
 
 // section is one merged [name]: a repeated header merges into the first, a repeated key keeps the last value.
 type section struct {

@@ -60,7 +60,7 @@ func ParseInput(r io.Reader) *Input {
 	if json.Unmarshal(raw, &in.doc) != nil {
 		return &Input{Raw: raw}
 	}
-	switch vendor := os.Getenv(hookspec.VendorEnv); vendor {
+	switch vendor := os.Getenv(hookspec.AgentEnv); vendor {
 	case VendorClaude, VendorCodex, VendorCopilot:
 		in.vendor = vendor
 	}

@@ -31,7 +31,7 @@ func TestUnsupportedAndIncompleteProfilesSkipped(t *testing.T) {
 	if c := got["m2m-nocid"]; c.Auth != "" || c.Skip != "oauth-m2m profile without client_id" {
 		t.Errorf("m2m-nocid = %+v", c)
 	}
-	if c := got["ids"]; c.Auth != providers.AuthU2M || c.AccountID != "1234abcd-0000" || c.WorkspaceID != "42" {
+	if c := got["ids"]; c.Auth != providers.AuthOAuth || c.AccountID != "1234abcd-0000" || c.WorkspaceID != "42" {
 		t.Errorf("ids = %+v", c)
 	}
 }

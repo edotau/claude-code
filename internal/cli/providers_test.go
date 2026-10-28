@@ -45,7 +45,7 @@ func cliScratch(t *testing.T) {
 	t.Helper()
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv("PATH", t.TempDir()) // no external credential helpers or other CLIs
-	for _, k := range []string{"OPENAI_API_KEY", "GEMINI_API_KEY", "ANTHROPIC_API_KEY", "OPENROUTER_API_KEY", "HARNESS_PROVIDER", "HARNESS_MODEL", "HARNESS_OPUS_MODEL", "HARNESS_SONNET_MODEL", "HARNESS_HAIKU_MODEL", "HARNESS_FABLE_MODEL"} {
+	for _, k := range []string{"OPENAI_API_KEY", "GEMINI_API_KEY", "ANTHROPIC_API_KEY", "OPENROUTER_API_KEY", providers.EnvSessionProfile} {
 		t.Setenv(k, "")
 	}
 }
@@ -124,7 +124,7 @@ func TestValidateCopilotPinsProviderFlagFallback(t *testing.T) {
 func TestListLiveCopilotReportsMissingCLI(t *testing.T) {
 	cliScratch(t)
 	reg := &providers.Registry{}
-	p := &providers.Provider{Name: githubCopilotProvider}
+	p := &providers.Provider{Name: "personal", Provider: "github"}
 	code, _, stderr := captureOutput(t, func() int { return listLive(reg, p, outfmt.Text) })
 	if code == 0 {
 		t.Fatal("listLive: want a non-zero exit when the copilot CLI is missing")
@@ -193,7 +193,7 @@ func TestListLiveSubscriptionFallbackNeverPrintsToken(t *testing.T) {
 		Name:    "sub",
 		Kind:    providers.DialectAnthropic,
 		BaseURL: srv.URL,
-		Auth:    providers.Auth{Type: providers.AuthPassthrough},
+		Auth:    providers.Auth{Type: providers.AuthCLI},
 		Models:  map[string]string{"opus": "claude-opus-5-5"},
 	}
 	reg := &providers.Registry{}
@@ -250,7 +250,7 @@ func TestApplyModelPinsQualifiesAcrossSessionProvider(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := providers.SetPins(map[string]string{providers.PinProvider: "anthropic"}); err != nil {
+	if err := providers.SetPins(map[string]string{providers.PinProfile: "anthropic"}); err != nil {
 		t.Fatal(err)
 	}
 	if code, handled := applyModelPins(reg, "github-copilot", false, false, []string{"opus=claude-opus-5.5"}); handled || code != 0 {
@@ -268,7 +268,7 @@ func TestApplyModelPinsBareWhenProviderMatchesSession(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := providers.SetPins(map[string]string{providers.PinProvider: "github-copilot"}); err != nil {
+	if err := providers.SetPins(map[string]string{providers.PinProfile: "github-copilot"}); err != nil {
 		t.Fatal(err)
 	}
 	if code, handled := applyModelPins(reg, "github-copilot", false, false, []string{"opus=claude-opus-5.5"}); handled || code != 0 {
@@ -300,7 +300,7 @@ func TestApplyModelPinsAllSlotQualifies(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := providers.SetPins(map[string]string{providers.PinProvider: "anthropic"}); err != nil {
+	if err := providers.SetPins(map[string]string{providers.PinProfile: "anthropic"}); err != nil {
 		t.Fatal(err)
 	}
 	if code, handled := applyModelPins(reg, "github-copilot", false, false, []string{"all=claude-opus-5.5"}); handled || code != 0 {

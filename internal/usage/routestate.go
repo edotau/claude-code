@@ -7,7 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/edotau/claude-code/internal/route"
+	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/router"
 )
 
 // recordQuotaState stores the fetched rows in quota.json; a var so package tests never write the real file.
@@ -27,7 +28,7 @@ func recordQuotas(qs []quota, now time.Time) int {
 	}
 	n := 0
 	for key, q := range worst {
-		if route.Record(key, q.UsedPct, q.Window, resetTime(q), now) == nil {
+		if router.Record(key, q.UsedPct, q.Window, resetTime(q), now) == nil {
 			n++
 		}
 	}
@@ -38,12 +39,13 @@ func recordQuotas(qs []quota, now time.Time) int {
 func accountKey(q quota) string {
 	switch q.Provider {
 	case "anthropic":
-		return "claude:max"
+		return "anthropic·max"
 	case "openai":
-		return "codex:chatgpt"
+		return "openai·chatgpt"
 	case "github":
 		if q.Account != "" {
-			return "copilot:" + q.Account
+			reg, _ := providers.Load()
+			return "github·" + providers.GithubAccountName(reg, q.Account)
 		}
 	}
 	return ""
@@ -68,12 +70,13 @@ func RefreshAccount(ctx context.Context, key string) bool {
 	defer cancel()
 	var qs []quota
 	switch {
-	case key == "claude:max":
+	case key == "anthropic·max":
 		qs = claudeQuotas(ctx)
-	case key == "codex:chatgpt":
+	case key == "openai·chatgpt":
 		qs = openaiQuotas(ctx)
-	case strings.HasPrefix(key, "copilot:"):
-		qs = []quota{githubQuota(ctx, strings.TrimPrefix(key, "copilot:"))}
+	case strings.HasPrefix(key, "github·"):
+		reg, _ := providers.Load()
+		qs = []quota{githubQuota(ctx, providers.GithubAccountLogin(reg, strings.TrimPrefix(key, "github·")))}
 	default:
 		return false
 	}
@@ -82,10 +85,10 @@ func RefreshAccount(ctx context.Context, key string) bool {
 }
 
 // ClaudePressure is the Anthropic plan's tightest window (5h or weekly; Fable excluded) from the shared usage
-// cache when fetched within route.StaleAfter; never touches the network, so a hook may call it.
+// cache when fetched within router.StaleAfter; never touches the network, so a hook may call it.
 func ClaudePressure(now time.Time) (pct float64, window string, ok bool) {
 	c := readClaudeUsageCache(claudeUsageCachePath())
-	if c == nil || now.Sub(c.FetchedAt) > route.StaleAfter {
+	if c == nil || now.Sub(c.FetchedAt) > router.StaleAfter {
 		return 0, "", false
 	}
 	for _, q := range parseClaudeUsage(c.Body, c.SubscriptionType) {

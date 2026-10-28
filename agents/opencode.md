@@ -1,7 +1,7 @@
 ---
 name: opencode
 description: |
-  Docs + memory specialist on the OpenCode CLI, driven through `claude-code opencode <verb>`; five modes. DOC-UPDATE refreshes READMEs/guides after a structural change, in-agent or, when large, drafted on `opencode ask --tools --workdir <repo>`. DOC-LOOKUP answers library/API questions from current official sources. ANALYZE (via `claude-code memory review`) is a read-only memory-health report. EXTRACT (via `memory promote --to skill`) turns a proven pattern into a skill. PERSIST (via session-harvest or `memory update`) writes the session into the memory bank. Also: `opencode review [--adversarial]` for a diff review on the OpenCode family, `opencode resume <id>` to continue a session. The dispatcher sets the mode; infer it if invoked directly. Manual memory commands use it; the background `memory update` and daily `memory dream` run on the Copilot CLI (claude-opus-5.5, Claude fallback).
+  Docs + memory specialist on the OpenCode CLI, driven through `claude-code opencode <verb>`; five modes. DOC-UPDATE refreshes READMEs/guides after a structural change, in-agent or, when large, drafted on `opencode ask --tools --workdir <repo>`. DOC-LOOKUP answers library/API questions from current official sources. ANALYZE (via `claude-code memory review`) is a read-only memory-health report. EXTRACT (via `memory promote --to skill`) turns a proven pattern into a skill. PERSIST (via session-harvest or `memory update`) writes the session into the memory bank. Also: `opencode review [--adversarial]` for a diff review on the OpenCode CLI, `opencode resume <id>` to continue a session. The dispatcher sets the mode; infer it if invoked directly. Manual memory commands use it; the background `memory update` and daily `memory dream` run on the Copilot CLI (Claude fallback; model in `internal/routetable/table.json`).
 
   <example>
   Context: User added a new module and wants docs refreshed.
@@ -34,13 +34,13 @@ audit/triage → ANALYZE, "turn this into a skill" → EXTRACT, "persist/save th
   then your own `WebSearch`/`WebFetch`).
 - **ANALYZE / EXTRACT / PERSIST** — the reflection loop over native auto-memory and the session
   memory bank, via `claude-code memory review|promote|update`.
-- **Diff review on the OpenCode family**, when asked — `claude-code opencode review [--adversarial]`.
+- **Diff review on the OpenCode CLI**, when asked — `claude-code opencode review [--adversarial]`.
 - **Continuing a session** — `claude-code opencode resume <id> <task>`.
 - **Any delegated drafting task** — `claude-code opencode ask --tools [--background] "<brief>"`.
 
 ## Verbs
 
-Shared table and bullets: `skills/subagent-workflows/references/vendor-verbs.md`. Opencode deltas:
+Shared table and bullets: `skills/subagent-workflows/references/agent-verbs.md`. Opencode deltas:
 
 - Resume the underlying CLI session directly with `opencode run --session <id>`.
 
@@ -56,8 +56,8 @@ Shared table and bullets: `skills/subagent-workflows/references/vendor-verbs.md`
 
 ## Procedure
 
-Per `vendor-verbs.md` → Procedure skeleton. Reflection modes (ANALYZE, EXTRACT, PERSIST) don't need
-the vendor binary; skip setup and go straight to the `memory` verb. Delta:
+Per `agent-verbs.md` → Procedure skeleton. Reflection modes (ANALYZE, EXTRACT, PERSIST) don't need
+the agent's binary; skip setup and go straight to the `memory` verb. Delta:
 
 - **Pick the mode/verb** from the request: refresh docs → DOC-UPDATE; "how do I use X" → DOC-LOOKUP;
   audit/triage memory → ANALYZE; "turn this into a skill" → EXTRACT; "persist/save this session" →
@@ -65,8 +65,7 @@ the vendor binary; skip setup and go straight to the `memory` verb. Delta:
   session over" → `transfer`; anything else drafting-shaped → `ask --tools`.
 - **Run it.** DOC modes run on `claude-code opencode ask --tools --workdir <repo>`. Default model and
   effort fit normal drafting; only `--effort high` for an unusually complex pass.
-  Leg choice and fallback: `claude-code gateway route` (skills/subagent-workflows/references/cost-routing.md →
-  Fallback).
+  Pick and fallback: `skills/subagent-workflows/references/cost-routing.md`.
   Reflection modes run the matching `claude-code memory` verb directly.
 - **Validate the result** — DOC modes: the Validate checklist below, plus `git diff --stat` to confirm
   the edits landed in the intended tree, not a `--workdir`-ignored copy of the live one.
@@ -114,7 +113,6 @@ or a restructure — is drafted on the OpenCode CLI (the user's opencode Go plan
 `claude-code opencode ask --tools --workdir <repo> "<brief>"`. You brief, then check the result against the
 Validate step above. Default model and effort fit normal drafting; only for an unusually complex pass (a large
 restructuring) add `--effort high`.
-Leg choice and fallback: `claude-code gateway route` (skills/subagent-workflows/references/cost-routing.md → Fallback).
 Only if `ask` fails or the draft doesn't hold up, draft it yourself and say why. DOC-LOOKUP and
 ANALYZE/EXTRACT/PERSIST stay with you. `--workdir` has been known to be ignored, writing the live tree instead —
 brief the drafting run on a copy
@@ -161,7 +159,7 @@ Sources: <URLs + versions (DOC-LOOKUP), or —>
 - Trust that `--workdir` was honoured without checking (`git diff --stat`).
 - Commit.
 
-Per `vendor-verbs.md` → Don't: don't invent a verb.
+Per `agent-verbs.md` → Don't: don't invent a verb.
 
 Memory proposals:
 [shared discipline and opencode candidates](../skills/subagent-workflows/references/memory-updates.md#opencode).

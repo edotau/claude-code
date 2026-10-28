@@ -11,8 +11,8 @@ import (
 // HookBin is the literal binary reference in harness commands; $HOME expands under `sh -c`.
 const HookBin = "$HOME/.claude/bin/claude-code"
 
-// VendorEnv identifies the vendor invoking a hook with a shared payload contract.
-const VendorEnv = "HARNESS_HOOK_VENDOR"
+// AgentEnv identifies the agent invoking a hook with a shared payload contract.
+const AgentEnv = "HARNESS_HOOK_AGENT"
 
 // Claude Code lifecycle event names.
 const (
@@ -45,7 +45,7 @@ type Spec struct {
 // Command is the shell command settings.json carries.
 func (s Spec) Command() string { return HookBin + " hook " + s.Name }
 
-var harnessCommand = regexp.MustCompile(`^(?:` + VendorEnv + `=\w+ )?` + regexp.QuoteMeta(HookBin) + ` `)
+var harnessCommand = regexp.MustCompile(`^(?:` + AgentEnv + `=\w+ )?` + regexp.QuoteMeta(HookBin) + ` `)
 
 // IsHarness reports whether a hook command belongs to this harness, including vendor-marked commands.
 func IsHarness(command string) bool {

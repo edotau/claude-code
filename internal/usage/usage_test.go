@@ -649,3 +649,22 @@ func TestUsageLedgerEmptyPrintsStartedMessage(t *testing.T) {
 		t.Errorf("empty ledger missing the started message:\n%s", out.String())
 	}
 }
+
+// aggregateLedger groups per profile: platform in Provider, profile in Profile; legacy lines read Provider as the profile.
+func TestAggregateLedgerByProfile(t *testing.T) {
+	now := time.Now()
+	got := aggregateLedger([]usageledger.Entry{
+		{Ts: now, Provider: "databricks", Profile: "prod", Model: "m", Input: 10},
+		{Ts: now, Provider: "databricks", Profile: "qa", Model: "m", Input: 5},
+		{Ts: now, Provider: "openai", Model: "m", Input: 1},
+	}, now)
+	if len(got) != 3 || got[0].Profile != "prod" || got[1].Profile != "qa" || got[2].Profile != "openai" {
+		t.Fatalf("rows = %+v", got)
+	}
+	if l := rowLabel(got[0].Provider, got[0].Profile); l != "databricks·prod" {
+		t.Errorf("label = %q", l)
+	}
+	if l := rowLabel(got[2].Provider, got[2].Profile); l != "openai" {
+		t.Errorf("label = %q", l)
+	}
+}

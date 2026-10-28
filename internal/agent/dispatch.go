@@ -31,7 +31,7 @@ func (k Kind) String() string {
 	return [...]string{"ok", "auth rejected", "rate limited", "transient failure", "failed", "quota exhausted"}[k]
 }
 
-// Error is a classified runner failure.
+// Error is a classified agent failure.
 type Error struct {
 	Kind       Kind
 	Agent      string

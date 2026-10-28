@@ -12,14 +12,14 @@ user-invocable: false
 
 One store (`~/.claude/memory/<repo>/`, catalog at `memory/index.md`): `claude-code memory <verb>`
 does every mechanical step; a verb needing judgment — text a model must produce — prints its own
-embedded procedure for the live session (or the headless `memoryAgent()` runner) to apply.
+embedded procedure for the live session (or the headless `memoryAgent()`) to apply.
 
 ## Promotion ladder
 
 `promote --to home` → home bank (`~/.claude/memory/home/`, cross-project) → `promote --to rules|skill`
 → `rules/standards|software/<topic>.md` (enforced) or `skills/<name>/SKILL.md` (how-to) →
 `--to claude-md` (dream-gated: 3+ bank entries + hard prohibition, valid only inside `memory dream`'s
-cross-pollination step) → `CLAUDE.md` "Known Gotchas" (always-on tier).
+cross-pollination step) → `CLAUDE.md` → Hard rules (always-on tier).
 
 ## Verb table
 
@@ -32,7 +32,7 @@ cross-pollination step) → `CLAUDE.md` "Known Gotchas" (always-on tier).
 | `update [--transcript]` | no `--transcript` (live session) |
 | `dream [--dry-run]` | never — `--dry-run` previews, no model, no writes |
 
-Off the menu, dispatchable by hand: `index`, `watch`, `fmt`, `migrate`, `alias`, `path`, `show`,
+Off the menu, dispatchable by hand: `search`, `index`, `watch`, `fmt`, `archive`, `alias`, `path`, `show`,
 `digest`, `timeline`.
 
 Before a non-trivial task: `claude-code memory recall <task terms>`, then `memory show <id>`.

@@ -15,9 +15,7 @@ func mintErr(t *testing.T, kind string, status int, body map[string]any) error {
 	t.Helper()
 	srv := oidcServer(t, func(*http.Request, url.Values) (int, map[string]any) { return status, body })
 	p := mintRow(t, fmt.Sprintf("verdict-%s-%d", kind, status), kind, "sp-client", srv.URL)
-	if err := SealSecret(AuthSecretName(p), "sealed-secret"); err != nil {
-		t.Fatal(err)
-	}
+	sealFor(t, p, "sealed-secret")
 	_, err := Credential(context.Background(), p)
 	if err == nil {
 		t.Fatalf("status %d: mint unexpectedly succeeded", status)
@@ -33,12 +31,12 @@ func TestVerdictFromRealMintErrors(t *testing.T) {
 		body   map[string]any
 		want   AuthVerdict
 	}{
-		{"u2m invalid_grant needs login", AuthU2M, 400, map[string]any{"error": "invalid_grant"}, VerdictNeedsLogin},
-		{"m2m invalid_client needs login", AuthOAuthM2M, 400, map[string]any{"error": "invalid_client"}, VerdictNeedsLogin},
-		{"u2m bare 401 is rejected", AuthU2M, 401, map[string]any{}, VerdictRejected},
-		{"u2m bare 403 is rejected", AuthU2M, 403, map[string]any{}, VerdictRejected},
-		{"u2m 503 is transient", AuthU2M, 503, map[string]any{}, VerdictTransient},
-		{"u2m 429 is transient", AuthU2M, 429, map[string]any{"error": "rate_limited"}, VerdictTransient},
+		{"u2m invalid_grant needs login", AuthOAuth, 400, map[string]any{"error": "invalid_grant"}, VerdictNeedsLogin},
+		{"m2m invalid_client needs login", AuthM2M, 400, map[string]any{"error": "invalid_client"}, VerdictNeedsLogin},
+		{"u2m bare 401 is rejected", AuthOAuth, 401, map[string]any{}, VerdictRejected},
+		{"u2m bare 403 is rejected", AuthOAuth, 403, map[string]any{}, VerdictRejected},
+		{"u2m 503 is transient", AuthOAuth, 503, map[string]any{}, VerdictTransient},
+		{"u2m 429 is transient", AuthOAuth, 429, map[string]any{"error": "rate_limited"}, VerdictTransient},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -54,7 +52,7 @@ func TestVerdictFromRealMintErrors(t *testing.T) {
 }
 
 func TestVerdictU2MWithoutSealedTokenNeedsLogin(t *testing.T) {
-	p := mintRow(t, "verdict-u2m-empty", AuthU2M, "", "https://example.cloud.databricks.com")
+	p := mintRow(t, "verdict-u2m-empty", AuthOAuth, "", "https://example.cloud.databricks.com")
 	_, err := Credential(context.Background(), p)
 	if got := Verdict(err); got != VerdictNeedsLogin || !got.Condemns() {
 		t.Fatalf("Verdict(%v) = %q, want needs_login", err, got)
@@ -101,8 +99,8 @@ func TestVerdictCondemnsOnlyLoginAndRejected(t *testing.T) {
 func TestIsInvalidTokenResponse(t *testing.T) {
 	invalid := []byte(`{"message":"Invalid Token"}`)
 	dbx := &Provider{Name: "dbx", Preset: PresetDatabricks}
-	sealed := &Provider{Name: "sealed", Auth: Auth{Type: AuthBearer, AuthType: AuthU2M}}
-	plain := &Provider{Name: "plain", Auth: Auth{Type: AuthBearer, Env: "K"}}
+	sealed := &Provider{Name: "sealed", Auth: Auth{Type: AuthOAuth}}
+	plain := &Provider{Name: "plain", Auth: Auth{Type: AuthKey, Env: "K"}}
 	cases := []struct {
 		name   string
 		p      *Provider

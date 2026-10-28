@@ -85,8 +85,9 @@ class Task(models.Model):
         ]
 ```
 
-See the `django` skill for migration-file mechanics; **Databricks/UC** Delta tables use the same
-modeling (org_id, audit columns) but partition/Z-order instead of Postgres indexes — see `databricks-expert`.
+Migration-file mechanics come from the framework's own docs (a local `django` skill, if you have one);
+**Databricks/UC** Delta tables use the same modeling (org_id, audit columns) but partition/Z-order instead of Postgres
+indexes — see `databricks-expert`.
 
 ## ERD (Mermaid)
 

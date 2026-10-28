@@ -17,6 +17,10 @@ var Deny = []string{
 	"GEMINI_API_KEY", "GOOGLE_API_KEY",
 	"COPILOT_GITHUB_TOKEN", "COPILOT_PROVIDER_*",
 	"HARNESS_*_API_KEY",
+	// Vault-only pins and the session marker: an inherited one is never read, and a stale CLAUDE_PROFILE must not
+	// outlive a parent shell (the launcher stamps its own after the scrub). Vendor-read *_MODEL names stay.
+	"CLAUDE_PROFILE", "CLAUDE_MODEL", "CLAUDE_OPUS_MODEL", "CLAUDE_SONNET_MODEL", "CLAUDE_HAIKU_MODEL", "CLAUDE_FABLE_MODEL",
+	"COPILOT_PROFILE", "CODEX_PROFILE", "GEMINI_PROFILE", "OPENCODE_PROFILE",
 }
 
 // KeepEnvVar opts bare shims back into an inherited name; their argv belongs to the vendor, not the harness.

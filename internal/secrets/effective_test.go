@@ -68,7 +68,7 @@ func TestCrossCallerAgreeEnvWinsButGetPrefersVault(t *testing.T) {
 	t.Setenv("CROSS_NAME", "env-value")
 	p := &providers.Provider{
 		Name: "x", Kind: providers.DialectAnthropic,
-		Auth: providers.Auth{Type: providers.AuthAPIKey, Env: "CROSS_NAME"},
+		Auth: providers.Auth{Type: providers.AuthKey, Header: providers.HeaderXAPIKey, Env: "CROSS_NAME"},
 	}
 	cv, err := providers.Credential(context.Background(), p)
 	if err != nil || cv != "env-value" {

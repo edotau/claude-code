@@ -686,7 +686,7 @@ func TestScratchConfigDirSkipsVendorWritesWithoutFlag(t *testing.T) {
 	if drift {
 		t.Fatal("a skipped render must report no drift")
 	}
-	if !strings.Contains(out.String(), "skipping vendor configs") {
+	if !strings.Contains(out.String(), "skipping agent configs") {
 		t.Fatalf("expected the skip note, got:\n%s", out.String())
 	}
 	if _, err := os.Stat(filepath.Join(vendorHome, ".codex")); !os.IsNotExist(err) {
@@ -714,24 +714,6 @@ func TestScratchConfigDirSkipsVendorWritesWithoutFlag(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(vendorHome, ".copilot", "hooks", "claude-code-harness.json")); err != nil {
 		t.Fatalf("--vendors must still write copilot hooks: %v", err)
-	}
-}
-
-// TestCodexRenderAppliesProfileRow: config.toml follows the active profile's codex row, as a codex launch does.
-func TestCodexRenderAppliesProfileRow(t *testing.T) {
-	home := scratch(t)
-	vaulttest.Put(t, vault.Overlay, "providers",
-		`{"default":"openai","profiles":{"active":"p","sets":{"p":{"codex":{"account":"openai","model":"gpt-row-pin"}}}}}`)
-	var out bytes.Buffer
-	if _, err := Run(Options{Home: home, Vendors: true, Out: &out, Agents: []string{"codex"}}); err != nil {
-		t.Fatalf("Run: %v\n%s", err, out.String())
-	}
-	cfg, err := os.ReadFile(filepath.Join(home, ".codex", "config.toml"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(cfg), `model = "gpt-row-pin"`) {
-		t.Errorf("codex config ignores the profile row's model:\n%s", cfg)
 	}
 }
 

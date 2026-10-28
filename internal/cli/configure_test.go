@@ -115,9 +115,9 @@ func TestConfigureResetRejectsBadCombos(t *testing.T) {
 		{"reset and restore", []string{"--reset", "--restore"}, "mutually exclusive"},
 		{"restore with check", []string{"--restore", "--check"}, "--restore takes only"},
 		{"restore with out", []string{"--restore", "--out", "x.json"}, "--restore takes only"},
-		{"restore with vendors", []string{"--restore", "--vendors"}, "--restore takes only"},
+		{"restore with agents", []string{"--restore", "--agents"}, "--restore takes only"},
 		{"out without reset", []string{"--out", "x.json"}, "need --reset"},
-		{"vendors without reset", []string{"--vendors"}, "need --reset"},
+		{"agents without reset", []string{"--agents"}, "need --reset"},
 		{"check and dry-run", []string{"--reset", "--check", "--dry-run"}, "mutually exclusive"},
 	}
 	for _, tc := range cases {
@@ -137,7 +137,7 @@ func TestConfigureResetRejectsBadCombos(t *testing.T) {
 func TestConfigureResetAgentCommaListScopesVendors(t *testing.T) {
 	resetEnv(t)
 	code, out, stderr := captureOutput(t, func() int {
-		return cmdConfigure([]string{"--reset", "--dry-run", "--vendors", "--agent", "codex,opencode"})
+		return cmdConfigure([]string{"--reset", "--dry-run", "--agents", "--agent", "codex,opencode"})
 	})
 	if code != 0 {
 		t.Fatalf("exit %d: %s", code, stderr)

@@ -1,8 +1,9 @@
 // Quota pressure on Claude subagents: near the Anthropic plan's limit the agent-effort hook downshifts an unset
-// dispatch model one tier (≥90%) or hands a code-worker/Explore task to a coworker on the routed vendor (≥97%).
+// dispatch model one model (≥90%) or hands a code-worker/Explore task to a coworker on the routed agent (≥97%).
 package hooks
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"net/url"
@@ -11,8 +12,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/route"
+	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/usage"
 )
 
@@ -22,11 +24,8 @@ const OffloadPct = 97.0
 // envTestPct forces a reading for live checks; the subagents opt-out is providers.RouteSubagentsOn.
 const envTestPct = "HARNESS_ROUTE_TEST_ANTHROPIC_PCT"
 
-// offloadTypes are the agent types whose work a coworker leaf can carry through a vendor CLI.
+// offloadTypes are the agent types whose work a coworker leaf can carry through an agent CLI.
 var offloadTypes = map[string]bool{"code-worker": true, "Explore": true}
-
-// downshift is one tier cheaper; haiku stays haiku.
-var downshift = map[string]string{"opus": "sonnet", "sonnet": "haiku", "haiku": "haiku"}
 
 // claudePressure is the forced test reading, else the cached Anthropic window; ok is false when neither exists.
 var claudePressure = func() (float64, string, bool) {
@@ -37,23 +36,23 @@ var claudePressure = func() (float64, string, bool) {
 	return usage.ClaudePressure(time.Now())
 }
 
-// routeHint names the vendor pick for tier ("codex gpt-6.1-sol"); "" when no vendor passes the gates.
-var routeHint = func(tier string) (runner, model string) {
-	tb, err := route.Load()
+// routeHint names the agent pick for model slot ("codex gpt-6.1-sol"); "" when no agent passes the gates.
+var routeHint = func(tier string) (agent, model string) {
+	tb, err := router.Load()
 	if err != nil {
 		return "", ""
 	}
-	res := tb.Pick(context.Background(), tier, "", route.LoadState(), route.Opts{Fallback: route.FallbackVendors})
+	res := tb.Pick(context.Background(), tier, "", router.LoadState(), router.Opts{Fallback: router.FallbackVendors})
 	if len(res.Candidates) == 0 {
 		return "", ""
 	}
-	return res.Candidates[0].Runner, res.Candidates[0].Model
+	return res.Candidates[0].Agent, res.Candidates[0].Model
 }
 
 // billsSubscription is false only when the session provider is known and not passthrough (Databricks, an API key):
 // the cached claude.ai windows then describe a plan this session does not spend.
 func billsSubscription() bool {
-	name := providers.Pin(providers.PinProvider)
+	name := cmp.Or(providers.SessionProfile(), providers.Pin(providers.PinProfile))
 	if u, err := url.Parse(os.Getenv("ANTHROPIC_BASE_URL")); err == nil && (u.Hostname() == "127.0.0.1" || u.Hostname() == "localhost") {
 		if rest, ok := strings.CutPrefix(u.Path, "/p/"); ok {
 			name, _, _ = strings.Cut(rest, "/")
@@ -67,7 +66,7 @@ func billsSubscription() bool {
 		name = reg.Default
 	}
 	p := reg.Providers[name]
-	return p == nil || p.Auth.Type == providers.AuthPassthrough
+	return p == nil || p.Auth.Method() == providers.AuthCLI
 }
 
 // applyPressure rewrites updated under Anthropic quota pressure and returns the context note ("" = untouched).
@@ -80,23 +79,23 @@ func applyPressure(in *Input, updated map[string]any, promptField, base string) 
 		return "", ""
 	}
 	pct, window, ok := claudePressure()
-	if !ok || pct < route.LowPct {
+	if !ok || pct < router.LowPct {
 		return "", ""
 	}
 	tier := base
-	if _, known := downshift[tier]; !known {
+	if tier != models.Opus && tier != models.Sonnet && tier != models.Haiku {
 		tier = "sonnet"
 	}
-	runner, model := routeHint(tier)
-	hint := "no vendor passes the route gates"
-	if runner != "" {
-		hint = fmt.Sprintf("`claude-code ask --agent %s --model %s --tools`", runner, model)
+	agent, model := routeHint(tier)
+	hint := "no agent passes the route gates"
+	if agent != "" {
+		hint = fmt.Sprintf("`claude-code ask --agent %s --model %s --tools`", agent, model)
 	}
 	kind := in.nested("tool_input", "subagent_type")
 	rec := map[string]any{"decision_id": randomHex(8), "session_id": in.SessionID, "tool_use_id": in.nested("tool_use_id"),
-		"subagent_type": kind, "pressure_pct": pct, "window": window, "route": strings.TrimSpace(runner + " " + model),
+		"subagent_type": kind, "pressure_pct": pct, "window": window, "route": strings.TrimSpace(agent + " " + model),
 		"at": time.Now().Unix()}
-	if pct >= OffloadPct && offloadTypes[kind] && runner != "" {
+	if pct >= OffloadPct && offloadTypes[kind] && agent != "" {
 		updated["subagent_type"], updated["model"] = "coworker", "haiku"
 		prompt, _ := updated[promptField].(string)
 		updated[promptField] = fmt.Sprintf("Routed by agent-effort (Claude %s window at %.0f%%): do this task through %s, "+
@@ -105,15 +104,18 @@ func applyPressure(in *Input, updated map[string]any, promptField, base string) 
 		appendDecision(rec)
 		return fmt.Sprintf("agent-effort: Claude %s window at %.0f%% — %s dispatch moved to coworker (haiku) via %s.",
 				window, pct, kind, hint),
-			fmt.Sprintf("agent-effort: %.0f%% %s → coworker via %s %s", pct, window, runner, model)
+			fmt.Sprintf("agent-effort: %.0f%% %s → coworker via %s %s", pct, window, agent, model)
 	}
-	down := downshift[base]
+	down := models.NextSlot(base)
+	if down == "" && base == models.Haiku {
+		down = base
+	}
 	if down != "" && down != base {
 		updated["model"] = down
 	}
 	rec["decision"], rec["model"] = "downshift", cmpOr(down, base)
 	appendDecision(rec)
-	return fmt.Sprintf("agent-effort: Claude %s window at %.0f%% — model %s→%s; offload vendor work with %s.",
+	return fmt.Sprintf("agent-effort: Claude %s window at %.0f%% — model %s→%s; offload agent work with %s.",
 			window, pct, cmpOr(base, "inherit"), cmpOr(down, base, "inherit"), hint),
 		fmt.Sprintf("agent-effort: %.0f%% %s → %s", pct, window, cmpOr(down, base, "inherit"))
 }

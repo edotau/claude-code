@@ -19,39 +19,22 @@ import (
 // apiMaxTokens caps a one-shot answer; reasoning models spend part of it thinking.
 const apiMaxTokens = 16_000
 
-// apiRunner is a tool-less one-shot: the anthropic route via the SDK, else the openai chat-completions route.
-type apiRunner struct{}
-
-func (apiRunner) Name() string { return "api" }
-func (apiRunner) Caps() Caps   { return Caps{Model: true, Provider: true, Effort: true} }
-
-func (apiRunner) Available() error { _, err := providers.Load(); return err }
-
-func (apiRunner) Run(ctx context.Context, req Request, stream io.Writer) (Result, error) {
+// claudeOneShot is claude's tool-less one-shot (--no-tools): the anthropic route via the SDK, else the openai
+// chat-completions route, with no claude process. ok is false when the profile has no key to call the provider
+// with (cli auth): the caller then runs the claude CLI itself, which is tool-less by default.
+func claudeOneShot(ctx context.Context, req Request, stream io.Writer) (res Result, ok bool, err error) {
 	_, t, err := resolveTarget(req)
 	if err != nil {
-		return Result{}, err
+		return Result{}, true, err
 	}
 	p := t.Provider
-	res := Result{Provider: p.Name, Model: t.Model}
-	if p.Auth.Type == providers.AuthPassthrough {
-		// No API key to call the vendor directly: delegate to claude in tool-less one-shot mode, same
-		// prompt/model/effort, so dispatchers picking "api" off passthrough providers still get an answer.
-		// claude handles req.Attach itself; inlining it here would fail the call before delegation.
-		dres, derr := claudeRunner{}.Run(ctx, req, stream)
-		dres.Agent = claudeRunner{}.Name()
-		if dres.Provider == "" {
-			dres.Provider = res.Provider
-		}
-		if dres.Model == "" {
-			dres.Model = res.Model
-		}
-		dres.Fallback, dres.FallbackReason = "api", fmt.Sprintf("provider %s uses passthrough (subscription) auth; ran via claude instead", p.Name)
-		return dres, derr
+	res = Result{Provider: p.Name, Model: t.Model}
+	if p.Auth.Method() == providers.AuthCLI {
+		return res, false, nil
 	}
 	prompt, err := attachInline(req.Prompt, req.Attach)
 	if err != nil {
-		return Result{}, err
+		return Result{}, true, err
 	}
 	var answer strings.Builder
 	w := io.MultiWriter(stream, &answer)
@@ -65,11 +48,11 @@ func (apiRunner) Run(ctx context.Context, req Request, stream io.Writer) (Result
 		}
 		res.Answer, res.Usage = answer.String(), Usage{InputTokens: int(out.InputTokens), OutputTokens: int(out.OutputTokens)}
 		logAPIRun(ctx, res, err)
-		return res, err
+		return res, true, err
 	}
-	base, ok := p.Route(providers.DialectOpenAI)
-	if !ok {
-		return res, &Error{Kind: KindFatal, Agent: "api", Err: fmt.Errorf("provider %s has neither an anthropic nor an openai route", p.Name)}
+	base, found := p.Route(providers.DialectOpenAI)
+	if !found {
+		return res, true, &Error{Kind: KindFatal, Agent: "claude", Err: fmt.Errorf("profile %s has neither an anthropic nor an openai route", p.Name)}
 	}
 	usage, model, err := chatStream(ctx, base, p, t.Model, prompt, req.Effort, w)
 	if model != "" {
@@ -77,7 +60,7 @@ func (apiRunner) Run(ctx context.Context, req Request, stream io.Writer) (Result
 	}
 	res.Answer, res.Usage = answer.String(), usage
 	logAPIRun(ctx, res, err)
-	return res, err
+	return res, true, err
 }
 
 // logAPIRun writes the one-shot's answer, usage or error to the dispatch log (the stream has no event boundaries).

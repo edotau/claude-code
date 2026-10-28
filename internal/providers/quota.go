@@ -50,7 +50,7 @@ func Demote(p *Provider, model string) (Target, bool) {
 		slot = models.Opus
 	}
 	for next := models.NextSlot(slot); next != ""; next = models.NextSlot(next) {
-		if id := p.Models[next]; id != "" && id != model {
+		if id := p.Models[next]; id != "" && !SameModel(id, model) {
 			return Target{Provider: p, Model: id}, true
 		}
 	}

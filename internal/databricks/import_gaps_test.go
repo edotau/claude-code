@@ -31,7 +31,7 @@ func gapImport(t *testing.T, extra ...string) (code int, out string) {
 	if err := os.WriteFile(cfg, []byte(gapCfg), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	args := append([]string{"--file", cfg}, extra...)
+	args := append([]string{"--dbxcfg", cfg}, extra...)
 	code, stdout, stderr := captureOutput(t, func() int { return importCfg(args) })
 	return code, stdout + stderr
 }
@@ -60,7 +60,7 @@ func TestVaultImportDryRunWithSealFlagWritesNothing(t *testing.T) {
 		t.Errorf("dry-run created rows: %v", after)
 	}
 	for _, n := range secrets.Names() {
-		if strings.HasPrefix(n, "PROVIDER_") {
+		if strings.HasPrefix(n, "DATABRICKS_") {
 			t.Errorf("dry-run sealed %s", n)
 		}
 	}
@@ -80,7 +80,7 @@ func TestVaultImportApplyWithoutSealStoresNoSecrets(t *testing.T) {
 		t.Fatal("row not written")
 	}
 	for _, n := range secrets.Names() {
-		if strings.HasPrefix(n, "PROVIDER_") {
+		if strings.HasPrefix(n, "DATABRICKS_") {
 			t.Errorf("sealed %s without --seal-secrets", n)
 		}
 	}
@@ -92,8 +92,8 @@ func TestVaultImportSealStoresReadableValuesAndNoDefaultLeak(t *testing.T) {
 		t.Fatalf("exit %d: %s", code, out)
 	}
 	for name, want := range map[string]string{
-		"PROVIDER_SVC_M2M_CLIENT_SECRET": "secret-value-1",
-		"PROVIDER_PAT_ONE_PAT":           "dapi-token-value",
+		"DATABRICKS_SVC_M2M_M2M": "secret-value-1",
+		"DATABRICKS_PAT_ONE_PAT": "dapi-token-value",
 	} {
 		if got, src, err := secrets.Lookup(name); err != nil || got != want || src != "vault" {
 			t.Errorf("%s = %q (%s) %v", name, got, src, err)
@@ -110,7 +110,7 @@ func TestVaultImportExistingRowSkippedUnlessReplace(t *testing.T) {
 	useVaultTest(t)
 	if err := providers.SetProviderFields("pat-one", map[string]any{
 		"kind": "anthropic", "base_url": "https://old.example.cloud.databricks.com/serving-endpoints/anthropic",
-		"auth": map[string]any{"type": "bearer", "authType": "pat"},
+		"auth": map[string]any{"type":"pat"},
 	}); err != nil {
 		t.Fatal(err)
 	}

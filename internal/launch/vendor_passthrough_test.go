@@ -12,7 +12,7 @@ import (
 func TestVendorPassesThroughWhenUnroutable(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
-	t.Setenv("HARNESS_PROVIDER", "subscription") // passthrough auth: gemini cannot use it
+	t.Setenv("CLAUDE_PROFILE", "max") // passthrough auth: gemini cannot use it
 	t.Setenv("GEMINI_API_KEY", "")
 	t.Setenv("HOME", t.TempDir()) // no vendor login state on disk
 	fake := pathstest.FakeVendor(t, "agy", "")
@@ -42,7 +42,7 @@ func TestVendorPassesThroughWhenUnroutable(t *testing.T) {
 // A vendor's own sign-in skips route resolution and the configure offer: the login is what makes it routable.
 func TestVendorSignInSkipsRouting(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	t.Setenv("HARNESS_PROVIDER", "subscription") // neither codex nor gemini can use it
+	t.Setenv("CLAUDE_PROFILE", "max") // neither codex nor gemini can use it
 	t.Setenv("GEMINI_API_KEY", "")
 	t.Setenv("OPENAI_API_KEY", "")
 	t.Setenv("HOME", t.TempDir()) // no vendor login state on disk

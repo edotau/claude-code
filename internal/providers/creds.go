@@ -1,6 +1,7 @@
 package providers
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -8,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -30,16 +32,16 @@ func Credential(ctx context.Context, p *Provider) (string, error) {
 	switch p.Auth.Type {
 	case AuthNone:
 		return "", nil
-	case AuthPassthrough:
+	case AuthCLI:
 		return "", ErrPassthrough
 	}
-	if sealedAuth(p.Auth.AuthType) {
+	if sealedAuth(p.Auth.Type) {
 		return authCredential(ctx, p, false)
 	}
 	var vaultErr error
-	if p.Auth.Env != "" {
-		v, _, err := EffectiveSecret(p.Auth.Env)
-		vaultErr = err
+	for _, n := range keyNames(p) {
+		v, _, err := EffectiveSecret(n)
+		vaultErr = cmp.Or(vaultErr, err)
 		if err == nil && v != "" {
 			return v, nil
 		}
@@ -60,9 +62,21 @@ func Credential(ctx context.Context, p *Provider) (string, error) {
 	return "", fmt.Errorf("%s: no credential (set %s with `claude-code vault set`%s)", p.Name, orDash(p.Auth.Env), hint(p))
 }
 
+// keyNames are the vault/env names a key row's credential may sit under: its new name, then auth.env (old/vendor name).
+func keyNames(p *Provider) []string {
+	var out []string
+	if n := KeySecretName(p); n != "" {
+		out = append(out, n)
+	}
+	if p.Auth.Env != "" {
+		out = append(out, p.Auth.Env)
+	}
+	return out
+}
+
 // Refresh drops a cached command credential and re-runs it; used after an upstream 401.
 func Refresh(ctx context.Context, p *Provider) (string, error) {
-	if sealedAuth(p.Auth.AuthType) {
+	if sealedAuth(p.Auth.Type) {
 		return authCredential(ctx, p, true)
 	}
 	if p.Auth.Command == "" {
@@ -202,16 +216,16 @@ func runAuthCommand(ctx context.Context, p *Provider, cmd string) (string, error
 // CredentialPresent checks configured credential sources without decrypting or running commands.
 func CredentialPresent(p *Provider) bool {
 	switch p.Auth.Type {
-	case AuthNone, AuthPassthrough:
+	case AuthNone, AuthCLI:
 		return true
 	}
-	if sealedAuth(p.Auth.AuthType) {
+	if sealedAuth(p.Auth.Type) {
 		return HasSecret(AuthSecretName(p)) != ""
 	}
 	if p.Auth.Command != "" {
 		return true
 	}
-	if p.Auth.Env != "" && HasSecret(p.Auth.Env) != "" {
+	if slices.ContainsFunc(keyNames(p), func(n string) bool { return HasSecret(n) != "" }) {
 		return true
 	}
 	if p.Auth.File != "" {

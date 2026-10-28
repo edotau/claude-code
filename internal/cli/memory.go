@@ -16,7 +16,7 @@ import (
 	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/outfmt"
 	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/route"
+	"github.com/edotau/claude-code/internal/router"
 )
 
 // memorySub is one sub-verb's synopsis args and blurb; public ones are the memory page's COMMANDS rows.
@@ -84,7 +84,7 @@ func memorySynopsis(sub, args string) string {
 // memoryAgent runs background memory jobs on the Copilot CLI (claude-opus-5.5, medium), falling back to Claude.
 func memoryAgent() memory.AgentFunc {
 	return func(ctx context.Context, prompt, workdir string) (string, error) {
-		chain, _, err := agent.RouteChain(ctx, "copilot", "opus", agent.FallbackAll, true, false, route.Opts{})
+		chain, _, err := agent.RouteChain(ctx, "copilot", "opus", agent.FallbackAll, true, false, router.Opts{})
 		if err != nil {
 			return "", err
 		}

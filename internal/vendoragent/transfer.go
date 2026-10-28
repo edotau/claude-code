@@ -137,10 +137,10 @@ func Handoff(source, cwd, note string) (string, error) {
 	}
 }
 
-// TransferArgs builds the `ask` argv for a transfer: --tools lets the vendor edit, --background
+// TransferArgs builds the `ask` argv for a transfer: --tools lets the agent edit, --background
 // detaches unless wait asks for the foreground answer.
-func TransferArgs(vendor, cwd, prompt string, wait bool) []string {
-	args := []string{"--agent", vendor, "--tools", "--workdir", cwd}
+func TransferArgs(agentName, cwd, prompt string, wait bool) []string {
+	args := []string{"--agent", agentName, "--tools", "--workdir", cwd}
 	if !wait {
 		args = append(args, "--background")
 	}

@@ -164,7 +164,7 @@ func truncateMsg(b []byte) string {
 
 // CheckFamily is the id's leading letters, e.g. claude, gpt, gemini, glm, qwen.
 func CheckFamily(id string) string {
-	id = strings.TrimPrefix(id, "databricks-")
+	id = stripSpellingPrefix(id)
 	if i := strings.IndexFunc(id, func(r rune) bool { return !unicode.IsLetter(r) }); i > 0 {
 		return id[:i]
 	}

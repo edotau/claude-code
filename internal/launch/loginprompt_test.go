@@ -68,14 +68,14 @@ func loginSetup(t *testing.T, tty bool, input string, loginErr error) loginHarne
 		if loginErr != nil {
 			return loginErr
 		}
-		return providers.SealSecret(providers.AuthSecretName(&providers.Provider{Name: name, Auth: providers.Auth{AuthType: providers.AuthU2M}}), "rt")
+		return providers.SealSecret(providers.AuthSecretName(&providers.Provider{Name: name, Auth: providers.Auth{Type: providers.AuthOAuth}}), `{"refresh":"rt"}`) // oauth = one JSON value
 	}
 	return h
 }
 
 func u2mRow(name, url string) *providers.Provider {
 	return &providers.Provider{Name: name, Kind: providers.DialectAnthropic, BaseURL: url + "/serving-endpoints/anthropic",
-		Auth: providers.Auth{Type: providers.AuthBearer, AuthType: providers.AuthU2M, TTL: 1800}}
+		Auth: providers.Auth{Type: providers.AuthOAuth, TTL: 1800}}
 }
 
 func TestOfferLoginSuccessRetries(t *testing.T) {
@@ -192,7 +192,7 @@ func TestOfferLoginHungTokenCheckLaunchesWithoutPrompt(t *testing.T) {
 	t.Cleanup(srv.Close)
 	t.Cleanup(func() { close(release) }) // runs before srv.Close so the abandoned mint returns promptly
 	p := u2mRow("hung", srv.URL)
-	if err := providers.SealSecret(providers.AuthSecretName(p), "rt"); err != nil {
+	if err := providers.SealSecret(providers.AuthSecretName(p), `{"refresh":"rt"}`); err != nil {
 		t.Fatal(err)
 	}
 	oldTimeout := credCheckTimeout
@@ -252,11 +252,11 @@ func (s verdictSignin) Login(context.Context, io.Reader, io.Writer) error {
 
 func TestOfferLoginUsesSigninForAllKinds(t *testing.T) {
 	kinds := map[string]providers.Auth{
-		"subscription": {Type: providers.AuthPassthrough},
-		"codex":        {Type: providers.AuthPassthrough, Login: "codex"},
-		"pat":          {Type: providers.AuthBearer, AuthType: providers.AuthPAT},
-		"env-key":      {Type: providers.AuthBearer, Env: "X_KEY"},
-		"u2m":          {Type: providers.AuthBearer, AuthType: providers.AuthU2M},
+		"subscription": {Type: providers.AuthCLI},
+		"codex":        {Type: providers.AuthCLI, Login: "codex"},
+		"pat":          {Type: providers.AuthPAT},
+		"env-key":      {Type: providers.AuthKey, Env: "X_KEY"},
+		"u2m":          {Type: providers.AuthOAuth},
 	}
 	for kind, auth := range kinds {
 		for v, wantLogin := range map[providers.AuthVerdict]bool{
@@ -286,9 +286,9 @@ func TestOfferLoginSubscriptionRunsNoCheck(t *testing.T) {
 		auth      providers.Auth
 		wantCheck bool
 	}{
-		"subscription": {providers.Auth{Type: providers.AuthPassthrough}, false},
-		"codex":        {providers.Auth{Type: providers.AuthPassthrough, Login: "codex"}, true},
-		"pat":          {providers.Auth{Type: providers.AuthBearer, AuthType: providers.AuthPAT}, true},
+		"subscription": {providers.Auth{Type: providers.AuthCLI}, false},
+		"codex":        {providers.Auth{Type: providers.AuthCLI, Login: "codex"}, true},
+		"pat":          {providers.Auth{Type: providers.AuthPAT}, true},
 	} {
 		t.Run(name, func(t *testing.T) {
 			loginSetup(t, true, "y\n", nil)
@@ -316,7 +316,7 @@ func TestOfferLoginSkippedHintNamesConfigureProviderAll(t *testing.T) {
 		return verdictSignin{v: providers.VerdictNeedsLogin, logins: &atomic.Int32{}}
 	}
 	var plan Plan
-	offerLogin(context.Background(), Options{}, nil, []*providers.Provider{{Name: "qa-row", Auth: providers.Auth{Type: providers.AuthBearer, AuthType: providers.AuthPAT}}}, &plan)
+	offerLogin(context.Background(), Options{}, nil, []*providers.Provider{{Name: "qa-row", Auth: providers.Auth{Type: providers.AuthPAT}}}, &plan)
 	if len(plan.Warnings) != 1 || !strings.Contains(plan.Warnings[0], "configure provider --all qa-row") {
 		t.Fatalf("warnings = %v", plan.Warnings)
 	}
@@ -370,7 +370,7 @@ func TestOfferLoginChecksConcurrentlyPromptsInOrder(t *testing.T) {
 	signinFor = func(p *providers.Provider) signin.Signin { return stubs[p.Name] }
 	var ps []*providers.Provider
 	for _, n := range names {
-		ps = append(ps, &providers.Provider{Name: n, Auth: providers.Auth{Type: providers.AuthBearer, AuthType: providers.AuthPAT}})
+		ps = append(ps, &providers.Provider{Name: n, Auth: providers.Auth{Type: providers.AuthPAT}})
 	}
 	ps = append(ps, ps[0], nil) // duplicate and nil are skipped
 	var plan Plan

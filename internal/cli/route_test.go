@@ -11,7 +11,9 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/route"
+	"github.com/edotau/claude-code/internal/router"
+	"github.com/edotau/claude-code/internal/vault"
+	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
 // captureStdout runs fn with os.Stdout redirected and returns what it printed.
@@ -32,9 +34,8 @@ func captureRouteStdout(t *testing.T, fn func() int) (string, int) {
 
 // TestRouteVerbJSON: the pick's JSON carries weights, per-dimension scores, totals and each skip's gate.
 func TestRouteVerbJSON(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("CLAUDE_CONFIG_DIR", dir)
-	t.Setenv("COPILOT_GITHUB_USER", "work-user")
+	dir := vaulttest.Use(t)
+	vaulttest.Put(t, vault.Pins, providers.PinCopilotProfile, "work-user")
 	if err := os.MkdirAll(filepath.Join(dir, "bin"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -44,39 +45,39 @@ func TestRouteVerbJSON(t *testing.T) {
 		}
 	}
 	routeRefresh = func(context.Context, string) bool { return false }
-	oldGH := route.GHAccounts
-	route.GHAccounts = func() []string { return []string{"work-user"} }
-	t.Cleanup(func() { route.GHAccounts = oldGH })
+	oldGH := router.GHAccounts
+	router.GHAccounts = func() []string { return []string{"work-user"} }
+	t.Cleanup(func() { router.GHAccounts = oldGH })
 	t.Cleanup(func() { routeRefresh = nil })
-	if err := route.MarkExhausted("copilot:work-user", time.Now().Add(240*time.Hour), time.Now(), "402"); err != nil {
+	if err := router.MarkExhausted("github·work-user", time.Now().Add(240*time.Hour), time.Now(), "402"); err != nil {
 		t.Fatal(err)
 	}
 	out, code := captureRouteStdout(t, func() int {
-		return cmdGatewayRoute([]string{"--tier", "sonnet", "--agent", "copilot", "--format", "json"})
+		return cmdGatewayRouter([]string{"--model", "sonnet", "--agent", "copilot", "--format", "json"})
 	})
 	if code != 0 {
 		t.Fatalf("exit %d: %s", code, out)
 	}
-	var res route.Result
+	var res routeJSON
 	if err := json.Unmarshal([]byte(out), &res); err != nil {
 		t.Fatalf("not JSON: %v\n%s", err, out)
 	}
-	if res.Tier != "sonnet" || res.Weights["price"] == 0 || len(res.Candidates) == 0 {
+	if res.Model != "sonnet" || res.Weights["price"] == 0 || len(res.Candidates) == 0 {
 		t.Fatalf("res = %+v", res)
 	}
-	var skip *route.Skip
+	var skip *skipJSON
 	for i := range res.Skipped {
-		if res.Skipped[i].Runner == "copilot" {
+		if res.Skipped[i].Agent == "copilot" {
 			skip = &res.Skipped[i]
 		}
 	}
-	if skip == nil || skip.Gate != route.GateExhausted || !strings.Contains(skip.Reason, "copilot:work-user exhausted until") {
+	if skip == nil || skip.Gate != router.GateExhausted || !strings.Contains(skip.Reason, "github·work-user exhausted until") {
 		t.Errorf("copilot skip = %+v in %+v", skip, res.Skipped)
 	}
-	if c := res.Candidates[len(res.Candidates)-1]; c.Runner != "claude" || c.Model != "sonnet" || c.Scores == nil {
+	if c := res.Candidates[len(res.Candidates)-1]; c.Agent != "claude" || c.Model != "claude-sonnet-5-5" || c.Scores == nil {
 		t.Errorf("last candidate = %+v, want claude at sonnet with scores", c)
 	}
-	if code := cmdGatewayRoute([]string{"--tier", "fable"}); code == 0 {
+	if code := cmdGatewayRouter([]string{"--model", "fable"}); code == 0 {
 		t.Error("an unrouted tier must fail")
 	}
 }
@@ -87,7 +88,7 @@ func TestRouteVerbSourcesNameWhereEachKnobCameFrom(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv(providers.EnvRouteSubagents, "")
 
-	out, code := captureRouteStdout(t, func() int { return cmdGatewayRoute([]string{"--tier", "sonnet", "--format", "json"}) })
+	out, code := captureRouteStdout(t, func() int { return cmdGatewayRouter([]string{"--model", "sonnet", "--format", "json"}) })
 	if code != 0 {
 		t.Fatalf("exit %d: %s", code, out)
 	}
@@ -115,7 +116,7 @@ func TestRouteVerbSourcesNameWhereEachKnobCameFrom(t *testing.T) {
 	}
 	t.Setenv(providers.EnvRouteSubagents, "0")
 
-	out, code = captureRouteStdout(t, func() int { return cmdGatewayRoute([]string{"--tier", "sonnet", "--format", "json"}) })
+	out, code = captureRouteStdout(t, func() int { return cmdGatewayRouter([]string{"--model", "sonnet", "--format", "json"}) })
 	if code != 0 {
 		t.Fatalf("exit %d: %s", code, out)
 	}
@@ -138,7 +139,7 @@ func TestRouteVerbSourcesNameWhereEachKnobCameFrom(t *testing.T) {
 		t.Errorf("subagents = %+v, want off/env (the process env beats the vault)", withOverlay.Sources.Subagents)
 	}
 
-	textOut, code := captureRouteStdout(t, func() int { return cmdGatewayRoute([]string{"--tier", "sonnet"}) })
+	textOut, code := captureRouteStdout(t, func() int { return cmdGatewayRouter([]string{"--model", "sonnet"}) })
 	if code != 0 {
 		t.Fatalf("exit %d: %s", code, textOut)
 	}

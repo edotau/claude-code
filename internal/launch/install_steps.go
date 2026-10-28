@@ -154,7 +154,7 @@ func installBinaryTarget() (target string, err error) {
 	return target, nil
 }
 
-// vendorsCompactLine groups tools.LinkResults into one "vendors" line (linked / kept), printing any
+// vendorsCompactLine groups tools.LinkResults into one "links" line (linked / kept), printing any
 // other status (skip, remove, missing, error) in full on its own line.
 func vendorsCompactLine(w io.Writer) {
 	var linked, kept []string
@@ -176,7 +176,7 @@ func vendorsCompactLine(w io.Writer) {
 		parts = append(parts, strings.Join(kept, " ")+" kept (installed here)")
 	}
 	if len(parts) > 0 {
-		fmt.Fprintf(w, "vendors  %s\n", strings.Join(parts, " · "))
+		fmt.Fprintf(w, "links    %s\n", strings.Join(parts, " · "))
 	}
 }
 
@@ -428,7 +428,7 @@ func installGitHooks(w io.Writer, dryRun bool) {
 // syncVendors projects agents/, skills/ and the vendor instruction files into every vendor home so they track the
 // repo; best-effort, like completion.
 func syncVendors(w io.Writer, dryRun bool) {
-	fmt.Fprintln(w, "agents   sync agents/ + skills/ + instructions into vendor homes (claude-code agents sync)")
+	fmt.Fprintln(w, "agents   sync agents/ + skills/ + instructions into agent homes (claude-code agents sync)")
 	if rc := crossgen.Sync(crossgen.SyncOptions{DryRun: dryRun, Out: io.Discard}); rc != 0 {
 		fmt.Fprintf(w, "  agents sync exit %d — run `claude-code agents sync` for details\n", rc)
 	}

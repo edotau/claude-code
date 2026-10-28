@@ -187,7 +187,7 @@ func (s *Scanner) ScanFile(path string) {
 func (s *Scanner) ScanVault() {
 	var found []string
 	err := vault.View(func(t *vault.Tx) error {
-		for _, key := range []string{"providers", "providers.prev", "vendors"} {
+		for _, key := range []string{"providers", "providers.prev", "agents"} {
 			raw, ok := t.Get(vault.Overlay, key)
 			if !ok {
 				continue

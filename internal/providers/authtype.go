@@ -2,6 +2,7 @@ package providers
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/url"
@@ -16,13 +17,6 @@ import (
 	"github.com/edotau/claude-code/internal/databricks/sdkport"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/vault"
-)
-
-// Auth types: how a bearer row mints (u2m = the SDK's databricks-cli); "" keeps env/file/command resolution.
-const (
-	AuthU2M      = "u2m"       // browser login once (native PKCE); sealed refresh token mints access tokens
-	AuthOAuthM2M = "oauth-m2m" // client id + sealed client secret
-	AuthPAT      = "pat"       // sealed personal access token
 )
 
 // ErrNeedsLogin matches (errors.Is) a u2m credential that only a fresh browser login can restore.
@@ -42,34 +36,74 @@ func (e *LoginRequiredError) Is(target error) bool { return target == ErrNeedsLo
 
 var secretIDRE = regexp.MustCompile(`[^A-Z0-9]+`)
 
-// AuthSecretName is the vault name of p's sealed secret for its authType; "" for types with none.
-func AuthSecretName(p *Provider) string { return SecretNameFor(p.Name, p.Auth.AuthType) }
+// secretSegment upper-cases s and turns every run of other characters into one underscore.
+func secretSegment(s string) string {
+	return strings.Trim(secretIDRE.ReplaceAllString(strings.ToUpper(s), "_"), "_")
+}
 
-// SecretNameFor is the vault name of the sealed secret for provider id and authType; "" for types with none.
-func SecretNameFor(id, authType string) string {
-	suffix := ""
-	switch authType {
-	case AuthU2M:
-		suffix = "REFRESH_TOKEN"
-	case AuthOAuthM2M:
-		suffix = "CLIENT_SECRET"
-	case AuthPAT:
-		suffix = "PAT"
+// SecretName is the vault name <PROVIDER>_<PROFILE>_<AUTH> of a profile's sealed secret (OAUTH, M2M, PAT, KEY);
+// the profile segment is written once when it equals the provider (ANTHROPIC_KEY). "" for a method with none.
+func SecretName(provider, profile, method string) string {
+	switch method {
+	case AuthOAuth, AuthM2M, AuthPAT, AuthKey:
 	default:
 		return ""
 	}
-	return providerSecretID(id) + "_" + suffix
+	prov, prof := secretSegment(provider), secretSegment(profile)
+	if prov == "" || prof == "" {
+		return ""
+	}
+	if prov == prof {
+		return prov + "_" + strings.ToUpper(method)
+	}
+	return prov + "_" + prof + "_" + strings.ToUpper(method)
 }
 
-// AccessCacheName is the vault name of a u2m row's sealed access-token cache.
-func AccessCacheName(id string) string { return providerSecretID(id) + "_ACCESS_TOKEN" }
-
-func providerSecretID(id string) string {
-	norm := secretIDRE.ReplaceAllString(strings.ToUpper(id), "_")
-	return "PROVIDER_" + strings.Trim(norm, "_")
+// AuthSecretName is the vault name of p's sealed secret for its sealed method; "" for rows with none.
+func AuthSecretName(p *Provider) string {
+	if !sealedAuth(p.Auth.Type) {
+		return ""
+	}
+	return SecretName(p.provider(), p.Name, p.Auth.Method())
 }
 
-// sealedAuth reports whether the authType keeps its credential in the vault.
+// KeySecretName is the vault name of a key row's static key; "" for any other row.
+func KeySecretName(p *Provider) string {
+	if p.Auth.Method() != AuthKey {
+		return ""
+	}
+	return SecretName(p.provider(), p.Name, AuthKey)
+}
+
+// oauthValue is an oauth profile's one sealed value: the refresh and the cached access token.
+type oauthValue struct {
+	Refresh string `json:"refresh,omitempty"`
+	Access  string `json:"access,omitempty"`
+}
+
+// readOAuth reads p's sealed {refresh, access}.
+func readOAuth(p *Provider) (oauthValue, error) {
+	var ov oauthValue
+	raw, found, err := vault.ReadSecret(AuthSecretName(p))
+	if err != nil {
+		return ov, err
+	}
+	if found && json.Unmarshal([]byte(strings.TrimSpace(raw)), &ov) == nil {
+		return ov, nil
+	}
+	return oauthValue{}, nil
+}
+
+// writeOAuth seals ov as the one JSON value under p's oauth secret name.
+func writeOAuth(p *Provider, ov oauthValue) error {
+	b, err := json.Marshal(ov)
+	if err != nil {
+		return err
+	}
+	return SealSecret(AuthSecretName(p), string(b))
+}
+
+// sealedAuth reports whether the auth type keeps its credential in the vault.
 func sealedAuth(t string) bool { return slices.Contains(supportedAuthTypes, t) }
 
 // AuthHost is the https://host a row talks to: the preset host, else BaseURL's origin; "" when neither parses.
@@ -102,24 +136,24 @@ func loopbackHost(h string) bool {
 	return name == "localhost" || name == "127.0.0.1" || name == "::1"
 }
 
-// checkAuthScheme refuses a sealed authType whose host is plain http outside loopback; the error carries no credential.
+// checkAuthScheme refuses a sealed auth type whose host is plain http outside loopback; the error carries no credential.
 func checkAuthScheme(p *Provider) error {
 	u, err := url.Parse(rawAuthHost(p))
 	if err != nil || u.Scheme != "http" || loopbackHost(u.Host) {
 		return nil
 	}
-	return fmt.Errorf("%s: auth.authType %s needs an https host, got scheme %q", p.Name, p.Auth.AuthType, u.Scheme)
+	return fmt.Errorf("%s: auth.type %s needs an https host, got scheme %q", p.Name, p.Auth.Type, u.Scheme)
 }
 
-// supportedAuthTypes is the closed set validateAuthType accepts; add a value here to extend it.
-var supportedAuthTypes = []string{AuthU2M, AuthOAuthM2M, AuthPAT}
+// supportedAuthTypes are the auth types that keep their credential in the vault.
+var supportedAuthTypes = []string{AuthOAuth, AuthM2M, AuthPAT}
 
 var (
 	accountIDRE   = regexp.MustCompile(`^[0-9a-fA-F-]{8,64}$`)
 	workspaceIDRE = regexp.MustCompile(`^[0-9]+$`)
 )
 
-// validateAuthType checks auth.authType, its companion fields and the account/workspace ids for one provider.
+// validateAuthType checks a sealed row's companion fields and the account/workspace ids for one provider.
 func validateAuthType(n string, p *Provider) []string {
 	var errs []string
 	if id := p.Auth.AccountID; id != "" && !accountIDRE.MatchString(id) {
@@ -128,32 +162,20 @@ func validateAuthType(n string, p *Provider) []string {
 	if id := p.Auth.WorkspaceID; id != "" && !workspaceIDRE.MatchString(id) {
 		errs = append(errs, fmt.Sprintf("%s: auth.workspaceId %q must be digits only", n, id))
 	}
-	k := p.Auth.AuthType
+	k := p.Auth.Type
 	if sealedAuth(k) {
 		if err := checkAuthScheme(p); err != nil {
 			errs = append(errs, err.Error())
 		}
 	}
-	if k == "" {
-		if p.Auth.ClientID != "" {
-			errs = append(errs, n+": auth.clientId needs auth.authType "+AuthOAuthM2M)
-		}
-		return errs
-	}
-	if !slices.Contains(supportedAuthTypes, k) {
-		return append(errs, fmt.Sprintf("%s: authType %q not supported (supported: %s)", n, k, strings.Join(supportedAuthTypes, ", ")))
-	}
-	if p.Auth.Type != AuthBearer {
-		errs = append(errs, n+": auth.authType needs auth.type bearer")
-	}
-	if k == AuthOAuthM2M && p.Auth.ClientID == "" {
-		errs = append(errs, n+": auth.authType "+AuthOAuthM2M+" needs auth.clientId")
+	if k == AuthM2M && p.Auth.ClientID == "" {
+		errs = append(errs, n+": auth.type "+AuthM2M+" needs auth.clientId")
 	}
 	if strings.ContainsAny(p.Auth.ClientID, "\r\n[=") {
 		errs = append(errs, n+": auth.clientId must not contain CR, LF, '[' or '='")
 	}
-	if k != AuthOAuthM2M && p.Auth.ClientID != "" {
-		errs = append(errs, n+": auth.clientId needs auth.authType "+AuthOAuthM2M)
+	if k != AuthM2M && p.Auth.ClientID != "" {
+		errs = append(errs, n+": auth.clientId needs auth.type "+AuthM2M)
 	}
 	return errs
 }
@@ -180,9 +202,9 @@ func withRefreshLock(p *Provider, fn func() error) error {
 	return nil
 }
 
-// authCredential mints (or serves from cache) the access token for a sealed authType; force skips the cache.
+// authCredential mints (or serves from cache) the access token for a sealed auth type; force skips the cache.
 func authCredential(ctx context.Context, p *Provider, force bool) (string, error) {
-	if p.Auth.AuthType != AuthU2M {
+	if p.Auth.Type != AuthOAuth {
 		return mintOnce(ctx, p, force, func(ctx context.Context) (string, error) { return mintAndCache(ctx, p) })
 	}
 	return mintOnce(ctx, p, force, func(ctx context.Context) (string, error) {
@@ -208,8 +230,8 @@ func authCredential(ctx context.Context, p *Provider, force bool) (string, error
 
 // sealedAccess returns the sealed access token when it stays valid past the expiry margin.
 func sealedAccess(p *Provider) (string, bool) {
-	v, _, err := vault.ReadSecret(AccessCacheName(p.Name))
-	v = strings.TrimSpace(v)
+	ov, err := readOAuth(p)
+	v := strings.TrimSpace(ov.Access)
 	if err != nil || v == "" {
 		return "", false
 	}
@@ -220,10 +242,12 @@ func sealedAccess(p *Provider) (string, bool) {
 	return v, true
 }
 
-// sealAccess caches a u2m access token; a seal error is logged by name only and never fails the mint.
+// sealAccess caches a u2m access token beside the refresh token; a seal error is logged by name only and never fails the mint.
 func sealAccess(p *Provider, tok string) {
-	if err := SealSecret(AccessCacheName(p.Name), tok); err != nil {
-		fmt.Fprintf(os.Stderr, "%s: cache access token (%s) failed\n", p.Name, AccessCacheName(p.Name))
+	ov, _ := readOAuth(p)
+	ov.Access = tok
+	if err := writeOAuth(p, ov); err != nil {
+		fmt.Fprintf(os.Stderr, "%s: cache access token (%s) failed\n", p.Name, AuthSecretName(p))
 	}
 }
 
@@ -241,13 +265,13 @@ func mintAndCache(ctx context.Context, p *Provider) (string, error) {
 // mintAuth is the one path that turns a sealed credential into an access token.
 func mintAuth(ctx context.Context, p *Provider) (sdkport.Token, error) {
 	name := AuthSecretName(p)
-	secret, err := mintSecret(p, name)
+	secret, err := mintSecret(p)
 	if err != nil {
 		return sdkport.Token{}, fmt.Errorf("%s: vault: %w", p.Name, err)
 	}
 	if secret == "" {
 		err := fmt.Errorf("%s: no credential (%s)", p.Name, authHint(p, name))
-		if p.Auth.AuthType == AuthU2M {
+		if p.Auth.Type == AuthOAuth {
 			err = &LoginRequiredError{Provider: p.Name, err: err}
 		}
 		return sdkport.Token{}, err
@@ -256,10 +280,10 @@ func mintAuth(ctx context.Context, p *Provider) (sdkport.Token, error) {
 		return sdkport.Token{}, err
 	}
 	host := AuthHost(p)
-	switch p.Auth.AuthType {
+	switch p.Auth.Type {
 	case AuthPAT:
 		return sdkport.Token{Access: secret}, nil
-	case AuthOAuthM2M:
+	case AuthM2M:
 		return sdkport.MintM2M(ctx, host, p.Auth.ClientID, secret)
 	}
 	tok, err := sdkport.RefreshU2M(ctx, host, secret)
@@ -271,7 +295,7 @@ func mintAuth(ctx context.Context, p *Provider) (sdkport.Token, error) {
 		return sdkport.Token{}, wrapped
 	}
 	if tok.Refresh != "" && tok.Refresh != secret {
-		if err := SealSecret(name, tok.Refresh); err != nil {
+		if err := writeOAuth(p, oauthValue{Refresh: tok.Refresh, Access: tok.Access}); err != nil {
 			return sdkport.Token{}, fmt.Errorf("%s: re-seal rotated refresh token: %w", p.Name, err)
 		}
 	}
@@ -279,17 +303,17 @@ func mintAuth(ctx context.Context, p *Provider) (sdkport.Token, error) {
 }
 
 // mintSecret reads the sealed secret; u2m reads the vault only so a stale env value never replays a rotated token.
-func mintSecret(p *Provider, name string) (string, error) {
-	if p.Auth.AuthType != AuthU2M {
-		v, _, err := EffectiveSecret(name)
-		return v, err
+func mintSecret(p *Provider) (string, error) {
+	if p.Auth.Type == AuthOAuth {
+		ov, err := readOAuth(p)
+		return strings.TrimSpace(ov.Refresh), err
 	}
-	v, _, err := vault.ReadSecret(name)
-	return strings.TrimSpace(v), err
+	v, _, err := EffectiveSecret(AuthSecretName(p))
+	return v, err
 }
 
 func authHint(p *Provider, name string) string {
-	if p.Auth.AuthType == AuthU2M {
+	if p.Auth.Type == AuthOAuth {
 		return "run `claude-code databricks login --profile " + p.Name + "`"
 	}
 	return "set " + name + " with `claude-code vault set`"
@@ -324,8 +348,8 @@ func sealDirect(name, value string) error {
 
 // LoginU2M runs the browser login for a u2m row, seals the refresh token, mints once and returns the token's lifetime.
 func LoginU2M(ctx context.Context, p *Provider, opts sdkport.LoginOptions) (time.Duration, error) {
-	if p.Auth.AuthType != AuthU2M {
-		return 0, fmt.Errorf("%s: auth.authType is %q, not %s", p.Name, p.Auth.AuthType, AuthU2M)
+	if p.Auth.Type != AuthOAuth {
+		return 0, fmt.Errorf("%s: auth.type is %q, not %s", p.Name, p.Auth.Type, AuthOAuth)
 	}
 	if err := checkAuthScheme(p); err != nil {
 		return 0, err
@@ -342,10 +366,9 @@ func LoginU2M(ctx context.Context, p *Provider, opts sdkport.LoginOptions) (time
 		return 0, fmt.Errorf("%s: login returned no refresh token", p.Name)
 	}
 	err = withRefreshLock(p, func() error {
-		if err := SealSecret(AuthSecretName(p), tok.Refresh); err != nil {
+		if err := writeOAuth(p, oauthValue{Refresh: tok.Refresh, Access: tok.Access}); err != nil {
 			return fmt.Errorf("%s: seal refresh token: %w", p.Name, err)
 		}
-		sealAccess(p, tok.Access)
 		return finishCredential(p, tok.Access, tok.Expiry)
 	})
 	if err != nil {

@@ -13,7 +13,8 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/envscrub"
-	"github.com/edotau/claude-code/internal/route"
+	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/router"
 )
 
 func TestApplyCaps(t *testing.T) {
@@ -266,7 +267,7 @@ func TestLegUnavailable(t *testing.T) {
 func chainOf(rs []Runner, models ...string) Chain {
 	c := Chain{Want: rs[0].Name()}
 	for i, r := range rs {
-		leg := Leg{Runner: r, keepCaller: i == 0}
+		leg := Leg{Agent: r, keepCaller: i == 0}
 		if i < len(models) {
 			leg.Model = models[i]
 		}
@@ -328,8 +329,8 @@ func TestRunWithFallback(t *testing.T) {
 
 	t.Run("gate skips make zero attempts and are reported", func(t *testing.T) {
 		claude := &fakeRunner{name: "claude", errs: []error{nil}}
-		c := Chain{Want: "copilot", Skipped: []string{"copilot: copilot:u exhausted until 2026-11-01"},
-			Legs: []Leg{{Runner: claude, Model: "sonnet"}}}
+		c := Chain{Want: "copilot", Skipped: []string{"copilot: github·u exhausted until 2026-11-01"},
+			Legs: []Leg{{Agent: claude, Model: "sonnet"}}}
 		res, err := RunWithFallback(context.Background(), c, Request{Prompt: "p"}, io.Discard, nil)
 		if err != nil || res.Fallback != "copilot" || !strings.Contains(res.FallbackReason, "exhausted until 2026-11-01") {
 			t.Fatalf("res=%+v err=%v", res, err)
@@ -344,12 +345,12 @@ func TestRunWithFallback(t *testing.T) {
 		copilot := &fakeRunner{name: "copilot", errs: []error{quota}, emptyAnswer: true}
 		claude := &fakeRunner{name: "claude", errs: []error{nil}}
 		c := chainOf([]Runner{copilot, claude}, "", "sonnet")
-		c.Legs[0].Account, c.Legs[0].Billing = "copilot:u", "credits"
+		c.Legs[0].Account, c.Legs[0].Billing = "github·u", "credits"
 		res, err := RunWithFallback(context.Background(), c, Request{Prompt: "p"}, io.Discard, nil)
 		if err != nil || res.Agent != "claude" || len(copilot.seen) != 1 {
 			t.Fatalf("res=%+v err=%v copilot attempts=%d (quota is never retried)", res, err, len(copilot.seen))
 		}
-		if e := loadState()["copilot:u"]; e.Status(time.Now()) != "exhausted" || e.ExhaustedUntil.Day() != 1 {
+		if e := loadState()["github·u"]; e.Status(time.Now()) != "exhausted" || e.ExhaustedUntil.Day() != 1 {
 			t.Errorf("state = %+v, want exhausted until the 1st", e)
 		}
 	})
@@ -394,17 +395,17 @@ func TestRunWithFallback(t *testing.T) {
 // TestRouteChainSkipsExhaustedAndRetriesExpired: an exhausted pinned copilot gets no leg; once expired it leads again.
 func TestRouteChainSkipsExhaustedAndRetriesExpired(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	t.Setenv("COPILOT_GITHUB_USER", "work-user")
-	old := route.GHAccounts
-	route.GHAccounts = func() []string { return []string{"work-user"} }
-	t.Cleanup(func() { route.GHAccounts = old })
-	all := route.Opts{Configured: func(string, route.Cell) error { return nil }}
-	tb, err := route.Load()
+	setPin(t, providers.PinCopilotProfile, "work-user")
+	old := router.GHAccounts
+	router.GHAccounts = func() []string { return []string{"work-user"} }
+	t.Cleanup(func() { router.GHAccounts = old })
+	all := router.Opts{Configured: func(string, router.Cell) error { return nil }}
+	tb, err := router.Load()
 	if err != nil {
 		t.Fatal(err)
 	}
 	acct := tb.Rows["copilot"]["sonnet"].Account
-	if err := route.MarkExhausted(acct, time.Now().Add(time.Hour), time.Now(), "402"); err != nil {
+	if err := router.MarkExhausted(acct, time.Now().Add(time.Hour), time.Now(), "402"); err != nil {
 		t.Fatal(err)
 	}
 	c, _, err := RouteChain(context.Background(), "copilot", "sonnet", FallbackAll, false, false, all)
@@ -412,21 +413,21 @@ func TestRouteChainSkipsExhaustedAndRetriesExpired(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, l := range c.Legs {
-		if l.Runner.Name() == "copilot" {
+		if l.Agent.Name() == "copilot" {
 			t.Fatalf("exhausted copilot got a leg: %+v", c.Legs)
 		}
 	}
-	if last := c.Legs[len(c.Legs)-1]; last.Runner.Name() != "claude" || last.Model != "sonnet" {
+	if last := c.Legs[len(c.Legs)-1]; last.Agent.Name() != "claude" || last.Model != "sonnet" {
 		t.Errorf("claude leg = %+v, want sonnet", last)
 	}
 	if len(c.Skipped) == 0 || !strings.Contains(c.Skipped[0], "exhausted") {
 		t.Errorf("skips = %v", c.Skipped)
 	}
-	if err := route.Update(func(s route.State) { e := s[acct]; e.ExhaustedUntil = time.Now().Add(-time.Minute); s[acct] = e }); err != nil {
+	if err := router.Update(func(s router.State) { e := s[acct]; e.ExhaustedUntil = time.Now().Add(-time.Minute); s[acct] = e }); err != nil {
 		t.Fatal(err)
 	}
 	c, _, _ = RouteChain(context.Background(), "copilot", "sonnet", FallbackAll, false, false, all)
-	if c.Legs[0].Runner.Name() != "copilot" || c.Legs[0].Account != "copilot:work-user" {
+	if c.Legs[0].Agent.Name() != "copilot" || c.Legs[0].Account != "github·work-user" {
 		t.Errorf("expired entry must be retried on the pinned account: %+v", c.Legs[0])
 	}
 }

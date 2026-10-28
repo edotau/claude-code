@@ -2,7 +2,7 @@ export const meta = {
   name: 'code-analyzer',
   description: 'Audit a change set: parallel scoped auditors → refute each finding → per-package implementer ‖ test agent → gate loop',
   whenToUse:
-    'Post-refactor or pre-merge audits over a commit range (diff lenses) or a whole path set (code lenses: correctness, failure-modes, contracts). ADK shape: Parallel[auditors] → Sequential[refute pipeline, Parallel[fix‖test per package], Loop gate], looped in-script over rounds. args: {range: "main..HEAD" | paths: [...] | findings (none of the three = the working-tree diff), cwd, packages: ["internal/x", …], dimensions?: [{key, prompt, effort?}], chunkChars?: 50000, gate? (auto-detected), maxIterations?, fix: true, minFix: "medium", rounds?: 2 (re-audits the files each round fixed until dry/stalled/capped), refuters?: ["codex"] (second-family refuter via code-agent, smoke-tested, dropped when unhealthy), refuteBatch?: 6}. findings skips straight to Fix; noTest on every finding in a package skips its test agent. fix:false stops after Refute (a review-only run; pass dimensions with a security lens for a security pass); lows below minFix are returned as deferred. Returns exit: dry|no-fix|stalled|nothing-changed|blocked|capped|error, round, rounds: [...] (one entry per round), legs, unverified.',
+    'Post-refactor or pre-merge audits over a commit range (diff lenses) or a whole path set (code lenses: correctness, failure-modes, contracts). ADK shape: Parallel[auditors] → Sequential[refute pipeline, Parallel[fix‖test per package], Loop gate], looped in-script over rounds. args: {range: "main..HEAD" | paths: [...] | findings (none of the three = the working-tree diff), cwd, packages: ["internal/x", …], dimensions?: [{key, prompt, effort?}], chunkChars?: 50000, gate? (auto-detected), maxIterations?, fix: true, minFix: "medium", rounds?: 2 (re-audits the files each round fixed until dry/stalled/capped), refuters?: ["codex"] (second-agent refuter via code-agent, smoke-tested, dropped when unhealthy), refuteBatch?: 6}. findings skips straight to Fix; noTest on every finding in a package skips its test agent. fix:false stops after Refute (a review-only run; pass dimensions with a security lens for a security pass); lows below minFix are returned as deferred. Returns exit: dry|no-fix|stalled|nothing-changed|blocked|capped|error, round, rounds: [...] (one entry per round), agents, unverified.',
   phases: [
     { title: 'Scope', detail: 'one cheap agent per package group returns per-file sizes; the script packs them into ≤50 KB chunks' },
     { title: 'Find', detail: 'one auditor per (dimension × chunk) reading its chunk in-context — agent count scales with diff size' },
@@ -40,18 +40,18 @@ const SHARED_TREE =
   'Shared live tree: never git stash|checkout|reset|restore|clean|commit, never make build|install|test|audit, never edit settings.json. ' +
   (CWD ? 'Prefix every shell command with `cd ' + CWD + ' &&`. ' : '') + 'Comments 1 line ≤120 chars.'
 
-// ── Router pressure: Claude account state read once; low/exhausted steps every Claude stage down one tier ──
+// ── Pressure: Claude account state read once; low/exhausted steps every Claude stage down one model ──
 const routeState = await agent(
-  `Run exactly: ${CD}claude-code gateway route --format json --agent claude --fallback none --tier sonnet. ` +
-    `It prints one JSON object; state = candidates[0].state when candidates is non-empty, else the skipped[] entry whose runner ` +
+  `Run exactly: ${CD}claude-code gateway router --format json --agent claude --fallback none --model sonnet. ` +
+    `It prints one JSON object; state = candidates[0].state when candidates is non-empty, else the skipped[] entry whose agent ` +
     `is "claude" and its gate value, else "unknown". Never run anything else.`,
   { label: 'route-state', phase: 'Scope', schema: { type: 'object', additionalProperties: false, required: ['state'], properties: { state: { type: 'string' } } }, model: 'haiku', effort: 'low' }
 ).catch(() => null)
-const TIER_DOWN = { opus: 'sonnet', sonnet: 'haiku', haiku: 'haiku' }
+const MODEL_DOWN = { opus: 'sonnet', sonnet: 'haiku', haiku: 'haiku' }
 const PRESSURE = !!(routeState && (routeState.state === 'low' || routeState.state === 'exhausted'))
-const routeTier = m => (PRESSURE && TIER_DOWN[m]) ? TIER_DOWN[m] : m
-if (PRESSURE) log(`router: claude account ${routeState.state} — stepping Claude stages down one tier`)
-else if (!routeState) log('router: route read failed — no downshift (fail open)')
+const routeModel = m => (PRESSURE && MODEL_DOWN[m]) ? MODEL_DOWN[m] : m
+if (PRESSURE) log(`pressure: claude account ${routeState.state} — stepping Claude stages down one model`)
+else if (!routeState) log('pressure: route read failed — no downshift (fail open)')
 
 const DEFAULT_DIMENSIONS = [
   { key: 'seams', prompt: 'dangling seams: callers of deleted or renamed symbols in comments, help text, docs, registration/config tables; flags parsed but never read; fields declared but never set' },
@@ -159,18 +159,18 @@ const norm = f => ({
 const key = f => relPath(f.file) + ':' + f.title
 const REFUTE_BATCH = a.refuteBatch || 6
 
-// ── Leg smoke: each refuter leg proves it is alive ONCE for the whole run, not per round ──
-const legStatus = []
-const LEGS_OK = []
-// An unregistered or crashing leg is a dropped leg, never a dead audit (workflow() throws on an unknown name).
-const askLeg = opts => workflow('code-agent', opts).catch(e => ({ ok: false, error: String((e && e.message) || e) }))
-for (const leg of REFUTERS) {
-  const s = await askLeg({ leg, cwd: CWD || undefined, task: 'Reply READY only.', smoke: false, fallback: false, timeoutMin: 2 })
+// ── Agent smoke: each refuter agent proves it is alive ONCE for the whole run, not per round ──
+const agentStatus = []
+const AGENTS_OK = []
+// An unregistered or crashing agent is a dropped agent, never a dead audit (workflow() throws on an unknown name).
+const askAgent = opts => workflow('code-agent', opts).catch(e => ({ ok: false, error: String((e && e.message) || e) }))
+for (const ag of REFUTERS) {
+  const s = await askAgent({ agent: ag, cwd: CWD || undefined, task: 'Reply READY only.', smoke: false, fallback: false, timeoutMin: 2 })
   const ok = !!(s && s.ok && /READY/i.test(s.answer || ''))
-  legStatus.push({ leg, ok, reason: ok ? '' : (s && (s.error || s.reason)) || 'no result' })
-  if (ok) LEGS_OK.push(leg)
+  agentStatus.push({ agent: ag, ok, reason: ok ? '' : (s && (s.error || s.reason)) || 'no result' })
+  if (ok) AGENTS_OK.push(ag)
 }
-if (REFUTERS.length) log(`legs: ${JSON.stringify(legStatus)}`)
+if (REFUTERS.length) log(`agents: ${JSON.stringify(agentStatus)}`)
 
 // ── Round loop (D2: workflow() nesting is one level only, so recursion is an in-script for-loop) ──
 const rounds = []
@@ -184,7 +184,7 @@ for (let round = 1; round <= ROUNDS; round++) {
           `with path and bytes. Do not read the files; the auditors cat their own chunk. At most 2 tool calls.`
         : `${CD}run ONE command: git diff --numstat ${RANGE || 'HEAD~1..HEAD'} -- ${g.join(' ') || '.'} — and return each file as an entry with path ` +
           `(the new path for a rename) and bytes = (added + deleted) * 80 (binary "-" counts as 0). Do not read the diff; the auditors run it for their chunk. At most 2 tool calls.`,
-      { label: `scope:${round}:${gi}`, phase: 'Scope', schema: SCOPE_SCHEMA, model: routeTier('haiku'), effort: 'low' } // file listing: schema-checked, haiku is enough
+      { label: `scope:${round}:${gi}`, phase: 'Scope', schema: SCOPE_SCHEMA, model: routeModel('haiku'), effort: 'low' } // file listing: schema-checked, haiku is enough
     )
   ))
   // Pack files into ≤ CHUNK_CHARS chunks so no auditor sees a truncated view and agent count follows diff size.
@@ -203,7 +203,7 @@ for (let round = 1; round <= ROUNDS; round++) {
     log(`scope ${gi}: ${files.length} files, ~${files.reduce((n, f) => n + (f.bytes || 0), 0)} bytes`)
   })
   if (!PRE && FILES_MODE && !chunks.length) {
-    rounds.push({ error: 'code-analyzer: no source files under ' + PATHS.join(', '), exit: 'error', round, legs: legStatus })
+    rounds.push({ error: 'code-analyzer: no source files under ' + PATHS.join(', '), exit: 'error', round, agents: agentStatus })
     break
   }
   log(`${chunks.length} chunk(s) of ≤${CHUNK_CHARS} chars → ${DIMENSIONS.filter(d => !d.hitsOnly).length * chunks.length} first-pass auditors`)
@@ -219,7 +219,7 @@ for (let round = 1; round <= ROUNDS; round++) {
   const refuted = []
   const unverified = []
   let refuteCalls = 0
-  let refutedByLeg = 0
+  let refutedByAgent = 0
   let auditorCount = 0
   const findStage = u => {
     auditorCount++
@@ -233,7 +233,7 @@ for (let round = 1; round <= ROUNDS; round++) {
       (u.chunk.files.length
         ? `Files: ${u.chunk.files.map(f => f.path).join(' ')}\n\n`
         : `(the scope agent returned nothing — ${FILES_MODE ? 'read the files under ' + u.group.join(' ') : 'run git diff --stat ' + (RANGE || 'HEAD~1..HEAD') + ' -- ' + (u.group.join(' ') || '.')} yourself)`),
-      { label: `find:${round}:${u.key}`, phase: 'Find', schema: FINDINGS_SCHEMA, model: routeTier('sonnet'), effort: u.dim.effort || 'low' }
+      { label: `find:${round}:${u.key}`, phase: 'Find', schema: FINDINGS_SCHEMA, model: routeModel('sonnet'), effort: u.dim.effort || 'low' }
     )
   }
   const refuteStage = (found, u) => {
@@ -260,22 +260,22 @@ for (let round = 1; round <= ROUNDS; round++) {
         // A "no such verb" finding once survived and its fixer rewrote a correct doc; the verb was an alias spelling.
         `A claim that a verb, flag, symbol or file does NOT exist is refuted unless a tree-wide grep (alias, registration and config tables included) AND the repo's own test or CLI output both come back empty.`
       return Promise.all([
-        agent(brief, { label: `refute:${round}:${pkg.split('/').pop()}:${bi}`, phase: 'Refute', schema: VERDICTS_SCHEMA, model: routeTier('sonnet'), effort: 'medium' }),
-        ...LEGS_OK.map(leg => askLeg({
-          leg, cwd: CWD || undefined, smoke: false, fallback: false,
+        agent(brief, { label: `refute:${round}:${pkg.split('/').pop()}:${bi}`, phase: 'Refute', schema: VERDICTS_SCHEMA, model: routeModel('sonnet'), effort: 'medium' }),
+        ...AGENTS_OK.map(ag => askAgent({
+          agent: ag, cwd: CWD || undefined, smoke: false, fallback: false,
           task: brief + '\nAnswer with ONLY one JSON object {"verdicts":[{"index":0,"refuted":true,"reason":"<quoted line>"}]} and nothing else.',
         }).then(r => {
           try {
             const j = JSON.parse(String((r && r.answer) || '').replace(/^```(json)?\s*|\s*```$/g, ''))
-            return { leg, verdicts: Array.isArray(j.verdicts) ? j.verdicts : [] }
-          } catch (e) { return { leg, verdicts: [] } }
+            return { agent: ag, verdicts: Array.isArray(j.verdicts) ? j.verdicts : [] }
+          } catch (e) { return { agent: ag, verdicts: [] } }
         })),
-      ]).then(([v, ...legs]) => {
+      ]).then(([v, ...others]) => {
         const verdicts = v && Array.isArray(v.verdicts) ? v.verdicts : []
         return fs.map((f, i) => {
           if (!v) { unverified.push({ ...f, reason: 'refuter returned no result' }); return null }
-          const lv = legs.map(l => ({ leg: l.leg, v: l.verdicts.find(x => x.index === i && x.refuted && x.reason) })).find(x => x.v)
-          if (lv) { refutedByLeg++; refuted.push({ ...f, reason: lv.leg + ': ' + lv.v.reason }); return null }
+          const lv = others.map(l => ({ agent: l.agent, v: l.verdicts.find(x => x.index === i && x.refuted && x.reason) })).find(x => x.v)
+          if (lv) { refutedByAgent++; refuted.push({ ...f, reason: lv.agent + ': ' + lv.v.reason }); return null }
           const vd = verdicts.find(x => x.index === i)
           if (!vd || vd.refuted) { refuted.push({ ...f, reason: vd ? vd.reason : 'no verdict' }); return null }
           return norm({ ...f, file: vd.file || f.file, line: vd.line || f.line, lens: u.dim.key })
@@ -294,10 +294,10 @@ for (let round = 1; round <= ROUNDS; round++) {
   confirmed.sort((x, y) => ORDER[x.severity] - ORDER[y.severity])
   const toFix = confirmed.filter(f => ORDER[f.severity] <= MIN_FIX)
   const deferred = confirmed.filter(f => ORDER[f.severity] > MIN_FIX)
-  const metrics = { scopers: PRE ? 0 : GROUPS.length, chunks: chunks.length, auditors: auditorCount, refuters: refuteCalls, refutedByLeg, confirmed: confirmed.length, refuted: refuted.length, deferred: deferred.length }
-  log(`round ${round}/${ROUNDS}: confirmed ${confirmed.length}, refuted ${refuted.length} (${refutedByLeg} by leg), below the fix floor ${deferred.length}, unverified ${unverified.length}`)
+  const metrics = { scopers: PRE ? 0 : GROUPS.length, chunks: chunks.length, auditors: auditorCount, refuters: refuteCalls, refutedByAgent, confirmed: confirmed.length, refuted: refuted.length, deferred: deferred.length }
+  log(`round ${round}/${ROUNDS}: confirmed ${confirmed.length}, refuted ${refuted.length} (${refutedByAgent} by agent), below the fix floor ${deferred.length}, unverified ${unverified.length}`)
 
-  const base = { confirmed, refuted, unverified, deferred, legs: legStatus, round }
+  const base = { confirmed, refuted, unverified, deferred, agents: agentStatus, round }
   if (!FIX || !toFix.length) { rounds.push({ ...base, fixed: [], gate: null, exit: FIX ? 'dry' : 'no-fix', metrics }); break }
   // Same findings as an earlier round (PRIOR, accumulated across rounds): report, do not re-fix forever.
   if (PRIOR.size && toFix.every(f => PRIOR.has(key(f)))) { rounds.push({ ...base, fixed: [], gate: null, exit: 'stalled', metrics }); break }
@@ -322,12 +322,12 @@ for (let round = 1; round <= ROUNDS; round++) {
         `After a defect fix write ISSUE: searched P, found N.\n` +
         `Method: ~/.claude/skills/problem-solving/SKILL.md (Steps 4-6)\n` +
         `Put the TASK/ISSUE facts as plain sentences in your summary.`,
-        { label: `fix:${round}:${pkg}`, phase: 'Fix', schema: RESULT_SCHEMA, model: routeTier(hot ? 'opus' : 'sonnet'), effort: hot ? 'high' : 'medium' }),
+        { label: `fix:${round}:${pkg}`, phase: 'Fix', schema: RESULT_SCHEMA, model: routeModel(hot ? 'opus' : 'sonnet'), effort: hot ? 'high' : 'medium' }),
       () => testsNeeded ? agent(`${ctx}\nYou are the TEST agent (an implementer is fixing the non-test files concurrently): only test files and fixtures (${TEST_GLOBS}) for ${pkg}. ` +
         `Method: ~/.claude/agents/copilot.md → TEST. ` +
         `Read the cited files and their tests in one call; repair tests the fixes break, add one regression test per defect pinning its scenario ` +
         `(none for a comment-only or dead-code fix), run only the tests for ${pkg} once the implementer's edits land, and report. Budget ~20 tool calls.`,
-        { label: `test:${round}:${pkg}`, phase: 'Fix', schema: RESULT_SCHEMA, model: routeTier('sonnet'), effort: 'medium' }) : null,
+        { label: `test:${round}:${pkg}`, phase: 'Fix', schema: RESULT_SCHEMA, model: routeModel('sonnet'), effort: 'medium' }) : null,
     ]).then(([impl, tests]) => ({ package: pkg, impl, tests }))
   }))
 
@@ -360,4 +360,4 @@ for (let round = 1; round <= ROUNDS; round++) {
 }
 
 const lastRound = rounds[rounds.length - 1] || { exit: 'error', round: 0 }
-return { ...lastRound, exit: lastRound.exit, round: lastRound.round, rounds, legs: legStatus, unverified: rounds.flatMap(r => r.unverified || []) }
+return { ...lastRound, exit: lastRound.exit, round: lastRound.round, rounds, agents: agentStatus, unverified: rounds.flatMap(r => r.unverified || []) }

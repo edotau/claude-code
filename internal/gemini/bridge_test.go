@@ -17,6 +17,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
+	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 	"github.com/edotau/claude-code/internal/vendors"
@@ -66,7 +67,7 @@ func setupRegistry(t *testing.T, srv *httptest.Server) {
 	t.Setenv("CLAUDE_CONFIG_DIR", dir)
 	t.Setenv("TEST_GEM_KEY", "gem-key")
 	body := fmt.Sprintf(`{"providers":{
-	  "tgem":{"kind":"openai","base_url":%q,"auth":{"type":"bearer","env":"TEST_GEM_KEY"},"models":{"opus":"g-pro","sonnet":"g-flash","haiku":"g-lite"}}}}`,
+	  "tgem":{"kind":"openai","base_url":%q,"auth":{"type":"key","env":"TEST_GEM_KEY"},"models":{"opus":"g-pro","sonnet":"g-flash","haiku":"g-lite"}}}}`,
 		srv.URL+"/v1")
 	vaulttest.Put(t, vault.Overlay, "providers", body)
 }
@@ -148,13 +149,15 @@ func TestBridgeRunDefaultModel(t *testing.T) {
 }
 
 // TestBridgeRunModelPin: the bridge's default model comes from the provider's own sonnet slot, bypassing
-// HARNESS_SONNET_MODEL — but an explicit --model sonnet still goes through the pinned resolution.
+// CLAUDE_SONNET_MODEL — but an explicit --model sonnet still goes through the pinned resolution.
 func TestBridgeRunModelPin(t *testing.T) {
 	var hits []gotRequest
 	srv := newServer(&hits, 0)
 	defer srv.Close()
 	setupRegistry(t, srv)
-	t.Setenv("HARNESS_SONNET_MODEL", "claude-sonnet-5")
+	if err := providers.SetPins(map[string]string{providers.SlotPin("sonnet"): "claude-sonnet-5"}); err != nil { // vault-only
+		t.Fatal(err)
+	}
 
 	dir := t.TempDir()
 
@@ -162,7 +165,7 @@ func TestBridgeRunModelPin(t *testing.T) {
 		t.Fatal(err)
 	}
 	if got := decodeBody(t, hits[len(hits)-1]).Model; got != "g-flash" {
-		t.Errorf("default model with HARNESS_SONNET_MODEL set = %q, want g-flash (bridge default bypasses slot pins)", got)
+		t.Errorf("default model with CLAUDE_SONNET_MODEL set = %q, want g-flash (bridge default bypasses slot pins)", got)
 	}
 
 	if _, err := Run(context.Background(), Options{Provider: "tgem", Model: "sonnet", Cwd: dir, Task: "t"}, io.Discard, io.Discard); err != nil {
@@ -433,7 +436,7 @@ func setupGeminiProviderOverride(t *testing.T, srv *httptest.Server) {
 	t.Setenv("CLAUDE_CONFIG_DIR", dir)
 	t.Setenv("TEST_GEMINI_DEFAULT_KEY", "gem-default-key")
 	body := fmt.Sprintf(`{"providers":{
-	  "gemini":{"kind":"openai","base_url":%q,"auth":{"type":"bearer","env":"TEST_GEMINI_DEFAULT_KEY"},"models":{"opus":"g-pro","sonnet":"g-flash","haiku":"g-lite"}}}}`,
+	  "gemini":{"kind":"openai","base_url":%q,"auth":{"type":"key","env":"TEST_GEMINI_DEFAULT_KEY"},"models":{"opus":"g-pro","sonnet":"g-flash","haiku":"g-lite"}}}}`,
 		srv.URL+"/v1")
 	vaulttest.Put(t, vault.Overlay, "providers", body)
 }

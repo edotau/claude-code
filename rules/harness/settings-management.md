@@ -42,8 +42,8 @@ foreign key (including keys Claude Code's `/config` writes), and on a nested `.c
 
 In a linked worktree, cwd alone does not isolate writes (CLAUDE.md hard rule 4).
 Use `CLAUDE_CONFIG_DIR="$PWD" claude-code configure --reset --out "$PWD/settings.json"` for that checkout's
-settings. A non-default config dir skips vendor renders, previews, and drift checks by default.
-`--vendors` opts them back in, but destinations remain the live `~/.codex`, `~/.copilot`,
+settings. A non-default config dir skips agent renders, previews, and drift checks by default.
+`--agents` opts them back in, but destinations remain the live `~/.codex`, `~/.copilot`,
 `~/.config/opencode`, and `~/.gemini` homes; `--dry-run`/`--check` still write nothing.
 `make install` without the override still installs into the live harness.
 

@@ -27,7 +27,7 @@ func TestConfigureAllFlagGates(t *testing.T) {
 	}{
 		{"old databricks --all is gone", []string{"databricks", "--all"}, 1, "--all needs the provider page"},
 		{"agents --all", []string{"agents", "--all"}, 1, "--all needs the provider page"},
-		{"unknown profile", []string{"provider", "--all", "no-such-row"}, 1, "unknown provider no-such-row"},
+		{"unknown profile", []string{"provider", "--all", "no-such-row"}, 1, "unknown profile no-such-row"},
 		{"--family removed", []string{"provider", "--all", "--family", "x"}, 2, ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -47,8 +47,8 @@ func TestConfigureAllArgumentLimits(t *testing.T) {
 		want string
 	}{
 		{"two profiles", []string{"provider", "--all", "a", "b"}, "at most one <profile> (got 2)"},
-		{"with --list", []string{"provider", "--all", "--list"}, "cannot be combined with --list or --provider"},
-		{"with --provider", []string{"provider", "--all", "--provider", "x"}, "cannot be combined with --list or --provider"},
+		{"with --list", []string{"provider", "--all", "--list"}, "cannot be combined with --list or --profile"},
+		{"with --profile", []string{"provider", "--all", "--profile", "x"}, "cannot be combined with --list or --profile"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			code, _, stderr := captureOutput(t, func() int { return cmdConfigure(tc.args) })

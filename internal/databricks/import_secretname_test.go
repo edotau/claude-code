@@ -16,7 +16,7 @@ func TestImportSealedPATIsFoundByCredentialForUnderscoreSuffixID(t *testing.T) {
 	if err := os.WriteFile(cfg, []byte(body), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	args := []string{"--file", cfg, "--apply", "--seal-secrets"}
+	args := []string{"--dbxcfg", cfg, "--apply", "--seal-secrets"}
 	if code, out, errs := captureOutput(t, func() int { return importCfg(args) }); code != 0 {
 		t.Fatalf("import: %d %q %q", code, out, errs)
 	}

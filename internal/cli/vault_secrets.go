@@ -11,7 +11,7 @@ import (
 	"github.com/edotau/claude-code/internal/helptext"
 	"github.com/edotau/claude-code/internal/outfmt"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/route"
+	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/secrets"
 	"github.com/edotau/claude-code/internal/signin"
 	"github.com/edotau/claude-code/internal/tailscale"
@@ -55,7 +55,7 @@ func clearProviderAuth(name string) {
 	}
 	for _, p := range reg.Providers {
 		if providers.AuthSecretName(p) == name || (p.Auth.Env != "" && p.Auth.Env == name) {
-			_ = route.ClearProviderAuth(p.Name)
+			_ = router.ClearProviderAuth(p.Name)
 		}
 	}
 }

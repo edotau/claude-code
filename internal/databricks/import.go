@@ -10,7 +10,6 @@ import (
 	"github.com/edotau/claude-code/internal/databricks/dbxcfg"
 	"github.com/edotau/claude-code/internal/helptext"
 	"github.com/edotau/claude-code/internal/outfmt"
-	"github.com/edotau/claude-code/internal/profile"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/secrets"
 	"github.com/edotau/claude-code/internal/tui"
@@ -36,20 +35,19 @@ func (r renameFlag) Set(s string) error {
 
 var importPage = helptext.Page{
 	Usage: "claude-code databricks import [flags]",
-	About: "Create databricks provider rows from a CLI config, read once. Dry-run unless --apply.",
+	About: "Create Databricks profiles from every section of a CLI config, read once. Dry-run unless --apply.",
 }
 
 // importCfg reads a databrickscfg once and creates vault provider rows; dry-run unless --apply.
 func importCfg(args []string) int {
 	fs := helptext.NewFlagSet("databricks import", importPage)
-	file := fs.String("file", "", "config path (default $DATABRICKS_CONFIG_FILE, else ~/.databrickscfg)")
-	only := fs.String("profile", "", "import only this profile (default $DATABRICKS_CONFIG_PROFILE)")
+	file := fs.String("dbxcfg", "", "config path (default $DATABRICKS_CONFIG_FILE, else ~/.databrickscfg)")
 	pick := fs.Bool("pick", false, "choose profiles in a picker (default: all)")
-	apply := fs.Bool("apply", false, "write the rows (default: print the diff)")
+	apply := fs.Bool("apply", false, "write the profiles (default: print the diff)")
 	seal := fs.Bool("seal-secrets", false, "seal client secrets and PATs in the vault")
 	replace := fs.Bool("replace", false, "overwrite an existing row of the same id")
 	rename := renameFlag{}
-	fs.Var(rename, "rename", "import profile OLD as row id NEW (repeatable)")
+	fs.Var(rename, "rename", "import section OLD as profile NEW (repeatable)")
 	if rest, err := outfmt.Parse(fs, args); err != nil {
 		return helptext.ExitCode(err)
 	} else if len(rest) > 0 {
@@ -62,9 +60,6 @@ func importCfg(args []string) int {
 	}
 	cands, err := dbxcfg.Candidates(path)
 	if err != nil {
-		return fail("import: %v", err)
-	}
-	if cands, err = onlyProfile(cands, *only); err != nil {
 		return fail("import: %v", err)
 	}
 	if len(cands) == 0 {
@@ -84,7 +79,7 @@ func importCfg(args []string) int {
 		return fail("import: %v", err)
 	}
 	printImportTable(rows)
-	if !profile.PrintDiff(os.Stdout, oldDoc, newDoc) {
+	if !printDiff(os.Stdout, oldDoc, newDoc) {
 		fmt.Println("no changes")
 	}
 	if !slices.ContainsFunc(rows, func(r dbxcfg.Row) bool { return r.Action != "skip" }) {
@@ -100,27 +95,11 @@ func importCfg(args []string) int {
 	}); err != nil {
 		return fail("import: %v", err)
 	}
-	fmt.Println("wrote provider rows")
+	fmt.Println("wrote profiles")
 	if *seal {
 		return sealImported(path, rows)
 	}
 	return 0
-}
-
-// onlyProfile narrows cands to the named profile (flag, else $DATABRICKS_CONFIG_PROFILE); "" keeps all.
-func onlyProfile(cands []dbxcfg.Candidate, name string) ([]dbxcfg.Candidate, error) {
-	if name == "" {
-		name = dbxcfg.DefaultProfile()
-	}
-	if name == "" {
-		return cands, nil
-	}
-	for _, c := range cands {
-		if c.Name == name {
-			return []dbxcfg.Candidate{c}, nil
-		}
-	}
-	return nil, fmt.Errorf("no profile %q in the config", name)
 }
 
 // sealImported stores each written row's client secret / PAT; the only place secrets are read.

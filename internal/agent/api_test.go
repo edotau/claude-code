@@ -27,8 +27,8 @@ func registry(t *testing.T, srv *httptest.Server) {
 	t.Setenv("TEST_ANTH_KEY", "anth-key")
 	t.Setenv("TEST_OAI_KEY", "oai-key")
 	body := fmt.Sprintf(`{"providers":{
-	  "tanth":{"kind":"anthropic","base_url":%q,"auth":{"type":"x-api-key","env":"TEST_ANTH_KEY"},"models":{"opus":"claude-opus-5","haiku":"claude-haiku-4-5"}},
-	  "toai":{"kind":"openai","base_url":%q,"auth":{"type":"bearer","env":"TEST_OAI_KEY"},"models":{"opus":"gpt-x"}}}}`, srv.URL, srv.URL+"/v1")
+	  "tanth":{"kind":"anthropic","base_url":%q,"auth":{"type":"key","header":"x-api-key","env":"TEST_ANTH_KEY"},"models":{"opus":"claude-opus-5","haiku":"claude-haiku-4-5"}},
+	  "toai":{"kind":"openai","base_url":%q,"auth":{"type":"key","env":"TEST_OAI_KEY"},"models":{"opus":"gpt-x"}}}}`, srv.URL, srv.URL+"/v1")
 	vaulttest.Put(t, vault.Overlay, "providers", body)
 }
 
@@ -55,7 +55,7 @@ data: {"type":"message_stop"}
 
 `
 
-func TestAPIRunnerAnthropic(t *testing.T) {
+func TestClaudeNoToolsAnthropic(t *testing.T) {
 	var gotKey, gotAuth, gotBody string
 	status := http.StatusOK
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -78,7 +78,7 @@ func TestAPIRunnerAnthropic(t *testing.T) {
 	t.Setenv("ANTHROPIC_API_KEY", "must-not-leak")
 
 	var out strings.Builder
-	res, err := apiRunner{}.Run(context.Background(), Request{Prompt: "say ok", Provider: "tanth", Model: "haiku", Effort: "low"}, &out)
+	res, err := claudeRunner{}.Run(context.Background(), Request{Prompt: "say ok", Provider: "tanth", Model: "haiku", Effort: "low", NoTools: true}, &out)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,13 +93,13 @@ func TestAPIRunnerAnthropic(t *testing.T) {
 	}
 
 	status = http.StatusTooManyRequests
-	_, err = apiRunner{}.Run(context.Background(), Request{Prompt: "x", Provider: "tanth"}, io.Discard)
-	if e := Classify("api", err, false); e.Kind != KindRateLimit || e.RetryAfter != 3*time.Second || e.Status != 429 {
+	_, err = claudeRunner{}.Run(context.Background(), Request{Prompt: "x", Provider: "tanth", NoTools: true}, io.Discard)
+	if e := Classify("claude", err, false); e.Kind != KindRateLimit || e.RetryAfter != 3*time.Second || e.Status != 429 {
 		t.Errorf("429 classified as %+v", e)
 	}
 }
 
-func TestAPIRunnerOpenAI(t *testing.T) {
+func TestClaudeNoToolsOpenAI(t *testing.T) {
 	var gotAuth, gotBody string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		b, _ := io.ReadAll(r.Body)
@@ -122,7 +122,7 @@ func TestAPIRunnerOpenAI(t *testing.T) {
 	registry(t, srv)
 
 	var out strings.Builder
-	res, err := apiRunner{}.Run(context.Background(), Request{Prompt: "hi", Provider: "toai", Effort: "high"}, &out)
+	res, err := claudeRunner{}.Run(context.Background(), Request{Prompt: "hi", Provider: "toai", Effort: "high", NoTools: true}, &out)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -133,9 +133,9 @@ func TestAPIRunnerOpenAI(t *testing.T) {
 		t.Errorf("auth=%q body=%s", gotAuth, gotBody)
 	}
 
-	_, err = apiRunner{}.Run(context.Background(), Request{Prompt: "boom", Provider: "toai"}, io.Discard)
+	_, err = claudeRunner{}.Run(context.Background(), Request{Prompt: "boom", Provider: "toai", NoTools: true}, io.Discard)
 	var he *httpError
-	if !errors.As(err, &he) || Classify("api", err, false).Kind != KindTransient {
+	if !errors.As(err, &he) || Classify("claude", err, false).Kind != KindTransient {
 		t.Errorf("502 = %v", err)
 	}
 }
@@ -153,103 +153,42 @@ func fakeFailingClaude(t *testing.T) {
 	}
 }
 
-// TestAPIRunnerPassthroughDelegatesToClaude proves api no longer refuses outright on a passthrough
-// provider: it must hand the same request to claudeRunner (marked via res.Fallback), not fail instantly
-// with the old "needs a key" message. The delegated claude call itself fails in this sandbox (no
-// subscription login), but that failure must come from claude, not from api's own passthrough guard.
-func TestAPIRunnerPassthroughDelegatesToClaude(t *testing.T) {
+// TestClaudeNoToolsCLIAuthRunsTheCLI proves a cli-auth profile (no key to call the provider with) falls through to the
+// claude CLI itself, which answers tool-less anyway: the envelope names no fallback and carries claude's own error.
+func TestClaudeNoToolsCLIAuthRunsTheCLI(t *testing.T) {
 	fakeFailingClaude(t)
-	res, err := apiRunner{}.Run(context.Background(), Request{Prompt: "x", Provider: "subscription"}, io.Discard)
-	if res.Fallback != "api" {
-		t.Errorf("res.Fallback = %q, want %q (delegation marker)", res.Fallback, "api")
-	}
-	if err != nil && strings.Contains(err.Error(), "needs a key") {
-		t.Errorf("err = %v, want delegation to claude instead of the old instant refusal", err)
-	}
-}
-
-// TestAPIRunnerPassthroughDelegationSuccessReportsClaudeAgent proves that on a successful delegated
-// run (a fake claude binary standing in for the real one), the envelope names "claude" as the agent
-// that actually ran, with "api" recorded as the fallback that got it there — never the reverse.
-func TestAPIRunnerPassthroughDelegationSuccessReportsClaudeAgent(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("CLAUDE_CONFIG_DIR", dir)
-	binDir := filepath.Join(dir, "bin")
-	if err := os.MkdirAll(binDir, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	script := "#!/bin/sh\necho '{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\"result\":\"ok\",\"session_id\":\"s1\"}'\n"
-	if err := os.WriteFile(filepath.Join(binDir, "claude"), []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	res, err := apiRunner{}.Run(context.Background(), Request{Prompt: "x", Provider: "subscription"}, io.Discard)
-	if err != nil {
-		t.Fatalf("delegated run with a working fake claude binary must succeed: %v", err)
-	}
-	if res.Agent != "claude" {
-		t.Errorf("res.Agent = %q, want %q (the runner that actually ran)", res.Agent, "claude")
-	}
-	if res.Fallback != "api" {
-		t.Errorf("res.Fallback = %q, want %q (the runner that dispatched the delegation)", res.Fallback, "api")
-	}
-}
-
-// TestAPIRunnerPassthroughDelegationErrorCarriesClaudeMessage proves that when the delegated claude
-// run itself fails (no binary/login in this sandbox), api still marks the attempt (res.Fallback,
-// res.FallbackReason) and surfaces claude's own error verbatim, not a masked or generic one — and that
-// an early claude failure (before claude ever sets res.Provider/res.Model) still leaves api's own
-// resolved provider/model on the result, never blank.
-func TestAPIRunnerPassthroughDelegationErrorCarriesClaudeMessage(t *testing.T) {
-	fakeFailingClaude(t)
-	req := Request{Prompt: "x", Provider: "subscription"}
+	req := Request{Prompt: "x", Provider: "max"}
 
 	_, directErr := claudeRunner{}.Run(context.Background(), req, io.Discard)
 	if directErr == nil {
-		t.Fatal("claudeRunner.Run must fail in this sandbox (no claude binary/login) for this test to prove anything")
+		t.Fatal("claudeRunner.Run must fail in this sandbox (fake failing claude) for this test to prove anything")
 	}
-
-	res, err := apiRunner{}.Run(context.Background(), req, io.Discard)
-	if res.Fallback != "api" || res.FallbackReason == "" {
-		t.Errorf("res = %+v, want Fallback=%q and a non-empty FallbackReason even on a failed delegation", res, "api")
+	req.NoTools = true
+	res, err := claudeRunner{}.Run(context.Background(), req, io.Discard)
+	if res.Fallback != "" {
+		t.Errorf("res.Fallback = %q, want none: there is no second agent any more", res.Fallback)
 	}
 	if err == nil || err.Error() != directErr.Error() {
-		t.Errorf("err = %v, want claude's own error verbatim: %v", err, directErr)
-	}
-	if res.Provider != "subscription" || res.Model == "" {
-		t.Errorf("res = %+v, want api's resolved provider/model kept even though claude failed before setting its own", res)
+		t.Errorf("err = %v, want the claude CLI's own error verbatim: %v", err, directErr)
 	}
 }
 
-// TestAPIRunnerPassthroughBadAttachStillDelegates proves attachInline moved to AFTER the passthrough
-// branch: a bad Attach path must not make api fail before delegating — the error, when one occurs, must
-// come from claudeRunner's own attachInline call, not from api short-circuiting on the bad path itself.
-func TestAPIRunnerPassthroughBadAttachStillDelegates(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	req := Request{Prompt: "x", Provider: "subscription", Attach: []string{filepath.Join(t.TempDir(), "does-not-exist")}}
-
-	_, directErr := claudeRunner{}.Run(context.Background(), req, io.Discard)
-	if directErr == nil {
-		t.Fatal("claudeRunner.Run must fail on a bad Attach path for this test to prove anything")
-	}
-
-	res, err := apiRunner{}.Run(context.Background(), req, io.Discard)
-	if res.Fallback != "api" {
-		t.Errorf("res.Fallback = %q, want %q: delegation must still happen despite the bad Attach path", res.Fallback, "api")
-	}
-	if err == nil || err.Error() != directErr.Error() {
-		t.Errorf("err = %v, want claude's own attachInline error verbatim: %v", err, directErr)
+// TestClaudeNoToolsAndToolsExclusive: asking for both is refused before anything runs.
+func TestClaudeNoToolsAndToolsExclusive(t *testing.T) {
+	_, err := claudeRunner{}.Run(context.Background(), Request{Prompt: "x", Tools: true, NoTools: true}, io.Discard)
+	if err == nil || !strings.Contains(err.Error(), "exclusive") {
+		t.Errorf("err = %v, want the --no-tools/--tools exclusivity error", err)
 	}
 }
 
-// Available is request-agnostic: a missing claude binary must not block an explicit keyed --provider.
-func TestAPIRunnerAvailableIgnoresClaudeBinary(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	t.Setenv("HOME", t.TempDir()) // isolate from any claude install under the real $HOME/.local/share/claude
-	if (claudeRunner{}).Available() == nil {
-		t.Fatal("claudeRunner.Available() must fail in this sandbox (no claude binary) for this test to prove anything")
+// TestNoToolsDroppedLoudlyByOtherAgents: only claude honors --no-tools; every other agent names the drop.
+func TestNoToolsDroppedLoudlyByOtherAgents(t *testing.T) {
+	_, dropped := applyCaps(Caps{Model: true}, Request{NoTools: true})
+	if len(dropped) != 1 || dropped[0] != "--no-tools" {
+		t.Errorf("dropped = %v, want [--no-tools]", dropped)
 	}
-	if err := (apiRunner{}).Available(); err != nil {
-		t.Errorf("apiRunner{}.Available() = %v, want nil when the registry loads", err)
+	if _, dropped := applyCaps((claudeRunner{}).Caps(), Request{NoTools: true}); len(dropped) != 0 {
+		t.Errorf("claude dropped %v, want nothing", dropped)
 	}
 }
 

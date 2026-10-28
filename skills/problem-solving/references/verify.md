@@ -27,17 +27,18 @@ This harness: `make lint` → scoped `go test ./internal/<pkg>` per iteration; `
 If `internal/settings/template/` was touched, also render it (`claude-code configure --reset --dry-run`) and diff
 the output against the live `settings.json` as part of Gate 3.
 
-## Gate Loop (max 5 iterations)
+## Gate Loop (max 5 iterations per task)
 
-Scripted form: `Workflow green-keeper-loop` (only when the user asks for one;
+Scripted form: `Workflow green-keeper-loop` (only when the user asks for one; it caps 3 iterations per call;
 `../../subagent-workflows/references/saved-workflows.md`).
 
 Each iteration runs Gates 1-2 only — cheap, scoped to the packages the change touched — fixing
 failures minimally. Once an iteration is clean, run Gates 3-5 (the full build + full test suite +
 security scan + diff review) exactly ONCE as the final pass. Only a failing final pass sends the
 loop back to Gate 1; after 5 iterations total, stop and escalate to the user with the remaining
-failures. This is the brief for codex's final gate run (`claude-code codex ask --tools`) and matches
-`rules/standards/quality.md`'s Verification Order — the expensive run happens once, never per iteration.
+failures. This matches `rules/standards/quality.md`'s Verification Order — the expensive run happens once, never per
+iteration, and never in a subagent: Gates 3-5 belong to the main thread with the user's approval (a Workflow the user
+asked for is that opt-in); a subagent stops after Gate 2.
 
 Per-gate fix strategy:
 

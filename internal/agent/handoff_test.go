@@ -12,7 +12,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/copilotsdk"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/route"
+	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -21,12 +21,12 @@ import (
 func stubHandoff(t *testing.T, fb func(*providers.Registry, string) (providers.Target, string, error)) (string, *[]string) {
 	t.Helper()
 	dir := t.TempDir()
-	t.Setenv(providers.PinGitHubUser, "edotau")
+	setPin(t, providers.PinCopilotProfile, "edotau")
 	var marked []string
 	oDir, oFb, oLoad, oMark := handoffDir, copilotFallback, loadState, markExhausted
 	handoffDir = func(string) string { return dir }
 	copilotFallback = fb
-	loadState = func() route.State { return route.State{} }
+	loadState = func() router.State { return router.State{} }
 	markExhausted = func(acct string, _, _ time.Time, _ string) error { marked = append(marked, acct); return nil }
 	t.Cleanup(func() { handoffDir, copilotFallback, loadState, markExhausted = oDir, oFb, oLoad, oMark })
 	return dir, &marked
@@ -61,8 +61,8 @@ func TestCopilotQuotaHandoffResumesOnceOnDatabricks(t *testing.T) {
 	if len(reruns) != 1 || reruns[0].Provider != "dev" || reruns[0].Model != "opus" || reruns[0].SessionID != partial.SessionID {
 		t.Fatalf("reruns = %+v; want exactly one on dev/opus resuming the same session", reruns)
 	}
-	if len(*marked) != 1 || (*marked)[0] != "copilot:edotau" {
-		t.Errorf("marked = %v; want copilot:edotau", *marked)
+	if len(*marked) != 1 || (*marked)[0] != "github·edotau" {
+		t.Errorf("marked = %v; want github·edotau", *marked)
 	}
 	want := dir + "/" + time.Now().Format("2006-01-02") + "-copilot-0a1b2c3d.md"
 	if out.Handoff != want {
@@ -70,7 +70,7 @@ func TestCopilotQuotaHandoffResumesOnceOnDatabricks(t *testing.T) {
 	}
 	body, _ := os.ReadFile(want)
 	t.Logf("handoff file:\n%s", body)
-	for _, s := range []string{"Refactor foo", "Step 1 done.", "copilot --resume 0a1b2c3d", "account: copilot:edotau", "402"} {
+	for _, s := range []string{"Refactor foo", "Step 1 done.", "copilot --resume 0a1b2c3d", "account: github·edotau", "402"} {
 		if !strings.Contains(string(body), s) {
 			t.Errorf("handoff lacks %q", s)
 		}
@@ -120,7 +120,7 @@ func TestCopilotQuotaHandoffNeverResumesOnGitHubLogin(t *testing.T) {
 func TestResolveTargetProfileTierRewrite(t *testing.T) {
 	vaulttest.UseKeyring(t)
 	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"dev":{"kind":"anthropic","base_url":"http://127.0.0.1:1",`+
-		`"auth":{"type":"bearer","env":"DEV_TEST_KEY"},"models":{"opus":"claude-opus-5-5","sonnet":"claude-sonnet-5","haiku":"claude-haiku-4-5"}}}}`)
+		`"auth":{"type":"key","env":"DEV_TEST_KEY"},"models":{"opus":"claude-opus-5-5","sonnet":"claude-sonnet-5","haiku":"claude-haiku-4-5"}}}}`)
 	_, want, err := resolveTarget(Request{Provider: "dev", Model: "opus"})
 	if err != nil || want.Provider == nil || want.Provider.Name != "dev" {
 		t.Fatalf("baseline --provider dev --model opus = %+v, %v", want, err)
@@ -155,8 +155,8 @@ func TestResolveTargetProfileTierRewrite(t *testing.T) {
 		if !ExplicitBackend(req) {
 			t.Error("ExplicitBackend(dev:opus) must stay true")
 		}
-		if acct, _ := explicitAccount(&fakeRunner{name: "claude"}, req); acct != "claude:dev" {
-			t.Errorf("explicitAccount = %q, want claude:dev", acct)
+		if acct, _ := explicitAccount(&fakeRunner{name: "claude"}, req); acct != "local·dev" {
+			t.Errorf("explicitAccount = %q, want local·dev", acct)
 		}
 	})
 }
@@ -261,9 +261,10 @@ func TestCopilotRunnerResumePromptRedacted(t *testing.T) {
 	ghLogin(t, "alice", 10)
 	t.Setenv("DEV_TEST_KEY", "k")
 	vaulttest.UseKeyring(t)
+	setPin(t, providers.PinCopilotProfile, "alice") // UseKeyring relocates the vault; reseed the pin
 	fakeCopilotBin(t)
 	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"dev":{"kind":"anthropic","base_url":"http://127.0.0.1:1",`+
-		`"auth":{"type":"bearer","env":"DEV_TEST_KEY"},"models":{"opus":"claude-opus-5-5","sonnet":"claude-sonnet-5"}}}}`)
+		`"auth":{"type":"key","env":"DEV_TEST_KEY"},"models":{"opus":"claude-opus-5-5","sonnet":"claude-sonnet-5"}}}}`)
 	secret := tok("ghs_")
 	var prompts []string
 	prev := copilotAsk
@@ -317,7 +318,7 @@ func TestVendorTargetNoteGatedKeepsSonnetTier(t *testing.T) {
 	t.Setenv("DEV_TEST_KEY", "k")
 	vaulttest.UseKeyring(t)
 	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"dev":{"preset":"databricks","host":"https://adb-1.azuredatabricks.net",`+
-		`"auth":{"type":"bearer","env":"DEV_TEST_KEY"},"models":{"opus":"databricks-claude-opus-5-5","sonnet":"databricks-claude-sonnet-5-5"}}}}`)
+		`"auth":{"type":"key","env":"DEV_TEST_KEY"},"models":{"opus":"databricks-claude-opus-5-5","sonnet":"databricks-claude-sonnet-5-5"}}}}`)
 	tg, _, _, err := vendorTargetNote(Request{Prompt: "p", Provider: "github-copilot", Model: "sonnet"}, "copilot")
 	if err != nil || tg.Provider == nil || tg.Provider.Name != "dev" || tg.Model != "databricks-claude-sonnet-5-5" {
 		t.Fatalf("target = %+v err=%v, want dev / databricks-claude-sonnet-5-5", tg, err)
@@ -380,7 +381,7 @@ func TestCopilotHandoffsNeverOverwrite(t *testing.T) {
 	seen := map[string]string{}
 	for i, task := range []string{"first task body", "second task body", "third task body"} {
 		req.Prompt = task
-		path, _, err := writeCopilotHandoff(req, res, "partial", "copilot:alice", errQuotaMidTask, nil)
+		path, _, err := writeCopilotHandoff(req, res, "partial", "github·alice", errQuotaMidTask, nil)
 		if err != nil {
 			t.Fatal(err)
 		}

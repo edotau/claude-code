@@ -15,42 +15,97 @@ import (
 	"github.com/edotau/claude-code/internal/vault"
 )
 
-// Pin keys: process env beats vault pins. A model pin may be "provider:model" to cross providers.
+// Pin keys: vault only, never the process env. A model pin may be "provider:model" to cross providers.
 const (
-	PinProvider = "HARNESS_PROVIDER"
-	PinModel    = "HARNESS_MODEL" // fills every slot
-	// PinGitHubUser names the gh account copilot runs as (`gh auth token --user`); unset = gh's active one.
-	PinGitHubUser = "COPILOT_GITHUB_USER"
+	PinProfile = "CLAUDE_PROFILE" // the session's profile
+	PinModel   = "CLAUDE_MODEL"   // fills every slot
+	// PinCopilotProfile names the copilot (github) profile, whose login field is the GitHub account; unset = gh's active.
+	PinCopilotProfile = "COPILOT_PROFILE"
 	// PinCopilotEffort is copilot's --reasoning-effort on every launch; unset follows copilot's own default.
-	PinCopilotEffort = "COPILOT_REASONING_EFFORT"
+	PinCopilotEffort = "COPILOT_EFFORT"
 	// PinCopilotContext is copilot's --context tier on every launch; unset follows copilot's own default.
-	PinCopilotContext = "COPILOT_CONTEXT_TIER"
-	// PinCopilotModel is the copilot agent's own model, independent of the github-copilot provider's
-	// opus slot (which opencode's fallback ladder also reads); unset falls back to that slot.
+	PinCopilotContext = "COPILOT_CONTEXT"
+	// PinCopilotModel is the copilot agent's own model, independent of the github provider's opus slot
+	// (which opencode's fallback ladder also reads); unset falls back to that slot.
 	PinCopilotModel = "COPILOT_MODEL"
+	// PinCodexProfile, PinGeminiProfile and PinOpencodeProfile name each agent's profile; unset = the agent's own.
+	PinCodexProfile    = "CODEX_PROFILE"
+	PinGeminiProfile   = "GEMINI_PROFILE"
+	PinOpencodeProfile = "OPENCODE_PROFILE"
 	// PinCodexModel is codex's own model (its `debug models` catalog); unset follows codex's own default
 	// (config.toml's model, else its ChatGPT-login provider's opus slot).
 	PinCodexModel = "CODEX_MODEL"
 	// PinCodexEffort is codex's -c model_reasoning_effort on every launch; unset follows codex's own default.
-	PinCodexEffort = "CODEX_REASONING_EFFORT"
+	PinCodexEffort = "CODEX_EFFORT"
 	// PinGeminiModel is agy's own model (its `models` catalog, effort baked into the id); unset falls
 	// back to agent.AgyDefaultModel.
-	PinGeminiModel = "GEMINI_AGENT_MODEL"
+	PinGeminiModel = "GEMINI_MODEL"
+	// PinOpencodeModel is opencode's own model; unset follows opencode's own default.
+	PinOpencodeModel = "OPENCODE_MODEL"
 )
 
-// SlotPin is the per-slot pin key, e.g. HARNESS_OPUS_MODEL; it beats PinModel.
-func SlotPin(slot string) string { return "HARNESS_" + strings.ToUpper(slot) + "_MODEL" }
+// isSlotPin reports whether key is CLAUDE_<TIER>_MODEL for a known tier.
+func isSlotPin(key string) bool {
+	return slices.ContainsFunc(models.Slots, func(slot string) bool { return key == SlotPin(slot) })
+}
+
+// SlotPin is the per-slot pin key, e.g. CLAUDE_OPUS_MODEL; it beats PinModel.
+func SlotPin(slot string) string { return "CLAUDE_" + strings.ToUpper(slot) + "_MODEL" }
+
+// EnvSessionProfile is the env var a launcher stamps into a session's child env so its statusline and hooks
+// know the session's profile. It is a session marker, not a pin: the vault pin of the same name is separate.
+const EnvSessionProfile = PinProfile
+
+// SessionProfile is the profile of the session this process runs in ("" outside a launched session).
+func SessionProfile() string { return strings.TrimSpace(os.Getenv(EnvSessionProfile)) }
 
 // CopilotModel is the one resolver every copilot agent launch, the configure page and doctor share:
-// PinCopilotModel first, else github-copilot's opus slot (no pin = no behavior change).
+// PinCopilotModel first, else the github provider's opus slot (no pin = no behavior change).
 func CopilotModel(reg *Registry) (model, source string) {
 	if m := Pin(PinCopilotModel); m != "" {
 		return m, "pin"
 	}
-	if p, ok := reg.Providers["github-copilot"]; ok {
-		return p.Models[models.Opus], "github-copilot default"
+	if names := reg.ProfilesOf("github"); len(names) > 0 {
+		return reg.Providers[names[0]].Models[models.Opus], "github-copilot default"
 	}
 	return "", "github-copilot default"
+}
+
+// CopilotLogin resolves PinCopilotProfile: the pinned github profile's Login ("" when it has none), and that profile.
+// Unset, or a pin naming no github profile, yields ("", "") = gh's active account.
+func CopilotLogin(reg *Registry) (login, profile string) {
+	pin := Pin(PinCopilotProfile)
+	if pin == "" {
+		return "", ""
+	}
+	if reg != nil {
+		if p := reg.Providers[pin]; p != nil && p.Provider == "github" {
+			return p.Login, pin
+		}
+	}
+	return "", ""
+}
+
+// GithubAccountName is the route-account name (github·<name>) for a gh login: its profile, else the login itself.
+func GithubAccountName(reg *Registry, login string) string {
+	if reg != nil && login != "" {
+		for _, n := range reg.ProfilesOf("github") {
+			if reg.Providers[n].Login == login {
+				return n
+			}
+		}
+	}
+	return login
+}
+
+// GithubAccountLogin is the gh login behind a route-account name: the profile's Login, else name as a raw login.
+func GithubAccountLogin(reg *Registry, name string) string {
+	if reg != nil {
+		if p := reg.Providers[name]; p != nil && p.Provider == "github" {
+			return p.Login
+		}
+	}
+	return name
 }
 
 // CodexModel resolves CODEX_MODEL: the pin if set, else "" — codex's own default (config.toml's
@@ -62,7 +117,7 @@ func CodexModel() (model, source string) {
 	return "", "default"
 }
 
-// CodexEffort resolves CODEX_REASONING_EFFORT: the pin if set, else "" — codex's own default effort.
+// CodexEffort resolves CODEX_EFFORT: the pin if set, else "" — codex's own default effort.
 func CodexEffort() (effort, source string) {
 	if e := Pin(PinCodexEffort); e != "" {
 		return e, "pin"
@@ -106,24 +161,16 @@ func ReadEnvFile(path string) map[string]string {
 	return out
 }
 
-// Pin reads key from the process env, then the vault pins.
+// Pin reads key from the vault pins; it never reads the process env.
 func Pin(key string) string {
-	if v := strings.TrimSpace(os.Getenv(key)); v != "" {
-		return v
-	}
 	pin, _ := pinLookup()
 	return pin(key)
 }
 
-// pinLookup reads the vault pins once; process env takes precedence even when the vault is unreadable.
+// pinLookup reads the vault pins once.
 func pinLookup() (func(string) string, error) {
 	pins, err := readPins()
-	return func(key string) string {
-		if v := strings.TrimSpace(os.Getenv(key)); v != "" {
-			return v
-		}
-		return pins[key]
-	}, err
+	return func(key string) string { return strings.TrimSpace(pins[key]) }, err
 }
 
 // readPins is the vault pins table in one read transaction; a missing vault is empty.
@@ -152,9 +199,9 @@ func SetPins(kv map[string]string) error {
 func AuditPins(kv map[string]string) {
 	for k, v := range kv {
 		switch {
-		case k == PinProvider:
+		case k == PinProfile:
 			audit.Log(audit.ProviderSwitch, v, pinCaller())
-		case k == PinModel || (strings.HasPrefix(k, "HARNESS_") && strings.HasSuffix(k, "_MODEL")):
+		case k == PinModel || isSlotPin(k):
 			audit.Log(audit.ModelPin, k, cmp.Or(v, "unpinned"))
 		}
 	}
@@ -169,10 +216,11 @@ func PinDiff(kv map[string]string) ([]string, error) {
 	keys := slices.Sorted(maps.Keys(kv))
 	var out []string
 	for _, k := range keys {
-		if cur[k] == kv[k] {
+		was := strings.TrimSpace(cur[k])
+		if was == kv[k] {
 			continue
 		}
-		out = append(out, k+": "+cmp.Or(cur[k], "(unset)")+" → "+cmp.Or(kv[k], "(unset)"))
+		out = append(out, k+": "+cmp.Or(was, "(unset)")+" → "+cmp.Or(kv[k], "(unset)"))
 	}
 	return out, nil
 }

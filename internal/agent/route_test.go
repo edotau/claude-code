@@ -8,19 +8,20 @@ import (
 	"testing"
 	"time"
 
-	"github.com/edotau/claude-code/internal/route"
+	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/router"
 )
 
-// codex served by an OpenAI API key bills codex:openai (credits), not the ChatGPT plan's key.
+// codex served by an OpenAI API key bills openai·openai (credits), not the ChatGPT plan's key.
 func TestResolveAccountNamesActualBackend(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	t.Setenv("HARNESS_PROVIDER", "openai")
+	setPin(t, providers.PinProfile, "openai")
 	t.Setenv("OPENAI_API_KEY", "sk-test-not-real")
-	acct, billing := resolveAccount("codex", route.Cell{Model: "gpt-6.1-sol", Account: "codex:chatgpt"})
-	if acct != "codex:openai" || billing != route.BillCredits {
-		t.Fatalf("resolveAccount = (%q, %q), want codex:openai credits", acct, billing)
+	acct, billing := resolveAccount("codex", router.Cell{Model: "gpt-6.1-sol", Account: "codex:chatgpt"})
+	if acct != "openai·openai" || billing != router.BillCredits {
+		t.Fatalf("resolveAccount = (%q, %q), want openai·openai credits", acct, billing)
 	}
-	if a, _ := resolveAccount("opencode", route.Cell{Model: "opencode-go/kimi-k3.1-pro"}); a != "" {
+	if a, _ := resolveAccount("opencode", router.Cell{Model: "opencode-go/kimi-k3.1-pro"}); a != "" {
 		t.Errorf("opencode keeps its table account, got %q", a)
 	}
 }
@@ -31,17 +32,17 @@ func TestExplicitChainRecordsAndGates(t *testing.T) {
 	codex := &fakeRunner{name: "codex", errs: []error{errors.New("insufficient_quota: you exceeded your current quota")}, emptyAnswer: true}
 	req := Request{Prompt: "p", Provider: "openai"}
 	c := ExplicitChain(codex, req)
-	if len(c.Legs) != 1 || c.Legs[0].Account != "codex:openai" {
-		t.Fatalf("chain = %+v, want one leg on codex:openai", c)
+	if len(c.Legs) != 1 || c.Legs[0].Account != "openai·openai" {
+		t.Fatalf("chain = %+v, want one leg on openai·openai", c)
 	}
 	if _, err := RunWithFallback(context.Background(), c, req, io.Discard, nil); err == nil {
 		t.Fatal("the quota failure must surface")
 	}
-	if e := loadState()["codex:openai"]; e.Status(time.Now()) != route.StateExhausted {
-		t.Fatalf("codex:openai not marked: %+v", e)
+	if e := loadState()["openai·openai"]; e.Status(time.Now()) != router.StateExhausted {
+		t.Fatalf("openai·openai not marked: %+v", e)
 	}
 	again := ExplicitChain(codex, req)
-	if len(again.Legs) != 0 || len(again.Skipped) != 1 || !strings.Contains(again.Skipped[0], "codex:openai exhausted") {
+	if len(again.Legs) != 0 || len(again.Skipped) != 1 || !strings.Contains(again.Skipped[0], "openai·openai exhausted") {
 		t.Fatalf("second explicit chain = %+v, want a gate skip", again)
 	}
 	if len(codex.seen) != 1 {
@@ -52,16 +53,16 @@ func TestExplicitChainRecordsAndGates(t *testing.T) {
 // --native opencode leads on opencode's own config, ahead of (and instead of) the hub cell.
 func TestRouteChainNativeOpencodeLeads(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	all := route.Opts{Configured: func(string, route.Cell) error { return nil }}
+	all := router.Opts{Configured: func(string, router.Cell) error { return nil }}
 	c, _, err := RouteChain(context.Background(), "opencode", "sonnet", FallbackAll, false, true, all)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := c.Legs[0].Runner.(vendorRunner); !ok || !c.Legs[0].unroutedLeg {
+	if _, ok := c.Legs[0].Agent.(vendorRunner); !ok || !c.Legs[0].unroutedLeg {
 		t.Fatalf("first leg = %+v, want the native opencode runner, unrouted", c.Legs[0])
 	}
 	for _, l := range c.Legs[1:] {
-		if l.Runner.Name() == "opencode" {
+		if l.Agent.Name() == "opencode" {
 			t.Errorf("the hub opencode cell must not also run: %+v", c.Legs)
 		}
 	}

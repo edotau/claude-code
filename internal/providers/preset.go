@@ -20,8 +20,8 @@ var (
 	secretNameRE = regexp.MustCompile(`(^|_)(KEY|TOKEN|SECRET|PASSWORD|HEADERS|AUTH|CREDENTIALS?|PAT|BEARER)(_|$)`)
 )
 
-// DatabricksEnvs are the Databricks workspaces that have a twin provider and a preset row.
-var DatabricksEnvs = []string{"dev", "qa", "prod"}
+// DatabricksProfiles lists the profiles under the databricks provider in declared order.
+func DatabricksProfiles(r *Registry) []string { return r.ProfilesOf(GroupDatabricks) }
 
 // BetaOffKey is the launch env key that disables Claude Code's experimental betas.
 const BetaOffKey = "CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS"
@@ -44,7 +44,7 @@ func expandPresets(r *Registry) {
 // decorateModels rewrites every provider's slot ids to wire ids in memory; load-only, never persisted.
 func decorateModels(r *Registry) {
 	for _, p := range r.Providers {
-		if p == nil || len(p.Models) == 0 || p.ModelPrefix == "" {
+		if p == nil || len(p.Models) == 0 || p.SpellingRule() == "" {
 			continue
 		}
 		out := make(map[string]string, len(p.Models))
@@ -75,7 +75,7 @@ func expandDatabricks(p *Provider) {
 		expandServing(p, host)
 	}
 	if p.Auth.Type == "" {
-		p.Auth.Type = AuthBearer
+		p.Auth.Type = AuthKey
 	}
 	if p.Auth.TTL == 0 {
 		p.Auth.TTL = 1800
@@ -165,15 +165,15 @@ func validatePreset(n string, p *Provider) []string {
 	if p.CLIProfile != "" && !cliProfileRE.MatchString(p.CLIProfile) {
 		errs = append(errs, fmt.Sprintf("%s: cliProfile %q must match [A-Za-z0-9_-]+", n, p.CLIProfile))
 	}
-	if w := p.Options.Wire; w != "" && w != WireServing && w != WireGateway {
-		errs = append(errs, fmt.Sprintf("%s: options.wire %q must be %s or %s", n, w, WireServing, WireGateway))
+	if w := p.Options.Wire; w != "" && w != WireServing && w != WireAIGateway {
+		errs = append(errs, fmt.Sprintf("%s: options.wire %q must be %s or %s", n, w, WireServing, WireAIGateway))
 	}
 	return errs
 }
 
 // harnessEnvRE and harnessEnvKeys mirror launch.wipeKeys (launch imports providers, so no import); the harness owns them.
 var (
-	harnessEnvRE   = regexp.MustCompile(`^(ANTHROPIC_|HARNESS_)`)
+	harnessEnvRE   = regexp.MustCompile(`^(ANTHROPIC_|HARNESS_|CLAUDE_PROFILE$|CLAUDE_(MODEL|OPUS_MODEL|SONNET_MODEL|HAIKU_MODEL|FABLE_MODEL)$)`)
 	harnessEnvKeys = []string{
 		"CLAUDE_CODE_API_KEY_HELPER_TTL_MS", "CLAUDE_CODE_SUBAGENT_MODEL", "MAX_THINKING_TOKENS",
 		"CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING", "CLAUDE_CODE_OAUTH_TOKEN", "CLAUDE_CONFIG_DIR",

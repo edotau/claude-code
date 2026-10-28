@@ -31,14 +31,14 @@ type command struct {
 // Menu groups; declaration order in commands() is the display order.
 const (
 	groupAnthropic   = "ANTHROPIC"
-	groupVendors     = "AGENTS"
+	groupAgents      = "AGENTS"
 	groupAuth        = "AUTH"
 	groupSession     = "SESSION"
 	groupDiagnostics = "DIAGNOSTICS"
 	groupSettings    = "SETTINGS"
 )
 
-// alphabetical groups list their verbs A→Z; ANTHROPIC (tier order) and AGENTS keep declaration order.
+// alphabetical groups list their verbs A→Z; ANTHROPIC (alias order) and AGENTS keep declaration order.
 var alphabetical = map[string]bool{groupAuth: true, groupSession: true, groupDiagnostics: true, groupSettings: true}
 
 // summaryMax is a soft target: longer summaries wrap with a hanging indent (helptext.WrapRow); one line is preferred.
@@ -57,39 +57,38 @@ func commands() []command {
 		{name: "fable", group: groupAnthropic, summary: "separate frontier family; main-session default · $$$$", run: tierVerb(models.Fable)},
 		{name: "anthropic", group: groupAnthropic, hidden: true, summary: "first-party Claude: login, --oauth token or --x-api-key", run: cmdAnthropic},
 		{name: "science", group: groupAnthropic, summary: "Claude for Life Sciences, own login (--print-env)", run: cmdScience},
-		{name: "copilot", group: groupVendors, summary: "Copilot CLI on your Copilot plan", run: func(a []string) int { return vendorVerb("copilot", a) }},
-		{name: "codex", group: groupVendors, summary: "Codex on your ChatGPT login; reviews", run: func(a []string) int { return vendorVerb("codex", a) }},
-		{name: "gemini", group: groupVendors, summary: "Gemini CLI; 1M-context sweeps (bridge)", run: cmdGemini},
-		{name: "opencode", group: groupVendors, summary: "OpenCode on your opencode Go plan; docs and drafting", run: func(a []string) int { return vendorVerb("opencode", a) }},
-		{name: "databricks", group: groupVendors, summary: "Claude Code on Databricks; login, import/export, check --all", run: databricks.Run},
+		{name: "copilot", group: groupAgents, summary: "Copilot CLI on your Copilot plan", run: func(a []string) int { return vendorVerb("copilot", a) }},
+		{name: "codex", group: groupAgents, summary: "Codex on your ChatGPT login; reviews", run: func(a []string) int { return vendorVerb("codex", a) }},
+		{name: "gemini", group: groupAgents, summary: "Gemini CLI; 1M-context sweeps (bridge)", run: cmdGemini},
+		{name: "opencode", group: groupAgents, summary: "OpenCode on your opencode Go plan; docs and drafting", run: func(a []string) int { return vendorVerb("opencode", a) }},
+		{name: "databricks", group: groupAgents, summary: "Claude Code on Databricks; login, import/export, check --all", run: databricks.Run},
 		// AUTH
-		{name: "resolve", group: groupAuth, hidden: true, aliases: []string{"token"}, summary: "resolve + print a provider's credential (apiKeyHelper)", run: cmdToken},
+		{name: "resolve", group: groupAuth, hidden: true, aliases: []string{"token"}, summary: "resolve + print a profile's credential (apiKeyHelper)", run: cmdToken},
 		{name: "vault", group: groupAuth, summary: "pins, env, overlays and sealed secrets", run: cmdVault},
 		{name: "network", group: groupAuth, summary: "tailnet, browsers, web search, MCP health, agent page", run: cmdNetwork},
 		// SESSION
-		{name: "switch", group: groupSession, hidden: true, summary: "pin the session provider (vault pins)", run: cmdSwitch},
+		{name: "switch", group: groupSession, hidden: true, summary: "pin the session profile (vault pins)", run: cmdSwitch},
 		{name: "clean", group: groupSession, summary: "sweep accumulated state; --dry-run previews", run: cmdClean},
 		{name: "history", group: groupSession, summary: "shadow git history of config + memory", run: cmdHistory},
-		{name: "dispatch", group: groupSession, summary: "run an agent on a tailnet host in tmux", run: cmdDispatch},
-		{name: "profile", group: groupSession, summary: "per-agent account profiles: list, use, save, migrate", run: cmdProfile},
+		{name: "remote", group: groupSession, summary: "run an agent on a tailnet host in tmux", run: cmdDispatch},
 		{name: "worktree", group: groupSession, summary: "manage worktrees in ~/worktrees/<repo>", run: cmdWorktree},
 		{name: "test", group: groupSession, summary: "test tooling: mutate checks a test has teeth", run: cmdTest},
 		{name: "memory", group: groupSession, summary: "session memory bank: recall, save, promote", run: cmdMemory},
 		// DIAGNOSTICS
 		{name: "doctor", group: groupDiagnostics, summary: "read-only health checks (--audit: action log)", run: cmdDoctor},
-		{name: "gateway", group: groupDiagnostics, summary: "which runner + model a tier routes to; the loopback proxy", run: cmdGateway},
-		{name: "usage", group: groupDiagnostics, summary: "token totals, peak rate, provider quotas", run: cmdUsage},
+		{name: "gateway", group: groupDiagnostics, summary: "which agent + model a task routes to; the loopback proxy", run: cmdGateway},
+		{name: "usage", group: groupDiagnostics, summary: "token totals, peak rate, profile quotas", run: cmdUsage},
 		{name: "describe", group: groupDiagnostics, summary: "machine-readable map of the harness", run: cmdDescribe},
 		// SETTINGS
 		{name: "install", group: groupSettings, summary: "install Claude Code + write settings.json", run: cmdInstall},
 		{name: "configure", group: groupSettings, summary: "guided setup; --reset re-renders from the templates", run: cmdConfigure},
 		{name: "theme", group: groupSettings, summary: "palette, statusline, VS Code template, tool themes", run: cmdTheme},
 		// Hidden: dispatchable, named in the trailing note, off the menu.
-		{name: "claude", hidden: true, summary: "launch Claude Code on the selected provider", run: cmdClaude},
+		{name: "claude", hidden: true, summary: "launch Claude Code on the selected profile", run: cmdClaude},
 		{name: "help-svg", hidden: true, summary: "render this menu as the README SVG (--out f, --check f)", run: cmdMenuSVG},
-		{name: "ask", hidden: true, summary: "one-shot task on an agent runner; --format json = envelope", run: cmdAsk},
-		{name: "agents", hidden: true, summary: "list runners; sync roster + instructions into vendor homes", run: cmdAgents},
-		{name: "models", hidden: true, summary: "tier→model slots; --pin slot=[provider:]model, --live", run: cmdModels},
+		{name: "ask", hidden: true, summary: "one-shot task on an agent; --format json = envelope", run: cmdAsk},
+		{name: "agents", hidden: true, summary: "list agents; sync roster + instructions into agent homes", run: cmdAgents},
+		{name: "models", hidden: true, summary: "model aliases; --pin alias=model, --live", run: cmdModels},
 		{name: "review", hidden: true, summary: "code-review detectors: quality|complexity|diff|pr|gate", run: cmdReview},
 		{name: "workflow", hidden: true, summary: "skeleton <pattern> | lint (model/effort pins, meta/throw)", run: cmdWorkflow},
 		{name: "hook", hidden: true, summary: "run a lifecycle hook (invoked by settings.json)", run: cmdHook},
@@ -102,7 +101,7 @@ func commands() []command {
 	}
 }
 
-// vendorVerb is the top-level spelling of a vendor agent: bare = launch, `--` = forced passthrough,
+// vendorVerb is the top-level spelling of an agent: bare = launch, `--` = forced passthrough,
 // `ask` = `ask --agent <v>`, a word in vendorSubverbs = cmdVendorSub, else launch with args forwarded.
 func vendorVerb(vendor string, args []string) int {
 	if len(args) > 0 && args[0] == "--" {
@@ -157,10 +156,10 @@ func Run(argv []string) int {
 	if strings.HasPrefix(name, "-") {
 		return cmdClaude(argv[1:])
 	}
-	// A provider name no verb shadows launches Claude Code on it: `claude-code ollama`.
+	// A profile name no verb shadows launches Claude Code on it: `claude-code ollama`.
 	if reg, err := providers.Load(); err == nil {
 		if _, ok := reg.Providers[name]; ok {
-			return cmdClaude(append([]string{"--provider", name}, args...))
+			return cmdClaude(append([]string{"--profile", name}, args...))
 		}
 	}
 	fmt.Fprintf(os.Stderr, "claude-code: unknown command %q (see `claude-code help`)\n", name)

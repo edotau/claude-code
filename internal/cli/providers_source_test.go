@@ -17,7 +17,7 @@ func TestProviderCredentialSources(t *testing.T) {
 	useVaultTest(t)
 	t.Setenv("PATH", t.TempDir())
 	t.Setenv("HOME", t.TempDir())
-	t.Setenv("HARNESS_PROVIDER", "")
+	t.Setenv(providers.EnvSessionProfile, "")
 	const value = "obviously-fake-source-value"
 	t.Setenv("SOURCE_ENV_KEY", value)
 	t.Setenv("SOURCE_VAULT_KEY", "")
@@ -30,12 +30,12 @@ func TestProviderCredentialSources(t *testing.T) {
 		t.Fatal(err)
 	}
 	auths := map[string]providers.Auth{
-		"vault":       {Type: providers.AuthBearer, Env: "SOURCE_VAULT_KEY"},
-		"env":         {Type: providers.AuthBearer, Env: "SOURCE_ENV_KEY"},
-		"auth.file":   {Type: providers.AuthBearer, File: file},
-		"command":     {Type: providers.AuthBearer, Command: "printf obviously-fake-command"},
-		"passthrough": {Type: providers.AuthPassthrough, Login: "fake-login"},
-		"missing":     {Type: providers.AuthBearer, Env: "SOURCE_MISSING_KEY"},
+		"vault":       {Type: providers.AuthKey, Env: "SOURCE_VAULT_KEY"},
+		"env":         {Type: providers.AuthKey, Env: "SOURCE_ENV_KEY"},
+		"auth.file":   {Type: providers.AuthKey, File: file},
+		"command":     {Type: providers.AuthKey, Command: "printf obviously-fake-command"},
+		"passthrough": {Type: providers.AuthCLI, Login: "fake-login"},
+		"missing":     {Type: providers.AuthKey, Env: "SOURCE_MISSING_KEY"},
 		"none":        {Type: providers.AuthNone},
 	}
 	reg := &providers.Registry{Default: "fake-none", Providers: map[string]*providers.Provider{}}

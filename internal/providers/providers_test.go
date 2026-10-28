@@ -18,10 +18,10 @@ const overlay = `{
   "default": "gw",
   "fallback": ["anthropic"],
   "providers": {
-    "gateway":{"kind":"anthropic","base_url":"https://gateway.example.com/api","routes":{"openai":"/v1"},"auth":{"type":"bearer","env":"GATEWAY_API_KEY"},"models":{"opus":"anthropic/claude-opus-5","sonnet":"anthropic/claude-sonnet-5","haiku":"anthropic/claude-haiku-4-5"}},
+    "gateway":{"kind":"anthropic","base_url":"https://gateway.example.com/api","routes":{"openai":"/v1"},"auth":{"type":"key","env":"GATEWAY_API_KEY"},"models":{"opus":"anthropic/claude-opus-5","sonnet":"anthropic/claude-sonnet-5","haiku":"anthropic/claude-haiku-4-5"}},
     "gw": {"kind": "anthropic", "base_url": "https://gw.example.com",
       "routes": {"openai": "/v1", "responses": "https://other.example.com/r/"},
-      "auth": {"type": "bearer", "env": "GW_KEY"}, "headers": {"X-Team": "a"},
+      "auth": {"type":"key", "env": "GW_KEY"}, "headers": {"X-Team": "a"},
       "models": {"opus": "claude-opus-5", "sonnet": "claude-sonnet-5", "haiku": "claude-haiku-4-5"}},
     "ollama": null
   }
@@ -29,8 +29,8 @@ const overlay = `{
 
 func load(t *testing.T) *Registry {
 	t.Helper()
-	vaulttest.UseKeyring(t)   // scratch config dir + in-memory keyring: never the real OS keyring
-	t.Setenv(PinProvider, "") // a session launched with a provider pin must not leak into the registry tests
+	vaulttest.UseKeyring(t)  // scratch config dir + in-memory keyring: never the real OS keyring
+	t.Setenv(PinProfile, "") // a session launched with a provider pin must not leak into the registry tests
 	reg, err := Parse(defaultsJSON, []byte(overlay))
 	if err != nil {
 		t.Fatal(err)
@@ -44,15 +44,15 @@ func TestEmbeddedDefaultsValid(t *testing.T) {
 	}
 }
 
-// github-copilot's embedded default pins OpencodeVariant to "medium", the opencode model-variant suffix.
+// the github profile's embedded default pins OpencodeVariant to "medium", the opencode model-variant suffix.
 func TestEmbeddedDefaultsGithubCopilotOpencodeVariant(t *testing.T) {
 	reg, err := Parse(defaultsJSON, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	p, ok := reg.Providers["github-copilot"]
+	p, ok := reg.Providers["personal"]
 	if !ok {
-		t.Fatal("github-copilot provider missing from embedded defaults")
+		t.Fatal("personal (github) profile missing from embedded defaults")
 	}
 	if p.OpencodeVariant != "medium" {
 		t.Errorf("OpencodeVariant = %q, want %q", p.OpencodeVariant, "medium")
@@ -80,7 +80,7 @@ func TestOverlayAndRoutes(t *testing.T) {
 	if err := (&Registry{Default: "nope", Providers: map[string]*Provider{}}).Validate(); err == nil {
 		t.Error("dangling default must fail validation")
 	}
-	keyedLogin := &Provider{Kind: DialectOpenAI, BaseURL: "https://x", Auth: Auth{Type: AuthBearer, Login: "codex"}}
+	keyedLogin := &Provider{Kind: DialectOpenAI, BaseURL: "https://x", Auth: Auth{Type: AuthKey, Login: "codex"}}
 	if err := (&Registry{Providers: map[string]*Provider{"x": keyedLogin}}).Validate(); err == nil {
 		t.Error("auth.login without passthrough must fail validation")
 	}
@@ -89,7 +89,7 @@ func TestOverlayAndRoutes(t *testing.T) {
 // opencode_fallback exists to substitute for a catalog "auto" id opencode can't resolve itself; letting
 // opencode_fallback itself be "auto" would recreate the exact value it's supposed to replace.
 func TestValidateRejectsOpencodeFallbackAuto(t *testing.T) {
-	bad := &Provider{Kind: DialectAnthropic, BaseURL: "https://x", Auth: Auth{Type: AuthAPIKey, Env: "X_KEY"}, OpencodeFallback: "auto"}
+	bad := &Provider{Kind: DialectAnthropic, BaseURL: "https://x", Auth: Auth{Type: AuthKey, Header: HeaderXAPIKey, Env: "X_KEY"}, OpencodeFallback: "auto"}
 	err := (&Registry{Providers: map[string]*Provider{"x": bad}}).Validate()
 	if err == nil {
 		t.Fatal("opencode_fallback: \"auto\" must fail validation")
@@ -97,7 +97,7 @@ func TestValidateRejectsOpencodeFallbackAuto(t *testing.T) {
 	if !strings.Contains(err.Error(), "opencode_fallback cannot itself be") {
 		t.Errorf("error = %q, want it to name the opencode_fallback=auto rule", err)
 	}
-	good := &Provider{Kind: DialectAnthropic, BaseURL: "https://x", Auth: Auth{Type: AuthAPIKey, Env: "X_KEY"}, OpencodeFallback: "mai-code-1.1-flash"}
+	good := &Provider{Kind: DialectAnthropic, BaseURL: "https://x", Auth: Auth{Type: AuthKey, Header: HeaderXAPIKey, Env: "X_KEY"}, OpencodeFallback: "mai-code-1.1-flash"}
 	if err := (&Registry{Providers: map[string]*Provider{"x": good}}).Validate(); err != nil {
 		t.Errorf("a real opencode_fallback id must pass validation, got %v", err)
 	}
@@ -106,7 +106,7 @@ func TestValidateRejectsOpencodeFallbackAuto(t *testing.T) {
 // an overlay's opencodeLadder/opencodePlugins replace the defaults' whole, not merge into them.
 func TestOverlayReplacesOpencodeLadderAndPlugins(t *testing.T) {
 	vaulttest.UseKeyring(t)
-	t.Setenv(PinProvider, "")
+	t.Setenv(PinProfile, "")
 	base := []byte(`{"providers": {"a": {"kind": "anthropic", "base_url": "https://a", "auth": {"type": "none"}},
 		"b": {"kind": "anthropic", "base_url": "https://b", "auth": {"type": "none"}}},
 		"routing": {"opencode": {"ladder": ["opencode-go"]}}, "opencodePlugins": ["old-plugin"]}`)
@@ -129,7 +129,7 @@ func TestOverlayReplacesOpencodeLadderAndPlugins(t *testing.T) {
 // (two "chatgpt" entries, or a "chatgpt"/"openai" collision) must collapse to one, first occurrence wins.
 func TestOverlayLadderNormalizesLegacyProviderNamesAndDropsDuplicates(t *testing.T) {
 	vaulttest.UseKeyring(t)
-	t.Setenv(PinProvider, "")
+	t.Setenv(PinProfile, "")
 	base := []byte(`{"providers": {
 		"chatgpt": {"kind": "openai", "base_url": "https://a", "auth": {"type": "none"}, "opencodeID": "openai"},
 		"github-copilot": {"kind": "openai", "base_url": "https://b", "auth": {"type": "none"}, "opencodeID": "github-copilot"}
@@ -173,8 +173,7 @@ func TestValidateAcceptsOpencodeSubIDsWithoutProviders(t *testing.T) {
 
 func TestSelectPinsAndCrossProvider(t *testing.T) {
 	reg := load(t)
-	t.Setenv(SlotPin("haiku"), "openai:gpt-5-nano")
-	if err := SetPins(map[string]string{PinModel: "claude-opus-4-8"}); err != nil {
+	if err := SetPins(map[string]string{PinModel: "claude-opus-4-8", SlotPin("haiku"): "openai:gpt-5-nano"}); err != nil {
 		t.Fatal(err)
 	}
 	sel, err := Select(reg, "")
@@ -209,7 +208,7 @@ func TestSelectPinsAndCrossProvider(t *testing.T) {
 // A passthrough (login) session never routes on the fallback ladder alone: the router's base URL disables Remote Control.
 func TestNeedsRouterPassthroughFallback(t *testing.T) {
 	reg := &Registry{Fallback: []string{"gw"}, Providers: map[string]*Provider{
-		"sub": {Name: "sub", Kind: "anthropic", BaseURL: "https://api.anthropic.com", Auth: Auth{Type: AuthPassthrough}, Models: map[string]string{"opus": "o"}},
+		"sub": {Name: "sub", Kind: "anthropic", BaseURL: "https://api.anthropic.com", Auth: Auth{Type: AuthCLI}, Models: map[string]string{"opus": "o"}},
 		"key": {Name: "key", Kind: "anthropic", BaseURL: "https://api.anthropic.com", Auth: Auth{Type: "x-api-key", Env: "K"}, Models: map[string]string{"opus": "o"}},
 	}}
 	for name, want := range map[string]bool{"sub": false, "key": true} {
@@ -256,7 +255,7 @@ func TestCredentialLadderAndAuthorize(t *testing.T) {
 	if v, _ := Credential(context.Background(), gw); v != "from-env" {
 		t.Errorf("env must beat the vault, got %q", v)
 	}
-	gw.Auth = Auth{Type: AuthBearer, Command: "echo minted"}
+	gw.Auth = Auth{Type: AuthKey, Command: "echo minted"}
 	if v, _ := Credential(context.Background(), gw); v != "minted" {
 		t.Errorf("command cred %q", v)
 	}
@@ -284,14 +283,14 @@ func TestProviderMarshalRedactsHeaders(t *testing.T) {
 // PinDiff previews only real changes and never writes the vault.
 func TestPinDiffPreviewsWithoutWriting(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	if err := SetPins(map[string]string{PinProvider: "gemini"}); err != nil {
+	if err := SetPins(map[string]string{PinProfile: "gemini"}); err != nil {
 		t.Fatal(err)
 	}
 	before, err := os.ReadFile(vault.Path())
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, err := PinDiff(map[string]string{PinProvider: "gemini", SlotPin("opus"): "x"})
+	got, err := PinDiff(map[string]string{PinProfile: "gemini", SlotPin("opus"): "x"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -317,7 +316,7 @@ func TestStoredSecretAndCredentialOrder(t *testing.T) {
 		t.Errorf("StoredSecret (vault hit) = %q, want from-vault", got)
 	}
 
-	p := &Provider{Auth: Auth{Type: AuthBearer, Env: "K"}}
+	p := &Provider{Auth: Auth{Type: AuthKey, Env: "K"}}
 	if v, err := Credential(context.Background(), p); err != nil || v != "from-vault" {
 		t.Errorf("Credential (vault) = %q, %v; want from-vault", v, err)
 	}
@@ -424,7 +423,7 @@ func TestValidateRejectsUnknownRouteTierAndRunner(t *testing.T) {
 
 // TestValidateRejectsUnknownAccountKeyAndOpencodePrefix checks Registry.Validate catches an explicit
 // account_key naming no known billing entry and an opencode cell whose override model prefix has no
-// derivable billing account, while letting a "copilot:" dynamic key and an off-runner "/" model override
+// derivable billing account, while letting a "github·" dynamic key and an off-runner "/" model override
 // (no account-key rule applies outside opencode) through.
 func TestValidateRejectsUnknownAccountKeyAndOpencodePrefix(t *testing.T) {
 	badAccount := &Registry{Providers: map[string]*Provider{}, Routing: Routing{Cells: map[string]map[string]RouteCell{
@@ -440,10 +439,10 @@ func TestValidateRejectsUnknownAccountKeyAndOpencodePrefix(t *testing.T) {
 		t.Errorf("unknown opencode prefix: err = %v, want it to name the rule", err)
 	}
 	copilotUser := &Registry{Providers: map[string]*Provider{}, Routing: Routing{Cells: map[string]map[string]RouteCell{
-		"opencode": {"sonnet": {Model: "github-copilot/x", Account: "copilot:anyuser"}},
+		"opencode": {"sonnet": {Model: "github-copilot/x", Account: "github·anyuser"}},
 	}}}
 	if err := copilotUser.Validate(); err != nil {
-		t.Errorf("copilot:anyuser must pass (dynamic family): %v", err)
+		t.Errorf("github·anyuser must pass (dynamic family): %v", err)
 	}
 	offRunnerSlash := &Registry{Providers: map[string]*Provider{}, Routing: Routing{Cells: map[string]map[string]RouteCell{
 		"codex": {"sonnet": {Model: "openrouter/some-model"}},
@@ -498,9 +497,8 @@ func TestAPIKeyAuth(t *testing.T) {
 		authType string
 		want     bool
 	}{
-		{AuthAPIKey, true},
-		{AuthBearer, true},
-		{AuthPassthrough, false},
+		{AuthKey, true},
+		{AuthCLI, false},
 		{AuthNone, false},
 		{"", false},
 	}

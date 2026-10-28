@@ -11,7 +11,6 @@ import (
 
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -61,8 +60,8 @@ func hermetic(t *testing.T, userProviders string) {
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
 	t.Setenv("XDG_DATA_HOME", filepath.Join(home, ".local", "share"))
 	t.Setenv("BASH_COMPLETION_USER_DIR", "")
-	for _, k := range []string{providers.PinProvider, providers.PinModel, "HARNESS_OPUS_MODEL", "HARNESS_SONNET_MODEL",
-		"HARNESS_HAIKU_MODEL", "HARNESS_FABLE_MODEL", "ANTHROPIC_API_KEY", "TEST_GW_KEY"} {
+	for _, k := range []string{providers.PinProfile, providers.PinModel, "CLAUDE_OPUS_MODEL", "CLAUDE_SONNET_MODEL",
+		"CLAUDE_HAIKU_MODEL", "CLAUDE_FABLE_MODEL", "ANTHROPIC_API_KEY", "TEST_GW_KEY"} {
 		t.Setenv(k, "")
 	}
 	if userProviders != "" {
@@ -85,17 +84,17 @@ func hermetic(t *testing.T, userProviders string) {
 }
 
 func TestParseArgs(t *testing.T) {
-	o, rest, err := ParseArgs([]string{"--provider=openai", "-p", "hi", "--model", "gpt-5", "--router", "--print-env", "--", "--model", "x"}, true)
-	if err != nil || o.Provider != "openai" || o.Model != "gpt-5" || !o.Router || !o.PrintEnv {
+	o, rest, err := ParseArgs([]string{"--profile=openai", "-p", "hi", "--model", "gpt-5", "--print-env", "--", "--model", "x"}, true)
+	if err != nil || o.Provider != "openai" || o.Model != "gpt-5" || !o.PrintEnv {
 		t.Fatalf("%+v %v", o, err)
 	}
 	if !slices.Equal(rest, []string{"-p", "hi", "--model", "x"}) {
 		t.Errorf("rest %q", rest)
 	}
-	if _, rest, _ := ParseArgs([]string{"--router"}, false); !slices.Equal(rest, []string{"--router"}) {
-		t.Errorf("vendor launch must pass --router through: %q", rest)
+	if _, _, err := ParseArgs([]string{"--router"}, true); err == nil || !strings.Contains(err.Error(), "removed") {
+		t.Errorf("--router must fail with the removed hint: %v", err)
 	}
-	if _, _, err := ParseArgs([]string{"--provider"}, true); err == nil {
+	if _, _, err := ParseArgs([]string{"--profile"}, true); err == nil {
 		t.Error("missing value accepted")
 	}
 }
@@ -125,8 +124,8 @@ func TestConfigDirIsDefault(t *testing.T) {
 
 func TestClaudeDirect(t *testing.T) {
 	hermetic(t, `{"fallback": [], "providers": {"gw": {"kind": "anthropic", "base_url": "https://gw.example/anthropic",
-		"auth": {"type": "bearer", "env": "TEST_GW_KEY"}, "headers": {"X-B": "2", "X-A": "1"},
-		"models": {"opus": "claude-opus-4-6", "haiku": "claude-haiku-4-5"}, "one_m": true}}}`)
+		"auth": {"type":"key", "env": "TEST_GW_KEY"}, "headers": {"X-B": "2", "X-A": "1"},
+		"models": {"opus": "claude-opus-4-6", "haiku": "claude-haiku-4-5"}}}}`)
 	t.Setenv("TEST_GW_KEY", "secret-value")
 	p, err := Claude(context.Background(), Options{Provider: "gw"}, []string{"-p", "hi"})
 	if err != nil {
@@ -134,8 +133,7 @@ func TestClaudeDirect(t *testing.T) {
 	}
 	want := map[string]string{
 		"ANTHROPIC_BASE_URL":                    "https://gw.example/anthropic",
-		"ANTHROPIC_MODEL":                       "claude-opus-4-6[1m]",
-		"ANTHROPIC_DEFAULT_OPUS_MODEL":          "claude-opus-4-6[1m]",
+		"ANTHROPIC_DEFAULT_OPUS_MODEL":          "claude-opus-4-6",
 		"ANTHROPIC_DEFAULT_HAIKU_MODEL":         "claude-haiku-4-5",
 		"ANTHROPIC_CUSTOM_HEADERS":              "X-A: 1\nX-B: 2",
 		"MAX_THINKING_TOKENS":                   "31999",
@@ -153,7 +151,7 @@ func TestClaudeDirect(t *testing.T) {
 	if !slices.Equal(p.Argv, []string{"--settings", p.OverlayPath, "-p", "hi"}) {
 		t.Errorf("argv %q", p.Argv)
 	}
-	if !strings.Contains(string(p.Overlay), `"/opt/bin/claude-code token --provider gw"`) || strings.Contains(string(p.Overlay), "secret-value") {
+	if !strings.Contains(string(p.Overlay), `"/opt/bin/claude-code token --profile gw"`) || strings.Contains(string(p.Overlay), "secret-value") {
 		t.Errorf("overlay %s", p.Overlay)
 	}
 	env := p.Env([]string{"ANTHROPIC_AUTH_TOKEN=stale", "PATH=/bin", "ANTHROPIC_MODEL=old"})
@@ -201,18 +199,7 @@ func TestClaudePassthrough(t *testing.T) {
 	if _, ok := p.Set["ANTHROPIC_BASE_URL"]; ok || p.Set["ANTHROPIC_CUSTOM_HEADERS"] != "" {
 		t.Errorf("passthrough must launch direct: base %q headers %q", p.Set["ANTHROPIC_BASE_URL"], p.Set["ANTHROPIC_CUSTOM_HEADERS"])
 	}
-	// --router still forces it: the login stays in Authorization, the secret rides ClientHeader.
-	r, err := Claude(context.Background(), Options{Provider: "subscription", Router: true}, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if r.Set["ANTHROPIC_BASE_URL"] != "http://127.0.0.1:4000/p/subscription" || !strings.HasPrefix(r.Set["ANTHROPIC_CUSTOM_HEADERS"], router.ClientHeader+": ") {
-		t.Errorf("routed passthrough: base %q headers %q", r.Set["ANTHROPIC_BASE_URL"], r.Set["ANTHROPIC_CUSTOM_HEADERS"])
-	}
-	if _, err := Claude(context.Background(), Options{Provider: "anthropic", Model: "subscription:claude-opus-5"}, nil); err == nil {
-		t.Error("a passthrough slot target through the router must error")
-	}
-	if _, err := Claude(context.Background(), Options{Provider: "chatgpt"}, nil); err == nil || !strings.Contains(err.Error(), "run codex") {
+	if _, err := Claude(context.Background(), Options{Provider: "chatgpt"}, nil); err == nil || !strings.Contains(err.Error(), "claude-code codex") {
 		t.Errorf("a vendor-login provider must not back Claude Code: %v", err)
 	}
 }
@@ -269,23 +256,59 @@ func TestRedactQuotedTable(t *testing.T) {
 }
 
 func TestClaudeRouter(t *testing.T) {
-	hermetic(t, "")
+	hermetic(t, `{"providers": {"ollama": {"kind": "openai", "base_url": "http://127.0.0.1:11434/v1", "auth": {"type": "none"},
+		"models": {"opus": "qwen3-coder", "sonnet": "qwen3-coder", "haiku": "qwen3-coder"}}}}`) // ollama is no longer built in
 	p, err := Claude(context.Background(), Options{Provider: "ollama"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if p.Set["ANTHROPIC_BASE_URL"] != "http://127.0.0.1:4000/p/ollama" || p.Set["ANTHROPIC_MODEL"] != "qwen3-coder" {
+	if p.Set["ANTHROPIC_BASE_URL"] != "http://127.0.0.1:4000/p/ollama" || p.Set["ANTHROPIC_DEFAULT_OPUS_MODEL"] != "qwen3-coder" {
 		t.Errorf("set %v", p.Set)
 	}
-	if !strings.Contains(string(p.Overlay), "claude-code token --router") {
+	if p.Set["ANTHROPIC_MODEL"] != "" || p.Set["CLAUDE_CODE_DISABLE_1M_CONTEXT"] != "1" {
+		t.Errorf("router launch: no default ANTHROPIC_MODEL, 1M off for ollama: %v", p.Set)
+	}
+	if !strings.Contains(string(p.Overlay), "claude-code token --proxy") {
 		t.Errorf("overlay %s", p.Overlay)
 	}
-	if _, ok := p.Set["ANTHROPIC_CUSTOM_HEADERS"]; ok {
-		t.Error("router launch must not carry provider headers")
+	if h := p.Set["ANTHROPIC_CUSTOM_HEADERS"]; h != "X-Claude-Code-Agent: claude" {
+		t.Errorf("router launch carries only the agent attribution header, got %q", h)
 	}
-	p, err = Claude(context.Background(), Options{Provider: "anthropic", Model: "openai:gpt-5"}, nil)
-	if err != nil || p.Set["ANTHROPIC_MODEL"] != "openai:gpt-5" || !strings.HasSuffix(p.Set["ANTHROPIC_BASE_URL"], "/p/anthropic") {
-		t.Errorf("cross-provider --model: %v %v", p.Set, err)
+}
+
+// --model takes an alias (the tier's own resolution, so pins apply), a version or a wire id; the provider:model
+// form is gone, and the verb's tier stays the main model unless --model names another family.
+func TestClaudeModelFlag(t *testing.T) {
+	hermetic(t, `{"providers": {"ollama": {"kind": "openai", "base_url": "http://127.0.0.1:11434/v1", "auth": {"type": "none"},
+		"models": {"opus": "qwen3-coder", "sonnet": "qwen3-sonnet", "haiku": "qwen3-haiku"}}}}`)
+	for _, tc := range []struct {
+		name string
+		o    Options
+		want map[string]string
+	}{
+		{"alias keeps the tier's own model", Options{Provider: "ollama", Model: "sonnet"},
+			map[string]string{"ANTHROPIC_MODEL": "qwen3-sonnet", "ANTHROPIC_DEFAULT_OPUS_MODEL": "qwen3-coder"}},
+		{"verb tier with a wire id fills that tier", Options{Provider: "ollama", Tier: "sonnet", Model: "qwen3:30b"},
+			map[string]string{"ANTHROPIC_MODEL": "qwen3:30b", "ANTHROPIC_DEFAULT_SONNET_MODEL": "qwen3:30b", "ANTHROPIC_DEFAULT_OPUS_MODEL": "qwen3-coder"}},
+		{"bare wire id fills opus", Options{Provider: "ollama", Model: "qwen3-x"},
+			map[string]string{"ANTHROPIC_MODEL": "qwen3-x", "ANTHROPIC_DEFAULT_OPUS_MODEL": "qwen3-x"}},
+		{"a family overrides the verb tier", Options{Provider: "ollama", Tier: "haiku", Model: "claude-sonnet-5-5"},
+			map[string]string{"ANTHROPIC_MODEL": "claude-sonnet-5-5", "ANTHROPIC_DEFAULT_HAIKU_MODEL": "qwen3-haiku"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p, err := Claude(context.Background(), tc.o, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for k, v := range tc.want {
+				if p.Set[k] != v {
+					t.Errorf("%s = %q, want %q (set %v)", k, p.Set[k], v, p.Set)
+				}
+			}
+			if p.Set[providers.EnvSessionProfile] != "ollama" {
+				t.Errorf("%s = %q, want ollama", providers.EnvSessionProfile, p.Set[providers.EnvSessionProfile])
+			}
+		})
 	}
 }
 
@@ -308,18 +331,55 @@ func TestHelperBinPrefersInstalled(t *testing.T) {
 	}
 }
 
-// Every launch, routed or direct, exports HARNESS_PROVIDER so the session's statusline stays on its own provider.
+// Every launch, routed or direct, exports CLAUDE_PROFILE so the session's statusline stays on its own provider.
 func TestLaunchExportsHarnessProvider(t *testing.T) {
 	hermetic(t, `{"fallback": [], "providers": {"gw": {"kind": "anthropic", "base_url": "https://gw.example/anthropic",
-		"auth": {"type": "bearer", "env": "TEST_GW_KEY"}, "models": {"opus": "claude-opus-4-6"}}}}`)
+		"auth": {"type":"key", "env": "TEST_GW_KEY"}, "models": {"opus": "claude-opus-4-6"}},
+		"ollama": {"kind": "openai", "base_url": "http://127.0.0.1:11434/v1", "auth": {"type": "none"},
+		"models": {"opus": "qwen3-coder", "sonnet": "qwen3-coder", "haiku": "qwen3-coder"}}}}`)
 	t.Setenv("TEST_GW_KEY", "secret-value")
 	for _, name := range []string{"gw", "ollama"} { // direct, routed
 		p, err := Claude(context.Background(), Options{Provider: name}, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if got := p.Set[providers.PinProvider]; got != name {
-			t.Errorf("%s: %s = %q, want %q", name, providers.PinProvider, got, name)
+		if got := p.Set[providers.PinProfile]; got != name {
+			t.Errorf("%s: %s = %q, want %q", name, providers.PinProfile, got, name)
 		}
+	}
+}
+
+// --model routing: a Claude id or alias names its tier, a non-Claude wire id names none, [1m] marks an alias as pinned.
+func TestParseModelFlagRouting(t *testing.T) {
+	for _, tc := range []struct {
+		in, tier string
+		alias    bool
+	}{
+		{"opus", "opus", true},
+		{"opus[1m]", "opus", false},
+		{"claude-sonnet-5-5", "sonnet", false},
+		{"qwen3-coder", "", false},
+	} {
+		tier, canonical, alias := parseModelFlag(tc.in)
+		if tier != tc.tier || alias != tc.alias {
+			t.Errorf("parseModelFlag(%q) = (%q, %q, %v); want tier %q alias %v", tc.in, tier, canonical, alias, tc.tier, tc.alias)
+		}
+	}
+}
+
+// Every removed flag is a parse error carrying its hint; --profile stays valid.
+func TestParseArgsRemovedFlags(t *testing.T) {
+	for flag, want := range map[string]string{
+		"--provider": "--profile", "--env": "--profile", "--tier": "--model", "--router": "removed",
+	} {
+		for _, claude := range []bool{true, false} {
+			if _, _, err := ParseArgs([]string{flag, "x"}, claude); err == nil || !strings.Contains(err.Error(), want) {
+				t.Errorf("ParseArgs(%s, claude=%v) = %v, want hint %q", flag, claude, err, want)
+			}
+		}
+	}
+	o, rest, err := ParseArgs([]string{"--profile", "openai", "-p", "hi"}, true)
+	if err != nil || o.Provider != "openai" || !slices.Equal(rest, []string{"-p", "hi"}) {
+		t.Errorf("--profile control: %+v %q %v", o, rest, err)
 	}
 }

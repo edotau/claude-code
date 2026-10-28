@@ -117,7 +117,7 @@ func geminiOwnLoginFixture(t *testing.T) {
 // returns res with Model set — vendor.go Run()).
 func TestVendorRunnerGeminiModelResolutionPinBeatsDefault(t *testing.T) {
 	geminiOwnLoginFixture(t)
-	t.Setenv(providers.PinGeminiModel, "")
+	setPin(t, providers.PinGeminiModel, "")
 	if err := providers.SetPins(map[string]string{providers.PinGeminiModel: ""}); err != nil {
 		t.Fatal(err)
 	}

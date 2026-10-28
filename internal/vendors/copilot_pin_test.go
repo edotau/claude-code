@@ -14,7 +14,7 @@ func TestCopilotPinMissingFailsClosed(t *testing.T) {
 	if err := secrets.Store(CopilotTokenEnv, "stored-tok"); err != nil {
 		t.Fatal(err)
 	}
-	if err := providers.SetPins(map[string]string{providers.PinGitHubUser: "ghost"}); err != nil {
+	if err := providers.SetPins(map[string]string{providers.PinCopilotProfile: "ghost"}); err != nil {
 		t.Fatal(err)
 	}
 	if a, ok := copilotAuthSource(); ok {

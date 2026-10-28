@@ -297,7 +297,7 @@ func TestDispatchHelp(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("no args: code = %d, want 0", code)
 	}
-	if !strings.Contains(stderr, "usage: claude-code dispatch") {
+	if !strings.Contains(stderr, "usage: claude-code remote") {
 		t.Errorf("stderr = %q, want usage text", stderr)
 	}
 }

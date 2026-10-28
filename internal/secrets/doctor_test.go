@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -75,7 +76,7 @@ func TestDoctorMissingVaultIgnoresLegacyFiles(t *testing.T) {
 func TestMasterKeyStatus(t *testing.T) {
 	t.Run("unreadable vault", func(t *testing.T) {
 		doctorTestVault(t)
-		vaulttest.Put(t, vault.Meta, "schema", "3")
+		vaulttest.Put(t, vault.Meta, "schema", strconv.Itoa(vault.SchemaVersion+1))
 		count, source, err := MasterKeyStatus()
 		if count != 0 || source != "" || err == nil {
 			t.Fatalf("MasterKeyStatus = (%d, %q, %v), want (0, \"\", err)", count, source, err)
@@ -222,12 +223,12 @@ func TestDoctorRetiredKeys(t *testing.T) {
 // fail the gate, never read as "no credentials stored" (checkMasterKey -> NamesErr).
 func TestDoctorUnreadableVaultIsFailure(t *testing.T) {
 	doctorTestVault(t)
-	vaulttest.Put(t, vault.Meta, "schema", "3")
+	vaulttest.Put(t, vault.Meta, "schema", strconv.Itoa(vault.SchemaVersion+1))
 	rc, out := doctorTestResult(&providers.Registry{})
 	if rc != ExitFindings {
 		t.Fatalf("Doctor = %d, want findings: %s", rc, out)
 	}
-	if !strings.Contains(out, "vault is unreadable:") || !strings.Contains(out, "schema 3") {
+	if !strings.Contains(out, "vault is unreadable:") || !strings.Contains(out, "schema "+strconv.Itoa(vault.SchemaVersion+1)) {
 		t.Fatalf("Doctor missing unreadable-vault diagnostic: %s", out)
 	}
 }

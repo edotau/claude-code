@@ -56,8 +56,8 @@ func TestWindowDatabricksPrefixedPin(t *testing.T) {
 	if got := Window("claude-opus-5-5", 182_796); got != 1_000_000 {
 		t.Errorf("Window(claude-opus-5-5)=%d want 1000000", got)
 	}
-	if got := Window("claude-haiku-5-5", 10); got != 200_000 {
-		t.Errorf("Window(claude-haiku-5-5)=%d want 200000 (unpinned model)", got)
+	if got := Window("claude-haiku-4-5", 10); got != 200_000 {
+		t.Errorf("Window(claude-haiku-4-5)=%d want 200000 (unpinned model)", got)
 	}
 }
 

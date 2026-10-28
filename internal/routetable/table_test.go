@@ -1,8 +1,10 @@
 package routetable
 
 import (
+	"strings"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -44,7 +46,7 @@ func TestLoadFromOverlayCellAndWeights(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c := tb.Rows["opencode"]["sonnet"]; c.Model != "opencode-go/y" || c.Effort != "high" || c.Account != "opencode:go" {
+	if c := tb.Rows["opencode"]["sonnet"]; c.Model != "opencode-go/y" || c.Effort != "high" || c.Account != "opencode·go" {
 		t.Errorf("overlay cell = %+v, want model replaced, effort kept, account unchanged", c)
 	}
 	if tb.Weights["headroom"] != 0.8 {
@@ -69,7 +71,7 @@ func TestLoadFromOpencodeOverrideAccountKey(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c := tb.Rows["opencode"]["sonnet"]; c.Account != "opencode:github-copilot" {
+	if c := tb.Rows["opencode"]["sonnet"]; c.Account != "opencode·github-copilot" {
 		t.Errorf("account = %q, want opencode's own copilot login account, not the pinned gh user's", c.Account)
 	}
 	unknown := &providers.Registry{
@@ -80,14 +82,14 @@ func TestLoadFromOpencodeOverrideAccountKey(t *testing.T) {
 	}
 	explicit := &providers.Registry{
 		Routing: providers.Routing{Cells: map[string]map[string]providers.RouteCell{
-			"opencode": {"sonnet": {Model: "zed/overridden-model", Account: "opencode:go"}},
+			"opencode": {"sonnet": {Model: "zed/overridden-model", Account: "opencode·go"}},
 		}},
 	}
 	tb, err = LoadFrom(explicit, "u")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c := tb.Rows["opencode"]["sonnet"]; c.Account != "opencode:go" {
+	if c := tb.Rows["opencode"]["sonnet"]; c.Account != "opencode·go" {
 		t.Errorf("account = %q, want the explicit override honored", c.Account)
 	}
 	badAccount := &providers.Registry{
@@ -115,7 +117,7 @@ func TestLoadFromNonOpencodeOverrideWithSlashKeepsAccount(t *testing.T) {
 	if c.Model != "openrouter/some-model" {
 		t.Errorf("model = %q, want the override applied", c.Model)
 	}
-	if c.Account != "codex:chatgpt" {
+	if c.Account != "openai·chatgpt" {
 		t.Errorf("account = %q, want the table's own codex account unchanged (no opencode re-derivation off-runner)", c.Account)
 	}
 }
@@ -126,7 +128,7 @@ func TestLoadFromCopilotAccountKey(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if a := tb.Rows["copilot"]["sonnet"].Account; a != "copilot:work-user" {
+	if a := tb.Rows["copilot"]["sonnet"].Account; a != "github·work-user" {
 		t.Errorf("copilot account = %q, want the pinned user only", a)
 	}
 	tb, err = LoadFrom(nil, "")
@@ -157,5 +159,49 @@ func TestTierOfSlotNamesAndFamilies(t *testing.T) {
 	}
 	if got := tb.TierOf("no-such-model-anywhere"); got != "" {
 		t.Errorf("TierOf(unknown) = %q, want empty", got)
+	}
+}
+
+// TestRowsKeyedByClaudeID checks rows are keyed by canonical Claude id, aliases and spellings reach the same row,
+// and the tier view agrees with it.
+func TestRowsKeyedByClaudeID(t *testing.T) {
+	vaulttest.Use(t)
+	tb, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tier := range Tiers {
+		id, _ := models.Alias(tier)
+		for _, key := range []string{tier, id, strings.TrimPrefix(id, "claude-")} {
+			row, ok := tb.Row(key)
+			if !ok || len(row) != len(Runners) {
+				t.Fatalf("Row(%q) ok=%v runners=%d", key, ok, len(row))
+			}
+			if row["claude"].Model != id || row["claude"] != tb.Rows["claude"][tier] {
+				t.Errorf("Row(%q) claude = %+v, want model %s == tier view", key, row["claude"], id)
+			}
+		}
+	}
+	if c, ok := tb.CellFor("copilot", "opus"); !ok || c.Model != "claude-opus-5.5" {
+		t.Errorf("CellFor(copilot, opus) = %+v, %v", c, ok)
+	}
+	if _, ok := tb.Row("gpt-6-1-sol"); ok {
+		t.Error("a non-Claude id must not name a row")
+	}
+}
+
+// TestOverlayAcceptsCanonicalAndTierKeys checks routing.cells keyed by canonical id and by the deprecated tier hit
+// the same cell.
+func TestOverlayAcceptsCanonicalAndTierKeys(t *testing.T) {
+	for _, key := range []string{"sonnet", "claude-sonnet-5-5"} {
+		reg := &providers.Registry{Routing: providers.Routing{Cells: map[string]map[string]providers.RouteCell{
+			"codex": {key: {Effort: "low"}}}}}
+		tb, err := LoadFrom(reg, "u")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if tb.Rows["codex"]["sonnet"].Effort != "low" || tb.ByModel["claude-sonnet-5-5"]["codex"].Effort != "low" {
+			t.Errorf("key %q: overlay not applied", key)
+		}
 	}
 }

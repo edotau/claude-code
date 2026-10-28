@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -19,7 +20,7 @@ func TestScanVaultFindsInlineSecrets(t *testing.T) {
 	vaulttest.Put(t, vault.Pins, "PIN_TOKEN", value)
 	vaulttest.Put(t, vault.Env, "ENV_TOKEN", value)
 	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"x":{"headers":[{"Authorization":"`+value+`"}]}}}`)
-	vaulttest.Put(t, vault.Overlay, "vendors", `{"vendors":{"o":{"launch":{"env":["OPENCODE_DISABLE_CLAUDE_CODE_SKILLS=1","O_KEY=`+value+`"]}}}}`)
+	vaulttest.Put(t, vault.Overlay, "agents", `{"agents":{"o":{"launch":{"env":["OPENCODE_DISABLE_CLAUDE_CODE_SKILLS=1","O_KEY=`+value+`"]}}}}`)
 	vaulttest.Put(t, vault.Env, "STORED_REF", providers.SecretRef)
 	vaulttest.Put(t, vault.Pins, "ENV_REF", "${API_KEY}")
 	vaulttest.Secret(t, "SEALED", value)
@@ -29,7 +30,7 @@ func TestScanVaultFindsInlineSecrets(t *testing.T) {
 	scanner.ScanVault()
 	want := []string{
 		"vault:overlay/providers → providers.x.headers.0.Authorization holds an inline secret",
-		"vault:overlay/vendors → vendors.o.launch.env.1 holds an inline secret",
+		"vault:overlay/agents → agents.o.launch.env.1 holds an inline secret",
 		"vault:pins → PIN_TOKEN holds an inline secret",
 		"vault:env → ENV_TOKEN holds an inline secret",
 	}
@@ -74,12 +75,12 @@ func TestScanVaultClean(t *testing.T) {
 
 func TestScanVaultReadErrorIsFinding(t *testing.T) {
 	vaulttest.Use(t)
-	vaulttest.Put(t, vault.Meta, "schema", "3")
+	vaulttest.Put(t, vault.Meta, "schema", strconv.Itoa(vault.SchemaVersion+1))
 	var out bytes.Buffer
 	scanner := &Scanner{Out: &out}
 	scanner.ScanVault()
 	if len(scanner.Findings) != 1 || !strings.Contains(scanner.Findings[0], "vault — could not read:") ||
-		!strings.Contains(scanner.Findings[0], "schema 3") || strings.Contains(out.String(), "vault — clean") {
+		!strings.Contains(scanner.Findings[0], "schema "+strconv.Itoa(vault.SchemaVersion+1)) || strings.Contains(out.String(), "vault — clean") {
 		t.Fatalf("ScanVault must report unreadable vault: %v, %s", scanner.Findings, out.String())
 	}
 }
@@ -113,18 +114,18 @@ func TestScanConfigsDefaultIncludesVaultAndSummary(t *testing.T) {
 }
 
 // TestScanVaultCoversPrevProvidersAndVendorsOverlays: an inline secret in overlay/providers.prev or
-// overlay/vendors must surface exactly like overlay/providers — ScanVault must not scan providers only.
+// overlay/agents must surface exactly like overlay/providers — ScanVault must not scan providers only.
 func TestScanVaultCoversPrevProvidersAndVendorsOverlays(t *testing.T) {
 	vaulttest.Use(t)
 	const value = "sk-test-abcdefghijklmnopqrstuvwxyz0123456789"
 	vaulttest.Put(t, vault.Overlay, "providers.prev", `{"providers":{"x":{"auth":{"env":"`+value+`"}}}}`)
-	vaulttest.Put(t, vault.Overlay, "vendors", `{"vendors":{"y":{"token":"`+value+`"}}}`)
+	vaulttest.Put(t, vault.Overlay, "agents", `{"agents":{"y":{"token":"`+value+`"}}}`)
 	var out bytes.Buffer
 	scanner := &Scanner{Out: &out}
 	scanner.ScanVault()
 	want := []string{
 		"vault:overlay/providers.prev → providers.x.auth.env holds an inline secret",
-		"vault:overlay/vendors → vendors.y.token holds an inline secret",
+		"vault:overlay/agents → agents.y.token holds an inline secret",
 	}
 	if !slices.Equal(scanner.Findings, want) {
 		t.Fatalf("ScanVault findings = %v, want %v", scanner.Findings, want)

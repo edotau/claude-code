@@ -4,10 +4,9 @@ import (
 	"context"
 	"fmt"
 	"regexp"
-	"slices"
 	"strings"
 
-	"github.com/edotau/claude-code/internal/models"
+	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/secrets/shapes"
 )
 
@@ -70,7 +69,7 @@ func ParseAnthropicArgs(args []string) (AnthropicOptions, []string, error) {
 		return o, nil, err
 	}
 	if base.Provider != "" {
-		return o, nil, fmt.Errorf("anthropic picks its own provider; drop --provider (or use claude-code opus --provider ...)")
+		return o, nil, fmt.Errorf("anthropic picks its own profile; drop --profile (or use claude-code opus --profile ...)")
 	}
 	o.Options = base
 	return o, rest, nil
@@ -90,13 +89,16 @@ func checkKeyName(flag, v string) error {
 // Anthropic resolves a first-party Claude Code launch; secret is the value for the oauth and x-api-key modes.
 func Anthropic(ctx context.Context, o AnthropicOptions, args []string, secret string) (Plan, error) {
 	opts := o.Options
-	opts.Provider = "subscription"
-	if o.Mode == AuthAPIKey {
-		opts.Provider = "anthropic"
+	reg, err := providers.Load()
+	if err != nil {
+		return Plan{}, err
 	}
-	opts.Tier, opts.ModelSlot = models.Opus, models.Opus
-	if t := modelTier(opts.Model); t != "" {
-		opts.Tier, opts.ModelSlot = t, t
+	method := providers.AuthCLI
+	if o.Mode == AuthAPIKey {
+		method = providers.AuthKey
+	}
+	if opts.Provider = anthropicProfile(reg, method); opts.Provider == "" {
+		return Plan{}, fmt.Errorf("no anthropic profile with %s auth in the registry", method)
 	}
 	plan, err := Claude(ctx, opts, args)
 	if err != nil {
@@ -118,17 +120,12 @@ func Anthropic(ctx context.Context, o AnthropicOptions, args []string, secret st
 	return plan, nil
 }
 
-// modelTier is the Claude family of a typed model id ("" when it names none), ignoring a provider: prefix.
-func modelTier(id string) string {
-	if i := strings.Index(id, ":"); i >= 0 {
-		id = id[i+1:]
-	}
-	base, _ := models.Canonical(id)
-	if f, _, _, ok := models.ParseClaudeID(base); ok && slices.Contains(models.Slots[:], f) {
-		return f
-	}
-	if slices.Contains(models.Slots[:], base) {
-		return base
+// anthropicProfile is the first anthropic-provider profile signing in by method ("" when none).
+func anthropicProfile(reg *providers.Registry, method string) string {
+	for _, n := range reg.ProfilesOf("anthropic") {
+		if reg.Providers[n].Auth.Method() == method {
+			return n
+		}
 	}
 	return ""
 }

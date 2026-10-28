@@ -14,7 +14,8 @@ import (
 	"github.com/edotau/claude-code/internal/hooks"
 	"github.com/edotau/claude-code/internal/outfmt"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/route"
+	"github.com/edotau/claude-code/internal/router"
+	"github.com/edotau/claude-code/internal/routetable"
 	usagepkg "github.com/edotau/claude-code/internal/usage"
 	"github.com/edotau/claude-code/internal/vendors"
 )
@@ -24,40 +25,41 @@ var routeRefresh = usagepkg.RefreshAccount
 
 func init() { vendors.CopilotUsedPct = copilotUsedPct }
 
-// copilotUsedPct is copilot:<user>'s used share from route state, refreshed through routeRefresh past its TTL.
-func copilotUsedPct(ctx context.Context, user string) (float64, bool) {
-	key, now := "copilot:"+user, time.Now()
-	e := route.LoadState()[key]
+// copilotUsedPct is github·<profile>'s used share (login: the profile's gh login) from route state, refreshed through routeRefresh past its TTL.
+func copilotUsedPct(ctx context.Context, login string) (float64, bool) {
+	reg, _ := providers.Load()
+	key, now := "github·"+providers.GithubAccountName(reg, login), time.Now()
+	e := router.LoadState()[key]
 	if e.ExhaustedUntil.After(now) {
-		return route.ExhaustedPct, true
+		return router.ExhaustedPct, true
 	}
-	if now.Sub(e.Seen) > route.StaleAfter {
+	if now.Sub(e.Seen) > router.StaleAfter {
 		if !routeRefresh(ctx, key) {
 			return 0, false
 		}
-		e = route.LoadState()[key]
+		e = router.LoadState()[key]
 	}
 	return e.UsedPct, !e.Seen.IsZero()
 }
 
-// cmdGatewayRoute is `claude-code gateway route`: the pick at a tier and every skipped runner with its gate; it
+// cmdGatewayRouter is `claude-code gateway router`: the pick for a model and every skipped agent with its gate; it
 // reads quota state (refreshing a stale account) and never dispatches.
-func cmdGatewayRoute(args []string) int { return gatewayRoute(args, false) }
+func cmdGatewayRouter(args []string) int { return gatewayRoute(args, false) }
 
-// gatewayRoute runs the route pick; withProxy (bare `gateway`) adds the proxy status footer or the "proxy" JSON key.
+// gatewayRoute runs the router pick; withProxy (bare `gateway`) adds the proxy status footer or the "proxy" JSON key.
 func gatewayRoute(args []string, withProxy bool) int {
-	name, usage := "gateway route", "claude-code gateway route [--tier T] [--agent a] [--task <text>] [flags]"
-	about := "Show which runner and model a task routes to: gated on availability, the pinned\n" +
-		"account and quota, then ranked by a weighted price + headroom score."
+	name, usage := "gateway router", "claude-code gateway router [--model M] [--agent a] [--task T] [flags]"
+	about := "Show which agent and model a task routes to: gated on availability, the pinned\n" +
+		"profile and quota, then ranked by a weighted price + headroom score."
 	if withProxy {
-		name, usage = "gateway", "claude-code gateway [route|proxy] [--tier T] [flags]"
+		name, usage = "gateway", "claude-code gateway [router|proxy] [--model M] [flags]"
 		about += "\nThen the loopback proxy's status; `gateway proxy` runs its lifecycle."
 	}
 	fs := helptext.NewFlagSet(name, helptext.Page{Usage: usage, About: about})
-	tier := fs.String("tier", "", "opus, sonnet or haiku (default: classify --task, else sonnet)")
-	want := fs.String("agent", "", "the runner asked for; it leads when it passes the gates")
-	task := fs.String("task", "", "task text the classifier reads when --tier is absent")
-	fallback := fs.String("fallback", agent.FallbackAll, "all, vendors or none")
+	model := fs.String("model", "", "alias (opus) or version (opus-5-5) (default: classify --task, else sonnet)")
+	want := fs.String("agent", "", "the agent asked for; it leads when it passes the gates")
+	task := fs.String("task", "", "task text the classifier reads when --model is absent")
+	fallback := fs.String("fallback", agent.FallbackAll, "all, agents or none")
 	format := outfmt.Flag(fs)
 	if code, done := helptext.Parse(fs, args); done {
 		return code
@@ -68,28 +70,28 @@ func gatewayRoute(args []string, withProxy bool) int {
 	if !slices.Contains(agent.FallbackModes, *fallback) {
 		return fail(name+": --fallback %q unknown (%s)", *fallback, strings.Join(agent.FallbackModes, "|"))
 	}
-	t := *tier
+	if *want != "" && !slices.Contains(router.Runners, *want) {
+		return fail(name+": --agent %q unknown (%s)", *want, strings.Join(router.Runners, "|"))
+	}
+	tb, err := router.Load()
+	if err != nil {
+		return fail(name+": %v", err)
+	}
+	t := tb.TierOf(*model)
+	if t == "" && *model != "" {
+		return fail(name+": --model %q names no alias or version the table routes", *model)
+	}
 	if t == "" && *task != "" {
 		t = hooks.RuleClassifier{}.Tier(*task)
 	}
 	if t == "" {
-		t = route.Tiers[1]
+		t = router.Tiers[1]
 	}
-	if !slices.Contains(route.Tiers, t) {
-		return fail(name+": --tier %q unknown (%s)", t, strings.Join(route.Tiers, "|"))
-	}
-	if *want != "" && !slices.Contains(route.Runners, *want) {
-		return fail(name+": --agent %q unknown (%s)", *want, strings.Join(route.Runners, "|"))
-	}
-	tb, err := route.Load()
-	if err != nil {
-		return fail(name+": %v", err)
-	}
-	res := tb.Pick(context.Background(), t, *want, route.LoadState(),
-		route.Opts{Fallback: *fallback, Refresh: routeRefresh})
+	res := tb.Pick(context.Background(), t, *want, router.LoadState(),
+		router.Opts{Fallback: *fallback, Refresh: routeRefresh})
 	src := routeSources{Weights: routeWeightsSource()}
 	src.Subagents.On, src.Subagents.Source = providers.RouteSubagentsOn()
-	rj := routeJSON{Result: res, Sources: src}
+	rj := newRouteJSON(res, src)
 	var ps proxyState
 	if withProxy {
 		if ps, err = loadProxyState(context.Background()); err != nil {
@@ -116,7 +118,7 @@ func gatewayRoute(args []string, withProxy bool) int {
 	return 0
 }
 
-// routeSources names where each routing knob printed by `gateway route` came from.
+// routeSources names where each routing knob printed by `gateway router` came from.
 type routeSources struct {
 	Weights   string `json:"weights"` // "default" or "vault"
 	Subagents struct {
@@ -125,10 +127,48 @@ type routeSources struct {
 	} `json:"subagents"`
 }
 
-// routeJSON is `gateway route --format json`'s payload: the pick plus where its knobs came from.
+// routeJSON is `gateway router --format json`'s payload: the pick plus where its knobs came from.
 type routeJSON struct {
-	route.Result
-	Sources routeSources `json:"sources"`
+	Model      string             `json:"model"`
+	Want       string             `json:"want,omitempty"`
+	Weights    map[string]float64 `json:"weights"`
+	Candidates []candidateJSON    `json:"candidates"`
+	Skipped    []skipJSON         `json:"skipped,omitempty"`
+	Sources    routeSources       `json:"sources"`
+}
+
+// candidateJSON is one runnable agent; account_key is <provider>·<profile>.
+type candidateJSON struct {
+	Agent      string             `json:"agent"`
+	Model      string             `json:"model"`
+	Effort     string             `json:"effort,omitempty"`
+	AccountKey string             `json:"account_key"`
+	Price      routetable.Price   `json:"price"`
+	State      string             `json:"state"`
+	Billing    string             `json:"billing"`
+	Scores     map[string]float64 `json:"scores,omitempty"`
+	Total      float64            `json:"total"`
+}
+
+// skipJSON is an agent dropped by a gate, with why.
+type skipJSON struct {
+	Agent  string `json:"agent"`
+	Gate   string `json:"gate"`
+	Reason string `json:"reason"`
+}
+
+// newRouteJSON maps a pick onto the emitted shape (agent for runner, <provider>·<profile> account keys).
+func newRouteJSON(res router.Result, src routeSources) routeJSON {
+	out := routeJSON{Model: res.Tier, Want: res.Want, Weights: res.Weights, Sources: src,
+		Candidates: make([]candidateJSON, 0, len(res.Candidates))}
+	for _, c := range res.Candidates {
+		out.Candidates = append(out.Candidates, candidateJSON{Agent: c.Agent, Model: c.Model, Effort: c.Effort,
+			AccountKey: c.Account, Price: c.Price, State: c.State, Billing: c.Billing, Scores: c.Scores, Total: c.Total})
+	}
+	for _, s := range res.Skipped {
+		out.Skipped = append(out.Skipped, skipJSON{Agent: s.Agent, Gate: s.Gate, Reason: s.Reason})
+	}
+	return out
 }
 
 // routeWeightsSource reports "vault" when the vault overlay's own routing object sets weights, else
@@ -144,27 +184,27 @@ func routeWeightsSource() string {
 
 // printRoute renders the pick: weights (and their source), one scored row per candidate, then each
 // skip's gate and reason, then the subagents switch and its source.
-func printRoute(res route.Result, src routeSources) {
+func printRoute(res router.Result, src routeSources) {
 	var ws []string
-	for _, d := range route.Dimensions {
+	for _, d := range router.Dimensions {
 		ws = append(ws, fmt.Sprintf("%s=%.2f", d.Name(), res.Weights[d.Name()]))
 	}
-	fmt.Printf("tier %s  weights %s (%s)\n", res.Tier, strings.Join(ws, " "), src.Weights)
+	fmt.Printf("model %s  weights %s (%s)\n", res.Tier, strings.Join(ws, " "), src.Weights)
 	onOff := map[bool]string{true: "on", false: "off"}[src.Subagents.On]
 	fmt.Printf("subagents %s (%s)\n", onOff, src.Subagents.Source)
 	if len(res.Candidates) == 0 {
-		fmt.Println("no runner passes the gates")
+		fmt.Println("no agent passes the gates")
 	}
-	wRun, wModel, wAcct := len("RUNNER"), len("MODEL"), len("ACCOUNT")
+	wRun, wModel, wAcct := len("AGENT"), len("MODEL"), len("ACCOUNT")
 	for _, c := range res.Candidates {
-		wRun, wModel, wAcct = max(wRun, len(c.Runner)), max(wModel, len(c.Model)), max(wAcct, len(c.Account))
+		wRun, wModel, wAcct = max(wRun, len(c.Agent)), max(wModel, len(c.Model)), max(wAcct, len(c.Account))
 	}
 	if len(res.Candidates) > 0 {
-		fmt.Printf("%-3s %-*s %-*s %-6s %-*s %-8s %6s %8s %6s\n", "#", wRun, "RUNNER", wModel, "MODEL", "EFFORT",
+		fmt.Printf("%-3s %-*s %-*s %-6s %-*s %-8s %6s %8s %6s\n", "#", wRun, "AGENT", wModel, "MODEL", "EFFORT",
 			wAcct, "ACCOUNT", "STATE", "PRICE", "HEADROOM", "TOTAL")
 	}
 	for i, c := range res.Candidates {
-		fmt.Printf("%-3d %-*s %-*s %-6s %-*s %-8s %6.2f %8.2f %6.2f\n", i+1, wRun, c.Runner, wModel, c.Model,
+		fmt.Printf("%-3d %-*s %-*s %-6s %-*s %-8s %6.2f %8.2f %6.2f\n", i+1, wRun, c.Agent, wModel, c.Model,
 			cmp.Or(c.Effort, "-"), wAcct, c.Account, c.State, c.Scores["price"], c.Scores["headroom"], c.Total)
 	}
 	if len(res.Skipped) == 0 {
@@ -172,10 +212,10 @@ func printRoute(res route.Result, src routeSources) {
 	}
 	wSkip, wGate := len("SKIP"), len("GATE")
 	for _, s := range res.Skipped {
-		wSkip, wGate = max(wSkip, len(s.Runner)), max(wGate, len(s.Gate))
+		wSkip, wGate = max(wSkip, len(s.Agent)), max(wGate, len(s.Gate))
 	}
 	fmt.Printf("%-*s %-*s %s\n", wSkip, "SKIP", wGate, "GATE", "REASON")
 	for _, s := range res.Skipped {
-		fmt.Printf("%-*s %-*s %s\n", wSkip, s.Runner, wGate, s.Gate, s.Reason)
+		fmt.Printf("%-*s %-*s %s\n", wSkip, s.Agent, wGate, s.Gate, s.Reason)
 	}
 }

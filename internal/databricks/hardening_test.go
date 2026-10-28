@@ -20,7 +20,7 @@ func TestApiKeyHelperQuotesPathWithSpace(t *testing.T) {
 	if err := json.Unmarshal([]byte(r.Text), &d); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.HasPrefix(d.K, "'/opt/my tools/claude-code' token --provider ") {
+	if !strings.HasPrefix(d.K, "'/opt/my tools/claude-code' token --profile ") {
 		t.Errorf("helper path not quoted: %q", d.K)
 	}
 	o.Self = "/bin/cc"
@@ -49,33 +49,12 @@ func TestSetRejectsKeysThatBreakOutOfTOML(t *testing.T) {
 func TestRescueScrubsInheritedAuthEnv(t *testing.T) {
 	environ := []string{
 		"CLAUDE_CODE_USE_BEDROCK=1", "CLAUDE_CODE_USE_VERTEX=1", "CLAUDE_CODE_OAUTH_TOKEN=x", "CLAUDE_CONFIG_DIR=/c",
-		"DATABRICKS_TOKEN=x", "DATABRICKS_HOST=h", "DATABRICKS_CONFIG_PROFILE=p", "HARNESS_PROVIDER=p", "ANTHROPIC_API_KEY=x",
+		"DATABRICKS_TOKEN=x", "DATABRICKS_HOST=h", "DATABRICKS_CONFIG_PROFILE=p", "HARNESS_PROVIDER=p", "CLAUDE_PROFILE=dev", "CLAUDE_OPUS_MODEL=m", "ANTHROPIC_API_KEY=x",
 		"PATH=/bin", "HOME=/h", "CLAUDE_CODE_NO_FLICKER=1", "MY_DATABRICKS_NOTE=keep",
 	}
 	got := scrubbed(environ)
 	want := []string{"PATH=/bin", "HOME=/h", "CLAUDE_CODE_NO_FLICKER=1", "MY_DATABRICKS_NOTE=keep"}
 	if !slices.Equal(got, want) {
 		t.Errorf("scrubbed = %v, want %v", got, want)
-	}
-}
-
-func TestAgentsOnUsesLegacySetWhenPresent(t *testing.T) {
-	seedOverlay(t, `{"providers":{"qa":{"preset":"databricks",`+dbxHost+`}},"profiles":{"sets":{"databricks-qa":{"session":{"account":"qa"}}}}}`)
-	f := &fakeChild{}
-	useFake(t, f)
-	t.Setenv("HARNESS_PROVIDER", "")
-	if code, _, _ := runCaptured(t, func() int { return Run([]string{"agents", "on", "--env", "qa"}) }); code != 0 {
-		t.Fatalf("exit %d", code)
-	}
-	if len(f.calls) != 1 || !slices.Equal(f.calls[0].argv, []string{"profile", "use", "databricks-qa"}) {
-		t.Errorf("calls = %+v", f.calls)
-	}
-}
-
-func TestHarnessProviderEnvResolvesBothSpellings(t *testing.T) {
-	for in, want := range map[string]string{"dev": "dev", "databricks-prod": "prod", "databricks-qa-oai": "qa", "prod": "prod", "other": ""} {
-		if got := envFromProvider(in); got != want {
-			t.Errorf("envFromProvider(%q) = %q, want %q", in, got, want)
-		}
 	}
 }

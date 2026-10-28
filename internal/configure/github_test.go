@@ -43,6 +43,22 @@ func TestRunGithubLoginPrintsVendorBinError(t *testing.T) {
 	}
 }
 
+// flatOverlayRows flattens the stored nested overlay {provider:{profile:row}} to {profile:row}.
+func flatOverlayRows(t *testing.T, raw json.RawMessage) map[string]json.RawMessage {
+	t.Helper()
+	var nested map[string]map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &nested); err != nil {
+		t.Fatal(err)
+	}
+	flat := map[string]json.RawMessage{}
+	for _, rows := range nested {
+		for profile, row := range rows {
+			flat[profile] = row
+		}
+	}
+	return flat
+}
+
 func readOverlay(t *testing.T) map[string]json.RawMessage {
 	t.Helper()
 	raw, err := providers.OverlayDoc()
@@ -60,7 +76,7 @@ func readOverlay(t *testing.T) map[string]json.RawMessage {
 // overlay, preserving every other provider entry and root key byte-for-byte.
 func TestWriteGithubCopilotModelsMergesIntoOverlay(t *testing.T) {
 	githubScratch(t)
-	existing := `{"default":"gw","providers":{"gw":{"kind":"anthropic","base_url":"https://gw.example.com","auth":{"type":"none"}},"github-copilot":{"kind":"openai","base_url":"https://api.githubcopilot.com","auth":{"type":"passthrough","login":"copilot"}}}}`
+	existing := `{"default":"gw","providers":{"gw":{"kind":"anthropic","base_url":"https://gw.example.com","auth":{"type":"none"}},"github-copilot":{"kind":"openai","base_url":"https://api.githubcopilot.com","auth":{"type":"cli","login":"copilot"}}}}`
 	vaulttest.Put(t, vault.Overlay, "providers", existing)
 	picks := map[string]string{models.Opus: "gpt-6.1-sol", models.Sonnet: "claude-sonnet-5.5", models.Haiku: "claude-haiku-4.5"}
 	if err := WriteGithubCopilotModels(picks, ""); err != nil {
@@ -70,10 +86,7 @@ func TestWriteGithubCopilotModelsMergesIntoOverlay(t *testing.T) {
 	if string(doc["default"]) != `"gw"` {
 		t.Errorf("default = %s, want it preserved", doc["default"])
 	}
-	var provs map[string]json.RawMessage
-	if err := json.Unmarshal(doc["providers"], &provs); err != nil {
-		t.Fatal(err)
-	}
+	provs := flatOverlayRows(t, doc["providers"])
 	if _, ok := provs["gw"]; !ok {
 		t.Error("the unrelated gw provider entry was dropped")
 	}
@@ -81,7 +94,7 @@ func TestWriteGithubCopilotModelsMergesIntoOverlay(t *testing.T) {
 		Auth   json.RawMessage   `json:"auth"`
 		Models map[string]string `json:"models"`
 	}
-	if err := json.Unmarshal(provs["github-copilot"], &copilotEntry); err != nil {
+	if err := json.Unmarshal(provs["personal"], &copilotEntry); err != nil {
 		t.Fatal(err)
 	}
 	if copilotEntry.Auth == nil {
@@ -95,7 +108,7 @@ func TestWriteGithubCopilotModelsMergesIntoOverlay(t *testing.T) {
 // The overlay's prior bytes are retained in the vault when the new overlay replaces it.
 func TestWriteGithubCopilotModelsKeepsPreviousOverlay(t *testing.T) {
 	githubScratch(t)
-	original := `{"providers":{"github-copilot":{"kind":"openai","base_url":"https://api.githubcopilot.com","auth":{"type":"passthrough","login":"copilot"},"models":{"opus":"old-opus"}}}}`
+	original := `{"providers":{"github-copilot":{"kind":"openai","base_url":"https://api.githubcopilot.com","auth":{"type":"cli","login":"copilot"},"models":{"opus":"old-opus"}}}}`
 	vaulttest.Put(t, vault.Overlay, "providers", original)
 	picks := map[string]string{models.Opus: "new-opus", models.Sonnet: "new-sonnet", models.Haiku: "new-haiku"}
 	if err := WriteGithubCopilotModels(picks, ""); err != nil {
@@ -153,21 +166,18 @@ func TestWriteGithubCopilotModelsRejectsAutoFallback(t *testing.T) {
 // fallback="" (no slot resolved to "auto") leaves any opencode_fallback the overlay already set alone.
 func TestWriteGithubCopilotModelsEmptyFallbackLeavesExistingUnchanged(t *testing.T) {
 	githubScratch(t)
-	original := `{"providers":{"github-copilot":{"kind":"openai","base_url":"https://api.githubcopilot.com","auth":{"type":"passthrough","login":"copilot"},"opencode_fallback":"mai-code-1.1-flash","models":{"opus":"old-opus"}}}}`
+	original := `{"providers":{"github-copilot":{"kind":"openai","base_url":"https://api.githubcopilot.com","auth":{"type":"cli","login":"copilot"},"opencode_fallback":"mai-code-1.1-flash","models":{"opus":"old-opus"}}}}`
 	vaulttest.Put(t, vault.Overlay, "providers", original)
 	picks := map[string]string{models.Opus: "claude-opus-5.5", models.Sonnet: "claude-sonnet-5.5", models.Haiku: "claude-haiku-4.5"}
 	if err := WriteGithubCopilotModels(picks, ""); err != nil {
 		t.Fatalf("WriteGithubCopilotModels: %v", err)
 	}
 	doc := readOverlay(t)
-	var provs map[string]json.RawMessage
-	if err := json.Unmarshal(doc["providers"], &provs); err != nil {
-		t.Fatal(err)
-	}
+	provs := flatOverlayRows(t, doc["providers"])
 	var entry struct {
 		OpencodeFallback string `json:"opencode_fallback"`
 	}
-	if err := json.Unmarshal(provs["github-copilot"], &entry); err != nil {
+	if err := json.Unmarshal(provs["personal"], &entry); err != nil {
 		t.Fatal(err)
 	}
 	if entry.OpencodeFallback != "mai-code-1.1-flash" {

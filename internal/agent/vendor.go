@@ -19,12 +19,21 @@ import (
 	"github.com/edotau/claude-code/internal/vendors"
 )
 
-// ownLoginProvider is the Result.Provider for a vendor run on the credentials its own CLI stores.
-const ownLoginProvider = "own-login"
+// ownProfile is the profile a run on the agent's own stored login bills: the registry row naming that login, else the agent.
+func ownProfile(name string) string {
+	if reg, err := providers.Load(); err == nil {
+		for _, n := range reg.Names() {
+			if reg.Providers[n].Auth.Login == name {
+				return n
+			}
+		}
+	}
+	return name
+}
 
-// vendorTarget mirrors the shim (launch.Vendor): the session target when it can serve the vendor, else the
-// vendor's own login or first keyed provider. Only --provider (or a provider:model) is the caller's provider
-// choice; a slot name or model id is re-applied to the fallback provider. own is true when the vendor runs
+// vendorTarget mirrors the shim (launch.Vendor): the session target when it can serve the agent, else the
+// agent's own login or first keyed provider. Only --provider (or a provider:model) is the caller's provider
+// choice; a slot name or model id is re-applied to the fallback provider. own is true when the agent runs
 // on its own stored login and no harness route is injected.
 func vendorTarget(req Request, name string) (providers.Target, bool, error) {
 	t, own, note, err := vendorTargetNote(req, name)
@@ -68,6 +77,9 @@ func vendorTargetNote(req Request, name string) (t providers.Target, own bool, n
 		}
 	default:
 		ft.Model = req.Model
+		if ft.Provider != nil { // a typed id is respelled the way the fallback provider serves it, never copied
+			ft.Model = ft.Provider.WireModel(req.Model)
+		}
 	}
 	return ft, own, note, nil
 }
@@ -82,7 +94,7 @@ func namesProvider(reg *providers.Registry, spec string) bool {
 	return ok && found
 }
 
-// vendorRunner execs a vendor CLI's headless mode wired by vendors.ConfigureHeadless.
+// vendorRunner execs an agent CLI's headless mode wired by vendors.ConfigureHeadless.
 type vendorRunner struct{ name string }
 
 func (v vendorRunner) Name() string { return v.name }
@@ -106,10 +118,10 @@ func (v vendorRunner) Run(ctx context.Context, req Request, stream io.Writer) (R
 	if err != nil {
 		return Result{}, err
 	}
-	res := Result{Provider: ownLoginProvider, Model: t.Model, SessionID: req.SessionID}
+	res := Result{Provider: ownProfile(v.name), Model: t.Model, SessionID: req.SessionID}
 	if !own {
 		if t.Provider == nil { // vendorTargetNote can report a non-own target with no provider resolved
-			return res, &Error{Kind: KindFatal, Agent: v.name, Err: errors.New("vendor target resolved to no provider")}
+			return res, &Error{Kind: KindFatal, Agent: v.name, Err: errors.New("agent target resolved to no provider")}
 		}
 		res.Provider = t.Provider.Name
 	}
@@ -184,7 +196,7 @@ func (v vendorRunner) Run(ctx context.Context, req Request, stream io.Writer) (R
 	return res, childErr(ctx, v.name, err, tail)
 }
 
-// attachPrompt folds --attach into the prompt for a vendor with no file-list argv: codex (prompt rides
+// attachPrompt folds --attach into the prompt for an agent with no file-list argv: codex (prompt rides
 // stdin, so the content must ride along inline) and gemini (agy has no -f flag, but resolves @path live
 // only when tools are on; agy's own no-tools preamble bars it from reading @path, so inline it instead).
 // opencode gets its own -f argv instead (vendors.opencodeRun), so its prompt is untouched here.
@@ -383,10 +395,10 @@ func (copilotRunner) Run(ctx context.Context, req Request, stream io.Writer) (Re
 	if err != nil {
 		return Result{}, err
 	}
-	res := Result{Provider: ownLoginProvider, Model: models.Strip1M(t.Model)}
+	res := Result{Provider: ownProfile("copilot"), Model: models.Strip1M(t.Model)}
 	if !own {
 		if t.Provider == nil {
-			return res, &Error{Kind: KindFatal, Agent: "copilot", Err: errors.New("vendor target resolved to no provider")}
+			return res, &Error{Kind: KindFatal, Agent: "copilot", Err: errors.New("agent target resolved to no provider")}
 		}
 		res.Provider = t.Provider.Name
 	}
@@ -403,7 +415,7 @@ func (copilotRunner) Run(ctx context.Context, req Request, stream io.Writer) (Re
 	}
 	var model string
 	if own || (t.Provider != nil && t.Provider.Auth.Login != "") {
-		model = models.Strip1M(t.Model) // no BYOK block, so the session takes the catalog id itself ([1m] is ours)
+		model = copilotModelID(t.Model) // no BYOK block, so the session takes the catalog id itself ([1m] is ours)
 	}
 	// An explicit --effort overrides the pin; there is no per-call --context, so the pin alone decides it.
 	effort := cmp.Or(req.Effort, providers.Pin(providers.PinCopilotEffort))
@@ -457,6 +469,15 @@ func (copilotRunner) Run(ctx context.Context, req Request, stream io.Writer) (Re
 	return res, nil
 }
 
+// copilotModelID is id as Copilot's catalog spells it (dotted versions); [1m] is dropped, an unknown id is kept.
+func copilotModelID(id string) string {
+	id = models.Strip1M(id)
+	if canonical, _, ok := models.Resolve(id); ok {
+		return models.Wire("dotted", canonical)
+	}
+	return id
+}
+
 // directCtx carries req.Direct to vendors.Configure (skip the router).
 func directCtx(ctx context.Context, req Request) context.Context {
 	if req.Direct {
@@ -465,5 +486,5 @@ func directCtx(ctx context.Context, req Request) context.Context {
 	return ctx
 }
 
-// copilotAsk is the SDK call, a var so tests reach the runner's result handling without a copilot binary.
+// copilotAsk is the SDK call, a var so tests reach the agent's result handling without a copilot binary.
 var copilotAsk = copilotsdk.Ask

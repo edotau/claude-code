@@ -2,28 +2,10 @@ package providers
 
 import (
 	"encoding/json"
-	"reflect"
 	"testing"
 
 	"github.com/edotau/claude-code/internal/vault"
 )
-
-func TestAgentRowSlotMap(t *testing.T) {
-	cases := []struct {
-		name string
-		row  AgentRow
-		want map[string]string
-	}{
-		{"models win", AgentRow{Model: "m", Models: map[string]string{"haiku": "h", "opus": "o"}}, map[string]string{"haiku": "h", "opus": "o"}},
-		{"model only", AgentRow{Model: "m"}, map[string]string{"opus": "m"}},
-		{"neither", AgentRow{Effort: "high"}, nil},
-	}
-	for _, c := range cases {
-		if got := c.row.SlotMap(); !reflect.DeepEqual(got, c.want) {
-			t.Errorf("%s: got %v want %v", c.name, got, c.want)
-		}
-	}
-}
 
 func readOverlay(t *testing.T, key string) string {
 	t.Helper()
@@ -36,7 +18,7 @@ func readOverlay(t *testing.T, key string) string {
 
 func TestUpdateOverlayDocDryRunWritesNothing(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	if err := SetProviderModel("github-copilot", "haiku", "seed-x"); err != nil {
+	if err := SetProviderModel("personal", "haiku", "seed-x"); err != nil {
 		t.Fatal(err)
 	}
 	before, prevBefore := readOverlay(t, "providers"), readOverlay(t, "providers.prev")

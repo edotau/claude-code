@@ -129,12 +129,12 @@ func Run(ctx context.Context, o Options, stream, log io.Writer) (agent.Result, e
 		return res, err
 	}
 
-	r, err := agent.Lookup("api")
+	r, err := agent.Lookup("claude")
 	if err != nil {
 		return agent.Result{}, err
 	}
 	return agent.Run(ctx, r, agent.Request{
-		Prompt: prompt, Model: model, Provider: p.Name, Effort: o.Effort, Timeout: o.Timeout,
+		Prompt: prompt, Model: model, Provider: p.Name, Effort: o.Effort, Timeout: o.Timeout, NoTools: true,
 	}, stream, func(s string) { fmt.Fprintln(log, s) })
 }
 
@@ -146,7 +146,7 @@ func resolvedModelID(reg *providers.Registry, sel providers.Selection, p *provid
 	return providers.ParseTarget(reg, model, p).Model
 }
 
-// resolveProvider selects the provider (default "gemini") and resolves the model to call.
+// resolveProvider selects the profile (default: the google profile with a gemini login) and resolves the model to call.
 func resolveProvider(o Options) (*providers.Registry, providers.Selection, *providers.Provider, string, error) {
 	reg, err := providers.Load()
 	if err != nil {
@@ -154,7 +154,12 @@ func resolveProvider(o Options) (*providers.Registry, providers.Selection, *prov
 	}
 	providerName := o.Provider
 	if providerName == "" {
-		providerName = "gemini"
+		for _, n := range reg.ProfilesOf("google") {
+			if reg.Providers[n].Auth.Login == "gemini" {
+				providerName = n
+				break
+			}
+		}
 	}
 	sel, err := providers.Select(reg, providerName)
 	if err != nil {

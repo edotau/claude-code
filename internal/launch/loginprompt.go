@@ -36,7 +36,7 @@ func offerLogin(ctx context.Context, o Options, args []string, ps []*providers.P
 		if p == nil || seen[p.Name] {
 			continue
 		}
-		if p.Auth.Type == providers.AuthPassthrough && p.Auth.Login == "" { // Claude Code shows its own login screen
+		if p.Auth.Method() == providers.AuthCLI && p.Auth.Login == "" { // Claude Code shows its own login screen
 			continue
 		}
 		seen[p.Name] = true
@@ -83,7 +83,7 @@ func offerLoginOne(ctx context.Context, p *providers.Provider, in *bufio.Reader,
 	fmt.Fprintf(loginOut, "%s: login required. Log in now? [Y/n] ", p.Name)
 	line, _ := in.ReadString('\n')
 	if a := strings.ToLower(strings.TrimSpace(line)); a != "" && !strings.HasPrefix(a, "y") {
-		if p.Auth.AuthType == "" && p.CLIProfile != "" {
+		if p.Auth.Method() == "" && p.CLIProfile != "" {
 			return fmt.Errorf("login skipped; requests will fail until `databricks auth login -p %s` (%s)", p.CLIProfile, v)
 		}
 		return fmt.Errorf("login skipped; requests will fail until `claude-code configure provider --all %s` (%s)", p.Name, v)

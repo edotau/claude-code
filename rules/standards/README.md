@@ -20,8 +20,8 @@ documented, and secured.
 
 ## How this tier is used
 
-- **Auto-injected every turn** — the six doctrine files here are unscoped (this README is not), so
-  Claude Code loads them into every session prompt. Adding `paths:` frontmatter is what makes one
+- **Auto-injected every turn** — the five unscoped doctrine files here (`documentation.md` and this README are scoped)
+  are loaded by Claude Code into every session prompt. Adding `paths:` frontmatter is what makes one
   on-demand; keep each file short, since every line costs context on every turn.
 - **`claude-code memory remember` then `memory promote <id> --to rules` writes here** (routing
   table printed by `memory promote --to rules`'s embedded procedure)
@@ -31,7 +31,7 @@ documented, and secured.
   `claude-code memory dream`; `CLAUDE.md` stays an index and takes only hard rules.
 - **Cross-agent bridge** — this tier reaches other tools only via `CLAUDE.md` prose, which
   `claude-code agents sync` renders into `~/.codex/AGENTS.md`, `~/.gemini/GEMINI.md` and
-  `~/.copilot/copilot-instructions.md`, projects agents into every vendor home (local render in
+  `~/.copilot/copilot-instructions.md`, projects agents into every agent home (local render in
   `state/projections/`), and links skills into `~/.agents/skills`. `workflow/` and `harness/` are not bridged at all.
 
 ## Priority order (when standards conflict)

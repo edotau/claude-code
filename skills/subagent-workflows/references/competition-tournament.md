@@ -3,7 +3,7 @@
 N leaves attempt the **same** task independently in isolated worktrees; the manager measures and merges one. Use it
 when the objective is measurable (latency, size, pass rate, coverage) or the approaches truly diverge. Skip it when
 one approach is obviously right, outcomes aren't comparable, or the win is smaller than the N× cost (tokens and rate
-limit scale with N; cap N by the concurrency tier).
+limit scale with N; keep N within the 24-agent cap).
 
 ## Process
 
@@ -11,8 +11,8 @@ limit scale with N; cap N by the concurrency tier).
 2. **One brief, reused verbatim** for every competitor (same objective, criteria, eval command). To force divergence,
    vary one named constraint per leaf ("no new deps") and say so.
 3. **Dispatch in one message**: `code-worker`, `isolation: "worktree"`, branch `compete/<slug>/<n>`; each commits and
-   reports its measured number. Comparing model families instead: each competitor is
-   `claude-code ask --agent <runner> --format json "<same brief>"` in its own worktree
+   reports its measured number. Comparing agents instead: each competitor is
+   `claude-code ask --agent <agent> --format json "<same brief>"` in its own worktree
    ([cost-routing.md](cost-routing.md)).
 4. **Re-measure yourself** in each worktree; discard red ones. A self-reported number is a claim.
 5. **Rank** on the diff, never the leaf's summary:

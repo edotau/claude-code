@@ -32,7 +32,8 @@ func TestWireModelTable(t *testing.T) {
 		{"dots with 1m", db, "claude-opus-4.5[1m]", "databricks-claude-opus-4-5[1m]"},
 		{"custom name unchanged", db, "my-opus", "my-opus"},
 		{"custom dotted name unchanged", db, "my.endpoint", "my.endpoint"},
-		{"gemini family", db, "gemini-2.5-pro", "databricks-gemini-2-5-pro"},
+		{"catalog gemini", db, "gemini-3.8-flash", "databricks-gemini-3-8-flash"},
+		{"non-catalog passes through", db, "gemini-2.5-pro", "gemini-2.5-pro"},
 		{"no prefix provider", plain, "claude-opus-5-5", "claude-opus-5-5"},
 		{"no prefix keeps dots", plain, "gpt-5.5", "gpt-5.5"},
 	}
@@ -110,37 +111,5 @@ func TestDecoratedModelsNeverPersisted(t *testing.T) {
 	}
 	if !strings.Contains(string(doc), `"claude-opus-5-5"`) || !strings.Contains(string(doc), `"claude-sonnet-5-5"`) {
 		t.Errorf("overlay lost the canonical ids: %s", doc)
-	}
-}
-
-func dbxProfileReg(t *testing.T, row string) *Registry {
-	t.Helper()
-	return mustParse(t, `{"providers":{`+dbxProv+`,`+sessionProviders+`},"profiles":{"active":"w","sets":{"w":`+row+`}}}`)
-}
-
-func TestResolveAgentDecoratesRowAndExplicitModel(t *testing.T) {
-	reg := dbxProfileReg(t, `{"copilot":{"account":"dbx","model":"claude-opus-5-5"},
-	  "session":{"account":"dbx","models":{"sonnet":"claude-sonnet-5-5","haiku":"databricks-claude-haiku-5-5"}}}`)
-	if b := reg.ResolveAgent(AgentRequest{Agent: "copilot"}); b.Model != "databricks-claude-opus-5-5" {
-		t.Errorf("row model = %q", b.Model)
-	}
-	if b := reg.ResolveAgent(AgentRequest{Agent: "copilot", Model: "gpt-5.5"}); b.Provider != "dbx" || b.Model != "databricks-gpt-5-5" {
-		t.Errorf("explicit model binding = %+v", b)
-	}
-	b := reg.ResolveAgent(AgentRequest{Agent: "session", Model: "claude-opus-5-5[1m]"})
-	if b.Slots["sonnet"] != "databricks-claude-sonnet-5-5" || b.Slots["haiku"] != "databricks-claude-haiku-5-5" ||
-		b.Slots["opus"] != "databricks-claude-opus-5-5[1m]" {
-		t.Errorf("slots = %+v", b.Slots)
-	}
-}
-
-func TestResolveAgentWireRowsUnchanged(t *testing.T) {
-	reg := dbxProfileReg(t, `{"copilot":{"account":"dbx","model":"databricks-claude-opus-5-5"},
-	  "api":{"account":"gw","model":"row-m"}}`)
-	if b := reg.ResolveAgent(AgentRequest{Agent: "copilot"}); b.Model != "databricks-claude-opus-5-5" {
-		t.Errorf("wire row = %q", b.Model)
-	}
-	if b := reg.ResolveAgent(AgentRequest{Agent: "api"}); b.Provider != "gw" || b.Model != "row-m" {
-		t.Errorf("non-prefix row = %+v", b)
 	}
 }

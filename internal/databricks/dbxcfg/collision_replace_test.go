@@ -24,7 +24,7 @@ func TestPlanSkipsCollidingSecretNames(t *testing.T) {
 
 func TestPlanReplaceOfNoAuthTypeRowSkipsOnlyThatRow(t *testing.T) {
 	existing := map[string]json.RawMessage{
-		"keep": json.RawMessage(`{"preset":"databricks","host":"https://example.cloud.databricks.com","auth":{"type":"bearer"}}`),
+		"keep": json.RawMessage(`{"preset":"databricks","host":"https://example.cloud.databricks.com","auth":{"type":"key"}}`),
 	}
 	rows := Plan([]Candidate{patCand("keep"), patCand("fresh")}, existing, Options{Replace: true})
 	if rows[0].Action != "skip" || !strings.Contains(rows[0].Reason, "databricks login --profile keep --auth-type u2m") {

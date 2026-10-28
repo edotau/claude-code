@@ -192,6 +192,7 @@ func TestReviewPromptFocusAppended(t *testing.T) {
 // ReviewArgs's temp file must survive for a detached background run, and be cleaned up immediately
 // for a foreground run whose lifetime ends with this call.
 func TestReviewArgsCleanupLifecycle(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	for _, background := range []bool{false, true} {
 		args, cleanup, err := ReviewArgs("codex", Scope{Kind: "uncommitted"}, []byte("diff content"), true, background, "", "")
 		if err != nil {
@@ -227,13 +228,14 @@ func TestReviewArgsCleanupLifecycle(t *testing.T) {
 }
 
 func TestReviewArgsShape(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	args, cleanup, err := ReviewArgs("codex", Scope{Kind: "uncommitted"}, []byte("d"), false, false, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer cleanup()
-	if len(args) < 6 || args[0] != "--agent" || args[1] != "codex" || args[2] != "--fallback" || args[3] != "vendors" || args[4] != "--attach" {
-		t.Fatalf("args = %v, want [--agent codex --fallback vendors --attach <tmp> <prompt>]", args)
+	if len(args) < 6 || args[0] != "--agent" || args[1] != "codex" || args[2] != "--fallback" || args[3] != "agents" || args[4] != "--attach" {
+		t.Fatalf("args = %v, want [--agent codex --fallback agents --attach <tmp> <prompt>]", args)
 	}
 	if args[len(args)-1] != ReviewPrompt(false, "") {
 		t.Errorf("last arg = %q, want the review prompt", args[len(args)-1])
@@ -246,6 +248,7 @@ func TestReviewArgsShape(t *testing.T) {
 }
 
 func TestReviewArgsBackgroundFlag(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	args, cleanup, err := ReviewArgs("codex", Scope{Kind: "uncommitted"}, []byte("d"), false, true, "", "")
 	if err != nil {
 		t.Fatal(err)
@@ -270,6 +273,7 @@ func TestReviewArgsBackgroundFlag(t *testing.T) {
 }
 
 func TestReviewArgsRubricPrecedesPrompt(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	// Given a rubric file; When args are built; Then "--rubric <f>" sits right before the trailing prompt
 	args, cleanup, err := ReviewArgs("codex", Scope{Kind: "uncommitted"}, []byte("d"), false, false, "", "/tmp/rubric.md")
 	if err != nil {
@@ -283,6 +287,7 @@ func TestReviewArgsRubricPrecedesPrompt(t *testing.T) {
 }
 
 func TestReviewArgsEmptyRubricEmitsNothing(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	args, cleanup, err := ReviewArgs("codex", Scope{Kind: "uncommitted"}, []byte("d"), false, false, "", "")
 	if err != nil {
 		t.Fatal(err)

@@ -71,7 +71,7 @@ func TestMergePreservesForeign(t *testing.T) {
 	if err := json.Unmarshal(merged, &doc); err != nil {
 		t.Fatalf("%v\n%s", err, merged)
 	}
-	if doc.Env["KEEP_ME"] != "1" || doc.Env["CLAUDE_CODE_API_KEY_HELPER_TTL_MS"] == "" {
+	if doc.Env["KEEP_ME"] != "1" || doc.Env["CLAUDE_CODE_SCROLL_SPEED"] == "" {
 		t.Errorf("env not unioned: %v", doc.Env)
 	}
 	if doc.Tips == nil || *doc.Tips || doc.Output != "Concise" {

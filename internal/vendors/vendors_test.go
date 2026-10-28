@@ -83,8 +83,8 @@ func TestConfigure(t *testing.T) {
 			wantEnv: map[string]string{"COPILOT_PROVIDER_TYPE": "anthropic", "COPILOT_PROVIDER_API_KEY": secret, "COPILOT_PROVIDER_BEARER_TOKEN": "", "COPILOT_MODEL": "claude-opus-5"}},
 		{vendor: "copilot", provider: "openai", model: "gpt-5",
 			wantEnv: map[string]string{"COPILOT_PROVIDER_TYPE": "openai", "COPILOT_PROVIDER_BEARER_TOKEN": secret, "COPILOT_PROVIDER_BASE_URL": "https://api.openai.com/v1"}},
-		{vendor: "opencode", provider: "subscription", model: "claude-opus-5", wantErr: "passthrough"},
-		{vendor: "nope", provider: "openai", model: "gpt-5", wantErr: "unknown vendor"},
+		{vendor: "opencode", provider: "subscription", model: "claude-opus-5", wantErr: "cli (subscription)"},
+		{vendor: "nope", provider: "openai", model: "gpt-5", wantErr: "unknown agent"},
 	}
 	for _, c := range cases {
 		t.Run(c.vendor+"/"+c.provider, func(t *testing.T) {
@@ -202,8 +202,8 @@ func TestCopilotLoginArgvCarriesPinsWhenSetOmitsWhenUnset(t *testing.T) {
 		t.Errorf("argv %q with no pins set, want neither flag", argv)
 	}
 
-	t.Setenv(providers.PinCopilotEffort, "xhigh")
-	t.Setenv(providers.PinCopilotContext, "long_context")
+	setPin(t, providers.PinCopilotEffort, "xhigh")
+	setPin(t, providers.PinCopilotContext, "long_context")
 	_, argv, err = Configure(context.Background(), "copilot", tg, "")
 	if err != nil {
 		t.Fatal(err)
@@ -219,7 +219,7 @@ func TestCopilotLoginArgvCarriesPinsWhenSetOmitsWhenUnset(t *testing.T) {
 // case already proves the no-pin explicit path, so this proves the pin-only and pin-vs-explicit paths).
 func TestCodexHeadlessEffortPinUsedWhenEffortEmptyExplicitWinsOverIt(t *testing.T) {
 	tg := target(t, "openai", "gpt-5")
-	t.Setenv(providers.PinCodexEffort, "")
+	setPin(t, providers.PinCodexEffort, "")
 	if err := providers.SetPins(map[string]string{providers.PinCodexEffort: ""}); err != nil {
 		t.Fatal(err)
 	}
@@ -256,8 +256,8 @@ func TestCodexHeadlessEffortPinUsedWhenEffortEmptyExplicitWinsOverIt(t *testing.
 // Interactive copilot (h == nil, BYOK/gateway route): same pin-to-argv wiring as the own-login route.
 func TestCopilotBYOKArgvCarriesPinsWhenSet(t *testing.T) {
 	tg := target(t, "openai", "gpt-5")
-	t.Setenv(providers.PinCopilotEffort, "low")
-	t.Setenv(providers.PinCopilotContext, "default")
+	setPin(t, providers.PinCopilotEffort, "low")
+	setPin(t, providers.PinCopilotContext, "default")
 
 	_, argv, err := Configure(context.Background(), "copilot", tg, "")
 	if err != nil {
@@ -274,8 +274,8 @@ func TestCopilotBYOKArgvCarriesPinsWhenSet(t *testing.T) {
 func TestCopilotHeadlessArgvIgnoresPins(t *testing.T) {
 	tg := target(t, "github-copilot", "claude-opus-5.5")
 	noCopilotLogin(t)
-	t.Setenv(providers.PinCopilotEffort, "max")
-	t.Setenv(providers.PinCopilotContext, "long_context")
+	setPin(t, providers.PinCopilotEffort, "max")
+	setPin(t, providers.PinCopilotContext, "long_context")
 
 	_, argv, err := ConfigureHeadless(context.Background(), "copilot", tg, Headless{Prompt: "hi"})
 	if err != nil {
@@ -523,7 +523,7 @@ func TestGeminiGateway(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("GW_KEY", secret)
 	p := &providers.Provider{Name: "gw", Kind: providers.DialectGemini, BaseURL: "https://gw.example/gemini",
-		Auth: providers.Auth{Type: providers.AuthBearer, Env: "GW_KEY"}, Headers: map[string]string{"X-Team": "a"}}
+		Auth: providers.Auth{Type: providers.AuthKey, Env: "GW_KEY"}, Headers: map[string]string{"X-Team": "a"}}
 	_, _, err := Configure(context.Background(), "gemini", providers.Target{Provider: p, Model: "m"}, "")
 	if err == nil || !strings.Contains(err.Error(), "no custom base URL") {
 		t.Fatalf("err = %v, want a clear \"no custom base URL\" error", err)
@@ -767,7 +767,7 @@ func TestResolveTargetFallsBackWhenSessionProviderCannotServe(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	sub, err := reg.Get("subscription")
+	sub, err := reg.Get("max")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -805,7 +805,7 @@ func TestResolveTargetFallsBackWhenSessionProviderCannotServe(t *testing.T) {
 
 	// The CODEX_MODEL pin beats both the chatgpt provider's own opus slot and codexOwnModel's
 	// config.toml (unset here), once the ChatGPT login fallback applies.
-	t.Setenv(providers.PinCodexModel, "")
+	setPin(t, providers.PinCodexModel, "")
 	if err := providers.SetPins(map[string]string{providers.PinCodexModel: "gpt-6.1-sol"}); err != nil {
 		t.Fatal(err)
 	}
@@ -844,13 +844,13 @@ func TestResolveTargetGeminiModelPinBeatsRegistryDefault(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	sub, err := reg.Get("subscription")
+	sub, err := reg.Get("max")
 	if err != nil {
 		t.Fatal(err)
 	}
 	sel := providers.Selection{Provider: sub, Slots: map[string]providers.Target{"opus": {Provider: sub, Model: "claude-opus-5-5"}}}
 
-	t.Setenv(providers.PinGeminiModel, "")
+	setPin(t, providers.PinGeminiModel, "")
 	if err := providers.SetPins(map[string]string{providers.PinGeminiModel: ""}); err != nil {
 		t.Fatal(err)
 	}
@@ -858,7 +858,7 @@ func TestResolveTargetGeminiModelPinBeatsRegistryDefault(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantDefault := reg.Providers["gemini"].Models["opus"]
+	wantDefault := reg.Providers["antigravity"].Models["opus"]
 	if target.Model != wantDefault {
 		t.Fatalf("unpinned: target.Model = %q, want the registry's gemini opus slot %q", target.Model, wantDefault)
 	}
@@ -1014,7 +1014,7 @@ func TestCopilotAuthSourcePinOutranksStoredToken(t *testing.T) {
 	if err := secrets.Store(CopilotTokenEnv, "stored-tok"); err != nil {
 		t.Fatal(err)
 	}
-	if err := providers.SetPins(map[string]string{providers.PinGitHubUser: "alice"}); err != nil {
+	if err := providers.SetPins(map[string]string{providers.PinCopilotProfile: "alice"}); err != nil {
 		t.Fatal(err)
 	}
 	a, ok := copilotAuthSource()
@@ -1057,7 +1057,7 @@ func TestResolveTargetGeminiFallsBackToGoogleLogin(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	sub, err := reg.Get("subscription")
+	sub, err := reg.Get("max")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1066,7 +1066,7 @@ func TestResolveTargetGeminiFallsBackToGoogleLogin(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if target.Provider == nil || target.Provider.Name != "gemini" || !strings.Contains(note, "Google login") {
+	if target.Provider == nil || target.Provider.Provider != "google" || !strings.Contains(note, "Google login") {
 		t.Fatalf("expected the Google-login gemini route, got %v / %q", target.Provider, note)
 	}
 	env, _, err := ConfigureHeadless(context.Background(), "gemini", target, Headless{Prompt: "hi"})
@@ -1083,6 +1083,6 @@ func TestResolveTargetGeminiFallsBackToGoogleLogin(t *testing.T) {
 // writeGatewayOverlay registers a test-only third-party gateway (no such provider is built in).
 func writeGatewayOverlay(t *testing.T) {
 	t.Helper()
-	body := `{"providers":{"gateway":{"kind":"anthropic","base_url":"https://gateway.example.com/api","routes":{"openai":"/v1"},"auth":{"type":"bearer","env":"GATEWAY_API_KEY"},"models":{"opus":"anthropic/claude-opus-5","sonnet":"anthropic/claude-sonnet-5","haiku":"anthropic/claude-haiku-4-5"}}}}`
+	body := `{"providers":{"gateway":{"kind":"anthropic","base_url":"https://gateway.example.com/api","routes":{"openai":"/v1"},"auth":{"type":"key","env":"GATEWAY_API_KEY"},"models":{"opus":"anthropic/claude-opus-5","sonnet":"anthropic/claude-sonnet-5","haiku":"anthropic/claude-haiku-4-5"}}}}`
 	vaulttest.Put(t, vault.Overlay, "providers", body)
 }

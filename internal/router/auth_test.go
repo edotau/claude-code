@@ -1,494 +1,230 @@
 package router
 
 import (
-	"fmt"
-	"io"
-	"net/http"
-	"net/http/httptest"
-	"net/url"
+	"os"
 	"strings"
-	"sync"
 	"testing"
 	"time"
-
-	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/vault"
-	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
-// fakeGate is an in-memory route store behind router.Gate; the real quota.json is never touched.
-type fakeGate struct {
-	mu      sync.Mutex
-	marks   map[string]string
-	cleared []string
-}
-
-func useGate(t *testing.T) *fakeGate {
+func useConfigDir(t *testing.T) {
 	t.Helper()
-	g := &fakeGate{marks: map[string]string{}}
-	prev := Gate
-	Gate = AuthGate{
-		Account: func(p string) string { return "provider:" + p },
-		Mark: func(a, reason string) error {
-			g.mu.Lock()
-			defer g.mu.Unlock()
-			g.marks[a] = reason
-			return nil
-		},
-		Clear: func(a string) error {
-			g.mu.Lock()
-			defer g.mu.Unlock()
-			delete(g.marks, a)
-			g.cleared = append(g.cleared, a)
-			return nil
-		},
-		Marked: func() func(string, time.Time) (string, bool) {
-			g.mu.Lock()
-			snap := map[string]string{}
-			for k, v := range g.marks {
-				snap[k] = v
-			}
-			g.mu.Unlock()
-			return func(a string, _ time.Time) (string, bool) { r, ok := snap[a]; return r, ok }
-		},
-	}
-	t.Cleanup(func() { Gate = prev })
-	return g
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 }
 
-func (g *fakeGate) marked(provider string) (string, bool) {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	r, ok := g.marks["provider:"+provider]
-	return r, ok
-}
-
-func (g *fakeGate) premark(provider string) {
-	g.mu.Lock()
-	g.marks["provider:"+provider] = "auth rejected"
-	g.mu.Unlock()
-}
-
-// setupRouter is setup with a keyring-backed vault (sealed secrets work) and a hook to tweak the router.
-func setupRouter(t *testing.T, overlay string, tweak func(*Router)) *httptest.Server {
-	t.Helper()
-	vaulttest.UseKeyring(t)
-	vaulttest.Put(t, vault.Overlay, "providers", overlay)
-	r := newRouter(secret)
-	r.log = io.Discard
-	r.oauth = func() string { return "" }
-	if tweak != nil {
-		tweak(r)
+func TestMarkAuthRoundTripAndClear(t *testing.T) {
+	useConfigDir(t)
+	acct := ProviderAccount("dbx-oai")
+	if acct != "databricks·dbx-oai" {
+		t.Fatalf("ProviderAccount = %q", acct)
 	}
-	srv := httptest.NewServer(r)
-	t.Cleanup(srv.Close)
-	return srv
-}
-
-// u2mRow is a sealed-auth row with no sealed refresh token: minting yields providers.ErrNeedsLogin.
-func u2mRow(base string) string {
-	return fmt.Sprintf(`{"kind":"anthropic","base_url":%q,"auth":{"type":"bearer","authType":"u2m"},"models":{"opus":"m1-opus","haiku":"m1-haiku"}}`, base)
-}
-
-func body(t *testing.T, r *http.Response) string {
-	t.Helper()
-	b, _ := io.ReadAll(r.Body)
-	return string(b)
-}
-
-func TestCondemnedRefreshMovesOnToNextTarget(t *testing.T) {
-	g := useGate(t)
-	up1 := newUpstream(t, ok)
-	up2 := newUpstream(t, ok)
-	t.Setenv("UP2_KEY", "k2")
-	srv := setupRouter(t, `{"default":"up1","fallback":["up2"],"providers":{"up1":`+u2mRow(up1.URL)+`,"up2":`+
-		anthropicProvider(up2.URL, "UP2_KEY", `{"opus":"m2-opus","haiku":"m2-haiku"}`)+`}}`, nil)
-
-	resp := post(t, srv.URL+"/p/up1/v1/messages", `{"model":"m1-haiku"}`, nil)
-	if resp.StatusCode != 200 || up1.hits.Load() != 0 || up2.hits.Load() != 1 {
-		t.Fatalf("status %d hits up1=%d up2=%d, want 200 served by up2 only", resp.StatusCode, up1.hits.Load(), up2.hits.Load())
-	}
-	if reason, ok := g.marked("up1"); !ok || !strings.Contains(reason, "needs_login") || !strings.Contains(reason, "databricks login --profile up1") {
-		t.Fatalf("up1 mark = %q, %v; want a needs_login mark with the login hint", reason, ok)
-	}
-	if _, ok := g.marked("up2"); ok {
-		t.Fatal("the healthy fallback was marked")
-	}
-	// attempts() now skips the marked provider: the next request goes straight to up2.
-	if resp := post(t, srv.URL+"/p/up1/v1/messages", `{"model":"m1-haiku"}`, nil); resp.StatusCode != 200 || up2.hits.Load() != 2 {
-		t.Fatalf("second status %d up2 hits %d", resp.StatusCode, up2.hits.Load())
-	}
-}
-
-func TestTransientRefreshFailureMovesOnWithoutMarking(t *testing.T) {
-	g := useGate(t)
-	up2 := newUpstream(t, ok)
-	t.Setenv("UP2_KEY", "k2")
-	srv := setupRouter(t, `{"default":"up1","fallback":["up2"],"providers":{"up1":{"kind":"anthropic","base_url":"`+up2.URL+
-		`","auth":{"type":"bearer","command":"exit 1"},"models":{"opus":"m1"}},"up2":`+
-		anthropicProvider(up2.URL, "UP2_KEY", `{"opus":"m2-opus"}`)+`}}`, nil)
-
-	resp := post(t, srv.URL+"/p/up1/v1/messages", `{"model":"m1"}`, nil)
-	if resp.StatusCode != 200 || up2.hits.Load() != 1 {
-		t.Fatalf("status %d up2 hits %d, want a plain failover", resp.StatusCode, up2.hits.Load())
-	}
-	if len(g.marks) != 0 {
-		t.Fatalf("a transient failure condemned an account: %v", g.marks)
-	}
-}
-
-func TestLadderExhaustedReturns401WithLoginHint(t *testing.T) {
-	g := useGate(t)
-	up1 := newUpstream(t, ok)
-	srv := setupRouter(t, `{"default":"up1","providers":{"up1":`+u2mRow(up1.URL)+`}}`, nil)
-
-	resp := post(t, srv.URL+"/p/up1/v1/messages", `{"model":"m1-opus"}`, nil)
-	b := body(t, resp)
-	if resp.StatusCode != 401 || !strings.Contains(b, `"authentication_error"`) ||
-		!strings.Contains(b, "run `claude-code databricks login --profile up1`") {
-		t.Fatalf("status %d body %s, want 401 authentication_error with the login hint", resp.StatusCode, b)
-	}
-	if up1.hits.Load() != 0 {
-		t.Fatalf("upstream reached %d times without a credential", up1.hits.Load())
-	}
-	if _, ok := g.marked("up1"); !ok {
-		t.Fatal("exhausting the ladder must still record the mark")
-	}
-}
-
-func TestAllTargetsMarkedKeepsTheLadder(t *testing.T) {
-	g := useGate(t)
-	up1 := newUpstream(t, ok)
-	up2 := newUpstream(t, ok)
-	t.Setenv("UP1_KEY", "k1")
-	t.Setenv("UP2_KEY", "k2")
-	srv := setupRouter(t, failoverOverlay(up1.URL, up2.URL), nil)
-	g.premark("up1")
-	g.premark("up2")
-
-	if resp := post(t, srv.URL+"/p/up1/v1/messages", `{"model":"m1-opus"}`, nil); resp.StatusCode != 200 || up1.hits.Load() != 1 {
-		t.Fatalf("status %d up1 hits %d, want the first target tried even though every target is marked", resp.StatusCode, up1.hits.Load())
-	}
-	// With only the first marked, the router skips it and uses the unmarked fallback.
-	g.mu.Lock()
-	delete(g.marks, "provider:up2")
-	g.mu.Unlock()
-	srv2 := setupRouter(t, failoverOverlay(up1.URL, up2.URL), nil)
-	if resp := post(t, srv2.URL+"/p/up1/v1/messages", `{"model":"m1-opus"}`, nil); resp.StatusCode != 200 || up1.hits.Load() != 1 || up2.hits.Load() != 1 {
-		t.Fatalf("status %d hits up1=%d up2=%d, want the marked up1 skipped", resp.StatusCode, up1.hits.Load(), up2.hits.Load())
-	}
-}
-
-func TestClearOnSuccessLiftsOwnMark(t *testing.T) {
-	g := useGate(t)
-	rejecting := true
-	var mu sync.Mutex
-	up := newUpstream(t, func(w http.ResponseWriter, r *http.Request, n int) {
-		mu.Lock()
-		rej := rejecting
-		mu.Unlock()
-		if rej {
-			w.WriteHeader(401)
-			return
-		}
-		ok(w, r, n)
-	})
-	t.Setenv("UP1_KEY", "k1")
-	srv := setupRouter(t, `{"default":"up1","providers":{"up1":`+anthropicProvider(up.URL, "UP1_KEY", `{"opus":"m1"}`)+`}}`, nil)
-
-	resp := post(t, srv.URL+"/p/up1/v1/messages", `{"model":"m1"}`, nil)
-	if resp.StatusCode != 401 {
-		t.Fatalf("status %d, want 401 after a re-mint that is still rejected", resp.StatusCode)
-	}
-	if reason, ok := g.marked("up1"); !ok || !strings.Contains(reason, "rejected") {
-		t.Fatalf("mark = %q, %v; want rejected", reason, ok)
-	}
-	mu.Lock()
-	rejecting = false
-	mu.Unlock()
-	if resp := post(t, srv.URL+"/p/up1/v1/messages", `{"model":"m1"}`, nil); resp.StatusCode != 200 {
-		t.Fatalf("status %d after recovery", resp.StatusCode)
-	}
-	if _, ok := g.marked("up1"); ok || len(g.cleared) != 1 || g.cleared[0] != "provider:up1" {
-		t.Fatalf("mark not cleared on success: marks=%v cleared=%v", g.marks, g.cleared)
-	}
-}
-
-func TestSuccessNeverClearsAMarkThisProcessDidNotSet(t *testing.T) {
-	g := useGate(t)
-	up := newUpstream(t, ok)
-	t.Setenv("UP1_KEY", "k1")
-	srv := setupRouter(t, `{"default":"up1","providers":{"up1":`+anthropicProvider(up.URL, "UP1_KEY", `{"opus":"m1"}`)+`}}`, nil)
-	g.premark("up1")
-	if resp := post(t, srv.URL+"/p/up1/v1/messages", `{"model":"m1"}`, nil); resp.StatusCode != 200 {
-		t.Fatalf("status %d", resp.StatusCode)
-	}
-	if _, ok := g.marked("up1"); !ok || len(g.cleared) != 0 {
-		t.Fatalf("a foreign mark was cleared: marks=%v cleared=%v", g.marks, g.cleared)
-	}
-}
-
-// sealedPAT is a Databricks-shaped row (sealed authType): the gateway's 400 "Invalid Token" is an auth rejection.
-func sealedPAT(t *testing.T, base string) string {
-	t.Helper()
-	if err := providers.SealSecret(providers.SecretNameFor("patrow", providers.AuthPAT), "pat-value"); err != nil {
+	if err := MarkAuth(acct, "auth needs_login"); err != nil {
 		t.Fatal(err)
 	}
-	return fmt.Sprintf(`{"kind":"anthropic","base_url":%q,"auth":{"type":"bearer","authType":"pat"},"models":{"opus":"m1"}}`, base)
-}
-
-func invalidTokenUp(t *testing.T) *upstream {
-	return newUpstream(t, func(w http.ResponseWriter, _ *http.Request, _ int) {
-		w.WriteHeader(400)
-		io.WriteString(w, `{"message":"Invalid Token"}`)
-	})
-}
-
-func TestInvalidToken400OnDatabricksRowIsAnAuthRejection(t *testing.T) {
-	g := useGate(t)
-	up := invalidTokenUp(t)
-	vaulttest.UseKeyring(t)
-	row := sealedPAT(t, up.URL)
-	srv := setupRouter2(t, `{"default":"patrow","providers":{"patrow":`+row+`}}`)
-
-	resp := post(t, srv.URL+"/p/patrow/v1/messages", `{"model":"m1"}`, nil)
-	b := body(t, resp)
-	if resp.StatusCode != 401 || !strings.Contains(b, "authentication_error") {
-		t.Fatalf("status %d body %s, want 401 authentication_error", resp.StatusCode, b)
+	reason, ok := LoadState().AuthMarked(acct, time.Now())
+	if !ok || reason != "auth needs_login" {
+		t.Fatalf("AuthMarked = %q, %v", reason, ok)
 	}
-	if up.hits.Load() != 2 {
-		t.Fatalf("upstream hits %d, want the request plus one replay after the re-mint", up.hits.Load())
+	if err := ClearAuth(acct); err != nil {
+		t.Fatal(err)
 	}
-	if _, ok := g.marked("patrow"); !ok {
-		t.Fatal("a persistent Invalid Token must mark the provider")
+	if _, ok := LoadState().AuthMarked(acct, time.Now()); ok {
+		t.Fatal("mark survived ClearAuth")
 	}
 }
 
-func TestInvalidToken400OnOtherProviderIsRelayedAsIs(t *testing.T) {
-	g := useGate(t)
-	up := invalidTokenUp(t)
-	t.Setenv("UP1_KEY", "k1")
-	srv := setupRouter(t, `{"default":"up1","providers":{"up1":`+anthropicProvider(up.URL, "UP1_KEY", `{"opus":"m1"}`)+`}}`, nil)
-
-	resp := post(t, srv.URL+"/p/up1/v1/messages", `{"model":"m1"}`, nil)
-	if resp.StatusCode != 400 || !strings.Contains(body(t, resp), "Invalid Token") {
-		t.Fatalf("status %d, want the upstream 400 relayed", resp.StatusCode)
+func TestAuthMarkExpiresAtTTL(t *testing.T) {
+	at := time.Date(2026, 10, 26, 8, 0, 0, 0, time.UTC)
+	s := State{"openai·chatgpt": {AuthReason: "r", AuthAt: at}}
+	for _, c := range []struct {
+		age  time.Duration
+		want bool
+	}{{0, true}, {AuthMarkTTL - time.Second, true}, {AuthMarkTTL, false}, {AuthMarkTTL + time.Second, false}} {
+		if _, ok := s.AuthMarked("openai·chatgpt", at.Add(c.age)); ok != c.want {
+			t.Errorf("age %v: marked = %v, want %v", c.age, ok, c.want)
+		}
 	}
-	if up.hits.Load() != 1 || len(g.marks) != 0 {
-		t.Fatalf("hits %d marks %v: a non-Databricks 400 must not remint or condemn", up.hits.Load(), g.marks)
+	if AuthMarkTTL != 6*time.Hour {
+		t.Errorf("AuthMarkTTL = %v, want 6h", AuthMarkTTL)
 	}
-}
-
-// setupRouter2 reuses the keyring/vault the caller already created (sealed secrets must survive into the router).
-func setupRouter2(t *testing.T, overlay string) *httptest.Server {
-	t.Helper()
-	vaulttest.Put(t, vault.Overlay, "providers", overlay)
-	r := newRouter(secret)
-	r.log = io.Discard
-	r.oauth = func() string { return "" }
-	srv := httptest.NewServer(r)
-	t.Cleanup(srv.Close)
-	return srv
-}
-
-// A condemned refresh on the passthrough path (GET and POST) answers 502 and records the mark.
-func TestPassthroughCondemnedRefreshAnswers502AndMarks(t *testing.T) {
-	for _, method := range []string{http.MethodGet, http.MethodPost} {
-		t.Run(method, func(t *testing.T) {
-			g := useGate(t)
-			up := newRawUp(t, okRaw)
-			srv := setupRouter(t, fmt.Sprintf(`{"default":"up1","providers":{"up1":{"kind":"openai","base_url":%q,`+
-				`"auth":{"type":"bearer","authType":"u2m"},"models":{"opus":"m"}}}}`, up.URL+"/v1"), nil)
-			resp := ptDo(t, method, srv.URL+"/p/up1/openai/models", "{}", nil)
-			b := body(t, resp)
-			if resp.StatusCode != http.StatusBadGateway || !strings.Contains(b, "authentication failed") {
-				t.Fatalf("status %d body %s, want 502 authentication failed", resp.StatusCode, b)
-			}
-			if len(up.got()) != 0 {
-				t.Fatal("upstream reached without a credential")
-			}
-			if _, ok := g.marked("up1"); !ok {
-				t.Fatal("passthrough path did not record the mark")
-			}
-		})
+	if _, ok := s.AuthMarked("nobody", at); ok {
+		t.Error("unknown account marked")
+	}
+	if _, ok := (State{"x": {}}).AuthMarked("x", at); ok {
+		t.Error("zero AuthAt must not read as a mark")
 	}
 }
 
-// ---- B4: the sealed Max token on the subscription passthrough -------------------------------------------------
-
-func tlsUpstream(t *testing.T) (*httptest.Server, *rawUp) {
-	t.Helper()
-	up := &rawUp{}
-	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		b, _ := io.ReadAll(r.Body)
-		up.mu.Lock()
-		up.reqs = append(up.reqs, recorded{r.Method, r.RequestURI, string(b), r.Header.Clone()})
-		up.mu.Unlock()
-		ok(w, r, 0)
-	}))
-	t.Cleanup(srv.Close)
-	return srv, up
-}
-
-func subOverlay(base string) string {
-	return fmt.Sprintf(`{"default":"sub","providers":{"sub":{"kind":"anthropic","base_url":%q,"auth":{"type":"passthrough"},"models":{"opus":"m"}}}}`, base)
-}
-
-func allHeaderValues(h http.Header) string {
-	var sb strings.Builder
-	for k, vs := range h {
-		sb.WriteString(k + "=" + strings.Join(vs, ",") + "\n")
+func TestClearAuthNoWriteWhenUnmarked(t *testing.T) {
+	useConfigDir(t)
+	if err := ClearAuth("openai·chatgpt"); err != nil {
+		t.Fatal(err)
 	}
-	return sb.String()
-}
-
-func pointAnthropicHostAt(t *testing.T, base string) {
-	t.Helper()
-	u, _ := url.Parse(base)
-	prev := anthropicHost
-	anthropicHost = u.Host
-	t.Cleanup(func() { anthropicHost = prev })
-}
-
-func TestPassthroughFallbackUsesVaultTokenAndNeverTheRouterSecret(t *testing.T) {
-	tsrv, up := tlsUpstream(t)
-	pointAnthropicHostAt(t, tsrv.URL)
-	srv := setupRouter(t, subOverlay(tsrv.URL), func(r *Router) {
-		r.client = tsrv.Client()
-		r.oauth = func() string { return "vault-max-token" }
-	})
-	// The Databricks-session shape: the router secret is the ONLY client credential (X-Api-Key, no Authorization).
-	resp := post(t, srv.URL+"/p/sub/v1/messages", `{"model":"m"}`, map[string]string{"Anthropic-Beta": "client-beta-1"})
-	if resp.StatusCode != 200 {
-		t.Fatalf("status %d %s", resp.StatusCode, body(t, resp))
+	if _, err := os.Stat(StatePath()); !os.IsNotExist(err) {
+		t.Fatalf("ClearAuth on an empty state created quota.json (stat err %v)", err)
 	}
-	g := up.got()
-	if len(g) != 1 {
-		t.Fatalf("upstream hits %d", len(g))
+	if err := ClearProviderAuth("dbx"); err != nil {
+		t.Fatal(err)
 	}
-	h := g[0].hdr
-	if h.Get("Authorization") != "Bearer vault-max-token" {
-		t.Fatalf("Authorization = %q, want the vault OAuth token", h.Get("Authorization"))
+	if _, err := os.Stat(StatePath()); !os.IsNotExist(err) {
+		t.Fatal("ClearProviderAuth on an empty state created quota.json")
 	}
-	if beta := h.Get("Anthropic-Beta"); !strings.Contains(beta, oauthBeta) || !strings.Contains(beta, "client-beta-1") {
-		t.Errorf("Anthropic-Beta = %q, want the client's beta merged with %s", beta, oauthBeta)
+	// An existing file with an entry but no mark stays byte-identical, mtime untouched.
+	if err := Record("openai·chatgpt", 10, "5h", time.Now().Add(time.Hour), time.Now()); err != nil {
+		t.Fatal(err)
 	}
-	if dump := allHeaderValues(h); strings.Contains(dump, secret) {
-		t.Fatalf("the router secret leaked upstream:\n%s", dump)
+	before, _ := os.ReadFile(StatePath())
+	old := time.Now().Add(-time.Hour)
+	if err := os.Chtimes(StatePath(), old, old); err != nil {
+		t.Fatal(err)
 	}
-	if h.Get("X-Api-Key") != "" || h.Get(ClientHeader) != "" {
-		t.Errorf("client credential headers forwarded: %v", h)
+	_ = ClearAuth("openai·chatgpt")
+	_ = ClearAuth("never-seen")
+	_ = ClearProviderAuth("chatgpt")
+	after, _ := os.ReadFile(StatePath())
+	fi, _ := os.Stat(StatePath())
+	if string(before) != string(after) || fi.ModTime().After(old.Add(time.Second)) {
+		t.Fatalf("an unmarked clear rewrote quota.json (mtime %v)", fi.ModTime())
 	}
 }
 
-func TestPassthroughForwardsClientLoginOverVaultToken(t *testing.T) {
-	tsrv, up := tlsUpstream(t)
-	pointAnthropicHostAt(t, tsrv.URL)
-	srv := setupRouter(t, subOverlay(tsrv.URL), func(r *Router) {
-		r.client = tsrv.Client()
-		r.oauth = func() string { return "vault-max-token" }
-	})
-	login := map[string]string{"X-Api-Key": "", ClientHeader: secret, "Authorization": "Bearer clients-own"}
-	if resp := post(t, srv.URL+"/p/sub/v1/messages", `{"model":"m"}`, login); resp.StatusCode != 200 {
-		t.Fatalf("status %d", resp.StatusCode)
+func TestClearProviderAuthClearsRouterAndLegMarks(t *testing.T) {
+	useConfigDir(t)
+	for _, a := range []string{ProviderAccount("dbx"), "anthropic·dbx", "openai·dbx", "anthropic·other", ProviderAccount("dbx2")} {
+		if err := MarkAuth(a, "r"); err != nil {
+			t.Fatal(err)
+		}
 	}
-	h := up.got()[0].hdr
-	if h.Get("Authorization") != "Bearer clients-own" || strings.Contains(allHeaderValues(h), "vault-max-token") {
-		t.Fatalf("upstream headers %v, want the client's own login only", h)
+	if err := ClearProviderAuth("dbx"); err != nil {
+		t.Fatal(err)
 	}
-}
-
-func TestPassthroughVaultTokenWithheldFromNonAnthropicOrigins(t *testing.T) {
-	tsrv, tlsUp := tlsUpstream(t)
-	plain := newRawUp(t, okRaw)
-	cases := []struct {
-		name string
-		base string
-		host string // anthropicHost override; "" keeps the default api.anthropic.com
-		up   *rawUp
-	}{
-		{"http route even on the matching host", plain.URL, strings.TrimPrefix(plain.URL, "http://"), plain},
-		{"https route on some other host", tsrv.URL, "", tlsUp},
+	s, now := LoadState(), time.Now()
+	for _, a := range []string{ProviderAccount("dbx"), "anthropic·dbx", "openai·dbx"} {
+		if _, ok := s.AuthMarked(a, now); ok {
+			t.Errorf("%s still marked", a)
+		}
 	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			prev := anthropicHost
-			if c.host != "" {
-				anthropicHost = c.host
-			}
-			t.Cleanup(func() { anthropicHost = prev })
-			srv := setupRouter(t, subOverlay(c.base), func(r *Router) {
-				r.client = tsrv.Client()
-				r.oauth = func() string { return "vault-max-token" }
-			})
-			if resp := post(t, srv.URL+"/p/sub/v1/messages", `{"model":"m"}`, nil); resp.StatusCode != 200 {
-				t.Fatalf("status %d %s", resp.StatusCode, body(t, resp))
-			}
-			g := c.up.got()
-			h := g[len(g)-1].hdr
-			if h.Get("Authorization") != "" || strings.Contains(allHeaderValues(h), "vault-max-token") || strings.Contains(allHeaderValues(h), secret) {
-				t.Fatalf("credential sent to a non-Anthropic origin: %v", h)
-			}
-		})
-	}
-}
-
-func TestAnthropicOriginIsExact(t *testing.T) {
-	prev := anthropicHost
-	anthropicHost = "api.anthropic.com"
-	t.Cleanup(func() { anthropicHost = prev })
-	for route, want := range map[string]bool{
-		"https://api.anthropic.com":                 true,
-		"https://api.anthropic.com/v1":              true,
-		"http://api.anthropic.com":                  false,
-		"https://api.anthropic.com.evil.com":        false,
-		"https://evil.com/api.anthropic.com":        false,
-		"https://user@api.anthropic.com":            false,
-		"https://api.anthropic.com@evil.com":        false,
-		"https://xapi.anthropic.com":                false,
-		"https://api.anthropic.com:8443":            false,
-		"":                                          false,
-		"://bad":                                    false,
-		"https://API.ANTHROPIC.COM.attacker.test/v": false,
-	} {
-		if got := anthropicOrigin(route); got != want {
-			t.Errorf("anthropicOrigin(%q) = %v, want %v", route, got, want)
+	for _, a := range []string{"anthropic·other", ProviderAccount("dbx2")} {
+		if _, ok := s.AuthMarked(a, now); !ok {
+			t.Errorf("%s was cleared but belongs to another provider", a)
 		}
 	}
 }
 
-func TestPassthroughWithoutAnyCredentialIsRefused(t *testing.T) {
-	tsrv, up := tlsUpstream(t)
-	pointAnthropicHostAt(t, tsrv.URL)
-	srv := setupRouter(t, subOverlay(tsrv.URL), func(r *Router) { r.client = tsrv.Client() })
-	resp := post(t, srv.URL+"/p/sub/v1/messages", `{"model":"m"}`, nil)
-	if resp.StatusCode != 400 || len(up.got()) != 0 {
-		t.Fatalf("status %d hits %d, want 400 and no upstream call without a client login or vault token", resp.StatusCode, len(up.got()))
+func TestMarkAuthKeepsQuotaFields(t *testing.T) {
+	useConfigDir(t)
+	now := time.Now()
+	if err := Record("openai·chatgpt", 40, "5h", now.Add(time.Hour), now); err != nil {
+		t.Fatal(err)
+	}
+	_ = MarkAuth("openai·chatgpt", "r")
+	_ = ClearAuth("openai·chatgpt")
+	if e := LoadState()["openai·chatgpt"]; e.UsedPct != 40 {
+		t.Fatalf("mark/clear dropped quota fields: %+v", e)
 	}
 }
 
-// The idle timer wraps the body BEFORE the 256-byte Invalid Token peek: a stalled 400 body must be cut, not hang.
-func TestStalledInvalidTokenBodyIsCutByIdleTimeout(t *testing.T) {
-	useGate(t)
-	prev := idleTimeout
-	idleTimeout = 150 * time.Millisecond
-	t.Cleanup(func() { idleTimeout = prev })
-	up := newUpstream(t, func(w http.ResponseWriter, r *http.Request, _ int) {
-		w.WriteHeader(400)
-		w.(http.Flusher).Flush()
-		<-r.Context().Done() // never sends a body byte
-	})
-	vaulttest.UseKeyring(t)
-	row := sealedPAT(t, up.URL)
-	srv := setupRouter2(t, `{"default":"patrow","providers":{"patrow":`+row+`}}`)
-
-	start := time.Now()
-	resp := post(t, srv.URL+"/p/patrow/v1/messages", `{"model":"m1"}`, nil)
-	_, _ = io.ReadAll(resp.Body)
-	if d := time.Since(start); d > 3*time.Second {
-		t.Fatalf("request took %v: the stalled body was not cut by idleTimeout", d)
+func TestPickSkipsAuthMarkedAccountWithReason(t *testing.T) {
+	tb := testTable(t)
+	marked := State{"openai·chatgpt": {AuthReason: "auth needs_login: run `claude-code databricks login --profile chatgpt`", AuthAt: now0.Add(-time.Hour)}}
+	r := pick(tb, "sonnet", "codex", marked, FallbackVendors)
+	if strings.Contains(runners(r), "codex") {
+		t.Fatalf("auth-marked codex picked: %s", runners(r))
 	}
-	if up.hits.Load() != 1 {
-		t.Fatalf("upstream hits %d: a body that never arrived must not read as Invalid Token", up.hits.Load())
+	var skip *Skip
+	for i := range r.Skipped {
+		if r.Skipped[i].Gate == GateAuth {
+			skip = &r.Skipped[i]
+		}
+	}
+	if skip == nil || skip.Agent != "codex" || !strings.Contains(skip.Reason, "databricks login") {
+		t.Fatalf("skips = %+v, want a codex auth skip carrying the login hint", r.Skipped)
+	}
+	if len(r.Candidates) == 0 {
+		t.Fatal("other runners must remain candidates")
+	}
+
+	// An expired mark no longer gates; an unmarked state never does.
+	for name, st := range map[string]State{
+		"expired": {"openai·chatgpt": {AuthReason: "r", AuthAt: now0.Add(-AuthMarkTTL - time.Minute)}},
+		"cleared": {"openai·chatgpt": {UsedPct: 5, Seen: now0}},
+	} {
+		if !strings.Contains(runners(pick(tb, "sonnet", "codex", st, FallbackVendors)), "codex") {
+			t.Errorf("%s: codex wrongly gated", name)
+		}
+	}
+}
+
+func TestPickAuthGateComesBeforeExhausted(t *testing.T) {
+	tb := testTable(t)
+	st := State{"openai·chatgpt": {AuthReason: "auth rejected", AuthAt: now0, ExhaustedUntil: now0.Add(time.Hour), Reason: "402"}}
+	r := pick(tb, "sonnet", "codex", st, FallbackVendors)
+	for _, s := range r.Skipped {
+		if s.Agent == "codex" && s.Gate != GateAuth {
+			t.Fatalf("codex skipped at %q, want the auth gate first: %+v", s.Gate, s)
+		}
+	}
+}
+
+func TestPickAuthGateOnOpencodeSubCandidate(t *testing.T) {
+	tb := testTable(t)
+	st := State{"opencode·go": {AuthReason: "auth rejected", AuthAt: now0}}
+	r := pickRepo(tb, "sonnet", st, true)
+	found := false
+	for _, s := range r.Skipped {
+		if s.Gate == GateAuth {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("an auth-marked opencode account must show an auth skip: %+v", r.Skipped)
+	}
+}
+
+func TestAccountAuthMarkedFallsBackToTheProviderMark(t *testing.T) {
+	at := time.Date(2026, 10, 26, 8, 0, 0, 0, time.UTC)
+	s := State{
+		"databricks·dev": {AuthReason: "router mark", AuthAt: at},
+		"anthropic·qa":   {AuthReason: "own mark", AuthAt: at},
+		"anthropic·old":  {AuthReason: "own", AuthAt: at.Add(-AuthMarkTTL - time.Hour)},
+	}
+	for _, c := range []struct {
+		account string
+		want    string
+		ok      bool
+	}{
+		{"anthropic·dev", "router mark", true},
+		{"openai·dev", "router mark", true},
+		{"anthropic·qa", "own mark", true},
+		{"anthropic·old", "", false},
+		{"anthropic·prod", "", false},
+		{"databricks·dev", "router mark", true},
+		{"nodot", "", false},
+		{"anthropic·", "", false},
+	} {
+		got, ok := s.accountAuthMarked(c.account, at.Add(time.Minute))
+		if got != c.want || ok != c.ok {
+			t.Errorf("accountAuthMarked(%q) = %q, %v; want %q, %v", c.account, got, ok, c.want, c.ok)
+		}
+	}
+	if _, ok := s.accountAuthMarked("anthropic·dev", at.Add(AuthMarkTTL)); ok {
+		t.Error("an expired provider mark still gates the leg account")
+	}
+}
+
+// A router mark on databricks·<p> gates a pick whose account is "<provider>·<p>".
+func TestPickGatesLegAccountOnRouterProviderMark(t *testing.T) {
+	tb := testTable(t)
+	st := State{ProviderAccount("chatgpt"): {AuthReason: "auth rejected: run `claude-code databricks login --profile chatgpt`", AuthAt: now0}}
+	r := pick(tb, "sonnet", "codex", st, FallbackVendors)
+	if strings.Contains(runners(r), "codex") {
+		t.Fatalf("openai·chatgpt picked despite databricks·chatgpt mark: %s", runners(r))
+	}
+	got := false
+	for _, s := range r.Skipped {
+		got = got || (s.Agent == "codex" && s.Gate == GateAuth)
+	}
+	if !got {
+		t.Fatalf("skips = %+v, want a codex auth skip", r.Skipped)
 	}
 }

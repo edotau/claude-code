@@ -26,7 +26,7 @@ type MintResult struct {
 
 var mintPage = helptext.Page{
 	Usage: "claude-code databricks mint [--profile <name>] [flags]",
-	About: "Mint a fresh access token for a provider row (the router's own mint, forced) and report its\n" +
+	About: "Mint a fresh access token for a profile (the router's own mint, forced) and report its\n" +
 		"length and expiry. The token is never printed; --copy puts it on the clipboard.",
 }
 
@@ -44,7 +44,7 @@ func Mint(ctx context.Context, name string) (MintResult, string, error) {
 	if err != nil {
 		return MintResult{}, "", err
 	}
-	res := MintResult{Provider: p.Name, AuthType: p.Auth.AuthType, Len: len(tok)}
+	res := MintResult{Provider: p.Name, AuthType: p.Auth.Method(), Len: len(tok)}
 	if res.AuthType == "" {
 		res.AuthType = "command"
 	}
@@ -68,7 +68,7 @@ func SetPAT(ctx context.Context, name, value string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if p.Auth.AuthType != providers.AuthPAT {
+	if p.Auth.Method() != providers.AuthPAT {
 		if err := switchAuthType(p, providers.AuthPAT, false); err != nil {
 			return "", err
 		}
@@ -79,7 +79,7 @@ func SetPAT(ctx context.Context, name, value string) (string, error) {
 			return "", err
 		}
 	}
-	secret := providers.SecretNameFor(p.Name, providers.AuthPAT)
+	secret := providers.AuthSecretName(p)
 	old, had, _ := vault.ReadSecret(secret)
 	if err := secrets.Store(secret, value); err != nil {
 		return "", err
@@ -142,10 +142,10 @@ func mint(args []string) int {
 }
 
 func authLabel(p *providers.Provider) string {
-	if p.Auth.AuthType == "" {
-		return "command"
+	if m := p.Auth.Method(); m != "" {
+		return m
 	}
-	return p.Auth.AuthType
+	return "command"
 }
 
 // mintLine is the one status line: provider, authType, length and time left; never the token.

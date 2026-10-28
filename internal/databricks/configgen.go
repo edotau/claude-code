@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
 )
 
@@ -20,7 +21,7 @@ var tmplFS embed.FS
 const (
 	// PlaceholderHost is the host baked into the embedded templates.
 	PlaceholderHost = "https://example.cloud.databricks.com"
-	WireGateway     = providers.WireGateway
+	WireAIGateway   = providers.WireAIGateway
 	WireServing     = providers.WireServing
 	AuthHarness     = "harness"
 	AuthCLI         = "cli"
@@ -71,7 +72,7 @@ func Render(o Options) (Result, error) {
 	} else {
 		res, err = renderCodex(o)
 	}
-	if err == nil && o.P.Options.Wire == WireGateway {
+	if err == nil && o.P.Options.Wire == WireAIGateway {
 		res.Note = GatewayNote
 	}
 	return res, err
@@ -183,15 +184,12 @@ func renderClaude(o Options) (Result, error) {
 	if h := headerLines(p.Headers); h != "" {
 		env["ANTHROPIC_CUSTOM_HEADERS"] = h
 	}
-	gw := p.Options.Wire == WireGateway
+	gw := p.Options.Wire == WireAIGateway
 	if gw {
 		env["CLAUDE_CODE_USE_GATEWAY"] = "1"
-		env["ANTHROPIC_MODEL"] = p.WireModel("claude-opus-5-5")
-	} else {
-		env["ANTHROPIC_MODEL"] = p.WireModel("claude-opus-5-5[1m]") // serving serves 1M; matches the launcher's default
 	}
-	for slot, id := range map[string]string{"OPUS": "claude-opus-5-5", "SONNET": "claude-sonnet-5-5", "HAIKU": "claude-haiku-5-5"} {
-		env["ANTHROPIC_DEFAULT_"+slot+"_MODEL"] = p.WireModel(id)
+	for _, slot := range []string{models.Opus, models.Sonnet, models.Haiku} {
+		env["ANTHROPIC_DEFAULT_"+strings.ToUpper(slot)+"_MODEL"] = p.WireModel(aliasID(slot))
 	}
 	if o.Model != "" {
 		env["ANTHROPIC_MODEL"] = p.WireModel(bareModel(o.Model))
@@ -203,7 +201,7 @@ func renderClaude(o Options) (Result, error) {
 	env["CLAUDE_CODE_API_KEY_HELPER_TTL_MS"] = helperTTL
 	doc["apiKeyHelper"] = cliTokenCmd(o.Host)
 	if o.Auth == AuthHarness {
-		doc["apiKeyHelper"] = shellQuote(o.Self) + " token --provider " + shellQuote(p.Name)
+		doc["apiKeyHelper"] = shellQuote(o.Self) + " token --profile " + shellQuote(p.Name)
 	}
 	for _, kv := range o.Set {
 		k, v, _ := strings.Cut(kv, "=")
@@ -237,6 +235,14 @@ func replaceLine(head, key, val string) string {
 	return strings.Join(lines, "\n")
 }
 
+// aliasID is the canonical id a tier alias (opus, sonnet, haiku) currently backs; the alias itself if unknown.
+func aliasID(alias string) string {
+	if id, ok := models.Alias(alias); ok {
+		return id
+	}
+	return alias
+}
+
 // bareModel strips either wire's id prefix, so a serving id given for a gateway row (or back) is re-prefixed.
 func bareModel(id string) string {
 	for _, prefix := range []string{"databricks-", "system.ai."} {
@@ -264,16 +270,16 @@ func renderCodex(o Options) (Result, error) {
 		model = o.Model
 	}
 	head = replaceLine(head, "model", p.WireModel(bareModel(model)))
-	if p.Options.Wire != WireGateway {
+	if p.Options.Wire != WireAIGateway {
 		head = replaceLine(head, "name", "Databricks serving")
 	}
 	auth := fmt.Sprintf("command = \"sh\"\nargs = [\"-c\", %s]\n", strconv.Quote(cliTokenCmd(o.Host)))
 	if o.Auth == AuthHarness {
-		auth = fmt.Sprintf("command = %s\nargs = [\"token\", \"--provider\", %s]\n", strconv.Quote(o.Self), strconv.Quote(p.Name))
+		auth = fmt.Sprintf("command = %s\nargs = [\"token\", \"--profile\", %s]\n", strconv.Quote(o.Self), strconv.Quote(p.Name))
 	}
 	auth += "timeout_ms = 5000\nrefresh_interval_ms = 1800000\n"
 	text := editTopLevel(head, o) + authHeader + "\n" + auth
-	if p.Options.Wire == WireGateway {
+	if p.Options.Wire == WireAIGateway {
 		text = "# " + GatewayNote + "\n" + text
 	}
 	return Result{Text: text}, nil

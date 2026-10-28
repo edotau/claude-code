@@ -38,7 +38,7 @@ func workableCopilotPin(t *testing.T, user string) {
 	if err := os.WriteFile(filepath.Join(os.Getenv("GH_CONFIG_DIR"), "hosts.yml"), []byte(hosts), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv(providers.PinGitHubUser, user)
+	setPin(t, providers.PinCopilotProfile, user)
 	prev := CopilotUsedPct
 	CopilotUsedPct = func(context.Context, string) (float64, bool) { return 10, true }
 	t.Cleanup(func() { CopilotUsedPct = prev })
@@ -46,7 +46,7 @@ func workableCopilotPin(t *testing.T, user string) {
 
 func subscriptionSelection(t *testing.T, reg *providers.Registry) providers.Selection {
 	t.Helper()
-	sub, err := reg.Get("subscription")
+	sub, err := reg.Get("max")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -59,7 +59,7 @@ func subscriptionSelection(t *testing.T, reg *providers.Registry) providers.Sele
 // ErrOwnLogin — and the subscription session provider is never chosen either.
 func TestOpencodeNonCopilotOwnLoginIsNotAFallbackLeg(t *testing.T) {
 	data, _ := isolateOpencodeRouteEnv(t)
-	t.Setenv("HARNESS_PROVIDER", "subscription")
+	setPin(t, providers.PinProfile, "max")
 	if got := OpencodeLogins(); got != nil {
 		t.Fatalf("no auth.json yet, got %v", got)
 	}
@@ -122,7 +122,7 @@ func TestDescribeOpenCodeRouteChainOrder(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(data, "opencode", "auth.json"), []byte(`{"github-copilot":{"type":"oauth"}}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if ri := DescribeRoute(reg, "opencode"); !ri.OK || ri.Leg != LegCopilotLogin || ri.Provider != "github-copilot" {
+	if ri := DescribeRoute(reg, "opencode"); !ri.OK || ri.Leg != LegCopilotLogin || ri.Provider != "personal" {
 		t.Fatalf("opencode's own copilot login must route; got %+v", ri)
 	}
 	if err := os.WriteFile(filepath.Join(data, "opencode", "auth.json"),
@@ -163,11 +163,11 @@ func TestDescribeCopilotRouteChainOrder(t *testing.T) {
 	}
 
 	workableCopilotPin(t, "alice")
-	if ri := DescribeRoute(reg, "copilot"); !ri.OK || ri.Leg != LegCopilotLogin || ri.Provider != "github-copilot" {
+	if ri := DescribeRoute(reg, "copilot"); !ri.OK || ri.Leg != LegCopilotLogin || ri.Provider != "personal" {
 		t.Fatalf("copilot's own GitHub login must outrank BYOK; got %+v", ri)
 	}
 
-	t.Setenv(providers.PinGitHubUser, "")
+	setPin(t, providers.PinCopilotProfile, "")
 	t.Setenv("ANTHROPIC_API_KEY", "")
 	none := DescribeRoute(reg, "copilot")
 	if none.OK || none.Leg != LegNone || !strings.Contains(none.Reason, "claude-code configure github") {
@@ -190,7 +190,7 @@ func TestDescribeCopilotRouteModelFollowsPin(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	wantDefault := reg.Providers["github-copilot"].Models["opus"]
+	wantDefault := reg.Providers["personal"].Models["opus"]
 	if ri := DescribeRoute(reg, "copilot"); ri.Model != wantDefault {
 		t.Fatalf("Model (unpinned) = %q, want github-copilot's own opus slot %q", ri.Model, wantDefault)
 	}
@@ -239,7 +239,7 @@ func TestOpencodeCopilotLoginTakesPrecedence(t *testing.T) {
 	t.Setenv("PATH", t.TempDir()) // no real opencode: OpencodeAuth must read the auth.json fixture, not a 2.x CLI
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	t.Setenv("HARNESS_PROVIDER", "subscription")
+	setPin(t, providers.PinProfile, "max")
 	if err := os.MkdirAll(filepath.Join(data, "opencode"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -262,7 +262,7 @@ func TestOpencodeCopilotLoginTakesPrecedence(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ResolveTarget: %v", err)
 	}
-	if target.Provider == nil || target.Provider.Name != "github-copilot" {
+	if target.Provider == nil || target.Provider.Name != "personal" {
 		t.Fatalf("target.Provider = %+v, want github-copilot", target.Provider)
 	}
 	if !strings.Contains(note, "opencode auth login") {
@@ -273,7 +273,7 @@ func TestOpencodeCopilotLoginTakesPrecedence(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ResolveTarget (explicit): %v", err)
 	}
-	if explicitTarget.Provider != nil && explicitTarget.Provider.Name == "github-copilot" && sel.Provider.Name != "github-copilot" {
+	if explicitTarget.Provider != nil && explicitTarget.Provider.Name == "personal" && sel.Provider.Name != "personal" {
 		t.Errorf("an explicit provider was overridden by the github-copilot login leg: %+v", explicitTarget)
 	}
 }
@@ -288,10 +288,10 @@ func TestOpencodeCopilotModelIDsSwapsAutoForFallback(t *testing.T) {
 	for _, k := range []string{"HARNESS_MODEL", "HARNESS_SONNET_MODEL", "HARNESS_HAIKU_MODEL"} {
 		t.Setenv(k, "")
 	}
-	overlay := `{"providers":{"github-copilot":{"kind":"openai","base_url":"https://api.githubcopilot.com",` +
-		`"auth":{"type":"passthrough","login":"copilot"},` +
+	overlay := `{"providers":{"github":{"personal":{"kind":"openai","base_url":"https://api.githubcopilot.com",` +
+		`"auth":{"type":"cli","login":"copilot"},` +
 		`"models":{"opus":"gpt-6.1-sol","sonnet":"claude-sonnet-5.5","haiku":"auto"},` +
-		`"opencode_fallback":"mai-code-1.1-flash"}}}`
+		`"opencode_fallback":"mai-code-1.1-flash"}}}}`
 	vaulttest.Put(t, vault.Overlay, "providers", overlay)
 	reg, err := providers.Load()
 	if err != nil {
@@ -313,9 +313,7 @@ func TestOpencodeCopilotModelIDsSwapsAutoForFallback(t *testing.T) {
 // the registry's own haiku default is "auto".
 func TestOpencodeCopilotModelIDsLeavesNonAutoPinUnchanged(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	t.Setenv("HARNESS_MODEL", "")
-	t.Setenv("HARNESS_SONNET_MODEL", "")
-	t.Setenv("HARNESS_HAIKU_MODEL", "claude-haiku-4.5")
+	setPin(t, providers.SlotPin("haiku"), "claude-haiku-4.5")
 	reg, err := providers.Load()
 	if err != nil {
 		t.Fatal(err)
@@ -333,7 +331,7 @@ func TestOpencodeCopilotModelIDsLeavesNonAutoPinUnchanged(t *testing.T) {
 // (copilot-login -> anthropic-key -> none) replaced it, so it has no effect on routing.
 func TestOpencodeOwnConfigModelIsNoLongerAFallbackLeg(t *testing.T) {
 	_, cfg := isolateOpencodeRouteEnv(t)
-	t.Setenv("HARNESS_PROVIDER", "subscription")
+	setPin(t, providers.PinProfile, "max")
 	if err := os.MkdirAll(filepath.Join(cfg, "opencode"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -366,7 +364,7 @@ func TestOpencodeCopilotLoginHeadlessCarriesModel(t *testing.T) {
 	t.Setenv("PATH", t.TempDir()) // no real opencode: OpencodeAuth must read the auth.json fixture, not a 2.x CLI
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	t.Setenv("HARNESS_PROVIDER", "subscription")
+	setPin(t, providers.PinProfile, "max")
 	if err := os.MkdirAll(filepath.Join(data, "opencode"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -403,5 +401,13 @@ func TestOpencodeCopilotLoginHeadlessCarriesModel(t *testing.T) {
 	// Interactive (h == nil, via Configure) keeps the old behavior: opencode launches plain on its own login.
 	if _, _, err := Configure(context.Background(), "opencode", target, ""); !errors.Is(err, ErrOwnLogin) {
 		t.Errorf("Configure (interactive) err = %v, want ErrOwnLogin", err)
+	}
+}
+
+// setPin seeds (value != "") or clears a vault pin; pins are vault-only, never read from env.
+func setPin(t *testing.T, key, value string) {
+	t.Helper()
+	if err := providers.SetPins(map[string]string{key: value}); err != nil {
+		t.Fatal(err)
 	}
 }

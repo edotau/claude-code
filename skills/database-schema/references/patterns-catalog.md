@@ -50,7 +50,7 @@ fronts old vs new Service; shift path-by-path. Monitor error/latency per path th
 
 Keep the current version (blue) running while deploying the new (green); flip the Route to green;
 flip back instantly on trouble. This is the **fastest rollback** available — the old pods are
-still warm. Pairs with the `devops-engineer` skill's OpenShift rollback runbook. Under ODS, this maps to the
+still warm. Pairs with your OpenShift rollback runbook. Under ODS, this maps to the
 DeploymentConfig/rollout + Route switch.
 
 ### Canary
@@ -64,8 +64,8 @@ validation.
 Version every change; keep the prior state recoverable. `prevent_destroy` on stateful resources
 (DBs, buckets) so a plan can't nuke them mid-migration. Migrate with `terraform state mv` for
 refactors (no resource recreation), `import` to adopt existing resources. Test the rollback plan
-(re-apply prior tfvars) in a non-prod workspace first. See the `devops-engineer` skill's Terraform
-references for state/backend mechanics.
+(re-apply prior tfvars) in a non-prod workspace first. See Terraform's own docs for
+state/backend mechanics.
 
 ## Choosing
 

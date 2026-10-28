@@ -39,17 +39,23 @@ func TestForPicksKind(t *testing.T) {
 		p    *providers.Provider
 		want string
 	}{
-		{"u2m", row("a", providers.Auth{Type: providers.AuthBearer, AuthType: providers.AuthU2M}), "signin.u2m"},
+		{"u2m", row("a", providers.Auth{Type: providers.AuthOAuth}), "signin.u2m"},
 		{"databricks preset no authType", &providers.Provider{Name: "b", Preset: providers.PresetDatabricks}, "signin.u2m"},
-		{"pat", row("c", providers.Auth{Type: providers.AuthBearer, AuthType: providers.AuthPAT}), "signin.secret"},
-		{"oauth-m2m service principal", row("d", providers.Auth{Type: providers.AuthBearer, AuthType: providers.AuthOAuthM2M, ClientID: "x"}), "signin.secret"},
-		{"bearer env", row("e", providers.Auth{Type: providers.AuthBearer, Env: "E_KEY"}), "signin.secret"},
+		{"pat", row("c", providers.Auth{Type: providers.AuthPAT}), "signin.secret"},
+		{"oauth-m2m service principal", row("d", providers.Auth{Type: providers.AuthM2M, ClientID: "x"}), "signin.secret"},
+		{"bearer env", row("e", providers.Auth{Type: providers.AuthKey, Env: "E_KEY"}), "signin.secret"},
 		{"x-api-key env", row("f", providers.Auth{Type: "x-api-key", Env: "F_KEY"}), "signin.secret"},
-		{"subscription", row("g", providers.Auth{Type: providers.AuthPassthrough}), "signin.claude"},
-		{"codex", row("h", providers.Auth{Type: providers.AuthPassthrough, Login: "codex"}), "signin.vendor"},
-		{"copilot", row("i", providers.Auth{Type: providers.AuthPassthrough, Login: "copilot"}), "signin.vendor"},
-		{"gemini", row("j", providers.Auth{Type: providers.AuthPassthrough, Login: "gemini"}), "signin.vendor"},
+		{"subscription", row("g", providers.Auth{Type: providers.AuthCLI}), "signin.claude"},
+		{"codex", row("h", providers.Auth{Type: providers.AuthCLI, Login: "codex"}), "signin.vendor"},
+		{"copilot", row("i", providers.Auth{Type: providers.AuthCLI, Login: "copilot"}), "signin.vendor"},
+		{"gemini", row("j", providers.Auth{Type: providers.AuthCLI, Login: "gemini"}), "signin.vendor"},
 		{"none/ollama", row("k", providers.Auth{Type: providers.AuthNone}), "signin.none"},
+		{"method oauth", row("l", providers.Auth{Type: providers.AuthOAuth}), "signin.u2m"},
+		{"method m2m", row("m", providers.Auth{Type: providers.AuthM2M}), "signin.secret"},
+		{"method pat", row("n", providers.Auth{Type: providers.AuthPAT}), "signin.secret"},
+		{"method key", row("o", providers.Auth{Type: providers.AuthKey}), "signin.secret"},
+		{"method cli", row("p", providers.Auth{Type: providers.AuthCLI}), "signin.claude"},
+		{"method cli login", row("q", providers.Auth{Type: providers.AuthCLI, Login: "codex"}), "signin.vendor"},
 	} {
 		if got := fmt.Sprintf("%T", For(c.p)); got != c.want {
 			t.Errorf("%s: For = %s, want %s", c.name, got, c.want)
@@ -69,8 +75,8 @@ func TestCheckVerdictsPerKind(t *testing.T) {
 	credential = func(context.Context, *providers.Provider) (string, error) { return "tok", credErr }
 	t.Setenv("E_KEY", "present")
 
-	u2mRow := row("u", providers.Auth{Type: providers.AuthBearer, AuthType: providers.AuthU2M})
-	envRow := row("e", providers.Auth{Type: providers.AuthBearer, Env: "E_KEY"})
+	u2mRow := row("u", providers.Auth{Type: providers.AuthOAuth})
+	envRow := row("e", providers.Auth{Type: providers.AuthKey, Env: "E_KEY"})
 	t.Run("u2m", func(t *testing.T) {
 		for err, want := range map[string]providers.AuthVerdict{"": providers.VerdictOK, "login": providers.VerdictNeedsLogin, "net": providers.VerdictTransient} {
 			credErr = map[string]error{"": nil, "login": providers.ErrNeedsLogin, "net": errors.New("dial tcp: timeout")}[err]
@@ -94,13 +100,13 @@ func TestCheckVerdictsPerKind(t *testing.T) {
 		}
 	})
 	t.Run("sealed missing", func(t *testing.T) {
-		pat := row("pat1", providers.Auth{Type: providers.AuthBearer, AuthType: providers.AuthPAT})
+		pat := row("pat1", providers.Auth{Type: providers.AuthPAT})
 		if v, d := For(pat).Check(context.Background()); v != providers.VerdictNeedsLogin || d != "no credential" {
 			t.Errorf("sealed missing = %s %q", v, d)
 		}
 	})
 	t.Run("subscription", func(t *testing.T) {
-		sub := row("s", providers.Auth{Type: providers.AuthPassthrough})
+		sub := row("s", providers.Auth{Type: providers.AuthCLI})
 		claudeStatus = func() (bool, string, error) { return true, "(max)", nil }
 		if v, _ := For(sub).Check(context.Background()); v != providers.VerdictOK {
 			t.Errorf("logged in = %s", v)
@@ -111,7 +117,7 @@ func TestCheckVerdictsPerKind(t *testing.T) {
 		}
 	})
 	t.Run("copilot", func(t *testing.T) {
-		cp := row("c", providers.Auth{Type: providers.AuthPassthrough, Login: "copilot"})
+		cp := row("c", providers.Auth{Type: providers.AuthCLI, Login: "copilot"})
 		copilotLogin = func() string { return "octo" }
 		if v, d := For(cp).Check(context.Background()); v != providers.VerdictOK || !strings.Contains(d, "octo") {
 			t.Errorf("signed in = %s %q", v, d)
@@ -122,7 +128,7 @@ func TestCheckVerdictsPerKind(t *testing.T) {
 		}
 	})
 	t.Run("gemini", func(t *testing.T) {
-		g := row("g", providers.Auth{Type: providers.AuthPassthrough, Login: "gemini"})
+		g := row("g", providers.Auth{Type: providers.AuthCLI, Login: "gemini"})
 		for present, want := range map[bool]providers.AuthVerdict{true: providers.VerdictOK, false: providers.VerdictNeedsLogin} {
 			geminiPresent = func() bool { return present }
 			if v, _ := For(g).Check(context.Background()); v != want {
@@ -131,7 +137,7 @@ func TestCheckVerdictsPerKind(t *testing.T) {
 		}
 	})
 	t.Run("codex", func(t *testing.T) {
-		cx := row("x", providers.Auth{Type: providers.AuthPassthrough, Login: "codex"})
+		cx := row("x", providers.Auth{Type: providers.AuthCLI, Login: "codex"})
 		codexStatus = func(context.Context, string) ([]byte, error) { return []byte("Logged in using ChatGPT\n"), nil }
 		if v, d := For(cx).Check(context.Background()); v != providers.VerdictOK || d != "Logged in using ChatGPT" {
 			t.Errorf("logged in = %s %q", v, d)
@@ -175,7 +181,7 @@ func TestSecretCheckRejectedOn401(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 	p := &providers.Provider{Name: "sp-rej", Kind: providers.DialectAnthropic, BaseURL: srv.URL + "/serving-endpoints/anthropic",
-		Auth: providers.Auth{Type: providers.AuthBearer, AuthType: providers.AuthOAuthM2M, ClientID: "cid", TTL: 1800}}
+		Auth: providers.Auth{Type: providers.AuthM2M, ClientID: "cid", TTL: 1800}}
 	if err := providers.SealSecret(providers.AuthSecretName(p), "s3cret-value"); err != nil {
 		t.Fatal(err)
 	}
@@ -190,7 +196,7 @@ func TestSecretCheckRejectedOn401(t *testing.T) {
 
 func TestSecretLogin(t *testing.T) {
 	env(t)
-	p := row("pat-row", providers.Auth{Type: providers.AuthBearer, AuthType: providers.AuthPAT})
+	p := row("pat-row", providers.Auth{Type: providers.AuthPAT})
 	name := providers.AuthSecretName(p)
 	otty, opr, ost := stdinTTY, promptSecret, storeSecret
 	t.Cleanup(func() { stdinTTY, promptSecret, storeSecret = otty, opr, ost })
@@ -230,16 +236,16 @@ func TestVendorLogin(t *testing.T) {
 	}
 	for login, want := range map[string]string{"codex": "codex login", "copilot": "copilot login"} {
 		calls = nil
-		if err := For(row(login, providers.Auth{Type: providers.AuthPassthrough, Login: login})).Login(context.Background(), nil, io.Discard); err != nil || len(calls) != 1 || calls[0] != want {
+		if err := For(row(login, providers.Auth{Type: providers.AuthCLI, Login: login})).Login(context.Background(), nil, io.Discard); err != nil || len(calls) != 1 || calls[0] != want {
 			t.Errorf("%s: err=%v calls=%v want %q", login, err, calls, want)
 		}
 	}
 	calls = nil
-	if err := For(row("sub", providers.Auth{Type: providers.AuthPassthrough})).Login(context.Background(), nil, io.Discard); err != nil || len(calls) != 1 || calls[0] != "claude auth login" {
+	if err := For(row("sub", providers.Auth{Type: providers.AuthCLI})).Login(context.Background(), nil, io.Discard); err != nil || len(calls) != 1 || calls[0] != "claude auth login" {
 		t.Errorf("subscription: err=%v calls=%v", err, calls)
 	}
 	calls = nil
-	err := For(row("g", providers.Auth{Type: providers.AuthPassthrough, Login: "gemini"})).Login(context.Background(), nil, io.Discard)
+	err := For(row("g", providers.Auth{Type: providers.AuthCLI, Login: "gemini"})).Login(context.Background(), nil, io.Discard)
 	if err == nil || !strings.Contains(err.Error(), "agy") || len(calls) != 0 {
 		t.Errorf("gemini must error without running a CLI: %v %v", err, calls)
 	}
@@ -251,7 +257,7 @@ func TestU2MLoginUsesLoginRow(t *testing.T) {
 	var got string
 	loginRow = func(_ context.Context, name string, _ io.Writer) error { got = name; return nil }
 	var buf bytes.Buffer
-	if err := For(row("qa", providers.Auth{Type: providers.AuthBearer, AuthType: providers.AuthU2M})).Login(context.Background(), nil, &buf); err != nil || got != "qa" {
+	if err := For(row("qa", providers.Auth{Type: providers.AuthOAuth})).Login(context.Background(), nil, &buf); err != nil || got != "qa" {
 		t.Fatalf("err=%v got=%q", err, got)
 	}
 }
@@ -271,7 +277,7 @@ func TestValidateSecret(t *testing.T) {
 func TestClaudeProbeFailureIsTransient(t *testing.T) {
 	o := claudeStatus
 	t.Cleanup(func() { claudeStatus = o })
-	sub := row("s", providers.Auth{Type: providers.AuthPassthrough})
+	sub := row("s", providers.Auth{Type: providers.AuthCLI})
 	claudeStatus = func() (bool, string, error) { return false, "", errors.New("exec: not found") }
 	v, d := For(sub).Check(context.Background())
 	if v != providers.VerdictTransient || !strings.Contains(d, "claude auth status failed") {
@@ -288,7 +294,7 @@ func TestU2MCliProfileCommandFailure(t *testing.T) {
 	ocred, orow := credential, loginRow
 	t.Cleanup(func() { credential, loginRow = ocred, orow })
 	cli := &providers.Provider{Name: "cli-row", Preset: providers.PresetDatabricks, CLIProfile: "qa-prof"}
-	sealed := row("u-row", providers.Auth{Type: providers.AuthBearer, AuthType: providers.AuthU2M})
+	sealed := row("u-row", providers.Auth{Type: providers.AuthOAuth})
 	for _, c := range []struct {
 		name string
 		p    *providers.Provider
@@ -321,7 +327,7 @@ func TestU2MLoginCliProfileNeverCallsLoginRow(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "databricks auth login -p qa-prof") || len(calls) != 0 {
 		t.Fatalf("cliProfile Login: err=%v loginRow calls=%v", err, calls)
 	}
-	sealed := row("u-row", providers.Auth{Type: providers.AuthBearer, AuthType: providers.AuthU2M})
+	sealed := row("u-row", providers.Auth{Type: providers.AuthOAuth})
 	if err := For(sealed).Login(context.Background(), nil, io.Discard); err != nil || len(calls) != 1 || calls[0] != "u-row" {
 		t.Fatalf("sealed u2m Login: err=%v calls=%v", err, calls)
 	}
@@ -336,7 +342,7 @@ func TestSecretCheckVaultReadErrorIsTransient(t *testing.T) {
 	if err := os.WriteFile(vault.Path(), bytes.Repeat([]byte("garbage"), 1000), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	pat := row("pat-v", providers.Auth{Type: providers.AuthBearer, AuthType: providers.AuthPAT})
+	pat := row("pat-v", providers.Auth{Type: providers.AuthPAT})
 	t.Setenv(providers.AuthSecretName(pat), "")
 	v, d := For(pat).Check(context.Background())
 	if v != providers.VerdictTransient || !strings.HasPrefix(d, "vault: ") {
@@ -348,7 +354,7 @@ func TestSecretCheckVaultReadErrorIsTransient(t *testing.T) {
 func TestCodexDetailFromCombinedOutput(t *testing.T) {
 	env(t)
 	pathstest.FakeVendor(t, "codex", "#!/bin/sh\necho 'Logged in using ChatGPT - me@example.com' >&2\necho second line\n")
-	v, d := For(row("x", providers.Auth{Type: providers.AuthPassthrough, Login: "codex"})).Check(context.Background())
+	v, d := For(row("x", providers.Auth{Type: providers.AuthCLI, Login: "codex"})).Check(context.Background())
 	if v != providers.VerdictOK || d != "Logged in using ChatGPT" {
 		t.Errorf("stderr-only status = %s %q", v, d)
 	}
@@ -360,10 +366,10 @@ func TestSecretOKDetail(t *testing.T) {
 	t.Cleanup(func() { credential = ocred })
 	credential = func(context.Context, *providers.Provider) (string, error) { return "tok", nil }
 	t.Setenv("E_KEY", "present")
-	if v, d := For(row("e", providers.Auth{Type: providers.AuthBearer, Env: "E_KEY"})).Check(context.Background()); v != providers.VerdictOK || d != "key present, not validated" {
+	if v, d := For(row("e", providers.Auth{Type: providers.AuthKey, Env: "E_KEY"})).Check(context.Background()); v != providers.VerdictOK || d != "key present, not validated" {
 		t.Errorf("env key = %s %q", v, d)
 	}
-	pat := row("pat2", providers.Auth{Type: providers.AuthBearer, AuthType: providers.AuthPAT})
+	pat := row("pat2", providers.Auth{Type: providers.AuthPAT})
 	if err := providers.SealSecret(providers.AuthSecretName(pat), "dapi-x"); err != nil {
 		t.Fatal(err)
 	}
@@ -380,8 +386,22 @@ func TestCodexDetailCutAtDash(t *testing.T) {
 	codexStatus = func(context.Context, string) ([]byte, error) {
 		return []byte("Logged in using ChatGPT - user@example.com\n"), nil
 	}
-	_, d := For(row("x", providers.Auth{Type: providers.AuthPassthrough, Login: "codex"})).Check(context.Background())
+	_, d := For(row("x", providers.Auth{Type: providers.AuthCLI, Login: "codex"})).Check(context.Background())
 	if d != "Logged in using ChatGPT" {
 		t.Errorf("detail = %q, want the part before \" - \"", d)
+	}
+}
+
+func TestValidateSecretGitHubVaultNames(t *testing.T) {
+	for _, n := range []string{vendors.CopilotTokenEnv, "GITHUB_PERSONAL_PAT", "GITHUB_PAT"} {
+		if ValidateSecret(n, "not-a-token") == nil {
+			t.Errorf("%s accepted a non-GitHub token", n)
+		}
+		if err := ValidateSecret(n, "ghp_"+strings.Repeat("a", 30)); err != nil {
+			t.Errorf("%s rejected a valid token: %v", n, err)
+		}
+	}
+	if err := ValidateSecret("DATABRICKS_PROD_PAT", "dapi-anything"); err != nil {
+		t.Errorf("non-GitHub PAT name must not be shape-checked: %v", err)
 	}
 }

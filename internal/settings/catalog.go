@@ -34,7 +34,6 @@ type Field struct {
 // means the schemastore copy in testdata/claude-code-settings.schema.json documents it; "docs"
 // means code.claude.com documents it but schemastore is behind; "template" means neither does.
 var Catalog = []Field{
-	{Key: "alwaysThinkingEnabled", Section: "model", Kind: KindBool, Source: "schema"},
 	{Key: "outputStyle", Section: "model", Kind: KindString, Source: "schema"},
 	{Key: "switchModelsOnFlag", Section: "model", Kind: KindBool, Source: "docs"},
 
@@ -53,10 +52,7 @@ var Catalog = []Field{
 	{Key: "awaySummaryEnabled", Section: "notifications", Kind: KindBool, Source: "schema"},
 	{Key: "feedbackDrafts", Section: "notifications", Kind: KindEnum, Values: []string{"notify", "quiet", "off"}, Source: "docs"},
 
-	{Key: "dialogExpiry", Section: "session", Kind: KindEnum, Values: []string{"60s", "5m", "10m", "never"}, Source: "docs"},
-	{Key: "idleCompaction", Section: "session", Kind: KindBool, Source: "docs"},
 	{Key: "cleanupPeriodDays", Section: "session", Kind: KindInt, Min: 1, Source: "schema"},
-	{Key: "remoteControlAtStartup", Section: "session", Kind: KindBool, Source: "schema"},
 	{Key: "autoConnectIde", Section: "session", Kind: KindBool, Source: "schema"},
 	{Key: "useAutoModeDuringPlan", Section: "session", Kind: KindBool, Source: "schema"},
 	{Key: "skipWorkflowUsageWarning", Section: "session", Kind: KindBool, Source: "docs"},

@@ -1,7 +1,6 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
   "model": "opus",
-  "alwaysThinkingEnabled": true,
   "outputStyle": "Concise",
   "switchModelsOnFlag": true,
   "theme": "auto",
@@ -13,15 +12,11 @@
   "preferredNotifChannel": "notifications_disabled",
   "awaySummaryEnabled": false,
   "feedbackDrafts": "off",
-  "dialogExpiry": "never",
-  "idleCompaction": false,
   "cleanupPeriodDays": 30,
-  "remoteControlAtStartup": false,
   "autoConnectIde": false,
   "useAutoModeDuringPlan": true,
   "skipWorkflowUsageWarning": true,
   "env": {
-    "CLAUDE_CODE_API_KEY_HELPER_TTL_MS": "300000",
     "CLAUDE_CODE_SCROLL_SPEED": "1",
     "CLAUDE_CODE_AUTO_CONNECT_IDE": "false",
     "CLAUDE_CODE_DISABLE_TERMINAL_TITLE": "1"

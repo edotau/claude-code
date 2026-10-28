@@ -412,7 +412,7 @@ func rerenderConfigs(d *dialog) bool {
 		d.printf("settings.json updated (backup %s)\n", backup)
 	}
 	if _, err := generate.Run(generate.Options{Out: d.out}); err != nil {
-		d.printf("vendor configs: %v\n", err)
+		d.printf("agent configs: %v\n", err)
 	}
 	return true
 }

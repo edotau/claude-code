@@ -1,4 +1,4 @@
-// Package configure is the `claude-code configure` dialogue: provider, keys, models, agents, router,
+// Package configure is the `claude-code configure` dialogue: provider, keys, models, agents, proxy,
 // and doctor sections over the existing provider/secrets/vendors/launch verbs, piped or interactive.
 // It is also launch.Vendor's auto-configure callback, scoped to one vendor via Vendor.
 package configure
@@ -28,14 +28,14 @@ import (
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/router"
+	"github.com/edotau/claude-code/internal/proxy"
 	"github.com/edotau/claude-code/internal/secrets"
 	"github.com/edotau/claude-code/internal/tui"
 	"github.com/edotau/claude-code/internal/vendors"
 )
 
 // Sections runs in this order when no section is named.
-var Sections = []string{"provider", "models", "agents", "router", "github", "remote", "browser", "claude", "routing", "databricks", "doctor"}
+var Sections = []string{"provider", "models", "agents", "proxy", "github", "remote", "browser", "claude", "routing", "databricks", "doctor"}
 
 // Options controls one configure pass; In/Out let tests fully control the dialogue.
 type Options struct {
@@ -156,8 +156,8 @@ func Run(o Options, section string) int {
 			ok = runModels(d)
 		case "agents":
 			ok = runAgents(d)
-		case "router":
-			ok = runRouter(d)
+		case "proxy":
+			ok = runProxy(d)
 		case "github":
 			ok = runGithub(d)
 		case "remote":
@@ -223,9 +223,9 @@ func yes(br *bufio.Reader) bool {
 
 // --- provider ---
 
-// currentProvider is the pinned session provider, falling back to the registry default when unpinned.
+// currentProvider is the configured profile (vault pin), falling back to the registry default when unpinned.
 func currentProvider(reg *providers.Registry) string {
-	if cur := providers.Pin(providers.PinProvider); cur != "" {
+	if cur := providers.Pin(providers.PinProfile); cur != "" {
 		return cur
 	}
 	return reg.Default
@@ -264,10 +264,13 @@ func runProvider(d *dialog) bool {
 		d.printf("%s %d) %-13s %s\n", mark, i+1, n, cred(n))
 	}
 	if !d.o.Interactive || d.o.Check || d.o.DryRun {
-		d.printf("pinned: %s; to change: claude-code switch <provider>\n", cur)
+		d.printf("configured profile: %s; to change: claude-code switch <profile>\n", cur)
+		if sp := providers.SessionProfile(); sp != "" {
+			d.printf("this session: %s\n", sp)
+		}
 		return true
 	}
-	fmt.Fprint(d.out, "pick a provider by number or name (blank = keep current): ")
+	fmt.Fprint(d.out, "pick a profile by number or name (blank = keep current): ")
 	line := strings.TrimSpace(readLine(d.br))
 	if line == "" {
 		return true
@@ -284,14 +287,14 @@ func runProvider(d *dialog) bool {
 
 func applyProvider(d *dialog, name string) bool {
 	if d.o.Check || d.o.DryRun {
-		d.printf("would pin provider: %s\n", name)
+		d.printf("would pin profile: %s\n", name)
 		return true
 	}
-	if err := providers.SetPins(map[string]string{providers.PinProvider: name}); err != nil {
+	if err := providers.SetPins(map[string]string{providers.PinProfile: name}); err != nil {
 		d.println(err)
 		return false
 	}
-	d.printf("provider pinned: %s\n", name)
+	d.printf("profile pinned: %s\n", name)
 	return true
 }
 
@@ -388,7 +391,7 @@ func keyTargets(reg *providers.Registry, vendorFilter string) ([]keyTarget, erro
 			label: "claude", present: providers.CredentialPresent(p), source: secrets.Resolve(p).Source,
 			envVar: p.Auth.Env, fixCmd: fix, provider: p,
 		}
-		if p.Auth.Type == providers.AuthPassthrough {
+		if p.Auth.Method() == providers.AuthCLI {
 			kt = maxPlanTarget(kt)
 		}
 		out = append(out, kt)
@@ -412,7 +415,7 @@ func vendorKeyTarget(reg *providers.Registry, name string) keyTarget {
 				return keyTarget{label: name, present: true, source: afterUsing(note)}
 			}
 			// A passthrough provider carries another vendor's login, never a key this vendor can use.
-			if rerr == nil && target.Provider.Auth.Type != "passthrough" && providers.CredentialPresent(target.Provider) {
+			if rerr == nil && target.Provider.Auth.Method() != providers.AuthCLI && providers.CredentialPresent(target.Provider) {
 				return keyTarget{label: name, present: true, source: target.Provider.Name + " key",
 					envVar: target.Provider.Auth.Env, provider: target.Provider}
 			}
@@ -863,34 +866,34 @@ func runAgents(d *dialog) bool {
 	return ok
 }
 
-// --- router ---
+// --- proxy ---
 
-func runRouter(d *dialog) bool {
+func runProxy(d *dialog) bool {
 	sel, err := providers.Select(d.reg, "")
 	if err != nil {
 		d.println(err)
 		return false
 	}
 	if !sel.NeedsRouter(d.reg) {
-		d.println("not needed: the session provider serves every slot directly")
+		d.println("not needed: the session provider serves every model alias directly")
 		return true
 	}
 	if d.o.Check || d.o.DryRun {
-		d.println("needed: a cross-provider slot or fallback ladder is configured; would start it")
+		d.println("needed: a cross-provider model alias or fallback ladder is configured; would start it")
 		return true
 	}
 	if !d.o.Interactive {
-		d.println("needed: run `claude-code gateway proxy --start`, or relaunch with --router")
+		d.println("needed: run `claude-code gateway proxy --start`, or relaunch")
 		return false
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	base, err := router.Ensure(ctx)
+	base, err := proxy.Ensure(ctx)
 	if err != nil {
 		d.println(err)
 		return false
 	}
-	d.printf("router running: %s\n", base)
+	d.printf("proxy running: %s\n", base)
 	return true
 }
 

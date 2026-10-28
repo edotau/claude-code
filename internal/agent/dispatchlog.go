@@ -195,7 +195,7 @@ type logCarrier struct {
 	noTee bool
 }
 
-// WithLog carries sink in ctx so every vendor child started under it tees into the log.
+// WithLog carries sink in ctx so every agent child started under it tees into the log.
 func WithLog(ctx context.Context, sink *LogSink) context.Context {
 	return context.WithValue(ctx, logSinkKey{}, logCarrier{sink: sink})
 }

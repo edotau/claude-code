@@ -13,7 +13,7 @@ import (
 	"github.com/edotau/claude-code/internal/copilotsdk"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/route"
+	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 	"github.com/edotau/claude-code/internal/vendors"
@@ -38,7 +38,7 @@ func ghLogin(t *testing.T, user string, pct float64) {
 	if err := os.WriteFile(filepath.Join(cfg, "hosts.yml"), []byte(hosts), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv(providers.PinGitHubUser, user)
+	setPin(t, providers.PinCopilotProfile, user)
 	prev := vendors.CopilotUsedPct
 	vendors.CopilotUsedPct = func(context.Context, string) (float64, bool) { return pct, true }
 	t.Cleanup(func() { vendors.CopilotUsedPct = prev })
@@ -48,10 +48,10 @@ func ghLogin(t *testing.T, user string, pct float64) {
 func TestExplicitAccountCopilotLoginIsPinnedUser(t *testing.T) {
 	ghLogin(t, "alice", 10)
 	acct, _ := explicitAccount(&fakeRunner{name: "copilot"}, Request{Provider: "github-copilot"})
-	if acct != "copilot:alice" {
-		t.Errorf("account = %q, want copilot:alice", acct)
+	if acct != "github·alice" {
+		t.Errorf("account = %q, want github·alice", acct)
 	}
-	t.Setenv(providers.PinGitHubUser, "")
+	setPin(t, providers.PinCopilotProfile, "")
 	if acct, _ := explicitAccount(&fakeRunner{name: "copilot"}, Request{Provider: "github-copilot"}); acct != "" {
 		t.Errorf("no pin: account = %q, want empty", acct)
 	}
@@ -65,14 +65,14 @@ func TestExplicitChainCopilotNotPreSkippedAndMarks(t *testing.T) {
 	cp := &fakeRunner{name: "copilot", errs: []error{quota}, emptyAnswer: true}
 	req := Request{Prompt: "p", Provider: "github-copilot"}
 	c := ExplicitChain(cp, req)
-	if len(c.Legs) != 1 || c.Legs[0].Account != "copilot:alice" {
-		t.Fatalf("chain = %+v, want one leg on copilot:alice", c)
+	if len(c.Legs) != 1 || c.Legs[0].Account != "github·alice" {
+		t.Fatalf("chain = %+v, want one leg on github·alice", c)
 	}
 	if _, err := RunWithFallback(context.Background(), c, req, io.Discard, nil); err == nil {
 		t.Fatal("the quota failure must surface")
 	}
-	if e := loadState()["copilot:alice"]; e.Status(time.Now()) != route.StateExhausted {
-		t.Fatalf("copilot:alice not marked: %+v", e)
+	if e := loadState()["github·alice"]; e.Status(time.Now()) != router.StateExhausted {
+		t.Fatalf("github·alice not marked: %+v", e)
 	}
 	again := ExplicitChain(cp, req)
 	if len(again.Legs) != 1 || len(again.Skipped) != 0 {
@@ -87,14 +87,14 @@ func TestVendorTargetNoteExplicitCopilotGated(t *testing.T) {
 
 	ghLogin(t, "alice", 10)
 	tg, own, _, err := vendorTargetNote(req, "copilot")
-	if err != nil || own || tg.Provider == nil || tg.Provider.Name != "github-copilot" {
-		t.Fatalf("below threshold: %v own=%v err=%v, want github-copilot", tg.Provider, own, err)
+	if err != nil || own || tg.Provider == nil || tg.Provider.Name != "personal" {
+		t.Fatalf("below threshold: %v own=%v err=%v, want personal", tg.Provider, own, err)
 	}
 
 	for _, pct := range []float64{95, 99} {
 		vendors.CopilotUsedPct = func(context.Context, string) (float64, bool) { return pct, true }
 		tg, _, _, err := vendorTargetNote(req, "copilot")
-		if err == nil && tg.Provider != nil && tg.Provider.Name == "github-copilot" {
+		if err == nil && tg.Provider != nil && tg.Provider.Name == "personal" {
 			t.Fatalf("pct %v: explicit GitHub login must not be used past the gate", pct)
 		}
 		if err != nil && !strings.Contains(err.Error(), "no credit-free route") {
@@ -150,9 +150,10 @@ func TestCopilotRunnerQuotaTriggersHandoff(t *testing.T) {
 	ghLogin(t, "alice", 10) // after stubHandoff: pins alice as the workable gh login
 	t.Setenv("DEV_TEST_KEY", "k")
 	vaulttest.UseKeyring(t)
-	fakeCopilotBin(t) // after the vault helper, which may relocate the config dir
+	setPin(t, providers.PinCopilotProfile, "alice") // UseKeyring relocates the vault; reseed the pin
+	fakeCopilotBin(t)                               // after the vault helper, which may relocate the config dir
 	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"dev":{"kind":"anthropic","base_url":"http://127.0.0.1:1",`+
-		`"auth":{"type":"bearer","env":"DEV_TEST_KEY"},"models":{"opus":"claude-opus-5-5"}}}}`)
+		`"auth":{"type":"key","env":"DEV_TEST_KEY"},"models":{"opus":"claude-opus-5-5"}}}}`)
 	calls := stubAsk(t, func(n int) (copilotsdk.Result, error) {
 		if n == 1 {
 			return copilotsdk.Result{Text: "Step 1 done.", SessionID: "0a1b2c3d-4e5f-6789-abcd-ef0123456789"}, errQuotaMidTask
@@ -167,10 +168,18 @@ func TestCopilotRunnerQuotaTriggersHandoff(t *testing.T) {
 	if *calls != 2 {
 		t.Errorf("SDK calls = %d, want 2 (GitHub leg, then one resume)", *calls)
 	}
-	if len(*marked) != 1 || (*marked)[0] != "copilot:alice" {
-		t.Errorf("marked = %v, want copilot:alice", *marked)
+	if len(*marked) != 1 || (*marked)[0] != "github·alice" {
+		t.Errorf("marked = %v, want github·alice", *marked)
 	}
 	if !strings.HasPrefix(res.Handoff, dir) {
 		t.Errorf("handoff = %q, want a file under %s", res.Handoff, dir)
+	}
+}
+
+// setPin seeds (value != "") or clears a vault pin; pins are vault-only, never read from env.
+func setPin(t *testing.T, key, value string) {
+	t.Helper()
+	if err := providers.SetPins(map[string]string{key: value}); err != nil {
+		t.Fatal(err)
 	}
 }

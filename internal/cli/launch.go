@@ -28,7 +28,7 @@ import (
 
 func cmdClaude(args []string) int { return launchClaude("", args) }
 
-// launchClaude launches Claude Code with tier as the main-loop model ("" = the opus slot).
+// launchClaude launches Claude Code with tier as the main-loop model ("" = opus).
 func launchClaude(tier string, args []string) int {
 	opts, rest, err := launch.ParseArgs(args, true)
 	if err != nil {
@@ -39,14 +39,14 @@ func launchClaude(tier string, args []string) int {
 	return runPlan(plan, opts, err)
 }
 
-// tierVerb is `claude-code <tier>`: Claude Code on the session provider with that tier as the main model.
+// tierVerb is `claude-code <alias>`: Claude Code on the session profile with that alias as the main model.
 func tierVerb(tier string) func([]string) int {
 	return func(a []string) int { return launchClaude(tier, a) }
 }
 
 var anthropicPage = helptext.Page{
-	Usage: "claude-code anthropic [--oauth[=NAME]] [--x-api-key[=NAME]] [--model ID]\n" +
-		"[--router] [--print-env] [--keep-env NAMES] [claude args]",
+	Usage: "claude-code anthropic [--oauth[=NAME]] [--x-api-key[=NAME]] [--model M]\n" +
+		"[--print-env] [--keep-env NAMES] [claude args]",
 	About: "Claude Code on first-party Anthropic. No flag uses your claude.ai login. A bare flag takes no " +
 		"value; =NAME picks the vault key.",
 	Hint: "claude-code anthropic " + helptext.DocsFlag + " prints claude's own help.",
@@ -57,8 +57,7 @@ func anthropicHelp(w io.Writer) {
 	fs := helptext.NewFlagSet("anthropic", anthropicPage)
 	fs.Bool("oauth", false, "setup-token login; =NAME picks the vault key")
 	fs.Bool("x-api-key", false, "API key login; =NAME picks the vault key")
-	fs.String("model", "", "any spelling of a Claude id; its family picks the main tier")
-	fs.Bool("router", false, "force the loopback router")
+	fs.String("model", "", "alias (opus), version (opus-5-5) or wire id: the main model")
 	fs.Bool("print-env", false, "print the resolved launch; never prompts")
 	fs.String("keep-env", "", "env names the credential scrub keeps")
 	p := anthropicPage
@@ -173,7 +172,7 @@ func runPlan(plan launch.Plan, opts launch.Options, err error) int {
 // hookPage lists names in Hint, not Commands: a COMMANDS row would invite `hook <name> -h`, which runs the hook.
 var hookPage = helptext.Page{
 	Usage: "claude-code hook <name> < payload.json",
-	About: "Run one lifecycle hook on the event JSON on stdin; settings.json and the vendor hook files invoke it.",
+	About: "Run one lifecycle hook on the event JSON on stdin; settings.json and the agent hook files invoke it.",
 	Hint: "names: bash-guard|docs-placement|agent-effort|agent-routed|workflow-lint|\n" +
 		"       agent-inflight|agent-inflight-tag|agent-inflight-post|subagent-stop|\n" +
 		"       plan-mirror|save-plan|access-trace|context-checkpoint|stop-format|\n" +
@@ -189,7 +188,7 @@ func cmdHook(args []string) int {
 	return hooks.Run(args[0], os.Stdin, os.Stdout, os.Stderr)
 }
 
-// cmdReset is `configure --reset`: render settings.json and the vendor configs from the templates.
+// cmdReset is `configure --reset`: render settings.json and the agent configs from the templates.
 func cmdReset(agents, out string, check, dryRun, vendors bool) int {
 	if out == "" && !check && !dryRun { // bare --reset writes the live settings.json
 		out = launch.SettingsFile()
@@ -352,7 +351,7 @@ func cmdInstall(args []string) int {
 	}
 	fs := helptext.NewFlagSet("install", helptext.Page{
 		Usage: "claude-code install [flags]\nclaude-code install --setup <mode> [flags]",
-		About: "Build-time setup: install the Claude Code CLI and vendor links, then render settings.json. " +
+		About: "Build-time setup: install the Claude Code CLI and agent links, then render settings.json. " +
 			"--tools installs only the agent CLIs; --setup migrates, wipes or scopes a .claude/ tree.",
 		Hint: "claude-code install --setup -h lists the setup modes.",
 	})
@@ -382,9 +381,9 @@ func cmdInstall(args []string) int {
 func cmdDoctor(args []string) int {
 	fs := helptext.NewFlagSet("doctor", helptext.Page{
 		Usage: "claude-code doctor [flags] [--scan [path...]]",
-		About: "Check binaries, providers, credentials and the router without changing anything; " +
+		About: "Check binaries, providers, credentials and the proxy without changing anything; " +
 			"exits 1 when a check fails. --audit prints switches, pins, secret sets, safety blocks " +
-			"and router failovers instead. --scan, --git and --secrets audit for plaintext " +
+			"and proxy failovers instead. --scan, --git and --secrets audit for plaintext " +
 			"credentials instead and exit 1 on any finding.",
 	})
 	format := outfmt.Flag(fs)
@@ -435,7 +434,7 @@ func cmdDoctor(args []string) int {
 	return 0
 }
 
-// printAudit prints the typed action log: switches, pins, secret sets, safety blocks, router
+// printAudit prints the typed action log: switches, pins, secret sets, safety blocks, proxy
 // failovers. Shared by `doctor --audit`.
 func printAudit(days int, format string) int {
 	if days <= 0 {

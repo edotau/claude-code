@@ -18,7 +18,7 @@ func fakeJWT(claims string) string {
 
 // mintedBy is a command provider whose auth.command prints v; Refresh forces a fresh run past the cache.
 func mintedBy(name, v string) *Provider {
-	return &Provider{Name: name, Auth: Auth{Type: AuthBearer, Command: "printf '%s' '" + v + "'"}}
+	return &Provider{Name: name, Auth: Auth{Type: AuthKey, Command: "printf '%s' '" + v + "'"}}
 }
 
 // stateFiles lists every regular file under the state dir, so a "writes nothing" check sees any stray write.
@@ -91,7 +91,7 @@ func TestTokenExpiryUnsafeNameWritesNothing(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	jwt := fakeJWT(`{"exp":1893456000}`)
 	for _, name := range []string{"../escape", "a/b", "..", ".", "", "sp ace", "x\x00y"} {
-		p := &Provider{Name: name, Auth: Auth{Type: AuthBearer, Command: "printf '%s' '" + jwt + "'"}}
+		p := &Provider{Name: name, Auth: Auth{Type: AuthKey, Command: "printf '%s' '" + jwt + "'"}}
 		_, _ = Refresh(context.Background(), p)
 		if files := stateFiles(t); len(files) != 0 {
 			t.Errorf("name %q wrote %v", name, files)

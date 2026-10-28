@@ -95,8 +95,8 @@ func TestPickCopilotModelHidesDisabledModels(t *testing.T) {
 		{ID: "retired-model", Name: "Retired Model", Enabled: false},
 	}, nil)
 
-	if _, ok := reg.Providers["github-copilot"]; !ok {
-		t.Skip("no github-copilot provider in the registry")
+	if _, ok := reg.Providers["personal"]; !ok {
+		t.Skip("no personal (github) profile in the registry")
 	}
 
 	in := strings.NewReader("\n") // blank = cancel; we only need the printed row list
@@ -124,9 +124,9 @@ func TestPickCopilotModelFallsBackToOpencodeOnSDKError(t *testing.T) {
 	t.Cleanup(func() { modelChoices = origChoices })
 	modelChoices = func(p *providers.Provider, claude bool) []string { return []string{"claude-opus-5.5"} }
 
-	gp, ok := reg.Providers["github-copilot"]
+	gp, ok := reg.Providers["personal"]
 	if !ok {
-		t.Skip("no github-copilot provider in the registry")
+		t.Skip("no personal (github) profile in the registry")
 	}
 	wantOpus := gp.Models["opus"] // must survive untouched: the pick writes only the COPILOT_MODEL pin
 

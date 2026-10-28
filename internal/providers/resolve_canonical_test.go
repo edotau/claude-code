@@ -80,17 +80,15 @@ func TestParseTargetWirePrefix(t *testing.T) {
 	}
 }
 
-// TestTargetClientModel pins Target.ClientModel: typed OneM marks [1m], a one_m provider marks Claude ids only.
+// TestTargetClientModel pins Target.ClientModel: only a typed OneM marks [1m].
 func TestTargetClientModel(t *testing.T) {
-	std, oneM := &Provider{Name: "s"}, &Provider{Name: "m", OneM: true}
+	std := &Provider{Name: "s"}
 	tests := []struct {
 		name string
 		t    Target
 		want string
 	}{
 		{"typed 1m", Target{Provider: std, Model: "claude-opus-5-5", OneM: true}, "claude-opus-5-5[1m]"},
-		{"one_m provider claude", Target{Provider: oneM, Model: "claude-opus-5-5"}, "claude-opus-5-5[1m]"},
-		{"one_m provider non-claude", Target{Provider: oneM, Model: "gpt-5"}, "gpt-5"},
 		{"standard", Target{Provider: std, Model: "claude-opus-5-5"}, "claude-opus-5-5"},
 		{"nil provider", Target{Model: "x"}, "x"},
 	}

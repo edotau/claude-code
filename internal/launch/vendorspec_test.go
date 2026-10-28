@@ -21,7 +21,7 @@ func TestPlainPlanAppliesVendorLaunchSpec(t *testing.T) {
 		t.Fatal("opencode vendor spec not found")
 	}
 
-	vaulttest.Put(t, vault.Overlay, "vendors", `{"vendors":{"opencode":{"launch":{"env":["X_TEST=1"],"args":["--flag"]}}}}`)
+	vaulttest.Put(t, vault.Overlay, "agents", `{"agents":{"opencode":{"launch":{"env":["X_TEST=1"],"args":["--flag"]}}}}`)
 	plan, err := plainPlan(spec, []string{"user", "arg"})
 	if err != nil {
 		t.Fatal(err)
@@ -38,7 +38,7 @@ func TestPlainPlanAppliesVendorLaunchSpec(t *testing.T) {
 	}
 
 	// No overlay: the built-in default still applies.
-	vaulttest.Put(t, vault.Overlay, "vendors", "")
+	vaulttest.Put(t, vault.Overlay, "agents", "")
 	plan, err = plainPlan(spec, []string{"user"})
 	if err != nil {
 		t.Fatal(err)

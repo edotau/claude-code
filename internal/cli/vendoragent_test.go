@@ -36,15 +36,15 @@ func TestVendorUsageFits80(t *testing.T) {
 
 // TestVendorVerbDoubleDashForcesPassthrough: `<v> -- status` must reach launchVendor, not
 // cmdVendorStatus, even though "status" is also a subverb word — distinguished here by message
-// shape: launchVendor's failure is launch.Vendor's generic "unknown vendor" text, never the
+// shape: launchVendor's failure is launch.Vendor's generic "unknown agent" text, never the
 // "<v> status: ..." prefix cmdVendorStatus would produce.
 func TestVendorVerbDoubleDashForcesPassthrough(t *testing.T) {
 	_, _, stderr := captureOutput(t, func() int { return vendorVerb(notAVendor, []string{"--", "status"}) })
 	if strings.Contains(stderr, notAVendor+" status:") {
 		t.Errorf("-- status reached cmdVendorStatus instead of launchVendor: %q", stderr)
 	}
-	if !strings.Contains(stderr, "unknown vendor") {
-		t.Errorf("-- status stderr = %q, want launch.Vendor's \"unknown vendor\" message", stderr)
+	if !strings.Contains(stderr, "unknown agent") {
+		t.Errorf("-- status stderr = %q, want launch.Vendor's \"unknown agent\" message", stderr)
 	}
 }
 
@@ -66,7 +66,7 @@ func TestVendorVerbRoutesStatusResultCancelToCmdVendorSub(t *testing.T) {
 // as the row's first column.
 func TestVendorVerbRoutesSetupToCmdVendorSetup(t *testing.T) {
 	_, stdout, _ := captureOutput(t, func() int { return vendorVerb(notAVendor, []string{"setup"}) })
-	if !strings.Contains(stdout, notAVendor+"  vendor  fail") {
+	if !strings.Contains(stdout, notAVendor+"  agent  fail") {
 		t.Errorf("vendorVerb(%q, [setup]) stdout = %q, want cmdVendorSetup's report row", notAVendor, stdout)
 	}
 }
@@ -75,7 +75,7 @@ func TestVendorVerbRoutesSetupToCmdVendorSetup(t *testing.T) {
 // vendor %q" wording), not launchVendor.
 func TestVendorVerbRoutesModelsToCmdVendorModels(t *testing.T) {
 	_, _, stderr := captureOutput(t, func() int { return vendorVerb(notAVendor, []string{"models"}) })
-	if !strings.Contains(stderr, "unknown vendor \""+notAVendor+"\"") {
+	if !strings.Contains(stderr, "unknown agent \""+notAVendor+"\"") {
 		t.Errorf("vendorVerb(models) stderr = %q, want cmdVendorModels's unknown-vendor message", stderr)
 	}
 }
@@ -93,7 +93,7 @@ func TestVendorVerbRoutesResumeToCmdVendorResume(t *testing.T) {
 // "ask", not in vendorSubverbs) falls through to launchVendor with args forwarded unchanged.
 func TestVendorVerbBareLaunchesEvenWhenFirstWordLooksLikeASubverb(t *testing.T) {
 	_, _, stderr := captureOutput(t, func() int { return vendorVerb(notAVendor, []string{"--native-flag", "x"}) })
-	if !strings.Contains(stderr, "unknown vendor") {
+	if !strings.Contains(stderr, "unknown agent") {
 		t.Errorf("bare launch stderr = %q, want launch.Vendor's unknown-vendor message", stderr)
 	}
 }

@@ -13,13 +13,13 @@ import (
 // (passthrough, no API key) falls back to the registry's configured Claude models; chatgpt (no /models
 // route) falls back to codex's local model cache. Any other provider's error is returned unchanged.
 func FallbackModels(p *Provider, liveErr error) ([]ModelInfo, string, error) {
-	if p.Name == "chatgpt" {
+	if p.provider() == "openai" && p.Auth.Login == "codex" {
 		if cached, cerr := CodexCachedModels(); cerr == nil && len(cached) > 0 {
 			return cached, "chatgpt has no live /models route; showing codex's local model cache (~/.codex/models_cache.json, may be stale)", nil
 		}
 		return nil, "", fmt.Errorf("%v (run `codex` once to populate ~/.codex/models_cache.json, or pin a model id by hand: claude-code models --pin opus=chatgpt:<id>)", liveErr)
 	}
-	if p.Auth.Type == AuthPassthrough {
+	if p.Auth.Type == AuthCLI {
 		if known := RegistryModels(p); len(known) > 0 {
 			return known, fmt.Sprintf("live catalog needs an API key (%v); showing the registry's known Claude models", liveErr), nil
 		}

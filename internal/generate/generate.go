@@ -1,4 +1,4 @@
-// Package generate renders vendor configs and hooks without launching a session.
+// Package generate renders agent configs and hooks without launching a session.
 package generate
 
 import (
@@ -15,7 +15,6 @@ import (
 	"sync"
 
 	"github.com/edotau/claude-code/internal/hookspec"
-	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vendorconfig"
@@ -86,7 +85,7 @@ func Prepare(o Options) (*Prepared, bool, error) {
 		}
 	}
 	if !o.Vendors && !configDirIsDefault() {
-		fmt.Fprintf(out, "generate: skipping vendor configs (CLAUDE_CONFIG_DIR=%s is not the default ~/.claude); pass --vendors to include them\n", paths.ConfigDir())
+		fmt.Fprintf(out, "generate: skipping agent configs (CLAUDE_CONFIG_DIR=%s is not the default ~/.claude); pass --vendors to include them\n", paths.ConfigDir())
 		return p, false, nil
 	}
 	reg, err := providers.Load()
@@ -151,26 +150,9 @@ func codexBannerSection(block string) string {
 	return "# >>> claude-code:managed:begin >>>\n" + block + "\n# <<< claude-code:managed:end <<<\n"
 }
 
-// agentSelection applies the active profile's row for vendor name to sel, as a `claude-code <vendor>` launch does.
-func agentSelection(reg *providers.Registry, name string, sel providers.Selection) (providers.Selection, bool) {
-	b := reg.ResolveAgent(providers.AgentRequest{Agent: name})
-	if b.Profile == "" || b.Provider == "" {
-		return sel, false
-	}
-	s, err := providers.Select(reg, b.Provider)
-	if err != nil || s.Provider == nil {
-		return sel, false
-	}
-	if b.Model != "" {
-		s.Slots[models.Opus] = providers.ParseTarget(reg, b.Model, s.Provider)
-	}
-	return s, true
-}
-
 func codexProviderSection(reg *providers.Registry, sel providers.Selection, existing string, out io.Writer) (string, error) {
 	ctx := context.Background()
-	sel, explicit := agentSelection(reg, "codex", sel)
-	target, note, err := vendors.ResolveTarget(reg, "codex", sel, explicit)
+	target, note, err := vendors.ResolveTarget(reg, "codex", sel, false)
 	if err != nil {
 		fmt.Fprintf(out, "codex: skipped: %v\n", err)
 		return "", nil
@@ -178,7 +160,7 @@ func codexProviderSection(reg *providers.Registry, sel providers.Selection, exis
 	if note != "" {
 		fmt.Fprintln(out, note)
 	}
-	if target.Provider != nil && target.Provider.Auth.Type == providers.AuthPassthrough {
+	if target.Provider != nil && target.Provider.Auth.Method() == providers.AuthCLI {
 		keys := codexPermissionKeys(existing, out)
 		if keys == "" {
 			fmt.Fprintf(out, "codex: skipped: %s runs on codex's own login; no config.toml block\n", target.Provider.Name)
@@ -411,7 +393,7 @@ func commitOverlayFile(path string, raw, next []byte, o Options, out io.Writer, 
 // auth is the cached Google login marker at launch time (see vendors.GeminiLoginPresent).
 
 func reportGemini(sel providers.Selection, out io.Writer) (bool, error) {
-	if sel.Provider.Auth.Type == providers.AuthPassthrough {
+	if sel.Provider.Auth.Method() == providers.AuthCLI {
 		fmt.Fprintln(out, "gemini: skipped: session provider is passthrough, not keyed")
 		return false, nil
 	}

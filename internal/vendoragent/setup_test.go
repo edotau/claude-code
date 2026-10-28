@@ -2,13 +2,13 @@ package vendoragent
 
 import "testing"
 
-// TestSetupUnknownVendor: Setup reports a single failing "vendor" check, not a panic or an empty report.
+// TestSetupUnknownVendor: Setup reports a single failing "agent" check, not a panic or an empty report.
 func TestSetupUnknownVendor(t *testing.T) {
 	rep := Setup("nonexistent-vendor")
 	if rep.OK {
 		t.Error("Setup(unknown vendor).OK = true, want false")
 	}
-	if len(rep.Checks) != 1 || rep.Checks[0].Name != "vendor" || rep.Checks[0].State != "fail" {
+	if len(rep.Checks) != 1 || rep.Checks[0].Name != "agent" || rep.Checks[0].State != "fail" {
 		t.Errorf("Setup(unknown vendor).Checks = %+v, want one failing \"vendor\" check", rep.Checks)
 	}
 }
@@ -19,8 +19,8 @@ func TestSetupUnknownVendor(t *testing.T) {
 func TestSetupKnownVendorChecks(t *testing.T) {
 	for _, name := range []string{"codex", "gemini", "copilot", "opencode"} {
 		rep := Setup(name)
-		if rep.Vendor != name {
-			t.Errorf("Setup(%q).Vendor = %q", name, rep.Vendor)
+		if rep.Agent != name {
+			t.Errorf("Setup(%q).Agent = %q", name, rep.Agent)
 		}
 		if len(rep.Checks) != 4 {
 			t.Fatalf("Setup(%q).Checks = %+v, want 4 rows (binary, login, route, projection)", name, rep.Checks)

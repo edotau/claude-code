@@ -1,12 +1,13 @@
 ---
-description: "Full-lifecycle coding via the claude agent — architect, implement, review, or simplify the current change."
-argument-hint: "[review | simplify | architect <task>] [diff range / path / blank for current diff]"
+description: "Full-lifecycle coding via the claude agent — implement, review, or simplify the current change."
+argument-hint: "[review | simplify] [diff range / path / blank for current diff]"
 allowed-tools: Bash, Read, Grep, Glob, Edit, Write, Agent
 ---
 
-Launcher only. Modes, the phase sequence, and the output format live in `agents/claude.md`.
+Launcher only. Design requests go to the `Plan` agent. Modes, the phase sequence, and the output format live in
+`agents/claude.md`.
 
-Read the mode from `$ARGUMENTS`'s first token (`review`, `simplify`, `architect`; blank defaults
+Read the mode from `$ARGUMENTS`'s first token (`review`, `simplify`; blank defaults
 to `review`). The remaining args are the scope: an explicit diff range, a path, or blank for the
 current diff (`git diff ${RANGE:---cached}` against `git merge-base HEAD main`, falling back to
 `git diff --cached` with a note if there's no divergence and nothing staged).

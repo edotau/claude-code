@@ -49,20 +49,20 @@ Prefer immutable data structures (`@dataclass(frozen=True)`, `typing.NamedTuple`
 
 ## Comments & Docstrings — Short and Concise
 
-Keep every comment and docstring to **120 characters or 2 lines, whichever comes first**.
-A comment that needs more than two lines is a signal the code (or the comment) should be
+Keep every comment and docstring to **1 line, ≤120 characters** per section (`rules/standards/communication.md`).
+A comment that needs more than one line is a signal the code (or the comment) should be
 restructured, not expanded.
 
 - State the *why*, not the *what* — the code already says what it does.
 - One concern per comment. If you need a paragraph, split the logic or extract a function.
 - **Delete commented-out code.** Do not leave it as a comment "for later" — git history is
-  the archive. If it must stay temporarily, it still obeys the 120-char / 2-line cap.
+  the archive. If it must stay temporarily, it still obeys the 120-char / 1-line cap.
 - **A function/class/method docstring holds a strict shape** — one-line description, then `Args:`,
   then `Return:`, and NOTHING else. **Never add a `Raises:` section**: what a function raises is the
   caller's contract and belongs in `rules/`, not restated per docstring where it goes stale silently.
   That shape is EXEMPT from the cap. Never drop a section or an `Args:` entry
   to hit a line target. The cap targets the *narrative paragraph* wrapped around those sections and
-  the scattered `#` blocks between statements: reduce those to 1–2 lines, or delete them outright.
+  the scattered `#` blocks between statements: reduce those to 1 line, or delete them outright.
 - Compressing a gotcha keeps the **constraint** and drops the story — no incident dates, no history,
   no retelling. If the constraint genuinely needs 2 lines, use 2; never delete it to reach 1.
 - Logger and exception **message** strings are code, not comments — the cap does not license editing

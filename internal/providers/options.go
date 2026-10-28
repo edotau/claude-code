@@ -1,16 +1,20 @@
 package providers
 
-import "strings"
+import (
+	"strings"
 
-// Databricks preset wires: serving (default) is /serving-endpoints, gateway is the AI Gateway.
+	"github.com/edotau/claude-code/internal/models"
+)
+
+// Databricks preset wires: serving (default) is /serving-endpoints, ai-gateway is the AI Gateway.
 const (
-	WireServing = "serving"
-	WireGateway = "gateway"
+	WireServing   = "serving"
+	WireAIGateway = "ai-gateway"
 )
 
 // Options are a preset row's non-secret tuning knobs.
 type Options struct {
-	Wire   string                    `json:"wire,omitempty"`   // "" or serving | gateway
+	Wire   string                    `json:"wire,omitempty"`   // "" or serving | ai-gateway
 	Models map[string]map[string]any `json:"models,omitempty"` // canonical model id to per-model options; unused
 }
 
@@ -21,16 +25,52 @@ const (
 )
 
 // isGateway reports whether p's preset row selects the AI Gateway wire.
-func (p *Provider) isGateway() bool { return p.Options.Wire == WireGateway }
+func (p *Provider) isGateway() bool { return p.Options.Wire == WireAIGateway }
 
-// presetWireID applies a preset's id rule to prefix+model: dots in the model part become dashes, the prefix stays.
-func (p Provider) presetWireID(id string) string {
-	if p.Preset != PresetDatabricks {
+// SpellingRule is the models.Wire rule p's model ids use; "" means ids pass through as written.
+func (p Provider) SpellingRule() string {
+	switch {
+	case p.Preset == PresetDatabricks && p.isGateway(), p.ModelPrefix == gatewayModelPrefix: // prefix: legacy Go-built rows
+		return "databricks-ai-gateway"
+	case p.Preset == PresetDatabricks || p.ModelPrefix == models.DatabricksPrefix:
+		return "databricks-serving"
+	case p.provider() == "github":
+		return "dotted"
+	case p.provider() == "anthropic":
+		return "anthropic"
+	}
+	return ""
+}
+
+// WireModel spells a catalog model id the way p serves it; idempotent, keeps a trailing [1m], and leaves
+// non-catalog and provider-qualified ids as written.
+func (p Provider) WireModel(id string) string {
+	base, oneM := strings.CutSuffix(id, oneMMarker)
+	rule := p.SpellingRule()
+	if rule == "" || base == "" || strings.ContainsAny(base, "/:") {
 		return id
 	}
-	rest, ok := strings.CutPrefix(id, p.ModelPrefix)
+	canonical, _, ok := models.Resolve(base)
 	if !ok {
 		return id
 	}
-	return p.ModelPrefix + strings.ReplaceAll(rest, ".", "-")
+	if oneM {
+		return models.Wire(rule, canonical) + oneMMarker
+	}
+	return models.Wire(rule, canonical)
+}
+
+// CanonicalModel is the inverse of WireModel: the canonical id, keeping a trailing [1m]; unknown ids pass through.
+//
+// Deprecated: removed in Phase 4 (use models.Resolve).
+func (p Provider) CanonicalModel(id string) string {
+	base, oneM := strings.CutSuffix(id, oneMMarker)
+	canonical, _, ok := models.Resolve(base)
+	if !ok {
+		return id
+	}
+	if oneM {
+		return canonical + oneMMarker
+	}
+	return canonical
 }

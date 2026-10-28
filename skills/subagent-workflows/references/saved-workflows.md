@@ -15,22 +15,22 @@ their one doc home; `claude-code workflow lint` fails when a script is missing f
 script that does not exist, so a rename or move cannot go unrecorded.
 
 Every `agent()` call pins `model:` (or `agentType:`) AND `effort:` — an unpinned leaf inherits the session's reasoning
-tier; a call that deliberately omits `effort:` carries `// lint:opus-ok` on its closing line. `meta` is a pure literal
+effort; a call that deliberately omits `effort:` carries `// lint:opus-ok` on its closing line. `meta` is a pure literal
 and nothing throws at top level, or the registry skips the script silently. Scripts are plain JavaScript (the Workflow
 tool runs no TypeScript); `claude-code workflow lint` checks all of the above and `make test` gates the shipped scripts.
 
-All four scripts read the Claude account's own router state once at start
-(`claude-code gateway route --format json --agent
-claude --fallback none`, a haiku leaf); `low`/`exhausted` steps every Claude-stage `model:` pin down one tier through
-an inline `routeTier()` helper (opus→sonnet, sonnet→haiku, haiku stays haiku), fail-open with a `log()` line on a
-failed or null read — pins stay explicit literals so `workflow-lint` still passes.
+All four scripts read the Claude account's own router state once at start (`claude-code gateway router --format json
+--agent claude --fallback none --model sonnet`, a haiku leaf; they parse `candidates[0].state`, else the `skipped[]`
+entry whose `agent` is `claude`); `low`/`exhausted` steps every Claude-stage `model:` pin down one model through an
+inline `routeModel()` helper (opus→sonnet, sonnet→haiku, haiku stays haiku), fail-open with a `log()` line on a failed
+or null read — pins stay explicit literals so `workflow-lint` still passes.
 
 | Workflow | Owner skill | Shape | Phases | args |
 |----------|-------------|-------|--------|------|
-| `green-keeper-loop` | problem-solving (`../../problem-solving/references/verify.md` Gate Loop) | Loop: gate → fix in scope → re-run, ≤N; exits `green\|stalled\|capped\|error`. Per-call default 3 iterations (verify.md caps the whole task at 5). Many repos: one call per repo, in parallel | 8 | `{gate?, cwd?, scope, maxIterations?, fixesPerIteration?}` |
+| `green-keeper-loop` | problem-solving (`../../problem-solving/references/verify.md` Gate Loop) | Loop: gate → fix in scope → re-run, ≤N; exits `green\|stalled\|capped\|error`. Per-call default 3 iterations (this workflow's loop cap; verify.md caps the whole task at 5). The full-suite gate runs here only because the main thread opted in by invoking it. Many repos: one call per repo, in parallel | 8 | `{gate?, cwd?, scope, maxIterations?, fixesPerIteration?}` |
 | `code-engineer` | subagent-workflows (the parallel `code-worker` ‖ `copilot` shape) | Parallel intel → implementer ‖ copilot → green-keeper-loop. Does not chain into `code-analyzer` | 2, 6, 8 | `{task, cwd?, scope, packages?, gate?, maxIterations?, implModel?}` |
 | `code-analyzer` | evaluate-code (its fix stage follows problem-solving) | Sized scope → chunked auditors → batched refute → fix ‖ test per package → green-keeper-loop → re-audit touched files (≤rounds). Loops rounds in-script (one level of `workflow()` nesting only); exits `dry\|no-fix\|stalled\|nothing-changed\|blocked\|capped\|error` | 2, 6, 8 | `{range \| paths \| findings (none = working-tree diff), cwd?, packages?, dimensions?, chunkChars?, fix?, minFix?, gate?, maxIterations?, rounds?, refuters?}` |
-| `code-agent` | subagent-workflows (`cost-routing.md`) | One codex/gemini/opencode/copilot call as a stage: smoke → JSON envelope → sonnet fallback | 1, 6, 8 | `{leg, cwd, task, smoke?, fallback?, tools?, timeoutMin?}` |
+| `code-agent` | subagent-workflows (`cost-routing.md`) | One codex/gemini/opencode/copilot call as a stage: smoke → JSON envelope → sonnet fallback; no `agent` = the router's pick at `model` (default sonnet); returns `{ok, agent, answer, provider, model, error, skipped?, fallback?}` | 1, 6, 8 | `{agent?, model?, cwd, task, smoke?, fallback?, tools?, timeoutMin?}` |
 
 A skill-owned script runs by `scriptPath` only, never by name: the A/B eval is
 `skills/evaluate-code/scripts/code-evaluator.js` (`skills/evaluate-code/references/eval.md`).

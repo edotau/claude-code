@@ -1,5 +1,5 @@
-// Package agent runs one headless task on an agent runner (claude, api, codex, gemini, opencode, copilot)
-// under one retry loop; every runner returns the same Result envelope.
+// Package agent runs one headless task on an agent (claude, codex, gemini, opencode, copilot)
+// under one retry loop; every agent returns the same Result envelope.
 package agent
 
 import (
@@ -21,16 +21,17 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 )
 
-// Request is one task. Model may be a slot name, a model id, or provider:model.
+// Request is one task. Model may be a model alias, a model id, or provider:model.
 type Request struct {
 	Prompt, Model, Provider, Effort, WorkDir, SessionID string
 	Attach                                              []string // absolute file paths, task text precedes them
 	KeepEnv                                             []string // names the credential scrub must not drop, from --keep-env
-	Tools, Autonomous, EnableMemory, Direct             bool     // Direct: vendor keeps the provider route, skips the router
+	Tools, Autonomous, EnableMemory, Direct             bool     // Direct: agent keeps the provider route, skips the router
+	NoTools                                             bool     // claude only: answer from the provider directly, no claude process
 	Timeout                                             time.Duration
 }
 
-// Usage is token accounting where the runner reports it.
+// Usage is token accounting where the agent reports it.
 type Usage struct {
 	InputTokens         int `json:"input_tokens"`                    // uncached input only
 	CacheCreationTokens int `json:"cache_creation_tokens,omitempty"` // billed above input; kept apart so cost can be priced
@@ -48,16 +49,16 @@ type Result struct {
 	Usage          Usage         `json:"usage"`
 	Duration       time.Duration `json:"duration_ns"`
 	Dropped        []string      `json:"dropped,omitempty"`
-	Fallback       string        `json:"fallback,omitempty"`        // set to the original runner's name when it ran instead
-	FallbackReason string        `json:"fallback_reason,omitempty"` // why the original runner was unavailable
+	Fallback       string        `json:"fallback,omitempty"`        // set to the original agent's name when it ran instead
+	FallbackReason string        `json:"fallback_reason,omitempty"` // why the original agent was unavailable
 	Handoff        string        `json:"handoff,omitempty"`         // hand-off file written when a copilot leg hit its quota
 }
 
-// Caps declares which Request fields a runner honors; Prompt, Timeout and Attach are always honored
-// (every runner has at least an inline-block fallback for Attach).
-type Caps struct{ Model, Provider, Effort, WorkDir, SessionID, Tools, Autonomous, Memory bool }
+// Caps declares which Request fields an agent honors; Prompt, Timeout and Attach are always honored
+// (every agent has at least an inline-block fallback for Attach).
+type Caps struct{ Model, Provider, Effort, WorkDir, SessionID, Tools, NoTools, Autonomous, Memory bool }
 
-// Runner is one agent backend.
+// Agent is one agent backend.
 type Runner interface {
 	Name() string
 	Caps() Caps
@@ -65,12 +66,12 @@ type Runner interface {
 	Run(ctx context.Context, req Request, stream io.Writer) (Result, error)
 }
 
-// Runners lists every runner in roster order.
+// Agents lists every agent in roster order.
 func Runners() []Runner {
-	return []Runner{claudeRunner{}, apiRunner{}, vendorRunner{"codex"}, vendorRunner{"gemini"}, vendorRunner{"opencode"}, copilotRunner{}}
+	return []Runner{claudeRunner{}, vendorRunner{"codex"}, vendorRunner{"gemini"}, vendorRunner{"opencode"}, copilotRunner{}}
 }
 
-// Lookup finds a runner by name.
+// Lookup finds an agent by name.
 func Lookup(name string) (Runner, error) {
 	var names []string
 	for _, r := range Runners() {
@@ -82,7 +83,7 @@ func Lookup(name string) (Runner, error) {
 	return nil, fmt.Errorf("unknown agent %q (%s)", name, strings.Join(names, "|"))
 }
 
-// applyCaps clears fields the runner cannot honor and names each one, so a drop is never silent.
+// applyCaps clears fields the agent cannot honor and names each one, so a drop is never silent.
 func applyCaps(c Caps, req Request) (Request, []string) {
 	var dropped []string
 	drop := func(ok bool, set bool, flag string, clear func()) {
@@ -97,6 +98,7 @@ func applyCaps(c Caps, req Request) (Request, []string) {
 	drop(c.WorkDir, req.WorkDir != "", "--workdir="+req.WorkDir, func() { req.WorkDir = "" })
 	drop(c.SessionID, req.SessionID != "", "--session="+req.SessionID, func() { req.SessionID = "" })
 	drop(c.Tools, req.Tools, "--tools", func() { req.Tools = false })
+	drop(c.NoTools, req.NoTools, "--no-tools", func() { req.NoTools = false })
 	drop(c.Autonomous, req.Autonomous, "--autonomous", func() { req.Autonomous = false })
 	drop(c.Memory, req.EnableMemory, "--enable-memory", func() { req.EnableMemory = false })
 	return req, dropped
@@ -120,8 +122,11 @@ func Run(ctx context.Context, r Runner, req Request, stream io.Writer, notify fu
 	}
 	req, dropped := applyCaps(r.Caps(), req)
 	res := Result{Agent: r.Name(), Dropped: dropped}
-	if err := r.Available(); err != nil {
-		return res, &Error{Kind: KindFatal, Agent: r.Name(), Err: err}
+	// a no-tools one-shot answers from the provider's API, so it needs no agent binary up front
+	if !req.NoTools {
+		if err := r.Available(); err != nil {
+			return res, &Error{Kind: KindFatal, Agent: r.Name(), Err: err}
+		}
 	}
 	p := DefaultPolicy()
 	if req.Timeout > 0 {
@@ -129,7 +134,7 @@ func Run(ctx context.Context, r Runner, req Request, stream io.Writer, notify fu
 	}
 	p.Notify = notify
 	var recoverErr error
-	if _, t, err := resolveTarget(req); err == nil && (t.Provider.Auth.Command != "" || t.Provider.Auth.AuthType != "") {
+	if _, t, err := resolveTarget(req); err == nil && (t.Provider.Auth.Command != "" || t.Provider.Auth.Sealed()) {
 		p.Recover = func(ctx context.Context) error {
 			_, recoverErr = providers.Refresh(ctx, t.Provider)
 			return recoverErr
@@ -139,18 +144,18 @@ func Run(ctx context.Context, r Runner, req Request, stream io.Writer, notify fu
 	e := Do(ctx, p, func(actx context.Context, _ int) *Error {
 		cw := &countingWriter{w: stream}
 		out, err := r.Run(actx, req, cw)
-		// A runner that delegated (e.g. api on a passthrough provider) names the actual runner itself;
+		// An agent that delegated to another names the actual agent itself;
 		// only default to r.Name() when it left Agent unset, so the envelope doesn't lie about who ran.
 		out.Agent, out.Dropped = cmp.Or(out.Agent, res.Agent), res.Dropped
 		res = out
 		e := Classify(r.Name(), err, cw.n > 0)
-		// A hard-quota 429 means this key can never use that model: fall to the next slot instead of waiting it out.
+		// A hard-quota 429 means this key can never use that model: fall to the next tier instead of waiting it out.
 		if e != nil && (e.Kind == KindRateLimit || e.Kind == KindQuota) && providers.ModelDenied(e.Err.Error()) &&
 			r.Caps().Model && (req.Model == "" || slices.Contains(models.Slots, req.Model)) {
 			cur := cmp.Or(req.Model, models.Opus)
 			if next := models.NextSlot(cur); next != "" {
 				if notify != nil {
-					notify(fmt.Sprintf("%s: the %s slot is quota-dead on this key; retrying on the %s slot", r.Name(), cur, next))
+					notify(fmt.Sprintf("%s: the %s model is quota-dead on this key; retrying on %s", r.Name(), cur, next))
 				}
 				req.Model, e.RetryAfter, e.Kind = next, 0, KindRateLimit
 			}
@@ -165,7 +170,8 @@ func Run(ctx context.Context, r Runner, req Request, stream io.Writer, notify fu
 	return res, nil
 }
 
-// resolveTarget applies --provider then --model (slot name, id, or provider:model) to the registry.
+// resolveTarget applies --provider then --model (alias, id, or provider:model) to the registry; an id a Claude alias
+// currently backs takes the session's alias selection, so CLAUDE_<TIER>_MODEL pins win.
 func resolveTarget(req Request) (*providers.Registry, providers.Target, error) {
 	reg, err := providers.Load()
 	if err != nil {
@@ -185,7 +191,23 @@ func resolveTarget(req Request) (*providers.Registry, providers.Target, error) {
 	if t, ok := sel.Slots[req.Model]; ok {
 		return reg, t, nil
 	}
+	if t, ok := aliasTarget(sel, req.Model); ok && !namesProvider(reg, req.Model) {
+		return reg, t, nil
+	}
 	return reg, providers.ParseTarget(reg, req.Model, sel.Provider), nil
+}
+
+// aliasTarget is the session's target for a canonical Claude id that an alias backs (any spelling), [1m] kept.
+func aliasTarget(sel providers.Selection, model string) (providers.Target, bool) {
+	canonical, oneM, ok := models.Resolve(model)
+	if !ok {
+		return providers.Target{}, false
+	}
+	t, ok := sel.Slots[models.AliasOf(canonical)]
+	if ok && oneM {
+		t.OneM = true
+	}
+	return t, ok
 }
 
 // MaxPromptBytes keeps a prompt passed as one argv element under the kernel's 128 KiB MAX_ARG_STRLEN.
@@ -222,7 +244,7 @@ func attachSuffix(prompt string, paths []string) string {
 }
 
 // attachInline embeds each path as a literal <file path="…">content</file> block after prompt: the
-// fallback for a runner with no live-read channel (codex's prompt rides stdin blind).
+// fallback for an agent with no live-read channel (codex's prompt rides stdin blind).
 func attachInline(prompt string, paths []string) (string, error) {
 	if len(paths) == 0 {
 		return prompt, nil
@@ -246,8 +268,8 @@ func attachInline(prompt string, paths []string) (string, error) {
 func IsText(data []byte) bool { return bytes.IndexByte(data, 0) < 0 && utf8.Valid(data) }
 
 // childCmd builds an exec.Cmd in its own process group; a deadline kills the whole tree. The parent env
-// is scrubbed of inherited credentials before env (the launch's own additions) is layered on. vendor
-// also scrubs HARNESS_VAULT_KEY: true for every vendor CLI child, false for the claude runner's own child.
+// is scrubbed of inherited credentials before env (the launch's own additions) is layered on. agent
+// also scrubs HARNESS_VAULT_KEY: true for every agent CLI child, false for the claude agent's own child.
 func childCmd(ctx context.Context, bin string, argv, env []string, dir, stdin string, keepEnv []string, vendor bool) (*exec.Cmd, *TailBuffer) {
 	cmd := exec.CommandContext(ctx, bin, argv...)
 	ownGroup(cmd)
@@ -297,28 +319,28 @@ func errPromptTooLarge(n int) error {
 	return fmt.Errorf("%w: %d bytes, over the %d limit for one argv element", ErrPromptTooLarge, n, MaxPromptBytes)
 }
 
-// Fallback modes for an unavailable vendor leg: the full chain ending in claude, other vendors only, or none.
+// Fallback modes for an unavailable dispatch: the full chain ending in claude, other agents only, or none.
 const (
-	FallbackAll     = "all"
-	FallbackVendors = "vendors"
-	FallbackNone    = "none"
+	FallbackAll    = "all"
+	FallbackAgents = "agents"
+	FallbackNone   = "none"
 )
 
 // FallbackModes lists the accepted --fallback values.
-var FallbackModes = []string{FallbackAll, FallbackVendors, FallbackNone}
+var FallbackModes = []string{FallbackAll, FallbackAgents, FallbackNone}
 
-func isVendor(name string) bool { return name != "claude" && name != "api" }
+func notClaude(name string) bool { return name != "claude" }
 
 // RunWithFallback runs c's legs in turn while the previous one turned out unavailable — binary missing, no provider
 // can serve it, a login/quota failure, or an exit with no answer. It never moves on after a timeout, cancellation,
 // an oversized prompt or a partial answer, nor when the caller pinned an explicit non-Claude --provider/--model.
-// A KindQuota failure marks the leg's account until its reset. The result names the wanted runner in Fallback and
+// A KindQuota failure marks the leg's account until its reset. The result names the wanted agent in Fallback and
 // every gate skip and failed leg in FallbackReason.
 func RunWithFallback(ctx context.Context, c Chain, req Request, stream io.Writer, notify func(string)) (Result, error) {
 	reasons := slices.Clone(c.Skipped)
 	if len(c.Legs) == 0 {
 		return Result{Agent: c.Want, FallbackReason: strings.Join(reasons, "; ")},
-			&Error{Kind: KindFatal, Agent: c.Want, Err: fmt.Errorf("no runner available: %s", strings.Join(reasons, "; "))}
+			&Error{Kind: KindFatal, Agent: c.Want, Err: fmt.Errorf("no agent available: %s", strings.Join(reasons, "; "))}
 	}
 	if len(reasons) > 0 && notify != nil {
 		notify("skipped without an attempt — " + strings.Join(reasons, "; "))
@@ -334,10 +356,10 @@ func RunWithFallback(ctx context.Context, c Chain, req Request, stream io.Writer
 			}
 			reasons = append(reasons, legLabel(prev)+": "+fallbackReason(err))
 			if notify != nil {
-				notify(fmt.Sprintf("%s unavailable (%s) — falling back to %s%s", legLabel(prev), fallbackReason(err), legLabel(leg.Runner), legCell(leg)))
+				notify(fmt.Sprintf("%s unavailable (%s) — falling back to %s%s", legLabel(prev), fallbackReason(err), legLabel(leg.Agent), legCell(leg)))
 			}
 		}
-		res, err = Run(ctx, leg.Runner, legRequest(req, leg, i == 0 && leg.Runner.Name() == c.Want), stream, notify)
+		res, err = Run(ctx, leg.Agent, legRequest(req, leg, i == 0 && leg.Agent.Name() == c.Want), stream, notify)
 		noteQuota(leg, err)
 		noteAuth(leg, err)
 		noteStall(leg, err)
@@ -347,12 +369,12 @@ func RunWithFallback(ctx context.Context, c Chain, req Request, stream io.Writer
 			}
 		}
 		handoff = cmp.Or(res.Handoff, handoff)
-		prev = leg.Runner
+		prev = leg.Agent
 		if i == 0 && ExplicitBackend(req) {
 			break
 		}
 	}
-	if len(reasons) > 0 || c.Legs[0].Runner.Name() != c.Want {
+	if len(reasons) > 0 || c.Legs[0].Agent.Name() != c.Want {
 		res.Fallback, res.FallbackReason = c.Want, strings.Join(reasons, "; ")
 	}
 	res.Handoff = handoff
@@ -378,7 +400,7 @@ func legLabel(r Runner) string {
 	return r.Name()
 }
 
-// fallbackReason keeps the last line of the failure (a vendor CLI prints its own ERROR line last), capped at 200 bytes.
+// fallbackReason keeps the last line of the failure (an agent CLI prints its own ERROR line last), capped at 200 bytes.
 func fallbackReason(err error) string {
 	lines := strings.Split(strings.TrimSpace(err.Error()), "\n")
 	s := strings.TrimSpace(lines[len(lines)-1])
@@ -396,7 +418,7 @@ func legUnavailable(r Runner, res Result, err error) bool {
 	if errors.As(err, &ae) && ae.AuthReason != "" && res.Answer == "" {
 		return true
 	}
-	if err == nil || !isVendor(r.Name()) || res.Answer != "" {
+	if err == nil || !notClaude(r.Name()) || res.Answer != "" {
 		return false
 	}
 	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) || errors.Is(err, ErrPromptTooLarge) {

@@ -34,7 +34,7 @@ func modelsMenu(d *dialog) bool {
 			rows = append(rows, [2]string{s, slotRowDetail(sel, s)})
 		}
 		rows = append(rows, [2]string{"Unpin all", "clear every model pin"})
-		idx, err := pickSlots("models — pick a slot to change, or Back to leave", rows, start)
+		idx, err := pickSlots("models — pick a model alias to change, or Back to leave", rows, start)
 		if err != nil || idx < 0 {
 			return true
 		}
@@ -96,7 +96,7 @@ func catalogForSlot(ctx context.Context, reg *providers.Registry, p *providers.P
 	}
 	infos, note, err := providers.FallbackModels(p, err)
 	if err != nil {
-		return nil, "live catalog unavailable (" + err.Error() + ") and no fallback for " + slot
+		return nil, "live catalog unavailable (" + err.Error() + ") and no fallback for the " + slot + " alias"
 	}
 	return infos, note
 }

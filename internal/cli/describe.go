@@ -22,9 +22,9 @@ type Describe struct {
 	Version   string            `json:"version"`
 	Commands  []DescribeCommand `json:"commands"`
 	Providers DescribeProviders `json:"providers"`
-	Runners   []DescribeRunner  `json:"runners"`
+	Agents    []DescribeAgent   `json:"agents"`
 	Hooks     []DescribeHook    `json:"hooks"`
-	Slots     []string          `json:"slots"`
+	Models    []string          `json:"models"`
 }
 
 type DescribeCommand struct {
@@ -38,7 +38,7 @@ type DescribeCommand struct {
 }
 
 type DescribeProviders struct {
-	Session  string             `json:"session"` // the provider a launch resolves to today
+	Session  string             `json:"session"` // the profile a launch resolves to today
 	Default  string             `json:"default"`
 	Fallback []string           `json:"fallback,omitempty"`
 	List     []DescribeProvider `json:"list"`
@@ -54,7 +54,7 @@ type DescribeProvider struct {
 	Models     map[string]string `json:"models,omitempty"`
 }
 
-type DescribeRunner struct {
+type DescribeAgent struct {
 	Name      string     `json:"name"`
 	Available bool       `json:"available"`
 	Reason    string     `json:"reason,omitempty"`
@@ -71,7 +71,7 @@ type DescribeHook struct {
 func cmdDescribe(args []string) int {
 	fs := helptext.NewFlagSet("describe", helptext.Page{
 		Usage: "claude-code describe [flags]",
-		About: "One map of the whole harness for an agent: verbs, providers, runners, slots and hooks. " +
+		About: "One map of the whole harness for an agent: verbs, providers, agents, model aliases and hooks. " +
 			"Credentials never appear, only whether one resolves.",
 	})
 	format := fs.String("format", "json", "json (the full map) or text (a short listing)")
@@ -101,7 +101,7 @@ func cmdDescribe(args []string) int {
 // describe builds the describe view from an already-loaded registry, so a caller that loaded one
 // itself (e.g. configureProviderList) never pays for a second load.
 func describe(reg *providers.Registry) (Describe, error) {
-	d := Describe{Version: buildVersion(), Slots: models.Slots}
+	d := Describe{Version: buildVersion(), Models: models.Slots}
 	tree := specTree()
 	for _, c := range commands() {
 		if strings.HasPrefix(c.name, "__") {
@@ -120,16 +120,16 @@ func describe(reg *providers.Registry) (Describe, error) {
 	for _, n := range reg.Names() {
 		p := reg.Providers[n]
 		d.Providers.List = append(d.Providers.List, DescribeProvider{
-			Name: n, Kind: p.Kind, Dialects: p.Dialects(), Auth: p.Auth.Type, Login: p.Auth.Login,
+			Name: n, Kind: p.Kind, Dialects: p.Dialects(), Auth: p.Auth.Method(), Login: p.Auth.Login,
 			Credential: providers.CredentialPresent(p), Models: p.Models,
 		})
 	}
 	for _, r := range agent.Runners() {
-		dr := DescribeRunner{Name: r.Name(), Available: true, Caps: r.Caps()}
+		dr := DescribeAgent{Name: r.Name(), Available: true, Caps: r.Caps()}
 		if err := r.Available(); err != nil {
 			dr.Available, dr.Reason = false, err.Error()
 		}
-		d.Runners = append(d.Runners, dr)
+		d.Agents = append(d.Agents, dr)
 	}
 	for _, s := range hookspec.Registry {
 		d.Hooks = append(d.Hooks, DescribeHook{Name: s.Name, Event: s.Event, Matcher: s.Matcher, Timeout: s.Timeout})
@@ -186,8 +186,8 @@ func printDescribe(d Describe) {
 	for _, p := range d.Providers.List {
 		fmt.Printf("  %-15s %-10s cred=%-5v %s\n", p.Name, p.Auth, p.Credential, strings.Join(p.Dialects, ","))
 	}
-	fmt.Println("runners:")
-	for _, r := range d.Runners {
+	fmt.Println("agents:")
+	for _, r := range d.Agents {
 		fmt.Printf("  %-10s available=%v %s\n", r.Name, r.Available, r.Reason)
 	}
 	fmt.Printf("hooks: %d registered\n", len(d.Hooks))

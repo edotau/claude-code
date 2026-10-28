@@ -11,10 +11,26 @@ import (
 	"github.com/edotau/claude-code/internal/models"
 )
 
-// MenuID canonicalizes a typed model id to a menu id: Claude ids via models.Canonical, then the databricks- prefix off.
+// MenuID canonicalizes a typed model id to a menu id: a catalog id (any wire spelling) via models.Resolve, else
+// the id with any catalog spelling prefix removed.
 func MenuID(id string) string {
-	base, _ := models.Canonical(id)
-	return strings.TrimPrefix(base, "databricks-")
+	id = strings.TrimSpace(models.Strip1M(id))
+	if canonical, _, ok := models.Resolve(id); ok {
+		return canonical
+	}
+	return stripSpellingPrefix(id)
+}
+
+// stripSpellingPrefix removes the id prefix a catalog spelling rule adds (derived from models.Wire, not listed here).
+func stripSpellingPrefix(id string) string {
+	for _, rule := range []string{"databricks-serving", "databricks-ai-gateway"} {
+		if prefix := strings.TrimSuffix(models.Wire(rule, "x"), "x"); prefix != "" {
+			if rest, ok := strings.CutPrefix(id, prefix); ok {
+				return rest
+			}
+		}
+	}
+	return id
 }
 
 // DefaultMenuLabel is the label an added id gets when none is given.
@@ -119,8 +135,9 @@ func parseOpencodeJSON(data []byte) ([]OpencodeModel, error) {
 		return nil, fmt.Errorf("opencode.json: %w", err)
 	}
 	var out []OpencodeModel
+	profiles := databricksProfileNames()
 	for _, pid := range slices.Sorted(mapKeys(doc.Provider)) {
-		if !strings.Contains(pid, "databricks") && !isDatabricksEnvID(pid) {
+		if !strings.Contains(pid, "databricks") && !namesProfile(pid, profiles) {
 			continue
 		}
 		prov := doc.Provider[pid]
@@ -130,8 +147,7 @@ func parseOpencodeJSON(data []byte) ([]OpencodeModel, error) {
 			if label == "" {
 				label = DefaultMenuLabel(id)
 			}
-			out = append(out, OpencodeModel{ID: id, Label: label,
-				Responses: strings.HasSuffix(pid, "-gpt")})
+			out = append(out, OpencodeModel{ID: id, Label: label, Responses: responsesID(id)})
 		}
 	}
 	if len(out) == 0 {
@@ -140,9 +156,26 @@ func parseOpencodeJSON(data []byte) ([]OpencodeModel, error) {
 	return dedupeMenu(out), nil
 }
 
-func isDatabricksEnvID(id string) bool {
-	id = strings.TrimPrefix(strings.TrimSuffix(id, "-gpt"), "harness-") // the render names rows harness-<env>[-gpt]
-	return slices.Contains(DatabricksEnvs, id)
+// databricksProfileNames are the registry's databricks profiles; a registry that does not load has none.
+func databricksProfileNames() []string {
+	reg, _ := Load()
+	if reg == nil {
+		return nil
+	}
+	return DatabricksProfiles(reg)
+}
+
+// namesProfile reports whether a "-"-separated token of the opencode provider id is one of profiles.
+func namesProfile(pid string, profiles []string) bool {
+	return slices.ContainsFunc(strings.Split(pid, "-"), func(tok string) bool { return slices.Contains(profiles, tok) })
+}
+
+// responsesID reports whether a menu id is served on the Responses API: a catalog responses-only model, else gpt-*.
+func responsesID(id string) bool {
+	if e, ok := models.Lookup(id); ok && e.ResponsesOnly {
+		return true
+	}
+	return strings.HasPrefix(id, "gpt-")
 }
 
 func mapKeys[V any](m map[string]V) func(func(string) bool) {

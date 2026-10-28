@@ -59,11 +59,8 @@ func (s *rotatingIdP) handle(_ *http.Request, f url.Values) (int, map[string]any
 func TestRefreshRotationConcurrentNoReuse(t *testing.T) {
 	idp := &rotatingIdP{}
 	srv := oidcServer(t, idp.handle)
-	p := mintRow(t, "race-u2m", AuthU2M, "", srv.URL)
-	name := AuthSecretName(p)
-	if err := SealSecret(name, idp.rotate()); err != nil {
-		t.Fatal(err)
-	}
+	p := mintRow(t, "race-u2m", AuthOAuth, "", srv.URL)
+	putOAuth(t, p, oauthValue{Refresh: idp.rotate()})
 
 	const n = 16
 	var wg sync.WaitGroup
@@ -107,27 +104,22 @@ func TestRefreshRotationConcurrentNoReuse(t *testing.T) {
 	if len(idp.presented) == 0 || len(idp.presented) >= n {
 		t.Errorf("refresh calls = %d, want serialized (1..%d)", len(idp.presented), n-1)
 	}
-	if v, _, err := EffectiveSecret(name); err != nil || v != idp.valid {
-		t.Errorf("sealed token = %q, %v; want last issued %q", v, err, idp.valid)
+	if ov, err := readOAuth(p); err != nil || ov.Refresh != idp.valid {
+		t.Errorf("sealed token = %q, %v; want last issued %q", ov.Refresh, err, idp.valid)
 	}
 }
 
 func TestRefreshRereadsTokenRotatedByAnotherProcess(t *testing.T) {
 	idp := &rotatingIdP{}
 	srv := oidcServer(t, idp.handle)
-	p := mintRow(t, "race-xproc", AuthU2M, "", srv.URL)
-	name := AuthSecretName(p)
-	if err := SealSecret(name, idp.rotate()); err != nil {
-		t.Fatal(err)
-	}
+	p := mintRow(t, "race-xproc", AuthOAuth, "", srv.URL)
+	putOAuth(t, p, oauthValue{Refresh: idp.rotate()})
 	if _, err := Refresh(context.Background(), p); err != nil {
 		t.Fatal(err)
 	}
 	// Another process refreshes: the server rotates and that process seals the new token in the shared vault.
 	other := idp.rotate()
-	if err := SealSecret(name, other); err != nil {
-		t.Fatal(err)
-	}
+	putOAuth(t, p, oauthValue{Refresh: other})
 	if _, err := Refresh(context.Background(), p); err != nil {
 		t.Fatalf("refresh after external rotation: %v", err)
 	}
@@ -139,15 +131,15 @@ func TestRefreshRereadsTokenRotatedByAnotherProcess(t *testing.T) {
 	if last := idp.presented[len(idp.presented)-1]; last != other {
 		t.Errorf("last presented %q, want the externally sealed %q", last, other)
 	}
-	if v, _, _ := EffectiveSecret(name); v != idp.valid {
-		t.Errorf("sealed = %q, want %q", v, idp.valid)
+	if ov, _ := readOAuth(p); ov.Refresh != idp.valid {
+		t.Errorf("sealed = %q, want %q", ov.Refresh, idp.valid)
 	}
 }
 
 func TestLoginU2MDoesNotRefreshAfterExchange(t *testing.T) {
 	idp := &rotatingIdP{}
 	srv := oidcServer(t, idp.handle)
-	p := mintRow(t, "race-login", AuthU2M, "", srv.URL)
+	p := mintRow(t, "race-login", AuthOAuth, "", srv.URL)
 
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -184,7 +176,7 @@ func TestLoginU2MDoesNotRefreshAfterExchange(t *testing.T) {
 	if v, ok := cachedCommand(p.Name); !ok || v != "login-access" {
 		t.Errorf("cached = %q, %v; want login-access", v, ok)
 	}
-	if v, _, _ := EffectiveSecret(AuthSecretName(p)); v != idp.valid {
-		t.Errorf("sealed = %q, want %q", v, idp.valid)
+	if ov, _ := readOAuth(p); ov.Refresh != idp.valid {
+		t.Errorf("sealed = %q, want %q", ov.Refresh, idp.valid)
 	}
 }

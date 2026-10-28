@@ -9,6 +9,6 @@
 ## Tasks
 
 - [ ] Phase 1 — Touch internal/cli, internal/launch, internal/configure and internal/clipboard in one pass
-- [ ] Phase 2 — Fix 31 findings across the hooks package — runner: copilot — owns: internal/hooks/safety.go
-- [ ] Phase 3 — Split cmdMemory, cmdVSCode, cmdAsk and cmdSettings — runner: code-worker
-- [ ] Phase 4 — Add --attach to the copilot runner — runner: claude — owns: internal/agent/vendor.go
+- [ ] Phase 2 — Fix 31 findings across the hooks package — agent: copilot — owns: internal/hooks/safety.go
+- [ ] Phase 3 — Split cmdMemory, cmdVSCode, cmdAsk and cmdSettings — agent: code-worker
+- [ ] Phase 4 — Add --attach to the copilot runner — agent: claude — owns: internal/agent/vendor.go

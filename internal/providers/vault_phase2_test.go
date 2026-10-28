@@ -42,17 +42,17 @@ func TestRenderPinsAbsent(t *testing.T) {
 
 func TestSelectSurfacesUnreadableVault(t *testing.T) {
 	reg := selectTestRegistry(t)
-	vaulttest.Put(t, vault.Meta, "schema", "3")
+	vaulttest.Put(t, vault.Meta, "schema", "999")
 	for _, env := range []string{"", "openai"} {
-		t.Setenv(PinProvider, env)
+		t.Setenv(PinProfile, env)
 		if _, err := Select(reg, ""); err == nil || !strings.Contains(err.Error(), "vault: pins unreadable") {
 			t.Errorf("Select (env %q) error = %v, want vault: pins unreadable", env, err)
 		}
 	}
-	if got := Pin(PinProvider); got != "openai" {
-		t.Errorf("Pin() = %q, want env value openai despite unreadable vault", got)
+	if got := SessionProfile(); got != "openai" {
+		t.Errorf("SessionProfile() = %q, want env value openai despite unreadable vault", got)
 	}
-	if _, err := PinDiff(map[string]string{PinProvider: "gemini"}); err == nil {
+	if _, err := PinDiff(map[string]string{PinProfile: "gemini"}); err == nil {
 		t.Error("PinDiff must return the vault read error")
 	}
 }
@@ -145,22 +145,22 @@ func TestSetProviderFieldsRefusesInvalidOverlay(t *testing.T) {
 
 func TestSetPinsEmptyDeletesKey(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	t.Setenv(PinProvider, "")
-	if err := SetPins(map[string]string{PinProvider: "openai", PinModel: "keep"}); err != nil {
+	t.Setenv(PinProfile, "")
+	if err := SetPins(map[string]string{PinProfile: "openai", PinModel: "keep"}); err != nil {
 		t.Fatal(err)
 	}
-	diff, err := PinDiff(map[string]string{PinProvider: ""})
+	diff, err := PinDiff(map[string]string{PinProfile: ""})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := []string{PinProvider + ": openai \u2192 (unset)"}; !reflect.DeepEqual(diff, want) {
+	if want := []string{PinProfile + ": openai \u2192 (unset)"}; !reflect.DeepEqual(diff, want) {
 		t.Fatalf("deletion diff = %q, want %q", diff, want)
 	}
-	if err := SetPins(map[string]string{PinProvider: ""}); err != nil {
+	if err := SetPins(map[string]string{PinProfile: ""}); err != nil {
 		t.Fatal(err)
 	}
 	if err := vault.View(func(tx *vault.Tx) error {
-		if got, ok := tx.Get(vault.Pins, PinProvider); ok {
+		if got, ok := tx.Get(vault.Pins, PinProfile); ok {
 			t.Errorf("deleted pin still present: %q", got)
 		}
 		if got, ok := tx.Get(vault.Pins, PinModel); !ok || got != "keep" {
@@ -170,14 +170,14 @@ func TestSetPinsEmptyDeletesKey(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if got := Pin(PinProvider); got != "" {
+	if got := Pin(PinProfile); got != "" {
 		t.Errorf("deleted Pin() = %q, want empty", got)
 	}
-	diff, err = PinDiff(map[string]string{PinProvider: "openai"})
+	diff, err = PinDiff(map[string]string{PinProfile: "openai"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := []string{PinProvider + ": (unset) \u2192 openai"}; !reflect.DeepEqual(diff, want) {
+	if want := []string{PinProfile + ": (unset) \u2192 openai"}; !reflect.DeepEqual(diff, want) {
 		t.Fatalf("diff after deletion = %q, want %q", diff, want)
 	}
 }

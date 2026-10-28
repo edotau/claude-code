@@ -18,7 +18,7 @@ const testBase = `{"providers": {"a": {"kind": "anthropic", "base_url": "https:/
 func parseOverlay(t *testing.T, overlay string) (*Registry, error) {
 	t.Helper()
 	vaulttest.UseKeyring(t)
-	t.Setenv(PinProvider, "")
+	t.Setenv(PinProfile, "")
 	return Parse([]byte(testBase), []byte(overlay))
 }
 
@@ -45,7 +45,7 @@ func TestPresetExpansion(t *testing.T) {
 	if got, _ := p.Route(DialectAnthropic); got != p.BaseURL {
 		t.Errorf("Route(anthropic) = %q", got)
 	}
-	if p.Auth.Type != AuthBearer || p.Auth.TTL != 1800 {
+	if p.Auth.Type != AuthKey || p.Auth.TTL != 1800 {
 		t.Errorf("auth = %+v", p.Auth)
 	}
 	if p.Auth.Command != "databricks auth token -p work -o json | jq -r .access_token" {
@@ -78,7 +78,7 @@ func TestPresetWithoutCLIProfileLeavesCommandsEmpty(t *testing.T) {
 func TestPresetExplicitFieldsWin(t *testing.T) {
 	p := mustParse(t, `{"providers": {"dbx": {"preset": "databricks", "host": "https://h.example.com", "cliProfile": "work",
 		"kind": "openai", "base_url": "https://own/base", "routes": {"openai": "https://own/oa"},
-		"auth": {"type": "x-api-key", "ttl": 60, "command": "echo mine", "refreshCommand": "echo fresh"},
+		"auth": {"type":"key","header":"x-api-key", "ttl": 60, "command": "echo mine", "refreshCommand": "echo fresh"},
 		"models": {"opus": "my-opus"}, "env": {"CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS": "0", "OTHER": "x"}}}}`).Providers["dbx"]
 	if p.Kind != "openai" || p.BaseURL != "https://own/base" {
 		t.Errorf("kind/base overridden: %q %q", p.Kind, p.BaseURL)
@@ -105,9 +105,6 @@ func TestNoPresetProviderUnchanged(t *testing.T) {
 	p := reg.Providers["plain"]
 	if p.Models != nil || p.Env != nil || p.Routes != nil || p.BaseURL != "https://p" || p.Auth.TTL != 0 || p.Auth.Command != "" {
 		t.Errorf("no-preset provider changed: %+v", p)
-	}
-	if reg.Profiles.Active != "" || reg.Profiles.Sets != nil {
-		t.Errorf("profiles = %+v", reg.Profiles)
 	}
 }
 
@@ -145,66 +142,6 @@ func TestValidatePresetAndEnvRejections(t *testing.T) {
 				t.Errorf("err = %v, want containing %q", err, c.want)
 			}
 		})
-	}
-}
-
-func TestValidateProfilesRejections(t *testing.T) {
-	cases := []struct{ name, doc, want string }{
-		{"missing active set", `{"profiles": {"active": "ghost", "sets": {"w": {}}}}`, `unknown set "ghost"`},
-		{"unknown agent", `{"profiles": {"sets": {"w": {"bogus": {"model": "m"}}}}}`, "unknown agent"},
-		{"agent list in error", `{"profiles": {"sets": {"w": {"bogus": {}}}}}`, "session, codex, copilot, opencode, gemini, api"},
-		{"missing account", `{"profiles": {"sets": {"w": {"codex": {"account": "nobody"}}}}}`, "unknown provider"},
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			_, err := parseOverlay(t, c.doc)
-			if err == nil || !strings.Contains(err.Error(), c.want) {
-				t.Errorf("err = %v, want containing %q", err, c.want)
-			}
-		})
-	}
-}
-
-func TestAgentRow(t *testing.T) {
-	reg := mustParse(t, `{"profiles": {"active": "w", "sets": {
-		"w": {"codex": {"account": "a", "model": "m1", "effort": "high"}},
-		"other": {"gemini": {"model": "g"}}}}}`)
-	if name, _, ok := reg.ActiveProfile(); !ok || name != "w" {
-		t.Errorf("ActiveProfile = %q %v", name, ok)
-	}
-	row, ok := reg.AgentRow("codex")
-	if !ok || row.Account != "a" || row.Model != "m1" || row.Effort != "high" {
-		t.Errorf("codex row = %+v %v", row, ok)
-	}
-	if _, ok := reg.AgentRow("gemini"); ok {
-		t.Error("gemini row found in inactive set")
-	}
-	if _, ok := reg.AgentRow("copilot"); ok {
-		t.Error("missing row reported present")
-	}
-	reg.Profiles.Active = ""
-	if _, _, ok := reg.ActiveProfile(); ok {
-		t.Error("ActiveProfile ok with no active")
-	}
-	if _, ok := reg.AgentRow("codex"); ok {
-		t.Error("AgentRow ok with no active profile")
-	}
-}
-
-func TestOverlayProfilesReplaceWhole(t *testing.T) {
-	vaulttest.UseKeyring(t)
-	base := `{"providers": {"a": {"kind": "anthropic", "base_url": "https://a", "auth": {"type": "none"}}},
-		"profiles": {"active": "x", "sets": {"x": {"codex": {"model": "bx"}}, "y": {"codex": {"model": "by"}}}}}`
-	reg, err := Parse([]byte(base), []byte(`{"profiles": {"sets": {"z": {"api": {"model": "bz"}}}, "active": "z"}}`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(reg.Profiles.Sets) != 1 || reg.Profiles.Active != "z" {
-		t.Errorf("profiles = %+v", reg.Profiles)
-	}
-	reg, err = Parse([]byte(base), []byte(`{}`))
-	if err != nil || reg.Profiles.Active != "x" || len(reg.Profiles.Sets) != 2 {
-		t.Errorf("empty overlay changed profiles: %+v %v", reg.Profiles, err)
 	}
 }
 
@@ -249,7 +186,7 @@ func credProvider(t *testing.T, name, cmdTok, refreshTok string, ttl int) (*Prov
 	t.Cleanup(func() { cmdCache.Delete(name) })
 	log := filepath.Join(t.TempDir(), "runs")
 	p := &Provider{Name: name, Preset: PresetDatabricks, Host: "https://h.example.com", Auth: Auth{
-		Type: AuthBearer, TTL: ttl,
+		Type: AuthKey, TTL: ttl,
 		Command:        fmt.Sprintf("echo cmd >> %s; printf '%%s' '%s'", log, cmdTok),
 		RefreshCommand: fmt.Sprintf("echo refresh >> %s; printf '%%s' '%s'", log, refreshTok),
 	}}

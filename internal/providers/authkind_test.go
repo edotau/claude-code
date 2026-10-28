@@ -8,9 +8,12 @@ import (
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
-func kindRow(kind, clientID, typ string) *Provider {
-	return &Provider{Name: "dbx-test", Kind: DialectAnthropic, BaseURL: "https://example.cloud.databricks.com/serving-endpoints/anthropic",
-		Auth: Auth{Type: typ, AuthType: kind, ClientID: clientID}}
+func kindRow(kind, clientID, _ string) *Provider {
+	if kind == "" {
+		kind = AuthKey
+	}
+	return &Provider{Name: "dbx-test", Provider: GroupDatabricks, Kind: DialectAnthropic, BaseURL: "https://example.cloud.databricks.com/serving-endpoints/anthropic",
+		Auth: Auth{Type: kind, ClientID: clientID}}
 }
 
 func TestValidateKind(t *testing.T) {
@@ -19,13 +22,11 @@ func TestValidateKind(t *testing.T) {
 		p    *Provider
 		want string
 	}{
-		{"none", kindRow("", "", AuthBearer), ""},
-		{"u2m", kindRow(AuthU2M, "", AuthBearer), ""},
-		{"m2m ok", kindRow(AuthOAuthM2M, "cid", AuthBearer), ""},
-		{"m2m no client", kindRow(AuthOAuthM2M, "", AuthBearer), "needs auth.clientId"},
-		{"unknown", kindRow("saml", "", AuthBearer), "not supported (supported: u2m, oauth-m2m, pat)"},
-		{"non-bearer", kindRow(AuthPAT, "", AuthAPIKey), "needs auth.type bearer"},
-		{"stray clientId", kindRow(AuthPAT, "cid", AuthBearer), "needs auth.authType oauth-m2m"},
+		{"none", kindRow("", "", AuthKey), ""},
+		{"u2m", kindRow(AuthOAuth, "", AuthKey), ""},
+		{"m2m ok", kindRow(AuthM2M, "cid", AuthKey), ""},
+		{"m2m no client", kindRow(AuthM2M, "", AuthKey), "needs auth.clientId"},
+		{"stray clientId", kindRow(AuthPAT, "cid", ""), "needs auth.type m2m"},
 	}
 	for _, c := range cases {
 		errs := strings.Join(validateAuthType("x", c.p), ";")
@@ -36,19 +37,19 @@ func TestValidateKind(t *testing.T) {
 }
 
 func TestKindSecretName(t *testing.T) {
-	p := kindRow(AuthU2M, "", AuthBearer)
+	p := kindRow(AuthOAuth, "", AuthKey)
 	p.Name = "dbx-dev.1"
-	if got := AuthSecretName(p); got != "PROVIDER_DBX_DEV_1_REFRESH_TOKEN" {
+	if got := AuthSecretName(p); got != "DATABRICKS_DBX_DEV_1_OAUTH" {
 		t.Errorf("got %q", got)
 	}
-	if AuthSecretName(kindRow("", "", AuthBearer)) != "" {
+	if AuthSecretName(kindRow("", "", AuthKey)) != "" {
 		t.Error("kindless row has a sealed name")
 	}
 }
 
 func TestPATCredentialAndPresence(t *testing.T) {
 	vaulttest.Use(t) // sealing needs the vault master key; Linux CI has no keyring
-	p := kindRow(AuthPAT, "", AuthBearer)
+	p := kindRow(AuthPAT, "", AuthKey)
 	if CredentialPresent(p) {
 		t.Fatal("present before sealing")
 	}
@@ -66,11 +67,11 @@ func TestPATCredentialAndPresence(t *testing.T) {
 
 func TestKindChangeRefusedWithoutForce(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	row := map[string]any{"auth": map[string]any{"type": "bearer", "authType": "pat"}}
+	row := map[string]any{"auth": map[string]any{"type":"pat"}}
 	if err := SetProviderFields("openai", row); err != nil {
 		t.Fatal(err)
 	}
-	row["auth"] = map[string]any{"type": "bearer", "authType": "u2m"}
+	row["auth"] = map[string]any{"type":"oauth"}
 	err := SetProviderFields("openai", row)
 	if err == nil || !strings.Contains(err.Error(), "refused without force") {
 		t.Fatalf("kind change err = %v", err)

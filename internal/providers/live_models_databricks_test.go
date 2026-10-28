@@ -59,7 +59,7 @@ func liveDbxProvider(t *testing.T, host, token string) *Provider {
 	const env = "DBX_LIVE_TEST_TOKEN"
 	t.Setenv(env, token)
 	return &Provider{Name: "dbx-live-test", Preset: PresetDatabricks, Host: host,
-		Auth: Auth{Type: AuthBearer, Env: env}}
+		Auth: Auth{Type: AuthKey, Env: env}}
 }
 
 func TestListModelsDatabricksServingEndpoints(t *testing.T) {
@@ -145,7 +145,7 @@ func TestListModelsNonDatabricksUsesV1Models(t *testing.T) {
 			t.Cleanup(srv.Close)
 			t.Setenv("PLAIN_LIVE_TEST_TOKEN", "tok-plain")
 			p := &Provider{Name: "plain-live-test", Kind: tc.kind, BaseURL: srv.URL,
-				Auth: Auth{Type: AuthBearer, Env: "PLAIN_LIVE_TEST_TOKEN"}}
+				Auth: Auth{Type: AuthKey, Env: "PLAIN_LIVE_TEST_TOKEN"}}
 
 			got, err := ListModels(context.Background(), nil, p)
 			if err != nil {

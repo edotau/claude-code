@@ -38,7 +38,7 @@ func TestVaultImportDatabrickscfg(t *testing.T) {
 	if err := os.WriteFile(cfg, []byte(dbxCfgFixture), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	base := []string{"--file", cfg}
+	base := []string{"--dbxcfg", cfg}
 
 	code, out, _ := captureOutput(t, func() int { return importCfg(base) })
 	if code != 0 || !strings.Contains(out, "dry-run") || strings.Contains(out, "secret-value-1") {
@@ -66,7 +66,7 @@ func TestVaultImportDatabrickscfg(t *testing.T) {
 		t.Error("DEFAULT/__settings__ imported")
 	}
 	names := secrets.Names()
-	for _, n := range []string{"PROVIDER_SVC_M2M_CLIENT_SECRET", "PROVIDER_PAT_RENAMED_PAT"} {
+	for _, n := range []string{"DATABRICKS_SVC_M2M_M2M", "DATABRICKS_PAT_RENAMED_PAT"} {
 		if !slices.Contains(names, n) {
 			t.Errorf("secret %s not sealed (have %v)", n, names)
 		}
@@ -97,7 +97,7 @@ func TestImportCfgRefusals(t *testing.T) {
 		want   string
 		refuse bool // true: non-zero exit; false: a skipped row (exit 0, the note says why)
 	}{
-		{"unknown profile", one, []string{"--apply", "--profile", "ghost"}, `no profile "ghost" in the config`, true},
+		{"old --profile flag", one, []string{"--apply", "--profile", "solo"}, "flag provided but not defined", true},
 		{"empty config", "", []string{"--apply"}, "no profiles in", true},
 		{"bad rename", one, []string{"--apply", "--rename", "solo"}, "want old=new", true},
 		{"default only", "[DEFAULT]\nhost = https://d.example.cloud.databricks.com\n", []string{"--apply"},
@@ -109,7 +109,7 @@ func TestImportCfgRefusals(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			useVaultTest(t)
-			args := append([]string{"--file", writeCfg(t, c.cfg)}, c.args...)
+			args := append([]string{"--dbxcfg", writeCfg(t, c.cfg)}, c.args...)
 			code, out, errOut := captureOutput(t, func() int { return importCfg(args) })
 			if all := out + errOut; !strings.Contains(all, c.want) {
 				t.Errorf("output %q lacks %q (code %d)", all, c.want, code)
@@ -130,7 +130,7 @@ func TestImportCfgRefusals(t *testing.T) {
 func TestImportAllSkippedWritesNothing(t *testing.T) {
 	useVaultTest(t)
 	cfg := writeCfg(t, "[bad name]\nhost = https://x.example.cloud.databricks.com\nauth_type = databricks-cli\n")
-	code, out, _ := captureOutput(t, func() int { return importCfg([]string{"--file", cfg, "--apply"}) })
+	code, out, _ := captureOutput(t, func() int { return importCfg([]string{"--dbxcfg", cfg, "--apply"}) })
 	if code != 0 || !strings.Contains(out, "nothing to import") || strings.Contains(out, "wrote provider rows") {
 		t.Fatalf("all-skipped apply: %d %q", code, out)
 	}

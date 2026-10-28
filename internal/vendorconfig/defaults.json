@@ -1,5 +1,5 @@
 {
-  "vendors": {
+  "agents": {
     "codex": {
       "permission": {
         "approvalPolicy": "never",

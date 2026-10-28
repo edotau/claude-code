@@ -23,8 +23,7 @@ import (
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/router"
-	"github.com/edotau/claude-code/internal/vault"
+	"github.com/edotau/claude-code/internal/proxy"
 	"github.com/edotau/claude-code/internal/vendorconfig"
 )
 
@@ -130,7 +129,7 @@ func CopilotGate(reg *providers.Registry, t providers.Target) (providers.Target,
 	if t.Provider == nil || t.Provider.Auth.Login != "copilot" {
 		return t, "", nil
 	}
-	detail, ok := copilotHeadroom(context.Background(), providers.Pin(providers.PinGitHubUser))
+	detail, ok := copilotHeadroom(context.Background(), CopilotPinLogin())
 	if ok {
 		return t, "", nil
 	}
@@ -147,15 +146,29 @@ func CopilotFallback(reg *providers.Registry, detail string) (providers.Target, 
 	return ft, ri.Reason, nil
 }
 
-// copilotDatabricksFallback: the vault's HARNESS_PROVIDER pin when it is a signed-in Databricks row, else the first
-// Databricks env whose credential resolves, else LegNone. detail names why the GitHub login was refused.
+// copilotFallbackOrder is the owner's Databricks fallback order; names outside it follow, sorted (never prod before qa).
+var copilotFallbackOrder = []string{"dev", "qa", "prod"}
+
+// orderedDatabricks lists the databricks profiles in copilotFallbackOrder, then the rest sorted.
+func orderedDatabricks(reg *providers.Registry) []string {
+	all := providers.DatabricksProfiles(reg)
+	var out []string
+	for _, n := range copilotFallbackOrder {
+		if slices.Contains(all, n) {
+			out = append(out, n)
+		}
+	}
+	return append(out, slices.DeleteFunc(slices.Clone(all), func(n string) bool { return slices.Contains(out, n) })...)
+}
+
+// copilotDatabricksFallback: this session's (else the vault-pinned) profile when it is a signed-in Databricks row,
+// else the first one in orderedDatabricks whose credential resolves, else LegNone. detail names why GitHub was refused.
 func copilotDatabricksFallback(reg *providers.Registry, detail string) RouteInfo {
 	pick := func(p *providers.Provider) RouteInfo {
-		return RouteInfo{Vendor: "copilot", Leg: LegDatabricks, Provider: p.Name, Model: p.Models[models.Opus],
+		return RouteInfo{Agent: "copilot", Leg: LegDatabricks, Provider: p.Name, Model: p.Models[models.Opus],
 			Reason: "copilot: " + detail + " — using databricks profile " + p.Name, OK: true}
 	}
-	var pin string
-	_ = vault.View(func(tx *vault.Tx) error { pin, _ = tx.Get(vault.Pins, providers.PinProvider); return nil })
+	pin := cmp.Or(providers.SessionProfile(), providers.Pin(providers.PinProfile))
 	usable := func(p *providers.Provider) bool {
 		if p == nil || p.Preset != providers.PresetDatabricks {
 			return false
@@ -163,23 +176,23 @@ func copilotDatabricksFallback(reg *providers.Registry, detail string) RouteInfo
 		_, err := providers.Credential(context.Background(), p)
 		return providers.Verdict(err) == providers.VerdictOK
 	}
-	for _, name := range append([]string{pin}, providers.DatabricksEnvs...) {
+	for _, name := range append([]string{pin}, orderedDatabricks(reg)...) {
 		if p := reg.Providers[name]; usable(p) {
 			return pick(p)
 		}
 	}
-	return RouteInfo{Vendor: "copilot", Leg: LegNone,
+	return RouteInfo{Agent: "copilot", Leg: LegNone,
 		Reason: "copilot: " + detail + "; no credit-free route for copilot (no Databricks profile signed in)"}
 }
 
 // ErrOwnLogin means the vendor should run on the credentials its own CLI stores (no harness route injected).
-var ErrOwnLogin = errors.New("vendor runs on its own login")
+var ErrOwnLogin = errors.New("agent runs on its own login")
 
 // CanServe reports whether p is usable by vendor name: a login provider naming it, or a route on one
 // of the dialects the vendor speaks.
 func CanServe(name string, p *providers.Provider) bool {
-	// A passthrough provider carries a login only its own vendor can forward; a dialect match is not enough.
-	if p.Auth.Login != "" || p.Auth.Type == "passthrough" {
+	// A cli-auth provider carries a login only its own agent can forward; a dialect match is not enough.
+	if p.Auth.Login != "" || p.Auth.Method() == providers.AuthCLI {
 		return p.Auth.Login == name
 	}
 	spec, ok := Lookup(name)
@@ -198,7 +211,7 @@ func CanServe(name string, p *providers.Provider) bool {
 func fallbackTarget(reg *providers.Registry, name string) (providers.Target, string, bool) {
 	switch name {
 	case "codex":
-		if p, ok := loginProvider(reg, "chatgpt", "codex"); ok && codexChatGPTLogin() == nil {
+		if p, ok := loginProvider(reg, "openai", "codex"); ok && codexChatGPTLogin() == nil {
 			// codex's own config.toml model beats the catalog: the ChatGPT account only serves what codex itself lists.
 			model := p.Models[models.Opus]
 			if own := codexOwnModel(); own != "" {
@@ -217,7 +230,7 @@ func fallbackTarget(reg *providers.Registry, name string) (providers.Target, str
 			}
 		}
 	case "gemini":
-		if p, ok := reg.Providers["gemini"]; ok && GeminiLoginPresent() {
+		if p, ok := loginProvider(reg, "google", "gemini"); ok && GeminiLoginPresent() {
 			model := p.Models[models.Opus]
 			if pin, _ := providers.GeminiModel(); pin != "" { // GEMINI_MODEL pin beats the registry's bare slot id
 				model = pin
@@ -235,12 +248,24 @@ func fallbackTarget(reg *providers.Registry, name string) (providers.Target, str
 	return providers.Target{}, "", false
 }
 
-func loginProvider(reg *providers.Registry, providerName, vendor string) (*providers.Provider, bool) {
-	p, ok := reg.Providers[providerName]
-	if !ok || p.Auth.Login != vendor {
-		return nil, false
+// keyProvider is the first profile under provider that bills on a harness-held key.
+func keyProvider(reg *providers.Registry, provider string) (*providers.Provider, bool) {
+	for _, n := range reg.ProfilesOf(provider) {
+		if p := reg.Providers[n]; p.APIKeyAuth() {
+			return p, true
+		}
 	}
-	return p, true
+	return nil, false
+}
+
+// loginProvider is the first profile under provider whose login serves vendor.
+func loginProvider(reg *providers.Registry, provider, vendor string) (*providers.Provider, bool) {
+	for _, n := range reg.ProfilesOf(provider) {
+		if p := reg.Providers[n]; p.Auth.Login == vendor {
+			return p, true
+		}
+	}
+	return nil, false
 }
 
 // ConfigureHint names the exact command to run when no credential resolved for vendor name at all.
@@ -271,7 +296,7 @@ func Configure(ctx context.Context, name string, target providers.Target, headle
 // ConfigureHeadless is Configure's runner form with the per-run options each CLI can carry.
 func ConfigureHeadless(ctx context.Context, name string, target providers.Target, h Headless) (env, argv []string, err error) {
 	if strings.TrimSpace(h.Prompt) == "" {
-		return nil, nil, errors.New("vendors: empty prompt")
+		return nil, nil, errors.New("agents: empty prompt")
 	}
 	return configure(ctx, name, target, &h)
 }
@@ -328,7 +353,7 @@ func LaunchSpec(name string) (env, argv []string) { return applyLaunch(name, nil
 func configureRoute(ctx context.Context, name string, t providers.Target, h *Headless) ([]string, []string, error) {
 	spec, ok := Lookup(name)
 	if !ok {
-		return nil, nil, fmt.Errorf("unknown vendor %q (%s)", name, strings.Join(Names(), "|"))
+		return nil, nil, fmt.Errorf("unknown agent %q (%s)", name, strings.Join(Names(), "|"))
 	}
 	p := t.Provider
 	if p == nil || t.Model == "" {
@@ -351,14 +376,14 @@ func configureRoute(ctx context.Context, name string, t providers.Target, h *Hea
 		return nil, nil, fmt.Errorf("%s: provider %s serves no %s route (it has %s)", name, p.Name,
 			strings.Join(spec.Dialects, "/"), strings.Join(p.Dialects(), ","))
 	}
-	if p.Auth.Type == providers.AuthPassthrough {
-		return nil, nil, fmt.Errorf("%s: provider %s uses passthrough (subscription) auth, which %s cannot use; pick a keyed provider", name, p.Name, name)
+	if p.Auth.Method() == providers.AuthCLI {
+		return nil, nil, fmt.Errorf("%s: provider %s uses cli (subscription) auth, which %s cannot use; pick a keyed provider", name, p.Name, name)
 	}
 	model := p.WireModel(models.Strip1M(t.Model)) // idempotent: targets not built by ResolveAgent get the wire id too
 	var cred string
 	var err error
 	routed := false
-	if p.Auth.Type != providers.AuthNone && !isDirect(ctx) {
+	if p.Auth.Method() != providers.AuthNone && !isDirect(ctx) {
 		// Keyed provider: the vendor gets the router base + router secret; the real credential stays in the router.
 		if p, base, cred, err = routerRoute(ctx, name, p, dialect); err != nil {
 			return nil, nil, err
@@ -373,17 +398,16 @@ func configureRoute(ctx context.Context, name string, t providers.Target, h *Hea
 	case "opencode":
 		return opencode(p, dialect, base, model, cred, routed, h)
 	default:
-		// The canonical id lets MaybeAdd1M recognise a prefixed wire id (databricks-claude-…) on a one_m row.
-		canon, _ := models.Canonical(t.Model)
-		client := providers.Target{Provider: t.Provider, Model: canon, OneM: t.OneM}.ClientModel()
-		return copilot(p, dialect, base, model, client, cred, h)
+		// The same resolver as the Claude launch decides [1m]; it reads a prefixed wire id (databricks-claude-…) itself.
+		client := providers.Target{Provider: t.Provider, Model: t.Model, OneM: t.OneM}.ClientModel()
+		return copilot(p, dialect, base, model, providers.ContextWindow(t.Provider, client), cred, h)
 	}
 }
 
 // Router seams (tests stub these so no daemon is spawned).
 var (
-	ensureRouter = router.Ensure
-	routerSecret = router.ClientSecret
+	ensureRouter = proxy.Ensure
+	routerSecret = proxy.ClientSecret
 )
 
 // StubRouterForTest points configure at base for t: an unstubbed Ensure would relaunch the test binary as the daemon.
@@ -402,7 +426,7 @@ func WithDirect(ctx context.Context) context.Context {
 
 func isDirect(ctx context.Context) bool { v, _ := ctx.Value(directKey{}).(bool); return v }
 
-// routerRoute ensures the router daemon and returns a header-free copy of p, the vendor's base for dialect
+// routerRoute ensures the router daemon and returns a copy of p whose only headers are the agent tag, the vendor's base for dialect
 // (shaped so the vendor's own path suffix lands on a router route), and the router secret as the vendor key.
 func routerRoute(ctx context.Context, vendor string, p *providers.Provider, dialect string) (*providers.Provider, string, string, error) {
 	rb, err := ensureRouter(ctx)
@@ -413,7 +437,7 @@ func routerRoute(ctx context.Context, vendor string, p *providers.Provider, dial
 	if err != nil {
 		return nil, "", "", fmt.Errorf("%s: router secret: %w", vendor, err)
 	}
-	sess := router.SessionBase(rb, p.Name)
+	sess := proxy.SessionBase(rb, p.Name)
 	base := sess
 	switch {
 	case vendor == "codex": // codex appends /responses to base_url
@@ -422,7 +446,7 @@ func routerRoute(ctx context.Context, vendor string, p *providers.Provider, dial
 		base = sess + "/" + dialect
 	}
 	rp := *p
-	rp.Headers = nil // the router adds the provider's headers upstream
+	rp.Headers = map[string]string{proxy.AgentHeader: vendor} // the router adds the provider's own headers upstream
 	return &rp, base, secret, nil
 }
 
@@ -431,7 +455,7 @@ var idRE = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 
 func ownedID(p *providers.Provider) (string, error) {
 	if !idRE.MatchString(p.Name) {
-		return "", fmt.Errorf("provider name %q must match %s to be passed to a vendor config", p.Name, idRE)
+		return "", fmt.Errorf("provider name %q must match %s to be passed to an agent config", p.Name, idRE)
 	}
 	return "harness-" + p.Name, nil
 }
@@ -446,7 +470,7 @@ func codex(p *providers.Provider, base, model, cred string, h *Headless) ([]stri
 	var env []string
 	if cred != "" {
 		env = append(env, CodexKeyEnv+"="+cred)
-		if p.Auth.Type == providers.AuthAPIKey {
+		if p.Auth.HeaderStyle() == providers.HeaderXAPIKey {
 			fields = append(fields, [2]string{"env_http_headers", tomlInline([][2]string{{tomlStr("x-api-key"), tomlStr(CodexKeyEnv)}})})
 		} else {
 			fields = append(fields, [2]string{"env_key", tomlStr(CodexKeyEnv)})
@@ -468,8 +492,8 @@ func codex(p *providers.Provider, base, model, cred string, h *Headless) ([]stri
 // login runs the vendor on its own subscription sign-in; a login provider serves only the CLI it names.
 func login(name string, p *providers.Provider, model string, h *Headless) ([]string, []string, error) {
 	switch {
-	case name == "opencode" && p.Name == "github-copilot":
-		// github-copilot's Auth.Login names "copilot", not "opencode": opencode runs on its own GitHub
+	case name == "opencode" && p.Provider == "github":
+		// a github profile's Auth.Login names "copilot", not "opencode": opencode runs on its own GitHub
 		// Copilot login (opencode auth login), never the harness's copilot-vendor credential.
 		if model == "auto" && p.OpencodeFallback != "" { // Copilot's own router id; opencode's catalog lacks it
 			model = p.OpencodeFallback
@@ -634,7 +658,7 @@ func opencode(p *providers.Provider, dialect, base, model, cred string, routed b
 		env = append(env, OpenCodeKeyEnv+"="+cred)
 		options["apiKey"] = ref
 		native := dialect == providers.DialectAnthropic || (dialect == providers.DialectGemini && isGateway(base))
-		if native && p.Auth.Type == providers.AuthBearer {
+		if native && p.Auth.HeaderStyle() == providers.HeaderBearer {
 			headers["Authorization"] = "Bearer " + ref
 		}
 	}
@@ -723,7 +747,7 @@ func opencodeDatabricks(p *providers.Provider, id, dialect, base, model, cred st
 	chat, resp := map[string]any{}, map[string]any{}
 	defID := id
 	for _, m := range providers.OpencodeMenu() {
-		wire := p.ModelPrefix + m.ID // every menu id is bare; WireModel only decorates claude-/gpt-/gemini-
+		wire := menuWire(p, m.ID) // the catalog spells the id the way this row serves it
 		entry := map[string]any{"name": m.Label + " · " + p.Name}
 		if m.Responses {
 			resp[wire] = entry
@@ -768,7 +792,7 @@ func opencodeModels(p *providers.Provider, model string, h *Headless) map[string
 // harness route injected. Tools off still rides OPENCODE_CONFIG_CONTENT, which opencode merges over its config.
 func OwnLoginHeadless(name string, h Headless) (env, argv []string, err error) {
 	if strings.TrimSpace(h.Prompt) == "" {
-		return nil, nil, errors.New("vendors: empty prompt")
+		return nil, nil, errors.New("agents: empty prompt")
 	}
 	if name != "opencode" {
 		return nil, nil, fmt.Errorf("%s: no headless form on its own login; pass --provider", name)
@@ -854,9 +878,9 @@ func copilotPinArgv() []string {
 	return argv
 }
 
-// copilot wires BYOK; clientModel is the [1m]-aware id whose window sizes the prompt cap.
+// copilot wires BYOK; window is the model's context window (providers.ContextWindow), which sizes the prompt cap.
 func copilot(
-	p *providers.Provider, dialect, base, model, clientModel, cred string, h *Headless,
+	p *providers.Provider, dialect, base, model string, window int, cred string, h *Headless,
 ) ([]string, []string, error) {
 	typ := "openai"
 	if dialect == providers.DialectAnthropic {
@@ -872,12 +896,12 @@ func copilot(
 		"COPILOT_PROVIDER_API_KEY=", "COPILOT_PROVIDER_BEARER_TOKEN=", "COPILOT_PROVIDER_API_KEY_COMMAND=",
 	}
 	// Prompt budget = window minus the output cap and a 10% margin, so copilot compacts before the endpoint refuses.
-	if w := models.ContextWindow(clientModel); w > copilotMaxOutputTokens {
+	if w := window; w > copilotMaxOutputTokens {
 		env = append(env, "COPILOT_PROVIDER_MAX_PROMPT_TOKENS="+strconv.Itoa(w-copilotMaxOutputTokens-w/10))
 	}
 	if cred != "" {
 		// Bearer precedence is copilot's own rule; sending the key on both headers trips strict gateways.
-		if p.Auth.Type == providers.AuthBearer {
+		if p.Auth.HeaderStyle() == providers.HeaderBearer {
 			env = append(env, "COPILOT_PROVIDER_BEARER_TOKEN="+cred)
 		} else {
 			env = append(env, "COPILOT_PROVIDER_API_KEY="+cred)
@@ -1067,7 +1091,7 @@ func opencodeCopilotTarget(reg *providers.Registry) (providers.Target, string, b
 	if !OpencodeCopilotLoginPresent() {
 		return providers.Target{}, "", false
 	}
-	p, ok := loginProvider(reg, "github-copilot", "copilot")
+	p, ok := loginProvider(reg, "github", "copilot")
 	if !ok {
 		return providers.Target{}, "", false
 	}
@@ -1094,11 +1118,11 @@ func opencodeCopilotLogin(model string, h *Headless) ([]string, []string, error)
 
 // OpencodeCopilotModelIDs resolves opencode's github-copilot route's sonnet ("model") and haiku
 // ("small_model") wire ids: sonnet carries the everyday coding load, haiku is the cheap tier for
-// sub-tasks; each honors HARNESS_<SLOT>_MODEL then HARNESS_MODEL the way providers.Select resolves a
+// sub-tasks; each honors CLAUDE_<SLOT>_MODEL then CLAUDE_MODEL the way providers.Select resolves a
 // session slot, rooted at the github-copilot provider instead of the session's. ok is false without a
 // registered github-copilot provider or either slot.
 func OpencodeCopilotModelIDs(reg *providers.Registry) (main, small string, ok bool) {
-	p, found := reg.Providers["github-copilot"]
+	p, found := loginProvider(reg, "github", "copilot")
 	if !found {
 		return "", "", false
 	}
@@ -1107,8 +1131,8 @@ func OpencodeCopilotModelIDs(reg *providers.Registry) (main, small string, ok bo
 	return main, small, main != "" && small != ""
 }
 
-// slotModelID is slot's pin-resolved wire model id for p: HARNESS_<SLOT>_MODEL, else HARNESS_MODEL, else
-// p's own table. A pin naming a different provider ("other:model") is still used verbatim as the id. A
+// slotModelID is slot's pin-resolved wire model id for p: CLAUDE_<SLOT>_MODEL, else CLAUDE_MODEL, else
+// p's own table. A pin naming a different provider ("other:model") is respelled the way p serves it. A
 // resolved id of "auto" (a router alias opencode's own provider catalog does not list) is swapped for
 // p.OpencodeFallback when the registry sets one — config-driven, no model id hardcoded here.
 func slotModelID(reg *providers.Registry, p *providers.Provider, slot string) string {
@@ -1122,7 +1146,7 @@ func slotModelID(reg *providers.Registry, p *providers.Provider, slot string) st
 	if spec == "" {
 		return ""
 	}
-	id := providers.ParseTarget(reg, spec, p).Model
+	id := p.WireModel(providers.ParseTarget(reg, spec, p).Model) // a cross-provider pin is respelled for p, not copied
 	if id == "auto" && p.OpencodeFallback != "" {
 		return p.OpencodeFallback
 	}

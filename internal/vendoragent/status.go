@@ -23,7 +23,7 @@ type Row struct {
 // Status lists rows for name's jobs in cwd's repo (all repos when all is set), newest first; ref narrows via Resolve.
 func Status(ctx context.Context, name, cwd, ref string, all bool) ([]Row, error) {
 	if _, ok := Lookup(name); !ok {
-		return nil, errUnknownVendor(name)
+		return nil, errUnknownAgent(name)
 	}
 	recs := List(name, RepoRoot(ctx, cwd), all || ref != "")
 	if ref != "" {
@@ -43,7 +43,7 @@ func Status(ctx context.Context, name, cwd, ref string, all bool) ([]Row, error)
 // Result returns ref's record (default: newest finished) and its log text; a running match errors.
 func Result(ctx context.Context, name, cwd, ref string) (agent.Record, string, error) {
 	if _, ok := Lookup(name); !ok {
-		return agent.Record{}, "", errUnknownVendor(name)
+		return agent.Record{}, "", errUnknownAgent(name)
 	}
 	recs := List(name, RepoRoot(ctx, cwd), ref != "") // an explicit id resolves across repos; the default stays local
 	rec, err := Resolve(recs, ref, func(r agent.Record) bool { return r.Status != "running" })
@@ -67,7 +67,7 @@ var (
 // record stops being alive, printing a heartbeat line per tailBeat of silence. It returns the record as last seen.
 func Tail(ctx context.Context, name, cwd, ref string, follow bool, w io.Writer) (agent.Record, error) {
 	if _, ok := Lookup(name); !ok {
-		return agent.Record{}, errUnknownVendor(name)
+		return agent.Record{}, errUnknownAgent(name)
 	}
 	recs := List(name, RepoRoot(ctx, cwd), ref != "") // an explicit id resolves across repos; the default stays local
 	rec, err := Resolve(recs, ref, nil)
@@ -137,7 +137,7 @@ func sleepCtx(ctx context.Context, d time.Duration) error {
 // CancelJob interrupts ref's job, default: the single running job for name in cwd's repo.
 func CancelJob(ctx context.Context, name, cwd, ref string) (agent.Record, error) {
 	if _, ok := Lookup(name); !ok {
-		return agent.Record{}, errUnknownVendor(name)
+		return agent.Record{}, errUnknownAgent(name)
 	}
 	recs := List(name, RepoRoot(ctx, cwd), ref != "") // an explicit id resolves across repos; the default stays local
 	rec, err := Resolve(recs, ref, func(r agent.Record) bool { return Alive(r) })

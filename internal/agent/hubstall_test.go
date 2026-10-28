@@ -11,7 +11,7 @@ import (
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/route"
+	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/vendors"
 )
 
@@ -49,19 +49,19 @@ func TestWatchFreeLegOnlyWatchesFreeBilling(t *testing.T) {
 	t.Cleanup(func() { freeFirstOutput = orig })
 
 	base := hubLeg{agent: "opencode", provider: stallProvider()}
-	if r, ok := watchFreeLeg(base, route.BillSubscription).(hubLeg); !ok || r.firstOutput != 0 {
+	if r, ok := watchFreeLeg(base, router.BillSubscription).(hubLeg); !ok || r.firstOutput != 0 {
 		t.Errorf("paid leg got a watchdog: %+v", r)
 	}
-	if r, ok := watchFreeLeg(base, route.BillCredits).(hubLeg); !ok || r.firstOutput != 0 {
+	if r, ok := watchFreeLeg(base, router.BillCredits).(hubLeg); !ok || r.firstOutput != 0 {
 		t.Errorf("credits-billed leg got a watchdog: %+v", r)
 	}
-	if r, ok := watchFreeLeg(base, route.BillFree).(hubLeg); !ok || r.firstOutput != freeFirstOutput {
+	if r, ok := watchFreeLeg(base, router.BillFree).(hubLeg); !ok || r.firstOutput != freeFirstOutput {
 		t.Errorf("free leg missing its watchdog: firstOutput=%v, want %v", r.firstOutput, freeFirstOutput)
 	}
 
 	// a non-hub runner (another vendor) must pass through unchanged, not panic on the type assertion.
 	fr := &fakeRunner{name: "codex"}
-	if r := watchFreeLeg(fr, route.BillFree); r != fr {
+	if r := watchFreeLeg(fr, router.BillFree); r != fr {
 		t.Errorf("non-hub runner must pass through unchanged, got %v", r)
 	}
 }
@@ -87,11 +87,11 @@ func TestHubLegRunStallsFallsBackAndCoolsDown(t *testing.T) {
 	}
 	t.Cleanup(func() { markExhausted = origMark })
 
-	free := watchFreeLeg(hubLeg{agent: "opencode", provider: stallProvider()}, route.BillFree)
+	free := watchFreeLeg(hubLeg{agent: "opencode", provider: stallProvider()}, router.BillFree)
 	paid := &fakeRunner{name: "opencode", errs: []error{nil}}
 	c := Chain{Want: "opencode", Legs: []Leg{
-		{Runner: free, Account: "opencode:zen-free", Billing: route.BillFree},
-		{Runner: paid, Account: "opencode:go", Billing: route.BillSubscription},
+		{Agent: free, Account: "opencode:zen-free", Billing: router.BillFree},
+		{Agent: paid, Account: "opencode:go", Billing: router.BillSubscription},
 	}}
 
 	start := time.Now()

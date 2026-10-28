@@ -26,7 +26,7 @@ type Doc struct {
 	Pins      map[string]string `json:"pins"`
 	Env       map[string]string `json:"env"`
 	Providers json.RawMessage   `json:"providers"`
-	Vendors   json.RawMessage   `json:"vendors"`
+	Vendors   json.RawMessage   `json:"agents"`
 	Settings  json.RawMessage   `json:"settings"`
 	Vault     struct {
 		KeyCommand string `json:"key_command"`
@@ -36,7 +36,7 @@ type Doc struct {
 // docFrom builds the doc inside an open transaction; it never opens the vault itself.
 func docFrom(t *vault.Tx) (Doc, error) {
 	d := Doc{Pins: t.All(vault.Pins), Env: t.All(vault.Env)}
-	for name, dst := range map[string]*json.RawMessage{"providers": &d.Providers, "vendors": &d.Vendors, "settings": &d.Settings} {
+	for name, dst := range map[string]*json.RawMessage{"providers": &d.Providers, "agents": &d.Vendors, "settings": &d.Settings} {
 		if raw, ok := t.Get(vault.Overlay, name); ok {
 			if !json.Valid([]byte(raw)) {
 				return Doc{}, fmt.Errorf("vault overlay/%s: invalid JSON", name)
@@ -115,7 +115,7 @@ func validateOverlaySections(d *Doc) error {
 	}
 	if len(d.Vendors) != 0 {
 		if _, err := vendorconfig.Parse(nil, d.Vendors); err != nil {
-			return sectionError("vendors", err)
+			return sectionError("agents", err)
 		}
 	}
 	if len(d.Settings) != 0 {
@@ -171,13 +171,13 @@ func applyPinsEnv(t *vault.Tx, cur, d Doc) (map[string]string, error) {
 	return changedPins, nil
 }
 
-// applyOverlaySections writes each changed providers/vendors/settings overlay section, backing up providers first.
+// applyOverlaySections writes each changed providers/agents/settings overlay section, backing up providers first.
 func applyOverlaySections(t *vault.Tx, cur, d Doc) error {
 	for _, section := range []struct {
 		name      string
 		old, next json.RawMessage
 	}{
-		{"providers", cur.Providers, d.Providers}, {"vendors", cur.Vendors, d.Vendors},
+		{"providers", cur.Providers, d.Providers}, {"agents", cur.Vendors, d.Vendors},
 		{"settings", cur.Settings, d.Settings},
 	} {
 		var old, next bytes.Buffer

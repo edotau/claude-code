@@ -17,14 +17,14 @@ const limitsCacheMaxAge = 6 * time.Hour
 
 // limitsSegment is "5h:N% 7d:N%": the statusline payload's rate_limits, else internal/usage's cache file.
 // A window with no fresh data, or whose reset already passed, is omitted; "" when both are.
-// A known non-passthrough session provider shows its token's time left instead ("tok:42m").
+// A known non-passthrough session provider shows its token's time left instead ("oauth:42m").
 func limitsSegment(in Input, session string) string {
-	if tokenLimits(session) {
+	if method := tokenMethod(session); method != "" {
 		exp, ok := providers.TokenExpiry(session)
 		if !ok {
 			return ""
 		}
-		return tokenLeft(exp, time.Now())
+		return tokenLeft(method, exp, time.Now())
 	}
 	five, week := limitsFromPayload(in)
 	if five < 0 && week < 0 {
@@ -40,28 +40,34 @@ func limitsSegment(in Input, session string) string {
 	return strings.Join(parts, " ")
 }
 
-// tokenLimits reports whether the limits segment shows token time: a known provider that mints a credential.
-func tokenLimits(session string) bool {
+// tokenMethod is the profile's auth word when the harness mints it a short-lived token (oauth, m2m); else "".
+func tokenMethod(session string) string {
 	reg := registry()
 	if reg == nil {
-		return false
+		return ""
 	}
 	p := reg.Providers[session]
-	return p != nil && p.Auth.Type != providers.AuthPassthrough
+	if p == nil {
+		return ""
+	}
+	if m := p.Auth.Method(); m == providers.AuthOAuth || m == providers.AuthM2M {
+		return m
+	}
+	return ""
 }
 
-// tokenLeft renders the time until exp: "tok:42m", "tok:1h05m", "tok:<1m", or "tok:exp" once past.
-func tokenLeft(exp, now time.Time) string {
+// tokenLeft renders the time until exp: "oauth:42m", "m2m:1h05m", "oauth:<1m", or "oauth:exp" once past.
+func tokenLeft(method string, exp, now time.Time) string {
 	left := exp.Sub(now)
 	switch {
 	case left <= 0:
-		return "tok:exp"
+		return method + ":exp"
 	case left < time.Minute:
-		return "tok:<1m"
+		return method + ":<1m"
 	case left < time.Hour:
-		return fmt.Sprintf("tok:%dm", int(left/time.Minute))
+		return fmt.Sprintf("%s:%dm", method, int(left/time.Minute))
 	}
-	return fmt.Sprintf("tok:%dh%02dm", int(left/time.Hour), int(left%time.Hour/time.Minute))
+	return fmt.Sprintf("%s:%dh%02dm", method, int(left/time.Hour), int(left%time.Hour/time.Minute))
 }
 
 // pct is the window's rounded used percent; -1 when absent or its reset already passed.

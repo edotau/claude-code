@@ -24,7 +24,7 @@ func menuTestEnv(t *testing.T) *providers.Registry {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("CODEX_HOME", t.TempDir()) // Orca exports its own codex account home; codex must read unconfigured
 	t.Setenv("PATH", t.TempDir())
-	t.Setenv("HARNESS_PROVIDER", "subscription")
+	vaulttest.Put(t, vault.Pins, providers.PinProfile, "max")
 	t.Setenv("CLAUDE_CODE_OAUTH_TOKEN", "")
 	// Copilot/codex/gemini pin env beats the vault pin (providers.Pin); a session running inside one of
 	// these agents exports its own model/effort pin into the process env.
@@ -84,12 +84,12 @@ func TestRunMenuDoneLeavesImmediatelyAndChangesNothing(t *testing.T) {
 		calls++
 		return -1, nil // Esc
 	})
-	cur := providers.Pin(providers.PinProvider)
+	cur := providers.Pin(providers.PinProfile)
 	rc := runMenu(&dialog{reg: reg, out: discardWriter{}})
 	if rc != 0 || calls != 1 {
 		t.Fatalf("rc=%d calls=%d, want rc=0 after exactly one picker call", rc, calls)
 	}
-	if got := providers.Pin(providers.PinProvider); got != cur {
+	if got := providers.Pin(providers.PinProfile); got != cur {
 		t.Errorf("provider pin changed: %q -> %q", cur, got)
 	}
 }
@@ -133,19 +133,18 @@ func TestCheckAndPipedNeverOpenTheMenu(t *testing.T) {
 func TestKeepOrPinWritesTheProviderPinOnlyOnAnExplicitDifferentPick(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv("HOME", t.TempDir())
-	t.Setenv("HARNESS_PROVIDER", "") // Pin() checks the env var before the vault; it must stay unset here
 	d := &dialog{out: discardWriter{}}
 	if !keepOrPin(d, "subscription", "subscription") {
 		t.Fatal("keepOrPin(same) = false")
 	}
-	if got := providers.Pin(providers.PinProvider); got != "" {
+	if got := providers.Pin(providers.PinProfile); got != "" {
 		t.Errorf("vault pin written on a same-as-current pick: %q", got)
 	}
 	if !keepOrPin(d, "subscription", "anthropic") {
 		t.Fatal("keepOrPin(different) = false")
 	}
-	if got := providers.Pin(providers.PinProvider); got != "anthropic" {
-		t.Errorf("pin(%s) = %q, want %q after an explicit different pick", providers.PinProvider, got, "anthropic")
+	if got := providers.Pin(providers.PinProfile); got != "anthropic" {
+		t.Errorf("pin(%s) = %q, want %q after an explicit different pick", providers.PinProfile, got, "anthropic")
 	}
 }
 
