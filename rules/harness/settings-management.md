@@ -34,7 +34,7 @@ project-local file for sessions started in `$HOME`. Don't put a global preferenc
 1. Edit `internal/settings/template/`; for hooks: `hooks.md` → authoring surface.
 2. Preview without a rebuild: `claude-code configure --reset --dry-run` prints the render.
 3. `make install` — rebuilds the binary and renders the real `settings.json` (backing up the
-   previous one under `.memory-cache/backups/` as `settings.json.bak-<timestamp>`).
+   previous one under `state/harness/backups/` as `settings.json.bak-<timestamp>`).
 4. `claude-code doctor` — confirm binaries, providers, and hooks are healthy after the change.
 
 `configure --reset --check` fails on invalid JSON in `settings.json`, on a key install would rewrite, on a

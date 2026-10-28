@@ -24,7 +24,6 @@
 /daemon.*
 /jobs/
 /uploads/
-/.memory-cache/
 /local/
 /logs/
 /usage-data/

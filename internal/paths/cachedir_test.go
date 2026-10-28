@@ -10,7 +10,7 @@ import (
 func TestCacheDirIsDotMemoryCacheUnderConfigDir(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", dir)
-	want := filepath.Join(dir, ".memory-cache")
+	want := filepath.Join(dir, "state", "harness")
 	if got := CacheDir(); got != want {
 		t.Errorf("CacheDir() = %s, want %s", got, want)
 	}
@@ -37,7 +37,7 @@ func TestBackupPathInHome(t *testing.T) {
 	t.Setenv("HOME", home)
 	src := filepath.Join(home, ".config", "opencode", "opencode.jsonc")
 	got := BackupPath(src, backupTS)
-	want := filepath.Join(dir, ".memory-cache", "backups", ".config", "opencode", "opencode.jsonc.bak-20261021-150405.123456789")
+	want := filepath.Join(dir, "state", "harness", "backups", ".config", "opencode", "opencode.jsonc.bak-20261021-150405.123456789")
 	if got != want {
 		t.Errorf("BackupPath() = %s, want %s", got, want)
 	}
@@ -52,7 +52,7 @@ func TestBackupPathOutsideHome(t *testing.T) {
 	// absolute path with its leading separator stripped, not a ".." escape.
 	outside := filepath.Join(dir, "mnt", "c", "Users", "eric", ".claude", "settings.json")
 	got := BackupPath(outside, backupTS)
-	want := filepath.Join(dir, ".memory-cache", "backups", filepath.Clean(outside[1:])+".bak-20261021-150405.123456789")
+	want := filepath.Join(dir, "state", "harness", "backups", filepath.Clean(outside[1:])+".bak-20261021-150405.123456789")
 	if got != want {
 		t.Errorf("BackupPath() = %s, want %s", got, want)
 	}
@@ -62,7 +62,7 @@ func TestBackupDirFormat(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", dir)
 	got := BackupDir("install", backupTS)
-	want := filepath.Join(dir, ".memory-cache", "backups", "setup", "install-20261021-150405")
+	want := filepath.Join(dir, "state", "harness", "backups", "setup", "install-20261021-150405")
 	if got != want {
 		t.Errorf("BackupDir() = %s, want %s", got, want)
 	}

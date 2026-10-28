@@ -11,7 +11,7 @@ import (
 )
 
 // hermeticVSCode isolates CLAUDE_CONFIG_DIR so Sync/SyncKeybindings backups never touch the real
-// ~/.claude/.memory-cache.
+// ~/.claude/state/harness.
 func hermeticVSCode(t *testing.T) {
 	t.Helper()
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
