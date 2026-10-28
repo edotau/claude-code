@@ -88,7 +88,7 @@ func gatewayRoute(args []string, withProxy bool) int {
 		t = router.Tiers[1]
 	}
 	res := tb.Pick(context.Background(), t, *want, router.LoadState(),
-		router.Opts{Fallback: *fallback, Refresh: routeRefresh})
+		router.Opts{Fallback: *fallback, Refresh: routeRefresh, Account: agent.ResolveAccount})
 	src := routeSources{Weights: routeWeightsSource()}
 	src.Subagents.On, src.Subagents.Source = providers.RouteSubagentsOn()
 	rj := newRouteJSON(res, src)
@@ -135,6 +135,27 @@ type routeJSON struct {
 	Candidates []candidateJSON    `json:"candidates"`
 	Skipped    []skipJSON         `json:"skipped,omitempty"`
 	Sources    routeSources       `json:"sources"`
+	Pins       map[string]pinJSON `json:"pins"`
+	Ends       string             `json:"ends"` // the claude candidate's account; "" when no claude hop
+}
+
+// pinJSON is one agent's routing pins; active is false when <AGENT>_ACTIVE=off.
+type pinJSON struct {
+	Profile string `json:"profile"`
+	Model   string `json:"model"`
+	Active  bool   `json:"active"`
+}
+
+// pinAgents is the order the text view prints pins in.
+var pinAgents = []string{"claude", "codex", "copilot", "gemini", "opencode"}
+
+// routePins maps providers.AgentPins onto the emitted shape.
+func routePins() map[string]pinJSON {
+	out := map[string]pinJSON{}
+	for a, p := range providers.AgentPins() {
+		out[a] = pinJSON{Profile: p.Profile, Model: p.Model, Active: !p.Off}
+	}
+	return out
 }
 
 // candidateJSON is one runnable agent; account_key is <provider>·<profile>.
@@ -148,6 +169,7 @@ type candidateJSON struct {
 	Billing    string             `json:"billing"`
 	Scores     map[string]float64 `json:"scores,omitempty"`
 	Total      float64            `json:"total"`
+	Profile    string             `json:"profile,omitempty"`
 }
 
 // skipJSON is an agent dropped by a gate, with why.
@@ -160,10 +182,14 @@ type skipJSON struct {
 // newRouteJSON maps a pick onto the emitted shape (agent for runner, <provider>·<profile> account keys).
 func newRouteJSON(res router.Result, src routeSources) routeJSON {
 	out := routeJSON{Model: res.Tier, Want: res.Want, Weights: res.Weights, Sources: src,
-		Candidates: make([]candidateJSON, 0, len(res.Candidates))}
+		Candidates: make([]candidateJSON, 0, len(res.Candidates)), Pins: routePins()}
 	for _, c := range res.Candidates {
 		out.Candidates = append(out.Candidates, candidateJSON{Agent: c.Agent, Model: c.Model, Effort: c.Effort,
-			AccountKey: c.Account, Price: c.Price, State: c.State, Billing: c.Billing, Scores: c.Scores, Total: c.Total})
+			AccountKey: c.Account, Price: c.Price, State: c.State, Billing: c.Billing, Scores: c.Scores, Total: c.Total,
+			Profile: c.Profile})
+		if c.Agent == "claude" {
+			out.Ends = c.Account
+		}
 	}
 	for _, s := range res.Skipped {
 		out.Skipped = append(out.Skipped, skipJSON{Agent: s.Agent, Gate: s.Gate, Reason: s.Reason})
@@ -192,6 +218,7 @@ func printRoute(res router.Result, src routeSources) {
 	fmt.Printf("model %s  weights %s (%s)\n", res.Tier, strings.Join(ws, " "), src.Weights)
 	onOff := map[bool]string{true: "on", false: "off"}[src.Subagents.On]
 	fmt.Printf("subagents %s (%s)\n", onOff, src.Subagents.Source)
+	printPins(routePins())
 	if len(res.Candidates) == 0 {
 		fmt.Println("no agent passes the gates")
 	}
@@ -207,6 +234,7 @@ func printRoute(res router.Result, src routeSources) {
 		fmt.Printf("%-3d %-*s %-*s %-6s %-*s %-8s %6.2f %8.2f %6.2f\n", i+1, wRun, c.Agent, wModel, c.Model,
 			cmp.Or(c.Effort, "-"), wAcct, c.Account, c.State, c.Scores["price"], c.Scores["headroom"], c.Total)
 	}
+	printEnds(res)
 	if len(res.Skipped) == 0 {
 		return
 	}
@@ -218,4 +246,41 @@ func printRoute(res router.Result, src routeSources) {
 	for _, s := range res.Skipped {
 		fmt.Printf("%-*s %-*s %s\n", wSkip, s.Agent, wGate, s.Gate, s.Reason)
 	}
+}
+
+// printPins prints each agent's profile pin (off, or - when unset), wrapped at 80 cols under a 7-space indent.
+func printPins(pins map[string]pinJSON) {
+	line, n := "pins   ", 0
+	for _, a := range pinAgents {
+		tok := a + "=" + cmp.Or(pins[a].Profile, "-")
+		if !pins[a].Active {
+			tok = a + "=off"
+		}
+		if n > 0 && len(line)+1+len(tok) > 80 {
+			fmt.Println(line)
+			line, n = "       ", 0
+		}
+		if n > 0 {
+			line += " "
+		}
+		line, n = line+tok, n+1
+	}
+	fmt.Println(line)
+}
+
+// printEnds names where the chain ends: the claude hop's account and model, or why there is none.
+func printEnds(res router.Result) {
+	for _, c := range res.Candidates {
+		if c.Agent == "claude" {
+			fmt.Printf("ends at claude on %s (%s)\n", c.Account, c.Model)
+			return
+		}
+	}
+	for _, s := range res.Skipped {
+		if s.Agent == "claude" {
+			fmt.Printf("no claude hop: %s\n", s.Reason)
+			return
+		}
+	}
+	fmt.Println("no claude hop (--fallback agents|none)")
 }

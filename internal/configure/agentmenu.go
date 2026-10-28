@@ -81,6 +81,18 @@ func runAgentMenu(d *dialog, name string, m agentMenu) bool {
 	if r := modelRow(d, internal); r != nil {
 		m.rows = append(m.rows, *r)
 	}
+	for i, r := range m.rows {
+		if run := r.run; r.key != "" || r.label == "Login" {
+			m.rows[i].run = func() bool { // a successful sign-in switches the agent back on
+				ok := run()
+				if ok {
+					agentActiveOn(d, internal)
+				}
+				return ok
+			}
+		}
+	}
+	m.rows = append(m.rows, agentPinRows(d, internal)...)
 	title := name + " (current: " + m.state.mode
 	if m.state.verified {
 		title += " · verified"

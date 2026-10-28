@@ -21,7 +21,7 @@ import (
 // vendorSubverbs are the words vendorVerb routes to cmdVendorSub.
 var vendorSubverbs = map[string]bool{
 	"resume": true, "status": true, "tail": true, "result": true, "cancel": true, "setup": true, "models": true,
-	"review": true, "transfer": true, "explore": true, "env": true,
+	"review": true, "transfer": true, "explore": true, "profile": true, "on": true, "off": true,
 }
 
 // vendorAbout expands each agent's one-line menu summary for its help page.
@@ -50,7 +50,9 @@ func vendorPage(vendor string) helptext.Page {
 		{"cancel", "interrupt a running job"},
 		{"setup", "binary, login, route, projection; --format json"},
 		{"models", "the agent's own model catalog"},
-		{"env", "show or set " + vendor + "'s profile pin"},
+		{"profile", "show or set " + vendor + "'s profile pin"},
+		{"on", "route to " + vendor + " again"},
+		{"off", "stop routing to " + vendor},
 	}
 	if vendor == "opencode" {
 		rows[slices.IndexFunc(rows, func(r [2]string) bool { return r[0] == "models" })][1] =
@@ -81,7 +83,9 @@ var vendorSubPages = map[string][2]string{
 	"models":   {"models [--profile p]", "The %s CLI's own model catalog, or a note that it has none."},
 	"review":   {"review [flags] [focus…]", "Review a diff with %s; trailing words name the focus."},
 	"explore":  {"explore [flags] <question>", "Scan the code and research the web with %s, then return a brief."},
-	"env":      {"env [<profile>|--clear]", "Show %s's profile pin, or set %[1]s to <profile> (--clear unpins)."},
+	"profile":  {"profile [<profile>|--clear]", "Show %s's profile pin, or set %[1]s to <profile> (--clear unpins)."},
+	"on":       {"on", "Route to %s again (clears its off pin)."},
+	"off":      {"off", "Stop routing to %s (claude cannot be turned off)."},
 	"transfer": {"transfer [flags] [note…]", "Hand this Claude session's transcript to %s, detached unless --wait."},
 }
 
@@ -139,8 +143,10 @@ func cmdVendorSub(vendor string, args []string) int {
 		return cmdVendorExplore(vendor, args[1:])
 	case "transfer":
 		return cmdVendorTransfer(vendor, args[1:])
-	case "env":
-		return cmdAgentEnv(vendor, args[1:])
+	case "profile":
+		return cmdAgentProfile(vendor, args[1:])
+	case "on", "off":
+		return cmdAgentOnOff(vendor, args[0] == "on", args[1:])
 	}
 	return fail("%s: unknown subcommand %q", vendor, args[0])
 }
