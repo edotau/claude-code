@@ -118,7 +118,7 @@ func (l hubLeg) Name() string { return l.agent }
 
 // Caps mirrors vendorRunner's: every Request field the opencode CLI can carry.
 func (l hubLeg) Caps() Caps {
-	return Caps{Model: true, Provider: true, Effort: true, WorkDir: true, SessionID: true, Tools: true, Autonomous: true}
+	return Caps{Model: true, Provider: true, Effort: true, WorkDir: true, SessionID: true, Tools: true, Autonomous: true, SafeMode: true}
 }
 
 // Available requires the opencode binary and an opencode login for this leg's provider; a login-less
@@ -145,7 +145,7 @@ func (l hubLeg) Run(ctx context.Context, req Request, stream io.Writer) (Result,
 		return res, &Error{Kind: KindFatal, Agent: l.agent, Err: err}
 	}
 	h := vendors.Headless{Prompt: req.Prompt, Effort: req.Effort, SessionID: req.SessionID, Tools: req.Tools,
-		Autonomous: req.Autonomous, Attach: req.Attach, WorkDir: req.WorkDir}
+		Autonomous: req.Autonomous, Attach: req.Attach, WorkDir: req.WorkDir, SafeMode: req.SafeMode}
 	cred, err := vendors.OpencodeCredential(l.provider.OpencodeID)
 	if err != nil {
 		return res, &Error{Kind: KindFatal, Agent: l.agent, Err: err}
@@ -166,7 +166,7 @@ func (l hubLeg) Run(ctx context.Context, req Request, stream io.Writer) (Result,
 	}
 	cmd, tail := childCmd(cctx, bin, argv, env, req.WorkDir, "", req.KeepEnv, true)
 	out, runErr := runEventStream(cctx, l.agent, cmd, tail, stream, parseOpenCodeStream, onFirstByte)
-	res.Answer, res.Usage = out.Answer, out.Usage
+	res.Answer, res.Usage, res.Transport = out.Answer, out.Usage, out.Transport
 	if out.SessionID != "" {
 		res.SessionID = out.SessionID
 	}

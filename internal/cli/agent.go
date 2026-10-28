@@ -535,7 +535,7 @@ func printDispatchLog(format string) int {
 		if r.Fallback != "" {
 			agentCol = r.Fallback + "→" + cmp.Or(r.RanAs, "?")
 		}
-		fmt.Printf("%-28s %-7s %-8s %-9s%s  %s\n", r.ID, r.Status, agentCol, r.Duration, tools, preview)
+		fmt.Printf("%-28s %-7s %-8s %-9s%s  %s\n", r.ID, r.Status, agentCol, r.Elapsed(), tools, preview)
 		if r.FallbackReason != "" {
 			fmt.Printf("%-28s   fallback: %s\n", "", r.FallbackReason)
 		}

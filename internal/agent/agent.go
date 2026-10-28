@@ -45,23 +45,25 @@ type Usage struct {
 
 // Result is the envelope `ask --format json` prints.
 type Result struct {
-	Agent          string        `json:"agent"`
-	Provider       string        `json:"provider,omitempty"`
-	Model          string        `json:"model,omitempty"`
-	Invoked        string        `json:"invoked_model,omitempty"` // the model (<profile>:<model> when pinned) the run was asked for; not upstream-confirmed
-	SessionID      string        `json:"session_id,omitempty"`
-	Answer         string        `json:"answer"`
-	Usage          Usage         `json:"usage"`
-	Duration       time.Duration `json:"duration_ns"`
-	Dropped        []string      `json:"dropped,omitempty"`
-	Fallback       string        `json:"fallback,omitempty"`        // set to the original agent's name when it ran instead
-	FallbackReason string        `json:"fallback_reason,omitempty"` // why the original agent was unavailable
-	Handoff        string        `json:"handoff,omitempty"`         // hand-off file written when a copilot leg hit its quota
-	Transport      *Transport    `json:"transport,omitempty"`       // claude only: stream health
+	Agent          string     `json:"agent"`
+	Status         string     `json:"status"` // ok | error | partial | quota | stalled
+	Provider       string     `json:"provider,omitempty"`
+	Model          string     `json:"model,omitempty"`
+	Invoked        string     `json:"invoked_model,omitempty"` // the model (<profile>:<model> when pinned) the run was asked for; not upstream-confirmed
+	SessionID      string     `json:"session_id,omitempty"`
+	Answer         string     `json:"answer"`
+	Usage          Usage      `json:"usage"`
+	DurationMs     int64      `json:"duration_ms"`
+	Dropped        []string   `json:"dropped,omitempty"`
+	Fallback       string     `json:"fallback,omitempty"`        // set to the original agent's name when it ran instead
+	FallbackReason string     `json:"fallback_reason,omitempty"` // why the original agent was unavailable
+	Handoff        string     `json:"handoff,omitempty"`         // hand-off file written when a copilot leg hit its quota
+	Transport      *Transport `json:"transport,omitempty"`       // claude only: stream health
 }
 
 // Transport is the claude stream's health: what the API layer recovered from and how steady the stream was.
 type Transport struct {
+	Attempts      int   `json:"attempts"`                 // tries the outer retry loop made
 	Retries       int   `json:"retries,omitempty"`        // api_retry events Claude recovered from
 	RetryStatuses []int `json:"retry_statuses,omitempty"` // their HTTP status; 0 = no response
 	FirstEventMs  int64 `json:"first_event_ms,omitempty"` // start → first stream_event
@@ -138,7 +140,7 @@ func Run(ctx context.Context, r Runner, req Request, stream io.Writer, notify fu
 		stream = io.Discard
 	}
 	req, dropped := applyCaps(r.Caps(), req)
-	res := Result{Agent: r.Name(), Dropped: dropped}
+	res := Result{Agent: r.Name(), Status: StatusError, Dropped: dropped}
 	// a no-tools one-shot answers from the provider's API, so it needs no agent binary up front
 	if !req.NoTools {
 		if err := r.Available(); err != nil {
@@ -158,7 +160,9 @@ func Run(ctx context.Context, r Runner, req Request, stream io.Writer, notify fu
 		}
 	}
 	start := time.Now()
-	e := Do(ctx, p, func(actx context.Context, _ int) *Error {
+	attempts := 0
+	e := Do(ctx, p, func(actx context.Context, attempt int) *Error {
+		attempts = attempt
 		cw := &countingWriter{w: stream}
 		out, err := r.Run(actx, req, cw)
 		// An agent that delegated to another names the actual agent itself;
@@ -179,12 +183,41 @@ func Run(ctx context.Context, r Runner, req Request, stream io.Writer, notify fu
 		}
 		return e
 	})
-	res.Duration = time.Since(start)
+	res.DurationMs = time.Since(start).Milliseconds()
+	res.Status = statusOf(e)
+	if res.Transport == nil {
+		res.Transport = &Transport{}
+	}
+	res.Transport.Attempts = attempts
 	if e != nil {
 		condemnAuth(e, recoverErr)
 		return res, e
 	}
 	return res, nil
+}
+
+// Result.Status values.
+const (
+	StatusOK      = "ok"
+	StatusError   = "error"
+	StatusPartial = "partial"
+	StatusQuota   = "quota"
+	StatusStalled = "stalled"
+)
+
+// statusOf maps the classified failure to the envelope status: quota, deadline, output-then-failure, else error.
+func statusOf(e *Error) string {
+	switch {
+	case e == nil:
+		return StatusOK
+	case e.Kind == KindQuota:
+		return StatusQuota
+	case errors.Is(e, context.DeadlineExceeded):
+		return StatusStalled
+	case e.Progressed:
+		return StatusPartial
+	}
+	return StatusError
 }
 
 // resolveTarget applies --provider then --model (alias, id, or provider:model) to the registry; an id a Claude alias
@@ -377,7 +410,7 @@ func notClaude(name string) bool { return name != "claude" }
 func RunWithFallback(ctx context.Context, c Chain, req Request, stream io.Writer, notify func(string)) (Result, error) {
 	reasons := slices.Clone(c.Skipped)
 	if len(c.Legs) == 0 {
-		return Result{Agent: c.Want, FallbackReason: strings.Join(reasons, "; ")},
+		return Result{Agent: c.Want, Status: StatusError, FallbackReason: strings.Join(reasons, "; ")},
 			&Error{Kind: KindFatal, Agent: c.Want, Err: fmt.Errorf("no agent available: %s%s", strings.Join(reasons, "; "), switchHint(reasons))}
 	}
 	if len(reasons) > 0 && notify != nil {

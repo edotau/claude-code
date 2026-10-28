@@ -466,7 +466,7 @@ func firstTimestamp(path string) time.Time {
 // legFromRecord renders one dispatch record as a Leg; a still-running record has no final Duration
 // yet, so this reports the elapsed time so far instead.
 func legFromRecord(rec agent.Record, matched string, now time.Time) Leg {
-	duration := rec.Duration
+	duration := rec.Elapsed()
 	if duration == "" && rec.Status == "running" {
 		duration = now.Sub(rec.Time).Round(time.Second).String()
 	}

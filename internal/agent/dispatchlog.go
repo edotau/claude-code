@@ -32,7 +32,7 @@ type Record struct {
 	Model          string    `json:"model,omitempty"`         // as the runner reported it; may be empty
 	Invoked        string    `json:"invoked_model,omitempty"` // the model the last hop was asked to run; Request keeps the original
 	SessionID      string    `json:"session_id,omitempty"`
-	Duration       string    `json:"duration,omitempty"`
+	DurationMs     int64     `json:"duration_ms,omitempty"`
 	Fallback       string    `json:"fallback,omitempty"` // the original runner's name, when it ran instead
 	FallbackReason string    `json:"fallback_reason,omitempty"`
 	RanAs          string    `json:"ran_as,omitempty"`   // the runner that answered, when a fallback leg did
@@ -85,6 +85,14 @@ func (r Record) Save() error {
 	return nil
 }
 
+// Elapsed is the run time as text; "" for a record with no duration (running, or written before duration_ms).
+func (r Record) Elapsed() string {
+	if r.DurationMs <= 0 {
+		return ""
+	}
+	return (time.Duration(r.DurationMs) * time.Millisecond).String()
+}
+
 // Finish records the outcome of the run.
 func (r *Record) Finish(res Result, err error, took time.Duration) {
 	r.Status, r.Provider, r.Model, r.SessionID = "ok", res.Provider, res.Model, res.SessionID
@@ -93,7 +101,7 @@ func (r *Record) Finish(res Result, err error, took time.Duration) {
 	if res.Fallback != "" {
 		r.RanAs = res.Agent
 	}
-	r.Duration = took.Round(time.Millisecond).String()
+	r.DurationMs = took.Milliseconds()
 	if err != nil {
 		r.Status, r.Error = "error", err.Error()
 	}

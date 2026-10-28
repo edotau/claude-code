@@ -28,7 +28,7 @@ func writeDispatch(t *testing.T, id, status string, pid int, age time.Duration) 
 	t.Helper()
 	p := filepath.Join(paths.StateDir(), "dispatch", id+".json")
 	rec := map[string]any{"id": id, "time": time.Now().Add(-age).UTC().Format(time.RFC3339Nano), "agent": "codex",
-		"request": map[string]any{}, "status": status, "pid": pid, "repo": "/some/other/repo", "duration": "3s"}
+		"request": map[string]any{}, "status": status, "pid": pid, "repo": "/some/other/repo", "duration_ms": 3000}
 	b, _ := json.Marshal(rec)
 	writeFixtureFile(t, p, string(b))
 	return p
@@ -64,7 +64,7 @@ func TestCmdAgentsReapMarksLostDispatches(t *testing.T) {
 		if m["status"] != "error" || m["error"] != "lost: process gone" {
 			t.Errorf("%s: status/error = %v/%v, want error/lost: process gone", filepath.Base(p), m["status"], m["error"])
 		}
-		if m["duration"] != "3s" || m["agent"] != "codex" {
+		if m["duration_ms"] != float64(3000) || m["agent"] != "codex" {
 			t.Errorf("%s: other fields not preserved: %v", filepath.Base(p), m)
 		}
 	}

@@ -101,7 +101,8 @@ func (v vendorRunner) Name() string { return v.name }
 
 // Caps follow each CLI's verified headless flags; Autonomous holds for all three (codex is autonomous by construction).
 func (v vendorRunner) Caps() Caps {
-	return Caps{Model: true, Provider: true, Effort: true, WorkDir: true, SessionID: true, Tools: true, Autonomous: true}
+	return Caps{Model: true, Provider: true, Effort: true, WorkDir: true, SessionID: true, Tools: true, Autonomous: true,
+		NoPersist: v.name == "codex", SafeMode: v.name == "codex" || v.name == "opencode", DebugFile: v.name == "gemini"}
 }
 
 func (v vendorRunner) Available() error {
@@ -136,7 +137,7 @@ func (v vendorRunner) Run(ctx context.Context, req Request, stream io.Writer) (R
 		return res, &Error{Kind: KindFatal, Agent: v.name, Err: errPromptTooLarge(len(prompt))}
 	}
 	h := vendors.Headless{Prompt: prompt, Effort: req.Effort, SessionID: req.SessionID, Tools: req.Tools,
-		Autonomous: req.Autonomous, Attach: req.Attach}
+		Autonomous: req.Autonomous, Attach: req.Attach, NoPersist: req.NoPersist, SafeMode: req.SafeMode}
 	if v.name == "opencode" {
 		h.WorkDir = req.WorkDir // cmd.Dir alone doesn't move opencode's own cwd resolution; --dir does
 	}
@@ -158,9 +159,9 @@ func (v vendorRunner) Run(ctx context.Context, req Request, stream io.Writer) (R
 		res.Model = model
 		out, err := RunAgy(ctx, AgyRequest{
 			Prompt: prompt, Model: model, Effort: req.Effort, Cwd: req.WorkDir, Tools: req.Tools, Autonomous: req.Autonomous,
-			Env: env, KeepEnv: req.KeepEnv, SessionID: req.SessionID,
+			DebugFile: req.DebugFile, Env: env, KeepEnv: req.KeepEnv, SessionID: req.SessionID,
 		}, stream)
-		res.Answer, res.Usage = out.Answer, out.Usage
+		res.Answer, res.Usage, res.Transport = out.Answer, out.Usage, out.Transport
 		if out.SessionID != "" {
 			res.SessionID = out.SessionID
 		}
@@ -219,7 +220,7 @@ func emptyAnswer(name string) error {
 func (v vendorRunner) runStream(ctx context.Context, cmd *exec.Cmd, tail *TailBuffer, res Result, stream io.Writer,
 	parse func(io.Reader, io.Writer, func(), ...eventLog) (Result, error)) (Result, error) {
 	out, err := runEventStream(ctx, v.name, cmd, tail, stream, parse, nil)
-	res.Answer, res.Usage = out.Answer, out.Usage
+	res.Answer, res.Usage, res.Transport = out.Answer, out.Usage, out.Transport
 	if out.SessionID != "" {
 		res.SessionID = out.SessionID
 	}
@@ -241,7 +242,7 @@ func runEventStream(ctx context.Context, name string, cmd *exec.Cmd, tail *TailB
 	out, perr := parse(stdout, stream, onMeaningful, eventLogFor(ctx))
 	_, _ = io.Copy(io.Discard, stdout)
 	werr := cmd.Wait()
-	res.Answer, res.Usage, res.SessionID = out.Answer, out.Usage, out.SessionID
+	res.Answer, res.Usage, res.SessionID, res.Transport = out.Answer, out.Usage, out.SessionID, out.Transport
 	if werr != nil || ctx.Err() != nil {
 		return res, childErr(ctx, name, errors.Join(werr, perr), tail)
 	}
@@ -289,8 +290,9 @@ func isMeaningfulOpenCodeEvent(ev openCodeEvent) bool {
 }
 
 // parseOpenCodeStream streams the root session's text parts; onMeaningful fires once on the first meaningful event.
-func parseOpenCodeStream(r io.Reader, w io.Writer, onMeaningful func(), logs ...eventLog) (Result, error) {
-	var res Result
+func parseOpenCodeStream(r io.Reader, w io.Writer, onMeaningful func(), logs ...eventLog) (res Result, _ error) {
+	ts := transportTracker{start: clock()}
+	defer func() { res.Transport = ts.timing() }()
 	lg := pickLog(logs)
 	var texts, errs []string
 	fired := false
@@ -302,6 +304,7 @@ func parseOpenCodeStream(r io.Reader, w io.Writer, onMeaningful func(), logs ...
 		} else if err != nil {
 			return res, fmt.Errorf("decode opencode json: %w", err)
 		}
+		ts.event(clock())
 		if ev.SessionID != "" {
 			res.SessionID = ev.SessionID
 		}
@@ -342,6 +345,14 @@ func parseOpenCodeStream(r io.Reader, w io.Writer, onMeaningful func(), logs ...
 		return res, errors.New(strings.Join(errs, "; "))
 	}
 	return res, nil
+}
+
+// timing is the Transport for agents with no retry signal: Retries and RetryStatuses stay absent.
+func (t *transportTracker) timing() *Transport {
+	if t.events == 0 {
+		return nil
+	}
+	return &Transport{FirstEventMs: t.first.Milliseconds(), MaxGapMs: t.gap.Milliseconds()}
 }
 
 // headBuffer keeps the first 4 KiB of a stream: codex prints the session id in its stderr banner.

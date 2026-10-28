@@ -70,6 +70,8 @@ type Headless struct {
 	Autonomous bool     // opencode: --auto
 	Attach     []string // opencode: one -f per path
 	WorkDir    string   // opencode: --dir; cmd.Dir alone doesn't move opencode's own cwd resolution
+	NoPersist  bool     // codex: --ephemeral
+	SafeMode   bool     // codex: --ignore-user-config --ignore-rules; opencode: --pure
 }
 
 // Credentials ride these env vars (never argv); the config text names the variable, not the secret.
@@ -604,6 +606,12 @@ func codexHeadless(argv []string, h *Headless) []string {
 		sandbox = "workspace-write"
 	}
 	argv = append(append([]string{"exec"}, argv...), "--skip-git-repo-check", "--sandbox", sandbox)
+	if h.NoPersist {
+		argv = append(argv, "--ephemeral")
+	}
+	if h.SafeMode {
+		argv = append(argv, "--ignore-user-config", "--ignore-rules")
+	}
 	if h.SessionID != "" {
 		argv = append(argv, "resume", h.SessionID)
 	}
@@ -706,6 +714,9 @@ func opencode(p *providers.Provider, dialect, base, model, cred string, routed b
 	}
 	if h.Autonomous {
 		argv = append(argv, "--auto")
+	}
+	if h.SafeMode {
+		argv = append(argv, "--pure")
 	}
 	for _, p := range h.Attach {
 		argv = append(argv, "-f", p)
@@ -830,6 +841,9 @@ func opencodeRun(model string, h Headless) (env, argv []string) {
 	}
 	if h.Autonomous {
 		argv = append(argv, "--auto")
+	}
+	if h.SafeMode {
+		argv = append(argv, "--pure")
 	}
 	for _, p := range h.Attach {
 		argv = append(argv, "-f", p)
