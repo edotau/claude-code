@@ -38,8 +38,8 @@ Files under `agents/`, `commands/`, `rules/`, `skills/` and this file go live th
 4. **Goal-driven execution.** Turn tasks into verifiable goals ("fix the bug" → "reproduce it, fix,
    re-run"). Loop until verified. → 1–4 in depth: `skills/evaluate-code/references/principles.md`.
 5. **Terse comments.** 1 line max, ≤120 chars, per section → `rules/standards/communication.md`.
-6. **Live check first; scoped tests while developing; the full suite once, with the user's approval.** Every
-   code dispatch carries the `copilot` test agent in the same message → `rules/standards/quality.md`.
+6. **Live check first; scoped tests while developing; the full suite once, with the user's approval.** Tests verify
+   logic: one spanning test per feature, a regression test per bug, no coverage waves → `rules/standards/quality.md`.
 7. **Propose look/behavior changes before applying them.** Name an unrequested side effect with
    numbers, prefer the narrowly scoped mechanism over a global knob, and let the user pick.
 8. **Parallel by default; keep the main thread free.** Plan and brief, then dispatch `code-worker` ‖ `copilot`

@@ -9,15 +9,18 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/secrets/shapes"
 )
 
 // Row is one background-job line for `claude-code <v> status`.
 type Row struct {
-	ID      string
-	Status  string // running | lost | ok | error (lost = running record, dead pid)
-	Elapsed string
-	Preview string
-	Session string
+	ID       string
+	Status   string // running | lost | ok | error (lost = running record, dead pid)
+	Elapsed  string
+	Preview  string
+	Session  string
+	Error    string `json:",omitempty"` // the failed dispatch's redacted error text
+	Progress string `json:",omitempty"` // "part 2/3" while a split review runs
 }
 
 // Status lists rows for name's jobs in cwd's repo (all repos when all is set), newest first; ref narrows via Resolve.
@@ -164,5 +167,6 @@ func toRow(r agent.Record) Row {
 		elapsed = time.Since(r.Time).Round(time.Second).String()
 	}
 	preview := agent.Preview(r.Request.Prompt, 60)
-	return Row{ID: r.ID, Status: status, Elapsed: elapsed, Preview: preview, Session: r.SessionID}
+	return Row{ID: r.ID, Status: status, Elapsed: elapsed, Preview: preview, Session: r.SessionID,
+		Error: shapes.Redact(r.Error), Progress: r.Progress}
 }
