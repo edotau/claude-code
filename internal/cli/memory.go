@@ -28,7 +28,7 @@ var memorySubs = []memorySub{
 	{"init", "", "create the repo's bank"},
 	{"review", "", "doctor + stats for the banks; --candidates ranks promotions"},
 	{"promote", "<id> --to <target>", "move or surface one block (home|rules|skill|claude-md)"},
-	{"update", "", "harvest the live session (or --transcript); none found prints the procedure"},
+	{"update", "", "harvest the live session or --transcript; else print the procedure"},
 	{"dream", "", "consolidate the bank when due (--force, --dry-run)"},
 }
 
