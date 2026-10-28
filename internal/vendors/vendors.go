@@ -159,20 +159,22 @@ func copilotDatabricksFallback(reg *providers.Registry, detail string) RouteInfo
 			Reason: "copilot: " + detail + " — using databricks profile " + p.Name, OK: true}
 	}
 	pin := cmp.Or(providers.SessionProfile(), providers.Pin(providers.PinProfile))
-	usable := func(p *providers.Provider) bool {
-		if p == nil || p.Preset != providers.PresetDatabricks {
-			return false
-		}
-		_, err := providers.Credential(context.Background(), p)
-		return providers.Verdict(err) == providers.VerdictOK
-	}
 	for _, name := range append([]string{pin}, orderedDatabricks(reg)...) {
-		if p := reg.Providers[name]; usable(p) {
+		if p := reg.Providers[name]; databricksUsable(p) {
 			return pick(p)
 		}
 	}
 	return RouteInfo{Agent: "copilot", Leg: LegNone,
 		Reason: "copilot: " + detail + "; no credit-free route for copilot (no Databricks profile signed in)"}
+}
+
+// databricksUsable is true for a Databricks row whose credential resolves.
+func databricksUsable(p *providers.Provider) bool {
+	if p == nil || p.Preset != providers.PresetDatabricks {
+		return false
+	}
+	_, err := providers.Credential(context.Background(), p)
+	return providers.Verdict(err) == providers.VerdictOK
 }
 
 // ErrOwnLogin means the vendor should run on the credentials its own CLI stores (no harness route injected).
@@ -593,11 +595,15 @@ func codexChatGPTLogin() error {
 
 // codexHeadless appends the `codex exec` form when h is set; nil h is the interactive launch.
 func codexHeadless(argv []string, h *Headless) []string {
+	var effort string
+	if h != nil {
+		effort = h.Effort
+	}
+	if effort = cmp.Or(effort, providers.Pin(providers.PinCodexEffort)); effort != "" {
+		argv = append(argv, "-c", "model_reasoning_effort="+tomlStr(effort))
+	}
 	if h == nil {
 		return argv
-	}
-	if effort := cmp.Or(h.Effort, providers.Pin(providers.PinCodexEffort)); effort != "" {
-		argv = append(argv, "-c", "model_reasoning_effort="+tomlStr(effort))
 	}
 	sandbox := "read-only"
 	if h.Tools {
