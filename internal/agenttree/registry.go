@@ -15,7 +15,7 @@ type regEntry struct {
 	Cwd       string `json:"cwd"`
 	Name      string `json:"name"`
 	Status    string `json:"status"` // idle|busy|waiting
-	Kind      string `json:"kind"`   // interactive|bg
+	Kind      string `json:"kind"`   // interactive|bg; Claude Code's own key, surfaced as Session.Mode
 }
 
 // pidAlive is a var so tests can stub the liveness probe.
@@ -41,7 +41,7 @@ func readRegistry(claudeDir string) map[string]regEntry {
 
 // applyRegistry copies a live registry entry onto s; a busy CLI is active, any other live state idle.
 func applyRegistry(s Session, e regEntry) Session {
-	s.Name, s.PID, s.Live, s.CLIStatus, s.Kind = e.Name, e.PID, true, e.Status, e.Kind
+	s.Name, s.PID, s.Live, s.CLIStatus, s.Mode = e.Name, e.PID, true, e.Status, e.Kind
 	if s.Cwd == "" {
 		s.Cwd = e.Cwd
 	}

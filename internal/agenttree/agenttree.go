@@ -118,13 +118,13 @@ type Session struct {
 	PID       int           `json:"pid,omitempty"`       // live CLI process id
 	Live      bool          `json:"live,omitempty"`      // a live registry entry names this session
 	CLIStatus string        `json:"cliStatus,omitempty"` // registry status: idle|busy|waiting
-	Kind      string        `json:"kind,omitempty"`      // registry kind: interactive|bg
+	Mode      string        `json:"mode,omitempty"`      // launch mode: interactive|bg
 }
 
 // Tree is the stable `agents tree --format json` schema: {sessions:[{id, project, cwd, branch,
 // title, updated, status, tokens, subagents:[{id, type, description, status, depth, tokens,
 // lastTool, updated}], workflows:[{id, name, status, updated, phases:[{name, agents:[...]}]}]}]};
-// a live session also carries name, pid, live, cliStatus, kind from ~/.claude/sessions/<pid>.json.
+// a live session also carries name, pid, live, cliStatus, mode from ~/.claude/sessions/<pid>.json.
 type Tree struct {
 	Sessions   []Session `json:"sessions"`
 	Dispatches []Leg     `json:"dispatches,omitempty"` // --running only: live dispatch jobs machine-wide
