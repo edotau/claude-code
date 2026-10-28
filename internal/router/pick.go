@@ -39,7 +39,7 @@ type Candidate struct {
 	Billing string             `json:"billing"`
 	Scores  map[string]float64 `json:"scores,omitempty"`
 	Total   float64            `json:"total"`
-	// Profile names the Databricks profile a codex candidate runs on; empty for every other candidate.
+	// Profile names the profile a pinned or session-anchored candidate runs on; empty for every other candidate.
 	Profile string `json:"profile,omitempty"`
 }
 
@@ -120,6 +120,15 @@ func (t *Table) Pick(ctx context.Context, tier, want string, st State, o Opts) R
 		return cmp.Or(cmp.Compare(lowRank(a[0].State), lowRank(b[0].State)), cmp.Compare(b[0].Total, a[0].Total))
 	})
 	res.Candidates = slices.Concat(flattenGroups(firstG), flattenGroups(restG), flattenGroups(lastG))
+	seen := make(map[[3]string]bool)
+	res.Candidates = slices.DeleteFunc(res.Candidates, func(c Candidate) bool {
+		key := [3]string{c.Agent, c.Account, c.Model}
+		if seen[key] {
+			return true
+		}
+		seen[key] = true
+		return false
+	})
 	return res
 }
 
