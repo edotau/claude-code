@@ -459,8 +459,17 @@ func ownedID(p *providers.Provider) (string, error) {
 	return "harness-" + p.Name, nil
 }
 
+// codexResponsesModel swaps a non-GPT model (the row's opus slot) for the menu's first Responses model on Databricks.
+func codexResponsesModel(p *providers.Provider, model string) string {
+	if p.Preset != providers.PresetDatabricks || strings.Contains(model, "gpt-") {
+		return model
+	}
+	return cmp.Or(providers.FirstResponsesModel(p), model)
+}
+
 // codex speaks only the Responses API (`wire_api = "chat"` is rejected by current builds).
 func codex(p *providers.Provider, base, model, cred string, h *Headless) ([]string, []string, error) {
+	model = codexResponsesModel(p, model)
 	id, err := ownedID(p)
 	if err != nil {
 		return nil, nil, err

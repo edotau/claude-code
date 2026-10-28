@@ -81,3 +81,23 @@ var DatabricksOpencodeMenu = []OpencodeModel{
 	{ID: "gpt-6-astra", Label: "GPT-6 Astra", Responses: true},
 	{ID: "gpt-5-5", Label: "GPT 5.5", Responses: true},
 }
+
+// FirstResponsesModel is the first Responses-capable OpencodeMenu entry spelled for p, or "" when none.
+func FirstResponsesModel(p *Provider) string {
+	for _, m := range OpencodeMenu() {
+		if m.Responses {
+			return p.WireModel(m.ID)
+		}
+	}
+	return ""
+}
+
+// ServesResponses reports whether model is a Responses-capable OpencodeMenu entry as p spells it.
+func ServesResponses(p *Provider, model string) bool {
+	for _, m := range OpencodeMenu() {
+		if m.Responses && p.WireModel(m.ID) == model {
+			return true
+		}
+	}
+	return false
+}
