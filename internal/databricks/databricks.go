@@ -133,13 +133,13 @@ func plan(args []string) (Plan, error) {
 	name := ""
 	for i := 0; i < len(args); i++ {
 		switch arg := args[i]; {
-		case arg == "--profile", p.Check && arg == "-p": // -p is claude's --print on the launch verb
+		case arg == "--profile", arg == "-p": // -p is --profile here; claude's print mode is --print
 			name = ""
 			if i+1 < len(args) {
 				name = args[i+1]
 				i++
 			}
-		case strings.HasPrefix(arg, "--profile="), p.Check && strings.HasPrefix(arg, "-p="):
+		case strings.HasPrefix(arg, "--profile="), strings.HasPrefix(arg, "-p="):
 			name = arg[strings.Index(arg, "=")+1:]
 		case arg == "--1m":
 			p.Big = true
@@ -337,6 +337,7 @@ func usage(check bool) {
 	}
 	fs := helptext.NewFlagSet("claude-code databricks", pg)
 	fs.String("profile", "", "Databricks profile (default: session, pinned, else the first)")
+	fs.String("p", "", "shorthand for --profile")
 	fs.Bool("1m", false, "with check: also run the 1M-context probe")
 	fs.Usage()
 }

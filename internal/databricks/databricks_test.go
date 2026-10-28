@@ -130,11 +130,11 @@ func TestPlanTable(t *testing.T) {
 	}{
 		{"model only", []string{"sonnet"}, "", "sonnet", nil},
 		{"--profile bb", []string{"--profile", "bb"}, "bb", def, nil},
-		{"--profile after flags", []string{"-p", "hi", "--profile", "cc"}, "cc", def, []string{"-p", "hi"}},
+		{"--profile after flags", []string{"--print", "hi", "--profile", "cc"}, "cc", def, []string{"--print", "hi"}},
 		{"--profile= form", []string{"--profile=bb"}, "bb", def, nil},
 		{"model + --profile=cc", []string{"haiku", "--profile=cc"}, "cc", "haiku", nil},
 		{"rest order kept", []string{"--profile", "cc", "ask", "hello world"}, "cc", def, []string{"ask", "hello world"}},
-		{"flags-first keeps default model", []string{"-p", "hi", "--profile=bb"}, "bb", def, []string{"-p", "hi"}},
+		{"flags-first keeps default model", []string{"--print", "hi", "--profile=bb"}, "bb", def, []string{"--print", "hi"}},
 		{"only MODEL is taken", []string{"sonnet", "haiku", "--profile=bb"}, "bb", "sonnet", []string{"haiku"}},
 	}
 	for _, tt := range tests {
@@ -209,7 +209,7 @@ func TestPlanCheckAndBig(t *testing.T) {
 		{"check alone", []string{"check"}, true, false, "bb", nil},
 		{"check --1m", []string{"check", "--1m"}, true, true, "bb", nil},
 		{"check model profile --1m", []string{"check", "haiku", "--profile", "cc", "--1m"}, true, true, "cc", nil},
-		{"--1m without check is consumed", []string{"sonnet", "--1m", "-p", "x"}, false, true, "bb", []string{"-p", "x"}},
+		{"--1m without check is consumed", []string{"sonnet", "--1m", "--print", "x"}, false, true, "bb", []string{"--print", "x"}},
 		{"check not first is a rest arg", []string{"sonnet", "check"}, false, false, "bb", []string{"check"}},
 	}
 	for _, tt := range tests {
@@ -277,7 +277,7 @@ func TestRunHelpOnlyFirstOrAfterCheck(t *testing.T) {
 // TestRunLaterHelpPassesThrough pins that -h after a model reaches claude, as the shell wrapper does.
 func TestRunLaterHelpPassesThrough(t *testing.T) {
 	seedOverlay(t, threeProfiles)
-	tests := [][]string{{"sonnet", "-p", "-h"}, {"--profile", "bb", "-h"}}
+	tests := [][]string{{"sonnet", "--print", "-h"}, {"--profile", "bb", "-h"}}
 	for _, args := range tests {
 		t.Run(strings.Join(args, " "), func(t *testing.T) {
 			f := &fakeChild{}
@@ -314,7 +314,7 @@ func TestLaunchArgvNoShellAndBetaEnv(t *testing.T) {
 	seedOverlay(t, threeProfiles)
 	f := &fakeChild{}
 	useFake(t, f)
-	if code := Run([]string{"sonnet", "--profile", "cc", "-p", "hi"}); code != 0 {
+	if code := Run([]string{"sonnet", "--profile", "cc", "--print", "hi"}); code != 0 {
 		t.Fatalf("exit = %d, want 0", code)
 	}
 	if len(f.calls) != 1 {
@@ -328,7 +328,7 @@ func TestLaunchArgvNoShellAndBetaEnv(t *testing.T) {
 	if c.bin != self {
 		t.Errorf("bin = %q, want this binary %q", c.bin, self)
 	}
-	want := []string{"--profile", "cc", "--model", "sonnet", "-p", "hi"}
+	want := []string{"--profile", "cc", "--model", "sonnet", "--print", "hi"}
 	if !slices.Equal(c.argv, want) {
 		t.Errorf("argv = %q, want %q", c.argv, want)
 	}
