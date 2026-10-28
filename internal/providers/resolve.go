@@ -121,7 +121,7 @@ func PrefersOpenAI(p *Provider, model string) bool {
 	if _, ok := p.Route(ProtocolOpenAI); !ok {
 		return false
 	}
-	return !strings.Contains(strings.ToLower(model), "claude")
+	return models.FamilyKind(model) != models.FamilyClaude
 }
 
 // FailoverTarget maps a request that failed on from/model to the equivalent model on next: same slot

@@ -49,11 +49,10 @@ func NonClaudeWire(p *providers.Provider, dialect, model string, routed bool) (w
 	if !ok {
 		canonical = strings.TrimPrefix(model, models.DatabricksPrefix)
 	}
-	if strings.HasPrefix(canonical, "claude-") {
+	if models.FamilyKind(canonical) == models.FamilyClaude {
 		return "", ""
 	}
-	e, _ := models.Lookup(canonical)
-	if e.ResponsesOnly || providers.ServesResponses(p, model) {
+	if providers.ServesResponses(p, model) {
 		return providers.ProtocolResponses, canonical
 	}
 	return providers.ProtocolOpenAI, canonical
@@ -88,13 +87,4 @@ func Caps(window int, id string) (ctx, output int) {
 		output = min(output, l.Output)
 	}
 	return ctx, output
-}
-
-// WellKnownModel maps a gateway Claude id to copilot's catalog form (claude-sonnet-5.5); other ids pass through.
-func WellKnownModel(id string) string {
-	canonical, _, ok := models.Resolve(id)
-	if !ok || !strings.HasPrefix(canonical, "claude-") {
-		return id
-	}
-	return models.Wire("dotted", canonical)
 }

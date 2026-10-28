@@ -303,10 +303,6 @@ func checkCell(cache map[string]providers.CheckResult, id string) string {
 
 // opencodeCheckTargets resolves the probe set: explicit ids, every served chat endpoint, or the menu.
 func opencodeCheckTargets(ids []string, all bool, served map[string]providers.ModelInfo, p *providers.Provider) []providers.CheckTarget {
-	menu := map[string]providers.OpencodeModel{}
-	for _, m := range providers.OpencodeMenu() {
-		menu[m.ID] = m
-	}
 	var out []providers.CheckTarget
 	if all {
 		for name, info := range served {
@@ -314,7 +310,7 @@ func opencodeCheckTargets(ids []string, all bool, served map[string]providers.Mo
 				continue
 			}
 			id := providers.MenuID(name)
-			out = append(out, providers.CheckTarget{ID: id, Wire: name, Responses: menu[id].Responses || strings.HasPrefix(id, "gpt-")})
+			out = append(out, providers.CheckTarget{ID: id, Wire: name, Responses: providers.ResponsesID(id)})
 		}
 		return out
 	}
@@ -325,7 +321,7 @@ func opencodeCheckTargets(ids []string, all bool, served map[string]providers.Mo
 	}
 	for _, raw := range ids {
 		id := providers.MenuID(raw)
-		t := providers.CheckTarget{ID: id, Responses: menu[id].Responses || (menu[id].ID == "" && strings.HasPrefix(id, "gpt-"))}
+		t := providers.CheckTarget{ID: id, Responses: providers.ResponsesID(id)}
 		if _, ok := served[p.ModelPrefix+id]; ok {
 			t.Wire = p.ModelPrefix + id
 		} else if _, ok := served[id]; ok {

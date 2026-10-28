@@ -3,6 +3,7 @@ package providers
 import (
 	"encoding/json"
 
+	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/vault"
 )
 
@@ -92,12 +93,22 @@ func FirstResponsesModel(p *Provider) string {
 	return ""
 }
 
-// ServesResponses reports whether model is a Responses-capable OpencodeMenu entry as p spells it.
+// ServesResponses reports whether p serves model on Responses: its menu entry's flag when listed, else the catalog.
 func ServesResponses(p *Provider, model string) bool {
 	for _, m := range OpencodeMenu() {
-		if m.Responses && p.WireModel(m.ID) == model {
-			return true
+		if p.WireModel(m.ID) == model {
+			return m.Responses
 		}
 	}
-	return false
+	return models.ResponsesOnly(model)
+}
+
+// ResponsesID is ServesResponses for a bare menu id: the entry's flag when listed, else the catalog.
+func ResponsesID(id string) bool {
+	for _, m := range OpencodeMenu() {
+		if m.ID == id {
+			return m.Responses
+		}
+	}
+	return models.ResponsesOnly(id)
 }

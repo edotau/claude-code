@@ -180,7 +180,7 @@ func TestOpencodeDatabricksUnknownModel(t *testing.T) {
 	p := dbxRow("qa", "databricks-")
 	base := p.Routes[providers.ProtocolOpenAI]
 	_, _, err := opencode(p, providers.ProtocolOpenAI, base, "databricks-not-a-model", "tok", false, nil)
-	if err == nil || !strings.Contains(err.Error(), "databricks-not-a-model") || !strings.Contains(err.Error(), "models --live") {
+	if err == nil || !strings.Contains(err.Error(), "databricks-not-a-model") || !strings.Contains(err.Error(), "catalog list --live") {
 		t.Fatalf("unknown model err = %v", err)
 	}
 	p.Models = map[string]string{models.Slots[0]: "databricks-slot-only"}

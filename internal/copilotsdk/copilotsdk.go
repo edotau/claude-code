@@ -145,7 +145,7 @@ func providerFromEnv(env []string) *copilot.ProviderConfig {
 	}
 	atoi := func(key string) int { n, _ := strconv.Atoi(get(key)); return n }
 	model := get("COPILOT_MODEL")
-	modelID := wellKnownModel(model)
+	modelID := WellKnownModel(model)
 	if id := get("COPILOT_PROVIDER_MODEL_ID"); id != "" {
 		modelID = id
 	}
@@ -162,11 +162,11 @@ func providerFromEnv(env []string) *copilot.ProviderConfig {
 	}
 }
 
-// wellKnownModel maps a gateway Claude id to copilot's catalog form (claude-sonnet-5.5), so the runtime applies
+// WellKnownModel maps a gateway Claude id to copilot's catalog form (claude-sonnet-5.5), so the runtime applies
 // its Claude settings (no temperature, reasoning, limits); any other id passes through unchanged.
-func wellKnownModel(id string) string {
+func WellKnownModel(id string) string {
 	canonical, _, ok := models.Resolve(id)
-	if !ok || !strings.HasPrefix(canonical, "claude-") {
+	if !ok || models.FamilyKind(canonical) != models.FamilyClaude {
 		return id
 	}
 	return models.Wire("dotted", canonical)

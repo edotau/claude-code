@@ -4,8 +4,9 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"regexp"
 	"strings"
+
+	"github.com/edotau/claude-code/internal/models"
 )
 
 type messagesRequest struct {
@@ -109,9 +110,6 @@ type toolDef struct {
 	Parameters  json.RawMessage `json:"parameters"`
 }
 
-// OpenAI reasoning models reject max_tokens, temperature and top_p; a vendor prefix (openai/) is tolerated.
-var reasoningModelRE = regexp.MustCompile(`^(?:[\w.-]+/)?(?:o\d|gpt-5)`)
-
 // ToChatRequest converts an Anthropic Messages request body into a chat-completions body targeting wireModel.
 func ToChatRequest(body []byte, wireModel string) (out []byte, stream bool, err error) {
 	var in messagesRequest
@@ -119,7 +117,7 @@ func ToChatRequest(body []byte, wireModel string) (out []byte, stream bool, err 
 		return nil, false, fmt.Errorf("translate: request: %w", err)
 	}
 	req := chatRequest{Model: wireModel, Stop: in.StopSequences, Temperature: in.Temperature, TopP: in.TopP}
-	if reasoningModelRE.MatchString(wireModel) {
+	if models.IsOpenAIReasoning(wireModel) { // reasoning models reject max_tokens, temperature and top_p
 		req.MaxCompletionTokens, req.Temperature, req.TopP = in.MaxTokens, nil, nil
 	} else {
 		req.MaxTokens = in.MaxTokens

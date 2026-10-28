@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/secrets"
@@ -344,7 +345,7 @@ func copilotContextEligible(d *dialog, modelID string) bool {
 	if m, ok := copilotCatalogModel(d, modelID); ok {
 		return m.ContextTokens > copilotContextBaseline
 	}
-	return strings.HasPrefix(modelID, "claude-")
+	return models.FamilyKind(modelID) == models.FamilyClaude
 }
 
 // copilotContextRow pins COPILOT_CONTEXT_TIER; nil when modelID has no long-context tier.

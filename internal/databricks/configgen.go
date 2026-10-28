@@ -128,7 +128,7 @@ func (o Options) checkModel() error {
 	if o.Model == "" {
 		return nil
 	}
-	isClaude := strings.Contains(strings.ToLower(o.Model), "claude")
+	isClaude := models.FamilyKind(o.Model) == models.FamilyClaude
 	if o.Target == TargetCodex && isClaude {
 		return fmt.Errorf("model %q: the Responses route serves GPT models only", o.Model)
 	}

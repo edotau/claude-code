@@ -256,7 +256,7 @@ func modelFamily(id string) string {
 	switch id = models.Strip1M(strings.TrimSpace(id)); {
 	case strings.HasPrefix(id, models.DatabricksPrefix):
 		return "databricks"
-	case strings.HasPrefix(id, "claude-"):
+	case models.FamilyKind(id) == models.FamilyClaude:
 		return "anthropic"
 	}
 	return ""

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 
+	"github.com/edotau/claude-code/internal/copilotsdk"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
 )
@@ -71,7 +72,7 @@ func Build(profile string, p *providers.Provider, eps []Endpoint, routerBase str
 		}
 		window, output := Caps(providers.ContextWindow(p, ep.ID), ep.ID)
 		r.Models = append(r.Models, Model{
-			ID: canonical, Provider: name, WireModel: ep.ID, ModelID: WellKnownModel(canonical), Name: ep.Name,
+			ID: canonical, Provider: name, WireModel: ep.ID, ModelID: copilotsdk.WellKnownModel(canonical), Name: ep.Name,
 			Tested: ep.Tested, MaxPromptTokens: PromptTokens(window, output), MaxContextWindowTokens: window,
 			MaxOutputTokens: output,
 		})

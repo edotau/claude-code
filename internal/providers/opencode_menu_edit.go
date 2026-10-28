@@ -55,13 +55,13 @@ func DefaultMenuLabel(id string) string {
 // menuAcronyms are id words a label spells in capitals.
 var menuAcronyms = map[string]bool{"glm": true, "gpt": true, "oss": true, "bge": true, "gte": true}
 
-// MenuAdd returns menu with id added, or updated in place when present; gpt- ids default to Responses.
+// MenuAdd returns menu with id added, or updated in place when present; catalog Responses-only ids default to Responses.
 // responses is nil when the caller did not say. A blank label keeps the existing one, else the derived default.
 func MenuAdd(menu []OpencodeModel, id, label string, responses *bool) []OpencodeModel {
 	id = MenuID(id)
 	out := slices.Clone(menu)
 	i := slices.IndexFunc(out, func(m OpencodeModel) bool { return m.ID == id })
-	cur := OpencodeModel{ID: id, Responses: strings.HasPrefix(id, "gpt-")}
+	cur := OpencodeModel{ID: id, Responses: models.ResponsesOnly(id)}
 	if i >= 0 {
 		cur = out[i]
 	}
@@ -107,7 +107,7 @@ func ParseMenuImport(data []byte) ([]OpencodeModel, error) {
 		if id == "" {
 			return nil, fmt.Errorf("line %d: empty id", n)
 		}
-		m := OpencodeModel{ID: id, Responses: strings.HasPrefix(id, "gpt-")}
+		m := OpencodeModel{ID: id, Responses: models.ResponsesOnly(id)}
 		if len(f) > 1 && f[1] != "" && f[1] != "responses" {
 			m.Label = f[1]
 		}
@@ -147,7 +147,7 @@ func parseOpencodeJSON(data []byte) ([]OpencodeModel, error) {
 			if label == "" {
 				label = DefaultMenuLabel(id)
 			}
-			out = append(out, OpencodeModel{ID: id, Label: label, Responses: responsesID(id)})
+			out = append(out, OpencodeModel{ID: id, Label: label, Responses: models.ResponsesOnly(id)})
 		}
 	}
 	if len(out) == 0 {
@@ -168,14 +168,6 @@ func databricksProfileNames() []string {
 // namesProfile reports whether a "-"-separated token of the opencode provider id is one of profiles.
 func namesProfile(pid string, profiles []string) bool {
 	return slices.ContainsFunc(strings.Split(pid, "-"), func(tok string) bool { return slices.Contains(profiles, tok) })
-}
-
-// responsesID reports whether a menu id is served on the Responses API: a catalog responses-only model, else gpt-*.
-func responsesID(id string) bool {
-	if e, ok := models.Lookup(id); ok && e.ResponsesOnly {
-		return true
-	}
-	return strings.HasPrefix(id, "gpt-")
 }
 
 func mapKeys[V any](m map[string]V) func(func(string) bool) {
