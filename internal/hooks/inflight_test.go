@@ -113,12 +113,12 @@ func hasMarkerSuffix(names []string, suffix string) bool {
 	return false
 }
 
-// The cap is a constant, always on (12, owner's fan-out cap in rules/workflow/agents.md), and the
+// The cap is a constant, always on (24, owner's fan-out cap in rules/workflow/agents.md), and the
 // gate is the only machine enforcement of it. Under the cap every dispatch proceeds; the next blocks.
 func TestAgentInflightBlocksPastCapAndRetires(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	if AgentMaxInflight != 12 {
-		t.Fatalf("AgentMaxInflight = %d, want the owner's cap of 12", AgentMaxInflight)
+	if AgentMaxInflight != 24 {
+		t.Fatalf("AgentMaxInflight = %d, want the owner's cap of 24", AgentMaxInflight)
 	}
 	for i := range AgentMaxInflight {
 		id := strconv.Itoa(i)
