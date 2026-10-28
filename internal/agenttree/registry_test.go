@@ -71,7 +71,7 @@ func TestRegistryJoin(t *testing.T) {
 	if got == nil {
 		t.Fatal("live pid with a 40-day-old transcript dropped by --running")
 	}
-	if !got.Live || got.PID != os.Getpid() || got.Name != "name-live-stale" || got.CLIStatus != "waiting" || got.Kind != "interactive" {
+	if !got.Live || got.PID != os.Getpid() || got.Name != "name-live-stale" || got.CLIStatus != "waiting" || got.Mode != "interactive" {
 		t.Errorf("registry fields not joined: %+v", got)
 	}
 }
