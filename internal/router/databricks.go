@@ -3,6 +3,7 @@ package router
 import (
 	"cmp"
 	"context"
+	"strings"
 	"time"
 
 	"github.com/edotau/claude-code/internal/providers"
@@ -57,11 +58,19 @@ func (t *Table) gateDatabricksCodex(
 	return Candidate{Agent: "codex", Cell: c, State: e.Status(now), Billing: billing, Profile: profile}, true
 }
 
-// gateCandidate gates one runner; codex also offers its Databricks candidate right after the ChatGPT one.
+// gateCandidate gates one runner (off, pinned or unpinned); an unpinned codex also offers its Databricks candidate right after the ChatGPT one.
 func (t *Table) gateCandidate(
-	ctx context.Context, tier, runner string, st State, o Opts, now time.Time,
+	ctx context.Context, tier, runner string, pins map[string]providers.AgentPinSpec, st State, o Opts, now time.Time,
 	configured func(runner string, c Cell) error, res *Result,
 ) ([]Candidate, bool) {
+	spec := pins[runner]
+	if spec.Off {
+		res.Skipped = append(res.Skipped, Skip{runner, GateOff, "deactivated (" + strings.ToUpper(runner) + "_ACTIVE=off)"})
+		return nil, false
+	}
+	if runner != "claude" && spec.Profile != "" {
+		return t.gatePinned(ctx, tier, runner, spec.Profile, spec, st, o, now, configured, res)
+	}
 	group, ok := t.gateRunner(ctx, tier, runner, st, o, now, configured, res)
 	if runner != "codex" {
 		return group, ok

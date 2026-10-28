@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/routetable"
 	"github.com/edotau/claude-code/internal/vendors"
 )
@@ -27,6 +28,7 @@ const (
 	GateAccount   = "account"
 	GateExhausted = "exhausted"
 	GateFree      = "free" // a free opencode sub-candidate blocked at opus or on a work repo
+	GateOff       = "off"  // the agent is deactivated (<AGENT>_ACTIVE=off)
 )
 
 // Candidate is one runnable leg: the runner, its cell at the tier, its account's state and its composite score.
@@ -102,8 +104,9 @@ func (t *Table) Pick(ctx context.Context, tier, want string, st State, o Opts) R
 		st = State{}
 	}
 	res := Result{Tier: tier, Want: want, Weights: t.Weights}
+	pins := providers.AgentPins()
 	gate := func(runner string) ([]Candidate, bool) {
-		return t.gateCandidate(ctx, tier, runner, st, o, now, configured, &res)
+		return t.gateCandidate(ctx, tier, runner, pins, st, o, now, configured, &res)
 	}
 	firstG, restG, lastG := t.gatherCandidates(want, o, gate)
 	flatFirst, flatRest, flatLast := flattenGroups(firstG), flattenGroups(restG), flattenGroups(lastG)
@@ -141,7 +144,7 @@ func (t *Table) gateRunner(
 	configured func(runner string, c Cell) error, res *Result,
 ) ([]Candidate, bool) {
 	if runner == "opencode" && !t.OpencodeRowOverridden[tier] {
-		return t.gateOpencodeCandidate(ctx, tier, st, o, now, configured, res)
+		return t.gateOpencodeCandidate(ctx, tier, "", st, o, now, configured, res)
 	}
 	c, ok := t.Cell(runner, tier)
 	if !ok {
@@ -158,13 +161,24 @@ func (t *Table) gateRunner(
 			c.Account, billing = a, b
 		}
 	}
-	if c.Account == routetable.CopilotUnpinned {
-		res.Skipped = append(res.Skipped, Skip{runner, GateAccount, "no pinned Copilot account (claude-code configure github)"})
+	cand, ok := t.gateAccount(ctx, runner, c, billing, st, o, now, res)
+	if !ok {
 		return nil, false
 	}
+	return []Candidate{cand}, true
+}
+
+// gateAccount runs a resolved cell through the copilot-pin, auth-mark, refresh and exhausted gates; name labels Skips.
+func (t *Table) gateAccount(
+	ctx context.Context, name string, c Cell, billing string, st State, o Opts, now time.Time, res *Result,
+) (Candidate, bool) {
+	if c.Account == routetable.CopilotUnpinned {
+		res.Skipped = append(res.Skipped, Skip{name, GateAccount, "no pinned Copilot account (claude-code configure github)"})
+		return Candidate{}, false
+	}
 	if reason, marked := st.accountAuthMarked(c.Account, now); marked {
-		res.Skipped = append(res.Skipped, Skip{runner, GateAuth, authSkipReason(reason, c.Account)})
-		return nil, false
+		res.Skipped = append(res.Skipped, Skip{name, GateAuth, authSkipReason(reason, c.Account)})
+		return Candidate{}, false
 	}
 	e := st[c.Account]
 	if o.Refresh != nil && now.Sub(e.Seen) > StaleAfter && e.Status(now) != StateExhausted && o.Refresh(ctx, c.Account) {
@@ -173,10 +187,16 @@ func (t *Table) gateRunner(
 	}
 	s := e.Status(now)
 	if s == StateExhausted {
-		res.Skipped = append(res.Skipped, Skip{runner, GateExhausted, ExhaustedReason(c.Account, e, now)})
-		return nil, false
+		res.Skipped = append(res.Skipped, Skip{name, GateExhausted, ExhaustedReason(c.Account, e, now)})
+		return Candidate{}, false
 	}
-	return []Candidate{{Agent: runner, Cell: c, State: s, Billing: billing}}, true
+	return Candidate{Agent: agentOf(name), Cell: c, State: s, Billing: billing}, true
+}
+
+// agentOf strips a "<agent>·<sub>" Skip label back to the runner.
+func agentOf(name string) string {
+	a, _, _ := strings.Cut(name, "·")
+	return a
 }
 
 // opencodeOrder is the sub-pick's fixed order: the free Zen catalog first, then the ladder's paid backends
@@ -193,7 +213,7 @@ func (t *Table) opencodeOrder() []string {
 // When the winner bills free, the first surviving paid sub-candidate rides along right after it, so a stalled
 // free leg has a ready backup without a second opencode pick.
 func (t *Table) gateOpencodeCandidate(
-	ctx context.Context, tier string, st State, o Opts, now time.Time,
+	ctx context.Context, tier, only string, st State, o Opts, now time.Time,
 	configured func(runner string, c Cell) error, res *Result,
 ) ([]Candidate, bool) {
 	type sub struct {
@@ -207,7 +227,11 @@ func (t *Table) gateOpencodeCandidate(
 		workRepo = func() bool { return IsWorkRepo("") }
 	}
 	var ok []sub
-	for _, id := range t.opencodeOrder() {
+	order := t.opencodeOrder()
+	if only != "" {
+		order = []string{only}
+	}
+	for _, id := range order {
 		name := "opencode·" + id
 		if _, known := t.OpencodeSub[id]; !known {
 			res.Skipped = append(res.Skipped, Skip{name, GateRow, "unknown opencode ladder id"})
@@ -230,21 +254,11 @@ func (t *Table) gateOpencodeCandidate(
 			res.Skipped = append(res.Skipped, Skip{name, GateAvailable, "not configured: " + firstLine(err.Error())})
 			continue
 		}
-		if reason, marked := st.accountAuthMarked(c.Account, now); marked {
-			res.Skipped = append(res.Skipped, Skip{name, GateAuth, authSkipReason(reason, c.Account)})
+		cand, pass := t.gateAccount(ctx, name, c, billing, st, o, now, res)
+		if !pass {
 			continue
 		}
-		e := st[c.Account]
-		if o.Refresh != nil && now.Sub(e.Seen) > StaleAfter && e.Status(now) != StateExhausted && o.Refresh(ctx, c.Account) {
-			e = LoadState()[c.Account]
-			st[c.Account] = e
-		}
-		s := e.Status(now)
-		if s == StateExhausted {
-			res.Skipped = append(res.Skipped, Skip{name, GateExhausted, ExhaustedReason(c.Account, e, now)})
-			continue
-		}
-		ok = append(ok, sub{id, c, billing, s})
+		ok = append(ok, sub{id, c, billing, cand.State})
 	}
 	if len(ok) == 0 {
 		res.Skipped = append(res.Skipped, Skip{"opencode", GateAvailable, "no opencode sub-candidate passed (no login, exhausted, or free blocked)"})
@@ -252,6 +266,9 @@ func (t *Table) gateOpencodeCandidate(
 	}
 	slices.SortStableFunc(ok, func(a, b sub) int { return cmp.Compare(lowRank(a.state), lowRank(b.state)) })
 	w := ok[0]
+	if only != "" {
+		return []Candidate{{Agent: "opencode", Cell: w.c, State: w.state, Billing: w.billing}}, true
+	}
 	group := []Candidate{{Agent: "opencode", Cell: w.c, State: w.state, Billing: w.billing}}
 	if w.billing == routetable.BillFree {
 		for _, s := range ok[1:] {

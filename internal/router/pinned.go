@@ -1,0 +1,72 @@
+package router
+
+import (
+	"cmp"
+	"context"
+	"slices"
+	"time"
+
+	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/vendors"
+)
+
+// gatePinned gates a non-claude agent pinned to pin: exactly one candidate on that profile, or a Skip.
+func (t *Table) gatePinned(
+	ctx context.Context, tier, runner, pin string, spec providers.AgentPinSpec, st State, o Opts, now time.Time,
+	configured func(runner string, c Cell) error, res *Result,
+) ([]Candidate, bool) {
+	if runner == "opencode" && slices.Contains(providers.RouteOpencodeSubIDs, pin) {
+		return t.gateOpencodeCandidate(ctx, tier, pin, st, o, now, configured, res)
+	}
+	cell, ok := t.Cell(runner, tier)
+	if !ok {
+		res.Skipped = append(res.Skipped, Skip{runner, GateRow, "no " + tier + " row"})
+		return nil, false
+	}
+	reg, _ := providers.Load()
+	var p *providers.Provider
+	if reg != nil {
+		p = reg.Providers[pin]
+	}
+	if p == nil {
+		res.Skipped = append(res.Skipped, Skip{runner, GateRow, "pinned profile " + pin + " is not in the registry"})
+		return nil, false
+	}
+	if !vendors.CanServe(runner, p) || !providers.CredentialPresent(p) {
+		res.Skipped = append(res.Skipped, Skip{runner, GateAvailable, "pinned profile " + pin + " cannot serve " + runner + " (no route or credential)"})
+		return nil, false
+	}
+	c := Cell{Model: pinnedModel(runner, tier, cell, p, spec.Model), Effort: cell.Effort, Account: ProviderAccount(pin), Price: cell.Price}
+	if err := configured(runner, c); err != nil {
+		res.Skipped = append(res.Skipped, Skip{runner, GateAvailable, "not configured: " + firstLine(err.Error())})
+		return nil, false
+	}
+	billing := t.Billing[c.Account]
+	if billing == "" {
+		billing = BillSubscription
+		if p.APIKeyAuth() {
+			billing = BillCredits
+		}
+	}
+	cand, ok := t.gateAccount(ctx, runner, c, billing, st, o, now, res)
+	if !ok {
+		return nil, false
+	}
+	cand.Profile = pin
+	return []Candidate{cand}, true
+}
+
+// pinnedModel: model pin, else the cell on its own account, else (codex) a Responses model, else the slot.
+func pinnedModel(runner, tier string, cell Cell, p *providers.Provider, modelPin string) string {
+	if modelPin != "" {
+		return p.WireModel(modelPin)
+	}
+	if ProviderAccount(p.Name) == cell.Account {
+		return cell.Model
+	}
+	m := p.WireModel(cmp.Or(p.Models[tier], cell.Model))
+	if runner == "codex" && !providers.ServesResponses(p, m) {
+		return cmp.Or(providers.FirstResponsesModel(p), m)
+	}
+	return m
+}
