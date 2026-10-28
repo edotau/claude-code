@@ -69,11 +69,11 @@ func Build(profile string, p *providers.Provider, eps []Endpoint, routerBase str
 			used[wire] = true
 			r.Providers = append(r.Providers, newProvider(name, wire, base, p))
 		}
-		window := providers.ContextWindow(p, ep.ID)
+		window, output := Caps(providers.ContextWindow(p, ep.ID), ep.ID)
 		r.Models = append(r.Models, Model{
 			ID: canonical, Provider: name, WireModel: ep.ID, ModelID: WellKnownModel(canonical), Name: ep.Name,
-			Tested: ep.Tested, MaxPromptTokens: MaxPromptTokens(window), MaxContextWindowTokens: window,
-			MaxOutputTokens: MaxOutputTokens,
+			Tested: ep.Tested, MaxPromptTokens: PromptTokens(window, output), MaxContextWindowTokens: window,
+			MaxOutputTokens: output,
 		})
 	}
 	return r

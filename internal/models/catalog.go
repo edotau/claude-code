@@ -18,7 +18,14 @@ type Entry struct {
 	Version       string            `json:"version,omitempty"` // dash-separated version a dotted spelling turns into dots
 	Thinking      bool              `json:"thinking,omitempty"`
 	ResponsesOnly bool              `json:"responses_only,omitempty"`
-	WireOverride  map[string]string `json:"wire,omitempty"` // spelling rule -> exact wire id, for exceptions
+	WireOverride  map[string]string `json:"wire,omitempty"`  // spelling rule -> exact wire id, for exceptions
+	Limits        TokenLimits       `json:"limits,omitzero"` // documented token limits; a zero field is unknown
+}
+
+// TokenLimits are a model's documented context window and max output, in tokens; zero means unknown, never a guess.
+type TokenLimits struct {
+	Context int `json:"context,omitempty"`
+	Output  int `json:"output,omitempty"`
 }
 
 // spelling is one named wire-spelling rule: an optional id prefix and whether the version uses dots.
@@ -120,6 +127,17 @@ func AliasOf(canonical string) string { return load().aliasOf[canonical] }
 func Lookup(canonical string) (Entry, bool) {
 	e, ok := load().byID[canonical]
 	return e, ok
+}
+
+// Limits resolves id like Resolve and returns the catalog limits; false when id is not a catalog model or
+// the catalog documents neither limit.
+func Limits(id string) (TokenLimits, bool) {
+	canonical, _, ok := Resolve(id)
+	if !ok {
+		return TokenLimits{}, false
+	}
+	l := load().byID[canonical].Limits
+	return l, l != (TokenLimits{})
 }
 
 // Catalog returns every catalog model in file order.

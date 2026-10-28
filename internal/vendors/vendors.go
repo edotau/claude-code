@@ -850,11 +850,12 @@ func copilot(
 	if wire != "" { // non-Claude on a routed Databricks row: the router's verbatim openai|responses passthrough
 		typ, base = "openai", base+"/"+wire
 	}
+	window, output := copilotreg.Caps(window, model)
 	env := []string{
 		"COPILOT_PROVIDER_BASE_URL=" + base,
 		"COPILOT_PROVIDER_TYPE=" + typ,
 		"COPILOT_MODEL=" + model,
-		"COPILOT_PROVIDER_MAX_OUTPUT_TOKENS=" + strconv.Itoa(copilotreg.MaxOutputTokens),
+		"COPILOT_PROVIDER_MAX_OUTPUT_TOKENS=" + strconv.Itoa(output),
 		"COPILOT_OFFLINE=true",
 		// Blank every BYOK credential var so a token exported in the parent shell cannot outrank this route.
 		"COPILOT_PROVIDER_API_KEY=", "COPILOT_PROVIDER_BEARER_TOKEN=", "COPILOT_PROVIDER_API_KEY_COMMAND=",
@@ -866,7 +867,7 @@ func copilot(
 		env = append(env, "COPILOT_PROVIDER_MODEL_ID="+modelID)
 	}
 	// Prompt budget = window minus the output cap and a 10% margin, so copilot compacts before the endpoint refuses.
-	if n := copilotreg.MaxPromptTokens(window); n > 0 {
+	if n := copilotreg.PromptTokens(window, output); n > 0 {
 		env = append(env, "COPILOT_PROVIDER_MAX_PROMPT_TOKENS="+strconv.Itoa(n))
 	}
 	if cred != "" {
