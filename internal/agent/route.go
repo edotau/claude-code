@@ -108,6 +108,11 @@ func routeChain(ctx context.Context, want, tier, row, exact, mode string, explic
 		}
 		cell := cand.Cell
 		switch {
+		case exact != "" && cand.Profile != "": // a Databricks codex leg serves only its own cell's model
+			if id, _, ok := models.Resolve(cell.Model); !ok || id != exact {
+				c.Skipped = append(c.Skipped, cand.Agent+": serves no "+exact)
+				continue
+			}
 		case exact != "": // a non-Claude id runs only where a cell serves it
 			sc, ok := cellServing(tb, cand.Agent, exact)
 			if !ok && cand.Agent != want {
@@ -117,13 +122,16 @@ func routeChain(ctx context.Context, want, tier, row, exact, mode string, explic
 			if ok {
 				cell.Model, cell.Effort = sc.Model, sc.Effort
 			}
-		case row != "" && row != current && cand.Agent != "opencode": // an older row runs its own cell, not the tier's
+		case row != "" && row != current && cand.Agent != "opencode" && cand.Profile == "": // an older row runs its own cell
 			if rc, ok := tb.ByModel[row][cand.Agent]; ok {
 				cell.Model, cell.Effort = rc.Model, rc.Effort
 			}
 		}
 		leg := Leg{Model: cell.Model, Effort: cell.Effort, Account: cand.Account, Billing: cand.Billing}
-		leg.keepCaller = cand.Agent == want && explicitModel
+		leg.keepCaller = cand.Agent == want && explicitModel && cand.Profile == ""
+		if cand.Profile != "" { // provider:model pins the leg to that Databricks profile, not the session's
+			leg.Model = cand.Profile + ":" + cell.Model
+		}
 		switch {
 		case cand.Agent == "opencode" && (!native || cand.Agent != want):
 			r, model, err := hubLegFor(reg, cell.Model)

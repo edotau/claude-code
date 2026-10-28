@@ -37,6 +37,8 @@ type Candidate struct {
 	Billing string             `json:"billing"`
 	Scores  map[string]float64 `json:"scores,omitempty"`
 	Total   float64            `json:"total"`
+	// Profile names the Databricks profile a codex candidate runs on; empty for every other candidate.
+	Profile string `json:"profile,omitempty"`
 }
 
 // Skip is a runner dropped by a gate, with why.
@@ -132,9 +134,9 @@ func regroup(groups [][]Candidate, flat []Candidate) [][]Candidate {
 	return out
 }
 
-// gateCandidate runs one runner through the row/configured/account/exhausted gates, recording a Skip on failure.
+// gateRunner runs one runner through the row/configured/account/exhausted gates, recording a Skip on failure.
 // It returns a group of candidates from this one runner — one, unless it's opencode's free+backup pair.
-func (t *Table) gateCandidate(
+func (t *Table) gateRunner(
 	ctx context.Context, tier, runner string, st State, o Opts, now time.Time,
 	configured func(runner string, c Cell) error, res *Result,
 ) ([]Candidate, bool) {
