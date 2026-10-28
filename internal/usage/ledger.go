@@ -80,6 +80,9 @@ func humanTokens(n int) string {
 
 // rowLabel is "<provider>·<profile>", the provider alone when the profile is empty or bears its name.
 func rowLabel(provider, profile string) string {
+	if provider == "" {
+		return profile
+	}
 	if profile == "" || profile == provider {
 		return provider
 	}

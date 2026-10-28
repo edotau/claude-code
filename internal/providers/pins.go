@@ -65,6 +65,9 @@ func CopilotModel(reg *Registry) (model, source string) {
 	if m := Pin(PinCopilotModel); m != "" {
 		return m, "pin"
 	}
+	if reg == nil {
+		return "", "github-copilot default"
+	}
 	if names := reg.ProfilesOf("github"); len(names) > 0 {
 		return reg.Providers[names[0]].Models[models.Opus], "github-copilot default"
 	}

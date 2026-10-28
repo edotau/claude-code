@@ -49,6 +49,9 @@ func (t *Tx) RenameSecret(k *Key, name, newName string) error {
 	if err := t.SealSecret(k, newName, v, rec); err != nil {
 		return err
 	}
+	if name == newName {
+		return nil
+	}
 	return t.Put(Secrets, name, "")
 }
 

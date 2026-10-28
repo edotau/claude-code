@@ -188,6 +188,9 @@ func renderClaude(o Options) (Result, error) {
 	if gw {
 		env["CLAUDE_CODE_USE_GATEWAY"] = "1"
 	}
+	if !p.Serves1M() {
+		env["CLAUDE_CODE_DISABLE_1M_CONTEXT"] = "1"
+	}
 	for _, slot := range []string{models.Opus, models.Sonnet, models.Haiku} {
 		env["ANTHROPIC_DEFAULT_"+strings.ToUpper(slot)+"_MODEL"] = p.WireModel(aliasID(slot))
 	}

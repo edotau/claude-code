@@ -132,3 +132,16 @@ func TestCodexModelAndNameFollowWire(t *testing.T) {
 		})
 	}
 }
+
+// TestClaudeDisable1MFollowsEndpoint pins that an endpoint without 1M gets CLAUDE_CODE_DISABLE_1M_CONTEXT and serving does not.
+func TestClaudeDisable1MFollowsEndpoint(t *testing.T) {
+	for wire, want := range map[string]bool{"ai-gateway": true, "serving": false} {
+		r, err := Render(base(t, TargetClaude, wire))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := strings.Contains(r.Text, `"CLAUDE_CODE_DISABLE_1M_CONTEXT": "1"`); got != want {
+			t.Errorf("%s: DISABLE_1M present=%v, want %v\n%s", wire, got, want, r.Text)
+		}
+	}
+}

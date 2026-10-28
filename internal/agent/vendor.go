@@ -78,7 +78,7 @@ func vendorTargetNote(req Request, name string) (t providers.Target, own bool, n
 	default:
 		ft.Model = req.Model
 		if ft.Provider != nil { // a typed id is respelled the way the fallback provider serves it, never copied
-			ft.Model = ft.Provider.WireModel(req.Model)
+			ft.Model = ft.Provider.WireModel(models.Strip1M(req.Model))
 		}
 	}
 	return ft, own, note, nil

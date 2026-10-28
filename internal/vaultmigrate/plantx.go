@@ -62,6 +62,7 @@ func secretOps(tx *vault.Tx, reg *providers.Registry) ([]secretOp, []Change) {
 	var ops []secretOp
 	var skipped []Change
 	consumed := map[string]bool{}
+	planned := map[string]bool{}
 	add := func(op secretOp, from []string) {
 		if len(from) == 0 {
 			return
@@ -72,11 +73,12 @@ func secretOps(tx *vault.Tx, reg *providers.Registry) ([]secretOp, []Change) {
 		if op.dst == "" || op.dst == from[0] && len(from) == 1 {
 			return
 		}
-		if have[op.dst] {
+		if have[op.dst] || planned[op.dst] {
 			skipped = append(skipped, Change{Kind: KindSkipped, Old: strings.Join(from, " + "), New: op.dst,
 				Detail: "new name already exists; old left in place"})
 			return
 		}
+		planned[op.dst] = true
 		op.srcs = from
 		op.keep = slices.ContainsFunc(from, func(n string) bool { return refs[n] })
 		ops = append(ops, op)
@@ -86,16 +88,18 @@ func secretOps(tx *vault.Tx, reg *providers.Registry) ([]secretOp, []Change) {
 	}
 	for _, e := range profiles(reg) {
 		p := e
-		prefix := oldSecretPrefix(p.Name)
-		switch {
-		case p.Auth.Type == providers.AuthOAuth:
-			r, a := prefix+"_REFRESH_TOKEN", prefix+"_ACCESS_TOKEN"
-			add(secretOp{dst: providers.AuthSecretName(p), oauth: true, refreshSrc: r, accessSrc: a}, existing(r, a))
-		case p.Auth.Type == providers.AuthM2M:
-			add(secretOp{dst: providers.AuthSecretName(p)}, existing(prefix+"_CLIENT_SECRET"))
-		case p.Auth.Type == providers.AuthPAT:
-			add(secretOp{dst: providers.AuthSecretName(p)}, existing(prefix+"_PAT"))
-		case p.Auth.Env != "":
+		for _, prefix := range oldSecretPrefixes(p.Name) {
+			switch {
+			case p.Auth.Type == providers.AuthOAuth:
+				r, a := prefix+"_REFRESH_TOKEN", prefix+"_ACCESS_TOKEN"
+				add(secretOp{dst: providers.AuthSecretName(p), oauth: true, refreshSrc: r, accessSrc: a}, existing(r, a))
+			case p.Auth.Type == providers.AuthM2M:
+				add(secretOp{dst: providers.AuthSecretName(p)}, existing(prefix+"_CLIENT_SECRET"))
+			case p.Auth.Type == providers.AuthPAT:
+				add(secretOp{dst: providers.AuthSecretName(p)}, existing(prefix+"_PAT"))
+			}
+		}
+		if p.Auth.Type != providers.AuthOAuth && p.Auth.Type != providers.AuthM2M && p.Auth.Type != providers.AuthPAT && p.Auth.Env != "" {
 			if dst := providers.KeySecretName(p); dst != "" {
 				add(secretOp{dst: dst}, existing(p.Auth.Env))
 			}
@@ -113,6 +117,13 @@ func secretOps(tx *vault.Tx, reg *providers.Registry) ([]secretOp, []Change) {
 	}
 	slices.SortFunc(skipped, func(a, b Change) int { return strings.Compare(a.Old, b.Old) })
 	return ops, skipped
+}
+
+// hasData reports whether the vault holds anything to stamp (an absent or empty vault is a no-op).
+func hasData(tx *vault.Tx) bool {
+	return slices.ContainsFunc([]string{vault.Pins, vault.Env, vault.Overlay, vault.Secrets}, func(b string) bool {
+		return len(tx.Names(b)) > 0
+	})
 }
 
 func planTx(tx *vault.Tx, reg *providers.Registry, dp docPlan) *Plan {
@@ -159,7 +170,7 @@ func planTx(tx *vault.Tx, reg *providers.Registry, dp docPlan) *Plan {
 		p.Changes = append(p.Changes, Change{Kind: KindOverlay, Old: "overlay/vendors", New: "overlay/agents",
 			Detail: "key vendors -> agents"})
 	}
-	if _, ok := tx.Get(vault.Meta, "schema"); ok && tx.Schema() < vault.SchemaVersion {
+	if tx.Schema() < vault.SchemaVersion && hasData(tx) {
 		p.Changes = append(p.Changes, Change{Kind: KindSchema, Old: fmt.Sprint("schema ", tx.Schema()), New: fmt.Sprint("schema ", vault.SchemaVersion)})
 	}
 	return p
