@@ -65,7 +65,8 @@ the vendor binary; skip setup and go straight to the `memory` verb. Delta:
   session over" → `transfer`; anything else drafting-shaped → `ask --tools`.
 - **Run it.** DOC modes run on `claude-code opencode ask --tools --workdir <repo>`. Default model and
   effort fit normal drafting; only `--effort high` for an unusually complex pass.
-  Leg choice and fallback: `claude-code gateway route` (skills/subagent-workflows/references/cost-routing.md → Fallback).
+  Leg choice and fallback: `claude-code gateway route` (skills/subagent-workflows/references/cost-routing.md →
+  Fallback).
   Reflection modes run the matching `claude-code memory` verb directly.
 - **Validate the result** — DOC modes: the Validate checklist below, plus `git diff --stat` to confirm
   the edits landed in the intended tree, not a `--workdir`-ignored copy of the live one.

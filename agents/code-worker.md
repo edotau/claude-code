@@ -73,7 +73,8 @@ leaves evenly across them per `skills/subagent-workflows/references/cost-routing
 do the task in-context. Any other runner is binding: always attempt the `claude-code ask` leg first —
 size and "mechanical" are the manager's call, never yours. Gemini legs are for read-heavy sweeps and research,
 and their brief must say "open the files and cite file:line" (a gemini leg once answered from memory).
-Leg choice and fallback: `claude-code gateway route` (skills/subagent-workflows/references/cost-routing.md → Fallback). E.g.:
+Leg choice and fallback: `claude-code gateway route` (skills/subagent-workflows/references/cost-routing.md → Fallback).
+E.g.:
 
 ```bash
 claude-code ask --agent copilot --tools --workdir <repo> --model claude-sonnet-5.5 \
