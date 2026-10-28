@@ -98,9 +98,21 @@ func TestCheckoutOf(t *testing.T) {
 		}
 	}
 	// the temp tree may itself sit under a repo, so only assert "no repo" when none encloses it
-	if _, err := os.Stat("/.git"); err != nil {
+	if !ancestorHasGit(lone) {
 		if top, m := CheckoutOf(lone); top != "" || m != "" {
 			t.Errorf("no repo: CheckoutOf = %q, %q; want empty", top, m)
+		}
+	}
+}
+
+// ancestorHasGit reports whether dir or any parent holds a .git entry (a stray /tmp/.git included).
+func ancestorHasGit(dir string) bool {
+	for d := dir; ; d = filepath.Dir(d) {
+		if _, err := os.Stat(filepath.Join(d, ".git")); err == nil {
+			return true
+		}
+		if filepath.Dir(d) == d {
+			return false
 		}
 	}
 }
