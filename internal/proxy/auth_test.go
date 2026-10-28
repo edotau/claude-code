@@ -504,3 +504,38 @@ func TestStalledInvalidTokenBodyIsCutByIdleTimeout(t *testing.T) {
 		t.Fatalf("upstream hits %d: a body that never arrived must not read as Invalid Token", up.hits.Load())
 	}
 }
+
+// A rejected static key names the vault remedy and the mark, never a Databricks login.
+func TestRejectedKeyHintsVaultSetNotDatabricksLogin(t *testing.T) {
+	g := useGate(t)
+	up := newUpstream(t, func(w http.ResponseWriter, _ *http.Request, _ int) { w.WriteHeader(http.StatusUnauthorized) })
+	t.Setenv("UP1_KEY", "k1")
+	srv := setupRouter(t, `{"default":"up1","providers":{"anthropic":{"up1":`+anthropicProvider(up.URL, "UP1_KEY", `{"opus":"m1"}`)+`}}}`, nil)
+
+	resp := post(t, srv.URL+"/p/up1/v1/messages", `{"model":"m1"}`, nil)
+	b := body(t, resp)
+	if resp.StatusCode != 401 || !strings.Contains(b, "run `claude-code vault set UP1_KEY`") || strings.Contains(b, "databricks") {
+		t.Fatalf("status %d body %s, want 401 with the vault set hint", resp.StatusCode, b)
+	}
+	if reason, ok := g.marked("up1"); !ok || !strings.Contains(reason, "vault set UP1_KEY") {
+		t.Fatalf("mark = %q, %v; want the vault set hint", reason, ok)
+	}
+}
+
+func TestAuthHintByAuthType(t *testing.T) {
+	cases := map[string]struct {
+		p    providers.Provider
+		want string
+	}{
+		"oauth":   {providers.Provider{Name: "d", Auth: providers.Auth{Type: providers.AuthOAuth}}, "claude-code databricks login --profile d"},
+		"preset":  {providers.Provider{Name: "d", Preset: providers.PresetDatabricks}, "claude-code databricks login --profile d"},
+		"key":     {providers.Provider{Name: "k", Auth: providers.Auth{Type: providers.AuthKey, Env: "K_KEY"}}, "claude-code vault set K_KEY"},
+		"command": {providers.Provider{Name: "c", Auth: providers.Auth{Type: providers.AuthKey, Command: "op read x"}}, "auth.command"},
+		"other":   {providers.Provider{Name: "o", Auth: providers.Auth{Type: providers.AuthCLI}}, "claude-code configure provider --list o"},
+	}
+	for name, c := range cases {
+		if got := authHint(&c.p); !strings.Contains(got, c.want) {
+			t.Errorf("%s: authHint = %q, want %q", name, got, c.want)
+		}
+	}
+}
