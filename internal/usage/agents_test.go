@@ -418,6 +418,8 @@ func TestCopilotProviderLabel(t *testing.T) {
 
 // TestCopilotUsageLabelsBYOKRows pins the label end to end through the sqlite stub (BYOK, mixed-cost, costed rows).
 func TestCopilotUsageLabelsBYOKRows(t *testing.T) {
+	writeCopilotStore(t)
+	stubLookPathSqlite3(t, func() error { return nil })
 	stubCopilotSqlite(t,
 		[]byte(`[{"sessions":1,"turns":6,"input":1,"output":1,"cache_read":0,"cache_write":0,"tokens":10}]`),
 		[]byte(`[{"model":"databricks-claude-opus-5-5","turns":3,"tokens":5,"no_cost":3},`+
