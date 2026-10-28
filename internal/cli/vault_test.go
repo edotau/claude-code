@@ -68,7 +68,7 @@ func TestCmdVaultEditHelpPrintsOwnPage(t *testing.T) {
 
 func TestVaultVerbsAndMenu(t *testing.T) {
 	useVaultTest(t)
-	want := []string{"list", "set", "get", "delete", "import", "export", "edit", "rotate-secret", "migrate"}
+	want := []string{"list", "set", "get", "delete", "import", "export", "edit", "rotate-secret"}
 	if len(vaultVerbs) != len(want) {
 		t.Errorf("vaultVerbs has %d entries, want exactly %v", len(vaultVerbs), want)
 	}

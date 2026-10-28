@@ -31,7 +31,6 @@ var vaultPage = helptext.Page{
 		{"export", "write secrets to ./.env (0600); --out for another path"},
 		{"edit", "pins, env and overlays in $EDITOR, one transaction"},
 		{"rotate-secret", "re-seal every secret under a new master key"},
-		{"migrate", "rename to the naming standard; dry run unless --apply"},
 	},
 	Hint: "claude-code vault <command> -h lists that command's arguments and flags.",
 }
@@ -39,7 +38,7 @@ var vaultPage = helptext.Page{
 // vaultVerbs is the vault subcommand table.
 var vaultVerbs = map[string]func(args []string) int{
 	"list": vaultList, "set": cmdVaultSet, "get": cmdVaultGet, "delete": cmdVaultDelete,
-	"import": cmdVaultImport, "export": cmdVaultExport, "edit": configEdit, "rotate-secret": configRotateKey, "migrate": cmdVaultMigrate,
+	"import": cmdVaultImport, "export": cmdVaultExport, "edit": configEdit, "rotate-secret": configRotateKey,
 }
 
 // cmdVault reads and edits the vault's non-secret config through one JSON document.

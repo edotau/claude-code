@@ -39,7 +39,7 @@ func TestSpecTreeSubwordsMatchDispatch(t *testing.T) {
 	useVaultTest(t)
 	cases := map[string][]string{
 		"history": {"snapshot", "log", "diff"},
-		"vault":   {"list", "set", "get", "delete", "import", "export", "edit", "rotate-secret", "migrate"},
+		"vault":   {"list", "set", "get", "delete", "import", "export", "edit", "rotate-secret"},
 		"network": {"tailscale", "browser", "websearch", "mcp", "page", "view", "vscode", "restart"},
 		"memory": {"recall", "remember", "init", "review", "promote", "update", "dream", "search", "show",
 			"digest", "index", "path", "watch", "timeline", "archive", "alias", "fmt"},
