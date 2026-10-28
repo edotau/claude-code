@@ -33,6 +33,7 @@ var configurePage = helptext.Page{
 		{"remote", "tailscale connectivity and remote hosts (read-only)"},
 		{"browser", "browsers Claude in Chrome can drive (read-only)"},
 		{"claude", "per-machine settings.json overrides"},
+		{"codex", "Codex preferences with encrypted config history"},
 		{"routing", "price weight, subagent offload, opencode's sub-pick knobs"},
 		{"databricks", "browser sign-in and token mint per Databricks profile"},
 		{"doctor", "read-only health checks"},

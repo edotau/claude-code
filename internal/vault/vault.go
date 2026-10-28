@@ -17,11 +17,12 @@ import (
 )
 
 const (
-	Pins    = "pins"
-	Env     = "env"
-	Overlay = "overlay"
-	Secrets = "secrets"
-	Meta    = "meta"
+	Pins            = "pins"
+	Env             = "env"
+	Overlay         = "overlay"
+	Secrets         = "secrets"
+	SettingsBackups = "settings_backups"
+	Meta            = "meta"
 	// MemoryOrigins maps a memory store key to its JSON origin record; plaintext, readable without the master key.
 	MemoryOrigins = "memory_origins"
 )
@@ -92,7 +93,7 @@ func checkSchema(t *Tx) error {
 	if n > schemaVersion {
 		return fmt.Errorf("vault: written by a newer claude-code (schema %d)", n)
 	}
-	if n < hkdfSchema && len(t.Names(Secrets)) > 0 {
+	if n < hkdfSchema && (len(t.Names(Secrets)) > 0 || len(t.Names(SettingsBackups)) > 0) {
 		return fmt.Errorf("vault schema %d: written by an older claude-code (pre-HKDF format); "+
 			"this build cannot read its secrets. Move state/vault.db aside and re-enter secrets with "+
 			"claude-code vault set, or run the older binary to export them first", n)
@@ -275,7 +276,12 @@ type Record struct {
 
 // Record decodes name's stored record; found is false only for an absent key, a decode failure is an error.
 func (t *Tx) Record(name string) (Record, bool, error) {
-	v, ok := t.Get(Secrets, name)
+	return t.RecordIn(Secrets, name)
+}
+
+// RecordIn reads an encrypted record from its collection without exposing it as a credential.
+func (t *Tx) RecordIn(bucket, name string) (Record, bool, error) {
+	v, ok := t.Get(bucket, name)
 	if !ok {
 		return Record{}, false, nil
 	}
@@ -303,14 +309,19 @@ func (t *Tx) Records() (map[string]Record, error) {
 }
 
 func (t *Tx) PutRecord(name string, r Record) error {
+	return t.PutRecordIn(Secrets, name, r)
+}
+
+// PutRecordIn stores a record in its collection; a zero record removes it.
+func (t *Tx) PutRecordIn(bucket, name string, r Record) error {
 	if len(r.Sealed) == 0 && r.Kid == "" && r.Prefix == "" && r.Len == 0 && r.SetAt.IsZero() && r.VerifiedAt.IsZero() && r.VerifyStatus == "" {
-		return t.Put(Secrets, name, "")
+		return t.Put(bucket, name, "")
 	}
 	v, err := json.Marshal(r)
 	if err != nil {
 		return err
 	}
-	return t.Put(Secrets, name, string(v))
+	return t.Put(bucket, name, string(v))
 }
 
 // Retired returns the retired key IDs recorded by committed rotations.

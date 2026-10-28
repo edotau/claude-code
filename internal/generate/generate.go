@@ -14,6 +14,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/edotau/claude-code/internal/codexsettings"
 	"github.com/edotau/claude-code/internal/hookspec"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
@@ -107,7 +108,7 @@ func Prepare(o Options) (*Prepared, bool, error) {
 		var d bool
 		switch name {
 		case "codex":
-			d, err = renderCodex(reg, sel, home, o, out)
+			d, err = renderCodex(reg, sel, o, out)
 		case "opencode":
 			d, err = renderOpenCodeOverlay(o, out)
 		case "gemini":
@@ -295,12 +296,27 @@ func commitFile(path string, raw, next []byte, existed bool, o Options, out io.W
 		if changed {
 			fmt.Fprintf(out, "%s: drift at %s\n", label, path)
 		}
-		if lost := lostLinesFor(label, path, raw, next); len(lost) > 0 {
+		lost, err := lostLinesFor(label, path, raw, next)
+		if err != nil {
+			return changed, err
+		}
+		if len(lost) > 0 {
 			fmt.Fprintf(out, "%s: %s has %d hand-edited line(s) not in this render:\n", label, path, len(lost))
 			printLostLines(out, lost)
 		}
 		return changed, nil
 	case !changed:
+		if label == "codex" {
+			base, err := codexsettings.LoadBaseline(path)
+			if err != nil {
+				return false, err
+			}
+			if base == nil && existed {
+				*o.staged = append(*o.staged, func() error { return codexsettings.SaveBaseline(path, next) })
+			}
+			fmt.Fprintf(out, "%s: %s unchanged\n", label, path)
+			return false, nil
+		}
 		// Seed a missing baseline from an unchanged file, or later hand edits go undetected.
 		if _, err := os.Stat(vendorBaselinePath(label, path)); os.IsNotExist(err) && existed {
 			_ = writeVendorBaseline(label, path, next)
@@ -315,7 +331,11 @@ func commitFile(path string, raw, next []byte, existed bool, o Options, out io.W
 // commitWrite runs the lost-lines check (prompting or warning), writes path, and refreshes its
 // baseline; it is the body of every commitFile staged write.
 func commitWrite(path string, raw, next []byte, existed bool, o Options, out io.Writer, label string) error {
-	if lost := lostLinesFor(label, path, raw, next); len(lost) > 0 {
+	lost, err := lostLinesFor(label, path, raw, next)
+	if err != nil {
+		return err
+	}
+	if len(lost) > 0 {
 		if o.Confirm != nil {
 			fmt.Fprintf(out, "%s: %s has %d hand-edited line(s) that would be lost:\n", label, path, len(lost))
 			printLostLines(out, lost)
@@ -329,7 +349,11 @@ func commitWrite(path string, raw, next []byte, existed bool, o Options, out io.
 			printLostLines(out, lost)
 		}
 	}
-	if err := backupAndWrite(path, raw, next, existed); err != nil {
+	write := backupAndWrite
+	if label == "codex" {
+		write = writeCodexConfig
+	}
+	if err := write(path, raw, next, existed); err != nil {
 		return fmt.Errorf("%s: %w", label, err)
 	}
 	if err := writeVendorBaseline(label, path, next); err != nil {

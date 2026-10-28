@@ -16,6 +16,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/edotau/claude-code/internal/codexsettings"
 	"github.com/edotau/claude-code/internal/hookspec"
 	"github.com/edotau/claude-code/internal/providers"
 )
@@ -279,12 +280,15 @@ func classifyCopilotEntry(e json.RawMessage) (*json.RawMessage, bool) {
 	return &e, false
 }
 
-func renderCodex(reg *providers.Registry, sel providers.Selection, home string, o Options, out io.Writer) (bool, error) {
+func renderCodex(reg *providers.Registry, sel providers.Selection, o Options, out io.Writer) (bool, error) {
 	body, err := hookspec.CodexJSON()
 	if err != nil {
 		return false, err
 	}
-	path := filepath.Join(home, ".codex", "config.toml")
+	path, err := codexsettings.ConfigPath(o.Home)
+	if err != nil {
+		return false, err
+	}
 	raw, err := os.ReadFile(path)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return false, fmt.Errorf("codex: %w", err)
@@ -305,7 +309,7 @@ func renderCodex(reg *providers.Registry, sel providers.Selection, home string, 
 	// committing config.toml: trust keys must come from the real post-merge positions, and a malformed
 	// existing hooks.json must fail the whole render, not leave new trust hashes written against a
 	// hooks.json that never got merged.
-	hooksPath := filepath.Join(home, ".codex", "hooks.json")
+	hooksPath := filepath.Join(filepath.Dir(path), "hooks.json")
 	hooksRaw, err := os.ReadFile(hooksPath)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return false, fmt.Errorf("codex-hooks: %w", err)
@@ -321,6 +325,14 @@ func renderCodex(reg *providers.Registry, sel providers.Selection, home string, 
 		return false, err
 	}
 	next = mergeCodexTrust(next, entries)
+	overlay, err := codexsettings.LoadOverlay()
+	if err != nil {
+		return false, err
+	}
+	next, err = patchCodexSettings(next, overlay)
+	if err != nil {
+		return false, err
+	}
 
 	drift, err := commitFile(path, raw, []byte(next), existed, o, out, "codex")
 	if err != nil {
@@ -560,6 +572,20 @@ func topLevelKeysOf(section string) []string {
 	return keys
 }
 
+// tomlKeyName decodes one quoted key without stripping quotes that belong to its actual name.
+func tomlKeyName(raw string) string {
+	key := strings.TrimSpace(raw)
+	if len(key) >= 2 && key[0] == '\'' && key[len(key)-1] == '\'' {
+		return key[1 : len(key)-1]
+	}
+	if strings.HasPrefix(key, "\"") {
+		if value, err := strconv.Unquote(key); err == nil {
+			return value
+		}
+	}
+	return key
+}
+
 // dropTopLevelKeys removes whole lines (including multiline/array continuations) that assign one of
 // keys at true top level (depth 0, outside multiline strings), leaving same-named keys inside a table.
 func dropTopLevelKeys(raw string, keys []string) string {
@@ -574,7 +600,7 @@ func dropTopLevelKeys(raw string, keys []string) string {
 		trimmed := strings.TrimSpace(line)
 		drop := skipping
 		if !skipping && multiline == "" && depth == 0 {
-			if key, _, ok := strings.Cut(trimmed, "="); ok && slices.Contains(keys, strings.TrimSpace(key)) {
+			if key, _, ok := strings.Cut(trimmed, "="); ok && slices.Contains(keys, tomlKeyName(key)) {
 				drop = true
 			}
 		}
