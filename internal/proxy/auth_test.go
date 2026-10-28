@@ -303,8 +303,8 @@ func setupRouter2(t *testing.T, overlay string) *httptest.Server {
 	return srv
 }
 
-// A condemned refresh on the passthrough path (GET and POST) answers 502 and records the mark.
-func TestPassthroughCondemnedRefreshAnswers502AndMarks(t *testing.T) {
+// A condemned refresh on the passthrough path (GET and POST) answers 401 and records the mark.
+func TestPassthroughCondemnedRefreshAnswers401AndMarks(t *testing.T) {
 	for _, method := range []string{http.MethodGet, http.MethodPost} {
 		t.Run(method, func(t *testing.T) {
 			g := useGate(t)
@@ -313,8 +313,8 @@ func TestPassthroughCondemnedRefreshAnswers502AndMarks(t *testing.T) {
 				`"auth":{"type":"oauth"},"models":{"opus":"m"}}}}}`, up.URL+"/v1"), nil)
 			resp := ptDo(t, method, srv.URL+"/p/up1/openai/models", "{}", nil)
 			b := body(t, resp)
-			if resp.StatusCode != http.StatusBadGateway || !strings.Contains(b, "authentication failed") {
-				t.Fatalf("status %d body %s, want 502 authentication failed", resp.StatusCode, b)
+			if resp.StatusCode != http.StatusUnauthorized || !strings.Contains(b, "authentication failed; run `claude-code databricks login --profile up1`") {
+				t.Fatalf("status %d body %s, want 401 authentication failed with login hint", resp.StatusCode, b)
 			}
 			if len(up.got()) != 0 {
 				t.Fatal("upstream reached without a credential")
