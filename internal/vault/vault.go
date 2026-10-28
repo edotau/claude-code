@@ -31,9 +31,7 @@ var (
 	ErrWrongKey = errors.New("vault: master key does not match this vault")
 )
 
-// schemaVersion is the current on-disk layout (3 = names migrated by `vault migrate`); hkdfSchema is the oldest this
-// build reads (2 = HKDF subkeys). Below hkdfSchema a vault with secret records is refused — this build cannot re-seal
-// them; one with zero secrets is upgraded in place by the next Update. A schema-2 vault stays 2 until migrated.
+// schemaVersion is the on-disk layout (3 = names migrated); hkdfSchema is the oldest this build reads (2).
 const (
 	schemaVersion = 3
 	hkdfSchema    = 2
@@ -275,9 +273,7 @@ type Record struct {
 	VerifyStatus string    `json:"verify_status,omitempty"`
 }
 
-// Record decodes name's stored record. found is false only for a genuinely absent key; a stored
-// value that fails to decode is reported as an error, never silently collapsed to not-found (R5
-// — Phase 3's credential fallback and export must see corruption, not a false miss).
+// Record decodes name's stored record; found is false only for an absent key, a decode failure is an error.
 func (t *Tx) Record(name string) (Record, bool, error) {
 	v, ok := t.Get(Secrets, name)
 	if !ok {

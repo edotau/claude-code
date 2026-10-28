@@ -19,9 +19,7 @@ import (
 // apiMaxTokens caps a one-shot answer; reasoning models spend part of it thinking.
 const apiMaxTokens = 16_000
 
-// claudeOneShot is claude's tool-less one-shot (--no-tools): the anthropic route via the SDK, else the openai
-// chat-completions route, with no claude process. ok is false when the profile has no key to call the provider
-// with (cli auth): the caller then runs the claude CLI itself, which is tool-less by default.
+// claudeOneShot is claude's tool-less one-shot via the anthropic SDK or openai route; ok is false for cli auth.
 func claudeOneShot(ctx context.Context, req Request, stream io.Writer) (res Result, ok bool, err error) {
 	_, t, err := resolveTarget(req)
 	if err != nil {

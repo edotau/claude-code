@@ -122,14 +122,14 @@ func renderNested(flat map[string]json.RawMessage, owner map[string]string, orde
 		rows := make(map[string]rawRow, len(view))
 		for n, row := range view {
 			r := rawRow{provider: owner[n], raw: row}
-			if isNull(row) {
+			if IsNull(row) {
 				r.raw = nil
 			} else if r.provider == "" {
 				r.provider = inferProvider(n, row)
 			}
 			rows[n] = r
 		}
-		nested, err := nestRows(rows, append(slices.Clone(order), objectKeys(raw)...))
+		nested, err := nestRows(rows, append(slices.Clone(order), ObjectKeys(raw)...))
 		if err != nil {
 			return nil, err
 		}

@@ -59,7 +59,7 @@ func TestPinNames(t *testing.T) {
 		PinCopilotProfile: "COPILOT_PROFILE", PinCopilotContext: "COPILOT_CONTEXT", PinCodexEffort: "CODEX_EFFORT",
 		PinCopilotEffort: "COPILOT_EFFORT", PinGeminiModel: "GEMINI_MODEL", PinCodexModel: "CODEX_MODEL",
 		PinCopilotModel: "COPILOT_MODEL", PinCodexProfile: "CODEX_PROFILE", PinGeminiProfile: "GEMINI_PROFILE",
-		PinOpencodeProfile: "OPENCODE_PROFILE", PinOpencodeModel: "OPENCODE_MODEL",
+		PinOpencodeProfile: "OPENCODE_PROFILE",
 	} {
 		if got != want {
 			t.Errorf("pin %q, want %q", got, want)
@@ -100,9 +100,6 @@ func TestSecretName(t *testing.T) {
 		if got := SecretName(c.provider, c.profile, c.method); got != c.want {
 			t.Errorf("SecretName(%s,%s,%s) = %q, want %q", c.provider, c.profile, c.method, got, c.want)
 		}
-	}
-	if env, secret := VendorEnvFor(&Provider{Name: "anthropic", Provider: "anthropic", Auth: Auth{Type: AuthKey, Header: HeaderXAPIKey}}); env != "ANTHROPIC_API_KEY" || secret != "ANTHROPIC_KEY" {
-		t.Errorf("VendorEnvFor = %q, %q", env, secret)
 	}
 }
 

@@ -91,7 +91,7 @@ func Window(model string, used int) int {
 	if used > models.ContextWindowStd {
 		return models.ContextWindow1M
 	}
-	if strings.HasSuffix(model, "[1m]") {
+	if models.Has1M(model) {
 		return models.ContextWindow1M
 	}
 	for _, k := range []string{"ANTHROPIC_MODEL", "ANTHROPIC_DEFAULT_OPUS_MODEL", "ANTHROPIC_DEFAULT_SONNET_MODEL",

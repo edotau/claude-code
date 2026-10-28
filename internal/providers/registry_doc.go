@@ -41,13 +41,22 @@ func providersField(doc []byte) json.RawMessage {
 	return top.Providers
 }
 
-func isNull(raw json.RawMessage) bool { return bytes.Equal(bytes.TrimSpace(raw), []byte("null")) }
+// IsNull reports whether raw is the JSON null literal.
+func IsNull(raw json.RawMessage) bool { return bytes.Equal(bytes.TrimSpace(raw), []byte("null")) }
+
+// RawOrNull is raw, or the JSON null literal when raw is nil.
+func RawOrNull(raw json.RawMessage) json.RawMessage {
+	if raw == nil {
+		return json.RawMessage("null")
+	}
+	return raw
+}
 
 // decodeRows reads a providers value, nested {provider: {profile: row}}; known maps built-in profiles to providers.
 // It rejects a profile that appears under two providers.
 func decodeRows(raw json.RawMessage, known map[string]string) (map[string]rawRow, error) {
 	out := map[string]rawRow{}
-	if len(raw) == 0 || isNull(raw) {
+	if len(raw) == 0 || IsNull(raw) {
 		return out, nil
 	}
 	var top map[string]json.RawMessage
@@ -56,7 +65,7 @@ func decodeRows(raw json.RawMessage, known map[string]string) (map[string]rawRow
 	}
 	for _, key := range slices.Sorted(maps.Keys(top)) {
 		entry := top[key]
-		if isNull(entry) {
+		if IsNull(entry) {
 			if err := removeEntry(out, key, known); err != nil {
 				return nil, err
 			}
@@ -92,7 +101,7 @@ func addNested(out map[string]rawRow, key string, fields map[string]json.RawMess
 	}
 	for profile, row := range fields {
 		r := rawRow{provider: key}
-		if !isNull(row) {
+		if !IsNull(row) {
 			r.raw = row
 		}
 		if err := put(out, profile, r); err != nil {
@@ -131,10 +140,7 @@ func nestRows(rows map[string]rawRow, order []string) (json.RawMessage, error) {
 	for _, prov := range provs {
 		inner := map[string]json.RawMessage{}
 		for _, n := range groups[prov] {
-			inner[n] = rows[n].raw
-			if inner[n] == nil {
-				inner[n] = json.RawMessage("null")
-			}
+			inner[n] = RawOrNull(rows[n].raw)
 		}
 		b, err := MarshalOrdered(groups[prov], inner)
 		if err != nil {
@@ -191,11 +197,8 @@ func MarshalOrdered(keys []string, m map[string]json.RawMessage) (json.RawMessag
 	return buf.Bytes(), nil
 }
 
-// ObjectKeys lists a JSON object's keys in document order.
-func ObjectKeys(raw json.RawMessage) []string { return objectKeys(raw) }
-
-// objectKeys lists a JSON object's keys in document order; a non-object yields none.
-func objectKeys(raw json.RawMessage) []string {
+// ObjectKeys lists a JSON object's keys in document order; a non-object yields none.
+func ObjectKeys(raw json.RawMessage) []string {
 	dec := json.NewDecoder(bytes.NewReader(raw))
 	if t, err := dec.Token(); err != nil || t != json.Delim('{') {
 		return nil
@@ -222,12 +225,12 @@ func profileOrder(raw json.RawMessage) []string {
 		return nil
 	}
 	var out []string
-	for _, key := range objectKeys(raw) {
+	for _, key := range ObjectKeys(raw) {
 		var fields map[string]json.RawMessage
-		if isNull(top[key]) || json.Unmarshal(top[key], &fields) != nil {
+		if IsNull(top[key]) || json.Unmarshal(top[key], &fields) != nil {
 			continue
 		}
-		out = append(out, objectKeys(top[key])...)
+		out = append(out, ObjectKeys(top[key])...)
 	}
 	return out
 }

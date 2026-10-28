@@ -25,7 +25,7 @@ var routeRefresh = usagepkg.RefreshAccount
 
 func init() { vendors.CopilotUsedPct = copilotUsedPct }
 
-// copilotUsedPct is github·<profile>'s used share (login: the profile's gh login) from route state, refreshed through routeRefresh past its TTL.
+// copilotUsedPct is github·<profile>'s used share from route state, refreshed through routeRefresh past its TTL.
 func copilotUsedPct(ctx context.Context, login string) (float64, bool) {
 	reg, _ := providers.Load()
 	key, now := "github·"+providers.GithubAccountName(reg, login), time.Now()

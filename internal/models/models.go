@@ -30,6 +30,8 @@ func NextSlot(slot string) string {
 	return ""
 }
 
+const marker1M = "[1m]"
+
 const (
 	ContextWindow1M  = 1_000_000
 	ContextWindowStd = 200_000
@@ -43,7 +45,7 @@ const (
 // Tolerates vendor prefixes like "anthropic/", "us.anthropic." (Bedrock) or "databricks-" (serving) before "claude-".
 var claudeRE = regexp.MustCompile(`(?:^|[/.:-])claude-(opus|sonnet|haiku|fable|mythos)-(\d+)(?:[-.](\d+))?(?:-(\d{8}))?`)
 
-// ParseClaudeID extracts (family, major, minor) from dashed or dotted ids; a >2-digit trailing group is a date stamp, not a minor.
+// ParseClaudeID extracts (family, major, minor) from dashed or dotted ids; a >2-digit trailing group is a date stamp.
 func ParseClaudeID(id string) (family string, major, minor int, ok bool) {
 	m := claudeRE.FindStringSubmatch(Strip1M(id))
 	if m == nil {
@@ -61,7 +63,10 @@ func atLeast(major, minor, wantMajor, wantMinor int) bool {
 }
 
 // Strip1M removes the client-only [1m] marker; no upstream accepts it on the wire.
-func Strip1M(id string) string { return strings.TrimSuffix(id, "[1m]") }
+func Strip1M(id string) string { return strings.TrimSuffix(id, marker1M) }
+
+// Has1M reports a trailing client-only [1m] marker.
+func Has1M(id string) bool { return strings.HasSuffix(id, marker1M) }
 
 var canonicalPrefixes = [...]string{"databricks-", "system.ai.", "system.ai-"}
 
@@ -77,7 +82,7 @@ func hasFamilyDash(s string) bool {
 // Canonical reduces a typed model id to the plain Claude id and reports a trailing [1m]; non-Claude ids pass through.
 func Canonical(id string) (base string, oneM bool) {
 	id = strings.TrimSpace(id)
-	oneM = strings.HasSuffix(id, "[1m]")
+	oneM = Has1M(id)
 	id = Strip1M(id)
 	if strings.Contains(id, "/") {
 		return id, oneM
@@ -103,7 +108,7 @@ func Canonical(id string) (base string, oneM bool) {
 
 // ContextWindow is 1M for a catalog Claude model or a [1m]-marked id, else 200K.
 func ContextWindow(id string) int {
-	if strings.HasSuffix(id, "[1m]") {
+	if Has1M(id) {
 		return ContextWindow1M
 	}
 	if canonical, _, ok := Resolve(id); ok && FamilyOf(canonical) != "" && inCatalog(canonical) {

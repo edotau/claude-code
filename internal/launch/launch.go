@@ -165,7 +165,7 @@ func parseModelFlag(s string) (tier, canonical string, alias bool) {
 	s = strings.TrimSpace(s)
 	name := strings.ToLower(models.Strip1M(s))
 	if c, ok := models.Alias(name); ok && slices.Contains(models.Slots, name) {
-		return name, c, !strings.HasSuffix(s, "[1m]")
+		return name, c, !models.Has1M(s)
 	}
 	canonical, _, ok := models.Resolve(s)
 	if !ok {
@@ -177,9 +177,7 @@ func parseModelFlag(s string) (tier, canonical string, alias bool) {
 	return "", canonical, false
 }
 
-// applyModel applies --model to sel. A bare alias keeps the tier's own resolution (so a CLAUDE_<TIER>_MODEL pin
-// wins) and, off a Claude session, copies it into the opus slot the agent reads; a version or wire id fills the
-// main tier's slot on the profile with the profile's own spelling.
+// applyModel applies --model to sel: a bare alias keeps the tier's resolution, else the main slot.
 func applyModel(sel *providers.Selection, model string, session bool, verbTier string) {
 	tier, canonical, alias := parseModelFlag(model)
 	dst := models.Opus
@@ -193,7 +191,7 @@ func applyModel(sel *providers.Selection, model string, session bool, verbTier s
 		return
 	}
 	wire := strings.TrimSpace(model)
-	oneM := strings.HasSuffix(wire, "[1m]")
+	oneM := models.Has1M(wire)
 	wire = models.Strip1M(wire)
 	if canonical != "" {
 		wire = sel.Provider.WireModel(canonical)
@@ -396,9 +394,7 @@ func headless(args []string) bool {
 	return slices.Contains(args, "-p") || slices.Contains(args, "--print")
 }
 
-// Vendor resolves `claude-code run <vendor>`: the opus target wired through vendors.Configure, falling
-// back to the vendor's own subscription login or a keyed provider when the session provider cannot
-// serve it and the caller named no provider explicitly.
+// Vendor resolves `claude-code run <vendor>`: the opus target via vendors.Configure, else the vendor's own login.
 func Vendor(ctx context.Context, name string, o Options, args []string) (Plan, error) {
 	plan, err := vendorPlan(ctx, name, o, args)
 	plan.Keep, plan.Vendor = o.KeepEnv, true
@@ -526,11 +522,7 @@ func (p Plan) Env(base []string) []string {
 	return p.envWith(merged, customEnv(), locked)
 }
 
-// moduleEnv appends every vendorsettings module's export onto base, skipping any key base (the process
-// environment) already sets — process env wins, pins-style. The returned locked set names every
-// module-owned key the process environment already set: envWith must not let a vault custom-env entry
-// override those, so the full precedence is process env > vault custom env > module env. A registry load
-// error exports nothing and locks nothing.
+// moduleEnv appends vendorsettings module exports onto base, skipping keys the process env sets; locked names those.
 func moduleEnv(base []string) ([]string, map[string]bool) {
 	present := map[string]bool{}
 	for _, kv := range base {
@@ -582,9 +574,7 @@ var customEnv = func() map[string]string {
 	return vals
 }
 
-// envWith layers base, then custom (user vars), then Set; Unset and Set keys always beat a custom var.
-// locked names module-owned keys the process environment already set: those stay out of the custom
-// merge entirely, so process always beats a vault custom-env entry for them.
+// envWith layers base, then custom (user vars), then Set; Unset and Set beat custom, locked keys skip custom.
 func (p Plan) envWith(base []string, custom map[string]string, locked map[string]bool) []string {
 	unset := map[string]bool{}
 	for _, k := range p.Unset {

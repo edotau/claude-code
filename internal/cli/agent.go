@@ -472,8 +472,7 @@ func cmdAgentsReap(args []string) int {
 	return agenttree.Reap(*dryRun, os.Stdout, os.Stderr)
 }
 
-// cmdAgentsSync renders agents/ into state/projections/<agent>/agents plus each agent's global instruction file, installs the
-// copies into the agent homes, and links skills/ into ~/.agents/skills; --agent narrows the run to one target.
+// cmdAgentsSync renders agents/ into state/projections, installs the copies into agent homes and links skills/.
 func cmdAgentsSync(args []string) int {
 	fs := helptext.NewFlagSet("agents sync", agentsSyncPage)
 	vendor := fs.String("agent", "", "one target: "+strings.Join(crossgen.VendorNames(), "|")+" (default: all)")

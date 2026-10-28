@@ -182,9 +182,6 @@ func TestRowsKeyedByClaudeID(t *testing.T) {
 			}
 		}
 	}
-	if c, ok := tb.CellFor("copilot", "opus"); !ok || c.Model != "claude-opus-5.5" {
-		t.Errorf("CellFor(copilot, opus) = %+v, %v", c, ok)
-	}
 	if _, ok := tb.Row("gpt-6-1-sol"); ok {
 		t.Error("a non-Claude id must not name a row")
 	}

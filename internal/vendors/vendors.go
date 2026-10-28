@@ -426,8 +426,7 @@ func WithDirect(ctx context.Context) context.Context {
 
 func isDirect(ctx context.Context) bool { v, _ := ctx.Value(directKey{}).(bool); return v }
 
-// routerRoute ensures the router daemon and returns a copy of p whose only headers are the agent tag, the vendor's base for dialect
-// (shaped so the vendor's own path suffix lands on a router route), and the router secret as the vendor key.
+// routerRoute ensures the router daemon and returns a copy of p routed through it with the router secret as key.
 func routerRoute(ctx context.Context, vendor string, p *providers.Provider, dialect string) (*providers.Provider, string, string, error) {
 	rb, err := ensureRouter(ctx)
 	if err != nil {

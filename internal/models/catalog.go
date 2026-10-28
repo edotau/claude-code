@@ -132,7 +132,7 @@ var wirePrefixes = [...]string{"databricks-", "system.ai.", "system.ai-"}
 // when the input carried the client-only [1m] marker.
 func Resolve(s string) (canonical string, oneM bool, ok bool) {
 	s = strings.ToLower(strings.TrimSpace(s))
-	oneM = strings.HasSuffix(s, "[1m]")
+	oneM = Has1M(s)
 	s = Strip1M(s)
 	c := load()
 	if id, found := c.Aliases[s]; found {

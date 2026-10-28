@@ -59,18 +59,3 @@ func (p Provider) WireModel(id string) string {
 	}
 	return models.Wire(rule, canonical)
 }
-
-// CanonicalModel is the inverse of WireModel: the canonical id, keeping a trailing [1m]; unknown ids pass through.
-//
-// Deprecated: removed in Phase 4 (use models.Resolve).
-func (p Provider) CanonicalModel(id string) string {
-	base, oneM := strings.CutSuffix(id, oneMMarker)
-	canonical, _, ok := models.Resolve(base)
-	if !ok {
-		return id
-	}
-	if oneM {
-		return canonical + oneMMarker
-	}
-	return canonical
-}
