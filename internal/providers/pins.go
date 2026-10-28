@@ -32,6 +32,11 @@ const (
 	PinCodexProfile    = "CODEX_PROFILE"
 	PinGeminiProfile   = "GEMINI_PROFILE"
 	PinOpencodeProfile = "OPENCODE_PROFILE"
+	// PinCopilotActive, PinCodexActive, PinGeminiActive and PinOpencodeActive are "on"|"off" (unset = on); claude is always on.
+	PinCopilotActive  = "COPILOT_ACTIVE"
+	PinCodexActive    = "CODEX_ACTIVE"
+	PinGeminiActive   = "GEMINI_ACTIVE"
+	PinOpencodeActive = "OPENCODE_ACTIVE"
 	// PinCodexModel is codex's own model (its `debug models` catalog); unset follows codex's own default
 	// (config.toml's model, else its ChatGPT-login provider's opus slot).
 	PinCodexModel = "CODEX_MODEL"

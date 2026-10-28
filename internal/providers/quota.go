@@ -15,14 +15,16 @@ var modelDeniedRE = regexp.MustCompile(`limit: 0|exceeded your current quota|ins
 // 402), as opposed to a transient rate limit worth waiting out: a 402 body, "usage limit ... try again at
 // <time>", or a monthly/weekly plan quota.
 var accountRE = regexp.MustCompile(`\b402\b|payment required|exceeded your (?:monthly|current|weekly) (?:quota|limit)|` +
-	`usage limit|out of (?:premium )?(?:credits|requests)|(?:monthly|weekly) quota`)
+	`usage limit|out of (?:premium )?(?:credits|requests)|(?:monthly|weekly) quota|` +
+	`you've hit your (?:session |weekly |5-hour |monthly (?:spend )?|team's shared |channel's monthly spend )?(?:limit|budget)|out of usage credits`)
 
 // hardAccountRE is accountRE's subset ModelDenied vetoes on: a 402, "payment required", "usage limit", a
 // named monthly/weekly plan quota, or credits out. Deliberately drops accountRE's "exceeded your current
 // quota/limit" — Gemini's free-tier per-model denial reuses that exact phrase alongside "limit: 0"
 // (modelDeniedRE), and that one is a MODEL-specific denial, not account-wide exhaustion.
 var hardAccountRE = regexp.MustCompile(`\b402\b|payment required|exceeded your (?:monthly|weekly) (?:quota|limit)|` +
-	`usage limit|out of (?:premium )?(?:credits|requests)|(?:monthly|weekly) quota`)
+	`usage limit|out of (?:premium )?(?:credits|requests)|(?:monthly|weekly) quota|` +
+	`you've hit your (?:session |weekly |5-hour |monthly (?:spend )?|team's shared |channel's monthly spend )?(?:limit|budget)|out of usage credits`)
 
 // ModelDenied reports whether a 429 body or error text denies this MODEL outright on the current key; the
 // caller should demote to the provider's next slot instead of retrying the same model. Account-wide
