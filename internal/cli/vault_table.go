@@ -33,7 +33,7 @@ func renderVaultText(doc config.Doc, stored []secrets.Stored, sel []string, widt
 		"env":       func() string { return vaultSection("ENV", vaultMapRows(doc.Env), width) },
 		"providers": func() string { return vaultProvidersText(doc.Providers, width) },
 		"routing":   func() string { return vaultRoutingText(doc.Providers, width) },
-		"agents":    func() string { return vaultVendorsText(doc.Vendors, width) },
+		"agents":    func() string { return vaultVendorsText(doc.Vendors, doc.Pins, width) },
 		"settings":  func() string { return vaultSection("SETTINGS", vaultFlattenSection(doc.Settings), width) },
 		"vault":     func() string { return vaultSection("VAULT", vaultVaultRows(doc.Vault.KeyCommand), width) },
 	}
@@ -471,22 +471,32 @@ func vaultTable(head []string, colMax []int, rows [][]string, width int) string 
 	return b.String()
 }
 
-// vaultVendorsText renders the agents overlay as one block per agent; unknown keys fall back to the flatten.
-func vaultVendorsText(raw json.RawMessage, width int) string {
+// vaultVendorsText renders one block per agent, ACTIVE first, then its overlay; unknown keys fall back to the flatten.
+func vaultVendorsText(raw json.RawMessage, pins map[string]string, width int) string {
 	var b strings.Builder
 	b.WriteString("AGENTS\n")
 	var top map[string]any
-	if s := strings.TrimSpace(string(raw)); s == "" || s == "null" {
-		b.WriteString("  (none)\n")
-		return b.String()
+	if s := strings.TrimSpace(string(raw)); s != "" && s != "null" {
+		if err := json.Unmarshal(raw, &top); err != nil {
+			return vaultSection("AGENTS", vaultFlattenSection(raw), width)
+		}
 	}
-	if err := json.Unmarshal(raw, &top); err != nil {
-		return vaultSection("AGENTS", vaultFlattenSection(raw), width)
+	vs, _ := top["agents"].(map[string]any)
+	names := []string{"claude", "codex", "copilot", "gemini", "opencode"}
+	for _, name := range slices.Sorted(maps.Keys(vs)) {
+		if !slices.Contains(names, name) {
+			names = append(names, name)
+		}
 	}
 	var blocks []string
-	vs, _ := top["agents"].(map[string]any)
-	for _, name := range slices.Sorted(maps.Keys(vs)) {
-		rows := vaultVendorRows(vs[name])
+	for _, name := range names {
+		var rows [][2]string
+		if key := providers.AgentActivePin(name); key != "" || name == "claude" {
+			rows = append(rows, [2]string{"ACTIVE", vaultAgentActive(key, pins)})
+		}
+		if v, ok := vs[name]; ok {
+			rows = append(rows, vaultVendorRows(v)...)
+		}
 		blocks = append(blocks, "  "+name+"\n"+strings.TrimPrefix(vaultIndent(vaultSection("", rows, width-2)), "\n"))
 	}
 	var rest [][2]string
@@ -499,11 +509,16 @@ func vaultVendorsText(raw json.RawMessage, width int) string {
 	if len(rest) > 0 {
 		blocks = append(blocks, strings.TrimPrefix(vaultSection("", rest, width), "\n"))
 	}
-	if len(blocks) == 0 {
-		b.WriteString("  (none)\n")
-	}
 	b.WriteString(strings.Join(blocks, "\n"))
 	return b.String()
+}
+
+// vaultAgentActive is an agent's ACTIVE value: off only when its pin says off (claude has no pin, always on).
+func vaultAgentActive(key string, pins map[string]string) string {
+	if key != "" && strings.TrimSpace(pins[key]) == providers.AgentOff {
+		return providers.AgentOff
+	}
+	return providers.AgentOn
 }
 
 // vaultVendorRows renders one vendor entry: launch.env, launch.args, permission and mcp.allow read as lists.

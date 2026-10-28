@@ -97,7 +97,6 @@ func cmdAsk(args []string) int {
 		fs.Usage()
 		return 2
 	}
-	applyProfileRow(*name, provider, model, effort)
 	r, chain, err := resolveAskChain(*name, *provider, *model, prompt, *fallback, *native, *workdir)
 	if err != nil {
 		return fail("ask: %v", err)
@@ -318,14 +317,6 @@ func resolveAskPrompt(prompt string) (string, error) {
 		return "", fmt.Errorf("read stdin: %w", err)
 	}
 	return string(raw), nil
-}
-
-// applyProfileRow fills an unset --profile from the agent's <AGENT>_PROFILE pin; explicit flags win, and with no pin
-// nothing changes.
-func applyProfileRow(name string, profile, _, _ *string) {
-	if pin := agentProfilePins[name]; *profile == "" && pin != "" {
-		*profile = providers.Pin(pin)
-	}
 }
 
 // resolveAskChain looks up the named agent and routes it: an explicit backend (--profile) runs alone; otherwise the

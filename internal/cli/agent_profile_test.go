@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault"
 )
 
@@ -23,29 +22,6 @@ func profileFixture(t *testing.T, active string) {
 	}
 	if err := vault.Update(func(tx *vault.Tx) error { return tx.Put(vault.Overlay, "providers", doc) }); err != nil {
 		t.Fatalf("seed overlay: %v", err)
-	}
-}
-
-// applyProfileRow fills an unset --profile from the agent's <AGENT>_PROFILE pin; a flag wins.
-func TestApplyProfileRow(t *testing.T) {
-	profileFixture(t, "")
-	if err := providers.SetPins(map[string]string{providers.PinCodexProfile: "acme"}); err != nil {
-		t.Fatal(err)
-	}
-	cases := []struct{ name, agent, flag, want string }{
-		{"pin fills", "codex", "", "acme"},
-		{"flag wins", "codex", "openai", "openai"},
-		{"no pin for agent", "gemini", "", ""},
-		{"agent without a pin key", "claude", "", ""},
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			p, m, e := c.flag, "", ""
-			applyProfileRow(c.agent, &p, &m, &e)
-			if p != c.want || m != "" || e != "" {
-				t.Fatalf("got (%q,%q,%q), want profile %q", p, m, e, c.want)
-			}
-		})
 	}
 }
 

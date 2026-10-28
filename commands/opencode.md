@@ -15,8 +15,9 @@ Parse the first token of `$ARGUMENTS`:
 
 - `ask|resume|review|explore|transfer|status|tail|result|cancel|setup|models` — run `claude-code opencode <verb> <rest>`
   straight through.
-- `env [dev|qa|prod]` — run `claude-code opencode env <rest>`: bare shows opencode's profile; an env moves
-  only opencode's profile row there (relaunch to apply).
+- `profile [<profile>|--clear]` — run `claude-code opencode profile <rest>`: bare shows opencode's profile
+  pin and on/off state; a profile pins opencode there (relaunch to apply).
+- `on|off` — run `claude-code opencode on|off`: route to opencode again, or stop routing to it.
 - anything else — run `claude-code ask --agent opencode --tools "<task>"` (routed; the default model
   is in `internal/routetable/table.json`).
 

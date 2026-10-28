@@ -224,7 +224,9 @@ func vendorSubNodes(askFlags []flagInfo) map[string]*compNode {
 		"tail":     {flags: []flagInfo{boolFlag("f")}},
 		"result":   {flags: []flagInfo{formatFlag()}},
 		"cancel":   {},
-		"env":      {args: []func() []string{providerNames}, flags: []flagInfo{boolFlag("clear")}},
+		"profile":  {args: []func() []string{providerNames}, flags: []flagInfo{boolFlag("clear")}},
+		"on":       {},
+		"off":      {},
 		"setup":    {flags: []flagInfo{formatFlag()}},
 		"models":   {},
 	}

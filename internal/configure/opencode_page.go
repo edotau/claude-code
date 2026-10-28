@@ -107,6 +107,11 @@ func buildOpencodePage(d *dialog, ints []vendors.OpencodeIntegration, major int)
 			p.rows = append(p.rows, ocRow{row: tui.ListRow{Label: r.label, Detail: r.desc, Section: "actions"},
 				run: func(*dialog) { run() }})
 		}
+		for _, r := range agentPinRows(d, "opencode") {
+			run := r.run
+			p.rows = append(p.rows, ocRow{row: tui.ListRow{Label: r.label, Detail: r.desc, Section: "actions"},
+				run: func(*dialog) { run() }})
+		}
 	}
 	p.title = "opencode  not connected"
 	if p.conns > 0 {
@@ -250,5 +255,6 @@ func ocAddAccount(d *dialog) {
 			n += len(in.Conns)
 		}
 		d.printf("opencode: %d %s\n", n, plural(n, "account", "accounts"))
+		agentActiveOn(d, "opencode")
 	}
 }

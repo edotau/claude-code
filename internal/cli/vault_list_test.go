@@ -55,7 +55,7 @@ func TestVaultListSections(t *testing.T) {
 					headings = append(headings, line)
 				}
 			}
-			if !slices.Equal(headings, []string{"SECRETS", "PINS", "ENV", "PROVIDERS", "SETTINGS", "VAULT"}) { // empty AGENTS hidden
+			if !slices.Equal(headings, []string{"SECRETS", "PINS", "ENV", "PROVIDERS", "AGENTS", "SETTINGS", "VAULT"}) { // AGENTS always lists ACTIVE
 				t.Errorf("section order = %v", headings)
 			}
 			if !strings.HasPrefix(filtered, "SECRETS\n") || !strings.Contains(filtered, "\nPINS\n") {
@@ -97,7 +97,7 @@ func TestVaultListProviderAndVendorTables(t *testing.T) {
 	for _, want := range []string{
 		"NAME PROVIDER AUTH SONNET", "fake openai none fake-sonnet",
 		"ROUTING", "opencode.ladder[0] one", "opencode.ladder[1] two",
-		"AGENTS opencode", "launch.env.FAKE_ENV enabled", "launch.args --fake", "future.enabled true",
+		"opencode ACTIVE on", "launch.env.FAKE_ENV enabled", "launch.args --fake", "future.enabled true",
 	} {
 		if !strings.Contains(normalized, want) {
 			t.Errorf("missing table content %q", want)
