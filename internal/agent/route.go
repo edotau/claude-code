@@ -144,7 +144,7 @@ func ExplicitChain(r Runner, req Request) Chain {
 	c := Single(r)
 	acct, billing := explicitAccount(r, req)
 	c.Legs[0].Account, c.Legs[0].Billing = acct, billing
-	if acct == "" {
+	if acct == "" || acct == copilotLoginAccount() { // copilot's own gate falls back to Databricks instead
 		return c
 	}
 	now := time.Now()
@@ -174,7 +174,18 @@ func explicitAccount(r Runner, req Request) (string, string) {
 	if !ok {
 		return "", ""
 	}
+	if p.Auth.Login == "copilot" { // the GitHub login bills the pinned account: route state's copilot:<user>
+		return copilotLoginAccount(), billingOf(p)
+	}
 	return r.Name() + ":" + p.Name, billingOf(p)
+}
+
+// copilotLoginAccount is the pinned gh user's route-state key, or "" when no user is pinned.
+func copilotLoginAccount() string {
+	if u := providers.Pin(providers.PinGitHubUser); u != "" {
+		return "copilot:" + u
+	}
+	return ""
 }
 
 // hubLegFor maps an opencode cell "<opencodeID>/<model>" to the hub leg on that provider and the bare model.

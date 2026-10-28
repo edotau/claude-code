@@ -24,6 +24,7 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
+	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vendorconfig"
 )
 
@@ -99,10 +100,16 @@ func ResolveTarget(reg *providers.Registry, name string, sel providers.Selection
 		}
 	}
 	if explicit || CanServe(name, t.Provider) {
+		if name == "copilot" {
+			return CopilotGate(reg, t)
+		}
 		return t, "", nil
 	}
 	if ft, fallbackNote, ok := fallbackTarget(reg, name); ok {
 		note = fmt.Sprintf("%s: session provider %s cannot serve %s; using %s", name, t.Provider.Name, name, fallbackNote)
+		if name == "copilot" && ft.Provider != nil && ft.Provider.Preset == providers.PresetDatabricks {
+			note = fallbackNote // the gate's own notice already names the account and the profile
+		}
 		if ft.Provider == nil {
 			return ft, note, ErrOwnLogin // the vendor's own stored login: launch it plain, nothing to inject
 		}
@@ -115,6 +122,54 @@ func ResolveTarget(reg *providers.Registry, name string, sel providers.Selection
 		}
 	}
 	return t, "", nil
+}
+
+// CopilotGate keeps t unless it is copilot's GitHub login on an unworkable pin; then the Databricks fallback and its
+// notice — never another GitHub account.
+func CopilotGate(reg *providers.Registry, t providers.Target) (providers.Target, string, error) {
+	if t.Provider == nil || t.Provider.Auth.Login != "copilot" {
+		return t, "", nil
+	}
+	detail, ok := copilotHeadroom(context.Background(), providers.Pin(providers.PinGitHubUser))
+	if ok {
+		return t, "", nil
+	}
+	return CopilotFallback(reg, detail)
+}
+
+// CopilotFallback is the copilot Databricks fallback target and its notice; detail names why GitHub was refused.
+func CopilotFallback(reg *providers.Registry, detail string) (providers.Target, string, error) {
+	ri := copilotDatabricksFallback(reg, detail)
+	ft, ok := routeTarget(reg, ri)
+	if !ok {
+		return providers.Target{}, "", errors.New(ri.Reason)
+	}
+	return ft, ri.Reason, nil
+}
+
+// copilotDatabricksFallback: the vault's HARNESS_PROVIDER pin when it is a signed-in Databricks row, else the first
+// Databricks env whose credential resolves, else LegNone. detail names why the GitHub login was refused.
+func copilotDatabricksFallback(reg *providers.Registry, detail string) RouteInfo {
+	pick := func(p *providers.Provider) RouteInfo {
+		return RouteInfo{Vendor: "copilot", Leg: LegDatabricks, Provider: p.Name, Model: p.Models[models.Opus],
+			Reason: "copilot: " + detail + " — using databricks profile " + p.Name, OK: true}
+	}
+	var pin string
+	_ = vault.View(func(tx *vault.Tx) error { pin, _ = tx.Get(vault.Pins, providers.PinProvider); return nil })
+	usable := func(p *providers.Provider) bool {
+		if p == nil || p.Preset != providers.PresetDatabricks {
+			return false
+		}
+		_, err := providers.Credential(context.Background(), p)
+		return providers.Verdict(err) == providers.VerdictOK
+	}
+	for _, name := range append([]string{pin}, providers.DatabricksEnvs...) {
+		if p := reg.Providers[name]; usable(p) {
+			return pick(p)
+		}
+	}
+	return RouteInfo{Vendor: "copilot", Leg: LegNone,
+		Reason: "copilot: " + detail + "; no credit-free route for copilot (no Databricks profile signed in)"}
 }
 
 // ErrOwnLogin means the vendor should run on the credentials its own CLI stores (no harness route injected).
@@ -318,7 +373,10 @@ func configureRoute(ctx context.Context, name string, t providers.Target, h *Hea
 	case "opencode":
 		return opencode(p, dialect, base, model, cred, routed, h)
 	default:
-		return copilot(p, dialect, base, model, cred, h)
+		// The canonical id lets MaybeAdd1M recognise a prefixed wire id (databricks-claude-…) on a one_m row.
+		canon, _ := models.Canonical(t.Model)
+		client := providers.Target{Provider: t.Provider, Model: canon, OneM: t.OneM}.ClientModel()
+		return copilot(p, dialect, base, model, client, cred, h)
 	}
 }
 
@@ -796,7 +854,10 @@ func copilotPinArgv() []string {
 	return argv
 }
 
-func copilot(p *providers.Provider, dialect, base, model, cred string, h *Headless) ([]string, []string, error) {
+// copilot wires BYOK; clientModel is the [1m]-aware id whose window sizes the prompt cap.
+func copilot(
+	p *providers.Provider, dialect, base, model, clientModel, cred string, h *Headless,
+) ([]string, []string, error) {
 	typ := "openai"
 	if dialect == providers.DialectAnthropic {
 		typ = "anthropic"
@@ -810,9 +871,9 @@ func copilot(p *providers.Provider, dialect, base, model, cred string, h *Headle
 		// Blank every BYOK credential var so a token exported in the parent shell cannot outrank this route.
 		"COPILOT_PROVIDER_API_KEY=", "COPILOT_PROVIDER_BEARER_TOKEN=", "COPILOT_PROVIDER_API_KEY_COMMAND=",
 	}
-	// Prompt budget = window minus the output cap, so prompt + output never overshoot the model's context.
-	if w := models.ContextWindow(model); w > copilotMaxOutputTokens {
-		env = append(env, "COPILOT_PROVIDER_MAX_PROMPT_TOKENS="+strconv.Itoa(w-copilotMaxOutputTokens))
+	// Prompt budget = window minus the output cap and a 10% margin, so copilot compacts before the endpoint refuses.
+	if w := models.ContextWindow(clientModel); w > copilotMaxOutputTokens {
+		env = append(env, "COPILOT_PROVIDER_MAX_PROMPT_TOKENS="+strconv.Itoa(w-copilotMaxOutputTokens-w/10))
 	}
 	if cred != "" {
 		// Bearer precedence is copilot's own rule; sending the key on both headers trips strict gateways.

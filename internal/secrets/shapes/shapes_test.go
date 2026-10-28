@@ -1,6 +1,7 @@
 package shapes
 
 import (
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -28,5 +29,43 @@ func TestRedact(t *testing.T) {
 				t.Errorf("Redact(%q) = %q, want %q", c.in, got, c.want)
 			}
 		})
+	}
+}
+
+// Every GitHub token family is redacted, bare and embedded in prose or JSON.
+func TestRedactGitHubTokenFamilies(t *testing.T) {
+	for _, prefix := range []string{"ghu_", "gho_", "ghs_", "ghr_", "ghp_", "github_pat_"} {
+		t.Run(prefix, func(t *testing.T) {
+			tok := prefix + strings.Repeat("a1", 18)
+			for _, in := range []string{tok, "token " + tok + " end", `{"t":"` + tok + `"}`} {
+				got := Redact(in)
+				if strings.Contains(got, tok) || !strings.Contains(got, "REDACTED") {
+					t.Errorf("Redact(%q) = %q, token survived", in, got)
+				}
+			}
+		})
+	}
+}
+
+// GitHubPattern matches each family at minLen body characters and not below it.
+func TestGitHubPatternMinLen(t *testing.T) {
+	const minLen = 10
+	re := regexp.MustCompile(GitHubPattern(minLen))
+	for _, p := range GitHubPrefixes {
+		if !re.MatchString(p + strings.Repeat("a", minLen)) {
+			t.Errorf("%s at minLen must match", p)
+		}
+		if !re.MatchString(p + strings.Repeat("a_", minLen)) {
+			t.Errorf("%s with underscores in the body must match", p)
+		}
+		if re.MatchString(p + strings.Repeat("a", minLen-1)) {
+			t.Errorf("%s below minLen must not match", p)
+		}
+	}
+	if re.MatchString("gha_" + strings.Repeat("a", 20)) {
+		t.Error("unknown prefix must not match")
+	}
+	if !HasGitHubPrefix("ghu_x") || HasGitHubPrefix("gha_x") {
+		t.Error("HasGitHubPrefix wrong")
 	}
 }

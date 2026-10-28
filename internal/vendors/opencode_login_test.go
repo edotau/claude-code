@@ -31,6 +31,19 @@ func isolateOpencodeRouteEnv(t *testing.T) (dataHome, cfgHome string) {
 	return dataHome, cfgHome
 }
 
+// workableCopilotPin pins user as a gh login (hosts.yml in the isolated GH_CONFIG_DIR) with 10% of credits used.
+func workableCopilotPin(t *testing.T, user string) {
+	t.Helper()
+	hosts := "github.com:\n    user: " + user + "\n    users:\n        " + user + ":\n            oauth_token: tok\n"
+	if err := os.WriteFile(filepath.Join(os.Getenv("GH_CONFIG_DIR"), "hosts.yml"), []byte(hosts), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(providers.PinGitHubUser, user)
+	prev := CopilotUsedPct
+	CopilotUsedPct = func(context.Context, string) (float64, bool) { return 10, true }
+	t.Cleanup(func() { CopilotUsedPct = prev })
+}
+
 func subscriptionSelection(t *testing.T, reg *providers.Registry) providers.Selection {
 	t.Helper()
 	sub, err := reg.Get("subscription")
@@ -149,12 +162,12 @@ func TestDescribeCopilotRouteChainOrder(t *testing.T) {
 		t.Fatalf("with only ANTHROPIC_API_KEY, want byok-anthropic; got %+v", ri)
 	}
 
-	t.Setenv("GH_TOKEN", secret)
+	workableCopilotPin(t, "alice")
 	if ri := DescribeRoute(reg, "copilot"); !ri.OK || ri.Leg != LegCopilotLogin || ri.Provider != "github-copilot" {
 		t.Fatalf("copilot's own GitHub login must outrank BYOK; got %+v", ri)
 	}
 
-	t.Setenv("GH_TOKEN", "")
+	t.Setenv(providers.PinGitHubUser, "")
 	t.Setenv("ANTHROPIC_API_KEY", "")
 	none := DescribeRoute(reg, "copilot")
 	if none.OK || none.Leg != LegNone || !strings.Contains(none.Reason, "claude-code configure github") {
@@ -171,7 +184,7 @@ func TestDescribeCopilotRouteChainOrder(t *testing.T) {
 // the COPILOT_MODEL pin when set, else github-copilot's own opus slot — never the registry's stale value.
 func TestDescribeCopilotRouteModelFollowsPin(t *testing.T) {
 	isolateOpencodeRouteEnv(t)
-	t.Setenv("GH_TOKEN", secret)
+	workableCopilotPin(t, "alice")
 	reg, err := providers.Load()
 	if err != nil {
 		t.Fatal(err)

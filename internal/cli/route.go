@@ -7,6 +7,7 @@ import (
 	"os"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/helptext"
@@ -15,10 +16,29 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/route"
 	usagepkg "github.com/edotau/claude-code/internal/usage"
+	"github.com/edotau/claude-code/internal/vendors"
 )
 
 // routeRefresh re-fetches a stale account for a pick; a var so tests stay offline.
 var routeRefresh = usagepkg.RefreshAccount
+
+func init() { vendors.CopilotUsedPct = copilotUsedPct }
+
+// copilotUsedPct is copilot:<user>'s used share from route state, refreshed through routeRefresh past its TTL.
+func copilotUsedPct(ctx context.Context, user string) (float64, bool) {
+	key, now := "copilot:"+user, time.Now()
+	e := route.LoadState()[key]
+	if e.ExhaustedUntil.After(now) {
+		return route.ExhaustedPct, true
+	}
+	if now.Sub(e.Seen) > route.StaleAfter {
+		if !routeRefresh(ctx, key) {
+			return 0, false
+		}
+		e = route.LoadState()[key]
+	}
+	return e.UsedPct, !e.Seen.IsZero()
+}
 
 // cmdGatewayRoute is `claude-code gateway route`: the pick at a tier and every skipped runner with its gate; it
 // reads quota state (refreshing a stale account) and never dispatches.

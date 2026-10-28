@@ -258,7 +258,7 @@ func TestCopilotUsageParsesFixture(t *testing.T) {
 	if got.Tokens != 1701190 {
 		t.Errorf("tokens = %d, want 1701190 (input+output+cache_read+cache_write)", got.Tokens)
 	}
-	if len(got.Models) != 1 || got.Models[0].Provider != "github-copilot" || got.Models[0].Model != "claude-opus-5.5" {
+	if len(got.Models) != 1 || got.Models[0].Provider != "github·copilot" || got.Models[0].Model != "claude-opus-5.5" {
 		t.Errorf("models = %+v", got.Models)
 	}
 	if got.Note != "" {
@@ -390,5 +390,47 @@ func TestClaudeSessionCountDaysWindow(t *testing.T) {
 	n := claudeSessionCount(claudeDir, "", 1, 0)
 	if n != 2 {
 		t.Errorf("session dirs = %d, want 2", n)
+	}
+}
+
+// TestCopilotProviderLabel pins BYOK (all-NULL-cost databricks- rows) vs GitHub-billed labelling.
+func TestCopilotProviderLabel(t *testing.T) {
+	tests := []struct {
+		name string
+		row  copilotModelRow
+		want string
+	}{
+		{"byok databricks all NULL cost", copilotModelRow{Model: "databricks-claude-opus-5-5", Turns: 3, NoCost: 3}, "databricks"},
+		{"databricks name but costed turns", copilotModelRow{Model: "databricks-claude-opus-5-5", Turns: 3, NoCost: 0}, "github·copilot"},
+		{"databricks name mixed cost", copilotModelRow{Model: "databricks-claude-opus-5-5", Turns: 3, NoCost: 1}, "github-copilot"},
+		{"github model all costed", copilotModelRow{Model: "claude-opus-5.5", Turns: 2, NoCost: 0}, "github·copilot"},
+		{"github model all NULL cost", copilotModelRow{Model: "claude-opus-5.5", Turns: 2, NoCost: 2}, "github-copilot"},
+		{"github model mixed", copilotModelRow{Model: "claude-opus-5.5", Turns: 2, NoCost: 1}, "github-copilot"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := copilotProvider(tt.row); got != tt.want {
+				t.Errorf("copilotProvider(%+v) = %q, want %q", tt.row, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestCopilotUsageLabelsBYOKRows pins the label end to end through the sqlite stub (BYOK, mixed-cost, costed rows).
+func TestCopilotUsageLabelsBYOKRows(t *testing.T) {
+	stubCopilotSqlite(t,
+		[]byte(`[{"sessions":1,"turns":6,"input":1,"output":1,"cache_read":0,"cache_write":0,"tokens":10}]`),
+		[]byte(`[{"model":"databricks-claude-opus-5-5","turns":3,"tokens":5,"no_cost":3},`+
+			`{"model":"claude-opus-5.5","turns":2,"tokens":3,"no_cost":0},`+
+			`{"model":"gpt-5","turns":1,"tokens":2,"no_cost":1}]`))
+	got := copilotUsage(context.Background(), time.Now().Add(-24*time.Hour))
+	want := map[string]string{"databricks-claude-opus-5-5": "databricks", "claude-opus-5.5": "github·copilot", "gpt-5": "github-copilot"}
+	if len(got.Models) != 3 {
+		t.Fatalf("models = %+v", got.Models)
+	}
+	for _, m := range got.Models {
+		if m.Provider != want[m.Model] {
+			t.Errorf("%s labelled %q, want %q", m.Model, m.Provider, want[m.Model])
+		}
 	}
 }

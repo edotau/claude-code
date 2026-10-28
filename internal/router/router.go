@@ -700,6 +700,9 @@ func invalidToken(resp *http.Response, p *providers.Provider) bool {
 // unless this was the last attempt. moveOn means the response was drained and the caller may try the next target.
 func (r *Router) failover(resp *http.Response, t providers.Target, last bool) (moveOn, hard bool) {
 	p := t.Provider
+	if tooLong(resp) {
+		return false, false
+	}
 	if resp.StatusCode == http.StatusTooManyRequests {
 		peek, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
 		resp.Body = struct {
@@ -724,6 +727,31 @@ func (r *Router) failover(resp *http.Response, t providers.Target, last bool) (m
 	}
 	drain(resp)
 	return true, hard
+}
+
+// promptTooLong matches the upstream limit text, e.g. "prompt is too long: 1177204 tokens > 1000000 maximum".
+var promptTooLong = regexp.MustCompile(`prompt is too long(: \d+ tokens > \d+ maximum)?`)
+
+// tooLong rewrites a 400 "prompt is too long" into the router's invalid_request_error, quoting only the limit text.
+func tooLong(resp *http.Response) bool {
+	if resp.StatusCode != http.StatusBadRequest {
+		return false
+	}
+	peek, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+	resp.Body = struct {
+		io.Reader
+		io.Closer
+	}{io.MultiReader(bytes.NewReader(peek), resp.Body), resp.Body}
+	m := promptTooLong.Find(peek)
+	if m == nil {
+		return false
+	}
+	drain(resp)
+	body := errorBody(http.StatusBadRequest, string(m))
+	resp.Body = io.NopCloser(bytes.NewReader(body))
+	resp.ContentLength = int64(len(body))
+	resp.Header = http.Header{"Content-Type": {"application/json"}}
+	return true
 }
 
 func retryAfter(v string, now time.Time) time.Duration {

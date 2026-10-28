@@ -7,6 +7,8 @@ package secrets
 import (
 	"regexp"
 	"strings"
+
+	"github.com/edotau/claude-code/internal/secrets/shapes"
 )
 
 // Exit codes shared by every audit (scan/git/doctor/all): 0 clean, 1 finding(s), 2 usage error.
@@ -37,7 +39,7 @@ func looksLikeSecret(val string, generic bool) bool {
 	case strings.ContainsAny(val, "<>") || strings.Contains(val, "PLACEHOLDER") ||
 		strings.Contains(val, "YOUR_") || strings.Contains(val, "xxx"):
 		return false
-	case strings.HasPrefix(val, "ghp_") || strings.HasPrefix(val, "github_pat_") || strings.HasPrefix(val, "gho_"):
+	case shapes.HasGitHubPrefix(val):
 		return true
 	case matchSlack(val):
 		return true
@@ -64,6 +66,6 @@ func matchSlack(v string) bool {
 // isolated first; narrower than LooksLikeSecret (no bare base64 rule) to avoid flooding history scans
 // with incidental base64 blobs.
 var secretPattern = regexp.MustCompile(
-	`(ghp_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|gho_[A-Za-z0-9]{20,}|` +
+	`(` + shapes.GitHubPattern(20) + `|` +
 		`xox[baprs]-[A-Za-z0-9-]{10,}|AKIA[0-9A-Z]{16}|sk-[A-Za-z0-9_-]{20,}|` +
 		`eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,})`)

@@ -14,6 +14,17 @@ type Target struct {
 	OneM     bool   // the user typed [1m]; ClientModel keeps it as typed
 }
 
+// ClientModel is t's id on its own provider: [1m]-marked as typed, or where the provider serves 1M.
+func (t Target) ClientModel() string {
+	if t.OneM {
+		return t.Model + "[1m]"
+	}
+	if t.Provider != nil && t.Provider.OneM {
+		return models.MaybeAdd1M(t.Model)
+	}
+	return t.Model
+}
+
 // Spec is the "provider:model" form Claude Code sees for a cross-provider slot and the router parses back.
 func (t Target) Spec() string { return t.Provider.Name + ":" + t.Model }
 
@@ -89,13 +100,7 @@ func (s Selection) ClientModel(slot string) string {
 		}
 		return t.Spec()
 	}
-	if t.OneM {
-		return t.Model + "[1m]"
-	}
-	if t.Provider.OneM {
-		return models.MaybeAdd1M(t.Model)
-	}
-	return t.Model
+	return t.ClientModel()
 }
 
 // NeedsRouter reports whether the session must go through the loopback router: a slot crosses

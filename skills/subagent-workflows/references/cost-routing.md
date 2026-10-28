@@ -47,6 +47,9 @@ from `--model`, else the task classifier), including the Claude leg.
   - `available` — runner binary or login credentials missing.
   - `account` — Copilot runs on the pinned `COPILOT_GITHUB_USER` only: unpinned, or a pin that is not a gh login,
     drops it (never another account; `claude-code configure github` changes it).
+  - Copilot credit gate — the GitHub login runs only with credits verified < 95%; otherwise (or unverified) the leg
+    uses the vault's Databricks profile (`HARNESS_PROVIDER` pin if Databricks, else first OK dev/qa/prod) and prints
+    `copilot: <user> N% of credits used — using databricks profile <p>`. Never a GitHub leg, never a bill.
   - `exhausted` — 100% of window used, or a remembered quota failure (`402`, monthly quota, usage limit).
 - **Scoring**: `total = 0.5 * price + 0.5 * headroom` (0–1 each); a subscription's price is its window share left,
   and an account bills the backend the runner actually resolves (codex on an API key = `codex:openai`).
@@ -58,15 +61,22 @@ from `--model`, else the task classifier), including the Claude leg.
   passes gates; other vendor candidates follow sorted by score; Claude runs last under `all`. `vendors` stops
   before Claude; `none` fails fast. `review` always falls back across vendors only, never to Claude. `--format json`
   reports `fallback`/`fallback_reason`; non-empty `fallback` goes on the `Ran on:` line, never hidden.
-- **Inspection verb**: `claude-code gateway route [--tier T] [--agent a] [--task "<text>"] [--fallback all|vendors|none]`
+- **Inspection verb**:
+  `claude-code gateway route [--tier T] [--agent a] [--task "<text>"] [--fallback all|vendors|none]`
   `[--format text|json]` prints the pick, per-dimension scores, weights, total, and skip gates; never dispatches.
 - **Pressure hooks & workflows**: `agent-effort` hook checks Anthropic quota (>=90% of 5h/weekly window downshifts
   an unset subagent model one tier; >=97% moves code-worker/Explore to `coworker` at haiku with routed runner
   prepended; opt-out via `HARNESS_ROUTE_SUBAGENTS=0`). The `code-agent` Workflow with no `args.leg` picks via
-  `claude-code gateway route --format json`. Finding (2026-10-25): that hook only rewrites an *unset* dispatch model, so it
+  `claude-code gateway route --format json`. Finding (2026-10-25): that hook only rewrites an *unset* dispatch model, so
+  it
   never reached the saved Workflows (`workflows/*.js`), which pin every stage explicitly for `workflow-lint`; each
-  script now reads `claude-code gateway route --agent claude --fallback none` once itself and downshifts its own pins under
+  script now reads `claude-code gateway route --agent claude --fallback none` once itself and downshifts its own pins
+  under
   pressure (`saved-workflows.md`).
+- **Copilot on Databricks** — legs follow the session's `<provider>·<profile>` via router `/p/<profile>` (BYOK,
+  `COPILOT_OFFLINE=true`, no credits); `--model <profile>:<tier>` works; prompt cap = window − 32k − 10% (≈148k on 200k,
+  ≈868k on a `one_m` profile). Headless mid-task quota writes a handoff in `memory/<bank>/handoffs` and resumes once on
+  Databricks, else returns `KindQuota` with `handoff` in the JSON envelope; interactive copilot cannot hand off.
 - **Explicit backend** (`--provider`, `provider:model`): one leg, no fallback, but gated and marked on its own account.
 - **Credential route** (`internal/vendors/routes.go`, `<vendor> setup` → route row): opencode uses its own `opencode`
   login (Go plan; else the vault `OPENCODE_API_KEY`), then its GitHub Copilot login; copilot its pinned GitHub login,

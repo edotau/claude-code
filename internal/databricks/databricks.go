@@ -3,6 +3,7 @@ package databricks
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -301,9 +302,9 @@ func launch(self string, p Plan) int {
 }
 
 // capture runs one prompt through the provider and returns combined stdout+stderr (a start error is appended).
-func capture(self string, p Plan, prompt string, stdin io.Reader) string {
+func capture(self string, p Plan, prompt string, stdin io.Reader, extra ...string) string {
 	var buf bytes.Buffer
-	argv := []string{"--provider", p.Provider, "--model", p.Model, "-p", prompt}
+	argv := append([]string{"--provider", p.Provider, "--model", p.Model, "-p", prompt}, extra...)
 	if _, err := spawn(self, argv, childEnv(p), stdin, &buf, &buf); err != nil {
 		fmt.Fprint(&buf, err)
 	}
@@ -325,13 +326,38 @@ func check(self string, p Plan) int {
 	}
 	body := needleBody()
 	fmt.Printf("== 1m: ~300K tokens, needle at the end (%d bytes)\n", len(body))
-	if out := capture(self, p, needlePrompt, strings.NewReader(body)); strings.Contains(out, needleWord) {
-		fmt.Println("PASS 1m")
-	} else {
-		fmt.Printf("FAIL 1m: %s\n", tail(out, 5))
+	out := capture(self, p, needlePrompt, strings.NewReader(body), "--output-format", "json")
+	text, tokens := parseUsage(out)
+	switch {
+	case !strings.Contains(text, needleWord):
+		fmt.Printf("FAIL 1m: needle not found: %s\n", tail(out, 5))
 		rc = 1
+	case tokens <= bigTokens:
+		fmt.Printf("FAIL 1m: input_tokens=%d, want > %d (the 1M window is not in effect)\n", tokens, bigTokens)
+		rc = 1
+	default:
+		fmt.Printf("1m PASS (input_tokens=%d)\n", tokens)
 	}
 	return rc
+}
+
+// bigTokens is the standard context window; a real 1M path must report more input tokens than this.
+const bigTokens = 200_000
+
+// parseUsage reads claude's --output-format json result: the reply and input tokens (cache create/read included).
+func parseUsage(out string) (text string, tokens int) {
+	var raw struct {
+		Result string `json:"result"`
+		Usage  struct {
+			In     int `json:"input_tokens"`
+			Create int `json:"cache_creation_input_tokens"`
+			Read   int `json:"cache_read_input_tokens"`
+		} `json:"usage"`
+	}
+	if json.Unmarshal([]byte(lastLine(out)), &raw) != nil {
+		return out, 0
+	}
+	return raw.Result, raw.Usage.In + raw.Usage.Create + raw.Usage.Read
 }
 
 // needleBody is fillerBytes of repeated sentence followed by the needle line.

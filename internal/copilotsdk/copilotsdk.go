@@ -293,10 +293,12 @@ func Ask(ctx context.Context, o Options, prompt string) (result Result, err erro
 		msgOpts.AgentMode = copilot.AgentModeAutopilot
 	}
 	start := time.Now()
-	if _, err := session.SendAndWait(ctx, msgOpts); err != nil {
-		return Result{}, fmt.Errorf("send prompt: %w", err)
-	}
+	_, sendErr := session.SendAndWait(ctx, msgOpts)
 	mu.Lock()
 	defer mu.Unlock()
-	return Result{Text: strings.TrimSpace(text.String()), SessionID: session.SessionID, Model: model, Duration: time.Since(start)}, nil
+	res := Result{Text: strings.TrimSpace(text.String()), SessionID: session.SessionID, Model: model, Duration: time.Since(start)}
+	if sendErr != nil { // the partial text and session id still ride back, so a caller can hand the task off
+		return res, fmt.Errorf("send prompt: %w", sendErr)
+	}
+	return res, nil
 }
