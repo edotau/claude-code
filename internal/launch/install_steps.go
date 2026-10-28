@@ -15,6 +15,7 @@ import (
 	"github.com/edotau/claude-code/internal/clipboard"
 	"github.com/edotau/claude-code/internal/completion"
 	"github.com/edotau/claude-code/internal/crossgen"
+	"github.com/edotau/claude-code/internal/generate"
 	"github.com/edotau/claude-code/internal/history"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/settings"
@@ -49,6 +50,9 @@ func installVerbose(w io.Writer, dryRun bool) error {
 		fmt.Fprintf(w, "settings (windows) skip  %v\n", werr)
 	}
 	syncVendors(w, dryRun)
+	if !dryRun {
+		fmt.Fprintf(w, "agents   %s\n", agentConfigsSummary(w))
+	}
 	installGitHooks(w, dryRun)
 	if settingsErr != nil {
 		fmt.Fprintf(w, "settings skip  %v (syncVendors and installGitHooks still ran)\n", settingsErr)
@@ -319,10 +323,41 @@ func windowsSettingsCompact(w io.Writer) {
 // the sync's own failure note in full.
 func agentsSyncCompact(w io.Writer) {
 	if rc := crossgen.Sync(crossgen.SyncOptions{Out: io.Discard}); rc != 0 {
-		fmt.Fprintf(w, "agents   sync exit %d — run `claude-code agents sync` for details\n", rc)
+		fmt.Fprintf(w, "agents   sync exit %d (see `claude-code agents sync`) · %s\n", rc, agentConfigsSummary(w))
 		return
 	}
-	fmt.Fprintf(w, "agents   synced: %s\n", strings.Join(crossgen.VendorNames(), " "))
+	fmt.Fprintf(w, "agents   synced: %s · %s\n", strings.Join(crossgen.VendorNames(), " "), agentConfigsSummary(w))
+}
+
+// agentConfigsSummary re-renders the agent configs `configure --reset` writes (codex, opencode, gemini, copilot) and
+// returns a one-token summary; best-effort, so a render failure warns on w and never fails install.
+func agentConfigsSummary(w io.Writer) string {
+	var changed []string
+	for _, a := range generate.DefaultAgents {
+		var buf bytes.Buffer
+		o := generate.Options{Agents: []string{a}, Check: true, Out: &buf}
+		drift, err := generate.Run(o)
+		if err != nil {
+			fmt.Fprintf(w, "agents   config render skip (%s)  %v\n", a, err)
+			continue
+		}
+		if strings.Contains(buf.String(), "skipping agent configs") {
+			return "configs skipped"
+		}
+		if !drift {
+			continue
+		}
+		o.Check = false
+		if _, err := generate.Run(o); err != nil {
+			fmt.Fprintf(w, "agents   config render skip (%s)  %v\n", a, err)
+			continue
+		}
+		changed = append(changed, a)
+	}
+	if len(changed) == 0 {
+		return "configs unchanged"
+	}
+	return "configs rendered: " + strings.Join(changed, " ")
 }
 
 // extrasCompact runs the completion, clipboard-proxy and tmux-seed steps and returns their one-line summary;
