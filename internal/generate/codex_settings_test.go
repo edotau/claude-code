@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/edotau/claude-code/internal/codexsettings"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -220,5 +221,88 @@ func TestCodexPreferencesQuotedKeyIdentity(t *testing.T) {
 	next, err := patchCodexSettings(raw, map[string]string{"model_verbosity": "low"})
 	if err != nil || !strings.Contains(next, foreign) || strings.Contains(next, "'high'") {
 		t.Fatalf("quoted key identity was lost: %v", err)
+	}
+}
+
+func TestCodexRestoreMissingOriginalKeepsSymlinkTarget(t *testing.T) {
+	vaulttest.Use(t)
+	home := t.TempDir()
+	path := filepath.Join(home, ".codex", "config.toml")
+	if err := codexsettings.SaveOverlay(map[string]string{"model_verbosity": "low"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := ApplyCodexSettings(home); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(t.TempDir(), "tracked.toml")
+	if err := os.WriteFile(target, []byte("model = 'keep'\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, path); err != nil {
+		t.Fatal(err)
+	}
+	if err := Revert(Options{Home: home, Agents: []string{"codex"}, Out: io.Discard}); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := os.ReadFile(target); err != nil || string(got) != "model = 'keep'\n" {
+		t.Fatalf("restore deleted the symlink target: %v", err)
+	}
+	if _, err := os.Lstat(path); !os.IsNotExist(err) {
+		t.Fatalf("restore left the config link behind: %v", err)
+	}
+}
+
+func TestCodexLockIsSharedAcrossSymlinks(t *testing.T) {
+	dir := t.TempDir()
+	real := filepath.Join(dir, "real.toml")
+	a, b := filepath.Join(dir, "a.toml"), filepath.Join(dir, "b.toml")
+	if err := os.WriteFile(real, []byte("x = 1\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	for _, l := range []string{a, b} {
+		if err := os.Symlink(real, l); err != nil {
+			t.Fatal(err)
+		}
+	}
+	held, release, done := make(chan struct{}), make(chan struct{}), make(chan struct{})
+	go func() {
+		_ = withCodexLock(a, func() error { close(held); <-release; return nil })
+	}()
+	<-held
+	go func() {
+		_ = withCodexLock(b, func() error { return nil })
+		close(done)
+	}()
+	select {
+	case <-done:
+		t.Fatal("second symlink took a different lock while the first was held")
+	case <-time.After(300 * time.Millisecond):
+	}
+	close(release)
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("second symlink never acquired the lock")
+	}
+}
+
+func TestCodexPreferenceParserAcceptsMultilineStrings(t *testing.T) {
+	for _, value := range []string{"'''low'''", `"""low"""`, "'''\nlow'''", "\"\"\"\nlow\n\"\"\" # c"} {
+		raw := "model_verbosity = " + value + "\nmodel = 'x'\n"
+		got, err := readCodexSettings(raw)
+		want := "low"
+		if strings.Contains(value, "\nlow\n") {
+			want = "low\n"
+		}
+		if err != nil || got["model_verbosity"] != want {
+			t.Fatalf("%q: got %q, %v", value, got["model_verbosity"], err)
+		}
+	}
+	next, err := patchCodexSettings("model_verbosity = '''high'''\n", map[string]string{"model_verbosity": "low"})
+	if err != nil || strings.Contains(next, "high") || !strings.Contains(next, `model_verbosity = "low"`) {
+		t.Fatalf("multiline native value not replaced in existing style: %q, %v", next, err)
 	}
 }

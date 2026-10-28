@@ -189,21 +189,24 @@ func Revert(o Options) error {
 	return nil
 }
 
+// legacyBackupSource picks the newest "<path>.backup.<stamp>" version, else the plain ".backup" if present.
+func legacyBackupSource(path string) (src string, stepBack, ok bool) {
+	if versions, err := versionsOf(path); err == nil && len(versions) > 0 {
+		return versions[0], true, true
+	}
+	src = path + ".backup"
+	_, err := os.Stat(src)
+	return src, false, err == nil
+}
+
 // revertOne restores path from its newest "<path>.backup.<stamp>" version, or the plain ".backup"
 // when no version remains, and removes a restored version so the next revert goes further back.
 func revertOne(label, path string, dryRun bool, out io.Writer) error {
 	if label == "codex" {
 		return restoreCodexConfig(path, dryRun, out)
 	}
-	versions, err := versionsOf(path)
-	if err != nil {
-		return fmt.Errorf("%s: %w", label, err)
-	}
-	src := path + ".backup"
-	stepBack := false
-	if len(versions) > 0 {
-		src, stepBack = versions[0], true
-	} else if _, err := os.Stat(src); err != nil {
+	src, stepBack, ok := legacyBackupSource(path)
+	if !ok {
 		fmt.Fprintf(out, "%s: no backup to revert for %s\n", label, path)
 		return nil
 	}

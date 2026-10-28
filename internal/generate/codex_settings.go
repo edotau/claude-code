@@ -94,6 +94,7 @@ func ReadCodexSettings(home string) (map[string]string, error) {
 
 func readCodexSettings(raw string) (map[string]string, error) {
 	values := map[string]string{}
+	pendingKey, pending := "", ""
 	lines := strings.SplitAfter(raw, "\n")
 	if index := firstTopLevelHeaderIndex(lines); index >= 0 {
 		lines = lines[:index]
@@ -101,29 +102,74 @@ func readCodexSettings(raw string) (map[string]string, error) {
 	multiline, depth := "", 0
 	for _, line := range lines {
 		if multiline == "" && depth == 0 {
-			key, value, ok := strings.Cut(strings.TrimSpace(line), "=")
-			if ok {
-				key = tomlKeyName(key)
-				for _, field := range codexsettings.Fields() {
-					if field.Key != key {
-						continue
-					}
-					parsed, err := codexSettingString(strings.TrimSpace(value))
-					if err != nil {
-						return nil, fmt.Errorf("codex: cannot read %s as a string", key)
-					}
+			if key, value, ok := codexFieldLine(line); ok {
+				parsed, err := codexSettingString(value)
+				if errors.Is(err, errOpenString) {
+					pendingKey, pending = key, value
+				} else if err != nil {
+					return nil, fmt.Errorf("codex: cannot read %s as a string", key)
+				} else {
 					values[key] = parsed
 				}
 			}
+		} else if pendingKey != "" {
+			pending += line
 		}
 		multiline, depth = tomlLineState(line, multiline, depth)
+		if pendingKey != "" && multiline == "" {
+			parsed, err := codexSettingString(pending)
+			if err != nil {
+				return nil, fmt.Errorf("codex: cannot read %s as a string", pendingKey)
+			}
+			values[pendingKey], pendingKey = parsed, ""
+		}
 	}
 	return values, nil
 }
 
+// codexFieldLine splits a "key = value" line whose key is a supported preference.
+func codexFieldLine(line string) (key, value string, ok bool) {
+	key, value, ok = strings.Cut(strings.TrimSpace(line), "=")
+	if !ok {
+		return "", "", false
+	}
+	key = tomlKeyName(key)
+	for _, field := range codexsettings.Fields() {
+		if field.Key == key {
+			return key, strings.TrimSpace(value), true
+		}
+	}
+	return "", "", false
+}
+
+var errOpenString = errors.New("unterminated multiline string")
+
+// codexTripleString parses a TOML triple-quoted string at the start of value, trimming the first newline.
+func codexTripleString(value string) (parsed, rest string, err error) {
+	quote := value[:3]
+	end := strings.Index(value[3:], quote)
+	if end < 0 {
+		return "", "", errOpenString
+	}
+	body := strings.TrimPrefix(strings.TrimPrefix(value[3:3+end], "\r"), "\n")
+	rest = value[3+end+3:]
+	if quote == "\"\"\"" {
+		body = strings.ReplaceAll(strings.ReplaceAll(body, "\r", ""), "\n", `\n`)
+		if body, err = strconv.Unquote(`"` + strings.ReplaceAll(body, `"`, `\"`) + `"`); err != nil {
+			return "", "", err
+		}
+	}
+	return body, rest, nil
+}
+
 func codexSettingString(value string) (string, error) {
 	var parsed, rest string
-	if strings.HasPrefix(value, "'") {
+	if strings.HasPrefix(value, "\"\"\"") || strings.HasPrefix(value, "'''") {
+		var err error
+		if parsed, rest, err = codexTripleString(value); err != nil {
+			return "", err
+		}
+	} else if strings.HasPrefix(value, "'") {
 		end := strings.IndexByte(value[1:], '\'')
 		if end < 0 {
 			return "", errors.New("unterminated literal string")
@@ -206,8 +252,25 @@ func codexWriteTarget(path string) (string, error) {
 	return path, nil
 }
 
+// withCodexLock locks the canonical config file so every symlink to it shares one lock.
+func withCodexLock(path string, fn func() error) error {
+	canon, err := codexWriteTarget(path)
+	if errors.Is(err, os.ErrNotExist) {
+		canon, err = path, nil // dangling link: lock the link path itself
+	}
+	if err != nil {
+		return err
+	}
+	return paths.WithFileLock(canon, func() error {
+		if now, err := codexWriteTarget(path); (err == nil && now != canon) || (err != nil && canon != path) {
+			return errors.New("codex: config symlink changed before lock; retry")
+		}
+		return fn()
+	})
+}
+
 func writeCodexConfig(path string, old, next []byte, existed bool) error {
-	return paths.WithFileLock(path, func() error {
+	return withCodexLock(path, func() error {
 		target, err := codexWriteTarget(path)
 		if err != nil {
 			return err
@@ -246,7 +309,7 @@ func restoreCodexConfig(path string, dryRun bool, out io.Writer) error {
 	if dryRun {
 		return restoreCodexConfigLocked(path, true, out)
 	}
-	return paths.WithFileLock(path, func() error { return restoreCodexConfigLocked(path, false, out) })
+	return withCodexLock(path, func() error { return restoreCodexConfigLocked(path, false, out) })
 }
 
 func restoreCodexConfigLocked(path string, dryRun bool, out io.Writer) error {
@@ -254,12 +317,24 @@ func restoreCodexConfigLocked(path string, dryRun bool, out io.Writer) error {
 	if err != nil {
 		return err
 	}
+	source := "encrypted vault backup"
 	if !found {
-		fmt.Fprintf(out, "codex: no vault backup to restore for %s\n", path)
-		return nil
+		src, _, ok := legacyBackupSource(path)
+		if !ok {
+			fmt.Fprintf(out, "codex: no vault backup to restore for %s\n", path)
+			return nil
+		}
+		source = "legacy plaintext backup " + src
+		if !dryRun {
+			data, err := os.ReadFile(src)
+			if err != nil {
+				return err
+			}
+			backup = codexsettings.ConfigBackup{Data: data, Existed: true}
+		}
 	}
 	if dryRun {
-		fmt.Fprintf(out, "codex: would restore %s from encrypted vault backup\n", path)
+		fmt.Fprintf(out, "codex: would restore %s from %s\n", path, source)
 		return nil
 	}
 	overlay := map[string]string{}
@@ -284,7 +359,7 @@ func restoreCodexConfigLocked(path string, dryRun bool, out io.Writer) error {
 		if err := paths.AtomicWrite(target, backup.Data, 0o600); err != nil {
 			return err
 		}
-	} else if err := os.Remove(target); err != nil && !errors.Is(err, os.ErrNotExist) {
+	} else if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
 	if err := codexsettings.SaveOverlay(overlay); err != nil {
@@ -293,9 +368,11 @@ func restoreCodexConfigLocked(path string, dryRun bool, out io.Writer) error {
 	if err := codexsettings.SaveBaseline(path, backup.Data); err != nil {
 		return err
 	}
-	if err := codexsettings.ConsumeBackup(backup.Name); err != nil {
-		return err
+	if backup.Name != "" { // legacy files are left in place
+		if err := codexsettings.ConsumeBackup(backup.Name); err != nil {
+			return err
+		}
 	}
-	fmt.Fprintf(out, "codex: restored %s from encrypted vault backup\n", path)
+	fmt.Fprintf(out, "codex: restored %s from %s\n", path, source)
 	return nil
 }
