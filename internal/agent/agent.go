@@ -29,9 +29,9 @@ type Request struct {
 	KeepEnv                                             []string // names the credential scrub must not drop, from --keep-env
 	Tools, Autonomous, EnableMemory, Direct             bool     // Direct: agent keeps the provider route, skips the router
 	NoTools                                             bool     // claude only: answer from the provider directly, no claude process
-	NoPersist                                           bool     // claude: --no-session-persistence
-	SafeMode                                            bool     // claude: --safe-mode (no hooks/plugins/customizations)
-	DebugFile                                           string   // claude: --debug-file <path>
+	NoPersist                                           bool     // claude, codex: no session persistence
+	SafeMode                                            bool     // claude, codex, opencode: no hooks/plugins/customizations
+	DebugFile                                           string   // claude, gemini: debug log at <path>
 	Timeout                                             time.Duration
 }
 
