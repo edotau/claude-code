@@ -117,7 +117,7 @@ func TestPlan(t *testing.T) {
 
 func TestApplyAndSecretName(t *testing.T) {
 	top := map[string]json.RawMessage{"default": json.RawMessage(`"x"`)}
-	rows := []Row{{Candidate: Candidate{Host: "https://h.example.com", Auth: providers.AuthM2M, ClientID: "c"}, ID: "my-sp", Action: "add"}}
+	rows := []Row{{Host: "https://h.example.com", Auth: providers.AuthM2M, ClientID: "c", ID: "my-sp", Action: "add"}}
 	if err := Apply(top, rows); err != nil {
 		t.Fatal(err)
 	}

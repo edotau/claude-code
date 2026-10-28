@@ -92,7 +92,7 @@ func TestMatrix(t *testing.T) {
 // checkTOML is a dependency-free sanity pass: every non-comment line is blank, a [table], or key = value.
 func checkTOML(t *testing.T, name, text string) {
 	t.Helper()
-	for _, l := range strings.Split(text, "\n") {
+	for l := range strings.SplitSeq(text, "\n") {
 		l = strings.TrimSpace(l)
 		if l == "" || strings.HasPrefix(l, "#") {
 			continue

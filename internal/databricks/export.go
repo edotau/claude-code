@@ -124,13 +124,13 @@ func writeFile0600(path, text string, force bool) error {
 		return err
 	}
 	name := tmp.Name()
-	defer os.Remove(name) // no-op after a successful rename
+	defer func() { _ = os.Remove(name) }() // no-op after a successful rename
 	if err := tmp.Chmod(0o600); err != nil {
-		tmp.Close()
+		_ = tmp.Close()
 		return err
 	}
 	if _, err := io.WriteString(tmp, text); err != nil {
-		tmp.Close()
+		_ = tmp.Close()
 		return err
 	}
 	if err := tmp.Close(); err != nil {

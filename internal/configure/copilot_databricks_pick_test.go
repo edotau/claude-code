@@ -18,8 +18,8 @@ func TestPickCopilotModelDatabricksStoresCanonicalID(t *testing.T) {
 		Databricks: true,
 		Source:     "dev serving endpoints",
 		Rows: []vendoragent.CopilotModel{
-			{ModelInfo: providers.ModelInfo{ID: "databricks-kimi-k3"}, Tested: true},
-			{ModelInfo: providers.ModelInfo{ID: "databricks-gpt-6-1-sol"}},
+			{ID: "databricks-kimi-k3", Tested: true},
+			{ID: "databricks-gpt-6-1-sol"},
 		},
 	}
 	orig := copilotSourceFn
@@ -39,7 +39,7 @@ func TestPickCopilotModelDatabricksStoresCanonicalID(t *testing.T) {
 		}
 	}
 	choice := 0
-	for _, line := range strings.Split(shown, "\n") {
+	for line := range strings.SplitSeq(shown, "\n") {
 		var n int
 		var id string
 		if _, err := fmt.Sscanf(strings.TrimSpace(line), "%d) %s", &n, &id); err == nil && id == "databricks-kimi-k3" {

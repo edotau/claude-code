@@ -34,6 +34,3 @@ func TestValidateRejectsCredentialSegmentEnvKeys(t *testing.T) {
 		}
 	}
 }
-
-const sessionProviders = `"gw":{"protocol":"anthropic","base_url":"https://gw.example/anthropic","auth":{"type":"none"},"models":{"opus":"o","sonnet":"s"}},` +
-	`"plain":{"protocol":"anthropic","base_url":"https://plain.example/anthropic","auth":{"type":"none"},"models":{"opus":"o"}}`

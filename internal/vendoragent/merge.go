@@ -2,6 +2,7 @@ package vendoragent
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 )
 
@@ -46,7 +47,7 @@ func MergeReports(adversarial bool, parts []Part, answers []string) string {
 	if adversarial {
 		head = cleanVerdict
 		if hasFindings(body.String()) {
-			head = "VERDICT: findings across " + fmt.Sprint(len(parts)) + " parts"
+			head = "VERDICT: findings across " + strconv.Itoa(len(parts)) + " parts"
 		}
 	} else if head == "" {
 		head = "NEEDS WORK" // no part gave a parseable verdict: do not report SHIP IT by default

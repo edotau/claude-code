@@ -2,6 +2,7 @@ package databricks
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"slices"
@@ -188,7 +189,7 @@ func pickToggle(title, doneNote string, labels [][2]string) ([]bool, error) {
 		}
 		switch {
 		case i < 0:
-			return nil, fmt.Errorf("cancelled")
+			return nil, errors.New("cancelled")
 		case i == len(labels):
 			return on, nil
 		}

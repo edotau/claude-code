@@ -198,8 +198,8 @@ func sections(diff string) []unit {
 func sectionPath(l string) (string, bool) {
 	l = strings.TrimRight(l, "\n")
 	if rest, ok := strings.CutPrefix(l, "diff --git "); ok {
-		if i := strings.LastIndex(rest, " b/"); i >= 0 {
-			return rest[i+3:], true
+		if _, after, ok := strings.CutLast(rest, " b/"); ok {
+			return after, true
 		}
 		return rest, true
 	}

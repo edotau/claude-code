@@ -195,7 +195,7 @@ func TestLoginU2MHeadlessPrintsURL(t *testing.T) {
 	errc := make(chan error, 1)
 	inner := drive(t, "c", same, errc)
 	// Open fails after starting the callback: URL must go to Out.
-	open := func(a string) error { _ = inner(a); return fmt.Errorf("no browser") }
+	open := func(a string) error { _ = inner(a); return errors.New("no browser") }
 	if _, err := LoginU2M(context.Background(), srv.URL, LoginOptions{Open: open, Out: &out, Port: freePort(t), Timeout: 10 * time.Second}); err != nil {
 		t.Fatal(err)
 	}
@@ -301,13 +301,11 @@ func TestMintM2MSerializedPerHost(t *testing.T) {
 	defer srv.Close()
 	var wg sync.WaitGroup
 	for range 4 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			if _, err := MintM2M(context.Background(), srv.URL, "id", "s"); err != nil {
 				t.Error(err)
 			}
-		}()
+		})
 	}
 	wg.Wait()
 	if peak.Load() != 1 || total.Load() != 4 {

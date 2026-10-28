@@ -82,8 +82,8 @@ var authRejectionCodes = []string{"invalid_client", "unauthorized_client", "inva
 
 // IsLoginRequired reports a token-endpoint rejection a fresh browser login fixes; transport, 429 and 5xx are not.
 func IsLoginRequired(err error) bool {
-	var oe *oauthError
-	return errors.As(err, &oe) && slices.Contains(authRejectionCodes, oe.Code)
+	oe, ok := errors.AsType[*oauthError](err)
+	return ok && slices.Contains(authRejectionCodes, oe.Code)
 }
 
 // retryPolicy says which token-endpoint failures a grant may repeat.
@@ -118,7 +118,7 @@ func (f failure) retryable(pol retryPolicy) bool {
 // postToken POSTs a form to the host's token endpoint, retrying what the policy allows, twice.
 func postToken(ctx context.Context, host, op string, form url.Values, basicID, basicSecret string, pol retryPolicy) (Token, error) {
 	var lastErr error
-	for attempt := 0; attempt < 3; attempt++ {
+	for attempt := range 3 {
 		if attempt > 0 {
 			select {
 			case <-ctx.Done():
@@ -155,8 +155,7 @@ func postTokenOnce(ctx context.Context, host, op string, form url.Values, basicI
 	if err != nil {
 		// url.Error embeds the URL only (no form body); keep just the cause.
 		cause := err
-		var ue *url.Error
-		if errors.As(err, &ue) {
+		if ue, ok := errors.AsType[*url.Error](err); ok {
 			cause = ue.Err
 		}
 		return Token{}, failure{transport: true, sent: wrote.Load()},
@@ -253,6 +252,6 @@ func MintM2M(ctx context.Context, host, clientID, clientSecret string) (Token, e
 
 // IsRejected reports a token endpoint that answered 401 or 403 (credentials refused, not a transient failure).
 func IsRejected(err error) bool {
-	var oe *oauthError
-	return errors.As(err, &oe) && (oe.Status == http.StatusUnauthorized || oe.Status == http.StatusForbidden)
+	oe, ok := errors.AsType[*oauthError](err)
+	return ok && (oe.Status == http.StatusUnauthorized || oe.Status == http.StatusForbidden)
 }

@@ -44,7 +44,7 @@ func herd(p *Provider, n int) ([]string, []error) {
 	vals, errs := make([]string, n), make([]error, n)
 	var wg sync.WaitGroup
 	start := make(chan struct{})
-	for i := 0; i < n; i++ {
+	for i := range n {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()

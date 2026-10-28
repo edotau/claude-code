@@ -117,7 +117,7 @@ func TestPrintRouteWidthsComeFromData(t *testing.T) {
 		}}
 	_, out, _ := captureOutput(t, func() int { printRoute(res, routeSources{}); return 0 })
 	var rows []string
-	for _, l := range strings.Split(out, "\n") {
+	for l := range strings.SplitSeq(out, "\n") {
 		if strings.HasPrefix(l, "#") || strings.HasPrefix(l, "1 ") || strings.HasPrefix(l, "2 ") {
 			rows = append(rows, l)
 		}

@@ -13,8 +13,7 @@ func TestAnthropicSecretMissingNamesKey(t *testing.T) {
 	vaulttest.Use(t)
 	const name = "NOPE_ABSENT_KEY_XYZ"
 	t.Setenv(name, "")
-	o := launch.AnthropicOptions{Mode: launch.AuthOAuth, Name: name}
-	o.PrintEnv = true
+	o := launch.AnthropicOptions{Mode: launch.AuthOAuth, Name: name, PrintEnv: true}
 	_, err := anthropicSecret(o)
 	if err == nil || !strings.Contains(err.Error(), name+" is not in the vault") {
 		t.Fatalf("err = %v", err)

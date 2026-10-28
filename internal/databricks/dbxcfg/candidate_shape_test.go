@@ -13,9 +13,8 @@ var secretish = regexp.MustCompile(`(?i)token|secret|password|passwd|pat$|bearer
 
 // Candidate must be structurally unable to carry a secret: no secret-named string field, only presence flags.
 func TestCandidateHasNoSecretBearingField(t *testing.T) {
-	typ := reflect.TypeOf(Candidate{})
-	for i := range typ.NumField() {
-		f := typ.Field(i)
+	typ := reflect.TypeFor[Candidate]()
+	for f := range typ.Fields() {
 		if secretish.MatchString(f.Name) && f.Type.Kind() != reflect.Bool {
 			t.Errorf("Candidate.%s (%s) looks secret-bearing", f.Name, f.Type)
 		}

@@ -3,6 +3,7 @@ package mutate
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/json"
 	"errors"
@@ -70,8 +71,7 @@ func Classify(out string, runErr error) (Verdict, string) {
 	if runErr == nil {
 		return Vacuous, ""
 	}
-	var ee *exec.ExitError
-	if !errors.As(runErr, &ee) {
+	if _, ok := errors.AsType[*exec.ExitError](runErr); !ok {
 		return Invalid, ""
 	}
 	if m := failPkg.FindStringSubmatch(out); m != nil {
@@ -110,7 +110,7 @@ func Check(o Options) (Result, error) {
 	if err != nil {
 		return Result{Verdict: Invalid}, err
 	}
-	defer os.RemoveAll(tmp)
+	defer func() { _ = os.RemoveAll(tmp) }()
 	copyPath := filepath.Join(tmp, filepath.Base(abs))
 	if err := os.WriteFile(copyPath, []byte(mutated), 0o600); err != nil {
 		return Result{Verdict: Invalid}, err
@@ -124,7 +124,7 @@ func Check(o Options) (Result, error) {
 	if o.Run != "" {
 		args = append(args, "-run", o.Run)
 	}
-	cmd := exec.Command("go", append(args, o.Pkgs...)...)
+	cmd := exec.CommandContext(context.Background(), "go", append(args, o.Pkgs...)...)
 	cmd.Dir = o.Dir
 	var buf bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &buf, &buf

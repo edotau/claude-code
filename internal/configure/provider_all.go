@@ -97,11 +97,9 @@ func allCheckAll(ctx context.Context, reg *providers.Registry, rows []string) []
 	out := make([]AllRowStatus, len(rows))
 	var wg sync.WaitGroup
 	for i, n := range rows {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			out[i] = allCheckOne(ctx, namedProvider(n, reg.Providers[n]))
-		}()
+		})
 	}
 	wg.Wait()
 	return out

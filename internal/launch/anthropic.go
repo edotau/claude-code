@@ -2,6 +2,7 @@ package launch
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"regexp"
 	"strings"
@@ -54,7 +55,7 @@ func ParseAnthropicArgs(args []string) (AnthropicOptions, []string, error) {
 			return o, nil, fmt.Errorf("%s given more than once; pass it a single time", name)
 		}
 		if o.Mode != AuthLogin {
-			return o, nil, fmt.Errorf("--oauth and --x-api-key cannot be combined; pick one auth mode")
+			return o, nil, errors.New("--oauth and --x-api-key cannot be combined; pick one auth mode")
 		}
 		if hasVal {
 			if err := checkKeyName(name, val); err != nil {
@@ -69,7 +70,7 @@ func ParseAnthropicArgs(args []string) (AnthropicOptions, []string, error) {
 		return o, nil, err
 	}
 	if base.Provider != "" {
-		return o, nil, fmt.Errorf("anthropic picks its own profile; drop --profile (or use claude-code opus --profile ...)")
+		return o, nil, errors.New("anthropic picks its own profile; drop --profile (or use claude-code opus --profile ...)")
 	}
 	o.Options = base
 	return o, rest, nil

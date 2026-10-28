@@ -45,13 +45,11 @@ func offerLogin(ctx context.Context, o Options, args []string, ps []*providers.P
 	checks := make([]checkResult, len(todo))
 	var wg sync.WaitGroup
 	for i, p := range todo {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			s := signinFor(p)
 			v, d, ok := checkSignin(ctx, s)
 			checks[i] = checkResult{s, v, d, ok}
-		}()
+		})
 	}
 	wg.Wait()
 	in := bufio.NewReader(loginIn) // one reader: a per-provider reader would swallow the next prompt's answer

@@ -3,6 +3,7 @@ package vendors
 import (
 	"context"
 	"encoding/json"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -79,9 +80,7 @@ func codexCatalogArgs(p *providers.Provider) []string {
 			continue
 		}
 		e := make(map[string]any, len(base))
-		for k, v := range base {
-			e[k] = v
-		}
+		maps.Copy(e, base)
 		e["slug"], e["display_name"] = wire, m.Label+" · "+p.Name
 		e["service_tiers"], e["additional_speed_tiers"], e["upgrade"], e["availability_nux"] = []any{}, []any{}, nil, nil
 		out = append(out, e)
