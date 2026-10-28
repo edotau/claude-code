@@ -146,19 +146,9 @@ func CopilotFallback(reg *providers.Registry, detail string) (providers.Target, 
 	return ft, ri.Reason, nil
 }
 
-// copilotFallbackOrder is the owner's Databricks fallback order; names outside it follow, sorted (never prod before qa).
-var copilotFallbackOrder = []string{"dev", "qa", "prod"}
-
-// orderedDatabricks lists the databricks profiles in copilotFallbackOrder, then the rest sorted.
+// orderedDatabricks lists Databricks profiles in registry order.
 func orderedDatabricks(reg *providers.Registry) []string {
-	all := providers.DatabricksProfiles(reg)
-	var out []string
-	for _, n := range copilotFallbackOrder {
-		if slices.Contains(all, n) {
-			out = append(out, n)
-		}
-	}
-	return append(out, slices.DeleteFunc(slices.Clone(all), func(n string) bool { return slices.Contains(out, n) })...)
+	return providers.DatabricksProfiles(reg)
 }
 
 // copilotDatabricksFallback: this session's (else the vault-pinned) profile when it is a signed-in Databricks row,

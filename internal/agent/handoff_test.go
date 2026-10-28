@@ -17,19 +17,18 @@ import (
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
-// stubHandoff points the hand-off seams at a temp dir and a recorded markExhausted; fb is the fallback stub.
-func stubHandoff(t *testing.T, fb func(*providers.Registry, string) (providers.Target, string, error)) (string, *[]string) {
+// stubHandoff points the hand-off seams at a temp dir and a recorded markExhausted.
+func stubHandoff(t *testing.T) (string, *[]string) {
 	t.Helper()
 	dir := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	pinGitHubProfile(t, "edotau", "")
 	var marked []string
-	oDir, oFb, oLoad, oMark := handoffDir, copilotFallback, loadState, markExhausted
+	oDir, oLoad, oMark := handoffDir, loadState, markExhausted
 	handoffDir = func(string) string { return dir }
-	copilotFallback = fb
 	loadState = func() router.State { return router.State{} }
 	markExhausted = func(acct string, _, _ time.Time, _ string) error { marked = append(marked, acct); return nil }
-	t.Cleanup(func() { handoffDir, copilotFallback, loadState, markExhausted = oDir, oFb, oLoad, oMark })
+	t.Cleanup(func() { handoffDir, loadState, markExhausted = oDir, oLoad, oMark })
 	return dir, &marked
 }
 
@@ -41,79 +40,35 @@ func quotaReq() (Request, Result, copilotsdk.Result) {
 	return req, res, copilotsdk.Result{Text: "Step 1 done.", SessionID: "0a1b2c3d-4e5f-6789-abcd-ef0123456789"}
 }
 
-func TestCopilotQuotaHandoffResumesOnceOnDatabricks(t *testing.T) {
-	dir, marked := stubHandoff(t, func(*providers.Registry, string) (providers.Target, string, error) {
-		return providers.Target{Provider: &providers.Provider{Name: "dev"}, Model: "databricks-claude-opus-5-5"},
-			"copilot: edotau quota exhausted mid-task — using databricks profile dev", nil
-	})
-	if Classify("copilot", errQuotaMidTask, false).Kind != KindQuota {
-		t.Fatal("stub error must classify as KindQuota")
-	}
+func TestCopilotQuotaHandoffWritesHandoffNoRerun(t *testing.T) {
+	dir, marked := stubHandoff(t)
 	req, res, partial := quotaReq()
-	var reruns []Request
-	rerun := func(_ context.Context, r Request, _ io.Writer) (Result, error) {
-		reruns = append(reruns, r)
-		return Result{Agent: "copilot", Provider: r.Provider, Answer: "done"}, nil
+	out, err := copilotQuotaHandoff(req, res, partial, errQuotaMidTask, nil)
+	if !errors.Is(err, errQuotaMidTask) || Classify("copilot", err, false).Kind != KindQuota {
+		t.Fatalf("err = %v; want the KindQuota cause", err)
 	}
-	out, err := copilotQuotaHandoff(context.Background(), req, res, partial, errQuotaMidTask, nil, rerun, io.Discard)
-	if err != nil || out.Answer != "done" || out.Provider != "dev" {
-		t.Fatalf("resume = %+v, %v; want dev's answer", out, err)
-	}
-	if len(reruns) != 1 || reruns[0].Provider != "dev" || reruns[0].Model != "opus" || reruns[0].SessionID != partial.SessionID {
-		t.Fatalf("reruns = %+v; want exactly one on dev/opus resuming the same session", reruns)
+	if out.Provider != res.Provider || out.Answer != "" || out.SessionID != partial.SessionID {
+		t.Fatalf("result = %+v; want the original provider and partial session without a rerun answer", out)
 	}
 	if len(*marked) != 1 || (*marked)[0] != "github·edotau" {
 		t.Errorf("marked = %v; want github·edotau", *marked)
 	}
-	want := dir + "/" + time.Now().Format("2006-01-02") + "-copilot-0a1b2c3d.md"
+	want := filepath.Join(dir, time.Now().Format("2006-01-02")+"-copilot-0a1b2c3d.md")
 	if out.Handoff != want {
 		t.Fatalf("handoff = %q, want %q", out.Handoff, want)
 	}
-	body, _ := os.ReadFile(want)
-	t.Logf("handoff file:\n%s", body)
-	for _, s := range []string{"Refactor foo", "Step 1 done.", "copilot --resume 0a1b2c3d", "account: github·edotau", "402"} {
-		if !strings.Contains(string(body), s) {
-			t.Errorf("handoff lacks %q", s)
+	body, err := os.ReadFile(out.Handoff)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, text := range []string{"Refactor foo", "Step 1 done.", "copilot --resume " + partial.SessionID,
+		"account: github·edotau", "402", "REDACTED"} {
+		if !strings.Contains(string(body), text) {
+			t.Errorf("handoff lacks %q", text)
 		}
 	}
-	if strings.Contains(string(body), "ghp_aaaa") || !strings.Contains(reruns[0].Prompt, "Step 1 done.") {
-		t.Error("handoff must be redacted and ride the resumed prompt")
-	}
-}
-
-func TestCopilotQuotaHandoffWithoutFallbackReturnsQuota(t *testing.T) {
-	_, _ = stubHandoff(t, func(*providers.Registry, string) (providers.Target, string, error) {
-		return providers.Target{}, "", errors.New("no credit-free route for copilot")
-	})
-	req, res, partial := quotaReq()
-	rerun := func(context.Context, Request, io.Writer) (Result, error) {
-		t.Fatal("no fallback: the leg must not rerun")
-		return Result{}, nil
-	}
-	out, err := copilotQuotaHandoff(context.Background(), req, res, partial, errQuotaMidTask, nil, rerun, io.Discard)
-	if !errors.Is(err, errQuotaMidTask) || Classify("copilot", err, false).Kind != KindQuota {
-		t.Fatalf("err = %v; want the KindQuota cause", err)
-	}
-	if out.Handoff == "" || out.SessionID != partial.SessionID {
-		t.Fatalf("result = %+v; want the handoff path and the session pointer", out)
-	}
-	if _, serr := os.Stat(out.Handoff); serr != nil {
-		t.Fatalf("handoff file: %v", serr)
-	}
-}
-
-func TestCopilotQuotaHandoffNeverResumesOnGitHubLogin(t *testing.T) {
-	_, _ = stubHandoff(t, func(*providers.Registry, string) (providers.Target, string, error) {
-		return providers.Target{Provider: &providers.Provider{Name: "personal", Provider: "github",
-			Auth: providers.Auth{Login: "copilot"}}}, "", nil
-	})
-	req, res, partial := quotaReq()
-	rerun := func(context.Context, Request, io.Writer) (Result, error) {
-		t.Fatal("a GitHub-login fallback must not rerun")
-		return Result{}, nil
-	}
-	if _, err := copilotQuotaHandoff(context.Background(), req, res, partial, errQuotaMidTask, nil, rerun, io.Discard); err == nil {
-		t.Fatal("want the quota error back")
+	if strings.Contains(string(body), "ghp_"+strings.Repeat("a", 36)) {
+		t.Error("handoff holds the raw token")
 	}
 }
 
@@ -213,14 +168,9 @@ func TestRunWithFallbackCarriesHandoff(t *testing.T) {
 // tok builds a GitHub-shaped token for prefix, so no real secret sits in the source.
 func tok(prefix string) string { return prefix + strings.Repeat("a1", 18) }
 
-// dbxFallback is a copilotFallback stub resolving to the dev Databricks profile.
-func dbxFallback(*providers.Registry, string) (providers.Target, string, error) {
-	return providers.Target{Provider: &providers.Provider{Name: "dev"}, Model: "databricks-claude-sonnet-5-5"}, "using dev", nil
-}
-
-// (1) The hand-off file and the resume prompt never hold a seeded raw token, GitHub-shaped or a plain resolved credential.
+// The hand-off file never holds a seeded raw token, GitHub-shaped or a plain resolved credential.
 func TestCopilotHandoffRedactsEveryToken(t *testing.T) {
-	_, _ = stubHandoff(t, dbxFallback)
+	_, _ = stubHandoff(t)
 	const plain = "plainsecretvalue-not-shaped-123"
 	var all []string
 	for _, p := range []string{"ghu_", "gho_", "ghs_", "ghr_", "ghp_", "github_pat_"} {
@@ -229,85 +179,89 @@ func TestCopilotHandoffRedactsEveryToken(t *testing.T) {
 	req, res, partial := quotaReq()
 	req.Prompt = "Task with " + strings.Join(all, " ") + " and " + plain
 	partial.Text = "partial with " + all[2] + " and " + plain
-	var resumed Request
-	rerun := func(_ context.Context, r Request, _ io.Writer) (Result, error) {
-		resumed = r
-		return Result{Answer: "ok"}, nil
+	cause := errors.New("402 quota; token " + plain)
+	out, err := copilotQuotaHandoff(req, res, partial, cause, []string{plain})
+	if !errors.Is(err, cause) || Classify("copilot", err, false).Kind != KindQuota {
+		t.Fatalf("err = %v; want the KindQuota cause", err)
 	}
-	out, err := copilotQuotaHandoff(context.Background(), req, res, partial,
-		errors.New("402 quota; token "+plain), []string{plain}, rerun, io.Discard)
+	body, err := os.ReadFile(out.Handoff)
 	if err != nil {
 		t.Fatal(err)
-	}
-	body, rerr := os.ReadFile(out.Handoff)
-	if rerr != nil {
-		t.Fatal(rerr)
 	}
 	for _, secret := range append(all, plain) {
 		if strings.Contains(string(body), secret) {
 			t.Errorf("handoff file holds %q", secret)
 		}
-		if strings.Contains(resumed.Prompt, secret) {
-			t.Errorf("resume prompt holds %q", secret)
-		}
 	}
-	if !strings.Contains(resumed.Prompt, "REDACTED") {
-		t.Error("resume prompt should carry the redacted handoff")
+	if !strings.Contains(string(body), "REDACTED") {
+		t.Error("handoff file should carry the redacted task and partial answer")
 	}
 }
 
-// (1, runner level) The prompt the stubbed SDK receives on the resume is redacted too.
-func TestCopilotRunnerResumePromptRedacted(t *testing.T) {
-	_, _ = stubHandoff(t, dbxFallback)
+// The runner writes redacted context and leaves resumption to the next fallback leg.
+func TestCopilotRunnerHandoffRedacted(t *testing.T) {
+	_, _ = stubHandoff(t)
 	ghLogin(t, "alice", 10)
-	t.Setenv("DEV_TEST_KEY", "k")
-	vaulttest.UseKeyring(t)
 	fakeCopilotBin(t)
-	// UseKeyring relocates the vault; reseed the alice profile and its pin alongside dev
-	pinGitHubProfile(t, "alice", `"databricks":{"dev":{"protocol":"anthropic","base_url":"http://127.0.0.1:1",`+
-		`"auth":{"type":"key","env":"DEV_TEST_KEY"},"models":{"opus":"claude-opus-5-5","sonnet":"claude-sonnet-5"}}}`)
 	secret := tok("ghs_")
-	var prompts []string
-	prev := copilotAsk
-	copilotAsk = func(_ context.Context, _ copilotsdk.Options, p string) (copilotsdk.Result, error) {
-		prompts = append(prompts, p)
-		if len(prompts) == 1 {
-			return copilotsdk.Result{Text: "half " + secret, SessionID: "0a1b2c3d-4e5f-6789-abcd-ef0123456789"}, errQuotaMidTask
+	calls := stubAsk(t, func(n int) (copilotsdk.Result, error) {
+		if n != 1 {
+			t.Fatal("quota handoff must not rerun the SDK")
 		}
-		return copilotsdk.Result{Text: "done"}, nil
-	}
-	t.Cleanup(func() { copilotAsk = prev })
+		return copilotsdk.Result{Text: "half " + secret, SessionID: "0a1b2c3d-4e5f-6789-abcd-ef0123456789"}, errQuotaMidTask
+	})
 	res, err := copilotRunner{}.Run(context.Background(), Request{Prompt: "do it " + secret, Model: "sonnet", Provider: "personal", Direct: true}, io.Discard)
-	if err != nil || len(prompts) != 2 {
-		t.Fatalf("res=%+v err=%v prompts=%d", res, err, len(prompts))
+	if !errors.Is(err, errQuotaMidTask) || Classify("copilot", err, false).Kind != KindQuota || *calls != 1 {
+		t.Fatalf("res=%+v err=%v calls=%d; want quota and one SDK call", res, err, *calls)
 	}
-	if strings.Contains(prompts[1], secret) || !strings.Contains(prompts[1], "HANDOFF") {
-		t.Errorf("resume prompt = %q", prompts[1])
+	body, err := os.ReadFile(res.Handoff)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if b, _ := os.ReadFile(res.Handoff); strings.Contains(string(b), secret) {
-		t.Error("handoff file holds the raw token")
+	if strings.Contains(string(body), secret) || !strings.Contains(string(body), "REDACTED") {
+		t.Errorf("handoff file must redact the raw token: %q", body)
+	}
+	for _, text := range []string{"do it ", "half "} {
+		if !strings.Contains(string(body), text) {
+			t.Errorf("handoff lacks %q", text)
+		}
 	}
 }
 
-// (2, 3) The resume keeps the requested tier and reuses the session (fresh only when none was exposed).
-func TestCopilotHandoffResumeKeepsTierAndSession(t *testing.T) {
+func TestResumeSlot(t *testing.T) {
 	for in, want := range map[string]string{"sonnet": "sonnet", "dev:haiku": "haiku", "claude-sonnet-5-5": "sonnet", "gpt-5": ""} {
 		if got := resumeSlot(in); got != want {
 			t.Errorf("resumeSlot(%q) = %q, want %q", in, got, want)
 		}
 	}
-	_, _ = stubHandoff(t, dbxFallback)
+}
+
+// The hand-off preserves the resolved model and any exposed session for the next leg.
+func TestCopilotHandoffKeepsModelAndSession(t *testing.T) {
+	_, _ = stubHandoff(t)
 	for name, session := range map[string]string{"with session": "0a1b2c3d-4e5f-6789-abcd-ef0123456789", "no session": ""} {
 		t.Run(name, func(t *testing.T) {
 			req, res, partial := quotaReq()
-			req.Model, partial.SessionID, res.SessionID = "sonnet", session, ""
-			var got Request
-			rerun := func(_ context.Context, r Request, _ io.Writer) (Result, error) { got = r; return Result{}, nil }
-			if _, err := copilotQuotaHandoff(context.Background(), req, res, partial, errQuotaMidTask, nil, rerun, io.Discard); err != nil {
+			req.Model, res.Model, partial.SessionID, res.SessionID = "sonnet", "claude-sonnet-5-5", session, ""
+			out, err := copilotQuotaHandoff(req, res, partial, errQuotaMidTask, nil)
+			if !errors.Is(err, errQuotaMidTask) {
 				t.Fatal(err)
 			}
-			if got.Model != "sonnet" || got.Provider != "dev" || got.SessionID != session || !strings.Contains(got.Prompt, "Step 1 done.") {
-				t.Errorf("resume request = %+v", got)
+			if out.Model != res.Model || out.SessionID != session {
+				t.Fatalf("result = %+v; want model %q and session %q", out, res.Model, session)
+			}
+			body, err := os.ReadFile(out.Handoff)
+			if err != nil {
+				t.Fatal(err)
+			}
+			wantSession := "session: none exposed"
+			if session != "" {
+				wantSession = "session: " + session + " (`copilot --resume " + session + "`)"
+			}
+			for _, text := range []string{"model: " + res.Model, wantSession, "Step 1 done."} {
+				if !strings.Contains(string(body), text) {
+					t.Errorf("handoff lacks %q", text)
+				}
 			}
 		})
 	}
@@ -352,31 +306,27 @@ func TestRunWithFallbackNextLegGetsHandoff(t *testing.T) {
 	}
 }
 
-// (5) A providers.Load failure in the hand-off path keeps the quota cause and the hand-off, calls no fallback, never panics.
+// A providers.Load failure keeps the quota cause and writes the hand-off without panicking.
 func TestCopilotHandoffProvidersLoadFailure(t *testing.T) {
-	_, _ = stubHandoff(t, func(*providers.Registry, string) (providers.Target, string, error) {
-		t.Fatal("fallback must not run when providers.Load fails")
-		return providers.Target{}, "", nil
-	})
+	_, _ = stubHandoff(t)
 	vaulttest.UseKeyring(t)
 	vaulttest.Put(t, vault.Overlay, "providers", `{not json`)
 	if _, err := providers.Load(); err == nil {
 		t.Skip("a corrupt overlay no longer fails providers.Load; pick another failure injection")
 	}
 	req, res, partial := quotaReq()
-	rerun := func(context.Context, Request, io.Writer) (Result, error) {
-		t.Fatal("must not rerun")
-		return Result{}, nil
-	}
-	out, err := copilotQuotaHandoff(context.Background(), req, res, partial, errQuotaMidTask, nil, rerun, io.Discard)
+	out, err := copilotQuotaHandoff(req, res, partial, errQuotaMidTask, nil)
 	if !errors.Is(err, errQuotaMidTask) || Classify("copilot", err, false).Kind != KindQuota || out.Handoff == "" {
 		t.Fatalf("out=%+v err=%v; want KindQuota cause plus the handoff", out, err)
+	}
+	if _, err := os.Stat(out.Handoff); err != nil {
+		t.Fatal(err)
 	}
 }
 
 // (7) Hand-offs with the same date and session id get distinct files and none is truncated.
 func TestCopilotHandoffsNeverOverwrite(t *testing.T) {
-	dir, _ := stubHandoff(t, dbxFallback)
+	dir, _ := stubHandoff(t)
 	req, res, _ := quotaReq()
 	res.SessionID = "0a1b2c3d-4e5f-6789-abcd-ef0123456789"
 	seen := map[string]string{}

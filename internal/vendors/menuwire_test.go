@@ -30,14 +30,19 @@ func TestCodexSlug(t *testing.T) {
 	}
 }
 
-// The copilot fallback walks dev, qa, prod and never prod before qa, whatever the registry sorts to.
-func TestOrderedDatabricksIsDevQaProd(t *testing.T) {
-	reg := &providers.Registry{Providers: map[string]*providers.Provider{}}
-	for _, n := range []string{"prod", "zeta", "dev", "qa", "alpha"} {
-		reg.Providers[n] = &providers.Provider{Name: n, Provider: providers.GroupDatabricks}
+// The copilot fallback keeps the registry's declared Databricks profile order.
+func TestOrderedDatabricksKeepsRegistryOrder(t *testing.T) {
+	reg, err := providers.Parse([]byte(`{"providers":{"databricks":{
+		"prod":{"preset":"databricks","host":"https://h.cloud.databricks.com"},
+		"zeta":{"preset":"databricks","host":"https://h.cloud.databricks.com"},
+		"dev":{"preset":"databricks","host":"https://h.cloud.databricks.com"},
+		"qa":{"preset":"databricks","host":"https://h.cloud.databricks.com"},
+		"alpha":{"preset":"databricks","host":"https://h.cloud.databricks.com"}}}}`), nil)
+	if err != nil {
+		t.Fatal(err)
 	}
 	reg.Providers["max"] = &providers.Provider{Name: "max", Provider: "anthropic"}
-	want := []string{"dev", "qa", "prod", "alpha", "zeta"}
+	want := []string{"prod", "zeta", "dev", "qa", "alpha"}
 	if got := orderedDatabricks(reg); !slices.Equal(got, want) {
 		t.Errorf("orderedDatabricks = %v, want %v", got, want)
 	}

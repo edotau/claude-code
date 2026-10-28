@@ -64,23 +64,23 @@ func modelRow(model string) (tier, row, exact string) {
 // RouteChain turns a pick at tier (or a Claude row) into legs; each leg runs that row's cell of its agent.
 func RouteChain(ctx context.Context, want, tier, mode string, explicitModel, native bool, o router.Opts) (Chain, router.Result, error) {
 	t, row, _ := modelRow(tier)
-	return routeChain(ctx, want, cmp.Or(t, tier), row, "", mode, explicitModel, native, o)
+	return routeChain(ctx, want, cmp.Or(t, tier), row, "", "", mode, explicitModel, native, o)
 }
 
 // RouteChainFor routes a caller's --model: an alias or Claude id picks that row's cell; a non-Claude id is exact.
 func RouteChainFor(ctx context.Context, want, model, tierHint, mode string, native bool, o router.Opts) (Chain, router.Result, error) {
 	tier, row, exact := modelRow(model)
-	return routeChain(ctx, want, cmp.Or(tier, tierHint), row, exact, mode, strings.TrimSpace(model) != "", native, o)
+	return routeChain(ctx, want, cmp.Or(tier, tierHint), row, exact, strings.TrimSpace(model), mode, strings.TrimSpace(model) != "", native, o)
 }
 
-func routeChain(ctx context.Context, want, tier, row, exact, mode string, explicitModel, native bool, o router.Opts) (Chain, router.Result, error) {
+func routeChain(ctx context.Context, want, tier, row, exact, callerModel, mode string, explicitModel, native bool, o router.Opts) (Chain, router.Result, error) {
 	tb, err := router.Load()
 	if err != nil {
 		return Chain{}, router.Result{}, err
 	}
 	o.Fallback = mode
 	if o.Account == nil {
-		o.Account = resolveAccount
+		o.Account = ResolveAccount
 	}
 	// --native opencode runs on opencode's own config first: no hub login gate, no table cell
 	pickWant, nativeLead := want, native && want == "opencode"
@@ -102,13 +102,27 @@ func routeChain(ctx context.Context, want, tier, row, exact, mode string, explic
 		}
 	}
 	current, _ := models.Alias(tier)
+	pins := providers.AgentPins()
+	legID := nonClaudeLegID(exact, explicitModel, pins[want].Model)
 	for _, cand := range pick.Candidates {
 		if nativeLead && cand.Agent == "opencode" {
 			continue
 		}
 		cell := cand.Cell
+		pinned := cand.Profile != "" && pins[cand.Agent].Profile == cand.Profile
 		switch {
-		case exact != "" && cand.Profile != "": // a Databricks codex leg serves only its own cell's model
+		case cand.Agent == "claude" && legID != "": // Claude's tier for a non-Claude leg: the lowest tier whose cell serves it
+			if t := lowestTierServing(tb, want, legID); t != "" {
+				if rc, ok := tb.Rows["claude"][t]; ok {
+					cell.Model, cell.Effort = rc.Model, rc.Effort
+				}
+			}
+		case pinned && cand.Agent == want && explicitModel && row == "" && cmp.Or(exact, callerModel) != "":
+			cell.Model = cmp.Or(exact, callerModel) // the caller's model, respelled for the pinned profile
+			if reg != nil && reg.Providers[cand.Profile] != nil {
+				cell.Model = reg.Providers[cand.Profile].WireModel(cell.Model)
+			}
+		case exact != "" && cand.Profile != "" && cand.Agent != "opencode": // a Databricks leg serves only its own cell's model
 			if id, _, ok := models.Resolve(cell.Model); !ok || id != exact {
 				c.Skipped = append(c.Skipped, cand.Agent+": serves no "+exact)
 				continue
@@ -133,6 +147,13 @@ func routeChain(ctx context.Context, want, tier, row, exact, mode string, explic
 			leg.Model = cand.Profile + ":" + cell.Model
 		}
 		switch {
+		case cand.Agent == "opencode" && cand.Profile != "" && reg != nil && reg.Providers[cand.Profile] != nil &&
+			(!native || cand.Agent != want): // a pinned registry row runs the hub leg on that profile, bare model
+			_, bare, ok := strings.Cut(cell.Model, "/")
+			if !ok {
+				bare = cell.Model
+			}
+			leg.Agent, leg.Model = watchFreeLeg(NewHubLeg("opencode", reg.Providers[cand.Profile], reg), cand.Billing), bare
 		case cand.Agent == "opencode" && (!native || cand.Agent != want):
 			r, model, err := hubLegFor(reg, cell.Model)
 			if err != nil {
@@ -148,11 +169,37 @@ func routeChain(ctx context.Context, want, tier, row, exact, mode string, explic
 			leg.Agent = r
 			if cand.Agent == "claude" {
 				leg.Model = claudeCellModel(cell.Model)
+				if cand.Profile != "" { // keep the <profile>: spelling so the leg resolves on that profile
+					leg.Model = cand.Profile + ":" + leg.Model
+				}
 			}
 		}
 		c.Legs = append(c.Legs, leg)
 	}
 	return c, pick, nil
+}
+
+// nonClaudeLegID is the canonical non-Claude model the leg runs: the exact --model, else the wanted agent's model pin.
+func nonClaudeLegID(exact string, explicitModel bool, pinModel string) string {
+	if exact != "" || explicitModel || pinModel == "" {
+		return exact
+	}
+	if id, _, ok := models.Resolve(pinModel); ok && !strings.HasPrefix(id, "claude-") {
+		return id
+	}
+	return ""
+}
+
+// lowestTierServing is the lowest router tier (haiku up) whose cell for agentName resolves to id, else "".
+func lowestTierServing(tb *router.Table, agentName, id string) string {
+	for _, tier := range slices.Backward(router.Tiers) {
+		if c, ok := tb.Rows[agentName][tier]; ok {
+			if cid, _, ok := models.Resolve(c.Model); ok && cid == id {
+				return tier
+			}
+		}
+	}
+	return ""
 }
 
 // claudeCellModel is the model a routed claude leg runs: the alias a canonical row id backs, so the session's
@@ -205,6 +252,9 @@ func profileAccount(p *providers.Provider) string {
 	}
 	return p.Provider + "·" + p.Name
 }
+
+// ResolveAccount is resolveAccount for callers outside the package (the gateway router view).
+var ResolveAccount = resolveAccount
 
 // resolveAccount is the account an agent's dispatch actually bills: "" keeps the table's key (the agent's own login
 // or subscription); an agent resolving to another profile (an API key, a BYOK route) bills that <provider>·<profile>.

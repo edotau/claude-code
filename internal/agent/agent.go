@@ -11,6 +11,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -243,6 +244,9 @@ func attachSuffix(prompt string, paths []string) string {
 	return b.String()
 }
 
+// ErrBadAttach marks an unreadable or binary --attach file: a request fault no other agent can fix.
+var ErrBadAttach = errors.New("attach")
+
 // attachInline embeds each path as a literal <file path="…">content</file> block after prompt: the
 // fallback for an agent with no live-read channel (codex's prompt rides stdin blind).
 func attachInline(prompt string, paths []string) (string, error) {
@@ -254,10 +258,10 @@ func attachInline(prompt string, paths []string) (string, error) {
 	for _, p := range paths {
 		data, err := os.ReadFile(p)
 		if err != nil {
-			return "", fmt.Errorf("attach %s: %w", p, err)
+			return "", fmt.Errorf("%w %s: %w", ErrBadAttach, p, err)
 		}
 		if !IsText(data) {
-			return "", fmt.Errorf("--attach %s: binary file; attach text only", p)
+			return "", fmt.Errorf("--%w %s: binary file; attach text only", ErrBadAttach, p)
 		}
 		fmt.Fprintf(&b, "\n\n<file path=%q>\n%s\n</file>", p, data)
 	}
@@ -329,6 +333,24 @@ const (
 // FallbackModes lists the accepted --fallback values.
 var FallbackModes = []string{FallbackAll, FallbackAgents, FallbackNone}
 
+var contentPolicyRE = regexp.MustCompile(`(?i)content[ _-]?(?:policy|filter)|safety (?:system|filter|polic)|` +
+	`responsible ai|violates (?:our|the) (?:usage|content) polic|request entity too large|payload too large`)
+
+// requestFault is true when the request itself is at fault (bad attach, HTTP 413, oversized prompt, content-policy
+// refusal): another agent would fail the same way, so the loop stops.
+func requestFault(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, ErrBadAttach) || errors.Is(err, ErrPromptTooLarge) {
+		return true
+	}
+	if e, ok := errors.AsType[*Error](err); ok && e.Status == 413 {
+		return true
+	}
+	return contentPolicyRE.MatchString(err.Error())
+}
+
 func notClaude(name string) bool { return name != "claude" }
 
 // RunWithFallback runs c's legs in turn while the previous one turned out unavailable — binary missing, no provider
@@ -340,7 +362,7 @@ func RunWithFallback(ctx context.Context, c Chain, req Request, stream io.Writer
 	reasons := slices.Clone(c.Skipped)
 	if len(c.Legs) == 0 {
 		return Result{Agent: c.Want, FallbackReason: strings.Join(reasons, "; ")},
-			&Error{Kind: KindFatal, Agent: c.Want, Err: fmt.Errorf("no agent available: %s", strings.Join(reasons, "; "))}
+			&Error{Kind: KindFatal, Agent: c.Want, Err: fmt.Errorf("no agent available: %s%s", strings.Join(reasons, "; "), switchHint(reasons))}
 	}
 	if len(reasons) > 0 && notify != nil {
 		notify("skipped without an attempt — " + strings.Join(reasons, "; "))
@@ -348,13 +370,16 @@ func RunWithFallback(ctx context.Context, c Chain, req Request, stream io.Writer
 	var res Result
 	var err error
 	var prev Runner
+	var prevLeg Leg
+	stopped := false   // the loop ended on a fail-fast, not by running out of legs
 	var handoff string // a copilot quota hand-off survives the legs that run after it
 	for i, leg := range c.Legs {
 		if i > 0 {
 			if !legUnavailable(prev, res, err) {
+				stopped = true
 				break
 			}
-			reasons = append(reasons, legLabel(prev)+": "+fallbackReason(err))
+			reasons = append(reasons, hopLabel(prevLeg)+": "+fallbackReason(err))
 			if notify != nil {
 				notify(fmt.Sprintf("%s unavailable (%s) — falling back to %s%s", legLabel(prev), fallbackReason(err), legLabel(leg.Agent), legCell(leg)))
 			}
@@ -369,10 +394,14 @@ func RunWithFallback(ctx context.Context, c Chain, req Request, stream io.Writer
 			}
 		}
 		handoff = cmp.Or(res.Handoff, handoff)
-		prev = leg.Agent
+		prev, prevLeg = leg.Agent, leg
 		if i == 0 && ExplicitBackend(req) {
+			stopped = true
 			break
 		}
+	}
+	if err != nil && !stopped && len(reasons) > 0 && hopFailed(res, err) {
+		err = everyHopFailed(append(reasons, hopLabel(prevLeg)+": "+fallbackReason(err)), err)
 	}
 	if len(reasons) > 0 || c.Legs[0].Agent.Name() != c.Want {
 		res.Fallback, res.FallbackReason = c.Want, strings.Join(reasons, "; ")
@@ -390,6 +419,35 @@ func legCell(l Leg) string {
 		return " (" + l.Model + ", " + l.Effort + ")"
 	}
 	return " (" + l.Model + ")"
+}
+
+// hopLabel is legLabel plus the hop's account, "codex (openai·chatgpt)".
+func hopLabel(l Leg) string {
+	if l.Account == "" {
+		return legLabel(l.Agent)
+	}
+	return legLabel(l.Agent) + " (" + l.Account + ")"
+}
+
+// everyHopFailed wraps the last failure with every skip and failed hop, keeping its Kind.
+func everyHopFailed(reasons []string, last error) error {
+	e, ok := errors.AsType[*Error](last)
+	if !ok {
+		e = &Error{Kind: KindFatal, Err: last}
+	}
+	out := *e
+	out.Err = fmt.Errorf("every hop failed (%s): %w%s", strings.Join(reasons, "; "), cmp.Or(e.Err, error(e)), switchHint(reasons))
+	return &out
+}
+
+// switchHint is the D6 hint line when claude was skipped or failed as exhausted, else "".
+func switchHint(reasons []string) string {
+	for _, r := range reasons {
+		if strings.HasPrefix(r, "claude") && strings.Contains(strings.ToLower(r), "exhausted") {
+			return "\nrun claude-code switch <profile> to move Claude Code to another profile"
+		}
+	}
+	return ""
 }
 
 // legLabel names a leg in fallback reasons: a hub leg by its account, since every hub leg shares the agent name.
@@ -414,14 +472,22 @@ func fallbackReason(err error) string {
 // or the exec failed before producing an answer — excluding timeouts, cancellation, an oversized prompt and a
 // partial answer. claude/api are the end of every chain and never count as unavailable here.
 func legUnavailable(r Runner, res Result, err error) bool {
+	if requestFault(err) {
+		return false
+	}
 	var ae *Error
 	if errors.As(err, &ae) && ae.AuthReason != "" && res.Answer == "" {
 		return true
 	}
-	if err == nil || !notClaude(r.Name()) || res.Answer != "" {
+	return notClaude(r.Name()) && hopFailed(res, err)
+}
+
+// hopFailed is true when a leg failed before giving any answer for a reason a later hop could fix.
+func hopFailed(res Result, err error) bool {
+	if err == nil || res.Answer != "" || requestFault(err) {
 		return false
 	}
-	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) || errors.Is(err, ErrPromptTooLarge) {
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
 		return false
 	}
 	var e *Error

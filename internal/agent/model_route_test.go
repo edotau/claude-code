@@ -50,7 +50,7 @@ func TestResolveTargetCanonicalIDTakesTheTierPin(t *testing.T) {
 	}
 }
 
-// A non-Claude id is exact: codex (its cell serves gpt-6.1-sol) keeps a leg, claude and copilot get none.
+// A non-Claude id keeps matching agents, with Claude last at the lowest tier serving the id.
 func TestRouteChainForNonClaudeIDIsExact(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	all := router.Opts{Configured: func(string, router.Cell) error { return nil }}
@@ -62,9 +62,12 @@ func TestRouteChainForNonClaudeIDIsExact(t *testing.T) {
 		t.Fatalf("legs = %+v, want codex first and keeping the caller's id", c.Legs)
 	}
 	for _, l := range c.Legs[1:] {
-		if n := l.Agent.Name(); n == "claude" || n == "copilot" {
+		if n := l.Agent.Name(); n == "copilot" {
 			t.Errorf("%s got a leg for a model its cell does not serve", n)
 		}
+	}
+	if last := c.Legs[len(c.Legs)-1]; last.Agent.Name() != "claude" || last.Model != "sonnet" {
+		t.Errorf("last leg = %+v, want claude at sonnet (the lowest codex tier serving gpt-6.1-sol)", last)
 	}
 }
 

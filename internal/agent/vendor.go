@@ -47,6 +47,9 @@ func vendorTargetNote(req Request, name string) (t providers.Target, own bool, n
 		if err == nil && name == "copilot" { // an explicit GitHub login still passes the credit gate
 			from := t.Provider
 			t, note, err = vendors.CopilotGate(reg, t)
+			if err == nil && t.Provider != from && req.Provider != "" && req.Provider == providers.Pin(providers.PinCopilotProfile) {
+				return t, false, note, &Error{Kind: KindQuota, Agent: "copilot", Err: errors.New(note)}
+			}
 			if tier := resumeSlot(req.Model); err == nil && t.Provider != from && t.Provider.Models[tier] != "" {
 				t.Model = t.Provider.Models[tier] // the fallback serves the requested tier, not its default opus
 			}
@@ -435,7 +438,7 @@ func (copilotRunner) Run(ctx context.Context, req Request, stream io.Writer) (Re
 		lg.emit("error", err.Error())
 		if (own || t.Provider.Auth.Login == "copilot") && Classify("copilot", err, false).Kind == KindQuota {
 			creds := credentialValues(env, opts.GitHubToken)
-			return copilotQuotaHandoff(ctx, req, res, out, err, creds, copilotRunner{}.Run, stream)
+			return copilotQuotaHandoff(req, res, out, err, creds)
 		}
 		return res, err
 	}
