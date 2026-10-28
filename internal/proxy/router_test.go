@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -958,5 +959,34 @@ func TestServeSideProxyKeepsDaemonState(t *testing.T) {
 	}
 	if cur, err := ReadState(); err != nil || cur.PID != daemon.PID {
 		t.Fatalf("after the side proxy exits, router.json = %+v, %v; want the daemon's kept", cur, err)
+	}
+}
+
+func TestSessionTokenCannotReachOtherProfiles(t *testing.T) {
+	up1 := newUpstream(t, func(w http.ResponseWriter, _ *http.Request, _ int) { w.WriteHeader(429) })
+	up2 := newUpstream(t, ok)
+	t.Setenv("UP1_KEY", "k1")
+	t.Setenv("UP2_KEY", "k2")
+	srv := setup(t, failoverOverlay(up1.URL, up2.URL))
+	req := testRequest(t, http.MethodPost, srv.URL+SessionPath, strings.NewReader(`{"profile":"up1","pid":`+strconv.Itoa(os.Getpid())+`}`))
+	req.Header.Set("X-Api-Key", secret)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var out sessionResp
+	if json.NewDecoder(resp.Body).Decode(&out) != nil || out.Token == "" {
+		t.Fatalf("mint = %d", resp.StatusCode)
+	}
+	hdr := map[string]string{"X-Api-Key": out.Token}
+	if r := post(t, srv.URL+"/p/up1/v1/messages", `{"model":"up2:x"}`, hdr); r.StatusCode != http.StatusForbidden {
+		t.Errorf("cross-provider model = %d, want 403", r.StatusCode)
+	}
+	if r := post(t, srv.URL+"/p/up1/v1/messages", `{"model":"m1-haiku"}`, hdr); r.StatusCode == 200 {
+		t.Errorf("failover escaped to up2 under a session token")
+	}
+	if up2.hits.Load() != 0 {
+		t.Errorf("up2 hits = %d, want 0", up2.hits.Load())
 	}
 }
