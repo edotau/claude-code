@@ -188,6 +188,7 @@ func TestNetworkVscodeServeStatusJSONWriteError(t *testing.T) {
 // TestDoctorJSONWriteError ensures doctor --format json exits non-zero
 // when writing to stdout fails (regression test for internal/cli/launch.go:419).
 func TestDoctorJSONWriteError(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	f, err := os.Create(filepath.Join(t.TempDir(), "closed-file"))
 	if err != nil {
 		t.Fatal(err)

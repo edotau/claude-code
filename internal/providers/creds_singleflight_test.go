@@ -58,7 +58,7 @@ func herd(p *Provider, n int) ([]string, []error) {
 }
 
 func TestCommandCredentialSingleFlightValue(t *testing.T) {
-	cmd, counter := countingCmd(t, "sf", "0.5", "echo shared-token")
+	cmd, counter := countingCmd(t, "sf", "0.2", "echo shared-token")
 	p := freshProvider(t, &Provider{Name: "sf-value", Auth: Auth{Type: AuthKey, Command: cmd}})
 	vals, errs := herd(p, 20)
 	for i := range vals {
@@ -72,7 +72,7 @@ func TestCommandCredentialSingleFlightValue(t *testing.T) {
 }
 
 func TestCommandCredentialSingleFlightSharesError(t *testing.T) {
-	cmd, counter := countingCmd(t, "sfe", "0.5", "exit 3")
+	cmd, counter := countingCmd(t, "sfe", "0.2", "exit 3")
 	p := freshProvider(t, &Provider{Name: "sf-err", Auth: Auth{Type: AuthKey, Command: cmd}})
 	_, errs := herd(p, 20)
 	for i, err := range errs {
@@ -145,7 +145,7 @@ func TestAuthorizeStripsInboundAndSetsHeader(t *testing.T) {
 }
 
 func TestCommandCredentialLeaderCancelDoesNotFailFollowers(t *testing.T) {
-	cmd, counter := countingCmd(t, "lc", "0.6", "echo survived-token")
+	cmd, counter := countingCmd(t, "lc", "0.3", "echo survived-token")
 	p := freshProvider(t, &Provider{Name: "sf-cancel", Auth: Auth{Type: AuthKey, Command: cmd}})
 	lctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

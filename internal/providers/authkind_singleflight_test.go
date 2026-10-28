@@ -23,7 +23,7 @@ func TestSealedAuthHerdMintsOnce(t *testing.T) {
 			var posts atomic.Int32
 			srv := oidcServer(t, func(*http.Request, url.Values) (int, map[string]any) {
 				posts.Add(1)
-				time.Sleep(300 * time.Millisecond) // keep the flight open while the herd arrives
+				time.Sleep(150 * time.Millisecond) // keep the flight open while the herd arrives
 				return 200, map[string]any{"access_token": "herd-token", "expires_in": 3600}
 			})
 			p := mintRow(t, "sf-herd-"+k.kind, k.kind, k.clientID, srv.URL)
@@ -66,7 +66,7 @@ func TestSealedAuthRefreshDuringInflightMintRunsForcedMint(t *testing.T) {
 				}
 				time.Sleep(10 * time.Millisecond)
 			}
-			time.AfterFunc(300*time.Millisecond, func() { close(gate) }) // Refresh is queued behind the flight by then
+			time.AfterFunc(150*time.Millisecond, func() { close(gate) }) // Refresh is queued behind the flight by then
 			got, err := Refresh(context.Background(), p)
 			wg.Wait()
 			if err != nil || got != "tok-2" {
