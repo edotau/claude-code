@@ -15,7 +15,7 @@ var Deny = []string{
 	"ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL", "ANTHROPIC_CUSTOM_HEADERS",
 	"OPENAI_API_KEY", "OPENAI_BASE_URL", "OPENAI_ORG_ID", "AZURE_OPENAI_*",
 	"GEMINI_API_KEY", "GOOGLE_API_KEY",
-	"COPILOT_GITHUB_TOKEN", "COPILOT_PROVIDER_*",
+	"COPILOT_GITHUB_TOKEN", "COPILOT_PROVIDER_*", "COPILOT_PROVIDERS_CONFIG",
 	"HARNESS_*_API_KEY",
 	// Vault-only pins and the session marker: an inherited one is never read, and a stale CLAUDE_PROFILE must not
 	// outlive a parent shell (the launcher stamps its own after the scrub). Vendor-read *_MODEL names stay.

@@ -62,6 +62,8 @@ type Router struct {
 	log    io.Writer
 	now    func() time.Time
 
+	sessions *sessionStore // lifetime-limited per-profile tokens, memory only
+
 	mu       sync.Mutex
 	reg      *providers.Registry
 	regStamp time.Time
@@ -88,9 +90,11 @@ type credResult struct {
 const quotaDeadFor = 30 * time.Minute
 
 func newRouter(secret string) *Router {
-	return &Router{secret: secret, client: guardedClient(), log: os.Stderr, now: time.Now,
+	r := &Router{secret: secret, client: guardedClient(), log: os.Stderr, now: time.Now,
 		cool: map[string]time.Time{}, dead: map[string]time.Time{}, cred: map[string]credResult{}, credGen: map[string]int{},
 		marked: map[string]bool{}, oauth: providers.HeadlessOAuthToken}
+	r.sessions = newSessionStore(func() time.Time { return r.now() })
+	return r
 }
 
 func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
@@ -101,6 +105,14 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	if req.URL.Path == "/healthz" {
 		w.Header().Set(PIDHeader, strconv.Itoa(os.Getpid())) // lets a new router identify and replace this one
 		_, _ = io.WriteString(w, "ok\n")
+		return
+	}
+	if req.URL.Path == SessionPath || req.URL.Path == SessionRevokePath {
+		if !r.secretOK(req) { // a session token never mints or revokes
+			writeError(w, http.StatusUnauthorized, "proxy: missing or wrong client secret")
+			return
+		}
+		r.serveSession(w, req)
 		return
 	}
 	if !r.authorized(req) {
@@ -820,7 +832,7 @@ func (r *Router) registry() (*providers.Registry, error) {
 	return reg, nil
 }
 
-func (r *Router) authorized(req *http.Request) bool {
+func presentedSecret(req *http.Request) string {
 	got := req.Header.Get(ClientHeader)
 	if got == "" {
 		got = req.Header.Get("X-Api-Key")
@@ -828,7 +840,20 @@ func (r *Router) authorized(req *http.Request) bool {
 	if got == "" {
 		got, _ = strings.CutPrefix(req.Header.Get("Authorization"), "Bearer ")
 	}
+	return got
+}
+
+func (r *Router) secretOK(req *http.Request) bool {
+	got := presentedSecret(req)
 	return got != "" && subtle.ConstantTimeCompare([]byte(got), []byte(r.secret)) == 1
+}
+
+// authorized accepts the router secret anywhere, or a session token on its own profile's /p/ routes.
+func (r *Router) authorized(req *http.Request) bool {
+	if r.secretOK(req) {
+		return true
+	}
+	return r.sessions.accept(presentedSecret(req), profileOfPath(req.URL.Path))
 }
 
 func loopbackHost(host string) bool {

@@ -20,6 +20,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/copilotreg"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
@@ -805,16 +806,13 @@ func opencodeRun(model string, h Headless) (env, argv []string) {
 	return env, append(argv, positional(h.Prompt)...)
 }
 
-// copilotMaxOutputTokens is the output cap current Claude/GPT tiers accept; a catalog-less id needs one.
-const copilotMaxOutputTokens = 32_000
-
 // copilot BYOK: COPILOT_PROVIDER_* in the env; COPILOT_OFFLINE keeps it off GitHub's own model path.
 // copilotLogin runs copilot on its GitHub sign-in (`copilot login`, or GH_TOKEN); blank BYOK vars cannot redirect it.
 func copilotLogin(model string, h *Headless) ([]string, []string, error) {
 	if model == "auto" { // no pin: blank (copilot reads "" as unset) so copilot's own /model default applies
 		model = ""
 	}
-	env := []string{"COPILOT_MODEL=" + model, "COPILOT_PROVIDER_BASE_URL=", "COPILOT_OFFLINE="}
+	env := []string{"COPILOT_MODEL=" + model, "COPILOT_PROVIDER_BASE_URL=", "COPILOT_OFFLINE=", "COPILOT_PROVIDERS_CONFIG="}
 	tok, err := CopilotLaunchToken()
 	if err != nil {
 		return nil, nil, err
@@ -840,25 +838,6 @@ func copilotPinArgv() []string {
 	return argv
 }
 
-// copilotNonClaude: passthrough wire (openai|responses) + canonical id for a non-Claude model on a routed Databricks row.
-func copilotNonClaude(p *providers.Provider, dialect, model string, routed bool) (wire, modelID string) {
-	if !routed || p.Preset != providers.PresetDatabricks || dialect != providers.ProtocolAnthropic {
-		return "", ""
-	}
-	canonical, _, ok := models.Resolve(model)
-	if !ok {
-		canonical = strings.TrimPrefix(model, models.DatabricksPrefix)
-	}
-	if strings.HasPrefix(canonical, "claude-") {
-		return "", ""
-	}
-	e, _ := models.Lookup(canonical)
-	if e.ResponsesOnly || providers.ServesResponses(p, model) {
-		return providers.ProtocolResponses, canonical
-	}
-	return providers.ProtocolOpenAI, canonical
-}
-
 // copilot wires BYOK; window is the model's context window (providers.ContextWindow), which sizes the prompt cap.
 func copilot(
 	p *providers.Provider, dialect, base, model string, window int, cred string, routed bool, h *Headless,
@@ -867,7 +846,7 @@ func copilot(
 	if dialect == providers.ProtocolAnthropic {
 		typ = "anthropic"
 	}
-	wire, modelID := copilotNonClaude(p, dialect, model, routed)
+	wire, modelID := copilotreg.NonClaudeWire(p, dialect, model, routed)
 	if wire != "" { // non-Claude on a routed Databricks row: the router's verbatim openai|responses passthrough
 		typ, base = "openai", base+"/"+wire
 	}
@@ -875,7 +854,7 @@ func copilot(
 		"COPILOT_PROVIDER_BASE_URL=" + base,
 		"COPILOT_PROVIDER_TYPE=" + typ,
 		"COPILOT_MODEL=" + model,
-		"COPILOT_PROVIDER_MAX_OUTPUT_TOKENS=" + strconv.Itoa(copilotMaxOutputTokens),
+		"COPILOT_PROVIDER_MAX_OUTPUT_TOKENS=" + strconv.Itoa(copilotreg.MaxOutputTokens),
 		"COPILOT_OFFLINE=true",
 		// Blank every BYOK credential var so a token exported in the parent shell cannot outrank this route.
 		"COPILOT_PROVIDER_API_KEY=", "COPILOT_PROVIDER_BEARER_TOKEN=", "COPILOT_PROVIDER_API_KEY_COMMAND=",
@@ -887,8 +866,8 @@ func copilot(
 		env = append(env, "COPILOT_PROVIDER_MODEL_ID="+modelID)
 	}
 	// Prompt budget = window minus the output cap and a 10% margin, so copilot compacts before the endpoint refuses.
-	if w := window; w > copilotMaxOutputTokens {
-		env = append(env, "COPILOT_PROVIDER_MAX_PROMPT_TOKENS="+strconv.Itoa(w-copilotMaxOutputTokens-w/10))
+	if n := copilotreg.MaxPromptTokens(window); n > 0 {
+		env = append(env, "COPILOT_PROVIDER_MAX_PROMPT_TOKENS="+strconv.Itoa(n))
 	}
 	if cred != "" {
 		// Bearer precedence is copilot's own rule; sending the key on both headers trips strict gateways.

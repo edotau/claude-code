@@ -17,6 +17,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/edotau/claude-code/internal/copilotreg"
 	"github.com/edotau/claude-code/internal/helptext"
 	"io"
 	"os"
@@ -83,6 +84,18 @@ func targets() []target {
 			// exit); only its log is debris, and an active router keeps rewriting it past any cutoff.
 			name: "router-log", doc: "router.log (daemon stdio; router.json/secret are live state and never swept)",
 			globs: func() []string { return []string{s("router.log")} },
+		},
+		{
+			// <pid>.json registries in the runtime dir carry a session token; a dead pid's file is garbage at any age.
+			name: "copilot-registry", doc: "copilot BYOK registry files of dead pids in the runtime dir (live pids kept)",
+			globs: func() []string {
+				if g := copilotreg.Glob(); g != "" {
+					return []string{g}
+				}
+				return nil
+			},
+			ageless: true,
+			keep:    copilotreg.Keep,
 		},
 		{
 			name: "settings-backups", doc: "state/harness/backups/** (harness) + backups/.claude.json.backup.* (CLI)",

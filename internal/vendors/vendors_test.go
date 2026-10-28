@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/copilotreg"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/secrets"
@@ -929,7 +930,7 @@ func TestCopilotBYOKHeadersBearerAndBudget(t *testing.T) {
 		t.Errorf("bearer route must set only the bearer var: key=%q bearer=%q", got["COPILOT_PROVIDER_API_KEY"], got["COPILOT_PROVIDER_BEARER_TOKEN"])
 	}
 	if v, ok := got["COPILOT_PROVIDER_MAX_PROMPT_TOKENS"]; ok && v == strconv.Itoa(models.ContextWindow("gpt-5")) {
-		t.Errorf("prompt budget must leave room for %d output tokens, got %s", copilotMaxOutputTokens, v)
+		t.Errorf("prompt budget must leave room for %d output tokens, got %s", copilotreg.MaxOutputTokens, v)
 	}
 }
 
