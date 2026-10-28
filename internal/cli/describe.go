@@ -4,11 +4,11 @@ import (
 	"fmt"
 	"maps"
 	"os"
-	"runtime/debug"
 	"slices"
 	"strings"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/buildver"
 	"github.com/edotau/claude-code/internal/helptext"
 	"github.com/edotau/claude-code/internal/hookspec"
 	"github.com/edotau/claude-code/internal/models"
@@ -168,12 +168,7 @@ func flagNames(node *compNode) []string {
 	return slices.Sorted(maps.Keys(seen))
 }
 
-func buildVersion() string {
-	if bi, ok := debug.ReadBuildInfo(); ok && bi.Main.Version != "" {
-		return bi.Main.Version
-	}
-	return "devel"
-}
+func buildVersion() string { return buildver.Version() }
 
 func printDescribe(d Describe) {
 	fmt.Printf("claude-code %s\ncommands:\n", d.Version)
