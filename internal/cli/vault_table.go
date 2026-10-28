@@ -212,7 +212,7 @@ func vaultTruncate(s string, width int) string {
 	return string(r[:width-1]) + "…"
 }
 
-// vaultProvidersText renders the providers overlay as a provider table, a PLANS table and one-line lists.
+// vaultProvidersText renders the providers overlay as a provider table (PLANS stays JSON-only) and one-line lists.
 func vaultProvidersText(raw json.RawMessage, width int) string {
 	var b strings.Builder
 	b.WriteString("PROVIDERS\n")
@@ -226,37 +226,50 @@ func vaultProvidersText(raw json.RawMessage, width int) string {
 		b.WriteByte('\n')
 		return b.String()
 	}
+	var nested map[string]json.RawMessage
+	var top struct {
+		Providers map[string]json.RawMessage `json:"providers"`
+	}
+	_ = json.Unmarshal(raw, &top)
+	nested = top.Providers
 	var blocks []string
-	if len(reg.Providers) > 0 {
+	if len(nested) > 0 {
 		var rows [][]string
 		presets := map[string][]string{} // preset → its env rows, shown as one row
-		for _, name := range slices.Sorted(maps.Keys(reg.Providers)) {
-			p := reg.Providers[name]
-			if p == nil { // "name": null removes a built-in
-				rows = append(rows, []string{name, "(removed)", "", "", "", "", "", ""})
+		presetOwner := map[string]string{}
+		for _, prov := range slices.Sorted(maps.Keys(nested)) {
+			if providers.IsNull(nested[prov]) { // "provider": null removes its built-ins
+				rows = append(rows, []string{prov, prov, "(removed)", "", "", "", "", ""})
 				continue
 			}
-			if p.Preset != "" {
-				presets[p.Preset] = append(presets[p.Preset], name)
+			var profiles map[string]*providers.Provider
+			if err := json.Unmarshal(nested[prov], &profiles); err != nil {
+				rows = append(rows, []string{prov, prov, "error: " + err.Error(), "", "", "", "", ""})
 				continue
 			}
-			rows = append(rows, []string{name, p.Kind, p.Auth.Method(), p.Models["opus"], p.Models["sonnet"],
-				p.Models["haiku"], p.OpencodeID, p.OpencodeFallback})
+			for _, name := range slices.Sorted(maps.Keys(profiles)) {
+				p := profiles[name]
+				if p == nil { // "name": null removes a built-in
+					rows = append(rows, []string{name, prov, "(removed)", "", "", "", "", ""})
+					continue
+				}
+				if p.Preset != "" {
+					presets[p.Preset] = append(presets[p.Preset], name)
+					presetOwner[p.Preset] = prov
+					continue
+				}
+				rows = append(rows, []string{name, prov, p.Auth.Method(), p.Models["opus"], p.Models["sonnet"],
+					p.Models["haiku"], p.OpencodeID, p.OpencodeFallback})
+			}
 		}
 		for _, preset := range slices.Sorted(maps.Keys(presets)) {
-			rows = append(rows, []string{preset, "preset", presetEnvs(presets[preset]), "", "", "", "", ""})
+			rows = append(rows, []string{preset, presetOwner[preset], presetEnvs(presets[preset]), "", "", "", "", ""})
 		}
-		head := []string{"NAME", "KIND", "AUTH", "OPUS", "SONNET", "HAIKU", "OPENCODE", "FALLBACK"}
-		blocks = append(blocks, vaultTable(head, providerColMax, rows, width))
-	}
-	if len(reg.AgentPlans) > 0 {
-		var rows [][]string
-		for _, agent := range slices.Sorted(maps.Keys(reg.AgentPlans)) {
-			for _, p := range reg.AgentPlans[agent] {
-				rows = append(rows, []string{agent, p.Tier, p.ID})
-			}
+		head := []string{"NAME", "PROVIDER", "AUTH", "OPUS", "SONNET", "HAIKU", "OPENCODE", "FALLBACK"}
+		if rows = vaultShownRows(rows); len(rows) > 0 {
+			head, cols, rows := vaultDropEmptyCols(head, providerColMax, rows)
+			blocks = append(blocks, vaultTable(head, cols, rows, width))
 		}
-		blocks = append(blocks, "  PLANS\n"+vaultTable([]string{"AGENT", "MODEL", "ID"}, planColMax, rows, width))
 	}
 	var lines [][2]string
 	if reg.Default != "" {
@@ -279,6 +292,49 @@ func vaultProvidersText(raw json.RawMessage, width int) string {
 	}
 	b.WriteString(strings.Join(blocks, "\n"))
 	return b.String()
+}
+
+// vaultShownRows drops rows with no field past NAME/PROVIDER, and all rows when only removal markers remain.
+func vaultShownRows(rows [][]string) [][]string {
+	var out [][]string
+	live := false
+	for _, r := range rows {
+		if !slices.ContainsFunc(r[2:], func(c string) bool { return c != "" }) {
+			continue
+		}
+		out = append(out, r)
+		live = live || r[2] != "(removed)"
+	}
+	if !live {
+		return nil
+	}
+	return out
+}
+
+// vaultDropEmptyCols removes every column past NAME that is empty in all rows, trimming head and colMax with it.
+func vaultDropEmptyCols(head []string, colMax []int, rows [][]string) ([]string, []int, [][]string) {
+	var keep []int
+	for c := range head {
+		if c == 0 || slices.ContainsFunc(rows, func(r []string) bool { return r[c] != "" }) {
+			keep = append(keep, c)
+		}
+	}
+	pick := func(r []string) []string {
+		out := make([]string, len(keep))
+		for i, c := range keep {
+			out[i] = r[c]
+		}
+		return out
+	}
+	cols := make([]int, len(keep))
+	outRows := make([][]string, len(rows))
+	for i, c := range keep {
+		cols[i] = colMax[c]
+	}
+	for i, r := range rows {
+		outRows[i] = pick(r)
+	}
+	return pick(head), cols, outRows
 }
 
 // vaultCredOK reports whether provider name's credential resolves in the merged registry (a seam for tests).
@@ -374,10 +430,9 @@ func vaultRoutingJSON(providersRaw json.RawMessage) (json.RawMessage, error) {
 	return json.Marshal(reg.Routing)
 }
 
-// Per-column max widths for the PROVIDERS and PLANS tables; a longer cell is clipped with "…" (0 = no cap).
+// Per-column max widths for the PROVIDERS table; a longer cell is clipped with "…" (0 = no cap).
 var (
-	providerColMax = []int{16, 8, 20, 14, 14, 16, 16, 18}
-	planColMax     = []int{14, 20, 24}
+	providerColMax = []int{20, 10, 20, 14, 14, 16, 16, 18}
 )
 
 // vaultTable renders a header plus rows as two-space-indented, column-aligned, width-truncated lines.
