@@ -40,6 +40,14 @@ type Options struct {
 	Autonomous       bool   // MessageOptions.AgentMode = AgentModeAutopilot
 	EnableMemory     bool   // SessionConfig.Memory.Enabled
 	SessionID        string // non-empty resumes this session instead of creating a new one
+	// Providers+Models switch to the multi-provider route: Model is a provider/id of Models, Token feeds every
+	// provider's BearerTokenProvider (set by the SDK layer), and the child runs in a private login-free home.
+	Providers []copilot.NamedProviderConfig
+	Models    []copilot.ProviderModelConfig
+	Token     func() (string, error)
+	// ChildEnv is set on, and ChildUnset (exact names) plus ChildUnsetPrefix stripped from, the registry child's env.
+	ChildEnv, ChildUnset []string
+	ChildUnsetPrefix     string
 }
 
 // Result is one completed turn; Model is what the runtime reports actually served it.
@@ -56,6 +64,13 @@ func BuildClientOptions(o Options) (*copilot.ClientOptions, error) {
 		return nil, errors.New("copilot CLI path is empty (the SDK would run its bundled runtime instead)")
 	}
 	base, _ := envscrub.ScrubVendor(os.Environ(), envscrub.KeepSet(o.KeepEnv))
+	if o.multiProvider() {
+		if err := validateRegistryOptions(o); err != nil {
+			return nil, err
+		}
+		base = registryEnv(append(base, o.Env...), o.ChildEnv, o.ChildUnset, o.ChildUnsetPrefix)
+		o.Env = nil
+	}
 	return &copilot.ClientOptions{
 		Connection:       copilot.StdioConnection{Path: o.CLIPath, Env: append(base, o.Env...)},
 		WorkingDirectory: o.WorkingDirectory,
@@ -78,6 +93,10 @@ func BuildSessionConfig(o Options) *copilot.SessionConfig {
 	if o.EnableMemory {
 		cfg.Memory = &copilot.MemoryConfiguration{Enabled: true}
 	}
+	if o.multiProvider() {
+		cfg.Provider = nil
+		cfg.Providers, cfg.Models = namedProviders(o)
+	}
 	return cfg
 }
 
@@ -94,6 +113,10 @@ func buildResumeSessionConfig(o Options) *copilot.ResumeSessionConfig {
 	}
 	if o.EnableMemory {
 		cfg.Memory = &copilot.MemoryConfiguration{Enabled: true}
+	}
+	if o.multiProvider() {
+		cfg.Provider = nil
+		cfg.Providers, cfg.Models = namedProviders(o)
 	}
 	return cfg
 }
@@ -228,16 +251,24 @@ func ListModels(ctx context.Context, o Options) ([]Model, error) {
 
 // newOrResumedSession resumes o.SessionID when set, else creates a fresh session.
 func newOrResumedSession(ctx context.Context, client *copilot.Client, o Options) (*copilot.Session, error) {
+	if o.multiProvider() {
+		if err := probeMultiProvider(ctx, client); err != nil {
+			return nil, err
+		}
+	}
+	var session *copilot.Session
+	var err error
 	if o.SessionID == "" {
-		session, err := client.CreateSession(ctx, BuildSessionConfig(o))
-		if err != nil {
+		if session, err = client.CreateSession(ctx, BuildSessionConfig(o)); err != nil {
 			return nil, fmt.Errorf("create session: %w", err)
 		}
-		return session, nil
-	}
-	session, err := client.ResumeSessionWithOptions(ctx, o.SessionID, buildResumeSessionConfig(o))
-	if err != nil {
+	} else if session, err = client.ResumeSessionWithOptions(ctx, o.SessionID, buildResumeSessionConfig(o)); err != nil {
 		return nil, fmt.Errorf("resume session %s: %w", o.SessionID, err)
+	}
+	if o.multiProvider() { // a resumed session may carry another wire's saved model: re-pin before any turn
+		if err := selectRegistered(ctx, session, o); err != nil {
+			return nil, errors.Join(err, session.Disconnect())
+		}
 	}
 	return session, nil
 }

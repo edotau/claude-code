@@ -401,7 +401,15 @@ func (copilotRunner) Run(ctx context.Context, req Request, stream io.Writer) (Re
 		res.Provider = t.Provider.Name
 	}
 	var env []string
-	if !own {
+	var route *copilotRegistryRoute
+	switch {
+	case own:
+	case copilotRegistryEligible(req, t):
+		if route, err = prepareCopilotRegistry(ctx, t); err != nil {
+			return res, &Error{Kind: KindFatal, Agent: "copilot", Err: err}
+		}
+		defer route.close()
+	default:
 		env, _, err = vendors.Configure(ctx, "copilot", t, "")
 		if err != nil {
 			return res, &Error{Kind: KindFatal, Agent: "copilot", Err: err}
@@ -422,6 +430,9 @@ func (copilotRunner) Run(ctx context.Context, req Request, stream io.Writer) (Re
 		Context: providers.Pin(providers.PinCopilotContext), WorkingDirectory: req.WorkDir,
 		AllowAllTools: req.Tools, UseLoggedInUser: true, Autonomous: req.Autonomous, EnableMemory: req.EnableMemory,
 		SessionID: req.SessionID,
+	}
+	if route != nil {
+		route.apply(&opts)
 	}
 	if own {
 		tok, err := vendors.CopilotLaunchToken()

@@ -108,6 +108,7 @@ type Plan struct {
 	OverlayPath string
 	Overlay     []byte
 	Warnings    []string
+	OnExecFail  func() // runs when Exec returns (the exec failed): drops state minted for the launch
 }
 
 // Seams for tests.
@@ -447,6 +448,9 @@ func vendorPlan(ctx context.Context, name string, o Options, args []string) (Pla
 	if err != nil {
 		return Plan{}, err
 	}
+	if name == "copilot" && vendors.UsesCopilotRegistry(ctx, target) {
+		return copilotRegistryPlan(ctx, spec, reg, target, note, args, o.PrintEnv)
+	}
 	env, prefix, err := vendors.Configure(ctx, name, target, "")
 	if errors.Is(err, vendors.ErrOwnLogin) {
 		// The vendor's own login (opencode on Copilot) picks the model itself: plain launch, not a failure.
@@ -511,6 +515,33 @@ func fallbackModel(p *providers.Provider, model string) string {
 		return m
 	}
 	return p.WireModel(models.Strip1M(model))
+}
+
+// copilotRegistryPlan is the interactive Databricks copilot launch on a native model registry. It fails closed:
+// no error here reaches passthrough or the plain CLI, which would run on copilot's own GitHub login.
+func copilotRegistryPlan(
+	ctx context.Context, spec vendors.Spec, reg *providers.Registry, t providers.Target, note string, args []string,
+	dry bool,
+) (Plan, error) {
+	if note != "" {
+		fmt.Fprintln(os.Stderr, note)
+	}
+	cr, err := vendors.ConfigureCopilotRegistry(ctx, reg, t, args, dry)
+	if err != nil {
+		return Plan{}, err
+	}
+	bin, err := lookPath(spec.Binary)
+	if err != nil {
+		cr.Revoke()
+		return Plan{}, err
+	}
+	lenv, lprefix := vendors.LaunchSpec(spec.Name)
+	fmt.Fprintln(os.Stderr, vendors.CopilotRegistryBanner)
+	return Plan{
+		Binary: bin, Set: envMap(append(lenv, cr.Env...)), Unset: cr.Unset, Warnings: cr.Warnings,
+		Argv:       append(append(lprefix, cr.Argv...), cr.Args...),
+		OnExecFail: cr.Revoke,
+	}, nil
 }
 
 func retryVendorConfigure(ctx context.Context, name string, o Options) ([]string, []string, error) {
@@ -726,12 +757,21 @@ func (p Plan) WriteOverlay() error {
 // Exec writes the overlay and replaces this process with the target.
 func (p Plan) Exec() error {
 	if err := p.WriteOverlay(); err != nil {
+		p.execFailed()
 		return err
 	}
 	for _, w := range p.Warnings {
 		fmt.Fprintln(os.Stderr, "claude-code: warning:", w)
 	}
-	return proc.Exec(p.Binary, p.Argv, p.Env(os.Environ()))
+	err := proc.Exec(p.Binary, p.Argv, p.Env(os.Environ()))
+	p.execFailed()
+	return err
+}
+
+func (p Plan) execFailed() {
+	if p.OnExecFail != nil {
+		p.OnExecFail()
+	}
 }
 
 func secretKey(k string) bool {

@@ -2,6 +2,7 @@ package vendors
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"os"
@@ -18,11 +19,22 @@ const (
 	testRouterSecret = "rtr-secret-xyz"
 )
 
-// TestMain stubs the router seams so no test spawns a daemon.
+// TestMain stubs the router seams so no test spawns a daemon, and points every test at a throwaway config dir
+// and vault key so none can reach the live vault or router secret.
 func TestMain(m *testing.M) {
+	dir, err := os.MkdirTemp("", "vendors-test-")
+	if err != nil {
+		panic(err)
+	}
+	os.Setenv("CLAUDE_CONFIG_DIR", dir)
+	os.Setenv("HARNESS_VAULT_KEY", base64.StdEncoding.EncodeToString(make([]byte, 32)))
+	mintSession = func(context.Context, string, int) (string, error) { return "", errors.New("session mint is stubbed") }
+	revokeSession = func(context.Context, string) error { return nil }
 	ensureRouter = func(context.Context) (string, error) { return testRouterBase, nil }
 	routerSecret = func() (string, error) { return testRouterSecret, nil }
-	os.Exit(m.Run())
+	code := m.Run()
+	os.RemoveAll(dir)
+	os.Exit(code)
 }
 
 func stubRouter(t *testing.T, ensure func(context.Context) (string, error)) {
