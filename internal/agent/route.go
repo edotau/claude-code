@@ -254,6 +254,7 @@ func nonClaudeLegID(exact string, explicitModel bool, pinModel string) string {
 }
 
 // lowestTierServing is the lowest router tier (haiku up) whose cell for agentName resolves to id, else "".
+// Several tiers may share id (codex gpt-6.1-sol at opus and sonnet); a caller that named an alias never reaches this.
 func lowestTierServing(tb *router.Table, agentName, id string) string {
 	for _, tier := range slices.Backward(router.Tiers) {
 		if c, ok := tb.Rows[agentName][tier]; ok {

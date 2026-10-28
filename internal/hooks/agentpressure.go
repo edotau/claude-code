@@ -89,7 +89,7 @@ func applyPressure(in *Input, updated map[string]any, promptField, base string) 
 	agent, model := routeHint(tier)
 	hint := "no agent passes the route gates"
 	if agent != "" {
-		hint = fmt.Sprintf("`claude-code ask --agent %s --model %s --tools`", agent, model)
+		hint = fmt.Sprintf("`claude-code ask --agent %s --model %s --tools`", agent, tier)
 	}
 	kind := in.nested("tool_input", "subagent_type")
 	if pct >= OffloadPct && offloadTypes[kind] && agent != "" {
@@ -99,7 +99,7 @@ func applyPressure(in *Input, updated map[string]any, promptField, base string) 
 			"then verify and report.\n\n%s", window, pct, hint, prompt)
 		return fmt.Sprintf("agent-effort: Claude %s window at %.0f%% — %s dispatch moved to coworker (haiku) via %s.",
 				window, pct, kind, hint),
-			fmt.Sprintf("agent-effort: %.0f%% %s → coworker via %s %s", pct, window, agent, model)
+			fmt.Sprintf("agent-effort: %.0f%% %s → coworker via %s %s (%s)", pct, window, agent, model, tier)
 	}
 	down := models.NextSlot(base)
 	if down == "" && base == models.Haiku {
