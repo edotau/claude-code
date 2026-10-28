@@ -26,6 +26,9 @@ const (
 	harvestMaxBlocks  = 3
 )
 
+// sidecarLockWait bounds how long countSubagentEdits waits for the sidecar lock; a var so tests can shorten it.
+var sidecarLockWait = 2 * time.Second
+
 // SessionStart injects the memory bank (auto-scaffolding it for safe roots) as additionalContext.
 func SessionStart(r io.Reader, stdout io.Writer) int {
 	in := ParseInput(r)
@@ -558,7 +561,7 @@ func countSubagentEdits(transcriptPath string, cachedBytes int64, cachedEdits in
 	}
 	// Stop and SessionEnd can both call in for the same session: serialize the read-compute-write so
 	// neither writer regresses the other's offsets; a lock timeout keeps hooks fast by skipping the write.
-	ran, lockErr := paths.TryFileLock(sidecar+".lock", 2*time.Second, func() error {
+	ran, lockErr := paths.TryFileLock(sidecar+".lock", sidecarLockWait, func() error {
 		edits = recount(true)
 		return nil
 	})

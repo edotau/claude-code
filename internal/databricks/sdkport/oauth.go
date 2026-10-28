@@ -41,6 +41,10 @@ var httpClient = &http.Client{Timeout: requestTimeout}
 var now = time.Now
 
 // normHost trims whitespace and a trailing slash and requires an https host (plain http only on loopback).
+
+// RetryBackoff is the token-endpoint retry step (attempt × step); a var so tests can shorten it.
+var RetryBackoff = 500 * time.Millisecond
+
 func normHost(host string) (string, error) {
 	h := strings.TrimRight(strings.TrimSpace(host), "/")
 	u, err := url.Parse(h)
@@ -119,7 +123,7 @@ func postToken(ctx context.Context, host, op string, form url.Values, basicID, b
 			select {
 			case <-ctx.Done():
 				return Token{}, fmt.Errorf("oauth: %s at %s: %w", op, host, ctx.Err())
-			case <-time.After(time.Duration(attempt) * 500 * time.Millisecond):
+			case <-time.After(time.Duration(attempt) * RetryBackoff):
 			}
 		}
 		tok, f, err := postTokenOnce(ctx, host, op, form, basicID, basicSecret)

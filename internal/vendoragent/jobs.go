@@ -192,18 +192,24 @@ func Cancel(rec *agent.Record) error {
 	return nil
 }
 
-// escalate sends SIGINT, waits 5s, then SIGKILL and waits 2s more; errors if pid outlives both.
+// cancelGrace is how long escalate waits after SIGINT before sending SIGKILL; a var so tests can shorten it.
+var cancelGrace = 5 * time.Second
+
+// killWait is how long escalate waits after SIGKILL before reporting the pid as stuck; tests shorten it.
+var killWait = 2 * time.Second
+
+// escalate sends SIGINT, waits cancelGrace, then SIGKILL and waits killWait more; errors if pid outlives both.
 func escalate(pid int, id string) error {
 	if err := interrupt(pid); err != nil {
 		return err
 	}
-	if waitGone(pid, 5*time.Second) {
+	if waitGone(pid, cancelGrace) {
 		return nil
 	}
 	if err := kill(pid); err != nil {
 		return err
 	}
-	if !waitGone(pid, 2*time.Second) {
+	if !waitGone(pid, killWait) {
 		return fmt.Errorf("dispatch %q still running after SIGKILL", id)
 	}
 	return nil

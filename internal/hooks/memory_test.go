@@ -928,8 +928,11 @@ func TestCountSubagentEditsConcurrentCallsCountOnce(t *testing.T) {
 
 // TestCountSubagentEditsLockHeldElsewhereReturnsCachedWithoutWriting: when the sidecar lock is held by
 // another writer, countSubagentEdits must fall back to the caller's cached totals, write nothing, and
-// return within its ~2s lock wait rather than hang.
+// return within its (test-shortened) lock wait rather than hang.
 func TestCountSubagentEditsLockHeldElsewhereReturnsCachedWithoutWriting(t *testing.T) {
+	oldWait := sidecarLockWait
+	sidecarLockWait = 100 * time.Millisecond
+	t.Cleanup(func() { sidecarLockWait = oldWait })
 	tr, subDir := subagentFixture(t)
 	a := filepath.Join(subDir, "agent-a.jsonl")
 	writeEdits(t, a, 2)
@@ -959,8 +962,8 @@ func TestCountSubagentEditsLockHeldElsewhereReturnsCachedWithoutWriting(t *testi
 	if edits != edits0 || bytes != bytes0 {
 		t.Fatalf("lock held elsewhere: countSubagentEdits = (%d,%d), want (%d,%d)", edits, bytes, edits0, bytes0)
 	}
-	if elapsed > 2500*time.Millisecond {
-		t.Fatalf("countSubagentEdits took %s waiting on a held lock, want it to give up near its 2s wait", elapsed)
+	if elapsed > time.Second {
+		t.Fatalf("countSubagentEdits took %s waiting on a held lock, want it to give up near its %s wait", elapsed, sidecarLockWait)
 	}
 	after := readSidecar(sidecarPath(subDir))
 	if !reflect.DeepEqual(after, before) {

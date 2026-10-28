@@ -224,10 +224,13 @@ func TestCancelDetectsPIDReuse(t *testing.T) {
 }
 
 // A child that traps and ignores SIGINT must still be ended by Cancel's SIGKILL escalation.
-// t.Parallel (this test takes ~5s waiting out the SIGINT grace period) rules out t.Setenv, which
-// panics when mixed with parallel subtests; CLAUDE_CONFIG_DIR is saved/restored by hand instead.
+// t.Parallel rules out t.Setenv, which panics when mixed with parallel subtests; CLAUDE_CONFIG_DIR
+// is saved/restored by hand instead. cancelGrace/killWait are shortened so escalation takes ~100ms.
 func TestCancelEscalatesToSIGKILL(t *testing.T) {
 	t.Parallel()
+	oldGrace, oldKillWait := cancelGrace, killWait
+	cancelGrace, killWait = 100*time.Millisecond, 100*time.Millisecond
+	t.Cleanup(func() { cancelGrace, killWait = oldGrace, oldKillWait })
 	prevConfigDir, hadConfigDir := os.LookupEnv("CLAUDE_CONFIG_DIR")
 	_ = os.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	defer func() {
