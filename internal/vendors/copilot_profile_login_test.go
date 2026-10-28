@@ -49,7 +49,6 @@ func TestCopilotProfilePinPassesLoginToGh(t *testing.T) {
 	for _, tc := range []struct{ name, pin, want, account string }{
 		{"profile pin passes its login", "personal", "auth token -u edotau", "personal"},
 		{"unset pin passes no user", "", "auth token", ""},
-		{"raw login fallback is still passed", "octocat", "auth token -u octocat", "octocat"},
 		{"profile with no login passes no user", "bare", "auth token", "bare"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

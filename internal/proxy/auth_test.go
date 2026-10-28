@@ -101,8 +101,8 @@ func TestCondemnedRefreshMovesOnToNextTarget(t *testing.T) {
 	up1 := newUpstream(t, ok)
 	up2 := newUpstream(t, ok)
 	t.Setenv("UP2_KEY", "k2")
-	srv := setupRouter(t, `{"default":"up1","fallback":["up2"],"providers":{"up1":`+u2mRow(up1.URL)+`,"up2":`+
-		anthropicProvider(up2.URL, "UP2_KEY", `{"opus":"m2-opus","haiku":"m2-haiku"}`)+`}}`, nil)
+	srv := setupRouter(t, `{"default":"up1","fallback":["up2"],"providers":{"databricks":{"up1":`+u2mRow(up1.URL)+`},"anthropic":{"up2":`+
+		anthropicProvider(up2.URL, "UP2_KEY", `{"opus":"m2-opus","haiku":"m2-haiku"}`)+`}}}`, nil)
 
 	resp := post(t, srv.URL+"/p/up1/v1/messages", `{"model":"m1-haiku"}`, nil)
 	if resp.StatusCode != 200 || up1.hits.Load() != 0 || up2.hits.Load() != 1 {
@@ -124,9 +124,9 @@ func TestTransientRefreshFailureMovesOnWithoutMarking(t *testing.T) {
 	g := useGate(t)
 	up2 := newUpstream(t, ok)
 	t.Setenv("UP2_KEY", "k2")
-	srv := setupRouter(t, `{"default":"up1","fallback":["up2"],"providers":{"up1":{"kind":"anthropic","base_url":"`+up2.URL+
+	srv := setupRouter(t, `{"default":"up1","fallback":["up2"],"providers":{"anthropic":{"up1":{"kind":"anthropic","base_url":"`+up2.URL+
 		`","auth":{"type":"key","command":"exit 1"},"models":{"opus":"m1"}},"up2":`+
-		anthropicProvider(up2.URL, "UP2_KEY", `{"opus":"m2-opus"}`)+`}}`, nil)
+		anthropicProvider(up2.URL, "UP2_KEY", `{"opus":"m2-opus"}`)+`}}}`, nil)
 
 	resp := post(t, srv.URL+"/p/up1/v1/messages", `{"model":"m1"}`, nil)
 	if resp.StatusCode != 200 || up2.hits.Load() != 1 {
@@ -140,7 +140,7 @@ func TestTransientRefreshFailureMovesOnWithoutMarking(t *testing.T) {
 func TestLadderExhaustedReturns401WithLoginHint(t *testing.T) {
 	g := useGate(t)
 	up1 := newUpstream(t, ok)
-	srv := setupRouter(t, `{"default":"up1","providers":{"up1":`+u2mRow(up1.URL)+`}}`, nil)
+	srv := setupRouter(t, `{"default":"up1","providers":{"databricks":{"up1":`+u2mRow(up1.URL)+`}}}`, nil)
 
 	resp := post(t, srv.URL+"/p/up1/v1/messages", `{"model":"m1-opus"}`, nil)
 	b := body(t, resp)
@@ -194,7 +194,7 @@ func TestClearOnSuccessLiftsOwnMark(t *testing.T) {
 		ok(w, r, n)
 	})
 	t.Setenv("UP1_KEY", "k1")
-	srv := setupRouter(t, `{"default":"up1","providers":{"up1":`+anthropicProvider(up.URL, "UP1_KEY", `{"opus":"m1"}`)+`}}`, nil)
+	srv := setupRouter(t, `{"default":"up1","providers":{"anthropic":{"up1":`+anthropicProvider(up.URL, "UP1_KEY", `{"opus":"m1"}`)+`}}}`, nil)
 
 	resp := post(t, srv.URL+"/p/up1/v1/messages", `{"model":"m1"}`, nil)
 	if resp.StatusCode != 401 {
@@ -218,7 +218,7 @@ func TestSuccessNeverClearsAMarkThisProcessDidNotSet(t *testing.T) {
 	g := useGate(t)
 	up := newUpstream(t, ok)
 	t.Setenv("UP1_KEY", "k1")
-	srv := setupRouter(t, `{"default":"up1","providers":{"up1":`+anthropicProvider(up.URL, "UP1_KEY", `{"opus":"m1"}`)+`}}`, nil)
+	srv := setupRouter(t, `{"default":"up1","providers":{"anthropic":{"up1":`+anthropicProvider(up.URL, "UP1_KEY", `{"opus":"m1"}`)+`}}}`, nil)
 	g.premark("up1")
 	if resp := post(t, srv.URL+"/p/up1/v1/messages", `{"model":"m1"}`, nil); resp.StatusCode != 200 {
 		t.Fatalf("status %d", resp.StatusCode)
@@ -249,7 +249,7 @@ func TestInvalidToken400OnDatabricksRowIsAnAuthRejection(t *testing.T) {
 	up := invalidTokenUp(t)
 	vaulttest.UseKeyring(t)
 	row := sealedPAT(t, up.URL)
-	srv := setupRouter2(t, `{"default":"patrow","providers":{"patrow":`+row+`}}`)
+	srv := setupRouter2(t, `{"default":"patrow","providers":{"databricks":{"patrow":`+row+`}}}`)
 
 	resp := post(t, srv.URL+"/p/patrow/v1/messages", `{"model":"m1"}`, nil)
 	b := body(t, resp)
@@ -268,7 +268,7 @@ func TestInvalidToken400OnOtherProviderIsRelayedAsIs(t *testing.T) {
 	g := useGate(t)
 	up := invalidTokenUp(t)
 	t.Setenv("UP1_KEY", "k1")
-	srv := setupRouter(t, `{"default":"up1","providers":{"up1":`+anthropicProvider(up.URL, "UP1_KEY", `{"opus":"m1"}`)+`}}`, nil)
+	srv := setupRouter(t, `{"default":"up1","providers":{"anthropic":{"up1":`+anthropicProvider(up.URL, "UP1_KEY", `{"opus":"m1"}`)+`}}}`, nil)
 
 	resp := post(t, srv.URL+"/p/up1/v1/messages", `{"model":"m1"}`, nil)
 	if resp.StatusCode != 400 || !strings.Contains(body(t, resp), "Invalid Token") {
@@ -297,8 +297,8 @@ func TestPassthroughCondemnedRefreshAnswers502AndMarks(t *testing.T) {
 		t.Run(method, func(t *testing.T) {
 			g := useGate(t)
 			up := newRawUp(t, okRaw)
-			srv := setupRouter(t, fmt.Sprintf(`{"default":"up1","providers":{"up1":{"kind":"openai","base_url":%q,`+
-				`"auth":{"type":"oauth"},"models":{"opus":"m"}}}}`, up.URL+"/v1"), nil)
+			srv := setupRouter(t, fmt.Sprintf(`{"default":"up1","providers":{"databricks":{"up1":{"kind":"openai","base_url":%q,`+
+				`"auth":{"type":"oauth"},"models":{"opus":"m"}}}}}`, up.URL+"/v1"), nil)
 			resp := ptDo(t, method, srv.URL+"/p/up1/openai/models", "{}", nil)
 			b := body(t, resp)
 			if resp.StatusCode != http.StatusBadGateway || !strings.Contains(b, "authentication failed") {
@@ -331,7 +331,7 @@ func tlsUpstream(t *testing.T) (*httptest.Server, *rawUp) {
 }
 
 func subOverlay(base string) string {
-	return fmt.Sprintf(`{"default":"sub","providers":{"sub":{"kind":"anthropic","base_url":%q,"auth":{"type":"cli"},"models":{"opus":"m"}}}}`, base)
+	return fmt.Sprintf(`{"default":"sub","providers":{"anthropic":{"sub":{"kind":"anthropic","base_url":%q,"auth":{"type":"cli"},"models":{"opus":"m"}}}}}`, base)
 }
 
 func allHeaderValues(h http.Header) string {
@@ -480,7 +480,7 @@ func TestStalledInvalidTokenBodyIsCutByIdleTimeout(t *testing.T) {
 	})
 	vaulttest.UseKeyring(t)
 	row := sealedPAT(t, up.URL)
-	srv := setupRouter2(t, `{"default":"patrow","providers":{"patrow":`+row+`}}`)
+	srv := setupRouter2(t, `{"default":"patrow","providers":{"databricks":{"patrow":`+row+`}}}`)
 
 	start := time.Now()
 	resp := post(t, srv.URL+"/p/patrow/v1/messages", `{"model":"m1"}`, nil)

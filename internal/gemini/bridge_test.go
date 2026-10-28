@@ -67,7 +67,7 @@ func setupRegistry(t *testing.T, srv *httptest.Server) {
 	t.Setenv("CLAUDE_CONFIG_DIR", dir)
 	t.Setenv("TEST_GEM_KEY", "gem-key")
 	body := fmt.Sprintf(`{"providers":{
-	  "tgem":{"kind":"openai","base_url":%q,"auth":{"type":"key","env":"TEST_GEM_KEY"},"models":{"opus":"g-pro","sonnet":"g-flash","haiku":"g-lite"}}}}`,
+	  "google":{"tgem":{"kind":"openai","base_url":%q,"auth":{"type":"key","env":"TEST_GEM_KEY"},"models":{"opus":"g-pro","sonnet":"g-flash","haiku":"g-lite"}}}}}`,
 		srv.URL+"/v1")
 	vaulttest.Put(t, vault.Overlay, "providers", body)
 }
@@ -428,15 +428,14 @@ func TestBridgeRunUpstream502IsTransient(t *testing.T) {
 	}
 }
 
-// setupGeminiProviderOverride overlays the built-in "gemini" provider itself (not a side name) onto srv,
+// setupGeminiProviderOverride overlays the built-in google·antigravity profile itself (not a side name) onto srv,
 // so a bridge call with Provider=="" (the no-explicit-flag case) still resolves to a fake endpoint.
 func setupGeminiProviderOverride(t *testing.T, srv *httptest.Server) {
 	t.Helper()
 	dir := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", dir)
-	t.Setenv("TEST_GEMINI_DEFAULT_KEY", "gem-default-key")
 	body := fmt.Sprintf(`{"providers":{
-	  "gemini":{"kind":"openai","base_url":%q,"auth":{"type":"key","env":"TEST_GEMINI_DEFAULT_KEY"},"models":{"opus":"g-pro","sonnet":"g-flash","haiku":"g-lite"}}}}`,
+	  "google":{"antigravity":{"kind":"openai","base_url":%q,"auth":{"type":"cli","login":"gemini"},"models":{"opus":"g-pro","sonnet":"g-flash","haiku":"g-lite"}}}}}`,
 		srv.URL+"/v1")
 	vaulttest.Put(t, vault.Overlay, "providers", body)
 }

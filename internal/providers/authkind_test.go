@@ -67,11 +67,11 @@ func TestPATCredentialAndPresence(t *testing.T) {
 
 func TestKindChangeRefusedWithoutForce(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	row := map[string]any{"auth": map[string]any{"type":"pat"}}
+	row := map[string]any{"auth": map[string]any{"type": "pat"}}
 	if err := SetProviderFields("openai", row); err != nil {
 		t.Fatal(err)
 	}
-	row["auth"] = map[string]any{"type":"oauth"}
+	row["auth"] = map[string]any{"type": "oauth"}
 	err := SetProviderFields("openai", row)
 	if err == nil || !strings.Contains(err.Error(), "refused without force") {
 		t.Fatalf("kind change err = %v", err)

@@ -167,7 +167,7 @@ func TestKindChangeGuardCoversEmptyToKindAndForce(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	vaulttest.UseKeyring(t)
 	if err := SetProviderFields("guard-row", map[string]any{
-		"kind": "anthropic", "base_url": "https://example.cloud.databricks.com/x", "auth": map[string]any{"type":"key", "command": "true"},
+		"kind": "anthropic", "base_url": "https://example.cloud.databricks.com/x", "auth": map[string]any{"type": "key", "command": "true"},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -175,7 +175,7 @@ func TestKindChangeGuardCoversEmptyToKindAndForce(t *testing.T) {
 		_, _, err := UpdateOverlayDocForce(true, force, func(top map[string]json.RawMessage, _ *vault.Tx) error {
 			var provs map[string]map[string]any
 			_ = json.Unmarshal(top["providers"], &provs)
-			provs["guard-row"]["auth"] = map[string]any{"type":"pat"}
+			provs["guard-row"]["auth"] = map[string]any{"type": "pat"}
 			b, _ := json.Marshal(provs)
 			top["providers"] = b
 			return nil

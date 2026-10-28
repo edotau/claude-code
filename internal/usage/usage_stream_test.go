@@ -141,6 +141,7 @@ func TestStartQuotaFetchEnabledCallsFetch(t *testing.T) {
 // a partial or duplicated document.
 func TestUsageJSONFixtureRegression(t *testing.T) {
 	claudeDir := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir()) // the vault must be scratch, never the real one
 	ts := time.Now().UTC().Format(time.RFC3339)
 	writeUsageFixture(t, claudeDir, "proj", "sess", time.Minute, usageRecordLine("claude-opus-5", 100, 20, ts))
 

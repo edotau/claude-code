@@ -17,13 +17,13 @@ import (
 const overlay = `{
   "default": "gw",
   "fallback": ["anthropic"],
-  "providers": {
+  "providers": {"anthropic": {
     "gateway":{"kind":"anthropic","base_url":"https://gateway.example.com/api","routes":{"openai":"/v1"},"auth":{"type":"key","env":"GATEWAY_API_KEY"},"models":{"opus":"anthropic/claude-opus-5","sonnet":"anthropic/claude-sonnet-5","haiku":"anthropic/claude-haiku-4-5"}},
     "gw": {"kind": "anthropic", "base_url": "https://gw.example.com",
       "routes": {"openai": "/v1", "responses": "https://other.example.com/r/"},
       "auth": {"type":"key", "env": "GW_KEY"}, "headers": {"X-Team": "a"},
-      "models": {"opus": "claude-opus-5", "sonnet": "claude-sonnet-5", "haiku": "claude-haiku-4-5"}},
-    "ollama": null
+      "models": {"opus": "claude-opus-5", "sonnet": "claude-sonnet-5", "haiku": "claude-haiku-4-5"}}},
+    "nvidia": {"nvidia": null}
   }
 }`
 
@@ -61,7 +61,7 @@ func TestEmbeddedDefaultsGithubCopilotOpencodeVariant(t *testing.T) {
 
 func TestOverlayAndRoutes(t *testing.T) {
 	reg := load(t)
-	if _, ok := reg.Providers["ollama"]; ok {
+	if _, ok := reg.Providers["nvidia"]; ok {
 		t.Error("null overlay entry should remove the built-in")
 	}
 	gw, _ := reg.Get("gw")
@@ -107,8 +107,8 @@ func TestValidateRejectsOpencodeFallbackAuto(t *testing.T) {
 func TestOverlayReplacesOpencodeLadderAndPlugins(t *testing.T) {
 	vaulttest.UseKeyring(t)
 	t.Setenv(PinProfile, "")
-	base := []byte(`{"providers": {"a": {"kind": "anthropic", "base_url": "https://a", "auth": {"type": "none"}},
-		"b": {"kind": "anthropic", "base_url": "https://b", "auth": {"type": "none"}}},
+	base := []byte(`{"providers": {"anthropic": {"a": {"kind": "anthropic", "base_url": "https://a", "auth": {"type": "none"}},
+		"b": {"kind": "anthropic", "base_url": "https://b", "auth": {"type": "none"}}}},
 		"routing": {"opencode": {"ladder": ["opencode-go"]}}, "opencodePlugins": ["old-plugin"]}`)
 	overlay := []byte(`{"routing": {"opencode": {"ladder": ["openai", "opencode-go"]}}, "opencodePlugins": ["new-plugin"]}`)
 	reg, err := Parse(base, overlay)
@@ -131,10 +131,10 @@ func TestOverlayLadderNormalizesLegacyProviderNamesAndDropsDuplicates(t *testing
 	vaulttest.UseKeyring(t)
 	t.Setenv(PinProfile, "")
 	base := []byte(`{"providers": {
-		"chatgpt": {"kind": "openai", "base_url": "https://a", "auth": {"type": "none"}, "opencodeID": "openai"},
-		"github-copilot": {"kind": "openai", "base_url": "https://b", "auth": {"type": "none"}, "opencodeID": "github-copilot"}
+		"openai": {"chatgpt": {"kind": "openai", "base_url": "https://a", "auth": {"type": "none"}, "opencodeID": "openai"}},
+		"github": {"personal": {"kind": "openai", "base_url": "https://b", "auth": {"type": "none"}, "opencodeID": "github-copilot"}}
 	}, "routing": {"opencode": {"ladder": ["opencode-go"]}}}`)
-	overlay := []byte(`{"routing": {"opencode": {"ladder": ["chatgpt", "github-copilot", "chatgpt"]}}}`)
+	overlay := []byte(`{"routing": {"opencode": {"ladder": ["chatgpt", "personal", "chatgpt"]}}}`)
 	reg, err := Parse(base, overlay)
 	if err != nil {
 		t.Fatalf("Parse() = %v, want the legacy provider-name ladder to normalize and validate", err)
@@ -209,7 +209,7 @@ func TestSelectPinsAndCrossProvider(t *testing.T) {
 func TestNeedsRouterPassthroughFallback(t *testing.T) {
 	reg := &Registry{Fallback: []string{"gw"}, Providers: map[string]*Provider{
 		"sub": {Name: "sub", Kind: "anthropic", BaseURL: "https://api.anthropic.com", Auth: Auth{Type: AuthCLI}, Models: map[string]string{"opus": "o"}},
-		"key": {Name: "key", Kind: "anthropic", BaseURL: "https://api.anthropic.com", Auth: Auth{Type: "x-api-key", Env: "K"}, Models: map[string]string{"opus": "o"}},
+		"key": {Name: "key", Kind: "anthropic", BaseURL: "https://api.anthropic.com", Auth: Auth{Type: AuthKey, Header: HeaderXAPIKey, Env: "K"}, Models: map[string]string{"opus": "o"}},
 	}}
 	for name, want := range map[string]bool{"sub": false, "key": true} {
 		p := reg.Providers[name]
@@ -248,7 +248,7 @@ func TestCredentialLadderAndAuthorize(t *testing.T) {
 	if err := Authorize(context.Background(), gw, h); err != nil {
 		t.Fatal(err)
 	}
-	if h.Get("Authorization") != "Bearer from-vault" || h.Get("X-Team") != "a" {
+	if h.Get("Authorization") != "" || h.Get("X-Api-Key") != "from-vault" || h.Get("X-Team") != "a" {
 		t.Errorf("headers %v", h)
 	}
 	t.Setenv("GW_KEY", "from-env")
@@ -259,9 +259,9 @@ func TestCredentialLadderAndAuthorize(t *testing.T) {
 	if v, _ := Credential(context.Background(), gw); v != "minted" {
 		t.Errorf("command cred %q", v)
 	}
-	sub, _ := reg.Get("subscription")
-	h = http.Header{"Authorization": {"Bearer oauth"}}
-	if err := Authorize(context.Background(), sub, h); err != nil || h.Get("Authorization") != "Bearer oauth" {
+	sub, _ := reg.Get("max")
+	h = http.Header{"Authorization": {"Bearer client"}}
+	if err := Authorize(context.Background(), sub, h); err != nil || h.Get("Authorization") != "Bearer client" {
 		t.Errorf("passthrough must keep client auth: %v %v", err, h)
 	}
 }

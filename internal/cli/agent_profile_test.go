@@ -9,7 +9,7 @@ import (
 	"github.com/edotau/claude-code/internal/vault"
 )
 
-const acmeProvider = `"providers":{"acme":{"kind":"openai","base_url":"https://acme.example/v1","auth":{"type":"none"}}}`
+const acmeProvider = `"providers":{"openai":{"acme":{"kind":"openai","base_url":"https://acme.example/v1","auth":{"type":"none"}}}}`
 
 // profileFixture isolates the vault and seeds provider acme (no opencodeID) plus, when active is set, a "work" set.
 func profileFixture(t *testing.T, active string) {

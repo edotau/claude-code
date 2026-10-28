@@ -31,6 +31,16 @@ func isolateOpencodeRouteEnv(t *testing.T) (dataHome, cfgHome string) {
 	return dataHome, cfgHome
 }
 
+// pinCopilotLogin overlays the built-in github·personal profile with login and pins COPILOT_PROFILE=personal.
+func pinCopilotLogin(t *testing.T, login string) {
+	t.Helper()
+	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"github":{"personal":{"kind":"openai",`+
+		`"base_url":"https://api.githubcopilot.com","auth":{"type":"cli","login":"copilot"},"login":"`+login+`",`+
+		`"models":{"opus":"auto","sonnet":"auto","haiku":"auto"},"opencode_fallback":"claude-opus-5.5",`+
+		`"opencode_variant":"medium","opencodeID":"github-copilot"}}}}`)
+	setPin(t, providers.PinCopilotProfile, "personal")
+}
+
 // workableCopilotPin pins user as a gh login (hosts.yml in the isolated GH_CONFIG_DIR) with 10% of credits used.
 func workableCopilotPin(t *testing.T, user string) {
 	t.Helper()
@@ -38,7 +48,7 @@ func workableCopilotPin(t *testing.T, user string) {
 	if err := os.WriteFile(filepath.Join(os.Getenv("GH_CONFIG_DIR"), "hosts.yml"), []byte(hosts), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	setPin(t, providers.PinCopilotProfile, user)
+	pinCopilotLogin(t, user)
 	prev := CopilotUsedPct
 	CopilotUsedPct = func(context.Context, string) (float64, bool) { return 10, true }
 	t.Cleanup(func() { CopilotUsedPct = prev })

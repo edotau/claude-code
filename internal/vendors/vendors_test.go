@@ -66,9 +66,9 @@ func TestConfigure(t *testing.T) {
 		// gemini runs only on agy's own Google login (no GEMINI_API_KEY fallback); target() isolates
 		// HOME with no agy login marker, so both headless and interactive configure must refuse.
 		// Success-with-login-marker is covered by TestGeminiLoginPrecedence.
-		{vendor: "gemini", provider: "gemini", model: "gemini-2.5-pro", h: &Headless{Prompt: "hi"},
+		{vendor: "gemini", provider: "antigravity", model: "gemini-2.5-pro", h: &Headless{Prompt: "hi"},
 			wantErr: "agy is not signed in"},
-		{vendor: "gemini", provider: "gemini", model: "gemini-2.5-pro",
+		{vendor: "gemini", provider: "antigravity", model: "gemini-2.5-pro",
 			wantErr: "agy is not signed in"},
 		{vendor: "gemini", provider: "openai", model: "gpt-5", wantErr: "runs only on its Google sign-in"},
 		{vendor: "opencode", provider: "openai", model: "gpt-5", h: &Headless{Prompt: "hi", SessionID: "ses", Effort: "max", Tools: true},
@@ -83,7 +83,7 @@ func TestConfigure(t *testing.T) {
 			wantEnv: map[string]string{"COPILOT_PROVIDER_TYPE": "anthropic", "COPILOT_PROVIDER_API_KEY": secret, "COPILOT_PROVIDER_BEARER_TOKEN": "", "COPILOT_MODEL": "claude-opus-5"}},
 		{vendor: "copilot", provider: "openai", model: "gpt-5",
 			wantEnv: map[string]string{"COPILOT_PROVIDER_TYPE": "openai", "COPILOT_PROVIDER_BEARER_TOKEN": secret, "COPILOT_PROVIDER_BASE_URL": "https://api.openai.com/v1"}},
-		{vendor: "opencode", provider: "subscription", model: "claude-opus-5", wantErr: "cli (subscription)"},
+		{vendor: "opencode", provider: "max", model: "claude-opus-5", wantErr: "cli (subscription)"},
 		{vendor: "nope", provider: "openai", model: "gpt-5", wantErr: "unknown agent"},
 	}
 	for _, c := range cases {
@@ -154,7 +154,7 @@ func TestCodexChatGPTLogin(t *testing.T) {
 }
 
 func TestCopilotLogin(t *testing.T) {
-	tg := target(t, "github-copilot", "claude-opus-5.5")
+	tg := target(t, "personal", "claude-opus-5.5")
 	env, argv, err := ConfigureHeadless(context.Background(), "copilot", tg, Headless{Prompt: "hi", Tools: true})
 	if err != nil {
 		t.Fatal(err)
@@ -188,7 +188,7 @@ func noCopilotLogin(t *testing.T) {
 // Interactive copilot (h == nil, own GitHub-login route): the configure page's pins ride argv as
 // --reasoning-effort/--context when set, and neither flag appears when both pins are unset.
 func TestCopilotLoginArgvCarriesPinsWhenSetOmitsWhenUnset(t *testing.T) {
-	tg := target(t, "github-copilot", "claude-opus-5.5")
+	tg := target(t, "personal", "claude-opus-5.5")
 	noCopilotLogin(t)
 	for _, k := range []string{providers.PinCopilotEffort, providers.PinCopilotContext} {
 		t.Setenv(k, "")
@@ -272,7 +272,7 @@ func TestCopilotBYOKArgvCarriesPinsWhenSet(t *testing.T) {
 // ConfigureHeadless (h != nil) ignores the pins: copilot always runs headless through copilotRunner's
 // own SDK options, never this argv path, so copilotHeadless must stay untouched by the pins.
 func TestCopilotHeadlessArgvIgnoresPins(t *testing.T) {
-	tg := target(t, "github-copilot", "claude-opus-5.5")
+	tg := target(t, "personal", "claude-opus-5.5")
 	noCopilotLogin(t)
 	setPin(t, providers.PinCopilotEffort, "max")
 	setPin(t, providers.PinCopilotContext, "long_context")
@@ -288,7 +288,7 @@ func TestCopilotHeadlessArgvIgnoresPins(t *testing.T) {
 
 // The registry's "auto" slot must not override copilot's own default model: COPILOT_MODEL goes out blank.
 func TestCopilotLoginAutoDefersToCopilotDefault(t *testing.T) {
-	env, _, err := Configure(context.Background(), "copilot", target(t, "github-copilot", "auto"), "")
+	env, _, err := Configure(context.Background(), "copilot", target(t, "personal", "auto"), "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -318,11 +318,11 @@ func TestLaunchSpecAppliedOnEveryRoute(t *testing.T) {
 			wantArgvContains: "--allow-all",
 		},
 		{
-			name: "copilot/github-copilot (own login)", vendor: "copilot", provider: "github-copilot", model: "claude-opus-5.5",
+			name: "copilot/github-copilot (own login)", vendor: "copilot", provider: "personal", model: "claude-opus-5.5",
 			wantArgvContains: "--allow-all",
 		},
 		{
-			name: "gemini/own Google login", vendor: "gemini", provider: "gemini", model: "gemini-2.5-pro",
+			name: "gemini/own Google login", vendor: "gemini", provider: "antigravity", model: "gemini-2.5-pro",
 			setup: func(t *testing.T) {
 				home := os.Getenv("HOME")
 				marker := AgyLoginMarker(home)
@@ -365,7 +365,7 @@ func TestLaunchSpecAppliedOnEveryRoute(t *testing.T) {
 // TestHeadlessLegsGetNoLaunchArgs: a tools-off headless leg must never pick up a vendor's allow-all /
 // skip-permissions launch arg — that would silently re-enable tools the caller explicitly turned off.
 func TestHeadlessLegsGetNoLaunchArgs(t *testing.T) {
-	tg := target(t, "github-copilot", "claude-opus-5.5")
+	tg := target(t, "personal", "claude-opus-5.5")
 	_, argv, err := ConfigureHeadless(context.Background(), "copilot", tg, Headless{Prompt: "hi", Tools: false})
 	if err != nil {
 		t.Fatal(err)
@@ -383,7 +383,7 @@ func TestHeadlessLegsGetNoLaunchArgs(t *testing.T) {
 	if err := os.WriteFile(marker, []byte("tok"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	gtg := target(t, "gemini", "gemini-2.5-pro")
+	gtg := target(t, "antigravity", "gemini-2.5-pro")
 	t.Setenv("HOME", home) // target() reset HOME to its own tempdir; point it back at the marker
 	_, argv, err = ConfigureHeadless(context.Background(), "gemini", gtg, Headless{Prompt: "hi", Tools: false})
 	if err != nil {
@@ -538,7 +538,7 @@ func TestGeminiLoginPrecedence(t *testing.T) {
 	if GeminiLoginPresent() {
 		t.Fatal("no marker on disk must read as not logged in")
 	}
-	tg := target(t, "gemini", "gemini-2.5-pro")
+	tg := target(t, "antigravity", "gemini-2.5-pro")
 	// target() reset HOME to its own tempdir; point it back at ours for the marker check.
 	t.Setenv("HOME", home)
 
@@ -1008,15 +1008,13 @@ func TestCopilotAuthSourceStoredTokenOutranksActiveAccount(t *testing.T) {
 	}
 }
 
-// A pinned gh user (COPILOT_GITHUB_USER) still outranks a stored token.
+// A pinned gh user (COPILOT_PROFILE's login) still outranks a stored token.
 func TestCopilotAuthSourcePinOutranksStoredToken(t *testing.T) {
 	copilotAuthEnv(t)
 	if err := secrets.Store(CopilotTokenEnv, "stored-tok"); err != nil {
 		t.Fatal(err)
 	}
-	if err := providers.SetPins(map[string]string{providers.PinCopilotProfile: "alice"}); err != nil {
-		t.Fatal(err)
-	}
+	pinCopilotLogin(t, "alice")
 	a, ok := copilotAuthSource()
 	if !ok || a.Source != srcPinned || a.Account != "alice" {
 		t.Fatalf("a pin must outrank a stored token: got %+v", a)
@@ -1083,6 +1081,6 @@ func TestResolveTargetGeminiFallsBackToGoogleLogin(t *testing.T) {
 // writeGatewayOverlay registers a test-only third-party gateway (no such provider is built in).
 func writeGatewayOverlay(t *testing.T) {
 	t.Helper()
-	body := `{"providers":{"gateway":{"kind":"anthropic","base_url":"https://gateway.example.com/api","routes":{"openai":"/v1"},"auth":{"type":"key","env":"GATEWAY_API_KEY"},"models":{"opus":"anthropic/claude-opus-5","sonnet":"anthropic/claude-sonnet-5","haiku":"anthropic/claude-haiku-4-5"}}}}`
+	body := `{"providers":{"anthropic":{"gateway":{"kind":"anthropic","base_url":"https://gateway.example.com/api","routes":{"openai":"/v1"},"auth":{"type":"key","header":"bearer","env":"GATEWAY_API_KEY"},"models":{"opus":"anthropic/claude-opus-5","sonnet":"anthropic/claude-sonnet-5","haiku":"anthropic/claude-haiku-4-5"}}}}}`
 	vaulttest.Put(t, vault.Overlay, "providers", body)
 }

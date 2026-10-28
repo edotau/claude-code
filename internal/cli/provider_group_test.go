@@ -64,7 +64,7 @@ func TestProviderModeLabels(t *testing.T) {
 		want string
 	}{
 		{&providers.Provider{Auth: providers.Auth{Type: providers.AuthOAuth}}, "oauth"},
-		{&providers.Provider{Preset: providers.PresetDatabricks}, "oauth"},
+		{&providers.Provider{Preset: providers.PresetDatabricks, Auth: providers.Auth{Type: providers.AuthKey}}, "oauth"},
 		{&providers.Provider{Auth: providers.Auth{Type: providers.AuthM2M}}, "m2m"},
 		{&providers.Provider{Auth: providers.Auth{Type: providers.AuthCLI}}, "cli"},
 		{&providers.Provider{Auth: providers.Auth{Type: providers.AuthNone}}, "-"},

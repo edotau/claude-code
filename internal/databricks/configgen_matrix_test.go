@@ -30,7 +30,7 @@ func TestTemplatesOnlyPlaceholderHost(t *testing.T) {
 func TestMatrix(t *testing.T) {
 	const h = "https://x.example.com"
 	for _, target := range []string{TargetClaude, TargetCodex} {
-		for _, wire := range []string{"serving", "gateway"} {
+		for _, wire := range []string{"serving", "ai-gateway"} {
 			for _, auth := range []string{AuthHarness, AuthCLI} {
 				o := base(t, target, wire)
 				o.Auth = auth
@@ -44,7 +44,7 @@ func TestMatrix(t *testing.T) {
 					t.Errorf("%s: forbidden string in\n%s", name, r.Text)
 				}
 				wantURL := h + "/serving-endpoints"
-				if wire == "gateway" {
+				if wire == "ai-gateway" {
 					wantURL = h + "/ai-gateway"
 				}
 				if !strings.Contains(r.Text, wantURL) {
@@ -66,7 +66,7 @@ func TestMatrix(t *testing.T) {
 						d.Env["CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS"] != "1" {
 						t.Errorf("%s: helper/env %q %v", name, d.K, d.Env)
 					}
-					if (d.Env["CLAUDE_CODE_USE_GATEWAY"] == "1") != (wire == "gateway") {
+					if (d.Env["CLAUDE_CODE_USE_GATEWAY"] == "1") != (wire == "ai-gateway") {
 						t.Errorf("%s: gateway flag %v", name, d.Env)
 					}
 					continue

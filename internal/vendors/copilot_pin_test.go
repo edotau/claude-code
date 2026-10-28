@@ -4,7 +4,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/secrets"
 )
 
@@ -14,9 +13,7 @@ func TestCopilotPinMissingFailsClosed(t *testing.T) {
 	if err := secrets.Store(CopilotTokenEnv, "stored-tok"); err != nil {
 		t.Fatal(err)
 	}
-	if err := providers.SetPins(map[string]string{providers.PinCopilotProfile: "ghost"}); err != nil {
-		t.Fatal(err)
-	}
+	pinCopilotLogin(t, "ghost")
 	if a, ok := copilotAuthSource(); ok {
 		t.Fatalf("a missing pinned user must not resolve another credential: got %+v", a)
 	}

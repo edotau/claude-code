@@ -30,22 +30,23 @@ func TestProviderCredentialSources(t *testing.T) {
 		t.Fatal(err)
 	}
 	auths := map[string]providers.Auth{
-		"vault":       {Type: providers.AuthKey, Env: "SOURCE_VAULT_KEY"},
-		"env":         {Type: providers.AuthKey, Env: "SOURCE_ENV_KEY"},
-		"auth.file":   {Type: providers.AuthKey, File: file},
-		"command":     {Type: providers.AuthKey, Command: "printf obviously-fake-command"},
-		"passthrough": {Type: providers.AuthCLI, Login: "fake-login"},
-		"missing":     {Type: providers.AuthKey, Env: "SOURCE_MISSING_KEY"},
-		"none":        {Type: providers.AuthNone},
+		"vault":     {Type: providers.AuthKey, Env: "SOURCE_VAULT_KEY"},
+		"env":       {Type: providers.AuthKey, Env: "SOURCE_ENV_KEY"},
+		"auth.file": {Type: providers.AuthKey, File: file},
+		"command":   {Type: providers.AuthKey, Command: "printf obviously-fake-command"},
+		"cli":       {Type: providers.AuthCLI, Login: "fake-login"},
+		"missing":   {Type: providers.AuthKey, Env: "SOURCE_MISSING_KEY"},
+		"none":      {Type: providers.AuthNone},
 	}
-	reg := &providers.Registry{Default: "fake-none", Providers: map[string]*providers.Provider{}}
+	rows := map[string]*providers.Provider{}
 	for source, auth := range auths {
 		name := "fake-" + strings.ReplaceAll(source, ".", "-")
-		reg.Providers[name] = &providers.Provider{
+		rows[name] = &providers.Provider{
 			Name: name, Kind: providers.DialectOpenAI, BaseURL: "https://example.invalid", Auth: auth,
 		}
 	}
-	raw, err := json.Marshal(reg)
+	raw, err := json.Marshal(map[string]any{"default": "fake-none",
+		"providers": map[string]any{"openai": rows}})
 	if err != nil {
 		t.Fatal(err)
 	}

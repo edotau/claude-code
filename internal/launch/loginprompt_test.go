@@ -68,13 +68,13 @@ func loginSetup(t *testing.T, tty bool, input string, loginErr error) loginHarne
 		if loginErr != nil {
 			return loginErr
 		}
-		return providers.SealSecret(providers.AuthSecretName(&providers.Provider{Name: name, Auth: providers.Auth{Type: providers.AuthOAuth}}), `{"refresh":"rt"}`) // oauth = one JSON value
+		return providers.SealSecret(providers.AuthSecretName(&providers.Provider{Name: name, Provider: "databricks", Auth: providers.Auth{Type: providers.AuthOAuth}}), `{"refresh":"rt"}`) // oauth = one JSON value
 	}
 	return h
 }
 
 func u2mRow(name, url string) *providers.Provider {
-	return &providers.Provider{Name: name, Kind: providers.DialectAnthropic, BaseURL: url + "/serving-endpoints/anthropic",
+	return &providers.Provider{Name: name, Provider: "databricks", Kind: providers.DialectAnthropic, BaseURL: url + "/serving-endpoints/anthropic",
 		Auth: providers.Auth{Type: providers.AuthOAuth, TTL: 1800}}
 }
 

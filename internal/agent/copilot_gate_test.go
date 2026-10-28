@@ -19,7 +19,30 @@ import (
 	"github.com/edotau/claude-code/internal/vendors"
 )
 
-// ghLogin makes user a gh login (scratch hosts.yml) pinned as COPILOT_GITHUB_USER, with pct% of credits used.
+// ghRow is a github (Copilot) profile row body without its login field.
+const ghRow = `"kind":"openai","base_url":"https://api.githubcopilot.com","auth":{"type":"cli","login":"copilot"},` +
+	`"models":{"opus":"auto","sonnet":"auto","haiku":"auto"}`
+
+// ghProfiles is the overlay's "github" entry: one profile per login, named after it, whose login field is it.
+func ghProfiles(logins ...string) string {
+	rows := make([]string, len(logins))
+	for i, l := range logins {
+		rows[i] = `"` + l + `":{` + ghRow + `,"login":"` + l + `"}`
+	}
+	return `"github":{` + strings.Join(rows, ",") + `}`
+}
+
+// pinGitHubProfile overlays a github profile for login (plus extra provider entries) and pins it as COPILOT_PROFILE.
+func pinGitHubProfile(t *testing.T, login, extra string) {
+	t.Helper()
+	if extra != "" {
+		extra = "," + extra
+	}
+	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{`+ghProfiles(login)+extra+`}}`)
+	setPin(t, providers.PinCopilotProfile, login)
+}
+
+// ghLogin makes user a gh login (scratch hosts.yml) pinned as the COPILOT_PROFILE's login, with pct% of credits used.
 func ghLogin(t *testing.T, user string, pct float64) {
 	t.Helper()
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
@@ -38,7 +61,7 @@ func ghLogin(t *testing.T, user string, pct float64) {
 	if err := os.WriteFile(filepath.Join(cfg, "hosts.yml"), []byte(hosts), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	setPin(t, providers.PinCopilotProfile, user)
+	pinGitHubProfile(t, user, "")
 	prev := vendors.CopilotUsedPct
 	vendors.CopilotUsedPct = func(context.Context, string) (float64, bool) { return pct, true }
 	t.Cleanup(func() { vendors.CopilotUsedPct = prev })
@@ -47,12 +70,12 @@ func ghLogin(t *testing.T, user string, pct float64) {
 // The GitHub-login provider bills the pinned account's route state; no pin yields no account.
 func TestExplicitAccountCopilotLoginIsPinnedUser(t *testing.T) {
 	ghLogin(t, "alice", 10)
-	acct, _ := explicitAccount(&fakeRunner{name: "copilot"}, Request{Provider: "github-copilot"})
+	acct, _ := explicitAccount(&fakeRunner{name: "copilot"}, Request{Provider: "personal"})
 	if acct != "github·alice" {
 		t.Errorf("account = %q, want github·alice", acct)
 	}
 	setPin(t, providers.PinCopilotProfile, "")
-	if acct, _ := explicitAccount(&fakeRunner{name: "copilot"}, Request{Provider: "github-copilot"}); acct != "" {
+	if acct, _ := explicitAccount(&fakeRunner{name: "copilot"}, Request{Provider: "personal"}); acct != "" {
 		t.Errorf("no pin: account = %q, want empty", acct)
 	}
 }
@@ -63,7 +86,7 @@ func TestExplicitChainCopilotNotPreSkippedAndMarks(t *testing.T) {
 	ghLogin(t, "alice", 10)
 	quota := errors.New("402 Payment Required: You have exceeded your monthly quota")
 	cp := &fakeRunner{name: "copilot", errs: []error{quota}, emptyAnswer: true}
-	req := Request{Prompt: "p", Provider: "github-copilot"}
+	req := Request{Prompt: "p", Provider: "personal"}
 	c := ExplicitChain(cp, req)
 	if len(c.Legs) != 1 || c.Legs[0].Account != "github·alice" {
 		t.Fatalf("chain = %+v, want one leg on github·alice", c)
@@ -80,10 +103,10 @@ func TestExplicitChainCopilotNotPreSkippedAndMarks(t *testing.T) {
 	}
 }
 
-// vendorTargetNote gates an explicit --provider github-copilot: kept under 95%, refused to Databricks (or an
+// vendorTargetNote gates an explicit --provider personal (the GitHub login): kept under 95%, refused to Databricks (or an
 // error naming no credit-free route) at/over it — never silently another GitHub leg.
 func TestVendorTargetNoteExplicitCopilotGated(t *testing.T) {
-	req := Request{Prompt: "p", Provider: "github-copilot"}
+	req := Request{Prompt: "p", Provider: "personal"}
 
 	ghLogin(t, "alice", 10)
 	tg, own, _, err := vendorTargetNote(req, "copilot")
@@ -132,7 +155,7 @@ func TestCopilotRunnerEmptyAnswerIsFatal(t *testing.T) {
 	ghLogin(t, "alice", 10)
 	fakeCopilotBin(t)
 	stubAsk(t, func(int) (copilotsdk.Result, error) { return copilotsdk.Result{Text: "  \n", SessionID: "s1"}, nil })
-	res, err := copilotRunner{}.Run(context.Background(), Request{Prompt: "p", Provider: "github-copilot", Direct: true}, io.Discard)
+	res, err := copilotRunner{}.Run(context.Background(), Request{Prompt: "p", Provider: "personal", Direct: true}, io.Discard)
 	var e *Error
 	if !errors.As(err, &e) || e.Kind != KindFatal || e.Agent != "copilot" || !strings.Contains(e.Err.Error(), "empty answer") {
 		t.Fatalf("err = %v, want KindFatal emptyAnswer(copilot)", err)
@@ -150,10 +173,10 @@ func TestCopilotRunnerQuotaTriggersHandoff(t *testing.T) {
 	ghLogin(t, "alice", 10) // after stubHandoff: pins alice as the workable gh login
 	t.Setenv("DEV_TEST_KEY", "k")
 	vaulttest.UseKeyring(t)
-	setPin(t, providers.PinCopilotProfile, "alice") // UseKeyring relocates the vault; reseed the pin
-	fakeCopilotBin(t)                               // after the vault helper, which may relocate the config dir
-	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"dev":{"kind":"anthropic","base_url":"http://127.0.0.1:1",`+
-		`"auth":{"type":"key","env":"DEV_TEST_KEY"},"models":{"opus":"claude-opus-5-5"}}}}`)
+	fakeCopilotBin(t) // after the vault helper, which may relocate the config dir
+	// UseKeyring relocates the vault; reseed the alice profile and its pin alongside dev
+	pinGitHubProfile(t, "alice", `"databricks":{"dev":{"kind":"anthropic","base_url":"http://127.0.0.1:1",`+
+		`"auth":{"type":"key","env":"DEV_TEST_KEY"},"models":{"opus":"claude-opus-5-5"}}}`)
 	calls := stubAsk(t, func(n int) (copilotsdk.Result, error) {
 		if n == 1 {
 			return copilotsdk.Result{Text: "Step 1 done.", SessionID: "0a1b2c3d-4e5f-6789-abcd-ef0123456789"}, errQuotaMidTask
@@ -161,7 +184,7 @@ func TestCopilotRunnerQuotaTriggersHandoff(t *testing.T) {
 		return copilotsdk.Result{Text: "finished on dev"}, nil
 	})
 	var out strings.Builder
-	res, err := copilotRunner{}.Run(context.Background(), Request{Prompt: "Refactor foo", Model: "opus", Provider: "github-copilot", Direct: true}, &out)
+	res, err := copilotRunner{}.Run(context.Background(), Request{Prompt: "Refactor foo", Model: "opus", Provider: "personal", Direct: true}, &out)
 	if err != nil || res.Answer != "finished on dev" || res.Provider != "dev" {
 		t.Fatalf("res=%+v err=%v; want the resumed answer from dev", res, err)
 	}

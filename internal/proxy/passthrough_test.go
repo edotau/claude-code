@@ -54,9 +54,9 @@ func okRaw(w http.ResponseWriter, _ *http.Request, _ int) {
 
 // ptOverlay: "pt" serves openai, responses and gemini; "oa" serves openai only.
 func ptOverlay(up string) string {
-	return `{"default":"pt","providers":{"pt":{"kind":"openai","base_url":"` + up + `/v1","auth":{"type":"key","env":"PT_KEY"},` +
+	return `{"default":"pt","providers":{"openai":{"pt":{"kind":"openai","base_url":"` + up + `/v1","auth":{"type":"key","env":"PT_KEY"},` +
 		`"routes":{"responses":"` + up + `/resp","gemini":"` + up + `/gem"},"models":{"opus":"m"}},` +
-		`"oa":{"kind":"openai","base_url":"` + up + `/v1","auth":{"type":"key","env":"PT_KEY"},"models":{"opus":"m"}}}}`
+		`"oa":{"kind":"openai","base_url":"` + up + `/v1","auth":{"type":"key","env":"PT_KEY"},"models":{"opus":"m"}}}}}`
 }
 
 func ptDo(t *testing.T, method, url, body string, hdr map[string]string) *http.Response {
@@ -207,9 +207,9 @@ func TestPassthroughRefreshReplay(t *testing.T) {
 		okRaw(w, r, 0)
 	})
 	cmd := fmt.Sprintf(`n=$(cat %q 2>/dev/null || echo 0); n=$((n+1)); echo $n > %q; echo key$n`, counter, counter)
-	overlay, _ := json.Marshal(map[string]any{"default": name, "providers": map[string]any{name: map[string]any{
-		"kind": "openai", "base_url": up.URL + "/v1", "auth": map[string]any{"type":"key", "command": cmd, "ttl": 3600},
-		"models": map[string]string{"opus": "m"}}}})
+	overlay, _ := json.Marshal(map[string]any{"default": name, "providers": map[string]any{"openai": map[string]any{name: map[string]any{
+		"kind": "openai", "base_url": up.URL + "/v1", "auth": map[string]any{"type": "key", "command": cmd, "ttl": 3600},
+		"models": map[string]string{"opus": "m"}}}}})
 	srv := setup(t, string(overlay))
 
 	body := `{"keep":"me"}`
@@ -303,9 +303,10 @@ func TestPassthroughReplayCredentialHeaders(t *testing.T) {
 				okRaw(w, r, 0)
 			})
 			cmd := fmt.Sprintf(`n=$(cat %q 2>/dev/null || echo 0); n=$((n+1)); echo $n > %q; echo key$n`, counter, counter)
-			overlay, _ := json.Marshal(map[string]any{"default": name, "providers": map[string]any{name: map[string]any{
-				"kind": "openai", "base_url": up.URL + "/v1", "auth": map[string]any{"type": c.auth, "command": cmd, "ttl": 3600},
-				"models": map[string]string{"opus": "m"}}}})
+			overlay, _ := json.Marshal(map[string]any{"default": name, "providers": map[string]any{"openai": map[string]any{name: map[string]any{
+				"kind": "openai", "base_url": up.URL + "/v1",
+				"auth":   map[string]any{"type": "key", "header": c.auth, "command": cmd, "ttl": 3600},
+				"models": map[string]string{"opus": "m"}}}}})
 			srv := setup(t, string(overlay))
 			resp := ptDo(t, http.MethodPost, srv.URL+"/p/"+name+"/openai/chat/completions", `{}`,
 				map[string]string{"x-goog-api-key": "goog-leak"})

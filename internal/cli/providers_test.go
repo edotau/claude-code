@@ -97,7 +97,7 @@ func TestValidateCopilotPinsSkipsOtherProviders(t *testing.T) {
 // is still written by the caller, not blocked, since this is an availability signal, not validation.
 func TestValidateCopilotPinsWarnsWhenCatalogUnreachable(t *testing.T) {
 	cliScratch(t)
-	warn, err := validateCopilotPins("", []string{"opus=github-copilot:claude-opus-5.5"})
+	warn, err := validateCopilotPins("", []string{"opus=personal:claude-opus-5.5"})
 	if err != nil {
 		t.Fatalf("validateCopilotPins: %v, want a warning not an error", err)
 	}
@@ -110,7 +110,7 @@ func TestValidateCopilotPinsWarnsWhenCatalogUnreachable(t *testing.T) {
 // both key off githubCopilotProvider the same way.
 func TestValidateCopilotPinsProviderFlagFallback(t *testing.T) {
 	cliScratch(t)
-	warn, err := validateCopilotPins("github-copilot", []string{"opus=claude-opus-5.5"})
+	warn, err := validateCopilotPins("personal", []string{"opus=claude-opus-5.5"})
 	if err != nil {
 		t.Fatalf("validateCopilotPins: %v", err)
 	}
@@ -253,11 +253,11 @@ func TestApplyModelPinsQualifiesAcrossSessionProvider(t *testing.T) {
 	if err := providers.SetPins(map[string]string{providers.PinProfile: "anthropic"}); err != nil {
 		t.Fatal(err)
 	}
-	if code, handled := applyModelPins(reg, "github-copilot", false, false, []string{"opus=claude-opus-5.5"}); handled || code != 0 {
+	if code, handled := applyModelPins(reg, "personal", false, false, []string{"opus=claude-opus-5.5"}); handled || code != 0 {
 		t.Fatalf("applyModelPins: code=%d handled=%v, want 0, false", code, handled)
 	}
-	if got := providers.Pin(providers.SlotPin("opus")); got != "github-copilot:claude-opus-5.5" {
-		t.Errorf("HARNESS_OPUS_MODEL = %q, want %q", got, "github-copilot:claude-opus-5.5")
+	if got := providers.Pin(providers.SlotPin("opus")); got != "personal:claude-opus-5.5" {
+		t.Errorf("CLAUDE_OPUS_MODEL = %q, want %q", got, "personal:claude-opus-5.5")
 	}
 }
 
@@ -268,14 +268,14 @@ func TestApplyModelPinsBareWhenProviderMatchesSession(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := providers.SetPins(map[string]string{providers.PinProfile: "github-copilot"}); err != nil {
+	if err := providers.SetPins(map[string]string{providers.PinProfile: "personal"}); err != nil {
 		t.Fatal(err)
 	}
-	if code, handled := applyModelPins(reg, "github-copilot", false, false, []string{"opus=claude-opus-5.5"}); handled || code != 0 {
+	if code, handled := applyModelPins(reg, "personal", false, false, []string{"opus=claude-opus-5.5"}); handled || code != 0 {
 		t.Fatalf("applyModelPins: code=%d handled=%v, want 0, false", code, handled)
 	}
 	if got := providers.Pin(providers.SlotPin("opus")); got != "claude-opus-5.5" {
-		t.Errorf("HARNESS_OPUS_MODEL = %q, want the bare spec %q", got, "claude-opus-5.5")
+		t.Errorf("CLAUDE_OPUS_MODEL = %q, want the bare spec %q", got, "claude-opus-5.5")
 	}
 }
 
@@ -287,13 +287,13 @@ func TestQualifyPinSpecPassesThroughAlreadyQualified(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := qualifyPinSpec(reg, "github-copilot", "anthropic:claude-opus-5.5")
+	got := qualifyPinSpec(reg, "personal", "anthropic:claude-opus-5.5")
 	if got != "anthropic:claude-opus-5.5" {
 		t.Errorf("qualifyPinSpec = %q, want the already-qualified spec unchanged", got)
 	}
 }
 
-// --pin all=... qualifies HARNESS_MODEL the same way a per-slot pin does.
+// --pin all=... qualifies CLAUDE_MODEL the same way a per-slot pin does.
 func TestApplyModelPinsAllSlotQualifies(t *testing.T) {
 	cliScratch(t)
 	reg, err := providers.Load()
@@ -303,11 +303,11 @@ func TestApplyModelPinsAllSlotQualifies(t *testing.T) {
 	if err := providers.SetPins(map[string]string{providers.PinProfile: "anthropic"}); err != nil {
 		t.Fatal(err)
 	}
-	if code, handled := applyModelPins(reg, "github-copilot", false, false, []string{"all=claude-opus-5.5"}); handled || code != 0 {
+	if code, handled := applyModelPins(reg, "personal", false, false, []string{"all=claude-opus-5.5"}); handled || code != 0 {
 		t.Fatalf("applyModelPins: code=%d handled=%v, want 0, false", code, handled)
 	}
-	if got := providers.Pin(providers.PinModel); got != "github-copilot:claude-opus-5.5" {
-		t.Errorf("HARNESS_MODEL = %q, want %q", got, "github-copilot:claude-opus-5.5")
+	if got := providers.Pin(providers.PinModel); got != "personal:claude-opus-5.5" {
+		t.Errorf("CLAUDE_MODEL = %q, want %q", got, "personal:claude-opus-5.5")
 	}
 }
 
@@ -316,7 +316,7 @@ func TestApplyModelPinsAllSlotQualifies(t *testing.T) {
 func TestValidateCopilotPinsOutputNamesNoSecret(t *testing.T) {
 	cliScratch(t)
 	t.Setenv("GH_TOKEN", "super-secret-token-value")
-	warn, _ := validateCopilotPins("", []string{"opus=github-copilot:claude-opus-5.5"})
+	warn, _ := validateCopilotPins("", []string{"opus=personal:claude-opus-5.5"})
 	if strings.Contains(warn, "super-secret-token-value") {
 		t.Errorf("warn leaked a credential: %q", warn)
 	}

@@ -15,7 +15,7 @@ func orderDoc(names ...string) []byte {
 		}
 		rows += `"` + n + `":{"preset":"databricks","host":"https://` + n + `.cloud.databricks.com"}`
 	}
-	return []byte(`{"providers":{` + rows + `}}`)
+	return []byte(`{"providers":{"databricks":{` + rows + `}}}`)
 }
 
 func TestProfilesOfReorderedDocReordersOutput(t *testing.T) {

@@ -8,14 +8,15 @@ import (
 // The endpoint type decides the 1M env: serving and first-party get bare slots and no DISABLE; ai-gateway and a
 // non-Claude endpoint get DISABLE=1; a typed [1m] is kept; ANTHROPIC_MODEL only appears with --model.
 func TestClaude1MByEndpoint(t *testing.T) {
-	hermetic(t, `{"fallback": [], "providers": {
+	hermetic(t, `{"fallback": [], "providers": {"databricks": {
 		"dbx": {"preset": "databricks", "host": "https://h.cloud.databricks.com", "auth": {"type":"key", "env": "TEST_GW_KEY"}},
 		"gw":  {"preset": "databricks", "host": "https://h.cloud.databricks.com", "auth": {"type":"key", "env": "TEST_GW_KEY"},
 			"options": {"wire": "ai-gateway"}},
 		"gwm": {"preset": "databricks", "host": "https://h.cloud.databricks.com", "auth": {"type":"key", "env": "TEST_GW_KEY"},
-			"options": {"wire": "ai-gateway"}, "models": {"opus": "claude-opus-5-5[1m]"}},
+			"options": {"wire": "ai-gateway"}, "models": {"opus": "claude-opus-5-5[1m]"}}},
+		"openai": {
 		"oll": {"kind": "openai", "base_url": "http://127.0.0.1:11434/v1", "auth": {"type": "none"},
-			"models": {"opus": "qwen3-coder", "sonnet": "qwen3-coder", "haiku": "qwen3-coder"}}}}`)
+			"models": {"opus": "qwen3-coder", "sonnet": "qwen3-coder", "haiku": "qwen3-coder"}}}}}`)
 	t.Setenv("TEST_GW_KEY", "k")
 	for _, tc := range []struct {
 		name, profile, model string

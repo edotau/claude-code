@@ -57,8 +57,8 @@ func TestClientModelKeepsTypedOneM(t *testing.T) {
 // A prefixed provider gets its wire id whichever spelling is typed; first-party keeps the canonical id.
 func TestParseTargetWirePrefix(t *testing.T) {
 	reg := load(t)
-	qa := &Provider{Name: "databricks-qa", ModelPrefix: "databricks-"}
-	sub := &Provider{Name: "subscription"}
+	qa := &Provider{Name: "databricks-qa", Provider: "databricks", ModelPrefix: "databricks-"}
+	sub := &Provider{Name: "max", Provider: "anthropic"}
 	cases := []struct {
 		spec  string
 		prov  *Provider

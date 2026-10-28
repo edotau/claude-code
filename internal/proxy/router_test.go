@@ -104,7 +104,7 @@ func anthropicProvider(url, env string, models string) string {
 func TestAuthAndHostRejection(t *testing.T) {
 	up := newUpstream(t, ok)
 	t.Setenv("UP1_KEY", "k1")
-	srv := setup(t, `{"default":"up1","providers":{"up1":`+anthropicProvider(up.URL, "UP1_KEY", `{"opus":"m1"}`)+`}}`)
+	srv := setup(t, `{"default":"up1","providers":{"anthropic":{"up1":`+anthropicProvider(up.URL, "UP1_KEY", `{"opus":"m1"}`)+`}}}`)
 	url := srv.URL + "/p/up1/v1/messages"
 
 	if resp := post(t, url, `{"model":"m1"}`, map[string]string{"X-Api-Key": ""}); resp.StatusCode != 401 {
@@ -143,7 +143,7 @@ func TestAuthAndHostRejection(t *testing.T) {
 func TestAnthropicPassthrough(t *testing.T) {
 	up := newUpstream(t, ok)
 	t.Setenv("UP1_KEY", "provider-key")
-	srv := setup(t, `{"default":"up1","providers":{"up1":`+anthropicProvider(up.URL, "UP1_KEY", `{"opus":"claude-opus-5"}`)+`}}`)
+	srv := setup(t, `{"default":"up1","providers":{"anthropic":{"up1":`+anthropicProvider(up.URL, "UP1_KEY", `{"opus":"claude-opus-5"}`)+`}}}`)
 
 	resp := post(t, srv.URL+"/p/up1/v1/messages?beta=true", `{"model":"claude-opus-5[1m]","max_tokens":5,"messages":[{"role":"user","content":"<hi>"}]}`,
 		map[string]string{"Anthropic-Beta": "context-1m-2025-08-07", "Anthropic-Version": "2023-06-01"})
@@ -176,9 +176,9 @@ func TestCrossProviderTarget(t *testing.T) {
 	up2 := newUpstream(t, ok)
 	t.Setenv("UP1_KEY", "k1")
 	t.Setenv("UP2_KEY", "k2")
-	srv := setup(t, `{"default":"up1","providers":{
+	srv := setup(t, `{"default":"up1","providers":{"anthropic":{
 		"up1":`+anthropicProvider(up1.URL, "UP1_KEY", `{"opus":"m1"}`)+`,
-		"up2":{"kind":"anthropic","base_url":"`+up2.URL+`","auth":{"type":"key","env":"UP2_KEY"},"models":{"opus":"m2"}}}}`)
+		"up2":{"kind":"anthropic","base_url":"`+up2.URL+`","auth":{"type":"key","header":"bearer","env":"UP2_KEY"},"models":{"opus":"m2"}}}}}`)
 
 	if resp := post(t, srv.URL+"/p/up1/v1/messages", `{"model":"up2:other-model"}`, nil); resp.StatusCode != 200 {
 		t.Fatalf("status %d", resp.StatusCode)
@@ -196,7 +196,7 @@ func TestCrossProviderTarget(t *testing.T) {
 
 func TestPassthroughRefused(t *testing.T) {
 	up := newUpstream(t, ok)
-	srv := setup(t, `{"default":"sub","providers":{"sub":{"kind":"anthropic","base_url":"`+up.URL+`","auth":{"type":"cli"},"models":{"opus":"m"}}}}`)
+	srv := setup(t, `{"default":"sub","providers":{"anthropic":{"sub":{"kind":"anthropic","base_url":"`+up.URL+`","auth":{"type":"cli"},"models":{"opus":"m"}}}}}`)
 	resp := post(t, srv.URL+"/p/sub/v1/messages", `{"model":"m"}`, nil)
 	b, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != 400 || !strings.Contains(string(b), "passthrough") || up.hits.Load() != 0 {
@@ -214,9 +214,9 @@ func TestPassthroughForwardsClientLogin(t *testing.T) {
 	})
 	gem := newUpstream(t, ok)
 	t.Setenv("GEM_KEY", "gem-key")
-	srv := setup(t, `{"default":"sub","fallback":["gem"],"providers":{
+	srv := setup(t, `{"default":"sub","fallback":["gem"],"providers":{"anthropic":{
 		"sub":{"kind":"anthropic","base_url":"`+sub.URL+`","auth":{"type":"cli"},"models":{"opus":"m"}},
-		"gem":{"kind":"anthropic","base_url":"`+gem.URL+`","auth":{"type":"key","env":"GEM_KEY"},"models":{"opus":"g"}}}}`)
+		"gem":{"kind":"anthropic","base_url":"`+gem.URL+`","auth":{"type":"key","header":"bearer","env":"GEM_KEY"},"models":{"opus":"g"}}}}}`)
 	login := map[string]string{"X-Api-Key": "", ClientHeader: secret, "Authorization": "Bearer oauth-tok"}
 
 	if resp := post(t, srv.URL+"/p/sub/v1/messages", `{"model":"m"}`, login); resp.StatusCode != 200 {
@@ -239,9 +239,9 @@ func TestPassthroughForwardsClientLogin(t *testing.T) {
 }
 
 func failoverOverlay(up1, up2 string) string {
-	return `{"default":"up1","fallback":["up2"],"providers":{
+	return `{"default":"up1","fallback":["up2"],"providers":{"anthropic":{
 		"up1":` + anthropicProvider(up1, "UP1_KEY", `{"opus":"m1-opus","haiku":"m1-haiku"}`) + `,
-		"up2":` + anthropicProvider(up2, "UP2_KEY", `{"opus":"m2-opus","haiku":"m2-haiku"}`) + `}}`
+		"up2":` + anthropicProvider(up2, "UP2_KEY", `{"opus":"m2-opus","haiku":"m2-haiku"}`) + `}}}`
 }
 
 func TestFailoverOn429BeforeBytes(t *testing.T) {
@@ -327,9 +327,9 @@ func TestAuthRefreshReplay(t *testing.T) {
 		ok(w, r, 0)
 	})
 	cmd := fmt.Sprintf(`n=$(cat %q 2>/dev/null || echo 0); n=$((n+1)); echo $n > %q; echo key$n`, counter, counter)
-	overlay, _ := json.Marshal(map[string]any{"default": name, "providers": map[string]any{name: map[string]any{
-		"kind": "anthropic", "base_url": up.URL, "auth": map[string]any{"type":"key", "command": cmd, "ttl": 3600},
-		"models": map[string]string{"opus": "m"}}}})
+	overlay, _ := json.Marshal(map[string]any{"default": name, "providers": map[string]any{"anthropic": map[string]any{name: map[string]any{
+		"kind": "anthropic", "base_url": up.URL, "auth": map[string]any{"type": "key", "header": "bearer", "command": cmd, "ttl": 3600},
+		"models": map[string]string{"opus": "m"}}}}})
 	srv := setup(t, string(overlay))
 
 	resp := post(t, srv.URL+"/p/"+name+"/v1/messages", `{"model":"m"}`, nil)
@@ -393,7 +393,7 @@ func TestOpenAITranslation(t *testing.T) {
 		io.WriteString(w, `{"id":"c1","object":"chat.completion","model":"gpt-x","choices":[{"index":0,"message":{"role":"assistant","content":"hello"},"finish_reason":"stop"}],"usage":{"prompt_tokens":3,"completion_tokens":1}}`)
 	})
 	t.Setenv("OA_KEY", "oa")
-	srv := setup(t, `{"default":"oa","providers":{"oa":{"kind":"openai","base_url":"`+up.URL+`/v1","auth":{"type":"key","env":"OA_KEY"},"models":{"opus":"gpt-x"}}}}`)
+	srv := setup(t, `{"default":"oa","providers":{"openai":{"oa":{"kind":"openai","base_url":"`+up.URL+`/v1","auth":{"type":"key","env":"OA_KEY"},"models":{"opus":"gpt-x"}}}}}`)
 
 	resp := post(t, srv.URL+"/p/oa/v1/messages", `{"model":"gpt-x","max_tokens":10,"messages":[{"role":"user","content":"hi"}]}`, nil)
 	b, _ := io.ReadAll(resp.Body)
@@ -474,9 +474,9 @@ func TestStreamReadErrorBeforeOutputFailsOver(t *testing.T) {
 	})
 	t.Setenv("UP1_KEY", "k1")
 	t.Setenv("UP2_KEY", "k2")
-	srv := setup(t, `{"default":"up1","fallback":["up2"],"providers":{`+
+	srv := setup(t, `{"default":"up1","fallback":["up2"],"providers":{"openai":{`+
 		`"up1":{"kind":"openai","base_url":"`+up1.URL+`","auth":{"type":"key","env":"UP1_KEY"},"models":{"opus":"m1"}},`+
-		`"up2":{"kind":"openai","base_url":"`+up2.URL+`","auth":{"type":"key","env":"UP2_KEY"},"models":{"opus":"m2"}}}}`)
+		`"up2":{"kind":"openai","base_url":"`+up2.URL+`","auth":{"type":"key","env":"UP2_KEY"},"models":{"opus":"m2"}}}}}`)
 
 	resp := post(t, srv.URL+"/p/up1/v1/messages", `{"model":"m1","stream":true,"max_tokens":5,"messages":[{"role":"user","content":"hi"}]}`, nil)
 	b, _ := io.ReadAll(resp.Body)
@@ -485,8 +485,8 @@ func TestStreamReadErrorBeforeOutputFailsOver(t *testing.T) {
 	}
 
 	// up1 alone, with no fallback: the same early read error must surface as a 502, not an empty 200.
-	srv2 := setup(t, `{"default":"up1","providers":{`+
-		`"up1":{"kind":"openai","base_url":"`+up1.URL+`","auth":{"type":"key","env":"UP1_KEY"},"models":{"opus":"m1"}}}}`)
+	srv2 := setup(t, `{"default":"up1","providers":{"openai":{`+
+		`"up1":{"kind":"openai","base_url":"`+up1.URL+`","auth":{"type":"key","env":"UP1_KEY"},"models":{"opus":"m1"}}}}}`)
 	resp2 := post(t, srv2.URL+"/p/up1/v1/messages", `{"model":"m1","stream":true,"max_tokens":5,"messages":[{"role":"user","content":"hi"}]}`, nil)
 	b2, _ := io.ReadAll(resp2.Body)
 	if resp2.StatusCode != http.StatusBadGateway || len(b2) == 0 {
@@ -568,7 +568,7 @@ func TestServeClosesStreamsPastTheDrain(t *testing.T) {
 		}
 	})
 	vaulttest.Use(t)
-	overlay := fmt.Sprintf(`{"default":"up1","providers":{"up1":{"kind":"anthropic","base_url":%q,"auth":{"type":"none"},"models":{"opus":"m"}}}}`, up.URL)
+	overlay := fmt.Sprintf(`{"default":"up1","providers":{"anthropic":{"up1":{"kind":"anthropic","base_url":%q,"auth":{"type":"none"},"models":{"opus":"m"}}}}}`, up.URL)
 	vaulttest.Put(t, vault.Overlay, "providers", overlay)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -599,7 +599,7 @@ func TestServeClosesStreamsPastTheDrain(t *testing.T) {
 }
 
 func TestUnroutableLogin(t *testing.T) {
-	p := &providers.Provider{Name: "github-copilot", Kind: providers.DialectOpenAI, BaseURL: "https://x", Auth: providers.Auth{Type: providers.AuthCLI, Login: "copilot"}}
+	p := &providers.Provider{Name: "personal", Provider: "github", Kind: providers.DialectOpenAI, BaseURL: "https://x", Auth: providers.Auth{Type: providers.AuthCLI, Login: "copilot"}}
 	if why := unroutable(p, true); !strings.Contains(why, "copilot sign-in") {
 		t.Errorf("a vendor login must never receive a forwarded client credential: %q", why)
 	}
@@ -618,7 +618,7 @@ func TestQuotaDeadModelDemotesWithinProvider(t *testing.T) {
 		ok(w, r, n)
 	})
 	t.Setenv("UP1_KEY", "k1")
-	srv := setup(t, `{"default":"up1","fallback":[],"providers":{"up1":`+anthropicProvider(up.URL, "UP1_KEY", `{"opus":"m1-opus","sonnet":"m1-sonnet","haiku":"m1-haiku"}`)+`}}`)
+	srv := setup(t, `{"default":"up1","fallback":[],"providers":{"anthropic":{"up1":`+anthropicProvider(up.URL, "UP1_KEY", `{"opus":"m1-opus","sonnet":"m1-sonnet","haiku":"m1-haiku"}`)+`}}}`)
 
 	resp := post(t, srv.URL+"/p/up1/v1/messages", `{"model":"m1-opus"}`, nil)
 	if resp.StatusCode != 200 {
@@ -661,7 +661,7 @@ func TestTransientRateLimitDoesNotDemote(t *testing.T) {
 		io.WriteString(w, `{"type":"error","error":{"type":"rate_limit_error","message":"slow down"}}`)
 	})
 	t.Setenv("UP1_KEY", "k1")
-	srv := setup(t, `{"default":"up1","fallback":[],"providers":{"up1":`+anthropicProvider(up.URL, "UP1_KEY", `{"opus":"m1-opus","sonnet":"m1-sonnet"}`)+`}}`)
+	srv := setup(t, `{"default":"up1","fallback":[],"providers":{"anthropic":{"up1":`+anthropicProvider(up.URL, "UP1_KEY", `{"opus":"m1-opus","sonnet":"m1-sonnet"}`)+`}}}`)
 	resp := post(t, srv.URL+"/p/up1/v1/messages", `{"model":"m1-opus"}`, nil)
 	b, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != 429 || !strings.Contains(string(b), "slow down") || up.hits.Load() != 1 {
@@ -845,8 +845,8 @@ func TestDatabricksGatewayWireReachesUpstream(t *testing.T) {
 	up := newUpstream(t, ok)
 	t.Setenv("DBX_KEY", "dbx-token")
 	row := `{"preset":"databricks","host":"https://example.cloud.databricks.com","base_url":"` + up.URL +
-		`","auth":{"type":"key","env":"DBX_KEY"},"options":{"wire":"gateway"}}`
-	srv := setup(t, `{"default":"dbx","providers":{"dbx":`+row+`}}`)
+		`","auth":{"type":"key","env":"DBX_KEY"},"options":{"wire":"ai-gateway"}}`
+	srv := setup(t, `{"default":"dbx","providers":{"databricks":{"dbx":`+row+`}}}`)
 
 	reg, err := providers.Load()
 	if err != nil {
@@ -923,7 +923,7 @@ func TestChatPathPromptTooLong(t *testing.T) {
 		io.WriteString(w, `{"error":{"message":"prompt is too long: 1177204 tokens > 1000000 maximum","secret":"leak-me"}}`)
 	})
 	t.Setenv("OA_KEY", "oa")
-	srv := setup(t, `{"default":"oa","providers":{"oa":{"kind":"openai","base_url":"`+up.URL+`/v1","auth":{"type":"key","env":"OA_KEY"},"models":{"opus":"gpt-x"}}}}`)
+	srv := setup(t, `{"default":"oa","providers":{"openai":{"oa":{"kind":"openai","base_url":"`+up.URL+`/v1","auth":{"type":"key","env":"OA_KEY"},"models":{"opus":"gpt-x"}}}}}`)
 	resp := post(t, srv.URL+"/p/oa/v1/messages", `{"model":"gpt-x","max_tokens":10,"messages":[{"role":"user","content":"hi"}]}`, nil)
 	b, _ := io.ReadAll(resp.Body)
 	var e struct {

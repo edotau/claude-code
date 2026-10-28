@@ -103,8 +103,8 @@ func drain(r *os.File) <-chan string {
 }
 
 // threeProfiles defines three opaque Databricks profiles so the plan tests never read the real vault.
-const threeProfiles = `{"providers":{"aa":{"preset":"databricks",` + dbxHost + `},"bb":{"preset":"databricks",` +
-	dbxHost + `},"cc":{"preset":"databricks",` + dbxHost + `}}}`
+const threeProfiles = `{"providers":{"databricks":{"aa":{"preset":"databricks",` + dbxHost + `},"bb":{"preset":"databricks",` +
+	dbxHost + `},"cc":{"preset":"databricks",` + dbxHost + `}}}}`
 
 // opusDefault is the default model for the seeded rows: the opus alias at 1M, as the row spells it.
 func opusDefault(t *testing.T, name string) string {
@@ -344,6 +344,7 @@ func TestLaunchArgvNoShellAndBetaEnv(t *testing.T) {
 
 // TestLaunchPropagatesExitAndStartError pins the child's exit code and exit 2 on a start failure.
 func TestLaunchPropagatesExitAndStartError(t *testing.T) {
+	seedOverlay(t, threeProfiles)
 	t.Run("child exit 7", func(t *testing.T) {
 		useFake(t, &fakeChild{code: 7})
 		if code := Run([]string{"sonnet"}); code != 7 {
@@ -364,6 +365,7 @@ func TestLaunchPropagatesExitAndStartError(t *testing.T) {
 
 // TestCheckSmokeVerdict pins that the smoke PASS needs the last line to be exactly OK.
 func TestCheckSmokeVerdict(t *testing.T) {
+	seedOverlay(t, threeProfiles)
 	tests := []struct {
 		name   string
 		out    string
@@ -395,6 +397,7 @@ func TestCheckSmokeVerdict(t *testing.T) {
 
 // TestCheckNeedleVerdict pins that the 1M PASS needs the needle word anywhere in the reply.
 func TestCheckNeedleVerdict(t *testing.T) {
+	seedOverlay(t, threeProfiles)
 	tests := []struct {
 		name   string
 		out    string
@@ -424,6 +427,7 @@ func TestCheckNeedleVerdict(t *testing.T) {
 
 // TestCheckFailingSmokeStillRunsProbe pins that a smoke FAIL does not skip the 1M probe, and rc stays 1.
 func TestCheckFailingSmokeStillRunsProbe(t *testing.T) {
+	seedOverlay(t, threeProfiles)
 	f := &fakeChild{smoke: "nope\n", needle: "ZEBRAFINCH\n"}
 	useFake(t, f)
 	code, stdout, _ := runCaptured(t, func() int { return Run([]string{"check", "--1m"}) })
@@ -440,6 +444,7 @@ func TestCheckFailingSmokeStillRunsProbe(t *testing.T) {
 
 // TestCheckWithoutBigSkipsProbe pins that plain check makes one call and no needle body.
 func TestCheckWithoutBigSkipsProbe(t *testing.T) {
+	seedOverlay(t, threeProfiles)
 	f := &fakeChild{smoke: "OK\n"}
 	useFake(t, f)
 	code, stdout, _ := runCaptured(t, func() int { return Run([]string{"check"}) })
@@ -456,6 +461,7 @@ func TestCheckWithoutBigSkipsProbe(t *testing.T) {
 
 // TestNeedleProbeShape pins the 1M probe body: at least fillerBytes, needle line exactly once, at the end.
 func TestNeedleProbeShape(t *testing.T) {
+	seedOverlay(t, threeProfiles)
 	f := &fakeChild{smoke: "OK\n", needle: "ZEBRAFINCH\n"}
 	useFake(t, f)
 	runCaptured(t, func() int { return Run([]string{"check", "--1m"}) })
@@ -510,6 +516,7 @@ func (f rawNeedleChild) spawn(_ string, argv, _ []string, stdin io.Reader, stdou
 
 // TestCheckNeedleTokenGate pins that PASS needs input tokens strictly above 200000, plus the needle in the reply.
 func TestCheckNeedleTokenGate(t *testing.T) {
+	seedOverlay(t, threeProfiles)
 	js := func(reply string, in, create, read int) string {
 		b, _ := json.Marshal(map[string]any{"result": reply, "usage": map[string]int{
 			"input_tokens": in, "cache_creation_input_tokens": create, "cache_read_input_tokens": read}})

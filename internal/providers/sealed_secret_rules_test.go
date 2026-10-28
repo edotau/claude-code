@@ -12,7 +12,7 @@ func patRow(host string) string {
 }
 
 func TestValidateRejectsCollidingSealedSecretNames(t *testing.T) {
-	doc := `{"providers":{"a-b":` + patRow(dbxHost) + `,"a_b":` + patRow(dbxHost) + `}}`
+	doc := `{"providers":{"databricks":{"a-b":` + patRow(dbxHost) + `,"a_b":` + patRow(dbxHost) + `}}}`
 	err := Validate([]byte(doc))
 	if err == nil || !strings.Contains(err.Error(), "a-b") || !strings.Contains(err.Error(), "a_b") {
 		t.Fatalf("Validate = %v, want an error naming a-b and a_b", err)
@@ -20,7 +20,7 @@ func TestValidateRejectsCollidingSealedSecretNames(t *testing.T) {
 }
 
 func TestValidateAcceptsDistinctSealedSecretNames(t *testing.T) {
-	doc := `{"providers":{"a-b":` + patRow(dbxHost) + `,"c_d":` + patRow(dbxHost) + `}}`
+	doc := `{"providers":{"databricks":{"a-b":` + patRow(dbxHost) + `,"c_d":` + patRow(dbxHost) + `}}}`
 	if err := Validate([]byte(doc)); err != nil {
 		t.Fatalf("Validate = %v", err)
 	}
@@ -33,8 +33,8 @@ func m2mBaseRow(base string) string {
 
 func TestValidateRejectsPlainHTTPSealedHost(t *testing.T) {
 	for _, doc := range []string{
-		`{"providers":{"m2m-http":` + m2mBaseRow("http://example.cloud.databricks.com") + `}}`,
-		`{"providers":{"pat-http":{"preset":"databricks","host":"http://example.cloud.databricks.com","auth":{"type":"pat"}}}}`,
+		`{"providers":{"databricks":{"m2m-http":` + m2mBaseRow("http://example.cloud.databricks.com") + `}}}`,
+		`{"providers":{"databricks":{"pat-http":{"preset":"databricks","host":"http://example.cloud.databricks.com","auth":{"type":"pat"}}}}}`,
 	} {
 		if err := Validate([]byte(doc)); err == nil {
 			t.Errorf("Validate accepted plain http: %s", doc)
@@ -44,7 +44,7 @@ func TestValidateRejectsPlainHTTPSealedHost(t *testing.T) {
 
 func TestValidateAcceptsHTTPSAndLoopbackHTTPSealedHost(t *testing.T) {
 	for _, base := range []string{dbxHost, "http://127.0.0.1:8080", "http://localhost:9"} {
-		doc := `{"providers":{"m2m-ok":` + m2mBaseRow(base) + `}}`
+		doc := `{"providers":{"databricks":{"m2m-ok":` + m2mBaseRow(base) + `}}}`
 		if err := Validate([]byte(doc)); err != nil {
 			t.Errorf("Validate(%s) = %v", base, err)
 		}

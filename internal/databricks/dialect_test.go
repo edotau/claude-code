@@ -25,7 +25,7 @@ func seedOverlay(t *testing.T, doc string) {
 }
 
 // presetOnly defines one preset profile (which injects the beta opt-out into its Env).
-const presetOnly = `{"providers":{"aa":{"preset":"databricks",` + dbxHost + `}}}`
+const presetOnly = `{"providers":{"databricks":{"aa":{"preset":"databricks",` + dbxHost + `}}}}`
 
 func TestPlanNoBetaOnlyWhenProviderEnvHasKey(t *testing.T) {
 	seedOverlay(t, presetOnly)

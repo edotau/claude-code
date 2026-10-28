@@ -9,7 +9,7 @@ const dbxProv = `"dbx":{"preset":"databricks","host":"https://adb-1.azuredatabri
 
 func dbxProvider(t *testing.T) Provider {
 	t.Helper()
-	return *mustParse(t, `{"providers":{`+dbxProv+`}}`).Providers["dbx"]
+	return *mustParse(t, `{"providers":{"databricks":{`+dbxProv+`}}}`).Providers["dbx"]
 }
 
 func TestWireModelTable(t *testing.T) {
@@ -66,8 +66,8 @@ func TestCanonicalModelRoundTrip(t *testing.T) {
 }
 
 func TestLoadDecoratesPresetModels(t *testing.T) {
-	reg := mustParse(t, `{"providers":{"dbx":{"preset":"databricks","host":"https://adb-1.azuredatabricks.net/","cliProfile":"work",
-	  "models":{"opus":"claude-opus-5-5[1m]","sonnet":"gpt-5.5"}}}}`)
+	reg := mustParse(t, `{"providers":{"databricks":{"dbx":{"preset":"databricks","host":"https://adb-1.azuredatabricks.net/","cliProfile":"work",
+	  "models":{"opus":"claude-opus-5-5[1m]","sonnet":"gpt-5.5"}}}}}`)
 	m := reg.Providers["dbx"].Models
 	want := map[string]string{
 		"opus": "databricks-claude-opus-5-5[1m]", "sonnet": "databricks-gpt-5-5", "haiku": "databricks-claude-haiku-5-5",
@@ -77,7 +77,7 @@ func TestLoadDecoratesPresetModels(t *testing.T) {
 			t.Errorf("Models[%s] = %q, want %q", k, m[k], v)
 		}
 	}
-	plain := mustParse(t, `{"providers":{"p":{"kind":"anthropic","base_url":"https://p","auth":{"type":"none"},"models":{"opus":"gpt-5.5"}}}}`)
+	plain := mustParse(t, `{"providers":{"openai":{"p":{"kind":"anthropic","base_url":"https://p","auth":{"type":"none"},"models":{"opus":"gpt-5.5"}}}}}`)
 	if got := plain.Providers["p"].Models["opus"]; got != "gpt-5.5" {
 		t.Errorf("plain provider model = %q", got)
 	}

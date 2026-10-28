@@ -37,7 +37,7 @@ func TestRelayedRequestWritesLedgerForNonKeyAuth(t *testing.T) {
 	t.Setenv("DATABRICKS_PROD_PAT", "tok")
 	row := fmt.Sprintf(`{"provider":"databricks","kind":"anthropic","base_url":%q,"auth":{"type":"pat"},`+
 		`"models":{"opus":"m-opus","haiku":"m-haiku"}}`, up.URL)
-	srv := setup(t, `{"default":"prod","providers":{"prod":`+row+`}}`)
+	srv := setup(t, `{"default":"prod","providers":{"databricks":{"prod":`+row+`}}}`)
 	resp := post(t, srv.URL+"/p/prod/v1/messages", `{"model":"m-haiku"}`,
 		map[string]string{SessionHeader: "sess-1", AgentHeader: "code-worker"})
 	if resp.StatusCode != 200 {
@@ -100,7 +100,7 @@ func TestLedgerAttributionHeaders(t *testing.T) {
 			t.Setenv("DATABRICKS_PROD_PAT", "tok")
 			row := fmt.Sprintf(`{"provider":"databricks","kind":"anthropic","base_url":%q,"auth":{"type":"pat"},`+
 				`"models":{"opus":"m-opus","haiku":"m-haiku"}}`, up.URL)
-			srv := setup(t, `{"default":"prod","providers":{"prod":`+row+`}}`)
+			srv := setup(t, `{"default":"prod","providers":{"databricks":{"prod":`+row+`}}}`)
 			resp := post(t, srv.URL+"/p/prod/v1/messages", `{"model":"m-haiku"}`, tc.hdr)
 			if resp.StatusCode != 200 {
 				t.Fatalf("status %d: %s", resp.StatusCode, body(t, resp))

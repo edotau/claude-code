@@ -13,7 +13,7 @@ import (
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
-const testBase = `{"providers": {"a": {"kind": "anthropic", "base_url": "https://a", "auth": {"type": "none"}}}}`
+const testBase = `{"providers": {"anthropic": {"a": {"kind": "anthropic", "base_url": "https://a", "auth": {"type": "none"}}}}}`
 
 func parseOverlay(t *testing.T, overlay string) (*Registry, error) {
 	t.Helper()
@@ -32,7 +32,7 @@ func mustParse(t *testing.T, overlay string) *Registry {
 }
 
 func TestPresetExpansion(t *testing.T) {
-	reg := mustParse(t, `{"providers": {"dbx": {"preset": "databricks", "host": "https://adb-1.azuredatabricks.net/", "cliProfile": "work"}}}`)
+	reg := mustParse(t, `{"providers": {"databricks": {"dbx": {"preset": "databricks", "host": "https://adb-1.azuredatabricks.net/", "cliProfile": "work"}}}}`)
 	p := reg.Providers["dbx"]
 	if p.Kind != DialectAnthropic || p.BaseURL != "https://adb-1.azuredatabricks.net/serving-endpoints/anthropic" {
 		t.Errorf("kind/base = %q %q", p.Kind, p.BaseURL)
@@ -69,17 +69,17 @@ func TestPresetExpansion(t *testing.T) {
 }
 
 func TestPresetWithoutCLIProfileLeavesCommandsEmpty(t *testing.T) {
-	p := mustParse(t, `{"providers": {"dbx": {"preset": "databricks", "host": "https://h.example.com"}}}`).Providers["dbx"]
+	p := mustParse(t, `{"providers": {"databricks": {"dbx": {"preset": "databricks", "host": "https://h.example.com"}}}}`).Providers["dbx"]
 	if p.Auth.Command != "" || p.Auth.RefreshCommand != "" {
 		t.Errorf("commands derived without cliProfile: %+v", p.Auth)
 	}
 }
 
 func TestPresetExplicitFieldsWin(t *testing.T) {
-	p := mustParse(t, `{"providers": {"dbx": {"preset": "databricks", "host": "https://h.example.com", "cliProfile": "work",
+	p := mustParse(t, `{"providers": {"databricks": {"dbx": {"preset": "databricks", "host": "https://h.example.com", "cliProfile": "work",
 		"kind": "openai", "base_url": "https://own/base", "routes": {"openai": "https://own/oa"},
 		"auth": {"type":"key","header":"x-api-key", "ttl": 60, "command": "echo mine", "refreshCommand": "echo fresh"},
-		"models": {"opus": "my-opus"}, "env": {"CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS": "0", "OTHER": "x"}}}}`).Providers["dbx"]
+		"models": {"opus": "my-opus"}, "env": {"CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS": "0", "OTHER": "x"}}}}}`).Providers["dbx"]
 	if p.Kind != "openai" || p.BaseURL != "https://own/base" {
 		t.Errorf("kind/base overridden: %q %q", p.Kind, p.BaseURL)
 	}
@@ -89,7 +89,7 @@ func TestPresetExplicitFieldsWin(t *testing.T) {
 	if got, _ := p.Route(DialectResponses); got != "https://h.example.com/serving-endpoints" {
 		t.Errorf("responses route = %q", got)
 	}
-	if p.Auth.Type != "x-api-key" || p.Auth.TTL != 60 || p.Auth.Command != "echo mine" || p.Auth.RefreshCommand != "echo fresh" {
+	if p.Auth.Type != AuthKey || p.Auth.Header != HeaderXAPIKey || p.Auth.TTL != 60 || p.Auth.Command != "echo mine" || p.Auth.RefreshCommand != "echo fresh" {
 		t.Errorf("auth overridden: %+v", p.Auth)
 	}
 	if p.Models["opus"] != "my-opus" || p.Models["sonnet"] != "databricks-claude-sonnet-5-5" {
@@ -101,7 +101,7 @@ func TestPresetExplicitFieldsWin(t *testing.T) {
 }
 
 func TestNoPresetProviderUnchanged(t *testing.T) {
-	reg := mustParse(t, `{"providers": {"plain": {"kind": "anthropic", "base_url": "https://p", "auth": {"type": "none"}}}}`)
+	reg := mustParse(t, `{"providers": {"anthropic": {"plain": {"kind": "anthropic", "base_url": "https://p", "auth": {"type": "none"}}}}}`)
 	p := reg.Providers["plain"]
 	if p.Models != nil || p.Env != nil || p.Routes != nil || p.BaseURL != "https://p" || p.Auth.TTL != 0 || p.Auth.Command != "" {
 		t.Errorf("no-preset provider changed: %+v", p)
@@ -137,7 +137,7 @@ func TestValidatePresetAndEnvRejections(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			_, err := parseOverlay(t, `{"providers": {"dbx": {`+c.entry+`}}}`)
+			_, err := parseOverlay(t, `{"providers": {"databricks": {"dbx": {`+c.entry+`}}}}`)
 			if err == nil || !strings.Contains(err.Error(), c.want) {
 				t.Errorf("err = %v, want containing %q", err, c.want)
 			}

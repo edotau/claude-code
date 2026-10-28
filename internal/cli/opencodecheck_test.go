@@ -40,7 +40,7 @@ func ocCheckEnv(t *testing.T) (*ocCheckFake, string) {
 	t.Helper()
 	dir := vaulttest.Use(t)
 	t.Setenv("PATH", t.TempDir())
-	t.Setenv("PROVIDER_OCFAKE_PAT", ocCheckToken)
+	t.Setenv("DATABRICKS_OCFAKE_PAT", ocCheckToken)
 	f := &ocCheckFake{calls: map[string]int{}, tools: map[string]bool{}}
 	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/api/2.0/serving-endpoints" {
@@ -76,7 +76,7 @@ func ocCheckEnv(t *testing.T) (*ocCheckFake, string) {
 	http.DefaultClient.Transport = srv.Client().Transport
 	t.Cleanup(func() { http.DefaultClient.Transport = old; srv.Close() })
 	err := providers.SetProviderFields("ocfake", map[string]any{"preset": "databricks", "host": srv.URL,
-		"auth": map[string]any{"type":"pat"}})
+		"auth": map[string]any{"type": "pat"}})
 	if err != nil {
 		t.Fatal(err)
 	}

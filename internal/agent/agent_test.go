@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/envscrub"
-	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 )
 
@@ -395,7 +394,7 @@ func TestRunWithFallback(t *testing.T) {
 // TestRouteChainSkipsExhaustedAndRetriesExpired: an exhausted pinned copilot gets no leg; once expired it leads again.
 func TestRouteChainSkipsExhaustedAndRetriesExpired(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	setPin(t, providers.PinCopilotProfile, "work-user")
+	pinGitHubProfile(t, "work-user", "")
 	old := router.GHAccounts
 	router.GHAccounts = func() []string { return []string{"work-user"} }
 	t.Cleanup(func() { router.GHAccounts = old })

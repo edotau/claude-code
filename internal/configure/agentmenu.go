@@ -467,21 +467,42 @@ func pickGitHubUser(d *dialog, cur vendors.CopilotAuth) bool {
 			d.printf("copilot: gh has no working token for %s; run gh auth login\n", u)
 			return false
 		}
-		return pinGitHubUser(d, u)
+		return pinCopilotProfile(d, u)
 	case idx == n:
-		return pinGitHubUser(d, "")
+		return pinCopilotProfile(d, "")
 	default:
 		return signIn(d, "gh", []string{"gh", "auth", "login"})
 	}
 }
 
-// pinGitHubUser writes (or clears, user "") COPILOT_PROFILE in the vault pins.
-func pinGitHubUser(d *dialog, user string) bool {
-	if err := providers.SetPins(map[string]string{providers.PinCopilotProfile: user}); err != nil {
+// pinCopilotProfile pins the github profile whose login is user (clears the pin when user is ""). With no such
+// row it sets login on the personal row when that has none, else asks for a github profile with that login.
+func pinCopilotProfile(d *dialog, user string) bool {
+	profile := ""
+	if user != "" {
+		reg, err := providers.Load()
+		if err != nil {
+			d.printf("copilot: %v\n", err)
+			return false
+		}
+		if profile = providers.GithubAccountName(reg, user); profile == user {
+			p := reg.Providers["personal"]
+			if p == nil || p.Provider != "github" || p.Login != "" {
+				d.printf("copilot: no github profile has login %s; add one with `claude-code vault edit` (providers.github.<name>.login)\n", user)
+				return false
+			}
+			if err := providers.SetProviderFields("personal", map[string]any{"login": user}); err != nil {
+				d.printf("copilot: %v\n", err)
+				return false
+			}
+			profile = "personal"
+		}
+	}
+	if err := providers.SetPins(map[string]string{providers.PinCopilotProfile: profile}); err != nil {
 		d.printf("copilot: %v\n", err)
 		return false
 	}
-	d.printf("%-10s runs as %s\n", "copilot", bracket(user != "", user+" (pinned)", "gh's active account"))
+	d.printf("%-10s runs as %s\n", "copilot", bracket(user != "", user+" (pinned as "+profile+")", "gh's active account"))
 	return true
 }
 
