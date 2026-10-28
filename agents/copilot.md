@@ -50,7 +50,8 @@ Shared table and bullets: `skills/subagent-workflows/references/agent-verbs.md`.
 - Dispatches follow the session's `<provider>·<profile>` (BYOK, no Copilot credits); the GitHub login only with credits
   < 95%, else the Databricks profile (+ a `copilot: … using databricks profile <p>` notice) — `cost-routing.md` →
   Fallback.
-  Headless quota → handoff file + one Databricks resume, else `KindQuota` with `handoff` in the JSON envelope.
+  A pinned copilot (`COPILOT_PROFILE`) at ≥95% ends as a quota hop instead. Headless quota → handoff file and
+  `KindQuota` (`handoff` in the JSON envelope); the next agent in the loop resumes from it.
 
 ## Hands off to
 

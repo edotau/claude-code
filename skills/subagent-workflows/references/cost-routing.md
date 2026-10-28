@@ -54,7 +54,7 @@ cell (see Pins).
   - `account` — Copilot runs on the pinned `COPILOT_PROFILE` only: unpinned, or a pin that is not a gh login,
     drops it (never another profile; `claude-code configure github` changes it).
   - Copilot credit gate — a pinned GitHub profile runs only with credits verified < 95%; at 95% or more (or
-    unverified) the leg ends as a quota hop and the loop moves to the next agent, carrying any handoff. No fixed
+    unverified) the dispatch ends as a quota hop and the loop moves to the next agent, carrying any handoff. No fixed
     Databricks profile order: copilot reaches Databricks only through its own pin (`--profile` or `COPILOT_PROFILE`).
     Never a GitHub dispatch over 95%, never a bill.
   - `exhausted` — 100% of window used, or a remembered quota failure (`402`, monthly quota, usage limit).
@@ -69,16 +69,15 @@ cell (see Pins).
   before Claude; `none` fails fast. `review` always falls back across non-Claude agents only, never to Claude.
   `--format json` reports `fallback`/`fallback_reason`; non-empty `fallback` goes on the `Ran on:` line, never hidden.
 - **Pins** (`claude-code <agent> profile [<profile>|--clear]` sets or clears `<AGENT>_PROFILE`; `claude-code switch
-  <profile>` sets Claude's own pin, `CLAUDE_PROFILE`; configure's `Route` row sets either): a pinned agent's leg runs
-  only on that profile, never on another account of the same agent. Model precedence: `--model` > `<AGENT>_MODEL`
+  <profile>` sets Claude's own pin, `CLAUDE_PROFILE`; configure's `Route` row sets either): a pinned agent's dispatch
+  runs only on that profile, never on another account of the same agent. Model precedence: `--model` > `<AGENT>_MODEL`
   pin > the table cell; a pin's model is respelled for its profile. Pins are listed by `claude-code gateway router`.
-- **Pinned ladder** (the `all` default; `review` keeps its non-Claude-only rule): a leg starts on its agent's pin
+- **Pinned ladder** (the `all` default; `review` keeps its non-Claude-only rule): a dispatch starts on its agent's pin
   and falls back on quota, rate limit, auth, 5xx, network, generic 400 or context-length overflow. Content-policy
-  refusals, HTTP 413 and a bad `--attach` fail
-  fast and stop the loop. The loop always ends at Claude Code's own pin, at the lowest model alias whose cell serves
-  the leg's model. If Claude's pin is exhausted the error lists every hop with its account and says
-  `claude-code switch <profile>`; there is no hop after Claude (`ask --agent claude` with an exhausted pin fails
-  fast).
+  refusals, HTTP 413 and a bad `--attach` fail fast and stop the loop. The loop always ends at Claude Code's own pin, at
+  the lowest model alias whose cell serves the dispatch's model. If Claude's pin is exhausted the error lists every hop
+  with its account and says `claude-code switch <profile>`; there is no hop after Claude (`ask --agent claude` with an
+  exhausted pin fails fast).
 - **Inspection verb**:
   `claude-code gateway router [--model M] [--agent a] [--task "<text>"] [--fallback all|agents|none]`
   `[--format text|json]` prints the pick, per-dimension scores, weights, total, and skip gates; never dispatches.
@@ -93,8 +92,8 @@ cell (see Pins).
   (BYOK, `COPILOT_OFFLINE=true`, no credits); `--profile <p> --model <alias>` selects it; prompt cap = window − 32k
   − 10% (≈148k on 200k, ≈868k on a `one_m` profile). Headless mid-task quota writes a handoff in
   `memory/<bank>/handoffs` and returns `KindQuota` with `handoff` in the JSON envelope; the loop carries that
-  handoff to the next leg (a Databricks leg only when a pin or `--profile` names one). Interactive copilot cannot
-  hand off.
+  handoff to the next dispatch (a Databricks dispatch only when a pin or `--profile` names one). Interactive copilot
+  cannot hand off.
 - **Explicit profile** (`--profile`): one dispatch, no fallback, but gated and marked on its own account.
 - **Credential route** (`internal/vendors/routes.go`, `<agent> setup` → route row): opencode uses its own `opencode`
   login (Go plan; else the vault `OPENCODE_API_KEY`), then its GitHub Copilot login; copilot its pinned GitHub
