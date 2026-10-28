@@ -27,6 +27,9 @@ const (
 // isGateway reports whether p's preset row selects the AI Gateway wire.
 func (p *Provider) isGateway() bool { return p.Options.Wire == WireAIGateway }
 
+// IsAIGateway reports whether p is a Databricks preset row on the AI Gateway wire.
+func (p *Provider) IsAIGateway() bool { return p.Preset == PresetDatabricks && p.isGateway() }
+
 // SpellingRule is the models.Wire rule p's model ids use; "" means ids pass through as written.
 func (p Provider) SpellingRule() string {
 	switch {

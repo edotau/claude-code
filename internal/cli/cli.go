@@ -4,11 +4,11 @@ package cli
 import (
 	"fmt"
 	"os"
-	"runtime/debug"
 	"slices"
 	"strings"
 
 	"github.com/edotau/claude-code/internal/ansi"
+	"github.com/edotau/claude-code/internal/buildver"
 	"github.com/edotau/claude-code/internal/databricks"
 	"github.com/edotau/claude-code/internal/helptext"
 	"github.com/edotau/claude-code/internal/models"
@@ -272,11 +272,7 @@ func sweep(mode string, stops []ansi.RGB, s string) string {
 }
 
 func cmdVersion([]string) int {
-	v := "devel"
-	if bi, ok := debug.ReadBuildInfo(); ok && bi.Main.Version != "" {
-		v = bi.Main.Version
-	}
-	fmt.Println("claude-code", v)
+	fmt.Println("claude-code", buildver.Version())
 	return 0
 }
 

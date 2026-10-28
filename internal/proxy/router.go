@@ -79,6 +79,7 @@ type Router struct {
 	oauthTok  string                                             // cached vault CLAUDE_CODE_OAUTH_TOKEN (present results only), for the passthrough fallback
 	oauthAt   time.Time                                          // oauthTok is valid until oauthAt+credTTL
 	oauth     func() string                                      // reads the sealed subscription token; a seam for tests
+	tags      string                                             // validated HARNESS_REQUEST_TAGS JSON, "" when unset or invalid
 }
 
 // credResult is one provider's cached CredentialPresent outcome.
@@ -95,6 +96,7 @@ func newRouter(secret string) *Router {
 		cool: map[string]time.Time{}, dead: map[string]time.Time{}, cred: map[string]credResult{}, credGen: map[string]int{},
 		marked: map[string]bool{}, oauth: providers.HeadlessOAuthToken}
 	r.sessions = newSessionStore(func() time.Time { return r.now() })
+	r.tags = parseRequestTags(os.Getenv(RequestTagsEnv), r.log)
 	return r
 }
 
@@ -716,6 +718,7 @@ func (r *Router) sendMethod(in *http.Request, method string, p *providers.Provid
 			return nil, err
 		}
 		hdr(req.Header)
+		r.attribute(req.Header, in, p)
 		if credential == "" {
 			if err := providers.Authorize(ctx, p, req.Header); err != nil {
 				return nil, err
