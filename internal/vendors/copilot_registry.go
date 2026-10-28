@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 
@@ -21,13 +22,29 @@ var (
 	discoverModels = copilotreg.Discover
 	mintSession    = proxy.MintSessionToken
 	revokeSession  = proxy.RevokeSessionToken
+	runningRouter  = proxy.Running
 )
+
+// copilotGOOS is the OS the registry guard checks; a seam for tests.
+var copilotGOOS = runtime.GOOS
+
+// errCopilotRegistryDarwin refuses the registry on macOS, where copilot's Keychain login is not hidden by the home.
+var errCopilotRegistryDarwin = errors.New(
+	"copilot: the Databricks model registry is not supported on macOS yet (copilot reads its GitHub login from the " +
+		"Keychain, which the private home cannot hide); a Keychain check is a follow-up; " +
+		"use --direct to run copilot on Databricks with a single model")
+
+func checkCopilotRegistryOS() error {
+	if copilotGOOS == "darwin" {
+		return errCopilotRegistryDarwin
+	}
+	return nil
+}
 
 // CopilotRegistryBanner is the one-line launch notice; GitHub models are unreachable by construction in this mode.
 const CopilotRegistryBanner = "copilot: GitHub models are unavailable in this mode"
 
-// CopilotStripEnv is the inherited GitHub login/routing env every registry child (launch or SDK) must not see;
-// COPILOT_PROVIDER_* is stripped by CopilotStripPrefix.
+// CopilotStripEnv is the inherited GitHub login/routing env a registry child must not see (plus CopilotStripPrefix).
 var CopilotStripEnv = []string{
 	"GH_TOKEN", "GITHUB_TOKEN", "GITHUB_ENTERPRISE_TOKEN", "GH_ENTERPRISE_TOKEN", "COPILOT_GITHUB_TOKEN",
 	"COPILOT_SDK_AUTH_TOKEN", "GH_HOST", "COPILOT_GH_HOST", "COPILOT_API_URL", "GH_CONFIG_DIR",
@@ -44,9 +61,11 @@ type CopilotPrivateHome struct {
 	Warnings []string
 }
 
-// PrepareCopilotHome ensures and seeds the private home (skipped when dry), runs the login guard, and returns its
-// env. Interactive launches and SDK ask runs share it, so sessions made by one resume in the other.
+// PrepareCopilotHome seeds the private home (not when dry), guards logins, returns its env; launch and ask share it.
 func PrepareCopilotHome(dry bool) (CopilotPrivateHome, error) {
+	if err := checkCopilotRegistryOS(); err != nil {
+		return CopilotPrivateHome{}, err
+	}
 	home, xdg := copilotRegistryHome(), copilotRegistryXDG()
 	out := CopilotPrivateHome{
 		Env: []string{
@@ -58,8 +77,13 @@ func PrepareCopilotHome(dry bool) (CopilotPrivateHome, error) {
 	if dry {
 		return out, nil
 	}
-	var err error
-	if out.Warnings, err = seedCopilotHome(copilotSourceHome(home), home, xdg); err != nil {
+	// Concurrent launches share the home; initialise it one process at a time.
+	err := paths.WithFileLock(filepath.Join(filepath.Dir(home), "registry-home.init"), func() error {
+		var serr error
+		out.Warnings, serr = seedCopilotHome(copilotSourceHome(home), home, xdg)
+		return serr
+	})
+	if err != nil {
 		return CopilotPrivateHome{}, err
 	}
 	return out, nil
@@ -88,20 +112,21 @@ func UsesCopilotRegistry(ctx context.Context, t providers.Target) bool {
 		t.Provider.Preset == providers.PresetDatabricks
 }
 
-// ConfigureCopilotRegistry builds the interactive registry launch for Databricks target t. Every error is fatal to
-// the caller: nothing here may fall back to a plain copilot, which would run on its own GitHub login. dry skips
-// minting, writing and the private home (--print-env).
+// ConfigureCopilotRegistry builds the registry launch for t; errors are fatal (no plain fallback); dry mints nothing.
 func ConfigureCopilotRegistry(
 	ctx context.Context, reg *providers.Registry, t providers.Target, args []string, dry bool,
 ) (CopilotRegistry, error) {
 	var out CopilotRegistry
+	if err := checkCopilotRegistryOS(); err != nil { // before discovery or minting
+		return out, err
+	}
 	p := t.Provider
 	requested, rest := splitModelFlags(args)
 	eps, err := discoverModels(ctx, reg, p)
 	if err != nil {
 		return out, fmt.Errorf("copilot: list models for profile %s: %w", p.Name, err)
 	}
-	rb, err := ensureRouter(ctx)
+	rb, err := copilotRouterBase(ctx, dry)
 	if err != nil {
 		return out, fmt.Errorf("copilot: router: %w", err)
 	}
@@ -113,14 +138,9 @@ func ConfigureCopilotRegistry(
 		return out, fmt.Errorf("copilot: %w", err)
 	}
 	pid := os.Getpid()
-	file := ""
-	if dry {
-		dir, err := copilotreg.RuntimeDir()
-		if err != nil {
-			return out, fmt.Errorf("copilot: %w", err)
-		}
-		file = copilotreg.RegistryFile(dir, pid)
-	} else if file, out.Token, err = prepareRegistry(ctx, r, p.Name, pid); err != nil {
+	file, token, err := registryFile(ctx, r, p.Name, pid, dry)
+	out.Token = token
+	if err != nil {
 		out.Revoke()
 		out.Token = ""
 		return out, err
@@ -139,6 +159,17 @@ func ConfigureCopilotRegistry(
 	return out, nil
 }
 
+// copilotRouterBase is the router URL; dry (--print-env) only reads a running router and never starts one.
+func copilotRouterBase(ctx context.Context, dry bool) (string, error) {
+	if !dry {
+		return ensureRouter(ctx)
+	}
+	if st, ok := runningRouter(ctx); ok {
+		return proxy.Base(st.Port), nil
+	}
+	return proxy.Base(proxy.DefaultPort), nil
+}
+
 // prepareRegistry mints the token and writes the registry file; on error the caller revokes.
 func prepareRegistry(ctx context.Context, r copilotreg.Registry, profile string, pid int,
 ) (file, token string, err error) {
@@ -153,6 +184,20 @@ func prepareRegistry(ctx context.Context, r copilotreg.Registry, profile string,
 		return "", token, fmt.Errorf("copilot: %w", err)
 	}
 	return file, token, nil
+}
+
+// registryFile is the registry file path; dry only computes it (--print-env creates no directory or token).
+func registryFile(
+	ctx context.Context, r copilotreg.Registry, profile string, pid int, dry bool,
+) (file, token string, err error) {
+	if !dry {
+		return prepareRegistry(ctx, r, profile, pid)
+	}
+	glob := copilotreg.Glob()
+	if glob == "" {
+		return "", "", errors.New("copilot: no registry runtime directory")
+	}
+	return copilotreg.RegistryFile(filepath.Dir(glob), pid), "", nil
 }
 
 func copilotRegistryHome() string {
@@ -175,15 +220,13 @@ func copilotSourceHome(registryHome string) string {
 	return filepath.Join(u, ".copilot")
 }
 
-// copilotSeedLinks are linked from the real home; config.json (the GitHub login), session state, the history
-// DB, ucode.env (a bearer token) and logs are never carried over.
+// copilotSeedLinks are linked from the real home; the GitHub login, session state, history, ucode.env and logs are not.
 var copilotSeedLinks = []string{
 	"agents", "skills", "hooks", "plugins", "installed-plugins", "copilot-instructions.md", "mcp-config.json",
 	"permissions-config.json",
 }
 
-// seedCopilotHome creates the private home and xdg dirs (0700), refreshes the links, copies settings.json without
-// its model key, and refuses a home that holds a GitHub login.
+// seedCopilotHome makes the 0700 home and xdg, relinks, copies settings.json minus its model key, refuses a login.
 func seedCopilotHome(src, home, xdg string) (warnings []string, err error) {
 	for _, d := range []string{home, xdg} {
 		if err := os.MkdirAll(d, 0o700); err != nil {
@@ -216,15 +259,20 @@ func refreshLink(src, dst string) error {
 		if fi.Mode()&os.ModeSymlink == 0 {
 			return nil
 		}
-		if err := os.Remove(dst); err != nil {
-			return fmt.Errorf("copilot: refresh %s: %w", dst, err)
-		}
 	}
 	if _, err := os.Stat(src); err != nil {
+		if rerr := os.Remove(dst); rerr != nil && !errors.Is(rerr, os.ErrNotExist) {
+			return fmt.Errorf("copilot: refresh %s: %w", dst, rerr)
+		}
 		return nil
 	}
-	if err := os.Symlink(src, dst); err != nil {
+	tmp := fmt.Sprintf("%s.tmp%d", dst, os.Getpid()) // temp link + rename: dst is never absent or half-made
+	_ = os.Remove(tmp)
+	if err := os.Symlink(src, tmp); err != nil {
 		return fmt.Errorf("copilot: link %s: %w", dst, err)
+	}
+	if err := os.Rename(tmp, dst); err != nil {
+		return errors.Join(fmt.Errorf("copilot: link %s: %w", dst, err), os.Remove(tmp))
 	}
 	return nil
 }

@@ -50,6 +50,9 @@ Shared table and bullets: `skills/subagent-workflows/references/agent-verbs.md`.
 - Dispatches follow the session's `<provider>·<profile>` (BYOK, no Copilot credits); the GitHub login only with credits
   < 95%, else the Databricks profile (+ a `copilot: … using databricks profile <p>` notice) — `cost-routing.md` →
   Fallback.
+  On a Databricks profile copilot gets native `/model` across the profile's served models (per-launch registry, private
+  login-free `COPILOT_HOME` at `state/copilot/registry-home`, session-token auth, an unregistered model fails closed);
+  `--direct` keeps the single-model route; macOS is refused until the Keychain follow-up. `ask` uses it via the SDK.
   A pinned copilot (`COPILOT_PROFILE`) at ≥95% ends as a quota hop instead. Headless quota → handoff file and
   `KindQuota` (`handoff` in the JSON envelope); the next agent in the loop resumes from it.
 

@@ -3,6 +3,7 @@ package vendors
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -29,7 +30,7 @@ func TestPrepareCopilotHome(t *testing.T) {
 		t.Fatalf("home = %v, %v; want 0700 dir", fi, err)
 	}
 	for _, want := range []string{"COPILOT_HOME=" + home, "DBUS_SESSION_BUS_ADDRESS="} {
-		if !contains(ph.Env, want) {
+		if !slices.Contains(ph.Env, want) {
 			t.Errorf("env %v lacks %q", ph.Env, want)
 		}
 	}
@@ -38,7 +39,7 @@ func TestPrepareCopilotHome(t *testing.T) {
 			t.Errorf("env overrides HOME: %q", kv)
 		}
 	}
-	if !contains(ph.Unset, "GITHUB_ENTERPRISE_TOKEN") || !contains(ph.Unset, "COPILOT_SDK_AUTH_TOKEN") {
+	if !slices.Contains(ph.Unset, "GITHUB_ENTERPRISE_TOKEN") || !slices.Contains(ph.Unset, "COPILOT_SDK_AUTH_TOKEN") {
 		t.Errorf("unset %v misses the union list", ph.Unset)
 	}
 	login := `{"loggedInUsers":[{"login":"x"}]}`
@@ -48,13 +49,4 @@ func TestPrepareCopilotHome(t *testing.T) {
 	if _, err := PrepareCopilotHome(false); err == nil {
 		t.Fatal("login guard did not refuse a home holding a login")
 	}
-}
-
-func contains(l []string, s string) bool {
-	for _, v := range l {
-		if v == s {
-			return true
-		}
-	}
-	return false
 }

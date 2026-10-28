@@ -404,6 +404,37 @@ func Vendor(ctx context.Context, name string, o Options, args []string) (Plan, e
 	return plan, err
 }
 
+// withFlagModel re-adds the --model ParseArgs consumed, so the registry selects flag > pin > default.
+func withFlagModel(args []string, model string) []string {
+	if model == "" {
+		return args
+	}
+	return append([]string{"--model", model}, args...)
+}
+
+// withCodexFile prepends the -f file's codex overrides (after the harness prefix, so the file's keys win).
+func withCodexFile(name, file string, args []string) ([]string, error) {
+	if file == "" {
+		return args, nil
+	}
+	if name != "codex" {
+		return nil, fmt.Errorf("-f is codex only (got %s)", name)
+	}
+	overrides, err := codexFileOverrides(file)
+	if err != nil {
+		return nil, err
+	}
+	return append(overrides, args...), nil
+}
+
+// flagModelTarget lets an explicit --model win over the model a fallback reset on the target.
+func flagModelTarget(t providers.Target, sel providers.Selection, flagModel string) providers.Target {
+	if flagModel != "" && t.Provider != nil && t.Provider != sel.Slots[models.Opus].Provider {
+		t.Model = fallbackModel(t.Provider, flagModel)
+	}
+	return t
+}
+
 func vendorPlan(ctx context.Context, name string, o Options, args []string) (Plan, error) {
 	if o.Direct {
 		ctx = vendors.WithDirect(ctx)
@@ -415,15 +446,9 @@ func vendorPlan(ctx context.Context, name string, o Options, args []string) (Pla
 	if authVendorArgs(args) {
 		return plainPlan(spec, args) // signing in needs no model route; resolving one first blocks the very login it needs
 	}
-	if o.File != "" {
-		if name != "codex" {
-			return Plan{}, fmt.Errorf("-f is codex only (got %s)", name)
-		}
-		overrides, err := codexFileOverrides(o.File)
-		if err != nil {
-			return Plan{}, err
-		}
-		args = append(overrides, args...) // after the harness prefix, so the file's keys win
+	args, err := withCodexFile(name, o.File, args)
+	if err != nil {
+		return Plan{}, err
 	}
 	flagModel := o.Model // only the flag, not a pin, is re-applied after a fallback
 	o = withAgentPins(name, o)
@@ -434,8 +459,8 @@ func vendorPlan(ctx context.Context, name string, o Options, args []string) (Pla
 	// --profile or the agent's own profile pin is explicit: the session pin is Claude Code's default, not a per-agent choice.
 	explicit := o.Provider != ""
 	target, note, err := vendors.ResolveTarget(reg, name, sel, explicit)
-	if err == nil && flagModel != "" && target.Provider != nil && target.Provider != sel.Slots[models.Opus].Provider {
-		target.Model = fallbackModel(target.Provider, flagModel) // the fallback reset the model; the explicit flag wins
+	if err == nil {
+		target = flagModelTarget(target, sel, flagModel)
 	}
 	// An own-login note is only worth a line on an interactive launch (or --print-env): `opencode --version` stays quiet.
 	showOwnLoginNote := o.PrintEnv || (ansi.IsTerminal(os.Stderr) && interactiveVendorArgs(args))
@@ -449,7 +474,7 @@ func vendorPlan(ctx context.Context, name string, o Options, args []string) (Pla
 		return Plan{}, err
 	}
 	if name == "copilot" && vendors.UsesCopilotRegistry(ctx, target) {
-		return copilotRegistryPlan(ctx, spec, reg, target, note, args, o.PrintEnv)
+		return copilotRegistryPlan(ctx, spec, reg, target, note, withFlagModel(args, flagModel), o.PrintEnv)
 	}
 	env, prefix, err := vendors.Configure(ctx, name, target, "")
 	if errors.Is(err, vendors.ErrOwnLogin) {

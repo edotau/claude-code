@@ -387,6 +387,25 @@ func (copilotRunner) Caps() Caps {
 }
 func (copilotRunner) Available() error { _, err := paths.VendorBin("copilot"); return err }
 
+// applyCopilotToken puts the own-login launch token, then the harness account's env token, on the SDK's token field.
+func applyCopilotToken(opts *copilotsdk.Options, own bool, env []string) error {
+	if own {
+		tok, err := vendors.CopilotLaunchToken()
+		if err != nil {
+			return err
+		}
+		if tok != "" {
+			opts.GitHubToken, opts.UseLoggedInUser = tok, false
+		}
+	}
+	for _, kv := range env { // the harness's chosen account rides the SDK's own token field, not the stored login
+		if tok, ok := strings.CutPrefix(kv, vendors.CopilotTokenEnv+"="); ok && tok != "" {
+			opts.GitHubToken, opts.UseLoggedInUser = tok, false
+		}
+	}
+	return nil
+}
+
 func (copilotRunner) Run(ctx context.Context, req Request, stream io.Writer) (Result, error) {
 	ctx = directCtx(ctx, req)
 	t, own, err := vendorTarget(req, "copilot")
@@ -434,19 +453,8 @@ func (copilotRunner) Run(ctx context.Context, req Request, stream io.Writer) (Re
 	if route != nil {
 		route.apply(&opts)
 	}
-	if own {
-		tok, err := vendors.CopilotLaunchToken()
-		if err != nil {
-			return res, &Error{Kind: KindFatal, Agent: "copilot", Err: err}
-		}
-		if tok != "" {
-			opts.GitHubToken, opts.UseLoggedInUser = tok, false
-		}
-	}
-	for _, kv := range env { // the harness's chosen account rides the SDK's own token field, not the stored login
-		if tok, ok := strings.CutPrefix(kv, vendors.CopilotTokenEnv+"="); ok && tok != "" {
-			opts.GitHubToken, opts.UseLoggedInUser = tok, false
-		}
+	if err := applyCopilotToken(&opts, own, env); err != nil {
+		return res, &Error{Kind: KindFatal, Agent: "copilot", Err: err}
 	}
 	// @<path> works for the copilot CLI directly, but not through the SDK's own prompt parsing (live-confirmed:
 	// the SDK never resolved the reference, unlike the CLI's `-p` form) — fall back to the inline block.

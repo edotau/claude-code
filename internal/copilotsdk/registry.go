@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -24,21 +25,12 @@ func registryEnv(base, set, unset []string, stripPrefix string) []string {
 	out := make([]string, 0, len(base)+len(set))
 	for _, kv := range base {
 		name, _, _ := strings.Cut(kv, "=")
-		if (stripPrefix != "" && strings.HasPrefix(name, stripPrefix)) || inList(unset, name) {
+		if (stripPrefix != "" && strings.HasPrefix(name, stripPrefix)) || slices.Contains(unset, name) {
 			continue
 		}
 		out = append(out, kv)
 	}
 	return append(out, set...)
-}
-
-func inList(list []string, s string) bool {
-	for _, v := range list {
-		if v == s {
-			return true
-		}
-	}
-	return false
 }
 
 // validateRegistryOptions fails closed before any runtime starts: no singular BYOK, a token source, a registered pick.
@@ -84,7 +76,8 @@ func probeMultiProvider(ctx context.Context, client *copilot.Client) error {
 		return fmt.Errorf("%w: cannot read CLI version: %v", ErrNoMultiProvider, err)
 	}
 	if !versionAtLeast(st.Version, MinMultiProviderCLI) {
-		return fmt.Errorf("%w: CLI %q is older than %s (run `copilot update`)", ErrNoMultiProvider, st.Version, MinMultiProviderCLI)
+		return fmt.Errorf("%w: CLI %q is older than %s (run `copilot update`)",
+			ErrNoMultiProvider, st.Version, MinMultiProviderCLI)
 	}
 	return nil
 }
@@ -109,7 +102,7 @@ func versionAtLeast(v, min string) bool {
 
 func versionParts(v string) []int {
 	var out []int
-	for _, s := range strings.Split(strings.TrimPrefix(strings.TrimSpace(v), "v"), ".") {
+	for s := range strings.SplitSeq(strings.TrimPrefix(strings.TrimSpace(v), "v"), ".") {
 		n, err := strconv.Atoi(strings.SplitN(s, "-", 2)[0])
 		if err != nil {
 			return nil
