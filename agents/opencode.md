@@ -43,6 +43,8 @@ audit/triage → ANALYZE, "turn this into a skill" → EXTRACT, "persist/save th
 Shared table and bullets: `skills/subagent-workflows/references/agent-verbs.md`. Opencode deltas:
 
 - Resume the underlying CLI session directly with `opencode run --session <id>`.
+- On a Databricks row the interactive launch splits the menu over `<row>`, `<row>-gpt` and `<row>-claude`;
+  a `--model` off the menu is refused.
 
 ## Hands off to
 
