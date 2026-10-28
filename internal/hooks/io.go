@@ -225,21 +225,14 @@ func hookContext(name string) (context.Context, context.CancelFunc) {
 
 // Registry maps hook verbs to handlers; names must match hookspec.Registry.
 var Registry = map[string]Handler{
-	"bash-guard": BashGuard,
-	// retired names kept so pre-install sessions and vendor hook files rendered before `claude-code configure --reset`
-	// keep their guard; remove only after every box has re-run configure --reset
-	"safety":              func(in io.Reader, out, errw io.Writer) int { return safetyInput(ParseInput(in), out, errw) },
-	"rtk-wrap":            func(in io.Reader, out, _ io.Writer) int { return rtkWrap(ParseInput(in), out) },
+	"bash-guard":          BashGuard,
 	"docs-placement":      func(in io.Reader, _, errw io.Writer) int { return DocsPlacement(in, errw) },
-	"stop-format":         func(in io.Reader, _, _ io.Writer) int { return StopFormat(in) },
-	"context-checkpoint":  func(in io.Reader, _, errw io.Writer) int { return ContextCheckpoint(in, errw) },
 	"session-start":       func(in io.Reader, out, _ io.Writer) int { return SessionStart(in, out) },
 	"memory-recall":       func(in io.Reader, out, _ io.Writer) int { return MemoryRecall(in, out) },
 	"wsl-path-normalize":  func(in io.Reader, out, _ io.Writer) int { return WSLPathNormalize(in, out) },
-	"session-harvest":     func(in io.Reader, _, errw io.Writer) int { return SessionHarvest(in, errw) },
+	"stop":                func(in io.Reader, _, errw io.Writer) int { return Stop(in, errw) },
 	"session-harvest-end": func(in io.Reader, _, _ io.Writer) int { return SessionHarvestEnd(in) },
 	"agent-effort":        func(in io.Reader, out, _ io.Writer) int { return AgentEffort(in, out) },
-	"agent-routed":        func(in io.Reader, _, _ io.Writer) int { return AgentRouted(in) },
 	"workflow-lint":       func(in io.Reader, out, errw io.Writer) int { return WorkflowLint(in, out, errw) },
 	"agent-inflight":      func(in io.Reader, _, errw io.Writer) int { return AgentInflight("pre", in, errw) },
 	"agent-inflight-tag":  func(in io.Reader, _, errw io.Writer) int { return AgentInflight("tag", in, errw) },

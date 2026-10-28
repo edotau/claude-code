@@ -4,15 +4,12 @@
 package hooks
 
 import (
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/edotau/claude-code/internal/frontmatter"
 	"github.com/edotau/claude-code/internal/paths"
@@ -59,13 +56,13 @@ func AgentEffort(r io.Reader, stdout io.Writer) int {
 		task = in.nested("tool_input", "description")
 	}
 
-	recallBlock, recallIDs := agentRecall(in.SessionID, in.CWD, task)
+	recallBlock, _ := agentRecall(in.SessionID, in.CWD, task)
 	promptChanged := recallBlock != ""
 	if promptChanged {
 		updated[promptField] = task + recallBlock
 	}
 
-	note, systemMessage := pinModel(in, updated, task, recallIDs)
+	note, systemMessage := pinModel(in, updated, task)
 	if !explicitModel(in) {
 		base, _ := updated["model"].(string)
 		if base == "" {
@@ -98,9 +95,9 @@ func AgentEffort(r io.Reader, stdout io.Writer) int {
 	return ExitProceed
 }
 
-// pinModel fills updated["model"] from the classifier when the dispatch left it unset, logs the decision,
+// pinModel fills updated["model"] from the classifier when the dispatch left it unset,
 // and returns the model note and visible reason ("" when nothing was pinned).
-func pinModel(in *Input, updated map[string]any, task string, recallIDs []string) (note, systemMessage string) {
+func pinModel(in *Input, updated map[string]any, task string) (note, systemMessage string) {
 	// An explicit model is a deliberate choice by whoever dispatched — never second-guess it.
 	// `inherit` is not one of those: it is the default spelling for "unset", and honoring it ran
 	// every unpinned spawn on the parent session's model. The roster's own pin outranks every
@@ -114,33 +111,9 @@ func pinModel(in *Input, updated map[string]any, task string, recallIDs []string
 		return "", ""
 	}
 	updated["model"] = model
-	decision := map[string]any{
-		"decision_id":   randomHex(8),
-		"session_id":    in.SessionID,
-		"tool_use_id":   in.nested("tool_use_id"),
-		"subagent_type": in.nested("tool_input", "subagent_type"),
-		"tier":          tier,
-		"signal":        signal,
-		"model":         model,
-		"at":            time.Now().Unix(),
-	}
-	if len(recallIDs) > 0 {
-		decision["recall_ids"] = recallIDs
-	}
-	appendDecision(decision)
 	return fmt.Sprintf("agent-effort: dispatch model unset and the task classifies %s — pinned model=%s"+
 			" (set model explicitly to override).", tier, model),
 		fmt.Sprintf("agent-effort: %s → %s (%s)", tier, model, signal)
-}
-
-// randomHex is a decision_id: collision-safe enough for a best-effort reconciliation log; a read
-// failure on crypto/rand (never on a real OS) falls back to a time-based id rather than an empty one.
-func randomHex(n int) string {
-	b := make([]byte, n)
-	if _, err := rand.Read(b); err != nil {
-		return hex.EncodeToString([]byte(time.Now().Format("150405.000000000")))
-	}
-	return hex.EncodeToString(b)
 }
 
 // explicitModel is a dispatch-set model other than `inherit` (the default spelling for unset).

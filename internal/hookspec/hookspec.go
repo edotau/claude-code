@@ -59,8 +59,6 @@ var Registry = []Spec{
 	{Name: "docs-placement", Event: EventPreToolUse, Matcher: "Write|Edit", Timeout: 5, StatusMessage: "Checking doc placement", Gate: true, Vendors: []string{"codex", "copilot"}},
 	// An unset dispatch model is filled from the local prompt-complexity classifier (low→haiku, else sonnet).
 	{Name: "agent-effort", Event: EventPreToolUse, Matcher: "Agent|Task", Timeout: 5},
-	// Records the subagent's actual launch model, reconciled against agent-effort's decision log.
-	{Name: "agent-routed", Event: EventSubagentStart, Timeout: 5, Async: true},
 	// An inline Workflow script's unpinned agent() leaves are pinned to sonnet (else they inherit the session model).
 	{Name: "workflow-lint", Event: EventPreToolUse, Matcher: "Workflow", Timeout: 5},
 	// Machine-wide subagent cap: pre counts and blocks, tag binds the marker to the agent id, post retires it.
@@ -75,9 +73,8 @@ var Registry = []Spec{
 	{Name: "save-plan", Event: EventPostToolUse, Matcher: "ExitPlanMode", Timeout: 10},
 	// A model read of a bank file is traced to that bank's access log (memory review's hot/cold signal).
 	{Name: "access-trace", Event: EventPostToolUse, Matcher: "Read", Timeout: 5, Async: true, Vendors: []string{"codex", "copilot"}},
-	{Name: "context-checkpoint", Event: EventStop, Timeout: 10},
-	{Name: "stop-format", Event: EventStop, Timeout: 30},
-	{Name: "session-harvest", Event: EventStop, Timeout: 15},
+	// One Stop hook: context checkpoint, memory harvest, then the formatter; a block from the first two blocks.
+	{Name: "stop", Event: EventStop, Timeout: 50},
 	{Name: "session-start", Event: EventSessionStart, Timeout: 10, StatusMessage: "Loading session memory"},
 	// A pasted or dragged Windows path (C:\…) resolves to its /mnt form for the model; a no-op off WSL.
 	{Name: "wsl-path-normalize", Event: EventUserPromptSubmit, Timeout: 5, Vendors: []string{"codex", "copilot"}},

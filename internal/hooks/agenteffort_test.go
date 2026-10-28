@@ -74,68 +74,6 @@ func TestAgentEffortSystemMessageAndContextBothPresent(t *testing.T) {
 	}
 }
 
-// TestAgentEffortAppendsDecisionRow: a filled dispatch appends one decisions.jsonl row carrying the
-// tier/signal/model that fired, under a hermetic CLAUDE_CONFIG_DIR.
-func TestAgentEffortAppendsDecisionRow(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("CLAUDE_CONFIG_DIR", home)
-	in := `{"session_id":"sess-1","tool_use_id":"tu-1","tool_name":"Agent",` +
-		`"tool_input":{"prompt":"fix the typo in the help text","subagent_type":"general-purpose"}}`
-	if got, _ := runAgentEffort(t, in); got == nil || got["model"] != "haiku" {
-		t.Fatalf("updatedInput = %v, want model=haiku", got)
-	}
-	recs := readJSONLRecords(decisionsPath())
-	if len(recs) != 1 {
-		t.Fatalf("decisions.jsonl rows = %d, want 1: %v", len(recs), recs)
-	}
-	rec := recs[0]
-	if rec["session_id"] != "sess-1" || rec["tool_use_id"] != "tu-1" || rec["tier"] != "low" ||
-		rec["signal"] != "mechanical" || rec["model"] != "haiku" || rec["decision_id"] == "" || rec["recall_ids"] != nil {
-		t.Errorf("decision row = %+v, want session/tool_use/tier/signal/model/decision_id filled, no recall_ids on an empty bank", rec)
-	}
-}
-
-// TestAgentEffortDecisionRowCarriesRecallIDs: when the model-fill AND the recall-append both fire
-// on the same dispatch, the decisions.jsonl row's optional recall_ids lists the cited ids.
-func TestAgentEffortDecisionRowCarriesRecallIDs(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("CLAUDE_CONFIG_DIR", home)
-	seedHomeRecallBlock(t, 1)
-	in := fmt.Sprintf(`{"session_id":"sess-3","tool_use_id":"tu-3","tool_name":"Agent",`+
-		`"tool_input":{"prompt":%q}}`, recallPrompt)
-	got, _ := runAgentEffort(t, in)
-	if got == nil || got["model"] == nil {
-		t.Fatalf("updatedInput = %v, want a filled model", got)
-	}
-	recs := readJSONLRecords(decisionsPath())
-	if len(recs) != 1 {
-		t.Fatalf("decisions.jsonl rows = %d, want 1: %v", len(recs), recs)
-	}
-	ids, ok := recs[0]["recall_ids"].([]any)
-	if !ok || len(ids) == 0 || ids[0] != "00000001" {
-		t.Errorf("recall_ids = %v, want [\"00000001\"]", recs[0]["recall_ids"])
-	}
-}
-
-// TestAgentEffortDecisionLogFailureStillProceeds: an unwritable routing dir (CLAUDE_CONFIG_DIR points at
-// a file, not a directory) must not change the hook's exit code or its emitted stdout.
-func TestAgentEffortDecisionLogFailureStillProceeds(t *testing.T) {
-	home := t.TempDir()
-	notADir := filepath.Join(home, "blocked")
-	if err := os.WriteFile(notADir, []byte("x"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("CLAUDE_CONFIG_DIR", notADir) // every state path under it fails to mkdir
-	in := `{"session_id":"sess-2","tool_name":"Agent","tool_input":{"prompt":"fix the typo in the help text"}}`
-	got, code := runAgentEffort(t, in)
-	if code != ExitProceed {
-		t.Errorf("exit = %d, want ExitProceed even when the decision log can't be written", code)
-	}
-	if got == nil || got["model"] != "haiku" {
-		t.Errorf("updatedInput = %v, want model=haiku despite the logging failure", got)
-	}
-}
-
 // The hook must never block — it is advisory plumbing, not a gate.
 func TestAgentEffortAlwaysProceeds(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir()) // hermetic: no recall hit from an ambient real bank

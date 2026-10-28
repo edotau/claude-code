@@ -13,9 +13,8 @@ import (
 // checkpointPct is the context-usage share that blocks Stop once per session.
 const checkpointPct = 85
 
-// ContextCheckpoint blocks Stop once per session at ≥85% context so the model can hand off before compaction.
-func ContextCheckpoint(r io.Reader, stderr io.Writer) int {
-	in := ParseInput(r)
+// contextCheckpoint blocks Stop once per session at ≥85% context so the model can hand off before compaction.
+func contextCheckpoint(in *Input, stderr io.Writer) int {
 	if in.SessionID == "" || in.TranscriptPath == "" || in.StopHookActive {
 		return ExitProceed
 	}

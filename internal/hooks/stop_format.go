@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"io"
 	"maps"
 	"os"
 	"os/exec"
@@ -24,13 +23,13 @@ const (
 	stopFormatMaxFiles = 50
 	stopFormatMaxSize  = 1 << 20
 	stopFormatBudget   = 25 * time.Second
+	stopFormatTimeout  = 30 * time.Second
 	stopFormatWorkers  = 4
 )
 
-// StopFormat formats files that are dirty in git AND that this session's transcript shows it writing;
+// stopFormat formats files that are dirty in git AND that this session's transcript shows it writing;
 // a dirty file Claude never wrote is the user's hand edit and is left alone.
-func StopFormat(r io.Reader) int {
-	in := ParseInput(r)
+func stopFormat(in *Input) int {
 	cwd := in.CWD
 	if cwd == "" {
 		cwd, _ = os.Getwd()
@@ -38,7 +37,7 @@ func StopFormat(r io.Reader) int {
 	if cwd == "" {
 		return ExitProceed
 	}
-	ctx, cancel := hookContext("stop-format")
+	ctx, cancel := context.WithTimeout(context.Background(), stopFormatTimeout)
 	defer cancel()
 	stampPath := filepath.Join(paths.StateDir(), "stop-format", cwdKey(cwd)+".json")
 	changed := changedFiles(ctx, cwd)

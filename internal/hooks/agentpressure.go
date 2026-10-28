@@ -92,16 +92,11 @@ func applyPressure(in *Input, updated map[string]any, promptField, base string) 
 		hint = fmt.Sprintf("`claude-code ask --agent %s --model %s --tools`", agent, model)
 	}
 	kind := in.nested("tool_input", "subagent_type")
-	rec := map[string]any{"decision_id": randomHex(8), "session_id": in.SessionID, "tool_use_id": in.nested("tool_use_id"),
-		"subagent_type": kind, "pressure_pct": pct, "window": window, "route": strings.TrimSpace(agent + " " + model),
-		"at": time.Now().Unix()}
 	if pct >= OffloadPct && offloadTypes[kind] && agent != "" {
 		updated["subagent_type"], updated["model"] = "coworker", "haiku"
 		prompt, _ := updated[promptField].(string)
 		updated[promptField] = fmt.Sprintf("Routed by agent-effort (Claude %s window at %.0f%%): do this task through %s, "+
 			"then verify and report.\n\n%s", window, pct, hint, prompt)
-		rec["decision"], rec["model"] = "offload", "haiku"
-		appendDecision(rec)
 		return fmt.Sprintf("agent-effort: Claude %s window at %.0f%% — %s dispatch moved to coworker (haiku) via %s.",
 				window, pct, kind, hint),
 			fmt.Sprintf("agent-effort: %.0f%% %s → coworker via %s %s", pct, window, agent, model)
@@ -113,8 +108,6 @@ func applyPressure(in *Input, updated map[string]any, promptField, base string) 
 	if down != "" && down != base {
 		updated["model"] = down
 	}
-	rec["decision"], rec["model"] = "downshift", cmpOr(down, base)
-	appendDecision(rec)
 	return fmt.Sprintf("agent-effort: Claude %s window at %.0f%% — model %s→%s; offload agent work with %s.",
 			window, pct, cmpOr(base, "inherit"), cmpOr(down, base, "inherit"), hint),
 		fmt.Sprintf("agent-effort: %.0f%% %s → %s", pct, window, cmpOr(down, base, "inherit"))
