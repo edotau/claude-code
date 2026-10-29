@@ -197,18 +197,6 @@ func TestCatalogOriginCommentRoundTripsPathWithCommentCloser(t *testing.T) {
 	}
 }
 
-// TestStripCatalogOriginsMatchesVisibleRow: the injected catalog surface strips exactly the origin
-// comment, never more and never less of the visible row text.
-func TestStripCatalogOriginsMatchesVisibleRow(t *testing.T) {
-	t.Parallel()
-	o := Origin{Version: OriginVersion, Key: "k", Origin: "/src/k"}
-	visible := "- k — hook · last 2024-01-01 → k/MEMORY.md"
-	full := visible + catalogOriginComment(o) + "\nnext line\n"
-	if got := stripCatalogOrigins(full); got != visible+"\nnext line\n" {
-		t.Errorf("stripCatalogOrigins = %q, want %q", got, visible+"\nnext line\n")
-	}
-}
-
 // TestBuildCatalogRebuildsIdenticalRowsAfterVaultLoss: BuildCatalog's rows (with their origin
 // comments) are the sole durable record once the vault is gone — deleting vault.db and asking
 // RepoDirs again must reproduce exactly the same origins from the catalog it wrote.

@@ -42,20 +42,42 @@ func CapChars(s string, max int) string {
 	return cut + truncatedNotice
 }
 
-// Unified-store budgets (plan §3.4): the catalog and the focus slices are reserved so neither starves the other.
+// Session-surface budgets: this repo's focus and the home bank's essentials, reserved so neither starves the other.
 const (
-	catalogCapChars = 2500
-	focusCapChars   = 2000
+	focusCapChars     = 2000
+	homeFocusCapChars = 800
 )
 
-// unifiedSurface is the session preload: the catalog router plus root's focus sections; Claude Code loads
-// the repo's MEMORY.md (with its generated bank region) itself, so no index is injected here.
+// unifiedSurface is the session preload: root's focus sections plus the home bank's, and one pointer to the other
+// repos (no catalog rows); Claude Code loads the repo's MEMORY.md (with its generated bank region) itself.
 func unifiedSurface(root string) string {
 	dir := Dir(root)
 	var parts []string
-	if data, err := os.ReadFile(filepath.Join(StoreDir(), CatalogFile)); err == nil {
-		parts = append(parts, "<!-- MEMORY CATALOG (start here; "+StoreDir()+") -->\n"+capRows(strings.TrimSpace(stripCatalogOrigins(string(data))), catalogCapChars))
+	if _, err := os.Stat(filepath.Join(StoreDir(), CatalogFile)); err == nil {
+		parts = append(parts, "<!-- other repos: `claude-code memory search --all <terms>`; catalog "+filepath.Join(StoreDir(), CatalogFile)+" -->")
 	}
+	if HasBank(root) { // the header alone still names the bank when there is no focus text yet
+		head := "<!-- THIS REPO (" + dir + ") — focus only; read the typed files on demand -->"
+		if focus := repoFocus(dir); len(focus) > 0 {
+			head += "\n" + strings.Join(focus, "\n\n")
+		}
+		parts = append(parts, CapChars(head, focusCapChars))
+	}
+	if home := HomeBankDir(); !IsHomeBank(root) {
+		if focus := repoFocus(home); len(focus) > 0 {
+			parts = append(parts, CapChars("<!-- HOME BANK ("+home+") — essentials -->\n"+strings.Join(focus, "\n\n"), homeFocusCapChars))
+		}
+	}
+	if !nativeLinked(root, dir) { // Claude Code is reading another dir: carry the store's index ourselves
+		if data, err := os.ReadFile(filepath.Join(dir, NativeIndexFile)); err == nil && len(data) > 0 {
+			parts = append(parts, CapChars("<!-- THIS REPO's MEMORY.md (native link missing or blocked) -->\n"+strings.TrimSpace(string(data)), indexCapChars))
+		}
+	}
+	return CapChars(strings.Join(parts, "\n\n"), TotalCapChars)
+}
+
+// repoFocus is a bank dir's injected sections: activeContext focus/blockers/next steps and progress "In Progress".
+func repoFocus(dir string) []string {
 	var focus []string
 	if data, err := os.ReadFile(filepath.Join(dir, "activeContext.md")); err == nil {
 		for _, h := range []string{"Current Focus", "Blockers", "Next Steps"} {
@@ -69,15 +91,7 @@ func unifiedSurface(root string) string {
 			focus = append(focus, "## In Progress\n"+sec)
 		}
 	}
-	if len(focus) > 0 {
-		parts = append(parts, CapChars("<!-- THIS REPO ("+dir+") — focus only; read the typed files on demand -->\n"+strings.Join(focus, "\n\n"), focusCapChars))
-	}
-	if !nativeLinked(root, dir) { // Claude Code is reading another dir: carry the store's index ourselves
-		if data, err := os.ReadFile(filepath.Join(dir, NativeIndexFile)); err == nil && len(data) > 0 {
-			parts = append(parts, CapChars("<!-- THIS REPO's MEMORY.md (native link missing or blocked) -->\n"+strings.TrimSpace(string(data)), indexCapChars))
-		}
-	}
-	return CapChars(strings.Join(parts, "\n\n"), TotalCapChars)
+	return focus
 }
 
 // nativeLinked reports whether Claude Code's native memory dir for root is the symlink into dir.
@@ -143,16 +157,4 @@ func level2Headings(body []byte) []headingSpan {
 		return mdast.WalkContinue, nil
 	})
 	return out
-}
-
-// capRows trims text to max chars at a whole-line boundary, pointing at the full file.
-func capRows(text string, max int) string {
-	if len(text) <= max {
-		return text
-	}
-	cut := strings.LastIndex(text[:max], "\n")
-	if cut < 0 {
-		cut = max
-	}
-	return text[:cut] + "\n- … (catalog truncated; read " + CatalogFile + " in the store)"
 }

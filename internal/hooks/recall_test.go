@@ -54,7 +54,7 @@ func TestMemoryRecall(t *testing.T) {
 		}
 	}
 	got := recall(t, "alpha bravo charlie delta", cwd)
-	if !strings.HasPrefix(got, "<!-- memory-recall:") || !strings.Contains(got, "[home/conventions.md] - alpha bravo charlie delta strong match") {
+	if !strings.HasPrefix(got, "<!-- memory-recall:") || !strings.Contains(got, "[home/conventions.md] z") || !strings.Contains(got, " · alpha bravo charlie delta strong match") {
 		t.Fatalf("recall block: %q", got)
 	}
 	if strings.Contains(got, "alpha weak") || len([]rune(got)) > recallTotalCapChars || !strings.Contains(got, "…") {

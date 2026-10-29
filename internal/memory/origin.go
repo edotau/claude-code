@@ -256,14 +256,3 @@ func catalogOrigins() map[string]Origin {
 	}
 	return out
 }
-
-// stripCatalogOrigins drops the origin comments so the injected catalog reads exactly as the visible rows.
-func stripCatalogOrigins(text string) string {
-	lines := strings.Split(text, "\n")
-	for n, l := range lines {
-		if before, _, ok := strings.CutLast(l, catalogOriginTag); ok && strings.HasSuffix(l, " -->") {
-			lines[n] = before
-		}
-	}
-	return strings.Join(lines, "\n")
-}
