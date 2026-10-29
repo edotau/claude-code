@@ -190,9 +190,22 @@ func Run(ctx context.Context, r Runner, req Request, stream io.Writer, notify fu
 	var failed []*Error
 	e := Do(ctx, p, func(actx context.Context, attempt int) *Error {
 		attempts = attempt
+		note := func(e *Error) *Error { // every failed attempt, guard failures included, rides on the answering hop
+			snap := *e
+			snap.Earlier = nil
+			failed = append(failed, &snap)
+			return e
+		}
+		// a retry resumes after a backoff: another task may have marked the account dead meanwhile
+		if h, _ := ctx.Value(permitKey{}).(*permit); h != nil && h.recheck != nil && attempt > 1 {
+			if skip := h.recheck(); skip != nil {
+				skip.terminal = true
+				return note(skip)
+			}
+		}
 		actx, gerr := guardAttempt(actx, r, req)
 		if gerr != nil {
-			return gerr
+			return note(gerr)
 		}
 		cw := &countingWriter{w: stream}
 		out, err := r.Run(actx, req, cw)
@@ -213,9 +226,7 @@ func Run(ctx context.Context, r Runner, req Request, stream io.Writer, notify fu
 			}
 		}
 		if e != nil {
-			snap := *e
-			snap.Earlier = nil
-			failed = append(failed, &snap)
+			note(e)
 		}
 		return e
 	})
@@ -503,7 +514,8 @@ func RunWithFallback(ctx context.Context, c Chain, req Request, stream io.Writer
 				hops = append(hops, hopOf(leg, lreq, res, err))
 				return
 			}
-			held := &permit{account: leg.Account, release: release}
+			held := &permit{account: leg.Account, release: release,
+				recheck: func() *Error { return cmp.Or(exhaustedSince(leg), authMarkedSince(leg)) }}
 			defer func() {
 				if r := recover(); r != nil {
 					if ctx.Value(limiterKey{}) == nil {

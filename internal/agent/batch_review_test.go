@@ -663,3 +663,66 @@ func TestHopKeepsRecoveredAttemptErrors(t *testing.T) {
 		t.Errorf("hop = %v, want no error_kind and one rate_limit error", h)
 	}
 }
+
+// The final attempt's 429 still publishes its cooldown: a second Do on the same key waits for it.
+func TestDoPublishesCooldownOnFinalAttempt(t *testing.T) {
+	key := "final-" + t.Name()
+	p := Policy{MaxAttempts: 1, BaseDelay: time.Millisecond, MaxDelay: time.Second, Key: key}
+	Do(context.Background(), p, func(context.Context, int) *Error {
+		return &Error{Kind: KindRateLimit, Agent: "a", RetryAfter: 300 * time.Millisecond, Err: errors.New("429")}
+	})
+	start := time.Now()
+	Do(context.Background(), p, func(context.Context, int) *Error { return nil })
+	if got := time.Since(start); got < 200*time.Millisecond {
+		t.Errorf("second Do started after %v, want it held for the published ~300ms cooldown", got)
+	}
+}
+
+// A retry resumes after the backoff only if its account is still usable: one marked auth-dead meanwhile is skipped.
+func TestRetryRechecksAccountAfterBackoff(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	var n atomic.Int32
+	tasks := []BatchTask{
+		acctTask(t, "limited", "rate·A", rateOnce{name: "limited", n: &n}),
+		acctTask(t, "marker", "free·B", markingRunner{name: "marker", mark: func() { _ = router.MarkAuth("rate·A", "login expired") }}),
+	}
+	var out strings.Builder
+	RunBatch(context.Background(), tasks, BatchOptions{Jobs: 1, Out: &out})
+	if n.Load() != 1 {
+		t.Errorf("the rate-limited leg ran %d times, want 1: its retry must not run on an auth-dead account", n.Load())
+	}
+	for _, ln := range strings.Split(strings.TrimSpace(out.String()), "\n") {
+		if strings.Contains(ln, `"task_id":"limited"`) && !strings.Contains(ln, `"kind":"auth"`) {
+			t.Errorf("limited task's envelope = %s, want an auth error", ln)
+		}
+	}
+}
+
+// A transient credential failure that a retry recovers from is listed in the answering hop's errors.
+func TestHopKeepsRecoveredGuardFailure(t *testing.T) {
+	fastDefaultBackoff(t)
+	flag := filepath.Join(t.TempDir(), "seen")
+	name := fmt.Sprintf("hmg%d", time.Now().UnixNano())
+	hmNamed(t, name, fmt.Sprintf("if [ -f %[1]s ]; then echo %[2]s; else touch %[1]s; echo 'connection reset' >&2; exit 1; fi", flag, hmJWT("adb-1.azuredatabricks.net")))
+	r := &fakeRunner{name: "claude", caps: Caps{Provider: true}, errs: []error{nil}}
+	res, err := RunWithFallback(context.Background(), Single(r), Request{Prompt: "p", Provider: name}, io.Discard, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hops, _ := envelopeMap(t, res, err)["hops"].([]any)
+	h, _ := hops[0].(map[string]any)
+	if errs, _ := h["errors"].([]any); len(errs) != 1 {
+		t.Errorf("hop = %v, want the recovered credential failure in errors", h)
+	}
+}
+
+// Two batches started in the same millisecond still get distinct batch ids.
+func TestNewBatchIDDistinctAtOneInstant(t *testing.T) {
+	old := batchNow
+	batchNow = func() time.Time { return time.Date(2026, 10, 29, 12, 0, 0, 0, time.UTC) }
+	t.Cleanup(func() { batchNow = old })
+	a, b := NewBatchID(), NewBatchID()
+	if a == b || !strings.HasPrefix(a, "batch-20261029T120000.000") {
+		t.Errorf("ids %q and %q: want distinct ids that keep the batch-<stamp> prefix", a, b)
+	}
+}

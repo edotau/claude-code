@@ -5,6 +5,8 @@ import (
 	"bytes"
 	"cmp"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -115,6 +117,7 @@ func (l *limiter) acquire(ctx context.Context, account string) (func(), error) {
 type permit struct {
 	account string
 	release func()
+	recheck func() *Error // a skip when the account became unusable since the leg started
 }
 
 // idle runs wait with the permit released, then takes a permit again; the leg runs a child only while holding one.
@@ -227,7 +230,14 @@ type BatchOptions struct {
 }
 
 // NewBatchID names one batch run.
-func NewBatchID() string { return "batch-" + time.Now().UTC().Format("20060102T150405.000") }
+func NewBatchID() string {
+	var b [3]byte
+	_, _ = rand.Read(b[:]) // a failed read leaves zeros: the stamp alone still names the batch
+	return "batch-" + batchNow().UTC().Format("20060102T150405.000") + "-" + hex.EncodeToString(b[:])
+}
+
+// batchNow is the clock NewBatchID reads; a var so tests can force two batches onto one millisecond.
+var batchNow = time.Now
 
 type batchDone struct {
 	i   int

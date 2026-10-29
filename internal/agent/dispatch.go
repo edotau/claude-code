@@ -45,6 +45,7 @@ type Error struct {
 	AuthReason string // set on a KindAuth whose Recover failed with a login/rejected verdict: mark the account, move on
 	Err        error
 	Earlier    []*Error // the attempts before this one, oldest first; Do sets it on the error it returns
+	terminal   bool     // a state check refused the attempt: retrying cannot help
 }
 
 func (e *Error) Error() string {
@@ -69,7 +70,7 @@ func (e *Error) attemptMessage() string {
 
 // Retryable is true for rate-limit and transient failures that have not streamed output.
 func (e *Error) Retryable() bool {
-	return !e.Progressed && (e.Kind == KindRateLimit || e.Kind == KindTransient || e.Kind == KindAuth)
+	return !e.Progressed && !e.terminal && (e.Kind == KindRateLimit || e.Kind == KindTransient || e.Kind == KindAuth)
 }
 
 // KindForStatus maps an HTTP status to a Kind; 0 means the transport never completed.
@@ -302,6 +303,10 @@ func Do(ctx context.Context, p Policy, fn func(ctx context.Context, attempt int)
 			last.Err = fmt.Errorf("timed out after %s: %w", p.AttemptTimeout, last.Err)
 			return fail()
 		}
+		wait := p.Delay(last.RetryAfter, attempt, rand.Float64())
+		if p.Key != "" && (last.Kind == KindRateLimit || last.Kind == KindTransient) {
+			coolDown(p.Key, wait) // the other loops on this account back off too, even when this one gives up
+		}
 		if !last.Retryable() || attempt == p.MaxAttempts {
 			return fail()
 		}
@@ -309,10 +314,6 @@ func Do(ctx context.Context, p Policy, fn func(ctx context.Context, attempt int)
 			if p.Recover == nil || p.Recover(ctx) != nil {
 				return fail()
 			}
-		}
-		wait := p.Delay(last.RetryAfter, attempt, rand.Float64())
-		if p.Key != "" && (last.Kind == KindRateLimit || last.Kind == KindTransient) {
-			coolDown(p.Key, wait) // the other loops on this account back off too
 		}
 		if p.Notify != nil {
 			p.Notify(fmt.Sprintf("%s: %s (attempt %d/%d), retrying in %s", last.Agent, last.Kind, attempt, p.MaxAttempts, wait.Round(100*time.Millisecond)))
