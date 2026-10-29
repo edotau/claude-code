@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -27,6 +28,9 @@ type legLimiter struct {
 	mu   sync.Mutex
 	n    int
 	sems map[string]chan struct{}
+	// blocked counts tasks parked on a full account: they hold no pool slot, so the scheduler may start others.
+	blocked atomic.Int32
+	wake    chan struct{}
 }
 
 type legLimitKey struct{}
@@ -48,6 +52,17 @@ func acquireLeg(ctx context.Context, account string) (release func(), err error)
 		l.sems[account] = sem
 	}
 	l.mu.Unlock()
+	select {
+	case sem <- struct{}{}:
+		return func() { <-sem }, nil
+	default:
+	}
+	l.blocked.Add(1)
+	defer l.blocked.Add(-1)
+	select {
+	case l.wake <- struct{}{}:
+	default:
+	}
 	select {
 	case sem <- struct{}{}:
 		return func() { <-sem }, nil
@@ -145,7 +160,7 @@ func RunBatch(ctx context.Context, tasks []BatchTask, o BatchOptions) bool {
 	jobs := max(cmp.Or(o.Jobs, DefaultJobs()), 1)
 	bctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	b := &batchRun{o: o, ids: map[string]bool{}, legs: &legLimiter{n: DefaultPerKey, sems: map[string]chan struct{}{}}}
+	b := &batchRun{o: o, ids: map[string]bool{}, legs: &legLimiter{n: DefaultPerKey, sems: map[string]chan struct{}{}, wake: make(chan struct{}, 1)}}
 	allOK := true
 	emit := func(env Envelope, ok bool) {
 		env.BatchID = o.ID
@@ -205,7 +220,7 @@ type batchSched struct {
 
 // start launches queued tasks while a pool slot and a per-key permit are free.
 func (sc *batchSched) start(ctx context.Context) {
-	for sc.running < sc.jobs && len(sc.pending) > 0 && ctx.Err() == nil {
+	for sc.running-int(sc.b.legs.blocked.Load()) < sc.jobs && len(sc.pending) > 0 && ctx.Err() == nil {
 		at := freeSlot(sc.pending, sc.keys, sc.inKey, sc.perKey)
 		if at < 0 {
 			return
@@ -229,6 +244,8 @@ func (sc *batchSched) reap(ctx context.Context) {
 	if len(sc.pending) > 0 {
 		select {
 		case d = <-sc.done:
+		case <-sc.b.legs.wake: // a task parked on a full account freed its pool slot
+			return
 		case <-ctx.Done():
 			return
 		}

@@ -474,25 +474,27 @@ func RunWithFallback(ctx context.Context, c Chain, req Request, stream io.Writer
 		}
 		lreq := legRequest(req, leg, i == 0 && leg.Agent.Name() == c.Want)
 		waitCooldown(ctx, leg.Account, DefaultMaxDelay)
-		release, aerr := acquireLeg(ctx, leg.Account) // per billed account, whichever key the task was queued under
-		if aerr != nil {
-			ce := &Error{Kind: KindFatal, Agent: leg.Agent.Name(), Err: aerr}
-			res, err = Result{Agent: ce.Agent, Status: statusOf(ce), Invoked: lreq.Model}, ce
-			hops = append(hops, hopOf(leg, lreq, res, err))
-		} else if skip := exhaustedSince(leg); skip != nil { // another task marked this account dead after the chain was built
-			res, err = Result{Agent: leg.Agent.Name(), Status: StatusQuota, Invoked: lreq.Model}, skip
-			hops = append(hops, hopOf(leg, lreq, res, err))
-		} else {
+		func() { // a scope of its own, so a panicking runner still releases its permit
+			release, aerr := acquireLeg(ctx, leg.Account) // per billed account, whichever key the task was queued under
+			if aerr != nil {
+				ce := &Error{Kind: KindFatal, Agent: leg.Agent.Name(), Err: aerr}
+				res, err = Result{Agent: ce.Agent, Status: statusOf(ce), Invoked: lreq.Model}, ce
+				hops = append(hops, hopOf(leg, lreq, res, err))
+				return
+			}
+			defer release()
+			if skip := exhaustedSince(leg); skip != nil { // another task marked this account dead after the chain was built
+				res, err = Result{Agent: leg.Agent.Name(), Status: StatusQuota, Invoked: lreq.Model}, skip
+				hops = append(hops, hopOf(leg, lreq, res, err))
+				return
+			}
 			res, err = Run(withCoolKey(ctx, leg.Account), leg.Agent, lreq, stream, notify)
 			res.Invoked = lreq.Model
 			hops = append(hops, hopOf(leg, lreq, res, err))
 			noteQuota(leg, err)
 			noteAuth(leg, err)
 			noteStall(leg, err)
-		}
-		if release != nil {
-			release()
-		}
+		}()
 		if res.Handoff != handoff {
 			req.Prompt = promptFromHandoff(res.Handoff, req.Prompt)
 		}

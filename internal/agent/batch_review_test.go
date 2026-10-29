@@ -25,10 +25,13 @@ func hmJWT(iss string) string {
 }
 
 // hmProfile overlays a Databricks profile "hm" on host adb-1 whose credential comes from auth.command cmd.
-func hmProfile(t *testing.T, cmd string) {
+func hmProfile(t *testing.T, cmd string) { hmNamed(t, "hm", cmd) }
+
+// hmNamed is hmProfile under name; command credentials are cached per name for the process, so reruns need fresh ones.
+func hmNamed(t *testing.T, name, cmd string) {
 	t.Helper()
 	vaulttest.UseKeyring(t)
-	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"databricks":{"hm":{"preset":"databricks",`+
+	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"databricks":{"`+name+`":{"preset":"databricks",`+
 		`"host":"https://adb-1.azuredatabricks.net","auth":{"type":"key","command":`+fmt.Sprintf("%q", cmd)+`},`+
 		`"models":{"opus":"databricks-claude-opus-5-5","sonnet":"databricks-claude-sonnet-5-5","haiku":"databricks-claude-haiku-4-5"}}}}}`)
 }
@@ -128,9 +131,10 @@ func TestRunPrefixRoutedHostMismatchFailsAuth(t *testing.T) {
 func TestRunTransientCredentialFailureIsRetried(t *testing.T) {
 	fastDefaultBackoff(t)
 	flag := filepath.Join(t.TempDir(), "seen")
-	hmProfile(t, fmt.Sprintf("if [ -f %[1]s ]; then echo %[2]s; else touch %[1]s; echo 'connection reset' >&2; exit 1; fi", flag, hmJWT("adb-1.azuredatabricks.net")))
+	name := fmt.Sprintf("hmt%d", time.Now().UnixNano())
+	hmNamed(t, name, fmt.Sprintf("if [ -f %[1]s ]; then echo %[2]s; else touch %[1]s; echo 'connection reset' >&2; exit 1; fi", flag, hmJWT("adb-1.azuredatabricks.net")))
 	r := &fakeRunner{name: "claude", caps: Caps{Provider: true}, errs: []error{nil}}
-	res, err := Run(context.Background(), r, Request{Prompt: "p", Provider: "hm"}, io.Discard, nil)
+	res, err := Run(context.Background(), r, Request{Prompt: "p", Provider: name}, io.Discard, nil)
 	if err != nil || res.Answer != "a" || res.Transport.Attempts != 2 {
 		t.Fatalf("res=%+v err=%v; want an answer on attempt 2", res, err)
 	}
@@ -158,5 +162,95 @@ func TestCopilotSDKEnvBlanksForeignCredentials(t *testing.T) {
 	}
 	if !slices.Contains(seen, "HM_OTHER_KEY=") || slices.Contains(seen, "HM_OTHER_KEY=foreign-secret") {
 		t.Errorf("sdk env = %v, want HM_OTHER_KEY blanked", seen)
+	}
+}
+
+type slowRunner struct {
+	name  string
+	sleep time.Duration
+	boom  bool
+}
+
+func (s slowRunner) Name() string     { return s.name }
+func (s slowRunner) Caps() Caps       { return Caps{} }
+func (s slowRunner) Available() error { return nil }
+func (s slowRunner) Run(context.Context, Request, io.Writer) (Result, error) {
+	if s.boom {
+		panic("boom")
+	}
+	time.Sleep(s.sleep)
+	return Result{Answer: "a"}, nil
+}
+
+// acctTask is a batch task whose single leg bills account.
+func acctTask(t *testing.T, name, account string, r Runner) BatchTask {
+	return BatchTask{ID: name, Agent: name, Req: Request{Prompt: "p"},
+		Prepare: func(context.Context) (Chain, Record, error) {
+			rec := Record{ID: "id-" + name, Agent: name, Log: filepath.Join(t.TempDir(), "l.log")}
+			return Chain{Want: name, Legs: []Leg{{Agent: r, Account: account, keepCaller: true}}}, rec, nil
+		}}
+}
+
+// A panicking runner (recovered by the batch) must give its leg permit back: later tasks on the account still run.
+func TestBatchPanickingLegsReleaseTheirPermits(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	var tasks []BatchTask
+	for i := range DefaultPerKey + 2 {
+		name := fmt.Sprintf("p%d", i)
+		tasks = append(tasks, acctTask(t, name, "panic·acct", slowRunner{name: name, boom: true}))
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	var out strings.Builder
+	if RunBatch(ctx, tasks, BatchOptions{Jobs: 2, Out: &out}) {
+		t.Fatal("batch reported ok although every runner panicked")
+	}
+	lines := strings.Split(strings.TrimSpace(out.String()), "\n")
+	if len(lines) != len(tasks) || strings.Contains(out.String(), "cancel") {
+		t.Fatalf("got %d envelopes (want %d, none cancelled): a lost permit blocked the account\n%s", len(lines), len(tasks), out.String())
+	}
+	if n := strings.Count(out.String(), "panic: boom"); n != len(tasks) {
+		t.Errorf("%d envelopes name the panic, want %d", n, len(tasks))
+	}
+}
+
+// Tasks parked on a full account hold no pool slot: a task on an idle account finishes while they still wait.
+func TestBatchParkedTasksDoNotHoldPoolSlots(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	var tasks []BatchTask
+	n := DefaultPerKey + 2
+	for i := range n {
+		name := fmt.Sprintf("a%d", i)
+		tasks = append(tasks, acctTask(t, name, "A·acct", slowRunner{name: name, sleep: 400 * time.Millisecond}))
+	}
+	tasks = append(tasks, acctTask(t, "b", "B·acct", slowRunner{name: "b"}))
+	var out strings.Builder
+	if !RunBatch(context.Background(), tasks, BatchOptions{Jobs: n, Out: &out}) {
+		t.Fatalf("batch failed: %s", out.String())
+	}
+	if first := strings.SplitN(out.String(), "\n", 2)[0]; !strings.Contains(first, `"task_id":"b"`) {
+		t.Errorf("first envelope = %s, want task b: it queued behind parked account-A tasks", first)
+	}
+}
+
+// An auth.command whose JWT was issued for another host fails the hop as auth, and fallback moves to the next hop.
+func TestCommandCredentialHostMismatchIsAuthAndFallsBack(t *testing.T) {
+	name := fmt.Sprintf("hmm%d", time.Now().UnixNano())
+	vaulttest.Put(t, vault.Overlay, "providers", `{"default":"`+name+`","providers":{"databricks":{"`+name+`":{"preset":"databricks",`+
+		`"host":"https://adb-1.azuredatabricks.net","auth":{"type":"key","command":"echo `+hmJWT("adb-2.azuredatabricks.net")+`"},`+
+		`"models":{"opus":"m"}}}}}`)
+	t.Cleanup(func() { vaulttest.Put(t, vault.Overlay, "providers", `{}`) }) // the default must not leak to later tests
+	prev := markAuth
+	markAuth = func(string, string) error { return nil }
+	t.Cleanup(func() { markAuth = prev })
+	first := &fakeRunner{name: "claude", caps: Caps{Provider: true}, errs: []error{nil}}
+	second := &fakeRunner{name: "gemini", errs: []error{nil}}
+	c := Chain{Want: "claude", Legs: []Leg{{Agent: first, Account: "claude:" + name, keepCaller: true}, {Agent: second}}}
+	res, err := RunWithFallback(context.Background(), c, Request{Prompt: "p"}, io.Discard, nil)
+	if err != nil || res.Answer != "a" || len(first.seen) != 0 || len(second.seen) != 1 {
+		t.Fatalf("res=%+v err=%v first=%d second=%d; want hop 2 to answer", res, err, len(first.seen), len(second.seen))
+	}
+	if len(res.Hops) != 2 || res.Hops[0].ErrorKind != "auth" {
+		t.Errorf("hops = %+v, want hop 1 error_kind auth", res.Hops)
 	}
 }

@@ -35,11 +35,6 @@ func ownProviderFrom(ctx context.Context) *providers.Provider {
 	return p
 }
 
-// hostMismatchError marks a credential issued for another host than its route: the one guard failure that is KindAuth.
-type hostMismatchError struct{ error }
-
-func (e hostMismatchError) Unwrap() error { return e.error }
-
 // guardRouteHost fails a hop before any child starts when p's credential was issued for another host than its route.
 func guardRouteHost(ctx context.Context, p *providers.Provider) error {
 	if p.Preset == "" {
@@ -52,10 +47,7 @@ func guardRouteHost(ctx context.Context, p *providers.Provider) error {
 	if err != nil {
 		return err // an unresolvable credential must not skip the host check
 	}
-	if herr := providers.CheckRouteHost(p, cred); herr != nil {
-		return hostMismatchError{herr}
-	}
-	return nil
+	return providers.CheckRouteHost(p, cred)
 }
 
 // guardProvider is the provider whose credential the hop sends; nil for an unpinned vendor leg (own login).
@@ -100,8 +92,8 @@ func guardAttempt(ctx context.Context, r Runner, req Request) (context.Context, 
 		return ctx, &Error{Kind: KindFatal, Agent: r.Name(), Err: err}
 	}
 	if err := guardRouteHost(ctx, gp); err != nil {
-		if _, ok := errors.AsType[hostMismatchError](err); ok {
-			return ctx, &Error{Kind: KindAuth, Agent: r.Name(), Err: err}
+		if _, ok := errors.AsType[*providers.HostMismatchError](err); ok {
+			return ctx, &Error{Kind: KindAuth, Agent: r.Name(), Err: err, AuthReason: fallbackReason(err)} // misconfigured: move on
 		}
 		return ctx, Classify(r.Name(), err, false) // a transient auth.command/OAuth failure stays retryable
 	}
