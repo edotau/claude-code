@@ -753,3 +753,40 @@ func TestAddPickerOmitsCredentialKeys(t *testing.T) {
 		}
 	}
 }
+
+// The read-only report flattens env (values shown, live changes caught) and lists overlay-added keys.
+func TestReportFlattensEnvAndShowsAddedKeys(t *testing.T) {
+	d, out := newClaudeSettingsDialog(t, "")
+	d.o.Check = true
+	tmpl, err := settings.Render()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var m map[string]json.RawMessage
+	_ = json.Unmarshal(tmpl, &m)
+	var env map[string]json.RawMessage
+	_ = json.Unmarshal(m["env"], &env)
+	var name string
+	for k := range env {
+		name = k
+		break
+	}
+	if name == "" {
+		t.Skip("defaults carry no env variable")
+	}
+	env[name] = json.RawMessage(`"changed-live"`)
+	m["env"], _ = json.Marshal(env)
+	raw, _ := json.Marshal(m)
+	writeLiveSettings(t, raw)
+	ov := map[string]json.RawMessage{"wheelScrollAccelerationEnabled": json.RawMessage("false")}
+	sections, _ := settings.Sections()
+	if reportClaudeSettings(d, ov, sections) {
+		t.Errorf("--check passed with a changed live env var:\n%s", out.String())
+	}
+	if !strings.Contains(out.String(), "== added ==") || !strings.Contains(out.String(), "wheelScrollAccelerationEnabled  false") {
+		t.Errorf("added key row missing:\n%s", out.String())
+	}
+	if !strings.Contains(out.String(), name+"  ") || strings.Contains(out.String(), name+"    ") {
+		t.Errorf("env row blank or absent for %s:\n%s", name, out.String())
+	}
+}

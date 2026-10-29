@@ -48,7 +48,7 @@ claude-code configure claude          # per-machine settings overrides; team def
 claude-code configure codex           # vault-backed reasoning effort and output verbosity
 claude-code configure --check         # report only; exit 1 if anything is unset
 claude-code configure --reset [--out f|--check|--dry-run]   # render settings + agent CLI configs
-claude-code configure --restore [--agent a,b]       # restore agent CLI configs from backup
+claude-code configure --revert [--agent a,b]        # restore agent CLI configs from backup
 claude-code theme vscode [--check|--dry-run]             # merge VS Code settings + keybindings
 ```
 
@@ -62,11 +62,11 @@ claude-code theme vscode [--check|--dry-run]             # merge VS Code setting
   injected at launch — `internal/vendors/template/`).
 - On a terminal, `configure --reset` prompts before overwriting hand-edited lines it would otherwise lose; a
   non-interactive run (launch, `configure`, `make install`) writes and warns instead. Each overwrite keeps 5
-  timestamped backups; `configure --restore` steps an agent CLI file back one version at a time.
+  timestamped backups; `configure --revert` steps an agent CLI file back one version at a time.
 - Codex preferences are saved in the vault and applied to `$CODEX_HOME/config.toml` (default
   `~/.codex/config.toml`). Its config snapshots and comparison baseline are encrypted in the vault instead of
   written as plaintext backups. The last five snapshots per config path are kept;
-  `configure --restore --agent codex` restores the preceding version and its managed preferences.
+  `configure --revert --agent codex` restores the preceding version and its managed preferences.
   Provider configuration, hook trust, and unknown native settings are preserved. Check and dry-run do not write.
   An unavailable vault key aborts changed Codex writes.
 - From a worktree, render only that checkout:

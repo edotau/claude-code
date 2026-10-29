@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/edotau/claude-code/internal/secrets/shapes"
@@ -34,9 +35,29 @@ func CredentialKey(name string) bool {
 
 // checkNotCredential refuses a credential-named key or a credential-shaped string value.
 func checkNotCredential(key string, raw json.RawMessage) error {
-	var s string
-	if CredentialKey(key) || (json.Unmarshal(raw, &s) == nil && shapes.Looks(s)) {
+	var v any
+	if json.Unmarshal(raw, &v) != nil {
+		return nil
+	}
+	if CredentialKey(key) || credentialIn(v) {
 		return fmt.Errorf("%s looks like a credential; store it with `claude-code vault set`", key)
 	}
 	return nil
+}
+
+// credentialIn walks nested values: a credential-named key or a credential-shaped string at any depth.
+func credentialIn(v any) bool {
+	switch t := v.(type) {
+	case string:
+		return shapes.Looks(t)
+	case []any:
+		return slices.ContainsFunc(t, credentialIn)
+	case map[string]any:
+		for k, x := range t {
+			if CredentialKey(k) || credentialIn(x) {
+				return true
+			}
+		}
+	}
+	return false
 }

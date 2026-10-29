@@ -118,6 +118,7 @@ func TestConfigureRestoreRejectsBadCombos(t *testing.T) {
 		{"revert with check", []string{"--revert", "--check"}, "--revert takes only"},
 		{"revert with out", []string{"--revert", "--out", "x.json"}, "--revert takes only"},
 		{"revert with agents", []string{"--revert", "--agents"}, "--revert takes only"},
+		{"restore with agent rolls back no more", []string{"--restore", "--agent", "codex"}, "moved to --revert"},
 		{"out without restore", []string{"--out", "x.json"}, "need --restore"},
 		{"agents without restore", []string{"--agents"}, "need --restore"},
 		{"check and dry-run", []string{"--restore", "--check", "--dry-run"}, "mutually exclusive"},

@@ -2,9 +2,11 @@ package settings
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -33,6 +35,8 @@ func TestCredentialKeyRefusedEverywhere(t *testing.T) {
 		{"ANTHROPIC_API_KEY": json.RawMessage(`"abc"`)},
 		{"apiKeyHelper": json.RawMessage(`"get-key.sh"`)},
 		{"outputStyle": json.RawMessage(`"sk-live-abcdefghijklmnop"`)},
+		{"env": json.RawMessage(`{"ANTHROPIC_API_KEY":"abc"}`)},
+		{"autoMode": json.RawMessage(`{"a":[{"b":"ghp_abcdefghijklmnopqrstuvwxyz0123456789"}]}`)},
 	} {
 		if err := SaveOverlay(ov); err == nil || !strings.Contains(err.Error(), "vault set") {
 			t.Errorf("SaveOverlay(%v) = %v, want a vault-set refusal", ov, err)
@@ -68,6 +72,10 @@ func TestSchemaNumbersBoundsAndUnions(t *testing.T) {
 	ok("strictPluginOnlyCustomization", `"x"`, false)
 	ok("forceLoginOrgUUID", `["a","b"]`, true) // oneOf: array branch
 	ok("forceLoginOrgUUID", "3", false)
+	ok("forceLoginOrgUUID", `[3]`, false) // array items
+	ok("strictPluginOnlyCustomization", `["bogus"]`, false)
+	ok("strictPluginOnlyCustomization", `["hooks"]`, true)
+	ok("env", `{"MAX_THINKING_TOKENS":5}`, false) // nested property
 	ok("theme", `"custom:mine"`, true)
 	ok("theme", `"custom:"`, false)
 
@@ -83,5 +91,61 @@ func TestSchemaNumbersBoundsAndUnions(t *testing.T) {
 	}
 	if _, err := f.Parse("7"); err == nil {
 		t.Error("Parse(7) accepted past the maximum")
+	}
+}
+
+// Concurrent writers of different keys must all land: the read-modify-write is locked and atomic.
+func TestWriteRepoDefaultsConcurrentWritersKeepAllKeys(t *testing.T) {
+	dir := vaulttest.Use(t)
+	file := filepath.Join(dir, filepath.FromSlash(RepoDefaultsRel))
+	if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(file, []byte("{\n  \"$schema\": \"x\"\n}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	keys := []string{"prefersReducedMotion", "spinnerTipsEnabled", "awaySummaryEnabled", "agentPushNotifEnabled",
+		"inputNeededNotifEnabled", "useAutoModeDuringPlan", "autoConnectIde", "disableClaudeAiConnectors",
+		"skipWorkflowUsageWarning", "switchModelsOnFlag", "wheelScrollAccelerationEnabled"}
+	var wg sync.WaitGroup
+	errs := make(chan error, len(keys))
+	for _, k := range keys {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, err := WriteRepoDefaults(map[string]json.RawMessage{k: json.RawMessage("false")})
+			errs <- err
+		}()
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, _ := os.ReadFile(file)
+	for _, k := range keys {
+		if !strings.Contains(string(got), fmt.Sprintf("%q: false", k)) {
+			t.Errorf("lost update: %s missing from\n%s", k, got)
+		}
+	}
+	if ents, _ := os.ReadDir(filepath.Dir(file)); len(ents) != 2 { // settings.json + .lock
+		t.Errorf("stray files beside the repo defaults: %v", ents)
+	}
+}
+
+// autoMemoryDirectory merges every repo's memory into one flat dir, so Merge still drops it.
+func TestMergeDropsLegacyAutoMemoryDirectory(t *testing.T) {
+	rendered, err := Render()
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, _, err := Merge([]byte(`{"autoMemoryDirectory":"/flat","zzForeign":1}`), rendered, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(out), "autoMemoryDirectory") || !strings.Contains(string(out), "zzForeign") {
+		t.Errorf("merge output:\n%s", out)
 	}
 }

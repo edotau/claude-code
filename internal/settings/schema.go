@@ -26,6 +26,8 @@ type Key struct {
 	Env         bool
 	pattern     *regexp.Regexp // alternate accepted string form (theme "custom:<slug>")
 	alts        []Key          // union branches (anyOf, oneOf, a type list): valid when any accepts
+	items       *Key           // array element schema
+	props       map[string]Key // object property schemas
 }
 
 // schemaType is a JSON-Schema "type": one name or a list, kept whole so unions validate every branch.
@@ -78,16 +80,18 @@ func (e *schemaEnum) UnmarshalJSON(b []byte) error {
 }
 
 type schemaNode struct {
-	Type        schemaType   `json:"type"`
-	Enum        schemaEnum   `json:"enum"`
-	Minimum     *float64     `json:"minimum"`
-	Maximum     *float64     `json:"maximum"`
-	ExMinimum   *float64     `json:"exclusiveMinimum"`
-	ExMaximum   *float64     `json:"exclusiveMaximum"`
-	Pattern     string       `json:"pattern"`
-	Description string       `json:"description"`
-	AnyOf       []schemaNode `json:"anyOf"`
-	OneOf       []schemaNode `json:"oneOf"`
+	Type        schemaType            `json:"type"`
+	Enum        schemaEnum            `json:"enum"`
+	Minimum     *float64              `json:"minimum"`
+	Maximum     *float64              `json:"maximum"`
+	ExMinimum   *float64              `json:"exclusiveMinimum"`
+	ExMaximum   *float64              `json:"exclusiveMaximum"`
+	Pattern     string                `json:"pattern"`
+	Description string                `json:"description"`
+	AnyOf       []schemaNode          `json:"anyOf"`
+	OneOf       []schemaNode          `json:"oneOf"`
+	Items       *schemaNode           `json:"items"`
+	Properties  map[string]schemaNode `json:"properties"`
 }
 
 // flatten folds an anyOf node's branches into one node: enum and type from the first typed branch, pattern from any.
@@ -112,7 +116,7 @@ func (n schemaNode) unionBranches() []schemaNode {
 	if len(out) == 0 {
 		for _, t := range n.Type.branches() {
 			out = append(out, schemaNode{Type: schemaType{t}, Enum: n.Enum, Minimum: n.Minimum, Maximum: n.Maximum,
-				ExMinimum: n.ExMinimum, ExMaximum: n.ExMaximum, Pattern: n.Pattern})
+				ExMinimum: n.ExMinimum, ExMaximum: n.ExMaximum, Pattern: n.Pattern, Items: n.Items, Properties: n.Properties})
 		}
 	}
 	return out
@@ -126,6 +130,16 @@ func (n schemaNode) key(name string, env bool) Key {
 	if len(branches) > 1 {
 		for _, b := range branches {
 			k.alts = append(k.alts, b.key(name, env))
+		}
+	}
+	if n.Items != nil {
+		it := n.Items.key(name+"[]", env)
+		k.items = &it
+	}
+	if len(n.Properties) > 0 {
+		k.props = make(map[string]Key, len(n.Properties))
+		for pn, pv := range n.Properties {
+			k.props[pn] = pv.key(name+"."+pn, env)
 		}
 	}
 	typ := n.Type.first()
@@ -254,10 +268,24 @@ func (k Key) Validate(raw json.RawMessage) error {
 		if json.Unmarshal(raw, &m) != nil {
 			return fmt.Errorf("%s: want a JSON object", k.Name)
 		}
+		for pn, pv := range m {
+			if sub, ok := k.props[pn]; ok {
+				if err := sub.Validate(pv); err != nil {
+					return err
+				}
+			}
+		}
 	case KindArray:
 		var a []json.RawMessage
 		if json.Unmarshal(raw, &a) != nil {
 			return fmt.Errorf("%s: want a JSON array", k.Name)
+		}
+		if k.items != nil {
+			for _, it := range a {
+				if err := k.items.Validate(it); err != nil {
+					return err
+				}
+			}
 		}
 	default:
 		return fmt.Errorf("%s: unknown kind", k.Name)

@@ -139,6 +139,8 @@ func configureRender(restore, revert bool, section, agents, out string, check, d
 		return fail("configure: --restore/--revert take no page (got %q)", section)
 	case revert && (check || out != "" || renderAgents || noAgents):
 		return fail("configure: --revert takes only --agent and --dry-run")
+	case restore && agents != "" && !renderAgents:
+		return fail("configure: agent-config rollback moved to --revert (--restore --agent needs --agents)")
 	}
 	// the engine skips unknown names silently, so a typo would render nothing; reject it here
 	for a := range strings.SplitSeq(agents, ",") {
