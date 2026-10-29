@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+
+	"github.com/edotau/claude-code/internal/codexsettings"
 )
 
 var codexManagedPaths = func() []string {
@@ -23,15 +25,11 @@ func codexConfigChecks() []Check {
 	for _, path := range codexManagedPaths() {
 		checks = append(checks, codexConfigCheck("codex machine config", path, true))
 	}
-	home := os.Getenv("CODEX_HOME")
-	if home == "" {
-		user, err := os.UserHomeDir()
-		if err != nil {
-			return append(checks, Check{Name: "codex user config", Detail: "home unavailable; effective route unknown"})
-		}
-		home = filepath.Join(user, ".codex")
+	cfg, err := codexsettings.ConfigPath("")
+	if err != nil {
+		return append(checks, Check{Name: "codex user config", Detail: "home unavailable; effective route unknown"})
 	}
-	return append(checks, codexConfigCheck("codex user config", filepath.Join(home, "config.toml"), false))
+	return append(checks, codexConfigCheck("codex user config", cfg, false))
 }
 
 func codexConfigCheck(name, path string, managed bool) Check {

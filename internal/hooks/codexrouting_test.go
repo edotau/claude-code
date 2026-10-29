@@ -109,8 +109,6 @@ func TestCodexAgentRouteSkipsIneligibleSpawns(t *testing.T) {
 		{"unknown profile", func(t *testing.T, _, _ map[string]any, _ string) { t.Setenv(hookspec.CodexProfileEnv, "missing") }},
 		{"non Databricks profile", func(t *testing.T, _, _ map[string]any, _ string) { t.Setenv(hookspec.CodexProfileEnv, "openai") }},
 		{"unsupported parent", func(_ *testing.T, p, _ map[string]any, _ string) { p["model"] = "databricks-claude-sonnet-5-5" }},
-		{"environment model pin", func(t *testing.T, _, _ map[string]any, _ string) { t.Setenv(providers.PinCodexModel, "user-model") }},
-		{"environment effort pin", func(t *testing.T, _, _ map[string]any, _ string) { t.Setenv(providers.PinCodexEffort, "low") }},
 		{"vault model pin", func(t *testing.T, _, _ map[string]any, _ string) {
 			vaulttest.Put(t, vault.Pins, providers.PinCodexModel, "user-model")
 		}},

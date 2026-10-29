@@ -16,6 +16,7 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/ansi"
+	"github.com/edotau/claude-code/internal/codexsettings"
 	"github.com/edotau/claude-code/internal/envscrub"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
@@ -415,6 +416,28 @@ func Vendor(ctx context.Context, name string, o Options, args []string) (Plan, e
 	return plan, err
 }
 
+// UsageError is a launch refusal the CLI reports verbatim with exit 2.
+type UsageError string
+
+func (e UsageError) Error() string { return string(e) }
+
+// codexProfileHint is the usage error for `codex --profile X` when X is no harness profile but codex's own
+// $CODEX_HOME/X.config.toml exists; nil otherwise.
+func codexProfileHint(o Options) error {
+	if o.Provider == "" || strings.ContainsAny(o.Provider, `/\`) {
+		return nil
+	}
+	home, err := codexsettings.Home()
+	if err != nil {
+		return nil
+	}
+	if _, err := os.Stat(filepath.Join(home, o.Provider+".config.toml")); err != nil {
+		return nil
+	}
+	return UsageError(fmt.Sprintf("claude-code codex: --profile %q is not a harness profile; "+
+		"for codex's own config profile ($CODEX_HOME/%s.config.toml) use -p %s", o.Provider, o.Provider, o.Provider))
+}
+
 // agentVersionTTY and versionWarnOut are the version warning's terminal gate and sink (tests swap them).
 var (
 	agentVersionTTY           = func() bool { return ansi.IsTerminal(os.Stderr) }
@@ -469,6 +492,9 @@ func vendorPlan(ctx context.Context, name string, o Options, args []string) (Pla
 	o = withAgentPins(name, o)
 	reg, sel, err := selection(o)
 	if err != nil {
+		if hint := codexProfileHint(o); name == "codex" && hint != nil {
+			return Plan{}, hint
+		}
 		return Plan{}, err
 	}
 	// --profile or the agent's own profile pin is explicit: the session pin is Claude Code's default, not a per-agent choice.

@@ -20,6 +20,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/codexsettings"
 	"github.com/edotau/claude-code/internal/copilotreg"
 	"github.com/edotau/claude-code/internal/hookspec"
 	"github.com/edotau/claude-code/internal/models"
@@ -497,11 +498,11 @@ func codexLogin(model string, h *Headless) ([]string, []string, error) {
 
 // codexHome is $CODEX_HOME or ~/.codex, where codex keeps auth.json and config.toml.
 func codexHome() string {
-	if home := os.Getenv("CODEX_HOME"); home != "" {
-		return home
+	home, err := codexsettings.Home()
+	if err != nil {
+		return filepath.Join(".codex") // no resolvable home: a relative path simply misses
 	}
-	dir, _ := os.UserHomeDir()
-	return filepath.Join(dir, ".codex")
+	return home
 }
 
 // codexOwnModel is the top-level `model = "..."` in codex's config.toml, or "" (a flat scan; sections are skipped).

@@ -19,6 +19,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/edotau/claude-code/internal/codexsettings"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 )
@@ -74,11 +75,9 @@ func vendorConfigs() []HistoryFile {
 	if err != nil {
 		return out
 	}
-	codexHome := os.Getenv("CODEX_HOME")
-	if codexHome == "" {
-		codexHome = filepath.Join(home, ".codex")
+	if codexCfg, err := codexsettings.ConfigPath(""); err == nil {
+		out = append(out, HistoryFile{Label: "codex-config.toml", Path: codexCfg})
 	}
-	out = append(out, HistoryFile{Label: "codex-config.toml", Path: filepath.Join(codexHome, "config.toml")})
 	if cfgHome, err := os.UserConfigDir(); err == nil {
 		out = append(out, HistoryFile{Label: "opencode.json", Path: filepath.Join(cfgHome, "opencode", "opencode.json")})
 	}
