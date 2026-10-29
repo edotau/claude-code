@@ -82,6 +82,9 @@ func runAsk(args []string, resume bool) int {
 	if code, done := helptext.Parse(fs, args); done {
 		return code
 	}
+	if err := agent.ValidateEnv(env); err != nil { // names only: the error never carries a value
+		return failAskCode(*format, *name, err, 2)
+	}
 	if err := validateAskFlags(*format, *fallback); err != nil {
 		return failAsk(*format, *name, err)
 	}
@@ -375,7 +378,7 @@ func (k *keepEnvFlag) Set(s string) error {
 	return nil
 }
 
-// envFlag collects repeatable --env NAME=VALUE entries; Set refuses credential-shaped names.
+// envFlag collects repeatable --env NAME=VALUE entries.
 type envFlag []string
 
 func (e *envFlag) String() string { return strings.Join(*e, ",") }
@@ -383,10 +386,8 @@ func (e *envFlag) String() string { return strings.Join(*e, ",") }
 // Placeholder names the FLAGS placeholder for envFlag (helptext.Placeholder).
 func (e *envFlag) Placeholder() string { return "NAME=VALUE" }
 
+// Set accepts anything: the flag parser echoes a rejected value in its error, so runAsk validates after Parse.
 func (e *envFlag) Set(s string) error {
-	if err := agent.ValidateEnv([]string{s}); err != nil {
-		return err
-	}
 	*e = append(*e, s)
 	return nil
 }

@@ -53,6 +53,11 @@ func scrub(environ []string, keep map[string]bool, deny []string) (kept, dropped
 	return kept, dropped
 }
 
+// Blocked reports whether name is one a launch never passes through (Deny, VendorOnlyDeny, anything HARNESS_*).
+func Blocked(name string) bool {
+	return strings.HasPrefix(name, "HARNESS_") || denied(name, Deny) || denied(name, VendorOnlyDeny)
+}
+
 // KeepSet unions explicit names with HARNESS_KEEP_ENV, comma-separated.
 func KeepSet(names []string) map[string]bool {
 	keep := map[string]bool{}
