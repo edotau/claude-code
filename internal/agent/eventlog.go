@@ -50,9 +50,6 @@ func (l *EventLog) Emit(ev Event) error {
 	if ev.Type != EventText {
 		l.flushLocked()
 		l.writeLocked(ev)
-		if ev.Type == EventResult || ev.Type == EventError {
-			_ = l.bw.Flush()
-		}
 		return nil
 	}
 	if ev.Text == "" || l.text > eventsTextCap {
@@ -114,6 +111,7 @@ func (l *EventLog) writeLocked(ev Event) {
 		ev.Envelope = &env
 	}
 	_ = l.sink.Emit(ev) // fail-open
+	_ = l.bw.Flush()    // bufio keeps one event's write atomic; flushing per event lets tail -f see it at once
 }
 
 // Close flushes held text and the buffer, then closes the file; it is safe to call twice.
