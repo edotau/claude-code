@@ -214,7 +214,7 @@ const foreignHead = `(?:\b[A-Za-z]:[\\/]|\\\\|(?:file|smb|nfs)://|~[A-Za-z0-9_.-
 
 // winPathRE matches a bareword non-POSIX path token; a quoted path (spaces inside) is quotedWinPathRE's.
 var winPathRE = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(foreignHead + `[^\s"']+`)
+	return regexp.MustCompile(foreignHead + `[^\s"'` + "`" + `]+`)
 })
 
 // quotedWinPathRE matches a double-quoted non-POSIX path, allowing spaces inside the quotes.
