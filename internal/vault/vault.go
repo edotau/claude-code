@@ -159,7 +159,9 @@ func Update(fn func(*Tx) error) error {
 		return err
 	}
 	defer db.Close()
-	return db.Update(func(tx *bbolt.Tx) error {
+	restamped := false
+	from := 0
+	err = db.Update(func(tx *bbolt.Tx) error {
 		t := &Tx{tx}
 		if err := checkSchema(t); err != nil {
 			return err
@@ -175,10 +177,17 @@ func Update(fn func(*Tx) error) error {
 			if err := t.SetSchema(schemaVersion); err != nil {
 				return err
 			}
-			schemas.LogMigration("vault", n, schemaVersion, 0)
+			from, restamped = n, true
 		}
 		return fn(t)
 	})
+	if err != nil {
+		return err
+	}
+	if restamped {
+		schemas.LogMigration("vault", from, schemaVersion, 0)
+	}
+	return nil
 }
 
 // newVaultID is 16 random bytes hex-encoded, the per-vault identity under which its master key

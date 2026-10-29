@@ -251,7 +251,7 @@ lint-fix: compile mdsmith  ## Auto-fix lint, then an AI agent fixes the rest (WH
 		echo "- Reuse existing constants before adding one."; \
 		echo "- Edit only the files named in the lint output."; \
 		echo "- Do not run git commands."; echo; echo "Lint output (truncated):"; \
-		head -n 150 "$$o" | cut -c1-300 | head -c 12000; } > "$$b"; \
+		awk 'NR<=150{print substr($$0,1,300)}' "$$o" | head -c 12000 || [ $$? = 141 ]; } > "$$b"; \
 		echo "lint-fix: pass $$pass/$(MAX): dispatching $(AGENT)"; \
 		$(BIN) ask --agent $(AGENT) --tools --workdir $(CURDIR) --format json - < "$$b" >/dev/null || echo -e "$(C_NOTE)$(AGENT) dispatch failed"; \
 		prev=$$left; left=$$(chk); opfail; echo "lint-fix: $$left issue(s) left"; \

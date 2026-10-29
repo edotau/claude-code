@@ -203,9 +203,15 @@ func revertOne(label, path string, dryRun bool, out io.Writer) error {
 		return restoreCodexConfig(path, dryRun, out)
 	}
 	src, ok := newestMirror(path)
+	consumed := true
 	if !ok {
-		fmt.Fprintf(out, "%s: no backup to revert for %s\n", label, path)
-		return nil
+		var legacyOK bool
+		src, _, legacyOK = legacyBackupSource(path)
+		if !legacyOK {
+			fmt.Fprintf(out, "%s: no backup to revert for %s\n", label, path)
+			return nil
+		}
+		consumed = false
 	}
 	if dryRun {
 		fmt.Fprintf(out, "%s: would restore %s from %s\n", label, path, src)
@@ -218,7 +224,9 @@ func revertOne(label, path string, dryRun bool, out io.Writer) error {
 	if err := paths.AtomicWrite(path, data, 0o600); err != nil {
 		return fmt.Errorf("%s: %w", label, err)
 	}
-	_ = os.Remove(src) // consumed: the next revert falls through to the next-newest version
+	if consumed {
+		_ = os.Remove(src) // consumed: the next revert falls through to the next-newest version
+	}
 	fmt.Fprintf(out, "%s: restored %s from %s\n", label, path, src)
 	return nil
 }
