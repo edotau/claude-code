@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -19,8 +20,11 @@ import (
 	"github.com/edotau/claude-code/internal/cdp"
 )
 
-// fakeCDP answers every Runtime.evaluate with the canned by-value JSON; Extract itself dials :9222 (no seam).
-func fakeCDP(t *testing.T, value string) string {
+// cdpFn answers one CDP command: the result JSON, and whether a Page.loadEventFired follows.
+type cdpFn func(method string, params json.RawMessage) (result string, loaded bool)
+
+// fakeCDPFn serves a CDP endpoint whose commands are answered by fn; the URL goes in ExtractOptions.CDPBase.
+func fakeCDPFn(t *testing.T, fn cdpFn) string {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/json/new", func(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.WriteString(w, `{"id":"T","webSocketDebuggerUrl":"ws://`+r.Host+`/ws"}`)
@@ -36,18 +40,15 @@ func fakeCDP(t *testing.T, value string) string {
 		_, _ = io.WriteString(c, "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n"+
 			"Sec-WebSocket-Accept: "+base64.StdEncoding.EncodeToString(sum[:])+"\r\n\r\n")
 		for {
-			id, ok := readEvalID(brw.Reader)
+			id, method, params, ok := readCmd(brw.Reader)
 			if !ok {
 				return
 			}
-			body := `{"id":` + id + `,"result":{"result":{"type":"object","value":` + value + `}}}`
-			out := []byte{0x81}
-			if n := len(body); n < 126 {
-				out = append(out, byte(n))
-			} else {
-				out = binary.BigEndian.AppendUint16(append(out, 126), uint16(n))
+			res, loaded := fn(method, params)
+			wsText(c, `{"id":`+id+`,"result":`+res+`}`)
+			if loaded {
+				wsText(c, `{"method":"Page.loadEventFired","params":{}}`)
 			}
-			_, _ = c.Write(append(out, body...))
 		}
 	})
 	srv := httptest.NewServer(mux)
@@ -55,11 +56,42 @@ func fakeCDP(t *testing.T, value string) string {
 	return srv.URL
 }
 
-// readEvalID reads one masked client text frame and returns its command id.
-func readEvalID(br *bufio.Reader) (string, bool) {
+func wsText(c io.Writer, body string) {
+	out := []byte{0x81}
+	if n := len(body); n < 126 {
+		out = append(out, byte(n))
+	} else {
+		out = binary.BigEndian.AppendUint16(append(out, 126), uint16(n))
+	}
+	_, _ = c.Write(append(out, body...))
+}
+
+// evalResult wraps a by-value JSON as a Runtime.evaluate result.
+func evalResult(v string) string { return `{"result":{"type":"object","value":` + v + `}}` }
+
+// fakeCDP answers every Runtime.evaluate with the canned by-value JSON.
+func fakeCDP(t *testing.T, value string) string {
+	return fakeCDPFn(t, func(method string, _ json.RawMessage) (string, bool) {
+		if method == "Runtime.evaluate" {
+			return evalResult(value), false
+		}
+		return `{}`, false
+	})
+}
+
+// closedBase is a CDP base URL nothing listens on, so a leaking Extract can never reach a real browser.
+func closedBase(t *testing.T) string {
+	srv := httptest.NewServer(http.NotFoundHandler())
+	u := srv.URL
+	srv.Close()
+	return u
+}
+
+// readCmd reads one masked client text frame and returns its command id, method and params.
+func readCmd(br *bufio.Reader) (id, method string, params json.RawMessage, ok bool) {
 	var h [2]byte
 	if _, err := io.ReadFull(br, h[:]); err != nil {
-		return "", false
+		return
 	}
 	n := int(h[1] & 0x7F)
 	if n == 126 {
@@ -71,16 +103,20 @@ func readEvalID(br *bufio.Reader) (string, bool) {
 	_, _ = io.ReadFull(br, m[:])
 	p := make([]byte, n)
 	if _, err := io.ReadFull(br, p); err != nil {
-		return "", false
+		return
 	}
 	for i := range p {
 		p[i] ^= m[i%4]
 	}
-	var cmd struct{ ID json.Number }
-	if h[0]&0x0F != 1 || json.Unmarshal(p, &cmd) != nil {
-		return "", h[0]&0x0F != 8
+	var cmd struct {
+		ID     json.Number
+		Method string
+		Params json.RawMessage
 	}
-	return cmd.ID.String(), true
+	if h[0]&0x0F != 1 || json.Unmarshal(p, &cmd) != nil {
+		return "0", "", nil, h[0]&0x0F != 8
+	}
+	return cmd.ID.String(), cmd.Method, cmd.Params, true
 }
 
 func grabFrom(t *testing.T, value string) []Row {
@@ -167,7 +203,7 @@ func dump(rows []Row) string {
 func TestExtractRefusedByRobotsBeforeAnyBrowserWork(t *testing.T) {
 	srv := robotsServer(t, 200, "User-agent: claude-code\nDisallow: /secret\n", nil)
 	err := Extract(context.Background(), Env{}, ExtractOptions{
-		URL: srv.URL + "/secret/list", Container: "li", Fields: []Field{{Name: "t", Selector: "a"}}, Format: "jsonl",
+		CDPBase: closedBase(t), URL: srv.URL + "/secret/list", Container: "li", Fields: []Field{{Name: "t", Selector: "a"}}, Format: "jsonl",
 	}, io.Discard)
 	if err == nil || !strings.Contains(err.Error(), "Disallow: /secret") {
 		t.Fatalf("err = %v, want robots refusal naming the rule", err)
@@ -220,9 +256,141 @@ func TestExtractValidate(t *testing.T) {
 	// non-http(s) schemes are refused by the gate that Extract runs first, even with --ignore-robots
 	for _, u := range []string{"file:///etc/passwd", "javascript:alert(1)", "ftp://h/x", "data:text/html,hi"} {
 		o := good
-		o.URL, o.IgnoreRobots = u, true
+		o.URL, o.IgnoreRobots, o.CDPBase = u, true, closedBase(t)
 		if err := Extract(context.Background(), Env{}, o, io.Discard); err == nil || !strings.Contains(err.Error(), "http") {
 			t.Errorf("Extract(%q) err = %v, want http(s)-only refusal", u, err)
 		}
 	}
+}
+
+// site simulates a paginated page behind the fake CDP: navigation, next controls, a growing list.
+type site struct {
+	url     string
+	navs    []string
+	scrolls int
+	rows    func(url string, scrolls int) string // by-value rows for the current page
+	next    func(url string) string              // href of the next control, "" = absent
+	count   func(scrolls int) int                // container count for scroll mode
+}
+
+func (s *site) handle(method string, params json.RawMessage) (string, bool) {
+	switch method {
+	case "Page.navigate":
+		var p struct{ URL string }
+		_ = json.Unmarshal(params, &p)
+		s.url = p.URL
+		s.navs = append(s.navs, p.URL)
+		return `{"frameId":"F"}`, true
+	case "Runtime.evaluate":
+		var p struct{ Expression string }
+		_ = json.Unmarshal(params, &p)
+		e := p.Expression
+		switch {
+		case strings.Contains(e, "cfg.C"):
+			return evalResult(s.rows(s.url, s.scrolls)), false
+		case strings.Contains(e, "state:'gone'"):
+			if h := s.next(s.url); h != "" {
+				return evalResult(`{"state":"ok","href":"` + h + `","sig":"x"}`), false
+			}
+			return evalResult(`{"state":"gone"}`), false
+		case strings.Contains(e, "scrollTo"):
+			s.scrolls++
+			return evalResult(`null`), false
+		default: // container count (initial wait or per-round)
+			return evalResult(fmt.Sprint(s.count(s.scrolls))), false
+		}
+	}
+	return `{}`, false
+}
+
+func TestExtractPagination(t *testing.T) {
+	origin := httptest.NewServer(http.NotFoundHandler()) // robots.txt 404 = allowed
+	t.Cleanup(origin.Close)
+	rowsFor := func(tag string, n int) string {
+		var rs []string
+		for i := 0; i < n; i++ {
+			rs = append(rs, fmt.Sprintf(`["%s%d"]`, tag, i))
+		}
+		return "[" + strings.Join(rs, ",") + "]"
+	}
+	run := func(t *testing.T, s *site, o ExtractOptions) (lines []string, sleeps int) {
+		o.CDPBase = fakeCDPFn(t, s.handle)
+		o.Container, o.Fields, o.Format = "li", []Field{{Name: "t", Selector: "a"}}, "jsonl"
+		var out bytes.Buffer
+		env := Env{Sleep: func(time.Duration) { sleeps++ }}
+		if err := Extract(context.Background(), env, o, &out); err != nil {
+			t.Fatal(err)
+		}
+		return strings.Split(strings.TrimSpace(out.String()), "\n"), sleeps
+	}
+
+	t.Run("next follows the href until absent, capped by max-pages", func(t *testing.T) {
+		mk := func() *site {
+			return &site{
+				rows: func(u string, _ int) string { return rowsFor(strings.TrimPrefix(u, origin.URL+"/"), 2) },
+				next: func(u string) string {
+					return map[string]string{origin.URL + "/p1": origin.URL + "/p2", origin.URL + "/p2": origin.URL + "/p3"}[u]
+				},
+			}
+		}
+		s := mk()
+		lines, sleeps := run(t, s, ExtractOptions{URL: origin.URL + "/p1", Next: "a.n"})
+		if want := []string{origin.URL + "/p1", origin.URL + "/p2", origin.URL + "/p3"}; !reflect.DeepEqual(s.navs, want) {
+			t.Fatalf("navs = %v, want %v", s.navs, want)
+		}
+		if len(lines) != 6 || lines[2] != `{"t":"p20"}` || sleeps != 3 {
+			t.Fatalf("lines = %v sleeps = %d (want 6 rows, 3 polite delays, one before each next probe)", lines, sleeps)
+		}
+		s = mk()
+		lines, _ = run(t, s, ExtractOptions{URL: origin.URL + "/p1", Next: "a.n", MaxPages: 2})
+		if len(s.navs) != 2 || len(lines) != 4 {
+			t.Fatalf("max-pages 2: navs = %v, %d rows", s.navs, len(lines))
+		}
+	})
+
+	t.Run("pages template stops at the first empty page", func(t *testing.T) {
+		mk := func() *site {
+			return &site{rows: func(u string, _ int) string {
+				if strings.HasSuffix(u, "p=3") {
+					return "[]"
+				}
+				return rowsFor(u[len(u)-1:], 2)
+			}}
+		}
+		tmpl := origin.URL + "/list?p={page}"
+		s := mk()
+		lines, _ := run(t, s, ExtractOptions{URL: origin.URL + "/list", Template: tmpl})
+		if len(s.navs) != 3 || s.navs[2] != origin.URL+"/list?p=3" || len(lines) != 4 {
+			t.Fatalf("navs = %v, rows = %v", s.navs, lines)
+		}
+		s = mk()
+		lines, _ = run(t, s, ExtractOptions{URL: origin.URL + "/list", Template: tmpl, MaxPages: 2})
+		if len(s.navs) != 2 || len(lines) != 4 {
+			t.Fatalf("max-pages 2: navs = %v, %d rows", s.navs, len(lines))
+		}
+	})
+
+	t.Run("scroll stops after 3 no-growth rounds, capped by max-pages", func(t *testing.T) {
+		mk := func() *site {
+			return &site{
+				rows: func(string, int) string { return rowsFor("s", 4) },
+				count: func(n int) int {
+					if n >= 1 {
+						return 4
+					}
+					return 2
+				},
+			}
+		}
+		s := mk()
+		lines, _ := run(t, s, ExtractOptions{URL: origin.URL + "/feed", Scroll: true})
+		if s.scrolls != 4 || len(lines) != 4 { // 1 growing round + 3 stalls, one grab at the end
+			t.Fatalf("scrolls = %d, rows = %d; want 4 scrolls, 4 rows", s.scrolls, len(lines))
+		}
+		s = mk()
+		_, _ = run(t, s, ExtractOptions{URL: origin.URL + "/feed", Scroll: true, MaxPages: 2})
+		if s.scrolls != 2 {
+			t.Fatalf("max-pages 2: scrolls = %d, want 2", s.scrolls)
+		}
+	})
 }
