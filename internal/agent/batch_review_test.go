@@ -3,8 +3,10 @@ package agent
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/edotau/claude-code/internal/providers"
 	"io"
 	"path/filepath"
 	"slices"
@@ -404,5 +406,28 @@ func TestBatchPanickingLegDoesNotFallBack(t *testing.T) {
 	}
 	if runs.Load() != 0 || !strings.Contains(out.String(), "panic: boom") {
 		t.Fatalf("fallback leg ran %d times after a panic, want 0:\n%s", runs.Load(), out.String())
+	}
+}
+
+// A fallback leg that panics is still reported as the fallback, with the first leg's failure as the reason.
+func TestBatchPanickingFallbackLegIsReported(t *testing.T) {
+	authEnv(t, `{"protocol":"anthropic","base_url":"http://127.0.0.1:1","auth":{"type":"key","env":"AGAUTH_UNSET"},"models":{"opus":"m"}}`)
+	first := &fakeRunner{name: "claude", errs: []error{fmt.Errorf("agauth: %w", providers.ErrNeedsLogin)}, emptyAnswer: true}
+	task := BatchTask{ID: "t", Agent: "claude", Req: Request{Prompt: "p"},
+		Prepare: func(context.Context) (Chain, Record, error) {
+			rec := Record{ID: "id-t", Agent: "claude", Log: filepath.Join(t.TempDir(), "l.log")}
+			return Chain{Want: "claude", Legs: []Leg{
+				{Agent: first, Account: "claude:agauth"},
+				{Agent: slowRunner{name: "boom", boom: true}, Account: "boom·B"},
+			}}, rec, nil
+		}}
+	var out strings.Builder
+	RunBatch(context.Background(), []BatchTask{task}, BatchOptions{Jobs: 2, Out: &out})
+	var env Envelope
+	if err := json.Unmarshal([]byte(strings.TrimSpace(out.String())), &env); err != nil {
+		t.Fatalf("decode %q: %v", out.String(), err)
+	}
+	if env.Fallback == nil || env.FallbackReason == "" || len(env.Hops) != 2 {
+		t.Fatalf("fallback=%v reason=%q hops=%d, want the panicking leg reported as the fallback", env.Fallback, env.FallbackReason, len(env.Hops))
 	}
 }
