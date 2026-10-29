@@ -2,6 +2,8 @@ package launch
 
 import (
 	"bytes"
+	"context"
+	"errors"
 	"io"
 	"os"
 	"os/exec"
@@ -17,6 +19,7 @@ import (
 	"github.com/edotau/claude-code/internal/clipboard"
 	"github.com/edotau/claude-code/internal/hooks"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/providers"
 )
 
 // These Install calls pass verbose=true: they assert on the full-detail per-step text, which only
@@ -500,5 +503,47 @@ func TestInstallSettingsSkipPrintsAfterTheStepsItClaimsRan(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestProviderCredentialChecksRunConcurrentlyInOrder(t *testing.T) {
+	hermetic(t, "")
+	names := []string{"p-slow", "p-fast", "p-mid", "p-quick"}
+	delay := map[string]time.Duration{"p-slow": 150 * time.Millisecond, "p-fast": 10 * time.Millisecond,
+		"p-mid": 100 * time.Millisecond, "p-quick": 50 * time.Millisecond}
+	reg := &providers.Registry{Default: "elsewhere", Providers: map[string]*providers.Provider{}}
+	byPtr := map[*providers.Provider]string{}
+	var sum time.Duration
+	for _, n := range names {
+		p := &providers.Provider{Auth: providers.Auth{Type: providers.AuthNone}}
+		reg.Providers[n] = p
+		byPtr[p] = n
+		sum += delay[n]
+	}
+	old := probeCredential
+	t.Cleanup(func() { probeCredential = old })
+	probeCredential = func(_ context.Context, p *providers.Provider) (string, string) {
+		n := byPtr[p]
+		time.Sleep(delay[n])
+		return "probe-" + n, "detail-" + n
+	}
+
+	start := time.Now()
+	rows := providerCredentialChecks(reg, providers.Selection{}, errors.New("no session"), names)
+	elapsed := time.Since(start)
+
+	if len(rows) != len(names) {
+		t.Fatalf("got %d rows, want %d", len(rows), len(names))
+	}
+	for i, n := range names {
+		if rows[i].Name != "credential "+n {
+			t.Errorf("row %d = %q, want %q", i, rows[i].Name, "credential "+n)
+		}
+		if want := "probe-" + n + ": detail-" + n; !rows[i].OK || !strings.Contains(rows[i].Detail, want) {
+			t.Errorf("row %s = %+v, want OK with detail containing %q", n, rows[i], want)
+		}
+	}
+	if elapsed >= sum*3/4 {
+		t.Errorf("probes took %v, want well under the serial sum %v", elapsed, sum)
 	}
 }

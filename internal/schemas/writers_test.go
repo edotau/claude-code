@@ -123,6 +123,7 @@ var writers = map[string]string{
 	"internal/tailscale/cli.go:writeAuthKeyFile":                   unversioned("foreign: temp auth key file"),
 	"internal/theme/theme.go:writeMerged":                          unversioned("foreign: theme file and backup in a vendor home"),
 	"internal/tools/agentversion.go:writeVersionCache":             "agentversion",
+	"internal/transcript/summary_cache.go:Save":                    "transcript-summary",
 	"internal/tools/install.go:runInstallScript":                   unversioned("foreign: temp installer script"),
 	"internal/tools/tools.go:installBinary":                        unversioned("foreign: installed binary"),
 	"internal/usage/claude.go:writeClaudeUsageCache":               "oauth-usage-cache",

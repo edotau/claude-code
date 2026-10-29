@@ -3,6 +3,8 @@ package launch
 import (
 	"bytes"
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -75,5 +77,28 @@ func TestVendorLaunchVersionWarning(t *testing.T) {
 				t.Errorf("warned %q, want silence", buf.String())
 			}
 		})
+	}
+}
+
+func TestToolPATHVersionProbesUnchangedBinaryOnce(t *testing.T) {
+	hermetic(t, "")
+	dir := t.TempDir()
+	counter := filepath.Join(dir, "count")
+	bin := filepath.Join(dir, "fake")
+	script := "#!/bin/sh\necho x >> '" + counter + "'\necho 'fake 7.8.9'\n"
+	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for range 2 {
+		if got := toolPATHVersion(bin); got != "fake 7.8.9" {
+			t.Fatalf("toolPATHVersion = %q", got)
+		}
+	}
+	data, err := os.ReadFile(counter)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := strings.Count(string(data), "\n"); n != 1 {
+		t.Fatalf("two lookups spawned the binary %d times, want 1", n)
 	}
 }

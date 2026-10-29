@@ -143,6 +143,8 @@ func compareParts(a, b []int, wild bool) int {
 var (
 	versionMu   sync.Mutex
 	versionMemo = map[string]string{}
+	// versionWriteMu serializes writeVersionCache's read-modify-write so concurrent callers cannot drop each other's rows.
+	versionWriteMu sync.Mutex
 )
 
 func versionCacheFile() string { return filepath.Join(paths.StateDir(), "agentversion.json") }
@@ -157,10 +159,13 @@ func versionKey(path string) (key string, ok bool) {
 }
 
 // versionLine is firstVersionLine cached in-process and in the state dir, keyed by path+size+mtime; failures are not cached.
-func versionLine(path string) string {
+func versionLine(path string) string { return ProbedVersionLine(path, firstVersionLine) }
+
+// ProbedVersionLine is versionLine with the caller's own probe (its timeout and parsing), sharing the same cache.
+func ProbedVersionLine(path string, probe func(string) string) string {
 	key, ok := versionKey(path)
 	if !ok {
-		return firstVersionLine(path)
+		return probe(path)
 	}
 	versionMu.Lock()
 	line, hit := versionMemo[key]
@@ -169,7 +174,7 @@ func versionLine(path string) string {
 		return line
 	}
 	if line = readVersionCache()[key]; line == "" {
-		if line = firstVersionLine(path); line == "" {
+		if line = probe(path); line == "" {
 			return ""
 		}
 		writeVersionCache(path, key, line)
@@ -195,6 +200,8 @@ func readVersionCache() map[string]string {
 
 // writeVersionCache records key (dropping older builds of path) via temp file + rename; any failure is silent.
 func writeVersionCache(path, key, line string) {
+	versionWriteMu.Lock()
+	defer versionWriteMu.Unlock()
 	cache := readVersionCache()
 	for k := range cache {
 		if strings.HasPrefix(k, path+"|") {
