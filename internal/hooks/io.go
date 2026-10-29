@@ -226,7 +226,6 @@ func hookContext(name string) (context.Context, context.CancelFunc) {
 // Registry maps hook verbs to handlers; names must match hookspec.Registry.
 var Registry = map[string]Handler{
 	"safety-scan":          SafetyScan,
-	"bash-guard":           SafetyScan, // codex/copilot hook files rendered before the rename; drop once re-rendered
 	"rtk":                  RTKRewrite,
 	"docs-placement":       func(in io.Reader, _, errw io.Writer) int { return DocsPlacement(in, errw) },
 	"session-start":        func(in io.Reader, out, _ io.Writer) int { return SessionStart(in, out) },
@@ -235,15 +234,13 @@ var Registry = map[string]Handler{
 	"stop":                 func(in io.Reader, _, errw io.Writer) int { return Stop(in, errw) },
 	"stop-format":          func(in io.Reader, _, _ io.Writer) int { return StopFormat(in) },
 	"session-harvest-end":  func(in io.Reader, _, _ io.Writer) int { return SessionHarvestEnd(in) },
-	"agent-effort":         func(in io.Reader, out, _ io.Writer) int { return AgentEffort(in, out) },
+	"agent-effort":         nativeHandler("agent-effort"),
 	"codex-agent-route":    nativeHandler("codex-agent-route"),
 	"codex-routing-start":  nativeHandler("codex-routing-start"),
 	"codex-routing-result": nativeHandler("codex-routing-result"),
 	"codex-subagent-start": nativeHandler("codex-subagent-start"),
-	"workflow-lint":        func(in io.Reader, out, errw io.Writer) int { return WorkflowLint(in, out, errw) },
-	"agent-inflight":       func(in io.Reader, _, errw io.Writer) int { return AgentInflight("pre", in, errw) },
-	"agent-inflight-tag":   func(in io.Reader, _, errw io.Writer) int { return AgentInflight("tag", in, errw) },
-	"agent-inflight-post":  func(in io.Reader, _, errw io.Writer) int { return AgentInflight("post", in, errw) },
+	"agent-inflight-post":  nativeHandler("agent-inflight-post"),
+	"workflow-inflight":    nativeHandler("workflow-inflight"),
 	"plan-gate":            func(in io.Reader, _, errw io.Writer) int { return PlanGate(in, errw) },
 	"plan-skeleton":        PlanSkeleton,
 	"plan-skeleton-prompt": PlanSkeleton,
@@ -251,7 +248,7 @@ var Registry = map[string]Handler{
 	"plan-reminder":        PlanReminder,
 	"plan-mirror":          func(in io.Reader, _, errw io.Writer) int { return PlanMirror(in, errw) },
 	"save-plan":            func(in io.Reader, _, errw io.Writer) int { return SavePlan(in, errw) },
-	"subagent-stop":        func(in io.Reader, _, errw io.Writer) int { return SubagentStop(in, errw) },
+	"subagent-stop":        nativeHandler("subagent-stop"),
 	"pre-compact":          func(in io.Reader, _, _ io.Writer) int { return PreCompact(in) },
 	"worktree-create":      func(in io.Reader, out, errw io.Writer) int { return WorktreeCreate(in, out, errw) },
 	"worktree-remove":      func(in io.Reader, _, errw io.Writer) int { return WorktreeRemove(in, errw) },
@@ -264,6 +261,10 @@ var Native = map[string]Runner{
 	"codex-routing-start":  nativeCodexRoutingStart,
 	"codex-routing-result": nativeCodexRoutingResult,
 	"codex-subagent-start": nativeCodexSubagentStart,
+	"agent-effort":         dispatchPre,
+	"agent-inflight-post":  releaseSpawn,
+	"workflow-inflight":    releaseSpawn,
+	"subagent-stop":        subagentStopRunner,
 }
 
 // nativeHandler serves a direct `hook <name>` call from the named Runner, resolved lazily so the verb table
@@ -302,11 +303,21 @@ func RunArgs(name string, flags []string, stdin io.Reader, stdout, stderr io.Wri
 	}
 	h, ok := Registry[name]
 	if !ok {
-		fmt.Fprintf(stderr, "claude-code hook: unknown hook %q\n", name)
-		return 1
+		return unknownHook(name, stderr)
 	}
 	if g, found := hookspec.GroupOf(name); found && !enabledGroups()(g.Name, g.Gate) {
 		return ExitProceed
 	}
 	return h(stdin, stdout, stderr)
+}
+
+// unknownHook fails closed when the unknown name reads as a guard; a stale vendor hook file must not drop its gate.
+func unknownHook(name string, stderr io.Writer) int {
+	fmt.Fprintf(stderr, "claude-code hook: unknown hook %q\n", name)
+	for _, w := range []string{"guard", "gate", "safety", "scan"} {
+		if strings.Contains(name, w) {
+			return ExitBlock
+		}
+	}
+	return 1
 }

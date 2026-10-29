@@ -4,17 +4,23 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
+	"github.com/edotau/claude-code/internal/schemas"
 )
 
 // SessionPath is the daemon's mint endpoint (POST) and SessionRevokePath its revoke endpoint (POST); router secret only.
@@ -39,16 +45,73 @@ type session struct {
 	checked time.Time
 }
 
-// sessionStore keeps tokens in memory only; they die with the daemon.
+type persistedSession struct {
+	Hash    string    `json:"hash"`
+	Profile string    `json:"profile"`
+	PID     int       `json:"pid"`
+	Start   string    `json:"start"`
+	Expires time.Time `json:"expires"`
+}
+
+type sessionState struct {
+	Schema   int                `json:"schema"`
+	Sessions []persistedSession `json:"sessions"`
+}
+
+func sessionsFile() string { return filepath.Join(paths.StateDir(), "proxy", "sessions.json") }
+
+func sessionHash(tok string) string {
+	hash := sha256.Sum256([]byte(tok))
+	return hex.EncodeToString(hash[:])
+}
+
+// sessionStore persists only token hashes, scoped to the config directory at creation.
 type sessionStore struct {
 	mu        sync.Mutex
 	m         map[string]*session
+	file      string
 	now       func() time.Time
 	procStart func(pid int) (string, error) // a seam for tests: the pid's start-time identity
 }
 
 func newSessionStore(now func() time.Time) *sessionStore {
-	return &sessionStore{m: map[string]*session{}, now: now, procStart: proc.StartTime}
+	s := &sessionStore{m: map[string]*session{}, file: sessionsFile(), now: now, procStart: proc.StartTime}
+	raw, err := os.ReadFile(s.file)
+	var state sessionState
+	if err != nil || !schemas.DecodeOK(routerSessionsFormat, raw, &state) {
+		return s
+	}
+	pruned := false
+	for _, saved := range state.Sessions {
+		hash, err := hex.DecodeString(saved.Hash)
+		if err != nil || len(hash) != sha256.Size || saved.Hash != strings.ToLower(saved.Hash) ||
+			saved.Profile == "" || strings.ContainsAny(saved.Profile, "/?#") || saved.PID <= 0 || saved.Start == "" ||
+			!now().Before(saved.Expires) {
+			pruned = true
+			continue
+		}
+		s.m[saved.Hash] = &session{profile: saved.Profile, pid: saved.PID, start: saved.Start, expires: saved.Expires}
+	}
+	if pruned {
+		_ = s.saveLocked()
+	}
+	return s
+}
+
+// saveLocked writes the current hashes atomically; the caller holds mu or is constructing the store.
+func (s *sessionStore) saveLocked() error {
+	state := sessionState{Schema: routerSessionsFormat.Version, Sessions: make([]persistedSession, 0, len(s.m))}
+	for hash, ses := range s.m {
+		state.Sessions = append(state.Sessions, persistedSession{
+			Hash: hash, Profile: ses.profile, PID: ses.pid, Start: ses.start, Expires: ses.expires,
+		})
+	}
+	sort.Slice(state.Sessions, func(i, j int) bool { return state.Sessions[i].Hash < state.Sessions[j].Hash })
+	raw, err := json.Marshal(state)
+	if err != nil {
+		return err
+	}
+	return paths.AtomicWrite(s.file, raw, 0o600)
 }
 
 // mint binds a new token to pid's current identity; a missing process is an error.
@@ -68,29 +131,41 @@ func (s *sessionStore) mint(profile string, pid int) (string, error) {
 	now := s.now()
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	pruned := false
 	for k, v := range s.m {
 		if !now.Before(v.expires) {
 			delete(s.m, k)
+			pruned = true
 		}
 	}
 	if len(s.m) >= sessionMax { // exited-but-unexpired sessions must not block a new mint
 		for k, v := range s.m {
 			if !s.stillBound(v) {
 				delete(s.m, k)
+				pruned = true
 			}
 		}
 	}
 	if len(s.m) >= sessionMax {
+		if pruned {
+			_ = s.saveLocked()
+		}
 		return "", errors.New("too many live session tokens")
 	}
-	s.m[tok] = &session{profile: profile, pid: pid, start: start, expires: now.Add(sessionTTL), checked: now}
+	hash := sessionHash(tok)
+	s.m[hash] = &session{profile: profile, pid: pid, start: start, expires: now.Add(sessionTTL), checked: now}
+	if err := s.saveLocked(); err != nil {
+		delete(s.m, hash)
+		return "", fmt.Errorf("persist session: %w", err)
+	}
 	return tok, nil
 }
 
-func (s *sessionStore) revoke(tok string) {
+func (s *sessionStore) revoke(tok string) error {
 	s.mu.Lock()
-	delete(s.m, tok)
-	s.mu.Unlock()
+	defer s.mu.Unlock()
+	delete(s.m, sessionHash(tok))
+	return s.saveLocked()
 }
 
 // accept reports whether tok may reach profile; success slides the TTL, a dead or reused process drops the token.
@@ -102,8 +177,9 @@ func (s *sessionStore) accept(tok, profile string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	var ses *session
+	hash := sessionHash(tok)
 	for k, v := range s.m { // constant-time compare, no map lookup keyed on the presented bytes
-		if subtle.ConstantTimeCompare([]byte(k), []byte(tok)) == 1 {
+		if subtle.ConstantTimeCompare([]byte(k), []byte(hash)) == 1 {
 			ses = v
 		}
 	}
@@ -112,7 +188,8 @@ func (s *sessionStore) accept(tok, profile string) bool {
 	}
 	recheck := now.Sub(ses.checked) >= sessionVerify
 	if !now.Before(ses.expires) || (recheck && !s.stillBound(ses)) {
-		delete(s.m, tok)
+		delete(s.m, hash)
+		_ = s.saveLocked()
 		return false
 	}
 	if ses.profile != profile {
@@ -123,6 +200,24 @@ func (s *sessionStore) accept(tok, profile string) bool {
 	}
 	ses.expires = now.Add(sessionTTL)
 	return true
+}
+
+// count reports live tokens, pruning expired tokens and tokens whose bound process has exited.
+func (s *sessionStore) count() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := s.now()
+	pruned := false
+	for hash, ses := range s.m {
+		if !now.Before(ses.expires) || !s.stillBound(ses) {
+			delete(s.m, hash)
+			pruned = true
+		}
+	}
+	if pruned {
+		_ = s.saveLocked()
+	}
+	return len(s.m)
 }
 
 func (s *sessionStore) stillBound(ses *session) bool {
@@ -159,7 +254,10 @@ func (r *Router) serveSession(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 	if req.URL.Path == SessionRevokePath {
-		r.sessions.revoke(in.Token)
+		if err := r.sessions.revoke(in.Token); err != nil {
+			writeError(w, http.StatusInternalServerError, "proxy: persist session revocation: "+err.Error())
+			return
+		}
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
@@ -185,7 +283,7 @@ func MintSessionToken(ctx context.Context, profile string, pid int) (string, err
 	return out.Token, nil
 }
 
-// RevokeSessionToken drops token at the daemon; a daemon that is not running holds none, so that is success.
+// RevokeSessionToken drops token at the daemon; if it is not running, no request can use the token.
 func RevokeSessionToken(ctx context.Context, token string) error {
 	err := postSession(ctx, false, SessionRevokePath, sessionReq{Token: token}, nil)
 	if errors.Is(err, ErrNotRunning) {

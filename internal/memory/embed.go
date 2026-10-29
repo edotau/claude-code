@@ -52,6 +52,8 @@ type embedCacheFile struct {
 	Schema    int                 `json:"schema"`
 	Namespace string              `json:"namespace"`
 	Model     string              `json:"model"`
+	Dim       int                 `json:"dim,omitempty"`    // vector dimension of the endpoint's latest response
+	DimAt     int64               `json:"dim_at,omitempty"` // start time (ns) of the run that set Dim; older runs cannot move it
 	Rows      map[string]embedRow `json:"rows"`
 }
 
@@ -139,6 +141,7 @@ func EmbedEntries(ctx context.Context, root string, c *EmbedClient) (embedded, t
 	}
 	var ids, texts, hashes []string
 	live := map[string]bool{}
+	cacheDim := cacheDimOf(cache)
 	for _, h := range corpusBlocks(root) {
 		e := EntryFromHit(h)
 		if e.Archived || e.Superseded || live[e.ID] { // the first of a duplicated id wins
@@ -148,25 +151,45 @@ func EmbedEntries(ctx context.Context, root string, c *EmbedClient) (embedded, t
 		hash := textHash(text)
 		live[e.ID] = true
 		if row, ok := cache.Rows[e.ID]; ok && row.Hash == hash {
-			continue
+			v, decoded := decodeVec(row.Vec)
+			if decoded && (cacheDim == 0 || len(v) == cacheDim) {
+				continue
+			}
 		}
 		ids, texts, hashes = append(ids, e.ID), append(texts, text), append(hashes, hash)
 	}
 	fresh := map[string]embedRow{}
+	freshDim := 0
+	started := time.Now().UnixNano()
 	merge := func() error {
 		return paths.WithFileLock(EmbedCachePath(), func() error {
 			cur := loadEmbedCache()
 			if cur.Namespace != c.Namespace || cur.Rows == nil {
 				cur = freshEmbedCache(c)
 			}
-			current := currentEntryHashes(root) // an older run merging last must not clobber a newer vector
+			current := currentEntryHashes(root)                                 // an older run merging last must not clobber a newer vector
+			stale := freshDim > 0 && cur.Dim != freshDim && cur.DimAt > started // a newer run already moved the dimension
+			if stale {
+				fresh = nil
+			} else if freshDim > 0 && cur.Dim != freshDim { // the endpoint's dimension moved: drop vectors it cannot match
+				for id, r := range cur.Rows {
+					if v, ok := decodeVec(r.Vec); ok && len(v) > 0 && len(v) != freshDim {
+						delete(cur.Rows, id)
+					}
+				}
+				cur.Dim, cur.DimAt = freshDim, started
+			}
 			for id, row := range fresh {
 				want, ok := current[id]
 				if !ok || row.Hash != want {
 					continue
 				}
 				if old, have := cur.Rows[id]; have && old.Hash == want {
-					continue
+					oldVec, oldOK := decodeVec(old.Vec)
+					newVec, newOK := decodeVec(row.Vec)
+					if oldOK && newOK && len(oldVec) == len(newVec) {
+						continue
+					}
 				}
 				cur.Rows[id] = row
 			}
@@ -178,7 +201,7 @@ func EmbedEntries(ctx context.Context, root string, c *EmbedClient) (embedded, t
 			}
 			if own > embedMaxRows { // shed only this root's rows that its corpus no longer has
 				for id, r := range cur.Rows {
-					if r.Root == root && !live[id] {
+					if _, ok := current[id]; r.Root == root && !ok {
 						delete(cur.Rows, id)
 					}
 				}
@@ -196,6 +219,7 @@ func EmbedEntries(ctx context.Context, root string, c *EmbedClient) (embedded, t
 			return embedded, len(live), errors.Join(err, merge()) // keep the batches already paid for
 		}
 		for k, v := range vecs {
+			freshDim = len(v)
 			fresh[ids[i+k]] = embedRow{Root: root, Hash: hashes[i+k], Vec: encodeVec(normalize(v))}
 		}
 		embedded += j - i
@@ -247,7 +271,7 @@ func NewSemantic(query string) (*Semantic, error) {
 			done <- result{err: err}
 			return
 		}
-		if !cacheDimMatches(cache.Rows, len(vecs[0])) {
+		if !cacheDimMatches(cache, len(vecs[0])) {
 			done <- result{err: errors.New("embedding dimension differs from the cache")}
 			return
 		}
@@ -281,13 +305,35 @@ func (s *Semantic) Cosine(e Entry) (float64, bool) {
 	return dot, true
 }
 
-// cacheDimMatches reports whether a sample cached vector has dim components.
-func cacheDimMatches(rows map[string]embedRow, dim int) bool {
+// dominantDim returns the most frequent decoded vector dimension, with ties going to the larger dimension.
+func dominantDim(rows map[string]embedRow) int {
+	counts := map[int]int{}
 	for _, r := range rows {
-		v, ok := decodeVec(r.Vec)
-		return ok && len(v) == dim
+		if v, ok := decodeVec(r.Vec); ok {
+			counts[len(v)]++
+		}
 	}
-	return false
+	best, frequency := 0, 0
+	for dim, n := range counts {
+		if n > frequency || n == frequency && dim > best {
+			best, frequency = dim, n
+		}
+	}
+	return best
+}
+
+// cacheDimOf is the endpoint dimension recorded in the cache, else the dominant row dimension.
+func cacheDimOf(c embedCacheFile) int {
+	if c.Dim > 0 {
+		return c.Dim
+	}
+	return dominantDim(c.Rows)
+}
+
+// cacheDimMatches reports whether the cache's vector dimension is dim.
+func cacheDimMatches(c embedCacheFile, dim int) bool {
+	cacheDim := cacheDimOf(c)
+	return cacheDim > 0 && cacheDim == dim
 }
 
 func normalize(v []float32) []float32 {

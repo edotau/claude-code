@@ -44,26 +44,44 @@ type pathReport struct {
 	isImage bool
 }
 
-// scanPaths extracts unique path tokens matched by bare/quoted, quoted forms first so a path with
+// pathToken is a scanned token: raw as written, trimmed with trailing punctuation stripped.
+type pathToken struct{ raw, trimmed string }
+
+// scanTokens extracts unique path tokens matched by bare/quoted, quoted forms first so a path with
 // spaces isn't split by the bareword regex. trim strips trailing punctuation off bareword matches.
-func scanPaths(text string, quoted, bare *regexp.Regexp, trim string) []string {
+func scanTokens(text string, quoted, bare *regexp.Regexp, trim string) []pathToken {
 	seen := map[string]bool{}
-	var out []string
-	add := func(p string) {
-		if p != "" && !seen[p] {
-			seen[p] = true
-			out = append(out, p)
+	var out []pathToken
+	add := func(raw, p string) {
+		if p != "" && !seen[raw] {
+			seen[raw] = true
+			out = append(out, pathToken{raw, p})
 		}
 	}
 	blanked := quoted.ReplaceAllStringFunc(text, func(m string) string {
-		add(quoted.FindStringSubmatch(m)[1])
+		q := quoted.FindStringSubmatch(m)[1]
+		add(q, q)
 		return strings.Repeat(" ", len(m))
 	})
 	for _, m := range bare.FindAllString(blanked, -1) {
+		t := m
 		if trim != "" {
-			m = strings.TrimRight(m, trim)
+			t = strings.TrimRight(m, trim)
 		}
-		add(m)
+		add(m, t)
+	}
+	return out
+}
+
+// scanPaths is scanTokens reduced to the trimmed tokens.
+func scanPaths(text string, quoted, bare *regexp.Regexp, trim string) []string {
+	var out []string
+	seen := map[string]bool{}
+	for _, t := range scanTokens(text, quoted, bare, trim) {
+		if !seen[t.trimmed] {
+			seen[t.trimmed] = true
+			out = append(out, t.trimmed)
+		}
 	}
 	return out
 }
@@ -71,6 +89,10 @@ func scanPaths(text string, quoted, bare *regexp.Regexp, trim string) []string {
 // scanPosixPaths extracts unique absolute POSIX path tokens. Mirrors scanWinPaths.
 func scanPosixPaths(text string) []string {
 	return scanPaths(text, quotedPathRE(), posixPathRE(), ".,;:!?)")
+}
+
+func scanPosixTokens(text string) []pathToken {
+	return scanTokens(text, quotedPathRE(), posixPathRE(), ".,;:!?)")
 }
 
 // describe builds the detail string for an existing file: image type+dimensions when decodable,
@@ -101,13 +123,26 @@ func describe(p string) (detail string, isImage bool, ok bool) {
 func collectReports(prompt string, res *pathview.Resolver) []pathReport {
 	seen := map[string]bool{}
 	var reps []pathReport
-	add := func(orig, tok string) {
-		p, ok := res.Resolve(tok)
-		if !ok || seen[p] {
-			return
+	add := func(orig string, toks ...string) {
+		var p, detail string
+		var isImage, found bool
+		for _, tok := range toks { // the token as written first, then punctuation-stripped
+			rp, ok := res.Resolve(tok)
+			if !ok {
+				continue
+			}
+			if seen[rp] {
+				return // the preferred reading is already reported
+			}
+			if d, img, ok := describe(rp); ok {
+				p, detail, isImage, found = rp, d, img, true
+				if orig != "" {
+					orig = tok
+				}
+				break
+			}
 		}
-		detail, isImage, ok := describe(p)
-		if !ok {
+		if !found {
 			return
 		}
 		seen[p] = true
@@ -116,13 +151,13 @@ func collectReports(prompt string, res *pathview.Resolver) []pathReport {
 		}
 		reps = append(reps, pathReport{win: orig, path: p, detail: detail, isImage: isImage})
 	}
-	foreign := scanWinPaths(prompt)
-	for _, tok := range foreign {
-		add(tok, tok)
-		prompt = strings.ReplaceAll(prompt, tok, strings.Repeat(" ", len(tok))) // POSIX scan must not re-read inside one
+	for _, tok := range scanWinTokens(prompt) {
+		add(tok.trimmed, tok.raw, tok.trimmed)
+		// the POSIX scan must not re-read inside a foreign token
+		prompt = strings.ReplaceAll(prompt, tok.raw, strings.Repeat(" ", len(tok.raw)))
 	}
-	for _, p := range scanPosixPaths(prompt) {
-		add("", p)
+	for _, tok := range scanPosixTokens(prompt) {
+		add("", tok.raw, tok.trimmed)
 	}
 	return reps
 }
@@ -217,7 +252,13 @@ func OnWSL() bool {
 
 // scanWinPaths is scanPosixPaths for Windows, UNC, URL and ~ tokens.
 func scanWinPaths(text string) []string {
-	return scanPaths(text, quotedWinPathRE(), winPathRE(), ".,;:!?)]}'\"")
+	return scanPaths(text, quotedWinPathRE(), winPathRE(), winTrim)
+}
+
+const winTrim = ".,;:!?)]}'\""
+
+func scanWinTokens(text string) []pathToken {
+	return scanTokens(text, quotedWinPathRE(), winPathRE(), winTrim)
 }
 
 // PathResolver (UserPromptSubmit) reports every existing file path the prompt names, resolving Windows, UNC,

@@ -31,7 +31,7 @@ func runningCounts(in Input) (agents, legs int) {
 		agents, _ = strconv.Atoi(f[0])
 		legs, _ = strconv.Atoi(f[1])
 	} else {
-		agents = inflight.CountOwned(inflight.SessionOwner(), inflight.SubagentDir(in.TranscriptPath), time.Now())
+		agents = inflight.CountOwned(inflight.SessionOwner(), time.Now())
 		legs = liveDispatches()
 		writeTimedStamp(stamp, strconv.Itoa(agents), strconv.Itoa(legs))
 	}

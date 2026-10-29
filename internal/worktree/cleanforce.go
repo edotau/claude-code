@@ -3,6 +3,7 @@ package worktree
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -20,16 +21,24 @@ type DiscardSummary struct {
 // DiscardSummary before removing anything; dryRun reports the summary and removes nothing. Runs
 // under the per-worktree lease (WithWorktreeLease), like Clean.
 func CleanForce(repo *Repo, name string, dryRun bool, report func(DiscardSummary)) (CleanResult, error) {
+	return CleanForceWithLog(repo, name, dryRun, report, os.Stderr)
+}
+
+// CleanForceWithLog is CleanForce with ledger warnings written to log (nil discards them).
+func CleanForceWithLog(repo *Repo, name string, dryRun bool, report func(DiscardSummary), log io.Writer) (CleanResult, error) {
+	if log == nil {
+		log = io.Discard
+	}
 	var result CleanResult
 	err := WithWorktreeLease(repo, name, func() error {
-		r, cleanErr := cleanForceInLease(repo, name, dryRun, report)
+		r, cleanErr := cleanForceInLease(repo, name, dryRun, report, log)
 		result = r
 		return cleanErr
 	})
 	return result, err
 }
 
-func cleanForceInLease(repo *Repo, name string, dryRun bool, report func(DiscardSummary)) (CleanResult, error) {
+func cleanForceInLease(repo *Repo, name string, dryRun bool, report func(DiscardSummary), log io.Writer) (CleanResult, error) {
 	dest, err := ResolveWorktree(repo, name) // refuses traversal, symlinks, foreign dirs, a root inside Main
 	if err != nil {
 		return CleanResult{}, err
@@ -109,7 +118,7 @@ func cleanForceInLease(repo *Repo, name string, dryRun bool, report func(Discard
 		}
 	}
 	if err := CloseLedger(repo.Main, name, LedgerClose{Via: "clean --force", Head: head, BranchDeleted: result.BranchDeleted}); err != nil {
-		fmt.Fprintf(os.Stderr, "worktree-clean: warning: ledger: %v\n", err)
+		fmt.Fprintf(log, "worktree-clean: warning: ledger: %v\n", err)
 	}
 	return result, nil
 }

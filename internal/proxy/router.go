@@ -20,9 +20,11 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/edotau/claude-code/internal/audit"
+	"github.com/edotau/claude-code/internal/buildver"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/translate"
@@ -63,7 +65,8 @@ type Router struct {
 	log    io.Writer
 	now    func() time.Time
 
-	sessions *sessionStore // lifetime-limited per-profile tokens, memory only
+	sessions *sessionStore // lifetime-limited per-profile tokens, persisted across restarts
+	inflight atomic.Int64
 
 	mu       sync.Mutex
 	reg      *providers.Registry
@@ -107,6 +110,10 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	}
 	if req.URL.Path == "/healthz" {
 		w.Header().Set(PIDHeader, strconv.Itoa(os.Getpid())) // lets a new router identify and replace this one
+		w.Header().Set(HeaderBuild, buildver.Version())
+		w.Header().Set(HeaderConfig, configID())
+		w.Header().Set(HeaderSessions, strconv.Itoa(r.sessions.count()))
+		w.Header().Set(HeaderInflight, strconv.FormatInt(r.inflight.Load(), 10))
 		_, _ = io.WriteString(w, "ok\n")
 		return
 	}
@@ -122,6 +129,8 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		writeError(w, http.StatusUnauthorized, "proxy: missing or wrong client secret (apiKeyHelper: claude-code resolve --proxy)")
 		return
 	}
+	r.inflight.Add(1)
+	defer r.inflight.Add(-1)
 	if !r.secretOK(req) { // a session token: pin its profile for the resolved target and fallbacks
 		req = req.WithContext(context.WithValue(req.Context(), scopeKey{}, profileOfPath(req.URL.Path)))
 	}

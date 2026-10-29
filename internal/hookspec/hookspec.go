@@ -117,15 +117,12 @@ var Registry = []Group{
 		{Name: "plan-reminder", Event: EventStop, Budget: 5 * sec},
 	}},
 	{Name: "dispatch", Events: []EventSpec{
-		// An unset dispatch model is filled from the local prompt-complexity classifier (low→haiku, else sonnet).
-		{Name: "agent-effort", Event: EventPreToolUse, Matcher: "Agent|Task", Budget: 5 * sec},
-		// An inline Workflow script's unpinned agent() leaves are pinned to sonnet (else they inherit the session model).
-		{Name: "workflow-lint", Event: EventPreToolUse, Matcher: "Workflow", Budget: 5 * sec},
-		// Machine-wide subagent cap: pre counts and blocks, tag binds the marker to the agent id, post retires it.
-		{Name: "agent-inflight", Event: EventPreToolUse, Matcher: "Agent|Task", Budget: 5 * sec},
-		{Name: "agent-inflight-tag", Event: EventPostToolUse, Matcher: "Agent|Task", Budget: 5 * sec},
-		{Name: "agent-inflight-post", Event: EventPostToolUseFailure, Matcher: "Agent|Task", Budget: 5 * sec},
-		// Retires the stopping subagent's inflight slot on the stop that actually ends it.
+		// One PreToolUse runner: cap, then model pin (Workflow leaves too), then the claim.
+		{Name: "agent-effort", Event: EventPreToolUse, Matcher: "Agent|Task|Workflow", Budget: 5 * sec},
+		// A spawn that never ran (PostToolUseFailure) or a finished Workflow releases its tool_use_id's slots.
+		{Name: "agent-inflight-post", Event: EventPostToolUseFailure, Matcher: "Agent|Task|Workflow", Budget: 5 * sec},
+		{Name: "workflow-inflight", Event: EventPostToolUse, Matcher: "Workflow", Budget: 5 * sec},
+		// Retires the stopping subagent's slot by agent id.
 		{Name: "subagent-stop", Event: EventSubagentStop, Budget: 15 * sec},
 	}},
 	{Name: "paths", Events: []EventSpec{

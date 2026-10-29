@@ -9,7 +9,6 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/memory"
-	"github.com/edotau/claude-code/internal/textsim"
 )
 
 func recall(t *testing.T, prompt, cwd string) string {
@@ -98,23 +97,6 @@ func TestMemoryRecallSkipsWhatIsInContext(t *testing.T) {
 	}
 	if other := recallAs(t, sessionT, "alpha bravo charlie delta echo", cwd); !strings.Contains(other, "already in context") {
 		t.Errorf("another session's context is not this one's: %q", other)
-	}
-}
-
-func TestRelevantHitsGatesOnMatchedTerms(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	ranked := []memory.SearchHit{
-		{Score: 20, Matched: 1, Block: "one shared word, top BM25"},
-		{Score: 9, Matched: 2, Block: "covered"},
-		{Score: 5, Matched: 2, Block: "covered, within floor"},
-		{Score: 4, Matched: 3, Block: "under half the best covered hit"},
-	}
-	got := relevantTermHits("", memory.ContentQueryTerms(textsim.Tokenize("alpha bravo charlie delta")), ranked)
-	if len(got) != 2 || got[0].Block != "covered" || got[1].Block != "covered, within floor" {
-		t.Fatalf("want the two covered hits within the floor; got %+v", got)
-	}
-	if long := relevantTermHits("", memory.ContentQueryTerms(textsim.Tokenize("a1 b2 c3 d4 e5 f6 g7 h8 i9 j10 k11 l12 m13")), ranked); len(long) != 1 || long[0].Block != "under half the best covered hit" {
-		t.Errorf("a 13-term query needs 3 matched terms; got %+v", long)
 	}
 }
 

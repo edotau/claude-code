@@ -57,6 +57,8 @@ type Provider struct {
 	ModelPrefix string `json:"modelPrefix,omitempty"`
 	// Options are a preset row's non-secret knobs (databricks: options.wire serving|gateway).
 	Options Options `json:"options,omitzero"`
+	// Concurrency is how many agents this profile runs at once machine-wide; 0 = inflight.Base.
+	Concurrency int `json:"concurrency,omitempty"`
 }
 
 const oneMMarker = "[1m]"
