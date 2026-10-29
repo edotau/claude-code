@@ -183,11 +183,11 @@ func TestClaudeNoToolsAndToolsExclusive(t *testing.T) {
 
 // TestNoToolsDroppedLoudlyByOtherAgents: only claude honors --no-tools; every other agent names the drop.
 func TestNoToolsDroppedLoudlyByOtherAgents(t *testing.T) {
-	_, dropped := applyCaps(Caps{Model: true}, Request{NoTools: true})
+	_, dropped, _ := applyCaps(Caps{Model: Native}, Request{NoTools: true})
 	if len(dropped) != 1 || dropped[0] != "--no-tools" {
 		t.Errorf("dropped = %v, want [--no-tools]", dropped)
 	}
-	if _, dropped := applyCaps((claudeRunner{}).Caps(), Request{NoTools: true}); len(dropped) != 0 {
+	if _, dropped, _ := applyCaps((claudeRunner{}).Caps(), Request{NoTools: true}); len(dropped) != 0 {
 		t.Errorf("claude dropped %v, want nothing", dropped)
 	}
 }

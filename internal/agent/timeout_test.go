@@ -11,7 +11,7 @@ import (
 type hangRunner struct{ calls int }
 
 func (h *hangRunner) Name() string     { return "hang" }
-func (h *hangRunner) Caps() Caps       { return Caps{Tools: true} }
+func (h *hangRunner) Caps() Caps       { return Caps{Tools: Native} }
 func (h *hangRunner) Available() error { return nil }
 func (h *hangRunner) Run(ctx context.Context, _ Request, _ Sink) (Result, error) {
 	h.calls++

@@ -65,7 +65,7 @@ func runAsk(args []string, resume bool) int {
 	fs.Var(&env, "env", "set NAME=VALUE in the agent's environment (repeatable); credential names are refused")
 	systemPrompt := fs.String("system-prompt", "", "claude only: replace the system prompt")
 	appendSystemPrompt := fs.String("append-system-prompt", "", "claude only: append to the system prompt")
-	jsonSchema := fs.String("json-schema", "", "JSON Schema (file or inline) the answer must satisfy; envelope gains structured")
+	outputSchema := fs.String("output-schema", "", "JSON Schema (file or inline) the answer must satisfy; envelope gains structured")
 	direct := fs.Bool("direct", false, "agents: hand the CLI the profile route, skip the proxy")
 	autonomous := fs.Bool("autonomous", false, "drive the run without stopping to ask, per agent")
 	enableMemory := fs.Bool("enable-memory", false, "copilot only: turn on session memory")
@@ -88,7 +88,7 @@ func runAsk(args []string, resume bool) int {
 	if err := askExclusive(*background, *job, *tools, *noTools); err != nil {
 		return failAsk(*format, *name, err)
 	}
-	schema, err := resolveJSONSchema(*jsonSchema)
+	schema, err := resolveOutputSchema(*outputSchema)
 	if err != nil {
 		return failAskCode(*format, *name, err, 2)
 	}
@@ -99,7 +99,7 @@ func runAsk(args []string, resume bool) int {
 		base := agent.Request{Model: *model, Provider: *provider, Effort: *effort, WorkDir: *workdir, Tools: *tools, NoTools: *noTools,
 			Timeout: *timeout, KeepEnv: []string(keepEnv), Autonomous: *autonomous, EnableMemory: *enableMemory, Direct: *direct,
 			NoPersist: *noPersist, SafeMode: *safeMode, SystemPrompt: *systemPrompt, AppendSystemPrompt: *appendSystemPrompt,
-			Env: []string(env), JSONSchema: schema}
+			Env: []string(env), OutputSchema: schema}
 		return runAskBatch(fs, resume, *batch, batchOpts{jobs: *jobs, failFast: *failFast, agent: *name, fallback: *fallback, native: *native}, base)
 	}
 	if flagExplicit(fs, "jobs") || flagExplicit(fs, "fail-fast") {
@@ -120,7 +120,7 @@ func runAsk(args []string, resume bool) int {
 		session: session, tools: tools, noTools: noTools, timeout: timeout, attach: &attach, keepEnv: &keepEnv,
 		autonomous: autonomous, enableMemory: enableMemory, rubric: rubric, direct: direct,
 		noPersist: noPersist, safeMode: safeMode, debugFile: debugFile, systemPrompt: systemPrompt,
-		appendSystemPrompt: appendSystemPrompt, jsonSchema: jsonSchema}
+		appendSystemPrompt: appendSystemPrompt, outputSchema: outputSchema}
 	jobRec, rc, done := loadAskJob(*job, *format, state, &prompt)
 	if done {
 		return rc
@@ -130,8 +130,8 @@ func runAsk(args []string, resume bool) int {
 			return rc
 		}
 	}
-	if *jsonSchema != "" { // a --retry/--job record may carry an already-resolved schema
-		if schema, err = resolveJSONSchema(*jsonSchema); err != nil {
+	if *outputSchema != "" { // a --retry/--job record may carry an already-resolved schema
+		if schema, err = resolveOutputSchema(*outputSchema); err != nil {
 			return failAskCode(*format, *name, err, 2)
 		}
 	}
@@ -169,7 +169,7 @@ func runAsk(args []string, resume bool) int {
 		WorkDir: *workdir, SessionID: *session, Tools: *tools, NoTools: *noTools, Timeout: *timeout,
 		Attach: []string(attach), KeepEnv: []string(keepEnv), Autonomous: *autonomous, EnableMemory: *enableMemory, Direct: *direct,
 		NoPersist: *noPersist, SafeMode: *safeMode, DebugFile: *debugFile, SystemPrompt: *systemPrompt,
-		AppendSystemPrompt: *appendSystemPrompt, Env: []string(env), JSONSchema: schema}
+		AppendSystemPrompt: *appendSystemPrompt, Env: []string(env), OutputSchema: schema}
 	rec := buildAskRecord(ctx, r, req, jobRec, *workdir, *background)
 	_ = rec.Save() // fail-open: the log is for replay and forensics, never a gate on the run
 	if *background {
@@ -263,13 +263,13 @@ func askStdoutSink(format, dispatchID string) agent.Sink {
 
 // askState bundles the ask flag pointers that --job/--retry overwrite from a logged dispatch's request.
 type askState struct {
-	name, provider, model, effort, workdir, session, rubric *string
-	tools, noTools, autonomous, enableMemory, direct        *bool
-	noPersist, safeMode                                     *bool
-	debugFile, systemPrompt, appendSystemPrompt, jsonSchema *string
-	timeout                                                 *time.Duration
-	attach                                                  *attachFlag
-	keepEnv                                                 *keepEnvFlag
+	name, provider, model, effort, workdir, session, rubric   *string
+	tools, noTools, autonomous, enableMemory, direct          *bool
+	noPersist, safeMode                                       *bool
+	debugFile, systemPrompt, appendSystemPrompt, outputSchema *string
+	timeout                                                   *time.Duration
+	attach                                                    *attachFlag
+	keepEnv                                                   *keepEnvFlag
 }
 
 // applyRecord copies a logged dispatch's request onto this ask invocation's flags.
@@ -279,7 +279,7 @@ func (s *askState) applyRecord(rec agent.Record) {
 	*s.attach, *s.autonomous, *s.enableMemory = attachFlag(rec.Request.Attach), rec.Request.Autonomous, rec.Request.EnableMemory
 	*s.keepEnv, *s.direct, *s.noTools = keepEnvFlag(rec.Request.KeepEnv), rec.Request.Direct, rec.Request.NoTools
 	*s.noPersist, *s.safeMode, *s.debugFile = rec.Request.NoPersist, rec.Request.SafeMode, rec.Request.DebugFile
-	*s.systemPrompt, *s.appendSystemPrompt, *s.jsonSchema = rec.Request.SystemPrompt, rec.Request.AppendSystemPrompt, rec.Request.JSONSchema
+	*s.systemPrompt, *s.appendSystemPrompt, *s.outputSchema = rec.Request.SystemPrompt, rec.Request.AppendSystemPrompt, rec.Request.OutputSchema
 	if len(rec.Request.EnvNames) > 0 {
 		fmt.Fprintf(os.Stderr, "ask: the logged run set env %s; values are not stored, so pass --env again\n", strings.Join(rec.Request.EnvNames, ","))
 	}
@@ -391,8 +391,8 @@ func (e *envFlag) Set(s string) error {
 	return nil
 }
 
-// resolveJSONSchema reads --json-schema as inline JSON when it starts with "{", else as a file, and checks it parses.
-func resolveJSONSchema(arg string) (string, error) {
+// resolveOutputSchema reads --output-schema as inline JSON when it starts with "{", else as a file, and checks it parses.
+func resolveOutputSchema(arg string) (string, error) {
 	if arg == "" {
 		return "", nil
 	}
@@ -400,13 +400,13 @@ func resolveJSONSchema(arg string) (string, error) {
 	if !strings.HasPrefix(body, "{") {
 		data, err := os.ReadFile(arg)
 		if err != nil {
-			return "", fmt.Errorf("--json-schema: %w", err)
+			return "", fmt.Errorf("--output-schema: %w", err)
 		}
 		body = strings.TrimSpace(string(data))
 	}
 	var probe map[string]any
 	if err := json.Unmarshal([]byte(body), &probe); err != nil {
-		return "", fmt.Errorf("--json-schema: not a JSON object: %w", err)
+		return "", fmt.Errorf("--output-schema: not a JSON object: %w", err)
 	}
 	return body, nil
 }
@@ -659,14 +659,15 @@ func listAgents() int {
 		c := r.Caps()
 		var caps []string
 		for _, f := range []struct {
-			ok   bool
+			l    agent.Level
 			name string
-		}{{c.Model, "model"}, {c.Provider, "profile"}, {c.Effort, "effort"}, {c.WorkDir, "workdir"}, {c.SessionID, "session"}, {c.Tools, "tools"}} {
-			if f.ok {
-				caps = append(caps, f.name)
+		}{{c.Model, "model"}, {c.Provider, "profile"}, {c.Effort, "effort"}, {c.WorkDir, "workdir"}, {c.SessionID, "session"}, {c.Tools, "tools"},
+			{c.SystemPrompt, "system-prompt"}, {c.AppendSystemPrompt, "append-system-prompt"}, {c.Env, "env"}, {c.OutputSchema, "output-schema"}} {
+			if f.l != agent.None {
+				caps = append(caps, f.name+":"+f.l.String())
 			}
 		}
-		fmt.Printf("%s %-9s %-44s %s\n", mark, r.Name(), strings.Join(caps, ","), reason)
+		fmt.Printf("%s %-9s %s %s\n", mark, r.Name(), strings.Join(caps, ","), reason)
 	}
 	return 0
 }
