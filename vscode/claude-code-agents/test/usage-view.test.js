@@ -305,13 +305,12 @@ test('renderUsageHtml: API KEYS section always renders, in both subscription and
   const subModel = buildFrozenModel(t);
   const subHtml = renderUsageHtml(subModel, { detailed: true, show: 'used', nonce: 'n', cspSource: 'c' });
   assert.ok(subHtml.includes('API KEYS'), 'expected the API KEYS header in subscription mode');
-  assert.ok(subHtml.includes('class="api-table"'), 'expected the .api-table element in subscription mode');
   assert.ok(subHtml.includes('No token usage yet'), 'subscription-mode fixture has no api[] rows, so the empty state must show');
 
   const apiJson = fixture('usage-api.fixture.json');
   const apiModel = buildUsageModel(apiJson, {}, Date.now());
   const apiHtml = renderUsageHtml(apiModel, { detailed: true, show: 'used', nonce: 'n', cspSource: 'c' });
   assert.ok(apiHtml.includes('API KEYS'), 'expected the API KEYS header in api mode');
-  assert.ok(apiHtml.includes('class="api-table"'), 'expected the .api-table element in api mode');
+  assert.ok(apiHtml.includes('class="api-card fixed-card"'), 'expected one .api-card per provider/profile in api mode');
   assert.ok(!apiHtml.includes('No token usage yet'), 'api-mode fixture has api[] rows, so the empty state must not show');
 });

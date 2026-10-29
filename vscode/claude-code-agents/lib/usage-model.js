@@ -215,9 +215,25 @@ function buildStats(usageJson, agents, nowMs) {
   return { windowDays, totalTokens, sessions, turns, activeDays, costUsd, costPartial, mix, cacheShare, daily, bestDay };
 }
 
-/** Flat `usage --format json` + `profile --format json` → the grouped model the status bar/webview render. */
+/** `configure provider --list --format json` → one entry per provider whose credential resolves, tier → model rows. */
+function buildProviderModels(profileJson) {
+  const list = (profileJson && Array.isArray(profileJson.list) && profileJson.list) || [];
+  const session = (profileJson && profileJson.session) || null;
+  return list
+    .filter((p) => p && p.name && p.source && p.source !== 'missing')
+    .map((p) => ({
+      name: p.name,
+      group: p.group || null,
+      source: p.source,
+      session: p.name === session,
+      models: Object.entries(p.models || {})
+        .map(([tier, id]) => ({ tier, id }))
+        .sort((a, b) => a.tier.localeCompare(b.tier)),
+    }));
+}
+
+/** Flat `usage --format json` + `configure provider --list --format json` → the model the status bar/webview render. */
 function buildUsageModel(usageJson, profileJson, nowMs) {
-  void profileJson; // reserved for future model-slot-name lookups; not needed by the current fields
   const now = typeof nowMs === 'number' ? nowMs : Date.now(); // reset labels still render at call time, not from this
   const billing = (usageJson && usageJson.billing) || {};
   const mode = billing.mode === 'api' ? 'api' : 'subscription';
@@ -245,6 +261,7 @@ function buildUsageModel(usageJson, profileJson, nowMs) {
   });
   const api = ((usageJson && usageJson.api) || []).map((r) => ({
     provider: r.provider,
+    profile: r.profile || null,
     model: r.model,
     today: r.today || 0,
     last30d: r.last_30d || 0,
@@ -252,7 +269,7 @@ function buildUsageModel(usageJson, profileJson, nowMs) {
   }));
   const agents = Array.isArray(usageJson && usageJson.agents) ? usageJson.agents.map(buildAgent) : [];
   const stats = buildStats(usageJson, agents, now);
-  return { mode, billingProvider, providers, api, agents, stats };
+  return { mode, billingProvider, providers, api, agents, stats, providerModels: buildProviderModels(profileJson) };
 }
 
 /** 10-cell ascii bar, filled proportionally to pct (0-100). */
