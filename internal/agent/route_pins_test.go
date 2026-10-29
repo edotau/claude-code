@@ -21,7 +21,7 @@ type pinFallbackRunner struct {
 }
 
 func (f *pinFallbackRunner) Name() string     { return f.name }
-func (f *pinFallbackRunner) Caps() Caps       { return Caps{Model: true, Effort: true} }
+func (f *pinFallbackRunner) Caps() Caps       { return Caps{Model: Native, Effort: Native} }
 func (f *pinFallbackRunner) Available() error { return nil }
 func (f *pinFallbackRunner) Run(_ context.Context, req Request, _ Sink) (Result, error) {
 	f.seen = append(f.seen, req)
