@@ -410,7 +410,7 @@ func applyCopilotToken(opts *copilotsdk.Options, own bool, env []string) error {
 
 func (copilotRunner) Run(ctx context.Context, req Request, stream io.Writer) (Result, error) {
 	ctx = directCtx(ctx, req)
-	t, own, err := vendorTarget(req, "copilot")
+	t, own, err := vendorTargetCtx(ctx, req, "copilot")
 	if err != nil {
 		return Result{}, err
 	}

@@ -485,6 +485,10 @@ func RunWithFallback(ctx context.Context, c Chain, req Request, stream io.Writer
 	var handoff string // a copilot quota hand-off survives the legs that run after it
 	var hops []Hop
 	for i, leg := range c.Legs {
+		if i > 0 && !legUnavailable(prev, res, err) { // an answer (or a final failure) ends the chain before any cancel check
+			stopped = true
+			break
+		}
 		if cerr := ctx.Err(); cerr != nil { // a cancelled batch must not start another leg
 			ce := &Error{Kind: KindFatal, Agent: leg.Agent.Name(), Err: cerr}
 			if i == 0 {
@@ -494,16 +498,13 @@ func RunWithFallback(ctx context.Context, c Chain, req Request, stream io.Writer
 			break
 		}
 		if i > 0 {
-			if !legUnavailable(prev, res, err) {
-				stopped = true
-				break
-			}
 			reasons = append(reasons, hopLabel(prevLeg)+": "+fallbackReason(err))
 			if notify != nil {
 				notify(fmt.Sprintf("%s unavailable (%s) — falling back to %s%s", legLabel(prev), fallbackReason(err), legLabel(leg.Agent), legCell(leg)))
 			}
 		}
 		lreq := legRequest(req, leg, i == 0 && leg.Agent.Name() == c.Want)
+		ctx, leg := freezeCopilot(ctx, leg, lreq)       // per leg: the gate's real target, before any permit or cooldown key
 		waitCooldown(ctx, leg.Account, DefaultMaxDelay) // holds nothing
 		panicked := false
 		func() { // the leg's scope: fail-fast is decided and a panic caught before the permit is released
