@@ -1,0 +1,1 @@
+{"schema":1,"status":"ok","agent":"codex","provider":"p","model":"m","invoked_model":"m","dispatch_id":"d1","session_id":"s1","fallback":null,"fallback_reason":"","usage":null,"duration_ms":12,"error":null,"answer":"hello","dropped":null,"handoff":"","transport":null}
