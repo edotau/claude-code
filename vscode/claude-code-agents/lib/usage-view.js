@@ -150,7 +150,8 @@ function renderProvider(p, show, detailed) {
 
 /** One "<provider>/<model>  <tokens> · <turns> turns[ · $cost]" line — the CLI's indented per-model AGENTS row. */
 function renderAgentModelRow(m) {
-  const parts = [`${formatCount(m.tokens)}`, `${m.turns} turn${m.turns === 1 ? '' : 's'}`];
+  const parts = [`${formatCount(m.tokens)}`];
+  if (m.turns) parts.push(`${m.turns} turn${m.turns === 1 ? '' : 's'}`);
   if (m.costUsd != null) parts.push(`$${m.costUsd.toFixed(2)}`);
   const label = m.provider && m.model ? `${m.provider}/${m.model}` : m.model || m.provider || '';
   return `<div class="agent-model-row">
@@ -164,7 +165,7 @@ function renderAgentModelRow(m) {
  * agent's tokens against `totalTokens`. A note-only agent (no sessions in window) renders muted, no bar. */
 function renderAgentCard(a, totalTokens) {
   if (!a.tokens && !a.sessions) {
-    return `<div class="agent-card agent-card-muted">
+    return `<div class="agent-card agent-card-muted fixed-card">
       <div class="agent-name card-head muted">${esc(a.name)}</div>
       <div class="card-body"><div class="agent-note muted">${esc(a.note || 'no sessions in window')}</div></div>
     </div>`;
@@ -176,14 +177,16 @@ function renderAgentCard(a, totalTokens) {
   if (a.costUsd != null) parts.push(`$${a.costUsd.toFixed(2)}`);
   const statsText = parts.join(' · ');
   const share = totalTokens > 0 ? Math.min(100, (a.tokens / totalTokens) * 100) : 0;
-  const models = a.models && a.models.length ? `<div class="agent-models">${a.models.map(renderAgentModelRow).join('')}</div>` : '';
-  return `<div class="agent-card">
+  // Models with neither tokens nor turns are configured-but-unused noise; the card lists only what ran.
+  const used = (a.models || []).filter((m) => m.tokens || m.turns);
+  const models = used.length ? `<div class="agent-models">${used.map(renderAgentModelRow).join('')}</div>` : '';
+  return `<div class="agent-card fixed-card">
     <div class="agent-name card-head">${esc(a.name)}</div>
     <div class="card-body">
     <div class="agent-stats muted" title="${esc(statsText)}">${esc(statsText)}</div>
     ${models}
-    <div class="agent-share"><span class="agent-share-fill" style="width:${share}%"></span></div>
     </div>
+    <div class="agent-share"><span class="agent-share-fill" style="width:${share}%"></span></div>
   </div>`;
 }
 
@@ -216,24 +219,56 @@ function renderAgentsBody(model, detailed) {
   return `<div class="agents-section">${body}</div>`;
 }
 
-/** The CLI's "API KEYS (per-token, accumulated via harness)" ledger table — printed in every billing mode,
- * never conditioned on `model.mode`, so a per-token key used alongside a subscription plan still shows here. */
-function renderApiTable(model) {
-  const rows = (model.api || [])
-    .map(
-      (r) => `<tr>
-        <td>${esc(r.provider)}</td>
-        <td>${esc(r.model)}</td>
+/** The CLI's "API KEYS (per-token, accumulated via harness)" ledger as one card per provider/profile — printed in
+ * every billing mode, never conditioned on `model.mode`, so a per-token key beside a subscription still shows. */
+function renderApiCards(model) {
+  const groups = new Map();
+  for (const r of model.api || []) {
+    const key = r.profile ? `${r.provider}/${r.profile}` : r.provider;
+    if (!groups.has(key)) groups.set(key, { profile: r.profile, provider: r.provider, rows: [] });
+    groups.get(key).rows.push(r);
+  }
+  if (!groups.size) return '<div class="cards-grid"><div class="muted">No token usage yet</div></div>';
+  const cards = [...groups.values()].map((g) => {
+    const rows = [...g.rows].sort((a, b) => b.last30d - a.last30d);
+    const total = rows.reduce((sum, r) => sum + r.last30d, 0);
+    const title = g.profile ? `${esc(g.profile)} <span class="muted">· ${esc(g.provider)}</span>` : esc(g.provider);
+    const body = rows
+      .map(
+        (r) => `<tr>
+        <td class="api-model" title="${esc(r.model)}">${esc(r.model)}</td>
         <td>${esc(formatCount(r.today))}</td>
         <td>${esc(formatCount(r.last30d))}</td>
         <td>${esc(formatCount(r.allTime))}</td>
       </tr>`
-    )
-    .join('');
-  return `<table class="api-table">
-    <thead><tr><th>Provider</th><th>Model</th><th>Today</th><th>30d</th><th>All time</th></tr></thead>
-    <tbody>${rows || '<tr><td colspan="5" class="muted">No token usage yet</td></tr>'}</tbody>
-  </table>`;
+      )
+      .join('');
+    return `<div class="api-card fixed-card">
+      <div class="card-head api-head"><span class="provider-name">${title}</span><span class="muted">${esc(formatCount(total))} · 30d</span></div>
+      <div class="card-body"><table class="api-table">
+        <thead><tr><th>Model</th><th>Today</th><th>30d</th><th>All</th></tr></thead>
+        <tbody>${body}</tbody>
+      </table></div>
+    </div>`;
+  });
+  return `<div class="cards-grid">${cards.join('')}</div>`;
+}
+
+/** MODELS: one card per provider whose credential resolves, its tier → model map; the session profile is marked. */
+function renderProviderModels(model) {
+  const providers = model.providerModels || [];
+  if (!providers.length) return '';
+  const cards = providers.map((p) => {
+    const rows = p.models
+      .map((m) => `<div class="agent-model-row"><span class="muted">${esc(m.tier)}</span><span class="agent-model-name" title="${esc(m.id)}">${esc(m.id)}</span></div>`)
+      .join('');
+    const badge = p.session ? ' <span class="badge">session</span>' : '';
+    return `<div class="model-card">
+      <div class="card-head api-head"><span class="provider-name">${esc(p.name)}${badge}</span><span class="muted">${esc(p.group || '')} · ${esc(p.source)}</span></div>
+      <div class="card-body"><div class="agent-models">${rows || '<span class="muted">no models</span>'}</div></div>
+    </div>`;
+  });
+  return `<div class="cards-grid">${cards.join('')}</div>`;
 }
 
 /** "Oct 22" from a "YYYY-MM-DD" date string, parsed as UTC midnight so the local timezone can't shift it a day. */
@@ -357,7 +392,8 @@ function renderUsageHtml(model, opts) {
   const overviewBody = detailed ? renderStatsSection(model.stats) : '';
   // The CLI prints PROVIDER QUOTAS and API KEYS as two always-present sections — never either/or on billing mode.
   const quotasBody = model.providers.map((p) => renderProvider(p, show, detailed)).join('');
-  const apiKeysBody = renderApiTable(model);
+  const apiKeysBody = renderApiCards(model);
+  const modelsBody = renderProviderModels(model);
   const agentsBody = renderAgentsBody(model, detailed);
   const agentsHeader = `AGENTS · ${agentsWindowLabel(model, days)}`;
   return `<!DOCTYPE html>
@@ -383,7 +419,7 @@ function renderUsageHtml(model, opts) {
   /* Section headers: 16px of space + a 1px rule above, 8px below the rule to the uppercase label. */
   .section-header { margin: 16px 12px 8px; padding-top: 8px; border-top: 1px solid var(--vscode-widget-border); font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--vscode-descriptionForeground); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .quotas-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; padding: 0 12px; }
-  .provider-card, .agent-card { border: 1px solid var(--card-border); border-radius: 8px; background: var(--card-tint); padding: 0; min-width: 0; overflow: hidden; }
+  .provider-card, .agent-card, .api-card, .model-card { border: 1px solid var(--card-border); border-radius: 8px; background: var(--card-tint); padding: 0; min-width: 0; overflow: hidden; }
   .card-head { padding: 8px 10px; background: var(--card-head-tint); border-bottom: 1px solid var(--card-border); }
   .card-body { padding: 8px 10px; }
   .provider-card-muted { opacity: 0.7; }
@@ -416,7 +452,15 @@ function renderUsageHtml(model, opts) {
   .provider-account { font-weight: 400; }
   .credits-note { margin-top: 4px; font-size: 11px; }
   .agents-section { padding: 0 12px; }
-  .agents-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+  .agents-grid, .cards-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+  .cards-grid { padding: 0 12px; }
+  /* Equal-height cards: the body scrolls on overflow so one long card never stretches its row. */
+  .fixed-card { height: 220px; display: flex; flex-direction: column; }
+  .fixed-card .card-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+  .fixed-card .agent-share { margin: 0 10px 8px; flex: none; }
+  .api-head { display: flex; align-items: baseline; justify-content: space-between; gap: 6px; min-width: 0; }
+  .api-head .muted { font-size: 11px; white-space: nowrap; }
+  .badge { font-size: 10px; font-weight: 400; padding: 0 4px; border-radius: 3px; background: var(--vscode-badge-background); color: var(--vscode-badge-foreground); }
   .agent-card-muted { opacity: 0.7; }
   .agent-name { font-weight: 600; }
   .agent-model, .agent-stats, .agent-note { font-size: 12px; }
@@ -428,8 +472,10 @@ function renderUsageHtml(model, opts) {
   .agent-share { margin-top: 6px; height: 4px; border-radius: 2px; background: var(--track); overflow: hidden; }
   .agent-share-fill { display: block; height: 100%; background: var(--vscode-charts-blue, var(--vscode-foreground)); }
   .agent-compact { display: flex; align-items: center; justify-content: space-between; gap: 6px; font-size: 12px; padding: 2px 0; }
-  .api-table { width: 100%; border-collapse: collapse; font-size: 12px; margin: 8px 12px; width: calc(100% - 24px); }
-  .api-table th, .api-table td { text-align: left; padding: 2px 6px 2px 0; }
+  .api-table { width: 100%; border-collapse: collapse; font-size: 11px; table-layout: fixed; }
+  .api-table th, .api-table td { text-align: right; padding: 1px 0 1px 6px; white-space: nowrap; }
+  .api-table th:first-child, .api-table td:first-child { text-align: left; padding-left: 0; width: 55%; }
+  .api-model { overflow: hidden; text-overflow: ellipsis; }
   .api-table th { color: var(--vscode-descriptionForeground); font-weight: 400; }
   .stats-section { padding: 0 12px; }
   .stats-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; margin-bottom: 10px; }
@@ -487,6 +533,7 @@ function renderUsageHtml(model, opts) {
   ${apiKeysBody}
   <div class="section-header">${esc(agentsHeader)}</div>
   ${agentsBody}
+  ${modelsBody ? `<div class="section-header">MODELS</div>${modelsBody}` : ''}
   <script nonce="${nonce}">
     const vscode = acquireVsCodeApi();
     document.getElementById('refresh').addEventListener('click', () => vscode.postMessage({ type: 'refresh' }));
