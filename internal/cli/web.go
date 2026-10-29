@@ -21,13 +21,30 @@ import (
 func cmdNetworkBrowser(args []string) int {
 	fs := helptext.NewFlagSet("network browser", helptext.Page{Usage: "claude-code network browser [flags]",
 		About: "List every installed browser's control paths and the system default; --setup\n" +
-			"repairs what the harness owns for one and opens its extension page."})
+			"repairs what the harness owns for one and opens its extension page; --extract\n" +
+			"scrapes records from a page (--format jsonl|csv|json there)."})
 	setup := fs.Bool("setup", false, "repair what the harness owns for one browser and open its extension page")
 	name := fs.String("browser", "default", "chrome|edge|brave|arc|vivaldi|chromium|default (with --setup)")
 	dryRun := fs.Bool("dry-run", false, "describe the actions without running them (with --setup)")
 	format := outfmt.Flag(fs)
+	ex := addExtractFlags(fs)
 	if _, err := outfmt.Parse(fs, args); err != nil {
 		return helptext.ExitCode(err)
+	}
+	if *ex.url != "" {
+		if *setup {
+			return failUsage("network browser: --extract and --setup are mutually exclusive")
+		}
+		fmtSet := ""
+		fs.Visit(func(f *flag.Flag) {
+			if f.Name == "format" {
+				fmtSet = *format
+			}
+		})
+		return networkBrowserExtract(ex, fmtSet)
+	}
+	if bad := extractFlagsSet(fs); bad != "" {
+		return failUsage("network browser: --%s belongs to --extract", bad)
 	}
 	if err := outfmt.Check(*format); err != nil {
 		fail("network browser: %v", err)
