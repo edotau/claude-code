@@ -11,13 +11,27 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"runtime"
+	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
+
+	"github.com/edotau/claude-code/internal/inflight"
 )
 
 // DefaultPerKey caps concurrent legs on one billed account (one credential, one rate limit).
 const DefaultPerKey = 4
+
+// sharedAcquire is the machine-wide limiter seam; tests count or stub it.
+var sharedAcquire = inflight.Acquire
+
+// sharedPoll is how often a waiting leg re-checks the shared limiter.
+const sharedPoll = 250 * time.Millisecond
+
+// legSeq makes each permit's shared marker id unique within the process.
+var legSeq atomic.Uint64
 
 // DefaultJobs is the default pool size: min(4, GOMAXPROCS).
 func DefaultJobs() int { return min(4, runtime.GOMAXPROCS(0)) }
@@ -30,7 +44,8 @@ type limiter struct {
 	running   int
 	jobs, cap int
 	per       map[string]int
-	pending   int // prepared tasks that have not yet reached their first leg: each still owes a slot
+	pending   int             // prepared tasks that have not yet reached their first leg: each still owes a slot
+	limits    inflight.Limits // shared-limiter caps, read once per batch; zero Total = no shared limiter
 }
 
 // slot is one prepared task's claim on a global slot until its first leg asks for a permit (or parks, or ends).
@@ -86,8 +101,28 @@ func settle(ctx context.Context) {
 	}
 }
 
-// acquire waits for a global slot and, when account is set, an account permit; the release func is idempotent.
+// acquire waits for a global slot and, when account is set, an account permit, then one shared slot; the release
+// func frees both and is idempotent.
 func (l *limiter) acquire(ctx context.Context, account string) (func(), error) {
+	freeLocal, err := l.acquireLocal(ctx, account)
+	if err != nil {
+		return nil, err
+	}
+	freeShared := func() {}
+	if l.limits.Total > 0 {
+		id := inflight.LegPrefix + strconv.FormatInt(time.Now().UnixNano(), 36) + "-" + strconv.FormatUint(legSeq.Add(1), 10)
+		c := inflight.Claim{Owner: os.Getpid(), ID: id, Account: account, N: 1}
+		if freeShared, err = sharedAcquire(ctx, c, l.limits, sharedPoll); err != nil {
+			freeLocal()
+			return nil, err
+		}
+	}
+	var once sync.Once
+	return func() { once.Do(func() { freeShared(); freeLocal() }) }, nil
+}
+
+// acquireLocal is the in-process admit: a global slot and, when account is set, an account permit.
+func (l *limiter) acquireLocal(ctx context.Context, account string) (func(), error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	s, _ := ctx.Value(slotKey{}).(*slot)
@@ -260,6 +295,7 @@ func RunBatch(ctx context.Context, tasks []BatchTask, o BatchOptions) bool {
 	bctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	b := &batchRun{o: o, lim: newLimiter(jobs, DefaultPerKey), stop: cancel}
+	b.lim.limits = inflight.CurrentLimits()
 	allOK := true
 	emit := func(env Envelope, ok bool) {
 		env.BatchID = o.ID
