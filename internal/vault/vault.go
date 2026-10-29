@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/schemas"
 	"go.etcd.io/bbolt"
 	bolterrors "go.etcd.io/bbolt/errors"
 )
@@ -169,12 +170,12 @@ func Update(fn func(*Tx) error) error {
 				return err
 			}
 		}
-		// checkSchema already refused an older schema with secrets; a secret-free older schema
-		// upgrades in place here, with nothing to re-seal (Phase 4b).
-		if n := t.Schema(); n < hkdfSchema {
+		// checkSchema refused a pre-HKDF vault with secrets; any older stamp is re-stamped here, nothing to re-seal.
+		if n := t.Schema(); n < schemaVersion {
 			if err := t.SetSchema(schemaVersion); err != nil {
 				return err
 			}
+			schemas.LogMigration("vault", n, schemaVersion, 0)
 		}
 		return fn(t)
 	})

@@ -12,9 +12,11 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/schemas"
 )
 
 type codexRouteRecord struct {
+	Schema         int    `json:"schema"`
 	Event          string `json:"event"`
 	SessionID      string `json:"session_id"`
 	ToolUseID      string `json:"tool_use_id,omitempty"`
@@ -90,6 +92,7 @@ func appendCodexRoute(path string, record codexRouteRecord) error {
 	}
 	enc := json.NewEncoder(f)
 	for _, row := range write {
+		row.Schema = codexRouteSchema
 		if err := enc.Encode(row); err != nil {
 			return errors.Join(err, f.Close())
 		}
@@ -121,7 +124,7 @@ func parseCodexRoutes(data []byte) []codexRouteRecord {
 	var records []codexRouteRecord
 	for _, line := range bytes.Split(data[:bytes.LastIndexByte(data, '\n')+1], []byte{'\n'}) {
 		var row codexRouteRecord
-		if len(bytes.TrimSpace(line)) > 0 && json.Unmarshal(line, &row) == nil {
+		if len(bytes.TrimSpace(line)) > 0 && decodeCodexRoute(line, &row) {
 			records = append(records, row)
 		}
 	}
@@ -157,4 +160,10 @@ func codexRouteMatches(records []codexRouteRecord) []codexRouteRecord {
 			Matches: &match, At: time.Now().UnixMilli()})
 	}
 	return matches
+}
+
+// decodeCodexRoute migrates an older line on read; an unparsable or newer-schema line is skipped.
+func decodeCodexRoute(line []byte, row *codexRouteRecord) bool {
+	_, err := schemas.Decode(codexRouteFormat, line, row)
+	return err == nil
 }

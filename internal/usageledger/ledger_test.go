@@ -85,7 +85,7 @@ func TestEntryFieldShape(t *testing.T) {
 	if err := json.Unmarshal(b, &m); err != nil {
 		t.Fatal(err)
 	}
-	want := map[string]bool{"ts": true, "provider": true, "model": true, "input": true, "output": true, "cache_read": true}
+	want := map[string]bool{"schema": true, "ts": true, "provider": true, "model": true, "input": true, "output": true, "cache_read": true}
 	full, _ := json.Marshal(Entry{Ts: time.Now(), Profile: "p", Provider: "openai", Agent: "a", Session: "s", Model: "m"})
 	var fm map[string]json.RawMessage
 	if err := json.Unmarshal(full, &fm); err != nil {

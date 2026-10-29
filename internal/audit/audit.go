@@ -11,6 +11,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/schemas"
 	"github.com/edotau/claude-code/internal/secrets/shapes"
 )
 
@@ -54,6 +55,7 @@ func (a Action) Valid() bool {
 }
 
 type Event struct {
+	Schema   int       `json:"schema"`
 	Time     time.Time `json:"time"`
 	Action   Action    `json:"action"`
 	Resource string    `json:"resource"`
@@ -74,7 +76,7 @@ func Log(a Action, resource, detail string) {
 	if !a.Valid() {
 		return
 	}
-	event := Event{Time: time.Now().UTC(), Action: a, Resource: scrub(resource), Detail: scrub(detail)}
+	event := Event{Schema: schemaVersion, Time: time.Now().UTC(), Action: a, Resource: scrub(resource), Detail: scrub(detail)}
 	var line []byte
 	for {
 		var err error
@@ -128,7 +130,7 @@ func Read(since time.Time) ([]Event, error) {
 		for {
 			line, readErr := reader.ReadBytes('\n')
 			var e Event
-			if json.Unmarshal(line, &e) == nil && e.Action.Valid() && !e.Time.Before(since) {
+			if decodeLine(line, &e) && e.Action.Valid() && !e.Time.Before(since) {
 				out = append(out, e)
 			}
 			if readErr != nil {
@@ -150,4 +152,10 @@ func Summary(events []Event) map[Action]int {
 		out[e.Action]++
 	}
 	return out
+}
+
+// decodeLine migrates an older line on read; an unparsable or newer-schema line is skipped.
+func decodeLine(line []byte, e *Event) bool {
+	_, err := schemas.Decode(format, line, e)
+	return err == nil
 }

@@ -9,11 +9,13 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/schemas"
 )
 
 // Entry is one metered proxy request; never content, keys or headers. Older lines lack the attribution fields
 // and carry the profile name in Provider; ProfileName reads both.
 type Entry struct {
+	Schema    int       `json:"schema"`
 	Ts        time.Time `json:"ts"`
 	Profile   string    `json:"profile,omitempty"`
 	Provider  string    `json:"provider"`
@@ -41,6 +43,7 @@ func Append(e Entry) {
 		return
 	}
 	defer f.Close()
+	e.Schema = schemaVersion
 	b, err := json.Marshal(e)
 	if err != nil {
 		return
@@ -64,7 +67,7 @@ func Read() ([]Entry, error) {
 	sc.Buffer(make([]byte, 64<<10), 1<<20)
 	for sc.Scan() {
 		var e Entry
-		if json.Unmarshal(sc.Bytes(), &e) == nil {
+		if _, err := schemas.Decode(format, sc.Bytes(), &e); err == nil {
 			out = append(out, e)
 		}
 	}
