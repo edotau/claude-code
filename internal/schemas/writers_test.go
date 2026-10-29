@@ -35,9 +35,11 @@ import (
 func unversioned(reason string) string { return "unversioned: " + reason }
 
 var writers = map[string]string{
+	"internal/agent/codex.go:codexSchemaFile":                      unversioned("foreign: codex --output-schema temp file"),
 	"internal/agent/dispatchlog.go:Save":                           "dispatch-record",
 	"internal/agent/dispatchlog.go:claimRecord":                    unversioned("claim: the running record, linked in whole"),
 	"internal/agent/dispatchlog.go:openLocked":                     unversioned("log: per-job dispatch log, humans only"),
+	"internal/agent/eventlog.go:NewEventLog":                       unversioned("log: per-dispatch events.jsonl, read by agents tail"),
 	"internal/agent/handoff.go:createExclusive":                    unversioned("foreign: handoff markdown in the repo"),
 	"internal/audit/audit.go:Log":                                  "audit",
 	"internal/cli/complete_domains.go:writeDispatchCache":          "tailscale-machines",
