@@ -71,14 +71,19 @@ func Parse(path string) (Plan, error) {
 func ParseBytes(path string, b []byte) Plan {
 	lines := strings.Split(string(b), "\n")
 	p := Plan{Path: path}
-	fenced := false
+	var open fenceOpen // the fence now open, zero when none
 	for i := 0; i < len(lines); i++ {
-		if isFence(lines[i]) {
-			fenced = !fenced
+		if ch, n, rest := fenceMarker(lines[i]); n > 0 {
+			switch {
+			case open.n == 0:
+				open = fenceOpen{ch, n}
+			case ch == open.ch && n >= open.n && rest == "":
+				open = fenceOpen{}
+			}
 			continue
 		}
 		m := checkLine.FindStringSubmatch(lines[i])
-		if fenced || m == nil {
+		if open.n > 0 || m == nil {
 			continue
 		}
 		indent := len(m[1])
@@ -103,10 +108,31 @@ func ParseBytes(path string, b []byte) Plan {
 	return p
 }
 
-// isFence reports whether line opens or closes a fenced code block.
-func isFence(line string) bool {
+// fenceOpen is the opening fence's character and length; a closer needs the same character and at least that length.
+type fenceOpen struct {
+	ch byte
+	n  int
+}
+
+// fenceMarker returns line's leading fence character, its run length (0 when line is no fence) and the text after it.
+func fenceMarker(line string) (ch byte, n int, rest string) {
 	l := strings.TrimSpace(line)
-	return strings.HasPrefix(l, "```") || strings.HasPrefix(l, "~~~")
+	if l == "" || (l[0] != '`' && l[0] != '~') {
+		return 0, 0, ""
+	}
+	for n < len(l) && l[n] == l[0] {
+		n++
+	}
+	if n < 3 {
+		return 0, 0, ""
+	}
+	return l[0], n, strings.TrimSpace(l[n:])
+}
+
+// isFence reports whether line is a fence-like line (opener or closer).
+func isFence(line string) bool {
+	_, n, _ := fenceMarker(line)
+	return n > 0
 }
 
 // parseTaskText splits a joined item into id, title and the owns/sha/claim/partial metadata.
