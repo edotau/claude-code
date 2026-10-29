@@ -53,8 +53,8 @@ func scanTokens(text string, quoted, bare *regexp.Regexp, trim string) []pathTok
 	seen := map[string]bool{}
 	var out []pathToken
 	add := func(raw, p string) {
-		if p != "" && !seen[p] {
-			seen[p] = true
+		if p != "" && !seen[raw] {
+			seen[raw] = true
 			out = append(out, pathToken{raw, p})
 		}
 	}
@@ -76,8 +76,12 @@ func scanTokens(text string, quoted, bare *regexp.Regexp, trim string) []pathTok
 // scanPaths is scanTokens reduced to the trimmed tokens.
 func scanPaths(text string, quoted, bare *regexp.Regexp, trim string) []string {
 	var out []string
+	seen := map[string]bool{}
 	for _, t := range scanTokens(text, quoted, bare, trim) {
-		out = append(out, t.trimmed)
+		if !seen[t.trimmed] {
+			seen[t.trimmed] = true
+			out = append(out, t.trimmed)
+		}
 	}
 	return out
 }
@@ -124,8 +128,11 @@ func collectReports(prompt string, res *pathview.Resolver) []pathReport {
 		var isImage, found bool
 		for _, tok := range toks { // the token as written first, then punctuation-stripped
 			rp, ok := res.Resolve(tok)
-			if !ok || seen[rp] {
+			if !ok {
 				continue
+			}
+			if seen[rp] {
+				return // the preferred reading is already reported
 			}
 			if d, img, ok := describe(rp); ok {
 				p, detail, isImage, found = rp, d, img, true

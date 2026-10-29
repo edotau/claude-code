@@ -246,7 +246,17 @@ func rawRest(p, prefix string, fold bool) string {
 			return ""
 		}
 	}
-	return strings.Join(raw[len(pre):], "/")
+	rest, depth := raw[len(pre):], 0
+	for _, s := range rest {
+		if s == ".." {
+			if depth--; depth < 0 {
+				return "" // climbs out of the mount root: the lexical result decides
+			}
+		} else {
+			depth++
+		}
+	}
+	return strings.Join(rest, "/")
 }
 
 func hasKind(kinds []Kind, k Kind) bool {
