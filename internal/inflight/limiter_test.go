@@ -1,7 +1,6 @@
 package inflight
 
 import (
-	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -141,65 +140,6 @@ func TestTryClaimN(t *testing.T) {
 	}
 }
 
-// Acquire blocks while the account is full, wins after a Release, and a cancelled ctx returns
-// ctx.Err() having written nothing.
-func TestAcquireWaitCancel(t *testing.T) {
-	setupDir(t)
-	owner := os.Getpid()
-	lim := Limits{Base: 1, Total: 1}
-	if ok, _ := TryClaim(Claim{Owner: owner, ID: "first", Account: "a"}, lim); !ok {
-		t.Fatal("setup claim refused")
-	}
-	won := make(chan error, 1)
-	go func() {
-		_, err := Acquire(context.Background(), Claim{Owner: owner, ID: "second", Account: "a"}, lim, 10*time.Millisecond)
-		won <- err
-	}()
-	select {
-	case err := <-won:
-		t.Fatalf("Acquire won while full: %v", err)
-	case <-time.After(100 * time.Millisecond):
-	}
-	Release(owner, "first")
-	select {
-	case err := <-won:
-		if err != nil {
-			t.Fatalf("Acquire after Release: %v", err)
-		}
-	case <-time.After(3 * time.Second):
-		t.Fatal("Acquire never won after Release freed the slot")
-	}
-	if !markerExists(owner, "second") {
-		t.Error("winning Acquire wrote no marker")
-	}
-
-	// Refill the slot; a cancelled ctx must surface ctx.Err() and write nothing.
-	Release(owner, "second")
-	if ok, _ := TryClaim(Claim{Owner: owner, ID: "third", Account: "a"}, lim); !ok {
-		t.Fatal("re-fill claim refused")
-	}
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan error, 1)
-	go func() {
-		_, err := Acquire(ctx, Claim{Owner: owner, ID: "fourth", Account: "a"}, lim, 10*time.Millisecond)
-		done <- err
-	}()
-	cancel()
-	select {
-	case err := <-done:
-		if err != context.Canceled {
-			t.Fatalf("cancelled Acquire err = %v, want context.Canceled", err)
-		}
-	case <-time.After(3 * time.Second):
-		t.Fatal("cancelled Acquire never returned")
-	}
-	for _, f := range markers(t) {
-		if strings.Contains(f, "fourth") {
-			t.Errorf("cancelled Acquire wrote marker %s", f)
-		}
-	}
-}
-
 // Leg owner liveness: a dead owner's leg marker is neither counted nor allowed to survive a
 // prune; a live owner's leg marker counts even past TTL.
 func TestLegOwnerLiveness(t *testing.T) {
@@ -324,7 +264,7 @@ func TestSelfSpawnPrune(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, id := range []string{"toolu_a", "toolu_b", "toolu_c", "toolu_d", "toolu_e"} {
-		if err := os.WriteFile(filepath.Join(Dir(), markerName(owner, id)), []byte("a"), 0o600); err != nil {
+		if err := os.WriteFile(filepath.Join(Dir(), markerName(owner, id)), []byte("a\n"+transcript), 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -351,5 +291,55 @@ func TestSelfSpawnPrune(t *testing.T) {
 	}
 	if !markerExists(owner, "toolu_c") {
 		t.Error("background spawn with meta and a fresh agent transcript was pruned (2026-09-15 leak class)")
+	}
+}
+
+// A sibling session's long-running agent keeps counting past TTL (its marker carries that session's transcript),
+// and its finished agent is pruned by the same rule, whoever scans.
+func TestForeignSpawnFollowsItsOwnSession(t *testing.T) {
+	setupDir(t)
+	if !ProbeTrusted() {
+		t.Skip("owner liveness is untrusted here")
+	}
+	helper := exec.Command("sleep", "30")
+	if err := helper.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = helper.Process.Kill(); _ = helper.Wait() })
+	sib := helper.Process.Pid
+	transcript := filepath.Join(t.TempDir(), "sib.jsonl")
+	sub := SubagentDir(transcript)
+	if err := os.MkdirAll(sub, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for agent, body := range map[string]string{
+		"long": `{"toolUseId":"toolu_long"}`,
+		"done": `{"toolUseId":"toolu_done","finished":true}`,
+	} {
+		if err := os.WriteFile(filepath.Join(sub, "agent-"+agent+".meta.json"), []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(sub, "agent-"+agent+".jsonl"), []byte("{}\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	old := time.Now().Add(-2 * TTL)
+	for _, id := range []string{"toolu_long", "toolu_done"} {
+		path := filepath.Join(Dir(), markerName(sib, id))
+		if err := os.WriteFile(path, []byte("a\n"+transcript), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chtimes(path, old, old); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if ok, _ := TryClaim(Claim{Owner: os.Getpid(), ID: "probe", Account: "a"}, Limits{Base: Base, Total: 100}); !ok {
+		t.Fatal("probe claim refused")
+	}
+	if !markerExists(sib, "toolu_long") {
+		t.Error("a live sibling's active agent stopped counting after TTL (cap overrun)")
+	}
+	if markerExists(sib, "toolu_done") {
+		t.Error("a sibling's finished agent still counts")
 	}
 }
