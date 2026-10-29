@@ -33,3 +33,34 @@ func TestCommitRepoDirTriesEveryDashC(t *testing.T) {
 		}
 	}
 }
+
+// Linked worktrees share objects: the commit belongs to the worktree whose HEAD it is, and a non-commit -C is no candidate.
+func TestCommitRepoDirLinkedWorktrees(t *testing.T) {
+	root := t.TempDir()
+	run := func(dir string, args ...string) string {
+		out, err := exec.Command("git", append([]string{"-C", dir, "-c", "user.name=t", "-c", "user.email=t@t"}, args...)...).CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	a, b, other := filepath.Join(root, "a"), filepath.Join(root, "b"), filepath.Join(root, "other")
+	run(root, "init", "-q", a)
+	run(a, "commit", "-q", "--allow-empty", "-m", "base")
+	run(a, "worktree", "add", "-q", "-b", "wt", b)
+	run(root, "init", "-q", other)
+	run(a, "commit", "-q", "--allow-empty", "-m", "a")
+	run(b, "commit", "-q", "--allow-empty", "-m", "b")
+	shaA, shaB := run(a, "rev-parse", "HEAD"), run(b, "rev-parse", "HEAD")
+	cmd := "git -C " + a + " commit -m a && git -C " + b + " commit -m b"
+	if got := commitRepoDir(context.Background(), root, cmd, shaB); got != b {
+		t.Errorf("sha made in worktree b resolved to %q, want %q", got, b)
+	}
+	if got := commitRepoDir(context.Background(), root, cmd, shaA); got != a {
+		t.Errorf("sha made in a resolved to %q, want %q", got, a)
+	}
+	cmd = "git -C " + a + " status && git commit -m b"
+	if got := commitRepoDir(context.Background(), b, cmd, shaB); got != b {
+		t.Errorf("a non-commit -C outranked cwd: got %q, want %q", got, b)
+	}
+}
