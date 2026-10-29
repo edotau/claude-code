@@ -142,6 +142,46 @@ func TestCountEditsFromIncremental(t *testing.T) {
 	}
 }
 
+// TestCountWorkFromUserTurns: only typed user prompts count as turns — tool results, isMeta lines,
+// slash-command echoes and assistant lines do not — and an offset resume never double-counts.
+func TestCountWorkFromUserTurns(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "turns.jsonl")
+	records := []struct {
+		name  string
+		line  string
+		turns int
+	}{
+		{"string prompt", `{"type":"user","message":{"content":"fix the bug"}}`, 1},
+		{"text parts prompt", `{"type":"user","message":{"content":[{"type":"text","text":"now add tests"}]}}`, 1},
+		{"tool result", `{"type":"user","message":{"content":[{"type":"tool_result","content":"ok"}]}}`, 0},
+		{"isMeta", `{"type":"user","isMeta":true,"message":{"content":"meta"}}`, 0},
+		{"command echo", `{"type":"user","message":{"content":"<command-name>/review</command-name>"}}`, 0},
+		{"assistant", `{"type":"assistant","message":{"content":[{"type":"text","text":"sure"}]}}`, 0},
+	}
+	var offset int64
+	total := 0
+	for _, record := range records {
+		t.Run(record.name, func(t *testing.T) {
+			chunk := record.line + "\n"
+			appendTranscript(t, path, chunk)
+			edits, turns, next := CountWorkFrom(path, offset)
+			wantNext := offset + int64(len(chunk))
+			if edits != 0 || turns != record.turns || next != wantNext {
+				t.Fatalf("CountWorkFrom(offset=%d) = (%d, %d, %d), want (0, %d, %d)",
+					offset, edits, turns, next, record.turns, wantNext)
+			}
+			total += record.turns
+			offset = next
+		})
+	}
+	if edits, turns, next := CountWorkFrom(path, offset); edits != 0 || turns != 0 || next != offset {
+		t.Fatalf("resume at offset %d = (%d, %d, %d), want (0, 0, %d)", offset, edits, turns, next, offset)
+	}
+	if _, turns, _ := CountWorkFrom(path, 0); turns != total {
+		t.Fatalf("full scan turns = %d, want %d", turns, total)
+	}
+}
+
 func TestCountEditsFromPartialRecords(t *testing.T) {
 	for _, ending := range []string{"\n", "\r\n"} {
 		t.Run(strings.ReplaceAll(strings.ReplaceAll(ending, "\r", "CR"), "\n", "LF"), func(t *testing.T) {

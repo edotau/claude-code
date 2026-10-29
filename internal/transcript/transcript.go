@@ -152,27 +152,59 @@ func EditedFiles(path string, limit int) []string {
 
 // CountEditsFrom counts complete lines from offset and returns the position after the last newline.
 func CountEditsFrom(path string, offset int64) (edits int, next int64) {
+	edits, _, next = CountWorkFrom(path, offset)
+	return edits, next
+}
+
+// CountWorkFrom counts complete lines from offset, returning edits, user turns, and next offset.
+func CountWorkFrom(path string, offset int64) (edits, turns int, next int64) {
 	offset = max(offset, 0)
 	f, err := os.Open(path)
 	if err != nil {
-		return 0, offset
+		return 0, 0, offset
 	}
 	defer f.Close()
 	fi, err := f.Stat()
 	if err != nil || fi.IsDir() {
-		return 0, offset
+		return 0, 0, offset
 	}
 	if fi.Size() < offset {
 		offset = 0
 	}
 	if _, err := f.Seek(offset, io.SeekStart); err != nil {
-		return 0, offset
+		return 0, 0, offset
 	}
-	n := 0
 	read := scanLines(f, true, func(line []byte) {
-		n += countLineEdits(line)
+		edits += countLineEdits(line)
+		if isUserTurnLine(line) {
+			turns++
+		}
 	})
-	return n, offset + read
+	return edits, turns, offset + read
+}
+
+var userTypeKey = []byte(`"type":"user"`)
+
+// toolResultKey only matches a real JSON value: inside prompt text the closing quote is escaped.
+var toolResultKey = []byte(`"tool_result"`)
+
+// isUserTurnLine reports whether line is a typed user prompt: not meta, no tool_result, not a slash-command echo.
+func isUserTurnLine(line []byte) bool {
+	if !bytes.Contains(line, userTypeKey) || bytes.Contains(line, toolResultKey) {
+		return false
+	}
+	var rec struct {
+		Type    string `json:"type"`
+		IsMeta  bool   `json:"isMeta"`
+		Message struct {
+			Content json.RawMessage `json:"content"`
+		} `json:"message"`
+	}
+	if json.Unmarshal(line, &rec) != nil || rec.Type != "user" || rec.IsMeta {
+		return false
+	}
+	text := strings.TrimSpace(ContentText(rec.Message.Content))
+	return text != "" && !strings.HasPrefix(text, "<command-") && !strings.HasPrefix(text, "<local-command")
 }
 
 // countLineEdits decodes an assistant tool_use line at most once, counting editor calls and weighted
