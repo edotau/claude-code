@@ -74,14 +74,14 @@ func recordCodexRoute(in *Input, record codexRouteRecord, stderr io.Writer) {
 }
 
 func appendCodexRoute(path string, record codexRouteRecord) error {
-	records, err := readCodexRoutes(path)
-	if err != nil {
+	data, err := os.ReadFile(path)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
-	if err := dropTornRoute(path); err != nil {
+	if err := dropTornRoute(path, data); err != nil {
 		return err
 	}
-	records = append(records, record)
+	records := append(parseCodexRoutes(data), record)
 	write := []codexRouteRecord{record}
 	write = append(write, codexRouteMatches(records)...)
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
@@ -97,15 +97,8 @@ func appendCodexRoute(path string, record codexRouteRecord) error {
 	return f.Close()
 }
 
-// dropTornRoute truncates an unterminated trailing record so the next append starts on a fresh line.
-func dropTornRoute(path string) error {
-	data, err := os.ReadFile(path)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
+// dropTornRoute truncates an unterminated trailing record in data (path's content) so the next append starts fresh.
+func dropTornRoute(path string, data []byte) error {
 	if len(data) == 0 || data[len(data)-1] == '\n' {
 		return nil
 	}
@@ -121,6 +114,10 @@ func readCodexRoutes(path string) ([]codexRouteRecord, error) {
 	if err != nil {
 		return nil, err
 	}
+	return parseCodexRoutes(data), nil
+}
+
+func parseCodexRoutes(data []byte) []codexRouteRecord {
 	var records []codexRouteRecord
 	for _, line := range bytes.Split(data[:bytes.LastIndexByte(data, '\n')+1], []byte{'\n'}) {
 		var row codexRouteRecord
@@ -128,7 +125,7 @@ func readCodexRoutes(path string) ([]codexRouteRecord, error) {
 			records = append(records, row)
 		}
 	}
-	return records, nil
+	return records
 }
 
 // Join by tool and child IDs, never by model or event arrival order.
