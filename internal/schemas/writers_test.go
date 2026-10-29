@@ -70,6 +70,8 @@ var writers = map[string]string{
 	"internal/hooks/memory.go:writeStamp":                          unversioned("text: harvest stamp"),
 	"internal/hooks/plan.go:PlanMirror":                            unversioned("foreign: plan markdown in plans/"),
 	"internal/hooks/plan.go:SavePlan":                              unversioned("foreign: plan markdown in plans/"),
+	"internal/hooks/plan.go:PlanSkeleton":                          unversioned("text: plan skeleton injected marker"),
+	"internal/hooks/plantick.go:recordPartials":                    unversioned("text: partly landed plan tasks"),
 	"internal/hooks/plan.go:recordDest":                            unversioned("text: plan draft destination pointer"),
 	"internal/plans/tick.go:writePlan":                             unversioned("foreign: plan markdown in plans/"),
 	"internal/hooks/stop_format.go:stopFormat":                     "stop-format",
