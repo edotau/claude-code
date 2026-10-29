@@ -315,6 +315,7 @@ claude-code network view <agentId> [--follow]  # one agent's snapshot or live ev
 claude-code network page [--addr ip:port]           # dashboard over loopback or the tailnet
 claude-code dispatch --host <h> --agent <a> "<task>"   # detached agent TUI on another box (tmux)
 claude-code network browser [--setup --browser edge]      # browser control paths; Claude in Chrome install
+claude-code network browser --extract <url> --container <sel> --field name=sel   # scrape records over CDP
 claude-code network websearch --query q           # Tavily one-shot (bare = stdio MCP server)
 ```
 
