@@ -13,62 +13,163 @@ import (
 	"path/filepath"
 	"runtime"
 	"sync"
-	"sync/atomic"
 	"time"
 )
 
-// DefaultPerKey caps concurrent tasks on one provider·profile (one credential, one rate limit).
+// DefaultPerKey caps concurrent legs on one billed account (one credential, one rate limit).
 const DefaultPerKey = 4
 
 // DefaultJobs is the default pool size: min(4, GOMAXPROCS).
 func DefaultJobs() int { return min(4, runtime.GOMAXPROCS(0)) }
 
-// legLimiter caps concurrent running legs per billed account; a task holds at most one permit, never while queued.
-type legLimiter struct {
-	mu   sync.Mutex
-	n    int
-	sems map[string]chan struct{}
-	// blocked counts tasks parked on a full account: they hold no pool slot, so the scheduler may start others.
-	blocked atomic.Int32
-	wake    chan struct{}
+// limiter is the one concurrency gate for legs: at most jobs run at once, and at most cap per billed account.
+// A waiting task holds nothing; waiters are served in ticket order among those whose account has room.
+type limiter struct {
+	mu        sync.Mutex
+	cond      *sync.Cond
+	running   int
+	jobs, cap int
+	per       map[string]int
+	next      int
+	wait      map[int]*waiter
 }
 
-type legLimitKey struct{}
+// waiter is a queued ticket; account is empty until its holder reaches acquire (then it always has room).
+type waiter struct{ account string }
 
-func withLegLimit(ctx context.Context, l *legLimiter) context.Context {
-	return context.WithValue(ctx, legLimitKey{}, l)
+func newLimiter(jobs, cap int) *limiter {
+	l := &limiter{jobs: jobs, cap: cap, per: map[string]int{}, wait: map[int]*waiter{}}
+	l.cond = sync.NewCond(&l.mu)
+	return l
 }
 
-// acquireLeg takes a permit on account under ctx's limiter; no limiter or account means no limit.
+// reserve queues a ticket now, so tasks are served in input order however their goroutines get scheduled.
+func (l *limiter) reserve() int {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.reserveLocked()
+}
+
+func (l *limiter) reserveLocked() int {
+	l.next++
+	l.wait[l.next] = &waiter{}
+	return l.next
+}
+
+// drop gives up a ticket that never reached acquire.
+func (l *limiter) drop(ticket int) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	delete(l.wait, ticket)
+	l.cond.Broadcast()
+}
+
+func (l *limiter) room(account string) bool { return account == "" || l.per[account] < l.cap }
+
+// first is the oldest queued ticket that could run if a global slot were free.
+func (l *limiter) first() int {
+	best := 0
+	for t, w := range l.wait {
+		if l.room(w.account) && (best == 0 || t < best) {
+			best = t
+		}
+	}
+	return best
+}
+
+// turn waits, holding nothing, until ticket is next in line with a global slot free: only then is the task prepared.
+func (l *limiter) turn(ctx context.Context, ticket int) error {
+	defer context.AfterFunc(ctx, func() { l.mu.Lock(); l.cond.Broadcast(); l.mu.Unlock() })()
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	for !(l.running < l.jobs && l.first() == ticket) {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		l.cond.Wait()
+	}
+	return ctx.Err()
+}
+
+// acquire waits for a global slot and, when account is set, an account permit; the release func is idempotent.
+func (l *limiter) acquire(ctx context.Context, ticket int, account string) (func(), error) {
+	defer context.AfterFunc(ctx, func() { l.mu.Lock(); l.cond.Broadcast(); l.mu.Unlock() })()
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	w := l.wait[ticket]
+	if w == nil {
+		ticket = l.reserveLocked()
+		w = l.wait[ticket]
+	}
+	w.account = account
+	l.cond.Broadcast() // a full account no longer holds the head of the line
+	for {
+		if err := ctx.Err(); err != nil {
+			delete(l.wait, ticket)
+			l.cond.Broadcast()
+			return nil, err
+		}
+		if l.running < l.jobs && l.room(account) && l.first() == ticket {
+			break
+		}
+		l.cond.Wait()
+	}
+	delete(l.wait, ticket)
+	l.running++
+	if account != "" {
+		l.per[account]++
+	}
+	l.cond.Broadcast() // the next waiter may fit too
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			l.mu.Lock()
+			defer l.mu.Unlock()
+			l.running--
+			if account != "" {
+				l.per[account]--
+			}
+			l.cond.Broadcast()
+		})
+	}, nil
+}
+
+// permitHold is the permit of the leg now running, released between legs and at RunWithFallback's exit.
+type permitHold struct{ release func() }
+
+func (h *permitHold) free() {
+	if h.release != nil {
+		h.release()
+		h.release = nil
+	}
+}
+
+// finish tells the batch the task's outcome (fail-fast cancels here) before the last permit is given back.
+func (h *permitHold) finish(ctx context.Context, res Result, err error) {
+	if f, _ := ctx.Value(finishKey{}).(func(Result, error)); f != nil {
+		f(res, err)
+	}
+	h.free()
+}
+
+type (
+	limiterKey struct{}
+	finishKey  struct{}
+	ticketKey  struct{}
+)
+
+func withLimiter(ctx context.Context, l *limiter) context.Context {
+	return context.WithValue(ctx, limiterKey{}, l)
+}
+
+// acquireLeg takes a leg permit under ctx's limiter; outside a batch there is no limit.
 func acquireLeg(ctx context.Context, account string) (release func(), err error) {
-	l, _ := ctx.Value(legLimitKey{}).(*legLimiter)
-	if l == nil || account == "" {
+	l, _ := ctx.Value(limiterKey{}).(*limiter)
+	if l == nil {
 		return func() {}, nil
 	}
-	l.mu.Lock()
-	sem := l.sems[account]
-	if sem == nil {
-		sem = make(chan struct{}, l.n)
-		l.sems[account] = sem
-	}
-	l.mu.Unlock()
-	select {
-	case sem <- struct{}{}:
-		return func() { <-sem }, nil
-	default:
-	}
-	l.blocked.Add(1)
-	defer l.blocked.Add(-1)
-	select {
-	case l.wake <- struct{}{}:
-	default:
-	}
-	select {
-	case sem <- struct{}{}:
-		return func() { <-sem }, nil
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	}
+	tk, _ := ctx.Value(ticketKey{}).(int)
+	return l.acquire(ctx, tk, account)
 }
 
 // TaskLine is one `ask --batch` JSONL task; Tools stays nil when absent so the flag default applies.
@@ -129,7 +230,7 @@ type BatchTask struct {
 // BatchOptions configures RunBatch; Out is read when RunBatch is called, so a swapped os.Stdout is honored.
 type BatchOptions struct {
 	ID       string    // stamped on every envelope as batch_id
-	Jobs     int       // tasks run at once; <= 0 means DefaultJobs
+	Jobs     int       // legs run at once; <= 0 means DefaultJobs
 	FailFast bool      // the first failed task cancels every queued and running one
 	Out      io.Writer // one envelope JSON per line, in completion order
 	Log      io.Writer // per-task progress lines tagged with the task id; nil discards
@@ -144,23 +245,23 @@ type batchDone struct {
 	ok  bool
 }
 
-// batchRun is the state shared by a batch's workers: the claimed record ids and the serialized log writer.
+// batchRun is the state shared by a batch's workers: the claimed record ids, the serialized log writer, the limiter.
 type batchRun struct {
 	o    BatchOptions
 	mu   sync.Mutex
 	ids  map[string]bool
 	logM sync.Mutex
-	legs *legLimiter // one per batch, so accounts are capped across tasks
+	lim  *limiter
+	stop func() // cancels the batch; fail-fast calls it from a finished task
 }
 
 // RunBatch streams one envelope per task to o.Out as each finishes; true only if every task was ok.
-// The calling goroutine is the one scheduler and the one writer: it starts the first queued task whose
-// provider·profile has a free permit when a pool slot is free, so a full key never starves another.
+// Each task runs in its own goroutine and waits on the limiter per leg; the calling goroutine is the one writer.
 func RunBatch(ctx context.Context, tasks []BatchTask, o BatchOptions) bool {
 	jobs := max(cmp.Or(o.Jobs, DefaultJobs()), 1)
 	bctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	b := &batchRun{o: o, ids: map[string]bool{}, legs: &legLimiter{n: DefaultPerKey, sems: map[string]chan struct{}{}, wake: make(chan struct{}, 1)}}
+	b := &batchRun{o: o, ids: map[string]bool{}, lim: newLimiter(jobs, DefaultPerKey), stop: cancel}
 	allOK := true
 	emit := func(env Envelope, ok bool) {
 		env.BatchID = o.ID
@@ -175,86 +276,38 @@ func RunBatch(ctx context.Context, tasks []BatchTask, o BatchOptions) bool {
 			}
 		}
 	}
-	var pending []int
+	done := make(chan batchDone, len(tasks))
+	spawned := 0
 	for i, t := range tasks {
 		if t.Err != nil {
 			emit(taskFailure(t, t.Err), false)
 			continue
 		}
-		pending = append(pending, i)
+		spawned++
+		tk := b.lim.reserve()
+		go func() {
+			env, ok := b.task(context.WithValue(bctx, ticketKey{}, tk), t, tk)
+			done <- batchDone{i, env, ok}
+		}()
 	}
-	keys := make([]string, len(tasks))
-	for i, t := range tasks {
-		keys[i] = cmp.Or(t.Req.Provider, t.Agent) // the profile billed, else the agent
-	}
-	sc := &batchSched{b: b, tasks: tasks, keys: keys, pending: pending, inKey: map[string]int{}, jobs: jobs,
-		perKey: DefaultPerKey, done: make(chan batchDone, len(tasks)), emit: emit}
-	for len(sc.pending) > 0 || sc.running > 0 {
-		if bctx.Err() != nil {
-			for _, i := range sc.pending {
-				emit(b.cancelled(tasks[i]), false)
-			}
-			sc.pending = nil
-		}
-		sc.start(bctx)
-		if sc.running == 0 {
-			break // unreachable with perKey >= 1; never spin
-		}
-		sc.reap(bctx)
+	for range spawned {
+		d := <-done
+		emit(d.env, d.ok)
 	}
 	return allOK
 }
 
-// batchSched is the scheduler state RunBatch's single goroutine owns.
-type batchSched struct {
-	b            *batchRun
-	tasks        []BatchTask
-	keys         []string
-	pending      []int
-	inKey        map[string]int
-	running      int
-	jobs, perKey int
-	done         chan batchDone
-	emit         func(Envelope, bool)
-}
-
-// start launches queued tasks while a pool slot and a per-key permit are free.
-func (sc *batchSched) start(ctx context.Context) {
-	for sc.running-int(sc.b.legs.blocked.Load()) < sc.jobs && len(sc.pending) > 0 && ctx.Err() == nil {
-		at := freeSlot(sc.pending, sc.keys, sc.inKey, sc.perKey)
-		if at < 0 {
-			return
-		}
-		i := sc.pending[at]
-		sc.pending = append(sc.pending[:at:at], sc.pending[at+1:]...)
-		chain, rec, err := sc.tasks[i].Prepare(ctx)
-		if err != nil {
-			sc.emit(taskFailure(sc.tasks[i], err), false)
-			continue
-		}
-		sc.inKey[sc.keys[i]]++
-		sc.running++
-		go func() { env, ok := sc.b.run(ctx, sc.tasks[i], chain, rec); sc.done <- batchDone{i, env, ok} }()
+// task prepares and runs one task; a cancelled batch fails it before Prepare, so a queued task costs nothing.
+func (b *batchRun) task(ctx context.Context, t BatchTask, ticket int) (Envelope, bool) {
+	defer b.lim.drop(ticket) // a ticket the task never used must not hold up the rest
+	if b.lim.turn(ctx, ticket) != nil {
+		return b.cancelled(t), false
 	}
-}
-
-// reap waits for one finished task and emits it; with queued work it also wakes on cancellation.
-func (sc *batchSched) reap(ctx context.Context) {
-	var d batchDone
-	if len(sc.pending) > 0 {
-		select {
-		case d = <-sc.done:
-		case <-sc.b.legs.wake: // a task parked on a full account freed its pool slot
-			return
-		case <-ctx.Done():
-			return
-		}
-	} else {
-		d = <-sc.done
+	chain, rec, err := t.Prepare(ctx)
+	if err != nil {
+		return taskFailure(t, err), false
 	}
-	sc.running--
-	sc.inKey[sc.keys[d.i]]--
-	sc.emit(d.env, d.ok)
+	return b.run(ctx, t, chain, rec)
 }
 
 // writeEnvelope writes env as one JSON line; false only when the write itself failed.
@@ -274,14 +327,15 @@ func taskFailure(t BatchTask, err error) Envelope {
 	return env
 }
 
-// freeSlot is the index in pending of the first task whose key has a free permit, or -1.
-func freeSlot(pending []int, keys []string, inKey map[string]int, perKey int) int {
-	for p, i := range pending {
-		if inKey[keys[i]] < perKey {
-			return p
-		}
+// onFinish is the fail-fast trip: it runs while the task's last leg permit is still held.
+func (b *batchRun) onFinish(res Result, err error) {
+	if !b.o.FailFast {
+		return
 	}
-	return -1
+	env := NewEnvelope(res, err, "")
+	if env.Status != StatusOK && (env.Error == nil || env.Error.Kind != "canceled") {
+		b.stop()
+	}
 }
 
 // cancelled is the envelope of a queued task the batch cancelled before it started.
@@ -303,7 +357,7 @@ func (b *batchRun) logf(id, format string, a ...any) {
 
 // run executes one task with its own stream, log sink and dispatch record; a panic becomes an error envelope.
 func (b *batchRun) run(ctx context.Context, t BatchTask, chain Chain, rec Record) (env Envelope, ok bool) {
-	ctx = withLegLimit(withIsolation(ctx), b.legs)
+	ctx = context.WithValue(withLimiter(withIsolation(ctx), b.lim), finishKey{}, b.onFinish)
 	start := time.Now()
 	var sink *LogSink
 	defer func() {
