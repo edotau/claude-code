@@ -96,10 +96,10 @@ func tickCommit(in *Input, cmd, sha string, stderr io.Writer) []string {
 	return blocks
 }
 
-// commitRepoDir is the first candidate dir (-C arg, leading cd, cwd) whose repo holds the commit sha.
+// commitRepoDir is the first candidate dir (every -C arg, leading cd, cwd) whose repo holds the commit sha.
 func commitRepoDir(ctx context.Context, cwd, cmd, sha string) string {
 	var cands []string
-	if m := gitDirArg.FindStringSubmatch(cmd); m != nil {
+	for _, m := range gitDirArg.FindAllStringSubmatch(cmd, -1) { // chained commits may each name their own repo
 		cands = append(cands, strings.Trim(m[1], `"'`))
 	}
 	if m := leadingCD.FindStringSubmatch(cmd); m != nil {
