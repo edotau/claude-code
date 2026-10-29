@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"unicode"
 
 	"github.com/edotau/claude-code/internal/secrets/shapes"
 )
@@ -49,7 +50,7 @@ func checkNotCredential(key string, raw json.RawMessage) error {
 func credentialIn(v any) bool {
 	switch t := v.(type) {
 	case string:
-		return shapes.Looks(t)
+		return shapes.Looks(t) || slices.ContainsFunc(strings.FieldsFunc(t, splitToken), shapes.Looks)
 	case []any:
 		return slices.ContainsFunc(t, credentialIn)
 	case map[string]any:
@@ -60,4 +61,9 @@ func credentialIn(v any) bool {
 		}
 	}
 	return false
+}
+
+// splitToken separates the words of a string value: whitespace, ':', '=', ',', ';' and quotes.
+func splitToken(r rune) bool {
+	return unicode.IsSpace(r) || strings.ContainsRune(`:=,;"'`, r)
 }

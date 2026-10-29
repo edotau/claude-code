@@ -54,7 +54,7 @@ Files under `agents/`, `commands/`, `rules/`, `skills/` and this file go live th
 | To… | Run | Then / depth |
 | --- | --- | --- |
 | Build and install (`claude-code` + agent links in `~/.claude/bin`, render `settings.json`) | `make install` (`claude-code install --dry-run` previews) | `README.md` → Install |
-| Render settings + agent configs | `claude-code configure --reset [--out f] [--check] [--dry-run] [--agents]` | hard rule 4; `README.md` → Setup |
+| Render settings + agent configs | `claude-code configure --restore [--out f] [--check] [--dry-run] [--agents]` | hard rule 4; `README.md` → Setup |
 | Check binaries, providers, credentials, proxy | `claude-code doctor` | every diagnostic verb takes `--format text\|json` (doctor, configure provider --list, usage, history log, network mcp, memory search) |
 | See providers and credential state | `claude-code configure provider --list [<name>]` | `README.md` → Providers |
 | Switch the session profile | `claude-code switch <profile> [--dry-run]` (relaunch); one launch: `claude-code --profile <p>` | pin lands in the vault (`claude-code vault list`) |
@@ -69,7 +69,7 @@ Files under `agents/`, `commands/`, `rules/`, `skills/` and this file go live th
 | Project agents + this file into every agent CLI, link skills into `~/.agents/skills` | `claude-code agents sync [--agent a] [--dry-run\|--check]` (also run by `install`) | `rules/harness/docs-placement.md` → What stays out of the three homes |
 | List, create, clean worktrees under `~/worktrees/<repo>/` | `claude-code worktree list [--format json]` · `create <name>` · `merge <name>` · `clean <name>` · `clean-all [--yes]` | `skills/using-git-worktrees/references/merge-and-clean.md` |
 | Add or retime a hook | implement in `internal/hooks/`, register in `internal/hookspec/hookspec.go`, `make install` | `README.md` → Hooks |
-| Change permissions / env / statusLine | edit `internal/settings/template/` → `claude-code configure --reset --dry-run` (prints) → `make install` | hard rule 1 |
+| Change permissions / env / statusLine | edit `internal/settings/template/` → `claude-code configure --restore --dry-run` (prints) → `make install` | hard rule 1 |
 | Check MCP server health, scope drift, inline secrets | `claude-code network mcp [--format json]` | `rules/harness/settings-management.md` |
 | Map the whole harness for an agent (verbs, providers, agents, hooks) | `claude-code describe [--format json\|text]` | credentials never appear, only whether one resolves |
 | Sweep accumulated state (caches, run dirs, backups) | `claude-code clean [--list]` (applies by default; `--dry-run` previews; opt-in `--target projections\|sessions`) | credentials/settings never swept |

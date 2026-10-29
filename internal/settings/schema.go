@@ -4,6 +4,7 @@ import (
 	_ "embed"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"regexp"
 	"slices"
 	"strings"
@@ -28,6 +29,10 @@ type Key struct {
 	alts        []Key          // union branches (anyOf, oneOf, a type list): valid when any accepts
 	items       *Key           // array element schema
 	props       map[string]Key // object property schemas
+	required    []string
+	constVal    json.RawMessage
+	noExtra     bool // additionalProperties: false
+	ref         bool // uses $ref, which is not resolved: the picker skips it
 }
 
 // schemaType is a JSON-Schema "type": one name or a list, kept whole so unions validate every branch.
@@ -92,6 +97,10 @@ type schemaNode struct {
 	OneOf       []schemaNode          `json:"oneOf"`
 	Items       *schemaNode           `json:"items"`
 	Properties  map[string]schemaNode `json:"properties"`
+	Required    []string              `json:"required"`
+	Const       json.RawMessage       `json:"const"`
+	AddlProps   json.RawMessage       `json:"additionalProperties"`
+	Ref         string                `json:"$ref"`
 }
 
 // flatten folds an anyOf node's branches into one node: enum and type from the first typed branch, pattern from any.
@@ -141,6 +150,12 @@ func (n schemaNode) key(name string, env bool) Key {
 		for pn, pv := range n.Properties {
 			k.props[pn] = pv.key(name+"."+pn, env)
 		}
+	}
+	k.required, k.constVal = n.Required, n.Const
+	k.noExtra = strings.TrimSpace(string(n.AddlProps)) == "false"
+	k.ref = n.Ref != "" || (k.items != nil && k.items.ref)
+	for _, c := range slices.Concat(k.alts, slices.Collect(maps.Values(k.props))) {
+		k.ref = k.ref || c.ref
 	}
 	typ := n.Type.first()
 	switch {
@@ -216,6 +231,11 @@ func (k Key) Validate(raw json.RawMessage) error {
 	if strings.TrimSpace(string(raw)) == "null" {
 		return fmt.Errorf("%s: want a value, got null", k.Name)
 	}
+	if len(k.constVal) > 0 {
+		if a, errA := compactStr(raw); errA != nil || a != mustCompact(k.constVal) {
+			return fmt.Errorf("%s: must be %s", k.Name, k.constVal)
+		}
+	}
 	if len(k.alts) > 0 {
 		var errs []string
 		for _, a := range k.alts {
@@ -268,7 +288,15 @@ func (k Key) Validate(raw json.RawMessage) error {
 		if json.Unmarshal(raw, &m) != nil {
 			return fmt.Errorf("%s: want a JSON object", k.Name)
 		}
+		for _, r := range k.required {
+			if _, ok := m[r]; !ok {
+				return fmt.Errorf("%s: missing required %q", k.Name, r)
+			}
+		}
 		for pn, pv := range m {
+			if _, ok := k.props[pn]; !ok && k.noExtra {
+				return fmt.Errorf("%s: unknown property %q", k.Name, pn)
+			}
 			if sub, ok := k.props[pn]; ok {
 				if err := sub.Validate(pv); err != nil {
 					return err
@@ -307,3 +335,12 @@ func (k Key) checkRange(n float64) error {
 	}
 	return nil
 }
+
+// mustCompact is compactStr for a schema constant, which is always valid JSON.
+func mustCompact(raw json.RawMessage) string {
+	c, _ := compactStr(raw)
+	return c
+}
+
+// HasRef reports a schema entry using $ref; its constraints are unresolved, so the picker does not offer it.
+func (k Key) HasRef() bool { return k.ref }

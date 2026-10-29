@@ -7,6 +7,7 @@ import (
 	"maps"
 	"slices"
 
+	"github.com/edotau/claude-code/internal/hookspec"
 	"github.com/edotau/claude-code/internal/vault"
 )
 
@@ -109,6 +110,9 @@ func validateKey(k string, v json.RawMessage) error {
 	if err := checkNotCredential(k, v); err != nil {
 		return err
 	}
+	if structuralKey(k) {
+		return fmt.Errorf("%s is generated or structural; edit defaults/claude/settings.json by hand", k)
+	}
 	if f, ok := Lookup(k); ok {
 		return f.Validate(v)
 	}
@@ -166,6 +170,11 @@ func applyOverlay(rendered []byte, ov map[string]json.RawMessage) ([]byte, error
 			return nil, fmt.Errorf("vault overlay/settings: %s: %w", k, err)
 		}
 	}
+	hooks, err := hookspec.SettingsJSON() // defence in depth: the generated hooks always win
+	if err != nil {
+		return nil, err
+	}
+	o.set("hooks", hooks)
 	return o.marshal()
 }
 
@@ -187,3 +196,15 @@ func setKey(o *object, k string, v json.RawMessage) error {
 	o.set("env", raw)
 	return nil
 }
+
+// structuralKey names the keys the harness generates or owns whole: no overlay, picker or repo-default edit.
+func structuralKey(k string) bool {
+	switch k {
+	case "hooks", "statusLine", "$schema", "permissions", "env":
+		return true
+	}
+	return false
+}
+
+// StructuralKey reports a key the page and the writers refuse to edit (env variables stay editable one by one).
+func StructuralKey(k string) bool { return structuralKey(k) }

@@ -47,7 +47,7 @@ claude-code configure models          # one page (provider|models|agents|router|
 claude-code configure claude          # per-machine settings overrides; team defaults stay in the template
 claude-code configure codex           # vault-backed reasoning effort and output verbosity
 claude-code configure --check         # report only; exit 1 if anything is unset
-claude-code configure --reset [--out f|--check|--dry-run]   # render settings + agent CLI configs
+claude-code configure --restore [--out f|--check|--dry-run]   # render settings + agent CLI configs
 claude-code configure --revert [--agent a,b]        # restore agent CLI configs from backup
 claude-code theme vscode [--check|--dry-run]             # merge VS Code settings + keybindings
 ```
@@ -60,7 +60,7 @@ claude-code theme vscode [--check|--dry-run]             # merge VS Code setting
   `~/.config/opencode/` is written only for the custom theme file and the agent files `agents sync` projects into
   `agents/` (its model/MCP/theme config come from a tracked overlay, `OPENCODE_CONFIG` / `OPENCODE_TUI_CONFIG`,
   injected at launch — `internal/vendors/template/`).
-- On a terminal, `configure --reset` prompts before overwriting hand-edited lines it would otherwise lose; a
+- On a terminal, `configure --restore` prompts before overwriting hand-edited lines it would otherwise lose; a
   non-interactive run (launch, `configure`, `make install`) writes and warns instead. Each overwrite keeps 5
   timestamped backups; `configure --revert` steps an agent CLI file back one version at a time.
 - Codex preferences are saved in the vault and applied to `$CODEX_HOME/config.toml` (default
@@ -70,7 +70,7 @@ claude-code theme vscode [--check|--dry-run]             # merge VS Code setting
   Provider configuration, hook trust, and unknown native settings are preserved. Check and dry-run do not write.
   An unavailable vault key aborts changed Codex writes.
 - From a worktree, render only that checkout:
-  `CLAUDE_CONFIG_DIR="$PWD" claude-code configure --reset --out "$PWD/settings.json"`
+  `CLAUDE_CONFIG_DIR="$PWD" claude-code configure --restore --out "$PWD/settings.json"`
   (agent CLI homes are skipped unless `--agents`).
 
 ### Setup modes: adopt, nuke, workspace
