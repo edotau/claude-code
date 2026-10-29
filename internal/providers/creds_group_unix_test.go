@@ -95,3 +95,28 @@ func TestRunAuthCommandChildHoldingStdoutDoesNotBlock(t *testing.T) {
 		t.Errorf("took %s: a child holding stdout open must not wait out WaitDelay", d)
 	}
 }
+
+// A child that escapes the group with setsid and keeps stdout open must not hang the auth command.
+func TestRunAuthCommandEscapedChildDoesNotHang(t *testing.T) {
+	setsid, err := exec.LookPath("setsid")
+	if err != nil {
+		t.Skip("setsid not on PATH")
+	}
+	old := authDrainLimit
+	authDrainLimit = 300 * time.Millisecond
+	t.Cleanup(func() { authDrainLimit = old })
+	pidfile := filepath.Join(t.TempDir(), "escaped.pid")
+	start := time.Now()
+	v, rerr := runAuthCommand(context.Background(), &Provider{Name: "escaped"},
+		setsid+" sh -c 'echo $$ > "+pidfile+"; exec sleep 60' & while [ ! -s "+pidfile+" ]; do sleep 0.05; done; echo tok")
+	if raw, err := os.ReadFile(pidfile); err == nil {
+		pid, _ := strconv.Atoi(strings.TrimSpace(string(raw)))
+		t.Cleanup(func() { _ = syscall.Kill(pid, syscall.SIGKILL) })
+	}
+	if rerr != nil || v != "tok" {
+		t.Fatalf("runAuthCommand = %q, %v; want tok", v, rerr)
+	}
+	if d := time.Since(start); d > 3*time.Second {
+		t.Errorf("took %s: draining must be bounded by authDrainLimit", d)
+	}
+}
