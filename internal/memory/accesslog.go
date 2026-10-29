@@ -29,6 +29,7 @@ const (
 	accessLogKeep     = 2000 // newest lines kept when the size cap trims
 	accessRotateDays  = 30
 	accessGenerations = 3
+	accessLockWait    = 500 * time.Millisecond
 )
 
 // LogAccess appends one `<RFC3339> -- <entry> -- <reason>` line to dir's access log. Fail-open:
@@ -58,14 +59,21 @@ func LogAccessBatch(dir string, now time.Time, entries []string, reason string) 
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return // log dir not scaffolded yet — fail-open, same as every other LogAccess error path
 	}
-	maybeRotateAccessLog(path, now)
-	maybeTrimAccessLog(path)
-	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
-	if err != nil {
-		return
+	// Rotate, trim and append under one lock: concurrent hooks and verbs must never interleave the renames.
+	write := func() error {
+		maybeRotateAccessLog(path, now)
+		maybeTrimAccessLog(path)
+		f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+		if err != nil {
+			return err
+		}
+		defer f.Close()
+		_, err = f.WriteString(lines.String())
+		return err
 	}
-	defer f.Close()
-	_, _ = f.WriteString(lines.String())
+	if ran, err := paths.TryFileLock(path+".lock", accessLockWait, write); !ran && err != nil {
+		_ = write() // lock file unopenable: append unlocked rather than drop the line; a timeout drops it
+	}
 }
 
 // maybeRotateAccessLog rotates the active log when its first entry is older than accessRotateDays.
