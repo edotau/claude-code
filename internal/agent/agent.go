@@ -38,7 +38,7 @@ type Request struct {
 	SystemPrompt, AppendSystemPrompt                    string   // claude only: replace / extend the system prompt
 	Env                                                 []string `json:"-"`                   // KEY=VALUE for the child, layered last; never logged
 	EnvNames                                            []string `json:"env_names,omitempty"` // the names of Env, all the dispatch log keeps
-	JSONSchema                                          string   // JSON Schema text the answer must satisfy
+	OutputSchema                                        string   // JSON Schema text the answer must satisfy
 	Timeout                                             time.Duration
 }
 
@@ -64,12 +64,13 @@ type Result struct {
 	Usage          Usage           `json:"usage"`
 	DurationMs     int64           `json:"duration_ms"`
 	Dropped        []string        `json:"dropped,omitempty"`
+	Emulated       []string        `json:"emulated,omitempty"`        // flags the harness shimmed because the agent has no channel
 	Fallback       string          `json:"fallback,omitempty"`        // set to the original agent's name when it ran instead
 	FallbackReason string          `json:"fallback_reason,omitempty"` // why the original agent was unavailable
 	Handoff        string          `json:"handoff,omitempty"`         // hand-off file written when a copilot leg hit its quota
 	Transport      *Transport      `json:"transport,omitempty"`       // stream health; fields an agent can't report stay absent
 	Hops           []Hop           `json:"hops,omitempty"`            // every leg RunWithFallback tried, in order
-	Structured     json.RawMessage `json:"-"`                         // the answer as JSON satisfying Request.JSONSchema
+	Structured     json.RawMessage `json:"-"`                         // the answer as JSON satisfying Request.OutputSchema
 	recovered      []*Error        // attempts that failed before the successful one, for the hop's errors
 }
 
@@ -103,8 +104,30 @@ type Transport struct {
 // Caps declares which Request fields an agent honors; Prompt, Timeout and Attach are always honored
 // (every agent has at least an inline-block fallback for Attach).
 type Caps struct {
-	Model, Provider, Effort, WorkDir, SessionID, Tools, NoTools, Autonomous, Memory, NoPersist, SafeMode, DebugFile, Direct bool
-	SystemPrompt, Env, JSONSchema                                                                                           bool // JSONSchema: native flag; others get a prompt instruction and a validator
+	Model, Provider, Effort, WorkDir, SessionID, Tools, NoTools, Autonomous, Memory, NoPersist, SafeMode, DebugFile, Direct Level
+	SystemPrompt, AppendSystemPrompt, Env, OutputSchema                                                                     Level
+}
+
+// Level is how an agent honors one flag: its own flag (Native), a harness shim (Emulated), or not at all (None).
+type Level uint8
+
+const (
+	None Level = iota
+	Emulated
+	Native
+)
+
+func (l Level) String() string { return [...]string{"none", "emulated", "native"}[min(l, Native)] }
+
+// MarshalText renders the level as its name, so describe prints "native" rather than 2.
+func (l Level) MarshalText() ([]byte, error) { return []byte(l.String()), nil }
+
+// lv is Native when ok, else None.
+func lv(ok bool) Level {
+	if ok {
+		return Native
+	}
+	return None
 }
 
 // Agent is one agent backend.
@@ -132,11 +155,11 @@ func Lookup(name string) (Runner, error) {
 	return nil, fmt.Errorf("unknown agent %q (%s)", name, strings.Join(names, "|"))
 }
 
-// applyCaps clears fields the agent cannot honor and names each one, so a drop is never silent.
-func applyCaps(c Caps, req Request) (Request, []string) {
-	var dropped []string
-	drop := func(ok bool, set bool, flag string, clear func()) {
-		if set && !ok {
+// applyCaps clears fields the agent cannot honor and names each one, so a drop is never silent. An Emulated flag
+// runs its harness shim here and is named in emulated; a Native one passes through to the adapter's own flag.
+func applyCaps(c Caps, req Request) (out Request, dropped, emulated []string) {
+	drop := func(l Level, set bool, flag string, clear func()) {
+		if set && l == None {
 			dropped = append(dropped, flag)
 			clear()
 		}
@@ -154,10 +177,27 @@ func applyCaps(c Caps, req Request) (Request, []string) {
 	drop(c.SafeMode, req.SafeMode, "--safe-mode", func() { req.SafeMode = false })
 	drop(c.Direct, req.Direct, "--direct", func() { req.Direct = false })
 	drop(c.DebugFile, req.DebugFile != "", "--debug-file="+req.DebugFile, func() { req.DebugFile = "" })
-	drop(c.SystemPrompt, req.SystemPrompt != "", "--system-prompt", func() { req.SystemPrompt = "" })
-	drop(c.SystemPrompt, req.AppendSystemPrompt != "", "--append-system-prompt", func() { req.AppendSystemPrompt = "" })
 	drop(c.Env, len(req.Env) > 0, "--env", func() { req.Env = nil })
-	return req, dropped
+	if req.SystemPrompt != "" && c.SystemPrompt == Emulated {
+		req.Prompt, req.SystemPrompt = preamble(req.SystemPrompt)+req.Prompt, ""
+		emulated = append(emulated, "--system-prompt")
+	}
+	if req.AppendSystemPrompt != "" && c.AppendSystemPrompt == Emulated {
+		req.Prompt, req.AppendSystemPrompt = preamble(req.AppendSystemPrompt)+req.Prompt, ""
+		emulated = append(emulated, "--append-system-prompt")
+	}
+	drop(c.SystemPrompt, req.SystemPrompt != "", "--system-prompt", func() { req.SystemPrompt = "" })
+	drop(c.AppendSystemPrompt, req.AppendSystemPrompt != "", "--append-system-prompt", func() { req.AppendSystemPrompt = "" })
+	if req.OutputSchema != "" && c.OutputSchema != Native { // the answer is validated either way; only the instruction differs
+		req.Prompt += schemaInstruction(req.OutputSchema)
+		emulated = append(emulated, "--output-schema")
+	}
+	return req, dropped, emulated
+}
+
+// preamble frames system text as instructions ahead of the task, for an agent with no system-prompt channel.
+func preamble(text string) string {
+	return "System instructions (follow them for this whole task):\n" + text + "\n\nTask:\n"
 }
 
 // Run drops unsupported fields loudly, then runs r under DefaultPolicy with req.Timeout per attempt.
@@ -165,11 +205,8 @@ func Run(ctx context.Context, r Runner, req Request, sink Sink, notify func(stri
 	if sink == nil {
 		sink = Discard
 	}
-	req, dropped := applyCaps(r.Caps(), req)
-	res := Result{Agent: r.Name(), Status: StatusError, Dropped: dropped}
-	if req.JSONSchema != "" && !r.Caps().JSONSchema {
-		req.Prompt += schemaInstruction(req.JSONSchema)
-	}
+	req, dropped, emulated := applyCaps(r.Caps(), req)
+	res := Result{Agent: r.Name(), Status: StatusError, Dropped: dropped, Emulated: emulated}
 	// a no-tools one-shot answers from the provider's API, so it needs no agent binary up front
 	if !req.NoTools {
 		if err := r.Available(); err != nil {
@@ -218,12 +255,12 @@ func Run(ctx context.Context, r Runner, req Request, sink Sink, notify func(stri
 		out, err := r.Run(actx, req, cw)
 		// An agent that delegated to another names the actual agent itself;
 		// only default to r.Name() when it left Agent unset, so the envelope doesn't lie about who ran.
-		out.Agent, out.Dropped = cmp.Or(out.Agent, res.Agent), res.Dropped
+		out.Agent, out.Dropped, out.Emulated = cmp.Or(out.Agent, res.Agent), append(slices.Clone(dropped), out.Dropped...), emulated
 		res = out
 		e := Classify(r.Name(), err, cw.n > 0)
 		// A hard-quota 429 means this key can never use that model: fall to the next tier instead of waiting it out.
 		if e != nil && (e.Kind == KindRateLimit || e.Kind == KindQuota) && providers.ModelDenied(e.Err.Error()) &&
-			r.Caps().Model && (req.Model == "" || slices.Contains(models.Slots, req.Model)) {
+			r.Caps().Model != None && (req.Model == "" || slices.Contains(models.Slots, req.Model)) {
 			cur := cmp.Or(req.Model, models.Opus)
 			if next := models.NextSlot(cur); next != "" {
 				if notify != nil {
@@ -245,9 +282,9 @@ func Run(ctx context.Context, r Runner, req Request, sink Sink, notify func(stri
 	res.Transport.Attempts = attempts
 	if e == nil {
 		res.recovered = failed
-		if req.JSONSchema != "" && !r.Caps().JSONSchema {
+		if req.OutputSchema != "" { // every agent's answer is checked, native or emulated, so structured behaves alike
 			var verr error
-			if res.Structured, verr = structuredAnswer(res.Answer, req.JSONSchema); verr != nil {
+			if res.Structured, verr = structuredAnswer(cmp.Or(string(res.Structured), res.Answer), req.OutputSchema); verr != nil {
 				e = &Error{Kind: KindFatal, Agent: r.Name(), Err: verr}
 				res.Status = statusOf(e)
 			}
