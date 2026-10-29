@@ -184,7 +184,23 @@ func providerCredentialCheck(reg *providers.Registry, sel providers.Selection, s
 			present, label = true, label+" · "+alt
 		}
 	}
+	if !present && !session && !profileInUse(reg, name) {
+		present, label = true, label+" · unused"
+	}
 	return Check{Name: "credential " + name, OK: present, Hard: session, Detail: label}
+}
+
+// profileInUse reports whether the registry default/fallback chain or any agent's profile pin names the profile.
+func profileInUse(reg *providers.Registry, name string) bool {
+	if name == reg.Default || slices.Contains(reg.Fallback, name) {
+		return true
+	}
+	for _, spec := range providers.AgentSpecs() {
+		if spec.ProfilePin != "" && providers.Pin(spec.ProfilePin) == name {
+			return true
+		}
+	}
+	return false
 }
 
 // altAuth names the sign-in that covers a provider whose own key is absent or rejected, or "" when none does:

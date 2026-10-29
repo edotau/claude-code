@@ -235,3 +235,19 @@ func TestDoctorOpenCodeRouteNamesNoSecret(t *testing.T) {
 		}
 	}
 }
+
+// A key-auth built-in nothing routes to (not session, default, fallback or pinned) is a soft note, not ✗;
+// pinning it for an agent makes the missing key a real ✗ again.
+func TestDoctorUnusedProviderMissingKeyIsSoft(t *testing.T) {
+	doctorScratch(t)
+	checks, _ := DoctorChecks()
+	c := findCheck(checks, "credential openai")
+	if c == nil || !c.OK || !strings.Contains(c.Detail, "unused") {
+		t.Fatalf("unused openai row = %+v, want OK with an unused note", c)
+	}
+	setPins(t, map[string]string{providers.PinCodexProfile: "openai"})
+	checks, _ = DoctorChecks()
+	if c := findCheck(checks, "credential openai"); c == nil || c.OK {
+		t.Fatalf("pinned openai row = %+v, want ✗ for the missing key", c)
+	}
+}
