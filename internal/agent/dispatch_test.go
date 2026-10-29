@@ -26,8 +26,69 @@ func TestBackoff(t *testing.T) {
 	if got := p.Delay(time.Minute, 1, 0); got != 30*time.Second {
 		t.Errorf("Retry-After must be capped at MaxDelay, got %v", got)
 	}
-	if got := p.Delay(5*time.Second, 3, 1); got != 5*time.Second {
+	if got := p.Delay(5*time.Second, 3, 0); got != 5*time.Second {
 		t.Errorf("Retry-After must win over backoff, got %v", got)
+	}
+}
+
+func TestDelayJittersRetryAfter(t *testing.T) {
+	p := Policy{BaseDelay: 2 * time.Second, MaxDelay: 30 * time.Second}
+	lo, hi := p.Delay(5*time.Second, 1, 0), p.Delay(5*time.Second, 1, 1)
+	if lo != 5*time.Second || hi <= lo || hi > p.MaxDelay {
+		t.Errorf("Retry-After jitter: lo=%v hi=%v, want lo=5s, lo<hi<=MaxDelay", lo, hi)
+	}
+	if got := p.Delay(time.Minute, 1, 1); got > p.MaxDelay {
+		t.Errorf("jittered Retry-After must stay capped at MaxDelay, got %v", got)
+	}
+}
+
+func TestDoSharedProviderCooldown(t *testing.T) {
+	const cool = 200 * time.Millisecond
+	pol := Policy{MaxAttempts: 2, BaseDelay: time.Millisecond, MaxDelay: time.Second, Key: "cooldown-test-" + t.Name()}
+	failed := make(chan time.Time, 1)
+	go Do(context.Background(), pol, func(_ context.Context, attempt int) *Error {
+		if attempt == 1 {
+			failed <- time.Now()
+			return &Error{Agent: "a", Kind: KindRateLimit, RetryAfter: cool, Err: errors.New("429")}
+		}
+		return nil
+	})
+	t0 := <-failed
+	time.Sleep(20 * time.Millisecond)
+	var started time.Time
+	if e := Do(context.Background(), pol, func(context.Context, int) *Error { started = time.Now(); return nil }); e != nil {
+		t.Fatal(e)
+	}
+	if gap := started.Sub(t0); gap < cool*3/4 {
+		t.Errorf("second Do started %v after the 429, want it held for the %v cooldown", gap, cool)
+	}
+	other := pol
+	other.Key = ""
+	t1 := time.Now()
+	Do(context.Background(), other, func(context.Context, int) *Error { return nil })
+	if time.Since(t1) > cool/2 {
+		t.Errorf("an empty Key must not wait on any cooldown")
+	}
+}
+
+func TestDoKeepsEveryAttemptError(t *testing.T) {
+	pol := Policy{MaxAttempts: 3, BaseDelay: time.Millisecond, MaxDelay: 2 * time.Millisecond, AttemptTimeout: 50 * time.Millisecond}
+	e := Do(context.Background(), pol, func(ctx context.Context, attempt int) *Error {
+		switch attempt {
+		case 1:
+			return &Error{Agent: "a", Kind: KindRateLimit, Err: errors.New("HTTP 429")}
+		case 2:
+			return &Error{Agent: "a", Kind: KindTransient, Err: errors.New("HTTP 529")}
+		}
+		<-ctx.Done()
+		return &Error{Agent: "a", Kind: KindTransient, Err: ctx.Err()}
+	})
+	if e == nil || e.Attempts != 3 || e.Kind != KindFatal {
+		t.Fatalf("final error = %+v, want a terminal timeout on attempt 3", e)
+	}
+	if len(e.Earlier) != 2 || e.Earlier[0].Kind != KindRateLimit || e.Earlier[1].Kind != KindTransient ||
+		!strings.Contains(e.Earlier[0].Error(), "429") || !strings.Contains(e.Earlier[1].Error(), "529") {
+		t.Errorf("Earlier = %+v, want the 429 then the 529", e.Earlier)
 	}
 }
 

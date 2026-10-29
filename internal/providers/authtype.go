@@ -247,7 +247,11 @@ func sealedAccess(p *Provider) (string, bool) {
 
 // sealAccess caches a u2m access token beside the refresh token; a seal error is logged by name only.
 func sealAccess(p *Provider, tok string) {
-	ov, _ := readOAuth(p)
+	ov, err := readOAuth(p)
+	if err != nil { // a failed read must not re-seal {access} alone and drop the refresh token
+		fmt.Fprintf(os.Stderr, "%s: cache access token (%s) skipped: vault read failed\n", p.Name, AuthSecretName(p))
+		return
+	}
 	ov.Access = tok
 	if err := writeOAuth(p, ov); err != nil {
 		fmt.Fprintf(os.Stderr, "%s: cache access token (%s) failed\n", p.Name, AuthSecretName(p))

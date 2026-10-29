@@ -130,6 +130,7 @@ func chatStream(ctx context.Context, base string, p *providers.Provider, model, 
 func parseChatStream(r io.Reader, w io.Writer) (Usage, string, error) {
 	var usage Usage
 	var served string
+	sawDone := false
 	sc := bufio.NewScanner(r)
 	sc.Buffer(make([]byte, 64<<10), 4<<20)
 	for sc.Scan() {
@@ -138,6 +139,7 @@ func parseChatStream(r io.Reader, w io.Writer) (Usage, string, error) {
 			continue
 		}
 		if bytes.Equal(data, []byte("[DONE]")) {
+			sawDone = true
 			break
 		}
 		var chunk struct {
@@ -175,6 +177,9 @@ func parseChatStream(r io.Reader, w io.Writer) (Usage, string, error) {
 	}
 	if err := sc.Err(); err != nil {
 		return usage, served, err
+	}
+	if !sawDone {
+		return usage, served, errors.New("chat stream ended without [DONE]")
 	}
 	return usage, served, nil
 }

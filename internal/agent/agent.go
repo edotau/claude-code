@@ -20,6 +20,7 @@ import (
 	"github.com/edotau/claude-code/internal/envscrub"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/secrets/shapes"
 )
 
 // Request is one task. Model may be a model alias, a model id, or provider:model.
@@ -59,6 +60,25 @@ type Result struct {
 	FallbackReason string     `json:"fallback_reason,omitempty"` // why the original agent was unavailable
 	Handoff        string     `json:"handoff,omitempty"`         // hand-off file written when a copilot leg hit its quota
 	Transport      *Transport `json:"transport,omitempty"`       // stream health; fields an agent can't report stay absent
+	Hops           []Hop      `json:"hops,omitempty"`            // every leg RunWithFallback tried, in order
+}
+
+type coolKey struct{}
+
+// withCoolKey names the provider account a Run under ctx shares its rate limit with.
+func withCoolKey(ctx context.Context, key string) context.Context {
+	return context.WithValue(ctx, coolKey{}, key)
+}
+
+// Hop is one leg RunWithFallback tried; ErrorKind is the envelope error token, empty when the leg answered.
+type Hop struct {
+	Agent     string `json:"agent"`
+	Account   string `json:"account,omitempty"`
+	Profile   string `json:"profile,omitempty"`
+	Model     string `json:"model,omitempty"`
+	ErrorKind string `json:"error_kind,omitempty"`
+	// Errors lists every attempt's failure, oldest first, when the leg was retried.
+	Errors []EnvelopeError `json:"errors,omitempty"`
 }
 
 // Transport is a run's stream health: attempts, retries the agent recovered from, and how steady the stream was.
@@ -148,11 +168,25 @@ func Run(ctx context.Context, r Runner, req Request, stream io.Writer, notify fu
 			return res, &Error{Kind: KindFatal, Agent: r.Name(), Err: err}
 		}
 	}
+	gp, gperr := guardProvider(r, req)
+	if gperr != nil {
+		return res, &Error{Kind: KindFatal, Agent: r.Name(), Err: gperr}
+	}
+	if gp != nil {
+		if gerr := checkIsolation(ctx); gerr != nil {
+			return res, &Error{Kind: KindFatal, Agent: r.Name(), Err: gerr}
+		}
+		if gerr := guardRouteHost(ctx, gp); gerr != nil {
+			return res, &Error{Kind: KindAuth, Agent: r.Name(), Err: gerr}
+		}
+		ctx = withOwnProvider(ctx, gp)
+	}
 	p := DefaultPolicy()
 	if req.Timeout > 0 {
 		p.AttemptTimeout = req.Timeout
 	}
 	p.Notify = notify
+	p.Key, _ = ctx.Value(coolKey{}).(string)
 	var recoverErr error
 	if _, t, err := resolveTarget(req); err == nil && (t.Provider.Auth.Command != "" || t.Provider.Auth.Sealed()) {
 		p.Recover = func(ctx context.Context) error {
@@ -334,6 +368,9 @@ func childCmd(ctx context.Context, bin string, argv, env []string, dir, stdin st
 	}
 	base, _ := scrub(os.Environ(), envscrub.KeepSet(keepEnv))
 	cmd.Env = append(base, env...) // later duplicates win
+	if p := ownProviderFrom(ctx); p != nil {
+		cmd.Env = scrubForeignCredentials(cmd.Env, p, keepEnv)
+	}
 	cmd.Dir = dir
 	if dir != "" {
 		cmd.Env = append(cmd.Env, "PWD="+dir) // a child that reads $PWD (not getcwd()) still sees dir
@@ -424,7 +461,16 @@ func RunWithFallback(ctx context.Context, c Chain, req Request, stream io.Writer
 	stopped := false   // the loop ended on a fail-fast, not by running out of legs
 	ran := 0           // index of the last leg that ran
 	var handoff string // a copilot quota hand-off survives the legs that run after it
+	var hops []Hop
 	for i, leg := range c.Legs {
+		if cerr := ctx.Err(); cerr != nil { // a cancelled batch must not start another leg
+			ce := &Error{Kind: KindFatal, Agent: leg.Agent.Name(), Err: cerr}
+			if i == 0 {
+				return Result{Agent: ce.Agent, Status: statusOf(ce)}, ce
+			}
+			err, res.Status, stopped = ce, statusOf(ce), true
+			break
+		}
 		if i > 0 {
 			if !legUnavailable(prev, res, err) {
 				stopped = true
@@ -436,15 +482,20 @@ func RunWithFallback(ctx context.Context, c Chain, req Request, stream io.Writer
 			}
 		}
 		lreq := legRequest(req, leg, i == 0 && leg.Agent.Name() == c.Want)
-		res, err = Run(ctx, leg.Agent, lreq, stream, notify)
-		res.Invoked = lreq.Model
-		noteQuota(leg, err)
-		noteAuth(leg, err)
-		noteStall(leg, err)
-		if res.Handoff != "" && res.Handoff != handoff {
-			if doc, rerr := os.ReadFile(res.Handoff); rerr == nil { // later legs pick up the progress, not the bare task
-				req.Prompt = handoffPrompt(string(doc))
-			}
+		waitCooldown(ctx, leg.Account, DefaultMaxDelay)
+		if skip := exhaustedSince(leg); skip != nil { // another task marked this account dead after the chain was built
+			res, err = Result{Agent: leg.Agent.Name(), Status: StatusQuota, Invoked: lreq.Model}, skip
+			hops = append(hops, hopOf(leg, lreq, res, err))
+		} else {
+			res, err = Run(withCoolKey(ctx, leg.Account), leg.Agent, lreq, stream, notify)
+			res.Invoked = lreq.Model
+			hops = append(hops, hopOf(leg, lreq, res, err))
+			noteQuota(leg, err)
+			noteAuth(leg, err)
+			noteStall(leg, err)
+		}
+		if res.Handoff != handoff {
+			req.Prompt = promptFromHandoff(res.Handoff, req.Prompt)
 		}
 		handoff = cmp.Or(res.Handoff, handoff)
 		prev, prevLeg, ran = leg.Agent, leg, i
@@ -459,8 +510,34 @@ func RunWithFallback(ctx context.Context, c Chain, req Request, stream io.Writer
 	if ran > 0 || c.Legs[ran].otherRoute || c.Legs[ran].Agent.Name() != c.Want { // a different agent or route is a fallback
 		res.Fallback, res.FallbackReason = c.Want, strings.Join(reasons, "; ")
 	}
-	res.Handoff = handoff
+	res.Handoff, res.Hops = handoff, hops
 	return res, err
+}
+
+// promptFromHandoff is the prompt carrying the hand-off doc's progress, else prompt when there is none to read.
+func promptFromHandoff(path, prompt string) string {
+	if path == "" {
+		return prompt
+	}
+	if doc, err := os.ReadFile(path); err == nil { // later legs pick up the progress, not the bare task
+		return handoffPrompt(string(doc))
+	}
+	return prompt
+}
+
+// hopOf records one tried leg: who ran, on which account and profile, and the error token if it failed.
+func hopOf(leg Leg, req Request, res Result, err error) Hop {
+	h := Hop{Agent: cmp.Or(res.Agent, leg.Agent.Name()), Account: leg.Account, Profile: cmp.Or(res.Provider, req.Provider),
+		Model: cmp.Or(res.Model, req.Model)}
+	if err != nil {
+		h.ErrorKind = errorKind(err)
+		if e, ok := errors.AsType[*Error](err); ok && len(e.Earlier) > 0 {
+			for _, a := range append(slices.Clone(e.Earlier), e) {
+				h.Errors = append(h.Errors, EnvelopeError{Kind: errorKind(a), Message: shapes.Redact(a.attemptMessage())})
+			}
+		}
+	}
+	return h
 }
 
 // legCell is " (model, effort)" for a routed leg, "" for an unrouted one.

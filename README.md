@@ -324,6 +324,7 @@ claude-code network websearch --query q           # Tavily one-shot (bare = stdi
 claude-code agents                                     # agents and availability
 claude-code ask --agent codex "Review this branch."    # one-shot; --format json, --tools, --effort
 claude-code ask --log | --retry <id>                   # recent dispatches; replay one
+claude-code ask --batch tasks.jsonl|- [--jobs N] [--fail-fast]   # many tasks on a pool; one envelope per line
 claude-code opencode --profile ollama --model qwen3-coder   # interactive; -- forces passthrough
 claude-code codex catalog                             # the agent's model catalog; also copilot|gemini|opencode
 claude-code opencode catalog list|add|remove|import|reset|check   # inspect, edit or probe the model menu

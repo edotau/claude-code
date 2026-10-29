@@ -199,3 +199,15 @@ func TestVaultGetKeyRejectsNamesAndExport(t *testing.T) {
 		}
 	}
 }
+
+func TestVaultImportRejectsBadGitHubToken(t *testing.T) {
+	useVaultTest(t)
+	withStdin(t, "GITHUB_WORK_PAT=not-a-token\n")
+	code, _, stderr := captureOutput(t, func() int { return cmdVault([]string{"import", "-", "--yes"}) })
+	if code == 0 || !strings.Contains(stderr, "not a GitHub token") {
+		t.Fatalf("exit %d, stderr=%q, want a GitHub-token rejection", code, stderr)
+	}
+	if v, _, _ := secrets.Lookup("GITHUB_WORK_PAT"); v != "" {
+		t.Fatal("bad GitHub token stored by import")
+	}
+}

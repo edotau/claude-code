@@ -374,7 +374,8 @@ func validateCopilotPins(providerFlag string, pins []string) (warn string, err e
 		return "", nil
 	}
 	var ids []string
-	var fetched bool
+	var fetched, catalogDown bool
+	var firstWarn string // the first unverifiable-pin warning; later pins are still checked
 	served := map[string][]string{}
 	for _, p := range pins {
 		_, spec, ok := strings.Cut(p, "=")
@@ -386,9 +387,11 @@ func validateCopilotPins(providerFlag string, pins []string) (warn string, err e
 			name, model = fallback, spec
 		}
 		if dp := reg.Providers[name]; dp != nil && dp.Preset == providers.PresetDatabricks {
-			if w, derr := validateDatabricksCopilotPin(reg, name, model, served); w != "" || derr != nil {
-				return w, derr
+			w, derr := validateDatabricksCopilotPin(reg, name, model, served)
+			if derr != nil {
+				return "", derr
 			}
+			firstWarn = cmp.Or(firstWarn, w)
 			continue
 		}
 		gh, gerr := reg.Get(name)
@@ -399,8 +402,12 @@ func validateCopilotPins(providerFlag string, pins []string) (warn string, err e
 			fetched = true
 			ids, err = copilotModelIDs()
 			if err != nil {
-				return fmt.Sprintf("could not verify against the live github-copilot catalog (pin written anyway): %v", err), nil
+				catalogDown = true
+				firstWarn = cmp.Or(firstWarn, fmt.Sprintf("could not verify against the live github-copilot catalog (pin written anyway): %v", err))
 			}
+		}
+		if catalogDown {
+			continue
 		}
 		if !slices.Contains(ids, model) {
 			if near := nearMatches(model, ids); len(near) > 0 {
@@ -409,7 +416,7 @@ func validateCopilotPins(providerFlag string, pins []string) (warn string, err e
 			return "", fmt.Errorf("%q is not a github-copilot model (run `claude-code models --live --profile %s` to see the catalog)", model, gh.Name)
 		}
 	}
-	return "", nil
+	return firstWarn, nil
 }
 
 // validateDatabricksCopilotPin checks model against name's serving endpoints; served caches each profile's ids.

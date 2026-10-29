@@ -11,8 +11,11 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"regexp"
 	"slices"
+	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
@@ -68,17 +71,26 @@ func runAsk(args []string, resume bool) int {
 	showLog := fs.Bool("log", false, "list the 20 most recent dispatches and exit")
 	background := fs.Bool("background", false, "detach: log a job, print its id, exit")
 	job := fs.String("job", "", "internal: run saved dispatch <id> in place")
+	batch := fs.String("batch", "", "run JSONL tasks from <file> or - on a pool; one envelope per line")
+	jobs := fs.Int("jobs", agent.DefaultJobs(), "batch: tasks run at once")
+	failFast := fs.Bool("fail-fast", false, "batch: the first failed task cancels the rest")
 	if code, done := helptext.Parse(fs, args); done {
 		return code
 	}
 	if err := validateAskFlags(*format, *fallback); err != nil {
 		return failAsk(*format, *name, err)
 	}
-	if *background && *job != "" {
-		return failAsk(*format, *name, errors.New("--background and --job are mutually exclusive"))
+	if err := askExclusive(*background, *job, *tools, *noTools); err != nil {
+		return failAsk(*format, *name, err)
 	}
-	if *tools && *noTools {
-		return failAsk(*format, *name, errors.New("--tools and --no-tools are mutually exclusive"))
+	if *batch != "" {
+		base := agent.Request{Model: *model, Provider: *provider, Effort: *effort, WorkDir: *workdir, Tools: *tools, NoTools: *noTools,
+			Timeout: *timeout, KeepEnv: []string(keepEnv), Autonomous: *autonomous, EnableMemory: *enableMemory, Direct: *direct,
+			NoPersist: *noPersist, SafeMode: *safeMode}
+		return runAskBatch(fs, resume, *batch, batchOpts{jobs: *jobs, failFast: *failFast, agent: *name, fallback: *fallback, native: *native}, base)
+	}
+	if flagExplicit(fs, "jobs") || flagExplicit(fs, "fail-fast") {
+		return failAskCode(*format, *name, errors.New("--jobs and --fail-fast need --batch"), 2)
 	}
 	if *showLog {
 		return printDispatchLog(*format)
@@ -137,11 +149,7 @@ func runAsk(args []string, resume bool) int {
 	if *enableMemory && *name != "copilot" {
 		fmt.Fprintf(os.Stderr, "ask: --enable-memory has no effect on the %s agent (copilot only)\n", *name)
 	}
-	if *debugFile != "" { // --workdir moves the child's cwd, so pin the path now
-		if abs, err := filepath.Abs(*debugFile); err == nil {
-			*debugFile = abs
-		}
-	}
+	*debugFile = absDebugFile(*debugFile)
 	req := agent.Request{Prompt: prompt, Model: *model, Provider: *provider, Effort: *effort,
 		WorkDir: *workdir, SessionID: *session, Tools: *tools, NoTools: *noTools, Timeout: *timeout,
 		Attach: []string(attach), KeepEnv: []string(keepEnv), Autonomous: *autonomous, EnableMemory: *enableMemory, Direct: *direct,
@@ -156,6 +164,28 @@ func runAsk(args []string, resume bool) int {
 		return 0
 	}
 	return runAskAndReport(ctx, &rec, chain, req, stream, jobRec, *format)
+}
+
+// askExclusive rejects flag pairs that cannot be combined.
+func askExclusive(background bool, job string, tools, noTools bool) error {
+	if background && job != "" {
+		return errors.New("--background and --job are mutually exclusive")
+	}
+	if tools && noTools {
+		return errors.New("--tools and --no-tools are mutually exclusive")
+	}
+	return nil
+}
+
+// absDebugFile pins the path now: --workdir moves the child's cwd.
+func absDebugFile(p string) string {
+	if p == "" {
+		return p
+	}
+	if abs, err := filepath.Abs(p); err == nil {
+		return abs
+	}
+	return p
 }
 
 // buildAskRecord constructs the dispatch record for req, reusing jobRec's identity when resuming a job.
@@ -311,6 +341,17 @@ func (k *keepEnvFlag) Placeholder() string { return "NAME,NAME" }
 func (k *keepEnvFlag) Set(s string) error {
 	*k = append(*k, strings.Split(s, ",")...)
 	return nil
+}
+
+// flagExplicit is true when --<name> appeared on this command line.
+func flagExplicit(fs *flag.FlagSet, name string) bool {
+	explicit := false
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == name {
+			explicit = true
+		}
+	})
+	return explicit
 }
 
 // timeoutExplicit is true when --timeout appeared on this command line, so it always beats the
@@ -579,4 +620,129 @@ func printDispatchLog(format string) int {
 		}
 	}
 	return 0
+}
+
+// batchOpts are the ask flags that apply to a whole --batch run.
+type batchOpts struct {
+	jobs            int
+	failFast        bool
+	agent, fallback string
+	native          bool
+}
+
+// batchExclusive are the ask flags that make no sense on a batch of independent tasks.
+var batchExclusive = []string{"retry", "job", "background", "session", "log", "attach", "rubric", "debug-file"}
+
+// runAskBatch runs the JSONL tasks in src (a file, or "-" for stdin) on a bounded pool and streams one envelope per line.
+func runAskBatch(fs *flag.FlagSet, resume bool, src string, o batchOpts, base agent.Request) int {
+	var bad error
+	if resume || fs.NArg() > 0 {
+		bad = errors.New("--batch takes tasks from the JSONL source, not a session id or a positional task")
+	}
+	for _, f := range batchExclusive {
+		if flagExplicit(fs, f) {
+			bad = fmt.Errorf("--batch cannot be combined with --%s", f)
+		}
+	}
+	if flagExplicit(fs, "format") && fs.Lookup("format").Value.String() != "json" {
+		bad = errors.New("--batch always prints JSON envelopes; drop --format or pass --format json")
+	}
+	if bad == nil && o.jobs < 1 {
+		bad = fmt.Errorf("--jobs %d: need at least 1", o.jobs)
+	}
+	if bad != nil {
+		return failAskCode("text", o.agent, bad, 2)
+	}
+	in := io.Reader(os.Stdin)
+	if src != "-" {
+		f, err := os.Open(src)
+		if err != nil {
+			return failAskCode("text", o.agent, fmt.Errorf("--batch: %w", err), 2)
+		}
+		defer f.Close()
+		in = f
+	}
+	lines, err := agent.ReadTaskLines(in)
+	if err != nil {
+		return failAskCode("text", o.agent, fmt.Errorf("--batch: %w", err), 2)
+	}
+	if len(lines) == 0 {
+		return failAskCode("text", o.agent, errors.New("--batch: no tasks in the input"), 2)
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	cwd, _ := os.Getwd() // resolved once here: a pool goroutine must never fall back to the process cwd
+	timeoutSet := flagExplicit(fs, "timeout")
+	seen := map[string]bool{}
+	tasks := make([]agent.BatchTask, 0, len(lines))
+	for _, l := range lines {
+		t, err := batchTask(l, o, base, timeoutSet, cwd, seen)
+		if err != nil {
+			t.Err = err
+			fail("ask: %v", err)
+		}
+		tasks = append(tasks, t)
+	}
+	id := agent.NewBatchID()
+	ok := agent.RunBatch(ctx, tasks, agent.BatchOptions{ID: id, Jobs: o.jobs, FailFast: o.failFast, Out: os.Stdout, Log: os.Stderr})
+	if !ok {
+		fmt.Fprintf(os.Stderr, "ask: %s: not every task was ok\n", id)
+		return 1
+	}
+	return 0
+}
+
+var batchIDRE = regexp.MustCompile(`^[A-Za-z0-9._-]{1,64}$`)
+
+// batchTask validates one line like the ask flags; routing waits for Prepare. On error the task keeps its id and agent.
+func batchTask(l agent.ParsedLine, o batchOpts, base agent.Request, timeoutSet bool, cwd string,
+	seen map[string]bool) (agent.BatchTask, error) {
+	t := agent.BatchTask{ID: cmp.Or(l.Task.ID, "t"+strconv.Itoa(l.N)), Agent: cmp.Or(l.Task.Agent, o.agent)}
+	if l.Err != nil {
+		return t, l.Err
+	}
+	tl := l.Task
+	if !batchIDRE.MatchString(t.ID) {
+		return t, fmt.Errorf("line %d: id %q must match %s", l.N, t.ID, batchIDRE)
+	}
+	if seen[t.ID] {
+		return t, fmt.Errorf("line %d: duplicate id %q", l.N, t.ID)
+	}
+	seen[t.ID] = true
+	if strings.TrimSpace(tl.Prompt) == "" {
+		return t, fmt.Errorf("line %d: no task: give a prompt", l.N)
+	}
+	req := base
+	req.Prompt, req.Provider, req.Model = tl.Prompt, cmp.Or(tl.Profile, base.Provider), cmp.Or(tl.Model, base.Model)
+	if tl.Tools != nil {
+		req.Tools = *tl.Tools
+	}
+	if req.Tools && req.NoTools {
+		return t, fmt.Errorf("line %d: tools and --no-tools are mutually exclusive", l.N)
+	}
+	switch {
+	case tl.Timeout != "":
+		d, err := time.ParseDuration(tl.Timeout)
+		if err != nil || d <= 0 {
+			return t, fmt.Errorf("line %d: timeout %q must be a positive duration such as 5m", l.N, tl.Timeout)
+		}
+		req.Timeout = d
+	case req.Tools && !timeoutSet:
+		req.Timeout = 45 * time.Minute
+	}
+	req.WorkDir = cmp.Or(tl.Workdir, base.WorkDir, cwd)
+	abs, err := filepath.Abs(req.WorkDir)
+	if err != nil {
+		return t, fmt.Errorf("line %d: workdir %q: %w", l.N, req.WorkDir, err)
+	}
+	req.WorkDir = abs
+	t.Req = req
+	t.Prepare = func(ctx context.Context) (agent.Chain, agent.Record, error) {
+		r, chain, err := resolveAskChain(t.Agent, req.Provider, req.Model, req.Prompt, o.fallback, o.native, req.WorkDir)
+		if err != nil {
+			return agent.Chain{}, agent.Record{}, fmt.Errorf("line %d: %w", l.N, err)
+		}
+		return chain, buildAskRecord(ctx, r, req, nil, req.WorkDir, false), nil
+	}
+	return t, nil
 }

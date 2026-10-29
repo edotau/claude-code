@@ -204,7 +204,9 @@ const expiryMargin = 10 * time.Minute
 func runAuthCommand(ctx context.Context, p *Provider, cmd string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, "sh", "-c", cmd).Output()
+	c := exec.CommandContext(ctx, "sh", "-c", cmd)
+	c.WaitDelay = 5 * time.Second // orphaned pipeline children must not hold stdout open past the timeout
+	out, err := c.Output()
 	if err != nil {
 		return "", authCommandError(ctx, p, err)
 	}
@@ -343,3 +345,6 @@ func ClaudeLoginProbe() (loggedIn bool, plan string, err error) {
 	}
 	return st.LoggedIn, plan, nil
 }
+
+// CredentialNames are the env/vault names p's static credential may be read from.
+func CredentialNames(p *Provider) []string { return keyNames(p) }
