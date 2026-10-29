@@ -25,7 +25,9 @@ func WorktreeCreate(r io.Reader, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "worktree-create: %v\n", err)
 		return 1
 	}
-	dest, err := worktree.Create(repo, name, in.nested("branch"))
+	dest, err := worktree.Create(repo, name, worktree.CreateOptions{
+		Branch: in.nested("branch"), Session: in.SessionID, Log: stderr,
+	})
 	if err != nil {
 		fmt.Fprintf(stderr, "worktree-create: %v\n", err)
 		return 1

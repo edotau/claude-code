@@ -152,7 +152,7 @@ func cmdWorktreeCreate(repo *worktree.Repo, args []string) int {
 	if len(rest) != 1 {
 		return fail("worktree create: give exactly one name")
 	}
-	dest, err := worktree.Create(repo, rest[0], *branch)
+	dest, err := worktree.Create(repo, rest[0], worktree.CreateOptions{Branch: *branch, Session: "cli", Log: os.Stderr})
 	if err != nil {
 		return fail("worktree create: %v", err)
 	}

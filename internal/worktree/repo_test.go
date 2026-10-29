@@ -133,7 +133,7 @@ func TestResolveRepoFromMainSubdirAndLinkedWorktree(t *testing.T) {
 	}
 
 	// From inside a linked worktree, identity must also resolve to the same main.
-	linked, err := Create(repo, "linked", "")
+	linked, err := Create(repo, "linked", CreateOptions{})
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -225,7 +225,7 @@ func TestResolveWorktreeSymlinkAtDestination(t *testing.T) {
 func TestResolveWorktreeResumesExisting(t *testing.T) {
 	t.Parallel()
 	repo := testRepo(t)
-	dest, err := Create(repo, "resume", "")
+	dest, err := Create(repo, "resume", CreateOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -339,7 +339,7 @@ func TestCreateRefusesWhenWorktreeRootIsLiveCheckout(t *testing.T) {
 	main := gitRepo(t)
 	repo := &Repo{Main: main, Root: main}
 
-	if dest, err := Create(repo, "brand-new-name", ""); err == nil {
+	if dest, err := Create(repo, "brand-new-name", CreateOptions{}); err == nil {
 		t.Fatalf("Create: want an error for a worktree root that is the live checkout, got dest=%q", dest)
 	}
 	if _, statErr := os.Stat(filepath.Join(main, "brand-new-name")); statErr == nil {

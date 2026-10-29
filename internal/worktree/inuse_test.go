@@ -185,7 +185,7 @@ func TestInUseByRealProcess(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	dest, err := Create(repo, "busy", "")
+	dest, err := Create(repo, "busy", CreateOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}

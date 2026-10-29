@@ -11,7 +11,7 @@ import (
 func TestCreateDefaultBranchNaming(t *testing.T) {
 	t.Parallel()
 	repo := testRepo(t)
-	dest, err := Create(repo, "feature", "")
+	dest, err := Create(repo, "feature", CreateOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -26,7 +26,7 @@ func TestCreateDefaultBranchNaming(t *testing.T) {
 func TestCreateCustomBranchName(t *testing.T) {
 	t.Parallel()
 	repo := testRepo(t)
-	dest, err := Create(repo, "feature", "wt/custom-name")
+	dest, err := Create(repo, "feature", CreateOptions{Branch: "wt/custom-name"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -46,7 +46,7 @@ func TestCreateReusesExistingBranch(t *testing.T) {
 	if out, err := brCmd.CombinedOutput(); err != nil {
 		t.Fatalf("branch: %v: %s", err, out)
 	}
-	dest, err := Create(repo, "reuse", "wt/preexisting")
+	dest, err := Create(repo, "reuse", CreateOptions{Branch: "wt/preexisting"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -61,11 +61,11 @@ func TestCreateReusesExistingBranch(t *testing.T) {
 func TestCreateIdempotentResume(t *testing.T) {
 	t.Parallel()
 	repo := testRepo(t)
-	dest1, err := Create(repo, "dup", "")
+	dest1, err := Create(repo, "dup", CreateOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	dest2, err := Create(repo, "dup", "")
+	dest2, err := Create(repo, "dup", CreateOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -77,7 +77,7 @@ func TestCreateIdempotentResume(t *testing.T) {
 func TestCreateRejectsTraversalName(t *testing.T) {
 	t.Parallel()
 	repo := testRepo(t)
-	if _, err := Create(repo, "../escape", ""); err == nil {
+	if _, err := Create(repo, "../escape", CreateOptions{}); err == nil {
 		t.Fatal("want error for a traversal name")
 	}
 }
@@ -86,7 +86,7 @@ func TestCreateUnusualFilenames(t *testing.T) {
 	t.Parallel()
 	repo := testRepo(t)
 	for _, name := range []string{"dots.v2", "under_score-123", "unicode-éé"} {
-		dest, err := Create(repo, name, "")
+		dest, err := Create(repo, name, CreateOptions{})
 		if err != nil {
 			t.Errorf("name %q: %v", name, err)
 			continue
@@ -104,7 +104,7 @@ func TestCreateUnusualFilenames(t *testing.T) {
 func TestCreateSpaceInNameDerivesInvalidBranchRef(t *testing.T) {
 	t.Parallel()
 	repo := testRepo(t)
-	_, err := Create(repo, "has space", "")
+	_, err := Create(repo, "has space", CreateOptions{})
 	if err == nil {
 		t.Fatal("BUG regression: Create used to fail on a derived branch name containing a space; it now succeeds — if Create was fixed to sanitize the default branch name, update this test to assert success instead")
 	}
@@ -116,7 +116,7 @@ func TestCreateSpaceInNameDerivesInvalidBranchRef(t *testing.T) {
 func TestCleanRefusesDirty(t *testing.T) {
 	t.Parallel()
 	repo := testRepo(t)
-	dest, err := Create(repo, "dirty", "")
+	dest, err := Create(repo, "dirty", CreateOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -141,7 +141,7 @@ func TestCleanRefusesDirty(t *testing.T) {
 func TestCleanRefusesUnmerged(t *testing.T) {
 	t.Parallel()
 	repo := testRepo(t)
-	dest, err := Create(repo, "ahead", "")
+	dest, err := Create(repo, "ahead", CreateOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -162,7 +162,7 @@ func TestCleanRemovesMergedAndDeletesBranch(t *testing.T) {
 	t.Parallel()
 	repo := testRepo(t)
 	main := repo.Main
-	if _, err := Create(repo, "clean", ""); err != nil {
+	if _, err := Create(repo, "clean", CreateOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	result, err := Clean(repo, "clean", false)
@@ -184,7 +184,7 @@ func TestCleanRemovesMergedAndDeletesBranch(t *testing.T) {
 func TestCleanDryRunThenRealRemovalRechecksAfterDirtyChange(t *testing.T) {
 	t.Parallel()
 	repo := testRepo(t)
-	dest, err := Create(repo, "drifts", "")
+	dest, err := Create(repo, "drifts", CreateOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -228,7 +228,7 @@ func TestCleanLockedRefused(t *testing.T) {
 	t.Parallel()
 	repo := testRepo(t)
 	main := repo.Main
-	dest, err := Create(repo, "locked", "")
+	dest, err := Create(repo, "locked", CreateOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -250,10 +250,10 @@ func TestCleanLockedRefused(t *testing.T) {
 func TestCleanAllPreviewThenApply(t *testing.T) {
 	t.Parallel()
 	repo := testRepo(t)
-	if _, err := Create(repo, "mergeable", ""); err != nil {
+	if _, err := Create(repo, "mergeable", CreateOptions{}); err != nil {
 		t.Fatal(err)
 	}
-	dest2, err := Create(repo, "ahead", "")
+	dest2, err := Create(repo, "ahead", CreateOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -314,7 +314,7 @@ func gitDirOfForTest(t *testing.T, dest string) string {
 func TestCleanRefusesPendingAutostash(t *testing.T) {
 	t.Parallel()
 	repo := testRepo(t)
-	dest, err := Create(repo, "autostashed", "")
+	dest, err := Create(repo, "autostashed", CreateOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -352,7 +352,7 @@ func TestIsLockedPropagatesNonNotExistStatError(t *testing.T) {
 		t.Skip("permission checks don't apply when running as root")
 	}
 	repo := testRepo(t)
-	dest, err := Create(repo, "permcheck", "")
+	dest, err := Create(repo, "permcheck", CreateOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -372,7 +372,7 @@ func TestIsLockedPropagatesNonNotExistStatError(t *testing.T) {
 // refuse a worktree InUseBy reports as busy, under both the real call and --dry-run's preview.
 func TestCleanRefusesInUseAndDryRunReportsIt(t *testing.T) {
 	repo := testRepo(t)
-	dest, err := Create(repo, "busy", "")
+	dest, err := Create(repo, "busy", CreateOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -407,11 +407,11 @@ func TestCleanRefusesInUseAndDryRunReportsIt(t *testing.T) {
 // than aborting the whole sweep, and still removes every other eligible entry.
 func TestCleanAllSkipsBusyEntryButRemovesOthers(t *testing.T) {
 	repo := testRepo(t)
-	busyDest, err := Create(repo, "busyall", "")
+	busyDest, err := Create(repo, "busyall", CreateOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Create(repo, "freeall", ""); err != nil {
+	if _, err := Create(repo, "freeall", CreateOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	stubProcesses(t, func(dir string) ([]Proc, error) {

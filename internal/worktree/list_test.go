@@ -36,7 +36,7 @@ func TestListEmptyRepo(t *testing.T) {
 func TestListCleanMergedWorktree(t *testing.T) {
 	t.Parallel()
 	repo := testRepo(t)
-	dest, err := Create(repo, "clean", "")
+	dest, err := Create(repo, "clean", CreateOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -75,7 +75,7 @@ func TestListCleanMergedWorktree(t *testing.T) {
 func TestListDirtyWorktree(t *testing.T) {
 	t.Parallel()
 	repo := testRepo(t)
-	dest, err := Create(repo, "dirty", "")
+	dest, err := Create(repo, "dirty", CreateOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -94,7 +94,7 @@ func TestListDirtyWorktree(t *testing.T) {
 func TestListUnmergedWorktree(t *testing.T) {
 	t.Parallel()
 	repo := testRepo(t)
-	dest, err := Create(repo, "ahead", "")
+	dest, err := Create(repo, "ahead", CreateOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -144,7 +144,7 @@ func TestListOrphanedDirectory(t *testing.T) {
 func TestListLockedWorktree(t *testing.T) {
 	t.Parallel()
 	repo := testRepo(t)
-	if _, err := Create(repo, "locked", ""); err != nil {
+	if _, err := Create(repo, "locked", CreateOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	lockCmd := exec.Command("git", "-C", repo.Main, "worktree", "lock", filepath.Join(repo.Root, "locked"))
@@ -164,7 +164,7 @@ func TestListLockedWorktree(t *testing.T) {
 func TestListStaleByReflogAge(t *testing.T) {
 	t.Parallel()
 	repo := testRepo(t)
-	dest, err := Create(repo, "old", "")
+	dest, err := Create(repo, "old", CreateOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -197,7 +197,7 @@ func TestListStaleByReflogAge(t *testing.T) {
 func TestListDetachedHEADMain(t *testing.T) {
 	t.Parallel()
 	repo := testDetachedRepo(t)
-	if _, err := Create(repo, "fromdetached", ""); err != nil {
+	if _, err := Create(repo, "fromdetached", CreateOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	entries, err := List(repo)
@@ -217,7 +217,7 @@ func TestListDetachedHEADMain(t *testing.T) {
 func TestListUnionsFilesystemAndRegistration(t *testing.T) {
 	t.Parallel()
 	repo := testRepo(t)
-	if _, err := Create(repo, "registered", ""); err != nil {
+	if _, err := Create(repo, "registered", CreateOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.MkdirAll(filepath.Join(repo.Root, "unregistered"), 0o755); err != nil {

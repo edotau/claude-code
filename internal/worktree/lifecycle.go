@@ -2,17 +2,29 @@ package worktree
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/edotau/claude-code/internal/paths"
 )
 
-// Create makes (or resumes) the worktree called name under repo.Root, on branch — defaulting to
-// "worktree-"+name to match the native hook's naming — reusing an existing branch rather than
-// failing on -b. Shared by the worktree-create hook and `claude-code worktree create`.
-func Create(repo *Repo, name, branch string) (string, error) {
+// CreateOptions controls branch selection and lifecycle diagnostics; nil Log discards diagnostics.
+type CreateOptions struct {
+	Branch, Session string
+	Log             io.Writer
+}
+
+// Create makes or resumes name under repo.Root, reusing an existing branch when available.
+func Create(repo *Repo, name string, opt CreateOptions) (string, error) {
+	log := opt.Log
+	if log == nil {
+		log = io.Discard
+	}
 	dest, err := ResolveWorktree(repo, name)
 	if err != nil {
 		return "", err
@@ -20,6 +32,7 @@ func Create(repo *Repo, name, branch string) (string, error) {
 	if _, err := os.Stat(dest); err == nil {
 		return dest, nil // `--worktree <name>` again resumes the existing checkout; ResolveWorktree already verified it's ours
 	}
+	branch := opt.Branch
 	if branch == "" {
 		branch = "worktree-" + name
 	}
@@ -33,12 +46,51 @@ func Create(repo *Repo, name, branch string) (string, error) {
 	if branchExists(repo.Main, branch) {
 		args = append(args, branch) // reuse an existing branch rather than failing on -b
 	} else {
-		args = append(args, "-b", branch, "HEAD")
+		args = append(args, "-b", branch, createBase(repo.Main, log))
 	}
 	if out, err := gitCmd(context.Background(), args...).CombinedOutput(); err != nil {
 		return "", fmt.Errorf("git worktree add: %v: %s", err, strings.TrimSpace(string(out)))
 	}
+	seedWorktree(repo.Main, dest, log)
 	return dest, nil
+}
+
+func createBase(main string, log io.Writer) string {
+	baseRef := "fresh"
+	for _, path := range []string{
+		filepath.Join(paths.ConfigDir(), "settings.json"),
+		filepath.Join(main, ".claude", "settings.json"),
+		filepath.Join(main, ".claude", "settings.local.json"),
+	} {
+		data, err := os.ReadFile(path)
+		if os.IsNotExist(err) {
+			continue
+		}
+		var settings struct {
+			Worktree struct {
+				BaseRef string `json:"baseRef"`
+			} `json:"worktree"`
+		}
+		if err == nil {
+			err = json.Unmarshal(data, &settings)
+		}
+		if err != nil {
+			fmt.Fprintf(log, "worktree-create: warning: read %s: %v\n", path, err)
+			continue
+		}
+		switch settings.Worktree.BaseRef {
+		case "fresh", "head":
+			baseRef = settings.Worktree.BaseRef
+		}
+	}
+	if baseRef == "fresh" {
+		out, err := gitCmd(context.Background(), "-C", main, "symbolic-ref", "refs/remotes/origin/HEAD").Output()
+		ref := strings.TrimSpace(string(out))
+		if err == nil && gitCmd(context.Background(), "-C", main, "rev-parse", "--verify", ref+"^{commit}").Run() == nil {
+			return ref
+		}
+	}
+	return "HEAD"
 }
 
 func branchExists(main, branch string) bool {

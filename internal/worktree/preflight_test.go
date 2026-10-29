@@ -58,7 +58,7 @@ func preflightFixtureSetup(t *testing.T) (repo *Repo, main, wt string) {
 	mergeFixtureRun(t, main, "config", "user.email", "t@t.com")
 	mergeFixtureRun(t, main, "config", "user.name", "t")
 	mergeFixtureWrite(t, main, "f.txt", "base\n", "base")
-	dest, err := Create(r, "feature", "")
+	dest, err := Create(r, "feature", CreateOptions{})
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
