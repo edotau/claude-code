@@ -211,6 +211,7 @@ func runAuthCommand(ctx context.Context, p *Provider, cmd string) (string, error
 	ownGroup(c)                   // the timeout kills the whole pipeline, not only sh
 	c.WaitDelay = 5 * time.Second // orphaned pipeline children must not hold stdout open past the timeout
 	out, err := c.Output()
+	reapGroup(c) // a child the shell left behind dies with it, whether or not the timeout fired
 	if err != nil {
 		return "", authCommandError(ctx, p, err)
 	}

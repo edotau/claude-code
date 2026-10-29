@@ -504,18 +504,19 @@ func RunWithFallback(ctx context.Context, c Chain, req Request, stream io.Writer
 			}
 		}
 		lreq := legRequest(req, leg, i == 0 && leg.Agent.Name() == c.Want)
-		ctx, leg := freezeCopilot(ctx, leg, lreq)       // per leg: the gate's real target, before any permit or cooldown key
-		waitCooldown(ctx, leg.Account, DefaultMaxDelay) // holds nothing
+		ctx, leg := freezeCopilot(ctx, leg, lreq)           // per leg: the gate's real target, before any permit or cooldown key
+		key := cmp.Or(leg.Account, leg.Agent.Name()+"·own") // own-login legs still share one cap and cooldown per agent
+		waitCooldown(ctx, key, DefaultMaxDelay)             // holds nothing
 		panicked := false
 		func() { // the leg's scope: fail-fast is decided and a panic caught before the permit is released
-			release, aerr := acquireLeg(ctx, leg.Account) // per billed account, whichever key the task was queued under
+			release, aerr := acquireLeg(ctx, key) // per billed account, whichever key the task was queued under
 			if aerr != nil {
 				ce := &Error{Kind: KindFatal, Agent: leg.Agent.Name(), Err: aerr}
 				res, err = Result{Agent: ce.Agent, Status: statusOf(ce), Invoked: lreq.Model}, ce
 				hops = append(hops, hopOf(leg, lreq, res, err))
 				return
 			}
-			held := &permit{account: leg.Account, release: release,
+			held := &permit{account: key, release: release,
 				recheck: func() *Error { return cmp.Or(exhaustedSince(leg), authMarkedSince(leg)) }}
 			defer func() {
 				if r := recover(); r != nil {
@@ -541,7 +542,7 @@ func RunWithFallback(ctx context.Context, c Chain, req Request, stream io.Writer
 				hops = append(hops, hopOf(leg, lreq, res, err))
 				return
 			}
-			res, err = Run(context.WithValue(withCoolKey(ctx, leg.Account), permitKey{}, held), leg.Agent, lreq, stream, notify)
+			res, err = Run(context.WithValue(withCoolKey(ctx, key), permitKey{}, held), leg.Agent, lreq, stream, notify)
 			res.Invoked = lreq.Model
 			hops = append(hops, hopOf(leg, lreq, res, err))
 			noteQuota(leg, err)
