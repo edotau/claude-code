@@ -303,3 +303,67 @@ func TestBatchJobsCapHoldsAcrossFallbackHops(t *testing.T) {
 		t.Errorf("%d envelopes carry hops, want %d (every task fell back)", n, len(tasks))
 	}
 }
+
+// flagRunner counts its runs.
+type flagRunner struct {
+	name string
+	runs *atomic.Int32
+}
+
+func (f flagRunner) Name() string     { return f.name }
+func (f flagRunner) Caps() Caps       { return Caps{} }
+func (f flagRunner) Available() error { return nil }
+func (f flagRunner) Run(context.Context, Request, io.Writer) (Result, error) {
+	f.runs.Add(1)
+	return Result{Answer: "a"}, nil
+}
+
+// failFastPair runs first then a second task on Jobs=1 with FailFast; the second must neither prepare nor run.
+func failFastPair(t *testing.T, first BatchTask) {
+	t.Helper()
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	var prepared, runs atomic.Int32
+	second := acctTask(t, "second", "ff·acct", flagRunner{name: "second", runs: &runs})
+	inner := second.Prepare
+	second.Prepare = func(ctx context.Context) (Chain, Record, error) { prepared.Add(1); return inner(ctx) }
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	var out strings.Builder
+	if RunBatch(ctx, []BatchTask{first, second}, BatchOptions{Jobs: 1, FailFast: true, Out: &out}) {
+		t.Fatal("batch reported ok after a failed task")
+	}
+	if prepared.Load() != 0 || runs.Load() != 0 {
+		t.Errorf("second task prepared %d times and ran %d times after --fail-fast tripped", prepared.Load(), runs.Load())
+	}
+	if !strings.Contains(out.String(), `"task_id":"second"`) || !strings.Contains(out.String(), "canceled") {
+		t.Errorf("second task has no cancelled envelope:\n%s", out.String())
+	}
+}
+
+// --fail-fast with a Prepare failure: the next task never spawns.
+func TestBatchFailFastPrepareFailureStopsQueuedTask(t *testing.T) {
+	failFastPair(t, BatchTask{ID: "first", Agent: "first", Req: Request{Prompt: "p"},
+		Prepare: func(context.Context) (Chain, Record, error) { return Chain{}, Record{}, errors.New("route failed") }})
+}
+
+// --fail-fast with a panicking leg: the next task never spawns.
+func TestBatchFailFastPanickingLegStopsQueuedTask(t *testing.T) {
+	failFastPair(t, acctTask(t, "first", "ff·acct", slowRunner{name: "first", boom: true}))
+}
+
+// A task waiting out its account's cooldown holds nothing: a task on another account runs and finishes first.
+func TestBatchCoolingAccountDoesNotBlockOthers(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	coolDown("cool·A", 700*time.Millisecond)
+	tasks := []BatchTask{
+		acctTask(t, "cooling", "cool·A", slowRunner{name: "cooling"}),
+		acctTask(t, "free", "free·B", slowRunner{name: "free"}),
+	}
+	var out strings.Builder
+	if !RunBatch(context.Background(), tasks, BatchOptions{Jobs: 2, Out: &out}) {
+		t.Fatalf("batch failed: %s", out.String())
+	}
+	if first := strings.SplitN(out.String(), "\n", 2)[0]; !strings.Contains(first, `"task_id":"free"`) {
+		t.Errorf("first envelope = %s, want the free-account task", first)
+	}
+}

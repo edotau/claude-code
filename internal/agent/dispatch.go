@@ -216,6 +216,7 @@ func waitCooldown(ctx context.Context, key string, maxWait time.Duration) {
 		if wait <= 0 {
 			return
 		}
+		settle(ctx) // a cooling task holds no slot, so a task on another account can start
 		t := time.NewTimer(wait)
 		select {
 		case <-ctx.Done():
