@@ -14,8 +14,7 @@ const (
 
 // Options are a preset row's non-secret tuning knobs.
 type Options struct {
-	Wire   string                    `json:"wire,omitempty"`   // "" or serving | ai-gateway
-	Models map[string]map[string]any `json:"models,omitempty"` // canonical model id to per-model options; unused
+	Wire string `json:"wire,omitempty"` // "" or serving | ai-gateway
 }
 
 // gatewayModelPrefix and gatewayModeHeader are the AI Gateway wire-id prefix and the coding-agent header.

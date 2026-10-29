@@ -309,7 +309,7 @@ func sessionProviders(sel providers.Selection) []*providers.Provider {
 // configureRouting wires the router base URL/headers when needed, else the provider's own route, and
 // returns the apiKeyHelper command for the overlay.
 func configureRouting(ctx context.Context, o Options, reg *providers.Registry, sel providers.Selection, p *providers.Provider, passthrough bool, self string, plan *Plan) (string, error) {
-	helper := shellQuote(helperBin(self)) + " token --profile " + shellQuote(p.Name)
+	helper := shellQuote(helperBin(self)) + " resolve --profile " + shellQuote(p.Name)
 	for _, t := range sel.Slots {
 		if err := providers.ClaudeCodeError(t.Provider, t.Model); err != nil {
 			return "", err
@@ -337,7 +337,7 @@ func configureRouting(ctx context.Context, o Options, reg *providers.Registry, s
 		}
 		plan.Set["ANTHROPIC_CUSTOM_HEADERS"] = strings.Join(hdrs, "\n")
 		plan.OverlayPath = filepath.Join(paths.StateDir(), "overlay-"+p.Name+"-proxy.json")
-		return shellQuote(helperBin(self)) + " token --proxy", nil
+		return shellQuote(helperBin(self)) + " resolve --proxy", nil
 	}
 	if route, ok := p.Route(providers.ProtocolAnthropic); ok && route != "https://api.anthropic.com" {
 		plan.Set["ANTHROPIC_BASE_URL"] = route

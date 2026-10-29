@@ -160,7 +160,7 @@ First non-empty source wins:
 "auth": {"type": "key", "command": "op read op://Private/example/credential", "ttl": 3600}
 ```
 
-`claude-code token --profile <p>` is the `apiKeyHelper` Claude Code calls, so no key lands in `settings.json`.
+`claude-code resolve --profile <p>` is the `apiKeyHelper` Claude Code calls, so no key lands in `settings.json`.
 
 ```bash
 claude-code vault set [KEY]            # bare on a terminal = guided dialog

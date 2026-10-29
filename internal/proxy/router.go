@@ -119,7 +119,7 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 	if !r.authorized(req) {
-		writeError(w, http.StatusUnauthorized, "proxy: missing or wrong client secret (apiKeyHelper: claude-code token --proxy)")
+		writeError(w, http.StatusUnauthorized, "proxy: missing or wrong client secret (apiKeyHelper: claude-code resolve --proxy)")
 		return
 	}
 	if !r.secretOK(req) { // a session token: pin its profile for the resolved target and fallbacks

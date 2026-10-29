@@ -30,8 +30,6 @@ func parseQualityArgs(args []string, stdout, stderr io.Writer) (qualityArgs, int
 	fs.StringVar(language, "l", "", "shorthand for --language")
 	output := fs.String("output", "", "with --json: write the report to this file (-o)")
 	fs.StringVar(output, "o", "", "shorthand for --output")
-	recursive := fs.Bool("recursive", true, "accepted for compatibility; directories are always recursive (-r)")
-	fs.BoolVar(recursive, "r", true, "shorthand for --recursive")
 	if helptext.WantsHelp(args) {
 		fs.SetOutput(stdout)
 		fs.Usage()

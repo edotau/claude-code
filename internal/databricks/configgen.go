@@ -210,7 +210,7 @@ func renderClaude(o Options) (Result, error) {
 	env["CLAUDE_CODE_API_KEY_HELPER_TTL_MS"] = helperTTL
 	doc["apiKeyHelper"] = cliTokenCmd(o.Host)
 	if o.Auth == AuthHarness {
-		doc["apiKeyHelper"] = shellQuote(o.Self) + " token --profile " + shellQuote(p.Name)
+		doc["apiKeyHelper"] = shellQuote(o.Self) + " resolve --profile " + shellQuote(p.Name)
 	}
 	for _, kv := range o.Set {
 		k, v, _ := strings.Cut(kv, "=")
@@ -284,7 +284,7 @@ func renderCodex(o Options) (Result, error) {
 	}
 	auth := fmt.Sprintf("command = \"sh\"\nargs = [\"-c\", %s]\n", strconv.Quote(cliTokenCmd(o.Host)))
 	if o.Auth == AuthHarness {
-		auth = fmt.Sprintf("command = %s\nargs = [\"token\", \"--profile\", %s]\n", strconv.Quote(o.Self), strconv.Quote(p.Name))
+		auth = fmt.Sprintf("command = %s\nargs = [\"resolve\", \"--profile\", %s]\n", strconv.Quote(o.Self), strconv.Quote(p.Name))
 	}
 	auth += "timeout_ms = 5000\nrefresh_interval_ms = 1800000\n"
 	text := editTopLevel(head, o) + authHeader + "\n" + auth

@@ -33,9 +33,6 @@ import (
 // Spec is an agent's row (providers.AgentSpec): CLI binary, wires, router paths and pin keys.
 type Spec = providers.AgentSpec
 
-// AgentSpec is Spec under the standard name.
-type AgentSpec = providers.AgentSpec
-
 // Names lists the third-party agents in roster order.
 func Names() []string {
 	var out []string
