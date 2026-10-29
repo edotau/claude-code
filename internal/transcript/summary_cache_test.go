@@ -144,3 +144,22 @@ func TestSummaryCacheNeverStoresRecentFile(t *testing.T) {
 		t.Errorf("stats = %d hits, %d misses; want %d, 1 (recent file must re-read every run)", h, m, len(files)-1)
 	}
 }
+
+func TestSummaryCacheKeepsUnvisitedRowsAndPrunesGoneFiles(t *testing.T) {
+	files := cacheFixtures(t)
+	cachePath := filepath.Join(t.TempDir(), "summary.json")
+	aggregate(t, OpenSummaryCache(cachePath), files)
+	aggregate(t, OpenSummaryCache(cachePath), files[:1]) // a narrow run, like usage --session
+	warm := OpenSummaryCache(cachePath)
+	aggregate(t, warm, files)
+	if h, m := warm.Stats(); h != len(files) || m != 0 {
+		t.Errorf("stats = %d hits, %d misses; want %d, 0 (narrow run must keep unvisited rows)", h, m, len(files))
+	}
+	if err := os.Remove(files[2]); err != nil {
+		t.Fatal(err)
+	}
+	aggregate(t, OpenSummaryCache(cachePath), files[:1])
+	if n := len(OpenSummaryCache(cachePath).old); n != len(files)-1 {
+		t.Errorf("cache holds %d rows, want %d (deleted file's row must be pruned)", n, len(files)-1)
+	}
+}

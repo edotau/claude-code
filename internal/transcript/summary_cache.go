@@ -2,6 +2,9 @@ package transcript
 
 import (
 	"encoding/json"
+	"errors"
+	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"time"
@@ -115,12 +118,22 @@ func (c *SummaryCache) Summarize(path string) (*FileSummary, error) {
 	return s, nil
 }
 
-// Save writes the rows seen this run atomically, dropping the rest; it skips the write when nothing changed.
+// Save writes this run's rows plus unvisited rows whose file still exists, atomically; it skips the write if unchanged.
 func (c *SummaryCache) Save() error {
-	if c.misses == 0 && len(c.cur) == len(c.old) {
+	rows := make(map[string]summaryRow, len(c.cur))
+	for k, v := range c.old {
+		if _, seen := c.cur[k]; seen {
+			continue
+		}
+		if _, err := os.Stat(k); !errors.Is(err, fs.ErrNotExist) { // a gone file prunes its row; the cache stays bounded
+			rows[k] = v
+		}
+	}
+	maps.Copy(rows, c.cur)
+	if c.misses == 0 && len(rows) == len(c.old) {
 		return nil
 	}
-	raw, err := json.Marshal(summaryCacheFile{Schema: summaryCacheSchema, Files: c.cur})
+	raw, err := json.Marshal(summaryCacheFile{Schema: summaryCacheSchema, Files: rows})
 	if err != nil {
 		return err
 	}
