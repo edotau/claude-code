@@ -1,9 +1,13 @@
 package agent
 
 import (
+	"context"
+	"io"
+
 	"bytes"
 	"encoding/binary"
 	"errors"
+	"github.com/edotau/claude-code/internal/copilotsdk"
 	"image"
 	"image/png"
 	"os"
@@ -76,5 +80,41 @@ func TestIsImage(t *testing.T) {
 		if got := IsImage(tc.data); got != tc.want {
 			t.Errorf("%s: IsImage = %v", tc.name, got)
 		}
+	}
+}
+
+func TestCopilotAttachImageRidesSDKAttachment(t *testing.T) {
+	ghLogin(t, "alice", 10)
+	fakeCopilotBin(t)
+	var pb bytes.Buffer
+	if err := png.Encode(&pb, image.NewRGBA(image.Rect(0, 0, 2, 2))); err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "shot.png"), pb.Bytes(), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "note.txt"), []byte("hello-note"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(dir)
+	var gotPrompt string
+	var gotImages []string
+	prev := copilotAsk
+	copilotAsk = func(_ context.Context, _ copilotsdk.Options, prompt string, images []string) (copilotsdk.Result, error) {
+		gotPrompt, gotImages = prompt, images
+		return copilotsdk.Result{Text: "ok", SessionID: "s"}, nil
+	}
+	t.Cleanup(func() { copilotAsk = prev })
+	req := Request{Prompt: "p", Provider: "personal", Direct: true, Attach: []string{"shot.png", "note.txt"}}
+	if _, err := (copilotRunner{}).Run(context.Background(), req, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	abs, _ := filepath.Abs("shot.png")
+	if !reflect.DeepEqual(gotImages, []string{abs}) {
+		t.Errorf("images = %v, want [%s]", gotImages, abs)
+	}
+	if !strings.Contains(gotPrompt, "hello-note") || strings.Contains(gotPrompt, "PNG") {
+		t.Errorf("prompt = %q: want only the text file inlined", gotPrompt)
 	}
 }
