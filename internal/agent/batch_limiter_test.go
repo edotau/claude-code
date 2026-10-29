@@ -163,3 +163,47 @@ func TestRunBatchMarkersAppearAndClear(t *testing.T) {
 		t.Errorf("%d markers remain after RunBatch returned, want 0", n)
 	}
 }
+
+// A leg waiting on a full shared account holds no local worker: with Jobs=1 a leg on a free account still runs,
+// and a cancelled wait (or a leg cancelled while capacity is free) leaves no marker behind.
+func TestSharedWaitHoldsNoLocalWorker(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	const full, free = "full·acct", "free·acct"
+	lim := inflight.Limits{Base: 1, Total: 1000}
+	if ok, _ := inflight.TryClaim(inflight.Claim{Owner: os.Getpid(), ID: "other", Account: full}, lim); !ok {
+		t.Fatal("seed claim refused")
+	}
+	l := newLimiter(1, DefaultPerKey)
+	l.limits = lim
+	ctx, cancel := context.WithCancel(context.Background())
+	waited := make(chan error, 1)
+	go func() { _, err := l.acquire(ctx, full); waited <- err }()
+	time.Sleep(3 * sharedPoll) // the full-account leg is now polling
+
+	got := make(chan error, 1)
+	go func() {
+		release, err := l.acquire(context.Background(), free)
+		if err == nil {
+			release()
+		}
+		got <- err
+	}()
+	select {
+	case err := <-got:
+		if err != nil {
+			t.Fatalf("free-account leg: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("a leg on a free account starved behind one waiting on a full account (Jobs=1)")
+	}
+	cancel()
+	if err := <-waited; err == nil {
+		t.Fatal("cancelled wait returned a permit")
+	}
+	if _, err := l.acquire(ctx, free); err == nil {
+		t.Fatal("an already-cancelled leg got a permit while capacity was free")
+	}
+	if n := countAccountMarkers(inflight.Dir(), full) + countAccountMarkers(inflight.Dir(), free); n != 1 {
+		t.Errorf("markers = %d, want only the seed claim", n)
+	}
+}

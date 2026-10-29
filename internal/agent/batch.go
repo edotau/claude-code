@@ -24,8 +24,8 @@ import (
 // DefaultPerKey caps concurrent legs on one billed account (one credential, one rate limit).
 const DefaultPerKey = 4
 
-// sharedAcquire is the machine-wide limiter seam; tests count or stub it.
-var sharedAcquire = inflight.Acquire
+// sharedTryClaim is the machine-wide limiter seam; tests count or stub it.
+var sharedTryClaim = inflight.TryClaim
 
 // sharedPoll is how often a waiting leg re-checks the shared limiter.
 const sharedPoll = 250 * time.Millisecond
@@ -101,24 +101,30 @@ func settle(ctx context.Context) {
 	}
 }
 
-// acquire waits for a global slot and, when account is set, an account permit, then one shared slot; the release
-// func frees both and is idempotent.
+// acquire waits for a global slot, an account permit and one shared slot; a full shared account releases the local
+// permit before the next try, so it never holds a worker another account could use. The release func is idempotent.
 func (l *limiter) acquire(ctx context.Context, account string) (func(), error) {
-	freeLocal, err := l.acquireLocal(ctx, account)
-	if err != nil {
-		return nil, err
+	if l.limits.Total <= 0 {
+		return l.acquireLocal(ctx, account)
 	}
-	freeShared := func() {}
-	if l.limits.Total > 0 {
-		id := inflight.LegPrefix + strconv.FormatInt(time.Now().UnixNano(), 36) + "-" + strconv.FormatUint(legSeq.Add(1), 10)
-		c := inflight.Claim{Owner: os.Getpid(), ID: id, Account: account, N: 1}
-		if freeShared, err = sharedAcquire(ctx, c, l.limits, sharedPoll); err != nil {
-			freeLocal()
+	id := inflight.LegPrefix + strconv.FormatInt(time.Now().UnixNano(), 36) + "-" + strconv.FormatUint(legSeq.Add(1), 10)
+	c := inflight.Claim{Owner: os.Getpid(), ID: id, Account: account, N: 1}
+	for {
+		freeLocal, err := l.acquireLocal(ctx, account) // returns ctx.Err() first, so a cancelled leg claims nothing
+		if err != nil {
 			return nil, err
 		}
+		if ok, _ := sharedTryClaim(c, l.limits); ok {
+			var once sync.Once
+			return func() { once.Do(func() { inflight.Release(c.Owner, c.ID); freeLocal() }) }, nil
+		}
+		freeLocal()
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(sharedPoll):
+		}
 	}
-	var once sync.Once
-	return func() { once.Do(func() { freeShared(); freeLocal() }) }, nil
 }
 
 // acquireLocal is the in-process admit: a global slot and, when account is set, an account permit.
