@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"regexp"
@@ -21,6 +22,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agenttree"
 	"github.com/edotau/claude-code/internal/crossgen"
+	"github.com/edotau/claude-code/internal/dispatch"
 	"github.com/edotau/claude-code/internal/helptext"
 	"github.com/edotau/claude-code/internal/hooks"
 	"github.com/edotau/claude-code/internal/inflight"
@@ -70,6 +72,8 @@ func runAsk(args []string, resume bool) int {
 	autonomous := fs.Bool("autonomous", false, "drive the run without stopping to ask, per agent")
 	enableMemory := fs.Bool("enable-memory", false, "copilot only: turn on session memory")
 	timeout := fs.Duration("timeout", 10*time.Minute, "per-attempt deadline (45m default with --tools)")
+	host := fs.String("host", "", "run the ask on this ssh host (tailnet name or ssh alias); profiles resolve there")
+	remoteBin := fs.String("remote-bin", "", "remote claude-code path for --host (default $"+agent.RemoteBinEnv+", then claude-code)")
 	format := fs.String("format", "text", "stream text, print the JSON result envelope, or stream-json NDJSON events")
 	rubric := fs.String("rubric", "", "review standard file quoted verbatim ahead of the task")
 	retry := fs.String("retry", "", "replay a logged dispatch by id (or unique id prefix); see --log")
@@ -94,6 +98,9 @@ func runAsk(args []string, resume bool) int {
 	schema, err := resolveOutputSchema(*outputSchema)
 	if err != nil {
 		return failAskCode(*format, *name, err, 2)
+	}
+	if *host != "" && (*background || *job != "" || *batch != "") {
+		return failAskCode(*format, *name, errors.New("--host cannot be combined with --background, --job or --batch"), 2)
 	}
 	if len(env) > 0 && *background {
 		return failAskCode(*format, *name, errors.New("--env cannot be combined with --background: env values are never stored in the dispatch record"), 2)
@@ -150,7 +157,18 @@ func runAsk(args []string, resume bool) int {
 	if *session != "" {
 		*fallback = agent.FallbackNone // a session id belongs to one agent; another agent cannot resume it
 	}
-	r, chain, err := resolveAskChain(context.Background(), *name, *provider, *model, prompt, *fallback, *native, *workdir)
+	var r, remote agent.Runner
+	var chain agent.Chain
+	if *host != "" { // the remote resolves profiles, routing and caps; here only the agent name is checked
+		if _, err = agent.Lookup(*name); err == nil {
+			err = dispatch.ValidHost(*host)
+		}
+		r = agent.NewRemoteRunner(*name, *host, agent.RemoteBin(*remoteBin))
+		chain = agent.Single(r)
+		remote = r
+	} else {
+		r, chain, err = resolveAskChain(context.Background(), *name, *provider, *model, prompt, *fallback, *native, *workdir)
+	}
 	if err != nil {
 		return failAsk(*format, *name, err)
 	}
@@ -173,7 +191,11 @@ func runAsk(args []string, resume bool) int {
 		Attach: []string(attach), KeepEnv: []string(keepEnv), Autonomous: *autonomous, EnableMemory: *enableMemory, Direct: *direct,
 		NoPersist: *noPersist, SafeMode: *safeMode, DebugFile: *debugFile, SystemPrompt: *systemPrompt,
 		AppendSystemPrompt: *appendSystemPrompt, Env: []string(env), OutputSchema: schema}
-	rec := buildAskRecord(ctx, r, req, jobRec, *workdir, *background)
+	recDir := *workdir
+	if *host != "" {
+		recDir = "" // --workdir is a remote path: it is no local repo to record
+	}
+	rec := buildAskRecord(ctx, r, req, jobRec, recDir, *background)
 	_ = rec.Save() // fail-open: the log is for replay and forensics, never a gate on the run
 	if *background {
 		if err := vendoragent.Spawn(&rec, backgroundExtraFlags(fs, *fallback, *native)); err != nil {
@@ -182,7 +204,7 @@ func runAsk(args []string, resume bool) int {
 		reportBackgroundStart(*format, rec)
 		return 0
 	}
-	return runAskAndReport(ctx, &rec, chain, req, jobRec, *format)
+	return runAskAndReport(ctx, &rec, chain, remote, req, jobRec, *format)
 }
 
 // askExclusive rejects flag pairs that cannot be combined.
@@ -226,8 +248,8 @@ func buildAskRecord(ctx context.Context, r agent.Runner, req agent.Request, jobR
 	return rec
 }
 
-// runAskAndReport runs chain in the foreground as one recorded dispatch, then reports it.
-func runAskAndReport(ctx context.Context, rec *agent.Record, chain agent.Chain, req agent.Request,
+// runAskAndReport runs chain (or remote, when set) in the foreground as one recorded dispatch, then reports it.
+func runAskAndReport(ctx context.Context, rec *agent.Record, chain agent.Chain, remote agent.Runner, req agent.Request,
 	jobRec *agent.Record, format string) int {
 	notify := func(s string) { fmt.Fprintln(os.Stderr, "ask:", s) }
 	opts := agent.DispatchOpts{Job: jobRec != nil, Notify: notify}
@@ -236,6 +258,9 @@ func runAskAndReport(ctx context.Context, rec *agent.Record, chain agent.Chain, 
 	}
 	res, err := agent.Dispatch(ctx, rec, chain.Want, askStdoutSink(format, rec.ID), opts,
 		func(ctx context.Context, sink agent.Sink) (agent.Result, error) {
+			if remote != nil { // a remote ask skips local routing, guards and retries: the far side does all three
+				return remote.Run(ctx, req, sink)
+			}
 			return agent.RunWithFallback(ctx, chain, req, sink, notify)
 		})
 	reportAskResult(format, res, err, rec.ID)
@@ -599,8 +624,8 @@ var agentsReapPage = helptext.Page{
 }
 
 func cmdAgents(args []string) int {
-	if len(args) == 0 {
-		return listAgents()
+	if len(args) == 0 || (strings.HasPrefix(args[0], "-") && !slices.Contains([]string{"-h", "--help"}, args[0])) {
+		return cmdAgentsList(args)
 	}
 	switch args[0] {
 	case "sync":
@@ -651,24 +676,89 @@ func cmdAgentsSync(args []string) int {
 	return crossgen.Sync(crossgen.SyncOptions{DryRun: *dryRun, Check: *check, NoPrune: *noPrune, Vendor: *vendor, Out: os.Stdout})
 }
 
-func listAgents() int {
+// capFields lists a runner's capability levels in Request-flag order, named as the flags are.
+func capFields(c agent.Caps) []struct {
+	name string
+	l    agent.Level
+} {
+	return []struct {
+		name string
+		l    agent.Level
+	}{{"model", c.Model}, {"profile", c.Provider}, {"effort", c.Effort}, {"workdir", c.WorkDir}, {"session", c.SessionID},
+		{"tools", c.Tools}, {"no-tools", c.NoTools}, {"autonomous", c.Autonomous}, {"enable-memory", c.Memory},
+		{"no-persist", c.NoPersist}, {"safe-mode", c.SafeMode}, {"debug-file", c.DebugFile}, {"direct", c.Direct},
+		{"system-prompt", c.SystemPrompt}, {"append-system-prompt", c.AppendSystemPrompt}, {"env", c.Env},
+		{"output-schema", c.OutputSchema}}
+}
+
+// cmdAgentsList is bare `agents`: the local roster, or with --host the remote's own `agents` output.
+func cmdAgentsList(args []string) int {
+	fs := helptext.NewFlagSet("agents", agentsPage)
+	host := fs.String("host", "", "list the agents on this ssh host instead (runs its agents --format)")
+	remoteBin := fs.String("remote-bin", "", "remote claude-code path for --host (default $"+agent.RemoteBinEnv+", then claude-code)")
+	format := fs.String("format", "text", "text, or json: per agent {name, available, reason, caps{field: level}}")
+	if code, done := helptext.Parse(fs, args); done {
+		return code
+	}
+	if fs.NArg() > 0 || !slices.Contains([]string{formatText, formatJSON}, *format) {
+		fs.Usage()
+		return 2
+	}
+	if *host != "" {
+		return listRemoteAgents(*host, agent.RemoteBin(*remoteBin), *format)
+	}
+	return listAgents(*format)
+}
+
+// listRemoteAgents runs `<bin> agents --format <format>` on host and prints its stdout; a failure shows ssh's stderr.
+func listRemoteAgents(host, bin, format string) int {
+	if strings.TrimSpace(bin) == "" || strings.ContainsAny(bin, "\r\n\x00") {
+		return fail("agents: invalid remote binary %q", bin)
+	}
+	argv, err := dispatch.StreamArgs(host, "exec "+dispatch.QuotePath(bin)+" agents --format "+dispatch.QuoteSH(format))
+	if err != nil {
+		return fail("agents: %v", err)
+	}
+	ctx, stop := context.WithTimeout(context.Background(), 60*time.Second)
+	defer stop()
+	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
+	var stderr strings.Builder
+	cmd.Stdout, cmd.Stderr = os.Stdout, &stderr
+	if err := cmd.Run(); err != nil {
+		return fail("agents: %s: %v: %s", host, err, strings.TrimSpace(stderr.String()))
+	}
+	return 0
+}
+
+func listAgents(format string) int {
+	type row struct {
+		Name      string            `json:"name"`
+		Available bool              `json:"available"`
+		Reason    string            `json:"reason,omitempty"`
+		Caps      map[string]string `json:"caps"`
+	}
+	var rows []row
 	for _, r := range agent.Runners() {
 		mark, reason := "✓", ""
 		if err := r.Available(); err != nil {
 			mark, reason = "✗", err.Error()
 		}
-		c := r.Caps()
-		var caps []string
-		for _, f := range []struct {
-			l    agent.Level
-			name string
-		}{{c.Model, "model"}, {c.Provider, "profile"}, {c.Effort, "effort"}, {c.WorkDir, "workdir"}, {c.SessionID, "session"}, {c.Tools, "tools"},
-			{c.SystemPrompt, "system-prompt"}, {c.AppendSystemPrompt, "append-system-prompt"}, {c.Env, "env"}, {c.OutputSchema, "output-schema"}} {
-			if f.l != agent.None {
-				caps = append(caps, f.name+":"+f.l.String())
+		caps := map[string]string{}
+		var shown []string
+		for _, f := range capFields(r.Caps()) {
+			caps[f.name] = f.l.String()
+			if f.l != agent.None && slices.Contains([]string{"model", "profile", "effort", "workdir", "session", "tools", "system-prompt",
+				"append-system-prompt", "env", "output-schema"}, f.name) {
+				shown = append(shown, f.name+":"+f.l.String())
 			}
 		}
-		fmt.Printf("%s %-9s %s %s\n", mark, r.Name(), strings.Join(caps, ","), reason)
+		rows = append(rows, row{r.Name(), reason == "", reason, caps})
+		if format != formatJSON {
+			fmt.Printf("%s %-9s %s %s\n", mark, r.Name(), strings.Join(shown, ","), reason)
+		}
+	}
+	if format == formatJSON {
+		_ = outfmt.Write(os.Stdout, rows)
 	}
 	return 0
 }
