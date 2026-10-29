@@ -19,11 +19,12 @@ import (
 // configurePage: --profile picks the profile that serves model calls; --agent scopes to one agent CLI's own setup.
 var configurePage = helptext.Page{
 	Usage: "claude-code configure [<page>] [flags]\n" +
-		"claude-code configure --reset|--restore [flags]\n" +
+		"claude-code configure --restore|--revert [flags]\n" +
 		"claude-code configure provider --all [<profile>] [--check]",
 	About: "Guided setup for the profile, model pins and each agent CLI; bare walks every page in order. " +
-		"--reset re-renders settings.json and the agent configs from the templates (settings.local.json is " +
-		"never touched); with --check it reports drift and exits 1.",
+		"--restore rewrites settings.json from your defaults and re-renders the agent configs " +
+		"(settings.local.json is never touched); with --check it reports drift and exits 1. " +
+		"--revert puts agent configs back from their backups.",
 	Commands: [][2]string{
 		{"provider", "pick the session profile; --list shows credential state"},
 		{"models", "pin models (live catalog: claude-code models --live)"},
@@ -64,11 +65,11 @@ func cmdConfigure(args []string) int {
 	agent := fs.String("agent", "", "set up one CLI: claude|codex|copilot|opencode|gemini")
 	dryRun := fs.Bool("dry-run", false, "print what would change; write nothing")
 	check := fs.Bool("check", false, "report only; exit 1 if anything is unset")
-	reset := fs.Bool("reset", false, "re-render settings.json and the agent configs from the templates")
-	restore := fs.Bool("restore", false, "put agent configs back from their timestamped backups")
-	out := fs.String("out", "", "with --reset: write the render here (after a timestamped backup)")
-	agents := fs.Bool("agents", false, "with --reset: render agent configs even off the default ~/.claude")
-	noAgents := fs.Bool("no-agents", false, "with --reset: settings.json only, skip the agent configs")
+	restore := fs.Bool("restore", false, "rewrite settings.json from your defaults and re-render the agent configs")
+	revert := fs.Bool("revert", false, "put agent configs back from their timestamped backups")
+	out := fs.String("out", "", "with --restore: write the render here (after a timestamped backup)")
+	agents := fs.Bool("agents", false, "with --restore: render agent configs even off the default ~/.claude")
+	noAgents := fs.Bool("no-agents", false, "with --restore: settings.json only, skip the agent configs")
 	list := fs.Bool("list", false, "with provider: list profiles and credential state")
 	all := fs.Bool("all", false, "with provider: check every profile's sign-in and log in where needed")
 	format := outfmt.Flag(fs)
@@ -117,11 +118,11 @@ func cmdConfigure(args []string) int {
 		}
 		return configureProviderList(name, *format)
 	}
-	if *reset || *restore {
-		return configureRender(*reset, *restore, section, *agent, *out, *check, *dryRun, *agents, *noAgents)
+	if *restore || *revert {
+		return configureRender(*restore, *revert, section, *agent, *out, *check, *dryRun, *agents, *noAgents)
 	}
 	if *out != "" || *agents || *noAgents {
-		return fail("configure: --out, --agents and --no-agents need --reset")
+		return fail("configure: --out, --agents and --no-agents need --restore")
 	}
 	return configure.Run(configure.Options{
 		Provider: *provider, Vendor: *agent, DryRun: *dryRun, Check: *check, All: *all, Profile: profile,
@@ -129,15 +130,15 @@ func cmdConfigure(args []string) int {
 	}, section)
 }
 
-// configureRender runs --reset / --restore; the agent flag is a comma list there.
-func configureRender(reset, restore bool, section, agents, out string, check, dryRun, renderAgents, noAgents bool) int {
+// configureRender runs --restore / --revert; the agent flag is a comma list there.
+func configureRender(restore, revert bool, section, agents, out string, check, dryRun, renderAgents, noAgents bool) int {
 	switch {
-	case reset && restore:
-		return fail("configure: --reset and --restore are mutually exclusive")
+	case restore && revert:
+		return fail("configure: --restore and --revert are mutually exclusive")
 	case section != "":
-		return fail("configure: --reset/--restore take no page (got %q)", section)
-	case restore && (check || out != "" || renderAgents || noAgents):
-		return fail("configure: --restore takes only --agent and --dry-run")
+		return fail("configure: --restore/--revert take no page (got %q)", section)
+	case revert && (check || out != "" || renderAgents || noAgents):
+		return fail("configure: --revert takes only --agent and --dry-run")
 	}
 	// the engine skips unknown names silently, so a typo would render nothing; reject it here
 	for a := range strings.SplitSeq(agents, ",") {
@@ -145,8 +146,8 @@ func configureRender(reset, restore bool, section, agents, out string, check, dr
 			return fail("configure: unknown --agent %q (%s)", a, strings.Join(generate.DefaultAgents, "|"))
 		}
 	}
-	if restore {
-		return cmdRestore(agents, dryRun)
+	if revert {
+		return cmdRevert(agents, dryRun)
 	}
 	if check && dryRun {
 		return fail("configure: --check and --dry-run are mutually exclusive")
@@ -154,7 +155,7 @@ func configureRender(reset, restore bool, section, agents, out string, check, dr
 	if noAgents && (renderAgents || agents != "") {
 		return fail("configure: --no-agents excludes --agents and --agent")
 	}
-	return cmdReset(agents, out, check, dryRun, renderAgents, noAgents)
+	return cmdRestore(agents, out, check, dryRun, renderAgents, noAgents)
 }
 
 // isTTY reports whether f is a terminal (the interactive gate for prompts and login offers).

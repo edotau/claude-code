@@ -80,7 +80,7 @@
 <text x="22.0" y="730" fill="#8a7e90" font-weight="bold">SETTINGS</text>
 <text x="22.0" y="749" fill="#d7d4dc">  </text>
 <text x="38.8" y="749" fill="#f66a98" font-weight="bold">configure       </text>
-<text x="173.2" y="749" fill="#d7d4dc">guided setup; --reset re-renders from the templates</text>
+<text x="173.2" y="749" fill="#d7d4dc">guided setup; --restore resets to your defaults</text>
 <text x="22.0" y="768" fill="#d7d4dc">  </text>
 <text x="38.8" y="768" fill="#fc6b9c" font-weight="bold">install         </text>
 <text x="173.2" y="768" fill="#d7d4dc">install Claude Code + write settings.json</text>

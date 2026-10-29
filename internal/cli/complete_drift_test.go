@@ -295,9 +295,9 @@ func TestWorktreeMergeFlagsMatchItsOwnFlagSet(t *testing.T) {
 // tab-completion silently falls behind the handler the way askFlags once did.
 func TestConfigureDoctorModelsFlagsMatchTheirOwnFlagSets(t *testing.T) {
 	cases := map[string][]string{
-		"configure": {"reset", "restore", "out", "agents", "agent", "profile", "dry-run", "check", "list", "format"}, // cmdConfigure
-		"doctor":    {"audit", "days", "format"},                                                                     // cmdDoctor
-		"models":    {"profile", "unpin", "live", "dry-run", "format", "pin"},                                        // cmdModels
+		"configure": {"restore", "revert", "out", "agents", "agent", "profile", "dry-run", "check", "list", "format"}, // cmdConfigure
+		"doctor":    {"audit", "days", "format"},                                                                      // cmdDoctor
+		"models":    {"profile", "unpin", "live", "dry-run", "format", "pin"},                                         // cmdModels
 	}
 	for verb, flags := range cases {
 		node := specTree()[verb]

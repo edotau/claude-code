@@ -106,8 +106,8 @@ func DoctorChecks() (checks []Check, ok bool) {
 	clipOK, clipDetail := clipboard.DoctorDetail()
 	check(clipOK, false, "wl-paste proxy", clipDetail)
 	check(has, false, "settings.json harness hooks", orErr(map[bool]string{true: "present", false: "missing (run claude-code install)"}[has], err))
-	drift, driftErr := CheckSettingsDrift()
-	check(driftErr == nil && !drift.Drifted(), false, "settings drift", settingsDriftDetail(drift, driftErr))
+	driftOK, driftDetail := DoctorSettingsDrift()
+	check(driftOK, false, "settings drift", driftDetail)
 	if wdrift, wok, werr := CheckWindowsSettingsDrift(); wok {
 		check(werr == nil && !wdrift.Drifted(), false, "settings (windows)", settingsDriftDetailLabeled(wdrift, werr, "settings (windows)"))
 	}
@@ -344,7 +344,7 @@ func setupDoctorDetail() string {
 	return fmt.Sprintf("adopted %s from %s; backup %s", st.Date.Format("2006-01-02"), st.Commit, st.BackupDir)
 }
 
-// opencodeRouteDetail reports the opencode route `claude-code configure --reset` would render: provider,
+// opencodeRouteDetail reports the opencode route `claude-code configure --restore` would render: provider,
 // model/small_model (the github-copilot route only), the file it writes, and — names/booleans only,
 // never a credential — whether opencode has its own GitHub Copilot login and whether the copilot CLI has one.
 func opencodeRouteDetail(reg *providers.Registry, sel providers.Selection, selErr error) string {

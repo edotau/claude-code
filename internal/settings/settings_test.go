@@ -202,51 +202,28 @@ func TestWriteWithBackupPreservesBackToBackBackups(t *testing.T) {
 	}
 }
 
-func TestMergeDropsRetiredKeys(t *testing.T) {
+func TestMergeKeepsForeignKeysInOrder(t *testing.T) {
 	rendered, err := Render()
 	if err != nil {
 		t.Fatal(err)
 	}
-	in := `{"companyAnnouncements":["hi"],"autoMemoryDirectory":"/flat/memory","zzForeign":{"a":1}}`
+	in := `{"companyAnnouncements":["hi"],"zzForeign":{"a":1}}`
 	out, sum, err := Merge([]byte(in), rendered, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(out), "autoMemoryDirectory") {
-		t.Errorf("retired key survived:\n%s", out)
-	}
-	if strings.Join(sum.Retired, ",") != "autoMemoryDirectory" {
-		t.Errorf("retired = %v", sum.Retired)
-	}
 	if strings.Join(sum.Kept, ",") != "companyAnnouncements,zzForeign" {
-		t.Errorf("kept = %v (want foreign keys in order, no retired key)", sum.Kept)
+		t.Errorf("kept = %v (want foreign keys in order)", sum.Kept)
 	}
 	if i, j := strings.Index(string(out), "companyAnnouncements"), strings.Index(string(out), "zzForeign"); i < 0 || j < i {
 		t.Errorf("foreign key order lost:\n%s", out)
 	}
-	again, sum2, err := Merge(out, rendered, nil)
+	again, _, err := Merge(out, rendered, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if string(again) != string(out) {
 		t.Error("merge is not idempotent")
-	}
-	if len(sum2.Retired) != 0 {
-		t.Errorf("second merge retired %v", sum2.Retired)
-	}
-}
-
-func TestMergeDropsRetiredEnvKeys(t *testing.T) {
-	in := `{"env":{"CLAUDE_CODE_DISABLE_VIRTUAL_SCROLL":"1","KEEP":"1"}}`
-	out, sum, err := Merge([]byte(in), []byte(`{"env":{"A":"b"}}`), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if s := string(out); strings.Contains(s, "VIRTUAL_SCROLL") || !strings.Contains(s, `"KEEP"`) {
-		t.Errorf("merged env = %s", s)
-	}
-	if !slices.Contains(sum.Retired, "env.CLAUDE_CODE_DISABLE_VIRTUAL_SCROLL") {
-		t.Errorf("retired = %v", sum.Retired)
 	}
 }
 

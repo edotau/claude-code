@@ -21,10 +21,10 @@ func termWidth(l string) int {
 func TestConfigureHelpShowsDoubleDashFlags(t *testing.T) {
 	t.Setenv("NO_COLOR", "1")
 	_, _, stderr := captureOutput(t, func() int { return cmdConfigure([]string{"-h"}) })
-	if !strings.Contains(stderr, "--reset") {
-		t.Errorf("help lacks --reset:\n%s", stderr)
+	if !strings.Contains(stderr, "--restore") {
+		t.Errorf("help lacks --restore:\n%s", stderr)
 	}
-	if strings.Contains(stderr, "\n  -reset") {
-		t.Errorf("help prints single-dash -reset:\n%s", stderr)
+	if strings.Contains(stderr, "\n  -restore") {
+		t.Errorf("help prints single-dash -restore:\n%s", stderr)
 	}
 }

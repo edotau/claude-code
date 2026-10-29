@@ -80,7 +80,7 @@ func commands() []command {
 		{name: "describe", group: groupDiagnostics, summary: "machine-readable map of the harness", run: cmdDescribe},
 		// SETTINGS
 		{name: "install", group: groupSettings, summary: "install Claude Code + write settings.json", run: cmdInstall},
-		{name: "configure", group: groupSettings, summary: "guided setup; --reset re-renders from the templates", run: cmdConfigure},
+		{name: "configure", group: groupSettings, summary: "guided setup; --restore resets to your defaults", run: cmdConfigure},
 		{name: "theme", group: groupSettings, summary: "palette, statusline, VS Code template, tool themes", run: cmdTheme},
 		// Hidden: dispatchable, named in the trailing note, off the menu.
 		{name: "claude", hidden: true, summary: "launch Claude Code on the selected profile", run: cmdClaude},

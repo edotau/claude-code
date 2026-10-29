@@ -343,7 +343,7 @@ func commitWrite(path string, raw, next []byte, existed bool, o Options, out io.
 				return nil
 			}
 		} else {
-			fmt.Fprintf(out, "%s: overwrote %d hand-edited line(s) in %s; `claude-code configure --restore` restores\n",
+			fmt.Fprintf(out, "%s: overwrote %d hand-edited line(s) in %s; `claude-code configure --revert` restores\n",
 				label, len(lost), path)
 			printLostLines(out, lost)
 		}

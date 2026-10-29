@@ -208,6 +208,14 @@ func settingsMergeApply(dryRun bool) (file string, existing, merged []byte, sum 
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return file, nil, nil, settings.Summary{}, "", err
 	}
+	if errors.Is(err, fs.ErrNotExist) && !dryRun { // a fresh install restores the defaults whole
+		r, rerr := RestoreSettings(file)
+		if rerr != nil {
+			return file, nil, nil, settings.Summary{}, "", rerr
+		}
+		_, sum, err = settings.Merge(nil, r.Data, nil)
+		return file, nil, r.Data, sum, r.Backup, err
+	}
 	rendered, err := settings.RenderLive()
 	if err != nil {
 		return file, existing, nil, settings.Summary{}, "", err
@@ -238,9 +246,6 @@ func installSettings(w io.Writer, dryRun bool) error {
 	}
 	fmt.Fprintf(w, "settings %s\n  keep   %s\n  merge  %s\n  hooks  %d harness + %d foreign kept\n",
 		file, strings.Join(sum.Kept, ", "), strings.Join(sum.Owned, ", "), sum.HarnessHooks, sum.ForeignHooks)
-	if len(sum.Retired) > 0 {
-		fmt.Fprintf(w, "  drop   %s (retired)\n", strings.Join(sum.Retired, ", "))
-	}
 	if len(sum.Dropped) > 0 {
 		fmt.Fprintf(w, "  drop   %s (drop list)\n", strings.Join(sum.Dropped, ", "))
 	}
@@ -275,9 +280,6 @@ func settingsCompactLine() (line string, err error) {
 	line = fmt.Sprintf("settings %s · %d harness hooks · %d foreign kept", status, sum.HarnessHooks, sum.ForeignHooks)
 	if backup != "" {
 		line += " · backup …" + filepath.Base(backup)
-	}
-	if len(sum.Retired) > 0 {
-		line += " · dropped " + strings.Join(sum.Retired, ", ")
 	}
 	if len(sum.Dropped) > 0 {
 		line += fmt.Sprintf(" · %d dropped", len(sum.Dropped))
@@ -331,7 +333,7 @@ func agentsSyncCompact(w io.Writer) {
 	fmt.Fprintf(w, "agents   synced: %s · %s\n", strings.Join(crossgen.VendorNames(), " "), agentConfigsSummary(w))
 }
 
-// agentConfigsSummary re-renders the agent configs `configure --reset` writes (codex, opencode, gemini, copilot) and
+// agentConfigsSummary re-renders the agent configs `configure --restore` writes (codex, opencode, gemini, copilot) and
 // returns a one-token summary; best-effort, so a render failure warns on w and never fails install.
 func agentConfigsSummary(w io.Writer) string {
 	var changed []string
@@ -575,4 +577,28 @@ func formatsCompact(w io.Writer) string {
 		return ""
 	}
 	return fmt.Sprintf("formats %d migrated", len(done))
+}
+
+// RestoreResult is what RestoreSettings did: the rendered bytes, the history commit and the backup path.
+type RestoreResult struct {
+	Data   []byte
+	Commit string
+	Backup string
+}
+
+// RestoreSettings snapshots history ("before restore"), renders defaults plus overlay and writes file whole.
+func RestoreSettings(file string) (RestoreResult, error) {
+	var r RestoreResult
+	if h, err := history.SnapshotConfig("before restore"); err != nil {
+		fmt.Fprintln(os.Stderr, "restore: history snapshot:", err)
+	} else {
+		r.Commit = h.Commit
+	}
+	data, err := settings.RenderLive()
+	if err != nil {
+		return r, err
+	}
+	r.Data = data
+	r.Backup, err = settings.WriteWithBackup(file, data)
+	return r, err
 }

@@ -44,9 +44,6 @@ func Diff(existing, rendered []byte) (differs, foreign []string, err error) {
 			differs = append(differs, k)
 		}
 	}
-	for _, k := range sum.Retired {
-		differs = append(differs, k+" (retired)")
-	}
 	return differs, sum.Kept, nil
 }
 

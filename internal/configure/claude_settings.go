@@ -1,5 +1,5 @@
-// claude_settings.go — the "claude code" page: every catalog key, grouped by Sections(), edited and held
-// until the page is left, then saved to the vault overlay and re-rendered into settings.json.
+// claude_settings.go — the "claude code" page: your defaults, grouped by Sections(), edited and held until
+// the page is left, then saved as default to the vault overlay; it can also add any schema key or write repo defaults.
 package configure
 
 import (
@@ -8,16 +8,28 @@ import (
 	"fmt"
 	"maps"
 	"os"
+	"os/exec"
 	"slices"
 	"strings"
 
 	"github.com/edotau/claude-code/internal/launch"
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/settings"
+	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/tui"
 )
 
 // pickSettingsPage is the sectioned picker seam; tests replace it.
 var pickSettingsPage = tui.PickSections
+
+// addSettingList is the filterable "+ add a setting" picker seam; tests replace it.
+var addSettingList = tui.List
+
+// gitDiffStat prints the uncommitted change to the repo defaults file; tests replace it.
+var gitDiffStat = func(dir string) (string, error) {
+	out, err := exec.Command("git", "-C", dir, "diff", "--stat", "--", settings.RepoDefaultsRel).CombinedOutput()
+	return string(out), err
+}
 
 // claudeSettingsRow is the main-menu "claude code" row: N overrides, or "vault error" when the overlay
 // fails to load.
@@ -31,12 +43,12 @@ func claudeSettingsRow(d *dialog) homeRow {
 }
 
 // settingRow renders one catalog field as a page row: key, then its effective value and source
-// (template|vault), flagging when the live settings.json holds something else. tmpl/ov/live are
+// (default|mine), flagging when the live settings.json holds something else. tmpl/ov/live are
 // parsed top-level settings objects; a missing live map (no file yet) never raises the flag.
 func settingRow(f settings.Field, tmpl, ov, live map[string]json.RawMessage) [2]string {
-	eff, source := tmpl[f.Key], "template"
+	eff, source := tmpl[f.Key], "default"
 	if v, ok := ov[f.Key]; ok {
-		eff, source = v, "vault"
+		eff, source = v, "mine"
 	}
 	if l, ok := live[f.Key]; ok && !jsonEqual(l, eff) {
 		source += " · live differs"
@@ -62,8 +74,8 @@ func jsonEqual(a, b json.RawMessage) bool {
 	return ca.String() == cb.String()
 }
 
-// editSetting prompts for a new value for f (tmplVal is its template value, shown as the reset target).
-// A nil json.RawMessage means reset to the template (remove the overlay key); ok is false on cancel or
+// editSetting prompts for a new value for f (tmplVal is its repo default, nil when it has none).
+// A nil json.RawMessage means remove it from my defaults (drop the overlay key); ok is false on cancel or
 // a parse error (already reported), meaning no change at all.
 func editSetting(d *dialog, f settings.Field, tmplVal json.RawMessage) (json.RawMessage, bool) {
 	if f.Kind == settings.KindBool || f.Kind == settings.KindEnum {
@@ -72,7 +84,7 @@ func editSetting(d *dialog, f settings.Field, tmplVal json.RawMessage) (json.Raw
 	return editText(d, f, tmplVal)
 }
 
-// editChoice is the on/off or choice picker, with a trailing "reset to template" row; theme also gets a
+// editChoice is the on/off or choice picker, with a trailing "remove from mine" row; theme also gets a
 // "custom..." row reaching the documented custom:<name> value (catalog Validate accepts it, but no enum
 // row names a specific one).
 func editChoice(d *dialog, f settings.Field, tmplVal json.RawMessage) (json.RawMessage, bool) {
@@ -90,7 +102,7 @@ func editChoice(d *dialog, f settings.Field, tmplVal json.RawMessage) (json.RawM
 		rows = append(rows, [2]string{"custom...", "enter a custom:<name> theme"})
 	}
 	resetIdx := len(rows)
-	rows = append(rows, [2]string{"reset to template (" + settingText(tmplVal) + ")", ""})
+	rows = append(rows, [2]string{removeLabel(tmplVal), ""})
 	idx, err := pickPlain(d, f.Key, rows)
 	if err != nil || idx < 0 {
 		return nil, false
@@ -118,9 +130,17 @@ func editChoice(d *dialog, f settings.Field, tmplVal json.RawMessage) (json.RawM
 	return raw, true
 }
 
-// editText is the number/text prompt; an empty line resets to the template.
+// removeLabel is the trailing editChoice row that removes the key from my defaults.
+func removeLabel(tmplVal json.RawMessage) string {
+	if tmplVal == nil {
+		return "remove from mine"
+	}
+	return "remove from mine (default " + textutil.Truncate(settingText(tmplVal), 30) + ")"
+}
+
+// editText is the number/text prompt; an empty line removes the key from my defaults.
 func editText(d *dialog, f settings.Field, tmplVal json.RawMessage) (json.RawMessage, bool) {
-	input := strings.TrimSpace(textLine(d, f.Key+" (empty resets): "))
+	input := strings.TrimSpace(textLine(d, f.Key+" (empty removes): "))
 	if input == "" {
 		return nil, true
 	}
@@ -300,11 +320,61 @@ func runDropKeep(d *dialog) int {
 	return 0
 }
 
+// flattenEnv returns m plus every env variable as a top-level entry, so env keys look up like any other.
+func flattenEnv(m map[string]json.RawMessage) map[string]json.RawMessage {
+	out := maps.Clone(m)
+	var env map[string]json.RawMessage
+	if json.Unmarshal(m["env"], &env) != nil {
+		return out
+	}
+	for k, v := range env {
+		if _, clash := out[k]; !clash {
+			out[k] = v
+		}
+	}
+	return out
+}
+
+// pageSections builds the page rows: the section keys, then keys only in my defaults, then the actions.
+// fields lists the editable rows in order; the action rows follow them.
+func pageSections(sections []settings.Section, tmpl, cur, live map[string]json.RawMessage) ([]tui.Section, []settings.Field, map[string]bool) {
+	var out []tui.Section
+	var fields []settings.Field
+	shown := map[string]bool{}
+	for _, sec := range sections {
+		var rows [][2]string
+		for _, key := range sec.Keys {
+			shown[key] = true
+			f, ok := settings.Lookup(key)
+			if !ok {
+				continue
+			}
+			rows = append(rows, settingRow(f, tmpl, cur, live))
+			fields = append(fields, f)
+		}
+		if len(rows) > 0 {
+			out = append(out, tui.Section{Title: "== " + sec.Name + " ==", Rows: rows})
+		}
+	}
+	var rows [][2]string
+	for _, key := range slices.Sorted(maps.Keys(cur)) {
+		if f, ok := settings.FieldFor(key); ok && !shown[key] {
+			rows = append(rows, settingRow(f, tmpl, cur, live))
+			fields = append(fields, f)
+		}
+	}
+	if len(rows) > 0 {
+		out = append(out, tui.Section{Title: "== added ==", Rows: rows})
+	}
+	actions := [][2]string{{"+ add a setting", "pick any Claude Code setting"}, {"Save to repo defaults", "write staged keys to the repo file"}}
+	return append(out, tui.Section{Title: "== actions ==", Rows: actions}), fields, shown
+}
+
 // runClaudeSettingsMenu is the interactive page: rows grouped under Sections() headers, edits staged until
-// the page is left (Esc or the trailing "save and go back" row), then one confirm writes the overlay.
+// the page is left (Esc or the trailing "Save as default" row), then one confirm writes the overlay.
 func runClaudeSettingsMenu(d *dialog, ov map[string]json.RawMessage, sections []settings.Section) bool {
 	staged := map[string]json.RawMessage{} // explicit new overlay value for this key, this page
-	reset := map[string]bool{}             // key removed from the overlay (back to template), this page
+	reset := map[string]bool{}             // key removed from the overlay (back to the default), this page
 	defer saveClaudeSettings(d, staged, reset)
 	start := 0
 	for {
@@ -317,43 +387,106 @@ func runClaudeSettingsMenu(d *dialog, ov map[string]json.RawMessage, sections []
 		if err != nil && !os.IsNotExist(err) {
 			d.printf("claude code: %v\n", err)
 		}
+		tmpl, live = flattenEnv(tmpl), flattenEnv(live)
 		cur := maps.Clone(ov)
 		for k := range reset {
 			delete(cur, k)
 		}
 		maps.Copy(cur, staged)
 
-		var tuiSections []tui.Section
-		var fields []settings.Field
-		for _, sec := range sections {
-			var rows [][2]string
-			for _, key := range sec.Keys {
-				f, ok := settings.Lookup(key)
-				if !ok {
-					continue
-				}
-				rows = append(rows, settingRow(f, tmpl, cur, live))
-				fields = append(fields, f)
-			}
-			if len(rows) > 0 {
-				tuiSections = append(tuiSections, tui.Section{Title: "== " + sec.Name + " ==", Rows: rows})
-			}
-		}
-		idx, err := pickSettingsPage("claude code — per-machine overrides", tuiSections, enterRow("save and go back"), start)
-		if err != nil || idx < 0 || idx >= len(fields) {
+		tuiSections, fields, shown := pageSections(sections, tmpl, cur, live)
+		idx, err := pickSettingsPage("claude code — your defaults", tuiSections, enterRow("Save as default"), start)
+		if err != nil || idx < 0 || idx > len(fields)+1 {
 			return true
 		}
 		start = idx
-		f := fields[idx]
-		raw, ok := editSetting(d, f, tmpl[f.Key])
-		if !ok {
-			continue
+		switch {
+		case idx == len(fields):
+			for k := range cur {
+				shown[k] = true
+			}
+			if key, raw, ok := addSetting(d, shown); ok {
+				stageSetting(ov, staged, reset, key, raw, tmpl[key])
+			}
+		case idx == len(fields)+1:
+			saveRepoDefaults(d, staged)
+		default:
+			f := fields[idx]
+			if raw, ok := editSetting(d, f, tmpl[f.Key]); ok {
+				stageSetting(ov, staged, reset, f.Key, raw, tmpl[f.Key])
+			}
 		}
-		stageSetting(ov, staged, reset, f.Key, raw, tmpl[f.Key])
 	}
 }
 
-// stageSetting records one edit: nil (explicit reset) or a value matching the template both remove the
+// addSetting picks a schema key not already shown, then its value; ok is false on cancel or a bad value.
+func addSetting(d *dialog, shown map[string]bool) (key string, raw json.RawMessage, ok bool) {
+	var cand []settings.Key
+	for _, k := range settings.SchemaKeys() {
+		if !shown[k.Name] && k.Kind != settings.KindObject && k.Kind != settings.KindArray && k.Name != "$schema" {
+			cand = append(cand, k)
+		}
+	}
+	key = pickSchemaKey(d, cand)
+	f, found := settings.FieldFor(key)
+	if !found {
+		return "", nil, false
+	}
+	raw, ok = editSetting(d, f, nil)
+	return key, raw, ok && raw != nil
+}
+
+// pickSchemaKey runs the filterable list (key + description, 80 columns), else a typed name; "" is a cancel.
+func pickSchemaKey(d *dialog, cand []settings.Key) string {
+	width := 0
+	for _, k := range cand {
+		width = max(width, len([]rune(k.Name)))
+	}
+	room := 80 - 4 - width // marker, label, two-space gap
+	rows := make([]tui.ListRow, len(cand))
+	for i, k := range cand {
+		rows[i] = tui.ListRow{Label: k.Name, Detail: textutil.Truncate(strings.Join(strings.Fields(k.Description), " "), max(room, 0))}
+	}
+	res, err := addSettingList(tui.ListSpec{Title: "add a setting (type to filter)", Rows: rows, Search: true}, 0)
+	if err == nil {
+		if res.Index < 0 || res.Index >= len(cand) {
+			return ""
+		}
+		return cand[res.Index].Name
+	}
+	name := strings.TrimSpace(textLine(d, "setting name: "))
+	if !slices.ContainsFunc(cand, func(k settings.Key) bool { return k.Name == name }) {
+		if name != "" {
+			d.printf("claude code: %s: not an addable setting\n", name)
+		}
+		return ""
+	}
+	return name
+}
+
+// saveRepoDefaults writes the staged keys into the repo defaults file and prints the git diff --stat; no commit.
+func saveRepoDefaults(d *dialog, staged map[string]json.RawMessage) {
+	if len(staged) == 0 {
+		d.println("claude code: nothing staged for the repo defaults")
+		return
+	}
+	if !saveConfirmed(fmt.Sprintf("Write %d key(s) to the repo defaults", len(staged))) {
+		return
+	}
+	path, err := settings.WriteRepoDefaults(staged)
+	if err != nil {
+		d.printf("claude code: %v\n", err)
+		return
+	}
+	d.printf("claude code: wrote %s (not committed)\n", path)
+	stat, err := gitDiffStat(paths.ConfigDir())
+	if err != nil {
+		d.printf("claude code: git diff --stat: %v\n", err)
+	}
+	d.println(strings.TrimRight(stat, "\n"))
+}
+
+// stageSetting records one edit: nil (explicit remove) or a value matching the repo default both remove the
 // overlay key; otherwise it stages the new value.
 func stageSetting(ov, staged map[string]json.RawMessage, reset map[string]bool, key string, raw, tmplVal json.RawMessage) {
 	delete(staged, key)
@@ -377,7 +510,7 @@ func saveClaudeSettings(d *dialog, staged map[string]json.RawMessage, reset map[
 	if n == 0 {
 		return
 	}
-	if !confirmLeave(n, "claude code setting(s)") {
+	if !confirmLeave(n, "setting(s) as default") {
 		d.printf("claude code: %d change(s) discarded\n", n)
 		return
 	}
@@ -396,5 +529,5 @@ func saveClaudeSettings(d *dialog, staged map[string]json.RawMessage, reset map[
 		return
 	}
 	d.changed = true
-	d.printf("claude code: %d setting(s) saved\n", n)
+	d.printf("claude code: %d setting(s) saved as default\n", n)
 }

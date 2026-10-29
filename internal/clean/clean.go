@@ -105,7 +105,7 @@ func targets() []target {
 			name: "settings-backups", doc: "state/harness/backups/setup/* + backups/.claude.json.backup.* (CLI), aged; the revert mirror is never swept",
 			globs: func() []string {
 				return []string{filepath.Join(paths.CacheDir(), "backups", "setup", "*"), g("backups", ".claude.json.backup.*")}
-			}, // the rest of state/harness/backups is the only vendor-config history (configure --restore)
+			}, // the rest of state/harness/backups is the only vendor-config history (configure --revert)
 		},
 		{
 			// Every plugin update leaves the previous version dir behind; only the installPath in

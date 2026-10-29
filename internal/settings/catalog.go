@@ -177,3 +177,19 @@ func (f Field) Validate(raw json.RawMessage) error {
 	}
 	return nil
 }
+
+// FieldFor returns key's catalog entry, else a Field built from its schema entry (Section "").
+func FieldFor(key string) (Field, bool) {
+	if f, ok := Lookup(key); ok {
+		return f, true
+	}
+	sk, ok := SchemaKey(key)
+	if !ok {
+		return Field{}, false
+	}
+	f := Field{Key: key, Kind: sk.Kind, Values: sk.Enum, Source: "schema"}
+	if sk.Min != nil {
+		f.Min = int(*sk.Min)
+	}
+	return f, true
+}

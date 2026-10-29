@@ -1,4 +1,4 @@
-// Vendor-file versions, baselines and lost-line detection behind commitFile, plus `configure --restore`.
+// Vendor-file versions, baselines and lost-line detection behind commitFile, plus `configure --revert`.
 package generate
 
 import (

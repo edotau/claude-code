@@ -173,3 +173,30 @@ func TestUpdateDroppedRefusesTemplateKeys(t *testing.T) {
 		t.Errorf("a refused save must not write; LoadDropped = %v", got)
 	}
 }
+
+// TestOverlayAcceptsAnySchemaKey: a schema key outside the Catalog applies at top level, a schema env variable
+// lands inside env, and a key the schema lacks is still refused.
+func TestOverlayAcceptsAnySchemaKey(t *testing.T) {
+	rendered, err := Render()
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := applyOverlay(rendered, map[string]json.RawMessage{
+		"wheelScrollAccelerationEnabled": json.RawMessage("false"),
+		"DISABLE_TELEMETRY":              json.RawMessage(`"1"`),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	o, _ := parseObject(out)
+	env, _ := parseObject(o.vals["env"])
+	if string(o.vals["wheelScrollAccelerationEnabled"]) != "false" || string(env.vals["DISABLE_TELEMETRY"]) != `"1"` {
+		t.Errorf("overlay keys not applied:\n%s", out)
+	}
+	if _, ok := o.vals["DISABLE_TELEMETRY"]; ok {
+		t.Error("env variable leaked to the top level")
+	}
+	if _, err := applyOverlay(rendered, map[string]json.RawMessage{"noSuchKey": json.RawMessage("1")}); err == nil {
+		t.Error("unknown key accepted")
+	}
+}

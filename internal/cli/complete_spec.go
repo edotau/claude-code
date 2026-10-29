@@ -70,7 +70,7 @@ func buildSpecTree() map[string]*compNode {
 			}},
 		"configure": {args: []func() []string{configureSections, providerNames}, flags: []flagInfo{
 			valuedFlag("profile", providerNames), valuedFlag("agent", configureAgentNames), boolFlag("dry-run"), boolFlag("check"),
-			boolFlag("reset"), boolFlag("restore"), flag("out"), boolFlag("agents"), boolFlag("list"), formatFlag()}},
+			boolFlag("restore"), boolFlag("revert"), flag("out"), boolFlag("agents"), boolFlag("list"), formatFlag()}},
 		"network": {sub: map[string]*compNode{
 			"restart": {flags: []flagInfo{boolFlag("dry-run"), formatFlag()}},
 			"tailscale": {flags: []flagInfo{formatFlag(), boolFlag("machines"), boolFlag("connect"), boolFlag("key"),
