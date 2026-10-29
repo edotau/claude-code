@@ -29,7 +29,7 @@ var hardBlocks = lazyCompile(
 // pipeBlocks match the WHOLE command text because pipes and encoded Python heredocs span shell segments.
 var pipeBlocks = lazyCompile(
 	`(^|[^[:alnum:]_])(curl|wget)\s[^|]*\|\s*(ba|z)?sh([^[:alnum:]_]|$)`,
-	`(^|[\s;&|({/\x60])(bash|sh|zsh|source|\.)\s+(<\s*)?<\(\s*(curl|wget)\s`,
+	`(^|[\s;&|({/\x60])(bash|sh|zsh|dash|ksh|source|\.)\s+(-\S*\s+)*(<\s*)?<\(\s*(\S*/)?(curl|wget)\s`,
 	`(?s)(^|[\s;&|({/\x60])python3?(\.[0-9]+)?\b[^\n]*<<[-<]?.*((exec|eval)\(.*(base64|b64decode)|(base64|b64decode).*(exec|eval)\()`,
 )
 
