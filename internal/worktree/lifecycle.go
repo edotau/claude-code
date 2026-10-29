@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/paths"
 )
 
@@ -30,6 +31,9 @@ func Create(repo *Repo, name string, opt CreateOptions) (string, error) {
 		return "", err
 	}
 	if _, err := os.Stat(dest); err == nil {
+		if err := resumeLedger(repo, name, dest, opt.Session); err != nil {
+			fmt.Fprintf(log, "worktree-create: warning: ledger: %v\n", err)
+		}
 		return dest, nil // `--worktree <name>` again resumes the existing checkout; ResolveWorktree already verified it's ours
 	}
 	branch := opt.Branch
@@ -43,16 +47,50 @@ func Create(repo *Repo, name string, opt CreateOptions) (string, error) {
 		return "", err
 	}
 	args := []string{"-C", repo.Main, "worktree", "add", dest}
+	baseRef := branch
 	if branchExists(repo.Main, branch) {
 		args = append(args, branch) // reuse an existing branch rather than failing on -b
 	} else {
-		args = append(args, "-b", branch, createBase(repo.Main, log))
+		baseRef = createBase(repo.Main, log)
+		args = append(args, "--no-track", "-b", branch, baseRef) // no upstream: branch -d checks merged into HEAD
 	}
+	base, baseErr := gitCmd(context.Background(), "-C", repo.Main, "rev-parse", "--verify", baseRef+"^{commit}").Output()
 	if out, err := gitCmd(context.Background(), args...).CombinedOutput(); err != nil {
 		return "", fmt.Errorf("git worktree add: %v: %s", err, strings.TrimSpace(string(out)))
 	}
 	seedWorktree(repo.Main, dest, log)
+	if baseErr != nil {
+		fmt.Fprintf(log, "worktree-create: warning: ledger: resolve base: %v\n", baseErr)
+	} else if err := OpenLedger(repo.Main, name, LedgerInfo{
+		Path: dest, Branch: branch, Base: strings.TrimSpace(string(base)), BaseRef: baseRef, Session: opt.Session,
+	}); err != nil {
+		fmt.Fprintf(log, "worktree-create: warning: ledger: %v\n", err)
+	}
 	return dest, nil
+}
+
+func resumeLedger(repo *Repo, name, dest, session string) error {
+	path := filepath.Join(memory.Dir(repo.Main), "worktrees", name+".md")
+	if _, err := os.Stat(path); err == nil {
+		return nil
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+	head, err := headOfContext(context.Background(), dest)
+	if err != nil {
+		return err
+	}
+	base, err := gitCmd(context.Background(), "-C", repo.Main, "merge-base", "HEAD", head).Output()
+	if err != nil {
+		return fmt.Errorf("resolve resume base: %w", err)
+	}
+	branch, err := currentWorktreeBranch(dest)
+	if err != nil {
+		return err
+	}
+	return OpenLedger(repo.Main, name, LedgerInfo{
+		Path: dest, Branch: branch, Base: strings.TrimSpace(string(base)), BaseRef: "merge-base", Session: session,
+	})
 }
 
 func createBase(main string, log io.Writer) string {
@@ -187,6 +225,11 @@ func CleanInLease(repo *Repo, name string, dryRun bool) (CleanResult, error) {
 	result.Removed = true
 	if branch != "" && gitCmd(context.Background(), "-C", repo.Main, "branch", "-d", branch).Run() == nil {
 		result.BranchDeleted = true // -d refuses an unmerged branch; failure there just keeps it
+	}
+	if err := CloseLedger(repo.Main, name, LedgerClose{
+		Via: "clean", Head: entry.Head, BranchDeleted: result.BranchDeleted,
+	}); err != nil {
+		fmt.Fprintf(os.Stderr, "worktree-clean: warning: ledger: %v\n", err)
 	}
 	return result, nil
 }
