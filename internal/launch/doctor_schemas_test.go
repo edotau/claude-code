@@ -31,11 +31,8 @@ func TestFormatsDoctorAndInstallStepSpan(t *testing.T) {
 	seedHarness(t, "zz-stray.json", `{}`)
 
 	formats := findCheck(formatsDoctorChecks(), "formats")
-	if formats == nil || !strings.Contains(formats.Detail, "quota") || !strings.Contains(formats.Detail, "stale") {
-		t.Fatalf("formats row = %+v, want quota stale", formats)
-	}
-	if strings.Contains(formats.Detail, "agentversion") {
-		t.Errorf("unversioned cache reported stale: %q", formats.Detail)
+	if formats == nil || !formats.OK || strings.Contains(formats.Detail, "stale") { // quota stays a bare map: an old daemon reads it
+		t.Fatalf("formats row = %+v, want current", formats)
 	}
 	layout := findCheck(formatsDoctorChecks(), "state layout")
 	if layout == nil || !strings.Contains(layout.Detail, "zz-stray.json") {
@@ -47,26 +44,11 @@ func TestFormatsDoctorAndInstallStepSpan(t *testing.T) {
 
 	before, _ := os.ReadFile(quota)
 	var out bytes.Buffer
-	installFormats(&out, true)
+	installFormats(&out, false)
 	if after, _ := os.ReadFile(quota); !bytes.Equal(before, after) {
-		t.Fatalf("dry-run rewrote quota.json: %s", after)
+		t.Fatalf("install rewrote quota.json: %s", after)
 	}
 	if _, err := os.Stat(schemas.LedgerPath()); err == nil {
-		t.Error("dry-run wrote the ledger")
-	}
-
-	installFormats(&out, false)
-	got, _ := os.ReadFile(quota)
-	if !strings.Contains(string(got), `"schema":1`) {
-		t.Errorf("quota.json not stamped: %s", got)
-	}
-	led, _ := os.ReadFile(schemas.LedgerPath())
-	lines := strings.Split(strings.TrimSpace(string(led)), "\n")
-	if len(lines) != 1 || !strings.Contains(lines[0], `"format":"quota"`) ||
-		!strings.Contains(lines[0], `"from":0`) || !strings.Contains(lines[0], `"to":1`) {
-		t.Errorf("ledger = %q, want one quota 0->1 line", led)
-	}
-	if c := findCheck(formatsDoctorChecks(), "formats"); c == nil || !c.OK || strings.Contains(c.Detail, "quota") {
-		t.Errorf("formats row after migrate = %+v, want current", c)
+		t.Error("install wrote the ledger for a bare-map quota.json")
 	}
 }

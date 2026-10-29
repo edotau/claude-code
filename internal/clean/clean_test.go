@@ -48,7 +48,6 @@ func seedDebris(t *testing.T) string {
 		"state/harness/router.log",
 		"state/harness/dispatch/20260101-aaaa.log",
 		"state/harness/backups/settings.json.bak-20260101-000000",
-		"state/harness/backups/settings.json.bak",
 		"backups/.claude.json.backup.1700000000000",
 		"jobs/job-aaa/output.log",
 		"file-history/f-aaa/v1",
@@ -128,7 +127,6 @@ func TestCleanAppliesByDefault(t *testing.T) {
 		"state/harness/checkpoint/sess-aaa", "state/harness/plans-scratch/x.md.dest",
 		"state/harness/stop-format/abc123.json", "state/harness/agents-inflight/agent-123-aaa",
 		"state/harness/router.log", "state/harness/dispatch/20260101-aaaa.log",
-		"state/harness/backups/settings.json.bak-20260101-000000",
 		"jobs/job-aaa", "file-history/f-aaa", "session-env/sess-aaa.json", "paste-cache/p-aaa.txt",
 		"shell-snapshots/snap-aaa.sh", "todos/sess-aaa.json", "cache/model-x.json", "image-cache/img-aaa.png",
 		"debug/debug-aaa.log", "statsig/stat-aaa.json", "logs/log-aaa.log", "usage-data/usage-aaa.json",
@@ -424,23 +422,24 @@ func TestNestedConfigKeepsWorktrees(t *testing.T) {
 	}
 }
 
-// TestBackupsAgeless: settings backups go on any --apply, however fresh.
-func TestBackupsAgeless(t *testing.T) {
+// TestBackupsMirrorNeverSwept: the revert mirror survives a sweep; CLI backups age out like any target.
+func TestBackupsMirrorNeverSwept(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", dir)
-	fresh := []string{
-		filepath.Join(paths.CacheDir(), "backups", "settings.json.bak"),
-		filepath.Join(dir, "backups", ".claude.json.backup.1"),
-	}
-	for _, p := range fresh {
+	mirror := filepath.Join(paths.CacheDir(), "backups", "settings.json.bak-20200101-000000")
+	cli := filepath.Join(dir, "backups", ".claude.json.backup.1")
+	for _, p := range []string{mirror, cli} {
 		write(t, p, "x")
+		old := time.Now().Add(-90 * 24 * time.Hour)
+		_ = os.Chtimes(p, old, old)
 	}
 	var out, errw bytes.Buffer
 	Run(nil, &out, &errw)
-	for _, p := range fresh {
-		if _, err := os.Stat(p); !os.IsNotExist(err) {
-			t.Errorf("fresh backup kept: %s", p)
-		}
+	if _, err := os.Stat(mirror); err != nil {
+		t.Errorf("revert mirror swept: %v", err)
+	}
+	if _, err := os.Stat(cli); !os.IsNotExist(err) {
+		t.Errorf("aged CLI backup kept")
 	}
 }
 

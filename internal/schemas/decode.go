@@ -1,7 +1,9 @@
 package schemas
 
 import (
+	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 )
 
@@ -12,6 +14,9 @@ func peek(raw []byte) (int, error) {
 	}
 	if err := json.Unmarshal(raw, &p); err != nil {
 		return 0, err
+	}
+	if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+		return 0, errors.New("document is null, not an object")
 	}
 	if p.Schema == nil {
 		return 0, nil
@@ -51,9 +56,12 @@ func Decode(f Format, raw []byte, dst any) (from int, err error) {
 
 // SameShape is a Migrate step for a version bump that only adds the "schema" stamp.
 func SameShape(from int, raw []byte) ([]byte, error) {
-	m := map[string]json.RawMessage{}
+	var m map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &m); err != nil {
 		return nil, err
+	}
+	if m == nil {
+		return nil, errors.New("document is null, not an object")
 	}
 	n, err := json.Marshal(from + 1)
 	if err != nil {

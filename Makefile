@@ -224,16 +224,20 @@ lint-fix: compile mdsmith  ## Auto-fix lint, then an AI agent fixes the rest (WH
 	go=0; md=0; gl=0; case "$(WHAT)" in go) go=1;; md) md=1;; *) go=1; md=1;; esac; \
 	if [ $$go = 1 ]; then if command -v golangci-lint >/dev/null; then gl=1; \
 		else echo -e "$(C_NOTE)golangci-lint not installed — skipped (make install DEV_TOOLS=1)"; fi; fi; \
-	o=$$(mktemp); b=$$(mktemp); trap 'rm -f "$$o" "$$b"' EXIT; \
-	chk() { : > "$$o"; \
-		if [ $$go = 1 ]; then { gofmt -l $(GO_FMT_DIRS); $(GO) vet $(PKGS) 2>&1; \
-			if [ $$gl = 1 ]; then golangci-lint run --max-issues-per-linter=0 --max-same-issues=0 ./... 2>&1; fi; } >> "$$o" || true; fi; \
-		if [ $$md = 1 ]; then $(MDSMITH) check >> "$$o" 2>&1 || true; fi; \
-		grep -cE '^[^ ]+\.(go|md):[0-9]+|\.go$$' "$$o" || true; }; \
-	before=$$(chk); echo "lint-fix: $$before issue(s) before auto-fix"; \
+	o=$$(mktemp); b=$$(mktemp); t=$$(mktemp); e=$$(mktemp); trap 'rm -f "$$o" "$$b" "$$t" "$$e"' EXIT; \
+	pat='^[^ ]+\.(go|md):[0-9]+|\.go$$'; \
+	run() { n=$$1; shift; "$$@" > "$$t" 2>&1; rc=$$?; cat "$$t" >> "$$o"; \
+		if [ $$rc != 0 ] && ! grep -qE "$$pat" "$$t"; then echo "$$n (exit $$rc)" >> "$$e"; fi; }; \
+	chk() { : > "$$o"; : > "$$e"; \
+		if [ $$go = 1 ]; then run gofmt gofmt -l $(GO_FMT_DIRS); run "go vet" $(GO) vet $(PKGS); \
+			if [ $$gl = 1 ]; then run golangci-lint golangci-lint run --max-issues-per-linter=0 --max-same-issues=0 ./...; fi; fi; \
+		if [ $$md = 1 ]; then run mdsmith $(MDSMITH) check; fi; \
+		grep -cE "$$pat" "$$o" || true; }; \
+	opfail() { if [ -s "$$e" ]; then echo "lint-fix: $$(paste -sd, "$$e") failed:"; head -n 50 "$$o"; exit 1; fi; }; \
+	before=$$(chk); opfail; echo "lint-fix: $$before issue(s) before auto-fix"; \
 	if [ $$go = 1 ]; then gofmt -w $(GO_FMT_DIRS); if [ $$gl = 1 ]; then golangci-lint run --fix ./... >/dev/null 2>&1 || true; fi; fi; \
 	if [ $$md = 1 ]; then $(MDSMITH) fix >/dev/null 2>&1 || true; fi; \
-	left=$$(chk); \
+	left=$$(chk); opfail; \
 	if [ "$$left" = 0 ]; then echo -e "$(C_OK)lint-fix: clean after auto-fix"; exit 0; fi; \
 	echo "lint-fix: $$left issue(s) left after auto-fix"; \
 	if [ -n "$(NOAGENT)" ]; then head -n 150 "$$o"; exit 1; fi; \
@@ -250,7 +254,7 @@ lint-fix: compile mdsmith  ## Auto-fix lint, then an AI agent fixes the rest (WH
 		head -n 150 "$$o" | cut -c1-300 | head -c 12000; } > "$$b"; \
 		echo "lint-fix: pass $$pass/$(MAX): dispatching $(AGENT)"; \
 		$(BIN) ask --agent $(AGENT) --tools --workdir $(CURDIR) --format json - < "$$b" >/dev/null || echo -e "$(C_NOTE)$(AGENT) dispatch failed"; \
-		prev=$$left; left=$$(chk); echo "lint-fix: $$left issue(s) left"; \
+		prev=$$left; left=$$(chk); opfail; echo "lint-fix: $$left issue(s) left"; \
 		[ "$$left" -lt "$$prev" ] || break; pass=$$((pass+1)); done; \
 	if [ "$$left" = 0 ]; then echo -e "$(C_OK)lint-fix: clean"; exit 0; fi; \
 	head -n 150 "$$o"; exit 1
