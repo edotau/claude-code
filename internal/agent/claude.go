@@ -9,6 +9,7 @@ import (
 	"io"
 	"maps"
 	"os"
+	"os/exec"
 	"slices"
 	"strconv"
 	"time"
@@ -25,7 +26,7 @@ func (claudeRunner) Name() string { return "claude" }
 func (claudeRunner) Caps() Caps {
 	return Caps{Model: Native, Provider: Native, Effort: Native, WorkDir: Native, SessionID: Native, Tools: Native, NoTools: Native,
 		NoPersist: Native, SafeMode: Native, DebugFile: Native, SystemPrompt: Native, AppendSystemPrompt: Native, Env: Native,
-		OutputSchema: Native}
+		OutputSchema: Native, Live: Native}
 }
 
 func (claudeRunner) Available() error { _, err := launch.ClaudeBinary(); return err }
@@ -45,47 +46,11 @@ func (claudeRunner) Run(ctx context.Context, req Request, sink Sink) (Result, er
 	if err != nil {
 		return Result{}, err
 	}
-	args := []string{"--print", "--output-format", "stream-json", "--verbose", "--include-partial-messages"}
-	if req.NoPersist {
-		args = append(args, "--no-session-persistence")
-	}
-	if req.SafeMode {
-		args = append(args, "--safe-mode")
-	}
-	if req.DebugFile != "" {
-		args = append(args, "--debug-file", req.DebugFile)
-	}
-	if req.Effort != "" {
-		args = append(args, "--effort", req.Effort)
-	}
-	if req.SystemPrompt != "" {
-		args = append(args, "--system-prompt", req.SystemPrompt)
-	}
-	if req.AppendSystemPrompt != "" {
-		args = append(args, "--append-system-prompt", req.AppendSystemPrompt)
-	}
-	if req.OutputSchema != "" {
-		args = append(args, "--json-schema", req.OutputSchema)
-	}
-	if req.SessionID != "" {
-		args = append(args, "--resume", req.SessionID)
-	}
-	if !req.Tools {
-		// A one-shot answer needs no house rules: CLAUDE.md + rules + skills + roster were ~395K cache-write tokens per call.
-		args = append(args, "--tools", "", "--setting-sources", "")
-	}
-	plan, err := launch.Claude(ctx, launch.Options{Provider: cmp.Or(req.Provider, sessionProvider("claude")), Model: req.Model, KeepEnv: req.KeepEnv}, args)
+	args := claudeArgs(req, []string{"--print", "--output-format", "stream-json", "--verbose", "--include-partial-messages"})
+	cmd, tail, plan, err := claudeChild(ctx, req, args, prompt)
 	if err != nil {
 		return Result{}, err
 	}
-	if err := plan.WriteOverlay(); err != nil {
-		return Result{}, err
-	}
-	cmd, tail := childCmd(ctx, plan.Binary, plan.Argv, nil, req.WorkDir, prompt, req.KeepEnv, false)
-	// plan.Env also merges the vault's custom env (any profile's vars): filter the result, sparing only the plan's own
-	// route and token (plan.Set), so another profile's custom credential var never reaches this child
-	cmd.Env = scrubIsolated(ctx, plan.Env(os.Environ()), append(slices.Clone(req.KeepEnv), slices.Collect(maps.Keys(plan.Set))...))
-	cmd.Env = append(cmd.Env, req.Env...) // --env goes last, after the route keys, so it wins
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return Result{}, err
@@ -164,12 +129,16 @@ func (ev claudeEvent) text() string {
 // parseClaudeStream emits top-level assistant text and tool calls to sink and returns the result event's envelope.
 // A json.Decoder, not a line scanner: the init event routinely exceeds a scanner's 64KB line cap.
 // An optional eventLog gets one formatted line per assistant text, tool call, result and error.
-func parseClaudeStream(r io.Reader, sink Sink, logs ...eventLog) (res Result, _ error) {
-	lg := pickLog(logs)
+func parseClaudeStream(r io.Reader, sink Sink, logs ...eventLog) (Result, error) {
+	return parseClaudeEvents(json.NewDecoder(r), sink, false, pickLog(logs))
+}
+
+// parseClaudeEvents is parseClaudeStream over dec; once stops after the first result event, so a live
+// session's next turn reads from the same decoder.
+func parseClaudeEvents(dec *json.Decoder, sink Sink, once bool, lg eventLog) (res Result, _ error) {
 	sawResult, wrote := false, false
 	ts := transportTracker{start: clock()}
 	defer func() { res.Transport = ts.result() }()
-	dec := json.NewDecoder(r)
 	for {
 		var ev claudeEvent
 		if err := dec.Decode(&ev); errors.Is(err, io.EOF) {
@@ -216,6 +185,9 @@ func parseClaudeStream(r io.Reader, sink Sink, logs ...eventLog) (res Result, _ 
 				return res, err
 			}
 			lg.emit("result", ev.Result)
+			if once {
+				return res, nil
+			}
 		case "error":
 			if t := ev.text(); t != "" {
 				lg.emit("error", t)
@@ -329,4 +301,55 @@ func claudeAttach(prompt string, paths []string, tools bool) (string, error) {
 		prompt += "\n\nAttached image (open it with the Read tool): " + p
 	}
 	return prompt, nil
+}
+
+// claudeArgs appends the request-driven flags (persistence, effort, prompts, schema, resume, tool gating) to head.
+func claudeArgs(req Request, head []string) []string {
+	args := head
+	if req.NoPersist {
+		args = append(args, "--no-session-persistence")
+	}
+	if req.SafeMode {
+		args = append(args, "--safe-mode")
+	}
+	if req.DebugFile != "" {
+		args = append(args, "--debug-file", req.DebugFile)
+	}
+	if req.Effort != "" {
+		args = append(args, "--effort", req.Effort)
+	}
+	if req.SystemPrompt != "" {
+		args = append(args, "--system-prompt", req.SystemPrompt)
+	}
+	if req.AppendSystemPrompt != "" {
+		args = append(args, "--append-system-prompt", req.AppendSystemPrompt)
+	}
+	if req.OutputSchema != "" {
+		args = append(args, "--json-schema", req.OutputSchema)
+	}
+	if req.SessionID != "" {
+		args = append(args, "--resume", req.SessionID)
+	}
+	if !req.Tools {
+		// A one-shot answer needs no house rules: CLAUDE.md + rules + skills + roster were ~395K cache-write tokens per call.
+		args = append(args, "--tools", "", "--setting-sources", "")
+	}
+	return args
+}
+
+// claudeChild builds the claude child for args: the launcher's provider route, the scrubbed env, --env last.
+func claudeChild(ctx context.Context, req Request, args []string, stdin string) (*exec.Cmd, *TailBuffer, launch.Plan, error) {
+	plan, err := launch.Claude(ctx, launch.Options{Provider: cmp.Or(req.Provider, sessionProvider("claude")), Model: req.Model, KeepEnv: req.KeepEnv}, args)
+	if err != nil {
+		return nil, nil, plan, err
+	}
+	if err := plan.WriteOverlay(); err != nil {
+		return nil, nil, plan, err
+	}
+	cmd, tail := childCmd(ctx, plan.Binary, plan.Argv, nil, req.WorkDir, stdin, req.KeepEnv, false)
+	// plan.Env also merges the vault's custom env (any profile's vars): filter the result, sparing only the plan's own
+	// route and token (plan.Set), so another profile's custom credential var never reaches this child
+	cmd.Env = scrubIsolated(ctx, plan.Env(os.Environ()), append(slices.Clone(req.KeepEnv), slices.Collect(maps.Keys(plan.Set))...))
+	cmd.Env = append(cmd.Env, req.Env...) // --env goes last, after the route keys, so it wins
+	return cmd, tail, plan, nil
 }

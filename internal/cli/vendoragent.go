@@ -539,6 +539,9 @@ func vendorBinary(vendor string) string {
 // statusDetail is a status row's tail: progress and preview, or the preview plus the one-line error text.
 func statusDetail(r vendoragent.Row) string {
 	d := r.Preview
+	if r.Turns > 0 {
+		d = fmt.Sprintf("[%d turns] %s", r.Turns, d)
+	}
 	if r.Progress != "" {
 		d = "[" + r.Progress + "] " + d
 	}
