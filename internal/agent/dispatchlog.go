@@ -76,14 +76,19 @@ func recordID(now time.Time, agent string) string {
 	return now.UTC().Format("20060102T150405.000") + "-" + agent
 }
 
+// encode is the record's JSON, schema stamped.
+func (r Record) encode() ([]byte, error) {
+	r.Schema = DispatchSchema
+	return json.MarshalIndent(r, "", "  ")
+}
+
 // Save writes the record (0600) and prunes past dispatchKeep. The prompt is kept verbatim so a retry is exact.
 func (r Record) Save() error {
 	dir := DispatchDir()
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
-	r.Schema = DispatchSchema
-	b, err := json.MarshalIndent(r, "", "  ")
+	b, err := r.encode()
 	if err != nil {
 		return err
 	}

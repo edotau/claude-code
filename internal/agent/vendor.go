@@ -455,8 +455,8 @@ func (copilotRunner) Run(ctx context.Context, req Request, stream io.Writer) (Re
 	if route != nil {
 		route.apply(&opts)
 	}
-	// the SDK merges os.Environ itself, so blank other profiles' credentials; an own login keeps its GitHub token vars
-	opts.Env = blankForeignCredentials(ctx, opts.Env, req.KeepEnv, []string{vendors.CopilotTokenEnv, "GH_TOKEN", "GITHUB_TOKEN"})
+	// the SDK merges os.Environ itself, so blank other profiles' credentials the launch does not set itself
+	opts.Env = blankForeignCredentials(ctx, opts.Env, req.KeepEnv)
 	if err := applyCopilotToken(&opts, own, env); err != nil {
 		return res, &Error{Kind: KindFatal, Agent: "copilot", Err: err}
 	}

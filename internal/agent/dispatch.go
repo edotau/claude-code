@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -229,6 +230,13 @@ func waitCooldown(ctx context.Context, key string, maxWait time.Duration) {
 	}
 }
 
+// cooling is true while key's cooldown has time left.
+func cooling(key string) bool {
+	cooldowns.Lock()
+	defer cooldowns.Unlock()
+	return key != "" && time.Until(cooldowns.until[key]) > 0
+}
+
 func (p Policy) idle(ctx context.Context, wait func()) error {
 	if p.Idle == nil {
 		wait()
@@ -252,12 +260,11 @@ func Do(ctx context.Context, p Policy, fn func(ctx context.Context, attempt int)
 			snap.Earlier = nil
 			earlier = append(earlier, &snap)
 		}
-		if attempt > 1 {
-			if p.idle(ctx, func() { waitCooldown(ctx, p.Key, p.MaxDelay) }) != nil { // before the attempt's own timeout
+		if cooling(p.Key) { // before the attempt's own timeout; the wait holds no permit, first attempt included
+			if err := p.idle(ctx, func() { waitCooldown(ctx, p.Key, p.MaxDelay) }); err != nil {
+				last = cmp.Or(last, &Error{Kind: KindFatal, Err: err})
 				return fail()
 			}
-		} else {
-			waitCooldown(ctx, p.Key, p.MaxDelay)
 		}
 		actx, cancel := ctx, context.CancelFunc(func() {})
 		if p.AttemptTimeout > 0 {

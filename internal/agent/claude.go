@@ -66,7 +66,7 @@ func (claudeRunner) Run(ctx context.Context, req Request, stream io.Writer) (Res
 		return Result{}, err
 	}
 	cmd, tail := childCmd(ctx, plan.Binary, plan.Argv, nil, req.WorkDir, prompt, req.KeepEnv, false)
-	cmd.Env = scrubForeignCredentials(plan.Env(os.Environ()), ownProviderFrom(ctx), req.KeepEnv)
+	cmd.Env = plan.Env(scrubIsolated(ctx, os.Environ(), req.KeepEnv)) // the plan's own values go on after the scrub
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return Result{}, err

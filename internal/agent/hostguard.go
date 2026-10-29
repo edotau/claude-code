@@ -109,32 +109,33 @@ func checkIsolation(ctx context.Context) error {
 	return err
 }
 
-// blankForeignCredentials adds NAME= for each foreign credential in the process env, for a child (the Copilot SDK)
-// that merges os.Environ itself and applies env last.
-func blankForeignCredentials(ctx context.Context, env, keepEnv, native []string) []string {
-	have := map[string]bool{}
-	for _, kv := range scrubIsolated(ctx, os.Environ(), keepEnv, native) {
-		have[kv] = true
+// blankForeignCredentials adds NAME= for each foreign credential in the process env that env (the launch's own
+// values) does not set, for a child (the Copilot SDK) that merges os.Environ itself and applies env last.
+func blankForeignCredentials(ctx context.Context, env, keepEnv []string) []string {
+	kept := map[string]bool{}
+	for _, kv := range scrubIsolated(ctx, os.Environ(), keepEnv) {
+		kept[kv] = true
 	}
-	out := scrubIsolated(ctx, env, keepEnv, native)
+	owned := envNames(env)
+	out := slices.Clone(env)
 	for _, kv := range os.Environ() {
-		if name, _, _ := strings.Cut(kv, "="); !have[kv] {
+		if name, _, _ := strings.Cut(kv, "="); !kept[kv] && !slices.Contains(owned, name) {
 			out = append(out, name+"=")
 		}
 	}
 	return out
 }
 
-// scrubIsolated drops other profiles' credentials from env under batch isolation; an own-login hop (no profile)
-// keeps only the native names (the login's own vars) and keepEnv. Outside a batch env is unchanged.
-func scrubIsolated(ctx context.Context, env, keepEnv, native []string) []string {
+// scrubIsolated drops other profiles' credentials from the INHERITED env under batch isolation; an own-login hop (no
+// profile) keeps no profile's credentials. Launch-owned values are appended after this, so they are never scrubbed.
+func scrubIsolated(ctx context.Context, inherited, keepEnv []string) []string {
 	if p := ownProviderFrom(ctx); p != nil {
-		return scrubForeignCredentials(env, p, keepEnv)
+		return scrubForeignCredentials(inherited, p, keepEnv)
 	}
 	if ctx.Value(isolateKey{}) == nil {
-		return env
+		return inherited
 	}
-	return scrubExcept(env, "", append(slices.Clone(native), keepEnv...), keepEnv)
+	return scrubExcept(inherited, "", keepEnv, keepEnv)
 }
 
 // scrubForeignCredentials drops every other profile's credential env name from env, so a hop holds only its own.
