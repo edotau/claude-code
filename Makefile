@@ -214,6 +214,47 @@ lint-%: compile mdsmith  # (helper) one lint kind: $(LINT_WHAT) deep; CHECK=1 on
 	*) printf "Unknown lint '%s' (use %s)\n" "$*" "$(subst $(C_SP),|,$(LINT_WHAT))"; exit 1 ;; \
 	esac
 
+# Auto-fixers first (gofmt, golangci-lint --fix, mdsmith fix); the agent is dispatched only for what they leave.
+WHAT    ?= all
+AGENT   ?= copilot
+MAX     ?= 3
+.PHONY: lint-fix
+lint-fix: compile mdsmith  ## Auto-fix lint, then an AI agent fixes the rest (WHAT AGENT MAX NOAGENT=1)
+	@case "$(WHAT)" in go|md|all) ;; *) echo "WHAT must be go|md|all"; exit 1 ;; esac; \
+	go=0; md=0; gl=0; case "$(WHAT)" in go) go=1;; md) md=1;; *) go=1; md=1;; esac; \
+	if [ $$go = 1 ]; then if command -v golangci-lint >/dev/null; then gl=1; \
+		else echo -e "$(C_NOTE)golangci-lint not installed — skipped (make install DEV_TOOLS=1)"; fi; fi; \
+	o=$$(mktemp); b=$$(mktemp); trap 'rm -f "$$o" "$$b"' EXIT; \
+	chk() { : > "$$o"; \
+		if [ $$go = 1 ]; then { gofmt -l $(GO_FMT_DIRS); $(GO) vet $(PKGS) 2>&1; \
+			if [ $$gl = 1 ]; then golangci-lint run --max-issues-per-linter=0 --max-same-issues=0 ./... 2>&1; fi; } >> "$$o" || true; fi; \
+		if [ $$md = 1 ]; then $(MDSMITH) check >> "$$o" 2>&1 || true; fi; \
+		grep -cE '^[^ ]+\.(go|md):[0-9]+|\.go$$' "$$o" || true; }; \
+	before=$$(chk); echo "lint-fix: $$before issue(s) before auto-fix"; \
+	if [ $$go = 1 ]; then gofmt -w $(GO_FMT_DIRS); if [ $$gl = 1 ]; then golangci-lint run --fix ./... >/dev/null 2>&1 || true; fi; fi; \
+	if [ $$md = 1 ]; then $(MDSMITH) fix >/dev/null 2>&1 || true; fi; \
+	left=$$(chk); \
+	if [ "$$left" = 0 ]; then echo -e "$(C_OK)lint-fix: clean after auto-fix"; exit 0; fi; \
+	echo "lint-fix: $$left issue(s) left after auto-fix"; \
+	if [ -n "$(NOAGENT)" ]; then head -n 150 "$$o"; exit 1; fi; \
+	st="$$($(BIN) $(AGENT) setup --format json 2>/dev/null || true)"; \
+	if ! printf '%s' "$$st" | grep -q '"OK": true'; then \
+		echo "lint-fix: $(AGENT) is not signed in — run claude-code $(AGENT) setup (or configure)"; exit 1; fi; \
+	pass=1; while [ "$$left" -gt 0 ] && [ $$pass -le $(MAX) ]; do \
+		{ echo "Fix the lint issues below in $(CURDIR). Rules:"; \
+		echo "- Prefer real fixes over //nolint; use //nolint only with a reason comment."; \
+		echo "- Never edit a file with a '// Code generated' header."; \
+		echo "- Reuse existing constants before adding one."; \
+		echo "- Edit only the files named in the lint output."; \
+		echo "- Do not run git commands."; echo; echo "Lint output (truncated):"; \
+		head -n 150 "$$o" | cut -c1-300 | head -c 12000; } > "$$b"; \
+		echo "lint-fix: pass $$pass/$(MAX): dispatching $(AGENT)"; \
+		$(BIN) ask --agent $(AGENT) --tools --workdir $(CURDIR) --format json - < "$$b" >/dev/null || echo -e "$(C_NOTE)$(AGENT) dispatch failed"; \
+		prev=$$left; left=$$(chk); echo "lint-fix: $$left issue(s) left"; \
+		[ "$$left" -lt "$$prev" ] || break; pass=$$((pass+1)); done; \
+	if [ "$$left" = 0 ]; then echo -e "$(C_OK)lint-fix: clean"; exit 0; fi; \
+	head -n 150 "$$o"; exit 1
+
 .PHONY: mdsmith
 mdsmith:  # (folded into `install`) pinned mdsmith binary in bin/
 	@if ! $(MDSMITH) version 2>/dev/null | grep -qF '$(MDSMITH_VERSION)'; then \

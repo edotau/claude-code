@@ -78,6 +78,7 @@ Files under `agents/`, `commands/`, `rules/`, `skills/` and this file go live th
 | Build a MEDIUM+ change (2+ files or needs tests) in ANY repo | `/code-workers` leaves on disjoint packages ‖ `copilot` test-repair agents, same message; the `subagent-workflows` skill's `orchestrate.md` for explore → plan → dispatch | `rules/workflow/master-workflow.md` → Phase 6 |
 | Run a saved Workflow (only when the user asks for one) | `Workflow code-engineer` · `code-analyzer` · `green-keeper-loop` · `code-agent` | `skills/subagent-workflows/references/saved-workflows.md` |
 | Review a diff; catalog tech debt | `/code-review` (quality + security lenses) | `skills/evaluate-code` (security → Security lens; debt: `references/techdebt.md`) |
+| Auto-fix lint, agent fixes the rest | `make lint-fix [WHAT=go\|md\|all] [AGENT=copilot] [MAX=3]` · in-session `/lint-fix` | `commands/lint-fix.md` |
 | Fix failing tests | `/copilot test`, or `/testing-guidelines` (test-and-fix loop) | `skills/testing-guidelines/SKILL.md` → Test-and-fix loop |
 | Capture a session's corrections into rules | `claude-code memory remember <fact>` then `memory promote <id> --to rules` (routing table: `claude-code memory promote` procedure) | `rules/workflow/memory-consolidation.md` |
 | Audit / recall / remember / promote / save / consolidate memory | `claude-code memory review\|recall\|remember\|promote\|update\|dream` | `agents/opencode.md` |
