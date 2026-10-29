@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -17,17 +18,25 @@ import (
 const (
 	recallMinTerms      = 4
 	recallQueryCapRunes = 2000
-	recallK             = 3
-	recallHitCapRunes   = 400
+	recallBodies        = 2 // entries injected whole; the rest ride as one-line pointers
+	recallPointers      = 3
+	recallK             = 3 // agentRecall's pointer count
+	recallBodyCapRunes  = 380
 	recallTotalCapChars = 1500
 	recallScoreFloor    = 0.5 // keep hits within half of the top score: BM25 is unnormalised
 	// A hit must match a quarter of the query's content terms, clamped: one shared word is coincidence.
 	recallMinMatched = 2
 	recallMaxMatched = 3
+	// Blend: keyword share of the final score, the cosine span mapped onto 0..1, and the cosine that admits an
+	// entry the keyword gate rejected (measured on gte-large-en: bank median 0.47, relevant 0.63-0.74, unrelated <0.5).
+	recallKeywordWeight = 0.5
+	recallCosineLow     = 0.45
+	recallCosineHigh    = 0.75
+	recallCosineAdmit   = 0.62
 )
 
-// MemoryRecall (UserPromptSubmit) injects the top memory-bank blocks for the prompt; silent on a slash
-// command, a short prompt, or no match.
+// MemoryRecall (UserPromptSubmit) injects the best memory-bank entries for the prompt: two whole, the rest as
+// pointers; silent on a slash command, a short prompt, or no match.
 func MemoryRecall(r io.Reader, stdout io.Writer) int {
 	in := ParseInput(r)
 	q := strings.TrimSpace(in.Prompt)
@@ -51,38 +60,145 @@ func MemoryRecall(r io.Reader, stdout io.Writer) int {
 		}
 	}
 	terms := memory.ContentQueryTerms(tokens)
-	hits := relevantTermHits(in.SessionID, terms, memory.SearchBanksTerms(root, q, terms, 0))
-	if len(hits) == 0 {
+	ranked := memory.SearchBanksTerms(root, q, terms, 0)
+	if len(ranked) == 0 {
+		return ExitProceed
+	}
+	sem, err := memory.NewSemantic(q)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "memory-recall: keyword-only (%s)\n", recallCut(err.Error(), 120))
+	}
+	picks := selectRecall(in.SessionID, terms, ranked, sem)
+	if len(picks) == 0 {
 		return ExitProceed
 	}
 	var b strings.Builder
-	b.WriteString("<!-- memory-recall: bank blocks matching this prompt; more: claude-code memory search -->")
+	b.WriteString("<!-- memory-recall: matching bank entries; expand a pointer: claude-code memory search <id> -->")
 	now := time.Now()
 	access := map[string][]string{}
-	for _, h := range hits {
-		line := strings.Join(strings.Fields(h.Block), " ")
-		line = recallCut(line, recallHitCapRunes)
-		fmt.Fprintf(&b, "\n- [%s/%s] %s", h.Bank, h.File, line)
-		dir := logDirFor(root, h.Bank)
-		access[dir] = append(access[dir], h.Bank+":"+h.File)
+	var bodies []memory.SearchHit
+	for i, p := range picks {
+		if i < recallBodies {
+			fmt.Fprintf(&b, "\n- [%s/%s] %s", p.e.Bank, p.e.File, recallCut(recallFlat(p.e), recallBodyCapRunes))
+			bodies = append(bodies, p.hit)
+		} else {
+			fmt.Fprintf(&b, "\n- %s", p.e.Pointer())
+		}
+		dir := logDirFor(root, p.e.Bank)
+		access[dir] = append(access[dir], p.e.Bank+":"+p.e.File)
 	}
 	for dir, entries := range access {
 		memory.LogAccessBatch(dir, now, entries, "prompt-recall inject")
 	}
-	memory.MarkSeen(in.SessionID, hits)
+	memory.MarkSeen(in.SessionID, bodies) // a pointer is not in context yet, so it may still earn a body later
 	if out := MergeContext(hookspec.EventUserPromptSubmit, []string{memory.CapChars(b.String(), recallTotalCapChars)}, in.Vendor()); out != "" {
 		fmt.Fprintln(stdout, out)
 	}
 	return ExitProceed
 }
 
-// relevantTermHits filters on query coverage, relative score and blocks not already in the session's context.
-func relevantTermHits(sessionID string, terms []string, ranked []memory.SearchHit) []memory.SearchHit {
-	seenTerms := map[string]bool{}
-	for _, t := range terms {
-		seenTerms[t] = true
+// recallPick is one surviving entry with its search hit and final score.
+type recallPick struct {
+	e     memory.Entry
+	hit   memory.SearchHit
+	score float64
+}
+
+// recallFlat is an entry's id and whole body on one line, heading and bullet marks stripped.
+func recallFlat(e memory.Entry) string {
+	return e.ID + " · " + strings.TrimLeft(strings.Join(strings.Fields(e.Body), " "), "#- ")
+}
+
+// selectRecall filters, scores and orders the ranked hits: superseded and already-seen entries drop, archive is
+// consulted only when no current entry clears the gate, and the survivors come back decisions first, newest first.
+func selectRecall(sessionID string, terms []string, ranked []memory.SearchHit, sem *memory.Semantic) []recallPick {
+	need := recallNeed(terms)
+	seen := memory.SeenBlocks(sessionID)
+	for _, archived := range []bool{false, true} {
+		tierSem := sem
+		if archived {
+			tierSem = nil // archive entries carry no vectors
+		}
+		if picks := pickTier(ranked, archived, need, seen, tierSem); len(picks) > 0 {
+			orderRecall(picks)
+			return picks
+		}
 	}
-	need := min(max(recallMinMatched, (len(seenTerms)+3)/4), recallMaxMatched)
+	return nil
+}
+
+// pickTier scores one tier (current or archive): keyword gate, or the semantic admit, then the relative floor.
+func pickTier(ranked []memory.SearchHit, archived bool, need int, seen map[string]bool, sem *memory.Semantic) []recallPick {
+	var cands []recallPick
+	top, topAny := 0.0, 0.0
+	for _, h := range ranked {
+		e := memory.EntryFromHit(h)
+		if e.Archived != archived || e.Superseded {
+			continue
+		}
+		if topAny == 0 {
+			topAny = h.Score
+		}
+		if top == 0 && h.Matched >= need {
+			top = h.Score
+		}
+		cands = append(cands, recallPick{e: e, hit: h})
+	}
+	if top == 0 {
+		top = topAny
+	}
+	var pool []recallPick
+	for _, c := range cands {
+		kwOK := c.hit.Matched >= need && c.hit.Score >= top*recallScoreFloor
+		kw := c.hit.Score / top
+		c.score = kw
+		if sem != nil {
+			if cos, ok := sem.Cosine(c.e); ok {
+				c.score = recallKeywordWeight*kw + (1-recallKeywordWeight)*min(max((cos-recallCosineLow)/(recallCosineHigh-recallCosineLow), 0), 1)
+				kwOK = kwOK || cos >= recallCosineAdmit
+			}
+		}
+		if kwOK {
+			pool = append(pool, c)
+		}
+	}
+	sort.SliceStable(pool, func(i, j int) bool { return pool[i].score > pool[j].score })
+	var out []recallPick
+	for _, c := range pool {
+		if c.score < pool[0].score*recallScoreFloor || len(out) == recallBodies+recallPointers {
+			break
+		}
+		if !seen[memory.BlockKey(c.hit.Block)] {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+// orderRecall sorts decisions and conventions ahead of other types and session narrative, newest first within a rank.
+func orderRecall(picks []recallPick) {
+	sort.SliceStable(picks, func(i, j int) bool {
+		a, b := picks[i].e, picks[j].e
+		if a.TypeRank() != b.TypeRank() {
+			return a.TypeRank() < b.TypeRank()
+		}
+		return a.Date > b.Date // an undated entry ("") sorts last
+	})
+}
+
+// recallNeed is how many distinct query terms a hit must contain: a quarter of them, clamped.
+func recallNeed(terms []string) int {
+	uniq := map[string]bool{}
+	for _, t := range terms {
+		uniq[t] = true
+	}
+	return min(max(recallMinMatched, (len(uniq)+3)/4), recallMaxMatched)
+}
+
+// relevantTermHits filters on query coverage, relative score and blocks not already in the session's context;
+// the subagent pointer block (agentRecall) ranks with it.
+func relevantTermHits(sessionID string, terms []string, ranked []memory.SearchHit) []memory.SearchHit {
+	need := recallNeed(terms)
 	seen := memory.SeenBlocks(sessionID)
 	var out []memory.SearchHit
 	floor := -1.0

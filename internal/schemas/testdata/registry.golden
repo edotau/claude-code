@@ -28,6 +28,7 @@ audit | log | 1 | state/harness/audit.jsonl* | internal/audit | keep
 codex-catalog | derived | 1 | state/harness/codex/catalog-*.json | internal/vendors | keep
 codex-routing | log | 1 | state/harness/codex/routing-*.jsonl | internal/hooks | clean:codex-audit
 dispatch-record | record | 1 | state/harness/dispatch/*.json | internal/agent | clean:dispatch-log
+memory-embeddings | cache | 1 | state/harness/memory/embeddings.json | internal/memory | keep
 memory-journal | record | 1 | state/harness/memory/journal/*.json | internal/memory | keep
 migrations | log | 1 | state/harness/migrations.jsonl | schemas | keep
 oauth-usage-cache | cache | 1 | state/harness/cache/claude-oauth-usage.json | internal/usage | keep

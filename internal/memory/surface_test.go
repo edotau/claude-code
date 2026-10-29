@@ -7,8 +7,8 @@ import (
 	"testing"
 )
 
-// The Parked section leaves the injected surface (with a count), the other sections stay, and recall can still find it.
-func TestUnifiedSurfaceCatalogAndFocusOnly(t *testing.T) {
+// The catalog leaves the surface (one pointer stays); the Parked section leaves the injected surface (with a count), the other sections stay, and recall can still find it.
+func TestUnifiedSurfaceFocusOnly(t *testing.T) {
 	isolatedConfig1(t)
 	initStore(t)
 	repo := gitRepo(t, t.TempDir(), "proj")
@@ -29,7 +29,7 @@ func TestUnifiedSurfaceCatalogAndFocusOnly(t *testing.T) {
 		"## What's Next\n\n- should not appear\n")
 
 	s := unifiedSurface(repo)
-	for _, want := range []string{"MEMORY CATALOG", "## Current Focus", "shipping the router",
+	for _, want := range []string{"other repos:", "## Current Focus", "shipping the router",
 		"## Blockers", "## Next Steps", "ship it", "## In Progress", "the router"} {
 		if !strings.Contains(s, want) {
 			t.Errorf("surface missing %q:\n%s", want, s)
@@ -45,13 +45,14 @@ func TestUnifiedSurfaceCatalogAndFocusOnly(t *testing.T) {
 	}
 }
 
-// TestUnifiedSurfaceCatalogTruncatesAtRowBoundary: a huge catalog is cut at a whole-line boundary, never
-// mid-row, with a pointer back to the full file.
-func TestUnifiedSurfaceCatalogTruncatesAtRowBoundary(t *testing.T) {
+// TestUnifiedSurfaceCarriesNoCatalogRows: a 200-repo catalog adds one pointer line and no rows, and the home
+// bank's focus rides along with this repo's.
+func TestUnifiedSurfaceCarriesNoCatalogRows(t *testing.T) {
 	isolatedConfig1(t)
 	initStore(t)
 	repo := gitRepo(t, t.TempDir(), "proj")
-	if _, err := EnsureRepoDir(repo); err != nil {
+	dir, err := EnsureRepoDir(repo)
+	if err != nil {
 		t.Fatal(err)
 	}
 	var cat strings.Builder
@@ -60,18 +61,20 @@ func TestUnifiedSurfaceCatalogTruncatesAtRowBoundary(t *testing.T) {
 		fmt.Fprintf(&cat, "- repo-%03d — hook · last never -> repo-%03d/MEMORY.md\n", i, i)
 	}
 	write(t, filepath.Join(StoreDir(), CatalogFile), cat.String())
+	write(t, filepath.Join(dir, "activeContext.md"), "# Active Context\n\n## Current Focus\n\n- local focus\n")
+	write(t, filepath.Join(HomeBankDir(), "activeContext.md"), "# Active Context\n\n## Current Focus\n\n- home essential\n")
 
 	s := unifiedSurface(repo)
-	if !strings.Contains(s, "catalog truncated; read "+CatalogFile+" in the store") {
-		t.Errorf("huge catalog not truncated:\n%s", s[:min(len(s), 400)])
+	if strings.Contains(s, "repo-000") || strings.Contains(s, "repo-199") || strings.Contains(s, "MEMORY CATALOG") {
+		t.Errorf("catalog rows leaked into the surface:\n%s", s)
 	}
-	if strings.Contains(s, "- repo-199") {
-		t.Error("catalog truncation did not actually cut the tail")
-	}
-	for l := range strings.SplitSeq(s, "\n") {
-		if strings.HasPrefix(l, "- repo-") && !strings.Contains(l, "/MEMORY.md") {
-			t.Errorf("a catalog row was cut mid-line: %q", l)
+	for _, want := range []string{"other repos:", "local focus", "home essential"} {
+		if !strings.Contains(s, want) {
+			t.Errorf("surface missing %q:\n%s", want, s)
 		}
+	}
+	if len(s) > 1200 {
+		t.Errorf("slim surface is %d bytes, want well under the old 8.5 KB cap", len(s))
 	}
 }
 

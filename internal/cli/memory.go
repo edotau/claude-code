@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -247,6 +248,12 @@ func cmdMemorySearch(args []string) int {
 	if len(terms) == 0 {
 		return fail("memory search: no query (usage: %s)", memorySubPage("search").Usage)
 	}
+	if len(terms) == 1 && *format != outfmt.JSON && memoryIDRef.MatchString(terms[0]) {
+		if path, block, err := memory.ShowBlock(terms[0]); err == nil { // a recall pointer's id expands in place
+			fmt.Printf("<!-- %s -->\n%s\n", path, strings.TrimSpace(block))
+			return 0
+		}
+	}
 	hits := searchHits(*repo, *all, strings.Join(terms, " "), *k)
 	if *format == outfmt.JSON {
 		if err := outfmt.Write(os.Stdout, hits); err != nil {
@@ -266,6 +273,9 @@ func cmdMemorySearch(args []string) int {
 	}
 	return 0
 }
+
+// memoryIDRef is a block reference: a persisted 8-hex id (or id-alias) or a z-prefixed ContentRef.
+var memoryIDRef = regexp.MustCompile(`^(z[0-9a-f]{8}|[0-9a-f]{8}(-[a-z0-9-]+)?)$`)
 
 func cmdMemoryShow(args []string) int {
 	fs := memoryFlagSet("show")
@@ -304,7 +314,24 @@ func cmdMemoryIndex(args []string) int {
 		fmt.Printf(" (archived %d block(s))", s.Archived)
 	}
 	fmt.Println()
+	embedIndex(root)
 	return 0
+}
+
+// embedIndex refreshes the entry-vector cache after an index; a missing endpoint or credential is a stderr note only.
+func embedIndex(root string) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	c, err := memory.OpenEmbedClient(ctx, "")
+	if err == nil {
+		var n, total int
+		if n, total, err = memory.EmbedEntries(ctx, root, c); err == nil && n > 0 {
+			fmt.Printf("embedded %d of %d entries (%s)\n", n, total, c.Model)
+		}
+	}
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "memory index: embeddings skipped: %v\n", err)
+	}
 }
 
 func cmdMemoryPath(args []string) int {
