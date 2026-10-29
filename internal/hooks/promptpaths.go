@@ -1,7 +1,6 @@
 package hooks
 
 import (
-	"encoding/json"
 	"fmt"
 	"image"
 	_ "image/gif"  // registers GIF with image.DecodeConfig
@@ -174,39 +173,23 @@ func modelContext(reps []pathReport) string {
 	return body
 }
 
-// feedbackPayload marshals systemMessage (user-visible) and additionalContext (model-visible) in one
-// envelope, so a single hook write serves both audiences. "" on a marshal error, matching
-// agenteffort.go's handling of the same operation, so a bad payload is never printed half-formed.
-func feedbackPayload(reps []pathReport, vendor ...string) string {
-	payload := map[string]any{
-		"systemMessage": feedbackMessage(reps),
-		"hookSpecificOutput": map[string]any{
-			"hookEventName":     "UserPromptSubmit",
-			"additionalContext": modelContext(reps),
-		},
+// pathResolverResult is the native form: user-visible feedback plus model-visible context, empty when no path hits.
+func pathResolverResult(in *Input, res *pathview.Resolver) Result {
+	reps := collectReports(in.Prompt, res)
+	if len(reps) == 0 {
+		return Result{}
 	}
-	if len(vendor) > 0 && vendor[0] == VendorCopilot {
-		payload = map[string]any{"additionalContext": modelContext(reps)}
-	}
-	out, err := json.Marshal(payload)
-	if err != nil {
-		return ""
-	}
-	return string(out)
+	return Result{Context: modelContext(reps), SystemMessage: feedbackMessage(reps)}
 }
+
+// nativePathResolver binds pathResolverResult to the host's mount view.
+func nativePathResolver(in *Input) Result { return pathResolverResult(in, pathview.Default()) }
 
 // promptPathFeedback is the hook core with the resolver injected, so tests do not depend on the host's mounts.
 // Silent when the prompt names no existing file.
 func promptPathFeedback(r io.Reader, stdout io.Writer, res *pathview.Resolver) int {
 	in := ParseInput(r)
-	reps := collectReports(in.Prompt, res)
-	if len(reps) == 0 {
-		return ExitProceed
-	}
-	if out := feedbackPayload(reps, in.Vendor()); out != "" {
-		fmt.Fprintln(stdout, out)
-	}
-	return ExitProceed
+	return Emit(in.Vendor(), "UserPromptSubmit", pathResolverResult(in, res), stdout, io.Discard)
 }
 
 // foreignHead opens a non-POSIX path token: drive letter, UNC, scheme URL, ~ / ~user, or host:/path.

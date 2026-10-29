@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
@@ -29,28 +30,43 @@ type codexRouteRecord struct {
 	At             int64  `json:"at"`
 }
 
-// CodexRoutingStart records that Codex trusted and executed the session's hook configuration.
-func CodexRoutingStart(r io.Reader, _, stderr io.Writer) int {
-	in := ParseInput(r)
-	recordCodexRoute(in, codexRouteRecord{Event: "session-start", Model: in.nested("model")}, stderr)
-	return ExitProceed
+// nativeCodexRoutingStart records that Codex trusted and executed the session's hook configuration.
+func nativeCodexRoutingStart(in *Input) Result {
+	return codexRecorded(in, codexRouteRecord{Event: "session-start", Model: in.nested("model")})
 }
 
-// CodexRoutingResult links a spawn call to a child only when its result supplies the child's ID.
-func CodexRoutingResult(r io.Reader, _, stderr io.Writer) int {
-	in := ParseInput(r)
-	if codexSpawnTool(in.ToolName) {
-		recordCodexRoute(in, codexRouteRecord{Event: "tool-result", ToolUseID: in.nested("tool_use_id"),
-			AgentID: codexResultAgentID(in.doc["tool_response"])}, stderr)
+// nativeCodexRoutingResult links a spawn call to a child only when its result supplies the child's ID.
+func nativeCodexRoutingResult(in *Input) Result {
+	if !codexSpawnTool(in.ToolName) {
+		return Result{}
 	}
-	return ExitProceed
+	return codexRecorded(in, codexRouteRecord{Event: "tool-result", ToolUseID: in.nested("tool_use_id"),
+		AgentID: codexResultAgentID(in.doc["tool_response"])})
 }
 
-// CodexSubagentStart records the reported model; absence of a causal join remains unknown.
+// nativeCodexSubagentStart records the reported model; absence of a causal join remains unknown.
+func nativeCodexSubagentStart(in *Input) Result {
+	return codexRecorded(in, codexRouteRecord{Event: "child-start", AgentID: in.AgentID, Model: in.nested("model")})
+}
+
+// codexRecorded runs the audit and keeps its warning as the result's stderr.
+func codexRecorded(in *Input, record codexRouteRecord) Result {
+	var warn strings.Builder
+	recordCodexRoute(in, record, &warn)
+	return Result{Stderr: strings.TrimSpace(warn.String())}
+}
+
+// Legacy direct entries for the vendor CLI paths; the dispatcher binds the native Runners.
+func CodexRoutingStart(r io.Reader, _, stderr io.Writer) int {
+	return nativeHandler("codex-routing-start")(r, io.Discard, stderr)
+}
+
+func CodexRoutingResult(r io.Reader, _, stderr io.Writer) int {
+	return nativeHandler("codex-routing-result")(r, io.Discard, stderr)
+}
+
 func CodexSubagentStart(r io.Reader, _, stderr io.Writer) int {
-	in := ParseInput(r)
-	recordCodexRoute(in, codexRouteRecord{Event: "child-start", AgentID: in.AgentID, Model: in.nested("model")}, stderr)
-	return ExitProceed
+	return nativeHandler("codex-subagent-start")(r, io.Discard, stderr)
 }
 
 func codexResultAgentID(raw any) string {

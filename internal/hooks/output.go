@@ -17,16 +17,30 @@ func decisionName(d Decision, askAsDeny bool) string {
 	return ""
 }
 
+// claudeStyle is how a vendor's Claude-compatible document deviates from Claude's own.
+type claudeStyle struct {
+	askAsDeny      bool // vendor has no ask decision
+	allowWithInput bool // an updatedInput on PreToolUse is an explicit allow
+}
+
 // OutputClaude is Claude Code's hookSpecificOutput document; "" when the result says nothing.
 func OutputClaude(event string, r Result) string {
+	return claudeDoc(event, r, claudeStyle{})
+}
+
+// claudeDoc renders the hookSpecificOutput document with one vendor's deviations from Claude's shape.
+func claudeDoc(event string, r Result, style claudeStyle) string {
 	if r.Stdout != "" {
 		return r.Stdout
 	}
 	inner := map[string]any{}
 	if event == "PreToolUse" {
-		if d := decisionName(r.Decision, false); d != "" {
+		switch d := decisionName(r.Decision, style.askAsDeny); {
+		case d != "":
 			inner["permissionDecision"] = d
 			inner["permissionDecisionReason"] = r.Reason
+		case style.allowWithInput && r.UpdatedInput != nil:
+			inner["permissionDecision"] = "allow"
 		}
 		if r.UpdatedInput != nil {
 			inner["updatedInput"] = r.UpdatedInput
@@ -45,9 +59,6 @@ func OutputClaude(event string, r Result) string {
 	}
 	return marshalDoc(doc)
 }
-
-// OutputCodex is exactly one JSON document in Codex's Claude-compatible schema.
-func OutputCodex(event string, r Result) string { return OutputClaude(event, r) }
 
 // OutputCopilot is Copilot's flat shape; it has no ask, so ask is deny.
 func OutputCopilot(event string, r Result) string {
