@@ -208,8 +208,8 @@ func TestCodexSettingsCheckDetectsUnappliedReset(t *testing.T) {
 }
 
 func TestWebSearchCodexHomeNoPlaintextBackup(t *testing.T) {
-	cfgDir, home, codexHome := t.TempDir(), t.TempDir(), t.TempDir()
-	t.Setenv("CLAUDE_CONFIG_DIR", cfgDir)
+	cfgDir := vaulttest.Use(t) // the backup is vault-sealed; a hermetic key keeps CI off the OS keyring
+	home, codexHome := t.TempDir(), t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("CODEX_HOME", codexHome)
 	custom := filepath.Join(codexHome, "config.toml")
