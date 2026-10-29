@@ -11,7 +11,7 @@ func forceFixture(t *testing.T) (repo *Repo, main, dest string) {
 	t.Helper()
 	repo = testRepo(t)
 	main = repo.Main
-	dest, err := Create(repo, "force", "")
+	dest, err := Create(repo, "force", CreateOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
