@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/memory"
 )
 
 func scrubGitEnv(t *testing.T) {
@@ -171,6 +173,35 @@ func TestWorktreeRemoveClean(t *testing.T) {
 	out2, err := exec.Command("git", "-C", repo, "branch", "--list", "worktree-clean").Output()
 	if err != nil || strings.TrimSpace(string(out2)) != "" {
 		t.Fatalf("merged branch should be deleted, branch --list = %q, err %v", out2, err)
+	}
+}
+
+func TestWorktreeRemoveClosesLedger(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	repo := gitRepo(t)
+
+	var out bytes.Buffer
+	if code := WorktreeCreate(createPayload(repo, "led"), &out, &bytes.Buffer{}); code != ExitProceed {
+		t.Fatalf("create: got %d", code)
+	}
+	wt := strings.TrimSpace(out.String())
+	ledger := filepath.Join(memory.Dir(repo), "worktrees", "led.md")
+	if data, err := os.ReadFile(ledger); err != nil || !strings.Contains(string(data), "- Status: open") {
+		t.Fatalf("ledger not opened by create: %v\n%s", err, data)
+	}
+
+	var errb bytes.Buffer
+	if code := WorktreeRemove(removePayload(wt, wt), &errb); code != ExitProceed {
+		t.Fatalf("remove: got %d, stderr %s", code, errb.String())
+	}
+	data, err := os.ReadFile(ledger)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"- Status: closed", "- Via: remove", "Branch: deleted"} {
+		if !strings.Contains(string(data), want) {
+			t.Errorf("ledger missing %q:\n%s", want, data)
+		}
 	}
 }
 
