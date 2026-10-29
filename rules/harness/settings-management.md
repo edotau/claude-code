@@ -14,7 +14,7 @@ paths:
 
 **Never edit `.claude/settings.json` directly.**
 
-The file is rendered by `claude-code configure --reset` (and baked in at `claude-code install`) from
+The file is rendered by `claude-code configure --restore` (and baked in at `claude-code install`) from
 `internal/settings/template/` — one JSON file per section, `NN-<section>.json`
 (`00-model`, `10-ui`, `20-notifications`, `30-session`, `40-env`, `50-permissions`, `60-statusline`,
 `70-plugins`), merged in name order. A key defined in two section files fails the render; put a new key in
@@ -32,16 +32,16 @@ project-local file for sessions started in `$HOME`. Don't put a global preferenc
 ## Correct workflow
 
 1. Edit `internal/settings/template/`; for hooks: `hooks.md` → authoring surface.
-2. Preview without a rebuild: `claude-code configure --reset --dry-run` prints the render.
+2. Preview without a rebuild: `claude-code configure --restore --dry-run` prints the render.
 3. `make install` — rebuilds the binary and renders the real `settings.json` (backing up the
    previous one under `state/harness/backups/` as `settings.json.bak-<timestamp>`).
 4. `claude-code doctor` — confirm binaries, providers, and hooks are healthy after the change.
 
-`configure --reset --check` fails on invalid JSON in `settings.json`, on a key install would rewrite, on a
+`configure --restore --check` fails on invalid JSON in `settings.json`, on a key install would rewrite, on a
 foreign key (including keys Claude Code's `/config` writes), and on a nested `.claude/.claude`.
 
 In a linked worktree, cwd alone does not isolate writes (CLAUDE.md hard rule 4).
-Use `CLAUDE_CONFIG_DIR="$PWD" claude-code configure --reset --out "$PWD/settings.json"` for that checkout's
+Use `CLAUDE_CONFIG_DIR="$PWD" claude-code configure --restore --out "$PWD/settings.json"` for that checkout's
 settings. A non-default config dir skips agent renders, previews, and drift checks by default.
 `--agents` opts them back in, but destinations remain the live `~/.codex`, `~/.copilot`,
 `~/.config/opencode`, and `~/.gemini` homes; `--dry-run`/`--check` still write nothing.

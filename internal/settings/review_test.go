@@ -36,6 +36,7 @@ func TestCredentialKeyRefusedEverywhere(t *testing.T) {
 		{"apiKeyHelper": json.RawMessage(`"get-key.sh"`)},
 		{"outputStyle": json.RawMessage(`"sk-live-abcdefghijklmnop"`)},
 		{"env": json.RawMessage(`{"ANTHROPIC_API_KEY":"abc"}`)},
+		{"ANTHROPIC_CUSTOM_HEADERS": json.RawMessage(`"x-api-key: sk-ant-abcdefghijklmnop"`)},
 		{"autoMode": json.RawMessage(`{"a":[{"b":"ghp_abcdefghijklmnopqrstuvwxyz0123456789"}]}`)},
 	} {
 		if err := SaveOverlay(ov); err == nil || !strings.Contains(err.Error(), "vault set") {
@@ -147,5 +148,47 @@ func TestMergeDropsLegacyAutoMemoryDirectory(t *testing.T) {
 	}
 	if strings.Contains(string(out), "autoMemoryDirectory") || !strings.Contains(string(out), "zzForeign") {
 		t.Errorf("merge output:\n%s", out)
+	}
+}
+
+func TestStructuralKeysRefusedAndObjectConstraintsEnforced(t *testing.T) {
+	dir := vaulttest.Use(t)
+	file := filepath.Join(dir, filepath.FromSlash(RepoDefaultsRel))
+	if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(file, []byte("{\n  \"$schema\": \"x\"\n}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, k := range []string{"hooks", "statusLine", "$schema", "permissions", "env"} {
+		bad := map[string]json.RawMessage{k: json.RawMessage(`{}`)}
+		if err := SaveOverlay(bad); err == nil || !strings.Contains(err.Error(), "structural") {
+			t.Errorf("SaveOverlay(%s) = %v, want a structural refusal", k, err)
+		}
+		if _, err := WriteRepoDefaults(bad); err == nil {
+			t.Errorf("WriteRepoDefaults(%s) accepted", k)
+		}
+	}
+	if err := SaveOverlay(map[string]json.RawMessage{"MAX_THINKING_TOKENS": json.RawMessage(`"5"`)}); err != nil {
+		t.Errorf("an env variable must stay editable: %v", err)
+	}
+	for _, k := range SchemaKeys() {
+		if k.HasRef() && !StructuralKey(k.Name) {
+			t.Errorf("%s uses $ref but is still editable", k.Name)
+		}
+	}
+	if pk, _ := SchemaKey("permissions"); !pk.HasRef() {
+		t.Error("permissions should be flagged as using $ref")
+	}
+	k, _ := SchemaKey("subagentStatusLine")
+	for val, want := range map[string]bool{
+		`{"type":"command","command":"c"}`:           true,
+		`{"command":"c"}`:                            false, // required
+		`{"type":"other","command":"c"}`:             false, // const
+		`{"type":"command","command":"c","extra":1}`: false, // additionalProperties
+	} {
+		if err := k.Validate(json.RawMessage(val)); (err == nil) != want {
+			t.Errorf("subagentStatusLine=%s: err = %v, want accepted=%v", val, err, want)
+		}
 	}
 }

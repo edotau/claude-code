@@ -154,7 +154,7 @@ func Merge(existing, rendered []byte, dropped []string) ([]byte, Summary, error)
 		v := tp.vals[k]
 		var merged json.RawMessage
 		switch k {
-		case "env":
+		case "env": // a retired env key stays until `configure --restore` rewrites the file
 			merged, err = mergeObject(ex.vals[k], v)
 		case "permissions":
 			merged, err = mergePermissions(ex.vals[k], v)

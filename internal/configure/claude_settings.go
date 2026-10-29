@@ -439,7 +439,7 @@ func runClaudeSettingsMenu(d *dialog, ov map[string]json.RawMessage, sections []
 func addSetting(d *dialog, shown map[string]bool) (key string, raw json.RawMessage, ok bool) {
 	var cand []settings.Key
 	for _, k := range settings.SchemaKeys() {
-		if !shown[k.Name] && k.Kind != settings.KindObject && k.Kind != settings.KindArray && k.Name != "$schema" && !settings.CredentialKey(k.Name) {
+		if !shown[k.Name] && k.Kind != settings.KindObject && k.Kind != settings.KindArray && k.Name != "$schema" && !settings.CredentialKey(k.Name) && !settings.StructuralKey(k.Name) && !k.HasRef() {
 			cand = append(cand, k)
 		}
 	}

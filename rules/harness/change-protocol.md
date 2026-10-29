@@ -31,8 +31,8 @@ made directly in `settings.json` that is silently erased on the next `make insta
      the next regenerate.
 
    In a linked worktree, follow CLAUDE.md hard rule 4: cwd does not isolate writes.
-   `CLAUDE_CONFIG_DIR="$PWD" claude-code configure --reset --out "$PWD/settings.json"` renders that
-   checkout's settings only. With a non-default config dir, `configure --reset` skips agent configs
+   `CLAUDE_CONFIG_DIR="$PWD" claude-code configure --restore --out "$PWD/settings.json"` renders that
+   checkout's settings only. With a non-default config dir, `configure --restore` skips agent configs
    (including `--check`/`--dry-run`) unless `--agents` is explicit; that flag still targets
    live agent homes. Do not add it to a worktree-only verification.
 
