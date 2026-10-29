@@ -111,7 +111,16 @@ func (r *Resolver) resolveDrive(p string) (string, bool) {
 	if best == nil {
 		return "", false
 	}
-	return filepath.Join(best.Point, bestRest), true
+	return r.within(best, bestRest)
+}
+
+// within joins rest under m's point, refusing a result that an inner (opaque or other) mount covers.
+func (r *Resolver) within(m *Mount, rest string) (string, bool) {
+	local := filepath.Join(m.Point, rest)
+	if owner, _ := r.mountFor(local); owner != m {
+		return "", false
+	}
+	return cleanLocal(local), true
 }
 
 func (r *Resolver) resolveTilde(p string) (string, bool) {
@@ -123,7 +132,7 @@ func (r *Resolver) resolveTilde(p string) (string, bool) {
 	if home == "" {
 		return "", false
 	}
-	return filepath.Join(home, rest), true
+	return cleanLocal(home + "/" + rest), true
 }
 
 func (r *Resolver) homeOf(name string) string {
@@ -147,7 +156,7 @@ func (r *Resolver) resolveUNC(p string) (string, bool) {
 		if r.Distro == "" || !strings.EqualFold(distro, r.Distro) {
 			return "", false
 		}
-		return filepath.Join("/", sub), true
+		return cleanLocal("/" + sub), true
 	}
 	return r.fromRemote(host, rest, KindSMB)
 }
@@ -196,7 +205,7 @@ func (r *Resolver) fromRemote(host, rp string, kinds ...Kind) (string, bool) {
 	if best == nil {
 		return "", false
 	}
-	return filepath.Join(best.Point, bestRest), true
+	return r.within(best, bestRest)
 }
 
 func hasKind(kinds []Kind, k Kind) bool {
@@ -258,7 +267,7 @@ func (r *Resolver) mountFor(local string) (*Mount, string) {
 	var bestRest string
 	for i := range r.Mounts {
 		m := &r.Mounts[i]
-		if rest, ok := trimPrefixPath(local, m.Point, false); ok && (best == nil || len(m.Point) > len(best.Point)) {
+		if rest, ok := trimPrefixPath(local, m.Point, false); ok && (best == nil || len(m.Point) >= len(best.Point)) {
 			best, bestRest = m, rest
 		}
 	}

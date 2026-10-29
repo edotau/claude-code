@@ -15,9 +15,12 @@ func parseMountinfo(text string) []Mount {
 		if len(f) < 7 || sep < 6 || len(f) < sep+3 {
 			continue
 		}
-		if m, ok := classify(unescapeOctal(f[4]), unescapeOctal(f[sep+2]), f[sep+1]); ok {
-			out = append(out, withRoot(m, unescapeOctal(f[3])))
+		point, source := unescapeOctal(f[4]), unescapeOctal(f[sep+2])
+		m, ok := classify(point, source, f[sep+1])
+		if !ok {
+			m = Mount{Point: point, Source: source, FSType: f[sep+1], Kind: KindOpaque}
 		}
+		out = append(out, withRoot(m, unescapeOctal(f[3])))
 	}
 	return out
 }
@@ -46,9 +49,11 @@ func parseDarwinMount(text string) []Mount {
 			continue
 		}
 		fstype, _, _ := strings.Cut(rest[open+2:len(rest)-1], ",")
-		if m, ok := classify(rest[:open], src, strings.TrimSpace(fstype)); ok {
-			out = append(out, m)
+		m, ok := classify(rest[:open], src, strings.TrimSpace(fstype))
+		if !ok {
+			m = Mount{Point: rest[:open], Source: src, FSType: strings.TrimSpace(fstype), Kind: KindOpaque}
 		}
+		out = append(out, m)
 	}
 	return out
 }

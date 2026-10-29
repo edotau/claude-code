@@ -234,7 +234,7 @@ func OnWSL() bool {
 
 // scanWinPaths is scanPosixPaths for Windows, UNC, URL and ~ tokens.
 func scanWinPaths(text string) []string {
-	return scanPaths(text, quotedWinPathRE(), winPathRE(), "")
+	return scanPaths(text, quotedWinPathRE(), winPathRE(), ".,;:!?)]}'\"")
 }
 
 // PathResolver (UserPromptSubmit) reports every existing file path the prompt names, resolving Windows, UNC,

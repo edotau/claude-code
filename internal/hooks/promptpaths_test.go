@@ -188,3 +188,12 @@ func TestPromptPathsHostPathNotDrive(t *testing.T) {
 		t.Errorf("host:/path not resolved to %s:\n%s", f, out.String())
 	}
 }
+
+// Prose punctuation after an unquoted foreign token is not part of the path.
+func TestScanWinPathsTrimsTrailingPunctuation(t *testing.T) {
+	got := scanWinPaths("see file:///etc/hostname. and (C:\\a\\b.txt), ok")
+	want := []string{"file:///etc/hostname", `C:\a\b.txt`}
+	if len(got) != 2 || got[0] != want[0] || got[1] != want[1] {
+		t.Errorf("scanWinPaths = %q, want %q", got, want)
+	}
+}
