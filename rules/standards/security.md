@@ -15,6 +15,9 @@ Language specifics: `rules/software/<lang>/security.md`. Harness credentials liv
 5. **Production is read-only from a session** — never `exec`/shell into a live pod or decode a cluster
    secret; read logs and status, copy artifacts out (`kubectl cp`/`oc cp`), change production only through
    its deploy pipeline.
+6. **Browser automation on authorized sites only** — ours, internal, or with explicit permission; honor robots.txt
+   (`network browser --extract` checks it); no detection evasion (fingerprint spoofing, webdriver masking, anti-bot
+   proxy rotation) — a block means ask for an API or permission.
 
 **Before commit:** no hardcoded secrets and none leaked in logs or errors; inputs validated; parameterized
 queries, sanitized output, CSRF on web; authentication/authorization verified on protected routes; deps pinned
