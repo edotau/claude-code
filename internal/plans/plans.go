@@ -7,6 +7,7 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -145,29 +146,45 @@ func Home(repoRoot string) string {
 	return filepath.Join(paths.ConfigDir(), "plans", paths.RepoSlug(repoRoot))
 }
 
-// Active is the newest dated file in home that still has an unticked task naming files to own.
-func Active(home string) (string, bool) {
+// Active picks home's tick target: a dated plan with an open owned task, never an unapproved draft in skip; a plan
+// whose claim names worktree wins, else the newest by mtime.
+func Active(home, worktree string, skip []string) (string, bool) {
 	entries, err := os.ReadDir(home)
 	if err != nil {
 		return "", false
 	}
-	best, bestMod := "", time.Time{}
+	best, bestMod, bestClaimed := "", time.Time{}, false
 	for _, e := range entries {
 		name := e.Name()
-		if e.IsDir() || !datedName.MatchString(name) {
+		p := filepath.Join(home, name)
+		if !e.Type().IsRegular() || !datedName.MatchString(name) || slices.Contains(skip, p) {
 			continue
 		}
 		info, err := e.Info()
-		if err != nil || (best != "" && !info.ModTime().After(bestMod)) {
+		if err != nil {
 			continue
 		}
-		plan, err := Parse(filepath.Join(home, name))
+		plan, err := Parse(p)
 		if err != nil || !hasOpenOwnedTask(plan) {
 			continue
 		}
-		best, bestMod = plan.Path, info.ModTime()
+		claimed := worktree != "" && claimsWorktree(plan, worktree)
+		if best != "" && (bestClaimed && !claimed || claimed == bestClaimed && !info.ModTime().After(bestMod)) {
+			continue
+		}
+		best, bestMod, bestClaimed = p, info.ModTime(), claimed
 	}
 	return best, best != ""
+}
+
+// claimsWorktree reports whether an open task's claim names worktree ("· worktree <w>").
+func claimsWorktree(plan Plan, worktree string) bool {
+	for _, t := range plan.Tasks {
+		if !t.Done && strings.Contains(t.Claim, "worktree "+worktree) {
+			return true
+		}
+	}
+	return false
 }
 
 // hasOpenOwnedTask reports whether plan still has a task to land.
@@ -222,7 +239,7 @@ func Status(dirs ...string) ([]Summary, error) {
 			return nil, err
 		}
 		for _, e := range entries {
-			if e.IsDir() || !strings.HasSuffix(e.Name(), ".md") {
+			if !e.Type().IsRegular() || !strings.HasSuffix(e.Name(), ".md") { // a symlink may point outside plans/
 				continue
 			}
 			plan, err := Parse(filepath.Join(dir, e.Name()))

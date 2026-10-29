@@ -76,6 +76,17 @@ func editTask(planPath, taskID string, fn func(Task, []string) []string) error {
 	})
 }
 
+// WriteFile replaces a plan under the plans lock, so a mirror or save never interleaves with a tick or claim.
+func WriteFile(dest string, data []byte) error {
+	return paths.WithFileLock(filepath.Join(paths.StateDir(), "plans.lock"), func() error {
+		mode := os.FileMode(0o600)
+		if info, err := os.Stat(dest); err == nil {
+			mode = info.Mode().Perm()
+		}
+		return writePlan(dest, data, mode)
+	})
+}
+
 // writePlan is the package's one write site: atomic replace that keeps dest's mode.
 func writePlan(dest string, data []byte, mode os.FileMode) error {
 	return paths.AtomicWrite(dest, data, mode)

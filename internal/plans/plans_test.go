@@ -271,7 +271,7 @@ func TestActive(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	got, ok := Active(dir)
+	got, ok := Active(dir, "", nil)
 	if !ok || !strings.HasSuffix(got, "2026-10-03-new.md") {
 		t.Fatalf("Active=%q,%v", got, ok)
 	}
@@ -279,7 +279,7 @@ func TestActive(t *testing.T) {
 	empty := t.TempDir()
 	writeFile(t, filepath.Join(empty, "2026-10-02-done.md"), done)
 	writeFile(t, filepath.Join(empty, "scratch.md"), open)
-	if got, ok := Active(empty); ok || got != "" {
+	if got, ok := Active(empty, "", nil); ok || got != "" {
 		t.Fatalf("Active on done-only dir=%q,%v", got, ok)
 	}
 }
