@@ -40,6 +40,9 @@ func TestGroupRenderOneEntryPerEvent(t *testing.T) {
 			t.Errorf("%s: %d entries, want at least %d", ev, len(entries), 1+own[ev])
 		}
 	}
+	if n := len(block[EventPostToolUse]); n != 1 {
+		t.Errorf("PostToolUse: %d entries, want 1 dispatcher (access-trace, the only async handler, is gone)", n)
+	}
 	if !strings.Contains(string(b), DispatcherCommand("PreToolUse", true)) || !strings.Contains(string(b), "hook safety-scan") {
 		t.Errorf("safety must render separately and the dispatcher must skip it: %s", b)
 	}

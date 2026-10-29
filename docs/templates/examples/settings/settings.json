@@ -74,19 +74,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "$HOME/.claude/bin/claude-code hook PostToolUse --no-own",
+            "command": "$HOME/.claude/bin/claude-code hook PostToolUse",
             "timeout": 25
-          }
-        ]
-      },
-      {
-        "matcher": "Read",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "$HOME/.claude/bin/claude-code hook access-trace",
-            "timeout": 5,
-            "async": true
           }
         ]
       }
