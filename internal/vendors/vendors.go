@@ -279,6 +279,11 @@ func configure(ctx context.Context, name string, t providers.Target, h *Headless
 	}
 	// Route keys go last and shadow same-named launch.env entries, so a spec overlay can never redirect a vendor.
 	launchEnv, argv := applyLaunch(name, nil, argv, h == nil)
+	return routeEnvLast(launchEnv, env), argv, nil
+}
+
+// routeEnvLast is launchEnv minus any key the route env sets, then the route env: the route always wins.
+func routeEnvLast(launchEnv, env []string) []string {
 	routeKeys := map[string]bool{}
 	for _, kv := range env {
 		k, _, _ := strings.Cut(kv, "=")
@@ -290,7 +295,7 @@ func configure(ctx context.Context, name string, t providers.Target, h *Headless
 			out = append(out, kv)
 		}
 	}
-	return append(out, env...), argv, nil
+	return append(out, env...)
 }
 
 // applyLaunch appends vendor's spec Launch.Env (always) and Launch.Args (only when args is true) to
@@ -645,8 +650,12 @@ func opencode(p *providers.Provider, dialect, base, model, cred string, routed b
 	if len(headers) > 0 {
 		options["headers"] = headers
 	}
-	if h == nil && p.Preset == providers.PresetDatabricks {
-		return opencodeDatabricks(p, id, dialect, base, model, cred, routed, env)
+	if p.Preset == providers.PresetDatabricks {
+		denv, _, err := opencodeDatabricks(p, id, dialect, base, model, cred, routed, env)
+		if err != nil || h == nil {
+			return denv, nil, err
+		}
+		return opencodeHeadlessRun(denv, h, opencodeDatabricksModel(denv))
 	}
 	menu := opencodeModels(p, model, h)
 	if routed && dialect == providers.ProtocolAnthropic {
@@ -676,7 +685,43 @@ func opencode(p *providers.Provider, dialect, base, model, cred string, routed b
 	if h == nil {
 		return env, nil, nil
 	}
-	argv := []string{"run", "--format", "json", "-m", id + "/" + model}
+	return opencodeHeadlessRun(env, h, id+"/"+model)
+}
+
+// opencodeDatabricksModel is the default "model" the databricks split rendered into OPENCODE_CONFIG_CONTENT.
+func opencodeDatabricksModel(env []string) string {
+	var cfg struct {
+		Model string `json:"model"`
+	}
+	for _, kv := range env {
+		if v, ok := strings.CutPrefix(kv, "OPENCODE_CONFIG_CONTENT="); ok {
+			_ = json.Unmarshal([]byte(v), &cfg)
+		}
+	}
+	return cfg.Model
+}
+
+// opencodeHeadlessRun finishes a headless launch: tools-off permission merged into the config env, then the run argv.
+func opencodeHeadlessRun(env []string, h *Headless, fullModel string) ([]string, []string, error) {
+	if !h.Tools {
+		for i, kv := range env {
+			v, ok := strings.CutPrefix(kv, "OPENCODE_CONFIG_CONTENT=")
+			if !ok {
+				continue
+			}
+			var cfg map[string]any
+			if err := json.Unmarshal([]byte(v), &cfg); err != nil {
+				return nil, nil, err
+			}
+			cfg["permission"] = "deny"
+			body, err := json.Marshal(cfg)
+			if err != nil {
+				return nil, nil, err
+			}
+			env[i] = "OPENCODE_CONFIG_CONTENT=" + string(body)
+		}
+	}
+	argv := []string{"run", "--format", "json", "-m", fullModel}
 	if h.WorkDir != "" {
 		argv = append(argv, "--dir", h.WorkDir)
 	}
@@ -728,15 +773,16 @@ func OwnLoginHeadless(name string, h Headless) (env, argv []string, err error) {
 	if cred, err := OpencodeCredential("opencode"); err == nil {
 		env = append(env, cred...) // the vault key when opencode stores no login of its own
 	}
-	env, argv = applyLaunch("opencode", env, argv, false) // headless: never Launch.Args
-	return env, argv, nil
+	launchEnv, argv := applyLaunch("opencode", nil, argv, false) // headless: never Launch.Args
+	return routeEnvLast(launchEnv, env), argv, nil
 }
 
 // OpencodeRunArgv is opencodeRun exported for the hub runner (internal/agent): one ladder leg execs
 // `opencode run` directly on an opencode-native "provider/model" id, bypassing the harness-route config.
 func OpencodeRunArgv(model string, h Headless) (env, argv []string) {
 	env, argv = opencodeRun(model, h)
-	return applyLaunch("opencode", env, argv, false) // headless: never Launch.Args
+	launchEnv, argv := applyLaunch("opencode", nil, argv, false) // headless: never Launch.Args
+	return routeEnvLast(launchEnv, env), argv
 }
 
 // opencodeRun is `opencode run --format json` for h; a non-empty model adds -m (opencode's provider/model form).

@@ -320,11 +320,7 @@ func opencodeRouteDetail(reg *providers.Registry, sel providers.Selection, selEr
 	if err != nil || target.Provider == nil {
 		return fmt.Sprintf("opencode_login=%v copilot_cli_login=%v (%v)", opencodeLogin, copilotCLILogin, orErr("", err))
 	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return fmt.Sprintf("opencode_login=%v copilot_cli_login=%v (home dir: %v)", opencodeLogin, copilotCLILogin, err)
-	}
-	file := filepath.Join(home, ".config", "opencode", "opencode.json")
+	file := filepath.Join(paths.StateDir(), "opencode", "opencode.json") // the overlay, not opencode's own config
 	if target.Provider.Provider != "github" {
 		return fmt.Sprintf("provider=%s file=%s opencode_login=%v copilot_cli_login=%v", target.Provider.Name, file, opencodeLogin, copilotCLILogin)
 	}
