@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 const mountinfoSample = `22 1 8:1 / / rw,relatime - ext4 /dev/sdc rw
@@ -141,8 +142,23 @@ func TestRoundTrip(t *testing.T) {
 	}
 }
 
+// classified drops opaque entries, leaving the mounts the tables below describe.
+func classified(ms []Mount) []Mount {
+	var out []Mount
+	for _, m := range ms {
+		if m.Kind != KindOpaque {
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
 func TestParseMountinfo(t *testing.T) {
-	got := parseMountinfo(mountinfoSample)
+	all := parseMountinfo(mountinfoSample)
+	got := classified(all)
+	if len(all) != 7 || all[0].Kind != KindOpaque {
+		t.Errorf("opaque mounts dropped: %d entries, want 7 incl. / and /proc", len(all))
+	}
 	want := []Mount{
 		{Point: "/mnt/c", Source: `C:\`, FSType: "9p", Kind: KindDrvFS, Drive: "C", Root: "/"},
 		{Point: "/mnt/d", Source: `D:\`, FSType: "9p", Kind: KindDrvFS, Drive: "D", Root: "/"},
@@ -161,7 +177,7 @@ func TestParseMountinfo(t *testing.T) {
 }
 
 func TestParseDarwinMount(t *testing.T) {
-	got := parseDarwinMount(darwinSample)
+	got := classified(parseDarwinMount(darwinSample))
 	want := []Mount{
 		{Point: "/Volumes/team", Source: "//user@fileserver/team", FSType: "smbfs", Kind: KindSMB, Host: "fileserver", RemotePath: "team"},
 		{Point: "/Volumes/data", Source: "nas:/export/data", FSType: "nfs", Kind: KindNFS, Host: "nas", RemotePath: "/export/data"},
@@ -177,7 +193,7 @@ func TestParseDarwinMount(t *testing.T) {
 		}
 	}
 	// A macOS SMB share resolves through the parsed table.
-	r := &Resolver{Mounts: got}
+	r := &Resolver{Mounts: classified(got)}
 	if p, ok := r.Resolve(`\\fileserver\team\x.txt`); !ok || p != "/Volumes/team/x.txt" {
 		t.Errorf("darwin smb resolve = %q, %v", p, ok)
 	}
@@ -247,4 +263,54 @@ func TestDotDotFollowsSymlinks(t *testing.T) {
 	if !ok || got != filepath.Join(root, "real", "f") {
 		t.Errorf("Resolve = %q, %v; want %s", got, ok, filepath.Join(root, "real", "f"))
 	}
+}
+
+// A tmpfs (opaque) mount inside a drive is not the drive's content: not reachable, never a guess.
+func TestOpaqueMountFencesDrive(t *testing.T) {
+	r := testResolver()
+	r.Mounts = append(r.Mounts, Mount{Point: "/mnt/c/cache", FSType: "tmpfs", Kind: KindOpaque})
+	if got, ok := r.Resolve(`C:\cache\a`); ok {
+		t.Errorf("Resolve through tmpfs = %q, want not reachable", got)
+	}
+	if got, ok := r.Resolve(`C:\other\a`); !ok || got != "/mnt/c/other/a" {
+		t.Errorf("sibling path = %q, %v", got, ok)
+	}
+	if got, err := r.ViewFrom("/mnt/c/cache/a", Target{Style: StyleWindows}); err == nil && got == `C:\cache\a` {
+		t.Errorf("ViewFrom through tmpfs claimed %q", got)
+	}
+}
+
+func TestDotDotFollowsSymlinksInEveryForm(t *testing.T) {
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "real", "sub"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(root, "real", "sub"), filepath.Join(root, "link")); err != nil {
+		t.Skip("symlinks unavailable")
+	}
+	r := &Resolver{Home: root, Distro: "Ubuntu"}
+	want := filepath.Join(root, "real")
+	for _, in := range []string{"~/link/..", "file://" + root + "/link/..", `\\wsl.localhost\Ubuntu` + root + "/link/.."} {
+		if got, ok := r.Resolve(in); !ok || got != want {
+			t.Errorf("Resolve(%q) = %q, %v; want %s", in, got, ok, want)
+		}
+	}
+}
+
+func TestLearnDistroSurvivesStdoutHoldingChild(t *testing.T) {
+	dir := t.TempDir()
+	script := "#!/bin/sh\nsleep 5 &\nprintf '\\\\\\\\wsl.localhost\\\\Ubuntu\\\\'\n"
+	if err := os.WriteFile(filepath.Join(dir, "wslpath"), []byte(script), 0o700); err != nil {
+		t.Skip(err)
+	}
+	t.Setenv("PATH", dir+":"+os.Getenv("PATH"))
+	start := time.Now()
+	out, _ := wslpathOut()
+	if d := time.Since(start); d > 1500*time.Millisecond {
+		t.Errorf("probe took %s, want < 1.5s", d)
+	}
+	_ = out
 }

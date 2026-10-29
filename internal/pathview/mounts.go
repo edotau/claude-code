@@ -12,13 +12,14 @@ import (
 // Kind classifies a mount by how its content is reached.
 type Kind int
 
-// Mount kinds; local filesystems are not kept in the table.
+// Mount kinds.
 const (
-	KindDrvFS  Kind = iota + 1 // WSL /mnt/<drive>, a Windows drive
-	KindSMB                    // //server/share (cifs, smbfs)
-	KindNFS                    // host:/export
-	KindSSHFS                  // user@host:path
-	KindVolume                 // other macOS /Volumes/<name> share
+	KindOpaque Kind = iota // any other mount; kept so it fences off the mounts beneath it
+	KindDrvFS              // WSL /mnt/<drive>, a Windows drive
+	KindSMB                // //server/share (cifs, smbfs)
+	KindNFS                // host:/export
+	KindSSHFS              // user@host:path
+	KindVolume             // other macOS /Volumes/<name> share
 )
 
 // Mount is one classified mount-table entry.
@@ -49,7 +50,7 @@ func Default() *Resolver {
 	return live
 }
 
-// classify turns a raw mount entry into a Mount; ok is false for local filesystems.
+// classify turns a raw mount entry into a Mount; ok is false for filesystems that are not drvfs/remote/Volumes.
 func classify(point, source, fstype string) (Mount, bool) {
 	m := Mount{Point: point, Source: source, FSType: fstype}
 	switch {
@@ -133,7 +134,9 @@ func splitHostPath(source string) (host, p string, ok bool) {
 var wslpathOut = func() (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, "wslpath", "-w", "/").Output()
+	cmd := exec.CommandContext(ctx, "wslpath", "-w", "/")
+	cmd.WaitDelay = 200 * time.Millisecond // a child holding stdout open must not outlive the probe
+	out, err := cmd.Output()
 	return string(out), err
 }
 
