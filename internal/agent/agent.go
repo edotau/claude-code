@@ -168,19 +168,6 @@ func Run(ctx context.Context, r Runner, req Request, stream io.Writer, notify fu
 			return res, &Error{Kind: KindFatal, Agent: r.Name(), Err: err}
 		}
 	}
-	gp, gperr := guardProvider(r, req)
-	if gperr != nil {
-		return res, &Error{Kind: KindFatal, Agent: r.Name(), Err: gperr}
-	}
-	if gp != nil {
-		if gerr := checkIsolation(ctx); gerr != nil {
-			return res, &Error{Kind: KindFatal, Agent: r.Name(), Err: gerr}
-		}
-		if gerr := guardRouteHost(ctx, gp); gerr != nil {
-			return res, &Error{Kind: KindAuth, Agent: r.Name(), Err: gerr}
-		}
-		ctx = withOwnProvider(ctx, gp)
-	}
 	p := DefaultPolicy()
 	if req.Timeout > 0 {
 		p.AttemptTimeout = req.Timeout
@@ -198,6 +185,10 @@ func Run(ctx context.Context, r Runner, req Request, stream io.Writer, notify fu
 	attempts := 0
 	e := Do(ctx, p, func(actx context.Context, attempt int) *Error {
 		attempts = attempt
+		actx, gerr := guardAttempt(actx, r, req)
+		if gerr != nil {
+			return gerr
+		}
 		cw := &countingWriter{w: stream}
 		out, err := r.Run(actx, req, cw)
 		// An agent that delegated to another names the actual agent itself;
@@ -483,7 +474,12 @@ func RunWithFallback(ctx context.Context, c Chain, req Request, stream io.Writer
 		}
 		lreq := legRequest(req, leg, i == 0 && leg.Agent.Name() == c.Want)
 		waitCooldown(ctx, leg.Account, DefaultMaxDelay)
-		if skip := exhaustedSince(leg); skip != nil { // another task marked this account dead after the chain was built
+		release, aerr := acquireLeg(ctx, leg.Account) // per billed account, whichever key the task was queued under
+		if aerr != nil {
+			ce := &Error{Kind: KindFatal, Agent: leg.Agent.Name(), Err: aerr}
+			res, err = Result{Agent: ce.Agent, Status: statusOf(ce), Invoked: lreq.Model}, ce
+			hops = append(hops, hopOf(leg, lreq, res, err))
+		} else if skip := exhaustedSince(leg); skip != nil { // another task marked this account dead after the chain was built
 			res, err = Result{Agent: leg.Agent.Name(), Status: StatusQuota, Invoked: lreq.Model}, skip
 			hops = append(hops, hopOf(leg, lreq, res, err))
 		} else {
@@ -493,6 +489,9 @@ func RunWithFallback(ctx context.Context, c Chain, req Request, stream io.Writer
 			noteQuota(leg, err)
 			noteAuth(leg, err)
 			noteStall(leg, err)
+		}
+		if release != nil {
+			release()
 		}
 		if res.Handoff != handoff {
 			req.Prompt = promptFromHandoff(res.Handoff, req.Prompt)
