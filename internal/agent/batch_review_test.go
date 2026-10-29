@@ -866,3 +866,25 @@ func TestFirstAttemptRechecksAccountAfterCooldownIdle(t *testing.T) {
 		t.Errorf("the first attempt ran %d times on an account marked auth-dead during its cooldown wait", runs.Load())
 	}
 }
+
+// Own-login legs (no account) on one agent still share DefaultPerKey, even when --jobs allows more.
+func TestBatchCapsOwnLoginLegsPerAgent(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	var cur, peak atomic.Int32
+	r := gaugeRunner{name: "opencode", cur: &cur, max: &peak}
+	var tasks []BatchTask
+	for i := range DefaultPerKey + 3 {
+		id := fmt.Sprintf("own%d", i)
+		tasks = append(tasks, BatchTask{ID: id, Agent: "opencode", Req: Request{Prompt: "p"},
+			Prepare: func(context.Context) (Chain, Record, error) {
+				return Chain{Want: "opencode", Legs: []Leg{{Agent: r, keepCaller: true}}}, Record{ID: "id-" + id, Agent: "opencode", Log: filepath.Join(t.TempDir(), "l.log")}, nil
+			}})
+	}
+	var out strings.Builder
+	if !RunBatch(context.Background(), tasks, BatchOptions{Jobs: len(tasks), Out: &out}) {
+		t.Fatalf("batch failed: %s", out.String())
+	}
+	if got := int(peak.Load()); got > DefaultPerKey || got < 2 {
+		t.Errorf("peak concurrent own-login legs = %d, want 2..%d", got, DefaultPerKey)
+	}
+}
