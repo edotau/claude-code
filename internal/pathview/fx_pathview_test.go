@@ -47,3 +47,25 @@ func TestNinePUNCClassifiedSMB(t *testing.T) {
 		t.Errorf("Resolve = %q, %v", got, ok)
 	}
 }
+
+func TestRemoteDotDotCannotLeaveMountRoot(t *testing.T) {
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, d := range []string{"mnt/nas", "mnt/export"} {
+		if err := os.MkdirAll(filepath.Join(root, d), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, f := range []string{"mnt/nas/file", "mnt/export/file"} {
+		if err := os.WriteFile(filepath.Join(root, f), []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	r := &Resolver{Mounts: []Mount{{Point: filepath.Join(root, "mnt/nas"), Kind: KindNFS, Host: "nas", RemotePath: "/export"}}}
+	got, ok := r.Resolve("nas:/export/../export/file")
+	if want := filepath.Join(root, "mnt/nas/file"); !ok || got != want {
+		t.Errorf("Resolve = %q, %v; want %q", got, ok, want)
+	}
+}
