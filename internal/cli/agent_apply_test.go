@@ -12,7 +12,7 @@ func newAskState() *askState {
 	b := func() *bool { return new(bool) }
 	return &askState{name: s(), provider: s(), model: s(), effort: s(), workdir: s(), session: s(), rubric: s(),
 		tools: b(), noTools: b(), autonomous: b(), enableMemory: b(), direct: b(),
-		noPersist: b(), safeMode: b(), debugFile: s(), systemPrompt: s(), appendSystemPrompt: s(), jsonSchema: s(),
+		noPersist: b(), safeMode: b(), debugFile: s(), systemPrompt: s(), appendSystemPrompt: s(), outputSchema: s(),
 		timeout: new(time.Duration), attach: new(attachFlag), keepEnv: new(keepEnvFlag)}
 }
 

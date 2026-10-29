@@ -23,8 +23,9 @@ type claudeRunner struct{}
 func (claudeRunner) Name() string { return "claude" }
 
 func (claudeRunner) Caps() Caps {
-	return Caps{Model: true, Provider: true, Effort: true, WorkDir: true, SessionID: true, Tools: true, NoTools: true, NoPersist: true, SafeMode: true, DebugFile: true,
-		SystemPrompt: true, Env: true, JSONSchema: true}
+	return Caps{Model: Native, Provider: Native, Effort: Native, WorkDir: Native, SessionID: Native, Tools: Native, NoTools: Native,
+		NoPersist: Native, SafeMode: Native, DebugFile: Native, SystemPrompt: Native, AppendSystemPrompt: Native, Env: Native,
+		OutputSchema: Native}
 }
 
 func (claudeRunner) Available() error { _, err := launch.ClaudeBinary(); return err }
@@ -34,7 +35,7 @@ func (claudeRunner) Run(ctx context.Context, req Request, sink Sink) (Result, er
 		if req.Tools {
 			return Result{}, errors.New("claude: --no-tools and --tools are exclusive")
 		}
-		if req.SystemPrompt == "" && req.AppendSystemPrompt == "" && req.JSONSchema == "" {
+		if req.SystemPrompt == "" && req.AppendSystemPrompt == "" && req.OutputSchema == "" {
 			if res, done, err := claudeOneShot(ctx, req, sink); done {
 				return res, err
 			}
@@ -63,8 +64,8 @@ func (claudeRunner) Run(ctx context.Context, req Request, sink Sink) (Result, er
 	if req.AppendSystemPrompt != "" {
 		args = append(args, "--append-system-prompt", req.AppendSystemPrompt)
 	}
-	if req.JSONSchema != "" {
-		args = append(args, "--json-schema", req.JSONSchema)
+	if req.OutputSchema != "" {
+		args = append(args, "--json-schema", req.OutputSchema)
 	}
 	if req.SessionID != "" {
 		args = append(args, "--resume", req.SessionID)

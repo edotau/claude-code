@@ -70,11 +70,11 @@ func TestParseClaudeStreamTransport(t *testing.T) {
 
 func TestApplyCapsDropsIsolation(t *testing.T) {
 	req := Request{NoPersist: true, SafeMode: true, DebugFile: "/x"}
-	if got, d := applyCaps(Caps{}, req); got.NoPersist || got.SafeMode || got.DebugFile != "" ||
+	if got, d, _ := applyCaps(Caps{}, req); got.NoPersist || got.SafeMode || got.DebugFile != "" ||
 		!slices.Equal(d, []string{"--no-persist", "--safe-mode", "--debug-file=/x"}) {
 		t.Fatalf("got %+v dropped %v", got, d)
 	}
-	if got, d := applyCaps(Caps{NoPersist: true, SafeMode: true, DebugFile: true}, req); !got.NoPersist || !got.SafeMode || got.DebugFile != "/x" || d != nil {
+	if got, d, _ := applyCaps(Caps{NoPersist: Native, SafeMode: Native, DebugFile: Native}, req); !got.NoPersist || !got.SafeMode || got.DebugFile != "/x" || d != nil {
 		t.Fatalf("isolation caps must keep all three: %+v %v", got, d)
 	}
 }

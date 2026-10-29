@@ -18,7 +18,7 @@ import (
 
 func TestApplyCaps(t *testing.T) {
 	req := Request{Prompt: "p", Model: "m", Provider: "openai", Effort: "high", WorkDir: "/tmp", SessionID: "s", Tools: true}
-	got, dropped := applyCaps(Caps{Model: true, Provider: true}, req)
+	got, dropped, _ := applyCaps(Caps{Model: Native, Provider: Native}, req)
 	want := []string{"--effort=high", "--workdir=/tmp", "--session=s", "--tools"}
 	if !reflect.DeepEqual(dropped, want) {
 		t.Errorf("dropped = %q, want %q", dropped, want)
@@ -26,7 +26,7 @@ func TestApplyCaps(t *testing.T) {
 	if got.Effort != "" || got.WorkDir != "" || got.SessionID != "" || got.Tools || got.Model != "m" || got.Provider != "openai" {
 		t.Errorf("request not cleared to caps: %+v", got)
 	}
-	if _, d := applyCaps(Caps{}, Request{Prompt: "p"}); d != nil {
+	if _, d, _ := applyCaps(Caps{}, Request{Prompt: "p"}); d != nil {
 		t.Errorf("unset fields must not be reported, got %q", d)
 	}
 }
@@ -62,7 +62,7 @@ func (f *fakeRunner) Run(_ context.Context, req Request, w Sink) (Result, error)
 
 func TestRunDropsAndProgressVeto(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	f := &fakeRunner{caps: Caps{Model: true}, errs: []error{nil}}
+	f := &fakeRunner{caps: Caps{Model: Native}, errs: []error{nil}}
 	res, err := Run(context.Background(), f, Request{Prompt: "p", Model: "m", Effort: "max"}, Discard, nil)
 	if err != nil || res.Agent != "fake" || !reflect.DeepEqual(res.Dropped, []string{"--effort=max"}) || f.seen[0].Effort != "" {
 		t.Fatalf("res=%+v err=%v seen=%+v", res, err, f.seen)
@@ -166,7 +166,7 @@ func TestRunDemotesSlotOnHardQuota(t *testing.T) {
 	fastDefaultBackoff(t)
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	hard := errors.New("HTTP 429: You exceeded your current quota. Quota exceeded for metric: requests, limit: 0, model: big")
-	f := &fakeRunner{caps: Caps{Model: true}, errs: []error{hard, nil}}
+	f := &fakeRunner{caps: Caps{Model: Native}, errs: []error{hard, nil}}
 	var notes []string
 	res, err := Run(context.Background(), f, Request{Prompt: "p"}, Discard, func(s string) { notes = append(notes, s) })
 	if err != nil || len(f.seen) != 2 || f.seen[0].Model != "" || f.seen[1].Model != "sonnet" {
@@ -177,7 +177,7 @@ func TestRunDemotesSlotOnHardQuota(t *testing.T) {
 	}
 
 	// A transient 429 keeps the model: nothing to demote.
-	f = &fakeRunner{caps: Caps{Model: true}, errs: []error{errors.New("HTTP 429 rate limited, try again in 1s"), nil}}
+	f = &fakeRunner{caps: Caps{Model: Native}, errs: []error{errors.New("HTTP 429 rate limited, try again in 1s"), nil}}
 	if _, err := Run(context.Background(), f, Request{Prompt: "p", Model: "opus"}, Discard, nil); err != nil || f.seen[1].Model != "opus" {
 		t.Fatalf("transient 429 must retry the same slot: err=%v seen=%+v", err, f.seen)
 	}
@@ -189,7 +189,7 @@ func TestRunQuotaAccountExhaustedDoesNotDemote(t *testing.T) {
 	fastDefaultBackoff(t)
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	acctExhausted := errors.New("HTTP 402 payment required: you have exceeded your monthly quota")
-	f := &fakeRunner{caps: Caps{Model: true}, errs: []error{acctExhausted}}
+	f := &fakeRunner{caps: Caps{Model: Native}, errs: []error{acctExhausted}}
 	var notes []string
 	_, err := Run(context.Background(), f, Request{Prompt: "p"}, Discard, func(s string) { notes = append(notes, s) })
 	var e *Error
@@ -207,7 +207,7 @@ func TestRunQuotaAccountExhaustedDoesNotDemote(t *testing.T) {
 	// ("insufficient_quota") is still account-exhausted: hardAccountRE vetoes ModelDenied, so Run must not
 	// demote off a dead account on the strength of the model-denied marker alone.
 	both := errors.New("402 payment required: insufficient_quota")
-	f = &fakeRunner{caps: Caps{Model: true}, errs: []error{both}}
+	f = &fakeRunner{caps: Caps{Model: Native}, errs: []error{both}}
 	var bothNotes []string
 	_, err = Run(context.Background(), f, Request{Prompt: "p"}, Discard, func(s string) { bothNotes = append(bothNotes, s) })
 	if !errors.As(err, &e) || e.Kind != KindQuota {
@@ -298,9 +298,9 @@ func TestRunWithFallback(t *testing.T) {
 	})
 
 	t.Run("each leg runs its own cell and the first answer wins", func(t *testing.T) {
-		codex := &fakeRunner{name: "codex", caps: Caps{Model: true}, errs: []error{unavailable}, emptyAnswer: true}
-		gemini := &fakeRunner{name: "gemini", caps: Caps{Model: true}, errs: []error{unavailable}, emptyAnswer: true}
-		opencode := &fakeRunner{name: "opencode", caps: Caps{Model: true}, errs: []error{nil}}
+		codex := &fakeRunner{name: "codex", caps: Caps{Model: Native}, errs: []error{unavailable}, emptyAnswer: true}
+		gemini := &fakeRunner{name: "gemini", caps: Caps{Model: Native}, errs: []error{unavailable}, emptyAnswer: true}
+		opencode := &fakeRunner{name: "opencode", caps: Caps{Model: Native}, errs: []error{nil}}
 		claude := &fakeRunner{name: "claude", errs: []error{nil}}
 		req := Request{Prompt: "p", Model: "gpt-6.1-sol"}
 		res, err := RunWithFallback(context.Background(), chainOf([]Runner{codex, gemini, opencode, claude}, "", "gemini-4-argon", "kimi-k3", "opus"), req, Discard, nil)
@@ -316,8 +316,8 @@ func TestRunWithFallback(t *testing.T) {
 	})
 
 	t.Run("the tier is kept on the claude leg", func(t *testing.T) {
-		codex := &fakeRunner{name: "codex", caps: Caps{Model: true}, errs: []error{unavailable}, emptyAnswer: true}
-		claude := &fakeRunner{name: "claude", caps: Caps{Model: true}, errs: []error{nil}}
+		codex := &fakeRunner{name: "codex", caps: Caps{Model: Native}, errs: []error{unavailable}, emptyAnswer: true}
+		claude := &fakeRunner{name: "claude", caps: Caps{Model: Native}, errs: []error{nil}}
 		if _, err := RunWithFallback(context.Background(), chainOf([]Runner{codex, claude}, "", "opus"), Request{Prompt: "p", Model: "claude-opus-5.5"}, Discard, nil); err != nil {
 			t.Fatal(err)
 		}
@@ -381,7 +381,7 @@ func TestRunWithFallback(t *testing.T) {
 	})
 
 	t.Run("explicit non-claude model is never overridden", func(t *testing.T) {
-		codex := &fakeRunner{name: "codex", caps: Caps{Model: true}, errs: []error{unavailable}, emptyAnswer: true}
+		codex := &fakeRunner{name: "codex", caps: Caps{Model: Native}, errs: []error{unavailable}, emptyAnswer: true}
 		claude := &fakeRunner{name: "claude", errs: []error{nil}}
 		req := Request{Prompt: "p", Model: "openai:gpt-4"}
 		res, err := RunWithFallback(context.Background(), chainOf([]Runner{codex, claude}), req, Discard, nil)
@@ -474,7 +474,7 @@ func TestRunTimeoutEndsKindFatalRegardlessOfTools(t *testing.T) {
 type codexHang struct{ calls int }
 
 func (h *codexHang) Name() string     { return "codex" }
-func (h *codexHang) Caps() Caps       { return Caps{Tools: true} }
+func (h *codexHang) Caps() Caps       { return Caps{Tools: Native} }
 func (h *codexHang) Available() error { return nil }
 func (h *codexHang) Run(ctx context.Context, _ Request, _ Sink) (Result, error) {
 	h.calls++
