@@ -139,6 +139,7 @@ func EmbedEntries(ctx context.Context, root string, c *EmbedClient) (embedded, t
 	}
 	var ids, texts, hashes []string
 	live := map[string]bool{}
+	cacheDim := dominantDim(cache.Rows)
 	for _, h := range corpusBlocks(root) {
 		e := EntryFromHit(h)
 		if e.Archived || e.Superseded || live[e.ID] { // the first of a duplicated id wins
@@ -148,7 +149,10 @@ func EmbedEntries(ctx context.Context, root string, c *EmbedClient) (embedded, t
 		hash := textHash(text)
 		live[e.ID] = true
 		if row, ok := cache.Rows[e.ID]; ok && row.Hash == hash {
-			continue
+			v, decoded := decodeVec(row.Vec)
+			if decoded && (cacheDim == 0 || len(v) == cacheDim) {
+				continue
+			}
 		}
 		ids, texts, hashes = append(ids, e.ID), append(texts, text), append(hashes, hash)
 	}
@@ -166,7 +170,11 @@ func EmbedEntries(ctx context.Context, root string, c *EmbedClient) (embedded, t
 					continue
 				}
 				if old, have := cur.Rows[id]; have && old.Hash == want {
-					continue
+					oldVec, oldOK := decodeVec(old.Vec)
+					newVec, newOK := decodeVec(row.Vec)
+					if oldOK && newOK && len(oldVec) == len(newVec) {
+						continue
+					}
 				}
 				cur.Rows[id] = row
 			}
@@ -178,7 +186,7 @@ func EmbedEntries(ctx context.Context, root string, c *EmbedClient) (embedded, t
 			}
 			if own > embedMaxRows { // shed only this root's rows that its corpus no longer has
 				for id, r := range cur.Rows {
-					if r.Root == root && !live[id] {
+					if _, ok := current[id]; r.Root == root && !ok {
 						delete(cur.Rows, id)
 					}
 				}
@@ -281,13 +289,27 @@ func (s *Semantic) Cosine(e Entry) (float64, bool) {
 	return dot, true
 }
 
-// cacheDimMatches reports whether a sample cached vector has dim components.
-func cacheDimMatches(rows map[string]embedRow, dim int) bool {
+// dominantDim returns the most frequent decoded vector dimension, with ties going to the larger dimension.
+func dominantDim(rows map[string]embedRow) int {
+	counts := map[int]int{}
 	for _, r := range rows {
-		v, ok := decodeVec(r.Vec)
-		return ok && len(v) == dim
+		if v, ok := decodeVec(r.Vec); ok {
+			counts[len(v)]++
+		}
 	}
-	return false
+	best, frequency := 0, 0
+	for dim, n := range counts {
+		if n > frequency || n == frequency && dim > best {
+			best, frequency = dim, n
+		}
+	}
+	return best
+}
+
+// cacheDimMatches reports whether the cache's dominant vector dimension is dim.
+func cacheDimMatches(rows map[string]embedRow, dim int) bool {
+	cacheDim := dominantDim(rows)
+	return cacheDim > 0 && cacheDim == dim
 }
 
 func normalize(v []float32) []float32 {

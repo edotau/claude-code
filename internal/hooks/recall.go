@@ -177,7 +177,7 @@ func pickTier(ranked []memory.SearchHit, archived bool, need int, seen map[strin
 		kwOK := c.hit.Matched >= need && c.hit.Score >= top*recallScoreFloor
 		kw := 0.0
 		if top > 0 {
-			kw = c.hit.Score / top
+			kw = min(c.hit.Score/top, 1)
 		}
 		c.score = kw
 		if sem != nil {
@@ -190,14 +190,22 @@ func pickTier(ranked []memory.SearchHit, archived bool, need int, seen map[strin
 			}
 		}
 		if kwOK {
-			c.score += recallAccessBoost * float64(min(counts[c.e.ID], recallAccessCap)) / recallAccessCap
 			pool = append(pool, c)
 		}
 	}
 	sort.SliceStable(pool, func(i, j int) bool { return pool[i].score > pool[j].score })
-	passed = len(pool) > 0 // pool[0] always clears its own relative floor
+	passed = len(pool) > 0
+	var survivors []recallPick
 	for _, c := range pool {
-		if c.score < pool[0].score*recallScoreFloor || len(out) == recallBodies+recallPointers {
+		if c.score < pool[0].score*recallScoreFloor {
+			break
+		}
+		c.score += recallAccessBoost * float64(min(counts[c.e.ID], recallAccessCap)) / recallAccessCap
+		survivors = append(survivors, c)
+	}
+	sort.SliceStable(survivors, func(i, j int) bool { return survivors[i].score > survivors[j].score })
+	for _, c := range survivors {
+		if len(out) == recallBodies+recallPointers {
 			break
 		}
 		if !seen[memory.BlockKey(c.hit.Block)] {
