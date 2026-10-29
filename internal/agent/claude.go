@@ -10,6 +10,7 @@ import (
 	"maps"
 	"os"
 	"slices"
+	"strconv"
 	"time"
 
 	"github.com/edotau/claude-code/internal/launch"
@@ -27,12 +28,12 @@ func (claudeRunner) Caps() Caps {
 
 func (claudeRunner) Available() error { _, err := launch.ClaudeBinary(); return err }
 
-func (claudeRunner) Run(ctx context.Context, req Request, stream io.Writer) (Result, error) {
+func (claudeRunner) Run(ctx context.Context, req Request, sink Sink) (Result, error) {
 	if req.NoTools {
 		if req.Tools {
 			return Result{}, errors.New("claude: --no-tools and --tools are exclusive")
 		}
-		if res, done, err := claudeOneShot(ctx, req, stream); done {
+		if res, done, err := claudeOneShot(ctx, req, sink); done {
 			return res, err
 		}
 	}
@@ -78,7 +79,7 @@ func (claudeRunner) Run(ctx context.Context, req Request, stream io.Writer) (Res
 	if err := cmd.Start(); err != nil {
 		return Result{}, err
 	}
-	res, perr := parseClaudeStream(stdout, stream, eventLogFor(ctx))
+	res, perr := parseClaudeStream(stdout, sink, eventLogFor(ctx))
 	_, _ = io.Copy(io.Discard, stdout)
 	werr := cmd.Wait()
 	res.Provider = plan.Set[providers.PinProfile]
@@ -120,6 +121,7 @@ type claudeMessage struct {
 		Type string `json:"type"`
 		Text string `json:"text"`
 		Name string `json:"name"` // tool_use blocks
+		ID   string `json:"id"`
 	} `json:"content"`
 }
 
@@ -143,10 +145,10 @@ func (ev claudeEvent) text() string {
 	return s
 }
 
-// parseClaudeStream streams top-level assistant text to w and returns the result event's envelope.
+// parseClaudeStream emits top-level assistant text and tool calls to sink and returns the result event's envelope.
 // A json.Decoder, not a line scanner: the init event routinely exceeds a scanner's 64KB line cap.
 // An optional eventLog gets one formatted line per assistant text, tool call, result and error.
-func parseClaudeStream(r io.Reader, w io.Writer, logs ...eventLog) (res Result, _ error) {
+func parseClaudeStream(r io.Reader, sink Sink, logs ...eventLog) (res Result, _ error) {
 	lg := pickLog(logs)
 	sawResult, wrote := false, false
 	ts := transportTracker{start: clock()}
@@ -170,6 +172,10 @@ func parseClaudeStream(r io.Reader, w io.Writer, logs ...eventLog) (res Result, 
 				ts.retry(ev.ErrorStatus)
 				lg.emit("retry", fmt.Sprintf("attempt %d/%d status=%d retry_in=%dms",
 					ev.Attempt, ev.MaxRetries, ts.lastStatus(), ev.RetryDelayMs))
+				if err := sink.Emit(Event{Type: EventRetry, Status: strconv.Itoa(ts.lastStatus()),
+					Text: fmt.Sprintf("attempt %d/%d retry_in=%dms", ev.Attempt, ev.MaxRetries, ev.RetryDelayMs)}); err != nil {
+					return res, err
+				}
 			}
 			if ev.Model != "" {
 				res.Model = ev.Model
@@ -183,21 +189,21 @@ func parseClaudeStream(r io.Reader, w io.Writer, logs ...eventLog) (res Result, 
 				res.Model = msg.Model
 			}
 			logClaudeAssistant(lg, msg)
-			var err error
-			wrote, err = writeClaudeAssistant(w, msg, wrote)
-			if err != nil {
+			if err := emitClaudeAssistant(sink, msg, &wrote); err != nil {
 				return res, err
 			}
 		case "result":
 			sawResult = true
 			if err := applyClaudeResult(&res, ev); err != nil {
 				lg.emit("error", err.Error())
+				_ = sink.Emit(Event{Type: EventError, Text: err.Error()}) // the parse error below already aborts
 				return res, err
 			}
 			lg.emit("result", ev.Result)
 		case "error":
 			if t := ev.text(); t != "" {
 				lg.emit("error", t)
+				_ = sink.Emit(Event{Type: EventError, Text: t}) // the claude error below already aborts
 				return res, fmt.Errorf("claude: %s", t)
 			}
 		}
@@ -259,22 +265,24 @@ func logClaudeAssistant(lg eventLog, msg claudeMessage) {
 	}
 }
 
-func writeClaudeAssistant(w io.Writer, msg claudeMessage, wrote bool) (bool, error) {
+// emitClaudeAssistant emits msg's tool calls and text blocks; *wrote marks the first text, later text starts a turn.
+func emitClaudeAssistant(sink Sink, msg claudeMessage, wrote *bool) error {
 	for _, b := range msg.Content {
-		if b.Type != "text" || b.Text == "" {
+		var ev Event
+		switch {
+		case b.Type == "tool_use":
+			ev = toolEvent(b.Name, b.ID)
+		case b.Type == "text" && b.Text != "":
+			ev = Event{Type: EventText, Text: b.Text, Sep: *wrote}
+			*wrote = true
+		default:
 			continue
 		}
-		if wrote {
-			if _, err := io.WriteString(w, "\n"); err != nil {
-				return wrote, err
-			}
+		if err := sink.Emit(ev); err != nil {
+			return err
 		}
-		if _, err := io.WriteString(w, b.Text); err != nil {
-			return wrote, err
-		}
-		wrote = true
 	}
-	return wrote, nil
+	return nil
 }
 
 func applyClaudeResult(res *Result, ev claudeEvent) error {

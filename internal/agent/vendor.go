@@ -112,7 +112,7 @@ func (v vendorRunner) Available() error {
 	return err
 }
 
-func (v vendorRunner) Run(ctx context.Context, req Request, stream io.Writer) (Result, error) {
+func (v vendorRunner) Run(ctx context.Context, req Request, sink Sink) (Result, error) {
 	ctx = directCtx(ctx, req)
 	t, own, err := vendorTarget(req, v.name)
 	if err != nil {
@@ -163,7 +163,7 @@ func (v vendorRunner) Run(ctx context.Context, req Request, stream io.Writer) (R
 		out, err := RunAgy(ctx, AgyRequest{
 			Prompt: prompt, Model: model, Effort: req.Effort, Cwd: req.WorkDir, Tools: req.Tools, Autonomous: req.Autonomous,
 			DebugFile: req.DebugFile, Env: env, KeepEnv: req.KeepEnv, SessionID: req.SessionID,
-		}, stream)
+		}, sink)
 		res.Answer, res.Usage, res.Transport = out.Answer, out.Usage, out.Transport
 		if out.SessionID != "" {
 			res.SessionID = out.SessionID
@@ -187,9 +187,9 @@ func (v vendorRunner) Run(ctx context.Context, req Request, stream io.Writer) (R
 	cmd, tail := childCmd(ctx, bin, argv, env, req.WorkDir, stdin, req.KeepEnv, true)
 	cmd.Stderr = io.MultiWriter(cmd.Stderr, &banner)
 	if v.name == "opencode" {
-		return v.runStream(ctx, cmd, tail, res, stream, parseOpenCodeStream)
+		return v.runStream(ctx, cmd, tail, res, sink, parseOpenCodeStream)
 	}
-	cmd.Stdout = teeWriter(ctx, io.MultiWriter(stream, &answer))
+	cmd.Stdout = teeWriter(ctx, io.MultiWriter(sinkWriter(sink), &answer))
 	err = cmd.Run()
 	res.Answer = strings.TrimSpace(answer.String())
 	if id := sessionFromBanner(banner.String()); id != "" {
@@ -237,9 +237,9 @@ func emptyAnswer(name string) error {
 }
 
 // runStream reads a CLI's JSON event stream: the answer, session id, usage and errors ride in it.
-func (v vendorRunner) runStream(ctx context.Context, cmd *exec.Cmd, tail *TailBuffer, res Result, stream io.Writer,
-	parse func(io.Reader, io.Writer, func(), ...eventLog) (Result, error)) (Result, error) {
-	out, err := runEventStream(ctx, v.name, cmd, tail, stream, parse, nil)
+func (v vendorRunner) runStream(ctx context.Context, cmd *exec.Cmd, tail *TailBuffer, res Result, sink Sink,
+	parse func(io.Reader, Sink, func(), ...eventLog) (Result, error)) (Result, error) {
+	out, err := runEventStream(ctx, v.name, cmd, tail, sink, parse, nil)
 	res.Answer, res.Usage, res.Transport = out.Answer, out.Usage, out.Transport
 	if out.SessionID != "" {
 		res.SessionID = out.SessionID
@@ -248,8 +248,8 @@ func (v vendorRunner) runStream(ctx context.Context, cmd *exec.Cmd, tail *TailBu
 }
 
 // runEventStream runs cmd, decoding stdout via parse while streaming live; onMeaningful fires on the first model event.
-func runEventStream(ctx context.Context, name string, cmd *exec.Cmd, tail *TailBuffer, stream io.Writer,
-	parse func(io.Reader, io.Writer, func(), ...eventLog) (Result, error), onMeaningful func()) (Result, error) {
+func runEventStream(ctx context.Context, name string, cmd *exec.Cmd, tail *TailBuffer, sink Sink,
+	parse func(io.Reader, Sink, func(), ...eventLog) (Result, error), onMeaningful func()) (Result, error) {
 	var res Result
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -259,7 +259,7 @@ func runEventStream(ctx context.Context, name string, cmd *exec.Cmd, tail *TailB
 		return res, childErr(ctx, name, err, tail)
 	}
 	// the parser writes formatted event lines to the dispatch log and fires onMeaningful on its first real event.
-	out, perr := parse(stdout, stream, onMeaningful, eventLogFor(ctx))
+	out, perr := parse(stdout, sink, onMeaningful, eventLogFor(ctx))
 	_, _ = io.Copy(io.Discard, stdout)
 	werr := cmd.Wait()
 	res.Answer, res.Usage, res.SessionID, res.Transport = out.Answer, out.Usage, out.SessionID, out.Transport
@@ -276,9 +276,10 @@ type openCodeEvent struct {
 	Type      string `json:"type"`
 	SessionID string `json:"sessionID"`
 	Part      struct {
-		Text  string `json:"text"`
-		Tool  string `json:"tool"`
-		State struct {
+		Text   string `json:"text"`
+		Tool   string `json:"tool"`
+		CallID string `json:"callID"`
+		State  struct {
 			Status string `json:"status"`
 		} `json:"state"`
 		Tokens struct {
@@ -310,11 +311,12 @@ func isMeaningfulOpenCodeEvent(ev openCodeEvent) bool {
 }
 
 // parseOpenCodeStream streams the root session's text parts; onMeaningful fires once on the first meaningful event.
-func parseOpenCodeStream(r io.Reader, w io.Writer, onMeaningful func(), logs ...eventLog) (res Result, _ error) {
+func parseOpenCodeStream(r io.Reader, sink Sink, onMeaningful func(), logs ...eventLog) (res Result, _ error) {
 	ts := transportTracker{start: clock()}
 	defer func() { res.Transport = ts.timing() }()
 	lg := pickLog(logs)
 	var texts, errs []string
+	seenTools := map[string]bool{}
 	fired := false
 	dec := json.NewDecoder(r)
 	for {
@@ -337,16 +339,15 @@ func parseOpenCodeStream(r io.Reader, w io.Writer, onMeaningful func(), logs ...
 			if ev.Part.Text == "" {
 				continue
 			}
-			if len(texts) > 0 {
-				if _, err := io.WriteString(w, "\n"); err != nil {
-					return res, err
-				}
-			}
-			if _, err := io.WriteString(w, ev.Part.Text); err != nil {
+			if err := sink.Emit(Event{Type: EventText, Text: ev.Part.Text, Sep: len(texts) > 0}); err != nil {
 				return res, err
 			}
 			texts = append(texts, ev.Part.Text)
 			lg.emit("assistant", ev.Part.Text)
+		case "tool", "tool_use":
+			if err := emitOpenCodeTool(sink, ev, seenTools); err != nil {
+				return res, err
+			}
 		case "step_finish":
 			t := ev.Part.Tokens
 			res.Usage.InputTokens += t.Input
@@ -358,6 +359,9 @@ func parseOpenCodeStream(r io.Reader, w io.Writer, onMeaningful func(), logs ...
 			msg := cmp.Or(ev.Error.Data.Message, ev.Error.Name, "unknown error")
 			errs = append(errs, msg)
 			lg.emit("error", msg)
+			if err := sink.Emit(Event{Type: EventError, Text: msg}); err != nil {
+				return res, err
+			}
 		}
 	}
 	res.Answer = strings.TrimSpace(strings.Join(texts, "\n"))
@@ -365,6 +369,24 @@ func parseOpenCodeStream(r io.Reader, w io.Writer, onMeaningful func(), logs ...
 		return res, errors.New(strings.Join(errs, "; "))
 	}
 	return res, nil
+}
+
+// emitOpenCodeTool emits tool_use once per call id, then tool_result when that call completes or errors.
+func emitOpenCodeTool(sink Sink, ev openCodeEvent, seen map[string]bool) error {
+	p := ev.Part
+	if p.Tool == "" {
+		return nil
+	}
+	if !seen[p.CallID] {
+		seen[p.CallID] = true
+		if err := sink.Emit(toolEvent(p.Tool, p.CallID)); err != nil {
+			return err
+		}
+	}
+	if p.State.Status == "completed" || p.State.Status == "error" {
+		return sink.Emit(Event{Type: EventToolResult, Tool: &ToolRef{Name: p.Tool, ID: p.CallID}, Status: p.State.Status})
+	}
+	return nil
 }
 
 // timing is the Transport for agents with no retry signal: Retries and RetryStatuses stay absent.
@@ -426,7 +448,7 @@ func applyCopilotToken(opts *copilotsdk.Options, own bool, env []string) error {
 	return nil
 }
 
-func (copilotRunner) Run(ctx context.Context, req Request, stream io.Writer) (Result, error) {
+func (copilotRunner) Run(ctx context.Context, req Request, sink Sink) (Result, error) {
 	ctx = directCtx(ctx, req)
 	t, own, err := vendorTargetCtx(ctx, req, "copilot")
 	if err != nil {
@@ -497,7 +519,10 @@ func (copilotRunner) Run(ctx context.Context, req Request, stream io.Writer) (Re
 		}
 		res.SessionID, res.Answer = cmp.Or(out.SessionID, res.SessionID), out.Text // partial text + session survive a failure
 		if strings.TrimSpace(out.Text) != "" {
-			_, _ = io.WriteString(stream, out.Text) // streamed bytes mark progress, so Run does not retry over a partial
+			// streamed bytes mark progress, so Run does not retry over a partial
+			if serr := sink.Emit(Event{Type: EventText, Text: out.Text}); serr != nil {
+				err = errors.Join(err, serr)
+			}
 		}
 		return res, err
 	}
@@ -509,7 +534,7 @@ func (copilotRunner) Run(ctx context.Context, req Request, stream io.Writer) (Re
 	if strings.TrimSpace(out.Text) == "" {
 		return res, emptyAnswer("copilot")
 	}
-	if _, err := io.WriteString(stream, out.Text); err != nil {
+	if err := sink.Emit(Event{Type: EventText, Text: out.Text}); err != nil {
 		return res, err
 	}
 	return res, nil

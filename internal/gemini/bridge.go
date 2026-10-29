@@ -106,27 +106,24 @@ func Run(ctx context.Context, o Options, stream, log io.Writer) (agent.Result, e
 		}, time.Now())
 		rec.Owner = inflight.SessionOwner()
 		rec.Log = rec.LogPath()
-		sink := agent.NewLogSink(rec.LogPath())
 		_ = rec.Save() // fail-open: the log is for replay and forensics, never a gate on the run
 
-		start := time.Now()
 		cw := &countingWriter{w: stream}
-		ctx = agent.WithLog(ctx, sink) // agy's formatted events and raw stderr reach the log through the ctx carrier
-		var res agent.Result
-		aerr := agent.Do(ctx, policy, func(actx context.Context, _ int) *agent.Error {
-			cw.n = 0
-			out, err := agent.RunAgy(actx, agyReq, cw)
-			res = out
-			return agent.Classify("gemini", err, cw.n > 0)
-		})
-		var err error
-		if aerr != nil {
-			err = aerr
-		}
-		sink.Close() // flush before the record leaves running, so tail -f never misses the last line
-		rec.Finish(res, err, time.Since(start))
-		_ = rec.Save()
-		return res, err
+		return agent.Dispatch(ctx, &rec, bridgeDispatchLabel, agent.NewTextSink(cw),
+			agent.DispatchOpts{Notify: func(s string) { fmt.Fprintln(log, s) }},
+			func(ctx context.Context, sink agent.Sink) (agent.Result, error) {
+				var res agent.Result
+				aerr := agent.Do(ctx, policy, func(actx context.Context, _ int) *agent.Error {
+					cw.n = 0
+					out, err := agent.RunAgy(actx, agyReq, sink)
+					res = out
+					return agent.Classify("gemini", err, cw.n > 0)
+				})
+				if aerr != nil {
+					return res, aerr
+				}
+				return res, nil
+			})
 	}
 
 	r, err := agent.Lookup("claude")
@@ -135,7 +132,7 @@ func Run(ctx context.Context, o Options, stream, log io.Writer) (agent.Result, e
 	}
 	return agent.Run(ctx, r, agent.Request{
 		Prompt: prompt, Model: model, Provider: p.Name, Effort: o.Effort, Timeout: o.Timeout, NoTools: true,
-	}, stream, func(s string) { fmt.Fprintln(log, s) })
+	}, agent.NewTextSink(stream), func(s string) { fmt.Fprintln(log, s) })
 }
 
 // resolvedModelID resolves a slot name or provider:model to the concrete model id agy expects.

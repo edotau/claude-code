@@ -92,7 +92,7 @@ func memoryAgent() memory.AgentFunc {
 		req := agent.Request{Prompt: prompt, Model: "claude-opus-5.5",
 			Effort: "medium", Tools: true, WorkDir: workdir}
 		notify := func(m string) { fmt.Fprintln(os.Stderr, m) }
-		res, err := agent.RunWithFallback(ctx, chain, req, os.Stdout, notify)
+		res, err := agent.RunWithFallback(ctx, chain, req, agent.NewTextSink(os.Stdout), notify)
 		who := res.Agent
 		if res.Fallback != "" {
 			who += "<-" + res.Fallback

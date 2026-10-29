@@ -3,7 +3,6 @@ package agent
 import (
 	"context"
 	"errors"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -126,7 +125,7 @@ type handoffRunner struct {
 func (h *handoffRunner) Name() string     { return h.name }
 func (h *handoffRunner) Caps() Caps       { return Caps{} }
 func (h *handoffRunner) Available() error { return nil }
-func (h *handoffRunner) Run(context.Context, Request, io.Writer) (Result, error) {
+func (h *handoffRunner) Run(context.Context, Request, Sink) (Result, error) {
 	return h.res, h.err
 }
 
@@ -140,7 +139,7 @@ func TestRunWithFallbackCarriesHandoff(t *testing.T) {
 
 	t.Run("leg 2 succeeds", func(t *testing.T) {
 		second := &handoffRunner{name: "claude", res: Result{Answer: "from leg 2"}}
-		res, err := RunWithFallback(context.Background(), chainOf([]Runner{first(), second}, "", "sonnet"), Request{Prompt: "p"}, io.Discard, nil)
+		res, err := RunWithFallback(context.Background(), chainOf([]Runner{first(), second}, "", "sonnet"), Request{Prompt: "p"}, Discard, nil)
 		if err != nil || res.Answer != "from leg 2" || res.Handoff != "/tmp/x.md" {
 			t.Fatalf("res=%+v err=%v; want leg 2's answer with handoff /tmp/x.md", res, err)
 		}
@@ -149,7 +148,7 @@ func TestRunWithFallbackCarriesHandoff(t *testing.T) {
 	t.Run("leg 2 fails with another error", func(t *testing.T) {
 		boom := errors.New("boom: unrelated failure")
 		second := &handoffRunner{name: "claude", err: boom}
-		res, err := RunWithFallback(context.Background(), chainOf([]Runner{first(), second}, "", "sonnet"), Request{Prompt: "p"}, io.Discard, nil)
+		res, err := RunWithFallback(context.Background(), chainOf([]Runner{first(), second}, "", "sonnet"), Request{Prompt: "p"}, Discard, nil)
 		if err == nil || !errors.Is(err, boom) || res.Handoff != "/tmp/x.md" {
 			t.Fatalf("res=%+v err=%v; want leg 2's error with handoff /tmp/x.md", res, err)
 		}
@@ -157,7 +156,7 @@ func TestRunWithFallbackCarriesHandoff(t *testing.T) {
 
 	t.Run("a later leg's own handoff wins", func(t *testing.T) {
 		second := &handoffRunner{name: "claude", res: Result{Answer: "ok", Handoff: "/tmp/y.md"}}
-		res, _ := RunWithFallback(context.Background(), chainOf([]Runner{first(), second}, "", "sonnet"), Request{Prompt: "p"}, io.Discard, nil)
+		res, _ := RunWithFallback(context.Background(), chainOf([]Runner{first(), second}, "", "sonnet"), Request{Prompt: "p"}, Discard, nil)
 		if res.Handoff != "/tmp/y.md" {
 			t.Errorf("handoff = %q, want the later leg's /tmp/y.md", res.Handoff)
 		}
@@ -209,7 +208,7 @@ func TestCopilotRunnerHandoffRedacted(t *testing.T) {
 		}
 		return copilotsdk.Result{Text: "half " + secret, SessionID: "0a1b2c3d-4e5f-6789-abcd-ef0123456789"}, errQuotaMidTask
 	})
-	res, err := copilotRunner{}.Run(context.Background(), Request{Prompt: "do it " + secret, Model: "sonnet", Provider: "personal", Direct: true}, io.Discard)
+	res, err := copilotRunner{}.Run(context.Background(), Request{Prompt: "do it " + secret, Model: "sonnet", Provider: "personal", Direct: true}, Discard)
 	if !errors.Is(err, errQuotaMidTask) || Classify("copilot", err, false).Kind != KindQuota || *calls != 1 {
 		t.Fatalf("res=%+v err=%v calls=%d; want quota and one SDK call", res, err, *calls)
 	}
@@ -291,7 +290,7 @@ func TestRunWithFallbackNextLegGetsHandoff(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			second := &fakeRunner{name: "claude", errs: []error{nil}}
 			first := &handoffRunner{name: "copilot", res: Result{Handoff: path}, err: quota}
-			if _, err := RunWithFallback(context.Background(), chainOf([]Runner{first, second}, "", "sonnet"), Request{Prompt: "BARE-TASK"}, io.Discard, nil); err != nil {
+			if _, err := RunWithFallback(context.Background(), chainOf([]Runner{first, second}, "", "sonnet"), Request{Prompt: "BARE-TASK"}, Discard, nil); err != nil {
 				t.Fatal(err)
 			}
 			got := second.seen[0].Prompt

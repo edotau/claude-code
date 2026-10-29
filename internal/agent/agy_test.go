@@ -46,7 +46,7 @@ func TestParseAgyStreamResultApplication(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			var out strings.Builder
-			res, err := parseAgyStream(strings.NewReader(tc.stream), &out, nil)
+			res, err := parseAgyStream(strings.NewReader(tc.stream), NewTextSink(&out), nil)
 			if (err == nil) != (tc.err == "") || err != nil && err.Error() != tc.err {
 				t.Fatalf("err = %v, want %q", err, tc.err)
 			}
@@ -110,7 +110,7 @@ func TestParseAgyStreamWriteErrors(t *testing.T) {
 		agyOK,
 		`{"event":"result","result":{"status":"SUCCESS","response":"fallback"}}`,
 	} {
-		if _, err := parseAgyStream(strings.NewReader(stream), failingStreamWriter{}, nil); !errors.Is(err, io.ErrClosedPipe) {
+		if _, err := parseAgyStream(strings.NewReader(stream), NewTextSink(failingStreamWriter{}), nil); !errors.Is(err, io.ErrClosedPipe) {
 			t.Fatalf("err = %v, want closed pipe", err)
 		}
 	}
@@ -141,7 +141,7 @@ func truncateBeforeResult(t *testing.T, stream string) string {
 func TestParseAgyStream_TruncatedNoResult(t *testing.T) {
 	truncated := truncateBeforeResult(t, agyOK)
 	var out strings.Builder
-	res, err := parseAgyStream(strings.NewReader(truncated), &out, nil)
+	res, err := parseAgyStream(strings.NewReader(truncated), NewTextSink(&out), nil)
 	if err == nil || err.Error() != "agy: stream ended without a result event" {
 		t.Fatalf("err = %v, want \"agy: stream ended without a result event\"", err)
 	}

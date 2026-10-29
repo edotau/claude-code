@@ -44,7 +44,7 @@ func TestClaudeNoToolsNonClaudeModelUsesChatRoute(t *testing.T) {
 	dbxServing(t, srv)
 
 	var out strings.Builder
-	res, err := claudeRunner{}.Run(context.Background(), Request{Prompt: "hi", Provider: "dbx", Model: "databricks-kimi-k3", NoTools: true}, &out)
+	res, err := claudeRunner{}.Run(context.Background(), Request{Prompt: "hi", Provider: "dbx", Model: "databricks-kimi-k3", NoTools: true}, NewTextSink(&out))
 	if err != nil || out.String() != "ok" || res.Provider != "dbx" {
 		t.Fatalf("res = %+v err = %v out %q", res, err, out.String())
 	}
@@ -60,7 +60,7 @@ func TestClaudeNoToolsResponsesOnlyRefused(t *testing.T) {
 	defer srv.Close()
 	dbxServing(t, srv)
 
-	_, err := claudeRunner{}.Run(context.Background(), Request{Prompt: "hi", Provider: "dbx", Model: "databricks-gpt-5-5", NoTools: true}, io.Discard)
+	_, err := claudeRunner{}.Run(context.Background(), Request{Prompt: "hi", Provider: "dbx", Model: "databricks-gpt-5-5", NoTools: true}, Discard)
 	if err == nil || !strings.Contains(err.Error(), "databricks-gpt-5-5") || hits != 0 {
 		t.Errorf("err = %v, hits = %d", err, hits)
 	}
@@ -77,7 +77,7 @@ func TestClaudeNoToolsClaudeModelUsesAnthropicRoute(t *testing.T) {
 	defer srv.Close()
 	dbxServing(t, srv)
 
-	_, err := claudeRunner{}.Run(context.Background(), Request{Prompt: "hi", Provider: "dbx", Model: "databricks-claude-haiku-4-5", NoTools: true}, io.Discard)
+	_, err := claudeRunner{}.Run(context.Background(), Request{Prompt: "hi", Provider: "dbx", Model: "databricks-claude-haiku-4-5", NoTools: true}, Discard)
 	if err != nil || path != "/anthropic/v1/messages" {
 		t.Errorf("err = %v, path = %q", err, path)
 	}

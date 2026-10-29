@@ -21,7 +21,7 @@ import (
 const apiMaxTokens = 16_000
 
 // claudeOneShot is claude's tool-less one-shot via the anthropic SDK or openai route; ok is false for cli auth.
-func claudeOneShot(ctx context.Context, req Request, stream io.Writer) (res Result, ok bool, err error) {
+func claudeOneShot(ctx context.Context, req Request, sink Sink) (res Result, ok bool, err error) {
 	_, t, err := resolveTarget(req)
 	if err != nil {
 		return Result{}, true, err
@@ -36,7 +36,7 @@ func claudeOneShot(ctx context.Context, req Request, stream io.Writer) (res Resu
 		return Result{}, true, err
 	}
 	var answer strings.Builder
-	w := io.MultiWriter(stream, &answer)
+	w := io.MultiWriter(sinkWriter(sink), &answer)
 	if base, ok := providers.AnthropicRoute(p, t.Model); ok {
 		out, err := anthropicsdk.Stream(ctx, anthropicsdk.Request{
 			BaseURL: base, Model: t.Model, Prompt: prompt, Effort: req.Effort, MaxTokens: apiMaxTokens,
