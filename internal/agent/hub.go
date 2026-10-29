@@ -117,7 +117,7 @@ func (l hubLeg) Name() string { return l.agent }
 
 // Caps mirrors vendorRunner's: every Request field the opencode CLI can carry.
 func (l hubLeg) Caps() Caps {
-	return Caps{Model: true, Provider: true, Effort: true, WorkDir: true, SessionID: true, Tools: true, Autonomous: true, SafeMode: true, Direct: true}
+	return Caps{Model: true, Provider: true, Effort: true, WorkDir: true, SessionID: true, Tools: true, Autonomous: true, SafeMode: true, Direct: true, Env: true}
 }
 
 // Available requires the opencode binary and an opencode login for this leg's provider; a login-less
@@ -151,6 +151,7 @@ func (l hubLeg) Run(ctx context.Context, req Request, sink Sink) (Result, error)
 	}
 	env, argv := vendors.OpencodeRunArgv(l.provider.OpencodeID+"/"+model, h)
 	env = append(env, cred...)
+	env = append(env, req.Env...) // --env goes last so it wins
 	cctx := ctx
 	var onFirstByte func()
 	var cancel context.CancelFunc
