@@ -26,6 +26,12 @@
 # behaviour, kept for comparison); 1 = apply the fix regardless of the parent; unset/auto = detect.
 set -u
 
+# A shell without WSLg's env (VS Code Remote-WSL terminals) gets the WSLg socket by absolute path.
+wslg_socket=/mnt/wslg/runtime-dir/wayland-0
+if [[ -z ${WAYLAND_DISPLAY:-} && -S $wslg_socket ]]; then
+	export WAYLAND_DISPLAY=$wslg_socket
+fi
+
 self="$(readlink -f -- "$0")"
 
 # Locate the real wl-paste: first PATH entry that is not this proxy.
