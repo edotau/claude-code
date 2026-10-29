@@ -20,7 +20,7 @@
   "terminal.integrated.shellIntegration.enabled": false,
   "terminal.integrated.inheritEnv": false,
   "terminal.integrated.copyOnSelection": true,
-  "terminal.integrated.sendKeybindingsToShell": true,
+  "terminal.integrated.sendKeybindingsToShell": false,
   "terminal.integrated.enableMultiLinePasteWarning": "never",
   "terminal.integrated.environmentChangesRelaunch": false,
   "terminal.integrated.enablePersistentSessions": false,
