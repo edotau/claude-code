@@ -4,7 +4,6 @@ package databricks
 import (
 	"bytes"
 	"cmp"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -22,20 +21,14 @@ import (
 )
 
 const (
-	smokePrompt  = "Reply with exactly: OK"
-	needlePrompt = "What is the secret word at the very end of this input? Reply with the word only."
-	needleWord   = "ZEBRAFINCH"
-	needleText   = "\nThe secret word is ZEBRAFINCH.\n"
-	filler       = "The quick brown fox jumps over the lazy dog near riverbank.\n"
-	fillerBytes  = 1_200_000
-	betaKey      = providers.BetaOffKey
-	betaOff      = betaKey + "=1"
+	smokePrompt = "Reply with exactly: OK"
+	betaKey     = providers.BetaOffKey
+	betaOff     = betaKey + "=1"
 )
 
 // Plan is one parsed invocation: the profile (Provider) and model the child launches with, plus pass-through args.
 type Plan struct {
 	Check    bool
-	Big      bool
 	Provider string
 	Model    string
 	Asked    bool // the user named a model; otherwise launch leaves the choice to /model and the slots
@@ -119,7 +112,7 @@ var subverbs = map[string]func([]string) int{
 	"config": config, "rescue": rescue, "login": login, "mint": mint, "import": importCfg, "export": export,
 }
 
-// plan parses args: optional leading check, optional MODEL, --profile, --1m; everything else passes through.
+// plan parses args: optional leading check, optional MODEL, --profile; everything else passes through.
 func plan(args []string) (Plan, error) {
 	var p Plan
 	if len(args) > 0 && args[0] == "check" {
@@ -141,8 +134,6 @@ func plan(args []string) (Plan, error) {
 			}
 		case strings.HasPrefix(arg, "--profile="), strings.HasPrefix(arg, "-p="):
 			name = arg[strings.Index(arg, "=")+1:]
-		case arg == "--1m":
-			p.Big = true
 		default:
 			p.Rest = append(p.Rest, arg)
 		}
@@ -234,7 +225,7 @@ func capture(self string, p Plan, prompt string, stdin io.Reader, extra ...strin
 	return buf.String()
 }
 
-// check runs the smoke reply and, with --1m, the needle-at-the-end probe; exit 0 only if every check passes.
+// check runs the smoke reply; exit 0 only if it passes.
 func check(self string, p Plan) int {
 	rc := 0
 	fmt.Printf("== smoke: %s %s\n", p.Provider, p.Model)
@@ -244,49 +235,7 @@ func check(self string, p Plan) int {
 		fmt.Printf("FAIL smoke: %s\n", tail(out, 5))
 		rc = 1
 	}
-	if !p.Big {
-		return rc
-	}
-	body := needleBody()
-	fmt.Printf("== 1m: ~300K tokens, needle at the end (%d bytes)\n", len(body))
-	out := capture(self, p, needlePrompt, strings.NewReader(body), "--output-format", "json")
-	text, tokens := parseUsage(out)
-	switch {
-	case !strings.Contains(text, needleWord):
-		fmt.Printf("FAIL 1m: needle not found: %s\n", tail(out, 5))
-		rc = 1
-	case tokens <= bigTokens:
-		fmt.Printf("FAIL 1m: input_tokens=%d, want > %d (the 1M window is not in effect)\n", tokens, bigTokens)
-		rc = 1
-	default:
-		fmt.Printf("1m PASS (input_tokens=%d)\n", tokens)
-	}
 	return rc
-}
-
-// bigTokens is the standard context window; a real 1M path must report more input tokens than this.
-const bigTokens = 200_000
-
-// parseUsage reads claude's --output-format json result: the reply and input tokens (cache create/read included).
-func parseUsage(out string) (text string, tokens int) {
-	var raw struct {
-		Result string `json:"result"`
-		Usage  struct {
-			In     int `json:"input_tokens"`
-			Create int `json:"cache_creation_input_tokens"`
-			Read   int `json:"cache_read_input_tokens"`
-		} `json:"usage"`
-	}
-	if json.Unmarshal([]byte(lastLine(out)), &raw) != nil {
-		return out, 0
-	}
-	return raw.Result, raw.Usage.In + raw.Usage.Create + raw.Usage.Read
-}
-
-// needleBody is fillerBytes of repeated sentence followed by the needle line.
-func needleBody() string {
-	n := fillerBytes/len(filler) + 1
-	return strings.Repeat(filler, n)[:fillerBytes] + needleText
 }
 
 // lastLine returns the last non-empty line of s, trimmed.
@@ -308,9 +257,9 @@ func tail(s string, n int) string {
 var page = helptext.Page{
 	Usage: "claude-code databricks [check|<command>] [MODEL] [flags] [args...]",
 	About: "Launch Claude Code on a Databricks profile. MODEL defaults to the opus alias at 1M context. " +
-		"check runs a smoke reply; with --1m it also runs a ~1.2 MB needle-at-the-end probe.",
+		"check runs a smoke reply.",
 	Commands: [][2]string{
-		{"check", "--all: one tiny call per profile x wire (serving/ai-gateway)"},
+		{"check", "--all: one tiny call per profile x wire"},
 		{"login", "browser sign-in for an oauth profile"},
 		{"mint", "fresh token, never printed; --copy to clipboard"},
 		{"import", "import a .databrickscfg (dry-run unless --apply)"},
@@ -324,9 +273,9 @@ var page = helptext.Page{
 
 // checkPage is `databricks check -h`.
 var checkPage = helptext.Page{
-	Usage: "claude-code databricks check [MODEL] [--all] [--1m] [--profile NAME]",
+	Usage: "claude-code databricks check [MODEL] [--all] [--profile NAME]",
 	About: "Smoke-test a Databricks profile with one tiny reply; --all tries every profile x wire " +
-		"(serving/ai-gateway); --1m adds a ~1.2 MB needle-at-the-end probe.",
+		"(serving/ai-gateway).",
 }
 
 // usage prints the verb's help; the FlagSet only documents flags, plan does the parsing.
@@ -336,8 +285,6 @@ func usage(check bool) {
 		pg = checkPage
 	}
 	fs := helptext.NewFlagSet("claude-code databricks", pg)
-	fs.String("profile", "", "Databricks profile (default: session, pinned, else the first)")
-	fs.String("p", "", "shorthand for --profile")
-	fs.Bool("1m", false, "with check: also run the 1M-context probe")
+	profileFlag(fs)
 	fs.Usage()
 }

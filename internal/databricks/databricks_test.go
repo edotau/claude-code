@@ -2,7 +2,6 @@ package databricks
 
 import (
 	"bytes"
-	"encoding/json"
 	"io"
 	"os"
 	"slices"
@@ -20,14 +19,12 @@ type call struct {
 	env  []string
 }
 
-// fakeChild records every spawn and answers the smoke and needle prompts from its script.
+// fakeChild records every spawn and answers the smoke prompt from its script.
 type fakeChild struct {
-	calls  []call
-	smoke  string // stdout for the smoke prompt
-	needle string // stdout for the needle prompt
-	code   int
-	err    error
-	body   []byte // stdin the needle prompt received
+	calls []call
+	smoke string // stdout for the smoke prompt
+	code  int
+	err   error
 }
 
 func (f *fakeChild) spawn(bin string, argv, env []string, stdin io.Reader, stdout, stderr io.Writer) (int, error) {
@@ -35,20 +32,8 @@ func (f *fakeChild) spawn(bin string, argv, env []string, stdin io.Reader, stdou
 	if f.err != nil {
 		return 0, f.err
 	}
-	prompt := argValue(argv, "-p")
-	if prompt == needlePrompt {
-		f.body, _ = io.ReadAll(stdin)
-		_, _ = io.WriteString(stdout, needleJSON(f.needle))
-		return f.code, nil
-	}
 	_, _ = io.WriteString(stdout, f.smoke)
 	return f.code, nil
-}
-
-// needleJSON wraps a reply in claude's --output-format json shape with 300K input tokens.
-func needleJSON(reply string) string {
-	b, _ := json.Marshal(map[string]any{"result": reply, "usage": map[string]int{"input_tokens": 300000}})
-	return string(b) + "\n"
 }
 
 // useFake swaps the spawn seam for f and restores the real one at cleanup.
@@ -194,23 +179,20 @@ func TestResolveProfileOrder(t *testing.T) {
 	}
 }
 
-// TestPlanCheckAndBig pins the leading check token and the --1m flag, which is consumed on every path.
-func TestPlanCheckAndBig(t *testing.T) {
+// TestPlanCheck pins the leading check token: only the first arg turns check on.
+func TestPlanCheck(t *testing.T) {
 	seedOverlay(t, threeProfiles)
 	t.Setenv(providers.EnvSessionProfile, "bb")
 	tests := []struct {
 		name      string
 		args      []string
 		wantCheck bool
-		wantBig   bool
 		wantProv  string
 		wantRest  []string
 	}{
-		{"check alone", []string{"check"}, true, false, "bb", nil},
-		{"check --1m", []string{"check", "--1m"}, true, true, "bb", nil},
-		{"check model profile --1m", []string{"check", "haiku", "--profile", "cc", "--1m"}, true, true, "cc", nil},
-		{"--1m without check is consumed", []string{"sonnet", "--1m", "--print", "x"}, false, true, "bb", []string{"--print", "x"}},
-		{"check not first is a rest arg", []string{"sonnet", "check"}, false, false, "bb", []string{"check"}},
+		{"check alone", []string{"check"}, true, "bb", nil},
+		{"check model profile", []string{"check", "haiku", "--profile", "cc"}, true, "cc", nil},
+		{"check not first is a rest arg", []string{"sonnet", "check"}, false, "bb", []string{"check"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -218,8 +200,8 @@ func TestPlanCheckAndBig(t *testing.T) {
 			if err != nil {
 				t.Fatalf("plan(%q) error: %v", tt.args, err)
 			}
-			if p.Check != tt.wantCheck || p.Big != tt.wantBig || p.Provider != tt.wantProv {
-				t.Errorf("check=%v big=%v profile=%q, want %v %v %q", p.Check, p.Big, p.Provider, tt.wantCheck, tt.wantBig, tt.wantProv)
+			if p.Check != tt.wantCheck || p.Provider != tt.wantProv {
+				t.Errorf("check=%v profile=%q, want %v %q", p.Check, p.Provider, tt.wantCheck, tt.wantProv)
 			}
 			if !slices.Equal(p.Rest, tt.wantRest) {
 				t.Errorf("rest = %q, want %q", p.Rest, tt.wantRest)
@@ -237,7 +219,7 @@ func TestPlanProfileErrors(t *testing.T) {
 		"= unknown":            {"--profile=staging"},
 		"no value":             {"--profile"},
 		"= (empty)":            {"--profile="},
-		"eats a flag":          {"--profile", "--1m"},
+		"eats a flag":          {"--profile", "--print"},
 		"after model, unknown": {"sonnet", "--profile", "stage"},
 	}
 	for name, args := range tests {
@@ -392,169 +374,10 @@ func TestCheckSmokeVerdict(t *testing.T) {
 	}
 }
 
-// TestCheckNeedleVerdict pins that the 1M PASS needs the needle word anywhere in the reply.
-func TestCheckNeedleVerdict(t *testing.T) {
-	seedOverlay(t, threeProfiles)
-	tests := []struct {
-		name   string
-		out    string
-		wantOK bool
-	}{
-		{"word only", "ZEBRAFINCH\n", true},
-		{"word in sentence", "The word is ZEBRAFINCH.", true},
-		{"no word", "I don't know\n", false},
-		{"empty", "", false},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			useFake(t, &fakeChild{smoke: "OK\n", needle: tt.out})
-			code, stdout, _ := runCaptured(t, func() int { return Run([]string{"check", "--1m"}) })
-			if tt.wantOK {
-				if code != 0 || !strings.Contains(stdout, "1m PASS") {
-					t.Errorf("exit %d, stdout %q; want 1m PASS and exit 0", code, stdout)
-				}
-				return
-			}
-			if code != 1 || !strings.Contains(stdout, "FAIL 1m") {
-				t.Errorf("exit %d, stdout %q; want FAIL 1m and exit 1", code, stdout)
-			}
-		})
-	}
-}
-
-// TestCheckFailingSmokeStillRunsProbe pins that a smoke FAIL does not skip the 1M probe, and rc stays 1.
-func TestCheckFailingSmokeStillRunsProbe(t *testing.T) {
-	seedOverlay(t, threeProfiles)
-	f := &fakeChild{smoke: "nope\n", needle: "ZEBRAFINCH\n"}
-	useFake(t, f)
-	code, stdout, _ := runCaptured(t, func() int { return Run([]string{"check", "--1m"}) })
-	if code != 1 {
-		t.Errorf("exit = %d, want 1", code)
-	}
-	if !strings.Contains(stdout, "FAIL smoke") || !strings.Contains(stdout, "1m PASS") {
-		t.Errorf("stdout = %q, want FAIL smoke then PASS 1m", stdout)
-	}
-	if len(f.calls) != 2 {
-		t.Errorf("spawns = %d, want 2", len(f.calls))
-	}
-}
-
-// TestCheckWithoutBigSkipsProbe pins that plain check makes one call and no needle body.
-func TestCheckWithoutBigSkipsProbe(t *testing.T) {
-	seedOverlay(t, threeProfiles)
-	f := &fakeChild{smoke: "OK\n"}
-	useFake(t, f)
-	code, stdout, _ := runCaptured(t, func() int { return Run([]string{"check"}) })
-	if code != 0 {
-		t.Errorf("exit = %d, want 0", code)
-	}
-	if len(f.calls) != 1 || f.body != nil {
-		t.Errorf("spawns = %d, probe body len = %d; want 1 spawn and no probe", len(f.calls), len(f.body))
-	}
-	if strings.Contains(stdout, "== 1m") {
-		t.Errorf("stdout mentions 1m without --1m: %q", stdout)
-	}
-}
-
-// TestNeedleProbeShape pins the 1M probe body: at least fillerBytes, needle line exactly once, at the end.
-func TestNeedleProbeShape(t *testing.T) {
-	seedOverlay(t, threeProfiles)
-	f := &fakeChild{smoke: "OK\n", needle: "ZEBRAFINCH\n"}
-	useFake(t, f)
-	runCaptured(t, func() int { return Run([]string{"check", "--1m"}) })
-	body := string(f.body)
-	if len(body) < fillerBytes {
-		t.Errorf("probe body %d bytes, want >= %d", len(body), fillerBytes)
-	}
-	if !strings.HasSuffix(body, needleText) {
-		t.Errorf("probe body does not end with the needle line")
-	}
-	if n := strings.Count(body, needleWord); n != 1 {
-		t.Errorf("needle appears %d times, want 1", n)
-	}
-}
-
-// TestParseUsage pins the usage parse: cache fields are summed, and non-JSON or empty output yields zero tokens.
-func TestParseUsage(t *testing.T) {
-	tests := []struct {
-		name       string
-		out        string
-		wantText   string
-		wantTokens int
-	}{
-		{"sums cache fields", `{"result":"ZEBRAFINCH","usage":{"input_tokens":1,"cache_creation_input_tokens":20,"cache_read_input_tokens":300}}`, "ZEBRAFINCH", 321},
-		{"last JSON line wins", "noise\n{\"result\":\"a\",\"usage\":{\"input_tokens\":5}}\n", "a", 5},
-		{"non-JSON", "ZEBRAFINCH\n", "ZEBRAFINCH\n", 0},
-		{"empty", "", "", 0},
-		{"no usage", `{"result":"x"}`, "x", 0},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			text, tokens := parseUsage(tt.out)
-			if text != tt.wantText || tokens != tt.wantTokens {
-				t.Errorf("parseUsage = (%q, %d), want (%q, %d)", text, tokens, tt.wantText, tt.wantTokens)
-			}
-		})
-	}
-}
-
-// rawNeedleChild answers the needle prompt with a verbatim stdout, so tests control the usage block.
-type rawNeedleChild struct{ out string }
-
-func (f rawNeedleChild) spawn(_ string, argv, _ []string, stdin io.Reader, stdout, _ io.Writer) (int, error) {
-	if argValue(argv, "-p") == needlePrompt {
-		_, _ = io.Copy(io.Discard, stdin)
-		_, _ = io.WriteString(stdout, f.out)
-		return 0, nil
-	}
-	_, _ = io.WriteString(stdout, "OK\n")
-	return 0, nil
-}
-
-// TestCheckNeedleTokenGate pins that PASS needs input tokens strictly above 200000, plus the needle in the reply.
-func TestCheckNeedleTokenGate(t *testing.T) {
-	seedOverlay(t, threeProfiles)
-	js := func(reply string, in, create, read int) string {
-		b, _ := json.Marshal(map[string]any{"result": reply, "usage": map[string]int{
-			"input_tokens": in, "cache_creation_input_tokens": create, "cache_read_input_tokens": read}})
-		return string(b) + "\n"
-	}
-	tests := []struct {
-		name     string
-		out      string
-		wantPass bool
-		wantMsg  string
-	}{
-		{"above", js("ZEBRAFINCH", 200001, 0, 0), true, "1m PASS"},
-		{"exactly 200000", js("ZEBRAFINCH", 200000, 0, 0), false, "input_tokens=200000"},
-		{"below", js("ZEBRAFINCH", 1000, 0, 0), false, "input_tokens=1000"},
-		{"cache summed over", js("ZEBRAFINCH", 1, 150000, 60000), true, "input_tokens=210001"},
-		{"cache summed at limit", js("ZEBRAFINCH", 0, 100000, 100000), false, "input_tokens=200000"},
-		{"needle missing, tokens ok", js("no idea", 300000, 0, 0), false, "needle not found"},
-		{"plain text word, no usage", "ZEBRAFINCH\n", false, "input_tokens=0"},
-		{"garbage", "{not json", false, "FAIL 1m"},
-		{"empty", "", false, "needle not found"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			old := spawn
-			spawn = rawNeedleChild{tt.out}.spawn
-			t.Cleanup(func() { spawn = old })
-			code, stdout, _ := runCaptured(t, func() int { return Run([]string{"check", "--1m"}) })
-			if !strings.Contains(stdout, tt.wantMsg) {
-				t.Errorf("stdout %q missing %q", stdout, tt.wantMsg)
-			}
-			if tt.wantPass != (code == 0) || tt.wantPass == strings.Contains(stdout, "FAIL 1m") {
-				t.Errorf("exit %d, stdout %q; wantPass=%v", code, stdout, tt.wantPass)
-			}
-		})
-	}
-}
-
 // A removed flag exits 2 with its hint before any subverb, probe or child launch.
 func TestRunRemovedFlagsExit2NoLaunch(t *testing.T) {
 	for _, args := range [][]string{
-		{"--env", "qa"}, {"check", "--env", "qa"}, {"check", "--provider=x"}, {"--tier", "opus"}, {"--router"},
+		{"--env", "qa"}, {"check", "--env", "qa"}, {"check", "--provider=x"}, {"--tier", "opus"}, {"--router"}, {"check", "--1m"},
 	} {
 		f := &fakeChild{smoke: "OK\n"}
 		useFake(t, f)
