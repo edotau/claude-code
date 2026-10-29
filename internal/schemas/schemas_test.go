@@ -49,7 +49,7 @@ func ledgerLines(t *testing.T, format string) []map[string]any {
 
 func TestDecodeV0ThroughSameShapeReportsFromZero(t *testing.T) {
 	hermetic(t)
-	f := Register(Format{Name: "t-decode-v0", Owner: "test", Kind: "record", Version: 1,
+	f := reg(t, Format{Name: "t-decode-v0", Owner: "test", Kind: "record", Version: 1,
 		Glob: func() string { return "x" }, New: func() any { return &rec{} }, Clean: "x", Migrate: SameShape})
 	var got rec
 	from, err := Decode(f, []byte(`{"name":"a"}`), &got)
@@ -63,7 +63,7 @@ func TestDecodeV0ThroughSameShapeReportsFromZero(t *testing.T) {
 
 func TestDecodeNewerRecordReturnsErrNewer(t *testing.T) {
 	hermetic(t)
-	f := Register(Format{Name: "t-decode-newer", Owner: "test", Kind: "record", Version: 1,
+	f := reg(t, Format{Name: "t-decode-newer", Owner: "test", Kind: "record", Version: 1,
 		Glob: func() string { return "x" }, New: func() any { return &rec{} }, Clean: "x", Migrate: SameShape})
 	var got rec
 	if _, err := Decode(f, []byte(`{"schema":2,"name":"a"}`), &got); !errors.Is(err, ErrNewer) {
@@ -73,7 +73,7 @@ func TestDecodeNewerRecordReturnsErrNewer(t *testing.T) {
 
 func TestDecodeOlderWithoutMigrateReturnsErrNoMigration(t *testing.T) {
 	hermetic(t)
-	f := Register(Format{Name: "t-decode-nomig", Owner: "test", Kind: "record", Version: 1,
+	f := reg(t, Format{Name: "t-decode-nomig", Owner: "test", Kind: "record", Version: 1,
 		Glob: func() string { return "x" }, New: func() any { return &rec{} }, Clean: "x"})
 	var got rec
 	if _, err := Decode(f, []byte(`{"name":"a"}`), &got); !errors.Is(err, ErrNoMigration) {
@@ -81,10 +81,17 @@ func TestDecodeOlderWithoutMigrateReturnsErrNoMigration(t *testing.T) {
 	}
 }
 
+// reg registers f for one test and drops the row at cleanup, so -count>1 re-registers cleanly.
+func reg(t *testing.T, f Format) Format {
+	t.Helper()
+	t.Cleanup(func() { mu.Lock(); delete(rows, f.Name); mu.Unlock() })
+	return Register(f)
+}
+
 func TestRegisterPanicsOnDuplicateName(t *testing.T) {
 	f := Format{Name: "t-dup", Owner: "test", Kind: "record", Version: 1,
 		Glob: func() string { return "x" }, New: func() any { return &rec{} }, Clean: "x"}
-	Register(f)
+	reg(t, f)
 	defer func() {
 		if recover() == nil {
 			t.Fatal("second Register of the same Name did not panic")
@@ -152,10 +159,10 @@ func TestPendingAndMigrateAllSpanFormats(t *testing.T) {
 	}
 	rw := writeN(t, rwDir, "r", 2, `{"name":"a"}`)
 	ro := writeN(t, roDir, "r", 1, `{"name":"b"}`)
-	Register(Format{Name: "t-mig-rewrite", Owner: "test", Kind: "record", Version: 1, Rewrite: true,
+	reg(t, Format{Name: "t-mig-rewrite", Owner: "test", Kind: "record", Version: 1, Rewrite: true,
 		Glob: func() string { return filepath.Join(rwDir, "*.json") }, New: func() any { return &rec{} },
 		Clean: "x", Migrate: stamp})
-	Register(Format{Name: "t-mig-readonly", Owner: "test", Kind: "record", Version: 1,
+	reg(t, Format{Name: "t-mig-readonly", Owner: "test", Kind: "record", Version: 1,
 		Glob: func() string { return filepath.Join(roDir, "*.json") }, New: func() any { return &rec{} },
 		Clean: "x", Migrate: stamp})
 
