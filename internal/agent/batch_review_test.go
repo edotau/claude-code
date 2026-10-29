@@ -367,3 +367,42 @@ func TestBatchCoolingAccountDoesNotBlockOthers(t *testing.T) {
 		t.Errorf("first envelope = %s, want the free-account task", first)
 	}
 }
+
+// Without --fail-fast a Prepare error frees its slot: with Jobs=1 the next task still runs.
+func TestBatchPrepareFailureFreesSlotWithoutFailFast(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	var runs atomic.Int32
+	first := BatchTask{ID: "first", Agent: "first", Req: Request{Prompt: "p"},
+		Prepare: func(context.Context) (Chain, Record, error) { return Chain{}, Record{}, errors.New("route failed") }}
+	second := acctTask(t, "second", "pf·acct", flagRunner{name: "second", runs: &runs})
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	var out strings.Builder
+	RunBatch(ctx, []BatchTask{first, second}, BatchOptions{Jobs: 1, Out: &out})
+	if runs.Load() != 1 {
+		t.Fatalf("second task ran %d times after the first task's Prepare failed, want 1:\n%s", runs.Load(), out.String())
+	}
+}
+
+// A leg that panics after streaming output is terminal: the fallback leg never runs and repeats its work.
+func TestBatchPanickingLegDoesNotFallBack(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	var runs atomic.Int32
+	task := BatchTask{ID: "t", Agent: "boom", Req: Request{Prompt: "p"},
+		Prepare: func(context.Context) (Chain, Record, error) {
+			rec := Record{ID: "id-t", Agent: "boom", Log: filepath.Join(t.TempDir(), "l.log")}
+			return Chain{Want: "boom", Legs: []Leg{
+				{Agent: slowRunner{name: "boom", boom: true}, Account: "boom·A"},
+				{Agent: flagRunner{name: "next", runs: &runs}, Account: "next·B"},
+			}}, rec, nil
+		}}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	var out strings.Builder
+	if RunBatch(ctx, []BatchTask{task}, BatchOptions{Jobs: 2, Out: &out}) {
+		t.Fatal("batch reported ok after a panicking leg")
+	}
+	if runs.Load() != 0 || !strings.Contains(out.String(), "panic: boom") {
+		t.Fatalf("fallback leg ran %d times after a panic, want 0:\n%s", runs.Load(), out.String())
+	}
+}

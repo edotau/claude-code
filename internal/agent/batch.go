@@ -271,7 +271,7 @@ func (b *batchRun) feed(ctx context.Context, tasks []BatchTask, queue []int, don
 	for _, i := range queue {
 		t := tasks[i]
 		sl, err := b.lim.reserve(ctx)
-		sctx := context.WithValue(ctx, slotKey{}, sl)
+		sctx := context.WithValue(withLimiter(ctx, b.lim), slotKey{}, sl) // settle needs the limiter to free the slot
 		var chain Chain
 		var rec Record
 		if err == nil {
