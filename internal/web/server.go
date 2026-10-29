@@ -10,6 +10,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/edotau/claude-code/internal/browser"
@@ -41,6 +42,8 @@ type Server struct {
 	browserEnv browser.Env   // the detection seam; tests fake its Run/Home/AppSupport
 	browsers   *browserCache // expiring, synchronized browser.Detect cache
 	hosts      hostsCache    // expiring tailnet machine-name list for resolveHosts
+	hubOnce    sync.Once     // lazily creates hub, so struct-literal Servers need no setup
+	hub        *hub          // the single shared tree scanner behind /api/events and /api/tree
 }
 
 // New builds a Server for opts.Addr (or the resolved default) without binding a listener; callers
@@ -92,6 +95,10 @@ func Run(ctx context.Context, opts Options) error {
 	if err != nil {
 		return err
 	}
+	hctx, stopHub := context.WithCancel(ctx)
+	hubDone := make(chan struct{})
+	go func() { defer close(hubDone); s.runHub(hctx) }()
+	defer func() { stopHub(); <-hubDone }()
 	var lc net.ListenConfig
 	ln, err := lc.Listen(ctx, "tcp", s.boundAddr)
 	if err != nil {
@@ -127,6 +134,7 @@ func Run(ctx context.Context, opts Options) error {
 func (s *Server) routes() {
 	s.mux.HandleFunc("GET /{$}", s.guard(s.handleIndex))
 	s.mux.HandleFunc("GET /api/tree", s.guard(s.handleTree))
+	s.mux.HandleFunc("GET /api/events", s.guard(s.handleEvents))
 	s.mux.HandleFunc("GET /api/dispatches", s.guard(s.handleDispatches))
 	s.mux.HandleFunc("POST /api/dispatch", s.guard(s.handleDispatch))
 	s.mux.HandleFunc("GET /api/view", s.guard(s.handleView))
