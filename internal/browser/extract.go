@@ -21,6 +21,7 @@ type Field struct{ Name, Selector, Attr string }
 // ExtractOptions drives Extract; the pagination fields are mutually exclusive.
 type ExtractOptions struct {
 	URL, Container           string
+	CDPBase                  string // debug endpoint; "" = cdp.DefaultBase (tests point it at a fake)
 	Fields                   []Field
 	Next, Template, LoadMore string
 	Scroll                   bool
@@ -179,7 +180,7 @@ func Extract(ctx context.Context, env Env, o ExtractOptions, w io.Writer) error 
 	if err != nil {
 		return err
 	}
-	c, err := cdp.Dial(ctx, "")
+	c, err := cdp.Dial(ctx, o.CDPBase)
 	if err != nil {
 		return err
 	}
