@@ -71,6 +71,7 @@ var writers = map[string]string{
 	"internal/hooks/plan.go:PlanMirror":                            unversioned("foreign: plan markdown in plans/"),
 	"internal/hooks/plan.go:SavePlan":                              unversioned("foreign: plan markdown in plans/"),
 	"internal/hooks/plan.go:recordDest":                            unversioned("text: plan draft destination pointer"),
+	"internal/plans/tick.go:writePlan":                             unversioned("foreign: plan markdown in plans/"),
 	"internal/hooks/stop_format.go:stopFormat":                     "stop-format",
 	"internal/hooks/watch.go:spawnIdleWatcher":                     unversioned("marker: idle watcher claim file"),
 	"internal/launch/install_steps.go:copyBinary":                  unversioned("foreign: installed binary"),
