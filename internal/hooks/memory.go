@@ -14,20 +14,31 @@ import (
 	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
+	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/transcript"
 )
 
-// Harvest gate thresholds: the floor asks "was this substantive work"; re-arming needs 10 NEW edits AND 15 min,
-// since every harvest appends a sessionHistory entry and a chatty re-arm evicts other sessions' history.
+// Harvest gate thresholds (work units: edits + user turns/2): the floor asks "was this substantive work"; re-arming
+// needs 10 NEW units AND 15 min, since every harvest appends a sessionHistory entry and a chatty re-arm evicts others.
 const (
 	harvestMinEdits   = transcript.CommitEditWeight // keeps a `git commit` worth exactly one gate floor
 	harvestRearmEdits = 10
 	reharvestCooldown = 15 * time.Minute
 	harvestMaxBlocks  = 3
+	userTurnsPerEdit  = 2 // 2 user turns weigh as 1 edit; 6 turns equal harvestMinEdits
+)
+
+const (
+	triggerStop       = "stop"
+	triggerPreCompact = "pre-compact"
+	triggerSessionEnd = "session-end"
 )
 
 // sidecarLockWait bounds how long countSubagentEdits waits for the sidecar lock; a var so tests can shorten it.
 var sidecarLockWait = 2 * time.Second
+
+// defaultsDrift reads settings drift; var seam so tests can stub it.
+var defaultsDrift = settings.DefaultsDrift
 
 // SessionStart injects the memory bank (auto-scaffolding it for safe roots) as additionalContext.
 func SessionStart(r io.Reader, stdout io.Writer) int {
@@ -55,11 +66,15 @@ func memoryContext(cwd, sessionID, transcriptPath string, now time.Time) string 
 	}
 	chain := filepath.Join(memory.StateDir(), "last-session")
 	out := guard.Notice // paused with no bank: the notice alone; an existing surface is still injected read-only
+	drift := driftNotice()
 	if bank := memory.SessionSurface(cwd); bank != "" {
 		note := bankLoadNote(prefix) + chainNote(chain, sessionID, now, guard) + doctorNotice()
-		out = note + "\n\n" + bank
-	} else if !guard.Paused && prefix != "" {
-		out = prefix // a fresh scaffold has no surface yet; still say where the bank went
+		out = strings.TrimSpace(note+"\n"+drift) + "\n\n" + bank
+	} else {
+		if !guard.Paused && prefix != "" {
+			out = prefix // a fresh scaffold has no surface yet; still say where the bank went
+		}
+		out = strings.TrimSpace(out + "\n" + drift)
 	}
 	// The daily dream (promote + consolidate) runs detached on the Copilot CLI; never blocks launch.
 	if !guard.Paused && !memory.IsHarvestChild() && memory.HasBank(cwd) && memory.DreamDue(cwd, now) {
@@ -126,6 +141,21 @@ func doctorNotice() string {
 		notice = string(rs[:200])
 	}
 	return " memory review: " + notice + "."
+}
+
+// driftNotice returns a one-line settings drift notice vs defaults, or "" when clean or on error.
+func driftNotice() string {
+	if memory.IsHarvestChild() {
+		return ""
+	}
+	keys, err := defaultsDrift()
+	if err != nil || len(keys) == 0 {
+		return ""
+	}
+	if len(keys) == 1 {
+		return "Settings: 1 key differs from your defaults — claude-code configure --restore"
+	}
+	return fmt.Sprintf("Settings: %d keys differ from your defaults — claude-code configure --restore", len(keys))
 }
 
 // chainEntry is the session chain file: id (line 1), transcript path (line 2), cwd (line 3) —
@@ -217,90 +247,88 @@ func scaffoldSafe(cwd string) bool {
 	return top != "" && paths.SamePath(top, cwd)
 }
 
-// sessionHarvest (Stop) dispatches a detached `memory update` once a session has substantive edits;
+// sessionHarvest (Stop) dispatches a detached `memory update` once a session has substantive work;
 // with no spawn possible it blocks at most harvestMaxBlocks times asking for `claude-code memory update`.
 func sessionHarvest(in *Input, stderr io.Writer) int {
-	if !harvestable(in) {
+	if !harvestable(in) || memory.StartupGuard().Paused {
 		return ExitProceed
 	}
-	if memory.StartupGuard().Paused {
-		return ExitProceed // maintenance/migration: no spawn, no block, no stamp
-	}
-	stamp := stampPath(in.SessionID)
-	counted := countPath(in.SessionID)
-	now := time.Now()
-	st, ok := readStamp(stamp)
-	switch {
-	case !ok:
-		edits := countEdits(in.TranscriptPath, counted)
-		if edits < harvestMinEdits {
-			return ExitProceed
-		}
-		if spawnHarvest(in.TranscriptPath, in.CWD, in.SessionID) {
-			writeStamp(stamp, now, "bg", edits)
-			spawnIdleWatcher(in) // the session is harvest-worthy: its final state gets a watcher too
-			return ExitProceed
-		}
-		writeStamp(stamp, now, "1", edits)
-		return blockForHarvest(stderr, edits)
-	case st.bg || st.state == "catchup":
-		if now.Sub(st.at) < reharvestCooldown {
-			return ExitProceed // cheap gate before the whole-transcript count
-		}
-		edits := countEdits(in.TranscriptPath, counted)
-		if edits >= st.edits+harvestRearmEdits && spawnHarvest(in.TranscriptPath, in.CWD, in.SessionID) {
-			writeStamp(stamp, now, "bg", edits)
-			spawnIdleWatcher(in)
-		}
-		return ExitProceed
-	case memory.NewestMtime(memory.Dir(in.CWD)).After(st.at):
-		writeStamp(stamp, now, "bg", st.edits) // `claude-code memory update` ran by hand: released, re-arms like a dispatch
-		return ExitProceed
-	case st.blocks >= harvestMaxBlocks:
-		return ExitProceed // fail open
-	}
-	writeStamp(stamp, st.at, strconv.Itoa(st.blocks+1), st.edits)
-	return blockForHarvest(stderr, st.edits)
-}
-
-// SessionHarvestEnd (SessionEnd) harvests the final state when edits since the last dispatch cross the floor.
-func SessionHarvestEnd(r io.Reader) int {
-	in := ParseInput(r)
-	if !harvestable(in) {
-		return ExitProceed
-	}
-	if memory.StartupGuard().Paused {
-		return ExitProceed
-	}
-	stamp := stampPath(in.SessionID)
-	covered := 0
-	if st, ok := readStamp(stamp); ok {
-		covered = st.edits
-	}
-	edits := countEdits(in.TranscriptPath, countPath(in.SessionID))
-	if edits >= harvestMinEdits && edits > covered && spawnHarvest(in.TranscriptPath, in.CWD, in.SessionID) {
-		writeStamp(stamp, time.Now(), "bg", edits)
+	if blocked, work := harvestIfNew(in, triggerStop, time.Now()); blocked {
+		return blockForHarvest(stderr, work)
 	}
 	return ExitProceed
 }
 
-// PreCompact (ADK add_events_to_memory): before Claude Code compacts the context, harvest any edits no earlier
+// SessionHarvestEnd (SessionEnd) harvests the final state when work since the last dispatch crosses the floor.
+func SessionHarvestEnd(r io.Reader) int {
+	in := ParseInput(r)
+	if !harvestable(in) || memory.StartupGuard().Paused {
+		return ExitProceed
+	}
+	harvestIfNew(in, triggerSessionEnd, time.Now())
+	return ExitProceed
+}
+
+// PreCompact (ADK add_events_to_memory): before Claude Code compacts the context, harvest any work no earlier
 // dispatch covered so the bank holds them; the transcript file itself survives compaction, so this never blocks.
 func PreCompact(r io.Reader) int {
 	in := ParseInput(r)
 	if !harvestable(in) || memory.StartupGuard().Paused {
 		return ExitProceed
 	}
+	harvestIfNew(in, triggerPreCompact, time.Now())
+	return ExitProceed
+}
+
+// harvestIfNew spawns a harvest when work (edits or user turns) is new since the stamp; blocked = Stop must block.
+func harvestIfNew(in *Input, trigger string, now time.Time) (blocked bool, work int) {
 	stamp := stampPath(in.SessionID)
 	st, ok := readStamp(stamp)
-	edits := countEdits(in.TranscriptPath, countPath(in.SessionID))
-	if edits == 0 || (ok && edits <= st.edits) {
-		return ExitProceed
+	covered := 0
+	if ok {
+		covered = st.edits
 	}
-	if spawnHarvest(in.TranscriptPath, in.CWD, in.SessionID) {
-		writeStamp(stamp, time.Now(), "bg", edits)
+	if trigger == triggerStop && ok {
+		if st.bg || st.state == "catchup" {
+			if now.Sub(st.at) < reharvestCooldown {
+				return false, 0 // cheap gate before the whole-transcript count
+			}
+			work = countEdits(in.TranscriptPath, countPath(in.SessionID))
+			if work >= covered+harvestRearmEdits && spawnHarvest(in.TranscriptPath, in.CWD, in.SessionID) {
+				writeStamp(stamp, now, "bg", work)
+				spawnIdleWatcher(in)
+			}
+			return false, 0
+		}
+		if memory.NewestMtime(memory.Dir(in.CWD)).After(st.at) {
+			writeStamp(stamp, now, "bg", st.edits) // `claude-code memory update` ran by hand: released, re-arms
+			return false, 0
+		}
+		if st.blocks >= harvestMaxBlocks {
+			return false, 0 // fail open
+		}
+		writeStamp(stamp, st.at, strconv.Itoa(st.blocks+1), st.edits)
+		return true, st.edits
 	}
-	return ExitProceed
+	floor := harvestMinEdits
+	if trigger == triggerPreCompact {
+		floor = 1
+	}
+	work = countEdits(in.TranscriptPath, countPath(in.SessionID))
+	if work > covered && work >= floor {
+		if spawnHarvest(in.TranscriptPath, in.CWD, in.SessionID) {
+			writeStamp(stamp, now, "bg", work)
+			if trigger == triggerStop {
+				spawnIdleWatcher(in) // the session is harvest-worthy: its final state gets a watcher too
+			}
+			return false, 0
+		}
+		if trigger == triggerStop {
+			writeStamp(stamp, now, "1", work)
+			return true, work
+		}
+	}
+	return false, 0
 }
 
 func harvestable(in *Input) bool {
@@ -407,6 +435,7 @@ type countState struct {
 	offset   int64
 	subEdits int
 	subBytes int64
+	turns    int
 }
 
 func countPath(sessionID string) string {
@@ -419,12 +448,11 @@ func readCountState(path string) (countState, bool) {
 		return countState{}, false
 	}
 	parts := strings.Split(strings.TrimSpace(string(b)), "|")
-	if len(parts) == 2 {
-		// Pre-upgrade "edits|offset" format: its offset sits past commit lines the old binary never
-		// weighted (CommitEditWeight). Force a full rescan from 0; countEdits writes the 3-field form.
+	if len(parts) == 2 || len(parts) == 3 {
+		// Pre-upgrade formats: offset sits past lines the old binary never weighted or turns never counted.
 		return countState{}, true
 	}
-	if len(parts) != 3 {
+	if len(parts) != 4 {
 		return countState{}, false
 	}
 	edits, err1 := strconv.Atoi(parts[0])
@@ -440,19 +468,25 @@ func readCountState(path string) (countState, bool) {
 		return countState{}, false
 	}
 	cs.subEdits, cs.subBytes = subEdits, subBytes
+	turns, err5 := strconv.Atoi(parts[3])
+	if err5 != nil || turns < 0 {
+		return countState{}, false
+	}
+	cs.turns = turns
 	return cs, true
 }
 
 func writeCountState(path string, cs countState) {
 	line := strconv.Itoa(cs.edits) + "|" + strconv.FormatInt(cs.offset, 10) + "|" +
-		strconv.Itoa(cs.subEdits) + ":" + strconv.FormatInt(cs.subBytes, 10)
+		strconv.Itoa(cs.subEdits) + ":" + strconv.FormatInt(cs.subBytes, 10) + "|" +
+		strconv.Itoa(cs.turns)
 	if err := paths.AtomicWrite(path, []byte(line), 0o600); err != nil {
 		fmt.Fprintf(os.Stderr, "session-harvest: write count state %s: %v\n", path, err)
 	}
 }
 
-// countEdits resumes after the last complete line, leaving partial appends for the next Stop; dispatched
-// subagents' files are only re-scanned when their summed size moved, never on every Stop.
+// countEdits returns work units (edits + user turns/2), resuming after the last complete line; dispatched
+// subagents' files (edits only) are re-scanned only when their summed size moved, never on every Stop.
 func countEdits(transcriptPath, countFile string) int {
 	fi, err := os.Stat(transcriptPath)
 	if err != nil || fi.IsDir() {
@@ -465,12 +499,13 @@ func countEdits(transcriptPath, countFile string) int {
 	}
 	mainProgressed := false
 	if fi.Size() != cs.offset {
-		delta, next := transcript.CountEditsFrom(transcriptPath, cs.offset)
+		deltaEdits, deltaTurns, next := transcript.CountWorkFrom(transcriptPath, cs.offset)
 		if next < cs.offset {
 			_ = os.Remove(countFile)
 			cs = countState{}
 		}
-		cs.edits += delta
+		cs.edits += deltaEdits
+		cs.turns += deltaTurns
 		if next != cs.offset {
 			cs.offset = next
 			mainProgressed = true
@@ -481,7 +516,7 @@ func countEdits(transcriptPath, countFile string) int {
 		cs.subEdits, cs.subBytes = subEdits, subBytes
 		writeCountState(countFile, cs)
 	}
-	return cs.edits + subEdits
+	return cs.edits + cs.subEdits + cs.turns/userTurnsPerEdit
 }
 
 // subFileState is one subagent file's offset + edits already counted past that offset, cached in the

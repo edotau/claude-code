@@ -35,6 +35,30 @@ func writeEdits(t *testing.T, path string, n int) {
 	}
 }
 
+func writeUserTurns(t *testing.T, path string, n int) {
+	t.Helper()
+	line := `{"type":"user","message":{"content":"ship it"}}` + "\n"
+	if err := os.WriteFile(path, []byte(strings.Repeat(line, n)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func appendUserTurns(t *testing.T, path string, n int) {
+	t.Helper()
+	line := `{"type":"user","message":{"content":"ship it"}}` + "\n"
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.WriteString(strings.Repeat(line, n)); err != nil {
+		_ = f.Close()
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // stubSpawn replaces BOTH detached seams: a successful harvest dispatch also claims an idle watcher, and a
 // test must never start a real one.
 // The counter is atomic: the idle watcher runs the stub on its own goroutine while the test polls.
@@ -395,6 +419,62 @@ func TestPreCompactHarvestsOnlyUncoveredEdits(t *testing.T) {
 	}
 }
 
+// TestSessionHarvestDiscussionOnly: a discussion-only session (0 edits) still crosses the floor on
+// user turns alone — 6 turns weigh 3 work units, exactly harvestMinEdits — and is harvested at Stop.
+func TestSessionHarvestDiscussionOnly(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv(memory.HarvestChildEnv, "")
+	tr := filepath.Join(t.TempDir(), "t.jsonl")
+	cwd := t.TempDir()
+	calls := stubSpawn(t, true)
+	run := func() int {
+		return sessionHarvest(ParseInput(strings.NewReader(harvestPayload(tr, cwd))), &bytes.Buffer{})
+	}
+
+	writeUserTurns(t, tr, 5)
+	if run() != ExitProceed || calls.Load() != 0 {
+		t.Fatalf("5 user turns (2 work units) sit under the floor, calls=%d", calls.Load())
+	}
+	writeUserTurns(t, tr, 6)
+	if run() != ExitProceed || calls.Load() != 1 {
+		t.Fatalf("6 user turns (3 work units) must spawn once, calls=%d", calls.Load())
+	}
+	if st, _ := readStamp(stampPath("s1")); !st.bg {
+		t.Errorf("stamp %+v, want bg", st)
+	}
+}
+
+// TestPreCompactAndSessionEndHarvestNewUserTurns: once the stamp covers N work units, a session whose
+// only new work is user turns still re-harvests at pre-compact and session end — and never re-harvests
+// when nothing new arrived.
+func TestPreCompactAndSessionEndHarvestNewUserTurns(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv(memory.HarvestChildEnv, "")
+	tr := filepath.Join(t.TempDir(), "t.jsonl")
+	cwd := t.TempDir()
+	calls := stubSpawn(t, true)
+	payload := func() *strings.Reader { return strings.NewReader(harvestPayload(tr, cwd)) }
+
+	writeEdits(t, tr, 3)
+	if PreCompact(payload()); calls.Load() != 1 {
+		t.Fatalf("3 edits must spawn at pre-compact, calls=%d", calls.Load())
+	}
+	appendUserTurns(t, tr, 4) // the only new work since the stamp: 4 turns = 2 work units
+	if PreCompact(payload()); calls.Load() != 2 {
+		t.Fatalf("new user turns since the stamp must spawn, calls=%d", calls.Load())
+	}
+	if SessionHarvestEnd(payload()); calls.Load() != 2 {
+		t.Error("no new work since the stamp must not re-harvest")
+	}
+	appendUserTurns(t, tr, 2)
+	if SessionHarvestEnd(payload()); calls.Load() != 3 {
+		t.Errorf("2 new turns (1 work unit) past the stamp must spawn, calls=%d", calls.Load())
+	}
+	if SessionHarvestEnd(payload()); calls.Load() != 3 {
+		t.Error("session end with nothing new re-harvested")
+	}
+}
+
 // idle backdates tr's mtime so catchUpPrevious treats the transcript as quiet.
 func idle(t *testing.T, path string, d time.Duration) {
 	t.Helper()
@@ -672,7 +752,7 @@ func TestCountStateOldFormatReadsAndNewFieldsRoundTrip(t *testing.T) {
 
 // TestCountEditsOldFormatCountFileRescansUnweightedCommit: an old 2-field count file's offset already sits
 // past a `git commit` the old binary never weighted. Upgrading must force a full rescan from 0 so that
-// commit is counted at CommitEditWeight, and the count file is rewritten in the new 3-field format.
+// commit is counted at CommitEditWeight, and the count file is rewritten in the new 4-field format.
 func TestCountEditsOldFormatCountFileRescansUnweightedCommit(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	tr := filepath.Join(t.TempDir(), "t.jsonl")
@@ -693,8 +773,36 @@ func TestCountEditsOldFormatCountFileRescansUnweightedCommit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if parts := strings.Split(strings.TrimSpace(string(raw)), "|"); len(parts) != 3 {
-		t.Fatalf("count file after upgrade = %q, want the 3-field format", raw)
+	if parts := strings.Split(strings.TrimSpace(string(raw)), "|"); len(parts) != 4 {
+		t.Fatalf("count file after upgrade = %q, want the 4-field format", raw)
+	}
+}
+
+// TestCountEditsThreeFieldCountFileRescansTurns: a 3-field pre-upgrade count file's offset sits past
+// user turns that format never counted, so upgrading must force a full rescan from 0 — the turns are
+// re-weighted — and the count file is rewritten in the 4-field format.
+func TestCountEditsThreeFieldCountFileRescansTurns(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	tr := filepath.Join(t.TempDir(), "t.jsonl")
+	writeUserTurns(t, tr, 4)
+	fi, err := os.Stat(tr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	countFile := filepath.Join(t.TempDir(), "count-3field")
+	// Pre-upgrade "edits|offset|subEdits:subBytes": offset past every (uncounted) user turn.
+	if err := os.WriteFile(countFile, []byte(fmt.Sprintf("0|%d|0:0", fi.Size())), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := countEdits(tr, countFile); got != 2 { // 4 turns / 2 per work unit
+		t.Fatalf("countEdits after 3-field upgrade = %d, want 2 (the 4 turns, now weighted)", got)
+	}
+	raw, err := os.ReadFile(countFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if parts := strings.Split(strings.TrimSpace(string(raw)), "|"); len(parts) != 4 {
+		t.Fatalf("count file after upgrade = %q, want the 4-field format", raw)
 	}
 }
 
