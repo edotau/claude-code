@@ -513,15 +513,15 @@ func RunWithFallback(ctx context.Context, c Chain, req Request, stream io.Writer
 			noteAuth(leg, err)
 			noteStall(leg, err)
 		}()
-		if panicked {
-			stopped = true
-			break
-		}
 		if res.Handoff != handoff {
 			req.Prompt = promptFromHandoff(res.Handoff, req.Prompt)
 		}
 		handoff = cmp.Or(res.Handoff, handoff)
 		prev, prevLeg, ran = leg.Agent, leg, i
+		if panicked { // after the bookkeeping, so a panicking fallback leg is still reported as the fallback
+			stopped = true
+			break
+		}
 		if i == 0 && ExplicitBackend(req) {
 			stopped = true
 			break
