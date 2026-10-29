@@ -385,8 +385,7 @@ func scoreSegmentDocs(qTerms []string, uniq map[string]int, df []int, n, avgdl f
 				matched++
 			}
 		}
-		first, _, _ := strings.Cut(block, "\n")
-		id := BlockID(first)
+		id := blockMarkerID(block)
 		if id == "" {
 			id = ContentRef(block)
 		}

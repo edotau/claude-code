@@ -56,7 +56,9 @@ func BlockID(line string) string {
 // stripID removes the ID marker for display.
 func stripID(s string) string { return idMarker.ReplaceAllString(s, "") }
 
-// assignIDs stamps every unmarked block start in dir's typed files; returns how many it stamped.
+// assignIDs stamps every unmarked block in dir's typed files and collapses stacked markers to the oldest (the
+// last in the block); a block is judged whole because the formatter may wrap its marker onto a later line.
+// Returns how many blocks it stamped.
 func assignIDs(dir string, now time.Time) (int, error) {
 	n := 0
 	for name, prefix := range idFiles {
@@ -66,24 +68,82 @@ func assignIDs(dir string, now time.Time) (int, error) {
 			continue
 		}
 		lines := strings.Split(string(data), "\n")
-		changed := false
+		var starts []int
+		inFence := false
 		for i, l := range lines {
-			if !strings.HasPrefix(l, prefix) || BlockID(l) != "" || strings.TrimSpace(strings.TrimPrefix(l, prefix)) == "" {
-				continue
+			if !inFence && strings.HasPrefix(l, prefix) && strings.TrimSpace(strings.TrimPrefix(l, prefix)) != "" {
+				starts = append(starts, i)
 			}
-			// i is in the hash so two identical lines in one settle pass never collide on the same ID.
-			key := dir + "\x00" + name + "\x00" + strconv.Itoa(i) + "\x00" + l + "\x00" + now.Format(time.RFC3339Nano)
-			sum := sha256.Sum256([]byte(key))
-			lines[i] = l + " <!-- id:" + hex.EncodeToString(sum[:4]) + " -->"
-			changed, n = true, n+1
+			if fenceToggle(l) {
+				inFence = !inFence
+			}
 		}
-		if changed {
-			if err := paths.AtomicWrite(path, []byte(strings.Join(lines, "\n")), 0o600); err != nil {
+		out := make([]string, 0, len(lines))
+		out = append(out, lines[:min(len(lines), first(starts, len(lines)))]...)
+		for k, i := range starts {
+			end := len(lines)
+			if k+1 < len(starts) {
+				end = starts[k+1]
+			}
+			block, stamped := settleBlockID(dir, name, i, lines[i:end], now)
+			n += stamped
+			out = append(out, block...)
+		}
+		if res := strings.Join(out, "\n"); res != string(data) {
+			if err := paths.AtomicWrite(path, []byte(res), 0o600); err != nil {
 				return n, err
 			}
 		}
 	}
 	return n, nil
+}
+
+func first(xs []int, def int) int {
+	if len(xs) == 0 {
+		return def
+	}
+	return xs[0]
+}
+
+// settleBlockID leaves exactly one id marker in a block: the oldest it already carries, else a fresh one on line 0.
+func settleBlockID(dir, name string, idx int, block []string, now time.Time) ([]string, int) {
+	total := 0
+	for _, l := range block {
+		total += len(idMarker.FindAllStringIndex(l, -1))
+	}
+	if total == 0 {
+		// idx is in the hash so two identical lines in one settle pass never collide on the same ID.
+		key := dir + "\x00" + name + "\x00" + strconv.Itoa(idx) + "\x00" + block[0] + "\x00" + now.Format(time.RFC3339Nano)
+		sum := sha256.Sum256([]byte(key))
+		return append([]string{block[0] + " <!-- id:" + hex.EncodeToString(sum[:4]) + " -->"}, block[1:]...), 1
+	}
+	if total == 1 {
+		return block, 0
+	}
+	seen := 0
+	out := make([]string, 0, len(block))
+	for _, l := range block {
+		spans := idMarker.FindAllStringIndex(l, -1)
+		if len(spans) == 0 {
+			out = append(out, l)
+			continue
+		}
+		var b strings.Builder
+		prev := 0
+		for _, sp := range spans {
+			seen++
+			b.WriteString(l[prev:sp[0]])
+			if seen == total { // keep only the last marker
+				b.WriteString(l[sp[0]:sp[1]])
+			}
+			prev = sp[1]
+		}
+		b.WriteString(l[prev:])
+		if res := b.String(); strings.TrimSpace(res) != "" {
+			out = append(out, res)
+		}
+	}
+	return out, 0
 }
 
 // ErrNoBlock is returned when no block in the store carries the requested ID.
