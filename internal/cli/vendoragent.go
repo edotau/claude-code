@@ -160,6 +160,9 @@ func cmdVendorResume(vendor string, args []string) int {
 	if len(args) < 1 {
 		return fail("%s resume: usage: claude-code %s resume <id> <task>", vendor, vendor)
 	}
+	if strings.HasPrefix(args[0], "-") { // flags first: ask's own parser, the session id is its first positional
+		return runAsk(append([]string{"--agent", vendor}, args...), true)
+	}
 	return cmdAsk(append([]string{"--agent", vendor, "--session", args[0]}, args[1:]...))
 }
 

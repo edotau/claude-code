@@ -70,8 +70,7 @@ func Diff(ctx context.Context, cwd string, s Scope) ([]byte, error) {
 		if err != nil {
 			return nil, err
 		}
-		base = strings.TrimPrefix(base, "origin/")
-		out, err = gitexec.RunGit(ctx, cwd, "diff", base+"...HEAD")
+		out, err = gitexec.RunGit(ctx, cwd, "diff", "--end-of-options", strings.TrimSpace(base)+"...HEAD") // origin/<default>, not local
 	default: // uncommitted
 		out, err = gitexec.RunGit(ctx, cwd, "diff", "HEAD")
 		if err == nil {

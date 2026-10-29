@@ -102,7 +102,7 @@ func (v vendorRunner) Name() string { return v.name }
 // Caps follow each CLI's verified headless flags; Autonomous holds for all three (codex is autonomous by construction).
 func (v vendorRunner) Caps() Caps {
 	return Caps{Model: true, Provider: true, Effort: true, WorkDir: true, SessionID: true, Tools: true, Autonomous: true,
-		NoPersist: v.name == "codex", SafeMode: v.name == "codex" || v.name == "opencode", DebugFile: v.name == "gemini"}
+		NoPersist: v.name == "codex", SafeMode: v.name == "codex" || v.name == "opencode", DebugFile: v.name == "gemini", Direct: true}
 }
 
 func (v vendorRunner) Available() error {
@@ -385,7 +385,7 @@ type copilotRunner struct{}
 func (copilotRunner) Name() string { return "copilot" }
 func (copilotRunner) Caps() Caps {
 	return Caps{Model: true, Provider: true, Effort: true, WorkDir: true, Tools: true, SessionID: true,
-		Autonomous: true, Memory: true}
+		Autonomous: true, Memory: true, Direct: true}
 }
 func (copilotRunner) Available() error { _, err := paths.VendorBin("copilot"); return err }
 
@@ -472,6 +472,7 @@ func (copilotRunner) Run(ctx context.Context, req Request, stream io.Writer) (Re
 			creds := credentialValues(env, opts.GitHubToken)
 			return copilotQuotaHandoff(req, res, out, err, creds)
 		}
+		res.SessionID, res.Answer = cmp.Or(out.SessionID, res.SessionID), out.Text // partial text + session survive a failure
 		return res, err
 	}
 	lg.emit("assistant", out.Text) // the SDK returns the whole text, so one line per run

@@ -118,7 +118,7 @@ func (l hubLeg) Name() string { return l.agent }
 
 // Caps mirrors vendorRunner's: every Request field the opencode CLI can carry.
 func (l hubLeg) Caps() Caps {
-	return Caps{Model: true, Provider: true, Effort: true, WorkDir: true, SessionID: true, Tools: true, Autonomous: true, SafeMode: true}
+	return Caps{Model: true, Provider: true, Effort: true, WorkDir: true, SessionID: true, Tools: true, Autonomous: true, SafeMode: true, Direct: true}
 }
 
 // Available requires the opencode binary and an opencode login for this leg's provider; a login-less

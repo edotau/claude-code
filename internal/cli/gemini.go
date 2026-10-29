@@ -103,14 +103,7 @@ func cmdGeminiBridge(args []string) int {
 	defer stop()
 	res, err := gemini.Run(ctx, opts, stream, os.Stderr)
 	if *format == "json" {
-		env := struct {
-			agent.Result
-			Error string `json:"error,omitempty"`
-		}{Result: res}
-		if err != nil {
-			env.Error = err.Error()
-		}
-		body, merr := json.Marshal(env)
+		body, merr := json.Marshal(agent.NewEnvelope(res, err, ""))
 		if merr != nil {
 			return fail("gemini bridge: encoding result: %v", merr)
 		}
