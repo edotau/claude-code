@@ -48,13 +48,15 @@ func agentRecall(sessionID, cwd, task string) (block string, ids []string) {
 		}
 	}
 	terms := memory.ContentQueryTerms(tokens)
-	hits := relevantTermHits(sessionID, terms, memory.SearchBanksTerms(root, q, terms, 0))
+	picks := selectRecall(sessionID, terms, memory.SearchBanksTerms(root, q, terms, 0), nil, false)
 
 	var lines []string
-	for _, h := range hits {
-		preview := recallCut(h.Plain(), agentRecallPreviewRunes)
-		lines = append(lines, "\n- "+h.ID+" — "+preview)
-		ids = append(ids, h.ID)
+	for i, p := range picks {
+		if i == recallK {
+			break
+		}
+		lines = append(lines, "\n- "+recallCut(p.e.Pointer(), agentRecallPreviewRunes))
+		ids = append(ids, p.e.ID)
 	}
 	block, n := capRecallLines(lines)
 	if block == "" {
