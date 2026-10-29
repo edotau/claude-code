@@ -9,7 +9,7 @@
   "spinnerTipsEnabled": false,
   "agentPushNotifEnabled": false,
   "inputNeededNotifEnabled": true,
-  "preferredNotifChannel": "notifications_disabled",
+  "preferredNotifChannel": "auto",
   "awaySummaryEnabled": false,
   "feedbackDrafts": "off",
   "feedbackSurveyRate": 0,
