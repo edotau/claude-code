@@ -646,3 +646,21 @@ type simulatedSSHErr string
 func (e simulatedSSHErr) Error() string { return string(e) }
 
 var errSimulatedSSH = simulatedSSHErr("ssh: connection refused")
+
+// Regression: a fetch that began before an SSE render must not overwrite it; the guard lives in the page script.
+func TestIndexTreeFetchGuardedByEpoch(t *testing.T) {
+	src := templateSource(t)
+	load := extractJSFunc(t, src, "loadTree")
+	for _, want := range []string{"const started = treeEpoch", "if (treeEpoch !== started) return;"} {
+		if !strings.Contains(load, want) {
+			t.Fatalf("loadTree lacks %q", want)
+		}
+	}
+	watch := extractJSFunc(t, src, "watchTree")
+	if i, j := strings.Index(watch, "treeEpoch++"), strings.Index(watch, "renderTree("); i < 0 || j < 0 || i > j {
+		t.Fatal("watchTree must bump treeEpoch before rendering an SSE snapshot")
+	}
+	if !strings.Contains(watch, "es.onerror") || !strings.Contains(src, "if (!treeLive) loadTree();") {
+		t.Fatal("polling fallback missing")
+	}
+}
