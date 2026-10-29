@@ -1,9 +1,11 @@
 package memory
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -59,5 +61,26 @@ func TestAccessRotationReturnCountsAndRepoNominations(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("want a hot nomination %q, got %v", want, noms)
+	}
+}
+
+// Regression: concurrent writers that all see a stale first line rotate once, and no line is lost.
+func TestAccessLogConcurrentRotationRotatesOnce(t *testing.T) {
+	tempConfig(t)
+	now := time.Date(2026, 10, 29, 12, 0, 0, 0, time.UTC)
+	home := HomeBankDir()
+	LogAccess(home, now.AddDate(0, 0, -(accessRotateDays+1)), "aa000001", AccessRecall)
+	const writers = 16
+	var wg sync.WaitGroup
+	for i := range writers {
+		wg.Go(func() { LogAccess(home, now, fmt.Sprintf("bb%06d", i), AccessSearch) })
+	}
+	wg.Wait()
+	path := AccessLogPath(home)
+	if _, err := os.Stat(path + ".2"); err == nil {
+		t.Fatal("concurrent writers rotated more than once")
+	}
+	if n := len(ReturnCounts([]string{home}, now)); n != writers {
+		t.Fatalf("%d of %d concurrent lines survived", n, writers)
 	}
 }
