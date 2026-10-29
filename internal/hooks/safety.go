@@ -66,13 +66,9 @@ func lazyCompile(pats ...string) func() []*regexp.Regexp {
 	})
 }
 
-// BashGuard applies safety before the optional Claude rtk rewrite.
-func BashGuard(r io.Reader, stdout, stderr io.Writer) int {
-	in := ParseInput(r)
-	if code := safetyInput(in, stdout, stderr); code != ExitProceed {
-		return code
-	}
-	return rtkWrap(in, stdout)
+// SafetyScan checks command safety.
+func SafetyScan(r io.Reader, stdout, stderr io.Writer) int {
+	return safetyInput(ParseInput(r), stdout, stderr)
 }
 
 func safetyInput(in *Input, stdout, stderr io.Writer) (code int) {

@@ -67,14 +67,14 @@ func TestSafety(t *testing.T) {
 	}
 	for _, c := range cases {
 		var errb bytes.Buffer
-		if got := BashGuard(bashPayload(c.cmd), io.Discard, &errb); got != c.want {
+		if got := SafetyScan(bashPayload(c.cmd), io.Discard, &errb); got != c.want {
 			t.Errorf("%q: got %d want %d (%s)", c.cmd, got, c.want, errb.String())
 		}
 	}
-	if got := BashGuard(strings.NewReader("not json"), io.Discard, &bytes.Buffer{}); got != ExitProceed {
+	if got := SafetyScan(strings.NewReader("not json"), io.Discard, &bytes.Buffer{}); got != ExitProceed {
 		t.Error("malformed input must fail open")
 	}
-	if got := BashGuard(strings.NewReader(`{"tool_name":"Read","tool_input":{"command":"rm -rf /"}}`), io.Discard, &bytes.Buffer{}); got != ExitProceed {
+	if got := SafetyScan(strings.NewReader(`{"tool_name":"Read","tool_input":{"command":"rm -rf /"}}`), io.Discard, &bytes.Buffer{}); got != ExitProceed {
 		t.Error("non-Bash tools pass")
 	}
 }
@@ -190,7 +190,7 @@ func TestSafetyBlocksTreeWritingGitInHarness(t *testing.T) {
 			if c.block {
 				want = ExitBlock
 			}
-			if got := BashGuard(bytes.NewReader(payload), io.Discard, &errb); got != want {
+			if got := SafetyScan(bytes.NewReader(payload), io.Discard, &errb); got != want {
 				t.Errorf("%q in %s: got %d want %d (%s)", c.cmd, c.cwd, got, want, errb.String())
 			}
 		})
@@ -205,7 +205,7 @@ func TestSafetyShellDashCNoArgDoesNotPanic(t *testing.T) {
 		}
 	}()
 	payload, _ := json.Marshal(map[string]any{"tool_name": "Bash", "cwd": t.TempDir(), "tool_input": map[string]string{"command": "sh -c"}})
-	if got := BashGuard(bytes.NewReader(payload), io.Discard, &bytes.Buffer{}); got != ExitProceed {
+	if got := SafetyScan(bytes.NewReader(payload), io.Discard, &bytes.Buffer{}); got != ExitProceed {
 		t.Errorf("bare `sh -c` with no command string: got %d want %d", got, ExitProceed)
 	}
 }

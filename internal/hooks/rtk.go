@@ -1,4 +1,4 @@
-// bash-guard checks command safety before routing eligible output through rtk.
+// The rtk hook routes eligible Bash commands through the rtk output compressor.
 package hooks
 
 import (
@@ -47,6 +47,11 @@ var rtkValueSubcommands = map[string]bool{
 // rtk's output onward, which is what the caller asked for.
 var rtkChainOperators = []string{"&&", "||", ";", "\n"}
 
+// RTKRewrite rewrites eligible Bash commands through the Claude rtk output compressor.
+func RTKRewrite(r io.Reader, stdout, _ io.Writer) int {
+	return rtkWrap(ParseInput(r), stdout)
+}
+
 // rtkWrap rewrites an eligible Bash command to run through the rtk proxy. Emits nothing (and always
 // proceeds) when rtk is absent, the tool is not Bash, or the command is ineligible.
 func rtkWrap(in *Input, stdout io.Writer) int {
@@ -77,7 +82,7 @@ func rtkWrap(in *Input, stdout io.Writer) int {
 	updated["command"] = bin + " " + cmd
 
 	note := fmt.Sprintf(
-		"bash-guard: routed through the rtk output compressor (%s). Output is summarized, not literal — "+
+		"rtk: routed through the rtk output compressor (%s). Output is summarized, not literal — "+
 			"re-run without rtk if you need exact bytes.", bin)
 	inner := map[string]any{"hookEventName": "PreToolUse", "additionalContext": note, "updatedInput": updated}
 	out, err := json.Marshal(map[string]any{"hookSpecificOutput": inner})

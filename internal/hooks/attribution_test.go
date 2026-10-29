@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-// TestAttributionFooterBlocked pins the footer patterns; the bash-guard wiring has its own test below.
+// TestAttributionFooterBlocked pins the footer patterns; the safety-scan wiring has its own test below.
 func TestAttributionFooterBlocked(t *testing.T) {
 	cases := []struct {
 		name string
@@ -38,8 +38,8 @@ func TestAttributionFooterBlocked(t *testing.T) {
 	}
 }
 
-// TestBashGuardBlocksAttributionFooterCommit: a footer commit in any repo blocks with a reason; the rest proceeds.
-func TestBashGuardBlocksAttributionFooterCommit(t *testing.T) {
+// TestSafetyScanBlocksAttributionFooterCommit: a footer commit in any repo blocks with a reason; the rest proceeds.
+func TestSafetyScanBlocksAttributionFooterCommit(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	otherRepo := t.TempDir() // not the harness tree: the contract is "in any repo"
 	cases := []struct {
@@ -91,7 +91,7 @@ func TestBashGuardBlocksAttributionFooterCommit(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			var errb bytes.Buffer
-			if got := BashGuard(bashPayload(c.cmd), io.Discard, &errb); got != c.want {
+			if got := SafetyScan(bashPayload(c.cmd), io.Discard, &errb); got != c.want {
 				t.Errorf("%q: got %d want %d (stderr=%s)", c.cmd, got, c.want, errb.String())
 			}
 			if c.want == ExitBlock && !strings.Contains(strings.ToLower(errb.String()), "attribution") {
@@ -101,13 +101,13 @@ func TestBashGuardBlocksAttributionFooterCommit(t *testing.T) {
 	}
 }
 
-// TestBashGuardAttributionFooterCopilotShape: the Copilot payload gets the reason as permissionDecisionReason.
-func TestBashGuardAttributionFooterCopilotShape(t *testing.T) {
+// TestSafetyScanAttributionFooterCopilotShape: the Copilot payload gets the reason as permissionDecisionReason.
+func TestSafetyScanAttributionFooterCopilotShape(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	cmd := `git commit -m "feat: x" -m "Co-Authored-By: Claude <noreply@anthropic.com>"`
 	payload := copilotBashPayload(cmd)
 	var out, errb bytes.Buffer
-	if got := BashGuard(payload, &out, &errb); got != ExitBlock {
+	if got := SafetyScan(payload, &out, &errb); got != ExitBlock {
 		t.Fatalf("%q: got %d want ExitBlock (out=%s err=%s)", cmd, got, out.String(), errb.String())
 	}
 	if !strings.Contains(strings.ToLower(out.String()), "attribution") {
@@ -115,7 +115,7 @@ func TestBashGuardAttributionFooterCopilotShape(t *testing.T) {
 	}
 }
 
-// copilotBashPayload mirrors the Copilot shape used by TestBashGuardChecksExecutedHeredocBodiesCopilot.
+// copilotBashPayload mirrors the Copilot shape used by TestSafetyScanChecksExecutedHeredocBodiesCopilot.
 func copilotBashPayload(cmd string) io.Reader {
 	b, _ := json.Marshal(map[string]any{
 		"sessionId": "x", "toolName": "Bash", "toolArgs": map[string]string{"command": cmd},

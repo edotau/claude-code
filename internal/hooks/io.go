@@ -225,7 +225,8 @@ func hookContext(name string) (context.Context, context.CancelFunc) {
 
 // Registry maps hook verbs to handlers; names must match hookspec.Registry.
 var Registry = map[string]Handler{
-	"bash-guard":           BashGuard,
+	"safety-scan":          SafetyScan,
+	"rtk":                  RTKRewrite,
 	"docs-placement":       func(in io.Reader, _, errw io.Writer) int { return DocsPlacement(in, errw) },
 	"session-start":        func(in io.Reader, out, _ io.Writer) int { return SessionStart(in, out) },
 	"memory-recall":        func(in io.Reader, out, _ io.Writer) int { return MemoryRecall(in, out) },

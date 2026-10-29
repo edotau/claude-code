@@ -31,17 +31,17 @@ var heredocMustBlock = []string{
 	"echo hi #<<EOF\nsudo rm -rf /\nEOF",
 }
 
-func TestBashGuardChecksExecutedHeredocBodies(t *testing.T) {
+func TestSafetyScanChecksExecutedHeredocBodies(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	for _, cmd := range heredocMustBlock {
 		var errb bytes.Buffer
-		if got := BashGuard(bashPayload(cmd), io.Discard, &errb); got != ExitBlock {
+		if got := SafetyScan(bashPayload(cmd), io.Discard, &errb); got != ExitBlock {
 			t.Errorf("claude shape %q: got %d want ExitBlock (%s)", cmd, got, errb.String())
 		}
 	}
 }
 
-func TestBashGuardChecksPythonHeredocBodies(t *testing.T) {
+func TestSafetyScanChecksPythonHeredocBodies(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	cases := []struct {
 		name string
@@ -62,7 +62,7 @@ func TestBashGuardChecksPythonHeredocBodies(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			var errb bytes.Buffer
-			if got := BashGuard(bashPayload(c.cmd), io.Discard, &errb); got != c.want {
+			if got := SafetyScan(bashPayload(c.cmd), io.Discard, &errb); got != c.want {
 				t.Errorf("%q: got %d want %d (%s)", c.cmd, got, c.want, errb.String())
 			}
 		})
@@ -70,28 +70,28 @@ func TestBashGuardChecksPythonHeredocBodies(t *testing.T) {
 }
 
 // Same bodies through the Copilot payload shape (toolArgs, no hook_event_name).
-func TestBashGuardChecksExecutedHeredocBodiesCopilot(t *testing.T) {
+func TestSafetyScanChecksExecutedHeredocBodiesCopilot(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	for _, cmd := range heredocMustBlock {
 		payload, _ := json.Marshal(map[string]any{
 			"sessionId": "x", "toolName": "Bash", "toolArgs": map[string]string{"command": cmd},
 		})
 		var out, errb bytes.Buffer
-		if got := BashGuard(bytes.NewReader(payload), &out, &errb); got != ExitBlock {
+		if got := SafetyScan(bytes.NewReader(payload), &out, &errb); got != ExitBlock {
 			t.Errorf("copilot shape %q: got %d want ExitBlock (out=%s err=%s)", cmd, got, out.String(), errb.String())
 		}
 	}
 }
 
 // Hard rule 4: a git tree-write hidden inside an executed heredoc, with cwd inside the harness tree.
-func TestBashGuardChecksHeredocGitInHarness(t *testing.T) {
+func TestSafetyScanChecksHeredocGitInHarness(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("CLAUDE_CONFIG_DIR", home)
 	cmd := "bash <<EOF\ngit reset --hard\nEOF"
 	payload, _ := json.Marshal(map[string]any{"tool_name": "Bash", "cwd": home, "tool_input": map[string]string{"command": cmd}})
 	var errb bytes.Buffer
-	if got := BashGuard(bytes.NewReader(payload), io.Discard, &errb); got != ExitBlock {
+	if got := SafetyScan(bytes.NewReader(payload), io.Discard, &errb); got != ExitBlock {
 		t.Errorf("got %d want ExitBlock (%s)", got, errb.String())
 	}
 }
@@ -104,11 +104,11 @@ var heredocDataSinkMentions = []string{
 	"cat <<'EOF' > x.md\ngit push --force origin main\nEOF",
 }
 
-func TestBashGuardBlocksHeredocDataSinkMentions(t *testing.T) {
+func TestSafetyScanBlocksHeredocDataSinkMentions(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	for _, cmd := range heredocDataSinkMentions {
 		var errb bytes.Buffer
-		if got := BashGuard(bashPayload(cmd), io.Discard, &errb); got != ExitBlock {
+		if got := SafetyScan(bashPayload(cmd), io.Discard, &errb); got != ExitBlock {
 			t.Errorf("%q: got %d want ExitBlock (%s)", cmd, got, errb.String())
 		}
 	}
@@ -116,21 +116,21 @@ func TestBashGuardBlocksHeredocDataSinkMentions(t *testing.T) {
 
 // Arithmetic `<<` (e.g. $((1<<y))) is plain text now that the revert parses no heredoc operator at
 // all; it must not block and must not be misread as a heredoc start.
-func TestBashGuardIgnoresArithmeticShift(t *testing.T) {
+func TestSafetyScanIgnoresArithmeticShift(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	cmd := "echo $((1<<y))"
 	var errb bytes.Buffer
-	if got := BashGuard(bashPayload(cmd), io.Discard, &errb); got != ExitProceed {
+	if got := SafetyScan(bashPayload(cmd), io.Discard, &errb); got != ExitProceed {
 		t.Errorf("%q: got %d want ExitProceed (%s)", cmd, got, errb.String())
 	}
 }
 
 // The block message prints the ORIGINAL command, heredoc body included, never the stripped one.
-func TestBashGuardBlockMessageShowsOriginalCommand(t *testing.T) {
+func TestSafetyScanBlockMessageShowsOriginalCommand(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	cmd := "bash <<'EOF'\nsudo rm -rf /\nEOF"
 	var errb bytes.Buffer
-	if got := BashGuard(bashPayload(cmd), io.Discard, &errb); got != ExitBlock {
+	if got := SafetyScan(bashPayload(cmd), io.Discard, &errb); got != ExitBlock {
 		t.Fatalf("got %d want ExitBlock", got)
 	}
 	if !strings.Contains(errb.String(), "sudo rm -rf /") {
