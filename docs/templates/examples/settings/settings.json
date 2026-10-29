@@ -37,7 +37,11 @@
       "Bash(go *)",
       "Bash(claude-code *)",
       "Bash(gofmt -l *)",
-      "Bash(systemctl --user is-active *)"
+      "Bash(systemctl --user is-active *)",
+      "mcp__claude-in-chrome__tabs_context_mcp",
+      "mcp__claude-in-chrome__navigate",
+      "mcp__claude-in-chrome__list_connected_browsers",
+      "mcp__claude-in-chrome__select_browser"
     ],
     "deny": [
       "Bash(rm -rf /)",
@@ -73,7 +77,7 @@
   "hooks": {
     "PostToolUse": [
       {
-        "matcher": "Write|Edit|ExitPlanMode|EnterPlanMode|Bash|Agent|Task",
+        "matcher": "Write|Edit|ExitPlanMode|EnterPlanMode|Bash|Workflow",
         "hooks": [
           {
             "type": "command",
@@ -85,7 +89,7 @@
     ],
     "PostToolUseFailure": [
       {
-        "matcher": "Agent|Task",
+        "matcher": "Agent|Task|Workflow",
         "hooks": [
           {
             "type": "command",
@@ -135,7 +139,7 @@
           {
             "type": "command",
             "command": "$HOME/.claude/bin/claude-code hook PreToolUse --no-own",
-            "timeout": 25
+            "timeout": 15
           }
         ]
       }

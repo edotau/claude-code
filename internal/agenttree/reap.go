@@ -126,7 +126,7 @@ func reapMarkers(dryRun bool, verb string, out io.Writer) (int, error) {
 				continue
 			}
 			fi, err := e.Info()
-			if err != nil || inflight.Live(e.Name(), fi.ModTime(), now, 0, "", trusted) {
+			if err != nil || inflight.Live(e.Name(), fi.ModTime(), now, trusted) {
 				continue
 			}
 			if !dryRun {

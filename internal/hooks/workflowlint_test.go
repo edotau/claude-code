@@ -22,10 +22,10 @@ func wfLintPayload(t *testing.T, extra map[string]any) string {
 	return string(b)
 }
 
-// runWorkflowLint runs the hook and returns its exit code plus the captured stdout/stderr.
+// runWorkflowLint runs the pin step and returns its exit code plus the captured stdout/stderr.
 func runWorkflowLint(stdin string) (code int, stdout, stderr string) {
 	var out, errb bytes.Buffer
-	code = WorkflowLint(strings.NewReader(stdin), &out, &errb)
+	code = renderEffort(agentEffortResult(ParseInput(strings.NewReader(stdin))), &out, &errb)
 	return code, out.String(), errb.String()
 }
 
@@ -273,10 +273,11 @@ func TestWorkflowLintByNameResolvedFileUnpinnedBlocksAndNamesFile(t *testing.T) 
 	}
 }
 
-// TestRegistryMatchesHookspec only asserts the name is present; dispatch itself is untested there.
-func TestWorkflowLintRegistryDispatches(t *testing.T) {
-	code := Run("workflow-lint", strings.NewReader(`{"tool_name":"Agent","tool_input":{}}`), &bytes.Buffer{}, &bytes.Buffer{})
+// The registry row for agent-effort serves the same pin step directly (`claude-code hook agent-effort`).
+func TestAgentEffortRegistryDispatches(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	code := Run("agent-effort", strings.NewReader(`{"tool_name":"Agent","tool_input":{}}`), &bytes.Buffer{}, &bytes.Buffer{})
 	if code != ExitProceed {
-		t.Fatalf("Run(\"workflow-lint\", ...) on an Agent payload = %d, want ExitProceed", code)
+		t.Fatalf("Run(\"agent-effort\", ...) on an Agent payload = %d, want ExitProceed", code)
 	}
 }

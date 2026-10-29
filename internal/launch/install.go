@@ -90,6 +90,7 @@ func DoctorChecks() (checks []Check, ok bool) {
 	for _, q := range quotaDoctorRows(time.Now()) {
 		check(true, false, q.Name, q.Detail)
 	}
+	check(true, false, "in-flight", inflightDoctorDetail())
 	check(true, false, "proxy", routerStatus())
 	check(true, false, "rtk compressor", rtkDoctorStatus())
 	tsOK, tsDetail := tailscale.Doctor(context.Background())

@@ -63,7 +63,7 @@ var writers = map[string]string{
 	"internal/history/history.go:Snapshot":                         unversioned("text: session history snapshot of a transcript"),
 	"internal/hooks/checkpoint.go:contextCheckpoint":               unversioned("marker: context-checkpoint flag file"),
 	"internal/hooks/codexaudit.go:appendCodexRoute":                "codex-routing",
-	"internal/hooks/inflight.go:writeMarker":                       unversioned("marker: in-flight dispatch marker"),
+	"internal/inflight/limiter.go:writeMarker":                     unversioned("marker: in-flight dispatch marker (account key)"),
 	"internal/hooks/memory.go:writeChain":                          unversioned("text: last-session chain stamp"),
 	"internal/hooks/memory.go:writeCountState":                     unversioned("text: edit count stamp"),
 	"internal/hooks/memory.go:writeSidecar":                        unversioned("text: harvest sidecar text"),
