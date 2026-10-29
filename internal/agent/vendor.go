@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"slices"
 	"strings"
 
@@ -477,13 +478,16 @@ func (copilotRunner) Run(ctx context.Context, req Request, stream io.Writer) (Re
 	if err := applyCopilotToken(&opts, own, env); err != nil {
 		return res, &Error{Kind: KindFatal, Agent: "copilot", Err: err}
 	}
-	// @<path> works for the copilot CLI directly, but not through the SDK's own prompt parsing (live-confirmed:
-	// the SDK never resolved the reference, unlike the CLI's `-p` form) — fall back to the inline block.
-	copilotPrompt, err := attachInline(req.Prompt, req.Attach)
+	// the SDK never resolves @<path>: images ride SDK file attachments, text files the inline block
+	images, rest := splitImages(req.Attach)
+	if images, err = absPaths(images); err != nil {
+		return res, &Error{Kind: KindFatal, Agent: "copilot", Err: err}
+	}
+	copilotPrompt, err := attachInline(req.Prompt, rest)
 	if err != nil {
 		return res, &Error{Kind: KindFatal, Agent: "copilot", Err: err}
 	}
-	out, err := copilotAsk(ctx, opts, copilotPrompt)
+	out, err := copilotAsk(ctx, opts, copilotPrompt, images)
 	lg := eventLogFor(ctx)
 	if err != nil {
 		lg.emit("error", err.Error())
@@ -530,3 +534,16 @@ func directCtx(ctx context.Context, req Request) context.Context {
 
 // copilotAsk is the SDK call, a var so tests reach the agent's result handling without a copilot binary.
 var copilotAsk = copilotsdk.Ask
+
+// absPaths makes each path absolute (the SDK sends them to a runtime with its own working directory).
+func absPaths(paths []string) ([]string, error) {
+	out := make([]string, len(paths))
+	for i, p := range paths {
+		abs, err := filepath.Abs(p)
+		if err != nil {
+			return nil, err
+		}
+		out[i] = abs
+	}
+	return out, nil
+}

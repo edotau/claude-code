@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -274,7 +275,7 @@ func newOrResumedSession(ctx context.Context, client *copilot.Client, o Options)
 }
 
 // Ask runs one prompt to completion; assistant events arrive on the SDK goroutine, hence the mutex.
-func Ask(ctx context.Context, o Options, prompt string) (result Result, err error) {
+func Ask(ctx context.Context, o Options, prompt string, images []string) (result Result, err error) {
 	if strings.TrimSpace(prompt) == "" {
 		return Result{}, errors.New("empty prompt")
 	}
@@ -321,7 +322,7 @@ func Ask(ctx context.Context, o Options, prompt string) (result Result, err erro
 	})
 	defer unsubscribe()
 
-	msgOpts := copilot.MessageOptions{Prompt: prompt}
+	msgOpts := copilot.MessageOptions{Prompt: prompt, Attachments: fileAttachments(images)}
 	if o.Autonomous {
 		msgOpts.AgentMode = copilot.AgentModeAutopilot
 	}
@@ -334,4 +335,13 @@ func Ask(ctx context.Context, o Options, prompt string) (result Result, err erro
 		return res, fmt.Errorf("send prompt: %w", sendErr)
 	}
 	return res, nil
+}
+
+// fileAttachments wraps absolute paths as SDK file attachments (the runtime reads and sends images natively).
+func fileAttachments(paths []string) []copilot.Attachment {
+	var out []copilot.Attachment
+	for _, p := range paths {
+		out = append(out, &copilot.AttachmentFile{Path: p, DisplayName: filepath.Base(p)})
+	}
+	return out
 }
