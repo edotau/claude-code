@@ -3,6 +3,7 @@ package settings
 import (
 	"bytes"
 	"encoding/json"
+	"os"
 	"slices"
 	"strings"
 	"testing"
@@ -108,5 +109,34 @@ func TestMergeSectionsMergesDisjointKeysInNameOrder(t *testing.T) {
 	}
 	if string(o.vals["alpha"]) != `"one"` || string(o.vals["beta"]) != `"two"` {
 		t.Errorf("vals = %v", o.vals)
+	}
+}
+
+// The env block holds only env-only variables: one the schema documents as a settings key's override belongs in that key.
+func TestEnvHoldsOnlyEnvOnlyVariables(t *testing.T) {
+	raw, err := templateFS.ReadFile("template/40-env.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var tmpl struct{ Env map[string]string }
+	if err := json.Unmarshal(raw, &tmpl); err != nil {
+		t.Fatal(err)
+	}
+	sraw, err := os.ReadFile("testdata/claude-code-settings.schema.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var schema struct {
+		Properties map[string]struct{ Description string } `json:"properties"`
+	}
+	if err := json.Unmarshal(sraw, &schema); err != nil {
+		t.Fatal(err)
+	}
+	for name := range tmpl.Env {
+		for key, p := range schema.Properties {
+			if key != "env" && strings.Contains(p.Description, name) {
+				t.Errorf("env %s has a settings key (%s): set the key in its template section instead", name, key)
+			}
+		}
 	}
 }
