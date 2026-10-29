@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/edotau/claude-code/internal/hookspec"
@@ -142,13 +143,15 @@ func matches(matcher, tool string) bool {
 }
 
 // runBudgeted runs one Runner under its deadline with panic recovery; a panic or overrun is an error.
-func runBudgeted(b Bound, in *Input) (Result, error) {
+func runBudgeted(b Bound, in *Input, wg *sync.WaitGroup) (Result, error) {
 	type outcome struct {
 		r   Result
 		err error
 	}
 	done := make(chan outcome, 1)
+	wg.Add(1)
 	go func() {
+		defer wg.Done()
 		defer func() {
 			if p := recover(); p != nil {
 				done <- outcome{err: fmt.Errorf("panic: %v", p)}
@@ -174,6 +177,8 @@ func Dispatch(bound []Bound, event string, in *Input, log io.Writer) (Result, er
 	var merged Result
 	var ctx, sys, errs []string
 	var firstErr error
+	var wg sync.WaitGroup
+	var longest time.Duration
 	fail := func(err error) {
 		fmt.Fprintln(log, "hook dispatch:", err)
 		if firstErr == nil {
@@ -184,7 +189,8 @@ func Dispatch(bound []Bound, event string, in *Input, log io.Writer) (Result, er
 		if b.Spec.Event != event || !matches(b.Spec.Matcher, in.ToolName) {
 			continue
 		}
-		r, err := runBudgeted(b, in)
+		longest = max(longest, b.Spec.Budget)
+		r, err := runBudgeted(b, in, &wg)
 		if err != nil {
 			fmt.Fprintf(log, "hook dispatch: %s/%s %v (skipped)\n", b.Group, b.Spec.Name, err)
 			continue
@@ -213,7 +219,8 @@ func Dispatch(bound []Bound, event string, in *Input, log io.Writer) (Result, er
 			merged.Stdout = r.Stdout
 		}
 	}
-	merged.Context = strings.Join(ctx, "\n\n")
+	drain(&wg, longest, log)
+	merged.Context = capContext(strings.Join(ctx, "\n\n"))
 	merged.SystemMessage = strings.Join(sys, "; ")
 	merged.Stderr = strings.Join(errs, "\n")
 	return merged, firstErr
@@ -267,4 +274,27 @@ func RunEvent(event string, noOwn bool, stdin io.Reader, stdout, stderr io.Write
 	}
 	res, _ := Dispatch(bound, event, in, stderr)
 	return Emit(in.Vendor(), event, res, stdout, stderr)
+}
+
+// drain waits, bounded by one more longest-budget period, for overrun handlers so none still runs at output time.
+func drain(wg *sync.WaitGroup, longest time.Duration, log io.Writer) {
+	if longest <= 0 {
+		longest = 5 * time.Second
+	}
+	done := make(chan struct{})
+	go func() { wg.Wait(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(longest):
+		fmt.Fprintln(log, "hook dispatch: an overrun handler is still running at exit")
+	}
+}
+
+// capContext trims merged context to contextCapChars, cutting the later blocks first.
+func capContext(s string) string {
+	r := []rune(s)
+	if len(r) <= contextCapChars {
+		return s
+	}
+	return string(r[:contextCapChars]) + "…truncated"
 }
