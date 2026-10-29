@@ -112,26 +112,26 @@ func TestWriteDoctorNoticeCachesFirstProblem(t *testing.T) {
 func TestLogAccessAndAccessStats(t *testing.T) {
 	dir := t.TempDir()
 	day1 := time.Date(2026, 1, 1, 10, 0, 0, 0, time.UTC)
-	LogAccess(dir, day1, "bank:decisionLog.md", "prompt-recall inject")
-	LogAccess(dir, day1.AddDate(0, 0, 1), "bank:decisionLog.md", "prompt-recall inject")
-	LogAccess(dir, day1.AddDate(0, 0, 2), "bank:decisionLog.md", "prompt-recall inject")
-	LogAccess(dir, day1, "bank:conventions.md", "prompt-recall inject")
+	LogAccess(dir, day1, "aa11bb22", AccessRecall)
+	LogAccess(dir, day1.AddDate(0, 0, 1), "aa11bb22", AccessRecall)
+	LogAccess(dir, day1.AddDate(0, 0, 2), "aa11bb22", AccessRecall)
+	LogAccess(dir, day1, "cc33dd44", AccessRecall)
 
 	stats, oldest := AccessStats(dir, day1.AddDate(0, 0, 2), 30)
 	if oldest.IsZero() || !oldest.Equal(day1) {
 		t.Errorf("oldest = %v want %v", oldest, day1)
 	}
-	if s := stats["bank:decisionLog.md"]; s.Count != 3 || s.Days != 3 {
+	if s := stats["aa11bb22"]; s.Count != 3 || s.Days != 3 {
 		t.Errorf("decisionLog stat %+v", s)
 	}
-	if s := stats["bank:conventions.md"]; s.Count != 1 || s.Days != 1 {
+	if s := stats["cc33dd44"]; s.Count != 1 || s.Days != 1 {
 		t.Errorf("conventions stat %+v", s)
 	}
 }
 
 func TestLogAccessRedactsCredentialShapedReason(t *testing.T) {
 	dir := t.TempDir()
-	LogAccess(dir, time.Now(), "bank:decisionLog.md", "leaked sk-abcdefghijklmnop in reason")
+	LogAccess(dir, time.Now(), "aa11bb22", "leaked sk-abcdefghijklmnop in reason")
 	data := mustRead(t, filepath.Join(dir, AccessLogFile))
 	if strings.Contains(data, "sk-abcdefghijklmnop") {
 		t.Error("a credential-shaped reason must be redacted, not logged verbatim")
@@ -146,17 +146,17 @@ func TestAccessNominationsHotAndCold(t *testing.T) {
 	now := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
 	dir := HomeBankDir()
 	for d := range 5 {
-		LogAccess(dir, now.AddDate(0, 0, -d), "bank:decisionLog.md", "prompt-recall inject")
+		LogAccess(dir, now.AddDate(0, 0, -d), "aa11bb22", AccessRecall)
 	}
 	// Log must cover > coldDays for a cold nomination to fire at all.
-	LogAccess(dir, now.AddDate(0, 0, -(coldDays+5)), "bank:progress.md", "prompt-recall inject")
+	LogAccess(dir, now.AddDate(0, 0, -(coldDays+5)), "ee55ff66", AccessRecall)
 
 	noms := AccessNominations(now)
 	joined := strings.Join(noms, "\n")
-	if !strings.Contains(joined, "decisionLog.md: hot") {
+	if !strings.Contains(joined, "home/aa11bb22: hot") {
 		t.Errorf("want a hot nomination, got %v", noms)
 	}
-	if !strings.Contains(joined, "progress.md: not recalled") {
+	if !strings.Contains(joined, "home/ee55ff66: not recalled") {
 		t.Errorf("want a cold nomination, got %v", noms)
 	}
 }

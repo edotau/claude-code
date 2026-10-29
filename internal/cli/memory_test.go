@@ -714,3 +714,39 @@ func TestMemoryUpdateLiveSession(t *testing.T) {
 		t.Errorf("no session: code=%d out=%q, want the procedure, not a dry run", code, out)
 	}
 }
+
+// `memory show` and `memory search` append id-keyed lines with their reasons to the owning bank's access log.
+func TestMemoryShowAndSearchLogAccess(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("CLAUDE_PROJECT_DIR", "")
+	t.Chdir(t.TempDir()) // a non-repo cwd: search rides the home bank
+	bank := filepath.Join(memory.HomeBankDir(), "decisionLog.md")
+	if err := os.MkdirAll(filepath.Dir(bank), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body := "# D\n\n## 2026-10-01 — Zebra quota limiter choice <!-- id:abcd1234 -->\n\nzebra quota limiter fallback rationale\n"
+	if err := os.WriteFile(bank, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	code, out, _ := captureOutput(t, func() int { return cmdMemory([]string{"show", "abcd1234"}) })
+	if code != 0 || !strings.Contains(out, "Zebra quota limiter choice") {
+		t.Fatalf("memory show: code=%d out=%q", code, out)
+	}
+	code, out, _ = captureOutput(t, func() int { return cmdMemory([]string{"search", "zebra quota limiter"}) })
+	if code != 0 || !strings.Contains(out, "decisionLog.md") {
+		t.Fatalf("memory search: code=%d out=%q", code, out)
+	}
+
+	data, err := os.ReadFile(memory.AccessLogPath(memory.HomeBankDir()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	log := string(data)
+	if !strings.Contains(log, "abcd1234 -- "+memory.AccessShow) {
+		t.Errorf("show return not logged id-keyed: %q", log)
+	}
+	if !strings.Contains(log, "abcd1234 -- "+memory.AccessSearch) {
+		t.Errorf("search return not logged id-keyed: %q", log)
+	}
+}

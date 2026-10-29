@@ -1,6 +1,8 @@
 package memory
 
 import (
+	"bufio"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,11 +15,20 @@ import (
 // `AccessNominations` reads. Bank-adjacent beacon — NOT a typed memory file; never injected.
 const AccessLogFile = "access.log"
 
+// Access reasons distinguishing recall injections from explicit CLI returns.
 const (
-	accessEntryMax   = 120
-	accessReasonMax  = 60
-	accessLogMaxByte = 256 << 10
-	accessLogKeep    = 2000 // newest lines kept when the size cap trims
+	AccessRecall = "prompt-recall inject"
+	AccessSearch = "memory search"
+	AccessShow   = "memory show"
+)
+
+const (
+	accessEntryMax    = 120
+	accessReasonMax   = 60
+	accessLogMaxByte  = 256 << 10
+	accessLogKeep     = 2000 // newest lines kept when the size cap trims
+	accessRotateDays  = 30
+	accessGenerations = 3
 )
 
 // LogAccess appends one `<RFC3339> -- <entry> -- <reason>` line to dir's access log. Fail-open:
@@ -47,6 +58,7 @@ func LogAccessBatch(dir string, now time.Time, entries []string, reason string) 
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return // log dir not scaffolded yet — fail-open, same as every other LogAccess error path
 	}
+	maybeRotateAccessLog(path, now)
 	maybeTrimAccessLog(path)
 	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 	if err != nil {
@@ -54,6 +66,35 @@ func LogAccessBatch(dir string, now time.Time, entries []string, reason string) 
 	}
 	defer f.Close()
 	_, _ = f.WriteString(lines.String())
+}
+
+// maybeRotateAccessLog rotates the active log when its first entry is older than accessRotateDays.
+func maybeRotateAccessLog(path string, now time.Time) {
+	if now.IsZero() {
+		return
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	scanner := bufio.NewScanner(f)
+	if !scanner.Scan() {
+		return
+	}
+	parts := strings.SplitN(scanner.Text(), " -- ", 2)
+	if len(parts) == 0 {
+		return
+	}
+	ts, err := time.Parse(time.RFC3339, parts[0])
+	if err != nil || !ts.Before(now.AddDate(0, 0, -accessRotateDays)) {
+		return
+	}
+	_ = f.Close()
+	for i := accessGenerations - 1; i >= 1; i-- {
+		_ = os.Rename(fmt.Sprintf("%s.%d", path, i), fmt.Sprintf("%s.%d", path, i+1))
+	}
+	_ = os.Rename(path, path+".1")
 }
 
 // sanitizeField makes a value single-line, bounded, delimiter-free: "--" becomes an em dash so a
@@ -102,10 +143,11 @@ type AccessStat struct {
 // AccessStats parses dir's access log into entry → AccessStat (Days = distinct UTC days in
 // (now-windowDays, now]). 2nd return is the OLDEST timestamp — the cold-entry gate needs log > horizon.
 func AccessStats(dir string, now time.Time, windowDays int) (map[string]AccessStat, time.Time) {
-	data, err := os.ReadFile(AccessLogPath(dir))
-	if err != nil {
-		return map[string]AccessStat{}, time.Time{}
-	}
+	return accessStatsAt(AccessLogPath(dir), now, windowDays)
+}
+
+// accessStatsAt parses the log path and its rotated generations (.3, .2, .1, active).
+func accessStatsAt(path string, now time.Time, windowDays int) (map[string]AccessStat, time.Time) {
 	windowStart := time.Time{}
 	if windowDays > 0 && !now.IsZero() {
 		windowStart = now.AddDate(0, 0, -windowDays)
@@ -113,19 +155,10 @@ func AccessStats(dir string, now time.Time, windowDays int) (map[string]AccessSt
 	stats := map[string]AccessStat{}
 	days := map[string]map[string]bool{} // entry → set of in-window UTC days
 	oldest := time.Time{}
-	for line := range strings.SplitSeq(string(data), "\n") {
-		parts := strings.SplitN(line, " -- ", 3)
-		if len(parts) < 2 {
-			continue
-		}
-		ts, err := time.Parse(time.RFC3339, parts[0])
-		if err != nil {
-			continue
-		}
+	eachAccessLine(path, func(ts time.Time, entry, _ string) {
 		if oldest.IsZero() || ts.Before(oldest) {
 			oldest = ts
 		}
-		entry := parts[1]
 		s := stats[entry]
 		s.Count++
 		if ts.After(s.Newest) {
@@ -139,8 +172,98 @@ func AccessStats(dir string, now time.Time, windowDays int) (map[string]AccessSt
 		}
 		s.Days = len(days[entry])
 		stats[entry] = s
-	}
+	})
 	return stats, oldest
+}
+
+// eachAccessLine calls fn per parsed line of path's generations, oldest first, then the active log.
+func eachAccessLine(path string, fn func(ts time.Time, entry, reason string)) {
+	for i := accessGenerations; i >= 0; i-- {
+		p := path
+		if i > 0 {
+			p = fmt.Sprintf("%s.%d", path, i)
+		}
+		data, err := os.ReadFile(p)
+		if err != nil {
+			continue
+		}
+		for line := range strings.SplitSeq(string(data), "\n") {
+			parts := strings.SplitN(line, " -- ", 3)
+			if len(parts) < 2 {
+				continue
+			}
+			ts, err := time.Parse(time.RFC3339, parts[0])
+			if err != nil {
+				continue
+			}
+			reason := ""
+			if len(parts) == 3 {
+				reason = strings.TrimSpace(parts[2])
+			}
+			fn(ts, parts[1], reason)
+		}
+	}
+}
+
+// ReturnCounts counts per entry the searches and shows of the last 30 days in dirs' logs; recall injections excluded.
+func ReturnCounts(dirs []string, now time.Time) map[string]int {
+	counts := map[string]int{}
+	cutoff := now.AddDate(0, 0, -accessRotateDays)
+	seen := map[string]bool{}
+	for _, dir := range dirs {
+		path := AccessLogPath(dir)
+		if dir == "" || seen[path] {
+			continue
+		}
+		seen[path] = true
+		eachAccessLine(path, func(ts time.Time, entry, reason string) {
+			if ts.After(cutoff) && (reason == AccessSearch || reason == AccessShow) {
+				counts[entry]++
+			}
+		})
+	}
+	return counts
+}
+
+// LogHits logs access for matching search hits grouped by each hit's owning bank directory.
+func LogHits(root string, hits []SearchHit, reason string, now time.Time) {
+	if len(hits) == 0 {
+		return
+	}
+	grouped := map[string][]string{}
+	for _, h := range hits {
+		key := EntryFromHit(h).ID
+		if key == "" {
+			continue
+		}
+		var dir string
+		switch h.Bank {
+		case "local":
+			dir = Dir(root)
+		case "home", "native", "archive", "knowledge", "":
+			dir = HomeBankDir()
+		default:
+			dir = filepath.Join(StoreDir(), h.Bank)
+		}
+		grouped[dir] = append(grouped[dir], key)
+	}
+	for dir, entries := range grouped {
+		LogAccessBatch(dir, now, entries, reason)
+	}
+}
+
+// LogShown logs access for a single shown block.
+func LogShown(path, id, reason string, now time.Time) {
+	if id == "" {
+		return
+	}
+	dir := HomeBankDir()
+	if rel, ok := InsideStore(path); ok {
+		if first, _, _ := strings.Cut(rel, "/"); first != "" && first != "." {
+			dir = filepath.Join(StoreDir(), first)
+		}
+	}
+	LogAccess(dir, now, id, reason)
 }
 
 // AccessLogPath is dir's recall trace: state/harness/memory/access/<key>.log for a store dir (state, never

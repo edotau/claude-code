@@ -33,6 +33,8 @@ const (
 	recallCosineLow     = 0.45
 	recallCosineHigh    = 0.75
 	recallCosineAdmit   = 0.62
+	recallAccessBoost   = 0.1
+	recallAccessCap     = 5
 )
 
 // MemoryRecall (UserPromptSubmit) injects the best memory-bank entries for the prompt: two whole, the rest as
@@ -75,15 +77,16 @@ func MemoryRecall(r io.Reader, stdout io.Writer) int {
 	if len(ranked) == 0 {
 		return ExitProceed
 	}
-	picks := selectRecall(in.SessionID, terms, ranked, sem, semSeen)
+	now := time.Now()
+	counts := memory.ReturnCounts([]string{memory.Dir(root), memory.HomeBankDir()}, now)
+	picks := selectRecall(in.SessionID, terms, ranked, sem, semSeen, counts)
 	if len(picks) == 0 {
 		return ExitProceed
 	}
 	var b strings.Builder
 	b.WriteString("<!-- memory-recall: matching bank entries; expand a pointer: claude-code memory search <id> -->")
-	now := time.Now()
-	access := map[string][]string{}
 	var bodies []memory.SearchHit
+	allHits := make([]memory.SearchHit, 0, len(picks))
 	for i, p := range picks {
 		if i < recallBodies {
 			fmt.Fprintf(&b, "\n- [%s/%s] %s", p.e.Bank, p.e.File, recallCut(recallFlat(p.e), recallBodyCapRunes))
@@ -91,12 +94,9 @@ func MemoryRecall(r io.Reader, stdout io.Writer) int {
 		} else {
 			fmt.Fprintf(&b, "\n- %s", p.e.Pointer())
 		}
-		dir := logDirFor(root, p.e.Bank)
-		access[dir] = append(access[dir], p.e.Bank+":"+p.e.File)
+		allHits = append(allHits, p.hit)
 	}
-	for dir, entries := range access {
-		memory.LogAccessBatch(dir, now, entries, "prompt-recall inject")
-	}
+	memory.LogHits(root, allHits, memory.AccessRecall, now)
 	memory.MarkSeen(in.SessionID, bodies) // a pointer is not in context yet, so it may still earn a body later
 	if out := MergeContext(hookspec.EventUserPromptSubmit, []string{memory.CapChars(b.String(), recallTotalCapChars)}, in.Vendor()); out != "" {
 		fmt.Fprintln(stdout, out)
@@ -132,7 +132,7 @@ func recallFlat(e memory.Entry) string {
 
 // selectRecall filters, scores and orders the ranked hits: superseded and already-seen entries drop, archive is
 // consulted only when no current entry clears the gate, and the survivors come back decisions first, newest first.
-func selectRecall(sessionID string, terms []string, ranked []memory.SearchHit, sem *memory.Semantic, semSeen bool) []recallPick {
+func selectRecall(sessionID string, terms []string, ranked []memory.SearchHit, sem *memory.Semantic, semSeen bool, counts map[string]int) []recallPick {
 	need := recallNeed(terms)
 	seen := memory.SeenBlocks(sessionID)
 	for _, archived := range []bool{false, true} {
@@ -140,7 +140,7 @@ func selectRecall(sessionID string, terms []string, ranked []memory.SearchHit, s
 		if archived {
 			tierSem = nil // archive entries carry no vectors
 		}
-		picks, passed := pickTier(ranked, archived, need, seen, tierSem)
+		picks, passed := pickTier(ranked, archived, need, seen, tierSem, counts)
 		if len(picks) > 0 {
 			orderRecall(picks)
 			return picks
@@ -153,7 +153,7 @@ func selectRecall(sessionID string, terms []string, ranked []memory.SearchHit, s
 }
 
 // pickTier scores one tier (current or archive): keyword gate, or the semantic admit, then the relative floor.
-func pickTier(ranked []memory.SearchHit, archived bool, need int, seen map[string]bool, sem *memory.Semantic) (out []recallPick, passed bool) {
+func pickTier(ranked []memory.SearchHit, archived bool, need int, seen map[string]bool, sem *memory.Semantic, counts map[string]int) (out []recallPick, passed bool) {
 	var cands []recallPick
 	top, topAny := 0.0, 0.0
 	for _, h := range ranked {
@@ -190,6 +190,7 @@ func pickTier(ranked []memory.SearchHit, archived bool, need int, seen map[strin
 			}
 		}
 		if kwOK {
+			c.score += recallAccessBoost * float64(min(counts[c.e.ID], recallAccessCap)) / recallAccessCap
 			pool = append(pool, c)
 		}
 	}
@@ -248,16 +249,6 @@ func relevantTermHits(sessionID string, terms []string, ranked []memory.SearchHi
 		}
 	}
 	return out
-}
-
-// logDirFor is the access-log dir for a recall hit's bank: local hits log beside the local bank
-// (a per-repo audit trail); home and native hits log beside the shared home bank, since that is
-// the one access log AccessNominations reads.
-func logDirFor(root, bank string) string {
-	if bank == "local" {
-		return memory.Dir(root)
-	}
-	return memory.HomeBankDir()
 }
 
 // distinctTokenCount gates searches on distinct tokens of at least 3 bytes, without affecting ranking.

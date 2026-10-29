@@ -118,6 +118,30 @@ func TestRelevantHitsGatesOnMatchedTerms(t *testing.T) {
 	}
 }
 
+// The access boost breaks keyword ties toward the returned-to entry, but a returned-to entry the
+// keyword/semantic gate rejects is still not admitted.
+func TestPickTierAccessBoost(t *testing.T) {
+	hit := func(id string, score float64, matched int) memory.SearchHit {
+		return memory.SearchHit{Score: score, Matched: matched, Bank: "home", File: "decisionLog.md",
+			Block: "## 2026-10-01 — Zebra quota " + id + " <!-- id:" + id + " -->\n\nzebra quota limiter fallback"}
+	}
+	ranked := []memory.SearchHit{hit("aa000001", 10, 3), hit("bb000002", 10, 3)}
+	picks, passed := pickTier(ranked, false, 3, nil, nil, map[string]int{"bb000002": 3})
+	if !passed || len(picks) != 2 || picks[0].e.ID != "bb000002" {
+		t.Fatalf("the returned-to entry must rank first: %+v (passed %v)", picks, passed)
+	}
+	picks, _ = pickTier(ranked, false, 3, nil, nil, nil)
+	if len(picks) != 2 || picks[0].e.ID != "aa000001" {
+		t.Fatalf("without returns the stable keyword order must hold: %+v", picks)
+	}
+
+	weak := []memory.SearchHit{hit("aa000001", 10, 3), hit("cc000003", 2, 1)}
+	picks, _ = pickTier(weak, false, 3, nil, nil, map[string]int{"cc000003": recallAccessCap})
+	if len(picks) != 1 || picks[0].e.ID != "aa000001" {
+		t.Fatalf("a returned-to entry failing the gate must not be admitted: %+v", picks)
+	}
+}
+
 // TestMemoryRecallHandlesCwdGracefully: MemoryRecall must handle missing or invalid CWD
 // by using os.Getwd as a fallback. Regression test for defect where os.Getwd error was
 // swallowed with _, leaving root empty and degrading recall accuracy.
