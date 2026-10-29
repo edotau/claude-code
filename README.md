@@ -57,8 +57,9 @@ claude-code theme vscode [--check|--dry-run]             # merge VS Code setting
   `configure` mints `claude setup-token` into the vault as `CLAUDE_CODE_OAUTH_TOKEN`.
 - Agent CLI configs are merged, never replaced: `~/.codex/config.toml`, `~/.gemini/antigravity-cli/settings.json`,
   Codex/Copilot hooks. Keys are referenced by env var, exported only by a routed launch. opencode's own
-  `~/.config/opencode/` is never written (its model/MCP/theme come from a tracked overlay, `OPENCODE_CONFIG` /
-  `OPENCODE_TUI_CONFIG`, injected at launch — `internal/vendors/template/`).
+  `~/.config/opencode/` is written only for the custom theme file and the agent files `agents sync` projects into
+  `agents/` (its model/MCP/theme config come from a tracked overlay, `OPENCODE_CONFIG` / `OPENCODE_TUI_CONFIG`,
+  injected at launch — `internal/vendors/template/`).
 - On a terminal, `configure --reset` prompts before overwriting hand-edited lines it would otherwise lose; a
   non-interactive run (launch, `configure`, `make install`) writes and warns instead. Each overwrite keeps 5
   timestamped backups; `configure --restore` steps an agent CLI file back one version at a time.
@@ -273,7 +274,9 @@ Native Codex `spawn_agent` calls use the existing Codex routing cells when launc
 profile with a validated model catalog. Only explicitly fresh children (`fork_turns="none"` or
 `fork_context=false`) with no model/effort pin or custom agent type qualify. The child keeps its inherited
 provider; the selected model must support Responses and be listed in that session's catalog. Exact provider
-model IDs and all other spawn arguments are preserved.
+model IDs and all other spawn arguments are preserved. A vault `CODEX_MODEL` or `CODEX_EFFORT` pin disables child
+routing for the whole session; `claude-code models --unpin` clears every
+vault pin.
 
 Codex-only hooks record session starts, routing decisions, spawn results, and child models under
 `state/harness/codex/routing-<session-hash>.jsonl` (0600), without prompts or raw payloads. A decision is
@@ -330,7 +333,8 @@ claude-code usage --days 7                             # subagent token usage; c
   `models` remains a compatibility alias for `catalog`; top-level `claude-code models` is unchanged.
 - `ask --format json` prints one envelope: `agent`, `status` (`ok|error|partial|quota|stalled`), `model`, `answer`,
   `usage`, `duration_ms`, `fallback*`, `handoff` and `transport` (attempts, retries, first-event and max-gap ms).
-  Claude-only isolation flags: `--no-persist`, `--safe-mode`, `--debug-file <path>`.
+  Isolation flags by agent: `--no-persist` (claude, codex), `--safe-mode` (claude, codex, opencode),
+  `--debug-file <path>` (claude, gemini).
 - `opencode` on a Databricks row runs three providers: `<row>` (chat), `<row>-gpt` (Responses) and `<row>-claude`
   (native Anthropic); a `--model` not on the row's menu is refused. An `ai-gateway` row has no openai route, so its
   chat models (and the copilot registry's) are left out with a one-line note.
@@ -374,6 +378,10 @@ Declared in `internal/hookspec/hookspec.go`, implemented in `internal/hooks/`. T
 | `session-harvest[-end]` / `pre-compact` | Stop / SessionEnd / PreCompact | Saves the session into the memory bank |
 | `access-trace` | PostToolUse Read | Logs bank reads for `memory review` |
 | `worktree-create` / `-remove` | Worktree* | Under `~/worktrees/<repo>/`; refuses dirty removals |
+| `codex-agent-route` | PreToolUse `spawn_agent` | Codex only: fills a fresh, unpinned child's model from the routing cells |
+| `codex-routing-result` | PostToolUse `spawn_agent` | Codex only: records the spawn result for the routing log |
+| `codex-routing-start` | SessionStart | Codex only: records the session start for the routing log |
+| `codex-subagent-start` | SubagentStart | Codex only: records the child's model, joining it to the routing decision |
 
 Hook commands rendered into `~/.codex` carry a `HARNESS_HOOK_AGENT=codex` prefix; any `HARNESS_HOOK_*` prefix counts as
 harness-owned on re-render.
