@@ -137,7 +137,11 @@ func (r *Resolver) within(m *Mount, rest, raw string) (string, bool) {
 		return "", false
 	}
 	if raw != "" {
-		return cleanLocal(m.Point + "/" + raw), true
+		resolved := cleanLocal(m.Point + "/" + raw)
+		if owner, _ := r.mountFor(resolved); owner != m {
+			return "", false
+		}
+		return resolved, true
 	}
 	return cleanLocal(local), true
 }

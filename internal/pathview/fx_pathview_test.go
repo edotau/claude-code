@@ -69,3 +69,28 @@ func TestRemoteDotDotCannotLeaveMountRoot(t *testing.T) {
 		t.Errorf("Resolve = %q, %v; want %q", got, ok, want)
 	}
 }
+
+func TestRemoteDotDotSymlinkCannotEscapeMount(t *testing.T) {
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, d := range []string{"nas", "other/sub"} {
+		if err := os.MkdirAll(filepath.Join(root, d), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(root, "other", "secret"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(root, "other", "sub"), filepath.Join(root, "nas", "link")); err != nil {
+		t.Fatal(err)
+	}
+	r := &Resolver{Mounts: []Mount{
+		{Point: filepath.Join(root, "nas"), Kind: KindNFS, Host: "nas", RemotePath: "/export"},
+		{Point: filepath.Join(root, "other"), Kind: KindOpaque},
+	}}
+	if got, ok := r.Resolve("nas:/export/link/../secret"); ok {
+		t.Errorf("Resolve escaped the mount: %q", got)
+	}
+}
