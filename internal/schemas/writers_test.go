@@ -68,8 +68,6 @@ var writers = map[string]string{
 	"internal/hooks/memory.go:writeCountState":                     unversioned("text: edit count stamp"),
 	"internal/hooks/memory.go:writeSidecar":                        unversioned("text: harvest sidecar text"),
 	"internal/hooks/memory.go:writeStamp":                          unversioned("text: harvest stamp"),
-	"internal/hooks/plan.go:PlanMirror":                            unversioned("foreign: plan markdown in plans/"),
-	"internal/hooks/plan.go:SavePlan":                              unversioned("foreign: plan markdown in plans/"),
 	"internal/hooks/plan.go:PlanSkeleton":                          unversioned("text: plan skeleton injected marker"),
 	"internal/hooks/plantick.go:recordPartials":                    unversioned("text: partly landed plan tasks"),
 	"internal/hooks/plan.go:recordDest":                            unversioned("text: plan draft destination pointer"),

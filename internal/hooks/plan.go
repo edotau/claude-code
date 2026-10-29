@@ -69,7 +69,7 @@ func SavePlan(r io.Reader, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "save-plan: %v\n", err)
 		return ExitProceed
 	}
-	if err := os.WriteFile(dest, plan, 0o600); err != nil {
+	if err := plans.WriteFile(dest, plan); err != nil {
 		fmt.Fprintf(stderr, "save-plan: %v\n", err)
 		return ExitProceed
 	}
@@ -325,6 +325,18 @@ func readRecordedDest(draftBase string) (string, bool) {
 	return dest, dest != ""
 }
 
+// mirrorDests lists every unapproved draft's dated mirror, so plan-tick never ticks a plan still being drafted.
+func mirrorDests() []string {
+	recs, _ := filepath.Glob(filepath.Join(plansScratchDir(), "*.dest"))
+	var out []string
+	for _, r := range recs {
+		if dest, ok := readRecordedDest(strings.TrimSuffix(filepath.Base(r), ".dest")); ok {
+			out = append(out, dest)
+		}
+	}
+	return out
+}
+
 func recordDest(draftBase, dest string) error {
 	if err := os.MkdirAll(plansScratchDir(), 0o700); err != nil {
 		return err
@@ -366,7 +378,7 @@ func PlanMirror(r io.Reader, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "plan-mirror: %v\n", err)
 		return ExitProceed
 	}
-	if err := os.WriteFile(dest, content, 0o600); err != nil {
+	if err := plans.WriteFile(dest, content); err != nil {
 		fmt.Fprintf(stderr, "plan-mirror: %v\n", err)
 	}
 	return ExitProceed

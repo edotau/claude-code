@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/memory"
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/plans"
 )
 
@@ -43,7 +44,12 @@ func PlanTick(r io.Reader, stdout, stderr io.Writer) int {
 	if dir == "" {
 		return ExitProceed
 	}
-	plan, ok := plans.Active(plans.Home(memory.GitToplevel(dir)))
+	top := memory.GitToplevel(dir)
+	worktree := "" // a linked worktree's name, matched against task claims
+	if main := paths.MainCheckout(top); main != top {
+		worktree = filepath.Base(top)
+	}
+	plan, ok := plans.Active(plans.Home(top), worktree, mirrorDests())
 	if !ok {
 		return ExitProceed
 	}
