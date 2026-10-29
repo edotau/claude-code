@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -14,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agenttree"
 )
 
@@ -266,5 +268,47 @@ func TestHubRunStopsAndSkipsUnchanged(t *testing.T) {
 	case <-h.done:
 	default:
 		t.Fatal("h.done not closed after run returned")
+	}
+}
+
+// Regression: a client that connects and never reads is dropped by the per-frame write deadline.
+func TestEventsStalledClientIsDropped(t *testing.T) {
+	orig := sseWriteLimit
+	sseWriteLimit = 200 * time.Millisecond
+	t.Cleanup(func() { sseWriteLimit = orig })
+	f := newHubFixture(t)
+	h := f.s.treeHub()
+	waitFor(t, 5*time.Second, "first scan", func() bool { return h.latest() != nil })
+	h.publish([]byte(`{"pad":"` + strings.Repeat("x", 64<<20) + `"}` + "\n")) // far past the socket buffers
+
+	c, err := net.Dial("tcp", f.ts.Listener.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	if _, err := c.Write([]byte("GET /api/events HTTP/1.1\r\nHost: 127.0.0.1:7777\r\n\r\n")); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, 3*time.Second, "subscriber registered", func() bool { return h.subscribers() == 1 })
+	waitFor(t, 5*time.Second, "stalled subscriber dropped", func() bool { return h.subscribers() == 0 })
+}
+
+// Regression: a dispatch-record-only change rebuilds without waiting for the heartbeat.
+func TestEventsDispatchRecordChangeStreams(t *testing.T) {
+	origHB := scanHeartbeat
+	scanHeartbeat = time.Hour
+	t.Cleanup(func() { scanHeartbeat = origHB })
+	f := newHubFixture(t)
+	frames, _ := openEvents(t, f.ts.URL)
+	first := nextFrame(t, frames, 5*time.Second)
+
+	// finished-session's relay transcript names this id in an "ask: dispatch" line, so its leg comes from the record
+	rec := agent.NewRecord("codex", agent.Request{}, time.Date(2026, 10, 17, 23, 11, 31, 948_000_000, time.UTC))
+	rec.Status = "ok"
+	if err := rec.Save(); err != nil {
+		t.Fatal(err)
+	}
+	if second := nextFrame(t, frames, 3*time.Second); second == first {
+		t.Fatal("frame identical after a dispatch record appeared")
 	}
 }

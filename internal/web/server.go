@@ -111,6 +111,7 @@ func Run(ctx context.Context, opts Options) error {
 		WriteTimeout:      30 * time.Second,
 		IdleTimeout:       120 * time.Second,
 	}
+	srv.RegisterOnShutdown(stopHub) // hub exit closes h.done, which ends every open SSE stream
 	s.logger.Printf("web: listening on http://%s", s.boundAddr)
 	errc := make(chan error, 1)
 	go func() { errc <- srv.Serve(ln) }()

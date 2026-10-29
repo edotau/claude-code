@@ -267,8 +267,11 @@ function loadBrowsers() {
   }).catch(function () {});
 }
 
+let treeEpoch = 0; // bumped per SSE render; a fetch that began before one is stale and must not overwrite it
 function loadTree() {
+  const started = treeEpoch;
   fetch('/api/tree').then(function (r) { return r.json(); }).then(function (tree) {
+    if (treeEpoch !== started) return;
     document.getElementById('tree').innerHTML = renderTree(tree);
   }).catch(function () {});
 }
@@ -329,7 +332,7 @@ function watchTree() {
   if (!window.EventSource) return;
   const es = new EventSource('/api/events');
   es.addEventListener('tree', function (e) {
-    try { document.getElementById('tree').innerHTML = renderTree(JSON.parse(e.data)); treeLive = true; } catch (err) {}
+    try { const t = JSON.parse(e.data); treeEpoch++; document.getElementById('tree').innerHTML = renderTree(t); treeLive = true; } catch (err) {}
   });
   es.onerror = function () { treeLive = false; es.close(); };
 }

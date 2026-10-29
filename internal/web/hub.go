@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"hash/fnv"
 	"net/http"
 	"os"
@@ -12,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agenttree"
 )
 
@@ -21,6 +23,7 @@ var (
 	scanHeartbeat = 30 * time.Second // forced rebuild: catches pid deaths and clock-driven status changes
 	ssePing       = 20 * time.Second // SSE comment keep-alive so idle proxies keep the stream open
 	buildTree     = agenttree.Build  // the one full scan; a seam for counting builds
+	sseWriteLimit = 10 * time.Second // per-frame write deadline: a client that stops reading is dropped
 )
 
 // hub is the single tree scanner shared by every /api/events subscriber and /api/tree hit.
@@ -155,7 +158,7 @@ func (s *Server) treeJSON() ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-// treeFingerprint hashes name, mtime and size of every file agenttree.Build reads for in-window sessions.
+// treeFingerprint hashes name, mtime and size of every file agenttree.Build reads: sessions plus dispatch records.
 func (s *Server) treeFingerprint() uint64 {
 	root := s.opts.ClaudeDir
 	cutoff := time.Now().Add(-time.Duration(s.treeDays()) * 24 * time.Hour)
@@ -189,19 +192,22 @@ func (s *Server) treeFingerprint() uint64 {
 	for _, f := range regs {
 		add(f)
 	}
+	recs, _ := filepath.Glob(filepath.Join(agent.DispatchDir(), "*.json")) // buildLegs reads these records
+	for _, f := range recs {
+		add(f)
+	}
 	return h.Sum64()
 }
 
 // handleEvents serves /api/events: the current tree at once, then one `tree` frame per change.
 func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
-	fl, ok := w.(http.Flusher)
+	_, ok := w.(http.Flusher)
 	if !ok {
 		http.Error(w, "web: streaming unsupported", http.StatusInternalServerError)
 		return
 	}
 	rc := http.NewResponseController(w)
-	_ = rc.SetWriteDeadline(time.Time{}) // server timeouts would otherwise cut the stream; errors only on fakes
-	_ = rc.SetReadDeadline(time.Time{})
+	_ = rc.SetReadDeadline(time.Time{}) // the server read timeout would otherwise cut the stream; errors only on fakes
 	h := s.treeHub()
 	ch, cur := h.subscribe()
 	defer h.unsubscribe(ch)
@@ -217,7 +223,7 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	hd.Set("Cache-Control", "no-cache")
 	hd.Set("X-Accel-Buffering", "no")
 	sent := cur
-	if !writeTreeFrame(w, fl, cur) {
+	if !writeTreeFrame(rc, w, cur) {
 		return
 	}
 	ping := time.NewTicker(ssePing)
@@ -229,29 +235,35 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 		case <-h.done:
 			return
 		case <-ping.C:
-			if _, err := w.Write([]byte(": ping\n\n")); err != nil {
+			if !writeFlush(rc, w, []byte(": ping\n\n")) {
 				return
 			}
-			fl.Flush()
 		case <-ch:
 			next := h.latest()
 			if bytes.Equal(next, sent) {
 				continue
 			}
 			sent = next
-			if !writeTreeFrame(w, fl, next) {
+			if !writeTreeFrame(rc, w, next) {
 				return
 			}
 		}
 	}
 }
 
-// writeTreeFrame writes one `event: tree` frame (JSON is single-line, so one data: line) and flushes.
-func writeTreeFrame(w http.ResponseWriter, fl http.Flusher, payload []byte) bool {
-	frame := append(append([]byte("event: tree\ndata: "), bytes.TrimRight(payload, "\n")...), '\n', '\n')
-	if _, err := w.Write(frame); err != nil {
+// writeFlush writes b under a fresh bounded write deadline and flushes; false means drop the client.
+func writeFlush(rc *http.ResponseController, w http.ResponseWriter, b []byte) bool {
+	if err := rc.SetWriteDeadline(time.Now().Add(sseWriteLimit)); err != nil && !errors.Is(err, http.ErrNotSupported) {
 		return false
 	}
-	fl.Flush()
-	return true
+	if _, err := w.Write(b); err != nil {
+		return false
+	}
+	return rc.Flush() == nil
+}
+
+// writeTreeFrame writes one `event: tree` frame (JSON is single-line, so one data: line) and flushes.
+func writeTreeFrame(rc *http.ResponseController, w http.ResponseWriter, payload []byte) bool {
+	frame := append(append([]byte("event: tree\ndata: "), bytes.TrimRight(payload, "\n")...), '\n', '\n')
+	return writeFlush(rc, w, frame)
 }
