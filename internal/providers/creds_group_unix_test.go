@@ -137,9 +137,9 @@ func (zeroReader) Read(p []byte) (int, error) { clear(p); return len(p), nil }
 
 // Oversized stdout is rejected, not truncated into something that passes token validation.
 func TestRunAuthCommandRejectsOversizedStdout(t *testing.T) {
-	_, err := runAuthCommand(context.Background(), &Provider{Name: "big"}, "echo tok; head -c 1100000 /dev/zero | tr '\\0' ' '; echo two")
-	if err == nil {
-		t.Fatal("an auth command printing over 1 MiB must fail")
+	_, err := runAuthCommand(context.Background(), &Provider{Name: "big"}, "head -c 1100000 /dev/zero | tr '\\0' a")
+	if err == nil || !strings.Contains(err.Error(), "more than") {
+		t.Fatalf("err = %v, want the size-limit error for one token over 1 MiB", err)
 	}
 }
 
