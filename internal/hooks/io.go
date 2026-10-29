@@ -226,7 +226,6 @@ func hookContext(name string) (context.Context, context.CancelFunc) {
 // Registry maps hook verbs to handlers; names must match hookspec.Registry.
 var Registry = map[string]Handler{
 	"safety-scan":          SafetyScan,
-	"bash-guard":           SafetyScan, // codex/copilot hook files rendered before the rename; drop once re-rendered
 	"rtk":                  RTKRewrite,
 	"docs-placement":       func(in io.Reader, _, errw io.Writer) int { return DocsPlacement(in, errw) },
 	"session-start":        func(in io.Reader, out, _ io.Writer) int { return SessionStart(in, out) },
@@ -312,19 +311,8 @@ func RunArgs(name string, flags []string, stdin io.Reader, stdout, stderr io.Wri
 	return h(stdin, stdout, stderr)
 }
 
-// retiredHooks are removed hook names that vendor hook files rendered before the removal may still call.
-var retiredHooks = map[string]bool{
-	"access-trace": true, "agent-inflight": true, "agent-inflight-tag": true, "agent-routed": true,
-	"context-checkpoint": true, "rtk-wrap": true, "simplify-after-edits": true, "workflow-lint": true,
-	"session-harvest": true, "wsl-path-normalize": true,
-}
-
-// unknownHook: a retired name is a loud no-op; any other unknown name fails closed when it reads as a guard.
+// unknownHook fails closed when the unknown name reads as a guard; a stale vendor hook file must not drop its gate.
 func unknownHook(name string, stderr io.Writer) int {
-	if retiredHooks[name] {
-		fmt.Fprintf(stderr, "claude-code hook: %q was retired; re-run `claude-code install` to refresh vendor hook files\n", name)
-		return ExitProceed
-	}
 	fmt.Fprintf(stderr, "claude-code hook: unknown hook %q\n", name)
 	for _, w := range []string{"guard", "gate", "safety", "scan"} {
 		if strings.Contains(name, w) {
