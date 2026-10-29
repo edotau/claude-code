@@ -230,7 +230,6 @@ func vendorSubNodes(askFlags []flagInfo) map[string]*compNode {
 		"off":      {},
 		"setup":    {flags: []flagInfo{formatFlag()}},
 		"catalog":  {},
-		"models":   {},
 	}
 }
 

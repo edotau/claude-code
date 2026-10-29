@@ -597,8 +597,8 @@ var resolvePage = helptext.Page{
 		"Claude Code calls. --proxy prints the loopback proxy's client secret instead.",
 }
 
-// cmdToken is the apiKeyHelper: --proxy prints the loopback proxy's client secret instead.
-func cmdToken(args []string) int {
+// cmdResolve is the apiKeyHelper: --proxy prints the loopback proxy's client secret instead.
+func cmdResolve(args []string) int {
 	fs := helptext.NewFlagSet("resolve", resolvePage)
 	profile := fs.String("profile", "", "profile name")
 	viaRouter := fs.Bool("proxy", false, "print the loopback proxy client secret")

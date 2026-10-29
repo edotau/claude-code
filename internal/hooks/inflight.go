@@ -21,10 +21,6 @@ import (
 // AgentMaxInflight is the machine-wide cap on concurrent Agent dispatches (owner: 24 = 12 lanes × implementer + test).
 const AgentMaxInflight = 24
 
-// inflightTTL is the backstop for a marker whose owner cannot be probed (or parsed): a dispatch that
-// never reported stops counting after this long. Where the probe works, a dead owner retires it at once.
-const inflightTTL = inflight.TTL
-
 // inflightLockWait bounds the wait for the marker-dir lock; the hook itself is killed at 5 s.
 var inflightLockWait = 2 * time.Second
 

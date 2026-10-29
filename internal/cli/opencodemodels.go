@@ -44,7 +44,7 @@ func opencodeMenuFlags(verb string) *flag.FlagSet {
 	return helptext.NewFlagSet("opencode catalog "+verb, opencodeMenuPage(verb))
 }
 
-// cmdOpencodeMenu is `claude-code opencode catalog list|add|remove|import|reset|check` (alias models).
+// cmdOpencodeMenu is `claude-code opencode catalog list|add|remove|import|reset|check`.
 func cmdOpencodeMenu(args []string) int {
 	verb, rest := args[0], args[1:]
 	fs := opencodeMenuFlags(verb)

@@ -24,7 +24,6 @@ type command struct {
 	summary string // aim for ≤ summaryMax chars; longer wraps with a hanging indent
 	group   string
 	hidden  bool
-	aliases []string // alternate spellings that dispatch here; never listed
 	run     func(args []string) int
 }
 
@@ -63,7 +62,7 @@ func commands() []command {
 		{name: "opencode", group: groupAgents, summary: "OpenCode on your opencode Go plan; docs and drafting", run: func(a []string) int { return vendorVerb("opencode", a) }},
 		{name: "databricks", group: groupAgents, summary: "Claude Code on Databricks; login, import/export, check --all", run: databricks.Run},
 		// AUTH
-		{name: "resolve", group: groupAuth, hidden: true, aliases: []string{"token"}, summary: "resolve + print a profile's credential (apiKeyHelper)", run: cmdToken},
+		{name: "resolve", group: groupAuth, hidden: true, summary: "resolve + print a profile's credential (apiKeyHelper)", run: cmdResolve},
 		{name: "vault", group: groupAuth, summary: "pins, env, overlays and sealed secrets", run: cmdVault},
 		{name: "network", group: groupAuth, summary: "tailnet, browsers, web search, MCP health, agent page", run: cmdNetwork},
 		// SESSION
@@ -124,13 +123,10 @@ func vendorVerb(vendor string, args []string) int {
 	return launchVendor(vendor, args)
 }
 
-// lookup finds a command by its name or one of its aliases.
+// lookup finds a command by its name.
 func lookup(name string) *command {
 	for _, c := range commands() {
 		if c.name == name {
-			return &c
-		}
-		if slices.Contains(c.aliases, name) {
 			return &c
 		}
 	}

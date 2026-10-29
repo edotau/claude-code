@@ -108,18 +108,6 @@ func dropTornRoute(path string, data []byte) error {
 	return os.Truncate(path, int64(bytes.LastIndexByte(data, '\n')+1))
 }
 
-// readCodexRoutes skips unparsable lines and an unterminated trailing record.
-func readCodexRoutes(path string) ([]codexRouteRecord, error) {
-	data, err := os.ReadFile(path)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	return parseCodexRoutes(data), nil
-}
-
 func parseCodexRoutes(data []byte) []codexRouteRecord {
 	var records []codexRouteRecord
 	for _, line := range bytes.Split(data[:bytes.LastIndexByte(data, '\n')+1], []byte{'\n'}) {

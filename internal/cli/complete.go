@@ -148,7 +148,7 @@ func positionalDomain(node *compNode, i int) func() []string {
 	return node.rest
 }
 
-// topLevelCandidates lists every visible command (+ "help"); a hidden command (or an alias) only
+// topLevelCandidates lists every visible command (+ "help"); a hidden command only
 // joins the list once a prefix has narrowed intent, so the bare double-Tab menu stays canonical.
 func topLevelCandidates(cur string) []string {
 	var cands []string
@@ -156,14 +156,10 @@ func topLevelCandidates(cur string) []string {
 		if c.hidden {
 			if cur != "" {
 				cands = append(cands, c.name)
-				cands = append(cands, c.aliases...)
 			}
 			continue
 		}
 		cands = append(cands, c.name)
-		if cur != "" {
-			cands = append(cands, c.aliases...)
-		}
 	}
 	return append(cands, "help")
 }

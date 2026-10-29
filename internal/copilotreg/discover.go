@@ -54,11 +54,8 @@ func EndpointWire(p *providers.Provider, model string) (wire, canonical string, 
 // MaxOutputTokens is the output cap current Claude/GPT tiers accept; a catalog-less id needs one.
 const MaxOutputTokens = 32_000
 
-// MaxPromptTokens is the window minus the output cap and a 10% margin, so copilot compacts before the endpoint
+// PromptTokens is the window minus the output cap and a 10% margin, so copilot compacts before the endpoint
 // refuses; 0 (unset) when the window is too small for that.
-func MaxPromptTokens(window int) int { return PromptTokens(window, MaxOutputTokens) }
-
-// PromptTokens is MaxPromptTokens for an explicit output cap.
 func PromptTokens(window, output int) int {
 	if window <= output {
 		return 0

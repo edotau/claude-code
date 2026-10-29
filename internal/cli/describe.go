@@ -31,7 +31,6 @@ type DescribeCommand struct {
 	Name     string   `json:"name"`
 	Group    string   `json:"group,omitempty"`
 	Summary  string   `json:"summary"`
-	Aliases  []string `json:"aliases,omitempty"`
 	Hidden   bool     `json:"hidden,omitempty"`
 	Subverbs []string `json:"subverbs,omitempty"`
 	Flags    []string `json:"flags,omitempty"` // "--name" or "--name <value>"
@@ -109,7 +108,7 @@ func describe(reg *providers.Registry) (Describe, error) {
 		}
 		node := tree[c.name]
 		d.Commands = append(d.Commands, DescribeCommand{
-			Name: c.name, Group: c.group, Summary: c.summary, Aliases: c.aliases, Hidden: c.hidden,
+			Name: c.name, Group: c.group, Summary: c.summary, Hidden: c.hidden,
 			Subverbs: subwordNames(node), Flags: flagNames(node),
 		})
 	}

@@ -35,6 +35,3 @@ func Load() (*Table, error) {
 	}
 	return &Table{*t}, nil
 }
-
-// Classifier maps a task to a tier; the rule-based one lives in internal/hooks, a free-model one is a later option.
-type Classifier interface{ Tier(task string) string }

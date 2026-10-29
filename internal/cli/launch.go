@@ -389,6 +389,9 @@ func cmdInstall(args []string) int {
 	return 0
 }
 
+// doctorChecks is a test seam over the slow, probing launch.DoctorChecks.
+var doctorChecks = launch.DoctorChecks
+
 func cmdDoctor(args []string) int {
 	fs := helptext.NewFlagSet("doctor", helptext.Page{
 		Usage: "claude-code doctor [flags] [--scan [path...]]",
@@ -429,7 +432,7 @@ func cmdDoctor(args []string) int {
 	var ok bool
 	if *format == outfmt.JSON {
 		var checks []launch.Check
-		checks, ok = launch.DoctorChecks()
+		checks, ok = doctorChecks()
 		if err := outfmt.Write(os.Stdout, struct {
 			OK     bool           `json:"ok"`
 			Checks []launch.Check `json:"checks"`

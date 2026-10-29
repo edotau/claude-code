@@ -15,7 +15,6 @@ import (
 const (
 	ExitClean    = 0
 	ExitFindings = 1
-	ExitUsage    = 2
 )
 
 // base64ish catches high-entropy tokens that don't match a known prefix.

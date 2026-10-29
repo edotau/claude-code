@@ -20,7 +20,7 @@ only its own deltas (agent-specific rows, flags, and sections).
 | `claude-code <agent> result [id]` | a finished job's answer | answer + session id + resume cmd |
 | `claude-code <agent> cancel [id]` | interrupt a running job | `cancelled <id>` |
 | `claude-code <agent> setup [--format json]` | binary, login, route, projection checks | 4 rows; exit on failure |
-| `claude-code <agent> models` | the agent's own model catalog | list |
+| `claude-code <agent> catalog` | the agent's own model catalog | list |
 
 - `<id>` = an exact dispatch id or a unique prefix; omitted = the newest job for the agent in this repo.
 - `--background` on `ask`/`review`/`transfer` prints `job <id> started` — follow with `status`/`result`.

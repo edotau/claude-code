@@ -20,7 +20,7 @@ import (
 
 // vendorSubverbs are the words vendorVerb routes to cmdVendorSub.
 var vendorSubverbs = map[string]bool{
-	"resume": true, "status": true, "tail": true, "result": true, "cancel": true, "setup": true, "catalog": true, "models": true,
+	"resume": true, "status": true, "tail": true, "result": true, "cancel": true, "setup": true, "catalog": true,
 	"review": true, "transfer": true, "explore": true, "profile": true, "on": true, "off": true,
 }
 
@@ -67,7 +67,6 @@ func vendorPage(vendor string) helptext.Page {
 		Commands: rows,
 		Flags:    vendorLaunchFlags(vendor),
 		Hint: "claude-code " + vendor + " <command> -h lists that command's flags.\n" +
-			"models is a compatibility alias for catalog.\n" +
 			"claude-code " + vendor + " " + helptext.DocsFlag + " prints " + vendorBinary(vendor) + "'s own help.",
 	}
 }
@@ -81,7 +80,7 @@ var vendorSubPages = map[string][2]string{
 	"result":   {"result [id] [flags]", "A finished job's answer (default: the newest), its session and resume command."},
 	"cancel":   {"cancel", "Interrupt a running %s job (default: the single running job in this repo)."},
 	"setup":    {"setup [flags]", "Check %s's binary, login, route and projection; exits 1 when one fails."},
-	"catalog":  {"catalog [--profile p]", "The %s CLI's own model catalog, or a note that it has none. models is a compatibility alias."},
+	"catalog":  {"catalog [--profile p]", "The %s CLI's own model catalog, or a note that it has none."},
 	"review":   {"review [flags] [focus…]", "Review a diff with %s; trailing words name the focus."},
 	"explore":  {"explore [flags] <question>", "Scan the code and research the web with %s, then return a brief."},
 	"profile":  {"profile [<profile>|--clear]", "Show %s's profile pin, or set %[1]s to <profile> (--clear unpins)."},
@@ -130,7 +129,7 @@ func cmdVendorSub(vendor string, args []string) int {
 		return cmdVendorCancel(vendor, args[1:])
 	case "setup":
 		return cmdVendorSetup(vendor, args[1:])
-	case "catalog", "models":
+	case "catalog":
 		if isOpencodeMenuVerb(vendor, args[1:]) {
 			return cmdOpencodeMenu(args[1:])
 		}
@@ -429,7 +428,7 @@ func cmdVendorTransfer(vendor string, args []string) int {
 	return code
 }
 
-// cmdVendorModels is `claude-code <v> catalog` (alias models): the agent's own catalog, or a note that it has none.
+// cmdVendorModels is `claude-code <v> catalog` : the agent's own catalog, or a note that it has none.
 func cmdVendorModels(vendor string, args []string) int {
 	a, ok := vendoragent.Lookup(vendor)
 	if !ok {
