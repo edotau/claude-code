@@ -50,6 +50,14 @@ func corpusFiles(root string) []corpusFile {
 	return out
 }
 
+// ownerDir maps a corpus file back to the bank directory that owns its access log.
+func ownerDir(bank, path string) string {
+	if bank == "archive" || bank == "knowledge" {
+		return filepath.Dir(filepath.Dir(path))
+	}
+	return filepath.Dir(path)
+}
+
 func searchTopicFiles(dir string) []string {
 	ents, _ := os.ReadDir(dir)
 	var files []string
@@ -391,7 +399,7 @@ func scoreSegmentDocs(qTerms []string, uniq map[string]int, df []int, n, avgdl f
 		}
 		hits = append(hits, SearchHit{
 			Score: score, Matched: matched, Bank: file.bank,
-			File: filepath.Base(file.path), Block: block, ID: id,
+			File: filepath.Base(file.path), Block: block, ID: id, Dir: ownerDir(file.bank, file.path),
 		})
 	}
 	return hits
