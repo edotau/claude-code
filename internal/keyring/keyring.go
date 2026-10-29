@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"runtime"
 	"strings"
@@ -53,8 +54,11 @@ func Tool() string {
 	}
 }
 
-// Available reports whether a keyring tool is on PATH for this OS.
+// Available reports whether a keyring tool is on PATH for this OS; HARNESS_KEYRING=off forces false.
 func Available() bool {
+	if os.Getenv("HARNESS_KEYRING") == "off" {
+		return false
+	}
 	b := Tool()
 	if b == "" {
 		return false
