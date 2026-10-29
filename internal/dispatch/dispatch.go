@@ -5,6 +5,7 @@ package dispatch
 import (
 	"context"
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/hex"
 	"fmt"
 	"os"
@@ -91,19 +92,24 @@ func agentCommand(agent, task string) string {
 	return "if command -v claude-code >/dev/null 2>&1; then " + shimmed + "; else " + bare + "; fi"
 }
 
-// dirFlag is tmux's `-c <dir>` flag text, or "" to omit it (ssh already lands in $HOME). A quoted
-// "~" is data to sh, not an expansion, so a leading ~ is rewritten to the "$HOME" expansion instead.
-func dirFlag(dir string) string {
+// QuotePath single-quotes a remote path for POSIX sh; a leading ~ becomes the "$HOME" expansion, which quotes would block.
+func QuotePath(p string) string {
 	switch {
-	case dir == "":
-		return ""
-	case dir == "~":
-		return `-c "$HOME"`
-	case strings.HasPrefix(dir, "~/"):
-		return `-c "$HOME"/` + QuoteSH(strings.TrimPrefix(dir, "~/"))
+	case p == "~":
+		return `"$HOME"`
+	case strings.HasPrefix(p, "~/"):
+		return `"$HOME"/` + QuoteSH(strings.TrimPrefix(p, "~/"))
 	default:
-		return "-c " + QuoteSH(dir)
+		return QuoteSH(p)
 	}
+}
+
+// dirFlag is tmux's `-c <dir>` flag text, or "" to omit it (ssh already lands in $HOME).
+func dirFlag(dir string) string {
+	if dir == "" {
+		return ""
+	}
+	return "-c " + QuotePath(dir)
 }
 
 // BuildRemoteCommand returns the POSIX sh script to run over ssh: it checks tmux exists, then starts
@@ -195,6 +201,29 @@ func ParseSessions(output string) []Session {
 // the login shell ssh would otherwise hand it to (e.g. fish, which does not speak this syntax).
 func SSHArgs(host, remoteCmd string) []string {
 	return []string{"ssh", host, "sh -c " + QuoteSH(remoteCmd)}
+}
+
+// ValidHost refuses an ssh destination that ssh would parse as an option or that carries whitespace/control bytes.
+func ValidHost(host string) error {
+	if host == "" || strings.HasPrefix(host, "-") || strings.ContainsFunc(host, func(r rune) bool { return r <= ' ' || r == 0x7f }) {
+		return fmt.Errorf("invalid ssh host %q", host)
+	}
+	return nil
+}
+
+// EncodeScript wraps a POSIX sh script as a `sh -c` command: the script rides base64 (A-Za-z0-9+/=), so sh, bash
+// and fish parse the wrapper identically whatever bytes the script holds.
+func EncodeScript(script string) string {
+	return `sh -c 'eval "$(printf %s ` + base64.StdEncoding.EncodeToString([]byte(script)) + ` | base64 -d)"'`
+}
+
+// StreamArgs is the argv for running script on host with stdin left free for the caller: BatchMode forbids prompts,
+// ServerAliveInterval drops a dead link, and "--" stops host from being read as an ssh option.
+func StreamArgs(host, script string) ([]string, error) {
+	if err := ValidHost(host); err != nil {
+		return nil, err
+	}
+	return []string{"ssh", "-o", "BatchMode=yes", "-o", "ServerAliveInterval=15", "--", host, EncodeScript(script)}, nil
 }
 
 // ExecArgs runs remoteCmd under sh locally when host is this machine, else over ssh; batch forbids ssh prompts.

@@ -35,7 +35,7 @@ func TestListAgentsRegistryLoadErrorNoPanic(t *testing.T) {
 	os.Stdout = f
 	func() {
 		defer func() { os.Stdout = old; f.Close() }()
-		listAgents() // must not panic despite a nil registry from the failed Load()
+		listAgents(formatText) // must not panic despite a nil registry from the failed Load()
 	}()
 
 	out, err := os.ReadFile(tmp)
