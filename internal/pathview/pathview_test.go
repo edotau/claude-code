@@ -2,6 +2,8 @@ package pathview
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -142,8 +144,8 @@ func TestRoundTrip(t *testing.T) {
 func TestParseMountinfo(t *testing.T) {
 	got := parseMountinfo(mountinfoSample)
 	want := []Mount{
-		{Point: "/mnt/c", Source: `C:\`, FSType: "9p", Kind: KindDrvFS, Drive: "C"},
-		{Point: "/mnt/d", Source: `D:\`, FSType: "9p", Kind: KindDrvFS, Drive: "D"},
+		{Point: "/mnt/c", Source: `C:\`, FSType: "9p", Kind: KindDrvFS, Drive: "C", Root: "/"},
+		{Point: "/mnt/d", Source: `D:\`, FSType: "9p", Kind: KindDrvFS, Drive: "D", Root: "/"},
 		{Point: "/srv/share one", Source: "//fileserver/team/docs", FSType: "cifs", Kind: KindSMB, Host: "fileserver", RemotePath: "team/docs"},
 		{Point: "/srv/nfs", Source: "nas:/export/data", FSType: "nfs4", Kind: KindNFS, Host: "nas", RemotePath: "/export/data"},
 		{Point: "/home/u/remote", Source: "me@devbox:/work", FSType: "fuse.sshfs", Kind: KindSSHFS, Host: "devbox", RemotePath: "/work"},
@@ -201,3 +203,48 @@ func TestLearnDistroFromWslpath(t *testing.T) {
 }
 
 func mustProbe() string { s, _ := wslpathOut(); return s }
+
+func TestBindMountRoot(t *testing.T) {
+	m := parseMountinfo(`50 22 0:30 /Users/u /work rw - 9p C:\134 rw,aname=drvfs` + "\n" +
+		`51 22 0:31 /export/sub /srv/sub rw - nfs4 nas:/export/data rw`)
+	r := &Resolver{Mounts: m, Distro: "Ubuntu"}
+	if got, err := r.ViewFrom("/work/a", Target{Style: StyleWindows}); err != nil || got != `C:\Users\u\a` {
+		t.Errorf("ViewFrom bind = %q, %v; want C:\\Users\\u\\a", got, err)
+	}
+	if got, ok := r.Resolve(`C:\Users\u\a`); !ok || got != "/work/a" {
+		t.Errorf("Resolve bind = %q, %v; want /work/a", got, ok)
+	}
+	if _, ok := r.Resolve(`C:\Other\a`); ok {
+		t.Error("a path outside the bound subtree resolved")
+	}
+	if got, ok := r.Resolve("nfs://nas/export/data/export/sub/f"); !ok || got != "/srv/sub/f" {
+		t.Errorf("Resolve nfs bind = %q, %v", got, ok)
+	}
+}
+
+func TestDriveDotDotClampsAtRoot(t *testing.T) {
+	r := testResolver()
+	if got, ok := r.Resolve(`C:\..\etc\hostname`); !ok || got != "/mnt/c/etc/hostname" {
+		t.Errorf("Resolve = %q, %v; want /mnt/c/etc/hostname", got, ok)
+	}
+}
+
+func TestDotDotFollowsSymlinks(t *testing.T) {
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "real", "sub"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "real", "f"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(root, "real", "sub"), filepath.Join(root, "link")); err != nil {
+		t.Skip("symlinks unavailable")
+	}
+	got, ok := testResolver().Resolve(filepath.Join(root, "link") + "/../f")
+	if !ok || got != filepath.Join(root, "real", "f") {
+		t.Errorf("Resolve = %q, %v; want %s", got, ok, filepath.Join(root, "real", "f"))
+	}
+}

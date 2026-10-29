@@ -7,6 +7,7 @@ import (
 	"os/user"
 	"path"
 	"path/filepath"
+	"slices"
 	"strings"
 )
 
@@ -75,7 +76,7 @@ func (r *Resolver) Resolve(p string) (string, bool) {
 		}
 	}
 	if strings.HasPrefix(p, "/") {
-		return filepath.Clean(p), true
+		return cleanLocal(p), true
 	}
 	if host, rp, ok := splitHostPath(p); ok && !isDrivePath(p) {
 		return r.fromRemote(host, rp, KindNFS, KindSSHFS)
@@ -95,13 +96,22 @@ func isDrivePath(p string) bool {
 }
 
 func (r *Resolver) resolveDrive(p string) (string, bool) {
-	rest := strings.ReplaceAll(p[2:], `\`, "/")
-	for _, m := range r.Mounts {
-		if m.Kind == KindDrvFS && strings.EqualFold(m.Drive, p[:1]) {
-			return filepath.Join(m.Point, rest), true
+	rest := path.Clean("/" + strings.ReplaceAll(p[2:], `\`, "/")) // Windows clamps ".." at the drive root
+	var best *Mount
+	var bestRest string
+	for i := range r.Mounts {
+		m := &r.Mounts[i]
+		if m.Kind != KindDrvFS || !strings.EqualFold(m.Drive, p[:1]) {
+			continue
+		}
+		if sub, ok := trimPrefixPath(rest, m.Root, false); ok && (best == nil || len(m.Root) > len(best.Root)) {
+			best, bestRest = m, sub
 		}
 	}
-	return "", false
+	if best == nil {
+		return "", false
+	}
+	return filepath.Join(best.Point, bestRest), true
 }
 
 func (r *Resolver) resolveTilde(p string) (string, bool) {
@@ -155,7 +165,7 @@ func (r *Resolver) resolveURL(scheme, rest string) (string, bool) {
 		if len(u.Path) > 2 && u.Path[0] == '/' && isDrivePath(u.Path[1:]) {
 			return r.resolveDrive(u.Path[1:])
 		}
-		return filepath.Clean(u.Path), u.Path != ""
+		return cleanLocal(u.Path), u.Path != ""
 	case "smb", "nfs":
 		u, err := url.Parse(scheme + "://" + rest)
 		if err != nil || u.Hostname() == "" {
@@ -231,7 +241,7 @@ func (r *Resolver) ViewFrom(local string, target Target) (string, error) {
 	switch target.Style {
 	case StyleWindows:
 		if m != nil && m.Kind == KindDrvFS {
-			return m.Drive + `:\` + strings.ReplaceAll(rest, "/", `\`), nil
+			return m.Drive + `:\` + strings.ReplaceAll(strings.TrimPrefix(path.Join(m.Root, rest), "/"), "/", `\`), nil
 		}
 		return r.render(m, rest, local, StyleUNC)
 	case StyleUNC, StyleURL:
@@ -268,11 +278,22 @@ func (r *Resolver) render(m *Mount, rest, local string, style Style) (string, er
 		return "", ErrNotReachable
 	case style == StyleURL:
 		if m != nil && m.Kind == KindDrvFS {
-			return (&url.URL{Scheme: "file", Path: "/" + m.Drive + ":/" + rest}).String(), nil
+			return (&url.URL{Scheme: "file", Path: "/" + m.Drive + ":/" + strings.TrimPrefix(path.Join(m.Root, rest), "/")}).String(), nil
 		}
 		return (&url.URL{Scheme: "file", Path: local}).String(), nil
 	case r.Distro != "":
 		return `\\wsl.localhost\` + r.Distro + strings.ReplaceAll(local, "/", `\`), nil
 	}
 	return "", ErrNotReachable
+}
+
+// cleanLocal cleans p lexically, except a ".." path is resolved through symlinks (existing paths) so
+// /dev/fd/../status keeps its meaning; a path that does not exist falls back to the lexical result.
+func cleanLocal(p string) string {
+	if slices.Contains(strings.Split(p, "/"), "..") {
+		if real, err := filepath.EvalSymlinks(p); err == nil {
+			return real
+		}
+	}
+	return filepath.Clean(p)
 }

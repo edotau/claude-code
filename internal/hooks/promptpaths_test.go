@@ -156,3 +156,35 @@ func TestFeedbackPayloadMarshalHandlesErrors(t *testing.T) {
 		t.Error("hookSpecificOutput field missing from payload")
 	}
 }
+
+// A POSIX path inside a foreign token (~/etc/hostname) must not be reported as /etc/hostname.
+func TestPromptPathsIgnorePosixInsideForeignToken(t *testing.T) {
+	if _, err := os.Stat("/etc/hostname"); err != nil {
+		t.Skip("needs /etc/hostname")
+	}
+	res := &pathview.Resolver{Home: t.TempDir()}
+	for _, prompt := range []string{"read ~/etc/hostname", `read "~/etc/hostname"`, "read file://nohost/etc/hostname"} {
+		if reps := collectReports(prompt, res); len(reps) != 0 {
+			t.Errorf("%q leaked %+v", prompt, reps)
+		}
+	}
+}
+
+// host:/path must be recognized whole, not read as the drive path "s:/path".
+func TestPromptPathsHostPathNotDrive(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "d"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	f := filepath.Join(dir, "d", "a.txt")
+	if err := os.WriteFile(f, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	res := &pathview.Resolver{Mounts: []pathview.Mount{
+		{Point: dir, Kind: pathview.KindNFS, Host: "nas", RemotePath: "/export/data"}}}
+	var out bytes.Buffer
+	promptPathFeedback(strings.NewReader(`{"prompt":"open nas:/export/data/d/a.txt now"}`), &out, res)
+	if !strings.Contains(out.String(), f) {
+		t.Errorf("host:/path not resolved to %s:\n%s", f, out.String())
+	}
+}

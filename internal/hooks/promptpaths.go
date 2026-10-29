@@ -117,8 +117,10 @@ func collectReports(prompt string, res *pathview.Resolver) []pathReport {
 		}
 		reps = append(reps, pathReport{win: orig, path: p, detail: detail, isImage: isImage})
 	}
-	for _, tok := range scanWinPaths(prompt) {
+	foreign := scanWinPaths(prompt)
+	for _, tok := range foreign {
 		add(tok, tok)
+		prompt = strings.ReplaceAll(prompt, tok, strings.Repeat(" ", len(tok))) // POSIX scan must not re-read inside one
 	}
 	for _, p := range scanPosixPaths(prompt) {
 		add("", p)
@@ -207,8 +209,8 @@ func promptPathFeedback(r io.Reader, stdout io.Writer, res *pathview.Resolver) i
 	return ExitProceed
 }
 
-// foreignHead opens a non-POSIX path token: drive letter, UNC, scheme URL, or ~ / ~user.
-const foreignHead = `(?:[A-Za-z]:[\\/]|\\\\|(?:file|smb|nfs)://|~[A-Za-z0-9_.-]*/)`
+// foreignHead opens a non-POSIX path token: drive letter, UNC, scheme URL, ~ / ~user, or host:/path.
+const foreignHead = `(?:\b[A-Za-z]:[\\/]|\\\\|(?:file|smb|nfs)://|~[A-Za-z0-9_.-]*/|\b(?:[\w.-]+@)?[\w.-]{2,}:/)`
 
 // winPathRE matches a bareword non-POSIX path token; a quoted path (spaces inside) is quotedWinPathRE's.
 var winPathRE = sync.OnceValue(func() *regexp.Regexp {

@@ -181,7 +181,7 @@ var hookPage = helptext.Page{
 	Hint: "names: bash-guard|docs-placement|agent-effort|workflow-lint|\n" +
 		"       agent-inflight|agent-inflight-tag|agent-inflight-post|subagent-stop|\n" +
 		"       plan-mirror|save-plan|access-trace|stop|\n" +
-		"       session-start|wsl-path-normalize|memory-recall|\n" +
+		"       session-start|path-resolver|memory-recall|\n" +
 		"       session-harvest-end|pre-compact|worktree-create|worktree-remove",
 }
 
