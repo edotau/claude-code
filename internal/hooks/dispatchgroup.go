@@ -13,7 +13,7 @@ import (
 )
 
 // agentCallRe finds `agent(` call sites in a Workflow script.
-var agentCallRe = regexp.MustCompile(`(?:^|[^\w$.])agent\(`)
+var agentCallRe = regexp.MustCompile(`(?:^|[^\w$.])agent\s*\(`)
 
 // dispatchPre: the cap check, then the pin step, then the claim (a Workflow claims one slot per agent() site).
 func dispatchPre(in *Input) Result {

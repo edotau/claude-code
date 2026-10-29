@@ -217,3 +217,12 @@ func TestDispatchAgentLabels(t *testing.T) {
 		t.Errorf("no external agent relabelled: %q", got)
 	}
 }
+
+// A spaced call `agent (…)` is a leaf too; a method `x.agent(` and a name `subagent(` are not.
+func TestWorkflowLeavesCountsSpacedCalls(t *testing.T) {
+	script := "await agent ('a', {model:'sonnet'})\nawait agent('b', {model:'sonnet'})\nx.agent('c')\nsubagent('d')"
+	in := ParseInput(strings.NewReader(`{"tool_name":"Workflow","tool_input":{"script":` + strconv.Quote(script) + `}}`))
+	if n := workflowLeaves(in, Result{}); n != 2 {
+		t.Fatalf("workflowLeaves = %d, want 2", n)
+	}
+}
