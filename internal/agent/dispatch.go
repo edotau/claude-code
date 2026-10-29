@@ -202,20 +202,27 @@ func waitCooldown(ctx context.Context, key string, maxWait time.Duration) {
 	if key == "" {
 		return
 	}
-	cooldowns.Lock()
-	wait := time.Until(cooldowns.until[key])
-	cooldowns.Unlock()
+	var limit time.Time
 	if maxWait > 0 {
-		wait = min(wait, maxWait)
+		limit = time.Now().Add(maxWait)
 	}
-	if wait <= 0 {
-		return
-	}
-	t := time.NewTimer(wait)
-	defer t.Stop()
-	select {
-	case <-ctx.Done():
-	case <-t.C:
+	for {
+		cooldowns.Lock()
+		wait := time.Until(cooldowns.until[key]) // re-read: another task may have extended the hold while we slept
+		cooldowns.Unlock()
+		if !limit.IsZero() {
+			wait = min(wait, time.Until(limit))
+		}
+		if wait <= 0 {
+			return
+		}
+		t := time.NewTimer(wait)
+		select {
+		case <-ctx.Done():
+			t.Stop()
+			return
+		case <-t.C:
+		}
 	}
 }
 

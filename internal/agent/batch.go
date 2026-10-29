@@ -22,6 +22,40 @@ const DefaultPerKey = 4
 // DefaultJobs is the default pool size: min(4, GOMAXPROCS).
 func DefaultJobs() int { return min(4, runtime.GOMAXPROCS(0)) }
 
+// legLimiter caps concurrent running legs per billed account; a task holds at most one permit, never while queued.
+type legLimiter struct {
+	mu   sync.Mutex
+	n    int
+	sems map[string]chan struct{}
+}
+
+type legLimitKey struct{}
+
+func withLegLimit(ctx context.Context, l *legLimiter) context.Context {
+	return context.WithValue(ctx, legLimitKey{}, l)
+}
+
+// acquireLeg takes a permit on account under ctx's limiter; no limiter or account means no limit.
+func acquireLeg(ctx context.Context, account string) (release func(), err error) {
+	l, _ := ctx.Value(legLimitKey{}).(*legLimiter)
+	if l == nil || account == "" {
+		return func() {}, nil
+	}
+	l.mu.Lock()
+	sem := l.sems[account]
+	if sem == nil {
+		sem = make(chan struct{}, l.n)
+		l.sems[account] = sem
+	}
+	l.mu.Unlock()
+	select {
+	case sem <- struct{}{}:
+		return func() { <-sem }, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
 // TaskLine is one `ask --batch` JSONL task; Tools stays nil when absent so the flag default applies.
 type TaskLine struct {
 	ID      string `json:"id"`
@@ -53,8 +87,8 @@ func ReadTaskLines(r io.Reader) ([]ParsedLine, error) {
 			dec.DisallowUnknownFields()
 			if derr := dec.Decode(&pl.Task); derr != nil {
 				pl.Err = fmt.Errorf("line %d: %w", n, derr)
-			} else if dec.More() {
-				pl.Err = fmt.Errorf("line %d: more than one JSON value", n)
+			} else if extra := (json.RawMessage)(nil); !errors.Is(dec.Decode(&extra), io.EOF) {
+				pl.Err = fmt.Errorf("line %d: trailing data after the JSON object", n) // More() misses a stray '}'
 			}
 			out = append(out, pl)
 		}
@@ -101,6 +135,7 @@ type batchRun struct {
 	mu   sync.Mutex
 	ids  map[string]bool
 	logM sync.Mutex
+	legs *legLimiter // one per batch, so accounts are capped across tasks
 }
 
 // RunBatch streams one envelope per task to o.Out as each finishes; true only if every task was ok.
@@ -110,7 +145,7 @@ func RunBatch(ctx context.Context, tasks []BatchTask, o BatchOptions) bool {
 	jobs := max(cmp.Or(o.Jobs, DefaultJobs()), 1)
 	bctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	b := &batchRun{o: o, ids: map[string]bool{}}
+	b := &batchRun{o: o, ids: map[string]bool{}, legs: &legLimiter{n: DefaultPerKey, sems: map[string]chan struct{}{}}}
 	allOK := true
 	emit := func(env Envelope, ok bool) {
 		env.BatchID = o.ID
@@ -251,7 +286,7 @@ func (b *batchRun) logf(id, format string, a ...any) {
 
 // run executes one task with its own stream, log sink and dispatch record; a panic becomes an error envelope.
 func (b *batchRun) run(ctx context.Context, t BatchTask, chain Chain, rec Record) (env Envelope, ok bool) {
-	ctx = withIsolation(ctx)
+	ctx = withLegLimit(withIsolation(ctx), b.legs)
 	start := time.Now()
 	var sink *LogSink
 	defer func() {

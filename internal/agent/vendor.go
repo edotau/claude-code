@@ -455,6 +455,9 @@ func (copilotRunner) Run(ctx context.Context, req Request, stream io.Writer) (Re
 	if route != nil {
 		route.apply(&opts)
 	}
+	if p := ownProviderFrom(ctx); p != nil { // the SDK merges os.Environ itself, so blank other profiles' credentials
+		opts.Env = blankForeignCredentials(opts.Env, p, req.KeepEnv)
+	}
 	if err := applyCopilotToken(&opts, own, env); err != nil {
 		return res, &Error{Kind: KindFatal, Agent: "copilot", Err: err}
 	}

@@ -3,11 +3,13 @@ package agent
 import (
 	"context"
 	"errors"
+	"os"
 	"slices"
 	"strings"
 
 	"github.com/edotau/claude-code/internal/envscrub"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/vendors"
 )
 
 type (
@@ -33,6 +35,11 @@ func ownProviderFrom(ctx context.Context) *providers.Provider {
 	return p
 }
 
+// hostMismatchError marks a credential issued for another host than its route: the one guard failure that is KindAuth.
+type hostMismatchError struct{ error }
+
+func (e hostMismatchError) Unwrap() error { return e.error }
+
 // guardRouteHost fails a hop before any child starts when p's credential was issued for another host than its route.
 func guardRouteHost(ctx context.Context, p *providers.Provider) error {
 	if p.Preset == "" {
@@ -45,13 +52,30 @@ func guardRouteHost(ctx context.Context, p *providers.Provider) error {
 	if err != nil {
 		return err // an unresolvable credential must not skip the host check
 	}
-	return providers.CheckRouteHost(p, cred)
+	if herr := providers.CheckRouteHost(p, cred); herr != nil {
+		return hostMismatchError{herr}
+	}
+	return nil
 }
 
 // guardProvider is the provider whose credential the hop sends; nil for an unpinned vendor leg (own login).
 func guardProvider(r Runner, req Request) (*providers.Provider, error) {
 	if l, ok := r.(hubLeg); ok {
 		return l.provider, nil
+	}
+	if _, vendor := vendors.Lookup(r.Name()); vendor && r.Name() != "claude" {
+		// the same target the runner picks: --provider, a provider:model prefix, the session, the copilot gate
+		t, own, _, err := vendorTargetNote(req, r.Name())
+		if err != nil {
+			if req.Provider != "" {
+				return nil, err
+			}
+			return nil, nil // the runner reports its own resolution failure with its own kind
+		}
+		if own {
+			return nil, nil
+		}
+		return t.Provider, nil
 	}
 	if req.Provider == "" && r.Name() != "claude" {
 		return nil, nil
@@ -63,6 +87,27 @@ func guardProvider(r Runner, req Request) (*providers.Provider, error) {
 	return t.Provider, nil
 }
 
+// guardAttempt runs inside a timed attempt: it validates the hop's credential and marks its one own profile on ctx.
+func guardAttempt(ctx context.Context, r Runner, req Request) (context.Context, *Error) {
+	gp, err := guardProvider(r, req)
+	if err != nil {
+		return ctx, Classify(r.Name(), err, false)
+	}
+	if gp == nil {
+		return ctx, nil
+	}
+	if err := checkIsolation(ctx); err != nil {
+		return ctx, &Error{Kind: KindFatal, Agent: r.Name(), Err: err}
+	}
+	if err := guardRouteHost(ctx, gp); err != nil {
+		if _, ok := errors.AsType[hostMismatchError](err); ok {
+			return ctx, &Error{Kind: KindAuth, Agent: r.Name(), Err: err}
+		}
+		return ctx, Classify(r.Name(), err, false) // a transient auth.command/OAuth failure stays retryable
+	}
+	return withOwnProvider(ctx, gp), nil
+}
+
 // checkIsolation fails an isolated hop up front when the registry cannot load, since the scrub would then be skipped.
 func checkIsolation(ctx context.Context) error {
 	if ctx.Value(isolateKey{}) == nil {
@@ -70,6 +115,22 @@ func checkIsolation(ctx context.Context) error {
 	}
 	_, err := providers.Load()
 	return err
+}
+
+// blankForeignCredentials adds NAME= for each foreign credential in the process env, for a child (the Copilot SDK)
+// that merges os.Environ itself and applies env last.
+func blankForeignCredentials(env []string, own *providers.Provider, keepEnv []string) []string {
+	have := map[string]bool{}
+	for _, kv := range scrubForeignCredentials(os.Environ(), own, keepEnv) {
+		have[kv] = true
+	}
+	out := scrubForeignCredentials(env, own, keepEnv)
+	for _, kv := range os.Environ() {
+		if name, _, _ := strings.Cut(kv, "="); !have[kv] {
+			out = append(out, name+"=")
+		}
+	}
+	return out
 }
 
 // scrubForeignCredentials drops every other profile's credential env name from env, so a hop holds only its own.
