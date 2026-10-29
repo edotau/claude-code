@@ -19,6 +19,9 @@
   "disableClaudeAiConnectors": true,
   "useAutoModeDuringPlan": true,
   "skipWorkflowUsageWarning": true,
+  "worktree": {
+    "baseRef": "head"
+  },
   "env": {
     "CLAUDE_CODE_SCROLL_SPEED": "1",
     "CLAUDE_CODE_DISABLE_TERMINAL_TITLE": "1"
