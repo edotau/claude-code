@@ -341,3 +341,50 @@ func TestWSLSetupRegisterMCP(t *testing.T) {
 		})
 	}
 }
+
+func TestCDPFailureDiagnosis(t *testing.T) {
+	b := Browser{Name: "edge", DisplayName: "Microsoft Edge"}
+	mk := func(t *testing.T, pids, wslconfig string) Env {
+		env := newWSLTestEnv(t, &fakeRun{})
+		env.Run = func(string, ...string) (string, error) { return pids, nil }
+		if wslconfig != "" {
+			dir := filepath.Join(env.WinRoot, "Users", "u")
+			if err := os.MkdirAll(dir, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(dir, ".wslconfig"), []byte(wslconfig), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return env
+	}
+	got := cdpFailure(mk(t, "111\n222\n", "[wsl2]\nnetworkingMode=mirrored\n"), b)
+	if !strings.Contains(got, "111, 222") || !strings.Contains(got, "Stop-Process -Id 111,222") {
+		t.Errorf("stale pids not named: %s", got)
+	}
+	got = cdpFailure(mk(t, "", "[wsl2]\nnetworkingMode=mirrored\n"), b)
+	if strings.Contains(got, "mirrored") {
+		t.Errorf("mirrored set but blamed: %s", got)
+	}
+	got = cdpFailure(mk(t, "", ""), b)
+	if !strings.Contains(got, "networkingMode=mirrored") {
+		t.Errorf("missing mirrored not named: %s", got)
+	}
+}
+
+func TestMirroredIn(t *testing.T) {
+	for _, tc := range []struct {
+		name, text string
+		want       bool
+	}{
+		{"set", "[wsl2]\nnetworkingMode=mirrored", true},
+		{"case and spaces", "[WSL2]\n NetworkingMode = Mirrored # on\n", true},
+		{"other section", "[experimental]\nnetworkingMode=mirrored\n", false},
+		{"commented", "[wsl2]\n#networkingMode=mirrored\n", false},
+		{"nat", "[wsl2]\nnetworkingMode=nat\n", false},
+	} {
+		if got := mirroredIn(tc.text); got != tc.want {
+			t.Errorf("%s: got %v", tc.name, got)
+		}
+	}
+}
