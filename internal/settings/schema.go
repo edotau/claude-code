@@ -19,31 +19,46 @@ type Key struct {
 	Kind        Kind
 	Enum        []string
 	Min         *float64
+	Max         *float64
+	ExMin       *float64 // exclusive bounds
+	ExMax       *float64
 	Description string
 	Env         bool
 	pattern     *regexp.Regexp // alternate accepted string form (theme "custom:<slug>")
+	alts        []Key          // union branches (anyOf, oneOf, a type list): valid when any accepts
 }
 
-// schemaType is a JSON-Schema "type": one name or a list; the first non-null name wins.
-type schemaType string
+// schemaType is a JSON-Schema "type": one name or a list, kept whole so unions validate every branch.
+type schemaType []string
 
 func (t *schemaType) UnmarshalJSON(b []byte) error {
 	var one string
-	var many []string
 	if json.Unmarshal(b, &one) == nil {
-		*t = schemaType(one)
+		*t = schemaType{one}
 		return nil
 	}
-	if err := json.Unmarshal(b, &many); err != nil {
-		return err
-	}
-	for _, m := range many {
+	return json.Unmarshal(b, (*[]string)(t))
+}
+
+// first is the first non-null type name, "" when there is none.
+func (t schemaType) first() string {
+	for _, m := range t {
 		if m != "null" {
-			*t = schemaType(m)
-			return nil
+			return m
 		}
 	}
-	return nil
+	return ""
+}
+
+// branches lists the non-null type names.
+func (t schemaType) branches() []string {
+	var out []string
+	for _, m := range t {
+		if m != "null" {
+			out = append(out, m)
+		}
+	}
+	return out
 }
 
 // schemaEnum keeps the string members of an "enum" and ignores others (null, numbers).
@@ -66,15 +81,19 @@ type schemaNode struct {
 	Type        schemaType   `json:"type"`
 	Enum        schemaEnum   `json:"enum"`
 	Minimum     *float64     `json:"minimum"`
+	Maximum     *float64     `json:"maximum"`
+	ExMinimum   *float64     `json:"exclusiveMinimum"`
+	ExMaximum   *float64     `json:"exclusiveMaximum"`
 	Pattern     string       `json:"pattern"`
 	Description string       `json:"description"`
 	AnyOf       []schemaNode `json:"anyOf"`
+	OneOf       []schemaNode `json:"oneOf"`
 }
 
 // flatten folds an anyOf node's branches into one node: enum and type from the first typed branch, pattern from any.
 func (n schemaNode) flatten() schemaNode {
-	for _, b := range n.AnyOf {
-		if n.Type == "" {
+	for _, b := range slices.Concat(n.AnyOf, n.OneOf) {
+		if n.Type.first() == "" {
 			n.Type = b.Type
 		}
 		if len(n.Enum) == 0 {
@@ -87,21 +106,41 @@ func (n schemaNode) flatten() schemaNode {
 	return n
 }
 
+// unionBranches lists the nodes a value may match; fewer than two means the node is not a union.
+func (n schemaNode) unionBranches() []schemaNode {
+	out := slices.Concat(n.AnyOf, n.OneOf)
+	if len(out) == 0 {
+		for _, t := range n.Type.branches() {
+			out = append(out, schemaNode{Type: schemaType{t}, Enum: n.Enum, Minimum: n.Minimum, Maximum: n.Maximum,
+				ExMinimum: n.ExMinimum, ExMaximum: n.ExMaximum, Pattern: n.Pattern})
+		}
+	}
+	return out
+}
+
 func (n schemaNode) key(name string, env bool) Key {
+	branches := n.unionBranches()
 	n = n.flatten()
-	k := Key{Name: name, Enum: slices.Clone(n.Enum), Min: n.Minimum, Description: n.Description, Env: env}
+	k := Key{Name: name, Enum: slices.Clone(n.Enum), Min: n.Minimum, Max: n.Maximum, ExMin: n.ExMinimum,
+		ExMax: n.ExMaximum, Description: n.Description, Env: env}
+	if len(branches) > 1 {
+		for _, b := range branches {
+			k.alts = append(k.alts, b.key(name, env))
+		}
+	}
+	typ := n.Type.first()
 	switch {
 	case len(n.Enum) > 0:
 		k.Kind = KindEnum
-	case n.Type == "boolean":
+	case typ == "boolean":
 		k.Kind = KindBool
-	case n.Type == "integer":
+	case typ == "integer":
 		k.Kind = KindInt
-	case n.Type == "number":
+	case typ == "number":
 		k.Kind = KindNumber
-	case n.Type == "object":
+	case typ == "object":
 		k.Kind = KindObject
-	case n.Type == "array":
+	case typ == "array":
 		k.Kind = KindArray
 	default:
 		k.Kind = KindString
@@ -163,6 +202,17 @@ func (k Key) Validate(raw json.RawMessage) error {
 	if strings.TrimSpace(string(raw)) == "null" {
 		return fmt.Errorf("%s: want a value, got null", k.Name)
 	}
+	if len(k.alts) > 0 {
+		var errs []string
+		for _, a := range k.alts {
+			err := a.Validate(raw)
+			if err == nil {
+				return nil
+			}
+			errs = append(errs, err.Error())
+		}
+		return fmt.Errorf("%s: matches no accepted form (%s)", k.Name, strings.Join(errs, "; "))
+	}
 	switch k.Kind {
 	case KindBool:
 		var b bool
@@ -177,8 +227,8 @@ func (k Key) Validate(raw json.RawMessage) error {
 		if k.Kind == KindInt && n != float64(int64(n)) {
 			return fmt.Errorf("%s: want an integer, got %v", k.Name, n)
 		}
-		if k.Min != nil && n < *k.Min {
-			return fmt.Errorf("%s: must be >= %v, got %v", k.Name, *k.Min, n)
+		if err := k.checkRange(n); err != nil {
+			return err
 		}
 	case KindEnum:
 		var s string
@@ -196,6 +246,9 @@ func (k Key) Validate(raw json.RawMessage) error {
 		if json.Unmarshal(raw, &s) != nil {
 			return fmt.Errorf("%s: want a string", k.Name)
 		}
+		if k.pattern != nil && !k.pattern.MatchString(s) {
+			return fmt.Errorf("%s: %q does not match %s", k.Name, s, k.pattern)
+		}
 	case KindObject:
 		var m map[string]json.RawMessage
 		if json.Unmarshal(raw, &m) != nil {
@@ -208,6 +261,21 @@ func (k Key) Validate(raw json.RawMessage) error {
 		}
 	default:
 		return fmt.Errorf("%s: unknown kind", k.Name)
+	}
+	return nil
+}
+
+// checkRange enforces minimum, maximum and both exclusive bounds.
+func (k Key) checkRange(n float64) error {
+	switch {
+	case k.Min != nil && n < *k.Min:
+		return fmt.Errorf("%s: must be >= %v, got %v", k.Name, *k.Min, n)
+	case k.ExMin != nil && n <= *k.ExMin:
+		return fmt.Errorf("%s: must be > %v, got %v", k.Name, *k.ExMin, n)
+	case k.Max != nil && n > *k.Max:
+		return fmt.Errorf("%s: must be <= %v, got %v", k.Name, *k.Max, n)
+	case k.ExMax != nil && n >= *k.ExMax:
+		return fmt.Errorf("%s: must be < %v, got %v", k.Name, *k.ExMax, n)
 	}
 	return nil
 }

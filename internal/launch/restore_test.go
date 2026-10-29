@@ -66,3 +66,27 @@ func TestDoctorSettingsDriftIsInfoNotFailure(t *testing.T) {
 		t.Errorf("invalid JSON: ok=true detail=%q, want a failure", detail)
 	}
 }
+
+// TestCheckSettingsDriftSeesWhatRestoreWouldRemove: an extra env var the merge would keep is drift,
+// because --restore replaces the whole file.
+func TestCheckSettingsDriftSeesWhatRestoreWouldRemove(t *testing.T) {
+	vaulttest.Use(t)
+	if _, err := RestoreSettings(SettingsFile()); err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := os.ReadFile(SettingsFile())
+	edited := strings.Replace(string(raw), `"env": {`, `"env": {`+"\n    \"ZZ_EXTRA\": \"1\",", 1)
+	if edited == string(raw) {
+		t.Fatal("no env block to edit")
+	}
+	if err := os.WriteFile(SettingsFile(), []byte(edited), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	d, err := CheckSettingsDrift()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !d.Drifted() || !strings.Contains(strings.Join(d.Differs, ","), "env.ZZ_EXTRA") {
+		t.Errorf("drift = %+v, want env.ZZ_EXTRA reported", d)
+	}
+}

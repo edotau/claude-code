@@ -3,6 +3,7 @@ package settings
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"slices"
 	"strconv"
 	"strings"
@@ -114,6 +115,12 @@ func (f Field) Parse(input string) (json.RawMessage, error) {
 			return nil, fmt.Errorf("%s: want an integer, got %q", f.Key, input)
 		}
 		raw = json.RawMessage(strconv.Itoa(n))
+	case KindNumber:
+		n, err := strconv.ParseFloat(input, 64)
+		if err != nil || math.IsNaN(n) || math.IsInf(n, 0) {
+			return nil, fmt.Errorf("%s: want a number, got %q", f.Key, input)
+		}
+		raw = json.RawMessage(strconv.FormatFloat(n, 'g', -1, 64))
 	case KindEnum, KindString:
 		b, err := json.Marshal(input)
 		if err != nil {
@@ -151,6 +158,13 @@ func (f Field) Validate(raw json.RawMessage) error {
 		if n < f.Min {
 			return fmt.Errorf("%s: must be >= %d, got %d", f.Key, f.Min, n)
 		}
+		return f.schemaCheck(raw)
+	case KindNumber:
+		var n float64
+		if err := json.Unmarshal(raw, &n); err != nil {
+			return fmt.Errorf("%s: want a number", f.Key)
+		}
+		return f.schemaCheck(raw)
 	case KindEnum:
 		var s string
 		if err := json.Unmarshal(raw, &s); err != nil {
@@ -192,4 +206,12 @@ func FieldFor(key string) (Field, bool) {
 		f.Min = int(*sk.Min)
 	}
 	return f, true
+}
+
+// schemaCheck applies the schema entry's own bounds (maximum, exclusive limits) on top of the catalog checks.
+func (f Field) schemaCheck(raw json.RawMessage) error {
+	if sk, ok := SchemaKey(f.Key); ok && f.Source != "docs" {
+		return sk.Validate(raw)
+	}
+	return nil
 }

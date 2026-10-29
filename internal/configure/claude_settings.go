@@ -207,7 +207,7 @@ func reportClaudeSettings(d *dialog, ov map[string]json.RawMessage, sections []s
 	for _, sec := range sections {
 		header := false
 		for _, key := range sec.Keys {
-			f, found := settings.Lookup(key)
+			f, found := settings.FieldFor(key)
 			if !found {
 				continue
 			}
@@ -345,7 +345,7 @@ func pageSections(sections []settings.Section, tmpl, cur, live map[string]json.R
 		var rows [][2]string
 		for _, key := range sec.Keys {
 			shown[key] = true
-			f, ok := settings.Lookup(key)
+			f, ok := settings.FieldFor(key)
 			if !ok {
 				continue
 			}
@@ -423,7 +423,7 @@ func runClaudeSettingsMenu(d *dialog, ov map[string]json.RawMessage, sections []
 func addSetting(d *dialog, shown map[string]bool) (key string, raw json.RawMessage, ok bool) {
 	var cand []settings.Key
 	for _, k := range settings.SchemaKeys() {
-		if !shown[k.Name] && k.Kind != settings.KindObject && k.Kind != settings.KindArray && k.Name != "$schema" {
+		if !shown[k.Name] && k.Kind != settings.KindObject && k.Kind != settings.KindArray && k.Name != "$schema" && !settings.CredentialKey(k.Name) {
 			cand = append(cand, k)
 		}
 	}

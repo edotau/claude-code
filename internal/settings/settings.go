@@ -21,31 +21,56 @@ type Section struct {
 	Keys []string
 }
 
-// sectionOrder is the header order; structuralSection homes the non-catalog keys the page still groups.
+// sectionOrder is the header order; structuralSection homes the schema keys the catalog does not section.
 var (
-	sectionOrder      = []string{"model", "ui", "notifications", "session", "env", "permissions", "statusline"}
-	structuralSection = map[string]string{
-		"model": "model", "env": "env", "permissions": "permissions", "statusLine": "statusline",
-	}
+	sectionOrder      = []string{"model", "ui", "notifications", "session", "env", "more"}
+	structuralSection = map[string]string{"model": "model"}
 )
 
-// Sections groups the defaults file's keys by catalog section, in header order and file key order.
+// Sections groups the editable keys by section: the defaults file's scalar keys and env variables first,
+// then every sectioned catalog key the file lacks, so a key removed from the file stays on the page.
 func Sections() ([]Section, error) {
 	o, err := parseObject(defaults.Claude)
 	if err != nil {
 		return nil, fmt.Errorf("defaults/claude/settings.json: %w", err)
 	}
 	by := map[string][]string{}
+	seen := map[string]bool{}
+	add := func(name, key string) {
+		if !seen[key] {
+			seen[key] = true
+			by[name] = append(by[name], key)
+		}
+	}
 	for _, k := range o.keys {
-		if k == "$schema" {
+		if k == "env" {
+			env, err := parseObject(o.vals[k])
+			if err != nil {
+				return nil, fmt.Errorf("defaults/claude/settings.json env: %w", err)
+			}
+			for _, e := range env.keys {
+				if _, ok := FieldFor(e); ok && !CredentialKey(e) {
+					add("env", e)
+				}
+			}
 			continue
 		}
-		name := structuralSection[k]
-		if f, ok := Lookup(k); ok {
-			name = f.Section
+		f, ok := FieldFor(k)
+		if !ok || f.Kind == KindObject || f.Kind == KindArray || CredentialKey(k) {
+			continue
 		}
-		if name != "" {
-			by[name] = append(by[name], k)
+		name := f.Section
+		if name == "" {
+			name = structuralSection[k]
+		}
+		if name == "" {
+			name = "more"
+		}
+		add(name, k)
+	}
+	for _, f := range Catalog {
+		if f.Section != "" {
+			add(f.Section, f.Key)
 		}
 	}
 	sections := make([]Section, 0, len(sectionOrder))

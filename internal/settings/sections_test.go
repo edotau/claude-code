@@ -3,6 +3,8 @@ package settings
 import (
 	"bytes"
 	"encoding/json"
+	"maps"
+	"slices"
 	"strings"
 	"testing"
 
@@ -50,9 +52,15 @@ func TestSectionsCoverRenderedKeys(t *testing.T) {
 			owner[k] = append(owner[k], s.Name)
 		}
 	}
-	for k := range obj {
+	keys := slices.Collect(maps.Keys(obj))
+	var env map[string]json.RawMessage
+	_ = json.Unmarshal(obj["env"], &env)
+	for e := range env {
+		keys = append(keys, e)
+	}
+	for _, k := range keys {
 		switch k {
-		case "hooks": // hookspec.SettingsJSON contributes this key, not a section file
+		case "hooks", "env", "permissions", "statusLine": // generated, or an object the page cannot edit
 			continue
 		case "$schema": // Sections() deliberately excludes it (schema metadata, not a setting)
 			continue
@@ -70,8 +78,10 @@ func TestSectionsCoverRenderedKeys(t *testing.T) {
 		if len(owners) > 1 {
 			t.Errorf("section key %q duplicated across sections: %v", k, owners)
 		}
-		if _, ok := obj[k]; !ok {
-			t.Errorf("section %v declares key %q that Render never emits", owners, k)
+		_, rendered := obj[k]
+		_, inEnv := env[k]
+		if _, cat := Lookup(k); !rendered && !inEnv && !cat {
+			t.Errorf("section %v declares key %q that Render never emits and the catalog lacks", owners, k)
 		}
 	}
 }
@@ -148,5 +158,27 @@ func TestSchemaKeyValidateRejects(t *testing.T) {
 	}
 	if k, _ := SchemaKey("CLAUDE_CODE_SCROLL_SPEED"); !k.Env {
 		t.Error("CLAUDE_CODE_SCROLL_SPEED not an env key")
+	}
+}
+
+// A catalog key absent from the defaults file still has a page row, so removing it from the file loses nothing.
+func TestSectionsKeepCatalogKeysMissingFromDefaults(t *testing.T) {
+	orig := defaults.Claude
+	t.Cleanup(func() { defaults.Claude = orig })
+	defaults.Claude = []byte(`{"$schema": "x", "model": "opus"}`)
+	sections, err := Sections()
+	if err != nil {
+		t.Fatal(err)
+	}
+	have := map[string]bool{}
+	for _, s := range sections {
+		for _, k := range s.Keys {
+			have[k] = true
+		}
+	}
+	for _, f := range Catalog {
+		if f.Section != "" && !have[f.Key] {
+			t.Errorf("catalog key %q has no page row", f.Key)
+		}
 	}
 }
