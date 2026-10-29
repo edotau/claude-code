@@ -72,7 +72,7 @@ type Transport struct {
 
 // Caps declares which Request fields an agent honors; Prompt, Timeout and Attach are always honored
 // (every agent has at least an inline-block fallback for Attach).
-type Caps struct{ Model, Provider, Effort, WorkDir, SessionID, Tools, NoTools, Autonomous, Memory, NoPersist, SafeMode, DebugFile bool }
+type Caps struct{ Model, Provider, Effort, WorkDir, SessionID, Tools, NoTools, Autonomous, Memory, NoPersist, SafeMode, DebugFile, Direct bool }
 
 // Agent is one agent backend.
 type Runner interface {
@@ -119,6 +119,7 @@ func applyCaps(c Caps, req Request) (Request, []string) {
 	drop(c.Memory, req.EnableMemory, "--enable-memory", func() { req.EnableMemory = false })
 	drop(c.NoPersist, req.NoPersist, "--no-persist", func() { req.NoPersist = false })
 	drop(c.SafeMode, req.SafeMode, "--safe-mode", func() { req.SafeMode = false })
+	drop(c.Direct, req.Direct, "--direct", func() { req.Direct = false })
 	drop(c.DebugFile, req.DebugFile != "", "--debug-file="+req.DebugFile, func() { req.DebugFile = "" })
 	return req, dropped
 }
@@ -421,6 +422,7 @@ func RunWithFallback(ctx context.Context, c Chain, req Request, stream io.Writer
 	var prev Runner
 	var prevLeg Leg
 	stopped := false   // the loop ended on a fail-fast, not by running out of legs
+	ran := 0           // index of the last leg that ran
 	var handoff string // a copilot quota hand-off survives the legs that run after it
 	for i, leg := range c.Legs {
 		if i > 0 {
@@ -445,7 +447,7 @@ func RunWithFallback(ctx context.Context, c Chain, req Request, stream io.Writer
 			}
 		}
 		handoff = cmp.Or(res.Handoff, handoff)
-		prev, prevLeg = leg.Agent, leg
+		prev, prevLeg, ran = leg.Agent, leg, i
 		if i == 0 && ExplicitBackend(req) {
 			stopped = true
 			break
@@ -454,7 +456,7 @@ func RunWithFallback(ctx context.Context, c Chain, req Request, stream io.Writer
 	if err != nil && !stopped && len(reasons) > 0 && hopFailed(res, err) {
 		err = everyHopFailed(append(reasons, hopLabel(prevLeg)+": "+fallbackReason(err)), err)
 	}
-	if len(reasons) > 0 || c.Legs[0].Agent.Name() != c.Want {
+	if ran > 0 || c.Legs[ran].Agent.Name() != c.Want { // only a different agent or route is a fallback
 		res.Fallback, res.FallbackReason = c.Want, strings.Join(reasons, "; ")
 	}
 	res.Handoff = handoff

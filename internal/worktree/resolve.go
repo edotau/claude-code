@@ -63,7 +63,9 @@ type askEnvelope struct {
 	Answer         string `json:"answer"`
 	Fallback       string `json:"fallback,omitempty"`
 	FallbackReason string `json:"fallback_reason,omitempty"`
-	Error          string `json:"error,omitempty"`
+	Error          *struct {
+		Message string `json:"message"`
+	} `json:"error"`
 }
 
 // runResolveAgent shells out to this same claude-code binary's own `ask` verb — --fallback none so an
@@ -93,8 +95,8 @@ var runResolveAgent = func(ctx context.Context, agentName, prompt, workDir strin
 		return resolveAgentResult{}, fmt.Errorf("claude-code ask: unparseable output: %w", jsonErr)
 	}
 	res := resolveAgentResult{Fallback: env.Fallback}
-	if env.Error != "" {
-		return res, fmt.Errorf("claude-code ask: %s", env.Error)
+	if env.Error != nil {
+		return res, fmt.Errorf("claude-code ask: %s", env.Error.Message)
 	}
 	if runErr != nil {
 		return res, fmt.Errorf("claude-code ask: %w (%s)", runErr, strings.TrimSpace(stderr.String()))

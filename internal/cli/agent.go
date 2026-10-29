@@ -35,7 +35,10 @@ var askPage = helptext.Page{
 	Hint: "Every dispatch is logged: --log lists them, --retry <id> replays one.",
 }
 
-func cmdAsk(args []string) int {
+func cmdAsk(args []string) int { return runAsk(args, false) }
+
+// runAsk is cmdAsk; resume makes the first positional the session id (`<agent> resume [flags] <id> <task>`).
+func runAsk(args []string, resume bool) int {
 	fs := helptext.NewFlagSet("ask", askPage)
 	name := fs.String("agent", "claude", "agent: claude|codex|gemini|opencode|copilot")
 	fallback := fs.String("fallback", agent.FallbackAll, "fallback: all (agents, then claude)|agents|none")
@@ -79,7 +82,14 @@ func cmdAsk(args []string) int {
 	if *showLog {
 		return printDispatchLog(*format)
 	}
-	prompt := strings.Join(fs.Args(), " ")
+	positional := fs.Args()
+	if resume {
+		if len(positional) < 1 {
+			return fail("ask: resume needs a session id: <agent> resume [flags] <id> <task>")
+		}
+		*session, positional = positional[0], positional[1:]
+	}
+	prompt := strings.Join(positional, " ")
 	state := &askState{name: name, provider: provider, model: model, effort: effort, workdir: workdir,
 		session: session, tools: tools, noTools: noTools, timeout: timeout, attach: &attach, keepEnv: &keepEnv,
 		autonomous: autonomous, enableMemory: enableMemory, rubric: rubric, direct: direct,
@@ -95,19 +105,22 @@ func cmdAsk(args []string) int {
 	}
 	prompt, err := resolveAskPrompt(prompt)
 	if err != nil {
-		return fail("ask: %v", err)
+		return failAsk(*format, *name, err)
 	}
 	if strings.TrimSpace(prompt) == "" {
 		fs.Usage()
 		return 2
 	}
+	if *session != "" {
+		*fallback = agent.FallbackNone // a session id belongs to one agent; another agent cannot resume it
+	}
 	r, chain, err := resolveAskChain(*name, *provider, *model, prompt, *fallback, *native, *workdir)
 	if err != nil {
-		return fail("ask: %v", err)
+		return failAsk(*format, *name, err)
 	}
 	if *rubric != "" {
 		if prompt, err = agent.RubricPrompt(*rubric, prompt); err != nil {
-			return fail("ask: %v", err)
+			return failAsk(*format, *name, err)
 		}
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
@@ -135,7 +148,7 @@ func cmdAsk(args []string) int {
 	_ = rec.Save() // fail-open: the log is for replay and forensics, never a gate on the run
 	if *background {
 		if err := vendoragent.Spawn(&rec, backgroundExtraFlags(fs, *fallback, *native)); err != nil {
-			return fail("ask: %v", err)
+			return failAsk(*format, *name, err)
 		}
 		reportBackgroundStart(*format, rec)
 		return 0
@@ -180,7 +193,7 @@ func runAskAndReport(ctx context.Context, rec *agent.Record, chain agent.Chain, 
 	}
 	rec.Finish(res, err, time.Since(start))
 	_ = rec.Save()
-	reportAskResult(format, res, err)
+	reportAskResult(format, res, err, rec.ID)
 	fmt.Fprintln(os.Stderr, "ask: dispatch", rec.ID, "(claude-code ask --retry <id> replays it)")
 	if err != nil {
 		return fail("ask: %v", err)
@@ -391,22 +404,29 @@ func reportBackgroundStart(format string, rec agent.Record) {
 		fmt.Println(string(body))
 		return
 	}
+	if _, ok := vendoragent.Lookup(rec.Agent); !ok { // no adapter (claude): the verbs don't exist, so point at what does
+		fmt.Printf("job %s started — log %s; list: claude-code ask --log; resume when done: claude-code ask --agent %s --session <session_id>\n",
+			rec.ID, rec.LogPath(), rec.Agent)
+		return
+	}
 	fmt.Printf("job %s started — claude-code %s status|result|cancel\n", rec.ID, rec.Agent)
 }
 
-func reportAskResult(format string, res agent.Result, err error) {
+// failAsk reports a pre-run failure; with --format json it prints the same envelope a run would.
+func failAsk(format, agentName string, err error) int {
+	if format == "json" {
+		body, _ := json.Marshal(agent.FailureEnvelope(agentName, err))
+		fmt.Println(string(body))
+	}
+	return fail("ask: %v", err)
+}
+
+func reportAskResult(format string, res agent.Result, err error, dispatchID string) {
 	for _, d := range res.Dropped {
 		fmt.Fprintf(os.Stderr, "ask: %s has no channel on the %s agent — dropped\n", d, res.Agent)
 	}
 	if format == "json" {
-		env := struct {
-			agent.Result
-			Error string `json:"error,omitempty"`
-		}{Result: res}
-		if err != nil {
-			env.Error = err.Error()
-		}
-		body, _ := json.Marshal(env)
+		body, _ := json.Marshal(agent.NewEnvelope(res, err, dispatchID))
 		fmt.Println(string(body))
 		return
 	}
