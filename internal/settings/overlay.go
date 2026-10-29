@@ -208,3 +208,49 @@ func structuralKey(k string) bool {
 
 // StructuralKey reports a key the page and the writers refuse to edit (env variables stay editable one by one).
 func StructuralKey(k string) bool { return structuralKey(k) }
+
+// hooksBucketKey is the vault Overlay entry holding the harness hook-group switches: group name -> enabled.
+const hooksBucketKey = "harnessHooks"
+
+// LoadHarnessHooks reads the group switches; an absent entry is an empty map (every group on).
+func LoadHarnessHooks() (map[string]bool, error) {
+	m := map[string]bool{}
+	err := vault.View(func(t *vault.Tx) error {
+		raw, ok := t.Get(vault.Overlay, hooksBucketKey)
+		if !ok || raw == "" {
+			return nil
+		}
+		return json.Unmarshal([]byte(raw), &m)
+	})
+	if err != nil {
+		return nil, fmt.Errorf("vault overlay/%s: %w", hooksBucketKey, err)
+	}
+	return m, nil
+}
+
+// SaveHarnessHooks validates group names (a gate group cannot be switched off) and stores m; empty deletes the entry.
+func SaveHarnessHooks(m map[string]bool) error {
+	for name, on := range m {
+		var found, gate bool
+		for _, g := range hookspec.Registry {
+			if g.Name == name {
+				found, gate = true, g.Gate
+			}
+		}
+		if !found {
+			return fmt.Errorf("harnessHooks: unknown group %q", name)
+		}
+		if gate && !on {
+			return fmt.Errorf("harnessHooks: %s is a gate group and stays on", name)
+		}
+	}
+	var raw string
+	if len(m) > 0 {
+		b, err := json.Marshal(m)
+		if err != nil {
+			return err
+		}
+		raw = string(b)
+	}
+	return vault.Update(func(t *vault.Tx) error { return t.Put(vault.Overlay, hooksBucketKey, raw) })
+}

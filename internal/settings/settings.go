@@ -240,7 +240,7 @@ func mergeHooks(base, overlay json.RawMessage, sum *Summary) (json.RawMessage, e
 		}
 	}
 	for _, ev := range o.keys {
-		var groups []hookspec.Group
+		var groups []hookspec.MatcherGroup
 		if err := json.Unmarshal(o.vals[ev], &groups); err != nil {
 			return nil, err
 		}

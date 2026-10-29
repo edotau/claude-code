@@ -14,17 +14,17 @@ var vendorEvents = map[string]string{
 
 // CodexJSON renders only explicitly allowed hooks in Codex's Claude-compatible schema.
 func CodexJSON() ([]byte, error) {
-	events := map[string][]Group{}
-	for _, s := range Registry {
+	events := map[string][]MatcherGroup{}
+	for _, s := range Specs() {
 		if !slices.Contains(s.Vendors, "codex") {
 			continue
 		}
-		h := Hook{Type: "command", Command: AgentEnv + "=codex " + s.Command(), Timeout: s.Timeout, Async: s.Async, StatusMessage: s.StatusMessage}
+		h := Hook{Type: "command", Command: AgentEnv + "=codex " + s.Command(), Timeout: s.Seconds(), Async: s.Async, StatusMessage: s.StatusMessage}
 		groups := events[s.Event]
 		if n := len(groups); n > 0 && groups[n-1].Matcher == s.Matcher {
 			groups[n-1].Hooks = append(groups[n-1].Hooks, h)
 		} else {
-			events[s.Event] = append(groups, Group{Matcher: s.Matcher, Hooks: []Hook{h}})
+			events[s.Event] = append(groups, MatcherGroup{Matcher: s.Matcher, Hooks: []Hook{h}})
 		}
 	}
 	return json.MarshalIndent(map[string]any{"hooks": events}, "", "  ")
@@ -39,13 +39,13 @@ func CopilotJSON() ([]byte, error) {
 		TimeoutSec int    `json:"timeoutSec"`
 	}
 	events := map[string][]entry{}
-	for _, s := range Registry {
+	for _, s := range Specs() {
 		event := vendorEvents[s.Event]
 		if !slices.Contains(s.Vendors, "copilot") || event == "" {
 			continue
 		}
 		command := s.Command()
-		if !s.Gate {
+		if !s.Blocks {
 			command += " || true"
 		}
 		matcher := s.Matcher
@@ -55,7 +55,7 @@ func CopilotJSON() ([]byte, error) {
 			matcher = strings.NewReplacer("Write", "Write|create", "Read", "Read|view").Replace(matcher)
 			matcher = copilotMatcher(matcher)
 		}
-		events[event] = append(events[event], entry{Type: "command", Matcher: matcher, Bash: command, TimeoutSec: s.Timeout})
+		events[event] = append(events[event], entry{Type: "command", Matcher: matcher, Bash: command, TimeoutSec: s.Seconds()})
 	}
 	return json.MarshalIndent(map[string]any{"version": 1, "hooks": events}, "", "  ")
 }

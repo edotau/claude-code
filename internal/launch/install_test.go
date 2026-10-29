@@ -55,7 +55,7 @@ func TestInstallMergesIntoConfigDir(t *testing.T) {
 		t.Fatal(err)
 	}
 	b, _ := os.ReadFile(file)
-	for _, want := range []string{`"spinnerTipsEnabled": false`, `"orca stop"`, "hook stop", "hook bash-guard"} {
+	for _, want := range []string{`"spinnerTipsEnabled": false`, `"orca stop"`, "hook Stop", "hook bash-guard"} {
 		if !strings.Contains(string(b), want) {
 			t.Errorf("merged settings missing %s:\n%s", want, b)
 		}

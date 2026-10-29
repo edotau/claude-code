@@ -11,7 +11,7 @@ func TestSettingsJSON(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var block map[string][]Group
+	var block map[string][]MatcherGroup
 	if err := json.Unmarshal(b, &block); err != nil {
 		t.Fatal(err)
 	}
@@ -54,7 +54,7 @@ func TestCodexJSONVendorMarker(t *testing.T) {
 		t.Fatal(err)
 	}
 	var block struct {
-		Hooks map[string][]Group `json:"hooks"`
+		Hooks map[string][]MatcherGroup `json:"hooks"`
 	}
 	if err := json.Unmarshal(b, &block); err != nil {
 		t.Fatal(err)
@@ -79,9 +79,9 @@ func TestCodexJSONVendorMarker(t *testing.T) {
 }
 
 func TestPlanHooksRegistered(t *testing.T) {
-	byName := map[string]Spec{}
+	byName := map[string]EventSpec{}
 	docsCount := 0
-	for _, s := range Registry {
+	for _, s := range Specs() {
 		byName[s.Name] = s
 		if s.Name == "docs-placement" {
 			docsCount++
@@ -91,39 +91,39 @@ func TestPlanHooksRegistered(t *testing.T) {
 		t.Fatal("retired plan-template hook remains registered")
 	}
 	docs, ok := byName["docs-placement"]
-	if !ok || docsCount != 1 || docs.Event != EventPreToolUse || docs.Matcher != "Write|Edit" || !docs.Gate {
+	if !ok || docsCount != 1 || docs.Event != EventPreToolUse || docs.Matcher != "Write|Edit" || !docs.Blocks {
 		t.Fatalf("docs-placement = %+v, ok=%v, count=%d", docs, ok, docsCount)
 	}
 	mirror, ok := byName["plan-mirror"]
-	if !ok || mirror.Event != EventPostToolUse || mirror.Matcher != "Write|Edit" || mirror.Gate {
+	if !ok || mirror.Event != EventPostToolUse || mirror.Matcher != "Write|Edit" || mirror.Blocks {
 		t.Fatalf("plan-mirror = %+v, ok=%v", mirror, ok)
 	}
 	b, err := SettingsJSON()
 	if err != nil {
 		t.Fatal(err)
 	}
-	var block map[string][]Group
+	var block map[string][]MatcherGroup
 	if err := json.Unmarshal(b, &block); err != nil {
 		t.Fatal(err)
 	}
 	found := 0
-	retired := Spec{Name: "plan-template"}
+	retired := EventSpec{Name: "plan-template"}
 	for event, groups := range block {
 		for _, g := range groups {
 			for _, h := range g.Hooks {
 				if h.Command == retired.Command() {
 					t.Fatalf("rendered settings contain retired plan-template: %s", b)
 				}
-				if h.Command == docs.Command() {
+				if h.Command == DispatcherCommand(EventPreToolUse, true) {
 					found++
-					if event != EventPreToolUse || g.Matcher != "Write|Edit" {
-						t.Errorf("docs-placement rendered under %s/%s", event, g.Matcher)
+					if event != EventPreToolUse || !strings.Contains(g.Matcher, "Write|Edit") {
+						t.Errorf("PreToolUse dispatcher carries matcher %q, want it to cover docs-placement's Write|Edit", g.Matcher)
 					}
 				}
 			}
 		}
 	}
 	if found != 1 {
-		t.Errorf("rendered settings contain %d docs-placement hooks, want 1: %s", found, b)
+		t.Errorf("rendered settings contain %d PreToolUse dispatcher entries, want 1: %s", found, b)
 	}
 }

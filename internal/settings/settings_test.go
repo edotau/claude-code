@@ -61,12 +61,12 @@ func TestMergePreservesForeign(t *testing.T) {
 		t.Fatal(err)
 	}
 	var doc struct {
-		Env         map[string]string           `json:"env"`
-		Tips        *bool                       `json:"spinnerTipsEnabled"`
-		Permissions map[string]json.RawMessage  `json:"permissions"`
-		StatusLine  map[string]any              `json:"statusLine"`
-		Hooks       map[string][]hookspec.Group `json:"hooks"`
-		Output      string                      `json:"outputStyle"`
+		Env         map[string]string                  `json:"env"`
+		Tips        *bool                              `json:"spinnerTipsEnabled"`
+		Permissions map[string]json.RawMessage         `json:"permissions"`
+		StatusLine  map[string]any                     `json:"statusLine"`
+		Hooks       map[string][]hookspec.MatcherGroup `json:"hooks"`
+		Output      string                             `json:"outputStyle"`
 	}
 	if err := json.Unmarshal(merged, &doc); err != nil {
 		t.Fatalf("%v\n%s", err, merged)
@@ -92,18 +92,17 @@ func TestMergePreservesForeign(t *testing.T) {
 		}
 	}
 	stop := strings.Join(cmds["Stop"], "\n")
-	if !strings.Contains(stop, "orca-hook && echo '<done>'") || strings.Contains(stop, "retired-hook") || !strings.Contains(stop, "hook stop") {
+	if !strings.Contains(stop, "orca-hook && echo '<done>'") || strings.Contains(stop, "retired-hook") || !strings.Contains(stop, "hook Stop") {
 		t.Errorf("Stop hooks wrong: %q", cmds["Stop"])
 	}
-	// PreToolUse carries every registry PreToolUse spec: bash-guard, docs-placement, agent-inflight.
+	// PreToolUse carries the dispatcher entry plus the safety gate's own entry.
 	wantPre, claudeHooks := 0, 0
-	for _, s := range hookspec.Registry {
-		if s.VendorOnly {
-			continue
-		}
-		claudeHooks++
-		if s.Event == hookspec.EventPreToolUse {
-			wantPre++
+	for ev, groups := range hookspec.Events() {
+		for _, g := range groups {
+			claudeHooks += len(g.Hooks)
+			if ev == hookspec.EventPreToolUse {
+				wantPre += len(g.Hooks)
+			}
 		}
 	}
 	if len(cmds["SessionEnd"]) != 2 || cmds["SessionEnd"][1] != "foreign-end" || len(cmds["PreToolUse"]) != wantPre {

@@ -70,32 +70,12 @@
   "hooks": {
     "PostToolUse": [
       {
-        "matcher": "Agent|Task",
+        "matcher": "Write|Edit|ExitPlanMode|Agent|Task",
         "hooks": [
           {
             "type": "command",
-            "command": "$HOME/.claude/bin/claude-code hook agent-inflight-tag",
-            "timeout": 5
-          }
-        ]
-      },
-      {
-        "matcher": "Write|Edit",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "$HOME/.claude/bin/claude-code hook plan-mirror",
-            "timeout": 10
-          }
-        ]
-      },
-      {
-        "matcher": "ExitPlanMode",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "$HOME/.claude/bin/claude-code hook save-plan",
-            "timeout": 10
+            "command": "$HOME/.claude/bin/claude-code hook PostToolUse --no-own",
+            "timeout": 25
           }
         ]
       },
@@ -117,7 +97,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "$HOME/.claude/bin/claude-code hook agent-inflight-post",
+            "command": "$HOME/.claude/bin/claude-code hook PostToolUseFailure",
             "timeout": 5
           }
         ]
@@ -128,7 +108,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "$HOME/.claude/bin/claude-code hook pre-compact",
+            "command": "$HOME/.claude/bin/claude-code hook PreCompact",
             "timeout": 15
           }
         ]
@@ -147,43 +127,12 @@
         ]
       },
       {
-        "matcher": "Write|Edit",
+        "matcher": "Write|Edit|Agent|Task|Workflow",
         "hooks": [
           {
             "type": "command",
-            "command": "$HOME/.claude/bin/claude-code hook docs-placement",
-            "timeout": 5,
-            "statusMessage": "Checking doc placement"
-          }
-        ]
-      },
-      {
-        "matcher": "Agent|Task",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "$HOME/.claude/bin/claude-code hook agent-effort",
-            "timeout": 5
-          }
-        ]
-      },
-      {
-        "matcher": "Workflow",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "$HOME/.claude/bin/claude-code hook workflow-lint",
-            "timeout": 5
-          }
-        ]
-      },
-      {
-        "matcher": "Agent|Task",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "$HOME/.claude/bin/claude-code hook agent-inflight",
-            "timeout": 5
+            "command": "$HOME/.claude/bin/claude-code hook PreToolUse --no-own",
+            "timeout": 20
           }
         ]
       }
@@ -193,7 +142,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "$HOME/.claude/bin/claude-code hook session-harvest-end",
+            "command": "$HOME/.claude/bin/claude-code hook SessionEnd",
             "timeout": 15
           }
         ]
@@ -204,7 +153,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "$HOME/.claude/bin/claude-code hook session-start",
+            "command": "$HOME/.claude/bin/claude-code hook SessionStart",
             "timeout": 10,
             "statusMessage": "Loading session memory"
           }
@@ -216,7 +165,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "$HOME/.claude/bin/claude-code hook stop",
+            "command": "$HOME/.claude/bin/claude-code hook Stop",
             "timeout": 50
           }
         ]
@@ -227,7 +176,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "$HOME/.claude/bin/claude-code hook subagent-stop",
+            "command": "$HOME/.claude/bin/claude-code hook SubagentStop",
             "timeout": 15
           }
         ]
@@ -238,13 +187,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "$HOME/.claude/bin/claude-code hook path-resolver",
-            "timeout": 5
-          },
-          {
-            "type": "command",
-            "command": "$HOME/.claude/bin/claude-code hook memory-recall",
-            "timeout": 5
+            "command": "$HOME/.claude/bin/claude-code hook UserPromptSubmit",
+            "timeout": 10
           }
         ]
       }
@@ -254,7 +198,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "$HOME/.claude/bin/claude-code hook worktree-create",
+            "command": "$HOME/.claude/bin/claude-code hook WorktreeCreate",
             "timeout": 60
           }
         ]
@@ -265,7 +209,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "$HOME/.claude/bin/claude-code hook worktree-remove",
+            "command": "$HOME/.claude/bin/claude-code hook WorktreeRemove",
             "timeout": 30
           }
         ]

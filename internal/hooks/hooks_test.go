@@ -211,7 +211,7 @@ func TestSafetyShellDashCNoArgDoesNotPanic(t *testing.T) {
 }
 
 func TestRegistryMatchesHookspec(t *testing.T) {
-	for _, s := range hookspec.Registry {
+	for _, s := range hookspec.Specs() {
 		if _, ok := Registry[s.Name]; !ok {
 			t.Errorf("hookspec %q has no handler", s.Name)
 		}
