@@ -61,6 +61,7 @@ var catalogSpec = []Field{
 	{Key: "disableClaudeAiConnectors", Section: "session", Source: "schema"},
 	{Key: "useAutoModeDuringPlan", Section: "session", Source: "schema"},
 	{Key: "skipWorkflowUsageWarning", Section: "session", Kind: KindBool, Source: "docs"},
+	{Key: "worktree", Section: "session", Source: "schema"},
 
 	// Section "" is overlay-only: set via `claude-code vault edit`, never shown on the configure page.
 	{Key: "autoMode", Section: "", Source: "schema"},
