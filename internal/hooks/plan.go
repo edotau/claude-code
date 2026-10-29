@@ -436,9 +436,46 @@ func PlanReminder(r io.Reader, stdout, stderr io.Writer) int {
 	if err := os.Remove(file); err != nil {
 		fmt.Fprintf(stderr, "plan-reminder: %v\n", err)
 	}
-	items := strings.Join(strings.Fields(strings.ReplaceAll(strings.TrimSpace(string(data)), "\n", ";")), " ")
+	items := stillPartial(string(data))
+	if items == "" {
+		return ExitProceed
+	}
 	msg := "plans: this turn's commits only partly landed: " + items + "; finish the task's owns: or tick it by hand"
 	out, _ := json.Marshal(map[string]string{"systemMessage": msg})
 	fmt.Fprint(stdout, string(out))
 	return ExitProceed
+}
+
+// stillPartial joins the recorded "<path>\t<plan>: <task>" lines whose task is still open, re-read from the plan.
+func stillPartial(data string) string {
+	var out []string
+	for _, line := range strings.Split(strings.TrimSpace(data), "\n") {
+		path, entry, ok := strings.Cut(line, "\t")
+		if !ok {
+			path, entry = "", line
+		}
+		if path != "" {
+			if _, task, ok := strings.Cut(entry, ": "); ok && taskDone(path, task) {
+				continue
+			}
+		}
+		if entry = strings.Join(strings.Fields(entry), " "); entry != "" {
+			out = append(out, entry)
+		}
+	}
+	return strings.Join(out, "; ")
+}
+
+// taskDone reports whether the plan at path now shows the titled task ticked.
+func taskDone(path, title string) bool {
+	p, err := plans.Parse(path)
+	if err != nil {
+		return false
+	}
+	for _, t := range p.Tasks {
+		if t.Title == title {
+			return t.Done
+		}
+	}
+	return false
 }
