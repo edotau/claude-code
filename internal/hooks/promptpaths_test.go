@@ -7,10 +7,13 @@ import (
 	"image/png"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/hookspec"
 	"github.com/edotau/claude-code/internal/pathview"
+	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
 func TestScanWinPaths(t *testing.T) {
@@ -174,5 +177,89 @@ func TestScanWinPathsStopsAtBacktick(t *testing.T) {
 	got := scanWinPaths("read `file:///etc/hostname` now")
 	if len(got) != 1 || got[0] != "file:///etc/hostname" {
 		t.Errorf("scanWinPaths = %q, want [file:///etc/hostname]", got)
+	}
+}
+
+// The paths and codex groups run natively: Bind must hand each declared handler the Runner from
+// Native (same function pointer), not the legacy adapter, and that Runner returns a Result directly.
+func TestBindPrefersNativeRunners(t *testing.T) {
+	if len(Native) == 0 {
+		t.Fatal("Native is empty")
+	}
+	seen := map[string]bool{}
+	for _, b := range Bind() {
+		native, ok := Native[b.Spec.Name]
+		if !ok {
+			continue
+		}
+		seen[b.Spec.Name] = true
+		if reflect.ValueOf(b.Run).Pointer() != reflect.ValueOf(native).Pointer() {
+			t.Errorf("%s: bound to the legacy adapter, want the Native runner", b.Spec.Name)
+		}
+	}
+	for name := range Native {
+		if !seen[name] {
+			t.Errorf("%s: declared in Native but never bound", name)
+		}
+	}
+
+	dir := t.TempDir()
+	f := filepath.Join(dir, "notes.md")
+	if err := os.WriteFile(f, []byte("hello\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	in := ParseInput(strings.NewReader(`{"prompt":"read ` + f + `"}`))
+	for _, b := range Bind() {
+		if b.Spec.Name != "path-resolver" {
+			continue
+		}
+		r := b.Run(in) // native: a Result straight from the Runner, not re-parsed adapter output
+		if r.Context == "" || r.SystemMessage == "" {
+			t.Errorf("path-resolver Result = %+v, want Context and SystemMessage", r)
+		}
+	}
+}
+
+// A direct `hook path-resolver` call and the UserPromptSubmit dispatcher emit the same document.
+func TestPathResolverRunMatchesDispatcher(t *testing.T) {
+	for _, vendor := range []string{VendorClaude, VendorCopilot} {
+		t.Run(vendor, func(t *testing.T) {
+			vaulttest.Use(t) // hermetic CLAUDE_CONFIG_DIR + vault (harness hook switches)
+			t.Setenv(hookspec.AgentEnv, vendor)
+			t.Setenv("CLAUDE_RECALL_SEMANTIC", "0") // keep the co-dispatched memory-recall cheap
+			dir := t.TempDir()
+			f := filepath.Join(dir, "notes.md")
+			if err := os.WriteFile(f, []byte("hello\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			payload := `{"prompt":"read ` + f + `"}`
+
+			var directOut, directErr bytes.Buffer
+			if code := Run("path-resolver", strings.NewReader(payload), &directOut, &directErr); code != ExitProceed {
+				t.Fatalf("Run exit = %d (stderr %s)", code, &directErr)
+			}
+			var eventOut, eventErr bytes.Buffer
+			if code := RunEvent("UserPromptSubmit", false, strings.NewReader(payload), &eventOut, &eventErr); code != ExitProceed {
+				t.Fatalf("RunEvent exit = %d (stderr %s)", code, &eventErr)
+			}
+			if directOut.String() != eventOut.String() {
+				t.Fatalf("direct %q != dispatched %q", &directOut, &eventOut)
+			}
+			doc := oneDoc(t, directOut.String())
+			switch vendor {
+			case VendorClaude:
+				h, _ := doc["hookSpecificOutput"].(map[string]any)
+				sys, _ := doc["systemMessage"].(string)
+				ctx, _ := h["additionalContext"].(string)
+				if sys == "" || ctx == "" {
+					t.Errorf("claude doc = %v, want systemMessage + hookSpecificOutput.additionalContext", doc)
+				}
+			case VendorCopilot:
+				ctx, _ := doc["additionalContext"].(string)
+				if ctx == "" || len(doc) != 1 {
+					t.Errorf("copilot doc = %v, want only additionalContext", doc)
+				}
+			}
+		})
 	}
 }

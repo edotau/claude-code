@@ -202,3 +202,31 @@ func TestCodexRoutingSchemaStampsNewLinesAndSkipsNewer(t *testing.T) {
 		t.Errorf(`new line "schema" = %v, want 1 (line %s)`, last["schema"], lines[len(lines)-1])
 	}
 }
+
+// `claude-code hook codex-agent-route` (Run) must emit the same wire shape the native runner renders.
+func TestCodexAgentRouteThroughRunKeepsWireShape(t *testing.T) {
+	setupCodexRoute(t) // sets HARNESS_HOOK_AGENT=codex
+	args := map[string]any{"fork_turns": "none", "message": "add a --verbose flag", "task_name": "probe_child", "agent_type": "default"}
+	body := mustCodexJSON(t, codexRoutePayload(args))
+
+	var directOut, directErr bytes.Buffer
+	if code := CodexAgentRoute(bytes.NewReader(body), &directOut, &directErr); code != ExitProceed {
+		t.Fatalf("direct exit = %d", code)
+	}
+	var runOut, runErr bytes.Buffer
+	if code := Run("codex-agent-route", bytes.NewReader(body), &runOut, &runErr); code != ExitProceed {
+		t.Fatalf("Run exit = %d (stderr %s)", code, &runErr)
+	}
+	if runOut.String() != directOut.String() {
+		t.Fatalf("Run output %q != direct %q", &runOut, &directOut)
+	}
+	m := oneDoc(t, runOut.String())
+	h, _ := m["hookSpecificOutput"].(map[string]any)
+	if h["hookEventName"] != "PreToolUse" || h["permissionDecision"] != "allow" {
+		t.Fatalf("wire shape = %v", m)
+	}
+	updated, _ := h["updatedInput"].(map[string]any)
+	if updated["model"] != codexRouteWireModel || updated["reasoning_effort"] != "high" {
+		t.Fatalf("updatedInput = %v", updated)
+	}
+}
