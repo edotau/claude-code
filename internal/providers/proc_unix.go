@@ -18,16 +18,18 @@ var authDrainLimit = 5 * time.Second
 
 // capBuffer keeps the first max bytes written and discards the rest, so a chatty helper can't exhaust memory.
 type capBuffer struct {
-	bytes.Buffer
+	buf bytes.Buffer // named, not embedded: an embedded Buffer's ReadFrom would let io.Copy bypass the cap
 	max int
 }
 
 func (c *capBuffer) Write(p []byte) (int, error) {
-	if room := c.max - c.Len(); room > 0 {
-		c.Buffer.Write(p[:min(len(p), room)])
+	if room := c.max - c.buf.Len(); room > 0 {
+		c.buf.Write(p[:min(len(p), room)])
 	}
 	return len(p), nil
 }
+
+func (c *capBuffer) Bytes() []byte { return c.buf.Bytes() }
 
 // outputInGroup runs cmd in a group led by a sleeping sentinel and kills the group as soon as cmd exits, before its
 // pipes are drained; the unreaped sentinel keeps the group id ours, so the signal never reaches a reused group.
