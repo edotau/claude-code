@@ -32,7 +32,7 @@ func TestRunAuthCommandTimeoutKillsDescendants(t *testing.T) {
 	pid, _ := strconv.Atoi(strings.TrimSpace(string(raw)))
 	t.Cleanup(func() { _ = syscall.Kill(pid, syscall.SIGKILL) })
 	for range 40 {
-		if gone(pid) {
+		if gone(t, pid) {
 			return
 		}
 		time.Sleep(50 * time.Millisecond)
@@ -55,7 +55,7 @@ func TestRunAuthCommandReapsChildAfterShellExits(t *testing.T) {
 	pid, _ := strconv.Atoi(strings.TrimSpace(string(raw)))
 	t.Cleanup(func() { _ = syscall.Kill(pid, syscall.SIGKILL) })
 	for range 40 {
-		if gone(pid) {
+		if gone(t, pid) {
 			return
 		}
 		time.Sleep(50 * time.Millisecond)
@@ -63,12 +63,35 @@ func TestRunAuthCommandReapsChildAfterShellExits(t *testing.T) {
 	t.Errorf("child %d still running after its shell exited", pid)
 }
 
-// gone reports whether pid has exited; a zombie counts, since an init that is slow to reap must not fail the test.
-func gone(pid int) bool {
+// gone reports whether pid has exited; a zombie counts (a slow-reaping init must not fail the test), and an
+// inspection failure fails the test rather than passing it.
+func gone(t *testing.T, pid int) bool {
+	t.Helper()
 	if errors.Is(syscall.Kill(pid, 0), syscall.ESRCH) {
 		return true
 	}
 	out, err := exec.Command("ps", "-o", "stat=", "-p", strconv.Itoa(pid)).Output()
 	st := strings.TrimSpace(string(out))
-	return err != nil || st == "" || strings.HasPrefix(st, "Z")
+	if err != nil && st == "" {
+		if errors.Is(syscall.Kill(pid, 0), syscall.ESRCH) {
+			return true
+		}
+		if _, ok := errors.AsType[*exec.ExitError](err); !ok {
+			t.Fatalf("cannot inspect pid %d: %v", pid, err)
+		}
+		return false
+	}
+	return strings.HasPrefix(st, "Z")
+}
+
+// A background child that keeps the shell's stdout open must not delay or fail a token the shell already printed.
+func TestRunAuthCommandChildHoldingStdoutDoesNotBlock(t *testing.T) {
+	start := time.Now()
+	v, err := runAuthCommand(context.Background(), &Provider{Name: "held"}, "sleep 60 & echo tok")
+	if err != nil || v != "tok" {
+		t.Fatalf("runAuthCommand = %q, %v; want tok", v, err)
+	}
+	if d := time.Since(start); d > 2*time.Second {
+		t.Errorf("took %s: a child holding stdout open must not wait out WaitDelay", d)
+	}
 }
