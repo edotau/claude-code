@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -31,7 +32,7 @@ func TestRunAuthCommandTimeoutKillsDescendants(t *testing.T) {
 	pid, _ := strconv.Atoi(strings.TrimSpace(string(raw)))
 	t.Cleanup(func() { _ = syscall.Kill(pid, syscall.SIGKILL) })
 	for range 40 {
-		if kerr := syscall.Kill(pid, 0); errors.Is(kerr, syscall.ESRCH) {
+		if gone(pid) {
 			return
 		}
 		time.Sleep(50 * time.Millisecond)
@@ -54,10 +55,20 @@ func TestRunAuthCommandReapsChildAfterShellExits(t *testing.T) {
 	pid, _ := strconv.Atoi(strings.TrimSpace(string(raw)))
 	t.Cleanup(func() { _ = syscall.Kill(pid, syscall.SIGKILL) })
 	for range 40 {
-		if kerr := syscall.Kill(pid, 0); errors.Is(kerr, syscall.ESRCH) {
+		if gone(pid) {
 			return
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
 	t.Errorf("child %d still running after its shell exited", pid)
+}
+
+// gone reports whether pid has exited; a zombie counts, since an init that is slow to reap must not fail the test.
+func gone(pid int) bool {
+	if errors.Is(syscall.Kill(pid, 0), syscall.ESRCH) {
+		return true
+	}
+	out, err := exec.Command("ps", "-o", "stat=", "-p", strconv.Itoa(pid)).Output()
+	st := strings.TrimSpace(string(out))
+	return err != nil || st == "" || strings.HasPrefix(st, "Z")
 }

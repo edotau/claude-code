@@ -4,6 +4,4 @@ package providers
 
 import "os/exec"
 
-func ownGroup(cmd *exec.Cmd) {}
-
-func reapGroup(cmd *exec.Cmd) {}
+func outputInGroup(cmd *exec.Cmd) ([]byte, error) { return cmd.Output() }
