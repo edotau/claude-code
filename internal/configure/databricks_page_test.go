@@ -111,7 +111,7 @@ func dbxExpiry(t *testing.T, env string, exp time.Time) {
 	if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	b, _ := json.Marshal(map[string]int64{"exp": exp.Unix()})
+	b, _ := json.Marshal(map[string]int64{"schema": 1, "exp": exp.Unix()})
 	if err := os.WriteFile(p, b, 0o600); err != nil {
 		t.Fatal(err)
 	}

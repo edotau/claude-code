@@ -160,6 +160,7 @@ func claudeResets(s string) (local, utc string) {
 
 // claudeUsageCache is the on-disk shape shared by every claude-code usage run (CLI and the VS Code poller).
 type claudeUsageCache struct {
+	Schema           int             `json:"schema"`
 	FetchedAt        time.Time       `json:"fetched_at"`
 	NotBefore        *time.Time      `json:"not_before,omitempty"`
 	SubscriptionType string          `json:"subscription_type"`
@@ -195,7 +196,7 @@ func readClaudeUsageCache(path string) *claudeUsageCache {
 		return nil
 	}
 	var c claudeUsageCache
-	if err := json.Unmarshal(raw, &c); err != nil || len(c.Body) == 0 {
+	if !decodeUsageCache(raw, &c) || len(c.Body) == 0 {
 		return nil
 	}
 	return &c
@@ -206,6 +207,7 @@ func writeClaudeUsageCache(path string, c claudeUsageCache) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return
 	}
+	c.Schema = usageCacheSchema
 	data, err := json.Marshal(c)
 	if err != nil {
 		return

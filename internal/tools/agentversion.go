@@ -13,6 +13,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/schemas"
 )
 
 // Named failures of AgentVersion; callers match with errors.Is.
@@ -181,13 +182,15 @@ func versionLine(path string) string {
 
 // readVersionCache loads the disk cache; a missing or corrupt file is an empty cache.
 func readVersionCache() map[string]string {
-	cache := map[string]string{}
-	if data, err := os.ReadFile(versionCacheFile()); err == nil {
-		if json.Unmarshal(data, &cache) != nil {
-			return map[string]string{}
-		}
+	data, err := os.ReadFile(versionCacheFile())
+	if err != nil {
+		return map[string]string{}
 	}
-	return cache
+	var f versionFile // a v0 (bare map), newer or corrupt cache is a miss, never migrated
+	if from, err := schemas.Decode(versionFormat, data, &f); err != nil || from != schemaVersion || f.Versions == nil {
+		return map[string]string{}
+	}
+	return f.Versions
 }
 
 // writeVersionCache records key (dropping older builds of path) via temp file + rename; any failure is silent.
@@ -199,7 +202,7 @@ func writeVersionCache(path, key, line string) {
 		}
 	}
 	cache[key] = line
-	data, err := json.Marshal(cache)
+	data, err := json.Marshal(versionFile{Schema: schemaVersion, Versions: cache})
 	if err != nil {
 		return
 	}

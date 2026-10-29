@@ -16,6 +16,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
+	"github.com/edotau/claude-code/internal/schemas"
 )
 
 const (
@@ -31,6 +32,7 @@ var ErrNotRunning = errors.New("proxy is not running")
 
 // State is router.json: written by a serving daemon, removed when it exits.
 type State struct {
+	Schema  int       `json:"schema"`
 	PID     int       `json:"pid"`
 	Port    int       `json:"port"`
 	Started time.Time `json:"started"`
@@ -58,7 +60,8 @@ func ReadState() (State, error) {
 	if err != nil {
 		return st, err
 	}
-	return st, json.Unmarshal(b, &st)
+	_, err = schemas.Decode(routerFormat, b, &st)
+	return st, err
 }
 
 // Running returns the state of a live, healthy router.
@@ -185,7 +188,7 @@ func Serve(ctx context.Context, port int) error {
 	if err != nil {
 		return err
 	}
-	st := State{PID: os.Getpid(), Port: ln.Addr().(*net.TCPAddr).Port, Started: time.Now().UTC()}
+	st := State{Schema: stateSchema, PID: os.Getpid(), Port: ln.Addr().(*net.TCPAddr).Port, Started: time.Now().UTC()}
 	if !ownedElsewhere(st) { // a side proxy (--port N) must not clobber a live daemon's router.json
 		data, _ := json.Marshal(st)
 		if err := paths.AtomicWrite(stateFile(), data, 0o600); err != nil {

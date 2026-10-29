@@ -163,7 +163,7 @@ func TestPlanMirrorTopLevelWhenCWDIsConfigDir(t *testing.T) {
 	if err != nil || string(got) != planTemplate {
 		t.Fatalf("mirrored file at %s: err=%v content=%q", want, err, got)
 	}
-	if _, err := os.Stat(filepath.Join(cfg, "state", "plans-scratch", "funny-random-words.md.dest")); err != nil {
+	if _, err := os.Stat(filepath.Join(cfg, "state", "harness", "plans-scratch", "funny-random-words.md.dest")); err != nil {
 		t.Fatalf("expected a recorded dest: %v", err)
 	}
 }
@@ -359,7 +359,7 @@ func TestSavePlanReusesMirroredDestAndCleansUpDraft(t *testing.T) {
 	if _, err := os.Stat(draft); !os.IsNotExist(err) {
 		t.Fatalf("the undated draft must be removed, stat err = %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(cfg, "state", "plans-scratch", "other-words.md.dest")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(cfg, "state", "harness", "plans-scratch", "other-words.md.dest")); !os.IsNotExist(err) {
 		t.Fatalf("the .dest record must be removed, stat err = %v", err)
 	}
 }

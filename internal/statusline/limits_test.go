@@ -21,7 +21,7 @@ func writeLimitsCache(t *testing.T, fetchedAt time.Time, fiveUtil, sevenUtil flo
 	}
 	body := fmt.Sprintf(`{"five_hour":{"utilization":%g,"resets_at":%q},"seven_day":{"utilization":%g,"resets_at":%q}}`,
 		fiveUtil, fiveResets.UTC().Format(time.RFC3339), sevenUtil, sevenResets.UTC().Format(time.RFC3339))
-	raw := fmt.Sprintf(`{"fetched_at":%q,"body":%s}`, fetchedAt.UTC().Format(time.RFC3339Nano), body)
+	raw := fmt.Sprintf(`{"schema":1,"fetched_at":%q,"body":%s}`, fetchedAt.UTC().Format(time.RFC3339Nano), body)
 	if err := os.WriteFile(filepath.Join(dir, "claude-oauth-usage.json"), []byte(raw), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -163,7 +163,7 @@ func writeTokenExpiry(t *testing.T, name string, exp time.Time) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, name+".json"), []byte(fmt.Sprintf(`{"exp":%d}`, exp.Unix())), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, name+".json"), []byte(fmt.Sprintf(`{"schema":1,"exp":%d}`, exp.Unix())), 0o600); err != nil {
 		t.Fatal(err)
 	}
 }

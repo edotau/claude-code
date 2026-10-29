@@ -190,6 +190,7 @@ func SortCheckResults(rs []CheckResult) {
 
 // CheckCache is the persisted result set, scoped to one provider.
 type CheckCache struct {
+	Schema    int           `json:"schema"`
 	CheckedAt time.Time     `json:"checked_at"`
 	Provider  string        `json:"provider"`
 	Results   []CheckResult `json:"results"`
@@ -200,6 +201,7 @@ func CheckCachePath() string { return filepath.Join(paths.StateDir(), "opencode-
 
 // SaveCheckCache writes c (no secrets) with mode 0600.
 func SaveCheckCache(c CheckCache) error {
+	c.Schema = checkCacheSchema
 	b, err := json.MarshalIndent(c, "", "  ")
 	if err != nil {
 		return err
@@ -218,7 +220,7 @@ func LoadCheckCache(provider string) (map[string]CheckResult, bool) {
 		return nil, false
 	}
 	var c CheckCache
-	if json.Unmarshal(b, &c) != nil || c.Provider != provider {
+	if !decodeCheckCache(b, &c) || c.Provider != provider {
 		return nil, false
 	}
 	m := make(map[string]CheckResult, len(c.Results))

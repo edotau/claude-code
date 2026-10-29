@@ -11,6 +11,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/schemas"
 )
 
 // Thresholds on an account's used share of its window.
@@ -52,11 +53,11 @@ func LoadState() State {
 	if err != nil {
 		return State{}
 	}
-	var s State
-	if json.Unmarshal(raw, &s) != nil || s == nil {
+	var f stateFile // schemas.Decode reads both shapes, so a bare-map write from an old daemon still loads
+	if _, err := schemas.Decode(format, raw, &f); err != nil || f.Accounts == nil {
 		return State{}
 	}
-	return s
+	return f.Accounts
 }
 
 // Update applies fn to the stored state under the file lock and writes it back (0600); best-effort.
@@ -65,7 +66,7 @@ func Update(fn func(State)) error {
 	return paths.WithFileLock(path, func() error {
 		s := LoadState()
 		fn(s)
-		data, err := json.MarshalIndent(s, "", "  ")
+		data, err := json.MarshalIndent(stateFile{Schema: schemaVersion, Accounts: s}, "", "  ")
 		if err != nil {
 			return err
 		}

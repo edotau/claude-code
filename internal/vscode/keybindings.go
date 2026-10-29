@@ -10,7 +10,6 @@ import (
 	"reflect"
 	"runtime"
 	"strings"
-	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
 )
@@ -111,11 +110,8 @@ func mergeKeybindings(dest string, overlay []map[string]any, check bool) (Result
 	}
 	backup := ""
 	if len(rawBase) > 0 {
-		backup = paths.BackupPath(dest, time.Now())
-		if err := os.MkdirAll(filepath.Dir(backup), 0o700); err != nil {
-			return Result{}, err
-		}
-		if err := paths.AtomicWrite(backup, rawBase, 0o600); err != nil {
+		var err error
+		if backup, err = paths.Backup(dest, rawBase); err != nil {
 			return Result{}, err
 		}
 	}

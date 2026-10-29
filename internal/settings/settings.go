@@ -10,11 +10,9 @@ import (
 	"io/fs"
 	"os"
 	"path"
-	"path/filepath"
 	"slices"
 	"sort"
 	"strings"
-	"time"
 
 	"github.com/edotau/claude-code/internal/hookspec"
 	"github.com/edotau/claude-code/internal/paths"
@@ -367,13 +365,9 @@ func WriteWithBackup(path string, data []byte) (backup string, err error) {
 		if fi, serr := os.Stat(path); serr == nil {
 			mode = fi.Mode().Perm()
 		}
-		base := paths.BackupPath(path, time.Now())
-		if err := os.MkdirAll(filepath.Dir(base), 0o700); err != nil {
-			return "", fmt.Errorf("backup dir %s: %w", filepath.Dir(base), err)
-		}
-		backup, err = paths.WriteBackup(base, old)
+		backup, err = paths.Backup(path, old)
 		if err != nil {
-			return "", fmt.Errorf("backup %s: %w", base, err)
+			return "", fmt.Errorf("backup %s: %w", path, err)
 		}
 	case !os.IsNotExist(rerr):
 		return "", fmt.Errorf("read %s: %w", path, rerr)

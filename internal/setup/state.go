@@ -7,10 +7,12 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/schemas"
 )
 
 // State is the record of the last adopt (state/harness/setup.json); the doctor row reads it back.
 type State struct {
+	Schema     int       `json:"schema"`
 	Mode       string    `json:"mode"`
 	Date       time.Time `json:"date"`
 	Commit     string    `json:"commit"`
@@ -22,6 +24,7 @@ func stateFile() string { return filepath.Join(paths.StateDir(), "setup.json") }
 
 // Record persists st, overwriting any prior record.
 func Record(st State) error {
+	st.Schema = stateSchema
 	data, err := json.MarshalIndent(st, "", "  ")
 	if err != nil {
 		return err
@@ -36,7 +39,7 @@ func Read() (State, bool) {
 	if err != nil {
 		return st, false
 	}
-	if json.Unmarshal(data, &st) != nil {
+	if _, err := schemas.Decode(setupFormat, data, &st); err != nil {
 		return st, false
 	}
 	return st, true

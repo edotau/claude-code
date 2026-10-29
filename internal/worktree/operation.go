@@ -8,12 +8,14 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/schemas"
 )
 
 // Operation is the durable record of one agent-mediated conflict resolution: the OIDs pinned before
 // the agent ever ran, so a crash-and-resume revalidates against those exact commits, never a fresh
 // Preflight's possibly-moved ones.
 type Operation struct {
+	Schema            int `json:"schema"`
 	ID                string
 	Repo              string // repo.Main, the canonical main checkout path
 	Worktree          string // worktree name, as passed to `worktree merge`
@@ -47,6 +49,7 @@ func operationLeasePath(repoMain, name string) string {
 
 // SaveOperation atomically writes op, overwriting any prior state saved for the same repo+worktree.
 func SaveOperation(op *Operation) error {
+	op.Schema = operationSchema
 	data, err := json.MarshalIndent(op, "", "  ")
 	if err != nil {
 		return fmt.Errorf("save operation: %w", err)
@@ -62,7 +65,7 @@ func LoadOperation(repo *Repo, name string) (*Operation, error) {
 		return nil, err
 	}
 	var op Operation
-	if err := json.Unmarshal(data, &op); err != nil {
+	if _, err := schemas.Decode(operationFormat, data, &op); err != nil {
 		return nil, fmt.Errorf("load operation: %w", err)
 	}
 	return &op, nil
