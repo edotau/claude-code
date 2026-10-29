@@ -17,6 +17,7 @@ var spawnTools = map[string]bool{"Agent": true, "Task": true}
 func releaseSpawn(in *Input) Result {
 	if owner, id := inflight.SessionOwner(), in.nested("tool_use_id"); owner != 0 && id != "" {
 		inflight.Release(owner, id)
+		clearPlanClaim(in.CWD, id) // a failed spawn never reaches SubagentStop
 	}
 	return Result{}
 }

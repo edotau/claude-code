@@ -54,9 +54,12 @@ func OpenLedger(main, name string, info LedgerInfo) error {
 	})
 }
 
+// bestEffortLedgerWait bounds the bank-lock wait of hook-side ledger edits, which run inside a hook budget.
+const bestEffortLedgerWait = 750 * time.Millisecond
+
 // AppendLedger appends a timestamped entry only for a managed linked worktree with an existing ledger.
 func AppendLedger(cwd, text string, now time.Time) (bool, error) {
-	return editLedger(cwd, now, func(data string) string { return ledgerLog(data, text, now) })
+	return editLedger(cwd, now, bestEffortLedgerWait, func(data string) string { return ledgerLog(data, text, now) })
 }
 
 // SetLedgerTask fills a managed worktree ledger's "Task: unclaimed" line; a ledger already naming a task is untouched.
@@ -65,7 +68,7 @@ func SetLedgerTask(cwd, task string, now time.Time) (bool, error) {
 	if task == "" {
 		return false, nil
 	}
-	return editLedger(cwd, now, func(data string) string {
+	return editLedger(cwd, now, bestEffortLedgerWait, func(data string) string {
 		if !strings.Contains(data, "\n- Task: unclaimed\n") {
 			return data
 		}
@@ -74,7 +77,7 @@ func SetLedgerTask(cwd, task string, now time.Time) (bool, error) {
 }
 
 // editLedger applies edit to the cwd worktree's ledger under the lock, reopening a closed one first.
-func editLedger(cwd string, now time.Time, edit func(string) string) (bool, error) {
+func editLedger(cwd string, now time.Time, wait time.Duration, edit func(string) string) (bool, error) {
 	repo, err := ResolveRepo(cwd)
 	if err != nil {
 		return false, nil
@@ -101,7 +104,7 @@ func editLedger(cwd string, now time.Time, edit func(string) string) (bool, erro
 		return false, err
 	}
 	appended := false
-	err = withLedgerLock(path, func() error {
+	err = withLedgerLockWithin(wait, path, func() error {
 		data, err := os.ReadFile(path)
 		if os.IsNotExist(err) {
 			return nil
@@ -191,7 +194,12 @@ func CloseLedger(main, name string, c LedgerClose) error {
 
 // withLedgerLock runs fn under the memory bank lock (so a harvest or dream cannot interleave) and the file lock.
 func withLedgerLock(path string, fn func() error) error {
-	return memory.WithWritableBankLock(memory.BankLockWait, func() error { return paths.WithFileLock(path, fn) })
+	return withLedgerLockWithin(memory.BankLockWait, path, fn)
+}
+
+// withLedgerLockWithin is withLedgerLock with its own bank-lock wait, for best-effort callers inside a hook budget.
+func withLedgerLockWithin(wait time.Duration, path string, fn func() error) error {
+	return memory.WithWritableBankLock(wait, func() error { return paths.WithFileLock(path, fn) })
 }
 
 // openSection is the text of the latest "## Opened" section, or the whole ledger when it was never reopened.
