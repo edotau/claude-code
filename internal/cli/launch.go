@@ -179,7 +179,7 @@ var hookPage = helptext.Page{
 	About: "Run one lifecycle hook on the event JSON on stdin; settings.json and the agent hook files invoke it.",
 	Hint: "names: safety-scan|rtk|docs-placement|agent-effort|workflow-lint|\n" +
 		"       agent-inflight|agent-inflight-tag|agent-inflight-post|subagent-stop|\n" +
-		"       plan-mirror|save-plan|access-trace|stop|\n" +
+		"       plan-mirror|save-plan|stop|stop-format|\n" +
 		"       session-start|path-resolver|memory-recall|\n" +
 		"       session-harvest-end|pre-compact|worktree-create|worktree-remove\n" +
 		"events: <Event> [--no-own] runs every enabled group on that event",

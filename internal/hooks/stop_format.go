@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"io"
 	"maps"
 	"os"
 	"os/exec"
@@ -27,6 +28,9 @@ const (
 	stopFormatTimeout  = 30 * time.Second
 	stopFormatWorkers  = 4
 )
+
+// `stop-format` (Stop, format group): formats files dirty in git and written by this session.
+func StopFormat(r io.Reader) int { stopFormat(ParseInput(r)); return ExitProceed }
 
 // stopFormat formats files that are dirty in git AND that this session's transcript shows it writing;
 // a dirty file Claude never wrote is the user's hand edit and is left alone.

@@ -124,16 +124,18 @@ var Registry = []Group{
 		{Name: "path-resolver", Event: EventUserPromptSubmit, Budget: 5 * sec, Vendors: []string{"codex", "copilot"}},
 	}},
 	{Name: "memory", Events: []EventSpec{
-		// A model read of a bank file is traced to that bank's access log (memory review's hot/cold signal).
-		{Name: "access-trace", Event: EventPostToolUse, Matcher: "Read", Budget: 5 * sec, Async: true, Vendors: []string{"codex", "copilot"}},
-		// One Stop hook: context checkpoint, memory harvest, then the formatter; a block from the first two blocks.
-		{Name: "stop", Event: EventStop, Budget: 50 * sec},
+		// One Stop hook: context checkpoint, then the memory harvest; a block from either blocks.
+		{Name: "stop", Event: EventStop, Budget: 20 * sec},
 		{Name: "session-start", Event: EventSessionStart, Budget: 10 * sec, StatusMessage: "Loading session memory"},
 		// Per-prompt bank recall: advisory and capped, so an empty bank costs the turn nothing.
 		{Name: "memory-recall", Event: EventUserPromptSubmit, Budget: 5 * sec, Vendors: []string{"codex", "copilot"}},
 		{Name: "session-harvest-end", Event: EventSessionEnd, Budget: 15 * sec},
 		// Before a compaction, harvest edits no earlier dispatch covered (never blocks; the transcript survives).
 		{Name: "pre-compact", Event: EventPreCompact, Budget: 15 * sec},
+	}},
+	{Name: "format", Events: []EventSpec{
+		// Formats files dirty in git that this session wrote; a repo with its own pre-commit switches the group off.
+		{Name: "stop-format", Event: EventStop, Budget: 30 * sec},
 	}},
 	{Name: "worktree", Events: []EventSpec{
 		// Native worktrees live at ~/worktrees/<repo>/<name>, the same root Orca uses; these replace Claude's git logic.
