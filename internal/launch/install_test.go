@@ -12,6 +12,8 @@ import (
 	"runtime"
 	"slices"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -508,29 +510,48 @@ func TestInstallSettingsSkipPrintsAfterTheStepsItClaimsRan(t *testing.T) {
 
 func TestProviderCredentialChecksRunConcurrentlyInOrder(t *testing.T) {
 	hermetic(t, "")
-	names := []string{"p-slow", "p-fast", "p-mid", "p-quick"}
-	delay := map[string]time.Duration{"p-slow": 150 * time.Millisecond, "p-fast": 10 * time.Millisecond,
-		"p-mid": 100 * time.Millisecond, "p-quick": 50 * time.Millisecond}
+	names := []string{"p-0", "p-1", "p-2", "p-3", "p-4", "p-5", "p-6", "p-7"}
 	reg := &providers.Registry{Default: "elsewhere", Providers: map[string]*providers.Provider{}}
 	byPtr := map[*providers.Provider]string{}
-	var sum time.Duration
 	for _, n := range names {
 		p := &providers.Provider{Auth: providers.Auth{Type: providers.AuthNone}}
 		reg.Providers[n] = p
 		byPtr[p] = n
-		sum += delay[n]
 	}
+	var inflight, maxSeen atomic.Int32
+	gate := make(chan struct{}) // closed once the worker limit of probes are provably in flight together
+	over := make(chan struct{}) // closed if a probe beyond the limit ever runs
+	var once, overOnce sync.Once
 	old := probeCredential
 	t.Cleanup(func() { probeCredential = old })
 	probeCredential = func(_ context.Context, p *providers.Provider) (string, string) {
+		cur := inflight.Add(1)
+		defer inflight.Add(-1)
+		for {
+			m := maxSeen.Load()
+			if cur <= m || maxSeen.CompareAndSwap(m, cur) {
+				break
+			}
+		}
+		if cur >= credentialProbeWorkers {
+			once.Do(func() { close(gate) })
+		}
+		if cur > credentialProbeWorkers {
+			overOnce.Do(func() { close(over) })
+		}
+		select {
+		case <-gate:
+		case <-time.After(5 * time.Second): // only an implementation below the limit reaches this
+		}
+		select {
+		case <-over:
+		case <-time.After(100 * time.Millisecond): // gives a probe beyond the limit time to show up
+		}
 		n := byPtr[p]
-		time.Sleep(delay[n])
 		return "probe-" + n, "detail-" + n
 	}
 
-	start := time.Now()
 	rows := providerCredentialChecks(reg, providers.Selection{}, errors.New("no session"), names)
-	elapsed := time.Since(start)
 
 	if len(rows) != len(names) {
 		t.Fatalf("got %d rows, want %d", len(rows), len(names))
@@ -543,7 +564,9 @@ func TestProviderCredentialChecksRunConcurrentlyInOrder(t *testing.T) {
 			t.Errorf("row %s = %+v, want OK with detail containing %q", n, rows[i], want)
 		}
 	}
-	if elapsed >= sum*3/4 {
-		t.Errorf("probes took %v, want well under the serial sum %v", elapsed, sum)
+	if m := maxSeen.Load(); m < 2 {
+		t.Errorf("max in-flight probes = %d, want >= 2 (probes must overlap)", m)
+	} else if m > credentialProbeWorkers {
+		t.Errorf("max in-flight probes = %d, want <= %d (worker limit)", m, credentialProbeWorkers)
 	}
 }
