@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/pathview"
 )
 
 // NewEnv builds the real Env with actual paths, bounded commands, and time.Now.
@@ -58,15 +59,13 @@ func realClaude() string {
 	return p
 }
 
-// winRootTimeout bounds the wslpath call in winRoot; a var so tests can shrink it.
-var winRootTimeout = 2 * time.Second
+// winRoot is where WSL mounts C: (the mount table honors a custom /etc/wsl.conf automount root), else /mnt/c.
+func winRoot() string { return winRootFrom(pathview.Default()) }
 
-// winRoot is where WSL mounts C: (wslpath honors a custom /etc/wsl.conf automount root), else /mnt/c.
-func winRoot() string {
-	if out, err := runCommand(winRootTimeout, "wslpath", "-u", `C:\`); err == nil {
-		if p := strings.TrimRight(out, "/"); p != "" {
-			return p
-		}
+// winRootFrom is winRoot over an explicit resolver.
+func winRootFrom(r *pathview.Resolver) string {
+	if p, ok := r.Resolve(`C:\`); ok && p != "/" {
+		return p
 	}
 	return "/mnt/c"
 }

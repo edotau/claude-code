@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/hooks"
+	"github.com/edotau/claude-code/internal/pathview"
 	"github.com/edotau/claude-code/internal/settings"
 )
 
@@ -50,7 +51,7 @@ func WindowsProfileDir() string {
 	if win == "" || win == "%USERPROFILE%" {
 		return ""
 	}
-	dir := hooks.TranslateWinPath(win)
+	dir, _ := pathview.Resolve(win)
 	if _, err := os.Stat(dir); err != nil {
 		return ""
 	}
