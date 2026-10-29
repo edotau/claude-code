@@ -1,7 +1,6 @@
 package hooks
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"image"
@@ -10,13 +9,13 @@ import (
 	_ "image/png"  // registers PNG with image.DecodeConfig
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
 	"sync"
-	"time"
+
+	"github.com/edotau/claude-code/internal/pathview"
 )
 
 // posixPathRE matches an absolute POSIX path token. Deliberately greedy-but-bounded: every hit is
@@ -89,7 +88,7 @@ func describe(p string) (detail string, isImage bool, ok bool) {
 	if f, err := os.Open(p); err == nil {
 		cfg, _, derr := image.DecodeConfig(f)
 		if cerr := f.Close(); cerr != nil {
-			fmt.Fprintf(os.Stderr, "wsl-path-normalize: close %s: %v\n", p, cerr)
+			fmt.Fprintf(os.Stderr, "path-resolver: close %s: %v\n", p, cerr)
 		}
 		if derr == nil {
 			return fmt.Sprintf("%s %d×%d, %s", kind, cfg.Width, cfg.Height, humanBytes(fi.Size())), true, true
@@ -98,13 +97,14 @@ func describe(p string) (detail string, isImage bool, ok bool) {
 	return fmt.Sprintf("%s, %s", kind, humanBytes(fi.Size())), true, true
 }
 
-// collectReports resolves every path token to a report. Windows tokens translate only when onWSL —
-// off WSL that would invent a path. Ordered Windows-first, then POSIX, each in prompt order.
-func collectReports(prompt string, onWSL bool) []pathReport {
+// collectReports resolves every path token to a report through the mount-table resolver. Ordered
+// foreign forms (Windows, UNC, URL, ~) first, then POSIX, each in prompt order.
+func collectReports(prompt string, res *pathview.Resolver) []pathReport {
 	seen := map[string]bool{}
 	var reps []pathReport
-	add := func(win, p string) {
-		if p == "" || seen[p] {
+	add := func(orig, tok string) {
+		p, ok := res.Resolve(tok)
+		if !ok || seen[p] {
 			return
 		}
 		detail, isImage, ok := describe(p)
@@ -112,12 +112,13 @@ func collectReports(prompt string, onWSL bool) []pathReport {
 			return
 		}
 		seen[p] = true
-		reps = append(reps, pathReport{win: win, path: p, detail: detail, isImage: isImage})
-	}
-	if onWSL {
-		for _, win := range scanWinPaths(prompt) {
-			add(win, TranslateWinPath(win))
+		if orig != "" && orig == p {
+			orig = ""
 		}
+		reps = append(reps, pathReport{win: orig, path: p, detail: detail, isImage: isImage})
+	}
+	for _, tok := range scanWinPaths(prompt) {
+		add(tok, tok)
 	}
 	for _, p := range scanPosixPaths(prompt) {
 		add("", p)
@@ -192,11 +193,11 @@ func feedbackPayload(reps []pathReport, vendor ...string) string {
 	return string(out)
 }
 
-// promptPathFeedback is the hook core with WSL detection injected, so tests exercise both legs
-// without depending on the host. Silent when the prompt names no existing file.
-func promptPathFeedback(r io.Reader, stdout io.Writer, onWSL func() bool) int {
+// promptPathFeedback is the hook core with the resolver injected, so tests do not depend on the host's mounts.
+// Silent when the prompt names no existing file.
+func promptPathFeedback(r io.Reader, stdout io.Writer, res *pathview.Resolver) int {
 	in := ParseInput(r)
-	reps := collectReports(in.Prompt, onWSL())
+	reps := collectReports(in.Prompt, res)
 	if len(reps) == 0 {
 		return ExitProceed
 	}
@@ -206,14 +207,17 @@ func promptPathFeedback(r io.Reader, stdout io.Writer, onWSL func() bool) int {
 	return ExitProceed
 }
 
-// winPathRE matches a bareword Windows path token; a quoted path (spaces inside) is quotedWinPathRE's.
+// foreignHead opens a non-POSIX path token: drive letter, UNC, scheme URL, or ~ / ~user.
+const foreignHead = `(?:[A-Za-z]:[\\/]|\\\\|(?:file|smb|nfs)://|~[A-Za-z0-9_.-]*/)`
+
+// winPathRE matches a bareword non-POSIX path token; a quoted path (spaces inside) is quotedWinPathRE's.
 var winPathRE = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`[A-Za-z]:[\\/][^\s"']+`)
+	return regexp.MustCompile(foreignHead + `[^\s"']+`)
 })
 
-// quotedWinPathRE matches a double-quoted Windows path, allowing spaces inside the quotes.
+// quotedWinPathRE matches a double-quoted non-POSIX path, allowing spaces inside the quotes.
 var quotedWinPathRE = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`"([A-Za-z]:[\\/][^"]+)"`)
+	return regexp.MustCompile(`"(` + foreignHead + `[^"]+)"`)
 })
 
 // OnWSL reports whether we're running under WSL — /proc/version carries "microsoft", or
@@ -226,31 +230,15 @@ func OnWSL() bool {
 	return err == nil && strings.Contains(strings.ToLower(string(b)), "microsoft")
 }
 
-// wslpathTimeout bounds one `wslpath` call: hung WSL interop must fall back, never stall UserPromptSubmit.
-var wslpathTimeout = time.Second
-
-// TranslateWinPath converts a Windows path to its WSL form. Prefers `wslpath -u` (handles every
-// grammar); falls back to a /mnt/<drive> mapping when wslpath is absent.
-func TranslateWinPath(win string) string {
-	ctx, cancel := context.WithTimeout(context.Background(), wslpathTimeout)
-	defer cancel()
-	if out, err := exec.CommandContext(ctx, "wslpath", "-u", win).Output(); err == nil {
-		return strings.TrimSpace(string(out))
-	}
-	drive := strings.ToLower(string(win[0]))
-	rest := strings.ReplaceAll(win[2:], `\`, "/")
-	return "/mnt/" + drive + "/" + strings.TrimPrefix(rest, "/")
-}
-
-// scanWinPaths is scanPosixPaths for Windows tokens.
+// scanWinPaths is scanPosixPaths for Windows, UNC, URL and ~ tokens.
 func scanWinPaths(text string) []string {
 	return scanPaths(text, quotedWinPathRE(), winPathRE(), "")
 }
 
-// WSLPathNormalize (UserPromptSubmit) reports every existing file path the prompt names, mapping
-// dragged Windows paths to /mnt form, for BOTH the model (added context) and user (systemMessage). No-op off WSL.
-func WSLPathNormalize(r io.Reader, stdout io.Writer) int {
-	return promptPathFeedback(r, stdout, OnWSL)
+// PathResolver (UserPromptSubmit) reports every existing file path the prompt names, resolving Windows, UNC,
+// URL, ~ and remote-mount forms to this machine's view, for BOTH the model (added context) and user (systemMessage).
+func PathResolver(r io.Reader, stdout io.Writer) int {
+	return promptPathFeedback(r, stdout, pathview.Default())
 }
 
 // humanBytes renders n as B/KB/MB/GB with one decimal above bytes.

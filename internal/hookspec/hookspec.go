@@ -89,7 +89,7 @@ var Registry = []Spec{
 	{Name: "stop", Event: EventStop, Timeout: 50},
 	{Name: "session-start", Event: EventSessionStart, Timeout: 10, StatusMessage: "Loading session memory"},
 	// A pasted or dragged Windows path (C:\…) resolves to its /mnt form for the model; a no-op off WSL.
-	{Name: "wsl-path-normalize", Event: EventUserPromptSubmit, Timeout: 5, Vendors: []string{"codex", "copilot"}},
+	{Name: "path-resolver", Event: EventUserPromptSubmit, Timeout: 5, Vendors: []string{"codex", "copilot"}},
 	// Per-prompt bank recall: advisory and capped, so an empty bank costs the turn nothing.
 	{Name: "memory-recall", Event: EventUserPromptSubmit, Timeout: 5, Vendors: []string{"codex", "copilot"}},
 	{Name: "session-harvest-end", Event: EventSessionEnd, Timeout: 15},

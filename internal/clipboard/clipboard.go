@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/hooks"
+	"github.com/edotau/claude-code/internal/pathview"
 )
 
 // clipPS saves the Windows clipboard image as a PNG (GDI+, bypassing WSLg's 32bpp BI_BITFIELDS BMP
@@ -43,7 +44,13 @@ func runPowerShell(script string) (string, error) {
 
 // Grab saves the Windows clipboard image to a PNG and returns its WSL path plus "WxH".
 func Grab() (path, dim string, err error) {
-	return grab(hooks.OnWSL, runPowerShell, hooks.TranslateWinPath)
+	return grab(hooks.OnWSL, runPowerShell, translateWin)
+}
+
+// translateWin maps a Windows path to its WSL view, "" when no mount covers it.
+func translateWin(win string) string {
+	p, _ := pathview.Resolve(win)
+	return p
 }
 
 // grab is Grab with WSL detection, PowerShell and path translation injected for tests off Windows.

@@ -1,11 +1,11 @@
 package browser
 
 import (
-	"os"
-	"path/filepath"
 	"runtime"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/pathview"
 )
 
 func TestRunReal(t *testing.T) {
@@ -35,33 +35,20 @@ func TestRunCommandBoundsWait(t *testing.T) {
 }
 
 func TestWinRoot(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("requires a POSIX shell")
+	drvfs := func(point string) []pathview.Mount {
+		return []pathview.Mount{{Point: point, Kind: pathview.KindDrvFS, Drive: "C"}}
 	}
-	dir := t.TempDir()
-	t.Setenv("PATH", dir)
-	saved := winRootTimeout
-	winRootTimeout = 100 * time.Millisecond
-	t.Cleanup(func() { winRootTimeout = saved })
-	path := filepath.Join(dir, "wslpath")
 	for _, tc := range []struct {
-		name, script, want string
+		name   string
+		mounts []pathview.Mount
+		want   string
 	}{
-		{"custom mount", "printf ' /custom/c///\\n'", "/custom/c"},
-		{"empty output", "printf ' / \\n'", "/mnt/c"},
-		{"failed interop", "exit 1", "/mnt/c"},
-		{"hung interop", "while :; do :; done", "/mnt/c"},
+		{"custom mount", drvfs("/custom/c"), "/custom/c"},
+		{"no drvfs mount", nil, "/mnt/c"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if err := os.WriteFile(path, []byte("#!/bin/sh\n"+tc.script+"\n"), 0o700); err != nil {
-				t.Fatal(err)
-			}
-			start := time.Now()
-			if got := winRoot(); got != tc.want {
+			if got := winRootFrom(pathview.NewResolver(tc.mounts)); got != tc.want {
 				t.Errorf("winRoot = %q, want %q", got, tc.want)
-			}
-			if elapsed := time.Since(start); elapsed > 4*time.Second {
-				t.Errorf("winRoot took %s", elapsed)
 			}
 		})
 	}

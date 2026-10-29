@@ -229,7 +229,7 @@ var Registry = map[string]Handler{
 	"docs-placement":       func(in io.Reader, _, errw io.Writer) int { return DocsPlacement(in, errw) },
 	"session-start":        func(in io.Reader, out, _ io.Writer) int { return SessionStart(in, out) },
 	"memory-recall":        func(in io.Reader, out, _ io.Writer) int { return MemoryRecall(in, out) },
-	"wsl-path-normalize":   func(in io.Reader, out, _ io.Writer) int { return WSLPathNormalize(in, out) },
+	"path-resolver":        func(in io.Reader, out, _ io.Writer) int { return PathResolver(in, out) },
 	"stop":                 func(in io.Reader, _, errw io.Writer) int { return Stop(in, errw) },
 	"session-harvest-end":  func(in io.Reader, _, _ io.Writer) int { return SessionHarvestEnd(in) },
 	"agent-effort":         func(in io.Reader, out, _ io.Writer) int { return AgentEffort(in, out) },

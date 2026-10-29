@@ -9,7 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
+
+	"github.com/edotau/claude-code/internal/pathview"
 )
 
 func TestScanWinPaths(t *testing.T) {
@@ -33,14 +34,14 @@ func TestScanWinPaths(t *testing.T) {
 // The user gets NO terminal feedback that a dropped path was recognized — the additive context is
 // model-visible only. A resolved path must also come back as a systemMessage, and an image must be
 // described (type, dimensions, size) since a terminal cannot preview it.
-func TestWSLPathNormalizeEmitsUserVisibleFeedback(t *testing.T) {
+func TestPathResolverEmitsUserVisibleFeedback(t *testing.T) {
 	dir := t.TempDir()
 	img := filepath.Join(dir, "shot.png")
 	writePNG(t, img, 640, 480)
 
 	var out bytes.Buffer
 	in := strings.NewReader(`{"prompt":"look at ` + img + `"}`)
-	if code := promptPathFeedback(in, &out, func() bool { return false }); code != ExitProceed {
+	if code := promptPathFeedback(in, &out, pathview.NewResolver(nil)); code != ExitProceed {
 		t.Fatalf("exit = %d, want ExitProceed", code)
 	}
 	var got struct {
@@ -69,7 +70,7 @@ func TestWSLPathNormalizeEmitsUserVisibleFeedback(t *testing.T) {
 func TestPromptPathFeedbackSilentWhenNothingToReport(t *testing.T) {
 	var out bytes.Buffer
 	in := strings.NewReader(`{"prompt":"just prose about a png in the abstract"}`)
-	promptPathFeedback(in, &out, func() bool { return false })
+	promptPathFeedback(in, &out, pathview.NewResolver(nil))
 	if out.Len() != 0 {
 		t.Errorf("expected silence, got:\n%s", out.String())
 	}
@@ -84,36 +85,9 @@ func TestPromptPathFeedbackReportsNonImageFile(t *testing.T) {
 	}
 	var out bytes.Buffer
 	in := strings.NewReader(`{"prompt":"read ` + f + `"}`)
-	promptPathFeedback(in, &out, func() bool { return false })
+	promptPathFeedback(in, &out, pathview.NewResolver(nil))
 	if !strings.Contains(out.String(), "notes.md") {
 		t.Errorf("expected the resolved path in the feedback:\n%s", out.String())
-	}
-}
-
-// A hung `wslpath` interop binary must not stall the hook past wslpathTimeout: TranslateWinPath must
-// fall back to the /mnt/<drive> mapping instead of blocking the whole UserPromptSubmit indefinitely.
-func TestTranslateWinPathTimesOutOnHungWslpath(t *testing.T) {
-	saved := wslpathTimeout
-	wslpathTimeout = 100 * time.Millisecond
-	t.Cleanup(func() { wslpathTimeout = saved })
-	dir := t.TempDir()
-	script := filepath.Join(dir, "wslpath")
-	// `exec` replaces the shell in place (no forked grandchild holding the stdout pipe open), matching
-	// the real failure mode: a single interop process blocked in a syscall, which SIGKILL interrupts.
-	if err := os.WriteFile(script, []byte("#!/bin/sh\nexec sleep 5\n"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", dir+":"+os.Getenv("PATH"))
-
-	start := time.Now()
-	got := TranslateWinPath(`C:\Users\x\a.png`)
-	elapsed := time.Since(start)
-
-	if elapsed > 2*time.Second {
-		t.Fatalf("TranslateWinPath took %v, want it bounded by wslpathTimeout (%v) plus the fallback", elapsed, wslpathTimeout)
-	}
-	if want := "/mnt/c/Users/x/a.png"; got != want {
-		t.Errorf("TranslateWinPath = %q, want the fallback mapping %q", got, want)
 	}
 }
 
