@@ -196,8 +196,8 @@ func Run(ctx context.Context, r Runner, req Request, stream io.Writer, notify fu
 			failed = append(failed, &snap)
 			return e
 		}
-		// a retry resumes after a backoff: another task may have marked the account dead meanwhile
-		if h, _ := ctx.Value(permitKey{}).(*permit); h != nil && h.recheck != nil && attempt > 1 {
+		// every attempt resumes after a possible idle (cooldown or backoff): another task may have marked the account dead
+		if h, _ := ctx.Value(permitKey{}).(*permit); h != nil && h.recheck != nil {
 			if skip := h.recheck(); skip != nil {
 				skip.terminal = true
 				return note(skip)

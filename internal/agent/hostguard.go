@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/envscrub"
+	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vendors"
 )
@@ -56,7 +57,7 @@ func freezeCopilot(ctx context.Context, leg Leg, req Request) (context.Context, 
 		return ctx, leg // the runner reports its own resolution failure
 	}
 	if !own && t.Provider != nil && t.Provider.Auth.Login != "copilot" {
-		leg.Account = profileAccount(t.Provider)
+		leg.Account, leg.Billing = profileAccount(t.Provider), billingOf(t.Provider)
 	}
 	return context.WithValue(ctx, frozenKey{}, frozenTarget{t, own, note}), leg
 }
@@ -67,7 +68,11 @@ func vendorTargetCtx(ctx context.Context, req Request, name string) (providers.T
 		if f.note != "" {
 			fmt.Fprintln(os.Stderr, f.note)
 		}
-		return f.t, f.own, nil
+		t := f.t // the provider and account are frozen; the model follows this attempt's request (a quota downgrade)
+		if m := t.Provider; m != nil && slices.Contains(models.Slots, req.Model) && m.Models[req.Model] != "" {
+			t.Model = m.Models[req.Model]
+		}
+		return t, f.own, nil
 	}
 	return vendorTarget(req, name)
 }
