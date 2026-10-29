@@ -288,7 +288,8 @@ verified only when the spawn result supplies an agent ID that joins it to a chil
 unverified. Config generation also respects `CODEX_HOME`.
 
 `claude-code doctor` also reports a `formats` row (each versioned state file against the `internal/schemas`
-registry) and a `state layout` row (entries under `state/` that no format or known name claims). `make install` runs pending migrations.
+registry) and a `state layout` row (entries under `state/` that no format or known name claims).
+`make install` runs pending migrations.
 
 ## Tailscale
 
