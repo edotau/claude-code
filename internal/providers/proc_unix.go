@@ -51,14 +51,22 @@ func (c *capBuffer) Bytes() []byte { return c.buf.Bytes() }
 // outputInGroup runs cmd in a group led by a sleeping sentinel and kills the group as soon as cmd exits, before its
 // pipes are drained; the unreaped sentinel keeps the group id ours, so the signal never reaches a reused group.
 func outputInGroup(cmd *exec.Cmd) ([]byte, error) {
-	lead := exec.Command("sleep", "86400")
+	hold, release, err := os.Pipe() // the sentinel blocks reading hold until we close release
+	if err != nil {
+		return nil, err
+	}
+	lead := exec.Command("sh", "-c", "read _") // only sh, which the auth command needs anyway
+	lead.Stdin = hold
 	lead.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	if err := lead.Start(); err != nil {
+		hold.Close()
+		release.Close()
 		return nil, fmt.Errorf("auth command: cannot start its process-group sentinel: %w", err)
 	}
+	hold.Close()
 	pg := lead.Process.Pid
 	killGroup := func() error { return syscall.Kill(-pg, syscall.SIGKILL) }
-	defer func() { _ = killGroup(); _ = lead.Wait() }()
+	defer func() { _ = killGroup(); release.Close(); _ = lead.Wait() }()
 	outR, outW, err := os.Pipe()
 	if err != nil {
 		return nil, err
