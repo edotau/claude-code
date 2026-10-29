@@ -73,6 +73,7 @@ func commands() []command {
 		{name: "worktree", group: groupSession, summary: "manage worktrees in ~/worktrees/<repo>", run: cmdWorktree},
 		{name: "test", group: groupSession, summary: "test tooling: mutate checks a test has teeth", run: cmdTest},
 		{name: "memory", group: groupSession, summary: "session memory bank: recall, save, promote", run: cmdMemory},
+		{name: "plan", group: groupSession, summary: "plan checklists: status (ticked/total, claims)", run: cmdPlan},
 		// DIAGNOSTICS
 		{name: "doctor", group: groupDiagnostics, summary: "read-only health checks (--audit: action log)", run: cmdDoctor},
 		{name: "gateway", group: groupDiagnostics, summary: "which agent + model a task routes to; the loopback proxy", run: cmdGateway},
