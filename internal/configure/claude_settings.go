@@ -203,10 +203,20 @@ func reportClaudeSettings(d *dialog, ov map[string]json.RawMessage, sections []s
 	if err != nil && !os.IsNotExist(err) {
 		d.printf("claude code: %v\n", err)
 	}
+	tmpl, live = flattenEnv(tmpl), flattenEnv(live)
 	ok := true
+	shown := map[string]bool{}
+	emit := func(f settings.Field) {
+		row := settingRow(f, tmpl, ov, live)
+		d.println(row[0] + "  " + row[1])
+		if strings.Contains(row[1], "live differs") {
+			ok = false
+		}
+	}
 	for _, sec := range sections {
 		header := false
 		for _, key := range sec.Keys {
+			shown[key] = true
 			f, found := settings.FieldFor(key)
 			if !found {
 				continue
@@ -215,11 +225,17 @@ func reportClaudeSettings(d *dialog, ov map[string]json.RawMessage, sections []s
 				d.println("== " + sec.Name + " ==")
 				header = true
 			}
-			row := settingRow(f, tmpl, ov, live)
-			d.println(row[0] + "  " + row[1])
-			if strings.Contains(row[1], "live differs") {
-				ok = false
+			emit(f)
+		}
+	}
+	header := false
+	for _, key := range slices.Sorted(maps.Keys(ov)) {
+		if f, found := settings.FieldFor(key); found && !shown[key] {
+			if !header {
+				d.println("== added ==")
+				header = true
 			}
+			emit(f)
 		}
 	}
 	if dropped, err := settings.LoadDropped(); err == nil && len(dropped) > 0 {

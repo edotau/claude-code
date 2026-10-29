@@ -24,20 +24,26 @@ func RepoDefaultsFile() string {
 // $schema first and 2-space JSON; it returns the path written.
 func WriteRepoDefaults(staged map[string]json.RawMessage) (string, error) {
 	path := RepoDefaultsFile()
+	err := paths.WithFileLock(path, func() error { return mergeRepoDefaults(path, staged) })
+	return path, err
+}
+
+// mergeRepoDefaults is the read-modify-write, run under the file lock and replaced atomically.
+func mergeRepoDefaults(path string, staged map[string]json.RawMessage) error {
 	cur, err := os.ReadFile(path)
 	if err != nil {
-		return "", err
+		return err
 	}
 	o, err := parseObject(cur)
 	if err != nil {
-		return "", fmt.Errorf("%s: %w", RepoDefaultsRel, err)
+		return fmt.Errorf("%s: %w", RepoDefaultsRel, err)
 	}
 	for _, k := range slices.Sorted(maps.Keys(staged)) {
 		if err := validateKey(k, staged[k]); err != nil {
-			return "", fmt.Errorf("%s: %w", k, err)
+			return fmt.Errorf("%s: %w", k, err)
 		}
 		if err := setKey(o, k, staged[k]); err != nil {
-			return "", err
+			return err
 		}
 	}
 	if i := slices.Index(o.keys, "$schema"); i > 0 {
@@ -45,10 +51,10 @@ func WriteRepoDefaults(staged map[string]json.RawMessage) (string, error) {
 	}
 	out, err := o.marshal()
 	if err != nil {
-		return "", err
+		return err
 	}
 	if bytes.Equal(out, cur) {
-		return path, nil
+		return nil
 	}
-	return path, os.WriteFile(path, out, 0o644)
+	return paths.AtomicWrite(path, out, 0o644)
 }
