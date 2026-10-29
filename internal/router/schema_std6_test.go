@@ -2,10 +2,11 @@ package router
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
+	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/schemas"
@@ -33,45 +34,47 @@ func wantEntries(t *testing.T, s State) {
 	}
 }
 
-// A v0 bare-map quota.json reads, migrates to {schema,accounts} with one ledger line, and an old daemon's
-// bare-map write after migration still reads.
-func TestQuotaV0ReadsMigratesAndLateBareWriteReads(t *testing.T) {
+// A v0 bare-map quota.json reads, install-time migration leaves it untouched (an old daemon still reads it), the
+// {schema,accounts} wrapper reads too, and Update writes the bare map back.
+func TestQuotaV0ReadsAndStaysBareMap(t *testing.T) {
 	path := quotaFixture(t, v0Quota)
 	wantEntries(t, LoadState())
 
 	if _, err := schemas.MigrateAll(false); err != nil {
 		t.Fatalf("MigrateAll: %v", err)
 	}
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
+	if raw, _ := os.ReadFile(path); string(raw) != v0Quota {
+		t.Fatalf("quota.json rewritten: %s", raw)
 	}
-	var doc struct {
-		Schema   int              `json:"schema"`
-		Accounts map[string]Entry `json:"accounts"`
-	}
-	if err := json.Unmarshal(raw, &doc); err != nil || doc.Schema != 1 || len(doc.Accounts) != 2 {
-		t.Fatalf("migrated file = %s (%v)", raw, err)
-	}
-	wantEntries(t, State(doc.Accounts))
-	wantEntries(t, LoadState())
-
-	ledger, err := os.ReadFile(filepath.Join(paths.StateDir(), "migrations.jsonl"))
-	if err != nil {
-		t.Fatalf("no ledger: %v", err)
-	}
-	lines := strings.Split(strings.TrimSpace(string(ledger)), "\n")
-	var row struct {
-		Format string `json:"format"`
-		From   int    `json:"from"`
-		To     int    `json:"to"`
-	}
-	if len(lines) != 1 || json.Unmarshal([]byte(lines[0]), &row) != nil || row.Format != "quota" || row.From != 0 || row.To != 1 {
-		t.Fatalf("ledger = %q", ledger)
+	if _, err := os.Stat(filepath.Join(paths.StateDir(), "migrations.jsonl")); err == nil {
+		t.Fatal("migration ledger written for quota")
 	}
 
-	if err := os.WriteFile(path, []byte(v0Quota), 0o600); err != nil { // an old daemon rewrites the bare map
+	wrapped := `{"schema":1,"accounts":` + v0Quota + `}`
+	if err := os.WriteFile(path, []byte(wrapped), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	wantEntries(t, LoadState())
+	if err := Update(func(State) {}); err != nil {
+		t.Fatal(err)
+	}
+	var bare map[string]Entry
+	if raw, _ := os.ReadFile(path); json.Unmarshal(raw, &bare) != nil || len(bare) != 2 || bare["codex·b"].UsedPct != 10 {
+		t.Fatalf("Update wrote %s, want the bare map", raw)
+	}
+}
+
+// A newer-schema document reads as empty but Update refuses and leaves the file byte-identical.
+func TestQuotaNewerSchemaIsNotOverwritten(t *testing.T) {
+	const newer = `{"schema":2,"accounts":{"a":{"used_pct":1,"seen":"2026-10-28T10:00:00Z"}}}`
+	path := quotaFixture(t, newer)
+	if len(LoadState()) != 0 {
+		t.Fatal("newer document should read empty")
+	}
+	if err := Record("x", 5, "5h", time.Time{}, time.Now()); !errors.Is(err, schemas.ErrNewer) {
+		t.Fatalf("Update err = %v, want ErrNewer", err)
+	}
+	if raw, _ := os.ReadFile(path); string(raw) != newer {
+		t.Fatalf("newer file overwritten: %s", raw)
+	}
 }

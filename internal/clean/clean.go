@@ -102,11 +102,10 @@ func targets() []target {
 			keep:    copilotreg.Keep,
 		},
 		{
-			name: "settings-backups", doc: "state/harness/backups/** (harness) + backups/.claude.json.backup.* (CLI)",
+			name: "settings-backups", doc: "state/harness/backups/setup/* + backups/.claude.json.backup.* (CLI), aged; the revert mirror is never swept",
 			globs: func() []string {
-				return []string{filepath.Join(paths.CacheDir(), "backups", "*"), g("backups", ".claude.json.backup.*")}
-			},
-			ageless: true, // regenerable from the git-tracked template; nothing in them needs aging out
+				return []string{filepath.Join(paths.CacheDir(), "backups", "setup", "*"), g("backups", ".claude.json.backup.*")}
+			}, // the rest of state/harness/backups is the only vendor-config history (configure --restore)
 		},
 		{
 			// Every plugin update leaves the previous version dir behind; only the installPath in

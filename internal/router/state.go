@@ -2,6 +2,7 @@ package router
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -47,26 +48,36 @@ type State map[string]Entry
 // StatePath is quota.json under the harness state dir (CLAUDE_CONFIG_DIR-scoped, so tests point it at a temp dir).
 func StatePath() string { return filepath.Join(paths.StateDir(), "quota.json") }
 
-// LoadState reads quota.json; missing or corrupt reads as empty, never an error a pick must handle.
+// LoadState reads quota.json; missing, corrupt or newer-schema reads as empty, never an error a pick must handle.
 func LoadState() State {
+	s, _ := loadState()
+	return s
+}
+
+// loadState is LoadState plus the decode error; a missing file is empty with no error.
+func loadState() (State, error) {
 	raw, err := os.ReadFile(StatePath())
 	if err != nil {
-		return State{}
+		return State{}, nil
 	}
-	var f stateFile // schemas.Decode reads both shapes, so a bare-map write from an old daemon still loads
-	if _, err := schemas.Decode(format, raw, &f); err != nil || f.Accounts == nil {
-		return State{}
+	s, err := decodeState(raw)
+	if err != nil {
+		return State{}, err
 	}
-	return f.Accounts
+	return s, nil
 }
 
 // Update applies fn to the stored state under the file lock and writes it back (0600); best-effort.
+// A newer-schema document is left untouched and its ErrNewer error returned.
 func Update(fn func(State)) error {
 	path := StatePath()
 	return paths.WithFileLock(path, func() error {
-		s := LoadState()
+		s, err := loadState()
+		if errors.Is(err, schemas.ErrNewer) {
+			return err
+		}
 		fn(s)
-		data, err := json.MarshalIndent(stateFile{Schema: schemaVersion, Accounts: s}, "", "  ")
+		data, err := json.MarshalIndent(s, "", "  ")
 		if err != nil {
 			return err
 		}

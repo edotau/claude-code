@@ -35,7 +35,7 @@ opencode-auth-cache | cache | 1 | state/harness/vendors/opencode-auth.json | int
 opencode-models-check | cache | 1 | state/harness/opencode-models-check.json | internal/providers | keep
 opencode-overlay | derived | 1 | state/harness/opencode/*.json | internal/vendors | keep
 projections | derived | 1 | state/projections/* | internal/crossgen | clean:projections
-quota | record | 1 | state/harness/quota.json | internal/router | keep
+quota | derived | 0 | state/harness/quota.json | internal/router | keep
 router-runtime | record | 1 | state/harness/router.json | internal/proxy | keep
 settings-overlay | derived | 1 | state/harness/overlay-*.json | internal/launch | keep
 setup-state | record | 1 | state/harness/setup.json | internal/setup | keep
