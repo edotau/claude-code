@@ -16,6 +16,7 @@ import (
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/transcript"
+	"github.com/edotau/claude-code/internal/worktree"
 )
 
 // Harvest gate thresholds (work units: edits + user turns/2): the floor asks "was this substantive work"; re-arming
@@ -294,6 +295,9 @@ func harvestIfNew(in *Input, trigger string, now time.Time) (blocked bool, work 
 				return false, 0 // cheap gate before the whole-transcript count
 			}
 			work = countEdits(in.TranscriptPath, countPath(in.SessionID))
+			if work >= covered+harvestRearmEdits {
+				logHarvestToLedger(in, trigger, work, now)
+			}
 			if work >= covered+harvestRearmEdits && spawnHarvest(in.TranscriptPath, in.CWD, in.SessionID) {
 				writeStamp(stamp, now, "bg", work)
 				spawnIdleWatcher(in)
@@ -316,6 +320,7 @@ func harvestIfNew(in *Input, trigger string, now time.Time) (blocked bool, work 
 	}
 	work = countEdits(in.TranscriptPath, countPath(in.SessionID))
 	if work > covered && work >= floor {
+		logHarvestToLedger(in, trigger, work, now)
 		if spawnHarvest(in.TranscriptPath, in.CWD, in.SessionID) {
 			writeStamp(stamp, now, "bg", work)
 			if trigger == triggerStop {
@@ -329,6 +334,11 @@ func harvestIfNew(in *Input, trigger string, now time.Time) (blocked bool, work 
 		}
 	}
 	return false, 0
+}
+
+// logHarvestToLedger notes a harvest in the session's linked-worktree ledger; best effort, never fatal.
+func logHarvestToLedger(in *Input, trigger string, work int, now time.Time) {
+	_, _ = worktree.AppendLedger(in.CWD, fmt.Sprintf("harvest (%s): %d edits, session %s", trigger, work, in.SessionID), now)
 }
 
 func harvestable(in *Input) bool {

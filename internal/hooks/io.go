@@ -304,11 +304,32 @@ func RunArgs(name string, flags []string, stdin io.Reader, stdout, stderr io.Wri
 	}
 	h, ok := Registry[name]
 	if !ok {
-		fmt.Fprintf(stderr, "claude-code hook: unknown hook %q\n", name)
-		return 1
+		return unknownHook(name, stderr)
 	}
 	if g, found := hookspec.GroupOf(name); found && !enabledGroups()(g.Name, g.Gate) {
 		return ExitProceed
 	}
 	return h(stdin, stdout, stderr)
+}
+
+// retiredHooks are removed hook names that vendor hook files rendered before the removal may still call.
+var retiredHooks = map[string]bool{
+	"access-trace": true, "agent-inflight": true, "agent-inflight-tag": true, "agent-routed": true,
+	"context-checkpoint": true, "rtk-wrap": true, "simplify-after-edits": true, "workflow-lint": true,
+	"session-harvest": true, "wsl-path-normalize": true,
+}
+
+// unknownHook: a retired name is a loud no-op; any other unknown name fails closed when it reads as a guard.
+func unknownHook(name string, stderr io.Writer) int {
+	if retiredHooks[name] {
+		fmt.Fprintf(stderr, "claude-code hook: %q was retired; re-run `claude-code install` to refresh vendor hook files\n", name)
+		return ExitProceed
+	}
+	fmt.Fprintf(stderr, "claude-code hook: unknown hook %q\n", name)
+	for _, w := range []string{"guard", "gate", "safety", "scan"} {
+		if strings.Contains(name, w) {
+			return ExitBlock
+		}
+	}
+	return 1
 }

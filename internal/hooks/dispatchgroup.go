@@ -42,7 +42,7 @@ func dispatchPre(in *Input) Result {
 	if ok, snap := inflight.TryClaim(claim, lim); !ok {
 		return blockAtCap(snap, account, lim)
 	}
-	claimPlanTask(in)
+	claimPlanTask(in, claim.ID)
 	return res
 }
 
@@ -66,6 +66,3 @@ func workflowLeaves(in *Input, res Result) int {
 	}
 	return len(agentCallRe.FindAllStringIndex(script, -1))
 }
-
-// claimPlanTask is the one call point where the plans lane (Phase 3, internal/plans claim API) wires live task claims.
-func claimPlanTask(*Input) {}

@@ -36,6 +36,7 @@ The one definition of what passes manager → leaf → manager. Agent files poin
 
 - `Objective:` one outcome. `Agent:` claude | copilot | codex | gemini | opencode
   ([cost-routing.md](references/cost-routing.md)); a leaf runs the agent its brief names.
+- `Task:` (optional) the plan task id the leaf lands (`Task: 1.2`); the dispatch hook claims it in the plan.
 - `Owns:` the exact files, plus "Do NOT edit <others> — agents are in this package concurrently".
 - `Method:` the skill to follow, as a file path for a leaf without the `Skill` tool.
 - `Workflow:` (optional) a saved Workflow the leaf may run, with its args — the only way a leaf starts one
