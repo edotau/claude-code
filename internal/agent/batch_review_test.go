@@ -726,3 +726,65 @@ func TestNewBatchIDDistinctAtOneInstant(t *testing.T) {
 		t.Errorf("ids %q and %q: want distinct ids that keep the batch-<stamp> prefix", a, b)
 	}
 }
+
+type cancelAfterRun struct {
+	name   string
+	cancel context.CancelFunc
+}
+
+func (c cancelAfterRun) Name() string     { return c.name }
+func (c cancelAfterRun) Caps() Caps       { return Caps{} }
+func (c cancelAfterRun) Available() error { return nil }
+func (c cancelAfterRun) Run(context.Context, Request, io.Writer) (Result, error) {
+	c.cancel() // the parent ctx dies at the moment the leg succeeds
+	return Result{Answer: "a"}, nil
+}
+
+// A cancel that lands right after a leg succeeded must not overwrite its answer.
+func TestSuccessSurvivesCancelRightAfterIt(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var runs atomic.Int32
+	c := Chain{Want: "first", Legs: []Leg{{Agent: cancelAfterRun{name: "first", cancel: cancel}}, {Agent: flagRunner{name: "second", runs: &runs}}}}
+	res, err := RunWithFallback(ctx, c, Request{Prompt: "p"}, io.Discard, nil)
+	if err != nil || res.Answer != "a" || runs.Load() != 0 || len(res.Hops) != 1 {
+		t.Fatalf("res=%+v err=%v second ran %d times; want the first leg's answer alone", res, err, runs.Load())
+	}
+}
+
+// A copilot leg whose gate falls back to Databricks bills (and is capped on) that Databricks account, however the
+// router keyed the leg.
+func TestCopilotGateFallbackIsCappedOnTheDatabricksAccount(t *testing.T) {
+	ghLogin(t, "alice", 99)
+	t.Setenv("DBX_GATE_KEY", "dbx-secret")
+	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{`+ghProfiles("alice")+`,"databricks":{"dbx":{"preset":"databricks",`+
+		`"host":"https://adb-1.azuredatabricks.net","auth":{"type":"key","env":"DBX_GATE_KEY"},"models":{"opus":"m"}}}}}`)
+	var cur, peak atomic.Int32
+	var tasks []BatchTask
+	for i := range DefaultPerKey + 2 {
+		name := fmt.Sprintf("g%d", i)
+		r := gaugeRunner{name: "copilot", cur: &cur, max: &peak}
+		tasks = append(tasks, BatchTask{ID: name, Agent: "copilot", Req: Request{Prompt: "p", Model: "alice:opus"},
+			Prepare: func(context.Context) (Chain, Record, error) {
+				rec := Record{ID: "id-" + name, Agent: "copilot", Log: filepath.Join(t.TempDir(), "l.log")}
+				return Chain{Want: "copilot", Legs: []Leg{{Agent: r, Account: "github·" + name, keepCaller: true}}}, rec, nil
+			}})
+	}
+	var out strings.Builder
+	if !RunBatch(context.Background(), tasks, BatchOptions{Jobs: len(tasks), Out: &out}) {
+		t.Fatalf("batch failed: %s", out.String())
+	}
+	if got := int(peak.Load()); got > DefaultPerKey || got < 2 {
+		t.Errorf("peak concurrent copilot legs = %d, want 2..%d: they all bill the one Databricks account", got, DefaultPerKey)
+	}
+}
+
+// A hub leg authenticates with the stored opencode login, so an absent registry credential must not fail its guard.
+func TestHubLegGuardIgnoresAbsentRegistryCredential(t *testing.T) {
+	vaulttest.UseKeyring(t)
+	p := &providers.Provider{Name: "ocgo", Preset: providers.PresetDatabricks, Auth: providers.Auth{Type: "key", Command: "false"}}
+	leg := hubLeg{agent: "opencode", provider: p}
+	if _, gerr := guardAttempt(withIsolation(context.Background()), leg, Request{}); gerr != nil {
+		t.Errorf("guardAttempt = %v, want the hub leg to pass: its credential is the opencode login", gerr)
+	}
+}

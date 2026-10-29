@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"slices"
 	"strings"
@@ -33,6 +34,42 @@ func withOwnProvider(ctx context.Context, p *providers.Provider) context.Context
 func ownProviderFrom(ctx context.Context) *providers.Provider {
 	p, _ := ctx.Value(ownProviderKey{}).(*providers.Provider)
 	return p
+}
+
+type frozenKey struct{}
+
+// frozenTarget is the copilot target a leg resolved once, before its permit: the gate may move it off the GitHub login.
+type frozenTarget struct {
+	t    providers.Target
+	own  bool
+	note string
+}
+
+// freezeCopilot resolves copilot's real target once, so the permit, cooldown key, guard and runner all use the same
+// account. When the gate moved the leg to another provider, the leg bills that provider's account instead.
+func freezeCopilot(ctx context.Context, leg Leg, req Request) (context.Context, Leg) {
+	if leg.Agent.Name() != "copilot" {
+		return ctx, leg
+	}
+	t, own, note, err := vendorTargetNote(req, "copilot")
+	if err != nil {
+		return ctx, leg // the runner reports its own resolution failure
+	}
+	if !own && t.Provider != nil && t.Provider.Auth.Login != "copilot" {
+		leg.Account = profileAccount(t.Provider)
+	}
+	return context.WithValue(ctx, frozenKey{}, frozenTarget{t, own, note}), leg
+}
+
+// vendorTargetCtx is vendorTarget, except a target frozen on ctx is used as is.
+func vendorTargetCtx(ctx context.Context, req Request, name string) (providers.Target, bool, error) {
+	if f, ok := ctx.Value(frozenKey{}).(frozenTarget); ok && name == "copilot" {
+		if f.note != "" {
+			fmt.Fprintln(os.Stderr, f.note)
+		}
+		return f.t, f.own, nil
+	}
+	return vendorTarget(req, name)
 }
 
 // guardRouteHost fails a hop before any child starts when p's credential was issued for another host than its route.
@@ -81,7 +118,15 @@ func guardProvider(r Runner, req Request) (*providers.Provider, error) {
 
 // guardAttempt runs inside a timed attempt: it validates the hop's credential and marks its one own profile on ctx.
 func guardAttempt(ctx context.Context, r Runner, req Request) (context.Context, *Error) {
-	gp, err := guardProvider(r, req)
+	var gp *providers.Provider
+	var err error
+	if f, ok := ctx.Value(frozenKey{}).(frozenTarget); ok && r.Name() == "copilot" {
+		if !f.own {
+			gp = f.t.Provider
+		}
+	} else {
+		gp, err = guardProvider(r, req)
+	}
 	if err != nil {
 		return ctx, Classify(r.Name(), err, false)
 	}
@@ -90,6 +135,9 @@ func guardAttempt(ctx context.Context, r Runner, req Request) (context.Context, 
 	}
 	if err := checkIsolation(ctx); err != nil {
 		return ctx, &Error{Kind: KindFatal, Agent: r.Name(), Err: err}
+	}
+	if _, hub := r.(hubLeg); hub { // a hub leg sends the opencode login's credential, not the registry's
+		return withOwnProvider(ctx, gp), nil
 	}
 	if err := guardRouteHost(ctx, gp); err != nil {
 		if _, ok := errors.AsType[*providers.HostMismatchError](err); ok {
