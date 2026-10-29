@@ -480,6 +480,7 @@ Rows `CLAUDE.md` points here for.
 go test ./internal/<pkg>   # while developing — only what you touched
 make lint                  # fmt, vet, shell, yaml, markdown (CHECK=1 reports only)
 make lint-deep             # golangci-lint, uncapped
+make lint-fix              # auto-fix, then an agent fixes the rest (WHAT= AGENT= MAX= NOAGENT=1)
 make test                  # full gate, once before pushing (= make audit = CI)
 ```
 
