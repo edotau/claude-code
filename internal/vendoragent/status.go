@@ -31,12 +31,13 @@ func Find(ref string) (agent.Record, error) {
 // Row is one background-job line for `claude-code <v> status`.
 type Row struct {
 	ID       string
-	Status   string // running | lost | ok | error (lost = running record, dead pid)
+	Status   string // running | live | lost | ok | error (lost = running record, dead pid; live = a held session)
 	Elapsed  string
 	Preview  string
 	Session  string
 	Error    string `json:",omitempty"` // the failed dispatch's redacted error text
 	Progress string `json:",omitempty"` // "part 2/3" while a split review runs
+	Turns    int    `json:",omitempty"` // live session: turns started
 }
 
 // Status lists rows for name's jobs in cwd's repo (all repos when all is set), newest first; ref narrows via Resolve.
@@ -178,7 +179,7 @@ func TailEvents(ctx context.Context, rec agent.Record, follow bool, w io.Writer)
 	}
 }
 
-// copyEventLines writes each complete line br has to w, holding a partial tail in pend; done = a result line passed.
+// copyEventLines writes each complete line br has to w, holding a partial tail in pend; done = the dispatch's result line passed.
 func copyEventLines(br *bufio.Reader, pend *[]byte, w io.Writer) (n int, done bool, err error) {
 	for {
 		chunk, rerr := br.ReadBytes('\n')
@@ -189,8 +190,11 @@ func copyEventLines(br *bufio.Reader, pend *[]byte, w io.Writer) (n int, done bo
 		if _, err := w.Write(*pend); err != nil {
 			return n, done, err
 		}
-		var ev struct{ Type string }
-		if json.Unmarshal(*pend, &ev) == nil && ev.Type == agent.EventResult {
+		var ev struct {
+			Type string
+			Turn int
+		}
+		if json.Unmarshal(*pend, &ev) == nil && ev.Type == agent.EventResult && ev.Turn == 0 { // a live turn's result is not the end
 			done = true
 		}
 		n += len(*pend)
@@ -237,6 +241,9 @@ func CancelJob(ctx context.Context, name, cwd, ref string) (agent.Record, error)
 	if err := Cancel(&rec); err != nil {
 		return agent.Record{}, err
 	}
+	if rec.Live {
+		_ = os.Remove(agent.SocketPath(rec.ID)) // a killed holder cannot unlink its own socket
+	}
 	return rec, nil
 }
 
@@ -250,7 +257,10 @@ func toRow(r agent.Record) Row {
 	if status == "running" || status == "lost" {
 		elapsed = time.Since(r.Time).Round(time.Second).String()
 	}
+	if status == "running" && r.Live {
+		status = "live"
+	}
 	preview := agent.Preview(r.Request.Prompt, 60)
 	return Row{ID: r.ID, Status: status, Elapsed: elapsed, Preview: preview, Session: r.SessionID,
-		Error: shapes.Redact(r.Error), Progress: r.Progress}
+		Error: shapes.Redact(r.Error), Progress: r.Progress, Turns: r.Turns}
 }

@@ -107,6 +107,7 @@ type Transport struct {
 type Caps struct {
 	Model, Provider, Effort, WorkDir, SessionID, Tools, NoTools, Autonomous, Memory, NoPersist, SafeMode, DebugFile, Direct Level
 	SystemPrompt, AppendSystemPrompt, Env, OutputSchema                                                                     Level
+	Live                                                                                                                    Level // a held session `agents send` feeds turns to
 }
 
 // Level is how an agent honors one flag: its own flag (Native), a harness shim (Emulated), or not at all (None).

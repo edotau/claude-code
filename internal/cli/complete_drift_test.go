@@ -44,7 +44,7 @@ func TestSpecTreeSubwordsMatchDispatch(t *testing.T) {
 		"memory": {"recall", "remember", "init", "review", "promote", "update", "dream", "search", "show",
 			"digest", "index", "path", "watch", "timeline", "archive", "alias", "fmt"},
 		"gateway":  {"router", "proxy"},
-		"agents":   {"sync", "tree", "reap"},
+		"agents":   {"sync", "tree", "reap", "send"},
 		"workflow": {"skeleton", "lint"},
 		"theme":    {"apply", "statusline", "vscode"},
 		"worktree": {"list", "create", "merge", "clean", "clean-all"},
@@ -346,7 +346,7 @@ func TestAskFlagsMatchItsOwnFlagSet(t *testing.T) {
 	slices.Sort(got)
 	want := []string{
 		"agent", "attach", "autonomous", "background", "batch", "debug-file", "effort", "enable-memory", "fail-fast", "fallback",
-		"format", "job", "jobs", "keep-env", "log", "model", "native", "no-persist", "no-tools", "profile", "retry", "rubric", "safe-mode", "session", "timeout",
+		"format", "idle", "job", "jobs", "keep-env", "live", "log", "model", "native", "no-persist", "no-tools", "profile", "retry", "rubric", "safe-mode", "session", "timeout",
 		"tools", "workdir",
 	}
 	slices.Sort(want)

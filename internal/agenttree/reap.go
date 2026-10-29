@@ -94,17 +94,43 @@ func Reap(dryRun bool, out, errw io.Writer) int {
 		fmt.Fprintf(out, "%s dispatch %s (%s, pid %d)\n", verb, rec.ID, rec.Agent, rec.PID)
 		records++
 	}
+	socks := reapSockets(dryRun, verb, out, errw)
 	markers, err := reapMarkers(dryRun, verb, out)
 	if err != nil {
 		fmt.Fprintln(errw, "agents reap:", err)
 		code = 1
 	}
-	if records+markers == 0 {
+	if records+markers+socks == 0 {
 		fmt.Fprintln(out, "agents reap: nothing to reap")
+		return code
+	}
+	if socks > 0 {
+		fmt.Fprintf(out, "%s %d dispatches, %d markers, %d sockets\n", verb, records, markers, socks)
 		return code
 	}
 	fmt.Fprintf(out, "%s %d dispatches, %d markers\n", verb, records, markers)
 	return code
+}
+
+// reapSockets removes live-session sockets whose holder is gone: no record, or one that is not an alive live session.
+func reapSockets(dryRun bool, verb string, out, errw io.Writer) int {
+	files, _ := filepath.Glob(filepath.Join(agent.DispatchDir(), "*.sock"))
+	n := 0
+	for _, f := range files {
+		id := strings.TrimSuffix(filepath.Base(f), ".sock")
+		if rec, err := agent.LoadRecord(id); err == nil && rec.Live && rec.Alive() {
+			continue
+		}
+		if !dryRun {
+			if err := os.Remove(f); err != nil {
+				fmt.Fprintf(errw, "agents reap: %s: %v\n", f, err)
+				continue
+			}
+		}
+		fmt.Fprintf(out, "%s socket %s\n", verb, id)
+		n++
+	}
+	return n
 }
 
 // reapMarkers removes the markers the hook's own liveness rule would prune: a dead owner, or an expired
