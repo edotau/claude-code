@@ -11,7 +11,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"maps"
 	"math"
 	"net/http"
 	"os"
@@ -115,6 +114,21 @@ func freshEmbedCache(c *EmbedClient) embedCacheFile {
 	return embedCacheFile{Namespace: c.Namespace, Model: c.Model, Rows: map[string]embedRow{}}
 }
 
+// currentEntryHashes is the content hash of each embeddable entry in root's corpus right now.
+func currentEntryHashes(root string) map[string]string {
+	out := map[string]string{}
+	for _, h := range corpusBlocks(root) {
+		e := EntryFromHit(h)
+		if e.Archived || e.Superseded {
+			continue
+		}
+		if _, dup := out[e.ID]; !dup {
+			out[e.ID] = textHash(entryEmbedText(e))
+		}
+	}
+	return out
+}
+
 // EmbedEntries embeds root's current (non-archived) entries, calling the endpoint only for new or changed content.
 // Returns how many entries it embedded now and how many are indexed in all. Concurrent runs merge their rows
 // into the cache under a file lock, so neither overwrites the other's vectors.
@@ -145,7 +159,17 @@ func EmbedEntries(ctx context.Context, root string, c *EmbedClient) (embedded, t
 			if cur.Namespace != c.Namespace || cur.Rows == nil {
 				cur = freshEmbedCache(c)
 			}
-			maps.Copy(cur.Rows, fresh)
+			current := currentEntryHashes(root) // an older run merging last must not clobber a newer vector
+			for id, row := range fresh {
+				want, ok := current[id]
+				if !ok || row.Hash != want {
+					continue
+				}
+				if old, have := cur.Rows[id]; have && old.Hash == want {
+					continue
+				}
+				cur.Rows[id] = row
+			}
 			own := 0
 			for _, r := range cur.Rows {
 				if r.Root == root {
@@ -211,16 +235,16 @@ func NewSemantic(query string) (*Semantic, error) {
 			done <- result{err: err}
 			return
 		}
+		if cache.Namespace == "" || c.Namespace != cache.Namespace { // checked first: no prompt text leaves on a mismatch
+			done <- result{err: errors.New("embedding cache belongs to another workspace or model")}
+			return
+		}
 		vecs, err := c.Embed(ctx, []string{query})
 		if err == nil && len(vecs) != 1 {
 			err = errors.New("embedding endpoint returned no query vector")
 		}
 		if err != nil {
 			done <- result{err: err}
-			return
-		}
-		if c.Namespace != cache.Namespace {
-			done <- result{err: errors.New("embedding cache belongs to another workspace or model")}
 			return
 		}
 		if !cacheDimMatches(cache.Rows, len(vecs[0])) {
@@ -401,7 +425,7 @@ func PostEmbeddings(ctx context.Context, url string, texts []string, authorize f
 
 // Candidates are the top k current entries of root's corpus by cosine alone (at least floor), for prompts that
 // share no keyword with the entry they mean; an in-memory scan, no network.
-func (s *Semantic) Candidates(root string, k int, floor float64, skip func(SearchHit) bool) []SearchHit {
+func (s *Semantic) Candidates(root string, k int, floor float64, skip func(SearchHit) bool) (hits []SearchHit, skipped bool) {
 	type scored struct {
 		hit SearchHit
 		cos float64
@@ -409,18 +433,21 @@ func (s *Semantic) Candidates(root string, k int, floor float64, skip func(Searc
 	var all []scored
 	for _, h := range corpusBlocks(root) {
 		e := EntryFromHit(h)
-		if e.Archived || e.Superseded || (skip != nil && skip(h)) {
+		if e.Archived || e.Superseded {
 			continue
 		}
 		if cos, ok := s.Cosine(e); ok && cos >= floor {
+			if skip != nil && skip(h) {
+				skipped = true // a qualifying match already in context
+				continue
+			}
 			h.ID = e.ID
 			all = append(all, scored{h, cos})
 		}
 	}
 	sort.SliceStable(all, func(i, j int) bool { return all[i].cos > all[j].cos })
-	var out []SearchHit
 	for _, a := range all[:min(k, len(all))] {
-		out = append(out, a.hit)
+		hits = append(hits, a.hit)
 	}
-	return out
+	return hits, skipped
 }

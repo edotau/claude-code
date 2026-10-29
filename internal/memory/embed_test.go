@@ -153,8 +153,12 @@ func TestEmbedCacheNamespaceAndDimension(t *testing.T) {
 	prev := OpenEmbedClient
 	t.Cleanup(func() { OpenEmbedClient = prev })
 	OpenEmbedClient = func(context.Context, string) (*EmbedClient, error) { return c, nil } // namespace fake, cache is "other"
+	before := calls
 	if _, err := NewSemantic("q"); err == nil {
 		t.Error("a client from a different namespace must not score the cache")
+	}
+	if calls != before {
+		t.Errorf("the prompt reached the endpoint (%d texts) despite the namespace mismatch", calls-before)
 	}
 	OpenEmbedClient = func(context.Context, string) (*EmbedClient, error) {
 		return &EmbedClient{Model: other.Model, Namespace: other.Namespace, Embed: func(context.Context, []string) ([][]float32, error) {
@@ -213,5 +217,35 @@ func TestEmbedPruneNeverCrossesRoots(t *testing.T) {
 	}
 	if rows["aaaa0001"].Root != root {
 		t.Errorf("new row not tagged with its root: %+v", rows["aaaa0001"])
+	}
+}
+
+// An older run that merges last must not overwrite the vector of content a newer run already embedded.
+func TestEmbedMergeKeepsVectorMatchingCurrentContent(t *testing.T) {
+	isolatedConfig1(t)
+	root := t.TempDir()
+	bank := filepath.Join(HomeBankDir(), "decisionLog.md")
+	v1 := "# D\n\n## 2026-10-01 — gamma one <!-- id:aaaa0001 -->\n\nversion one\n"
+	v2 := "# D\n\n## 2026-10-01 — gamma one <!-- id:aaaa0001 -->\n\nversion two\n"
+	write(t, bank, v1)
+	var calls int
+	inner := fakeEmbedServer(t, &calls)
+	nested := false
+	outer := &EmbedClient{Model: inner.Model, Namespace: inner.Namespace, Embed: func(ctx context.Context, texts []string) ([][]float32, error) {
+		if !nested { // the entry changes mid-run and a newer run embeds the new content first
+			nested = true
+			write(t, bank, v2)
+			if _, _, err := EmbedEntries(ctx, root, inner); err != nil {
+				t.Error(err)
+			}
+		}
+		return inner.Embed(ctx, texts)
+	}}
+	if _, _, err := EmbedEntries(context.Background(), root, outer); err != nil {
+		t.Fatal(err)
+	}
+	want := currentEntryHashes(root)["aaaa0001"]
+	if got := loadEmbedCache().Rows["aaaa0001"].Hash; got != want {
+		t.Errorf("cache holds the older run's vector: hash %s, current content %s", got, want)
 	}
 }
