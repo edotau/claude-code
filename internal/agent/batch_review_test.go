@@ -757,7 +757,8 @@ func TestSuccessSurvivesCancelRightAfterIt(t *testing.T) {
 func TestCopilotGateFallbackIsCappedOnTheDatabricksAccount(t *testing.T) {
 	ghLogin(t, "alice", 99)
 	t.Setenv("DBX_GATE_KEY", "dbx-secret")
-	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{`+ghProfiles("alice")+`,"databricks":{"dbx":{"preset":"databricks",`+
+	t.Cleanup(func() { vaulttest.Put(t, vault.Overlay, "providers", `{}`) }) // the default must not leak to later tests
+	vaulttest.Put(t, vault.Overlay, "providers", `{"default":"alice","providers":{`+ghProfiles("alice")+`,"databricks":{"dbx":{"preset":"databricks",`+
 		`"host":"https://adb-1.azuredatabricks.net","auth":{"type":"key","env":"DBX_GATE_KEY"},"models":{"opus":"m"}}}}}`)
 	var cur, peak atomic.Int32
 	var tasks []BatchTask
@@ -786,5 +787,82 @@ func TestHubLegGuardIgnoresAbsentRegistryCredential(t *testing.T) {
 	leg := hubLeg{agent: "opencode", provider: p}
 	if _, gerr := guardAttempt(withIsolation(context.Background()), leg, Request{}); gerr != nil {
 		t.Errorf("guardAttempt = %v, want the hub leg to pass: its credential is the opencode login", gerr)
+	}
+}
+
+// gateFallbackEnv: the copilot GitHub login is past its gate and one Databricks profile (opus/sonnet ids) takes over.
+func gateFallbackEnv(t *testing.T) {
+	t.Helper()
+	ghLogin(t, "alice", 99)
+	t.Setenv("DBX_GATE_KEY", "dbx-secret")
+	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{`+ghProfiles("alice")+`,"databricks":{"dbx":{"preset":"databricks",`+
+		`"host":"https://adb-1.azuredatabricks.net","auth":{"type":"key","env":"DBX_GATE_KEY"},"models":{"opus":"dbx-opus","sonnet":"dbx-sonnet"}}}}}`)
+}
+
+// A frozen copilot target keeps its provider but follows the attempt's model: after a model-denied opus attempt the
+// retry runs on sonnet.
+func TestFrozenCopilotTargetFollowsTheDowngradedModel(t *testing.T) {
+	fastDefaultBackoff(t)
+	gateFallbackEnv(t)
+	fakeCopilotBin(t)
+	var envs [][]string
+	prev := copilotAsk
+	copilotAsk = func(_ context.Context, o copilotsdk.Options, _ string) (copilotsdk.Result, error) {
+		envs = append(envs, slices.Clone(o.Env))
+		if len(envs) == 1 {
+			return copilotsdk.Result{}, errors.New("HTTP 429: insufficient_quota, limit: 0")
+		}
+		return copilotsdk.Result{Text: "hi", SessionID: "s"}, nil
+	}
+	t.Cleanup(func() { copilotAsk = prev })
+	res, err := RunWithFallback(context.Background(), Single(copilotRunner{}), Request{Prompt: "p", Model: "opus", Direct: true}, io.Discard, nil)
+	if err != nil || res.Answer != "hi" || len(envs) != 2 {
+		t.Fatalf("res=%+v err=%v calls=%d; want the retry to answer", res, err, len(envs))
+	}
+	has := func(env []string, kv string) bool { return slices.Contains(env, kv) }
+	if !has(envs[0], "COPILOT_MODEL=dbx-opus") || !has(envs[1], "COPILOT_MODEL=dbx-sonnet") {
+		t.Errorf("models by attempt = %v / %v, want dbx-opus then the downgraded dbx-sonnet", envs[0], envs[1])
+	}
+}
+
+// A quota failure on a gate-fallback leg is remembered with the Databricks account's credits window, not the
+// subscription window of the GitHub login the router keyed it under.
+func TestGateFallbackLegBillsCreditsWindow(t *testing.T) {
+	gateFallbackEnv(t)
+	var account string
+	var until, at time.Time
+	prev := markExhausted
+	markExhausted = func(a string, u, now time.Time, _ string) error { account, until, at = a, u, now; return nil }
+	t.Cleanup(func() { markExhausted = prev })
+	quota := errors.New("402 Payment Required")
+	r := &fakeRunner{name: "copilot", errs: []error{quota}, emptyAnswer: true}
+	c := Chain{Want: "copilot", Legs: []Leg{{Agent: r, Account: "github·alice", Billing: router.BillSubscription, keepCaller: true}}}
+	_, _ = RunWithFallback(context.Background(), c, Request{Prompt: "p", Model: "alice:opus"}, io.Discard, nil)
+	want := router.ResetFor(quota.Error(), router.BillCredits, router.Entry{}, at)
+	if account != "databricks·dbx" || !until.Equal(want) {
+		t.Errorf("marked %q until %v, want databricks·dbx until the credits reset %v", account, until, want)
+	}
+}
+
+// A cooldown that idles the leg before attempt 1 is followed by a recheck: an account marked auth-dead meanwhile
+// is not attempted.
+func TestFirstAttemptRechecksAccountAfterCooldownIdle(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	var once sync.Once
+	prev := loadState
+	loadState = func() router.State {
+		once.Do(func() { coolDown("late·A", 400*time.Millisecond) })
+		return prev()
+	}
+	t.Cleanup(func() { loadState = prev })
+	var runs atomic.Int32
+	tasks := []BatchTask{
+		acctTask(t, "late", "late·A", flagRunner{name: "late", runs: &runs}),
+		acctTask(t, "marker", "free·B", markingRunner{name: "marker", mark: func() { _ = router.MarkAuth("late·A", "login expired") }}),
+	}
+	var out strings.Builder
+	RunBatch(context.Background(), tasks, BatchOptions{Jobs: 1, Out: &out})
+	if runs.Load() != 0 {
+		t.Errorf("the first attempt ran %d times on an account marked auth-dead during its cooldown wait", runs.Load())
 	}
 }
