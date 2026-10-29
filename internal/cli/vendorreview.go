@@ -62,7 +62,7 @@ func runSplitReview(vendor string, args []string, parts []vendoragent.Part, scop
 func spawnSplitReview(vendor string, args []string, n int) int {
 	cwd, _ := os.Getwd()
 	req := agent.Request{Prompt: fmt.Sprintf("%s review split into %d parts", vendor, n), WorkDir: cwd}
-	rec := agent.NewRecord(vendor, req, time.Now())
+	rec := agent.ClaimRecord(vendor, req, time.Now())
 	rec.Repo, rec.Owner, rec.Log = vendoragent.RepoRoot(context.Background(), cwd), inflight.SessionOwner(), rec.LogPath()
 	rec.Progress = fmt.Sprintf("part 0/%d", n)
 	_ = rec.Save()

@@ -101,7 +101,7 @@ func Run(ctx context.Context, o Options, stream, log io.Writer) (agent.Result, e
 		policy.Notify = func(s string) { fmt.Fprintln(log, s) }
 
 		// The Record never carries the full inlined prompt (MiBs of source): a compact summary instead.
-		rec := agent.NewRecord(bridgeDispatchLabel, agent.Request{
+		rec := agent.ClaimRecord(bridgeDispatchLabel, agent.Request{
 			Prompt: compactRecordPrompt(o.Task, ctxFiles), Model: model, Effort: o.Effort, WorkDir: o.Cwd, Timeout: o.Timeout,
 		}, time.Now())
 		rec.Owner = inflight.SessionOwner()
