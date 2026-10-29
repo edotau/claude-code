@@ -270,6 +270,11 @@ func applyMerge(ctx context.Context, repo *worktree.Repo, plan *worktree.MergePl
 		return fail("worktree merge: promote: %v", err)
 	}
 	fmt.Printf("promoted:   %s -> %s on %s\n", shortOID(promoted.BeforeOID), shortOID(promoted.AfterOID), plan.TargetRef)
+	if err := worktree.CloseLedger(repo.Main, name, worktree.LedgerClose{
+		Via: "merge", MergeSHA: promoted.AfterOID, Head: integrated.AfterOID,
+	}); err != nil {
+		fmt.Fprintf(os.Stderr, "worktree merge: warning: ledger: %v\n", err)
+	}
 
 	if noClean {
 		fmt.Printf("worktree left on disk; clean up with: claude-code worktree clean %s\n", shellQuote(name))

@@ -55,12 +55,19 @@ func WorktreeRemove(r io.Reader, stderr io.Writer) int {
 	defer cancel()
 	main := paths.MainCheckout(path)
 	branch, _ := exec.CommandContext(ctx, "git", "-C", path, "branch", "--show-current").Output()
+	head, _ := exec.CommandContext(ctx, "git", "-C", path, "rev-parse", "HEAD").Output()
 	if out, err := exec.CommandContext(ctx, "git", "-C", main, "worktree", "remove", path).CombinedOutput(); err != nil {
 		fmt.Fprintf(stderr, "worktree-remove: %v: %s\n", err, strings.TrimSpace(string(out)))
 		return 1
 	}
+	branchDeleted := false
 	if b := strings.TrimSpace(string(branch)); b != "" {
-		_ = exec.CommandContext(ctx, "git", "-C", main, "branch", "-d", b).Run() // -d keeps unmerged commits.
+		branchDeleted = exec.CommandContext(ctx, "git", "-C", main, "branch", "-d", b).Run() == nil
+	}
+	if err := worktree.CloseLedger(main, filepath.Base(filepath.Clean(path)), worktree.LedgerClose{
+		Via: "remove", Head: strings.TrimSpace(string(head)), BranchDeleted: branchDeleted,
+	}); err != nil {
+		fmt.Fprintf(stderr, "worktree-remove: warning: ledger: %v\n", err)
 	}
 	return ExitProceed
 }

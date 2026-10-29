@@ -95,6 +95,7 @@ func cleanForceInLease(repo *Repo, name string, dryRun bool, report func(Discard
 		result.Removed = true // preview: the remaining refusals passed, so this one would be discarded
 		return result, nil
 	}
+	head := headOf(dest)
 	if out, err := gitCmd(ctx, "-C", repo.Main, "worktree", "remove", "--force", dest).CombinedOutput(); err != nil {
 		result.Reason = fmt.Sprintf("git worktree remove --force: %v: %s", err, strings.TrimSpace(string(out)))
 		return result, nil
@@ -106,6 +107,9 @@ func cleanForceInLease(repo *Repo, name string, dryRun bool, report func(Discard
 		} else {
 			result.BranchDeleted = true
 		}
+	}
+	if err := CloseLedger(repo.Main, name, LedgerClose{Via: "clean --force", Head: head, BranchDeleted: result.BranchDeleted}); err != nil {
+		fmt.Fprintf(os.Stderr, "worktree-clean: warning: ledger: %v\n", err)
 	}
 	return result, nil
 }
