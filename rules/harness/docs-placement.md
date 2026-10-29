@@ -15,7 +15,7 @@ Report/handoff subpaths live in `internal/hooks/docsplacement.go`; plan mirrorin
 
 | Artifact | Path | Producer |
 | --- | --- | --- |
-| Plan (draft mirror → approved) | `~/.claude/plans/YYYY-MM-DD-<slug>.md` (this repo) · `~/.claude/plans/<repo>/YYYY-MM-DD-<slug>.md` (any other repo), gitignored wholesale; date fixed from the first write | `docs-placement` gates the native undated draft's first Write (the plan-template check); `plan-mirror` mirrors every Write/Edit to the dated destination; `save-plan` files approved text there on `ExitPlanMode`, then removes the undated draft |
+| Plan (draft mirror → approved) | `~/.claude/plans/YYYY-MM-DD-<slug>.md` (this repo) · `~/.claude/plans/<repo>/YYYY-MM-DD-<slug>.md` (any other repo), gitignored wholesale; date fixed from the first write | `plan-gate` gates the native undated draft's first Write (the plan-template check); `plan-mirror` mirrors every Write/Edit to the dated destination; `save-plan` files approved text there on `ExitPlanMode`, then removes the undated draft |
 | Session handoff | `<store>/handoffs/YYYY-MM-DD-<topic>.md` | the session that ends, pointed to from `activeContext.md`; only when activeContext can't hold it |
 | Command/agent report (review, audit, techdebt scan, research brief) | `<store>/reports/YYYY-MM-DD-<name>.md` | the command or agent that produced it |
 | Promoted knowledge (local-only) | `<store>/knowledge/<topic>.md` (home bank for cross-repo, the repo's own bank for one repo) | hand-curated, reviewed |

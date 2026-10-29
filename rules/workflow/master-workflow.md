@@ -106,7 +106,7 @@ biggest avoidable input-token cost of this protocol.
 **Trigger**: MEDIUM+ scope.
 
 Feed the Context Brief + Refined Task Brief into plan mode or a `Plan` subagent (write the plan, don't
-implement). `agents/Plan.md` holds the plan template and phase rules.
+implement). `agents/Plan.md` holds the plan template and phase rules; the skeleton is injected when plan mode starts.
 
 1. Generate implementation plan with task breakdown
 2. Identify dependencies between tasks (which can run in parallel)
@@ -149,7 +149,8 @@ handoff alone."
   (`--format json` for a machine-readable envelope).
 - Manual worktrees: `claude-code worktree create|list|merge|clean`.
 
-Concurrency: ≤24 in flight, test agents included (`agents.md`; the `agent-inflight` hook enforces it).
+Concurrency: 12 in flight per available account, 4 × CPUs at most, test agents included (`agents.md`; the
+`agent-effort` dispatch cap enforces it).
 
 **Gate**: Each sub-task passes its own verification command before merge.
 

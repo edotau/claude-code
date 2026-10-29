@@ -365,29 +365,34 @@ claude-code usage --days 7                             # subagent token usage; c
 
 ## Hooks
 
-Declared in `internal/hookspec/hookspec.go`, implemented in `internal/hooks/`. To add one: implement, register a
-`Spec`, `make install`.
+Declared as **groups** in `hookspec.Registry` (`internal/hookspec/hookspec.go`), implemented in `internal/hooks/`. To
+add one: implement, register it in a group, `make install`. Settings carry one dispatcher entry per event
+(`claude-code hook <Event>`) that runs every enabled group's handlers and merges the result. The `safety` gate group
+(`safety-scan`, `docs-placement`) keeps its own process per handler and cannot be turned off; any other group is
+switched off with `"<group>": false` under `harnessHooks` in the vault overlay (`claude-code vault edit`).
 
-| Hook | Event | Does |
+| Hook (group) | Event | Does |
 | --- | --- | --- |
-| `bash-guard` | PreToolUse Bash | Blocks destructive commands (`rm -rf /`, force-push main, `curl \| sh`, git resets in `~/.claude`); routes noisy output through rtk |
-| `docs-placement` | PreToolUse Write/Edit | Blocks new `.md` at a repo root or ignored `docs/`; enforces the plan template |
-| `agent-effort` | PreToolUse Agent | Fills an unset subagent model (low → haiku, else sonnet); appends up to 3 memory recall pointers to the spawn prompt |
-| `workflow-lint` | PreToolUse Workflow | Pins unpinned inline agents to sonnet |
-| `agent-inflight*` | Pre/PostToolUse Agent | Caps concurrent dispatches at 24 |
-| `subagent-stop` | SubagentStop | Retires the stopping subagent's inflight entry |
-| `plan-mirror` / `save-plan` | PostToolUse | Dated plan copies under `plans/`; files the approved plan |
-| `stop` | Stop | At ≥85% context, pauses once for a handoff; then saves the session to memory and formats files edited this turn |
-| `session-start` | SessionStart | Injects the memory catalog and this repo's active context |
-| `memory-recall` | UserPromptSubmit | Injects up to 3 matching memory blocks |
-| `path-resolver` | UserPromptSubmit | Resolves paths in the prompt both ways through the mount table (Windows ⇄ `/mnt/…`) |
-| `session-harvest-end` / `pre-compact` | SessionEnd / PreCompact | Saves the session into the memory bank |
-| `access-trace` | PostToolUse Read | Logs bank reads for `memory review` |
-| `worktree-create` / `-remove` | Worktree* | Under `~/worktrees/<repo>/`; refuses dirty removals |
-| `codex-agent-route` | PreToolUse `spawn_agent` | Codex only: fills a fresh, unpinned child's model from the routing cells |
-| `codex-routing-result` | PostToolUse `spawn_agent` | Codex only: records the spawn result for the routing log |
-| `codex-routing-start` | SessionStart | Codex only: records the session start for the routing log |
-| `codex-subagent-start` | SubagentStart | Codex only: records the child's model, joining it to the routing decision |
+| `safety-scan` (safety) | PreToolUse Bash | Block, ask and warn tiers: blocks destructive commands (`rm -rf /`, force-push main, `curl \| sh`, git resets in `~/.claude`), asks on intent-dependent ones; codex and copilot have no ask, so ask blocks there |
+| `docs-placement` (safety) | PreToolUse Write/Edit | Blocks new `.md` at a repo root or ignored `docs/` |
+| `rtk` (rtk) | PreToolUse Bash | Routes noisy output through rtk |
+| `plan-gate` (plans) | PreToolUse Write/Edit | Enforces the plan template on the first write to a plan draft |
+| `plan-skeleton` / `plan-skeleton-prompt` (plans) | PostToolUse EnterPlanMode / UserPromptSubmit | Injects the Plan.md skeleton when plan mode starts |
+| `plan-mirror` / `save-plan` (plans) | PostToolUse | Dated plan copies under `plans/`; files the approved plan |
+| `plan-tick` / `plan-reminder` (plans) | PostToolUse Bash / Stop | A landed commit ticks the plan tasks it covers; partial coverage is reported at Stop (`claude-code plan status`) |
+| `agent-effort` (dispatch) | PreToolUse Agent/Task/Workflow | Cap, then model pin, then slot claim: 12 per available account (a profile's `concurrency` overrides), total clamped to 4 × CPUs; fills an unset subagent model (low → haiku, else sonnet), pins unpinned Workflow `agent()` calls to sonnet, appends up to 3 memory recall pointers; `<agent>: <desc>` labels |
+| `agent-inflight-post` / `workflow-inflight` / `subagent-stop` (dispatch) | PostToolUseFailure / PostToolUse Workflow / SubagentStop | Retire the finished dispatch's slots (`claude-code doctor` shows the `in-flight` row) |
+| `path-resolver` (paths) | UserPromptSubmit | Resolves paths in the prompt both ways through the mount table (Windows ⇄ `/mnt/…`) |
+| `stop` (memory) | Stop | At ≥85% context, pauses once for a handoff; then saves the session to memory (edits and user turns count) |
+| `stop-format` (format) | Stop | Formats files edited this turn |
+| `session-start` (memory) | SessionStart | Injects the memory catalog and this repo's active context |
+| `memory-recall` (memory) | UserPromptSubmit | Injects up to 3 matching memory blocks and logs the access for `memory review` |
+| `session-harvest-end` / `pre-compact` (memory) | SessionEnd / PreCompact | Saves the session into the memory bank |
+| `worktree-create` / `-remove` (worktree) | Worktree* | Under `~/worktrees/<repo>/` (honors `worktree.baseRef`, seeds `.venv`/`.env`); refuses dirty removals; keeps the ledger `memory/<repo>/worktrees/<name>.md` |
+| `codex-agent-route` (codex) | PreToolUse `spawn_agent` | Codex only: fills a fresh, unpinned child's model from the routing cells |
+| `codex-routing-result` (codex) | PostToolUse `spawn_agent` | Codex only: records the spawn result for the routing log |
+| `codex-routing-start` (codex) | SessionStart | Codex only: records the session start for the routing log |
+| `codex-subagent-start` (codex) | SubagentStart | Codex only: records the child's model, joining it to the routing decision |
 
 Hook commands rendered into `~/.codex` carry a `HARNESS_HOOK_AGENT=codex` prefix; any `HARNESS_HOOK_*` prefix counts as
 harness-owned on re-render.
