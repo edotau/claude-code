@@ -106,6 +106,9 @@ func ValidateOverlay(ov map[string]json.RawMessage) error {
 
 // validateKey checks v against the catalog entry for k, else the schema entry; an unknown key is an error.
 func validateKey(k string, v json.RawMessage) error {
+	if err := checkNotCredential(k, v); err != nil {
+		return err
+	}
 	if f, ok := Lookup(k); ok {
 		return f.Validate(v)
 	}

@@ -25,9 +25,15 @@ func DefaultsDrift() (keys []string, err error) {
 	if err != nil {
 		return nil, err
 	}
-	lo, err := parseObject(bytes.TrimPrefix(live, []byte("\xef\xbb\xbf")))
+	return DiffRendered(live, rendered)
+}
+
+// DiffRendered lists the top-level and "env.X" keys where existing differs from what a restore writes
+// (rendered): changed values, keys only in existing, keys only in rendered; sorted. Runtime keys are ignored.
+func DiffRendered(existing, rendered []byte) (keys []string, err error) {
+	lo, err := parseObject(bytes.TrimPrefix(existing, []byte("\xef\xbb\xbf")))
 	if err != nil {
-		return nil, fmt.Errorf("settings.json: %w", ErrInvalidJSON)
+		return nil, fmt.Errorf("existing settings: %w", ErrInvalidJSON)
 	}
 	ro, err := parseObject(rendered)
 	if err != nil {

@@ -68,7 +68,7 @@ func fieldIndex(t *testing.T, key string) int {
 	idx := 0
 	for _, sec := range sections {
 		for _, k := range sec.Keys {
-			if _, ok := settings.Lookup(k); !ok {
+			if _, ok := settings.FieldFor(k); !ok {
 				continue
 			}
 			if k == key {
@@ -617,7 +617,7 @@ func pageFieldCount(t *testing.T) int {
 	n := 0
 	for _, sec := range sections {
 		for _, k := range sec.Keys {
-			if _, ok := settings.Lookup(k); ok {
+			if _, ok := settings.FieldFor(k); ok {
 				n++
 			}
 		}
@@ -734,5 +734,22 @@ func TestSaveToRepoDefaultsWritesStagedKeysAndShowsDiffStat(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "settings.json | 1 +") || !strings.Contains(out.String(), "not committed") {
 		t.Errorf("output lacks the diff --stat or the no-commit note:\n%s", out.String())
+	}
+}
+
+// TestAddPickerOmitsCredentialKeys: the add list never offers a key that holds a credential.
+func TestAddPickerOmitsCredentialKeys(t *testing.T) {
+	d, _ := newClaudeSettingsDialog(t, "")
+	stubSettingsPage(t, pageFieldCount(t))
+	spec := stubAddList(t, "feedbackSurveyRate")
+	confirmAll(t, false)
+	runMenuDirect(t, d)
+	if len(spec.Rows) == 0 {
+		t.Fatal("picker not shown")
+	}
+	for _, r := range spec.Rows {
+		if settings.CredentialKey(r.Label) {
+			t.Errorf("picker offers credential key %q", r.Label)
+		}
 	}
 }

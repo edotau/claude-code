@@ -93,6 +93,7 @@ func CheckSettingsDriftWith(rendered []byte) (SettingsDrift, error) {
 	if err != nil {
 		return d, err
 	}
+	d.restoreDiff(rendered)
 	dropped, derr := settings.LoadDropped()
 	if derr != nil { // match install: warn and continue with an empty list
 		d.Note = "drop list unavailable: " + derr.Error()
@@ -174,4 +175,31 @@ func DoctorSettingsDrift() (ok bool, detail string) {
 		return true, "clean"
 	}
 	return true, strings.Join(parts, "; ")
+}
+
+// restoreDiff replaces the merge-based findings with the keys --restore would actually change or remove.
+func (s *SettingsDrift) restoreDiff(rendered []byte) {
+	if s.Invalid != nil || (len(s.Differs) == 1 && s.Differs[0] == "(missing)") {
+		return
+	}
+	live, _, err := readStrippingBOM(s.File)
+	if err != nil {
+		return
+	}
+	keys, err := settings.DiffRendered(live, rendered)
+	if err != nil {
+		return
+	}
+	var have, want map[string]json.RawMessage
+	_ = json.Unmarshal(live, &have)
+	_ = json.Unmarshal(rendered, &want)
+	s.Differs, s.Foreign = nil, nil
+	for _, k := range keys {
+		_, inLive := have[k]
+		if _, inRender := want[k]; inLive && !inRender {
+			s.Foreign = append(s.Foreign, k)
+		} else {
+			s.Differs = append(s.Differs, k)
+		}
+	}
 }
