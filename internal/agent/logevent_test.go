@@ -70,7 +70,7 @@ func TestLogEventAgyFormatted(t *testing.T) {
 		pathstest.FakeVendor(t, "agy", emitScript(
 			`{"event":"step_update","step_update":{"step_type":"agent_response","text_delta":"line one\nline two AWS_SECRET=`+evSecret+`"}}`,
 			`{"event":"result","result":{"status":"SUCCESS","conversation_id":"c1","response":"final-answer"}}`))
-		res, err := RunAgy(ctx, AgyRequest{Cwd: t.TempDir(), Prompt: "t"}, &out)
+		res, err := RunAgy(ctx, AgyRequest{Cwd: t.TempDir(), Prompt: "t"}, NewTextSink(&out))
 		if err != nil || res.Answer == "" {
 			t.Fatalf("RunAgy = (%+v, %v)", res, err)
 		}
@@ -94,7 +94,7 @@ func TestLogEventOpenCodeFormatted(t *testing.T) {
 		pathstest.FakeVendor(t, "opencode", emitScript(
 			`{"type":"text","sessionID":"ses_A","part":{"text":"hello AWS_SECRET=`+evSecret+`"}}`,
 			`{"type":"step_finish","sessionID":"ses_A","part":{"tokens":{"input":3,"output":2}}}`))
-		if _, err := r.Run(ctx, Request{Prompt: "p", WorkDir: t.TempDir()}, &out); err != nil {
+		if _, err := r.Run(ctx, Request{Prompt: "p", WorkDir: t.TempDir()}, NewTextSink(&out)); err != nil {
 			t.Fatalf("Run: %v", err)
 		}
 	})
@@ -124,7 +124,7 @@ func TestLogEventClaudeFormatted(t *testing.T) {
 		pathstest.FakeVendor(t, "claude", emitScript(
 			`{"type":"assistant","message":{"content":[{"type":"text","text":"thinking aloud AWS_SECRET=`+evSecret+`"}]}}`,
 			`{"type":"result","subtype":"success","is_error":false,"result":"done-answer","session_id":"s1"}`))
-		if _, err := r.Run(ctx, Request{Prompt: "p", WorkDir: t.TempDir()}, &out); err != nil {
+		if _, err := r.Run(ctx, Request{Prompt: "p", WorkDir: t.TempDir()}, NewTextSink(&out)); err != nil {
 			t.Fatalf("Run: %v", err)
 		}
 	})
@@ -140,7 +140,7 @@ func TestLogEventJobModeWritesEventsAndStderr(t *testing.T) {
 		pathstest.FakeVendor(t, "agy", "cat > /dev/null\necho child-err >&2\n"+
 			`printf '%s\n' '{"event":"step_update","step_update":{"step_type":"agent_response","text_delta":"hi AWS_SECRET=`+evSecret+`"}}'`+"\n"+
 			`printf '%s\n' '{"event":"result","result":{"status":"SUCCESS","response":"final-answer"}}'`+"\n")
-		if _, err := RunAgy(ctx, AgyRequest{Cwd: t.TempDir(), Prompt: "t"}, io.Discard); err != nil {
+		if _, err := RunAgy(ctx, AgyRequest{Cwd: t.TempDir(), Prompt: "t"}, Discard); err != nil {
 			t.Fatalf("RunAgy: %v", err)
 		}
 	})
@@ -189,7 +189,7 @@ func TestLogEventNoSinkNoop(t *testing.T) {
 	pathstest.FakeVendor(t, "agy", emitScript(
 		`{"event":"result","result":{"status":"SUCCESS","response":"final-answer"}}`))
 	var out strings.Builder
-	if _, err := RunAgy(context.Background(), AgyRequest{Cwd: t.TempDir(), Prompt: "t"}, &out); err != nil {
+	if _, err := RunAgy(context.Background(), AgyRequest{Cwd: t.TempDir(), Prompt: "t"}, NewTextSink(&out)); err != nil {
 		t.Fatal(err)
 	}
 	if out.String() != "final-answer" {

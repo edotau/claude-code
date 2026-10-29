@@ -49,9 +49,9 @@ func (f *fakeRunner) Name() string {
 }
 func (f *fakeRunner) Caps() Caps       { return f.caps }
 func (f *fakeRunner) Available() error { return nil }
-func (f *fakeRunner) Run(_ context.Context, req Request, w io.Writer) (Result, error) {
+func (f *fakeRunner) Run(_ context.Context, req Request, w Sink) (Result, error) {
 	f.seen = append(f.seen, req)
-	io.WriteString(w, f.write)
+	w.Emit(Event{Type: EventText, Text: f.write})
 	err := f.errs[len(f.seen)-1]
 	ans := "a"
 	if f.emptyAnswer {
@@ -63,14 +63,14 @@ func (f *fakeRunner) Run(_ context.Context, req Request, w io.Writer) (Result, e
 func TestRunDropsAndProgressVeto(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	f := &fakeRunner{caps: Caps{Model: true}, errs: []error{nil}}
-	res, err := Run(context.Background(), f, Request{Prompt: "p", Model: "m", Effort: "max"}, io.Discard, nil)
+	res, err := Run(context.Background(), f, Request{Prompt: "p", Model: "m", Effort: "max"}, Discard, nil)
 	if err != nil || res.Agent != "fake" || !reflect.DeepEqual(res.Dropped, []string{"--effort=max"}) || f.seen[0].Effort != "" {
 		t.Fatalf("res=%+v err=%v seen=%+v", res, err, f.seen)
 	}
 
 	f = &fakeRunner{write: "partial", errs: []error{errors.New("HTTP 503 overloaded"), nil}}
 	var out strings.Builder
-	_, err = Run(context.Background(), f, Request{Prompt: "p"}, &out, nil)
+	_, err = Run(context.Background(), f, Request{Prompt: "p"}, NewTextSink(&out), nil)
 	var e *Error
 	if !errors.As(err, &e) || !e.Progressed || len(f.seen) != 1 {
 		t.Fatalf("streamed output must veto retry: err=%v attempts=%d", err, len(f.seen))
@@ -83,7 +83,7 @@ func TestRunDropsAndProgressVeto(t *testing.T) {
 func TestRunAgentFallsBackToRunnerNameWhenUnset(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	f := &fakeRunner{name: "api", errs: []error{nil}}
-	res, err := Run(context.Background(), f, Request{Prompt: "p"}, io.Discard, nil)
+	res, err := Run(context.Background(), f, Request{Prompt: "p"}, Discard, nil)
 	if err != nil || res.Agent != "api" {
 		t.Fatalf("res.Agent = %q, err = %v, want %q and nil err", res.Agent, err, "api")
 	}
@@ -168,7 +168,7 @@ func TestRunDemotesSlotOnHardQuota(t *testing.T) {
 	hard := errors.New("HTTP 429: You exceeded your current quota. Quota exceeded for metric: requests, limit: 0, model: big")
 	f := &fakeRunner{caps: Caps{Model: true}, errs: []error{hard, nil}}
 	var notes []string
-	res, err := Run(context.Background(), f, Request{Prompt: "p"}, io.Discard, func(s string) { notes = append(notes, s) })
+	res, err := Run(context.Background(), f, Request{Prompt: "p"}, Discard, func(s string) { notes = append(notes, s) })
 	if err != nil || len(f.seen) != 2 || f.seen[0].Model != "" || f.seen[1].Model != "sonnet" {
 		t.Fatalf("err=%v seen=%+v res=%+v", err, f.seen, res)
 	}
@@ -178,7 +178,7 @@ func TestRunDemotesSlotOnHardQuota(t *testing.T) {
 
 	// A transient 429 keeps the model: nothing to demote.
 	f = &fakeRunner{caps: Caps{Model: true}, errs: []error{errors.New("HTTP 429 rate limited, try again in 1s"), nil}}
-	if _, err := Run(context.Background(), f, Request{Prompt: "p", Model: "opus"}, io.Discard, nil); err != nil || f.seen[1].Model != "opus" {
+	if _, err := Run(context.Background(), f, Request{Prompt: "p", Model: "opus"}, Discard, nil); err != nil || f.seen[1].Model != "opus" {
 		t.Fatalf("transient 429 must retry the same slot: err=%v seen=%+v", err, f.seen)
 	}
 }
@@ -191,7 +191,7 @@ func TestRunQuotaAccountExhaustedDoesNotDemote(t *testing.T) {
 	acctExhausted := errors.New("HTTP 402 payment required: you have exceeded your monthly quota")
 	f := &fakeRunner{caps: Caps{Model: true}, errs: []error{acctExhausted}}
 	var notes []string
-	_, err := Run(context.Background(), f, Request{Prompt: "p"}, io.Discard, func(s string) { notes = append(notes, s) })
+	_, err := Run(context.Background(), f, Request{Prompt: "p"}, Discard, func(s string) { notes = append(notes, s) })
 	var e *Error
 	if !errors.As(err, &e) || e.Kind != KindQuota {
 		t.Fatalf("err = %v, want a KindQuota error", err)
@@ -209,7 +209,7 @@ func TestRunQuotaAccountExhaustedDoesNotDemote(t *testing.T) {
 	both := errors.New("402 payment required: insufficient_quota")
 	f = &fakeRunner{caps: Caps{Model: true}, errs: []error{both}}
 	var bothNotes []string
-	_, err = Run(context.Background(), f, Request{Prompt: "p"}, io.Discard, func(s string) { bothNotes = append(bothNotes, s) })
+	_, err = Run(context.Background(), f, Request{Prompt: "p"}, Discard, func(s string) { bothNotes = append(bothNotes, s) })
 	if !errors.As(err, &e) || e.Kind != KindQuota {
 		t.Fatalf("err = %v, want a KindQuota error", err)
 	}
@@ -284,7 +284,7 @@ func TestRunWithFallback(t *testing.T) {
 	t.Run("falls back and reports it", func(t *testing.T) {
 		codex := &fakeRunner{name: "codex", errs: []error{unavailable}, emptyAnswer: true}
 		claude := &fakeRunner{name: "claude", errs: []error{nil}}
-		res, err := RunWithFallback(context.Background(), chainOf([]Runner{codex, claude}), Request{Prompt: "p"}, io.Discard, nil)
+		res, err := RunWithFallback(context.Background(), chainOf([]Runner{codex, claude}), Request{Prompt: "p"}, Discard, nil)
 		if err != nil || res.Fallback != "codex" || res.Agent != "claude" || res.Answer != "a" {
 			t.Fatalf("res=%+v err=%v", res, err)
 		}
@@ -303,7 +303,7 @@ func TestRunWithFallback(t *testing.T) {
 		opencode := &fakeRunner{name: "opencode", caps: Caps{Model: true}, errs: []error{nil}}
 		claude := &fakeRunner{name: "claude", errs: []error{nil}}
 		req := Request{Prompt: "p", Model: "gpt-6.1-sol"}
-		res, err := RunWithFallback(context.Background(), chainOf([]Runner{codex, gemini, opencode, claude}, "", "gemini-4-argon", "kimi-k3", "opus"), req, io.Discard, nil)
+		res, err := RunWithFallback(context.Background(), chainOf([]Runner{codex, gemini, opencode, claude}, "", "gemini-4-argon", "kimi-k3", "opus"), req, Discard, nil)
 		if err != nil || res.Agent != "opencode" || res.Fallback != "codex" || len(claude.seen) != 0 {
 			t.Fatalf("res=%+v err=%v claude.seen=%d", res, err, len(claude.seen))
 		}
@@ -318,7 +318,7 @@ func TestRunWithFallback(t *testing.T) {
 	t.Run("the tier is kept on the claude leg", func(t *testing.T) {
 		codex := &fakeRunner{name: "codex", caps: Caps{Model: true}, errs: []error{unavailable}, emptyAnswer: true}
 		claude := &fakeRunner{name: "claude", caps: Caps{Model: true}, errs: []error{nil}}
-		if _, err := RunWithFallback(context.Background(), chainOf([]Runner{codex, claude}, "", "opus"), Request{Prompt: "p", Model: "claude-opus-5.5"}, io.Discard, nil); err != nil {
+		if _, err := RunWithFallback(context.Background(), chainOf([]Runner{codex, claude}, "", "opus"), Request{Prompt: "p", Model: "claude-opus-5.5"}, Discard, nil); err != nil {
 			t.Fatal(err)
 		}
 		if claude.seen[0].Model != "opus" {
@@ -330,11 +330,11 @@ func TestRunWithFallback(t *testing.T) {
 		claude := &fakeRunner{name: "claude", errs: []error{nil}}
 		c := Chain{Want: "copilot", Skipped: []string{"copilot: github·u exhausted until 2026-11-01"},
 			Legs: []Leg{{Agent: claude, Model: "sonnet"}}}
-		res, err := RunWithFallback(context.Background(), c, Request{Prompt: "p"}, io.Discard, nil)
+		res, err := RunWithFallback(context.Background(), c, Request{Prompt: "p"}, Discard, nil)
 		if err != nil || res.Fallback != "copilot" || !strings.Contains(res.FallbackReason, "exhausted until 2026-11-01") {
 			t.Fatalf("res=%+v err=%v", res, err)
 		}
-		if _, err := RunWithFallback(context.Background(), Chain{Want: "copilot", Skipped: c.Skipped}, Request{Prompt: "p"}, io.Discard, nil); err == nil {
+		if _, err := RunWithFallback(context.Background(), Chain{Want: "copilot", Skipped: c.Skipped}, Request{Prompt: "p"}, Discard, nil); err == nil {
 			t.Error("an empty chain must fail with the skips")
 		}
 	})
@@ -345,7 +345,7 @@ func TestRunWithFallback(t *testing.T) {
 		claude := &fakeRunner{name: "claude", errs: []error{nil}}
 		c := chainOf([]Runner{copilot, claude}, "", "sonnet")
 		c.Legs[0].Account, c.Legs[0].Billing = "github·u", "credits"
-		res, err := RunWithFallback(context.Background(), c, Request{Prompt: "p"}, io.Discard, nil)
+		res, err := RunWithFallback(context.Background(), c, Request{Prompt: "p"}, Discard, nil)
 		if err != nil || res.Agent != "claude" || len(copilot.seen) != 1 {
 			t.Fatalf("res=%+v err=%v copilot attempts=%d (quota is never retried)", res, err, len(copilot.seen))
 		}
@@ -356,7 +356,7 @@ func TestRunWithFallback(t *testing.T) {
 
 	t.Run("an empty chain means no fallback", func(t *testing.T) {
 		codex := &fakeRunner{name: "codex", errs: []error{unavailable}, emptyAnswer: true}
-		res, err := RunWithFallback(context.Background(), Single(codex), Request{Prompt: "p"}, io.Discard, nil)
+		res, err := RunWithFallback(context.Background(), Single(codex), Request{Prompt: "p"}, Discard, nil)
 		if err == nil || res.Fallback != "" || res.Agent != "codex" {
 			t.Fatalf("res=%+v err=%v", res, err)
 		}
@@ -365,7 +365,7 @@ func TestRunWithFallback(t *testing.T) {
 	t.Run("success needs no fallback", func(t *testing.T) {
 		codex := &fakeRunner{name: "codex", errs: []error{nil}}
 		claude := &fakeRunner{name: "claude", errs: []error{nil}}
-		res, err := RunWithFallback(context.Background(), chainOf([]Runner{codex, claude}), Request{Prompt: "p"}, io.Discard, nil)
+		res, err := RunWithFallback(context.Background(), chainOf([]Runner{codex, claude}), Request{Prompt: "p"}, Discard, nil)
 		if err != nil || res.Fallback != "" || res.Agent != "codex" || len(claude.seen) != 0 {
 			t.Fatalf("res=%+v err=%v claude.seen=%+v", res, err, claude.seen)
 		}
@@ -374,7 +374,7 @@ func TestRunWithFallback(t *testing.T) {
 	t.Run("prompt too large is not retried on the fallback", func(t *testing.T) {
 		codex := &fakeRunner{name: "codex", errs: []error{fmt.Errorf("p: %w", ErrPromptTooLarge)}, emptyAnswer: true}
 		claude := &fakeRunner{name: "claude", errs: []error{nil}}
-		res, err := RunWithFallback(context.Background(), chainOf([]Runner{codex, claude}), Request{Prompt: "p"}, io.Discard, nil)
+		res, err := RunWithFallback(context.Background(), chainOf([]Runner{codex, claude}), Request{Prompt: "p"}, Discard, nil)
 		if err == nil || res.Fallback != "" || len(claude.seen) != 0 {
 			t.Fatalf("res=%+v err=%v claude.seen=%+v", res, err, claude.seen)
 		}
@@ -384,7 +384,7 @@ func TestRunWithFallback(t *testing.T) {
 		codex := &fakeRunner{name: "codex", caps: Caps{Model: true}, errs: []error{unavailable}, emptyAnswer: true}
 		claude := &fakeRunner{name: "claude", errs: []error{nil}}
 		req := Request{Prompt: "p", Model: "openai:gpt-4"}
-		res, err := RunWithFallback(context.Background(), chainOf([]Runner{codex, claude}), req, io.Discard, nil)
+		res, err := RunWithFallback(context.Background(), chainOf([]Runner{codex, claude}), req, Discard, nil)
 		if err == nil || res.Fallback != "" || len(claude.seen) != 0 {
 			t.Fatalf("res=%+v err=%v claude.seen=%+v", res, err, claude.seen)
 		}
@@ -439,7 +439,7 @@ func TestRunWithFallback_TimeoutAndCancelNotRetried(t *testing.T) {
 
 	codex := &codexHang{}
 	_, err := RunWithFallback(context.Background(), chainOf([]Runner{codex, claude}),
-		Request{Prompt: "p", Tools: true, Timeout: 20 * time.Millisecond}, io.Discard, nil)
+		Request{Prompt: "p", Tools: true, Timeout: 20 * time.Millisecond}, NewTextSink(io.Discard), nil)
 	if err == nil || len(claude.seen) != 0 {
 		t.Fatalf("tools-on timeout must not fall back: err=%v claude.seen=%+v", err, claude.seen)
 	}
@@ -447,7 +447,7 @@ func TestRunWithFallback_TimeoutAndCancelNotRetried(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	codex = &codexHang{}
-	_, err = RunWithFallback(ctx, chainOf([]Runner{codex, claude}), Request{Prompt: "p"}, io.Discard, nil)
+	_, err = RunWithFallback(ctx, chainOf([]Runner{codex, claude}), Request{Prompt: "p"}, Discard, nil)
 	if err == nil || len(claude.seen) != 0 {
 		t.Fatalf("a canceled caller context must not fall back: err=%v claude.seen=%+v", err, claude.seen)
 	}
@@ -461,7 +461,7 @@ func TestRunTimeoutEndsKindFatalRegardlessOfTools(t *testing.T) {
 	for _, tools := range []bool{true, false} {
 		t.Run(fmt.Sprintf("Tools=%v", tools), func(t *testing.T) {
 			hang := &codexHang{}
-			_, err := Run(context.Background(), hang, Request{Prompt: "p", Tools: tools, Timeout: 20 * time.Millisecond}, io.Discard, nil)
+			_, err := Run(context.Background(), hang, Request{Prompt: "p", Tools: tools, Timeout: 20 * time.Millisecond}, Discard, nil)
 			var e *Error
 			if !errors.As(err, &e) || e.Kind != KindFatal || !errors.Is(err, context.DeadlineExceeded) {
 				t.Fatalf("Tools=%v: err=%v, want KindFatal wrapping DeadlineExceeded", tools, err)
@@ -476,7 +476,7 @@ type codexHang struct{ calls int }
 func (h *codexHang) Name() string     { return "codex" }
 func (h *codexHang) Caps() Caps       { return Caps{Tools: true} }
 func (h *codexHang) Available() error { return nil }
-func (h *codexHang) Run(ctx context.Context, _ Request, _ io.Writer) (Result, error) {
+func (h *codexHang) Run(ctx context.Context, _ Request, _ Sink) (Result, error) {
 	h.calls++
 	<-ctx.Done()
 	return Result{}, ctx.Err()
@@ -550,7 +550,7 @@ func TestRunStatusAndAttempts(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			f := &fakeRunner{write: c.write, errs: c.errs}
-			res, _ := Run(context.Background(), f, Request{Prompt: "p"}, io.Discard, nil)
+			res, _ := Run(context.Background(), f, Request{Prompt: "p"}, Discard, nil)
 			if res.Status != c.status || res.Transport == nil || res.Transport.Attempts != c.attempts {
 				t.Fatalf("status=%q transport=%+v, want %q attempts=%d", res.Status, res.Transport, c.status, c.attempts)
 			}
@@ -565,7 +565,7 @@ func TestRunWithFallbackSkippedRequestedRoute(t *testing.T) {
 		codex := &fakeRunner{name: "codex", errs: []error{nil}}
 		c := Chain{Want: "codex", Skipped: []string{"codex: chatgpt exhausted"},
 			Legs: []Leg{{Agent: codex, Account: "databricks·codex", keepCaller: true, otherRoute: true}}}
-		res, err := RunWithFallback(context.Background(), c, Request{Prompt: "p"}, io.Discard, nil)
+		res, err := RunWithFallback(context.Background(), c, Request{Prompt: "p"}, Discard, nil)
 		if err != nil || res.Agent != "codex" || res.Fallback == "" ||
 			!strings.Contains(res.FallbackReason, "chatgpt exhausted") {
 			t.Fatalf("res=%+v err=%v, want Fallback set with the skip reason", res, err)
@@ -573,7 +573,7 @@ func TestRunWithFallbackSkippedRequestedRoute(t *testing.T) {
 	})
 	t.Run("gemini answering itself stays null", func(t *testing.T) {
 		gemini := &fakeRunner{name: "gemini", errs: []error{nil}}
-		res, err := RunWithFallback(context.Background(), chainOf([]Runner{gemini}), Request{Prompt: "p"}, io.Discard, nil)
+		res, err := RunWithFallback(context.Background(), chainOf([]Runner{gemini}), Request{Prompt: "p"}, Discard, nil)
 		if err != nil || res.Fallback != "" || res.FallbackReason != "" {
 			t.Fatalf("res=%+v err=%v, want no fallback", res, err)
 		}

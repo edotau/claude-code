@@ -3,7 +3,6 @@ package agent
 import (
 	"context"
 	"errors"
-	"io"
 	"strings"
 	"testing"
 	"time"
@@ -49,7 +48,7 @@ func TestExplicitChainRecordsAndGates(t *testing.T) {
 	if len(c.Legs) != 1 || c.Legs[0].Account != "openai·openai" {
 		t.Fatalf("chain = %+v, want one leg on openai·openai", c)
 	}
-	if _, err := RunWithFallback(context.Background(), c, req, io.Discard, nil); err == nil {
+	if _, err := RunWithFallback(context.Background(), c, req, Discard, nil); err == nil {
 		t.Fatal("the quota failure must surface")
 	}
 	if e := loadState()["openai·openai"]; e.Status(time.Now()) != router.StateExhausted {

@@ -52,6 +52,9 @@ func BackupDir(label string, now time.Time) string {
 // StateDir holds runtime state (router pid/port/secret) that must never be committed.
 func StateDir() string { return filepath.Join(ConfigDir(), "state", "harness") }
 
+// DispatchEventsSuffix is the file suffix of a dispatch's NDJSON event log under StateDir()/dispatch.
+const DispatchEventsSuffix = ".events.jsonl"
+
 // ClaudeJSON is Claude Code's ~/.claude.json (MCP servers, projects); it moves under CLAUDE_CONFIG_DIR when set.
 func ClaudeJSON() string {
 	home, err := os.UserHomeDir()

@@ -68,7 +68,7 @@ func agyStdin(r AgyRequest) (string, error) {
 
 // RunAgy drives `agy` headless over stream-json: agent_response text deltas stream live, and the
 // result event carries the final answer, usage, conversation id and status.
-func RunAgy(ctx context.Context, r AgyRequest, stream io.Writer) (Result, error) {
+func RunAgy(ctx context.Context, r AgyRequest, sink Sink) (Result, error) {
 	bin, err := paths.VendorBin("agy")
 	if err != nil {
 		return Result{}, fmt.Errorf("gemini: %w", err)
@@ -78,7 +78,7 @@ func RunAgy(ctx context.Context, r AgyRequest, stream io.Writer) (Result, error)
 		return Result{}, err
 	}
 	cmd, tail := childCmd(ctx, bin, agyArgv(r), r.Env, r.Cwd, stdin, r.KeepEnv, true)
-	return runEventStream(ctx, "gemini", cmd, tail, stream, parseAgyStream, nil)
+	return runEventStream(ctx, "gemini", cmd, tail, sink, parseAgyStream, nil)
 }
 
 // agyEvent mirrors agy's stream-json schema: one JSON object per line.
@@ -110,7 +110,7 @@ type agyEvent struct {
 // parseAgyStream reads `agy --output-format stream-json`: agent_response deltas, then one result event.
 // An optional eventLog gets the deltas as one assistant line per run of text, then the result or error.
 // onMeaningful is unused here (agy carries no stall watchdog); it only matches runEventStream's parse type.
-func parseAgyStream(r io.Reader, w io.Writer, onMeaningful func(), logs ...eventLog) (res Result, _ error) {
+func parseAgyStream(r io.Reader, sink Sink, onMeaningful func(), logs ...eventLog) (res Result, _ error) {
 	ts := transportTracker{start: clock()}
 	defer func() { res.Transport = ts.timing() }()
 	lg := pickLog(logs)
@@ -129,6 +129,7 @@ func parseAgyStream(r io.Reader, w io.Writer, onMeaningful func(), logs ...event
 		} else if err != nil {
 			flush()
 			lg.emit("error", "decode agy stream-json: "+err.Error())
+			_ = sink.Emit(Event{Type: EventError, Text: "decode agy stream-json: " + err.Error()}) // the decode error aborts
 			return res, fmt.Errorf("decode agy stream-json: %w", err)
 		}
 		ts.event(clock())
@@ -139,7 +140,7 @@ func parseAgyStream(r io.Reader, w io.Writer, onMeaningful func(), logs ...event
 			if ev.StepUpdate.StepType != "agent_response" || ev.StepUpdate.TextDelta == "" {
 				continue
 			}
-			if _, err := io.WriteString(w, ev.StepUpdate.TextDelta); err != nil {
+			if err := sink.Emit(Event{Type: EventText, Text: ev.StepUpdate.TextDelta}); err != nil {
 				return res, err
 			}
 			answer.WriteString(ev.StepUpdate.TextDelta)
@@ -150,6 +151,7 @@ func parseAgyStream(r io.Reader, w io.Writer, onMeaningful func(), logs ...event
 			flush()
 			if err := applyAgyResult(&res, ev); err != nil {
 				lg.emit("error", err.Error())
+				_ = sink.Emit(Event{Type: EventError, Text: err.Error()}) // the agy error returned below aborts
 				res.Answer = strings.TrimSpace(answer.String())
 				return res, err
 			}
@@ -159,7 +161,7 @@ func parseAgyStream(r io.Reader, w io.Writer, onMeaningful func(), logs ...event
 	flush()
 	// A run whose text arrived only in result.response (no agent_response deltas) still answers.
 	if answer.Len() == 0 && response != "" {
-		if _, err := io.WriteString(w, response); err != nil {
+		if err := sink.Emit(Event{Type: EventText, Text: response}); err != nil {
 			return res, err
 		}
 		answer.WriteString(response)

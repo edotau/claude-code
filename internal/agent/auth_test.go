@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"strings"
 	"testing"
 
@@ -39,7 +38,7 @@ func TestSealedAuthLegRecoversOnceThenMovesOn(t *testing.T) {
 	first := &fakeRunner{name: "codex", errs: []error{errors.New("HTTP 401 unauthorized"), errors.New("HTTP 401 unauthorized")}, emptyAnswer: true}
 	second := &fakeRunner{name: "gemini", errs: []error{nil}}
 
-	res, err := RunWithFallback(context.Background(), twoLegs(first, second), Request{Prompt: "p"}, io.Discard, nil)
+	res, err := RunWithFallback(context.Background(), twoLegs(first, second), Request{Prompt: "p"}, Discard, nil)
 	if err != nil || res.Answer != "a" {
 		t.Fatalf("res=%+v err=%v, want the second leg's answer", res, err)
 	}
@@ -62,7 +61,7 @@ func TestTransientRecoverFailureDoesNotMark(t *testing.T) {
 	calls := authEnv(t, `{"protocol":"anthropic","base_url":"http://127.0.0.1:1","auth":{"type":"key","command":"exit 1"},"models":{"opus":"m"}}`)
 	first := &fakeRunner{name: "codex", errs: []error{errors.New("HTTP 401 unauthorized")}, emptyAnswer: true}
 	second := &fakeRunner{name: "gemini", errs: []error{nil}}
-	_, _ = RunWithFallback(context.Background(), twoLegs(first, second), Request{Prompt: "p"}, io.Discard, nil)
+	_, _ = RunWithFallback(context.Background(), twoLegs(first, second), Request{Prompt: "p"}, Discard, nil)
 	if len(*calls) != 0 {
 		t.Fatalf("a transient recover failure condemned an account: %+v", *calls)
 	}
@@ -73,7 +72,7 @@ func TestWrappedLoginRequiredOnFirstAttemptMarksAndMovesOn(t *testing.T) {
 	calls := authEnv(t, `{"protocol":"anthropic","base_url":"http://127.0.0.1:1","auth":{"type":"key","env":"AGAUTH_UNSET"},"models":{"opus":"m"}}`)
 	first := &fakeRunner{name: "claude", errs: []error{fmt.Errorf("agauth: %w", providers.ErrNeedsLogin)}, emptyAnswer: true}
 	second := &fakeRunner{name: "gemini", errs: []error{nil}}
-	res, err := RunWithFallback(context.Background(), twoLegs(first, second), Request{Prompt: "p"}, io.Discard, nil)
+	res, err := RunWithFallback(context.Background(), twoLegs(first, second), Request{Prompt: "p"}, Discard, nil)
 	if err != nil || res.Answer != "a" || len(second.seen) != 1 {
 		t.Fatalf("res=%+v err=%v: expected a move-on to the second leg", res, err)
 	}

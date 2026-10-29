@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"slices"
 	"strings"
 	"time"
@@ -131,7 +130,7 @@ func (l hubLeg) Available() error {
 	return err
 }
 
-func (l hubLeg) Run(ctx context.Context, req Request, stream io.Writer) (Result, error) {
+func (l hubLeg) Run(ctx context.Context, req Request, sink Sink) (Result, error) {
 	model := l.resolveModel(req.Model)
 	res := Result{Provider: l.provider.Name, Model: model, SessionID: req.SessionID}
 	if model == "" {
@@ -165,7 +164,7 @@ func (l hubLeg) Run(ctx context.Context, req Request, stream io.Writer) (Result,
 		defer cancel()
 	}
 	cmd, tail := childCmd(cctx, bin, argv, env, req.WorkDir, "", req.KeepEnv, true)
-	out, runErr := runEventStream(cctx, l.agent, cmd, tail, stream, parseOpenCodeStream, onFirstByte)
+	out, runErr := runEventStream(cctx, l.agent, cmd, tail, sink, parseOpenCodeStream, onFirstByte)
 	res.Answer, res.Usage, res.Transport = out.Answer, out.Usage, out.Transport
 	if out.SessionID != "" {
 		res.SessionID = out.SessionID

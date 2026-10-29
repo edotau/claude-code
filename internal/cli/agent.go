@@ -65,7 +65,7 @@ func runAsk(args []string, resume bool) int {
 	autonomous := fs.Bool("autonomous", false, "drive the run without stopping to ask, per agent")
 	enableMemory := fs.Bool("enable-memory", false, "copilot only: turn on session memory")
 	timeout := fs.Duration("timeout", 10*time.Minute, "per-attempt deadline (45m default with --tools)")
-	format := fs.String("format", "text", "stream text or print the JSON result envelope")
+	format := fs.String("format", "text", "stream text, print the JSON result envelope, or stream-json NDJSON events")
 	rubric := fs.String("rubric", "", "review standard file quoted verbatim ahead of the task")
 	retry := fs.String("retry", "", "replay a logged dispatch by id (or unique id prefix); see --log")
 	showLog := fs.Bool("log", false, "list the 20 most recent dispatches and exit")
@@ -139,10 +139,6 @@ func runAsk(args []string, resume bool) int {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
-	var stream io.Writer = os.Stdout
-	if *format == "json" {
-		stream = io.Discard
-	}
 	if *retry == "" && *job == "" && *tools && !timeoutExplicit(fs) {
 		*timeout = 45 * time.Minute
 	}
@@ -163,7 +159,7 @@ func runAsk(args []string, resume bool) int {
 		reportBackgroundStart(*format, rec)
 		return 0
 	}
-	return runAskAndReport(ctx, &rec, chain, req, stream, jobRec, *format)
+	return runAskAndReport(ctx, &rec, chain, req, jobRec, *format)
 }
 
 // askExclusive rejects flag pairs that cannot be combined.
@@ -207,30 +203,42 @@ func buildAskRecord(ctx context.Context, r agent.Runner, req agent.Request, jobR
 	return rec
 }
 
-// runAskAndReport runs chain in the foreground, logs the result into rec, and reports it.
+// runAskAndReport runs chain in the foreground as one recorded dispatch, then reports it.
 func runAskAndReport(ctx context.Context, rec *agent.Record, chain agent.Chain, req agent.Request,
-	stream io.Writer, jobRec *agent.Record, format string) int {
-	start := time.Now()
+	jobRec *agent.Record, format string) int {
 	notify := func(s string) { fmt.Fprintln(os.Stderr, "ask:", s) }
-	sink := agent.NewLogSink(rec.LogPath())
-	runCtx := agent.WithLog(ctx, sink)
-	if jobRec != nil {
-		// A --job child's stdout is the log (Spawn): event lines stream live, the full answer lands once at the end.
-		runCtx, stream = agent.WithLogEvents(ctx, sink), io.Discard
+	opts := agent.DispatchOpts{Job: jobRec != nil, Notify: notify}
+	if jobRec != nil && format == formatText {
+		opts.AnswerTo = os.Stdout // a --job child's stdout is the log: the full answer lands once at the end
 	}
-	res, err := agent.RunWithFallback(runCtx, chain, req, stream, notify)
-	sink.Close() // flush before the record leaves running, so tail -f never misses the last line
-	if jobRec != nil && res.Answer != "" && format != "json" {
-		fmt.Print(res.Answer) // `<agent> result` reads the log; ▸ lines are capped, so the answer goes in whole
-	}
-	rec.Finish(res, err, time.Since(start))
-	_ = rec.Save()
+	res, err := agent.Dispatch(ctx, rec, chain.Want, askStdoutSink(format, rec.ID), opts,
+		func(ctx context.Context, sink agent.Sink) (agent.Result, error) {
+			return agent.RunWithFallback(ctx, chain, req, sink, notify)
+		})
 	reportAskResult(format, res, err, rec.ID)
 	fmt.Fprintln(os.Stderr, "ask: dispatch", rec.ID, "(claude-code ask --retry <id> replays it)")
 	if err != nil {
 		return fail("ask: %v", err)
 	}
 	return 0
+}
+
+// The ask --format values.
+const (
+	formatText       = "text"
+	formatJSON       = "json"
+	formatStreamJSON = "stream-json"
+)
+
+// askStdoutSink is the sink behind stdout for format: streamed text, nothing (json prints one envelope), or NDJSON.
+func askStdoutSink(format, dispatchID string) agent.Sink {
+	switch format {
+	case formatJSON:
+		return agent.Discard
+	case formatStreamJSON:
+		return agent.NewJSONLSink(os.Stdout, dispatchID)
+	}
+	return agent.NewTextSink(os.Stdout)
 }
 
 // askState bundles the ask flag pointers that --job/--retry overwrite from a logged dispatch's request.
@@ -367,8 +375,8 @@ func timeoutExplicit(fs *flag.FlagSet) bool {
 }
 
 func validateAskFlags(format, fallback string) error {
-	if format != "text" && format != "json" {
-		return fmt.Errorf("--format %q unknown (text|json)", format)
+	if !slices.Contains([]string{formatText, formatJSON, formatStreamJSON}, format) {
+		return fmt.Errorf("--format %q unknown (text|json|stream-json)", format)
 	}
 	if !slices.Contains(agent.FallbackModes, fallback) {
 		return fmt.Errorf("--fallback %q unknown (%s)", fallback, strings.Join(agent.FallbackModes, "|"))
@@ -449,7 +457,7 @@ func backgroundExtraFlags(fs *flag.FlagSet, fallback string, native bool) []stri
 
 // reportBackgroundStart tells the caller how to track a detached job.
 func reportBackgroundStart(format string, rec agent.Record) {
-	if format == "json" {
+	if format == formatJSON {
 		body, _ := json.Marshal(struct {
 			ID  string `json:"id"`
 			Log string `json:"log"`
@@ -477,9 +485,12 @@ func failAskCode(format, agentName string, err error, code int) int {
 
 // printAskFailure prints the typed failure envelope on stdout when format is json.
 func printAskFailure(format, agentName string, err error) {
-	if format == "json" {
+	switch format {
+	case formatJSON:
 		body, _ := json.Marshal(agent.FailureEnvelope(agentName, err))
 		fmt.Println(string(body))
+	case formatStreamJSON:
+		_ = askStdoutSink(format, "").Emit(agent.ResultEvent(agent.FailureEnvelope(agentName, err)))
 	}
 }
 
@@ -487,10 +498,13 @@ func reportAskResult(format string, res agent.Result, err error, dispatchID stri
 	for _, d := range res.Dropped {
 		fmt.Fprintf(os.Stderr, "ask: %s has no channel on the %s agent — dropped\n", d, res.Agent)
 	}
-	if format == "json" {
+	if format == formatJSON {
 		body, _ := json.Marshal(agent.NewEnvelope(res, err, dispatchID))
 		fmt.Println(string(body))
 		return
+	}
+	if format == formatStreamJSON {
+		return // the result event already carried the envelope
 	}
 	if res.Answer != "" && !strings.HasSuffix(res.Answer, "\n") {
 		fmt.Println()
@@ -599,7 +613,7 @@ func listAgents() int {
 // printDispatchLog lists recent dispatches; the prompt preview is scrubbed of credential shapes.
 func printDispatchLog(format string) int {
 	recs := agent.RecentRecords(20)
-	if format == "json" {
+	if format == formatJSON {
 		_ = outfmt.Write(os.Stdout, recs)
 		return 0
 	}
@@ -647,7 +661,7 @@ func runAskBatch(fs *flag.FlagSet, resume bool, src string, o batchOpts, base ag
 			bad = fmt.Errorf("--batch cannot be combined with --%s", f)
 		}
 	}
-	if flagExplicit(fs, "format") && fs.Lookup("format").Value.String() != "json" {
+	if flagExplicit(fs, "format") && fs.Lookup("format").Value.String() != formatJSON {
 		bad = errors.New("--batch always prints JSON envelopes; drop --format or pass --format json")
 	}
 	if bad == nil && o.jobs < 1 {
