@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/edotau/claude-code/internal/providers"
 	"io"
 	"os"
 	"path/filepath"
@@ -18,6 +17,8 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/copilotsdk"
+	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -518,5 +519,70 @@ func TestBatchBackoffReleasesLegPermit(t *testing.T) {
 	}
 	if first := strings.SplitN(out.String(), "\n", 2)[0]; !strings.Contains(first, `"task_id":"free"`) {
 		t.Errorf("first envelope = %s, want the free-account task to finish during the backoff", first)
+	}
+}
+
+// A hub leg keeps the credential its launch supplies even when another profile declares the same env name; the
+// inherited value of that name is gone.
+func TestChildCmdLaunchValuesSurviveIsolationScrub(t *testing.T) {
+	vaulttest.UseKeyring(t)
+	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"anthropic":{`+
+		`"ocgo":{"protocol":"anthropic","base_url":"http://127.0.0.1:1","auth":{"type":"key","env":"OCGO_KEY"},"models":{"opus":"m"}},`+
+		`"other":{"protocol":"anthropic","base_url":"http://127.0.0.1:1","auth":{"type":"key","env":"OPENCODE_API_KEY"},"models":{"opus":"m"}}}}}`)
+	t.Setenv("OPENCODE_API_KEY", "inherited-foreign")
+	reg, err := providers.Load()
+	if err != nil || reg.Providers["ocgo"] == nil {
+		t.Fatalf("registry: %v", err)
+	}
+	ctx := withOwnProvider(withIsolation(context.Background()), reg.Providers["ocgo"])
+	cmd, _ := childCmd(ctx, "/bin/true", nil, []string{"OPENCODE_API_KEY=launch"}, "", "", nil, true)
+	if !slices.Contains(cmd.Env, "OPENCODE_API_KEY=launch") || slices.Contains(cmd.Env, "OPENCODE_API_KEY=inherited-foreign") {
+		t.Errorf("env keeps the inherited foreign value or lost the launch's: %v", slices.DeleteFunc(slices.Clone(cmd.Env),
+			func(kv string) bool { return !strings.HasPrefix(kv, "OPENCODE_API_KEY") }))
+	}
+}
+
+// A reserved record is a complete running record from its first byte, so a concurrent prune keeps it.
+func TestReservedRecordSurvivesPrune(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	old := dispatchKeep
+	dispatchKeep = 1
+	t.Cleanup(func() { dispatchKeep = old })
+	dir := DispatchDir()
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	done := Record{Schema: DispatchSchema, ID: "99991231T000000.000-zz", Agent: "zz", Status: "ok"}
+	if err := done.Save(); err != nil {
+		t.Fatal(err)
+	}
+	rec := NewRecord("aa", Request{Prompt: "p"}, time.Now())
+	(&batchRun{}).reserve(&rec)
+	pruneDispatches(dir) // lands between reserve and Save
+	if _, err := os.Stat(filepath.Join(dir, rec.ID+".json")); err != nil {
+		t.Errorf("the reserved record was pruned before Save: %v", err)
+	}
+}
+
+// A cooldown that starts between the leg's acquire and its first attempt is waited out without the permit.
+func TestBatchFirstAttemptCooldownReleasesLegPermit(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	var once sync.Once
+	prev := loadState
+	loadState = func() router.State {
+		once.Do(func() { coolDown("late·A", 500*time.Millisecond) })
+		return prev()
+	}
+	t.Cleanup(func() { loadState = prev })
+	tasks := []BatchTask{
+		acctTask(t, "late", "late·A", slowRunner{name: "late"}),
+		acctTask(t, "free", "free·B", slowRunner{name: "free"}),
+	}
+	var out strings.Builder
+	if !RunBatch(context.Background(), tasks, BatchOptions{Jobs: 1, Out: &out}) {
+		t.Fatalf("batch failed: %s", out.String())
+	}
+	if first := strings.SplitN(out.String(), "\n", 2)[0]; !strings.Contains(first, `"task_id":"free"`) {
+		t.Errorf("first envelope = %s, want the free-account task to run during the cooldown", first)
 	}
 }

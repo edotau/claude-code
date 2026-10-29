@@ -388,8 +388,8 @@ func (b *batchRun) run(ctx context.Context, t BatchTask, chain Chain, rec Record
 	return env, err == nil && env.Status == StatusOK
 }
 
-// reserve gives rec an id no other task, batch or process holds: it claims <id>.json with O_EXCL, bumping the
-// millisecond stamp on EEXIST. Save later replaces the empty claim.
+// reserve gives rec an id no other task, batch or process holds: it links the complete "running" record to
+// <id>.json (atomic, EEXIST if taken), bumping the millisecond stamp on a clash, so a claim is never an empty file.
 func (b *batchRun) reserve(rec *Record) {
 	dir := DispatchDir()
 	defaultLog := rec.LogPath() == filepath.Join(dir, rec.ID+".log")
@@ -397,18 +397,28 @@ func (b *batchRun) reserve(rec *Record) {
 		return // fail-open, like Save: the log is for replay, never a gate on the run
 	}
 	for {
-		f, err := os.OpenFile(filepath.Join(dir, rec.ID+".json"), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
-		if err == nil {
-			f.Close()
-			break
+		if defaultLog {
+			rec.Log = filepath.Join(dir, rec.ID+".log")
 		}
+		body, err := rec.encode()
+		if err != nil {
+			return
+		}
+		tmp, err := os.CreateTemp(dir, ".claim-*")
+		if err != nil {
+			return
+		}
+		_, werr := tmp.Write(body)
+		cerr := tmp.Close()
+		err = cmp.Or(werr, cerr)
+		if err == nil {
+			err = os.Link(tmp.Name(), filepath.Join(dir, rec.ID+".json"))
+		}
+		_ = os.Remove(tmp.Name())
 		if !errors.Is(err, os.ErrExist) {
-			break
+			return
 		}
 		rec.Time = rec.Time.Add(time.Millisecond)
 		rec.ID = recordID(rec.Time, rec.Agent)
-	}
-	if defaultLog {
-		rec.Log = filepath.Join(dir, rec.ID+".log")
 	}
 }

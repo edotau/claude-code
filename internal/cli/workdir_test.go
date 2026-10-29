@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"encoding/base64"
 	"os/exec"
 	"testing"
@@ -55,7 +56,7 @@ func TestResolveAskChainWorkRepoFromWorkdirNotCwd(t *testing.T) {
 	work := scratchRepo(t, "https://git.corp.example/scm/x/y.git")
 	t.Chdir(personal)
 
-	_, chain, err := resolveAskChain("opencode", "", "", "test prompt", agent.FallbackAgents, false, work)
+	_, chain, err := resolveAskChain(context.Background(), "opencode", "", "", "test prompt", agent.FallbackAgents, false, work)
 	if err != nil {
 		t.Fatalf("resolveAskChain() = %v", err)
 	}
@@ -77,7 +78,7 @@ func TestResolveAskChainWorkRepoDefaultsToCwdWhenWorkdirEmpty(t *testing.T) {
 	personal := scratchRepo(t, "https://github.com/edotau/claude-code.git")
 	t.Chdir(personal)
 
-	_, chain, err := resolveAskChain("opencode", "", "", "test prompt", agent.FallbackAgents, false, "")
+	_, chain, err := resolveAskChain(context.Background(), "opencode", "", "", "test prompt", agent.FallbackAgents, false, "")
 	if err != nil {
 		t.Fatalf("resolveAskChain() = %v", err)
 	}

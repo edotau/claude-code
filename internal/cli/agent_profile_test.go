@@ -1,7 +1,9 @@
 package cli
 
 import (
+	"context"
 	"encoding/base64"
+	"errors"
 	"testing"
 
 	"github.com/edotau/claude-code/internal/agent"
@@ -28,7 +30,7 @@ func profileFixture(t *testing.T, active string) {
 func TestResolveAskChainHubNativeFallback(t *testing.T) {
 	profileFixture(t, "")
 	// acme has no opencodeID: the native runner runs alone, never the hub leg.
-	r, chain, err := resolveAskChain("opencode", "acme", "", "p", agent.FallbackAgents, false, "")
+	r, chain, err := resolveAskChain(context.Background(), "opencode", "acme", "", "p", agent.FallbackAgents, false, "")
 	if err != nil {
 		t.Fatalf("resolveAskChain(acme) = %v", err)
 	}
@@ -36,11 +38,27 @@ func TestResolveAskChainHubNativeFallback(t *testing.T) {
 		t.Fatalf("acme: want the native runner alone, got %+v", chain.Legs)
 	}
 	// chatgpt has opencodeID: it still goes through the hub leg.
-	r, chain, err = resolveAskChain("opencode", "chatgpt", "", "p", agent.FallbackAgents, false, "")
+	r, chain, err = resolveAskChain(context.Background(), "opencode", "chatgpt", "", "p", agent.FallbackAgents, false, "")
 	if err != nil {
 		t.Fatalf("resolveAskChain(chatgpt) = %v", err)
 	}
 	if len(chain.Legs) != 1 || chain.Legs[0].Agent == r {
 		t.Fatalf("chatgpt: want the hub leg, got the native runner")
+	}
+}
+
+// A cancelled batch routes nothing: resolveAskChain returns the ctx error before any quota refresh.
+func TestResolveAskChainHonorsCancellation(t *testing.T) {
+	refreshes := 0
+	prev := routeRefresh
+	routeRefresh = func(context.Context, string) bool { refreshes++; return false }
+	t.Cleanup(func() { routeRefresh = prev })
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, _, err := resolveAskChain(ctx, "opencode", "", "", "p", agent.FallbackAgents, false, ""); !errors.Is(err, context.Canceled) {
+		t.Errorf("err = %v, want context.Canceled", err)
+	}
+	if refreshes != 0 {
+		t.Errorf("%d quota refreshes ran under a cancelled ctx", refreshes)
 	}
 }

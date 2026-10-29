@@ -128,7 +128,7 @@ func runAsk(args []string, resume bool) int {
 	if *session != "" {
 		*fallback = agent.FallbackNone // a session id belongs to one agent; another agent cannot resume it
 	}
-	r, chain, err := resolveAskChain(*name, *provider, *model, prompt, *fallback, *native, *workdir)
+	r, chain, err := resolveAskChain(context.Background(), *name, *provider, *model, prompt, *fallback, *native, *workdir)
 	if err != nil {
 		return failAsk(*format, *name, err)
 	}
@@ -392,7 +392,7 @@ func resolveAskPrompt(prompt string) (string, error) {
 // model alias comes from --model, else the task classifier, and the router picks the agents.
 // workDir is the request's own --workdir ("" means the process cwd), so the opencode free-Zen gate checks the
 // repo the leg will actually run in, not the harness's own cwd.
-func resolveAskChain(name, provider, model, prompt, fallback string, native bool, workDir string) (agent.Runner, agent.Chain, error) {
+func resolveAskChain(ctx context.Context, name, provider, model, prompt, fallback string, native bool, workDir string) (agent.Runner, agent.Chain, error) {
 	r, err := agent.Lookup(name)
 	if err != nil {
 		return nil, agent.Chain{}, err
@@ -422,7 +422,10 @@ func resolveAskChain(name, provider, model, prompt, fallback string, native bool
 		}
 		return r, agent.ExplicitChain(agent.NewHubLeg(name, start, reg), req), nil
 	}
-	chain, _, err := agent.RouteChainFor(context.Background(), name, model, hooks.RuleClassifier{}.Tier(prompt), fallback, native,
+	if err := ctx.Err(); err != nil { // a cancelled batch routes nothing and refreshes no quota
+		return nil, agent.Chain{}, err
+	}
+	chain, _, err := agent.RouteChainFor(ctx, name, model, hooks.RuleClassifier{}.Tier(prompt), fallback, native,
 		router.Opts{Refresh: routeRefresh, WorkRepo: func() bool { return router.IsWorkRepo(workDir) }})
 	return r, chain, err
 }
@@ -738,7 +741,7 @@ func batchTask(l agent.ParsedLine, o batchOpts, base agent.Request, timeoutSet b
 	req.WorkDir = abs
 	t.Req = req
 	t.Prepare = func(ctx context.Context) (agent.Chain, agent.Record, error) {
-		r, chain, err := resolveAskChain(t.Agent, req.Provider, req.Model, req.Prompt, o.fallback, o.native, req.WorkDir)
+		r, chain, err := resolveAskChain(ctx, t.Agent, req.Provider, req.Model, req.Prompt, o.fallback, o.native, req.WorkDir)
 		if err != nil {
 			return agent.Chain{}, agent.Record{}, fmt.Errorf("line %d: %w", l.N, err)
 		}

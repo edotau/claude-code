@@ -219,6 +219,7 @@ func Run(ctx context.Context, r Runner, req Request, stream io.Writer, notify fu
 	}
 	res.Transport.Attempts = attempts
 	if e != nil {
+		e.Agent = cmp.Or(e.Agent, r.Name())
 		condemnAuth(e, recoverErr)
 		return res, e
 	}
@@ -370,9 +371,7 @@ func childCmd(ctx context.Context, bin string, argv, env []string, dir, stdin st
 		scrub = envscrub.ScrubVendor
 	}
 	base, _ := scrub(os.Environ(), envscrub.KeepSet(keepEnv))
-	cmd.Env = append(base, env...) // later duplicates win
-	// an own-login hop keeps only the vars its launch sets itself (env), e.g. opencode's OPENCODE_API_KEY
-	cmd.Env = scrubIsolated(ctx, cmd.Env, keepEnv, envNames(env))
+	cmd.Env = append(scrubIsolated(ctx, base, keepEnv), env...) // the launch's own values go on after the scrub; later wins
 	cmd.Dir = dir
 	if dir != "" {
 		cmd.Env = append(cmd.Env, "PWD="+dir) // a child that reads $PWD (not getcwd()) still sees dir
