@@ -78,8 +78,8 @@ func TestDispatchSecondUpdatedInputAndRawStdout(t *testing.T) {
 	}
 }
 
-// Every declared hook name still resolves through the legacy verb table.
-func TestContractLegacyNamesResolve(t *testing.T) {
+// Every declared module resolves as `hook <Event> --<module>`.
+func TestContractModuleFlagsResolve(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	for _, s := range hookspec.Specs() {
 		if _, ok := Registry[s.Name]; !ok {
@@ -87,8 +87,8 @@ func TestContractLegacyNamesResolve(t *testing.T) {
 			continue
 		}
 		var out, errw bytes.Buffer
-		if code := Run(s.Name, strings.NewReader(`{}`), &out, &errw); code == 1 && strings.Contains(errw.String(), "unknown hook") {
-			t.Errorf("%s: unknown hook", s.Name)
+		if code := RunArgs(s.Event, []string{"--" + s.Name}, strings.NewReader(`{}`), &out, &errw); code == 1 && strings.Contains(errw.String(), "no module") {
+			t.Errorf("%s: no module on %s", s.Name, s.Event)
 		}
 	}
 }
@@ -107,7 +107,7 @@ func TestHarnessGateGroupIgnoresSwitchOff(t *testing.T) {
 	if !on("safety", true) {
 		t.Error("gate group must ignore harnessHooks=false")
 	}
-	if on("plans", false) {
-		t.Error("non-gate group must honor harnessHooks=false")
+	if on("docs", false) {
+		t.Error("non-gate group must honor harnessHooks=false, a stored plans switch read as docs")
 	}
 }

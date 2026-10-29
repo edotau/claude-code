@@ -162,7 +162,7 @@ func TestE2EMemoryLifecycle(t *testing.T) {
 	t.Run("session-start", func(t *testing.T) {
 		e.mustRun(t, "", "memory", "index") // a fresh scaffold has no focus text; the generated catalog is what names the bank
 		in := `{"session_id":"e2e-session-start","cwd":"` + repo + `","hook_event_name":"SessionStart"}`
-		out := e.mustRun(t, in, "hook", "session-start")
+		out := e.mustRun(t, in, "hook", "SessionStart", "--memory-start")
 		ctx := hookContext(t, out)
 		if !strings.Contains(ctx, "Session memory bank") || !strings.Contains(ctx, filepath.Base(bankDir)) {
 			t.Errorf("additionalContext does not name the bank %s:\n%s", filepath.Base(bankDir), ctx)
@@ -211,7 +211,7 @@ func TestE2EMemoryLifecycle(t *testing.T) {
 		prompt := "how do I rotate the zebrafish kestrel gearbox calibration before deploy"
 		b, _ := json.Marshal(map[string]string{"session_id": "e2e-recall", "cwd": repo, "prompt": prompt,
 			"hook_event_name": "UserPromptSubmit"})
-		out := e.mustRun(t, string(b), "hook", "memory-recall")
+		out := e.mustRun(t, string(b), "hook", "UserPromptSubmit", "--memory-recall")
 		ctx := hookContext(t, out)
 		if !strings.Contains(ctx, "<!-- memory-recall:") || !strings.Contains(ctx, "zebrafish kestrel") {
 			t.Errorf("recall hook injected no matching block:\n%q", out)

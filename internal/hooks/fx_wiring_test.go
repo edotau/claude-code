@@ -74,9 +74,9 @@ func TestPlanClaimNeedsConfidentMatch(t *testing.T) {
 	}
 }
 
-// Every command in the rendered codex/copilot hook files names an event or a hook the handler table serves.
+// Every command in the rendered codex/copilot hook files is `hook <Event> --<module>` for a module on that event.
 func TestVendorHookFilesCallOnlyResolvableHooks(t *testing.T) {
-	cmdRe := regexp.MustCompile(`claude-code hook ([a-z][a-z0-9-]*)`)
+	cmdRe := regexp.MustCompile(`claude-code hook (\S+)(?: --([a-z][a-z0-9-]*))?`)
 	for name, render := range map[string]func() ([]byte, error){"codex": hookspec.CodexJSON, "copilot": hookspec.CopilotJSON} {
 		body, err := render()
 		if err != nil {
@@ -87,8 +87,8 @@ func TestVendorHookFilesCallOnlyResolvableHooks(t *testing.T) {
 			t.Fatalf("%s: no hook commands rendered", name)
 		}
 		for _, m := range ms {
-			if _, ok := Registry[m[1]]; !ok && !IsEvent(m[1]) {
-				t.Errorf("%s hook file calls %q, which no handler serves", name, m[1])
+			if _, ok := Registry[m[2]]; !ok || !IsEvent(m[1]) || eventOf(m[2]) != m[1] {
+				t.Errorf("%s hook file calls %q, which no module on that event serves", name, m[0])
 			}
 		}
 	}
@@ -97,11 +97,11 @@ func TestVendorHookFilesCallOnlyResolvableHooks(t *testing.T) {
 // A retired name is a loud no-op, never a silent exit 1; an unknown guard name fails closed.
 func TestRetiredAndUnknownGuardHookNames(t *testing.T) {
 	var out, errw bytes.Buffer
-	if code := Run("old-bash-guard", strings.NewReader(`{}`), &out, &errw); code != ExitBlock || errw.Len() == 0 {
+	if code := RunArgs("old-bash-guard", nil, strings.NewReader(`{}`), &out, &errw); code != ExitBlock || errw.Len() == 0 {
 		t.Errorf("unknown guard: code %d stderr %q", code, errw.String())
 	}
 	errw.Reset()
-	if code := Run("access-trace", strings.NewReader(`{}`), &out, &errw); code != 1 {
+	if code := RunArgs("access-trace", nil, strings.NewReader(`{}`), &out, &errw); code != 1 {
 		t.Errorf("a removed non-guard name exits 1, got %d", code)
 	}
 }

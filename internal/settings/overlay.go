@@ -228,6 +228,13 @@ func LoadHarnessHooks() (map[string]bool, error) {
 	if err != nil {
 		return nil, fmt.Errorf("vault overlay/%s: %w", hooksBucketKey, err)
 	}
+	// The docs group was named plans; a stored plans switch is vault state, so it is read as docs.
+	if on, ok := m["plans"]; ok {
+		if _, set := m["docs"]; !set {
+			m["docs"] = on
+		}
+		delete(m, "plans")
+	}
 	return m, nil
 }
 

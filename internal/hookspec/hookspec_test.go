@@ -18,7 +18,7 @@ func TestSettingsJSON(t *testing.T) {
 	if len(block[EventStop]) != 1 || len(block[EventStop][0].Hooks) != 1 || len(block[EventSessionStart]) != 1 || len(block[EventSessionEnd]) != 1 || len(block[EventUserPromptSubmit]) != 1 || block[EventPreToolUse][0].Matcher != "Bash" {
 		t.Errorf("block %s", b)
 	}
-	if !IsHarness("$HOME/.claude/bin/claude-code hook safety-scan") || IsHarness("$HOME/.claude/bin/claude-code-other x") || IsHarness("orca hook") {
+	if !IsHarness("$HOME/.claude/bin/claude-code hook PreToolUse --safety-scan") || IsHarness("$HOME/.claude/bin/claude-code-other x") || IsHarness("orca hook") {
 		t.Error("IsHarness")
 	}
 }
@@ -91,12 +91,15 @@ func TestPlanHooksRegistered(t *testing.T) {
 		t.Fatal("retired plan-template hook remains registered")
 	}
 	docs, ok := byName["docs-placement"]
-	if !ok || docsCount != 1 || docs.Event != EventPreToolUse || docs.Matcher != "Write|Edit" || !docs.Blocks {
+	if !ok || docsCount != 1 || docs.Group != "docs" || docs.Event != EventPreToolUse || docs.Matcher != "Write|Edit" || !docs.Blocks {
 		t.Fatalf("docs-placement = %+v, ok=%v, count=%d", docs, ok, docsCount)
 	}
-	mirror, ok := byName["plan-mirror"]
+	if g, _ := GroupOf("docs-placement"); g.Gate {
+		t.Fatal("docs group is a gate group; docs-placement must run inside the dispatcher")
+	}
+	mirror, ok := byName["docs-plan-mirror"]
 	if !ok || mirror.Event != EventPostToolUse || mirror.Matcher != "Write|Edit" || mirror.Blocks {
-		t.Fatalf("plan-mirror = %+v, ok=%v", mirror, ok)
+		t.Fatalf("docs-plan-mirror = %+v, ok=%v", mirror, ok)
 	}
 	b, err := SettingsJSON()
 	if err != nil {
@@ -107,14 +110,14 @@ func TestPlanHooksRegistered(t *testing.T) {
 		t.Fatal(err)
 	}
 	found := 0
-	retired := EventSpec{Name: "plan-template"}
+	retired := EventSpec{Name: "plan-template", Event: EventPreToolUse}
 	for event, groups := range block {
 		for _, g := range groups {
 			for _, h := range g.Hooks {
 				if h.Command == retired.Command() {
 					t.Fatalf("rendered settings contain retired plan-template: %s", b)
 				}
-				if h.Command == DispatcherCommand(EventPreToolUse, true) {
+				if h.Command == DispatcherCommand(EventPreToolUse) {
 					found++
 					if event != EventPreToolUse || !strings.Contains(g.Matcher, "Write|Edit") {
 						t.Errorf("PreToolUse dispatcher carries matcher %q, want it to cover docs-placement's Write|Edit", g.Matcher)

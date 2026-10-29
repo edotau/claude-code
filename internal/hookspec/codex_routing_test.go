@@ -32,7 +32,7 @@ func TestCodexNativeRoutingHooksStayVendorScoped(t *testing.T) {
 		"codex-routing-start":  EventSessionStart,
 		"codex-subagent-start": EventSubagentStart,
 	} {
-		command := AgentEnv + "=codex " + HookBin + " hook " + name
+		command := AgentEnv + "=codex " + HookBin + " hook " + event + " --" + name
 		found := 0
 		for actualEvent, groups := range doc.Hooks {
 			for _, group := range groups {
@@ -67,7 +67,7 @@ func TestCodexNativeRoutingHooksStayVendorScoped(t *testing.T) {
 			t.Errorf("%s rendered %d times", name, found)
 		}
 		for vendor, body := range map[string][]byte{"claude": claude, "copilot": copilot} {
-			if strings.Contains(string(body), "hook "+name) {
+			if strings.Contains(string(body), "--"+name) {
 				t.Errorf("%s hook leaked into %s", name, vendor)
 			}
 		}

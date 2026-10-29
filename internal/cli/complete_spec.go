@@ -199,7 +199,7 @@ func buildSpecTree() map[string]*compNode {
 			tree[c.name] = &compNode{}
 		}
 	}
-	tree["hook"] = &compNode{args: []func() []string{hookNames}}
+	tree["hook"] = &compNode{args: []func() []string{hookEvents}}
 	return tree
 }
 

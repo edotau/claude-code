@@ -36,8 +36,8 @@ func TestCodexLifecycleTrustUsesMergedPositions(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, c := range []struct{ event, native, command, foreign string }{
-		{"SessionStart", "session_start", "codex-routing-start", "orca-session"},
-		{"SubagentStart", "subagent_start", "codex-subagent-start", "orca-child"},
+		{"SessionStart", "session_start", "SessionStart --codex-routing-start", "orca-session"},
+		{"SubagentStart", "subagent_start", "SubagentStart --codex-subagent-start", "orca-child"},
 	} {
 		groups := codexGroupOrder(t, merged, c.event)
 		if len(groups) != 2 || !strings.Contains(string(groups[0]), c.foreign) || !strings.Contains(string(groups[1]), "hook "+c.command) {

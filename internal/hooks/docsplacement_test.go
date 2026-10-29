@@ -79,7 +79,7 @@ func TestPlanGateTemplate(t *testing.T) {
 					}
 				}
 				var stdout, stderr bytes.Buffer
-				code := Run("plan-gate", strings.NewReader(writePayload(t, c.tool, cfg, c.path, c.content)), &stdout, &stderr)
+				code := RunArgs("PreToolUse", []string{"--docs-plan-gate"}, strings.NewReader(writePayload(t, c.tool, cfg, c.path, c.content)), &stdout, &stderr)
 				if code != c.want {
 					t.Fatalf("code = %d, want %d; stderr=%s", code, c.want, &stderr)
 				}
@@ -120,13 +120,13 @@ func TestDocsPlacementFirstDenial(t *testing.T) {
 		not  string
 	}{
 		{"1", "docs-placement", "docs-placement: BLOCKED", "plan-template: BLOCKED"},
-		{"0", "plan-gate", "plan-template: BLOCKED", "docs-placement: BLOCKED"},
+		{"0", "docs-plan-gate", "plan-template: BLOCKED", "docs-placement: BLOCKED"},
 	} {
 		t.Run("docs="+c.knob, func(t *testing.T) {
 			t.Setenv(docsPlacementDisableEnv, c.knob)
 			var stdout, stderr bytes.Buffer
 			payload := writePayload(t, "Write", cfg, filepath.Join(plans, "draft.md"), "freeform")
-			if code := Run(c.hook, strings.NewReader(payload), &stdout, &stderr); code != ExitBlock {
+			if code := RunArgs("PreToolUse", []string{"--" + c.hook}, strings.NewReader(payload), &stdout, &stderr); code != ExitBlock {
 				t.Fatalf("code = %d, want ExitBlock; stderr=%s", code, &stderr)
 			}
 			if !strings.HasPrefix(stderr.String(), c.want) || strings.Contains(stderr.String(), c.not) {
@@ -137,14 +137,16 @@ func TestDocsPlacementFirstDenial(t *testing.T) {
 }
 
 func TestPlanTemplateCommandRetired(t *testing.T) {
-	if _, ok := Registry["plan-template"]; ok {
-		t.Fatal("retired plan-template command remains registered")
+	for _, old := range []string{"plan-template", "plan-gate"} {
+		if _, ok := Registry[old]; ok {
+			t.Fatalf("retired %s module remains registered", old)
+		}
 	}
 	var stdout, stderr bytes.Buffer
-	if code := Run("plan-template", strings.NewReader("{}"), &stdout, &stderr); code != 1 {
-		t.Fatalf("retired command returned %d, want 1", code)
+	if code := RunArgs("PreToolUse", []string{"--plan-template"}, strings.NewReader("{}"), &stdout, &stderr); code != 1 {
+		t.Fatalf("retired module returned %d, want 1", code)
 	}
-	if stdout.Len() != 0 || stderr.String() != "claude-code hook: unknown hook \"plan-template\"\n" {
+	if stdout.Len() != 0 || stderr.String() != "claude-code hook: no module on PreToolUse named \"plan-template\"\n" {
 		t.Fatalf("stdout=%q stderr=%q", &stdout, &stderr)
 	}
 }

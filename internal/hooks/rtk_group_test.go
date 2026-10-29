@@ -20,11 +20,11 @@ func rtkHermetic(t *testing.T) {
 }
 
 // The rtk hook lives in its own non-gate group on PreToolUse/Bash, and settings.json reaches it
-// only through the event dispatcher — never as its own `hook rtk` entry.
+// only through the event dispatcher — never as its own `hook PreToolUse --rtk-rewrite` entry.
 func TestRtkGroupIsOwnNonGateGroup(t *testing.T) {
-	g, ok := hookspec.GroupOf("rtk")
+	g, ok := hookspec.GroupOf("rtk-rewrite")
 	if !ok {
-		t.Fatal(`hookspec.GroupOf("rtk") found no group`)
+		t.Fatal(`hookspec.GroupOf("rtk-rewrite") found no group`)
 	}
 	if g.Name != "rtk" {
 		t.Errorf("group name = %q, want rtk", g.Name)
@@ -39,14 +39,14 @@ func TestRtkGroupIsOwnNonGateGroup(t *testing.T) {
 		t.Errorf("rtk group events = %+v, want exactly PreToolUse/Bash", g.Events)
 	}
 
-	want := hookspec.DispatcherCommand(hookspec.EventPreToolUse, true)
-	own := hookspec.EventSpec{Name: "rtk"}.Command()
+	want := hookspec.DispatcherCommand(hookspec.EventPreToolUse)
+	own := hookspec.EventSpec{Name: "rtk-rewrite", Event: hookspec.EventPreToolUse}.Command()
 	var disp *hookspec.MatcherGroup
 	for event, groups := range hookspec.Events() {
 		for i := range groups {
 			for _, h := range groups[i].Hooks {
 				if h.Command == own {
-					t.Errorf("%s carries `hook rtk` as its own command; it must run inside the dispatcher", event)
+					t.Errorf("%s carries `hook PreToolUse --rtk-rewrite` as its own command; it must run inside the dispatcher", event)
 				}
 				if event == hookspec.EventPreToolUse && h.Command == want {
 					disp = &groups[i]
@@ -89,16 +89,16 @@ func TestRtkSplitSafetyScanNeverRewrites(t *testing.T) {
 	}
 }
 
-// The --no-own dispatcher (the process settings.json runs for PreToolUse) runs the rtk group and
+// The bare dispatcher (the process settings.json runs for PreToolUse) runs the rtk group and
 // merges its rewrite, while the gate lives in its own process — no permissionDecision can appear.
-func TestRtkDispatcherNoOwnRunsRtk(t *testing.T) {
+func TestRtkDispatcherBareRunsRtk(t *testing.T) {
 	rtkHermetic(t)
 	t.Setenv(rtkBinaryEnv, "echo")
 
 	run := func(cmd string) map[string]json.RawMessage {
 		t.Helper()
 		var out, errb strings.Builder
-		if rc := RunEvent(hookspec.EventPreToolUse, true, strings.NewReader(rtkBashIn(cmd)), &out, &errb); rc != ExitProceed {
+		if rc := RunEvent(hookspec.EventPreToolUse, false, strings.NewReader(rtkBashIn(cmd)), &out, &errb); rc != ExitProceed {
 			t.Fatalf("%q: RunEvent rc = %d, want ExitProceed; stderr=%q", cmd, rc, errb.String())
 		}
 		var doc map[string]json.RawMessage
@@ -125,9 +125,9 @@ func TestRtkDispatcherNoOwnRunsRtk(t *testing.T) {
 	if strings.Contains(string(raw), "permissionDecision") {
 		t.Errorf("dispatcher output carries a permissionDecision — the gate is not in this process: %s", raw)
 	}
-	// An ask-tier command still gets no decision here: with --no-own the gate decides in its own process.
+	// An ask-tier command still gets no decision here: with the bare dispatcher the gate decides in its own process.
 	if raw := string(run("git push --force origin main")["hookSpecificOutput"]); strings.Contains(raw, "permissionDecision") {
-		t.Errorf("ask-tier command: --no-own dispatcher output carries a permissionDecision: %s", raw)
+		t.Errorf("ask-tier command: bare dispatcher output carries a permissionDecision: %s", raw)
 	}
 }
 
@@ -141,7 +141,7 @@ func TestRtkGroupToggle(t *testing.T) {
 		t.Fatalf("SaveHarnessHooks(rtk:false): %v", err)
 	}
 	var out, errb strings.Builder
-	if rc := RunEvent(hookspec.EventPreToolUse, true, strings.NewReader(rtkBashIn("git status")), &out, &errb); rc != ExitProceed {
+	if rc := RunEvent(hookspec.EventPreToolUse, false, strings.NewReader(rtkBashIn("git status")), &out, &errb); rc != ExitProceed {
 		t.Fatalf("RunEvent rc = %d, want ExitProceed; stderr=%q", rc, errb.String())
 	}
 	if strings.Contains(out.String(), "updatedInput") {

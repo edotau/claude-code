@@ -210,7 +210,7 @@ func TestBindPrefersNativeRunners(t *testing.T) {
 	}
 	in := ParseInput(strings.NewReader(`{"prompt":"read ` + f + `"}`))
 	for _, b := range Bind() {
-		if b.Spec.Name != "path-resolver" {
+		if b.Spec.Name != "paths-resolve" {
 			continue
 		}
 		r := b.Run(in) // native: a Result straight from the Runner, not re-parsed adapter output
@@ -220,7 +220,7 @@ func TestBindPrefersNativeRunners(t *testing.T) {
 	}
 }
 
-// A direct `hook path-resolver` call and the UserPromptSubmit dispatcher emit the same document.
+// A direct `hook UserPromptSubmit --paths-resolve` call and the UserPromptSubmit dispatcher emit the same document.
 func TestPathResolverRunMatchesDispatcher(t *testing.T) {
 	for _, vendor := range []string{VendorClaude, VendorCopilot} {
 		t.Run(vendor, func(t *testing.T) {
@@ -235,7 +235,7 @@ func TestPathResolverRunMatchesDispatcher(t *testing.T) {
 			payload := `{"prompt":"read ` + f + `"}`
 
 			var directOut, directErr bytes.Buffer
-			if code := Run("path-resolver", strings.NewReader(payload), &directOut, &directErr); code != ExitProceed {
+			if code := RunArgs("UserPromptSubmit", []string{"--paths-resolve"}, strings.NewReader(payload), &directOut, &directErr); code != ExitProceed {
 				t.Fatalf("Run exit = %d (stderr %s)", code, &directErr)
 			}
 			var eventOut, eventErr bytes.Buffer

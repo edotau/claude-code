@@ -112,20 +112,9 @@
         "hooks": [
           {
             "type": "command",
-            "command": "$HOME/.claude/bin/claude-code hook safety-scan",
+            "command": "$HOME/.claude/bin/claude-code hook PreToolUse --safety-scan",
             "timeout": 5,
             "statusMessage": "Checking command safety"
-          }
-        ]
-      },
-      {
-        "matcher": "Write|Edit",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "$HOME/.claude/bin/claude-code hook docs-placement",
-            "timeout": 5,
-            "statusMessage": "Checking doc placement"
           }
         ]
       },
@@ -134,8 +123,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "$HOME/.claude/bin/claude-code hook PreToolUse --no-own",
-            "timeout": 15
+            "command": "$HOME/.claude/bin/claude-code hook PreToolUse",
+            "timeout": 20
           }
         ]
       }

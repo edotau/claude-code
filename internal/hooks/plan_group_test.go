@@ -187,7 +187,7 @@ func TestPlanTickSpanningAndReminder(t *testing.T) {
 
 	stop := func() string {
 		var o, e bytes.Buffer
-		Run("plan-reminder", hookJSON(t, map[string]any{"hook_event_name": "Stop", "session_id": "tick1"}), &o, &e)
+		RunArgs("Stop", []string{"--docs-plan-reminder"}, hookJSON(t, map[string]any{"hook_event_name": "Stop", "session_id": "tick1"}), &o, &e)
 		return o.String()
 	}
 	if first := stop(); !strings.Contains(first, "systemMessage") || !strings.Contains(first, "1.2") {

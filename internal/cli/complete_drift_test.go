@@ -111,19 +111,21 @@ func TestSpecTreeSubwordsMatchDispatch(t *testing.T) {
 	}
 }
 
-// TestHookDomainMatchesRegistry: `hook ⇥` must offer every hook hookspec.Registry declares, in
+// TestHookDomainMatchesRegistry: `hook ⇥` must offer every event hookspec.Registry declares, in
 // registry order — the stale-table bug Part 3 fixed (7 hard-coded names vs. 21 registered).
 func TestHookDomainMatchesRegistry(t *testing.T) {
 	var want []string
 	for _, s := range hookspec.Specs() {
-		want = append(want, s.Name)
+		if !slices.Contains(want, s.Event) {
+			want = append(want, s.Event)
+		}
 	}
-	got := hookNames()
+	got := hookEvents()
 	if !slices.Equal(got, want) {
-		t.Errorf("hookNames() = %v, want %v (hookspec.Registry)", got, want)
+		t.Errorf("hookEvents() = %v, want %v (hookspec.Registry)", got, want)
 	}
 	if got := completionCandidates([]string{"hook", ""}); !slices.Equal(got, want) {
-		t.Errorf("hook ⇥ = %v, want every registered hook %v", got, want)
+		t.Errorf("hook ⇥ = %v, want every registered event %v", got, want)
 	}
 }
 

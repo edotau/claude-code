@@ -28,7 +28,7 @@ func TestGroupRenderOneEntryPerEvent(t *testing.T) {
 		dispatchers := 0
 		for _, e := range entries {
 			for _, h := range e.Hooks {
-				if strings.HasPrefix(h.Command, HookBin+" hook "+ev) && !strings.Contains(h.Command, "hook "+ev+"-") {
+				if h.Command == DispatcherCommand(ev) {
 					dispatchers++
 				}
 			}
@@ -43,7 +43,10 @@ func TestGroupRenderOneEntryPerEvent(t *testing.T) {
 	if n := len(block[EventPostToolUse]); n != 1 {
 		t.Errorf("PostToolUse: %d entries, want 1 dispatcher (access-trace, the only async handler, is gone)", n)
 	}
-	if !strings.Contains(string(b), DispatcherCommand("PreToolUse", true)) || !strings.Contains(string(b), "hook safety-scan") {
+	if n := len(block[EventPreToolUse]); n != 2 {
+		t.Errorf("PreToolUse: %d entries, want 2 (safety-scan alone, then the dispatcher)", n)
+	}
+	if !strings.Contains(string(b), `"`+DispatcherCommand("PreToolUse")+`"`) || !strings.Contains(string(b), "hook PreToolUse --safety-scan") {
 		t.Errorf("safety must render separately and the dispatcher must skip it: %s", b)
 	}
 }
