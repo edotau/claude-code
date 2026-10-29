@@ -179,7 +179,7 @@ func parseChatStream(r io.Reader, w io.Writer) (Usage, string, error) {
 		return usage, served, err
 	}
 	if !sawDone {
-		return usage, served, errors.New("chat stream ended without [DONE]")
+		return usage, served, fmt.Errorf("chat stream ended without [DONE]: %w", io.ErrUnexpectedEOF) // a dropped stream retries
 	}
 	return usage, served, nil
 }

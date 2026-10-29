@@ -493,6 +493,18 @@ func exhaustedSince(leg Leg) *Error {
 	return &Error{Kind: KindQuota, Agent: leg.Agent.Name(), Err: errors.New(router.ExhaustedReason(leg.Account, e, now))}
 }
 
+// authMarkedSince is a KindAuth error when leg's account was marked auth-dead after the chain was built, else nil.
+func authMarkedSince(leg Leg) *Error {
+	if leg.Account == "" {
+		return nil
+	}
+	reason, marked := loadState().AuthMarked(leg.Account, time.Now())
+	if !marked {
+		return nil
+	}
+	return &Error{Kind: KindAuth, Agent: leg.Agent.Name(), AuthReason: reason, Err: errors.New(leg.Account + ": " + reason)}
+}
+
 // noteQuota remembers a KindQuota failure on the leg's account until its parsed reset (else the known window).
 func noteQuota(leg Leg, err error) {
 	var e *Error

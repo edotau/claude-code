@@ -61,6 +61,7 @@ type Result struct {
 	Handoff        string     `json:"handoff,omitempty"`         // hand-off file written when a copilot leg hit its quota
 	Transport      *Transport `json:"transport,omitempty"`       // stream health; fields an agent can't report stay absent
 	Hops           []Hop      `json:"hops,omitempty"`            // every leg RunWithFallback tried, in order
+	recovered      []*Error   // attempts that failed before the successful one, for the hop's errors
 }
 
 type coolKey struct{}
@@ -186,6 +187,7 @@ func Run(ctx context.Context, r Runner, req Request, stream io.Writer, notify fu
 	}
 	start := time.Now()
 	attempts := 0
+	var failed []*Error
 	e := Do(ctx, p, func(actx context.Context, attempt int) *Error {
 		attempts = attempt
 		actx, gerr := guardAttempt(actx, r, req)
@@ -210,6 +212,11 @@ func Run(ctx context.Context, r Runner, req Request, stream io.Writer, notify fu
 				req.Model, e.RetryAfter, e.Kind = next, 0, KindRateLimit
 			}
 		}
+		if e != nil {
+			snap := *e
+			snap.Earlier = nil
+			failed = append(failed, &snap)
+		}
 		return e
 	})
 	res.DurationMs = time.Since(start).Milliseconds()
@@ -218,6 +225,9 @@ func Run(ctx context.Context, r Runner, req Request, stream io.Writer, notify fu
 		res.Transport = &Transport{}
 	}
 	res.Transport.Attempts = attempts
+	if e == nil {
+		res.recovered = failed
+	}
 	if e != nil {
 		e.Agent = cmp.Or(e.Agent, r.Name())
 		condemnAuth(e, recoverErr)
@@ -512,8 +522,9 @@ func RunWithFallback(ctx context.Context, c Chain, req Request, stream io.Writer
 				}
 				held.release()
 			}()
-			if skip := exhaustedSince(leg); skip != nil { // another task marked this account dead after the chain was built
-				res, err = Result{Agent: leg.Agent.Name(), Status: StatusQuota, Invoked: lreq.Model}, skip
+			// another task may have marked this account dead while this leg waited for its permit
+			if skip := cmp.Or(exhaustedSince(leg), authMarkedSince(leg)); skip != nil {
+				res, err = Result{Agent: leg.Agent.Name(), Status: statusOf(skip), Invoked: lreq.Model}, skip
 				hops = append(hops, hopOf(leg, lreq, res, err))
 				return
 			}
@@ -570,6 +581,9 @@ func hopOf(leg Leg, req Request, res Result, err error) Hop {
 				h.Errors = append(h.Errors, EnvelopeError{Kind: errorKind(a), Message: shapes.Redact(a.attemptMessage())})
 			}
 		}
+	}
+	for _, a := range res.recovered { // a leg that answered after retries still lists what it recovered from
+		h.Errors = append(h.Errors, EnvelopeError{Kind: errorKind(a), Message: shapes.Redact(a.attemptMessage())})
 	}
 	return h
 }
