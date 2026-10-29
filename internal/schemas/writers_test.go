@@ -111,6 +111,7 @@ var writers = map[string]string{
 	"internal/providers/opencode_check.go:SaveCheckCache":          "opencode-models-check",
 	"internal/providers/tokenexpiry.go:recordTokenExpiry":          "token-expiry",
 	"internal/proxy/daemon.go:Serve":                               "router-runtime",
+	"internal/proxy/sessions.go:saveLocked":                        "router-sessions",
 	"internal/review/diff/pranalyzer.go:RunPR":                     unversioned("foreign: -o output"),
 	"internal/review/diff/report.go:RunReport":                     unversioned("foreign: -o output"),
 	"internal/review/source/quality_cli.go:emitQualityJSON":        unversioned("foreign: -o output"),
