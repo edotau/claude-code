@@ -5,7 +5,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
+	"reflect"
+	"slices"
+	"sort"
 	"strings"
+
+	"github.com/edotau/claude-code/internal/envscrub"
 )
 
 // ErrSchema marks an answer that is not JSON satisfying the requested schema; the envelope kind is "schema".
@@ -24,44 +30,92 @@ func compactJSON(s string) string {
 	return b.String()
 }
 
-// structuredAnswer parses the answer as JSON and checks it against schema; the validator is minimal:
-// top-level type, required keys and the declared type of each top-level property (stdlib only).
-func structuredAnswer(answer, schema string) (json.RawMessage, error) {
-	raw := jsonSpan(answer)
-	var v any
-	if err := json.Unmarshal([]byte(raw), &v); err != nil {
-		return nil, fmt.Errorf("%w: answer is not JSON: %v", ErrSchema, err)
+// structuredAnswer parses the answer as JSON and checks it against schema. The validator is minimal and stdlib-only:
+// type, required, properties, items and enum, recursively; any other validation keyword is returned in unchecked.
+func structuredAnswer(answer, schema string) (raw json.RawMessage, unchecked []string, err error) {
+	span := jsonSpan(answer)
+	var v, sch any
+	if err := json.Unmarshal([]byte(span), &v); err != nil {
+		return nil, nil, fmt.Errorf("%w: answer is not JSON: %v", ErrSchema, err)
 	}
-	var s struct {
-		Type       string                        `json:"type"`
-		Required   []string                      `json:"required"`
-		Properties map[string]struct{ Type any } `json:"properties"`
+	if err := json.Unmarshal([]byte(schema), &sch); err != nil {
+		return nil, nil, fmt.Errorf("%w: unreadable schema: %v", ErrSchema, err)
 	}
-	if err := json.Unmarshal([]byte(schema), &s); err != nil {
-		return nil, fmt.Errorf("%w: unreadable schema: %v", ErrSchema, err)
+	skipped := map[string]bool{}
+	collectUnchecked(sch, skipped)
+	if err := checkSchema("answer", v, sch); err != nil {
+		return nil, nil, fmt.Errorf("%w: %v", ErrSchema, err)
 	}
-	if s.Type != "" && !jsonTypeIs(v, s.Type) {
-		return nil, fmt.Errorf("%w: answer is %s, schema wants %s", ErrSchema, jsonTypeName(v), s.Type)
+	for k := range skipped {
+		unchecked = append(unchecked, k)
 	}
-	obj, isObj := v.(map[string]any)
-	if !isObj && (len(s.Required) > 0 || len(s.Properties) > 0) {
-		return nil, fmt.Errorf("%w: answer is %s, schema wants an object", ErrSchema, jsonTypeName(v))
+	sort.Strings(unchecked)
+	return json.RawMessage(span), unchecked, nil
+}
+
+// schemaKnown are the keywords checkSchema enforces; schemaNotes only annotate. Every other keyword is unchecked.
+var (
+	schemaKnown = map[string]bool{"type": true, "required": true, "properties": true, "items": true, "enum": true}
+	schemaNotes = map[string]bool{"$schema": true, "$id": true, "title": true, "description": true, "default": true, "examples": true,
+		"$comment": true, "$defs": true, "definitions": true}
+)
+
+func checkSchema(path string, v, sch any) error {
+	m, ok := sch.(map[string]any)
+	if !ok {
+		return nil
 	}
-	for _, k := range s.Required {
-		if _, ok := obj[k]; !ok {
-			return nil, fmt.Errorf("%w: missing required key %q", ErrSchema, k)
+	if t, ok := m["type"]; ok && !typeMatches(v, t) {
+		return fmt.Errorf("%s is %s, schema wants %v", path, jsonTypeName(v), t)
+	}
+	if enum, ok := m["enum"].([]any); ok && !slices.ContainsFunc(enum, func(e any) bool { return reflect.DeepEqual(e, v) }) {
+		return fmt.Errorf("%s is not one of the schema's enum values", path)
+	}
+	switch x := v.(type) {
+	case map[string]any:
+		if req, ok := m["required"].([]any); ok {
+			for _, k := range req {
+				if name, _ := k.(string); name != "" {
+					if _, ok := x[name]; !ok {
+						return fmt.Errorf("%s: missing required key %q", path, name)
+					}
+				}
+			}
+		}
+		props, _ := m["properties"].(map[string]any)
+		for _, k := range slices.Sorted(maps.Keys(props)) {
+			if val, ok := x[k]; ok {
+				if err := checkSchema(path+"."+k, val, props[k]); err != nil {
+					return err
+				}
+			}
+		}
+	case []any:
+		for i, el := range x {
+			if err := checkSchema(fmt.Sprintf("%s[%d]", path, i), el, m["items"]); err != nil {
+				return err
+			}
 		}
 	}
-	for k, p := range s.Properties {
-		val, ok := obj[k]
-		if !ok || p.Type == nil {
-			continue
-		}
-		if !typeMatches(val, p.Type) {
-			return nil, fmt.Errorf("%w: key %q is %s, schema wants %v", ErrSchema, k, jsonTypeName(val), p.Type)
+	return nil
+}
+
+// collectUnchecked adds every keyword in sch (and its properties and items) that checkSchema does not enforce.
+func collectUnchecked(sch any, skipped map[string]bool) {
+	m, ok := sch.(map[string]any)
+	if !ok {
+		return
+	}
+	for k := range m {
+		if !schemaKnown[k] && !schemaNotes[k] {
+			skipped[k] = true
 		}
 	}
-	return json.RawMessage(raw), nil
+	props, _ := m["properties"].(map[string]any)
+	for _, p := range props {
+		collectUnchecked(p, skipped)
+	}
+	collectUnchecked(m["items"], skipped)
 }
 
 // typeMatches checks val against a schema "type" given as a name or a list of names.
@@ -124,24 +178,32 @@ func jsonSpan(answer string) string {
 	return s
 }
 
-// ValidEnvName reports why name cannot be set with --env: credential-shaped names belong in the vault.
+// ValidEnvName reports why name cannot be set with --env: credential-shaped and harness-scrubbed names are refused.
+// The error names NAME only; a value never appears in it.
 func ValidEnvName(name string) error {
-	if name == "" || strings.ContainsAny(name, "= \t") {
-		return fmt.Errorf("--env %q: want NAME=VALUE", name)
+	if name == "" || strings.ContainsAny(name, " \t") {
+		return errors.New("--env: want NAME=VALUE")
 	}
 	up := strings.ToUpper(name)
-	if strings.HasSuffix(up, "_API_KEY") || strings.HasSuffix(up, "_TOKEN") || strings.HasSuffix(up, "_SECRET") || strings.Contains(up, "AUTH") {
+	reserved := envscrub.Blocked(name) || envscrub.Blocked(up)
+	if strings.HasSuffix(up, "_BASE_URL") && !strings.HasPrefix(up, "HARNESS_") {
+		reserved = false // a route override such as ANTHROPIC_BASE_URL is not a secret
+	}
+	switch {
+	case reserved:
+		return fmt.Errorf("--env %s is reserved by the harness credential scrub: use `claude-code vault set` or a provider's auth.command", name)
+	case strings.HasSuffix(up, "_API_KEY"), strings.HasSuffix(up, "_TOKEN"), strings.HasSuffix(up, "_SECRET"), strings.Contains(up, "AUTH"):
 		return fmt.Errorf("--env %s looks like a credential: store it with `claude-code vault set` or a provider's auth.command, not on the command line", name)
 	}
 	return nil
 }
 
-// ValidateEnv checks every KEY=VALUE entry of --env.
+// ValidateEnv checks every KEY=VALUE entry of --env; errors never echo a value.
 func ValidateEnv(env []string) error {
 	for _, kv := range env {
 		name, _, ok := strings.Cut(kv, "=")
 		if !ok {
-			return fmt.Errorf("--env %q: want NAME=VALUE", kv)
+			return errors.New("--env: want NAME=VALUE")
 		}
 		if err := ValidEnvName(name); err != nil {
 			return err

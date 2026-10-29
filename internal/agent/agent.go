@@ -54,24 +54,25 @@ type Usage struct {
 
 // Result is the envelope `ask --format json` prints.
 type Result struct {
-	Agent          string          `json:"agent"`
-	Status         string          `json:"status"` // ok | error | partial | quota | stalled
-	Provider       string          `json:"provider,omitempty"`
-	Model          string          `json:"model,omitempty"`
-	Invoked        string          `json:"invoked_model,omitempty"` // the model (<profile>:<model> when pinned) the run was asked for; not upstream-confirmed
-	SessionID      string          `json:"session_id,omitempty"`
-	Answer         string          `json:"answer"`
-	Usage          Usage           `json:"usage"`
-	DurationMs     int64           `json:"duration_ms"`
-	Dropped        []string        `json:"dropped,omitempty"`
-	Emulated       []string        `json:"emulated,omitempty"`        // flags the harness shimmed because the agent has no channel
-	Fallback       string          `json:"fallback,omitempty"`        // set to the original agent's name when it ran instead
-	FallbackReason string          `json:"fallback_reason,omitempty"` // why the original agent was unavailable
-	Handoff        string          `json:"handoff,omitempty"`         // hand-off file written when a copilot leg hit its quota
-	Transport      *Transport      `json:"transport,omitempty"`       // stream health; fields an agent can't report stay absent
-	Hops           []Hop           `json:"hops,omitempty"`            // every leg RunWithFallback tried, in order
-	Structured     json.RawMessage `json:"-"`                         // the answer as JSON satisfying Request.OutputSchema
-	recovered      []*Error        // attempts that failed before the successful one, for the hop's errors
+	Agent           string          `json:"agent"`
+	Status          string          `json:"status"` // ok | error | partial | quota | stalled
+	Provider        string          `json:"provider,omitempty"`
+	Model           string          `json:"model,omitempty"`
+	Invoked         string          `json:"invoked_model,omitempty"` // the model (<profile>:<model> when pinned) the run was asked for; not upstream-confirmed
+	SessionID       string          `json:"session_id,omitempty"`
+	Answer          string          `json:"answer"`
+	Usage           Usage           `json:"usage"`
+	DurationMs      int64           `json:"duration_ms"`
+	Dropped         []string        `json:"dropped,omitempty"`
+	SchemaUnchecked []string        `json:"-"`                         // schema keywords the minimal validator does not enforce
+	Emulated        []string        `json:"emulated,omitempty"`        // flags the harness shimmed because the agent has no channel
+	Fallback        string          `json:"fallback,omitempty"`        // set to the original agent's name when it ran instead
+	FallbackReason  string          `json:"fallback_reason,omitempty"` // why the original agent was unavailable
+	Handoff         string          `json:"handoff,omitempty"`         // hand-off file written when a copilot leg hit its quota
+	Transport       *Transport      `json:"transport,omitempty"`       // stream health; fields an agent can't report stay absent
+	Hops            []Hop           `json:"hops,omitempty"`            // every leg RunWithFallback tried, in order
+	Structured      json.RawMessage `json:"-"`                         // the answer as JSON satisfying Request.OutputSchema
+	recovered       []*Error        // attempts that failed before the successful one, for the hop's errors
 }
 
 type coolKey struct{}
@@ -284,7 +285,7 @@ func Run(ctx context.Context, r Runner, req Request, sink Sink, notify func(stri
 		res.recovered = failed
 		if req.OutputSchema != "" { // every agent's answer is checked, native or emulated, so structured behaves alike
 			var verr error
-			if res.Structured, verr = structuredAnswer(cmp.Or(string(res.Structured), res.Answer), req.OutputSchema); verr != nil {
+			if res.Structured, res.SchemaUnchecked, verr = structuredAnswer(cmp.Or(string(res.Structured), res.Answer), req.OutputSchema); verr != nil {
 				e = &Error{Kind: KindFatal, Agent: r.Name(), Err: verr}
 				res.Status = statusOf(e)
 			}
