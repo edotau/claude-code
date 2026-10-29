@@ -16,7 +16,7 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 )
 
-// docsPlacementDisableEnv disables placement checks, not the independent plan-template gate.
+// docsPlacementDisableEnv disables placement checks.
 const docsPlacementDisableEnv = "HARNESS_DOCS_PLACEMENT"
 
 // rootAnchors are the root-level markdown files tooling requires THERE: GitHub/OSS conventions plus the
@@ -30,11 +30,7 @@ var rootAnchors = map[string]bool{
 // DocsPlacement gates markdown writes at a repo root. Fails open on anything unclear (no path, not a
 // git repo, unreadable git state) — placement is a convention worth enforcing, never worth wedging on.
 func DocsPlacement(r io.Reader, stderr io.Writer) int {
-	in := ParseInput(r)
-	if code := docsPlacement(in, stderr); code != ExitProceed {
-		return code
-	}
-	return checkPlanTemplate(in, stderr)
+	return docsPlacement(ParseInput(r), stderr)
 }
 
 func docsPlacement(in *Input, stderr io.Writer) int {

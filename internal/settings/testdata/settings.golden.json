@@ -73,12 +73,12 @@
   "hooks": {
     "PostToolUse": [
       {
-        "matcher": "Write|Edit|ExitPlanMode|Agent|Task",
+        "matcher": "Write|Edit|ExitPlanMode|EnterPlanMode|Bash|Agent|Task",
         "hooks": [
           {
             "type": "command",
             "command": "$HOME/.claude/bin/claude-code hook PostToolUse",
-            "timeout": 25
+            "timeout": 40
           }
         ]
       }
@@ -115,6 +115,17 @@
             "command": "$HOME/.claude/bin/claude-code hook safety-scan",
             "timeout": 5,
             "statusMessage": "Checking command safety"
+          }
+        ]
+      },
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/bin/claude-code hook docs-placement",
+            "timeout": 5,
+            "statusMessage": "Checking doc placement"
           }
         ]
       },
@@ -158,7 +169,7 @@
           {
             "type": "command",
             "command": "$HOME/.claude/bin/claude-code hook Stop",
-            "timeout": 50
+            "timeout": 55
           }
         ]
       }
@@ -180,7 +191,7 @@
           {
             "type": "command",
             "command": "$HOME/.claude/bin/claude-code hook UserPromptSubmit",
-            "timeout": 10
+            "timeout": 15
           }
         ]
       }

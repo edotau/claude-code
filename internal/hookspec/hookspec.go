@@ -94,18 +94,27 @@ const sec = time.Second
 var Registry = []Group{
 	{Name: "safety", Gate: true, Events: []EventSpec{
 		{Name: "safety-scan", Event: EventPreToolUse, Matcher: "Bash", Budget: 5 * sec, StatusMessage: "Checking command safety", Blocks: true, Vendors: []string{"codex", "copilot"}},
+		// Markdown writes at a repo root or into an ignored docs/ page are blocked, naming the canonical home.
+		{Name: "docs-placement", Event: EventPreToolUse, Matcher: "Write|Edit", Budget: 5 * sec, StatusMessage: "Checking doc placement", Blocks: true, Vendors: []string{"codex", "copilot"}},
 	}},
 	{Name: "rtk", Events: []EventSpec{
 		// An eligible noisy Bash command is rewritten to run through the rtk output compressor (Claude only).
 		{Name: "rtk", Event: EventPreToolUse, Matcher: "Bash", Budget: 5 * sec},
 	}},
 	{Name: "plans", Events: []EventSpec{
-		// Check markdown placement, then require template headings for a native plan draft's first write.
-		{Name: "docs-placement", Event: EventPreToolUse, Matcher: "Write|Edit", Budget: 5 * sec, StatusMessage: "Checking doc placement", Blocks: true, Vendors: []string{"codex", "copilot"}},
+		// The first write to a native plan draft must carry the Plan.md template; the denial pastes the skeleton.
+		{Name: "plan-gate", Event: EventPreToolUse, Matcher: "Write|Edit", Budget: 5 * sec, StatusMessage: "Checking plan template", Blocks: true, Vendors: []string{"codex", "copilot"}},
 		// Every write/edit to a native plan-mode draft is mirrored to its dated, repo-tagged file in plans/.
 		{Name: "plan-mirror", Event: EventPostToolUse, Matcher: "Write|Edit", Budget: 10 * sec},
 		// An approved plan is filed under plans/, tagged with its repo.
 		{Name: "save-plan", Event: EventPostToolUse, Matcher: "ExitPlanMode", Budget: 10 * sec},
+		// The Plan.md skeleton is injected on entering plan mode and, once per plan, on a plan-mode prompt.
+		{Name: "plan-skeleton", Event: EventPostToolUse, Matcher: "EnterPlanMode", Budget: 5 * sec},
+		{Name: "plan-skeleton-prompt", Event: EventUserPromptSubmit, Budget: 5 * sec},
+		// A landed git commit ticks the active plan's tasks whose owns: it covers; partial coverage is noted.
+		{Name: "plan-tick", Event: EventPostToolUse, Matcher: "Bash", Budget: 10 * sec},
+		// Commits that only partly landed a task are reported once at Stop (advisory).
+		{Name: "plan-reminder", Event: EventStop, Budget: 5 * sec},
 	}},
 	{Name: "dispatch", Events: []EventSpec{
 		// An unset dispatch model is filled from the local prompt-complexity classifier (low→haiku, else sonnet).

@@ -3,6 +3,7 @@ package hooks
 import (
 	"bytes"
 	"cmp"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -18,6 +19,7 @@ import (
 	"github.com/edotau/claude-code/internal/audit"
 	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/plans"
 )
 
 // SavePlan files an approved ExitPlanMode plan as <config>/plans/[<repo>/]<date>-<title>.md (plans/ is gitignored wholesale).
@@ -58,7 +60,7 @@ func SavePlan(r io.Reader, stderr io.Writer) int {
 	}
 	fresh := true
 	if !ok {
-		dest, fresh = freshPlanDest(in.CWD, title, plan)
+		dest, fresh = planDestination(in.CWD, title, plan, true)
 	}
 	if !fresh {
 		return ExitProceed
@@ -149,34 +151,11 @@ func resolveCWDPath(path, cwd string) string {
 	return path
 }
 
-// freshPlanDest computes today's dated, repo-tagged destination for new plan content.
-func freshPlanDest(cwd, title string, content []byte) (string, bool) {
-	slug := paths.RepoSlug(cmp.Or(memory.GitToplevel(cwd), cwd))
-	dir := filepath.Join(paths.ConfigDir(), "plans", slug)
-	return planDest(dir, time.Now().Format("2006-01-02")+"-"+title, content)
-}
-
-// mirrorPlanDest picks <date>-<title>.md, then -2.md, … for a mirror's FIRST write to a draft: unlike
-// planDest it never adopts an existing file as this draft's dest, even one holding byte-identical content —
-// a dest the mirror did not itself create would have a later edit silently overwrite someone else's file.
-func mirrorPlanDest(cwd, title string) string {
-	slug := paths.RepoSlug(cmp.Or(memory.GitToplevel(cwd), cwd))
-	dir := filepath.Join(paths.ConfigDir(), "plans", slug)
+// planDestination picks <date>-<title>.md, then -2.md, … under the repo's plans dir; adopt reuses a
+// candidate already holding content (fresh=false) — save-plan adopts, a mirror never takes a file it did not create.
+func planDestination(cwd, title string, content []byte, adopt bool) (dest string, fresh bool) {
+	dir := plans.Home(cmp.Or(memory.GitToplevel(cwd), cwd))
 	base := time.Now().Format("2006-01-02") + "-" + title
-	for n := 1; ; n++ {
-		name := base + ".md"
-		if n > 1 {
-			name = fmt.Sprintf("%s-%d.md", base, n)
-		}
-		p := filepath.Join(dir, name)
-		if _, err := os.Stat(p); err != nil {
-			return p
-		}
-	}
-}
-
-// planDest picks <base>.md, then <base>-2.md, …; fresh=false when a candidate already holds this exact plan.
-func planDest(dir, base string, plan []byte) (string, bool) {
 	for n := 1; ; n++ {
 		name := base + ".md"
 		if n > 1 {
@@ -187,7 +166,7 @@ func planDest(dir, base string, plan []byte) (string, bool) {
 		if err != nil {
 			return p, true
 		}
-		if bytes.Equal(existing, plan) {
+		if adopt && bytes.Equal(existing, content) {
 			return p, false
 		}
 	}
@@ -283,9 +262,11 @@ func hasPlanHeading(headings []planHeading, want templateHeading) bool {
 	return false
 }
 
-// checkPlanTemplate is a PreToolUse(Write) check, folded into DocsPlacement: the FIRST write to an undated
-// draft under <config>/plans/ must already carry the plan template's required headings, or it is denied
-// (deny-one-call, like the rest of docs-placement).
+// PlanGate is the PreToolUse(Write|Edit) plan-gate hook: the first write to a native plan draft must carry the template.
+func PlanGate(r io.Reader, stderr io.Writer) int { return checkPlanTemplate(ParseInput(r), stderr) }
+
+// checkPlanTemplate denies the FIRST write to an undated draft under <config>/plans/ that lacks the plan
+// template's required headings (deny-one-call); the message pastes the skeleton so the retry is right.
 func checkPlanTemplate(in *Input, stderr io.Writer) int {
 	tool := strings.ToLower(in.ToolName)
 	if tool != "" && tool != "write" && tool != "create" {
@@ -309,11 +290,23 @@ func checkPlanTemplate(in *Input, stderr io.Writer) int {
 			continue
 		}
 		fmt.Fprintf(stderr, "plan-template: BLOCKED — %s is missing %q from the plan template.\n"+
-			"Write the full template (# Plan:, ## Context, ## Phases, ## Tasks) from %s before filing a draft.\n",
-			filepath.Base(path), want.label, filepath.Join(paths.ConfigDir(), "agents", "Plan.md"))
+			"Write the full template from %s before filing a draft:\n%s",
+			filepath.Base(path), want.label, filepath.Join(paths.ConfigDir(), "agents", "Plan.md"), skeletonOrHeadings())
 		return ExitBlock
 	}
 	return ExitProceed
+}
+
+// skeletonOrHeadings is the Plan.md skeleton, or the required-heading list when Plan.md is unreadable.
+func skeletonOrHeadings() string {
+	if sk, err := plans.Skeleton(paths.ConfigDir()); err == nil {
+		return sk
+	}
+	var b strings.Builder
+	for _, h := range planTemplateHeadings {
+		b.WriteString(h.label + "\n")
+	}
+	return b.String()
 }
 
 // plansScratchDir holds one <draft-basename>.dest record per mirrored draft, pointing at its dated file.
@@ -364,7 +357,7 @@ func PlanMirror(r io.Reader, stderr io.Writer) int {
 	base := filepath.Base(path)
 	dest, ok := readRecordedDest(base)
 	if !ok {
-		dest = mirrorPlanDest(in.CWD, planTitle(content))
+		dest, _ = planDestination(in.CWD, planTitle(content), content, false)
 		if err := recordDest(base, dest); err != nil {
 			fmt.Fprintf(stderr, "plan-mirror: %v\n", err)
 		}
@@ -376,5 +369,64 @@ func PlanMirror(r io.Reader, stderr io.Writer) int {
 	if err := os.WriteFile(dest, content, 0o600); err != nil {
 		fmt.Fprintf(stderr, "plan-mirror: %v\n", err)
 	}
+	return ExitProceed
+}
+
+func skeletonMarker(session string) string {
+	return filepath.Join(plansScratchDir(), paths.Slug(session, "", 80, "session")+".skeleton")
+}
+
+func partialFile(session string) string {
+	return filepath.Join(plansScratchDir(), paths.Slug(session, "", 80, "session")+".partial")
+}
+
+// PlanSkeleton injects the Plan.md skeleton on EnterPlanMode and, once per plan, on a plan-mode prompt.
+func PlanSkeleton(r io.Reader, stdout, stderr io.Writer) int {
+	in := ParseInput(r)
+	event := in.HookEventName
+	marker := skeletonMarker(in.SessionID)
+	if event == "UserPromptSubmit" {
+		if in.nested("permission_mode") != "plan" {
+			if err := os.Remove(marker); err != nil && !os.IsNotExist(err) {
+				fmt.Fprintf(stderr, "plan-skeleton: %v\n", err)
+			}
+			return ExitProceed
+		}
+		if _, err := os.Stat(marker); err == nil {
+			return ExitProceed
+		}
+	} else if in.ToolName != "EnterPlanMode" {
+		return ExitProceed
+	}
+	sk, err := plans.Skeleton(paths.ConfigDir())
+	if err != nil {
+		return ExitProceed // no Plan.md: fail open
+	}
+	if err := os.MkdirAll(plansScratchDir(), 0o700); err == nil {
+		err = os.WriteFile(marker, nil, 0o600)
+	}
+	if err != nil {
+		fmt.Fprintf(stderr, "plan-skeleton: %v\n", err)
+	}
+	fmt.Fprint(stdout, MergeContext(event, []string{"Plan format (agents/Plan.md) — this format replaces plan mode's " +
+		"suggested headings:\n" + sk}, in.Vendor()))
+	return ExitProceed
+}
+
+// PlanReminder warns once at Stop about commits that only partly landed a plan task, then clears the record.
+func PlanReminder(r io.Reader, stdout, stderr io.Writer) int {
+	in := ParseInput(r)
+	file := partialFile(in.SessionID)
+	data, err := os.ReadFile(file)
+	if err != nil {
+		return ExitProceed
+	}
+	if err := os.Remove(file); err != nil {
+		fmt.Fprintf(stderr, "plan-reminder: %v\n", err)
+	}
+	items := strings.Join(strings.Fields(strings.ReplaceAll(strings.TrimSpace(string(data)), "\n", ";")), " ")
+	msg := "plans: this turn's commits only partly landed: " + items + "; finish the task's owns: or tick it by hand"
+	out, _ := json.Marshal(map[string]string{"systemMessage": msg})
+	fmt.Fprint(stdout, string(out))
 	return ExitProceed
 }

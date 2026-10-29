@@ -41,7 +41,7 @@ func placementPayload(t *testing.T, tool, path string) string {
 	return string(b)
 }
 
-func TestDocsPlacementPlanTemplate(t *testing.T) {
+func TestPlanGateTemplate(t *testing.T) {
 	cases := []struct {
 		name     string
 		tool     string
@@ -79,7 +79,7 @@ func TestDocsPlacementPlanTemplate(t *testing.T) {
 					}
 				}
 				var stdout, stderr bytes.Buffer
-				code := Run("docs-placement", strings.NewReader(writePayload(t, c.tool, cfg, c.path, c.content)), &stdout, &stderr)
+				code := Run("plan-gate", strings.NewReader(writePayload(t, c.tool, cfg, c.path, c.content)), &stdout, &stderr)
 				if code != c.want {
 					t.Fatalf("code = %d, want %d; stderr=%s", code, c.want, &stderr)
 				}
@@ -115,17 +115,18 @@ func TestDocsPlacementFirstDenial(t *testing.T) {
 	}
 	for _, c := range []struct {
 		knob string
+		hook string
 		want string
 		not  string
 	}{
-		{"1", "docs-placement: BLOCKED", "plan-template: BLOCKED"},
-		{"0", "plan-template: BLOCKED", "docs-placement: BLOCKED"},
+		{"1", "docs-placement", "docs-placement: BLOCKED", "plan-template: BLOCKED"},
+		{"0", "plan-gate", "plan-template: BLOCKED", "docs-placement: BLOCKED"},
 	} {
 		t.Run("docs="+c.knob, func(t *testing.T) {
 			t.Setenv(docsPlacementDisableEnv, c.knob)
 			var stdout, stderr bytes.Buffer
 			payload := writePayload(t, "Write", cfg, filepath.Join(plans, "draft.md"), "freeform")
-			if code := Run("docs-placement", strings.NewReader(payload), &stdout, &stderr); code != ExitBlock {
+			if code := Run(c.hook, strings.NewReader(payload), &stdout, &stderr); code != ExitBlock {
 				t.Fatalf("code = %d, want ExitBlock; stderr=%s", code, &stderr)
 			}
 			if !strings.HasPrefix(stderr.String(), c.want) || strings.Contains(stderr.String(), c.not) {
