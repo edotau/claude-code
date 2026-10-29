@@ -261,8 +261,8 @@ func enabledGroups() func(group string, gate bool) bool {
 	}
 }
 
-// RunEvent is `claude-code hook <Event>`: read the payload once, run every enabled group, print the merged result.
-func RunEvent(event string, noOwn bool, stdin io.Reader, stdout, stderr io.Writer) int {
+// RunEvent is `hook <Event> [--all]`: run every enabled group once, own-process modules only when all is set.
+func RunEvent(event string, all bool, stdin io.Reader, stdout, stderr io.Writer) int {
 	in := ParseInput(stdin)
 	enabled := enabledGroups()
 	var bound []Bound
@@ -270,7 +270,7 @@ func RunEvent(event string, noOwn bool, stdin io.Reader, stdout, stderr io.Write
 		g, _ := hookspec.GroupOf(b.Spec.Name)
 		switch {
 		case g.VendorOnly, !enabled(b.Group, b.Gate):
-		case noOwn && (b.Gate || b.Spec.Async):
+		case !all && (b.Gate || b.Spec.Async):
 		case in.Vendor() != VendorClaude && !slices.Contains(b.Spec.Vendors, in.Vendor()):
 		default:
 			bound = append(bound, b)

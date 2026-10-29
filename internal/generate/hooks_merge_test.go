@@ -46,7 +46,7 @@ func TestMergeCodexHooksKeepsForeignEntries(t *testing.T) {
 			t.Fatalf("expected Orca's marker to survive in every one of its 9 groups, found %d occurrences in merged output for %s:\n%s", n, event, got)
 		}
 	}
-	if !strings.Contains(got, "claude-code hook safety-scan") {
+	if !strings.Contains(got, "claude-code hook PreToolUse --safety-scan") {
 		t.Errorf("merged output lost the harness safety-scan hook:\n%s", got)
 	}
 	var doc struct {
@@ -101,7 +101,7 @@ func TestRenderCodexHooksFilePreservesOrcaOnDisk(t *testing.T) {
 	if n := strings.Count(string(got), orcaMarker); n != 9 {
 		t.Fatalf("expected all 9 Orca groups to survive the render, found %d:\n%s", n, got)
 	}
-	if !strings.Contains(string(got), "claude-code hook safety-scan") {
+	if !strings.Contains(string(got), "claude-code hook PreToolUse --safety-scan") {
 		t.Errorf("rendered codex hooks missing the current harness hook:\n%s", got)
 	}
 }
@@ -136,7 +136,7 @@ func TestMergeCopilotHooksKeepsForeignEntries(t *testing.T) {
 	if strings.Contains(got, "safety-scan-STALE") {
 		t.Errorf("stale harness entry should be replaced, not kept:\n%s", got)
 	}
-	if !strings.Contains(got, "claude-code hook safety-scan") {
+	if !strings.Contains(got, "claude-code hook PreToolUse --safety-scan") {
 		t.Errorf("merged output lost the current harness safety-scan hook:\n%s", got)
 	}
 }
@@ -378,7 +378,7 @@ func TestMergeCodexHooksForeignFirstStaysFirst(t *testing.T) {
 	if strings.Contains(string(merged), "safety-scan-STALE") {
 		t.Errorf("stale harness command should have been replaced:\n%s", merged)
 	}
-	if !strings.Contains(string(groups[1]), "claude-code hook safety-scan") {
+	if !strings.Contains(string(groups[1]), "claude-code hook PreToolUse --safety-scan") {
 		t.Errorf("rendered block should follow Orca's group, got second group:\n%s\nfull:\n%s", groups[1], merged)
 	}
 }
@@ -406,7 +406,7 @@ func TestMergeCodexHooksHarnessFirstStaysFirst(t *testing.T) {
 	if !strings.Contains(string(last), "orca-stop") {
 		t.Fatalf("Orca's group must stay last, got last group:\n%s\nfull:\n%s", last, merged)
 	}
-	if !strings.Contains(string(groups[0]), "claude-code hook safety-scan") {
+	if !strings.Contains(string(groups[0]), "claude-code hook PreToolUse --safety-scan") {
 		t.Errorf("rendered block should take the harness group's old position (first), got:\n%s\nfull:\n%s", groups[0], merged)
 	}
 }
@@ -469,7 +469,7 @@ func TestMergeCodexHooksMixedGroupSplicesInPlace(t *testing.T) {
 		return -1
 	}
 	idxA, idxMixed, idxC := indexOf("orca-A"), indexOf("orca-mixed"), indexOf("orca-C")
-	idxRendered := indexOf("claude-code hook safety-scan")
+	idxRendered := indexOf("claude-code hook PreToolUse --safety-scan")
 	if idxA >= idxRendered || idxRendered >= idxMixed || idxMixed >= idxC {
 		t.Fatalf("expected order orca-A < rendered < rebuilt-mixed < orca-C, got A=%d rendered=%d mixed=%d C=%d:\n%s",
 			idxA, idxRendered, idxMixed, idxC, merged)

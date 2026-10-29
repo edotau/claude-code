@@ -203,7 +203,7 @@ func TestCodexRoutingSchemaStampsNewLinesAndSkipsNewer(t *testing.T) {
 	}
 }
 
-// `claude-code hook codex-agent-route` (Run) must emit the same wire shape the native runner renders.
+// `claude-code hook PreToolUse --codex-agent-route` (RunArgs) must emit the same wire shape the native runner renders.
 func TestCodexAgentRouteThroughRunKeepsWireShape(t *testing.T) {
 	setupCodexRoute(t) // sets HARNESS_HOOK_AGENT=codex
 	args := map[string]any{"fork_turns": "none", "message": "add a --verbose flag", "task_name": "probe_child", "agent_type": "default"}
@@ -214,7 +214,7 @@ func TestCodexAgentRouteThroughRunKeepsWireShape(t *testing.T) {
 		t.Fatalf("direct exit = %d", code)
 	}
 	var runOut, runErr bytes.Buffer
-	if code := Run("codex-agent-route", bytes.NewReader(body), &runOut, &runErr); code != ExitProceed {
+	if code := RunArgs("PreToolUse", []string{"--codex-agent-route"}, bytes.NewReader(body), &runOut, &runErr); code != ExitProceed {
 		t.Fatalf("Run exit = %d (stderr %s)", code, &runErr)
 	}
 	if runOut.String() != directOut.String() {

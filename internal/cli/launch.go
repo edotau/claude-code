@@ -173,16 +173,16 @@ func runPlan(plan launch.Plan, opts launch.Options, err error) int {
 	return fail("exec %s: %v", plan.Binary, plan.Exec())
 }
 
-// hookPage lists names in Hint, not Commands: a COMMANDS row would invite `hook <name> -h`, which runs the hook.
+// hookPage lists modules in Hint, not Commands: a COMMANDS row would invite `hook <name> -h`, which runs the hook.
 var hookPage = helptext.Page{
-	Usage: "claude-code hook <name> < payload.json",
+	Usage: "claude-code hook <Event> [--<module>|--all] < payload.json",
 	About: "Run one lifecycle hook on the event JSON on stdin; settings.json and the agent hook files invoke it.",
-	Hint: "names: safety-scan|rtk|docs-placement|agent-effort|\n" +
-		"       agent-inflight-post|workflow-inflight|subagent-stop|\n" +
-		"       plan-mirror|save-plan|stop|stop-format|\n" +
-		"       session-start|path-resolver|memory-recall|\n" +
-		"       session-harvest-end|pre-compact|worktree-create|worktree-remove\n" +
-		"events: <Event> [--no-own] runs every enabled group on that event",
+	Hint: "modules: safety-scan|rtk-rewrite|docs-placement|dispatch-effort|\n" +
+		"         dispatch-failure|dispatch-workflow|dispatch-stop|\n" +
+		"         docs-plan-mirror|docs-plan-save|memory-harvest|format-stop|\n" +
+		"         memory-start|paths-resolve|memory-recall|\n" +
+		"         memory-end|memory-compact|worktree-create|worktree-remove\n" +
+		"events: <Event> runs the dispatcher, --<module> one module, --all every module",
 }
 
 func cmdHook(args []string) int {

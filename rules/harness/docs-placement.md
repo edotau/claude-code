@@ -15,7 +15,7 @@ Report/handoff subpaths live in `internal/hooks/docsplacement.go`; plan mirrorin
 
 | Artifact | Path | Producer |
 | --- | --- | --- |
-| Plan (draft mirror → approved) | `~/.claude/plans/YYYY-MM-DD-<slug>.md` (this repo) · `~/.claude/plans/<repo>/YYYY-MM-DD-<slug>.md` (any other repo), gitignored wholesale; date fixed from the first write | `plan-gate` gates the native undated draft's first Write (the plan-template check); `plan-mirror` mirrors every Write/Edit to the dated destination; `save-plan` files approved text there on `ExitPlanMode`, then removes the undated draft |
+| Plan (draft mirror → approved) | `~/.claude/plans/YYYY-MM-DD-<slug>.md` (this repo) · `~/.claude/plans/<repo>/YYYY-MM-DD-<slug>.md` (any other repo), gitignored wholesale; date fixed from the first write | `docs-plan-gate` gates the native undated draft's first Write (the plan-template check); `docs-plan-mirror` mirrors every Write/Edit to the dated destination; `docs-plan-save` files approved text there on `ExitPlanMode`, then removes the undated draft |
 | Session handoff | `<store>/handoffs/YYYY-MM-DD-<topic>.md` | the session that ends, pointed to from `activeContext.md`; only when activeContext can't hold it |
 | Command/agent report (review, audit, techdebt scan, research brief) | `<store>/reports/YYYY-MM-DD-<name>.md` | the command or agent that produced it |
 | Promoted knowledge (local-only) | `<store>/knowledge/<topic>.md` (home bank for cross-repo, the repo's own bank for one repo) | hand-curated, reviewed |
@@ -27,8 +27,8 @@ project's tree, so handoffs and reports are never tracked by the repo they descr
 
 The settings template leaves `plansDirectory` unset (Claude Code's native default).
 The undated native file is a scratch draft, not the file
-of record: `plan-mirror` maintains the dated copy from its first write, even before approval.
-`save-plan` reuses that destination/date on approval; a response-only plan without a mirror is
+of record: `docs-plan-mirror` maintains the dated copy from its first write, even before approval.
+`docs-plan-save` reuses that destination/date on approval; a response-only plan without a mirror is
 filed with the approval date.
 
 ## What stays out of the three homes
@@ -55,8 +55,9 @@ filed with the approval date.
 
 ## Enforcement — the `docs-placement` gate
 
-`PreToolUse(Write|Edit)` → `claude-code hook docs-placement`. It **blocks** a `.md`/`.markdown` write
-in either of two shapes, printing the canonical paths to use instead:
+`docs-placement` is a module of the `docs` group and runs inside the PreToolUse dispatcher
+(`PreToolUse(Write|Edit)` → `claude-code hook PreToolUse`); its block is the merged deny. It **blocks** a
+`.md`/`.markdown` write in either of two shapes, printing the canonical paths to use instead:
 
 1. the target directory *is* the git toplevel (a repo root); or
 2. the target sits at or under `<root>/docs` **and** git ignores it — a page that vanishes on a fresh

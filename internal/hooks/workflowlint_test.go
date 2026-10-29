@@ -273,11 +273,11 @@ func TestWorkflowLintByNameResolvedFileUnpinnedBlocksAndNamesFile(t *testing.T) 
 	}
 }
 
-// The registry row for agent-effort serves the same pin step directly (`claude-code hook agent-effort`).
+// The registry row for dispatch-effort serves the same pin step directly (`claude-code hook PreToolUse --dispatch-effort`).
 func TestAgentEffortRegistryDispatches(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	code := Run("agent-effort", strings.NewReader(`{"tool_name":"Agent","tool_input":{}}`), &bytes.Buffer{}, &bytes.Buffer{})
+	code := RunArgs("PreToolUse", []string{"--dispatch-effort"}, strings.NewReader(`{"tool_name":"Agent","tool_input":{}}`), &bytes.Buffer{}, &bytes.Buffer{})
 	if code != ExitProceed {
-		t.Fatalf("Run(\"agent-effort\", ...) on an Agent payload = %d, want ExitProceed", code)
+		t.Fatalf("RunArgs(PreToolUse, --dispatch-effort) on an Agent payload = %d, want ExitProceed", code)
 	}
 }

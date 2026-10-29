@@ -48,7 +48,7 @@ func PlanTick(r io.Reader, stdout, stderr io.Writer) int {
 
 // tickCommit ticks the active plan's tasks covered by one landed commit and returns the context blocks.
 func tickCommit(in *Input, cmd, sha string, stderr io.Writer) []string {
-	ctx, cancel := hookContext("plan-tick")
+	ctx, cancel := hookContext("docs-plan-tick")
 	defer cancel()
 	dir := commitRepoDir(ctx, in.CWD, cmd, sha)
 	if dir == "" {

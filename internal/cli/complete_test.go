@@ -110,8 +110,8 @@ func TestCompletionFlagValues(t *testing.T) {
 
 // TestCompletionPositionals: a verb's first bare argument completes from its own static domain.
 func TestCompletionPositionals(t *testing.T) {
-	if got := completionCandidates([]string{"hook", ""}); !slices.Equal(got, hookNames()) {
-		t.Errorf("hook values = %v, want %v", got, hookNames())
+	if got := completionCandidates([]string{"hook", ""}); !slices.Equal(got, hookEvents()) {
+		t.Errorf("hook values = %v, want %v", got, hookEvents())
 	}
 	if got := completionCandidates([]string{"workflow", "skeleton", ""}); !slices.Equal(got, workflowPatterns()) {
 		t.Errorf("workflow skeleton values = %v, want %v", got, workflowPatterns())

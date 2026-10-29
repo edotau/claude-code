@@ -38,11 +38,13 @@ func toolNames() []string { return tools.Names() }
 // configureAgentNames are the agent CLIs `configure --agent` can scope to: the vendors plus claude itself.
 func configureAgentNames() []string { return append([]string{"claude"}, vendorNames()...) }
 
-// hookNames derives from the hook chain the registry actually declares — never a hand copy of it.
-func hookNames() []string {
-	out := make([]string, 0, len(hookspec.Specs()))
+// hookEvents derives from the hook chain the registry actually declares — never a hand copy of it.
+func hookEvents() []string {
+	var out []string
 	for _, s := range hookspec.Specs() {
-		out = append(out, s.Name)
+		if !slices.Contains(out, s.Event) {
+			out = append(out, s.Event)
+		}
 	}
 	return out
 }

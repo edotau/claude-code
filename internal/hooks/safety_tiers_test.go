@@ -255,8 +255,8 @@ func TestSafetyBlockPrecedenceOverAsk(t *testing.T) {
 	}
 }
 
-// TestSafetyDispatcherGateVsNoOwn: the event dispatcher carries the gate's ask, the --no-own one must not.
-func TestSafetyDispatcherGateVsNoOwn(t *testing.T) {
+// TestSafetyDispatcherGateVsBare: `--all` carries the gate's ask, the bare dispatcher must not.
+func TestSafetyDispatcherGateVsBare(t *testing.T) {
 	harness := tierHarness(t)
 	t.Setenv("HARNESS_VAULT_KEY", "0123456789abcdef0123456789abcdef") // hermetic vault (as in dispatch_test.go)
 	t.Setenv("HARNESS_RTK_BIN", "claude-test-no-such-rtk-binary")     // rtk stays a no-op
@@ -266,7 +266,7 @@ func TestSafetyDispatcherGateVsNoOwn(t *testing.T) {
 	})
 	t.Run("gate carries the ask", func(t *testing.T) {
 		var out, errb bytes.Buffer
-		if code := RunEvent("PreToolUse", false, bytes.NewReader(payload), &out, &errb); code != ExitProceed {
+		if code := RunEvent("PreToolUse", true, bytes.NewReader(payload), &out, &errb); code != ExitProceed {
 			t.Fatalf("exit = %d, want 0 (stderr %s)", code, errb.String())
 		}
 		var doc struct {
@@ -281,13 +281,13 @@ func TestSafetyDispatcherGateVsNoOwn(t *testing.T) {
 			t.Errorf("permissionDecision = %q, want ask (%s)", doc.Output.Decision, out.String())
 		}
 	})
-	t.Run("no-own dispatcher omits the gate decision", func(t *testing.T) {
+	t.Run("bare dispatcher omits the gate decision", func(t *testing.T) {
 		var out, errb bytes.Buffer
-		if code := RunEvent("PreToolUse", true, bytes.NewReader(payload), &out, &errb); code != ExitProceed {
+		if code := RunEvent("PreToolUse", false, bytes.NewReader(payload), &out, &errb); code != ExitProceed {
 			t.Fatalf("exit = %d, want 0 (stderr %s)", code, errb.String())
 		}
 		if strings.Contains(out.String(), "permissionDecision") {
-			t.Errorf("--no-own dispatcher must not carry the safety decision: %s", out.String())
+			t.Errorf("bare dispatcher must not carry the safety decision: %s", out.String())
 		}
 	})
 }
@@ -296,7 +296,7 @@ func TestSafetyDispatcherGateVsNoOwn(t *testing.T) {
 func TestSafetyStaleGuardNameFailsClosed(t *testing.T) {
 	tierHarness(t)
 	for _, cmd := range []string{"rm -rf /", "ls"} {
-		if got := Run("bash-guard", bashPayload(cmd), io.Discard, io.Discard); got != ExitBlock {
+		if got := RunArgs("bash-guard", nil, bashPayload(cmd), io.Discard, io.Discard); got != ExitBlock {
 			t.Fatalf("hook bash-guard on %q = %d, want ExitBlock", cmd, got)
 		}
 	}

@@ -1,4 +1,4 @@
-// Package hooks implements `claude-code hook <name>`: JSON on stdin, exit 0 = proceed, 2 = block.
+// Package hooks implements `claude-code hook <Event> [--<module>|--all]`: JSON on stdin, exit 0 = proceed, 2 = block.
 // Hooks fail OPEN — an infra glitch never blocks the session.
 package hooks
 
@@ -10,7 +10,6 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 
 	"github.com/edotau/claude-code/internal/hookspec"
@@ -223,51 +222,51 @@ func hookContext(name string) (context.Context, context.CancelFunc) {
 	panic("unknown hook: " + name)
 }
 
-// Registry maps hook verbs to handlers; names must match hookspec.Registry.
+// Registry maps hook modules to handlers; names must match hookspec.Registry.
 var Registry = map[string]Handler{
-	"safety-scan":          SafetyScan,
-	"rtk":                  RTKRewrite,
-	"docs-placement":       func(in io.Reader, _, errw io.Writer) int { return DocsPlacement(in, errw) },
-	"session-start":        func(in io.Reader, out, _ io.Writer) int { return SessionStart(in, out) },
-	"memory-recall":        func(in io.Reader, out, _ io.Writer) int { return MemoryRecall(in, out) },
-	"path-resolver":        nativeHandler("path-resolver"),
-	"stop":                 func(in io.Reader, _, errw io.Writer) int { return Stop(in, errw) },
-	"stop-format":          func(in io.Reader, _, _ io.Writer) int { return StopFormat(in) },
-	"session-harvest-end":  func(in io.Reader, _, _ io.Writer) int { return SessionHarvestEnd(in) },
-	"agent-effort":         nativeHandler("agent-effort"),
-	"codex-agent-route":    nativeHandler("codex-agent-route"),
-	"codex-routing-start":  nativeHandler("codex-routing-start"),
-	"codex-routing-result": nativeHandler("codex-routing-result"),
-	"codex-subagent-start": nativeHandler("codex-subagent-start"),
-	"agent-inflight-post":  nativeHandler("agent-inflight-post"),
-	"workflow-inflight":    nativeHandler("workflow-inflight"),
-	"plan-gate":            func(in io.Reader, _, errw io.Writer) int { return PlanGate(in, errw) },
-	"plan-skeleton":        PlanSkeleton,
-	"plan-skeleton-prompt": PlanSkeleton,
-	"plan-tick":            PlanTick,
-	"plan-reminder":        PlanReminder,
-	"plan-mirror":          func(in io.Reader, _, errw io.Writer) int { return PlanMirror(in, errw) },
-	"save-plan":            func(in io.Reader, _, errw io.Writer) int { return SavePlan(in, errw) },
-	"subagent-stop":        nativeHandler("subagent-stop"),
-	"pre-compact":          func(in io.Reader, _, _ io.Writer) int { return PreCompact(in) },
-	"worktree-create":      func(in io.Reader, out, errw io.Writer) int { return WorktreeCreate(in, out, errw) },
-	"worktree-remove":      func(in io.Reader, _, errw io.Writer) int { return WorktreeRemove(in, errw) },
+	"safety-scan":               SafetyScan,
+	"rtk-rewrite":               RTKRewrite,
+	"docs-placement":            func(in io.Reader, _, errw io.Writer) int { return DocsPlacement(in, errw) },
+	"memory-start":              func(in io.Reader, out, _ io.Writer) int { return SessionStart(in, out) },
+	"memory-recall":             func(in io.Reader, out, _ io.Writer) int { return MemoryRecall(in, out) },
+	"paths-resolve":             nativeHandler("paths-resolve"),
+	"memory-harvest":            func(in io.Reader, _, errw io.Writer) int { return Stop(in, errw) },
+	"format-stop":               func(in io.Reader, _, _ io.Writer) int { return StopFormat(in) },
+	"memory-end":                func(in io.Reader, _, _ io.Writer) int { return SessionHarvestEnd(in) },
+	"dispatch-effort":           nativeHandler("dispatch-effort"),
+	"codex-agent-route":         nativeHandler("codex-agent-route"),
+	"codex-routing-start":       nativeHandler("codex-routing-start"),
+	"codex-routing-result":      nativeHandler("codex-routing-result"),
+	"codex-subagent-start":      nativeHandler("codex-subagent-start"),
+	"dispatch-failure":          nativeHandler("dispatch-failure"),
+	"dispatch-workflow":         nativeHandler("dispatch-workflow"),
+	"docs-plan-gate":            func(in io.Reader, _, errw io.Writer) int { return PlanGate(in, errw) },
+	"docs-plan-skeleton":        PlanSkeleton,
+	"docs-plan-skeleton-prompt": PlanSkeleton,
+	"docs-plan-tick":            PlanTick,
+	"docs-plan-reminder":        PlanReminder,
+	"docs-plan-mirror":          func(in io.Reader, _, errw io.Writer) int { return PlanMirror(in, errw) },
+	"docs-plan-save":            func(in io.Reader, _, errw io.Writer) int { return SavePlan(in, errw) },
+	"dispatch-stop":             nativeHandler("dispatch-stop"),
+	"memory-compact":            func(in io.Reader, _, _ io.Writer) int { return PreCompact(in) },
+	"worktree-create":           func(in io.Reader, out, errw io.Writer) int { return WorktreeCreate(in, out, errw) },
+	"worktree-remove":           func(in io.Reader, _, errw io.Writer) int { return WorktreeRemove(in, errw) },
 }
 
-// Native binds a hook verb straight to a Runner; the dispatcher prefers it over the legacy adapter.
+// Native binds a hook module straight to a Runner; the dispatcher prefers it over the legacy adapter.
 var Native = map[string]Runner{
-	"path-resolver":        nativePathResolver,
+	"paths-resolve":        nativePathResolver,
 	"codex-agent-route":    nativeCodexAgentRoute,
 	"codex-routing-start":  nativeCodexRoutingStart,
 	"codex-routing-result": nativeCodexRoutingResult,
 	"codex-subagent-start": nativeCodexSubagentStart,
-	"agent-effort":         dispatchPre,
-	"agent-inflight-post":  releaseSpawn,
-	"workflow-inflight":    releaseSpawn,
-	"subagent-stop":        subagentStopRunner,
+	"dispatch-effort":      dispatchPre,
+	"dispatch-failure":     releaseSpawn,
+	"dispatch-workflow":    releaseSpawn,
+	"dispatch-stop":        subagentStopRunner,
 }
 
-// nativeHandler serves a direct `hook <name>` call from the named Runner, resolved lazily so the verb table
+// nativeHandler serves a direct `hook <Event> --<module>` call from the named Runner, resolved lazily so the verb table
 // and Native can be initialized in either order.
 func nativeHandler(name string) Handler {
 	return func(stdin io.Reader, stdout, stderr io.Writer) int {
@@ -290,20 +289,28 @@ func eventOf(name string) string {
 	return ""
 }
 
-// Run dispatches `hook <name> [--no-own]`: an event name runs that event's dispatcher, a legacy hook name runs
-// that one handler (still the entry other agent CLIs, gate groups and async hooks call); unknown is non-blocking.
-func Run(name string, stdin io.Reader, stdout, stderr io.Writer) int {
-	return RunArgs(name, nil, stdin, stdout, stderr)
+// RunArgs is `hook <Event> [--<module>|--all]`; an unknown event or module fails closed only when it reads as a guard.
+func RunArgs(event string, flags []string, stdin io.Reader, stdout, stderr io.Writer) int {
+	if !IsEvent(event) {
+		return unknownHook(event, "unknown hook event", stderr)
+	}
+	switch {
+	case len(flags) == 0:
+		return RunEvent(event, false, stdin, stdout, stderr)
+	case len(flags) == 1 && flags[0] == hookspec.AllFlag:
+		return RunEvent(event, true, stdin, stdout, stderr)
+	case len(flags) == 1 && strings.HasPrefix(flags[0], "--"):
+		return runModule(event, strings.TrimPrefix(flags[0], "--"), stdin, stdout, stderr)
+	}
+	fmt.Fprintf(stderr, "claude-code hook %s: want no flag, --all or one --<module>, got %q\n", event, flags)
+	return 1
 }
 
-// RunArgs is Run with the verb's trailing flags (only --no-own, which an event dispatcher honors).
-func RunArgs(name string, flags []string, stdin io.Reader, stdout, stderr io.Writer) int {
-	if IsEvent(name) {
-		return RunEvent(name, slices.Contains(flags, hookspec.NoOwnFlag), stdin, stdout, stderr)
-	}
+// runModule runs one module on its declared event; a group switched off in harnessHooks proceeds.
+func runModule(event, name string, stdin io.Reader, stdout, stderr io.Writer) int {
 	h, ok := Registry[name]
-	if !ok {
-		return unknownHook(name, stderr)
+	if !ok || eventOf(name) != event {
+		return unknownHook(name, "no module on "+event+" named", stderr)
 	}
 	if g, found := hookspec.GroupOf(name); found && !enabledGroups()(g.Name, g.Gate) {
 		return ExitProceed
@@ -312,9 +319,9 @@ func RunArgs(name string, flags []string, stdin io.Reader, stdout, stderr io.Wri
 }
 
 // unknownHook fails closed when the unknown name reads as a guard; a stale vendor hook file must not drop its gate.
-func unknownHook(name string, stderr io.Writer) int {
-	fmt.Fprintf(stderr, "claude-code hook: unknown hook %q\n", name)
-	for _, w := range []string{"guard", "gate", "safety", "scan"} {
+func unknownHook(name, what string, stderr io.Writer) int {
+	fmt.Fprintf(stderr, "claude-code hook: %s %q\n", what, name)
+	for _, w := range []string{"guard", "gate", "safety", "scan", "placement"} {
 		if strings.Contains(name, w) {
 			return ExitBlock
 		}
