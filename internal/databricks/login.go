@@ -236,21 +236,9 @@ func profileFlag(fs *flag.FlagSet) *string {
 
 // profileFlagVar binds --profile and -p to v; help shows them as one "-p, --profile NAME" row.
 func profileFlagVar(fs *flag.FlagSet, v *string, usage string) {
-	fs.Var((*profileName)(v), "profile", usage)
-	fs.Var((*profileName)(v), "p", "shorthand for --profile")
+	helptext.NameVar(fs, v, "profile", usage)
+	helptext.NameVar(fs, v, "p", "shorthand for --profile")
 }
-
-// profileName is a string flag whose help placeholder is NAME, not the generic "string".
-type profileName string
-
-func (p *profileName) String() string {
-	if p == nil {
-		return ""
-	}
-	return string(*p)
-}
-func (p *profileName) Set(s string) error  { *p = profileName(s); return nil }
-func (p *profileName) Placeholder() string { return "NAME" }
 
 // usageProfile refuses a positional profile name: commands take only flags (--profile).
 func usageProfile(verb, arg string) int {

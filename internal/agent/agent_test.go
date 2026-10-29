@@ -557,3 +557,25 @@ func TestRunStatusAndAttempts(t *testing.T) {
 		})
 	}
 }
+
+// A gated-out own-login route followed by a same-agent Databricks route is a fallback; the requested route answering is not.
+func TestRunWithFallbackSkippedRequestedRoute(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Run("own route skipped, same-agent databricks answers", func(t *testing.T) {
+		codex := &fakeRunner{name: "codex", errs: []error{nil}}
+		c := Chain{Want: "codex", Skipped: []string{"codex: chatgpt exhausted"},
+			Legs: []Leg{{Agent: codex, Account: "databricks·codex", keepCaller: true, otherRoute: true}}}
+		res, err := RunWithFallback(context.Background(), c, Request{Prompt: "p"}, io.Discard, nil)
+		if err != nil || res.Agent != "codex" || res.Fallback == "" ||
+			!strings.Contains(res.FallbackReason, "chatgpt exhausted") {
+			t.Fatalf("res=%+v err=%v, want Fallback set with the skip reason", res, err)
+		}
+	})
+	t.Run("gemini answering itself stays null", func(t *testing.T) {
+		gemini := &fakeRunner{name: "gemini", errs: []error{nil}}
+		res, err := RunWithFallback(context.Background(), chainOf([]Runner{gemini}), Request{Prompt: "p"}, io.Discard, nil)
+		if err != nil || res.Fallback != "" || res.FallbackReason != "" {
+			t.Fatalf("res=%+v err=%v, want no fallback", res, err)
+		}
+	})
+}

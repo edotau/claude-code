@@ -23,6 +23,7 @@ type Leg struct {
 	Model, Effort           string
 	Account, Billing        string
 	keepCaller, unroutedLeg bool // keepCaller: the wanted leg keeps the caller's own --model
+	otherRoute              bool // otherRoute: not the wanted agent's requested route (own login, or its pinned profile)
 }
 
 // Chain is a routed dispatch: Want is the agent asked for, Legs run in order, Skipped are gate drops.
@@ -123,6 +124,7 @@ func routeChain(ctx context.Context, want, tier, row, exact, callerModel, mode s
 			c.Skipped = append(c.Skipped, skip)
 			continue
 		}
+		leg.otherRoute = cand.Agent != want || (want != "claude" && cand.Profile != pins[want].Profile)
 		c.Legs = append(c.Legs, leg)
 	}
 	return c, pick, nil
