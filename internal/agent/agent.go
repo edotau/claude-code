@@ -101,7 +101,7 @@ type Runner interface {
 	Name() string
 	Caps() Caps
 	Available() error
-	Run(ctx context.Context, req Request, stream io.Writer) (Result, error)
+	Run(ctx context.Context, req Request, sink Sink) (Result, error)
 }
 
 // Agents lists every agent in roster order.
@@ -146,21 +146,10 @@ func applyCaps(c Caps, req Request) (Request, []string) {
 	return req, dropped
 }
 
-type countingWriter struct {
-	w io.Writer
-	n int64
-}
-
-func (c *countingWriter) Write(p []byte) (int, error) {
-	n, err := c.w.Write(p)
-	c.n += int64(n)
-	return n, err
-}
-
 // Run drops unsupported fields loudly, then runs r under DefaultPolicy with req.Timeout per attempt.
-func Run(ctx context.Context, r Runner, req Request, stream io.Writer, notify func(string)) (Result, error) {
-	if stream == nil {
-		stream = io.Discard
+func Run(ctx context.Context, r Runner, req Request, sink Sink, notify func(string)) (Result, error) {
+	if sink == nil {
+		sink = Discard
 	}
 	req, dropped := applyCaps(r.Caps(), req)
 	res := Result{Agent: r.Name(), Status: StatusError, Dropped: dropped}
@@ -208,7 +197,7 @@ func Run(ctx context.Context, r Runner, req Request, stream io.Writer, notify fu
 		if gerr != nil {
 			return note(gerr)
 		}
-		cw := &countingWriter{w: stream}
+		cw := &runSink{Sink: sink, agent: r.Name()}
 		out, err := r.Run(actx, req, cw)
 		// An agent that delegated to another names the actual agent itself;
 		// only default to r.Name() when it left Agent unset, so the envelope doesn't lie about who ran.
@@ -501,7 +490,10 @@ func notClaude(name string) bool { return name != "claude" }
 // an oversized prompt or a partial answer, nor when the caller pinned an explicit non-Claude --provider/--model.
 // A KindQuota failure marks the leg's account until its reset. The result names the wanted agent in Fallback and
 // every gate skip and failed leg in FallbackReason.
-func RunWithFallback(ctx context.Context, c Chain, req Request, stream io.Writer, notify func(string)) (Result, error) {
+func RunWithFallback(ctx context.Context, c Chain, req Request, sink Sink, notify func(string)) (Result, error) {
+	if sink == nil {
+		sink = Discard
+	}
 	reasons := slices.Clone(c.Skipped)
 	if len(c.Legs) == 0 {
 		return Result{Agent: c.Want, Status: StatusError, FallbackReason: strings.Join(reasons, "; ")},
@@ -535,6 +527,11 @@ func RunWithFallback(ctx context.Context, c Chain, req Request, stream io.Writer
 			reasons = append(reasons, hopLabel(prevLeg)+": "+fallbackReason(err))
 			if notify != nil {
 				notify(fmt.Sprintf("%s unavailable (%s) — falling back to %s%s", legLabel(prev), fallbackReason(err), legLabel(leg.Agent), legCell(leg)))
+			}
+			hop := Event{Type: EventRetry, Agent: leg.Agent.Name(),
+				Text: fmt.Sprintf("fallback %s → %s: %s", legLabel(prev), legLabel(leg.Agent), fallbackReason(err))}
+			if serr := sink.Emit(hop); serr != nil {
+				return res, &Error{Kind: KindFatal, Agent: leg.Agent.Name(), Err: serr}
 			}
 		}
 		lreq := legRequest(req, leg, i == 0 && leg.Agent.Name() == c.Want)
@@ -576,7 +573,7 @@ func RunWithFallback(ctx context.Context, c Chain, req Request, stream io.Writer
 				hops = append(hops, hopOf(leg, lreq, res, err))
 				return
 			}
-			res, err = Run(context.WithValue(withCoolKey(ctx, key), permitKey{}, held), leg.Agent, lreq, stream, notify)
+			res, err = Run(context.WithValue(withCoolKey(ctx, key), permitKey{}, held), leg.Agent, lreq, sink, notify)
 			res.Invoked = lreq.Model
 			hops = append(hops, hopOf(leg, lreq, res, err))
 			noteQuota(leg, err)

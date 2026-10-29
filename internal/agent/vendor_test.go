@@ -3,7 +3,6 @@ package agent
 import (
 	"context"
 	"errors"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -76,7 +75,7 @@ func TestVendorRunnerOversizedPromptRefusalScopedToArgv(t *testing.T) {
 
 	for _, name := range []string{"codex", "gemini"} {
 		t.Run(name+"/not-refused", func(t *testing.T) {
-			_, err := vendorRunner{name: name}.Run(context.Background(), Request{Prompt: big, Provider: "max"}, io.Discard)
+			_, err := vendorRunner{name: name}.Run(context.Background(), Request{Prompt: big, Provider: "max"}, Discard)
 			if err == nil {
 				t.Fatalf("%s: want a non-nil error (no route for a fake provider), got nil", name)
 			}
@@ -87,7 +86,7 @@ func TestVendorRunnerOversizedPromptRefusalScopedToArgv(t *testing.T) {
 	}
 
 	t.Run("opencode/still-refused", func(t *testing.T) {
-		_, err := vendorRunner{name: "opencode"}.Run(context.Background(), Request{Prompt: big, Provider: "max"}, io.Discard)
+		_, err := vendorRunner{name: "opencode"}.Run(context.Background(), Request{Prompt: big, Provider: "max"}, Discard)
 		var e *Error
 		if !errors.As(err, &e) || !errors.Is(e, ErrPromptTooLarge) {
 			t.Fatalf("opencode: err = %v, want *Error wrapping ErrPromptTooLarge (prompt rides argv)", err)
@@ -122,7 +121,7 @@ func TestVendorRunnerGeminiModelResolutionPinBeatsDefault(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	res, err := vendorRunner{name: "gemini"}.Run(context.Background(), Request{Prompt: "task"}, io.Discard)
+	res, err := vendorRunner{name: "gemini"}.Run(context.Background(), Request{Prompt: "task"}, Discard)
 	if err == nil {
 		t.Fatal("want an error (no real agy binary installed), got nil")
 	}
@@ -133,7 +132,7 @@ func TestVendorRunnerGeminiModelResolutionPinBeatsDefault(t *testing.T) {
 	if err := providers.SetPins(map[string]string{providers.PinGeminiModel: "gemini-2.5-pro"}); err != nil {
 		t.Fatal(err)
 	}
-	res, err = vendorRunner{name: "gemini"}.Run(context.Background(), Request{Prompt: "task"}, io.Discard)
+	res, err = vendorRunner{name: "gemini"}.Run(context.Background(), Request{Prompt: "task"}, Discard)
 	if err == nil {
 		t.Fatal("want an error (no real agy binary installed), got nil")
 	}
@@ -149,7 +148,7 @@ func TestVendorRunnerGeminiExplicitModelBeatsPin(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	res, err := vendorRunner{name: "gemini"}.Run(context.Background(), Request{Prompt: "task", Model: "gemini-3.8-flash-low"}, io.Discard)
+	res, err := vendorRunner{name: "gemini"}.Run(context.Background(), Request{Prompt: "task", Model: "gemini-3.8-flash-low"}, Discard)
 	if err == nil {
 		t.Fatal("want an error (no real agy binary installed), got nil")
 	}
@@ -180,7 +179,7 @@ const openCodeOK = `{"type":"step_start","timestamp":1,"sessionID":"ses_A","part
 
 func TestParseOpenCodeStream(t *testing.T) {
 	var out strings.Builder
-	res, err := parseOpenCodeStream(strings.NewReader(openCodeOK), &out, nil)
+	res, err := parseOpenCodeStream(strings.NewReader(openCodeOK), NewTextSink(&out), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -194,7 +193,7 @@ func TestParseOpenCodeStream(t *testing.T) {
 
 func TestParseOpenCodeStreamError(t *testing.T) {
 	stream := `{"type":"error","timestamp":1,"sessionID":"ses_B","error":{"name":"APIError","data":{"message":"models/x is not found"}}}` + "\n"
-	res, err := parseOpenCodeStream(strings.NewReader(stream), &strings.Builder{}, nil)
+	res, err := parseOpenCodeStream(strings.NewReader(stream), NewTextSink(&strings.Builder{}), nil)
 	if err == nil || !strings.Contains(err.Error(), "models/x is not found") || res.SessionID != "ses_B" {
 		t.Fatalf("err = %v, res = %+v", err, res)
 	}
@@ -207,7 +206,7 @@ func TestParseOpenCodeStreamMultipleTexts(t *testing.T) {
 	{"type":"text","sessionID":"ses_A","part":{"text":"three"}}`
 	t.Run("success", func(t *testing.T) {
 		var out strings.Builder
-		res, err := parseOpenCodeStream(strings.NewReader(stream), &out, nil)
+		res, err := parseOpenCodeStream(strings.NewReader(stream), NewTextSink(&out), nil)
 		if err != nil || res.Answer != "one\ntwo\nthree" || out.String() != res.Answer {
 			t.Fatalf("res = %+v, output = %q, err = %v", res, out.String(), err)
 		}
@@ -215,7 +214,7 @@ func TestParseOpenCodeStreamMultipleTexts(t *testing.T) {
 	t.Run("newline error", func(t *testing.T) {
 		injected := errors.New("newline rejected")
 		w := &newlineRejectWriter{err: injected}
-		_, err := parseOpenCodeStream(strings.NewReader(stream), w, nil)
+		_, err := parseOpenCodeStream(strings.NewReader(stream), NewTextSink(w), nil)
 		if !errors.Is(err, injected) {
 			t.Fatalf("err = %v, want injected newline error", err)
 		}
@@ -234,7 +233,7 @@ const agyOK = `{"event":"init","conversation_id":"415ed744","init":{"model":"gem
 
 func TestParseAgyStream(t *testing.T) {
 	var out strings.Builder
-	res, err := parseAgyStream(strings.NewReader(agyOK), &out, nil)
+	res, err := parseAgyStream(strings.NewReader(agyOK), NewTextSink(&out), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -251,7 +250,7 @@ const agySoftDeny = `{"event":"result","result":{"conversation_id":"d1","status"
 `
 
 func TestParseAgyStream_SoftDeny(t *testing.T) {
-	res, err := parseAgyStream(strings.NewReader(agySoftDeny), &strings.Builder{}, nil)
+	res, err := parseAgyStream(strings.NewReader(agySoftDeny), NewTextSink(&strings.Builder{}), nil)
 	if err != nil {
 		t.Fatalf("a soft deny is still status SUCCESS: %v", err)
 	}

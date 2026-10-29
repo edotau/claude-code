@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -92,7 +91,7 @@ func TestExplicitChainCopilotNotPreSkippedAndMarks(t *testing.T) {
 	if len(c.Legs) != 1 || c.Legs[0].Account != "github·alice" {
 		t.Fatalf("chain = %+v, want one leg on github·alice", c)
 	}
-	if _, err := RunWithFallback(context.Background(), c, req, io.Discard, nil); err == nil {
+	if _, err := RunWithFallback(context.Background(), c, req, Discard, nil); err == nil {
 		t.Fatal("the quota failure must surface")
 	}
 	if e := loadState()["github·alice"]; e.Status(time.Now()) != router.StateExhausted {
@@ -156,7 +155,7 @@ func TestCopilotRunnerEmptyAnswerIsFatal(t *testing.T) {
 	ghLogin(t, "alice", 10)
 	fakeCopilotBin(t)
 	stubAsk(t, func(int) (copilotsdk.Result, error) { return copilotsdk.Result{Text: "  \n", SessionID: "s1"}, nil })
-	res, err := copilotRunner{}.Run(context.Background(), Request{Prompt: "p", Provider: "personal", Direct: true}, io.Discard)
+	res, err := copilotRunner{}.Run(context.Background(), Request{Prompt: "p", Provider: "personal", Direct: true}, Discard)
 	var e *Error
 	if !errors.As(err, &e) || e.Kind != KindFatal || e.Agent != "copilot" || !strings.Contains(e.Err.Error(), "empty answer") {
 		t.Fatalf("err = %v, want KindFatal emptyAnswer(copilot)", err)
@@ -177,7 +176,7 @@ func TestCopilotRunnerQuotaTriggersHandoff(t *testing.T) {
 		}
 		return copilotsdk.Result{Text: "Step 1 done.", SessionID: "0a1b2c3d-4e5f-6789-abcd-ef0123456789"}, errQuotaMidTask
 	})
-	res, err := copilotRunner{}.Run(context.Background(), Request{Prompt: "Refactor foo", Model: "opus", Provider: "personal", Direct: true}, io.Discard)
+	res, err := copilotRunner{}.Run(context.Background(), Request{Prompt: "Refactor foo", Model: "opus", Provider: "personal", Direct: true}, Discard)
 	if !errors.Is(err, errQuotaMidTask) || Classify("copilot", err, false).Kind != KindQuota {
 		t.Fatalf("res=%+v err=%v; want the KindQuota cause", res, err)
 	}
@@ -212,7 +211,7 @@ func TestCopilotPartialAnswerKeptOnTransientError(t *testing.T) {
 	})
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	res, err := Run(ctx, copilotRunner{}, Request{Prompt: "p", Provider: "personal", Direct: true}, io.Discard, nil)
+	res, err := Run(ctx, copilotRunner{}, Request{Prompt: "p", Provider: "personal", Direct: true}, Discard, nil)
 	if err == nil {
 		t.Fatal("err = nil, want the SDK failure")
 	}
@@ -237,7 +236,7 @@ func TestCopilotResultJSONUsageNull(t *testing.T) {
 	stubAsk(t, func(int) (copilotsdk.Result, error) {
 		return copilotsdk.Result{Text: "hello", SessionID: "sess-1", Model: "m"}, nil
 	})
-	res, err := Run(context.Background(), copilotRunner{}, Request{Prompt: "p", Provider: "personal", Direct: true}, io.Discard, nil)
+	res, err := Run(context.Background(), copilotRunner{}, Request{Prompt: "p", Provider: "personal", Direct: true}, Discard, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

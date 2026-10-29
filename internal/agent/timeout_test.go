@@ -3,7 +3,6 @@ package agent
 import (
 	"context"
 	"errors"
-	"io"
 	"testing"
 	"time"
 )
@@ -14,7 +13,7 @@ type hangRunner struct{ calls int }
 func (h *hangRunner) Name() string     { return "hang" }
 func (h *hangRunner) Caps() Caps       { return Caps{Tools: true} }
 func (h *hangRunner) Available() error { return nil }
-func (h *hangRunner) Run(ctx context.Context, _ Request, _ io.Writer) (Result, error) {
+func (h *hangRunner) Run(ctx context.Context, _ Request, _ Sink) (Result, error) {
 	h.calls++
 	<-ctx.Done()
 	return Result{}, ctx.Err()
@@ -26,13 +25,13 @@ func TestTimedOutToolsRunIsNotRetried(t *testing.T) {
 	fastDefaultBackoff(t)
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	h := &hangRunner{}
-	_, err := Run(context.Background(), h, Request{Prompt: "p", Tools: true, Timeout: 20 * time.Millisecond}, io.Discard, nil)
+	_, err := Run(context.Background(), h, Request{Prompt: "p", Tools: true, Timeout: 20 * time.Millisecond}, Discard, nil)
 	var e *Error
 	if !errors.As(err, &e) || e.Kind != KindFatal || h.calls != 1 {
 		t.Fatalf("tools on: calls=%d err=%v", h.calls, err)
 	}
 	h = &hangRunner{}
-	_, err = Run(context.Background(), h, Request{Prompt: "p", Timeout: 20 * time.Millisecond}, io.Discard, nil)
+	_, err = Run(context.Background(), h, Request{Prompt: "p", Timeout: 20 * time.Millisecond}, Discard, nil)
 	if !errors.As(err, &e) || e.Kind != KindFatal || h.calls != 1 {
 		t.Errorf("tools off: attempt's own timeout must not retry either, calls=%d err=%v", h.calls, err)
 	}

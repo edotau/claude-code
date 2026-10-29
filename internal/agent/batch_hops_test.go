@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"testing"
 
 	"github.com/edotau/claude-code/internal/providers"
@@ -30,7 +29,7 @@ func TestEnvelopeHopsNameEveryLegTried(t *testing.T) {
 	authEnv(t, `{"protocol":"anthropic","base_url":"http://127.0.0.1:1","auth":{"type":"key","env":"AGAUTH_UNSET"},"models":{"opus":"m"}}`)
 	first := &fakeRunner{name: "claude", errs: []error{fmt.Errorf("agauth: %w", providers.ErrNeedsLogin)}, emptyAnswer: true}
 	second := &fakeRunner{name: "gemini", errs: []error{nil}}
-	res, err := RunWithFallback(context.Background(), twoLegs(first, second), Request{Prompt: "p"}, io.Discard, nil)
+	res, err := RunWithFallback(context.Background(), twoLegs(first, second), Request{Prompt: "p"}, Discard, nil)
 	if err != nil || res.Answer != "a" || len(second.seen) != 1 {
 		t.Fatalf("res=%+v err=%v: want the second hop to answer", res, err)
 	}
@@ -55,7 +54,7 @@ func TestEnvelopeHopsNameEveryLegTried(t *testing.T) {
 // A single successful leg keeps the envelope free of fallback and names exactly one hop.
 func TestEnvelopeHopsSingleLeg(t *testing.T) {
 	r := &fakeRunner{name: "claude", errs: []error{nil}}
-	res, err := RunWithFallback(context.Background(), Single(r), Request{Prompt: "p"}, io.Discard, nil)
+	res, err := RunWithFallback(context.Background(), Single(r), Request{Prompt: "p"}, Discard, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -73,7 +72,7 @@ func TestRunWithFallbackCancelledBeforeLegNeverRuns(t *testing.T) {
 	r := &fakeRunner{name: "claude", errs: []error{nil}}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	_, err := RunWithFallback(ctx, Single(r), Request{Prompt: "p"}, io.Discard, nil)
+	_, err := RunWithFallback(ctx, Single(r), Request{Prompt: "p"}, Discard, nil)
 	if !errors.Is(err, context.Canceled) {
 		t.Errorf("err = %v, want context.Canceled", err)
 	}
