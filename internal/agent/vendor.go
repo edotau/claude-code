@@ -473,6 +473,9 @@ func (copilotRunner) Run(ctx context.Context, req Request, stream io.Writer) (Re
 			return copilotQuotaHandoff(req, res, out, err, creds)
 		}
 		res.SessionID, res.Answer = cmp.Or(out.SessionID, res.SessionID), out.Text // partial text + session survive a failure
+		if strings.TrimSpace(out.Text) != "" {
+			_, _ = io.WriteString(stream, out.Text) // streamed bytes mark progress, so Run does not retry over a partial
+		}
 		return res, err
 	}
 	lg.emit("assistant", out.Text) // the SDK returns the whole text, so one line per run
