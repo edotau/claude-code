@@ -12,7 +12,7 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/vault"
-	"github.com/edotau/claude-code/internal/vendorconfig"
+	"github.com/edotau/claude-code/internal/vendors"
 )
 
 // ErrChanged reports that the vault moved between Export and Import; Import wrote nothing.
@@ -114,7 +114,7 @@ func validateOverlaySections(d *Doc) error {
 		}
 	}
 	if len(d.Vendors) != 0 {
-		if _, err := vendorconfig.Parse(nil, d.Vendors); err != nil {
+		if _, err := vendors.Parse(nil, d.Vendors); err != nil {
 			return sectionError("agents", err)
 		}
 	}

@@ -1,7 +1,4 @@
-// Package vendorsettings is per-vendor routing settings: typed fields read/write providers.Routing,
-// rendered as configure rows and exported into the launch environment. codex/copilot/gemini modules get
-// added when a need comes up; today only the core routing module and opencode are registered.
-package vendorsettings
+package vendors
 
 import (
 	"github.com/edotau/claude-code/internal/providers"

@@ -1,4 +1,4 @@
-package vendorsettings
+package vendors
 
 import (
 	"fmt"

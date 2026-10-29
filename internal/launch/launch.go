@@ -28,7 +28,6 @@ import (
 	"github.com/edotau/claude-code/internal/secrets/shapes"
 	"github.com/edotau/claude-code/internal/tools"
 	"github.com/edotau/claude-code/internal/vendors"
-	"github.com/edotau/claude-code/internal/vendorsettings"
 )
 
 // Options are the harness flags consumed before passthrough.
@@ -658,7 +657,7 @@ func moduleEnv(base []string) ([]string, map[string]bool) {
 		return base, locked
 	}
 	out := base
-	for _, m := range vendorsettings.Modules() {
+	for _, m := range vendors.Modules() {
 		for k, v := range m.Env(reg.Routing) {
 			if present[k] {
 				locked[k] = true // process env already set this module-owned key: protect it from custom env too
