@@ -333,6 +333,10 @@ func TestForeignSpawnFollowsItsOwnSession(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	live := Liveness(time.Now()) // the read-only rule `agents reap` and the status line use
+	if !live(markerName(sib, "toolu_long")) || live(markerName(sib, "toolu_done")) {
+		t.Error("Liveness disagrees with the limiter on a sibling's long and finished agents")
+	}
 	if ok, _ := TryClaim(Claim{Owner: os.Getpid(), ID: "probe", Account: "a"}, Limits{Base: Base, Total: 100}); !ok {
 		t.Fatal("probe claim refused")
 	}

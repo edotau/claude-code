@@ -245,12 +245,12 @@ func newScanner(now time.Time) *scanner {
 	return &scanner{now: now, trusted: ProbeTrusted(), meta: map[string]map[string]metaAgent{}, sessions: map[string][]byte{}}
 }
 
-// live: legs and markers without a session follow Live; a spawn marker follows its agent's meta.json and transcript.
+// live: legs and markers without a session follow ownerLive; a spawn marker follows its agent's meta.json and transcript.
 func (s *scanner) live(name string, mod time.Time, transcript string) bool {
 	owner, _ := Owner(name)
 	id := strings.TrimPrefix(name, Prefix+strconv.Itoa(owner)+"-")
 	if transcript == "" || strings.HasPrefix(id, LegPrefix) {
-		return Live(name, mod, s.now, s.trusted)
+		return ownerLive(name, mod, s.now, s.trusted)
 	}
 	if s.trusted && owner > 0 && !proc.Alive(owner) {
 		return false
@@ -271,7 +271,7 @@ func (s *scanner) live(name string, mod time.Time, transcript string) bool {
 	if s.now.Sub(mod) > Grace && s.answered(transcript, base) {
 		return false // refused or failed before an agent existed; Grace covers a meta.json not yet written
 	}
-	return Live(name, mod, s.now, s.trusted)
+	return ownerLive(name, mod, s.now, s.trusted)
 }
 
 // metaAgent is one agent-*.meta.json: the agent id and whether Claude Code marked it finished.

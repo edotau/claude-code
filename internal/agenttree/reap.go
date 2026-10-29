@@ -107,8 +107,8 @@ func Reap(dryRun bool, out, errw io.Writer) int {
 	return code
 }
 
-// reapMarkers removes the markers the hook's own liveness rule would prune: a dead owner, or an expired
-// TTL where the owner cannot be probed. Non-marker entries (the lock file) are never touched.
+// reapMarkers removes the markers the limiter's own liveness rule would prune (inflight.Liveness).
+// Non-marker entries (the lock file) are never touched.
 func reapMarkers(dryRun bool, verb string, out io.Writer) (int, error) {
 	dir := inflight.Dir()
 	if _, err := os.Stat(dir); err != nil {
@@ -120,13 +120,9 @@ func reapMarkers(dryRun bool, verb string, out io.Writer) (int, error) {
 		if err != nil {
 			return err
 		}
-		trusted, now := inflight.ProbeTrusted(), time.Now()
+		live := inflight.Liveness(time.Now())
 		for _, e := range entries {
-			if _, ok := inflight.Owner(e.Name()); !ok {
-				continue
-			}
-			fi, err := e.Info()
-			if err != nil || inflight.Live(e.Name(), fi.ModTime(), now, trusted) {
+			if _, ok := inflight.Owner(e.Name()); !ok || live(e.Name()) {
 				continue
 			}
 			if !dryRun {
