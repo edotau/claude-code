@@ -134,7 +134,7 @@ claude-code review goals implementation-plan.md --json
 Multi-language smells, SOLID violations, and a 0–100 quality score.
 
 ```text
-claude-code review quality <file|dir> [--recursive] [--language python|typescript|javascript|go|swift|kotlin]
+claude-code review quality <file|dir> [--language python|typescript|javascript|go|swift|kotlin]
                                        [--json] [--output FILE]
 ```
 
