@@ -113,7 +113,27 @@ func (l *limiter) acquire(ctx context.Context, account string) (func(), error) {
 	}, nil
 }
 
+// permit is a leg's current permit; Do swaps it out around retry waits so a backing-off leg holds nothing.
+type permit struct {
+	account string
+	release func()
+}
+
+// idle runs wait with the permit released, then takes a permit again; the leg runs a child only while holding one.
+func (h *permit) idle(ctx context.Context, wait func()) error {
+	h.release()
+	wait()
+	r, err := acquireLeg(ctx, h.account)
+	if err != nil {
+		h.release = func() {}
+		return err
+	}
+	h.release = r
+	return nil
+}
+
 type (
+	permitKey   struct{}
 	limiterKey  struct{}
 	failFastKey struct{}
 	slotKey     struct{}
@@ -220,8 +240,6 @@ type batchDone struct {
 // batchRun is the state shared by a batch's workers: the claimed record ids, the serialized log writer, the limiter.
 type batchRun struct {
 	o    BatchOptions
-	mu   sync.Mutex
-	ids  map[string]bool
 	logM sync.Mutex
 	lim  *limiter
 	stop func() // cancels the batch
@@ -233,7 +251,7 @@ func RunBatch(ctx context.Context, tasks []BatchTask, o BatchOptions) bool {
 	jobs := max(cmp.Or(o.Jobs, DefaultJobs()), 1)
 	bctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	b := &batchRun{o: o, ids: map[string]bool{}, lim: newLimiter(jobs, DefaultPerKey), stop: cancel}
+	b := &batchRun{o: o, lim: newLimiter(jobs, DefaultPerKey), stop: cancel}
 	allOK := true
 	emit := func(env Envelope, ok bool) {
 		env.BatchID = o.ID
@@ -335,6 +353,11 @@ func (b *batchRun) run(ctx context.Context, t BatchTask, chain Chain, rec Record
 	}
 	start := time.Now()
 	var sink *LogSink
+	defer func() { // runs after the recover below has set env: any failed task cancels before its slot is settled
+		if !ok && b.o.FailFast && (env.Error == nil || env.Error.Kind != "canceled") {
+			b.stop()
+		}
+	}()
 	defer func() {
 		if r := recover(); r != nil {
 			if sink != nil {
@@ -365,22 +388,27 @@ func (b *batchRun) run(ctx context.Context, t BatchTask, chain Chain, rec Record
 	return env, err == nil && env.Status == StatusOK
 }
 
-// reserve gives rec an id no other task of this batch (or earlier record on disk) holds: ids are millisecond stamps.
+// reserve gives rec an id no other task, batch or process holds: it claims <id>.json with O_EXCL, bumping the
+// millisecond stamp on EEXIST. Save later replaces the empty claim.
 func (b *batchRun) reserve(rec *Record) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	defaultLog := rec.LogPath() == filepath.Join(DispatchDir(), rec.ID+".log")
-	for b.ids[rec.ID] || recordExists(rec.ID) {
+	dir := DispatchDir()
+	defaultLog := rec.LogPath() == filepath.Join(dir, rec.ID+".log")
+	if os.MkdirAll(dir, 0o700) != nil {
+		return // fail-open, like Save: the log is for replay, never a gate on the run
+	}
+	for {
+		f, err := os.OpenFile(filepath.Join(dir, rec.ID+".json"), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+		if err == nil {
+			f.Close()
+			break
+		}
+		if !errors.Is(err, os.ErrExist) {
+			break
+		}
 		rec.Time = rec.Time.Add(time.Millisecond)
 		rec.ID = recordID(rec.Time, rec.Agent)
 	}
-	b.ids[rec.ID] = true
 	if defaultLog {
-		rec.Log = filepath.Join(DispatchDir(), rec.ID+".log")
+		rec.Log = filepath.Join(dir, rec.ID+".log")
 	}
-}
-
-func recordExists(id string) bool {
-	_, err := os.Stat(filepath.Join(DispatchDir(), id+".json"))
-	return err == nil
 }

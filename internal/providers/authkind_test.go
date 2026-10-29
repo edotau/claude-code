@@ -2,6 +2,7 @@ package providers
 
 import (
 	"context"
+	"slices"
 	"strings"
 	"testing"
 
@@ -78,5 +79,16 @@ func TestKindChangeRefusedWithoutForce(t *testing.T) {
 	}
 	if err := SetProviderFields("openai", map[string]any{"base_url": "https://a.example/v1"}); err != nil {
 		t.Errorf("same-kind write refused: %v", err)
+	}
+}
+
+// CredentialNames covers the sealed PAT/M2M/OAuth secret name too, so an isolating scrub drops it from other children.
+func TestCredentialNamesIncludeSealedSecret(t *testing.T) {
+	for _, kind := range []string{AuthPAT, AuthM2M, AuthOAuth} {
+		p := kindRow(kind, "", AuthKey)
+		want := AuthSecretName(p)
+		if want == "" || !slices.Contains(CredentialNames(p), want) {
+			t.Errorf("%s: CredentialNames = %v, want it to include %q", kind, CredentialNames(p), want)
+		}
 	}
 }

@@ -346,5 +346,11 @@ func ClaudeLoginProbe() (loggedIn bool, plan string, err error) {
 	return st.LoggedIn, plan, nil
 }
 
-// CredentialNames are the env/vault names p's static credential may be read from.
-func CredentialNames(p *Provider) []string { return keyNames(p) }
+// CredentialNames are the env/vault names p's static credential may be read from, sealed (PAT/M2M) names included.
+func CredentialNames(p *Provider) []string {
+	out := keyNames(p)
+	if n := AuthSecretName(p); n != "" {
+		out = append(out, n)
+	}
+	return out
+}

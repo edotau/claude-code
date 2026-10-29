@@ -150,6 +150,8 @@ type Policy struct {
 	// Recover refreshes a rejected credential; KindAuth is retried only when it is set and succeeds.
 	Recover func(context.Context) error
 	Notify  func(string)
+	// Idle runs wait with the caller's concurrency permit released and retaken after; nil just runs wait.
+	Idle func(ctx context.Context, wait func()) error
 	// Key names the provider account whose rate limit this loop shares with other loops; "" shares nothing.
 	Key string
 }
@@ -227,6 +229,14 @@ func waitCooldown(ctx context.Context, key string, maxWait time.Duration) {
 	}
 }
 
+func (p Policy) idle(ctx context.Context, wait func()) error {
+	if p.Idle == nil {
+		wait()
+		return nil
+	}
+	return p.Idle(ctx, wait)
+}
+
 // Do runs fn under the policy; fn gets a per-attempt context and the 1-based attempt number.
 func Do(ctx context.Context, p Policy, fn func(ctx context.Context, attempt int) *Error) *Error {
 	p.MaxAttempts = max(p.MaxAttempts, 1)
@@ -242,7 +252,13 @@ func Do(ctx context.Context, p Policy, fn func(ctx context.Context, attempt int)
 			snap.Earlier = nil
 			earlier = append(earlier, &snap)
 		}
-		waitCooldown(ctx, p.Key, p.MaxDelay) // before the attempt's own timeout starts
+		if attempt > 1 {
+			if p.idle(ctx, func() { waitCooldown(ctx, p.Key, p.MaxDelay) }) != nil { // before the attempt's own timeout
+				return fail()
+			}
+		} else {
+			waitCooldown(ctx, p.Key, p.MaxDelay)
+		}
 		actx, cancel := ctx, context.CancelFunc(func() {})
 		if p.AttemptTimeout > 0 {
 			actx, cancel = context.WithTimeout(ctx, p.AttemptTimeout)
@@ -281,11 +297,15 @@ func Do(ctx context.Context, p Policy, fn func(ctx context.Context, attempt int)
 			p.Notify(fmt.Sprintf("%s: %s (attempt %d/%d), retrying in %s", last.Agent, last.Kind, attempt, p.MaxAttempts, wait.Round(100*time.Millisecond)))
 		}
 		t := time.NewTimer(wait)
-		select {
-		case <-ctx.Done():
-			t.Stop()
+		ierr := p.idle(ctx, func() {
+			select {
+			case <-ctx.Done():
+			case <-t.C:
+			}
+		})
+		t.Stop()
+		if ierr != nil || ctx.Err() != nil {
 			return fail()
-		case <-t.C:
 		}
 	}
 	return fail()
