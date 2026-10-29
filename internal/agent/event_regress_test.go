@@ -115,3 +115,18 @@ func TestClaudeStreamTurnSeparator(t *testing.T) {
 		t.Fatalf("text sink = %q, want %q", out.String(), "a\nb")
 	}
 }
+
+func TestEventLogFlushesEachEventBeforeClose(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "x.events.jsonl")
+	l := NewEventLog(path, "d1")
+	defer l.Close()
+	_ = l.Emit(Event{Type: EventStart, Agent: "codex", DispatchID: "d1", Status: "running"})
+	_ = l.Emit(Event{Type: EventText, Text: "line one\n"})
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(b), `"start"`) || !strings.Contains(string(b), "line one") {
+		t.Fatalf("live reader sees %q before Close", b)
+	}
+}
