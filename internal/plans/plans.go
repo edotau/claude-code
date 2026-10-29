@@ -71,9 +71,14 @@ func Parse(path string) (Plan, error) {
 func ParseBytes(path string, b []byte) Plan {
 	lines := strings.Split(string(b), "\n")
 	p := Plan{Path: path}
+	fenced := false
 	for i := 0; i < len(lines); i++ {
+		if isFence(lines[i]) {
+			fenced = !fenced
+			continue
+		}
 		m := checkLine.FindStringSubmatch(lines[i])
-		if m == nil {
+		if fenced || m == nil {
 			continue
 		}
 		indent := len(m[1])
@@ -81,7 +86,7 @@ func ParseBytes(path string, b []byte) Plan {
 		end := i
 		for j := i + 1; j < len(lines); j++ {
 			line := lines[j]
-			if strings.TrimSpace(line) == "" || listLine.MatchString(line) {
+			if strings.TrimSpace(line) == "" || listLine.MatchString(line) || isFence(line) {
 				break
 			}
 			if len(line)-len(strings.TrimLeft(line, " \t")) <= indent {
@@ -96,6 +101,12 @@ func ParseBytes(path string, b []byte) Plan {
 		i = end
 	}
 	return p
+}
+
+// isFence reports whether line opens or closes a fenced code block.
+func isFence(line string) bool {
+	l := strings.TrimSpace(line)
+	return strings.HasPrefix(l, "```") || strings.HasPrefix(l, "~~~")
 }
 
 // parseTaskText splits a joined item into id, title and the owns/sha/claim/partial metadata.

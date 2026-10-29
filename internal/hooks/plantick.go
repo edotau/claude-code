@@ -17,7 +17,7 @@ import (
 
 var (
 	gitCommitCmd = regexp.MustCompile(`\bgit\b[^;&|\n]*\bcommit\b`)
-	commitLine   = regexp.MustCompile(`(?m)^\[[^\]\s]+(?: \(root-commit\))? ([0-9a-f]{7,40})\] `)
+	commitLine   = regexp.MustCompile(`(?m)^\[(?:detached HEAD|[^\]\s]+)(?: \(root-commit\))? ([0-9a-f]{7,40})\] `)
 	gitDirArg    = regexp.MustCompile(`\bgit\s+(?:-\S+\s+)*?-C\s+("[^"]+"|'[^']+'|\S+)`)
 	leadingCD    = regexp.MustCompile(`^\s*cd\s+("[^"]+"|'[^']+'|[^\s&;]+)\s*&&`)
 )
@@ -33,16 +33,25 @@ func PlanTick(r io.Reader, stdout, stderr io.Writer) int {
 	if out == "" {
 		out = in.ToolResponseText()
 	}
-	m := commitLine.FindStringSubmatch(out)
-	if m == nil {
-		return ExitProceed
+	var blocks []string
+	seen := map[string]bool{}
+	for _, m := range commitLine.FindAllStringSubmatch(out, -1) {
+		if !seen[m[1]] {
+			seen[m[1]] = true
+			blocks = append(blocks, tickCommit(in, cmd, m[1], stderr)...)
+		}
 	}
-	sha := m[1]
+	fmt.Fprint(stdout, MergeContext("PostToolUse", blocks, in.Vendor()))
+	return ExitProceed
+}
+
+// tickCommit ticks the active plan's tasks covered by one landed commit and returns the context blocks.
+func tickCommit(in *Input, cmd, sha string, stderr io.Writer) []string {
 	ctx, cancel := hookContext("plan-tick")
 	defer cancel()
 	dir := commitRepoDir(ctx, in.CWD, cmd, sha)
 	if dir == "" {
-		return ExitProceed
+		return nil
 	}
 	top := memory.GitToplevel(dir)
 	worktree := "" // a linked worktree's name, matched against task claims
@@ -51,25 +60,31 @@ func PlanTick(r io.Reader, stdout, stderr io.Writer) int {
 	}
 	plan, ok := plans.Active(plans.Home(top), worktree, mirrorDests())
 	if !ok {
-		return ExitProceed
+		return nil
 	}
-	files, err := exec.CommandContext(ctx, "git", "-C", dir, "show", "--name-only", "--format=", sha).Output()
+	raw, err := exec.CommandContext(ctx, "git", "-C", dir, "show", "-z", "--name-only", "--format=", sha).Output()
 	if err != nil {
 		fmt.Fprintf(stderr, "plan-tick: %v\n", err)
-		return ExitProceed
+		return nil
+	}
+	var files []string
+	for _, f := range strings.Split(string(raw), "\x00") {
+		if f = strings.TrimPrefix(f, "\n"); f != "" {
+			files = append(files, f)
+		}
 	}
 	short := sha
 	if len(short) > 7 {
 		short = short[:7]
 	}
-	ticked, partial, err := plans.Tick(plan, short, strings.Split(strings.TrimSpace(string(files)), "\n"))
+	ticked, partial, err := plans.Tick(plan, short, files)
 	if err != nil {
 		fmt.Fprintf(stderr, "plan-tick: %v\n", err)
-		return ExitProceed
+		return nil
 	}
 	base := strings.TrimSuffix(filepath.Base(plan), ".md")
 	if len(partial) > 0 {
-		recordPartials(in.SessionID, base, partial, stderr)
+		recordPartials(in.SessionID, base, plan, partial, stderr)
 	}
 	var blocks []string
 	if len(ticked) > 0 {
@@ -78,8 +93,7 @@ func PlanTick(r io.Reader, stdout, stderr io.Writer) int {
 	if len(partial) > 0 {
 		blocks = append(blocks, "plans: partly landed "+strings.Join(partial, "; ")+" in "+base)
 	}
-	fmt.Fprint(stdout, MergeContext("PostToolUse", blocks, in.Vendor()))
-	return ExitProceed
+	return blocks
 }
 
 // commitRepoDir is the first candidate dir (-C arg, leading cd, cwd) whose repo holds the commit sha.
@@ -107,8 +121,8 @@ func commitRepoDir(ctx context.Context, cwd, cmd, sha string) string {
 	return ""
 }
 
-// recordPartials appends "<plan>: <task>" lines for the Stop reminder.
-func recordPartials(session, plan string, tasks []string, stderr io.Writer) {
+// recordPartials appends "<path>\\t<plan>: <task>" lines for the Stop reminder.
+func recordPartials(session, plan, planPath string, tasks []string, stderr io.Writer) {
 	if err := os.MkdirAll(plansScratchDir(), 0o700); err != nil {
 		fmt.Fprintf(stderr, "plan-tick: %v\n", err)
 		return
@@ -120,6 +134,6 @@ func recordPartials(session, plan string, tasks []string, stderr io.Writer) {
 	}
 	defer f.Close()
 	for _, t := range tasks {
-		fmt.Fprintf(f, "%s: %s\n", plan, t)
+		fmt.Fprintf(f, "%s\t%s: %s\n", planPath, plan, t)
 	}
 }
