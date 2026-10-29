@@ -159,14 +159,15 @@ func dispatchCachePath() string { return filepath.Join(paths.StateDir(), "tailsc
 const dispatchCacheTTL = 10 * time.Minute
 
 type dispatchMachineCache struct {
-	At    time.Time `json:"at"`
-	Names []string  `json:"names"`
+	Schema int       `json:"schema"`
+	At     time.Time `json:"at"`
+	Names  []string  `json:"names"`
 }
 
 // writeDispatchCache is called by `network tailscale --machines` on a successful listing; best-effort, never
 // surfaced as an error to the caller.
 func writeDispatchCache(names []string) {
-	data, err := json.Marshal(dispatchMachineCache{At: time.Now(), Names: names})
+	data, err := json.Marshal(dispatchMachineCache{Schema: dispatchCacheSchema, At: time.Now(), Names: names})
 	if err != nil {
 		return
 	}
@@ -182,7 +183,7 @@ func dispatchHostNames() []string {
 		return nil
 	}
 	var c dispatchMachineCache
-	if json.Unmarshal(data, &c) != nil || time.Since(c.At) > dispatchCacheTTL {
+	if !decodeDispatchCache(data, &c) || time.Since(c.At) > dispatchCacheTTL {
 		return nil
 	}
 	return c.Names

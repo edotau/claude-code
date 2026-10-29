@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/schemas"
 )
 
 // tokenNameRE admits only a provider name that is a safe single path segment.
@@ -44,6 +45,12 @@ func jwtClaims(v string, into any) bool {
 	return err == nil && json.Unmarshal(payload, into) == nil
 }
 
+// tokenExpiryRecord is the on-disk expiry record; Exp is a pointer so an absent claim stays distinguishable.
+type tokenExpiryRecord struct {
+	Schema int    `json:"schema"`
+	Exp    *int64 `json:"exp"`
+}
+
 // recordTokenExpiry stores only the exp claim of a JWT credential; every error is ignored.
 func recordTokenExpiry(name, v string) {
 	exp, ok := jwtExp(v)
@@ -51,7 +58,7 @@ func recordTokenExpiry(name, v string) {
 	if !ok || path == "" {
 		return
 	}
-	b, err := json.Marshal(map[string]int64{"exp": exp})
+	b, err := json.Marshal(tokenExpiryRecord{Schema: tokenExpirySchema, Exp: &exp})
 	if err != nil {
 		return
 	}
@@ -71,11 +78,14 @@ func TokenExpiry(name string) (time.Time, bool) {
 	if err != nil {
 		return time.Time{}, false
 	}
-	var rec struct {
-		Exp *int64 `json:"exp"`
-	}
-	if json.Unmarshal(b, &rec) != nil || rec.Exp == nil {
+	var rec tokenExpiryRecord
+	if !decodeTokenExpiry(b, &rec) || rec.Exp == nil {
 		return time.Time{}, false
 	}
 	return time.Unix(*rec.Exp, 0), true
+}
+
+func decodeTokenExpiry(raw []byte, dst any) bool {
+	_, err := schemas.Decode(tokenExpiryFormat, raw, dst)
+	return err == nil
 }

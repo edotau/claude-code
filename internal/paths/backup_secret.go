@@ -6,7 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
+	"time"
 )
 
 // WriteBackup writes data to base, or base-1, base-2... if taken, never overwriting; returns the path used.
@@ -29,6 +31,15 @@ func WriteBackup(base string, data []byte) (string, error) {
 		}
 		return dest, nil
 	}
+}
+
+// Backup writes data to the cache-mirrored backup path for src (dir made 0700), never overwriting; returns the path.
+func Backup(src string, data []byte) (string, error) {
+	base := BackupPath(src, time.Now())
+	if err := os.MkdirAll(filepath.Dir(base), 0o700); err != nil {
+		return "", fmt.Errorf("backup dir %s: %w", filepath.Dir(base), err)
+	}
+	return WriteBackup(base, data)
 }
 
 // ClientSecret returns the 32-byte hex secret in file, minting it 0600 under a file lock on first use.

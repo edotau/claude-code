@@ -17,6 +17,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
+	"github.com/edotau/claude-code/internal/schemas"
 	"github.com/edotau/claude-code/internal/tailscale"
 	"github.com/edotau/claude-code/internal/vscode"
 )
@@ -32,6 +33,7 @@ var ErrNotRunning = errors.New("vscode serve: daemon is not running")
 
 // State is vscode-serve.json: written once the daemon (and any tailscale mapping) is up.
 type State struct {
+	Schema    int       `json:"schema"`
 	PID       int       `json:"pid"`
 	Port      int       `json:"port"`
 	Started   time.Time `json:"started"`
@@ -85,10 +87,12 @@ func readState() (State, error) {
 	if err != nil {
 		return st, err
 	}
-	return st, json.Unmarshal(b, &st)
+	_, err = schemas.Decode(serveFormat, b, &st)
+	return st, err
 }
 
 func writeState(st State) error {
+	st.Schema = stateSchema
 	b, err := json.Marshal(st)
 	if err != nil {
 		return err

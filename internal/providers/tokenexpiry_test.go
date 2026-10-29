@@ -47,7 +47,7 @@ func TestTokenExpiryWritesOnlyExp(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expiry record not written: %v", err)
 	}
-	if want := `{"exp":1893456000}`; string(raw) != want {
+	if want := `{"schema":1,"exp":1893456000}`; string(raw) != want {
 		t.Errorf("record = %q, want %q", raw, want)
 	}
 	info, err := os.Stat(path)
@@ -113,10 +113,10 @@ func TestTokenExpiryReadTolerant(t *testing.T) {
 		t.Fatal(err)
 	}
 	for body, want := range map[string]bool{
-		`{"exp":"soon"}`:     false,
-		`not json`:           false,
-		`{}`:                 false,
-		`{"exp":1893456000}`: true,
+		`{"exp":"soon"}`:                false,
+		`not json`:                      false,
+		`{}`:                            false,
+		`{"schema":1,"exp":1893456000}`: true,
 	} {
 		if err := os.WriteFile(filepath.Join(dir, "read-case.json"), []byte(body), 0o600); err != nil {
 			t.Fatal(err)

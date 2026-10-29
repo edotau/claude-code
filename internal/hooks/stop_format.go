@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/schemas"
 	"github.com/edotau/claude-code/internal/transcript"
 )
 
@@ -56,7 +57,7 @@ func stopFormat(in *Input) int {
 	}
 	eligible, carry := selectForFormat(cwd, changed, loadStamps(stampPath), allow)
 	maps.Copy(carry, formatAll(eligible))
-	if data, err := json.Marshal(carry); err == nil {
+	if data, err := json.Marshal(stampFile{Schema: stopFormatSchema, Stamps: carry}); err == nil {
 		_ = paths.AtomicWrite(stampPath, data, 0o600)
 	}
 	return ExitProceed
@@ -127,15 +128,22 @@ func cwdKey(cwd string) string {
 	return hex.EncodeToString(sum[:8])
 }
 
+// stampFile is the stamp cache on disk; a v0 bare map or a newer schema decodes as an empty cache.
+type stampFile struct {
+	Schema int               `json:"schema"`
+	Stamps map[string]string `json:"stamps"`
+}
+
 func loadStamps(path string) map[string]string {
-	m := map[string]string{}
-	if data, err := os.ReadFile(path); err == nil {
-		_ = json.Unmarshal(data, &m)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return map[string]string{}
 	}
-	if m == nil {
-		m = map[string]string{}
+	var f stampFile
+	if _, err := schemas.Decode(stopFormatFormat, data, &f); err != nil || f.Stamps == nil {
+		return map[string]string{}
 	}
-	return m
+	return f.Stamps
 }
 
 // changedFiles lists modified, staged and untracked paths relative to cwd; -z avoids git's C-quoting.

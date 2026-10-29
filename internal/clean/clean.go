@@ -76,10 +76,10 @@ func targets() []target {
 			},
 		},
 		{
-			name: "hook-state", doc: "per-session hook flags under state/harness: checkpoint/, simplified/, stop-format/, agents-inflight markers",
+			name: "hook-state", doc: "per-session hook flags under state/harness: checkpoint/, stop-format/, agents-inflight markers, plans-scratch/*.dest",
 			globs: func() []string {
 				return []string{
-					s("checkpoint", "*"), s("simplified", "*"), s("stop-format", "*.json"), s("agents-inflight", "*"),
+					s("checkpoint", "*"), s("plans-scratch", "*.dest"), s("stop-format", "*.json"), s("agents-inflight", "*"),
 				}
 			},
 		},

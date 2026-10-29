@@ -317,7 +317,7 @@ func checkPlanTemplate(in *Input, stderr io.Writer) int {
 }
 
 // plansScratchDir holds one <draft-basename>.dest record per mirrored draft, pointing at its dated file.
-func plansScratchDir() string { return filepath.Join(paths.ConfigDir(), "state", "plans-scratch") }
+func plansScratchDir() string { return filepath.Join(paths.StateDir(), "plans-scratch") }
 
 func destRecordPath(draftBase string) string {
 	return filepath.Join(plansScratchDir(), draftBase+".dest")

@@ -24,6 +24,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/gitexec"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/schemas"
 )
 
 // Change is one store-relative write or deletion; Checked makes it conditional on Preimage (nil = must not exist).
@@ -59,6 +60,7 @@ var ErrDivergent = errors.New("memory transaction: live bytes diverged from the 
 
 // journal is the durable pre-write record of a batch; state is "pending" → "applied" → removed when complete.
 type journal struct {
+	Schema  int             `json:"schema"`
 	ID      string          `json:"id"`
 	Subject string          `json:"subject"`
 	State   string          `json:"state"`
@@ -113,7 +115,7 @@ func recoverJournals() error {
 			return err
 		}
 		var j journal
-		if err := json.Unmarshal(data, &j); err != nil {
+		if _, err := schemas.Decode(journalFormat, data, &j); err != nil { // ErrNewer: untouched, never replayed
 			return fmt.Errorf("memory journal %s: %w", f, err)
 		}
 		if j.ID == "" || j.path() != f { // the body's id names where save/retire write: it must be this file
@@ -139,7 +141,7 @@ func newJournal(repo Repo, subject string, changes []Change) (*journal, error) {
 	if _, err := rand.Read(rnd[:]); err != nil {
 		return nil, err
 	}
-	j := &journal{ID: time.Now().UTC().Format("20060102-150405.000") + "-" + hex.EncodeToString(rnd[:]), Subject: subject, State: "pending"}
+	j := &journal{ID: time.Now().UTC().Format("20060102-150405.000") + "-" + hex.EncodeToString(rnd[:]), Subject: subject, State: "pending", Schema: journalSchema}
 	for _, c := range changes {
 		pre := c.Preimage
 		if !c.Checked {

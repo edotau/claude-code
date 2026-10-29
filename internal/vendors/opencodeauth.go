@@ -368,6 +368,7 @@ type opencodeDiskAuth struct {
 }
 
 type opencodeDiskCache struct {
+	Schema  int                  `json:"schema"`
 	Version *opencodeDiskVersion `json:"version,omitempty"`
 	Auth    *opencodeDiskAuth    `json:"auth,omitempty"`
 }
@@ -376,7 +377,7 @@ type opencodeDiskCache struct {
 func loadOpencodeDiskCache() opencodeDiskCache {
 	var c opencodeDiskCache
 	data, err := os.ReadFile(opencodeCacheFile())
-	if err != nil || json.Unmarshal(data, &c) != nil {
+	if err != nil || !decodeOpencodeCache(data, &c) {
 		return opencodeDiskCache{}
 	}
 	return c
@@ -386,6 +387,7 @@ func loadOpencodeDiskCache() opencodeDiskCache {
 func updateOpencodeDiskCache(fn func(*opencodeDiskCache)) {
 	c := loadOpencodeDiskCache()
 	fn(&c)
+	c.Schema = opencodeCacheSchema
 	data, err := json.Marshal(c)
 	if err != nil {
 		return

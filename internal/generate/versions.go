@@ -16,48 +16,46 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 )
 
-// backupAndWrite writes a single `.backup` of oldRaw plus a timestamped version (only when the file
-// already existed) before atomically replacing path with newRaw; versions beyond the newest 5 are pruned.
+// backupAndWrite saves oldRaw (only when the file already existed) to the cache mirror, keeps the newest 5
+// mirror versions, then atomically replaces path with newRaw.
 func backupAndWrite(path string, oldRaw, newRaw []byte, existed bool) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
 	if existed {
-		if err := os.WriteFile(path+".backup", oldRaw, 0o600); err != nil {
+		if _, err := paths.Backup(path, oldRaw); err != nil {
 			return err
 		}
-		if err := writeVersion(path, oldRaw); err != nil {
-			return err
-		}
+		pruneMirror(path)
 	}
 	return paths.AtomicWrite(path, newRaw, 0o600)
 }
 
-// versionsOf returns path's "<path>.backup.<stamp>" files, newest first (the stamp format sorts lexically).
-func versionsOf(path string) ([]string, error) {
-	matches, err := filepath.Glob(path + ".backup.*")
-	if err != nil {
-		return nil, err
-	}
+// mirrorsOf returns path's cache-mirrored backups, newest first (the timestamp format sorts lexically).
+func mirrorsOf(path string) []string {
+	sample := paths.BackupPath(path, time.Now())
+	prefix := sample[:strings.LastIndex(sample, ".bak-")+len(".bak-")]
+	matches, _ := filepath.Glob(prefix + "*")
 	sort.Sort(sort.Reverse(sort.StringSlice(matches)))
-	return matches, nil
+	return matches
 }
 
-// writeVersion saves oldRaw as a new timestamped version of path and keeps only the newest 5.
-func writeVersion(path string, oldRaw []byte) error {
-	stamp := time.Now().UTC().Format("20060102T150405.000Z") // ms: install + launch can regen within one second
-	if err := os.WriteFile(path+".backup."+stamp, oldRaw, 0o600); err != nil {
-		return err
+// newestMirror returns path's newest cache-mirrored backup, if any.
+func newestMirror(path string) (string, bool) {
+	m := mirrorsOf(path)
+	if len(m) == 0 {
+		return "", false
 	}
-	versions, err := versionsOf(path)
-	if err != nil {
-		return err
-	}
+	return m[0], true
+}
+
+// pruneMirror keeps only the newest 5 mirrored backups of path.
+func pruneMirror(path string) {
 	const keep = 5
+	versions := mirrorsOf(path)
 	for _, v := range versions[min(keep, len(versions)):] {
 		_ = os.Remove(v) // best-effort prune; a leftover old version is harmless
 	}
-	return nil
 }
 
 // vendorBaselinePath is where the bytes this tool last wrote to path are cached, keyed by label+path.
@@ -164,8 +162,7 @@ func vendorLabelPaths(vendor, home string) ([]labelPath, error) {
 	return nil, nil
 }
 
-// Revert restores each selected vendor's files to their newest backup version (falling back to the
-// plain .backup), removing the restored version so a second revert steps one version further back.
+// Revert restores each selected vendor's files to their newest backup version, removing the restored version so a second revert steps one version further back.
 func Revert(o Options) error {
 	agents := o.Agents
 	if len(agents) == 0 {
@@ -189,23 +186,23 @@ func Revert(o Options) error {
 	return nil
 }
 
-// legacyBackupSource picks the newest "<path>.backup.<stamp>" version, else the plain ".backup" if present.
+// legacyBackupSource picks the newest pre-mirror "<path>.backup.<stamp>" file, else the plain ".backup"; codex restore only.
 func legacyBackupSource(path string) (src string, stepBack, ok bool) {
-	if versions, err := versionsOf(path); err == nil && len(versions) > 0 {
-		return versions[0], true, true
+	if versions, err := filepath.Glob(path + ".backup.*"); err == nil && len(versions) > 0 {
+		sort.Strings(versions)
+		return versions[len(versions)-1], true, true
 	}
 	src = path + ".backup"
 	_, err := os.Stat(src)
 	return src, false, err == nil
 }
 
-// revertOne restores path from its newest "<path>.backup.<stamp>" version, or the plain ".backup"
-// when no version remains, and removes a restored version so the next revert goes further back.
+// revertOne restores path from its newest cache-mirrored backup and removes it so the next revert goes further back.
 func revertOne(label, path string, dryRun bool, out io.Writer) error {
 	if label == "codex" {
 		return restoreCodexConfig(path, dryRun, out)
 	}
-	src, stepBack, ok := legacyBackupSource(path)
+	src, ok := newestMirror(path)
 	if !ok {
 		fmt.Fprintf(out, "%s: no backup to revert for %s\n", label, path)
 		return nil
@@ -221,9 +218,7 @@ func revertOne(label, path string, dryRun bool, out io.Writer) error {
 	if err := paths.AtomicWrite(path, data, 0o600); err != nil {
 		return fmt.Errorf("%s: %w", label, err)
 	}
-	if stepBack {
-		_ = os.Remove(src) // consumed: the next revert falls through to the next-newest version
-	}
+	_ = os.Remove(src) // consumed: the next revert falls through to the next-newest version
 	fmt.Fprintf(out, "%s: restored %s from %s\n", label, path, src)
 	return nil
 }

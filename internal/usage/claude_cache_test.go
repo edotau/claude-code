@@ -37,6 +37,7 @@ func claudeCachePathFor(dir string) string {
 func writeClaudeCache(t *testing.T, dir string, fetchedAt time.Time, notBefore *time.Time, subscriptionType string, body []byte) {
 	t.Helper()
 	m := map[string]any{
+		"schema":            1,
 		"fetched_at":        fetchedAt.UTC().Format(time.RFC3339),
 		"subscription_type": subscriptionType,
 		"body":              json.RawMessage(body),

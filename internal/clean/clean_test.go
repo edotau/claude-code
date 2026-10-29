@@ -42,7 +42,7 @@ func seedDebris(t *testing.T) string {
 		"state/harness/memory/harvest-result-sess-aaa",
 		"state/harness/memory/recall-seen/sess-aaa",
 		"state/harness/checkpoint/sess-aaa",
-		"state/harness/simplified/sess-aaa",
+		"state/harness/plans-scratch/x.md.dest",
 		"state/harness/stop-format/abc123.json",
 		"state/harness/agents-inflight/agent-123-aaa",
 		"state/harness/router.log",
@@ -125,7 +125,7 @@ func TestCleanAppliesByDefault(t *testing.T) {
 	for _, gone := range []string{
 		"state/harness/memory/harvest-20260101-000000.log", "state/harness/memory/stamp-sess-aaa",
 		"state/harness/memory/harvest-result-sess-aaa", "state/harness/memory/recall-seen/sess-aaa",
-		"state/harness/checkpoint/sess-aaa", "state/harness/simplified/sess-aaa",
+		"state/harness/checkpoint/sess-aaa", "state/harness/plans-scratch/x.md.dest",
 		"state/harness/stop-format/abc123.json", "state/harness/agents-inflight/agent-123-aaa",
 		"state/harness/router.log", "state/harness/dispatch/20260101-aaaa.log",
 		"state/harness/backups/settings.json.bak-20260101-000000",

@@ -10,7 +10,6 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
-	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/vscode"
@@ -139,11 +138,7 @@ func writeMerged(dest string, oldContent, newContent []byte, dryRun bool, mode o
 		return false, "", fmt.Errorf("destination changed under the merge (%s) — re-run to merge the newer file", dest)
 	}
 	if len(oldContent) > 0 {
-		bak := paths.BackupPath(dest, time.Now())
-		if err := os.MkdirAll(filepath.Dir(bak), 0o700); err != nil {
-			return false, "", err
-		}
-		backup, err = paths.WriteBackup(bak, oldContent)
+		backup, err = paths.Backup(dest, oldContent)
 		if err != nil {
 			return false, "", err
 		}

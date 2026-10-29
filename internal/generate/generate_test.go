@@ -466,33 +466,28 @@ func TestCheckListsLostLinesWritesNothing(t *testing.T) {
 	}
 }
 
-// TestVersionFilesCappedAtFive: writeVersion prunes to the newest 5 "<file>.backup.<stamp>" versions.
-// Six pre-seeded versions (distinct stamps, so pruning can't collide on a filename) plus one more
-// write must leave exactly 5 — the oldest dropped first.
+// TestVersionFilesCappedAtFive: backupAndWrite keeps the newest 5 cache-mirrored backups, oldest dropped first.
 func TestVersionFilesCappedAtFive(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "config.toml")
-	if err := os.WriteFile(path, []byte("current"), 0o644); err != nil {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	path := filepath.Join(t.TempDir(), "config.json")
+	if err := os.WriteFile(path, []byte("v0"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	for i := 1; i <= 6; i++ {
-		stamp := fmt.Sprintf("2026010%dT000000Z", i)
-		if err := os.WriteFile(path+".backup."+stamp, []byte(stamp), 0o600); err != nil {
+	for i := 1; i <= 7; i++ {
+		old, _ := os.ReadFile(path)
+		if err := backupAndWrite(path, old, []byte(fmt.Sprintf("v%d", i)), true); err != nil {
 			t.Fatal(err)
 		}
 	}
-	oldest := path + ".backup.20260101T000000Z"
-	if err := writeVersion(path, []byte("newest")); err != nil {
-		t.Fatal(err)
+	m := mirrorsOf(path)
+	if len(m) != 5 {
+		t.Fatalf("mirrors = %d, want 5: %v", len(m), m)
 	}
-	versions, err := versionsOf(path)
-	if err != nil {
-		t.Fatal(err)
+	if got, _ := os.ReadFile(m[0]); string(got) != "v6" {
+		t.Errorf("newest mirror = %q, want v6", got)
 	}
-	if len(versions) != 5 {
-		t.Fatalf("versions = %d, want 5: %v", len(versions), versions)
-	}
-	if _, err := os.Stat(oldest); !os.IsNotExist(err) {
-		t.Errorf("oldest version %s must be pruned, stat err = %v", oldest, err)
+	if got, _ := os.ReadFile(m[4]); string(got) != "v2" {
+		t.Errorf("oldest kept mirror = %q, want v2", got)
 	}
 }
 
