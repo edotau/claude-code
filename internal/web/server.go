@@ -44,6 +44,8 @@ type Server struct {
 	hosts      hostsCache    // expiring tailnet machine-name list for resolveHosts
 	hubOnce    sync.Once     // lazily creates hub, so struct-literal Servers need no setup
 	hub        *hub          // the single shared tree scanner behind /api/events and /api/tree
+	plansOnce  sync.Once     // lazily creates plans
+	plans      *hub          // the plans/ scanner behind the `plans` SSE frames
 }
 
 // New builds a Server for opts.Addr (or the resolved default) without binding a listener; callers
@@ -98,7 +100,9 @@ func Run(ctx context.Context, opts Options) error {
 	hctx, stopHub := context.WithCancel(ctx)
 	hubDone := make(chan struct{})
 	go func() { defer close(hubDone); s.runHub(hctx) }()
-	defer func() { stopHub(); <-hubDone }()
+	plansDone := make(chan struct{})
+	go func() { defer close(plansDone); s.plansHub().run(hctx) }()
+	defer func() { stopHub(); <-hubDone; <-plansDone }()
 	var lc net.ListenConfig
 	ln, err := lc.Listen(ctx, "tcp", s.boundAddr)
 	if err != nil {
@@ -136,6 +140,8 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /{$}", s.guard(s.handleIndex))
 	s.mux.HandleFunc("GET /api/tree", s.guard(s.handleTree))
 	s.mux.HandleFunc("GET /api/events", s.guard(s.handleEvents))
+	s.mux.HandleFunc("GET /api/plans", s.guard(s.handlePlans))
+	s.mux.HandleFunc("GET /api/plan", s.guard(s.handlePlan))
 	s.mux.HandleFunc("GET /api/dispatches", s.guard(s.handleDispatches))
 	s.mux.HandleFunc("POST /api/dispatch", s.guard(s.handleDispatch))
 	s.mux.HandleFunc("GET /api/view", s.guard(s.handleView))

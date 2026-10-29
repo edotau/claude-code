@@ -678,7 +678,7 @@ const el = {innerHTML: ''}; const document = {getElementById: () => el};
 function renderTree(t) { return t.v; }
 let resolveFetch; function fetch() { return new Promise(r => { resolveFetch = r; }); }
 let listener; const window = {EventSource: true};
-function EventSource() { this.addEventListener = (n, f) => { listener = f; }; this.close = () => {}; }
+function EventSource() { this.addEventListener = (n, f) => { if (n === 'tree') listener = f; }; this.close = () => {}; }
 ` + extractJSFunc(t, src, "loadTree") + "\n}\n" + extractJSFunc(t, src, "watchTree") + "\n}" + `
 loadTree(); watchTree();
 listener({data: JSON.stringify({v: 'sse'})});
