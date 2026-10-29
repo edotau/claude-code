@@ -52,6 +52,9 @@ func Default() *Resolver {
 
 // classify turns a raw mount entry into a Mount; ok is false for filesystems that are not drvfs/remote/Volumes.
 func classify(point, source, fstype string) (Mount, bool) {
+	if strings.HasPrefix(source, `\\`) { // WSL drvfs exposes a UNC share as `\\server\share`
+		source = strings.ReplaceAll(source, `\`, "/")
+	}
 	m := Mount{Point: point, Source: source, FSType: fstype}
 	switch {
 	case isDriveSource(source):
@@ -97,7 +100,7 @@ func isSMB(source, fstype string) bool {
 	case "cifs", "smb3", "smbfs", "smb":
 		return true
 	}
-	return strings.HasPrefix(source, "//") && fstype != "9p"
+	return strings.HasPrefix(source, "//")
 }
 
 // splitSMB splits "//[user[:pw]@]host/share[/sub]" into host and "share[/sub]".
