@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/schemas"
 )
 
 // claudeNow is the wall-clock seam; tests point it at a fixed instant.
@@ -197,7 +198,7 @@ func readClaudeUsageCache(path string) *claudeUsageCache {
 		return nil
 	}
 	var c claudeUsageCache
-	if !decodeUsageCache(raw, &c) || len(c.Body) == 0 {
+	if !schemas.DecodeOK(usageCacheFormat, raw, &c) || len(c.Body) == 0 {
 		return nil
 	}
 	return &c

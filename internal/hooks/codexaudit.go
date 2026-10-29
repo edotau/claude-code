@@ -124,7 +124,7 @@ func parseCodexRoutes(data []byte) []codexRouteRecord {
 	var records []codexRouteRecord
 	for _, line := range bytes.Split(data[:bytes.LastIndexByte(data, '\n')+1], []byte{'\n'}) {
 		var row codexRouteRecord
-		if len(bytes.TrimSpace(line)) > 0 && decodeCodexRoute(line, &row) {
+		if len(bytes.TrimSpace(line)) > 0 && schemas.DecodeOK(codexRouteFormat, line, &row) {
 			records = append(records, row)
 		}
 	}
@@ -160,10 +160,4 @@ func codexRouteMatches(records []codexRouteRecord) []codexRouteRecord {
 			Matches: &match, At: time.Now().UnixMilli()})
 	}
 	return matches
-}
-
-// decodeCodexRoute migrates an older line on read; an unparsable or newer-schema line is skipped.
-func decodeCodexRoute(line []byte, row *codexRouteRecord) bool {
-	_, err := schemas.Decode(codexRouteFormat, line, row)
-	return err == nil
 }

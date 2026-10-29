@@ -62,3 +62,9 @@ func SameShape(from int, raw []byte) ([]byte, error) {
 	m["schema"] = n
 	return json.Marshal(m)
 }
+
+// DecodeOK reports whether raw decodes at the current version; an unparsable or newer-schema document is a miss.
+func DecodeOK(f Format, raw []byte, dst any) bool {
+	_, err := Decode(f, raw, dst)
+	return err == nil
+}

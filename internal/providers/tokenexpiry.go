@@ -79,13 +79,8 @@ func TokenExpiry(name string) (time.Time, bool) {
 		return time.Time{}, false
 	}
 	var rec tokenExpiryRecord
-	if !decodeTokenExpiry(b, &rec) || rec.Exp == nil {
+	if !schemas.DecodeOK(tokenExpiryFormat, b, &rec) || rec.Exp == nil {
 		return time.Time{}, false
 	}
 	return time.Unix(*rec.Exp, 0), true
-}
-
-func decodeTokenExpiry(raw []byte, dst any) bool {
-	_, err := schemas.Decode(tokenExpiryFormat, raw, dst)
-	return err == nil
 }
