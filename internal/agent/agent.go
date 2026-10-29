@@ -474,7 +474,8 @@ func RunWithFallback(ctx context.Context, c Chain, req Request, stream io.Writer
 		}
 		lreq := legRequest(req, leg, i == 0 && leg.Agent.Name() == c.Want)
 		waitCooldown(ctx, leg.Account, DefaultMaxDelay) // holds nothing
-		func() {                                        // the leg's scope: fail-fast is decided and a panic caught before the permit is released
+		panicked := false
+		func() { // the leg's scope: fail-fast is decided and a panic caught before the permit is released
 			release, aerr := acquireLeg(ctx, leg.Account) // per billed account, whichever key the task was queued under
 			if aerr != nil {
 				ce := &Error{Kind: KindFatal, Agent: leg.Agent.Name(), Err: aerr}
@@ -491,8 +492,13 @@ func RunWithFallback(ctx context.Context, c Chain, req Request, stream io.Writer
 					pe := &Error{Kind: KindFatal, Agent: leg.Agent.Name(), Err: fmt.Errorf("panic: %v", r)}
 					res, err = Result{Agent: pe.Agent, Status: StatusError, Invoked: lreq.Model}, pe
 					hops = append(hops, hopOf(leg, lreq, res, err))
+					panicked = true
 				}
-				tripFailFast(ctx, c, i, req, res, err)
+				if panicked {
+					tripFailFast(ctx, Chain{}, 0, req, res, err) // a panic is terminal: no later leg repeats its side effects
+				} else {
+					tripFailFast(ctx, c, i, req, res, err)
+				}
 				release()
 			}()
 			if skip := exhaustedSince(leg); skip != nil { // another task marked this account dead after the chain was built
@@ -507,6 +513,10 @@ func RunWithFallback(ctx context.Context, c Chain, req Request, stream io.Writer
 			noteAuth(leg, err)
 			noteStall(leg, err)
 		}()
+		if panicked {
+			stopped = true
+			break
+		}
 		if res.Handoff != handoff {
 			req.Prompt = promptFromHandoff(res.Handoff, req.Prompt)
 		}
