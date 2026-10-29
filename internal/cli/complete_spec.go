@@ -49,7 +49,7 @@ func buildSpecTree() map[string]*compNode {
 		valuedFlag("fallback", func() []string { return agent.FallbackModes }),
 		flag("attach"), flag("keep-env"), boolFlag("autonomous"), boolFlag("enable-memory"),
 		boolFlag("background"), flag("job"), flag("batch"), flag("jobs"), boolFlag("fail-fast"),
-		boolFlag("no-persist"), boolFlag("safe-mode"), flag("debug-file"),
+		boolFlag("no-persist"), boolFlag("safe-mode"), flag("debug-file"), boolFlag("live"), flag("idle"),
 	}
 
 	tree := map[string]*compNode{
@@ -132,6 +132,7 @@ func buildSpecTree() map[string]*compNode {
 			"tree": {flags: []flagInfo{flag("days"), flag("session"), boolFlag("running"), boolFlag("all"),
 				boolFlag("watch"), flag("interval"), formatFlag()}},
 			"reap": {flags: []flagInfo{boolFlag("dry-run")}},
+			"send": {flags: []flagInfo{flag("format")}},
 		}},
 		"install": {flags: []flagInfo{boolFlag("dry-run"), boolFlag("verbose"), valuedFlag("tools", toolNames), valuedFlag("setup", setupModes)}, sub: map[string]*compNode{"--setup": {sub: map[string]*compNode{
 			"adopt":     {flags: []flagInfo{flag("from"), flag("into"), boolFlag("dry-run"), flag("label")}},

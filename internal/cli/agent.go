@@ -75,6 +75,8 @@ func runAsk(args []string, resume bool) int {
 	retry := fs.String("retry", "", "replay a logged dispatch by id (or unique id prefix); see --log")
 	showLog := fs.Bool("log", false, "list the 20 most recent dispatches and exit")
 	background := fs.Bool("background", false, "detach: log a job, print its id, exit")
+	live := fs.Bool("live", false, "claude, gemini: hold the session open in a background job; feed turns with agents send <id>")
+	idle := fs.Duration("idle", agent.DefaultLiveIdle, "live: end the session after this long without a turn")
 	job := fs.String("job", "", "internal: run saved dispatch <id> in place")
 	batch := fs.String("batch", "", "run JSONL tasks from <file> or - on a pool; one envelope per line")
 	jobs := fs.Int("jobs", agent.DefaultJobs(), "batch: tasks run at once")
@@ -90,6 +92,11 @@ func runAsk(args []string, resume bool) int {
 	}
 	if err := askExclusive(*background, *job, *tools, *noTools); err != nil {
 		return failAsk(*format, *name, err)
+	}
+	if *live {
+		if err := askLiveCheck(*name, *job, *batch, *retry, len(attach), len(env)); err != nil {
+			return failAskCode(*format, *name, err, 2)
+		}
 	}
 	schema, err := resolveOutputSchema(*outputSchema)
 	if err != nil {
@@ -138,11 +145,12 @@ func runAsk(args []string, resume bool) int {
 			return failAskCode(*format, *name, err, 2)
 		}
 	}
-	prompt, err = resolveAskPrompt(prompt)
-	if err != nil {
-		return failAsk(*format, *name, err)
+	if !*live || prompt != "" { // a live session may start with no task; do not block on stdin for it
+		if prompt, err = resolveAskPrompt(prompt); err != nil {
+			return failAsk(*format, *name, err)
+		}
 	}
-	if strings.TrimSpace(prompt) == "" {
+	if strings.TrimSpace(prompt) == "" && !*live {
 		fs.Usage()
 		printAskFailure(*format, *name, errors.New("no task: give a prompt, or \"-\" to read stdin"))
 		return 2
@@ -173,14 +181,25 @@ func runAsk(args []string, resume bool) int {
 		Attach: []string(attach), KeepEnv: []string(keepEnv), Autonomous: *autonomous, EnableMemory: *enableMemory, Direct: *direct,
 		NoPersist: *noPersist, SafeMode: *safeMode, DebugFile: *debugFile, SystemPrompt: *systemPrompt,
 		AppendSystemPrompt: *appendSystemPrompt, Env: []string(env), OutputSchema: schema}
-	rec := buildAskRecord(ctx, r, req, jobRec, *workdir, *background)
+	rec := buildAskRecord(ctx, r, req, jobRec, *workdir, *background || *live)
+	rec.Live = *live
 	_ = rec.Save() // fail-open: the log is for replay and forensics, never a gate on the run
-	if *background {
-		if err := vendoragent.Spawn(&rec, backgroundExtraFlags(fs, *fallback, *native)); err != nil {
+	if *background || (*live && jobRec == nil) {
+		extra := backgroundExtraFlags(fs, *fallback, *native)
+		if *live {
+			extra = append(extra, "--live", "--idle", idle.String())
+		}
+		if err := vendoragent.Spawn(&rec, extra); err != nil {
 			return failAsk(*format, *name, err)
+		}
+		if *live {
+			return reportLiveStart(*format, rec)
 		}
 		reportBackgroundStart(*format, rec)
 		return 0
+	}
+	if *live {
+		return runAskLive(ctx, &rec, req, *idle)
 	}
 	return runAskAndReport(ctx, &rec, chain, req, jobRec, *format)
 }
@@ -580,6 +599,7 @@ var agentsPage = helptext.Page{
 		{"result", "print a finished dispatch's answer or envelope: result <id>"},
 		{"tail", "follow a dispatch's log or events: tail <id> [-f]"},
 		{"cancel", "interrupt a running dispatch: cancel <id>"},
+		{"send", "feed a turn to a live session: send <id> <task>"},
 	},
 	Hint: "claude-code agents <command> -h lists that command's flags.",
 }
@@ -611,6 +631,8 @@ func cmdAgents(args []string) int {
 		return cmdAgentsReap(args[1:])
 	case "status", "result", "tail", "cancel":
 		return cmdAgentsJob(args[0], args[1:])
+	case "send":
+		return cmdAgentsSend(args[1:])
 	case "-h", "--help", "help":
 		agentsPage.Fprint(os.Stderr)
 		return 0
@@ -663,7 +685,8 @@ func listAgents() int {
 			l    agent.Level
 			name string
 		}{{c.Model, "model"}, {c.Provider, "profile"}, {c.Effort, "effort"}, {c.WorkDir, "workdir"}, {c.SessionID, "session"}, {c.Tools, "tools"},
-			{c.SystemPrompt, "system-prompt"}, {c.AppendSystemPrompt, "append-system-prompt"}, {c.Env, "env"}, {c.OutputSchema, "output-schema"}} {
+			{c.SystemPrompt, "system-prompt"}, {c.AppendSystemPrompt, "append-system-prompt"}, {c.Env, "env"}, {c.OutputSchema, "output-schema"},
+			{c.Live, "live"}} {
 			if f.l != agent.None {
 				caps = append(caps, f.name+":"+f.l.String())
 			}
