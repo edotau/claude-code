@@ -10,7 +10,7 @@ import (
 	"github.com/edotau/claude-code/internal/launch"
 )
 
-func std2CodexLaunch(t *testing.T, profile string, withFile bool) error {
+func launchCodexProfile(t *testing.T, profile string, withFile bool) error {
 	t.Helper()
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	codexHome := t.TempDir()
@@ -29,15 +29,15 @@ func std2CodexLaunch(t *testing.T, profile string, withFile bool) error {
 	return err
 }
 
-func TestStd2CodexProfileMatchesConfigFileHintsDashP(t *testing.T) {
-	err := std2CodexLaunch(t, "work", true)
+func TestCodexProfileMatchesConfigFileHintsDashP(t *testing.T) {
+	err := launchCodexProfile(t, "work", true)
 	if err == nil || !strings.Contains(err.Error(), "use -p work") {
 		t.Fatalf("err = %v, want message containing %q", err, "use -p work")
 	}
 }
 
-func TestStd2CodexProfileUnknownKeepsOldError(t *testing.T) {
-	err := std2CodexLaunch(t, "nosuch", false)
+func TestCodexProfileUnknownKeepsOldError(t *testing.T) {
+	err := launchCodexProfile(t, "nosuch", false)
 	if err == nil || !strings.Contains(err.Error(), `unknown provider "nosuch"`) || strings.Contains(err.Error(), "use -p") {
 		t.Fatalf("err = %v, want the unknown-provider error without a -p hint", err)
 	}

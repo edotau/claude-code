@@ -12,13 +12,13 @@ import (
 func TestCodexFileOverrides(t *testing.T) {
 	dir := t.TempDir()
 	good := filepath.Join(dir, "good.toml")
-	os.WriteFile(good, []byte("# c\nmodel = \"m\"\n\n[model_providers.d]\nbase_url = \"https://h\"\n[model_providers.d.auth]\nargs = [\"token\", \"--provider\", \"qa\"]\n"), 0o600)
+	os.WriteFile(good, []byte("# c\nmodel = \"m\"\n\n[model_providers.d]\nbase_url = \"https://h\"\n[model_providers.d.auth]\nargs = [\"resolve\", \"--provider\", \"qa\"]\n"), 0o600)
 	got, err := codexFileOverrides(good)
 	if err != nil {
 		t.Fatal(err)
 	}
 	want := []string{"-c", `model="m"`, "-c", `model_providers.d.base_url="https://h"`,
-		"-c", `model_providers.d.auth.args=["token", "--provider", "qa"]`}
+		"-c", `model_providers.d.auth.args=["resolve", "--provider", "qa"]`}
 	if !slices.Equal(got, want) {
 		t.Errorf("got %q\nwant %q", got, want)
 	}

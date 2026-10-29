@@ -271,6 +271,7 @@ func TestAgentUsageZeroFieldsOmitted(t *testing.T) {
 // TestRunJSONWindowDaysMatchesFlag: `usage --format json --days N` carries window_days == N at the
 // document's top level.
 func TestRunJSONWindowDaysMatchesFlag(t *testing.T) {
+	isolateAgentStores(t)
 	origQuotas := fetchQuotas
 	fetchQuotas = func() []quota { return nil }
 	t.Cleanup(func() { fetchQuotas = origQuotas })

@@ -245,3 +245,37 @@ func TestOpencodeRenderUsesOverlayMenu(t *testing.T) {
 		}
 	}
 }
+
+// Headless on a Databricks profile renders the same three providers as the interactive launch.
+func TestOpencodeHeadlessDatabricksThreeProviders(t *testing.T) {
+	vaulttest.Use(t)
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	p := dbxRow("qa", "databricks-")
+	p.Routes[providers.ProtocolAnthropic] = "https://h.example.com/serving-endpoints/anthropic"
+	base := p.Routes[providers.ProtocolOpenAI]
+	render := func(model string) ocCfg {
+		t.Helper()
+		env, argv, err := opencode(p, providers.ProtocolOpenAI, base, model, "tok", false, &Headless{Prompt: "hi", Tools: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var c ocCfg
+		if err := json.Unmarshal([]byte(envMap(env)["OPENCODE_CONFIG_CONTENT"]), &c); err != nil {
+			t.Fatal(err)
+		}
+		if len(argv) < 4 || argv[0] != "run" {
+			t.Fatalf("argv = %q, want an opencode run", argv)
+		}
+		return c
+	}
+	c := render("databricks-claude-opus-5-5")
+	for _, id := range []string{"harness-qa", "harness-qa-gpt", "harness-qa-claude"} {
+		if _, ok := c.Provider[id]; !ok {
+			t.Errorf("headless config lacks provider %q; has %d providers", id, len(c.Provider))
+		}
+	}
+	g := render("databricks-gpt-6-astra")
+	if g.Model != "harness-qa-gpt/databricks-gpt-6-astra" {
+		t.Errorf("headless Responses-only model = %q, want the -gpt provider", g.Model)
+	}
+}

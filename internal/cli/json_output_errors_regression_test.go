@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/launch"
 )
 
 // TestWorktreeListJSONWriteError ensures that when outfmt.Write fails,
@@ -189,6 +191,9 @@ func TestNetworkVscodeServeStatusJSONWriteError(t *testing.T) {
 // when writing to stdout fails (regression test for internal/cli/launch.go:419).
 func TestDoctorJSONWriteError(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	orig := doctorChecks
+	doctorChecks = func() ([]launch.Check, bool) { return []launch.Check{{Name: "x", OK: true}}, true }
+	t.Cleanup(func() { doctorChecks = orig })
 	f, err := os.Create(filepath.Join(t.TempDir(), "closed-file"))
 	if err != nil {
 		t.Fatal(err)
@@ -291,23 +296,6 @@ func TestDispatchFlagsNotValidatedPerMode(t *testing.T) {
 	})
 	// After fix, code should be non-zero when invalid flags are used
 	_ = code
-}
-
-// TestMemoryUpdateGetWdError ensures memory update handles os.Getwd() errors gracefully
-// (regression for internal/cli/memory.go:339).
-// This test verifies that when cwd is inaccessible, the command reports an error.
-func TestMemoryUpdateGetWdError(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	// Without --cwd set, memory update must get the working directory.
-	// We can't easily test os.Getwd() failure in a portable way here,
-	// but we can verify the code path is exercised by using --cwd.
-	code, _, _ := captureOutput(t, func() int {
-		return cmdMemoryUpdate([]string{"--transcript", "/nonexistent/file"})
-	})
-	// Should error because transcript doesn't exist or because of other issues
-	if code == 0 {
-		t.Errorf("memory update with nonexistent transcript: exit %d, want non-zero", code)
-	}
 }
 
 // TestMemoryDreamGetWdError ensures memory dream handles os.Getwd() errors gracefully

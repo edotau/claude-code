@@ -71,9 +71,9 @@ func TestVendorVerbRoutesSetupToCmdVendorSetup(t *testing.T) {
 	}
 }
 
-// Both spellings reach cmdVendorModels, not launchVendor, and use canonical diagnostics/help.
-func TestVendorVerbRoutesCatalogAndModelsToCmdVendorModels(t *testing.T) {
-	for _, sub := range []string{"catalog", "models"} {
+// catalog reaches cmdVendorModels, not launchVendor, with canonical diagnostics and help.
+func TestVendorVerbRoutesCatalogToCmdVendorModels(t *testing.T) {
+	for _, sub := range []string{"catalog"} {
 		code, _, stderr := captureOutput(t, func() int { return vendorVerb("codex", []string{sub, "unexpected"}) })
 		if code != 2 || !strings.Contains(stderr, "codex catalog: unexpected argument") {
 			t.Errorf("vendorVerb(%s): code=%d stderr=%q", sub, code, stderr)
@@ -113,11 +113,18 @@ func TestVendorVerbHelpFlag(t *testing.T) {
 		if !strings.HasPrefix(stderr, "usage: claude-code codex") {
 			t.Errorf("vendorVerb(codex, %q) stderr missing usage header: %q", flagArg, stderr)
 		}
-		for _, want := range []string{"  catalog", "models is a compatibility alias for catalog", "select the model for this launch"} {
+		for _, want := range []string{"  catalog", "select the model for this launch"} {
 			if !strings.Contains(stderr, want) {
 				t.Errorf("vendorVerb(codex, %q) help missing %q: %s", flagArg, want, stderr)
 			}
 		}
+	}
+}
+
+// TestVendorModelsAliasRemoved: models is no longer a subverb; it falls through to the agent launch like any bare word.
+func TestVendorModelsAliasRemoved(t *testing.T) {
+	if vendorSubverbs["models"] {
+		t.Error("models must not route to cmdVendorSub")
 	}
 }
 
@@ -126,7 +133,7 @@ func TestVendorVerbHelpFlag(t *testing.T) {
 // a later addition (e.g. explore) doesn't need a second hand-copied list kept in lockstep with
 // TestSpecTreeSubwordsMatchDispatch's own derivation off the same map.
 func TestVendorSubverbsCoverContractVerbs(t *testing.T) {
-	for _, w := range []string{"resume", "status", "result", "cancel", "tail", "setup", "catalog", "models", "review", "transfer"} {
+	for _, w := range []string{"resume", "status", "result", "cancel", "tail", "setup", "catalog", "review", "transfer"} {
 		if !vendorSubverbs[w] {
 			t.Errorf("vendorSubverbs missing %q", w)
 		}

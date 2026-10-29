@@ -3,6 +3,7 @@ package hooks
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,6 +11,9 @@ import (
 
 	"github.com/edotau/claude-code/internal/hookspec"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/vault"
+	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
 func readCodexAuditFixture(t *testing.T) ([]codexRouteRecord, []byte) {
@@ -220,4 +224,80 @@ func TestCodexAuditIgnoresOtherVendorsAndMissingSessions(t *testing.T) {
 	if err != nil || len(files) != 0 {
 		t.Fatalf("unexpected audit files = %v, error %v", files, err)
 	}
+}
+
+const (
+	routeDecisionLine = `{"event":"decision","session_id":"s","tool_use_id":"t1","requested_model":"m","matches_router_decision":null,"at":1}` + "\n"
+	routeResultLine   = `{"event":"tool-result","session_id":"s","tool_use_id":"t1","agent_id":"a1","matches_router_decision":null,"at":2}` + "\n"
+)
+
+// appendAndJoin appends the child-start to a pre-damaged file and asserts the join still verifies.
+func appendAndJoin(t *testing.T, content string) {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "routing.jsonl")
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	child := codexRouteRecord{Event: "child-start", SessionID: "s", AgentID: "a1", Model: "m", At: 3}
+	if err := appendCodexRoute(path, child); err != nil {
+		t.Fatalf("appendCodexRoute on damaged file: %v", err)
+	}
+	rows, err := readCodexRoutes(path)
+	if err != nil {
+		t.Fatalf("readCodexRoutes after append: %v", err)
+	}
+	var verified, children int
+	for _, r := range rows {
+		switch r.Event {
+		case "verified":
+			verified++
+			if r.Matches == nil || !*r.Matches {
+				t.Errorf("verified row = %+v, want matches", r)
+			}
+		case "child-start":
+			children++
+		}
+	}
+	if verified != 1 || children != 1 {
+		t.Fatalf("verified=%d child-start=%d, want 1 and 1; rows=%+v", verified, children, rows)
+	}
+}
+
+func TestCodexRoutesTruncatedLastLine(t *testing.T) {
+	appendAndJoin(t, routeDecisionLine+routeResultLine+`{"event":"child-sta`)
+}
+
+func TestCodexRoutesMalformedMiddleLine(t *testing.T) {
+	appendAndJoin(t, routeDecisionLine+"{not json}\n"+routeResultLine)
+}
+
+func TestCodexRoutesLongLine(t *testing.T) {
+	long := `{"event":"note","session_id":"s","matches_router_decision":null,"signal":"` + strings.Repeat("x", 100*1024) + `","at":1}` + "\n"
+	appendAndJoin(t, routeDecisionLine+long+routeResultLine)
+}
+
+func TestCodexSpawnPinnedEnvVsVault(t *testing.T) {
+	vaulttest.Use(t)
+	t.Setenv(providers.PinCodexModel, "gpt-env")
+	t.Setenv(providers.PinCodexEffort, "")
+	in := ParseInput(strings.NewReader(`{"session_id":"s","tool_input":{"message":"x"}}`))
+	if codexSpawnPinned(in) {
+		t.Error("process-env CODEX_MODEL with no vault pin vetoed routing, want proceed")
+	}
+	vaulttest.Put(t, vault.Pins, providers.PinCodexModel, "gpt-vault")
+	if !codexSpawnPinned(in) {
+		t.Error("vault CODEX_MODEL pin did not veto routing")
+	}
+}
+
+// readCodexRoutes skips unparsable lines and an unterminated trailing record.
+func readCodexRoutes(path string) ([]codexRouteRecord, error) {
+	data, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return parseCodexRoutes(data), nil
 }

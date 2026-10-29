@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"os"
@@ -199,5 +200,56 @@ func setPin(t *testing.T, key, value string) {
 	t.Helper()
 	if err := providers.SetPins(map[string]string{key: value}); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// Partial copilot text followed by a transient error is not retried: one SDK call, the partial answer and session kept.
+func TestCopilotPartialAnswerKeptOnTransientError(t *testing.T) {
+	ghLogin(t, "alice", 10)
+	fakeCopilotBin(t)
+	calls := stubAsk(t, func(int) (copilotsdk.Result, error) {
+		return copilotsdk.Result{Text: "half an answer", SessionID: "sess-9"}, errors.New("send prompt: connection reset")
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	res, err := Run(ctx, copilotRunner{}, Request{Prompt: "p", Provider: "personal", Direct: true}, io.Discard, nil)
+	if err == nil {
+		t.Fatal("err = nil, want the SDK failure")
+	}
+	if *calls != 1 {
+		t.Errorf("copilotAsk calls = %d, want 1: output was already produced, a retry would re-run the task", *calls)
+	}
+	if res.Handoff != "" {
+		t.Fatalf("Handoff = %q: this must be the NON-quota path", res.Handoff)
+	}
+	if res.Answer != "half an answer" {
+		t.Errorf("Answer = %q, want the partial text \"half an answer\"", res.Answer)
+	}
+	if res.SessionID != "sess-9" {
+		t.Errorf("SessionID = %q, want \"sess-9\"", res.SessionID)
+	}
+}
+
+// Copilot reports no token usage, so a successful run's envelope has usage null and fallback null.
+func TestCopilotResultJSONUsageNull(t *testing.T) {
+	ghLogin(t, "alice", 10)
+	fakeCopilotBin(t)
+	stubAsk(t, func(int) (copilotsdk.Result, error) {
+		return copilotsdk.Result{Text: "hello", SessionID: "sess-1", Model: "m"}, nil
+	})
+	res, err := Run(context.Background(), copilotRunner{}, Request{Prompt: "p", Provider: "personal", Direct: true}, io.Discard, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := json.Marshal(NewEnvelope(res, nil, "id-1"))
+	var m map[string]any
+	if err := json.Unmarshal(body, &m); err != nil {
+		t.Fatal(err)
+	}
+	if v, ok := m["usage"]; !ok || v != nil {
+		t.Errorf("usage = %v (present=%v), want explicit null: copilot reports none", v, ok)
+	}
+	if v, ok := m["fallback"]; !ok || v != nil {
+		t.Errorf("fallback = %v, want null when the requested agent answered", m["fallback"])
 	}
 }

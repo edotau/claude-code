@@ -155,7 +155,7 @@ func TestAgentInflightTTLPruningIsOwnerAware(t *testing.T) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	stale := time.Now().Add(-inflightTTL - time.Minute)
+	stale := time.Now().Add(-inflight.TTL - time.Minute)
 
 	touch := func(name string) string {
 		p := filepath.Join(dir, name)

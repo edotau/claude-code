@@ -20,7 +20,7 @@ func TestApiKeyHelperQuotesPathWithSpace(t *testing.T) {
 	if err := json.Unmarshal([]byte(r.Text), &d); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.HasPrefix(d.K, "'/opt/my tools/claude-code' token --profile ") {
+	if !strings.HasPrefix(d.K, "'/opt/my tools/claude-code' resolve --profile ") {
 		t.Errorf("helper path not quoted: %q", d.K)
 	}
 	o.Self = "/bin/cc"
