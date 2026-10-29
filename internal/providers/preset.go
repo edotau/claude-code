@@ -211,6 +211,11 @@ func jwtIssuerHost(v string) (string, bool) {
 	return u.Host, true
 }
 
+// HostMismatchError is a credential issued for another host than the route it would be sent to.
+type HostMismatchError struct{ msg string }
+
+func (e *HostMismatchError) Error() string { return e.msg }
+
 // checkIssuer fails a preset provider's minted JWT whose issuer host is not the preset host; never names the token.
 func checkIssuer(p *Provider, v string) error {
 	want := strings.TrimPrefix(presetHost(p.Host), "https://")
@@ -218,7 +223,7 @@ func checkIssuer(p *Provider, v string) error {
 		return nil
 	}
 	if iss, ok := jwtIssuerHost(v); ok && iss != want {
-		return fmt.Errorf("%s: token issuer host %s does not match preset host %s (wrong cliProfile?)", p.Name, iss, want)
+		return &HostMismatchError{fmt.Sprintf("%s: token issuer host %s does not match preset host %s (wrong cliProfile?)", p.Name, iss, want)}
 	}
 	return nil
 }
@@ -232,7 +237,7 @@ func CheckRouteHost(p *Provider, v string) error {
 	for _, d := range p.Dialects() {
 		route, _ := p.Route(d)
 		if u, err := url.Parse(route); err == nil && u.Host != "" && u.Host != iss {
-			return fmt.Errorf("%s: credential issued for %s, but the %s route is on %s", p.Name, iss, d, u.Host)
+			return &HostMismatchError{fmt.Sprintf("%s: credential issued for %s, but the %s route is on %s", p.Name, iss, d, u.Host)}
 		}
 	}
 	return nil
