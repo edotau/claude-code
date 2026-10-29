@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/schemas"
 )
 
 // OpencodeConn is one stored or environment-backed opencode connection; it never carries a credential value.
@@ -377,7 +378,7 @@ type opencodeDiskCache struct {
 func loadOpencodeDiskCache() opencodeDiskCache {
 	var c opencodeDiskCache
 	data, err := os.ReadFile(opencodeCacheFile())
-	if err != nil || !decodeOpencodeCache(data, &c) {
+	if err != nil || !schemas.DecodeOK(opencodeCacheFormat, data, &c) {
 		return opencodeDiskCache{}
 	}
 	return c

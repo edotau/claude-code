@@ -11,9 +11,3 @@ var usageCacheFormat = schemas.Register(schemas.Format{
 	New:     func() any { return &claudeUsageCache{} },
 	Version: usageCacheSchema, Keep: "rebuildable cache; a version mismatch is a miss",
 })
-
-// decodeUsageCache reports whether raw decodes at the current schema; older, newer or unstamped data is a miss.
-func decodeUsageCache(raw []byte, dst any) bool {
-	_, err := schemas.Decode(usageCacheFormat, raw, dst)
-	return err == nil
-}

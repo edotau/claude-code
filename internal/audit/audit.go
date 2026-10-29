@@ -130,7 +130,7 @@ func Read(since time.Time) ([]Event, error) {
 		for {
 			line, readErr := reader.ReadBytes('\n')
 			var e Event
-			if decodeLine(line, &e) && e.Action.Valid() && !e.Time.Before(since) {
+			if schemas.DecodeOK(format, line, &e) && e.Action.Valid() && !e.Time.Before(since) {
 				out = append(out, e)
 			}
 			if readErr != nil {
@@ -152,10 +152,4 @@ func Summary(events []Event) map[Action]int {
 		out[e.Action]++
 	}
 	return out
-}
-
-// decodeLine migrates an older line on read; an unparsable or newer-schema line is skipped.
-func decodeLine(line []byte, e *Event) bool {
-	_, err := schemas.Decode(format, line, e)
-	return err == nil
 }

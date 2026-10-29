@@ -17,6 +17,7 @@ import (
 	"github.com/edotau/claude-code/internal/outfmt"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/schemas"
 	"github.com/edotau/claude-code/internal/secrets"
 	"github.com/edotau/claude-code/internal/tools"
 	"github.com/edotau/claude-code/internal/worktree"
@@ -183,7 +184,7 @@ func dispatchHostNames() []string {
 		return nil
 	}
 	var c dispatchMachineCache
-	if !decodeDispatchCache(data, &c) || time.Since(c.At) > dispatchCacheTTL {
+	if !schemas.DecodeOK(dispatchCacheFormat, data, &c) || time.Since(c.At) > dispatchCacheTTL {
 		return nil
 	}
 	return c.Names

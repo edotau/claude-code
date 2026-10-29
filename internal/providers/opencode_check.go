@@ -18,6 +18,7 @@ import (
 	"unicode"
 
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/schemas"
 )
 
 // CheckTarget is one endpoint to probe: ID is what the table shows, Wire the served endpoint name.
@@ -220,7 +221,7 @@ func LoadCheckCache(provider string) (map[string]CheckResult, bool) {
 		return nil, false
 	}
 	var c CheckCache
-	if !decodeCheckCache(b, &c) || c.Provider != provider {
+	if !schemas.DecodeOK(checkCacheFormat, b, &c) || c.Provider != provider {
 		return nil, false
 	}
 	m := make(map[string]CheckResult, len(c.Results))

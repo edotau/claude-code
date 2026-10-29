@@ -11,9 +11,3 @@ var dispatchCacheFormat = schemas.Register(schemas.Format{
 	New:     func() any { return &dispatchMachineCache{} },
 	Version: dispatchCacheSchema, Keep: "rebuildable cache; a version mismatch is a miss",
 })
-
-// decodeDispatchCache reports whether raw decodes at the current schema; older, newer or unstamped data is a miss.
-func decodeDispatchCache(raw []byte, dst any) bool {
-	_, err := schemas.Decode(dispatchCacheFormat, raw, dst)
-	return err == nil
-}

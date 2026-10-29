@@ -17,12 +17,6 @@ var checkCacheFormat = schemas.Register(schemas.Format{
 	Version: checkCacheSchema, Keep: "rebuildable cache; a version mismatch is a miss",
 })
 
-// decodeCheckCache reports whether raw decodes at the current schema; older, newer or unstamped data is a miss.
-func decodeCheckCache(raw []byte, dst any) bool {
-	_, err := schemas.Decode(checkCacheFormat, raw, dst)
-	return err == nil
-}
-
 // tokenExpirySchema is the token-expiry record's schema version; a mismatch is a cache miss.
 const tokenExpirySchema = 1
 
