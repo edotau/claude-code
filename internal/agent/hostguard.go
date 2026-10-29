@@ -111,12 +111,12 @@ func checkIsolation(ctx context.Context) error {
 
 // blankForeignCredentials adds NAME= for each foreign credential in the process env, for a child (the Copilot SDK)
 // that merges os.Environ itself and applies env last.
-func blankForeignCredentials(env []string, own *providers.Provider, keepEnv []string) []string {
+func blankForeignCredentials(ctx context.Context, env, keepEnv, native []string) []string {
 	have := map[string]bool{}
-	for _, kv := range scrubForeignCredentials(os.Environ(), own, keepEnv) {
+	for _, kv := range scrubIsolated(ctx, os.Environ(), keepEnv, native) {
 		have[kv] = true
 	}
-	out := scrubForeignCredentials(env, own, keepEnv)
+	out := scrubIsolated(ctx, env, keepEnv, native)
 	for _, kv := range os.Environ() {
 		if name, _, _ := strings.Cut(kv, "="); !have[kv] {
 			out = append(out, name+"=")
@@ -125,16 +125,35 @@ func blankForeignCredentials(env []string, own *providers.Provider, keepEnv []st
 	return out
 }
 
-// scrubForeignCredentials drops every other profile's credential env name from env, so a hop holds only its own.
-func scrubForeignCredentials(env []string, own *providers.Provider, keepEnv []string) []string {
-	reg, err := providers.Load()
-	if err != nil || own == nil {
+// scrubIsolated drops other profiles' credentials from env under batch isolation; an own-login hop (no profile)
+// keeps only the native names (the login's own vars) and keepEnv. Outside a batch env is unchanged.
+func scrubIsolated(ctx context.Context, env, keepEnv, native []string) []string {
+	if p := ownProviderFrom(ctx); p != nil {
+		return scrubForeignCredentials(env, p, keepEnv)
+	}
+	if ctx.Value(isolateKey{}) == nil {
 		return env
 	}
-	mine := append(providers.CredentialNames(own), keepEnv...)
+	return scrubExcept(env, "", append(slices.Clone(native), keepEnv...), keepEnv)
+}
+
+// scrubForeignCredentials drops every other profile's credential env name from env, so a hop holds only its own.
+func scrubForeignCredentials(env []string, own *providers.Provider, keepEnv []string) []string {
+	if own == nil {
+		return env
+	}
+	return scrubExcept(env, own.Name, append(providers.CredentialNames(own), keepEnv...), keepEnv)
+}
+
+// scrubExcept drops every registry credential name of the profiles other than ownName, except those in mine.
+func scrubExcept(env []string, ownName string, mine, keepEnv []string) []string {
+	reg, err := providers.Load()
+	if err != nil {
+		return env
+	}
 	foreign := map[string]bool{}
 	for _, p := range reg.Providers {
-		if p == nil || p.Name == own.Name {
+		if p == nil || p.Name == ownName {
 			continue
 		}
 		for _, n := range providers.CredentialNames(p) {

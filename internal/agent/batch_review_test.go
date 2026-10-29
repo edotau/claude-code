@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"github.com/edotau/claude-code/internal/providers"
 	"io"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -429,5 +430,93 @@ func TestBatchPanickingFallbackLegIsReported(t *testing.T) {
 	}
 	if env.Fallback == nil || env.FallbackReason == "" || len(env.Hops) != 2 {
 		t.Fatalf("fallback=%v reason=%q hops=%d, want the panicking leg reported as the fallback", env.Fallback, env.FallbackReason, len(env.Hops))
+	}
+}
+
+// Under batch isolation an own-login child never sees another profile's custom credential var, but keeps the
+// native var its launch sets; outside a batch nothing is scrubbed.
+func TestChildCmdOwnLoginDropsForeignCredentialsUnderIsolation(t *testing.T) {
+	vaulttest.UseKeyring(t)
+	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"anthropic":{`+
+		`"pa":{"protocol":"anthropic","base_url":"http://127.0.0.1:1","auth":{"type":"key","env":"PA_BATCH_KEY"},"models":{"opus":"m"}},`+
+		`"pb":{"protocol":"anthropic","base_url":"http://127.0.0.1:1","auth":{"type":"key","env":"OPENCODE_API_KEY"},"models":{"opus":"m"}}}}}`)
+	t.Setenv("PA_BATCH_KEY", "foreign-secret")
+	has := func(cmd interface{ Environ() []string }, kv string) bool { return slices.Contains(cmd.Environ(), kv) }
+	iso, _ := childCmd(withIsolation(context.Background()), "/bin/true", nil, []string{"OPENCODE_API_KEY=native"}, "", "", nil, true)
+	if has(iso, "PA_BATCH_KEY=foreign-secret") || !has(iso, "OPENCODE_API_KEY=native") {
+		t.Errorf("isolated env leaks PA_BATCH_KEY or lost the native var: %v", iso.Env)
+	}
+	plain, _ := childCmd(context.Background(), "/bin/true", nil, nil, "", "", nil, true)
+	if !has(plain, "PA_BATCH_KEY=foreign-secret") {
+		t.Error("outside a batch the env must stay unchanged")
+	}
+}
+
+// Two batches (separate processes in effect) stamping the same millisecond never share a record id or file.
+func TestReserveIsExclusiveAcrossBatches(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	now := time.Now()
+	const n = 8
+	ids := make([]string, n)
+	var wg sync.WaitGroup
+	for i := range n {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			rec := NewRecord("codex", Request{Prompt: "p"}, now)
+			(&batchRun{}).reserve(&rec) // each its own batchRun: no shared mutex
+			ids[i] = rec.ID
+		}()
+	}
+	wg.Wait()
+	seen := map[string]bool{}
+	for _, id := range ids {
+		if seen[id] {
+			t.Fatalf("record id %s handed out twice: %v", id, ids)
+		}
+		seen[id] = true
+		if _, err := os.Stat(filepath.Join(DispatchDir(), id+".json")); err != nil {
+			t.Errorf("record %s has no claimed file: %v", id, err)
+		}
+	}
+}
+
+// --fail-fast: a task that fails outside any leg (an empty chain) still cancels before the next task is prepared.
+func TestBatchFailFastEmptyChainStopsQueuedTask(t *testing.T) {
+	failFastPair(t, BatchTask{ID: "first", Agent: "first", Req: Request{Prompt: "p"},
+		Prepare: func(context.Context) (Chain, Record, error) {
+			return Chain{Want: "first"}, Record{ID: "id-first", Agent: "first", Log: filepath.Join(t.TempDir(), "l.log")}, nil
+		}})
+}
+
+type rateOnce struct {
+	name string
+	n    *atomic.Int32
+}
+
+func (r rateOnce) Name() string     { return r.name }
+func (r rateOnce) Caps() Caps       { return Caps{} }
+func (r rateOnce) Available() error { return nil }
+func (r rateOnce) Run(context.Context, Request, io.Writer) (Result, error) {
+	if r.n.Add(1) == 1 {
+		return Result{}, &Error{Kind: KindRateLimit, Agent: r.name, RetryAfter: 300 * time.Millisecond, Err: errors.New("HTTP 429")}
+	}
+	return Result{Answer: "a"}, nil
+}
+
+// A leg backing off after a 429 holds no permit: with Jobs=1 a task on another account runs during the wait.
+func TestBatchBackoffReleasesLegPermit(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	var n atomic.Int32
+	tasks := []BatchTask{
+		acctTask(t, "limited", "rate·A", rateOnce{name: "limited", n: &n}),
+		acctTask(t, "free", "free·B", slowRunner{name: "free"}),
+	}
+	var out strings.Builder
+	if !RunBatch(context.Background(), tasks, BatchOptions{Jobs: 1, Out: &out}) {
+		t.Fatalf("batch failed: %s", out.String())
+	}
+	if first := strings.SplitN(out.String(), "\n", 2)[0]; !strings.Contains(first, `"task_id":"free"`) {
+		t.Errorf("first envelope = %s, want the free-account task to finish during the backoff", first)
 	}
 }

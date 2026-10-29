@@ -174,6 +174,9 @@ func Run(ctx context.Context, r Runner, req Request, stream io.Writer, notify fu
 	}
 	p.Notify = notify
 	p.Key, _ = ctx.Value(coolKey{}).(string)
+	if h, _ := ctx.Value(permitKey{}).(*permit); h != nil {
+		p.Idle = h.idle
+	}
 	var recoverErr error
 	if _, t, err := resolveTarget(req); err == nil && (t.Provider.Auth.Command != "" || t.Provider.Auth.Sealed()) {
 		p.Recover = func(ctx context.Context) error {
@@ -346,6 +349,15 @@ func attachInline(prompt string, paths []string) (string, error) {
 // IsText reports whether data can ride inline in a prompt: valid UTF-8 with no NUL byte.
 func IsText(data []byte) bool { return bytes.IndexByte(data, 0) < 0 && utf8.Valid(data) }
 
+// envNames are the names of KEY=VALUE entries.
+func envNames(env []string) []string {
+	out := make([]string, len(env))
+	for i, kv := range env {
+		out[i], _, _ = strings.Cut(kv, "=")
+	}
+	return out
+}
+
 // childCmd builds an exec.Cmd in its own process group; a deadline kills the whole tree. The parent env
 // is scrubbed of inherited credentials before env (the launch's own additions) is layered on. agent
 // also scrubs HARNESS_VAULT_KEY: true for every agent CLI child, false for the claude agent's own child.
@@ -359,9 +371,8 @@ func childCmd(ctx context.Context, bin string, argv, env []string, dir, stdin st
 	}
 	base, _ := scrub(os.Environ(), envscrub.KeepSet(keepEnv))
 	cmd.Env = append(base, env...) // later duplicates win
-	if p := ownProviderFrom(ctx); p != nil {
-		cmd.Env = scrubForeignCredentials(cmd.Env, p, keepEnv)
-	}
+	// an own-login hop keeps only the vars its launch sets itself (env), e.g. opencode's OPENCODE_API_KEY
+	cmd.Env = scrubIsolated(ctx, cmd.Env, keepEnv, envNames(env))
 	cmd.Dir = dir
 	if dir != "" {
 		cmd.Env = append(cmd.Env, "PWD="+dir) // a child that reads $PWD (not getcwd()) still sees dir
@@ -483,10 +494,11 @@ func RunWithFallback(ctx context.Context, c Chain, req Request, stream io.Writer
 				hops = append(hops, hopOf(leg, lreq, res, err))
 				return
 			}
+			held := &permit{account: leg.Account, release: release}
 			defer func() {
 				if r := recover(); r != nil {
 					if ctx.Value(limiterKey{}) == nil {
-						release()
+						held.release()
 						panic(r)
 					}
 					pe := &Error{Kind: KindFatal, Agent: leg.Agent.Name(), Err: fmt.Errorf("panic: %v", r)}
@@ -499,14 +511,14 @@ func RunWithFallback(ctx context.Context, c Chain, req Request, stream io.Writer
 				} else {
 					tripFailFast(ctx, c, i, req, res, err)
 				}
-				release()
+				held.release()
 			}()
 			if skip := exhaustedSince(leg); skip != nil { // another task marked this account dead after the chain was built
 				res, err = Result{Agent: leg.Agent.Name(), Status: StatusQuota, Invoked: lreq.Model}, skip
 				hops = append(hops, hopOf(leg, lreq, res, err))
 				return
 			}
-			res, err = Run(withCoolKey(ctx, leg.Account), leg.Agent, lreq, stream, notify)
+			res, err = Run(context.WithValue(withCoolKey(ctx, leg.Account), permitKey{}, held), leg.Agent, lreq, stream, notify)
 			res.Invoked = lreq.Model
 			hops = append(hops, hopOf(leg, lreq, res, err))
 			noteQuota(leg, err)
