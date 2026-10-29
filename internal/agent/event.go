@@ -37,6 +37,7 @@ type Event struct {
 	Seq        int64     `json:"seq"`
 	TMs        int64     `json:"t_ms"` // milliseconds since the sink was made
 	Type       string    `json:"type"`
+	Turn       int       `json:"turn,omitempty"` // live session: the turn this event belongs to (0 = the whole dispatch)
 	Text       string    `json:"text,omitempty"`
 	Sep        bool      `json:"sep,omitempty"` // this text starts a new turn: text sinks put a newline before it
 	Tool       *ToolRef  `json:"tool,omitempty"`

@@ -44,6 +44,8 @@ type Record struct {
 	Log            string    `json:"log,omitempty"`      // absolute path of the job's combined stdout+stderr log
 	Progress       string    `json:"progress,omitempty"` // multi-part review job: "part 2/3"
 	Owner          int       `json:"owner,omitempty"`    // launching Claude Code session pid (inflight.SessionOwner)
+	Live           bool      `json:"live,omitempty"`     // a held session: the job accepts `agents send` turns on its socket
+	Turns          int       `json:"turns,omitempty"`    // live session: turns started so far
 }
 
 // Alive reports whether this dispatch is still running: pid alive, or not yet recorded within a minute.
