@@ -35,15 +35,14 @@ func OpenLedger(main, name string, info LedgerInfo) error {
 		return err
 	}
 	path := filepath.Join(dir, "worktrees", name+".md")
-	return paths.WithFileLock(path, func() error {
+	return withLedgerLock(path, func() error {
 		data, err := os.ReadFile(path)
 		if err == nil {
 			text := string(data)
 			if ledgerField(text, "Status") == "open" {
 				return nil
 			}
-			text = strings.Replace(text, "- Status: closed\n", "- Status: open\n", 1)
-			return paths.AtomicWrite(path, []byte(ledgerLog(text, "reopened", info.Now)), 0o600)
+			return paths.AtomicWrite(path, []byte(reopenedText(text, info)), 0o600)
 		}
 		if !os.IsNotExist(err) {
 			return err
@@ -55,8 +54,30 @@ func OpenLedger(main, name string, info LedgerInfo) error {
 	})
 }
 
+// bestEffortLedgerWait bounds the bank-lock wait of hook-side ledger edits, which run inside a hook budget.
+const bestEffortLedgerWait = 750 * time.Millisecond
+
 // AppendLedger appends a timestamped entry only for a managed linked worktree with an existing ledger.
 func AppendLedger(cwd, text string, now time.Time) (bool, error) {
+	return editLedger(cwd, now, bestEffortLedgerWait, func(data string) string { return ledgerLog(data, text, now) })
+}
+
+// SetLedgerTask fills a managed worktree ledger's "Task: unclaimed" line; a ledger already naming a task is untouched.
+func SetLedgerTask(cwd, task string, now time.Time) (bool, error) {
+	task = ledgerLine(task)
+	if task == "" {
+		return false, nil
+	}
+	return editLedger(cwd, now, bestEffortLedgerWait, func(data string) string {
+		if !strings.Contains(data, "\n- Task: unclaimed\n") {
+			return data
+		}
+		return ledgerLog(strings.Replace(data, "\n- Task: unclaimed\n", "\n- Task: "+task+"\n", 1), "task claimed: "+task, now)
+	})
+}
+
+// editLedger applies edit to the cwd worktree's ledger under the lock, reopening a closed one first.
+func editLedger(cwd string, now time.Time, wait time.Duration, edit func(string) string) (bool, error) {
 	repo, err := ResolveRepo(cwd)
 	if err != nil {
 		return false, nil
@@ -83,7 +104,7 @@ func AppendLedger(cwd, text string, now time.Time) (bool, error) {
 		return false, err
 	}
 	appended := false
-	err = paths.WithFileLock(path, func() error {
+	err = withLedgerLockWithin(wait, path, func() error {
 		data, err := os.ReadFile(path)
 		if os.IsNotExist(err) {
 			return nil
@@ -91,7 +112,19 @@ func AppendLedger(cwd, text string, now time.Time) (bool, error) {
 		if err != nil {
 			return err
 		}
-		if err := paths.AtomicWrite(path, []byte(ledgerLog(string(data), text, now)), 0o600); err != nil {
+		if ledgerField(string(data), "Status") == "closed" {
+			info, err := reopenInfo(repo, name, top, "")
+			if err != nil {
+				return err
+			}
+			info.Now = now
+			data = []byte(reopenedText(string(data), info))
+		}
+		next := edit(string(data))
+		if next == string(data) {
+			return nil
+		}
+		if err := paths.AtomicWrite(path, []byte(next), 0o600); err != nil {
 			return err
 		}
 		appended = true
@@ -111,7 +144,7 @@ func CloseLedger(main, name string, c LedgerClose) error {
 	} else if err != nil {
 		return err
 	}
-	return paths.WithFileLock(path, func() error {
+	return withLedgerLock(path, func() error {
 		data, err := os.ReadFile(path)
 		if os.IsNotExist(err) {
 			return nil
@@ -126,9 +159,12 @@ func CloseLedger(main, name string, c LedgerClose) error {
 		}
 		if ledgerField(text, "Status") == "closed" {
 			text = ledgerLog(text, fmt.Sprintf("removed via %s, branch %s", c.Via, branch), c.Now)
+			if i := strings.LastIndex(text, "\n## Closed\n"); i >= 0 && c.BranchDeleted {
+				text = text[:i] + strings.Replace(text[i:], "- Branch: kept\n", "- Branch: deleted\n", 1)
+			}
 			return paths.AtomicWrite(path, []byte(text), 0o600)
 		}
-		base := strings.Fields(ledgerField(text, "Base"))
+		base := strings.Fields(ledgerField(openSection(text), "Base"))
 		if len(base) == 0 || c.Head == "" {
 			return fmt.Errorf("ledger %s: base and closing HEAD are required", name)
 		}
@@ -154,6 +190,51 @@ func CloseLedger(main, name string, c LedgerClose) error {
 		}
 		return paths.AtomicWrite(path, []byte(text), 0o600)
 	})
+}
+
+// withLedgerLock runs fn under the memory bank lock (so a harvest or dream cannot interleave) and the file lock.
+func withLedgerLock(path string, fn func() error) error {
+	return withLedgerLockWithin(memory.BankLockWait, path, fn)
+}
+
+// withLedgerLockWithin is withLedgerLock with its own bank-lock wait, for best-effort callers inside a hook budget.
+func withLedgerLockWithin(wait time.Duration, path string, fn func() error) error {
+	return memory.WithWritableBankLock(wait, func() error { return paths.WithFileLock(path, fn) })
+}
+
+// openSection is the text of the latest "## Opened" section, or the whole ledger when it was never reopened.
+func openSection(text string) string {
+	i := strings.LastIndex(text, "\n## Opened\n")
+	if i < 0 {
+		return text
+	}
+	return text[i:]
+}
+
+// reopenText rewrites a closed ledger as open with a fresh Opened section; the caller holds the lock.
+func reopenedText(text string, info LedgerInfo) string {
+	text = strings.Replace(text, "- Status: closed\n", "- Status: open\n", 1)
+	text = ledgerLog(text, "reopened", info.Now)
+	text = strings.TrimRight(text, "\n") + fmt.Sprintf("\n\n## Opened\n\n- Branch: %s\n- Base: %s (%s)\n- Opened: %s\n- Session: %s\n",
+		ledgerLine(info.Branch), ledgerLine(info.Base), ledgerLine(info.BaseRef), ledgerTime(info.Now), ledgerLine(info.Session))
+	return text
+}
+
+// reopenInfo describes work resuming in a kept worktree: base is the merge-base with the main checkout's HEAD.
+func reopenInfo(repo *Repo, name, dest, session string) (LedgerInfo, error) {
+	head, err := headOfContext(context.Background(), dest)
+	if err != nil {
+		return LedgerInfo{}, err
+	}
+	base, err := gitCmd(context.Background(), "-C", repo.Main, "merge-base", "HEAD", head).Output()
+	if err != nil {
+		return LedgerInfo{}, fmt.Errorf("resolve resume base: %w", err)
+	}
+	branch, err := currentWorktreeBranch(dest)
+	if err != nil {
+		return LedgerInfo{}, err
+	}
+	return LedgerInfo{Path: dest, Branch: branch, Base: strings.TrimSpace(string(base)), BaseRef: "merge-base", Session: session}, nil
 }
 
 func ledgerName(name string) error {

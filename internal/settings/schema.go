@@ -32,6 +32,7 @@ type Key struct {
 	required    []string
 	constVal    json.RawMessage
 	noExtra     bool // additionalProperties: false
+	addl        *Key // additionalProperties schema applied to unlisted properties
 	ref         bool // uses $ref, which is not resolved: the picker skips it
 }
 
@@ -153,10 +154,18 @@ func (n schemaNode) key(name string, env bool) Key {
 	}
 	k.required, k.constVal = n.Required, n.Const
 	k.noExtra = strings.TrimSpace(string(n.AddlProps)) == "false"
+	if t := strings.TrimSpace(string(n.AddlProps)); strings.HasPrefix(t, "{") {
+		var sub schemaNode
+		if json.Unmarshal(n.AddlProps, &sub) == nil {
+			a := sub.key(name+".*", env)
+			k.addl = &a
+		}
+	}
 	k.ref = n.Ref != "" || (k.items != nil && k.items.ref)
 	for _, c := range slices.Concat(k.alts, slices.Collect(maps.Values(k.props))) {
 		k.ref = k.ref || c.ref
 	}
+	k.ref = k.ref || (k.addl != nil && k.addl.ref)
 	typ := n.Type.first()
 	switch {
 	case len(n.Enum) > 0:
@@ -297,7 +306,11 @@ func (k Key) Validate(raw json.RawMessage) error {
 			if _, ok := k.props[pn]; !ok && k.noExtra {
 				return fmt.Errorf("%s: unknown property %q", k.Name, pn)
 			}
-			if sub, ok := k.props[pn]; ok {
+			sub, ok := k.props[pn]
+			if !ok && k.addl != nil && !k.addl.ref {
+				sub, ok = *k.addl, true
+			}
+			if ok {
 				if err := sub.Validate(pv); err != nil {
 					return err
 				}

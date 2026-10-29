@@ -110,6 +110,9 @@ func validateKey(k string, v json.RawMessage) error {
 	if err := checkNotCredential(k, v); err != nil {
 		return err
 	}
+	if k == "autoMemoryDirectory" {
+		return errors.New("autoMemoryDirectory is retired: it merges every repo's memory into one directory")
+	}
 	if structuralKey(k) {
 		return fmt.Errorf("%s is generated or structural; edit defaults/claude/settings.json by hand", k)
 	}
@@ -200,7 +203,7 @@ func setKey(o *object, k string, v json.RawMessage) error {
 // structuralKey names the keys the harness generates or owns whole: no overlay, picker or repo-default edit.
 func structuralKey(k string) bool {
 	switch k {
-	case "hooks", "statusLine", "$schema", "permissions", "env":
+	case "hooks", "statusLine", "$schema", "permissions", "env", "autoMemoryDirectory":
 		return true
 	}
 	return false

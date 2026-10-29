@@ -280,7 +280,7 @@ func applyMerge(ctx context.Context, repo *worktree.Repo, plan *worktree.MergePl
 		fmt.Printf("worktree left on disk; clean up with: claude-code worktree clean %s\n", shellQuote(name))
 		return 0
 	}
-	result, err := worktree.CleanInLease(repo, name, false)
+	result, err := worktree.CleanInLease(repo, name, false, os.Stderr)
 	if err != nil {
 		return fail("worktree merge: clean: %v", err)
 	}

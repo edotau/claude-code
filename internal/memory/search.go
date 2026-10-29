@@ -40,6 +40,7 @@ type SearchHit struct {
 	File    string  `json:"file"`
 	Block   string  `json:"block"`
 	ID      string  `json:"id,omitempty"` // persisted block ID (`memory show <id>`)
+	Dir     string  `json:"-"`
 }
 
 // Title is the hit's first line, marker-stripped and truncated.
@@ -108,7 +109,7 @@ func corpusBlocks(root string) []SearchHit {
 		}
 		base := filepath.Base(f.path)
 		for _, block := range parseBlocks(f.mode, base, data) {
-			out = append(out, SearchHit{Bank: f.bank, File: base, Block: block})
+			out = append(out, SearchHit{Bank: f.bank, File: base, Block: block, Dir: ownerDir(f.bank, f.path)})
 		}
 	}
 	return out

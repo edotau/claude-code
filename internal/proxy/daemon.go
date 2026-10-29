@@ -2,6 +2,8 @@ package proxy
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -14,6 +16,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/edotau/claude-code/internal/buildver"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/schemas"
@@ -29,6 +32,10 @@ var shutdownDrain = 30 * time.Second
 
 // ErrNotRunning means no healthy router answers for router.json.
 var ErrNotRunning = errors.New("proxy is not running")
+
+var errKeptHolder = errors.New("proxy: keeping running holder with live work")
+
+var terminateHolder = terminate
 
 // State is router.json: written by a serving daemon, removed when it exits.
 type State struct {
@@ -187,7 +194,9 @@ func Serve(ctx context.Context, port int) error {
 	ln, err := lc.Listen(ctx, "tcp", fmt.Sprintf("127.0.0.1:%d", port))
 	if errors.Is(err, syscall.EADDRINUSE) && port != 0 {
 		// Never move to a random port: clients hold this one. Replace an older router of ours, else refuse.
-		if err = reclaim(ctx, port); err == nil {
+		if err = reclaim(ctx, port, false); errors.Is(err, errKeptHolder) {
+			return nil // the live holder keeps serving; this build exits 0 without binding
+		} else if err == nil {
 			ln, err = lc.Listen(ctx, "tcp", fmt.Sprintf("127.0.0.1:%d", port))
 		}
 	}
@@ -283,26 +292,54 @@ func Restart(ctx context.Context) (old, cur State, restarted bool, err error) {
 // PIDHeader is the /healthz response header carrying the router's pid.
 const PIDHeader = "X-Claude-Code-Router-Pid"
 
+// Health headers identify the build and work that would be interrupted by a takeover.
+const (
+	HeaderBuild    = "X-Claude-Code-Router-Build"
+	HeaderSessions = "X-Claude-Code-Router-Sessions"
+	HeaderInflight = "X-Claude-Code-Router-Inflight"
+	HeaderConfig   = "X-Claude-Code-Router-Config"
+)
+
+// configID names this process's config dir without exposing the path.
+func configID() string {
+	sum := sha256.Sum256([]byte(paths.ConfigDir()))
+	return hex.EncodeToString(sum[:8])
+}
+
+type holderState struct {
+	PID      int
+	Build    string
+	Sessions int
+	Inflight int64
+	Config   string
+}
+
 // holder identifies who answers on port: router reports a claude-code /healthz, pid its PIDHeader (0 = older build).
-func holder(ctx context.Context, port int) (pid int, router bool) {
+func holder(ctx context.Context, port int) (holderState, bool) {
 	ctx, cancel := context.WithTimeout(ctx, time.Second)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, Base(port)+"/healthz", nil)
 	if err != nil {
-		return 0, false
+		return holderState{}, false
 	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return 0, false
+		return holderState{}, false
 	}
 	_ = resp.Body.Close()
-	pid, _ = strconv.Atoi(resp.Header.Get(PIDHeader))
-	return pid, resp.StatusCode == http.StatusOK
+	var st holderState
+	st.PID, _ = strconv.Atoi(resp.Header.Get(PIDHeader))
+	st.Build = resp.Header.Get(HeaderBuild)
+	st.Config = resp.Header.Get(HeaderConfig)
+	st.Sessions, _ = strconv.Atoi(resp.Header.Get(HeaderSessions))
+	st.Inflight, _ = strconv.ParseInt(resp.Header.Get(HeaderInflight), 10, 64)
+	return st, resp.StatusCode == http.StatusOK
 }
 
 // reclaim stops an older claude-code proxy holding port; anything else is an error naming the holder.
-func reclaim(ctx context.Context, port int) error {
-	pid, router := holder(ctx, port)
+func reclaim(ctx context.Context, port int, force bool) error {
+	st, router := holder(ctx, port)
+	pid := st.PID
 	switch {
 	case !router:
 		return fmt.Errorf("proxy: 127.0.0.1:%d is held by another process; free it or pass --port", port)
@@ -310,7 +347,15 @@ func reclaim(ctx context.Context, port int) error {
 		return fmt.Errorf("proxy: 127.0.0.1:%d is held by an older claude-code proxy that reports no pid; "+
 			"find it with `ss -ltnp 'sport = :%d'` and kill it", port, port)
 	}
-	if err := terminate(pid); err != nil {
+	if st.Config != "" && st.Config != configID() { // another config dir's proxy is never ours to replace
+		return fmt.Errorf("proxy: 127.0.0.1:%d is held by a proxy for a different config dir; pass --port", port)
+	}
+	if !force && st.Build != buildver.Version() && (st.Inflight > 0 || st.Sessions > 0) {
+		fmt.Fprintf(os.Stderr, "proxy: keeping running proxy pid %d (build %s) with live work; this build %s not taking over\n",
+			pid, st.Build, buildver.Version())
+		return errKeptHolder
+	}
+	if err := terminateHolder(pid); err != nil {
 		return fmt.Errorf("proxy: stop older proxy pid %d on :%d: %w", pid, port, err)
 	}
 	for deadline := time.Now().Add(shutdownDrain + 5*time.Second); time.Now().Before(deadline); time.Sleep(100 * time.Millisecond) {

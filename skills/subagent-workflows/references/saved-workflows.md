@@ -10,7 +10,7 @@ Placement: a script that another script calls by name, or that more than one ski
 otherwise it lives in its owning skill's `scripts/` and runs by `scriptPath`.
 
 The scripts stay in `workflows/`: Claude Code resolves a by-name run and a nested `workflow(name)` there only (read
-once at session start), and the `workflow-lint` hook redirects a by-name call to `workflows/<name>.js`. This file is
+once at session start), and the `agent-effort` hook redirects a by-name call to `workflows/<name>.js`. This file is
 their one doc home; `claude-code workflow lint` fails when a script is missing from the table below or a row names a
 script that does not exist, so a rename or move cannot go unrecorded.
 
@@ -23,7 +23,7 @@ All four scripts read the Claude account's own router state once at start (`clau
 --agent claude --fallback none --model sonnet`, a haiku leaf; they parse `candidates[0].state`, else the `skipped[]`
 entry whose `agent` is `claude`); `low`/`exhausted` steps every Claude-stage `model:` pin down one model through an
 inline `routeModel()` helper (opus→sonnet, sonnet→haiku, haiku stays haiku), fail-open with a `log()` line on a failed
-or null read — pins stay explicit literals so `workflow-lint` still passes.
+or null read — pins stay explicit literals so the `agent-effort` pin step still passes.
 
 | Workflow | Owner skill | Shape | Phases | args |
 |----------|-------------|-------|--------|------|

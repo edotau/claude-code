@@ -263,18 +263,18 @@ func oracleCorpusBlocks(root string) []SearchHit {
 			}
 			base := filepath.Base(path)
 			if src.knowledge {
-				out = append(out, SearchHit{Bank: src.bank, File: base, Block: strings.TrimSpace(stripFrontmatter(string(data)))})
+				out = append(out, SearchHit{Bank: src.bank, File: base, Block: strings.TrimSpace(stripFrontmatter(string(data))), Dir: ownerDir(src.bank, path)})
 				continue
 			}
 			if src.native {
 				if name, desc, body, ok := topicFrontmatter(string(data)); ok {
-					out = append(out, SearchHit{Bank: src.bank, File: base, Block: name + " — " + desc + "\n" + body})
+					out = append(out, SearchHit{Bank: src.bank, File: base, Block: name + " — " + desc + "\n" + body, Dir: ownerDir(src.bank, path)})
 				}
 				continue
 			}
 			_, blocks := entryBlocks(base, string(data))
 			for _, b := range blocks {
-				out = append(out, SearchHit{Bank: src.bank, File: base, Block: b})
+				out = append(out, SearchHit{Bank: src.bank, File: base, Block: b, Dir: ownerDir(src.bank, path)})
 			}
 		}
 	}
@@ -329,14 +329,14 @@ func oracleStoreBlocks(e RepoEntry) []SearchHit {
 		}
 		_, blocks := entryBlocks(name, string(data))
 		for _, b := range blocks {
-			out = append(out, SearchHit{Bank: e.Key, File: name, Block: b})
+			out = append(out, SearchHit{Bank: e.Key, File: name, Block: b, Dir: e.Dir})
 		}
 	}
 	topics, contents := oracleTopicContents(e.Dir)
 	for _, path := range topics {
 		if data := contents[path]; data != nil {
 			if n, desc, body, ok := topicFrontmatter(string(data)); ok {
-				out = append(out, SearchHit{Bank: e.Key, File: filepath.Base(path), Block: n + " — " + desc + "\n" + body})
+				out = append(out, SearchHit{Bank: e.Key, File: filepath.Base(path), Block: n + " — " + desc + "\n" + body, Dir: e.Dir})
 			}
 		}
 	}

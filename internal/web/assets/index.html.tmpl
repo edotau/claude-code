@@ -361,13 +361,18 @@ function watchTree() {
     try { const t = JSON.parse(e.data); treeEpoch++; document.getElementById('tree').innerHTML = renderTree(t); treeLive = true; } catch (err) {}
   });
   es.addEventListener('plans', function (e) {
-    try { renderPlans(JSON.parse(e.data)); if (openPlan) showPlan(openPlan); } catch (err) {}
+    try { plansLive = true; renderPlans(JSON.parse(e.data)); if (openPlan) showPlan(openPlan); } catch (err) {}
   });
-  es.onerror = function () { treeLive = false; es.close(); };
+  es.onerror = function () { treeLive = false; plansLive = false; es.close(); };
 }
 
 let plansList = [];
 let openPlan = null;
+let plansLive = false;
+function loadPlans() {
+  fetch('/api/plans').then(function (r) { return r.json(); })
+    .then(function (l) { renderPlans(l); if (openPlan) showPlan(openPlan); }).catch(function () {});
+}
 function el(tag, cls, text) {
   const n = document.createElement(tag);
   if (cls) n.className = cls;
@@ -380,11 +385,11 @@ function renderPlans(list) {
   const box = document.getElementById('plansList');
   box.textContent = '';
   if (!plansList.length) { box.appendChild(el('p', 'muted', 'no plans')); return; }
-  const byRepo = {};
-  plansList.forEach(function (p) { (byRepo[p.repo] = byRepo[p.repo] || []).push(p); });
-  Object.keys(byRepo).sort().forEach(function (repo) {
+  const byRepo = new Map();
+  plansList.forEach(function (p) { if (!byRepo.has(p.repo)) byRepo.set(p.repo, []); byRepo.get(p.repo).push(p); });
+  Array.from(byRepo.keys()).sort().forEach(function (repo) {
     box.appendChild(el('h2', null, repo));
-    byRepo[repo].forEach(function (p) {
+    byRepo.get(repo).forEach(function (p) {
       const card = el('div', 'card plan-row');
       const row = el('div', 'row');
       row.appendChild(el('strong', null, p.path.split('/').pop()));
@@ -454,6 +459,7 @@ loadBrowsers();
 buildHostTabs([{{range $i, $h := .Hosts}}{{if $i}},{{end}}"{{$h}}"{{end}}]);
 setInterval(function () {
   if (!treeLive) loadTree();
+  if (!plansLive) loadPlans();
   if (currentHost) loadDispatches(currentHost);
 }, 5000);
 setInterval(loadBrowsers, 30000);

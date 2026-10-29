@@ -105,7 +105,7 @@ func (r *Resolver) resolveDrive(p string) (string, bool) {
 			continue
 		}
 		if sub, ok := trimPrefixPath(rest, m.Root, false); ok {
-			cands = append(cands, candidate{m, sub, len(m.Root)})
+			cands = append(cands, candidate{m: m, rest: sub, specificity: len(m.Root)})
 		}
 	}
 	return r.firstWithin(cands)
@@ -115,6 +115,7 @@ func (r *Resolver) resolveDrive(p string) (string, bool) {
 type candidate struct {
 	m           *Mount
 	rest        string
+	raw         string // rest with `..` kept, "" when rest has none; resolved through the mount's symlinks
 	specificity int
 }
 
@@ -122,7 +123,7 @@ type candidate struct {
 func (r *Resolver) firstWithin(cands []candidate) (string, bool) {
 	sort.SliceStable(cands, func(i, j int) bool { return cands[i].specificity > cands[j].specificity })
 	for _, c := range cands {
-		if local, ok := r.within(c.m, c.rest); ok {
+		if local, ok := r.within(c.m, c.rest, c.raw); ok {
 			return local, true
 		}
 	}
@@ -130,10 +131,17 @@ func (r *Resolver) firstWithin(cands []candidate) (string, bool) {
 }
 
 // within joins rest under m's point, refusing a result that an inner (opaque or other) mount covers.
-func (r *Resolver) within(m *Mount, rest string) (string, bool) {
+func (r *Resolver) within(m *Mount, rest, raw string) (string, bool) {
 	local := filepath.Join(m.Point, rest)
 	if owner, _ := r.mountFor(local); owner != m {
 		return "", false
+	}
+	if raw != "" {
+		resolved := cleanLocal(m.Point + "/" + raw)
+		if owner, _ := r.mountFor(resolved); owner != m {
+			return "", false
+		}
+		return resolved, true
 	}
 	return cleanLocal(local), true
 }
@@ -212,10 +220,47 @@ func (r *Resolver) fromRemote(host, rp string, kinds ...Kind) (string, bool) {
 			continue
 		}
 		if rest, ok := trimPrefixPath(rp, m.RemotePath, m.Kind == KindSMB); ok {
-			cands = append(cands, candidate{m, rest, len(m.RemotePath)})
+			cands = append(cands, candidate{m: m, rest: rest, raw: rawRest(rp, m.RemotePath, m.Kind == KindSMB), specificity: len(m.RemotePath)})
 		}
 	}
 	return r.firstWithin(cands)
+}
+
+// rawRest is p below prefix with `..` kept, so the local mount resolves it through symlinks; "" when p has no `..`.
+func rawRest(p, prefix string, fold bool) string {
+	segs := strings.Split(p, "/")
+	if !slices.Contains(segs, "..") {
+		return ""
+	}
+	var raw []string
+	for _, s := range segs {
+		if s != "" && s != "." {
+			raw = append(raw, s)
+		}
+	}
+	pre := strings.Split(strings.Trim(path.Clean("/"+prefix), "/"), "/")
+	if pre[0] == "" {
+		pre = nil
+	}
+	if len(raw) < len(pre) {
+		return ""
+	}
+	for i, s := range pre {
+		if raw[i] != s && !(fold && strings.EqualFold(raw[i], s)) {
+			return ""
+		}
+	}
+	rest, depth := raw[len(pre):], 0
+	for _, s := range rest {
+		if s == ".." {
+			if depth--; depth < 0 {
+				return "" // climbs out of the mount root: the lexical result decides
+			}
+		} else {
+			depth++
+		}
+	}
+	return strings.Join(rest, "/")
 }
 
 func hasKind(kinds []Kind, k Kind) bool {

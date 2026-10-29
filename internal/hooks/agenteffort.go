@@ -1,52 +1,51 @@
-// `agent-effort` — PreToolUse on a subagent spawn (Claude Code's Agent/Task tool): fills an UNSET
+// `agent-effort` — PreToolUse on a subagent spawn (Claude Code's Agent/Task tool) or a Workflow: fills an UNSET
 // dispatch model from the local prompt classifier (low->haiku, medium/high->sonnet). Never overrides
 // an explicit model/pin; fails OPEN on any error.
 package hooks
 
 import (
-	"encoding/json"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/edotau/claude-code/internal/frontmatter"
+	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
 )
-
-// tierModel maps an effort tier to the Agent tool's model alias. All three tiers are pinned: an absent
-// TierHigh meant a verbose prompt inherited the PARENT session model, so any long "audit"/"implement"
-// ask silently ran on Opus. An explicit model: on the dispatch still wins over every row here.
-var tierModel = map[string]string{
-	TierLow:    "haiku",
-	TierMedium: "sonnet",
-	TierHigh:   "sonnet",
-}
 
 // RuleClassifier is route.Classifier over the prompt rules: low → haiku, medium/high → sonnet.
 type RuleClassifier struct{}
 
-// Tier maps task through EffortTierSignal and tierModel.
+// Tier maps task through EffortTierSignal and models.TierModel.
 func (RuleClassifier) Tier(task string) string {
 	t, _ := EffortTierSignal(task)
-	return tierModel[t]
+	return models.TierModel(t)
 }
 
-// AgentEffort fills an unset spawn model with the classifier's cost-down tier, AND appends a memory-recall
-// pointer block to the spawn prompt (a subagent gets no UserPromptSubmit, so this is its only recall
-// surface) — both rewrites share ONE updatedInput, since two hooks each rewriting it on the same event race.
-// Emits nothing when neither applies.
-func AgentEffort(r io.Reader, stdout io.Writer) int {
-	in := ParseInput(r)
+// externalAgents are the agents a dispatch label may name; labelTypes are the subagent types that carry one.
+var (
+	externalAgents = map[string]bool{"codex": true, "copilot": true, "gemini": true, "opencode": true}
+	labelTypes     = map[string]bool{"claude": true, "code-worker": true, "coworker": true}
+	agentLineRe    = regexp.MustCompile(`(?m)^[ \t]*Agent:[ \t]*(.+)$`)
+	agentNameRe    = regexp.MustCompile(`[a-z]+`)
+)
+
+// agentEffortResult is the pin step as a Result: a spawn gets one UpdatedInput (model pin, recall block, quota
+// pressure, label); a Workflow gets the former workflow-lint rewrite or a Block.
+func agentEffortResult(in *Input) Result {
+	if in.ToolName == "Workflow" {
+		return workflowResult(in)
+	}
 	if !spawnTools[in.ToolName] {
-		return ExitProceed
+		return Result{}
 	}
 	// updatedInput REPLACES the whole tool_input record, so every original key must be echoed back;
 	// dropping one (isolation, run_in_background, subagent_type, …) would silently alter the dispatch.
 	updated := in.cloneToolInput()
 	if updated == nil {
-		return ExitProceed
+		return Result{}
 	}
 
 	promptField := "prompt"
@@ -57,8 +56,8 @@ func AgentEffort(r io.Reader, stdout io.Writer) int {
 	}
 
 	recallBlock, _ := agentRecall(in.SessionID, in.CWD, task)
-	promptChanged := recallBlock != ""
-	if promptChanged {
+	changed := recallBlock != ""
+	if changed {
 		updated[promptField] = task + recallBlock
 	}
 
@@ -73,26 +72,50 @@ func AgentEffort(r io.Reader, stdout io.Writer) int {
 			systemMessage = strings.TrimPrefix(systemMessage, "; ")
 		}
 	}
-	modelChanged := note != ""
-
-	if !modelChanged && !promptChanged {
-		return ExitProceed // nothing rewritten
+	if applyLabel(updated, task) {
+		changed = true
 	}
-
-	inner := map[string]any{"hookEventName": "PreToolUse", "updatedInput": updated}
 	if note != "" {
-		inner["additionalContext"] = note
+		changed = true
 	}
-	payload := map[string]any{"hookSpecificOutput": inner}
-	if systemMessage != "" {
-		payload["systemMessage"] = systemMessage
+	if !changed {
+		return Result{}
 	}
-	out, err := json.Marshal(payload)
-	if err != nil {
-		return ExitProceed
+	return Result{UpdatedInput: updated, Context: note, SystemMessage: systemMessage}
+}
+
+// applyLabel prefixes the description with the external agents the prompt's `Agent:` line names ("gemini → codex: …").
+func applyLabel(updated map[string]any, task string) bool {
+	st, _ := updated["subagent_type"].(string)
+	if !labelTypes[st] {
+		return false
 	}
-	fmt.Fprintln(stdout, string(out))
-	return ExitProceed
+	m := agentLineRe.FindStringSubmatch(task)
+	if m == nil {
+		return false
+	}
+	var names []string
+	seen := map[string]bool{}
+	for _, w := range agentNameRe.FindAllString(strings.ToLower(m[1]), -1) {
+		if externalAgents[w] && !seen[w] {
+			seen[w] = true
+			names = append(names, w)
+		}
+	}
+	if len(names) == 0 {
+		return false
+	}
+	label := strings.Join(names, " → ")
+	desc, _ := updated["description"].(string)
+	switch {
+	case strings.HasPrefix(desc, label+":") || desc == label:
+		return false
+	case strings.TrimSpace(desc) == "":
+		updated["description"] = label
+	default:
+		updated["description"] = label + ": " + desc
+	}
+	return true
 }
 
 // pinModel fills updated["model"] from the classifier when the dispatch left it unset,
@@ -106,7 +129,7 @@ func pinModel(in *Input, updated map[string]any, task string) (note, systemMessa
 		return "", ""
 	}
 	tier, signal := EffortTierSignal(task)
-	model := tierModel[tier]
+	model := models.TierModel(tier)
 	if model == "" { // a tier with no row: never emit an empty pin
 		return "", ""
 	}

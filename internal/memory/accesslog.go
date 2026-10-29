@@ -244,14 +244,16 @@ func LogHits(root string, hits []SearchHit, reason string, now time.Time) {
 		if key == "" {
 			continue
 		}
-		var dir string
-		switch h.Bank {
-		case "local":
-			dir = Dir(root)
-		case "home", "native", "archive", "knowledge", "":
-			dir = HomeBankDir()
-		default:
-			dir = filepath.Join(StoreDir(), h.Bank)
+		dir := h.Dir
+		if dir == "" {
+			switch h.Bank {
+			case "local":
+				dir = Dir(root)
+			case "home", "native", "archive", "knowledge", "":
+				dir = HomeBankDir()
+			default:
+				dir = filepath.Join(StoreDir(), h.Bank)
+			}
 		}
 		grouped[dir] = append(grouped[dir], key)
 	}

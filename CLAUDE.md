@@ -69,7 +69,7 @@ Files under `agents/`, `commands/`, `rules/`, `skills/` and this file go live th
 | Launch codex/gemini/opencode/copilot, or drive one by verb | `claude-code codex [--profile <p> --model <m>] [args]` (`--` forces passthrough); `claude-code <v> ask\|resume\|review\|transfer\|status\|result\|cancel\|setup\|catalog`; `--print-env` shows the wiring | `README.md` → Agents; `agents/<v>.md` |
 | Project agents + this file into every agent CLI, link skills into `~/.agents/skills` | `claude-code agents sync [--agent a] [--dry-run\|--check]` (also run by `install`) | `rules/harness/docs-placement.md` → What stays out of the three homes |
 | List, create, clean worktrees under `~/worktrees/<repo>/` | `claude-code worktree list [--format json]` · `create <name>` · `merge <name>` · `clean <name>` · `clean-all [--yes]` | `skills/using-git-worktrees/references/merge-and-clean.md` |
-| Add or retime a hook | implement in `internal/hooks/`, register in `internal/hookspec/hookspec.go`, `make install` | `README.md` → Hooks |
+| Add or retime a hook | implement in `internal/hooks/`, register in a `hookspec.go` group, `make install` | `README.md` → Hooks |
 | Change permissions / env / statusLine | edit `defaults/claude/settings.json` → `claude-code configure --restore --dry-run` (prints) → `make install` | hard rule 1 |
 | Check MCP server health, scope drift, inline secrets | `claude-code network mcp [--format json]` | `rules/harness/settings-management.md` |
 | Map the whole harness for an agent (verbs, providers, agents, hooks) | `claude-code describe [--format json\|text]` | credentials never appear, only whether one resolves |

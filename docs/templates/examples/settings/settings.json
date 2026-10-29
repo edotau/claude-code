@@ -73,7 +73,7 @@
   "hooks": {
     "PostToolUse": [
       {
-        "matcher": "Write|Edit|ExitPlanMode|EnterPlanMode|Bash|Agent|Task",
+        "matcher": "Write|Edit|ExitPlanMode|EnterPlanMode|Bash|Workflow",
         "hooks": [
           {
             "type": "command",
@@ -85,7 +85,7 @@
     ],
     "PostToolUseFailure": [
       {
-        "matcher": "Agent|Task",
+        "matcher": "Agent|Task|Workflow",
         "hooks": [
           {
             "type": "command",
@@ -135,7 +135,7 @@
           {
             "type": "command",
             "command": "$HOME/.claude/bin/claude-code hook PreToolUse --no-own",
-            "timeout": 25
+            "timeout": 15
           }
         ]
       }

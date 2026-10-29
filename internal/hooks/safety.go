@@ -29,6 +29,7 @@ var hardBlocks = lazyCompile(
 // pipeBlocks match the WHOLE command text because pipes and encoded Python heredocs span shell segments.
 var pipeBlocks = lazyCompile(
 	`(^|[^[:alnum:]_])(curl|wget)\s[^|]*\|\s*(ba|z)?sh([^[:alnum:]_]|$)`,
+	`(^|[\s;&|({/\x60])(bash|sh|zsh|dash|ksh)\s+(-\S*\s+)*-[a-zA-Z]*c[a-zA-Z]*\s+["']?(\$\(\s*|\x60\s*)(\S*/)?(curl|wget)\s`,
 	`(^|[\s;&|({/\x60])(bash|sh|zsh|dash|ksh|source|\.)\s+(-\S*\s+)*(<\s*)?<\(\s*(\S*/)?(curl|wget)\s`,
 	`(?s)(^|[\s;&|({/\x60])python3?(\.[0-9]+)?\b[^\n]*<<[-<]?.*((exec|eval)\(.*(base64|b64decode)|(base64|b64decode).*(exec|eval)\()`,
 )
@@ -39,19 +40,21 @@ type askRule struct {
 	pats       func() []*regexp.Regexp
 }
 
+const gitPushPrefix = `git\s+((-[Cc]\s+|--(git-dir|work-tree)(=|\s+))("[^"]*"|'[^']*'|[^\s"']+)\s+)*push\s+`
+
 var askRules = []askRule{
 	{"sudo command", "Approve only if you asked for it; otherwise install to a user prefix (~/.local, pipx, a venv) instead.",
 		lazyCompile(`(^|[^[:alnum:]_])sudo(\s|$)`)},
 	{"force push to main/master", "Push a branch and open a PR instead: git push origin HEAD:<branch>.", lazyCompile(
-		`git\s+push\s+.*(--force|-f)(\s|$).*(main|master)(\s|$)`,
-		`git\s+push\s+.*(main|master)(\s|$).*(--force|-f)(\s|$)`,
-		`git\s+push\s+.*--force-with-lease(=[^[:space:]]*)?(\s|$).*(main|master)(\s|$)`,
-		`git\s+push\s+.*(main|master)(\s|$).*--force-with-lease(=[^[:space:]]*)?(\s|$)`,
-		`git\s+push\s+.*\+([^[:space:]]+:)?(refs/heads/)?(main|master)(\s|$)`,
+		gitPushPrefix+`.*(--force|-f)(\s|$).*(main|master)(\s|$)`,
+		gitPushPrefix+`.*(main|master)(\s|$).*(--force|-f)(\s|$)`,
+		gitPushPrefix+`.*--force-with-lease(=[^[:space:]]*)?(\s|$).*(main|master)(\s|$)`,
+		gitPushPrefix+`.*(main|master)(\s|$).*--force-with-lease(=[^[:space:]]*)?(\s|$)`,
+		gitPushPrefix+`.*\+([^[:space:]]+:)?(refs/heads/)?(main|master)(\s|$)`,
 	)},
 	{"recursive removal of a .git directory",
 		"That deletes the repository history; to start clean use a fresh worktree: claude-code worktree create <name>.",
-		lazyCompile(`(^|[^[:alnum:]_])rm\s+(-[a-zA-Z]+\s+)*-[a-zA-Z]*[rR][a-zA-Z]*\s+(-[a-zA-Z]+\s+)*["']?([^[:space:]"']*/)?\.git/?["']?(\s|$)`)},
+		lazyCompile(`(^|[^[:alnum:]_])rm\s+(-[a-zA-Z]+\s+)*-[a-zA-Z]*[rR][a-zA-Z]*\s+(([^[:space:]"']+|"[^"]*"|'[^']*')\s+)*["']?([^[:space:]"']*/)?\.git/?["']?(\s|$)`)},
 }
 
 const terminalHint = "If intentional, run it yourself in a terminal."

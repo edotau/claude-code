@@ -44,8 +44,9 @@ test agent, concurrently" is the one rule, triggered by every item above that ch
 
 ALWAYS use parallel Agent calls for independent operations — launch in a **single message**.
 
-- **At most 24 concurrent Agent dispatches machine-wide, test agents included** (12 lanes × implementer + test
-  agent) — the `agent-inflight` hook enforces it (`internal/hooks/inflight.go`).
+- **At most 12 concurrent Agent dispatches per available account, test agents included, machine-wide 12 × accounts
+  clamped to 4 × CPUs** (a profile's `concurrency` overrides its 12) — the `agent-effort` dispatch cap enforces it
+  (`internal/hooks/dispatchgroup.go`, `internal/inflight/caps.go`).
 - **Cost per leaf is controlled by the leaf's own `model:` frontmatter, not by the session.**
   An `inherit`-model agent (`claude`, `codex`) dispatched *as a fan-out leaf* runs at the
   parent's model — dispatch fan-out leaves as `code-worker` (frontmatter `model: sonnet`),
