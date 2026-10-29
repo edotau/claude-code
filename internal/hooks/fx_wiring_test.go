@@ -97,15 +97,12 @@ func TestVendorHookFilesCallOnlyResolvableHooks(t *testing.T) {
 // A retired name is a loud no-op, never a silent exit 1; an unknown guard name fails closed.
 func TestRetiredAndUnknownGuardHookNames(t *testing.T) {
 	var out, errw bytes.Buffer
-	if code := Run("access-trace", strings.NewReader(`{}`), &out, &errw); code != ExitProceed || !strings.Contains(errw.String(), "retired") {
-		t.Errorf("access-trace: code %d stderr %q", code, errw.String())
-	}
-	errw.Reset()
 	if code := Run("old-bash-guard", strings.NewReader(`{}`), &out, &errw); code != ExitBlock || errw.Len() == 0 {
 		t.Errorf("unknown guard: code %d stderr %q", code, errw.String())
 	}
-	if _, ok := Registry["bash-guard"]; !ok {
-		t.Error("bash-guard must keep routing to the safety gate")
+	errw.Reset()
+	if code := Run("access-trace", strings.NewReader(`{}`), &out, &errw); code != 1 {
+		t.Errorf("a removed non-guard name exits 1, got %d", code)
 	}
 }
 

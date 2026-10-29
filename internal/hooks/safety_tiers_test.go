@@ -292,10 +292,12 @@ func TestSafetyDispatcherGateVsNoOwn(t *testing.T) {
 	})
 }
 
-// TestSafetyOldHookNameStillGuards: hook files rendered before the rename still reach the gate (fail-open otherwise).
-func TestSafetyOldHookNameStillGuards(t *testing.T) {
+// TestSafetyStaleGuardNameFailsClosed: a vendor hook file still calling the removed bash-guard blocks every command.
+func TestSafetyStaleGuardNameFailsClosed(t *testing.T) {
 	tierHarness(t)
-	if got := Run("bash-guard", bashPayload("rm -rf /"), io.Discard, io.Discard); got != ExitBlock {
-		t.Fatalf("hook bash-guard = %d, want ExitBlock", got)
+	for _, cmd := range []string{"rm -rf /", "ls"} {
+		if got := Run("bash-guard", bashPayload(cmd), io.Discard, io.Discard); got != ExitBlock {
+			t.Fatalf("hook bash-guard on %q = %d, want ExitBlock", cmd, got)
+		}
 	}
 }
