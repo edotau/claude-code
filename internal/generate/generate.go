@@ -18,7 +18,6 @@ import (
 	"github.com/edotau/claude-code/internal/hookspec"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/vendorconfig"
 	"github.com/edotau/claude-code/internal/vendors"
 )
 
@@ -203,7 +202,7 @@ func codexCredStoreKey(existing string, out io.Writer) string {
 // codexPermissionKeys renders approval_policy/sandbox_mode/cli_auth_credentials_store as top-level
 // TOML keys; approval/sandbox skip when unset, a vendorconfig load error is treated as unset.
 func codexPermissionKeys(existing string, out io.Writer) string {
-	cfg, err := vendorconfig.Load()
+	cfg, err := vendors.Load()
 	if err != nil {
 		fmt.Fprintf(out, "codex: vendorconfig: %v\n", err)
 		return ""
@@ -428,7 +427,7 @@ func reportGemini(sel providers.Selection, out io.Writer) (bool, error) {
 // renderGeminiSettings merges the spec's exact-match guard denies into agy's
 // ~/.gemini/antigravity-cli/settings.json permissions.deny, preserving every other key.
 func renderGeminiSettings(home string, o Options, out io.Writer) (bool, error) {
-	cfg, err := vendorconfig.Load()
+	cfg, err := vendors.Load()
 	if err != nil {
 		fmt.Fprintf(out, "gemini-settings: skipped: %v\n", err)
 		return false, nil
@@ -528,7 +527,7 @@ func renderCopilot(reg *providers.Registry, sel providers.Selection, home string
 // renderCopilotSettings merges defaultPermissionMode from the vendor spec into ~/.copilot/settings.json,
 // keeping every other key untouched; a non-JSON existing file is skipped, never clobbered.
 func renderCopilotSettings(home string, o Options, out io.Writer) (bool, error) {
-	cfg, err := vendorconfig.Load()
+	cfg, err := vendors.Load()
 	if err != nil {
 		fmt.Fprintf(out, "copilot-settings: skipped: %v\n", err)
 		return false, nil

@@ -1,6 +1,4 @@
-// Package vendorconfig is the one spec for how each vendor CLI (codex, opencode, copilot, gemini)
-// is permissioned, which MCP servers it sees, and what env a skill launch injects for it.
-package vendorconfig
+package vendors
 
 import (
 	_ "embed"

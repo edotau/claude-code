@@ -1,4 +1,4 @@
-package vendorconfig
+package vendors
 
 import (
 	"encoding/json"

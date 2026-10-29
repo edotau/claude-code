@@ -7,7 +7,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/settings"
-	"github.com/edotau/claude-code/internal/vendorsettings"
+	"github.com/edotau/claude-code/internal/vendors"
 )
 
 // maxRuneLen is the widest label (rune count) among rows a picker renders together.
@@ -106,7 +106,7 @@ func TestSettingRowFitsEightyColumns(t *testing.T) {
 // value, plus the "default"/"vault" source suffix — stays <=80 cols.
 func TestRoutingRowFitsEightyColumns(t *testing.T) {
 	var labels []string
-	for _, m := range vendorsettings.Modules() {
+	for _, m := range vendors.Modules() {
 		for _, f := range m.Fields() {
 			labels = append(labels, f.Key)
 		}
@@ -120,7 +120,7 @@ func TestRoutingRowFitsEightyColumns(t *testing.T) {
 			FreeFirstOutput: "90s",
 		},
 	}
-	for _, m := range vendorsettings.Modules() {
+	for _, m := range vendors.Modules() {
 		for _, f := range m.Fields() {
 			detail := f.Get(worst) + "  " + routingSource(f, worst)
 			if w := rowRenderedWidth(labels, detail); w > 80 {

@@ -27,7 +27,6 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/proxy"
-	"github.com/edotau/claude-code/internal/vendorconfig"
 )
 
 // Spec is an agent's row (providers.AgentSpec): CLI binary, wires, router paths and pin keys.
@@ -306,7 +305,7 @@ func applyLaunch(name string, env, argv []string, args bool) ([]string, []string
 			env = append(env, "OPENCODE_CONFIG="+cfg, "OPENCODE_TUI_CONFIG="+tui)
 		}
 	}
-	vc, err := vendorconfig.Load()
+	vc, err := Load()
 	if err != nil {
 		return env, argv
 	}
