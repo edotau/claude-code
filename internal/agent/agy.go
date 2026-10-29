@@ -19,6 +19,7 @@ type AgyRequest struct {
 	Prompt, Model, Effort, Cwd, SessionID string
 	Tools, Autonomous                     bool
 	DebugFile                             string // --log-file
+	OutputSchema                          string // --json-schema
 	Env, KeepEnv                          []string
 }
 
@@ -41,6 +42,9 @@ func agyArgv(r AgyRequest) []string {
 		argv = append(argv, "--conversation", r.SessionID)
 	}
 	argv = append(argv, "--input-format", "stream-json", "--output-format", "stream-json")
+	if r.OutputSchema != "" {
+		argv = append(argv, "--json-schema", r.OutputSchema)
+	}
 	if r.Tools {
 		argv = append(argv, "--dangerously-skip-permissions")
 	}
@@ -90,15 +94,17 @@ type agyEvent struct {
 		TextDelta string `json:"text_delta"`
 	} `json:"step_update"`
 	Result struct {
-		ConversationID string `json:"conversation_id"`
-		Status         string `json:"status"`
-		Response       string `json:"response"`
-		Error          string `json:"error"`
+		ConversationID string          `json:"conversation_id"`
+		Status         string          `json:"status"`
+		Response       string          `json:"response"`
+		Structured     json.RawMessage `json:"structured_output"`
+		Error          string          `json:"error"`
 		Usage          struct {
-			InputTokens     int `json:"input_tokens"`
-			OutputTokens    int `json:"output_tokens"`
-			ThinkingTokens  int `json:"thinking_tokens"`
-			CacheReadTokens int `json:"cache_read_tokens"`
+			InputTokens     int     `json:"input_tokens"`
+			OutputTokens    int     `json:"output_tokens"`
+			ThinkingTokens  int     `json:"thinking_tokens"`
+			CacheReadTokens int     `json:"cache_read_tokens"`
+			CostUSD         float64 `json:"cost_usd"` // not reported by agy today; read if it ever is
 		} `json:"usage"`
 		DeniedActions []struct {
 			Action      string `json:"action"`
@@ -182,6 +188,10 @@ func applyAgyResult(res *Result, ev agyEvent) error {
 		InputTokens:     out.Usage.InputTokens,
 		OutputTokens:    out.Usage.OutputTokens + out.Usage.ThinkingTokens,
 		CacheReadTokens: out.Usage.CacheReadTokens,
+		CostUSD:         out.Usage.CostUSD,
+	}
+	if len(out.Structured) > 0 && string(out.Structured) != "null" {
+		res.Structured = out.Structured
 	}
 	if len(out.DeniedActions) > 0 {
 		names := make([]string, len(out.DeniedActions))

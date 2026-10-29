@@ -31,6 +31,9 @@ func claudeOneShot(ctx context.Context, req Request, sink Sink) (res Result, ok 
 	if p.Auth.Method() == providers.AuthCLI {
 		return res, false, nil
 	}
+	if len(req.Env) > 0 {
+		res.Dropped = []string{"--env"} // the HTTP one-shot spawns no process to carry it
+	}
 	prompt, err := claudeAttach(req.Prompt, req.Attach, false)
 	if err != nil {
 		return Result{}, true, err

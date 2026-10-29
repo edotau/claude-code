@@ -161,12 +161,12 @@ func TestVendorRunnerGeminiExplicitModelBeatsPin(t *testing.T) {
 // own Caps additionally carries SessionID and Memory, which only its own runner needs.
 func TestVendorCapsAutonomous(t *testing.T) {
 	for _, name := range []string{"codex", "gemini", "opencode"} {
-		if c := (vendorRunner{name: name}).Caps(); !c.Autonomous {
+		if c := (vendorRunner{name: name}).Caps(); c.Autonomous != Native {
 			t.Errorf("vendorRunner{%s}.Caps().Autonomous = false, want true", name)
 		}
 	}
 	c := copilotRunner{}.Caps()
-	if !c.SessionID || !c.Autonomous || !c.Memory {
+	if c.SessionID != Native || c.Autonomous != Native || c.Memory != Native {
 		t.Errorf("copilotRunner.Caps() = %+v, want SessionID, Autonomous and Memory all true", c)
 	}
 }

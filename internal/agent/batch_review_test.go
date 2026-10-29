@@ -125,7 +125,7 @@ func TestRunPrefixRoutedHostMismatchFailsAuth(t *testing.T) {
 	t.Setenv("HM_KEY", hmJWT("adb-2.azuredatabricks.net"))
 	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"databricks":{"hm":{"preset":"databricks",`+
 		`"host":"https://adb-1.azuredatabricks.net","auth":{"type":"key","env":"HM_KEY"},"models":{"opus":"m"}}}}}`)
-	r := &fakeRunner{name: "codex", caps: Caps{Model: true}, errs: []error{nil}}
+	r := &fakeRunner{name: "codex", caps: Caps{Model: Native}, errs: []error{nil}}
 	_, err := Run(withIsolation(context.Background()), r, Request{Prompt: "p", Model: "hm:opus"}, Discard, nil)
 	var e *Error
 	if !errors.As(err, &e) || e.Kind != KindAuth || len(r.seen) != 0 {
@@ -139,7 +139,7 @@ func TestRunTransientCredentialFailureIsRetried(t *testing.T) {
 	flag := filepath.Join(t.TempDir(), "seen")
 	name := fmt.Sprintf("hmt%d", time.Now().UnixNano())
 	hmNamed(t, name, fmt.Sprintf("if [ -f %[1]s ]; then echo %[2]s; else touch %[1]s; echo 'connection reset' >&2; exit 1; fi", flag, hmJWT("adb-1.azuredatabricks.net")))
-	r := &fakeRunner{name: "claude", caps: Caps{Provider: true}, errs: []error{nil}}
+	r := &fakeRunner{name: "claude", caps: Caps{Provider: Native}, errs: []error{nil}}
 	res, err := Run(context.Background(), r, Request{Prompt: "p", Provider: name}, Discard, nil)
 	if err != nil || res.Answer != "a" || res.Transport.Attempts != 2 {
 		t.Fatalf("res=%+v err=%v; want an answer on attempt 2", res, err)
@@ -249,7 +249,7 @@ func TestCommandCredentialHostMismatchIsAuthAndFallsBack(t *testing.T) {
 	prev := markAuth
 	markAuth = func(string, string) error { return nil }
 	t.Cleanup(func() { markAuth = prev })
-	first := &fakeRunner{name: "claude", caps: Caps{Provider: true}, errs: []error{nil}}
+	first := &fakeRunner{name: "claude", caps: Caps{Provider: Native}, errs: []error{nil}}
 	second := &fakeRunner{name: "gemini", errs: []error{nil}}
 	c := Chain{Want: "claude", Legs: []Leg{{Agent: first, Account: "claude:" + name, keepCaller: true}, {Agent: second}}}
 	res, err := RunWithFallback(context.Background(), c, Request{Prompt: "p"}, Discard, nil)
@@ -704,7 +704,7 @@ func TestHopKeepsRecoveredGuardFailure(t *testing.T) {
 	flag := filepath.Join(t.TempDir(), "seen")
 	name := fmt.Sprintf("hmg%d", time.Now().UnixNano())
 	hmNamed(t, name, fmt.Sprintf("if [ -f %[1]s ]; then echo %[2]s; else touch %[1]s; echo 'connection reset' >&2; exit 1; fi", flag, hmJWT("adb-1.azuredatabricks.net")))
-	r := &fakeRunner{name: "claude", caps: Caps{Provider: true}, errs: []error{nil}}
+	r := &fakeRunner{name: "claude", caps: Caps{Provider: Native}, errs: []error{nil}}
 	res, err := RunWithFallback(context.Background(), Single(r), Request{Prompt: "p", Provider: name}, Discard, nil)
 	if err != nil {
 		t.Fatal(err)

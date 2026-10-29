@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 
 	"github.com/edotau/claude-code/internal/secrets/shapes"
@@ -12,39 +13,42 @@ const EnvelopeSchema = 1
 
 // EnvelopeError is the envelope's error object: a stable kind token plus the redacted message.
 type EnvelopeError struct {
-	Kind    string `json:"kind"` // auth | rate_limit | transient | fatal | quota | timeout | canceled | usage
+	Kind    string `json:"kind"` // auth | rate_limit | transient | fatal | quota | timeout | canceled | usage | schema
 	Message string `json:"message"`
 }
 
 // Envelope is the one typed JSON body `ask --format json` prints for every agent, on success and on every error path.
 type Envelope struct {
-	Schema         int            `json:"schema"`
-	Status         string         `json:"status"` // ok | error, refined to partial | quota | stalled on a failed run
-	Agent          string         `json:"agent"`
-	Provider       string         `json:"provider"` // the profile that answered
-	Model          string         `json:"model"`
-	Invoked        string         `json:"invoked_model"`
-	DispatchID     string         `json:"dispatch_id"` // the id `<agent> status|result` and `ask --retry` accept; "" before a log record exists
-	SessionID      string         `json:"session_id"`
-	Fallback       *string        `json:"fallback"` // null unless a different agent or route than requested ran
-	FallbackReason string         `json:"fallback_reason"`
-	Usage          *Usage         `json:"usage"` // null when the agent reports no token counts
-	DurationMs     int64          `json:"duration_ms"`
-	Error          *EnvelopeError `json:"error"` // null on success
-	Answer         string         `json:"answer"`
-	Dropped        []string       `json:"dropped"`
-	Handoff        string         `json:"handoff"`
-	Transport      *Transport     `json:"transport"`
-	TaskID         string         `json:"task_id,omitempty"`  // ask --batch: the task's id
-	BatchID        string         `json:"batch_id,omitempty"` // ask --batch: the id shared by every task of the run
-	Hops           []Hop          `json:"hops,omitempty"`     // every leg tried, in order
+	Schema          int             `json:"schema"`
+	Status          string          `json:"status"` // ok | error, refined to partial | quota | stalled on a failed run
+	Agent           string          `json:"agent"`
+	Provider        string          `json:"provider"` // the profile that answered
+	Model           string          `json:"model"`
+	Invoked         string          `json:"invoked_model"`
+	DispatchID      string          `json:"dispatch_id"` // the id `<agent> status|result` and `ask --retry` accept; "" before a log record exists
+	SessionID       string          `json:"session_id"`
+	Fallback        *string         `json:"fallback"` // null unless a different agent or route than requested ran
+	FallbackReason  string          `json:"fallback_reason"`
+	Usage           *Usage          `json:"usage"` // null when the agent reports no token counts
+	DurationMs      int64           `json:"duration_ms"`
+	Error           *EnvelopeError  `json:"error"` // null on success
+	Answer          string          `json:"answer"`
+	Dropped         []string        `json:"dropped"`
+	SchemaUnchecked []string        `json:"schema_unchecked,omitempty"` // --output-schema keywords structured was not checked against
+	Emulated        []string        `json:"emulated,omitempty"`         // flags the harness shimmed because the agent has no channel
+	Handoff         string          `json:"handoff"`
+	Transport       *Transport      `json:"transport"`
+	TaskID          string          `json:"task_id,omitempty"`    // ask --batch: the task's id
+	BatchID         string          `json:"batch_id,omitempty"`   // ask --batch: the id shared by every task of the run
+	Hops            []Hop           `json:"hops,omitempty"`       // every leg tried, in order
+	Structured      json.RawMessage `json:"structured,omitempty"` // --output-schema: the answer as JSON satisfying the schema
 }
 
 // NewEnvelope builds the envelope for a finished run; err nil means success.
 func NewEnvelope(res Result, err error, dispatchID string) Envelope {
 	env := Envelope{Schema: EnvelopeSchema, Status: res.Status, Agent: res.Agent, Provider: res.Provider, Model: res.Model,
 		Invoked: res.Invoked, DispatchID: dispatchID, SessionID: res.SessionID, FallbackReason: res.FallbackReason,
-		DurationMs: res.DurationMs, Answer: res.Answer, Dropped: res.Dropped, Handoff: res.Handoff, Transport: res.Transport, Hops: res.Hops}
+		DurationMs: res.DurationMs, Answer: res.Answer, Dropped: res.Dropped, Emulated: res.Emulated, Handoff: res.Handoff, Transport: res.Transport, Hops: res.Hops, Structured: res.Structured, SchemaUnchecked: res.SchemaUnchecked}
 	if env.Dropped == nil {
 		env.Dropped = []string{}
 	}
@@ -79,6 +83,8 @@ func FailureEnvelope(agentName string, err error) Envelope {
 // errorKind is the envelope token for err's class; an unclassified error is fatal.
 func errorKind(err error) string {
 	switch {
+	case errors.Is(err, ErrSchema):
+		return "schema"
 	case errors.Is(err, context.DeadlineExceeded):
 		return "timeout"
 	case errors.Is(err, context.Canceled):
