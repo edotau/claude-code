@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -159,6 +160,11 @@ func cmdScience(args []string) int {
 }
 
 func runPlan(plan launch.Plan, opts launch.Options, err error) int {
+	var usage launch.UsageError
+	if errors.As(err, &usage) {
+		fmt.Fprintln(os.Stderr, usage)
+		return 2
+	}
 	if err != nil {
 		return fail("%v", err)
 	}

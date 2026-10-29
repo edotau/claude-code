@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/browser"
+	"github.com/edotau/claude-code/internal/codexsettings"
 	"github.com/edotau/claude-code/internal/generate"
 	"github.com/edotau/claude-code/internal/launch"
 	"github.com/edotau/claude-code/internal/paths"
@@ -122,10 +123,15 @@ type mcpClient struct {
 
 func webSearchClients() []mcpClient {
 	home, _ := os.UserHomeDir()
-	codexCfg := filepath.Join(home, ".codex", "config.toml")
+	codexCfg, cfgErr := codexsettings.ConfigPath("")
 	return []mcpClient{
 		{"claude", func() bool { return claudeJSONWired(filepath.Join(home, ".claude.json")) }, registerClaudeMCP},
-		{"codex", func() bool { return codexWired(codexCfg) }, func(bin string) error { return registerCodexMCP(codexCfg, bin) }},
+		{"codex", func() bool { return codexWired(codexCfg) }, func(bin string) error {
+			if cfgErr != nil {
+				return cfgErr
+			}
+			return registerCodexMCP(codexCfg, bin)
+		}},
 	}
 }
 
@@ -190,7 +196,7 @@ func registerClaudeMCPContext(ctx context.Context, bin string) error {
 	return nil
 }
 
-// registerCodexMCP replaces (or appends) the web_search table, keeping a .bak of the previous file.
+// registerCodexMCP replaces (or appends) the web_search table, sealing the previous file in the vault backups.
 func registerCodexMCP(path, bin string) error {
 	raw, err := os.ReadFile(path)
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
@@ -202,11 +208,7 @@ func registerCodexMCP(path, bin string) error {
 		next = append(append(raw, '\n'), block...)
 	}
 	if len(raw) > 0 {
-		bak := paths.BackupPath(path, time.Now())
-		if err := os.MkdirAll(filepath.Dir(bak), 0o700); err != nil {
-			return err
-		}
-		if err := os.WriteFile(bak, raw, 0o600); err != nil {
+		if err := codexsettings.Backup(path, raw, true); err != nil {
 			return err
 		}
 	}

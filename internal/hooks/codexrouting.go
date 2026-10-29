@@ -67,7 +67,7 @@ func codexSpawnPinned(in *Input) bool {
 		return true
 	}
 	for _, key := range []string{providers.PinCodexModel, providers.PinCodexEffort} {
-		if os.Getenv(key) != "" || providers.Pin(key) != "" {
+		if providers.Pin(key) != "" {
 			return true
 		}
 	}

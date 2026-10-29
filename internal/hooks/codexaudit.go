@@ -1,7 +1,7 @@
 package hooks
 
 import (
-	"bufio"
+	"bytes"
 	"crypto/sha256"
 	"encoding/json"
 	"errors"
@@ -78,6 +78,9 @@ func appendCodexRoute(path string, record codexRouteRecord) error {
 	if err != nil {
 		return err
 	}
+	if err := dropTornRoute(path); err != nil {
+		return err
+	}
 	records = append(records, record)
 	write := []codexRouteRecord{record}
 	write = append(write, codexRouteMatches(records)...)
@@ -94,25 +97,38 @@ func appendCodexRoute(path string, record codexRouteRecord) error {
 	return f.Close()
 }
 
+// dropTornRoute truncates an unterminated trailing record so the next append starts on a fresh line.
+func dropTornRoute(path string) error {
+	data, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if len(data) == 0 || data[len(data)-1] == '\n' {
+		return nil
+	}
+	return os.Truncate(path, int64(bytes.LastIndexByte(data, '\n')+1))
+}
+
+// readCodexRoutes skips unparsable lines and an unterminated trailing record.
 func readCodexRoutes(path string) ([]codexRouteRecord, error) {
-	f, err := os.Open(path)
+	data, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
 	var records []codexRouteRecord
-	scan := bufio.NewScanner(f)
-	for scan.Scan() {
+	for _, line := range bytes.Split(data[:bytes.LastIndexByte(data, '\n')+1], []byte{'\n'}) {
 		var row codexRouteRecord
-		if err := json.Unmarshal(scan.Bytes(), &row); err != nil {
-			return nil, err
+		if len(bytes.TrimSpace(line)) > 0 && json.Unmarshal(line, &row) == nil {
+			records = append(records, row)
 		}
-		records = append(records, row)
 	}
-	return records, scan.Err()
+	return records, nil
 }
 
 // Join by tool and child IDs, never by model or event arrival order.
