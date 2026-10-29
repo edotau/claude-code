@@ -14,7 +14,9 @@ func bound(group, matcher string, budget time.Duration, run Runner) Bound {
 	return Bound{Group: group, Spec: hookspec.EventSpec{Name: group, Event: "PreToolUse", Matcher: matcher, Budget: budget}, Run: run}
 }
 
-func bashInput() *Input { return ParseInput(strings.NewReader(`{"tool_name":"Bash","hook_event_name":"PreToolUse"}`)) }
+func bashInput() *Input {
+	return ParseInput(strings.NewReader(`{"tool_name":"Bash","hook_event_name":"PreToolUse"}`))
+}
 
 func TestDispatchMergeAndIsolation(t *testing.T) {
 	var order []string
