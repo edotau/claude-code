@@ -53,6 +53,8 @@ var catalogSpec = []Field{
 	{Key: "preferredNotifChannel", Section: "notifications", Source: "schema"},
 	{Key: "awaySummaryEnabled", Section: "notifications", Source: "schema"},
 	{Key: "feedbackDrafts", Section: "notifications", Kind: KindEnum, Values: []string{"notify", "quiet", "off"}, Source: "docs"},
+	{Key: "feedbackSurveyRate", Section: "notifications", Source: "schema"},
+	{Key: "askUserQuestionTimeout", Section: "session", Source: "schema"},
 
 	{Key: "cleanupPeriodDays", Section: "session", Source: "schema"},
 	{Key: "autoConnectIde", Section: "session", Source: "schema"},
