@@ -4,9 +4,7 @@
 package hooks
 
 import (
-	"encoding/json"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -118,37 +116,6 @@ func applyLabel(updated map[string]any, task string) bool {
 		updated["description"] = label + ": " + desc
 	}
 	return true
-}
-
-// AgentEffort is the legacy `hook agent-effort` entry: it renders agentEffortResult in the hook JSON shape
-// (exit 2 plus the reason on stderr for a block). Emits nothing when nothing is rewritten.
-func AgentEffort(r io.Reader, stdout io.Writer) int {
-	return renderEffort(agentEffortResult(ParseInput(r)), stdout, os.Stderr)
-}
-
-// renderEffort writes res as PreToolUse JSON on stdout, or its block reason on errw.
-func renderEffort(res Result, stdout, errw io.Writer) int {
-	if res.Decision == Block {
-		fmt.Fprintln(errw, res.Reason)
-		return ExitBlock
-	}
-	if res.UpdatedInput == nil {
-		return ExitProceed
-	}
-	inner := map[string]any{"hookEventName": "PreToolUse", "updatedInput": res.UpdatedInput}
-	if res.Context != "" {
-		inner["additionalContext"] = res.Context
-	}
-	payload := map[string]any{"hookSpecificOutput": inner}
-	if res.SystemMessage != "" {
-		payload["systemMessage"] = res.SystemMessage
-	}
-	out, err := json.Marshal(payload)
-	if err != nil {
-		return ExitProceed
-	}
-	fmt.Fprintln(stdout, string(out))
-	return ExitProceed
 }
 
 // pinModel fills updated["model"] from the classifier when the dispatch left it unset,

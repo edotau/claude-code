@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -17,7 +18,7 @@ import (
 func runAgentEffort(t *testing.T, stdin string) (map[string]any, int) {
 	t.Helper()
 	var out bytes.Buffer
-	code := AgentEffort(strings.NewReader(stdin), &out)
+	code := runEffortHook(strings.NewReader(stdin), &out)
 	if strings.TrimSpace(out.String()) == "" {
 		return nil, code
 	}
@@ -50,7 +51,7 @@ type agentEffortDoc struct {
 func runAgentEffortFull(t *testing.T, stdin string) agentEffortDoc {
 	t.Helper()
 	var out bytes.Buffer
-	AgentEffort(strings.NewReader(stdin), &out)
+	runEffortHook(strings.NewReader(stdin), &out)
 	var doc agentEffortDoc
 	if err := json.Unmarshal(out.Bytes(), &doc); err != nil {
 		t.Fatalf("emitted invalid JSON (%v): %q", err, out.String())
@@ -416,4 +417,34 @@ func TestAgentRecallHandlesCwdGracefully(t *testing.T) {
 	_ = block // might be empty if no bank is available
 	_ = ids   // might be nil if no matches
 	// If this test reaches here without panic, the defect is not present.
+}
+
+// runEffortHook renders the pin step in the legacy hook shape these assertions read (exit 2 + stderr for a block).
+func runEffortHook(r io.Reader, stdout io.Writer) int {
+	return renderEffort(agentEffortResult(ParseInput(r)), stdout, os.Stderr)
+}
+
+// renderEffort writes res as PreToolUse JSON on stdout, or its block reason on errw.
+func renderEffort(res Result, stdout, errw io.Writer) int {
+	if res.Decision == Block {
+		fmt.Fprintln(errw, res.Reason)
+		return ExitBlock
+	}
+	if res.UpdatedInput == nil {
+		return ExitProceed
+	}
+	inner := map[string]any{"hookEventName": "PreToolUse", "updatedInput": res.UpdatedInput}
+	if res.Context != "" {
+		inner["additionalContext"] = res.Context
+	}
+	payload := map[string]any{"hookSpecificOutput": inner}
+	if res.SystemMessage != "" {
+		payload["systemMessage"] = res.SystemMessage
+	}
+	out, err := json.Marshal(payload)
+	if err != nil {
+		return ExitProceed
+	}
+	fmt.Fprintln(stdout, string(out))
+	return ExitProceed
 }

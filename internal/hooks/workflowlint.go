@@ -4,7 +4,6 @@ package hooks
 
 import (
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -15,15 +14,6 @@ import (
 )
 
 const workflowLintName = "inline workflow"
-
-// WorkflowLint is the legacy `hook workflow-lint` entry: workflowResult rendered in the hook JSON shape.
-func WorkflowLint(r io.Reader, stdout, errw io.Writer) int {
-	in := ParseInput(r)
-	if in.ToolName != "Workflow" {
-		return ExitProceed
-	}
-	return renderEffort(workflowResult(in), stdout, errw)
-}
 
 // workflowResult rewrites every unpinned agent() leaf in an inline script to pin the medium-tier model, or
 // blocks when a leaf's options argument can't be rewritten safely or a pin's literal value is bad. A

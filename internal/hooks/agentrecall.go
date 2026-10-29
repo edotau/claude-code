@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/paths"
@@ -48,7 +49,8 @@ func agentRecall(sessionID, cwd, task string) (block string, ids []string) {
 		}
 	}
 	terms := memory.ContentQueryTerms(tokens)
-	picks := selectRecall(sessionID, terms, memory.SearchBanksTerms(root, q, terms, 0), nil, false)
+	counts := memory.ReturnCounts([]string{memory.Dir(root), memory.HomeBankDir()}, time.Now())
+	picks := selectRecall(sessionID, terms, memory.SearchBanksTerms(root, q, terms, 0), nil, false, counts)
 
 	var lines []string
 	for i, p := range picks {

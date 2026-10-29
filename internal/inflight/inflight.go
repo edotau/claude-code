@@ -16,17 +16,14 @@ import (
 // TTL is the backstop for a marker whose owner cannot be probed (or parsed): it stops counting after this long.
 const TTL = 30 * time.Minute
 
-// Idle: a tagged marker whose agent transcript is untouched this long stopped without a SubagentStop.
+// Idle: a spawn marker whose agent transcript is untouched this long stopped without a SubagentStop.
 const Idle = 10 * time.Minute
 
-// Grace: how long a tagged marker may wait for its agent transcript to appear before it is abandoned.
+// Grace: how long a spawn marker may wait for its agent transcript to appear before it is abandoned.
 const Grace = 2 * time.Minute
 
-// Prefix starts every marker name: agent-<owner pid>-<id>[@agentid].
+// Prefix starts every marker name: agent-<owner pid>-<id>; the file holds the account key.
 const Prefix = "agent-"
-
-// AgentSep joins a marker to the spawned agent's id.
-const AgentSep = "@"
 
 // Dir is the machine-wide marker directory.
 func Dir() string { return filepath.Join(paths.StateDir(), "agents-inflight") }
@@ -47,28 +44,22 @@ func Owner(name string) (int, bool) {
 // a silent owner as dead, otherwise TTL is the sole backstop.
 func ProbeTrusted() bool { return proc.Alive(os.Getpid()) }
 
-// Live reports whether the marker still counts: its owner is alive (untagged or unprobeable: inside TTL) and, for
-// self's own TAGGED markers, its agent transcript under transcriptDir is neither idle nor long absent.
-func Live(name string, mod, now time.Time, self int, transcriptDir string, trusted bool) bool {
+// Live is the owner-level rule: a provably dead owner never counts; a batch leg lives with its owner; anything
+// else (or any marker when the probe is untrusted) stops counting after TTL. Self's spawn rules live in scan.
+func Live(name string, mod, now time.Time, trusted bool) bool {
 	owner, ok := Owner(name)
 	if !ok {
 		return false
 	}
 	trusted = trusted && owner > 0
-	_, agentID, tagged := strings.Cut(name, AgentSep)
-	tagged = tagged && agentID != ""
-	// An untagged marker never got its PostToolUse (e.g. an auto-mode-refused spawn): TTL caps it even when owned.
-	if (trusted && !proc.Alive(owner)) || ((!trusted || !tagged) && now.Sub(mod) > TTL) {
+	if trusted && !proc.Alive(owner) {
 		return false
 	}
-	// Only self's markers: a sibling session's transcripts live elsewhere and would read as "missing".
-	if tagged && owner == self && transcriptDir != "" {
-		transcript, err := os.Stat(filepath.Join(transcriptDir, "agent-"+agentID+".jsonl"))
-		missing := os.IsNotExist(err) && now.Sub(mod) > Grace
-		idle := err == nil && now.Sub(transcript.ModTime()) > Idle
-		return !missing && !idle
+	id := strings.TrimPrefix(name, Prefix+strconv.Itoa(owner)+"-")
+	if trusted && strings.HasPrefix(id, LegPrefix) {
+		return true
 	}
-	return true
+	return now.Sub(mod) <= TTL
 }
 
 // CountOwned counts the live markers owned by owner without removing anything.
@@ -77,13 +68,13 @@ func CountOwned(owner int, transcriptDir string, now time.Time) int {
 	if err != nil {
 		return 0
 	}
-	trusted := ProbeTrusted()
+	s := &scanner{self: owner, subDir: transcriptDir, now: now, trusted: ProbeTrusted()}
 	n := 0
 	for _, e := range entries {
 		if pid, ok := Owner(e.Name()); !ok || pid != owner {
 			continue
 		}
-		if fi, err := e.Info(); err == nil && Live(e.Name(), fi.ModTime(), now, owner, transcriptDir, trusted) {
+		if fi, err := e.Info(); err == nil && s.live(e.Name(), fi.ModTime()) {
 			n++
 		}
 	}
