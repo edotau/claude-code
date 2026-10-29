@@ -40,7 +40,7 @@ func TestGroupRenderOneEntryPerEvent(t *testing.T) {
 			t.Errorf("%s: %d entries, want at least %d", ev, len(entries), 1+own[ev])
 		}
 	}
-	if !strings.Contains(string(b), DispatcherCommand("PreToolUse", true)) || !strings.Contains(string(b), "hook bash-guard") {
+	if !strings.Contains(string(b), DispatcherCommand("PreToolUse", true)) || !strings.Contains(string(b), "hook safety-scan") {
 		t.Errorf("safety must render separately and the dispatcher must skip it: %s", b)
 	}
 }

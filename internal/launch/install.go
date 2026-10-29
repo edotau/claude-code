@@ -332,7 +332,7 @@ func rtkDoctorStatus() string {
 	if bin := hooks.RTKBinary(); bin != "" {
 		return bin + " (" + hooks.RTKCommandList() + ")"
 	}
-	return "not on PATH — bash-guard skips the rtk rewrite"
+	return "not on PATH — the rtk hook skips the rewrite"
 }
 
 // setupDoctorDetail reports the last `setup adopt`, never a failing check — a fresh clone has none.

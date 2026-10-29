@@ -120,19 +120,19 @@
         "hooks": [
           {
             "type": "command",
-            "command": "$HOME/.claude/bin/claude-code hook bash-guard",
+            "command": "$HOME/.claude/bin/claude-code hook safety-scan",
             "timeout": 5,
             "statusMessage": "Checking command safety"
           }
         ]
       },
       {
-        "matcher": "Write|Edit|Agent|Task|Workflow",
+        "matcher": "Bash|Write|Edit|Agent|Task|Workflow",
         "hooks": [
           {
             "type": "command",
             "command": "$HOME/.claude/bin/claude-code hook PreToolUse --no-own",
-            "timeout": 20
+            "timeout": 25
           }
         ]
       }

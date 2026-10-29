@@ -15,7 +15,7 @@ func TestInstallRendersAgentConfigs(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", filepath.Join(home, ".claude"))
 	hooksFile := filepath.Join(home, ".codex", "hooks.json")
 	stale := `{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command",` +
-		`"command":"HARNESS_HOOK_VENDOR=codex $HOME/.claude/bin/claude-code hook bash-guard"}]}]}}`
+		`"command":"HARNESS_HOOK_VENDOR=codex $HOME/.claude/bin/claude-code hook safety-scan"}]}]}}`
 	if err := os.MkdirAll(filepath.Dir(hooksFile), 0o755); err != nil {
 		t.Fatal(err)
 	}

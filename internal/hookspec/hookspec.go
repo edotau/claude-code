@@ -93,7 +93,11 @@ const sec = time.Second
 // Registry is the whole chain: groups in execution order, each naming its events.
 var Registry = []Group{
 	{Name: "safety", Gate: true, Events: []EventSpec{
-		{Name: "bash-guard", Event: EventPreToolUse, Matcher: "Bash", Budget: 5 * sec, StatusMessage: "Checking command safety", Blocks: true, Vendors: []string{"codex", "copilot"}},
+		{Name: "safety-scan", Event: EventPreToolUse, Matcher: "Bash", Budget: 5 * sec, StatusMessage: "Checking command safety", Blocks: true, Vendors: []string{"codex", "copilot"}},
+	}},
+	{Name: "rtk", Events: []EventSpec{
+		// An eligible noisy Bash command is rewritten to run through the rtk output compressor (Claude only).
+		{Name: "rtk", Event: EventPreToolUse, Matcher: "Bash", Budget: 5 * sec},
 	}},
 	{Name: "plans", Events: []EventSpec{
 		// Check markdown placement, then require template headings for a native plan draft's first write.

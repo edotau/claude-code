@@ -13,7 +13,7 @@ func rtkOut(t *testing.T, in string) (cmd string, emitted bool) {
 	t.Helper()
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir()) // the test process cwd sits inside the real config tree
 	var sb strings.Builder
-	if rc := BashGuard(strings.NewReader(in), &sb, io.Discard); rc != ExitProceed {
+	if rc := RTKRewrite(strings.NewReader(in), &sb, io.Discard); rc != ExitProceed {
 		t.Fatalf("rc = %d, want ExitProceed (%d) for this safe command", rc, ExitProceed)
 	}
 	if strings.TrimSpace(sb.String()) == "" {
@@ -63,12 +63,12 @@ func TestRTKSkipsCodex(t *testing.T) {
 	}
 }
 
-func TestCodexBashGuardStillBlocks(t *testing.T) {
+func TestCodexSafetyScanStillBlocks(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv("HARNESS_HOOK_AGENT", "codex")
 	t.Setenv(rtkBinaryEnv, "echo")
 	var stdout, stderr strings.Builder
-	rc := BashGuard(strings.NewReader(rtkBashIn("sudo apt install x")), &stdout, &stderr)
+	rc := SafetyScan(strings.NewReader(rtkBashIn("sudo apt install x")), &stdout, &stderr)
 	if rc != ExitBlock {
 		t.Fatalf("rc = %d, want ExitBlock (%d)", rc, ExitBlock)
 	}
@@ -85,7 +85,7 @@ func TestCopilotPayloadOverridesCodexVendor(t *testing.T) {
 		t.Fatalf("Vendor() = %q, want %q", vendor, VendorCopilot)
 	}
 	var stdout strings.Builder
-	if rc := BashGuard(strings.NewReader(payload), &stdout, io.Discard); rc != ExitBlock {
+	if rc := SafetyScan(strings.NewReader(payload), &stdout, io.Discard); rc != ExitBlock {
 		t.Fatalf("rc = %d, want ExitBlock (%d)", rc, ExitBlock)
 	}
 	var out struct {
@@ -132,7 +132,7 @@ func TestRTKMachineReadableFlagsMatchTokens(t *testing.T) {
 func TestRTKPreservesOtherInputKeys(t *testing.T) {
 	t.Setenv(rtkBinaryEnv, "echo")
 	var sb strings.Builder
-	BashGuard(strings.NewReader(rtkBashIn("npm install")), &sb, io.Discard)
+	RTKRewrite(strings.NewReader(rtkBashIn("npm install")), &sb, io.Discard)
 	var out struct {
 		HookSpecificOutput struct {
 			UpdatedInput map[string]any `json:"updatedInput"`
