@@ -606,3 +606,133 @@ func TestKeepTwoUnlistedKeysListsBoth(t *testing.T) {
 		t.Fatalf("rc=%d out=%q; want 1 and \"not dropped: aKey, bKey\"", rc, out.String())
 	}
 }
+
+// pageFieldCount is how many editable rows the page shows before any added key: the add row sits at this index.
+func pageFieldCount(t *testing.T) int {
+	t.Helper()
+	sections, err := settings.Sections()
+	if err != nil {
+		t.Fatal(err)
+	}
+	n := 0
+	for _, sec := range sections {
+		for _, k := range sec.Keys {
+			if _, ok := settings.Lookup(k); ok {
+				n++
+			}
+		}
+	}
+	return n
+}
+
+// stubAddList replaces addSettingList with a picker that chooses key, and records the spec it was shown.
+func stubAddList(t *testing.T, key string) *tui.ListSpec {
+	t.Helper()
+	orig := addSettingList
+	t.Cleanup(func() { addSettingList = orig })
+	var seen tui.ListSpec
+	addSettingList = func(spec tui.ListSpec, _ int) (tui.ListResult, error) {
+		seen = spec
+		for i, r := range spec.Rows {
+			if r.Label == key {
+				return tui.ListResult{Index: i}, nil
+			}
+		}
+		t.Errorf("add picker has no %q row", key)
+		return tui.ListResult{Index: -1}, nil
+	}
+	return &seen
+}
+
+func confirmAll(t *testing.T, answer bool) {
+	t.Helper()
+	orig := saveConfirmed
+	t.Cleanup(func() { saveConfirmed = orig })
+	saveConfirmed = func(string) bool { return answer }
+}
+
+// TestAddSettingThenRemoveItAndSaveAsDefault: "+ add a setting" stages any schema key (filterable list, rows
+// <=80 columns, shown keys excluded); the added row then removes it again, and Save as default writes the overlay.
+func TestAddSettingThenRemoveItAndSaveAsDefault(t *testing.T) {
+	const key = "wheelScrollAccelerationEnabled"
+	d, out := newClaudeSettingsDialog(t, "2\n3\n") // false, then the "remove from mine" row
+	n := pageFieldCount(t)
+	stubSettingsPage(t, n, n) // add, then the added row (now first after the sections)
+	spec := stubAddList(t, key)
+	confirmAll(t, true)
+
+	runMenuDirect(t, d)
+
+	if !spec.Search || len(spec.Rows) == 0 {
+		t.Fatalf("add picker spec = %+v, want a searchable list", spec)
+	}
+	widest := 0
+	for _, r := range spec.Rows {
+		widest = max(widest, len([]rune(r.Label)))
+		if r.Label == "model" || r.Label == "prefersReducedMotion" {
+			t.Errorf("add picker lists %q, which the page already shows", r.Label)
+		}
+	}
+	for _, r := range spec.Rows {
+		if w := rowRenderedWidth([]string{strings.Repeat("x", widest)}, r.Detail); w > 80 {
+			t.Errorf("add row %q is %d cols, want <=80", r.Label, w)
+		}
+	}
+	ov, err := settings.LoadOverlay()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ov) != 0 {
+		t.Errorf("overlay = %v, want the added key removed again before saving", ov)
+	}
+	if strings.Contains(out.String(), "saved as default") {
+		t.Errorf("nothing was staged, yet output says saved:\n%s", out.String())
+	}
+
+	d, out = newClaudeSettingsDialog(t, "2\n")
+	stubSettingsPage(t, n)
+	stubAddList(t, key)
+	runMenuDirect(t, d)
+	ov, err = settings.LoadOverlay()
+	if err != nil || string(ov[key]) != "false" {
+		t.Fatalf("overlay = %v, %v; want %s=false", ov, err, key)
+	}
+	if !strings.Contains(out.String(), "1 setting(s) saved as default") {
+		t.Errorf("output lacks the Save as default line:\n%s", out.String())
+	}
+}
+
+// TestSaveToRepoDefaultsWritesStagedKeysAndShowsDiffStat: the row writes only the staged key into the repo
+// file, prints git's --stat and never commits.
+func TestSaveToRepoDefaultsWritesStagedKeysAndShowsDiffStat(t *testing.T) {
+	const key = "wheelScrollAccelerationEnabled"
+	d, out := newClaudeSettingsDialog(t, "2\n")
+	repo := settings.RepoDefaultsFile()
+	if err := os.MkdirAll(filepath.Dir(repo), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	seed, err := os.ReadFile(filepath.Join("..", "..", filepath.FromSlash(settings.RepoDefaultsRel)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(repo, seed, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	n := pageFieldCount(t)
+	stubSettingsPage(t, n, n+2) // add, then Save to repo defaults (the added row precedes the actions)
+	stubAddList(t, key)
+	origStat := gitDiffStat
+	t.Cleanup(func() { gitDiffStat = origStat })
+	gitDiffStat = func(string) (string, error) { return " defaults/claude/settings.json | 1 +\n", nil }
+	confirmAll(t, true)
+
+	runMenuDirect(t, d)
+
+	got, _ := os.ReadFile(repo)
+	if !strings.HasPrefix(string(got), "{\n  \"$schema\"") || !strings.Contains(string(got), `"`+key+`": false`) {
+		t.Errorf("repo defaults missing the key or lost $schema first:\n%s", got)
+	}
+	if !strings.Contains(out.String(), "settings.json | 1 +") || !strings.Contains(out.String(), "not committed") {
+		t.Errorf("output lacks the diff --stat or the no-commit note:\n%s", out.String())
+	}
+}

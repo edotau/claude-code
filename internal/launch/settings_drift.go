@@ -2,6 +2,7 @@ package launch
 
 import (
 	"encoding/json"
+	"fmt"
 	"path/filepath"
 	"slices"
 	"sort"
@@ -140,4 +141,37 @@ func newestBackup(file string) string {
 	}
 	sort.Strings(matches)
 	return matches[len(matches)-1]
+}
+
+// Broken is the part of drift that stays a failure: invalid JSON, a missing file, or a nested config.
+func (s SettingsDrift) Broken() bool {
+	return s.Invalid != nil || s.Nested != "" || (len(s.Differs) == 1 && s.Differs[0] == "(missing)")
+}
+
+// DoctorSettingsDrift is the doctor row: ok is false only for Broken drift; keys differing from the
+// defaults are information.
+func DoctorSettingsDrift() (ok bool, detail string) {
+	d, err := CheckSettingsDrift()
+	if err != nil {
+		return false, err.Error()
+	}
+	if d.Broken() {
+		return false, settingsDriftDetail(d, nil)
+	}
+	keys, err := settings.DefaultsDrift()
+	if err != nil {
+		return false, err.Error()
+	}
+	d.Differs, d.Foreign = nil, nil
+	var parts []string
+	if len(keys) > 0 {
+		parts = append(parts, fmt.Sprintf("%d keys differ from your defaults — claude-code configure --restore", len(keys)))
+	}
+	if rest := settingsDriftDetail(d, nil); rest != "clean" {
+		parts = append(parts, rest)
+	}
+	if len(parts) == 0 {
+		return true, "clean"
+	}
+	return true, strings.Join(parts, "; ")
 }

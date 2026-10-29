@@ -84,21 +84,14 @@ func Render() ([]byte, error) {
 // Summary describes what Merge did, for `install --dry-run`.
 type Summary struct {
 	Kept         []string // existing top-level keys the template does not own
-	Retired      []string // existing keys the harness removes (retiredKeys)
 	Dropped      []string // existing keys removed by the vault drop list
 	Owned        []string // template keys written (env/permissions unioned, others replaced)
 	ForeignHooks int      // non-harness hook commands preserved
 	HarnessHooks int
 }
 
-// retiredKeys are dropped from existing settings: autoMemoryDirectory is flat, so it merges every repo's memory.
-var retiredKeys = []string{"autoMemoryDirectory"}
-
 // runtimeKeys are written by Claude Code itself (e.g. /effort → modelSettings): merge keeps them, drift ignores them.
 var runtimeKeys = []string{"modelSettings"}
-
-// retiredEnvKeys are env keys a template once set; merge would keep them after the template drops them.
-var retiredEnvKeys = []string{"CLAUDE_CODE_DISABLE_VIRTUAL_SCROLL", "CLAUDE_CODE_AUTO_CONNECT_IDE", "ENABLE_CLAUDEAI_MCP_SERVERS"}
 
 // Merge overlays rendered harness settings onto existing: foreign keys kept in place, env and permission
 // lists unioned, harness hooks replaced, foreign hooks kept after them; keys in dropped are removed.
@@ -119,9 +112,6 @@ func Merge(existing, rendered []byte, dropped []string) ([]byte, Summary, error)
 	for _, k := range ex.keys {
 		_, owned := tp.vals[k]
 		switch {
-		case slices.Contains(retiredKeys, k):
-			sum.Retired = append(sum.Retired, k)
-			continue
 		case !owned && slices.Contains(dropped, k): // a template key is never dropped: its existing value still merges
 			sum.Dropped = append(sum.Dropped, k)
 			continue
@@ -137,9 +127,7 @@ func Merge(existing, rendered []byte, dropped []string) ([]byte, Summary, error)
 		var merged json.RawMessage
 		switch k {
 		case "env":
-			if merged, err = mergeObject(ex.vals[k], v); err == nil {
-				merged, err = dropRetiredEnv(merged, &sum)
-			}
+			merged, err = mergeObject(ex.vals[k], v)
 		case "permissions":
 			merged, err = mergePermissions(ex.vals[k], v)
 		case "hooks":
@@ -154,23 +142,6 @@ func Merge(existing, rendered []byte, dropped []string) ([]byte, Summary, error)
 	}
 	out, err := ex.marshal()
 	return out, sum, err
-}
-
-// dropRetiredEnv removes keys listed in retiredEnvKeys, recording each as retired.
-func dropRetiredEnv(raw json.RawMessage, sum *Summary) (json.RawMessage, error) {
-	o, err := parseObject(raw)
-	if err != nil {
-		return nil, err
-	}
-	kept := &object{vals: map[string]json.RawMessage{}}
-	for _, k := range o.keys {
-		if slices.Contains(retiredEnvKeys, k) {
-			sum.Retired = append(sum.Retired, "env."+k)
-			continue
-		}
-		kept.set(k, o.vals[k])
-	}
-	return kept.marshal()
 }
 
 // mergeObject sets every overlay key onto base, keeping base's other keys and order.

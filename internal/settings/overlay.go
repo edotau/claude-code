@@ -2,7 +2,9 @@ package settings
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"maps"
 	"slices"
 
 	"github.com/edotau/claude-code/internal/vault"
@@ -92,21 +94,28 @@ func LoadOverlay() (map[string]json.RawMessage, error) {
 	return ov, nil
 }
 
-// ValidateOverlay checks every key against Catalog and runs its Validate.
+// ValidateOverlay checks every key against the Catalog, else the schema, and runs its Validate.
 func ValidateOverlay(ov map[string]json.RawMessage) error {
 	for k, v := range ov {
-		f, ok := Lookup(k)
-		if !ok {
-			return fmt.Errorf("vault overlay/settings: %s: unknown key", k)
-		}
-		if err := f.Validate(v); err != nil {
+		if err := validateKey(k, v); err != nil {
 			return fmt.Errorf("vault overlay/settings: %s: %w", k, err)
 		}
 	}
 	return nil
 }
 
-// SaveOverlay validates every key against Catalog, then writes ov whole; an empty map deletes
+// validateKey checks v against the catalog entry for k, else the schema entry; an unknown key is an error.
+func validateKey(k string, v json.RawMessage) error {
+	if f, ok := Lookup(k); ok {
+		return f.Validate(v)
+	}
+	if sk, ok := SchemaKey(k); ok {
+		return sk.Validate(v)
+	}
+	return errors.New("unknown key")
+}
+
+// SaveOverlay validates every key (Catalog or schema), then writes ov whole; an empty map deletes
 // the vault entry instead of storing "{}".
 func SaveOverlay(ov map[string]json.RawMessage) error {
 	if err := ValidateOverlay(ov); err != nil {
@@ -145,15 +154,33 @@ func applyOverlay(rendered []byte, ov map[string]json.RawMessage) ([]byte, error
 	if err != nil {
 		return nil, err
 	}
-	for k, v := range ov {
-		f, ok := Lookup(k)
-		if !ok {
-			return nil, fmt.Errorf("vault overlay/settings: %s: unknown key", k)
-		}
-		if err := f.Validate(v); err != nil {
+	for _, k := range slices.Sorted(maps.Keys(ov)) {
+		v := ov[k]
+		if err := validateKey(k, v); err != nil {
 			return nil, fmt.Errorf("vault overlay/settings: %s: %w", k, err)
 		}
-		o.set(k, v)
+		if err := setKey(o, k, v); err != nil {
+			return nil, fmt.Errorf("vault overlay/settings: %s: %w", k, err)
+		}
 	}
 	return o.marshal()
+}
+
+// setKey sets a top-level key, or for a schema env variable puts it inside the env object.
+func setKey(o *object, k string, v json.RawMessage) error {
+	if sk, ok := SchemaKey(k); !ok || !sk.Env {
+		o.set(k, v)
+		return nil
+	}
+	env, err := parseObject(orEmpty(o.vals["env"]))
+	if err != nil {
+		return fmt.Errorf("env: %w", err)
+	}
+	env.set(k, v)
+	raw, err := env.marshal()
+	if err != nil {
+		return err
+	}
+	o.set("env", raw)
+	return nil
 }

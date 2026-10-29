@@ -15,7 +15,6 @@ import (
 	"github.com/edotau/claude-code/internal/audit"
 	"github.com/edotau/claude-code/internal/generate"
 	"github.com/edotau/claude-code/internal/helptext"
-	"github.com/edotau/claude-code/internal/history"
 	"github.com/edotau/claude-code/internal/hooks"
 	"github.com/edotau/claude-code/internal/launch"
 	"github.com/edotau/claude-code/internal/outfmt"
@@ -193,9 +192,9 @@ func cmdHook(args []string) int {
 	return hooks.Run(args[0], os.Stdin, os.Stdout, os.Stderr)
 }
 
-// cmdReset is `configure --reset`: render settings.json and the agent configs from the templates.
-func cmdReset(agents, out string, check, dryRun, vendors, noAgents bool) int {
-	if out == "" && !check && !dryRun { // bare --reset writes the live settings.json
+// cmdRestore is `configure --restore`: write settings.json whole from the defaults, then render the agent configs.
+func cmdRestore(agents, out string, check, dryRun, vendors, noAgents bool) int {
+	if out == "" && !check && !dryRun { // bare --restore writes the live settings.json
 		out = launch.SettingsFile()
 	}
 	data, err := settings.RenderLive()
@@ -209,8 +208,12 @@ func cmdReset(agents, out string, check, dryRun, vendors, noAgents bool) int {
 			return fail("%v", err)
 		}
 	}
-	snapshotSettingsHistory(out, dryRun, check)
-	outDrift, err := writeSettingsOutput(out, check, dryRun, data)
+	var outDrift bool
+	if out != "" && !check && !dryRun {
+		err = restoreSettingsFile(out)
+	} else {
+		outDrift, err = writeSettingsOutput(out, check, dryRun, data)
+	}
 	if err != nil {
 		return fail("%v", err)
 	}
@@ -252,15 +255,21 @@ func checkLiveWindowsSettings() (bool, error) {
 	return drift.Drifted(), nil
 }
 
-func snapshotSettingsHistory(out string, dryRun, check bool) {
-	if out == "" || dryRun || check {
-		return
+// restoreSettingsFile snapshots history, then writes the whole render to file and reports both.
+func restoreSettingsFile(file string) error {
+	r, err := launch.RestoreSettings(file)
+	if r.Commit != "" {
+		fmt.Printf("history %s (before restore snapshot)\n", r.Commit)
 	}
-	if r, err := history.SnapshotConfig("pre-generate"); err != nil {
-		fmt.Fprintln(os.Stderr, "generate: history snapshot:", err)
-	} else if r.Commit != "" {
-		fmt.Printf("history %s (pre-generate snapshot)\n", r.Commit)
+	if err != nil {
+		return err
 	}
+	fmt.Printf("restored %s", file)
+	if r.Backup != "" {
+		fmt.Printf(" (backup %s)", r.Backup)
+	}
+	fmt.Println()
+	return nil
 }
 
 // writeSettingsOutput writes the rendered settings per --out/--check/--dry-run and reports drift.
@@ -320,14 +329,14 @@ func renderVendorConfigs(agents, out string, check, dryRun, vendors bool) (*gene
 	return generate.Prepare(opts)
 }
 
-// cmdRestore handles `configure --restore [--agent a,b] [--dry-run]`.
-func cmdRestore(agents string, dryRun bool) int {
+// cmdRevert handles `configure --revert [--agent a,b] [--dry-run]`.
+func cmdRevert(agents string, dryRun bool) int {
 	var vendorAgents []string
 	if agents != "" {
 		vendorAgents = strings.Split(agents, ",")
 	}
 	if err := generate.Revert(generate.Options{Agents: vendorAgents, DryRun: dryRun, Out: os.Stdout}); err != nil {
-		return fail("configure --restore: %v", err)
+		return fail("configure --revert: %v", err)
 	}
 	return 0
 }

@@ -61,7 +61,7 @@ func cmdAgentProfile(agent string, args []string) int {
 	}
 	fmt.Printf("%s: now on %s (%s); relaunch `claude-code %s` to apply\n", agent, pos[0], pin, agent)
 	if agent == "codex" {
-		fmt.Println("plain codex: run `claude-code configure --reset --agents` to re-render config.toml")
+		fmt.Println("plain codex: run `claude-code configure --restore --agents` to re-render config.toml")
 	}
 	return 0
 }

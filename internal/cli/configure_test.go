@@ -12,7 +12,9 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/edotau/claude-code/internal/history"
 	"github.com/edotau/claude-code/internal/settings"
+	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
 // TestKeyListSplitsTrimsDedupes: repeatable --drop a,b --drop c parses to [a b c]; duplicates collapse.
@@ -66,7 +68,7 @@ func TestConfigureHelpFitsEightyColumns(t *testing.T) {
 	}
 }
 
-// resetEnv isolates HOME and CLAUDE_CONFIG_DIR so --reset renders only into a scratch dir.
+// resetEnv isolates HOME and CLAUDE_CONFIG_DIR so --restore renders only into a scratch dir.
 func resetEnv(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
@@ -75,14 +77,14 @@ func resetEnv(t *testing.T) string {
 	return dir
 }
 
-func TestConfigureResetCheckExitCodes(t *testing.T) {
+func TestConfigureRestoreCheckExitCodes(t *testing.T) {
 	// --out keeps the check on one scratch file (no live Windows-profile drift on WSL, no vendor homes).
 	out := filepath.Join(resetEnv(t), "settings.json")
-	if code, _, stderr := captureOutput(t, func() int { return cmdConfigure([]string{"--reset", "--out", out}) }); code != 0 {
-		t.Fatalf("--reset exit %d: %s", code, stderr)
+	if code, _, stderr := captureOutput(t, func() int { return cmdConfigure([]string{"--restore", "--out", out}) }); code != 0 {
+		t.Fatalf("--restore exit %d: %s", code, stderr)
 	}
-	if code, _, stderr := captureOutput(t, func() int { return cmdConfigure([]string{"--reset", "--check", "--out", out}) }); code != 0 {
-		t.Fatalf("--reset --check on a fresh render exit %d, want 0: %s", code, stderr)
+	if code, _, stderr := captureOutput(t, func() int { return cmdConfigure([]string{"--restore", "--check", "--out", out}) }); code != 0 {
+		t.Fatalf("--restore --check on a fresh render exit %d, want 0: %s", code, stderr)
 	}
 	path := out
 	raw, err := os.ReadFile(path)
@@ -98,27 +100,27 @@ func TestConfigureResetCheckExitCodes(t *testing.T) {
 	if err := os.WriteFile(path, edited, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if code, _, _ := captureOutput(t, func() int { return cmdConfigure([]string{"--reset", "--check", "--out", out}) }); code != 1 {
-		t.Errorf("--reset --check after editing model exit %d, want 1", code)
+	if code, _, _ := captureOutput(t, func() int { return cmdConfigure([]string{"--restore", "--check", "--out", out}) }); code != 1 {
+		t.Errorf("--restore --check after editing model exit %d, want 1", code)
 	}
 }
 
-func TestConfigureResetRejectsBadCombos(t *testing.T) {
+func TestConfigureRestoreRejectsBadCombos(t *testing.T) {
 	resetEnv(t)
 	cases := []struct {
 		name string
 		args []string
 		want string
 	}{
-		{"reset with page", []string{"--reset", "provider"}, "take no page"},
-		{"restore with page", []string{"--restore", "agents"}, "take no page"},
-		{"reset and restore", []string{"--reset", "--restore"}, "mutually exclusive"},
-		{"restore with check", []string{"--restore", "--check"}, "--restore takes only"},
-		{"restore with out", []string{"--restore", "--out", "x.json"}, "--restore takes only"},
-		{"restore with agents", []string{"--restore", "--agents"}, "--restore takes only"},
-		{"out without reset", []string{"--out", "x.json"}, "need --reset"},
-		{"agents without reset", []string{"--agents"}, "need --reset"},
-		{"check and dry-run", []string{"--reset", "--check", "--dry-run"}, "mutually exclusive"},
+		{"restore with page", []string{"--restore", "provider"}, "take no page"},
+		{"revert with page", []string{"--revert", "agents"}, "take no page"},
+		{"restore and revert", []string{"--restore", "--revert"}, "mutually exclusive"},
+		{"revert with check", []string{"--revert", "--check"}, "--revert takes only"},
+		{"revert with out", []string{"--revert", "--out", "x.json"}, "--revert takes only"},
+		{"revert with agents", []string{"--revert", "--agents"}, "--revert takes only"},
+		{"out without restore", []string{"--out", "x.json"}, "need --restore"},
+		{"agents without restore", []string{"--agents"}, "need --restore"},
+		{"check and dry-run", []string{"--restore", "--check", "--dry-run"}, "mutually exclusive"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -133,11 +135,11 @@ func TestConfigureResetRejectsBadCombos(t *testing.T) {
 	}
 }
 
-// TestConfigureResetAgentCommaListScopesVendors: --agent a,b splits on the comma and renders only those vendors.
-func TestConfigureResetAgentCommaListScopesVendors(t *testing.T) {
+// TestConfigureRestoreAgentCommaListScopesVendors: --agent a,b splits on the comma and renders only those vendors.
+func TestConfigureRestoreAgentCommaListScopesVendors(t *testing.T) {
 	resetEnv(t)
 	code, out, stderr := captureOutput(t, func() int {
-		return cmdConfigure([]string{"--reset", "--dry-run", "--agents", "--agent", "codex,opencode"})
+		return cmdConfigure([]string{"--restore", "--dry-run", "--agents", "--agent", "codex,opencode"})
 	})
 	if code != 0 {
 		t.Fatalf("exit %d: %s", code, stderr)
@@ -152,7 +154,7 @@ func TestConfigureResetAgentCommaListScopesVendors(t *testing.T) {
 	}
 }
 
-func TestConfigureResetBareWritesLiveSettings(t *testing.T) {
+func TestConfigureRestoreBareWritesLiveSettings(t *testing.T) {
 	live := filepath.Join(resetEnv(t), "settings.json")
 	if err := os.WriteFile(live, []byte(`{"stale":true}`), 0o600); err != nil {
 		t.Fatal(err)
@@ -161,9 +163,9 @@ func TestConfigureResetBareWritesLiveSettings(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	code, stdout, stderr := captureOutput(t, func() int { return cmdConfigure([]string{"--reset"}) })
+	code, stdout, stderr := captureOutput(t, func() int { return cmdConfigure([]string{"--restore"}) })
 	if code != 0 {
-		t.Fatalf("bare --reset exit %d: %s", code, stderr)
+		t.Fatalf("bare --restore exit %d: %s", code, stderr)
 	}
 	got, err := os.ReadFile(live)
 	if err != nil || string(got) != string(want) {
@@ -179,7 +181,7 @@ func TestConfigureResetBareWritesLiveSettings(t *testing.T) {
 	}
 }
 
-func TestConfigureResetDryRunLeavesLiveUntouched(t *testing.T) {
+func TestConfigureRestoreDryRunLeavesLiveUntouched(t *testing.T) {
 	live := filepath.Join(resetEnv(t), "settings.json")
 	if err := os.WriteFile(live, []byte(`{"stale":true}`), 0o600); err != nil {
 		t.Fatal(err)
@@ -188,8 +190,8 @@ func TestConfigureResetDryRunLeavesLiveUntouched(t *testing.T) {
 	if err := os.Chtimes(live, past, past); err != nil {
 		t.Fatal(err)
 	}
-	if code, _, stderr := captureOutput(t, func() int { return cmdConfigure([]string{"--reset", "--dry-run"}) }); code != 0 {
-		t.Fatalf("--reset --dry-run exit %d: %s", code, stderr)
+	if code, _, stderr := captureOutput(t, func() int { return cmdConfigure([]string{"--restore", "--dry-run"}) }); code != 0 {
+		t.Fatalf("--restore --dry-run exit %d: %s", code, stderr)
 	}
 	got, _ := os.ReadFile(live)
 	fi, err := os.Stat(live)
@@ -198,15 +200,69 @@ func TestConfigureResetDryRunLeavesLiveUntouched(t *testing.T) {
 	}
 }
 
-func TestConfigureResetBareCheckDoesNotWrite(t *testing.T) {
+func TestConfigureRestoreBareCheckDoesNotWrite(t *testing.T) {
 	live := filepath.Join(resetEnv(t), "settings.json")
 	if err := os.WriteFile(live, []byte(`{"stale":true}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if code, _, _ := captureOutput(t, func() int { return cmdConfigure([]string{"--reset", "--check"}) }); code != 1 {
-		t.Errorf("--reset --check on a stale file exit %d, want 1", code)
+	if code, _, _ := captureOutput(t, func() int { return cmdConfigure([]string{"--restore", "--check"}) }); code != 1 {
+		t.Errorf("--restore --check on a stale file exit %d, want 1", code)
 	}
 	if got, _ := os.ReadFile(live); string(got) != `{"stale":true}` {
 		t.Errorf("--check wrote the file: %s", got)
+	}
+}
+
+// TestConfigureRestoreSpansDefaultsOverlayAndHistory: defaults + vault overlay (a catalog key and an env
+// variable), three hand-changed live keys, then --restore leaves exactly the render and a "before restore" snapshot.
+func TestConfigureRestoreSpansDefaultsOverlayAndHistory(t *testing.T) {
+	dir := vaulttest.Use(t)
+	t.Setenv("HOME", t.TempDir())
+	ov := map[string]json.RawMessage{
+		"prefersReducedMotion": json.RawMessage("false"),
+		"DISABLE_TELEMETRY":    json.RawMessage(`"1"`),
+	}
+	if err := settings.SaveOverlay(ov); err != nil {
+		t.Fatal(err)
+	}
+	want, err := settings.RenderLive()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var live map[string]json.RawMessage
+	if err := json.Unmarshal(want, &live); err != nil {
+		t.Fatal(err)
+	}
+	live["model"] = json.RawMessage(`"drifted"`)
+	live["prefersReducedMotion"] = json.RawMessage("true")
+	live["zzExtra"] = json.RawMessage("1")
+	edited, _ := json.Marshal(live)
+	file := filepath.Join(dir, "settings.json")
+	if err := os.WriteFile(file, edited, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if keys, err := settings.DefaultsDrift(); err != nil || !slices.Equal(keys, []string{"model", "prefersReducedMotion", "zzExtra"}) {
+		t.Fatalf("DefaultsDrift before = %v, %v", keys, err)
+	}
+	code, stdout, stderr := captureOutput(t, func() int { return cmdConfigure([]string{"--restore", "--no-agents"}) })
+	if code != 0 {
+		t.Fatalf("--restore exit %d: %s", code, stderr)
+	}
+	got, err := os.ReadFile(file)
+	if err != nil || string(got) != string(want) {
+		t.Fatalf("settings.json != render (err %v):\n%s", err, got)
+	}
+	if !strings.Contains(string(got), `"DISABLE_TELEMETRY": "1"`) {
+		t.Errorf("overlay env variable missing from the restored file:\n%s", got)
+	}
+	log, err := (&history.Store{Dir: history.Dir()}).Log(1, "config")
+	if err != nil || len(log) != 1 || !strings.Contains(log[0], "before restore") {
+		t.Errorf("history log = %v, %v; want a before-restore snapshot", log, err)
+	}
+	if !strings.Contains(stdout, "before restore") || !strings.Contains(stdout, "restored "+file) {
+		t.Errorf("stdout lacks the snapshot and restored lines:\n%s", stdout)
+	}
+	if keys, err := settings.DefaultsDrift(); err != nil || len(keys) != 0 {
+		t.Errorf("DefaultsDrift after = %v, %v; want none", keys, err)
 	}
 }

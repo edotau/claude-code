@@ -5,9 +5,9 @@ import (
 	"testing"
 )
 
-func TestConfigureResetRejectsUnknownAgent(t *testing.T) {
+func TestConfigureRestoreRejectsUnknownAgent(t *testing.T) {
 	code, _, stderr := captureOutput(t, func() int {
-		return cmdConfigure([]string{"--reset", "--dry-run", "--agent", "x"})
+		return cmdConfigure([]string{"--restore", "--dry-run", "--agent", "x"})
 	})
 	if code != 1 {
 		t.Errorf("exit %d, want 1", code)
