@@ -292,19 +292,23 @@ func TestSelfSpawnPrune(t *testing.T) {
 	if err := os.MkdirAll(subDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	session := "{\"tool_use_id\":\"toolu_b\"}\n{\"tool_use_id\":\"toolu_c\"}\n"
+	session := "{\"tool_use_id\":\"toolu_b\"}\n{\"tool_use_id\":\"toolu_c\"}\n{\"tool_use_id\":\"toolu_e\"}\n"
 	if err := os.WriteFile(transcript, []byte(session), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	writeMeta := func(agent, id string) {
+	writeMeta := func(agent, id string, finished bool) {
 		t.Helper()
 		m := `{"toolUseId":"` + id + `"}`
+		if finished {
+			m = `{"toolUseId":"` + id + `","finished":true}`
+		}
 		if err := os.WriteFile(filepath.Join(subDir, "agent-"+agent+".meta.json"), []byte(m), 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}
-	writeMeta("a1", "toolu_a")
-	writeMeta("c1", "toolu_c")
+	writeMeta("a1", "toolu_a", false)
+	writeMeta("c1", "toolu_c", false)
+	writeMeta("d1", "toolu_d", true)
 	idleLog := filepath.Join(subDir, "agent-a1.jsonl")
 	if err := os.WriteFile(idleLog, []byte("{}\n"), 0o600); err != nil {
 		t.Fatal(err)
@@ -316,10 +320,17 @@ func TestSelfSpawnPrune(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(subDir, "agent-c1.jsonl"), []byte("{}\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	for _, id := range []string{"toolu_a", "toolu_b", "toolu_c"} {
+	if err := os.WriteFile(filepath.Join(subDir, "agent-d1.jsonl"), []byte("{}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"toolu_a", "toolu_b", "toolu_c", "toolu_d", "toolu_e"} {
 		if err := os.WriteFile(filepath.Join(Dir(), markerName(owner, id)), []byte("a"), 0o600); err != nil {
 			t.Fatal(err)
 		}
+	}
+	past := time.Now().Add(-2 * Grace)
+	if err := os.Chtimes(filepath.Join(Dir(), markerName(owner, "toolu_b")), past, past); err != nil {
+		t.Fatal(err)
 	}
 
 	lim := Limits{Base: Base, Total: 100}
@@ -331,6 +342,12 @@ func TestSelfSpawnPrune(t *testing.T) {
 	}
 	if markerExists(owner, "toolu_b") {
 		t.Error("spawn marker answered by the session with no meta survived the prune (refused spawn)")
+	}
+	if markerExists(owner, "toolu_d") {
+		t.Error("spawn whose meta.json says finished survived the prune (foreground agent, no SubagentStop needed)")
+	}
+	if !markerExists(owner, "toolu_e") {
+		t.Error("answered spawn with no meta yet was pruned inside Grace (meta.json may not be written yet)")
 	}
 	if !markerExists(owner, "toolu_c") {
 		t.Error("background spawn with meta and a fresh agent transcript was pruned (2026-09-15 leak class)")

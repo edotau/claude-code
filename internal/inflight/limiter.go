@@ -77,14 +77,17 @@ func TryClaim(c Claim, lim Limits) (bool, Snapshot) {
 	ran, _ := paths.TryFileLock(filepath.Join(dir, ".lock"), lockWait, func() error {
 		snap = scan(dir, c.Owner, c.Transcript, time.Now(), true)
 		if ok = c.fits(snap, lim); ok {
-			writeMarkers(dir, c)
+			_ = writeMarkers(dir, c) // a failed write claims nothing: fail open
 		}
 		return nil
 	})
 	if ran {
 		return ok, snap
 	}
-	writeMarkers(dir, c)
+	if !writeMarkers(dir, c) {
+		Release(c.Owner, c.ID)
+		return true, Snapshot{} // nothing claimed: fail open like every other infra error
+	}
 	snap = scan(dir, c.Owner, c.Transcript, time.Now(), true)
 	snap.Total -= c.n()
 	if c.Account != "" {
@@ -137,14 +140,7 @@ func ToolUseID(subagentDir, agentID string) string {
 	if subagentDir == "" || agentID == "" {
 		return ""
 	}
-	b, err := os.ReadFile(filepath.Join(subagentDir, "agent-"+safeID(agentID)+".meta.json"))
-	if err != nil {
-		return ""
-	}
-	var m struct {
-		ToolUseID string `json:"toolUseId"`
-	}
-	_ = json.Unmarshal(b, &m)
+	m, _ := readMeta(filepath.Join(subagentDir, "agent-"+safeID(agentID)+".meta.json"))
 	return m.ToolUseID
 }
 
@@ -185,25 +181,29 @@ func isLeafSuffix(s string) bool {
 	return err == nil
 }
 
-func writeMarkers(dir string, c Claim) {
+// writeMarkers lands every marker of the claim; false when any write failed.
+func writeMarkers(dir string, c Claim) bool {
 	if c.n() == 1 {
-		writeMarker(dir, markerName(c.Owner, c.ID), c.Account)
-		return
+		return writeMarker(dir, markerName(c.Owner, c.ID), c.Account)
 	}
+	ok := true
 	for i := 1; i <= c.n(); i++ {
-		writeMarker(dir, markerName(c.Owner, c.ID)+"."+strconv.Itoa(i), c.Account)
+		ok = writeMarker(dir, markerName(c.Owner, c.ID)+"."+strconv.Itoa(i), c.Account) && ok
 	}
+	return ok
 }
 
 // writeMarker lands the content atomically (temp + rename): a reader never sees a half-written account key.
-func writeMarker(dir, name, account string) {
+func writeMarker(dir, name, account string) bool {
 	tmp := filepath.Join(dir, ".tmp-"+name)
 	if os.WriteFile(tmp, []byte(account), 0o600) != nil {
-		return
+		return false
 	}
 	if os.Rename(tmp, filepath.Join(dir, name)) != nil {
 		_ = os.Remove(tmp)
+		return false
 	}
+	return true
 }
 
 func cloneCounts(m map[string]int) map[string]int {
@@ -236,11 +236,13 @@ func scan(dir string, self int, transcript string, now time.Time, prune bool) Sn
 			}
 			continue
 		}
+		b, err := os.ReadFile(filepath.Join(dir, e.Name()))
+		if err != nil {
+			continue // released between ReadDir and now
+		}
 		snap.Total++
-		if b, err := os.ReadFile(filepath.Join(dir, e.Name())); err == nil {
-			if acct := strings.TrimSpace(string(b)); acct != "" {
-				snap.Per[acct]++
-			}
+		if acct := strings.TrimSpace(string(b)); acct != "" {
+			snap.Per[acct]++
 		}
 	}
 	return snap
@@ -252,7 +254,7 @@ type scanner struct {
 	subDir      string
 	now         time.Time
 	trusted     bool
-	meta        map[string]string // tool_use_id → agent id, read lazily
+	meta        map[string]metaAgent // tool_use_id → agent, read lazily
 	session     []byte
 	sessionRead bool
 }
@@ -268,38 +270,57 @@ func (s *scanner) live(name string, mod time.Time) bool {
 	if i := strings.LastIndex(id, "."); i >= 0 && isLeafSuffix(id[i:]) {
 		base = id[:i]
 	}
-	if agent, ok := s.agents()[base]; ok {
-		if !s.trusted && s.now.Sub(mod) > TTL {
-			return false
+	if a, ok := s.agents()[base]; ok {
+		if a.finished || (!s.trusted && s.now.Sub(mod) > TTL) {
+			return false // Claude Code marks a done agent's meta finished, SubagentStop or not
 		}
+		agent := a.id
 		fi, err := os.Stat(filepath.Join(s.subDir, "agent-"+agent+".jsonl"))
 		missing := os.IsNotExist(err) && s.now.Sub(mod) > Grace
 		idle := err == nil && s.now.Sub(fi.ModTime()) > Idle
 		return !missing && !idle
 	}
-	if s.answered(base) {
-		return false // refused or failed before an agent existed
+	if s.now.Sub(mod) > Grace && s.answered(base) {
+		return false // refused or failed before an agent existed; Grace covers a meta.json not yet written
 	}
 	return Live(name, mod, s.now, s.trusted)
 }
 
-// agents maps tool_use_id → agent id from the session's agent-*.meta.json files.
-func (s *scanner) agents() map[string]string {
+// metaAgent is one agent-*.meta.json: the agent id and whether Claude Code marked it finished.
+type metaAgent struct {
+	id       string
+	finished bool
+}
+
+// agents maps tool_use_id → agent from the session's agent-*.meta.json files.
+func (s *scanner) agents() map[string]metaAgent {
 	if s.meta != nil {
 		return s.meta
 	}
-	s.meta = map[string]string{}
+	s.meta = map[string]metaAgent{}
 	if s.subDir == "" {
 		return s.meta
 	}
 	files, _ := filepath.Glob(filepath.Join(s.subDir, "agent-*.meta.json"))
 	for _, f := range files {
-		agent := strings.TrimSuffix(strings.TrimPrefix(filepath.Base(f), "agent-"), ".meta.json")
-		if id := ToolUseID(s.subDir, agent); id != "" {
-			s.meta[safeID(id)] = agent
+		m, ok := readMeta(f)
+		if ok && m.ToolUseID != "" {
+			id := strings.TrimSuffix(strings.TrimPrefix(filepath.Base(f), "agent-"), ".meta.json")
+			s.meta[safeID(m.ToolUseID)] = metaAgent{id: id, finished: m.Finished}
 		}
 	}
 	return s.meta
+}
+
+type meta struct {
+	ToolUseID string `json:"toolUseId"`
+	Finished  bool   `json:"finished"`
+}
+
+func readMeta(path string) (meta, bool) {
+	var m meta
+	b, err := os.ReadFile(path)
+	return m, err == nil && json.Unmarshal(b, &m) == nil
 }
 
 // answered: the session transcript holds a tool_result for this spawn (refused or finished without a PostToolUse).
