@@ -65,7 +65,9 @@ func MemoryRecall(r io.Reader, stdout io.Writer) int {
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "memory-recall: keyword-only (%s)\n", recallCut(err.Error(), 120))
 	} else {
-		ranked = withSemanticCandidates(ranked, sem.Candidates(root, recallBodies+recallPointers, recallCosineAdmit))
+		seen := memory.SeenBlocks(in.SessionID)
+		skip := func(h memory.SearchHit) bool { return seen[memory.BlockKey(h.Block)] } // before top-k, or seen ones crowd it
+		ranked = withSemanticCandidates(ranked, sem.Candidates(root, recallBodies+recallPointers, recallCosineAdmit, skip))
 	}
 	if len(ranked) == 0 {
 		return ExitProceed

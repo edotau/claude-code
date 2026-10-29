@@ -254,3 +254,30 @@ func TestRecallSemanticReachesZeroOverlapEntry(t *testing.T) {
 		t.Errorf("want only the semantically close entry:\n%s", got)
 	}
 }
+
+// Seen entries must not occupy the semantic top-k: with five of them closest, a sixth still surfaces.
+func TestRecallSemanticSkipsSeenBeforeTopK(t *testing.T) {
+	recallEnv(t)
+	var b strings.Builder
+	b.WriteString("# D\n\n")
+	for i := 1; i <= 6; i++ {
+		fmt.Fprintf(&b, "## 2026-10-%02d — Quokka note %d <!-- id:dddd000%d -->\n\nquokka burrow %s\n\n", i, i, i, strings.Repeat("gamma ", i+1))
+	}
+	writeBank(t, "decisionLog.md", b.String())
+	cwd := t.TempDir()
+	c := useEmbedServer(t, vecServer(t, 0))
+	if _, _, err := memory.EmbedEntries(context.Background(), cwd, c); err != nil {
+		t.Fatal(err)
+	}
+	var seen []memory.SearchHit
+	for _, h := range memory.SearchBanks(cwd, "quokka burrow", 0) {
+		if !strings.Contains(h.Block, "dddd0006") {
+			seen = append(seen, h)
+		}
+	}
+	memory.MarkSeen("sess", seen) // the five closest are already in context
+	got := recallAs(t, "sess", "hello world foo bar zeta", cwd)
+	if !strings.Contains(got, "dddd0006") {
+		t.Errorf("the sixth entry never surfaced:\n%s", got)
+	}
+}

@@ -196,6 +196,9 @@ func TestAssignIDsSeesMarkerOnLaterLine(t *testing.T) {
 		t.Fatalf("first settle stamped %d, err %v", n, err)
 	}
 	once, _ := os.ReadFile(path)
+	if !strings.Contains(string(once), "- long convention wrapped <!-- id:aaaa0001 -->\n  onto two lines\n") {
+		t.Errorf("a wrapped marker must move onto the block's first line:\n%s", once)
+	}
 	if n, _ = assignIDs(dir, time.Now().Add(time.Second)); n != 0 {
 		t.Errorf("second settle stamped %d", n)
 	}
@@ -225,8 +228,8 @@ func TestAssignIDsCollapsesStackedMarkersToOldest(t *testing.T) {
 	if string(again) != s {
 		t.Errorf("collapse is not idempotent:\n%s\n---\n%s", s, again)
 	}
-	if id := blockMarkerID(strings.Join(strings.Split(s, "\n")[2:5], "\n")); id != "00000001" {
-		t.Errorf("canonical id = %q", id)
+	if first := strings.Split(s, "\n")[2]; !strings.HasSuffix(first, "wraps <!-- id:00000001 -->") {
+		t.Errorf("the retained marker must end on the block's first line, got %q", first)
 	}
 }
 

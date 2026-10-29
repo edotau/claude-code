@@ -119,13 +119,17 @@ func fencedLines(block []string) []bool {
 	return out
 }
 
-// settleBlockID leaves exactly one id marker in a block: the oldest it already carries, else a fresh one on line 0.
+// settleBlockID leaves exactly one id marker, on the block's first line: the oldest it already carries (the last,
+// since settle stacks newer ones above), else a fresh one. Fenced lines are examples and are never touched.
 func settleBlockID(dir, name string, idx int, block []string, now time.Time) ([]string, int) {
 	fenced := fencedLines(block)
-	total := 0
+	keepLine, keepSpan, total := -1, []int(nil), 0
 	for i, l := range block {
-		if !fenced[i] {
-			total += len(idMarker.FindAllStringIndex(l, -1))
+		if fenced[i] {
+			continue
+		}
+		for _, sp := range idMarker.FindAllStringIndex(l, -1) {
+			keepLine, keepSpan, total = i, sp, total+1
 		}
 	}
 	if total == 0 {
@@ -134,31 +138,34 @@ func settleBlockID(dir, name string, idx int, block []string, now time.Time) ([]
 		sum := sha256.Sum256([]byte(key))
 		return append([]string{block[0] + " <!-- id:" + hex.EncodeToString(sum[:4]) + " -->"}, block[1:]...), 1
 	}
-	if total == 1 {
+	if total == 1 && keepLine == 0 {
 		return block, 0
 	}
-	seen := 0
+	kept := " " + strings.TrimSpace(block[keepLine][keepSpan[0]:keepSpan[1]])
 	out := make([]string, 0, len(block))
 	for i, l := range block {
-		spans := idMarker.FindAllStringIndex(l, -1)
-		if len(spans) == 0 || fenced[i] {
-			out = append(out, l)
-			continue
-		}
-		var b strings.Builder
-		prev := 0
-		for _, sp := range spans {
-			seen++
-			b.WriteString(l[prev:sp[0]])
-			if seen == total { // keep only the last marker
-				b.WriteString(l[sp[0]:sp[1]])
+		if !fenced[i] && idMarker.MatchString(l) {
+			keepHere := i == 0 && i == keepLine // a first-line survivor stays where it is
+			var b strings.Builder
+			prev := 0
+			for _, sp := range idMarker.FindAllStringIndex(l, -1) {
+				b.WriteString(l[prev:sp[0]])
+				if keepHere && sp[0] == keepSpan[0] {
+					b.WriteString(l[sp[0]:sp[1]])
+				}
+				prev = sp[1]
 			}
-			prev = sp[1]
+			b.WriteString(l[prev:])
+			if res := b.String(); strings.TrimSpace(res) != "" || i == 0 {
+				l = res
+			} else {
+				continue
+			}
 		}
-		b.WriteString(l[prev:])
-		if res := b.String(); strings.TrimSpace(res) != "" {
-			out = append(out, res)
-		}
+		out = append(out, l)
+	}
+	if keepLine != 0 {
+		out[0] = strings.TrimRight(out[0], " \t") + kept
 	}
 	return out, 0
 }

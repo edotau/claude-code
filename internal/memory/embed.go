@@ -57,8 +57,9 @@ type embedCacheFile struct {
 }
 
 type embedRow struct {
-	Hash string `json:"hash"` // sha256 of the embedded text
-	Vec  string `json:"vec"`  // base64 little-endian float32, L2-normalised
+	Root string `json:"root,omitempty"` // bank root whose index wrote the row; pruning never crosses roots
+	Hash string `json:"hash"`           // sha256 of the embedded text
+	Vec  string `json:"vec"`            // base64 little-endian float32, L2-normalised
 }
 
 // EmbedClient embeds texts with one named model; Embed honours ctx.
@@ -145,9 +146,15 @@ func EmbedEntries(ctx context.Context, root string, c *EmbedClient) (embedded, t
 				cur = freshEmbedCache(c)
 			}
 			maps.Copy(cur.Rows, fresh)
-			if len(cur.Rows) > embedMaxRows { // the cache is shared by every repo; shed rows this root no longer has
-				for id := range cur.Rows {
-					if !live[id] {
+			own := 0
+			for _, r := range cur.Rows {
+				if r.Root == root {
+					own++
+				}
+			}
+			if own > embedMaxRows { // shed only this root's rows that its corpus no longer has
+				for id, r := range cur.Rows {
+					if r.Root == root && !live[id] {
 						delete(cur.Rows, id)
 					}
 				}
@@ -165,7 +172,7 @@ func EmbedEntries(ctx context.Context, root string, c *EmbedClient) (embedded, t
 			return embedded, len(live), errors.Join(err, merge()) // keep the batches already paid for
 		}
 		for k, v := range vecs {
-			fresh[ids[i+k]] = embedRow{Hash: hashes[i+k], Vec: encodeVec(normalize(v))}
+			fresh[ids[i+k]] = embedRow{Root: root, Hash: hashes[i+k], Vec: encodeVec(normalize(v))}
 		}
 		embedded += j - i
 	}
@@ -323,7 +330,7 @@ func openDatabricksEmbed(ctx context.Context, model string) (*EmbedClient, error
 	if err != nil {
 		return nil, err
 	}
-	sel, err := providers.Select(reg, "")
+	sel, err := providers.Select(reg, providers.SessionProfile()) // the launched session's profile first, then the pin
 	if err != nil {
 		return nil, err
 	}
@@ -394,7 +401,7 @@ func PostEmbeddings(ctx context.Context, url string, texts []string, authorize f
 
 // Candidates are the top k current entries of root's corpus by cosine alone (at least floor), for prompts that
 // share no keyword with the entry they mean; an in-memory scan, no network.
-func (s *Semantic) Candidates(root string, k int, floor float64) []SearchHit {
+func (s *Semantic) Candidates(root string, k int, floor float64, skip func(SearchHit) bool) []SearchHit {
 	type scored struct {
 		hit SearchHit
 		cos float64
@@ -402,7 +409,7 @@ func (s *Semantic) Candidates(root string, k int, floor float64) []SearchHit {
 	var all []scored
 	for _, h := range corpusBlocks(root) {
 		e := EntryFromHit(h)
-		if e.Archived || e.Superseded {
+		if e.Archived || e.Superseded || (skip != nil && skip(h)) {
 			continue
 		}
 		if cos, ok := s.Cosine(e); ok && cos >= floor {
