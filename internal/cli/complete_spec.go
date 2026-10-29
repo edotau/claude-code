@@ -48,7 +48,7 @@ func buildSpecTree() map[string]*compNode {
 		flag("timeout"), flag("format"), flag("rubric"), flag("retry"), boolFlag("log"),
 		valuedFlag("fallback", func() []string { return agent.FallbackModes }),
 		flag("attach"), flag("keep-env"), boolFlag("autonomous"), boolFlag("enable-memory"),
-		boolFlag("background"), flag("job"),
+		boolFlag("background"), flag("job"), flag("batch"), flag("jobs"), boolFlag("fail-fast"),
 		boolFlag("no-persist"), boolFlag("safe-mode"), flag("debug-file"),
 	}
 

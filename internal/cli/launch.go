@@ -160,8 +160,7 @@ func cmdScience(args []string) int {
 }
 
 func runPlan(plan launch.Plan, opts launch.Options, err error) int {
-	var usage launch.UsageError
-	if errors.As(err, &usage) {
+	if usage, ok := errors.AsType[launch.UsageError](err); ok {
 		fmt.Fprintln(os.Stderr, usage)
 		return 2
 	}

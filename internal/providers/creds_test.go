@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -169,5 +170,19 @@ func TestRunAuthCommandFailures(t *testing.T) {
 	}
 	if v, err := runAuthCommand(context.Background(), p, `echo '  tok  '`); err != nil || v != "tok" {
 		t.Errorf("good token = %q, %v; want tok, nil", v, err)
+	}
+}
+
+func TestRunAuthCommandTimeoutNotHeldByOrphanedPipe(t *testing.T) {
+	p := &Provider{Name: "orphan-pipe"}
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	_, err := runAuthCommand(ctx, p, `sleep 25 | cat`)
+	if err == nil {
+		t.Fatal("expected a timeout error")
+	}
+	if d := time.Since(start); d > 12*time.Second {
+		t.Fatalf("runAuthCommand blocked %v on an orphaned pipe writer", d)
 	}
 }

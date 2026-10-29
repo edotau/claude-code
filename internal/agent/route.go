@@ -480,6 +480,19 @@ func legRequest(req Request, leg Leg, first bool) Request {
 	return out
 }
 
+// exhaustedSince is a KindQuota error when leg's account is marked exhausted right now, else nil.
+func exhaustedSince(leg Leg) *Error {
+	if leg.Account == "" || leg.Account == copilotLoginAccount() { // copilot's own gate falls back to Databricks instead
+		return nil
+	}
+	now := time.Now()
+	e := loadState()[leg.Account]
+	if e.Status(now) != router.StateExhausted {
+		return nil
+	}
+	return &Error{Kind: KindQuota, Agent: leg.Agent.Name(), Err: errors.New(router.ExhaustedReason(leg.Account, e, now))}
+}
+
 // noteQuota remembers a KindQuota failure on the leg's account until its parsed reset (else the known window).
 func noteQuota(leg Leg, err error) {
 	var e *Error

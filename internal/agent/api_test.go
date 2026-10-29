@@ -192,6 +192,13 @@ func TestNoToolsDroppedLoudlyByOtherAgents(t *testing.T) {
 	}
 }
 
+// An empty stream (closed before any delta) is a failure, not an empty success.
+func TestParseChatStreamEmptyIsError(t *testing.T) {
+	if _, _, err := parseChatStream(strings.NewReader(""), io.Discard); err == nil {
+		t.Fatal("err = nil, want a stream-ended-without-[DONE] error")
+	}
+}
+
 func TestParseChatStream(t *testing.T) {
 	const first = `data: {"model":"served-model","choices":[{"delta":{"content":"one"}},{"delta":{"content":""}},{"delta":{"content":"two"}}],"usage":{"prompt_tokens":7,"completion_tokens":3}}` + "\n\n"
 	cases := []struct {
@@ -199,7 +206,7 @@ func TestParseChatStream(t *testing.T) {
 		writer                    io.Writer
 	}{
 		{name: "done ignores trailing data", suffix: "data: [DONE]\ndata: invalid\n", output: "onetwo"},
-		{name: "EOF", output: "onetwo"},
+		{name: "EOF without DONE", output: "onetwo", err: "chat stream ended without [DONE]"},
 		{name: "malformed chunk", suffix: "data: invalid\n", output: "onetwo", err: "decode chat chunk:"},
 		{name: "upstream error", suffix: "data: {\"error\":{\"message\":\"failed\"}}\n", output: "onetwo", err: `upstream error mid-stream: {"message":"failed"}`},
 		{name: "scanner error", suffix: strings.Repeat("x", 4<<20), output: "onetwo", err: "bufio.Scanner: token too long"},

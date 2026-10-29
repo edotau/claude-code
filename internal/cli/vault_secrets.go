@@ -14,7 +14,6 @@ import (
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/secrets"
 	"github.com/edotau/claude-code/internal/signin"
-	"github.com/edotau/claude-code/internal/tailscale"
 	"github.com/edotau/claude-code/internal/tui"
 	"github.com/edotau/claude-code/internal/vault"
 )
@@ -209,7 +208,7 @@ func cmdVaultImport(args []string) int {
 		return fail("vault import: %s has no NAME=value lines", name)
 	}
 	for _, p := range pairs {
-		if err := tailscale.ValidCredential(p.Name, p.Value); err != nil {
+		if err := signin.ValidateSecret(p.Name, p.Value); err != nil {
 			return fail("vault import: %s: %v", name, err)
 		}
 	}

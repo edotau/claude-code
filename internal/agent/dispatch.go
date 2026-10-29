@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/edotau/claude-code/internal/providers"
@@ -41,6 +42,7 @@ type Error struct {
 	Attempts   int
 	AuthReason string // set on a KindAuth whose Recover failed with a login/rejected verdict: mark the account, move on
 	Err        error
+	Earlier    []*Error // the attempts before this one, oldest first; Do sets it on the error it returns
 }
 
 func (e *Error) Error() string {
@@ -55,6 +57,13 @@ func (e *Error) Error() string {
 }
 
 func (e *Error) Unwrap() error { return e.Err }
+
+// attemptMessage is Error() as one attempt saw it, without the "(after N attempts)" tally.
+func (e *Error) attemptMessage() string {
+	one := *e
+	one.Attempts = 0
+	return one.Error()
+}
 
 // Retryable is true for rate-limit and transient failures that have not streamed output.
 func (e *Error) Retryable() bool {
@@ -141,6 +150,8 @@ type Policy struct {
 	// Recover refreshes a rejected credential; KindAuth is retried only when it is set and succeeds.
 	Recover func(context.Context) error
 	Notify  func(string)
+	// Key names the provider account whose rate limit this loop shares with other loops; "" shares nothing.
+	Key string
 }
 
 // DefaultBaseDelay and DefaultMaxDelay are DefaultPolicy's backoff bounds; tests shrink them.
@@ -163,19 +174,67 @@ func (p Policy) Backoff(attempt int, jitter float64) time.Duration {
 	return time.Duration(window/2 + jitter*window/2)
 }
 
-// Delay prefers the upstream's Retry-After, capped at MaxDelay.
+// Delay prefers the upstream's Retry-After plus jitter (so tasks given the same one wake apart), capped at MaxDelay.
 func (p Policy) Delay(retryAfter time.Duration, attempt int, jitter float64) time.Duration {
 	if retryAfter > 0 {
-		return min(retryAfter, p.MaxDelay)
+		return min(retryAfter+time.Duration(jitter*float64(min(retryAfter/4, p.BaseDelay))), p.MaxDelay)
 	}
 	return p.Backoff(attempt, jitter)
+}
+
+// cooldowns is when each provider key may be tried again, shared by every Do in the process.
+var cooldowns = struct {
+	sync.Mutex
+	until map[string]time.Time
+}{until: map[string]time.Time{}}
+
+// coolDown holds key back for d; a shorter hold never replaces a longer one.
+func coolDown(key string, d time.Duration) {
+	cooldowns.Lock()
+	defer cooldowns.Unlock()
+	if t := time.Now().Add(d); t.After(cooldowns.until[key]) {
+		cooldowns.until[key] = t
+	}
+}
+
+// waitCooldown blocks until key's cooldown ends, for at most maxWait, or until ctx is done.
+func waitCooldown(ctx context.Context, key string, maxWait time.Duration) {
+	if key == "" {
+		return
+	}
+	cooldowns.Lock()
+	wait := time.Until(cooldowns.until[key])
+	cooldowns.Unlock()
+	if maxWait > 0 {
+		wait = min(wait, maxWait)
+	}
+	if wait <= 0 {
+		return
+	}
+	t := time.NewTimer(wait)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+	case <-t.C:
+	}
 }
 
 // Do runs fn under the policy; fn gets a per-attempt context and the 1-based attempt number.
 func Do(ctx context.Context, p Policy, fn func(ctx context.Context, attempt int) *Error) *Error {
 	p.MaxAttempts = max(p.MaxAttempts, 1)
 	var last *Error
+	var earlier []*Error
+	fail := func() *Error { // every attempt before the last rides on the error returned
+		last.Earlier = earlier
+		return last
+	}
 	for attempt := 1; attempt <= p.MaxAttempts; attempt++ {
+		if last != nil {
+			snap := *last
+			snap.Earlier = nil
+			earlier = append(earlier, &snap)
+		}
+		waitCooldown(ctx, p.Key, p.MaxDelay) // before the attempt's own timeout starts
 		actx, cancel := ctx, context.CancelFunc(func() {})
 		if p.AttemptTimeout > 0 {
 			actx, cancel = context.WithTimeout(ctx, p.AttemptTimeout)
@@ -189,24 +248,27 @@ func Do(ctx context.Context, p Policy, fn func(ctx context.Context, attempt int)
 		last.Attempts = attempt
 		if ctx.Err() != nil {
 			last.Kind = KindFatal // the caller cancelled: never retry
-			return last
+			return fail()
 		}
 		// The attempt ran out its own AttemptTimeout (not the parent ctx): retrying would just
 		// burn another full timeout for the same stuck call, so make it terminal and say so.
 		if p.AttemptTimeout > 0 && errors.Is(attemptErr, context.DeadlineExceeded) {
 			last.Kind = KindFatal
 			last.Err = fmt.Errorf("timed out after %s: %w", p.AttemptTimeout, last.Err)
-			return last
+			return fail()
 		}
 		if !last.Retryable() || attempt == p.MaxAttempts {
-			return last
+			return fail()
 		}
 		if last.Kind == KindAuth {
 			if p.Recover == nil || p.Recover(ctx) != nil {
-				return last
+				return fail()
 			}
 		}
 		wait := p.Delay(last.RetryAfter, attempt, rand.Float64())
+		if p.Key != "" && (last.Kind == KindRateLimit || last.Kind == KindTransient) {
+			coolDown(p.Key, wait) // the other loops on this account back off too
+		}
 		if p.Notify != nil {
 			p.Notify(fmt.Sprintf("%s: %s (attempt %d/%d), retrying in %s", last.Agent, last.Kind, attempt, p.MaxAttempts, wait.Round(100*time.Millisecond)))
 		}
@@ -214,11 +276,11 @@ func Do(ctx context.Context, p Policy, fn func(ctx context.Context, attempt int)
 		select {
 		case <-ctx.Done():
 			t.Stop()
-			return last
+			return fail()
 		case <-t.C:
 		}
 	}
-	return last
+	return fail()
 }
 
 // TailBuffer keeps the last tailCap bytes of a child's stderr; the cause is at the end.

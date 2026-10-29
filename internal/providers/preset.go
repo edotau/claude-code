@@ -222,3 +222,18 @@ func checkIssuer(p *Provider, v string) error {
 	}
 	return nil
 }
+
+// CheckRouteHost fails a preset provider whose credential v was issued for a host other than its routes.
+func CheckRouteHost(p *Provider, v string) error {
+	iss, ok := jwtIssuerHost(v)
+	if p == nil || p.Preset == "" || !ok {
+		return nil
+	}
+	for _, d := range p.Dialects() {
+		route, _ := p.Route(d)
+		if u, err := url.Parse(route); err == nil && u.Host != "" && u.Host != iss {
+			return fmt.Errorf("%s: credential issued for %s, but the %s route is on %s", p.Name, iss, d, u.Host)
+		}
+	}
+	return nil
+}

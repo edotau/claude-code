@@ -98,3 +98,23 @@ func TestListLiveNonDatabricksHasNoTaskReady(t *testing.T) {
 		t.Errorf("json = %s, want no task/ready keys", js)
 	}
 }
+
+// An unverifiable pin (endpoints unreachable) must not stop later pins from being validated.
+func TestValidateCopilotPinsChecksPinsAfterUnverifiableOne(t *testing.T) {
+	useVaultTest(t)
+	t.Setenv("DBX_CLI_TOKEN", dbxCLIToken)
+	srv, _ := dbxCLIServer(t)
+	for name, host := range map[string]string{"dbx-down": "https://127.0.0.1:1", "dbx-up": srv.URL} {
+		err := providers.SetProviderFields(name, map[string]any{
+			"protocol": "anthropic", "preset": "databricks", "host": host,
+			"auth": map[string]any{"type": "key", "env": "DBX_CLI_TOKEN"},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	_, err := validateCopilotPins("", []string{"opus=dbx-down:chat-a", "sonnet=dbx-up:bogus-id"})
+	if err == nil || !strings.Contains(err.Error(), "bogus-id") {
+		t.Fatalf("err = %v, want the bogus-id pin rejected after the unreachable one", err)
+	}
+}
