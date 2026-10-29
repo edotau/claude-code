@@ -33,7 +33,7 @@ func fakeEmbedServer(t *testing.T, embedded *int) *EmbedClient {
 		_ = json.NewEncoder(w).Encode(map[string]any{"data": data})
 	}))
 	t.Cleanup(srv.Close)
-	return &EmbedClient{Model: "fake-gte", Embed: func(ctx context.Context, texts []string) ([][]float32, error) {
+	return &EmbedClient{Model: "fake-gte", Namespace: "fake|h|fake-gte", Embed: func(ctx context.Context, texts []string) ([][]float32, error) {
 		return PostEmbeddings(ctx, srv.URL, texts, func(http.Header) error { return nil })
 	}}
 }
@@ -100,5 +100,66 @@ func TestPickEmbeddingModelPrefersGteThenBge(t *testing.T) {
 	}
 	if _, ok := PickEmbeddingModel(infos[:1]); ok {
 		t.Error("a chat-only catalog has no embedding model")
+	}
+}
+
+// Two index runs overlapping in time keep each other's vectors (the late writer merges, not overwrites).
+func TestEmbedEntriesConcurrentRunsMerge(t *testing.T) {
+	isolatedConfig1(t)
+	root := t.TempDir()
+	bank := filepath.Join(HomeBankDir(), "decisionLog.md")
+	write(t, bank, "# D\n\n## 2026-10-01 — gamma one <!-- id:aaaa0001 -->\n\nbody\n")
+	var calls int
+	inner := fakeEmbedServer(t, &calls)
+	nested := false
+	outer := &EmbedClient{Model: inner.Model, Namespace: inner.Namespace, Embed: func(ctx context.Context, texts []string) ([][]float32, error) {
+		if !nested { // while run A is mid-embed, run B indexes a second entry and finishes
+			nested = true
+			write(t, bank, "# D\n\n## 2026-10-01 — gamma one <!-- id:aaaa0001 -->\n\nbody\n\n## 2026-10-02 — delta two <!-- id:aaaa0002 -->\n\nbody\n")
+			if _, _, err := EmbedEntries(ctx, root, inner); err != nil {
+				t.Error(err)
+			}
+		}
+		return inner.Embed(ctx, texts)
+	}}
+	if _, _, err := EmbedEntries(context.Background(), root, outer); err != nil {
+		t.Fatal(err)
+	}
+	rows := loadEmbedCache().Rows
+	if _, a := rows["aaaa0001"]; !a {
+		t.Error("run A's row missing")
+	}
+	if _, b := rows["aaaa0002"]; !b {
+		t.Error("run B's row was overwritten by run A")
+	}
+}
+
+// A cache from another workspace or dimension is never compared: the namespace re-embeds, the dimension refuses.
+func TestEmbedCacheNamespaceAndDimension(t *testing.T) {
+	isolatedConfig1(t)
+	root := t.TempDir()
+	write(t, filepath.Join(HomeBankDir(), "decisionLog.md"), "# D\n\n## 2026-10-01 — gamma one <!-- id:aaaa0001 -->\n\nbody\n")
+	var calls int
+	c := fakeEmbedServer(t, &calls)
+	if _, _, err := EmbedEntries(context.Background(), root, c); err != nil || calls != 1 {
+		t.Fatalf("seed: %v calls=%d", err, calls)
+	}
+	other := &EmbedClient{Model: c.Model, Namespace: "other|https://w2|fake-gte", Embed: c.Embed}
+	if n, _, err := EmbedEntries(context.Background(), root, other); err != nil || n != 1 {
+		t.Errorf("same model name on another workspace must re-embed: n=%d err=%v", n, err)
+	}
+	prev := OpenEmbedClient
+	t.Cleanup(func() { OpenEmbedClient = prev })
+	OpenEmbedClient = func(context.Context, string) (*EmbedClient, error) { return c, nil } // namespace fake, cache is "other"
+	if _, err := NewSemantic("q"); err == nil {
+		t.Error("a client from a different namespace must not score the cache")
+	}
+	OpenEmbedClient = func(context.Context, string) (*EmbedClient, error) {
+		return &EmbedClient{Model: other.Model, Namespace: other.Namespace, Embed: func(context.Context, []string) ([][]float32, error) {
+			return [][]float32{{1, 2, 3, 4}}, nil
+		}}, nil
+	}
+	if _, err := NewSemantic("q"); err == nil {
+		t.Error("a 4-dim query against 3-dim cached vectors must be refused")
 	}
 }

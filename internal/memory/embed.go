@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"math"
 	"net/http"
 	"os"
@@ -46,11 +47,13 @@ var embedFormat = schemas.Register(schemas.Format{
 // EmbedCachePath is the entry-vector cache, scoped by CLAUDE_CONFIG_DIR like StateDir.
 func EmbedCachePath() string { return filepath.Join(StateDir(), embedCacheName) }
 
-// embedCacheFile maps an entry id to the vector of its content; Model pins which embedding endpoint wrote it.
+// embedCacheFile maps an entry id to the vector of its content; Namespace (profile|host|model) pins which
+// workspace's endpoint wrote it, since identically named endpoints on different workspaces are different models.
 type embedCacheFile struct {
-	Schema int                 `json:"schema"`
-	Model  string              `json:"model"`
-	Rows   map[string]embedRow `json:"rows"`
+	Schema    int                 `json:"schema"`
+	Namespace string              `json:"namespace"`
+	Model     string              `json:"model"`
+	Rows      map[string]embedRow `json:"rows"`
 }
 
 type embedRow struct {
@@ -60,8 +63,9 @@ type embedRow struct {
 
 // EmbedClient embeds texts with one named model; Embed honours ctx.
 type EmbedClient struct {
-	Model string
-	Embed func(ctx context.Context, texts []string) ([][]float32, error)
+	Model     string
+	Namespace string // profile|host|model: vectors are comparable only within one namespace
+	Embed     func(ctx context.Context, texts []string) ([][]float32, error)
 }
 
 // OpenEmbedClient builds the active profile's client for model ("" = discover one); a var so tests can fake it.
@@ -105,12 +109,18 @@ func textHash(s string) string {
 	return hex.EncodeToString(sum[:])
 }
 
+// freshEmbedCache is an empty cache for c's namespace.
+func freshEmbedCache(c *EmbedClient) embedCacheFile {
+	return embedCacheFile{Namespace: c.Namespace, Model: c.Model, Rows: map[string]embedRow{}}
+}
+
 // EmbedEntries embeds root's current (non-archived) entries, calling the endpoint only for new or changed content.
-// Returns how many entries it embedded now and how many are indexed in all.
+// Returns how many entries it embedded now and how many are indexed in all. Concurrent runs merge their rows
+// into the cache under a file lock, so neither overwrites the other's vectors.
 func EmbedEntries(ctx context.Context, root string, c *EmbedClient) (embedded, total int, err error) {
 	cache := loadEmbedCache()
-	if cache.Model != c.Model || cache.Rows == nil {
-		cache = embedCacheFile{Model: c.Model, Rows: map[string]embedRow{}}
+	if cache.Namespace != c.Namespace || cache.Rows == nil {
+		cache = freshEmbedCache(c)
 	}
 	var ids, texts, hashes []string
 	live := map[string]bool{}
@@ -127,29 +137,42 @@ func EmbedEntries(ctx context.Context, root string, c *EmbedClient) (embedded, t
 		}
 		ids, texts, hashes = append(ids, e.ID), append(texts, text), append(hashes, hash)
 	}
+	fresh := map[string]embedRow{}
+	merge := func() error {
+		return paths.WithFileLock(EmbedCachePath(), func() error {
+			cur := loadEmbedCache()
+			if cur.Namespace != c.Namespace || cur.Rows == nil {
+				cur = freshEmbedCache(c)
+			}
+			maps.Copy(cur.Rows, fresh)
+			if len(cur.Rows) > embedMaxRows { // the cache is shared by every repo; shed rows this root no longer has
+				for id := range cur.Rows {
+					if !live[id] {
+						delete(cur.Rows, id)
+					}
+				}
+			}
+			return saveEmbedCache(cur)
+		})
+	}
 	for i := 0; i < len(texts); i += embedBatch {
 		j := min(i+embedBatch, len(texts))
 		vecs, err := c.Embed(ctx, texts[i:j])
-		if err != nil {
-			_ = saveEmbedCache(cache) // keep the batches already paid for
-			return embedded, len(live), err
+		if err == nil && len(vecs) != j-i {
+			err = fmt.Errorf("embedding endpoint returned %d vectors for %d texts", len(vecs), j-i)
 		}
-		if len(vecs) != j-i {
-			return embedded, len(live), fmt.Errorf("embedding endpoint returned %d vectors for %d texts", len(vecs), j-i)
+		if err != nil {
+			return embedded, len(live), errors.Join(err, merge()) // keep the batches already paid for
 		}
 		for k, v := range vecs {
-			cache.Rows[ids[i+k]] = embedRow{Hash: hashes[i+k], Vec: encodeVec(normalize(v))}
+			fresh[ids[i+k]] = embedRow{Hash: hashes[i+k], Vec: encodeVec(normalize(v))}
 		}
 		embedded += j - i
 	}
-	if len(cache.Rows) > embedMaxRows { // the cache is shared by every repo; shed rows this root no longer has
-		for id := range cache.Rows {
-			if !live[id] {
-				delete(cache.Rows, id)
-			}
-		}
+	if embedded == 0 {
+		return 0, len(live), nil
 	}
-	return embedded, len(live), saveEmbedCache(cache)
+	return embedded, len(live), merge()
 }
 
 // Semantic scores entries against one embedded query, from the cached entry vectors.
@@ -189,6 +212,14 @@ func NewSemantic(query string) (*Semantic, error) {
 			done <- result{err: err}
 			return
 		}
+		if c.Namespace != cache.Namespace {
+			done <- result{err: errors.New("embedding cache belongs to another workspace or model")}
+			return
+		}
+		if !cacheDimMatches(cache.Rows, len(vecs[0])) {
+			done <- result{err: errors.New("embedding dimension differs from the cache")}
+			return
+		}
 		done <- result{vec: normalize(vecs[0])}
 	}()
 	select {
@@ -217,6 +248,15 @@ func (s *Semantic) Cosine(e Entry) (float64, bool) {
 		dot += float64(v[i]) * float64(s.query[i])
 	}
 	return dot, true
+}
+
+// cacheDimMatches reports whether a sample cached vector has dim components.
+func cacheDimMatches(rows map[string]embedRow, dim int) bool {
+	for _, r := range rows {
+		v, ok := decodeVec(r.Vec)
+		return ok && len(v) == dim
+	}
+	return false
 }
 
 func normalize(v []float32) []float32 {
@@ -302,7 +342,8 @@ func openDatabricksEmbed(ctx context.Context, model string) (*EmbedClient, error
 		}
 	}
 	url := strings.TrimRight(p.Host, "/") + "/serving-endpoints/" + model + "/invocations"
-	return &EmbedClient{Model: model, Embed: func(ctx context.Context, texts []string) ([][]float32, error) {
+	ns := p.Name + "|" + strings.TrimRight(p.Host, "/") + "|" + model
+	return &EmbedClient{Model: model, Namespace: ns, Embed: func(ctx context.Context, texts []string) ([][]float32, error) {
 		return PostEmbeddings(ctx, url, texts, func(h http.Header) error { return providers.Authorize(ctx, p, h) })
 	}}, nil
 }
@@ -349,4 +390,30 @@ func PostEmbeddings(ctx context.Context, url string, texts []string, authorize f
 		}
 	}
 	return out, nil
+}
+
+// Candidates are the top k current entries of root's corpus by cosine alone (at least floor), for prompts that
+// share no keyword with the entry they mean; an in-memory scan, no network.
+func (s *Semantic) Candidates(root string, k int, floor float64) []SearchHit {
+	type scored struct {
+		hit SearchHit
+		cos float64
+	}
+	var all []scored
+	for _, h := range corpusBlocks(root) {
+		e := EntryFromHit(h)
+		if e.Archived || e.Superseded {
+			continue
+		}
+		if cos, ok := s.Cosine(e); ok && cos >= floor {
+			h.ID = e.ID
+			all = append(all, scored{h, cos})
+		}
+	}
+	sort.SliceStable(all, func(i, j int) bool { return all[i].cos > all[j].cos })
+	var out []SearchHit
+	for _, a := range all[:min(k, len(all))] {
+		out = append(out, a.hit)
+	}
+	return out
 }

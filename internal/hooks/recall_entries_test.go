@@ -120,7 +120,7 @@ func vecServer(t *testing.T, slow time.Duration) *httptest.Server {
 
 func useEmbedServer(t *testing.T, srv *httptest.Server) *memory.EmbedClient {
 	t.Helper()
-	c := &memory.EmbedClient{Model: "fake-gte", Embed: func(ctx context.Context, texts []string) ([][]float32, error) {
+	c := &memory.EmbedClient{Model: "fake-gte", Namespace: "fake|h|fake-gte", Embed: func(ctx context.Context, texts []string) ([][]float32, error) {
 		return memory.PostEmbeddings(ctx, srv.URL, texts, func(http.Header) error { return nil })
 	}}
 	prev := memory.OpenEmbedClient
@@ -218,5 +218,39 @@ func TestSessionStartCarriesNoCatalogRows(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "other repos:") || out.Len() > 1500 {
 		t.Errorf("want the one-line pointer and a small surface, got %d bytes:\n%s", out.Len(), out.String())
+	}
+}
+
+// Once the current decision is in context, the same prompt must not fall back to an older archived one.
+func TestRecallNoArchiveFallbackWhenCurrentIsSeen(t *testing.T) {
+	recallEnv(t)
+	writeBank(t, "decisionLog.md", "# D\n\n## 2026-10-20 — Zebra quota limiter current <!-- id:aaaa0002 -->\n\nzebra quota limiter fallback current\n")
+	writeBank(t, "archive/decisionLog-2026-09.md", "# D\n\n## 2026-09-01 — Zebra quota limiter outdated <!-- id:aaaa0006 -->\n\nzebra quota limiter fallback outdated\n")
+	cwd := t.TempDir()
+	if first := recallAs(t, "s1", "zebra quota limiter fallback", cwd); !strings.Contains(first, "aaaa0002") {
+		t.Fatalf("setup: %q", first)
+	}
+	if again := recallAs(t, "s1", "zebra quota limiter fallback", cwd); again != "" {
+		t.Errorf("seen current entry must not be replaced by the archive:\n%s", again)
+	}
+}
+
+// A prompt sharing no word with the entry it means still recalls it when the vectors are close.
+func TestRecallSemanticReachesZeroOverlapEntry(t *testing.T) {
+	recallEnv(t)
+	writeBank(t, "decisionLog.md", "# D\n\n## 2026-10-20 — Quokka burrow gamma choice <!-- id:cccc0001 -->\n\nquokka burrow gamma gamma\n\n"+
+		"## 2026-10-19 — Walrus harbour plain choice <!-- id:cccc0002 -->\n\nwalrus harbour plain\n")
+	cwd := t.TempDir()
+	const prompt = "hello world foo bar zeta"
+	if got := recallAs(t, "k", prompt, cwd); got != "" {
+		t.Fatalf("fixture invalid: keyword-only already answers: %q", got)
+	}
+	c := useEmbedServer(t, vecServer(t, 0))
+	if _, _, err := memory.EmbedEntries(context.Background(), cwd, c); err != nil {
+		t.Fatal(err)
+	}
+	got := recallAs(t, "s", prompt, cwd)
+	if !strings.Contains(got, "cccc0001") || strings.Contains(got, "cccc0002") {
+		t.Errorf("want only the semantically close entry:\n%s", got)
 	}
 }

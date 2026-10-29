@@ -52,13 +52,20 @@ func EntryFromHit(h SearchHit) Entry {
 	}
 }
 
-// blockMarkerID is the oldest persisted id marker anywhere in block (settle stacks newer ones above it), "" when none.
+// blockMarkerID is the oldest persisted id marker outside code fences (settle stacks newer ones above it), "" if none.
 func blockMarkerID(block string) string {
-	m := idMarker.FindAllStringSubmatch(block, -1)
-	if len(m) == 0 {
-		return ""
+	lines := strings.Split(block, "\n")
+	fenced := fencedLines(lines)
+	id := ""
+	for i, l := range lines {
+		if fenced[i] {
+			continue
+		}
+		if m := idMarker.FindAllStringSubmatch(l, -1); len(m) > 0 {
+			id = m[len(m)-1][1]
+		}
 	}
-	return m[len(m)-1][1]
+	return id
 }
 
 // Pointer is the one-line reference `memory search <id>` expands: id · date · title.

@@ -229,3 +229,45 @@ func TestAssignIDsCollapsesStackedMarkersToOldest(t *testing.T) {
 		t.Errorf("canonical id = %q", id)
 	}
 }
+
+// A fenced example marker is not the block's id: settle keeps the real one and never adopts the example.
+func TestAssignIDsIgnoresFencedMarkers(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "decisionLog.md")
+	write(t, path, "# D\n\n## 2026-10-01 — real heading <!-- id:aaaa0001 -->\n\nexample:\n\n```md\n## x <!-- id:bbbb0002 -->\n```\n")
+	if _, err := assignIDs(dir, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := os.ReadFile(path)
+	s := string(got)
+	if !strings.Contains(s, "real heading <!-- id:aaaa0001 -->") || strings.Count(s, "<!-- id:bbbb0002 -->") != 1 {
+		t.Errorf("real id lost or example touched:\n%s", s)
+	}
+	if id := blockMarkerID(strings.Join(strings.Split(s, "\n")[2:], "\n")); id != "aaaa0001" {
+		t.Errorf("canonical id = %q, want the unfenced one", id)
+	}
+	// an unmarked block whose only marker is a fenced example still gets its own id
+	write(t, path, "# D\n\n## 2026-10-02 — bare\n\n```md\n## x <!-- id:cccc0003 -->\n```\n")
+	if n, _ := assignIDs(dir, time.Now()); n != 1 {
+		t.Errorf("bare block with a fenced example must be stamped, stamped %d", n)
+	}
+}
+
+// Content refs of native topics and knowledge notes (indexed whole) expand through ShowBlock.
+func TestShowBlockExpandsNativeAndKnowledgeRefs(t *testing.T) {
+	isolatedConfig1(t)
+	note := filepath.Join(HomeBankDir(), "knowledge", "wires.md")
+	write(t, note, "---\ndescription: d\n---\n# Wires\nknowledge body zebra\n")
+	var got SearchHit
+	for _, h := range corpusBlocks(t.TempDir()) {
+		if h.Bank == "knowledge" {
+			got = h
+		}
+	}
+	if got.Block == "" {
+		t.Fatal("fixture: knowledge note not indexed")
+	}
+	if _, block, err := ShowBlock(EntryFromHit(got).ID); err != nil || !strings.Contains(block, "knowledge body zebra") {
+		t.Errorf("knowledge ref does not expand: %v %q", err, block)
+	}
+}
