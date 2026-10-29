@@ -31,7 +31,7 @@ func TestOpencodeOverlayTemplatesParse(t *testing.T) {
 // with mode 0600, and that the cfg file's model/small_model come from the routing table, every other
 // field unchanged from the embedded template (the table-driven contract applyOpencodeTableModels keeps).
 func TestWriteOpencodeOverlayWritesBothFiles(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	isolateOpencodeRouteEnv(t)
 	cfg, tui, err := WriteOpencodeOverlay()
 	if err != nil {
 		t.Fatal(err)
@@ -79,6 +79,7 @@ func TestWriteOpencodeOverlayWritesBothFiles(t *testing.T) {
 // TestOpencodeOverlayModelComesFromTable checks the rendered overlay's model/small_model equal the
 // routing table's opencode sonnet/haiku cells, both with no overlay and with a vault route override.
 func TestOpencodeOverlayModelComesFromTable(t *testing.T) {
+	isolateOpencodeRouteEnv(t)
 	vaulttest.Use(t)
 	_, cfgBody, _, _, err := OpencodeOverlayRendered()
 	if err != nil {
@@ -125,6 +126,7 @@ func TestOpencodeOverlayModelComesFromTable(t *testing.T) {
 // TestApplyOpencodeTableModelsFallsBackOnLoadError checks a routetable load failure (an overlay naming an
 // unknown cell) leaves the template's own hard-coded model/small_model untouched, the one fallback use.
 func TestApplyOpencodeTableModelsFallsBackOnLoadError(t *testing.T) {
+	isolateOpencodeRouteEnv(t)
 	vaulttest.Use(t)
 	vaulttest.Put(t, vault.Overlay, "providers", `{"routing":{"cells":{"ghost":{"opus":{"model":"m"}}}}}`)
 	tmpl, err := opencodeOverlayFS.ReadFile("template/opencode.json")
