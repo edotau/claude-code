@@ -143,7 +143,7 @@ func fakeCopilotBin(t *testing.T) {
 func stubAsk(t *testing.T, fn func(n int) (copilotsdk.Result, error)) *int {
 	t.Helper()
 	prev, n := copilotAsk, 0
-	copilotAsk = func(context.Context, copilotsdk.Options, string) (copilotsdk.Result, error) {
+	copilotAsk = func(context.Context, copilotsdk.Options, string, []string) (copilotsdk.Result, error) {
 		n++
 		return fn(n)
 	}

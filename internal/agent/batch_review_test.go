@@ -156,7 +156,7 @@ func TestCopilotSDKEnvBlanksForeignCredentials(t *testing.T) {
 	var mu sync.Mutex
 	var seen []string
 	prev := copilotAsk
-	copilotAsk = func(_ context.Context, o copilotsdk.Options, _ string) (copilotsdk.Result, error) {
+	copilotAsk = func(_ context.Context, o copilotsdk.Options, _ string, _ []string) (copilotsdk.Result, error) {
 		mu.Lock()
 		seen = slices.Clone(o.Env)
 		mu.Unlock()
@@ -807,7 +807,7 @@ func TestFrozenCopilotTargetFollowsTheDowngradedModel(t *testing.T) {
 	fakeCopilotBin(t)
 	var envs [][]string
 	prev := copilotAsk
-	copilotAsk = func(_ context.Context, o copilotsdk.Options, _ string) (copilotsdk.Result, error) {
+	copilotAsk = func(_ context.Context, o copilotsdk.Options, _ string, _ []string) (copilotsdk.Result, error) {
 		envs = append(envs, slices.Clone(o.Env))
 		if len(envs) == 1 {
 			return copilotsdk.Result{}, errors.New("HTTP 429: insufficient_quota, limit: 0")
