@@ -54,6 +54,7 @@ var Catalog = []Field{
 
 	{Key: "cleanupPeriodDays", Section: "session", Kind: KindInt, Min: 1, Source: "schema"},
 	{Key: "autoConnectIde", Section: "session", Kind: KindBool, Source: "schema"},
+	{Key: "disableClaudeAiConnectors", Section: "session", Kind: KindBool, Source: "schema"},
 	{Key: "useAutoModeDuringPlan", Section: "session", Kind: KindBool, Source: "schema"},
 	{Key: "skipWorkflowUsageWarning", Section: "session", Kind: KindBool, Source: "docs"},
 
