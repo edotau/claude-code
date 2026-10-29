@@ -8,7 +8,8 @@ import (
 	"testing"
 )
 
-// heredocMustBlock contains catastrophic bodies that must be checked even inside a heredoc.
+// heredocMustBlock are shell/interpreter/client heredocs whose body is EXECUTED; the body must still
+// be checked for a destructive pattern even though it arrives inside a heredoc.
 var heredocMustBlock = []string{
 	"bash <<'EOF'\nsudo rm -rf /\nEOF",
 	"sh <<EOF\nrm -rf ~\nEOF",
