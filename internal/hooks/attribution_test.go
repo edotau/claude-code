@@ -38,64 +38,65 @@ func TestAttributionFooterBlocked(t *testing.T) {
 	}
 }
 
-// TestSafetyScanBlocksAttributionFooterCommit: a footer commit in any repo blocks with a reason; the rest proceeds.
+// A footer commit in any repo asks with a reason; the rest proceeds.
 func TestSafetyScanBlocksAttributionFooterCommit(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	otherRepo := t.TempDir() // not the harness tree: the contract is "in any repo"
 	cases := []struct {
 		name string
 		cmd  string
-		want int
+		want Decision
 	}{
 		{
 			"inline -m footer",
 			`git commit -m "feat: x" -m "Co-Authored-By: Claude <noreply@anthropic.com>"`,
-			ExitBlock,
+			Ask,
 		},
 		{
 			"heredoc -m footer",
 			"git commit -m \"$(cat <<'EOF'\nfeat: x\n\nCo-Authored-By: Claude Opus <noreply@anthropic.com>\nEOF\n)\"",
-			ExitBlock,
+			Ask,
 		},
 		{
 			"-C other repo, -F heredoc, generated-with footer",
 			"git -C " + otherRepo + " commit -F - <<'EOF'\nfeat: x\n\nGenerated with [Claude Code](https://claude.com/claude-code)\nEOF",
-			ExitBlock,
+			Ask,
 		},
 		{
 			"cd into other repo first",
 			"cd " + otherRepo + " && git commit -m \"feat: x\" -m \"Co-Authored-By: Claude\"",
-			ExitBlock,
+			Ask,
 		},
 		{
 			"plain commit proceeds",
 			`git commit -m "feat: x"`,
-			ExitProceed,
+			Allow,
 		},
 		{
 			"grep for the phrase proceeds (not a commit)",
 			`git log --grep "Co-Authored-By: Claude"`,
-			ExitProceed,
+			Allow,
 		},
 		{
 			"echo with no commit proceeds",
 			`echo "Co-Authored-By: Claude"`,
-			ExitProceed,
+			Allow,
 		},
 		{
 			"footer naming a human proceeds",
 			`git commit -m "feat: x" -m "Co-Authored-By: Ada <a@x>"`,
-			ExitProceed,
+			Allow,
 		},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			var errb bytes.Buffer
-			if got := SafetyScan(bashPayload(c.cmd), io.Discard, &errb); got != c.want {
+			var out, errb bytes.Buffer
+			code := SafetyScan(bashPayload(c.cmd), &out, &errb)
+			if got := resultFromLegacy(code, out.String(), errb.String()).Decision; got != c.want {
 				t.Errorf("%q: got %d want %d (stderr=%s)", c.cmd, got, c.want, errb.String())
 			}
-			if c.want == ExitBlock && !strings.Contains(strings.ToLower(errb.String()), "attribution") {
-				t.Errorf("%q: block reason missing 'attribution': %s", c.cmd, errb.String())
+			if c.want == Ask && !strings.Contains(strings.ToLower(out.String()), "attribution") {
+				t.Errorf("%q: ask reason missing 'attribution': %s", c.cmd, out.String())
 			}
 		})
 	}
@@ -110,7 +111,14 @@ func TestSafetyScanAttributionFooterCopilotShape(t *testing.T) {
 	if got := SafetyScan(payload, &out, &errb); got != ExitBlock {
 		t.Fatalf("%q: got %d want ExitBlock (out=%s err=%s)", cmd, got, out.String(), errb.String())
 	}
-	if !strings.Contains(strings.ToLower(out.String()), "attribution") {
+	var doc struct {
+		Decision string `json:"permissionDecision"`
+		Reason   string `json:"permissionDecisionReason"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &doc); err != nil {
+		t.Fatal(err)
+	}
+	if doc.Decision != "deny" || !strings.Contains(strings.ToLower(doc.Reason), "attribution") {
 		t.Errorf("permissionDecisionReason missing 'attribution': %s", out.String())
 	}
 }

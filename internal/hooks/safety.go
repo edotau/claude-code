@@ -23,17 +23,38 @@ var hardBlocks = lazyCompile(
 	`dd\s+.*\sof=/dev/(sd|disk|nvme|hd)`,
 	`chmod\s+-R\s+777\s+/(\s|$)`,
 	`:\(\)\s*\{.*\};\s*:`,
-	`(^|[^[:alnum:]_])sudo(\s|$)`,
-	`git\s+push\s+.*(--force|-f)(\s|$).*(main|master)(\s|$)`,
-	`git\s+push\s+.*(main|master)(\s|$).*(--force|-f)(\s|$)`,
 	`python3?\s+.*-c\s+.*exec\(.*base64`,
 )
 
 // pipeBlocks match the WHOLE command text because pipes and encoded Python heredocs span shell segments.
 var pipeBlocks = lazyCompile(
 	`(^|[^[:alnum:]_])(curl|wget)\s[^|]*\|\s*(ba|z)?sh([^[:alnum:]_]|$)`,
+	`(^|[\s;&|({/\x60])(bash|sh|zsh|source|\.)\s+(<\s*)?<\(\s*(curl|wget)\s`,
 	`(?s)(^|[\s;&|({/\x60])python3?(\.[0-9]+)?\b[^\n]*<<[-<]?.*((exec|eval)\(.*(base64|b64decode)|(base64|b64decode).*(exec|eval)\()`,
 )
+
+// askRule is an intent-dependent shape matched within one shell segment, with its message and alternative.
+type askRule struct {
+	what, hint string
+	pats       func() []*regexp.Regexp
+}
+
+var askRules = []askRule{
+	{"sudo command", "Approve only if you asked for it; otherwise install to a user prefix (~/.local, pipx, a venv) instead.",
+		lazyCompile(`(^|[^[:alnum:]_])sudo(\s|$)`)},
+	{"force push to main/master", "Push a branch and open a PR instead: git push origin HEAD:<branch>.", lazyCompile(
+		`git\s+push\s+.*(--force|-f)(\s|$).*(main|master)(\s|$)`,
+		`git\s+push\s+.*(main|master)(\s|$).*(--force|-f)(\s|$)`,
+		`git\s+push\s+.*--force-with-lease(=[^[:space:]]*)?(\s|$).*(main|master)(\s|$)`,
+		`git\s+push\s+.*(main|master)(\s|$).*--force-with-lease(=[^[:space:]]*)?(\s|$)`,
+		`git\s+push\s+.*\+([^[:space:]]+:)?(refs/heads/)?(main|master)(\s|$)`,
+	)},
+	{"recursive removal of a .git directory",
+		"That deletes the repository history; to start clean use a fresh worktree: claude-code worktree create <name>.",
+		lazyCompile(`(^|[^[:alnum:]_])rm\s+(-[a-zA-Z]+\s+)*-[a-zA-Z]*[rR][a-zA-Z]*\s+(-[a-zA-Z]+\s+)*["']?([^[:space:]"']*/)?\.git/?["']?(\s|$)`)},
+}
+
+const terminalHint = "If intentional, run it yourself in a terminal."
 
 // sqlDestructive runs against the lowercased command.
 var sqlDestructive = sync.OnceValue(func() *regexp.Regexp {
@@ -83,58 +104,103 @@ func safetyInput(in *Input, stdout, stderr io.Writer) (code int) {
 			}
 		}()
 	}
-	if in.ToolName != "" && !strings.EqualFold(in.ToolName, "Bash") {
+	decision, msg, detail := safetyVerdict(in)
+	if decision != Block && (in.ToolName == "" || strings.EqualFold(in.ToolName, "Bash")) {
+		for _, re := range softWarn() {
+			if re.MatchString(in.ToolCommand()) {
+				fmt.Fprintf(stderr, "safety: WARNING — %s (not blocked; review carefully)\n", re)
+			}
+		}
+	}
+	if decision == Allow {
 		return ExitProceed
+	}
+	if decision == Ask {
+		detail = "ask: " + detail
+	}
+	audit.Log(audit.HookBlocked, "safety", detail)
+	if decision == Ask && in.Vendor() == VendorClaude {
+		fmt.Fprintln(stdout, OutputClaude("PreToolUse", Result{Decision: Ask, Reason: strings.TrimSpace(msg)}))
+		return ExitProceed
+	}
+	fmt.Fprint(stderr, msg)
+	return ExitBlock
+}
+
+// safetyVerdict checks all block patterns before considering any ask pattern.
+func safetyVerdict(in *Input) (Decision, string, string) {
+	if in.ToolName != "" && !strings.EqualFold(in.ToolName, "Bash") {
+		return Allow, "", ""
 	}
 	cmd := in.ToolCommand()
 	if cmd == "" {
-		return ExitProceed
+		return Allow, "", ""
 	}
 	for _, re := range pipeBlocks() {
 		if re.MatchString(cmd) {
-			fmt.Fprintf(stderr, "safety: BLOCKED — destructive command\n  pattern: %s\n  command: %s\nIf intentional, run it yourself in a terminal.\n", re, cmd)
-			audit.Log(audit.HookBlocked, "safety", re.String())
-			return ExitBlock
+			return Block, safetyMessage(in, Block, "destructive command", re.String(), terminalHint), re.String()
 		}
 	}
-	// Each other pattern is matched inside ONE shell segment: `git push origin main; readlink -f x` is not a force-push.
 	for _, seg := range shellSegments(cmd) {
 		for _, re := range hardBlocks() {
 			if re.MatchString(seg) {
-				fmt.Fprintf(stderr, "safety: BLOCKED — destructive command\n  pattern: %s\n  command: %s\nIf intentional, run it yourself in a terminal.\n", re, cmd)
-				audit.Log(audit.HookBlocked, "safety", re.String())
-				return ExitBlock
+				return Block, safetyMessage(in, Block, "destructive command", re.String(), terminalHint), re.String()
+			}
+		}
+	}
+	for _, re := range exfilPatterns() {
+		if re.MatchString(cmd) {
+			return Block, safetyMessage(in, Block, "looks like credential exfiltration", re.String(), terminalHint), re.String()
+		}
+	}
+	return safetyAskVerdict(in)
+}
+
+// safetyAskVerdict reports the first intent-dependent shape; the owner approves it on Claude, others block.
+func safetyAskVerdict(in *Input) (Decision, string, string) {
+	cmd := in.ToolCommand()
+	// Each pattern is matched inside ONE shell segment: `git push origin main; readlink -f x` is not a force-push.
+	for _, seg := range shellSegments(cmd) {
+		for _, rule := range askRules {
+			for _, re := range rule.pats() {
+				if re.MatchString(seg) {
+					return Ask, safetyMessage(in, Ask, rule.what, re.String(), rule.hint), re.String()
+				}
 			}
 		}
 	}
 	if harnessGitBlocked(cmd, in.CWD) {
-		fmt.Fprintf(stderr, "safety: BLOCKED — git stash/checkout/reset/restore/clean inside the shared config tree (CLAUDE.md hard rule 4)\n  command: %s\nScope a build or diff your own files instead; commit early.\n", cmd)
-		audit.Log(audit.HookBlocked, "safety", "shared config git mutation")
-		return ExitBlock
+		what := "git stash/checkout/reset/restore/clean inside the shared config tree (CLAUDE.md hard rule 4)"
+		hint := "Scope a build or diff your own files instead; commit early. Use a linked worktree instead: claude-code worktree create <name>."
+		return Ask, safetyMessage(in, Ask, what, "", hint), "shared config git mutation"
 	}
 	if attributionFooterBlocked(cmd) {
-		fmt.Fprintf(stderr, "safety: BLOCKED — AI-attribution footer in a commit message (CLAUDE.md hard rule 3)\n  command: %s\nDrop the Co-Authored-By / Generated-with lines; the committer identity covers it.\n", cmd)
-		audit.Log(audit.HookBlocked, "safety", "attribution footer")
-		return ExitBlock
+		what := "AI-attribution footer in a commit message (CLAUDE.md hard rule 3)"
+		hint := "Drop the Co-Authored-By / Generated-with lines; the committer identity covers it."
+		return Ask, safetyMessage(in, Ask, what, "", hint), "attribution footer"
 	}
 	if sqlDestructive().MatchString(strings.ToLower(cmd)) {
-		fmt.Fprintf(stderr, "safety: BLOCKED — destructive SQL (DROP/TRUNCATE)\n  command: %s\n", cmd)
-		audit.Log(audit.HookBlocked, "safety", "destructive SQL")
-		return ExitBlock
+		hint := "Approve only if you asked for it; back up first or run it against a scratch database."
+		return Ask, safetyMessage(in, Ask, "destructive SQL (DROP/TRUNCATE)", "", hint), "destructive SQL"
 	}
-	for _, re := range exfilPatterns() {
-		if re.MatchString(cmd) {
-			fmt.Fprintf(stderr, "safety: BLOCKED — looks like credential exfiltration\n  pattern: %s\n  command: %s\n", re, cmd)
-			audit.Log(audit.HookBlocked, "safety", re.String())
-			return ExitBlock
+	return Allow, "", ""
+}
+
+// safetyMessage renders the stderr/reason text; an ask that falls back to a block names the vendor.
+func safetyMessage(in *Input, decision Decision, what, pattern, hint string) string {
+	word := "BLOCKED"
+	if decision == Ask {
+		if in.Vendor() == VendorClaude {
+			word = "ASK"
+		} else {
+			what += " (no ask decision on " + in.Vendor() + ")"
 		}
 	}
-	for _, re := range softWarn() {
-		if re.MatchString(cmd) {
-			fmt.Fprintf(stderr, "safety: WARNING — %s (not blocked; review carefully)\n", re)
-		}
+	msg := fmt.Sprintf("safety: %s — %s\n", word, what)
+	if pattern != "" {
+		msg += "  pattern: " + pattern + "\n"
 	}
-	return ExitProceed
+	return msg + "  command: " + in.ToolCommand() + "\n" + hint + "\n"
 }
 
 // bannedGitVerbs are the tree-writing verbs hard rule 4 bans inside the shared config checkout.
