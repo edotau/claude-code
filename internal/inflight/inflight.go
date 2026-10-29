@@ -22,7 +22,7 @@ const Idle = 10 * time.Minute
 // Grace: how long a spawn marker may wait for its agent transcript to appear before it is abandoned.
 const Grace = 2 * time.Minute
 
-// Prefix starts every marker name: agent-<owner pid>-<id>; the file holds the account key.
+// Prefix starts every marker name: agent-<owner pid>-<id>; the file holds the account key, then the session transcript.
 const Prefix = "agent-"
 
 // Dir is the machine-wide marker directory.
@@ -63,18 +63,24 @@ func Live(name string, mod, now time.Time, trusted bool) bool {
 }
 
 // CountOwned counts the live markers owned by owner without removing anything.
-func CountOwned(owner int, transcriptDir string, now time.Time) int {
+func CountOwned(owner int, now time.Time) int {
 	entries, err := os.ReadDir(Dir())
 	if err != nil {
 		return 0
 	}
-	s := &scanner{self: owner, subDir: transcriptDir, now: now, trusted: ProbeTrusted()}
+	s := newScanner(now)
 	n := 0
 	for _, e := range entries {
 		if pid, ok := Owner(e.Name()); !ok || pid != owner {
 			continue
 		}
-		if fi, err := e.Info(); err == nil && s.live(e.Name(), fi.ModTime()) {
+		fi, ierr := e.Info()
+		b, rerr := os.ReadFile(filepath.Join(Dir(), e.Name()))
+		if ierr != nil || rerr != nil {
+			continue
+		}
+		_, transcript, _ := strings.Cut(strings.TrimSpace(string(b)), "\n")
+		if s.live(e.Name(), fi.ModTime(), transcript) {
 			n++
 		}
 	}
