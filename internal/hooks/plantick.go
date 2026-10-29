@@ -19,6 +19,7 @@ var (
 	gitCommitCmd = regexp.MustCompile(`\bgit\b[^;&|\n]*\bcommit\b`)
 	commitLine   = regexp.MustCompile(`(?m)^\[(?:detached HEAD|[^\]\s]+)(?: \(root-commit\))? ([0-9a-f]{7,40})\] `)
 	gitDirArg    = regexp.MustCompile(`\bgit\s+(?:-\S+\s+)*?-C\s+("[^"]+"|'[^']+'|\S+)`)
+	cmdSegment   = regexp.MustCompile(`&&|\|\||[;|\n]`)
 	leadingCD    = regexp.MustCompile(`^\s*cd\s+("[^"]+"|'[^']+'|[^\s&;]+)\s*&&`)
 )
 
@@ -96,17 +97,23 @@ func tickCommit(in *Input, cmd, sha string, stderr io.Writer) []string {
 	return blocks
 }
 
-// commitRepoDir is the first candidate dir (every -C arg, leading cd, cwd) whose repo holds the commit sha.
+// commitRepoDir is the candidate dir (commit -C args, leading cd, cwd) whose HEAD is sha, else the first whose repo holds it.
 func commitRepoDir(ctx context.Context, cwd, cmd, sha string) string {
 	var cands []string
-	for _, m := range gitDirArg.FindAllStringSubmatch(cmd, -1) { // chained commits may each name their own repo
-		cands = append(cands, strings.Trim(m[1], `"'`))
+	for _, seg := range cmdSegment.Split(cmd, -1) { // only commit invocations name a candidate repo
+		if !gitCommitCmd.MatchString(seg) {
+			continue
+		}
+		if m := gitDirArg.FindStringSubmatch(seg); m != nil {
+			cands = append(cands, strings.Trim(m[1], `"'`))
+		}
 	}
 	if m := leadingCD.FindStringSubmatch(cmd); m != nil {
 		cands = append(cands, strings.Trim(m[1], `"'`))
 	}
 	cands = append(cands, cwd)
 	home, _ := os.UserHomeDir()
+	var holders []string
 	for _, d := range cands {
 		if rest, ok := strings.CutPrefix(d, "~/"); ok && home != "" {
 			d = filepath.Join(home, rest) // the shell expands ~ before git sees it
@@ -114,9 +121,17 @@ func commitRepoDir(ctx context.Context, cwd, cmd, sha string) string {
 		if d = resolveCWDPath(d, cwd); d == "" {
 			continue
 		}
-		if exec.CommandContext(ctx, "git", "-C", d, "cat-file", "-e", sha+"^{commit}").Run() == nil {
-			return d
+		if exec.CommandContext(ctx, "git", "-C", d, "cat-file", "-e", sha+"^{commit}").Run() != nil {
+			continue
 		}
+		head, err := exec.CommandContext(ctx, "git", "-C", d, "rev-parse", "HEAD").Output()
+		if err == nil && strings.HasPrefix(strings.TrimSpace(string(head)), sha) {
+			return d // linked worktrees share objects; the one whose HEAD is the commit made it
+		}
+		holders = append(holders, d)
+	}
+	if len(holders) > 0 {
+		return holders[0]
 	}
 	return ""
 }
