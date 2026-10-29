@@ -465,12 +465,7 @@ func reportBackgroundStart(format string, rec agent.Record) {
 		fmt.Println(string(body))
 		return
 	}
-	if _, ok := vendoragent.Lookup(rec.Agent); !ok { // no adapter (claude): the verbs don't exist, so point at what does
-		fmt.Printf("job %s started — log %s; list: claude-code ask --log; resume when done: claude-code ask --agent %s --session <session_id>\n",
-			rec.ID, rec.LogPath(), rec.Agent)
-		return
-	}
-	fmt.Printf("job %s started — claude-code %s status|result|cancel\n", rec.ID, rec.Agent)
+	fmt.Printf("job %s started — claude-code agents status|tail|result|cancel %s\n", rec.ID, rec.ID)
 }
 
 // failAsk reports a pre-run failure; with --format json it prints the same envelope a run would.
@@ -520,6 +515,10 @@ var agentsPage = helptext.Page{
 		{"sync", "project agents/ + CLAUDE.md into every agent home; link skills"},
 		{"tree", "live tree of sessions, subagents and dispatches; --watch"},
 		{"reap", "mark dead running dispatches as error; drop stale markers"},
+		{"status", "show a dispatch's state (any agent): status <id>"},
+		{"result", "print a finished dispatch's answer or envelope: result <id>"},
+		{"tail", "follow a dispatch's log or events: tail <id> [-f]"},
+		{"cancel", "interrupt a running dispatch: cancel <id>"},
 	},
 	Hint: "claude-code agents <command> -h lists that command's flags.",
 }
@@ -549,6 +548,8 @@ func cmdAgents(args []string) int {
 		return agenttree.Run(args[1:], paths.ConfigDir(), os.Stdout, os.Stderr)
 	case "reap":
 		return cmdAgentsReap(args[1:])
+	case "status", "result", "tail", "cancel":
+		return cmdAgentsJob(args[0], args[1:])
 	case "-h", "--help", "help":
 		agentsPage.Fprint(os.Stderr)
 		return 0

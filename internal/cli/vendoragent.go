@@ -221,11 +221,16 @@ func cmdVendorTail(vendor string, args []string) int {
 	if err != nil {
 		return fail("%s tail: %v", vendor, err)
 	}
+	return tailExit(rec, *follow)
+}
+
+// tailExit is a tail's exit code: 1 for an errored job, or for a followed job that is still "running" (lost).
+func tailExit(rec agent.Record, follow bool) int {
 	switch {
 	case rec.Status == "error":
 		fmt.Fprintf(os.Stderr, "error: %s\n", shapes.Redact(rec.Error)) // the stderr tail in it may carry a key
 		return 1
-	case rec.Status == "running" && *follow:
+	case rec.Status == "running" && follow:
 		fmt.Fprintf(os.Stderr, "error: job %s is lost (process gone)\n", rec.ID)
 		return 1
 	}
