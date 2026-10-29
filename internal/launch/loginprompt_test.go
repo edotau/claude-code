@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -77,7 +78,11 @@ func loginSetup(t *testing.T, tty bool, input string, loginErr error) loginHarne
 	return h
 }
 
+// rowSeq makes each row name unique per run, so -count>1 never reuses a token the providers package cached.
+var rowSeq atomic.Int32
+
 func u2mRow(name, url string) *providers.Provider {
+	name = fmt.Sprintf("%s-%d", name, rowSeq.Add(1))
 	return &providers.Provider{Name: name, Provider: "databricks", Protocol: providers.ProtocolAnthropic, BaseURL: url + "/serving-endpoints/anthropic",
 		Auth: providers.Auth{Type: providers.AuthOAuth, TTL: 1800}}
 }
