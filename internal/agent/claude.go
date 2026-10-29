@@ -36,7 +36,7 @@ func (claudeRunner) Run(ctx context.Context, req Request, stream io.Writer) (Res
 			return res, err
 		}
 	}
-	prompt, err := attachInline(req.Prompt, req.Attach)
+	prompt, err := claudeAttach(req.Prompt, req.Attach, req.Tools)
 	if err != nil {
 		return Result{}, err
 	}
@@ -286,4 +286,20 @@ func applyClaudeResult(res *Result, ev claudeEvent) error {
 		return fmt.Errorf("claude %s: %s", ev.Subtype, ev.Result)
 	}
 	return nil
+}
+
+// claudeAttach inlines text files; images are named by absolute path so claude's Read tool opens them (needs tools).
+func claudeAttach(prompt string, paths []string, tools bool) (string, error) {
+	images, rest := splitImages(paths)
+	if len(images) > 0 && !tools {
+		return "", fmt.Errorf("--%w %s: image attach needs tools for claude", ErrBadAttach, images[0])
+	}
+	prompt, err := attachInline(prompt, rest)
+	if err != nil {
+		return "", err
+	}
+	for _, p := range images {
+		prompt += "\n\nAttached image (open it with the Read tool): " + p
+	}
+	return prompt, nil
 }

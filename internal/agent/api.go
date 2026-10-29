@@ -31,7 +31,7 @@ func claudeOneShot(ctx context.Context, req Request, stream io.Writer) (res Resu
 	if p.Auth.Method() == providers.AuthCLI {
 		return res, false, nil
 	}
-	prompt, err := attachInline(req.Prompt, req.Attach)
+	prompt, err := claudeAttach(req.Prompt, req.Attach, false)
 	if err != nil {
 		return Result{}, true, err
 	}
