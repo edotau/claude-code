@@ -153,7 +153,7 @@ func cmdMemoryRecall(args []string) int {
 	if len(terms) == 0 {
 		return fail("memory recall: no query (usage: %s)", memorySubPage("recall").Usage)
 	}
-	hits := searchHits(*repo, *all, strings.Join(terms, " "), *k)
+	hits, _ := searchHits(*repo, *all, strings.Join(terms, " "), *k)
 	if *format == outfmt.JSON {
 		if err := outfmt.Write(os.Stdout, hits); err != nil {
 			return fail("memory recall: %v", err)
@@ -218,18 +218,18 @@ func cmdMemoryRemember(args []string) int {
 }
 
 // searchHits ranks blocks for q: every store with all, else the named store or checkout (default: cwd's).
-func searchHits(repo string, all bool, q string, k int) []memory.SearchHit {
+func searchHits(repo string, all bool, q string, k int) ([]memory.SearchHit, string) {
+	root := memoryRoot(repo)
 	switch {
 	case all:
-		return memory.SearchAll(q, k)
+		return memory.SearchAll(q, k), root
 	case repo != "": // a store name from the catalog, else a checkout path
-		root := memoryRoot(repo)
 		if e, ok := memory.RepoByName(repo); ok && e.Origin.Origin != "" {
 			root = e.Origin.Origin
 		}
-		return memory.SearchBanks(root, q, k)
+		return memory.SearchBanks(root, q, k), root
 	default:
-		return memory.SearchBanks(memoryRoot(""), q, k)
+		return memory.SearchBanks(root, q, k), root
 	}
 }
 
@@ -248,13 +248,16 @@ func cmdMemorySearch(args []string) int {
 	if len(terms) == 0 {
 		return fail("memory search: no query (usage: %s)", memorySubPage("search").Usage)
 	}
+	now := time.Now()
 	if len(terms) == 1 && *format != outfmt.JSON && memoryIDRef.MatchString(terms[0]) {
 		if path, block, err := memory.ShowBlock(terms[0]); err == nil { // a recall pointer's id expands in place
+			memory.LogShown(path, terms[0], memory.AccessSearch, now)
 			fmt.Printf("<!-- %s -->\n%s\n", path, strings.TrimSpace(block))
 			return 0
 		}
 	}
-	hits := searchHits(*repo, *all, strings.Join(terms, " "), *k)
+	hits, root := searchHits(*repo, *all, strings.Join(terms, " "), *k)
+	memory.LogHits(root, hits, memory.AccessSearch, now)
 	if *format == outfmt.JSON {
 		if err := outfmt.Write(os.Stdout, hits); err != nil {
 			return fail("memory search: %v", err)
@@ -289,6 +292,7 @@ func cmdMemoryShow(args []string) int {
 	if err != nil {
 		return fail("memory show %s: %v", fs.Arg(0), err)
 	}
+	memory.LogShown(path, fs.Arg(0), memory.AccessShow, time.Now())
 	fmt.Printf("<!-- %s -->\n%s\n", path, strings.TrimSpace(block))
 	return 0
 }

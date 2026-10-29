@@ -26,11 +26,11 @@ func TestAccessLogPathMovesToStateAfterCutover(t *testing.T) {
 			t.Errorf("AccessLogPath(%s) = %s, want %s", dir, got, want)
 		}
 	}
-	LogAccess(filepath.Join(StoreDir(), "repo-a"), time.Now(), "local:x.md", "read")
+	LogAccess(filepath.Join(StoreDir(), "repo-a"), time.Now(), "aa11bb22", "read")
 	if _, err := os.Stat(filepath.Join(StoreDir(), "repo-a", AccessLogFile)); !os.IsNotExist(err) {
 		t.Errorf("access.log written inside the store: %v", err)
 	}
-	if data, _ := os.ReadFile(filepath.Join(AccessStateDir(), "repo-a.log")); !strings.Contains(string(data), "local:x.md") {
+	if data, _ := os.ReadFile(filepath.Join(AccessStateDir(), "repo-a.log")); !strings.Contains(string(data), "aa11bb22") {
 		t.Errorf("state access log missing the entry: %q", data)
 	}
 }
