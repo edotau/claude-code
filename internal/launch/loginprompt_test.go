@@ -25,10 +25,14 @@ var (
 	testCredCheck = providers.Credential
 )
 
-type fakeSignin struct{ p *providers.Provider }
+// check is captured at construction so an abandoned Check never reads testCredCheck while a cleanup restores it.
+type fakeSignin struct {
+	p     *providers.Provider
+	check func(context.Context, *providers.Provider) (string, error)
+}
 
 func (f fakeSignin) Check(ctx context.Context) (providers.AuthVerdict, string) {
-	_, err := testCredCheck(ctx, f.p)
+	_, err := f.check(ctx, f.p)
 	return providers.Verdict(err), ""
 }
 
@@ -60,7 +64,7 @@ func loginSetup(t *testing.T, tty bool, input string, loginErr error) loginHarne
 	t.Cleanup(func() {
 		testLoginRow, canPrompt, loginIn, loginOut, signinFor, testCredCheck = oldRow, oldTTY, oldIn, oldOut, oldFor, oldCheck
 	})
-	signinFor = func(p *providers.Provider) signin.Signin { return fakeSignin{p} }
+	signinFor = func(p *providers.Provider) signin.Signin { return fakeSignin{p, testCredCheck} }
 	canPrompt = func() bool { return tty }
 	loginIn, loginOut = strings.NewReader(input), h.out
 	testLoginRow = func(_ context.Context, name string, _ io.Writer) error {
