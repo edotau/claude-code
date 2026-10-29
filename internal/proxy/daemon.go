@@ -61,6 +61,12 @@ func ReadState() (State, error) {
 		return st, err
 	}
 	_, err = schemas.Decode(routerFormat, b, &st)
+	if errors.Is(err, schemas.ErrNewer) {
+		// PID and Port are stable across versions: a newer daemon stays visible and stoppable; Schema marks it newer.
+		if json.Unmarshal(b, &st) == nil && st.PID != 0 {
+			return st, nil
+		}
+	}
 	return st, err
 }
 
@@ -228,6 +234,9 @@ func Serve(ctx context.Context, port int) error {
 // ownedElsewhere reports a live router on another port already holding router.json.
 func ownedElsewhere(st State) bool {
 	cur, err := ReadState()
+	if err == nil && cur.Schema > stateSchema { // never overwrite a live newer build's record, even on the same port
+		return cur.PID != 0 && alive(cur.PID)
+	}
 	return err == nil && cur.PID != 0 && cur.PID != st.PID && cur.Port != st.Port && alive(cur.PID)
 }
 
