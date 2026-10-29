@@ -1,8 +1,11 @@
 package clipboard
 
 import (
+	"bytes"
 	"encoding/binary"
 	"errors"
+	"image"
+	"image/png"
 	"os"
 	"path/filepath"
 	"strings"
@@ -97,5 +100,49 @@ func TestGrabBusyIsLockedError(t *testing.T) {
 	}
 	if errors.Is(err, errNoImage) {
 		t.Error("BUSY must not read as no-image")
+	}
+}
+
+// pngBytes is a 3x2 PNG.
+func pngBytes(t *testing.T) []byte {
+	t.Helper()
+	var b bytes.Buffer
+	if err := png.Encode(&b, image.NewRGBA(image.Rect(0, 0, 3, 2))); err != nil {
+		t.Fatal(err)
+	}
+	return b.Bytes()
+}
+
+func fakeOsascript(t *testing.T, body string) {
+	t.Helper()
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "osascript"), []byte("#!/bin/sh\n"+body+"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+":/usr/bin:/bin")
+}
+
+func TestGrabMac(t *testing.T) {
+	src := filepath.Join(t.TempDir(), "img.png")
+	if err := os.WriteFile(src, pngBytes(t), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	fakeOsascript(t, `for a; do last="$a"; done; cp '`+src+`' "$last"; echo OK`)
+	path, dim, err := grabMac()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(path)
+	if dim != "3x2" {
+		t.Errorf("dim = %q, want 3x2", dim)
+	}
+
+	fakeOsascript(t, `for a; do last="$a"; done; echo "$last" > '`+src+`.path'; echo NOIMAGE`)
+	if _, _, err := grabMac(); err == nil || !strings.Contains(err.Error(), "no image") {
+		t.Fatalf("err = %v, want no-image", err)
+	}
+	p, _ := os.ReadFile(src + ".path")
+	if _, err := os.Stat(strings.TrimSpace(string(p))); !os.IsNotExist(err) {
+		t.Errorf("temp file left behind: %s", p)
 	}
 }
