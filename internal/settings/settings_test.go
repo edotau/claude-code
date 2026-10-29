@@ -96,8 +96,12 @@ func TestMergePreservesForeign(t *testing.T) {
 		t.Errorf("Stop hooks wrong: %q", cmds["Stop"])
 	}
 	// PreToolUse carries every registry PreToolUse spec: bash-guard, docs-placement, agent-inflight.
-	wantPre := 0
+	wantPre, claudeHooks := 0, 0
 	for _, s := range hookspec.Registry {
+		if s.VendorOnly {
+			continue
+		}
+		claudeHooks++
 		if s.Event == hookspec.EventPreToolUse {
 			wantPre++
 		}
@@ -108,7 +112,7 @@ func TestMergePreservesForeign(t *testing.T) {
 	if strings.Contains(string(merged), "\\u0026") {
 		t.Error("merge HTML-escaped a foreign command")
 	}
-	if sum.ForeignHooks != 2 || sum.HarnessHooks != len(hookspec.Registry) {
+	if sum.ForeignHooks != 2 || sum.HarnessHooks != claudeHooks {
 		t.Errorf("summary %+v", sum)
 	}
 	if !strings.HasPrefix(strings.Join(sum.Kept, ","), "companyAnnouncements,autoUpdates") {
