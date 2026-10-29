@@ -52,7 +52,8 @@ type embedCacheFile struct {
 	Schema    int                 `json:"schema"`
 	Namespace string              `json:"namespace"`
 	Model     string              `json:"model"`
-	Dim       int                 `json:"dim,omitempty"` // vector dimension of the endpoint's latest response
+	Dim       int                 `json:"dim,omitempty"`    // vector dimension of the endpoint's latest response
+	DimAt     int64               `json:"dim_at,omitempty"` // start time (ns) of the run that set Dim; older runs cannot move it
 	Rows      map[string]embedRow `json:"rows"`
 }
 
@@ -159,20 +160,24 @@ func EmbedEntries(ctx context.Context, root string, c *EmbedClient) (embedded, t
 	}
 	fresh := map[string]embedRow{}
 	freshDim := 0
+	started := time.Now().UnixNano()
 	merge := func() error {
 		return paths.WithFileLock(EmbedCachePath(), func() error {
 			cur := loadEmbedCache()
 			if cur.Namespace != c.Namespace || cur.Rows == nil {
 				cur = freshEmbedCache(c)
 			}
-			current := currentEntryHashes(root)      // an older run merging last must not clobber a newer vector
-			if freshDim > 0 && cur.Dim != freshDim { // the endpoint's dimension moved: drop vectors it cannot match
+			current := currentEntryHashes(root)                                 // an older run merging last must not clobber a newer vector
+			stale := freshDim > 0 && cur.Dim != freshDim && cur.DimAt > started // a newer run already moved the dimension
+			if stale {
+				fresh = nil
+			} else if freshDim > 0 && cur.Dim != freshDim { // the endpoint's dimension moved: drop vectors it cannot match
 				for id, r := range cur.Rows {
 					if v, ok := decodeVec(r.Vec); ok && len(v) > 0 && len(v) != freshDim {
 						delete(cur.Rows, id)
 					}
 				}
-				cur.Dim = freshDim
+				cur.Dim, cur.DimAt = freshDim, started
 			}
 			for id, row := range fresh {
 				want, ok := current[id]
