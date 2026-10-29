@@ -102,7 +102,7 @@ func (v vendorRunner) Name() string { return v.name }
 
 // Caps follow each CLI's verified headless flags; Autonomous holds for all three (codex is autonomous by construction).
 func (v vendorRunner) Caps() Caps {
-	return Caps{Model: true, Provider: true, Effort: true, WorkDir: true, SessionID: true, Tools: true, Autonomous: true,
+	return Caps{Model: true, Provider: true, Effort: true, WorkDir: true, SessionID: true, Tools: true, Autonomous: true, Env: true,
 		NoPersist: v.name == "codex", SafeMode: v.name == "codex" || v.name == "opencode", DebugFile: v.name == "gemini", Direct: true}
 }
 
@@ -151,6 +151,7 @@ func (v vendorRunner) Run(ctx context.Context, req Request, sink Sink) (Result, 
 	if err != nil {
 		return res, &Error{Kind: KindFatal, Agent: v.name, Err: err}
 	}
+	env = append(env, req.Env...) // --env goes last, after the route keys, so it wins
 	if v.name == "gemini" {
 		// agy builds its own argv (stream-json over stdin); only the resolved credential env carries over.
 		def := t
@@ -425,7 +426,7 @@ type copilotRunner struct{}
 func (copilotRunner) Name() string { return "copilot" }
 func (copilotRunner) Caps() Caps {
 	return Caps{Model: true, Provider: true, Effort: true, WorkDir: true, Tools: true, SessionID: true,
-		Autonomous: true, Memory: true, Direct: true}
+		Autonomous: true, Memory: true, Direct: true, Env: true}
 }
 func (copilotRunner) Available() error { _, err := paths.VendorBin("copilot"); return err }
 
@@ -496,7 +497,7 @@ func (copilotRunner) Run(ctx context.Context, req Request, sink Sink) (Result, e
 		route.apply(&opts)
 	}
 	// the SDK merges os.Environ itself, so blank other profiles' credentials the launch does not set itself
-	opts.Env = blankForeignCredentials(ctx, opts.Env, req.KeepEnv)
+	opts.Env = append(blankForeignCredentials(ctx, opts.Env, req.KeepEnv), req.Env...) // --env goes last so it wins
 	if err := applyCopilotToken(&opts, own, env); err != nil {
 		return res, &Error{Kind: KindFatal, Agent: "copilot", Err: err}
 	}
