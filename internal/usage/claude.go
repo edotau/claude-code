@@ -2,6 +2,7 @@
 package usage
 
 import (
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -167,15 +168,15 @@ type claudeUsageCache struct {
 	Body             json.RawMessage `json:"body"`
 }
 
-// claudeCacheDir holds the shared usage cache; a var (not a const path) so tests point it at t.TempDir().
-var claudeCacheDir = filepath.Join(paths.StateDir(), "cache")
+// claudeCacheDir overrides the usage cache dir (tests); empty resolves state/harness/cache at call time.
+var claudeCacheDir string
 
 // claudeCacheFileName is the cache file's name within claudeCacheDir.
 const claudeCacheFileName = "claude-oauth-usage.json"
 
 // claudeUsageCachePath is the one cache file every run reads/writes, scoped by CLAUDE_CONFIG_DIR like StateDir.
 func claudeUsageCachePath() string {
-	return filepath.Join(claudeCacheDir, claudeCacheFileName)
+	return filepath.Join(cmp.Or(claudeCacheDir, filepath.Join(paths.StateDir(), "cache")), claudeCacheFileName)
 }
 
 // claudeUsageCacheTTL is how long a fetch stays fresh before a run hits the network again; env-overridable.

@@ -1,0 +1,49 @@
+# Reviewable registry: name | kind | version | glob (relative to the config dir) | owner | clean:<target>|keep
+# A change here is a change to the on-disk contract; regenerate with: go test ./internal/schemas -run Golden -update
+# legacy-layout: agentversion
+# legacy-layout: audit
+# legacy-layout: codex-catalog
+# legacy-layout: codex-routing
+# legacy-layout: dispatch-record
+# legacy-layout: migrations
+# legacy-layout: oauth-usage-cache
+# legacy-layout: opencode-models-check
+# legacy-layout: opencode-overlay
+# legacy-layout: projections
+# legacy-layout: quota
+# legacy-layout: router-runtime
+# legacy-layout: settings-overlay
+# legacy-layout: setup-state
+# legacy-layout: stop-format
+# legacy-layout: tailscale-machines
+# legacy-layout: token-expiry
+# legacy-layout: usage-ledger
+# legacy-layout: vault
+# legacy-layout: vendor-baseline
+# legacy-layout: vscode-serve-runtime
+# legacy-layout: worktree-merge-op
+agentversion | cache | 1 | state/harness/agentversion.json | internal/tools | keep
+ask-envelope | wire | 1 | - | internal/agent | keep
+audit | log | 1 | state/harness/audit.jsonl* | internal/audit | keep
+codex-catalog | derived | 1 | state/harness/codex/catalog-*.json | internal/vendors | keep
+codex-routing | log | 1 | state/harness/codex/routing-*.jsonl | internal/hooks | clean:codex-audit
+dispatch-record | record | 1 | state/harness/dispatch/*.json | internal/agent | clean:dispatch-log
+memory-journal | record | 1 | state/harness/memory/journal/*.json | internal/memory | keep
+migrations | log | 1 | state/harness/migrations.jsonl | schemas | keep
+oauth-usage-cache | cache | 1 | state/harness/cache/claude-oauth-usage.json | internal/usage | keep
+opencode-auth-cache | cache | 1 | state/harness/vendors/opencode-auth.json | internal/vendors | keep
+opencode-models-check | cache | 1 | state/harness/opencode-models-check.json | internal/providers | keep
+opencode-overlay | derived | 1 | state/harness/opencode/*.json | internal/vendors | keep
+projections | derived | 1 | state/projections/* | internal/crossgen | clean:projections
+quota | record | 1 | state/harness/quota.json | internal/router | keep
+router-runtime | record | 1 | state/harness/router.json | internal/proxy | keep
+settings-overlay | derived | 1 | state/harness/overlay-*.json | internal/launch | keep
+setup-state | record | 1 | state/harness/setup.json | internal/setup | keep
+stop-format | cache | 1 | state/harness/stop-format/*.json | internal/hooks | keep
+tailscale-machines | cache | 1 | state/harness/tailscale-machines.json | internal/cli | keep
+token-expiry | cache | 1 | state/harness/cache/token-expiry/*.json | internal/providers | keep
+usage-ledger | log | 1 | state/usage/ledger.jsonl | internal/usageledger | keep
+vault | store | 3 | state/vault.db | vault | keep
+vendor-baseline | derived | 1 | state/harness/vendor-baseline/* | internal/generate | keep
+vscode-serve-runtime | record | 1 | state/harness/vscode-serve.json | internal/vscodeserve | keep
+worktree-merge-op | record | 1 | state/harness/worktree-merge-ops/*.json | internal/worktree | keep
