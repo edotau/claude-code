@@ -314,3 +314,41 @@ func TestLearnDistroSurvivesStdoutHoldingChild(t *testing.T) {
 	}
 	_ = out
 }
+
+func TestViewFromKeepsDotDotThroughSymlinks(t *testing.T) {
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "real", "sub"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(root, "real", "sub"), filepath.Join(root, "link")); err != nil {
+		t.Skip("symlinks unavailable")
+	}
+	got, err := (&Resolver{}).ViewFrom(root+"/link/..", Target{Style: StyleURL})
+	if want := "file://" + root + "/real"; err != nil || got != want {
+		t.Errorf("ViewFrom = %q, %v; want %q", got, err, want)
+	}
+}
+
+// An obscured first match must not hide another mount that exposes the same content.
+func TestResolveFallsBackToUnobscuredMount(t *testing.T) {
+	r := &Resolver{Mounts: []Mount{
+		{Point: "/a", Kind: KindSMB, Host: "srv", RemotePath: "team/docs"},
+		{Point: "/b", Kind: KindSMB, Host: "srv", RemotePath: "team"},
+		{Point: "/a/inner", FSType: "tmpfs", Kind: KindOpaque},
+		{Point: "/mnt/c", Kind: KindDrvFS, Drive: "C", Root: "/"},
+		{Point: "/mnt/c/Users/u", Kind: KindDrvFS, Drive: "C", Root: "/Users/u"},
+		{Point: "/mnt/c/Users/u/x", FSType: "tmpfs", Kind: KindOpaque},
+	}}
+	if got, ok := r.Resolve(`\\srv\team\docs\inner\f`); !ok || got != "/b/docs/inner/f" {
+		t.Errorf("smb fallback = %q, %v; want /b/docs/inner/f", got, ok)
+	}
+	if got, ok := r.Resolve(`C:\Users\u\x\f`); ok {
+		t.Errorf("drive fully obscured resolved to %q", got)
+	}
+	if got, ok := r.Resolve(`C:\Users\u\y`); !ok || got != "/mnt/c/Users/u/y" {
+		t.Errorf("drive specific = %q, %v", got, ok)
+	}
+}

@@ -197,3 +197,11 @@ func TestScanWinPathsTrimsTrailingPunctuation(t *testing.T) {
 		t.Errorf("scanWinPaths = %q, want %q", got, want)
 	}
 }
+
+// A markdown backtick closing an inline-code path is not part of the path.
+func TestScanWinPathsStopsAtBacktick(t *testing.T) {
+	got := scanWinPaths("read `file:///etc/hostname` now")
+	if len(got) != 1 || got[0] != "file:///etc/hostname" {
+		t.Errorf("scanWinPaths = %q, want [file:///etc/hostname]", got)
+	}
+}

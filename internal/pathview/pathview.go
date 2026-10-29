@@ -8,6 +8,7 @@ import (
 	"path"
 	"path/filepath"
 	"slices"
+	"sort"
 	"strings"
 )
 
@@ -97,21 +98,35 @@ func isDrivePath(p string) bool {
 
 func (r *Resolver) resolveDrive(p string) (string, bool) {
 	rest := path.Clean("/" + strings.ReplaceAll(p[2:], `\`, "/")) // Windows clamps ".." at the drive root
-	var best *Mount
-	var bestRest string
+	var cands []candidate
 	for i := range r.Mounts {
 		m := &r.Mounts[i]
 		if m.Kind != KindDrvFS || !strings.EqualFold(m.Drive, p[:1]) {
 			continue
 		}
-		if sub, ok := trimPrefixPath(rest, m.Root, false); ok && (best == nil || len(m.Root) > len(best.Root)) {
-			best, bestRest = m, sub
+		if sub, ok := trimPrefixPath(rest, m.Root, false); ok {
+			cands = append(cands, candidate{m, sub, len(m.Root)})
 		}
 	}
-	if best == nil {
-		return "", false
+	return r.firstWithin(cands)
+}
+
+// candidate is a mount that matches a source path, with the remainder and how specific the match is.
+type candidate struct {
+	m           *Mount
+	rest        string
+	specificity int
+}
+
+// firstWithin tries candidates most specific first and returns the first one an inner mount does not obscure.
+func (r *Resolver) firstWithin(cands []candidate) (string, bool) {
+	sort.SliceStable(cands, func(i, j int) bool { return cands[i].specificity > cands[j].specificity })
+	for _, c := range cands {
+		if local, ok := r.within(c.m, c.rest); ok {
+			return local, true
+		}
 	}
-	return r.within(best, bestRest)
+	return "", false
 }
 
 // within joins rest under m's point, refusing a result that an inner (opaque or other) mount covers.
@@ -188,24 +203,19 @@ func (r *Resolver) resolveURL(scheme, rest string) (string, bool) {
 	return "", false
 }
 
-// fromRemote maps host plus a remote path onto the longest matching mount of one of kinds.
+// fromRemote maps host plus a remote path onto the most specific unobscured mount of one of kinds.
 func (r *Resolver) fromRemote(host, rp string, kinds ...Kind) (string, bool) {
-	var best *Mount
-	var bestRest string
+	var cands []candidate
 	for i := range r.Mounts {
 		m := &r.Mounts[i]
 		if !hasKind(kinds, m.Kind) || !strings.EqualFold(m.Host, host) {
 			continue
 		}
-		rest, ok := trimPrefixPath(rp, m.RemotePath, m.Kind == KindSMB)
-		if ok && (best == nil || len(m.RemotePath) > len(best.RemotePath)) {
-			best, bestRest = m, rest
+		if rest, ok := trimPrefixPath(rp, m.RemotePath, m.Kind == KindSMB); ok {
+			cands = append(cands, candidate{m, rest, len(m.RemotePath)})
 		}
 	}
-	if best == nil {
-		return "", false
-	}
-	return r.within(best, bestRest)
+	return r.firstWithin(cands)
 }
 
 func hasKind(kinds []Kind, k Kind) bool {
@@ -236,7 +246,7 @@ func trimPrefixPath(p, prefix string, fold bool) (string, bool) {
 
 // ViewFrom renders the local path for target; ErrNotReachable when no known mount supports it.
 func (r *Resolver) ViewFrom(local string, target Target) (string, error) {
-	local = filepath.Clean(local)
+	local = cleanLocal(local) // keeps `..` through symlinks, like Resolve
 	if !filepath.IsAbs(local) {
 		return "", ErrNotReachable
 	}
