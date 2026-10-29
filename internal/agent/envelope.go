@@ -82,6 +82,9 @@ func FailureEnvelope(agentName string, err error) Envelope {
 
 // errorKind is the envelope token for err's class; an unclassified error is fatal.
 func errorKind(err error) string {
+	if re, ok := errors.AsType[remoteError](err); ok {
+		return re.kind
+	}
 	switch {
 	case errors.Is(err, ErrSchema):
 		return "schema"
