@@ -43,11 +43,36 @@
   #hostTabs { display: flex; gap: 0.4rem; flex-wrap: wrap; margin-bottom: 0.4rem; }
   #hostTabs button { width: auto; background: #1b1e28; border-color: #272b36; color: #ccc; font-weight: 400; margin-top: 0; padding: 0.3rem 0.6rem; }
   #hostTabs button.active { background: #2d6cdf; border-color: #2d6cdf; color: #fff; }
+  #tabs { display: flex; gap: 0.4rem; margin-bottom: 0.5rem; }
+  #tabs button { width: auto; margin-top: 0; padding: 0.3rem 0.8rem; background: #1b1e28; border-color: #272b36; color: #ccc; font-weight: 400; }
+  #tabs button.active { background: #2d6cdf; border-color: #2d6cdf; color: #fff; }
+  .bar { height: 6px; background: #272b36; border-radius: 3px; margin: 0.35rem 0 0.2rem; overflow: hidden; }
+  .bar > span { display: block; height: 100%; background: #3fb950; }
+  .plan-row { cursor: pointer; }
+  .task { margin: 0.25rem 0; }
+  .task code { background: #11141c; padding: 0 0.3rem; border-radius: 4px; cursor: pointer; }
+  #planMd { white-space: pre-wrap; font-family: ui-monospace, monospace; font-size: 0.78rem; max-height: 50vh; overflow: auto; margin: 0.4rem 0 0; }
 </style>
 </head>
 <body>
 <h1>claude-code web</h1>
+<div id="tabs">
+  <button type="button" data-tab="agents" class="active">Agents</button>
+  <button type="button" data-tab="plans">Plans</button>
+</div>
 
+<div id="plansPane" style="display:none">
+  <section>
+    <h2>Plans</h2>
+    <div id="plansList"><p class="muted">loading…</p></div>
+  </section>
+  <section id="planSection" style="display:none">
+    <h2>Plan <button type="button" class="linklike" id="planCloseBtn">[close]</button></h2>
+    <div id="planDetail"></div>
+  </section>
+</div>
+
+<div id="agentsPane">
 <section>
   <h2>Agents</h2>
   <div id="tree"><p class="muted">loading…</p></div>
@@ -92,6 +117,7 @@
   </form>
   <div id="dispatchResult"></div>
 </section>
+</div>
 
 <script>
 const csrfToken = document.querySelector('meta[name="csrf-token"]').content;
@@ -334,8 +360,93 @@ function watchTree() {
   es.addEventListener('tree', function (e) {
     try { const t = JSON.parse(e.data); treeEpoch++; document.getElementById('tree').innerHTML = renderTree(t); treeLive = true; } catch (err) {}
   });
+  es.addEventListener('plans', function (e) {
+    try { renderPlans(JSON.parse(e.data)); if (openPlan) showPlan(openPlan); } catch (err) {}
+  });
   es.onerror = function () { treeLive = false; es.close(); };
 }
+
+let plansList = [];
+let openPlan = null;
+function el(tag, cls, text) {
+  const n = document.createElement(tag);
+  if (cls) n.className = cls;
+  if (text != null) n.textContent = text;
+  return n;
+}
+
+function renderPlans(list) {
+  plansList = list || [];
+  const box = document.getElementById('plansList');
+  box.textContent = '';
+  if (!plansList.length) { box.appendChild(el('p', 'muted', 'no plans')); return; }
+  const byRepo = {};
+  plansList.forEach(function (p) { (byRepo[p.repo] = byRepo[p.repo] || []).push(p); });
+  Object.keys(byRepo).sort().forEach(function (repo) {
+    box.appendChild(el('h2', null, repo));
+    byRepo[repo].forEach(function (p) {
+      const card = el('div', 'card plan-row');
+      const row = el('div', 'row');
+      row.appendChild(el('strong', null, p.path.split('/').pop()));
+      const note = p.ticked + '/' + p.total + (p.claims.length ? ' · ' + p.claims.length + ' claimed' : '');
+      row.appendChild(el('span', 'muted', note));
+      card.appendChild(row);
+      const bar = el('div', 'bar');
+      const fill = document.createElement('span');
+      fill.style.width = (p.total ? Math.round(100 * p.ticked / p.total) : 0) + '%';
+      bar.appendChild(fill);
+      card.appendChild(bar);
+      card.addEventListener('click', function () { showPlan(p.path); });
+      box.appendChild(card);
+    });
+  });
+}
+
+function renderPlanDetail(d) {
+  const box = document.getElementById('planDetail');
+  box.textContent = '';
+  box.appendChild(el('div', 'muted', d.path));
+  d.tasks.forEach(function (t) {
+    const row = el('div', 'task');
+    row.appendChild(document.createTextNode((t.done ? '☑ ' : '☐ ') + (t.id ? t.id + ' ' : '') + t.title + ' '));
+    if (t.sha) {
+      const code = el('code', null, t.sha);
+      code.title = 'copy';
+      code.addEventListener('click', function () { if (navigator.clipboard) navigator.clipboard.writeText(t.sha).catch(function () {}); });
+      row.appendChild(code);
+    }
+    if (t.claim) row.appendChild(el('div', 'activity', 'claim: ' + t.claim));
+    t.partial.forEach(function (n) { row.appendChild(el('div', 'activity', 'partly landed: ' + n)); });
+    box.appendChild(row);
+  });
+  box.appendChild(el('pre', null, d.markdown)).id = 'planMd';
+}
+
+function showPlan(path) {
+  openPlan = path;
+  document.getElementById('planSection').style.display = '';
+  fetch('/api/plan?path=' + encodeURIComponent(path))
+    .then(function (r) { if (!r.ok) return r.text().then(function (t) { throw new Error(t); }); return r.json(); })
+    .then(function (d) { if (openPlan === path) renderPlanDetail(d); })
+    .catch(function (err) {
+      const box = document.getElementById('planDetail');
+      box.textContent = '';
+      box.appendChild(el('p', 'muted', String(err.message || err)));
+    });
+}
+
+document.getElementById('planCloseBtn').addEventListener('click', function () {
+  openPlan = null;
+  document.getElementById('planSection').style.display = 'none';
+});
+
+document.getElementById('tabs').addEventListener('click', function (e) {
+  const tab = e.target.dataset && e.target.dataset.tab;
+  if (!tab) return;
+  document.querySelectorAll('#tabs button').forEach(function (b) { b.classList.toggle('active', b === e.target); });
+  document.getElementById('agentsPane').style.display = tab === 'agents' ? '' : 'none';
+  document.getElementById('plansPane').style.display = tab === 'plans' ? '' : 'none';
+});
 
 loadTree();
 watchTree();

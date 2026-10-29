@@ -211,6 +211,9 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	h := s.treeHub()
 	ch, cur := h.subscribe()
 	defer h.unsubscribe(ch)
+	ph := s.plansHub()
+	pch, pcur := ph.subscribe()
+	defer ph.unsubscribe(pch)
 	if cur == nil {
 		var err error
 		if cur, err = s.treeJSON(); err != nil {
@@ -222,8 +225,15 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	hd.Set("Content-Type", "text/event-stream")
 	hd.Set("Cache-Control", "no-cache")
 	hd.Set("X-Accel-Buffering", "no")
-	sent := cur
-	if !writeTreeFrame(rc, w, cur) {
+	if pcur == nil {
+		var err error
+		if pcur, err = s.plansJSON(); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+	}
+	sent, psent := cur, pcur
+	if !writeTreeFrame(rc, w, cur) || !writeEventFrame(rc, w, "plans", pcur) {
 		return
 	}
 	ping := time.NewTicker(ssePing)
@@ -234,8 +244,19 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 			return
 		case <-h.done:
 			return
+		case <-ph.done:
+			return
 		case <-ping.C:
 			if !writeFlush(rc, w, []byte(": ping\n\n")) {
+				return
+			}
+		case <-pch:
+			next := ph.latest()
+			if bytes.Equal(next, psent) {
+				continue
+			}
+			psent = next
+			if !writeEventFrame(rc, w, "plans", next) {
 				return
 			}
 		case <-ch:
@@ -264,6 +285,11 @@ func writeFlush(rc *http.ResponseController, w http.ResponseWriter, b []byte) bo
 
 // writeTreeFrame writes one `event: tree` frame (JSON is single-line, so one data: line) and flushes.
 func writeTreeFrame(rc *http.ResponseController, w http.ResponseWriter, payload []byte) bool {
-	frame := append(append([]byte("event: tree\ndata: "), bytes.TrimRight(payload, "\n")...), '\n', '\n')
+	return writeEventFrame(rc, w, "tree", payload)
+}
+
+// writeEventFrame writes one named SSE frame and flushes.
+func writeEventFrame(rc *http.ResponseController, w http.ResponseWriter, name string, payload []byte) bool {
+	frame := append(append([]byte("event: "+name+"\ndata: "), bytes.TrimRight(payload, "\n")...), '\n', '\n')
 	return writeFlush(rc, w, frame)
 }
