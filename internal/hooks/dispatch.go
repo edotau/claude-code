@@ -32,6 +32,7 @@ type Result struct {
 	UpdatedInput  map[string]any
 	Stdout        string // raw stdout: only the worktree group may set it
 	Stderr        string
+	ExitCode      int // legacy non-zero exit other than 2; honored only from the worktree group
 }
 
 // Runner is one handler bound to an event.
@@ -78,7 +79,7 @@ func resultFromLegacy(code int, stdout, stderr string) Result {
 		r.Decision, r.Reason = Block, stderr
 		return r
 	case code != ExitProceed:
-		r.Stderr = fmt.Sprintf("%s\n(hook exit %d)", stderr, code)
+		r.Stderr, r.ExitCode = fmt.Sprintf("%s\n(hook exit %d)", stderr, code), code
 		return r
 	}
 	r.Stderr = stderr
@@ -200,6 +201,9 @@ func Dispatch(bound []Bound, event string, in *Input, log io.Writer) (Result, er
 				continue
 			}
 			merged.UpdatedInput = r.UpdatedInput
+		}
+		if r.ExitCode != 0 && b.Group == "worktree" && merged.ExitCode == 0 {
+			merged.ExitCode = r.ExitCode
 		}
 		if r.Stdout != "" {
 			if b.Group != "worktree" {

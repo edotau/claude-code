@@ -85,6 +85,9 @@ func Emit(vendor, event string, r Result, stdout, stderr io.Writer) int {
 	if r.Stderr != "" {
 		fmt.Fprintln(stderr, r.Stderr)
 	}
+	if r.ExitCode != 0 {
+		return r.ExitCode
+	}
 	if r.Decision == Block && event != "PreToolUse" {
 		fmt.Fprintln(stderr, strings.TrimSpace(r.Reason))
 		return ExitBlock
