@@ -14,6 +14,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/edotau/claude-code/internal/ansi"
@@ -69,8 +70,7 @@ func DoctorChecks() (checks []Check, ok bool) {
 	check(err == nil, true, "provider registry", orErr("vault overlay/providers", err))
 	if reg != nil {
 		sel, serr := providers.Select(reg, "")
-		for _, n := range reg.Names() {
-			c := providerCredentialCheck(reg, sel, serr, n)
+		for _, c := range providerCredentialChecks(reg, sel, serr, reg.Names()) {
 			check(c.OK, c.Hard, c.Name, c.Detail)
 		}
 		check(true, false, "opencode route", opencodeRouteDetail(reg, sel, serr))
@@ -143,6 +143,30 @@ func RouteDetail(vendor string) (detail string, ok bool) {
 	}
 }
 
+// credentialProbeWorkers caps the concurrent live credential probes doctor runs.
+const credentialProbeWorkers = 4
+
+// probeCredential is the live credential probe; a var so tests can substitute a fake.
+var probeCredential = providers.ProbeCredential
+
+// providerCredentialChecks runs providerCredentialCheck for names concurrently and returns the rows in names order.
+func providerCredentialChecks(reg *providers.Registry, sel providers.Selection, selectErr error, names []string) []Check {
+	rows := make([]Check, len(names))
+	sem := make(chan struct{}, credentialProbeWorkers)
+	var wg sync.WaitGroup
+	for i, n := range names {
+		wg.Add(1)
+		sem <- struct{}{}
+		go func() {
+			defer wg.Done()
+			defer func() { <-sem }()
+			rows[i] = providerCredentialCheck(reg, sel, selectErr, n)
+		}()
+	}
+	wg.Wait()
+	return rows
+}
+
 func providerCredentialCheck(reg *providers.Registry, sel providers.Selection, selectErr error, name string) Check {
 	p := reg.Providers[name]
 	session := selectErr == nil && sel.Provider == p
@@ -156,7 +180,7 @@ func providerCredentialCheck(reg *providers.Registry, sel providers.Selection, s
 	present := providers.CredentialPresent(p)
 	if present {
 		pctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
-		status, detail := providers.ProbeCredential(pctx, p)
+		status, detail := probeCredential(pctx, p)
 		cancel()
 		switch status {
 		case "login":
@@ -633,7 +657,10 @@ func toolPATHCopies(name string) []string {
 	return copies
 }
 
-func toolPATHVersion(path string) string {
+// toolPATHVersion is the first --version line of a PATH copy, cached by path+size+mtime like the tools version cache.
+func toolPATHVersion(path string) string { return tools.ProbedVersionLine(path, spawnPATHVersion) }
+
+func spawnPATHVersion(path string) string {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, path, "--version")

@@ -100,11 +100,13 @@ func Run(args []string, claudeDir string, out, errw io.Writer) int {
 		return 1
 	}
 	agg := transcript.NewUsageAggregate()
+	summaries := transcript.OpenSummaryCache(transcript.SummaryCachePath())
 	for _, f := range files {
-		if addErr := agg.AddFile(f); addErr != nil {
+		if addErr := agg.AddFileCached(summaries, f); addErr != nil {
 			fmt.Fprintf(errw, "usage: warning: skipping %s: %v\n", f, addErr)
 		}
 	}
+	_ = summaries.Save() // a cache write failure never fails the verb
 	// zero-token rows (Claude Code's "<synthetic>" placeholder messages) are noise
 	maps.DeleteFunc(agg.Models, func(_ string, u *transcript.ModelUsage) bool { return u.Total() == 0 })
 

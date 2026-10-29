@@ -1,0 +1,1 @@
+{"schema":1,"files":{"/home/u/.claude/projects/p/s.jsonl":{"size":1024,"mtime_ns":1767323045000000000,"summary":{"models":{"opus":{"input_tokens":10,"output_tokens":20,"cache_read_tokens":30,"cache_creation_tokens":40}},"turns":2,"model_turns":{"opus":2},"first":"2026-01-02T03:04:05Z","last":"2026-01-02T03:09:05Z","per_min":{"29455384":2}}}}}

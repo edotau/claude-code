@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -200,5 +201,47 @@ func TestAgentVersionCacheShapeMismatchIsMissThenWritesSchema1(t *testing.T) {
 				t.Fatalf("rewritten cache = %s, want schema 1", raw)
 			}
 		})
+	}
+}
+
+func TestProbedVersionLineSharesCacheAndSurvivesConcurrentWrites(t *testing.T) {
+	bin, counter := probeFixture(t, "echo 'fake 4.5.6'")
+	resetMemo()
+	var calls int
+	probe := func(p string) string {
+		calls++
+		return firstVersionLine(p)
+	}
+	for range 2 {
+		if got := ProbedVersionLine(bin, probe); got != "fake 4.5.6" {
+			t.Fatalf("ProbedVersionLine = %q", got)
+		}
+	}
+	if calls != 1 || invocations(t, counter) != 1 {
+		t.Fatalf("probe ran %d times, binary %d times; want 1, 1", calls, invocations(t, counter))
+	}
+	// The default path reads the same cache entry.
+	if v, err := AgentVersionAt(bin); err != nil || v != "4.5.6" || invocations(t, counter) != 1 {
+		t.Fatalf("AgentVersionAt = %q, %v after %d runs; want a cache hit", v, err, invocations(t, counter))
+	}
+
+	// Concurrent writers must not drop each other's rows.
+	const n = 24
+	var wg sync.WaitGroup
+	for i := range n {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			p := "/fake/bin" + strconv.Itoa(i)
+			writeVersionCache(p, p+"|1|1", "v"+strconv.Itoa(i))
+		}()
+	}
+	wg.Wait()
+	cache := readVersionCache()
+	for i := range n {
+		p := "/fake/bin" + strconv.Itoa(i)
+		if cache[p+"|1|1"] != "v"+strconv.Itoa(i) {
+			t.Errorf("row %s missing after concurrent writes (cache has %d rows)", p, len(cache))
+		}
 	}
 }

@@ -42,6 +42,7 @@ setup-state | record | 1 | state/harness/setup.json | internal/setup | keep
 stop-format | cache | 1 | state/harness/stop-format/*.json | internal/hooks | keep
 tailscale-machines | cache | 1 | state/harness/tailscale-machines.json | internal/cli | keep
 token-expiry | cache | 1 | state/harness/cache/token-expiry/*.json | internal/providers | keep
+transcript-summary | cache | 1 | state/harness/transcript/summary.json | internal/transcript | keep
 usage-ledger | log | 1 | state/usage/ledger.jsonl | internal/usageledger | keep
 vault | store | 3 | state/vault.db | vault | keep
 vendor-baseline | derived | 1 | state/harness/vendor-baseline/* | internal/generate | keep
