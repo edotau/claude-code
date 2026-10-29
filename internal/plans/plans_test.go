@@ -186,7 +186,7 @@ func TestClaimClearClaim(t *testing.T) {
 
 	for _, tc := range []struct {
 		name, taskID, text, wantErr string
-		clear                         bool
+		clear                       bool
 	}{
 		{"comment terminator", "2.1", "working: x --> y", "-->", false},
 		{"bad verb", "2.1", "thinking: x", "must start with working: or finished:", false},
