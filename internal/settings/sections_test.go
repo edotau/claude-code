@@ -3,11 +3,10 @@ package settings
 import (
 	"bytes"
 	"encoding/json"
-	"os"
-	"slices"
 	"strings"
 	"testing"
-	"testing/fstest"
+
+	"github.com/edotau/claude-code/defaults"
 )
 
 // TestRenderSchemaFirst: $schema must stay the first key emitted — install/upgrade tooling and humans
@@ -77,66 +76,77 @@ func TestSectionsCoverRenderedKeys(t *testing.T) {
 	}
 }
 
-// TestMergeSectionsRejectsDuplicateKey: a top-level key defined in two section files is an error
-// naming both files, not a silent overwrite.
-func TestMergeSectionsRejectsDuplicateKey(t *testing.T) {
-	fsys := fstest.MapFS{
-		"template/00-a.json": {Data: []byte(`{"theme":"dark"}`)},
-		"template/10-b.json": {Data: []byte(`{"theme":"light"}`)},
-	}
-	_, err := mergeSections(fsys)
-	if err == nil {
-		t.Fatal("mergeSections returned no error for a key defined in two files")
-	}
-	if !strings.Contains(err.Error(), "00-a.json") || !strings.Contains(err.Error(), "10-b.json") {
-		t.Errorf("error %q does not name both files", err)
-	}
-}
-
-// TestMergeSectionsMergesDisjointKeysInNameOrder: section files with no overlapping keys merge into
-// one object, keys ordered by file name.
-func TestMergeSectionsMergesDisjointKeysInNameOrder(t *testing.T) {
-	fsys := fstest.MapFS{
-		"template/10-b.json": {Data: []byte(`{"beta":"two"}`)},
-		"template/00-a.json": {Data: []byte(`{"alpha":"one"}`)},
-	}
-	o, err := mergeSections(fsys)
-	if err != nil {
-		t.Fatalf("mergeSections: %v", err)
-	}
-	if want := []string{"alpha", "beta"}; !slices.Equal(o.keys, want) {
-		t.Errorf("keys = %v, want %v (file-name order)", o.keys, want)
-	}
-	if string(o.vals["alpha"]) != `"one"` || string(o.vals["beta"]) != `"two"` {
-		t.Errorf("vals = %v", o.vals)
-	}
-}
-
 // The env block holds only env-only variables: one the schema documents as a settings key's override belongs in that key.
 func TestEnvHoldsOnlyEnvOnlyVariables(t *testing.T) {
-	raw, err := templateFS.ReadFile("template/40-env.json")
+	o, err := parseObject(defaults.Claude)
 	if err != nil {
 		t.Fatal(err)
 	}
-	var tmpl struct{ Env map[string]string }
-	if err := json.Unmarshal(raw, &tmpl); err != nil {
+	var env map[string]string
+	if err := json.Unmarshal(o.vals["env"], &env); err != nil {
 		t.Fatal(err)
 	}
-	sraw, err := os.ReadFile("testdata/claude-code-settings.schema.json")
-	if err != nil {
-		t.Fatal(err)
-	}
-	var schema struct {
-		Properties map[string]struct{ Description string } `json:"properties"`
-	}
-	if err := json.Unmarshal(sraw, &schema); err != nil {
-		t.Fatal(err)
-	}
-	for name := range tmpl.Env {
-		for key, p := range schema.Properties {
-			if key != "env" && strings.Contains(p.Description, name) {
-				t.Errorf("env %s has a settings key (%s): set the key in its template section instead", name, key)
+	for name := range env {
+		for _, k := range SchemaKeys() {
+			if !k.Env && k.Name != "env" && strings.Contains(k.Description, name) {
+				t.Errorf("env %s has a settings key (%s): set the key in the defaults file instead", name, k.Name)
 			}
 		}
+	}
+}
+
+// TestDefaultsMatchSchema: every key in the defaults file passes its schema validation, or is a docs-sourced catalog key.
+func TestDefaultsMatchSchema(t *testing.T) {
+	o, err := parseObject(defaults.Claude)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, k := range o.keys {
+		checkDefault(t, k, o.vals[k])
+	}
+	var env map[string]json.RawMessage
+	if err := json.Unmarshal(o.vals["env"], &env); err != nil {
+		t.Fatal(err)
+	}
+	for k, v := range env {
+		checkDefault(t, k, v)
+	}
+}
+
+func checkDefault(t *testing.T, name string, raw json.RawMessage) {
+	t.Helper()
+	if f, ok := Lookup(name); ok && f.Source == "docs" {
+		return
+	}
+	k, ok := SchemaKey(name)
+	if !ok {
+		t.Errorf("default key %q is not in the schema or a docs catalog entry", name)
+		return
+	}
+	if err := k.Validate(raw); err != nil {
+		t.Errorf("default key %q: %v", name, err)
+	}
+}
+
+// TestSchemaKeyValidateRejects: an unknown key is absent and a wrong type or out-of-enum value fails.
+func TestSchemaKeyValidateRejects(t *testing.T) {
+	if _, ok := SchemaKey("noSuchSetting"); ok {
+		t.Error("SchemaKey(noSuchSetting) found a key")
+	}
+	cases := map[string]string{"tui": `"sideways"`, "cleanupPeriodDays": `"30"`, "prefersReducedMotion": `1`, "permissions": `[]`}
+	for name, raw := range cases {
+		k, ok := SchemaKey(name)
+		if !ok {
+			t.Fatalf("%s missing from schema", name)
+		}
+		if k.Validate(json.RawMessage(raw)) == nil {
+			t.Errorf("%s accepted %s", name, raw)
+		}
+	}
+	if k, _ := SchemaKey("theme"); k.Validate(json.RawMessage(`"custom:mine"`)) != nil {
+		t.Error("theme rejected custom:mine")
+	}
+	if k, _ := SchemaKey("CLAUDE_CODE_SCROLL_SPEED"); !k.Env {
+		t.Error("CLAUDE_CODE_SCROLL_SPEED not an env key")
 	}
 }

@@ -2,7 +2,6 @@ package settings
 
 import (
 	"encoding/json"
-	"os"
 	"slices"
 	"testing"
 )
@@ -10,14 +9,10 @@ import (
 // schemaProps loads the saved schemastore copy's top-level "properties" map once per test run.
 func schemaProps(t *testing.T) map[string]json.RawMessage {
 	t.Helper()
-	raw, err := os.ReadFile("testdata/claude-code-settings.schema.json")
-	if err != nil {
-		t.Fatal(err)
-	}
 	var doc struct {
 		Properties map[string]json.RawMessage `json:"properties"`
 	}
-	if err := json.Unmarshal(raw, &doc); err != nil {
+	if err := json.Unmarshal(schemaJSON, &doc); err != nil {
 		t.Fatal(err)
 	}
 	return doc.Properties

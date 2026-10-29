@@ -1,7 +1,0 @@
-{
-  "cleanupPeriodDays": 30,
-  "autoConnectIde": false,
-  "disableClaudeAiConnectors": true,
-  "useAutoModeDuringPlan": true,
-  "skipWorkflowUsageWarning": true
-}

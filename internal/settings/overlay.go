@@ -44,7 +44,7 @@ func CheckDroppable(keys []string) error {
 	for _, k := range keys {
 		_, catalogued := Lookup(k)
 		if _, rendered := tp.vals[k]; catalogued || rendered {
-			return fmt.Errorf("%s is owned by the template; edit internal/settings/template/", k)
+			return fmt.Errorf("%s is owned by the template; edit defaults/claude/settings.json", k)
 		}
 	}
 	return nil

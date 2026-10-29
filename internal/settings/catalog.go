@@ -17,10 +17,12 @@ const (
 	KindInt
 	KindString
 	KindObject
+	KindNumber
+	KindArray
 )
 
-// Field describes one editable template key: its section, its value shape, and where its
-// allowed values came from.
+// Field describes one editable default key: its section, its value shape, and where its
+// allowed values came from. Kind, Values and Min come from SchemaKey unless Source is "docs".
 type Field struct {
 	Key     string
 	Section string
@@ -30,36 +32,50 @@ type Field struct {
 	Source  string   // "schema" | "docs" | "template"
 }
 
-// Catalog lists every plain-value template key except "model" and "$schema". Source "schema"
-// means the schemastore copy in testdata/claude-code-settings.schema.json documents it; "docs"
+// Catalog lists every plain-value default key except "model" and "$schema". Source "schema"
+// means the schemastore copy in claude-code-settings.schema.json documents it; "docs"
 // means code.claude.com documents it but schemastore is behind; "template" means neither does.
-var Catalog = []Field{
-	{Key: "outputStyle", Section: "model", Kind: KindString, Source: "schema"},
+var Catalog = resolveSchema(catalogSpec)
+
+// catalogSpec carries Key, Section and Source; docs-only entries also carry their hand-written Kind and Values.
+var catalogSpec = []Field{
+	{Key: "outputStyle", Section: "model", Source: "schema"},
 	{Key: "switchModelsOnFlag", Section: "model", Kind: KindBool, Source: "docs"},
 
-	{Key: "theme", Section: "ui", Kind: KindEnum, Values: []string{
-		"auto", "dark", "light", "dark-daltonized", "light-daltonized", "dark-ansi", "light-ansi",
-	}, Source: "schema"},
-	{Key: "tui", Section: "ui", Kind: KindEnum, Values: []string{"fullscreen", "default"}, Source: "schema"},
-	{Key: "prefersReducedMotion", Section: "ui", Kind: KindBool, Source: "schema"},
-	{Key: "spinnerTipsEnabled", Section: "ui", Kind: KindBool, Source: "schema"},
+	{Key: "theme", Section: "ui", Source: "schema"},
+	{Key: "tui", Section: "ui", Source: "schema"},
+	{Key: "prefersReducedMotion", Section: "ui", Source: "schema"},
+	{Key: "spinnerTipsEnabled", Section: "ui", Source: "schema"},
 
-	{Key: "agentPushNotifEnabled", Section: "notifications", Kind: KindBool, Source: "schema"},
-	{Key: "inputNeededNotifEnabled", Section: "notifications", Kind: KindBool, Source: "schema"},
-	{Key: "preferredNotifChannel", Section: "notifications", Kind: KindEnum, Values: []string{
-		"auto", "terminal_bell", "iterm2", "iterm2_with_bell", "kitty", "ghostty", "notifications_disabled",
-	}, Source: "schema"},
-	{Key: "awaySummaryEnabled", Section: "notifications", Kind: KindBool, Source: "schema"},
+	{Key: "agentPushNotifEnabled", Section: "notifications", Source: "schema"},
+	{Key: "inputNeededNotifEnabled", Section: "notifications", Source: "schema"},
+	{Key: "preferredNotifChannel", Section: "notifications", Source: "schema"},
+	{Key: "awaySummaryEnabled", Section: "notifications", Source: "schema"},
 	{Key: "feedbackDrafts", Section: "notifications", Kind: KindEnum, Values: []string{"notify", "quiet", "off"}, Source: "docs"},
 
-	{Key: "cleanupPeriodDays", Section: "session", Kind: KindInt, Min: 1, Source: "schema"},
-	{Key: "autoConnectIde", Section: "session", Kind: KindBool, Source: "schema"},
-	{Key: "disableClaudeAiConnectors", Section: "session", Kind: KindBool, Source: "schema"},
-	{Key: "useAutoModeDuringPlan", Section: "session", Kind: KindBool, Source: "schema"},
+	{Key: "cleanupPeriodDays", Section: "session", Source: "schema"},
+	{Key: "autoConnectIde", Section: "session", Source: "schema"},
+	{Key: "disableClaudeAiConnectors", Section: "session", Source: "schema"},
+	{Key: "useAutoModeDuringPlan", Section: "session", Source: "schema"},
 	{Key: "skipWorkflowUsageWarning", Section: "session", Kind: KindBool, Source: "docs"},
 
 	// Section "" is overlay-only: set via `claude-code vault edit`, never shown on the configure page.
-	{Key: "autoMode", Section: "", Kind: KindObject, Source: "schema"},
+	{Key: "autoMode", Section: "", Source: "schema"},
+}
+
+// resolveSchema fills Kind, Values and Min from the schema for every entry that is not docs-sourced.
+func resolveSchema(spec []Field) []Field {
+	out := make([]Field, len(spec))
+	for i, f := range spec {
+		if k, ok := SchemaKey(f.Key); ok && f.Source != "docs" {
+			f.Kind, f.Values = k.Kind, k.Enum
+			if k.Min != nil {
+				f.Min = int(*k.Min)
+			}
+		}
+		out[i] = f
+	}
+	return out
 }
 
 var catalogIndex = buildCatalogIndex()
