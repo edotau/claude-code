@@ -102,8 +102,18 @@ func (v vendorRunner) Name() string { return v.name }
 
 // Caps follow each CLI's verified headless flags; Autonomous holds for all three (codex is autonomous by construction).
 func (v vendorRunner) Caps() Caps {
-	return Caps{Model: true, Provider: true, Effort: true, WorkDir: true, SessionID: true, Tools: true, Autonomous: true,
-		NoPersist: v.name == "codex", SafeMode: v.name == "codex" || v.name == "opencode", DebugFile: v.name == "gemini", Direct: true}
+	c := Caps{Model: Native, Provider: Native, Effort: Native, WorkDir: Native, SessionID: Native, Tools: Native, Autonomous: Native,
+		NoPersist: lv(v.name == "codex"), SafeMode: lv(v.name == "codex" || v.name == "opencode"), DebugFile: lv(v.name == "gemini"),
+		Direct: Native, Env: Native, SystemPrompt: Emulated, AppendSystemPrompt: Emulated, OutputSchema: Emulated}
+	switch v.name { // levels verified by live probe: codex -c instructions/developer_instructions, opencode agent prompt, agy --json-schema
+	case "codex":
+		c.SystemPrompt, c.AppendSystemPrompt, c.OutputSchema = Native, Native, Native
+	case "opencode":
+		c.SystemPrompt = Native
+	case "gemini":
+		c.OutputSchema = Native
+	}
+	return c
 }
 
 func (v vendorRunner) Available() error {
@@ -151,6 +161,10 @@ func (v vendorRunner) Run(ctx context.Context, req Request, sink Sink) (Result, 
 	if err != nil {
 		return res, &Error{Kind: KindFatal, Agent: v.name, Err: err}
 	}
+	if v.name == "opencode" && req.SystemPrompt != "" {
+		env, argv = opencodeSystemPrompt(env, argv, req.SystemPrompt)
+	}
+	env = append(env, req.Env...) // --env goes last, after the route keys, so it wins
 	if v.name == "gemini" {
 		// agy builds its own argv (stream-json over stdin); only the resolved credential env carries over.
 		def := t
@@ -162,9 +176,9 @@ func (v vendorRunner) Run(ctx context.Context, req Request, sink Sink) (Result, 
 		res.Model = model
 		out, err := RunAgy(ctx, AgyRequest{
 			Prompt: prompt, Model: model, Effort: req.Effort, Cwd: req.WorkDir, Tools: req.Tools, Autonomous: req.Autonomous,
-			DebugFile: req.DebugFile, Env: env, KeepEnv: req.KeepEnv, SessionID: req.SessionID,
+			DebugFile: req.DebugFile, Env: env, KeepEnv: req.KeepEnv, SessionID: req.SessionID, OutputSchema: req.OutputSchema,
 		}, sink)
-		res.Answer, res.Usage, res.Transport = out.Answer, out.Usage, out.Transport
+		res.Answer, res.Usage, res.Transport, res.Structured = out.Answer, out.Usage, out.Transport, out.Structured
 		if out.SessionID != "" {
 			res.SessionID = out.SessionID
 		}
@@ -181,11 +195,33 @@ func (v vendorRunner) Run(ctx context.Context, req Request, sink Sink) (Result, 
 	if v.name == "codex" {
 		stdin = prompt // codex exec reads the prompt from stdin behind its `-` operand
 	}
+	codexJSON := false
 	if v.name == "codex" {
-		argv = codexImageArgs(argv, req.Attach)
+		var extra []string
+		if req.SystemPrompt != "" {
+			extra = append(extra, "-c", "instructions="+tomlString(req.SystemPrompt))
+		}
+		if req.AppendSystemPrompt != "" {
+			extra = append(extra, "-c", "developer_instructions="+tomlString(req.AppendSystemPrompt))
+		}
+		if req.OutputSchema != "" {
+			file, err := codexSchemaFile(req.OutputSchema)
+			if err != nil {
+				return res, &Error{Kind: KindFatal, Agent: v.name, Err: err}
+			}
+			defer os.Remove(file)
+			extra = append(extra, "--output-schema", file)
+		}
+		if codexJSON = codexHasJSON(); codexJSON {
+			extra = append(extra, "--json")
+		}
+		argv = codexExecArgs(codexImageArgs(argv, req.Attach), extra...)
 	}
 	cmd, tail := childCmd(ctx, bin, argv, env, req.WorkDir, stdin, req.KeepEnv, true)
 	cmd.Stderr = io.MultiWriter(cmd.Stderr, &banner)
+	if codexJSON {
+		return v.runStream(ctx, cmd, tail, res, sink, parseCodexStream)
+	}
 	if v.name == "opencode" {
 		return v.runStream(ctx, cmd, tail, res, sink, parseOpenCodeStream)
 	}
@@ -424,8 +460,8 @@ type copilotRunner struct{}
 
 func (copilotRunner) Name() string { return "copilot" }
 func (copilotRunner) Caps() Caps {
-	return Caps{Model: true, Provider: true, Effort: true, WorkDir: true, Tools: true, SessionID: true,
-		Autonomous: true, Memory: true, Direct: true}
+	return Caps{Model: Native, Provider: Native, Effort: Native, WorkDir: Native, Tools: Native, SessionID: Native, Autonomous: Native,
+		Memory: Native, Direct: Native, Env: Native, SystemPrompt: Emulated, AppendSystemPrompt: Emulated, OutputSchema: Emulated}
 }
 func (copilotRunner) Available() error { _, err := paths.VendorBin("copilot"); return err }
 
@@ -496,7 +532,7 @@ func (copilotRunner) Run(ctx context.Context, req Request, sink Sink) (Result, e
 		route.apply(&opts)
 	}
 	// the SDK merges os.Environ itself, so blank other profiles' credentials the launch does not set itself
-	opts.Env = blankForeignCredentials(ctx, opts.Env, req.KeepEnv)
+	opts.Env = append(blankForeignCredentials(ctx, opts.Env, req.KeepEnv), req.Env...) // --env goes last so it wins
 	if err := applyCopilotToken(&opts, own, env); err != nil {
 		return res, &Error{Kind: KindFatal, Agent: "copilot", Err: err}
 	}
