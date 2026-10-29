@@ -62,17 +62,20 @@ func MemoryRecall(r io.Reader, stdout io.Writer) int {
 	terms := memory.ContentQueryTerms(tokens)
 	ranked := memory.SearchBanksTerms(root, q, terms, 0)
 	sem, err := memory.NewSemantic(q)
+	semSeen := false // a current semantic match is already in context, so the archive must stay out
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "memory-recall: keyword-only (%s)\n", recallCut(err.Error(), 120))
 	} else {
 		seen := memory.SeenBlocks(in.SessionID)
 		skip := func(h memory.SearchHit) bool { return seen[memory.BlockKey(h.Block)] } // before top-k, or seen ones crowd it
-		ranked = withSemanticCandidates(ranked, sem.Candidates(root, recallBodies+recallPointers, recallCosineAdmit, skip))
+		var extra []memory.SearchHit
+		extra, semSeen = sem.Candidates(root, recallBodies+recallPointers, recallCosineAdmit, skip)
+		ranked = withSemanticCandidates(ranked, extra)
 	}
 	if len(ranked) == 0 {
 		return ExitProceed
 	}
-	picks := selectRecall(in.SessionID, terms, ranked, sem)
+	picks := selectRecall(in.SessionID, terms, ranked, sem, semSeen)
 	if len(picks) == 0 {
 		return ExitProceed
 	}
@@ -129,7 +132,7 @@ func recallFlat(e memory.Entry) string {
 
 // selectRecall filters, scores and orders the ranked hits: superseded and already-seen entries drop, archive is
 // consulted only when no current entry clears the gate, and the survivors come back decisions first, newest first.
-func selectRecall(sessionID string, terms []string, ranked []memory.SearchHit, sem *memory.Semantic) []recallPick {
+func selectRecall(sessionID string, terms []string, ranked []memory.SearchHit, sem *memory.Semantic, semSeen bool) []recallPick {
 	need := recallNeed(terms)
 	seen := memory.SeenBlocks(sessionID)
 	for _, archived := range []bool{false, true} {
@@ -142,7 +145,7 @@ func selectRecall(sessionID string, terms []string, ranked []memory.SearchHit, s
 			orderRecall(picks)
 			return picks
 		}
-		if passed { // the current answer exists but is already in context: never fall back to an older one
+		if passed || (semSeen && !archived) { // the current answer exists but is already in context: never fall back to an older one
 			return nil
 		}
 	}
@@ -178,7 +181,10 @@ func pickTier(ranked []memory.SearchHit, archived bool, need int, seen map[strin
 		}
 		c.score = kw
 		if sem != nil {
-			if cos, ok := sem.Cosine(c.e); ok {
+			cos, ok := sem.Cosine(c.e)
+			if !ok { // no vector (edited since the index): its keyword share carries the same weight, so scores compare
+				c.score = recallKeywordWeight * kw
+			} else {
 				c.score = recallKeywordWeight*kw + (1-recallKeywordWeight)*min(max((cos-recallCosineLow)/(recallCosineHigh-recallCosineLow), 0), 1)
 				kwOK = kwOK || cos >= recallCosineAdmit
 			}

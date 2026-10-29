@@ -281,3 +281,42 @@ func TestRecallSemanticSkipsSeenBeforeTopK(t *testing.T) {
 		t.Errorf("the sixth entry never surfaced:\n%s", got)
 	}
 }
+
+// A current semantic-only match already in context keeps the archive out, same as a keyword one.
+func TestRecallNoArchiveFallbackWhenSemanticMatchSeen(t *testing.T) {
+	recallEnv(t)
+	writeBank(t, "decisionLog.md", "# D\n\n## 2026-10-20 — Quokka burrow choice <!-- id:eeee0001 -->\n\nquokka burrow gamma gamma\n")
+	writeBank(t, "archive/decisionLog-2026-09.md", "# D\n\n## 2026-09-01 — Hello world outdated <!-- id:eeee0009 -->\n\nhello world foo bar older\n")
+	cwd := t.TempDir()
+	c := useEmbedServer(t, vecServer(t, 0))
+	if _, _, err := memory.EmbedEntries(context.Background(), cwd, c); err != nil {
+		t.Fatal(err)
+	}
+	const prompt = "hello world foo bar zeta"
+	if first := recallAs(t, "sm", prompt, cwd); !strings.Contains(first, "eeee0001") {
+		t.Fatalf("setup: semantic match not recalled: %q", first)
+	}
+	if again := recallAs(t, "sm", prompt, cwd); again != "" {
+		t.Errorf("seen semantic match must not let the archive answer:\n%s", again)
+	}
+}
+
+// An entry edited since the index has no vector; it must not outscore and so floor out a strong semantic match.
+func TestRecallUncachedEntryDoesNotFloorOutSemanticMatch(t *testing.T) {
+	recallEnv(t)
+	plain := func(tail string) string {
+		return "# D\n\n## 2026-10-20 — Walrus harbour choice <!-- id:ffff0001 -->\n\nwalrus harbour tide ledger " + tail + "\n\n" +
+			"## 2026-10-19 — Quokka burrow choice <!-- id:ffff0002 -->\n\nquokka burrow gamma delta\n"
+	}
+	writeBank(t, "decisionLog.md", plain("original"))
+	cwd := t.TempDir()
+	c := useEmbedServer(t, vecServer(t, 0))
+	if _, _, err := memory.EmbedEntries(context.Background(), cwd, c); err != nil {
+		t.Fatal(err)
+	}
+	writeBank(t, "decisionLog.md", plain("edited after the index")) // ffff0001 now has no valid vector
+	got := recallAs(t, "u", "walrus harbour tide ledger zeta", cwd)
+	if !strings.Contains(got, "ffff0001") || !strings.Contains(got, "ffff0002") {
+		t.Errorf("both the uncached keyword match and the semantic match must surface:\n%s", got)
+	}
+}
