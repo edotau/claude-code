@@ -74,7 +74,7 @@ func remoteScript(bin, agentName string, req Request) (string, error) {
 	if strings.TrimSpace(bin) == "" || strings.ContainsAny(bin, "\r\n") {
 		return "", fmt.Errorf("remote ask: invalid remote binary %q", bin)
 	}
-	w := []string{"exec", dispatch.QuotePath(bin), "ask", "--format", "stream-json", "--fallback", "none", "--agent", dispatch.QuoteSH(agentName)}
+	w := []string{"exec", dispatch.QuotePath(bin), "ask", "--format", "stream-json", "--fallback", "none", "--stdin-framed", "--agent", dispatch.QuoteSH(agentName)}
 	opt := func(flag, v string) {
 		if v != "" {
 			w = append(w, flag, dispatch.QuoteSH(v))
@@ -161,6 +161,9 @@ func (r remoteRunner) Run(ctx context.Context, req Request, sink Sink) (Result, 
 	if err != nil {
 		return Result{Agent: r.agent, Status: StatusError}, &Error{Kind: KindFatal, Agent: r.agent, Err: err}
 	}
+	if strings.ContainsRune(req.Prompt, 0) {
+		return Result{Agent: r.agent, Status: StatusError}, &Error{Kind: KindFatal, Agent: r.agent, Err: errors.New("remote ask: a NUL byte cannot cross the framed prompt")}
+	}
 	dropped := remoteDropped(req)
 	if req.Timeout > 0 {
 		var stop context.CancelFunc
@@ -169,15 +172,27 @@ func (r remoteRunner) Run(ctx context.Context, req Request, sink Sink) (Result, 
 	}
 	ctx, stop := context.WithCancel(ctx)
 	defer stop()
-	cmd, tail := childCmd(ctx, argv[0], argv[1:], nil, "", req.Prompt, nil, false)
-	out, err := cmd.StdoutPipe()
+	cmd, tail := childCmd(ctx, argv[0], argv[1:], nil, "", "", nil, false)
+	in, err := cmd.StdinPipe()
+	var out io.ReadCloser
+	if err == nil {
+		out, err = cmd.StdoutPipe()
+	}
 	if err == nil {
 		err = cmd.Start()
 	}
 	if err != nil {
 		return Result{Agent: r.agent, Status: StatusError, Dropped: dropped}, &Error{Kind: KindFatal, Agent: r.agent, Err: fmt.Errorf("ssh: %w", err)}
 	}
+	// stdin stays open after the prompt: its closing (below, or by a dead ssh) is the remote's cancel signal
+	go func() { _, _ = io.WriteString(in, req.Prompt+"\x00") }()
+	go func() { // cancelled: drop both pipes so a relay blocked on a stalled ssh returns, and the remote sees stdin close
+		<-ctx.Done()
+		_ = in.Close()
+		_ = out.Close()
+	}()
 	env, streamed, sinkErr := r.relay(ctx, out, sink, stop)
+	_ = in.Close()
 	werr := cmd.Wait()
 	res := Result{Agent: r.agent, Status: StatusError, Dropped: dropped}
 	switch {

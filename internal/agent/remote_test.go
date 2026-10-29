@@ -33,7 +33,7 @@ func TestRemoteArgvSurvivesHostileValues(t *testing.T) {
 	if err != nil {
 		t.Fatalf("remote line failed: %v", err)
 	}
-	want := []string{"ask", "--format", "stream-json", "--fallback", "none", "--agent", "codex", "--model", hostile[0], "--profile", hostile[1],
+	want := []string{"ask", "--format", "stream-json", "--fallback", "none", "--stdin-framed", "--agent", "codex", "--model", hostile[0], "--profile", hostile[1],
 		"--effort", hostile[2], "--session", hostile[3], "--system-prompt", hostile[4], "--append-system-prompt", hostile[5],
 		"--output-schema", hostile[6], "--workdir", "/w/" + hostile[7], "--timeout", "1m0s", "--env", "K=" + hostile[0] + hostile[5], "--tools"}
 	if got := strings.Split(strings.TrimSuffix(string(out), "\x00"), "\x00"); !slices.Equal(got, want) {
