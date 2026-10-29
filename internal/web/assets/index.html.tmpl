@@ -324,11 +324,22 @@ document.getElementById('tree').addEventListener('click', function (e) {
 });
 document.getElementById('detailCloseBtn').addEventListener('click', closeDetail);
 
+let treeLive = false;
+function watchTree() {
+  if (!window.EventSource) return;
+  const es = new EventSource('/api/events');
+  es.addEventListener('tree', function (e) {
+    try { document.getElementById('tree').innerHTML = renderTree(JSON.parse(e.data)); treeLive = true; } catch (err) {}
+  });
+  es.onerror = function () { treeLive = false; es.close(); };
+}
+
 loadTree();
+watchTree();
 loadBrowsers();
 buildHostTabs([{{range $i, $h := .Hosts}}{{if $i}},{{end}}"{{$h}}"{{end}}]);
 setInterval(function () {
-  loadTree();
+  if (!treeLive) loadTree();
   if (currentHost) loadDispatches(currentHost);
 }, 5000);
 setInterval(loadBrowsers, 30000);

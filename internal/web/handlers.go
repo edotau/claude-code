@@ -10,7 +10,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/edotau/claude-code/internal/agenttree"
 	"github.com/edotau/claude-code/internal/dispatch"
 	"github.com/edotau/claude-code/internal/tailscale"
 )
@@ -33,19 +32,18 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// handleTree serves /api/tree: the same Build + default idle filter as `claude-code agents tree`.
+// handleTree serves /api/tree: the hub's cached Build + default idle filter, or a direct Build before the first scan.
 func (s *Server) handleTree(w http.ResponseWriter, r *http.Request) {
-	days := s.opts.Days
-	if days <= 0 {
-		days = 1
+	payload := s.treeHub().latest()
+	if payload == nil {
+		var err error
+		if payload, err = s.treeJSON(); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
 	}
-	tree, err := agenttree.Build(s.opts.ClaudeDir, agenttree.Options{Days: days})
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	tree.Sessions = agenttree.FilterIdleSessions(tree.Sessions)
-	writeJSON(w, tree)
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	_, _ = w.Write(payload)
 }
 
 // handleDispatches serves /api/dispatches?host=H: classified pane status on an allowed host,
