@@ -47,6 +47,9 @@ func runReal(name string, args ...string) (string, error) {
 func runCommand(timeout time.Duration, name string, args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
+	if name == "powershell.exe" && !onPath(name) { // interop left Windows off PATH (VS Code Remote-WSL terminals)
+		name = filepath.Join(winRoot(), "Windows", "System32", "WindowsPowerShell", "v1.0", "powershell.exe")
+	}
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.WaitDelay = time.Second
 	out, err := cmd.Output()
