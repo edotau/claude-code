@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"regexp"
+	"runtime"
 	"strings"
 	"time"
 
@@ -54,8 +55,11 @@ func runPowerShell(script string) (string, error) {
 	return strings.ReplaceAll(string(out), "\r", ""), nil
 }
 
-// Grab saves the Windows clipboard image to a PNG and returns its WSL path plus "WxH": WSLg first, then PowerShell.
+// Grab saves the clipboard image to a PNG and returns its path plus "WxH": macOS osascript; WSLg, then PowerShell.
 func Grab() (path, dim string, err error) {
+	if runtime.GOOS == "darwin" {
+		return grabMac()
+	}
 	if hooks.OnWSL() {
 		if path, dim, err = grabWSLg(); err == nil || errors.Is(err, errNoImage) {
 			return path, dim, err
@@ -111,6 +115,51 @@ func grabWSLg() (path, dim string, err error) {
 		return "", "", err
 	}
 	return f.Name(), fmt.Sprintf("%dx%d", cfg.Width, cfg.Height), nil
+}
+
+// macClipScript writes the clipboard's PNG to argv 1; "NOIMAGE" when the clipboard holds none.
+const macClipScript = `on run argv
+	try
+		set d to the clipboard as «class PNGf»
+	on error
+		return "NOIMAGE"
+	end try
+	set fh to open for access (POSIX file (item 1 of argv)) with write permission
+	set eof fh to 0
+	write d to fh
+	close access fh
+	return "OK"
+end run`
+
+// grabMac saves the macOS clipboard image as a PNG through osascript and returns its path plus "WxH".
+func grabMac() (path, dim string, err error) {
+	f, err := os.CreateTemp("", "claude-clip-*.png")
+	if err != nil {
+		return "", "", err
+	}
+	path = f.Name()
+	_ = f.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "osascript", "-e", macClipScript, path).Output()
+	if err != nil {
+		_ = os.Remove(path)
+		return "", "", fmt.Errorf("osascript clipboard read failed: %w", err)
+	}
+	if strings.TrimSpace(string(out)) != "OK" {
+		_ = os.Remove(path)
+		return "", "", errors.New("no image in the clipboard — copy or screenshot one first (Cmd+Ctrl+Shift+4)")
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return "", "", err
+	}
+	cfg, err := png.DecodeConfig(bytes.NewReader(b))
+	if err != nil {
+		_ = os.Remove(path)
+		return "", "", fmt.Errorf("clipboard PNG unreadable: %w", err)
+	}
+	return path, fmt.Sprintf("%dx%d", cfg.Width, cfg.Height), nil
 }
 
 // translateWin maps a Windows path to its WSL view, "" when no mount covers it.

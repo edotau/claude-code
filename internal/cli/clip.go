@@ -17,8 +17,8 @@ import (
 func cmdClip(args []string) int {
 	fs := helptext.NewFlagSet("clip", helptext.Page{
 		Usage: "claude-code clip",
-		About: "Saves the Windows clipboard image to a PNG and prints its WSL path. " +
-			"Fallback for WSL2 Ctrl+V image paste.",
+		About: "Saves the clipboard image to a PNG and prints its path (macOS, WSL). " +
+			"Fallback for Ctrl+V image paste; hand the path to ask --attach.",
 	})
 	if code, done := helptext.Parse(fs, args); done {
 		return code
