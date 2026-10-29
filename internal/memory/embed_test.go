@@ -3,6 +3,7 @@ package memory
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -10,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/vault"
 )
 
 // fakeEmbedServer answers {"input":[...]} with one 3-dim vector per text and counts the texts it embedded.
@@ -161,5 +163,55 @@ func TestEmbedCacheNamespaceAndDimension(t *testing.T) {
 	}
 	if _, err := NewSemantic("q"); err == nil {
 		t.Error("a 4-dim query against 3-dim cached vectors must be refused")
+	}
+}
+
+// The launched session's profile (CLAUDE_PROFILE) picks the workspace, ahead of the pinned default.
+func TestOpenEmbedClientFollowsSessionProfile(t *testing.T) {
+	isolatedConfig1(t)
+	_, _, err := providers.UpdateOverlayDoc(true, func(top map[string]json.RawMessage, _ *vault.Tx) error {
+		top["providers"] = json.RawMessage(`{"dev": {"provider":"databricks","preset":"databricks","host":"https://dev.example.com"},` +
+			`"qa": {"provider":"databricks","preset":"databricks","host":"https://qa.example.com"}}`)
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CLAUDE_PROFILE", "qa")
+	c, err := openDatabricksEmbed(context.Background(), "databricks-gte-large-en")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(c.Namespace, "qa|") {
+		t.Errorf("namespace %q does not follow the session profile", c.Namespace)
+	}
+}
+
+// Rows pruned past the cap belong to the indexing root only; another root's vectors survive.
+func TestEmbedPruneNeverCrossesRoots(t *testing.T) {
+	isolatedConfig1(t)
+	root := t.TempDir()
+	write(t, filepath.Join(HomeBankDir(), "decisionLog.md"), "# D\n\n## 2026-10-01 — gamma one <!-- id:aaaa0001 -->\n\nbody\n")
+	var calls int
+	c := fakeEmbedServer(t, &calls)
+	f := embedCacheFile{Namespace: c.Namespace, Model: c.Model, Rows: map[string]embedRow{"other-live": {Root: "/other/repo", Hash: "h", Vec: ""}}}
+	for i := range embedMaxRows + 1 {
+		f.Rows[fmt.Sprintf("stale-%d", i)] = embedRow{Root: root, Hash: "h"}
+	}
+	if err := saveEmbedCache(f); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := EmbedEntries(context.Background(), root, c); err != nil {
+		t.Fatal(err)
+	}
+	rows := loadEmbedCache().Rows
+	if _, ok := rows["other-live"]; !ok {
+		t.Error("another root's vector was pruned")
+	}
+	if _, ok := rows["stale-0"]; ok {
+		t.Error("this root's stale rows should have been shed")
+	}
+	if rows["aaaa0001"].Root != root {
+		t.Errorf("new row not tagged with its root: %+v", rows["aaaa0001"])
 	}
 }
