@@ -10,7 +10,7 @@ import (
 )
 
 var helpFormatRow = regexp.MustCompile(`^  (\S(?:.*?\S)?) {2,}(\S.*)$`)
-var helpFormatFlag = regexp.MustCompile(`^(?:-[A-Za-z0-9]|--[A-Za-z0-9][A-Za-z0-9_-]+)(?: \S+)?$`)
+var helpFormatFlag = regexp.MustCompile(`^(?:-[A-Za-z0-9], )?(?:-[A-Za-z0-9]|--[A-Za-z0-9][A-Za-z0-9_-]+)(?: \S+)?$`)
 
 func renderHelpPage(page helptext.Page) string {
 	var out bytes.Buffer
