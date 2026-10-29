@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bufio"
 	"cmp"
 	"context"
 	"encoding/json"
@@ -72,6 +73,7 @@ func runAsk(args []string, resume bool) int {
 	autonomous := fs.Bool("autonomous", false, "drive the run without stopping to ask, per agent")
 	enableMemory := fs.Bool("enable-memory", false, "copilot only: turn on session memory")
 	timeout := fs.Duration("timeout", 10*time.Minute, "per-attempt deadline (45m default with --tools)")
+	stdinFramed := fs.Bool("stdin-framed", false, "internal: prompt is stdin up to a NUL byte; the run is cancelled when stdin then closes")
 	host := fs.String("host", "", "run the ask on this ssh host (tailnet name or ssh alias); profiles resolve there")
 	remoteBin := fs.String("remote-bin", "", "remote claude-code path for --host (default $"+agent.RemoteBinEnv+", then claude-code)")
 	format := fs.String("format", "text", "stream text, print the JSON result envelope, or stream-json NDJSON events")
@@ -145,7 +147,12 @@ func runAsk(args []string, resume bool) int {
 			return failAskCode(*format, *name, err, 2)
 		}
 	}
-	prompt, err = resolveAskPrompt(prompt)
+	var framed *bufio.Reader
+	if *stdinFramed {
+		framed, prompt, err = readFramedPrompt(os.Stdin)
+	} else {
+		prompt, err = resolveAskPrompt(prompt)
+	}
 	if err != nil {
 		return failAsk(*format, *name, err)
 	}
@@ -179,6 +186,9 @@ func runAsk(args []string, resume bool) int {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
+	if framed != nil { // the remote end of `ask --host`: stdin closing means the local side cancelled or vanished
+		go func() { _, _ = io.Copy(io.Discard, framed); stop() }()
+	}
 	if *retry == "" && *job == "" && *tools && !timeoutExplicit(fs) {
 		*timeout = 45 * time.Minute
 	}
@@ -468,6 +478,16 @@ func validateAskFlags(format, fallback string) error {
 		return fmt.Errorf("--fallback %q unknown (%s)", fallback, strings.Join(agent.FallbackModes, "|"))
 	}
 	return nil
+}
+
+// readFramedPrompt reads the prompt up to the NUL that ends it and returns the reader, whose remaining EOF is the cancel signal.
+func readFramedPrompt(in io.Reader) (*bufio.Reader, string, error) {
+	rd := bufio.NewReader(in)
+	p, err := rd.ReadString(0)
+	if err != nil {
+		return nil, "", fmt.Errorf("--stdin-framed: stdin ended before the NUL that ends the prompt: %w", err)
+	}
+	return rd, strings.TrimSuffix(p, "\x00"), nil
 }
 
 // resolveAskPrompt reads stdin when the prompt is empty or the literal "-".
