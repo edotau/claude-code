@@ -35,14 +35,10 @@ func TestCompletionPrefixFilter(t *testing.T) {
 	}
 }
 
-// TestCompletionAliasPrefix: an alias (token→resolve, use→switch) completes once a prefix is typed
-// but stays off the bare double-Tab list, matching the canonical spelling advertised on the menu.
-func TestCompletionAliasPrefix(t *testing.T) {
-	if got := completionCandidates([]string{"tok"}); !slices.Equal(got, []string{"token"}) {
-		t.Errorf("candidates for %q = %v, want [token]", "tok", got)
-	}
-	if got := completionCandidates([]string{""}); slices.Contains(got, "token") {
-		t.Errorf("bare top-level list must not advertise alias token: %v", got)
+// TestCompletionRemovedToken: the removed token verb is never offered.
+func TestCompletionRemovedToken(t *testing.T) {
+	if got := completionCandidates([]string{"tok"}); slices.Contains(got, "token") {
+		t.Errorf("completion offers removed token: %v", got)
 	}
 }
 

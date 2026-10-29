@@ -50,7 +50,7 @@ func TestMatrix(t *testing.T) {
 				if !strings.Contains(r.Text, wantURL) {
 					t.Errorf("%s: missing %s", name, wantURL)
 				}
-				helper := "/bin/cc token --profile databricks-dev"
+				helper := "/bin/cc resolve --profile databricks-dev"
 				if auth == AuthCLI {
 					helper = "databricks auth token --host " + h + " --output json | jq -r '.access_token'"
 				}

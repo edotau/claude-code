@@ -13,8 +13,8 @@ import (
 	"github.com/edotau/claude-code/internal/vendors"
 )
 
-// std2Run runs `claude-code <argv>` in-process and returns exit code, stdout and stderr.
-func std2Run(t *testing.T, argv ...string) (int, string, string) {
+// runCLI runs `claude-code <argv>` in-process and returns exit code, stdout and stderr.
+func runCLI(t *testing.T, argv ...string) (int, string, string) {
 	t.Helper()
 	outR, outW, _ := os.Pipe()
 	errR, errW, _ := os.Pipe()
@@ -29,8 +29,8 @@ func std2Run(t *testing.T, argv ...string) (int, string, string) {
 	return code, string(o), string(e)
 }
 
-// std2Env is a hermetic config dir + HOME with the agy login marker, so every fake CLI looks logged in.
-func std2Env(t *testing.T) {
+// cliEnv is a hermetic config dir + HOME with the agy login marker, so every fake CLI looks logged in.
+func cliEnv(t *testing.T) {
 	t.Helper()
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	home := t.TempDir()
@@ -46,8 +46,8 @@ func std2Env(t *testing.T) {
 	}
 }
 
-// std2Fakes installs a stand-in child per CLI agent (copilot rides the SDK and is covered in resume_std2_test.go).
-func std2Fakes(t *testing.T) {
+// cliFakes installs a stand-in child per CLI agent (copilot rides the SDK and is covered in copilot_gate_test.go).
+func cliFakes(t *testing.T) {
 	t.Helper()
 	pathstest.FakeVendor(t, "claude", "cat > /dev/null; sleep 0.05\n"+
 		`printf '%s\n' '{"type":"system","subtype":"init","session_id":"sc","model":"fake-claude"}'`+"\n"+
@@ -62,9 +62,9 @@ func std2Fakes(t *testing.T) {
 		`printf '%s\n' '{"type":"step_finish","sessionID":"so","part":{"tokens":{"Input":3,"Output":2}}}'`)
 }
 
-var std2Profile = map[string]string{"claude": "", "codex": "chatgpt", "gemini": "", "opencode": ""}
+var profileFor = map[string]string{"claude": "", "codex": "chatgpt", "gemini": "", "opencode": ""}
 
-func std2Envelope(t *testing.T, out string) map[string]any {
+func decodeEnvelope(t *testing.T, out string) map[string]any {
 	t.Helper()
 	var env map[string]any
 	if err := json.Unmarshal([]byte(strings.TrimSpace(out)), &env); err != nil {
@@ -74,17 +74,17 @@ func std2Envelope(t *testing.T, out string) map[string]any {
 }
 
 // Every runner's --format json success emits the one standard envelope.
-func TestStd2EnvelopeContractSuccess(t *testing.T) {
+func TestEnvelopeContractSuccess(t *testing.T) {
 	noUsage := map[string]bool{"codex": true}
 	for _, name := range []string{"claude", "codex", "gemini", "opencode"} {
 		t.Run(name, func(t *testing.T) {
-			std2Env(t)
-			std2Fakes(t)
-			code, out, stderr := std2Run(t, "ask", "--agent", name, "--profile", std2Profile[name], "--fallback", "none", "--native", "--format", "json", "say hello")
+			cliEnv(t)
+			cliFakes(t)
+			code, out, stderr := runCLI(t, "ask", "--agent", name, "--profile", profileFor[name], "--fallback", "none", "--native", "--format", "json", "say hello")
 			if code != 0 {
 				t.Fatalf("exit %d\nstdout: %s\nstderr: %s", code, out, stderr)
 			}
-			env := std2Envelope(t, out)
+			env := decodeEnvelope(t, out)
 			if env["schema"] != float64(1) {
 				t.Errorf("schema = %v, want 1", env["schema"])
 			}
@@ -118,46 +118,8 @@ func TestStd2EnvelopeContractSuccess(t *testing.T) {
 	}
 }
 
-// An unknown --profile fails the same way on codex and opencode: status error, error {kind,message}, exit 1.
-func TestStd2EnvelopeErrorShape(t *testing.T) {
-	shapes := map[string][]string{}
-	for _, name := range []string{"codex", "opencode"} {
-		t.Run(name, func(t *testing.T) {
-			std2Env(t)
-			std2Fakes(t)
-			code, out, stderr := std2Run(t, "ask", "--agent", name, "--profile", "no-such-profile", "--fallback", "none", "--format", "json", "hi")
-			if code != 1 {
-				t.Errorf("exit = %d, want 1\nstderr: %s", code, stderr)
-			}
-			env := std2Envelope(t, out)
-			if env["status"] != "error" {
-				t.Errorf("status = %v, want error", env["status"])
-			}
-			e, ok := env["error"].(map[string]any)
-			if !ok {
-				t.Fatalf("error = %#v, want an object {kind,message}", env["error"])
-			}
-			if k, _ := e["kind"].(string); k == "" {
-				t.Errorf("error.kind = %v, want non-empty", e["kind"])
-			}
-			if m, _ := e["message"].(string); m == "" {
-				t.Errorf("error.message = %v, want non-empty", e["message"])
-			}
-			var keys []string
-			for k := range env {
-				keys = append(keys, k)
-			}
-			shapes[name] = keys
-		})
-	}
-	a, b := shapes["codex"], shapes["opencode"]
-	if len(a) != len(b) {
-		t.Errorf("codex and opencode error envelopes differ in keys: %v vs %v", a, b)
-	}
-}
-
-// std2Marker is a fake child that records its invocation (never a `login` probe) by touching a file.
-func std2Marker(t *testing.T, vendor, body string) string {
+// cliMarker is a fake child that records its invocation (never a `login` probe) by touching a file.
+func cliMarker(t *testing.T, vendor, body string) string {
 	t.Helper()
 	marker := filepath.Join(t.TempDir(), vendor+".ran")
 	pathstest.FakeVendor(t, vendor, `[ "$1" = login ] && { echo "Logged in using ChatGPT"; exit 0; }`+"\n"+
@@ -166,15 +128,15 @@ func std2Marker(t *testing.T, vendor, body string) string {
 }
 
 // A resume whose launch fails returns an error and never runs another agent's runner.
-func TestStd2ResumeNeverFallsBack(t *testing.T) {
-	std2Env(t)
-	codexRan := std2Marker(t, "codex", "echo 'codex: boom' >&2; exit 1")
+func TestResumeNeverFallsBack(t *testing.T) {
+	cliEnv(t)
+	codexRan := cliMarker(t, "codex", "echo 'codex: boom' >&2; exit 1")
 	others := map[string]string{
-		"claude":   std2Marker(t, "claude", "exit 1"),
-		"agy":      std2Marker(t, "agy", "exit 1"),
-		"opencode": std2Marker(t, "opencode", "exit 1"),
+		"claude":   cliMarker(t, "claude", "exit 1"),
+		"agy":      cliMarker(t, "agy", "exit 1"),
+		"opencode": cliMarker(t, "opencode", "exit 1"),
 	}
-	code, out, stderr := std2Run(t, "codex", "resume", "sess-1", "continue please")
+	code, out, stderr := runCLI(t, "codex", "resume", "sess-1", "continue please")
 	if code == 0 {
 		t.Errorf("exit = 0, want non-zero: the resumed session's launch failed\nstdout: %s", out)
 	}
@@ -189,10 +151,10 @@ func TestStd2ResumeNeverFallsBack(t *testing.T) {
 }
 
 // --profile given to resume reaches the runner's target resolution instead of being dropped.
-func TestStd2ResumeForwardsProfile(t *testing.T) {
-	std2Env(t)
-	std2Marker(t, "codex", "echo ok")
-	code, out, stderr := std2Run(t, "codex", "resume", "sess-1", "--profile", "no-such-profile", "continue")
+func TestResumeForwardsProfile(t *testing.T) {
+	cliEnv(t)
+	cliMarker(t, "codex", "echo ok")
+	code, out, stderr := runCLI(t, "codex", "resume", "sess-1", "--profile", "no-such-profile", "continue")
 	if code == 0 {
 		t.Errorf("exit = 0, want non-zero for an unknown --profile\nstdout: %s", out)
 	}
@@ -202,7 +164,7 @@ func TestStd2ResumeForwardsProfile(t *testing.T) {
 }
 
 // Every usage failure in --format json mode prints one parseable error envelope and keeps its exit code.
-func TestStd2JSONModeFailuresPrintEnvelope(t *testing.T) {
+func TestJSONModeFailuresPrintEnvelope(t *testing.T) {
 	cases := []struct {
 		name string
 		argv []string
@@ -215,16 +177,16 @@ func TestStd2JSONModeFailuresPrintEnvelope(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			std2Env(t)
-			std2Fakes(t)
-			code, out, stderr := std2Run(t, c.argv...)
+			cliEnv(t)
+			cliFakes(t)
+			code, out, stderr := runCLI(t, c.argv...)
 			if code == 0 {
 				t.Fatalf("exit = 0, want a failure\nstdout: %s", out)
 			}
 			if c.code == 2 && code != 2 {
 				t.Errorf("exit = %d, want 2\nstderr: %s", code, stderr)
 			}
-			env := std2Envelope(t, out)
+			env := decodeEnvelope(t, out)
 			if env["status"] != "error" {
 				t.Errorf("status = %v, want error: %s", env["status"], out)
 			}
@@ -239,20 +201,26 @@ func TestStd2JSONModeFailuresPrintEnvelope(t *testing.T) {
 	}
 }
 
-// An unknown --profile is a caller error: all five agents report kind usage, not fatal.
-func TestStd2UnknownProfileKindUsageAllAgents(t *testing.T) {
+// An unknown --profile is a caller error: all five agents report an error envelope of kind usage, not fatal.
+func TestUnknownProfileErrorEnvelopeIsUsageKindForAllAgents(t *testing.T) {
 	for _, name := range []string{"claude", "codex", "copilot", "gemini", "opencode"} {
 		t.Run(name, func(t *testing.T) {
-			std2Env(t)
-			std2Fakes(t)
-			code, out, stderr := std2Run(t, "ask", "--agent", name, "--profile", "nosuch", "--fallback", "none", "--format", "json", "x")
+			cliEnv(t)
+			cliFakes(t)
+			code, out, stderr := runCLI(t, "ask", "--agent", name, "--profile", "nosuch", "--fallback", "none", "--format", "json", "x")
 			if code != 1 {
 				t.Errorf("exit = %d, want 1\nstderr: %s", code, stderr)
 			}
-			env := std2Envelope(t, out)
+			env := decodeEnvelope(t, out)
+			if env["status"] != "error" {
+				t.Errorf("status = %v, want error", env["status"])
+			}
 			e, _ := env["error"].(map[string]any)
 			if e["kind"] != "usage" {
 				t.Errorf("error.kind = %v, want usage: %s", e["kind"], out)
+			}
+			if m, _ := e["message"].(string); m == "" {
+				t.Errorf("error.message = %v, want non-empty", e["message"])
 			}
 		})
 	}

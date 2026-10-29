@@ -421,3 +421,28 @@ func setPin(t *testing.T, key, value string) {
 		t.Fatal(err)
 	}
 }
+
+// Tools-off headless keeps permission deny even when a vendorconfig Launch.Env sets the same variable.
+func TestOpencodeHeadlessToolsOffBeatsLaunchEnv(t *testing.T) {
+	vaulttest.Use(t)
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("PATH", t.TempDir())
+	vaulttest.Put(t, vault.Overlay, "agents", `{"agents":{"opencode":{"launch":{"env":["OPENCODE_CONFIG_CONTENT={\"permission\":\"allow\"}"]}}}}`)
+	check := func(name string, env []string) {
+		t.Helper()
+		got := envMap(env)["OPENCODE_CONFIG_CONTENT"] // last duplicate wins, as in exec
+		if !strings.Contains(got, `"deny"`) || strings.Contains(got, `"allow"`) {
+			t.Errorf("%s: final OPENCODE_CONFIG_CONTENT = %q, want permission deny", name, got)
+		}
+	}
+	h := Headless{Prompt: "hi", Tools: false}
+	env, _, err := OwnLoginHeadless("opencode", h)
+	if err != nil {
+		t.Fatal(err)
+	}
+	check("OwnLoginHeadless", env)
+	env, _ = OpencodeRunArgv("opencode-go/x", h)
+	check("OpencodeRunArgv", env)
+}

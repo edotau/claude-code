@@ -55,6 +55,7 @@ func TestParseWham(t *testing.T) {
 
 // TestUsageDropsZeroRowsAndPrintsQuotas: a zero-token model ("<synthetic>") is dropped; quota rows follow the table.
 func TestUsageDropsZeroRowsAndPrintsQuotas(t *testing.T) {
+	isolateAgentStores(t)
 	stub := []quota{
 		{Provider: "github", Account: "me", Plan: "Pro+", Window: "monthly", UsedPct: 11, Used: 750, Limit: 7000, Resets: "2026-11-01"},
 		{Provider: "google", Plan: "Antigravity", Note: "agy not logged in (run agy login)"},
@@ -234,6 +235,7 @@ func TestPrintQuotasStateColumn(t *testing.T) {
 // column to stdout, the warn line to stderr, and "state" in --format json — the full C wiring, not just
 // the helpers in isolation.
 func TestUsageRunWarnsOnExceededState(t *testing.T) {
+	isolateAgentStores(t)
 	stub := []quota{{Provider: "github", Account: "me", Plan: "Pro", Window: "monthly", UsedPct: 100, Used: 7000, Limit: 7000}}
 	orig := fetchQuotas
 	fetchQuotas = func() []quota { return stub }
@@ -349,4 +351,12 @@ func TestQuotaShowLeftHeaderAndComplement(t *testing.T) {
 	if r := u[3]; !strings.Contains(r, "25%") || !strings.Contains(r, "1750 / 7000 credits") {
 		t.Errorf("used row: %q", r)
 	}
+}
+
+// isolateAgentStores points every on-disk agent store at empty temp dirs so Run never scans the real home.
+func isolateAgentStores(t *testing.T) {
+	t.Helper()
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("CODEX_HOME", t.TempDir())
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 }

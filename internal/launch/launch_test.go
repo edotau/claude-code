@@ -151,7 +151,7 @@ func TestClaudeDirect(t *testing.T) {
 	if !slices.Equal(p.Argv, []string{"--settings", p.OverlayPath, "-p", "hi"}) {
 		t.Errorf("argv %q", p.Argv)
 	}
-	if !strings.Contains(string(p.Overlay), `"/opt/bin/claude-code token --profile gw"`) || strings.Contains(string(p.Overlay), "secret-value") {
+	if !strings.Contains(string(p.Overlay), `"/opt/bin/claude-code resolve --profile gw"`) || strings.Contains(string(p.Overlay), "secret-value") {
 		t.Errorf("overlay %s", p.Overlay)
 	}
 	env := p.Env([]string{"ANTHROPIC_AUTH_TOKEN=stale", "PATH=/bin", "ANTHROPIC_MODEL=old"})
@@ -268,7 +268,7 @@ func TestClaudeRouter(t *testing.T) {
 	if p.Set["ANTHROPIC_MODEL"] != "" || p.Set["CLAUDE_CODE_DISABLE_1M_CONTEXT"] != "1" {
 		t.Errorf("router launch: no default ANTHROPIC_MODEL, 1M off for ollama: %v", p.Set)
 	}
-	if !strings.Contains(string(p.Overlay), "claude-code token --proxy") {
+	if !strings.Contains(string(p.Overlay), "claude-code resolve --proxy") {
 		t.Errorf("overlay %s", p.Overlay)
 	}
 	if h := p.Set["ANTHROPIC_CUSTOM_HEADERS"]; h != "X-Claude-Code-Agent: claude" {

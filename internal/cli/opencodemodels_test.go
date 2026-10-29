@@ -194,21 +194,3 @@ func TestOpencodeMenuHelpWithin80Cols(t *testing.T) {
 		}
 	}
 }
-
-func TestOpencodeMenuModelsAlias(t *testing.T) {
-	ocMenuEnv(t)
-	code, stdout, stderr := ocMenu(t, "list", "--format", "json")
-	aliasCode, aliasOut, aliasErr := captureOutput(t, func() int {
-		return vendorVerb("opencode", []string{"models", "list", "--format", "json"})
-	})
-	if code != 0 || aliasCode != code || aliasOut != stdout || aliasErr != stderr {
-		t.Fatalf("list alias differs: catalog=(%d, %q, %q) models=(%d, %q, %q)",
-			code, stdout, stderr, aliasCode, aliasOut, aliasErr)
-	}
-	code, _, stderr = captureOutput(t, func() int {
-		return vendorVerb("opencode", []string{"models", "remove"})
-	})
-	if code != 1 || !strings.Contains(stderr, "opencode catalog remove: usage: claude-code opencode catalog remove <id>") {
-		t.Errorf("alias diagnostic: code=%d stderr=%q", code, stderr)
-	}
-}

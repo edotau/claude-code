@@ -537,6 +537,7 @@ func TestUsageShowBogusExitsTwo(t *testing.T) {
 // TestUsageShowModesRendering: each --show mode renders the quota column/detail its contract
 // promises, from a fixed fake quota list via the fetchQuotas seam.
 func TestUsageShowModesRendering(t *testing.T) {
+	isolateAgentStores(t)
 	stub := []quota{{Provider: "github", Account: "me", Plan: "Pro+", Window: "monthly", UsedPct: 25, Used: 1750, Limit: 7000, Resets: "2026-11-01"}}
 	orig := fetchQuotas
 	fetchQuotas = func() []quota { return stub }

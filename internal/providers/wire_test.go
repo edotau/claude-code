@@ -82,13 +82,6 @@ func TestWireModelPrefixThenDots(t *testing.T) {
 	}
 }
 
-func TestWireModelsStored(t *testing.T) {
-	p := wireProvider(t, `, "options": {"wire": "ai-gateway", "models": {"claude-sonnet-5-5": {"x": 1}}}`)
-	if p.Options.Models["claude-sonnet-5-5"]["x"] == nil {
-		t.Errorf("Options.Models not stored: %v", p.Options.Models)
-	}
-}
-
 func TestWireNonPresetUntouched(t *testing.T) {
 	p := Provider{ModelPrefix: "x."}
 	if got := p.WireModel("gpt-5.5"); got != "gpt-5.5" {

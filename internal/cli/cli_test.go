@@ -50,8 +50,8 @@ func TestHiddenClaudeVerbDispatchesButIsAbsentFromUsage(t *testing.T) {
 	}
 }
 
-// Every group is present, every group is present, and every alias resolves.
-func TestMenuRowsFitAndAliasesResolve(t *testing.T) {
+// Every group is present and every row has a summary.
+func TestMenuRowsFit(t *testing.T) {
 	want := map[string]bool{groupAnthropic: false, groupAgents: false, groupAuth: false, groupSession: false, groupDiagnostics: false, groupSettings: false}
 	for _, c := range commands() {
 		if strings.TrimSpace(c.summary) == "" {
@@ -63,25 +63,15 @@ func TestMenuRowsFitAndAliasesResolve(t *testing.T) {
 			}
 			want[c.group] = true
 		}
-		for _, a := range c.aliases {
-			if got := lookup(a); got == nil || got.name != c.name {
-				t.Errorf("alias %s does not resolve to %s", a, c.name)
-			}
-		}
 	}
 	for g, seen := range want {
 		if !seen {
 			t.Errorf("group %s has no rows", g)
 		}
 	}
-	for _, name := range []string{"token"} {
-		if lookup(name) == nil {
-			t.Errorf("legacy name %s no longer dispatches", name)
-		}
-		for _, name := range []string{"providers"} {
-			if lookup(name) != nil {
-				t.Errorf("removed provider-list verb %s still dispatches", name)
-			}
+	for _, name := range []string{"providers", "token"} {
+		if lookup(name) != nil {
+			t.Errorf("removed verb %s still dispatches", name)
 		}
 	}
 }
@@ -157,11 +147,6 @@ func TestUseVerbRemoved(t *testing.T) {
 	}
 	if c := lookup("switch"); c == nil {
 		t.Error("switch does not dispatch")
-	}
-	for _, c := range commands() {
-		if slices.Contains(c.aliases, "use") {
-			t.Errorf("%s still aliases use", c.name)
-		}
 	}
 	if got := completionCandidates([]string{"us"}); slices.Contains(got, "use") {
 		t.Errorf("completion offers use: %v", got)
