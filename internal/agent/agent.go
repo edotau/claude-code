@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"os/exec"
 	"regexp"
@@ -360,12 +361,45 @@ func attachInline(prompt string, paths []string) (string, error) {
 		if err != nil {
 			return "", fmt.Errorf("%w %s: %w", ErrBadAttach, p, err)
 		}
+		if IsImage(data) {
+			return "", fmt.Errorf("--%w %s: image; this path cannot deliver images (needs file access)", ErrBadAttach, p)
+		}
 		if !IsText(data) {
 			return "", fmt.Errorf("--%w %s: binary file; attach text only", ErrBadAttach, p)
 		}
 		fmt.Fprintf(&b, "\n\n<file path=%q>\n%s\n</file>", p, data)
 	}
 	return b.String(), nil
+}
+
+// IsImage sniffs data for a png, jpeg, gif or webp header.
+func IsImage(data []byte) bool {
+	switch http.DetectContentType(data) {
+	case "image/png", "image/jpeg", "image/gif", "image/webp":
+		return true
+	}
+	return false
+}
+
+// splitImages separates the image paths (by content sniff) from the rest; an unreadable path stays in rest so
+// attachInline reports it.
+func splitImages(paths []string) (images, rest []string) {
+	for _, p := range paths {
+		head := make([]byte, 512)
+		f, err := os.Open(p)
+		if err != nil {
+			rest = append(rest, p)
+			continue
+		}
+		n, _ := f.Read(head)
+		f.Close()
+		if IsImage(head[:n]) {
+			images = append(images, p)
+		} else {
+			rest = append(rest, p)
+		}
+	}
+	return images, rest
 }
 
 // IsText reports whether data can ride inline in a prompt: valid UTF-8 with no NUL byte.

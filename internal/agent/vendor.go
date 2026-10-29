@@ -180,6 +180,9 @@ func (v vendorRunner) Run(ctx context.Context, req Request, stream io.Writer) (R
 	if v.name == "codex" {
 		stdin = prompt // codex exec reads the prompt from stdin behind its `-` operand
 	}
+	if v.name == "codex" {
+		argv = codexImageArgs(argv, req.Attach)
+	}
 	cmd, tail := childCmd(ctx, bin, argv, env, req.WorkDir, stdin, req.KeepEnv, true)
 	cmd.Stderr = io.MultiWriter(cmd.Stderr, &banner)
 	if v.name == "opencode" {
@@ -201,7 +204,8 @@ func (v vendorRunner) Run(ctx context.Context, req Request, stream io.Writer) (R
 func (v vendorRunner) attachPrompt(prompt string, paths []string, tools bool) (string, error) {
 	switch v.name {
 	case "codex":
-		return attachInline(prompt, paths)
+		_, rest := splitImages(paths) // images ride codex's -i flag (codexImageArgs)
+		return attachInline(prompt, rest)
 	case "gemini":
 		if tools {
 			return attachSuffix(prompt, paths), nil
@@ -210,6 +214,19 @@ func (v vendorRunner) attachPrompt(prompt string, paths []string, tools bool) (s
 	default:
 		return prompt, nil
 	}
+}
+
+// codexImageArgs adds `-i <img>` after the exec subcommand; -i is variadic, so the next token must be a flag.
+func codexImageArgs(argv, attach []string) []string {
+	images, _ := splitImages(attach)
+	if len(images) == 0 || len(argv) == 0 || argv[0] != "exec" {
+		return argv
+	}
+	out := []string{"exec"}
+	for _, p := range images {
+		out = append(out, "-i", p)
+	}
+	return append(out, argv[1:]...)
 }
 
 // emptyAnswer: a clean exit with no text is a failure the caller must see, not a blank success.
