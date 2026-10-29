@@ -190,6 +190,7 @@ func TestDoctorRetiredKeys(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
+	t.Setenv("HARNESS_KEYRING", "") // the audit pass forces it off; this test fakes the tool
 	dir := t.TempDir()
 	tool := "secret-tool"
 	miss := "1"

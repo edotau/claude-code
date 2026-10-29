@@ -13,6 +13,7 @@ import (
 // Lookup call times out instead of answering.
 func slowSecretTool(t *testing.T) {
 	t.Helper()
+	t.Setenv("HARNESS_KEYRING", "")
 	if runtime.GOOS != "linux" {
 		t.Skip("stub only implements the linux secret-tool CLI")
 	}
@@ -27,6 +28,7 @@ func slowSecretTool(t *testing.T) {
 // hermetic points PATH at an empty dir so no real `security`/`secret-tool` is ever reachable.
 func hermetic(t *testing.T) {
 	t.Helper()
+	t.Setenv("HARNESS_KEYRING", "") // the audit pass forces it off; these tests fake the tool
 	t.Setenv("PATH", t.TempDir())
 	down.Store(false)
 	t.Cleanup(func() { down.Store(false) })

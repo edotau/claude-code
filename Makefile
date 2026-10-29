@@ -157,6 +157,7 @@ audit: compile  ## CI gate: fmt, git secrets, vet, test, build, vuln, docs
 	@$(MAKE) --no-print-directory audit-git
 	$(GO) vet $(PKGS)
 	$(GO) test -timeout $(GO_TEST_TIMEOUT) $(PKGS)
+	@$(MAKE) --no-print-directory audit-nokeyring
 	$(GO) build $(PKGS)
 	@echo -e "$(C_OK)go check passed (gofmt + vet + test + build)"
 	@if command -v govulncheck >/dev/null 2>&1; then govulncheck $(PKGS); \
@@ -175,6 +176,13 @@ audit-git: compile  # (folded into `audit`) doctor --git over the unpushed commi
 		if ! n=$$(git rev-list --count '@{u}..HEAD' 2>/dev/null); then exec $(BIN) doctor --git --since $(AUDIT_GIT_FALLBACK); fi; \
 		if [ "$$n" = 0 ]; then echo -e "$(C_NOTE)doctor --git skipped (no unpushed commits)"; exit 0; fi; \
 		$(BIN) doctor --git --range '@{u}..HEAD'
+
+.PHONY: audit-nokeyring
+audit-nokeyring:  # (folded into `audit`) re-test vault/keyring importers with no keyring, as CI runs them
+	@pkgs=$$($(GO) list -f '{{.ImportPath}} {{join .Imports " "}} {{join .TestImports " "}} {{join .XTestImports " "}}' $(PKGS) \
+		| awk '/internal\/(vault|keyring)( |$$)/ {print $$1}'); \
+		env -u HARNESS_VAULT_KEY -u DBUS_SESSION_BUS_ADDRESS HARNESS_KEYRING=off \
+		$(GO) test -count=1 -timeout $(GO_TEST_TIMEOUT) $$pkgs
 
 .PHONY: fmt
 fmt:  ## gofmt -w every Go file
