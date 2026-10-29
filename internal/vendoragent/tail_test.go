@@ -184,3 +184,46 @@ func TestTailNoLogErrors(t *testing.T) {
 		t.Errorf("Tail(no log) err = %v, want it to mention \"no log\"", err)
 	}
 }
+
+// TestFindAmbiguousPrefix: a prefix shared by two dispatches errors and names the count; an exact id resolves.
+func TestFindAmbiguousPrefix(t *testing.T) {
+	setConfigDir(t)
+	a := fixtureRecord(t, agent.NewRecord("claude", agent.Request{Prompt: "a"}, time.Now().Add(-2*time.Hour)))
+	b := fixtureRecord(t, agent.NewRecord("codex", agent.Request{Prompt: "b"}, time.Now().Add(-time.Hour)))
+	prefix := a.ID[:4]
+	if _, err := Find(prefix); err == nil || !strings.Contains(err.Error(), "matches 2") {
+		t.Errorf("Find(%q) err = %v, want an ambiguity error", prefix, err)
+	}
+	got, err := Find(b.ID)
+	if err != nil || got.Agent != "codex" {
+		t.Errorf("Find(exact) = %+v, %v, want the codex record", got, err)
+	}
+}
+
+// TestTailEventsStopsWhenRecordFinishesWithoutResult: follow drains and returns once the record leaves running.
+func TestTailEventsStopsWhenRecordFinishesWithoutResult(t *testing.T) {
+	setConfigDir(t)
+	fastTail(t)
+	rec := agent.NewRecord("claude", agent.Request{Prompt: "x"}, time.Now())
+	rec.PID = os.Getpid()
+	rec = fixtureRecord(t, rec)
+	line := `{"schema":1,"seq":0,"t_ms":0,"type":"text","text":"partial"}` + "\n"
+	if err := os.WriteFile(rec.EventsPath(), []byte(line), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	done := finishLater(rec, 60*time.Millisecond)
+
+	var out syncBuffer
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	got, err := TailEvents(ctx, rec, true, &out)
+	if err != nil {
+		t.Fatalf("TailEvents: %v", err)
+	}
+	if serr := <-done; serr != nil {
+		t.Fatal(serr)
+	}
+	if got.Status != "ok" || !strings.Contains(out.String(), "partial") {
+		t.Errorf("status %q out %q, want ok and the event copied", got.Status, out.String())
+	}
+}
