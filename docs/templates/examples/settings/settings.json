@@ -4,7 +4,7 @@
   "outputStyle": "Concise",
   "switchModelsOnFlag": true,
   "theme": "auto",
-  "tui": "default",
+  "tui": "fullscreen",
   "prefersReducedMotion": true,
   "spinnerTipsEnabled": false,
   "agentPushNotifEnabled": false,

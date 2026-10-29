@@ -27,7 +27,7 @@ func TestApplyOverlaySwapsKnownKey(t *testing.T) {
 	if string(obj["theme"]) != `"dark"` {
 		t.Errorf("theme = %s, want \"dark\"", obj["theme"])
 	}
-	if string(obj["tui"]) != `"default"` {
+	if string(obj["tui"]) != `"fullscreen"` {
 		t.Errorf("unrelated key tui changed: %s", obj["tui"])
 	}
 }

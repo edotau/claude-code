@@ -206,7 +206,7 @@ func Run(args []string, out, errw io.Writer) int {
 	// The nested config dir is wrong at any age, so it is checked on every run, outside --target/--older-than.
 	if n := NestedConfig(); n.Dir != "" {
 		if len(n.Keep) > 0 {
-			fmt.Fprintf(errw, "%-16s kept %s: move %s into internal/settings/template/, make install, re-run\n",
+			fmt.Fprintf(errw, "%-16s kept %s: move %s into defaults/claude/settings.json, make install, re-run\n",
 				"nested-config", n.Dir, strings.Join(n.Keep, ", "))
 		} else if hits, size := pruneAged([]string{n.Dir}, time.Now().Add(time.Hour), apply, nil); len(hits) > 0 {
 			totalFiles, totalBytes = len(hits), size

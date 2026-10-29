@@ -1,4 +1,26 @@
 {
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "model": "opus",
+  "outputStyle": "Concise",
+  "switchModelsOnFlag": true,
+  "theme": "auto",
+  "tui": "fullscreen",
+  "prefersReducedMotion": true,
+  "spinnerTipsEnabled": false,
+  "agentPushNotifEnabled": false,
+  "inputNeededNotifEnabled": true,
+  "preferredNotifChannel": "notifications_disabled",
+  "awaySummaryEnabled": false,
+  "feedbackDrafts": "off",
+  "cleanupPeriodDays": 30,
+  "autoConnectIde": false,
+  "disableClaudeAiConnectors": true,
+  "useAutoModeDuringPlan": true,
+  "skipWorkflowUsageWarning": true,
+  "env": {
+    "CLAUDE_CODE_SCROLL_SPEED": "1",
+    "CLAUDE_CODE_DISABLE_TERMINAL_TITLE": "1"
+  },
   "permissions": {
     "defaultMode": "auto",
     "allow": [
@@ -37,5 +59,10 @@
       "Read(**/state/vault.db)",
       "Read(**/.credentials.json)"
     ]
+  },
+  "statusLine": {
+    "type": "command",
+    "command": "${HOOK_BIN} theme statusline",
+    "padding": 0
   }
 }

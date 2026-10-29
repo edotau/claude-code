@@ -4,114 +4,72 @@ package settings
 
 import (
 	"bytes"
-	"embed"
 	"encoding/json"
 	"fmt"
-	"io/fs"
 	"os"
-	"path"
 	"slices"
-	"sort"
 	"strings"
 
+	"github.com/edotau/claude-code/defaults"
 	"github.com/edotau/claude-code/internal/hookspec"
 	"github.com/edotau/claude-code/internal/paths"
 )
 
-//go:embed template/*.json
-var templateFS embed.FS
-
-const templateDir = "template"
-
-// Section groups the template keys owned by one section file (Name = file stem without its numeric prefix).
+// Section groups the default keys shown under one configure-page header.
 type Section struct {
 	Name string
 	Keys []string
 }
 
-// Sections returns the template sections in file-name (merge) order.
-func Sections() ([]Section, error) {
-	names, err := templateFileNames()
-	if err != nil {
-		return nil, err
+// sectionOrder is the header order; structuralSection homes the non-catalog keys the page still groups.
+var (
+	sectionOrder      = []string{"model", "ui", "notifications", "session", "env", "permissions", "statusline"}
+	structuralSection = map[string]string{
+		"model": "model", "env": "env", "permissions": "permissions", "statusLine": "statusline",
 	}
-	sections := make([]Section, 0, len(names))
-	for _, name := range names {
-		raw, err := templateFS.ReadFile(path.Join(templateDir, name))
-		if err != nil {
-			return nil, err
+)
+
+// Sections groups the defaults file's keys by catalog section, in header order and file key order.
+func Sections() ([]Section, error) {
+	o, err := parseObject(defaults.Claude)
+	if err != nil {
+		return nil, fmt.Errorf("defaults/claude/settings.json: %w", err)
+	}
+	by := map[string][]string{}
+	for _, k := range o.keys {
+		if k == "$schema" {
+			continue
 		}
-		o, err := parseObject(raw)
-		if err != nil {
-			return nil, fmt.Errorf("settings template %s: %w", name, err)
+		name := structuralSection[k]
+		if f, ok := Lookup(k); ok {
+			name = f.Section
 		}
-		keys := slices.DeleteFunc(slices.Clone(o.keys), func(k string) bool { return k == "$schema" })
-		sections = append(sections, Section{Name: sectionName(name), Keys: keys})
+		if name != "" {
+			by[name] = append(by[name], k)
+		}
+	}
+	sections := make([]Section, 0, len(sectionOrder))
+	for _, name := range sectionOrder {
+		if keys := by[name]; len(keys) > 0 {
+			sections = append(sections, Section{Name: name, Keys: keys})
+		}
 	}
 	return sections, nil
 }
 
-// mergeSections merges template/*.json from fsys in file-name order, expanding ${HOOK_BIN}. A top-level
-// key defined in two section files is an error naming both files.
-func mergeSections(fsys fs.FS) (*object, error) {
-	entries, err := fs.ReadDir(fsys, templateDir)
+// loadDefaults parses the embedded defaults file, expanding ${HOOK_BIN}.
+func loadDefaults() (*object, error) {
+	expanded := strings.ReplaceAll(string(defaults.Claude), "${HOOK_BIN}", hookspec.HookBin)
+	o, err := parseObject([]byte(expanded))
 	if err != nil {
-		return nil, err
-	}
-	names := make([]string, 0, len(entries))
-	for _, e := range entries {
-		names = append(names, e.Name())
-	}
-	sort.Strings(names)
-	o := &object{vals: map[string]json.RawMessage{}}
-	owner := map[string]string{}
-	for _, name := range names {
-		raw, err := fs.ReadFile(fsys, path.Join(templateDir, name))
-		if err != nil {
-			return nil, err
-		}
-		expanded := strings.ReplaceAll(string(raw), "${HOOK_BIN}", hookspec.HookBin)
-		part, err := parseObject([]byte(expanded))
-		if err != nil {
-			return nil, fmt.Errorf("settings template %s: %w", name, err)
-		}
-		for _, k := range part.keys {
-			if prev, dup := owner[k]; dup {
-				return nil, fmt.Errorf("settings template: %q defined in both %s and %s", k, prev, name)
-			}
-			owner[k] = name
-			o.set(k, part.vals[k])
-		}
+		return nil, fmt.Errorf("defaults/claude/settings.json: %w", err)
 	}
 	return o, nil
 }
 
-// sectionName strips the numeric prefix and extension: "10-ui.json" -> "ui".
-func sectionName(fileName string) string {
-	stem := strings.TrimSuffix(fileName, ".json")
-	if _, after, ok := strings.Cut(stem, "-"); ok {
-		return after
-	}
-	return stem
-}
-
-func templateFileNames() ([]string, error) {
-	entries, err := fs.ReadDir(templateFS, templateDir)
-	if err != nil {
-		return nil, err
-	}
-	names := make([]string, 0, len(entries))
-	for _, e := range entries {
-		names = append(names, e.Name())
-	}
-	sort.Strings(names)
-	return names, nil
-}
-
-// Render merges the template sections in file-name order, expands ${HOOK_BIN}, and adds the hookspec hooks
-// block. A top-level key defined in two section files is an error naming both files.
+// Render loads the defaults file, expands ${HOOK_BIN}, and adds the hookspec hooks block.
 func Render() ([]byte, error) {
-	o, err := mergeSections(templateFS)
+	o, err := loadDefaults()
 	if err != nil {
 		return nil, err
 	}
