@@ -12,6 +12,8 @@
   "preferredNotifChannel": "notifications_disabled",
   "awaySummaryEnabled": false,
   "feedbackDrafts": "off",
+  "feedbackSurveyRate": 0,
+  "askUserQuestionTimeout": "10m",
   "cleanupPeriodDays": 30,
   "autoConnectIde": false,
   "disableClaudeAiConnectors": true,

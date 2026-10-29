@@ -741,7 +741,7 @@ func TestSaveToRepoDefaultsWritesStagedKeysAndShowsDiffStat(t *testing.T) {
 func TestAddPickerOmitsCredentialKeys(t *testing.T) {
 	d, _ := newClaudeSettingsDialog(t, "")
 	stubSettingsPage(t, pageFieldCount(t))
-	spec := stubAddList(t, "feedbackSurveyRate")
+	spec := stubAddList(t, "skillListingBudgetFraction")
 	confirmAll(t, false)
 	runMenuDirect(t, d)
 	if len(spec.Rows) == 0 {
