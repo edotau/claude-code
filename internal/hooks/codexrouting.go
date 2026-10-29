@@ -2,7 +2,6 @@ package hooks
 
 import (
 	"encoding/json"
-	"fmt"
 	"io"
 	"os"
 	"strings"
@@ -12,36 +11,33 @@ import (
 	"github.com/edotau/claude-code/internal/routetable"
 )
 
-// CodexAgentRoute fills a fresh, unpinned child's model without changing its inherited provider.
-func CodexAgentRoute(r io.Reader, stdout, stderr io.Writer) int {
-	in := ParseInput(r)
+// nativeCodexAgentRoute fills a fresh, unpinned child's model; the builder renders the updated input as an allow.
+func nativeCodexAgentRoute(in *Input) Result {
 	if in.Vendor() != VendorCodex || !codexSpawnTool(in.ToolName) || !codexFreshSpawn(in) {
-		return ExitProceed
+		return Result{}
 	}
 	updated := in.cloneToolInput()
 	task := strings.TrimSpace(in.nested("tool_input", "message"))
 	if updated == nil || task == "" || codexSpawnPinned(in) {
-		return ExitProceed
+		return Result{}
 	}
 	cell, signal, ok := codexSpawnCell(in, task)
 	if !ok {
-		return ExitProceed
+		return Result{}
 	}
 	updated["model"] = cell.Model
 	if cell.Effort != "" {
 		updated["reasoning_effort"] = cell.Effort
 	}
-	output := map[string]any{"hookSpecificOutput": map[string]any{
-		"hookEventName": "PreToolUse", "permissionDecision": "allow", "updatedInput": updated,
-	}}
-	body, err := json.Marshal(output)
-	if err != nil {
-		return ExitProceed
-	}
-	recordCodexRoute(in, codexRouteRecord{Event: "decision", ToolUseID: in.nested("tool_use_id"),
-		RequestedModel: cell.Model, Effort: cell.Effort, Signal: signal}, stderr)
-	fmt.Fprintln(stdout, string(body))
-	return ExitProceed
+	res := codexRecorded(in, codexRouteRecord{Event: "decision", ToolUseID: in.nested("tool_use_id"),
+		RequestedModel: cell.Model, Effort: cell.Effort, Signal: signal})
+	res.UpdatedInput = updated
+	return res
+}
+
+// CodexAgentRoute is the legacy `hook codex-agent-route` entry; the vendor builder renders the rewrite.
+func CodexAgentRoute(r io.Reader, stdout, stderr io.Writer) int {
+	return nativeHandler("codex-agent-route")(r, stdout, stderr)
 }
 
 func codexSpawnTool(name string) bool { return strings.HasSuffix(name, "spawn_agent") }

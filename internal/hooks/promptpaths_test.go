@@ -128,35 +128,6 @@ func TestDescribeProperly(t *testing.T) {
 	}
 }
 
-// TestFeedbackPayloadMarshalHandlesErrors: feedbackPayload must handle JSON marshal errors
-// properly. Regression test for defect where json.Marshal errors were swallowed with _,
-// producing corrupted hook output. Now properly handles errors by returning "" instead.
-func TestFeedbackPayloadMarshalHandlesErrors(t *testing.T) {
-	// Create valid path reports to ensure feedbackPayload is called correctly.
-	reps := []pathReport{
-		{path: "/test/file.txt", detail: "100 B", isImage: false},
-	}
-
-	payload := feedbackPayload(reps)
-	if payload == "" {
-		t.Fatal("feedbackPayload returned empty string for valid input")
-	}
-
-	// Verify the payload is valid JSON.
-	var doc map[string]any
-	if err := json.Unmarshal([]byte(payload), &doc); err != nil {
-		t.Fatalf("feedbackPayload output is not valid JSON: %v\npayload=%s", err, payload)
-	}
-
-	// Verify expected fields are present.
-	if _, ok := doc["systemMessage"]; !ok {
-		t.Error("systemMessage field missing from payload")
-	}
-	if _, ok := doc["hookSpecificOutput"]; !ok {
-		t.Error("hookSpecificOutput field missing from payload")
-	}
-}
-
 // A POSIX path inside a foreign token (~/etc/hostname) must not be reported as /etc/hostname.
 func TestPromptPathsIgnorePosixInsideForeignToken(t *testing.T) {
 	if _, err := os.Stat("/etc/hostname"); err != nil {

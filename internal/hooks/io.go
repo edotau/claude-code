@@ -231,15 +231,15 @@ var Registry = map[string]Handler{
 	"docs-placement":       func(in io.Reader, _, errw io.Writer) int { return DocsPlacement(in, errw) },
 	"session-start":        func(in io.Reader, out, _ io.Writer) int { return SessionStart(in, out) },
 	"memory-recall":        func(in io.Reader, out, _ io.Writer) int { return MemoryRecall(in, out) },
-	"path-resolver":        func(in io.Reader, out, _ io.Writer) int { return PathResolver(in, out) },
+	"path-resolver":        nativeHandler("path-resolver"),
 	"stop":                 func(in io.Reader, _, errw io.Writer) int { return Stop(in, errw) },
 	"stop-format":          func(in io.Reader, _, _ io.Writer) int { return StopFormat(in) },
 	"session-harvest-end":  func(in io.Reader, _, _ io.Writer) int { return SessionHarvestEnd(in) },
 	"agent-effort":         func(in io.Reader, out, _ io.Writer) int { return AgentEffort(in, out) },
-	"codex-agent-route":    CodexAgentRoute,
-	"codex-routing-start":  CodexRoutingStart,
-	"codex-routing-result": CodexRoutingResult,
-	"codex-subagent-start": CodexSubagentStart,
+	"codex-agent-route":    nativeHandler("codex-agent-route"),
+	"codex-routing-start":  nativeHandler("codex-routing-start"),
+	"codex-routing-result": nativeHandler("codex-routing-result"),
+	"codex-subagent-start": nativeHandler("codex-subagent-start"),
 	"workflow-lint":        func(in io.Reader, out, errw io.Writer) int { return WorkflowLint(in, out, errw) },
 	"agent-inflight":       func(in io.Reader, _, errw io.Writer) int { return AgentInflight("pre", in, errw) },
 	"agent-inflight-tag":   func(in io.Reader, _, errw io.Writer) int { return AgentInflight("tag", in, errw) },
@@ -250,6 +250,38 @@ var Registry = map[string]Handler{
 	"pre-compact":          func(in io.Reader, _, _ io.Writer) int { return PreCompact(in) },
 	"worktree-create":      func(in io.Reader, out, errw io.Writer) int { return WorktreeCreate(in, out, errw) },
 	"worktree-remove":      func(in io.Reader, _, errw io.Writer) int { return WorktreeRemove(in, errw) },
+}
+
+// Native binds a hook verb straight to a Runner; the dispatcher prefers it over the legacy adapter.
+var Native = map[string]Runner{
+	"path-resolver":        nativePathResolver,
+	"codex-agent-route":    nativeCodexAgentRoute,
+	"codex-routing-start":  nativeCodexRoutingStart,
+	"codex-routing-result": nativeCodexRoutingResult,
+	"codex-subagent-start": nativeCodexSubagentStart,
+}
+
+// nativeHandler serves a direct `hook <name>` call from the named Runner, resolved lazily so the verb table
+// and Native can be initialized in either order.
+func nativeHandler(name string) Handler {
+	return func(stdin io.Reader, stdout, stderr io.Writer) int {
+		r, ok := Native[name]
+		if !ok {
+			return ExitProceed
+		}
+		in := ParseInput(stdin)
+		return Emit(in.Vendor(), eventOf(name), r(in), stdout, stderr)
+	}
+}
+
+// eventOf names the hookspec event a handler is declared on.
+func eventOf(name string) string {
+	for _, s := range hookspec.Specs() {
+		if s.Name == name {
+			return s.Event
+		}
+	}
+	return ""
 }
 
 // Run dispatches `hook <name> [--no-own]`: an event name runs that event's dispatcher, a legacy hook name runs

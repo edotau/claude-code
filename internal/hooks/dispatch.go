@@ -47,14 +47,18 @@ type Bound struct {
 	Run   Runner
 }
 
-// Bind pairs every hookspec handler with its legacy Handler, wrapped by an adapter that captures its
-// stdout/stderr/exit into a Result; later phases replace adapters with native Runners.
+// Bind pairs every hookspec handler with its Runner: a Native runner when declared, else a legacy adapter
+// capturing its stdout/stderr/exit into a Result.
 func Bind() []Bound {
 	var out []Bound
 	for _, g := range hookspec.Registry {
 		for _, s := range g.Events {
 			s.Group = g.Name
-			out = append(out, Bound{Group: g.Name, Gate: g.Gate, Spec: s, Run: adapt(Registry[s.Name])})
+			run := adapt(Registry[s.Name])
+			if native, ok := Native[s.Name]; ok {
+				run = native
+			}
+			out = append(out, Bound{Group: g.Name, Gate: g.Gate, Spec: s, Run: run})
 		}
 	}
 	return out
