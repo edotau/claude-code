@@ -287,6 +287,9 @@ verified only when the spawn result supplies an agent ID that joins it to a chil
 `~/.codex`). These checks inspect file metadata only: machine policy presence leaves the effective route
 unverified. Config generation also respects `CODEX_HOME`.
 
+`claude-code doctor` also reports a `formats` row (each versioned state file against the `internal/schemas`
+registry) and a `state layout` row (entries under `state/` that no format or known name claims). `make install` runs pending migrations.
+
 ## Tailscale
 
 ```bash
@@ -443,6 +446,9 @@ cmd/claude-code/     main
 internal/            cli (verb table) · providers · proxy · router · translate · launch · vendors · agent · hooks · memory …
 agents/ commands/ rules/ skills/ workflows/   loaded by Claude Code
 state/vault.db       pins, env, overlays, sealed secrets (untracked)
+state/harness/<owner>/   versioned state, one dir per owner; the `internal/schemas` registry defines each format
+state/harness/migrations.jsonl   applied migrations (`doctor` → `formats`)
+state/harness/backups/   every plaintext backup via `paths.Backup`; secrets stay vault-sealed
 memory/              the memory store (its own local git repo)
 plans/               implementation plans (untracked)
 docs/templates/      index of every embedded (`//go:embed`) template, with rendered examples

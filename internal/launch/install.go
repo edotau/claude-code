@@ -112,6 +112,7 @@ func DoctorChecks() (checks []Check, ok bool) {
 		check(werr == nil && !wdrift.Drifted(), false, "settings (windows)", settingsDriftDetailLabeled(wdrift, werr, "settings (windows)"))
 	}
 	checks = append(checks, vaultDoctorChecks()...)
+	checks = append(checks, formatsDoctorChecks()...)
 	return checks, ok
 }
 

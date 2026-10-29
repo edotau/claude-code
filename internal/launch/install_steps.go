@@ -18,6 +18,7 @@ import (
 	"github.com/edotau/claude-code/internal/generate"
 	"github.com/edotau/claude-code/internal/history"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/schemas"
 	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/tools"
 )
@@ -39,6 +40,7 @@ func installVerbose(w io.Writer, dryRun bool) error {
 	if err != nil {
 		return err
 	}
+	installFormats(w, dryRun)
 	installCompletion(w, dryRun)
 	installClipboardProxy(w, dryRun)
 	seedTmuxConf(w, dryRun)
@@ -364,6 +366,9 @@ func agentConfigsSummary(w io.Writer) string {
 // skip notes print in full immediately.
 func extrasCompact(w io.Writer) string {
 	var tokens []string
+	if tok := formatsCompact(w); tok != "" {
+		tokens = append(tokens, tok)
+	}
 	if _, err := completion.Install("claude-code"); err != nil {
 		fmt.Fprintf(w, "completion skip  %v\n", err)
 	} else {
@@ -511,4 +516,63 @@ func copyBinary(src, dst string) error {
 		return err
 	}
 	return paths.AtomicWrite(dst, data, 0o755)
+}
+
+// installFormats runs schemas.MigrateAll and prints one line per migrated format, or "current".
+func installFormats(w io.Writer, dryRun bool) {
+	done, err := schemas.MigrateAll(dryRun)
+	for _, line := range formatsLines(done, dryRun) {
+		fmt.Fprintln(w, line)
+	}
+	if len(done) == 0 && err == nil {
+		fmt.Fprintln(w, "formats  current")
+	}
+	if err != nil {
+		fmt.Fprintf(w, "formats skip  %v\n", err)
+	}
+}
+
+func formatsLines(done []schemas.Stale, dryRun bool) []string {
+	verb := "migrated"
+	if dryRun {
+		verb = "would migrate"
+	}
+	type key struct {
+		f        string
+		from, to int
+	}
+	counts := map[key]int{}
+	var order []key
+	for _, s := range done {
+		k := key{s.Format, s.From, s.To}
+		if counts[k] == 0 {
+			order = append(order, k)
+		}
+		counts[k]++
+	}
+	var out []string
+	for _, k := range order {
+		n := counts[k]
+		out = append(out, fmt.Sprintf("formats  %s %s v%d→v%d (%d %s)", verb, k.f, k.from, k.to, n, pluralFile(n)))
+	}
+	return out
+}
+
+func pluralFile(n int) string {
+	if n == 1 {
+		return "file"
+	}
+	return "files"
+}
+
+// formatsCompact migrates for real and returns an extras token ("" when nothing was stale); errors print in full.
+func formatsCompact(w io.Writer) string {
+	done, err := schemas.MigrateAll(false)
+	if err != nil {
+		fmt.Fprintf(w, "formats skip  %v\n", err)
+	}
+	if len(done) == 0 {
+		return ""
+	}
+	return fmt.Sprintf("formats %d migrated", len(done))
 }

@@ -34,7 +34,7 @@ func docs(f Format, data []byte) [][]byte {
 }
 
 func onDisk(f Format) bool {
-	return f.Glob != nil && f.Kind != Wire && f.Kind != Store && f.Kind != Derived
+	return f.Glob != nil && f.Kind == Record || f.Kind == Log
 }
 
 func scan(f Format) []Stale {
@@ -64,7 +64,8 @@ func scan(f Format) []Stale {
 	return out
 }
 
-// Pending lists files whose data is older than their registered version.
+// Pending lists Record and Log files older than their registered version; a cache mismatch is a miss, not stale.
+// A row with Rewrite false is read via migration (informational).
 func Pending() []Stale {
 	var out []Stale
 	for _, f := range All() {
