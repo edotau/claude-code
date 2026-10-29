@@ -162,9 +162,63 @@ func startCDPAction(env Env, b Browser) Action {
 		}
 		env.sleep(500 * time.Millisecond)
 	}
-	a.Error = fmt.Sprintf("started, but localhost:%d does not answer from WSL; another %s window may already own the "+
-		"profile, or .wslconfig lacks networkingMode=mirrored", CDPPort, b.DisplayName)
+	a.Error = cdpFailure(env, b)
 	return a
+}
+
+// cdpFailure explains a dead CDP port: stale processes on the profile first, then a missing mirrored networking.
+func cdpFailure(env Env, b Browser) string {
+	msg := fmt.Sprintf("started, but localhost:%d does not answer from WSL", CDPPort)
+	if pids := staleProfilePIDs(env, b.Name); len(pids) > 0 {
+		return fmt.Sprintf("%s; %s process(es) %s already own the %s-cdp profile and ignored the debug flag: run "+
+			"powershell.exe -NoProfile -Command \"Stop-Process -Id %s\", then rerun setup", msg, b.DisplayName,
+			strings.Join(pids, ", "), b.Name, strings.Join(pids, ","))
+	}
+	if !wslMirrored(env) {
+		return msg + "; .wslconfig lacks networkingMode=mirrored under [wsl2]"
+	}
+	return msg + "; check that no other " + b.DisplayName + " window owns the profile"
+}
+
+// staleProfilePIDs lists msedge-style processes whose command line names the <name>-cdp profile.
+func staleProfilePIDs(env Env, name string) []string {
+	exe := filepath.Base(winExe[name][0])
+	ps := fmt.Sprintf(`Get-CimInstance Win32_Process -Filter "Name='%s'" | Where-Object { $_.CommandLine -like '*%s-cdp*' } `+
+		`| ForEach-Object { $_.ProcessId }`, exe, name)
+	out, err := env.run("powershell.exe", "-NoProfile", "-Command", ps)
+	if err != nil {
+		return nil
+	}
+	return strings.Fields(out)
+}
+
+// wslMirrored reports networkingMode=mirrored under [wsl2] in any Windows user's .wslconfig.
+func wslMirrored(env Env) bool {
+	files, _ := filepath.Glob(filepath.Join(env.WinRoot, "Users", "*", ".wslconfig"))
+	for _, f := range files {
+		data, err := os.ReadFile(f)
+		if err == nil && mirroredIn(string(data)) {
+			return true
+		}
+	}
+	return false
+}
+
+// mirroredIn scans .wslconfig text for networkingMode=mirrored inside [wsl2], case-insensitively.
+func mirroredIn(text string) bool {
+	inWSL2 := false
+	for _, line := range strings.Split(text, "\n") {
+		line = strings.ToLower(strings.TrimSpace(line))
+		if strings.HasPrefix(line, "[") {
+			inWSL2 = line == "[wsl2]"
+			continue
+		}
+		k, v, ok := strings.Cut(line, "=")
+		if ok && inWSL2 && strings.TrimSpace(k) == "networkingmode" && strings.TrimSpace(strings.SplitN(v, "#", 2)[0]) == "mirrored" {
+			return true
+		}
+	}
+	return false
 }
 
 // registerMCPAction adds chrome-devtools-mcp at user scope unless ~/.claude.json already has it.

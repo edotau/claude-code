@@ -280,6 +280,9 @@ func TestWSLSetupCDP(t *testing.T) {
 				if !tt.dryRun {
 					wantCalls = append(wantCalls, strings.Join(a.Command, " "))
 				}
+				if tt.wantError != "" { // the failure path queries stale profile processes
+					wantCalls = append(wantCalls, f.calls[1])
+				}
 			}
 			if !tt.dryRun {
 				wantCalls = append(wantCalls, strings.Join(acts.Items[2].Command, " "))
