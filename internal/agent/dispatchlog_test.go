@@ -328,7 +328,7 @@ func TestRecordKeepsRequestAndInvokedModel(t *testing.T) {
 	}}
 	req := Request{Prompt: "p", Model: "gpt-6-astra"}
 	rec := NewRecord("codex", req, time.Date(2026, 10, 28, 1, 0, 0, 0, time.UTC))
-	res, err := RunWithFallback(context.Background(), chain, req, io.Discard, nil)
+	res, err := RunWithFallback(context.Background(), chain, req, Discard, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

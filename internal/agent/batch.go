@@ -402,7 +402,6 @@ func (b *batchRun) run(ctx context.Context, t BatchTask, chain Chain, rec Record
 		ctx = context.WithValue(ctx, failFastKey{}, b.stop)
 	}
 	start := time.Now()
-	var sink *LogSink
 	defer func() { // runs after the recover below has set env: any failed task cancels before its slot is settled
 		if !ok && b.o.FailFast && (env.Error == nil || env.Error.Kind != "canceled") {
 			b.stop()
@@ -410,9 +409,6 @@ func (b *batchRun) run(ctx context.Context, t BatchTask, chain Chain, rec Record
 	}()
 	defer func() {
 		if r := recover(); r != nil {
-			if sink != nil {
-				sink.Close() // idempotent: a panic after the normal close is harmless
-			}
 			err := &Error{Kind: KindFatal, Agent: t.Agent, Err: fmt.Errorf("panic: %v", r)}
 			rec.Finish(Result{Agent: t.Agent, Status: StatusError}, err, time.Since(start))
 			_ = rec.Save()
@@ -421,15 +417,13 @@ func (b *batchRun) run(ctx context.Context, t BatchTask, chain Chain, rec Record
 		}
 	}()
 	_ = rec.Save() // fail-open: the log is for replay and forensics, never a gate on the run
-	sink = NewLogSink(rec.LogPath())
-	res, err := RunWithFallback(WithLog(ctx, sink), chain, t.Req, io.Discard, func(s string) { b.logf(t.ID, "%s", s) })
-	sink.Close() // flush before the record leaves running, so tail -f never misses the last line
+	notify := func(s string) { b.logf(t.ID, "%s", s) }
+	res, err := Dispatch(ctx, &rec, t.Agent, Discard, DispatchOpts{Notify: notify},
+		func(ctx context.Context, sink Sink) (Result, error) {
+			return RunWithFallback(ctx, chain, t.Req, sink, notify)
+		})
 	for _, d := range res.Dropped {
 		b.logf(t.ID, "%s has no channel on the %s agent — dropped", d, res.Agent)
-	}
-	rec.Finish(res, err, time.Since(start))
-	if serr := rec.Save(); serr != nil {
-		b.logf(t.ID, "dispatch %s record not saved, it stays at running: %v", rec.ID, serr)
 	}
 	b.logf(t.ID, "dispatch %s", rec.ID)
 	env = NewEnvelope(res, err, rec.ID)

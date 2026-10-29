@@ -60,6 +60,11 @@ func (r Record) Alive() bool {
 // LogPath is the dispatch's log file: Log when set, else <id>.log beside the record.
 func (r Record) LogPath() string { return cmp.Or(r.Log, filepath.Join(DispatchDir(), r.ID+".log")) }
 
+// EventsPath is the dispatch's NDJSON event file, <id>.events.jsonl beside the record.
+func (r Record) EventsPath() string {
+	return filepath.Join(DispatchDir(), r.ID+paths.DispatchEventsSuffix)
+}
+
 // dispatchKeep bounds the log; the oldest records beyond it are pruned on every write.
 var dispatchKeep = 200
 
@@ -170,6 +175,7 @@ func pruneDispatches(dir string) {
 		}
 		_ = os.Remove(filepath.Join(dir, name))
 		_ = os.Remove(filepath.Join(dir, strings.TrimSuffix(name, ".json")+".log")) // ignore not-exist
+		_ = os.Remove(filepath.Join(dir, strings.TrimSuffix(name, ".json")+paths.DispatchEventsSuffix))
 		excess--
 	}
 }

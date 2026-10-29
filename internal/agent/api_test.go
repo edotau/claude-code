@@ -78,7 +78,7 @@ func TestClaudeNoToolsAnthropic(t *testing.T) {
 	t.Setenv("ANTHROPIC_API_KEY", "must-not-leak")
 
 	var out strings.Builder
-	res, err := claudeRunner{}.Run(context.Background(), Request{Prompt: "say ok", Provider: "tanth", Model: "haiku", Effort: "low", NoTools: true}, &out)
+	res, err := claudeRunner{}.Run(context.Background(), Request{Prompt: "say ok", Provider: "tanth", Model: "haiku", Effort: "low", NoTools: true}, NewTextSink(&out))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,7 +93,7 @@ func TestClaudeNoToolsAnthropic(t *testing.T) {
 	}
 
 	status = http.StatusTooManyRequests
-	_, err = claudeRunner{}.Run(context.Background(), Request{Prompt: "x", Provider: "tanth", NoTools: true}, io.Discard)
+	_, err = claudeRunner{}.Run(context.Background(), Request{Prompt: "x", Provider: "tanth", NoTools: true}, Discard)
 	if e := Classify("claude", err, false); e.Kind != KindRateLimit || e.RetryAfter != 3*time.Second || e.Status != 429 {
 		t.Errorf("429 classified as %+v", e)
 	}
@@ -122,7 +122,7 @@ func TestClaudeNoToolsOpenAI(t *testing.T) {
 	registry(t, srv)
 
 	var out strings.Builder
-	res, err := claudeRunner{}.Run(context.Background(), Request{Prompt: "hi", Provider: "toai", Effort: "high", NoTools: true}, &out)
+	res, err := claudeRunner{}.Run(context.Background(), Request{Prompt: "hi", Provider: "toai", Effort: "high", NoTools: true}, NewTextSink(&out))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -133,7 +133,7 @@ func TestClaudeNoToolsOpenAI(t *testing.T) {
 		t.Errorf("auth=%q body=%s", gotAuth, gotBody)
 	}
 
-	_, err = claudeRunner{}.Run(context.Background(), Request{Prompt: "boom", Provider: "toai", NoTools: true}, io.Discard)
+	_, err = claudeRunner{}.Run(context.Background(), Request{Prompt: "boom", Provider: "toai", NoTools: true}, Discard)
 	var he *httpError
 	if !errors.As(err, &he) || Classify("claude", err, false).Kind != KindTransient {
 		t.Errorf("502 = %v", err)
@@ -159,12 +159,12 @@ func TestClaudeNoToolsCLIAuthRunsTheCLI(t *testing.T) {
 	fakeFailingClaude(t)
 	req := Request{Prompt: "x", Provider: "max"}
 
-	_, directErr := claudeRunner{}.Run(context.Background(), req, io.Discard)
+	_, directErr := claudeRunner{}.Run(context.Background(), req, Discard)
 	if directErr == nil {
 		t.Fatal("claudeRunner.Run must fail in this sandbox (fake failing claude) for this test to prove anything")
 	}
 	req.NoTools = true
-	res, err := claudeRunner{}.Run(context.Background(), req, io.Discard)
+	res, err := claudeRunner{}.Run(context.Background(), req, Discard)
 	if res.Fallback != "" {
 		t.Errorf("res.Fallback = %q, want none: there is no second agent any more", res.Fallback)
 	}
@@ -175,7 +175,7 @@ func TestClaudeNoToolsCLIAuthRunsTheCLI(t *testing.T) {
 
 // TestClaudeNoToolsAndToolsExclusive: asking for both is refused before anything runs.
 func TestClaudeNoToolsAndToolsExclusive(t *testing.T) {
-	_, err := claudeRunner{}.Run(context.Background(), Request{Prompt: "x", Tools: true, NoTools: true}, io.Discard)
+	_, err := claudeRunner{}.Run(context.Background(), Request{Prompt: "x", Tools: true, NoTools: true}, Discard)
 	if err == nil || !strings.Contains(err.Error(), "exclusive") {
 		t.Errorf("err = %v, want the --no-tools/--tools exclusivity error", err)
 	}

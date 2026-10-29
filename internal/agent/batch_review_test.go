@@ -79,7 +79,7 @@ type gaugeRunner struct {
 func (g gaugeRunner) Name() string     { return g.name }
 func (g gaugeRunner) Caps() Caps       { return Caps{} }
 func (g gaugeRunner) Available() error { return nil }
-func (g gaugeRunner) Run(context.Context, Request, io.Writer) (Result, error) {
+func (g gaugeRunner) Run(context.Context, Request, Sink) (Result, error) {
 	n := g.cur.Add(1)
 	for m := g.max.Load(); n > m && !g.max.CompareAndSwap(m, n); m = g.max.Load() {
 	}
@@ -126,7 +126,7 @@ func TestRunPrefixRoutedHostMismatchFailsAuth(t *testing.T) {
 	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"databricks":{"hm":{"preset":"databricks",`+
 		`"host":"https://adb-1.azuredatabricks.net","auth":{"type":"key","env":"HM_KEY"},"models":{"opus":"m"}}}}}`)
 	r := &fakeRunner{name: "codex", caps: Caps{Model: true}, errs: []error{nil}}
-	_, err := Run(withIsolation(context.Background()), r, Request{Prompt: "p", Model: "hm:opus"}, io.Discard, nil)
+	_, err := Run(withIsolation(context.Background()), r, Request{Prompt: "p", Model: "hm:opus"}, Discard, nil)
 	var e *Error
 	if !errors.As(err, &e) || e.Kind != KindAuth || len(r.seen) != 0 {
 		t.Fatalf("err = %v, runs = %d; want KindAuth before any run", err, len(r.seen))
@@ -140,7 +140,7 @@ func TestRunTransientCredentialFailureIsRetried(t *testing.T) {
 	name := fmt.Sprintf("hmt%d", time.Now().UnixNano())
 	hmNamed(t, name, fmt.Sprintf("if [ -f %[1]s ]; then echo %[2]s; else touch %[1]s; echo 'connection reset' >&2; exit 1; fi", flag, hmJWT("adb-1.azuredatabricks.net")))
 	r := &fakeRunner{name: "claude", caps: Caps{Provider: true}, errs: []error{nil}}
-	res, err := Run(context.Background(), r, Request{Prompt: "p", Provider: name}, io.Discard, nil)
+	res, err := Run(context.Background(), r, Request{Prompt: "p", Provider: name}, Discard, nil)
 	if err != nil || res.Answer != "a" || res.Transport.Attempts != 2 {
 		t.Fatalf("res=%+v err=%v; want an answer on attempt 2", res, err)
 	}
@@ -163,7 +163,7 @@ func TestCopilotSDKEnvBlanksForeignCredentials(t *testing.T) {
 		return copilotsdk.Result{Text: "hi", SessionID: "s"}, nil
 	}
 	t.Cleanup(func() { copilotAsk = prev })
-	if _, err := Run(withIsolation(context.Background()), copilotRunner{}, Request{Prompt: "p", Provider: "alice", Direct: true}, io.Discard, nil); err != nil {
+	if _, err := Run(withIsolation(context.Background()), copilotRunner{}, Request{Prompt: "p", Provider: "alice", Direct: true}, Discard, nil); err != nil {
 		t.Fatal(err)
 	}
 	if !slices.Contains(seen, "HM_OTHER_KEY=") || slices.Contains(seen, "HM_OTHER_KEY=foreign-secret") {
@@ -180,7 +180,7 @@ type slowRunner struct {
 func (s slowRunner) Name() string     { return s.name }
 func (s slowRunner) Caps() Caps       { return Caps{} }
 func (s slowRunner) Available() error { return nil }
-func (s slowRunner) Run(context.Context, Request, io.Writer) (Result, error) {
+func (s slowRunner) Run(context.Context, Request, Sink) (Result, error) {
 	if s.boom {
 		panic("boom")
 	}
@@ -252,7 +252,7 @@ func TestCommandCredentialHostMismatchIsAuthAndFallsBack(t *testing.T) {
 	first := &fakeRunner{name: "claude", caps: Caps{Provider: true}, errs: []error{nil}}
 	second := &fakeRunner{name: "gemini", errs: []error{nil}}
 	c := Chain{Want: "claude", Legs: []Leg{{Agent: first, Account: "claude:" + name, keepCaller: true}, {Agent: second}}}
-	res, err := RunWithFallback(context.Background(), c, Request{Prompt: "p"}, io.Discard, nil)
+	res, err := RunWithFallback(context.Background(), c, Request{Prompt: "p"}, Discard, nil)
 	if err != nil || res.Answer != "a" || len(first.seen) != 0 || len(second.seen) != 1 {
 		t.Fatalf("res=%+v err=%v first=%d second=%d; want hop 2 to answer", res, err, len(first.seen), len(second.seen))
 	}
@@ -271,7 +271,7 @@ type legGauge struct {
 func (g legGauge) Name() string     { return g.name }
 func (g legGauge) Caps() Caps       { return Caps{} }
 func (g legGauge) Available() error { return nil }
-func (g legGauge) Run(context.Context, Request, io.Writer) (Result, error) {
+func (g legGauge) Run(context.Context, Request, Sink) (Result, error) {
 	n := g.cur.Add(1)
 	for m := g.max.Load(); n > m && !g.max.CompareAndSwap(m, n); m = g.max.Load() {
 	}
@@ -319,7 +319,7 @@ type flagRunner struct {
 func (f flagRunner) Name() string     { return f.name }
 func (f flagRunner) Caps() Caps       { return Caps{} }
 func (f flagRunner) Available() error { return nil }
-func (f flagRunner) Run(context.Context, Request, io.Writer) (Result, error) {
+func (f flagRunner) Run(context.Context, Request, Sink) (Result, error) {
 	f.runs.Add(1)
 	return Result{Answer: "a"}, nil
 }
@@ -498,7 +498,7 @@ type rateOnce struct {
 func (r rateOnce) Name() string     { return r.name }
 func (r rateOnce) Caps() Caps       { return Caps{} }
 func (r rateOnce) Available() error { return nil }
-func (r rateOnce) Run(context.Context, Request, io.Writer) (Result, error) {
+func (r rateOnce) Run(context.Context, Request, Sink) (Result, error) {
 	if r.n.Add(1) == 1 {
 		return Result{}, &Error{Kind: KindRateLimit, Agent: r.name, RetryAfter: 300 * time.Millisecond, Err: errors.New("HTTP 429")}
 	}
@@ -603,7 +603,7 @@ func TestChatStreamWithoutDoneIsRetried(t *testing.T) {
 	}))
 	defer srv.Close()
 	registry(t, srv)
-	res, err := Run(context.Background(), claudeRunner{}, Request{Prompt: "hi", Provider: "toai", NoTools: true}, io.Discard, nil)
+	res, err := Run(context.Background(), claudeRunner{}, Request{Prompt: "hi", Provider: "toai", NoTools: true}, Discard, nil)
 	if err != nil || res.Answer != "hi" || res.Transport == nil || res.Transport.Attempts != 2 {
 		t.Fatalf("res=%+v err=%v calls=%d; want an answer on attempt 2", res, err, calls)
 	}
@@ -638,7 +638,7 @@ type markingRunner struct {
 func (m markingRunner) Name() string     { return m.name }
 func (m markingRunner) Caps() Caps       { return Caps{} }
 func (m markingRunner) Available() error { return nil }
-func (m markingRunner) Run(context.Context, Request, io.Writer) (Result, error) {
+func (m markingRunner) Run(context.Context, Request, Sink) (Result, error) {
 	m.mark()
 	time.Sleep(50 * time.Millisecond)
 	return Result{Answer: "a"}, nil
@@ -648,7 +648,7 @@ func (m markingRunner) Run(context.Context, Request, io.Writer) (Result, error) 
 func TestHopKeepsRecoveredAttemptErrors(t *testing.T) {
 	fastDefaultBackoff(t)
 	r := &fakeRunner{name: "claude", errs: []error{&Error{Kind: KindRateLimit, Agent: "claude", Err: errors.New("HTTP 429")}, nil}}
-	res, err := RunWithFallback(context.Background(), Single(r), Request{Prompt: "p"}, io.Discard, nil)
+	res, err := RunWithFallback(context.Background(), Single(r), Request{Prompt: "p"}, Discard, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -705,7 +705,7 @@ func TestHopKeepsRecoveredGuardFailure(t *testing.T) {
 	name := fmt.Sprintf("hmg%d", time.Now().UnixNano())
 	hmNamed(t, name, fmt.Sprintf("if [ -f %[1]s ]; then echo %[2]s; else touch %[1]s; echo 'connection reset' >&2; exit 1; fi", flag, hmJWT("adb-1.azuredatabricks.net")))
 	r := &fakeRunner{name: "claude", caps: Caps{Provider: true}, errs: []error{nil}}
-	res, err := RunWithFallback(context.Background(), Single(r), Request{Prompt: "p", Provider: name}, io.Discard, nil)
+	res, err := RunWithFallback(context.Background(), Single(r), Request{Prompt: "p", Provider: name}, Discard, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -735,7 +735,7 @@ type cancelAfterRun struct {
 func (c cancelAfterRun) Name() string     { return c.name }
 func (c cancelAfterRun) Caps() Caps       { return Caps{} }
 func (c cancelAfterRun) Available() error { return nil }
-func (c cancelAfterRun) Run(context.Context, Request, io.Writer) (Result, error) {
+func (c cancelAfterRun) Run(context.Context, Request, Sink) (Result, error) {
 	c.cancel() // the parent ctx dies at the moment the leg succeeds
 	return Result{Answer: "a"}, nil
 }
@@ -746,7 +746,7 @@ func TestSuccessSurvivesCancelRightAfterIt(t *testing.T) {
 	defer cancel()
 	var runs atomic.Int32
 	c := Chain{Want: "first", Legs: []Leg{{Agent: cancelAfterRun{name: "first", cancel: cancel}}, {Agent: flagRunner{name: "second", runs: &runs}}}}
-	res, err := RunWithFallback(ctx, c, Request{Prompt: "p"}, io.Discard, nil)
+	res, err := RunWithFallback(ctx, c, Request{Prompt: "p"}, Discard, nil)
 	if err != nil || res.Answer != "a" || runs.Load() != 0 || len(res.Hops) != 1 {
 		t.Fatalf("res=%+v err=%v second ran %d times; want the first leg's answer alone", res, err, runs.Load())
 	}
@@ -815,7 +815,7 @@ func TestFrozenCopilotTargetFollowsTheDowngradedModel(t *testing.T) {
 		return copilotsdk.Result{Text: "hi", SessionID: "s"}, nil
 	}
 	t.Cleanup(func() { copilotAsk = prev })
-	res, err := RunWithFallback(context.Background(), Single(copilotRunner{}), Request{Prompt: "p", Model: "opus", Direct: true}, io.Discard, nil)
+	res, err := RunWithFallback(context.Background(), Single(copilotRunner{}), Request{Prompt: "p", Model: "opus", Direct: true}, Discard, nil)
 	if err != nil || res.Answer != "hi" || len(envs) != 2 {
 		t.Fatalf("res=%+v err=%v calls=%d; want the retry to answer", res, err, len(envs))
 	}
@@ -837,7 +837,7 @@ func TestGateFallbackLegBillsCreditsWindow(t *testing.T) {
 	quota := errors.New("402 Payment Required")
 	r := &fakeRunner{name: "copilot", errs: []error{quota}, emptyAnswer: true}
 	c := Chain{Want: "copilot", Legs: []Leg{{Agent: r, Account: "github·alice", Billing: router.BillSubscription, keepCaller: true}}}
-	_, _ = RunWithFallback(context.Background(), c, Request{Prompt: "p", Model: "alice:opus"}, io.Discard, nil)
+	_, _ = RunWithFallback(context.Background(), c, Request{Prompt: "p", Model: "alice:opus"}, Discard, nil)
 	want := router.ResetFor(quota.Error(), router.BillCredits, router.Entry{}, at)
 	if account != "databricks·dbx" || !until.Equal(want) {
 		t.Errorf("marked %q until %v, want databricks·dbx until the credits reset %v", account, until, want)

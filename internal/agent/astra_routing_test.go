@@ -3,7 +3,6 @@ package agent
 import (
 	"context"
 	"errors"
-	"io"
 	"strings"
 	"testing"
 
@@ -44,7 +43,7 @@ func TestAstraModelIdentity(t *testing.T) {
 			t.Fatalf("first leg is not codex: %+v; skipped %v", c.Legs, c.Skipped)
 		}
 		stubs := stubLegs(&c)
-		if _, err := RunWithFallback(ctx, c, Request{Prompt: "x", Model: astra}, io.Discard, nil); err != nil {
+		if _, err := RunWithFallback(ctx, c, Request{Prompt: "x", Model: astra}, Discard, nil); err != nil {
 			t.Fatal(err)
 		}
 		if len(stubs[0].seen) != 1 {
@@ -61,7 +60,7 @@ func TestAstraModelIdentity(t *testing.T) {
 
 	t.Run("zero_legs", func(t *testing.T) {
 		stub := &pinFallbackRunner{name: "codex"}
-		_, err := RunWithFallback(ctx, Chain{Want: "codex"}, Request{Prompt: "x", Model: astra}, io.Discard, nil)
+		_, err := RunWithFallback(ctx, Chain{Want: "codex"}, Request{Prompt: "x", Model: astra}, Discard, nil)
 		var e *Error
 		if !errors.As(err, &e) || e.Kind != KindFatal {
 			t.Errorf("err = %v, want *Error KindFatal", err)

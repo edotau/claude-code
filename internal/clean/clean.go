@@ -58,7 +58,8 @@ func targets() []target {
 		{
 			name: "dispatch-log", doc: "state/harness/dispatch: ask records (newest 200 kept), their logs + review-*.diff attachments",
 			globs: func() []string {
-				return []string{s("dispatch", "*.json"), s("dispatch", "*.log"), s("dispatch", "review-*.diff")}
+				return []string{s("dispatch", "*.json"), s("dispatch", "*.log"),
+					s("dispatch", "*"+paths.DispatchEventsSuffix), s("dispatch", "review-*.diff")}
 			},
 		},
 		{
