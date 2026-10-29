@@ -16,17 +16,34 @@ import (
 // authDrainLimit bounds draining after the group is killed; a child that escaped the group (setsid) can't hang us.
 var authDrainLimit = 5 * time.Second
 
-// capBuffer keeps the first max bytes written and discards the rest, so a chatty helper can't exhaust memory.
+// capBuffer bounds what a helper's output can cost: it keeps the first max bytes (or, with tail, the last max) and
+// records whether anything was dropped.
 type capBuffer struct {
-	buf bytes.Buffer // named, not embedded: an embedded Buffer's ReadFrom would let io.Copy bypass the cap
-	max int
+	buf  bytes.Buffer // named, not embedded: an embedded Buffer's ReadFrom would let io.Copy bypass the cap
+	max  int
+	tail bool
+	over bool
 }
 
 func (c *capBuffer) Write(p []byte) (int, error) {
-	if room := c.max - c.buf.Len(); room > 0 {
-		c.buf.Write(p[:min(len(p), room)])
+	n := len(p)
+	if c.tail {
+		c.buf.Write(p)
+		if extra := c.buf.Len() - c.max; extra > 0 {
+			c.over = true
+			kept := append([]byte(nil), c.buf.Bytes()[extra:]...)
+			c.buf.Reset()
+			c.buf.Write(kept)
+		}
+		return n, nil
 	}
-	return len(p), nil
+	room := c.max - c.buf.Len()
+	if len(p) > room {
+		c.over = true
+		p = p[:max(room, 0)]
+	}
+	c.buf.Write(p)
+	return n, nil
 }
 
 func (c *capBuffer) Bytes() []byte { return c.buf.Bytes() }
@@ -55,7 +72,7 @@ func outputInGroup(cmd *exec.Cmd) ([]byte, error) {
 	cmd.Stdout, cmd.Stderr = outW, errW // *os.File: no copy goroutines, so Wait returns when the shell exits
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true, Pgid: pg}
 	cmd.Cancel = killGroup
-	stdout, stderr := &capBuffer{max: 1 << 20}, &capBuffer{max: 32 << 10}
+	stdout, stderr := &capBuffer{max: 1 << 20}, &capBuffer{max: 32 << 10, tail: true} // stderr keeps the final error
 	done := make(chan struct{}, 2)
 	drain := func(dst io.Writer, r *os.File) { _, _ = io.Copy(dst, r); done <- struct{}{} }
 	if err := cmd.Start(); err != nil {
@@ -85,6 +102,9 @@ func outputInGroup(cmd *exec.Cmd) ([]byte, error) {
 	errR.Close()
 	if ee, ok := errors.AsType[*exec.ExitError](werr); ok {
 		ee.Stderr = stderr.Bytes()
+	}
+	if werr == nil && stdout.over {
+		return nil, fmt.Errorf("auth command printed more than %d bytes", stdout.max)
 	}
 	return stdout.Bytes(), werr
 }

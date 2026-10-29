@@ -134,3 +134,19 @@ func TestCapBufferBoundsIOCopy(t *testing.T) {
 type zeroReader struct{}
 
 func (zeroReader) Read(p []byte) (int, error) { clear(p); return len(p), nil }
+
+// Oversized stdout is rejected, not truncated into something that passes token validation.
+func TestRunAuthCommandRejectsOversizedStdout(t *testing.T) {
+	_, err := runAuthCommand(context.Background(), &Provider{Name: "big"}, "echo tok; head -c 1100000 /dev/zero | tr '\\0' ' '; echo two")
+	if err == nil {
+		t.Fatal("an auth command printing over 1 MiB must fail")
+	}
+}
+
+// The stderr tail survives verbose output, so the final network error still classifies the failure.
+func TestRunAuthCommandKeepsStderrTail(t *testing.T) {
+	_, err := runAuthCommand(context.Background(), &Provider{Name: "noisy"}, "head -c 100000 /dev/zero | tr '\\0' x >&2; echo >&2; echo 'dial tcp: connection refused' >&2; exit 1")
+	if err == nil || !strings.Contains(err.Error(), "network") {
+		t.Fatalf("err = %v, want a network classification from the stderr tail", err)
+	}
+}
