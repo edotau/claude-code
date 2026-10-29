@@ -181,9 +181,6 @@ history.
 `claude-code configure` → databricks: Login / Paste PAT / Mint now / Copy token / Apply to agents.
 `configure databricks --check` gives the same information without the TUI.
 
-`claude-code databricks check --1m [--profile qa]` passes only when the endpoint reports real `input_tokens` > 200k,
-printing `1m PASS (input_tokens=N)`. It writes no config; 1M is the base behavior on serving and first-party endpoints.
-
 Clipboard gaps: macOS clipboard managers and Universal Clipboard can keep a copy; a killed clear process leaves the
 token; headless Linux has no clipboard.
 

@@ -12,6 +12,7 @@ var removedFlags = map[string]string{
 	"--env":      "was renamed to --profile",
 	"--tier":     "was replaced by --model <alias>",
 	"--router":   "was removed; routing is automatic (see `claude-code gateway router`)",
+	"--1m":       "was removed; 1M context is the base behavior on serving and first-party endpoints",
 }
 
 // Hint returns the error for a removed flag in args (up to "--"), or nil.
