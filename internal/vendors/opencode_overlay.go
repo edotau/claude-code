@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/routetable"
 )
 
@@ -42,23 +43,15 @@ func OpencodeOverlayRendered() (cfgPath string, cfgBody []byte, tuiPath string, 
 // applyOpencodeTableModels overwrites model/small_model from the routing table's opencode sonnet/haiku
 // cells; a table load error leaves the template's own hard-coded values (its one fallback use) untouched.
 func applyOpencodeTableModels(cfgBody []byte) []byte {
-	t, err := routetable.Load()
-	if err != nil {
-		return cfgBody
-	}
-	sonnet, ok := t.Cell("opencode", "sonnet")
-	if !ok || sonnet.Model == "" {
-		return cfgBody
-	}
-	haiku, ok := t.Cell("opencode", "haiku")
-	if !ok || haiku.Model == "" {
+	mainModel, smallModel, ok := opencodeOverlayModels()
+	if !ok {
 		return cfgBody
 	}
 	var doc map[string]any
 	if json.Unmarshal(cfgBody, &doc) != nil {
 		return cfgBody
 	}
-	doc["model"], doc["small_model"] = sonnet.Model, haiku.Model
+	doc["model"], doc["small_model"] = mainModel, smallModel
 	var buf bytes.Buffer
 	enc := json.NewEncoder(&buf)
 	enc.SetEscapeHTML(false)
@@ -67,6 +60,30 @@ func applyOpencodeTableModels(cfgBody []byte) []byte {
 		return cfgBody
 	}
 	return buf.Bytes()
+}
+
+// opencodeOverlayModels is the overlay's model/small_model: github-copilot/ ids on the copilot-only leg (no
+// opencode-go login, so the table's opencode-go cells would be unservable), else the table's opencode cells.
+func opencodeOverlayModels() (mainModel, smallModel string, ok bool) {
+	if !OpencodeOwnLoginPresent() && OpencodeCopilotLoginPresent() {
+		reg, _ := providers.Load()
+		if m, s, found := OpencodeCopilotModelIDs(reg); found {
+			return "github-copilot/" + m, "github-copilot/" + s, true
+		}
+	}
+	t, err := routetable.Load()
+	if err != nil {
+		return "", "", false
+	}
+	sonnet, ok := t.Cell("opencode", "sonnet")
+	if !ok || sonnet.Model == "" {
+		return "", "", false
+	}
+	haiku, ok := t.Cell("opencode", "haiku")
+	if !ok || haiku.Model == "" {
+		return "", "", false
+	}
+	return sonnet.Model, haiku.Model, true
 }
 
 // WriteOpencodeOverlay writes the tracked opencode.json/tui.json templates to state/harness/opencode

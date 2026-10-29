@@ -38,8 +38,7 @@ func DescribeRoute(reg *providers.Registry, agentName string) RouteInfo {
 	}
 }
 
-// describeOpenCodeRoute: 1) opencode's own GitHub Copilot login; 2) the registry anthropic provider's
-// key; 3) the registry gemini provider's key (Gemini free tier); 4) none.
+// describeOpenCodeRoute: 1) opencode's own login (Go plan); 2) opencode's GitHub Copilot login; 3) none.
 func describeOpenCodeRoute(reg *providers.Registry) RouteInfo {
 	if OpencodeOwnLoginPresent() {
 		return RouteInfo{Agent: "opencode", Leg: LegOwnLogin, Provider: "opencode-go",
