@@ -36,12 +36,12 @@ func claimPlanTask(in *Input, id string) {
 		return
 	}
 	task, ok := matchBriefTask(parsed, in.nested("tool_input", "prompt"), in.nested("tool_input", "description"))
-	if !ok || task.Claim != "" {
+	if !ok || task.Claim != "" { // the locked ClaimFree below re-checks
 		return
 	}
 	agent := cmp.Or(in.nested("tool_input", "subagent_type"), in.ToolName)
 	text := fmt.Sprintf("working: %s %s · worktree %s · since %s", agent, id, cmp.Or(worktreeName, "main"), time.Now().Format("15:04"))
-	if plans.Claim(plan, taskKey(task), text) != nil || worktreeName == "" {
+	if plans.ClaimFree(plan, taskKey(task), text) != nil || worktreeName == "" {
 		return
 	}
 	_, _ = worktree.SetLedgerTask(in.CWD, taskKey(task)+" in "+strings.TrimSuffix(filepath.Base(plan), ".md"), time.Now())
@@ -62,7 +62,7 @@ func clearPlanClaim(cwd, id string) {
 	}
 	for _, t := range parsed.Tasks {
 		if strings.Contains(t.Claim, " "+id+" ") {
-			_ = plans.ClearClaim(plan, taskKey(t))
+			_ = plans.ClearClaimOwned(plan, taskKey(t), " "+id+" ")
 		}
 	}
 }

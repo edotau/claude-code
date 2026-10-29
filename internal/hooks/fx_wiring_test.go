@@ -140,3 +140,17 @@ func TestHarvestAppendsWorktreeLedger(t *testing.T) {
 		t.Fatalf("no harvest line in ledger: %v\n%s", err, data)
 	}
 }
+
+// A spawn that fails never reaches SubagentStop: PostToolUseFailure must release its plan claim too.
+func TestPlanClaimClearedOnSpawnFailure(t *testing.T) {
+	dispatchEnv(t)
+	repo, plan := planRepo(t)
+	pre(agentPayload(repo, "toolu_f1", "Task: 1.2", ""))
+	if data, _ := os.ReadFile(plan); !strings.Contains(string(data), "working:") {
+		t.Fatalf("no claim:\n%s", data)
+	}
+	runEvent(t, "PostToolUseFailure", `{"hook_event_name":"PostToolUseFailure","tool_name":"Agent","tool_use_id":"toolu_f1","cwd":"`+repo+`"}`)
+	if data, _ := os.ReadFile(plan); strings.Contains(string(data), "working:") {
+		t.Fatalf("claim survived a failed spawn:\n%s", data)
+	}
+}

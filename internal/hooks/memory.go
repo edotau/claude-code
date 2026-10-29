@@ -295,10 +295,8 @@ func harvestIfNew(in *Input, trigger string, now time.Time) (blocked bool, work 
 				return false, 0 // cheap gate before the whole-transcript count
 			}
 			work = countEdits(in.TranscriptPath, countPath(in.SessionID))
-			if work >= covered+harvestRearmEdits {
-				logHarvestToLedger(in, trigger, work, now)
-			}
 			if work >= covered+harvestRearmEdits && spawnHarvest(in.TranscriptPath, in.CWD, in.SessionID) {
+				logHarvestToLedger(in, trigger, work, now)
 				writeStamp(stamp, now, "bg", work)
 				spawnIdleWatcher(in)
 			}
@@ -320,8 +318,8 @@ func harvestIfNew(in *Input, trigger string, now time.Time) (blocked bool, work 
 	}
 	work = countEdits(in.TranscriptPath, countPath(in.SessionID))
 	if work > covered && work >= floor {
-		logHarvestToLedger(in, trigger, work, now)
 		if spawnHarvest(in.TranscriptPath, in.CWD, in.SessionID) {
+			logHarvestToLedger(in, trigger, work, now)
 			writeStamp(stamp, now, "bg", work)
 			if trigger == triggerStop {
 				spawnIdleWatcher(in) // the session is harvest-worthy: its final state gets a watcher too
