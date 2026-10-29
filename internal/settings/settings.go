@@ -140,7 +140,7 @@ var retiredKeys = []string{"autoMemoryDirectory"}
 var runtimeKeys = []string{"modelSettings"}
 
 // retiredEnvKeys are env keys a template once set; merge would keep them after the template drops them.
-var retiredEnvKeys = []string{"CLAUDE_CODE_DISABLE_VIRTUAL_SCROLL", "CLAUDE_CODE_AUTO_CONNECT_IDE"}
+var retiredEnvKeys = []string{"CLAUDE_CODE_DISABLE_VIRTUAL_SCROLL", "CLAUDE_CODE_AUTO_CONNECT_IDE", "ENABLE_CLAUDEAI_MCP_SERVERS"}
 
 // Merge overlays rendered harness settings onto existing: foreign keys kept in place, env and permission
 // lists unioned, harness hooks replaced, foreign hooks kept after them; keys in dropped are removed.
