@@ -14,11 +14,11 @@
   "feedbackDrafts": "off",
   "cleanupPeriodDays": 30,
   "autoConnectIde": false,
+  "disableClaudeAiConnectors": true,
   "useAutoModeDuringPlan": true,
   "skipWorkflowUsageWarning": true,
   "env": {
     "CLAUDE_CODE_SCROLL_SPEED": "1",
-    "CLAUDE_CODE_AUTO_CONNECT_IDE": "false",
     "CLAUDE_CODE_DISABLE_TERMINAL_TITLE": "1"
   },
   "permissions": {
