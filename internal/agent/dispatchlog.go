@@ -71,6 +71,43 @@ func NewRecord(agent string, req Request, now time.Time) Record {
 	return Record{Schema: DispatchSchema, ID: recordID(now, agent), Time: now.UTC(), Agent: agent, Request: req, Status: "running"}
 }
 
+// ClaimRecord is NewRecord with its id reserved on disk: the allocator for every new dispatch (ask, batch, job).
+func ClaimRecord(agent string, req Request, now time.Time) Record {
+	return claimRecord(NewRecord(agent, req, now))
+}
+
+// claimRecord gives rec an id no other dispatch, batch or process holds: it links the complete "running" record to
+// <id>.json (atomic, EEXIST if taken), bumping the millisecond stamp on a clash, so a claim is never an empty file.
+// Failures leave rec unclaimed (fail-open, like Save): the log is for replay, never a gate on the run.
+func claimRecord(rec Record) Record {
+	dir := DispatchDir()
+	if os.MkdirAll(dir, 0o700) != nil {
+		return rec
+	}
+	for {
+		body, err := rec.encode()
+		if err != nil {
+			return rec
+		}
+		tmp, err := os.CreateTemp(dir, ".claim-*")
+		if err != nil {
+			return rec
+		}
+		_, werr := tmp.Write(body)
+		cerr := tmp.Close()
+		err = cmp.Or(werr, cerr)
+		if err == nil {
+			err = os.Link(tmp.Name(), filepath.Join(dir, rec.ID+".json"))
+		}
+		_ = os.Remove(tmp.Name())
+		if !errors.Is(err, os.ErrExist) {
+			return rec
+		}
+		rec.Time = rec.Time.Add(time.Millisecond)
+		rec.ID = recordID(rec.Time, rec.Agent)
+	}
+}
+
 // recordID is the id NewRecord stamps for agent at now.
 func recordID(now time.Time, agent string) string {
 	return now.UTC().Format("20060102T150405.000") + "-" + agent

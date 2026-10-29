@@ -7,7 +7,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"os"
+	"slices"
 	"time"
 
 	"github.com/edotau/claude-code/internal/launch"
@@ -66,7 +68,9 @@ func (claudeRunner) Run(ctx context.Context, req Request, stream io.Writer) (Res
 		return Result{}, err
 	}
 	cmd, tail := childCmd(ctx, plan.Binary, plan.Argv, nil, req.WorkDir, prompt, req.KeepEnv, false)
-	cmd.Env = plan.Env(scrubIsolated(ctx, os.Environ(), req.KeepEnv)) // the plan's own values go on after the scrub
+	// plan.Env also merges the vault's custom env (any profile's vars): filter the result, sparing only the plan's own
+	// route and token (plan.Set), so another profile's custom credential var never reaches this child
+	cmd.Env = scrubIsolated(ctx, plan.Env(os.Environ()), append(slices.Clone(req.KeepEnv), slices.Collect(maps.Keys(plan.Set))...))
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return Result{}, err

@@ -248,3 +248,19 @@ func fastDefaultBackoff(t *testing.T) {
 	DefaultBaseDelay, DefaultMaxDelay = time.Millisecond, 2*time.Millisecond
 	t.Cleanup(func() { DefaultBaseDelay, DefaultMaxDelay = b, m })
 }
+
+// A wait that cannot take its permit back returns the cancellation, with the earlier failure kept.
+func TestDoCancelledReacquireReturnsCancellation(t *testing.T) {
+	p := fastPolicy()
+	p.MaxAttempts = 3
+	p.Idle = func(_ context.Context, wait func()) error { wait(); return context.Canceled }
+	e := Do(context.Background(), p, func(context.Context, int) *Error {
+		return &Error{Kind: KindRateLimit, Agent: "a", Err: errors.New("HTTP 429")}
+	})
+	if e == nil || !errors.Is(e, context.Canceled) {
+		t.Fatalf("err = %v, want it to wrap context.Canceled", e)
+	}
+	if len(e.Earlier) != 1 || e.Earlier[0].Kind != KindRateLimit {
+		t.Errorf("earlier = %v, want the one rate-limit attempt kept", e.Earlier)
+	}
+}

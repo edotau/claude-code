@@ -464,9 +464,7 @@ func TestReserveIsExclusiveAcrossBatches(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			rec := NewRecord("codex", Request{Prompt: "p"}, now)
-			(&batchRun{}).reserve(&rec) // each its own batchRun: no shared mutex
-			ids[i] = rec.ID
+			ids[i] = ClaimRecord("codex", Request{Prompt: "p"}, now).ID // the one allocator every dispatch path uses
 		}()
 	}
 	wg.Wait()
@@ -556,8 +554,7 @@ func TestReservedRecordSurvivesPrune(t *testing.T) {
 	if err := done.Save(); err != nil {
 		t.Fatal(err)
 	}
-	rec := NewRecord("aa", Request{Prompt: "p"}, time.Now())
-	(&batchRun{}).reserve(&rec)
+	rec := ClaimRecord("aa", Request{Prompt: "p"}, time.Now())
 	pruneDispatches(dir) // lands between reserve and Save
 	if _, err := os.Stat(filepath.Join(dir, rec.ID+".json")); err != nil {
 		t.Errorf("the reserved record was pruned before Save: %v", err)

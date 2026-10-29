@@ -1,7 +1,6 @@
 package agent
 
 import (
-	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -9,6 +8,7 @@ import (
 	"math/rand/v2"
 	"net/http"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -254,7 +254,21 @@ func Do(ctx context.Context, p Policy, fn func(ctx context.Context, attempt int)
 		last.Earlier = earlier
 		return last
 	}
-	for attempt := 1; attempt <= p.MaxAttempts; attempt++ {
+	var attempt int
+	// abandoned is the error of a wait that could not take its permit back: the cancellation, earlier failures kept
+	abandoned := func(err error, pending bool) *Error { // pending: last is not yet in earlier
+		e := &Error{Kind: KindFatal, Err: err, Attempts: attempt, Earlier: earlier}
+		if last != nil {
+			e.Agent = last.Agent
+			if pending {
+				snap := *last
+				snap.Earlier = nil
+				e.Earlier = append(slices.Clone(earlier), &snap)
+			}
+		}
+		return e
+	}
+	for attempt = 1; attempt <= p.MaxAttempts; attempt++ {
 		if last != nil {
 			snap := *last
 			snap.Earlier = nil
@@ -262,8 +276,7 @@ func Do(ctx context.Context, p Policy, fn func(ctx context.Context, attempt int)
 		}
 		if cooling(p.Key) { // before the attempt's own timeout; the wait holds no permit, first attempt included
 			if err := p.idle(ctx, func() { waitCooldown(ctx, p.Key, p.MaxDelay) }); err != nil {
-				last = cmp.Or(last, &Error{Kind: KindFatal, Err: err})
-				return fail()
+				return abandoned(err, false)
 			}
 		}
 		actx, cancel := ctx, context.CancelFunc(func() {})
@@ -311,7 +324,10 @@ func Do(ctx context.Context, p Policy, fn func(ctx context.Context, attempt int)
 			}
 		})
 		t.Stop()
-		if ierr != nil || ctx.Err() != nil {
+		if ierr != nil {
+			return abandoned(ierr, true)
+		}
+		if ctx.Err() != nil {
 			return fail()
 		}
 	}

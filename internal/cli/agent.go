@@ -190,10 +190,10 @@ func absDebugFile(p string) string {
 
 // buildAskRecord constructs the dispatch record for req, reusing jobRec's identity when resuming a job.
 func buildAskRecord(ctx context.Context, r agent.Runner, req agent.Request, jobRec *agent.Record, workdir string, background bool) agent.Record {
-	rec := agent.NewRecord(r.Name(), req, time.Now())
 	if jobRec != nil {
 		return *jobRec // same id: a job run continues the record it was spawned from
 	}
+	rec := agent.ClaimRecord(r.Name(), req, time.Now())
 	cwd := workdir
 	if cwd == "" {
 		cwd, _ = os.Getwd()
@@ -672,7 +672,7 @@ func runAskBatch(fs *flag.FlagSet, resume bool, src string, o batchOpts, base ag
 	if len(lines) == 0 {
 		return failAskCode("text", o.agent, errors.New("--batch: no tasks in the input"), 2)
 	}
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGPIPE) // a closed stdout cancels
 	defer stop()
 	cwd, _ := os.Getwd() // resolved once here: a pool goroutine must never fall back to the process cwd
 	timeoutSet := flagExplicit(fs, "timeout")

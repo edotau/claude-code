@@ -9,8 +9,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
-	"path/filepath"
 	"runtime"
 	"sync"
 	"time"
@@ -370,7 +368,6 @@ func (b *batchRun) run(ctx context.Context, t BatchTask, chain Chain, rec Record
 			env.TaskID = t.ID
 		}
 	}()
-	b.reserve(&rec)
 	_ = rec.Save() // fail-open: the log is for replay and forensics, never a gate on the run
 	sink = NewLogSink(rec.LogPath())
 	res, err := RunWithFallback(WithLog(ctx, sink), chain, t.Req, io.Discard, func(s string) { b.logf(t.ID, "%s", s) })
@@ -386,39 +383,4 @@ func (b *batchRun) run(ctx context.Context, t BatchTask, chain Chain, rec Record
 	env = NewEnvelope(res, err, rec.ID)
 	env.TaskID = t.ID
 	return env, err == nil && env.Status == StatusOK
-}
-
-// reserve gives rec an id no other task, batch or process holds: it links the complete "running" record to
-// <id>.json (atomic, EEXIST if taken), bumping the millisecond stamp on a clash, so a claim is never an empty file.
-func (b *batchRun) reserve(rec *Record) {
-	dir := DispatchDir()
-	defaultLog := rec.LogPath() == filepath.Join(dir, rec.ID+".log")
-	if os.MkdirAll(dir, 0o700) != nil {
-		return // fail-open, like Save: the log is for replay, never a gate on the run
-	}
-	for {
-		if defaultLog {
-			rec.Log = filepath.Join(dir, rec.ID+".log")
-		}
-		body, err := rec.encode()
-		if err != nil {
-			return
-		}
-		tmp, err := os.CreateTemp(dir, ".claim-*")
-		if err != nil {
-			return
-		}
-		_, werr := tmp.Write(body)
-		cerr := tmp.Close()
-		err = cmp.Or(werr, cerr)
-		if err == nil {
-			err = os.Link(tmp.Name(), filepath.Join(dir, rec.ID+".json"))
-		}
-		_ = os.Remove(tmp.Name())
-		if !errors.Is(err, os.ErrExist) {
-			return
-		}
-		rec.Time = rec.Time.Add(time.Millisecond)
-		rec.ID = recordID(rec.Time, rec.Agent)
-	}
 }
