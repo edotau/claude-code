@@ -148,7 +148,7 @@ var writers = map[string]string{
 	"internal/vscode/vscode.go:merge":                              unversioned("foreign: VS Code settings.json and backup"),
 	"internal/vscodeserve/vscodeserve.go:prepareDataDir":           unversioned("foreign: VS Code machine settings seed"),
 	"internal/vscodeserve/vscodeserve.go:writeState":               "vscode-serve-runtime",
-	"internal/worktree/ledger.go:AppendLedger":                     unversioned("memory-bank: worktree ledger log line"),
+	"internal/worktree/ledger.go:editLedger":                       unversioned("memory-bank: worktree ledger log line and task fill"),
 	"internal/worktree/ledger.go:CloseLedger":                      unversioned("memory-bank: worktree ledger close"),
 	"internal/worktree/ledger.go:OpenLedger":                       unversioned("memory-bank: worktree ledger open"),
 	"internal/worktree/operation.go:SaveOperation":                 "worktree-merge-op",

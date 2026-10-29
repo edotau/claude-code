@@ -235,30 +235,6 @@ func recallNeed(terms []string) int {
 	return min(max(recallMinMatched, (len(uniq)+3)/4), recallMaxMatched)
 }
 
-// relevantTermHits filters on query coverage, relative score and blocks not already in the session's context;
-// the subagent pointer block (agentRecall) ranks with it.
-func relevantTermHits(sessionID string, terms []string, ranked []memory.SearchHit) []memory.SearchHit {
-	need := recallNeed(terms)
-	seen := memory.SeenBlocks(sessionID)
-	var out []memory.SearchHit
-	floor := -1.0
-	for _, h := range ranked {
-		if h.Matched < need {
-			continue
-		}
-		if floor < 0 {
-			floor = h.Score * recallScoreFloor
-		}
-		if h.Score < floor || len(out) == recallK {
-			break
-		}
-		if !seen[memory.BlockKey(h.Block)] {
-			out = append(out, h)
-		}
-	}
-	return out
-}
-
 // distinctTokenCount gates searches on distinct tokens of at least 3 bytes, without affecting ranking.
 func distinctTokenCount(tokens []string) int {
 	seen := map[string]bool{}

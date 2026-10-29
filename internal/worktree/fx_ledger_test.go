@@ -131,3 +131,18 @@ func TestFxLedgerTakesBankLock(t *testing.T) {
 		t.Fatalf("CloseLedger under a held bank lock = %v; want ErrBankBusy", err)
 	}
 }
+
+func TestFxSetLedgerTaskFillsUnclaimed(t *testing.T) {
+	_, main, dest := fxSetup(t, "wt-task")
+	path := memory.Dir(main) + "/worktrees/wt-task.md"
+	if ok, err := SetLedgerTask(dest, "1.2 in plan-x", time.Now()); !ok || err != nil {
+		t.Fatalf("SetLedgerTask = %v, %v", ok, err)
+	}
+	data, _ := os.ReadFile(path)
+	if !strings.Contains(string(data), "- Task: 1.2 in plan-x\n") || strings.Contains(string(data), "unclaimed") {
+		t.Fatalf("Task line not filled:\n%s", data)
+	}
+	if ok, _ := SetLedgerTask(dest, "other", time.Now()); ok {
+		t.Fatal("a ledger already naming a task must stay untouched")
+	}
+}

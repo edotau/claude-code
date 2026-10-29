@@ -31,6 +31,7 @@ func subagentStopRunner(in *Input) Result {
 	if in.AgentTranscriptPath != "" {
 		dirs = append([]string{filepath.Dir(in.AgentTranscriptPath)}, dirs...)
 	}
+	clearStoppedClaim(in, dirs, id) // before the retire: it reads the same meta.json
 	for _, d := range dirs {
 		if d != "" {
 			inflight.RetireAgent(owner, d, id)

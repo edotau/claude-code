@@ -56,6 +56,25 @@ func OpenLedger(main, name string, info LedgerInfo) error {
 
 // AppendLedger appends a timestamped entry only for a managed linked worktree with an existing ledger.
 func AppendLedger(cwd, text string, now time.Time) (bool, error) {
+	return editLedger(cwd, now, func(data string) string { return ledgerLog(data, text, now) })
+}
+
+// SetLedgerTask fills a managed worktree ledger's "Task: unclaimed" line; a ledger already naming a task is untouched.
+func SetLedgerTask(cwd, task string, now time.Time) (bool, error) {
+	task = ledgerLine(task)
+	if task == "" {
+		return false, nil
+	}
+	return editLedger(cwd, now, func(data string) string {
+		if !strings.Contains(data, "\n- Task: unclaimed\n") {
+			return data
+		}
+		return ledgerLog(strings.Replace(data, "\n- Task: unclaimed\n", "\n- Task: "+task+"\n", 1), "task claimed: "+task, now)
+	})
+}
+
+// editLedger applies edit to the cwd worktree's ledger under the lock, reopening a closed one first.
+func editLedger(cwd string, now time.Time, edit func(string) string) (bool, error) {
 	repo, err := ResolveRepo(cwd)
 	if err != nil {
 		return false, nil
@@ -98,7 +117,11 @@ func AppendLedger(cwd, text string, now time.Time) (bool, error) {
 			info.Now = now
 			data = []byte(reopenedText(string(data), info))
 		}
-		if err := paths.AtomicWrite(path, []byte(ledgerLog(string(data), text, now)), 0o600); err != nil {
+		next := edit(string(data))
+		if next == string(data) {
+			return nil
+		}
+		if err := paths.AtomicWrite(path, []byte(next), 0o600); err != nil {
 			return err
 		}
 		appended = true

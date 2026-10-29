@@ -661,3 +661,22 @@ func TestMergeCopilotHooksPreservesPowershellCwdEnv(t *testing.T) {
 		t.Errorf("env dropped: %#v\n%s", found, merged)
 	}
 }
+
+// A stale vendor hooks file naming retired hooks is re-rendered without them (what install does on drift).
+func TestMergeCodexHooksDropsStaleHarnessNames(t *testing.T) {
+	stale := []byte(`{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"HARNESS_HOOK_AGENT=codex $HOME/.claude/bin/claude-code hook bash-guard"}]}],` +
+		`"PostToolUse":[{"matcher":"Read","hooks":[{"type":"command","command":"HARNESS_HOOK_AGENT=codex $HOME/.claude/bin/claude-code hook access-trace"}]}]}}`)
+	body, err := hookspec.CodexJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	merged, err := mergeCodexHooks(stale, body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, old := range []string{"bash-guard", "access-trace"} {
+		if strings.Contains(string(merged), old) {
+			t.Errorf("stale %s survived the re-render", old)
+		}
+	}
+}
