@@ -236,7 +236,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "$HOME/.claude/bin/claude-code hook wsl-path-normalize",
+            "command": "$HOME/.claude/bin/claude-code hook path-resolver",
             "timeout": 5
           },
           {

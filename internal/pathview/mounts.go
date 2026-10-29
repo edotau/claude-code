@@ -28,6 +28,7 @@ type Mount struct {
 	FSType     string
 	Kind       Kind
 	Drive      string // upper-case drive letter, KindDrvFS only
+	Root       string // KindDrvFS: the drive subtree mounted here (bind mounts); "" means "/"
 	Host       string // server host, remote kinds only
 	RemotePath string // SMB: "share/sub" (no leading slash); NFS/sshfs: the exported path
 }

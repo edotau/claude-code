@@ -1,6 +1,7 @@
 package pathview
 
 import (
+	"path"
 	"strconv"
 	"strings"
 )
@@ -15,10 +16,24 @@ func parseMountinfo(text string) []Mount {
 			continue
 		}
 		if m, ok := classify(unescapeOctal(f[4]), unescapeOctal(f[sep+2]), f[sep+1]); ok {
-			out = append(out, m)
+			out = append(out, withRoot(m, unescapeOctal(f[3])))
 		}
 	}
 	return out
+}
+
+// withRoot applies mountinfo's root-within-source (field 4) so bind mounts of a subtree map correctly.
+func withRoot(m Mount, root string) Mount {
+	root = path.Clean("/" + root)
+	switch m.Kind {
+	case KindDrvFS:
+		m.Root = root
+	case KindSMB:
+		m.RemotePath = strings.TrimPrefix(path.Join(m.RemotePath, root), "/")
+	case KindNFS, KindSSHFS:
+		m.RemotePath = path.Join(m.RemotePath, root)
+	}
+	return m
 }
 
 // parseDarwinMount reads macOS `mount` output ("src on /point (fstype, opts)") into classified mounts.
