@@ -105,11 +105,28 @@ func first(xs []int, def int) int {
 	return xs[0]
 }
 
+// fencedLines flags each line that is a code fence or sits inside one; markers there are examples, not ids.
+func fencedLines(block []string) []bool {
+	out := make([]bool, len(block))
+	in := false
+	for i, l := range block {
+		toggle := fenceToggle(l)
+		out[i] = in || toggle
+		if toggle {
+			in = !in
+		}
+	}
+	return out
+}
+
 // settleBlockID leaves exactly one id marker in a block: the oldest it already carries, else a fresh one on line 0.
 func settleBlockID(dir, name string, idx int, block []string, now time.Time) ([]string, int) {
+	fenced := fencedLines(block)
 	total := 0
-	for _, l := range block {
-		total += len(idMarker.FindAllStringIndex(l, -1))
+	for i, l := range block {
+		if !fenced[i] {
+			total += len(idMarker.FindAllStringIndex(l, -1))
+		}
 	}
 	if total == 0 {
 		// idx is in the hash so two identical lines in one settle pass never collide on the same ID.
@@ -122,9 +139,9 @@ func settleBlockID(dir, name string, idx int, block []string, now time.Time) ([]
 	}
 	seen := 0
 	out := make([]string, 0, len(block))
-	for _, l := range block {
+	for i, l := range block {
 		spans := idMarker.FindAllStringIndex(l, -1)
-		if len(spans) == 0 {
+		if len(spans) == 0 || fenced[i] {
 			out = append(out, l)
 			continue
 		}
@@ -172,6 +189,11 @@ func ShowBlock(ref string) (string, string, error) {
 			return nil
 		}
 		_, blocks := entryBlocks(logicalName(p), string(data))
+		if contentRef { // native topics and knowledge notes are indexed whole, under their own grammar
+			base := filepath.Base(p)
+			blocks = append(blocks, parseBlocks(segNative, base, data)...)
+			blocks = append(blocks, parseBlocks(segKnowledge, base, data)...)
+		}
 		for _, b := range blocks {
 			if contentRef {
 				if ContentRef(b) == ref {

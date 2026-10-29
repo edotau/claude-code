@@ -61,12 +61,14 @@ func MemoryRecall(r io.Reader, stdout io.Writer) int {
 	}
 	terms := memory.ContentQueryTerms(tokens)
 	ranked := memory.SearchBanksTerms(root, q, terms, 0)
-	if len(ranked) == 0 {
-		return ExitProceed
-	}
 	sem, err := memory.NewSemantic(q)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "memory-recall: keyword-only (%s)\n", recallCut(err.Error(), 120))
+	} else {
+		ranked = withSemanticCandidates(ranked, sem.Candidates(root, recallBodies+recallPointers, recallCosineAdmit))
+	}
+	if len(ranked) == 0 {
+		return ExitProceed
 	}
 	picks := selectRecall(in.SessionID, terms, ranked, sem)
 	if len(picks) == 0 {
@@ -97,6 +99,20 @@ func MemoryRecall(r io.Reader, stdout io.Writer) int {
 	return ExitProceed
 }
 
+// withSemanticCandidates appends cosine-only candidates (zero keyword overlap) the keyword search did not return.
+func withSemanticCandidates(ranked, extra []memory.SearchHit) []memory.SearchHit {
+	have := map[string]bool{}
+	for _, h := range ranked {
+		have[memory.BlockKey(h.Block)] = true
+	}
+	for _, h := range extra {
+		if !have[memory.BlockKey(h.Block)] {
+			ranked = append(ranked, h)
+		}
+	}
+	return ranked
+}
+
 // recallPick is one surviving entry with its search hit and final score.
 type recallPick struct {
 	e     memory.Entry
@@ -119,16 +135,20 @@ func selectRecall(sessionID string, terms []string, ranked []memory.SearchHit, s
 		if archived {
 			tierSem = nil // archive entries carry no vectors
 		}
-		if picks := pickTier(ranked, archived, need, seen, tierSem); len(picks) > 0 {
+		picks, passed := pickTier(ranked, archived, need, seen, tierSem)
+		if len(picks) > 0 {
 			orderRecall(picks)
 			return picks
+		}
+		if passed { // the current answer exists but is already in context: never fall back to an older one
+			return nil
 		}
 	}
 	return nil
 }
 
 // pickTier scores one tier (current or archive): keyword gate, or the semantic admit, then the relative floor.
-func pickTier(ranked []memory.SearchHit, archived bool, need int, seen map[string]bool, sem *memory.Semantic) []recallPick {
+func pickTier(ranked []memory.SearchHit, archived bool, need int, seen map[string]bool, sem *memory.Semantic) (out []recallPick, passed bool) {
 	var cands []recallPick
 	top, topAny := 0.0, 0.0
 	for _, h := range ranked {
@@ -150,7 +170,10 @@ func pickTier(ranked []memory.SearchHit, archived bool, need int, seen map[strin
 	var pool []recallPick
 	for _, c := range cands {
 		kwOK := c.hit.Matched >= need && c.hit.Score >= top*recallScoreFloor
-		kw := c.hit.Score / top
+		kw := 0.0
+		if top > 0 {
+			kw = c.hit.Score / top
+		}
 		c.score = kw
 		if sem != nil {
 			if cos, ok := sem.Cosine(c.e); ok {
@@ -163,7 +186,7 @@ func pickTier(ranked []memory.SearchHit, archived bool, need int, seen map[strin
 		}
 	}
 	sort.SliceStable(pool, func(i, j int) bool { return pool[i].score > pool[j].score })
-	var out []recallPick
+	passed = len(pool) > 0 // pool[0] always clears its own relative floor
 	for _, c := range pool {
 		if c.score < pool[0].score*recallScoreFloor || len(out) == recallBodies+recallPointers {
 			break
@@ -172,7 +195,7 @@ func pickTier(ranked []memory.SearchHit, archived bool, need int, seen map[strin
 			out = append(out, c)
 		}
 	}
-	return out
+	return out, passed
 }
 
 // orderRecall sorts decisions and conventions ahead of other types and session narrative, newest first within a rank.
