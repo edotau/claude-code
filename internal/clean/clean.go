@@ -62,6 +62,10 @@ func targets() []target {
 			},
 		},
 		{
+			name: "codex-audit", doc: "state/harness/codex: codex routing audit logs (routing-*.jsonl), aged by --older-than",
+			globs: func() []string { return []string{s("codex", "routing-*.jsonl")} },
+		},
+		{
 			name: "memory-state", doc: "state/harness/memory: harvest logs, session stamps, harvest receipts, recall-seen sets, watcher claims",
 			globs: func() []string {
 				return []string{

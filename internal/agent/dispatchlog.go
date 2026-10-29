@@ -5,6 +5,7 @@ import (
 	"cmp"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -16,12 +17,14 @@ import (
 
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
+	"github.com/edotau/claude-code/internal/schemas"
 	"github.com/edotau/claude-code/internal/secrets/shapes"
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // Record is one `ask` dispatch: written as "running" before the run, so a killed run stays visible.
 type Record struct {
+	Schema         int       `json:"schema"`
 	ID             string    `json:"id"`
 	Time           time.Time `json:"time"`
 	Agent          string    `json:"agent"`
@@ -65,7 +68,7 @@ func DispatchDir() string { return filepath.Join(paths.StateDir(), "dispatch") }
 
 // NewRecord stamps an id that sorts by time and names the agent: 20261016T210512.123-codex.
 func NewRecord(agent string, req Request, now time.Time) Record {
-	return Record{ID: now.UTC().Format("20060102T150405.000") + "-" + agent, Time: now.UTC(), Agent: agent, Request: req, Status: "running"}
+	return Record{Schema: DispatchSchema, ID: now.UTC().Format("20060102T150405.000") + "-" + agent, Time: now.UTC(), Agent: agent, Request: req, Status: "running"}
 }
 
 // Save writes the record (0600) and prunes past dispatchKeep. The prompt is kept verbatim so a retry is exact.
@@ -74,6 +77,7 @@ func (r Record) Save() error {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
+	r.Schema = DispatchSchema
 	b, err := json.MarshalIndent(r, "", "  ")
 	if err != nil {
 		return err
@@ -127,7 +131,7 @@ func pruneDispatches(dir string) {
 func activeRecord(path string) bool {
 	r, err := readRecord(path)
 	if err != nil {
-		return false
+		return errors.Is(err, schemas.ErrNewer) // a newer build's record is never pruned blind
 	}
 	return r.Alive()
 }
@@ -137,7 +141,7 @@ func readRecord(path string) (Record, error) {
 	var r Record
 	b, err := os.ReadFile(path)
 	if err == nil {
-		err = json.Unmarshal(b, &r)
+		_, err = schemas.Decode(dispatchFormat, b, &r)
 	}
 	return r, err
 }
