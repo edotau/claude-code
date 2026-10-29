@@ -254,3 +254,52 @@ func TestCommandCredentialHostMismatchIsAuthAndFallsBack(t *testing.T) {
 		t.Errorf("hops = %+v, want hop 1 error_kind auth", res.Hops)
 	}
 }
+
+// legGauge is a runner that fails (as auth) or answers after a pause, tracking one gauge shared by every leg.
+type legGauge struct {
+	name     string
+	fail     bool
+	cur, max *atomic.Int32
+}
+
+func (g legGauge) Name() string     { return g.name }
+func (g legGauge) Caps() Caps       { return Caps{} }
+func (g legGauge) Available() error { return nil }
+func (g legGauge) Run(context.Context, Request, io.Writer) (Result, error) {
+	n := g.cur.Add(1)
+	for m := g.max.Load(); n > m && !g.max.CompareAndSwap(m, n); m = g.max.Load() {
+	}
+	time.Sleep(40 * time.Millisecond)
+	g.cur.Add(-1)
+	if g.fail {
+		return Result{}, errors.New("HTTP 401 unauthorized")
+	}
+	return Result{Answer: "a"}, nil
+}
+
+// Legs in flight never exceed --jobs while tasks fall back from a full account A to account B.
+func TestBatchJobsCapHoldsAcrossFallbackHops(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	const jobs = 5
+	var cur, peak atomic.Int32
+	var tasks []BatchTask
+	for i := range 12 {
+		name := fmt.Sprintf("f%d", i)
+		first, second := legGauge{name: "codex", fail: true, cur: &cur, max: &peak}, legGauge{name: "gemini", cur: &cur, max: &peak}
+		tasks = append(tasks, BatchTask{ID: name, Agent: name, Req: Request{Prompt: "p"}, // distinct keys: the old per-key gate would cap at 4
+			Prepare: func(context.Context) (Chain, Record, error) {
+				rec := Record{ID: "id-" + name, Agent: "codex", Log: filepath.Join(t.TempDir(), "l.log")}
+				return Chain{Want: "codex", Legs: []Leg{{Agent: first, Account: "A·acct", keepCaller: true}, {Agent: second, Account: "B·acct"}}}, rec, nil
+			}})
+	}
+	var out strings.Builder
+	if !RunBatch(context.Background(), tasks, BatchOptions{Jobs: jobs, Out: &out}) {
+		t.Fatalf("batch failed: %s", out.String())
+	}
+	if got := int(peak.Load()); got > jobs || got < 2 {
+		t.Errorf("peak in-flight legs = %d, want 2..%d", got, jobs)
+	}
+	if n := strings.Count(out.String(), `"hops"`); n != len(tasks) {
+		t.Errorf("%d envelopes carry hops, want %d (every task fell back)", n, len(tasks))
+	}
+}
