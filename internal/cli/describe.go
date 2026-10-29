@@ -130,8 +130,8 @@ func describe(reg *providers.Registry) (Describe, error) {
 		}
 		d.Agents = append(d.Agents, dr)
 	}
-	for _, s := range hookspec.Registry {
-		d.Hooks = append(d.Hooks, DescribeHook{Name: s.Name, Event: s.Event, Matcher: s.Matcher, Timeout: s.Timeout})
+	for _, s := range hookspec.Specs() {
+		d.Hooks = append(d.Hooks, DescribeHook{Name: s.Name, Event: s.Event, Matcher: s.Matcher, Timeout: s.Seconds()})
 	}
 	return d, nil
 }

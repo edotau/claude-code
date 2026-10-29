@@ -21,7 +21,7 @@ func TestCodexNativeRoutingHooksStayVendorScoped(t *testing.T) {
 		t.Fatal(err)
 	}
 	var doc struct {
-		Hooks map[string][]Group `json:"hooks"`
+		Hooks map[string][]MatcherGroup `json:"hooks"`
 	}
 	if err := json.Unmarshal(codex, &doc); err != nil {
 		t.Fatal(err)

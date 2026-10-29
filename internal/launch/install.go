@@ -497,7 +497,7 @@ func settingsHasHooks(file string) (bool, error) {
 		return false, err
 	}
 	var doc struct {
-		Hooks map[string][]hookspec.Group `json:"hooks"`
+		Hooks map[string][]hookspec.MatcherGroup `json:"hooks"`
 	}
 	if err := json.Unmarshal(b, &doc); err != nil {
 		return false, err

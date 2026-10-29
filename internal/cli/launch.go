@@ -181,7 +181,8 @@ var hookPage = helptext.Page{
 		"       agent-inflight|agent-inflight-tag|agent-inflight-post|subagent-stop|\n" +
 		"       plan-mirror|save-plan|access-trace|stop|\n" +
 		"       session-start|path-resolver|memory-recall|\n" +
-		"       session-harvest-end|pre-compact|worktree-create|worktree-remove",
+		"       session-harvest-end|pre-compact|worktree-create|worktree-remove\n" +
+		"events: <Event> [--no-own] runs every enabled group on that event",
 }
 
 func cmdHook(args []string) int {
@@ -189,7 +190,7 @@ func cmdHook(args []string) int {
 		hookPage.Fprint(os.Stderr)
 		return 0
 	}
-	return hooks.Run(args[0], os.Stdin, os.Stdout, os.Stderr)
+	return hooks.RunArgs(args[0], args[1:], os.Stdin, os.Stdout, os.Stderr)
 }
 
 // cmdRestore is `configure --restore`: write settings.json whole from the defaults, then render the agent configs.

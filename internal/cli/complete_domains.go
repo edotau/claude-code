@@ -40,8 +40,8 @@ func configureAgentNames() []string { return append([]string{"claude"}, vendorNa
 
 // hookNames derives from the hook chain the registry actually declares — never a hand copy of it.
 func hookNames() []string {
-	out := make([]string, 0, len(hookspec.Registry))
-	for _, s := range hookspec.Registry {
+	out := make([]string, 0, len(hookspec.Specs()))
+	for _, s := range hookspec.Specs() {
 		out = append(out, s.Name)
 	}
 	return out

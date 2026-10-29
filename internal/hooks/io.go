@@ -10,8 +10,8 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
-	"time"
 
 	"github.com/edotau/claude-code/internal/hookspec"
 )
@@ -215,9 +215,9 @@ type Handler func(stdin io.Reader, stdout, stderr io.Writer) int
 
 // hookContext gives subprocesses the registered hook budget without changing process signal handling.
 func hookContext(name string) (context.Context, context.CancelFunc) {
-	for _, spec := range hookspec.Registry {
+	for _, spec := range hookspec.Specs() {
 		if spec.Name == name {
-			return context.WithTimeout(context.Background(), time.Duration(spec.Timeout)*time.Second)
+			return context.WithTimeout(context.Background(), spec.Budget)
 		}
 	}
 	panic("unknown hook: " + name)
@@ -250,12 +250,24 @@ var Registry = map[string]Handler{
 	"worktree-remove":      func(in io.Reader, _, errw io.Writer) int { return WorktreeRemove(in, errw) },
 }
 
-// Run dispatches a hook by name; an unknown name is a non-blocking error.
+// Run dispatches `hook <name> [--no-own]`: an event name runs that event's dispatcher, a legacy hook name runs
+// that one handler (still the entry other agent CLIs, gate groups and async hooks call); unknown is non-blocking.
 func Run(name string, stdin io.Reader, stdout, stderr io.Writer) int {
+	return RunArgs(name, nil, stdin, stdout, stderr)
+}
+
+// RunArgs is Run with the verb's trailing flags (only --no-own, which an event dispatcher honors).
+func RunArgs(name string, flags []string, stdin io.Reader, stdout, stderr io.Writer) int {
+	if IsEvent(name) {
+		return RunEvent(name, slices.Contains(flags, hookspec.NoOwnFlag), stdin, stdout, stderr)
+	}
 	h, ok := Registry[name]
 	if !ok {
 		fmt.Fprintf(stderr, "claude-code hook: unknown hook %q\n", name)
 		return 1
+	}
+	if g, found := hookspec.GroupOf(name); found && !enabledGroups()(g.Name, g.Gate) {
+		return ExitProceed
 	}
 	return h(stdin, stdout, stderr)
 }

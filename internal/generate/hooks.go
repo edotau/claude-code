@@ -350,7 +350,7 @@ func renderCodex(reg *providers.Registry, sel providers.Selection, o Options, ou
 // is found to contain a harness hook, so a foreign-only event (Stop, SessionStart, ...) never errors.
 func codexTrustEntries(path string, mergedHooks []byte) (map[string]string, error) {
 	var config struct {
-		Hooks map[string][]hookspec.Group `json:"hooks"`
+		Hooks map[string][]hookspec.MatcherGroup `json:"hooks"`
 	}
 	if err := json.Unmarshal(mergedHooks, &config); err != nil {
 		return nil, err
@@ -378,7 +378,7 @@ func codexTrustEntries(path string, mergedHooks []byte) (map[string]string, erro
 }
 
 // anyHarnessHook reports whether groups contains at least one harness-owned hook.
-func anyHarnessHook(groups []hookspec.Group) bool {
+func anyHarnessHook(groups []hookspec.MatcherGroup) bool {
 	for _, group := range groups {
 		for _, hook := range group.Hooks {
 			if hookspec.IsHarness(hook.Command) {
@@ -390,7 +390,7 @@ func anyHarnessHook(groups []hookspec.Group) bool {
 }
 
 // addCodexTrustEntries fills entries with one digest per harness-owned hook in groups.
-func addCodexTrustEntries(entries map[string]string, path, event, name string, groups []hookspec.Group) error {
+func addCodexTrustEntries(entries map[string]string, path, event, name string, groups []hookspec.MatcherGroup) error {
 	for gi, group := range groups {
 		for hi, hook := range group.Hooks {
 			if !hookspec.IsHarness(hook.Command) {
@@ -407,7 +407,7 @@ func addCodexTrustEntries(entries map[string]string, path, event, name string, g
 }
 
 // codexTrustDigest computes Codex's trust digest for one harness hook identity.
-func codexTrustDigest(event, name string, group hookspec.Group, hook hookspec.Hook) (string, error) {
+func codexTrustDigest(event, name string, group hookspec.MatcherGroup, hook hookspec.Hook) (string, error) {
 	handler := map[string]any{
 		"type": hook.Type, "command": hook.Command, "timeout": max(1, hook.Timeout), "async": hook.Async,
 	}

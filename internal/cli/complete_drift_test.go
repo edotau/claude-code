@@ -115,7 +115,7 @@ func TestSpecTreeSubwordsMatchDispatch(t *testing.T) {
 // registry order — the stale-table bug Part 3 fixed (7 hard-coded names vs. 21 registered).
 func TestHookDomainMatchesRegistry(t *testing.T) {
 	var want []string
-	for _, s := range hookspec.Registry {
+	for _, s := range hookspec.Specs() {
 		want = append(want, s.Name)
 	}
 	got := hookNames()
