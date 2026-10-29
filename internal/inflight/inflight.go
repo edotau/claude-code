@@ -44,9 +44,9 @@ func Owner(name string) (int, bool) {
 // a silent owner as dead, otherwise TTL is the sole backstop.
 func ProbeTrusted() bool { return proc.Alive(os.Getpid()) }
 
-// Live is the owner-level rule: a provably dead owner never counts; a batch leg lives with its owner; anything
+// ownerLive is the owner-level rule: a provably dead owner never counts; a batch leg lives with its owner; anything
 // else (or any marker when the probe is untrusted) stops counting after TTL. Self's spawn rules live in scan.
-func Live(name string, mod, now time.Time, trusted bool) bool {
+func ownerLive(name string, mod, now time.Time, trusted bool) bool {
 	owner, ok := Owner(name)
 	if !ok {
 		return false
@@ -68,23 +68,32 @@ func CountOwned(owner int, now time.Time) int {
 	if err != nil {
 		return 0
 	}
-	s := newScanner(now)
+	live := Liveness(now)
 	n := 0
 	for _, e := range entries {
-		if pid, ok := Owner(e.Name()); !ok || pid != owner {
-			continue
-		}
-		fi, ierr := e.Info()
-		b, rerr := os.ReadFile(filepath.Join(Dir(), e.Name()))
-		if ierr != nil || rerr != nil {
-			continue
-		}
-		_, transcript, _ := strings.Cut(strings.TrimSpace(string(b)), "\n")
-		if s.live(e.Name(), fi.ModTime(), transcript) {
+		if pid, ok := Owner(e.Name()); ok && pid == owner && live(e.Name()) {
 			n++
 		}
 	}
 	return n
+}
+
+// Liveness is the limiter's own marker rule for read-only callers (status line, `agents reap`); false for a non-marker.
+func Liveness(now time.Time) func(name string) bool {
+	s := newScanner(now)
+	return func(name string) bool {
+		if _, ok := Owner(name); !ok {
+			return false
+		}
+		path := filepath.Join(Dir(), name)
+		fi, ierr := os.Stat(path)
+		b, rerr := os.ReadFile(path)
+		if ierr != nil || rerr != nil {
+			return false
+		}
+		_, transcript, _ := strings.Cut(strings.TrimSpace(string(b)), "\n")
+		return s.live(name, fi.ModTime(), transcript)
+	}
 }
 
 // SubagentDir is where Claude Code writes this session's agent-<id>.jsonl: <project>/<session>/subagents.
