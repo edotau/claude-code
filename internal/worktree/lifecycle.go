@@ -71,26 +71,18 @@ func Create(repo *Repo, name string, opt CreateOptions) (string, error) {
 
 func resumeLedger(repo *Repo, name, dest, session string) error {
 	path := filepath.Join(memory.Dir(repo.Main), "worktrees", name+".md")
-	if _, err := os.Stat(path); err == nil {
-		return nil
+	if data, err := os.ReadFile(path); err == nil {
+		if ledgerField(string(data), "Status") != "closed" {
+			return nil
+		}
 	} else if !os.IsNotExist(err) {
 		return err
 	}
-	head, err := headOfContext(context.Background(), dest)
+	info, err := reopenInfo(repo, name, dest, session)
 	if err != nil {
 		return err
 	}
-	base, err := gitCmd(context.Background(), "-C", repo.Main, "merge-base", "HEAD", head).Output()
-	if err != nil {
-		return fmt.Errorf("resolve resume base: %w", err)
-	}
-	branch, err := currentWorktreeBranch(dest)
-	if err != nil {
-		return err
-	}
-	return OpenLedger(repo.Main, name, LedgerInfo{
-		Path: dest, Branch: branch, Base: strings.TrimSpace(string(base)), BaseRef: "merge-base", Session: session,
-	})
+	return OpenLedger(repo.Main, name, info)
 }
 
 func createBase(main string, log io.Writer) string {
@@ -150,9 +142,14 @@ type CleanResult struct {
 // whole recheck-and-remove runs under the per-worktree lease (WithWorktreeLease), so it can never
 // interleave with an active resolve or merge on the same worktree.
 func Clean(repo *Repo, name string, dryRun bool) (CleanResult, error) {
+	return CleanWithLog(repo, name, dryRun, os.Stderr)
+}
+
+// CleanWithLog is Clean with ledger warnings written to log (nil discards them).
+func CleanWithLog(repo *Repo, name string, dryRun bool, log io.Writer) (CleanResult, error) {
 	var result CleanResult
 	err := WithWorktreeLease(repo, name, func() error {
-		r, cleanErr := CleanInLease(repo, name, dryRun)
+		r, cleanErr := CleanInLease(repo, name, dryRun, log)
 		result = r
 		return cleanErr
 	})
@@ -162,7 +159,10 @@ func Clean(repo *Repo, name string, dryRun bool) (CleanResult, error) {
 // CleanInLease is Clean's recheck-and-remove body, exported for a caller that already holds
 // WithWorktreeLease for repo+name (the CLI's merge lifecycle, which must not re-acquire the same
 // non-reentrant lease after a resolve or promote already took it). Standalone callers use Clean.
-func CleanInLease(repo *Repo, name string, dryRun bool) (CleanResult, error) {
+func CleanInLease(repo *Repo, name string, dryRun bool, log io.Writer) (CleanResult, error) {
+	if log == nil {
+		log = io.Discard
+	}
 	dest, err := ResolveWorktree(repo, name)
 	if err != nil {
 		return CleanResult{}, err
@@ -229,7 +229,7 @@ func CleanInLease(repo *Repo, name string, dryRun bool) (CleanResult, error) {
 	if err := CloseLedger(repo.Main, name, LedgerClose{
 		Via: "clean", Head: entry.Head, BranchDeleted: result.BranchDeleted,
 	}); err != nil {
-		fmt.Fprintf(os.Stderr, "worktree-clean: warning: ledger: %v\n", err)
+		fmt.Fprintf(log, "worktree-clean: warning: ledger: %v\n", err)
 	}
 	return result, nil
 }
