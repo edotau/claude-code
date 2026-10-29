@@ -95,10 +95,11 @@ type agyEvent struct {
 		Response       string `json:"response"`
 		Error          string `json:"error"`
 		Usage          struct {
-			InputTokens     int `json:"input_tokens"`
-			OutputTokens    int `json:"output_tokens"`
-			ThinkingTokens  int `json:"thinking_tokens"`
-			CacheReadTokens int `json:"cache_read_tokens"`
+			InputTokens     int     `json:"input_tokens"`
+			OutputTokens    int     `json:"output_tokens"`
+			ThinkingTokens  int     `json:"thinking_tokens"`
+			CacheReadTokens int     `json:"cache_read_tokens"`
+			CostUSD         float64 `json:"cost_usd"` // not reported by agy today; read if it ever is
 		} `json:"usage"`
 		DeniedActions []struct {
 			Action      string `json:"action"`
@@ -182,6 +183,7 @@ func applyAgyResult(res *Result, ev agyEvent) error {
 		InputTokens:     out.Usage.InputTokens,
 		OutputTokens:    out.Usage.OutputTokens + out.Usage.ThinkingTokens,
 		CacheReadTokens: out.Usage.CacheReadTokens,
+		CostUSD:         out.Usage.CostUSD,
 	}
 	if len(out.DeniedActions) > 0 {
 		names := make([]string, len(out.DeniedActions))
