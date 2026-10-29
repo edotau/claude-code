@@ -56,7 +56,7 @@ func TestFxMixedDimensionsAreDeterministicAndReindexed(t *testing.T) {
 	}
 	rows["d"] = embedRow{Vec: encodeVec([]float32{1, 0, 0, 0, 0})}
 	for range 100 {
-		if !cacheDimMatches(rows, 3) || cacheDimMatches(rows, 5) {
+		if !cacheDimMatches(embedCacheFile{Rows: rows}, 3) || cacheDimMatches(embedCacheFile{Rows: rows}, 5) {
 			t.Fatal("dimension check must follow the dominant dimension on every call")
 		}
 	}
