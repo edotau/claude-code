@@ -32,7 +32,7 @@ func seedPath(main, dest, name string) error {
 	if _, err := os.Lstat(target); !os.IsNotExist(err) {
 		return err
 	}
-	if gitCmd(context.Background(), "-C", main, "check-ignore", "-q", name).Run() != nil {
+	if gitCmd(context.Background(), "-C", dest, "check-ignore", "-q", name).Run() != nil { // the dest branch's rules govern
 		return nil
 	}
 	if name == ".venv" {

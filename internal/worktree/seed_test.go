@@ -223,3 +223,25 @@ func TestSeedSkipsNonIgnoredEnv(t *testing.T) {
 		t.Fatalf(".env seeded (stat err = %v) even though it is not gitignored; a seeded tracked path would dirty the worktree", err)
 	}
 }
+
+// TestSeedChecksDestIgnoreRules: a reused branch whose .gitignore lacks .env gets no copy, though main ignores it.
+func TestSeedChecksDestIgnoreRules(t *testing.T) {
+	t.Parallel()
+	repo := testRepo(t)
+	commitIn(t, repo.Main, "branch", "old-branch") // predates the ignore rule
+	if err := os.WriteFile(filepath.Join(repo.Main, ".gitignore"), []byte(".env\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	commitIn(t, repo.Main, "add", ".gitignore")
+	commitIn(t, repo.Main, "commit", "-q", "-m", "ignore .env")
+	if err := os.WriteFile(filepath.Join(repo.Main, ".env"), []byte("TOKEN=secret\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	dest, err := Create(repo, "reused", CreateOptions{Branch: "old-branch"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(filepath.Join(dest, ".env")); !os.IsNotExist(err) {
+		t.Fatalf(".env copied into a branch that does not ignore it (stat err = %v)", err)
+	}
+}
