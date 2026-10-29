@@ -21,7 +21,7 @@ Add `paths:` to any new rule unless it must apply to every turn.
 
 | Tier | What it is | Loaded |
 |------|-----------|--------|
-| `standards/` | Coding doctrine — how code is written, reviewed, committed, documented, secured | always-on (portable, short) |
+| `standards/` | Coding doctrine — how code is written, reviewed, committed, documented, secured | always-on (portable, short), except the scoped `README.md` and `documentation.md` |
 | `workflow/` | Process — the end-to-end development pipeline | scoped to commands/agents/workflows |
 | `harness/` | This repo's own machinery — hooks, gates, settings generation, docs placement, change protocol | scoped to `internal/**` and the files each governs |
 | `software/<lang>/` | Language overlays that **extend** `standards/` where idioms differ | scoped to that language's files |

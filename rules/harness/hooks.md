@@ -29,23 +29,23 @@ the Go handler in `internal/hooks/`, then `make install` to render the updated c
 | `save-plan` | PostToolUse (ExitPlanMode) | On approval, reuses the mirror destination (or files a response-only plan), adds a checklist if absent, verifies the save, then removes the undated draft |
 | `stop` | Stop | Runs the context checkpoint (once per session at ≥85% context, blocks Stop so the model can write a handoff with `claude-code memory update`), then the memory harvest (below), then the formatter on files edited this turn: the repo's own `make format\|fmt` target when it honors a per-file variable (`TARGET`/`FILE`/…), else the pyproject-declared python chain, else gofmt/ruff/prettier/shfmt when installed |
 | `session-start` | SessionStart | Injects the `memory/index.md` catalog + this repo's focus sections (Current Focus/Blockers/Next Steps, progress In Progress); repairs the cwd's `projects/<slug>/memory` link; Claude Code loads the repo's `MEMORY.md` itself |
-| `wsl-path-normalize` | UserPromptSubmit | Reports existing file paths; maps pasted or dragged Windows paths to `/mnt/…` equivalents on WSL |
+| `path-resolver` | UserPromptSubmit | Reports existing file paths; resolves paths in the prompt both ways through the mount table (Windows ⇄ `/mnt/…`) |
 | `memory-recall` | UserPromptSubmit | Injects up to 3 blocks from this repo's store + home matching ≥2 prompt terms, plus any repo store the prompt names explicitly; skips blocks already in context |
 | `access-trace` | PostToolUse (Read) | Logs a model read of a bank file (or its index) to that bank's `access.log`, the hot/cold signal `memory review` nominates from; never blocks |
 | `worktree-create` / `worktree-remove` | WorktreeCreate / WorktreeRemove | Replace Claude Code's git logic: `--worktree`, `EnterWorktree` and subagent isolation create at `~/worktrees/<repo>/<name>` (Orca's root too); remove refuses a dirty tree and `branch -d`s the merged branch. Live payload carries only `name` |
 | `pre-compact` | PreCompact | Before Claude Code compacts the context, dispatches the background harvest when the transcript has edits no earlier harvest covered (ADK `add_events_to_memory`); never blocks — the transcript file survives compaction |
-| `session-harvest` / `session-harvest-end` | `stop` / SessionEnd | After enough edits, spawns a detached `claude-code memory update`. The first dispatch also claims one detached `memory watch` per session: once the transcript is quiet 10 min with uncovered edits it harvests the final state, so a crash or kill (no SessionEnd) loses nothing |
+| `session-harvest-end` | SessionEnd | After enough edits, spawns a detached `claude-code memory update`. The first dispatch also claims one detached `memory watch` per session: once the transcript is quiet 10 min with uncovered edits it harvests the final state, so a crash or kill (no SessionEnd) loses nothing |
 
 ## Notes
 
 - Hook exit codes and stdin/stdout follow the Claude Code hook contract; an async hook does not
   block the turn.
-- Permission guardrails live in the template's `permissions` block (`ask` beats `allow`),
+- Permission guardrails live in the repo defaults' `permissions` block (`ask` beats `allow`),
   regenerated into `settings.json`.
 - Stop gates are bounded; deny-one-call gates reject the offending input and let
   the model retry corrected input (see `guardrails.md`).
 
 ## Related
 
-- `settings-management.md` — the template is the source of truth for `settings.json`
+- `settings-management.md` — the repo defaults are the source of truth for `settings.json`
 - `guardrails.md` — the gate inventory and its evidence contract
