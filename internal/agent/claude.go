@@ -23,18 +23,21 @@ type claudeRunner struct{}
 func (claudeRunner) Name() string { return "claude" }
 
 func (claudeRunner) Caps() Caps {
-	return Caps{Model: true, Provider: true, Effort: true, WorkDir: true, SessionID: true, Tools: true, NoTools: true, NoPersist: true, SafeMode: true, DebugFile: true}
+	return Caps{Model: true, Provider: true, Effort: true, WorkDir: true, SessionID: true, Tools: true, NoTools: true, NoPersist: true, SafeMode: true, DebugFile: true,
+		SystemPrompt: true, Env: true, JSONSchema: true}
 }
 
 func (claudeRunner) Available() error { _, err := launch.ClaudeBinary(); return err }
 
 func (claudeRunner) Run(ctx context.Context, req Request, sink Sink) (Result, error) {
-	if req.NoTools {
+	if req.NoTools { // the one-shot has no system-prompt or schema channel; those go through the claude process
 		if req.Tools {
 			return Result{}, errors.New("claude: --no-tools and --tools are exclusive")
 		}
-		if res, done, err := claudeOneShot(ctx, req, sink); done {
-			return res, err
+		if req.SystemPrompt == "" && req.AppendSystemPrompt == "" && req.JSONSchema == "" {
+			if res, done, err := claudeOneShot(ctx, req, sink); done {
+				return res, err
+			}
 		}
 	}
 	prompt, err := claudeAttach(req.Prompt, req.Attach, req.Tools)
@@ -54,6 +57,15 @@ func (claudeRunner) Run(ctx context.Context, req Request, sink Sink) (Result, er
 	if req.Effort != "" {
 		args = append(args, "--effort", req.Effort)
 	}
+	if req.SystemPrompt != "" {
+		args = append(args, "--system-prompt", req.SystemPrompt)
+	}
+	if req.AppendSystemPrompt != "" {
+		args = append(args, "--append-system-prompt", req.AppendSystemPrompt)
+	}
+	if req.JSONSchema != "" {
+		args = append(args, "--json-schema", req.JSONSchema)
+	}
 	if req.SessionID != "" {
 		args = append(args, "--resume", req.SessionID)
 	}
@@ -72,6 +84,7 @@ func (claudeRunner) Run(ctx context.Context, req Request, sink Sink) (Result, er
 	// plan.Env also merges the vault's custom env (any profile's vars): filter the result, sparing only the plan's own
 	// route and token (plan.Set), so another profile's custom credential var never reaches this child
 	cmd.Env = scrubIsolated(ctx, plan.Env(os.Environ()), append(slices.Clone(req.KeepEnv), slices.Collect(maps.Keys(plan.Set))...))
+	cmd.Env = append(cmd.Env, req.Env...) // --env goes last, after the route keys, so it wins
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return Result{}, err
@@ -106,6 +119,8 @@ type claudeEvent struct {
 	RetryDelayMs    int             `json:"retry_delay_ms"`
 	ErrorStatus     *int            `json:"error_status"`
 	Result          string          `json:"result"`
+	TotalCostUSD    float64         `json:"total_cost_usd"`
+	Structured      json.RawMessage `json:"structured_output"`
 	Usage           struct {
 		InputTokens              int `json:"input_tokens"`
 		OutputTokens             int `json:"output_tokens"`
@@ -289,7 +304,10 @@ func applyClaudeResult(res *Result, ev claudeEvent) error {
 	res.Answer = ev.Result
 	u := ev.Usage
 	res.Usage = Usage{InputTokens: u.InputTokens, CacheCreationTokens: u.CacheCreationInputTokens,
-		CacheReadTokens: u.CacheReadInputTokens, OutputTokens: u.OutputTokens}
+		CacheReadTokens: u.CacheReadInputTokens, OutputTokens: u.OutputTokens, CostUSD: ev.TotalCostUSD}
+	if len(ev.Structured) > 0 && string(ev.Structured) != "null" {
+		res.Structured = ev.Structured
+	}
 	if ev.IsError {
 		return fmt.Errorf("claude %s: %s", ev.Subtype, ev.Result)
 	}

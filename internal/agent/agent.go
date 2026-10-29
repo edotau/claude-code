@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"cmp"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -34,6 +35,10 @@ type Request struct {
 	NoPersist                                           bool     // claude, codex: no session persistence
 	SafeMode                                            bool     // claude, codex, opencode: no hooks/plugins/customizations
 	DebugFile                                           string   // claude, gemini: debug log at <path>
+	SystemPrompt, AppendSystemPrompt                    string   // claude only: replace / extend the system prompt
+	Env                                                 []string `json:"-"`                   // KEY=VALUE for the child, layered last; never logged
+	EnvNames                                            []string `json:"env_names,omitempty"` // the names of Env, all the dispatch log keeps
+	JSONSchema                                          string   // JSON Schema text the answer must satisfy
 	Timeout                                             time.Duration
 }
 
@@ -43,26 +48,29 @@ type Usage struct {
 	CacheCreationTokens int `json:"cache_creation_tokens,omitempty"` // billed above input; kept apart so cost can be priced
 	CacheReadTokens     int `json:"cache_read_tokens,omitempty"`
 	OutputTokens        int `json:"output_tokens"`
+	// CostUSD is the agent-reported cost where it reports one (claude, agy); absent for the rest.
+	CostUSD float64 `json:"cost_usd,omitempty"`
 }
 
 // Result is the envelope `ask --format json` prints.
 type Result struct {
-	Agent          string     `json:"agent"`
-	Status         string     `json:"status"` // ok | error | partial | quota | stalled
-	Provider       string     `json:"provider,omitempty"`
-	Model          string     `json:"model,omitempty"`
-	Invoked        string     `json:"invoked_model,omitempty"` // the model (<profile>:<model> when pinned) the run was asked for; not upstream-confirmed
-	SessionID      string     `json:"session_id,omitempty"`
-	Answer         string     `json:"answer"`
-	Usage          Usage      `json:"usage"`
-	DurationMs     int64      `json:"duration_ms"`
-	Dropped        []string   `json:"dropped,omitempty"`
-	Fallback       string     `json:"fallback,omitempty"`        // set to the original agent's name when it ran instead
-	FallbackReason string     `json:"fallback_reason,omitempty"` // why the original agent was unavailable
-	Handoff        string     `json:"handoff,omitempty"`         // hand-off file written when a copilot leg hit its quota
-	Transport      *Transport `json:"transport,omitempty"`       // stream health; fields an agent can't report stay absent
-	Hops           []Hop      `json:"hops,omitempty"`            // every leg RunWithFallback tried, in order
-	recovered      []*Error   // attempts that failed before the successful one, for the hop's errors
+	Agent          string          `json:"agent"`
+	Status         string          `json:"status"` // ok | error | partial | quota | stalled
+	Provider       string          `json:"provider,omitempty"`
+	Model          string          `json:"model,omitempty"`
+	Invoked        string          `json:"invoked_model,omitempty"` // the model (<profile>:<model> when pinned) the run was asked for; not upstream-confirmed
+	SessionID      string          `json:"session_id,omitempty"`
+	Answer         string          `json:"answer"`
+	Usage          Usage           `json:"usage"`
+	DurationMs     int64           `json:"duration_ms"`
+	Dropped        []string        `json:"dropped,omitempty"`
+	Fallback       string          `json:"fallback,omitempty"`        // set to the original agent's name when it ran instead
+	FallbackReason string          `json:"fallback_reason,omitempty"` // why the original agent was unavailable
+	Handoff        string          `json:"handoff,omitempty"`         // hand-off file written when a copilot leg hit its quota
+	Transport      *Transport      `json:"transport,omitempty"`       // stream health; fields an agent can't report stay absent
+	Hops           []Hop           `json:"hops,omitempty"`            // every leg RunWithFallback tried, in order
+	Structured     json.RawMessage `json:"-"`                         // the answer as JSON satisfying Request.JSONSchema
+	recovered      []*Error        // attempts that failed before the successful one, for the hop's errors
 }
 
 type coolKey struct{}
@@ -94,7 +102,10 @@ type Transport struct {
 
 // Caps declares which Request fields an agent honors; Prompt, Timeout and Attach are always honored
 // (every agent has at least an inline-block fallback for Attach).
-type Caps struct{ Model, Provider, Effort, WorkDir, SessionID, Tools, NoTools, Autonomous, Memory, NoPersist, SafeMode, DebugFile, Direct bool }
+type Caps struct {
+	Model, Provider, Effort, WorkDir, SessionID, Tools, NoTools, Autonomous, Memory, NoPersist, SafeMode, DebugFile, Direct bool
+	SystemPrompt, Env, JSONSchema                                                                                           bool // JSONSchema: native flag; others get a prompt instruction and a validator
+}
 
 // Agent is one agent backend.
 type Runner interface {
@@ -143,6 +154,9 @@ func applyCaps(c Caps, req Request) (Request, []string) {
 	drop(c.SafeMode, req.SafeMode, "--safe-mode", func() { req.SafeMode = false })
 	drop(c.Direct, req.Direct, "--direct", func() { req.Direct = false })
 	drop(c.DebugFile, req.DebugFile != "", "--debug-file="+req.DebugFile, func() { req.DebugFile = "" })
+	drop(c.SystemPrompt, req.SystemPrompt != "", "--system-prompt", func() { req.SystemPrompt = "" })
+	drop(c.SystemPrompt, req.AppendSystemPrompt != "", "--append-system-prompt", func() { req.AppendSystemPrompt = "" })
+	drop(c.Env, len(req.Env) > 0, "--env", func() { req.Env = nil })
 	return req, dropped
 }
 
@@ -153,6 +167,9 @@ func Run(ctx context.Context, r Runner, req Request, sink Sink, notify func(stri
 	}
 	req, dropped := applyCaps(r.Caps(), req)
 	res := Result{Agent: r.Name(), Status: StatusError, Dropped: dropped}
+	if req.JSONSchema != "" && !r.Caps().JSONSchema {
+		req.Prompt += schemaInstruction(req.JSONSchema)
+	}
 	// a no-tools one-shot answers from the provider's API, so it needs no agent binary up front
 	if !req.NoTools {
 		if err := r.Available(); err != nil {
@@ -228,6 +245,13 @@ func Run(ctx context.Context, r Runner, req Request, sink Sink, notify func(stri
 	res.Transport.Attempts = attempts
 	if e == nil {
 		res.recovered = failed
+		if req.JSONSchema != "" && !r.Caps().JSONSchema {
+			var verr error
+			if res.Structured, verr = structuredAnswer(res.Answer, req.JSONSchema); verr != nil {
+				e = &Error{Kind: KindFatal, Agent: r.Name(), Err: verr}
+				res.Status = statusOf(e)
+			}
+		}
 	}
 	if e != nil {
 		e.Agent = cmp.Or(e.Agent, r.Name())
