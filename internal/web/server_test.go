@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os/exec"
 	"slices"
 	"strings"
 	"testing"
@@ -662,5 +663,33 @@ func TestIndexTreeFetchGuardedByEpoch(t *testing.T) {
 	}
 	if !strings.Contains(watch, "es.onerror") || !strings.Contains(src, "if (!treeLive) loadTree();") {
 		t.Fatal("polling fallback missing")
+	}
+}
+
+// Runs the page's real loadTree/watchTree in node: a fetch that resolves after an SSE snapshot must not overwrite it.
+func TestIndexStaleFetchLosesToSSEInNode(t *testing.T) {
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node not on PATH")
+	}
+	src := templateSource(t)
+	script := `let treeEpoch = 0; let treeLive = false;
+const el = {innerHTML: ''}; const document = {getElementById: () => el};
+function renderTree(t) { return t.v; }
+let resolveFetch; function fetch() { return new Promise(r => { resolveFetch = r; }); }
+let listener; const window = {EventSource: true};
+function EventSource() { this.addEventListener = (n, f) => { listener = f; }; this.close = () => {}; }
+` + extractJSFunc(t, src, "loadTree") + "\n}\n" + extractJSFunc(t, src, "watchTree") + "\n}" + `
+loadTree(); watchTree();
+listener({data: JSON.stringify({v: 'sse'})});
+resolveFetch({json: () => ({v: 'stale'})});
+setTimeout(() => { process.stdout.write(el.innerHTML); }, 10);
+`
+	out, err := exec.Command(node, "-e", script).CombinedOutput()
+	if err != nil {
+		t.Fatalf("node: %v\n%s", err, out)
+	}
+	if string(out) != "sse" {
+		t.Fatalf("tree shows %q after a stale fetch resolved, want the SSE snapshot \"sse\"", out)
 	}
 }
