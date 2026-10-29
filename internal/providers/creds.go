@@ -200,11 +200,15 @@ func finishCredential(p *Provider, v string, exp time.Time) error {
 // expiryMargin is how close to exp a command token is refreshed, and how early its cache entry ends.
 const expiryMargin = 10 * time.Minute
 
+// authCommandTimeout bounds one auth command; a var so tests can shorten it.
+var authCommandTimeout = 30 * time.Second
+
 // runAuthCommand runs one auth shell command and returns its trimmed output; errors never carry the value.
 func runAuthCommand(ctx context.Context, p *Provider, cmd string) (string, error) {
-	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, authCommandTimeout)
 	defer cancel()
 	c := exec.CommandContext(ctx, "sh", "-c", cmd)
+	ownGroup(c)                   // the timeout kills the whole pipeline, not only sh
 	c.WaitDelay = 5 * time.Second // orphaned pipeline children must not hold stdout open past the timeout
 	out, err := c.Output()
 	if err != nil {

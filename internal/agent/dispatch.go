@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"math"
 	"math/rand/v2"
 	"net/http"
@@ -116,7 +117,7 @@ func Classify(agent string, err error, progressed bool) *Error {
 	} else {
 		low := strings.ToLower(err.Error())
 		switch {
-		case errors.Is(err, context.DeadlineExceeded):
+		case errors.Is(err, context.DeadlineExceeded), errors.Is(err, io.ErrUnexpectedEOF):
 			e.Kind = KindTransient
 		case providers.IsQuota(low):
 			e.Kind = KindQuota

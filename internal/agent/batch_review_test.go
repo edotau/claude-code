@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"slices"
@@ -581,5 +583,83 @@ func TestBatchFirstAttemptCooldownReleasesLegPermit(t *testing.T) {
 	}
 	if first := strings.SplitN(out.String(), "\n", 2)[0]; !strings.Contains(first, `"task_id":"free"`) {
 		t.Errorf("first envelope = %s, want the free-account task to run during the cooldown", first)
+	}
+}
+
+// A chat stream that ends without [DONE] is a dropped connection: it retries, and the second attempt answers.
+func TestChatStreamWithoutDoneIsRetried(t *testing.T) {
+	fastDefaultBackoff(t)
+	calls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.ReadAll(r.Body)
+		calls++
+		w.Header().Set("Content-Type", "text/event-stream")
+		if calls == 1 {
+			return // an empty 200: the connection just ends
+		}
+		for _, chunk := range []string{`{"model":"gpt-x","choices":[{"delta":{"content":"hi"}}]}`, `[DONE]`} {
+			fmt.Fprintf(w, "data: %s\n\n", chunk)
+		}
+	}))
+	defer srv.Close()
+	registry(t, srv)
+	res, err := Run(context.Background(), claudeRunner{}, Request{Prompt: "hi", Provider: "toai", NoTools: true}, io.Discard, nil)
+	if err != nil || res.Answer != "hi" || res.Transport == nil || res.Transport.Attempts != 2 {
+		t.Fatalf("res=%+v err=%v calls=%d; want an answer on attempt 2", res, err, calls)
+	}
+}
+
+// A leg whose account another task marked auth-dead while it waited for a permit does not run: it is an auth hop.
+func TestQueuedLegSkipsAccountMarkedAuthDead(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	var runs atomic.Int32
+	first := markingRunner{name: "first", mark: func() { _ = router.MarkAuth("auth·A", "login expired") }}
+	tasks := []BatchTask{
+		acctTask(t, "first", "auth·A", first),
+		acctTask(t, "second", "auth·A", flagRunner{name: "second", runs: &runs}),
+	}
+	var out strings.Builder
+	RunBatch(context.Background(), tasks, BatchOptions{Jobs: 1, Out: &out})
+	if runs.Load() != 0 {
+		t.Errorf("the queued leg ran %d times on an auth-dead account", runs.Load())
+	}
+	for _, ln := range strings.Split(strings.TrimSpace(out.String()), "\n") {
+		if strings.Contains(ln, `"task_id":"second"`) && !strings.Contains(ln, `"kind":"auth"`) {
+			t.Errorf("second task's envelope = %s, want an auth error", ln)
+		}
+	}
+}
+
+type markingRunner struct {
+	name string
+	mark func()
+}
+
+func (m markingRunner) Name() string     { return m.name }
+func (m markingRunner) Caps() Caps       { return Caps{} }
+func (m markingRunner) Available() error { return nil }
+func (m markingRunner) Run(context.Context, Request, io.Writer) (Result, error) {
+	m.mark()
+	time.Sleep(50 * time.Millisecond)
+	return Result{Answer: "a"}, nil
+}
+
+// A 429 followed by success is one hop, no error_kind, whose errors list the recovered rate_limit attempt.
+func TestHopKeepsRecoveredAttemptErrors(t *testing.T) {
+	fastDefaultBackoff(t)
+	r := &fakeRunner{name: "claude", errs: []error{&Error{Kind: KindRateLimit, Agent: "claude", Err: errors.New("HTTP 429")}, nil}}
+	res, err := RunWithFallback(context.Background(), Single(r), Request{Prompt: "p"}, io.Discard, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := envelopeMap(t, res, err)
+	hops, _ := env["hops"].([]any)
+	if len(hops) != 1 {
+		t.Fatalf("hops = %v, want one", env["hops"])
+	}
+	h, _ := hops[0].(map[string]any)
+	errs, _ := h["errors"].([]any)
+	if h["error_kind"] != nil || len(errs) != 1 || errs[0].(map[string]any)["kind"] != "rate_limit" {
+		t.Errorf("hop = %v, want no error_kind and one rate_limit error", h)
 	}
 }
