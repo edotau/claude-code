@@ -23,103 +23,82 @@ const DefaultPerKey = 4
 func DefaultJobs() int { return min(4, runtime.GOMAXPROCS(0)) }
 
 // limiter is the one concurrency gate for legs: at most jobs run at once, and at most cap per billed account.
-// A waiting task holds nothing; waiters are served in ticket order among those whose account has room.
+// A waiting task holds nothing, so a full account never blocks another.
 type limiter struct {
 	mu        sync.Mutex
 	cond      *sync.Cond
 	running   int
 	jobs, cap int
 	per       map[string]int
-	next      int
-	wait      map[int]*waiter
+	pending   int // prepared tasks that have not yet reached their first leg: each still owes a slot
 }
 
-// waiter is a queued ticket; account is empty until its holder reaches acquire (then it always has room).
-type waiter struct{ account string }
+// slot is one prepared task's claim on a global slot until its first leg asks for a permit (or parks, or ends).
+type slot struct{ settled bool }
 
 func newLimiter(jobs, cap int) *limiter {
-	l := &limiter{jobs: jobs, cap: cap, per: map[string]int{}, wait: map[int]*waiter{}}
+	l := &limiter{jobs: jobs, cap: cap, per: map[string]int{}}
 	l.cond = sync.NewCond(&l.mu)
 	return l
 }
 
-// reserve queues a ticket now, so tasks are served in input order however their goroutines get scheduled.
-func (l *limiter) reserve() int {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	return l.reserveLocked()
-}
-
-func (l *limiter) reserveLocked() int {
-	l.next++
-	l.wait[l.next] = &waiter{}
-	return l.next
-}
-
-// drop gives up a ticket that never reached acquire.
-func (l *limiter) drop(ticket int) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	delete(l.wait, ticket)
-	l.cond.Broadcast()
-}
-
-func (l *limiter) room(account string) bool { return account == "" || l.per[account] < l.cap }
-
-// first is the oldest queued ticket that could run if a global slot were free.
-func (l *limiter) first() int {
-	best := 0
-	for t, w := range l.wait {
-		if l.room(w.account) && (best == 0 || t < best) {
-			best = t
-		}
-	}
-	return best
-}
-
-// turn waits, holding nothing, until ticket is next in line with a global slot free: only then is the task prepared.
-func (l *limiter) turn(ctx context.Context, ticket int) error {
+// wait blocks until ok() holds under the lock, or ctx is done; a cancelled ctx wins over a free slot.
+func (l *limiter) wait(ctx context.Context, ok func() bool) error {
 	defer context.AfterFunc(ctx, func() { l.mu.Lock(); l.cond.Broadcast(); l.mu.Unlock() })()
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	for !(l.running < l.jobs && l.first() == ticket) {
+	for {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
+		if ok() {
+			return nil
+		}
 		l.cond.Wait()
 	}
-	return ctx.Err()
+}
+
+// reserve waits, holding nothing, for a global slot no prepared task is owed, so a task is prepared only when it can
+// start; the claim ends at settle.
+func (l *limiter) reserve(ctx context.Context) (*slot, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if err := l.wait(ctx, func() bool { return l.running+l.pending < l.jobs }); err != nil {
+		return nil, err
+	}
+	l.pending++
+	return &slot{}, nil
+}
+
+func (l *limiter) settleLocked(s *slot) {
+	if s != nil && !s.settled {
+		s.settled = true
+		l.pending--
+		l.cond.Broadcast()
+	}
+}
+
+// settle ends ctx's slot claim; idempotent, and a no-op outside a batch.
+func settle(ctx context.Context) {
+	if l, _ := ctx.Value(limiterKey{}).(*limiter); l != nil {
+		s, _ := ctx.Value(slotKey{}).(*slot)
+		l.mu.Lock()
+		l.settleLocked(s)
+		l.mu.Unlock()
+	}
 }
 
 // acquire waits for a global slot and, when account is set, an account permit; the release func is idempotent.
-func (l *limiter) acquire(ctx context.Context, ticket int, account string) (func(), error) {
-	defer context.AfterFunc(ctx, func() { l.mu.Lock(); l.cond.Broadcast(); l.mu.Unlock() })()
+func (l *limiter) acquire(ctx context.Context, account string) (func(), error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	w := l.wait[ticket]
-	if w == nil {
-		ticket = l.reserveLocked()
-		w = l.wait[ticket]
+	s, _ := ctx.Value(slotKey{}).(*slot)
+	l.settleLocked(s) // a parked task no longer owes a slot; an admitted one takes it in this same critical section
+	if err := l.wait(ctx, func() bool { return l.running < l.jobs && (account == "" || l.per[account] < l.cap) }); err != nil {
+		return nil, err
 	}
-	w.account = account
-	l.cond.Broadcast() // a full account no longer holds the head of the line
-	for {
-		if err := ctx.Err(); err != nil {
-			delete(l.wait, ticket)
-			l.cond.Broadcast()
-			return nil, err
-		}
-		if l.running < l.jobs && l.room(account) && l.first() == ticket {
-			break
-		}
-		l.cond.Wait()
-	}
-	delete(l.wait, ticket)
 	l.running++
 	if account != "" {
 		l.per[account]++
 	}
-	l.cond.Broadcast() // the next waiter may fit too
 	var once sync.Once
 	return func() {
 		once.Do(func() {
@@ -134,28 +113,10 @@ func (l *limiter) acquire(ctx context.Context, ticket int, account string) (func
 	}, nil
 }
 
-// permitHold is the permit of the leg now running, released between legs and at RunWithFallback's exit.
-type permitHold struct{ release func() }
-
-func (h *permitHold) free() {
-	if h.release != nil {
-		h.release()
-		h.release = nil
-	}
-}
-
-// finish tells the batch the task's outcome (fail-fast cancels here) before the last permit is given back.
-func (h *permitHold) finish(ctx context.Context, res Result, err error) {
-	if f, _ := ctx.Value(finishKey{}).(func(Result, error)); f != nil {
-		f(res, err)
-	}
-	h.free()
-}
-
 type (
-	limiterKey struct{}
-	finishKey  struct{}
-	ticketKey  struct{}
+	limiterKey  struct{}
+	failFastKey struct{}
+	slotKey     struct{}
 )
 
 func withLimiter(ctx context.Context, l *limiter) context.Context {
@@ -168,8 +129,19 @@ func acquireLeg(ctx context.Context, account string) (release func(), err error)
 	if l == nil {
 		return func() {}, nil
 	}
-	tk, _ := ctx.Value(ticketKey{}).(int)
-	return l.acquire(ctx, tk, account)
+	return l.acquire(ctx, account)
+}
+
+// tripFailFast cancels the batch when err ends the task (no fallback follows), before the leg's permit is released.
+func tripFailFast(ctx context.Context, c Chain, i int, req Request, res Result, err error) {
+	trip, _ := ctx.Value(failFastKey{}).(func())
+	if trip == nil || err == nil || errors.Is(err, context.Canceled) {
+		return
+	}
+	if i+1 < len(c.Legs) && !(i == 0 && ExplicitBackend(req)) && legUnavailable(c.Legs[i].Agent, res, err) {
+		return
+	}
+	trip()
 }
 
 // TaskLine is one `ask --batch` JSONL task; Tools stays nil when absent so the flag default applies.
@@ -252,7 +224,7 @@ type batchRun struct {
 	ids  map[string]bool
 	logM sync.Mutex
 	lim  *limiter
-	stop func() // cancels the batch; fail-fast calls it from a finished task
+	stop func() // cancels the batch
 }
 
 // RunBatch streams one envelope per task to o.Out as each finishes; true only if every task was ok.
@@ -277,37 +249,48 @@ func RunBatch(ctx context.Context, tasks []BatchTask, o BatchOptions) bool {
 		}
 	}
 	done := make(chan batchDone, len(tasks))
-	spawned := 0
+	var queue []int
 	for i, t := range tasks {
 		if t.Err != nil {
 			emit(taskFailure(t, t.Err), false)
 			continue
 		}
-		spawned++
-		tk := b.lim.reserve()
-		go func() {
-			env, ok := b.task(context.WithValue(bctx, ticketKey{}, tk), t, tk)
-			done <- batchDone{i, env, ok}
-		}()
+		queue = append(queue, i)
 	}
-	for range spawned {
+	go b.feed(bctx, tasks, queue, done)
+	for range queue {
 		d := <-done
 		emit(d.env, d.ok)
 	}
 	return allOK
 }
 
-// task prepares and runs one task; a cancelled batch fails it before Prepare, so a queued task costs nothing.
-func (b *batchRun) task(ctx context.Context, t BatchTask, ticket int) (Envelope, bool) {
-	defer b.lim.drop(ticket) // a ticket the task never used must not hold up the rest
-	if b.lim.turn(ctx, ticket) != nil {
-		return b.cancelled(t), false
+// feed prepares the queued tasks one at a time, in input order, each only once a global slot is free, and starts
+// them; a cancelled batch prepares and starts nothing more.
+func (b *batchRun) feed(ctx context.Context, tasks []BatchTask, queue []int, done chan<- batchDone) {
+	for _, i := range queue {
+		t := tasks[i]
+		sl, err := b.lim.reserve(ctx)
+		sctx := context.WithValue(ctx, slotKey{}, sl)
+		var chain Chain
+		var rec Record
+		if err == nil {
+			chain, rec, err = t.Prepare(ctx)
+		}
+		switch {
+		case err == nil:
+			go func() { defer settle(sctx); env, ok := b.run(sctx, t, chain, rec); done <- batchDone{i, env, ok} }()
+		case ctx.Err() != nil:
+			settle(sctx)
+			done <- batchDone{i, b.cancelled(t), false}
+		default:
+			settle(sctx)
+			if b.o.FailFast {
+				b.stop() // before the next task is considered, so it never starts
+			}
+			done <- batchDone{i, taskFailure(t, err), false}
+		}
 	}
-	chain, rec, err := t.Prepare(ctx)
-	if err != nil {
-		return taskFailure(t, err), false
-	}
-	return b.run(ctx, t, chain, rec)
 }
 
 // writeEnvelope writes env as one JSON line; false only when the write itself failed.
@@ -325,17 +308,6 @@ func taskFailure(t BatchTask, err error) Envelope {
 	env := FailureEnvelope(t.Agent, err)
 	env.TaskID = t.ID
 	return env
-}
-
-// onFinish is the fail-fast trip: it runs while the task's last leg permit is still held.
-func (b *batchRun) onFinish(res Result, err error) {
-	if !b.o.FailFast {
-		return
-	}
-	env := NewEnvelope(res, err, "")
-	if env.Status != StatusOK && (env.Error == nil || env.Error.Kind != "canceled") {
-		b.stop()
-	}
 }
 
 // cancelled is the envelope of a queued task the batch cancelled before it started.
@@ -357,7 +329,10 @@ func (b *batchRun) logf(id, format string, a ...any) {
 
 // run executes one task with its own stream, log sink and dispatch record; a panic becomes an error envelope.
 func (b *batchRun) run(ctx context.Context, t BatchTask, chain Chain, rec Record) (env Envelope, ok bool) {
-	ctx = context.WithValue(withLimiter(withIsolation(ctx), b.lim), finishKey{}, b.onFinish)
+	ctx = withLimiter(withIsolation(ctx), b.lim)
+	if b.o.FailFast {
+		ctx = context.WithValue(ctx, failFastKey{}, b.stop)
+	}
 	start := time.Now()
 	var sink *LogSink
 	defer func() {
