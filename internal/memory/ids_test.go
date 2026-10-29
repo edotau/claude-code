@@ -184,3 +184,48 @@ func TestDigestInputIsRawArchiveOnly(t *testing.T) {
 		t.Errorf("over-cap archive err = %v, want needs-scope", err)
 	}
 }
+
+// A marker the formatter wrapped onto a later line counts: settling twice adds nothing.
+func TestAssignIDsSeesMarkerOnLaterLine(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "conventions.md")
+	body := "# C\n\n- long convention wrapped\n  onto two lines <!-- id:aaaa0001 -->\n\n- plain rule\n"
+	write(t, path, body)
+	n, err := assignIDs(dir, time.Now())
+	if err != nil || n != 1 { // only "plain rule" is unmarked
+		t.Fatalf("first settle stamped %d, err %v", n, err)
+	}
+	once, _ := os.ReadFile(path)
+	if n, _ = assignIDs(dir, time.Now().Add(time.Second)); n != 0 {
+		t.Errorf("second settle stamped %d", n)
+	}
+	twice, _ := os.ReadFile(path)
+	if string(once) != string(twice) || strings.Count(string(twice), "<!-- id:") != 2 {
+		t.Errorf("second settle changed the file:\n%s\n---\n%s", once, twice)
+	}
+}
+
+// Stacked markers collapse to the oldest (last) one, idempotently.
+func TestAssignIDsCollapsesStackedMarkersToOldest(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "conventions.md")
+	write(t, path, "# C\n\n- a rule that wraps\n  <!-- id:00000005 -->\n  <!-- id:00000004 -->\n  <!-- id:00000003 -->\n  <!-- id:00000002 -->\n  <!-- id:00000001 -->\n\n- next\n")
+	if _, err := assignIDs(dir, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := os.ReadFile(path)
+	s := string(got)
+	if strings.Count(s, "<!-- id:00000001 -->") != 1 || strings.Count(s, "<!-- id:") != 2 { // the other is "next"'s fresh id
+		t.Fatalf("want only the oldest marker kept on the wrapped block:\n%s", s)
+	}
+	if _, err := assignIDs(dir, time.Now().Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	again, _ := os.ReadFile(path)
+	if string(again) != s {
+		t.Errorf("collapse is not idempotent:\n%s\n---\n%s", s, again)
+	}
+	if id := blockMarkerID(strings.Join(strings.Split(s, "\n")[2:5], "\n")); id != "00000001" {
+		t.Errorf("canonical id = %q", id)
+	}
+}
