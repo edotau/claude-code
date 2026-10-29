@@ -109,6 +109,21 @@ type Placeholder interface {
 	Placeholder() string
 }
 
+// Name is a string flag whose help placeholder is NAME, not the generic "string".
+type Name string
+
+func (n *Name) String() string {
+	if n == nil {
+		return ""
+	}
+	return string(*n)
+}
+func (n *Name) Set(s string) error  { *n = Name(s); return nil }
+func (n *Name) Placeholder() string { return "NAME" }
+
+// NameVar binds the flag name to *v as a NAME-placeholder string flag.
+func NameVar(fs *flag.FlagSet, v *string, name, usage string) { fs.Var((*Name)(v), name, usage) }
+
 // shorthandPrefix marks a one-letter alias; its row folds into the long flag's as "-p, --profile NAME".
 const shorthandPrefix = "shorthand for --"
 

@@ -211,3 +211,38 @@ func checkHelpFormat(t *testing.T, path []string, parents []string) {
 		})
 	}
 }
+
+// The per-vendor help names the harness profile pin and shows the NAME placeholder on the launch --profile flag.
+func TestVendorHelpHarnessProfileRows(t *testing.T) {
+	t.Setenv("NO_COLOR", "1")
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("HOME", t.TempDir())
+	for _, vendor := range []string{"codex", "gemini"} {
+		text := renderHelpPage(vendorPage(vendor))
+		if !strings.Contains(text, "show or set "+vendor+"'s harness profile pin") {
+			t.Errorf("%s help lacks the harness profile pin row:\n%s", vendor, text)
+		}
+		want := "harness profile for this launch"
+		if vendor == "codex" {
+			want += " (codex's own: -p NAME)"
+		}
+		var row string
+		for line := range strings.SplitSeq(text, "\n") {
+			if strings.Contains(line, "--profile NAME") {
+				row = line
+			}
+		}
+		if row == "" {
+			t.Fatalf("%s help has no `--profile NAME` flag row:\n%s", vendor, text)
+		}
+		if !strings.Contains(strings.Join(strings.Fields(text), " "), want) {
+			t.Errorf("%s help lacks flag usage %q:\n%s", vendor, want, text)
+		}
+		checkCommandRows(t, text)
+		for line := range strings.SplitSeq(text, "\n") {
+			if w := termWidth(line); w > 80 {
+				t.Errorf("%s help line %q has %d columns, want <=80", vendor, line, w)
+			}
+		}
+	}
+}

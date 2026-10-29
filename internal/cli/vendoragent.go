@@ -50,7 +50,7 @@ func vendorPage(vendor string) helptext.Page {
 		{"cancel", "interrupt a running job"},
 		{"setup", "binary, login, route, projection; --format json"},
 		{"catalog", "the agent's own model catalog"},
-		{"profile", "show or set " + vendor + "'s profile pin"},
+		{"profile", "show or set " + vendor + "'s harness profile pin"},
 		{"on", "route to " + vendor + " again"},
 		{"off", "stop routing to " + vendor},
 	}
@@ -513,7 +513,11 @@ func printCopilotCatalog(vendor string, cat vendoragent.CopilotCatalog, format s
 func vendorLaunchFlags(vendor string) *flag.FlagSet {
 	fs := helptext.NewFlagSet(vendor, helptext.Page{Usage: "claude-code " + vendor}) // display only; ParseArgs parses
 	fs.String("model", "", "select the model for this launch")
-	fs.String("profile", "", "profile for this launch")
+	profileUsage := "harness profile for this launch"
+	if vendor == "codex" {
+		profileUsage += " (codex's own: -p NAME)"
+	}
+	helptext.NameVar(fs, new(string), "profile", profileUsage)
 	fs.Bool("direct", false, "skip the proxy; hand the CLI the profile route")
 	fs.Bool("print-env", false, "print the resolved binary, argv and env; do not launch")
 	if vendor == "codex" {

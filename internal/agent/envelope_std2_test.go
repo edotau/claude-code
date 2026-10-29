@@ -200,3 +200,60 @@ func TestStd2ResumeForwardsProfile(t *testing.T) {
 		t.Errorf("output never names the --profile given to resume:\nstdout: %s\nstderr: %s", out, stderr)
 	}
 }
+
+// Every usage failure in --format json mode prints one parseable error envelope and keeps its exit code.
+func TestStd2JSONModeFailuresPrintEnvelope(t *testing.T) {
+	cases := []struct {
+		name string
+		argv []string
+		code int
+	}{
+		{"conflicting tools flags", []string{"ask", "--format", "json", "--tools", "--no-tools", "hi"}, 1},
+		{"invalid fallback", []string{"ask", "--format", "json", "--fallback", "bogus", "hi"}, 1},
+		{"missing prompt", []string{"ask", "--format", "json"}, 2},
+		{"retry of unknown id", []string{"ask", "--format", "json", "--retry", "no-such-id"}, 1},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			std2Env(t)
+			std2Fakes(t)
+			code, out, stderr := std2Run(t, c.argv...)
+			if code == 0 {
+				t.Fatalf("exit = 0, want a failure\nstdout: %s", out)
+			}
+			if c.code == 2 && code != 2 {
+				t.Errorf("exit = %d, want 2\nstderr: %s", code, stderr)
+			}
+			env := std2Envelope(t, out)
+			if env["status"] != "error" {
+				t.Errorf("status = %v, want error: %s", env["status"], out)
+			}
+			e, ok := env["error"].(map[string]any)
+			if !ok || e["message"] == "" {
+				t.Fatalf("error = %#v, want {kind,message}", env["error"])
+			}
+			if c.name != "retry of unknown id" && e["kind"] != "usage" {
+				t.Errorf("error.kind = %v, want usage", e["kind"])
+			}
+		})
+	}
+}
+
+// An unknown --profile is a caller error: all five agents report kind usage, not fatal.
+func TestStd2UnknownProfileKindUsageAllAgents(t *testing.T) {
+	for _, name := range []string{"claude", "codex", "copilot", "gemini", "opencode"} {
+		t.Run(name, func(t *testing.T) {
+			std2Env(t)
+			std2Fakes(t)
+			code, out, stderr := std2Run(t, "ask", "--agent", name, "--profile", "nosuch", "--fallback", "none", "--format", "json", "x")
+			if code != 1 {
+				t.Errorf("exit = %d, want 1\nstderr: %s", code, stderr)
+			}
+			env := std2Envelope(t, out)
+			e, _ := env["error"].(map[string]any)
+			if e["kind"] != "usage" {
+				t.Errorf("error.kind = %v, want usage: %s", e["kind"], out)
+			}
+		})
+	}
+}

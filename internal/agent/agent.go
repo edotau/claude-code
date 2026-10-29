@@ -456,7 +456,7 @@ func RunWithFallback(ctx context.Context, c Chain, req Request, stream io.Writer
 	if err != nil && !stopped && len(reasons) > 0 && hopFailed(res, err) {
 		err = everyHopFailed(append(reasons, hopLabel(prevLeg)+": "+fallbackReason(err)), err)
 	}
-	if ran > 0 || c.Legs[ran].Agent.Name() != c.Want { // only a different agent or route is a fallback
+	if ran > 0 || c.Legs[ran].otherRoute || c.Legs[ran].Agent.Name() != c.Want { // a different agent or route is a fallback
 		res.Fallback, res.FallbackReason = c.Want, strings.Join(reasons, "; ")
 	}
 	res.Handoff = handoff

@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -71,13 +72,13 @@ func runAsk(args []string, resume bool) int {
 		return code
 	}
 	if err := validateAskFlags(*format, *fallback); err != nil {
-		return fail("ask: %v", err)
+		return failAsk(*format, *name, err)
 	}
 	if *background && *job != "" {
-		return fail("ask: --background and --job are mutually exclusive")
+		return failAsk(*format, *name, errors.New("--background and --job are mutually exclusive"))
 	}
 	if *tools && *noTools {
-		return fail("ask: --tools and --no-tools are mutually exclusive")
+		return failAsk(*format, *name, errors.New("--tools and --no-tools are mutually exclusive"))
 	}
 	if *showLog {
 		return printDispatchLog(*format)
@@ -85,7 +86,7 @@ func runAsk(args []string, resume bool) int {
 	positional := fs.Args()
 	if resume {
 		if len(positional) < 1 {
-			return fail("ask: resume needs a session id: <agent> resume [flags] <id> <task>")
+			return failAsk(*format, *name, errors.New("resume needs a session id: <agent> resume [flags] <id> <task>"))
 		}
 		*session, positional = positional[0], positional[1:]
 	}
@@ -94,12 +95,12 @@ func runAsk(args []string, resume bool) int {
 		session: session, tools: tools, noTools: noTools, timeout: timeout, attach: &attach, keepEnv: &keepEnv,
 		autonomous: autonomous, enableMemory: enableMemory, rubric: rubric, direct: direct,
 		noPersist: noPersist, safeMode: safeMode, debugFile: debugFile}
-	jobRec, rc, done := loadAskJob(*job, state, &prompt)
+	jobRec, rc, done := loadAskJob(*job, *format, state, &prompt)
 	if done {
 		return rc
 	}
 	if jobRec == nil {
-		if rc, done := loadAskRetry(fs, args, *retry, state, &prompt); done {
+		if rc, done := loadAskRetry(fs, args, *retry, *format, state, &prompt); done {
 			return rc
 		}
 	}
@@ -109,6 +110,7 @@ func runAsk(args []string, resume bool) int {
 	}
 	if strings.TrimSpace(prompt) == "" {
 		fs.Usage()
+		printAskFailure(*format, *name, errors.New("no task: give a prompt, or \"-\" to read stdin"))
 		return 2
 	}
 	if *session != "" {
@@ -222,17 +224,17 @@ func (s *askState) applyRecord(rec agent.Record) {
 }
 
 // loadAskJob loads a --job record for a background run continuation; rc/done are set only on an early return.
-func loadAskJob(job string, s *askState, prompt *string) (rec *agent.Record, rc int, done bool) {
+func loadAskJob(job, format string, s *askState, prompt *string) (rec *agent.Record, rc int, done bool) {
 	if job == "" {
 		return nil, 0, false
 	}
 	r, err := agent.LoadRecord(job)
 	if err != nil {
-		return nil, fail("ask: %v", err), true
+		return nil, failAsk(format, *s.name, err), true
 	}
 	if r.Status != "running" || r.PID != 0 {
-		fail("ask --job %s: record is %s (pid %d), not a fresh background job", job, r.Status, r.PID)
-		return nil, 2, true
+		err := fmt.Errorf("--job %s: record is %s (pid %d), not a fresh background job", job, r.Status, r.PID)
+		return nil, failAskCode(format, *s.name, err, 2), true
 	}
 	s.applyRecord(r)
 	*prompt, *s.rubric = r.Request.Prompt, ""
@@ -241,13 +243,13 @@ func loadAskJob(job string, s *askState, prompt *string) (rec *agent.Record, rc 
 }
 
 // loadAskRetry loads a --retry record, then re-applies any flags explicitly typed on this command line.
-func loadAskRetry(fs *flag.FlagSet, args []string, retry string, s *askState, prompt *string) (rc int, done bool) {
+func loadAskRetry(fs *flag.FlagSet, args []string, retry, format string, s *askState, prompt *string) (rc int, done bool) {
 	if retry == "" {
 		return 0, false
 	}
 	rec, err := agent.LoadRecord(retry)
 	if err != nil {
-		return fail("ask: %v", err), true
+		return failAsk(format, *s.name, err), true
 	}
 	// The logged request wins; only flags typed on this command line override it.
 	s.applyRecord(rec)
@@ -260,7 +262,7 @@ func loadAskRetry(fs *flag.FlagSet, args []string, retry string, s *askState, pr
 		}
 	})
 	if err := fs.Parse(args); err != nil { // re-apply explicit flags over the record
-		return 2, true
+		return failAskCode(format, *s.name, err, 2), true
 	}
 	*prompt, *s.rubric = rec.Request.Prompt, ""
 	fmt.Fprintf(os.Stderr, "ask: retrying %s (%s, was %s)\n", rec.ID, rec.Agent, rec.Status)
@@ -354,6 +356,13 @@ func resolveAskChain(name, provider, model, prompt, fallback string, native bool
 	if err != nil {
 		return nil, agent.Chain{}, err
 	}
+	if provider != "" { // an unknown --profile is a caller error for every agent, caught before any run
+		if reg, lerr := providers.Load(); lerr == nil {
+			if _, gerr := reg.Get(provider); gerr != nil {
+				return nil, agent.Chain{}, gerr
+			}
+		}
+	}
 	if agent.ExplicitBackend(agent.Request{Provider: provider, Model: model}) {
 		req := agent.Request{Provider: provider, Model: model}
 		if provider == "" || native || !agent.IsHubAgent(name) {
@@ -413,12 +422,21 @@ func reportBackgroundStart(format string, rec agent.Record) {
 }
 
 // failAsk reports a pre-run failure; with --format json it prints the same envelope a run would.
-func failAsk(format, agentName string, err error) int {
+func failAsk(format, agentName string, err error) int { return failAskCode(format, agentName, err, 1) }
+
+// failAskCode is failAsk exiting with code (2 for a usage error).
+func failAskCode(format, agentName string, err error, code int) int {
+	printAskFailure(format, agentName, err)
+	fail("ask: %v", err)
+	return code
+}
+
+// printAskFailure prints the typed failure envelope on stdout when format is json.
+func printAskFailure(format, agentName string, err error) {
 	if format == "json" {
 		body, _ := json.Marshal(agent.FailureEnvelope(agentName, err))
 		fmt.Println(string(body))
 	}
-	return fail("ask: %v", err)
 }
 
 func reportAskResult(format string, res agent.Result, err error, dispatchID string) {
