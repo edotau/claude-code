@@ -115,7 +115,7 @@ multi-lane split, see `skills/subagent-workflows/references/lane-orchestrator.md
 - [ ] Scoped tests for the touched packages
 - [ ] Review (`claude-code codex review --adversarial --base <branch>`)
 - [ ] Full suite once
-- [ ] Commit + push
+- [ ] Commit (local; no push)
 - [ ] Handoff / `claude-code memory update`
 ```
 

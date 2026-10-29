@@ -12,7 +12,7 @@ Files under `agents/`, `commands/`, `rules/`, `skills/` and this file go live th
 
 ## Hard rules (always on)
 
-1. **`settings.json` is generated — never hand-edit it.** Edit `internal/settings/template/`
+1. **`settings.json` is generated — never hand-edit it.** Edit `defaults/claude/settings.json`
    (hooks: `internal/hookspec/hookspec.go`), then `make install`. Only `settings.local.json` is hand-edited.
 2. **Secrets live only in the encrypted vault (`state/vault.db`; `claude-code vault set`) or a provider's
    `auth.command`** — never in a plain file, `settings.json`, a commit, or a log line. The vault's master key
@@ -43,9 +43,9 @@ Files under `agents/`, `commands/`, `rules/`, `skills/` and this file go live th
 7. **Propose look/behavior changes before applying them.** Name an unrequested side effect with
    numbers, prefer the narrowly scoped mechanism over a global knob, and let the user pick.
 8. **Parallel by default; keep the main thread free.** Plan and brief, then dispatch `code-worker` ‖ `copilot`
-   in one message in the background; inline only for a one-line edit; never re-steer a running agent →
-   `rules/standards/quality.md`. Many leaves: one lane orchestrator per lane →
-   `skills/subagent-workflows/references/lane-orchestrator.md`.
+   in one message in the background (`copilot` only when the change needs a test agent); inline only for a
+   one-line edit; never re-steer a running agent → `rules/standards/quality.md`.
+   Many leaves: one lane orchestrator per lane → `skills/subagent-workflows/references/lane-orchestrator.md`.
 9. **Tag notable moments** in replies, one per line: `DECISION:` (what, rejected alt, why) · `BUG:` · `NEXT:` ·
    `NOTE:` — the harvest files them.
 
@@ -69,7 +69,7 @@ Files under `agents/`, `commands/`, `rules/`, `skills/` and this file go live th
 | Project agents + this file into every agent CLI, link skills into `~/.agents/skills` | `claude-code agents sync [--agent a] [--dry-run\|--check]` (also run by `install`) | `rules/harness/docs-placement.md` → What stays out of the three homes |
 | List, create, clean worktrees under `~/worktrees/<repo>/` | `claude-code worktree list [--format json]` · `create <name>` · `merge <name>` · `clean <name>` · `clean-all [--yes]` | `skills/using-git-worktrees/references/merge-and-clean.md` |
 | Add or retime a hook | implement in `internal/hooks/`, register in `internal/hookspec/hookspec.go`, `make install` | `README.md` → Hooks |
-| Change permissions / env / statusLine | edit `internal/settings/template/` → `claude-code configure --restore --dry-run` (prints) → `make install` | hard rule 1 |
+| Change permissions / env / statusLine | edit `defaults/claude/settings.json` → `claude-code configure --restore --dry-run` (prints) → `make install` | hard rule 1 |
 | Check MCP server health, scope drift, inline secrets | `claude-code network mcp [--format json]` | `rules/harness/settings-management.md` |
 | Map the whole harness for an agent (verbs, providers, agents, hooks) | `claude-code describe [--format json\|text]` | credentials never appear, only whether one resolves |
 | Sweep accumulated state (caches, run dirs, backups) | `claude-code clean [--list]` (applies by default; `--dry-run` previews; opt-in `--target projections\|sessions`) | credentials/settings never swept |

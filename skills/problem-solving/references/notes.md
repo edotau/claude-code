@@ -113,5 +113,5 @@ The gate fires only when something is owed and missing. A clean report passes un
 
 > Enforcement is advisory — the skill instructs, nothing checks. A mechanical gate would be a
 > Stop hook in `internal/hooks/` scanning the turn for a behavior-changing Edit with no `TASK:`
-> fact in the response; that would touch `internal/settings/template/` and require the full
+> fact in the response; that would touch `defaults/claude/settings.json` and require the full
 > `rules/harness/change-protocol.md` Impact Checklist. Not wired, deliberately.

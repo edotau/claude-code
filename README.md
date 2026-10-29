@@ -379,8 +379,8 @@ Declared in `internal/hookspec/hookspec.go`, implemented in `internal/hooks/`. T
 | `stop` | Stop | At ≥85% context, pauses once for a handoff; then saves the session to memory and formats files edited this turn |
 | `session-start` | SessionStart | Injects the memory catalog and this repo's active context |
 | `memory-recall` | UserPromptSubmit | Injects up to 3 matching memory blocks |
-| `wsl-path-normalize` | UserPromptSubmit | Maps pasted Windows paths to `/mnt/…` |
-| `session-harvest[-end]` / `pre-compact` | Stop / SessionEnd / PreCompact | Saves the session into the memory bank |
+| `path-resolver` | UserPromptSubmit | Resolves paths in the prompt both ways through the mount table (Windows ⇄ `/mnt/…`) |
+| `session-harvest-end` / `pre-compact` | SessionEnd / PreCompact | Saves the session into the memory bank |
 | `access-trace` | PostToolUse Read | Logs bank reads for `memory review` |
 | `worktree-create` / `-remove` | Worktree* | Under `~/worktrees/<repo>/`; refuses dirty removals |
 | `codex-agent-route` | PreToolUse `spawn_agent` | Codex only: fills a fresh, unpinned child's model from the routing cells |
@@ -493,5 +493,5 @@ make test                  # full gate, once before pushing (= make audit = CI)
 ```
 
 - `git push` runs the same gate via `.githooks/pre-push`; `--no-verify` bypasses it.
-- `settings.json` is generated: edit `internal/settings/template/`, then `make install`. Template keys reset
+- `settings.json` is generated: edit `defaults/claude/settings.json` (or `claude-code configure` → "Save to repo defaults"), then `make install`. Default keys reset
   on every install; permission lists are unioned, so a removed rule must also be deleted from `settings.json` by hand.

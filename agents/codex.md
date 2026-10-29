@@ -54,7 +54,7 @@ Shared table and bullets: `skills/subagent-workflows/references/agent-verbs.md`.
 | Docs refresh or memory persistence | `opencode` |
 | Wide 1M-context sweep across many files | `gemini` (`claude-code gemini bridge`) |
 | Judging a claimed-done task | `skills/evaluate-code/references/judge.md` (borrow its stance; manager runs it) |
-| Harness configuration tuning (settings, hooks, routing) | the owner, via `internal/settings/template/` — not you |
+| Harness configuration tuning (settings, hooks, routing) | the owner, via `defaults/claude/settings.json` — not you |
 
 ## Procedure
 
