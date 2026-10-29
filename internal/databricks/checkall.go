@@ -35,8 +35,8 @@ var probeClient = &http.Client{Timeout: probeTimeout}
 func checkAll(args []string) int {
 	fs := helptext.NewFlagSet("databricks check --all", checkAllPage)
 	model := fs.String("model", aliasID(models.Haiku), "canonical model id to probe")
-	only := fs.String("profile", "", "probe only this Databricks profile (default: all)")
-	fs.StringVar(only, "p", "", "shorthand for --profile")
+	only := new(string)
+	profileFlagVar(fs, only, "probe only this Databricks profile (default: all)")
 	if rest, err := outfmt.Parse(fs, args); err != nil {
 		return helptext.ExitCode(err)
 	} else if len(rest) > 0 {

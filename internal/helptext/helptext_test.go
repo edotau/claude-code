@@ -159,6 +159,19 @@ func TestFlagRowsPlaceholderHook(t *testing.T) {
 	}
 }
 
+// A one-letter "shorthand for --X" flag folds into X's row; an orphan shorthand keeps its own row.
+func TestFlagRowsFoldShorthand(t *testing.T) {
+	fs := flag.NewFlagSet("x", flag.ContinueOnError)
+	p := fs.String("profile", "", "the profile")
+	fs.StringVar(p, "p", "", "shorthand for --profile")
+	fs.String("q", "", "shorthand for --missing")
+	got := fmt.Sprint(flagRows(fs))
+	want := "[[-p, --profile string the profile] [-q string shorthand for --missing]]"
+	if got != want {
+		t.Errorf("rows = %s, want %s", got, want)
+	}
+}
+
 func TestExitCode(t *testing.T) {
 	for _, tc := range []struct {
 		name string

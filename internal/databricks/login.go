@@ -224,12 +224,33 @@ func dropDerivedCommands(p *providers.Provider, auth map[string]json.RawMessage)
 	return kept
 }
 
+// profileUsage is the --profile help shared by every command that resolves one profile.
+const profileUsage = "Databricks profile (default: session, pinned, else the first)"
+
 // profileFlag registers --profile (and its shorthand -p), the Databricks profile a command acts on.
 func profileFlag(fs *flag.FlagSet) *string {
-	v := fs.String("profile", "", "Databricks profile (default: session, pinned, else the first)")
-	fs.StringVar(v, "p", "", "shorthand for --profile")
+	v := new(string)
+	profileFlagVar(fs, v, profileUsage)
 	return v
 }
+
+// profileFlagVar binds --profile and -p to v; help shows them as one "-p, --profile NAME" row.
+func profileFlagVar(fs *flag.FlagSet, v *string, usage string) {
+	fs.Var((*profileName)(v), "profile", usage)
+	fs.Var((*profileName)(v), "p", "shorthand for --profile")
+}
+
+// profileName is a string flag whose help placeholder is NAME, not the generic "string".
+type profileName string
+
+func (p *profileName) String() string {
+	if p == nil {
+		return ""
+	}
+	return string(*p)
+}
+func (p *profileName) Set(s string) error  { *p = profileName(s); return nil }
+func (p *profileName) Placeholder() string { return "NAME" }
 
 // usageProfile refuses a positional profile name: commands take only flags (--profile).
 func usageProfile(verb, arg string) int {

@@ -109,13 +109,25 @@ type Placeholder interface {
 	Placeholder() string
 }
 
+// shorthandPrefix marks a one-letter alias; its row folds into the long flag's as "-p, --profile NAME".
+const shorthandPrefix = "shorthand for --"
+
 // flagRows turns fs's flags into one {label, description} row each, in VisitAll order.
 func flagRows(fs *flag.FlagSet) [][2]string {
 	if fs == nil {
 		return nil
 	}
+	short := map[string]string{} // long name -> its one-letter alias
+	fs.VisitAll(func(f *flag.Flag) {
+		if long, ok := strings.CutPrefix(f.Usage, shorthandPrefix); ok && len(f.Name) == 1 && fs.Lookup(long) != nil {
+			short[long] = f.Name
+		}
+	})
 	var rows [][2]string
 	fs.VisitAll(func(f *flag.Flag) {
+		if long, ok := strings.CutPrefix(f.Usage, shorthandPrefix); ok && short[long] == f.Name {
+			return
+		}
 		name, usage := flag.UnquoteUsage(f)
 		if p, ok := f.Value.(Placeholder); ok {
 			name = p.Placeholder()
@@ -123,6 +135,9 @@ func flagRows(fs *flag.FlagSet) [][2]string {
 		label := "--" + f.Name
 		if len(f.Name) == 1 {
 			label = "-" + f.Name
+		}
+		if s := short[f.Name]; s != "" {
+			label = "-" + s + ", " + label
 		}
 		if name != "" {
 			label += " " + name
