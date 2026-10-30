@@ -103,11 +103,11 @@ cell (see Pins).
 - **Inspection verb**:
   `claude-code gateway router [--model M] [--agent a] [--task "<text>"] [--fallback all|agents|none]`
   `[--format text|json]` prints the pick, per-dimension scores, weights, total, and skip gates; never dispatches.
-- **Pressure hooks & workflows**: `agent-effort` hook checks Anthropic quota (>=90% of 5h/weekly window downshifts
+- **Pressure hooks & workflows**: `dispatch-effort` hook checks Anthropic quota (>=90% of 5h/weekly window downshifts
   an unset subagent model one alias; >=97% moves code-worker/Explore to `coworker` at haiku with the routed agent
   prepended; opt-out via `HARNESS_ROUTE_SUBAGENTS=0`). The `code-agent` Workflow with no `args.agent` picks via
   `claude-code gateway router --format json`. Finding (2026-10-25): that hook only rewrites an *unset* dispatch model,
-  so it never reached the saved Workflows (`workflows/*.js`), which pin every stage explicitly for `agent-effort`;
+  so it never reached the saved Workflows (`workflows/*.js`), which pin every stage explicitly for `dispatch-effort`;
   each script now reads `claude-code gateway router --agent claude --fallback none` once itself and downshifts its
   own pins under pressure (`saved-workflows.md`).
 - **Copilot on Databricks** — dispatches follow the session's `<provider>·<profile>` via the proxy `/p/<profile>`

@@ -9,7 +9,7 @@ paths:
 
 ## Protocol (Duck Typing)
 
-Prefer `typing.Protocol` for duck-typed interfaces over ABC inheritance. See skill: `skills/python-patterns/SKILL.md`.
+Prefer `typing.Protocol` for duck-typed interfaces over ABC inheritance.
 
 ## Dataclasses as DTOs
 

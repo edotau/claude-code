@@ -5,79 +5,31 @@ paths:
 ---
 # Docs Placement — Harness Markdown Never Lands at a Repo Root
 
-> Canonical location rule for every markdown file the harness (or a session working through it)
-> authors. Enforced by the `docs-placement` PreToolUse gate — see `guardrails.md`.
+**Harness-authored markdown has three homes; a repo root and a gitignored `docs/` are off-limits.** The
+`docs-placement` gate enforces it (`internal/hooks/docsplacement.go`; plan filing in `internal/hooks/plan.go`).
 
-## Rule
+| Artifact | Path |
+| --- | --- |
+| Plan | `~/.claude/plans/YYYY-MM-DD-<slug>.md` (this repo) · `~/.claude/plans/<repo>/YYYY-MM-DD-<slug>.md` (others); gitignored; dated from the first write, mirrored by `docs-plan-mirror`, filed on approval by `docs-plan-save` |
+| Session handoff | `<store>/handoffs/YYYY-MM-DD-<topic>.md` — only when `activeContext.md` can't hold it; point to it from there |
+| Report (review, audit, techdebt scan, research brief) | `<store>/reports/YYYY-MM-DD-<name>.md` |
+| Promoted knowledge (local-only) | `<store>/knowledge/<topic>.md` — home bank for cross-repo, the repo's own bank otherwise |
 
-**Harness-authored markdown has three homes; a repo root and a gitignored `docs/` are off-limits.**
-Report/handoff subpaths live in `internal/hooks/docsplacement.go`; plan mirroring/filing is in `internal/hooks/plan.go`.
+`<store>` is `~/.claude/memory/<repo>/` (`claude-code memory path`; the harness is `memory/claude-code/`, home is
+`memory/home/`): a local-only git repo outside every project, so handoffs and reports never ride a project's
+commits. The undated native plan file is a scratch draft; the dated copy is the file of record.
 
-| Artifact | Path | Producer |
-| --- | --- | --- |
-| Plan (draft mirror → approved) | `~/.claude/plans/YYYY-MM-DD-<slug>.md` (this repo) · `~/.claude/plans/<repo>/YYYY-MM-DD-<slug>.md` (any other repo), gitignored wholesale; date fixed from the first write | `docs-plan-gate` gates the native undated draft's first Write (the plan-template check); `docs-plan-mirror` mirrors every Write/Edit to the dated destination; `docs-plan-save` files approved text there on `ExitPlanMode`, then removes the undated draft |
-| Session handoff | `<store>/handoffs/YYYY-MM-DD-<topic>.md` | the session that ends, pointed to from `activeContext.md`; only when activeContext can't hold it |
-| Command/agent report (review, audit, techdebt scan, research brief) | `<store>/reports/YYYY-MM-DD-<name>.md` | the command or agent that produced it |
-| Promoted knowledge (local-only) | `<store>/knowledge/<topic>.md` (home bank for cross-repo, the repo's own bank for one repo) | hand-curated, reviewed |
-| Session memory bank (STATE, not a doc) | `<store>/` | `memory init` / the harvest gate |
+## What passes
 
-`<store>` is the repo's memory store, `~/.claude/memory/<repo>/` (`claude-code memory path` prints it; the harness
-itself is `memory/claude-code/`, the home bank is `memory/home/`). The store is a local-only git repo outside every
-project's tree, so handoffs and reports are never tracked by the repo they describe.
+- **Root anchors** — `README.md`, `CLAUDE.md`, `AGENTS.md`, `GEMINI.md`, `LICENSE.md`, `NOTICE.md`, `CHANGELOG.md`,
+  `CONTRIBUTING.md`, `SECURITY.md`, `CODE_OF_CONDUCT.md`. This repo keeps no `AGENTS.md`/`GEMINI.md` at its root:
+  Claude Code would load it as a second CLAUDE.md; `claude-code agents sync` renders those into each agent's home.
+- **A repo's own `docs/`** — tracked pages, and new pages in a `docs/` git would track. A **gitignored** `docs/`
+  blocks: the page would vanish on a fresh clone. This repo's `docs/` takes only `images/` and `templates/`;
+  any other new page there blocks.
+- Any git-tracked file, any other subdirectory, non-repo paths.
 
-The settings template leaves `plansDirectory` unset (Claude Code's native default).
-The undated native file is a scratch draft, not the file
-of record: `docs-plan-mirror` maintains the dated copy from its first write, even before approval.
-`docs-plan-save` reuses that destination/date on approval; a response-only plan without a mirror is
-filed with the approval date.
+## When the gate blocks
 
-## What stays out of the three homes
-
-- **Root anchors** — `README.md`, `CLAUDE.md`, `AGENTS.md`, `GEMINI.md`, `LICENSE.md`,
-  `NOTICE.md`, `CHANGELOG.md`, `CONTRIBUTING.md`, `SECURITY.md`, `CODE_OF_CONDUCT.md`. A repo's own
-  `AGENTS.md`/`GEMINI.md` belong at its root (Codex/Gemini/Copilot read them there). The harness itself keeps
-  none at its root: `claude-code agents sync` renders CLAUDE.md + the roster into each agent's global file —
-  `~/.codex/AGENTS.md`, `~/.gemini/GEMINI.md`, `~/.copilot/copilot-instructions.md` (local copies in
-  `state/projections/<agent>/`) — plus
-  `agents/*.md` into `~/.codex/agents/*.toml`, `~/.copilot/agents/*.md`, `~/.gemini/agents/*.md`,
-  `~/.config/opencode/agents/*.md`, and symlinks `skills/<name>/` into `~/.agents/skills` (never copies).
-  Nothing lands at this repo's root: Claude Code would load a root `AGENTS.md`/`GEMINI.md` as a second CLAUDE.md.
-  Sync prunes only outputs it owns, keeps hand-authored files and foreign symlinks, aborts on an empty or failed
-  discovery, and `--no-prune` skips pruning.
-- **A repo's own documentation** — `docs/` pages a project owns. Tracked pages always pass, and a
-  brand-new page in a `docs/` the repo *could* track passes too (it is merely not-yet-added). The
-  exception is a **gitignored** `docs/`: git refuses to keep anything there, so a page written to it
-  is invisible on every fresh clone — that is stranded harness output, and the gate blocks it.
-- **State, not docs** — the memory store (its own local git repo, `knowledge/` included), `state/projections/`
-  (per-agent renders from `agents sync`; `clean --target projections` sweeps them) and the rest of
-  `state/harness/`. This repo's `docs/` holds only `images/` and `templates/` (the embedded-template reference,
-  `docs/templates/README.md`).
-
-## Enforcement — the `docs-placement` gate
-
-`docs-placement` is a module of the `docs` group and runs inside the PreToolUse dispatcher
-(`PreToolUse(Write|Edit)` → `claude-code hook PreToolUse`); its block is the merged deny. It **blocks** a
-`.md`/`.markdown` write in either of two shapes, printing the canonical paths to use instead:
-
-1. the target directory *is* the git toplevel (a repo root); or
-2. the target sits at or under `<root>/docs` **and** git ignores it — a page that vanishes on a fresh
-   clone (`git check-ignore`; a non-ignored `docs/` is the project's own and is never gated).
-
-It passes on: a root anchor, a git-**tracked** file (`git ls-files`, so a force-added page inside an
-ignored `docs/` passes), the harness's own `docs/images/` and `docs/templates/` (any other new
-page there — a retired `docs/handoffs`/`docs/reports`/`docs/knowledge` — blocks), every other subdirectory,
-a non-markdown path, a non-repo location, and anything it can't resolve (fail-open).
-
-- The handler also checks `apply_patch` Add/Update/Move headers against the same placement rules.
-- Store writes (bank, handoffs, reports) land in `~/.claude/memory/`, outside any repo's `docs/` tree, so this gate
-  never sees them. Plan mirrors and approval saves write directly to `~/.claude/plans/`.
-- Class: deny-one-call — not a Stop gate, so it needs no fail-open counter. The model
-  re-issues the write at the named path and moves on.
-- A genuine repo doc the user asked for: `git add -N <file>` first (tracked wins over ignored), or
-  disable the gate for the launch with `HARNESS_DOCS_PLACEMENT=0`.
-
-## Related
-
-- `guardrails.md` — the gate inventory this gate joins
-- `hooks.md` — the event → hook matrix
-- `../standards/documentation.md` — markdown quality
+It names the canonical home; re-issue the write there. For a genuine repo doc the user asked for: `git add -N <file>`
+first (tracked beats ignored), or disable the gate for the launch with `HARNESS_DOCS_PLACEMENT=0`.

@@ -5,69 +5,58 @@ paths:
 ---
 # Hooks System
 
-Lifecycle hooks run natively as `claude-code hook <Event> [--<module>|--all]`, declared in `internal/hookspec/`
-and implemented in `internal/hooks/`.
-
-**The authoring surface is `internal/hookspec/hookspec.go`** — one `Spec` per hook invocation,
-and the single place a hook is declared. To add, remove, or retime a hook: edit its group in `hookspec.go` +
-the Go handler in `internal/hooks/`, then `make install` to render the updated chain into
-`settings.json`. **Never hand-edit `settings.json`** → `settings-management.md`.
+Hooks run as `claude-code hook <Event> [--<module>|--all]`. **`internal/hookspec/hookspec.go` is the only place a
+hook is declared** (one `Spec` per invocation); the handler lives in `internal/hooks/`. Add, remove or retime: edit
+both, then `make install`. **Never hand-edit `settings.json`** → `settings-management.md`.
 
 ## Groups and the dispatcher
 
-`hookspec.Registry` lists **groups** in execution order, each naming the events it handles. Settings carry **one
-dispatcher entry per event** (`claude-code hook <Event>`, e.g. `hook PreToolUse`) whose matcher is the union
-of its groups' matchers; the dispatcher reads the payload once, runs every enabled group's handlers within their
-budgets, recovers a panic, and merges the results. `hook <Event> --<module>` runs one module (an own-process entry,
-or debugging); `--all` runs every module on the event, the gate included. Groups, in order: `safety`, `rtk`, `docs`,
-`dispatch`, `paths`, `memory`, `format`, `worktree`, `codex` (codex-only; never rendered into Claude settings).
+`hookspec.Registry` lists groups in execution order: `safety`, `rtk`, `docs`, `dispatch`, `paths`, `memory`,
+`format`, `worktree`, `codex` (codex-only, never rendered into Claude settings). Settings carry **one dispatcher
+entry per event** (`hook <Event>`) matching the union of its groups' matchers; it reads the payload once, runs each
+enabled group within its budget, recovers panics and merges results. `--<module>` runs one module; `--all` runs
+every module on the event, the gate included.
 
-- **Safety exception:** the `safety` gate group (`safety-scan`, PreToolUse) keeps its own process and settings entry
-  (`hook PreToolUse --safety-scan`), so a hung or crashing group can never delay or skip a block. It cannot be
-  switched off.
-- **Switches:** every other group is on by default; turn one off with `"<group>": false` under `harnessHooks` in the
-  vault overlay (`claude-code vault edit`). An unknown group or a gate group is rejected.
-- **Vendors:** codex and copilot run only the handlers that list them (`safety-scan`, `docs-placement`,
-  `docs-plan-gate`, `paths-resolve`, `memory-recall`), each as `hook <Event> --<module>`. Neither has an ask decision,
-  so a safety ask blocks there.
+- **`safety` keeps its own process** (`hook PreToolUse --safety-scan`) so a hung group can never delay or skip a
+  block, and it cannot be switched off.
+- **Switches:** any other group turns off with `"<group>": false` under `harnessHooks` in the vault overlay
+  (`claude-code vault edit`); an unknown group or a gate group is rejected.
+- **Vendors:** codex and copilot run only `safety-scan`, `docs-placement`, `docs-plan-gate`, `paths-resolve` and
+  `memory-recall`, each as `hook <Event> --<module>`. Neither has an ask decision, so a safety ask blocks there.
 
 ## Event → hook matrix
 
 | Hook | Event | What it does |
 | --- | --- | --- |
-| `safety-scan` | PreToolUse (Bash) | Three tiers. **Block:** destructive shapes (`rm -rf /`, force-push to main, `curl \| sh`, `git stash/checkout/reset/restore/clean` aimed at `~/.claude`, a `git commit` carrying an AI-attribution footer in any repo, …); a linked worktree under `.claude/worktrees/` is exempt. **Ask:** intent-dependent shapes such as `sudo` and `DROP TABLE`, with the safer alternative named; codex and copilot have no ask, so there it blocks and says so. **Warn:** prints a warning, never blocks. Each block is logged to `claude-code doctor --audit` by reason and pattern, never the command |
-| `rtk-rewrite` | PreToolUse (Bash) | Its own group: routes a noisy command (`git`, `npm`, `cargo`, `kubectl`, `pytest`, `docker`) through the `rtk` output compressor when it is on PATH (Claude sessions only; never `git` inside a linked worktree, whose isolation check refuses a wrapped git); machine-readable flags (`--porcelain`, `--json`, …) and value subcommands (`rev-parse`, …) bypass it. `HARNESS_RTK_BIN` overrides the binary |
-| `docs-placement` | PreToolUse (Write\|Edit) | Blocks a new `.md` at a repo root or under a git-ignored `docs/`, naming the canonical home (`HARNESS_DOCS_PLACEMENT=0` disables). Docs group, inside the PreToolUse dispatcher |
-| `docs-plan-gate` | PreToolUse (Write\|Edit) | Docs group: denies the first write to an undated native plan draft without `# Plan:`, `## Context`, `## Phases`, `## Tasks` from `agents/Plan.md`, and pastes the skeleton in the denial |
-| `dispatch-effort` | PreToolUse (Agent\|Task\|Workflow) | Dispatch group's single PreToolUse runner, in order: the cap (next row), the model pin, then the slot claim. Fills an UNSET subagent model from a local prompt classifier (low→haiku, else sonnet). An explicit `model:` on the dispatch or in the agent's frontmatter (`inherit` included = session model) always wins. Under Anthropic plan pressure it downshifts an unset model one step at ≥90% and moves a `code-worker`/`Explore` dispatch to a coworker at ≥97%; `HARNESS_ROUTE_SUBAGENTS=0` turns that rewrite off. Appends up to 3 memory recall pointers to the spawn prompt. On a Workflow it also pins `model: 'sonnet'` on every unpinned `agent()` in an inline script or `scriptPath` file (an unpinned leaf would inherit the session model), redirects a saved-by-name call to its on-disk `scriptPath` (the by-name registry is read once at session start), and blocks an options argument it cannot rewrite or a bad pin literal |
-| (dispatch cap) | within `dispatch-effort` | One limiter gates every spawn: the cap is **B = 12 per available account** (a profile's `concurrency` overrides it), the machine-wide total is `B × accounts`, clamped to **4 × CPUs**. A blocked dispatch claims nothing; a Workflow claims one slot per `agent()` site. The block names the account, its cap and the total; infra errors fail open. `claude-code doctor` shows the live count as the `in-flight` row. Name the agent in a dispatch description as `<agent>: <desc>` |
-| `dispatch-failure` | PostToolUseFailure (Agent\|Task\|Workflow) | Retires the failed spawn's slots by `tool_use_id` |
-| `dispatch-workflow` | PostToolUse (Workflow) | Releases a finished Workflow's slots |
-| `dispatch-stop` | SubagentStop | Retires the stopping subagent's inflight marker |
-| `docs-plan-mirror` | PostToolUse (Write\|Edit) | Mirrors native undated drafts into dated, repo-tagged files from the first write, named from the plan's `Suggested slug:` line (else its H1); edits keep the same destination and date |
-| `docs-plan-save` | PostToolUse (ExitPlanMode) | On approval, reuses the mirror destination (or files a response-only plan), adds a checklist if absent, verifies the save, then removes the undated draft |
-| `docs-plan-skeleton` / `docs-plan-skeleton-prompt` | PostToolUse (EnterPlanMode) / UserPromptSubmit | Injects the `agents/Plan.md` skeleton when plan mode starts and, once per plan, on a plan-mode prompt |
-| `docs-plan-tick` | PostToolUse (Bash) | A landed `git commit` ticks the active plan's tasks whose `owns:` it covers; partial coverage is noted. `claude-code plan status` shows ticked/total, task claims and partly-landed notes |
-| `docs-plan-reminder` | Stop | Reports once, advisory, the commits that only partly landed a task |
-| `memory-harvest` | Stop | Memory group: runs the context checkpoint (once per session at ≥85% context, blocks Stop so the model can write a handoff with `claude-code memory update`), then the memory harvest (below). The harvest counts edits and user turns (2 turns weigh as 1 edit), so a conversation-only session is saved too |
-| `format-stop` | Stop | Format group: formats files edited this turn: the repo's own `make format\|fmt` target when it honors a per-file variable (`TARGET`/`FILE`/…), else the pyproject-declared python chain, else gofmt/ruff/prettier/shfmt when installed; a repo with its own pre-commit switches the group off |
-| `memory-start` | SessionStart | Injects the `memory/index.md` catalog + this repo's focus sections (Current Focus/Blockers/Next Steps, progress In Progress); repairs the cwd's `projects/<slug>/memory` link; Claude Code loads the repo's `MEMORY.md` itself |
-| `paths-resolve` | UserPromptSubmit | Reports existing file paths; resolves paths in the prompt both ways through the mount table (Windows ⇄ `/mnt/…`) |
-| `memory-recall` | UserPromptSubmit | Injects up to 3 blocks from this repo's store + home matching ≥2 prompt terms, plus any repo store the prompt names explicitly; skips blocks already in context; each injected entry is logged to the bank's `access.log` (as are `memory search` and `memory show` hits), the hot/cold signal `memory review` nominates from |
-| `worktree-create` / `worktree-remove` | WorktreeCreate / WorktreeRemove | Replace Claude Code's git logic: `--worktree`, `EnterWorktree` and subagent isolation create at `~/worktrees/<repo>/<name>` (Orca's root too); remove refuses a dirty tree and `branch -d`s the merged branch. Live payload carries only `name`. Create honors `worktree.baseRef` and seeds `.venv` / `.env` from the main checkout. Each worktree has a ledger at `memory/<repo>/worktrees/<name>.md`, opened on create or adopt, logged as work proceeds, and closed on `worktree merge`, hook removal or `clean --force` with the commits it carried |
-| `memory-compact` | PreCompact | Before Claude Code compacts the context, dispatches the background harvest when the transcript has edits no earlier harvest covered (ADK `add_events_to_memory`); never blocks — the transcript file survives compaction |
-| `memory-end` | SessionEnd | After enough edits, spawns a detached `claude-code memory update`. The first dispatch also claims one detached `memory watch` per session: once the transcript is quiet 10 min with uncovered edits it harvests the final state, so a crash or kill (no SessionEnd) loses nothing |
+| `safety-scan` | PreToolUse (Bash) | **Block** destructive shapes (`rm -rf /`, force-push to main, `curl \| sh`, `git stash/checkout/reset/restore/clean` at `~/.claude` — linked worktrees exempt — and a commit with an AI-attribution footer); **ask** on intent-dependent shapes (`sudo`, `DROP TABLE`) naming the safer alternative; **warn** only prints. Blocks log to `claude-code doctor --audit` by reason and pattern, never the command |
+| `rtk-rewrite` | PreToolUse (Bash) | Prefixes noisy commands (`git`, `npm`, `cargo`, `kubectl`, `pytest`, `docker`) with `rtk` when on PATH; Claude sessions only, never `git` in a linked worktree; machine-readable flags (`--porcelain`, `--json`) and value subcommands (`rev-parse`) bypass; `HARNESS_RTK_BIN` overrides |
+| `docs-placement` | PreToolUse (Write\|Edit) | Blocks a new `.md` at a repo root or under a gitignored `docs/`, naming the home (`docs-placement.md`); also checks `apply_patch` headers |
+| `docs-plan-gate` | PreToolUse (Write\|Edit) | Denies the first write to a native plan draft lacking `# Plan:`, `## Context`, `## Phases`, `## Tasks` from `agents/Plan.md`; the denial pastes the skeleton |
+| `dispatch-effort` | PreToolUse (Agent\|Task\|Workflow) | In order: cap, model pin, slot claim. Fills an UNSET model from a local classifier (low→haiku, else sonnet); an explicit `model:` (dispatch or frontmatter, `inherit` included) always wins. At ≥90% Anthropic plan pressure downshifts an unset model one step; at ≥97% moves `code-worker`/`Explore` to a coworker (`HARNESS_ROUTE_SUBAGENTS=0` disables). Appends ≤3 memory recall pointers. Workflows: pins `model: 'sonnet'` on every unpinned `agent()` (inline or `scriptPath`), redirects a by-name call to its `scriptPath` (registry read once at session start), blocks an unrewritable options argument or a bad pin literal |
+| (dispatch cap) | within `dispatch-effort` | **12 in flight per available account** (a profile's `concurrency` overrides), machine-wide `12 × accounts` clamped to **4 × CPUs**, test agents included. A blocked dispatch claims nothing; a Workflow claims one slot per `agent()` site; infra errors fail open. `claude-code doctor` shows the live `in-flight` count. Describe a dispatch as `<agent>: <desc>` |
+| `dispatch-failure` · `dispatch-workflow` · `dispatch-stop` | PostToolUseFailure · PostToolUse (Workflow) · SubagentStop | Retire the spawn's slots |
+| `docs-plan-mirror` | PostToolUse (Write\|Edit) | Mirrors the undated draft to a dated, repo-tagged file from the first write (slug from `Suggested slug:`, else the H1); edits keep destination and date |
+| `docs-plan-save` | PostToolUse (ExitPlanMode) | Files approved text at the mirror destination (or files a response-only plan), adds a missing checklist, verifies, removes the draft |
+| `docs-plan-skeleton` / `-prompt` | PostToolUse (EnterPlanMode) / UserPromptSubmit | Injects the `agents/Plan.md` skeleton when plan mode starts, and once per plan on a plan-mode prompt |
+| `docs-plan-tick` / `docs-plan-reminder` | PostToolUse (Bash) / Stop | A landed commit ticks the plan tasks its `owns:` covers (`claude-code plan status`); partly landed tasks are reported once at Stop |
+| `memory-harvest` | Stop | Context checkpoint first: once per session at ≥85% context it blocks Stop so the model writes a handoff (`claude-code memory update`). Then the harvest, weighing edits and user turns (2 turns = 1 edit) |
+| `format-stop` | Stop | Formats files edited this turn: the repo's `make format\|fmt` if it takes a per-file variable, else the pyproject python chain, else gofmt/ruff/prettier/shfmt; a repo with its own pre-commit switches the group off |
+| `memory-start` | SessionStart | Injects `memory/index.md` + this repo's focus (Current Focus/Blockers/Next Steps, In Progress); repairs `projects/<slug>/memory` |
+| `paths-resolve` | UserPromptSubmit | Reports existing paths in the prompt; translates Windows ⇄ `/mnt/…` on WSL |
+| `memory-recall` | UserPromptSubmit | Injects ≤3 bank blocks matching ≥2 prompt terms (plus a repo store the prompt names); skips blocks in context; logs hits to `access.log` (the hot/cold signal for `memory review`) |
+| `memory-compact` | PreCompact | Dispatches a background harvest for uncovered edits; never blocks |
+| `memory-end` | SessionEnd | After enough edits spawns `claude-code memory update`; the first dispatch claims one detached `memory watch` that harvests after 10 quiet minutes, so a crash loses nothing |
+| `worktree-create` / `worktree-remove` | WorktreeCreate / WorktreeRemove | Create at `~/worktrees/<repo>/<name>` (honors `worktree.baseRef`, seeds `.venv`/`.env`, opens ledger `memory/<repo>/worktrees/<name>.md`); remove refuses a dirty tree and `branch -d`s only a merged branch |
 
-## Notes
+## Authoring a gate
 
-- Hook exit codes and stdin/stdout follow the Claude Code hook contract; an async hook does not
-  block the turn.
-- Permission guardrails live in the repo defaults' `permissions` block (`ask` beats `allow`),
-  regenerated into `settings.json`.
-- Stop gates are bounded; deny-one-call gates reject the offending input and let
-  the model retry corrected input (see `guardrails.md`).
+Prose is the instruction; the hook is the guarantee. Every gate:
 
-## Related
+1. **Triggers on a checkable condition** — transcript facts or file state, never self-report.
+2. **Blocks with instructions and the evidence contract** — what artifact proves compliance.
+3. **Releases only on evidence** — mtimes, receipts, exit codes.
+4. **Caps and fails open** — a Stop gate that can trap a session needs a cap and a visible fail-open; a
+   deny-one-call gate (e.g. `docs-placement`) rejects the input and lets the model retry. Infra errors fail open.
 
-- `settings-management.md` — the repo defaults are the source of truth for `settings.json`
-- `guardrails.md` — the gate inventory and its evidence contract
+Test the block path, the evidence-release path and the fail-open cap. Permission guardrails live in the defaults'
+`permissions` block (`ask` beats `allow`).

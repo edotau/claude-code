@@ -1,25 +1,16 @@
 # Performance Optimization
 
-## Model Selection Strategy
+## Model selection
 
-Reference the model alias (`opus`/`sonnet`/`haiku`/`fable`), not a concrete model id —
-`internal/providers/defaults.json` (plus the vault overlay) maps each provider's alias to a model, so this doc
-doesn't rot when a model moves.
+Name the alias (`opus`/`sonnet`/`haiku`/`fable`), never a concrete model id — `internal/providers/defaults.json`
+plus the vault overlay map each alias per provider.
 
-- **`opus`** — deepest reasoning: architectural decisions, maximum-reasoning research and analysis.
-- **`sonnet`** — best all-round coding: planning, code review, orchestration, codebase exploration (the
-  `gemini` agent's in-process backend), default for `code-worker` fan-out leaves.
-- **`haiku`** — high-frequency, cost-sensitive: lightweight agents, worker leaves, quick lookups.
-- **Gemini** (`claude-code gemini bridge`) — the large-sweep backend when whole-repo context exceeds a session
-  window (1M tokens across many inlined files in one call).
+- **`opus`** — architectural decisions, maximum-reasoning research and analysis.
+- **`sonnet`** — planning, review, orchestration, exploration; the default `code-worker` leaf.
+- **`haiku`** — high-frequency, cost-sensitive leaves and quick lookups.
+- **Gemini** (`claude-code gemini bridge`) — sweeps whose context exceeds a session window (1M tokens).
 
-Pin a model alias durably with `claude-code models --pin opus=<id>` (or `--pin all=<id>`). `claude-code models --live`
-shows what a profile actually serves before pinning.
+## Context window
 
-## Context Window Management
-
-Avoid the last 20% of the window for large-scale refactoring, multi-file features, and complex debugging.
-Single-file edits, utilities, docs, and simple fixes are context-cheap.
-
-Agent concurrency caps, extended-thinking and prompt-caching guidance for authoring agents and provider config:
-`rules/workflow/agents.md`.
+Avoid the last 20% of the window for multi-file features, large refactors and complex debugging; single-file edits,
+docs and simple fixes are cheap. Concurrency caps, thinking and caching for agent authors: `rules/workflow/agents.md`.

@@ -8,215 +8,100 @@ paths:
 ---
 # Master Workflow — End-to-End Development Pipeline
 
-> The canonical pipeline for every non-trivial task. Each phase gates the next.
-> Skip phases only where explicitly noted.
-
-## Pipeline Overview
+The pipeline for every non-trivial task; each phase gates the next.
 
 ```text
-PROMPT --> CLASSIFY --> REVIEW --> CODEBASE INTEL --> RESEARCH --> PLAN
-  --> [REFINE PROMPTS: opt-in] --> PARALLEL DISPATCH (shared tree) --> MERGE --> SIMPLIFY --> VERIFY --> COMMIT
+CLASSIFY → REVIEW → CODEBASE INTEL → RESEARCH → PLAN → [REFINE: opt-in] → DISPATCH → MERGE + SIMPLIFY → VERIFY → COMMIT
 ```
 
-| Phase | Command / Agent | Output | Gate |
+| Phase | Agent / command | Output | Gate |
 |-------|----------------|--------|------|
-| 0. Classify | (inline) | Scope tier | Determines which phases run |
-| 1. Review | `Plan` subagent, or a second model family via the `ask` pointer under Phase 1 | Refined Task Brief | READY / NEEDS CLARIFICATION verdict |
-| 2. Codebase Intel | 3 parallel `Explore` subagents, or one `gemini` dispatch (`claude-code gemini explore`) | Codebase Context Brief | Structure, conventions, deps covered |
-| 3. Research | `gh` search, WebFetch, WebSearch, `claude-code gemini explore` (web research) | Prior art links + library refs | At least 1 relevant reference |
-| 4. Plan | plan mode, or a `Plan` subagent (plan-only) | Implementation plan with task breakdown | User approval |
-| 5. Refine *(opt-in)* | `general-purpose` subagent | Self-contained brief per sub-task | Each brief passes the cold-start test — **only with `--refine` on orchestrate** |
-| 6. Dispatch | orchestrate (`subagent-workflows`), `/code-workers`, or a `code-worker` scoped to disjoint files in the shared tree | Completed sub-tasks | Each sub-task passes local checks |
-| 7. Merge + simplify | `claude-code worktree merge`, then `Skill(simplify)` over the merged diff | Simplified changes on working branch | No merge conflicts; behavior gate green before and after simplify |
-| 8. Verify | the `testing-guidelines` test-and-fix loop + the `problem-solving` gate chain | All gates green | format + lint + test + security pass |
-| 9. Commit | `/copilot commit` (or plain git per `standards/git.md`) | Git commit on branch | Clean working tree |
+| 0. Classify | inline | Scope tier | Picks the phases below |
+| 1. Review | `Plan`, or another model family via `claude-code ask --agent <a>` | Refined Task Brief | READY / NEEDS CLARIFICATION |
+| 2. Codebase intel | 3 parallel `Explore`, or one `claude-code gemini explore` | Codebase Context Brief | Structure, conventions, deps covered |
+| 3. Research | `gh search`, WebFetch, WebSearch, `gemini explore` | Prior art + library refs | ≥1 reference, or "nothing found" stated |
+| 4. Plan | plan mode or `Plan` (plan-only) | Plan with task breakdown | User approval |
+| 5. Refine *(opt-in)* | `general-purpose` | Self-contained brief per sub-task | Cold-start test; only with `--refine` |
+| 6. Dispatch | orchestrate / `/code-workers`, `code-worker` per disjoint file set | Completed sub-tasks | Each passes its own check |
+| 7. Merge + simplify | `claude-code worktree merge`, then `Skill(simplify)` | Simplified merged diff | Behavior gate green before and after |
+| 8. Verify | `testing-guidelines` loop + `problem-solving` gate chain | All gates green | format + lint + test + security |
+| 9. Commit | `/copilot commit` (or plain git) | Commit on branch | Clean tree |
 
----
-
-## Phase 0: Classify Scope
+## Phase 0: Classify
 
 | Scope | Signal | Pipeline |
 |-------|--------|----------|
-| TRIVIAL | Single-line fix, typo, rename | Execute inline — the only inline scope (skip all phases) |
-| LOW | Single function or file change | Dispatch (not inline); Phase 2 (intel) + 3 (research) + 8 (verify) |
-| MEDIUM | 2-5 files or needs tests, same module | Phase 1-4, 8-9 (sequential, no worktrees) |
+| TRIVIAL | Single-line fix, typo, rename | Inline — the only inline scope; skip all phases |
+| LOW | One function or file | Dispatch (not inline); phases 2, 3, 8 |
+| MEDIUM | 2–5 files or needs tests, one module | Phases 1–4, 8–9; sequential, no worktrees |
 | HIGH | Cross-module, 5+ files | Full pipeline, parallel dispatch |
-| EPIC | Multi-session, architectural | Full pipeline, phased execution across sessions |
+| EPIC | Multi-session, architectural | Full pipeline, phased across sessions |
 
-**Skip for**: typo fixes, single-line changes, git operations, documentation-only edits, or explicit
-user override ("just do it").
+Skip the pipeline for typos, single-line changes, git operations, docs-only edits, or "just do it".
 
----
+## Phase 1: Adversarial review (MEDIUM+)
 
-## Phase 1: Adversarial Review
+Vet the task request before code is written. Checklist and verdict discipline:
+`skills/evaluate-code/references/task-review.md`; agent choice: `skills/subagent-workflows/references/cost-routing.md`.
+The same pass on the finished diff (SHIP IT / NEEDS WORK / BLOCK) is `claude-code codex review [--adversarial]
+--base <branch>`, around Phase 8.
 
-**Trigger**: MEDIUM+ scope.
+## Phase 2: Codebase intel (all but TRIVIAL)
 
-Vet the *task request* before any code is written — in a `Plan` subagent, or on a different model
-family (`claude-code ask --agent <agent>`; agent choice, call forms and the `Agent:` request:
-[cost-routing.md](../../skills/subagent-workflows/references/cost-routing.md)). Checklist, output format and
-verdict discipline: `skills/evaluate-code/references/task-review.md` (on codex: `claude-code codex ask`).
+Three parallel `Explore` agents — Structure (layout, entry points), Conventions (naming, errors, tests),
+Dependencies (deps, env vars, CLIs) — produce one brief passed to every downstream agent. **Scope the fan-out to the
+directories the task touches**: a repo-wide sweep is the biggest avoidable token cost. Skip if a brief exists this
+session and nothing changed. `gemini explore` (or `bridge` for whole-repo context) gives the same brief off Claude's
+budget.
 
-The same adversarial pass run on the finished branch diff (verdict SHIP IT / NEEDS WORK / BLOCK) is the
-pre-commit review around Phase 8 (`claude-code codex review [--adversarial] --base <branch>`).
+## Phase 3: Research (new implementation, not pure refactor)
 
----
+`gh search code|repos` → library docs via WebFetch → WebSearch only if those fall short → package registries
+(prefer battle-tested libraries) → `gemini explore` for cited web research.
 
-## Phase 2: Codebase Intelligence
+## Phase 4: Plan (MEDIUM+)
 
-**Trigger**: All tasks except TRIVIAL, or when context is stale.
+Feed both briefs to plan mode or `Plan`; the template is `agents/Plan.md`. Break down tasks, mark dependencies and
+`parallel-safe: true/false`, flag migrations, breaking changes and security surface. **Gate: user approval.**
 
-Launch **3 parallel `Explore` subagents** in a single message:
+## Phase 5: Refine (opt-in, `--refine`)
 
-| Agent | Focus | Output |
-|-------|-------|--------|
-| Structure | Directory layout, entry points, pipeline stages | Package map + architecture overview |
-| Conventions | Naming, error handling, logging, test patterns | Style rules + code references |
-| Dependencies | Manifest deps, env vars, CLI tools, policies | Integration map + constraints |
+For sub-tasks going to fresh agents. Each brief: Objective, Context (paths + lines), Constraints, Steps, Acceptance
+Criteria, Do NOTs, Verification Command. Test: a fresh agent can act from the brief alone
+(`skills/subagent-workflows/SKILL.md`).
 
-**Output**: Codebase Context Brief — passed to ALL downstream agents.
+## Phase 6: Dispatch (2+ parallel-safe sub-tasks)
 
-**Skip if**: a context brief was generated this session and no files have changed.
+Each sub-task is a `code-worker` owning disjoint (ideally new) files in the shared tree, with `copilot` in the SAME
+message when a test agent is needed (`standards/quality.md`). Another model family for one lane: `Agent: <x>` in the
+brief ([Leaf types](../../skills/subagent-workflows/SKILL.md#leaf-types)). Cap: `agents.md` → Parallel dispatch.
 
-**Scope the fan-out** to the directories the task touches — a repo-wide Explore sweep is the
-biggest avoidable input-token cost of this protocol.
+## Phase 7: Merge + simplify
 
-**Alternative**: one `claude-code gemini explore "<question>"` dispatch returns the same brief from agy
-(code + web research), off Claude's token budget; `bridge` for whole-repo context.
-
----
-
-## Phase 3: Research & Reuse
-
-**Trigger**: Any new implementation (not pure refactoring).
-
-1. `gh search code` / `gh search repos` — find existing implementations
-2. `WebFetch` on the library's docs — confirm API behavior and patterns
-3. `WebSearch` — broader discovery (only when 1-2 are insufficient)
-4. Package registries (PyPI, npm, pkg.go.dev) — prefer battle-tested libraries
-5. `claude-code gemini explore "<question>"` — one dispatch for web research with cited URLs, off
-   Claude's token budget
-
-**Gate**: At least 1 relevant reference found, or explicit "nothing found" documented.
-
----
-
-## Phase 4: Plan
-
-**Trigger**: MEDIUM+ scope.
-
-Feed the Context Brief + Refined Task Brief into plan mode or a `Plan` subagent (write the plan, don't
-implement). `agents/Plan.md` holds the plan template and phase rules; the skeleton is injected when plan mode starts.
-
-1. Generate implementation plan with task breakdown
-2. Identify dependencies between tasks (which can run in parallel)
-3. Flag risks: migration needs, breaking changes, security surface
-4. Mark each sub-task as `parallel-safe: true/false`
-
-**Gate**: User approves the plan before proceeding.
-
----
-
-## Phase 5: Prompt Refinement *(opt-in)*
-
-**Trigger**: only when `--refine` is passed to orchestrate. Default flows go plan →
-dispatch; use the refiner when sub-tasks go to fresh agents that need self-contained context.
-
-Each refined brief carries: **Objective**, **Context** (files with paths and line numbers),
-**Constraints** (CLAUDE.md rules relevant to this sub-task), **Implementation Steps**, **Acceptance
-Criteria**, **Do NOTs**, **Verification Command** (exact `make`/`go test`/`pytest` command).
-
-**Quality test**: `skills/subagent-workflows/SKILL.md` — "A fresh agent must be able to act from the
-handoff alone."
-
-**Output**: Dispatch Plan table:
-
-| Task | Branch | Parallel-Safe | Dependencies |
-|------|--------|--------------|--------------|
-| Implement serializer | wt/task-1 | yes | none |
-| Write API tests | wt/task-2 | yes | none |
-| Update URL routing | wt/task-3 | no | task-1 |
-
----
-
-## Phase 6: Parallel Dispatch
-
-**Trigger**: 2+ parallel-safe sub-tasks.
-
-- orchestrate (`subagent-workflows`) or `/code-workers parallel` — each sub-task as a `code-worker` owning disjoint
-  (ideally new) files in the shared tree; `copilot` in the SAME message (`standards/quality.md`).
-- A second model family for one lane: the `code-worker` brief carries `Agent: <x>`
-  ([Leaf types](../../skills/subagent-workflows/SKILL.md#leaf-types)).
-- Manual worktrees: `claude-code worktree create|list|merge|clean`.
-
-Concurrency: 12 in flight per available account, 4 × CPUs at most, test agents included (`agents.md`; the
-`agent-effort` dispatch cap enforces it).
-
-**Gate**: Each sub-task passes its own verification command before merge.
-
----
-
-## Phase 7: Merge Back (`claude-code worktree merge`)
-
-Merge and clean per `skills/using-git-worktrees` (its `references/merge-and-clean.md` holds the one
-merge rule, the verify gate and conflict handling); never `stash`/`checkout`/`reset` the live tree
-(CLAUDE.md hard rule 4).
-
-**Simplify**: `Skill(simplify)` over the merged diff, before review and Phase 8 — parallel lanes duplicate each
-other's helpers and only the merged diff shows it. A leaf gets
-`skills/subagent-workflows/references/prompts.md#simplifier`.
-
-**Test hygiene** (same pass, before any new test is written): check whether the tests already repaired or in
-place cover the change; if they do, add nothing. Delete dead code and stale tests the change left behind (fixtures
-for states the code can no longer produce), and consolidate near-duplicate tests into one. Net test count may fall.
-
----
+Merge per `skills/using-git-worktrees/references/merge-and-clean.md`; never `stash`/`checkout`/`reset` the live tree.
+Run `Skill(simplify)` over the **merged** diff — parallel lanes duplicate each other's helpers and only the merged
+diff shows it. Same pass, before any new test: if existing tests already cover the change add nothing; delete dead
+code and stale tests the change left behind; fold near-duplicate tests. Net test count may fall.
 
 ## Phase 8: Verify
 
-**Trigger**: After all code changes, before commit. Loop the repo's gates by hand (or `Workflow green-keeper-loop`
-when the user asks for it).
+Chain: `rules/standards/quality.md` → Verification Order; loop and caps: `skills/problem-solving/references/verify.md`.
+**Never edit a migration to make a gate pass.** `Workflow green-keeper-loop` only when the user asks.
 
-The chain is `rules/standards/quality.md` → Verification Order; the loop, caps and report format are
-`skills/problem-solving/references/verify.md`. Migrations are never edited to make a gate pass.
+## Phase 9: Commit
 
-**Alternatives**: the codex review (`claude-code codex review`) as the cross-model second
-pass; the
-`testing-guidelines` test-and-fix loop for targeted test fixing,
-`skills/evaluate-code/references/techdebt.md` (scan and fix sections) for debt.
+Per `rules/standards/git.md`; `/copilot commit` executes, `/copilot pr` when a PR is requested.
 
----
+## Quick reference
 
-## Phase 9: Commit (`/copilot commit`)
+| Scenario | Path |
+|----------|------|
+| Bug fix (LOW) | fix → `testing-guidelines` loop → `/copilot commit` |
+| One-module feature (MEDIUM) | review → plan → implement → `/simplify` → verify → commit |
+| Cross-module feature (HIGH) | review → orchestrate `[--refine]` → verify → commit |
+| Tech debt | `skills/evaluate-code/references/techdebt.md` |
+| Review current changes | `/code-review` (security is an `evaluate-code` lens, not an agent) |
+| Second opinion | `/codex` |
 
-Commit per `rules/standards/git.md` (stage named files, conventional message, confirm first);
-`/copilot commit` is the executor, `/copilot pr` when a PR is requested.
-
----
-
-## Quick Reference
-
-| Scenario | Commands |
-|----------|----------|
-| Simple bug fix (LOW) | fix code -> the `testing-guidelines` test-and-fix loop -> `/copilot commit` |
-| Feature in one module (MEDIUM) | review -> plan mode -> implement -> `/simplify` -> verify -> `/copilot commit` |
-| Cross-module feature (HIGH) | review -> orchestrate `[--refine]` (simplify stage included) -> verify -> `/copilot commit` |
-| Fix failing tests | the `testing-guidelines` test-and-fix loop |
-| Clean up tech debt | `skills/evaluate-code/references/techdebt.md` (scan, then fix) |
-| Review current changes | `/code-review` (quality + security lenses, `evaluate-code`) |
-| Second opinion from another model | `ask` per Phase 1 pointer (`/codex` for an adversarial pass) |
-
-## Agent Reference
-
-Roster (`Explore`, `Plan`, `claude`, `code-worker`, `copilot`, `codex`, `gemini`, `opencode`) and
-purposes: `rules/workflow/agents.md` → Available Agents. Phase mapping here: `Plan` → 1, 4;
-`codex`/`gemini`/`opencode` → 1; `Explore` → 2; `general-purpose` (built-in) → 5, 6;
-`code-worker`/`copilot` → 6; `claude` → 7 only; `claude-code ask --agent <agent>` → 1, 6, 8.
-
-> **Security review is a lens of `evaluate-code`, not an agent** — `skills/evaluate-code/SKILL.md` → Security,
-> typically alongside Phase 8.
-
-## Saved Workflows (`workflows/*.js`)
-
-Run one only when the user asks for it; the default dispatch is `/code-workers` ‖ `copilot` (Phase 6). Shapes, args,
-pinning rules and the drift lint: `skills/subagent-workflows/references/saved-workflows.md`.
+Saved workflows (`workflows/*.js`) run only when the user asks:
+`skills/subagent-workflows/references/saved-workflows.md`.
