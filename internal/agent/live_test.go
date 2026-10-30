@@ -195,3 +195,48 @@ func TestLiveTurnErrorNeverLeaksIntoNextTurn(t *testing.T) {
 	}
 	_ = wait()
 }
+
+// With three slots held, two contenders racing for the last one: exactly one wins, the loser is refused.
+func TestLiveSlotLastSlotGoesToExactlyOne(t *testing.T) {
+	liveEnv(t)
+	for range MaxLiveSessions - 1 {
+		if _, err := AcquireLiveSlot(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	errs := make(chan error, 2)
+	start := make(chan struct{})
+	for range 2 {
+		go func() { <-start; _, err := AcquireLiveSlot(); errs <- err }()
+	}
+	close(start)
+	won := 0
+	for range 2 {
+		if err := <-errs; err == nil {
+			won++
+		}
+	}
+	if won != 1 {
+		t.Errorf("%d contenders took the last slot, want exactly 1", won)
+	}
+}
+
+// A released slot is reusable; a held one is not.
+func TestLiveSlotReleaseFreesIt(t *testing.T) {
+	liveEnv(t)
+	var rel []func()
+	for range MaxLiveSessions {
+		r, err := AcquireLiveSlot()
+		if err != nil {
+			t.Fatal(err)
+		}
+		rel = append(rel, r)
+	}
+	if _, err := AcquireLiveSlot(); err == nil {
+		t.Fatal("a fifth slot must be refused")
+	}
+	rel[0]()
+	if _, err := AcquireLiveSlot(); err != nil {
+		t.Errorf("released slot not reusable: %v", err)
+	}
+}
