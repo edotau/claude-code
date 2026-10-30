@@ -13,7 +13,7 @@ paths:
 | Render settings + agent configs | `claude-code configure --restore [--out f] [--check] [--dry-run] [--agents]` |
 | Change permissions / env / statusLine | edit `defaults/claude/settings.json` → `configure --restore --dry-run` → `make install` |
 | Add or retime a hook | handler in `internal/hooks/`, register in a `hookspec.go` group, `make install` (`hooks.md`) |
-| Lint-fix | `make lint-fix [WHAT=go\|md\|all] [AGENT=copilot] [MAX=3]` (`commands/lint-fix.md`) |
+| Lint and auto-fix | `make lint [WHAT=go\|md\|all] [AGENT=<agent>\|off] [MAX=3]`; env `HARNESS_LINT_AGENT` sets the default (`commands/lint-fix.md`) |
 
 **Never edit `~/.claude/settings.json`.** `claude-code configure --restore` (and `make install`) renders it from
 `defaults/claude/settings.json` (tracked), the vault overlay and the hook chain in `internal/hookspec/hookspec.go`;

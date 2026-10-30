@@ -40,7 +40,8 @@ Files under `agents/`, `commands/`, `rules/`, `skills/` and this file go live th
 4. **Never `git stash` / `checkout` / `reset` / `restore` in the live checkout (`~/.claude`).** It is
    one checkout shared by parallel subagents and every live session. Default is no worktree; when to ask, the
    commands and their gotchas: `rules/standards/worktree-git.md`.
-5. **Done means pushed to the current branch (`main` by default)** — merge, `make install`, push (the pre-push gate runs `make audit`).
+5. **Done means pushed to the current branch (`main` by default)** — merge, `make install`, push (the pre-push gate
+   runs `make audit`).
 
 ## Behavioral guidelines
 
