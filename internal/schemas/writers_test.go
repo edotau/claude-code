@@ -59,6 +59,7 @@ var writers = map[string]string{
 	"internal/crossgen/sync.go:writeProjection":                    "projections",
 	"internal/databricks/config.go:writeScratch":                   unversioned("foreign: temp rescue config"),
 	"internal/databricks/export.go:writeFile0600":                  unversioned("foreign: -o export output"),
+	"internal/desktop/transaction.go:atomicWrite":                  "desktop-state",
 	"internal/generate/codex_settings.go:restoreCodexConfigLocked": unversioned("foreign: codex config.toml revert in the vendor home"),
 	"internal/generate/codex_settings.go:writeCodexConfig":         unversioned("foreign: codex config.toml in the vendor home"),
 	"internal/generate/generate.go:commitOverlayFile":              unversioned("foreign: generated vendor overlay, vendor-owned shape"),

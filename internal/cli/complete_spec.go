@@ -92,6 +92,7 @@ func buildSpecTree() map[string]*compNode {
 		"models": {flags: []flagInfo{valuedFlag("profile", providerNames), boolFlag("unpin"), boolFlag("live"),
 			valuedFlag("pin", modelPinSlots), boolFlag("dry-run"), formatFlag()}},
 		"gateway": {flags: gatewayRouteFlags(), sub: map[string]*compNode{
+			"token":  {},
 			"router": {flags: gatewayRouteFlags()},
 			"proxy": {flags: []flagInfo{boolFlag("start"), boolFlag("stop"), boolFlag("status"), boolFlag("serve"),
 				flag("port"), formatFlag()}},

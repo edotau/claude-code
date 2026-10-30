@@ -25,6 +25,7 @@ var gatewayPage = helptext.Page{
 	Commands: [][2]string{
 		{"router", "which agent + model a task routes to, and why"},
 		{"proxy", "the loopback proxy: --start | --stop | --status | --serve"},
+		{"token", "print only the proxy credential for a credential helper"},
 	},
 	Hint: "claude-code gateway <command> -h lists that command's flags.",
 }
@@ -39,9 +40,11 @@ func cmdGateway(args []string) int {
 			return cmdGatewayRouter(args[1:])
 		case "proxy":
 			return cmdGatewayProxy(args[1:])
+		case "token":
+			return cmdGatewayToken(args[1:])
 		}
 		if !strings.HasPrefix(args[0], "-") {
-			return fail("gateway: unknown command %q (router|proxy)", args[0])
+			return fail("gateway: unknown command %q (router|proxy|token)", args[0])
 		}
 	}
 	return gatewayRoute(args, true)

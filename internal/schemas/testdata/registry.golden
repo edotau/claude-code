@@ -4,6 +4,9 @@
 # legacy-layout: audit
 # legacy-layout: codex-catalog
 # legacy-layout: codex-routing
+# legacy-layout: desktop-meta
+# legacy-layout: desktop-profile
+# legacy-layout: desktop-state
 # legacy-layout: dispatch-events
 # legacy-layout: dispatch-record
 # legacy-layout: migrations
@@ -28,6 +31,9 @@ ask-envelope | wire | 1 | - | internal/agent | keep
 audit | log | 1 | state/harness/audit.jsonl* | internal/audit | keep
 codex-catalog | derived | 1 | state/harness/codex/catalog-*.json | internal/vendors | keep
 codex-routing | log | 1 | state/harness/codex/routing-*.jsonl | internal/hooks | clean:codex-audit
+desktop-meta | derived | 0 | <fixed at init> | internal/desktop | keep
+desktop-profile | derived | 0 | <fixed at init> | internal/desktop | keep
+desktop-state | record | 1 | <fixed at init> | internal/desktop | keep
 dispatch-events | log | 1 | state/harness/dispatch/*.events.jsonl | internal/agent | clean:dispatch-log
 dispatch-record | record | 1 | state/harness/dispatch/*.json | internal/agent | clean:dispatch-log
 gateway-budget-cache | cache | 1 | state/harness/usage/gateway-budget.json | internal/usage | keep
