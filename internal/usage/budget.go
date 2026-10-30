@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"net/url"
 	"os"
@@ -155,13 +156,26 @@ func budgetGet(ctx context.Context, p *providers.Provider, u string, into any) e
 	return json.Unmarshal(body, into)
 }
 
+// parseBudgetNum parses a gateway string number (commas and spaces stripped); empty, NaN and Inf are rejected.
+func parseBudgetNum(s string) (float64, bool) {
+	s = strings.NewReplacer(",", "", " ", "").Replace(s)
+	v, err := strconv.ParseFloat(s, 64)
+	if s == "" || err != nil || math.IsNaN(v) || math.IsInf(v, 0) {
+		return 0, false
+	}
+	return v, true
+}
+
 // budgetRows maps one budget's alert statuses to quota rows (USD), e.g. PER_USER/MONTH → "per-user", "month".
 func budgetRows(profile string, s budgetStatus) []quota {
 	var out []quota
 	for _, a := range s.Alerts {
-		pct, _ := strconv.ParseFloat(a.Consumed, 64)
-		spend, _ := strconv.ParseFloat(a.Spend, 64)
-		limit, _ := strconv.ParseFloat(a.Limit, 64)
+		pct, ok1 := parseBudgetNum(a.Consumed)
+		spend, ok2 := parseBudgetNum(a.Spend)
+		limit, ok3 := parseBudgetNum(a.Limit)
+		if !ok1 || !ok2 || !ok3 {
+			continue
+		}
 		scope := strings.ToLower(strings.ReplaceAll(strings.TrimPrefix(a.Scope, "ALERT_CONFIGURATION_SCOPE_TYPE_"), "_", "-"))
 		out = append(out, quota{Provider: "databricks", Account: profile, Plan: scope,
 			Window: strings.ToLower(a.Period), UsedPct: pct, Used: spend, Limit: limit, Unit: "USD"})
