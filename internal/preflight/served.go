@@ -44,8 +44,14 @@ type Served struct {
 	Models    []ServedModel `json:"models"`
 }
 
-// Fresh reports whether s was fetched within TTL of now.
-func (s Served) Fresh(now time.Time) bool { return now.Sub(s.FetchedAt) < TTL }
+// clockSkew is how far into the future a fetched_at may sit before the listing is distrusted.
+const clockSkew = 5 * time.Minute
+
+// Fresh reports whether s was fetched within TTL of now; a timestamp beyond clockSkew in the future is stale.
+func (s Served) Fresh(now time.Time) bool {
+	age := now.Sub(s.FetchedAt)
+	return age < TTL && age > -clockSkew
+}
 
 var nameRE = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
 
@@ -103,12 +109,12 @@ func Refresh(ctx context.Context, reg *providers.Registry, p *providers.Provider
 	return s, SaveServed(s)
 }
 
-// Has reports whether the listing serves pin (bare or prefixed) as a READY endpoint; ready is false for a listed but unready one.
+// Has reports whether the listing serves pin as a READY endpoint; ready is false for a listed but unready one.
 func (s Served) Has(p *providers.Provider, pin string) (listed, ready bool) {
 	pin = strings.TrimSpace(pin)
-	want := map[string]bool{pin: true, p.WireModel(models.Strip1M(pin)): true}
+	want := p.WireModel(models.Strip1M(pin)) // the spelling the agents request (vendors.SpellPin)
 	for _, m := range s.Models {
-		if want[m.ID] || want[strings.TrimPrefix(m.ID, models.DatabricksPrefix)] {
+		if m.ID == want {
 			return true, m.Ready == "" || m.Ready == "READY"
 		}
 	}
