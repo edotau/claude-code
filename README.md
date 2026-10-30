@@ -355,7 +355,7 @@ every embedded (`//go:embed`) template.
 | Bash tab completion | `claude-code completion --install` |
 | OpenCode reasoning effort | TUI `ctrl+t` · `opencode run --variant high` · `claude-code ask --effort high` |
 | Worktrees under `~/worktrees/<repo>/` | `claude-code worktree list\|create <n>\|merge <n>\|clean <n>\|clean-all` |
-| Subagent status and dispatches | `claude-code agents tree [--watch\|--running]` · `agents reap [--dry-run]` · `network view <id> [--follow]` |
+| Subagent status and dispatches | `claude-code agents tree [--watch\|--background]` · `agents reap [--dry-run]` · `network view <id> [--follow]` |
 | Run an agent on another tailnet box | `claude-code dispatch --host <h> --agent <a> "<task>"` · `--list --status` |
 | Watch agents from a phone | `claude-code network page [--addr ip:port]` |
 | Browsers, scraping, web search | `claude-code network browser [--setup --browser <b>]` · `--extract <url> …` · `network websearch --query q` |

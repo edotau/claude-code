@@ -237,6 +237,9 @@ func (s *liveSession) finish(cause error) error {
 	return s.rec.Save()
 }
 
+// maxSockPath is macOS's sun_path capacity (104) less the NUL; Linux allows 108.
+const maxSockPath = 103
+
 // listenLive binds the 0600 socket for id in the 0700 dispatch dir, replacing a stale socket file.
 func listenLive(id string) (net.Listener, error) {
 	if err := os.MkdirAll(DispatchDir(), 0o700); err != nil {
@@ -246,6 +249,9 @@ func listenLive(id string) (net.Listener, error) {
 		return nil, err
 	}
 	sock := LiveSocket(id)
+	if len(sock) > maxSockPath {
+		return nil, fmt.Errorf("live socket path is %d bytes, over the %d-byte unix limit: use a shorter CLAUDE_CONFIG_DIR (%s)", len(sock), maxSockPath, sock)
+	}
 	_ = os.Remove(sock)
 	var lc net.ListenConfig
 	ln, err := lc.Listen(context.Background(), "unix", sock)
@@ -336,11 +342,12 @@ func (s *liveSession) runTurn(ctx context.Context, prompt string, sink Sink) {
 	s.mu.Lock()
 	s.session = cmp.Or(res.SessionID, s.session)
 	s.mu.Unlock()
-	s.release() // before the result goes out: a client's next send must find the session free
-	_ = sink.Emit(ResultEvent(NewEnvelope(res, err, s.rec.ID)))
-	if _, atBoundary := errors.AsType[resultError](err); err != nil && !atBoundary { // the turn's result is unread or lost
+	// A lost turn result ends the session before it is freed, so a next send can't read that turn's late answer.
+	if _, atBoundary := errors.AsType[resultError](err); err != nil && !atBoundary {
 		s.cancel(fmt.Errorf("session stream broke: %w", err))
 	}
+	s.release() // before the result goes out: a client's next send must find the session free
+	_ = sink.Emit(ResultEvent(NewEnvelope(res, err, s.rec.ID)))
 }
 
 // release ends the in-flight turn and restarts the idle clock.

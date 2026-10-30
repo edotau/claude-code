@@ -948,8 +948,16 @@ func TestServeSideProxyKeepsDaemonState(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
+	listening := make(chan struct{})
+	orig := serveListening
+	serveListening = func() { close(listening) }
+	t.Cleanup(func() { serveListening = orig })
 	go func() { done <- Serve(ctx, 0) }()
-	time.Sleep(200 * time.Millisecond)
+	select {
+	case <-listening:
+	case err := <-done:
+		t.Fatalf("Serve exited before listening: %v", err)
+	}
 	if cur, err := ReadState(); err != nil || cur.PID != daemon.PID || cur.Port != daemon.Port {
 		t.Fatalf("while serving, router.json = %+v, %v; want the daemon's %+v", cur, err, daemon)
 	}

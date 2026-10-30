@@ -4,6 +4,7 @@ package paths
 import (
 	"bytes"
 	"errors"
+	"math/rand/v2"
 	"os"
 	"path/filepath"
 	"strings"
@@ -123,6 +124,9 @@ func WithFileLock(path string, fn func() error) (err error) {
 	return fn()
 }
 
+// lockPoll is a jittered 1-50ms wait: a fixed period keeps contenders in lockstep, one winner per period.
+func lockPoll() time.Duration { return time.Duration(1+rand.IntN(50)) * time.Millisecond }
+
 // TryFileLock runs fn under an exclusive lock on path only if granted within wait; ran=false means fn did not run.
 // For work that must not run unserialized (counting a shared marker dir), unlike the fail-open WithFileLock.
 func TryFileLock(path string, wait time.Duration, fn func() error) (ran bool, err error) {
@@ -131,7 +135,7 @@ func TryFileLock(path string, wait time.Duration, fn func() error) (ran bool, er
 		return false, err
 	}
 	defer f.Close()
-	for deadline := time.Now().Add(wait); !tryLock(f); time.Sleep(50 * time.Millisecond) {
+	for deadline := time.Now().Add(wait); !tryLock(f); time.Sleep(lockPoll()) {
 		if time.Now().After(deadline) {
 			return false, nil
 		}

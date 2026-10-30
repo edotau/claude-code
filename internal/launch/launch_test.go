@@ -3,6 +3,7 @@ package launch
 import (
 	"bytes"
 	"context"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
@@ -76,6 +77,9 @@ func hermetic(t *testing.T, userProviders string) {
 		return []string{filepath.Join(dir, ".tmux.conf"), filepath.Join(dir, "xdg", "tmux.conf")}
 	}
 	t.Cleanup(func() { tmuxConfPaths = oldTmux })
+	oldClip := installClipAgent
+	installClipAgent = func(io.Writer, string, bool) error { return nil }
+	t.Cleanup(func() { installClipAgent = oldClip })
 	oldFind, oldSelf, oldEnsure := findClaude, selfBinary, ensureRouter
 	findClaude = func() (string, error) { return "/opt/claude", nil }
 	selfBinary = func() (string, error) { return "/opt/bin/claude-code", nil }

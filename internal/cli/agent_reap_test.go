@@ -139,7 +139,7 @@ func TestCmdAgentsTreeRunningListsDispatchesMachineWide(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	writeDispatch(t, "20261024T000002.000-codex", "running", os.Getpid(), 72*time.Hour)
 	writeDispatch(t, "20261024T000003.000-codex", "ok", os.Getpid(), time.Minute)
-	code, stdout, stderr := captureOutput(t, func() int { return cmdAgents([]string{"tree", "--running", "--days", "1"}) })
+	code, stdout, stderr := captureOutput(t, func() int { return cmdAgents([]string{"tree", "--days", "1"}) })
 	if code != 0 {
 		t.Fatalf("exit %d, stderr=%s", code, stderr)
 	}
@@ -147,7 +147,7 @@ func TestCmdAgentsTreeRunningListsDispatchesMachineWide(t *testing.T) {
 		t.Errorf("running dispatch from another repo missing:\n%s", stdout)
 	}
 	if strings.Contains(stdout, "000003") {
-		t.Errorf("finished dispatch listed under --running:\n%s", stdout)
+		t.Errorf("finished dispatch listed by default:\n%s", stdout)
 	}
 }
 
@@ -164,5 +164,20 @@ func TestAgentsUsageFits80(t *testing.T) {
 	code, _, stderr := captureOutput(t, func() int { return cmdAgents([]string{"reap", "-h"}) })
 	if code != 0 || !strings.Contains(stderr, "--dry-run") {
 		t.Errorf("agents reap help must document --dry-run: exit %d:\n%s", code, stderr)
+	}
+}
+
+// --background and -bg are a superset of the default: a running dispatch from another repo stays listed.
+func TestCmdAgentsTreeBackgroundKeepsRunningDispatches(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	writeDispatch(t, "20261024T000002.000-codex", "running", os.Getpid(), 72*time.Hour)
+	for _, flag := range []string{"--background", "-bg"} {
+		code, stdout, stderr := captureOutput(t, func() int { return cmdAgents([]string{"tree", flag, "--days", "1"}) })
+		if code != 0 {
+			t.Fatalf("%s: exit %d, stderr=%s", flag, code, stderr)
+		}
+		if !strings.Contains(stdout, "000002") {
+			t.Errorf("%s dropped the running dispatch:\n%s", flag, stdout)
+		}
 	}
 }

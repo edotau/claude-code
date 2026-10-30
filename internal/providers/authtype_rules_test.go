@@ -42,3 +42,18 @@ func TestClientIDInjectionRejected(t *testing.T) {
 		t.Errorf("clean clientId rejected: %v", errs)
 	}
 }
+
+// An OAuth provider's missing-credential hint names both the databricks login and the configure Set up route.
+func TestAuthHintOAuthNamesLoginAndSetUp(t *testing.T) {
+	p := kindRow(AuthOAuth, "", "")
+	p.Name = "dbx"
+	got := authHint(p, "DBX_TOKEN")
+	for _, want := range []string{"claude-code databricks login --profile dbx", "claude-code configure", "Set up"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("OAuth hint %q lacks %q", got, want)
+		}
+	}
+	if key := authHint(kindRow(AuthKey, "", ""), "DBX_TOKEN"); !strings.Contains(key, "vault set") || strings.Contains(key, "databricks login") {
+		t.Errorf("key-auth hint = %q, want the vault set route only", key)
+	}
+}

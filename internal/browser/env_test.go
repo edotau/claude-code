@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/edotau/claude-code/internal/pathview"
+	"github.com/edotau/claude-code/internal/paths"
 )
 
 func TestRunReal(t *testing.T) {
@@ -39,19 +39,19 @@ func TestRunCommandBoundsWait(t *testing.T) {
 }
 
 func TestWinRoot(t *testing.T) {
-	drvfs := func(point string) []pathview.Mount {
-		return []pathview.Mount{{Point: point, Kind: pathview.KindDrvFS, Drive: "C"}}
+	drvfs := func(point string) []paths.Mount {
+		return []paths.Mount{{Point: point, Kind: paths.KindDrvFS, Drive: "C"}}
 	}
 	for _, tc := range []struct {
 		name   string
-		mounts []pathview.Mount
+		mounts []paths.Mount
 		want   string
 	}{
 		{"custom mount", drvfs("/custom/c"), "/custom/c"},
 		{"no drvfs mount", nil, "/mnt/c"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := winRootFrom(pathview.NewResolver(tc.mounts)); got != tc.want {
+			if got := winRootFrom(paths.NewResolver(tc.mounts)); got != tc.want {
 				t.Errorf("winRoot = %q, want %q", got, tc.want)
 			}
 		})

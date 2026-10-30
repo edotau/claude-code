@@ -13,7 +13,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/edotau/claude-code/internal/ansi"
-	"github.com/edotau/claude-code/internal/config"
+	"github.com/edotau/claude-code/internal/configure"
 	"github.com/edotau/claude-code/internal/helptext"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/secrets"
@@ -28,12 +28,12 @@ func vaultTableWidth() int {
 }
 
 // renderVaultText lays out each selected section, uppercase heading + aligned rows, in vaultSections order.
-func renderVaultText(doc config.Doc, stored []secrets.Stored, sel []string, width int) string {
+func renderVaultText(doc configure.Doc, stored []secrets.Stored, sel []string, width int) string {
 	return renderVaultTextStyled(doc, stored, sel, width, false)
 }
 
 // renderVaultTextStyled is renderVaultText, painting every section when color is on (agents paints its own rows).
-func renderVaultTextStyled(doc config.Doc, stored []secrets.Stored, sel []string, width int, color bool) string {
+func renderVaultTextStyled(doc configure.Doc, stored []secrets.Stored, sel []string, width int, color bool) string {
 	render := map[string]func() string{
 		"secrets":   func() string { return vaultSectionMax("SECRETS", vaultSecretRows(stored), width, 0, 0) },
 		"pins":      func() string { return vaultSection("PINS", vaultMapRows(vaultLoosePins(doc)), width) },
@@ -536,7 +536,7 @@ func vaultOverlayAgents(raw json.RawMessage) (top, vs map[string]any, err error)
 }
 
 // vaultLoosePins are the pins that belong to no agent (no AGENT_ key prefix).
-func vaultLoosePins(doc config.Doc) map[string]string {
+func vaultLoosePins(doc configure.Doc) map[string]string {
 	var vs map[string]any
 	if _, v, err := vaultOverlayAgents(doc.Vendors); err == nil {
 		vs = v

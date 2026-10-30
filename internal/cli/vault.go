@@ -8,7 +8,6 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/edotau/claude-code/internal/config"
 	"github.com/edotau/claude-code/internal/configure"
 	"github.com/edotau/claude-code/internal/helptext"
 	"github.com/edotau/claude-code/internal/outfmt"
@@ -222,7 +221,7 @@ func configEdit(args []string) int {
 	if fs.NArg() > 0 {
 		return vaultUsageErr("edit", fs.Args())
 	}
-	if err := config.Edit(os.Stdout, os.Stderr); err != nil {
+	if err := configure.Edit(os.Stdout, os.Stderr); err != nil {
 		fmt.Fprintln(os.Stderr, "vault edit:", err)
 		return 1
 	}
@@ -245,7 +244,7 @@ func configRotateKey(args []string) int {
 	if *force {
 		opts = append(opts, vault.ForceRotate())
 	}
-	return configRun("rotate-secret", config.RotateKey(os.Stdout, opts...))
+	return configRun("rotate-secret", configure.RotateKey(os.Stdout, opts...))
 }
 
 // configRun maps a subcommand's error to its exit code.

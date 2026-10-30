@@ -41,7 +41,7 @@ agent's name never appears twice.
 | `claude` — near the main thread | `claude  <task>` | rare: `claude  copilot: <task>` |
 | `code-worker` — default fan-out leaf | `code-worker  claude: <task>` | `code-worker  gemini: scanning repo` |
 | `codex` / `copilot` / `gemini` / `opencode` | `copilot  <task>` | `copilot  gemini: scanning repo` |
-| `coworker` — always requests | — | `coworker  codex: <task>` |
+| `coworker` — always requests | — | `coworker  codex: <task>` · with `Profile: dev`: `coworker  claude·dev: <task>` |
 
 "Terminal" means no subagents and no Workflow; an `ask` request is a subprocess call and is allowed whenever the brief
 names it.
@@ -57,6 +57,8 @@ The one definition of what passes manager → leaf → manager. Agent files poin
   ([cost-routing.md](references/cost-routing.md)); omitted, `in-context`, or the leaf's own type = does the work
   itself. One line; `Mode:` decides, and several names with no `Mode:` = relay (`gemini → codex`).
   The hook turns it into the label ([Leaf types](#leaf-types)). `Agent:` is the only spelling.
+- `Profile:` (optional) a vault profile name: the hook moves the dispatch to `coworker` and the leaf runs
+  `claude-code ask --agent <x> --profile <p>`; never a host or provider. Unknown names are denied.
 - `Task:` (optional) the plan task id the leaf lands (`Task: 1.2`); the dispatch hook claims it in the plan.
 - `Owns:` the exact files, plus "Do NOT edit <others> — agents are in this package concurrently".
 - `Method:` the skill to follow, as a file path for a leaf without the `Skill` tool.
@@ -70,7 +72,7 @@ The one definition of what passes manager → leaf → manager. Agent files poin
 - A code-changing leaf also gets the forced `TASK:`/`ISSUE:` lines verbatim — action-point lines transfer only in the
   prompt.
 - `Return:` the report below. Size the model to the task (Sonnet leaf by default; raise effort before model).
-- Before a cross-session `SendMessage`, run `claude-code agents tree --running` and pick the recipient by cwd +
+- Before a cross-session `SendMessage`, run `claude-code agents tree` and pick the recipient by cwd +
   task, not by name.
 
 **Report (out)** — lead with the outcome: the verdict word for a review, the status word for a change, the findings
@@ -96,7 +98,7 @@ Status below.
   (pathspec), or `copilot` LAST-MILE's. Leaves never dispatch subagents, commit or run the suite; a leaf runs a saved
   Workflow only when its brief names one (`Workflow:`), headless per
   [saved-workflows.md](references/saved-workflows.md) → Run from a leaf.
-- Before fanning out more, the manager checks the load with `claude-code agents tree --running`, follows an agent
+- Before fanning out more, the manager checks the load with `claude-code agents tree`, follows an agent
   dispatch with `claude-code <agent> tail -f <job>`, and clears dead entries with `claude-code agents reap`.
 - A feature or bug-fix dispatch carries a test agent: `rules/standards/testing-guidelines.md` → Test agent (it waits
   for "landed", never polls).

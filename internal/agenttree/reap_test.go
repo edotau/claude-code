@@ -12,7 +12,7 @@ import (
 
 // A live session whose holder died is marked error and its socket removed; a live holder's socket stays.
 func TestReapDeadLiveHolder(t *testing.T) {
-	dir, err := os.MkdirTemp("", "rp")
+	dir, err := os.MkdirTemp("/tmp", "rp") // short root: a macOS unix socket path caps at 104 bytes
 	if err != nil {
 		t.Fatal(err)
 	}

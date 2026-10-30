@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/edotau/claude-code/internal/pathview"
+	"github.com/edotau/claude-code/internal/paths"
 )
 
 func onWSL() bool {
@@ -32,7 +32,7 @@ func Root() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return rootFor(runtime.GOOS, onWSL(), home, os.Getenv("LOCALAPPDATA"), windowsLocalAppData, pathview.Resolve)
+	return rootFor(runtime.GOOS, onWSL(), home, os.Getenv("LOCALAPPDATA"), windowsLocalAppData, paths.Resolve)
 }
 
 func windowsLocalAppData() (string, error) {
@@ -46,7 +46,7 @@ func windowsLocalAppData() (string, error) {
 			windows = `C:\Windows`
 		}
 		var ok bool
-		bin, ok = pathview.Resolve(strings.TrimRight(windows, `\/`) + `\System32\cmd.exe`)
+		bin, ok = paths.Resolve(strings.TrimRight(windows, `\/`) + `\System32\cmd.exe`)
 		if !ok {
 			return "", fmt.Errorf("resolve Windows cmd.exe: %w", err)
 		}
@@ -106,7 +106,7 @@ func HelperSpec(profile string) (string, []string, bool, error) {
 	wsl := onWSL()
 	distro := os.Getenv("WSL_DISTRO_NAME")
 	if wsl && distro == "" {
-		distro = pathview.Default().Distro
+		distro = paths.Default().Distro
 	}
 	return helperFor(runtime.GOOS, wsl, exe, distro, config, profile)
 }
@@ -169,7 +169,7 @@ func targetPath(p string) (string, error) {
 	if !onWSL() {
 		return p, nil
 	}
-	win, err := pathview.ViewFrom(p, pathview.Target{Style: pathview.StyleWindows})
+	win, err := paths.ViewFrom(p, paths.Target{Style: paths.StyleWindows})
 	if err != nil {
 		return "", fmt.Errorf("render Windows target %s: %w", strconv.Quote(p), err)
 	}
