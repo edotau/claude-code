@@ -88,7 +88,7 @@ func ResolveTarget(reg *providers.Registry, name string, sel providers.Selection
 			return gt, gnote, nil
 		}
 	}
-	if explicit || CanServe(name, t.Provider) {
+	if explicit || (CanServe(name, t.Provider) && geminiFollowsPin(name, t.Provider)) {
 		if name == "copilot" {
 			return CopilotGate(reg, t)
 		}
@@ -172,6 +172,9 @@ var ErrOwnLogin = errors.New("agent runs on its own login")
 
 // CanServe reports whether p is usable by vendor name (providers.Serves without the reason).
 func CanServe(name string, p *providers.Provider) bool {
+	if name == "gemini" && GeminiGatewayRow(p) {
+		return true
+	}
 	ok, _ := providers.Serves(name, p, "")
 	return ok
 }
@@ -331,6 +334,9 @@ func configureRoute(ctx context.Context, name string, t providers.Target, h *Hea
 	}
 	if p.Auth.Login != "" {
 		return login(name, p, models.Strip1M(t.Model), h)
+	}
+	if name == "gemini" && GeminiGatewayRow(p) {
+		return geminiGateway(ctx, p, t.Model, h) // always routed: the router fixes agy's requests for Databricks
 	}
 	if ok, why := providers.Serves(name, p, ""); !ok {
 		return nil, nil, fmt.Errorf("%s: %s", name, why)

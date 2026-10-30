@@ -18,7 +18,8 @@ func gwRow(name string) *providers.Provider {
 	}
 }
 
-// CanServe is Serves without the reason, over every roster agent and a spread of rows.
+// CanServe is Serves without the reason, over every roster agent and a spread of rows; gemini on Databricks
+// is the one exception (the router's gemini route, not a row dialect).
 func TestCanServeEqualsServesOK(t *testing.T) {
 	rows := []*providers.Provider{
 		dbxRow("qa", "databricks-"), gwRow("gw"),
@@ -32,6 +33,12 @@ func TestCanServeEqualsServesOK(t *testing.T) {
 			continue
 		}
 		for _, p := range rows {
+			if s.Name == "gemini" && GeminiGatewayRow(p) {
+				if !CanServe(s.Name, p) {
+					t.Errorf("CanServe(gemini,%s) = false on a Databricks row", p.Name)
+				}
+				continue
+			}
 			if ok, _ := providers.Serves(s.Name, p, ""); CanServe(s.Name, p) != ok {
 				t.Errorf("CanServe(%s,%s) = %v, Serves = %v", s.Name, p.Name, CanServe(s.Name, p), ok)
 			}
@@ -46,7 +53,7 @@ func TestConfigureRouteUsesServesReason(t *testing.T) {
 		agent string
 		p     *providers.Provider
 	}{
-		{"gemini", dbxRow("qa", "databricks-")},
+		{"gemini", &providers.Provider{Name: "ant", Protocol: providers.ProtocolAnthropic, BaseURL: "https://a", Auth: providers.Auth{Type: providers.AuthKey}}},
 		{"codex", &providers.Provider{Name: "ant", Protocol: providers.ProtocolAnthropic, BaseURL: "https://a", Auth: providers.Auth{Type: providers.AuthKey}}},
 		{"copilot", &providers.Provider{Name: "sub", Protocol: providers.ProtocolAnthropic, BaseURL: "https://s", Auth: providers.Auth{Type: providers.AuthCLI}}},
 	}

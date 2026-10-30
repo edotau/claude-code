@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/vendors"
 )
 
 // AgyRequest is one headless agy run: the prompt rides stdin as a single stream-json NDJSON line.
@@ -27,7 +28,7 @@ type AgyRequest struct {
 var agyEffort = map[string]string{"low": "low", "medium": "medium", "high": "high", "xhigh": "xhigh", "max": "max"}
 
 // AgyDefaultModel runs agy when the caller names no model: fast, and enough for headless legs.
-const AgyDefaultModel = "gemini-3.8-flash-high"
+const AgyDefaultModel = vendors.AgyDefaultModel
 
 // agyToolLessPreamble is agy's own verified tool-less instruction (no tools-off flag exists).
 const agyToolLessPreamble = "Answer from the text below only. Do not call any tools.\n\n"
