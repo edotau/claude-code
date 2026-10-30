@@ -60,12 +60,6 @@ func (h *hub) unsubscribe(ch chan []byte) {
 	h.mu.Unlock()
 }
 
-func (h *hub) subscribers() int {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	return len(h.subs)
-}
-
 // latest returns the newest payload, nil before the first scan.
 func (h *hub) latest() []byte {
 	h.mu.Lock()
