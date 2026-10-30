@@ -61,9 +61,12 @@ var (
 )
 
 func checkSchema(path string, v, sch any) error {
+	if b, ok := sch.(bool); ok && !b {
+		return fmt.Errorf("%s is forbidden by the schema (false)", path)
+	}
 	m, ok := sch.(map[string]any)
 	if !ok {
-		return nil
+		return nil // a true or absent schema allows any value
 	}
 	if t, ok := m["type"]; ok && !typeMatches(v, t) {
 		return fmt.Errorf("%s is %s, schema wants %v", path, jsonTypeName(v), t)
