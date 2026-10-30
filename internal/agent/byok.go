@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
@@ -90,12 +91,56 @@ func byokRepick(agent, tier string, cell router.Cell, p *providers.Provider, pre
 
 var capabilityErr = regexp.MustCompile(`max_new_tokens|max_output_tokens|max_tokens|context length|maximum context`)
 
-// byokRetryModel is the next pool model when a byok leg failed on a model-capability error, else "".
-func byokRetryModel(leg Leg, lreq Request, err error) string {
-	if err == nil || leg.repick == nil || !capabilityErr.MatchString(err.Error()) {
+// endpointErr is a workspace's answer for a serving endpoint that does not exist (captured from codex on Databricks).
+var endpointErr = regexp.MustCompile(`ENDPOINT_NOT_FOUND`)
+
+// servedRepickFor is a codex Databricks leg's repick when the switch is on and the caller named no exact model.
+func (rc routeCtx) servedRepickFor(cand router.Candidate) func(string) string {
+	p := rc.codexDatabricks(cand)
+	if p == nil || !providers.ServedRoutingOn() || rc.exact != "" || (rc.callerModel != "" && rc.row == "") {
+		return nil
+	}
+	return func(failed string) string { return servedRepick(p, failed) }
+}
+
+// codexDatabricks is cand's profile row when cand is a codex leg on a Databricks profile, else nil.
+func (rc routeCtx) codexDatabricks(cand router.Candidate) *providers.Provider {
+	if cand.Agent != "codex" || cand.Profile == "" || rc.reg == nil {
+		return nil
+	}
+	if p := rc.reg.Providers[cand.Profile]; p != nil && p.Preset == providers.PresetDatabricks {
+		return p
+	}
+	return nil
+}
+
+// servedRepick marks the failed model gone on p and returns the next READY Responses model, "" when there is none.
+func servedRepick(p *providers.Provider, failed string) string {
+	prefix := p.Name + ":"
+	wire := strings.TrimPrefix(failed, prefix)
+	if err := router.MarkUnserved(p, wire); err != nil {
+		fmt.Fprintf(os.Stderr, "served: could not mark %s unavailable: %v\n", wire, err)
+	}
+	next, _ := router.ServedFirst(p, true, time.Now())
+	if next == "" || next == wire {
 		return ""
 	}
-	return leg.repick(lreq.Model)
+	fmt.Fprintf(os.Stderr, "served: %s unavailable on %s; using %s\n", wire, p.Name, next)
+	return prefix + next
+}
+
+// retryModel is the next model after a model-capability (byok) or endpoint-gone (served) failure, else "".
+func retryModel(leg Leg, lreq Request, err error) string {
+	if err == nil {
+		return ""
+	}
+	switch msg := err.Error(); {
+	case leg.repick != nil && capabilityErr.MatchString(msg):
+		return leg.repick(lreq.Model)
+	case leg.servedRepick != nil && endpointErr.MatchString(msg):
+		return leg.servedRepick(lreq.Model)
+	}
+	return ""
 }
 
 func (leg Leg) byokNote() {

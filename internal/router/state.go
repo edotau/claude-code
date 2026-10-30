@@ -42,6 +42,7 @@ type Entry struct {
 	AuthAt         time.Time            `json:"auth_at,omitzero"`
 	BYOK           map[string]time.Time `json:"byok,omitempty"`
 	BYOKSkip       map[string]time.Time `json:"byok_skip,omitempty"` // "agent|entry" -> when it was marked unusable
+	Unserved       map[string]time.Time `json:"unserved,omitempty"`  // wire model -> when its endpoint was found gone
 }
 
 // State is every account's entry, keyed by account key.

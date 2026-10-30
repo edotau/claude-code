@@ -654,7 +654,7 @@ func RunWithFallback(ctx context.Context, c Chain, req Request, sink Sink, notif
 			}
 			res, err = Run(context.WithValue(withCoolKey(ctx, key), permitKey{}, held), leg.Agent, lreq, sink, notify)
 			res.Invoked = lreq.Model
-			if next := byokRetryModel(leg, lreq, err); next != "" { // once: the same agent on the next pool model
+			if next := retryModel(leg, lreq, err); next != "" { // once: the same agent on the next pool model
 				hops = append(hops, hopOf(leg, lreq, res, err))
 				lreq.Model = next
 				res, err = Run(context.WithValue(withCoolKey(ctx, key), permitKey{}, held), leg.Agent, lreq, sink, notify)

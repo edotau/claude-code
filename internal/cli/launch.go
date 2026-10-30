@@ -475,19 +475,28 @@ func refreshServed() {
 	}
 }
 
-// cmdPreflight is the hidden `preflight [--live]`: the pin rows, and with --live the post-install step.
+// cmdPreflight is the hidden `preflight [--live|--refresh]`: pin rows, the post-install step, or a silent re-list.
 func cmdPreflight(args []string) int {
 	fs := helptext.NewFlagSet("preflight", helptext.Page{
-		Usage: "claude-code preflight [--live]",
-		About: "Print each agent's pin check; --live also refreshes stale listings and runs the post-install pong round.",
+		Usage: "claude-code preflight [--live|--refresh]",
+		About: "Print each agent's pin check; --live also refreshes stale listings and runs the post-install pong round.\n" +
+			"--refresh only re-lists stale listings, silently.",
 	})
 	live := fs.Bool("live", false, "refresh stale listings and ask each pinned agent for pong")
+	refresh := fs.Bool("refresh", false, "re-list stale served-endpoint caches, print nothing")
 	if code, done := helptext.Parse(fs, args); done {
 		return code
 	}
 	reg, err := providers.Load()
 	if err != nil {
 		return fail("preflight: %v", err)
+	}
+	if *refresh {
+		now := time.Now()
+		ctx, cancel := context.WithTimeout(context.Background(), preflight.Budget)
+		defer cancel()
+		preflight.RefreshStale(ctx, reg, preflight.Check(reg, now), now, false)
+		return 0
 	}
 	if *live {
 		bin, err := os.Executable()
