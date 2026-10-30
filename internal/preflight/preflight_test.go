@@ -1,0 +1,154 @@
+package preflight
+
+import (
+	"bytes"
+	"context"
+	"encoding/base64"
+	"os"
+	"slices"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/edotau/claude-code/internal/providers"
+)
+
+func TestMain(m *testing.M) {
+	dir, err := os.MkdirTemp("", "preflight-test-")
+	if err != nil {
+		panic(err)
+	}
+	os.Setenv("CLAUDE_CONFIG_DIR", dir)
+	os.Setenv("HARNESS_VAULT_KEY", base64.StdEncoding.EncodeToString(make([]byte, 32)))
+	code := m.Run()
+	os.RemoveAll(dir)
+	os.Exit(code)
+}
+
+func registry(cred bool) *providers.Registry {
+	p := &providers.Provider{Name: "dev", Preset: providers.PresetDatabricks}
+	if cred {
+		p.Auth = providers.Auth{Type: "key", Command: "echo x"}
+	}
+	return &providers.Registry{Providers: map[string]*providers.Provider{"dev": p}}
+}
+
+func setPins(t *testing.T, kv map[string]string) {
+	t.Helper()
+	if err := providers.SetPins(kv); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func byAgent(ps []Pin) map[string]Pin {
+	out := map[string]Pin{}
+	for _, p := range ps {
+		out[p.Agent] = p
+	}
+	return out
+}
+
+// One spanning flow: unpinned -> pinned without a listing -> refreshed listing -> unserved model -> expired TTL.
+func TestPinsFlow(t *testing.T) {
+	t.Setenv("CLAUDE_PROFILE", "")
+	now := time.Now()
+	reg := registry(true)
+	listModels = func(context.Context, *providers.Registry, *providers.Provider) ([]providers.ModelInfo, error) {
+		return []providers.ModelInfo{{ID: "good-model", Task: "llm/v1/chat", Ready: "READY"}, {ID: "cold-model", Ready: "NOT_READY"}}, nil
+	}
+	t.Cleanup(func() { listModels = providers.ListModels })
+
+	got := byAgent(Check(reg, now))
+	for _, a := range Agents {
+		if got[a].Status != StatusUnpinned || !strings.Contains(got[a].Fix, "claude-code "+a+" profile") {
+			t.Fatalf("%s with no pins = %+v, want unpinned with a profile fix", a, got[a])
+		}
+	}
+	if line := StaticLine(reg, now); line != "" {
+		t.Fatalf("static line %q, want none while no Databricks profile is in play", line)
+	}
+
+	setPins(t, map[string]string{
+		"CLAUDE_PROFILE": "dev", "COPILOT_PROFILE": "dev", "OPENCODE_PROFILE": "dev",
+		"CODEX_MODEL": "good-model", "COPILOT_MODEL": "gone-model",
+	})
+	ps := Check(reg, now)
+	got = byAgent(ps)
+	if got["codex"].ProfileSource != "follows CLAUDE_PROFILE" || got["codex"].Status != StatusStale {
+		t.Fatalf("codex before any listing = %+v, want stale via CLAUDE_PROFILE", got["codex"])
+	}
+	if errs := RefreshStale(context.Background(), reg, ps, now, false); len(errs) != 0 {
+		t.Fatal(errs)
+	}
+	got = byAgent(Check(reg, now))
+	if got["codex"].Status != StatusOK || got["codex"].Served != "yes" {
+		t.Fatalf("codex after refresh = %+v, want ok/served", got["codex"])
+	}
+	if c := got["copilot"]; c.Status != StatusUnserved || c.Served != "no" || !strings.Contains(c.Fix, "models --live --profile dev") {
+		t.Fatalf("copilot with a missing model = %+v, want unserved with the discovery fix", c)
+	}
+	if got["opencode"].Status != StatusOK {
+		t.Fatalf("opencode = %+v, want ok", got["opencode"])
+	}
+
+	setPins(t, map[string]string{"CODEX_MODEL": "cold-model"})
+	if c := byAgent(Check(reg, now))["codex"]; c.Status != StatusUnserved || c.Detail != "endpoint not READY" {
+		t.Fatalf("codex on an unready endpoint = %+v", c)
+	}
+	setPins(t, map[string]string{"CODEX_MODEL": "good-model"})
+	if c := byAgent(Check(reg, now.Add(TTL+time.Hour)))["codex"]; c.Status != StatusStale || c.Fix != "claude-code doctor --refresh" {
+		t.Fatalf("codex past the TTL = %+v, want stale", c)
+	}
+	setPins(t, map[string]string{"OPENCODE_PROFILE": "nope"})
+	if c := byAgent(Check(reg, now))["opencode"]; c.Status != StatusStale {
+		t.Fatalf("opencode on a missing profile = %+v, want stale", c)
+	}
+	if line := StaticLine(reg, now); !strings.Contains(line, "opencode stale") || !strings.Contains(line, "proxy not running") {
+		t.Fatalf("static line %q must flag opencode and the proxy", line)
+	}
+	setPins(t, map[string]string{"OPENCODE_PROFILE": "dev"})
+
+	var asked []string
+	runAsk = func(_ context.Context, _, a string) (envelope, error) {
+		asked = append(asked, a)
+		if a == "opencode" {
+			return envelope{Status: "error", Error: &struct {
+				Kind string `json:"kind"`
+			}{"auth"}}, nil
+		}
+		fb := "gemini"
+		return envelope{Status: "ok", Provider: "dev", Model: "good-model", Fallback: &fb}, nil
+	}
+	var buf bytes.Buffer
+	RunInstallStep(context.Background(), &buf, reg, "claude-code", now)
+	out := buf.String()
+	if !strings.Contains(out, "pong codex    · dev · good-model · ok · gemini") ||
+		!strings.Contains(out, "pong opencode · dev · default · fail · auth") ||
+		!strings.Contains(out, "copilot unserved: ") || slices.Contains(asked, "copilot") {
+		t.Fatalf("install step rows:\n%s", out)
+	}
+	for _, l := range strings.Split(out, "\n") {
+		if strings.HasPrefix(l, "pong ") && len([]rune(l)) > 80 {
+			t.Fatalf("row over 80 columns: %q", l)
+		}
+	}
+}
+
+// With no credential the install step makes no model call and the pin says why.
+func TestNoCredentialSkips(t *testing.T) {
+	t.Setenv("CLAUDE_PROFILE", "")
+	reg := registry(false)
+	setPins(t, map[string]string{"CLAUDE_PROFILE": "dev", "COPILOT_PROFILE": "dev", "OPENCODE_PROFILE": "dev", "CODEX_MODEL": "m"})
+	runAsk = func(context.Context, string, string) (envelope, error) {
+		t.Error("ask must not run without a credential")
+		return envelope{}, nil
+	}
+	var buf bytes.Buffer
+	RunInstallStep(context.Background(), &buf, reg, "claude-code", time.Now())
+	if buf.Len() != 0 {
+		t.Fatalf("want a silent skip, got %q", buf.String())
+	}
+	if c := byAgent(Check(reg, time.Now()))["codex"]; c.Status != StatusUnserved || !strings.Contains(c.Detail, "no credential") {
+		t.Fatalf("codex without a credential = %+v", c)
+	}
+}
