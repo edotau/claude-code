@@ -1,6 +1,8 @@
 package vault
 
 import (
+	"github.com/edotau/claude-code/internal/hosttest"
+
 	"bytes"
 	"crypto/sha256"
 	"encoding/base64"
@@ -49,10 +51,13 @@ func (s *specKeyring) delete(name string) error {
 }
 
 func TestMain(m *testing.M) {
+	cleanup := hosttest.Setup()
 	// Replace every OS-keyring boundary before internal or external tests can run.
 	ring := &specKeyring{values: make(map[string]string)}
 	keyringLookup, keyringSet, keyringDelete = ring.lookup, ring.set, ring.delete
-	os.Exit(m.Run())
+	code := m.Run()
+	cleanup()
+	os.Exit(code)
 }
 
 func useSpecKeyring(t *testing.T, ring *specKeyring) {

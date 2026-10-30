@@ -1,8 +1,9 @@
 package vendors
 
 import (
+	"github.com/edotau/claude-code/internal/hosttest"
+
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"os"
@@ -22,19 +23,14 @@ const (
 // TestMain stubs the router seams so no test spawns a daemon, and points every test at a throwaway config dir
 // and vault key so none can reach the live vault or router secret.
 func TestMain(m *testing.M) {
-	dir, err := os.MkdirTemp("", "vendors-test-")
-	if err != nil {
-		panic(err)
-	}
-	os.Setenv("CLAUDE_CONFIG_DIR", dir)
-	os.Setenv("HARNESS_VAULT_KEY", base64.StdEncoding.EncodeToString(make([]byte, 32)))
+	cleanup := hosttest.Setup()
 	mintSession = func(context.Context, string, int) (string, error) { return "", errors.New("session mint is stubbed") }
 	revokeSession = func(context.Context, string) error { return nil }
 	copilotGOOS = "linux" // registry tests run on the macOS runner too; the darwin refusal test sets darwin itself
 	ensureRouter = func(context.Context) (string, error) { return testRouterBase, nil }
 	routerSecret = func() (string, error) { return testRouterSecret, nil }
 	code := m.Run()
-	os.RemoveAll(dir)
+	cleanup()
 	os.Exit(code)
 }
 

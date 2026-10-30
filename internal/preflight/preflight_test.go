@@ -1,9 +1,10 @@
 package preflight
 
 import (
+	"github.com/edotau/claude-code/internal/hosttest"
+
 	"bytes"
 	"context"
-	"encoding/base64"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -16,15 +17,7 @@ import (
 )
 
 func TestMain(m *testing.M) {
-	dir, err := os.MkdirTemp("", "preflight-test-")
-	if err != nil {
-		panic(err)
-	}
-	os.Setenv("CLAUDE_CONFIG_DIR", dir)
-	os.Setenv("HARNESS_VAULT_KEY", base64.StdEncoding.EncodeToString(make([]byte, 32)))
-	code := m.Run()
-	os.RemoveAll(dir)
-	os.Exit(code)
+	os.Exit(hosttest.Main(m))
 }
 
 func registry(cred bool) *providers.Registry {

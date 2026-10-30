@@ -1,6 +1,8 @@
 package hooks
 
 import (
+	"github.com/edotau/claude-code/internal/hosttest"
+
 	"bytes"
 	"encoding/json"
 	"fmt"
@@ -22,11 +24,14 @@ import (
 
 // TestMain stubs the detached dream spawn so no SessionStart test launches a real process.
 func TestMain(m *testing.M) {
+	cleanup := hosttest.Setup()
 	spawnDream = func(string) bool { return true }
 	claudePressure = func() (float64, string, bool) { return 0, "", false } // the real usage cache never steers a test
 	routeHint = func(string) (string, string) { return "codex", "gpt-6.1-sol" }
 	peerAgents = func(string, []string) ([]worktree.Proc, error) { return nil, nil }
-	os.Exit(m.Run())
+	code := m.Run()
+	cleanup()
+	os.Exit(code)
 }
 
 func writeEdits(t *testing.T, path string, n int) {

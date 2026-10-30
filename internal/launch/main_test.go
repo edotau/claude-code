@@ -1,20 +1,15 @@
 package launch
 
 import (
-	"encoding/base64"
+	"io"
 	"os"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/hosttest"
 )
 
-// TestMain points every test at a throwaway config dir and vault key, so none can touch the live vault or secret.
+// TestMain runs in the hermetic host (hosttest), so no test touches the live vault or sees a vendor CLI.
 func TestMain(m *testing.M) {
-	dir, err := os.MkdirTemp("", "launch-test-")
-	if err != nil {
-		panic(err)
-	}
-	os.Setenv("CLAUDE_CONFIG_DIR", dir)
-	os.Setenv("HARNESS_VAULT_KEY", base64.StdEncoding.EncodeToString(make([]byte, 32)))
-	code := m.Run()
-	os.RemoveAll(dir)
-	os.Exit(code)
+	noticeOut = io.Discard
+	os.Exit(hosttest.Main(m))
 }

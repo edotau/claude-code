@@ -15,7 +15,10 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 )
 
-func onWSL() bool {
+// OnWSL reports whether this is WSL; a var so tests pin either answer regardless of the host.
+var OnWSL = hostOnWSL
+
+func hostOnWSL() bool {
 	if runtime.GOOS != "linux" {
 		return false
 	}
@@ -32,7 +35,7 @@ func Root() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return rootFor(runtime.GOOS, onWSL(), home, os.Getenv("LOCALAPPDATA"), windowsLocalAppData, paths.Resolve)
+	return rootFor(runtime.GOOS, OnWSL(), home, os.Getenv("LOCALAPPDATA"), windowsLocalAppData, paths.Resolve)
 }
 
 func windowsLocalAppData() (string, error) {
@@ -103,7 +106,7 @@ func HelperSpec(profile string) (string, []string, bool, error) {
 			return "", nil, false, err
 		}
 	}
-	wsl := onWSL()
+	wsl := OnWSL()
 	distro := os.Getenv("WSL_DISTRO_NAME")
 	if wsl && distro == "" {
 		distro = paths.Default().Distro
@@ -166,7 +169,7 @@ func helperFor(goos string, wsl bool, exe, distro, config, profile string) (stri
 }
 
 func targetPath(p string) (string, error) {
-	if !onWSL() {
+	if !OnWSL() {
 		return p, nil
 	}
 	win, err := paths.ViewFrom(p, paths.Target{Style: paths.StyleWindows})
@@ -179,7 +182,7 @@ func targetPath(p string) (string, error) {
 // desktopRunning is a var so tests can stub the process probe.
 var desktopRunning = func() bool {
 	switch {
-	case onWSL() || runtime.GOOS == "windows":
+	case OnWSL() || runtime.GOOS == "windows":
 		out, err := exec.Command("cmd.exe", "/c", "tasklist", "/FI", "IMAGENAME eq Claude.exe", "/NH").Output()
 		return err == nil && strings.Contains(strings.ToLower(string(out)), "claude.exe")
 	case runtime.GOOS == "darwin":

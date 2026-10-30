@@ -1,6 +1,8 @@
 package mutate
 
 import (
+	"github.com/edotau/claude-code/internal/hosttest"
+
 	"bytes"
 	"errors"
 	"os"
@@ -119,7 +121,9 @@ func sharedModule(t *testing.T) (dir, file string) {
 }
 
 func TestMain(m *testing.M) {
+	cleanup := hosttest.Setup()
 	code := m.Run()
+	cleanup()
 	if modDir != "" {
 		os.RemoveAll(modDir)
 	}
