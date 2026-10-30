@@ -24,17 +24,17 @@ func TestFxPruneKeepsRowsOfEntriesAddedMidRun(t *testing.T) {
 	for i := range embedMaxRows + 1 {
 		f.Rows[fmt.Sprintf("stale-%d", i)] = embedRow{Root: root, Hash: "h"}
 	}
-	if err := saveEmbedCache(f); err != nil {
+	if err := saveEmbedCache("fake", f); err != nil {
 		t.Fatal(err)
 	}
 	nested := false
-	outer := &EmbedClient{Model: inner.Model, Namespace: inner.Namespace, Embed: func(ctx context.Context, texts []string) ([][]float32, error) {
+	outer := &EmbedClient{Profile: "fake", Model: inner.Model, Namespace: inner.Namespace, Embed: func(ctx context.Context, texts []string) ([][]float32, error) {
 		if !nested { // a concurrent run adds an entry and commits its vector before this run merges
 			nested = true
 			write(t, bank, "# D\n\n"+e1+e2)
-			cur := loadEmbedCache()
+			cur := loadEmbedCache("fake")
 			cur.Rows["aaaa0002"] = embedRow{Root: root, Hash: currentEntryHashes(root)["aaaa0002"], Vec: encodeVec([]float32{1, 0, 0})}
-			if err := saveEmbedCache(cur); err != nil {
+			if err := saveEmbedCache("fake", cur); err != nil {
 				t.Error(err)
 			}
 		}
@@ -43,7 +43,7 @@ func TestFxPruneKeepsRowsOfEntriesAddedMidRun(t *testing.T) {
 	if _, _, err := EmbedEntries(context.Background(), root, outer); err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := loadEmbedCache().Rows["aaaa0002"]; !ok {
+	if _, ok := loadEmbedCache("fake").Rows["aaaa0002"]; !ok {
 		t.Error("the prune deleted a vector a concurrent run committed")
 	}
 }
@@ -70,11 +70,11 @@ func TestFxMixedDimensionsAreDeterministicAndReindexed(t *testing.T) {
 	if n, _, err := EmbedEntries(context.Background(), root, c); err != nil || n != 3 {
 		t.Fatalf("first index: n=%d err=%v", n, err)
 	}
-	cache := loadEmbedCache()
+	cache := loadEmbedCache("fake")
 	r := cache.Rows["aaaa0002"]
 	r.Vec = encodeVec([]float32{1, 0, 0, 0, 0})
 	cache.Rows["aaaa0002"] = r
-	if err := saveEmbedCache(cache); err != nil {
+	if err := saveEmbedCache("fake", cache); err != nil {
 		t.Fatal(err)
 	}
 	if n, _, err := EmbedEntries(context.Background(), root, c); err != nil || n != 1 {

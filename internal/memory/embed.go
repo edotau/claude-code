@@ -15,12 +15,14 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/proxy"
 	"github.com/edotau/claude-code/internal/schemas"
 )
 
@@ -32,19 +34,26 @@ const (
 	embedTextRunes  = 2000
 	embedMaxRows    = 4000
 	embedBodyLimit  = 32 << 20
-	embedCacheName  = "embeddings.json"
+	embedCachePre   = "embeddings-"
 	embedRecallWait = 1200 * time.Millisecond // hard budget for the per-prompt embedding, credential included
 )
 
 var embedFormat = schemas.Register(schemas.Format{
 	Name: "memory-embeddings", Owner: "internal/memory", Kind: schemas.Cache, Version: embedCacheSchema,
-	Glob: EmbedCachePath,
+	Glob: func() string { return filepath.Join(StateDir(), embedCachePre+"*.json") },
 	New:  func() any { return &embedCacheFile{} },
 	Keep: "rebuildable cache; a version mismatch is a miss",
 })
 
-// EmbedCachePath is the entry-vector cache, scoped by CLAUDE_CONFIG_DIR like StateDir.
-func EmbedCachePath() string { return filepath.Join(StateDir(), embedCacheName) }
+var safeProfile = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
+
+// EmbedCachePath is profile's entry-vector cache, scoped by CLAUDE_CONFIG_DIR like StateDir; "" for an unsafe name.
+func EmbedCachePath(profile string) string {
+	if !safeProfile.MatchString(profile) {
+		return ""
+	}
+	return filepath.Join(StateDir(), embedCachePre+profile+".json")
+}
 
 // embedCacheFile maps an entry id to the vector of its content; Namespace (profile|host|model) pins which
 // workspace's endpoint wrote it, since identically named endpoints on different workspaces are different models.
@@ -65,16 +74,31 @@ type embedRow struct {
 
 // EmbedClient embeds texts with one named model; Embed honours ctx.
 type EmbedClient struct {
+	Profile   string // the profile whose cache this client reads and writes
 	Model     string
 	Namespace string // profile|host|model: vectors are comparable only within one namespace
 	Embed     func(ctx context.Context, texts []string) ([][]float32, error)
 }
 
-// OpenEmbedClient builds the active profile's client for model ("" = discover one); a var so tests can fake it.
+// OpenEmbedClient builds profile's client for model ("" = discover one; profile "" = the pin); a var so tests fake it.
 var OpenEmbedClient = openDatabricksEmbed
 
-func loadEmbedCache() embedCacheFile {
-	raw, err := os.ReadFile(EmbedCachePath())
+// routerLink is the running loopback router's base URL and client secret; ok is false when it is down (never started here).
+var routerLink = func(ctx context.Context) (base, secret string, ok bool) {
+	st, up := proxy.Running(ctx)
+	if !up {
+		return "", "", false
+	}
+	secret, err := proxy.ClientSecret()
+	return proxy.Base(st.Port), secret, err == nil
+}
+
+func loadEmbedCache(profile string) embedCacheFile {
+	path := EmbedCachePath(profile)
+	if path == "" {
+		return embedCacheFile{}
+	}
+	raw, err := os.ReadFile(path)
 	if err != nil {
 		return embedCacheFile{}
 	}
@@ -85,16 +109,20 @@ func loadEmbedCache() embedCacheFile {
 	return f
 }
 
-func saveEmbedCache(f embedCacheFile) error {
+func saveEmbedCache(profile string, f embedCacheFile) error {
+	path := EmbedCachePath(profile)
+	if path == "" {
+		return fmt.Errorf("embeddings: unsafe profile name %q", profile)
+	}
 	f.Schema = embedCacheSchema
 	raw, err := json.Marshal(f)
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(EmbedCachePath()), 0o700); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
-	return paths.AtomicWrite(EmbedCachePath(), raw, 0o600)
+	return paths.AtomicWrite(path, raw, 0o600)
 }
 
 // entryEmbedText is what an entry is embedded as: its type and body, capped.
@@ -135,7 +163,10 @@ func currentEntryHashes(root string) map[string]string {
 // Returns how many entries it embedded now and how many are indexed in all. Concurrent runs merge their rows
 // into the cache under a file lock, so neither overwrites the other's vectors.
 func EmbedEntries(ctx context.Context, root string, c *EmbedClient) (embedded, total int, err error) {
-	cache := loadEmbedCache()
+	if EmbedCachePath(c.Profile) == "" {
+		return 0, 0, fmt.Errorf("embeddings: unsafe profile name %q", c.Profile)
+	}
+	cache := loadEmbedCache(c.Profile)
 	if cache.Namespace != c.Namespace || cache.Rows == nil {
 		cache = freshEmbedCache(c)
 	}
@@ -162,8 +193,8 @@ func EmbedEntries(ctx context.Context, root string, c *EmbedClient) (embedded, t
 	freshDim := 0
 	started := time.Now().UnixNano()
 	merge := func() error {
-		return paths.WithFileLock(EmbedCachePath(), func() error {
-			cur := loadEmbedCache()
+		return paths.WithFileLock(EmbedCachePath(c.Profile), func() error {
+			cur := loadEmbedCache(c.Profile)
 			if cur.Namespace != c.Namespace || cur.Rows == nil {
 				cur = freshEmbedCache(c)
 			}
@@ -206,7 +237,7 @@ func EmbedEntries(ctx context.Context, root string, c *EmbedClient) (embedded, t
 					}
 				}
 			}
-			return saveEmbedCache(cur)
+			return saveEmbedCache(c.Profile, cur)
 		})
 	}
 	for i := 0; i < len(texts); i += embedBatch {
@@ -237,13 +268,23 @@ type Semantic struct {
 }
 
 // NewSemantic embeds query within embedRecallWait and pairs it with the cached vectors; any failure is the
-// caller's cue to rank by keyword alone.
+// caller's cue to rank by keyword alone. The session profile's cache wins, else the pinned profile's.
 func NewSemantic(query string) (*Semantic, error) {
 	if os.Getenv("CLAUDE_RECALL_SEMANTIC") == "0" {
 		return nil, errors.New("disabled by CLAUDE_RECALL_SEMANTIC=0")
 	}
-	cache := loadEmbedCache()
-	if cache.Model == "" || len(cache.Rows) == 0 {
+	var profile string
+	var cache embedCacheFile
+	for _, name := range []string{providers.SessionProfile(), providers.Pin(providers.PinProfile)} {
+		if name == "" || name == profile {
+			continue
+		}
+		if c := loadEmbedCache(name); c.Model != "" && len(c.Rows) > 0 {
+			profile, cache = name, c
+			break
+		}
+	}
+	if profile == "" {
 		return nil, errors.New("no embedding cache")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), embedRecallWait)
@@ -254,7 +295,7 @@ func NewSemantic(query string) (*Semantic, error) {
 	}
 	done := make(chan result, 1)
 	go func() { // the credential path can block outside ctx's reach; abandon it at the deadline
-		c, err := OpenEmbedClient(ctx, cache.Model)
+		c, err := OpenEmbedClient(ctx, profile, cache.Model)
 		if err != nil {
 			done <- result{err: err}
 			return
@@ -394,13 +435,13 @@ func PickEmbeddingModel(infos []providers.ModelInfo) (string, bool) {
 	return "", false
 }
 
-// openDatabricksEmbed is the active profile's embeddings client; credentials come only from providers.Authorize.
-func openDatabricksEmbed(ctx context.Context, model string) (*EmbedClient, error) {
+// openDatabricksEmbed is profile's embeddings client; credentials come only from providers.Authorize.
+func openDatabricksEmbed(ctx context.Context, profile, model string) (*EmbedClient, error) {
 	reg, err := providers.Load()
 	if err != nil {
 		return nil, err
 	}
-	sel, err := providers.Select(reg, providers.SessionProfile()) // the launched session's profile first, then the pin
+	sel, err := providers.Select(reg, profile) // "" = the pin, then the registry default
 	if err != nil {
 		return nil, err
 	}
@@ -420,7 +461,14 @@ func openDatabricksEmbed(ctx context.Context, model string) (*EmbedClient, error
 	}
 	url := strings.TrimRight(p.Host, "/") + "/serving-endpoints/" + model + "/invocations"
 	ns := p.Name + "|" + strings.TrimRight(p.Host, "/") + "|" + model
-	return &EmbedClient{Model: model, Namespace: ns, Embed: func(ctx context.Context, texts []string) ([][]float32, error) {
+	return &EmbedClient{Profile: p.Name, Model: model, Namespace: ns, Embed: func(ctx context.Context, texts []string) ([][]float32, error) {
+		if base, secret, ok := routerLink(ctx); ok { // the daemon holds the warm credential and upstream connections
+			via := base + "/p/" + p.Name + "/" + providers.ProtocolOpenAI + "/" + model + "/invocations"
+			vecs, err := PostEmbeddings(ctx, via, texts, func(h http.Header) error { h.Set(proxy.ClientHeader, secret); return nil })
+			if err == nil || ctx.Err() != nil {
+				return vecs, err
+			}
+		}
 		return PostEmbeddings(ctx, url, texts, func(h http.Header) error { return providers.Authorize(ctx, p, h) })
 	}}, nil
 }

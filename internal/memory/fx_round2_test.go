@@ -15,7 +15,7 @@ func TestFxEmbedFollowsEndpointDimension(t *testing.T) {
 	b := "\n## 2026-10-02 — two <!-- id:aaaa0002 -->\n\nbody\n"
 	c3 := "\n## 2026-10-03 — three <!-- id:aaaa0003 -->\n\nbody\n"
 	dimClient := func(dim int) *EmbedClient {
-		return &EmbedClient{Model: "m", Namespace: "ns", Embed: func(_ context.Context, texts []string) ([][]float32, error) {
+		return &EmbedClient{Profile: "fake", Model: "m", Namespace: "ns", Embed: func(_ context.Context, texts []string) ([][]float32, error) {
 			out := make([][]float32, len(texts))
 			for i := range out {
 				out[i] = make([]float32, dim)
@@ -50,7 +50,7 @@ func TestFxStaleRunCannotRevertDimension(t *testing.T) {
 	bank := filepath.Join(HomeBankDir(), "decisionLog.md")
 	write(t, bank, "# D\n\n## 2026-10-01 — one <!-- id:aaaa0001 -->\n\nbody\n\n## 2026-10-02 — two <!-- id:aaaa0002 -->\n\nbody\n")
 	mk := func(dim int, hook func()) *EmbedClient {
-		return &EmbedClient{Model: "m", Namespace: "ns", Embed: func(_ context.Context, texts []string) ([][]float32, error) {
+		return &EmbedClient{Profile: "fake", Model: "m", Namespace: "ns", Embed: func(_ context.Context, texts []string) ([][]float32, error) {
 			if hook != nil {
 				hook()
 			}
@@ -71,7 +71,7 @@ func TestFxStaleRunCannotRevertDimension(t *testing.T) {
 	if _, _, err := EmbedEntries(context.Background(), root, old); err != nil {
 		t.Fatal(err)
 	}
-	c := loadEmbedCache()
+	c := loadEmbedCache("fake")
 	if cacheDimOf(c) != 2 {
 		t.Fatalf("stale run reset the dimension to %d", cacheDimOf(c))
 	}

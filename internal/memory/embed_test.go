@@ -2,6 +2,7 @@ package memory
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -11,12 +12,14 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/proxy"
 	"github.com/edotau/claude-code/internal/vault"
 )
 
 // fakeEmbedServer answers {"input":[...]} with one 3-dim vector per text and counts the texts it embedded.
 func fakeEmbedServer(t *testing.T, embedded *int) *EmbedClient {
 	t.Helper()
+	t.Setenv("CLAUDE_PROFILE", "fake") // NewSemantic reads the session profile's cache
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var in struct{ Input []string }
 		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
@@ -35,7 +38,7 @@ func fakeEmbedServer(t *testing.T, embedded *int) *EmbedClient {
 		_ = json.NewEncoder(w).Encode(map[string]any{"data": data})
 	}))
 	t.Cleanup(srv.Close)
-	return &EmbedClient{Model: "fake-gte", Namespace: "fake|h|fake-gte", Embed: func(ctx context.Context, texts []string) ([][]float32, error) {
+	return &EmbedClient{Profile: "fake", Model: "fake-gte", Namespace: "fake|h|fake-gte", Embed: func(ctx context.Context, texts []string) ([][]float32, error) {
 		return PostEmbeddings(ctx, srv.URL, texts, func(http.Header) error { return nil })
 	}}
 }
@@ -62,7 +65,7 @@ func TestEmbedEntriesReusesCacheByContentHash(t *testing.T) {
 	}
 
 	t.Setenv("CLAUDE_RECALL_SEMANTIC", "")
-	OpenEmbedClient = func(context.Context, string) (*EmbedClient, error) { return c, nil }
+	OpenEmbedClient = func(context.Context, string, string) (*EmbedClient, error) { return c, nil }
 	t.Cleanup(func() { OpenEmbedClient = openDatabricksEmbed })
 	sem, err := NewSemantic("gamma gamma")
 	if err != nil {
@@ -114,7 +117,7 @@ func TestEmbedEntriesConcurrentRunsMerge(t *testing.T) {
 	var calls int
 	inner := fakeEmbedServer(t, &calls)
 	nested := false
-	outer := &EmbedClient{Model: inner.Model, Namespace: inner.Namespace, Embed: func(ctx context.Context, texts []string) ([][]float32, error) {
+	outer := &EmbedClient{Profile: "fake", Model: inner.Model, Namespace: inner.Namespace, Embed: func(ctx context.Context, texts []string) ([][]float32, error) {
 		if !nested { // while run A is mid-embed, run B indexes a second entry and finishes
 			nested = true
 			write(t, bank, "# D\n\n## 2026-10-01 — gamma one <!-- id:aaaa0001 -->\n\nbody\n\n## 2026-10-02 — delta two <!-- id:aaaa0002 -->\n\nbody\n")
@@ -127,7 +130,7 @@ func TestEmbedEntriesConcurrentRunsMerge(t *testing.T) {
 	if _, _, err := EmbedEntries(context.Background(), root, outer); err != nil {
 		t.Fatal(err)
 	}
-	rows := loadEmbedCache().Rows
+	rows := loadEmbedCache("fake").Rows
 	if _, a := rows["aaaa0001"]; !a {
 		t.Error("run A's row missing")
 	}
@@ -146,13 +149,13 @@ func TestEmbedCacheNamespaceAndDimension(t *testing.T) {
 	if _, _, err := EmbedEntries(context.Background(), root, c); err != nil || calls != 1 {
 		t.Fatalf("seed: %v calls=%d", err, calls)
 	}
-	other := &EmbedClient{Model: c.Model, Namespace: "other|https://w2|fake-gte", Embed: c.Embed}
+	other := &EmbedClient{Profile: "fake", Model: c.Model, Namespace: "other|https://w2|fake-gte", Embed: c.Embed}
 	if n, _, err := EmbedEntries(context.Background(), root, other); err != nil || n != 1 {
 		t.Errorf("same model name on another workspace must re-embed: n=%d err=%v", n, err)
 	}
 	prev := OpenEmbedClient
 	t.Cleanup(func() { OpenEmbedClient = prev })
-	OpenEmbedClient = func(context.Context, string) (*EmbedClient, error) { return c, nil } // namespace fake, cache is "other"
+	OpenEmbedClient = func(context.Context, string, string) (*EmbedClient, error) { return c, nil } // namespace fake, cache is "other"
 	before := calls
 	if _, err := NewSemantic("q"); err == nil {
 		t.Error("a client from a different namespace must not score the cache")
@@ -160,8 +163,8 @@ func TestEmbedCacheNamespaceAndDimension(t *testing.T) {
 	if calls != before {
 		t.Errorf("the prompt reached the endpoint (%d texts) despite the namespace mismatch", calls-before)
 	}
-	OpenEmbedClient = func(context.Context, string) (*EmbedClient, error) {
-		return &EmbedClient{Model: other.Model, Namespace: other.Namespace, Embed: func(context.Context, []string) ([][]float32, error) {
+	OpenEmbedClient = func(context.Context, string, string) (*EmbedClient, error) {
+		return &EmbedClient{Profile: "fake", Model: other.Model, Namespace: other.Namespace, Embed: func(context.Context, []string) ([][]float32, error) {
 			return [][]float32{{1, 2, 3, 4}}, nil
 		}}, nil
 	}
@@ -170,8 +173,8 @@ func TestEmbedCacheNamespaceAndDimension(t *testing.T) {
 	}
 }
 
-// The launched session's profile (CLAUDE_PROFILE) picks the workspace, ahead of the pinned default.
-func TestOpenEmbedClientFollowsSessionProfile(t *testing.T) {
+// The profile argument picks the workspace, ahead of the pinned default.
+func TestOpenEmbedClientUsesGivenProfile(t *testing.T) {
 	isolatedConfig1(t)
 	_, _, err := providers.UpdateOverlayDoc(true, func(top map[string]json.RawMessage, _ *vault.Tx) error {
 		top["providers"] = json.RawMessage(`{"dev": {"provider":"databricks","preset":"databricks","host":"https://dev.example.com"},` +
@@ -182,7 +185,7 @@ func TestOpenEmbedClientFollowsSessionProfile(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("CLAUDE_PROFILE", "qa")
-	c, err := openDatabricksEmbed(context.Background(), "databricks-gte-large-en")
+	c, err := openDatabricksEmbed(context.Background(), "qa", "databricks-gte-large-en")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -202,13 +205,13 @@ func TestEmbedPruneNeverCrossesRoots(t *testing.T) {
 	for i := range embedMaxRows + 1 {
 		f.Rows[fmt.Sprintf("stale-%d", i)] = embedRow{Root: root, Hash: "h"}
 	}
-	if err := saveEmbedCache(f); err != nil {
+	if err := saveEmbedCache("fake", f); err != nil {
 		t.Fatal(err)
 	}
 	if _, _, err := EmbedEntries(context.Background(), root, c); err != nil {
 		t.Fatal(err)
 	}
-	rows := loadEmbedCache().Rows
+	rows := loadEmbedCache("fake").Rows
 	if _, ok := rows["other-live"]; !ok {
 		t.Error("another root's vector was pruned")
 	}
@@ -231,7 +234,7 @@ func TestEmbedMergeKeepsVectorMatchingCurrentContent(t *testing.T) {
 	var calls int
 	inner := fakeEmbedServer(t, &calls)
 	nested := false
-	outer := &EmbedClient{Model: inner.Model, Namespace: inner.Namespace, Embed: func(ctx context.Context, texts []string) ([][]float32, error) {
+	outer := &EmbedClient{Profile: "fake", Model: inner.Model, Namespace: inner.Namespace, Embed: func(ctx context.Context, texts []string) ([][]float32, error) {
 		if !nested { // the entry changes mid-run and a newer run embeds the new content first
 			nested = true
 			write(t, bank, v2)
@@ -245,7 +248,126 @@ func TestEmbedMergeKeepsVectorMatchingCurrentContent(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := currentEntryHashes(root)["aaaa0001"]
-	if got := loadEmbedCache().Rows["aaaa0001"].Hash; got != want {
+	if got := loadEmbedCache("fake").Rows["aaaa0001"].Hash; got != want {
 		t.Errorf("cache holds the older run's vector: hash %s, current content %s", got, want)
+	}
+}
+
+// embedViaRouter sets up a stub databricks profile whose host is direct, with routerLink pointing at base.
+func embedViaRouter(t *testing.T, direct, base string) *EmbedClient {
+	t.Helper()
+	isolatedConfig1(t)
+	_, _, err := providers.UpdateOverlayDoc(true, func(top map[string]json.RawMessage, _ *vault.Tx) error {
+		top["providers"] = json.RawMessage(`{"dev": {"provider":"databricks","preset":"databricks","host":"` + direct + `","auth":{"type":"key","command":"echo tok"}}}`)
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CLAUDE_PROFILE", "dev")
+	origTransport := http.DefaultClient.Transport
+	http.DefaultClient.Transport = trustAll
+	t.Cleanup(func() { http.DefaultClient.Transport = origTransport })
+	orig := routerLink
+	routerLink = func(context.Context) (string, string, bool) { return base, "s3cret", true }
+	t.Cleanup(func() { routerLink = orig })
+	c, err := openDatabricksEmbed(context.Background(), "dev", "gte-x")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return c
+}
+
+// trustAll lets DefaultClient reach the httptest TLS servers (the provider host must be https).
+var trustAll = &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}
+
+func vecServer(t *testing.T, hits *[]string, status int) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		*hits = append(*hits, r.URL.Path+"|"+r.Header.Get(proxy.ClientHeader))
+		if status != 200 {
+			http.Error(w, "boom", status)
+			return
+		}
+		_, _ = w.Write([]byte(`{"data":[{"index":0,"embedding":[1,2,3]}]}`))
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+// With the router up, the query embedding goes through its /p/<profile>/openai/<model>/invocations path with the secret.
+func TestEmbedGoesThroughRouterWithSecret(t *testing.T) {
+	var proxyHits, directHits []string
+	px, direct := vecServer(t, &proxyHits, 200), vecServer(t, &directHits, 200)
+	c := embedViaRouter(t, direct.URL, px.URL)
+	vecs, err := c.Embed(context.Background(), []string{"q"})
+	if err != nil || len(vecs) != 1 || len(vecs[0]) != 3 {
+		t.Fatalf("Embed = %v, %v", vecs, err)
+	}
+	if len(proxyHits) != 1 || proxyHits[0] != "/p/dev/openai/gte-x/invocations|s3cret" {
+		t.Errorf("proxy hits = %v, want one on the profile path with the secret", proxyHits)
+	}
+	if len(directHits) != 0 {
+		t.Errorf("direct endpoint hit %v, want none while the router answers", directHits)
+	}
+}
+
+// A router that errors or is unreachable falls back to the direct workspace call.
+func TestEmbedFallsBackToDirectWhenRouterFails(t *testing.T) {
+	for name, status := range map[string]int{"500": 500, "unreachable": 0} {
+		t.Run(name, func(t *testing.T) {
+			var proxyHits, directHits []string
+			px, direct := vecServer(t, &proxyHits, 500), vecServer(t, &directHits, 200)
+			base := px.URL
+			if status == 0 {
+				px.Close()
+			}
+			c := embedViaRouter(t, direct.URL, base)
+			vecs, err := c.Embed(context.Background(), []string{"q"})
+			if err != nil || len(vecs) != 1 {
+				t.Fatalf("Embed = %v, %v; want the direct fallback's vector", vecs, err)
+			}
+			if len(directHits) != 1 || !strings.HasPrefix(directHits[0], "/serving-endpoints/gte-x/invocations") {
+				t.Errorf("direct hits = %v, want one on the serving endpoint", directHits)
+			}
+		})
+	}
+}
+
+// The session profile's own cache wins; a miss falls back to the pinned profile's cache and opens its client there.
+func TestNewSemanticPerProfileCacheFallsBackToPin(t *testing.T) {
+	isolatedConfig1(t)
+	t.Setenv("CLAUDE_RECALL_SEMANTIC", "")
+	if err := providers.SetPins(map[string]string{providers.PinProfile: "dev"}); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CLAUDE_PROFILE", "qa")
+	seed := func(profile string) {
+		row := embedRow{Hash: "h", Vec: encodeVec([]float32{1, 0, 0})}
+		f := embedCacheFile{Namespace: profile + "|h|gte", Model: "gte", Rows: map[string]embedRow{"aaaa0001": row}}
+		if err := saveEmbedCache(profile, f); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var opened []string
+	prev := OpenEmbedClient
+	t.Cleanup(func() { OpenEmbedClient = prev })
+	OpenEmbedClient = func(_ context.Context, profile, model string) (*EmbedClient, error) {
+		opened = append(opened, profile)
+		return &EmbedClient{Profile: profile, Model: model, Namespace: profile + "|h|gte", Embed: func(context.Context, []string) ([][]float32, error) {
+			return [][]float32{{1, 0, 0}}, nil
+		}}, nil
+	}
+	seed("dev")
+	if _, err := NewSemantic("q"); err != nil || len(opened) != 1 || opened[0] != "dev" {
+		t.Fatalf("qa cache miss: opened %v err %v, want the pinned dev profile", opened, err)
+	}
+	seed("qa")
+	opened = nil
+	if _, err := NewSemantic("q"); err != nil || len(opened) != 1 || opened[0] != "qa" {
+		t.Fatalf("qa cache present: opened %v err %v, want the session's own qa profile", opened, err)
+	}
+	if EmbedCachePath("../escape") != "" || saveEmbedCache("../escape", embedCacheFile{}) == nil {
+		t.Error("an unsafe profile name must not map to a cache path")
 	}
 }
