@@ -52,7 +52,7 @@ func TestGroupRenderOneEntryPerEvent(t *testing.T) {
 }
 
 func TestGroupNoEventLostVsGolden(t *testing.T) {
-	raw, err := os.ReadFile("../settings/testdata/settings.golden.json")
+	raw, err := os.ReadFile("../../settings/testdata/settings.golden.json")
 	if err != nil {
 		t.Fatal(err)
 	}

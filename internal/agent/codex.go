@@ -33,8 +33,8 @@ func codexExecArgs(argv []string, extra ...string) []string {
 	return append(append([]string{"exec"}, extra...), argv[1:]...)
 }
 
-// tomlString renders s as a TOML basic string (a JSON string is one) for a codex -c override.
-func tomlString(s string) string {
+// tomlQuote renders s as a TOML basic string (a JSON string is one) for a codex -c override.
+func tomlQuote(s string) string {
 	b, _ := json.Marshal(s)
 	return string(b)
 }

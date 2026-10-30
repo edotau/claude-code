@@ -11,7 +11,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/edotau/claude-code/internal/copilotreg"
+	"github.com/edotau/claude-code/internal/agent/copilotreg"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/proxy"

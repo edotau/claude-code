@@ -1,11 +1,10 @@
 ---
 paths:
   - "internal/hooks/**"
-  - "internal/hookspec/**"
 ---
 # Hooks System
 
-Hooks run as `claude-code hook <Event> [--<module>|--all]`. **`internal/hookspec/hookspec.go` is the only place a
+Hooks run as `claude-code hook <Event> [--<module>|--all]`. **`internal/hooks/hookspec/hookspec.go` is the only place a
 hook is declared** (one `Spec` per invocation); the handler lives in `internal/hooks/`. Add, remove or retime: edit
 both, then `make install`. **Never hand-edit `settings.json`** → `settings-management.md`.
 

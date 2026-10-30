@@ -8,7 +8,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/copilotreg"
+	"github.com/edotau/claude-code/internal/agent/copilotreg"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/proxy"
 )

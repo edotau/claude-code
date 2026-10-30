@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/edotau/claude-code/internal/hookspec"
+	"github.com/edotau/claude-code/internal/hooks/hookspec"
 )
 
 func bindStub(group, name string, budget time.Duration, run Runner) Bound {

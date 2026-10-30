@@ -1,7 +1,6 @@
 ---
 paths:
   - "internal/agent/**"
-  - "internal/copilotreg/**"
   - "internal/copilotsdk/**"
   - "internal/codexsettings/**"
   - "internal/launch/**"

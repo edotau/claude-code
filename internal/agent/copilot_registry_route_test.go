@@ -9,7 +9,7 @@ import (
 
 	copilot "github.com/github/copilot-sdk/go"
 
-	"github.com/edotau/claude-code/internal/copilotreg"
+	"github.com/edotau/claude-code/internal/agent/copilotreg"
 	"github.com/edotau/claude-code/internal/copilotsdk"
 	"github.com/edotau/claude-code/internal/providers"
 )

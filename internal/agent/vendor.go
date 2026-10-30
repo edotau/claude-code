@@ -237,10 +237,10 @@ func (v vendorRunner) Run(ctx context.Context, req Request, sink Sink) (Result, 
 	if v.name == "codex" {
 		var extra []string
 		if req.SystemPrompt != "" {
-			extra = append(extra, "-c", "instructions="+tomlString(req.SystemPrompt))
+			extra = append(extra, "-c", "instructions="+tomlQuote(req.SystemPrompt))
 		}
 		if req.AppendSystemPrompt != "" {
-			extra = append(extra, "-c", "developer_instructions="+tomlString(req.AppendSystemPrompt))
+			extra = append(extra, "-c", "developer_instructions="+tomlQuote(req.AppendSystemPrompt))
 		}
 		if req.OutputSchema != "" {
 			file, err := codexSchemaFile(req.OutputSchema)

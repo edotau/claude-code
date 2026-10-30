@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/hookspec"
+	"github.com/edotau/claude-code/internal/hooks/hookspec"
 	"github.com/edotau/claude-code/internal/paths"
 )
 

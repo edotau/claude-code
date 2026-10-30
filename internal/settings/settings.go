@@ -11,7 +11,7 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/defaults"
-	"github.com/edotau/claude-code/internal/hookspec"
+	"github.com/edotau/claude-code/internal/hooks/hookspec"
 	"github.com/edotau/claude-code/internal/paths"
 )
 

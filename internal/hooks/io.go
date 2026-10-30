@@ -12,7 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/edotau/claude-code/internal/hookspec"
+	"github.com/edotau/claude-code/internal/hooks/hookspec"
 )
 
 // Exit codes per the Claude Code hook contract.
