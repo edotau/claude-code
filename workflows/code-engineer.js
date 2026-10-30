@@ -105,7 +105,7 @@ log(`build: impl=${impl ? impl.status : 'none'} tests=${tests ? tests.status : '
 
 // ── Phase 3: Gate (ADK LoopAgent via the saved green-keeper-loop workflow) ─────────────────────────
 phase('Gate')
-if (impl && implBlocked) return { brief, impl, tests, gate: null, status: 'blocked' }
+if (implBlocked) return { brief, impl, tests, gate: null, status: 'blocked' }
 const gate = await workflow('green-keeper-loop', { gate: GATE, cwd: CWD || undefined, scope: SCOPE.length ? SCOPE : brief.files, maxIterations: MAX_ITER })
 
 return { brief, impl, tests, gate, status: gate ? gate.exit : 'error' }
