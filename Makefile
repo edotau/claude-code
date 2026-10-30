@@ -191,13 +191,13 @@ fmt:  ## gofmt -w every Go file
 	@echo -e "$(C_OK)fmt applied (gofmt)"
 
 # One lint per kind, each a branch of lint-% below; `make lint-<kind>` runs one.
-LINT_WHAT := go shell yaml help settings docs deep
+LINT_WHAT := go shell yaml help settings docs
 
 WHAT    ?= all
 AGENT   ?= $(HARNESS_LINT_AGENT)
 MAX     ?= 3
 LINT_AGENT := $(patsubst on,claude,$(filter-out off,$(AGENT)))
-LINT_KINDS := $(if $(filter go,$(WHAT)),go deep,$(if $(filter md,$(WHAT)),docs,$(LINT_WHAT)))
+LINT_KINDS := $(if $(filter go,$(WHAT)),go,$(if $(filter md,$(WHAT)),docs,$(LINT_WHAT)))
 .PHONY: lint
 lint:  ## Lint and auto-fix (CHECK=1 reports; AGENT=a fixes the rest; WHAT=go|md)
 	@case "$(WHAT)" in go|md|all) ;; *) echo "WHAT must be go|md|all"; exit 1 ;; esac
@@ -205,13 +205,16 @@ lint:  ## Lint and auto-fix (CHECK=1 reports; AGENT=a fixes the rest; WHAT=go|md
 		$(if $(filter 1,$(CHECK)),,$(if $(LINT_AGENT),|| $(MAKE) --no-print-directory lint-agent))
 	@echo -e "$(C_OK)lint passed"
 
-lint-%: compile mdsmith  # (helper) one lint kind: $(LINT_WHAT) deep; CHECK=1 only reports
+lint-%: compile mdsmith  # (helper) one lint kind: $(LINT_WHAT); CHECK=1 only reports
 	@case "$*" in \
 	go) if [ "$(CHECK)" = 1 ]; then \
 			out="$$(gofmt -l $(GO_FMT_DIRS))"; \
 			if [ -n "$$out" ]; then echo "unformatted:"; echo "$$out"; echo "run make lint"; exit 1; fi; \
 		else gofmt -w $(GO_FMT_DIRS); fi; \
-		$(GO) vet $(PKGS); echo -e "$(C_OK)gofmt + vet clean" ;; \
+		$(GO) vet $(PKGS) && echo -e "$(C_OK)gofmt + vet clean" || exit 1; \
+		if ! command -v golangci-lint >/dev/null; then echo -e "$(C_NOTE)golangci-lint skipped: not installed (make install DEV_TOOLS=1)"; exit 0; fi; \
+		golangci-lint run $(if $(filter 1,$(CHECK)),,--fix --disable gocognit) --max-issues-per-linter=0 --max-same-issues=0 ./... \
+			$(if $(or $(filter 1,$(CHECK)),$(LINT_AGENT)),, || echo -e "$(C_NOTE)golangci-lint: warning only (CHECK=1 fails): what is left has no auto-fix; AGENT=on hands it to Claude") ;; \
 	shell) if [ -z "$(GO_SH_SRC)" ]; then echo -e "$(C_NOTE)no shell scripts to lint"; \
 		elif command -v shellcheck >/dev/null 2>&1; then shellcheck -S error $(GO_SH_SRC) && echo -e "$(C_OK)shellcheck clean"; \
 		else echo -e "$(C_NOTE)shellcheck not on PATH — skipped"; fi ;; \
@@ -233,9 +236,6 @@ lint-%: compile mdsmith  # (helper) one lint kind: $(LINT_WHAT) deep; CHECK=1 on
 		if [ "$$(realpath "$(CURDIR)" 2>/dev/null)" = "$$(realpath "$$live" 2>/dev/null)" ]; then \
 			$(BIN) memory fmt $(if $(filter 1,$(CHECK)),--check); \
 		else echo -e "$(C_NOTE)memory fmt skipped: $(CURDIR) is not the live config dir ($$live) — a worktree must not write the shared memory store"; fi ;; \
-	deep) if ! command -v golangci-lint >/dev/null; then echo -e "$(C_NOTE)deep skipped: golangci-lint not installed (make install DEV_TOOLS=1)"; exit 0; fi; \
-		golangci-lint run $(if $(filter 1,$(CHECK)),,--fix --disable gocognit) --max-issues-per-linter=0 --max-same-issues=0 ./... \
-			$(if $(or $(filter 1,$(CHECK)),$(LINT_AGENT)),, || echo -e "$(C_NOTE)deep: warning only (CHECK=1 fails): what is left has no auto-fix; AGENT=on hands it to Claude") ;; \
 	*) printf "Unknown lint '%s' (use %s)\n" "$*" "$(subst $(C_SP),|,$(LINT_WHAT))"; exit 1 ;; \
 	esac
 

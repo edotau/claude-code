@@ -1,4 +1,4 @@
-# Deep lint for `make lint-deep` (golangci-lint v2).
+# golangci-lint v2 config for `make lint-go`; gocognit reports only under CHECK=1.
 version: "2"
 linters:
   default: none
