@@ -135,9 +135,6 @@ func grabFrom(t *testing.T, value string) []Row {
 	return rows
 }
 
-//go:fix inline
-func str(s string) *string { return new(s) }
-
 func TestExtractPipeline(t *testing.T) {
 	// raw rows: dirty whitespace, zero-width chars, null selector, whitespace-only, duplicate key, null key twice
 	rows := grabFrom(t, `[

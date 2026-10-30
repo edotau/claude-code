@@ -66,6 +66,7 @@ func wsDial(ctx context.Context, raw string) (*wsConn, error) {
 		_ = c.Close()
 		return nil, err
 	}
+	_ = resp.Body.Close() // the upgrade body is unused; frames are read through br
 	sum := sha1.Sum([]byte(key + wsGUID))
 	if resp.StatusCode != http.StatusSwitchingProtocols || resp.Header.Get("Sec-WebSocket-Accept") != base64.StdEncoding.EncodeToString(sum[:]) {
 		_ = c.Close()

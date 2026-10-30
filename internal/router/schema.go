@@ -18,7 +18,7 @@ type stateFile struct {
 	Accounts State `json:"accounts"`
 }
 
-var format = schemas.Register(schemas.Format{
+var _ = schemas.Register(schemas.Format{
 	Name: "quota", Owner: "internal/router", Kind: schemas.Derived,
 	Glob:    StatePath,
 	Version: schemaVersion, Keep: "bare map, no schema field: a running old daemon reads it; marks expire on their own",

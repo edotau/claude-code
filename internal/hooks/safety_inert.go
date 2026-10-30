@@ -25,9 +25,11 @@ func inertStripped(cmd string) string {
 		if inertSegment(seg) && (seps[i] == "" || seps[i][0] != '|' || seps[i] == "||") {
 			_, subs := extractSubstitutions(seg)
 			seg = ""
+			var kept strings.Builder
 			for _, sub := range subs {
-				seg += " $(" + sub + ")"
+				kept.WriteString(" $(" + sub + ")")
 			}
+			seg += kept.String()
 		}
 		b.WriteString(seg)
 		b.WriteString(seps[i])

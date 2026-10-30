@@ -168,7 +168,7 @@ func DiscoverServingModels(ctx context.Context, p *Provider, refresh bool) (Serv
 	}
 	infos, err := ListModels(ctx, nil, p)
 	if err != nil {
-		return ServingDiscovery{}, errors.New("Serving Endpoints discovery failed; no stale cache fallback")
+		return ServingDiscovery{}, errors.New("serving endpoints discovery failed; no stale cache fallback")
 	}
 	return ServingDiscovery{Schema: 1, Scope: scope, DiscoveredAt: time.Now().UTC(), Models: infos,
 		CheckedAt: old.CheckedAt, Checks: old.Checks}, nil

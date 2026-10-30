@@ -1,6 +1,7 @@
 package hooks
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -76,7 +77,7 @@ func undoEdit(after, oldStr, newStr string, all bool) string {
 
 // gitHeadContent is the file at HEAD, or "" when untracked or outside a repo.
 func gitHeadContent(path string) string {
-	cmd := exec.Command("git", "show", "HEAD:./"+filepath.Base(path))
+	cmd := exec.CommandContext(context.Background(), "git", "show", "HEAD:./"+filepath.Base(path))
 	cmd.Dir = filepath.Dir(path)
 	out, err := cmd.Output()
 	if err != nil {

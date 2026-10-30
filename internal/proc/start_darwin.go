@@ -3,6 +3,7 @@
 package proc
 
 import (
+	"context"
 	"errors"
 	"os/exec"
 	"strconv"
@@ -11,7 +12,7 @@ import (
 
 // StartTime returns an opaque token identifying pid's start (ps lstart).
 func StartTime(pid int) (string, error) {
-	out, err := exec.Command("ps", "-o", "lstart=", "-p", strconv.Itoa(pid)).Output()
+	out, err := exec.CommandContext(context.Background(), "ps", "-o", "lstart=", "-p", strconv.Itoa(pid)).Output()
 	if err != nil {
 		return "", err
 	}

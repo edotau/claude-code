@@ -13,7 +13,7 @@ import (
 
 // Parent returns pid's parent pid via ps (0 when unreadable): darwin has no /proc to read.
 func Parent(pid int) int {
-	out, err := exec.Command("ps", "-o", "ppid=", "-p", strconv.Itoa(pid)).Output()
+	out, err := exec.CommandContext(context.Background(), "ps", "-o", "ppid=", "-p", strconv.Itoa(pid)).Output()
 	if err != nil {
 		return 0
 	}
@@ -33,7 +33,7 @@ func Descendants(pid int) []int {
 		return nil
 	}
 	children := make(map[int][]int)
-	for _, line := range strings.Split(string(out), "\n") {
+	for line := range strings.SplitSeq(string(out), "\n") {
 		f := strings.Fields(line)
 		if len(f) != 2 {
 			continue
@@ -63,7 +63,7 @@ func Descendants(pid int) []int {
 
 // Comm returns pid's executable name via ps ("" when unreadable); ps prints a path, so base it.
 func Comm(pid int) string {
-	out, err := exec.Command("ps", "-o", "comm=", "-p", strconv.Itoa(pid)).Output()
+	out, err := exec.CommandContext(context.Background(), "ps", "-o", "comm=", "-p", strconv.Itoa(pid)).Output()
 	if err != nil {
 		return ""
 	}

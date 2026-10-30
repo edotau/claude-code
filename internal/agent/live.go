@@ -247,7 +247,8 @@ func listenLive(id string) (net.Listener, error) {
 	}
 	sock := LiveSocket(id)
 	_ = os.Remove(sock)
-	ln, err := net.Listen("unix", sock)
+	var lc net.ListenConfig
+	ln, err := lc.Listen(context.Background(), "unix", sock)
 	if err != nil {
 		return nil, fmt.Errorf("live socket %s: %w", sock, err)
 	}

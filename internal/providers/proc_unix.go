@@ -4,6 +4,7 @@ package providers
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -55,26 +56,26 @@ func outputInGroup(cmd *exec.Cmd) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	lead := exec.Command("sh", "-c", "read _") // only sh, which the auth command needs anyway
+	lead := exec.CommandContext(context.Background(), "sh", "-c", "read _") // only sh, which the auth command needs anyway
 	lead.Stdin = hold
 	lead.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	if err := lead.Start(); err != nil {
-		hold.Close()
-		release.Close()
+		_ = hold.Close()
+		_ = release.Close()
 		return nil, fmt.Errorf("auth command: cannot start its process-group sentinel: %w", err)
 	}
-	hold.Close()
+	_ = hold.Close()
 	pg := lead.Process.Pid
 	killGroup := func() error { return syscall.Kill(-pg, syscall.SIGKILL) }
-	defer func() { _ = killGroup(); release.Close(); _ = lead.Wait() }()
+	defer func() { _ = killGroup(); _ = release.Close(); _ = lead.Wait() }()
 	outR, outW, err := os.Pipe()
 	if err != nil {
 		return nil, err
 	}
 	errR, errW, err := os.Pipe()
 	if err != nil {
-		outR.Close()
-		outW.Close()
+		_ = outR.Close()
+		_ = outW.Close()
 		return nil, err
 	}
 	cmd.Stdout, cmd.Stderr = outW, errW // *os.File: no copy goroutines, so Wait returns when the shell exits
@@ -84,14 +85,14 @@ func outputInGroup(cmd *exec.Cmd) ([]byte, error) {
 	done := make(chan struct{}, 2)
 	drain := func(dst io.Writer, r *os.File) { _, _ = io.Copy(dst, r); done <- struct{}{} }
 	if err := cmd.Start(); err != nil {
-		outW.Close()
-		errW.Close()
-		outR.Close()
-		errR.Close()
+		_ = outW.Close()
+		_ = errW.Close()
+		_ = outR.Close()
+		_ = errR.Close()
 		return nil, err
 	}
-	outW.Close()
-	errW.Close()
+	_ = outW.Close()
+	_ = errW.Close()
 	go drain(stdout, outR)
 	go drain(stderr, errR)
 	werr := cmd.Wait()
@@ -101,13 +102,13 @@ func outputInGroup(cmd *exec.Cmd) ([]byte, error) {
 		select {
 		case <-done:
 		case <-expire: // an escaped child still holds a pipe: closing our read ends unblocks both copies
-			outR.Close()
-			errR.Close()
+			_ = outR.Close()
+			_ = errR.Close()
 			<-done
 		}
 	}
-	outR.Close()
-	errR.Close()
+	_ = outR.Close()
+	_ = errR.Close()
 	if ee, ok := errors.AsType[*exec.ExitError](werr); ok {
 		ee.Stderr = stderr.Bytes()
 	}

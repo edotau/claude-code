@@ -67,11 +67,11 @@ func rootFor(goos string, wsl bool, home, local string, query func() (string, er
 			return "", err
 		}
 		if !windowsAbsolute(win) {
-			return "", errors.New("Windows LOCALAPPDATA did not resolve to an absolute Windows path")
+			return "", errors.New("windows LOCALAPPDATA did not resolve to an absolute Windows path")
 		}
 		dir, ok := resolve(win)
 		if !ok || !filepath.IsAbs(dir) {
-			return "", errors.New("Windows LOCALAPPDATA has no local pathview mapping")
+			return "", errors.New("windows LOCALAPPDATA has no local pathview mapping")
 		}
 		return filepath.Join(dir, "Claude-3p"), nil
 	}

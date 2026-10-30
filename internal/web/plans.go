@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
@@ -147,10 +148,8 @@ func (s *Server) resolvePlan(rel string) (string, bool) {
 		!strings.HasSuffix(rel, ".md") {
 		return "", false
 	}
-	for _, seg := range strings.Split(rel, "/") {
-		if seg == ".." {
-			return "", false
-		}
+	if slices.Contains(strings.Split(rel, "/"), "..") {
+		return "", false
 	}
 	root, err := filepath.EvalSymlinks(s.plansRoot())
 	if err != nil {

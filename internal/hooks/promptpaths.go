@@ -86,11 +86,6 @@ func scanPaths(text string, quoted, bare *regexp.Regexp, trim string) []string {
 	return out
 }
 
-// scanPosixPaths extracts unique absolute POSIX path tokens. Mirrors scanWinPaths.
-func scanPosixPaths(text string) []string {
-	return scanPaths(text, quotedPathRE(), posixPathRE(), ".,;:!?)")
-}
-
 func scanPosixTokens(text string) []pathToken {
 	return scanTokens(text, quotedPathRE(), posixPathRE(), ".,;:!?)")
 }
@@ -250,7 +245,7 @@ func OnWSL() bool {
 	return err == nil && strings.Contains(strings.ToLower(string(b)), "microsoft")
 }
 
-// scanWinPaths is scanPosixPaths for Windows, UNC, URL and ~ tokens.
+// scanWinPaths extracts unique Windows, UNC, URL and ~ path tokens.
 func scanWinPaths(text string) []string {
 	return scanPaths(text, quotedWinPathRE(), winPathRE(), winTrim)
 }

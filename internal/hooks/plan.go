@@ -414,7 +414,8 @@ func PlanSkeleton(r io.Reader, stdout, stderr io.Writer) int {
 	if err != nil {
 		return ExitProceed // no Plan.md: fail open
 	}
-	if err := os.MkdirAll(plansScratchDir(), 0o700); err == nil {
+	err = os.MkdirAll(plansScratchDir(), 0o700)
+	if err == nil {
 		err = os.WriteFile(marker, nil, 0o600)
 	}
 	if err != nil {

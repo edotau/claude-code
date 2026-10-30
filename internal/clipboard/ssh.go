@@ -2,6 +2,7 @@ package clipboard
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"image/png"
@@ -47,7 +48,8 @@ func readSSH(sock string) ([]byte, error) {
 	if err := checkSocket(sock); err != nil {
 		return nil, err
 	}
-	conn, err := net.DialTimeout("unix", sock, sshTimeout)
+	d := net.Dialer{Timeout: sshTimeout}
+	conn, err := d.DialContext(context.Background(), "unix", sock)
 	if err != nil {
 		return nil, fmt.Errorf("%w (%s: %v)", errNoBridge, sock, err)
 	}
