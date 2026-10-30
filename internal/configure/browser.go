@@ -1,6 +1,6 @@
 package configure
 
-import "github.com/edotau/claude-code/internal/browser"
+import "github.com/edotau/claude-code/internal/network/browser"
 
 // runBrowser reports which installed browsers Claude in Chrome can drive and the system default — read-only,
 // never fails --check; the extension install itself needs the user's click (claude-code network browser --setup).

@@ -12,21 +12,21 @@ const {
 test('dispatchStartArgv: --dir is omitted entirely when empty', () => {
   assert.deepEqual(
     dispatchStartArgv('claude-code', { host: 'h', agent: 'claude', dir: '', task: 'do it' }),
-    ['claude-code', 'dispatch', '--host', 'h', '--agent', 'claude', 'do it']
+    ['claude-code', 'network', 'remote', '--host', 'h', '--agent', 'claude', 'do it']
   );
 });
 
 test('dispatchStartArgv: --dir included when given', () => {
   assert.deepEqual(
     dispatchStartArgv('claude-code', { host: 'h', agent: 'codex', dir: '/tmp/x', task: 'go' }),
-    ['claude-code', 'dispatch', '--host', 'h', '--agent', 'codex', '--dir', '/tmp/x', 'go']
+    ['claude-code', 'network', 'remote', '--host', 'h', '--agent', 'codex', '--dir', '/tmp/x', 'go']
   );
 });
 
 test('dispatchStartArgv: a task with quotes, $HOME and newlines stays one argv element', () => {
   const task = `fix the "bug" in $HOME/app\nand rerun the tests`;
   const argv = dispatchStartArgv('claude-code', { host: 'h', agent: 'claude', dir: '', task });
-  assert.equal(argv.length, 7);
+  assert.equal(argv.length, 8);
   assert.equal(argv[argv.length - 1], task);
 });
 

@@ -15,7 +15,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/edotau/claude-code/internal/dispatch"
+	"github.com/edotau/claude-code/internal/network/remote"
 )
 
 // RemoteBinEnv names the remote claude-code binary when --remote-bin is absent; the fallback is "claude-code" on the remote PATH.
@@ -100,11 +100,11 @@ func remoteScript(bin, agentName, fallback string, req Request) (string, error) 
 	if strings.TrimSpace(bin) == "" || strings.ContainsAny(bin, "\r\n") {
 		return "", fmt.Errorf("remote ask: invalid remote binary %q", bin)
 	}
-	w := []string{remotePath, "exec", dispatch.QuotePath(remoteHomePath(bin)), "ask", "--format", "stream-json", "--fallback", dispatch.QuoteSH(cmp.Or(fallback, FallbackNone)),
-		"--stdin-framed", "--agent", dispatch.QuoteSH(remoteTarget(agentName, req))}
+	w := []string{remotePath, "exec", remote.QuotePath(remoteHomePath(bin)), "ask", "--format", "stream-json", "--fallback", remote.QuoteSH(cmp.Or(fallback, FallbackNone)),
+		"--stdin-framed", "--agent", remote.QuoteSH(remoteTarget(agentName, req))}
 	opt := func(flag, v string) {
 		if v != "" {
-			w = append(w, flag, dispatch.QuoteSH(v))
+			w = append(w, flag, remote.QuoteSH(v))
 		}
 	}
 	opt("--model", req.Model)
@@ -115,7 +115,7 @@ func remoteScript(bin, agentName, fallback string, req Request) (string, error) 
 	opt("--append-system-prompt", req.AppendSystemPrompt)
 	opt("--output-schema", req.OutputSchema)
 	if req.WorkDir != "" {
-		w = append(w, "--workdir", dispatch.QuotePath(remoteHomePath(req.WorkDir)))
+		w = append(w, "--workdir", remote.QuotePath(remoteHomePath(req.WorkDir)))
 	}
 	if req.Timeout > 0 {
 		opt("--timeout", req.Timeout.String())
@@ -141,7 +141,7 @@ func RemoteArgv(host, bin, agentName, fallback string, req Request) ([]string, e
 	if err != nil {
 		return nil, err
 	}
-	return dispatch.StreamArgs(host, script)
+	return remote.StreamArgs(host, script)
 }
 
 // remoteError is a failure the remote reported in its envelope; kind is the remote's envelope token, kept verbatim.

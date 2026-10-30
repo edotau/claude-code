@@ -9,7 +9,7 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/edotau/claude-code/internal/browser"
+	"github.com/edotau/claude-code/internal/network/browser"
 )
 
 // fieldFlag collects repeatable --field name=selector[@attr] values.

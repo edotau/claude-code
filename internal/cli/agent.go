@@ -23,10 +23,10 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agenttree"
 	"github.com/edotau/claude-code/internal/crossgen"
-	"github.com/edotau/claude-code/internal/dispatch"
 	"github.com/edotau/claude-code/internal/helptext"
 	"github.com/edotau/claude-code/internal/hooks"
 	"github.com/edotau/claude-code/internal/inflight"
+	"github.com/edotau/claude-code/internal/network/remote"
 	"github.com/edotau/claude-code/internal/outfmt"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
@@ -190,15 +190,15 @@ func runAsk(args []string, resume bool) int {
 	if *session != "" {
 		*fallback = agent.FallbackNone // a session id belongs to one agent; another agent cannot resume it
 	}
-	var r, remote agent.Runner
+	var r, remoteRunner agent.Runner
 	var chain agent.Chain
 	if *host != "" { // the remote resolves profiles, routing and caps; here only the agent name is checked
 		if _, err = agent.Lookup(*name); err == nil {
-			err = dispatch.ValidHost(*host)
+			err = remote.ValidHost(*host)
 		}
 		r = agent.NewRemoteRunner(*name, *host, agent.RemoteBin(*remoteBin), *fallback)
 		chain = agent.Single(r)
-		remote = r
+		remoteRunner = r
 	} else {
 		r, chain, err = resolveAskChain(context.Background(), *name, *provider, *model, prompt, *fallback, *native, *workdir)
 	}
@@ -249,7 +249,7 @@ func runAsk(args []string, resume bool) int {
 		reportBackgroundStart(*format, rec)
 		return 0
 	}
-	return runAskAndReport(ctx, &rec, chain, remote, req, jobRec, *format)
+	return runAskAndReport(ctx, &rec, chain, remoteRunner, req, jobRec, *format)
 }
 
 // askExclusive rejects flag pairs that cannot be combined.
@@ -795,7 +795,7 @@ func listRemoteAgents(host, bin, format string) int {
 	if strings.TrimSpace(bin) == "" || strings.ContainsAny(bin, "\r\n\x00") {
 		return fail("agents: invalid remote binary %q", bin)
 	}
-	argv, err := dispatch.StreamArgs(host, "exec "+dispatch.QuotePath(bin)+" agents --format "+dispatch.QuoteSH(format))
+	argv, err := remote.StreamArgs(host, "exec "+remote.QuotePath(bin)+" agents --format "+remote.QuoteSH(format))
 	if err != nil {
 		return fail("agents: %v", err)
 	}

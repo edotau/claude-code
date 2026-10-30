@@ -7,11 +7,11 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/helptext"
-	"github.com/edotau/claude-code/internal/websearch"
+	"github.com/edotau/claude-code/internal/network/mcp"
 )
 
 // cmdNetworkWebsearch: bare `network websearch` runs the stdio MCP server (Claude Code invokes this); `network websearch <query>`
-// or --query is a one-shot Tavily print for Bash/skill use. Both Tavily-backed (internal/websearch).
+// or --query is a one-shot Tavily print for Bash/skill use. Both Tavily-backed (internal/network/mcp).
 func cmdNetworkWebsearch(args []string) int {
 	fs := helptext.NewFlagSet("network websearch", helptext.Page{Usage: "claude-code network websearch [flags] [<query>]",
 		About: "Bare: the stdio MCP web-search server Claude Code runs. A query (or --query)\n" +
@@ -29,7 +29,7 @@ func cmdNetworkWebsearch(args []string) int {
 		*query = strings.Join(fs.Args(), " ")
 	}
 	if *query != "" {
-		return websearch.OneShot(context.Background(), *query, *maxResults, nil, os.Stdout)
+		return mcp.OneShot(context.Background(), *query, *maxResults, nil, os.Stdout)
 	}
-	return websearch.Run(context.Background())
+	return mcp.Run(context.Background())
 }

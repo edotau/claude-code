@@ -18,6 +18,7 @@ import (
 	_ "github.com/edotau/claude-code/internal/hooks"
 	_ "github.com/edotau/claude-code/internal/launch"
 	_ "github.com/edotau/claude-code/internal/memory"
+	_ "github.com/edotau/claude-code/internal/network/vscode"
 	_ "github.com/edotau/claude-code/internal/preflight"
 	_ "github.com/edotau/claude-code/internal/providers"
 	_ "github.com/edotau/claude-code/internal/proxy"
@@ -29,7 +30,6 @@ import (
 	_ "github.com/edotau/claude-code/internal/usageledger"
 	_ "github.com/edotau/claude-code/internal/vault"
 	_ "github.com/edotau/claude-code/internal/vendors"
-	_ "github.com/edotau/claude-code/internal/vscode"
 	_ "github.com/edotau/claude-code/internal/worktree"
 )
 
@@ -85,7 +85,7 @@ var writers = map[string]string{
 	"internal/launch/launch.go:WriteOverlay":                       "settings-overlay",
 	"internal/launch/scienceconfig.go:scienceDefaultsFile":         unversioned("foreign: science TOML defaults for a vendor"),
 	"internal/launch/tmux.go:seedTmuxConf":                         unversioned("foreign: user tmux.conf"),
-	"internal/mcpx/doctor.go:mcpList":                              unversioned("foreign: temp output of claude mcp list"),
+	"internal/network/mcp/doctor.go:mcpList":                       unversioned("foreign: temp output of claude mcp list"),
 	"internal/memory/accesslog.go:LogAccessBatch":                  unversioned("log: memory access log, text lines"),
 	"internal/memory/accesslog.go:maybeTrimAccessLog":              unversioned("log: memory access log trim"),
 	"internal/memory/bankfmt.go:formatFiles":                       unversioned("memory-bank: bank markdown format"),
@@ -137,7 +137,7 @@ var writers = map[string]string{
 	"internal/setup/workspace.go:workspaceFileAction":              unversioned("foreign: workspace repo files"),
 	"internal/setup/workspace.go:workspaceIgnoreAction":            unversioned("foreign: workspace repo .gitignore"),
 	"internal/statusline/cache.go:writeStamp":                      unversioned("text: statusline pipe-separated stamp"),
-	"internal/tailscale/cli.go:writeAuthKeyFile":                   unversioned("foreign: temp auth key file"),
+	"internal/network/tailscale/cli.go:writeAuthKeyFile":           unversioned("foreign: temp auth key file"),
 	"internal/theme/theme.go:writeMerged":                          unversioned("foreign: theme file and backup in a vendor home"),
 	"internal/tools/agentversion.go:writeVersionCache":             "agentversion",
 	"internal/tools/install.go:runInstallScript":                   unversioned("foreign: temp installer script"),
@@ -154,10 +154,10 @@ var writers = map[string]string{
 	"internal/vendors/copilot_registry.go:copySettings":            unversioned("foreign: copilot private home settings copy"),
 	"internal/vendors/opencode_overlay.go:WriteOpencodeOverlay":    "opencode-overlay",
 	"internal/vendors/opencodeauth.go:updateOpencodeDiskCache":     "opencode-auth-cache",
-	"internal/vscode/keybindings.go:mergeKeybindings":              unversioned("foreign: VS Code keybindings.json and backup"),
-	"internal/vscode/vscode.go:merge":                              unversioned("foreign: VS Code settings.json and backup"),
-	"internal/vscode/vscodeserve.go:prepareDataDir":                unversioned("foreign: VS Code machine settings seed"),
-	"internal/vscode/vscodeserve.go:writeState":                    "vscode-serve-runtime",
+	"internal/network/vscode/keybindings.go:mergeKeybindings":      unversioned("foreign: VS Code keybindings.json and backup"),
+	"internal/network/vscode/vscode.go:merge":                      unversioned("foreign: VS Code settings.json and backup"),
+	"internal/network/vscode/vscodeserve.go:prepareDataDir":        unversioned("foreign: VS Code machine settings seed"),
+	"internal/network/vscode/vscodeserve.go:writeState":            "vscode-serve-runtime",
 	"internal/worktree/ledger.go:editLedger":                       unversioned("memory-bank: worktree ledger log line and task fill"),
 	"internal/worktree/ledger.go:CloseLedger":                      unversioned("memory-bank: worktree ledger close"),
 	"internal/worktree/ledger.go:OpenLedger":                       unversioned("memory-bank: worktree ledger open"),

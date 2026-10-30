@@ -40,7 +40,7 @@ func TestSpecTreeSubwordsMatchDispatch(t *testing.T) {
 	cases := map[string][]string{
 		"history": {"snapshot", "log", "diff"},
 		"vault":   {"list", "set", "get", "delete", "import", "export", "edit", "rotate-secret"},
-		"network": {"tailscale", "browser", "websearch", "mcp", "page", "view", "vscode", "restart"},
+		"network": {"tailscale", "browser", "websearch", "mcp", "page", "view", "vscode", "restart", "remote"},
 		"memory": {"recall", "remember", "init", "review", "promote", "update", "dream", "search", "show",
 			"digest", "index", "path", "watch", "timeline", "archive", "alias", "fmt"},
 		"gateway":  {"router", "proxy", "token"},
@@ -168,7 +168,7 @@ func TestGoldenProbesNowNonEmpty(t *testing.T) {
 
 	// dispatch --host ⇥ needs a fresh cache — dispatchHostNames() never calls the network itself.
 	writeDispatchCache([]string{"fixture-host"})
-	if got := completionCandidates([]string{"remote", "--host", ""}); !slices.Equal(got, []string{"fixture-host"}) {
+	if got := completionCandidates([]string{"network", "remote", "--host", ""}); !slices.Equal(got, []string{"fixture-host"}) {
 		t.Errorf("dispatch --host ⇥ = %v, want [fixture-host]", got)
 	}
 }
@@ -185,7 +185,7 @@ func TestWorktreeMergeResolveAgentCompletes(t *testing.T) {
 // TestNetworkBareOffersSubverbs pins `network ⇥`: all six sub-verbs; the page flags live on `network page`.
 func TestNetworkBareOffersSubverbs(t *testing.T) {
 	got := completionCandidates([]string{"network", ""})
-	for _, want := range []string{"tailscale", "browser", "websearch", "mcp", "page", "view", "vscode", "restart"} {
+	for _, want := range []string{"tailscale", "browser", "websearch", "mcp", "page", "view", "vscode", "restart", "remote"} {
 		if !slices.Contains(got, want) {
 			t.Errorf("network ⇥ = %v, missing %q", got, want)
 		}
@@ -201,7 +201,7 @@ func TestNetworkBareOffersSubverbs(t *testing.T) {
 // TestDispatchStatusFlagThenRemainingFlags: the word after the boolean --status falls back to
 // dispatch's remaining flags, with --status itself dropped.
 func TestDispatchStatusFlagThenRemainingFlags(t *testing.T) {
-	got := completionCandidates([]string{"remote", "--status", ""})
+	got := completionCandidates([]string{"network", "remote", "--status", ""})
 	if len(got) == 0 {
 		t.Fatal("dispatch --status ⇥ offered nothing, want the remaining flags")
 	}

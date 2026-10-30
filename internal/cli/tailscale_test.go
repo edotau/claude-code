@@ -10,8 +10,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/network/tailscale"
 	"github.com/edotau/claude-code/internal/secrets"
-	"github.com/edotau/claude-code/internal/tailscale"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 

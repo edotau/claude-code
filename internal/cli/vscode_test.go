@@ -177,7 +177,7 @@ func TestCmdVSCodeHelpExitsZeroWithoutRunning(t *testing.T) {
 func TestTemplateIsFirstPartyOnly(t *testing.T) {
 	_, file, _, _ := runtime.Caller(0)
 	root := filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
-	tmpl, err := os.ReadFile(filepath.Join(root, "internal", "vscode", "machine-settings.template.json"))
+	tmpl, err := os.ReadFile(filepath.Join(root, "internal", "network", "vscode", "machine-settings.template.json"))
 	if err != nil {
 		t.Fatal(err)
 	}

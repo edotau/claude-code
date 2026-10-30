@@ -19,15 +19,15 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/edotau/claude-code/internal/browser"
 	"github.com/edotau/claude-code/internal/codexsettings"
 	"github.com/edotau/claude-code/internal/generate"
 	"github.com/edotau/claude-code/internal/launch"
+	"github.com/edotau/claude-code/internal/network/browser"
+	"github.com/edotau/claude-code/internal/network/tailscale"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/secrets"
 	"github.com/edotau/claude-code/internal/settings"
-	"github.com/edotau/claude-code/internal/tailscale"
 	"github.com/edotau/claude-code/internal/tui"
 )
 
