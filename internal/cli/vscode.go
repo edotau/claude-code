@@ -13,7 +13,6 @@ import (
 	"github.com/edotau/claude-code/internal/outfmt"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/vscode"
-	"github.com/edotau/claude-code/internal/vscodeserve"
 )
 
 // cmdVSCode merges the tracked VS Code settings template into VS Code's Machine settings.json.
@@ -174,7 +173,7 @@ func cmdNetworkVSCode(args []string) int {
 			"desktop's extensions.\n" +
 			"--funnel maps it on the public internet instead of the tailnet (still\n" +
 			"token-gated)."})
-	port := fs.Int("port", vscodeserve.DefaultPort, "serve-web port; falls back to the next free one when busy")
+	port := fs.Int("port", vscode.DefaultPort, "serve-web port; falls back to the next free one when busy")
 	stop := fs.Bool("stop", false, "stop the daemon and remove any tailscale/funnel mapping")
 	status := fs.Bool("status", false, "report the daemon and tailscale mapping, then exit")
 	noTailscale := fs.Bool("no-tailscale", false, "serve on 127.0.0.1 only; skip the tailscale mapping")
@@ -195,15 +194,15 @@ func cmdNetworkVSCode(args []string) int {
 		if err != nil {
 			return fail("network vscode: %v", err)
 		}
-		return vscodeServeStart(ctx, vscodeserve.Options{Port: *port, NoTailscale: *noTailscale, Funnel: *funnel, Folder: abs}, *format)
+		return vscodeServeStart(ctx, vscode.Options{Port: *port, NoTailscale: *noTailscale, Funnel: *funnel, Folder: abs}, *format)
 	}
 }
 
-func vscodeServeStart(ctx context.Context, opts vscodeserve.Options, format string) int {
+func vscodeServeStart(ctx context.Context, opts vscode.Options, format string) int {
 	if err := outfmt.Check(format); err != nil {
 		return fail("network vscode: %v", err)
 	}
-	res, err := vscodeserve.Start(ctx, opts)
+	res, err := vscode.Start(ctx, opts)
 	if err != nil {
 		return fail("network vscode: %v", err)
 	}
@@ -226,9 +225,9 @@ func vscodeServeStop(format string) int {
 	if err := outfmt.Check(format); err != nil {
 		return fail("network vscode: %v", err)
 	}
-	st, wasRunning := vscodeserve.Running()
-	err := vscodeserve.Stop()
-	if errors.Is(err, vscodeserve.ErrNotRunning) || (err == nil && !wasRunning) {
+	st, wasRunning := vscode.Running()
+	err := vscode.Stop()
+	if errors.Is(err, vscode.ErrNotRunning) || (err == nil && !wasRunning) {
 		if format == "json" {
 			fmt.Println(`{"running":false}`)
 		} else {
@@ -260,13 +259,13 @@ func vscodeServeStatus(ctx context.Context, format string) int {
 	if err := outfmt.Check(format); err != nil {
 		return fail("network vscode: %v", err)
 	}
-	st, running := vscodeserve.Running()
-	_, mapped := vscodeserve.TailscaleMapping(ctx, st.Port)
+	st, running := vscode.Running()
+	_, mapped := vscode.TailscaleMapping(ctx, st.Port)
 	if format == "json" {
 		if err := outfmt.Write(os.Stdout, struct {
 			Running bool `json:"running"`
 			Mapped  bool `json:"tailscale_mapped"`
-			vscodeserve.State
+			vscode.State
 		}{running, mapped, st}); err != nil {
 			return fail("network vscode: %v", err)
 		}

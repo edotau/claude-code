@@ -1,6 +1,6 @@
 //go:build !unix
 
-package vscodeserve
+package vscode
 
 import "os"
 
