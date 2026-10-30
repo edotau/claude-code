@@ -6,6 +6,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/edotau/claude-code/internal/ui/ansi"
+	"github.com/edotau/claude-code/internal/ui/theme"
 )
 
 // Nerd Font glyphs: powerline right-arrow, left/right round caps.
@@ -24,7 +25,7 @@ var fallbackTheme = map[string]map[string]string{
 	"session":   {"bg": "#2E3440", "fg": "#D8DEE9"},
 }
 
-func themeColors(cfg Config, pal Palettes) map[string]map[string]string {
+func themeColors(cfg Config, pal theme.Palettes) map[string]map[string]string {
 	name := cfg.PowerlineTheme
 	if name == "" {
 		name = "dark"
@@ -50,7 +51,7 @@ func segLabel(key string, v values) string {
 }
 
 // renderSegmented renders the powerline, capsule, or minimal style over cfg.Order, then agents and git.
-func renderSegmented(v values, cfg Config, pal Palettes, mode string) string {
+func renderSegmented(v values, cfg Config, pal theme.Palettes, mode string) string {
 	var order []string
 	for _, k := range cfg.Order {
 		if k != "path" && k != "agents" && cfg.seg(k, true) {
@@ -105,7 +106,7 @@ func renderSegmented(v values, cfg Config, pal Palettes, mode string) string {
 }
 
 // renderBlocks joins powerline blocks with arrows (nerd charset) or minimal blocks with the minor separator.
-func renderBlocks(out *strings.Builder, blocks []block, cfg Config, pal Palettes, mode string) {
+func renderBlocks(out *strings.Builder, blocks []block, cfg Config, pal theme.Palettes, mode string) {
 	arrow := ""
 	if cfg.Style == "powerline" && cfg.Charset != "text" {
 		arrow = glyphArrow
@@ -118,7 +119,7 @@ func renderBlocks(out *strings.Builder, blocks []block, cfg Config, pal Palettes
 		case cfg.Style == "powerline":
 			out.WriteString(ansi.FgSeq(mode, b.bg, false) + arrow + ansi.Reset)
 		case cfg.Style == "minimal" && i+1 < len(blocks):
-			out.WriteString(ansi.Paint(mode, ansi.Hex(pal.sem("dim")), cfg.sep("minor", " · "), false))
+			out.WriteString(ansi.Paint(mode, ansi.Hex(pal.Sem("dim")), cfg.sep("minor", " · "), false))
 		}
 	}
 }
@@ -208,7 +209,7 @@ func layoutDashboard(built []builtCol, gutter, W int) (hdr, val []cell) {
 
 // renderDashboard renders the two-line column dashboard; the head opens the value row and a same-width
 // indent keeps the header row aligned over it.
-func renderDashboard(v values, cfg Config, pal Palettes, stops []ansi.RGB, mode string, width int) string {
+func renderDashboard(v values, cfg Config, pal theme.Palettes, stops []ansi.RGB, mode string, width int) string {
 	dash := cfg.Dashboard
 	cols := dash.Columns
 	if len(cols) == 0 {
@@ -244,7 +245,7 @@ func renderDashboard(v values, cfg Config, pal Palettes, stops []ansi.RGB, mode 
 		return head
 	}
 	hdr, val := layoutDashboard(built, gutter, W)
-	dim := ansi.Hex(pal.sem("dim"))
+	dim := ansi.Hex(pal.Sem("dim"))
 	trough := troughTone(cfg.Bar)
 	total := max(len(val)-1, 1)
 	var vb strings.Builder

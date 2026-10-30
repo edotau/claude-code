@@ -170,7 +170,7 @@ func TestVaultAgentsTableSpansPinsToText(t *testing.T) {
 	if err := json.Unmarshal(raw, &doc); err != nil {
 		t.Fatal(err)
 	}
-	text := renderVaultText(doc, nil, []string{"pins", "agents"}, 200)
+	text := renderVaultTextStyled(doc, nil, []string{"pins", "agents"}, 200, false)
 	flat := strings.Join(strings.Fields(text), " ")
 	for _, want := range []string{"AGENT PROFILE MODEL EFFORT", "claude dev sonnet opus=opus-x", "codex personal high", "gemini (off)"} {
 		if !strings.Contains(flat, want) {

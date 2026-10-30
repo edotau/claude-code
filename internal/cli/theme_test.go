@@ -11,7 +11,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/ui/statusline"
+	"github.com/edotau/claude-code/internal/ui/theme"
 )
 
 // hermeticTheme isolates the statusline config dir from the live ~/.claude.
@@ -65,7 +65,7 @@ func configPath(dir string) string { return filepath.Join(dir, "state", "statusl
 
 func TestThemeSetPersistsAndReloadsThroughStatuslineLoader(t *testing.T) {
 	hermeticTheme(t)
-	names := statusline.GradientNames()
+	names := theme.GradientNames()
 	if len(names) == 0 {
 		t.Fatal("no gradient palettes registered")
 	}
@@ -75,9 +75,9 @@ func TestThemeSetPersistsAndReloadsThroughStatuslineLoader(t *testing.T) {
 		t.Fatalf("theme %s exit %d", want, code)
 	}
 	// Re-read via statusline's own public loader, not our just-written file.
-	_, stops, _ := statusline.Theme()
-	if got := statusline.GradientStops(want); !reflect.DeepEqual(got, stops) {
-		t.Errorf("statusline.Theme() stops = %v, want %s's stops %v", stops, want, got)
+	_, stops, _ := theme.Theme()
+	if got := theme.GradientStops(want); !reflect.DeepEqual(got, stops) {
+		t.Errorf("theme.Theme() stops = %v, want %s's stops %v", stops, want, got)
 	}
 }
 
@@ -140,7 +140,7 @@ func TestThemePreviewListsEveryPaletteAndWritesNothing(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("theme --preview exit %d", code)
 	}
-	for _, name := range statusline.GradientNames() {
+	for _, name := range theme.GradientNames() {
 		if !strings.Contains(out, name) {
 			t.Errorf("preview missing palette %q:\n%s", name, out)
 		}
@@ -160,7 +160,7 @@ func TestThemeNoArgsAlsoListsAndWritesNothing(t *testing.T) {
 	if !strings.Contains(out, "usage: claude-code theme") || !strings.Contains(out, "● "+currentGradient()) {
 		t.Errorf("bare theme must print usage and mark the current palette:\n%s", out)
 	}
-	for _, name := range statusline.GradientNames() {
+	for _, name := range theme.GradientNames() {
 		if !strings.Contains(out, name) {
 			t.Errorf("no-arg listing missing palette %q:\n%s", name, out)
 		}
@@ -176,7 +176,7 @@ func TestThemeUnknownNameExitsTwoAndListsValid(t *testing.T) {
 	if code != 2 {
 		t.Fatalf("theme not-a-real-palette exit %d, want 2", code)
 	}
-	for _, name := range statusline.GradientNames() {
+	for _, name := range theme.GradientNames() {
 		if !strings.Contains(errOut, name) {
 			t.Errorf("unknown-name message missing valid palette %q:\n%s", name, errOut)
 		}

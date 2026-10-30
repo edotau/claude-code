@@ -68,7 +68,7 @@ func cmdTheme(args []string) int {
 		return themeApply(fs.Args()[1:])
 	}
 	name := fs.Args()[0]
-	names := statusline.GradientNames()
+	names := theme.GradientNames()
 	if !slices.Contains(names, name) {
 		fmt.Fprintf(os.Stderr, "claude-code: unknown palette %q — valid palettes: %s\n", name, strings.Join(names, ", "))
 		return 2
@@ -83,15 +83,15 @@ func cmdTheme(args []string) int {
 // printPalettes writes one line per gradient palette name, swept across its own stops when colored.
 func printPalettes(w io.Writer, colored bool) {
 	fmt.Fprintln(w, `PALETTES (state/statusline/config.json "gradient"; ● current)`)
-	mode, _, _ := statusline.Theme()
+	mode, _, _ := theme.Theme()
 	current := currentGradient()
-	for _, name := range statusline.GradientNames() {
+	for _, name := range theme.GradientNames() {
 		mark := " "
 		if name == current {
 			mark = "●"
 		}
 		if colored {
-			fmt.Fprintf(w, "  %s %s\n", mark, sweep(mode, statusline.GradientStops(name), name))
+			fmt.Fprintf(w, "  %s %s\n", mark, sweep(mode, theme.GradientStops(name), name))
 			continue
 		}
 		fmt.Fprintf(w, "  %s %s\n", mark, name)
@@ -103,12 +103,12 @@ func currentGradient() string {
 	var cfg struct {
 		Gradient string `json:"gradient"`
 	}
-	if raw, err := os.ReadFile(filepath.Join(statusline.ConfigDir(), "config.json")); err == nil {
+	if raw, err := os.ReadFile(filepath.Join(theme.StatuslineDir(), "config.json")); err == nil {
 		if json.Unmarshal(raw, &cfg) == nil && cfg.Gradient != "" {
 			return cfg.Gradient
 		}
 	}
-	if err := json.Unmarshal(statusline.DefaultConfigJSON(), &cfg); err != nil {
+	if err := json.Unmarshal(theme.DefaultConfigJSON(), &cfg); err != nil {
 		return "" // the embedded default must stay a valid JSON object; a stale cfg would mislead the caller
 	}
 	return cfg.Gradient
@@ -117,13 +117,13 @@ func currentGradient() string {
 // setGradient merges "gradient":name into state/statusline/config.json, creating it from the
 // embedded default when absent. It never touches any other key, and never touches settings.json.
 func setGradient(name string) error {
-	path := filepath.Join(statusline.ConfigDir(), "config.json")
+	path := filepath.Join(theme.StatuslineDir(), "config.json")
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		if !os.IsNotExist(err) {
 			return err
 		}
-		raw = statusline.DefaultConfigJSON()
+		raw = theme.DefaultConfigJSON()
 	}
 	var m map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &m); err != nil {

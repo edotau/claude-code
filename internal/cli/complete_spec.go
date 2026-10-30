@@ -6,7 +6,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/router"
-	"github.com/edotau/claude-code/internal/ui/statusline"
+	"github.com/edotau/claude-code/internal/ui/theme"
 )
 
 // specTree returns the one completion spec tree, keyed by each verb's canonical name (command.name —
@@ -61,7 +61,7 @@ func buildSpecTree() map[string]*compNode {
 		"doctor":   {flags: []flagInfo{boolFlag("audit"), flag("days"), boolFlag("scan"), boolFlag("git"), flag("since"), flag("range"), boolFlag("secrets"), formatFlag()}},
 		"help-svg": {flags: []flagInfo{flag("out"), flag("check")}},
 		"ask":      {flags: askFlags},
-		"theme": {args: []func() []string{statusline.GradientNames}, flags: []flagInfo{boolFlag("preview")},
+		"theme": {args: []func() []string{theme.GradientNames}, flags: []flagInfo{boolFlag("preview")},
 			sub: map[string]*compNode{
 				"apply":      {flags: []flagInfo{boolFlag("dry-run")}},
 				"statusline": {flags: []flagInfo{valuedFlag("style", statuslineStyles)}},

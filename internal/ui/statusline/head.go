@@ -5,6 +5,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/edotau/claude-code/internal/ui/ansi"
+	"github.com/edotau/claude-code/internal/ui/theme"
 )
 
 // promptUser is PS1's \u; the hostname is dead weight on a single-machine bar.
@@ -17,15 +18,15 @@ func promptUser() string {
 
 // promptHead is the segmented styles' "user:path" head: literal PS1 bold-green/bold-blue under
 // userColor "ansi", else the palette user tone and the ramp's opening stop. Gradient draws its own.
-func promptHead(v values, cfg Config, pal Palettes, stops []ansi.RGB, mode string) string {
+func promptHead(v values, cfg Config, pal theme.Palettes, stops []ansi.RGB, mode string) string {
 	if !cfg.seg("path", true) {
 		return ""
 	}
 	if cfg.UserColor == "ansi" {
 		return "\x1b[01;32m" + v.userHost + ansi.Reset + ":" + "\x1b[01;34m" + v.path + ansi.Reset
 	}
-	return ansi.Paint(mode, ansi.Hex(pal.sem("user")), v.userHost, true) +
-		ansi.Paint(mode, ansi.Hex(pal.sem("punct")), ":", false) +
+	return ansi.Paint(mode, ansi.Hex(pal.Sem("user")), v.userHost, true) +
+		ansi.Paint(mode, ansi.Hex(pal.Sem("punct")), ":", false) +
 		ansi.Paint(mode, ansi.GradAt(stops, 0), v.path, true)
 }
 

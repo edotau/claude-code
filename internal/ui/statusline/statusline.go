@@ -25,6 +25,7 @@ import (
 	"github.com/edotau/claude-code/internal/proxy"
 	"github.com/edotau/claude-code/internal/transcript"
 	"github.com/edotau/claude-code/internal/ui/ansi"
+	"github.com/edotau/claude-code/internal/ui/theme"
 	"github.com/edotau/claude-code/internal/usageledger"
 )
 
@@ -133,13 +134,13 @@ func Render(raw []byte, style string) string {
 	if style != "" {
 		cfg.Style = style
 	}
-	return render(collect(in, cfg), cfg, loadPalettes())
+	return render(collect(in, cfg), cfg, theme.LoadPalettes())
 }
 
-func render(v values, cfg Config, pal Palettes) string {
-	pal = cfg.liftPalette(pal)
-	stops := resolveGradient(cfg, pal)
-	mode := colorMode(cfg)
+func render(v values, cfg Config, pal theme.Palettes) string {
+	pal = cfg.LiftPalette(pal)
+	stops := cfg.Stops(pal)
+	mode := cfg.Mode()
 	width := lineWidth(cfg)
 	switch cfg.Style {
 	case "dashboard":
@@ -148,33 +149,11 @@ func render(v values, cfg Config, pal Palettes) string {
 		head := promptHead(v, cfg, pal, stops, mode)
 		body := renderSegmented(v, cfg, pal, mode)
 		if head != "" && body != "" {
-			head += ansi.Paint(mode, ansi.Hex(pal.sem("dim")), sepPath, false)
+			head += ansi.Paint(mode, ansi.Hex(pal.Sem("dim")), sepPath, false)
 		}
 		return clip(head+body, width)
 	}
 	return clip(renderGradient(v, cfg, pal, stops, mode), width)
-}
-
-// resolveGradient returns the configured ramp's stops, else the embedded gemini ramp.
-func resolveGradient(cfg Config, pal Palettes) []ansi.RGB {
-	stops := pal.Gradients[cfg.Gradient]
-	if len(stops) == 0 {
-		stops = embeddedPalettes().Gradients["gemini"]
-	}
-	out := hexStops(stops)
-	for i, rgb := range out {
-		out[i] = cfg.lifted(rgb)
-	}
-	return out
-}
-
-// hexStops converts a palette's hex ramp to RGB stops (shared by resolveGradient and GradientStops).
-func hexStops(hexes []string) []ansi.RGB {
-	out := make([]ansi.RGB, len(hexes))
-	for i, h := range hexes {
-		out[i] = ansi.Hex(h)
-	}
-	return out
 }
 
 // collect resolves every enabled segment; disabled ones skip their IO.

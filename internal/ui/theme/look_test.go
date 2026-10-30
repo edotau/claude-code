@@ -1,4 +1,4 @@
-package statusline
+package theme
 
 import (
 	"testing"
@@ -17,31 +17,31 @@ func near(a, b ansi.RGB) bool {
 
 func TestLiftIdentityAtZero(t *testing.T) {
 	in := ansi.Hex("#7C6C7C")
-	if got := (Config{}).lifted(in); got != in {
+	if got := (Look{}).Lifted(in); got != in {
 		t.Fatalf("lift 0 changed %v to %v", in, got)
 	}
-	pal := embeddedPalettes()
-	if got := (Config{}).liftPalette(pal); got.sem("dim") != pal.sem("dim") {
-		t.Fatalf("lift 0 changed dim: %s", got.sem("dim"))
+	pal := EmbeddedPalettes()
+	if got := (Look{}).LiftPalette(pal); got.Sem("dim") != pal.Sem("dim") {
+		t.Fatalf("lift 0 changed dim: %s", got.Sem("dim"))
 	}
 }
 
 func TestLiftKnownValues(t *testing.T) {
-	c := Config{Lift: 0.15}
+	c := Look{Lift: 0.15}
 	for hex, want := range map[string]string{"#7C6C7C": "#908291", "#4796E4": "#62A6E8"} {
-		if got := c.lifted(ansi.Hex(hex)); !near(got, ansi.Hex(want)) {
+		if got := c.Lifted(ansi.Hex(hex)); !near(got, ansi.Hex(want)) {
 			t.Errorf("%s: got %v want %v", hex, got, ansi.Hex(want))
 		}
 	}
-	pal := embeddedPalettes()
-	if got := c.liftPalette(pal).sem("dim"); !near(ansi.Hex(got), c.lifted(ansi.Hex(pal.sem("dim")))) {
+	pal := EmbeddedPalettes()
+	if got := c.LiftPalette(pal).Sem("dim"); !near(ansi.Hex(got), c.Lifted(ansi.Hex(pal.Sem("dim")))) {
 		t.Errorf("palette dim = %s", got)
 	}
 }
 
 func TestLiftGeminiStops(t *testing.T) {
-	base := resolveGradient(Config{Gradient: "gemini"}, embeddedPalettes())
-	got := resolveGradient(Config{Gradient: "gemini", Lift: 0.15}, embeddedPalettes())
+	base := Look{Gradient: "gemini"}.Stops(EmbeddedPalettes())
+	got := Look{Gradient: "gemini", Lift: 0.15}.Stops(EmbeddedPalettes())
 	for i := range base {
 		for ch := range base[i] {
 			if got[i][ch] < base[i][ch] || got[i][ch] > 255 {
@@ -56,10 +56,10 @@ func TestLiftGeminiStops(t *testing.T) {
 
 func TestLiftClamped(t *testing.T) {
 	in := ansi.Hex("#4796E4")
-	if got, want := (Config{Lift: 5}).lifted(in), (Config{Lift: 0.6}).lifted(in); got != want {
+	if got, want := (Look{Lift: 5}).Lifted(in), (Look{Lift: 0.6}).Lifted(in); got != want {
 		t.Errorf("high not clamped: %v vs %v", got, want)
 	}
-	if got := (Config{Lift: -1}).lifted(in); got != in {
+	if got := (Look{Lift: -1}).Lifted(in); got != in {
 		t.Errorf("negative not clamped: %v", got)
 	}
 }
