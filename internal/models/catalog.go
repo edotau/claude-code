@@ -141,9 +141,6 @@ func Limits(id string) (TokenLimits, bool) {
 	return l, l != (TokenLimits{})
 }
 
-// Catalog returns every catalog model in file order.
-func Catalog() []Entry { return append([]Entry(nil), load().Models...) }
-
 // wirePrefixes carry no model identity on any wire spelling.
 var wirePrefixes = [...]string{"databricks-", "system.ai.", "system.ai-"}
 

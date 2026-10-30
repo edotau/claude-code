@@ -90,7 +90,7 @@ func TestAliasAndLookup(t *testing.T) {
 
 func TestCatalogIntegrity(t *testing.T) {
 	seen := map[string]string{}
-	for _, e := range Catalog() {
+	for _, e := range load().Models {
 		for rule := range load().Spellings {
 			w := Wire(rule, e.ID)
 			if prev, dup := seen[w]; dup && prev != e.ID {

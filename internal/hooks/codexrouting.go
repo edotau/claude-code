@@ -2,7 +2,6 @@ package hooks
 
 import (
 	"encoding/json"
-	"io"
 	"os"
 	"strings"
 
@@ -33,11 +32,6 @@ func nativeCodexAgentRoute(in *Input) Result {
 		RequestedModel: cell.Model, Effort: cell.Effort, Signal: signal})
 	res.UpdatedInput = updated
 	return res
-}
-
-// CodexAgentRoute is the legacy `hook codex-agent-route` entry; the vendor builder renders the rewrite.
-func CodexAgentRoute(r io.Reader, stdout, stderr io.Writer) int {
-	return nativeHandler("codex-agent-route")(r, stdout, stderr)
 }
 
 func codexSpawnTool(name string) bool { return strings.HasSuffix(name, "spawn_agent") }

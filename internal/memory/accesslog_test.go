@@ -24,7 +24,7 @@ func TestAccessRotationReturnCountsAndRepoNominations(t *testing.T) {
 	if _, err := os.Stat(logPath + ".1"); err != nil {
 		t.Fatalf("a first entry older than %dd did not rotate to .1: %v", accessRotateDays, err)
 	}
-	stats, oldest := AccessStats(home, now, 0)
+	stats, oldest := accessStatsAt(AccessLogPath(home), now, 0)
 	if !oldest.Equal(old) {
 		t.Errorf("rotation lost the cold horizon: oldest = %v, want %v", oldest, old)
 	}

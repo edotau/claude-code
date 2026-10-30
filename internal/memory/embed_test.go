@@ -16,6 +16,7 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/proxy"
 	"github.com/edotau/claude-code/internal/vault"
+	"go.etcd.io/bbolt"
 )
 
 // fakeEmbedServer answers {"input":[...]} with one 3-dim vector per text and counts the texts it embedded.
@@ -420,4 +421,24 @@ func TestNewSemanticBacksOffAfterTimeout(t *testing.T) {
 	if opens.Load() != 1 || time.Since(start) > embedRecallWait/2 {
 		t.Errorf("backoff still reached the endpoint: opens=%d took %s", opens.Load(), time.Since(start))
 	}
+}
+
+// loadEmbedCache is readEmbedCache with every failure folded into an empty record.
+func loadEmbedCache(profile string) embedCacheFile {
+	if !safeEmbedProfile(profile) {
+		return embedCacheFile{}
+	}
+	f, err := readEmbedCache(profile)
+	if err != nil {
+		return embedCacheFile{}
+	}
+	return f
+}
+
+// saveEmbedCache stores f as profile's record unconditionally (one Put); the mint path uses commitEmbedMint.
+func saveEmbedCache(profile string, f embedCacheFile) error {
+	if !safeEmbedProfile(profile) {
+		return fmt.Errorf("embeddings: unsafe profile name %q", profile)
+	}
+	return updateEmbedDB(func(tx *bbolt.Tx) error { return putEmbedRecord(tx, profile, f) })
 }

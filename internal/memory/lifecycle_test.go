@@ -109,7 +109,7 @@ func TestWriteDoctorNoticeCachesFirstProblem(t *testing.T) {
 	}
 }
 
-func TestLogAccessAndAccessStats(t *testing.T) {
+func TestLogAccessAndAccessStatsAt(t *testing.T) {
 	dir := t.TempDir()
 	day1 := time.Date(2026, 1, 1, 10, 0, 0, 0, time.UTC)
 	LogAccess(dir, day1, "aa11bb22", AccessRecall)
@@ -117,7 +117,7 @@ func TestLogAccessAndAccessStats(t *testing.T) {
 	LogAccess(dir, day1.AddDate(0, 0, 2), "aa11bb22", AccessRecall)
 	LogAccess(dir, day1, "cc33dd44", AccessRecall)
 
-	stats, oldest := AccessStats(dir, day1.AddDate(0, 0, 2), 30)
+	stats, oldest := accessStatsAt(AccessLogPath(dir), day1.AddDate(0, 0, 2), 30)
 	if oldest.IsZero() || !oldest.Equal(day1) {
 		t.Errorf("oldest = %v want %v", oldest, day1)
 	}

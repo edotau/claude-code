@@ -6,7 +6,6 @@ import (
 	_ "image/gif"  // registers GIF with image.DecodeConfig
 	_ "image/jpeg" // registers JPEG with image.DecodeConfig
 	_ "image/png"  // registers PNG with image.DecodeConfig
-	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -69,19 +68,6 @@ func scanTokens(text string, quoted, bare *regexp.Regexp, trim string) []pathTok
 			t = strings.TrimRight(m, trim)
 		}
 		add(m, t)
-	}
-	return out
-}
-
-// scanPaths is scanTokens reduced to the trimmed tokens.
-func scanPaths(text string, quoted, bare *regexp.Regexp, trim string) []string {
-	var out []string
-	seen := map[string]bool{}
-	for _, t := range scanTokens(text, quoted, bare, trim) {
-		if !seen[t.trimmed] {
-			seen[t.trimmed] = true
-			out = append(out, t.trimmed)
-		}
 	}
 	return out
 }
@@ -215,13 +201,6 @@ func pathResolverResult(in *Input, res *paths.Resolver) Result {
 // nativePathResolver binds pathResolverResult to the host's mount view.
 func nativePathResolver(in *Input) Result { return pathResolverResult(in, paths.Default()) }
 
-// promptPathFeedback is the hook core with the resolver injected, so tests do not depend on the host's mounts.
-// Silent when the prompt names no existing file.
-func promptPathFeedback(r io.Reader, stdout io.Writer, res *paths.Resolver) int {
-	in := ParseInput(r)
-	return Emit(in.Vendor(), "UserPromptSubmit", pathResolverResult(in, res), stdout, io.Discard)
-}
-
 // foreignHead opens a non-POSIX path token: drive letter, UNC, scheme URL, ~ / ~user, or host:/path.
 const foreignHead = `(?:\b[A-Za-z]:[\\/]|\\\\|(?:file|smb|nfs)://|~[A-Za-z0-9_.-]*/|\b(?:[\w.-]+@)?[\w.-]{2,}:/)`
 
@@ -243,11 +222,6 @@ func OnWSL() bool {
 	}
 	b, err := os.ReadFile("/proc/version")
 	return err == nil && strings.Contains(strings.ToLower(string(b)), "microsoft")
-}
-
-// scanWinPaths extracts unique Windows, UNC, URL and ~ path tokens.
-func scanWinPaths(text string) []string {
-	return scanPaths(text, quotedWinPathRE(), winPathRE(), winTrim)
 }
 
 const winTrim = ".,;:!?)]}'\""

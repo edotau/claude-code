@@ -66,8 +66,8 @@ func TestCopilotGateThreshold(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			reg := gateReg(t, map[string]bool{"dev": true})
 			gh := gateSetup(t, tt.pct, tt.ok, reg)
-			if got := CopilotWorkable(context.Background(), "alice"); got != tt.wantGitHub {
-				t.Errorf("CopilotWorkable = %v, want %v", got, tt.wantGitHub)
+			if _, got := copilotHeadroom(context.Background(), "alice"); got != tt.wantGitHub {
+				t.Errorf("copilotHeadroom ok = %v, want %v", got, tt.wantGitHub)
 			}
 			got, note, err := CopilotGate(reg, gh)
 			if err != nil {
@@ -106,7 +106,7 @@ func TestCopilotGateUnsetLookupAndPin(t *testing.T) {
 			reg := gateReg(t, map[string]bool{"qa": true})
 			gh := gateSetup(t, 1, true, reg)
 			mutate(t)
-			if CopilotWorkable(context.Background(), providers.Pin(providers.PinCopilotProfile)) {
+			if _, ok := copilotHeadroom(context.Background(), providers.Pin(providers.PinCopilotProfile)); ok {
 				t.Fatal("must not be workable")
 			}
 			got, _, err := CopilotGate(reg, gh)

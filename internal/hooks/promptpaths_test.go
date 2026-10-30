@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"image"
 	"image/png"
+	"io"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -15,6 +16,20 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
+
+func scanWinPaths(text string) []string {
+	var out []string
+	for _, tok := range scanWinTokens(text) {
+		out = append(out, tok.trimmed)
+	}
+	return out
+}
+
+// promptPathFeedback runs the hook core with res injected, so tests do not depend on the host's mounts.
+func promptPathFeedback(r io.Reader, stdout io.Writer, res *paths.Resolver) int {
+	in := ParseInput(r)
+	return Emit(in.Vendor(), "UserPromptSubmit", pathResolverResult(in, res), stdout, io.Discard)
+}
 
 func TestScanWinPaths(t *testing.T) {
 	// Quoted-with-spaces must be captured whole (not split by the bareword regex).

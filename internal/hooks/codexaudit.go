@@ -56,19 +56,6 @@ func codexRecorded(in *Input, record codexRouteRecord) Result {
 	return Result{Stderr: strings.TrimSpace(warn.String())}
 }
 
-// Legacy direct entries for the vendor CLI paths; the dispatcher binds the native Runners.
-func CodexRoutingStart(r io.Reader, _, stderr io.Writer) int {
-	return nativeHandler("codex-routing-start")(r, io.Discard, stderr)
-}
-
-func CodexRoutingResult(r io.Reader, _, stderr io.Writer) int {
-	return nativeHandler("codex-routing-result")(r, io.Discard, stderr)
-}
-
-func CodexSubagentStart(r io.Reader, _, stderr io.Writer) int {
-	return nativeHandler("codex-subagent-start")(r, io.Discard, stderr)
-}
-
 func codexResultAgentID(raw any) string {
 	if text, ok := raw.(string); ok {
 		if json.Unmarshal([]byte(text), &raw) != nil {
