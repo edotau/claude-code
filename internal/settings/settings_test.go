@@ -328,7 +328,7 @@ func TestMergeDropsRetiredPermissionsKeepsForeign(t *testing.T) {
 	if err := json.Unmarshal(out, &got); err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"Bash(my-tool *)", "Bash(npm publish:*)"}
+	want := []string{"Bash(npm publish:*)", "Bash(my-tool *)"}
 	if !slices.Equal(got.Permissions.Ask, want) || !got.EnabledPlugins["x@y"] {
 		t.Fatalf("merged = %s, want ask %v and enabledPlugins kept", out, want)
 	}

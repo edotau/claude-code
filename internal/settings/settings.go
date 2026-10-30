@@ -214,12 +214,12 @@ func mergePermissions(base, overlay json.RawMessage) (json.RawMessage, error) {
 			return nil, fmt.Errorf("permissions.%s is not a string list", k)
 		}
 		have = slices.DeleteFunc(have, func(r string) bool { return slices.Contains(retiredPermissions, r) })
-		for _, r := range add {
-			if !slices.Contains(have, r) {
-				have = append(have, r)
+		for _, r := range have { // template order first, so a reordered template is not reported as drift
+			if !slices.Contains(add, r) {
+				add = append(add, r)
 			}
 		}
-		raw, err := encode(have)
+		raw, err := encode(add)
 		if err != nil {
 			return nil, err
 		}
