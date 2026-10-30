@@ -9,6 +9,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/http/httptrace"
 	"net/url"
 	"strings"
 	"sync"
@@ -104,9 +105,13 @@ type tokenRequest struct {
 
 var tokenClient = &http.Client{Timeout: 30 * time.Second}
 
-// retryable reports whether a failed attempt may be sent again; non-idempotent grants only replay 429/503.
-func (r tokenRequest) retryable(status int) bool {
+// retryable reports whether a failed attempt may be sent again; a one-shot grant retries only 429/503
+// or a transport error before the request was written (it cannot have been consumed).
+func (r tokenRequest) retryable(status int, written bool) bool {
 	if status == http.StatusTooManyRequests || status == http.StatusServiceUnavailable {
+		return true
+	}
+	if status == 0 && !written {
 		return true
 	}
 	return r.replay && (status == 0 || status >= 500)
@@ -117,11 +122,12 @@ func postToken(ctx context.Context, r tokenRequest) (tokenReply, error) {
 	var (
 		reply  tokenReply
 		status int
+		sent   bool
 		err    error
 	)
 	for attempt := 1; ; attempt++ {
-		reply, status, err = postOnce(ctx, r)
-		if err == nil || !r.retryable(status) || attempt == maxAttempts {
+		reply, status, sent, err = postOnce(ctx, r)
+		if err == nil || !r.retryable(status, sent) || attempt == maxAttempts {
 			return reply, err
 		}
 		select {
@@ -132,12 +138,14 @@ func postToken(ctx context.Context, r tokenRequest) (tokenReply, error) {
 	}
 }
 
-// postOnce is one attempt; status is 0 when no HTTP response arrived.
-func postOnce(ctx context.Context, r tokenRequest) (tokenReply, int, error) {
-	var reply tokenReply
+// postOnce is one attempt; status is 0 when no HTTP response arrived and written is true once the request went out.
+func postOnce(ctx context.Context, r tokenRequest) (reply tokenReply, status int, written bool, err error) {
+	ctx = httptrace.WithClientTrace(ctx, &httptrace.ClientTrace{
+		WroteRequest: func(info httptrace.WroteRequestInfo) { written = info.Err == nil },
+	})
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, r.host+tokenPath, strings.NewReader(r.form.Encode()))
 	if err != nil {
-		return reply, 0, fmt.Errorf("oauth: %s at %s: %w", r.op, r.host, err)
+		return reply, 0, written, fmt.Errorf("oauth: %s at %s: %w", r.op, r.host, err)
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Accept", "application/json")
@@ -146,12 +154,12 @@ func postOnce(ctx context.Context, r tokenRequest) (tokenReply, int, error) {
 	}
 	resp, err := tokenClient.Do(req)
 	if err != nil {
-		return reply, 0, fmt.Errorf("oauth: %s at %s: network error: %w", r.op, r.host, err)
+		return reply, 0, written, fmt.Errorf("oauth: %s at %s: network error: %w", r.op, r.host, err)
 	}
 	defer resp.Body.Close()
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, maxBodyBytes))
 	if err != nil {
-		return reply, 0, fmt.Errorf("oauth: %s at %s: network error: %w", r.op, r.host, err)
+		return reply, 0, written, fmt.Errorf("oauth: %s at %s: network error: %w", r.op, r.host, err)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		var e struct {
@@ -159,12 +167,12 @@ func postOnce(ctx context.Context, r tokenRequest) (tokenReply, int, error) {
 			Description string `json:"error_description"`
 		}
 		_ = json.Unmarshal(raw, &e)
-		return reply, resp.StatusCode, &oauthError{Host: r.host, Op: r.op, Code: e.Error, Desc: e.Description, Status: resp.StatusCode}
+		return reply, resp.StatusCode, written, &oauthError{Host: r.host, Op: r.op, Code: e.Error, Desc: e.Description, Status: resp.StatusCode}
 	}
 	if json.Unmarshal(raw, &reply) != nil || reply.AccessToken == "" {
-		return reply, resp.StatusCode, fmt.Errorf("oauth: %s at %s: response had no access_token", r.op, r.host)
+		return reply, resp.StatusCode, written, fmt.Errorf("oauth: %s at %s: response had no access_token", r.op, r.host)
 	}
-	return reply, resp.StatusCode, nil
+	return reply, resp.StatusCode, written, nil
 }
 
 // token converts a reply into a Token whose Expiry is zero when the server sent no lifetime.

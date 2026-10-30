@@ -40,14 +40,6 @@ func TestMergeCodexHooksKeepsForeignEntries(t *testing.T) {
 		t.Fatalf("mergeCodexHooks: %v", err)
 	}
 	got := string(merged)
-	for _, event := range []string{
-		"PostToolUse", "PreToolUse", "UserPromptSubmit", "SessionStart",
-		"PermissionRequest", "SubagentStart", "SubagentStop", "Stop", "Interrupt",
-	} {
-		if n := strings.Count(got, orcaMarker); n < 9 {
-			t.Fatalf("expected Orca's marker to survive in every one of its 9 groups, found %d occurrences in merged output for %s:\n%s", n, event, got)
-		}
-	}
 	if !strings.Contains(got, "claude-code hook PreToolUse --safety-scan") {
 		t.Errorf("merged output lost the harness safety-scan hook:\n%s", got)
 	}
@@ -56,6 +48,15 @@ func TestMergeCodexHooksKeepsForeignEntries(t *testing.T) {
 	}
 	if err := json.Unmarshal(merged, &doc); err != nil {
 		t.Fatalf("merged output is not valid JSON: %v\n%s", err, got)
+	}
+	for _, event := range []string{
+		"PostToolUse", "PreToolUse", "UserPromptSubmit", "SessionStart",
+		"PermissionRequest", "SubagentStart", "SubagentStop", "Stop", "Interrupt",
+	} {
+		groups, _ := json.Marshal(doc.Hooks[event])
+		if !strings.Contains(string(groups), orcaMarker) {
+			t.Errorf("event %s lost Orca's entry: %s", event, groups)
+		}
 	}
 }
 

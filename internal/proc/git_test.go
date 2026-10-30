@@ -91,12 +91,13 @@ func TestRunGitDirBecomesLeadingC(t *testing.T) {
 }
 
 func TestRunGitEmptyDirOmitsC(t *testing.T) {
-	// With dir == "", RunGit must not inject its own -C; passing no -C and no repo args should run
-	// in the test binary's cwd as plain `git <args>` would.
-	_, err := RunGit(context.Background(), "", "rev-parse", "--is-inside-work-tree")
-	// Outcome depends on cwd; what matters is that no "-C " was injected ahead of the subcommand,
-	// which TestRunGitErrorWrapsArgv below exercises directly via the error message.
-	_ = err
+	_, err := RunGit(context.Background(), "", "not-a-real-git-subcommand")
+	if err == nil {
+		t.Fatal("expected an error for an invalid git subcommand")
+	}
+	if strings.Contains(err.Error(), "-C") {
+		t.Fatalf("dir == \"\" must not inject -C: %q", err)
+	}
 }
 
 func TestRunGitErrorWrapsArgvAndStderr(t *testing.T) {

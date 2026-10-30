@@ -133,7 +133,7 @@ func TestCmdWorktreeMergeExplicitVerifyOverridesDetection(t *testing.T) {
 	}
 }
 
-// TestCmdWorktreeMergeVerifyPipelineFailureFailsGate is the regression test for runVerify's
+// TestCmdWorktreeMergeVerifyPipelineFailureFailsGate is the regression test for worktree.RunVerify's
 // `set -o pipefail`: a pipeline whose first stage fails (`false | cat`) must fail the gate — without
 // pipefail, the pipeline's exit status would be `cat`'s (0), silently reading as a passing gate.
 func TestCmdWorktreeMergeVerifyPipelineFailureFailsGate(t *testing.T) {

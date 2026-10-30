@@ -85,7 +85,7 @@ func TestCmdWorktreeMergeResumeWrongRepoOperationFails(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Same basename as the real repo.Main (operationPath keys by it), different full path — so
-	// LoadOperation finds this file, but resumeWorktreeMerge's op.Repo != repo.Main check must fire.
+	// LoadOperation finds this file, but worktree.resumeMerge's op.Repo != repo.Main check must fire.
 	otherRepoWithSameBasename := filepath.Join(r.Main, "..", "other-"+filepath.Base(r.Main), filepath.Base(r.Main))
 	op := &worktree.Operation{
 		Repo:      otherRepoWithSameBasename,
@@ -183,7 +183,7 @@ func TestCmdWorktreeMergeResumeStopsOnTargetMovedSinceResolutionStarted(t *testi
 
 // TestCmdWorktreeMergeResumeStopsOnTargetBranchChangedAtSameOID covers the other half of the same
 // finding: main checked out onto a DIFFERENT branch pointing at the exact same commit the operation
-// pinned — the OID alone would pass unnoticed, so resumeWorktreeMerge must also compare TargetRef.
+// pinned — the OID alone would pass unnoticed, so worktree.resumeMerge must also compare TargetRef.
 func TestCmdWorktreeMergeResumeStopsOnTargetBranchChangedAtSameOID(t *testing.T) {
 	repo := mergeFixtureCLISetup(t)
 	wt := mergeFixtureCLIWorktreePath(t, repo)
