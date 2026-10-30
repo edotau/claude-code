@@ -11,8 +11,11 @@ parallel and concurrent subagent loops, and the tooling each leaf uses.
 
    | Scope | Command |
    | --- | --- |
-   | Named path | `.venv/bin/python -m pytest <path> -x -v` · `go test ./<pkg> -run '<Name>'` |
-   | `fast`/`unit`/`all` | `make test-smoke`/`test-unit`/`test-all` if defined, else `make test-unit`, else `make test` |
+   | One test | `go test ./internal/<pkg> -run '<TestName>' -count=1` (`-count=1` defeats the cache after an edit) |
+   | Touched packages | `go test ./internal/<a> ./internal/<b>`; `-race` for concurrent code |
+   | Repo tiers | `make test-smoke`/`test-unit`/`test-all` if defined, else `make test-unit`, else `make test` |
+
+   Other languages: the overlay's scoped commands (`rules/software/<lang>/testing.md`).
 
 2. **Triage each failure against the spec.** A failing test is guilty until its expectation traces to a spec, the
    request or observed live behavior; then the code is wrong. Name which, with the evidence. Under parallelism a red
@@ -61,9 +64,9 @@ loudly when the anchor is missing — a no-op mutation passes for the very reaso
 ## Pin the behavior first — Given / When / Then
 
 ```text
-Given an authenticated user with no widgets
-When they POST /api/widgets/ with {"name": "w"}
-Then the response is 201 and the body contains the new widget's id
+Given a vault whose only agent pin is COPILOT_ACTIVE=off
+When `vault list agents` renders without color
+Then the copilot row reads `copilot (off)` and no PINS section is printed
 ```
 
 Each criterion maps 1:1 to a test; "should work well" is not a criterion; anything untraceable is scope creep.
@@ -73,23 +76,18 @@ Each criterion maps 1:1 to a test; "should work well" is not a criterion; anythi
 | Anti-pattern | Gate question | Fix |
 | --- | --- | --- |
 | Asserting on a mock element | "Real behavior, or just mock existence?" | Unmock it, or delete the assertion |
-| Test-only method on a production class | "Only used by tests?" | Move it to test utilities |
+| Test-only method on a production type | "Only used by tests?" | Move it to a `_test.go` helper; keep the seam a package var |
 | Mocking without understanding | "What side effects does the real method have, and does the test need them?" | Mock only the slow/external call; keep the write path real |
 | Incomplete mock | "What fields does the real API return?" | Mirror the complete real shape |
 
-## pytest quick reference
+## Go shapes
 
 | Need | Use |
 | --- | --- |
-| Setup/teardown, shared data | `@pytest.fixture` (function/class/module/package/session), `conftest.py` |
-| Input matrix | `@pytest.mark.parametrize("a,b", [...])` |
-| Isolate external calls | `@patch("consumer.module.func")`, `autospec=True` for signature safety |
-| Expect an exception | `with pytest.raises(ValueError, match="...")` |
-| Slow/optional tests | `@pytest.mark.slow`, `@pytest.mark.skipif(...)` |
-| Async code | `@pytest.mark.asyncio` |
+| Input matrix | a table of cases + `t.Run(tc.name, …)`; one spanning test, not a row per neighbour |
+| Hermetic config | `t.TempDir()` + `t.Setenv("CLAUDE_CONFIG_DIR", dir)` |
+| Seam | package var swapped and restored with `t.Cleanup` (`rules/standards/testing-guidelines.md`) |
+| Golden output | the package's documented `-update` flag; read the diff before accepting it |
 
-## API & contract testing
-
-Contract tests prove a boundary — request shapes, status codes, response shape, enforced auth. Drive coverage from
-the auth/permission and input-validation matrices, not the happy path:
+Python (pytest, `@patch`, DRF/FastAPI contract matrices): `rules/software/python/testing.md` and
 [api-contract-testing.md](api-contract-testing.md).

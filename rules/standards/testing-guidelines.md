@@ -32,8 +32,9 @@ refactor that breaks only tests means rewrite them against behavior.
 
 ## A test must guard
 
-- **Import the code under test.** A test that rebuilds the logic inline passes with the fix reverted — documentation,
-  not a guard (`grep -nE '^(import|from)' <test> | grep <module>`).
+- **Call the code under test.** A test that rebuilds the logic inline passes with the fix reverted — documentation,
+  not a guard. In Go, the test drives the package's own function (`got := renderVaultText(doc, …)`), never a
+  re-derived copy of its math or its row count.
 - **Prove the teeth, don't reason about them:** `claude-code test mutate <file> <old> <new> [--run RE] <pkg>` (exit 0
   = the suite failed with the defect in). Never edit-and-restore a tracked file; confirm the failure message matches
   the defect. A test that cannot fail when the code is wrong is deleted.
@@ -42,9 +43,21 @@ refactor that breaks only tests means rewrite them against behavior.
   dependency with a deterministic oracle so any difference is the logic under test.
 - **Derive expected values from the fixture**, never hardcode a belief about it; drive parsers with real bytes
   sampled from the live artifact.
-- **Mock only real boundaries** — network, model calls, the clock, external CLIs — at the consumer's import site;
-  everything else runs real code against a hermetic config dir. More than two mocks in a test is a missing seam;
-  asserting on a mock's own behavior fails the import rule.
+- **Mock only real boundaries** — network, model calls, the clock, external CLIs, process scans — at the consumer;
+  everything else runs real code against a hermetic config dir (`t.TempDir()`, `CLAUDE_CONFIG_DIR`). More than two
+  mocks in a test is a missing seam; asserting on a mock's own behavior fails the rule above. In Go the seam is a
+  package var swapped for the test and restored:
+
+  ```go
+  var peerAgents = worktree.PeerAgents // production: scans live processes
+
+  orig := peerAgents
+  peerAgents = func(string, []string) ([]worktree.Proc, error) { return []worktree.Proc{{PID: 4242, Comm: "claude"}}, nil }
+  t.Cleanup(func() { peerAgents = orig })
+  ```
+
+- **Never spawn the test binary:** `os.Executable()` in a test is `go test`'s binary — stub every daemon-spawn seam;
+  a detached child outlives the killed test run.
 - **Stop and ask** instead of encoding a guess when a case's behavior isn't determinable from the request or data,
   the change alters an API/DB contract, or it touches auth/permissions/PII.
 
