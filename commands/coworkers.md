@@ -18,6 +18,7 @@ bug-fix task also gets a `copilot` test agent in the SAME message and runs its
 edits in a worktree. Relay one consolidated report: per task, the agent rows (agent · model · job · fallback ·
 verified), the verified answer or change, and for `compare` where the agents agreed and differed.
 
-A `profile=<name>` argument adds `Profile: <name>` to each brief: the leaf runs `ask --profile`, host and auth from the vault.
+A `profile=<name>` argument adds `Profile: <name>` to each brief: the leaf runs `ask --profile`,
+host and auth from the vault.
 
 Pick and fallback: `skills/subagent-workflows/references/cost-routing.md`.
