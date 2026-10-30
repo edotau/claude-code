@@ -342,11 +342,12 @@ func (s *liveSession) runTurn(ctx context.Context, prompt string, sink Sink) {
 	s.mu.Lock()
 	s.session = cmp.Or(res.SessionID, s.session)
 	s.mu.Unlock()
-	s.release() // before the result goes out: a client's next send must find the session free
-	_ = sink.Emit(ResultEvent(NewEnvelope(res, err, s.rec.ID)))
-	if _, atBoundary := errors.AsType[resultError](err); err != nil && !atBoundary { // the turn's result is unread or lost
+	// A lost turn result ends the session before it is freed, so a next send can't read that turn's late answer.
+	if _, atBoundary := errors.AsType[resultError](err); err != nil && !atBoundary {
 		s.cancel(fmt.Errorf("session stream broke: %w", err))
 	}
+	s.release() // before the result goes out: a client's next send must find the session free
+	_ = sink.Emit(ResultEvent(NewEnvelope(res, err, s.rec.ID)))
 }
 
 // release ends the in-flight turn and restarts the idle clock.
