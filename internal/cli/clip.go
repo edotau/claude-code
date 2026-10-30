@@ -16,28 +16,17 @@ import (
 // WSL2 Ctrl+V image paste fails on the bridged BMP.
 func cmdClip(args []string) int {
 	fs := helptext.NewFlagSet("clip", helptext.Page{
-		Usage: "claude-code clip [--serve | --ssh-stdout]",
+		Usage: "claude-code clip [--serve]",
 		About: "Saves the clipboard image to a PNG and prints its path (macOS, WSL). " +
 			"Fallback for Ctrl+V image paste; hand the path to ask --attach.",
 	})
 	serve := fs.Bool("serve", false, "write the macOS clipboard PNG to stdout (launchd bridge)")
-	sshOut := fs.Bool("ssh-stdout", false, "write the SSH client's clipboard PNG to stdout")
 	if code, done := helptext.Parse(fs, args); done {
 		return code
 	}
-	switch {
-	case *serve: // stdout is the bridge socket: errors go to stderr only
+	if *serve { // stdout is the bridge socket: errors go to stderr only
 		if err := clipboard.ServePNG(os.Stdout); err != nil {
 			return fail("clip --serve: %v", err)
-		}
-		return 0
-	case *sshOut:
-		b, err := clipboard.ReadSSH()
-		if err != nil {
-			return fail("clip: %v", err)
-		}
-		if _, err := os.Stdout.Write(b); err != nil {
-			return fail("clip: %v", err)
 		}
 		return 0
 	}
@@ -50,26 +39,9 @@ func cmdClip(args []string) int {
 	return 0
 }
 
-// cmdBMPTranscode pipes a WSLg-bridged BMP (stdin) to a decodable 24bpp BMP, or PNG with --png
-// (stdout); the wl-paste proxy calls it so native image paste can decode what WSLg hands over.
-func cmdBMPTranscode(args []string) int {
-	fs := helptext.NewFlagSet("bmp-transcode", helptext.Page{
-		Usage: "claude-code bmp-transcode [flags] < in.bmp > out",
-		About: "Re-encode a WSLg-bridged BMP on stdin as a decodable 24bpp BMP on stdout; " +
-			"the wl-paste proxy calls it so native image paste works.",
-	})
-	asPNG := fs.Bool("png", false, "emit PNG instead of BMP (the image/png paste leg)")
-	if code, done := helptext.Parse(fs, args); done {
-		return code
-	}
-	transcode := clipboard.Transcode
-	if *asPNG {
-		transcode = clipboard.TranscodePNG
-	}
-	if err := transcode(os.Stdin, os.Stdout); err != nil {
-		return fail("bmp-transcode: %v", err)
-	}
-	return 0
+// cmdWLPaste is the WSL wl-paste proxy; args are wl-paste's own and pass through verbatim, --help included.
+func cmdWLPaste(args []string) int {
+	return clipboard.RunProxy(args, os.Stdout, os.Stderr)
 }
 
 // cmdClipClear sleeps --after, then clears the clipboard if it still holds the value whose sha256

@@ -79,13 +79,19 @@ var errNoImage = errors.New("no image in the Windows clipboard — copy or scree
 
 // wlPaste runs wl-paste against WSLg, reaching the socket by path when the shell lacks WAYLAND_DISPLAY.
 func wlPaste(args ...string) ([]byte, error) {
+	env := os.Environ()
+	if os.Getenv("WAYLAND_DISPLAY") == "" {
+		env = append(env, "WAYLAND_DISPLAY="+wslgSocket, "CLAUDE_WL_PASTE_PROXY=0")
+	}
+	return captureWlPaste("wl-paste", env, args)
+}
+
+// captureWlPaste runs the wl-paste binary bin with env under a 10s timeout and returns its stdout.
+func captureWlPaste(bin string, env, args []string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "wl-paste", args...)
-	cmd.Env = os.Environ()
-	if os.Getenv("WAYLAND_DISPLAY") == "" {
-		cmd.Env = append(cmd.Env, "WAYLAND_DISPLAY="+wslgSocket, "CLAUDE_WL_PASTE_PROXY=0")
-	}
+	cmd := exec.CommandContext(ctx, bin, args...)
+	cmd.Env = env
 	return cmd.Output()
 }
 

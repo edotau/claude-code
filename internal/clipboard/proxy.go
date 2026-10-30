@@ -12,8 +12,8 @@ import (
 	"strings"
 )
 
-// ProxyScript is the wl-paste proxy: it answers the agent CLIs' image/bmp and image/png legs by
-// piping WSLg's BMP through `claude-code bmp-transcode`, and delegates every other call untouched.
+// ProxyScript is the wl-paste shim: it hands every call to `claude-code wl-paste` (RunProxy), which
+// answers the agent CLIs' image/bmp and image/png legs and delegates every other call untouched.
 //
 //go:embed wl-paste-claude.sh
 var ProxyScript []byte

@@ -94,7 +94,7 @@ func commands() []command {
 		{name: "hook", hidden: true, summary: "run a lifecycle hook (invoked by settings.json)", run: cmdHook},
 		{name: "clip", hidden: true, summary: "save the Windows clipboard image as PNG; print its WSL path", run: cmdClip},
 		{name: "clip-clear", hidden: true, summary: "clear the clipboard after a delay if it still holds a copied secret", run: cmdClipClear},
-		{name: "bmp-transcode", hidden: true, summary: "stdin BMP → stdout 24bpp BMP (--png: PNG); wl-paste proxy", run: cmdBMPTranscode},
+		{name: "wl-paste", hidden: true, summary: "WSL wl-paste proxy: answer agent image paste, else run real wl-paste", run: cmdWLPaste},
 		{name: "version", hidden: true, summary: "print the build version", run: cmdVersion},
 		{name: "completion", hidden: true, summary: "bash tab-completion script (--install to write it)", run: cmdCompletion},
 		{name: "__complete", hidden: true, summary: "machine: compute tab-completion candidates", run: cmdComplete},
