@@ -46,9 +46,6 @@ func NewResolver(mounts []Mount) *Resolver {
 	return &Resolver{Mounts: mounts, Distro: os.Getenv("WSL_DISTRO_NAME"), Home: home}
 }
 
-// Mounts reads this machine's live mount table.
-func Mounts() []Mount { return readMounts() }
-
 // Resolve maps p to this machine's view using the live mounts.
 func Resolve(p string) (string, bool) { return Default().Resolve(p) }
 
