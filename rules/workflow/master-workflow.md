@@ -73,8 +73,9 @@ Criteria, Do NOTs, Verification Command. Test: a fresh agent can act from the br
 ## Phase 6: Dispatch (2+ parallel-safe sub-tasks)
 
 Each sub-task is a `code-worker` owning disjoint (ideally new) files in the shared tree, with `copilot` in the SAME
-message when a test agent is needed (`standards/quality.md`). Another model family for one lane: `Agent: <x>` in the
-brief ([Leaf types](../../skills/subagent-workflows/SKILL.md#leaf-types)). Cap: `agents.md` → Parallel dispatch.
+message when a test agent is needed (`standards/testing-guidelines.md`). Another model family for one lane:
+`Agent: <x>` in the brief ([Leaf types](../../skills/subagent-workflows/SKILL.md#leaf-types)).
+Cap: `agents.md` → Parallel dispatch.
 
 ## Phase 7: Merge + simplify
 

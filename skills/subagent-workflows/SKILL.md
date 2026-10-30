@@ -94,7 +94,8 @@ Status below.
   [saved-workflows.md](references/saved-workflows.md) → Run from a leaf.
 - Before fanning out more, the manager checks the load with `claude-code agents tree --running`, follows an agent
   dispatch with `claude-code <agent> tail -f <job>`, and clears dead entries with `claude-code agents reap`.
-- Every code dispatch carries a test agent: `rules/standards/quality.md` → RULE (it waits for "landed", never polls).
+- A feature or bug-fix dispatch carries a test agent: `rules/standards/testing-guidelines.md` → Test agent (it waits
+  for "landed", never polls).
 
 | Status | Manager action |
 |---|---|

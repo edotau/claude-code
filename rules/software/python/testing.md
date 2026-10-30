@@ -5,7 +5,8 @@ paths:
 ---
 # Python Testing
 
-> This file extends [standards/quality.md](../../standards/quality.md) with Python specific content.
+> This file extends [standards/testing-guidelines.md](../../standards/testing-guidelines.md)
+> with Python specific content.
 
 ## Framework
 
@@ -45,4 +46,5 @@ Neither sees a subprocess's traffic.
 
 ## Reference
 
-See skill: `testing-guidelines` for the pytest quick reference and test discipline.
+Rules: `rules/standards/testing-guidelines.md`; pytest quick reference and the optional test-and-fix loop: the
+`testing-guidelines` skill.

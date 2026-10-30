@@ -7,7 +7,8 @@ paths:
 ---
 # TypeScript Testing
 
-> This file extends [standards/quality.md](../../standards/quality.md) with TypeScript/npm specific content.
+> This file extends [standards/testing-guidelines.md](../../standards/testing-guidelines.md)
+> with TypeScript/npm specific content.
 
 ## Scope every run to what changed
 

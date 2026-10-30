@@ -91,9 +91,9 @@ Per `agent-verbs.md` → Procedure skeleton. Delta:
 | Implementation agent | the code change |
 | **You** | the EXISTING tests the change breaks or makes stale, AND the NEW coverage, written after the live check |
 
-Dispatch timing (repair concurrently with the implementer, NEW coverage after the live check), the
-RED→GREEN→REFACTOR cycle and the 80%+ bar: `rules/standards/quality.md` and [test discipline][lf]. New tests cover
-edge cases (empty/null, boundaries, special characters) and test behavior, not implementation.
+Dispatch timing (repair concurrently with the implementer, NEW coverage after the live check), test scope and what
+makes a test a guard: [testing guidelines][lf]. New tests cover edge cases (empty/null, boundaries, special
+characters) and test behavior, not implementation.
 
 #### The one judgement that matters
 
@@ -257,4 +257,4 @@ Per `agent-verbs.md` → Don't: don't invent a verb.
 Memory proposals:
 [shared discipline and copilot candidates](../skills/subagent-workflows/references/memory-updates.md#copilot).
 
-[lf]: ../skills/testing-guidelines/references/test-discipline.md#live-first-then-tests--no-core-contract-exception
+[lf]: ../rules/standards/testing-guidelines.md#live-first-then-tests--no-core-contract-exception
