@@ -202,7 +202,7 @@ LINT_KINDS := $(if $(filter go,$(WHAT)),go deep,$(if $(filter md,$(WHAT)),docs,$
 lint:  ## Lint and auto-fix (CHECK=1 reports; AGENT=a fixes the rest; WHAT=go|md)
 	@case "$(WHAT)" in go|md|all) ;; *) echo "WHAT must be go|md|all"; exit 1 ;; esac
 	@$(MAKE) --no-print-directory $(if $(LINT_AGENT),-k) $(addprefix lint-,$(LINT_KINDS)) \
-		$(if $(filter-out 1,$(CHECK)),$(if $(LINT_AGENT),|| $(MAKE) --no-print-directory lint-agent))
+		$(if $(filter 1,$(CHECK)),,$(if $(LINT_AGENT),|| $(MAKE) --no-print-directory lint-agent))
 	@echo -e "$(C_OK)lint passed"
 
 lint-%: compile mdsmith  # (helper) one lint kind: $(LINT_WHAT) deep; CHECK=1 only reports
@@ -252,7 +252,7 @@ lint-agent: compile mdsmith  # (folded into `lint`) AGENT fixes what auto-fix le
 		if [ $$go = 1 ]; then run gofmt gofmt -l $(GO_FMT_DIRS); run "go vet" $(GO) vet $(PKGS); \
 			if [ $$gl = 1 ]; then run golangci-lint golangci-lint run --max-issues-per-linter=0 --max-same-issues=0 ./...; fi; fi; \
 		if [ $$md = 1 ]; then run mdsmith $(MDSMITH) check; fi; \
-		grep -cE "$$pat" "$$o" || true; }; \
+		grep -E "$$pat" "$$o" | grep -vc '(gocognit)$$' || true; }; \
 	opfail() { if [ -s "$$e" ]; then echo "lint: $$(paste -sd, "$$e") failed:"; head -n 50 "$$o"; exit 1; fi; }; \
 	left=$$(chk); opfail; \
 	if [ "$$left" = 0 ]; then echo -e "$(C_OK)lint: clean after auto-fix"; exit 0; fi; \
@@ -263,10 +263,12 @@ lint-agent: compile mdsmith  # (folded into `lint`) AGENT fixes what auto-fix le
 		echo "- Never edit a file with a '// Code generated' header."; \
 		echo "- Reuse existing constants before adding one."; \
 		echo "- Edit only the files named in the lint output."; \
+		echo "- Leave gocognit findings alone; they need a human refactor."; \
+		echo "- After editing, run go build ./... and go test on each package you touched; keep them green."; \
 		echo "- Do not run git commands."; echo; echo "Lint output (truncated):"; \
 		awk 'NR<=150{print substr($$0,1,300)}' "$$o" | head -c 12000 || [ $$? = 141 ]; } > "$$b"; \
 		echo "lint: pass $$pass/$(MAX): dispatching $(LINT_AGENT)"; \
-		$(BIN) ask --agent $(LINT_AGENT) --tools --workdir $(CURDIR) --format json - < "$$b" >/dev/null || echo -e "$(C_NOTE)$(LINT_AGENT) dispatch failed"; \
+		$(BIN) ask --agent $(LINT_AGENT) --tools --fallback none --workdir $(CURDIR) - < "$$b" || echo -e "$(C_NOTE)$(LINT_AGENT) dispatch failed"; \
 		prev=$$left; left=$$(chk); opfail; echo "lint: $$left issue(s) left"; \
 		[ "$$left" -lt "$$prev" ] || break; pass=$$((pass+1)); done; \
 	if [ "$$left" = 0 ]; then echo -e "$(C_OK)lint: clean"; exit 0; fi; \
