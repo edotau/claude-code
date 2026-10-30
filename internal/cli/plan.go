@@ -6,9 +6,11 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/edotau/claude-code/internal/helptext"
+	"github.com/edotau/claude-code/internal/hooks"
 	"github.com/edotau/claude-code/internal/outfmt"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/plans"
@@ -142,12 +144,15 @@ func cmdPlanTick(args []string) int {
 
 // tickRange ticks plan (default: dir's active plan, preferring worktree's claim) for each commit in rng.
 func tickRange(ctx context.Context, dir, worktree, rng, plan string, dryRun bool, w io.Writer) error {
+	drafts := hooks.MirrorDests()
 	if plan == "" {
 		var ok bool
-		if plan, ok = plans.Active(plans.Home(paths.MainCheckout(dir)), worktree, nil); !ok {
+		if plan, ok = plans.Active(plans.Home(paths.MainCheckout(dir)), worktree, drafts); !ok {
 			fmt.Fprintln(w, "plans: no active plan to tick")
 			return nil
 		}
+	} else if abs, err := filepath.Abs(plan); err == nil && slices.Contains(drafts, abs) {
+		return fmt.Errorf("%s mirrors an unapproved draft; approve it before ticking", plan)
 	}
 	commits, err := plans.RangeCommits(ctx, dir, rng)
 	if err != nil {
