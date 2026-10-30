@@ -299,9 +299,8 @@ func (s *liveSession) serveConn(ctx context.Context, c net.Conn) {
 		refuse(statusBusy, ErrLiveBusy.Error())
 		return
 	}
-	defer s.busy.Store(false)
-	defer s.idle.Reset(s.idleFor)
 	if ctx.Err() != nil {
+		s.release()
 		refuse(statusRefused, "the session is ending")
 		return
 	}
@@ -326,10 +325,17 @@ func (s *liveSession) runTurn(ctx context.Context, prompt string, sink Sink) {
 	s.mu.Lock()
 	s.session = cmp.Or(res.SessionID, s.session)
 	s.mu.Unlock()
+	s.release() // before the result goes out: a client's next send must find the session free
 	_ = sink.Emit(ResultEvent(NewEnvelope(res, err, s.rec.ID)))
 	if _, atBoundary := errors.AsType[resultError](err); err != nil && !atBoundary { // the turn's result is unread or lost
 		s.cancel(fmt.Errorf("session stream broke: %w", err))
 	}
+}
+
+// release ends the in-flight turn and restarts the idle clock.
+func (s *liveSession) release() {
+	s.idle.Reset(s.idleFor)
+	s.busy.Store(false)
 }
 
 // SendLive sends one turn to live session id and streams that turn's events to sink until its result.
