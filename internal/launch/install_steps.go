@@ -404,7 +404,7 @@ func extrasCompact(w io.Writer) string {
 		}
 	}
 	var lbuf bytes.Buffer
-	if err := clipboard.InstallLaunchAgent(&lbuf, filepath.Join(paths.BinDir(), "claude-code"), false); err != nil {
+	if err := installClipAgent(&lbuf, filepath.Join(paths.BinDir(), "claude-code"), false); err != nil {
 		fmt.Fprintf(w, "clip agent skip  %v\n", err)
 	} else if lbuf.Len() > 0 {
 		tokens = append(tokens, "clip agent ok")
@@ -471,9 +471,12 @@ func installClipboardProxy(w io.Writer, dryRun bool) {
 	}
 }
 
+// installClipAgent is a var so tests never bootstrap (or boot out) the developer's real launchd agent.
+var installClipAgent = clipboard.InstallLaunchAgent
+
 // installClipBridge installs the macOS clipboard-bridge launchd agent; best-effort, a no-op off macOS.
 func installClipBridge(w io.Writer, bin string, dryRun bool) {
-	if err := clipboard.InstallLaunchAgent(w, bin, dryRun); err != nil {
+	if err := installClipAgent(w, bin, dryRun); err != nil {
 		fmt.Fprintf(w, "  %-17s %v\n", "skip", "clip agent: "+err.Error())
 	}
 }

@@ -112,6 +112,9 @@ func changedSimplifyFiles(base string) ([]string, error) {
 		return nil, err
 	}
 	cwd, _ := os.Getwd()
+	if real, evalErr := filepath.EvalSymlinks(cwd); evalErr == nil {
+		cwd = real // git's toplevel is symlink-resolved (macOS /var -> /private/var); Rel needs the same root
+	}
 	var files []string
 	for _, n := range names {
 		abs := filepath.Join(tops[0], n)
