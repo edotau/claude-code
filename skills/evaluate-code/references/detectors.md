@@ -87,7 +87,7 @@ catches — check them by hand on any diff:
 
 ---
 
-## `claude-code review assumptions` — Principle #1 (Think Before Coding)
+## `claude-code review assumptions` — Principle #1 (Clarify Assumptions)
 
 Reads a markdown plan (or stdin) and flags hidden assumptions.
 

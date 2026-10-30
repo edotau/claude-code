@@ -2,7 +2,7 @@
 
 The recurring wins when reducing complexity. Each is behavior-preserving — you change how
 the code reads, not what it does.
-Detector tags and review severity: `skills/evaluate-code/references/principles.md` (#2).
+Detector tags and review severity: `skills/evaluate-code/references/anti-patterns.md` (#2).
 
 ## Inline single-use abstractions
 

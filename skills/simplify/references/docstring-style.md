@@ -6,7 +6,7 @@ prose — the same instinct that produces 150-line abstractions for 3-line probl
 
 ## The rule
 
-Canonical rule: `rules/standards/communication.md` (Comment Brevity — 1 line max, ≤120 chars,
+Canonical rule: `rules/standards/quality.md` (Comments — 1 line max, ≤120 chars,
 applies to docstrings too). This file is the how-to:
 
 - Lead with a one-line imperative summary ("Return the discount-adjusted amount.").

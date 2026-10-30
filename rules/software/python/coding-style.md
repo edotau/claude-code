@@ -48,7 +48,7 @@ Prefer immutable data structures (`@dataclass(frozen=True)`, `typing.NamedTuple`
 
 ## Comments & Docstrings — Short and Concise
 
-Keep every comment and docstring to **1 line, ≤120 characters** per section (`rules/standards/communication.md`).
+Keep every comment and docstring to **1 line, ≤120 characters** per section (`rules/standards/quality.md`).
 A comment that needs more than one line is a signal the code (or the comment) should be
 restructured, not expanded.
 

@@ -12,7 +12,7 @@ Iron rules:
 
 ## Replying
 
-No performative agreement — `rules/standards/communication.md` is canonical: state the fix, not
+No performative agreement — `rules/standards/principles.md` is canonical: state the fix, not
 thanks ("Fixed. Extracted PROGRESS_INTERVAL constant."). Wrong after pushing back: `"You were
 right — I checked X and it does Y. Fixing now."` — factual, no apology.
 

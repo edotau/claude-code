@@ -2,22 +2,24 @@
 
 Language specifics: `rules/software/<lang>/`.
 
-## Principles
+## Rules
 
-1. **Done means verified** — no known issues at handoff; acceptance criteria proven by observation, not assertion.
-2. **Immutability (CRITICAL)** — return a new copy (`update(orig, k, v)`); never mutate in place.
-3. **Handle every error** — user-friendly in UI code, detailed context server-side, never swallowed. Validate
+1. **Immutability (CRITICAL)** — return a new copy (`update(orig, k, v)`); never mutate in place.
+2. **Handle every error** — user-friendly in UI code, detailed context server-side, never swallowed. Validate
    external input (user, API, file content) at the boundary and fail fast.
-4. **Clean breaks in internal code** — a renamed command, flag or symbol changes outright, every caller fixed in the
+3. **Clean breaks in internal code** — a renamed command, flag or symbol changes outright, every caller fixed in the
    same pass; no back-compat aliases or shims. Published APIs still get a deprecation path.
-5. **Existing descriptions are curated** — when adding an entry (tool, flag, command, target), write only its text.
-   Don't reword or realign existing descriptions, help text or comments, or add/drop/swap fields in an existing
-   output block. Fix only wrong facts, spelling and light grammar; ask before anything more.
 
 ## Code Quality Checklist
 
-Functions < 50 lines, files < 800 (200–400 typical), nesting ≤ 4 (early returns); no hardcoded values, secrets, or
+Functions < 50 lines, files < 600 (200–400 typical), nesting ≤ 4 (early returns); no hardcoded values, secrets, or
 leftover debug prints.
+
+## Comments
+
+**1 line MAX, ≤120 chars, per section**, any language — code comments and docstrings alike, never a stacked block.
+Exempt: provenance/audit blocks, file-header runbooks, gotcha notes. Prose over the cap is cut, not rewrapped: a
+paragraph belongs in the repo's own docs (`docs/`, `ARCHITECTURE.md`, `README.md`), never in source.
 
 ## Verification Order — lint first, always
 

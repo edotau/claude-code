@@ -189,7 +189,7 @@ that. Never let an unverified claim pass as verified.
 No method scaffolding in the report (the rule above the steps); each forced note becomes the plain sentence it
 stands for — `references/notes.md` renders each.
 
-- Outcome-first, caveats mandatory, failures reported with their output: `rules/standards/communication.md`.
+- Outcome-first, caveats mandatory, failures reported with their output: `rules/standards/principles.md`.
 - Delete scratch files and test artifacts you created; note the cleanup. Leftover debris is a
   fraud signal to a judge.
 - Write the forced `PENDING:` line (box at the top) before reporting — every time, even when the answer is "none":

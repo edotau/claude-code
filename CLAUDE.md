@@ -44,12 +44,12 @@ Files under `agents/`, `commands/`, `rules/`, `skills/` and this file go live th
 
 ## Behavioral guidelines
 
-1. **Think before coding.** State assumptions; surface multiple interpretations instead of picking
+1. **Clarify assumptions.** State assumptions; surface multiple interpretations instead of picking
    silently; name a simpler approach if one exists.
 2. **Surgical changes.** Touch only what the request requires; match existing style; don't refactor
    adjacent code. Remove only orphans your change created; mention pre-existing dead code.
 3. **Goal-driven execution.** Turn tasks into verifiable goals ("fix the bug" → "reproduce it, fix,
-   re-run"); loop until verified. Depth: `skills/evaluate-code/references/principles.md`.
+   re-run"); loop until verified. Depth: `rules/standards/principles.md`.
 4. **Propose look/behavior changes before applying them.** Name an unrequested side effect with
    numbers, prefer the narrowly scoped mechanism over a global knob, and let the user pick.
 5. **Parallel by default; keep the main thread free.** Plan and brief, then dispatch `code-worker` ‖ `copilot`

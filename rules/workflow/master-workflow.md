@@ -11,7 +11,7 @@ paths:
 The pipeline for every non-trivial task; each phase gates the next.
 
 ```text
-CLASSIFY → REVIEW → CODEBASE INTEL → RESEARCH → PLAN → [REFINE: opt-in] → DISPATCH → MERGE + SIMPLIFY → VERIFY → COMMIT
+CLASSIFY → REVIEW → CODEBASE INTEL → RESEARCH → PLAN → [REFINE: opt-in] → DISPATCH → MERGE → VERIFY → COMMIT
 ```
 
 | Phase | Agent / command | Output | Gate |
@@ -23,8 +23,8 @@ CLASSIFY → REVIEW → CODEBASE INTEL → RESEARCH → PLAN → [REFINE: opt-in
 | 4. Plan | plan mode or `Plan` (plan-only) | Plan with task breakdown | User approval |
 | 5. Refine *(opt-in)* | `general-purpose` | Self-contained brief per sub-task | Cold-start test; only with `--refine` |
 | 6. Dispatch | orchestrate / `/code-workers`, `code-worker` per disjoint file set | Completed sub-tasks | Each passes its own check |
-| 7. Merge + simplify | `claude-code worktree merge` (if a worktree was used), then `Skill(simplify)` | Simplified merged diff | Behavior gate green before and after |
-| 8. Verify | test-and-fix loop + `problem-solving` gate chain | All gates green | format + lint + test + security |
+| 7. Merge | `claude-code worktree merge` (if a worktree was used) | Merged diff | Clean merge, no leaf still running |
+| 8. Verify | `rules/standards/quality.md` → Verification Order (simplify is step 5) | Simplified, verified diff | Verification Order green |
 | 9. Commit | `/copilot commit` (or plain git) | Commit on branch | Clean tree |
 
 ## Phase 0: Classify
@@ -77,18 +77,18 @@ message when a test agent is needed (`standards/testing-guidelines.md`). Another
 `Agent: <x>` in the brief ([Leaf types](../../skills/subagent-workflows/SKILL.md#leaf-types)).
 Cap: `agents.md` → Parallel dispatch.
 
-## Phase 7: Merge + simplify
+## Phase 7: Merge
 
 Default is no worktree (`rules/standards/worktree-git.md`); if one was used, merge per
 `skills/using-git-worktrees/references/merge-and-clean.md`. Never `stash`/`checkout`/`reset` the live tree.
-Run `Skill(simplify)` over the **merged** diff — parallel lanes duplicate each other's helpers and only the merged
-diff shows it. Same pass, before any new test: if existing tests already cover the change add nothing; delete dead
-code and stale tests the change left behind; fold near-duplicate tests. Net test count may fall.
 After a merge, stop any leaf still running on that work; a leaf at its turn limit commits or reports what's uncommitted.
 
 ## Phase 8: Verify
 
 Chain: `rules/standards/quality.md` → Verification Order; loop and caps: `skills/problem-solving/references/verify.md`.
+Step 5 runs once, over the **merged** diff — parallel lanes duplicate each other's helpers and only the merged diff
+shows it. Same pass, before any new test: if existing tests already cover the change add nothing; delete dead code
+and stale tests the change left behind; fold near-duplicate tests. Net test count may fall.
 **Never edit a migration to make a gate pass.** `Workflow green-keeper-loop` only when the user asks.
 
 ## Phase 9: Commit
@@ -100,7 +100,7 @@ Per `rules/standards/worktree-git.md`; `/copilot commit` executes, `/copilot pr`
 | Scenario | Path |
 |----------|------|
 | Bug fix (LOW) | fix → test-and-fix loop (`subagent-workflows/references/test-and-fix.md`) → `/copilot commit` |
-| One-module feature (MEDIUM) | review → plan → implement → `/simplify` → verify → commit |
+| One-module feature (MEDIUM) | review → plan → implement → verify (simplify is its step 5) → commit |
 | Cross-module feature (HIGH) | review → orchestrate `[--refine]` → verify → commit |
 | Tech debt | `skills/evaluate-code/references/techdebt.md` |
 | Review current changes | `/code-review` (security is an `evaluate-code` lens, not an agent) |
