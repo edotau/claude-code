@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/edotau/claude-code/internal/settings/codexsettings"
+	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
@@ -28,7 +28,7 @@ func TestCodexPreferencesApplyPreservesAndRestoresNativeConfig(t *testing.T) {
 	if err := os.Symlink(target, path); err != nil {
 		t.Fatal(err)
 	}
-	if err := codexsettings.SaveOverlay(map[string]string{"model_verbosity": "low", "model_reasoning_effort": "medium"}); err != nil {
+	if err := settings.SaveCodexOverlay(map[string]string{"model_verbosity": "low", "model_reasoning_effort": "medium"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := ApplyCodexSettings(""); err != nil {
@@ -51,11 +51,11 @@ func TestCodexPreferencesApplyPreservesAndRestoresNativeConfig(t *testing.T) {
 	if info, err := os.Lstat(path); err != nil || info.Mode()&os.ModeSymlink == 0 {
 		t.Fatalf("outgoing symlink replaced: %v", err)
 	}
-	b, found, err := codexsettings.LatestBackup(path)
+	b, found, err := settings.LatestCodexBackup(path)
 	if err != nil || !found || !bytes.Equal(b.Data, original) || !b.Existed {
 		t.Fatalf("original snapshot missing: found=%v err=%v", found, err)
 	}
-	baseline, err := codexsettings.LoadBaseline(path)
+	baseline, err := settings.LoadCodexBaseline(path)
 	if err != nil || !bytes.Equal(baseline, after) {
 		t.Fatalf("encrypted baseline missing: %v", err)
 	}
@@ -67,7 +67,7 @@ func TestCodexPreferencesApplyPreservesAndRestoresNativeConfig(t *testing.T) {
 	if err := ApplyCodexSettings(""); err != nil {
 		t.Fatal(err)
 	}
-	latest, found, err := codexsettings.LatestBackup(path)
+	latest, found, err := settings.LatestCodexBackup(path)
 	if err != nil || !found || latest.Name != b.Name {
 		t.Fatal("no-op apply added a snapshot")
 	}
@@ -105,7 +105,7 @@ func TestCodexPreferencesRejectUnsafeWrites(t *testing.T) {
 	if err := os.WriteFile(path, original, 0600); err != nil {
 		t.Fatal(err)
 	}
-	if err := codexsettings.SaveOverlay(map[string]string{"model_verbosity": "low"}); err != nil {
+	if err := settings.SaveCodexOverlay(map[string]string{"model_verbosity": "low"}); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("HARNESS_VAULT_KEY", "invalid-key")
@@ -129,13 +129,13 @@ func TestCodexPreferencesRestoreMissingOriginalAndOwnedValues(t *testing.T) {
 	vaulttest.Use(t)
 	home := t.TempDir()
 	path := filepath.Join(home, ".codex", "config.toml")
-	if err := codexsettings.SaveOverlay(map[string]string{"model_verbosity": "low"}); err != nil {
+	if err := settings.SaveCodexOverlay(map[string]string{"model_verbosity": "low"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := ApplyCodexSettings(home); err != nil {
 		t.Fatal(err)
 	}
-	if err := codexsettings.SaveOverlay(map[string]string{"model_verbosity": "high"}); err != nil {
+	if err := settings.SaveCodexOverlay(map[string]string{"model_verbosity": "high"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := ApplyCodexSettings(home); err != nil {
@@ -145,7 +145,7 @@ func TestCodexPreferencesRestoreMissingOriginalAndOwnedValues(t *testing.T) {
 	if err := Revert(opts); err != nil {
 		t.Fatal(err)
 	}
-	ov, err := codexsettings.LoadOverlay()
+	ov, err := settings.LoadCodexOverlay()
 	if err != nil || ov["model_verbosity"] != "low" {
 		t.Fatalf("restored preference was not synchronized: %v, %v", ov, err)
 	}
@@ -181,7 +181,7 @@ func TestCodexPreferencesNoopWithoutTables(t *testing.T) {
 	if err := os.WriteFile(path, []byte("model = 'fixture'\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if err := codexsettings.SaveOverlay(map[string]string{"model_verbosity": "low"}); err != nil {
+	if err := settings.SaveCodexOverlay(map[string]string{"model_verbosity": "low"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := ApplyCodexSettings(home); err != nil {
@@ -191,7 +191,7 @@ func TestCodexPreferencesNoopWithoutTables(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, found, err := codexsettings.LatestBackup(path)
+	b, found, err := settings.LatestCodexBackup(path)
 	if err != nil || !found {
 		t.Fatalf("snapshot missing: %v", err)
 	}
@@ -202,7 +202,7 @@ func TestCodexPreferencesNoopWithoutTables(t *testing.T) {
 	if err != nil || !bytes.Equal(before, after) {
 		t.Fatalf("no-op apply changed config: %v", err)
 	}
-	next, found, err := codexsettings.LatestBackup(path)
+	next, found, err := settings.LatestCodexBackup(path)
 	if err != nil || !found || next.Name != b.Name {
 		t.Fatal("no-op apply added a snapshot")
 	}
@@ -228,7 +228,7 @@ func TestCodexRestoreMissingOriginalKeepsSymlinkTarget(t *testing.T) {
 	vaulttest.Use(t)
 	home := t.TempDir()
 	path := filepath.Join(home, ".codex", "config.toml")
-	if err := codexsettings.SaveOverlay(map[string]string{"model_verbosity": "low"}); err != nil {
+	if err := settings.SaveCodexOverlay(map[string]string{"model_verbosity": "low"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := ApplyCodexSettings(home); err != nil {

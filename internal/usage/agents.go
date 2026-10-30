@@ -20,7 +20,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/settings/codexsettings"
+	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/transcript"
 )
 
@@ -191,7 +191,7 @@ func claudeDailyFromFiles(files []string) []dailyBucket {
 
 // codexHome honors CODEX_HOME, else ~/.codex.
 func codexHome() (string, error) {
-	return codexsettings.Home()
+	return settings.CodexHome()
 }
 
 // codexEventPayload mirrors a codex session line's payload: turn_context carries the model, event_msg

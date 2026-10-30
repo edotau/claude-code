@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/settings/codexsettings"
+	"github.com/edotau/claude-code/internal/settings"
 )
 
 // backupAndWrite saves oldRaw (only when the file already existed) to the cache mirror, keeps the newest 5
@@ -67,7 +67,7 @@ func vendorBaselinePath(label, path string) string {
 // writeVendorBaseline caches next as the baseline for path's next commitFile call.
 func writeVendorBaseline(label, path string, next []byte) error {
 	if label == "codex" {
-		return codexsettings.SaveBaseline(path, next)
+		return settings.SaveCodexBaseline(path, next)
 	}
 	return paths.AtomicWrite(vendorBaselinePath(label, path), next, 0o600)
 }
@@ -79,7 +79,7 @@ func lostLinesFor(label, path string, theirs, next []byte) ([]string, error) {
 	var base []byte
 	var err error
 	if label == "codex" {
-		base, err = codexsettings.LoadBaseline(path)
+		base, err = settings.LoadCodexBaseline(path)
 	} else {
 		base, err = os.ReadFile(vendorBaselinePath(label, path))
 		if err != nil {
@@ -137,7 +137,7 @@ type labelPath struct{ label, path string }
 // vendorLabelPaths lists the files commitFile writes for one top-level vendor name.
 func vendorLabelPaths(vendor, home string) ([]labelPath, error) {
 	if vendor == "codex" {
-		path, err := codexsettings.ConfigPath(home)
+		path, err := settings.CodexConfigPath(home)
 		if err != nil {
 			return nil, err
 		}
