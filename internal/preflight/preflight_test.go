@@ -46,6 +46,7 @@ func byAgent(ps []Pin) map[string]Pin {
 // One spanning flow: unpinned -> pinned without a listing -> refreshed listing -> unserved model -> expired TTL.
 func TestPinsFlow(t *testing.T) {
 	t.Setenv("CLAUDE_PROFILE", "")
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir()) // own vault: pins from other tests must not leak in
 	now := time.Now()
 	reg := registry(true)
 	listModels = func(context.Context, *providers.Registry, *providers.Provider) ([]providers.ModelInfo, error) {
@@ -132,6 +133,7 @@ func TestPinsFlow(t *testing.T) {
 // With no credential the install step makes no model call and the pin says why.
 func TestNoCredentialSkips(t *testing.T) {
 	t.Setenv("CLAUDE_PROFILE", "")
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir()) // own vault: pins from other tests must not leak in
 	reg := registry(false)
 	setPins(t, map[string]string{"CLAUDE_PROFILE": "dev", "COPILOT_PROFILE": "dev", "OPENCODE_PROFILE": "dev", "CODEX_MODEL": "m"})
 	runAsk = func(context.Context, string, string) (envelope, error) {
@@ -170,6 +172,7 @@ func TestFutureListingIsStale(t *testing.T) {
 // Refresh and pongs share one budget; a hung listing cannot push the step past it.
 func TestInstallStepSharesBudget(t *testing.T) {
 	t.Setenv("CLAUDE_PROFILE", "")
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir()) // own vault: pins from other tests must not leak in
 	setPins(t, map[string]string{"CLAUDE_PROFILE": "dev", "COPILOT_PROFILE": "dev", "OPENCODE_PROFILE": "dev", "CODEX_MODEL": "m"})
 	old := Budget
 	Budget = 300 * time.Millisecond

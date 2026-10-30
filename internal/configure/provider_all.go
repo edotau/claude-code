@@ -72,7 +72,8 @@ func allCheckOne(ctx context.Context, p *providers.Provider) AllRowStatus {
 		detail string
 	}
 	done := make(chan res, 1)
-	go func() { v, d := allSigninFor(p).Check(ctx); done <- res{v, d} }()
+	si := allSigninFor(p) // resolved before the goroutine: a timed-out check must not read the seam later
+	go func() { v, d := si.Check(ctx); done <- res{v, d} }()
 	select {
 	case r := <-done:
 		st.Detail = r.detail
