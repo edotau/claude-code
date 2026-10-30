@@ -35,6 +35,7 @@ type quota struct {
 	Note     string  `json:"note,omitempty"`
 	State    string  `json:"state,omitempty"`
 	Group    string  `json:"group,omitempty"`
+	Unit     string  `json:"unit,omitempty"` // "USD" renders Used/Limit as dollars; empty means credits
 }
 
 // googleNote: AI Studio keys have no quota API, and Antigravity's cloudcode-pa quota calls 403 for this client.
@@ -76,15 +77,18 @@ var fetchQuotas = func() []quota {
 	defer cancel()
 	agyCtx, agyCancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer agyCancel()
-	var an, gh, oa, ag []quota
+	budgetCtx, budgetCancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer budgetCancel()
+	var an, gh, oa, ag, bud []quota
 	var wg sync.WaitGroup
-	wg.Add(4)
+	wg.Add(5)
+	go func() { defer wg.Done(); bud = sessionBudgetQuotas(budgetCtx) }()
 	go func() { defer wg.Done(); an = claudeQuotas(ctx) }()
 	go func() { defer wg.Done(); gh = githubQuotas(ctx) }()
 	go func() { defer wg.Done(); oa = openaiQuotas(ctx) }()
 	go func() { defer wg.Done(); ag = antigravityQuotas(agyCtx) }()
 	wg.Wait()
-	return append(append(append(an, gh...), oa...), ag...)
+	return append(append(append(append(an, gh...), oa...), ag...), bud...)
 }
 
 // ghRun runs gh with extra env; stdout only, so gh's stderr chatter never lands in a parse.
@@ -276,7 +280,12 @@ func printSubscriptionQuotas(out io.Writer, qs []quota, show string) {
 		if q.Note != "" && q.Limit == 0 {
 			val, state = "-", "-"
 		}
-		if q.Limit > 0 {
+		if q.Limit > 0 && q.Unit == "USD" {
+			detail = fmt.Sprintf("$%.2f / $%.2f", q.Used, q.Limit)
+			if show != "used" {
+				detail = fmt.Sprintf("$%.2f of $%.2f left", max(q.Limit-q.Used, 0), q.Limit)
+			}
+		} else if q.Limit > 0 {
 			if show == "used" {
 				detail = fmt.Sprintf("%.0f / %.0f credits", q.Used, q.Limit)
 			} else {

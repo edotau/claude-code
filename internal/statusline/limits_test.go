@@ -214,3 +214,31 @@ func TestLimitsSegmentAnthropicCacheFreshVsStale(t *testing.T) {
 		t.Errorf("stale cache: %q, want empty", got)
 	}
 }
+
+func TestBudgetSegment(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", dir)
+	write := func(fetched time.Time, profile string) {
+		cache := filepath.Join(paths.StateDir(), "usage")
+		_ = os.MkdirAll(cache, 0o700)
+		raw := fmt.Sprintf(`{"schema":1,"fetched_at":%q,"profile":%q,"rows":[{"used_percent":10},{"used_percent":100.6}]}`,
+			fetched.Format(time.RFC3339), profile)
+		if err := os.WriteFile(filepath.Join(cache, "gateway-budget.json"), []byte(raw), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := budgetSegment("dev"); got != "" {
+		t.Errorf("no cache = %q", got)
+	}
+	write(time.Now(), "dev")
+	if got := budgetSegment("dev"); got != "bud:101%" {
+		t.Errorf("fresh = %q, want bud:101%%", got)
+	}
+	if got := budgetSegment("qa"); got != "" {
+		t.Errorf("other profile = %q", got)
+	}
+	write(time.Now().Add(-budgetCacheMaxAge-time.Hour), "dev")
+	if got := budgetSegment("dev"); got != "" {
+		t.Errorf("stale = %q", got)
+	}
+}

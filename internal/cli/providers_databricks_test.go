@@ -18,6 +18,10 @@ func dbxCLIServer(t *testing.T) (*httptest.Server, *[]string) {
 	var got []string
 	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		got = append(got, r.URL.Path+"|"+r.Header.Get("Authorization"))
+		if r.URL.Path == "/ai-gateway/anthropic/v1/models" {
+			_, _ = w.Write([]byte(`{"data":[{"id":"system.ai.claude-opus-5","display_name":"Claude Opus 5"}],"has_more":false}`))
+			return
+		}
 		_, _ = w.Write([]byte(`{"endpoints":[
 {"name":"chat-a","task":"llm/v1/chat","state":{"ready":"READY"}},
 {"name":"embed-b","task":"llm/v1/embeddings","state":{"ready":"READY"}},
@@ -45,8 +49,8 @@ func TestListLiveDatabricksText(t *testing.T) {
 		t.Fatalf("exit %d, stderr=%s", code, stderr)
 	}
 	lines := strings.Split(strings.TrimRight(stdout, "\n"), "\n")
-	if len(lines) != 4 {
-		t.Fatalf("want header + 3 rows:\n%s", stdout)
+	if len(lines) != 8 || lines[5] != "AI GATEWAY (anthropic)" || !strings.Contains(lines[7], "Claude Opus 5") {
+		t.Fatalf("want header + 3 rows + gateway section:\n%s", stdout)
 	}
 	wantFields := []string{"NAME TASK READY", "chat-a llm/v1/chat READY", "embed-b llm/v1/embeddings READY", "chat-c llm/v1/chat NOT_READY"}
 	for i, w := range wantFields {
@@ -54,7 +58,7 @@ func TestListLiveDatabricksText(t *testing.T) {
 			t.Errorf("line %d = %q, want %q", i, f, w)
 		}
 	}
-	if len(*got) != 1 || (*got)[0] != "/api/2.0/serving-endpoints|Bearer "+dbxCLIToken {
+	if len(*got) != 2 || (*got)[0] != "/api/2.0/serving-endpoints|Bearer "+dbxCLIToken {
 		t.Errorf("requests = %v", *got)
 	}
 	if strings.Contains(stdout, dbxCLIToken) || strings.Contains(stderr, dbxCLIToken) {
@@ -76,7 +80,7 @@ func TestListLiveDatabricksJSON(t *testing.T) {
 	if err := json.Unmarshal([]byte(stdout), &raw); err != nil {
 		t.Fatalf("not JSON: %v\n%s", err, stdout)
 	}
-	if len(raw) != 3 || raw[0]["id"] != "chat-a" || raw[0]["ready"] != "READY" || raw[1]["task"] != "llm/v1/embeddings" ||
+	if len(raw) != 4 || raw[3]["gateway"] != true || raw[0]["gateway"] != nil || raw[0]["id"] != "chat-a" || raw[0]["ready"] != "READY" || raw[1]["task"] != "llm/v1/embeddings" ||
 		raw[2]["id"] != "chat-c" || raw[2]["ready"] != "NOT_READY" {
 		t.Errorf("rows = %v", raw)
 	}
