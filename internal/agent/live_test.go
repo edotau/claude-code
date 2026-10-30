@@ -303,3 +303,27 @@ func TestServeLiveRejectsAgentWithoutLive(t *testing.T) {
 		t.Errorf("ServeLive(codex) = %v, want a no-live-mode error", err)
 	}
 }
+
+// fakeCostClaude answers each turn with a result whose total_cost_usd accumulates 0.5 per turn, as claude's does.
+const fakeCostClaude = `#!/bin/sh
+n=0
+while IFS= read -r line; do
+  n=$((n + 1))
+  printf '{"type":"result","subtype":"success","is_error":false,"result":"r","session_id":"s1","total_cost_usd":%s,"usage":{"input_tokens":1,"output_tokens":1}}\n' "$(echo "$n" | awk '{print $1 * 0.5}')"
+done
+`
+
+// Claude's total_cost_usd accumulates over the process; each live turn must report only its own cost.
+func TestLiveClaudeCostIsPerTurn(t *testing.T) {
+	liveEnvScript(t, fakeCostClaude)
+	ctx, cancel := context.WithCancel(context.Background())
+	id, wait := startHolder(t, ctx, time.Minute)
+	defer func() { cancel(); _ = wait() }()
+	for turn := 1; turn <= 3; turn++ {
+		env, err := SendLive(context.Background(), id, "x", Discard)
+		if err != nil || env.Usage.CostUSD != 0.5 {
+			t.Fatalf("turn %d = cost %v, %v; want the turn's own 0.5", turn, env.Usage.CostUSD, err)
+		}
+	}
+}
+
