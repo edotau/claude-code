@@ -20,6 +20,9 @@ import (
 
 var catalogWarn io.Writer = os.Stderr
 
+// SetCatalogWarn redirects catalog warnings and returns the previous writer; tests use it to keep stderr quiet.
+func SetCatalogWarn(w io.Writer) io.Writer { old := catalogWarn; catalogWarn = w; return old }
+
 // menuWire spells a bare menu id the way p serves it; an id outside the catalog still takes the row's prefix once.
 func menuWire(p *providers.Provider, id string) string {
 	if w := p.WireModel(id); w != id {

@@ -250,6 +250,7 @@ const agySoftDeny = `{"event":"result","result":{"conversation_id":"d1","status"
 `
 
 func TestParseAgyStream_SoftDeny(t *testing.T) {
+	quietStderr(t)
 	res, err := parseAgyStream(strings.NewReader(agySoftDeny), NewTextSink(&strings.Builder{}), nil)
 	if e, ok := errors.AsType[*Error](err); !ok || statusOf(e) != StatusPartial {
 		t.Fatalf("a soft deny ends with no answer, which is partial, not ok: %v", err)
