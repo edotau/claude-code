@@ -10,6 +10,6 @@ import (
 
 // TestMain runs in the hermetic host (hosttest), so no test touches the live vault or sees a vendor CLI.
 func TestMain(m *testing.M) {
-	noticeOut = io.Discard
+	NoticeOut = io.Discard
 	os.Exit(hosttest.Main(m))
 }
