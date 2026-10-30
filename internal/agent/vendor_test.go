@@ -251,8 +251,8 @@ const agySoftDeny = `{"event":"result","result":{"conversation_id":"d1","status"
 
 func TestParseAgyStream_SoftDeny(t *testing.T) {
 	res, err := parseAgyStream(strings.NewReader(agySoftDeny), NewTextSink(&strings.Builder{}), nil)
-	if err != nil {
-		t.Fatalf("a soft deny is still status SUCCESS: %v", err)
+	if e, ok := errors.AsType[*Error](err); !ok || statusOf(e) != StatusPartial {
+		t.Fatalf("a soft deny ends with no answer, which is partial, not ok: %v", err)
 	}
 	if res.SessionID != "d1" || res.Answer != "" {
 		t.Errorf("res = %+v, want empty answer (no agent_response deltas, tool call denied)", res)
