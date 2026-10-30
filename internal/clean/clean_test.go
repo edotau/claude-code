@@ -37,9 +37,9 @@ func seedDebris(t *testing.T) string {
 		t.Fatal(err)
 	}
 	for _, rel := range []string{
-		"state/harness/memory/harvest-20260101-000000.log",
+		"state/harness/memory/update-20260101-000000.log",
 		"state/harness/memory/stamp-sess-aaa",
-		"state/harness/memory/harvest-result-sess-aaa",
+		"state/harness/memory/update-result-sess-aaa",
 		"state/harness/memory/recall-seen/sess-aaa",
 		"state/harness/checkpoint/sess-aaa",
 		"state/harness/plans-scratch/x.md.dest",
@@ -106,7 +106,7 @@ func TestCleanDryRunPreviewsDeletesNothing(t *testing.T) {
 	if code := Run([]string{"--dry-run"}, &out, &errw); code != 0 {
 		t.Fatalf("Run --dry-run = %d, want 0", code)
 	}
-	if !exists(t, filepath.Join(dir, "state/harness/memory/harvest-20260101-000000.log")) {
+	if !exists(t, filepath.Join(dir, "state/harness/memory/update-20260101-000000.log")) {
 		t.Error("--dry-run deleted something — only a run without --dry-run may")
 	}
 	if !strings.Contains(errw.String(), "--dry-run") {
@@ -122,8 +122,8 @@ func TestCleanAppliesByDefault(t *testing.T) {
 		t.Fatalf("Run = %d, want 0", code)
 	}
 	for _, gone := range []string{
-		"state/harness/memory/harvest-20260101-000000.log", "state/harness/memory/stamp-sess-aaa",
-		"state/harness/memory/harvest-result-sess-aaa", "state/harness/memory/recall-seen/sess-aaa",
+		"state/harness/memory/update-20260101-000000.log", "state/harness/memory/stamp-sess-aaa",
+		"state/harness/memory/update-result-sess-aaa", "state/harness/memory/recall-seen/sess-aaa",
 		"state/harness/checkpoint/sess-aaa", "state/harness/plans-scratch/x.md.dest",
 		"state/harness/stop-format/abc123.json", "state/harness/agents-inflight/agent-123-aaa",
 		"state/harness/router.log", "state/harness/dispatch/20260101-aaaa.log",
@@ -165,7 +165,7 @@ func TestCleanApplyReportsNonZeroBytes(t *testing.T) {
 // TestCleanRespectsOlderThan: a young file is never swept, whatever the target.
 func TestCleanRespectsOlderThan(t *testing.T) {
 	dir := seedDebris(t)
-	young := filepath.Join(dir, "state/harness/memory/harvest-20261231-000000.log")
+	young := filepath.Join(dir, "state/harness/memory/update-20261231-000000.log")
 	write(t, young, "x")
 	var out, errw bytes.Buffer
 	Run(nil, &out, &errw)
@@ -184,7 +184,7 @@ func TestCleanTargetScopesToOneTarget(t *testing.T) {
 	if exists(t, filepath.Join(dir, "state/harness/router.log")) {
 		t.Error("the named target was still not swept")
 	}
-	if !exists(t, filepath.Join(dir, "state/harness/memory/harvest-20260101-000000.log")) {
+	if !exists(t, filepath.Join(dir, "state/harness/memory/update-20260101-000000.log")) {
 		t.Error("--target router-log also swept memory-state")
 	}
 }
@@ -632,7 +632,7 @@ func TestProtectedMemoryStoresAndMigrationState(t *testing.T) {
 			t.Errorf("protected(%s) = false", rel)
 		}
 	}
-	for _, rel := range []string{"state/harness/memory/stamp-x", "state/harness/memory/harvest-1.log", "memory-other/x", "state/harness/memory/journal-old"} {
+	for _, rel := range []string{"state/harness/memory/stamp-x", "state/harness/memory/update-1.log", "memory-other/x", "state/harness/memory/journal-old"} {
 		if protected(filepath.Join(dir, rel)) {
 			t.Errorf("protected(%s) = true: ordinary debris must stay sweepable", rel)
 		}

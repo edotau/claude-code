@@ -142,7 +142,7 @@ type DreamOptions struct {
 	CWD     string
 	Run     AgentFunc
 	Out     io.Writer
-	Timeout time.Duration // 0 = HarvestTimeout
+	Timeout time.Duration // 0 = UpdateTimeout
 }
 
 // agentDreamPrompt frames the model-residue consolidation pass; the procedure itself is one copy,
@@ -162,7 +162,7 @@ func Dream(o DreamOptions) error {
 		o.Out = io.Discard
 	}
 	if o.Timeout == 0 {
-		o.Timeout = HarvestTimeout
+		o.Timeout = UpdateTimeout
 	}
 	var runErr error
 	lockErr := paths.WithFileLock(lockPath(Dir(o.CWD)), func() error {
@@ -179,8 +179,8 @@ func Dream(o DreamOptions) error {
 			} else {
 				ctx, cancel := context.WithTimeout(context.Background(), o.Timeout)
 				defer cancel()
-				_ = os.Setenv(HarvestChildEnv, "1") // a Claude fallback leg must not re-trigger hooks; cannot fail for a fixed key
-				_ = os.Setenv(DreamChildEnv, "1")   // lets this run's own `memory promote --to claude-md` through the gate
+				_ = os.Setenv(UpdateChildEnv, "1") // a Claude fallback leg must not re-trigger hooks; cannot fail for a fixed key
+				_ = os.Setenv(DreamChildEnv, "1")  // lets this run's own `memory promote --to claude-md` through the gate
 				who, err := o.Run(ctx, prompt, o.CWD)
 				runErr = err
 				fmt.Fprintln(o.Out, "memory dream: ran on", who)

@@ -15,4 +15,4 @@ content that already exists — never overwrite; leave sections empty rather tha
 
 Every file keeps its `# Title` and one-line `>` mutation-contract note from the scaffold. Finish by
 reporting the files touched and reminding that `session-start` injects the bank automatically and the
-Stop/SessionEnd harvest (or `claude-code memory update`) saves it.
+Stop/SessionEnd memory update (or `claude-code memory update`) saves it.

@@ -6,7 +6,7 @@ import (
 )
 
 // embeddedVerbs are every verb Go actually calls memory.Reference with — grepped by hand from
-// harvest.go, dream.go, promote.go — each must resolve to a non-empty embedded prompt.
+// update.go, dream.go, promote.go — each must resolve to a non-empty embedded prompt.
 var embeddedVerbs = []string{"init", "review", "promote", "update", "dream"}
 
 // TestReferenceEmbeddedVerbsNonEmpty: every verb Go calls Reference(verb) with resolves to a

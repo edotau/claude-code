@@ -63,39 +63,39 @@ func TestNewestActivityNewerSubagentFileWins(t *testing.T) {
 }
 
 // A quiet transcript with uncovered work dispatches once; covered work stays quiet.
-func TestIdleHarvestOnceDispatchesUncoveredWork(t *testing.T) {
+func TestIdleUpdateOnceDispatchesUncoveredWork(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	tr := filepath.Join(t.TempDir(), "t.jsonl")
 	writeEdits(t, tr, 9)
 	calls := stubSpawn(t, true)
 	writeStamp(stampPath("idle"), time.Now().Add(-time.Hour), "bg", 4) // a checkpoint covered 4 of the 9
 
-	if !idleHarvestOnce(tr, filepath.Dir(tr), "idle", io.Discard) || calls.Load() != 1 {
-		t.Fatalf("5 uncovered edits on a quiet transcript must dispatch the final harvest (calls=%d)", calls.Load())
+	if !idleUpdateOnce(tr, filepath.Dir(tr), "idle", io.Discard) || calls.Load() != 1 {
+		t.Fatalf("5 uncovered edits on a quiet transcript must dispatch the final update (calls=%d)", calls.Load())
 	}
 	if st, _ := readStamp(stampPath("idle")); !st.bg || st.edits != 9 {
-		t.Errorf("stamp after the idle harvest = %+v, want bg covering all 9 edits", st)
+		t.Errorf("stamp after the idle update = %+v, want bg covering all 9 edits", st)
 	}
-	if idleHarvestOnce(tr, filepath.Dir(tr), "idle", io.Discard) || calls.Load() != 1 {
+	if idleUpdateOnce(tr, filepath.Dir(tr), "idle", io.Discard) || calls.Load() != 1 {
 		t.Error("a second pass with everything covered must not dispatch again")
 	}
 	writeEdits(t, tr, 2)
 	_ = os.Remove(stampPath("idle"))
-	if idleHarvestOnce(tr, filepath.Dir(tr), "idle", io.Discard) {
+	if idleUpdateOnce(tr, filepath.Dir(tr), "idle", io.Discard) {
 		t.Error("under the edit floor must not dispatch")
 	}
 	var note bytes.Buffer
 	writeEdits(t, tr, 5)
 	stubSpawn(t, false)
-	if idleHarvestOnce(tr, filepath.Dir(tr), "idle2", &note); !strings.Contains(note.String(), "not spawned") {
+	if idleUpdateOnce(tr, filepath.Dir(tr), "idle2", &note); !strings.Contains(note.String(), "not spawned") {
 		t.Errorf("a failed spawn must be noted: %q", note.String())
 	}
 }
 
-// TestIdleHarvestOnceCountsSubagentEdits: the idle watcher's edit count is the same countEdits unit the
+// TestIdleUpdateOnceCountsSubagentEdits: the idle watcher's edit count is the same countEdits unit the
 // Stop gate's stamp uses — main transcript edits PLUS any dispatched subagent's own edits — so growth in
-// either one past the covered total still dispatches the final harvest.
-func TestIdleHarvestOnceCountsSubagentEdits(t *testing.T) {
+// either one past the covered total still dispatches the final update.
+func TestIdleUpdateOnceCountsSubagentEdits(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	tr := filepath.Join(t.TempDir(), "t.jsonl")
 	writeEdits(t, tr, 1)
@@ -106,29 +106,29 @@ func TestIdleHarvestOnceCountsSubagentEdits(t *testing.T) {
 	writeEdits(t, filepath.Join(subDir, "agent-a.jsonl"), 10)
 	calls := stubSpawn(t, true)
 
-	if !idleHarvestOnce(tr, filepath.Dir(tr), "idle-sub", io.Discard) || calls.Load() != 1 {
-		t.Fatalf("1 main + 10 subagent edits must dispatch the final harvest (calls=%d)", calls.Load())
+	if !idleUpdateOnce(tr, filepath.Dir(tr), "idle-sub", io.Discard) || calls.Load() != 1 {
+		t.Fatalf("1 main + 10 subagent edits must dispatch the final update (calls=%d)", calls.Load())
 	}
 	if st, _ := readStamp(stampPath("idle-sub")); !st.bg || st.edits != 11 {
-		t.Errorf("stamp after the idle harvest = %+v, want bg covering 11 edits", st)
+		t.Errorf("stamp after the idle update = %+v, want bg covering 11 edits", st)
 	}
 
 	writeEdits(t, tr, 7) // 6 more main edits (1 -> 7); the subagent file is untouched
-	if !idleHarvestOnce(tr, filepath.Dir(tr), "idle-sub", io.Discard) || calls.Load() != 2 {
+	if !idleUpdateOnce(tr, filepath.Dir(tr), "idle-sub", io.Discard) || calls.Load() != 2 {
 		t.Fatalf("6 more main edits past the covered 11 must dispatch again (calls=%d)", calls.Load())
 	}
 }
 
 // The Stop gate claims one watcher per session at its first dispatch — never a second.
-func TestSessionHarvestSpawnsOneIdleWatcherPerSession(t *testing.T) {
+func TestSessionUpdateSpawnsOneIdleWatcherPerSession(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	t.Setenv(memory.HarvestChildEnv, "")
+	t.Setenv(memory.UpdateChildEnv, "")
 	tr := filepath.Join(t.TempDir(), "t.jsonl")
 	cwd := t.TempDir()
 	writeEdits(t, tr, 6)
 	stubSpawn(t, true)
 	watches := stubWatcher(t, true)
-	run := func() { sessionHarvest(ParseInput(strings.NewReader(harvestPayload(tr, cwd))), &bytes.Buffer{}) }
+	run := func() { sessionUpdate(ParseInput(strings.NewReader(updatePayload(tr, cwd))), &bytes.Buffer{}) }
 
 	run()
 	writeStamp(stampPath("s1"), time.Now().Add(-time.Hour), "bg", 6)
@@ -144,7 +144,7 @@ func TestSessionHarvestSpawnsOneIdleWatcherPerSession(t *testing.T) {
 		t.Error("the per-session claim file must exist after the spawn")
 	}
 
-	// A failed spawn releases the claim, so the next harvest dispatch (a re-arm) tries again.
+	// A failed spawn releases the claim, so the next update dispatch (a re-arm) tries again.
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	failed := stubWatcher(t, false)
 	run()
@@ -160,19 +160,19 @@ func TestSessionHarvestSpawnsOneIdleWatcherPerSession(t *testing.T) {
 }
 
 // The watcher is bound to its session process: once that pid is gone it exits on the next poll.
-func TestIdleHarvestWatchExitsWhenOwnerDies(t *testing.T) {
+func TestIdleUpdateWatchExitsWhenOwnerDies(t *testing.T) {
 	tr := filepath.Join(t.TempDir(), "t.jsonl")
 	writeEdits(t, tr, 6)
-	prev := harvestWatchPoll
-	harvestWatchPoll = 5 * time.Millisecond
-	t.Cleanup(func() { harvestWatchPoll = prev })
+	prev := updateWatchPoll
+	updateWatchPoll = 5 * time.Millisecond
+	t.Cleanup(func() { updateWatchPoll = prev })
 	cmd := exec.Command("true")
 	if err := cmd.Run(); err != nil {
 		t.Skip("cannot run true:", err)
 	}
 	done := make(chan int, 1)
 	go func() {
-		done <- IdleHarvestWatch([]string{"--session", "own", "--transcript", tr, "--cwd", filepath.Dir(tr),
+		done <- IdleUpdateWatch([]string{"--session", "own", "--transcript", tr, "--cwd", filepath.Dir(tr),
 			"--owner", strconv.Itoa(cmd.Process.Pid)}, io.Discard)
 	}()
 	select {
@@ -185,21 +185,21 @@ func TestIdleHarvestWatchExitsWhenOwnerDies(t *testing.T) {
 	}
 }
 
-// A quiet transcript is harvested from inside the loop; a vanished transcript ends the watch.
-func TestIdleHarvestWatchHarvestsQuietTranscript(t *testing.T) {
+// A quiet transcript is updated from inside the loop; a vanished transcript ends the watch.
+func TestIdleUpdateWatchUpdatesQuietTranscript(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	tr := filepath.Join(t.TempDir(), "t.jsonl")
 	writeEdits(t, tr, 5)
 	old := time.Now().Add(-time.Hour)
 	_ = os.Chtimes(tr, old, old)
-	prev := harvestWatchPoll
-	harvestWatchPoll = 5 * time.Millisecond
-	t.Cleanup(func() { harvestWatchPoll = prev })
+	prev := updateWatchPoll
+	updateWatchPoll = 5 * time.Millisecond
+	t.Cleanup(func() { updateWatchPoll = prev })
 	calls := stubSpawn(t, true)
 	var note bytes.Buffer
 	done := make(chan int, 1)
 	go func() {
-		done <- IdleHarvestWatch([]string{"--session", "quiet", "--transcript", tr, "--cwd", filepath.Dir(tr), "--idle", "1s"}, &note)
+		done <- IdleUpdateWatch([]string{"--session", "quiet", "--transcript", tr, "--cwd", filepath.Dir(tr), "--idle", "1s"}, &note)
 	}()
 	for i := 0; i < 200 && calls.Load() == 0; i++ {
 		time.Sleep(5 * time.Millisecond)
@@ -210,15 +210,15 @@ func TestIdleHarvestWatchHarvestsQuietTranscript(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("watcher did not exit after the transcript vanished")
 	}
-	if calls.Load() != 1 || !strings.Contains(note.String(), "final harvest dispatched") {
+	if calls.Load() != 1 || !strings.Contains(note.String(), "final update dispatched") {
 		t.Errorf("calls=%d note=%q", calls.Load(), note.String())
 	}
 }
 
-// TestIdleHarvestWatchSkipsGlobWhileMainTranscriptFresh: while the main transcript's own mtime is
+// TestIdleUpdateWatchSkipsGlobWhileMainTranscriptFresh: while the main transcript's own mtime is
 // within the idle window, the loop must not even reach newestActivity's subagent glob or dispatch —
-// a subagent transcript with plenty of uncovered edits must not trigger a harvest during that window.
-func TestIdleHarvestWatchSkipsGlobWhileMainTranscriptFresh(t *testing.T) {
+// a subagent transcript with plenty of uncovered edits must not trigger an update during that window.
+func TestIdleUpdateWatchSkipsGlobWhileMainTranscriptFresh(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	tr := filepath.Join(t.TempDir(), "t.jsonl")
 	writeEdits(t, tr, 6) // sets the main transcript's mtime to "now" as a side effect of the write
@@ -228,13 +228,13 @@ func TestIdleHarvestWatchSkipsGlobWhileMainTranscriptFresh(t *testing.T) {
 	}
 	agent := filepath.Join(subDir, "agent-a.jsonl")
 	writeEdits(t, agent, 9)
-	prev := harvestWatchPoll
-	harvestWatchPoll = 5 * time.Millisecond
-	t.Cleanup(func() { harvestWatchPoll = prev })
+	prev := updateWatchPoll
+	updateWatchPoll = 5 * time.Millisecond
+	t.Cleanup(func() { updateWatchPoll = prev })
 	calls := stubSpawn(t, true)
 	done := make(chan int, 1)
 	go func() {
-		done <- IdleHarvestWatch([]string{"--session", "fresh", "--transcript", tr, "--cwd", filepath.Dir(tr),
+		done <- IdleUpdateWatch([]string{"--session", "fresh", "--transcript", tr, "--cwd", filepath.Dir(tr),
 			"--idle", "200ms"}, io.Discard)
 	}()
 	time.Sleep(60 * time.Millisecond) // several polls, well inside the 200ms idle window
@@ -249,17 +249,17 @@ func TestIdleHarvestWatchSkipsGlobWhileMainTranscriptFresh(t *testing.T) {
 	}
 }
 
-func TestIdleHarvestWatchRefusesBadFlags(t *testing.T) {
+func TestIdleUpdateWatchRefusesBadFlags(t *testing.T) {
 	tr := filepath.Join(t.TempDir(), "t.jsonl")
 	writeEdits(t, tr, 6)
 	var errb bytes.Buffer
-	if rc := IdleHarvestWatch([]string{"--session", "x", "--transcript", tr, "--cwd", filepath.Join(t.TempDir(), "gone")}, &errb); rc != 2 {
+	if rc := IdleUpdateWatch([]string{"--session", "x", "--transcript", tr, "--cwd", filepath.Join(t.TempDir(), "gone")}, &errb); rc != 2 {
 		t.Errorf("watch with a missing cwd = %d, want 2", rc)
 	}
 	if !strings.Contains(errb.String(), "not a directory") {
 		t.Errorf("stderr = %q", errb.String())
 	}
-	if rc := IdleHarvestWatch([]string{"--transcript", tr, "--cwd", filepath.Dir(tr)}, io.Discard); rc != 2 {
+	if rc := IdleUpdateWatch([]string{"--transcript", tr, "--cwd", filepath.Dir(tr)}, io.Discard); rc != 2 {
 		t.Errorf("watch without --session = %d, want 2", rc)
 	}
 }

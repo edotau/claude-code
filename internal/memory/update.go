@@ -18,8 +18,8 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 )
 
-// HarvestPrompt is the headless harvest instruction; the tail bound keeps a multi-MB transcript from eating the turns.
-const HarvestPrompt = "Background harvest of a finished session (transcript: %s). " +
+// UpdatePrompt is the headless update instruction; the tail bound keeps a multi-MB transcript from eating the turns.
+const UpdatePrompt = "Background update of a finished session (transcript: %s). " +
 	"Read ONLY the last ~1500 lines of that transcript — it may be many MB and reading it whole will " +
 	"exhaust your turn budget before you can write anything. " +
 	"Then run `claude-code memory update` with no --transcript to print the narrative procedure, and follow it " +
@@ -27,24 +27,24 @@ const HarvestPrompt = "Background harvest of a finished session (transcript: %s)
 	"Do it in this order so a truncated run still leaves the bank coherent: sessionHistory first, then " +
 	"activeContext, then progress, decisionLog, and conventions. Be surgical; touch nothing else."
 
-// Harvest statuses: pending = dispatched, not yet reported.
+// Update statuses: pending = dispatched, not yet reported.
 const (
-	HarvestPending = "pending"
-	HarvestOK      = "ok"
-	HarvestFailed  = "failed"
+	UpdatePending = "pending"
+	UpdateOK      = "ok"
+	UpdateFailed  = "failed"
 )
 
-// harvestGrace must exceed the worker's own timeout, or a healthy long harvest reads as lost.
-const harvestGrace = 16 * time.Minute
+// updateGrace must exceed the worker's own timeout, or a healthy long update reads as lost.
+const updateGrace = 16 * time.Minute
 
-// HarvestTimeout bounds the headless claude run.
-const HarvestTimeout = 15 * time.Minute
+// UpdateTimeout bounds the headless claude run.
+const UpdateTimeout = 15 * time.Minute
 
-// StateDir holds harvest stamps, results, logs and the session chain.
+// StateDir holds update stamps, results, logs and the session chain.
 func StateDir() string { return filepath.Join(paths.StateDir(), "memory") }
 
-// HarvestResult is one session's harvest outcome (KEY=value lines on disk).
-type HarvestResult struct {
+// UpdateResult is one session's update outcome (KEY=value lines on disk).
+type UpdateResult struct {
 	Status      string
 	Time        time.Time
 	BankUpdated bool
@@ -52,11 +52,11 @@ type HarvestResult struct {
 }
 
 func resultPath(sessionID string) string {
-	return filepath.Join(StateDir(), "harvest-result-"+filepath.Base(sessionID))
+	return filepath.Join(StateDir(), "update-result-"+filepath.Base(sessionID))
 }
 
-// WriteHarvestResult persists r for sessionID; a blank id (manual run) records nothing.
-func WriteHarvestResult(sessionID string, r HarvestResult) error {
+// WriteUpdateResult persists r for sessionID; a blank id (manual run) records nothing.
+func WriteUpdateResult(sessionID string, r UpdateResult) error {
 	if sessionID == "" {
 		return nil
 	}
@@ -65,11 +65,11 @@ func WriteHarvestResult(sessionID string, r HarvestResult) error {
 	return paths.AtomicWrite(resultPath(sessionID), []byte(body), 0o600)
 }
 
-// ReadHarvestResult loads sessionID's result; ok=false when absent or unparseable.
-func ReadHarvestResult(sessionID string) (HarvestResult, bool) {
+// ReadUpdateResult loads sessionID's result; ok=false when absent or unparseable.
+func ReadUpdateResult(sessionID string) (UpdateResult, bool) {
 	data, err := os.ReadFile(resultPath(sessionID))
 	if err != nil {
-		return HarvestResult{}, false
+		return UpdateResult{}, false
 	}
 	m := map[string]string{}
 	for ln := range strings.SplitSeq(string(data), "\n") {
@@ -77,27 +77,27 @@ func ReadHarvestResult(sessionID string) (HarvestResult, bool) {
 			m[k] = v
 		}
 	}
-	r := HarvestResult{Status: m["status"], Log: m["log"], BankUpdated: m["bank_updated"] == "true"}
+	r := UpdateResult{Status: m["status"], Log: m["log"], BankUpdated: m["bank_updated"] == "true"}
 	r.Time, _ = time.Parse(time.RFC3339, m["time"])
 	return r, r.Status != ""
 }
 
 // NeedsAttention: a recorded failure, or a pending dispatch past the grace window (the worker died).
-func (r HarvestResult) NeedsAttention(now time.Time) bool {
-	return r.Status == HarvestFailed || (r.Status == HarvestPending && now.Sub(r.Time) > harvestGrace)
+func (r UpdateResult) NeedsAttention(now time.Time) bool {
+	return r.Status == UpdateFailed || (r.Status == UpdatePending && now.Sub(r.Time) > updateGrace)
 }
 
 // AgentFunc runs prompt on an injected agent (internal/agent imports this package) and names who answered.
 type AgentFunc func(ctx context.Context, prompt, workdir string) (who string, err error)
 
-// agentHarvestPrompt frames `claude-code memory update`'s procedure for an agent that has no slash
+// agentUpdatePrompt frames `claude-code memory update`'s procedure for an agent that has no slash
 // commands; the procedure itself is one copy, embedded at prompts/update.md.
-func agentHarvestPrompt(transcript, cwd string) (string, error) {
+func agentUpdatePrompt(transcript, cwd string) (string, error) {
 	ref, err := Reference("update")
 	if err != nil {
 		return "", err
 	}
-	return "Background harvest of a finished session (transcript: " + transcript + "). " +
+	return "Background update of a finished session (transcript: " + transcript + "). " +
 		"Read ONLY the last ~1500 lines of that transcript; it may be many MB. " +
 		"Resolve the bank directory with `claude-code memory path`. Follow this procedure, the COMPLETE pass:\n\n" +
 		ref + "\n\n" +
@@ -182,7 +182,7 @@ func mergeFileLists(nameOnly, porcelain string) []string {
 
 // tagBlock extracts DECISION/BUG/NEXT/NOTE tags from the whole transcript and appends a filing
 // instruction when any exist. Extraction failure (missing file, bad JSON) degrades to no block;
-// the harvest itself must never fail because of tags.
+// the update itself must never fail because of tags.
 func tagBlock(transcript string) string {
 	f, err := os.Open(transcript)
 	if err != nil {
@@ -203,14 +203,14 @@ func tagBlock(transcript string) string {
 	return b.String()
 }
 
-// UpdateOptions drive one background harvest.
+// UpdateOptions drive one background update.
 type UpdateOptions struct {
 	Claude     string    // real claude binary; "" records a failure unless Run is set
 	Run        AgentFunc // preferred runner; nil = claude -p
 	Transcript string
 	CWD        string
 	Session    string
-	Timeout    time.Duration // 0 = HarvestTimeout
+	Timeout    time.Duration // 0 = UpdateTimeout
 	Out        io.Writer
 }
 
@@ -220,14 +220,14 @@ func Update(o UpdateOptions) error {
 		o.Out = io.Discard
 	}
 	if o.Timeout == 0 {
-		o.Timeout = HarvestTimeout
+		o.Timeout = UpdateTimeout
 	}
-	prior, _ := ReadHarvestResult(o.Session)
+	prior, _ := ReadUpdateResult(o.Session)
 	record := func(status string, updated bool) {
-		_ = WriteHarvestResult(o.Session, HarvestResult{Status: status, Time: time.Now(), BankUpdated: updated, Log: prior.Log})
+		_ = WriteUpdateResult(o.Session, UpdateResult{Status: status, Time: time.Now(), BankUpdated: updated, Log: prior.Log})
 	}
 	if o.Claude == "" && o.Run == nil {
-		record(HarvestFailed, false)
+		record(UpdateFailed, false)
 		return errors.New("claude binary not found")
 	}
 	dir := Dir(o.CWD)
@@ -238,21 +238,21 @@ func Update(o UpdateOptions) error {
 		ctx, cancel := context.WithTimeout(context.Background(), o.Timeout)
 		defer cancel()
 		if o.Run != nil {
-			prompt, perr := agentHarvestPrompt(o.Transcript, o.CWD)
+			prompt, perr := agentUpdatePrompt(o.Transcript, o.CWD)
 			if perr != nil {
 				runErr = perr
 				return nil
 			}
-			_ = os.Setenv(HarvestChildEnv, "1") // a Claude fallback leg must not re-trigger hooks; cannot fail for a fixed key
+			_ = os.Setenv(UpdateChildEnv, "1") // a Claude fallback leg must not re-trigger hooks; cannot fail for a fixed key
 			who, err := o.Run(ctx, prompt, o.CWD)
 			runErr = err
 			fmt.Fprintln(o.Out, "memory update: ran on", who)
 			return nil
 		}
-		cmd := exec.CommandContext(ctx, o.Claude, "-p", fmt.Sprintf(HarvestPrompt, o.Transcript)+tagBlock(o.Transcript), "--max-turns", "40")
+		cmd := exec.CommandContext(ctx, o.Claude, "-p", fmt.Sprintf(UpdatePrompt, o.Transcript)+tagBlock(o.Transcript), "--max-turns", "40")
 		cmd.Dir = o.CWD
-		cmd.Env = append(os.Environ(), HarvestChildEnv+"=1")
-		// A stored setup-token keeps the unattended harvest working after the interactive /login session expires.
+		cmd.Env = append(os.Environ(), UpdateChildEnv+"=1")
+		// A stored setup-token keeps the unattended update working after the interactive /login session expires.
 		if os.Getenv(providers.OAuthTokenEnv) == "" {
 			if tok := providers.HeadlessOAuthToken(); tok != "" {
 				cmd.Env = append(cmd.Env, providers.OAuthTokenEnv+"="+tok)
@@ -262,7 +262,7 @@ func Update(o UpdateOptions) error {
 		runErr = cmd.Run()
 		return nil
 	})
-	// A harvest may legitimately write only the shared home bank (cross-repo facts), so watch both tiers.
+	// An update may legitimately write only the shared home bank (cross-repo facts), so watch both tiers.
 	updated := NewestMtime(dir).After(before) || NewestMtime(HomeBankDir()).After(beforeHome)
 	if _, err := SettleBank(o.CWD, time.Now()); err != nil {
 		fmt.Fprintln(o.Out, "memory update: settle:", err)
@@ -272,9 +272,9 @@ func Update(o UpdateOptions) error {
 		fmt.Fprintln(o.Out, "memory update: doctor notice:", err)
 	}
 	if err := errors.Join(lockErr, runErr); err != nil {
-		record(HarvestFailed, updated)
-		return fmt.Errorf("headless harvest: %w", err)
+		record(UpdateFailed, updated)
+		return fmt.Errorf("headless update: %w", err)
 	}
-	record(HarvestOK, updated)
+	record(UpdateOK, updated)
 	return nil
 }

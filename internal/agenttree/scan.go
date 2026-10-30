@@ -16,13 +16,13 @@ import (
 	"github.com/edotau/claude-code/internal/transcript"
 )
 
-// harvestTitlePrefix is the background-harvest system prompt, never a real user ask.
-const harvestTitlePrefix = "Background harvest of a finished session"
+// updateTitlePrefix is the background-update system prompt, never a real user ask.
+const updateTitlePrefix = "Background update of a finished session"
 
 // isSkippableTitle rejects a candidate title that isn't a real user prompt: a tag-wrapped harness
-// directive (<local-command-caveat>, <command-name>, ...) or the SessionEnd harvest's own prompt.
+// directive (<local-command-caveat>, <command-name>, ...) or the SessionEnd update's own prompt.
 func isSkippableTitle(text string) bool {
-	return strings.HasPrefix(text, "<") || strings.HasPrefix(text, harvestTitlePrefix)
+	return strings.HasPrefix(text, "<") || strings.HasPrefix(text, updateTitlePrefix)
 }
 
 // headScanBytes bounds the main-transcript head read: cwd/branch/title all appear in the first

@@ -232,7 +232,7 @@ var Registry = map[string]Handler{
 	"paths-resolve":             nativeHandler("paths-resolve"),
 	"memory-update":             func(in io.Reader, _, errw io.Writer) int { return Stop(in, errw) },
 	"format-stop":               func(in io.Reader, _, _ io.Writer) int { return StopFormat(in) },
-	"memory-end":                func(in io.Reader, _, _ io.Writer) int { return SessionHarvestEnd(in) },
+	"memory-end":                func(in io.Reader, _, _ io.Writer) int { return SessionUpdateEnd(in) },
 	"dispatch-effort":           nativeHandler("dispatch-effort"),
 	"codex-agent-route":         nativeHandler("codex-agent-route"),
 	"codex-routing-start":       nativeHandler("codex-routing-start"),

@@ -57,7 +57,7 @@ Files under `agents/`, `commands/`, `rules/`, `skills/` and this file go live th
    one-line edit; never re-steer a running agent. A leaf does the work or requests one agent via `Agent:` →
    `skills/subagent-workflows/SKILL.md` → Leaf types; many leaves → one lane orchestrator per lane.
 6. **Tag notable moments** in replies, one per line: `DECISION:` (what, rejected alt, why) · `BUG:` · `NEXT:` ·
-   `NOTE:` — the harvest files them.
+   `NOTE:` — the memory update files them.
 
 Simplicity, comments, verification order and testing: `rules/standards/` (always loaded).
 

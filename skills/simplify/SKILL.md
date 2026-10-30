@@ -5,101 +5,75 @@ description: 'Behavior-preserving cleanup of changed code — overrides the buil
 
 # Simplify
 
-The **apply-the-fix** lens for two code-discipline principles — **Simplicity First (#2)** and
-**Surgical Changes (#3)**. It overrides the built-in `/simplify`. Use it directly in place, or hand it to a
-subagent over a diff.
+Applies the fixes for **#2 Simplicity First** and **#3 Surgical Changes**
+(`skills/evaluate-code/references/principles.md`); overrides the built-in `/simplify`. Run it in place or hand
+it to a subagent over a diff.
 
-**The lane:** behavior is preserved — you change *how* code is structured, never *what* it does. Bugs and
-security findings are reported, not fixed here.
+**The lane:** change *how* code is structured, never *what* it does. Bugs and security findings are reported,
+not fixed here. The failure mode is drive-by cleanup: remove only what *your* simplification made dead.
 
-## Simplicity First (#2) and Surgical Changes (#3)
+**Extended scope** is the one exception: when the diff duplicates a helper or constant that already exists,
+consolidate at the source and say so (out-of-diff file + blast radius). A large or unverifiable blast radius
+is flagged, not reached for.
 
-CLAUDE.md → Behavioral guidelines 2 and 3 state the rules; this skill *applies* the fix, not just flags it.
+## Name the assumption before you cut
 
-Simplifying inverts the usual risk for #3: the failure mode here is **drive-by cleanup**, not
-over-engineering — remove only what *your* simplification made dead.
+The quickest way to break code while "simplifying" is to delete an "impossible" branch on a guess. Before each
+cut, finish the sentence from the code in front of you:
 
-The one exception is **extended-scope consolidation**: if the diff duplicates a helper or
-constant that already exists, consolidating at the source removes duplication the diff
-created — that traces to the task. Say so explicitly (name the out-of-diff file + blast
-radius). When the blast radius is large or unverifiable, flag it instead of reaching for it.
-
-Worked before/after examples: `references/simplification-patterns.md` (the one home for #2 fixes).
-
-## Surface the assumption before you cut
-
-Behavior preservation is the contract — but the trap is *assuming* you already know the
-behavior. The fastest way to break code while "simplifying" is to delete an "impossible"
-branch or collapse a conditional by guessing which path is dead. A wrong guess changes
-behavior silently and the diff still looks like a cleanup.
-
-Before applying a cut, name the assumption it rests on — out loud, from the code in front
-of you:
-
-- Deleting an `except` or guard → "this exception/state cannot occur because ___."
+- Deleting an `except` or guard → "this state cannot occur because ___."
 - Collapsing a branch → "this branch is unreachable because ___."
 - Removing a parameter or knob → "no caller passes a non-default because ___ (grep'd)."
 
-If you can't finish the sentence from the code, **flag it, don't cut it.** Verify
-reachability with `grep`/tests before deleting anything you merely *suspect* is dead. This
-is the simplify-lane form of "don't run with a wrong assumption" — the simplifier's one job
-is to not change behavior, so it earns no license to guess.
+Can't finish it → **flag it, don't cut it.** This rule governs every phase below.
 
-## Docstring brevity
-
-The 1-line / ≤120-char cap is canonical in `rules/standards/communication.md`; a bloated
-docstring is over-engineering in prose, so it's in this lane. Say what the caller can't read
-from the signature. Before/after pairs + the public-API exception: `references/docstring-style.md`.
-
-Same lane for comments: remove section banners/ASCII dividers, TODOs that duplicate git
-history, and restate-the-code comments; keep only why-comments; prefer a clear name over a comment.
-
-## Automated first pass
-
-```bash
-# Multi-commit changes: set BASE_SHA and use "$BASE_SHA..HEAD" in place of HEAD~1 below.
-CHANGED=$(git diff --name-only HEAD~1 | grep -E '\.(py|ts|tsx|js|jsx)$')
-# #2 Simplicity — per-function complexity, length, nesting, premature abstractions
-[ -n "$CHANGED" ] && claude-code review complexity $CHANGED --threshold medium
-# #3 Surgical — diff noise that doesn't trace to the task
-claude-code review diff --diff HEAD~1..HEAD
-```
-
-What each detector checks, languages covered, thresholds: `claude-code review complexity -h`,
-`claude-code review diff -h`. Both are advisory (exit 0) — use findings as leads, verify each by reading
-the code; the detectors locate, you judge.
+Docstrings and comments are in the lane: the 1-line / ≤120-char cap (`rules/standards/communication.md`), no
+banners or restate-the-code comments, a clear name over a comment. Before/after: `references/docstring-style.md`.
 
 ## Process
 
+### Scope
+
+The diff is `git diff @{upstream}...HEAD; git diff HEAD`, or the target argument; outside a git repo, the most
+recently modified files. A `focus on <area>` argument (`/simplify focus on memory efficiency`) goes into every
+brief and ranks its matching findings first.
+
 ### Phase 1 — Review
 
-Launch 4 agents in ONE message (Agent tool, `subagent_type: code-worker`, run in background). Each gets
-the diff (`git diff @{upstream}...HEAD; git diff HEAD`, or the target argument) and one angle, and returns
-findings as file, line, one-line summary, concrete cost. If the Agent tool is unavailable, do all four
-angles yourself in one pass and say so in the summary.
+Run the advisory detectors (exit 0; leads to verify, not verdicts), then launch the four angles:
 
-- **Reuse** — flag new code that re-implements something the codebase already has; Grep shared/utility
-  modules and files adjacent to the change, and name the existing helper to call instead.
-- **Simplification** — flag unnecessary complexity the diff adds: redundant or derivable state, copy-paste
-  with slight variation, deep nesting, dead code left behind, single-use abstractions, speculative
-  flexibility, impossible-state error handling, over-long docstrings; name the simpler form.
-- **Efficiency** — flag wasted work the diff introduces: redundant computation or repeated I/O, independent
-  operations run sequentially, blocking work on startup or hot paths, long-lived closures capturing large
-  scopes; name the cheaper form; a cost is a finding only with a measurement behind it — otherwise it is a
-  hypothesis, say so.
-- **Altitude** — check each change fixes the root cause at the right depth rather than patching a symptom;
-  special cases layered on shared infrastructure mean the fix isn't deep enough; name the more general change.
+```bash
+BASE=$(git merge-base @{upstream} HEAD 2>/dev/null || git rev-parse HEAD~1)
+CHANGED=$(git diff --name-only "$BASE")
+[ -n "$CHANGED" ] && claude-code review complexity $CHANGED   # length, nesting, branches (py/ts/js/go)
+claude-code review diff --file <(git diff "$BASE")            # lines that don't trace to the task
+```
+
+Launch 4 agents in ONE message (Agent tool, `subagent_type: code-worker`, in background), each with the diff,
+the focus and one angle, returning file, line, one-line summary, concrete cost. Without the Agent tool, do all
+four yourself in one pass and say so.
+
+- **Reuse** — new code re-implementing an existing helper (Grep shared modules and files next to the change)
+  or logic duplicated within the diff; name the one place it should live.
+- **Simplification** — redundant or derivable state, near-copy-paste, deep nesting, leftover dead code,
+  single-use abstractions, speculative flexibility, impossible-state error handling, inconsistent naming,
+  stringly-typed values, leaky abstractions, departures from `CLAUDE.md` and `rules/`; name the simpler form.
+  Patterns: `references/simplification-patterns.md`.
+- **Efficiency** — redundant computation, allocations or I/O, N+1 queries and per-item loops that could batch,
+  independent work run sequentially, blocking work on startup or hot paths, needless frontend re-renders,
+  closures holding large scopes; name the cheaper form. No measurement → call it a hypothesis.
+- **Altitude** — does each change fix the root cause at the right depth? Special cases layered on shared
+  infrastructure mean it doesn't; name the more general change.
 
 ### Phase 2 — Apply
 
-1. Run the automated first pass; dedup findings on the same line/mechanism.
-2. For each, name the assumption the cut rests on (section above) — can't finish the sentence → flag, don't cut.
-3. Skip fixes that change behavior or reach well outside the diff (note the skip). For method-level
-   extraction see `references/extract-method.md`.
-4. Run the change's scoped tests + lint before and after, per `rules/standards/quality.md` →
-   Verification Order (the full suite runs once at wrap-up, with the user's approval). Green is
+1. Merge the angle and detector findings; dedup by line and mechanism. Drop false positives and findings not
+   worth the change — skip them, don't argue them.
+2. Skip any fix that changes behavior or reaches well outside the diff, and note the skip. Method-level
+   extraction: `references/extract-method.md`.
+3. Run the scoped tests + lint before and after (`rules/standards/quality.md` → Verification Order). Green is
    the proof behavior held; no covering test is itself a finding — say so before cutting.
-5. Report what changed in this format:
+4. Report each change, then a fixed/skipped summary:
 
 ```text
 [File] path/to/file.py
@@ -109,12 +83,3 @@ angles yourself in one pass and say so in the summary.
 [Impact] high | medium | low
 [Description] What changed and why it's simpler — behavior unchanged.
 ```
-
-End with a fixed/skipped summary. If a fix would change behavior or its blast radius is unverifiable,
-**flag it, don't apply it** — leave that call to the human.
-
-## References
-
-- `references/docstring-style.md` — the 1-line / ≤120-char rule, rationale, before/after.
-- `references/simplification-patterns.md` — recurring wins: inline, consolidate, de-nest.
-- `references/extract-method.md` — reduce a method's cognitive complexity by extracting focused helpers.

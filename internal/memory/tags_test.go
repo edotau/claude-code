@@ -33,7 +33,7 @@ func jsonQuote(s string) string {
 func TestExtractTags_AssistantAllFourKinds(t *testing.T) {
 	t.Parallel()
 	transcript := strings.Join([]string{
-		assistantLine("DECISION: use bbolt — rejected sqlite because no cgo\nBUG: harvest hangs → missing timeout\nNEXT: add retry\nNOTE: vault key lives in keyring"),
+		assistantLine("DECISION: use bbolt — rejected sqlite because no cgo\nBUG: update hangs → missing timeout\nNEXT: add retry\nNOTE: vault key lives in keyring"),
 	}, "\n")
 	tags, err := ExtractTags(strings.NewReader(transcript))
 	if err != nil {

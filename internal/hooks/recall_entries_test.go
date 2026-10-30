@@ -31,7 +31,7 @@ func writeBank(t *testing.T, rel, body string) {
 func recallEnv(t *testing.T) {
 	t.Helper()
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	t.Setenv(memory.HarvestChildEnv, "")
+	t.Setenv(memory.UpdateChildEnv, "")
 	t.Setenv("CLAUDE_RECALL_SEMANTIC", "")
 }
 

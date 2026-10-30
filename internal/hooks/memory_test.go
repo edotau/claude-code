@@ -61,34 +61,34 @@ func appendUserTurns(t *testing.T, path string, n int) {
 	}
 }
 
-// stubSpawn replaces BOTH detached seams: a successful harvest dispatch also claims an idle watcher, and a
+// stubSpawn replaces BOTH detached seams: a successful update dispatch also claims an idle watcher, and a
 // test must never start a real one.
 // The counter is atomic: the idle watcher runs the stub on its own goroutine while the test polls.
 func stubSpawn(t *testing.T, ok bool) *atomic.Int64 {
 	t.Helper()
 	calls := new(atomic.Int64)
-	orig, origWatch, origDream := spawnHarvest, spawnWatcher, spawnDream
-	spawnHarvest = func(string, string, string) bool { calls.Add(1); return ok }
+	orig, origWatch, origDream := spawnUpdate, spawnWatcher, spawnDream
+	spawnUpdate = func(string, string, string) bool { calls.Add(1); return ok }
 	spawnWatcher = func([]string, string) bool { return true }
 	spawnDream = func(string) bool { return true }
 	claudePressure = func() (float64, string, bool) { return 0, "", false } // the real usage cache never steers a test
 	routeHint = func(string) (string, string) { return "codex", "gpt-6.1-sol" }
-	t.Cleanup(func() { spawnHarvest, spawnWatcher, spawnDream = orig, origWatch, origDream })
+	t.Cleanup(func() { spawnUpdate, spawnWatcher, spawnDream = orig, origWatch, origDream })
 	return calls
 }
 
-func harvestPayload(tr, cwd string) string {
+func updatePayload(tr, cwd string) string {
 	return fmt.Sprintf(`{"session_id":"s1","cwd":%q,"transcript_path":%q}`, cwd, tr)
 }
 
-func TestSessionHarvestTriggerAndReharvest(t *testing.T) {
+func TestSessionUpdateTriggerAndReupdate(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	t.Setenv(memory.HarvestChildEnv, "")
+	t.Setenv(memory.UpdateChildEnv, "")
 	tr := filepath.Join(t.TempDir(), "t.jsonl")
 	cwd := t.TempDir()
 	calls := stubSpawn(t, true)
 	run := func() int {
-		return sessionHarvest(ParseInput(strings.NewReader(harvestPayload(tr, cwd))), &bytes.Buffer{})
+		return sessionUpdate(ParseInput(strings.NewReader(updatePayload(tr, cwd))), &bytes.Buffer{})
 	}
 
 	writeEdits(t, tr, 2)
@@ -101,41 +101,41 @@ func TestSessionHarvestTriggerAndReharvest(t *testing.T) {
 	}
 	writeEdits(t, tr, 20)
 	if run(); calls.Load() != 1 {
-		t.Error("re-harvest inside the cooldown")
+		t.Error("re-update inside the cooldown")
 	}
 	stamp := stampPath("s1")
 	writeStamp(stamp, time.Now().Add(-16*time.Minute), "bg", 3)
 	writeEdits(t, tr, 12)
 	if run(); calls.Load() != 1 {
-		t.Error("re-harvest with fewer than 10 new edits")
+		t.Error("re-update with fewer than 10 new edits")
 	}
 	writeEdits(t, tr, 13)
 	if run(); calls.Load() != 2 {
-		t.Error("10 new edits after the cooldown must re-harvest")
+		t.Error("10 new edits after the cooldown must re-update")
 	}
 	if st, _ := readStamp(stamp); !st.bg || st.edits != 13 {
 		t.Errorf("stamp %+v", st)
 	}
 
-	// SessionEnd: nothing new since the last dispatch → no spawn; new edits → final harvest.
-	if SessionHarvestEnd(strings.NewReader(harvestPayload(tr, cwd))); calls.Load() != 2 {
+	// SessionEnd: nothing new since the last dispatch → no spawn; new edits → final update.
+	if SessionUpdateEnd(strings.NewReader(updatePayload(tr, cwd))); calls.Load() != 2 {
 		t.Error("session end with no new edits spawned")
 	}
 	writeEdits(t, tr, 14)
-	if SessionHarvestEnd(strings.NewReader(harvestPayload(tr, cwd))); calls.Load() != 3 {
+	if SessionUpdateEnd(strings.NewReader(updatePayload(tr, cwd))); calls.Load() != 3 {
 		t.Error("session end with new edits must spawn")
 	}
 
-	t.Setenv(memory.HarvestChildEnv, "1")
+	t.Setenv(memory.UpdateChildEnv, "1")
 	_ = os.Remove(stamp)
 	if run(); calls.Load() != 3 {
-		t.Error("a harvest child must never spawn another")
+		t.Error("an update child must never spawn another")
 	}
 }
 
-func TestSessionHarvestSpawnFailureBlocksThrice(t *testing.T) {
+func TestSessionUpdateSpawnFailureBlocksThrice(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	t.Setenv(memory.HarvestChildEnv, "")
+	t.Setenv(memory.UpdateChildEnv, "")
 	tr := filepath.Join(t.TempDir(), "t.jsonl")
 	cwd := filepath.Join(t.TempDir(), "proj")
 	writeEdits(t, tr, 5)
@@ -143,7 +143,7 @@ func TestSessionHarvestSpawnFailureBlocksThrice(t *testing.T) {
 	codes := []int{}
 	for range 5 {
 		var errb bytes.Buffer
-		codes = append(codes, sessionHarvest(ParseInput(strings.NewReader(harvestPayload(tr, cwd))), &errb))
+		codes = append(codes, sessionUpdate(ParseInput(strings.NewReader(updatePayload(tr, cwd))), &errb))
 		if codes[len(codes)-1] == ExitBlock && !strings.Contains(errb.String(), "claude-code memory update") {
 			t.Errorf("block reason %q", errb.String())
 		}
@@ -154,12 +154,12 @@ func TestSessionHarvestSpawnFailureBlocksThrice(t *testing.T) {
 
 	// Evidence releases the gate: a bank write after the stamp.
 	_ = os.Remove(stampPath("s1"))
-	sessionHarvest(ParseInput(strings.NewReader(harvestPayload(tr, cwd))), &bytes.Buffer{})
+	sessionUpdate(ParseInput(strings.NewReader(updatePayload(tr, cwd))), &bytes.Buffer{})
 	writeStamp(stampPath("s1"), time.Now().Add(-time.Minute), "1", 5)
 	if _, err := memory.Init(cwd); err != nil {
 		t.Fatal(err)
 	}
-	if got := sessionHarvest(ParseInput(strings.NewReader(harvestPayload(tr, cwd))), &bytes.Buffer{}); got != ExitProceed {
+	if got := sessionUpdate(ParseInput(strings.NewReader(updatePayload(tr, cwd))), &bytes.Buffer{}); got != ExitProceed {
 		t.Error("a bank write after the prompt must release the gate")
 	}
 }
@@ -170,7 +170,7 @@ func TestSessionStartAutoInitAndNotice(t *testing.T) {
 	}
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
-	t.Setenv(memory.HarvestChildEnv, "")
+	t.Setenv(memory.UpdateChildEnv, "")
 	cutoverStore(t)
 	repo := filepath.Join(t.TempDir(), "repo")
 	if err := exec.Command("git", "init", "-q", repo).Run(); err != nil {
@@ -210,15 +210,15 @@ func TestSessionStartAutoInitAndNotice(t *testing.T) {
 	if !strings.Contains(got, "Memory bank scaffolded at") {
 		t.Fatalf("auto-init surface: %q", got)
 	}
-	_ = memory.WriteHarvestResult(s1, memory.HarvestResult{Status: memory.HarvestFailed, Time: time.Now(), Log: "/x.log"})
+	_ = memory.WriteUpdateResult(s1, memory.UpdateResult{Status: memory.UpdateFailed, Time: time.Now(), Log: "/x.log"})
 	got = start(s2, repo)
 	if strings.Contains(got, "scaffolded") || !strings.Contains(got, "Previous session id: "+s1) || !strings.Contains(got, "did not complete (failed) (log: /x.log)") {
 		t.Errorf("notice: %q", got[:min(len(got), 500)])
 	}
-	t.Setenv(memory.HarvestChildEnv, "1")
-	start("child", repo) // a non-UUID harvest-child id: excluded by IsHarvestChild regardless of shape
+	t.Setenv(memory.UpdateChildEnv, "1")
+	start("child", repo) // a non-UUID update-child id: excluded by IsUpdateChild regardless of shape
 	if e, ok := readChain(filepath.Join(memory.StateDir(), "last-session")); !ok || e.sessionID != s2 {
-		t.Errorf("a harvest child advanced the session chain: %+v ok=%v", e, ok)
+		t.Errorf("an update child advanced the session chain: %+v ok=%v", e, ok)
 	}
 }
 
@@ -229,7 +229,7 @@ func TestSessionStartProbeIDDoesNotClobberLastSession(t *testing.T) {
 		t.Skip("git not installed")
 	}
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	t.Setenv(memory.HarvestChildEnv, "")
+	t.Setenv(memory.UpdateChildEnv, "")
 	repo := filepath.Join(t.TempDir(), "repo")
 	if err := exec.Command("git", "init", "-q", repo).Run(); err != nil {
 		t.Fatal(err)
@@ -246,33 +246,33 @@ func TestSessionStartProbeIDDoesNotClobberLastSession(t *testing.T) {
 	}
 }
 
-// assertPausedSuppressesHarvest drives Stop then SessionEnd for session "s1" against a paused guard and
-// asserts neither spawns a harvest or writes a stamp — shared by every "guard pauses the write paths" test.
-func assertPausedSuppressesHarvest(t *testing.T, cwd string) {
+// assertPausedSuppressesUpdate drives Stop then SessionEnd for session "s1" against a paused guard and
+// asserts neither spawns an update or writes a stamp — shared by every "guard pauses the write paths" test.
+func assertPausedSuppressesUpdate(t *testing.T, cwd string) {
 	t.Helper()
 	tr := filepath.Join(t.TempDir(), "t.jsonl")
 	writeEdits(t, tr, 20)
 	calls := stubSpawn(t, false)
 	var errb bytes.Buffer
-	if code := sessionHarvest(ParseInput(strings.NewReader(harvestPayload(tr, cwd))), &errb); code != ExitProceed || calls.Load() != 0 || errb.Len() != 0 {
+	if code := sessionUpdate(ParseInput(strings.NewReader(updatePayload(tr, cwd))), &errb); code != ExitProceed || calls.Load() != 0 || errb.Len() != 0 {
 		t.Errorf("paused Stop: code=%d spawns=%d stderr=%q", code, calls.Load(), errb.String())
 	}
-	if SessionHarvestEnd(strings.NewReader(harvestPayload(tr, cwd))); calls.Load() != 0 {
+	if SessionUpdateEnd(strings.NewReader(updatePayload(tr, cwd))); calls.Load() != 0 {
 		t.Error("paused SessionEnd must not spawn")
 	}
 	if _, ok := readStamp(stampPath("s1")); ok {
-		t.Error("paused harvest wrote a stamp")
+		t.Error("paused update wrote a stamp")
 	}
 }
 
 // A raised maintenance marker pauses every memory write path: no scaffold, no spawn, no block, no stamp —
 // the notice alone is injected, and an existing surface still loads read-only behind it.
-func TestMemoryGuardPausesScaffoldAndHarvest(t *testing.T) {
+func TestMemoryGuardPausesScaffoldAndUpdate(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not installed")
 	}
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	t.Setenv(memory.HarvestChildEnv, "")
+	t.Setenv(memory.UpdateChildEnv, "")
 	repo := filepath.Join(t.TempDir(), "repo")
 	if err := exec.Command("git", "init", "-q", repo).Run(); err != nil {
 		t.Fatal(err)
@@ -284,7 +284,7 @@ func TestMemoryGuardPausesScaffoldAndHarvest(t *testing.T) {
 	if memory.HasBank(repo) || !strings.Contains(got, "memory maintenance in progress (test pause)") || strings.Contains(got, "scaffolded") {
 		t.Fatalf("paused SessionStart must emit the notice alone and scaffold nothing: %q", got)
 	}
-	assertPausedSuppressesHarvest(t, repo)
+	assertPausedSuppressesUpdate(t, repo)
 	if err := memory.ClearMaintenance(); err != nil {
 		t.Fatal(err)
 	}
@@ -320,7 +320,7 @@ func TestSessionStartLinksNativeMemoryAfterCutover(t *testing.T) {
 	}
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv("HOME", t.TempDir())
-	t.Setenv(memory.HarvestChildEnv, "")
+	t.Setenv(memory.UpdateChildEnv, "")
 	cutoverStore(t)
 
 	repo := filepath.Join(t.TempDir(), "repo")
@@ -365,7 +365,7 @@ func TestSessionStartFirstSessionLinksScaffoldedStore(t *testing.T) {
 	}
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv("HOME", t.TempDir())
-	t.Setenv(memory.HarvestChildEnv, "")
+	t.Setenv(memory.UpdateChildEnv, "")
 	cutoverStore(t)
 	repo := filepath.Join(t.TempDir(), "proj")
 	if err := exec.Command("git", "init", "-q", repo).Run(); err != nil {
@@ -387,15 +387,15 @@ func TestSessionStartFirstSessionLinksScaffoldedStore(t *testing.T) {
 	}
 }
 
-// TestPreCompactHarvestsOnlyUncoveredEdits: a compaction dispatches the harvest when edits exist past the last
+// TestPreCompactUpdatesOnlyUncoveredEdits: a compaction dispatches the update when edits exist past the last
 // stamp, never re-dispatches covered ones, never blocks, and stays quiet while memory is paused.
-func TestPreCompactHarvestsOnlyUncoveredEdits(t *testing.T) {
+func TestPreCompactUpdatesOnlyUncoveredEdits(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	t.Setenv(memory.HarvestChildEnv, "")
+	t.Setenv(memory.UpdateChildEnv, "")
 	tr := filepath.Join(t.TempDir(), "t.jsonl")
 	cwd := t.TempDir()
 	calls := stubSpawn(t, true)
-	run := func() int { return PreCompact(strings.NewReader(harvestPayload(tr, cwd))) }
+	run := func() int { return PreCompact(strings.NewReader(updatePayload(tr, cwd))) }
 
 	writeEdits(t, tr, 0)
 	if run() != ExitProceed || calls.Load() != 0 {
@@ -421,16 +421,16 @@ func TestPreCompactHarvestsOnlyUncoveredEdits(t *testing.T) {
 	}
 }
 
-// TestSessionHarvestDiscussionOnly: a discussion-only session (0 edits) still crosses the floor on
-// user turns alone — 6 turns weigh 3 work units, exactly harvestMinEdits — and is harvested at Stop.
-func TestSessionHarvestDiscussionOnly(t *testing.T) {
+// TestSessionUpdateDiscussionOnly: a discussion-only session (0 edits) still crosses the floor on
+// user turns alone — 6 turns weigh 3 work units, exactly updateMinEdits — and is updated at Stop.
+func TestSessionUpdateDiscussionOnly(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	t.Setenv(memory.HarvestChildEnv, "")
+	t.Setenv(memory.UpdateChildEnv, "")
 	tr := filepath.Join(t.TempDir(), "t.jsonl")
 	cwd := t.TempDir()
 	calls := stubSpawn(t, true)
 	run := func() int {
-		return sessionHarvest(ParseInput(strings.NewReader(harvestPayload(tr, cwd))), &bytes.Buffer{})
+		return sessionUpdate(ParseInput(strings.NewReader(updatePayload(tr, cwd))), &bytes.Buffer{})
 	}
 
 	writeUserTurns(t, tr, 5)
@@ -446,16 +446,16 @@ func TestSessionHarvestDiscussionOnly(t *testing.T) {
 	}
 }
 
-// TestPreCompactAndSessionEndHarvestNewUserTurns: once the stamp covers N work units, a session whose
-// only new work is user turns still re-harvests at pre-compact and session end — and never re-harvests
+// TestPreCompactAndSessionEndUpdateNewUserTurns: once the stamp covers N work units, a session whose
+// only new work is user turns still re-updates at pre-compact and session end — and never re-updates
 // when nothing new arrived.
-func TestPreCompactAndSessionEndHarvestNewUserTurns(t *testing.T) {
+func TestPreCompactAndSessionEndUpdateNewUserTurns(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	t.Setenv(memory.HarvestChildEnv, "")
+	t.Setenv(memory.UpdateChildEnv, "")
 	tr := filepath.Join(t.TempDir(), "t.jsonl")
 	cwd := t.TempDir()
 	calls := stubSpawn(t, true)
-	payload := func() *strings.Reader { return strings.NewReader(harvestPayload(tr, cwd)) }
+	payload := func() *strings.Reader { return strings.NewReader(updatePayload(tr, cwd)) }
 
 	writeEdits(t, tr, 3)
 	if PreCompact(payload()); calls.Load() != 1 {
@@ -465,15 +465,15 @@ func TestPreCompactAndSessionEndHarvestNewUserTurns(t *testing.T) {
 	if PreCompact(payload()); calls.Load() != 2 {
 		t.Fatalf("new user turns since the stamp must spawn, calls=%d", calls.Load())
 	}
-	if SessionHarvestEnd(payload()); calls.Load() != 2 {
-		t.Error("no new work since the stamp must not re-harvest")
+	if SessionUpdateEnd(payload()); calls.Load() != 2 {
+		t.Error("no new work since the stamp must not re-update")
 	}
 	appendUserTurns(t, tr, 2)
-	if SessionHarvestEnd(payload()); calls.Load() != 3 {
+	if SessionUpdateEnd(payload()); calls.Load() != 3 {
 		t.Errorf("2 new turns (1 work unit) past the stamp must spawn, calls=%d", calls.Load())
 	}
-	if SessionHarvestEnd(payload()); calls.Load() != 3 {
-		t.Error("session end with nothing new re-harvested")
+	if SessionUpdateEnd(payload()); calls.Load() != 3 {
+		t.Error("session end with nothing new re-updated")
 	}
 }
 
@@ -486,8 +486,8 @@ func idle(t *testing.T, path string, d time.Duration) {
 	}
 }
 
-// TestCatchUpPreviousTable drives catchUpPrevious directly against the spawnHarvest seam: each case is a
-// distinct reason the previous session's harvest either is or isn't missed/failed.
+// TestCatchUpPreviousTable drives catchUpPrevious directly against the spawnUpdate seam: each case is a
+// distinct reason the previous session's update either is or isn't missed/failed.
 func TestCatchUpPreviousTable(t *testing.T) {
 	const prevID = "prev-session"
 	const curID = "cur-session"
@@ -511,7 +511,7 @@ func TestCatchUpPreviousTable(t *testing.T) {
 		wantNote  bool
 	}{
 		{
-			name:      "missed harvest spawns",
+			name:      "missed update spawns",
 			edits:     5,
 			idleFor:   20 * time.Minute,
 			wantSpawn: true,
@@ -544,7 +544,7 @@ func TestCatchUpPreviousTable(t *testing.T) {
 		{
 			name: "failed result retries once",
 			setup: func(t *testing.T, tr string) {
-				_ = memory.WriteHarvestResult(prevID, memory.HarvestResult{Status: memory.HarvestFailed, Time: time.Now()})
+				_ = memory.WriteUpdateResult(prevID, memory.UpdateResult{Status: memory.UpdateFailed, Time: time.Now()})
 			},
 			edits:     2, // below the floor on its own: the failed result is what drives the retry
 			idleFor:   20 * time.Minute,
@@ -554,7 +554,7 @@ func TestCatchUpPreviousTable(t *testing.T) {
 		{
 			name: "failed result already retried (catchup stamp): no second spawn",
 			setup: func(t *testing.T, tr string) {
-				_ = memory.WriteHarvestResult(prevID, memory.HarvestResult{Status: memory.HarvestFailed, Time: time.Now()})
+				_ = memory.WriteUpdateResult(prevID, memory.UpdateResult{Status: memory.UpdateFailed, Time: time.Now()})
 				writeStamp(stampPath(prevID), time.Now().Add(-20*time.Minute), "catchup", 2)
 			},
 			edits:   2,
@@ -571,7 +571,7 @@ func TestCatchUpPreviousTable(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-			t.Setenv(memory.HarvestChildEnv, "")
+			t.Setenv(memory.UpdateChildEnv, "")
 			tr := newTranscript(t, tc.edits, tc.idleFor)
 			if tc.setup != nil {
 				tc.setup(t, tr)
@@ -601,7 +601,7 @@ func TestCatchUpPreviousTable(t *testing.T) {
 // next SessionStart still sees it as missed and retries rather than silently giving up forever.
 func TestCatchUpPreviousSpawnFailureNoStamp(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	t.Setenv(memory.HarvestChildEnv, "")
+	t.Setenv(memory.UpdateChildEnv, "")
 	tr := filepath.Join(t.TempDir(), "t.jsonl")
 	writeEdits(t, tr, 5)
 	idle(t, tr, 20*time.Minute)
@@ -615,14 +615,14 @@ func TestCatchUpPreviousSpawnFailureNoStamp(t *testing.T) {
 	}
 }
 
-// TestSessionStartCatchUpHarvestChildNeverSpawns: memoryContext gates catchUpPrevious behind
-// !IsHarvestChild — a harvest worker's own SessionStart must never dispatch another harvest.
-func TestSessionStartCatchUpHarvestChildNeverSpawns(t *testing.T) {
+// TestSessionStartCatchUpUpdateChildNeverSpawns: memoryContext gates catchUpPrevious behind
+// !IsUpdateChild — an update worker's own SessionStart must never dispatch another update.
+func TestSessionStartCatchUpUpdateChildNeverSpawns(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not installed")
 	}
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	t.Setenv(memory.HarvestChildEnv, "")
+	t.Setenv(memory.UpdateChildEnv, "")
 	repo := filepath.Join(t.TempDir(), "repo")
 	if err := exec.Command("git", "init", "-q", repo).Run(); err != nil {
 		t.Fatal(err)
@@ -637,13 +637,13 @@ func TestSessionStartCatchUpHarvestChildNeverSpawns(t *testing.T) {
 	writeChain(chain, chainEntry{sessionID: "prev3", transcriptPath: tr, cwd: repo})
 	calls := stubSpawn(t, true)
 
-	t.Setenv(memory.HarvestChildEnv, "1")
-	got := memoryContext(repo, "harvest-worker", "", time.Now())
+	t.Setenv(memory.UpdateChildEnv, "1")
+	got := memoryContext(repo, "update-worker", "", time.Now())
 	if calls.Load() != 0 {
-		t.Errorf("a harvest child must never catch up the previous session, calls=%d", calls.Load())
+		t.Errorf("an update child must never catch up the previous session, calls=%d", calls.Load())
 	}
 	if strings.Contains(got, "Catching up") {
-		t.Errorf("a harvest child's SessionStart must not surface the catch-up note: %q", got)
+		t.Errorf("an update child's SessionStart must not surface the catch-up note: %q", got)
 	}
 }
 
@@ -651,7 +651,7 @@ func TestSessionStartCatchUpHarvestChildNeverSpawns(t *testing.T) {
 // fields so the NEXT SessionStart can resolve the previous session's transcript for its own catch-up check.
 func TestSessionStartChainRewrittenWithTranscriptAndCWD(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	t.Setenv(memory.HarvestChildEnv, "")
+	t.Setenv(memory.UpdateChildEnv, "")
 	cwd := t.TempDir()
 	tr := filepath.Join(t.TempDir(), "t.jsonl")
 	writeEdits(t, tr, 1)
@@ -684,10 +684,10 @@ func TestReadChainLegacyOneLineFormat(t *testing.T) {
 }
 
 // TestCountEditsIncludesSubagentEdits: a dispatched subagent's own agent-*.jsonl transcript counts toward
-// the parent session's edits, and that combined total is what arms the Stop harvest gate.
+// the parent session's edits, and that combined total is what arms the Stop update gate.
 func TestCountEditsIncludesSubagentEdits(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	t.Setenv(memory.HarvestChildEnv, "")
+	t.Setenv(memory.UpdateChildEnv, "")
 	tr := filepath.Join(t.TempDir(), "t.jsonl")
 	writeEdits(t, tr, 1)
 	subDir := filepath.Join(strings.TrimSuffix(tr, ".jsonl"), "subagents")
@@ -703,30 +703,30 @@ func TestCountEditsIncludesSubagentEdits(t *testing.T) {
 	cwd := t.TempDir()
 	calls := stubSpawn(t, true)
 	payload := fmt.Sprintf(`{"session_id":"sub-session","cwd":%q,"transcript_path":%q}`, cwd, tr)
-	if code := sessionHarvest(ParseInput(strings.NewReader(payload)), &bytes.Buffer{}); code != ExitProceed || calls.Load() != 1 {
-		t.Fatalf("subagent edits must arm the harvest gate: code=%d calls=%d", code, calls.Load())
+	if code := sessionUpdate(ParseInput(strings.NewReader(payload)), &bytes.Buffer{}); code != ExitProceed || calls.Load() != 1 {
+		t.Fatalf("subagent edits must arm the update gate: code=%d calls=%d", code, calls.Load())
 	}
 }
 
 // TestCountEditsGitCommitWeightArmsGate: a single `git commit` Bash call, with zero Edit/Write calls,
-// counts for harvestMinEdits on its own and arms the Stop gate.
+// counts for updateMinEdits on its own and arms the Stop gate.
 func TestCountEditsGitCommitWeightArmsGate(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	t.Setenv(memory.HarvestChildEnv, "")
+	t.Setenv(memory.UpdateChildEnv, "")
 	tr := filepath.Join(t.TempDir(), "t.jsonl")
 	commit := `{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Bash","input":{"command":"git commit -m x"}}]}}` + "\n"
 	if err := os.WriteFile(tr, []byte(commit), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if got := countEdits(tr, countPath("commit-session")); got != harvestMinEdits {
-		t.Fatalf("countEdits = %d, want %d (one git commit)", got, harvestMinEdits)
+	if got := countEdits(tr, countPath("commit-session")); got != updateMinEdits {
+		t.Fatalf("countEdits = %d, want %d (one git commit)", got, updateMinEdits)
 	}
 
 	cwd := t.TempDir()
 	calls := stubSpawn(t, true)
 	payload := fmt.Sprintf(`{"session_id":"commit-session","cwd":%q,"transcript_path":%q}`, cwd, tr)
-	if code := sessionHarvest(ParseInput(strings.NewReader(payload)), &bytes.Buffer{}); code != ExitProceed || calls.Load() != 1 {
-		t.Fatalf("a bare git commit must arm the harvest gate: code=%d calls=%d", code, calls.Load())
+	if code := sessionUpdate(ParseInput(strings.NewReader(payload)), &bytes.Buffer{}); code != ExitProceed || calls.Load() != 1 {
+		t.Fatalf("a bare git commit must arm the update gate: code=%d calls=%d", code, calls.Load())
 	}
 }
 
@@ -768,8 +768,8 @@ func TestCountEditsOldFormatCountFileRescansUnweightedCommit(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if got := countEdits(tr, countFile); got != harvestMinEdits {
-		t.Fatalf("countEdits after old-format upgrade = %d, want %d (the commit, now weighted)", got, harvestMinEdits)
+	if got := countEdits(tr, countFile); got != updateMinEdits {
+		t.Fatalf("countEdits after old-format upgrade = %d, want %d (the commit, now weighted)", got, updateMinEdits)
 	}
 	raw, err := os.ReadFile(countFile)
 	if err != nil {
@@ -1100,7 +1100,7 @@ func TestReadStampCatchupStateDoesNotBreakParsing(t *testing.T) {
 	cwd := t.TempDir()
 	stubSpawn(t, false)
 	var errb bytes.Buffer
-	code := sessionHarvest(ParseInput(strings.NewReader(fmt.Sprintf(`{"session_id":"x","cwd":%q,"transcript_path":%q}`, cwd, tr))), &errb)
+	code := sessionUpdate(ParseInput(strings.NewReader(fmt.Sprintf(`{"session_id":"x","cwd":%q,"transcript_path":%q}`, cwd, tr))), &errb)
 	if code != ExitBlock && code != ExitProceed {
 		t.Errorf("unexpected exit code %d parsing a catchup stamp", code)
 	}
@@ -1108,7 +1108,7 @@ func TestReadStampCatchupStateDoesNotBreakParsing(t *testing.T) {
 
 // TestReadStampHandlesNonNumericStateProperly: readStamp must properly handle non-numeric state strings
 // like "catchup" without silently corrupting blocks to 0. Regression test for defect where
-// strconv.Atoi('catchup') error was ignored with _, corrupting harvest state tracking.
+// strconv.Atoi('catchup') error was ignored with _, corrupting update state tracking.
 func TestReadStampHandlesNonNumericStateProperly(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	path := filepath.Join(t.TempDir(), "stamp-regression")
@@ -1134,7 +1134,7 @@ func TestReadStampHandlesNonNumericStateProperly(t *testing.T) {
 	}
 
 	// Later write operations must not lose the "catchup" state.
-	// Simulate SessionHarvest re-reading the stamp — it should preserve the catchup state.
+	// Simulate SessionUpdate re-reading the stamp — it should preserve the catchup state.
 	st2, ok2 := readStamp(path)
 	if !ok2 || st2.state != "catchup" {
 		t.Errorf("re-read stamp state = %q ok=%v, want 'catchup' preserved", st2.state, ok2)
@@ -1236,7 +1236,7 @@ func TestWriteChainErrorHandling(t *testing.T) {
 }
 
 // TestWriteStampErrorHandling: writeStamp must handle AtomicWrite errors gracefully
-// so that a stamp file write failure does not silently lose harvest state tracking.
+// so that a stamp file write failure does not silently lose update state tracking.
 // Regression test for defect where writeStamp(path, ...) swallowed errors with
 // `_ = paths.AtomicWrite(...)`.
 func TestWriteStampErrorHandling(t *testing.T) {

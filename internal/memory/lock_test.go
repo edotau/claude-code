@@ -83,10 +83,10 @@ func TestSettleBankLockLivesUnderStateNotStore(t *testing.T) {
 	if _, err := os.Stat(want); err != nil {
 		t.Fatalf("lock file missing at %s: %v", want, err)
 	}
-	if _, err := os.Stat(filepath.Join(dir, ".postharvest.lock")); err == nil {
+	if _, err := os.Stat(filepath.Join(dir, ".postupdate.lock")); err == nil {
 		t.Error("a legacy-shaped lock file was written beside the store")
 	}
-	if _, err := os.Stat(filepath.Join(dir, ".postharvest")); err == nil {
+	if _, err := os.Stat(filepath.Join(dir, ".postupdate")); err == nil {
 		t.Error("a legacy-shaped lock file was written beside the store")
 	}
 }

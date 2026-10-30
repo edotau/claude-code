@@ -51,11 +51,11 @@ func TestTagBlock_WithTagsNamesAllFourDestinations(t *testing.T) {
 	}
 }
 
-func TestAgentHarvestPrompt_UsesReferenceAndTags(t *testing.T) {
+func TestAgentUpdatePrompt_UsesReferenceAndTags(t *testing.T) {
 	path := writeTranscript(t, assistantLine("NOTE: keep examples deterministic"))
-	got, err := agentHarvestPrompt(path, "")
+	got, err := agentUpdatePrompt(path, "")
 	if err != nil {
-		t.Fatalf("agentHarvestPrompt: %v", err)
+		t.Fatalf("agentUpdatePrompt: %v", err)
 	}
 	if !strings.Contains(got, "Judgment Residue") {
 		t.Errorf("prompt missing the embedded update reference:\n%s", got)
@@ -65,18 +65,18 @@ func TestAgentHarvestPrompt_UsesReferenceAndTags(t *testing.T) {
 	}
 }
 
-// TestAgentHarvestPrompt_UnknownVerbErrors: Reference errors on an unknown verb; agentHarvestPrompt
+// TestAgentUpdatePrompt_UnknownVerbErrors: Reference errors on an unknown verb; agentUpdatePrompt
 // must surface that rather than running on an empty prompt. "update" itself is now always embedded,
 // so this exercises the error path through a verb that will never exist.
-func TestAgentHarvestPrompt_UnknownVerbErrors(t *testing.T) {
+func TestAgentUpdatePrompt_UnknownVerbErrors(t *testing.T) {
 	if _, err := Reference("does-not-exist"); err == nil {
 		t.Fatal("Reference(\"does-not-exist\") = nil error, want one")
 	}
 }
 
-// TestAgentHarvestPrompt_WithCWDAppendsGitActivity: a transcript with a parseable timestamp and a
+// TestAgentUpdatePrompt_WithCWDAppendsGitActivity: a transcript with a parseable timestamp and a
 // real git cwd gets a "git activity" block with the session's commits/touched files appended.
-func TestAgentHarvestPrompt_WithCWDAppendsGitActivity(t *testing.T) {
+func TestAgentUpdatePrompt_WithCWDAppendsGitActivity(t *testing.T) {
 	cwd := t.TempDir()
 	run := func(args ...string) {
 		cmd := exec.Command("git", args...)
@@ -95,9 +95,9 @@ func TestAgentHarvestPrompt_WithCWDAppendsGitActivity(t *testing.T) {
 
 	ts := time.Now().Add(-time.Hour).UTC().Format(time.RFC3339)
 	path := writeTranscript(t, `{"timestamp":"`+ts+`"}`)
-	got, err := agentHarvestPrompt(path, cwd)
+	got, err := agentUpdatePrompt(path, cwd)
 	if err != nil {
-		t.Fatalf("agentHarvestPrompt: %v", err)
+		t.Fatalf("agentUpdatePrompt: %v", err)
 	}
 	if !strings.Contains(got, "git activity") {
 		t.Errorf("prompt missing git activity block:\n%s", got)

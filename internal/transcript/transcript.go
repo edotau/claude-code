@@ -128,7 +128,7 @@ func hasEditToolName(line []byte) bool {
 }
 
 // CommitEditWeight is how many edits a Bash `git commit` call counts for: one commit alone is
-// substantive work; hooks.harvestMinEdits is defined from this so the two stay in lockstep.
+// substantive work; hooks.updateMinEdits is defined from this so the two stay in lockstep.
 const CommitEditWeight = 3
 
 // EditedFiles returns up to limit unique paths the transcript's Edit/Write tool calls touched, sorted.

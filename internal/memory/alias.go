@@ -161,7 +161,7 @@ func (p *aliasPlan) foldFiles(src, tgt RepoEntry, res *AliasResult) error {
 		cur, rerr := os.ReadFile(dst)
 		have := rerr == nil
 		switch {
-		case rel == legacyOriginFile || rel == BankIndexFile || strings.HasSuffix(rel, ".lock") || filepath.Base(rel) == ".postharvest":
+		case rel == legacyOriginFile || rel == BankIndexFile || strings.HasSuffix(rel, ".lock") || filepath.Base(rel) == ".postupdate":
 			return nil // identity, generated index and lock files do not travel
 		case rel == NativeIndexFile:
 			merged, n, err := mergeNativeIndex(string(cur), string(data))

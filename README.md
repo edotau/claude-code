@@ -255,7 +255,7 @@ cannot be turned off; any other group is switched off with `"<group>": false` un
 | `docs` | Markdown placement gate; plan template, dated plan copies, plan-task ticks |
 | `dispatch` | Concurrency cap (12 per account, ≤ 4 × CPUs), subagent model fill, memory pointers on spawn |
 | `paths` | Resolves Windows ⇄ `/mnt/…` paths in prompts |
-| `memory` | Injects the catalog and recall at start/prompt; context checkpoint and harvest at Stop/SessionEnd/PreCompact |
+| `memory` | Injects the catalog and recall at start/prompt; context checkpoint and memory update at Stop/SessionEnd/PreCompact |
 | `format` | Formats files edited this turn |
 | `worktree` | Creates/removes under `~/worktrees/<repo>/`, keeps the ledger |
 | `codex` | Codex only: child-agent routing and its log |

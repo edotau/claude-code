@@ -42,7 +42,7 @@ const (
 func MemoryRecall(r io.Reader, stdout io.Writer) int {
 	in := ParseInput(r)
 	q := strings.TrimSpace(in.Prompt)
-	if q == "" || strings.HasPrefix(q, "/") || memory.IsHarvestChild() {
+	if q == "" || strings.HasPrefix(q, "/") || memory.IsUpdateChild() {
 		return ExitProceed
 	}
 	if rs := []rune(q); len(rs) > recallQueryCapRunes {

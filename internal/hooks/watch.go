@@ -1,4 +1,4 @@
-// The idle watcher is the SessionEnd-INDEPENDENT final harvest: Claude Code fires Stop every turn but
+// The idle watcher is the SessionEnd-INDEPENDENT final update: Claude Code fires Stop every turn but
 // SessionEnd only on a clean exit — a crash, a kill, or a closed terminal never fires it, and the last
 // stretch of work stays in the transcript. One detached watcher per session polls the transcript's
 // mtime; once it has been quiet for the idle period and holds edits no dispatch covered, it dispatches
@@ -19,14 +19,14 @@ import (
 	"github.com/edotau/claude-code/internal/proc"
 )
 
-// harvestIdleAfter: a transcript this quiet is an ended session. Poll and lifetime bound the watcher.
+// updateIdleAfter: a transcript this quiet is an ended session. Poll and lifetime bound the watcher.
 const (
-	harvestIdleAfter = 10 * time.Minute
-	harvestWatchLife = 24 * time.Hour
+	updateIdleAfter = 10 * time.Minute
+	updateWatchLife = 24 * time.Hour
 )
 
-// harvestWatchPoll is the mtime poll gap; a var so tests can tighten it.
-var harvestWatchPoll = time.Minute
+// updateWatchPoll is the mtime poll gap; a var so tests can tighten it.
+var updateWatchPoll = time.Minute
 
 // spawnWatcher is the detached-spawn seam over `claude-code memory watch`; tests replace it.
 var spawnWatcher = func(args []string, cwd string) bool {
@@ -61,15 +61,15 @@ func spawnIdleWatcher(in *Input) {
 	}
 }
 
-// IdleHarvestWatch is `claude-code memory watch`: the detached per-session watcher described above.
-func IdleHarvestWatch(args []string, stderr io.Writer) int {
+// IdleUpdateWatch is `claude-code memory watch`: the detached per-session watcher described above.
+func IdleUpdateWatch(args []string, stderr io.Writer) int {
 	fs := helptext.NewFlagSet("memory watch", helptext.Page{Usage: "claude-code memory watch [flags]",
-		About: "Detached per-session watcher the Stop gate spawns; harvests the bank once the session goes idle."})
+		About: "Detached per-session watcher the Stop gate spawns; updates the bank once the session goes idle."})
 	fs.SetOutput(stderr)
 	session := fs.String("session", "", "session id (names the stamp)")
 	tr := fs.String("transcript", "", "the session's transcript path")
-	cwd := fs.String("cwd", "", "project root whose bank to harvest")
-	idle := fs.Duration("idle", harvestIdleAfter, "quiet period before the final harvest")
+	cwd := fs.String("cwd", "", "project root whose bank to update")
+	idle := fs.Duration("idle", updateIdleAfter, "quiet period before the final update")
 	owner := fs.Int("owner", 0, "session process pid; the watcher exits once it is gone (0 = unbounded)")
 	if code, done := helptext.Parse(fs, args); done {
 		return code
@@ -82,16 +82,16 @@ func IdleHarvestWatch(args []string, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "memory watch: --cwd %q is not a directory\n", *cwd)
 		return 2
 	}
-	deadline := time.Now().Add(harvestWatchLife)
+	deadline := time.Now().Add(updateWatchLife)
 	var seen time.Time // mtime last evaluated: the transcript is append-only, so unchanged ⇒ same edit count
 	for time.Now().Before(deadline) {
-		time.Sleep(harvestWatchPoll)
+		time.Sleep(updateWatchPoll)
 		if ownerDead(*owner) {
 			return 0 // session process gone: SessionEnd (or the last Stop) already had its chance
 		}
 		fi, err := os.Stat(*tr)
 		if err != nil {
-			return 0 // transcript gone: nothing left to harvest
+			return 0 // transcript gone: nothing left to update
 		}
 		if time.Since(fi.ModTime()) < *idle {
 			continue // main transcript alone is still active: skip the subagent globs entirely
@@ -101,8 +101,8 @@ func IdleHarvestWatch(args []string, stderr io.Writer) int {
 			continue // a subagent is still active, or already evaluated at this mtime
 		}
 		seen = latest
-		if idleHarvestOnce(*tr, *cwd, *session, stderr) {
-			fmt.Fprintf(stderr, "memory watch: %s quiet for %s — final harvest dispatched\n", *session, idle.String())
+		if idleUpdateOnce(*tr, *cwd, *session, stderr) {
+			fmt.Fprintf(stderr, "memory watch: %s quiet for %s — final update dispatched\n", *session, idle.String())
 		}
 	}
 	return 0
@@ -126,19 +126,19 @@ func newestActivity(tr string, mainMtime time.Time) time.Time {
 	return latest
 }
 
-// idleHarvestOnce dispatches the final harvest when the transcript holds substantive work no dispatch
+// idleUpdateOnce dispatches the final update when the transcript holds substantive work no dispatch
 // covered; the stamp then carries the count so the next idle check (and any late Stop) stays quiet.
-func idleHarvestOnce(tr, cwd, session string, note io.Writer) bool {
+func idleUpdateOnce(tr, cwd, session string, note io.Writer) bool {
 	stamp := stampPath(session)
 	covered := 0
 	if st, ok := readStamp(stamp); ok {
 		covered = st.edits
 	}
 	edits := countEdits(tr, countPath(session))
-	if edits < harvestMinEdits || edits <= covered {
+	if edits < updateMinEdits || edits <= covered {
 		return false
 	}
-	if !spawnHarvest(tr, cwd, session) {
+	if !spawnUpdate(tr, cwd, session) {
 		fmt.Fprintf(note, "memory watch: worker not spawned for %s (%d uncovered edits)\n", session, edits-covered)
 		return false
 	}

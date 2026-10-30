@@ -32,14 +32,14 @@ var memorySubs = []memorySub{
 	{"init", "", "create the repo's bank"},
 	{"review", "", "doctor + stats for the banks; --candidates ranks promotions"},
 	{"promote", "<id> --to <target>", "move or surface one block (home|rules|skill|claude-md)"},
-	{"update", "", "harvest the live session or --transcript; else print the procedure"},
+	{"update", "", "save the live session or --transcript; else print the procedure"},
 	{"dream", "", "consolidate the bank when due (--force, --dry-run)"},
 }
 
 var memoryPage = helptext.Page{
 	Usage: "claude-code memory <command> [flags] [args]",
 	About: "Per-repo and home memory banks: session-start injects them, the Stop/SessionEnd\n" +
-		"harvest writes them. Recall and save facts, then promote the ones that hold up.",
+		"update writes them. Recall and save facts, then promote the ones that hold up.",
 	Commands: memoryCommandRows(),
 	Hint: "plumbing: search, show, index, path, digest, fmt, watch, timeline, archive,\n" +
 		"          alias — dispatchable, off the menu above\n" +
@@ -125,7 +125,7 @@ func cmdMemoryInit(args []string) int {
 	if err != nil {
 		return fail("memory init: %v", err)
 	}
-	fmt.Printf("bank:    %s\nhome:    %s\nsession-start injects it; `claude-code memory update` (or the background harvest) writes it.\n", dir, memory.HomeBankDir())
+	fmt.Printf("bank:    %s\nhome:    %s\nsession-start injects it; `claude-code memory update` (or the background update) writes it.\n", dir, memory.HomeBankDir())
 	if memory.IsProjectContextTemplate(root) {
 		ref, err := memory.Reference("init")
 		if err != nil {
@@ -379,9 +379,9 @@ func cmdMemoryPath(args []string) int {
 func cmdMemoryUpdate(args []string) int {
 	fs := memoryFlagSet("update")
 	transcript := fs.String("transcript", "", "finished session's transcript")
-	cwd := fs.String("cwd", "", "project root whose bank to harvest (default: cwd)")
-	session := fs.String("session", "", "finished session's id (outcome recorded in state/memory/harvest-result-<id>)")
-	dryRun := fs.Bool("dry-run", false, "print the resolved transcript and session; harvest nothing")
+	cwd := fs.String("cwd", "", "project root whose bank to update (default: cwd)")
+	session := fs.String("session", "", "finished session's id (outcome recorded in state/memory/update-result-<id>)")
+	dryRun := fs.Bool("dry-run", false, "print the resolved transcript and session; update nothing")
 	if code, done := helptext.Parse(fs, args); done {
 		return code
 	}
@@ -392,7 +392,7 @@ func cmdMemoryUpdate(args []string) int {
 			return fail("memory update: %v", err)
 		}
 	}
-	if *transcript == "" && *session == "" { // a live session harvests itself
+	if *transcript == "" && *session == "" { // a live session updates itself
 		*session = os.Getenv(memory.SessionIDEnv)
 	}
 	if *transcript == "" {
@@ -410,7 +410,7 @@ func cmdMemoryUpdate(args []string) int {
 		fmt.Printf("memory update (dry run): session %s, transcript %s, bank %s\n", *session, *transcript, memory.Dir(root))
 		return 0
 	}
-	claude, err := launch.ClaudeBinary() // "" is fine here: Run (memoryAgent) handles the harvest, Claude is only its fallback
+	claude, err := launch.ClaudeBinary() // "" is fine here: Run (memoryAgent) handles the update, Claude is only its fallback
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "claude-code: memory update:", err)
 	}
@@ -464,7 +464,7 @@ func cmdMemoryDigest(args []string) int {
 }
 
 func cmdMemoryWatch(args []string) int {
-	return hooks.IdleHarvestWatch(args, os.Stderr) // spawned detached by the Stop gate; its own flag set
+	return hooks.IdleUpdateWatch(args, os.Stderr) // spawned detached by the Stop gate; its own flag set
 }
 
 func cmdMemoryFmt(args []string) int {
@@ -604,7 +604,7 @@ func cmdMemory(args []string) int {
 	}
 	sub := args[0]
 	switch sub {
-	case "index", "promote", "update", "dream", "fmt", "remember": // settle/harvest writers: a harvest receipt stays pending; SessionStart surfaces it
+	case "index", "promote", "update", "dream", "fmt", "remember": // settle/update writers: an update receipt stays pending; SessionStart surfaces it
 		if g := memory.StartupGuard(); g.Paused {
 			return fail("memory %s: %s", sub, g.Notice)
 		}

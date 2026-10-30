@@ -192,7 +192,7 @@ func CloseLedger(main, name string, c LedgerClose) error {
 	})
 }
 
-// withLedgerLock runs fn under the memory bank lock (so a harvest or dream cannot interleave) and the file lock.
+// withLedgerLock runs fn under the memory bank lock (so an update or dream cannot interleave) and the file lock.
 func withLedgerLock(path string, fn func() error) error {
 	return withLedgerLockWithin(memory.BankLockWait, path, fn)
 }

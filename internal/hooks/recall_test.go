@@ -37,7 +37,7 @@ func recallAs(t *testing.T, session, prompt, cwd string) string {
 
 func TestMemoryRecall(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	t.Setenv(memory.HarvestChildEnv, "")
+	t.Setenv(memory.UpdateChildEnv, "")
 	cwd := t.TempDir()
 	long := strings.Repeat("alpha bravo charlie delta padding ", 40)
 	body := "# Conventions\n\n- alpha bravo charlie delta strong match " + long + "\n- alpha weak\n- unrelated rule entirely\n"
@@ -59,15 +59,15 @@ func TestMemoryRecall(t *testing.T) {
 	if strings.Contains(got, "alpha weak") || len([]rune(got)) > recallTotalCapChars || !strings.Contains(got, "…") {
 		t.Errorf("floor, total cap or per-hit cap not applied (%d chars): %q", len([]rune(got)), got)
 	}
-	t.Setenv(memory.HarvestChildEnv, "1")
+	t.Setenv(memory.UpdateChildEnv, "1")
 	if recall(t, "alpha bravo charlie delta", cwd) != "" {
-		t.Error("a harvest worker's prompts must not recall")
+		t.Error("an update worker's prompts must not recall")
 	}
 }
 
 func TestMemoryRecallSkipsWhatIsInContext(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	t.Setenv(memory.HarvestChildEnv, "")
+	t.Setenv(memory.UpdateChildEnv, "")
 	cwd := t.TempDir()
 	for name, body := range map[string]string{
 		"activeContext.md": "# Active\n\n## Current Focus\n\n- alpha bravo charlie delta already in context\n",
@@ -129,7 +129,7 @@ func TestPickTierAccessBoost(t *testing.T) {
 // swallowed with _, leaving root empty and degrading recall accuracy.
 func TestMemoryRecallHandlesCwdGracefully(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	t.Setenv(memory.HarvestChildEnv, "")
+	t.Setenv(memory.UpdateChildEnv, "")
 	cwd := t.TempDir()
 
 	// Create a memory bank with searchable content.
