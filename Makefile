@@ -234,7 +234,7 @@ lint-%: compile mdsmith  # (helper) one lint kind: $(LINT_WHAT) deep; CHECK=1 on
 			$(BIN) memory fmt $(if $(filter 1,$(CHECK)),--check); \
 		else echo -e "$(C_NOTE)memory fmt skipped: $(CURDIR) is not the live config dir ($$live) — a worktree must not write the shared memory store"; fi ;; \
 	deep) if ! command -v golangci-lint >/dev/null; then echo -e "$(C_NOTE)deep skipped: golangci-lint not installed (make install DEV_TOOLS=1)"; exit 0; fi; \
-		golangci-lint run $(if $(filter 1,$(CHECK)),,--fix) --max-issues-per-linter=0 --max-same-issues=0 ./... \
+		golangci-lint run $(if $(filter 1,$(CHECK)),,--fix --disable gocognit) --max-issues-per-linter=0 --max-same-issues=0 ./... \
 			$(if $(or $(filter 1,$(CHECK)),$(LINT_AGENT)),, || echo -e "$(C_NOTE)deep: warning only (CHECK=1 fails): what is left has no auto-fix; AGENT=on hands it to Claude") ;; \
 	*) printf "Unknown lint '%s' (use %s)\n" "$*" "$(subst $(C_SP),|,$(LINT_WHAT))"; exit 1 ;; \
 	esac

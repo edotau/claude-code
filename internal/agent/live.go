@@ -211,7 +211,7 @@ func ServeLive(ctx context.Context, rec *Record, notify func(string)) (err error
 	s.idle.Stop()
 	_ = ln.Close()
 	cancel(cause) // kills the child process group via CommandContext
-	<-exited
+	<-exited      //nolint:errcheck // cancel above ended the child, so its exit error says nothing new
 	_ = stdin.Close()
 	wg.Wait()
 	_ = os.Remove(LiveSocket(rec.ID))
