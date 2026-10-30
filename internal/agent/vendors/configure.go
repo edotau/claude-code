@@ -10,6 +10,7 @@ import (
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/proxy"
+	"github.com/edotau/claude-code/internal/settings"
 )
 
 // Credentials ride these env vars (never argv); the config text names the variable, not the secret.
@@ -90,7 +91,7 @@ func applyLaunch(name string, env, argv []string, args bool) ([]string, []string
 			env = append(env, "OPENCODE_CONFIG="+cfg, "OPENCODE_TUI_CONFIG="+tui)
 		}
 	}
-	vc, err := Load()
+	vc, err := settings.Load()
 	if err != nil {
 		return env, argv
 	}

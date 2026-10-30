@@ -1,4 +1,4 @@
-package vendors
+package settings
 
 import (
 	"encoding/json"
@@ -8,7 +8,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -120,10 +119,10 @@ func TestOverlayOmittedGuardRulesKeepsDefaults(t *testing.T) {
 	}
 }
 
-// TestDefaultGuardsMirrorSettingsTemplate: the built-in guard rules are exactly settings.Render()'s
+// TestDefaultGuardsMirrorSettingsTemplate: the built-in guard rules are exactly Render()'s
 // permissions.ask/deny, order included — not a hand-copied subset in defaults.json.
 func TestDefaultGuardsMirrorSettingsTemplate(t *testing.T) {
-	rendered, err := settings.Render()
+	rendered, err := Render()
 	if err != nil {
 		t.Fatal(err)
 	}

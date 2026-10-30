@@ -9,7 +9,6 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/edotau/claude-code/internal/agent/vendors"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/vault"
@@ -114,7 +113,7 @@ func validateOverlaySections(d *Doc) error {
 		}
 	}
 	if len(d.Vendors) != 0 {
-		if _, err := vendors.Parse(nil, d.Vendors); err != nil {
+		if _, err := settings.Parse(nil, d.Vendors); err != nil {
 			return sectionError("agents", err)
 		}
 	}
