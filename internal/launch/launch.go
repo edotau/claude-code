@@ -471,7 +471,7 @@ func withCodexFile(name, file string, args []string) ([]string, error) {
 // agentModelTarget applies flag > the agent's model pin > default to t; a fallback provider respells the flag itself.
 func agentModelTarget(name string, t providers.Target, sel providers.Selection, flagModel string) (providers.Target, string) {
 	applied := t.Provider == nil || t.Provider == sel.Slots[models.Opus].Provider
-	return vendors.ResolveAgentModel(vendors.ModelAsk{Agent: name, Flag: flagModel, Target: t, Applied: applied})
+	return providers.ResolveAgentModel(providers.ModelAsk{Agent: name, Flag: flagModel, Target: t, Applied: applied})
 }
 
 func vendorPlan(ctx context.Context, name string, o Options, args []string) (Plan, error) {

@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agent/vendors"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
@@ -42,7 +43,7 @@ var routeHint = func(tier string) (agent, model string) {
 	if err != nil {
 		return "", ""
 	}
-	res := tb.Pick(context.Background(), tier, "", router.LoadState(), router.Opts{Fallback: router.FallbackVendors})
+	res := tb.Pick(context.Background(), tier, "", router.LoadState(), router.Opts{Fallback: router.FallbackVendors, Configured: vendors.Configured})
 	if len(res.Candidates) == 0 {
 		return "", ""
 	}

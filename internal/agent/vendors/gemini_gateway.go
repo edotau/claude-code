@@ -19,12 +19,6 @@ const AgyDefaultModel = "gemini-3.8-flash-high"
 // agyEfforts are the effort suffixes agy bakes into its model ids (gemini-3.8-flash-high).
 var agyEfforts = []string{"low", "medium", "high", "xhigh", "max"}
 
-// GeminiGatewayRow is a keyed Databricks row agy can reach through the router's native Gemini route.
-func GeminiGatewayRow(p *providers.Provider) bool {
-	return p != nil && p.Preset == providers.PresetDatabricks && p.Auth.Login == "" &&
-		p.Auth.Method() != providers.AuthNone && p.Auth.Method() != providers.AuthCLI
-}
-
 // AgyGatewayArg returns the dotted catalog id agy lists for model (effort suffix dropped) and the --model agy takes in
 // gateway mode (base plus model's effort suffix); a non-Gemini id (a Databricks Claude slot) falls back to the
 // GEMINI_MODEL pin, else AgyDefaultModel.
@@ -83,5 +77,5 @@ func geminiGateway(ctx context.Context, p *providers.Provider, model string, h *
 
 // geminiFollowsPin keeps agy on its Google login unless GEMINI_PROFILE names the session's Databricks row.
 func geminiFollowsPin(name string, p *providers.Provider) bool {
-	return name != "gemini" || !GeminiGatewayRow(p) || providers.Pin(providers.PinGeminiProfile) == p.Name
+	return name != "gemini" || !providers.GeminiGatewayRow(p) || providers.Pin(providers.PinGeminiProfile) == p.Name
 }

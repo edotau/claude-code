@@ -4,7 +4,6 @@ package configure
 import (
 	"slices"
 
-	"github.com/edotau/claude-code/internal/agent/vendors"
 	"github.com/edotau/claude-code/internal/providers"
 )
 
@@ -44,7 +43,7 @@ func pickAgentRoute(d *dialog, agent, key, cur string) (bool, error) {
 	var names []string
 	if d.reg != nil {
 		for n, p := range d.reg.Providers {
-			if p != nil && vendors.CanServe(agent, p) {
+			if p != nil && providers.CanServe(agent, p) {
 				names = append(names, n)
 			}
 		}

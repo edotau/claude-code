@@ -45,7 +45,7 @@ func vendorTargetNote(req Request, name string) (t providers.Target, own bool, n
 	if err != nil {
 		return t, own, note, err
 	}
-	t, modelNote := vendors.ResolveAgentModel(vendors.ModelAsk{Agent: name, Flag: req.Model, Target: t, Applied: applied})
+	t, modelNote := providers.ResolveAgentModel(providers.ModelAsk{Agent: name, Flag: req.Model, Target: t, Applied: applied})
 	if modelNote != "" {
 		note = strings.Join(slices.DeleteFunc([]string{note, modelNote}, func(s string) bool { return s == "" }), "; ")
 	}
@@ -186,8 +186,8 @@ func agyModel(req Request, t providers.Target) string {
 	if req.Model == "" || t.Model == "" { // the slot table's opus id isn't agy's own: GEMINI_MODEL pin, else flash-high
 		t.Model = vendors.AgyDefaultModel
 	}
-	gt, _ := vendors.ResolveAgentModel(vendors.ModelAsk{Agent: "gemini", Flag: req.Model, Target: t, Applied: true})
-	if vendors.GeminiGatewayRow(t.Provider) {
+	gt, _ := providers.ResolveAgentModel(providers.ModelAsk{Agent: "gemini", Flag: req.Model, Target: t, Applied: true})
+	if providers.GeminiGatewayRow(t.Provider) {
 		_, arg := vendors.AgyGatewayArg(gt.Model)
 		return arg
 	}

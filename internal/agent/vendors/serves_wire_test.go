@@ -33,14 +33,14 @@ func TestCanServeEqualsServesOK(t *testing.T) {
 			continue
 		}
 		for _, p := range rows {
-			if s.Name == "gemini" && GeminiGatewayRow(p) {
-				if !CanServe(s.Name, p) {
+			if s.Name == "gemini" && providers.GeminiGatewayRow(p) {
+				if !providers.CanServe(s.Name, p) {
 					t.Errorf("CanServe(gemini,%s) = false on a Databricks row", p.Name)
 				}
 				continue
 			}
-			if ok, _ := providers.Serves(s.Name, p, ""); CanServe(s.Name, p) != ok {
-				t.Errorf("CanServe(%s,%s) = %v, Serves = %v", s.Name, p.Name, CanServe(s.Name, p), ok)
+			if ok, _ := providers.Serves(s.Name, p, ""); providers.CanServe(s.Name, p) != ok {
+				t.Errorf("CanServe(%s,%s) = %v, Serves = %v", s.Name, p.Name, providers.CanServe(s.Name, p), ok)
 			}
 		}
 	}

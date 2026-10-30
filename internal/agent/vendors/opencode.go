@@ -9,6 +9,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/router"
 )
 
 // opencode: a generated provider block via OPENCODE_CONFIG_CONTENT; the key is an {env:} reference.
@@ -308,9 +309,6 @@ func MutateOpencodeConfigEnv(env []string, lenient bool, fn func(map[string]any)
 	return append(env, OpencodeConfigEnv+"="+string(out)), nil
 }
 
-// OpencodeTableModels returns the routing table's opencode sonnet/haiku models; router sets it (it imports this package).
-var OpencodeTableModels func() (mainModel, smallModel string, ok bool)
-
 // opencodeOverlayModels is the overlay's model/small_model: github-copilot/ ids on the copilot-only leg (no
 // opencode-go login, so the table's opencode-go cells would be unservable), else the table's opencode cells.
 func opencodeOverlayModels() (mainModel, smallModel string, ok bool) {
@@ -320,8 +318,5 @@ func opencodeOverlayModels() (mainModel, smallModel string, ok bool) {
 			return "github-copilot/" + m, "github-copilot/" + s, true
 		}
 	}
-	if OpencodeTableModels == nil {
-		return "", "", false
-	}
-	return OpencodeTableModels()
+	return router.OpencodeTableModels()
 }

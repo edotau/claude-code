@@ -118,7 +118,7 @@ func configureRoute(ctx context.Context, name string, t providers.Target, h *Hea
 	if p.Auth.Login != "" {
 		return login(name, p, models.Strip1M(t.Model), h)
 	}
-	if name == "gemini" && GeminiGatewayRow(p) {
+	if name == "gemini" && providers.GeminiGatewayRow(p) {
 		if isDirect(ctx) {
 			return nil, nil, fmt.Errorf("gemini: --direct has no Databricks route for agy (profile %s needs the router's token swap)", p.Name)
 		}

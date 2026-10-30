@@ -6,7 +6,6 @@ import (
 	"slices"
 	"time"
 
-	"github.com/edotau/claude-code/internal/agent/vendors"
 	"github.com/edotau/claude-code/internal/providers"
 )
 
@@ -39,12 +38,12 @@ func (t *Table) gateProfile(
 		res.Skipped = append(res.Skipped, Skip{runner, GateRow, "pinned profile " + pin + " is not in the registry"})
 		return nil, false
 	}
-	if !vendors.CanServe(runner, p) || !providers.CredentialPresent(p) {
+	if !providers.CanServe(runner, p) || !providers.CredentialPresent(p) {
 		res.Skipped = append(res.Skipped, Skip{runner, GateAvailable, "pinned profile " + pin + " cannot serve " + runner + " (no route or credential)"})
 		return nil, false
 	}
 	c := Cell{Model: pinnedModel(runner, tier, cell, p, model, now), Effort: cmp.Or(effort, cell.Effort), Account: ProviderAccount(pin), Price: cell.Price}
-	if sp := vendors.SpellPin(p, model); model != "" && model != BYOKModel && sp != "" && c.Model != sp {
+	if sp := providers.SpellPin(p, model); model != "" && model != BYOKModel && sp != "" && c.Model != sp {
 		res.Skipped = append(res.Skipped, Skip{runner, GateAvailable, "pinned model " + sp + " is not READY on " + pin + "; using " + c.Model})
 	}
 	if err := configured(runner, c); err != nil {
@@ -89,7 +88,7 @@ func selectPinnedModel(runner, tier string, cell Cell, p *providers.Provider, mo
 		return cell.Model
 	}
 	if modelPin != "" {
-		if m := vendors.SpellPin(p, modelPin); m != "" {
+		if m := providers.SpellPin(p, modelPin); m != "" {
 			return m
 		}
 	}

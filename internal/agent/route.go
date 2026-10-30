@@ -93,6 +93,9 @@ func routeChain(ctx context.Context, want, tier, row, exact, callerModel, mode s
 	if nativeLead {
 		pickWant = ""
 	}
+	if o.Configured == nil {
+		o.Configured = vendors.Configured
+	}
 	pick := tb.Pick(ctx, tier, pickWant, loadState(), o)
 	reg, _ := providers.Load()
 	c := Chain{Want: want}
@@ -376,7 +379,7 @@ func sessionProvider(agentName string) string {
 	if err != nil {
 		return ""
 	}
-	if p := reg.Providers[providers.SessionProfile()]; p != nil && (agentName == "claude" || vendors.CanServe(agentName, p)) {
+	if p := reg.Providers[providers.SessionProfile()]; p != nil && (agentName == "claude" || providers.CanServe(agentName, p)) {
 		return p.Name
 	}
 	return ""
