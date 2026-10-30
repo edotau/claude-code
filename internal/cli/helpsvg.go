@@ -11,7 +11,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/ui/ansi"
 	"github.com/edotau/claude-code/internal/ui/helptext"
-	"github.com/edotau/claude-code/internal/ui/statusline"
+	"github.com/edotau/claude-code/internal/ui/theme"
 )
 
 // menuSVGPath is the README image; menuSVGPalette pins its gradient so the render never follows a local theme.
@@ -34,7 +34,7 @@ const (
 
 // menuSVG renders the menu as a dark terminal window: the same rows as usage, painted with the pinned palette.
 func menuSVG() []byte {
-	stops, dim := statusline.EmbeddedTheme(menuSVGPalette)
+	stops, dim := theme.EmbeddedTheme(menuSVGPalette)
 	rows := menuRows()
 	cols := 0
 	for _, l := range menuHeader {

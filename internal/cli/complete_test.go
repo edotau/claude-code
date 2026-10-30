@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/edotau/claude-code/internal/ui/statusline"
+	"github.com/edotau/claude-code/internal/ui/theme"
 )
 
 // TestCompletionTopLevel: an empty partial offers every visible command (+help), never a hidden one.
@@ -95,7 +95,7 @@ func TestCompletionFlagValues(t *testing.T) {
 		t.Errorf("switch values = %v, want %v", got, providerNames())
 	}
 	themeGot := completionCandidates([]string{"theme", ""})
-	for _, want := range append([]string{"apply", "statusline", "vscode"}, statusline.GradientNames()...) {
+	for _, want := range append([]string{"apply", "statusline", "vscode"}, theme.GradientNames()...) {
 		if !slices.Contains(themeGot, want) {
 			t.Errorf("theme values = %v, missing %q", themeGot, want)
 		}

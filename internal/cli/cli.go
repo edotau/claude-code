@@ -15,7 +15,7 @@ import (
 	"github.com/edotau/claude-code/internal/review/mutate"
 	"github.com/edotau/claude-code/internal/ui/ansi"
 	"github.com/edotau/claude-code/internal/ui/helptext"
-	"github.com/edotau/claude-code/internal/ui/statusline"
+	"github.com/edotau/claude-code/internal/ui/theme"
 )
 
 // command is one top-level verb; group places it on the menu, hidden keeps it dispatchable but off the menu.
@@ -222,7 +222,7 @@ func usage(w *os.File) {
 	paintHead := func(s string) string { return s }
 	paintName := func(s string, frac float64) string { return s }
 	if colorOK(w) {
-		mode, stops, dim := statusline.Theme()
+		mode, stops, dim := theme.Theme()
 		// ANTHROPIC is first-party, so its head opens the gradient; the other heads stay dim.
 		paintHead = func(s string) string {
 			if s == groupAnthropic {

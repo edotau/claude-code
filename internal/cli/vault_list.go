@@ -12,7 +12,7 @@ import (
 	"github.com/edotau/claude-code/internal/secrets"
 	"github.com/edotau/claude-code/internal/ui/ansi"
 	"github.com/edotau/claude-code/internal/ui/helptext"
-	"github.com/edotau/claude-code/internal/ui/statusline"
+	"github.com/edotau/claude-code/internal/ui/theme"
 	"github.com/edotau/claude-code/internal/ui/tui"
 )
 
@@ -165,7 +165,7 @@ func vaultListJSON(raw []byte, stored []secrets.Stored, sel []string) ([]byte, e
 
 // paintMarks colors the ✓ (verified) and ✗ (unverified) env marks green and red.
 func paintMarks(s string) string {
-	mode, _, _ := statusline.Theme()
+	mode, _, _ := theme.Theme()
 	s = strings.ReplaceAll(s, "✓", ansi.Paint(mode, ansi.RGB{80, 200, 120}, "✓", true))
 	return strings.ReplaceAll(s, "✗", ansi.Paint(mode, ansi.RGB{230, 90, 90}, "✗", true))
 }

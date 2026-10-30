@@ -14,7 +14,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/edotau/claude-code/internal/ui/ansi"
-	"github.com/edotau/claude-code/internal/ui/statusline"
+	"github.com/edotau/claude-code/internal/ui/theme"
 )
 
 // row is an indented command line: the left column ends at the first run of 2+ spaces (or the line, for a flag).
@@ -31,7 +31,7 @@ func Fprint(w io.Writer, text string) {
 
 // Paint colors text unconditionally: heads in the dim slot, row labels across the gradient in row order.
 func Paint(text string) string {
-	mode, stops, dim := statusline.Theme()
+	mode, stops, dim := theme.Theme()
 	lines := strings.Split(text, "\n")
 	var rows []int
 	for i, l := range lines {

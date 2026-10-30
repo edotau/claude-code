@@ -7,6 +7,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/edotau/claude-code/internal/ui/ansi"
+	"github.com/edotau/claude-code/internal/ui/theme"
 )
 
 // cell is one output rune tagged with how it is colored: g|sep|dot|filled|empty|dim|pad.
@@ -28,8 +29,8 @@ func easeAt(t, exp float64) float64 {
 
 // renderGradient paints "user:" then sweeps the ramp from the path across cfg.Order, the branch and the
 // velocity counts; separators, troughs and the dot keep their own tones.
-func renderGradient(v values, cfg Config, pal Palettes, stops []ansi.RGB, mode string) string {
-	dim := ansi.Hex(pal.sem("dim"))
+func renderGradient(v values, cfg Config, pal theme.Palettes, stops []ansi.RGB, mode string) string {
+	dim := ansi.Hex(pal.Sem("dim"))
 	cells := gradientCells(v, cfg)
 	total := max(len(cells)-1, 1)
 	trough := troughTone(cfg.Bar)
@@ -38,9 +39,9 @@ func renderGradient(v values, cfg Config, pal Palettes, stops []ansi.RGB, mode s
 		if cfg.UserColor == "ansi" {
 			out.WriteString("\x1b[01;32m" + v.userHost + ansi.Reset)
 		} else {
-			out.WriteString(ansi.Paint(mode, ansi.Hex(pal.sem("user")), v.userHost, true))
+			out.WriteString(ansi.Paint(mode, ansi.Hex(pal.Sem("user")), v.userHost, true))
 		}
-		out.WriteString(ansi.Paint(mode, ansi.Hex(pal.sem("punct")), ":", false))
+		out.WriteString(ansi.Paint(mode, ansi.Hex(pal.Sem("punct")), ":", false))
 	}
 	for i, c := range cells {
 		rgb := ansi.GradAt(stops, easeAt(float64(i)/float64(total), cfg.GradientEase))
@@ -136,13 +137,13 @@ func gradientCells(v values, cfg Config) []cell {
 }
 
 // velocityText paints "+A -D" in the add/del tones, omitting a zero side.
-func velocityText(v values, mode string, pal Palettes) string {
+func velocityText(v values, mode string, pal theme.Palettes) string {
 	var parts []string
 	if v.adds != 0 {
-		parts = append(parts, ansi.Paint(mode, ansi.Hex(pal.sem("add")), "+"+strconv.Itoa(v.adds), false))
+		parts = append(parts, ansi.Paint(mode, ansi.Hex(pal.Sem("add")), "+"+strconv.Itoa(v.adds), false))
 	}
 	if v.dels != 0 {
-		parts = append(parts, ansi.Paint(mode, ansi.Hex(pal.sem("del")), "-"+strconv.Itoa(v.dels), false))
+		parts = append(parts, ansi.Paint(mode, ansi.Hex(pal.Sem("del")), "-"+strconv.Itoa(v.dels), false))
 	}
 	return strings.Join(parts, " ")
 }

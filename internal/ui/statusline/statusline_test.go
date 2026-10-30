@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/ui/theme"
 	"github.com/edotau/claude-code/internal/usageledger"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -71,19 +72,19 @@ func TestStyleGoldens(t *testing.T) {
 		cfg := embeddedConfig()
 		cfg.Style = style
 		cfg.Segments = map[string]bool{"session": false} // every opt-in segment on, so the goldens cover their rendering
-		if got := plain(render(sample(), cfg, embeddedPalettes())); got != want {
+		if got := plain(render(sample(), cfg, theme.EmbeddedPalettes())); got != want {
 			t.Errorf("%s:\n got %q\nwant %q", style, got, want)
 		}
 	}
 	cfg := embeddedConfig()
-	got := render(sample(), cfg, embeddedPalettes())
+	got := render(sample(), cfg, theme.EmbeddedPalettes())
 	// The ramp opens on the path: "~" carries gemini's first stop, bold truecolor.
 	if !strings.Contains(got, "\x1b[01;32mtester\x1b[0m") || !strings.Contains(got, "\x1b[1;38;2;71;150;228m~") {
 		t.Errorf("gradient head escapes: %q", got)
 	}
 	cfg.Style = "powerline"
 	cfg.Charset = "nerd"
-	if !strings.Contains(render(sample(), cfg, embeddedPalettes()), glyphArrow) {
+	if !strings.Contains(render(sample(), cfg, theme.EmbeddedPalettes()), glyphArrow) {
 		t.Error("nerd powerline lacks the arrow glyph")
 	}
 }
@@ -94,7 +95,7 @@ func TestDashboardAlignsHeadersOverValues(t *testing.T) {
 	cfg.Style = "dashboard"
 	cfg.Segments = map[string]bool{"session": false} // pin columns so alignment is checked regardless of defaults
 	cfg.Dashboard.Columns = []string{"workspace", "model", "provider", "proxy", "total", "branch", "context"}
-	lines := strings.Split(plain(render(sample(), cfg, embeddedPalettes())), "\n")
+	lines := strings.Split(plain(render(sample(), cfg, theme.EmbeddedPalettes())), "\n")
 	if len(lines) != 2 {
 		t.Fatalf("want header + value rows, got %q", lines)
 	}
@@ -124,7 +125,7 @@ func TestWidthClip(t *testing.T) {
 	for _, style := range []string{"gradient", "powerline", "dashboard"} {
 		cfg := embeddedConfig()
 		cfg.Style, cfg.Width = style, 40
-		for line := range strings.SplitSeq(render(sample(), cfg, embeddedPalettes()), "\n") {
+		for line := range strings.SplitSeq(render(sample(), cfg, theme.EmbeddedPalettes()), "\n") {
 			if w := visibleWidth(line); w > 40 {
 				t.Errorf("%s: width %d > 40: %q", style, w, plain(line))
 			}
@@ -135,7 +136,7 @@ func TestWidthClip(t *testing.T) {
 	}
 	cfg := embeddedConfig()
 	t.Setenv("COLUMNS", "30")
-	if got := plain(render(sample(), cfg, embeddedPalettes())); got != "tester:~/proj | openrouter · …" {
+	if got := plain(render(sample(), cfg, theme.EmbeddedPalettes())); got != "tester:~/proj | openrouter · …" {
 		t.Errorf("COLUMNS clip %q", got)
 	}
 	if s := "short"; clip(s, 40) != s {
