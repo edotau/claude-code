@@ -3,6 +3,7 @@ package usage
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -268,7 +269,7 @@ func TestWorkflowPhaseFromMetaMalformed(t *testing.T) {
 	writeFile(t, filepath.Join(dir, "agent-a.meta.json"), `{"workflowPhase":`) // truncated JSON
 
 	var errw bytes.Buffer
-	phase := workflowPhaseFromMeta(transcriptPath, &errw)
+	phase := transcript.WorkflowPhaseFromMeta(transcriptPath, &errw)
 	if phase != "" {
 		t.Errorf("workflowPhaseFromMeta on malformed meta = %q, want \"\"", phase)
 	}
@@ -470,18 +471,18 @@ func TestExportedWorkflowWrappersForAgentTree(t *testing.T) {
 	writeWorkflowAgentFixture(t, dir, "p", "sess0001", "wf_abc", "two", "", time.Minute,
 		usageRecordLine("claude-sonnet-4-5", 20, 8, "2026-10-18T00:01:00Z"))
 
-	runDirs := WorkflowRunDirs(sessionDir)
+	runDirs := transcript.WorkflowRunDirs(sessionDir)
 	if len(runDirs) != 1 || filepath.Base(runDirs[0]) != "wf_abc" {
 		t.Fatalf("WorkflowRunDirs = %v, want one dir named wf_abc", runDirs)
 	}
 
-	files := WorkflowAgentFiles(runDirs[0])
+	files := transcript.WorkflowAgentFiles(runDirs[0])
 	if len(files) != 2 {
 		t.Fatalf("WorkflowAgentFiles = %v, want 2 agent transcripts", files)
 	}
 	phases := map[string]bool{}
 	for _, f := range files {
-		phases[WorkflowPhaseFromMeta(f)] = true
+		phases[transcript.WorkflowPhaseFromMeta(f, io.Discard)] = true
 	}
 	if !phases["Detect"] {
 		t.Error("WorkflowPhaseFromMeta should read \"Detect\" from agent-one's sidecar meta")

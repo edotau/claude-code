@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/edotau/claude-code/internal/usage"
+	"github.com/edotau/claude-code/internal/transcript"
 )
 
 // defaultEventCount is --n's default: how many trailing events a Snapshot carries.
@@ -117,8 +117,8 @@ func resolveAgent(claudeDir string, opts ViewOptions, now time.Time) (agentLocat
 				matches = append(matches, agentLocation{SessionID: sessionID, TranscriptPath: f, SessionDir: sessionDir, Cwd: head.cwd})
 			}
 		}
-		for _, runDir := range usage.WorkflowRunDirs(sessionDir) {
-			for _, f := range usage.WorkflowAgentFiles(runDir) {
+		for _, runDir := range transcript.WorkflowRunDirs(sessionDir) {
+			for _, f := range transcript.WorkflowAgentFiles(runDir) {
 				if matchID(subagentIDFromPath(f), opts.Agent) {
 					matches = append(matches, agentLocation{
 						SessionID: sessionID, TranscriptPath: f, SessionDir: sessionDir,
@@ -168,7 +168,7 @@ func snapshotFrom(loc agentLocation, now time.Time, n int) Snapshot {
 
 	return Snapshot{
 		ID: sub.ID, SessionID: loc.SessionID, Label: sub.Description,
-		Workflow: loc.RunID, Phase: usage.WorkflowPhaseFromMeta(loc.TranscriptPath),
+		Workflow: loc.RunID, Phase: transcript.WorkflowPhaseFromMeta(loc.TranscriptPath, io.Discard),
 		Model: meta.Model, Effort: effortForLabel(loc, j.Label),
 		Status: sub.Status, Updated: sub.Updated, Tokens: sub.Tokens,
 		FilesEdited: editedFiles(loc.TranscriptPath), Legs: sub.Legs, Activity: sub.Activity,

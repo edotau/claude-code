@@ -5,6 +5,7 @@ package agent
 import (
 	"cmp"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
@@ -12,7 +13,6 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/transcript"
-	"github.com/edotau/claude-code/internal/usage"
 )
 
 // subagentActiveWindow is how recently a subagent transcript must have been written to count as
@@ -391,10 +391,10 @@ func subagentStatus(finished bool, updated, now time.Time) string {
 
 // buildWorkflowRuns reads one session's workflows/wf_*.json manifests (run id, name, result status)
 // and folds in the matching subagents/workflows/<runId>/agent-*.jsonl transcripts by workflowPhase,
-// via internal/usage's exported helpers — one run id links both halves.
+// via internal/transcript's exported helpers — one run id links both halves.
 func buildWorkflowRuns(sessionDir string, now time.Time, cwd string) []WorkflowRun {
 	manifests := workflowManifests(sessionDir)
-	runDirs := usage.WorkflowRunDirs(sessionDir)
+	runDirs := transcript.WorkflowRunDirs(sessionDir)
 	seen := map[string]bool{}
 	var runs []WorkflowRun
 
@@ -432,13 +432,13 @@ func buildOneWorkflowRun(sessionDir, runID string, m *workflowManifest, now time
 
 	runDir := filepath.Join(sessionDir, "subagents", "workflows", runID)
 	journal := readJournal(runDir)
-	files := usage.WorkflowAgentFiles(runDir)
+	files := transcript.WorkflowAgentFiles(runDir)
 	byPhase := map[string]*WorkflowPhase{}
 	var order []string
 	for _, f := range files {
 		sub := buildSubagent(f, now, cwd)
 		sub = applyJournalEntry(sub, journal[sub.ID])
-		phaseName := cmp.Or(usage.WorkflowPhaseFromMeta(f), "(none)")
+		phaseName := cmp.Or(transcript.WorkflowPhaseFromMeta(f, io.Discard), "(none)")
 		phase := byPhase[phaseName]
 		if phase == nil {
 			phase = &WorkflowPhase{Name: phaseName}
