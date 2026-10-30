@@ -132,7 +132,7 @@ func runAsk(args []string, resume bool) int {
 		session: session, tools: tools, noTools: noTools, timeout: timeout, attach: &attach, keepEnv: &keepEnv,
 		autonomous: autonomous, enableMemory: enableMemory, rubric: rubric, direct: direct,
 		noPersist: noPersist, safeMode: safeMode, debugFile: debugFile, systemPrompt: systemPrompt,
-		appendSystemPrompt: appendSystemPrompt, outputSchema: outputSchema}
+		appendSystemPrompt: appendSystemPrompt, outputSchema: outputSchema, host: host, remoteBin: remoteBin}
 	jobRec, rc, done := loadAskJob(*job, *format, state, &prompt)
 	if done {
 		return rc
@@ -206,6 +206,9 @@ func runAsk(args []string, resume bool) int {
 		recDir = "" // --workdir is a remote path: it is no local repo to record
 	}
 	rec := buildAskRecord(ctx, r, req, jobRec, recDir, *background)
+	if jobRec == nil && *host != "" {
+		rec.Host, rec.RemoteBin = *host, agent.RemoteBin(*remoteBin) // ask --retry replays it on the same host
+	}
 	_ = rec.Save() // fail-open: the log is for replay and forensics, never a gate on the run
 	if *background {
 		if err := vendoragent.Spawn(&rec, backgroundExtraFlags(fs, *fallback, *native)); err != nil {
@@ -305,6 +308,7 @@ type askState struct {
 	tools, noTools, autonomous, enableMemory, direct          *bool
 	noPersist, safeMode                                       *bool
 	debugFile, systemPrompt, appendSystemPrompt, outputSchema *string
+	host, remoteBin                                           *string
 	timeout                                                   *time.Duration
 	attach                                                    *attachFlag
 	keepEnv                                                   *keepEnvFlag
@@ -318,6 +322,7 @@ func (s *askState) applyRecord(rec agent.Record) {
 	*s.keepEnv, *s.direct, *s.noTools = keepEnvFlag(rec.Request.KeepEnv), rec.Request.Direct, rec.Request.NoTools
 	*s.noPersist, *s.safeMode, *s.debugFile = rec.Request.NoPersist, rec.Request.SafeMode, rec.Request.DebugFile
 	*s.systemPrompt, *s.appendSystemPrompt, *s.outputSchema = rec.Request.SystemPrompt, rec.Request.AppendSystemPrompt, rec.Request.OutputSchema
+	*s.host, *s.remoteBin = rec.Host, rec.RemoteBin
 	if len(rec.Request.EnvNames) > 0 {
 		fmt.Fprintf(os.Stderr, "ask: the logged run set env %s; values are not stored, so pass --env again\n", strings.Join(rec.Request.EnvNames, ","))
 	}
