@@ -551,6 +551,13 @@ func requestFault(err error) bool {
 	return contentPolicyRE.MatchString(err.Error())
 }
 
+// askedSkips keeps the skip reasons of the wanted agent; those of agents nobody asked for are noise.
+func askedSkips(reasons []string, want string) []string {
+	return slices.DeleteFunc(slices.Clone(reasons), func(r string) bool {
+		return !strings.HasPrefix(r, want+":") && !strings.HasPrefix(r, want+"·") && !strings.HasPrefix(r, want+" (")
+	})
+}
+
 func notClaude(name string) bool { return name != "claude" }
 
 // RunWithFallback runs c's legs in turn while the previous one turned out unavailable — binary missing, no provider
@@ -567,8 +574,8 @@ func RunWithFallback(ctx context.Context, c Chain, req Request, sink Sink, notif
 		return Result{Agent: c.Want, Status: StatusError, FallbackReason: strings.Join(reasons, "; ")},
 			&Error{Kind: KindFatal, Agent: c.Want, Err: fmt.Errorf("no agent available: %s%s", strings.Join(reasons, "; "), switchHint(reasons))}
 	}
-	if len(reasons) > 0 && notify != nil {
-		notify("skipped without an attempt — " + strings.Join(reasons, "; "))
+	if shown := askedSkips(reasons, c.Want); len(shown) > 0 && notify != nil { // other agents' skips stay in the record
+		notify("skipped without an attempt — " + strings.Join(shown, "; "))
 	}
 	var res Result
 	var err error

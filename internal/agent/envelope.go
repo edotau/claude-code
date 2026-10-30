@@ -118,6 +118,9 @@ func errorKind(err error) string {
 
 // RanOn is the "ran on" line for a finished run, from its final hop: agent · account·profile · model · fallback.
 func RanOn(res Result) string {
+	if len(res.Hops) == 0 && res.Status == StatusError { // no leg started: nothing ran
+		return ""
+	}
 	who, acct, model := res.Agent, "", res.Model
 	if n := len(res.Hops); n > 0 {
 		h := res.Hops[n-1]
@@ -135,4 +138,12 @@ func RanOn(res Result) string {
 		fb = "from " + res.Fallback
 	}
 	return fmt.Sprintf("ran on %s · %s · %s · fallback %s", who, cmp.Or(acct, "own login"), cmp.Or(model, "default"), fb)
+}
+
+// DidNotRun is the "did not run" line for a dispatch that ended before any leg started, else "".
+func DidNotRun(res Result) string {
+	if len(res.Hops) > 0 || res.Status != StatusError || res.Agent == "" {
+		return ""
+	}
+	return strings.TrimSpace("did not run " + res.Agent + " — " + strings.TrimPrefix(res.FallbackReason, res.Agent+": "))
 }
