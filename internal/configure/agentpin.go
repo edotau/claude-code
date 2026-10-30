@@ -28,12 +28,19 @@ func agentPinRows(d *dialog, agent string) []billingRow {
 	}
 	pin := providers.Pin(key)
 	rows = append(rows, billingRow{label: "Route", desc: "pin the profile this agent runs on " + bracket(pin != "", pin, "default"),
-		run: func() bool { return pickAgentRoute(d, agent, key, pin) }})
+		run: func() bool {
+			changed, err := pickAgentRoute(d, agent, key, pin)
+			if err != nil {
+				d.printf("%s: %v\n", agent, err)
+			}
+			return changed
+		}})
 	return rows
 }
 
 // pickAgentRoute lists the profiles agent can run on (opencode also its sub ids), then Default to clear the pin.
-func pickAgentRoute(d *dialog, agent, key, cur string) bool {
+// A dismissed picker or an unchanged pin is (false, nil); a failed pin write is (false, err).
+func pickAgentRoute(d *dialog, agent, key, cur string) (bool, error) {
 	var names []string
 	if d.reg != nil {
 		for n, p := range d.reg.Providers {
@@ -57,13 +64,13 @@ func pickAgentRoute(d *dialog, agent, key, cur string) bool {
 	rows = append(rows, [2]string{"Default", "clear the pin" + curMark(cur == "")})
 	idx, err := pick(d, displayLabel(agent)+" — route", rows)
 	if err != nil || idx < 0 {
-		return false
+		return false, nil
 	}
 	val := ""
 	if idx < len(names) {
 		val = names[idx]
 	}
-	return setAgentPins(d, agent, map[string]string{key: val})
+	return writeAgentPins(d, map[string]string{key: val})
 }
 
 // agentActiveOn switches agent back on after a successful sign-in, when its Active pin is off.
@@ -75,21 +82,28 @@ func agentActiveOn(d *dialog, agent string) {
 
 // setAgentPins writes kv and prints each changed pin; false when nothing changed or the write failed.
 func setAgentPins(d *dialog, agent string, kv map[string]string) bool {
-	diff, err := providers.PinDiff(kv)
+	changed, err := writeAgentPins(d, kv)
 	if err != nil {
 		d.printf("%s: %v\n", agent, err)
-		return false
+	}
+	return changed
+}
+
+// writeAgentPins writes kv and prints each changed pin; (false, nil) when nothing changed, (false, err) on a failed write.
+func writeAgentPins(d *dialog, kv map[string]string) (bool, error) {
+	diff, err := providers.PinDiff(kv)
+	if err != nil {
+		return false, err
 	}
 	if len(diff) == 0 {
-		return false
+		return false, nil
 	}
 	if err := providers.SetPins(kv); err != nil {
-		d.printf("%s: %v\n", agent, err)
-		return false
+		return false, err
 	}
 	for _, l := range diff {
 		d.printf("  %s\n", l)
 	}
 	d.changed = true
-	return true
+	return true, nil
 }
