@@ -170,7 +170,7 @@ func runAsk(args []string, resume bool) int {
 		if _, err = agent.Lookup(*name); err == nil {
 			err = dispatch.ValidHost(*host)
 		}
-		r = agent.NewRemoteRunner(*name, *host, agent.RemoteBin(*remoteBin))
+		r = agent.NewRemoteRunner(*name, *host, agent.RemoteBin(*remoteBin), *fallback)
 		chain = agent.Single(r)
 		remote = r
 	} else {

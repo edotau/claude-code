@@ -29,10 +29,12 @@ func RemoteBin(flagValue string) string {
 }
 
 // remoteRunner runs the named agent through `claude-code ask` on another host over ssh; the remote applies the caps.
-type remoteRunner struct{ agent, host, bin string }
+type remoteRunner struct{ agent, host, bin, fallback string }
 
-// NewRemoteRunner wraps agentName for host; bin is the remote claude-code path (see RemoteBin).
-func NewRemoteRunner(agentName, host, bin string) Runner { return remoteRunner{agentName, host, bin} }
+// NewRemoteRunner wraps agentName for host; bin is the remote claude-code path (see RemoteBin), fallback the remote's policy.
+func NewRemoteRunner(agentName, host, bin, fallback string) Runner {
+	return remoteRunner{agentName, host, bin, fallback}
+}
 
 func (r remoteRunner) Name() string { return r.agent }
 
@@ -62,7 +64,7 @@ func remoteDropped(req Request) []string {
 
 // remoteScript is the POSIX sh line run on the remote: every element is single-quoted, the prompt is never in it.
 // --env values do ride this line, so they are visible to the remote `ps` (and, base64-wrapped, to the local one).
-func remoteScript(bin, agentName string, req Request) (string, error) {
+func remoteScript(bin, agentName, fallback string, req Request) (string, error) {
 	vals := []string{bin, agentName, req.Model, req.Provider, req.Effort, req.WorkDir, req.SessionID, req.SystemPrompt,
 		req.AppendSystemPrompt, req.OutputSchema}
 	vals = append(vals, req.Env...)
@@ -74,7 +76,8 @@ func remoteScript(bin, agentName string, req Request) (string, error) {
 	if strings.TrimSpace(bin) == "" || strings.ContainsAny(bin, "\r\n") {
 		return "", fmt.Errorf("remote ask: invalid remote binary %q", bin)
 	}
-	w := []string{"exec", dispatch.QuotePath(bin), "ask", "--format", "stream-json", "--fallback", "none", "--stdin-framed", "--agent", dispatch.QuoteSH(agentName)}
+	w := []string{"exec", dispatch.QuotePath(bin), "ask", "--format", "stream-json", "--fallback", dispatch.QuoteSH(cmp.Or(fallback, FallbackNone)),
+		"--stdin-framed", "--agent", dispatch.QuoteSH(agentName)}
 	opt := func(flag, v string) {
 		if v != "" {
 			w = append(w, flag, dispatch.QuoteSH(v))
@@ -109,8 +112,8 @@ func remoteScript(bin, agentName string, req Request) (string, error) {
 }
 
 // RemoteArgv is the full local ssh argv for one remote ask.
-func RemoteArgv(host, bin, agentName string, req Request) ([]string, error) {
-	script, err := remoteScript(bin, agentName, req)
+func RemoteArgv(host, bin, agentName, fallback string, req Request) ([]string, error) {
+	script, err := remoteScript(bin, agentName, fallback, req)
 	if err != nil {
 		return nil, err
 	}
@@ -157,7 +160,7 @@ func resultFromEnvelope(env Envelope, agentName string, dropped []string) Result
 
 // Run streams the remote ask: events are re-emitted on sink, the remote result event becomes the Result.
 func (r remoteRunner) Run(ctx context.Context, req Request, sink Sink) (Result, error) {
-	argv, err := RemoteArgv(r.host, r.bin, r.agent, req)
+	argv, err := RemoteArgv(r.host, r.bin, r.agent, r.fallback, req)
 	if err != nil {
 		return Result{Agent: r.agent, Status: StatusError}, &Error{Kind: KindFatal, Agent: r.agent, Err: err}
 	}
