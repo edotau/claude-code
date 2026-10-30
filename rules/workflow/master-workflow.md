@@ -84,6 +84,7 @@ Default is no worktree (`rules/standards/worktree-git.md`); if one was used, mer
 Run `Skill(simplify)` over the **merged** diff — parallel lanes duplicate each other's helpers and only the merged
 diff shows it. Same pass, before any new test: if existing tests already cover the change add nothing; delete dead
 code and stale tests the change left behind; fold near-duplicate tests. Net test count may fall.
+After a merge, stop any leaf still running on that work; a leaf at its turn limit commits or reports what's uncommitted.
 
 ## Phase 8: Verify
 
