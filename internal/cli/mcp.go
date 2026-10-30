@@ -6,7 +6,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/helptext"
 	"github.com/edotau/claude-code/internal/launch"
-	"github.com/edotau/claude-code/internal/mcpx"
+	"github.com/edotau/claude-code/internal/network/mcp"
 	"github.com/edotau/claude-code/internal/outfmt"
 	"github.com/edotau/claude-code/internal/paths"
 )
@@ -35,7 +35,7 @@ func cmdNetworkMCP(args []string) int {
 		filepath.Join(paths.ConfigDir(), "settings.json"),
 		filepath.Join(paths.ConfigDir(), "settings.local.json"),
 	}
-	code := mcpx.Doctor(os.Stdout, mcpx.Options{
+	code := mcp.Doctor(os.Stdout, mcp.Options{
 		UserPath:      paths.ClaudeJSON(),
 		ProjectFiles:  []string{filepath.Join(cwd, ".mcp.json")},
 		SettingsFiles: settingsFiles,

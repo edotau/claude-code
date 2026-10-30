@@ -14,9 +14,9 @@ import (
 
 	"github.com/edotau/claude-code/internal/ansi"
 	"github.com/edotau/claude-code/internal/audit"
+	"github.com/edotau/claude-code/internal/network/tailscale"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/secrets"
-	"github.com/edotau/claude-code/internal/tailscale"
 	"github.com/edotau/claude-code/internal/tui"
 	"github.com/edotau/claude-code/internal/vendors"
 )

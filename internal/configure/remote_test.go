@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/network/tailscale"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/tailscale"
 )
 
 // fakeTailscaleOnPATH puts a `tailscale` script on PATH that answers `status --json` with a

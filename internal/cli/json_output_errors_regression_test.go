@@ -63,7 +63,7 @@ func TestDispatchListJSONWriteError(t *testing.T) {
 	os.Stdout = f
 	defer func() { os.Stdout = oldOut }()
 
-	code := cmdDispatch([]string{"--list", "--host", "myhost", "--format", "json"})
+	code := cmdNetworkRemote([]string{"--list", "--host", "myhost", "--format", "json"})
 	if code == 0 {
 		t.Errorf("dispatch --list --format json on closed stdout: exit %d, want non-zero", code)
 	}
@@ -124,7 +124,7 @@ func TestDispatchListEmptyTextOutput(t *testing.T) {
 	fakeSSHOnPATH(t, "") // no sessions
 
 	code, out, stderr := captureOutput(t, func() int {
-		return cmdDispatch([]string{"--list", "--host", "myhost"})
+		return cmdNetworkRemote([]string{"--list", "--host", "myhost"})
 	})
 	if code != 0 {
 		t.Fatalf("--list (empty): exit %d, want 0; stderr=%q", code, stderr)
@@ -292,7 +292,7 @@ func TestDispatchFlagsNotValidatedPerMode(t *testing.T) {
 	// --dry-run is only valid in start mode, not with --list
 	// Currently this silently ignores --dry-run; the fix should reject it or warn
 	code, _, _ := captureOutput(t, func() int {
-		return cmdDispatch([]string{"--host", "myhost", "--list", "--dry-run"})
+		return cmdNetworkRemote([]string{"--host", "myhost", "--list", "--dry-run"})
 	})
 	// After fix, code should be non-zero when invalid flags are used
 	_ = code

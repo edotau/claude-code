@@ -10,11 +10,11 @@ import (
 	"syscall"
 
 	"github.com/edotau/claude-code/internal/agenttree"
-	"github.com/edotau/claude-code/internal/browser"
 	"github.com/edotau/claude-code/internal/helptext"
+	"github.com/edotau/claude-code/internal/network/browser"
+	"github.com/edotau/claude-code/internal/network/web"
 	"github.com/edotau/claude-code/internal/outfmt"
 	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/web"
 )
 
 // cmdNetworkBrowser lists every installed browser's control paths and the system default; --setup repairs one.

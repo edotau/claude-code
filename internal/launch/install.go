@@ -19,20 +19,20 @@ import (
 
 	"github.com/edotau/claude-code/internal/ansi"
 	"github.com/edotau/claude-code/internal/audit"
-	"github.com/edotau/claude-code/internal/browser"
 	"github.com/edotau/claude-code/internal/clean"
 	"github.com/edotau/claude-code/internal/clipboard"
 	"github.com/edotau/claude-code/internal/hooks"
 	"github.com/edotau/claude-code/internal/hookspec"
 	"github.com/edotau/claude-code/internal/models"
+	"github.com/edotau/claude-code/internal/network/browser"
+	"github.com/edotau/claude-code/internal/network/tailscale"
+	"github.com/edotau/claude-code/internal/network/vscode"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/preflight"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/setup"
-	"github.com/edotau/claude-code/internal/tailscale"
 	"github.com/edotau/claude-code/internal/tools"
 	"github.com/edotau/claude-code/internal/vendors"
-	"github.com/edotau/claude-code/internal/vscode"
 )
 
 // userBinDir is where install links claude-code onto PATH (~/.local/bin is on PATH by convention).

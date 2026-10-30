@@ -10,9 +10,9 @@ import (
 	"path/filepath"
 
 	"github.com/edotau/claude-code/internal/helptext"
+	"github.com/edotau/claude-code/internal/network/vscode"
 	"github.com/edotau/claude-code/internal/outfmt"
 	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/vscode"
 )
 
 // cmdVSCode merges the tracked VS Code settings template into VS Code's Machine settings.json.

@@ -10,10 +10,10 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/configure"
-	"github.com/edotau/claude-code/internal/dispatch"
 	"github.com/edotau/claude-code/internal/hookspec"
 	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/models"
+	"github.com/edotau/claude-code/internal/network/remote"
 	"github.com/edotau/claude-code/internal/outfmt"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
@@ -194,8 +194,8 @@ func dispatchHostNames() []string {
 	return c.Names
 }
 
-// dispatchAgentNames is dispatch.Agents, named to match the other *Names domain functions.
-func dispatchAgentNames() []string { return dispatch.Agents }
+// dispatchAgentNames is remote.Agents, named to match the other *Names domain functions.
+func dispatchAgentNames() []string { return remote.Agents }
 
 // webViewAgentIDs lists subagent ids from the current project's most recent sessions — a bounded
 // directory glob (no transcript parsing), current session first, fast enough for the Tab path.

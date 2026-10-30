@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/network/tailscale"
 	"github.com/edotau/claude-code/internal/secrets"
-	"github.com/edotau/claude-code/internal/tailscale"
 )
 
 // cgnatRemote is the 100.64.0.0/10 block tailscale assigns IPv4 node addresses from.

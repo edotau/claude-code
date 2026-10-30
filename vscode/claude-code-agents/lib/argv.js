@@ -5,13 +5,13 @@
 /** Agent CLIs the dispatch command and the extension's quick-pick both allow. */
 const AGENTS = ['claude', 'codex', 'opencode', 'gemini', 'copilot'];
 
-/** argv for `<binary> dispatch --host H --agent A [--dir D] <task>`. Throws on an unknown agent. */
+/** argv for `<binary> network remote --host H --agent A [--dir D] <task>`. Throws on an unknown agent. */
 function dispatchStartArgv(binary, opts) {
   const { host, agent, dir, task } = opts || {};
   if (!AGENTS.includes(agent)) {
     throw new Error(`dispatch: --agent ${JSON.stringify(agent)} must be one of ${AGENTS.join('|')}`);
   }
-  const argv = [binary, 'dispatch', '--host', host, '--agent', agent];
+  const argv = [binary, 'network', 'remote', '--host', host, '--agent', agent];
   if (dir) argv.push('--dir', dir);
   argv.push(task);
   return argv;
