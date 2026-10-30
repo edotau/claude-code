@@ -329,7 +329,7 @@ for (let round = 1; round <= ROUNDS; round++) {
         `Read the cited files and their tests in one call; repair tests the fixes break, add one regression test per defect pinning its scenario ` +
         `(none for a comment-only or dead-code fix), run only the tests for ${pkg}, and report. Budget ~20 tool calls.`,
         { label: `test:${round}:${pkg}`, phase: 'Fix', schema: RESULT_SCHEMA, agentType: 'code-worker', model: routeModel('sonnet'), effort: 'medium' }) : null
-      return { package: pkg, impl, tests }
+      return { package: pkg, impl, tests, blocked: implBlocked }
     })()
   }))
 
@@ -340,7 +340,7 @@ for (let round = 1; round <= ROUNDS; round++) {
 
   const metricsOut = { ...metrics, fixPairs: byPkg.size, gateIterations: gate ? gate.iterations : 0 }
   const out = { ...base, fixed: fixed.filter(Boolean), gate, metrics: metricsOut }
-  if (!gate || gate.status !== 'green') { rounds.push({ ...out, exit: 'blocked' }); break }
+  if (!gate || gate.status !== 'green' || out.fixed.some(x => x.blocked)) { rounds.push({ ...out, exit: 'blocked' }); break }
   const touched = [...new Set([
     ...out.fixed.flatMap(x => [...((x.impl && x.impl.filesChanged) || []), ...((x.tests && x.tests.filesChanged) || [])]),
     ...(gate.filesChanged || []),
