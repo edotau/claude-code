@@ -1,5 +1,4 @@
-// Package removedflags turns a Phase 6 removed flag into a one-line rename hint.
-package removedflags
+package databricks
 
 import (
 	"fmt"
@@ -15,8 +14,8 @@ var removedFlags = map[string]string{
 	"--1m":       "was removed; 1M context is the base behavior on serving and first-party endpoints",
 }
 
-// Hint returns the error for a removed flag in args (up to "--"), or nil.
-func Hint(args []string) error {
+// RemovedFlagHint returns the error for a removed flag in args (up to "--"), or nil.
+func RemovedFlagHint(args []string) error {
 	for _, a := range args {
 		if a == "--" {
 			return nil
