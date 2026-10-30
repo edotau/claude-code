@@ -37,6 +37,9 @@ orchestration layer — leaves are terminal and never fan out further.
   cannot fan out further or start a `Workflow`. Dispatched as a subagent yourself, run every phase
   inline instead — you cannot fan out either.
 
+A live session (`ask --agent claude --live`, `agents send <id>`) and `--host`:
+`skills/subagent-workflows/references/cost-routing.md` → Ask flags and lifecycle.
+
 ## Hands off to
 
 | Need | Hand off to |
