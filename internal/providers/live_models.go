@@ -51,7 +51,7 @@ func endpointCapabilities(e liveModelEntry) string {
 }
 
 // CopilotTokenFn resolves the launch-account token (vendors.CopilotToken) for copilot catalog calls.
-// providers cannot import internal/vendors directly (vendors already imports providers); vendors sets
+// providers cannot import internal/agent/vendors directly (vendors already imports providers); vendors sets
 // this at init time instead. nil or "" falls back to the copilot CLI's own stored login.
 var CopilotTokenFn func() string
 

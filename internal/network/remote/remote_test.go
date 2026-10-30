@@ -262,7 +262,7 @@ func writeFailingNewSessionTmux(t *testing.T, dir, logPath string) {
 }
 
 // TestBuildRemoteCommand_TaggingSkippedWhenNewSessionFails is the regression test for Appendix A
-// codex-review finding #10 (internal/dispatch/dispatch.go:137): a duplicate session name makes
+// codex-review finding #10 (internal/network/remote/remote.go:137): a duplicate session name makes
 // `tmux new-session` fail, and the generated script must not then tag whatever unrelated session
 // already holds that name with this dispatch's @cc_agent metadata.
 func TestBuildRemoteCommand_TaggingSkippedWhenNewSessionFails(t *testing.T) {

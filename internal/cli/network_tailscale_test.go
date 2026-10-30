@@ -203,7 +203,7 @@ func TestTailscaleKeySaveKeepsStdoutPipeable(t *testing.T) {
 			hermeticTailscaleSecrets(t)
 			t.Setenv("TAILSCALE_API_KEY", "test-api-key")
 			const key = "tskey-auth-xyz"
-			// Reuse the CreateAuthKey response pattern from internal/tailscale/api_test.go.
+			// Reuse the CreateAuthKey response pattern from internal/network/tailscale/api_test.go.
 			ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if r.Method != http.MethodPost || r.URL.Path != "/api/v2/tailnet/-/keys" {
 					t.Errorf("unexpected admin API request: %s %s", r.Method, r.URL.Path)

@@ -11,13 +11,13 @@
 | Settings defaults | [`defaults/claude/settings.json`](../../defaults/claude/settings.json) | `claude-code configure --restore`, baked into `claude-code install` | [settings/settings.json](examples/settings/settings.json) |
 | Provider defaults | [`internal/providers/defaults.json`](../../internal/providers/defaults.json) | `claude-code configure provider --list`, `claude-code switch`, `claude-code models` | — |
 | Status line default config + palettes | [`internal/ui/statusline/default_config.json`](../../internal/ui/statusline/default_config.json), [`default_palettes.json`](../../internal/ui/statusline/default_palettes.json) | `claude-code theme statusline` (invoked by `settings.json`'s `statusLine.command`) | — |
-| Agent config defaults | [`internal/vendors/defaults.json`](../../internal/vendors/defaults.json) | `claude-code agents sync`, `claude-code configure --restore --agents` | — |
+| Agent config defaults | [`internal/agent/vendors/defaults.json`](../../internal/agent/vendors/defaults.json) | `claude-code agents sync`, `claude-code configure --restore --agents` | — |
 | tmux.conf | [`internal/launch/tmux.conf`](../../internal/launch/tmux.conf) | `claude-code install` (`seedTmuxConf`; only when no tmux config exists) | — |
-| VS Code machine-settings template | [`internal/vscode/machine-settings.template.json`](../../internal/vscode/machine-settings.template.json) | `claude-code theme vscode` | — |
-| VS Code keybindings template | [`internal/vscode/keybindings.template.json`](../../internal/vscode/keybindings.template.json) | `claude-code theme vscode` (keybindings step) | — |
+| VS Code machine-settings template | [`internal/network/vscode/machine-settings.template.json`](../../internal/network/vscode/machine-settings.template.json) | `claude-code theme vscode` | — |
+| VS Code keybindings template | [`internal/network/vscode/keybindings.template.json`](../../internal/network/vscode/keybindings.template.json) | `claude-code theme vscode` (keybindings step) | — |
 | claude-science config | [`internal/launch/science.toml`](../../internal/launch/science.toml) | `claude-code science` (`--print-env`) | — |
 | wl-paste WSL clipboard proxy | [`internal/clipboard/wl-paste-claude.sh`](../../internal/clipboard/wl-paste-claude.sh) | `claude-code install` (`InstallProxy`, WSL only) | — |
-| Web dashboard page | [`internal/web/assets/index.html.tmpl`](../../internal/web/assets/index.html.tmpl) | `claude-code network page` (`GET /`) | — |
+| Web dashboard page | [`internal/network/web/assets/index.html.tmpl`](../../internal/network/web/assets/index.html.tmpl) | `claude-code network page` (`GET /`) | — |
 
 ## Settings — the Windows subset
 

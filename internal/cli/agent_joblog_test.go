@@ -48,7 +48,7 @@ func TestCmdAskJobLogEachLineOnce(t *testing.T) {
 	if err := rec.Save(); err != nil {
 		t.Fatal(err)
 	}
-	// Mirror vendoragent.Spawn: the job child's own stdout and stderr are the log file.
+	// Mirror agent.Spawn: the job child's own stdout and stderr are the log file.
 	lf, err := os.OpenFile(rec.LogPath(), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
 		t.Fatal(err)

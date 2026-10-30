@@ -37,7 +37,7 @@ const (
 // last statement) immediately, which is still the pipeline's — and so the whole script's — exit status.
 var captureCommand = `list_out="$(tmux list-panes -a -F '#{session_name}` + fieldSep + `#{pane_id}` + fieldSep +
 	`#{@cc_agent}` + fieldSep + `#{pane_current_command}' 2>/dev/null)"; list_rc=$?` +
-	`; if [ "$list_rc" -ne 0 ]; then echo 'dispatch: tmux list-panes failed' >&2; exit 1; fi` +
+	`; if [ "$list_rc" -ne 0 ]; then echo 'network remote: tmux list-panes failed' >&2; exit 1; fi` +
 	`; printf '%s\n' "$list_out"` +
 	` | awk -F'` + fieldSep + `' '$1 ~ /^cc-/'` +
 	` | while IFS='` + fieldSep + `' read -r sess pid agent cmd; do` +

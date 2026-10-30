@@ -1,4 +1,4 @@
-// routing.go — the "routing" page: every internal/vendors module's fields, grouped by vendor, edited
+// routing.go — the "routing" page: every internal/agent/vendors module's fields, grouped by vendor, edited
 // and held until the page is left, then written to the providers overlay's routing object via
 // providers.UpdateRouting. Mirrors the "claude code" page's editing shape (claude_settings.go).
 package configure

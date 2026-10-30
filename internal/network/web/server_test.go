@@ -20,7 +20,7 @@ import (
 	"github.com/edotau/claude-code/internal/network/remote"
 )
 
-// agenttreeTestdata is internal/agenttree's own testdata fixture dir, reused rather than duplicated.
+// agenttreeTestdata is internal/agent's own testdata fixture dir, reused rather than duplicated.
 const agenttreeTestdata = "../../agent/testdata"
 
 const testCSRFToken = "test-csrf-token-0123456789abcdef"
@@ -388,7 +388,7 @@ func TestHandleIndexContainsTokenNoExternalAssets(t *testing.T) {
 	}
 }
 
-// --- /api/tree returns valid JSON with the agenttree schema ---
+// --- /api/tree returns valid JSON with the agent-tree schema ---
 
 func TestHandleTreeReturnsAgenttreeSchema(t *testing.T) {
 	s := newTestServer(t, Options{Days: 36500}, nil)
