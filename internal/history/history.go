@@ -67,7 +67,7 @@ func ConfigFiles() []HistoryFile {
 
 // vendorConfigs are the vendor CLIs' own on-disk configs. claude-code itself never writes these —
 // codex and opencode take their routing via env vars / `-c` flags at launch time, never a file
-// (internal/agent/vendors/vendors.go) — but the user or the vendor's own `login` can, so a hand-edit here is
+// (internal/agent/vendors/configure.go) — but the user or the vendor's own `login` can, so a hand-edit here is
 // exactly the kind of contested change this history is for.
 func vendorConfigs() []HistoryFile {
 	var out []HistoryFile
