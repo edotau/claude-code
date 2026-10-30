@@ -196,7 +196,7 @@ LINT_WHAT := go shell yaml help settings docs deep
 WHAT    ?= all
 AGENT   ?= $(HARNESS_LINT_AGENT)
 MAX     ?= 3
-LINT_AGENT := $(filter-out off,$(AGENT))
+LINT_AGENT := $(patsubst on,claude,$(filter-out off,$(AGENT)))
 LINT_KINDS := $(if $(filter go,$(WHAT)),go deep,$(if $(filter md,$(WHAT)),docs,$(LINT_WHAT)))
 .PHONY: lint
 lint:  ## Lint and auto-fix (CHECK=1 reports; AGENT=a fixes the rest; WHAT=go|md)
@@ -264,8 +264,8 @@ lint-agent: compile mdsmith  # (folded into `lint`) AGENT fixes what auto-fix le
 		echo "- Edit only the files named in the lint output."; \
 		echo "- Do not run git commands."; echo; echo "Lint output (truncated):"; \
 		awk 'NR<=150{print substr($$0,1,300)}' "$$o" | head -c 12000 || [ $$? = 141 ]; } > "$$b"; \
-		echo "lint: pass $$pass/$(MAX): dispatching $(AGENT)"; \
-		$(BIN) ask --agent $(AGENT) --tools --workdir $(CURDIR) --format json - < "$$b" >/dev/null || echo -e "$(C_NOTE)$(AGENT) dispatch failed"; \
+		echo "lint: pass $$pass/$(MAX): dispatching $(LINT_AGENT)"; \
+		$(BIN) ask --agent $(LINT_AGENT) --tools --workdir $(CURDIR) --format json - < "$$b" >/dev/null || echo -e "$(C_NOTE)$(LINT_AGENT) dispatch failed"; \
 		prev=$$left; left=$$(chk); opfail; echo "lint: $$left issue(s) left"; \
 		[ "$$left" -lt "$$prev" ] || break; pass=$$((pass+1)); done; \
 	if [ "$$left" = 0 ]; then echo -e "$(C_OK)lint: clean"; exit 0; fi; \
