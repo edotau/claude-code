@@ -5,7 +5,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/edotau/claude-code/internal/copilotreg"
+	"github.com/edotau/claude-code/internal/agent/copilotreg"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
 )

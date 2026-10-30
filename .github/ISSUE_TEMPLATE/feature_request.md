@@ -12,7 +12,7 @@ assignees: ''
 
 ## Proposal
 
-<!-- The smallest change that solves it. Name where it would live (a Go verb in internal/, a hook in internal/hookspec,
+<!-- The smallest change that solves it. Name where it would live (a Go verb in internal/, a hook in internal/hooks/hookspec,
 an agents/commands/rules/skills file, the settings template). -->
 
 ## Alternatives considered

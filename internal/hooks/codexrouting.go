@@ -5,7 +5,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/edotau/claude-code/internal/hookspec"
+	"github.com/edotau/claude-code/internal/hooks/hookspec"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router/routetable"
 )

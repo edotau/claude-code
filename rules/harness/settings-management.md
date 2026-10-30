@@ -16,7 +16,7 @@ paths:
 | Lint and auto-fix | `make lint [WHAT=go\|md\|all] [AGENT=on\|<agent>\|off] [MAX=3]`; `on` means Claude; env `HARNESS_LINT_AGENT` sets the default (`commands/lint-fix.md`) |
 
 **Never edit `~/.claude/settings.json`.** `claude-code configure --restore` (and `make install`) renders it from
-`defaults/claude/settings.json` (tracked), the vault overlay and the hook chain in `internal/hookspec/hookspec.go`;
+`defaults/claude/settings.json` (tracked), the vault overlay and the hook chain in `internal/hooks/hookspec/hookspec.go`;
 a direct edit is discarded on the next render. That covers `env`, hooks, permissions, `apiKeyHelper`, `statusLine`.
 The defaults derive paths from `CLAUDE_CONFIG_DIR`/`CLAUDE_PROJECT_DIR` — never hardcode a machine path there.
 

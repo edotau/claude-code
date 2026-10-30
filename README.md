@@ -304,7 +304,7 @@ clipboard — copy one there first (or its bridge is down)`.
 
 ## Hooks
 
-Declared as **groups** in `internal/hookspec/hookspec.go`, implemented in `internal/hooks/`; add one by registering it
+Declared as **groups** in `internal/hooks/hookspec/hookspec.go`, implemented in `internal/hooks/`; add one by registering it
 in a group and running `make install`. Settings carry one dispatcher entry per event (`claude-code hook <Event>`). The
 `safety` group (`safety-scan`: blocks destructive Bash, asks on intent-dependent commands) keeps its own process and
 cannot be turned off; any other group is switched off with `"<group>": false` under `harnessHooks` in the vault.

@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/hookspec"
+	"github.com/edotau/claude-code/internal/hooks/hookspec"
 )
 
 // orcaMarker is the literal foreign-hook command a third-party tool (Orca) installs into every
