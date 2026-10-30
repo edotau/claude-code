@@ -16,9 +16,9 @@ import (
 
 // hardBlocks are command shapes that are almost never intentional.
 var hardBlocks = lazyCompile(
-	`rm\s+-(rf|fr|r)\s+/(\*|\s|$)`,
-	`rm\s+-(rf|fr|r)\s+/(etc|usr|var|bin|sbin|lib|System|Users|home)(/?\s|/?$)`,
-	`rm\s+-(rf|fr|r)\s+(\$HOME|\$\{HOME\}|~)/?(\*|\s|$)`,
+	`rm\s+-(rf|fr|r)\s+/(\*|\s|$|[)\x60"'])`,
+	`rm\s+-(rf|fr|r)\s+/(etc|usr|var|bin|sbin|lib|System|Users|home)(/?\s|/?$|/?[)\x60"'])`,
+	`rm\s+-(rf|fr|r)\s+(\$HOME|\$\{HOME\}|~)/?(\*|\s|$|[)\x60"'])`,
 	`mkfs\.`,
 	`dd\s+.*\sof=/dev/(sd|disk|nvme|hd)`,
 	`chmod\s+-R\s+777\s+/(\s|$)`,
@@ -26,7 +26,7 @@ var hardBlocks = lazyCompile(
 	`python3?\s+.*-c\s+.*exec\(.*base64`,
 )
 
-// pipeBlocks match the WHOLE command text because pipes and encoded Python heredocs span shell segments.
+// pipeBlocks match the WHOLE command text (minus inert data, see inertStripped) because pipes and encoded Python heredocs span shell segments.
 var pipeBlocks = lazyCompile(
 	`(^|[^[:alnum:]_])(curl|wget)\s[^|]*\|\s*(ba|z)?sh([^[:alnum:]_]|$)`,
 	`(^|[\s;&|({/\x60])(bash|sh|zsh|dash|ksh)\s+(-\S*\s+)*-[a-zA-Z]*c[a-zA-Z]*\s+["']?(\$\(\s*|\x60\s*)(\S*/)?(curl|wget)\s`,
@@ -139,8 +139,9 @@ func safetyVerdict(in *Input) (Decision, string, string) {
 	if cmd == "" {
 		return Allow, "", ""
 	}
+	scan := inertStripped(cmd)
 	for _, re := range pipeBlocks() {
-		if re.MatchString(cmd) {
+		if re.MatchString(scan) {
 			return Block, safetyMessage(in, Block, "destructive command", re.String(), terminalHint), re.String()
 		}
 	}
@@ -152,7 +153,7 @@ func safetyVerdict(in *Input) (Decision, string, string) {
 		}
 	}
 	for _, re := range exfilPatterns() {
-		if re.MatchString(cmd) {
+		if re.MatchString(scan) {
 			return Block, safetyMessage(in, Block, "looks like credential exfiltration", re.String(), terminalHint), re.String()
 		}
 	}
@@ -182,7 +183,7 @@ func safetyAskVerdict(in *Input) (Decision, string, string) {
 		hint := "Drop the Co-Authored-By / Generated-with lines; the committer identity covers it."
 		return Ask, safetyMessage(in, Ask, what, "", hint), "attribution footer"
 	}
-	if sqlDestructive().MatchString(strings.ToLower(cmd)) {
+	if sqlDestructive().MatchString(strings.ToLower(inertStripped(cmd))) {
 		hint := "Approve only if you asked for it; back up first or run it against a scratch database."
 		return Ask, safetyMessage(in, Ask, "destructive SQL (DROP/TRUNCATE)", "", hint), "destructive SQL"
 	}
@@ -533,7 +534,12 @@ func matchBacktick(s string, start int) int {
 
 // shellSegments splits on unquoted command separators (`&&`, `||`, `;`, `|`, `&`, newline).
 func shellSegments(cmd string) []string {
-	var out []string
+	segs, _ := shellSegmentsSep(cmd)
+	return segs
+}
+
+// shellSegmentsSep is shellSegments plus the separator that ended each segment ("" for the last).
+func shellSegmentsSep(cmd string) (out, seps []string) {
 	var b strings.Builder
 	var quote byte
 	for i := 0; i < len(cmd); i++ {
@@ -560,69 +566,16 @@ func shellSegments(cmd string) []string {
 			i++
 			b.WriteByte(cmd[i])
 		case c == ';' || c == '|' || c == '&' || c == '\n':
+			sep := string(c)
 			if i+1 < len(cmd) && (cmd[i+1] == '|' || cmd[i+1] == '&') {
 				i++
+				sep += string(cmd[i])
 			}
-			out = append(out, b.String())
+			out, seps = append(out, b.String()), append(seps, sep)
 			b.Reset()
 		default:
 			b.WriteByte(c)
 		}
 	}
-	return append(out, b.String())
-}
-
-// shellTokens splits one segment into unquoted words, dropping a leading `(`/`{` so a subshell reads as its segment.
-func shellTokens(seg string) []string {
-	var out []string
-	var b strings.Builder
-	var quote byte
-	started := false
-	flush := func() {
-		if started {
-			out = append(out, b.String())
-			b.Reset()
-			started = false
-		}
-	}
-	for i := 0; i < len(seg); i++ {
-		c := seg[i]
-		if quote != 0 {
-			if quote == '"' && c == '\\' && i+1 < len(seg) && dqEscapable(seg[i+1]) {
-				i++
-				b.WriteByte(seg[i])
-				continue
-			}
-			if c == quote {
-				quote = 0
-			} else {
-				b.WriteByte(c)
-			}
-			continue
-		}
-		switch {
-		case c == '\'' || c == '"':
-			quote = c
-			started = true
-		case c == '\\' && i+1 < len(seg):
-			i++
-			b.WriteByte(seg[i])
-			started = true
-		case c == ' ' || c == '\t' || c == '\r' || c == '\n':
-			flush()
-		case c == ')' || c == '}':
-			flush() // unquoted close of a subshell/group: a word boundary, never part of the word
-		default:
-			b.WriteByte(c)
-			started = true
-		}
-	}
-	flush()
-	if len(out) > 0 {
-		out[0] = strings.TrimLeft(out[0], "({")
-		if out[0] == "" {
-			out = out[1:]
-		}
-	}
-	return out
+	return append(out, b.String()), append(seps, "")
 }
