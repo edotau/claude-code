@@ -436,6 +436,18 @@ func codexResponsesModel(p *providers.Provider, model string) string {
 	return cmp.Or(providers.FirstResponsesModel(p), model)
 }
 
+// CodexRanModel is the model codex runs for t: t.Model unless the Responses swap replaced it.
+func CodexRanModel(t providers.Target) string {
+	if t.Provider == nil {
+		return t.Model
+	}
+	wire := t.Provider.WireModel(models.Strip1M(t.Model))
+	if swapped := codexResponsesModel(t.Provider, wire); swapped != wire {
+		return swapped
+	}
+	return t.Model
+}
+
 // codex speaks only the Responses API (`wire_api = "chat"` is rejected by current builds).
 func codex(p *providers.Provider, base, model, cred string, h *Headless) ([]string, []string, error) {
 	model = codexResponsesModel(p, model)

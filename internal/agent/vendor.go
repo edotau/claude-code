@@ -143,6 +143,9 @@ func (v vendorRunner) prepare(ctx context.Context, req Request) (vendorPrep, err
 			return p, &Error{Kind: KindFatal, Agent: v.name, Err: errors.New("agent target resolved to no provider")}
 		}
 		p.res.Provider = t.Provider.Name
+		if v.name == "codex" { // configureRoute swaps a non-Responses model; report the one codex runs
+			p.res.Model = vendors.CodexRanModel(t)
+		}
 	}
 	p.prompt, err = v.attachPrompt(req.Prompt, req.Attach, req.Tools)
 	if err != nil {
