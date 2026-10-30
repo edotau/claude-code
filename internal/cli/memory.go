@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"cmp"
 	"context"
 	"flag"
 	"fmt"
@@ -17,6 +18,7 @@ import (
 	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/outfmt"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 )
 
@@ -326,7 +328,8 @@ func cmdMemoryIndex(args []string) int {
 func embedIndex(root string) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
-	c, err := memory.OpenEmbedClient(ctx, "")
+	profile := cmp.Or(providers.SessionProfile(), providers.Pin(providers.PinProfile)) // session first, then the pin
+	c, err := memory.OpenEmbedClient(ctx, profile, "")
 	if err == nil {
 		var n, total int
 		if n, total, err = memory.EmbedEntries(ctx, root, c); err == nil && n > 0 {

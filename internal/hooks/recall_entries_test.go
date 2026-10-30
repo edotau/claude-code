@@ -120,11 +120,12 @@ func vecServer(t *testing.T, slow time.Duration) *httptest.Server {
 
 func useEmbedServer(t *testing.T, srv *httptest.Server) *memory.EmbedClient {
 	t.Helper()
-	c := &memory.EmbedClient{Model: "fake-gte", Namespace: "fake|h|fake-gte", Embed: func(ctx context.Context, texts []string) ([][]float32, error) {
+	t.Setenv("CLAUDE_PROFILE", "fake") // NewSemantic reads the session profile's cache
+	c := &memory.EmbedClient{Profile: "fake", Model: "fake-gte", Namespace: "fake|h|fake-gte", Embed: func(ctx context.Context, texts []string) ([][]float32, error) {
 		return memory.PostEmbeddings(ctx, srv.URL, texts, func(http.Header) error { return nil })
 	}}
 	prev := memory.OpenEmbedClient
-	memory.OpenEmbedClient = func(context.Context, string) (*memory.EmbedClient, error) { return c, nil }
+	memory.OpenEmbedClient = func(context.Context, string, string) (*memory.EmbedClient, error) { return c, nil }
 	t.Cleanup(func() { memory.OpenEmbedClient = prev })
 	return c
 }
