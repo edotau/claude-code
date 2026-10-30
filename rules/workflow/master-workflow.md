@@ -24,7 +24,7 @@ CLASSIFY → REVIEW → CODEBASE INTEL → RESEARCH → PLAN → [REFINE: opt-in
 | 5. Refine *(opt-in)* | `general-purpose` | Self-contained brief per sub-task | Cold-start test; only with `--refine` |
 | 6. Dispatch | orchestrate / `/code-workers`, `code-worker` per disjoint file set | Completed sub-tasks | Each passes its own check |
 | 7. Merge + simplify | `claude-code worktree merge`, then `Skill(simplify)` | Simplified merged diff | Behavior gate green before and after |
-| 8. Verify | `testing-guidelines` loop + `problem-solving` gate chain | All gates green | format + lint + test + security |
+| 8. Verify | test-and-fix loop + `problem-solving` gate chain | All gates green | format + lint + test + security |
 | 9. Commit | `/copilot commit` (or plain git) | Commit on branch | Clean tree |
 
 ## Phase 0: Classify
@@ -97,7 +97,7 @@ Per `rules/standards/worktree-git.md`; `/copilot commit` executes, `/copilot pr`
 
 | Scenario | Path |
 |----------|------|
-| Bug fix (LOW) | fix → `testing-guidelines` loop → `/copilot commit` |
+| Bug fix (LOW) | fix → test-and-fix loop (`subagent-workflows/references/test-and-fix.md`) → `/copilot commit` |
 | One-module feature (MEDIUM) | review → plan → implement → `/simplify` → verify → commit |
 | Cross-module feature (HIGH) | review → orchestrate `[--refine]` → verify → commit |
 | Tech debt | `skills/evaluate-code/references/techdebt.md` |

@@ -1,6 +1,6 @@
 ---
 name: subagent-workflows
-description: Choose and run multi-agent work by task complexity — parallel fan-out on disjoint files, sequential plans with spec → simplify → quality gates, lane orchestrators, competition tournaments, multi-stage orchestration, and cheaper agent dispatches via `claude-code ask` — and the one handoff contract (brief in, report out, ownership, status). Use for "fan this out", "dispatch agents", "write a brief", "which agent". Leaves run `problem-solving`, `evaluate-code` or `simplify`.
+description: Choose and run multi-agent work by task complexity — parallel fan-out on disjoint files, sequential plans with spec → simplify → quality gates, lane orchestrators, competition tournaments, multi-stage orchestration, and cheaper agent dispatches via `claude-code ask` — and the one handoff contract (brief in, report out, ownership, status). Use for "fan this out", "dispatch agents", "write a brief", "which agent", "fix failing tests", "test-and-fix loop", "regression tests", "does this test have teeth", "pytest", "contract test". Leaves run `problem-solving`, `evaluate-code` or `simplify`.
 ---
 
 # Subagent Workflows
@@ -16,6 +16,7 @@ Use the smallest shape that fits; add orchestration only when the dependency sha
 | Many leaf tasks across packages | HIGH/EPIC | One Claude lane orchestrator per lane, agent leaves via `claude-code ask` | [lane-orchestrator.md](references/lane-orchestrator.md) |
 | One objective, several phases and owners | HIGH/EPIC | explore → plan → implement → simplify → review → verify | [orchestrate.md](references/orchestrate.md) |
 | Same measurable task, several approaches | any | N isolated attempts, re-measure, merge one | [competition-tournament.md](references/competition-tournament.md) |
+| Failing tests, regression tests | any | The test-and-fix loop: inline, one leaf per failing package in parallel, or `copilot` ‖ the implementer | [test-and-fix.md](references/test-and-fix.md); bounded: `Workflow green-keeper-loop` |
 | Cheaper or second-agent dispatch (Copilot, Codex, Gemini, OpenCode) | any | `claude-code ask --agent <agent>` | [cost-routing.md](references/cost-routing.md) |
 | Repeatable pipeline, evaluator or bounded loop | any | A saved `Workflow` (`workflows/*.js`) — **only when the user asks for one** | [saved-workflows.md](references/saved-workflows.md) |
 

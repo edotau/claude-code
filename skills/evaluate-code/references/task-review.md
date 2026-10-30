@@ -24,8 +24,8 @@ The user's raw task request + the project's CLAUDE.md constraints; capture conte
    violations.
 4. **Security surface** — auth/tokens, user input, filesystem, external APIs? If yes,
    flag for the Security lens (`../SKILL.md` → Security) post-implementation.
-5. **Testing expectations** — unit/integration/E2E? Coverage target (default 80%)?
-   Existing fixtures?
+5. **Testing expectations** — what runnable surface proves it live? Which spanning test and regression tests
+   (logic, not a coverage number: `rules/standards/testing-guidelines.md`)? Existing fixtures?
 6. **Missing context** — what does the implementer need that isn't in the request? Prior
    art to reuse?
 
@@ -44,7 +44,7 @@ The user's raw task request + the project's CLAUDE.md constraints; capture conte
 
 **Acceptance Criteria**:
 - [ ] [specific, testable]
-- [ ] Tests pass with 80%+ coverage
+- [ ] Live check on the real surface shows the behavior; the spanning/regression tests pass
 
 **Testing Requirements**: [test types]
 
