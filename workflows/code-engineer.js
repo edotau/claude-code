@@ -2,7 +2,7 @@ export const meta = {
   name: 'code-engineer',
   description: 'The house dispatch: parallel Explore intel → implementer → copilot test repair (after impl lands) → scoped gate loop',
   whenToUse:
-    'Any MEDIUM+ code change (CLAUDE.md guideline 6 + rules/standards/quality.md). ADK shape: Sequential[Parallel intel, impl → test repair, Loop gate]. args: {task, cwd, scope: [dirs], packages?, gate? (auto-detected from Makefile/go.mod/pyproject/package.json/Cargo.toml), maxIterations?, implModel?: "opus" only after a sonnet attempt failed}. Works in any repo via cwd. The test agent only repairs existing tests the change broke; the main session owns the live check, then writes new tests. Does not chain into code-analyzer (workflow() nests one level); run code-analyzer as the next top-level call before merge.',
+    'Any MEDIUM+ code change (CLAUDE.md guideline 5 + rules/standards/quality.md). ADK shape: Sequential[Parallel intel, impl → test repair, Loop gate]. args: {task, cwd, scope: [dirs], packages?, gate? (auto-detected from Makefile/go.mod/pyproject/package.json/Cargo.toml), maxIterations?, implModel?: "opus" only after a sonnet attempt failed}. Works in any repo via cwd. The test agent only repairs existing tests the change broke; the main session owns the live check, then writes new tests. Does not chain into code-analyzer (workflow() nests one level); run code-analyzer as the next top-level call before merge.',
   phases: [
     { title: 'Intel', detail: 'two Explore readers with different lenses: seams/callers vs tests/guards' },
     { title: 'Build', detail: 'implementer (non-test files), then copilot test repair (existing test files only) with the impl result' },

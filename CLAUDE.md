@@ -40,7 +40,7 @@ Files under `agents/`, `commands/`, `rules/`, `skills/` and this file go live th
 4. **Never `git stash` / `checkout` / `reset` / `restore` in the live checkout (`~/.claude`).** It is
    one checkout shared by parallel subagents and every live session. Default is no worktree; when to ask, the
    commands and their gotchas: `rules/standards/worktree-git.md`.
-5. **Done means pushed to `origin/main`** — merge, `make install`, push (the pre-push gate runs `make audit`).
+5. **Done means pushed to the current branch (`main` by default)** — merge, `make install`, push (the pre-push gate runs `make audit`).
 
 ## Behavioral guidelines
 
@@ -70,7 +70,7 @@ auto-loads while you work in that code). Anything unlisted: `claude-code describ
 | --- | --- | --- |
 | Install, settings, hooks | `make install` (`claude-code install --dry-run` previews) | `rules/harness/settings-management.md` · `rules/harness/hooks.md` |
 | Providers, models, credentials, proxy | `claude-code doctor` · `claude-code vault set [NAME]` | `rules/harness/providers.md` |
-| Agents and dispatch | `claude-code ask --agent <agent> "<task>"` · `/code-workers` ‖ `copilot` | `rules/workflow/agents.md` · `rules/workflow/master-workflow.md` |
+| Agents and dispatch | `claude-code ask --agent <agent> "<task>"` · `/code-workers` ‖ `copilot` (features and bug fixes only: `rules/standards/testing-guidelines.md`) | `rules/workflow/agents.md` · `rules/workflow/master-workflow.md` |
 | Memory | `claude-code memory recall <terms>` | `rules/workflow/memory-bank.md` |
 | Git and worktrees | `claude-code worktree create\|merge <name>` | `rules/standards/worktree-git.md` |
 | Network, web, MCP, cleanup | `claude-code network mcp` · `claude-code network websearch --query "<q>"` | `rules/harness/network.md` |

@@ -1,7 +1,7 @@
 ---
 name: coworker
 description: |
-  A dispatched leaf that always requests an agent (claude, codex, copilot, gemini, opencode) instead of working in-context: the same task to several agents compared side by side, a relay where one agent's answer feeds the next, or a quota offload. A single request is a `code-worker` with `Agent:`. NOT ambiently triggered: a manager dispatches it explicitly with subagent_type:'coworker' (the agent-effort hook also moves dispatches here when quota runs low). It is a leaf and cannot fan out.
+  A dispatched leaf that always requests an agent (claude, codex, copilot, gemini, opencode) instead of working in-context: the same task to several agents compared side by side, a relay where one agent's answer feeds the next, or a quota offload. A single request is a `code-worker` with `Agent:`. NOT ambiently triggered: a manager dispatches it explicitly with subagent_type:'coworker' (the dispatch-effort hook also moves dispatches here when quota runs low). It is a leaf and cannot fan out.
 
   <example>
   Context: The manager wants a scan and an adversarial check of it from two other model families.
@@ -16,7 +16,7 @@ tools: [Read, Write, Edit, Grep, Glob, Bash]
 
 # coworker
 
-The `agent-effort` hook moves dispatches here at ≥97% quota (`HARNESS_ROUTE_SUBAGENTS=0` disables).
+The `dispatch-effort` hook moves dispatches here at ≥97% quota (`HARNESS_ROUTE_SUBAGENTS=0` disables).
 
 ## Role
 

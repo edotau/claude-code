@@ -3,7 +3,7 @@
 N leaves attempt the **same** task independently in isolated worktrees; the manager measures and merges one. Use it
 when the objective is measurable (latency, size, pass rate, coverage) or the approaches truly diverge. Skip it when
 one approach is obviously right, outcomes aren't comparable, or the win is smaller than the N× cost (tokens and rate
-limit scale with N; keep N within the 24-agent cap).
+limit scale with N; keep N within the dispatch cap in `rules/workflow/agents.md` → Parallel dispatch).
 
 ## Process
 

@@ -68,7 +68,7 @@ Shared table and bullets: `skills/subagent-workflows/references/agent-verbs.md`.
 | --- | --- |
 | The release gate chain | the manager, via `problem-solving/references/verify.md`; the full suite is the main thread's |
 | Product-code changes | the implementer — report it, never edit it yourself |
-| Memory consolidation | `opencode` (`claude-code memory update`) |
+| Memory consolidation | manual memory commands: `opencode`; background `memory update`/`memory dream`: Copilot CLI (Claude fallback) |
 | Security deep-dive (auth, input, crypto, payment surfaces) | `evaluate-code` → Security lens |
 
 ## Procedure
@@ -239,8 +239,8 @@ Remaining: <what is still uncommitted, or "clean">
 - **Delete a test** to clear a failure. A test that should go away is a recommendation with a
   reason, not an edit you make silently.
 - **Invent a test framework** where none exists. Report that there is no suite.
-- **Consolidate memory** — that's `opencode` (PERSIST mode, driven by `claude-code memory update` and the
-  session-update flow).
+- **Consolidate memory** — manual memory commands go to `opencode`; background `memory update`/`memory dream` run on
+  Copilot CLI (Claude fallback).
 - **Force-push a shared branch**, rewrite published history, or commit a secret — scan the
   staged diff first.
 

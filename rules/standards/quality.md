@@ -33,6 +33,7 @@ paragraph belongs in the repo's own docs (`docs/`, `ARCHITECTURE.md`, `README.md
 | 6 | Full suite + gate chain (format → lint → test → security) | **Once** at wrap-up, **only with the user's approval**, never a subagent |
 
 Lint gates the rest: a syntax error makes test output meaningless. Untouched packages are noise during development.
+Steps 1, 2, 5 and 6 are prose-enforced; hooks only format at Stop and give advisory review.
 Report which steps ran and which did not. Judge a run by its own exit code (`set -o pipefail`), never `| tail`.
 
 Live first, test scope, what makes a test a guard, and the test agent: `testing-guidelines.md`.

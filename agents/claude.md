@@ -67,7 +67,6 @@ request runs only Simplify → Review.
 Design is `Plan`'s: run `problem-solving` Steps 0-3, then write the plan in `agents/Plan.md`'s template (or dispatch
 `Plan` at the top level). Trivial/single-file changes skip the plan — say so and implement directly. Plan-only
 requests stop after the plan is filed.
-For system architecture choices, use `skills/architecture-design/SKILL.md`.
 
 ### Implement — write the code
 

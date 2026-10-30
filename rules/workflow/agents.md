@@ -15,7 +15,7 @@ paths:
 | Route to the cheapest capable agent | classify `sweep\|review\|mechanical\|standard\|reasoning`, then `ask --agent` or `gemini bridge` (`skills/subagent-workflows/references/cost-routing.md`) |
 | Launch or drive codex/gemini/opencode/copilot | `claude-code <v> [args]` (`--` forces passthrough) · `<v> ask\|resume\|review\|transfer\|status\|result\|cancel\|setup\|catalog` · `--print-env` |
 | Sweep many files in one Gemini call (1M context) | `claude-code gemini bridge --dirs <d> [--index] [--diff] [--rubric <file>] "<task>"` · `gemini ask` drives agy |
-| Fan out a MEDIUM+ change (2+ files or needs tests) | `/code-workers` leaves on disjoint packages ‖ `copilot`, same message (`master-workflow.md` → Phase 6) |
+| Fan out a MEDIUM+ change (MEDIUM only with 2+ parallel-safe tasks) | `/code-workers` leaves on disjoint packages, plus `copilot` only for features and bug fixes (`rules/standards/testing-guidelines.md`), same message (`master-workflow.md` → Phase 6) |
 | Cross-agent leaves (compare, relay) | `/coworkers` |
 | Run a saved Workflow — only when the user asks | `Workflow code-engineer\|code-analyzer\|green-keeper-loop\|code-agent` (`skills/subagent-workflows/references/saved-workflows.md`) |
 | Review a diff; second opinion on another model | `/code-review` · `claude-code codex review [--adversarial] [--base <b>]` · `/codex` |
