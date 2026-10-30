@@ -307,8 +307,9 @@ func cmdMemoryIndex(args []string) int {
 		return code
 	}
 	root := memoryRoot(*repo)
+	profile := cmp.Or(providers.SessionProfile(), providers.Pin(providers.PinProfile)) // session first, then the pin
 	if *reembed {
-		if code := reembedGate(time.Now()); code != 0 {
+		if code := reembedGate(profile, time.Now()); code != 0 {
 			return code
 		}
 	}
@@ -327,13 +328,12 @@ func cmdMemoryIndex(args []string) int {
 		fmt.Printf(" (archived %d block(s))", s.Archived)
 	}
 	fmt.Println()
-	embedIndex(root, *reembed)
+	embedIndex(root, profile, *reembed)
 	return 0
 }
 
 // reembedGate refuses --reembed (exit 1) before the override window opens; 0 when it is open.
-func reembedGate(now time.Time) int {
-	profile := cmp.Or(providers.SessionProfile(), providers.Pin(providers.PinProfile))
+func reembedGate(profile string, now time.Time) int {
 	if profile == "" {
 		return 0
 	}
@@ -348,10 +348,9 @@ func reembedGate(now time.Time) int {
 }
 
 // embedIndex refreshes the entry-vector cache after an index; a missing endpoint or credential is a stderr note only.
-func embedIndex(root string, reembed bool) {
+func embedIndex(root, profile string, reembed bool) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
-	profile := cmp.Or(providers.SessionProfile(), providers.Pin(providers.PinProfile)) // session first, then the pin
 	c, err := memory.OpenEmbedClient(ctx, profile, "")
 	if err == nil {
 		var n, total int
