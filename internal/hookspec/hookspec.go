@@ -137,6 +137,10 @@ var Registry = []Group{
 		// Formats files dirty in git that this session wrote; a repo with its own pre-commit switches the group off.
 		{Name: "format-stop", Event: EventStop, Budget: 30 * sec},
 	}},
+	{Name: "review", Events: []EventSpec{
+		// Advisory comment, complexity and smell findings an edit just introduced, fed back to the model.
+		{Name: "review-simplicity", Event: EventPostToolUse, Matcher: "Write|Edit", Budget: 5 * sec},
+	}},
 	{Name: "worktree", Events: []EventSpec{
 		// Native worktrees live at ~/worktrees/<repo>/<name>, the same root Orca uses; these replace Claude's git logic.
 		{Name: "worktree-create", Event: EventWorktreeCreate, Budget: 60 * sec},

@@ -231,6 +231,7 @@ var Registry = map[string]Handler{
 	"memory-recall":             func(in io.Reader, out, _ io.Writer) int { return MemoryRecall(in, out) },
 	"paths-resolve":             nativeHandler("paths-resolve"),
 	"memory-update":             func(in io.Reader, _, errw io.Writer) int { return Stop(in, errw) },
+	"review-simplicity":         ReviewSimplicity,
 	"format-stop":               func(in io.Reader, _, _ io.Writer) int { return StopFormat(in) },
 	"memory-end":                func(in io.Reader, _, _ io.Writer) int { return SessionUpdateEnd(in) },
 	"dispatch-effort":           nativeHandler("dispatch-effort"),

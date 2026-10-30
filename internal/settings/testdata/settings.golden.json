@@ -78,7 +78,7 @@
           {
             "type": "command",
             "command": "$HOME/.claude/bin/claude-code hook PostToolUse",
-            "timeout": 40
+            "timeout": 45
           }
         ]
       }

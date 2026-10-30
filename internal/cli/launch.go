@@ -181,7 +181,7 @@ var hookPage = helptext.Page{
 	Hint: "modules: safety-scan|rtk-rewrite|docs-placement|dispatch-effort|\n" +
 		"         dispatch-failure|dispatch-workflow|dispatch-stop|\n" +
 		"         docs-plan-mirror|docs-plan-save|memory-update|format-stop|\n" +
-		"         memory-start|paths-resolve|memory-recall|\n" +
+		"         memory-start|paths-resolve|memory-recall|review-simplicity|\n" +
 		"         memory-end|memory-compact|worktree-create|worktree-remove\n" +
 		"events: <Event> runs the dispatcher, --<module> one module, --all every module",
 }
