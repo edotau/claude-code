@@ -249,7 +249,7 @@ func TestDoctorDetailCurrentOnWSL(t *testing.T) {
 	}
 }
 
-// Under SSH the proxy answers png from `clip --ssh-stdout`, fails bmp, and never runs the real wl-paste.
+// Under SSH the proxy answers png from `clip --ssh-stdout`, never fails a leg, and never runs the real wl-paste.
 func TestProxySSHBranch(t *testing.T) {
 	home := t.TempDir()
 	bin := filepath.Join(home, ".claude", "bin")
@@ -290,8 +290,14 @@ func TestProxySSHBranch(t *testing.T) {
 	if _, err := png.DecodeConfig(bytes.NewReader(out)); err != nil {
 		t.Fatalf("png leg is not a PNG: %v", err)
 	}
-	if _, err := run("image/bmp"); err == nil {
-		t.Fatal("bmp leg succeeded under SSH")
+	// Bridge down: every image leg exits 0 empty, so the CLI's || chain never reaches PowerShell.
+	if err := os.WriteFile(filepath.Join(bin, "claude-code"), []byte("#!/bin/sh\necho down >&2; exit 1\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, mime := range []string{"image/png", "image/bmp"} {
+		if out, err := run(mime); err != nil || len(out) != 0 {
+			t.Fatalf("%s leg with bridge down = %d bytes, %v; want exit 0, empty", mime, len(out), err)
+		}
 	}
 	if _, err := os.Stat(touched); err == nil {
 		t.Fatal("real wl-paste ran under SSH")
