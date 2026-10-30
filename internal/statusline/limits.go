@@ -20,11 +20,11 @@ const limitsCacheMaxAge = 6 * time.Hour
 // its credential's time left ("oauth:42m", "tok:42m") when an expiry is recorded, else "".
 func limitsSegment(in Input, session string) string {
 	if !onSubscription(session) {
-		left := ""
-		if exp, ok := providers.TokenExpiry(session); ok {
-			left = tokenLeft(tokenLabel(session), exp, time.Now())
+		exp, ok := providers.TokenExpiry(session)
+		if !ok {
+			return ""
 		}
-		return strings.TrimSpace(left + " " + budgetSegment(session))
+		return tokenLeft(tokenLabel(session), exp, time.Now())
 	}
 	five, week := limitsFromPayload(in)
 	if five < 0 && week < 0 {
