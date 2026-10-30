@@ -1,5 +1,4 @@
-// Package textsim holds the lowercase-token primitive behind memory-bank search.
-package textsim
+package textutil
 
 import (
 	"strings"

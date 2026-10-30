@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/textsim"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // promoteCaps are the per-file caps that trigger promote/archive on the LOCAL bank — only durable
@@ -259,7 +259,7 @@ func removeBlock(dir, name, id string) error {
 // blockTokens is a block's lowercase token set — the signal for near-dup matching.
 func blockTokens(s string) map[string]bool {
 	set := map[string]bool{}
-	for _, t := range textsim.Tokenize(s) {
+	for _, t := range textutil.Tokenize(s) {
 		set[t] = true
 	}
 	return set

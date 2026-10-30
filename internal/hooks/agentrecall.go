@@ -10,7 +10,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/textsim"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // Same relevance floor as recall.go's recallMinTerms; a one-line preview stays short, the whole
@@ -35,7 +35,7 @@ func agentRecall(sessionID, cwd, task string) (block string, ids []string) {
 	if rs := []rune(q); len(rs) > agentRecallQueryCapRunes {
 		q = string(rs[:agentRecallQueryCapRunes])
 	}
-	tokens := textsim.Tokenize(q)
+	tokens := textutil.Tokenize(q)
 	if distinctTokenCount(tokens) < recallMinTerms {
 		return "", nil
 	}
