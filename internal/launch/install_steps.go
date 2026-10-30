@@ -623,7 +623,7 @@ type RestoreResult struct {
 func RestoreSettings(file string) (RestoreResult, error) {
 	var r RestoreResult
 	if h, err := history.SnapshotConfig("before restore"); err != nil {
-		fmt.Fprintln(noticeOut, "restore: history snapshot:", err)
+		fmt.Fprintln(NoticeOut, "restore: history snapshot:", err)
 	} else {
 		r.Commit = h.Commit
 	}

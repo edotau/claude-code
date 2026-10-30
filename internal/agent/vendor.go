@@ -15,13 +15,11 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent/vendors"
 	"github.com/edotau/claude-code/internal/copilotsdk"
+	"github.com/edotau/claude-code/internal/launch"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 )
-
-// NoticeOut is where the vendor-fallback note prints; tests discard it (also via other packages' TestMain).
-var NoticeOut io.Writer = os.Stderr
 
 // ownProfile is the profile a run on the agent's own login bills: the registry row naming that login, else the agent.
 func ownProfile(name string) string {
@@ -39,7 +37,7 @@ func ownProfile(name string) string {
 func vendorTarget(req Request, name string) (providers.Target, bool, error) {
 	t, own, note, err := vendorTargetNote(req, name)
 	if note != "" {
-		fmt.Fprintln(NoticeOut, note)
+		fmt.Fprintln(launch.NoticeOut, note)
 	}
 	return t, own, err
 }
