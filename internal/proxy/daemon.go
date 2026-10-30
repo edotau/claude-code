@@ -177,6 +177,9 @@ func spawn() error {
 	return cmd.Process.Release()
 }
 
+// serveListening runs once Serve holds its port; tests wait on it instead of sleeping.
+var serveListening = func() {}
+
 // Serve runs the router on 127.0.0.1:port until ctx ends, then drains in-flight streams.
 func Serve(ctx context.Context, port int) error {
 	// A test binary never binds (or reclaims) the live router's port: reclaim would SIGTERM the user's router.
@@ -217,6 +220,7 @@ func Serve(ctx context.Context, port int) error {
 		}()
 	}
 	srv := &http.Server{Handler: newRouter(secret), ReadHeaderTimeout: 30 * time.Second, IdleTimeout: 120 * time.Second}
+	serveListening()
 	fmt.Fprintf(os.Stderr, "proxy: listening on %s (pid %d)\n", Base(st.Port), st.PID)
 	errc := make(chan error, 1)
 	go func() { errc <- srv.Serve(ln) }()
