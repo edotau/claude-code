@@ -15,8 +15,6 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
-
-	"github.com/edotau/claude-code/internal/providers"
 )
 
 // Live-session limits and wire constants.
@@ -32,6 +30,9 @@ const (
 
 // ErrLiveBusy is the refusal of a second turn while one is in flight.
 var ErrLiveBusy = errors.New("a turn is already in flight on this live session")
+
+// errPeerUnsupported marks a platform with no socket peer-credential call.
+var errPeerUnsupported = errors.New("peer credentials unsupported on this platform")
 
 // LiveRequest is the one line a client sends on the session socket: a single user turn.
 type LiveRequest struct {
@@ -124,9 +125,11 @@ func AcquireLiveSlot() (func(), error) {
 	return nil, fmt.Errorf("%d live sessions already running (max %d): agents cancel one first", MaxLiveSessions, MaxLiveSessions)
 }
 
-// liveSession is the holder's state: one claude child, its stdin, and one decoder over its stdout.
+// liveSession is the holder's state: one agent child, its stdin, and one decoder over its stdout.
 type liveSession struct {
 	rec     *Record
+	name    string
+	be      liveBackend
 	stdin   io.Writer
 	dec     *json.Decoder
 	events  *EventLog
@@ -139,16 +142,24 @@ type liveSession struct {
 	session string
 }
 
-// ServeLive holds `claude --input-format stream-json` open behind rec's socket until idle, cancel or claude exits.
+// ServeLive holds rec.Agent's stream-json child open behind rec's socket until idle, cancel or the child exits.
 // rec.Request.Timeout is the idle limit; the record is finalized on the way out.
 func ServeLive(ctx context.Context, rec *Record, notify func(string)) (err error) {
-	req := rec.Request
+	req, name := rec.Request, rec.Agent
+	be := liveBackendFor(name)
+	if be == nil {
+		return fmt.Errorf("%s has no live mode (claude|gemini)", name)
+	}
 	release, err := AcquireLiveSlot()
 	if err != nil {
 		return err
 	}
 	defer release()
-	if err := (claudeRunner{}).Available(); err != nil {
+	runner, err := Lookup(name)
+	if err == nil {
+		err = runner.Available()
+	}
+	if err != nil {
 		return err
 	}
 	ctx, cancel := context.WithCancelCause(ctx)
@@ -156,9 +167,7 @@ func ServeLive(ctx context.Context, rec *Record, notify func(string)) (err error
 	logSink := NewLogSink(rec.LogPath())
 	defer logSink.Close()
 	ctx = WithLogEvents(WithLog(ctx, logSink), logSink)
-	args := claudeArgs([]string{"--print", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
-		"--include-partial-messages"}, req)
-	cmd, tail, plan, err := claudeCmd(ctx, req, args, "")
+	cmd, tail, profile, err := be.build(ctx, req)
 	if err != nil {
 		return err
 	}
@@ -183,11 +192,11 @@ func ServeLive(ctx context.Context, rec *Record, notify func(string)) (err error
 	go func() { exited <- cmd.Wait() }()
 	events := NewEventLog(rec.EventsPath(), rec.ID)
 	defer events.Close()
-	s := &liveSession{rec: rec, stdin: stdin, dec: json.NewDecoder(newPumpBuf(stdout)), events: events, idleFor: cmp.Or(req.Timeout, DefaultLiveIdle),
-		cancel: func(e error) { cancel(e) }, profile: plan.Set[providers.PinProfile]}
+	s := &liveSession{rec: rec, name: name, be: be, stdin: stdin, dec: json.NewDecoder(newPumpBuf(stdout)), events: events, idleFor: cmp.Or(req.Timeout, DefaultLiveIdle),
+		cancel: func(e error) { cancel(e) }, profile: profile}
 	s.idle = time.AfterFunc(s.idleFor, func() { cancel(errLiveIdle) })
 	_ = rec.Save() // the pid is on disk before the first send can find the record
-	_ = events.Emit(Event{Type: EventStart, Agent: "claude", DispatchID: rec.ID, Status: "running"})
+	_ = events.Emit(Event{Type: EventStart, Agent: name, DispatchID: rec.ID, Status: "running"})
 
 	var wg sync.WaitGroup
 	go s.accept(ctx, ln, &wg)
@@ -197,11 +206,11 @@ func ServeLive(ctx context.Context, rec *Record, notify func(string)) (err error
 		cause = context.Cause(ctx)
 	case werr := <-exited:
 		exited <- werr
-		cause = fmt.Errorf("claude exited: %w", childErr(context.Background(), "claude", werr, tail))
+		cause = fmt.Errorf("%s exited: %w", name, childErr(context.Background(), name, werr, tail))
 	}
 	s.idle.Stop()
 	_ = ln.Close()
-	cancel(cause) // kills the claude process group via CommandContext
+	cancel(cause) // kills the child process group via CommandContext
 	<-exited
 	_ = stdin.Close()
 	wg.Wait()
@@ -214,7 +223,7 @@ var errLiveIdle = errors.New("idle timeout")
 // finish records the outcome: an idle end is a normal ok, anything else an error.
 func (s *liveSession) finish(cause error) error {
 	s.mu.Lock()
-	res := Result{Agent: "claude", Provider: s.profile, SessionID: s.session, Status: StatusOK}
+	res := Result{Agent: s.name, Provider: s.profile, SessionID: s.session, Status: StatusOK}
 	s.mu.Unlock()
 	var err error
 	if !errors.Is(cause, errLiveIdle) {
@@ -285,9 +294,14 @@ func (k *connSink) Emit(ev Event) error {
 
 // serveConn reads one LiveRequest and runs it as the session's single in-flight turn.
 func (s *liveSession) serveConn(ctx context.Context, c net.Conn) {
+	if uc, ok := c.(*net.UnixConn); ok { // defense in depth beside the 0600 socket: a peer of another uid is dropped
+		if uid, err := peerUID(uc); !errors.Is(err, errPeerUnsupported) && (err != nil || uid != uint32(os.Getuid())) {
+			return
+		}
+	}
 	out := &connSink{c: c, out: NewJSONLSink(c, s.rec.ID)}
 	refuse := func(status, text string) {
-		_ = out.Emit(Event{Type: EventError, Agent: "claude", Status: status, Text: text})
+		_ = out.Emit(Event{Type: EventError, Agent: s.name, Status: status, Text: text})
 	}
 	_ = c.SetReadDeadline(time.Now().Add(liveIOTimeout))
 	var rq LiveRequest
@@ -307,21 +321,19 @@ func (s *liveSession) serveConn(ctx context.Context, c net.Conn) {
 	s.runTurn(ctx, rq.Prompt, Multi(out, s.events))
 }
 
-// runTurn writes one user message to claude and relays its events up to the turn's result.
+// runTurn writes one user message to the agent and relays its events up to the turn's result.
 func (s *liveSession) runTurn(ctx context.Context, prompt string, sink Sink) {
 	begin := time.Now()
-	sink = &runSink{Sink: sink, agent: "claude"}
+	sink = &runSink{Sink: sink, agent: s.name}
 	_ = sink.Emit(Event{Type: EventStart, DispatchID: s.rec.ID, Status: "running"})
-	msg, _ := json.Marshal(map[string]any{"type": "user", "message": map[string]any{"role": "user", "content": prompt}})
 	var res Result
-	var err error
-	_, err = s.stdin.Write(append(msg, '\n')) // the idle timer keeps running until the write lands
+	err := s.be.writeTurn(s.stdin, prompt) // the idle timer keeps running until the write lands
 	s.idle.Stop()
 	if err == nil {
-		res, err = parseClaudeEvents(s.dec, true, sink, eventLogFor(ctx))
+		res, err = s.be.parse(s.dec, sink, eventLogFor(ctx))
 	}
-	res.Agent, res.Provider, res.DurationMs = "claude", s.profile, time.Since(begin).Milliseconds()
-	res.Status = statusOf(Classify("claude", err, false))
+	res.Agent, res.Provider, res.DurationMs = s.name, s.profile, time.Since(begin).Milliseconds()
+	res.Status = statusOf(Classify(s.name, err, false))
 	s.mu.Lock()
 	s.session = cmp.Or(res.SessionID, s.session)
 	s.mu.Unlock()
@@ -345,7 +357,7 @@ func SendLive(ctx context.Context, id, prompt string, sink Sink) (Envelope, erro
 		return Envelope{}, err
 	}
 	if !rec.Live {
-		return Envelope{}, fmt.Errorf("dispatch %s is not a live session (start one: ask --agent claude --live)", rec.ID)
+		return Envelope{}, fmt.Errorf("dispatch %s is not a live session (start one: ask --agent claude|gemini --live)", rec.ID)
 	}
 	if !rec.Alive() {
 		return Envelope{}, fmt.Errorf("live session %s has ended (%s); start a new one", rec.ID, rec.Status)

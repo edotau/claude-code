@@ -333,7 +333,7 @@ func TestAgentsJSONCapabilitySchema(t *testing.T) {
 	if c := rows[byName["claude"]]; c.Caps["live"] != "native" || c.Caps["cost"] != "native" {
 		t.Errorf("claude caps = %v, want live and cost native", c.Caps)
 	}
-	if g := rows[byName["gemini"]]; g.Binary != "agy" || g.Caps["live"] != "none" {
-		t.Errorf("gemini = %+v, want binary agy and no live", g)
+	if g := rows[byName["gemini"]]; g.Binary != "agy" || g.Caps["live"] != "native" {
+		t.Errorf("gemini = %+v, want binary agy and live native", g)
 	}
 }

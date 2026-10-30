@@ -116,10 +116,15 @@ type agyEvent struct {
 // parseAgyStream reads `agy --output-format stream-json`: agent_response deltas, then one result event.
 // An optional eventLog gets the deltas as one assistant line per run of text, then the result or error.
 // onMeaningful is unused here (agy carries no stall watchdog); it only matches runEventStream's parse type.
-func parseAgyStream(r io.Reader, sink Sink, onMeaningful func(), logs ...eventLog) (res Result, _ error) {
+func parseAgyStream(r io.Reader, sink Sink, onMeaningful func(), logs ...eventLog) (Result, error) {
+	return parseAgyEvents(json.NewDecoder(r), sink, false, pickLog(logs))
+}
+
+// parseAgyEvents is parseAgyStream over dec; once stops after the first result event, so a live session's
+// next turn reads from the same decoder.
+func parseAgyEvents(dec *json.Decoder, sink Sink, once bool, lg eventLog) (res Result, _ error) {
 	ts := transportTracker{start: clock()}
 	defer func() { res.Transport = ts.timing() }()
-	lg := pickLog(logs)
 	var answer, pending strings.Builder
 	flush := func() {
 		lg.emit("assistant", pending.String())
@@ -127,7 +132,6 @@ func parseAgyStream(r io.Reader, sink Sink, onMeaningful func(), logs ...eventLo
 	}
 	var response string
 	var sawResult bool
-	dec := json.NewDecoder(r)
 	for {
 		var ev agyEvent
 		if err := dec.Decode(&ev); errors.Is(err, io.EOF) {
@@ -162,10 +166,23 @@ func parseAgyStream(r io.Reader, sink Sink, onMeaningful func(), logs ...eventLo
 				return res, err
 			}
 			lg.emit("result", cmp.Or(response, answer.String()))
+			if once {
+				return finishAgyTurn(res, sink, &answer, response, flush)
+			}
 		}
 	}
+	if !sawResult {
+		flush()
+		res.Answer = strings.TrimSpace(answer.String())
+		return res, errors.New("agy: stream ended without a result event")
+	}
+	return finishAgyTurn(res, sink, &answer, response, flush)
+}
+
+// finishAgyTurn flushes the pending log line and sets the answer; a run whose text arrived only in
+// result.response (no agent_response deltas) still answers.
+func finishAgyTurn(res Result, sink Sink, answer *strings.Builder, response string, flush func()) (Result, error) {
 	flush()
-	// A run whose text arrived only in result.response (no agent_response deltas) still answers.
 	if answer.Len() == 0 && response != "" {
 		if err := sink.Emit(Event{Type: EventText, Text: response}); err != nil {
 			return res, err
@@ -173,9 +190,6 @@ func parseAgyStream(r io.Reader, sink Sink, onMeaningful func(), logs ...eventLo
 		answer.WriteString(response)
 	}
 	res.Answer = strings.TrimSpace(answer.String())
-	if !sawResult {
-		return res, errors.New("agy: stream ended without a result event")
-	}
 	return res, nil
 }
 
