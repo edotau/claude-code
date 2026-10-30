@@ -18,7 +18,7 @@ import (
 )
 
 // vaultSections is every `vault list` section, in print order.
-var vaultSections = []string{"secrets", "pins", "env", "providers", "routing", "agents", "settings", "vault"}
+var vaultSections = []string{"secrets", "pins", "env", "agents", "providers", "routing", "settings", "vault"}
 
 // vaultList prints the selected sections (default all): secrets masked, then the vault's non-secret config.
 func vaultList(args []string) int {
