@@ -62,6 +62,20 @@ func freezeCopilot(ctx context.Context, leg Leg, req Request) (context.Context, 
 	return context.WithValue(ctx, frozenKey{}, frozenTarget{t, own, note}), leg
 }
 
+// ownLoginActual re-keys a leg the table put on the agent's own login when the runner really resolves another profile.
+func ownLoginActual(leg Leg, req Request) Leg {
+	name := leg.Agent.Name()
+	if name == "copilot" || name == "claude" || name == "opencode" || !ownLoginAccount(name, leg.Account) {
+		return leg
+	}
+	t, own, _, err := vendorTargetNote(req, name)
+	if err != nil || own || t.Provider == nil || t.Provider.Auth.Login == name {
+		return leg
+	}
+	leg.Account, leg.Billing = profileAccount(t.Provider), billingOf(t.Provider)
+	return leg
+}
+
 // vendorTargetCtx is vendorTarget, except a target frozen on ctx is used as is.
 func vendorTargetCtx(ctx context.Context, req Request, name string) (providers.Target, bool, error) {
 	if f, ok := ctx.Value(frozenKey{}).(frozenTarget); ok && name == "copilot" {
