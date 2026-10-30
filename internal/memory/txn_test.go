@@ -35,7 +35,7 @@ func receipts(t *testing.T) []string {
 func commitLocked(t *testing.T, subject string, changes []Change) (Receipt, error) {
 	t.Helper()
 	var rec Receipt
-	err := WithWritableBankLock(BankLockWait, func() error {
+	err := WithBankLock(BankLockWait, func() error {
 		var err error
 		rec, err = commitChangesLocked(subject, changes)
 		return err
@@ -200,7 +200,7 @@ func TestCommitChangesLockedRecoversAfterCommitFailure(t *testing.T) {
 	refLock := filepath.Join(store, ".git", "refs", "heads", "main.lock")
 	write(t, refLock, "")
 	var rec Receipt
-	err := WithWritableBankLock(BankLockWait, func() error {
+	err := WithBankLock(BankLockWait, func() error {
 		var err error
 		rec, err = commitChangesLocked("batch", []Change{{Rel: "r/x.md", Data: []byte("x\n"), Checked: true}})
 		return err
@@ -230,7 +230,7 @@ func TestCommitChangesLockedRecoversAfterCommitFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 	// The next batch recovers the old journal as its own commit, without a duplicate receipt.
-	err = WithWritableBankLock(BankLockWait, func() error {
+	err = WithBankLock(BankLockWait, func() error {
 		var err error
 		rec, err = commitChangesLocked("next", []Change{{Rel: "r/y.md", Data: []byte("y\n")}})
 		return err
@@ -265,7 +265,7 @@ func TestCommitChangesLockedRecoversAfterCommitFailure(t *testing.T) {
 // (or capture) and the write is reported divergent, never overwritten; a late preimage match was never captured.
 func TestApplyRechecksLiveBytesBeforeWrite(t *testing.T) {
 	store, _ := storeFixture(t)
-	if err := WithWritableBankLock(BankLockWait, func() error {
+	if err := WithBankLock(BankLockWait, func() error {
 		_, err := commitChangesLocked("seed", []Change{{Rel: "r/a.md", Data: []byte("v1\n")}})
 		return err
 	}); err != nil {
@@ -308,7 +308,7 @@ func TestRecoverJournalsRefusesEscapingPaths(t *testing.T) {
 	if err := bad.save(); err != nil {
 		t.Fatal(err)
 	}
-	err := WithWritableBankLock(BankLockWait, recoverJournals)
+	err := WithBankLock(BankLockWait, recoverJournals)
 	if err == nil || !strings.Contains(err.Error(), "invalid path") {
 		t.Fatalf("escaping replay accepted: %v", err)
 	}
@@ -324,7 +324,7 @@ func TestRecoverJournalsRefusesEscapingPaths(t *testing.T) {
 		t.Fatal(err)
 	}
 	write(t, forged, `{"id":"../../forged","subject":"replay","state":"pending","changes":[]}`)
-	err = WithWritableBankLock(BankLockWait, recoverJournals)
+	err = WithBankLock(BankLockWait, recoverJournals)
 	if err == nil || !strings.Contains(err.Error(), "does not match its file name") {
 		t.Fatalf("forged id accepted: %v", err)
 	}

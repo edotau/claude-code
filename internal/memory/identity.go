@@ -201,9 +201,6 @@ func takenKeys(entries []RepoEntry) func(string) (Origin, bool) {
 // remoteCache memoizes originRemoteURL per checkout, misses included; a remote change mid-process is not seen.
 var remoteCache sync.Map
 
-// resetRemoteCache drops the memoized remotes (tests only).
-func resetRemoteCache() { remoteCache.Clear() }
-
 // originRemoteURL is checkout's configured `origin` remote, "" when there is none (or checkout is not a repo).
 func originRemoteURL(checkout string) string {
 	if v, ok := remoteCache.Load(checkout); ok {
@@ -256,7 +253,7 @@ func slugKey(base, origin string, taken func(key string) (Origin, bool)) (string
 // EnsureRepoDir is RepoDir plus creation: the directory and its origin record exist on return, under the bank lock.
 func EnsureRepoDir(root string) (string, error) {
 	var dir string
-	err := WithWritableBankLock(BankLockWait, func() error {
+	err := WithBankLock(BankLockWait, func() error {
 		id := Resolve(root)
 		var err error
 		if dir, err = RepoDir(root); err != nil {
@@ -280,7 +277,7 @@ func EnsureRepoDir(root string) (string, error) {
 // AddOriginAlias records origin (an existing checkout) as an alias of the store at dir; the only path
 // that rewrites an origin record, and only with the same Key+Origin.
 func AddOriginAlias(dir, origin string) error {
-	return WithWritableBankLock(BankLockWait, func() error {
+	return WithBankLock(BankLockWait, func() error {
 		origin, err := filepath.EvalSymlinks(filepath.Clean(origin))
 		if err != nil {
 			return err

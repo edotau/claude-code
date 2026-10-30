@@ -27,6 +27,9 @@ func countRemoteLookups(t *testing.T) func() int {
 	}
 }
 
+// resetRemoteCache drops the memoized remotes.
+func resetRemoteCache() { remoteCache.Clear() }
+
 // TestOriginRemoteURLIsMemoized: the second lookup for one checkout (hit or miss) forks no git; the reset hook clears it.
 func TestOriginRemoteURLIsMemoized(t *testing.T) {
 	tempConfig(t)

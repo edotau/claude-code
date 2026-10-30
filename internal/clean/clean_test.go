@@ -612,7 +612,7 @@ func TestCleanSessionsTTYPrompt(t *testing.T) {
 	}
 }
 
-// TestProtectedMemoryStoresAndMigrationState: invariant 2 — the memory store (incl. its .git), journals, access logs, the bank lock and the maintenance marker are never pruned, at any age.
+// TestProtectedMemoryStoresAndMigrationState: invariant 2 — the memory store (incl. its .git), journals, access logs, the bank lock are never pruned, at any age.
 func TestProtectedMemoryStoresAndMigrationState(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", dir)
@@ -620,7 +620,7 @@ func TestProtectedMemoryStoresAndMigrationState(t *testing.T) {
 	keep := []string{
 		"memory/.git/HEAD", "memory/MEMORY.md", "memory/repo/archive/sessionHistory-2025-01.md",
 		"state/harness/memory/journal/txn-1.json",
-		"state/harness/memory/access/repo.log", "state/harness/memory/bank.lock", "state/harness/memory/maintenance",
+		"state/harness/memory/access/repo.log", "state/harness/memory/bank.lock",
 	}
 	for _, rel := range keep {
 		p := filepath.Join(dir, rel)

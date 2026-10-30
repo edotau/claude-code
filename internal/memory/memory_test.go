@@ -190,26 +190,6 @@ func TestUpdateRecordsOutcome(t *testing.T) {
 	}
 }
 
-func TestStartupGuardPausesOnMaintenance(t *testing.T) {
-	tempConfig(t)
-	if g := StartupGuard(); g.Paused || g.Notice != "" {
-		t.Fatalf("fresh config must not pause: %+v", g)
-	}
-	if err := SetMaintenance("migration apply"); err != nil {
-		t.Fatal(err)
-	}
-	g := StartupGuard()
-	if !g.Paused || !strings.Contains(g.Notice, "memory maintenance in progress (migration apply)") || !strings.Contains(g.Notice, "paused") {
-		t.Errorf("maintenance guard: %+v", g)
-	}
-	if err := ClearMaintenance(); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := os.Stat(MaintenancePath()); !os.IsNotExist(err) {
-		t.Error("StartupGuard must be a pure read")
-	}
-}
-
 func TestNativeTopicsJoinSearch(t *testing.T) {
 	tempConfig(t)
 	root := repoRoot(t, "proj")

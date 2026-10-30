@@ -201,7 +201,7 @@ func withLedgerLock(path string, fn func() error) error {
 
 // withLedgerLockWithin is withLedgerLock with its own bank-lock wait, for best-effort callers inside a hook budget.
 func withLedgerLockWithin(wait time.Duration, path string, fn func() error) error {
-	return memory.WithWritableBankLock(wait, func() error { return paths.WithFileLock(path, fn) })
+	return memory.WithBankLock(wait, func() error { return paths.WithFileLock(path, fn) })
 }
 
 // openSection is the text of the latest "## Opened" section, or the whole ledger when it was never reopened.

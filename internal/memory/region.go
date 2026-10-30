@@ -165,7 +165,7 @@ func stripFrontmatter(s string) string {
 // settleUnified is SettleBank: rotate + archive in scope, regenerate region and catalog, commit.
 func settleUnified(root string, now time.Time) (BankSettlement, error) {
 	var s BankSettlement
-	err := WithWritableBankLock(BankLockWait, func() error {
+	err := WithBankLock(BankLockWait, func() error {
 		var dirs []string
 		own := Dir(root)
 		if _, err := os.Stat(own); err == nil { // an unscaffolded repo gets its store from Init (with its origin), never here

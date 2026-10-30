@@ -108,31 +108,6 @@ func TestPromoteLockLivesUnderGlobalLocksDir(t *testing.T) {
 	}
 }
 
-func TestMaintenanceMarker(t *testing.T) {
-	tempConfig(t)
-	if _, ok := InMaintenance(); ok {
-		t.Fatal("fresh config in maintenance")
-	}
-	if err := ClearMaintenance(); err != nil {
-		t.Fatalf("clearing an absent marker: %v", err)
-	}
-	if err := SetMaintenance("migrate apply"); err != nil {
-		t.Fatal(err)
-	}
-	if reason, ok := InMaintenance(); !ok || reason != "migrate apply" {
-		t.Fatalf("InMaintenance = %q, %v", reason, ok)
-	}
-	if MaintenancePath() != filepath.Join(StateDir(), "maintenance") {
-		t.Fatal("MaintenancePath moved")
-	}
-	if err := ClearMaintenance(); err != nil {
-		t.Fatal(err)
-	}
-	if _, ok := InMaintenance(); ok {
-		t.Fatal("marker survived Clear")
-	}
-}
-
 func TestStorePathsAndInsideStore(t *testing.T) {
 	cfg := tempConfig(t)
 	// No origin remote here, so the harness key falls back to the config dir's own basename, not ".claude".

@@ -6,8 +6,7 @@
 // Invariants, in order of importance:
 //  1. Credentials are NEVER touched: the vault (state/vault.db), settings.json, .credentials.json.
 //  2. The memory store (memory/** — the local memory Git repo incl. .git, raw archives)
-//     and migration state (state/harness/memory/{migrate,journal,access}, bank.lock,
-//     maintenance) are NEVER targets, not even opt-in — they hold irrecoverable history and in-flight writes.
+//     and migration state (state/harness/memory/{migrate,journal,access}, bank.lock) are NEVER targets, not even opt-in — they hold irrecoverable history and in-flight writes.
 //  3. The opt-in `--target sessions` target always requires confirmation before it deletes anything:
 //     a [y/N] prompt on a TTY, --yes without one.
 package clean
@@ -345,10 +344,8 @@ func protected(p string) bool {
 	if p == vaultPath || strings.HasPrefix(p, vaultPath+".") {
 		return true
 	}
-	for _, exact := range []string{memory.BankLockPath(), memory.MaintenancePath()} {
-		if p == filepath.Clean(exact) {
-			return true
-		}
+	if p == filepath.Clean(memory.BankLockPath()) {
+		return true
 	}
 	for _, root := range []string{memory.StoreDir(), memory.JournalDir(), memory.AccessStateDir()} {
 		root = filepath.Clean(root)
