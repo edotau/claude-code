@@ -1,20 +1,15 @@
-// Package frontmatter parses the YAML-subset frontmatter block (string, bool, int, []string) every
-// markdown source in this repo (agents, skills, memory topics) uses ahead of its body.
-package frontmatter
+package textutil
 
 import (
+	"bytes"
 	"regexp"
 	"strconv"
 	"strings"
 	"sync"
-
-	"github.com/jeduden/mdsmith/pkg/markdown"
-
-	"github.com/edotau/claude-code/internal/textutil"
 )
 
-// res lazily compiles the package regexes: every claude-code process links frontmatter via crossgen.
-var res = sync.OnceValue(func() (r struct {
+// fmRes lazily compiles the frontmatter regexes.
+var fmRes = sync.OnceValue(func() (r struct {
 	list, kv *regexp.Regexp
 }) {
 	r.list = regexp.MustCompile(`^\s+-\s+(.+)$`)
@@ -22,11 +17,11 @@ var res = sync.OnceValue(func() (r struct {
 	return
 })
 
-// Parse parses a YAML subset (string, bool, int, []string) from markdown; returns (frontmatter, body).
-func Parse(content string) (map[string]any, string) {
+// ParseFrontmatter parses a YAML subset (string, bool, int, []string) from markdown; returns (frontmatter, body).
+func ParseFrontmatter(content string) (map[string]any, string) {
 	// BOM/CRLF-normalize first: StripFrontMatter anchors on \n, so a CRLF file would silently drop the frontmatter.
 	content = strings.ReplaceAll(strings.TrimPrefix(content, "\ufeff"), "\r\n", "\n")
-	prefix, rest := markdown.StripFrontMatter([]byte(content))
+	prefix, rest := stripFrontMatter([]byte(content))
 	if prefix == nil {
 		return map[string]any{}, content
 	}
@@ -44,7 +39,7 @@ func Parse(content string) (map[string]any, string) {
 		}
 		if currentKey != "" && (strings.HasPrefix(line, " ") || strings.HasPrefix(line, "\t")) {
 			if haveList {
-				if lm := res().list.FindStringSubmatch(line); lm != nil {
+				if lm := fmRes().list.FindStringSubmatch(line); lm != nil {
 					currentList = append(currentList, stripQuotes(strings.TrimSpace(lm[1])))
 					fm[currentKey] = currentList
 				}
@@ -55,7 +50,7 @@ func Parse(content string) (map[string]any, string) {
 			continue
 		}
 
-		kv := res().kv.FindStringSubmatch(line)
+		kv := fmRes().kv.FindStringSubmatch(line)
 		if kv == nil {
 			currentKey, currentList, haveList = "", nil, false
 			continue
@@ -69,6 +64,24 @@ func Parse(content string) (map[string]any, string) {
 		}
 	}
 	return fm, body
+}
+
+// stripFrontMatter splits a leading "---\n" ... "\n---\n" block (delimiters included) from source; prefix is nil if absent.
+func stripFrontMatter(source []byte) (prefix, content []byte) {
+	delim := []byte("---\n")
+	if !bytes.HasPrefix(source, delim) {
+		return nil, source
+	}
+	rest := source[len(delim):]
+	if bytes.HasPrefix(rest, delim) {
+		return source[:2*len(delim)], source[2*len(delim):]
+	}
+	idx := bytes.Index(rest, []byte("\n---\n"))
+	if idx < 0 {
+		return nil, source
+	}
+	end := len(delim) + idx + len("\n---\n")
+	return source[:end], source[end:]
 }
 
 // parseScalar converts one frontmatter value: block-scalar marker → "", inline list, bool, int, else string.
@@ -92,7 +105,7 @@ func parseScalar(value string) any {
 	case "false", "no":
 		return false
 	}
-	if textutil.IsDigits(value) {
+	if IsDigits(value) {
 		n, _ := strconv.Atoi(value)
 		return n
 	}

@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/frontmatter"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // hasGeneratedBanner only recognises the banner as the FIRST non-empty body line; a hand-authored file that
@@ -76,14 +76,14 @@ func TestRenderCodexAgent(t *testing.T) {
 // Claude tool name Gemini would reject; an agent with only unmappable tools omits the key (inherit all).
 func TestRenderGeminiAgentEmitsOnlyStrictFields(t *testing.T) {
 	agent := Source{dirName: "demo", frontmatter: map[string]any{"name": "demo", "description": "d", "tools": "Read, Agent, Bash", "model": "sonnet", "color": "cyan"}, body: "body\n"}
-	fm, body := frontmatter.Parse(renderGeminiAgent(agent))
+	fm, body := textutil.ParseFrontmatter(renderGeminiAgent(agent))
 	if len(fm) != 3 || fm["name"] != "demo" || fm["description"] != "d" {
 		t.Errorf("gemini frontmatter = %v, want exactly name + description + tools", fm)
 	}
 	if tools, _ := fm["tools"].([]string); strings.Join(tools, ",") != "read_file,run_shell_command" {
 		t.Errorf("gemini tools = %v, want [read_file run_shell_command] (Agent dropped)", fm["tools"])
 	}
-	fm, _ = frontmatter.Parse(renderGeminiAgent(Source{dirName: "x", frontmatter: map[string]any{"name": "x", "description": "d", "tools": "Agent"}}))
+	fm, _ = textutil.ParseFrontmatter(renderGeminiAgent(Source{dirName: "x", frontmatter: map[string]any{"name": "x", "description": "d", "tools": "Agent"}}))
 	if _, has := fm["tools"]; has {
 		t.Errorf("all-unmappable tools must omit the key, got %v", fm["tools"])
 	}
@@ -95,11 +95,11 @@ func TestRenderGeminiAgentEmitsOnlyStrictFields(t *testing.T) {
 // Copilot loads Claude-style frontmatter, so tools pass through as a list; opencode needs mode: subagent.
 func TestRenderCopilotAndOpenCodeFrontmatter(t *testing.T) {
 	agent := Source{dirName: "demo", frontmatter: map[string]any{"name": "demo", "description": "d", "tools": "Read, Grep"}, body: "body\n"}
-	fm, _ := frontmatter.Parse(renderCopilotAgent(agent))
+	fm, _ := textutil.ParseFrontmatter(renderCopilotAgent(agent))
 	if tools, _ := fm["tools"].([]string); strings.Join(tools, ",") != "Read,Grep" {
 		t.Errorf("copilot tools = %v, want [Read Grep]", fm["tools"])
 	}
-	fm, _ = frontmatter.Parse(renderOpenCodeAgent(agent))
+	fm, _ = textutil.ParseFrontmatter(renderOpenCodeAgent(agent))
 	if fm["mode"] != "subagent" || fm["description"] != "d" {
 		t.Errorf("opencode frontmatter = %v, want description + mode: subagent", fm)
 	}

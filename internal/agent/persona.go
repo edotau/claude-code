@@ -10,8 +10,8 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/edotau/claude-code/internal/frontmatter"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // Persona is an inline agent definition: claude takes it as --agents/--agent, the rest get it as system text.
@@ -46,7 +46,7 @@ func LoadPersona(ref string) (*Persona, error) {
 	if err != nil {
 		return nil, fmt.Errorf("persona %q: %w", ref, err)
 	}
-	fm, body := frontmatter.Parse(string(raw))
+	fm, body := textutil.ParseFrontmatter(string(raw))
 	str := func(k string) string { s, _ := fm[k].(string); return strings.TrimSpace(s) }
 	p := &Persona{Name: str("name"), Description: str("description"), Prompt: body, Model: str("model")}
 	if p.Name == "" {

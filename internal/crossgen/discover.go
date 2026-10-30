@@ -8,7 +8,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/edotau/claude-code/internal/frontmatter"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // Source is a parsed agent (agents/<name>.md) or skill (skills/<dir>/SKILL.md); dirName is the file stem or skill dir.
@@ -46,7 +46,7 @@ func DiscoverAgents(agentsDir string) ([]Source, error) {
 		if err != nil {
 			return nil, fmt.Errorf("read %s: %w", filepath.Join(agentsDir, e.Name()), err)
 		}
-		fm, body := frontmatter.Parse(string(text))
+		fm, body := textutil.ParseFrontmatter(string(text))
 		a := Source{dirName: stem, frontmatter: fm, body: body}
 		if a.Name() != stem {
 			return nil, fmt.Errorf("agents/%s.md: frontmatter name %q != file name", stem, a.Name())
@@ -112,7 +112,7 @@ func discoverSources(root, filename string) ([]Source, error) {
 		if err != nil {
 			return nil, fmt.Errorf("read %s: %w", defPath, err)
 		}
-		fm, body := frontmatter.Parse(string(text))
+		fm, body := textutil.ParseFrontmatter(string(text))
 		out = append(out, Source{dirName: d, frontmatter: fm, body: body})
 	}
 	return out, nil

@@ -1,12 +1,12 @@
-package frontmatter
+package textutil
 
 import "testing"
 
 // A description block scalar line that happens to read "---" (indented, part of the YAML value) must not be
 // mistaken for the closing frontmatter fence, which only matches "---" unindented at line start.
-func TestParseBlockScalarContainingDashes(t *testing.T) {
+func TestParseFrontmatterBlockScalarContainingDashes(t *testing.T) {
 	content := "---\nname: x\ndescription: |\n  intro line\n  ---\n  more text\n---\n\nBody.\n"
-	fm, body := Parse(content)
+	fm, body := ParseFrontmatter(content)
 	if fm["name"] != "x" {
 		t.Errorf("name = %v, want x", fm["name"])
 	}
@@ -16,9 +16,9 @@ func TestParseBlockScalarContainingDashes(t *testing.T) {
 }
 
 // No frontmatter fence at all: the whole input is body, untouched.
-func TestParseNone(t *testing.T) {
+func TestParseFrontmatterNone(t *testing.T) {
 	content := "Just a plain markdown file.\n\nNo frontmatter here.\n"
-	fm, body := Parse(content)
+	fm, body := ParseFrontmatter(content)
 	if len(fm) != 0 {
 		t.Errorf("fm = %v, want empty", fm)
 	}
@@ -28,9 +28,9 @@ func TestParseNone(t *testing.T) {
 }
 
 // An opening "---" fence that never closes must not be parsed as frontmatter; the whole input is body.
-func TestParseUnclosedFence(t *testing.T) {
+func TestParseFrontmatterUnclosedFence(t *testing.T) {
 	content := "---\nname: x\ndescription: unclosed\nBody follows but no closing fence.\n"
-	fm, body := Parse(content)
+	fm, body := ParseFrontmatter(content)
 	if len(fm) != 0 {
 		t.Errorf("fm = %v, want empty (unclosed fence is not frontmatter)", fm)
 	}
@@ -40,9 +40,9 @@ func TestParseUnclosedFence(t *testing.T) {
 }
 
 // Body with no trailing newline after the closing fence.
-func TestParseNoTrailingNewline(t *testing.T) {
+func TestParseFrontmatterNoTrailingNewline(t *testing.T) {
 	content := "---\nname: x\ndescription: d\n---\nBody text, no trailing newline"
-	fm, body := Parse(content)
+	fm, body := ParseFrontmatter(content)
 	if fm["name"] != "x" {
 		t.Errorf("name = %v, want x", fm["name"])
 	}
