@@ -114,7 +114,10 @@ func applyLabel(updated map[string]any, task string) bool {
 	return true
 }
 
-// agentLabel is the "a → b" label the `Agent:` line earns, or "" when there is none.
+// modeCompareRe matches a `Mode: compare` line in a brief.
+var modeCompareRe = regexp.MustCompile(`(?im)^\s*Mode:\s*compare\b`)
+
+// agentLabel is the "a → b" (relay) or "a, b" (`Mode: compare`) label the `Agent:` line earns, or "" when there is none.
 func agentLabel(st, task string) string {
 	m := agentLineRe.FindStringSubmatch(task)
 	if m == nil {
@@ -131,6 +134,9 @@ func agentLabel(st, task string) string {
 			seen[w] = true
 			names = append(names, w)
 		}
+	}
+	if modeCompareRe.MatchString(task) { // a compare fans out in parallel: names, not a chain
+		return strings.Join(names, ", ")
 	}
 	return strings.Join(names, " → ")
 }
