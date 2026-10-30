@@ -77,3 +77,43 @@ func TestResolveAskChainProfileTakesTierSlot(t *testing.T) {
 		}
 	}
 }
+
+// An explicit --profile is one leg for every agent even with --fallback all: nothing can silently take over.
+func TestResolveAskChainProfileIsOneLegUnderFallbackAll(t *testing.T) {
+	profileFixture(t, "")
+	for _, name := range []string{"codex", "claude", "opencode", "copilot", "gemini"} {
+		_, chain, err := resolveAskChain(context.Background(), name, "acme", "", "p", agent.FallbackAll, false, "")
+		if err != nil {
+			t.Errorf("%s: resolveAskChain = %v", name, err)
+			continue
+		}
+		if len(chain.Legs) != 1 {
+			t.Errorf("%s: %d legs with --profile acme and --fallback all, want exactly 1", name, len(chain.Legs))
+		}
+	}
+}
+
+// A batch task's own profile reaches the request and resolves to one leg, under the default --fallback all.
+func TestBatchTaskProfileIsOneLeg(t *testing.T) {
+	profileFixture(t, "")
+	line := agent.ParsedLine{N: 1, Task: agent.TaskLine{Prompt: "p", Profile: "acme"}}
+	bt, err := batchTask(line, batchOpts{agent: "codex", fallback: agent.FallbackAll}, agent.Request{}, false, t.TempDir(), map[string]bool{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bt.Req.Provider != "acme" {
+		t.Fatalf("task request provider = %q, want acme", bt.Req.Provider)
+	}
+	chain, _, err := bt.Prepare(context.Background())
+	if err != nil || len(chain.Legs) != 1 {
+		t.Fatalf("Prepare: %d legs, err %v; want exactly 1 leg", len(chain.Legs), err)
+	}
+	bad := agent.ParsedLine{N: 2, Task: agent.TaskLine{Prompt: "p", Profile: "no-such-profile"}}
+	bt, err = batchTask(bad, batchOpts{agent: "codex", fallback: agent.FallbackAll}, agent.Request{}, false, t.TempDir(), map[string]bool{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := bt.Prepare(context.Background()); err == nil {
+		t.Error("unknown batch profile prepared a chain, want an error before any run")
+	}
+}

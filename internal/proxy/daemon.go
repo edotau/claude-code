@@ -35,6 +35,9 @@ var ErrNotRunning = errors.New("proxy is not running")
 
 var errKeptHolder = errors.New("proxy: keeping running holder with live work")
 
+// errForeignHolder: the port is held by something that is not a replaceable proxy of this config dir.
+var errForeignHolder = errors.New("proxy: holder is not this config dir's proxy")
+
 var terminateHolder = terminate
 
 // State is router.json: written by a serving daemon, removed when it exits.
@@ -196,10 +199,15 @@ func Serve(ctx context.Context, port int) error {
 	var lc net.ListenConfig
 	ln, err := lc.Listen(ctx, "tcp", fmt.Sprintf("127.0.0.1:%d", port))
 	if errors.Is(err, syscall.EADDRINUSE) && port != 0 {
-		// Never move to a random port: clients hold this one. Replace an older router of ours, else refuse.
-		if err = reclaim(ctx, port, false); errors.Is(err, errKeptHolder) {
+		// Clients hold this port: replace an older router of ours; only a foreign holder of the default moves us.
+		err = reclaim(ctx, port, false)
+		switch {
+		case errors.Is(err, errKeptHolder):
 			return nil // the live holder keeps serving; this build exits 0 without binding
-		} else if err == nil {
+		case errors.Is(err, errForeignHolder) && port == DefaultPort:
+			fmt.Fprintf(os.Stderr, "proxy: %v; binding a free port (recorded in router.json)\n", err)
+			ln, err = lc.Listen(ctx, "tcp", "127.0.0.1:0")
+		case err == nil:
 			ln, err = lc.Listen(ctx, "tcp", fmt.Sprintf("127.0.0.1:%d", port))
 		}
 	}
@@ -346,13 +354,14 @@ func reclaim(ctx context.Context, port int, force bool) error {
 	pid := st.PID
 	switch {
 	case !router:
-		return fmt.Errorf("proxy: 127.0.0.1:%d is held by another process; free it or pass --port", port)
+		return fmt.Errorf("%w (127.0.0.1:%d is held by another process); free it or pass --port", errForeignHolder, port)
 	case pid <= 0 || pid == os.Getpid():
 		return fmt.Errorf("proxy: 127.0.0.1:%d is held by an older claude-code proxy that reports no pid; "+
 			"find it with `ss -ltnp 'sport = :%d'` and kill it", port, port)
 	}
 	if st.Config != "" && st.Config != configID() { // another config dir's proxy is never ours to replace
-		return fmt.Errorf("proxy: 127.0.0.1:%d is held by a proxy for a different config dir; pass --port", port)
+		return fmt.Errorf("%w (127.0.0.1:%d answers as a proxy of another config dir or host, left alone); pass --port",
+			errForeignHolder, port)
 	}
 	if !force && st.Build != buildver.Version() && (st.Inflight > 0 || st.Sessions > 0) {
 		fmt.Fprintf(os.Stderr, "proxy: keeping running proxy pid %d (build %s) with live work; this build %s not taking over\n",

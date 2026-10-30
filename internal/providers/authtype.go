@@ -321,7 +321,7 @@ func mintSecret(p *Provider) (string, error) {
 
 func authHint(p *Provider, name string) string {
 	if p.Auth.Type == AuthOAuth {
-		return "run `claude-code databricks login --profile " + p.Name + "`"
+		return "run `claude-code databricks login --profile " + p.Name + "`, or `claude-code configure` and pick Set up"
 	}
 	return "set " + name + " with `claude-code vault set`"
 }
