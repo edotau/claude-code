@@ -1,13 +1,13 @@
 export const meta = {
   name: 'code-analyzer',
-  description: 'Audit a change set: parallel scoped auditors → refute each finding → per-package implementer ‖ test agent → gate loop',
+  description: 'Audit a change set: parallel scoped auditors → refute each finding → per-package implementer, then test agent → gate loop',
   whenToUse:
-    'Post-refactor or pre-merge audits over a commit range (diff lenses) or a whole path set (code lenses: correctness, failure-modes, contracts). ADK shape: Parallel[auditors] → Sequential[refute pipeline, Parallel[fix‖test per package], Loop gate], looped in-script over rounds. args: {range: "main..HEAD" | paths: [...] | findings (none of the three = the working-tree diff), cwd, packages: ["internal/x", …], dimensions?: [{key, prompt, effort?}], chunkChars?: 50000, gate? (auto-detected), maxIterations?, fix: true, minFix: "medium", rounds?: 2 (re-audits the files each round fixed until dry/stalled/capped), refuters?: ["codex"] (second-agent refuter via code-agent, smoke-tested, dropped when unhealthy), refuteBatch?: 6}. findings skips straight to Fix; noTest on every finding in a package skips its test agent. fix:false stops after Refute (a review-only run; pass dimensions with a security lens for a security pass); lows below minFix are returned as deferred. Returns exit: dry|no-fix|stalled|nothing-changed|blocked|capped|error, round, rounds: [...] (one entry per round), agents, unverified.',
+    'Post-refactor or pre-merge audits over a commit range (diff lenses) or a whole path set (code lenses: correctness, failure-modes, contracts). ADK shape: Parallel[auditors] → Sequential[refute pipeline, Parallel[per package: fix → test], Loop gate], looped in-script over rounds. args: {range: "main..HEAD" | paths: [...] | findings (none of the three = the working-tree diff), cwd, packages: ["internal/x", …], dimensions?: [{key, prompt, effort?}], chunkChars?: 50000, gate? (auto-detected), maxIterations?, fix: true, minFix: "medium", rounds?: 2 (re-audits the files each round fixed until dry/stalled/capped), refuters?: ["codex"] (second-agent refuter via code-agent, smoke-tested, dropped when unhealthy), refuteBatch?: 6}. findings skips straight to Fix; noTest on every finding in a package skips its test agent. fix:false stops after Refute (a review-only run; pass dimensions with a security lens for a security pass); lows below minFix are returned as deferred. Returns exit: dry|no-fix|stalled|nothing-changed|blocked|capped|error, round, rounds: [...] (one entry per round), agents, unverified.',
   phases: [
     { title: 'Scope', detail: 'one cheap agent per package group returns per-file sizes; the script packs them into ≤50 KB chunks' },
     { title: 'Find', detail: 'one auditor per (dimension × chunk) reading its chunk in-context — agent count scales with diff size' },
     { title: 'Refute', detail: 'one skeptic per package batch (≤6 findings) plus any healthy code-agent refuters; re-anchors wrong citations, defaults to refuted when the evidence is thin' },
-    { title: 'Fix', detail: 'per package: implementer (opus only for highs) ‖ test agent' },
+    { title: 'Fix', detail: 'per package: implementer (opus only for highs), then test agent with its result' },
     { title: 'Gate', detail: 'green-keeper-loop workflow over the touched packages, then re-audits what it touched for up to rounds rounds' },
   ],
 }
@@ -302,7 +302,7 @@ for (let round = 1; round <= ROUNDS; round++) {
   // Same findings as an earlier round (PRIOR, accumulated across rounds): report, do not re-fix forever.
   if (PRIOR.size && toFix.every(f => PRIOR.has(key(f)))) { rounds.push({ ...base, fixed: [], gate: null, exit: 'stalled', metrics }); break }
 
-  // ── Fix (ADK ParallelAgent per package: implementer ‖ test agent, disjoint file ownership) ────
+  // ── Fix (packages in parallel; per package ADK Sequential: implementer, then test agent; disjoint file ownership) ────
   phase('Fix')
   const byPkg = new Map()
   for (const f of toFix) byPkg.set(f.package, [...(byPkg.get(f.package) || []), f])
@@ -313,22 +313,24 @@ for (let round = 1; round <= ROUNDS; round++) {
     // Opus only where a high/critical sits; the evidence rides in the prompt and the files are read in ONE call.
     const hot = fs.some(f => ORDER[f.severity] <= ORDER.high)
     const testsNeeded = fs.some(f => !f.noTest && SRC_RE.test(relPath(f.file))) // docs-only or all-noTest: no test agent
-    // Implementer ‖ test agent in the same dispatch (rules/standards/quality.md), never test-after.
-    return parallel([
-      () => agent(`${ctx}\nYou are the IMPLEMENTER: fix every listed defect in non-test files of ${pkg} only; never test files or fixtures (${TEST_GLOBS}). ` +
+    // Test agent runs after the implementer and gets its result, so it asserts against code that has landed.
+    return (async () => {
+      const impl = await agent(`${ctx}\nYou are the IMPLEMENTER: fix every listed defect in non-test files of ${pkg} only; never test files or fixtures (${TEST_GLOBS}). ` +
         `The evidence above is already verified — do not re-audit. First tool call: cat ${files.join(' ')} (one call). ` +
         `Budget ~15 tool calls; then run the repo's formatter and linter on the files you touched (whichever it has: make fmt/lint, gofmt + go vet, ruff, eslint) and report per defect.\n` +
         `Before a behavior change write TASK: code does X; check expects Y; spec says Z (Y vs Z disagree = stop, report).\n` +
         `After a defect fix write ISSUE: searched P, found N.\n` +
         `Method: ~/.claude/skills/problem-solving/SKILL.md (Steps 4-6)\n` +
         `Put the TASK/ISSUE facts as plain sentences in your summary.`,
-        { label: `fix:${round}:${pkg}`, phase: 'Fix', schema: RESULT_SCHEMA, model: routeModel(hot ? 'opus' : 'sonnet'), effort: hot ? 'high' : 'medium' }),
-      () => testsNeeded ? agent(`${ctx}\nYou are the TEST agent (an implementer is fixing the non-test files concurrently): only test files and fixtures (${TEST_GLOBS}) for ${pkg}. ` +
+        { label: `fix:${round}:${pkg}`, phase: 'Fix', schema: RESULT_SCHEMA, agentType: 'code-worker', model: routeModel(hot ? 'opus' : 'sonnet'), effort: hot ? 'high' : 'medium' })
+      const implBlocked = !impl || impl.status === 'blocked'
+      const tests = testsNeeded && !implBlocked ? await agent(`${ctx}\nImplementer result (already landed on disk): status ${impl.status}; files changed: ${(impl.filesChanged || []).join(', ') || 'none'}; summary: ${impl.summary}\nYou are the TEST agent (the implementer has finished): only test files and fixtures (${TEST_GLOBS}) for ${pkg}. ` +
         `Method: ~/.claude/agents/copilot.md → TEST. ` +
         `Read the cited files and their tests in one call; repair tests the fixes break, add one regression test per defect pinning its scenario ` +
-        `(none for a comment-only or dead-code fix), run only the tests for ${pkg} once the implementer's edits land, and report. Budget ~20 tool calls.`,
-        { label: `test:${round}:${pkg}`, phase: 'Fix', schema: RESULT_SCHEMA, model: routeModel('sonnet'), effort: 'medium' }) : null,
-    ]).then(([impl, tests]) => ({ package: pkg, impl, tests }))
+        `(none for a comment-only or dead-code fix), run only the tests for ${pkg}, and report. Budget ~20 tool calls.`,
+        { label: `test:${round}:${pkg}`, phase: 'Fix', schema: RESULT_SCHEMA, agentType: 'code-worker', model: routeModel('sonnet'), effort: 'medium' }) : null
+      return { package: pkg, impl, tests }
+    })()
   }))
 
   // ── Gate (ADK LoopAgent via the saved green-keeper-loop workflow; a.gate passes through — green-keeper-loop auto-detects) ──

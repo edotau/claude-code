@@ -1,11 +1,11 @@
 export const meta = {
   name: 'code-engineer',
-  description: 'The house dispatch: parallel Explore intel → implementer ‖ copilot (same message) → gate loop',
+  description: 'The house dispatch: parallel Explore intel → implementer → copilot test agent (after impl lands) → gate loop',
   whenToUse:
-    'Any MEDIUM+ code change (CLAUDE.md guideline 6 + rules/standards/quality.md). ADK shape: Sequential[Parallel intel, Parallel impl‖tests, Loop gate]. args: {task, cwd, scope: [dirs], packages?, gate? (auto-detected from Makefile/go.mod/pyproject/package.json/Cargo.toml), maxIterations?, implModel?: "opus" only after a sonnet attempt failed}. Works in any repo via cwd. The main session still owns the live check. Does not chain into code-analyzer (workflow() nests one level); run code-analyzer as the next top-level call before merge.',
+    'Any MEDIUM+ code change (CLAUDE.md guideline 6 + rules/standards/quality.md). ADK shape: Sequential[Parallel intel, impl → tests, Loop gate]. args: {task, cwd, scope: [dirs], packages?, gate? (auto-detected from Makefile/go.mod/pyproject/package.json/Cargo.toml), maxIterations?, implModel?: "opus" only after a sonnet attempt failed}. Works in any repo via cwd. The main session still owns the live check. Does not chain into code-analyzer (workflow() nests one level); run code-analyzer as the next top-level call before merge.',
   phases: [
     { title: 'Intel', detail: 'two Explore readers with different lenses: seams/callers vs tests/guards' },
-    { title: 'Build', detail: 'implementer (non-test files) ‖ copilot test agent (test files)' },
+    { title: 'Build', detail: 'implementer (non-test files), then copilot test agent (test files) with the impl result' },
     { title: 'Gate', detail: 'green-keeper-loop workflow over the touched packages' },
   ],
 }
@@ -81,30 +81,31 @@ const brief = {
 }
 log(`intel: ${brief.files.length} files, ${brief.seams.length} seams, ${brief.risks.length} risks`)
 
-// ── Phase 2: Build (ADK ParallelAgent; disjoint ownership — impl owns code, tests owns *_test.go) ─
+// ── Phase 2: Build (ADK SequentialAgent; disjoint ownership — impl owns code, tests owns *_test.go, tests run after impl) ─
 phase('Build')
 const context = `Task: ${TASK}\nFiles: ${brief.files.join(', ')}\nSeams:\n- ${brief.seams.join('\n- ')}\nRisks:\n- ${brief.risks.join('\n- ')}\n${SHARED_TREE}`
-const [impl, tests] = await parallel([
-  () => agent(
-    `${context}\nYou are the IMPLEMENTER. Edit non-test source files only — never test files or fixtures (` + TEST_GLOBS + `); a concurrent test agent owns them. ` +
-    `Surgical: touch only what the task requires, match existing style. Run the repo's formatter and linter on each file you touch (whichever it has: make fmt/lint, gofmt + go vet, ruff, eslint). Report NEEDS_CONTEXT before editing if anything is unclear; stop rather than guess at a new design decision. ` +
-    `Before a behavior change write TASK: code does X; check expects Y; spec says Z (Y vs Z disagree = stop, report). ` +
-    `After a defect fix write ISSUE: searched P, found N. Method: ~/.claude/skills/problem-solving/SKILL.md (Steps 4-6). ` +
-    `Status DONE | DONE_WITH_CONCERNS | NEEDS_CONTEXT | BLOCKED; put Ran on: <agent (model) · fallback none|who>, files changed, verification output and the TASK/ISSUE facts as plain sentences in the summary; list anything left undone.`,
-    { label: 'build:impl', phase: 'Build', schema: RESULT_SCHEMA, model: routeModel(a.implModel || 'sonnet'), effort: 'high' }
-  ),
-  () => agent(
-    `${context}\nYou are the TEST agent (copilot). Edit only test files and fixtures (` + TEST_GLOBS + `) — never non-test files (a concurrent implementer owns them; wait for the manager's "landed" message before asserting, never poll the tree). ` +
-    `Follow ~/.claude/agents/copilot.md → TEST (make the test-wrong vs code-wrong call; never edit non-test files). Status DONE | DONE_WITH_CONCERNS | NEEDS_CONTEXT | BLOCKED; include Ran on: in the summary. ` +
-    `Run only the tests for: ` + (PKGS.join(' ') || 'the touched packages/modules') + `.`,
-    { label: 'build:tests', phase: 'Build', schema: RESULT_SCHEMA, model: routeModel('sonnet'), effort: 'medium' }
-  ),
-])
+const impl = await agent(
+  `${context}\nYou are the IMPLEMENTER. Edit non-test source files only — never test files or fixtures (` + TEST_GLOBS + `); the test agent owns them. ` +
+  `Surgical: touch only what the task requires, match existing style. Run the repo's formatter and linter on each file you touch (whichever it has: make fmt/lint, gofmt + go vet, ruff, eslint). Report NEEDS_CONTEXT before editing if anything is unclear; stop rather than guess at a new design decision. ` +
+  `Before a behavior change write TASK: code does X; check expects Y; spec says Z (Y vs Z disagree = stop, report). ` +
+  `After a defect fix write ISSUE: searched P, found N. Method: ~/.claude/skills/problem-solving/SKILL.md (Steps 4-6). ` +
+  `Status DONE | DONE_WITH_CONCERNS | NEEDS_CONTEXT | BLOCKED; put Ran on: <agent (model) · fallback none|who>, files changed, verification output and the TASK/ISSUE facts as plain sentences in the summary; list anything left undone.`,
+  { label: 'build:impl', phase: 'Build', schema: RESULT_SCHEMA, agentType: 'code-worker', model: routeModel(a.implModel || 'sonnet'), effort: 'high' }
+)
+const implBlocked = !impl || impl.status === 'BLOCKED' || impl.status === 'NEEDS_CONTEXT'
+const tests = implBlocked ? null : await agent(
+  `${context}\nImplementer result (already landed on disk): status ${impl.status}; files changed: ${(impl.filesChanged || []).join(', ') || 'none'}; summary: ${impl.summary}\n` +
+  `You are the TEST agent (copilot). Edit only test files and fixtures (` + TEST_GLOBS + `) — never non-test files (the implementer owns them and has finished). ` +
+  `Follow ~/.claude/agents/copilot.md → TEST (make the test-wrong vs code-wrong call; never edit non-test files). Status DONE | DONE_WITH_CONCERNS | NEEDS_CONTEXT | BLOCKED; include Ran on: in the summary. ` +
+  `Run only the tests for: ` + (PKGS.join(' ') || 'the touched packages/modules') + `.`,
+  { label: 'build:tests', phase: 'Build', schema: RESULT_SCHEMA, agentType: 'code-worker', model: routeModel('sonnet'), effort: 'medium' }
+)
+if (implBlocked) log('build: impl blocked or empty — test agent skipped')
 log(`build: impl=${impl ? impl.status : 'none'} tests=${tests ? tests.status : 'none'}`)
 
 // ── Phase 3: Gate (ADK LoopAgent via the saved green-keeper-loop workflow) ─────────────────────────
 phase('Gate')
-if (impl && (impl.status === 'BLOCKED' || impl.status === 'NEEDS_CONTEXT')) return { brief, impl, tests, gate: null, status: 'blocked' }
+if (impl && implBlocked) return { brief, impl, tests, gate: null, status: 'blocked' }
 const gate = await workflow('green-keeper-loop', { gate: GATE, cwd: CWD || undefined, scope: SCOPE.length ? SCOPE : brief.files, maxIterations: MAX_ITER })
 
 return { brief, impl, tests, gate, status: gate ? gate.exit : 'error' }
