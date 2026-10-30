@@ -3,6 +3,7 @@ package router
 import (
 	"maps"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent/vendors"
@@ -11,6 +12,17 @@ import (
 
 // BYOKModel requests the least-recently-picked model in the shared Databricks pool.
 const BYOKModel = "byok"
+
+// IsPoolModel reports whether model is a member of the BYOK pool as p serves it.
+func IsPoolModel(p *providers.Provider, model string) bool {
+	if p == nil || p.Preset != providers.PresetDatabricks {
+		return false
+	}
+	wire := strings.TrimPrefix(model, p.Name+":")
+	return slices.ContainsFunc(providers.BYOKPool(), func(entry string) bool {
+		return vendors.SpellPin(p, entry) == wire
+	})
+}
 
 // PinnedModel resolves a pin and reports why a BYOK request fell back to the tier slot.
 func PinnedModel(runner, tier string, cell Cell, p *providers.Provider, pin string) (string, string) {

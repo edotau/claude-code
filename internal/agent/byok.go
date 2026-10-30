@@ -4,11 +4,9 @@ import (
 	"fmt"
 	"os"
 	"regexp"
-	"slices"
 	"strings"
 	"time"
 
-	"github.com/edotau/claude-code/internal/agent/vendors"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 )
@@ -64,13 +62,7 @@ func byokProvider(leg Leg, reg *providers.Registry, profile string) (*providers.
 }
 
 func byokPoolModel(model string, p *providers.Provider) bool {
-	if p == nil || p.Preset != providers.PresetDatabricks {
-		return false
-	}
-	wire := strings.TrimPrefix(model, p.Name+":")
-	return slices.ContainsFunc(providers.BYOKPool(), func(entry string) bool {
-		return vendors.SpellPin(p, entry) == wire
-	})
+	return router.IsPoolModel(p, model)
 }
 
 // byokRepick skips the failed model for this agent, then returns the next pool pick ("" if unchanged).
