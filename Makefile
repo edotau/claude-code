@@ -24,8 +24,8 @@ endif
 GO_LOCAL_ROOT   ?= $(HOME)/.local/go
 GO              ?= $(shell command -v go 2>/dev/null || echo $(GO_LOCAL_ROOT)/bin/go)
 GO_VERSION      := $(shell awk '/^go /{print $$2; exit}' go.mod)
-# Recipes see the local toolchain and GOPATH/bin (govulncheck) even when the caller's PATH lacks them.
-export PATH     := $(GO_LOCAL_ROOT)/bin:$(HOME)/go/bin:$(PATH)
+# Recipes see the local toolchain and, as a fallback only, GOPATH/bin: a stale tool there must not shadow the caller's.
+export PATH     := $(GO_LOCAL_ROOT)/bin:$(PATH):$(HOME)/go/bin
 BINARY          := claude-code
 BIN             := bin/$(BINARY)
 PKGS            := ./...
@@ -193,8 +193,16 @@ fmt:  ## gofmt -w every Go file
 # One lint per kind, each a branch of lint-% below; `make lint-<kind>` runs one.
 LINT_WHAT := go shell yaml help settings docs deep
 
+WHAT    ?= all
+AGENT   ?= $(HARNESS_LINT_AGENT)
+MAX     ?= 3
+LINT_AGENT := $(filter-out off,$(AGENT))
+LINT_KINDS := $(if $(filter go,$(WHAT)),go deep,$(if $(filter md,$(WHAT)),docs,$(LINT_WHAT)))
 .PHONY: lint
-lint: $(addprefix lint-,$(LINT_WHAT))  ## Lint and auto-fix everything (CHECK=1: report only)
+lint:  ## Lint and auto-fix (CHECK=1 reports; AGENT=a fixes the rest; WHAT=go|md)
+	@case "$(WHAT)" in go|md|all) ;; *) echo "WHAT must be go|md|all"; exit 1 ;; esac
+	@$(MAKE) --no-print-directory $(if $(LINT_AGENT),-k) $(addprefix lint-,$(LINT_KINDS)) \
+		$(if $(filter-out 1,$(CHECK)),$(if $(LINT_AGENT),|| $(MAKE) --no-print-directory lint-agent))
 	@echo -e "$(C_OK)lint passed"
 
 lint-%: compile mdsmith  # (helper) one lint kind: $(LINT_WHAT) deep; CHECK=1 only reports
@@ -226,18 +234,13 @@ lint-%: compile mdsmith  # (helper) one lint kind: $(LINT_WHAT) deep; CHECK=1 on
 			$(BIN) memory fmt $(if $(filter 1,$(CHECK)),--check); \
 		else echo -e "$(C_NOTE)memory fmt skipped: $(CURDIR) is not the live config dir ($$live) — a worktree must not write the shared memory store"; fi ;; \
 	deep) if ! command -v golangci-lint >/dev/null; then echo -e "$(C_NOTE)deep skipped: golangci-lint not installed (make install DEV_TOOLS=1)"; exit 0; fi; \
-		golangci-lint run --max-issues-per-linter=0 --max-same-issues=0 ./... ;; \
+		golangci-lint run $(if $(filter 1,$(CHECK)),,--fix) --max-issues-per-linter=0 --max-same-issues=0 ./... ;; \
 	*) printf "Unknown lint '%s' (use %s)\n" "$*" "$(subst $(C_SP),|,$(LINT_WHAT))"; exit 1 ;; \
 	esac
 
-# Auto-fixers first (gofmt, golangci-lint --fix, mdsmith fix); the agent is dispatched only for what they leave.
-WHAT    ?= all
-AGENT   ?= copilot
-MAX     ?= 3
-.PHONY: lint-fix
-lint-fix: compile mdsmith  ## Auto-fix lint, then an AI agent fixes the rest (WHAT AGENT MAX NOAGENT=1)
-	@case "$(WHAT)" in go|md|all) ;; *) echo "WHAT must be go|md|all"; exit 1 ;; esac; \
-	go=0; md=0; gl=0; case "$(WHAT)" in go) go=1;; md) md=1;; *) go=1; md=1;; esac; \
+.PHONY: lint-agent
+lint-agent: compile mdsmith  # (folded into `lint`) AGENT fixes what auto-fix left, at most MAX passes
+	@go=0; md=0; gl=0; case "$(WHAT)" in go) go=1;; md) md=1;; *) go=1; md=1;; esac; \
 	if [ $$go = 1 ]; then if command -v golangci-lint >/dev/null; then gl=1; \
 		else echo -e "$(C_NOTE)golangci-lint not installed — skipped (make install DEV_TOOLS=1)"; fi; fi; \
 	o=$$(mktemp); b=$$(mktemp); t=$$(mktemp); e=$$(mktemp); trap 'rm -f "$$o" "$$b" "$$t" "$$e"' EXIT; \
@@ -249,17 +252,10 @@ lint-fix: compile mdsmith  ## Auto-fix lint, then an AI agent fixes the rest (WH
 			if [ $$gl = 1 ]; then run golangci-lint golangci-lint run --max-issues-per-linter=0 --max-same-issues=0 ./...; fi; fi; \
 		if [ $$md = 1 ]; then run mdsmith $(MDSMITH) check; fi; \
 		grep -cE "$$pat" "$$o" || true; }; \
-	opfail() { if [ -s "$$e" ]; then echo "lint-fix: $$(paste -sd, "$$e") failed:"; head -n 50 "$$o"; exit 1; fi; }; \
-	before=$$(chk); opfail; echo "lint-fix: $$before issue(s) before auto-fix"; \
-	if [ $$go = 1 ]; then gofmt -w $(GO_FMT_DIRS); if [ $$gl = 1 ]; then golangci-lint run --fix ./... >/dev/null 2>&1 || true; fi; fi; \
-	if [ $$md = 1 ]; then $(MDSMITH) fix >/dev/null 2>&1 || true; fi; \
+	opfail() { if [ -s "$$e" ]; then echo "lint: $$(paste -sd, "$$e") failed:"; head -n 50 "$$o"; exit 1; fi; }; \
 	left=$$(chk); opfail; \
-	if [ "$$left" = 0 ]; then echo -e "$(C_OK)lint-fix: clean after auto-fix"; exit 0; fi; \
-	echo "lint-fix: $$left issue(s) left after auto-fix"; \
-	if [ -n "$(NOAGENT)" ]; then head -n 150 "$$o"; exit 1; fi; \
-	st="$$($(BIN) $(AGENT) setup --format json 2>/dev/null || true)"; \
-	if ! printf '%s' "$$st" | grep -q '"OK": true'; then \
-		echo "lint-fix: $(AGENT) is not signed in — run claude-code $(AGENT) setup (or configure)"; exit 1; fi; \
+	if [ "$$left" = 0 ]; then echo -e "$(C_OK)lint: clean after auto-fix"; exit 0; fi; \
+	echo "lint: $$left issue(s) left after auto-fix"; \
 	pass=1; while [ "$$left" -gt 0 ] && [ $$pass -le $(MAX) ]; do \
 		{ echo "Fix the lint issues below in $(CURDIR). Rules:"; \
 		echo "- Prefer real fixes over //nolint; use //nolint only with a reason comment."; \
@@ -268,11 +264,11 @@ lint-fix: compile mdsmith  ## Auto-fix lint, then an AI agent fixes the rest (WH
 		echo "- Edit only the files named in the lint output."; \
 		echo "- Do not run git commands."; echo; echo "Lint output (truncated):"; \
 		awk 'NR<=150{print substr($$0,1,300)}' "$$o" | head -c 12000 || [ $$? = 141 ]; } > "$$b"; \
-		echo "lint-fix: pass $$pass/$(MAX): dispatching $(AGENT)"; \
+		echo "lint: pass $$pass/$(MAX): dispatching $(AGENT)"; \
 		$(BIN) ask --agent $(AGENT) --tools --workdir $(CURDIR) --format json - < "$$b" >/dev/null || echo -e "$(C_NOTE)$(AGENT) dispatch failed"; \
-		prev=$$left; left=$$(chk); opfail; echo "lint-fix: $$left issue(s) left"; \
+		prev=$$left; left=$$(chk); opfail; echo "lint: $$left issue(s) left"; \
 		[ "$$left" -lt "$$prev" ] || break; pass=$$((pass+1)); done; \
-	if [ "$$left" = 0 ]; then echo -e "$(C_OK)lint-fix: clean"; exit 0; fi; \
+	if [ "$$left" = 0 ]; then echo -e "$(C_OK)lint: clean"; exit 0; fi; \
 	head -n 150 "$$o"; exit 1
 
 .PHONY: mdsmith
