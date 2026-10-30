@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/ansi"
-	"github.com/edotau/claude-code/internal/config"
+	"github.com/edotau/claude-code/internal/configure"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -162,11 +162,11 @@ func TestVaultAgentsTableSpansPinsToText(t *testing.T) {
 	for k, v := range pins {
 		vaulttest.Put(t, vault.Pins, k, v)
 	}
-	raw, err := config.Export()
+	raw, err := configure.Export()
 	if err != nil {
 		t.Fatal(err)
 	}
-	var doc config.Doc
+	var doc configure.Doc
 	if err := json.Unmarshal(raw, &doc); err != nil {
 		t.Fatal(err)
 	}

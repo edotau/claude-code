@@ -11,7 +11,7 @@ import (
 	"testing"
 	"unicode/utf8"
 
-	"github.com/edotau/claude-code/internal/config"
+	"github.com/edotau/claude-code/internal/configure"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/secrets"
 	"github.com/edotau/claude-code/internal/tailscale"
@@ -369,11 +369,11 @@ func TestCmdVaultGetKeyNonTTYDecodesToMasterKey(t *testing.T) {
 	}
 }
 
-// Captured output defaults to JSON with masked secrets alongside config.Export's sections.
+// Captured output defaults to JSON with masked secrets alongside configure.Export's sections.
 func TestVaultListDefaultIsJSONUnderCaptureOutput(t *testing.T) {
 	useVaultTest(t)
 	seedVaultListFixture(t)
-	want, err := config.Export()
+	want, err := configure.Export()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -388,7 +388,7 @@ func TestVaultListDefaultIsJSONUnderCaptureOutput(t *testing.T) {
 func TestVaultListFormatJSONMatchesExport(t *testing.T) {
 	useVaultTest(t)
 	seedVaultListFixture(t)
-	want, err := config.Export()
+	want, err := configure.Export()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -415,7 +415,7 @@ func checkVaultListJSON(t *testing.T, stdout string, exported []byte) {
 	if err := json.Unmarshal(got["secrets"], &rows); err != nil || len(rows) != 1 {
 		t.Fatal("expected one masked secret row")
 	}
-	// "routing" is derived from the providers overlay's nested routing object, not one of config.Export's
+	// "routing" is derived from the providers overlay's nested routing object, not one of configure.Export's
 	// own top-level sections; just check it decodes, then drop it before the section-by-section compare.
 	if r, ok := got["routing"]; ok {
 		var routing providers.Routing
@@ -445,7 +445,7 @@ func checkVaultListJSON(t *testing.T, stdout string, exported []byte) {
 	a, _ := json.Marshal(got)
 	b, _ := json.Marshal(want)
 	if !bytes.Equal(a, b) {
-		t.Fatal("list JSON changed config.Export sections")
+		t.Fatal("list JSON changed configure.Export sections")
 	}
 }
 
