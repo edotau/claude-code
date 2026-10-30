@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 )
 
@@ -112,6 +113,9 @@ func installProxyAt(w io.Writer, dest string, dryRun bool) error {
 // DoctorDetail describes the proxy for `claude-code doctor`; ok is false only on WSL when image paste
 // would go through an unproxied wl-paste.
 func DoctorDetail() (ok bool, detail string) {
+	if runtime.GOOS == "darwin" {
+		return launchDoctorDetail()
+	}
 	if !OnWSLKernel() {
 		return true, "not WSL (proxy not needed)"
 	}

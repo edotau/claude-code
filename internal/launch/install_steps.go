@@ -43,6 +43,7 @@ func installVerbose(w io.Writer, dryRun bool) error {
 	installFormats(w, dryRun)
 	installCompletion(w, dryRun)
 	installClipboardProxy(w, dryRun)
+	installClipBridge(w, target, dryRun)
 	seedTmuxConf(w, dryRun)
 	if err := linkOnPath(w, target, dryRun); err != nil {
 		return err
@@ -386,6 +387,12 @@ func extrasCompact(w io.Writer) string {
 			tokens = append(tokens, "clipboard ok")
 		}
 	}
+	var lbuf bytes.Buffer
+	if err := clipboard.InstallLaunchAgent(&lbuf, filepath.Join(paths.BinDir(), "claude-code"), false); err != nil {
+		fmt.Fprintf(w, "clip agent skip  %v\n", err)
+	} else if lbuf.Len() > 0 {
+		tokens = append(tokens, "clip agent ok")
+	}
 	var tbuf bytes.Buffer
 	seedTmuxConf(&tbuf, false)
 	switch txt := tbuf.String(); {
@@ -445,6 +452,13 @@ func installCompletion(w io.Writer, dryRun bool) {
 func installClipboardProxy(w io.Writer, dryRun bool) {
 	if err := clipboard.InstallProxy(w, dryRun); err != nil {
 		fmt.Fprintf(w, "  %-17s %v\n", "skip", "wl-paste proxy: "+err.Error())
+	}
+}
+
+// installClipBridge installs the macOS clipboard-bridge launchd agent; best-effort, a no-op off macOS.
+func installClipBridge(w io.Writer, bin string, dryRun bool) {
+	if err := clipboard.InstallLaunchAgent(w, bin, dryRun); err != nil {
+		fmt.Fprintf(w, "  %-17s %v\n", "skip", "clip agent: "+err.Error())
 	}
 }
 
