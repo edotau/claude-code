@@ -22,7 +22,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/edotau/claude-code/internal/agent/vendors"
+	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/copilotsdk"
 	"github.com/edotau/claude-code/internal/launch"
 	"github.com/edotau/claude-code/internal/models"
@@ -414,7 +414,7 @@ func keyTargets(reg *providers.Registry, vendorFilter string) ([]keyTarget, erro
 		}
 		out = append(out, kt)
 	}
-	for _, name := range vendors.Names() {
+	for _, name := range agent.Names() {
 		if vendorFilter != "" && name != vendorFilter {
 			continue
 		}
@@ -427,9 +427,9 @@ func vendorKeyTarget(reg *providers.Registry, name string) keyTarget {
 	sel, err := providers.Select(reg, "")
 	fallback := func() keyTarget {
 		if err == nil {
-			target, note, rerr := vendors.ResolveTarget(reg, name, sel, false)
+			target, note, rerr := agent.ResolveVendorTarget(reg, name, sel, false)
 			// The vendor's own stored config/login is a working setup, not a missing key.
-			if errors.Is(rerr, vendors.ErrOwnLogin) {
+			if errors.Is(rerr, agent.ErrOwnLogin) {
 				return keyTarget{label: name, present: true, source: afterUsing(note)}
 			}
 			// A passthrough provider carries another vendor's login, never a key this vendor can use.
@@ -438,11 +438,11 @@ func vendorKeyTarget(reg *providers.Registry, name string) keyTarget {
 					envVar: target.Provider.Auth.Env, provider: target.Provider}
 			}
 		}
-		return keyTarget{label: name, present: false, fixCmd: vendors.ConfigureHint(name)}
+		return keyTarget{label: name, present: false, fixCmd: agent.ConfigureHint(name)}
 	}
 	switch name {
 	case "codex":
-		if vendors.CodexChatGPTLoginPresent() {
+		if agent.CodexChatGPTLoginPresent() {
 			return keyTarget{label: name, present: true, source: "ChatGPT login (codex login)",
 				loginArgv: []string{"codex", "login"}} // rotate: re-run the same ChatGPT sign-in
 		}
@@ -452,7 +452,7 @@ func vendorKeyTarget(reg *providers.Registry, name string) keyTarget {
 		}
 		return kt
 	case "copilot":
-		if a, ok := vendors.ResolveCopilotAuth(); ok {
+		if a, ok := agent.ResolveCopilotAuth(); ok {
 			kt := keyTarget{label: name, present: true, source: a.Label()}
 			if a.Source == "copilot login" || a.Source == "gh" {
 				kt.loginArgv = []string{"copilot", "login"} // rotate: re-run copilot's own sign-in
@@ -465,13 +465,13 @@ func vendorKeyTarget(reg *providers.Registry, name string) keyTarget {
 		}
 		return kt
 	case "gemini":
-		if vendors.GeminiLoginPresent() {
+		if agent.GeminiLoginPresent() {
 			return keyTarget{label: name, present: true, source: "Google login (agy)",
 				loginArgv: []string{"agy"}} // rotate: re-run `agy` and sign in again
 		}
 		return keyTarget{label: name, present: false, loginArgv: []string{"agy"}, fixCmd: "run `agy` to sign in with Google"}
 	case "opencode":
-		if names := vendors.OpencodeLogins(); len(names) > 0 {
+		if names := agent.OpencodeLogins(); len(names) > 0 {
 			return keyTarget{label: name, present: true, source: "opencode auth login: " + strings.Join(names, ", "),
 				loginArgv: []string{"opencode", "auth", "login"}} // rotate: re-run opencode's own login
 		}
@@ -846,7 +846,7 @@ func runAgents(d *dialog) bool {
 		agentList = []string{d.o.Vendor}
 	}
 	_, err := settings.Run(settings.Options{
-		Agents: agentList, DryRun: d.o.DryRun || d.o.Check, Check: d.o.Check, Home: d.o.Home, Out: d.out, Router: vendors.Router{},
+		Agents: agentList, DryRun: d.o.DryRun || d.o.Check, Check: d.o.Check, Home: d.o.Home, Out: d.out, Router: agent.Router{},
 	})
 	if err != nil {
 		d.println(err)
@@ -859,23 +859,23 @@ func runAgents(d *dialog) bool {
 	}
 	ok := true
 	for _, name := range agentList {
-		target, note, rerr := vendors.ResolveTarget(d.reg, name, sel, false)
-		if errors.Is(rerr, vendors.ErrOwnLogin) {
+		target, note, rerr := agent.ResolveVendorTarget(d.reg, name, sel, false)
+		if errors.Is(rerr, agent.ErrOwnLogin) {
 			d.printf("%-10s runs on %s\n", name, afterUsing(note))
 			continue
 		}
 		if rerr != nil {
-			d.printf("%-10s FIX: %v; %s\n", name, rerr, vendors.ConfigureHint(name))
+			d.printf("%-10s FIX: %v; %s\n", name, rerr, agent.ConfigureHint(name))
 			ok = false
 			continue
 		}
-		_, _, cerr := vendors.Configure(context.Background(), name, target, "")
-		if errors.Is(cerr, vendors.ErrOwnLogin) { // e.g. opencode on its own Copilot sign-in: working, nothing to inject
+		_, _, cerr := agent.Configure(context.Background(), name, target, "")
+		if errors.Is(cerr, agent.ErrOwnLogin) { // e.g. opencode on its own Copilot sign-in: working, nothing to inject
 			d.printf("%-10s runs on its own %s login (%s)\n", name, target.Provider.Name, target.Model)
 			continue
 		}
 		if cerr != nil {
-			d.printf("%-10s FIX: %v; %s\n", name, cerr, vendors.ConfigureHint(name))
+			d.printf("%-10s FIX: %v; %s\n", name, cerr, agent.ConfigureHint(name))
 			ok = false
 			continue
 		}

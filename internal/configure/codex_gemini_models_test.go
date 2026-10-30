@@ -314,7 +314,7 @@ func TestPickGeminiModelRowsFitEightyColumns(t *testing.T) {
 	}
 }
 
-// geminiCurrent resolves GEMINI_AGENT_MODEL (base+effort split) if pinned, else vendors.AgyDefaultModel;
+// geminiCurrent resolves GEMINI_AGENT_MODEL (base+effort split) if pinned, else agent.AgyDefaultModel;
 // an unrelated GEMINI_MODEL env var (the gemini-bridge sweep tool's own key) must never leak in here.
 func TestGeminiCurrentUsesPinElseAgyDefaultIgnoringUnrelatedEnvVar(t *testing.T) {
 	menuTestEnv(t)
@@ -322,7 +322,7 @@ func TestGeminiCurrentUsesPinElseAgyDefaultIgnoringUnrelatedEnvVar(t *testing.T)
 
 	base, effort := geminiCurrent()
 	if base != "gemini-3.8-flash" || effort != "high" {
-		t.Errorf("geminiCurrent() = (%q, %q), want vendors.AgyDefaultModel split (gemini-3.8-flash, high)", base, effort)
+		t.Errorf("geminiCurrent() = (%q, %q), want agent.AgyDefaultModel split (gemini-3.8-flash, high)", base, effort)
 	}
 
 	if err := providers.SetPins(map[string]string{providers.PinGeminiModel: "gemini-2.5-pro-low"}); err != nil {

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/agent/vendors"
+	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -45,9 +45,9 @@ func workableCopilotPin(t *testing.T, user string) {
 	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"github":{"work":{"protocol":"openai",`+
 		`"base_url":"https://api.githubcopilot.com","login":"`+user+`","auth":{"type":"cli","login":"copilot"}}}}}`)
 	setPins(t, map[string]string{providers.PinCopilotProfile: "work"})
-	prev := vendors.CopilotUsedPct
-	vendors.CopilotUsedPct = func(context.Context, string) (float64, bool) { return 10, true }
-	t.Cleanup(func() { vendors.CopilotUsedPct = prev })
+	prev := agent.CopilotUsedPct
+	agent.CopilotUsedPct = func(context.Context, string) (float64, bool) { return 10, true }
+	t.Cleanup(func() { agent.CopilotUsedPct = prev })
 }
 
 // setPins seeds vault pins (pins never read the process env).
@@ -86,7 +86,7 @@ func TestDoctorOpenCodeRouteWithoutCopilotLogin(t *testing.T) {
 
 // With opencode's own github-copilot login present, the doctor row names provider=personal and
 // both model/small_model: the registry now pins both slots to concrete ids (no "auto" default to
-// swap for OpencodeFallback any more — that swap path is covered directly in internal/agent/vendors).
+// swap for OpencodeFallback any more — that swap path is covered directly in internal/agent).
 func TestDoctorOpenCodeRouteWithCopilotLogin(t *testing.T) {
 	xdgData := doctorScratch(t)
 	// github-copilot's registry defaults are "auto" (Copilot's own router); pin real ids here so this

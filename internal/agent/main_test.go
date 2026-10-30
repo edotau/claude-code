@@ -2,11 +2,11 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"io"
 	"os"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/agent/vendors"
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/providers"
 )
@@ -14,7 +14,12 @@ import (
 // TestMain runs in the hermetic host (hosttest): no live provider pins, vault or vendor CLIs are reachable.
 func TestMain(m *testing.M) {
 	NoticeOut = io.Discard
-	vendors.SetCatalogWarn(io.Discard)
+	SetCatalogWarn(io.Discard)
+	mintSession = func(context.Context, string, int) (string, error) { return "", errors.New("session mint is stubbed") }
+	revokeSession = func(context.Context, string) error { return nil }
+	copilotGOOS = "linux" // registry tests run on the macOS runner too; the darwin refusal test sets darwin itself
+	ensureRouter = func(context.Context) (string, error) { return testRouterBase, nil }
+	routerSecret = func() (string, error) { return testRouterSecret, nil }
 	os.Exit(hosttest.Main(m))
 }
 

@@ -1,4 +1,4 @@
-// routing.go — the "routing" page: every internal/agent/vendors module's fields, grouped by vendor, edited
+// routing.go — the "routing" page: every internal/agent vendor module's fields, grouped by vendor, edited
 // and held until the page is left, then written to the providers overlay's routing object via
 // providers.UpdateRouting. Mirrors the "claude code" page's editing shape (claude_settings.go).
 package configure
@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/edotau/claude-code/internal/agent/vendors"
+	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/ui/tui"
 )
@@ -25,7 +25,7 @@ func routingRow(d *dialog) homeRow {
 // countRoutingOverrides is how many fields the vault overlay itself sets, across every module.
 func countRoutingOverrides(overlay providers.Routing) int {
 	n := 0
-	for _, m := range vendors.Modules() {
+	for _, m := range agent.Modules() {
 		for _, f := range m.Fields() {
 			if f.IsSet(overlay) {
 				n++
@@ -37,7 +37,7 @@ func countRoutingOverrides(overlay providers.Routing) int {
 
 // routingSource reports "vault" when the overlay itself sets f, else "default" — derived from presence
 // in the overlay (providers.RoutingOverlay), never from comparing f's resolved value to the default.
-func routingSource(f vendors.Field, overlay providers.Routing) string {
+func routingSource(f agent.Field, overlay providers.Routing) string {
 	if f.IsSet(overlay) {
 		return "vault"
 	}
@@ -66,7 +66,7 @@ func runRouting(d *dialog) bool {
 // reportRouting prints one line per field under its module's header: key, effective value, source. The
 // core module (Vendor() "routing") skips its own header — Run's section header already reads "routing".
 func reportRouting(d *dialog, r, overlay providers.Routing) bool {
-	for _, m := range vendors.Modules() {
+	for _, m := range agent.Modules() {
 		fields := m.Fields()
 		if len(fields) == 0 {
 			continue
@@ -90,8 +90,8 @@ func runRoutingMenu(d *dialog, r, overlay providers.Routing) bool {
 	start := 0
 	for {
 		var sections []tui.Section
-		var fields []vendors.Field
-		for _, m := range vendors.Modules() {
+		var fields []agent.Field
+		for _, m := range agent.Modules() {
 			var rows [][2]string
 			for _, f := range m.Fields() {
 				val, source := f.Get(r), routingSource(f, overlay)
@@ -124,7 +124,7 @@ func runRoutingMenu(d *dialog, r, overlay providers.Routing) bool {
 
 // stageRoutingField records one edit: "" (explicit reset) marks the key reset; otherwise it stages the
 // typed input string, passed verbatim to f.Set on save.
-func stageRoutingField(staged map[string]string, resetKeys map[string]bool, f vendors.Field, input string) {
+func stageRoutingField(staged map[string]string, resetKeys map[string]bool, f agent.Field, input string) {
 	delete(staged, f.Key)
 	delete(resetKeys, f.Key)
 	if input == "" {
@@ -136,11 +136,11 @@ func stageRoutingField(staged map[string]string, resetKeys map[string]bool, f ve
 
 // editRoutingField prompts for a new value: a picker for Bool/Enum, a text line otherwise. Returns the raw
 // string to stage ("" means reset); ok is false on cancel or an invalid value (already reported).
-func editRoutingField(d *dialog, f vendors.Field) (string, bool) {
+func editRoutingField(d *dialog, f agent.Field) (string, bool) {
 	switch f.Kind {
-	case vendors.KindBool:
+	case agent.KindBool:
 		return editRoutingChoice(d, f, []string{"true", "false"})
-	case vendors.KindEnum:
+	case agent.KindEnum:
 		return editRoutingChoice(d, f, f.Values)
 	default:
 		return editRoutingText(d, f)
@@ -148,7 +148,7 @@ func editRoutingField(d *dialog, f vendors.Field) (string, bool) {
 }
 
 // editRoutingChoice is the on/off or enum picker, with a trailing "reset to default" row.
-func editRoutingChoice(d *dialog, f vendors.Field, values []string) (string, bool) {
+func editRoutingChoice(d *dialog, f agent.Field, values []string) (string, bool) {
 	rows := make([][2]string, 0, len(values)+1)
 	for _, v := range values {
 		rows = append(rows, [2]string{v, ""})
@@ -170,7 +170,7 @@ func editRoutingChoice(d *dialog, f vendors.Field, values []string) (string, boo
 }
 
 // editRoutingText is the number/text/list prompt; an empty line resets to the default.
-func editRoutingText(d *dialog, f vendors.Field) (string, bool) {
+func editRoutingText(d *dialog, f agent.Field) (string, bool) {
 	input := strings.TrimSpace(textLine(d, f.Key+" (empty resets to default): "))
 	if input == "" {
 		return "", true
@@ -183,7 +183,7 @@ func editRoutingText(d *dialog, f vendors.Field) (string, bool) {
 }
 
 // validateRoutingInput runs f.Set against a scratch Routing, so a bad value is reported before staging.
-func validateRoutingInput(f vendors.Field, input string) error {
+func validateRoutingInput(f agent.Field, input string) error {
 	var scratch providers.Routing
 	return f.Set(&scratch, input)
 }
@@ -201,7 +201,7 @@ func saveRouting(d *dialog, staged map[string]string, resetKeys map[string]bool)
 		return
 	}
 	err := providers.UpdateRouting(func(r *providers.Routing) error {
-		for _, m := range vendors.Modules() {
+		for _, m := range agent.Modules() {
 			for _, f := range m.Fields() {
 				switch {
 				case resetKeys[f.Key]:

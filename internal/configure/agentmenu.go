@@ -9,7 +9,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/edotau/claude-code/internal/agent/vendors"
+	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
@@ -186,7 +186,7 @@ func loginOrKey(d *dialog, loggedIn bool, tier string) agentState {
 	if loggedIn {
 		return agentState{modeSubscription, tier, true}
 	}
-	// BYOK fallback (vendors.DescribeRoute order): the anthropic key, handed over as generated config, never `auth login`.
+	// BYOK fallback (agent.DescribeRoute order): the anthropic key, handed over as generated config, never `auth login`.
 	if p, ok := keyPresent(d.reg, anthropicProvider); ok {
 		return agentState{mode: modeAPIKey, verified: keyVerified(p)}
 	}
@@ -194,7 +194,7 @@ func loginOrKey(d *dialog, loggedIn bool, tier string) agentState {
 }
 
 func codexMenu(d *dialog) agentMenu {
-	loggedIn := vendors.CodexChatGPTLoginPresent()
+	loggedIn := agent.CodexChatGPTLoginPresent()
 	tier := ""
 	if loggedIn {
 		tier = codexTier()
@@ -259,13 +259,13 @@ func codexUseKey(d *dialog) bool {
 }
 
 func copilotMenu(d *dialog) agentMenu {
-	auth, loggedIn := vendors.ResolveCopilotAuth()
+	auth, loggedIn := agent.ResolveCopilotAuth()
 	tier := ""
 	if loggedIn {
 		tier = copilotTier()
 	}
 	st := loginOrKey(d, loggedIn, tier)
-	if auth.Source == vendors.SrcStoredToken {
+	if auth.Source == agent.SrcStoredToken {
 		st = agentState{mode: modeAPIKey, verified: auth.Account != ""}
 	}
 	pinned := providers.Pin(providers.PinCopilotProfile)
@@ -436,7 +436,7 @@ func curMark(current bool) string {
 
 // copilotKeyRow pastes (or rotates) a GitHub token into COPILOT_GITHUB_TOKEN; it outranks gh's active account.
 func copilotKeyRow(d *dialog) billingRow {
-	env := vendors.CopilotTokenEnv
+	env := agent.CopilotTokenEnv
 	_, src, ok := secrets.Get(env)
 	stored := ok && src != "env"
 	return billingRow{modeAPIKey, "paste a GitHub token → " + env + " " + bracket(stored, "token set", "no token"), modeAPIKey, func() bool {
@@ -450,13 +450,13 @@ func copilotKeyRow(d *dialog) billingRow {
 
 // pickGitHubUser lists gh's accounts; a pick is validated (gh has a token GitHub accepts for that user) and pins
 // only the name, COPILOT_PROFILE — launches fetch the token with `gh auth token --user`.
-func pickGitHubUser(d *dialog, cur vendors.CopilotAuth) bool {
-	gh := vendors.GHAccounts()
+func pickGitHubUser(d *dialog, cur agent.CopilotAuth) bool {
+	gh := agent.GHAccounts()
 	if !isStdinTTY() || d.o.In != os.Stdin {
 		d.printf("copilot: runs as %s; gh accounts: %s\n", cur.Label(), strings.Join(gh, ", "))
 		return false
 	}
-	active := vendors.GHActiveAccount()
+	active := agent.GHActiveAccount()
 	var rows [][2]string
 	for _, u := range gh {
 		desc := "personal"
@@ -480,7 +480,7 @@ func pickGitHubUser(d *dialog, cur vendors.CopilotAuth) bool {
 	switch n := len(gh); {
 	case idx < n:
 		u := gh[idx]
-		if tok := vendors.GHToken(u); tok == "" || vendors.GitHubLogin(tok) != u {
+		if tok := agent.GHToken(u); tok == "" || agent.GitHubLogin(tok) != u {
 			d.printf("copilot: gh has no working token for %s; run gh auth login\n", u)
 			return false
 		}
@@ -525,7 +525,7 @@ func pinCopilotProfile(d *dialog, user string) bool {
 
 // opencodeMenu is the home row's state only; its page is runOpencodePage (opencode_page.go).
 func opencodeMenu(d *dialog) agentMenu {
-	if vendors.OpencodeOwnLoginPresent() || vendors.OpencodeCopilotLoginPresent() {
+	if agent.OpencodeOwnLoginPresent() || agent.OpencodeCopilotLoginPresent() {
 		return agentMenu{state: agentState{modeSubscription, "", true}}
 	}
 	return agentMenu{state: agentState{mode: modeNone}}

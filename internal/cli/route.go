@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/agent/vendors"
 	"github.com/edotau/claude-code/internal/hooks"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
@@ -22,7 +21,7 @@ import (
 // routeRefresh re-fetches a stale account for a pick; a var so tests stay offline.
 var routeRefresh = usagepkg.RefreshAccount
 
-func init() { vendors.CopilotUsedPct = copilotUsedPct }
+func init() { agent.CopilotUsedPct = copilotUsedPct }
 
 // copilotUsedPct is github·<profile>'s used share from route state, refreshed through routeRefresh past its TTL.
 func copilotUsedPct(ctx context.Context, login string) (float64, bool) {

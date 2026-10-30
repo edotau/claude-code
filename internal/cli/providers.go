@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/agent/vendors"
 	"github.com/edotau/claude-code/internal/copilotsdk"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
@@ -93,7 +92,7 @@ func printProviderTable(reg *providers.Registry) {
 		}
 	}
 	rows = append(rows, [3]string{})
-	for _, v := range vendors.Names() {
+	for _, v := range agent.Names() {
 		var names, vm []string
 		for _, p := range ready {
 			if providers.CanServe(v, p) {
@@ -667,5 +666,5 @@ func printPinDiff(kv map[string]string) int {
 
 // copilotCatalogOptions lists models as the profile copilot runs as (COPILOT_PROFILE), not its stored login.
 func copilotCatalogOptions(bin string) copilotsdk.Options {
-	return copilotsdk.CatalogOptions(bin, vendors.CopilotToken())
+	return copilotsdk.CatalogOptions(bin, agent.CopilotToken())
 }

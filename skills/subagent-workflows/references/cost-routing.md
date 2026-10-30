@@ -117,7 +117,7 @@ cell (see Pins).
   handoff to the next dispatch (a Databricks dispatch only when a pin or `--profile` names one). Interactive copilot
   cannot hand off. Copilot now switches models within a Databricks profile (`/model`, registry; `--direct` = one model).
 - **Explicit profile** (`--profile`): one dispatch, no fallback, but gated and marked on its own account.
-- **Credential route** (`internal/agent/vendors/routes.go`, `<agent> setup` → route row): opencode uses its own `opencode`
+- **Credential route** (`internal/agent/routes.go`, `<agent> setup` → route row): opencode uses its own `opencode`
   login (Go plan; else the vault `OPENCODE_API_KEY`), then its GitHub Copilot login; copilot its pinned GitHub
   profile, then BYOK `ANTHROPIC_API_KEY`. A `<agent>: session profile … cannot serve …; using <x>` line is this
   route, not a fallback dispatch — report `fallback: none`.

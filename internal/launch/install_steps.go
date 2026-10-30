@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/agent/vendors"
 	"github.com/edotau/claude-code/internal/clipboard"
 	"github.com/edotau/claude-code/internal/completion"
 	"github.com/edotau/claude-code/internal/crossgen"
@@ -357,7 +356,7 @@ func agentConfigsSummary(w io.Writer) string {
 	var changed []string
 	for _, a := range settings.DefaultAgents {
 		var buf bytes.Buffer
-		o := settings.Options{Agents: []string{a}, Check: true, Out: &buf, Router: vendors.Router{}}
+		o := settings.Options{Agents: []string{a}, Check: true, Out: &buf, Router: agent.Router{}}
 		drift, err := settings.Run(o)
 		if err != nil {
 			fmt.Fprintf(w, "agents   config render skip (%s)  %v\n", a, err)

@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/edotau/claude-code/internal/agent/vendors"
+	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/copilotsdk"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
@@ -44,8 +44,8 @@ func ghAuthCheck() ghStatus {
 	return st
 }
 
-// printRoute prints one vendors.DescribeRoute result: provider/model/small_model and why, never a credential.
-func printRoute(d *dialog, ri vendors.RouteInfo) {
+// printRoute prints one agent.DescribeRoute result: provider/model/small_model and why, never a credential.
+func printRoute(d *dialog, ri agent.RouteInfo) {
 	status := "FIX"
 	if ri.OK {
 		status = "ok"
@@ -62,7 +62,7 @@ func githubStatusRows(d *dialog) (ghOK, copilotOK bool) {
 	case !gh.found:
 		d.printf("%-16s ABSENT: gh CLI not found on PATH\n", "gh CLI")
 	case gh.loggedIn:
-		acct := vendors.GHActiveAccount()
+		acct := agent.GHActiveAccount()
 		if acct == "" {
 			acct = gh.account
 		}
@@ -72,15 +72,15 @@ func githubStatusRows(d *dialog) (ghOK, copilotOK bool) {
 		d.printf("%-16s ABSENT: not logged in\n", "gh CLI")
 	}
 
-	auth, copilotOK := vendors.ResolveCopilotAuth()
+	auth, copilotOK := agent.ResolveCopilotAuth()
 	if copilotOK {
 		d.printf("%-16s present (%s)\n", "copilot CLI", auth.Label())
 	} else {
 		d.printf("%-16s ABSENT: no usable GitHub login\n", "copilot CLI")
 	}
 
-	printRoute(d, vendors.DescribeRoute(d.reg, "opencode"))
-	printRoute(d, vendors.DescribeRoute(d.reg, "copilot"))
+	printRoute(d, agent.DescribeRoute(d.reg, "opencode"))
+	printRoute(d, agent.DescribeRoute(d.reg, "copilot"))
 	return
 }
 
@@ -100,7 +100,7 @@ func runGithub(d *dialog) bool {
 		d.println("fix: copilot login")
 	}
 	if d.o.Check {
-		return vendors.DescribeRoute(d.reg, "opencode").OK && vendors.DescribeRoute(d.reg, "copilot").OK
+		return agent.DescribeRoute(d.reg, "opencode").OK && agent.DescribeRoute(d.reg, "copilot").OK
 	}
 	return true
 }
@@ -156,7 +156,7 @@ func pickCopilotModels(d *dialog) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 	opts := copilotCatalogOptions(bin)
-	tok, err := vendors.CopilotLaunchToken()
+	tok, err := agent.CopilotLaunchToken()
 	if err != nil {
 		d.printf("copilot models: %v\n", err)
 		return
@@ -248,5 +248,5 @@ func WriteGithubCopilotModels(picks map[string]string, fallback string) error {
 
 // copilotCatalogOptions lists models as the account copilot runs as (COPILOT_PROFILE), not its stored login.
 func copilotCatalogOptions(bin string) copilotsdk.Options {
-	return copilotsdk.CatalogOptions(bin, vendors.CopilotToken())
+	return copilotsdk.CatalogOptions(bin, agent.CopilotToken())
 }

@@ -16,7 +16,6 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/agent/vendors"
 	"github.com/edotau/claude-code/internal/databricks"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
@@ -403,7 +402,7 @@ func headless(args []string) bool {
 	return slices.Contains(args, "-p") || slices.Contains(args, "--print")
 }
 
-// Vendor resolves `claude-code run <vendor>`: the opus target via vendors.Configure, else the vendor's own login.
+// Vendor resolves `claude-code run <vendor>`: the opus target via agent.Configure, else the vendor's own login.
 func Vendor(ctx context.Context, name string, o Options, args []string) (Plan, error) {
 	plan, err := vendorPlan(ctx, name, o, args)
 	plan.Keep, plan.Vendor = o.KeepEnv, true
@@ -474,9 +473,9 @@ func agentModelTarget(name string, t providers.Target, sel providers.Selection, 
 
 func vendorPlan(ctx context.Context, name string, o Options, args []string) (Plan, error) {
 	if o.Direct {
-		ctx = vendors.WithDirect(ctx)
+		ctx = agent.WithDirect(ctx)
 	}
-	spec, ok := vendors.Lookup(name)
+	spec, ok := agent.LookupSpec(name)
 	if !ok {
 		return Plan{}, fmt.Errorf("unknown agent %q (codex|gemini|opencode|copilot)", name)
 	}
@@ -498,7 +497,7 @@ func vendorPlan(ctx context.Context, name string, o Options, args []string) (Pla
 	}
 	// --profile or the agent's own profile pin is explicit: the session pin is Claude Code's default, not a per-agent choice.
 	explicit := o.Provider != ""
-	target, note, err := vendors.ResolveTarget(reg, name, sel, explicit)
+	target, note, err := agent.ResolveVendorTarget(reg, name, sel, explicit)
 	if err == nil {
 		var modelNote string
 		if target, modelNote = agentModelTarget(name, target, sel, flagModel); modelNote != "" {
@@ -507,7 +506,7 @@ func vendorPlan(ctx context.Context, name string, o Options, args []string) (Pla
 	}
 	// An own-login note is only worth a line on an interactive launch (or --print-env): `opencode --version` stays quiet.
 	showOwnLoginNote := o.PrintEnv || (ansi.IsTerminal(os.Stderr) && interactiveVendorArgs(args))
-	if errors.Is(err, vendors.ErrOwnLogin) {
+	if errors.Is(err, agent.ErrOwnLogin) {
 		if showOwnLoginNote {
 			fmt.Fprintln(agent.NoticeOut, note)
 		}
@@ -516,11 +515,11 @@ func vendorPlan(ctx context.Context, name string, o Options, args []string) (Pla
 	if err != nil {
 		return Plan{}, err
 	}
-	if name == "copilot" && vendors.UsesCopilotRegistry(ctx, target) {
+	if name == "copilot" && agent.UsesCopilotRegistry(ctx, target) {
 		return copilotRegistryPlan(ctx, spec, reg, target, note, withFlagModel(args, flagModel), o.PrintEnv)
 	}
-	env, prefix, err := vendors.Configure(ctx, name, target, "")
-	if errors.Is(err, vendors.ErrOwnLogin) {
+	env, prefix, err := agent.Configure(ctx, name, target, "")
+	if errors.Is(err, agent.ErrOwnLogin) {
 		// The vendor's own login (opencode on Copilot) picks the model itself: plain launch, not a failure.
 		if showOwnLoginNote {
 			fmt.Fprintln(agent.NoticeOut, note)
@@ -531,12 +530,12 @@ func vendorPlan(ctx context.Context, name string, o Options, args []string) (Pla
 		fmt.Fprintln(agent.NoticeOut, note)
 	}
 	if err != nil {
-		reason := fmt.Errorf("%w; %s", err, vendors.ConfigureHint(name))
+		reason := fmt.Errorf("%w; %s", err, agent.ConfigureHint(name))
 		// A human at a terminal is offered configure once; a yes re-resolves on the new state.
 		if OfferConfigure != nil && !o.PrintEnv && OfferConfigure(name, reason) {
 			env, prefix, err = retryVendorConfigure(ctx, name, o)
 		}
-		if errors.Is(err, vendors.ErrOwnLogin) {
+		if errors.Is(err, agent.ErrOwnLogin) {
 			return plainPlan(spec, args)
 		}
 		if err != nil {
@@ -569,13 +568,13 @@ func withAgentPins(name string, o Options) Options {
 // copilotRegistryPlan is the interactive Databricks copilot launch on a native model registry. It fails closed:
 // no error here reaches passthrough or the plain CLI, which would run on copilot's own GitHub login.
 func copilotRegistryPlan(
-	ctx context.Context, spec vendors.Spec, reg *providers.Registry, t providers.Target, note string, args []string,
+	ctx context.Context, spec agent.Spec, reg *providers.Registry, t providers.Target, note string, args []string,
 	dry bool,
 ) (Plan, error) {
 	if note != "" {
 		fmt.Fprintln(agent.NoticeOut, note)
 	}
-	cr, err := vendors.ConfigureCopilotRegistry(ctx, reg, t, args, dry)
+	cr, err := agent.ConfigureCopilotRegistry(ctx, reg, t, args, dry)
 	if err != nil {
 		return Plan{}, err
 	}
@@ -584,8 +583,8 @@ func copilotRegistryPlan(
 		cr.Revoke()
 		return Plan{}, err
 	}
-	lenv, lprefix := vendors.LaunchSpec(spec.Name)
-	fmt.Fprintln(agent.NoticeOut, vendors.CopilotRegistryBanner)
+	lenv, lprefix := agent.LaunchSpec(spec.Name)
+	fmt.Fprintln(agent.NoticeOut, agent.CopilotRegistryBanner)
 	return Plan{
 		Binary: bin, Set: envMap(append(lenv, cr.Env...)), Unset: cr.Unset, Warnings: cr.Warnings,
 		Argv:       append(append(lprefix, cr.Argv...), cr.Args...),
@@ -598,14 +597,14 @@ func retryVendorConfigure(ctx context.Context, name string, o Options) ([]string
 	if err != nil {
 		return nil, nil, err
 	}
-	target, note, err := vendors.ResolveTarget(reg, name, sel, o.Provider != "")
+	target, note, err := agent.ResolveVendorTarget(reg, name, sel, o.Provider != "")
 	if err != nil {
 		return nil, nil, err
 	}
 	if note != "" {
 		fmt.Fprintln(agent.NoticeOut, note)
 	}
-	return vendors.Configure(ctx, name, target, "")
+	return agent.Configure(ctx, name, target, "")
 }
 
 // authVendorArgs reports a vendor's own sign-in subcommand: codex/copilot login|logout, gemini/opencode auth.
@@ -657,7 +656,7 @@ func moduleEnv(base []string) ([]string, map[string]bool) {
 		return base, locked
 	}
 	out := base
-	for _, m := range vendors.Modules() {
+	for _, m := range agent.Modules() {
 		for k, v := range m.Env(reg.Routing) {
 			if present[k] {
 				locked[k] = true // process env already set this module-owned key: protect it from custom env too
@@ -753,7 +752,7 @@ func (p Plan) Print(w io.Writer) {
 		case secretKey(k):
 			v = "<redacted>"
 		case k == "OPENCODE_CONFIG_CONTENT":
-			v = redactQuoted(vendors.RedactConfig(v))
+			v = redactQuoted(agent.RedactConfig(v))
 		}
 		fmt.Fprintf(w, "set      %s=%s\n", k, v)
 	}
@@ -866,7 +865,7 @@ var OfferConfigure func(vendor string, reason error) bool
 
 // passthrough launches the vendor's own CLI untouched when the harness cannot route it: the user installed
 // that CLI and it carries its own login, so refusing to run it would only hide its own `agy` sign-in.
-func passthrough(spec vendors.Spec, name string, reason error, args []string) (Plan, error) {
+func passthrough(spec agent.Spec, name string, reason error, args []string) (Plan, error) {
 	if _, err := lookPath(spec.Binary); err != nil {
 		return Plan{}, reason // no CLI to fall back to: the routing error is the whole story
 	}
@@ -875,11 +874,11 @@ func passthrough(spec vendors.Spec, name string, reason error, args []string) (P
 }
 
 // plainPlan is the vendor's own CLI on its own login: no routing env, but the vendor spec's launch env/args still apply.
-func plainPlan(spec vendors.Spec, args []string) (Plan, error) {
+func plainPlan(spec agent.Spec, args []string) (Plan, error) {
 	bin, err := lookPath(spec.Binary)
 	if err != nil {
 		return Plan{}, err
 	}
-	env, prefix := vendors.LaunchSpec(spec.Name)
+	env, prefix := agent.LaunchSpec(spec.Name)
 	return Plan{Binary: bin, Set: envMap(env), Argv: append(prefix, args...)}, nil
 }

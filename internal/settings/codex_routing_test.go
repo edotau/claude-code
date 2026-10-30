@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"fmt"
-	"github.com/edotau/claude-code/internal/agent/vendors"
+	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/settings"
 	"os"
 	"path/filepath"
@@ -26,7 +26,7 @@ func TestCodexLifecycleTrustUsesMergedPositions(t *testing.T) {
 	if err := os.WriteFile(hooksPath, seed, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := settings.Run(settings.Options{Router: vendors.Router{}, Home: home, Vendors: true, Agents: []string{"codex"}, Out: &bytes.Buffer{}}); err != nil {
+	if _, err := settings.Run(settings.Options{Router: agent.Router{}, Home: home, Vendors: true, Agents: []string{"codex"}, Out: &bytes.Buffer{}}); err != nil {
 		t.Fatal(err)
 	}
 	config, err := os.ReadFile(filepath.Join(dir, "config.toml"))
@@ -70,7 +70,7 @@ func TestCodexHomeControlsConfigAndHooks(t *testing.T) {
 			t.Setenv("HOME", home)
 			codexHome := filepath.Join(t.TempDir(), "custom-codex")
 			t.Setenv("CODEX_HOME", codexHome)
-			o := settings.Options{Router: vendors.Router{}, Vendors: true, Agents: []string{"codex"}, Out: &bytes.Buffer{}}
+			o := settings.Options{Router: agent.Router{}, Vendors: true, Agents: []string{"codex"}, Out: &bytes.Buffer{}}
 			want, absent := codexHome, filepath.Join(home, ".codex")
 			if explicitHome {
 				o.Home = home

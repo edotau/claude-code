@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"github.com/edotau/claude-code/internal/agent/vendors"
+	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/settings"
 	"os"
 	"path/filepath"
@@ -94,7 +94,7 @@ func TestRenderCodexHooksFilePreservesOrcaOnDisk(t *testing.T) {
 		t.Fatal(err)
 	}
 	var out bytes.Buffer
-	if _, err := settings.Run(settings.Options{Router: vendors.Router{}, Home: home, Vendors: true, Out: &out, Agents: []string{"codex"}}); err != nil {
+	if _, err := settings.Run(settings.Options{Router: agent.Router{}, Home: home, Vendors: true, Out: &out, Agents: []string{"codex"}}); err != nil {
 		t.Fatalf("Run: %v\n%s", err, out.String())
 	}
 	got, err := os.ReadFile(hooksPath)
@@ -329,7 +329,7 @@ func TestRenderCodexFailsHooksMergeLeavesConfigTomlUntouched(t *testing.T) {
 		t.Fatal(err)
 	}
 	var out bytes.Buffer
-	_, err := settings.Run(settings.Options{Router: vendors.Router{}, Home: home, Vendors: true, Out: &out, Agents: []string{"codex"}})
+	_, err := settings.Run(settings.Options{Router: agent.Router{}, Home: home, Vendors: true, Out: &out, Agents: []string{"codex"}})
 	if err == nil {
 		t.Fatalf("expected settings.Run to fail on a malformed hooks.json, got no error:\n%s", out.String())
 	}
@@ -588,7 +588,7 @@ func TestCodexTrustEntriesSurviveForeignFirstOrder(t *testing.T) {
 		t.Fatal(err)
 	}
 	var out bytes.Buffer
-	if _, err := settings.Run(settings.Options{Router: vendors.Router{}, Home: home, Vendors: true, Out: &out, Agents: []string{"codex"}}); err != nil {
+	if _, err := settings.Run(settings.Options{Router: agent.Router{}, Home: home, Vendors: true, Out: &out, Agents: []string{"codex"}}); err != nil {
 		t.Fatalf("Run: %v\n%s", err, out.String())
 	}
 	body, err := hookspec.CodexJSON()

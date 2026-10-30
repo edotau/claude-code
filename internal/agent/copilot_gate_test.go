@@ -10,7 +10,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/edotau/claude-code/internal/agent/vendors"
 	"github.com/edotau/claude-code/internal/copilotsdk"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
@@ -62,9 +61,9 @@ func ghLogin(t *testing.T, user string, pct float64) {
 		t.Fatal(err)
 	}
 	pinGitHubProfile(t, user, "")
-	prev := vendors.CopilotUsedPct
-	vendors.CopilotUsedPct = func(context.Context, string) (float64, bool) { return pct, true }
-	t.Cleanup(func() { vendors.CopilotUsedPct = prev })
+	prev := CopilotUsedPct
+	CopilotUsedPct = func(context.Context, string) (float64, bool) { return pct, true }
+	t.Cleanup(func() { CopilotUsedPct = prev })
 }
 
 // The GitHub-login provider bills the pinned account's route state; no pin yields no account.
@@ -115,7 +114,7 @@ func TestVendorTargetNoteExplicitCopilotGated(t *testing.T) {
 	}
 
 	for _, pct := range []float64{95, 99} {
-		vendors.CopilotUsedPct = func(context.Context, string) (float64, bool) { return pct, true }
+		CopilotUsedPct = func(context.Context, string) (float64, bool) { return pct, true }
 		tg, _, _, err := vendorTargetNote(req, "copilot")
 		if err == nil && tg.Provider != nil && tg.Provider.Name == "personal" {
 			t.Fatalf("pct %v: explicit GitHub login must not be used past the gate", pct)

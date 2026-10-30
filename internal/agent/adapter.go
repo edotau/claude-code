@@ -2,8 +2,6 @@ package agent
 
 import (
 	"fmt"
-
-	"github.com/edotau/claude-code/internal/agent/vendors"
 )
 
 // Adapter is the per-agent data behind the `claude-code <v> status|tail|result|cancel|setup|models` verbs.
@@ -22,14 +20,14 @@ type Adapter struct {
 var adapters = []Adapter{
 	{
 		Name:           "codex",
-		Login:          vendors.CodexChatGPTLoginPresent,
+		Login:          CodexChatGPTLoginPresent,
 		ResumeHint:     func(id string) string { return "codex resume " + id },
 		ModelsProvider: "openai",
 		ReadNeedsTools: false, // codex exec's --sandbox read-only still reads files without --tools
 	},
 	{
 		Name:           "gemini",
-		Login:          vendors.GeminiLoginPresent,
+		Login:          GeminiLoginPresent,
 		ResumeHint:     func(id string) string { return "agy --conversation " + id },
 		ModelsArgv:     []string{"models"},
 		ReadNeedsTools: true, // agy's no-tools preamble bars @path reads; needs --tools to read/search
@@ -37,14 +35,14 @@ var adapters = []Adapter{
 	},
 	{
 		Name:           "copilot",
-		Login:          vendors.CopilotLoginPresent,
+		Login:          CopilotLoginPresent,
 		ResumeHint:     func(id string) string { return "copilot --resume " + id },
 		ModelsProvider: "github",
 		ReadNeedsTools: true, // denyAllTools blocks every tool call, including file reads, unless AllowAllTools
 	},
 	{
 		Name:           "opencode",
-		Login:          func() bool { return len(vendors.OpencodeLogins()) > 0 },
+		Login:          func() bool { return len(OpencodeLogins()) > 0 },
 		ResumeHint:     func(id string) string { return "opencode run --session " + id },
 		ModelsArgv:     []string{"models"},
 		ReadNeedsTools: true, // permission:"deny" without --tools blocks every tool, including read/glob
@@ -57,7 +55,7 @@ func LookupAdapter(name string) (Adapter, bool) {
 		if a.Name != name {
 			continue
 		}
-		if spec, ok := vendors.Lookup(name); ok {
+		if spec, ok := LookupSpec(name); ok {
 			a.Binary = spec.Binary
 		} else {
 			a.Binary = name

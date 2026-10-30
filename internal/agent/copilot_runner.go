@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/edotau/claude-code/internal/agent/vendors"
 	"github.com/edotau/claude-code/internal/copilotsdk"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
@@ -27,7 +26,7 @@ func (copilotRunner) Available() error { _, err := paths.VendorBin("copilot"); r
 // applyCopilotToken puts the own-login launch token, then the harness account's env token, on the SDK's token field.
 func applyCopilotToken(opts *copilotsdk.Options, own bool, env []string) error {
 	if own {
-		tok, err := vendors.CopilotLaunchToken()
+		tok, err := CopilotLaunchToken()
 		if err != nil {
 			return err
 		}
@@ -36,7 +35,7 @@ func applyCopilotToken(opts *copilotsdk.Options, own bool, env []string) error {
 		}
 	}
 	for _, kv := range env { // the harness's chosen account rides the SDK's own token field, not the stored login
-		if tok, ok := strings.CutPrefix(kv, vendors.CopilotTokenEnv+"="); ok && tok != "" {
+		if tok, ok := strings.CutPrefix(kv, CopilotTokenEnv+"="); ok && tok != "" {
 			opts.GitHubToken, opts.UseLoggedInUser = tok, false
 		}
 	}
@@ -60,13 +59,13 @@ func (copilotRunner) Run(ctx context.Context, req Request, sink Sink) (Result, e
 	var route *copilotRegistryRoute
 	switch {
 	case own:
-	case vendors.CopilotRegistryEligible(req.Direct, t):
+	case CopilotRegistryEligible(req.Direct, t):
 		if route, err = prepareCopilotRegistry(ctx, t); err != nil {
 			return res, &Error{Kind: KindFatal, Agent: "copilot", Err: err}
 		}
 		defer route.close()
 	default:
-		env, _, err = vendors.Configure(ctx, "copilot", t, "")
+		env, _, err = Configure(ctx, "copilot", t, "")
 		if err != nil {
 			return res, &Error{Kind: KindFatal, Agent: "copilot", Err: err}
 		}
@@ -144,10 +143,10 @@ func copilotModelID(id string) string {
 	return id
 }
 
-// directCtx carries req.Direct to vendors.Configure (skip the router).
+// directCtx carries req.Direct to Configure (skip the router).
 func directCtx(ctx context.Context, req Request) context.Context {
 	if req.Direct {
-		return vendors.WithDirect(ctx)
+		return WithDirect(ctx)
 	}
 	return ctx
 }

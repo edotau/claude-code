@@ -43,7 +43,7 @@ const (
 	// PinCodexEffort is codex's -c model_reasoning_effort on every launch; unset follows codex's own default.
 	PinCodexEffort = "CODEX_EFFORT"
 	// PinGeminiModel is agy's own model (its `models` catalog, effort baked into the id); unset falls
-	// back to vendors.AgyDefaultModel.
+	// back to agent.AgyDefaultModel.
 	PinGeminiModel = "GEMINI_MODEL"
 )
 

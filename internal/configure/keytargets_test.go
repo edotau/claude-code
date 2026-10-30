@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/agent/vendors"
+	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/providers"
 )
 
@@ -49,7 +49,7 @@ func TestVendorKeyTargetCodexRotateWiring(t *testing.T) {
 func TestVendorKeyTargetGeminiGoogleLoginRotateWiring(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	marker := vendors.AgyLoginMarker(home)
+	marker := agent.AgyLoginMarker(home)
 	if err := os.MkdirAll(filepath.Dir(marker), 0o755); err != nil {
 		t.Fatal(err)
 	}

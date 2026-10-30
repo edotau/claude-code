@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/agent/vendors"
+	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/vault"
@@ -33,7 +33,7 @@ func scratch(t *testing.T) string {
 	t.Setenv("GEMINI_API_KEY", "sk-test-gemini")
 	t.Setenv("OPENROUTER_API_KEY", "sk-test-openrouter")
 	t.Setenv("OPENAI_API_KEY", "")
-	vendors.StubRouterForTest(t, "http://127.0.0.1:9999")
+	agent.StubRouterForTest(t, "http://127.0.0.1:9999")
 	t.Setenv("ANTHROPIC_API_KEY", "")
 	overlay := `{"default": "openai"}`
 	t.Setenv("OPENAI_API_KEY", "sk-test-openai")
@@ -57,7 +57,7 @@ func TestRunMalformedCopilotHooksWritesNothing(t *testing.T) {
 		t.Fatal(err)
 	}
 	var out bytes.Buffer
-	_, err := settings.Run(settings.Options{Router: vendors.Router{}, Home: home, Vendors: true, Out: &out, Agents: []string{"codex", "opencode", "gemini", "copilot"}})
+	_, err := settings.Run(settings.Options{Router: agent.Router{}, Home: home, Vendors: true, Out: &out, Agents: []string{"codex", "opencode", "gemini", "copilot"}})
 	if err == nil || !strings.Contains(err.Error(), "copilot-hooks: existing file:") {
 		t.Fatalf("expected malformed Copilot hooks error, got %v\n%s", err, out.String())
 	}
@@ -86,7 +86,7 @@ func TestPrepareDefersOpencodeOverlayWrite(t *testing.T) {
 	home := scratch(t)
 	overlayPath := filepath.Join(paths.StateDir(), "opencode", "opencode.json")
 	var out bytes.Buffer
-	p, drift, err := settings.Prepare(settings.Options{Router: vendors.Router{}, Home: home, Vendors: true, Out: &out, Agents: []string{"opencode"}})
+	p, drift, err := settings.Prepare(settings.Options{Router: agent.Router{}, Home: home, Vendors: true, Out: &out, Agents: []string{"opencode"}})
 	if err != nil || !drift || p == nil {
 		t.Fatalf("Prepare = %v, %v, %v", p, drift, err)
 	}
@@ -107,7 +107,7 @@ func TestPrepareDefersOpencodeOverlayWrite(t *testing.T) {
 func TestRunWritesBannerBlocksAndIsIdempotent(t *testing.T) {
 	home := scratch(t)
 	var out bytes.Buffer
-	drift, err := settings.Run(settings.Options{Router: vendors.Router{}, Home: home, Vendors: true, Out: &out, Agents: []string{"codex", "opencode", "gemini", "copilot"}})
+	drift, err := settings.Run(settings.Options{Router: agent.Router{}, Home: home, Vendors: true, Out: &out, Agents: []string{"codex", "opencode", "gemini", "copilot"}})
 	if err != nil {
 		t.Fatalf("Run: %v\noutput:\n%s", err, out.String())
 	}
@@ -166,7 +166,7 @@ func TestRunWritesBannerBlocksAndIsIdempotent(t *testing.T) {
 
 	// A second run with nothing changed must report no drift and touch no file's content.
 	var out2 bytes.Buffer
-	drift, err = settings.Run(settings.Options{Router: vendors.Router{}, Home: home, Vendors: true, Out: &out2, Agents: []string{"codex", "opencode", "gemini", "copilot"}})
+	drift, err = settings.Run(settings.Options{Router: agent.Router{}, Home: home, Vendors: true, Out: &out2, Agents: []string{"codex", "opencode", "gemini", "copilot"}})
 	if err != nil {
 		t.Fatalf("second settings.Run: %v", err)
 	}
@@ -197,7 +197,7 @@ func TestForeignKeysSurviveAndBackupIsWritten(t *testing.T) {
 	}
 
 	var out bytes.Buffer
-	if _, err := settings.Run(settings.Options{Router: vendors.Router{}, Home: home, Vendors: true, Out: &out, Agents: []string{"codex", "opencode"}}); err != nil {
+	if _, err := settings.Run(settings.Options{Router: agent.Router{}, Home: home, Vendors: true, Out: &out, Agents: []string{"codex", "opencode"}}); err != nil {
 		t.Fatalf("Run: %v\n%s", err, out.String())
 	}
 
@@ -256,7 +256,7 @@ func TestCodexCredStoreKeyUserValueKept(t *testing.T) {
 		t.Fatal(err)
 	}
 	var out bytes.Buffer
-	if _, err := settings.Run(settings.Options{Router: vendors.Router{}, Home: home, Vendors: true, Out: &out, Agents: []string{"codex"}}); err != nil {
+	if _, err := settings.Run(settings.Options{Router: agent.Router{}, Home: home, Vendors: true, Out: &out, Agents: []string{"codex"}}); err != nil {
 		t.Fatalf("Run: %v\n%s", err, out.String())
 	}
 	got, err := os.ReadFile(codexPath)
@@ -279,7 +279,7 @@ func TestCodexCredStoreKeyUserValueKept(t *testing.T) {
 func TestVendorBaselineSeededOnFirstWrite(t *testing.T) {
 	home := scratch(t)
 	codexPath := filepath.Join(home, ".codex", "config.toml")
-	if _, err := settings.Run(settings.Options{Router: vendors.Router{}, Home: home, Vendors: true, Out: &bytes.Buffer{}, Agents: []string{"codex"}}); err != nil {
+	if _, err := settings.Run(settings.Options{Router: agent.Router{}, Home: home, Vendors: true, Out: &bytes.Buffer{}, Agents: []string{"codex"}}); err != nil {
 		t.Fatal(err)
 	}
 	raw, err := os.ReadFile(codexPath)
@@ -301,7 +301,7 @@ func TestVendorBaselineSeededWhenUnchanged(t *testing.T) {
 	home := scratch(t)
 	codexPath := filepath.Join(home, ".codex", "config.toml")
 	opts := func() settings.Options {
-		return settings.Options{Router: vendors.Router{}, Home: home, Vendors: true, Out: &bytes.Buffer{}, Agents: []string{"codex"}}
+		return settings.Options{Router: agent.Router{}, Home: home, Vendors: true, Out: &bytes.Buffer{}, Agents: []string{"codex"}}
 	}
 	if _, err := settings.Run(opts()); err != nil {
 		t.Fatal(err)
@@ -359,7 +359,7 @@ func TestLostLinesDetectsHandAddedLine(t *testing.T) {
 func TestLostLineNonInteractiveOverwritesWithWarning(t *testing.T) {
 	home := scratch(t)
 	codexPath := filepath.Join(home, ".codex", "config.toml")
-	if _, err := settings.Run(settings.Options{Router: vendors.Router{}, Home: home, Vendors: true, Out: &bytes.Buffer{}, Agents: []string{"codex"}}); err != nil {
+	if _, err := settings.Run(settings.Options{Router: agent.Router{}, Home: home, Vendors: true, Out: &bytes.Buffer{}, Agents: []string{"codex"}}); err != nil {
 		t.Fatal(err)
 	}
 	raw, err := os.ReadFile(codexPath)
@@ -374,7 +374,7 @@ func TestLostLineNonInteractiveOverwritesWithWarning(t *testing.T) {
 		t.Fatal(err)
 	}
 	var out bytes.Buffer
-	if _, err := settings.Run(settings.Options{Router: vendors.Router{}, Home: home, Vendors: true, Out: &out, Agents: []string{"codex"}}); err != nil {
+	if _, err := settings.Run(settings.Options{Router: agent.Router{}, Home: home, Vendors: true, Out: &out, Agents: []string{"codex"}}); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(out.String(), "hand-edited line") || !strings.Contains(out.String(), `model = "gpt-5-custom"`) {
@@ -394,7 +394,7 @@ func TestLostLineNonInteractiveOverwritesWithWarning(t *testing.T) {
 func TestConfirmFalseKeepsFile(t *testing.T) {
 	home := scratch(t)
 	codexPath := filepath.Join(home, ".codex", "config.toml")
-	if _, err := settings.Run(settings.Options{Router: vendors.Router{}, Home: home, Vendors: true, Out: &bytes.Buffer{}, Agents: []string{"codex"}}); err != nil {
+	if _, err := settings.Run(settings.Options{Router: agent.Router{}, Home: home, Vendors: true, Out: &bytes.Buffer{}, Agents: []string{"codex"}}); err != nil {
 		t.Fatal(err)
 	}
 	raw, _ := os.ReadFile(codexPath)
@@ -403,7 +403,7 @@ func TestConfirmFalseKeepsFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	var out bytes.Buffer
-	opts := settings.Options{Router: vendors.Router{}, Home: home, Vendors: true, Out: &out, Agents: []string{"codex"}}
+	opts := settings.Options{Router: agent.Router{}, Home: home, Vendors: true, Out: &out, Agents: []string{"codex"}}
 	opts.Confirm = func(path string, lost []string) bool { return false }
 	if _, err := settings.Run(opts); err != nil {
 		t.Fatal(err)
@@ -422,7 +422,7 @@ func TestConfirmFalseKeepsFile(t *testing.T) {
 func TestConfirmTrueWrites(t *testing.T) {
 	home := scratch(t)
 	codexPath := filepath.Join(home, ".codex", "config.toml")
-	if _, err := settings.Run(settings.Options{Router: vendors.Router{}, Home: home, Vendors: true, Out: &bytes.Buffer{}, Agents: []string{"codex"}}); err != nil {
+	if _, err := settings.Run(settings.Options{Router: agent.Router{}, Home: home, Vendors: true, Out: &bytes.Buffer{}, Agents: []string{"codex"}}); err != nil {
 		t.Fatal(err)
 	}
 	raw, _ := os.ReadFile(codexPath)
@@ -430,7 +430,7 @@ func TestConfirmTrueWrites(t *testing.T) {
 	if err := os.WriteFile(codexPath, []byte(edited), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	opts := settings.Options{Router: vendors.Router{}, Home: home, Vendors: true, Out: &bytes.Buffer{}, Agents: []string{"codex"}}
+	opts := settings.Options{Router: agent.Router{}, Home: home, Vendors: true, Out: &bytes.Buffer{}, Agents: []string{"codex"}}
 	opts.Confirm = func(path string, lost []string) bool { return true }
 	if _, err := settings.Run(opts); err != nil {
 		t.Fatal(err)
@@ -445,7 +445,7 @@ func TestConfirmTrueWrites(t *testing.T) {
 func TestCheckListsLostLinesWritesNothing(t *testing.T) {
 	home := scratch(t)
 	codexPath := filepath.Join(home, ".codex", "config.toml")
-	if _, err := settings.Run(settings.Options{Router: vendors.Router{}, Home: home, Vendors: true, Out: &bytes.Buffer{}, Agents: []string{"codex"}}); err != nil {
+	if _, err := settings.Run(settings.Options{Router: agent.Router{}, Home: home, Vendors: true, Out: &bytes.Buffer{}, Agents: []string{"codex"}}); err != nil {
 		t.Fatal(err)
 	}
 	raw, _ := os.ReadFile(codexPath)
@@ -454,7 +454,7 @@ func TestCheckListsLostLinesWritesNothing(t *testing.T) {
 		t.Fatal(err)
 	}
 	var out bytes.Buffer
-	if _, err := settings.Run(settings.Options{Router: vendors.Router{}, Home: home, Vendors: true, Out: &out, Check: true, Agents: []string{"codex"}}); err != nil {
+	if _, err := settings.Run(settings.Options{Router: agent.Router{}, Home: home, Vendors: true, Out: &out, Check: true, Agents: []string{"codex"}}); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(out.String(), `model = "gpt-5-custom"`) {
@@ -515,7 +515,7 @@ func TestRevertRestoresNewestThenStepsBack(t *testing.T) {
 		t.Fatalf("backup missing: %v", err)
 	}
 
-	if err := settings.Revert(settings.Options{Router: vendors.Router{}, Home: home, Agents: []string{"codex"}, Out: &bytes.Buffer{}}); err != nil {
+	if err := settings.Revert(settings.Options{Router: agent.Router{}, Home: home, Agents: []string{"codex"}, Out: &bytes.Buffer{}}); err != nil {
 		t.Fatal(err)
 	}
 	got, err := os.ReadFile(codexPath)
@@ -534,7 +534,7 @@ func TestRevertRestoresNewestThenStepsBack(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := settings.Revert(settings.Options{Router: vendors.Router{}, Home: home, Agents: []string{"codex"}, Out: &bytes.Buffer{}}); err != nil {
+	if err := settings.Revert(settings.Options{Router: agent.Router{}, Home: home, Agents: []string{"codex"}, Out: &bytes.Buffer{}}); err != nil {
 		t.Fatal(err)
 	}
 	got, err = os.ReadFile(codexPath)
@@ -549,7 +549,7 @@ func TestRevertRestoresNewestThenStepsBack(t *testing.T) {
 func TestCheckExitsOnDriftAndWritesNothing(t *testing.T) {
 	home := scratch(t)
 	var out bytes.Buffer
-	if drift, err := settings.Run(settings.Options{Router: vendors.Router{}, Home: home, Vendors: true, Out: &out, Check: true, Agents: []string{"codex"}}); err != nil {
+	if drift, err := settings.Run(settings.Options{Router: agent.Router{}, Home: home, Vendors: true, Out: &out, Check: true, Agents: []string{"codex"}}); err != nil {
 		t.Fatalf("Run: %v", err)
 	} else if !drift {
 		t.Fatal("expected drift=true against an empty home")
@@ -559,7 +559,7 @@ func TestCheckExitsOnDriftAndWritesNothing(t *testing.T) {
 	}
 
 	// Write it for real, then hand-edit the managed block and confirm --check reports drift again.
-	if _, err := settings.Run(settings.Options{Router: vendors.Router{}, Home: home, Vendors: true, Out: &out, Agents: []string{"codex"}}); err != nil {
+	if _, err := settings.Run(settings.Options{Router: agent.Router{}, Home: home, Vendors: true, Out: &out, Agents: []string{"codex"}}); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
 	path := filepath.Join(home, ".codex", "config.toml")
@@ -575,7 +575,7 @@ func TestCheckExitsOnDriftAndWritesNothing(t *testing.T) {
 		t.Fatal(err)
 	}
 	var out2 bytes.Buffer
-	drift, err := settings.Run(settings.Options{Router: vendors.Router{}, Home: home, Vendors: true, Out: &out2, Check: true, Agents: []string{"codex"}})
+	drift, err := settings.Run(settings.Options{Router: agent.Router{}, Home: home, Vendors: true, Out: &out2, Check: true, Agents: []string{"codex"}})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -594,7 +594,7 @@ func TestCheckExitsOnDriftAndWritesNothing(t *testing.T) {
 func TestDryRunWritesNothing(t *testing.T) {
 	home := scratch(t)
 	var out bytes.Buffer
-	drift, err := settings.Run(settings.Options{Router: vendors.Router{}, Home: home, Vendors: true, Out: &out, DryRun: true, Agents: []string{"codex", "opencode", "gemini"}})
+	drift, err := settings.Run(settings.Options{Router: agent.Router{}, Home: home, Vendors: true, Out: &out, DryRun: true, Agents: []string{"codex", "opencode", "gemini"}})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -615,7 +615,7 @@ func TestDryRunWritesNothing(t *testing.T) {
 func TestOpenCodeTUISeedsSystemThemeAndKeepsUserTheme(t *testing.T) {
 	home := scratch(t)
 	path := filepath.Join(paths.StateDir(), "opencode", "tui.json")
-	if _, err := settings.Run(settings.Options{Router: vendors.Router{}, Home: home, Vendors: true, Out: &bytes.Buffer{}, Agents: []string{"opencode"}}); err != nil {
+	if _, err := settings.Run(settings.Options{Router: agent.Router{}, Home: home, Vendors: true, Out: &bytes.Buffer{}, Agents: []string{"opencode"}}); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
 	var cfg map[string]any
@@ -637,7 +637,7 @@ func TestOpenCodeTUISeedsSystemThemeAndKeepsUserTheme(t *testing.T) {
 	if err := os.WriteFile(path, []byte(edited), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	drift, err := settings.Run(settings.Options{Router: vendors.Router{}, Home: home, Vendors: true, Out: &bytes.Buffer{}, Check: true, Agents: []string{"opencode"}})
+	drift, err := settings.Run(settings.Options{Router: agent.Router{}, Home: home, Vendors: true, Out: &bytes.Buffer{}, Check: true, Agents: []string{"opencode"}})
 	if err != nil {
 		t.Fatalf("Run --check: %v", err)
 	}
@@ -660,7 +660,7 @@ func TestCodexOnOwnLoginSkipsInsteadOfFailing(t *testing.T) {
 		t.Fatal(err)
 	}
 	var out bytes.Buffer
-	if _, err := settings.Run(settings.Options{Router: vendors.Router{}, Home: home, Vendors: true, Out: &out, Agents: []string{"codex"}}); err != nil {
+	if _, err := settings.Run(settings.Options{Router: agent.Router{}, Home: home, Vendors: true, Out: &out, Agents: []string{"codex"}}); err != nil {
 		t.Fatalf("Run: %v\n%s", err, out.String())
 	}
 	// Own login no longer fully "skips": the model_providers block is skipped, but approval/sandbox
@@ -696,7 +696,7 @@ func TestScratchConfigDirSkipsVendorWritesWithoutFlag(t *testing.T) {
 	t.Setenv("CODEX_HOME", filepath.Join(vendorHome, ".codex"))
 
 	var out bytes.Buffer
-	drift, err := settings.Run(settings.Options{Router: vendors.Router{}, Out: &out, Agents: []string{"codex", "opencode", "gemini", "copilot"}})
+	drift, err := settings.Run(settings.Options{Router: agent.Router{}, Out: &out, Agents: []string{"codex", "opencode", "gemini", "copilot"}})
 	if err != nil {
 		t.Fatalf("Run: %v\n%s", err, out.String())
 	}
@@ -720,7 +720,7 @@ func TestScratchConfigDirSkipsVendorWritesWithoutFlag(t *testing.T) {
 	}
 
 	var out2 bytes.Buffer
-	if _, err := settings.Run(settings.Options{Router: vendors.Router{}, Out: &out2, Vendors: true, Agents: []string{"codex", "opencode", "copilot"}}); err != nil {
+	if _, err := settings.Run(settings.Options{Router: agent.Router{}, Out: &out2, Vendors: true, Agents: []string{"codex", "opencode", "copilot"}}); err != nil {
 		t.Fatalf("Run with --vendors: %v\n%s", err, out2.String())
 	}
 	if _, err := os.Stat(filepath.Join(vendorHome, ".codex", "config.toml")); err != nil {

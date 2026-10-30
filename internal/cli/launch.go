@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
-	agentvendors "github.com/edotau/claude-code/internal/agent/vendors"
 	"github.com/edotau/claude-code/internal/audit"
 	"github.com/edotau/claude-code/internal/hooks"
 	"github.com/edotau/claude-code/internal/launch"
@@ -321,7 +320,7 @@ func renderVendorConfigs(agents, out string, check, dryRun, vendors bool) (*sett
 		vendorAgents = strings.Split(agents, ",")
 	}
 	preview := dryRun || (out == "" && !check)
-	opts := settings.Options{Agents: vendorAgents, DryRun: preview, Check: check, Out: os.Stdout, Vendors: vendors, Router: agentvendors.Router{}}
+	opts := settings.Options{Agents: vendorAgents, DryRun: preview, Check: check, Out: os.Stdout, Vendors: vendors, Router: agent.Router{}}
 	// Interactive only on a real terminal write: launch/configure callers never reach this function.
 	if !preview && !check && tui.StdinIsTerminal() && tui.StdoutIsTerminal() {
 		opts.Confirm = func(path string, lost []string) bool {
@@ -337,7 +336,7 @@ func cmdRevert(agents string, dryRun bool) int {
 	if agents != "" {
 		vendorAgents = strings.Split(agents, ",")
 	}
-	if err := settings.Revert(settings.Options{Agents: vendorAgents, DryRun: dryRun, Out: os.Stdout, Router: agentvendors.Router{}}); err != nil {
+	if err := settings.Revert(settings.Options{Agents: vendorAgents, DryRun: dryRun, Out: os.Stdout, Router: agent.Router{}}); err != nil {
 		return fail("configure --revert: %v", err)
 	}
 	return 0

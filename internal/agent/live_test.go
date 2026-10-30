@@ -10,7 +10,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/edotau/claude-code/internal/agent/vendors"
 	"github.com/edotau/claude-code/internal/paths"
 )
 
@@ -52,7 +51,7 @@ func liveEnvScript(t *testing.T, script string) {
 	t.Cleanup(func() { _ = os.RemoveAll(dir) })
 	t.Setenv("CLAUDE_CONFIG_DIR", dir)
 	home := filepath.Join(dir, "home") // the agy target needs a Google sign-in marker; never read the developer's
-	marker := vendors.AgyLoginMarker(home)
+	marker := AgyLoginMarker(home)
 	if err := os.MkdirAll(filepath.Dir(marker), 0o700); err != nil {
 		t.Fatal(err)
 	}

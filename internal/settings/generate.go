@@ -415,7 +415,7 @@ func commitOverlayFile(path string, raw, next []byte, o Options, out io.Writer, 
 
 // --- gemini: report-only. agy (the vendor's binary, name unchanged) has no known settings-file
 // auth-type knob like the old gemini-cli's security.auth.selectedType, so there is nothing to render;
-// auth is the cached Google login marker at launch time (see vendors.GeminiLoginPresent).
+// auth is the cached Google login marker at launch time (see agent.GeminiLoginPresent).
 
 func reportGemini(sel providers.Selection, out io.Writer) (bool, error) {
 	if sel.Provider.Auth.Method() == providers.AuthCLI {

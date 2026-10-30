@@ -6,7 +6,7 @@ import (
 	"os"
 	"slices"
 
-	"github.com/edotau/claude-code/internal/agent/vendors"
+	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/secrets"
 	"github.com/edotau/claude-code/internal/ui/tui"
 )
@@ -79,7 +79,7 @@ func menuRows(d *dialog) ([][2]string, []func(*dialog)) {
 	var names []string
 	var cols [][2]string
 	var actions []func(*dialog)
-	for _, name := range append([]string{"claude"}, vendors.Names()...) {
+	for _, name := range append([]string{"claude"}, agent.Names()...) {
 		build, ok := agentMenus[name]
 		if !ok || (d.o.Vendor != "" && d.o.Vendor != name) {
 			continue

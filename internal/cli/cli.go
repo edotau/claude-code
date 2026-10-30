@@ -7,7 +7,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/edotau/claude-code/internal/agent/vendors"
+	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/buildver"
 	"github.com/edotau/claude-code/internal/databricks"
 	"github.com/edotau/claude-code/internal/models"
@@ -118,7 +118,7 @@ func vendorVerb(vendor string, args []string) int {
 		return 0
 	}
 	if len(args) == 1 && args[0] == helptext.DocsFlag {
-		spec, _ := vendors.Lookup(vendor)
+		spec, _ := agent.LookupSpec(vendor)
 		return helptext.WrappedDocs(spec.Binary)
 	}
 	return launchVendor(vendor, args)

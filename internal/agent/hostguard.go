@@ -8,7 +8,6 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/edotau/claude-code/internal/agent/vendors"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
@@ -111,7 +110,7 @@ func guardProvider(r Runner, req Request) (*providers.Provider, error) {
 	if l, ok := r.(hubLeg); ok {
 		return l.provider, nil
 	}
-	if _, vendor := vendors.Lookup(r.Name()); vendor && r.Name() != "claude" {
+	if _, vendor := LookupSpec(r.Name()); vendor && r.Name() != "claude" {
 		// the same target the runner picks: --provider, a provider:model prefix, the session, the copilot gate
 		t, own, _, err := vendorTargetNote(req, r.Name())
 		if err != nil {

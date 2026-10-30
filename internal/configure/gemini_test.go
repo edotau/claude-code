@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/edotau/claude-code/internal/agent/vendors"
+	"github.com/edotau/claude-code/internal/agent"
 )
 
 func TestAgyCommandMissingVendorStartFails(t *testing.T) {
@@ -48,7 +48,7 @@ func fakeAgyCommand(t *testing.T, script string) {
 func TestRunAgySignsInThenStopsIt(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	marker := vendors.AgyLoginMarker(home)
+	marker := agent.AgyLoginMarker(home)
 	if err := os.MkdirAll(filepath.Dir(marker), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -79,7 +79,7 @@ func TestRunAgySignsInThenStopsIt(t *testing.T) {
 func TestRunAgyStopsDescendants(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	marker := vendors.AgyLoginMarker(home)
+	marker := agent.AgyLoginMarker(home)
 	if err := os.MkdirAll(filepath.Dir(marker), 0o755); err != nil {
 		t.Fatal(err)
 	}

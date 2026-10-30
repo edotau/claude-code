@@ -3,12 +3,11 @@ package agent
 import (
 	"testing"
 
-	"github.com/edotau/claude-code/internal/agent/vendors"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
-// vendorTargetBase honors the request's model tier; vendors.ResolveTarget always returns the session's opus slot.
+// vendorTargetBase honors the request's model tier; ResolveVendorTarget always returns the session's opus slot.
 func TestVendorTargetBaseDiffersFromResolveTargetOnTier(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	vaulttest.Use(t)
@@ -20,7 +19,7 @@ func TestVendorTargetBaseDiffersFromResolveTargetOnTier(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rt, _, err := vendors.ResolveTarget(reg, "codex", sel, false)
+	rt, _, err := ResolveVendorTarget(reg, "codex", sel, false)
 	if err != nil {
 		t.Fatalf("ResolveTarget: %v", err)
 	}

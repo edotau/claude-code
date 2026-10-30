@@ -127,7 +127,7 @@ func Refresh(ctx context.Context, reg *providers.Registry, p *providers.Provider
 // Has reports whether the listing serves pin as a READY endpoint; ready is false for a listed but unready one.
 func (s Served) Has(p *providers.Provider, pin string) (listed, ready bool) {
 	pin = strings.TrimSpace(pin)
-	want := p.WireModel(models.Strip1M(pin)) // the spelling the agents request (vendors.SpellPin)
+	want := p.WireModel(models.Strip1M(pin)) // the spelling the agents request (agent.SpellPin)
 	for _, m := range s.Models {
 		if m.ID == want {
 			return true, m.Ready == "" || m.Ready == "READY"

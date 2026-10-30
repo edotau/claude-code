@@ -4,7 +4,7 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/agent/vendors"
+	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -16,7 +16,7 @@ func TestPlainPlanAppliesVendorLaunchSpec(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	fake := pathstest.FakeVendor(t, "opencode", "")
 
-	spec, ok := vendors.Lookup("opencode")
+	spec, ok := agent.LookupSpec("opencode")
 	if !ok {
 		t.Fatal("opencode vendor spec not found")
 	}

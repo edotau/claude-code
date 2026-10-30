@@ -17,7 +17,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/edotau/claude-code/internal/agent/vendors"
+	"github.com/edotau/claude-code/internal/agent"
 )
 
 // quota is one provider-account-window row; Note replaces the numbers on failure, Group labels a valid row.
@@ -147,7 +147,7 @@ func parseCopilot(login string, body []byte) quota {
 		return q
 	}
 	p := u.Snaps.Premium
-	q.Plan, q.Resets = vendors.CopilotPlanName(u.Plan), u.Reset
+	q.Plan, q.Resets = agent.CopilotPlanName(u.Plan), u.Reset
 	if p.Unlimited {
 		q.Note = "unlimited"
 		return q
@@ -161,7 +161,7 @@ var whamURL = "https://chatgpt.com/backend-api/wham/usage"
 
 // openaiQuotas reads codex's ChatGPT rate-limit windows (5h + weekly).
 func openaiQuotas(ctx context.Context) []quota {
-	tok, acct, keyringNote := vendors.CodexAccessToken()
+	tok, acct, keyringNote := agent.CodexAccessToken()
 	if tok == "" {
 		note := "unavailable: codex not signed in to ChatGPT"
 		if keyringNote != "" {
