@@ -7,7 +7,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/hooks/hookspec"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/router/routetable"
+	"github.com/edotau/claude-code/internal/router"
 )
 
 // nativeCodexAgentRoute fills a fresh, unpinned child's model; the builder renders the updated input as an allow.
@@ -64,23 +64,23 @@ func codexSpawnPinned(in *Input) bool {
 	return false
 }
 
-func codexSpawnCell(in *Input, task string) (routetable.Cell, string, bool) {
+func codexSpawnCell(in *Input, task string) (router.Cell, string, bool) {
 	reg, err := providers.Load()
 	if err != nil {
-		return routetable.Cell{}, "", false
+		return router.Cell{}, "", false
 	}
 	p := reg.Providers[os.Getenv(hookspec.CodexProfileEnv)]
 	if p == nil || p.Preset != providers.PresetDatabricks || !providers.ServesResponses(p, in.nested("model")) {
-		return routetable.Cell{}, "", false
+		return router.Cell{}, "", false
 	}
-	table, err := routetable.LoadFrom(reg, "")
+	table, err := router.LoadFrom(reg, "")
 	if err != nil {
-		return routetable.Cell{}, "", false
+		return router.Cell{}, "", false
 	}
 	cell := table.Rows["codex"][RuleClassifier{}.Tier(task)]
 	cell.Model = p.WireModel(cell.Model)
 	if !providers.ServesResponses(p, cell.Model) || !codexListedModel(cell.Model) {
-		return routetable.Cell{}, "", false
+		return router.Cell{}, "", false
 	}
 	_, signal := EffortTierSignal(task)
 	return cell, signal, true

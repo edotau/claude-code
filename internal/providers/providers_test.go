@@ -409,7 +409,7 @@ func TestModelDeniedVsIsQuota(t *testing.T) {
 }
 
 // TestValidateRejectsUnknownRouteTierAndRunner checks Registry.Validate catches an overlay cell naming a
-// runner or tier outside RouteRunners/RouteTiers before it ever reaches routetable.LoadFrom.
+// runner or tier outside RouteRunners/RouteTiers before it ever reaches router.LoadFrom.
 func TestValidateRejectsUnknownRouteTierAndRunner(t *testing.T) {
 	badTier := &Registry{Providers: map[string]*Provider{}, Routing: Routing{Cells: map[string]map[string]RouteCell{"opencode": {"ultra": {Model: "x"}}}}}
 	if err := badTier.Validate(); err == nil || !strings.Contains(err.Error(), "unknown tier") {
@@ -453,7 +453,7 @@ func TestValidateRejectsUnknownAccountKeyAndOpencodePrefix(t *testing.T) {
 }
 
 // TestValidateRejectsOutOfRangeRouteWeight checks an overlay weight outside [0,1] (or one that doesn't sum
-// to 1 across the dimensions) fails Validate, rather than silently reaching routetable with a bad score.
+// to 1 across the dimensions) fails Validate, rather than silently reaching router with a bad score.
 func TestValidateRejectsOutOfRangeRouteWeight(t *testing.T) {
 	outOfRange := &Registry{Providers: map[string]*Provider{}, Routing: Routing{Weights: map[string]float64{"price": 1.5, "headroom": -0.5}}}
 	if err := outOfRange.Validate(); err == nil || !strings.Contains(err.Error(), "outside [0,1]") {

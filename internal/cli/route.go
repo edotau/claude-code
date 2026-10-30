@@ -15,7 +15,6 @@ import (
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
-	"github.com/edotau/claude-code/internal/router/routetable"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 	usagepkg "github.com/edotau/claude-code/internal/usage"
 )
@@ -198,7 +197,7 @@ type candidateJSON struct {
 	Model      string             `json:"model"`
 	Effort     string             `json:"effort,omitempty"`
 	AccountKey string             `json:"account_key"`
-	Price      routetable.Price   `json:"price"`
+	Price      router.Price       `json:"price"`
 	State      string             `json:"state"`
 	Billing    string             `json:"billing"`
 	Scores     map[string]float64 `json:"scores,omitempty"`
