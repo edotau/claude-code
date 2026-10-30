@@ -25,8 +25,8 @@ var liveExclusive = []string{"background", "host", "batch", "retry", "job", "env
 
 // askLiveCheck rejects --live with another agent, a task, or a flag that has no meaning for a held-open session.
 func askLiveCheck(fs *flag.FlagSet, name string) error {
-	if name != "claude" {
-		return fmt.Errorf("--live is claude only, not %s", name)
+	if !agent.HasLive(name) {
+		return fmt.Errorf("--live is claude or gemini only, not %s", name)
 	}
 	if fs.NArg() > 0 {
 		return errors.New("--live takes no task: start it, then claude-code agents send <id> <task>")
@@ -43,8 +43,8 @@ func askLiveCheck(fs *flag.FlagSet, name string) error {
 const liveReadyWait = 20 * time.Second
 
 // startLive records a live dispatch, spawns its holder as a detached --job child and waits for the socket.
-func startLive(s *askState, format string) int {
-	r, err := agent.Lookup("claude")
+func startLive(s *askState, name, format string) int {
+	r, err := agent.Lookup(name)
 	if err == nil {
 		err = r.Available()
 	}
@@ -52,7 +52,7 @@ func startLive(s *askState, format string) int {
 		err = agent.CheckLiveCap("")
 	}
 	if err != nil {
-		return failAsk(format, "claude", err)
+		return failAsk(format, name, err)
 	}
 	req := agent.Request{Model: *s.model, Provider: *s.provider, Effort: *s.effort, WorkDir: *s.workdir, SessionID: *s.session,
 		Tools: *s.tools, Timeout: *s.timeout, KeepEnv: []string(*s.keepEnv), NoPersist: *s.noPersist, SafeMode: *s.safeMode,
@@ -61,13 +61,13 @@ func startLive(s *askState, format string) int {
 	rec := buildAskRecord(context.Background(), r, req, nil, *s.workdir, true)
 	rec.Live = true
 	if err := rec.Save(); err != nil {
-		return failAsk(format, "claude", err)
+		return failAsk(format, name, err)
 	}
 	if err := vendoragent.Spawn(&rec, nil); err != nil {
-		return failAsk(format, "claude", err)
+		return failAsk(format, name, err)
 	}
 	if err := waitLiveReady(rec.ID, rec.PID); err != nil {
-		return failAsk(format, "claude", fmt.Errorf("live session %s did not start: %w (log: %s)", rec.ID, err, rec.Log))
+		return failAsk(format, name, fmt.Errorf("live session %s did not start: %w (log: %s)", rec.ID, err, rec.Log))
 	}
 	if format == formatJSON {
 		body, _ := json.Marshal(struct {
@@ -104,7 +104,7 @@ func waitLiveReady(id string, pid int) error {
 	return fmt.Errorf("no socket after %s (holder pid %d)", liveReadyWait, pid)
 }
 
-// runLiveHolder is the --job child of `ask --live`: it serves rec's session until idle, cancel or claude's exit.
+// runLiveHolder is the --job child of `ask --live`: it serves rec's session until idle, cancel or the agent's exit.
 func runLiveHolder(rec *agent.Record) int {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
 	defer stop()
@@ -120,7 +120,7 @@ func runLiveHolder(rec *agent.Record) int {
 // agentsSendPage is `agents send -h`.
 var agentsSendPage = helptext.Page{
 	Usage: "claude-code agents send <id> <task | -> [flags]",
-	About: "Send one user turn to a live claude session (ask --agent claude --live) and stream " +
+	About: "Send one user turn to a live claude or gemini session (ask --agent <a> --live) and stream " +
 		"that turn's events; exits on its result. One turn at a time per session.",
 }
 

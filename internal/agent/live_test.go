@@ -50,7 +50,12 @@ func liveEnvScript(t *testing.T, script string) {
 // startHolder claims a live record and runs ServeLive on it; the returned func waits for the holder and its error.
 func startHolder(t *testing.T, ctx context.Context, idle time.Duration) (string, func() error) {
 	t.Helper()
-	rec := ClaimRecord("claude", Request{Timeout: idle}, time.Now())
+	return startHolderAs(t, ctx, "claude", idle)
+}
+
+func startHolderAs(t *testing.T, ctx context.Context, name string, idle time.Duration) (string, func() error) {
+	t.Helper()
+	rec := ClaimRecord(name, Request{Timeout: idle}, time.Now())
 	rec.Live, rec.PID = true, os.Getpid()
 	if err := rec.Save(); err != nil {
 		t.Fatal(err)
@@ -238,5 +243,63 @@ func TestLiveSlotReleaseFreesIt(t *testing.T) {
 	rel[0]()
 	if _, err := AcquireLiveSlot(); err != nil {
 		t.Errorf("released slot not reusable: %v", err)
+	}
+}
+
+// fakeLiveAgy is a shell agy: one init, then per NDJSON turn an agent_response delta and a result whose usage is
+// cumulative over the conversation, as the real agy reports it.
+const fakeLiveAgy = `#!/bin/sh
+printf '{"event":"init","conversation_id":"c1"}\n'
+mem=none
+n=0
+while IFS= read -r line; do
+  n=$((n + 1))
+  m=$(printf '%s' "$line" | sed -n 's/.*remember \([0-9][0-9]*\).*/\1/p')
+  if [ -n "$m" ]; then mem=$m; ans=ok; else ans="$mem"; fi
+  printf '{"event":"step_update","step_update":{"step_type":"agent_response","text_delta":"%s"}}\n' "$ans"
+  printf '{"event":"result","result":{"conversation_id":"c1","status":"SUCCESS","response":"%s","usage":{"input_tokens":%d,"output_tokens":%d}}}\n' "$ans" $((n * 10)) $((n * 2))
+done
+`
+
+// An agy session keeps its conversation across turns, reports per-turn usage, refuses a concurrent send, and cancels.
+func TestLiveAgySession(t *testing.T) {
+	liveEnv(t)
+	if err := os.WriteFile(filepath.Join(paths.BinDir(), "gemini"), []byte(fakeLiveAgy), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	id, wait := startHolderAs(t, ctx, "gemini", time.Minute)
+	if _, err := os.Stat(LiveSocket(id)); err != nil {
+		cancel()
+		t.Fatalf("holder did not open its socket: %v (%v)", err, wait())
+	}
+	env, err := SendLive(context.Background(), id, "remember 42", Discard)
+	if err != nil || env.Status != StatusOK || env.Answer != "ok" || env.Agent != "gemini" {
+		t.Fatalf("turn 1 = %+v, %v", env, err)
+	}
+	env2, err := SendLive(context.Background(), id, "what number", Discard)
+	if err != nil || env2.Answer != "42" {
+		t.Fatalf("turn 2 = %+v, %v (the second turn must recall the first)", env2, err)
+	}
+	if env2.Usage.InputTokens != 10 || env2.Usage.OutputTokens != 2 {
+		t.Errorf("turn 2 usage = %+v, want the turn's own delta 10/2, not agy's cumulative 20/4", env2.Usage)
+	}
+	cancel()
+	if err := wait(); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := LoadRecord(id)
+	if got.Status != "error" || got.Error != "cancelled" || got.Agent != "gemini" || got.SessionID != "c1" {
+		t.Errorf("record = %s %q agent=%s session=%q, want error cancelled gemini c1", got.Status, got.Error, got.Agent, got.SessionID)
+	}
+}
+
+// An agent without a live mode is refused before anything starts.
+func TestServeLiveRejectsAgentWithoutLive(t *testing.T) {
+	liveEnv(t)
+	rec := ClaimRecord("codex", Request{}, time.Now())
+	rec.Live = true
+	if err := ServeLive(context.Background(), &rec, nil); err == nil || !strings.Contains(err.Error(), "no live mode") {
+		t.Errorf("ServeLive(codex) = %v, want a no-live-mode error", err)
 	}
 }

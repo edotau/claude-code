@@ -81,7 +81,7 @@ func runAsk(args []string, resume bool) int {
 	format := fs.String("format", "text", "stream text, print the JSON result envelope, or stream-json NDJSON events")
 	rubric := fs.String("rubric", "", "review standard file quoted verbatim ahead of the task")
 	retry := fs.String("retry", "", "replay a logged dispatch by id (or unique id prefix); see --log")
-	live := fs.Bool("live", false, "claude: hold a session open for agents send; --timeout is its idle limit")
+	live := fs.Bool("live", false, "claude|gemini: hold a session open for agents send; --timeout is its idle limit")
 	showLog := fs.Bool("log", false, "list the 20 most recent dispatches and exit")
 	background := fs.Bool("background", false, "detach: log a job, print its id, exit")
 	job := fs.String("job", "", "internal: run saved dispatch <id> in place")
@@ -170,7 +170,7 @@ func runAsk(args []string, resume bool) int {
 		}
 	}
 	if *live {
-		return startLive(state, *format)
+		return startLive(state, *name, *format)
 	}
 	if jobRec != nil && jobRec.Live {
 		return runLiveHolder(jobRec)
@@ -671,7 +671,7 @@ var agentsPage = helptext.Page{
 		{"result", "print a finished dispatch's answer or envelope: result <id>"},
 		{"tail", "follow a dispatch's log or events: tail <id> [-f]"},
 		{"cancel", "interrupt a running dispatch: cancel <id>"},
-		{"send", "send one turn to a live claude session: send <id> <task>"},
+		{"send", "send one turn to a live claude or gemini session: send <id> <task>"},
 	},
 	Hint: "claude-code agents <command> -h lists that command's flags.",
 }
@@ -802,7 +802,7 @@ func listRemoteAgents(host, bin, format string) int {
 // agentFeatures are the ask capabilities beyond the Request fields: what an agent reports or how it can run.
 func agentFeatures(name string) map[string]agent.Level {
 	return map[string]agent.Level{"cost": lvl(name == "claude" || name == "gemini"), "background": agent.Native,
-		"live": lvl(name == "claude"), "remote": agent.Native}
+		"live": lvl(agent.HasLive(name)), "remote": agent.Native}
 }
 
 func lvl(ok bool) agent.Level {

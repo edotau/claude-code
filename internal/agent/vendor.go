@@ -122,62 +122,84 @@ func (v vendorRunner) Available() error {
 	return err
 }
 
-func (v vendorRunner) Run(ctx context.Context, req Request, sink Sink) (Result, error) {
-	ctx = directCtx(ctx, req)
+// vendorPrep is a vendor run resolved up to its child's env: the route target, the prompt and the headless argv.
+type vendorPrep struct {
+	res    Result
+	t      providers.Target
+	prompt string
+	env    []string
+	argv   []string
+}
+
+// prepare resolves req's route and headless argv; the Result comes back populated even on error.
+func (v vendorRunner) prepare(ctx context.Context, req Request) (vendorPrep, error) {
 	t, own, err := vendorTarget(req, v.name)
 	if err != nil {
-		return Result{}, err
+		return vendorPrep{}, err
 	}
-	res := Result{Provider: ownProfile(v.name), Model: t.Model, SessionID: req.SessionID}
+	p := vendorPrep{t: t, res: Result{Provider: ownProfile(v.name), Model: t.Model, SessionID: req.SessionID}}
 	if !own {
 		if t.Provider == nil { // vendorTargetNote can report a non-own target with no provider resolved
-			return res, &Error{Kind: KindFatal, Agent: v.name, Err: errors.New("agent target resolved to no provider")}
+			return p, &Error{Kind: KindFatal, Agent: v.name, Err: errors.New("agent target resolved to no provider")}
 		}
-		res.Provider = t.Provider.Name
+		p.res.Provider = t.Provider.Name
 	}
-	prompt, err := v.attachPrompt(req.Prompt, req.Attach, req.Tools)
+	p.prompt, err = v.attachPrompt(req.Prompt, req.Attach, req.Tools)
 	if err != nil {
-		return res, &Error{Kind: KindFatal, Agent: v.name, Err: err}
+		return p, &Error{Kind: KindFatal, Agent: v.name, Err: err}
 	}
 	if req.Autonomous && v.name == "codex" {
 		fmt.Fprintln(os.Stderr, "ask: codex exec has no ask-step to disable; --tools already grants workspace-write")
 	}
 	// Only opencode puts the prompt in argv (vendors.opencodeRun); codex rides stdin behind `-` (codexHeadless)
 	// and gemini rides agy's stdin stream-json (RunAgy/agyStdin) — neither is bound by MAX_ARG_STRLEN.
-	if v.name == "opencode" && len(prompt) > MaxPromptBytes {
-		return res, &Error{Kind: KindFatal, Agent: v.name, Err: errPromptTooLarge(len(prompt))}
+	if v.name == "opencode" && len(p.prompt) > MaxPromptBytes {
+		return p, &Error{Kind: KindFatal, Agent: v.name, Err: errPromptTooLarge(len(p.prompt))}
 	}
-	h := vendors.Headless{Prompt: prompt, Effort: req.Effort, SessionID: req.SessionID, Tools: req.Tools,
+	h := vendors.Headless{Prompt: p.prompt, Effort: req.Effort, SessionID: req.SessionID, Tools: req.Tools,
 		Autonomous: req.Autonomous, Attach: req.Attach, NoPersist: req.NoPersist, SafeMode: req.SafeMode}
 	if v.name == "opencode" {
 		h.WorkDir = req.WorkDir // cmd.Dir alone doesn't move opencode's own cwd resolution; --dir does
 	}
-	var env, argv []string
 	if own {
-		env, argv, err = vendors.OwnLoginHeadless(v.name, h)
+		p.env, p.argv, err = vendors.OwnLoginHeadless(v.name, h)
 	} else {
-		env, argv, err = vendors.ConfigureHeadless(ctx, v.name, t, h)
+		p.env, p.argv, err = vendors.ConfigureHeadless(ctx, v.name, t, h)
 	}
 	if err != nil {
-		return res, &Error{Kind: KindFatal, Agent: v.name, Err: err}
+		return p, &Error{Kind: KindFatal, Agent: v.name, Err: err}
 	}
 	if v.name == "opencode" && req.SystemPrompt != "" {
-		env, argv = opencodeSystemPrompt(env, argv, req.SystemPrompt)
+		p.env, p.argv = opencodeSystemPrompt(p.env, p.argv, req.SystemPrompt)
 	}
-	env = append(env, req.Env...) // --env goes last, after the route keys, so it wins
+	p.env = append(p.env, req.Env...) // --env goes last, after the route keys, so it wins
+	return p, nil
+}
+
+// agyRequest is the agy run for req: only the resolved credential env carries over, agy builds its own argv.
+func (p vendorPrep) agyRequest(req Request) AgyRequest {
+	def := p.t
+	if req.Model == "" || def.Model == "" { // the slot table's opus id isn't agy's own: GEMINI_MODEL pin, else flash-high
+		def.Model = AgyDefaultModel
+	}
+	gt, _ := vendors.ResolveAgentModel(vendors.ModelAsk{Agent: "gemini", Flag: req.Model, Target: def, Applied: true})
+	return AgyRequest{
+		Prompt: p.prompt, Model: gt.Model, Effort: req.Effort, Cwd: req.WorkDir, Tools: req.Tools, Autonomous: req.Autonomous,
+		DebugFile: req.DebugFile, Env: p.env, KeepEnv: req.KeepEnv, SessionID: req.SessionID, OutputSchema: req.OutputSchema,
+	}
+}
+
+func (v vendorRunner) Run(ctx context.Context, req Request, sink Sink) (Result, error) {
+	ctx = directCtx(ctx, req)
+	p, err := v.prepare(ctx, req)
+	res, prompt, env, argv := p.res, p.prompt, p.env, p.argv
+	if err != nil {
+		return res, err
+	}
 	if v.name == "gemini" {
-		// agy builds its own argv (stream-json over stdin); only the resolved credential env carries over.
-		def := t
-		if req.Model == "" || def.Model == "" { // the slot table's opus id isn't agy's own: GEMINI_MODEL pin, else flash-high
-			def.Model = AgyDefaultModel
-		}
-		gt, _ := vendors.ResolveAgentModel(vendors.ModelAsk{Agent: "gemini", Flag: req.Model, Target: def, Applied: true})
-		model := gt.Model
-		res.Model = model
-		out, err := RunAgy(ctx, AgyRequest{
-			Prompt: prompt, Model: model, Effort: req.Effort, Cwd: req.WorkDir, Tools: req.Tools, Autonomous: req.Autonomous,
-			DebugFile: req.DebugFile, Env: env, KeepEnv: req.KeepEnv, SessionID: req.SessionID, OutputSchema: req.OutputSchema,
-		}, sink)
+		areq := p.agyRequest(req)
+		res.Model = areq.Model
+		out, err := RunAgy(ctx, areq, sink)
 		res.Answer, res.Usage, res.Transport, res.Structured = out.Answer, out.Usage, out.Transport, out.Structured
 		if out.SessionID != "" {
 			res.SessionID = out.SessionID
