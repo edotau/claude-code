@@ -325,8 +325,8 @@ func readRecordedDest(draftBase string) (string, bool) {
 	return dest, dest != ""
 }
 
-// mirrorDests lists every unapproved draft's dated mirror, so plan-tick never ticks a plan still being drafted.
-func mirrorDests() []string {
+// MirrorDests lists every unapproved draft's dated mirror, so no tick ever lands on a plan still being drafted.
+func MirrorDests() []string {
 	recs, _ := filepath.Glob(filepath.Join(plansScratchDir(), "*.dest"))
 	var out []string
 	for _, r := range recs {

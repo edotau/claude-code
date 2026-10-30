@@ -59,7 +59,7 @@ func tickCommit(in *Input, cmd, sha string, stderr io.Writer) []string {
 	if main := paths.MainCheckout(top); main != top {
 		worktree = filepath.Base(top)
 	}
-	plan, ok := plans.Active(plans.Home(top), worktree, mirrorDests())
+	plan, ok := plans.Active(plans.Home(top), worktree, MirrorDests())
 	if !ok {
 		return nil
 	}

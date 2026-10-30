@@ -76,7 +76,7 @@ func activePlan(cwd string) (plan, worktreeName string, ok bool) {
 	if paths.MainCheckout(top) != top {
 		worktreeName = filepath.Base(top)
 	}
-	plan, ok = plans.Active(plans.Home(top), worktreeName, mirrorDests())
+	plan, ok = plans.Active(plans.Home(top), worktreeName, MirrorDests())
 	return plan, worktreeName, ok
 }
 
