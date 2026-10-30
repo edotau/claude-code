@@ -2,6 +2,7 @@ package cli
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/edotau/claude-code/internal/agent"
@@ -25,5 +26,23 @@ func TestAskRetryOfHostDispatchRunsRemote(t *testing.T) {
 	}
 	if got := readCalls(t, calls); len(got) != 2 {
 		t.Fatalf("remote ran %d times, want 2 (the retry ran locally): %q", len(got), got)
+	}
+}
+
+// ask --retry keeps the original --fallback policy instead of reverting to the all default.
+func TestAskRetryKeepsFallbackPolicy(t *testing.T) {
+	lines := ndjson(t, resultEvent(agent.Envelope{Status: agent.StatusOK, Agent: "claude", Answer: "ok"}))
+	bin := hostFixture(t, "", lines, 0)
+	calls := recordingRemote(t, bin)
+	code, out := captureAskStdout(t, "--host", "fakehost", "--remote-bin", bin, "--fallback", "none", "--format", "json", "go")
+	var env agent.Envelope
+	if err := json.Unmarshal([]byte(out), &env); code != 0 || err != nil {
+		t.Fatalf("exit %d (%v):\n%s", code, err, out)
+	}
+	if code, out = captureAskStdout(t, "--retry", env.DispatchID, "--format", "json"); code != 0 {
+		t.Fatalf("retry exit %d:\n%s", code, out)
+	}
+	if got := readCalls(t, calls); len(got) != 2 || !strings.Contains(got[1], "--fallback none") {
+		t.Fatalf("retry argv %q, want --fallback none", got)
 	}
 }

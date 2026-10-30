@@ -38,14 +38,15 @@ type Record struct {
 	DurationMs     int64     `json:"duration_ms,omitempty"`
 	Fallback       string    `json:"fallback,omitempty"` // the original runner's name, when it ran instead
 	FallbackReason string    `json:"fallback_reason,omitempty"`
-	RanAs          string    `json:"ran_as,omitempty"`     // the runner that answered, when a fallback leg did
-	Repo           string    `json:"repo,omitempty"`       // main checkout root the job belongs to
-	PID            int       `json:"pid,omitempty"`        // pid of the detached `claude-code ask --job` child
-	Log            string    `json:"log,omitempty"`        // absolute path of the job's combined stdout+stderr log
-	Progress       string    `json:"progress,omitempty"`   // multi-part review job: "part 2/3"
-	Owner          int       `json:"owner,omitempty"`      // launching Claude Code session pid (inflight.SessionOwner)
-	Host           string    `json:"host,omitempty"`       // ask --host: the ssh host the dispatch ran on
-	RemoteBin      string    `json:"remote_bin,omitempty"` // ask --host: the remote claude-code binary
+	RanAs          string    `json:"ran_as,omitempty"`          // the runner that answered, when a fallback leg did
+	Repo           string    `json:"repo,omitempty"`            // main checkout root the job belongs to
+	PID            int       `json:"pid,omitempty"`             // pid of the detached `claude-code ask --job` child
+	Log            string    `json:"log,omitempty"`             // absolute path of the job's combined stdout+stderr log
+	Progress       string    `json:"progress,omitempty"`        // multi-part review job: "part 2/3"
+	Owner          int       `json:"owner,omitempty"`           // launching Claude Code session pid (inflight.SessionOwner)
+	Host           string    `json:"host,omitempty"`            // ask --host: the ssh host the dispatch ran on
+	RemoteBin      string    `json:"remote_bin,omitempty"`      // ask --host: the remote claude-code binary
+	FallbackPolicy string    `json:"fallback_policy,omitempty"` // the --fallback mode asked for (all|agents|none)
 }
 
 // Alive reports whether this dispatch is still running: pid alive, or not yet recorded within a minute.
