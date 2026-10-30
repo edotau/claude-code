@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/edotau/claude-code/internal/clipboard"
 	"github.com/edotau/claude-code/internal/completion"
@@ -18,6 +19,8 @@ import (
 	"github.com/edotau/claude-code/internal/generate"
 	"github.com/edotau/claude-code/internal/history"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/preflight"
+	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/schemas"
 	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/tools"
@@ -57,6 +60,9 @@ func installVerbose(w io.Writer, dryRun bool) error {
 		fmt.Fprintf(w, "agents   %s\n", agentConfigsSummary(w))
 	}
 	installGitHooks(w, dryRun)
+	if !dryRun {
+		PreflightStep(w, target)
+	}
 	if settingsErr != nil {
 		fmt.Fprintf(w, "settings skip  %v (syncVendors and installGitHooks still ran)\n", settingsErr)
 	}
@@ -94,10 +100,20 @@ func installCompact(w io.Writer) error {
 	windowsSettingsCompact(w)
 	agentsSyncCompact(w)
 	installGitHooks(w, false)
+	PreflightStep(w, target)
 	if settingsErr != nil {
 		fmt.Fprintf(w, "settings skip  %v (syncVendors and installGitHooks still ran)\n", settingsErr)
 	}
 	return settingsErr
+}
+
+// PreflightStep refreshes stale workspace listings and prints one live pong row per pinned agent; never fails install.
+func PreflightStep(w io.Writer, bin string) {
+	reg, err := providers.Load()
+	if err != nil {
+		return // no registry: nothing to check
+	}
+	preflight.RunInstallStep(context.Background(), w, reg, bin, time.Now())
 }
 
 // installLine renders the "install" summary line: the installed binary path and, when the pre-install

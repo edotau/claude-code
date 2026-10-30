@@ -26,6 +26,7 @@ import (
 	"github.com/edotau/claude-code/internal/hookspec"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/preflight"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/setup"
 	"github.com/edotau/claude-code/internal/tailscale"
@@ -79,6 +80,9 @@ func DoctorChecks() (checks []Check, ok bool) {
 		check(true, false, "copilot route", copilotRouteDetail(reg, serr))
 		check(true, false, "codex route", codexRouteDetail())
 		check(true, false, "gemini route", geminiRouteDetail())
+		for _, pin := range preflight.Check(reg, time.Now()) {
+			check(pin.Status == preflight.StatusOK, false, "pin "+pin.Agent, pin.Line())
+		}
 	}
 	for _, s := range tools.StatusAll() {
 		check(toolDoctorOK(s), false, "tool "+s.Name, toolDoctorDetail(s))

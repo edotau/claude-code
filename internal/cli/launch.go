@@ -19,6 +19,7 @@ import (
 	"github.com/edotau/claude-code/internal/launch"
 	"github.com/edotau/claude-code/internal/outfmt"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/preflight"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/tools"
@@ -416,6 +417,7 @@ func cmdDoctor(args []string) int {
 	gitScan := fs.Bool("git", false, "scan this repo's git history for committed secrets")
 	since := fs.Int("since", 0, "with --git or --secrets: only the last N commits (0 = all)")
 	rev := fs.String("range", "", "with --git or --secrets: only this revision range, e.g. @{u}..HEAD")
+	refresh := fs.Bool("refresh", false, "re-list each pinned Databricks workspace's served models before the checks")
 	all := fs.Bool("secrets", false, "--scan, --git and the vault checks together; worst exit wins")
 	if code, done := helptext.Parse(fs, args); done {
 		return code
@@ -438,6 +440,9 @@ func cmdDoctor(args []string) int {
 	if *auditMode {
 		return printAudit(*days, *format)
 	}
+	if *refresh {
+		refreshServed()
+	}
 	var ok bool
 	if *format == outfmt.JSON {
 		var checks []launch.Check
@@ -453,6 +458,47 @@ func cmdDoctor(args []string) int {
 	}
 	if !ok {
 		return 1
+	}
+	return 0
+}
+
+// refreshServed re-lists every pinned Databricks profile's endpoints into the served-models cache.
+func refreshServed() {
+	reg, err := providers.Load()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "doctor --refresh: %v\n", err)
+		return
+	}
+	ps := preflight.Check(reg, time.Now())
+	for _, err := range preflight.RefreshStale(context.Background(), reg, ps, time.Now(), true) {
+		fmt.Fprintf(os.Stderr, "doctor --refresh: %v\n", err)
+	}
+}
+
+// cmdPreflight is the hidden `preflight [--live]`: the pin rows, and with --live the post-install step.
+func cmdPreflight(args []string) int {
+	fs := helptext.NewFlagSet("preflight", helptext.Page{
+		Usage: "claude-code preflight [--live]",
+		About: "Print each agent's pin check; --live also refreshes stale listings and runs the post-install pong round.",
+	})
+	live := fs.Bool("live", false, "refresh stale listings and ask each pinned agent for pong")
+	if code, done := helptext.Parse(fs, args); done {
+		return code
+	}
+	reg, err := providers.Load()
+	if err != nil {
+		return fail("preflight: %v", err)
+	}
+	if *live {
+		bin, err := os.Executable()
+		if err != nil {
+			return fail("preflight: %v", err)
+		}
+		preflight.RunInstallStep(context.Background(), os.Stdout, reg, bin, time.Now())
+		return 0
+	}
+	for _, p := range preflight.Check(reg, time.Now()) {
+		fmt.Printf("%-8s %-9s %s\n", p.Agent, p.Status, p.Line())
 	}
 	return 0
 }
