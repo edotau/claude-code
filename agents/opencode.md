@@ -26,6 +26,9 @@ embedded procedure, including on a direct dispatch. The dispatching command sets
 directly, infer it from the ask (refresh docs → DOC-UPDATE, "how do I use X" → DOC-LOOKUP,
 audit/triage → ANALYZE, "turn this into a skill" → EXTRACT, "persist/save this session" → PERSIST).
 
+Does its own CLI work; may request: codex, copilot, gemini, via the brief `Agent:` line
+(see skills/subagent-workflows/SKILL.md -> Leaf types).
+
 ## Owns
 
 - **DOC-UPDATE** — keep existing READMEs/guides current with the code, drafted on

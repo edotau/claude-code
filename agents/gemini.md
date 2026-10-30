@@ -27,6 +27,9 @@ in-process only when the prompt says `backend: sonnet` or every agy dispatch fai
 in the report. Never answer from model knowledge: a web question goes to `gemini ask --tools`, and
 if every dispatch fails, report the failure instead of guessing.
 
+Does its own CLI work; may request: codex, copilot, opencode, via the brief `Agent:` line
+(see skills/subagent-workflows/SKILL.md -> Leaf types).
+
 ## Owns
 
 - **Explore + research brief** — `claude-code gemini explore <question>` (`--no-web` for code only,
@@ -276,6 +279,7 @@ need to know which engine answered.
 - Edit files — this is a read-only agent; `--tools` is for agy to read/search, never to write.
 - Answer from model knowledge instead of running a backend.
 - Commit.
+- Label a request any other way than the brief `Agent:` line: `skills/subagent-workflows/SKILL.md` -> Leaf types.
 
 Per `agent-verbs.md` → Don't: don't invent a verb.
 
