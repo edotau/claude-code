@@ -56,13 +56,13 @@ func handlePickKey(s pickState, k Key) (pickState, int) {
 func layoutRows(rows [][2]string) []string {
 	width := 0
 	for _, r := range rows {
-		if n := len(r[0]); n > width {
+		if n := len(oneLine(r[0])); n > width {
 			width = n
 		}
 	}
 	out := make([]string, len(rows))
 	for i, r := range rows {
-		out[i] = fmt.Sprintf("%-*s  %s", width, r[0], r[1])
+		out[i] = fmt.Sprintf("%-*s  %s", width, oneLine(r[0]), oneLine(r[1]))
 	}
 	return out
 }
