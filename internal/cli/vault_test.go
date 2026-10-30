@@ -504,8 +504,8 @@ func TestVaultListTextFixtureFlattensEverySection(t *testing.T) {
 			t.Errorf("stdout missing row %s=%s; stdout = %q", tc.key, tc.value, stdout)
 		}
 	}
-	if !strings.Contains(stdout, "AGENTS\n  claude\n    ACTIVE  on\n") {
-		t.Errorf("stdout = %q, want AGENTS to list each agent's ACTIVE row", stdout)
+	if !strings.Contains(stdout, "AGENT\n  claude\n") || strings.Contains(stdout, "AGENTS") {
+		t.Errorf("stdout = %q, want an AGENT table with no AGENTS heading", stdout)
 	}
 	for _, row := range []string{
 		"NAME PROVIDER AUTH OPUS",
@@ -528,8 +528,8 @@ func vaultTextHasRow(stdout, key, value string) bool {
 func TestVaultListTextEmptyVaultAllSectionsNone(t *testing.T) {
 	useVaultTest(t)
 	code, stdout, stderr := captureOutput(t, func() int { return cmdVault([]string{"list", "--format", "text"}) })
-	if code != 0 || !strings.HasPrefix(stdout, "AGENTS\n  claude\n    ACTIVE  on\n") {
-		t.Fatalf("bare vault list = %d %q (stderr %q), want 0 and only the AGENTS ACTIVE rows", code, stdout, stderr)
+	if code != 0 || !strings.HasPrefix(stdout, "  AGENT\n  claude\n") {
+		t.Fatalf("bare vault list = %d %q (stderr %q), want 0 and only the AGENT table", code, stdout, stderr)
 	}
 	named := append([]string{"list"}, vaultSections...)
 	code, stdout, stderr = captureOutput(t, func() int { return cmdVault(append(named[:len(named)-1], "--format", "text")) })
