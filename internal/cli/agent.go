@@ -69,6 +69,7 @@ func runAsk(args []string, resume bool) int {
 	fs.Var(&env, "env", "set NAME=VALUE in the agent's environment (repeatable); credential names are refused")
 	systemPrompt := fs.String("system-prompt", "", "claude only: replace the system prompt")
 	appendSystemPrompt := fs.String("append-system-prompt", "", "claude only: append to the system prompt")
+	personaRef := fs.String("persona", "", "agent name (agents/<name>.md) or file: run as that agent definition")
 	outputSchema := fs.String("output-schema", "", "JSON Schema (file or inline) the answer must satisfy; envelope gains structured")
 	direct := fs.Bool("direct", false, "agents: hand the CLI the profile route, skip the proxy")
 	autonomous := fs.Bool("autonomous", false, "drive the run without stopping to ask, per agent")
@@ -103,7 +104,16 @@ func runAsk(args []string, resume bool) int {
 	if err != nil {
 		return failAskCode(*format, *name, err, 2)
 	}
+	var persona *agent.Persona
+	if *personaRef != "" && *job == "" {
+		if persona, err = agent.LoadPersona(*personaRef); err != nil {
+			return failAskCode(*format, *name, err, 2)
+		}
+	}
 	if *live {
+		if persona != nil {
+			return failAskCode(*format, *name, errors.New("--persona cannot be combined with --live"), 2)
+		}
 		if err := askLiveCheck(fs, *name); err != nil {
 			return failAskCode(*format, *name, err, 2)
 		}
@@ -118,7 +128,7 @@ func runAsk(args []string, resume bool) int {
 		base := agent.Request{Model: *model, Provider: *provider, Effort: *effort, WorkDir: *workdir, Tools: *tools, NoTools: *noTools,
 			Timeout: *timeout, KeepEnv: []string(keepEnv), Autonomous: *autonomous, EnableMemory: *enableMemory, Direct: *direct,
 			NoPersist: *noPersist, SafeMode: *safeMode, SystemPrompt: *systemPrompt, AppendSystemPrompt: *appendSystemPrompt,
-			Env: []string(env), OutputSchema: schema}
+			Env: []string(env), OutputSchema: schema, Persona: persona}
 		return runAskBatch(fs, resume, *batch, batchOpts{jobs: *jobs, failFast: *failFast, agent: *name, fallback: *fallback, native: *native}, base)
 	}
 	if flagExplicit(fs, "jobs") || flagExplicit(fs, "fail-fast") {
@@ -139,7 +149,7 @@ func runAsk(args []string, resume bool) int {
 		session: session, tools: tools, noTools: noTools, timeout: timeout, attach: &attach, keepEnv: &keepEnv,
 		autonomous: autonomous, enableMemory: enableMemory, rubric: rubric, direct: direct,
 		noPersist: noPersist, safeMode: safeMode, debugFile: debugFile, systemPrompt: systemPrompt,
-		appendSystemPrompt: appendSystemPrompt, outputSchema: outputSchema, host: host, remoteBin: remoteBin, fallback: fallback}
+		appendSystemPrompt: appendSystemPrompt, outputSchema: outputSchema, persona: &persona, host: host, remoteBin: remoteBin, fallback: fallback}
 	jobRec, rc, done := loadAskJob(*job, *format, state, &prompt)
 	if done {
 		return rc
@@ -147,6 +157,11 @@ func runAsk(args []string, resume bool) int {
 	if jobRec == nil {
 		if rc, done := loadAskRetry(fs, args, *retry, *format, state, &prompt); done {
 			return rc
+		}
+	}
+	if *personaRef != "" && *job == "" { // --job carries its persona in the record; a flag beats a --retry's
+		if persona, err = agent.LoadPersona(*personaRef); err != nil {
+			return failAskCode(*format, *name, err, 2)
 		}
 	}
 	if *outputSchema != "" { // a --retry/--job record may carry an already-resolved schema
@@ -213,7 +228,7 @@ func runAsk(args []string, resume bool) int {
 		WorkDir: *workdir, SessionID: *session, Tools: *tools, NoTools: *noTools, Timeout: *timeout,
 		Attach: []string(attach), KeepEnv: []string(keepEnv), Autonomous: *autonomous, EnableMemory: *enableMemory, Direct: *direct,
 		NoPersist: *noPersist, SafeMode: *safeMode, DebugFile: *debugFile, SystemPrompt: *systemPrompt,
-		AppendSystemPrompt: *appendSystemPrompt, Env: []string(env), OutputSchema: schema}
+		AppendSystemPrompt: *appendSystemPrompt, Env: []string(env), OutputSchema: schema, Persona: persona}
 	recDir := *workdir
 	if *host != "" {
 		recDir = "" // --workdir is a remote path: it is no local repo to record
@@ -329,6 +344,7 @@ type askState struct {
 	debugFile, systemPrompt, appendSystemPrompt, outputSchema *string
 	host, remoteBin, fallback                                 *string
 	timeout                                                   *time.Duration
+	persona                                                   **agent.Persona
 	attach                                                    *attachFlag
 	keepEnv                                                   *keepEnvFlag
 }
@@ -342,6 +358,9 @@ func (s *askState) applyRecord(rec agent.Record) {
 	*s.noPersist, *s.safeMode, *s.debugFile = rec.Request.NoPersist, rec.Request.SafeMode, rec.Request.DebugFile
 	*s.systemPrompt, *s.appendSystemPrompt, *s.outputSchema = rec.Request.SystemPrompt, rec.Request.AppendSystemPrompt, rec.Request.OutputSchema
 	*s.host, *s.remoteBin = rec.Host, rec.RemoteBin
+	if s.persona != nil {
+		*s.persona = rec.Request.Persona
+	}
 	if rec.FallbackPolicy != "" { // records from before the field keep this run's default
 		*s.fallback = rec.FallbackPolicy
 	}
@@ -738,7 +757,7 @@ func capFields(c agent.Caps) []struct {
 		{"tools", c.Tools}, {"no-tools", c.NoTools}, {"autonomous", c.Autonomous}, {"enable-memory", c.Memory},
 		{"no-persist", c.NoPersist}, {"safe-mode", c.SafeMode}, {"debug-file", c.DebugFile}, {"direct", c.Direct},
 		{"system-prompt", c.SystemPrompt}, {"append-system-prompt", c.AppendSystemPrompt}, {"env", c.Env},
-		{"output-schema", c.OutputSchema}}
+		{"output-schema", c.OutputSchema}, {"persona", c.Persona}}
 }
 
 // cmdAgentsList is bare `agents`: the local roster, or with --host the remote's own `agents` output.
@@ -974,6 +993,13 @@ func batchTask(l agent.ParsedLine, o batchOpts, base agent.Request, timeoutSet b
 		return t, fmt.Errorf("line %d: no task: give a prompt", l.N)
 	}
 	req := base
+	if tl.Persona != "" {
+		p, err := agent.LoadPersona(tl.Persona)
+		if err != nil {
+			return t, fmt.Errorf("line %d: %w", l.N, err)
+		}
+		req.Persona = p
+	}
 	req.Prompt, req.Provider, req.Model = tl.Prompt, cmp.Or(tl.Profile, base.Provider), cmp.Or(tl.Model, base.Model)
 	if tl.Tools != nil {
 		req.Tools = *tl.Tools

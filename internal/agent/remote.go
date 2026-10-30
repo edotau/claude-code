@@ -42,7 +42,7 @@ func (r remoteRunner) Name() string { return r.agent }
 func (r remoteRunner) Caps() Caps {
 	n := Native
 	return Caps{Model: n, Provider: n, Effort: n, WorkDir: n, SessionID: n, Tools: n, NoTools: n, Autonomous: n, Memory: n,
-		NoPersist: n, SafeMode: n, Direct: n, SystemPrompt: n, AppendSystemPrompt: n, Env: n, OutputSchema: n}
+		NoPersist: n, SafeMode: n, Direct: n, SystemPrompt: n, AppendSystemPrompt: n, Env: n, OutputSchema: n, Persona: n}
 }
 
 func (r remoteRunner) Available() error { return nil }
@@ -58,6 +58,9 @@ func remoteDropped(req Request) []string {
 	}
 	if req.DebugFile != "" {
 		out = append(out, "--debug-file="+req.DebugFile)
+	}
+	if req.Persona != nil {
+		out = append(out, "--persona="+req.Persona.Name)
 	}
 	return out
 }

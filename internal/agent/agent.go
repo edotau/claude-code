@@ -39,6 +39,7 @@ type Request struct {
 	Env                                                 []string `json:"-"`                   // KEY=VALUE for the child, layered last; never logged
 	EnvNames                                            []string `json:"env_names,omitempty"` // the names of Env, all the dispatch log keeps
 	OutputSchema                                        string   // JSON Schema text the answer must satisfy
+	Persona                                             *Persona `json:"persona,omitempty"` // claude: native agent definition; others: emulated
 	Timeout                                             time.Duration
 }
 
@@ -106,7 +107,7 @@ type Transport struct {
 // (every agent has at least an inline-block fallback for Attach).
 type Caps struct {
 	Model, Provider, Effort, WorkDir, SessionID, Tools, NoTools, Autonomous, Memory, NoPersist, SafeMode, DebugFile, Direct Level
-	SystemPrompt, AppendSystemPrompt, Env, OutputSchema                                                                     Level
+	SystemPrompt, AppendSystemPrompt, Env, OutputSchema, Persona                                                            Level
 }
 
 // Level is how an agent honors one flag: its own flag (Native), a harness shim (Emulated), or not at all (None).
@@ -179,6 +180,11 @@ func applyCaps(c Caps, req Request) (out Request, dropped, emulated []string) {
 	drop(c.Direct, req.Direct, "--direct", func() { req.Direct = false })
 	drop(c.DebugFile, req.DebugFile != "", "--debug-file="+req.DebugFile, func() { req.DebugFile = "" })
 	drop(c.Env, len(req.Env) > 0, "--env", func() { req.Env = nil })
+	drop(c.Persona, req.Persona != nil, "--persona="+personaName(req.Persona), func() { req.Persona = nil })
+	if req.Persona != nil && c.Persona == Emulated {
+		req, dropped = emulatePersona(c, req, dropped)
+		emulated = append(emulated, "--persona")
+	}
 	if req.SystemPrompt != "" && c.SystemPrompt == Emulated {
 		req.Prompt, req.SystemPrompt = preamble(req.SystemPrompt)+req.Prompt, ""
 		emulated = append(emulated, "--system-prompt")
