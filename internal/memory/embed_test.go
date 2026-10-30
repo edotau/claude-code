@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/proxy"
@@ -369,5 +370,36 @@ func TestNewSemanticPerProfileCacheFallsBackToPin(t *testing.T) {
 	}
 	if EmbedCachePath("../escape") != "" || saveEmbedCache("../escape", embedCacheFile{}) == nil {
 		t.Error("an unsafe profile name must not map to a cache path")
+	}
+}
+
+// A timed-out query pauses the semantic leg: the next prompt skips the endpoint instead of waiting again.
+func TestNewSemanticBacksOffAfterTimeout(t *testing.T) {
+	isolatedConfig1(t)
+	t.Setenv("CLAUDE_RECALL_SEMANTIC", "")
+	t.Setenv("CLAUDE_PROFILE", "fake")
+	f := embedCacheFile{Namespace: "fake|h|gte", Model: "gte", Rows: map[string]embedRow{"aaaa0001": {Hash: "h", Vec: encodeVec([]float32{1, 0, 0})}}}
+	if err := saveEmbedCache("fake", f); err != nil {
+		t.Fatal(err)
+	}
+	var opens int
+	prev := OpenEmbedClient
+	t.Cleanup(func() { OpenEmbedClient = prev })
+	OpenEmbedClient = func(_ context.Context, profile, model string) (*EmbedClient, error) {
+		opens++
+		return &EmbedClient{Profile: profile, Model: model, Namespace: "fake|h|gte", Embed: func(ctx context.Context, _ []string) ([][]float32, error) {
+			<-ctx.Done()
+			return nil, ctx.Err()
+		}}, nil
+	}
+	if _, err := NewSemantic("q"); err == nil || !strings.Contains(err.Error(), "exceeded") {
+		t.Fatalf("first query: err %v, want the timeout", err)
+	}
+	start := time.Now()
+	if _, err := NewSemantic("q"); err == nil || !strings.Contains(err.Error(), "paused") {
+		t.Fatalf("second query: err %v, want the backoff", err)
+	}
+	if opens != 1 || time.Since(start) > embedRecallWait/2 {
+		t.Errorf("backoff still reached the endpoint: opens=%d took %s", opens, time.Since(start))
 	}
 }
