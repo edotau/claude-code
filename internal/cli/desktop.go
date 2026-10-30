@@ -73,7 +73,7 @@ func cmdConfigureDesktop(args []string) int {
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 		defer cancel()
-		opts.Models, err = desktopModelList(ctx, p)
+		opts.Models, err = desktopModelList(ctx, reg, p)
 		if err != nil {
 			return fail("configure desktop: %v", err)
 		}
@@ -111,7 +111,7 @@ func desktopModelName(id string) string {
 	return strings.Join(words, " ")
 }
 
-func desktopModelList(ctx context.Context, p *providers.Provider) ([]desktop.Model, error) {
+func desktopModelList(ctx context.Context, reg *providers.Registry, p *providers.Provider) ([]desktop.Model, error) {
 	var infos []providers.ModelInfo
 	if p.IsAIGateway() {
 		var err error
@@ -130,7 +130,7 @@ func desktopModelList(ctx context.Context, p *providers.Provider) ([]desktop.Mod
 	seen := map[string]bool{}
 	for _, info := range infos {
 		id := models.Strip1M(info.ID)
-		if models.FamilyKind(id) != models.FamilyClaude || seen[id] {
+		if models.FamilyKind(id) != models.FamilyClaude || seen[id] || !desktopResolves(reg, p, id) {
 			continue
 		}
 		seen[id] = true
@@ -145,4 +145,10 @@ func desktopModelList(ctx context.Context, p *providers.Provider) ([]desktop.Mod
 		return nil, fmt.Errorf("profile %s has no Claude models in its catalog", p.Name)
 	}
 	return out, nil
+}
+
+// desktopResolves mirrors the proxy: the id must route to profile p on /p/<profile>.
+func desktopResolves(reg *providers.Registry, p *providers.Provider, id string) bool {
+	t := providers.ParseTarget(reg, id, p)
+	return t.Provider.Name == p.Name && t.Model != ""
 }

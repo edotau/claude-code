@@ -151,6 +151,9 @@ func helperFor(goos string, wsl bool, exe, distro, config, profile string) (stri
 		if !windowsAbsolute(exe) {
 			return "", nil, false, errors.New("helper executable must be absolute")
 		}
+		if config != "" {
+			tail = append(tail, "--config-dir", config)
+		}
 		return exe, tail, true, nil
 	}
 	if !filepath.IsAbs(exe) {
@@ -171,4 +174,16 @@ func targetPath(p string) (string, error) {
 		return "", fmt.Errorf("render Windows target %s: %w", strconv.Quote(p), err)
 	}
 	return win, nil
+}
+
+// desktopRunning is a var so tests can stub the process probe.
+var desktopRunning = func() bool {
+	switch {
+	case onWSL() || runtime.GOOS == "windows":
+		out, err := exec.Command("cmd.exe", "/c", "tasklist", "/FI", "IMAGENAME eq Claude.exe", "/NH").Output()
+		return err == nil && strings.Contains(strings.ToLower(string(out)), "claude.exe")
+	case runtime.GOOS == "darwin":
+		return exec.Command("pgrep", "-x", "Claude").Run() == nil
+	}
+	return false
 }

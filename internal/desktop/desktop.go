@@ -110,7 +110,7 @@ func configureLocked(opts Options, w io.Writer, ops fileOps, display func(string
 	metaPath := filepath.Join(library, "_meta.json")
 	statePath := filepath.Join(opts.Root, stateName)
 	snapshots := map[string]snapshot{}
-	for _, p := range []string{profilePath, metaPath, metaPath + ".bak", statePath} {
+	for _, p := range []string{profilePath, metaPath, metaPath + ".bak", metaPath + ".revert.bak", statePath} {
 		s, err := capture(p)
 		if err != nil {
 			return err
@@ -181,6 +181,9 @@ func configureLocked(opts Options, w io.Writer, ops fileOps, display func(string
 			}
 		}
 		meta["profiles"] = marshal(filtered)
+		if m := snapshots[metaPath]; m.exists {
+			changes = append(changes, change{path: metaPath + ".revert.bak", data: m.data})
+		}
 		changes = append(changes, change{path: metaPath, data: marshal(meta)}, change{path: profilePath, remove: true}, change{path: statePath, remove: true})
 	} else {
 		if err := validateOptions(&opts); err != nil {
@@ -214,6 +217,11 @@ func configureLocked(opts Options, w io.Writer, ops fileOps, display func(string
 	if _, err := fmt.Fprintln(w, "NOTE: configLibrary layout and _meta.json are inferred, not documented;\n"+
 		"  managed (MDM/registry) config overrides them. Quit and reopen Desktop to apply."); err != nil {
 		return err
+	}
+	if desktopRunning() {
+		if _, err := fmt.Fprintln(w, "WARNING: Claude Desktop is running; restart Claude Desktop to apply (not closed)."); err != nil {
+			return err
+		}
 	}
 	for _, c := range changes {
 		target, err := display(c.path)

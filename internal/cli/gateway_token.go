@@ -23,11 +23,15 @@ func cmdGatewayToken(args []string) int {
 			"The token is bound to the proxy daemon and scoped to one profile.",
 	})
 	profile := fs.String("profile", "", "profile the token is scoped to (required)")
+	cfg := fs.String("config-dir", "", "CLAUDE_CONFIG_DIR to use (native Windows helper)")
 	if code, done := helptext.Parse(fs, args); done {
 		return code
 	}
 	if fs.NArg() != 0 || *profile == "" {
 		return fail("gateway token: want --profile <name> and no other arguments")
+	}
+	if *cfg != "" {
+		_ = os.Setenv("CLAUDE_CONFIG_DIR", *cfg)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()

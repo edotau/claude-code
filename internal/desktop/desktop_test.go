@@ -435,3 +435,36 @@ func TestEmptyRootIsAccepted(t *testing.T) {
 		t.Fatalf("empty Claude-3p dir refused: %v", err)
 	}
 }
+
+func TestNativeWindowsHelperCarriesConfigDir(t *testing.T) {
+	_, args, _, err := helperFor("windows", false, `C:\bin\cc.exe`, "", `C:\Users\Me\.claude`, "dev")
+	if err != nil || !reflect.DeepEqual(args[len(args)-2:], []string{"--config-dir", `C:\Users\Me\.claude`}) {
+		t.Fatalf("%q %v", args, err)
+	}
+}
+
+func TestRevertBacksUpMetaEvenWhenCreatedByUs(t *testing.T) {
+	root := testRoot(t)
+	opts := options(root)
+	if err := run(opts, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	applied := read(t, filepath.Join(root, "configLibrary", "_meta.json"))
+	opts.Revert = true
+	if err := run(opts, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	if got := read(t, filepath.Join(root, "configLibrary", "_meta.json.revert.bak")); string(got) != string(applied) {
+		t.Fatalf("revert backup = %s", got)
+	}
+}
+
+func TestRunningDesktopWarnsAndIsNotKilled(t *testing.T) {
+	old := desktopRunning
+	t.Cleanup(func() { desktopRunning = old })
+	desktopRunning = func() bool { return true }
+	var out strings.Builder
+	if err := run(options(testRoot(t)), &out); err != nil || !strings.Contains(out.String(), "restart Claude Desktop") {
+		t.Fatalf("%v %s", err, out.String())
+	}
+}

@@ -127,7 +127,8 @@ func TestDesktopModelsFilterAndDisplayNames(t *testing.T) {
 	p := &providers.Provider{Name: "dev", Preset: providers.PresetDatabricks,
 		Options: providers.Options{Wire: providers.WireAIGateway},
 		BaseURL: "https://example.com/ai-gateway/anthropic", Protocol: providers.ProtocolAnthropic}
-	got, err := desktopModelList(context.Background(), p)
+	reg := &providers.Registry{}
+	got, err := desktopModelList(context.Background(), reg, p)
 	if err != nil || len(got) != 1 || got[0].Name != "claude-sonnet-4-6" || got[0].LabelOverride != "Sonnet Display" {
 		t.Fatalf("models = %+v, %v", got, err)
 	}
@@ -136,7 +137,7 @@ func TestDesktopModelsFilterAndDisplayNames(t *testing.T) {
 	}
 	p.Models = map[string]string{"sonnet": "claude-sonnet-4-6[1m]", "opus": "claude-sonnet-4-6", "haiku": "gpt-5"}
 	_, _, stderr := captureOutput(t, func() int {
-		got, err = desktopModelList(context.Background(), p)
+		got, err = desktopModelList(context.Background(), reg, p)
 		return 0
 	})
 	if err != nil || len(got) != 1 || got[0].Name != "claude-sonnet-4-6" || got[0].LabelOverride == "claude-sonnet-4-6" {
@@ -144,5 +145,26 @@ func TestDesktopModelsFilterAndDisplayNames(t *testing.T) {
 	}
 	if strings.Contains(stderr, "secret") {
 		t.Fatal("catalog warning leaked upstream error")
+	}
+}
+
+func TestDesktopModelsAllResolveOnProfileRoute(t *testing.T) {
+	old := desktopGatewayModels
+	t.Cleanup(func() { desktopGatewayModels = old })
+	desktopGatewayModels = func(context.Context, *providers.Provider) ([]providers.ModelInfo, error) {
+		return []providers.ModelInfo{{ID: "claude-sonnet-4-6", Name: "S"}, {ID: "other:claude-opus-4-6", Name: "O"}}, nil
+	}
+	dev := &providers.Provider{Name: "dev", Preset: providers.PresetDatabricks, Options: providers.Options{Wire: providers.WireAIGateway},
+		BaseURL: "https://example.com/ai-gateway/anthropic", Protocol: providers.ProtocolAnthropic}
+	other := &providers.Provider{Name: "other"}
+	reg := &providers.Registry{Providers: map[string]*providers.Provider{"dev": dev, "other": other}}
+	got, err := desktopModelList(context.Background(), reg, dev)
+	if err != nil || len(got) != 1 || got[0].Name != "claude-sonnet-4-6" {
+		t.Fatalf("models = %+v, %v", got, err)
+	}
+	for _, m := range got {
+		if tgt := providers.ParseTarget(reg, m.Name, dev); tgt.Provider.Name != "dev" {
+			t.Fatalf("%s routes to %s", m.Name, tgt.Provider.Name)
+		}
 	}
 }
