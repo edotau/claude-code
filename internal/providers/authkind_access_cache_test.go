@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/edotau/claude-code/internal/databricks/sdkport"
+	"github.com/edotau/claude-code/internal/databricks/oauth"
 )
 
 // u2mMint is a u2m row on a token server that counts hits and mints a fresh JWT each time.
@@ -155,7 +155,7 @@ func TestLoginU2MSealsAccessToken(t *testing.T) {
 		}()
 		return nil
 	}
-	if _, err := LoginU2M(context.Background(), p, sdkport.LoginOptions{Open: open, Port: port, Timeout: 20 * time.Second}); err != nil {
+	if _, err := LoginU2M(context.Background(), p, oauth.LoginOptions{Open: open, Port: port, Timeout: 20 * time.Second}); err != nil {
 		t.Fatal(err)
 	}
 	if v := sealedAccessValue(p); v != "login-access" {

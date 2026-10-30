@@ -14,7 +14,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent/vendors"
 	"github.com/edotau/claude-code/internal/databricks"
-	"github.com/edotau/claude-code/internal/databricks/sdkport"
+	"github.com/edotau/claude-code/internal/databricks/oauth"
 	"github.com/edotau/claude-code/internal/network/tailscale"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
@@ -123,7 +123,7 @@ func (s secret) Check(ctx context.Context) (providers.AuthVerdict, string) {
 	}
 	_, err := credential(ctx, s.p)
 	v := providers.Verdict(err)
-	if v == providers.VerdictNeedsLogin && sdkport.IsRejected(err) { // 401 invalid_client: the stored secret is wrong
+	if v == providers.VerdictNeedsLogin && oauth.IsRejected(err) { // 401 invalid_client: the stored secret is wrong
 		return providers.VerdictRejected, err.Error()
 	}
 	if v == providers.VerdictTransient {

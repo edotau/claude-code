@@ -14,7 +14,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/audit"
-	"github.com/edotau/claude-code/internal/databricks/sdkport"
+	"github.com/edotau/claude-code/internal/databricks/oauth"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/vault"
 )
@@ -270,40 +270,40 @@ func mintAndCache(ctx context.Context, p *Provider) (string, error) {
 }
 
 // mintAuth is the one path that turns a sealed credential into an access token.
-func mintAuth(ctx context.Context, p *Provider) (sdkport.Token, error) {
+func mintAuth(ctx context.Context, p *Provider) (oauth.Token, error) {
 	name := AuthSecretName(p)
 	secret, err := mintSecret(p)
 	if err != nil {
-		return sdkport.Token{}, fmt.Errorf("%s: vault: %w", p.Name, err)
+		return oauth.Token{}, fmt.Errorf("%s: vault: %w", p.Name, err)
 	}
 	if secret == "" {
 		err := fmt.Errorf("%s: no credential (%s)", p.Name, authHint(p, name))
 		if p.Auth.Type == AuthOAuth {
 			err = &LoginRequiredError{Provider: p.Name, err: err}
 		}
-		return sdkport.Token{}, err
+		return oauth.Token{}, err
 	}
 	if err := checkAuthScheme(p); err != nil {
-		return sdkport.Token{}, err
+		return oauth.Token{}, err
 	}
 	host := AuthHost(p)
 	switch p.Auth.Type {
 	case AuthPAT:
-		return sdkport.Token{Access: secret}, nil
+		return oauth.Token{Access: secret}, nil
 	case AuthM2M:
-		return sdkport.MintM2M(ctx, host, p.Auth.ClientID, secret)
+		return oauth.MintM2M(ctx, host, p.Auth.ClientID, secret)
 	}
-	tok, err := sdkport.RefreshU2M(ctx, host, secret)
+	tok, err := oauth.RefreshU2M(ctx, host, secret)
 	if err != nil {
 		wrapped := fmt.Errorf("%s: %w (run `claude-code databricks login --profile %s`)", p.Name, err, p.Name)
-		if sdkport.IsLoginRequired(err) {
+		if oauth.IsLoginRequired(err) {
 			wrapped = &LoginRequiredError{Provider: p.Name, err: wrapped}
 		}
-		return sdkport.Token{}, wrapped
+		return oauth.Token{}, wrapped
 	}
 	if tok.Refresh != "" && tok.Refresh != secret {
 		if err := writeOAuth(p, oauthValue{Refresh: tok.Refresh, Access: tok.Access}); err != nil {
-			return sdkport.Token{}, fmt.Errorf("%s: re-seal rotated refresh token: %w", p.Name, err)
+			return oauth.Token{}, fmt.Errorf("%s: re-seal rotated refresh token: %w", p.Name, err)
 		}
 	}
 	return tok, nil
@@ -354,7 +354,7 @@ func sealDirect(name, value string) error {
 }
 
 // LoginU2M runs the browser login for a u2m row, seals the refresh token, mints once and returns the token's lifetime.
-func LoginU2M(ctx context.Context, p *Provider, opts sdkport.LoginOptions) (time.Duration, error) {
+func LoginU2M(ctx context.Context, p *Provider, opts oauth.LoginOptions) (time.Duration, error) {
 	if p.Auth.Type != AuthOAuth {
 		return 0, fmt.Errorf("%s: auth.type is %q, not %s", p.Name, p.Auth.Type, AuthOAuth)
 	}
@@ -365,7 +365,7 @@ func LoginU2M(ctx context.Context, p *Provider, opts sdkport.LoginOptions) (time
 	if host == "" {
 		return 0, fmt.Errorf("%s: no workspace host (set host or base_url)", p.Name)
 	}
-	tok, err := sdkport.LoginU2M(ctx, host, opts)
+	tok, err := oauth.LoginU2M(ctx, host, opts)
 	if err != nil {
 		return 0, fmt.Errorf("%s: %w", p.Name, err)
 	}
