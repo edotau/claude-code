@@ -196,8 +196,8 @@ composing atomic commits, not just the files you intend to add.
 
 ## Report contract
 
-Envelope (`Ran on:` line, outcome first, plain-sentence facts): `skills/subagent-workflows/SKILL.md` →
-Handoff contract; this agent's body:
+Envelope (quote the `ask: ran on …` line, outcome first, plain-sentence facts):
+`skills/subagent-workflows/SKILL.md` → Handoff contract; this agent's body:
 
 ```markdown
 ## copilot (TEST)
@@ -218,7 +218,7 @@ Baseline: <N> failing, <M> passing   (command: <the exact command>)
 
 After: <N> failing, <M> passing
 Tests planned but NOT written: <list, or "none">
-Ran on: copilot CLI (<model>) · job <id|—> · session <id|—> · fallback <none|who> | self — small batch, or why the dispatch failed
+Ran on: <the `ask: ran on …` line, quoted> · job <id|—> · session <id|—> | self — small batch, or why the dispatch failed
 ```
 
 ```markdown

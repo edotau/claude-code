@@ -123,6 +123,9 @@ func agentsResult(rec agent.Record, format, cwd string) int {
 	if log != "" && !strings.HasSuffix(log, "\n") {
 		fmt.Println()
 	}
+	if line := recordEnvelope(rec).RanOn; line != "" {
+		fmt.Println("ask:", line)
+	}
 	if rec.SessionID != "" {
 		fmt.Printf("session: %s\n", rec.SessionID)
 		fmt.Printf("resume: claude-code ask --agent %s --session %s\n", rec.Agent, rec.SessionID)
