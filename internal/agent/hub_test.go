@@ -176,3 +176,16 @@ func TestLegLabel(t *testing.T) {
 		t.Errorf("non-hub leg label = %q, want Name()", got)
 	}
 }
+
+// TestBuildLegPinnedRowWithoutOpencodeID: a pinned Databricks-style row (no opencode id) runs native, not a hub leg.
+func TestBuildLegPinnedRowWithoutOpencodeID(t *testing.T) {
+	rc := routeCtx{reg: hubRegistry(), want: "opencode"}
+	cand := router.Candidate{Agent: "opencode", Profile: "nvidia"}
+	leg, skip, err := rc.buildLeg(cand, router.Cell{Model: "nv-opus"})
+	if err != nil || skip != "" {
+		t.Fatalf("skip=%q err=%v", skip, err)
+	}
+	if _, hub := leg.Agent.(hubLeg); hub || leg.Model != "nvidia:nv-opus" {
+		t.Errorf("want native leg with model nvidia:nv-opus, got %T %q", leg.Agent, leg.Model)
+	}
+}

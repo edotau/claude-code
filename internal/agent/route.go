@@ -214,6 +214,9 @@ func (rc routeCtx) buildLeg(cand router.Candidate, cell router.Cell) (leg Leg, s
 		leg.Model = cand.Profile + ":" + cell.Model
 	}
 	hubOpencode := cand.Agent == "opencode" && (!rc.native || cand.Agent != rc.want)
+	if pr := profileRow(rc.reg, cand.Profile); pr != nil && pr.OpencodeID == "" {
+		hubOpencode = false // a row with no opencode id can't ride the hub; the native runner takes <profile>:<model>
+	}
 	switch {
 	case hubOpencode && cand.Profile != "" && rc.reg != nil && rc.reg.Providers[cand.Profile] != nil:
 		// a pinned registry row runs the hub leg on that profile, bare model
@@ -242,6 +245,14 @@ func (rc routeCtx) buildLeg(cand router.Candidate, cell router.Cell) (leg Leg, s
 		}
 	}
 	return leg, "", nil
+}
+
+// profileRow is the registry row named name, or nil when absent.
+func profileRow(reg *providers.Registry, name string) *providers.Provider {
+	if reg == nil || name == "" {
+		return nil
+	}
+	return reg.Providers[name]
 }
 
 // nonClaudeLegID is the canonical non-Claude model the leg runs: the exact --model, else the wanted agent's model pin.
