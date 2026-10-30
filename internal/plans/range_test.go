@@ -94,3 +94,37 @@ func TestCoversSplicesAbbreviatedOwns(t *testing.T) {
 		t.Fatal("repo-root entry must stay as is")
 	}
 }
+
+// TestDirOwnsNeverComplete is the regression for a directory owns entry ticking a task on one stray file.
+func TestDirOwnsNeverComplete(t *testing.T) {
+	if all, any := Covers([]string{"internal/proxy"}, []string{"internal/proxy/x.go"}); all || !any {
+		t.Fatalf("dir-only owns: all=%v any=%v, want touched only", all, any)
+	}
+	if all, _ := Covers([]string{"internal/proxy/", "internal/a.go"}, []string{"internal/a.go"}); all {
+		t.Fatal("dir entry untouched must keep the task open")
+	}
+	if all, _ := Covers([]string{"internal/proxy", "internal/a.go"}, []string{"internal/a.go", "internal/proxy/x.go"}); !all {
+		t.Fatal("files plus touched dir should complete")
+	}
+}
+
+// TestSelectPicksOwningPlan is the regression for annotating the newest plan instead of the one the range belongs to.
+func TestSelectPicksOwningPlan(t *testing.T) {
+	hermetic(t)
+	home := t.TempDir()
+	writeFile(t, filepath.Join(home, "2026-10-01-roles.md"), "- [ ] 1.1 Roles owns: internal/roles/r.go\n")
+	writeFile(t, filepath.Join(home, "2026-10-02-gateway.md"), "- [ ] 2.1 Proxy owns: internal/proxy\n- [ ] 2.2 Other owns: internal/gw/g.go\n")
+	commits := []Commit{{Sha: "abc1234", Files: []string{"internal/roles/r.go", "internal/proxy/h.go"}}}
+	plan, tied := Select(home, "", nil, commits)
+	if filepath.Base(plan) != "2026-10-01-roles.md" || tied != nil {
+		t.Fatalf("plan=%q tied=%v", plan, tied)
+	}
+	writeFile(t, filepath.Join(home, "2026-10-03-dup.md"), "- [ ] 3.1 Roles owns: internal/roles/r.go\n")
+	if plan, tied = Select(home, "", nil, commits); plan != "" || len(tied) != 2 {
+		t.Fatalf("equal match must annotate nothing: plan=%q tied=%v", plan, tied)
+	}
+	writeFile(t, filepath.Join(home, "2026-10-03-dup.md"), "- [ ] 3.1 Roles owns: internal/roles/r.go <!-- working: x · worktree wt -->\n")
+	if plan, _ = Select(home, "wt", nil, commits); filepath.Base(plan) != "2026-10-03-dup.md" {
+		t.Fatalf("worktree claim should break the tie, got %q", plan)
+	}
+}

@@ -59,13 +59,16 @@ func tickCommit(in *Input, cmd, sha string, stderr io.Writer) []string {
 	if main := paths.MainCheckout(top); main != top {
 		worktree = filepath.Base(top)
 	}
-	plan, ok := plans.Active(plans.Home(top), worktree, MirrorDests())
-	if !ok {
-		return nil
-	}
 	files, err := plans.CommitFiles(ctx, dir, sha)
 	if err != nil {
 		fmt.Fprintf(stderr, "plan-tick: %v\n", err)
+		return nil
+	}
+	plan, tied := plans.Select(plans.Home(top), worktree, MirrorDests(), []plans.Commit{{Sha: sha, Files: files}})
+	if plan == "" {
+		if len(tied) > 0 {
+			fmt.Fprintf(stderr, "plan-tick: %d plans match %s equally; nothing annotated\n", len(tied), sha)
+		}
 		return nil
 	}
 	short := sha
