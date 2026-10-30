@@ -22,9 +22,9 @@ import (
 	"github.com/edotau/claude-code/internal/settings/codexsettings"
 )
 
-// ownedID namespaces the provider entry so it never overwrites a user's own block of the same name.
 var idRE = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 
+// ownedID namespaces the provider entry so it never overwrites a user's own block of the same name.
 func ownedID(p *providers.Provider) (string, error) {
 	if !idRE.MatchString(p.Name) {
 		return "", fmt.Errorf("provider name %q must match %s to be passed to an agent config", p.Name, idRE)
@@ -166,7 +166,7 @@ func codexChatGPTLogin() error {
 			}
 		}
 	}
-	b, _, keyringNote := codexAuthJSON()
+	b, keyringNote := codexAuthJSON()
 	var auth struct {
 		Tokens json.RawMessage `json:"tokens"`
 	}

@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// The default order puts the context bar right after the model, then the rate limits; the agent count is off.
+// The default order puts the context bar right after the model, then the rate limits; the agent count is on.
 func TestDefaultConfigOrder(t *testing.T) {
 	hermetic(t)
 	cfg := loadConfig()

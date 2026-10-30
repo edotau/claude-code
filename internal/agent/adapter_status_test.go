@@ -38,7 +38,7 @@ func setConfigDir(t *testing.T) {
 func TestStatusUnknownVendorErrors(t *testing.T) {
 	setConfigDir(t)
 	if _, err := Status(context.Background(), "nonexistent-vendor", t.TempDir(), "", false); err == nil {
-		t.Error("Status(unknown vendor) = nil error, want errUnknownVendor")
+		t.Error("Status(unknown agent) = nil error, want errUnknownAgent")
 	}
 }
 
@@ -164,6 +164,6 @@ func TestCancelJobAmbiguousPrefixErrors(t *testing.T) {
 func TestCancelJobUnknownVendorErrors(t *testing.T) {
 	setConfigDir(t)
 	if _, err := CancelJob(context.Background(), "nonexistent-vendor", t.TempDir(), ""); err == nil {
-		t.Error("CancelJob(unknown vendor) = nil error, want errUnknownVendor")
+		t.Error("CancelJob(unknown agent) = nil error, want errUnknownAgent")
 	}
 }

@@ -50,7 +50,7 @@ func TestInterruptReachesWholeProcessGroup(t *testing.T) {
 	}
 
 	// give both processes time to install their traps before signalling, else SIGINT can race trap
-	// installation (same reasoning as TestCancelEscalatesToSIGKILL in jobs_test.go).
+	// installation (same reasoning as TestCancelEscalatesToSIGKILL in adapter_jobs_test.go).
 	time.Sleep(200 * time.Millisecond)
 
 	if err := interrupt(leaderPid); err != nil {

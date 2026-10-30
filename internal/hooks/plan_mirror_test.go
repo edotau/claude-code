@@ -157,7 +157,7 @@ func TestPlanMirrorTopLevelWhenCWDIsConfigDir(t *testing.T) {
 		t.Fatal(err)
 	}
 	if code := runDirect("docs-plan-mirror", strings.NewReader(mirrorPayload(t, "Write", cfg, draft)), io.Discard, &bytes.Buffer{}); code != ExitProceed {
-		t.Fatalf("PlanMirror = %d", code)
+		t.Fatalf("planMirror = %d", code)
 	}
 	want := filepath.Join(cfg, "plans", dateStamp()+"-widget-refactor.md")
 	got, err := os.ReadFile(want)
@@ -181,7 +181,7 @@ func TestPlanMirrorRepoTaggedWhenCWDIsAnotherRepo(t *testing.T) {
 		t.Fatal(err)
 	}
 	if code := runDirect("docs-plan-mirror", strings.NewReader(mirrorPayload(t, "Write", repo, draft)), io.Discard, &bytes.Buffer{}); code != ExitProceed {
-		t.Fatalf("PlanMirror = %d", code)
+		t.Fatalf("planMirror = %d", code)
 	}
 	want := filepath.Join(cfg, "plans", filepath.Base(repo), dateStamp()+"-widget-refactor.md")
 	if _, err := os.ReadFile(want); err != nil {
@@ -261,7 +261,7 @@ func TestPlanMirrorNeverClobbersAnUnrelatedDatedFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	if code := runDirect("docs-plan-mirror", strings.NewReader(mirrorPayload(t, "Write", cfg, draft)), io.Discard, &bytes.Buffer{}); code != ExitProceed {
-		t.Fatalf("PlanMirror = %d", code)
+		t.Fatalf("planMirror = %d", code)
 	}
 	if got, err := os.ReadFile(preexisting); err != nil || string(got) != unrelated {
 		t.Fatalf("the unrelated dated file was touched: err=%v content=%q", err, got)
@@ -337,7 +337,7 @@ func TestSavePlanReusesMirroredDestAndCleansUpDraft(t *testing.T) {
 		t.Fatal(err)
 	}
 	if code := runDirect("docs-plan-mirror", strings.NewReader(mirrorPayload(t, "Write", repo, draft)), io.Discard, &bytes.Buffer{}); code != ExitProceed {
-		t.Fatalf("PlanMirror = %d", code)
+		t.Fatalf("planMirror = %d", code)
 	}
 	dest := filepath.Join(cfg, "plans", filepath.Base(repo), dateStamp()+"-widget-refactor.md")
 	if _, err := os.ReadFile(dest); err != nil {
@@ -352,7 +352,7 @@ func TestSavePlanReusesMirroredDestAndCleansUpDraft(t *testing.T) {
 		t.Fatal(err)
 	}
 	if code := runDirect("docs-plan-save", bytes.NewReader(raw), io.Discard, &bytes.Buffer{}); code != ExitProceed {
-		t.Fatalf("SavePlan = %d", code)
+		t.Fatalf("savePlan = %d", code)
 	}
 	if got, err := os.ReadFile(dest); err != nil || string(got) != planTemplate {
 		t.Fatalf("final dest %s: err=%v content=%q", dest, err, got)
@@ -366,7 +366,7 @@ func TestSavePlanReusesMirroredDestAndCleansUpDraft(t *testing.T) {
 }
 
 // TestSavePlanKeepsDraftEditedAfterApproval: the draft on disk no longer matches the approved plan text
-// (e.g. a concurrent agent kept editing it) — SavePlan must file the approved plan but leave the draft alone.
+// (e.g. a concurrent agent kept editing it) — savePlan must file the approved plan but leave the draft alone.
 func TestSavePlanKeepsDraftEditedAfterApproval(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
@@ -387,7 +387,7 @@ func TestSavePlanKeepsDraftEditedAfterApproval(t *testing.T) {
 	}
 	var stderr bytes.Buffer
 	if code := runDirect("docs-plan-save", bytes.NewReader(raw), io.Discard, &stderr); code != ExitProceed {
-		t.Fatalf("SavePlan = %d", code)
+		t.Fatalf("savePlan = %d", code)
 	}
 	dest := filepath.Join(cfg, "plans", dateStamp()+"-widget-refactor.md")
 	if got, err := os.ReadFile(dest); err != nil || string(got) != planTemplate {
@@ -425,7 +425,7 @@ func TestSavePlanPreservesRecordWhenDraftRemovalFails(t *testing.T) {
 	}
 	var stderr bytes.Buffer
 	if code := runDirect("docs-plan-save", bytes.NewReader(raw), io.Discard, &stderr); code != ExitProceed {
-		t.Fatalf("SavePlan = %d, want ExitProceed", code)
+		t.Fatalf("savePlan = %d, want ExitProceed", code)
 	}
 	if !strings.HasPrefix(stderr.String(), "save-plan: ") || !strings.Contains(stderr.String(), draft) {
 		t.Errorf("missing draft removal diagnostic: %s", &stderr)

@@ -5,10 +5,13 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent/vendors"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
 // vendorTargetBase honors the request's model tier; vendors.ResolveTarget always returns the session's opus slot.
 func TestVendorTargetBaseDiffersFromResolveTargetOnTier(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	vaulttest.Use(t)
 	reg, err := providers.Load()
 	if err != nil {
 		t.Fatal(err)
@@ -19,11 +22,16 @@ func TestVendorTargetBaseDiffersFromResolveTargetOnTier(t *testing.T) {
 	}
 	rt, _, err := vendors.ResolveTarget(reg, "codex", sel, false)
 	if err != nil {
-		t.Skipf("ResolveTarget: %v", err)
+		t.Fatalf("ResolveTarget: %v", err)
 	}
 	bt, _, _, _, err := vendorTargetBase(Request{Prompt: "p", Model: "haiku"}, "codex")
-	t.Logf("ResolveTarget model=%q; base model=%q err=%v", rt.Model, bt.Model, err)
-	if err == nil && rt.Model == bt.Model {
+	if err != nil {
+		t.Fatalf("vendorTargetBase: %v", err)
+	}
+	if rt.Model == bt.Model {
 		t.Errorf("expected the tier to differ, both %q", rt.Model)
+	}
+	if want := bt.Provider.Models["haiku"]; bt.Model != want {
+		t.Errorf("base model = %q, want the haiku slot %q", bt.Model, want)
 	}
 }

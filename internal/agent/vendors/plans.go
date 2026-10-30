@@ -10,7 +10,7 @@ import (
 // claim in codex's auth.json (file or keyring); "" when absent or unreadable. The token is decoded, never
 // verified or printed.
 func CodexPlan() string {
-	b, _, _ := codexAuthJSON()
+	b, _ := codexAuthJSON()
 	if b == nil {
 		return ""
 	}
@@ -45,7 +45,7 @@ func CodexPlan() string {
 // "" when absent. keyringNote is "" normally, or the reason a keyring lookup failed for something other
 // than "nothing stored", for callers that want to say why no token was found.
 func CodexAccessToken() (token, accountID, keyringNote string) {
-	b, _, note := codexAuthJSON()
+	b, note := codexAuthJSON()
 	if b == nil {
 		return "", "", note
 	}

@@ -35,7 +35,7 @@ func TestCodexChatGPTLogin(t *testing.T) {
 	}
 }
 
-// codexHeadless carries CODEX_REASONING_EFFORT into -c model_reasoning_effort when the call names no
+// codexHeadless carries CODEX_EFFORT into -c model_reasoning_effort when the call names no
 // explicit Effort; an explicit Headless.Effort still wins over the pin (TestConfigure's codex/Effort
 // case already proves the no-pin explicit path, so this proves the pin-only and pin-vs-explicit paths).
 func TestCodexHeadlessEffortPinUsedWhenEffortEmptyExplicitWinsOverIt(t *testing.T) {
@@ -61,7 +61,7 @@ func TestCodexHeadlessEffortPinUsedWhenEffortEmptyExplicitWinsOverIt(t *testing.
 		t.Fatal(err)
 	}
 	if !slices.Contains(argv, `model_reasoning_effort="xhigh"`) {
-		t.Errorf("argv = %q, want the CODEX_REASONING_EFFORT pin (xhigh) carried in", argv)
+		t.Errorf("argv = %q, want the CODEX_EFFORT pin (xhigh) carried in", argv)
 	}
 
 	// An explicit Headless.Effort still wins over the pin.

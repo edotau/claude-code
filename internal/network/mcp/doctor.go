@@ -237,7 +237,6 @@ type SecretFinding struct {
 	Key    string `json:"key,omitempty"`
 }
 
-// bearerToken matches an Authorization-style "Bearer <40+ chars>" value.
 // queryParamSecret matches a plaintext token=/key= query parameter in a URL; group 1 keeps the
 // separator and param name so redact() can replace just the value.
 var queryParamSecret = regexp.MustCompile(`(?i)([?&](?:token|key)=)[^&\s]+`)

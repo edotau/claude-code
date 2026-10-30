@@ -265,7 +265,7 @@ func TestParseAgyStream_SoftDeny(t *testing.T) {
 // TestVendorRunnerNilProviderDefense tests that vendorRunner.Run safely handles
 // the edge case where vendorTarget returns own=false with nil Provider.
 // Line 104 (res.Provider = t.Provider.Name) must not panic when t.Provider is nil.
-// Similarly, copilotRunner.Run at lines 377 and 391 must handle nil Provider.
+// Similarly, copilotRunner.Run (copilot_runner.go) must handle nil Provider.
 func TestVendorRunnerNilProviderDefense(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv("HOME", t.TempDir())

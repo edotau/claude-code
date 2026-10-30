@@ -69,12 +69,9 @@ func TestCodexAuthJSON_FilePresentKeyringNeverCalled(t *testing.T) {
 	}
 	defer func() { codexKeychainCmd = orig }()
 
-	data, source, note := codexAuthJSON()
+	data, note := codexAuthJSON()
 	if string(data) != body {
 		t.Errorf("codexAuthJSON data = %q, want %q", data, body)
-	}
-	if source != codexAuthFile {
-		t.Errorf("codexAuthJSON source = %q, want %q", source, codexAuthFile)
 	}
 	if note != "" {
 		t.Errorf("codexAuthJSON keyringNote = %q, want empty", note)

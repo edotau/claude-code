@@ -34,7 +34,7 @@ type Options struct {
 	Days           int       // agent-tree scope in days, forwarded to agent.Options
 	DryRunDispatch bool      // POST /api/dispatch returns the ssh argv instead of running it
 	ClaudeDir      string    // "" defaults to paths.ConfigDir()
-	Out, ErrOut    io.Writer // "" defaults to os.Stdout/os.Stderr; tests redirect these
+	ErrOut         io.Writer // nil discards
 }
 
 // Server is the bound web dashboard: its CSRF token and host allowlist are fixed for the process.
