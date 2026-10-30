@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -236,5 +237,37 @@ func TestContextCheckpoint(t *testing.T) {
 	other := strings.Replace(payload, "s1", "s2", 1)
 	if got := contextCheckpoint(ParseInput(strings.NewReader(other)), &bytes.Buffer{}); got != ExitProceed {
 		t.Error("a [1m] session at 180K is 18% and must proceed")
+	}
+}
+
+// Every command in the rendered codex/copilot hook files is `hook <Event> --<module>` for a module on that event.
+func TestVendorHookFilesCallOnlyResolvableHooks(t *testing.T) {
+	cmdRe := regexp.MustCompile(`claude-code hook (\S+)(?: --([a-z][a-z0-9-]*))?`)
+	for name, render := range map[string]func() ([]byte, error){"codex": hookspec.CodexJSON, "copilot": hookspec.CopilotJSON} {
+		body, err := render()
+		if err != nil {
+			t.Fatal(err)
+		}
+		ms := cmdRe.FindAllStringSubmatch(string(body), -1)
+		if len(ms) == 0 {
+			t.Fatalf("%s: no hook commands rendered", name)
+		}
+		for _, m := range ms {
+			if _, ok := Native[m[2]]; !ok || !IsEvent(m[1]) || eventOf(m[2]) != m[1] {
+				t.Errorf("%s hook file calls %q, which no module on that event serves", name, m[0])
+			}
+		}
+	}
+}
+
+// A retired name is a loud no-op, never a silent exit 1; an unknown guard name fails closed.
+func TestRetiredAndUnknownGuardHookNames(t *testing.T) {
+	var out, errw bytes.Buffer
+	if code := RunArgs("old-bash-guard", nil, strings.NewReader(`{}`), &out, &errw); code != ExitBlock || errw.Len() == 0 {
+		t.Errorf("unknown guard: code %d stderr %q", code, errw.String())
+	}
+	errw.Reset()
+	if code := RunArgs("access-trace", nil, strings.NewReader(`{}`), &out, &errw); code != 1 {
+		t.Errorf("a removed non-guard name exits 1, got %d", code)
 	}
 }

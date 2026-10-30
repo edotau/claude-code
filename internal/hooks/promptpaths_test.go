@@ -278,3 +278,36 @@ func TestPathResolverRunMatchesDispatcher(t *testing.T) {
 		})
 	}
 }
+
+// A trailing "!" or ")" belongs to the filename only when that file exists; a plain sibling is reported separately.
+func TestCollectReportsPunctuatedFilenames(t *testing.T) {
+	cases := []struct {
+		name  string
+		files []string
+		text  func(d string) string
+		want  []string
+	}{
+		{"bang name", []string{"report (1)", "wow!"}, func(d string) string { return "read " + d + "/wow! now" }, []string{"wow!"}},
+		{"paren wrapped", []string{"report (1)", "wow!"}, func(d string) string { return "see (" + d + "/wow!)" }, []string{"wow!"}},
+		{"both siblings", []string{"wow!", "wow"}, func(d string) string { return d + "/wow! " + d + "/wow" }, []string{"wow!", "wow"}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			dir := t.TempDir()
+			for _, f := range c.files {
+				if err := os.WriteFile(filepath.Join(dir, f), []byte("x"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			reps := collectReports(c.text(dir), &paths.Resolver{})
+			if len(reps) != len(c.want) {
+				t.Fatalf("reps = %+v, want %v", reps, c.want)
+			}
+			for i, w := range c.want {
+				if filepath.Base(reps[i].path) != w {
+					t.Errorf("reps[%d] = %q, want %q", i, reps[i].path, w)
+				}
+			}
+		})
+	}
+}

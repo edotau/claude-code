@@ -3,6 +3,7 @@ package hooks
 import (
 	"bytes"
 	"encoding/json"
+	"github.com/edotau/claude-code/internal/worktree"
 	"io"
 	"os"
 	"os/exec"
@@ -301,4 +302,36 @@ func canonHome(t *testing.T, home string) string {
 		t.Fatal(err)
 	}
 	return c
+}
+
+// An update in a linked worktree logs one ledger line.
+func TestUpdateAppendsWorktreeLedger(t *testing.T) {
+	home, _ := filepath.EvalSymlinks(t.TempDir())
+	t.Setenv("HOME", home)
+	t.Setenv("CLAUDE_CONFIG_DIR", home+"/.claude")
+	t.Setenv(memory.UpdateChildEnv, "")
+	main := filepath.Join(home, "repo")
+	for _, a := range [][]string{{"init", "-q", "-b", "main", main}, {"-C", main, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "--allow-empty", "-q", "-m", "i"}} {
+		if out, err := exec.Command("git", a...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v %s", a, err, out)
+		}
+	}
+	repo, err := worktree.ResolveRepo(main)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dest, err := worktree.Create(repo, "wt-h", worktree.CreateOptions{Log: &bytes.Buffer{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stubSpawn(t, true)
+	tr := filepath.Join(t.TempDir(), "t.jsonl")
+	writeEdits(t, tr, 3)
+	if sessionUpdate(ParseInput(strings.NewReader(updatePayload(tr, dest))), &bytes.Buffer{}) != ExitProceed {
+		t.Fatal("update blocked")
+	}
+	data, err := os.ReadFile(filepath.Join(memory.Dir(main), "worktrees", "wt-h.md"))
+	if err != nil || !strings.Contains(string(data), "update (") {
+		t.Fatalf("no update line in ledger: %v\n%s", err, data)
+	}
 }

@@ -8,6 +8,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/paths"
 )
 
 // One spanning pass over the access fold: 30-day rotation keeps the cold horizon, ReturnCounts credits
@@ -82,5 +84,38 @@ func TestAccessLogConcurrentRotationRotatesOnce(t *testing.T) {
 	}
 	if n := len(ReturnCounts([]string{home}, now)); n != writers {
 		t.Fatalf("%d of %d concurrent lines survived", n, writers)
+	}
+}
+
+// Every hit is credited to the bank dir that owns it: repo native/archive, and --all's local corpus.
+func TestLogHitsCreditsOwningStore(t *testing.T) {
+	isolatedConfig1(t)
+	initStore(t)
+	a := gitRepo(t, t.TempDir(), "proja")
+	da, err := EnsureRepoDir(a)
+	if err != nil {
+		t.Fatal(err)
+	}
+	write(t, filepath.Join(da, "archive", "old.md"), "# A\n\n## 2026-01-01 — zebra archived quota <!-- id:bbbb0001 -->\n\nzebra quota\n")
+	write(t, filepath.Join(da, "notes.md"), "---\nname: n\n---\nzebra native quota <!-- id:bbbb0002 -->\n")
+	harness := Dir(paths.ConfigDir())
+	write(t, filepath.Join(harness, "decisionLog.md"), "# D\n\n## 2026-01-01 — zebra local quota <!-- id:bbbb0003 -->\n\nzebra quota\n")
+
+	now := time.Now()
+	LogHits(a, SearchBanks(a, "zebra quota", 0), AccessSearch, now)
+	got := ReturnCounts([]string{da}, now)
+	home := ReturnCounts([]string{HomeBankDir()}, now)
+	for _, id := range []string{"bbbb0001", "bbbb0002"} {
+		if got[id] == 0 || home[id] != 0 {
+			t.Errorf("%s must be credited to the repo store, not home: repo=%d home=%d", id, got[id], home[id])
+		}
+	}
+
+	LogHits(a, SearchAll("zebra quota", 0), AccessSearch, now)
+	if c := ReturnCounts([]string{harness}, now); c["bbbb0003"] == 0 {
+		t.Errorf("--all's local hit must credit the harness store: %v", c)
+	}
+	if c := ReturnCounts([]string{da}, now); c["bbbb0003"] != 0 {
+		t.Errorf("--all's local hit was credited to the caller's repo: %v", c)
 	}
 }
