@@ -405,3 +405,29 @@ func SendLive(ctx context.Context, id, prompt string, sink Sink) (Envelope, erro
 		}
 	}
 }
+
+// liveReadyWait bounds how long `ask --live` waits for the holder to open its socket.
+const liveReadyWait = 20 * time.Second
+
+// IdleOf is the idle limit a live session runs under: the request's timeout, else the default.
+func IdleOf(req Request) time.Duration {
+	if req.Timeout > 0 {
+		return req.Timeout
+	}
+	return DefaultLiveIdle
+}
+
+// WaitLiveReady polls for the holder's socket; it gives up early when the holder's record leaves running.
+func WaitLiveReady(id string, pid int) error {
+	deadline := time.Now().Add(liveReadyWait)
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat(LiveSocket(id)); err == nil {
+			return nil
+		}
+		if rec, err := LoadRecord(id); err == nil && rec.Status != "running" {
+			return errors.New(rec.Error)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	return fmt.Errorf("no socket after %s (holder pid %d)", liveReadyWait, pid)
+}

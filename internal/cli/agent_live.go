@@ -11,7 +11,6 @@ import (
 	"slices"
 	"strings"
 	"syscall"
-	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/launch"
@@ -38,10 +37,6 @@ func askLiveCheck(fs *flag.FlagSet, name string) error {
 	return nil
 }
 
-// liveReadyWait bounds how long `ask --live` waits for the holder to open its socket.
-const liveReadyWait = 20 * time.Second
-
-// startLive records a live dispatch, spawns its holder as a detached --job child and waits for the socket.
 func startLive(s *askState, name, format string) int {
 	r, err := agent.Lookup(name)
 	if err == nil {
@@ -57,7 +52,7 @@ func startLive(s *askState, name, format string) int {
 		Tools: *s.tools, Timeout: *s.timeout, KeepEnv: []string(*s.keepEnv), NoPersist: *s.noPersist, SafeMode: *s.safeMode,
 		DebugFile: absDebugFile(*s.debugFile), SystemPrompt: *s.systemPrompt, AppendSystemPrompt: *s.appendSystemPrompt,
 		Autonomous: *s.autonomous, Direct: *s.direct, Launcher: launch.Launcher{}}
-	rec := buildAskRecord(context.Background(), r, req, nil, *s.workdir, true)
+	rec := agent.BuildAskRecord(context.Background(), r.Name(), req, nil, *s.workdir, true)
 	rec.Live = true
 	if err := rec.Save(); err != nil {
 		return failAsk(format, name, err)
@@ -65,7 +60,7 @@ func startLive(s *askState, name, format string) int {
 	if err := agent.Spawn(&rec, nil); err != nil {
 		return failAsk(format, name, err)
 	}
-	if err := waitLiveReady(rec.ID, rec.PID); err != nil {
+	if err := agent.WaitLiveReady(rec.ID, rec.PID); err != nil {
 		return failAsk(format, name, fmt.Errorf("live session %s did not start: %w (log: %s)", rec.ID, err, rec.Log))
 	}
 	if format == formatJSON {
@@ -77,30 +72,8 @@ func startLive(s *askState, name, format string) int {
 		fmt.Println(string(body))
 		return 0
 	}
-	fmt.Printf("live session %s — claude-code agents send %s \"<task>\" · agents cancel %s · idle limit %s\n", rec.ID, rec.ID, rec.ID, idleOf(req))
+	fmt.Printf("live session %s — claude-code agents send %s \"<task>\" · agents cancel %s · idle limit %s\n", rec.ID, rec.ID, rec.ID, agent.IdleOf(req))
 	return 0
-}
-
-func idleOf(req agent.Request) time.Duration {
-	if req.Timeout > 0 {
-		return req.Timeout
-	}
-	return agent.DefaultLiveIdle
-}
-
-// waitLiveReady polls for the holder's socket; it gives up early when the holder's record leaves running.
-func waitLiveReady(id string, pid int) error {
-	deadline := time.Now().Add(liveReadyWait)
-	for time.Now().Before(deadline) {
-		if _, err := os.Stat(agent.LiveSocket(id)); err == nil {
-			return nil
-		}
-		if rec, err := agent.LoadRecord(id); err == nil && rec.Status != "running" {
-			return errors.New(rec.Error)
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
-	return fmt.Errorf("no socket after %s (holder pid %d)", liveReadyWait, pid)
 }
 
 // runLiveHolder is the --job child of `ask --live`: it serves rec's session until idle, cancel or the agent's exit.

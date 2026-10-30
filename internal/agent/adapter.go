@@ -55,11 +55,7 @@ func LookupAdapter(name string) (Adapter, bool) {
 		if a.Name != name {
 			continue
 		}
-		if spec, ok := LookupSpec(name); ok {
-			a.Binary = spec.Binary
-		} else {
-			a.Binary = name
-		}
+		a.Binary = AgentBinary(name)
 		return a, true
 	}
 	return Adapter{}, false

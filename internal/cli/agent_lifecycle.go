@@ -1,9 +1,7 @@
 package cli
 
 import (
-	"bufio"
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"os/signal"
@@ -112,7 +110,7 @@ func agentsResult(rec agent.Record, format, cwd string) int {
 		return fail("agents result: %v", err)
 	}
 	if format == helptext.JSON {
-		if err := helptext.WriteJSON(os.Stdout, recordEnvelope(rec)); err != nil {
+		if err := helptext.WriteJSON(os.Stdout, agent.RecordEnvelope(rec, os.Stderr)); err != nil {
 			return fail("agents result: %v", err)
 		}
 		return resultExit(rec)
@@ -121,7 +119,7 @@ func agentsResult(rec agent.Record, format, cwd string) int {
 	if log != "" && !strings.HasSuffix(log, "\n") {
 		fmt.Println()
 	}
-	if line := recordEnvelope(rec).RanOn; line != "" {
+	if line := agent.RecordEnvelope(rec, os.Stderr).RanOn; line != "" {
 		fmt.Println("ask:", line)
 	}
 	if rec.SessionID != "" {
@@ -129,36 +127,4 @@ func agentsResult(rec agent.Record, format, cwd string) int {
 		fmt.Printf("resume: claude-code ask --agent %s --session %s\n", rec.Agent, rec.SessionID)
 	}
 	return resultExit(rec)
-}
-
-// recordEnvelope is the result event's envelope, or one rebuilt from rec when no result event can be read.
-func recordEnvelope(rec agent.Record) agent.Envelope {
-	if f, err := os.Open(rec.EventsPath()); err == nil {
-		defer f.Close()
-		var env *agent.Envelope
-		sc := bufio.NewScanner(f)
-		sc.Buffer(nil, 16<<20)
-		for sc.Scan() {
-			var ev agent.Event
-			if json.Unmarshal(sc.Bytes(), &ev) == nil && ev.Type == agent.EventResult && ev.Envelope != nil {
-				env = ev.Envelope
-			}
-		}
-		if err := sc.Err(); err != nil {
-			fmt.Fprintf(os.Stderr, "agents result: %s: events unreadable, envelope may be incomplete: %v\n", rec.ID, err)
-		}
-		if env != nil {
-			return *env
-		}
-	}
-	var runErr error
-	if rec.Status == "error" {
-		runErr = fmt.Errorf("%s", rec.Error)
-	}
-	res := agent.Result{Agent: rec.Agent, Provider: rec.Provider, Model: rec.Model, Invoked: rec.Invoked,
-		SessionID: rec.SessionID, DurationMs: rec.DurationMs, Fallback: rec.Fallback, FallbackReason: rec.FallbackReason}
-	if log, err := os.ReadFile(rec.LogPath()); err == nil {
-		res.Answer = string(log)
-	}
-	return agent.NewEnvelope(res, runErr, rec.ID)
 }

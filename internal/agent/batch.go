@@ -12,8 +12,11 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
+	"regexp"
 	"runtime"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -430,4 +433,59 @@ func (b *batchRun) run(ctx context.Context, t BatchTask, chain Chain, rec Record
 	env = NewEnvelope(res, err, rec.ID)
 	env.TaskID = t.ID
 	return env, err == nil && env.Status == StatusOK
+}
+
+var batchIDRE = regexp.MustCompile(`^[A-Za-z0-9._-]{1,64}$`)
+
+// ParseBatchTask validates one line like the ask flags; routing waits for Prepare. On error the task keeps its id and agent.
+func ParseBatchTask(l ParsedLine, agentName string, base Request, timeoutSet bool, cwd string,
+	seen map[string]bool) (BatchTask, error) {
+	t := BatchTask{ID: cmp.Or(l.Task.ID, "t"+strconv.Itoa(l.N)), Agent: cmp.Or(l.Task.Agent, agentName)}
+	if l.Err != nil {
+		return t, l.Err
+	}
+	tl := l.Task
+	if !batchIDRE.MatchString(t.ID) {
+		return t, fmt.Errorf("line %d: id %q must match %s", l.N, t.ID, batchIDRE)
+	}
+	if seen[t.ID] {
+		return t, fmt.Errorf("line %d: duplicate id %q", l.N, t.ID)
+	}
+	seen[t.ID] = true
+	if strings.TrimSpace(tl.Prompt) == "" {
+		return t, fmt.Errorf("line %d: no task: give a prompt", l.N)
+	}
+	req := base
+	if tl.Persona != "" {
+		p, err := LoadPersona(tl.Persona)
+		if err != nil {
+			return t, fmt.Errorf("line %d: %w", l.N, err)
+		}
+		req.Persona = p
+	}
+	req.Prompt, req.Provider, req.Model = tl.Prompt, cmp.Or(tl.Profile, base.Provider), cmp.Or(tl.Model, base.Model)
+	if tl.Tools != nil {
+		req.Tools = *tl.Tools
+	}
+	if req.Tools && req.NoTools {
+		return t, fmt.Errorf("line %d: tools and --no-tools are mutually exclusive", l.N)
+	}
+	switch {
+	case tl.Timeout != "":
+		d, err := time.ParseDuration(tl.Timeout)
+		if err != nil || d <= 0 {
+			return t, fmt.Errorf("line %d: timeout %q must be a positive duration such as 5m", l.N, tl.Timeout)
+		}
+		req.Timeout = d
+	case req.Tools && !timeoutSet:
+		req.Timeout = 45 * time.Minute
+	}
+	req.WorkDir = cmp.Or(tl.Workdir, base.WorkDir, cwd)
+	abs, err := filepath.Abs(req.WorkDir)
+	if err != nil {
+		return t, fmt.Errorf("line %d: workdir %q: %w", l.N, req.WorkDir, err)
+	}
+	req.WorkDir = abs
+	t.Req = req
+	return t, nil
 }

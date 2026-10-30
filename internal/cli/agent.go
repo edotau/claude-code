@@ -13,9 +13,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
-	"regexp"
 	"slices"
-	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -26,7 +24,6 @@ import (
 	"github.com/edotau/claude-code/internal/launch"
 	"github.com/edotau/claude-code/internal/network/tailscale"
 	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/proc/inflight"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/ui/helptext"
@@ -96,7 +93,7 @@ func runAsk(args []string, resume bool) int {
 	if err := askExclusive(*background, *job, *tools, *noTools); err != nil {
 		return failAsk(*format, *name, err)
 	}
-	schema, err := resolveOutputSchema(*outputSchema)
+	schema, err := agent.ResolveOutputSchema(*outputSchema)
 	if err != nil {
 		return failAskCode(*format, *name, err, 2)
 	}
@@ -160,7 +157,7 @@ func runAsk(args []string, resume bool) int {
 		persona = p
 	}
 	if *outputSchema != "" { // a --retry/--job record may carry an already-resolved schema
-		if schema, err = resolveOutputSchema(*outputSchema); err != nil {
+		if schema, err = agent.ResolveOutputSchema(*outputSchema); err != nil {
 			return failAskCode(*format, *name, err, 2)
 		}
 	}
@@ -231,7 +228,7 @@ func runAsk(args []string, resume bool) int {
 	if *host != "" {
 		recDir = "" // --workdir is a remote path: it is no local repo to record
 	}
-	rec := buildAskRecord(ctx, r, req, jobRec, recDir, *background)
+	rec := agent.BuildAskRecord(ctx, r.Name(), req, jobRec, recDir, *background)
 	if jobRec == nil {
 		rec.FallbackPolicy = *fallback
 		if *host != "" {
@@ -269,25 +266,6 @@ func absDebugFile(p string) string {
 		return abs
 	}
 	return p
-}
-
-// buildAskRecord constructs the dispatch record for req, reusing jobRec's identity when resuming a job.
-func buildAskRecord(ctx context.Context, r agent.Runner, req agent.Request, jobRec *agent.Record, workdir string, background bool) agent.Record {
-	if jobRec != nil {
-		return *jobRec // same id: a job run continues the record it was spawned from
-	}
-	rec := agent.ClaimRecord(r.Name(), req, time.Now())
-	cwd := workdir
-	if cwd == "" {
-		cwd, _ = os.Getwd()
-	}
-	rec.Repo = agent.RepoRoot(ctx, cwd)
-	rec.Owner = inflight.SessionOwner()
-	rec.Log = rec.LogPath()
-	if !background {
-		rec.PID = os.Getpid() // foreground run: alive while this process runs, lost only if it dies
-	}
-	return rec
 }
 
 // runAskAndReport runs chain (or remote, when set) in the foreground as one recorded dispatch, then reports it.
@@ -472,26 +450,6 @@ func (e *envFlag) Placeholder() string { return "NAME=VALUE" }
 func (e *envFlag) Set(s string) error {
 	*e = append(*e, s)
 	return nil
-}
-
-// resolveOutputSchema reads --output-schema as inline JSON when it starts with "{", else as a file, and checks it parses.
-func resolveOutputSchema(arg string) (string, error) {
-	if arg == "" {
-		return "", nil
-	}
-	body := strings.TrimSpace(arg)
-	if !strings.HasPrefix(body, "{") {
-		data, err := os.ReadFile(arg)
-		if err != nil {
-			return "", fmt.Errorf("--output-schema: %w", err)
-		}
-		body = strings.TrimSpace(string(data))
-	}
-	var probe map[string]any
-	if err := json.Unmarshal([]byte(body), &probe); err != nil {
-		return "", fmt.Errorf("--output-schema: not a JSON object: %w", err)
-	}
-	return body, nil
 }
 
 // flagExplicit is true when --<name> appeared on this command line.
@@ -754,21 +712,6 @@ func cmdAgentsSync(args []string) int {
 	return crossgen.Sync(crossgen.SyncOptions{DryRun: *dryRun, Check: *check, NoPrune: *noPrune, Vendor: *vendor, Out: os.Stdout})
 }
 
-// capFields lists a runner's capability levels in Request-flag order, named as the flags are.
-func capFields(c agent.Caps) []struct {
-	name string
-	l    agent.Level
-} {
-	return []struct {
-		name string
-		l    agent.Level
-	}{{"model", c.Model}, {"profile", c.Provider}, {"effort", c.Effort}, {"workdir", c.WorkDir}, {"session", c.SessionID},
-		{"tools", c.Tools}, {"no-tools", c.NoTools}, {"autonomous", c.Autonomous}, {"enable-memory", c.Memory},
-		{"no-persist", c.NoPersist}, {"safe-mode", c.SafeMode}, {"debug-file", c.DebugFile}, {"direct", c.Direct},
-		{"system-prompt", c.SystemPrompt}, {"append-system-prompt", c.AppendSystemPrompt}, {"env", c.Env},
-		{"output-schema", c.OutputSchema}, {"persona", c.Persona}}
-}
-
 // cmdAgentsList is bare `agents`: the local roster, or with --host the remote's own `agents` output.
 func cmdAgentsList(args []string) int {
 	fs := helptext.NewFlagSet("agents", agentsPage)
@@ -808,42 +751,6 @@ func listRemoteAgents(host, bin, format string) int {
 	return 0
 }
 
-// agentFeatures are the ask capabilities beyond the Request fields: what an agent reports or how it can run.
-func agentFeatures(name string) map[string]agent.Level {
-	return map[string]agent.Level{"cost": lvl(name == "claude" || name == "gemini"), "background": agent.Native,
-		"live": lvl(agent.HasLive(name)), "remote": agent.Native}
-}
-
-func lvl(ok bool) agent.Level {
-	if ok {
-		return agent.Native
-	}
-	return agent.None
-}
-
-// agentBinary is the CLI binary the agent drives.
-func agentBinary(name string) string {
-	if spec, ok := agent.LookupSpec(name); ok {
-		return spec.Binary
-	}
-	return name
-}
-
-// agentEvents are the typed event kinds the agent's stream can carry; every dispatch brackets them with start and result.
-func agentEvents(name string) []string {
-	ev := []string{agent.EventStart, agent.EventText}
-	switch name {
-	case "claude":
-		ev = append(ev, agent.EventToolUse, agent.EventRetry)
-	case "codex", "opencode":
-		ev = append(ev, agent.EventToolUse, agent.EventToolResult)
-	}
-	if name != "claude" && agent.IsHubAgent(name) {
-		ev = append(ev, agent.EventRetry)
-	}
-	return append(ev, agent.EventResult, agent.EventError)
-}
-
 func listAgents(format string) int {
 	type row struct {
 		Name      string            `json:"name"`
@@ -861,17 +768,17 @@ func listAgents(format string) int {
 		}
 		caps := map[string]string{}
 		var shown []string
-		for _, f := range capFields(r.Caps()) {
-			caps[f.name] = f.l.String()
-			if f.l != agent.None && slices.Contains([]string{"model", "profile", "effort", "workdir", "session", "tools", "system-prompt",
-				"append-system-prompt", "env", "output-schema"}, f.name) {
-				shown = append(shown, f.name+":"+f.l.String())
+		for _, f := range agent.CapFields(r.Caps()) {
+			caps[f.Name] = f.L.String()
+			if f.L != agent.None && slices.Contains([]string{"model", "profile", "effort", "workdir", "session", "tools", "system-prompt",
+				"append-system-prompt", "env", "output-schema"}, f.Name) {
+				shown = append(shown, f.Name+":"+f.L.String())
 			}
 		}
-		for k, l := range agentFeatures(r.Name()) {
+		for k, l := range agent.AgentFeatures(r.Name()) {
 			caps[k] = l.String()
 		}
-		rows = append(rows, row{r.Name(), agentBinary(r.Name()), reason == "", reason, caps, agentEvents(r.Name())})
+		rows = append(rows, row{r.Name(), agent.AgentBinary(r.Name()), reason == "", reason, caps, agent.AgentEvents(r.Name())})
 		if format != formatJSON {
 			fmt.Printf("%s %-9s %s %s\n", mark, r.Name(), strings.Join(shown, ","), reason)
 		}
@@ -981,64 +888,20 @@ func runAskBatch(fs *flag.FlagSet, resume bool, src string, o batchOpts, base ag
 	return 0
 }
 
-var batchIDRE = regexp.MustCompile(`^[A-Za-z0-9._-]{1,64}$`)
-
-// batchTask validates one line like the ask flags; routing waits for Prepare. On error the task keeps its id and agent.
+// batchTask validates one line like the ask flags and attaches the routing step; routing waits for Prepare.
 func batchTask(l agent.ParsedLine, o batchOpts, base agent.Request, timeoutSet bool, cwd string,
 	seen map[string]bool) (agent.BatchTask, error) {
-	t := agent.BatchTask{ID: cmp.Or(l.Task.ID, "t"+strconv.Itoa(l.N)), Agent: cmp.Or(l.Task.Agent, o.agent)}
-	if l.Err != nil {
-		return t, l.Err
-	}
-	tl := l.Task
-	if !batchIDRE.MatchString(t.ID) {
-		return t, fmt.Errorf("line %d: id %q must match %s", l.N, t.ID, batchIDRE)
-	}
-	if seen[t.ID] {
-		return t, fmt.Errorf("line %d: duplicate id %q", l.N, t.ID)
-	}
-	seen[t.ID] = true
-	if strings.TrimSpace(tl.Prompt) == "" {
-		return t, fmt.Errorf("line %d: no task: give a prompt", l.N)
-	}
-	req := base
-	if tl.Persona != "" {
-		p, err := agent.LoadPersona(tl.Persona)
-		if err != nil {
-			return t, fmt.Errorf("line %d: %w", l.N, err)
-		}
-		req.Persona = p
-	}
-	req.Prompt, req.Provider, req.Model = tl.Prompt, cmp.Or(tl.Profile, base.Provider), cmp.Or(tl.Model, base.Model)
-	if tl.Tools != nil {
-		req.Tools = *tl.Tools
-	}
-	if req.Tools && req.NoTools {
-		return t, fmt.Errorf("line %d: tools and --no-tools are mutually exclusive", l.N)
-	}
-	switch {
-	case tl.Timeout != "":
-		d, err := time.ParseDuration(tl.Timeout)
-		if err != nil || d <= 0 {
-			return t, fmt.Errorf("line %d: timeout %q must be a positive duration such as 5m", l.N, tl.Timeout)
-		}
-		req.Timeout = d
-	case req.Tools && !timeoutSet:
-		req.Timeout = 45 * time.Minute
-	}
-	req.WorkDir = cmp.Or(tl.Workdir, base.WorkDir, cwd)
-	abs, err := filepath.Abs(req.WorkDir)
+	t, err := agent.ParseBatchTask(l, o.agent, base, timeoutSet, cwd, seen)
 	if err != nil {
-		return t, fmt.Errorf("line %d: workdir %q: %w", l.N, req.WorkDir, err)
+		return t, err
 	}
-	req.WorkDir = abs
-	t.Req = req
+	req := t.Req
 	t.Prepare = func(ctx context.Context) (agent.Chain, agent.Record, error) {
 		r, chain, err := resolveAskChain(ctx, t.Agent, req.Provider, req.Model, req.Prompt, o.fallback, o.native, req.WorkDir)
 		if err != nil {
 			return agent.Chain{}, agent.Record{}, fmt.Errorf("line %d: %w", l.N, err)
 		}
-		return chain, buildAskRecord(ctx, r, req, nil, req.WorkDir, false), nil
+		return chain, agent.BuildAskRecord(ctx, r.Name(), req, nil, req.WorkDir, false), nil
 	}
 	return t, nil
 }
