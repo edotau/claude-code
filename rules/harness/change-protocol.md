@@ -6,75 +6,29 @@ paths:
   - "rules/**"
   - "skills/**"
 ---
-# Harness Change Protocol — Decide Impact, Rebuild, and Verify
+# Harness Change Protocol
 
-> Companion to `settings-management.md` (edit the template, not the output) and `hooks.md`
-> (hooks are declared in Go, not in the rendered settings file). This rule is the front door:
-> run its checklist on **every** harness change before calling the change done.
-
-## Rule
-
-**No change to `internal/hooks/`, `internal/hookspec/`, `internal/settings/`, `agents/`,
-`commands/`, `rules/`, or `skills/` is complete until you have run the Impact Checklist below
-and acted on every box that applies.** The failure mode this prevents: a settings/hook change
-made directly in `settings.json` that is silently erased on the next `make install` regenerate.
+**A change to `internal/hooks/`, `internal/hookspec/`, `internal/settings/`, `agents/`, `commands/`, `rules/` or
+`skills/` is not done until every applicable box below is acted on.** The failure it prevents: an edit made in
+the generated `settings.json`, silently erased by the next `make install`.
 
 ## Impact Checklist
 
-1. **Settings or hooks touched?** If the change alters `env`, the hook chain, permissions, or
-   `statusLine`:
-   - Edit the **repo defaults** (`defaults/claude/settings.json`); for hooks: `hooks.md` → authoring surface.
-     **Never hand-edit `settings.json`** (it is a generated artifact).
-   - Rebuild: `make install`.
-   - Verify: `grep -n "<the key you changed>" ~/.claude/settings.json`, then `claude-code doctor`.
-   - This is the **most important** box — a template miss means the change does not survive
-     the next regenerate.
+1. **Settings or hooks** (`env`, hook chain, permissions, `statusLine`) — edit `defaults/claude/settings.json` (hooks:
+   `hooks.md`), `make install`, then `grep -n "<key>" ~/.claude/settings.json` and `claude-code doctor`. In a linked
+   worktree, cwd does not isolate writes: `settings-management.md` → worktree render.
+2. **Agent or command renamed/moved** — agents are flat `agents/<name>.md` with `name:` equal to the stem (a mismatch
+   silently breaks memory resolution); commands are flat `commands/<command>.md`. Grep the old name and fix every
+   caller in the same commit.
+3. **Rule added or moved** — a new `workflow/` or `harness/` rule needs `paths:` or it loads into every prompt
+   (`rules/README.md`); grep and fix references to a moved rule's old path.
+4. **`CLAUDE.md` or the agent roster changed** — `claude-code agents sync` (check: `agents sync --check`).
+5. **Record it** — the commit message says what was rebuilt and what was left for later.
+6. **New or changed component (agent/skill/hook/plugin)** — write the manifest first (exact files, action on each)
+   and get approval before writing.
 
-   In a linked worktree, follow CLAUDE.md hard rule 4: cwd does not isolate writes.
-   `CLAUDE_CONFIG_DIR="$PWD" claude-code configure --restore --out "$PWD/settings.json"` renders that
-   checkout's settings only. With a non-default config dir, `configure --restore` skips agent configs
-   (including `--check`/`--dry-run`) unless `--agents` is explicit; that flag still targets
-   live agent homes. Do not add it to a worktree-only verification.
-
-2. **Agent or command renamed/moved?** Agents are flat at `agents/<name>.md` with `name:`
-   equal to the file stem — a mismatch silently breaks memory resolution. Commands are flat at
-   `commands/<command>.md`; a rename breaks every `/<command>` reference to it in
-   other commands/agents/rules — grep for the old path and update every caller in the same
-   commit.
-
-3. **Rule added or moved?** A new rule under `rules/workflow/` or `rules/harness/` needs
-   `paths:` frontmatter scoping it, or it loads into every session's system prompt
-   (`rules/README.md`). Moving a rule breaks any hard-coded cross-reference to its old path —
-   grep and fix those in the same commit.
-
-4. **Cross-tool render stale?** If `CLAUDE.md` or the agent roster changed, regenerate agent
-   projections with `claude-code agents sync` (for example, `~/.codex/AGENTS.md` and
-   `~/.gemini/GEMINI.md`, `~/.copilot/copilot-instructions.md`; local renders are under `state/projections/`).
-
-5. **Record the decision.** In the commit message, state what was rebuilt/regenerated and
-   what was intentionally left for a later pass.
-
-6. **Writing or changing a component (agent/skill/hook/plugin)?** Write the manifest first:
-   list the exact files and the action on each, and get approval before writing.
-
-## Verification
+Files generated from a template: no placeholder leaked through —
 
 ```bash
-# Settings change actually landed in the generated file
-grep -n "<changed key>" ~/.claude/settings.json
-
-# Every registered hook is wired, and nothing orphaned
-claude-code doctor
-
-# Cross-tool renders are current
-claude-code agents sync --check
-
-# Files generated from a template/skeleton: no unfilled placeholder tokens leaked through
-grep -nE '<(agent|files|slug|verb|object)>|\$\{CLAUDE_PLUGIN_ROOT\}|__CLAUDE_BIN__|TODO|\{PLACEHOLDER\}' <generated files>
+grep -nE '<(agent|files|slug|verb|object)>|\$\{CLAUDE_PLUGIN_ROOT\}|__CLAUDE_BIN__|TODO|\{PLACEHOLDER\}' <files>
 ```
-
-## Related
-
-- `settings-management.md` — the template is the source of truth for `settings.json`
-- `hooks.md` — hook lifecycle reference
-- `rules/README.md` — the `paths:` scoping contract for new rules

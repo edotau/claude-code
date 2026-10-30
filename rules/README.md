@@ -4,9 +4,10 @@ paths:
 ---
 # Rules
 
-Standing policy for every Claude Code session on this machine. Claude Code auto-loads
-`~/.claude/rules/**/*.md`: **a file without `paths:` frontmatter enters every session's system
-prompt**, so a rule is always-on by default and `paths:` is what makes it on-demand:
+Rules are standing gotchas and corrected behavior; skills (`skills/<name>/SKILL.md`) hold the how-to. Claude Code
+auto-loads `~/.claude/rules/**/*.md`: **a file without `paths:` frontmatter enters every session's system prompt**,
+so every line of an unscoped rule costs context on every turn. Add `paths:` to any new rule unless it must apply
+to every turn:
 
 ```yaml
 ---
@@ -15,39 +16,29 @@ paths:
 ---
 ```
 
-Add `paths:` to any new rule unless it must apply to every turn.
-
 ## Tiers
 
 | Tier | What it is | Loaded |
 |------|-----------|--------|
-| `standards/` | Coding doctrine — how code is written, reviewed, committed, documented, secured | always-on (portable, short), except the scoped `README.md` and `documentation.md` |
-| `workflow/` | Process — the end-to-end development pipeline | scoped to commands/agents/workflows |
-| `harness/` | This repo's own machinery — hooks, gates, settings generation, docs placement, change protocol | scoped to `internal/**` and the files each governs |
-| `software/<lang>/` | Language overlays that **extend** `standards/` where idioms differ | scoped to that language's files |
-
-```text
-rules/
-├── standards/        communication · quality · git · documentation · security · performance
-├── workflow/         master-workflow · agents · memory-bank · memory-consolidation
-├── harness/          hooks · guardrails · settings-management · docs-placement · change-protocol
-└── software/         python/ (coding-style · testing · patterns · security) · typescript/ (coding-style ·
-                      testing) · go/ (cli-text) — each extends ../../standards/*
-```
+| `standards/` | Coding doctrine — communication · quality · git · security · performance · documentation | always-on (keep short), except the scoped `documentation.md` |
+| `workflow/` | Process — master-workflow · agents · memory-bank · memory-consolidation | scoped to commands/agents/workflows/memory |
+| `harness/` | This repo's machinery — hooks · settings-management · providers · network · docs-placement · change-protocol | scoped to `internal/**` and the files each governs |
+| `software/<lang>/` | Language overlays that extend `standards/` | scoped to that language's files |
 
 ## Language overlays
 
-A `software/<lang>/<topic>.md` file opens with `> This file extends
-[standards/<topic>.md](../../standards/<topic>.md) …` and adds language-specific content. Where
-idioms conflict with the general standard, **the language rule wins** (specific overrides general).
+A `software/<lang>/<topic>.md` opens with `> This file extends [standards/<topic>.md](../../standards/<topic>.md)`.
+Where idioms conflict, **the language rule wins**.
+
+## Writers and reach
+
+- `claude-code memory remember` then `memory promote <id> --to rules` routes a session correction into the matching
+  `standards/` or `software/` file — thin entries, imperative voice. `memory dream` promotes only gated hard rules
+  to `CLAUDE.md`.
+- Other agent CLIs see rules only through `CLAUDE.md` prose (`claude-code agents sync`); `workflow/` and `harness/`
+  are not bridged.
 
 ## Moving a rule
 
-Renaming or moving a rule breaks hard-coded paths: the `software/<lang>/` "extends" links, the
-`CLAUDE.md` index, and any skill or command that cites the file. Update them in the same commit.
-
-## Rules vs skills
-
-- **Rules** = standing standards and process that apply broadly. They say *what*.
-- **Skills** (`skills/<name>/SKILL.md`) = deep, on-demand how-to reference, triggered by
-  description keywords. They say *how*.
+A rename or move breaks the overlay "extends" links, the `CLAUDE.md` index and any skill or command citing the
+file — grep and update them in the same commit.
