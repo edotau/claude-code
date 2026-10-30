@@ -9,8 +9,10 @@ import (
 	"io"
 	"maps"
 	"os"
+	"os/exec"
 	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/edotau/claude-code/internal/launch"
@@ -45,7 +47,30 @@ func (claudeRunner) Run(ctx context.Context, req Request, sink Sink) (Result, er
 	if err != nil {
 		return Result{}, err
 	}
-	args := []string{"--print", "--output-format", "stream-json", "--verbose", "--include-partial-messages"}
+	args := claudeArgs([]string{"--print", "--output-format", "stream-json", "--verbose", "--include-partial-messages"}, req)
+	cmd, tail, plan, err := claudeCmd(ctx, req, args, prompt)
+	if err != nil {
+		return Result{}, err
+	}
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return Result{}, err
+	}
+	if err := cmd.Start(); err != nil {
+		return Result{}, err
+	}
+	res, perr := parseClaudeStream(stdout, sink, eventLogFor(ctx))
+	_, _ = io.Copy(io.Discard, stdout)
+	werr := cmd.Wait()
+	res.Provider = plan.Set[providers.PinProfile]
+	if werr != nil || ctx.Err() != nil {
+		return res, childErr(ctx, "claude", errors.Join(werr, perr), tail)
+	}
+	return res, perr
+}
+
+// claudeArgs appends the request's option flags to base; shared by the one-shot and the live session.
+func claudeArgs(args []string, req Request) []string {
 	if req.NoPersist {
 		args = append(args, "--no-session-persistence")
 	}
@@ -74,33 +99,24 @@ func (claudeRunner) Run(ctx context.Context, req Request, sink Sink) (Result, er
 		// A one-shot answer needs no house rules: CLAUDE.md + rules + skills + roster were ~395K cache-write tokens per call.
 		args = append(args, "--tools", "", "--setting-sources", "")
 	}
+	return args
+}
+
+// claudeCmd resolves the launch plan for args and returns the unstarted child with its env layered (--env last).
+func claudeCmd(ctx context.Context, req Request, args []string, prompt string) (*exec.Cmd, *TailBuffer, launch.Plan, error) {
 	plan, err := launch.Claude(ctx, launch.Options{Provider: cmp.Or(req.Provider, sessionProvider("claude")), Model: req.Model, KeepEnv: req.KeepEnv}, args)
 	if err != nil {
-		return Result{}, err
+		return nil, nil, plan, err
 	}
 	if err := plan.WriteOverlay(); err != nil {
-		return Result{}, err
+		return nil, nil, plan, err
 	}
 	cmd, tail := childCmd(ctx, plan.Binary, plan.Argv, nil, req.WorkDir, prompt, req.KeepEnv, false)
 	// plan.Env also merges the vault's custom env (any profile's vars): filter the result, sparing only the plan's own
 	// route and token (plan.Set), so another profile's custom credential var never reaches this child
 	cmd.Env = scrubIsolated(ctx, plan.Env(os.Environ()), append(slices.Clone(req.KeepEnv), slices.Collect(maps.Keys(plan.Set))...))
 	cmd.Env = append(cmd.Env, req.Env...) // --env goes last, after the route keys, so it wins
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return Result{}, err
-	}
-	if err := cmd.Start(); err != nil {
-		return Result{}, err
-	}
-	res, perr := parseClaudeStream(stdout, sink, eventLogFor(ctx))
-	_, _ = io.Copy(io.Discard, stdout)
-	werr := cmd.Wait()
-	res.Provider = plan.Set[providers.PinProfile]
-	if werr != nil || ctx.Err() != nil {
-		return res, childErr(ctx, "claude", errors.Join(werr, perr), tail)
-	}
-	return res, perr
+	return cmd, tail, plan, nil
 }
 
 // claudeEvent is the union of stream-json fields the agent reads.
@@ -165,11 +181,16 @@ func (ev claudeEvent) text() string {
 // A json.Decoder, not a line scanner: the init event routinely exceeds a scanner's 64KB line cap.
 // An optional eventLog gets one formatted line per assistant text, tool call, result and error.
 func parseClaudeStream(r io.Reader, sink Sink, logs ...eventLog) (res Result, _ error) {
+	return parseClaudeEvents(json.NewDecoder(r), false, sink, logs...)
+}
+
+// parseClaudeEvents is parseClaudeStream over a caller-owned decoder; untilResult returns after the first result
+// event, leaving the decoder positioned for the next turn of a live session.
+func parseClaudeEvents(dec *json.Decoder, untilResult bool, sink Sink, logs ...eventLog) (res Result, _ error) {
 	lg := pickLog(logs)
 	sawResult, wrote := false, false
 	ts := transportTracker{start: clock()}
 	defer func() { res.Transport = ts.result() }()
-	dec := json.NewDecoder(r)
 	for {
 		var ev claudeEvent
 		if err := dec.Decode(&ev); errors.Is(err, io.EOF) {
@@ -216,6 +237,9 @@ func parseClaudeStream(r io.Reader, sink Sink, logs ...eventLog) (res Result, _ 
 				return res, err
 			}
 			lg.emit("result", ev.Result)
+			if untilResult {
+				return res, nil
+			}
 		case "error":
 			if t := ev.text(); t != "" {
 				lg.emit("error", t)
@@ -225,9 +249,16 @@ func parseClaudeStream(r io.Reader, sink Sink, logs ...eventLog) (res Result, _ 
 		}
 	}
 	if !sawResult {
-		return res, errors.New("claude: stream ended without a result event")
+		return res, errNoResult
 	}
 	return res, nil
+}
+
+var errNoResult = errors.New("claude: stream ended without a result event")
+
+// streamBroken is true when err left the stream unreadable (not just a failed turn), so a live session must end.
+func streamBroken(err error) bool {
+	return errors.Is(err, errNoResult) || strings.HasPrefix(err.Error(), "decode stream-json")
 }
 
 // clock is the time seam for stream timing.

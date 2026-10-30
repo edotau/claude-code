@@ -94,17 +94,37 @@ func Reap(dryRun bool, out, errw io.Writer) int {
 		fmt.Fprintf(out, "%s dispatch %s (%s, pid %d)\n", verb, rec.ID, rec.Agent, rec.PID)
 		records++
 	}
+	socks := reapSockets(dryRun, verb, out)
 	markers, err := reapMarkers(dryRun, verb, out)
 	if err != nil {
 		fmt.Fprintln(errw, "agents reap:", err)
 		code = 1
 	}
+	markers += socks
 	if records+markers == 0 {
 		fmt.Fprintln(out, "agents reap: nothing to reap")
 		return code
 	}
 	fmt.Fprintf(out, "%s %d dispatches, %d markers\n", verb, records, markers)
 	return code
+}
+
+// reapSockets removes live-session sockets whose holder is gone (no record, or not alive); a live holder keeps its own.
+func reapSockets(dryRun bool, verb string, out io.Writer) int {
+	socks, _ := filepath.Glob(filepath.Join(agent.DispatchDir(), "*"+agent.LiveSockSuffix))
+	n := 0
+	for _, sock := range socks {
+		id := strings.TrimSuffix(filepath.Base(sock), agent.LiveSockSuffix)
+		if rec, err := agent.LoadRecord(id); err == nil && rec.Alive() {
+			continue
+		}
+		if !dryRun && os.Remove(sock) != nil {
+			continue
+		}
+		fmt.Fprintf(out, "%s socket %s\n", verb, filepath.Base(sock))
+		n++
+	}
+	return n
 }
 
 // reapMarkers removes the markers the limiter's own liveness rule would prune (inflight.Liveness).

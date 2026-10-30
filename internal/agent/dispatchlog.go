@@ -47,6 +47,7 @@ type Record struct {
 	Host           string    `json:"host,omitempty"`            // ask --host: the ssh host the dispatch ran on
 	RemoteBin      string    `json:"remote_bin,omitempty"`      // ask --host: the remote claude-code binary
 	FallbackPolicy string    `json:"fallback_policy,omitempty"` // the --fallback mode asked for (all|agents|none)
+	Live           bool      `json:"live,omitempty"`            // ask --live: a claude session held open on <id>.sock
 }
 
 // Alive reports whether this dispatch is still running: pid alive, or not yet recorded within a minute.
@@ -180,6 +181,7 @@ func pruneDispatches(dir string) {
 		_ = os.Remove(filepath.Join(dir, name))
 		_ = os.Remove(filepath.Join(dir, strings.TrimSuffix(name, ".json")+".log")) // ignore not-exist
 		_ = os.Remove(filepath.Join(dir, strings.TrimSuffix(name, ".json")+paths.DispatchEventsSuffix))
+		_ = os.Remove(filepath.Join(dir, strings.TrimSuffix(name, ".json")+LiveSockSuffix))
 		excess--
 	}
 }
