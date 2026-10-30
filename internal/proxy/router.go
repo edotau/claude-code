@@ -82,6 +82,7 @@ type Router struct {
 	oauthTok  string                                             // cached vault CLAUDE_CODE_OAUTH_TOKEN (present results only), for the passthrough fallback
 	oauthAt   time.Time                                          // oauthTok is valid until oauthAt+credTTL
 	oauth     func() string                                      // reads the sealed subscription token; a seam for tests
+	headers   map[string]string                                  // validated HARNESS_HEADERS, canonical names
 	tags      string                                             // validated HARNESS_REQUEST_TAGS JSON, "" when unset or invalid
 }
 
@@ -100,6 +101,7 @@ func newRouter(secret string) *Router {
 		marked: map[string]bool{}, oauth: providers.HeadlessOAuthToken}
 	r.sessions = newSessionStore(func() time.Time { return r.now() })
 	r.tags = parseRequestTags(os.Getenv(RequestTagsEnv), r.log)
+	r.headers = ParseHeaders(os.Getenv(HeadersEnv), r.log)
 	return r
 }
 
