@@ -15,8 +15,8 @@ const clearScreen = "\x1b[H\x1b[2J"
 // page is `agents tree -h`.
 var page = helptext.Page{
 	Usage: "claude-code agents tree [flags]",
-	About: "Live tree of Claude sessions, their subagents and dispatched vendor legs. " +
-		"Idle sessions with nothing dispatched are hidden unless --all.",
+	About: "Live tree of running Claude sessions, their subagents and dispatched vendor legs, in every repo. " +
+		"--background adds idle and finished work.",
 }
 
 // Run is `claude-code agents tree`; claudeDir is injectable so tests never touch the real
@@ -26,8 +26,9 @@ func Run(args []string, claudeDir string, out, errw io.Writer) int {
 	fs.SetOutput(errw)
 	days := fs.Int("days", 1, "sessions modified in the last N days (ignored with --session)")
 	session := fs.String("session", "", "scope to one session id (every project dir is searched)")
-	running := fs.Bool("running", false, "keep running sessions, subagents and dispatches (all repos)")
-	all := fs.Bool("all", false, "show every session in scope, idle ones included")
+	var background bool
+	fs.BoolVar(&background, "background", false, "also show idle and finished work in the --days window")
+	fs.BoolVar(&background, "bg", false, "shorthand for --background")
 	watch := fs.Bool("watch", false, "clear and re-render on --interval (text only)")
 	interval := fs.Duration("interval", 2*time.Second, "redraw interval for --watch")
 	format := outfmt.Flag(fs)
@@ -42,14 +43,15 @@ func Run(args []string, claudeDir string, out, errw io.Writer) int {
 		fmt.Fprintln(errw, "agents tree: --watch has no JSON form; drop --format json")
 		return 2
 	}
-	opts := Options{Days: *days, Session: *session, Running: *running}
+	opts := Options{Days: *days, Session: *session, Running: !background && *session == ""} // a named session shows whole
+	all := background || *session != ""
 
 	if !*watch {
-		return renderOnce(claudeDir, opts, *format, *all, out, errw)
+		return renderOnce(claudeDir, opts, *format, all, out, errw)
 	}
 	for {
 		fmt.Fprint(out, clearScreen)
-		if code := renderOnce(claudeDir, opts, *format, *all, out, errw); code != 0 {
+		if code := renderOnce(claudeDir, opts, *format, all, out, errw); code != 0 {
 			return code
 		}
 		time.Sleep(*interval)
@@ -71,7 +73,7 @@ func renderOnce(claudeDir string, opts Options, format string, showAll bool, out
 	if opts.Now != nil {
 		now = opts.Now()
 	}
-	if opts.Running {
+	if opts.Session == "" { // every view lists them, so --background stays a superset of the default
 		tree.Dispatches = RunningDispatches(now)
 		tree.Sessions = dropDispatchSessions(tree.Sessions, tree.Dispatches)
 	}

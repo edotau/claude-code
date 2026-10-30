@@ -127,7 +127,7 @@ type Session struct {
 // a live session also carries name, pid, live, cliStatus, mode from ~/.claude/sessions/<pid>.json.
 type Tree struct {
 	Sessions   []Session `json:"sessions"`
-	Dispatches []Leg     `json:"dispatches,omitempty"` // --running only: live dispatch jobs machine-wide
+	Dispatches []Leg     `json:"dispatches,omitempty"` // unscoped views: live dispatch jobs machine-wide
 }
 
 // Options scopes a Build: Days bounds by session-dir mtime (ignored when Session is set), Session
