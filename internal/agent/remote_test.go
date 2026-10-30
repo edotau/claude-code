@@ -1,6 +1,8 @@
 package agent
 
 import (
+	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -58,5 +60,39 @@ func TestRemoteArgvRefusals(t *testing.T) {
 	}
 	if _, err := RemoteArgv("h", "bin\nx", "codex", "", Request{}); err == nil {
 		t.Error("newline in remote bin accepted")
+	}
+}
+
+// fakeSSH puts an `ssh` script with the given body on PATH, in hermetic config dirs.
+func fakeSSH(t *testing.T, body string) {
+	t.Helper()
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "ssh"), []byte("#!/bin/sh\n"+body), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+}
+
+// A remote that keeps reporting (retry notices on stderr) outlives timeout+grace; a silent one is still cut off.
+func TestRemoteRunDeadlineIsPerActivityNotWholeRun(t *testing.T) {
+	g := remoteGrace
+	remoteGrace = 200 * time.Millisecond
+	t.Cleanup(func() { remoteGrace = g })
+	req := Request{Prompt: "p", Timeout: 200 * time.Millisecond}
+	r := NewRemoteRunner("codex", "fakehost", "claude-code", "")
+
+	fakeSSH(t, "for i in 1 2 3 4 5 6 7 8; do echo 'ask: transient, retrying' >&2; sleep 0.1; done\n"+
+		`printf '%s\n' '{"schema":1,"type":"result","envelope":{"status":"ok","answer":"done"}}'`+"\n")
+	res, err := r.Run(context.Background(), req, Discard)
+	if err != nil || res.Answer != "done" {
+		t.Fatalf("active remote killed: res=%+v err=%v", res, err)
+	}
+
+	fakeSSH(t, "exec sleep 5\n")
+	start := time.Now()
+	_, err = r.Run(context.Background(), req, Discard)
+	if !errors.Is(err, context.DeadlineExceeded) || time.Since(start) > 3*time.Second {
+		t.Fatalf("silent remote: err=%v after %s, want a deadline well before 5s", err, time.Since(start))
 	}
 }

@@ -20,8 +20,8 @@ import (
 // RemoteBinEnv names the remote claude-code binary when --remote-bin is absent; the fallback is "claude-code" on the remote PATH.
 const RemoteBinEnv = "HARNESS_REMOTE_BIN"
 
-// remoteGrace is how long past --timeout the local ssh waits, so the remote's own timeout verdict arrives first.
-const remoteGrace = 30 * time.Second
+// remoteGrace pads --timeout for the local ssh's silence watchdog (reset per remote line); the remote's verdict wins.
+var remoteGrace = 30 * time.Second
 
 // RemoteBin picks the remote binary: the flag, then HARNESS_REMOTE_BIN, then "claude-code".
 func RemoteBin(flagValue string) string {
@@ -171,14 +171,18 @@ func (r remoteRunner) Run(ctx context.Context, req Request, sink Sink) (Result, 
 		return Result{Agent: r.agent, Status: StatusError}, &Error{Kind: KindFatal, Agent: r.agent, Err: errors.New("remote ask: a NUL byte cannot cross the framed prompt")}
 	}
 	dropped := remoteDropped(req)
+	ctx, cancel := context.WithCancelCause(ctx)
+	defer cancel(nil)
+	stop := func() { cancel(nil) }
+	touch := func() {}
 	if req.Timeout > 0 {
-		var stop context.CancelFunc
-		ctx, stop = context.WithTimeout(ctx, req.Timeout+remoteGrace)
-		defer stop()
+		idle := req.Timeout + remoteGrace
+		wd := time.AfterFunc(idle, func() { cancel(fmt.Errorf("no remote output for %s: %w", idle, context.DeadlineExceeded)) })
+		defer wd.Stop()
+		touch = func() { wd.Reset(idle) }
 	}
-	ctx, stop := context.WithCancel(ctx)
-	defer stop()
 	cmd, tail := childCmd(ctx, argv[0], argv[1:], nil, "", "", nil, false)
+	cmd.Stderr = io.MultiWriter(cmd.Stderr, touchWriter(touch)) // the remote's retry notices arrive on stderr
 	in, err := cmd.StdinPipe()
 	var out io.ReadCloser
 	if err == nil {
@@ -197,7 +201,7 @@ func (r remoteRunner) Run(ctx context.Context, req Request, sink Sink) (Result, 
 		_ = in.Close()
 		_ = out.Close()
 	}()
-	env, streamed, sinkErr := r.relay(ctx, out, sink, stop)
+	env, streamed, sinkErr := r.relay(ctx, out, sink, stop, touch)
 	_ = in.Close()
 	werr := cmd.Wait()
 	res := Result{Agent: r.agent, Status: StatusError, Dropped: dropped}
@@ -213,7 +217,7 @@ func (r remoteRunner) Run(ctx context.Context, req Request, sink Sink) (Result, 
 	case sinkErr != nil:
 		return res, &Error{Kind: KindFatal, Agent: r.agent, Err: sinkErr}
 	case ctx.Err() != nil:
-		return res, Classify(r.agent, childErr(ctx, "ssh "+r.host, cmp.Or(werr, ctx.Err()), tail), streamed)
+		return res, Classify(r.agent, fmt.Errorf("ssh %s: %w", r.host, context.Cause(ctx)), streamed)
 	}
 	if streamed {
 		res.Status = StatusPartial
@@ -246,10 +250,11 @@ func (r remoteRunner) noResult(werr error, tail *TailBuffer, streamed bool) *Err
 
 // relay reads the remote's NDJSON: events go to sink under the local dispatch id, the result event is returned,
 // anything else (ssh banners, warnings) goes to the dispatch log. A dead sink stops the child via stop.
-func (r remoteRunner) relay(ctx context.Context, out io.Reader, sink Sink, stop context.CancelFunc) (env *Envelope, streamed bool, sinkErr error) {
+func (r remoteRunner) relay(ctx context.Context, out io.Reader, sink Sink, stop, touch func()) (env *Envelope, streamed bool, sinkErr error) {
 	rd := bufio.NewReaderSize(out, 64<<10)
 	for {
 		line, rerr := rd.ReadBytes('\n')
+		touch()
 		if line = bytes.TrimSpace(line); len(line) > 0 {
 			var ev Event
 			if json.Unmarshal(line, &ev) != nil || ev.Schema != EventSchema || ev.Type == "" {
@@ -269,4 +274,12 @@ func (r remoteRunner) relay(ctx context.Context, out io.Reader, sink Sink, stop 
 			return env, streamed, sinkErr
 		}
 	}
+}
+
+// touchWriter calls touch on every write and discards the bytes.
+type touchWriter func()
+
+func (t touchWriter) Write(p []byte) (int, error) {
+	t()
+	return len(p), nil
 }
