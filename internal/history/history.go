@@ -19,9 +19,9 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/edotau/claude-code/internal/codexsettings"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/settings/codexsettings"
 )
 
 // HistoryFile is one watched file: Label names it inside the store (flat namespace — a label must be

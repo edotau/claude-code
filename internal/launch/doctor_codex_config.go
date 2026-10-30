@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"runtime"
 
-	"github.com/edotau/claude-code/internal/codexsettings"
+	"github.com/edotau/claude-code/internal/settings/codexsettings"
 )
 
 var codexManagedPaths = func() []string {

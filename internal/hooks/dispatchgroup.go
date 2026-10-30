@@ -9,7 +9,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/edotau/claude-code/internal/inflight"
+	"github.com/edotau/claude-code/internal/proc/inflight"
 )
 
 // agentCallRe finds `agent(` call sites in a Workflow script.

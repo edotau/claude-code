@@ -56,7 +56,7 @@ stop-format | cache | 1 | state/harness/stop-format/*.json | internal/hooks | ke
 tailscale-machines | cache | 1 | state/harness/tailscale-machines.json | internal/cli | keep
 token-expiry | cache | 1 | state/harness/cache/token-expiry/*.json | internal/providers | keep
 transcript-summary | cache | 1 | state/harness/transcript/summary.json | internal/transcript | keep
-usage-ledger | log | 1 | state/usage/ledger.jsonl | internal/usageledger | keep
+usage-ledger | log | 1 | state/usage/ledger.jsonl | internal/usage/usageledger | keep
 vault | store | 3 | state/vault.db | vault | keep
 vendor-baseline | derived | 1 | state/harness/vendor-baseline/* | internal/generate | keep
 vscode-serve-runtime | record | 1 | state/harness/vscode-serve.json | internal/network/vscode | keep

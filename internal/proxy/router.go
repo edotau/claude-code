@@ -28,7 +28,7 @@ import (
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/translate"
-	"github.com/edotau/claude-code/internal/usageledger"
+	"github.com/edotau/claude-code/internal/usage/usageledger"
 	"github.com/edotau/claude-code/internal/vault"
 )
 

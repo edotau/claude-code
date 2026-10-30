@@ -18,7 +18,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/edotau/claude-code/internal/inflight"
+	"github.com/edotau/claude-code/internal/proc/inflight"
 )
 
 // DefaultPerKey caps concurrent legs on one billed account (one credential, one rate limit).

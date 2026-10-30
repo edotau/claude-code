@@ -18,7 +18,7 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/transcript"
 	"github.com/edotau/claude-code/internal/ui/helptext"
-	"github.com/edotau/claude-code/internal/usageledger"
+	"github.com/edotau/claude-code/internal/usage/usageledger"
 )
 
 // billing names the session provider's pricing: a Claude.ai plan quota, or per-token API billing.

@@ -5,7 +5,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/edotau/claude-code/internal/inflight"
+	"github.com/edotau/claude-code/internal/proc/inflight"
 )
 
 // inflightDoctorDetail is the live agent count against the machine cap, then each busy account against its own.

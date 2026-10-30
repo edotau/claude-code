@@ -12,8 +12,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/edotau/claude-code/internal/codexsettings"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/settings/codexsettings"
 )
 
 // backupAndWrite saves oldRaw (only when the file already existed) to the cache mirror, keeps the newest 5

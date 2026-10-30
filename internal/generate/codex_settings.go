@@ -10,8 +10,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/edotau/claude-code/internal/codexsettings"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/settings/codexsettings"
 )
 
 const codexSettingsBegin = "# >>> claude-code:codex-settings:begin >>>"

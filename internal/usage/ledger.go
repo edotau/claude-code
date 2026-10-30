@@ -1,4 +1,4 @@
-// ledger.go reads internal/usageledger's per-token entries and rolls them up for the API KEYS section.
+// ledger.go reads internal/usage/usageledger's per-token entries and rolls them up for the API KEYS section.
 package usage
 
 import (
@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/edotau/claude-code/internal/usageledger"
+	"github.com/edotau/claude-code/internal/usage/usageledger"
 )
 
 // ledgerAgg is one provider+profile+model row for the API KEYS section: tokens over today / 30d / all-time.

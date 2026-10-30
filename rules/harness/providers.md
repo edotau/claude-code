@@ -6,7 +6,6 @@ paths:
   - "internal/proxy/**"
   - "internal/router/**"
   - "internal/secrets/**"
-  - "internal/keyring/**"
 ---
 # Providers, Models, Credentials
 

@@ -28,7 +28,7 @@ import (
 	_ "github.com/edotau/claude-code/internal/setup"
 	_ "github.com/edotau/claude-code/internal/tools"
 	_ "github.com/edotau/claude-code/internal/usage"
-	_ "github.com/edotau/claude-code/internal/usageledger"
+	_ "github.com/edotau/claude-code/internal/usage/usageledger"
 	_ "github.com/edotau/claude-code/internal/vault"
 	_ "github.com/edotau/claude-code/internal/worktree"
 )
@@ -69,13 +69,13 @@ var writers = map[string]string{
 	"internal/history/history.go:Snapshot":                            unversioned("text: session history snapshot of a transcript"),
 	"internal/hooks/checkpoint.go:contextCheckpoint":                  unversioned("marker: context-checkpoint flag file"),
 	"internal/hooks/codexaudit.go:appendCodexRoute":                   "codex-routing",
-	"internal/inflight/limiter.go:writeMarker":                        unversioned("marker: in-flight dispatch marker (account key)"),
+	"internal/proc/inflight/limiter.go:writeMarker":                   unversioned("marker: in-flight dispatch marker (account key)"),
 	"internal/hooks/worktreemode.go:busyLine":                         unversioned("marker: per-session worktree-busy dedupe stamp"),
 	"internal/hooks/memory.go:writeChain":                             unversioned("text: last-session chain stamp"),
 	"internal/hooks/memory.go:writeCountState":                        unversioned("text: edit count stamp"),
 	"internal/hooks/memory.go:writeSidecar":                           unversioned("text: update sidecar text"),
 	"internal/hooks/memory.go:writeStamp":                             unversioned("text: update stamp"),
-	"internal/hooks/plan.go:PlanSkeleton":                             unversioned("text: plan skeleton injected marker"),
+	"internal/hooks/plan.go:planSkeleton":                             unversioned("text: plan skeleton injected marker"),
 	"internal/hooks/plantick.go:recordPartials":                       unversioned("text: partly landed plan tasks"),
 	"internal/hooks/plan.go:recordDest":                               unversioned("text: plan draft destination pointer"),
 	"internal/plans/tick.go:writePlan":                                unversioned("foreign: plan markdown in plans/"),
@@ -145,7 +145,7 @@ var writers = map[string]string{
 	"internal/transcript/summary_cache.go:Save":                       "transcript-summary",
 	"internal/usage/claude.go:writeClaudeUsageCache":                  "oauth-usage-cache",
 	"internal/usage/budget.go:writeBudgetCache":                       "gateway-budget-cache",
-	"internal/usageledger/ledger.go:Append":                           "usage-ledger",
+	"internal/usage/usageledger/ledger.go:Append":                     "usage-ledger",
 	"internal/vault/vault.go:create":                                  "vault",
 	"internal/agent/adapter_jobs.go:SpawnArgv":                        unversioned("log: vendor job log, humans only"),
 	"internal/agent/adapter_review.go:ReviewArgs":                     unversioned("foreign: temp diff handed to a vendor CLI"),

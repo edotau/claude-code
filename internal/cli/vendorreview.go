@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/inflight"
+	"github.com/edotau/claude-code/internal/proc/inflight"
 )
 
 // reviewJobEnv names the parent job record a detached split review updates with progress and its outcome.
