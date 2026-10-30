@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -74,26 +75,54 @@ func fakeSSH(t *testing.T, body string) {
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 }
 
-// A remote that keeps reporting (retry notices on stderr) outlives timeout+grace; a silent one is still cut off.
+// handTimer is a watchdog the test drives: it counts Resets and fires only when told to.
+type handTimer struct {
+	mu     sync.Mutex
+	resets int
+	f      func()
+}
+
+func (h *handTimer) Reset(time.Duration) bool { h.mu.Lock(); h.resets++; h.mu.Unlock(); return true }
+func (h *handTimer) Stop() bool               { return true }
+func (h *handTimer) count() int               { h.mu.Lock(); defer h.mu.Unlock(); return h.resets }
+func (h *handTimer) fire()                    { h.mu.Lock(); f := h.f; h.mu.Unlock(); f() }
+
+// swapIdleTimer installs a handTimer for the test and returns it.
+func swapIdleTimer(t *testing.T) *handTimer {
+	h := &handTimer{}
+	orig := newIdleTimer
+	newIdleTimer = func(_ time.Duration, f func()) idleTimer { h.mu.Lock(); h.f = f; h.mu.Unlock(); return h }
+	t.Cleanup(func() { newIdleTimer = orig })
+	return h
+}
+
+// Every remote line resets the watchdog, so an active remote is never cut off; a silent one is once the watchdog fires.
 func TestRemoteRunDeadlineIsPerActivityNotWholeRun(t *testing.T) {
-	g := remoteGrace
-	remoteGrace = 200 * time.Millisecond
-	t.Cleanup(func() { remoteGrace = g })
-	req := Request{Prompt: "p", Timeout: 200 * time.Millisecond}
+	h := swapIdleTimer(t)
+	req := Request{Prompt: "p", Timeout: time.Minute}
 	r := NewRemoteRunner("codex", "fakehost", "claude-code", "")
 
-	fakeSSH(t, "for i in 1 2 3 4 5 6 7 8; do echo 'ask: transient, retrying' >&2; sleep 0.1; done\n"+
+	fakeSSH(t, "for i in 1 2 3 4 5 6 7 8; do echo 'ask: transient, retrying' >&2; done\n"+
 		`printf '%s\n' '{"schema":1,"type":"result","envelope":{"status":"ok","answer":"done"}}'`+"\n")
 	res, err := r.Run(context.Background(), req, Discard)
 	if err != nil || res.Answer != "done" {
 		t.Fatalf("active remote killed: res=%+v err=%v", res, err)
 	}
+	if got := h.count(); got < 1 {
+		t.Fatalf("watchdog never reset by remote output (%d resets): the deadline is not per-activity", got)
+	}
 
-	fakeSSH(t, "exec sleep 5\n")
-	start := time.Now()
+	ready := filepath.Join(t.TempDir(), "ready")
+	fakeSSH(t, "touch "+ready+"\nexec sleep 30\n")
+	go func() {
+		for _, err := os.Stat(ready); err != nil; _, err = os.Stat(ready) {
+			time.Sleep(5 * time.Millisecond)
+		}
+		h.fire()
+	}()
 	_, err = r.Run(context.Background(), req, Discard)
-	if !errors.Is(err, context.DeadlineExceeded) || time.Since(start) > 3*time.Second {
-		t.Fatalf("silent remote: err=%v after %s, want a deadline well before 5s", err, time.Since(start))
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("silent remote: err=%v, want the watchdog deadline", err)
 	}
 }
 

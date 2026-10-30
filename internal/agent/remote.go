@@ -27,6 +27,15 @@ const remotePath = `export PATH="$HOME/.claude/bin:$HOME/.local/bin:$HOME/.local
 // remoteGrace pads --timeout for the local ssh's silence watchdog (reset per remote line); the remote's verdict wins.
 var remoteGrace = 30 * time.Second
 
+// idleTimer is the slice of *time.Timer the silence watchdog uses.
+type idleTimer interface {
+	Reset(time.Duration) bool
+	Stop() bool
+}
+
+// newIdleTimer is the watchdog seam; tests swap in a timer they drive by hand.
+var newIdleTimer = func(d time.Duration, f func()) idleTimer { return time.AfterFunc(d, f) }
+
 // RemoteBin picks the remote binary: the flag, then HARNESS_REMOTE_BIN, then "claude-code".
 func RemoteBin(flagValue string) string {
 	return cmp.Or(flagValue, os.Getenv(RemoteBinEnv), "claude-code")
@@ -198,7 +207,7 @@ func (r remoteRunner) Run(ctx context.Context, req Request, sink Sink) (Result, 
 	touch := func() {}
 	if req.Timeout > 0 {
 		idle := req.Timeout + remoteGrace
-		wd := time.AfterFunc(idle, func() { cancel(fmt.Errorf("no remote output for %s: %w", idle, context.DeadlineExceeded)) })
+		wd := newIdleTimer(idle, func() { cancel(fmt.Errorf("no remote output for %s: %w", idle, context.DeadlineExceeded)) })
 		defer wd.Stop()
 		touch = func() { wd.Reset(idle) }
 	}

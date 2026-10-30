@@ -70,6 +70,7 @@ func TestProfileCellAcceptsStaticallyOnColdCache(t *testing.T) {
 
 // ENDPOINT_NOT_FOUND marks the model gone and returns the next READY Responses model.
 func TestServedRepickOnEndpointNotFound(t *testing.T) {
+	quietStderr(t)
 	reg := servedEnv(t, "true", map[string]string{"m-a": "READY", "m-b": "READY"})
 	leg := Leg{servedRepick: routeCtx{reg: reg}.servedRepickFor(servedCand)}
 	if leg.servedRepick == nil {
