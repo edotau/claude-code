@@ -83,3 +83,14 @@ func TestTickCommitsUnionsRange(t *testing.T) {
 		t.Fatalf("plan:\n%s", got)
 	}
 }
+
+// An owns entry abbreviated against the previous one resolves to the spliced path.
+func TestCoversSplicesAbbreviatedOwns(t *testing.T) {
+	owns := []string{"skills/subagent-workflows/references/prompts.md", "references/cost-routing.md", "references/lane.md"}
+	if all, _ := Covers(owns, []string{"skills/subagent-workflows/references/prompts.md", "skills/subagent-workflows/references/cost-routing.md", "skills/subagent-workflows/references/lane.md"}); !all {
+		t.Fatal("abbreviated entry not resolved")
+	}
+	if all, _ := Covers([]string{"a/b.go", "references/x.md"}, []string{"a/b.go", "references/x.md"}); !all {
+		t.Fatal("repo-root entry must stay as is")
+	}
+}
