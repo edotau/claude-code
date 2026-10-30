@@ -41,6 +41,11 @@ func TestHarnessGitBlocked(t *testing.T) {
 		{"nested bash -c outside tree", `bash -c "git reset --hard"`, outside, false},
 		{"eval into tree", "eval git reset --hard", cfg, true},
 		{"non-git command", "ls -la", cfg, false},
+		{"ssh command runs remotely", "ssh wks git reset --hard", cfg, false},
+		{"ssh heredoc runs remotely", "ssh wks 'bash -s' > log 2>&1 <<'EOF'\ngit checkout -q HEAD\nEOF", cfg, false},
+		{"local git after ssh heredoc", "ssh wks <<'EOF'\nuptime\nEOF\ngit reset --hard", cfg, true},
+		{"bash heredoc stays local", "bash -s <<'EOF'\ngit reset --hard\nEOF", cfg, true},
+		{"ssh heredoc piped to a local shell", "ssh wks <<'EOF' | bash\ngit reset --hard\nEOF", cfg, true},
 	}
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
