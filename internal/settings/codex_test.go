@@ -1,4 +1,4 @@
-package codexsettings_test
+package settings_test
 
 import (
 	"bytes"
@@ -10,7 +10,7 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/secrets"
-	"github.com/edotau/claude-code/internal/settings/codexsettings"
+	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -20,15 +20,15 @@ func TestConfigHistoryIsEncryptedBoundedAndSurvivesRotation(t *testing.T) {
 	path := filepath.Join(dir, "native", "config.toml")
 	other := filepath.Join(dir, "other", "config.toml")
 	fixture := []byte("private-config-fixture-68b19d\nforeign = 'preserve exactly'\n")
-	if err := codexsettings.SaveBaseline(path, fixture); err != nil {
+	if err := settings.SaveCodexBaseline(path, fixture); err != nil {
 		t.Fatal(err)
 	}
 	for i := range 7 {
-		if err := codexsettings.Backup(path, []byte(fmt.Sprintf("version %d", i)), true); err != nil {
+		if err := settings.CodexBackup(path, []byte(fmt.Sprintf("version %d", i)), true); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if err := codexsettings.Backup(other, fixture, false); err != nil {
+	if err := settings.CodexBackup(other, fixture, false); err != nil {
 		t.Fatal(err)
 	}
 	vaulttest.Secret(t, "API_KEY", "credential-fixture")
@@ -49,7 +49,7 @@ func TestConfigHistoryIsEncryptedBoundedAndSurvivesRotation(t *testing.T) {
 	if err != nil || oldKid == newKid {
 		t.Fatalf("rotation did not change the key: %v", err)
 	}
-	baseline, err := codexsettings.LoadBaseline(path)
+	baseline, err := settings.LoadCodexBaseline(path)
 	if err != nil || !bytes.Equal(baseline, fixture) {
 		t.Fatalf("baseline did not survive rotation: %v", err)
 	}
@@ -69,22 +69,22 @@ func TestConfigHistoryIsEncryptedBoundedAndSurvivesRotation(t *testing.T) {
 		t.Fatal(err)
 	}
 	for i := 6; i >= 2; i-- {
-		b, found, err := codexsettings.LatestBackup(path)
+		b, found, err := settings.LatestCodexBackup(path)
 		if err != nil || !found || string(b.Data) != fmt.Sprintf("version %d", i) || !b.Existed || b.Path != path {
 			t.Fatalf("latest backup %d: found=%v, data=%q, err=%v", i, found, b.Data, err)
 		}
-		if err := codexsettings.ConsumeBackup(b.Name); err != nil {
+		if err := settings.ConsumeCodexBackup(b.Name); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if _, found, err := codexsettings.LatestBackup(path); err != nil || found {
+	if _, found, err := settings.LatestCodexBackup(path); err != nil || found {
 		t.Fatalf("more than five snapshots retained: found=%v, err=%v", found, err)
 	}
-	b, found, err := codexsettings.LatestBackup(other)
+	b, found, err := settings.LatestCodexBackup(other)
 	if err != nil || !found || !bytes.Equal(b.Data, fixture) || b.Existed || b.Path != other {
 		t.Fatalf("other path snapshot changed: found=%v, err=%v", found, err)
 	}
-	baseline, err = codexsettings.LoadBaseline(path)
+	baseline, err = settings.LoadCodexBaseline(path)
 	if err != nil || !bytes.Equal(baseline, fixture) {
 		t.Fatalf("snapshot consumption changed baseline: %v", err)
 	}
@@ -93,10 +93,10 @@ func TestConfigHistoryIsEncryptedBoundedAndSurvivesRotation(t *testing.T) {
 func TestCredentialAndConfigCiphertextCannotBeExchanged(t *testing.T) {
 	vaulttest.UseKeyring(t)
 	path := filepath.Join(t.TempDir(), "config.toml")
-	if err := codexsettings.Backup(path, []byte("original native config"), true); err != nil {
+	if err := settings.CodexBackup(path, []byte("original native config"), true); err != nil {
 		t.Fatal(err)
 	}
-	b, found, err := codexsettings.LatestBackup(path)
+	b, found, err := settings.LatestCodexBackup(path)
 	if err != nil || !found {
 		t.Fatalf("backup missing: %v", err)
 	}
@@ -128,7 +128,7 @@ func TestCredentialAndConfigCiphertextCannotBeExchanged(t *testing.T) {
 func TestPreferencesRejectInvalidEditsWithoutOverwritingSavedValues(t *testing.T) {
 	vaulttest.Use(t)
 	want := map[string]string{"model_reasoning_effort": "high", "model_verbosity": "low"}
-	if err := codexsettings.SaveOverlay(want); err != nil {
+	if err := settings.SaveCodexOverlay(want); err != nil {
 		t.Fatal(err)
 	}
 	for _, invalid := range []map[string]string{
@@ -136,22 +136,22 @@ func TestPreferencesRejectInvalidEditsWithoutOverwritingSavedValues(t *testing.T
 		{"model_verbosity": "verbose"},
 		{"max_output_tokens": "256"},
 	} {
-		if err := codexsettings.SaveOverlay(invalid); err == nil {
+		if err := settings.SaveCodexOverlay(invalid); err == nil {
 			t.Fatalf("accepted invalid preferences: %v", invalid)
 		}
-		got, err := codexsettings.LoadOverlay()
+		got, err := settings.LoadCodexOverlay()
 		if err != nil || !reflect.DeepEqual(got, want) {
 			t.Fatalf("invalid edit overwrote saved preferences: %v, %v", got, err)
 		}
 	}
-	if err := codexsettings.UpdateOverlay(func(current map[string]string) map[string]string {
+	if err := settings.UpdateCodexOverlay(func(current map[string]string) map[string]string {
 		current["model_verbosity"] = "medium"
 		return current
 	}); err != nil {
 		t.Fatal(err)
 	}
 	want["model_verbosity"] = "medium"
-	got, err := codexsettings.LoadOverlay()
+	got, err := settings.LoadCodexOverlay()
 	if err != nil || !reflect.DeepEqual(got, want) {
 		t.Fatalf("staged preference merge lost an untouched preference: %v, %v", got, err)
 	}
@@ -164,7 +164,7 @@ func TestConfigPathPrecedence(t *testing.T) {
 		{home, filepath.Join(home, ".codex", "config.toml")},
 		{"", filepath.Join(native, "config.toml")},
 	} {
-		got, err := codexsettings.ConfigPath(tc.home)
+		got, err := settings.CodexConfigPath(tc.home)
 		if err != nil || got != tc.want {
 			t.Fatalf("ConfigPath(%q) = %q, %v; want %q", tc.home, got, err, tc.want)
 		}
@@ -174,7 +174,7 @@ func TestConfigPathPrecedence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, err := codexsettings.ConfigPath(""); err != nil || got != filepath.Join(defaultHome, ".codex", "config.toml") {
+	if got, err := settings.CodexConfigPath(""); err != nil || got != filepath.Join(defaultHome, ".codex", "config.toml") {
 		t.Fatalf("default ConfigPath = %q, %v", got, err)
 	}
 }

@@ -11,7 +11,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent/vendors"
 	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/settings/codexsettings"
+	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -223,7 +223,7 @@ func TestForeignKeysSurviveAndBackupIsWritten(t *testing.T) {
 	if _, err := os.Stat(codexPath + ".backup"); !os.IsNotExist(err) {
 		t.Fatalf("plaintext backup must not be written: %v", err)
 	}
-	backup, found, err := codexsettings.LatestBackup(codexPath)
+	backup, found, err := settings.LatestCodexBackup(codexPath)
 	if err != nil || !found {
 		t.Fatalf("encrypted backup missing: found=%v err=%v", found, err)
 	}
@@ -286,7 +286,7 @@ func TestVendorBaselineSeededOnFirstWrite(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	base, err := codexsettings.LoadBaseline(codexPath)
+	base, err := settings.LoadCodexBaseline(codexPath)
 	if err != nil {
 		t.Fatalf("no baseline seeded: %v", err)
 	}
@@ -322,7 +322,7 @@ func TestVendorBaselineSeededWhenUnchanged(t *testing.T) {
 		t.Fatal(err)
 	}
 	raw, _ := os.ReadFile(codexPath)
-	base, err := codexsettings.LoadBaseline(codexPath)
+	base, err := settings.LoadCodexBaseline(codexPath)
 	if err != nil {
 		t.Fatalf("unchanged render seeded no baseline: %v", err)
 	}
@@ -504,13 +504,13 @@ func TestRevertRestoresNewestThenStepsBack(t *testing.T) {
 	if err := os.WriteFile(codexPath, []byte(current), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := codexsettings.Backup(codexPath, []byte(older), true); err != nil {
+	if err := settings.CodexBackup(codexPath, []byte(older), true); err != nil {
 		t.Fatal(err)
 	}
-	if err := codexsettings.Backup(codexPath, []byte(newer), true); err != nil {
+	if err := settings.CodexBackup(codexPath, []byte(newer), true); err != nil {
 		t.Fatal(err)
 	}
-	newest, found, err := codexsettings.LatestBackup(codexPath)
+	newest, found, err := settings.LatestCodexBackup(codexPath)
 	if err != nil || !found {
 		t.Fatalf("backup missing: %v", err)
 	}

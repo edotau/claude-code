@@ -18,7 +18,7 @@ import (
 	"github.com/edotau/claude-code/internal/hooks/hookspec"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/settings/codexsettings"
+	"github.com/edotau/claude-code/internal/settings"
 )
 
 // DefaultAgents is every vendor generate renders when Options.Agents is empty.
@@ -306,12 +306,12 @@ func commitFile(path string, raw, next []byte, existed bool, o Options, out io.W
 		return changed, nil
 	case !changed:
 		if label == "codex" {
-			base, err := codexsettings.LoadBaseline(path)
+			base, err := settings.LoadCodexBaseline(path)
 			if err != nil {
 				return false, err
 			}
 			if base == nil && existed {
-				*o.staged = append(*o.staged, func() error { return codexsettings.SaveBaseline(path, next) })
+				*o.staged = append(*o.staged, func() error { return settings.SaveCodexBaseline(path, next) })
 			}
 			fmt.Fprintf(out, "%s: %s unchanged\n", label, path)
 			return false, nil

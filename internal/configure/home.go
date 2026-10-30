@@ -27,7 +27,6 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/secrets"
 	"github.com/edotau/claude-code/internal/settings"
-	"github.com/edotau/claude-code/internal/settings/codexsettings"
 	"github.com/edotau/claude-code/internal/ui/tui"
 )
 
@@ -123,7 +122,7 @@ type mcpClient struct {
 
 func webSearchClients() []mcpClient {
 	home, _ := os.UserHomeDir()
-	codexCfg, cfgErr := codexsettings.ConfigPath("")
+	codexCfg, cfgErr := settings.CodexConfigPath("")
 	return []mcpClient{
 		{"claude", func() bool { return claudeJSONWired(filepath.Join(home, ".claude.json")) }, registerClaudeMCP},
 		{"codex", func() bool { return codexWired(codexCfg) }, func(bin string) error {
@@ -208,7 +207,7 @@ func registerCodexMCP(path, bin string) error {
 		next = append(append(raw, '\n'), block...)
 	}
 	if len(raw) > 0 {
-		if err := codexsettings.Backup(path, raw, true); err != nil {
+		if err := settings.CodexBackup(path, raw, true); err != nil {
 			return err
 		}
 	}

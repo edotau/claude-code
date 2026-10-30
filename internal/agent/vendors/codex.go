@@ -19,7 +19,7 @@ import (
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/settings/codexsettings"
+	"github.com/edotau/claude-code/internal/settings"
 )
 
 var idRE = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
@@ -123,7 +123,7 @@ func codexLogin(model string, h *Headless) ([]string, []string, error) {
 
 // codexHome is $CODEX_HOME or ~/.codex, where codex keeps auth.json and config.toml.
 func codexHome() string {
-	home, err := codexsettings.Home()
+	home, err := settings.CodexHome()
 	if err != nil {
 		return filepath.Join(".codex") // no resolvable home: a relative path simply misses
 	}
