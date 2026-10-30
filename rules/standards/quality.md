@@ -30,7 +30,7 @@ leftover debug prints.
 | 5 | Full suite + gate chain (format → lint → test → security) | **Once** at wrap-up, **only with the user's approval**, never a subagent |
 
 Lint gates the rest: a syntax error makes test output meaningless. Untouched packages are noise during development.
-Report which steps ran and which did not.
+Report which steps ran and which did not. Judge a run by its own exit code (`set -o pipefail`), never `| tail`.
 
 Live first, test scope, what makes a test a guard, and the test agent: `testing-guidelines.md`.
 

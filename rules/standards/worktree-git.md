@@ -32,6 +32,7 @@ Never create one without the user's yes; no answer means keep working in place.
 | Remove merged ones | `claude-code worktree clean <name>` · `clean-all [--dry-run\|--yes]` |
 
 - Never `stash`/`checkout`/`reset`/`restore` the live checkout (CLAUDE.md hard rule 4); in a worktree, branch freely.
+- No `git stash` anywhere — the stash list is shared by every worktree. Never run a worktree-built binary as the proxy.
 - `make install` and `claude-code` verbs still write to `~/.claude` from a worktree unless `CLAUDE_CONFIG_DIR` points
   at it (`rules/harness/settings-management.md` → Worktree render).
 - `merge` refuses when `main` moved mid-verify — re-run it; `clean` refuses while a process has its cwd inside —
