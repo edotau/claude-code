@@ -74,7 +74,7 @@ a writable tier (never `CLAUDE.md`, `rules/workflow/`).
 | Testing pattern | `rules/software/<lang>/testing.md` or `rules/standards/quality.md` | Test conventions |
 | Git/commit pattern | `rules/standards/git.md` | Conventional commits, branch/PR workflow |
 | Docs/communication pattern | `rules/standards/documentation.md` or `rules/standards/communication.md` | Markdown/living-docs, or response style |
-| Performance insight | `rules/standards/performance.md` | Relevant subsection |
+| Model-selection insight | `rules/harness/providers.md` | Model selection |
 | Session-learned fact | `~/.claude/memory/<repo>/` (topic file + `MEMORY.md` TOC entry; dir from `claude-code memory path`) | Appropriate topic |
 | Project state change | `~/.claude/memory/<repo>/activeContext.md` | "Current Focus" / "Next Steps" |
 | Completed work | `~/.claude/memory/<repo>/progress.md` | "What Works" / "What's Next" |

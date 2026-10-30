@@ -25,4 +25,13 @@ paths:
   source, never the value.
 - Pins are vault-only (`CLAUDE_<TIER>_MODEL`); `--model` beats them. A `switch` pin lands in the vault too.
 - Built-in providers are `internal/providers/defaults.json`; the vault's provider overlay replaces one by name.
-- Reference model aliases (`opus`/`sonnet`/`haiku`), never concrete ids, in prose (`rules/standards/performance.md`).
+
+## Model selection
+
+Name the alias (`opus`/`sonnet`/`haiku`/`fable`), never a concrete model id: `internal/providers/defaults.json` plus
+the vault overlay map each alias per provider.
+
+- **`opus`** — architectural decisions, maximum-reasoning research and analysis.
+- **`sonnet`** — planning, review, orchestration, exploration; the default `code-worker` leaf.
+- **`haiku`** — high-frequency, cost-sensitive leaves and quick lookups.
+- **Gemini** (`claude-code gemini bridge`) — sweeps whose context exceeds a session window (1M tokens).
