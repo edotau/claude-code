@@ -196,11 +196,13 @@ func Dispatch(ctx context.Context, rec *Record, agentName string, out Sink, o Di
 	if o.AnswerTo != nil && res.Answer != "" {
 		_, _ = io.WriteString(o.AnswerTo, res.Answer)
 	}
+	// the result event lands before the record leaves running, so a tail follower never exits without it
+	rerr := sink.Emit(ResultEvent(NewEnvelope(res, err, rec.ID)))
 	rec.Finish(res, err, time.Since(begin))
 	if serr := rec.Save(); serr != nil && o.Notify != nil {
 		o.Notify(fmt.Sprintf("dispatch %s record not saved, it stays at running: %v", rec.ID, serr))
 	}
-	if rerr := sink.Emit(ResultEvent(NewEnvelope(res, err, rec.ID))); rerr != nil && err == nil {
+	if rerr != nil && err == nil {
 		err = rerr
 	}
 	return res, err
