@@ -239,6 +239,17 @@ func TestDispatchAgentLabels(t *testing.T) {
 		{"claude", "claude", "task"},
 		{"codex", "codex → gemini", "gemini: task"},
 	}
+	// Mode: compare joins with ", "; relay (explicit or absent) keeps the arrow.
+	for _, c := range []struct{ prompt, want string }{
+		{"Mode: compare\nAgent: codex, gemini", "codex, gemini: task"},
+		{"Agent: codex, gemini\nMode: Compare", "codex, gemini: task"},
+		{"Mode: relay\nAgent: codex → gemini", "codex → gemini: task"},
+		{"Agent: codex → gemini", "codex → gemini: task"},
+	} {
+		if got := labelOf(t, "code-worker", c.prompt, "task"); got != c.want {
+			t.Errorf("prompt %q = %q, want %q", c.prompt, got, c.want)
+		}
+	}
 	for _, c := range cases {
 		if got := labelOf(t, c.st, "do it\nAgent: "+c.agent, "task"); got != c.want {
 			t.Errorf("%s + Agent: %s = %q, want %q", c.st, c.agent, got, c.want)
