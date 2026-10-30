@@ -112,6 +112,7 @@ func TestOpencodePageRows1x(t *testing.T) {
 		{Label: "Nvidia", Detail: "API key", OK: true, Section: "accounts"},
 		{Label: "OpenAI", Detail: "OAuth", OK: true, Section: "accounts"},
 		{Label: "zed", Detail: "API key", OK: true, Section: "accounts"},
+		{Label: "Set up", Detail: "sign in, verify, pin the route", Section: "actions"},
 		{Label: "+ Add account", Detail: "opencode auth login · browser sign-in", Section: "actions"},
 	}
 	if got := rowsOfPage(p); !reflect.DeepEqual(got, want) {
@@ -291,7 +292,7 @@ func TestOpencodePageActionLogOutConfirms(t *testing.T) {
 }
 
 func TestOpencodePageAddAccount(t *testing.T) {
-	addRow := len(v1Data())
+	addRow := len(v1Data()) + 1 // after the Set up row
 	f := &ocFake{ints: v1Data(), major: 1, cancel: true, answers: []tui.ListResult{{Index: addRow}, {Index: addRow, Action: "logout"}}}
 	installOCFake(t, f)
 	d, out := ocDialog()
@@ -358,7 +359,7 @@ func TestOpencodeHomeRowOpensPage(t *testing.T) {
 	for _, r := range f.specs[0].Rows {
 		labels = append(labels, r.Label)
 	}
-	if got := strings.Join(labels, ","); !strings.HasPrefix(got, "not connected,+ Add account,Model") || strings.Contains(got, "API key") {
+	if got := strings.Join(labels, ","); !strings.HasPrefix(got, "not connected,Set up,+ Add account,Model") || strings.Contains(got, "API key") {
 		t.Errorf("page rows = %s", got)
 	}
 }

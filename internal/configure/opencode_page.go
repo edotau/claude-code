@@ -96,6 +96,8 @@ func buildOpencodePage(d *dialog, ints []vendors.OpencodeIntegration, major int)
 	if p.conns == 0 {
 		p.rows = append(p.rows, ocRow{row: tui.ListRow{Label: "not connected", Section: "accounts"}})
 	}
+	p.rows = append(p.rows, ocRow{row: tui.ListRow{Label: "Set up", Detail: "sign in, verify, pin the route",
+		Section: "actions"}, run: func(d *dialog) { agentSetUp(d, "opencode") }})
 	p.rows = append(p.rows, ocRow{row: tui.ListRow{Label: "+ Add account", Detail: "opencode auth login · browser sign-in",
 		Section: "actions"}, run: ocAddAccount})
 	if d.reg != nil {
