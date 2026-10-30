@@ -9,7 +9,7 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/ansi"
-	"github.com/edotau/claude-code/internal/config"
+	"github.com/edotau/claude-code/internal/configure"
 	"github.com/edotau/claude-code/internal/helptext"
 	"github.com/edotau/claude-code/internal/outfmt"
 	"github.com/edotau/claude-code/internal/secrets"
@@ -61,7 +61,7 @@ func vaultList(args []string) int {
 			return fail("vault list: %v", err)
 		}
 	}
-	raw, err := config.Export()
+	raw, err := configure.Export()
 	if err != nil {
 		return fail("vault list: %v", err)
 	}
@@ -69,7 +69,7 @@ func vaultList(args []string) int {
 	if f == outfmt.JSON {
 		out, err = vaultListJSON(raw, stored, sel)
 	} else {
-		var doc config.Doc
+		var doc configure.Doc
 		if err = json.Unmarshal(raw, &doc); err == nil {
 			fmt.Print(renderVaultTextStyled(doc, stored, sel, vaultTableWidth(), ansi.Enabled(os.Stdout)))
 			return 0
@@ -117,7 +117,7 @@ type vaultSecretJSON struct {
 	Length int    `json:"length"`
 }
 
-// vaultListJSON is config.Export()'s object, filtered to sel, with a masked "secrets" array first when selected.
+// vaultListJSON is configure.Export()'s object, filtered to sel, with a masked "secrets" array first when selected.
 func vaultListJSON(raw []byte, stored []secrets.Stored, sel []string) ([]byte, error) {
 	var doc map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &doc); err != nil {

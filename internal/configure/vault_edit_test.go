@@ -1,4 +1,4 @@
-package config
+package configure
 
 import (
 	"bytes"
@@ -89,18 +89,18 @@ func setupTestEditor(t *testing.T, mode, env string, terminal bool, answer bool)
 	if env == "VISUAL" {
 		t.Setenv("EDITOR", filepath.Join(tmp, "must-not-run"))
 	}
-	oldTerminal, oldConfirm := isTerminal, confirm
+	oldTerminal, oldConfirmEdit := isTerminal, confirmEdit
 	calls := new(int)
 	isTerminal = func() bool { return terminal }
-	confirm = func(q string) bool {
+	confirmEdit = func(q string) bool {
 		*calls++
 		if q != "Re-edit?" {
-			t.Errorf("confirm prompt = %q, want Re-edit?", q)
+			t.Errorf("confirmEdit prompt = %q, want Re-edit?", q)
 		}
 		return answer
 	}
 	t.Cleanup(func() {
-		isTerminal, confirm = oldTerminal, oldConfirm
+		isTerminal, confirmEdit = oldTerminal, oldConfirmEdit
 		matches, err := filepath.Glob(filepath.Join(tmp, "claude-code-config-*"))
 		if err != nil {
 			t.Error(err)
@@ -140,7 +140,7 @@ func TestEdit(t *testing.T) {
 				t.Errorf("non-terminal Edit printed stderr: %q", stderr.String())
 			}
 			if *calls != 0 {
-				t.Errorf("non-terminal Edit called confirm %d times", *calls)
+				t.Errorf("non-terminal Edit called confirmEdit %d times", *calls)
 			}
 			if seen, err := os.ReadFile(filepath.Join(tmp, "seen")); err != nil || string(seen) != "seen" {
 				t.Fatalf("helper did not inspect the temp file: %q, %v", seen, err)
@@ -187,7 +187,7 @@ func TestEditReedit(t *testing.T) {
 			var stdout, stderr bytes.Buffer
 			err := Edit(&stdout, &stderr)
 			if *calls != tt.calls {
-				t.Errorf("confirm called %d times, want %d", *calls, tt.calls)
+				t.Errorf("confirmEdit called %d times, want %d", *calls, tt.calls)
 			}
 			if tt.saved {
 				if err != nil || stdout.String() != "saved\n" {

@@ -1,4 +1,4 @@
-package config
+package configure
 
 import (
 	"bytes"
@@ -15,9 +15,9 @@ import (
 	"github.com/edotau/claude-code/internal/tui"
 )
 
-// isTerminal and confirm are seams for the re-edit prompt.
+// isTerminal and confirmEdit are seams for the re-edit prompt.
 var isTerminal = tui.StdinIsTerminal
-var confirm = func(q string) bool { return tui.ConfirmKey(q, true) }
+var confirmEdit = func(q string) bool { return tui.ConfirmKey(q, true) }
 
 // Edit opens the non-secret config in $VISUAL/$EDITOR via a 0600 temp file and imports it; the file is always removed.
 func Edit(stdout, stderr io.Writer) error {
@@ -80,7 +80,7 @@ func Edit(stdout, stderr io.Writer) error {
 			return err
 		}
 		fmt.Fprintln(stderr, "config:", err)
-		if !confirm("Re-edit?") {
+		if !confirmEdit("Re-edit?") {
 			return err
 		}
 	}
