@@ -35,3 +35,18 @@ the vault overlay map each alias per provider.
 - **`sonnet`** — planning, review, orchestration, exploration; the default `code-worker` leaf.
 - **`haiku`** — high-frequency, cost-sensitive leaves and quick lookups.
 - **Gemini** (`claude-code gemini bridge`) — sweeps whose context exceeds a session window (1M tokens).
+
+## Served-aware Databricks routing
+
+`configure routing` → `servedAware` (off by default) checks codex, copilot and opencode picks against the workspace's
+cached endpoint listing (`state/harness/preflight/served-<profile>.json`, 24h TTL). Off, cold or stale reads as today's
+static menu: routing never touches the network.
+
+- **Refresh:** `make install`, `doctor --refresh`, `preflight --live`; with the switch on, also `switch`,
+  `<agent> profile`, `configure` exit (pin changed or switch flipped on) and a detached `preflight --refresh` at
+  session start.
+- **Fallback ignores the tier:** a swap takes the first READY entry in menu order, so a sonnet leg can land on
+  an opus endpoint. Menu order is the control. An explicit pin swaps too; the swap appears in `gateway router` skips.
+- **Live rescue:** a codex leg that gets `ENDPOINT_NOT_FOUND` marks the model unserved for 1h and retries once on the
+  next READY Responses model. An exact `--model` never retries. copilot and opencode refuse unknown models client-side,
+  so there is no captured failure text for them.

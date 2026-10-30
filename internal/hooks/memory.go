@@ -92,6 +92,10 @@ func memoryContext(cwd, sessionID, transcriptPath string, now time.Time) string 
 	if !guard.Paused && !memory.IsUpdateChild() && memory.HasBank(cwd) && memory.DreamDue(cwd, now) {
 		spawnDream(cwd)
 	}
+	// A stale served-endpoint cache is re-listed detached; needs no memory bank.
+	if !memory.IsUpdateChild() && servedRefreshDue(now) {
+		spawnServed(cwd)
+	}
 	// Every SessionStart (startup, resume, clear, compact) restarts what recall treats as already in context.
 	if !memory.IsUpdateChild() {
 		memory.ResetSeen(sessionID, cwd, out)
@@ -385,6 +389,29 @@ var spawnUpdate = func(transcriptPath, cwd, sessionID string) bool {
 	}
 	_ = memory.WriteUpdateResult(sessionID, memory.UpdateResult{Status: memory.UpdatePending, Time: time.Now(), Log: logPath})
 	return true
+}
+
+// servedRefreshDue reports whether served routing is on and an in-use Databricks profile has no fresh listing.
+func servedRefreshDue(now time.Time) bool {
+	if !providers.ServedRoutingOn() {
+		return false
+	}
+	reg, err := providers.Load()
+	return err == nil && preflight.Stale(reg, now)
+}
+
+// spawnServed is the detached `preflight --refresh` seam; tests replace it.
+var spawnServed = func(cwd string) bool {
+	self, err := os.Executable()
+	if err != nil {
+		return false
+	}
+	null, err := os.OpenFile(os.DevNull, os.O_WRONLY, 0)
+	if err != nil {
+		return false
+	}
+	defer null.Close()
+	return proc.SpawnDetached(self, []string{"preflight", "--refresh"}, cwd, null)
 }
 
 // spawnDream is the detached memory-dream seam; tests replace it.

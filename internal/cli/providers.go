@@ -14,6 +14,7 @@ import (
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/outfmt"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/preflight"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/proxy"
 	"github.com/edotau/claude-code/internal/secrets"
@@ -598,6 +599,7 @@ func cmdSwitch(args []string) int {
 		return fail("%v", err)
 	}
 	fmt.Printf("profile pinned: %s (relaunch to apply)\n", args[0])
+	preflight.Warm(os.Stdout, reg, time.Now())
 	return 0
 }
 
