@@ -211,7 +211,13 @@ lint-%: compile mdsmith  # (helper) one lint kind: $(LINT_WHAT) deep; CHECK=1 on
 	help) out="$$($(MAKE) --no-print-directory help | sed 's/\x1b\[[0-9;]*m//g' | awk \
 			'length>80 && substr($$0,20) ~ / / {print "over 80: " $$0} /^   / && !/^                   [^ ]/ {print "misaligned continuation: " $$0}')"; \
 		if [ -n "$$out" ]; then echo "help rows break the wrap rule:"; echo "$$out"; exit 1; fi ;; \
-	settings) CLAUDE_CONFIG_DIR=$(CURDIR) $(BIN) configure --restore --check --no-agents ;; \
+	settings) live="$${CLAUDE_CONFIG_DIR:-$$HOME/.claude}"; \
+		if [ "$$(realpath "$(CURDIR)" 2>/dev/null)" = "$$(realpath "$$live" 2>/dev/null)" ]; then \
+			CLAUDE_CONFIG_DIR=$(CURDIR) $(BIN) configure --restore --check --no-agents; \
+		else t="$$(mktemp -d)"; trap 'rm -rf "$$t"' EXIT; \
+			CLAUDE_CONFIG_DIR=$(CURDIR) $(BIN) configure --restore --out "$$t/settings.json" --no-agents >/dev/null && \
+			CLAUDE_CONFIG_DIR=$(CURDIR) $(BIN) configure --restore --out "$$t/settings.json" --check --no-agents && \
+			echo -e "$(C_OK)settings template renders (worktree: no live settings.json needed)"; fi ;; \
 	docs) $(MDSMITH) $(if $(filter 1,$(CHECK)),check,fix); \
 		live="$${CLAUDE_CONFIG_DIR:-$$HOME/.claude}"; \
 		if [ "$$(realpath "$(CURDIR)" 2>/dev/null)" = "$$(realpath "$$live" 2>/dev/null)" ]; then \
