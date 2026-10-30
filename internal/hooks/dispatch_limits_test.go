@@ -29,8 +29,8 @@ func TestDispatchCapsMergedContextLaterBlockFirst(t *testing.T) {
 
 func TestDispatchWaitsForOverrunHandler(t *testing.T) {
 	var finished atomic.Bool
-	bound := []Bound{bindStub("g1", "slow", 40*time.Millisecond, func(*Input) Result {
-		time.Sleep(70 * time.Millisecond)
+	bound := []Bound{bindStub("g1", "slow", 200*time.Millisecond, func(*Input) Result {
+		time.Sleep(250 * time.Millisecond) // past the budget, well inside drain's extra period
 		finished.Store(true)
 		return Result{}
 	})}
