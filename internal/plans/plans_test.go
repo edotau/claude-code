@@ -350,3 +350,96 @@ func TestRepoPlanTemplate(t *testing.T) {
 		}
 	}
 }
+
+// A symlinked .md (pointing outside plans/) is never summarized.
+func TestStatusSkipsSymlink(t *testing.T) {
+	dir, outside := t.TempDir(), t.TempDir()
+	writeFile(t, filepath.Join(outside, "real.md"), "- [ ] 1.1 T owns: a\n")
+	writeFile(t, filepath.Join(dir, "own.md"), "- [ ] 1.1 T owns: a\n")
+	if err := os.Symlink(filepath.Join(outside, "real.md"), filepath.Join(dir, "link.md")); err != nil {
+		t.Fatal(err)
+	}
+	sums, err := Status(dir)
+	if err != nil || len(sums) != 1 || filepath.Base(sums[0].Path) != "own.md" {
+		t.Fatalf("Status = %+v, %v; want only own.md", sums, err)
+	}
+}
+
+// An unapproved mirrored draft named in skip is never the tick target.
+func TestActiveSkipsDraft(t *testing.T) {
+	dir := t.TempDir()
+	draft := filepath.Join(dir, "2026-10-29-draft.md")
+	writeFile(t, draft, "# Plan: d\n\n- [ ] 1.1 T owns: a\n")
+	if got, ok := Active(dir, "", []string{draft}); ok {
+		t.Fatalf("Active picked skipped draft %s", got)
+	}
+	if got, ok := Active(dir, "", nil); !ok || got != draft {
+		t.Fatalf("Active without skip = %q, %v", got, ok)
+	}
+}
+
+// The plan whose open-task claim names the worktree beats a newer unclaimed plan.
+func TestActivePrefersWorktreeClaim(t *testing.T) {
+	dir := t.TempDir()
+	claimed := filepath.Join(dir, "2026-10-01-claimed.md")
+	newer := filepath.Join(dir, "2026-10-02-newer.md")
+	writeFile(t, claimed, "- [ ] 1.1 T owns: a <!-- working: bob · worktree fx-1 -->\n")
+	writeFile(t, newer, "- [ ] 1.1 T owns: a\n")
+	now := time.Now()
+	_ = os.Chtimes(claimed, now.Add(-time.Hour), now.Add(-time.Hour))
+	_ = os.Chtimes(newer, now, now)
+	if got, _ := Active(dir, "fx-1", nil); got != claimed {
+		t.Fatalf("Active(fx-1) = %q, want the claimed plan", got)
+	}
+	if got, _ := Active(dir, "other", nil); got != newer {
+		t.Fatalf("Active(other) = %q, want the newest plan", got)
+	}
+}
+
+// Checkbox lines inside fenced code, nested or tilde fences included, are not tasks.
+func TestParseSkipsFencedCheckboxes(t *testing.T) {
+	cases := map[string]struct{ md, want string }{
+		"plain and tilde fences": {
+			"- [ ] 1.1 Real owns: a\n\n```md\n- [ ] 1.2 Fake owns: b\n```\n\n~~~\n- [ ] 1.3 Fake\n~~~\n- [ ] 1.4 Real2 owns: c\n",
+			"1.1 1.4"},
+		"longer fence closed only by an equal-or-longer one": {
+			"- [ ] 1.1 Real owns: a.go\n\n````md\n```\n- [ ] 9.9 Sample owns: x.go\n```\n- [ ] 9.8 Sample2 owns: y.go\n````\n\n~~~\n```\n- [ ] 9.7 Tilde owns: z.go\n~~~\n\n- [ ] 2.1 Second owns: b.go\n",
+			"1.1 2.1"},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			var ids []string
+			for _, task := range ParseBytes("p.md", []byte(c.md)).Tasks {
+				ids = append(ids, task.ID)
+			}
+			if got := strings.Join(ids, " "); got != c.want {
+				t.Fatalf("task ids = %q, want %q", got, c.want)
+			}
+		})
+	}
+}
+
+// ClaimFree leaves a live claim alone and ClearClaimOwned clears only its owner's claim.
+func TestClaimFreeAndClearOwned(t *testing.T) {
+	hermetic(t)
+	p := filepath.Join(t.TempDir(), "2026-10-29-x.md")
+	writeFile(t, p, "- [ ] 1.2 task owns: a.go\n")
+	steps := []struct {
+		do         func() error
+		has, hasNo string
+	}{
+		{func() error { return ClaimFree(p, "1.2", "working: Agent u1 · since 10:00") }, "u1", ""},
+		{func() error { return ClaimFree(p, "1.2", "working: Agent u2 · since 10:01") }, "u1", "u2"},
+		{func() error { return ClearClaimOwned(p, "1.2", " u2 ") }, "u1", ""},
+		{func() error { return ClearClaimOwned(p, "1.2", " u1 ") }, "", "working:"},
+	}
+	for i, s := range steps {
+		if err := s.do(); err != nil {
+			t.Fatal(err)
+		}
+		b := readFile(t, p)
+		if !strings.Contains(b, s.has) || (s.hasNo != "" && strings.Contains(b, s.hasNo)) {
+			t.Fatalf("step %d: want %q present and %q absent in:\n%s", i, s.has, s.hasNo, b)
+		}
+	}
+}
