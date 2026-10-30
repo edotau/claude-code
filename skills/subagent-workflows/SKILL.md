@@ -20,12 +20,27 @@ Use the smallest shape that fits; add orchestration only when the dependency sha
 | Repeatable pipeline, evaluator or bounded loop | any | A saved `Workflow` (`workflows/*.js`) — **only when the user asks for one** | [saved-workflows.md](references/saved-workflows.md) |
 
 Tier is `rules/workflow/master-workflow.md` → Phase 0. Each leaf runs one method skill, named in the brief's `Method:`
-field: `problem-solving` (implementer, code-worker, lane leaf), `evaluate-code` (spec, quality and plan reviewers;
+field: `problem-solving` (`code-worker`, lane leaf), `evaluate-code` (spec, quality and plan reviewers;
 codex review, vet and judge), `simplify` (simplifier).
 Brief templates for implementer, spec, quality and plan reviewers: [prompts.md](references/prompts.md).
 Shared discipline and per-agent memory-proposal candidates: [memory-updates.md](references/memory-updates.md).
 Concurrency caps: `rules/workflow/agents.md` → Parallel Task Execution. Scoping a leaf below the repo root hides
 `.git`/`.venv`: [grant-depth-trap.md](references/grant-depth-trap.md).
+
+## Leaf types
+
+A leaf either does the work itself or requests one agent through `claude-code ask --agent <x>`. The UI row is
+`<leaf type>  <requested agent>: <task>` for a request, `<leaf type>  <task>` otherwise.
+
+| Leaf type | Does the work itself | Requests |
+| --- | --- | --- |
+| `claude` — near the main thread | `claude  <task>` | rare: `claude  copilot: <task>` |
+| `code-worker` — default fan-out leaf | `code-worker  <task>` | `code-worker  claude: reviewing code` |
+| `codex` / `copilot` / `gemini` / `opencode` | `copilot  <task>` | `copilot  gemini: scanning repo` |
+| `coworker` — always requests | — | `coworker  codex: <task>` |
+
+"Terminal" means no subagents and no Workflow; an `ask` request is a subprocess call and is allowed whenever the brief
+names it.
 
 ## Handoff contract
 
@@ -34,8 +49,10 @@ The one definition of what passes manager → leaf → manager. Agent files poin
 
 **Brief (in)** — a fresh agent must be able to act from the handoff alone:
 
-- `Objective:` one outcome. `Agent:` claude | copilot | codex | gemini | opencode
-  ([cost-routing.md](references/cost-routing.md)); a leaf runs the agent its brief names.
+- `Objective:` one outcome. `Agent:` the agent this leaf requests via `claude-code ask --agent <x>`
+  ([cost-routing.md](references/cost-routing.md)); omitted, `in-context`, or the leaf's own type = does the work
+  itself. One line, several names = relay (`gemini → codex`). The hook turns it into the label
+  ([Leaf types](#leaf-types)). `Agent:` is the only spelling.
 - `Task:` (optional) the plan task id the leaf lands (`Task: 1.2`); the dispatch hook claims it in the plan.
 - `Owns:` the exact files, plus "Do NOT edit <others> — agents are in this package concurrently".
 - `Method:` the skill to follow, as a file path for a leaf without the `Skill` tool.
@@ -115,7 +132,7 @@ established evidence.
 
 ## Sequential plan
 
-Per task: implementer ‖ `copilot`, same message → spec review until `SPEC_COMPLIANT`
+Per task: `code-worker` ‖ `copilot`, same message → spec review until `SPEC_COMPLIANT`
 ([prompts.md#spec-reviewer](references/prompts.md#spec-reviewer)) → `Skill(simplify)` → quality review until
 `SHIP` ([prompts.md#code-quality-reviewer](references/prompts.md#code-quality-reviewer)) → run the task's
 verification yourself. Order is always spec → simplify → quality: simplifying non-compliant code polishes the
