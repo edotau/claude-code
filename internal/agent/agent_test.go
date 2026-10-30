@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/edotau/claude-code/internal/envscrub"
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/router"
 )
 
@@ -124,7 +124,7 @@ func TestChildCmdSetsPWD(t *testing.T) {
 	}
 
 	// dir == "" (no --workdir): childCmd must append nothing past the scrubbed environ, no PWD.
-	scrubbed, _ := envscrub.Scrub(os.Environ(), nil)
+	scrubbed, _ := proc.Scrub(os.Environ(), nil)
 	cmd, _ = childCmd(context.Background(), "/bin/sh", []string{"-c", "true"}, nil, "", "", nil, false)
 	if n, want := len(cmd.Env), len(scrubbed); n != want {
 		t.Errorf("cmd.Env has %d entries, want %d (scrubbed os.Environ(), no PWD appended)", n, want)

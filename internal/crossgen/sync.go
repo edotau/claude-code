@@ -79,7 +79,7 @@ func Sync(opts SyncOptions) int {
 		vendors = []string{opts.Vendor}
 	}
 	agentsDir, skillsDir := filepath.Join(root, "agents"), filepath.Join(root, "skills")
-	if !isDir(agentsDir) {
+	if !paths.IsDir(agentsDir) {
 		fmt.Fprintf(os.Stderr, "sync: agents directory not found: %s\n", agentsDir)
 		return 1
 	}
@@ -182,7 +182,7 @@ func syncVendor(out io.Writer, vendor string, t vendorTarget, agents []Source, d
 		if name == vendor {
 			continue // never project a vendor's own agent into its own CLI home (nesting hazard)
 		}
-		if !safeName(name) {
+		if !paths.SafeName(name) {
 			fmt.Fprintf(os.Stderr, "  ERROR unsafe agent name %q (must be a plain path component)\n", name)
 			res.errored++
 			continue

@@ -9,6 +9,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent/vendors"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/tui"
 )
 
@@ -117,19 +118,12 @@ func buildOpencodePage(d *dialog, ints []vendors.OpencodeIntegration, major int)
 	}
 	p.title = "opencode  not connected"
 	if p.conns > 0 {
-		p.title = fmt.Sprintf("opencode  ✓ %d %s", p.conns, plural(p.conns, "account", "accounts"))
+		p.title = fmt.Sprintf("opencode  ✓ %d %s", p.conns, textutil.PluralWord(p.conns, "account", "accounts"))
 	}
 	if major > 0 {
 		p.title += fmt.Sprintf(" · opencode %d.x", major)
 	}
 	return p
-}
-
-func plural(n int, one, many string) string {
-	if n == 1 {
-		return one
-	}
-	return many
 }
 
 // spec is the page's tui.List description.
@@ -282,7 +276,7 @@ func ocAddAccount(d *dialog) {
 		for _, in := range ints {
 			n += len(in.Conns)
 		}
-		d.printf("opencode: %d %s\n", n, plural(n, "account", "accounts"))
+		d.printf("opencode: %d %s\n", n, textutil.PluralWord(n, "account", "accounts"))
 		agentActiveOn(d, "opencode")
 	}
 }

@@ -16,8 +16,8 @@ import (
 	copilot "github.com/github/copilot-sdk/go"
 	"github.com/github/copilot-sdk/go/rpc"
 
-	"github.com/edotau/claude-code/internal/envscrub"
 	"github.com/edotau/claude-code/internal/models"
+	"github.com/edotau/claude-code/internal/proc"
 )
 
 // DefaultClientName identifies this host in the SDK's User-Agent.
@@ -64,7 +64,7 @@ func BuildClientOptions(o Options) (*copilot.ClientOptions, error) {
 	if strings.TrimSpace(o.CLIPath) == "" {
 		return nil, errors.New("copilot CLI path is empty (the SDK would run its bundled runtime instead)")
 	}
-	base, _ := envscrub.ScrubVendor(os.Environ(), envscrub.KeepSet(o.KeepEnv))
+	base, _ := proc.ScrubVendor(os.Environ(), proc.EnvKeepSet(o.KeepEnv))
 	if o.multiProvider() {
 		if err := validateRegistryOptions(o); err != nil {
 			return nil, err

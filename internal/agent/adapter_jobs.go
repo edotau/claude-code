@@ -13,7 +13,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/edotau/claude-code/internal/gitexec"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 )
@@ -60,7 +59,7 @@ func SpawnArgv(rec *Record, argv, env []string) error {
 
 // RepoRoot is the main checkout root for cwd, falling back to cwd when git fails.
 func RepoRoot(ctx context.Context, cwd string) string {
-	out, err := gitexec.RunGit(ctx, cwd, "rev-parse", "--show-toplevel")
+	out, err := proc.RunGit(ctx, cwd, "rev-parse", "--show-toplevel")
 	if err != nil || out == "" {
 		return cwd
 	}

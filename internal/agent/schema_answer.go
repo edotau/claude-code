@@ -12,7 +12,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/edotau/claude-code/internal/envscrub"
+	"github.com/edotau/claude-code/internal/proc"
 )
 
 // ErrSchema marks an answer that is not JSON satisfying the requested schema; the envelope kind is "schema".
@@ -225,7 +225,7 @@ func ValidEnvName(name string) error {
 		return errors.New("--env: want NAME=VALUE")
 	}
 	up := strings.ToUpper(name)
-	reserved := envscrub.Blocked(name) || envscrub.Blocked(up)
+	reserved := proc.EnvBlocked(name) || proc.EnvBlocked(up)
 	if strings.HasSuffix(up, "_BASE_URL") && !strings.HasPrefix(up, "HARNESS_") {
 		reserved = false // a route override such as ANTHROPIC_BASE_URL is not a secret
 	}

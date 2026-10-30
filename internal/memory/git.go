@@ -2,7 +2,7 @@ package memory
 
 // Bounded, sanitized git for the nested local memory repo at StoreDir() (plan C.3). Explicit --git-dir and
 // --work-tree are what keep an inherited GIT_DIR or a missing .git from retargeting the OUTER ~/.claude checkout;
-// never call bare `git -C StoreDir()` here. Shares internal/gitexec's sanitized env with internal/history.
+// never call bare `git -C StoreDir()` here. Shares internal/proc's sanitized env with internal/history.
 
 import (
 	"context"
@@ -16,7 +16,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/edotau/claude-code/internal/gitexec"
+	"github.com/edotau/claude-code/internal/proc"
 )
 
 // Repo is the nested memory repository rooted at Dir (its work tree); .git lives directly inside it.
@@ -304,13 +304,13 @@ func gitOut(dir string, args ...string) (string, error) {
 	return runGit(append([]string{"-C", dir}, args...))
 }
 
-// runGit is the one exec seam, via internal/gitexec: env minus every GIT_* (an inherited GIT_DIR
+// runGit is the one exec seam, via internal/proc: env minus every GIT_* (an inherited GIT_DIR
 // overrides --git-dir), bounded, trimming ONLY trailing newlines (porcelain carries meaning in column 0).
 // full already carries its own -C/-c flags, so dir stays "" here to avoid a duplicate -C.
 func runGit(full []string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
 	defer cancel()
-	return gitexec.RunGit(ctx, "", full...)
+	return proc.RunGit(ctx, "", full...)
 }
 
 // exitCode is the git process exit status wrapped in err, -1 when err is not an exit error.

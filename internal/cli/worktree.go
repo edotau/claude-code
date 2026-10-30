@@ -13,6 +13,7 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 	"github.com/edotau/claude-code/internal/worktree"
 )
@@ -254,7 +255,7 @@ func applyMerge(ctx context.Context, repo *worktree.Repo, plan *worktree.MergePl
 	}
 	fmt.Printf("integrated: %s -> %s\n", shortOID(integrated.BeforeOID), shortOID(integrated.AfterOID))
 
-	if gateSource == "Makefile" && !fullVerify && fileExists(filepath.Join(plan.WorktreePath, "go.mod")) {
+	if gateSource == "Makefile" && !fullVerify && paths.FileExists(filepath.Join(plan.WorktreePath, "go.mod")) {
 		scoped, pkgs, full, err := worktree.ScopedGoGate(ctx, plan.WorktreePath, plan.TargetOID)
 		if err != nil {
 			return fail("worktree merge: scoped gate: %v", err)
@@ -328,24 +329,19 @@ func detectVerifyGate(dir string) (gate, source string) {
 	if hasMakeTarget(filepath.Join(dir, "Makefile"), "test") {
 		return "make test", "Makefile"
 	}
-	if fileExists(filepath.Join(dir, "go.mod")) {
+	if paths.FileExists(filepath.Join(dir, "go.mod")) {
 		return "go build ./... && go vet ./... && go test ./...", "go.mod"
 	}
-	if fileExists(filepath.Join(dir, "pyproject.toml")) || fileExists(filepath.Join(dir, "setup.cfg")) {
+	if paths.FileExists(filepath.Join(dir, "pyproject.toml")) || paths.FileExists(filepath.Join(dir, "setup.cfg")) {
 		return "pytest -q", "pyproject"
 	}
 	if hasNPMTestScript(filepath.Join(dir, "package.json")) {
 		return "npm test", "package.json"
 	}
-	if fileExists(filepath.Join(dir, "Cargo.toml")) {
+	if paths.FileExists(filepath.Join(dir, "Cargo.toml")) {
 		return "cargo build && cargo test", "Cargo.toml"
 	}
 	return "", ""
-}
-
-func fileExists(path string) bool {
-	_, err := os.Stat(path)
-	return err == nil
 }
 
 // hasMakeTarget reports whether makefile declares a target named exactly target (a line starting with

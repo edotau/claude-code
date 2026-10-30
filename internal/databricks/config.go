@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"github.com/edotau/claude-code/internal/envscrub"
+	"github.com/edotau/claude-code/internal/proc"
 	"io"
 	"net/url"
 	"os"
@@ -179,9 +179,9 @@ var (
 	scrubNames    = []string{"CLAUDE_CODE_OAUTH_TOKEN", "CLAUDE_CONFIG_DIR"}
 )
 
-// scrubbed drops envscrub.Deny plus every inherited var matching scrubPrefixes or scrubNames.
+// scrubbed drops proc.ScrubDeny plus every inherited var matching scrubPrefixes or scrubNames.
 func scrubbed(environ []string) []string {
-	environ, _ = envscrub.Scrub(environ, nil)
+	environ, _ = proc.Scrub(environ, nil)
 	var out []string
 	for _, kv := range environ {
 		name, _, _ := strings.Cut(kv, "=")

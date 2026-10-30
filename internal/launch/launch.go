@@ -17,7 +17,6 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent/vendors"
 	"github.com/edotau/claude-code/internal/databricks"
-	"github.com/edotau/claude-code/internal/envscrub"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
@@ -721,9 +720,9 @@ func (p Plan) envWith(base []string, custom map[string]string, locked map[string
 // plainEnv is the credential scrub, then base minus Unset/Set keys, plus Set.
 func (p Plan) plainEnv(base []string) []string {
 	if p.Vendor {
-		base, _ = envscrub.ScrubVendor(base, envscrub.KeepSet(p.Keep))
+		base, _ = proc.ScrubVendor(base, proc.EnvKeepSet(p.Keep))
 	} else {
-		base, _ = envscrub.Scrub(base, envscrub.KeepSet(p.Keep))
+		base, _ = proc.Scrub(base, proc.EnvKeepSet(p.Keep))
 	}
 	drop := map[string]bool{}
 	for _, k := range p.Unset {
@@ -785,11 +784,11 @@ func (p Plan) unsetNames() []string {
 			names[k] = true
 		}
 	}
-	scrub := envscrub.Scrub
+	scrub := proc.Scrub
 	if p.Vendor {
-		scrub = envscrub.ScrubVendor
+		scrub = proc.ScrubVendor
 	}
-	_, dropped := scrub(os.Environ(), envscrub.KeepSet(p.Keep))
+	_, dropped := scrub(os.Environ(), proc.EnvKeepSet(p.Keep))
 	for _, k := range dropped {
 		if _, set := p.Set[k]; !set {
 			names[k] = true

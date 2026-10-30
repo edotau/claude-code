@@ -8,6 +8,8 @@ import (
 	"slices"
 	"sort"
 	"strings"
+
+	"github.com/edotau/claude-code/internal/paths"
 )
 
 // Detect probes every known browser plus the system default and returns one report.
@@ -126,12 +128,12 @@ func checkHost(supportDir string) bool {
 // detectProfiles lists supportDir/Default and supportDir/Profile * and the extension state in each.
 func detectProfiles(supportDir string) []Profile {
 	var names []string
-	if dirExists(filepath.Join(supportDir, "Default")) {
+	if paths.IsDir(filepath.Join(supportDir, "Default")) {
 		names = append(names, "Default")
 	}
 	if matches, err := filepath.Glob(filepath.Join(supportDir, "Profile *")); err == nil {
 		for _, m := range matches {
-			if dirExists(m) {
+			if paths.IsDir(m) {
 				names = append(names, filepath.Base(m))
 			}
 		}
@@ -146,7 +148,7 @@ func detectProfiles(supportDir string) []Profile {
 
 // profileExtensionState: the extension dir must exist under this profile; Preferences can still mark it disabled.
 func profileExtensionState(profileDir string) string {
-	if !dirExists(filepath.Join(profileDir, "Extensions", extensionID)) {
+	if !paths.IsDir(filepath.Join(profileDir, "Extensions", extensionID)) {
 		return stateNoExtension
 	}
 	if extensionDisabled(filepath.Join(profileDir, "Preferences")) {
@@ -254,9 +256,4 @@ func guiState(env Env) string {
 		return stateDisabled
 	}
 	return stateAvailable // some other failure (e.g. osascript missing) — never claim disabled without the specific error
-}
-
-func dirExists(path string) bool {
-	info, err := os.Stat(path)
-	return err == nil && info.IsDir()
 }

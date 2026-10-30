@@ -1,7 +1,6 @@
 package memory
 
 import (
-	"os"
 	"path/filepath"
 	"strings"
 
@@ -22,16 +21,11 @@ func LiveTranscript(cwd, sessionID string) string {
 		id += ".jsonl"
 	}
 	projects := filepath.Join(paths.ConfigDir(), "projects")
-	if p := filepath.Join(projects, ProjectSlug(cwd), id); isFile(p) {
+	if p := filepath.Join(projects, ProjectSlug(cwd), id); paths.IsFile(p) {
 		return p
 	}
 	if m, _ := filepath.Glob(filepath.Join(projects, "*", id)); len(m) > 0 {
 		return m[0]
 	}
 	return ""
-}
-
-func isFile(p string) bool {
-	st, err := os.Stat(p)
-	return err == nil && !st.IsDir()
 }

@@ -9,6 +9,8 @@ import (
 	"sync"
 
 	"github.com/jeduden/mdsmith/pkg/markdown"
+
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // res lazily compiles the package regexes: every claude-code process links frontmatter via crossgen.
@@ -90,24 +92,11 @@ func parseScalar(value string) any {
 	case "false", "no":
 		return false
 	}
-	if isDigits(value) {
+	if textutil.IsDigits(value) {
 		n, _ := strconv.Atoi(value)
 		return n
 	}
 	return stripQuotes(value)
-}
-
-// isDigits mirrors Python str.isdigit(): non-empty and all ASCII digits.
-func isDigits(s string) bool {
-	if s == "" {
-		return false
-	}
-	for _, r := range s {
-		if r < '0' || r > '9' {
-			return false
-		}
-	}
-	return true
 }
 
 // stripQuotes trims leading/trailing quote characters (both kinds, repeated).

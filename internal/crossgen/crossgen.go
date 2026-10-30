@@ -9,19 +9,6 @@ import (
 	"strings"
 )
 
-// safeName accepts only a plain path component: no separators, no dot-prefix, no "." / "..".
-func safeName(name string) bool {
-	return name != "" && name != "." && name != ".." &&
-		!strings.ContainsAny(name, `/\`) &&
-		!strings.HasPrefix(name, ".")
-}
-
-// isDir reports whether p resolves to a directory (symlinks followed).
-func isDir(p string) bool {
-	fi, err := os.Stat(p)
-	return err == nil && fi.IsDir()
-}
-
 // displayPath renders a path home-relative (~/...) when possible, else absolute.
 func displayPath(path string) string {
 	home, err := os.UserHomeDir()
