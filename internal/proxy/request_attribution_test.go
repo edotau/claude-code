@@ -134,3 +134,41 @@ func TestRequestTagsOnlyOnAIGatewayRow(t *testing.T) {
 		})
 	}
 }
+
+// HARNESS_HEADERS reaches upstream; auth and attribution headers win; bad lines drop with one warning.
+func TestHarnessHeadersForwarded(t *testing.T) {
+	up := newRawUp(t, okMsg)
+	t.Setenv("AN_KEY", "an-cred")
+	t.Setenv("HARNESS_REQUEST_TAGS", "")
+	t.Setenv("HARNESS_HEADERS", "X-Team: alpha\nx-team: beta\nAuthorization: Bearer evil\nUser-Agent: evil/1\n"+
+		"Bad Name: x\nX-Inj: a\rX-Evil: b\n:novalue\nX-Ok:  spaced ")
+	srv := setup(t, `{"default":"an","providers":{"anthropic":{"an":`+anthropicProvider(up.URL, "AN_KEY", `{"opus":"m"}`)+`}}}`)
+	resp := ptDo(t, http.MethodPost, srv.URL+"/p/an/v1/messages", `{"model":"m","max_tokens":5}`, nil)
+	if resp.StatusCode != 200 {
+		t.Fatalf("status %d", resp.StatusCode)
+	}
+	h := up.got()[0].hdr
+	if got := h.Values("X-Team"); len(got) != 1 || got[0] != "beta" {
+		t.Errorf("X-Team = %q, want single beta (case-insensitive replace)", got)
+	}
+	if h.Get("X-Ok") != "spaced" {
+		t.Errorf("X-Ok = %q", h.Get("X-Ok"))
+	}
+	if headerHolds(h, "evil") || h.Get("X-Evil") != "" || h.Get("X-Inj") != "" {
+		t.Errorf("protected or injected header reached upstream: %v", h)
+	}
+	if !strings.HasPrefix(h.Get("User-Agent"), "claude-code/") {
+		t.Errorf("User-Agent overridden: %q", h.Get("User-Agent"))
+	}
+}
+
+func TestParseHeadersWarnsOnce(t *testing.T) {
+	var log strings.Builder
+	got := ParseHeaders("A: 1\nbad name: x\nAuthorization: y\nB: v\x00\n", &log)
+	if len(got) != 1 || got["A"] != "1" {
+		t.Errorf("got %v", got)
+	}
+	if strings.Count(log.String(), "\n") != 1 {
+		t.Errorf("want one warning, got %q", log.String())
+	}
+}

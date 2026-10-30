@@ -192,7 +192,8 @@ set. Otherwise it goes through the **loopback proxy** (`127.0.0.1:18765`, starte
 Provider hostnames resolving into the local network are refused (a literal IP or `localhost` is allowed). The proxy
 disables Remote Control, so a subscription session stays direct under a `fallback` ladder. Upstream requests carry
 `User-Agent: claude-code/<version> <agent>`; `HARNESS_REQUEST_TAGS` (single-line JSON, ≤ 4 KiB) goes out as
-`Databricks-Ai-Gateway-Request-Tags` on AI Gateway rows only.
+`Databricks-Ai-Gateway-Request-Tags` on AI Gateway rows only. `HARNESS_HEADERS` (one `Name: value` per line, ≤ 4 KiB)
+adds upstream headers; invalid lines are dropped, and auth, attribution and framing headers cannot be overridden.
 
 ```bash
 claude-code gateway proxy [--start|--stop|--status]   # bare = --status
