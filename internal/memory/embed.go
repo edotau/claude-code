@@ -36,6 +36,7 @@ const (
 	embedBodyLimit  = 32 << 20
 	embedCachePre   = "embeddings-"
 	embedRecallWait = 1200 * time.Millisecond // hard budget for the per-prompt embedding, credential included
+	embedBackoff    = 5 * time.Minute         // after a timed-out query, keyword-only for this long
 )
 
 var embedFormat = schemas.Register(schemas.Format{
@@ -287,6 +288,10 @@ func NewSemantic(query string) (*Semantic, error) {
 	if profile == "" {
 		return nil, errors.New("no embedding cache")
 	}
+	backoff := filepath.Join(StateDir(), embedCachePre+profile+".backoff")
+	if st, err := os.Stat(backoff); err == nil && time.Since(st.ModTime()) < embedBackoff {
+		return nil, fmt.Errorf("endpoint timed out recently; semantic paused until %s", st.ModTime().Add(embedBackoff).Format("15:04"))
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), embedRecallWait)
 	defer cancel()
 	type result struct {
@@ -323,8 +328,10 @@ func NewSemantic(query string) (*Semantic, error) {
 		if r.err != nil {
 			return nil, r.err
 		}
+		_ = os.Remove(backoff)
 		return &Semantic{query: r.vec, rows: cache.Rows}, nil
 	case <-ctx.Done():
+		_ = paths.AtomicWrite(backoff, nil, 0o600) // a slow endpoint costs one prompt the full wait, not every prompt
 		return nil, fmt.Errorf("query embedding exceeded %s", embedRecallWait)
 	}
 }
