@@ -18,6 +18,7 @@ import (
 	_ "github.com/edotau/claude-code/internal/hooks"
 	_ "github.com/edotau/claude-code/internal/launch"
 	_ "github.com/edotau/claude-code/internal/memory"
+	_ "github.com/edotau/claude-code/internal/preflight"
 	_ "github.com/edotau/claude-code/internal/providers"
 	_ "github.com/edotau/claude-code/internal/proxy"
 	_ "github.com/edotau/claude-code/internal/router"
@@ -112,6 +113,7 @@ var writers = map[string]string{
 	"internal/memory/txn.go:commit":                                unversioned("memory-bank: txn receipt in the memory repo"),
 	"internal/memory/txn.go:save":                                  "memory-journal",
 	"internal/mutate/mutate.go:Check":                              unversioned("foreign: mutation-test scratch copy"),
+	"internal/preflight/served.go:SaveServed":                      "served-models",
 	"internal/providers/opencode_check.go:SaveCheckCache":          "opencode-models-check",
 	"internal/providers/tokenexpiry.go:recordTokenExpiry":          "token-expiry",
 	"internal/proxy/daemon.go:Serve":                               "router-runtime",
