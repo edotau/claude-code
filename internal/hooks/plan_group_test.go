@@ -3,6 +3,7 @@ package hooks
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -103,7 +104,7 @@ func TestPlanGateBlocksWithSkeleton(t *testing.T) {
 		t.Fatalf("not a block: code=%d out=%q", code, out)
 	}
 	var e bytes.Buffer
-	DocsPlacement(hookJSON(t, payload), &e)
+	runDirect("docs-placement", hookJSON(t, payload), io.Discard, &e)
 	if strings.Contains(e.String(), "plan-template") {
 		t.Fatalf("docs-placement still emits plan-template: %q", e.String())
 	}

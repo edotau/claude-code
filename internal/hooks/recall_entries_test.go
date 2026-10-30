@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -211,7 +212,7 @@ func TestSessionStartCarriesNoCatalogRows(t *testing.T) {
 	}
 	raw, _ := json.Marshal(map[string]string{"cwd": t.TempDir(), "session_id": "probe-x"})
 	var out bytes.Buffer
-	if SessionStart(bytes.NewReader(raw), &out) != ExitProceed {
+	if runDirect("memory-start", bytes.NewReader(raw), &out, io.Discard) != ExitProceed {
 		t.Fatal("SessionStart failed")
 	}
 	if strings.Contains(out.String(), "repo-000") || strings.Contains(out.String(), "repo-119") {

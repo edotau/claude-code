@@ -70,10 +70,10 @@ func TestSafety(t *testing.T) {
 			t.Errorf("%q: got %d want %d (%s)", c.cmd, got, c.want, stderr)
 		}
 	}
-	if got := SafetyScan(strings.NewReader("not json"), io.Discard, &bytes.Buffer{}); got != ExitProceed {
+	if got := runDirect("safety-scan", strings.NewReader("not json"), io.Discard, &bytes.Buffer{}); got != ExitProceed {
 		t.Error("malformed input must fail open")
 	}
-	if got := SafetyScan(strings.NewReader(`{"tool_name":"Read","tool_input":{"command":"rm -rf /"}}`), io.Discard, &bytes.Buffer{}); got != ExitProceed {
+	if got := runDirect("safety-scan", strings.NewReader(`{"tool_name":"Read","tool_input":{"command":"rm -rf /"}}`), io.Discard, &bytes.Buffer{}); got != ExitProceed {
 		t.Error("non-Bash tools pass")
 	}
 }
@@ -199,7 +199,7 @@ func TestSafetyShellDashCNoArgDoesNotPanic(t *testing.T) {
 		}
 	}()
 	payload, _ := json.Marshal(map[string]any{"tool_name": "Bash", "cwd": t.TempDir(), "tool_input": map[string]string{"command": "sh -c"}})
-	if got := SafetyScan(bytes.NewReader(payload), io.Discard, &bytes.Buffer{}); got != ExitProceed {
+	if got := runDirect("safety-scan", bytes.NewReader(payload), io.Discard, &bytes.Buffer{}); got != ExitProceed {
 		t.Errorf("bare `sh -c` with no command string: got %d want %d", got, ExitProceed)
 	}
 }

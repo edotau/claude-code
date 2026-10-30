@@ -2,6 +2,7 @@ package hooks
 
 import (
 	"github.com/edotau/claude-code/internal/hosttest"
+	"io"
 
 	"bytes"
 	"encoding/json"
@@ -123,11 +124,11 @@ func TestSessionUpdateTriggerAndReupdate(t *testing.T) {
 	}
 
 	// SessionEnd: nothing new since the last dispatch → no spawn; new edits → final update.
-	if SessionUpdateEnd(strings.NewReader(updatePayload(tr, cwd))); calls.Load() != 2 {
+	if runDirect("memory-end", strings.NewReader(updatePayload(tr, cwd)), io.Discard, io.Discard); calls.Load() != 2 {
 		t.Error("session end with no new edits spawned")
 	}
 	writeEdits(t, tr, 14)
-	if SessionUpdateEnd(strings.NewReader(updatePayload(tr, cwd))); calls.Load() != 3 {
+	if runDirect("memory-end", strings.NewReader(updatePayload(tr, cwd)), io.Discard, io.Discard); calls.Load() != 3 {
 		t.Error("session end with new edits must spawn")
 	}
 
@@ -185,7 +186,7 @@ func TestSessionStartAutoInitAndNotice(t *testing.T) {
 	_ = os.MkdirAll(sub, 0o755)
 	start := func(session, cwd string) string {
 		var out bytes.Buffer
-		SessionStart(strings.NewReader(fmt.Sprintf(`{"session_id":%q,"cwd":%q}`, session, cwd)), &out)
+		runDirect("memory-start", strings.NewReader(fmt.Sprintf(`{"session_id":%q,"cwd":%q}`, session, cwd)), &out, io.Discard)
 		if out.Len() == 0 {
 			return ""
 		}
@@ -262,7 +263,7 @@ func assertPausedSuppressesUpdate(t *testing.T, cwd string) {
 	if code := sessionUpdate(ParseInput(strings.NewReader(updatePayload(tr, cwd))), &errb); code != ExitProceed || calls.Load() != 0 || errb.Len() != 0 {
 		t.Errorf("paused Stop: code=%d spawns=%d stderr=%q", code, calls.Load(), errb.String())
 	}
-	if SessionUpdateEnd(strings.NewReader(updatePayload(tr, cwd))); calls.Load() != 0 {
+	if runDirect("memory-end", strings.NewReader(updatePayload(tr, cwd)), io.Discard, io.Discard); calls.Load() != 0 {
 		t.Error("paused SessionEnd must not spawn")
 	}
 	if _, ok := readStamp(stampPath("s1")); ok {
@@ -400,7 +401,9 @@ func TestPreCompactUpdatesOnlyUncoveredEdits(t *testing.T) {
 	tr := filepath.Join(t.TempDir(), "t.jsonl")
 	cwd := t.TempDir()
 	calls := stubSpawn(t, true)
-	run := func() int { return PreCompact(strings.NewReader(updatePayload(tr, cwd))) }
+	run := func() int {
+		return runDirect("memory-compact", strings.NewReader(updatePayload(tr, cwd)), io.Discard, io.Discard)
+	}
 
 	writeEdits(t, tr, 0)
 	if run() != ExitProceed || calls.Load() != 0 {
@@ -463,21 +466,21 @@ func TestPreCompactAndSessionEndUpdateNewUserTurns(t *testing.T) {
 	payload := func() *strings.Reader { return strings.NewReader(updatePayload(tr, cwd)) }
 
 	writeEdits(t, tr, 3)
-	if PreCompact(payload()); calls.Load() != 1 {
+	if runDirect("memory-compact", payload(), io.Discard, io.Discard); calls.Load() != 1 {
 		t.Fatalf("3 edits must spawn at pre-compact, calls=%d", calls.Load())
 	}
 	appendUserTurns(t, tr, 4) // the only new work since the stamp: 4 turns = 2 work units
-	if PreCompact(payload()); calls.Load() != 2 {
+	if runDirect("memory-compact", payload(), io.Discard, io.Discard); calls.Load() != 2 {
 		t.Fatalf("new user turns since the stamp must spawn, calls=%d", calls.Load())
 	}
-	if SessionUpdateEnd(payload()); calls.Load() != 2 {
+	if runDirect("memory-end", payload(), io.Discard, io.Discard); calls.Load() != 2 {
 		t.Error("no new work since the stamp must not re-update")
 	}
 	appendUserTurns(t, tr, 2)
-	if SessionUpdateEnd(payload()); calls.Load() != 3 {
+	if runDirect("memory-end", payload(), io.Discard, io.Discard); calls.Load() != 3 {
 		t.Errorf("2 new turns (1 work unit) past the stamp must spawn, calls=%d", calls.Load())
 	}
-	if SessionUpdateEnd(payload()); calls.Load() != 3 {
+	if runDirect("memory-end", payload(), io.Discard, io.Discard); calls.Load() != 3 {
 		t.Error("session end with nothing new re-updated")
 	}
 }

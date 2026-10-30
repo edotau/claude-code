@@ -3,6 +3,7 @@ package hooks
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -94,7 +95,7 @@ func TestSavePlanResponseFallbacksAndAudit(t *testing.T) {
 				t.Fatal(err)
 			}
 			for range 2 {
-				if code := SavePlan(bytes.NewReader(raw), &bytes.Buffer{}); code != ExitProceed {
+				if code := runDirect("docs-plan-save", bytes.NewReader(raw), io.Discard, &bytes.Buffer{}); code != ExitProceed {
 					t.Fatalf("SavePlan = %d", code)
 				}
 			}
@@ -132,7 +133,7 @@ func TestSavePlanWriteFailureDoesNotAudit(t *testing.T) {
 		t.Fatal(err)
 	}
 	var stderr bytes.Buffer
-	if code := SavePlan(strings.NewReader(planPayload(t, cfg, "# Probe\n", "")), &stderr); code != ExitProceed {
+	if code := runDirect("docs-plan-save", strings.NewReader(planPayload(t, cfg, "# Probe\n", "")), io.Discard, &stderr); code != ExitProceed {
 		t.Fatalf("write failure must fail open, got %d", code)
 	}
 	if !strings.Contains(stderr.String(), "save-plan:") {
@@ -152,7 +153,7 @@ func TestSavePlanFilesTaggedOnceAndVersionsEdits(t *testing.T) {
 		t.Fatal(err)
 	}
 	save := func(plan string) {
-		if code := SavePlan(strings.NewReader(planPayload(t, repo, plan, "")), &bytes.Buffer{}); code != ExitProceed {
+		if code := runDirect("docs-plan-save", strings.NewReader(planPayload(t, repo, plan, "")), io.Discard, &bytes.Buffer{}); code != ExitProceed {
 			t.Fatalf("SavePlan must never block, got %d", code)
 		}
 	}
@@ -275,8 +276,8 @@ func TestSavePlanReadsPlanFilePathAndSkipsEmpty(t *testing.T) {
 	if err := os.WriteFile(src, []byte("no heading here\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	SavePlan(strings.NewReader(planPayload(t, cfg, "", src)), &bytes.Buffer{})
-	SavePlan(strings.NewReader(planPayload(t, cfg, "  \n", "")), &bytes.Buffer{})
+	runDirect("docs-plan-save", strings.NewReader(planPayload(t, cfg, "", src)), io.Discard, &bytes.Buffer{})
+	runDirect("docs-plan-save", strings.NewReader(planPayload(t, cfg, "  \n", "")), io.Discard, &bytes.Buffer{})
 	want := time.Now().Format("2006-01-02") + "-plan.md" // config dir: untagged; no heading: "plan"
 	if got := savedPlans(t, cfg); len(got) != 1 || got[0] != want {
 		t.Errorf("saved = %v, want [%s]", got, want)

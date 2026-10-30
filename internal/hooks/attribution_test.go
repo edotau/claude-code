@@ -107,7 +107,7 @@ func TestSafetyScanAttributionFooterCopilotShape(t *testing.T) {
 	cmd := `git commit -m "feat: x" -m "Co-Authored-By: Claude <noreply@anthropic.com>"`
 	payload := copilotBashPayload(cmd)
 	var out, errb bytes.Buffer
-	if got := SafetyScan(payload, &out, &errb); got != ExitBlock {
+	if got := runDirect("safety-scan", payload, &out, &errb); got != ExitBlock {
 		t.Fatalf("%q: got %d want ExitBlock (out=%s err=%s)", cmd, got, out.String(), errb.String())
 	}
 	var doc struct {
