@@ -93,6 +93,7 @@ var writers = map[string]string{
 	"internal/memory/digest.go:Digest":                             unversioned("memory-bank: bank digest markdown"),
 	"internal/memory/doctor.go:WriteDoctorNotice":                  unversioned("text: doctor notice line"),
 	"internal/memory/dream.go:Dream":                               unversioned("text: dream timestamp stamp"),
+	"internal/memory/embed.go:NewSemantic":                         unversioned("marker: semantic-recall backoff stamp"),
 	"internal/memory/embed.go:saveEmbedCache":                      "memory-embeddings",
 	"internal/memory/git.go:writeIfAbsent":                         unversioned("memory-bank: memory repo seed files"),
 	"internal/memory/harvest.go:WriteHarvestResult":                unversioned("text: harvest result text"),
