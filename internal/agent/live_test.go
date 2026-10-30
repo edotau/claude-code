@@ -327,3 +327,49 @@ func TestLiveClaudeCostIsPerTurn(t *testing.T) {
 	}
 }
 
+// fakeErrAgy fails the turn "fail" with an ERROR result and answers everything else.
+const fakeErrAgy = `#!/bin/sh
+printf '{"event":"init","conversation_id":"c1"}\n'
+while IFS= read -r line; do
+  case "$line" in
+    *fail*) printf '{"event":"result","result":{"conversation_id":"c1","status":"ERROR","error":"upstream failed"}}\n' ;;
+    *) printf '{"event":"result","result":{"conversation_id":"c1","status":"SUCCESS","response":"%s","usage":{"input_tokens":50,"output_tokens":5}}}\n' "$(printf '%s' "$line" | tr -d '\\"' | head -c 3000 | sed 's/.*content://')" ;;
+  esac
+done
+`
+
+func startAgy(t *testing.T, script string, req Request) (string, func(), func() error) {
+	t.Helper()
+	liveEnv(t)
+	if err := os.WriteFile(filepath.Join(paths.BinDir(), "gemini"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	rec := ClaimRecord("gemini", req, time.Now())
+	rec.Live, rec.PID = true, os.Getpid()
+	if err := rec.Save(); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- ServeLive(ctx, &rec, nil) }()
+	for i := 0; i < 200; i++ {
+		if _, err := os.Stat(LiveSocket(rec.ID)); err == nil {
+			break
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+	return rec.ID, cancel, func() error { return <-done }
+}
+
+// An agy ERROR result fails that turn only: the session stays usable for the next one.
+func TestLiveAgyErrorResultKeepsSession(t *testing.T) {
+	id, cancel, wait := startAgy(t, fakeErrAgy, Request{Timeout: time.Minute})
+	defer func() { cancel(); _ = wait() }()
+	env, err := SendLive(context.Background(), id, "fail now", Discard)
+	if err == nil && env.Status != StatusError {
+		t.Fatalf("failing turn = %+v, %v; want an error status", env, err)
+	}
+	if env2, err := SendLive(context.Background(), id, "again", Discard); err != nil || env2.Status != StatusOK {
+		t.Fatalf("turn after an ERROR result = %+v, %v; the session must survive", env2, err)
+	}
+}
