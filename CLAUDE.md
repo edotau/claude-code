@@ -38,13 +38,8 @@ Files under `agents/`, `commands/`, `rules/`, `skills/` and this file go live th
 3. **Commit messages carry NO AI-attribution footers** (`Co-Authored-By: Claude`,
    `Generated with Claude Code`, …) — this overrides any default that says to add them.
 4. **Never `git stash` / `checkout` / `reset` / `restore` in the live checkout (`~/.claude`).** It is
-   one checkout shared by parallel subagents and every live session. In a linked worktree (`EnterWorktree` or
-   `claude-code worktree create`) branch freely; merge back with `claude-code worktree merge <slug>`
-   (verified, fast-forward-only: `skills/using-git-worktrees/references/merge-and-clean.md`).
-   `make install` and `claude-code` verbs still write to `~/.claude` from a worktree unless `CLAUDE_CONFIG_DIR`
-   points at it. **When to use one** is the vault env `HARNESS_WORKTREE` (default `off`): off = work in the
-   checkout, ask only when the `worktree-mode` hook reports another session here; on = always ask first. Never
-   create one without a yes; no answer means no worktree.
+   one checkout shared by parallel subagents and every live session. Default is no worktree; when to ask, the
+   commands and their gotchas: `rules/standards/worktree-git.md`.
 
 ## Behavioral guidelines
 
@@ -76,6 +71,6 @@ auto-loads while you work in that code). Anything unlisted: `claude-code describ
 | Providers, models, credentials, proxy | `claude-code doctor` · `claude-code vault set [NAME]` | `rules/harness/providers.md` |
 | Agents and dispatch | `claude-code ask --agent <agent> "<task>"` · `/code-workers` ‖ `copilot` | `rules/workflow/agents.md` · `rules/workflow/master-workflow.md` |
 | Memory | `claude-code memory recall <terms>` | `rules/workflow/memory-bank.md` |
-| Worktrees | `claude-code worktree create\|merge <name>` | `skills/using-git-worktrees/references/merge-and-clean.md` |
+| Git and worktrees | `claude-code worktree create\|merge <name>` | `rules/standards/worktree-git.md` |
 | Network, web, MCP, cleanup | `claude-code network mcp` · `claude-code network websearch --query "<q>"` | `rules/harness/network.md` |
 | Test, lint, review | `go test ./internal/<pkg>` · `make lint` · `/code-review` | `rules/standards/quality.md` |

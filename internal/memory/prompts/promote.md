@@ -72,7 +72,7 @@ a writable tier (never `CLAUDE.md`, `rules/workflow/`).
 | Architecture insight | `~/.claude/memory/<repo>/decisionLog.md` | Dated entry, newest first |
 | Hook/tooling issue | `rules/harness/hooks.md` | Hook-specific section |
 | Testing pattern | `rules/software/<lang>/testing.md` or `rules/standards/quality.md` | Test conventions |
-| Git/commit pattern | `rules/standards/git.md` | Conventional commits, branch/PR workflow |
+| Git/commit/worktree pattern | `rules/standards/worktree-git.md` | Conventional commits, branch/PR workflow |
 | Docs/communication pattern | `rules/standards/documentation.md` or `rules/standards/communication.md` | Markdown/living-docs, or response style |
 | Model-selection insight | `rules/harness/providers.md` | Model selection |
 | Session-learned fact | `~/.claude/memory/<repo>/` (topic file + `MEMORY.md` TOC entry; dir from `claude-code memory path`) | Appropriate topic |
