@@ -2,7 +2,7 @@
 paths:
   - "internal/agent/**"
   - "internal/copilotsdk/**"
-  - "internal/codexsettings/**"
+  - "internal/settings/codexsettings/**"
   - "internal/launch/**"
 ---
 # Agent CLIs — codex, copilot, opencode, gemini

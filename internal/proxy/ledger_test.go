@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/usageledger"
+	"github.com/edotau/claude-code/internal/usage/usageledger"
 )
 
 func TestMeteredExcludesOnlyCLIPassthrough(t *testing.T) {

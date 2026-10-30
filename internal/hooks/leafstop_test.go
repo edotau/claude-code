@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/edotau/claude-code/internal/inflight"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/proc/inflight"
 )
 
 const leafJob = "20261030T101500.123-codex-abcd"

@@ -21,12 +21,12 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent/copilotreg"
-	"github.com/edotau/claude-code/internal/codexsettings"
 	"github.com/edotau/claude-code/internal/hooks/hookspec"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/proxy"
+	"github.com/edotau/claude-code/internal/settings/codexsettings"
 )
 
 // Spec is an agent's row (providers.AgentSpec): CLI binary, wires, router paths and pin keys.

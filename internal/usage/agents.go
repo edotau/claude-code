@@ -18,9 +18,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/edotau/claude-code/internal/codexsettings"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/settings/codexsettings"
 	"github.com/edotau/claude-code/internal/transcript"
 )
 

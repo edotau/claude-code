@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/edotau/claude-code/internal/inflight"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/proc/inflight"
 )
 
 // runningTTL caps the marker + dispatch sweep at one per 3s across renders.

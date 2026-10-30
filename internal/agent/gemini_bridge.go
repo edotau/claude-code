@@ -10,9 +10,9 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent/vendors"
-	"github.com/edotau/claude-code/internal/inflight"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/proc/inflight"
 	"github.com/edotau/claude-code/internal/providers"
 )
 

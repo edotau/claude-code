@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/edotau/claude-code/internal/inflight"
+	"github.com/edotau/claude-code/internal/proc/inflight"
 )
 
 // countAccountMarkers counts live marker files in dir whose content is account.

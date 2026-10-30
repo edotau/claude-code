@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/ui/theme"
-	"github.com/edotau/claude-code/internal/usageledger"
+	"github.com/edotau/claude-code/internal/usage/usageledger"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 	"net/http"

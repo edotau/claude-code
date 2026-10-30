@@ -16,9 +16,9 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/edotau/claude-code/internal/codexsettings"
 	"github.com/edotau/claude-code/internal/hooks/hookspec"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/settings/codexsettings"
 )
 
 // renderHooksFile writes body to path, merging it over whatever is already there when merge is

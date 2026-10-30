@@ -11,7 +11,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/keyring"
+	"github.com/edotau/claude-code/internal/vault/keyring"
 )
 
 type specKeyring struct {

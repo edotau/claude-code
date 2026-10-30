@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/translate"
-	"github.com/edotau/claude-code/internal/usageledger"
+	"github.com/edotau/claude-code/internal/usage/usageledger"
 )
 
 const geminiChat = `{"model":"databricks-gemini-3-8-flash","stream":true,"stream_options":{"include_usage":true},"messages":[` +

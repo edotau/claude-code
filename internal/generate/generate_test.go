@@ -10,8 +10,8 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/agent/vendors"
-	"github.com/edotau/claude-code/internal/codexsettings"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/settings/codexsettings"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )

@@ -8,10 +8,10 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/edotau/claude-code/internal/keyring"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault"
+	"github.com/edotau/claude-code/internal/vault/keyring"
 )
 
 // Check is one vault-health row; a failed Gate row fails doctor --secrets, the rest only advise.

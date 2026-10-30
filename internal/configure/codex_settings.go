@@ -3,8 +3,8 @@ package configure
 import (
 	"maps"
 
-	"github.com/edotau/claude-code/internal/codexsettings"
 	"github.com/edotau/claude-code/internal/generate"
+	"github.com/edotau/claude-code/internal/settings/codexsettings"
 )
 
 func codexPreferenceValue(key string, overlay, live map[string]string) (value, source string) {

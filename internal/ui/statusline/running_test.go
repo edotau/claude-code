@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/edotau/claude-code/internal/inflight"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/proc/inflight"
 )
 
 func writeRunningDispatch(t *testing.T, id string, pid, owner int) {

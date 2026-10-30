@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/inflight"
+	"github.com/edotau/claude-code/internal/proc/inflight"
 )
 
 // spawnPayload is an Agent PreToolUse payload with an explicit tool_use_id and pinned model.

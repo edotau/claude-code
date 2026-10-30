@@ -16,7 +16,6 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/agent/vendors"
-	"github.com/edotau/claude-code/internal/codexsettings"
 	"github.com/edotau/claude-code/internal/databricks"
 	"github.com/edotau/claude-code/internal/envscrub"
 	"github.com/edotau/claude-code/internal/models"
@@ -26,6 +25,7 @@ import (
 	"github.com/edotau/claude-code/internal/proxy"
 	"github.com/edotau/claude-code/internal/secrets"
 	"github.com/edotau/claude-code/internal/secrets/shapes"
+	"github.com/edotau/claude-code/internal/settings/codexsettings"
 	"github.com/edotau/claude-code/internal/tools"
 	"github.com/edotau/claude-code/internal/ui/ansi"
 )

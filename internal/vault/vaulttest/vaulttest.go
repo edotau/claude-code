@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/edotau/claude-code/internal/keyring"
 	"github.com/edotau/claude-code/internal/vault"
+	"github.com/edotau/claude-code/internal/vault/keyring"
 )
 
 func Use(t testing.TB) string {

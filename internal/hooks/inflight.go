@@ -1,13 +1,13 @@
 // The release side of the dispatch cap: PostToolUseFailure, PostToolUse(Workflow) and SubagentStop retire the
-// markers `agent-effort` claimed in internal/inflight; back-pressure, not a mutex.
+// markers `agent-effort` claimed in internal/proc/inflight; back-pressure, not a mutex.
 package hooks
 
 import (
 	"os"
 	"path/filepath"
 
-	"github.com/edotau/claude-code/internal/inflight"
 	"github.com/edotau/claude-code/internal/proc"
+	"github.com/edotau/claude-code/internal/proc/inflight"
 )
 
 // spawnTools are Claude Code's subagent-spawn tool names (Agent; Task on older builds).

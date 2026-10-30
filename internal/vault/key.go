@@ -15,8 +15,8 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/audit"
-	"github.com/edotau/claude-code/internal/keyring"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/vault/keyring"
 )
 
 var keyringLookup = keyring.Lookup
