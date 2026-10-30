@@ -1,9 +1,7 @@
 package hooks
 
 import (
-	"encoding/json"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -90,44 +88,28 @@ func lazyCompile(pats ...string) func() []*regexp.Regexp {
 	})
 }
 
-// SafetyScan checks command safety.
-func SafetyScan(r io.Reader, stdout, stderr io.Writer) int {
-	return safetyInput(ParseInput(r), stdout, stderr)
-}
-
-func safetyInput(in *Input, stdout, stderr io.Writer) (code int) {
-	if in.Vendor() == VendorCopilot {
-		var reason strings.Builder
-		stderr = io.MultiWriter(stderr, &reason)
-		defer func() {
-			if code == ExitBlock {
-				_ = json.NewEncoder(stdout).Encode(map[string]string{
-					"permissionDecision": "deny", "permissionDecisionReason": strings.TrimSpace(reason.String()),
-				})
-			}
-		}()
-	}
+// safetyScan checks command safety: block and non-Claude ask reject, a Claude ask prompts, soft warnings ride stderr.
+func safetyScan(in *Input) Result {
 	decision, msg, detail := safetyVerdict(in)
+	var warn strings.Builder
 	if decision != Block && (in.ToolName == "" || strings.EqualFold(in.ToolName, "Bash")) {
 		for _, re := range softWarn() {
 			if re.MatchString(in.ToolCommand()) {
-				fmt.Fprintf(stderr, "safety: WARNING — %s (not blocked; review carefully)\n", re)
+				fmt.Fprintf(&warn, "safety: WARNING — %s (not blocked; review carefully)\n", re)
 			}
 		}
 	}
 	if decision == Allow {
-		return ExitProceed
+		return Result{Stderr: strings.TrimSpace(warn.String())}
 	}
 	if decision == Ask {
 		detail = "ask: " + detail
 	}
 	audit.Log(audit.HookBlocked, "safety", detail)
 	if decision == Ask && in.Vendor() == VendorClaude {
-		fmt.Fprintln(stdout, OutputClaude("PreToolUse", Result{Decision: Ask, Reason: strings.TrimSpace(msg)}))
-		return ExitProceed
+		return Result{Decision: Ask, Reason: strings.TrimSpace(msg), Stderr: strings.TrimSpace(warn.String())}
 	}
-	fmt.Fprint(stderr, msg)
-	return ExitBlock
+	return Result{Decision: Block, Reason: strings.TrimSpace(warn.String() + msg)}
 }
 
 // safetyVerdict checks all block patterns before considering any ask pattern.

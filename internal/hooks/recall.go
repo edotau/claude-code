@@ -2,13 +2,11 @@ package hooks
 
 import (
 	"fmt"
-	"io"
 	"os"
 	"sort"
 	"strings"
 	"time"
 
-	"github.com/edotau/claude-code/internal/hooks/hookspec"
 	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/textutil"
@@ -37,20 +35,19 @@ const (
 	recallAccessCap     = 5
 )
 
-// MemoryRecall (UserPromptSubmit) injects the best memory-bank entries for the prompt: two whole, the rest as
+// memoryRecall (UserPromptSubmit) injects the best memory-bank entries for the prompt: two whole, the rest as
 // pointers; silent on a slash command, a short prompt, or no match.
-func MemoryRecall(r io.Reader, stdout io.Writer) int {
-	in := ParseInput(r)
+func memoryRecall(in *Input) Result {
 	q := strings.TrimSpace(in.Prompt)
 	if q == "" || strings.HasPrefix(q, "/") || memory.IsUpdateChild() {
-		return ExitProceed
+		return Result{}
 	}
 	if rs := []rune(q); len(rs) > recallQueryCapRunes {
 		q = string(rs[:recallQueryCapRunes])
 	}
 	tokens := textutil.Tokenize(q)
 	if distinctTokenCount(tokens) < recallMinTerms {
-		return ExitProceed
+		return Result{}
 	}
 	root := in.CWD
 	if root == "" {
@@ -75,13 +72,13 @@ func MemoryRecall(r io.Reader, stdout io.Writer) int {
 		ranked = withSemanticCandidates(ranked, extra)
 	}
 	if len(ranked) == 0 {
-		return ExitProceed
+		return Result{}
 	}
 	now := time.Now()
 	counts := memory.ReturnCounts([]string{memory.Dir(root), memory.HomeBankDir()}, now)
 	picks := selectRecall(in.SessionID, terms, ranked, sem, semSeen, counts)
 	if len(picks) == 0 {
-		return ExitProceed
+		return Result{}
 	}
 	var b strings.Builder
 	b.WriteString("<!-- memory-recall: matching bank entries; expand a pointer: claude-code memory search <id> -->")
@@ -98,10 +95,7 @@ func MemoryRecall(r io.Reader, stdout io.Writer) int {
 	}
 	memory.LogHits(root, allHits, memory.AccessRecall, now)
 	memory.MarkSeen(in.SessionID, bodies) // a pointer is not in context yet, so it may still earn a body later
-	if out := MergeContext(hookspec.EventUserPromptSubmit, []string{memory.CapChars(b.String(), recallTotalCapChars)}, in.Vendor()); out != "" {
-		fmt.Fprintln(stdout, out)
-	}
-	return ExitProceed
+	return Result{Context: memory.CapChars(b.String(), recallTotalCapChars)}
 }
 
 // withSemanticCandidates appends cosine-only candidates (zero keyword overlap) the keyword search did not return.

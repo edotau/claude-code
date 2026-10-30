@@ -82,7 +82,7 @@ func TestDispatchSecondUpdatedInputAndRawStdout(t *testing.T) {
 func TestContractModuleFlagsResolve(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	for _, s := range hookspec.Specs() {
-		if _, ok := Registry[s.Name]; !ok {
+		if _, ok := Native[s.Name]; !ok {
 			t.Errorf("no handler for %s", s.Name)
 			continue
 		}

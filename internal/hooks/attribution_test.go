@@ -90,13 +90,12 @@ func TestSafetyScanBlocksAttributionFooterCommit(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			var out, errb bytes.Buffer
-			code := SafetyScan(bashPayload(c.cmd), &out, &errb)
-			if got := resultFromLegacy(code, out.String(), errb.String()).Decision; got != c.want {
-				t.Errorf("%q: got %d want %d (stderr=%s)", c.cmd, got, c.want, errb.String())
+			res := safetyScan(ParseInput(bashPayload(c.cmd)))
+			if res.Decision != c.want {
+				t.Errorf("%q: got %d want %d (reason=%s)", c.cmd, res.Decision, c.want, res.Reason)
 			}
-			if c.want == Ask && !strings.Contains(strings.ToLower(out.String()), "attribution") {
-				t.Errorf("%q: ask reason missing 'attribution': %s", c.cmd, out.String())
+			if c.want == Ask && !strings.Contains(strings.ToLower(res.Reason), "attribution") {
+				t.Errorf("%q: ask reason missing 'attribution': %s", c.cmd, res.Reason)
 			}
 		})
 	}

@@ -2,7 +2,6 @@ package hooks
 
 import (
 	"bytes"
-	"encoding/json"
 	"fmt"
 	"io"
 	"regexp"
@@ -33,7 +32,7 @@ type Result struct {
 	UpdatedInput  map[string]any
 	Stdout        string // raw stdout: only the worktree group may set it
 	Stderr        string
-	ExitCode      int // legacy non-zero exit other than 2; honored only from the worktree group
+	ExitCode      int // non-zero exit other than 2; honored only from the worktree group
 }
 
 // Runner is one handler bound to an event.
@@ -47,94 +46,42 @@ type Bound struct {
 	Run   Runner
 }
 
-// Bind pairs every hookspec handler with its Runner: a Native runner when declared, else a legacy adapter
-// capturing its stdout/stderr/exit into a Result.
+// Bind pairs every hookspec handler with its Native Runner.
 func Bind() []Bound {
 	var out []Bound
 	for _, g := range hookspec.Registry {
 		for _, s := range g.Events {
 			s.Group = g.Name
-			run := adapt(Registry[s.Name])
-			if native, ok := Native[s.Name]; ok {
-				run = native
-			}
-			out = append(out, Bound{Group: g.Name, Gate: g.Gate, Spec: s, Run: run})
+			out = append(out, Bound{Group: g.Name, Gate: g.Gate, Spec: s, Run: Native[s.Name]})
 		}
 	}
 	return out
 }
 
-func adapt(h Handler) Runner {
-	return func(in *Input) Result {
-		var stdout, stderr bytes.Buffer
-		code := h(bytes.NewReader(in.Raw), &stdout, &stderr)
-		return resultFromLegacy(code, stdout.String(), stderr.String())
-	}
-}
-
-var knownTop = []string{"hookSpecificOutput", "systemMessage", "additionalContext", "permissionDecision", "permissionDecisionReason"}
-var knownInner = []string{"hookEventName", "additionalContext", "updatedInput", "permissionDecision", "permissionDecisionReason"}
-
-// resultFromLegacy turns a legacy handler's exit/stdout/stderr into a Result; output it cannot map stays raw.
-func resultFromLegacy(code int, stdout, stderr string) Result {
-	r := Result{}
+// exitResult maps a helper's exit code and stderr text to a Result: 2 blocks with the text, other codes pass through.
+func exitResult(code int, stderr string) Result {
 	stderr = strings.TrimSpace(stderr)
-	switch {
-	case code == ExitBlock:
-		r.Decision, r.Reason = Block, stderr
-		return r
-	case code != ExitProceed:
-		r.Stderr, r.ExitCode = fmt.Sprintf("%s\n(hook exit %d)", stderr, code), code
-		return r
+	switch code {
+	case ExitProceed:
+		return Result{Stderr: stderr}
+	case ExitBlock:
+		return Result{Decision: Block, Reason: stderr}
 	}
-	r.Stderr = stderr
-	stdout = strings.TrimSpace(stdout)
-	if stdout == "" {
-		return r
-	}
-	var top map[string]json.RawMessage
-	if json.Unmarshal([]byte(stdout), &top) != nil || !onlyKeys(top, knownTop) {
-		r.Stdout = stdout
-		return r
-	}
-	var inner map[string]json.RawMessage
-	if raw, ok := top["hookSpecificOutput"]; ok && (json.Unmarshal(raw, &inner) != nil || !onlyKeys(inner, knownInner)) {
-		r.Stdout = stdout
-		return r
-	}
-	str := func(m map[string]json.RawMessage, k string) string {
-		var s string
-		_ = json.Unmarshal(m[k], &s)
-		return s
-	}
-	r.SystemMessage = str(top, "systemMessage")
-	for _, m := range []map[string]json.RawMessage{top, inner} {
-		if v := str(m, "additionalContext"); v != "" {
-			r.Context = v
-		}
-		if v := str(m, "permissionDecisionReason"); v != "" {
-			r.Reason = v
-		}
-		switch str(m, "permissionDecision") {
-		case "deny":
-			r.Decision = Block
-		case "ask":
-			r.Decision = Ask
-		}
-	}
-	if raw, ok := inner["updatedInput"]; ok {
-		_ = json.Unmarshal(raw, &r.UpdatedInput)
-	}
-	return r
+	return Result{Stderr: stderr, ExitCode: code}
 }
 
-func onlyKeys(m map[string]json.RawMessage, allowed []string) bool {
-	for k := range m {
-		if !slices.Contains(allowed, k) {
-			return false
-		}
+// viaStderr makes a Runner of a helper that reports its notes on a stderr writer and returns an exit code.
+func viaStderr(f func(*Input, io.Writer) int) Runner {
+	return func(in *Input) Result {
+		var b bytes.Buffer
+		code := f(in, &b)
+		return exitResult(code, b.String())
 	}
-	return true
+}
+
+// joinContext joins the non-empty context blocks into one additionalContext text.
+func joinContext(blocks ...string) string {
+	return strings.Join(slices.DeleteFunc(slices.Clone(blocks), func(b string) bool { return b == "" }), "\n\n")
 }
 
 // matches applies a handler matcher to a tool name; empty matches everything, anchored and case-insensitive.
@@ -201,6 +148,9 @@ func Dispatch(bound []Bound, event string, in *Input, log io.Writer) (Result, er
 			merged.Decision, merged.Reason = r.Decision, r.Reason
 		} else if r.Decision == merged.Decision && merged.Reason == "" {
 			merged.Reason = r.Reason
+		}
+		if r.ExitCode != 0 {
+			r.Stderr = fmt.Sprintf("%s\n(hook exit %d)", r.Stderr, r.ExitCode)
 		}
 		ctx, sys, errs = appendNonEmpty(ctx, r.Context), appendNonEmpty(sys, r.SystemMessage), appendNonEmpty(errs, r.Stderr)
 		if r.UpdatedInput != nil {

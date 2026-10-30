@@ -1,6 +1,7 @@
 package hooks
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"os/exec"
@@ -11,10 +12,10 @@ import (
 	"github.com/edotau/claude-code/internal/worktree"
 )
 
-// WorktreeCreate replaces Claude Code's `.claude/worktrees/<name>` with <root>/<repo>/<name>; stdout is the path.
+// worktreeCreate replaces Claude Code's `.claude/worktrees/<name>` with <root>/<repo>/<name>; stdout is the path.
 // Unlike other hooks it fails CLOSED: a non-zero exit is the only way to report a worktree that was not made.
-func WorktreeCreate(r io.Reader, stdout, stderr io.Writer) int {
-	in := ParseInput(r)
+func worktreeCreate(in *Input) Result {
+	var stderr bytes.Buffer
 	// The live payload carries only `name`; the documented worktree_path/branch are honored if they ever appear.
 	name := in.nested("name")
 	if name == "" {
@@ -22,23 +23,23 @@ func WorktreeCreate(r io.Reader, stdout, stderr io.Writer) int {
 	}
 	repo, err := worktree.ResolveRepo(in.CWD)
 	if err != nil {
-		fmt.Fprintf(stderr, "worktree-create: %v\n", err)
-		return 1
+		fmt.Fprintf(&stderr, "worktree-create: %v\n", err)
+		return exitResult(1, stderr.String())
 	}
 	dest, err := worktree.Create(repo, name, worktree.CreateOptions{
-		Branch: in.nested("branch"), Session: in.SessionID, Log: stderr,
+		Branch: in.nested("branch"), Session: in.SessionID, Log: &stderr,
 	})
 	if err != nil {
-		fmt.Fprintf(stderr, "worktree-create: %v\n", err)
-		return 1
+		fmt.Fprintf(&stderr, "worktree-create: %v\n", err)
+		return exitResult(1, stderr.String())
 	}
-	fmt.Fprintln(stdout, dest)
-	return ExitProceed
+	res := exitResult(ExitProceed, stderr.String())
+	res.Stdout = strings.TrimSpace(dest)
+	return res
 }
 
-// WorktreeRemove removes a hook-created worktree; no --force, so a dirty tree stays and the removal reports failure.
-func WorktreeRemove(r io.Reader, stderr io.Writer) int {
-	in := ParseInput(r)
+// worktreeRemove removes a hook-created worktree; no --force, so a dirty tree stays and the removal reports failure.
+func worktreeRemove(in *Input, stderr io.Writer) int {
 	path := in.nested("worktree_path")
 	if path == "" {
 		fmt.Fprintln(stderr, "worktree-remove: payload has no worktree_path")

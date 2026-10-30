@@ -87,7 +87,7 @@ func TestVendorHookFilesCallOnlyResolvableHooks(t *testing.T) {
 			t.Fatalf("%s: no hook commands rendered", name)
 		}
 		for _, m := range ms {
-			if _, ok := Registry[m[2]]; !ok || !IsEvent(m[1]) || eventOf(m[2]) != m[1] {
+			if _, ok := Native[m[2]]; !ok || !IsEvent(m[1]) || eventOf(m[2]) != m[1] {
 				t.Errorf("%s hook file calls %q, which no module on that event serves", name, m[0])
 			}
 		}

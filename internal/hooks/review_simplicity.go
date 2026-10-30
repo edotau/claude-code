@@ -3,7 +3,6 @@ package hooks
 import (
 	"context"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -20,16 +19,15 @@ const (
 		"skills/simplify/references/simplification-patterns.md"
 )
 
-// ReviewSimplicity is the PostToolUse(Write|Edit) advisory: findings the edit introduced, never blocking.
-func ReviewSimplicity(r io.Reader, stdout, _ io.Writer) int {
-	in := ParseInput(r)
+// reviewSimplicity is the PostToolUse(Write|Edit) advisory: findings the edit introduced, never blocking.
+func reviewSimplicity(in *Input) Result {
 	path, before, after, ok := editContents(in)
 	if !ok {
-		return ExitProceed
+		return Result{}
 	}
 	found := source.SimplicityFindings(path, before, after)
 	if len(found) == 0 {
-		return ExitProceed
+		return Result{}
 	}
 	rel := path
 	if in.CWD != "" {
@@ -37,8 +35,7 @@ func ReviewSimplicity(r io.Reader, stdout, _ io.Writer) int {
 			rel = p
 		}
 	}
-	fmt.Fprint(stdout, MergeContext("PostToolUse", []string{simplicityText(rel, found)}, in.Vendor()))
-	return ExitProceed
+	return Result{Context: simplicityText(rel, found)}
 }
 
 // editContents is the edited file's path and its content before and after this Write or Edit.

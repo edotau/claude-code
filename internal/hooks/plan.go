@@ -3,7 +3,6 @@ package hooks
 import (
 	"bytes"
 	"cmp"
-	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -22,12 +21,11 @@ import (
 	"github.com/edotau/claude-code/internal/plans"
 )
 
-// SavePlan files an approved ExitPlanMode plan as <config>/plans/[<repo>/]<date>-<title>.md (plans/ is gitignored wholesale).
+// savePlan files an approved ExitPlanMode plan as <config>/plans/[<repo>/]<date>-<title>.md (plans/ is gitignored wholesale).
 // PostToolUse only fires on approval; prefer approved input text, then the response, then their scratch files.
 // When the approved plan traces back to an undated draft the plan-mirror hook already filed, its recorded
 // destination is reused (the date stays the draft's creation date) instead of minting a new one for today.
-func SavePlan(r io.Reader, stderr io.Writer) int {
-	in := ParseInput(r)
+func savePlan(in *Input, stderr io.Writer) int {
 	plan := []byte(in.nested("tool_input", "plan"))
 	if len(plan) == 0 {
 		plan = []byte(in.nested("tool_response", "plan"))
@@ -263,7 +261,6 @@ func hasPlanHeading(headings []planHeading, want templateHeading) bool {
 }
 
 // PlanGate is the PreToolUse(Write|Edit) plan-gate hook: the first write to a native plan draft must carry the template.
-func PlanGate(r io.Reader, stderr io.Writer) int { return checkPlanTemplate(ParseInput(r), stderr) }
 
 // checkPlanTemplate denies the FIRST write to an undated draft under <config>/plans/ that lacks the plan
 // template's required headings (deny-one-call); the message pastes the skeleton so the retry is right.
@@ -344,12 +341,11 @@ func recordDest(draftBase, dest string) error {
 	return os.WriteFile(destRecordPath(draftBase), []byte(dest), 0o600)
 }
 
-// PlanMirror is a PostToolUse(Write|Edit) hook: every write to an undated draft under <config>/plans/ is
+// planMirror is a PostToolUse(Write|Edit) hook: every write to an undated draft under <config>/plans/ is
 // copied to its dated, repo-tagged file (SavePlan's own slug/title/dest logic), so the draft is never the
 // file of record. The first mirror picks the destination (and never clobbers an unrelated existing dated
 // file, via planDest's collision check); it is then recorded so a later H1 change keeps the same file.
-func PlanMirror(r io.Reader, stderr io.Writer) int {
-	in := ParseInput(r)
+func planMirror(in *Input, stderr io.Writer) int {
 	tool := strings.ToLower(in.ToolName)
 	if tool != "" && tool != "write" && tool != "edit" && tool != "create" {
 		return ExitProceed
@@ -392,59 +388,59 @@ func partialFile(session string) string {
 	return filepath.Join(plansScratchDir(), paths.Slug(session, "", 80, "session")+".partial")
 }
 
-// PlanSkeleton injects the Plan.md skeleton on EnterPlanMode and, once per plan, on a plan-mode prompt.
-func PlanSkeleton(r io.Reader, stdout, stderr io.Writer) int {
-	in := ParseInput(r)
+// planSkeleton injects the Plan.md skeleton on EnterPlanMode and, once per plan, on a plan-mode prompt.
+func planSkeleton(in *Input) Result {
+	var stderr bytes.Buffer
 	event := in.HookEventName
 	marker := skeletonMarker(in.SessionID)
 	if event == "UserPromptSubmit" {
 		if in.nested("permission_mode") != "plan" {
 			if err := os.Remove(marker); err != nil && !os.IsNotExist(err) {
-				fmt.Fprintf(stderr, "plan-skeleton: %v\n", err)
+				fmt.Fprintf(&stderr, "plan-skeleton: %v\n", err)
 			}
-			return ExitProceed
+			return exitResult(ExitProceed, stderr.String())
 		}
 		if _, err := os.Stat(marker); err == nil {
-			return ExitProceed
+			return Result{}
 		}
 	} else if in.ToolName != "EnterPlanMode" {
-		return ExitProceed
+		return Result{}
 	}
 	sk, err := plans.Skeleton(paths.ConfigDir())
 	if err != nil {
-		return ExitProceed // no Plan.md: fail open
+		return exitResult(ExitProceed, stderr.String()) // no Plan.md: fail open
 	}
 	err = os.MkdirAll(plansScratchDir(), 0o700)
 	if err == nil {
 		err = os.WriteFile(marker, nil, 0o600)
 	}
 	if err != nil {
-		fmt.Fprintf(stderr, "plan-skeleton: %v\n", err)
+		fmt.Fprintf(&stderr, "plan-skeleton: %v\n", err)
 	}
-	fmt.Fprint(stdout, MergeContext(event, []string{"Plan format (agents/Plan.md) — this format replaces plan mode's " +
-		"suggested headings:\n" + sk}, in.Vendor()))
-	return ExitProceed
+	res := exitResult(ExitProceed, stderr.String())
+	res.Context = "Plan format (agents/Plan.md) — this format replaces plan mode's suggested headings:\n" + sk
+	return res
 }
 
-// PlanReminder warns once at Stop about commits that only partly landed a plan task, then clears the record.
-func PlanReminder(r io.Reader, stdout, stderr io.Writer) int {
-	in := ParseInput(r)
+// planReminder warns once at Stop about commits that only partly landed a plan task, then clears the record.
+func planReminder(in *Input) Result {
+	var stderr bytes.Buffer
 	file := partialFile(in.SessionID)
 	data, err := os.ReadFile(file)
 	if err != nil {
-		return ExitProceed
+		return Result{}
 	}
 	if err := os.Remove(file); err != nil {
-		fmt.Fprintf(stderr, "plan-reminder: %v\n", err)
+		fmt.Fprintf(&stderr, "plan-reminder: %v\n", err)
 	}
 	items := stillPartial(string(data))
 	if items == "" {
-		return ExitProceed
+		return exitResult(ExitProceed, stderr.String())
 	}
 	msg := "plans: this turn's commits only partly landed: " + items + "; finish the task's owns: or tick it by hand"
-	out, _ := json.Marshal(map[string]string{"systemMessage": msg})
-	fmt.Fprint(stdout, string(out))
-	return ExitProceed
+	res := exitResult(ExitProceed, stderr.String())
+	res.SystemMessage = msg
+	return res
 }
 
 // stillPartial joins the recorded "<path>\t<plan>: <task>" lines whose task is still open, re-read from the plan.

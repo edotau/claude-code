@@ -27,12 +27,8 @@ var rootAnchors = map[string]bool{
 	"contributing.md": true, "code_of_conduct.md": true, "security.md": true,
 }
 
-// DocsPlacement gates markdown writes at a repo root. Fails open on anything unclear (no path, not a
+// docsPlacement gates markdown writes at a repo root. Fails open on anything unclear (no path, not a
 // git repo, unreadable git state) — placement is a convention worth enforcing, never worth wedging on.
-func DocsPlacement(r io.Reader, stderr io.Writer) int {
-	return docsPlacement(ParseInput(r), stderr)
-}
-
 func docsPlacement(in *Input, stderr io.Writer) int {
 	tool := strings.ToLower(in.ToolName)
 	if tool != "" && tool != "write" && tool != "edit" && tool != "create" && tool != "apply_patch" {

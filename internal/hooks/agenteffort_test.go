@@ -419,7 +419,7 @@ func TestAgentRecallHandlesCwdGracefully(t *testing.T) {
 	// If this test reaches here without panic, the defect is not present.
 }
 
-// runEffortHook renders the pin step in the legacy hook shape these assertions read (exit 2 + stderr for a block).
+// runEffortHook renders the pin step in the process hook shape these assertions read (exit 2 + stderr for a block).
 func runEffortHook(r io.Reader, stdout io.Writer) int {
 	return renderEffort(agentEffortResult(ParseInput(r)), stdout, os.Stderr)
 }

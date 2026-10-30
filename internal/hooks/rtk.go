@@ -2,10 +2,8 @@
 package hooks
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -38,51 +36,40 @@ var rtkValueSubcommands = map[string]bool{
 	"check-ignore": true, "check-attr": true, "count-objects": true,
 }
 
-// RTKRewrite rewrites Bash commands through `rtk rewrite`, the source of truth for what rtk compresses.
-func RTKRewrite(r io.Reader, stdout, _ io.Writer) int {
-	return rtkWrap(ParseInput(r), stdout)
-}
-
-// rtkWrap rewrites a Bash command via `rtk rewrite`. Emits nothing (and always proceeds) when rtk is absent,
-// the tool is not Bash, a harness veto applies, or rtk leaves the command unchanged. It never decides permission.
-func rtkWrap(in *Input, stdout io.Writer) int {
+// rtkRewrite rewrites a Bash command via `rtk rewrite`, the source of truth for what rtk compresses. It says nothing
+// when rtk is absent, the tool is not Bash, a harness veto applies, or rtk leaves the command unchanged.
+func rtkRewrite(in *Input) Result {
 	if in.Vendor() != VendorClaude {
-		return ExitProceed
+		return Result{}
 	}
 	if in.ToolName != "" && in.ToolName != "Bash" {
-		return ExitProceed
+		return Result{}
 	}
 	cmd := in.ToolCommand()
 	if rtkVetoed(cmd, in.CWD, os.Getenv(rtkBinaryEnv)) {
-		return ExitProceed
+		return Result{}
 	}
 	bin := rtkBinary()
 	if bin == "" {
-		return ExitProceed
+		return Result{}
 	}
 	rewritten := rtkRewritten(bin, cmd)
 	if rewritten == "" {
-		return ExitProceed
+		return Result{}
 	}
 
 	// updatedInput REPLACES the whole tool_input record, so every original key must be echoed back;
 	// dropping one (description, timeout, run_in_background) would silently alter the call.
 	updated := in.cloneToolInput()
 	if updated == nil {
-		return ExitProceed
+		return Result{}
 	}
 	updated["command"] = rtkAbsolute(rewritten, bin)
 
 	note := fmt.Sprintf(
 		"rtk: routed through the rtk output compressor (%[1]s). Output is summarized, not literal — "+
 			"for exact bytes run `%[1]s bypass <cmd>`; elided output names its own `%[1]s recall <hash>`.", bin)
-	inner := map[string]any{"hookEventName": "PreToolUse", "additionalContext": note, "updatedInput": updated}
-	out, err := json.Marshal(map[string]any{"hookSpecificOutput": inner})
-	if err != nil {
-		return ExitProceed
-	}
-	fmt.Fprintln(stdout, string(out))
-	return ExitProceed
+	return Result{Context: note, UpdatedInput: updated}
 }
 
 // rtkRewritten asks `rtk rewrite` for cmd's replacement: exit 0 or 3 with different non-empty stdout.
