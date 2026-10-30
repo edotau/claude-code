@@ -9,7 +9,7 @@ Use the smallest shape that fits; add orchestration only when the dependency sha
 
 | Shape | Tier | Do | Depth |
 |---|---|---|---|
-| A one-line edit | TRIVIAL | Inline; anything bigger is dispatched (CLAUDE.md guideline 8) | — |
+| A one-line edit | TRIVIAL | Inline; anything bigger is dispatched (CLAUDE.md guideline 5) | — |
 | Independent tasks, disjoint files | HIGH, or any tier with ≥2 independent tasks | `Agent` calls in one message, `code-worker` ‖ `copilot` | [dispatching-parallel-agents.md](references/dispatching-parallel-agents.md); scripted: `Workflow code-engineer` |
 | Ordered plan, review gate per task | MEDIUM | One implementer at a time, spec → simplify → quality | [Sequential plan](#sequential-plan) |
 | Review a diff | any | One read-only `evaluate-code` leaf (quality + security lenses), or two on a large diff — what `/code-review` runs; findings go back to an implementer running `problem-solving` (`../problem-solving/references/feedback.md`) | [prompts.md#code-quality-reviewer](references/prompts.md#code-quality-reviewer) |
@@ -25,7 +25,7 @@ field: `problem-solving` (`code-worker`, lane leaf), `evaluate-code` (spec, qual
 codex review, vet and judge), `simplify` (simplifier).
 Brief templates for implementer, spec, quality and plan reviewers: [prompts.md](references/prompts.md).
 Shared discipline and per-agent memory-proposal candidates: [memory-updates.md](references/memory-updates.md).
-Concurrency caps: `rules/workflow/agents.md` → Parallel Task Execution. Scoping a leaf below the repo root hides
+Concurrency caps: `rules/workflow/agents.md` → Parallel dispatch. Scoping a leaf below the repo root hides
 `.git`/`.venv`: [grant-depth-trap.md](references/grant-depth-trap.md).
 
 ## Leaf types

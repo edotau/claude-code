@@ -58,8 +58,18 @@ refactor that breaks only tests means rewrite them against behavior.
 
 - **Never spawn the test binary:** `os.Executable()` in a test is `go test`'s binary — stub every daemon-spawn seam;
   a detached child outlives the killed test run.
+- **At a boundary (API, CLI output, data job), test the error paths first** and assert the shape, not just the
+  status: required fields present, sensitive fields absent; a crash/500 on bad input is always a finding.
 - **Stop and ask** instead of encoding a guess when a case's behavior isn't determinable from the request or data,
   the change alters an API/DB contract, or it touches auth/permissions/PII.
+
+## When a test fails
+
+- **The test is guilty until its expectation traces** to the spec, the request or observed live behavior; then the
+  code is wrong. Say which, with the evidence.
+- **A red run under parallel load is suspect** — rerun it solo before calling it a regression.
+- **Never weaken an assertion, skip a test or edit a migration to go green.** Cap fix attempts at 3 per test, then
+  report it. Loop shapes for many failures: `skills/subagent-workflows/references/test-and-fix.md`.
 
 ## Test agent — only when the change needs one
 
