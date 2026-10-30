@@ -8,14 +8,13 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/agent/vendors"
 	"github.com/edotau/claude-code/internal/providers"
 )
 
 // attachPrompt per runner: codex folds the file inline (stdin has no live-read channel). gemini (agy)
 // inlines it too when tools are off (agy's no-tools preamble bars it from reading @path live), but
 // appends a live @path reference once tools are on. Every other vendor (opencode included) leaves the
-// prompt untouched since it carries the attachment in its own argv instead (vendors.opencodeRun's -f).
+// prompt untouched since it carries the attachment in its own argv instead (opencodeRun's -f).
 func TestVendorRunnerAttachPrompt(t *testing.T) {
 	f := filepath.Join(t.TempDir(), "note.txt")
 	if err := os.WriteFile(f, []byte("file-content"), 0o600); err != nil {
@@ -64,7 +63,7 @@ func TestVendorRunnerAttachPromptMissingPath(t *testing.T) {
 
 // codex and gemini ride stdin (codexHeadless's `-` operand, agy's stream-json), so an oversized prompt
 // never hits MAX_ARG_STRLEN and must not be refused before launch; opencode still puts the prompt in
-// argv (vendors.opencodeRun), so it alone keeps the refusal. Provider: "max" (the built-in
+// argv (opencodeRun), so it alone keeps the refusal. Provider: "max" (the built-in
 // default) makes vendorTargetNote return immediately (req.Provider != "" short-circuits the vendor's own
 // fallback resolution), so every case fails or refuses before any real CLI exec — no bin/codex, bin/agy
 // or bin/opencode needed, and no network call.
@@ -95,13 +94,13 @@ func TestVendorRunnerOversizedPromptRefusalScopedToArgv(t *testing.T) {
 }
 
 // geminiOwnLoginFixture isolates HOME/CLAUDE_CONFIG_DIR and writes agy's own login marker, so
-// vendorTarget's gemini fallback leg (vendors.fallbackTarget) applies without a real Google login.
+// vendorTarget's gemini fallback leg (fallbackTarget) applies without a real Google login.
 func geminiOwnLoginFixture(t *testing.T) {
 	t.Helper()
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	marker := vendors.AgyLoginMarker(home)
+	marker := AgyLoginMarker(home)
 	if err := os.MkdirAll(filepath.Dir(marker), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -111,7 +110,7 @@ func geminiOwnLoginFixture(t *testing.T) {
 }
 
 // vendorRunner.Run's gemini branch resolves the model agy actually runs as: the GEMINI_AGENT_MODEL pin
-// when the caller named none, else vendors.AgyDefaultModel; res.Model is set before RunAgy ever runs, so it
+// when the caller named none, else AgyDefaultModel; res.Model is set before RunAgy ever runs, so it
 // comes back correct even though no real agy binary is installed here (RunAgy errors, Run still
 // returns res with Model set — vendor.go Run()).
 func TestVendorRunnerGeminiModelResolutionPinBeatsDefault(t *testing.T) {
@@ -125,8 +124,8 @@ func TestVendorRunnerGeminiModelResolutionPinBeatsDefault(t *testing.T) {
 	if err == nil {
 		t.Fatal("want an error (no real agy binary installed), got nil")
 	}
-	if res.Model != vendors.AgyDefaultModel {
-		t.Errorf("res.Model = %q, want vendors.AgyDefaultModel %q (no pin, no explicit model)", res.Model, vendors.AgyDefaultModel)
+	if res.Model != AgyDefaultModel {
+		t.Errorf("res.Model = %q, want AgyDefaultModel %q (no pin, no explicit model)", res.Model, AgyDefaultModel)
 	}
 
 	if err := providers.SetPins(map[string]string{providers.PinGeminiModel: "gemini-2.5-pro"}); err != nil {

@@ -3,7 +3,6 @@ package agent
 import (
 	"context"
 	"errors"
-	"github.com/edotau/claude-code/internal/agent/vendors"
 	"strings"
 	"testing"
 
@@ -35,7 +34,7 @@ func registryRouteStubs(t *testing.T) (minted *int) {
 // An unregistered model fails the SDK registry route before any token is minted, and a registered one yields
 // Options whose child env drops an inherited COPILOT_PROVIDERS_CONFIG / GitHub token / singular BYOK block.
 func TestCopilotRegistryRouteFailsClosedAndScrubs(t *testing.T) {
-	t.Cleanup(vendors.WithCopilotOS("linux")) // the macOS refusal has its own test
+	t.Cleanup(WithCopilotOS("linux")) // the macOS refusal has its own test
 	minted := registryRouteStubs(t)
 	up := &providers.Provider{Name: "dbx"}
 

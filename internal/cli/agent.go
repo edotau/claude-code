@@ -21,7 +21,6 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/agent/vendors"
 	"github.com/edotau/claude-code/internal/crossgen"
 	"github.com/edotau/claude-code/internal/hooks"
 	"github.com/edotau/claude-code/internal/launch"
@@ -824,7 +823,7 @@ func lvl(ok bool) agent.Level {
 
 // agentBinary is the CLI binary the agent drives.
 func agentBinary(name string) string {
-	if spec, ok := vendors.Lookup(name); ok {
+	if spec, ok := agent.LookupSpec(name); ok {
 		return spec.Binary
 	}
 	return name

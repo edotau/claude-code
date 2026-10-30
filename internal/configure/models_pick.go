@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/agent/vendors"
 	"github.com/edotau/claude-code/internal/copilotsdk"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
@@ -54,7 +53,7 @@ func currentModel(d *dialog, p *providers.Provider, claude bool, slot string) st
 }
 
 // modelRow is the agent page's Model row; nil when the agent has no account the hub can route to.
-// copilot's launch argv reads only the opus slot (vendors.describeCopilotRoute), so its page picks
+// copilot's launch argv reads only the opus slot (agent.describeCopilotRoute), so its page picks
 // one model directly instead of the tier list every other agent's page shows.
 func modelRow(d *dialog, name string) *billingRow {
 	if d.reg == nil {
@@ -72,7 +71,7 @@ func modelRow(d *dialog, name string) *billingRow {
 	}
 	if name == "gemini" {
 		model, source := providers.GeminiModel()
-		desc := cmp.Or(model, vendors.AgyDefaultModel) + " (" + source + ")"
+		desc := cmp.Or(model, agent.AgyDefaultModel) + " (" + source + ")"
 		return &billingRow{label: "Model", desc: desc, run: func() bool { pickGeminiModel(d); return true }}
 	}
 	p, claude := modelTarget(d, name)
@@ -100,7 +99,7 @@ func copilotCatalog(d *dialog) ([]copilotsdk.Model, error) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	d.copilotCatalog, d.copilotCatalogErr = copilotListModelsFn(ctx, copilotsdk.CatalogOptions(bin, vendors.CopilotToken()))
+	d.copilotCatalog, d.copilotCatalogErr = copilotListModelsFn(ctx, copilotsdk.CatalogOptions(bin, agent.CopilotToken()))
 	return d.copilotCatalog, d.copilotCatalogErr
 }
 

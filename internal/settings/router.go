@@ -7,7 +7,7 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 )
 
-// VendorRouter is the vendor routing the renders need; agent/vendors implements it (settings cannot import it).
+// VendorRouter is the vendor routing the renders need; internal/agent implements it (settings cannot import it).
 type VendorRouter interface {
 	ResolveTarget(reg *providers.Registry, name string, sel providers.Selection, explicit bool) (
 		target providers.Target, note string, err error)

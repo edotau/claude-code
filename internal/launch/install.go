@@ -18,7 +18,6 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/agent/vendors"
 	"github.com/edotau/claude-code/internal/audit"
 	"github.com/edotau/claude-code/internal/clean"
 	"github.com/edotau/claude-code/internal/clipboard"
@@ -354,16 +353,16 @@ func setupDoctorDetail() string {
 // model/small_model (the github-copilot route only), the file it writes, and — names/booleans only,
 // never a credential — whether opencode has its own GitHub Copilot login and whether the copilot CLI has one.
 func opencodeRouteDetail(reg *providers.Registry, sel providers.Selection, selErr error) string {
-	own := vendors.OpencodeOwnLoginPresent()
-	opencodeLogin := own || vendors.OpencodeCopilotLoginPresent()
-	copilotCLILogin := vendors.CopilotLoginPresent()
+	own := agent.OpencodeOwnLoginPresent()
+	opencodeLogin := own || agent.OpencodeCopilotLoginPresent()
+	copilotCLILogin := agent.CopilotLoginPresent()
 	if own { // opencode's own Go/Zen credential serves the routed opencode legs, whatever the session provider
-		return fmt.Sprintf("provider=opencode-go leg=%s opencode_login=true copilot_cli_login=%v", vendors.LegOwnLogin, copilotCLILogin)
+		return fmt.Sprintf("provider=opencode-go leg=%s opencode_login=true copilot_cli_login=%v", agent.LegOwnLogin, copilotCLILogin)
 	}
 	if selErr != nil {
 		return fmt.Sprintf("opencode_login=%v copilot_cli_login=%v (%v)", opencodeLogin, copilotCLILogin, selErr)
 	}
-	target, _, err := vendors.ResolveTarget(reg, "opencode", sel, false)
+	target, _, err := agent.ResolveVendorTarget(reg, "opencode", sel, false)
 	if err != nil || target.Provider == nil {
 		return fmt.Sprintf("opencode_login=%v copilot_cli_login=%v (%v)", opencodeLogin, copilotCLILogin, orErr("", err))
 	}
@@ -371,7 +370,7 @@ func opencodeRouteDetail(reg *providers.Registry, sel providers.Selection, selEr
 	if target.Provider.Provider != "github" {
 		return fmt.Sprintf("provider=%s file=%s opencode_login=%v copilot_cli_login=%v", target.Provider.Name, file, opencodeLogin, copilotCLILogin)
 	}
-	mainID, smallID, ok := vendors.OpencodeCopilotModelIDs(reg)
+	mainID, smallID, ok := agent.OpencodeCopilotModelIDs(reg)
 	if !ok {
 		return fmt.Sprintf("provider=%s file=%s (no sonnet/haiku model configured) opencode_login=%v copilot_cli_login=%v", target.Provider.Name, file, opencodeLogin, copilotCLILogin)
 	}
@@ -384,7 +383,7 @@ func opencodeRouteDetail(reg *providers.Registry, sel providers.Selection, selEr
 // opencodeStaticKeysDetail flags an opencode auth.json static key for a provider the harness vault
 // already supplies via the {env:} indirection — names only, never a credential value.
 func opencodeStaticKeysDetail(reg *providers.Registry) (bool, string) {
-	ints, err := vendors.OpencodeAuth()
+	ints, err := agent.OpencodeAuth()
 	if err != nil {
 		return true, "skipped: " + err.Error()
 	}
@@ -432,12 +431,12 @@ func copilotRouteDetail(reg *providers.Registry, selErr error) string {
 	if selErr != nil {
 		return fmt.Sprintf("(%v)", selErr)
 	}
-	ri := vendors.DescribeRoute(reg, "copilot")
+	ri := agent.DescribeRoute(reg, "copilot")
 	if !ri.OK {
 		return ri.Reason
 	}
 	detail := fmt.Sprintf("leg=%s provider=%s model=%s (%s)", ri.Leg, ri.Provider, ri.Model, ri.Reason)
-	if ri.Leg == vendors.LegCopilotLogin {
+	if ri.Leg == agent.LegCopilotLogin {
 		_, source := providers.CopilotModel(reg)
 		effort := cmp.Or(providers.Pin(providers.PinCopilotEffort), "default")
 		context := cmp.Or(providers.Pin(providers.PinCopilotContext), "default")
@@ -455,7 +454,7 @@ func codexRouteDetail() string {
 }
 
 // geminiRouteDetail reports agy's own GEMINI_MODEL pin (effort rides the id's own suffix) — unset
-// means agy's own default (vendors.AgyDefaultModel).
+// means agy's own default (agent.AgyDefaultModel).
 func geminiRouteDetail() string {
 	model, source := providers.GeminiModel()
 	return fmt.Sprintf("model=%s source=%s", cmp.Or(model, "(default)"), source)

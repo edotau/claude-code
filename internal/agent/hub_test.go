@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/edotau/claude-code/internal/agent/vendors"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
@@ -49,7 +48,7 @@ func TestHubLegForOpencodeDefault(t *testing.T) {
 		t.Fatal(err)
 	}
 	l := r.(hubLeg)
-	_, argv := vendors.OpencodeRunArgv(l.provider.OpencodeID+"/"+l.resolveModel(model), vendors.Headless{Prompt: "p", Effort: cell.Effort})
+	_, argv := OpencodeRunArgv(l.provider.OpencodeID+"/"+l.resolveModel(model), Headless{Prompt: "p", Effort: cell.Effort})
 	got := strings.Join(argv, " ")
 	if !strings.Contains(got, "-m opencode-go/kimi-k3.1-pro") || !strings.Contains(got, "--variant high") {
 		t.Errorf("opencode default argv = %q, want -m opencode-go/kimi-k3.1-pro --variant high", got)
@@ -125,7 +124,7 @@ func TestHubLegResolveModel(t *testing.T) {
 	}
 }
 
-// hubLeg always execs opencode with the prompt in argv (vendors.OpencodeRunArgv), so its own
+// hubLeg always execs opencode with the prompt in argv (OpencodeRunArgv), so its own
 // MaxPromptBytes check (hub.go, ahead of the binary lookup) stays unconditional, unlike vendorRunner's
 // opencode-only gate. This fails before touching paths.VendorBin, so no bin/opencode is needed.
 func TestHubLegRunOversizedPromptRefused(t *testing.T) {

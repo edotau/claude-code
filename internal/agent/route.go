@@ -10,7 +10,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/edotau/claude-code/internal/agent/vendors"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
@@ -94,7 +93,7 @@ func routeChain(ctx context.Context, want, tier, row, exact, callerModel, mode s
 		pickWant = ""
 	}
 	if o.Configured == nil {
-		o.Configured = vendors.Configured
+		o.Configured = Configured
 	}
 	pick := tb.Pick(ctx, tier, pickWant, loadState(), o)
 	reg, _ := providers.Load()
@@ -441,7 +440,7 @@ func WithTier(c Chain, tier string) Chain {
 // explicitAccount is the <provider>·<profile> key of the named backend; a hub leg names its own profile.
 func explicitAccount(r Runner, req Request) (string, string) {
 	if l, ok := r.(hubLeg); ok {
-		if vendors.OpencodeCredID(l.provider.OpencodeID) == "opencode" {
+		if OpencodeCredID(l.provider.OpencodeID) == "opencode" {
 			return "opencode·go", router.BillSubscription
 		}
 		return profileAccount(l.provider), billingOf(l.provider)
@@ -495,7 +494,7 @@ func hubLegFor(reg *providers.Registry, cell string) (Runner, string, error) {
 		return hubLeg{agent: "opencode", provider: first, reg: reg}, model, nil
 	}
 	// opencode's own plans (opencode-go, opencode) have no registry provider: opencode resolves them itself.
-	if vendors.OpencodeCredID(id) == "opencode" {
+	if OpencodeCredID(id) == "opencode" {
 		return hubLeg{agent: "opencode", provider: &providers.Provider{Name: id, OpencodeID: id}, reg: reg}, model, nil
 	}
 	return nil, "", fmt.Errorf("no provider has opencodeID %q", id)

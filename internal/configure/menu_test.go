@@ -40,7 +40,7 @@ func menuTestEnv(t *testing.T) *providers.Registry {
 	return reg
 }
 
-// TestMenuRowsOrderNoSeparateProviderRow: the top-level menu is claude, then every vendors.Names() CLI
+// TestMenuRowsOrderNoSeparateProviderRow: the top-level menu is claude, then every agent.Names() CLI
 // in roster order, then Exit (appended by runMenu, not menuRows); sections are `configure <section>` args — "provider" is
 // folded into the claude row and must not appear again as its own entry.
 func TestMenuRowsOrderNoSeparateProviderRow(t *testing.T) {

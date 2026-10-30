@@ -26,7 +26,7 @@ const DefaultClientName = "claude-code"
 // denyFeedback tells the model to re-plan in prose instead of retrying a refused tool call.
 const denyFeedback = "Tool use is disabled for this headless run. Answer from the prompt alone."
 
-// Options configures one headless run. Env carries the COPILOT_PROVIDER_* BYOK block from vendors.Configure.
+// Options configures one headless run. Env carries the COPILOT_PROVIDER_* BYOK block from agent.Configure.
 type Options struct {
 	CLIPath          string   // resolved copilot binary; empty is an error (never the SDK's bundled runtime)
 	Env              []string // KEY=VALUE BYOK block
@@ -130,7 +130,7 @@ func permissionHandler(o Options) copilot.PermissionHandlerFunc {
 }
 
 // providerFromEnv lifts the BYOK block into the session: the server-mode runtime ignores COPILOT_PROVIDER_* env.
-// Last duplicate wins (exec's rule): vendors.copilot blanks each credential var, then appends the real one.
+// Last duplicate wins (exec's rule): agent.copilotWire blanks each credential var, then appends the real one.
 func providerFromEnv(env []string) *copilot.ProviderConfig {
 	get := func(key string) string {
 		for _, kv := range slices.Backward(env) {
@@ -200,7 +200,7 @@ type Model struct {
 }
 
 // CatalogOptions is the auth shape every catalog listing needs: a resolved launch-account token
-// (vendors.CopilotToken), or "" to fall back to the copilot CLI's own stored login.
+// (agent.CopilotToken), or "" to fall back to the copilot CLI's own stored login.
 func CatalogOptions(cliPath, token string) Options {
 	if token != "" {
 		return Options{CLIPath: cliPath, GitHubToken: token}

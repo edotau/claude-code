@@ -50,8 +50,8 @@ func endpointCapabilities(e liveModelEntry) string {
 	return strings.Join(slices.DeleteFunc([]string{e.task, e.ready}, func(s string) bool { return s == "" }), " · ")
 }
 
-// CopilotTokenFn resolves the launch-account token (vendors.CopilotToken) for copilot catalog calls.
-// providers cannot import internal/agent/vendors directly (vendors already imports providers); vendors sets
+// CopilotTokenFn resolves the launch-account token (agent.CopilotToken) for copilot catalog calls.
+// providers cannot import internal/agent directly (agent already imports providers); agent sets
 // this at init time instead. nil or "" falls back to the copilot CLI's own stored login.
 var CopilotTokenFn func() string
 

@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/edotau/claude-code/internal/agent/vendors"
+	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/paths"
 )
 
@@ -44,7 +44,7 @@ func claudeRateTier() string {
 }
 
 // codexTier is codex's ChatGPT plan ("Plus", "Pro"), read offline.
-func codexTier() string { return title(vendors.CodexPlan()) }
+func codexTier() string { return title(agent.CodexPlan()) }
 
 // copilotTierCmd is the plan lookup seam; tests replace it.
 var copilotTierCmd = func(ctx context.Context) ([]byte, error) {
@@ -52,7 +52,7 @@ var copilotTierCmd = func(ctx context.Context) ([]byte, error) {
 }
 
 // copilotTier is the Copilot plan's sold name ("Pro+"); the raw copilot_plan when GitHub adds an unknown one.
-func copilotTier() string { return vendors.CopilotPlanName(copilotRawPlan()) }
+func copilotTier() string { return agent.CopilotPlanName(copilotRawPlan()) }
 
 // copilotPlanCache holds the one gh lookup per run; the plan does not change while configure is open.
 var copilotPlanCache = map[string]string{}

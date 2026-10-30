@@ -7,13 +7,13 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/agent/vendors"
+	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/ui/tui"
 )
 
 // ocFake stubs every opencode page seam: no real opencode, terminal or keyring is touched.
 type ocFake struct {
-	ints        []vendors.OpencodeIntegration
+	ints        []agent.OpencodeIntegration
 	err         error
 	major       int
 	answers     []tui.ListResult // popped per List call; exhausted = Esc
@@ -34,7 +34,7 @@ func installOCFake(t *testing.T, f *ocFake) {
 		opencodeAuth, opencodeMajor, opencodeLogoutArgv, opencodeSwitchArgv = oa, om, ol, osw
 		invalidateOpencodeAuth, opencodeList, runAttached, confirmKey, lookOpencode = oi, oli, ora, oc, olk
 	})
-	opencodeAuth = func() ([]vendors.OpencodeIntegration, error) { return f.ints, f.err }
+	opencodeAuth = func() ([]agent.OpencodeIntegration, error) { return f.ints, f.err }
 	opencodeMajor = func() int { return f.major }
 	opencodeLogoutArgv = func(id, cred string) ([]string, error) {
 		if f.major >= 2 {
@@ -72,25 +72,25 @@ func ocDialog() (*dialog, *bytes.Buffer) {
 }
 
 // v1Data is the 1.x shape: one credential per integration, Name == ID, labels OAuth / API key.
-func v1Data() []vendors.OpencodeIntegration {
-	cred := func(id, label, method string) vendors.OpencodeIntegration {
-		return vendors.OpencodeIntegration{ID: id, Name: id, Conns: []vendors.OpencodeConn{{Kind: "credential", ID: id, Label: label, Method: method}}}
+func v1Data() []agent.OpencodeIntegration {
+	cred := func(id, label, method string) agent.OpencodeIntegration {
+		return agent.OpencodeIntegration{ID: id, Name: id, Conns: []agent.OpencodeConn{{Kind: "credential", ID: id, Label: label, Method: method}}}
 	}
-	return []vendors.OpencodeIntegration{
+	return []agent.OpencodeIntegration{
 		cred("databricks", "API key", "key"), cred("github-copilot", "OAuth", "oauth"),
 		cred("nvidia", "API key", "key"), cred("openai", "OAuth", "oauth"), cred("zed", "API key", "key"),
 	}
 }
 
 // v2Data is the 2.x shape: an active credential plus an env connection, and one needing sign-in.
-func v2Data() []vendors.OpencodeIntegration {
-	return []vendors.OpencodeIntegration{
-		{ID: "github-copilot", Name: "GitHub Copilot", Conns: []vendors.OpencodeConn{
+func v2Data() []agent.OpencodeIntegration {
+	return []agent.OpencodeIntegration{
+		{ID: "github-copilot", Name: "GitHub Copilot", Conns: []agent.OpencodeConn{
 			{Kind: "credential", ID: "cred-1", Label: "work", Method: "oauth", Active: true},
 			{Kind: "credential", ID: "cred-2", Label: "personal", Method: "oauth"},
 			{Kind: "env", ID: "GITHUB_TOKEN", Label: "GITHUB_TOKEN"},
 		}},
-		{ID: "openai", Name: "OpenAI", Conns: []vendors.OpencodeConn{
+		{ID: "openai", Name: "OpenAI", Conns: []agent.OpencodeConn{
 			{Kind: "credential", ID: "cred-3", Label: "OAuth", Method: "oauth", NeedsAuth: "token expired"},
 		}},
 	}
@@ -173,7 +173,7 @@ func TestOpencodePageEscReturns(t *testing.T) {
 func TestOpencodePageCtrlDLogout(t *testing.T) {
 	for _, c := range []struct {
 		major int
-		ints  []vendors.OpencodeIntegration
+		ints  []agent.OpencodeIntegration
 		row   int
 		want  []string
 		name  string
@@ -228,7 +228,7 @@ func TestOpencodePageEnvRowRefusesLogout(t *testing.T) {
 }
 
 // actionLabels runs Enter on row and returns the action page's labels (answering Back/Esc there).
-func actionLabels(t *testing.T, major int, ints []vendors.OpencodeIntegration, row int) []string {
+func actionLabels(t *testing.T, major int, ints []agent.OpencodeIntegration, row int) []string {
 	t.Helper()
 	f := &ocFake{ints: ints, major: major, answers: []tui.ListResult{{Index: row}, {Index: -1}}}
 	installOCFake(t, f)

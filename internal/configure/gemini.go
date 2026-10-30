@@ -9,7 +9,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/edotau/claude-code/internal/agent/vendors"
+	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/ui/tui"
@@ -39,7 +39,7 @@ var agyStopGrace = 3 * time.Second
 func runAgy(d *dialog) bool {
 	defer tui.Preserve()()
 	home, _ := os.UserHomeDir()
-	marker := vendors.AgyLoginMarker(home)
+	marker := agent.AgyLoginMarker(home)
 	before, _ := os.ReadFile(marker)
 	beforeInfo, _ := os.Stat(marker)
 	cmd := agyCommand()
@@ -142,7 +142,7 @@ func signalAliveDescendants(pids []int, sig syscall.Signal) {
 }
 
 func geminiMenu(d *dialog) agentMenu {
-	loginSel := vendors.GeminiLoginPresent()
+	loginSel := agent.GeminiLoginPresent()
 	st := agentState{mode: modeNone}
 	if loginSel {
 		st = agentState{mode: modeSubscription, verified: true}

@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/edotau/claude-code/internal/agent/vendors"
+	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/databricks"
 	"github.com/edotau/claude-code/internal/databricks/oauth"
 	"github.com/edotau/claude-code/internal/network/tailscale"
@@ -39,8 +39,8 @@ var (
 	promptSecret  = hiddenPrompt
 	storeSecret   = secrets.Store
 	claudeStatus  = providers.ClaudeLoginProbe
-	copilotLogin  = vendors.CopilotStoredLogin
-	geminiPresent = vendors.GeminiLoginPresent
+	copilotLogin  = agent.CopilotStoredLogin
+	geminiPresent = agent.GeminiLoginPresent
 	runVendor     = runVendorCLI
 	codexStatus   = func(ctx context.Context, bin string) ([]byte, error) {
 		return exec.CommandContext(ctx, bin, "login", "status").CombinedOutput()
@@ -71,7 +71,7 @@ func For(p *providers.Provider) Signin {
 
 // ValidateSecret rejects a value that cannot be the named credential (shared with `vault set`).
 func ValidateSecret(name, value string) error {
-	if isGitHubToken(name) && !vendors.ValidCopilotToken(value) {
+	if isGitHubToken(name) && !agent.ValidCopilotToken(value) {
 		return fmt.Errorf("%s not a GitHub token (want gho_/ghp_/ghu_/github_pat_, >=20 chars)", name)
 	}
 	return tailscale.ValidCredential(name, value)
@@ -79,7 +79,7 @@ func ValidateSecret(name, value string) error {
 
 // isGitHubToken: the transitional env name, or a vault name GITHUB_[<PROFILE>_]PAT (providers.SecretName).
 func isGitHubToken(name string) bool {
-	return name == vendors.CopilotTokenEnv || (strings.HasPrefix(name, "GITHUB_") && strings.HasSuffix(name, "_"+strings.ToUpper(providers.AuthPAT)))
+	return name == agent.CopilotTokenEnv || (strings.HasPrefix(name, "GITHUB_") && strings.HasSuffix(name, "_"+strings.ToUpper(providers.AuthPAT)))
 }
 
 type u2m struct{ p *providers.Provider }

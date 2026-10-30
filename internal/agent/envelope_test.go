@@ -9,7 +9,6 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/agent/vendors"
 	"github.com/edotau/claude-code/internal/cli"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 )
@@ -38,7 +37,7 @@ func cliEnv(t *testing.T) {
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
 	t.Setenv("OPENCODE_API_KEY", "test-key") // an own-login route for opencode
-	marker := vendors.AgyLoginMarker(home)
+	marker := agent.AgyLoginMarker(home)
 	if err := os.MkdirAll(filepath.Dir(marker), 0o755); err != nil {
 		t.Fatal(err)
 	}

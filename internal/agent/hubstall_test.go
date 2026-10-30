@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/edotau/claude-code/internal/agent/vendors"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/providers"
@@ -36,7 +35,7 @@ func setupStallFixture(t *testing.T) {
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
 	t.Setenv("OPENCODE_DB", "")
 	pathstest.FakeVendor(t, "opencode", opencodeNeverWrites)
-	t.Setenv(vendors.OpencodeAPIKeyEnv, "test-key")
+	t.Setenv(OpencodeAPIKeyEnv, "test-key")
 }
 
 // TestWatchFreeLegOnlyWatchesFreeBilling: watchFreeLeg sets the stall watchdog on a hub leg only when the
@@ -147,7 +146,7 @@ func TestHubLegRunEmptyTextAloneStillStalls(t *testing.T) {
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
 	t.Setenv("OPENCODE_DB", "")
 	pathstest.FakeVendor(t, "opencode", opencodeEmptyTextThenStalls)
-	t.Setenv(vendors.OpencodeAPIKeyEnv, "test-key")
+	t.Setenv(OpencodeAPIKeyEnv, "test-key")
 	orig := freeFirstOutput
 	freeFirstOutput = 50 * time.Millisecond
 	t.Cleanup(func() { freeFirstOutput = orig })
@@ -174,7 +173,7 @@ func TestHubLegRunStepStartAloneStillStalls(t *testing.T) {
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
 	t.Setenv("OPENCODE_DB", "")
 	pathstest.FakeVendor(t, "opencode", opencodeStepStartThenStalls)
-	t.Setenv(vendors.OpencodeAPIKeyEnv, "test-key")
+	t.Setenv(OpencodeAPIKeyEnv, "test-key")
 	orig := freeFirstOutput
 	freeFirstOutput = 50 * time.Millisecond
 	t.Cleanup(func() { freeFirstOutput = orig })
@@ -202,7 +201,7 @@ func TestHubLegRunTextOutputDisarmsWatchdog(t *testing.T) {
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
 	t.Setenv("OPENCODE_DB", "")
 	pathstest.FakeVendor(t, "opencode", opencodeTextFast)
-	t.Setenv(vendors.OpencodeAPIKeyEnv, "test-key")
+	t.Setenv(OpencodeAPIKeyEnv, "test-key")
 	orig := freeFirstOutput
 	freeFirstOutput = 500 * time.Millisecond // headroom for a loaded box to start the fake child
 	t.Cleanup(func() { freeFirstOutput = orig })

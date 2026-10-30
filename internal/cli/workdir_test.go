@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/agent/vendors"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
@@ -36,7 +35,7 @@ func setupWorkdirFixture(t *testing.T) {
 	t.Helper()
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	pathstest.FakeVendor(t, "opencode", "exit 0\n")
-	t.Setenv(vendors.OpencodeAPIKeyEnv, "test-key")
+	t.Setenv(agent.OpencodeAPIKeyEnv, "test-key")
 }
 
 // TestResolveAskChainWorkRepoFromWorkdirNotCwd is the wiring's teeth: cwd is a personal repo (would pick

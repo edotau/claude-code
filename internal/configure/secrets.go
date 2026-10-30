@@ -12,7 +12,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/edotau/claude-code/internal/agent/vendors"
+	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/audit"
 	"github.com/edotau/claude-code/internal/network/tailscale"
 	"github.com/edotau/claude-code/internal/providers"
@@ -238,7 +238,7 @@ func ParseAssignment(raw string) (name, value string) {
 
 // storeValue writes one secret to the vault and reports it redacted; inside the menu it stages.
 func storeValue(d *dialog, name, val string) bool {
-	if name == vendors.CopilotTokenEnv && !vendors.ValidCopilotToken(val) {
+	if name == agent.CopilotTokenEnv && !agent.ValidCopilotToken(val) {
 		d.printf("%s: not a GitHub token (want gho_/ghp_/ghu_/github_pat_, >=20 chars)\n", name)
 		return false
 	}

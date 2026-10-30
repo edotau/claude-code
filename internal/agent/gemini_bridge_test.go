@@ -15,7 +15,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/edotau/claude-code/internal/agent/vendors"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault"
@@ -455,7 +454,7 @@ func loginHome(t *testing.T, present bool) string {
 	if !present {
 		return home
 	}
-	marker := vendors.AgyLoginMarker(home)
+	marker := AgyLoginMarker(home)
 	if err := os.MkdirAll(filepath.Dir(marker), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -591,7 +590,7 @@ func TestBridgeRunPrintCommandAgyBackend(t *testing.T) {
 	if len(hits) != 0 {
 		t.Errorf("hits = %d, want 0 (print-command sends nothing)", len(hits))
 	}
-	if !strings.Contains(log.String(), "agy --model "+vendors.AgyDefaultModel) || !strings.Contains(log.String(), "stream-json") {
+	if !strings.Contains(log.String(), "agy --model "+AgyDefaultModel) || !strings.Contains(log.String(), "stream-json") {
 		t.Errorf("log missing the resolved agy argv:\n%s", log.String())
 	}
 	if res.Provider != "agy" {

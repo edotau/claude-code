@@ -10,7 +10,6 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/agent/vendors"
 	"github.com/edotau/claude-code/internal/launch"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/secrets/shapes"
@@ -534,7 +533,7 @@ func vendorLaunchFlags(vendor string) *flag.FlagSet {
 
 // vendorBinary is the wrapped CLI an agent verb drives (gemini → agy).
 func vendorBinary(vendor string) string {
-	spec, _ := vendors.Lookup(vendor)
+	spec, _ := agent.LookupSpec(vendor)
 	return spec.Binary
 }
 

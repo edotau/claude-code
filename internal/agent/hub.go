@@ -8,14 +8,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/edotau/claude-code/internal/agent/vendors"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 )
 
-// opencodeLogins is a seam over vendors.OpencodeLogins, so tests never shell out to opencode auth.
-var opencodeLogins = vendors.OpencodeLogins
+// opencodeLogins is a seam over OpencodeLogins, so tests never shell out to opencode auth.
+var opencodeLogins = OpencodeLogins
 
 // freeFirstOutput overrides the first-output deadline for a free-billed hub leg (route.BillFree); zero (the
 // default) defers to the registry's routing.opencode.freeFirstOutput (providers.OpencodeRouting.FirstOutput,
@@ -72,7 +71,7 @@ func HubStart(reg *providers.Registry, agentName, explicitProvider string) (*pro
 		if first == nil {
 			first = p
 		}
-		if slices.Contains(opencodeLogins(), vendors.OpencodeCredID(p.OpencodeID)) {
+		if slices.Contains(opencodeLogins(), OpencodeCredID(p.OpencodeID)) {
 			return p, nil
 		}
 	}
@@ -91,7 +90,7 @@ func opencodeLadderProvider(reg *providers.Registry, id string) (*providers.Prov
 			return p, nil
 		}
 	}
-	if vendors.OpencodeCredID(id) == "opencode" {
+	if OpencodeCredID(id) == "opencode" {
 		return &providers.Provider{Name: id, OpencodeID: id}, nil
 	}
 	return nil, fmt.Errorf("opencode ladder id %q: no provider has opencodeID %q", id, id)
@@ -127,7 +126,7 @@ func (l hubLeg) Available() error {
 	if _, err := paths.VendorBin("opencode"); err != nil {
 		return err
 	}
-	_, err := vendors.OpencodeCredential(l.provider.OpencodeID)
+	_, err := OpencodeCredential(l.provider.OpencodeID)
 	return err
 }
 
@@ -144,13 +143,13 @@ func (l hubLeg) Run(ctx context.Context, req Request, sink Sink) (Result, error)
 	if err != nil {
 		return res, &Error{Kind: KindFatal, Agent: l.agent, Err: err}
 	}
-	h := vendors.Headless{Prompt: req.Prompt, Effort: req.Effort, SessionID: req.SessionID, Tools: req.Tools,
+	h := Headless{Prompt: req.Prompt, Effort: req.Effort, SessionID: req.SessionID, Tools: req.Tools,
 		Autonomous: req.Autonomous, Attach: req.Attach, WorkDir: req.WorkDir, SafeMode: req.SafeMode}
-	cred, err := vendors.OpencodeCredential(l.provider.OpencodeID)
+	cred, err := OpencodeCredential(l.provider.OpencodeID)
 	if err != nil {
 		return res, &Error{Kind: KindFatal, Agent: l.agent, Err: err}
 	}
-	env, argv := vendors.OpencodeRunArgv(l.provider.OpencodeID+"/"+model, h)
+	env, argv := OpencodeRunArgv(l.provider.OpencodeID+"/"+model, h)
 	env = append(env, cred...)
 	if req.SystemPrompt != "" {
 		env, argv = opencodeSystemPrompt(env, argv, req.SystemPrompt)

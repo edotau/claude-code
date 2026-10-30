@@ -7,7 +7,7 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/agent/vendors"
+	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault"
@@ -22,7 +22,7 @@ func geminiArgv(t *testing.T, pin, flag string) []string {
 	t.Setenv("GEMINI_API_KEY", "")
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	marker := vendors.AgyLoginMarker(home)
+	marker := agent.AgyLoginMarker(home)
 	if err := os.MkdirAll(filepath.Dir(marker), 0o755); err != nil {
 		t.Fatal(err)
 	}

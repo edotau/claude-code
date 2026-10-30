@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/edotau/claude-code/internal/agent/vendors"
+	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/tui"
@@ -15,11 +15,11 @@ import (
 
 // Seams for the opencode page; tests replace them so no real opencode or terminal is touched.
 var (
-	opencodeAuth           = vendors.OpencodeAuth
-	opencodeMajor          = vendors.OpencodeMajor
-	opencodeLogoutArgv     = vendors.OpencodeLogoutArgv
-	opencodeSwitchArgv     = vendors.OpencodeSwitchArgv
-	invalidateOpencodeAuth = vendors.InvalidateOpencodeAuth
+	opencodeAuth           = agent.OpencodeAuth
+	opencodeMajor          = agent.OpencodeMajor
+	opencodeLogoutArgv     = agent.OpencodeLogoutArgv
+	opencodeSwitchArgv     = agent.OpencodeSwitchArgv
+	invalidateOpencodeAuth = agent.InvalidateOpencodeAuth
 	opencodeList           = tui.List
 	runAttached            = tui.RunAttached
 	confirmKey             = tui.ConfirmKey
@@ -32,7 +32,7 @@ var opencodeNames = map[string]string{
 	"nvidia": "Nvidia", "databricks": "Databricks", "opencode": "OpenCode", "xai": "xAI",
 }
 
-func opencodeName(in vendors.OpencodeIntegration) string {
+func opencodeName(in agent.OpencodeIntegration) string {
 	if n, ok := opencodeNames[in.ID]; ok {
 		return n
 	}
@@ -48,8 +48,8 @@ var ocLogoutKey = tui.Key{Kind: tui.KeyCtrl, Rune: 'd'}
 // ocRow is one page row and what it stands for: an account (in+conn), the "not connected" filler, or an action.
 type ocRow struct {
 	row  tui.ListRow
-	in   vendors.OpencodeIntegration
-	conn *vendors.OpencodeConn
+	in   agent.OpencodeIntegration
+	conn *agent.OpencodeConn
 	run  func(d *dialog) // action rows only
 }
 
@@ -61,7 +61,7 @@ type opencodePage struct {
 }
 
 // ocDetail is an account row's middle column: the credential label, or $NAME for an env-backed one.
-func ocDetail(c vendors.OpencodeConn) string {
+func ocDetail(c agent.OpencodeConn) string {
 	if c.Kind == "env" {
 		return "$" + c.Label
 	}
@@ -69,10 +69,10 @@ func ocDetail(c vendors.OpencodeConn) string {
 }
 
 // buildOpencodePage turns the adapter's data into rows; major is opencode's major version (0 unknown).
-func buildOpencodePage(d *dialog, ints []vendors.OpencodeIntegration, major int) opencodePage {
+func buildOpencodePage(d *dialog, ints []agent.OpencodeIntegration, major int) opencodePage {
 	var p opencodePage
 	for _, in := range ints {
-		routed := in.ID == vendors.OpencodeCredID("opencode-go") && len(in.Conns) > 0 // the credential routed legs use
+		routed := in.ID == agent.OpencodeCredID("opencode-go") && len(in.Conns) > 0 // the credential routed legs use
 		for i := range in.Conns {
 			c := in.Conns[i]
 			var status []string

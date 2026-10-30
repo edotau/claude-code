@@ -42,7 +42,7 @@ func TestBuildSessionConfigMemoryAndPermission(t *testing.T) {
 	}
 }
 
-// vendors.copilot blanks each BYOK credential var, then appends the real one: the session must get the last value.
+// agent.copilotWire blanks each BYOK credential var, then appends the real one: the session must get the last value.
 func TestProviderFromEnvLastDuplicateWins(t *testing.T) {
 	p := providerFromEnv([]string{
 		"COPILOT_PROVIDER_BASE_URL=https://h/serving-endpoints", "COPILOT_PROVIDER_TYPE=openai",

@@ -12,7 +12,6 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/edotau/claude-code/internal/agent/vendors"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 )
@@ -57,7 +56,7 @@ func vendorTargetBase(req Request, name string) (t providers.Target, own bool, n
 	if err != nil || req.Provider != "" || namesProvider(reg, req.Model) {
 		if err == nil && name == "copilot" { // an explicit GitHub login still passes the credit gate
 			from := t.Provider
-			t, note, err = vendors.CopilotGate(reg, t)
+			t, note, err = CopilotGate(reg, t)
 			if err == nil && t.Provider != from && req.Provider != "" && req.Provider == providers.Pin(providers.PinCopilotProfile) {
 				return t, false, note, true, &Error{Kind: KindQuota, Agent: "copilot", Err: errors.New(note)}
 			}
@@ -71,8 +70,8 @@ func vendorTargetBase(req Request, name string) (t providers.Target, own bool, n
 	if err != nil {
 		return t, false, "", true, err
 	}
-	ft, note, err := vendors.ResolveTarget(reg, name, sel, false)
-	own = errors.Is(err, vendors.ErrOwnLogin)
+	ft, note, err := ResolveVendorTarget(reg, name, sel, false)
+	own = errors.Is(err, ErrOwnLogin)
 	if own {
 		err = nil
 	}
@@ -92,7 +91,7 @@ func namesProvider(reg *providers.Registry, spec string) bool {
 	return ok && found
 }
 
-// vendorRunner execs an agent CLI's headless mode wired by vendors.ConfigureHeadless.
+// vendorRunner execs an agent CLI's headless mode wired by ConfigureHeadless.
 type vendorRunner struct{ name string }
 
 func (v vendorRunner) Name() string { return v.name }
@@ -114,7 +113,7 @@ func (v vendorRunner) Caps() Caps {
 }
 
 func (v vendorRunner) Available() error {
-	spec, _ := vendors.Lookup(v.name)
+	spec, _ := LookupSpec(v.name)
 	_, err := paths.VendorBin(spec.Binary)
 	return err
 }
@@ -141,7 +140,7 @@ func (v vendorRunner) prepare(ctx context.Context, req Request) (vendorPrep, err
 		}
 		p.res.Provider = t.Provider.Name
 		if v.name == "codex" { // configureRoute swaps a non-Responses model; report the one codex runs
-			p.res.Model = vendors.CodexRanModel(t)
+			p.res.Model = CodexRanModel(t)
 		}
 	}
 	p.prompt, err = v.attachPrompt(req.Prompt, req.Attach, req.Tools)
@@ -151,24 +150,24 @@ func (v vendorRunner) prepare(ctx context.Context, req Request) (vendorPrep, err
 	if req.Autonomous && v.name == "codex" {
 		fmt.Fprintln(os.Stderr, "ask: codex exec has no ask-step to disable; --tools already grants workspace-write")
 	}
-	// Only opencode puts the prompt in argv (vendors.opencodeRun); codex rides stdin behind `-` (codexHeadless)
+	// Only opencode puts the prompt in argv (opencodeRun); codex rides stdin behind `-` (codexHeadless)
 	// and gemini rides agy's stdin stream-json (RunAgy/agyStdin) — neither is bound by MAX_ARG_STRLEN.
 	if v.name == "opencode" && len(p.prompt) > MaxPromptBytes {
 		return p, &Error{Kind: KindFatal, Agent: v.name, Err: errPromptTooLarge(len(p.prompt))}
 	}
-	h := vendors.Headless{Prompt: p.prompt, Effort: req.Effort, SessionID: req.SessionID, Tools: req.Tools,
+	h := Headless{Prompt: p.prompt, Effort: req.Effort, SessionID: req.SessionID, Tools: req.Tools,
 		Autonomous: req.Autonomous, Attach: req.Attach, NoPersist: req.NoPersist, SafeMode: req.SafeMode}
 	if v.name == "opencode" {
 		h.WorkDir = req.WorkDir // cmd.Dir alone doesn't move opencode's own cwd resolution; --dir does
 	}
 	if own {
-		p.env, p.argv, err = vendors.OwnLoginHeadless(v.name, h)
+		p.env, p.argv, err = OwnLoginHeadless(v.name, h)
 	} else {
 		ct := t
 		if v.name == "gemini" { // the gateway route lists the model agy will run, not the row's slot id
 			ct.Model = agyModel(req, t)
 		}
-		p.env, p.argv, err = vendors.ConfigureHeadless(ctx, v.name, ct, h)
+		p.env, p.argv, err = ConfigureHeadless(ctx, v.name, ct, h)
 	}
 	if err != nil {
 		return p, &Error{Kind: KindFatal, Agent: v.name, Err: err}
@@ -183,11 +182,11 @@ func (v vendorRunner) prepare(ctx context.Context, req Request) (vendorPrep, err
 // agyModel is the --model agy runs for req on t; a Databricks row gets the id its gateway mode lists.
 func agyModel(req Request, t providers.Target) string {
 	if req.Model == "" || t.Model == "" { // the slot table's opus id isn't agy's own: GEMINI_MODEL pin, else flash-high
-		t.Model = vendors.AgyDefaultModel
+		t.Model = AgyDefaultModel
 	}
 	gt, _ := providers.ResolveAgentModel(providers.ModelAsk{Agent: "gemini", Flag: req.Model, Target: t, Applied: true})
 	if providers.GeminiGatewayRow(t.Provider) {
-		_, arg := vendors.AgyGatewayArg(gt.Model)
+		_, arg := AgyGatewayArg(gt.Model)
 		return arg
 	}
 	return gt.Model
@@ -218,7 +217,7 @@ func (v vendorRunner) Run(ctx context.Context, req Request, sink Sink) (Result, 
 		}
 		return res, err
 	}
-	spec, _ := vendors.Lookup(v.name)
+	spec, _ := LookupSpec(v.name)
 	bin, err := paths.VendorBin(spec.Binary)
 	if err != nil {
 		return res, &Error{Kind: KindFatal, Agent: v.name, Err: err}
@@ -233,10 +232,10 @@ func (v vendorRunner) Run(ctx context.Context, req Request, sink Sink) (Result, 
 	if v.name == "codex" {
 		var extra []string
 		if req.SystemPrompt != "" {
-			extra = append(extra, "-c", "instructions="+vendors.TOMLQuote(req.SystemPrompt))
+			extra = append(extra, "-c", "instructions="+TOMLQuote(req.SystemPrompt))
 		}
 		if req.AppendSystemPrompt != "" {
-			extra = append(extra, "-c", "developer_instructions="+vendors.TOMLQuote(req.AppendSystemPrompt))
+			extra = append(extra, "-c", "developer_instructions="+TOMLQuote(req.AppendSystemPrompt))
 		}
 		if req.OutputSchema != "" {
 			file, err := codexSchemaFile(req.OutputSchema)

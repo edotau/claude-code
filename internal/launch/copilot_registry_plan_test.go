@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/agent/vendors"
+	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 )
 
@@ -32,13 +32,13 @@ func registryFixture(t *testing.T) {
 	t.Setenv("TEST_GW_KEY", "dbx-key")
 	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
 	pathstest.FakeVendor(t, "copilot", "exit 0")
-	vendors.StubRouterForTest(t, "http://127.0.0.1:4000") // the mint still reaches the real, spawn-refusing Ensure
+	agent.StubRouterForTest(t, "http://127.0.0.1:4000") // the mint still reaches the real, spawn-refusing Ensure
 }
 
 // The registry route fails closed: a mint failure and an unregistered --model each error out, and neither
 // falls through to the plain copilot CLI (which would run on its own GitHub login).
 func TestCopilotRegistryPlanFailsClosed(t *testing.T) {
-	t.Cleanup(vendors.WithCopilotOS("linux")) // the macOS refusal has its own test
+	t.Cleanup(agent.WithCopilotOS("linux")) // the macOS refusal has its own test
 	for _, tc := range []struct {
 		name string
 		args []string
@@ -66,7 +66,7 @@ func TestCopilotRegistryPlanFailsClosed(t *testing.T) {
 // Whatever the route, an inherited COPILOT_PROVIDERS_CONFIG and the GitHub token vars never reach the child:
 // the own-login (plain) route scrubs them, and the registry route's Unset list names every one.
 func TestCopilotChildEnvScrubbed(t *testing.T) {
-	t.Cleanup(vendors.WithCopilotOS("linux")) // the macOS refusal has its own test
+	t.Cleanup(agent.WithCopilotOS("linux")) // the macOS refusal has its own test
 	hermetic(t, "")
 	inherited := []string{"COPILOT_PROVIDERS_CONFIG=/tmp/stale.json", "COPILOT_PROVIDER_BASE_URL=http://x",
 		"GH_TOKEN=gh-secret", "GITHUB_TOKEN=gh-secret", "COPILOT_GITHUB_TOKEN=gh-secret", "KEEP_ME=1"}
@@ -97,7 +97,7 @@ func TestCopilotChildEnvScrubbed(t *testing.T) {
 	})
 
 	t.Run("registry route", func(t *testing.T) {
-		ph, err := vendors.PrepareCopilotHome(true)
+		ph, err := agent.PrepareCopilotHome(true)
 		if err != nil {
 			t.Fatal(err)
 		}

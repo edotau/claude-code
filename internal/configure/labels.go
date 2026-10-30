@@ -6,7 +6,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/edotau/claude-code/internal/agent/vendors"
+	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
 )
@@ -89,7 +89,7 @@ func rawPlanID(d *dialog, name string, st agentState) string {
 	case "claude":
 		return claudeRateTier()
 	case "codex":
-		return vendors.CodexPlan()
+		return agent.CodexPlan()
 	case "copilot":
 		return copilotRawPlan()
 	}

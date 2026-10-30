@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/edotau/claude-code/internal/agent/vendors"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc/inflight"
@@ -83,7 +82,7 @@ func RunGemini(ctx context.Context, o GeminiOptions, stream, log io.Writer) (Res
 		if _, lookErr := paths.VendorBin("agy"); lookErr != nil {
 			return Result{}, fmt.Errorf("gemini bridge: %w", lookErr)
 		}
-		if !vendors.GeminiLoginPresent() {
+		if !GeminiLoginPresent() {
 			return Result{}, errors.New("gemini bridge: agy is not signed in; run `agy`, or pass --provider")
 		}
 	}
@@ -266,11 +265,11 @@ func compactRecordPrompt(task string, ctxFiles Context) string {
 	return out
 }
 
-// geminiAgyModel is the named (flag or process env) model for agy, else the GEMINI_MODEL pin, else vendors.AgyDefaultModel.
+// geminiAgyModel is the named (flag or process env) model for agy, else the GEMINI_MODEL pin, else AgyDefaultModel.
 func geminiAgyModel(reg *providers.Registry, sel providers.Selection, p *providers.Provider, named string) string {
 	if model := ResolveModel(named, ModelEnvKeys, ""); model != "" {
 		return resolvedModelID(reg, sel, p, model)
 	}
-	t, _ := providers.ResolveAgentModel(providers.ModelAsk{Agent: "gemini", Target: providers.Target{Provider: p, Model: vendors.AgyDefaultModel}})
+	t, _ := providers.ResolveAgentModel(providers.ModelAsk{Agent: "gemini", Target: providers.Target{Provider: p, Model: AgyDefaultModel}})
 	return t.Model
 }
