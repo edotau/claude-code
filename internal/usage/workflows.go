@@ -99,7 +99,7 @@ func workflowRunDirsForScope(claudeDir, session string, days int) ([]string, err
 		if err != nil {
 			return nil, fmt.Errorf("glob %s: %w", pattern, err)
 		}
-		return keepDirs(matches), nil
+		return transcript.KeepDirs(matches), nil
 	}
 	if days <= 0 {
 		days = 1
@@ -110,52 +110,15 @@ func workflowRunDirsForScope(claudeDir, session string, days int) ([]string, err
 	}
 	var dirs []string
 	for _, dir := range sessionDirs {
-		dirs = append(dirs, WorkflowRunDirs(dir)...)
+		dirs = append(dirs, transcript.WorkflowRunDirs(dir)...)
 	}
 	return dirs, nil
-}
-
-// WorkflowPhaseFromMeta reads one agent transcript's sibling meta's workflowPhase (exported for internal/agent).
-func WorkflowPhaseFromMeta(transcriptPath string) string {
-	return workflowPhaseFromMeta(transcriptPath, io.Discard)
-}
-
-// WorkflowRunDirs lists one session's subagents/workflows/<runId> dirs (exported for internal/agent).
-func WorkflowRunDirs(sessionDir string) []string {
-	matches, err := filepath.Glob(filepath.Join(sessionDir, "subagents", "workflows", "*"))
-	if err != nil {
-		return nil
-	}
-	return keepDirs(matches)
-}
-
-// keepDirs filters a glob result down to directories, sorted.
-func keepDirs(matches []string) []string {
-	var dirs []string
-	for _, m := range matches {
-		if info, err := os.Stat(m); err == nil && info.IsDir() {
-			dirs = append(dirs, m)
-		}
-	}
-	slices.Sort(dirs)
-	return dirs
-}
-
-// WorkflowAgentFiles lists one run dir's agent transcripts (exported for internal/agent); the agent-*.jsonl shape keeps the sibling
-// *.meta.json sidecars out of the token scan.
-func WorkflowAgentFiles(runDir string) []string {
-	matches, err := filepath.Glob(filepath.Join(runDir, "agent-*.jsonl"))
-	if err != nil {
-		return nil
-	}
-	slices.Sort(matches)
-	return matches
 }
 
 // loadWorkflowRun folds every agent transcript in one run dir into phase rows, returning the run and
 // the number of transcripts scanned (nil when the dir holds none).
 func loadWorkflowRun(runDir string, errw io.Writer) (*workflowRun, int) {
-	files := WorkflowAgentFiles(runDir)
+	files := transcript.WorkflowAgentFiles(runDir)
 	if len(files) == 0 {
 		return nil, 0
 	}
@@ -176,7 +139,7 @@ func loadWorkflowRun(runDir string, errw io.Writer) (*workflowRun, int) {
 			continue
 		}
 		scanned++
-		phase := workflowPhaseFromMeta(f, errw)
+		phase := transcript.WorkflowPhaseFromMeta(f, errw)
 		if phase == "" {
 			phase = "(none)"
 		}
@@ -333,23 +296,6 @@ func phaseBefore(a, b *workflowPhaseRow) bool {
 		return a.first.Before(b.first)
 	}
 	return a.phase < b.phase
-}
-
-// workflowPhaseFromMeta reads the sibling agent-*.meta.json's workflowPhase; plenty of real metas
-// carry none, so "" is a normal answer routed to `(none)` .
-func workflowPhaseFromMeta(transcriptPath string, errw io.Writer) string {
-	raw, err := os.ReadFile(strings.TrimSuffix(transcriptPath, ".jsonl") + ".meta.json")
-	if err != nil {
-		return ""
-	}
-	var meta struct {
-		WorkflowPhase string `json:"workflowPhase"`
-	}
-	if err := json.Unmarshal(raw, &meta); err != nil {
-		fmt.Fprintf(errw, "usage: warning: skipping meta for %s: %v\n", transcriptPath, err)
-		return ""
-	}
-	return meta.WorkflowPhase
 }
 
 // workflowNameForRun derives the workflow name from the sibling script <session>/workflows/scripts/

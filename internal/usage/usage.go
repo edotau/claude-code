@@ -216,8 +216,8 @@ func usageFilesWithinDays(claudeDir string, days int) ([]string, error) {
 		if globErr == nil {
 			files = append(files, matches...)
 		}
-		for _, run := range WorkflowRunDirs(dir) {
-			files = append(files, WorkflowAgentFiles(run)...)
+		for _, run := range transcript.WorkflowRunDirs(dir) {
+			files = append(files, transcript.WorkflowAgentFiles(run)...)
 		}
 	}
 	return dedupeFiles(files), nil
