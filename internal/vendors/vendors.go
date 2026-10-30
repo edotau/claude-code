@@ -110,6 +110,9 @@ func ResolveTarget(reg *providers.Registry, name string, sel providers.Selection
 			return providers.Target{}, "", errors.New(ri.Reason)
 		}
 	}
+	if name == "gemini" && GeminiGatewayRow(t.Provider) { // Databricks only on a GEMINI_PROFILE pin, never silently
+		return providers.Target{}, "", errors.New("gemini: agy needs a Google login (agy auth login) or a GEMINI_PROFILE pin")
+	}
 	return t, "", nil
 }
 
