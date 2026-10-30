@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/ansi"
 )
 
@@ -38,7 +39,7 @@ func computeColumnWidths(tree *Tree) columnWidths {
 	for _, s := range tree.Sessions {
 		c.sessStatus = max(c.sessStatus, len(sessionStatusText(s)))
 		if s.Name != "" {
-			c.sessLabel = max(c.sessLabel, 8, min(runeLen(s.Name), maxSessionLabel))
+			c.sessLabel = max(c.sessLabel, 8, min(textutil.RuneLen(s.Name), maxSessionLabel))
 		}
 		for _, sub := range s.Subagents {
 			grow(sub)
@@ -145,11 +146,11 @@ func sessionLabel(s Session, width int) string {
 	}
 	if s.Name != "" {
 		label = s.Name
-		if runeLen(label) > width {
+		if textutil.RuneLen(label) > width {
 			label = string([]rune(label)[:width-1]) + "…"
 		}
 	}
-	return label + strings.Repeat(" ", width-runeLen(label))
+	return label + strings.Repeat(" ", width-textutil.RuneLen(label))
 }
 
 // sessionStatusText shows the CLI's own idle|busy|waiting for a live session, else the transcript status.
@@ -257,13 +258,13 @@ func fitRow(prefix, tail, tool string, width int) string {
 		toolPart = "  tool=" + tool
 	}
 	line := joinNonEmpty(prefix, tail) + toolPart
-	if runeLen(line) <= width {
+	if textutil.RuneLen(line) <= width {
 		return line
 	}
 	// Why: the description outranks the last tool, so the tool segment goes before the description shrinks.
 	line = joinNonEmpty(prefix, tail)
-	if runeLen(line) > width && tail != "" {
-		tail = shrink(tail, runeLen(line)-width)
+	if textutil.RuneLen(line) > width && tail != "" {
+		tail = shrink(tail, textutil.RuneLen(line)-width)
 		line = joinNonEmpty(prefix, tail)
 	}
 	return clip(line, width)
@@ -288,15 +289,7 @@ func shrink(s string, n int) string {
 }
 
 // clip hard-cuts s to width runes, no ellipsis (used only on the already-shrunk fallback line).
-func clip(s string, width int) string {
-	r := []rune(s)
-	if len(r) <= width {
-		return s
-	}
-	return string(r[:width])
-}
-
-func runeLen(s string) int { return len([]rune(s)) }
+func clip(s string, width int) string { return textutil.TruncateRunes(s, width) }
 
 // tokenCompact renders in/out tokens as "12.3k/4.1k" style, zero-padded short form.
 func tokenCompact(t Tokens) string {

@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/hooks/hookspec"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // Exit codes per the Claude Code hook contract.
@@ -246,9 +247,7 @@ func runDirect(name string, stdin io.Reader, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, res.Reason)
 		return ExitBlock
 	}
-	if r := []rune(res.Context); len(r) > contextCapChars {
-		res.Context = string(r[:contextCapChars]) + "…"
-	}
+	res.Context = textutil.CapRunes(res.Context, contextCapChars, "…")
 	if !bareStdout[name] {
 		return Emit(in.Vendor(), eventOf(name), res, stdout, stderr)
 	}

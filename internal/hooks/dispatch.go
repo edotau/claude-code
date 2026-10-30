@@ -12,6 +12,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/hooks/hookspec"
 	"github.com/edotau/claude-code/internal/settings"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // Decision is a hook's verdict on a tool call; the strictest across groups wins.
@@ -244,9 +245,5 @@ func drain(wg *sync.WaitGroup, longest time.Duration, log io.Writer) {
 
 // capContext trims merged context to contextCapChars, cutting the later blocks first.
 func capContext(s string) string {
-	r := []rune(s)
-	if len(r) <= contextCapChars {
-		return s
-	}
-	return string(r[:contextCapChars]) + "…truncated"
+	return textutil.CapRunes(s, contextCapChars, "…truncated")
 }

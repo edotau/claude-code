@@ -5,8 +5,8 @@ import (
 	"os"
 	"strings"
 	"unicode"
-	"unicode/utf8"
 
+	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/ansi"
 )
 
@@ -187,14 +187,12 @@ func listFooter(spec ListSpec) string {
 // line is one frame line: plain (for wrap counting) and styled (what the terminal gets).
 type line struct{ plain, styled string }
 
-func runeLen(s string) int { return utf8.RuneCountInString(s) }
-
 // oneLine folds newlines, tabs and carriage returns to a space so a row is one terminal row, as countLines assumes.
 func oneLine(s string) string {
 	return strings.Join(strings.FieldsFunc(s, func(r rune) bool { return r == '\n' || r == '\r' || r == '\t' }), " ")
 }
 
-func pad(s string, w int) string { return s + strings.Repeat(" ", max(0, w-runeLen(s))) }
+func pad(s string, w int) string { return s + strings.Repeat(" ", max(0, w-textutil.RuneLen(s))) }
 
 // listLines builds the frame: title, Search line, grouped rows (windowed to fit h-1 lines at cols), blank, footer.
 func listLines(s listState, color bool, cols, h int) []line {
@@ -209,7 +207,7 @@ func listLines(s listState, color bool, cols, h int) []line {
 	lw, dw := 0, 0 // column widths over every row, so filtering never shifts the columns
 	hasSec := false
 	for _, r := range s.spec.Rows {
-		lw, dw = max(lw, runeLen(oneLine(r.Label))), max(dw, runeLen(oneLine(r.Detail)))
+		lw, dw = max(lw, textutil.RuneLen(oneLine(r.Label))), max(dw, textutil.RuneLen(oneLine(r.Detail)))
 		hasSec = hasSec || r.Section != ""
 	}
 	at := -1 // body index of the cursor row
@@ -264,7 +262,7 @@ func listLines(s listState, color bool, cols, h int) []line {
 func countLines(ls []line, cols int) int {
 	n := 0
 	for _, l := range ls {
-		n += wrappedLines(runeLen(l.plain), cols)
+		n += wrappedLines(textutil.RuneLen(l.plain), cols)
 	}
 	return n
 }
