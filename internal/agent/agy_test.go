@@ -160,3 +160,27 @@ func TestAgyArgvDebugFile(t *testing.T) {
 		t.Fatalf("argv = %v", argv)
 	}
 }
+
+// TestParseAgyStreamPartial: a SUCCESS turn that ends on a backgrounded command or with no answer is partial.
+func TestParseAgyStreamPartial(t *testing.T) {
+	ok := `{"event":"result","result":{"status":"SUCCESS","response":""}}`
+	step := func(typ, state string) string {
+		return `{"event":"step_update","step_update":{"step_type":"` + typ + `","state":"` + state + `"}}` + "\n"
+	}
+	text := `{"event":"step_update","step_update":{"step_type":"agent_response","text_delta":"waiting"}}` + "\n"
+	for name, stream := range map[string]string{
+		"open command": text + step("run_command", "ACTIVE") + ok,
+		"empty answer": step("user_input", "DONE") + ok,
+	} {
+		res, err := parseAgyStream(strings.NewReader(stream), NewTextSink(&strings.Builder{}), nil)
+		var e *Error
+		if !errors.As(err, &e) || !e.Progressed || statusOf(e) != StatusPartial {
+			t.Errorf("%s: err = %v, want a partial-status error", name, err)
+		}
+		_ = res
+	}
+	done := text + step("run_command", "DONE") + `{"event":"step_update","step_update":{"step_type":"agent_response","text_delta":" done"}}` + "\n" + ok
+	if _, err := parseAgyStream(strings.NewReader(done), NewTextSink(&strings.Builder{}), nil); err != nil {
+		t.Errorf("finished command then answer: err = %v, want nil", err)
+	}
+}

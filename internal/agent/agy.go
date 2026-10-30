@@ -92,6 +92,7 @@ type agyEvent struct {
 	ConvID     string `json:"conversation_id"` // init event only
 	StepUpdate struct {
 		StepType  string `json:"step_type"`
+		State     string `json:"state"`
 		TextDelta string `json:"text_delta"`
 	} `json:"step_update"`
 	Result struct {
@@ -133,6 +134,7 @@ func parseAgyEvents(dec *json.Decoder, sink Sink, once bool, lg eventLog) (res R
 	}
 	var response string
 	var sawResult bool
+	var openStep string // the last non-response step still running (a backgrounded command), else ""
 	for {
 		var ev agyEvent
 		if err := dec.Decode(&ev); errors.Is(err, io.EOF) {
@@ -148,9 +150,16 @@ func parseAgyEvents(dec *json.Decoder, sink Sink, once bool, lg eventLog) (res R
 		case "init":
 			res.SessionID = ev.ConvID
 		case "step_update":
+			if t := ev.StepUpdate.StepType; t != "agent_response" && t != "user_input" {
+				openStep = ""
+				if ev.StepUpdate.State != "DONE" {
+					openStep = t
+				}
+			}
 			if ev.StepUpdate.StepType != "agent_response" || ev.StepUpdate.TextDelta == "" {
 				continue
 			}
+			openStep = ""
 			if err := sink.Emit(Event{Type: EventText, Text: ev.StepUpdate.TextDelta}); err != nil {
 				return res, err
 			}
@@ -171,7 +180,7 @@ func parseAgyEvents(dec *json.Decoder, sink Sink, once bool, lg eventLog) (res R
 			}
 			lg.emit("result", cmp.Or(response, answer.String()))
 			if once {
-				return finishAgyTurn(res, sink, &answer, response, flush)
+				return finishAgyTurn(res, sink, &answer, response, flush, openStep, once)
 			}
 		}
 	}
@@ -180,12 +189,12 @@ func parseAgyEvents(dec *json.Decoder, sink Sink, once bool, lg eventLog) (res R
 		res.Answer = strings.TrimSpace(answer.String())
 		return res, errors.New("agy: stream ended without a result event")
 	}
-	return finishAgyTurn(res, sink, &answer, response, flush)
+	return finishAgyTurn(res, sink, &answer, response, flush, openStep, once)
 }
 
 // finishAgyTurn flushes the pending log line and sets the answer; a run whose text arrived only in
 // result.response (no agent_response deltas) still answers.
-func finishAgyTurn(res Result, sink Sink, answer *strings.Builder, response string, flush func()) (Result, error) {
+func finishAgyTurn(res Result, sink Sink, answer *strings.Builder, response string, flush func(), openStep string, once bool) (Result, error) {
 	flush()
 	if answer.Len() == 0 && response != "" {
 		if err := sink.Emit(Event{Type: EventText, Text: response}); err != nil {
@@ -194,6 +203,13 @@ func finishAgyTurn(res Result, sink Sink, answer *strings.Builder, response stri
 		answer.WriteString(response)
 	}
 	res.Answer = strings.TrimSpace(answer.String())
+	if !once && (res.Answer == "" || openStep != "") {
+		why := "empty answer"
+		if openStep != "" {
+			why = "turn ended with an unfinished " + openStep + " step"
+		}
+		return res, &Error{Kind: KindFatal, Agent: "gemini", Progressed: true, Err: errors.New("agy: partial result: " + why)}
+	}
 	return res, nil
 }
 

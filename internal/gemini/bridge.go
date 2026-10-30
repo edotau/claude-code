@@ -1,6 +1,7 @@
 package gemini
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -63,10 +64,13 @@ func Run(ctx context.Context, o Options, stream, log io.Writer) (agent.Result, e
 	if o.Index {
 		task += "\n\n" + IndexPrompt(ctxFiles)
 	}
-	prompt := BuildPrompt(task, ctxFiles)
+	prompt, ctxFiles, dropped := FitPrompt(task, ctxFiles, PromptCap)
 	logContextStats(log, ctxFiles)
 	if w := CoverageWarning(ctxFiles); w != "" {
 		fmt.Fprintln(stream, w)
+	}
+	if len(dropped) > 0 {
+		fmt.Fprintf(stream, "bridge: prompt over %d KB; left out whole files: %s\n", PromptCap/1024, strings.Join(dropped, ", "))
 	}
 
 	useAgy := o.Provider == "" // the default runs on agy's Google sign-in; --provider picks an API-key provider
@@ -119,6 +123,7 @@ func Run(ctx context.Context, o Options, stream, log io.Writer) (agent.Result, e
 					res = out
 					return agent.Classify("gemini", err, cw.n > 0)
 				})
+				res.Provider, res.Model = cmp.Or(res.Provider, "agy"), cmp.Or(res.Model, model)
 				if aerr != nil {
 					return res, aerr
 				}

@@ -6,13 +6,48 @@ import (
 	"strings"
 )
 
+// PromptCap bounds the whole rendered prompt (task, inventory, tags), not just file bodies; over it agy cuts the tail.
+const PromptCap = DefaultTotalBytes
+
+// FitPrompt renders the prompt, moving whole trailing files to Skipped ("prompt-cap") until it fits limit.
+// It returns the prompt, the possibly reduced Context and the paths left out.
+func FitPrompt(task string, ctx Context, limit int) (string, Context, []string) {
+	var dropped []string
+	for {
+		prompt := BuildPrompt(task, ctx)
+		excess := len(prompt) - limit
+		if excess <= 0 || len(ctx.Included) == 0 {
+			return prompt, ctx, dropped
+		}
+		inc := append([]IncludedFile(nil), ctx.Included...)
+		skipped := append([]SkippedFile(nil), ctx.Skipped...)
+		for freed := 0; freed < excess && len(inc) > 0; {
+			f := inc[len(inc)-1]
+			inc = inc[:len(inc)-1]
+			skipped = append(skipped, SkippedFile{f.Path, "prompt-cap"})
+			dropped = append(dropped, f.Path)
+			freed += len(promptBlock(f)) + 2 + len(inventoryLine(f)) // its block, separator and inventory line
+		}
+		ctx.Included, ctx.Skipped = inc, skipped
+	}
+}
+
+func inventoryLine(f IncludedFile) string {
+	return fmt.Sprintf("- %s | %s | %d bytes | truncated=%t\n", f.Path, f.MediaType, f.Bytes, f.Truncated)
+}
+
+func promptBlock(f IncludedFile) string {
+	return fmt.Sprintf("<file path=%q media_type=%q truncated=%q>%s</file>",
+		f.Path, f.MediaType, strconv.FormatBool(f.Truncated), f.Content)
+}
+
 // BuildPrompt renders the context inventory + inline files + task into the bridge's prompt template.
 func BuildPrompt(task string, ctx Context) string {
 	var inv strings.Builder
 	if len(ctx.Included) > 0 {
 		inv.WriteString("Included files:\n")
 		for _, f := range ctx.Included {
-			fmt.Fprintf(&inv, "- %s | %s | %d bytes | truncated=%t\n", f.Path, f.MediaType, f.Bytes, f.Truncated)
+			inv.WriteString(inventoryLine(f))
 		}
 	} else {
 		inv.WriteString("Included files: none\n")
@@ -32,8 +67,7 @@ func BuildPrompt(task string, ctx Context) string {
 			if i > 0 {
 				blocks.WriteString("\n\n")
 			}
-			fmt.Fprintf(&blocks, "<file path=%q media_type=%q truncated=%q>%s</file>",
-				f.Path, f.MediaType, strconv.FormatBool(f.Truncated), f.Content)
+			blocks.WriteString(promptBlock(f))
 		}
 	}
 
