@@ -77,15 +77,18 @@ var fetchQuotas = func() []quota {
 	defer cancel()
 	agyCtx, agyCancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer agyCancel()
-	var an, gh, oa, ag []quota
+	budgetCtx, budgetCancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer budgetCancel()
+	var an, gh, oa, ag, bud []quota
 	var wg sync.WaitGroup
-	wg.Add(4)
+	wg.Add(5)
+	go func() { defer wg.Done(); bud = sessionBudgetQuotas(budgetCtx) }()
 	go func() { defer wg.Done(); an = claudeQuotas(ctx) }()
 	go func() { defer wg.Done(); gh = githubQuotas(ctx) }()
 	go func() { defer wg.Done(); oa = openaiQuotas(ctx) }()
 	go func() { defer wg.Done(); ag = antigravityQuotas(agyCtx) }()
 	wg.Wait()
-	return append(append(append(append(an, gh...), oa...), ag...), sessionBudgetQuotas(ctx)...)
+	return append(append(append(append(an, gh...), oa...), ag...), bud...)
 }
 
 // ghRun runs gh with extra env; stdout only, so gh's stderr chatter never lands in a parse.
