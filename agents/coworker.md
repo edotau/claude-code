@@ -36,6 +36,7 @@ explore` for a code + web brief, `status|result|tail [-f]|cancel <job>` for a ba
 `--format json` (the envelope carries `answer`, `status`, `model`, `fallback`).
 `copilot` and `opencode` dispatches pass `--model byok` (the router picks a rare Databricks model; edit the pool with
 `claude-code vault edit`, key `byok-models`) unless the brief names a model.
+A `Profile: <p>` line adds `--profile <p>` to every `ask` (the hook prepends the exact `Run:` line); never set host or provider.
 Pick and fallback: `skills/subagent-workflows/references/cost-routing.md`.
 
 ## Hands off to

@@ -64,7 +64,14 @@ func agentEffortResult(in *Input) Result {
 	}
 
 	note, systemMessage := pinModel(in, updated, task)
-	if !explicitModel(in) {
+	profileNote, deny := applyProfile(updated, promptField, task)
+	if deny != nil {
+		return *deny
+	}
+	if profileNote != "" {
+		note, changed = strings.TrimSpace(note+" "+profileNote), true
+	}
+	if !explicitModel(in) && briefProfile(task) == "" {
 		base, _ := updated["model"].(string)
 		if base == "" {
 			base = rosterModel(in.nested("tool_input", "subagent_type"))
@@ -130,25 +137,19 @@ var modeCompareRe = regexp.MustCompile(`(?im)^\s*Mode:\s*compare\b`)
 // agentLabel is the "a → b" (relay) or "a, b" (`Mode: compare`) label the `Agent:` line earns, or "" when there is none.
 func agentLabel(st, task string) string {
 	m := agentLineRe.FindStringSubmatch(task)
-	if m == nil {
-		return ""
-	}
-	line := strings.ToLower(m[1])
-	if strings.Contains(line, "in-context") {
+	if m == nil && briefProfile(task) == "" {
 		return ""
 	}
 	var names []string
-	seen := map[string]bool{}
-	for _, w := range agentNameRe.FindAllString(line, -1) {
-		if labelAgents[w] && w != st && !seen[w] {
-			seen[w] = true
+	for _, w := range briefAgents(task) {
+		if w != st {
 			names = append(names, w)
 		}
 	}
 	if modeCompareRe.MatchString(task) { // a compare fans out in parallel: names, not a chain
-		return strings.Join(names, ", ")
+		return profileSuffix(strings.Join(names, ", "), task)
 	}
-	return strings.Join(names, " → ")
+	return profileSuffix(strings.Join(names, " → "), task)
 }
 
 // lowerFirst lowercases desc's first letter unless its first word looks like an acronym or identifier.
