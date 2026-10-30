@@ -105,6 +105,25 @@ func (b *pumpBuf) Read(p []byte) (int, error) {
 	return n, nil
 }
 
+// AcquireLiveSlot takes one of MaxLiveSessions flock'd slot files; the kernel frees it when the holder dies, and two
+// contenders for the last slot cannot both win. The returned func releases it.
+func AcquireLiveSlot() (func(), error) {
+	if err := os.MkdirAll(DispatchDir(), 0o700); err != nil {
+		return nil, err
+	}
+	for i := range MaxLiveSessions {
+		f, err := os.OpenFile(filepath.Join(DispatchDir(), fmt.Sprintf("live-slot-%d", i)), os.O_CREATE|os.O_RDWR, 0o600)
+		if err != nil {
+			return nil, err
+		}
+		if tryLockFile(f) {
+			return func() { _ = f.Close() }, nil
+		}
+		_ = f.Close()
+	}
+	return nil, fmt.Errorf("%d live sessions already running (max %d): agents cancel one first", MaxLiveSessions, MaxLiveSessions)
+}
+
 // liveSession is the holder's state: one claude child, its stdin, and one decoder over its stdout.
 type liveSession struct {
 	rec     *Record
@@ -124,9 +143,11 @@ type liveSession struct {
 // rec.Request.Timeout is the idle limit; the record is finalized on the way out.
 func ServeLive(ctx context.Context, rec *Record, notify func(string)) (err error) {
 	req := rec.Request
-	if err := CheckLiveCap(rec.ID); err != nil {
+	release, err := AcquireLiveSlot()
+	if err != nil {
 		return err
 	}
+	defer release()
 	if err := (claudeRunner{}).Available(); err != nil {
 		return err
 	}

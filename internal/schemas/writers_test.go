@@ -40,6 +40,7 @@ var writers = map[string]string{
 	"internal/agent/dispatchlog.go:claimRecord":                    unversioned("claim: the running record, linked in whole"),
 	"internal/agent/dispatchlog.go:openLocked":                     unversioned("log: per-job dispatch log, humans only"),
 	"internal/agent/eventlog.go:NewEventLog":                       "dispatch-events",
+	"internal/agent/live.go:AcquireLiveSlot":                       unversioned("lock: live-session slot file, flock only, no content"),
 	"internal/agent/handoff.go:createExclusive":                    unversioned("foreign: handoff markdown in the repo"),
 	"internal/audit/audit.go:Log":                                  "audit",
 	"internal/cli/complete_domains.go:writeDispatchCache":          "tailscale-machines",
