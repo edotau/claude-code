@@ -11,22 +11,22 @@ import (
 )
 
 func init() {
-	processesIn = processesInDarwin
+	processesIn = scanIn
+	scanProcs = scanProcsDarwin
 	parentOf = parentOfDarwin
 	commName = commOfDarwin
 }
 
-// processesInDarwin shells out to lsof (stdlib os/exec only, no cgo) since macOS has no /proc. The
-// -F fields are p(id), c(omm), n(ame); lsof exits non-zero when nothing matches -d cwd, which is not
-// an error here, so only an exec failure with no output is treated as one.
-func processesInDarwin(dir string) ([]Proc, error) {
+// scanProcsDarwin shells out to lsof once (stdlib os/exec only, no cgo) since macOS has no /proc. The -F fields
+// are p(id), c(omm), n(ame); lsof exits non-zero when nothing matches -d cwd, so only an exec failure is an error.
+func scanProcsDarwin() ([]procCwd, error) {
 	out, err := exec.Command("lsof", "-a", "-d", "cwd", "-Fpcn").Output()
 	if err != nil {
 		if _, ok := err.(*exec.ExitError); !ok {
 			return nil, err
 		}
 	}
-	var procs []Proc
+	var procs []procCwd
 	var pid int
 	var comm string
 	scanner := bufio.NewScanner(strings.NewReader(string(out)))
@@ -42,9 +42,7 @@ func processesInDarwin(dir string) ([]Proc, error) {
 		case 'c':
 			comm = line[1:]
 		case 'n':
-			if within(line[1:], dir) {
-				procs = append(procs, Proc{PID: pid, Comm: comm})
-			}
+			procs = append(procs, procCwd{PID: pid, Cwd: line[1:], Comm: comm})
 		}
 	}
 	return procs, scanner.Err()

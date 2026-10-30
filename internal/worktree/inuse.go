@@ -100,20 +100,54 @@ func ancestry(pid int) map[int]bool {
 // agentComms are the process names that count as a live agent session in PeerAgents.
 var agentComms = map[string]bool{"claude": true, "codex": true, "copilot": true, "opencode": true, "agy": true}
 
+// procCwd is one live process and its resolved cwd; Comm is empty when the scan did not read it.
+type procCwd struct {
+	PID  int
+	Cwd  string
+	Comm string
+}
+
+// scanProcs lists every inspectable process with its cwd in one pass; each platform's init() assigns it.
+var scanProcs func() ([]procCwd, error)
+
+// filterProcs keeps the scanned processes whose cwd is dir or under it, reading a missing comm only for those.
+func filterProcs(all []procCwd, dir string) []Proc {
+	var procs []Proc
+	for _, p := range all {
+		if !within(p.Cwd, dir) {
+			continue
+		}
+		if p.Comm == "" && commName != nil {
+			p.Comm = commName(p.PID)
+		}
+		procs = append(procs, Proc{PID: p.PID, Comm: p.Comm})
+	}
+	return procs
+}
+
+// scanIn is processesIn on a platform with scanProcs: one scan, filtered to dir.
+func scanIn(dir string) ([]Proc, error) {
+	all, err := scanProcs()
+	if err != nil {
+		return nil, err
+	}
+	return filterProcs(all, dir), nil
+}
+
 // PeerAgents lists agent processes with a cwd inside checkout (not .git, not a linked worktree), excluding the
 // caller's ancestry and everything descended from an agent in it. Linked worktrees are passed in as linked.
 func PeerAgents(checkout string, linked []string) ([]Proc, error) {
-	if processesIn == nil {
+	if scanProcs == nil {
 		return nil, nil
 	}
-	procs, err := processesIn(checkout)
+	all, err := scanProcs()
 	if err != nil {
 		return nil, err
 	}
 	skip := map[int]bool{}
-	for _, dir := range append([]string{filepath.Join(checkout, ".git")}, linked...) {
-		inner, _ := processesIn(dir)
-		for _, p := range inner {
+	skipDirs := append([]string{filepath.Join(checkout, ".git")}, linked...)
+	for _, p := range all {
+		if slices.ContainsFunc(skipDirs, func(d string) bool { return within(p.Cwd, d) }) {
 			skip[p.PID] = true
 		}
 	}
@@ -125,7 +159,7 @@ func PeerAgents(checkout string, linked []string) ([]Proc, error) {
 		}
 	}
 	var out []Proc
-	for _, p := range procs {
+	for _, p := range filterProcs(all, checkout) {
 		if !agentComms[p.Comm] || skip[p.PID] || mine[p.PID] || descendsFrom(p.PID, own) || isDaemon(p.PID) {
 			continue
 		}
@@ -142,9 +176,15 @@ func isDaemon(pid int) bool {
 
 // procArgs reads a pid's command line; a seam so tests never shell out.
 var procArgs = func(pid int) (string, error) {
+	if procCmdline != nil {
+		return procCmdline(pid)
+	}
 	out, err := exec.Command("ps", "-o", "args=", "-p", strconv.Itoa(pid)).Output()
 	return string(out), err
 }
+
+// procCmdline reads a pid's command line without forking; assigned where the OS exposes it (linux /proc).
+var procCmdline func(pid int) (string, error)
 
 // commKnown reports whether pid is itself an agent process by name.
 func commKnown(pid int) bool { return commName != nil && agentComms[commName(pid)] }
