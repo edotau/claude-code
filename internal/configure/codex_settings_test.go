@@ -8,7 +8,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/generate"
 	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -167,7 +166,7 @@ func TestCodexSettingsCheckDetectsUnappliedReset(t *testing.T) {
 	if err := settings.SaveCodexOverlay(map[string]string{"model_verbosity": "low"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := generate.ApplyCodexSettings(home); err != nil {
+	if err := settings.ApplyCodexSettings(home); err != nil {
 		t.Fatal(err)
 	}
 	// A failed native reset leaves the new empty overlay saved and the old owned preference on disk.
@@ -198,7 +197,7 @@ func TestCodexSettingsCheckDetectsUnappliedReset(t *testing.T) {
 	if !bytes.Equal(nativeBefore, nativeAfter) || !bytes.Equal(vaultBefore, vaultAfter) {
 		t.Fatal("check of unapplied reset changed native config or vault")
 	}
-	if err := generate.ApplyCodexSettings(home); err != nil {
+	if err := settings.ApplyCodexSettings(home); err != nil {
 		t.Fatal(err)
 	}
 	out.Reset()

@@ -3,7 +3,6 @@ package configure
 import (
 	"maps"
 
-	"github.com/edotau/claude-code/internal/generate"
 	"github.com/edotau/claude-code/internal/settings"
 )
 
@@ -23,7 +22,7 @@ func runCodexSettings(d *dialog) bool {
 		d.printf("codex: %v\n", err)
 		return false
 	}
-	live, err := generate.ReadCodexSettings(d.o.Home)
+	live, err := settings.ReadCodexSettings(d.o.Home)
 	if err != nil {
 		d.printf("codex: %v\n", err)
 		return false
@@ -37,7 +36,7 @@ func runCodexSettings(d *dialog) bool {
 	if d.o.Interactive && !d.o.Check && !d.o.DryRun && isStdinTTY() {
 		return runCodexSettingsMenu(d, ov, live)
 	}
-	drift, err := generate.CodexSettingsDrift(d.o.Home)
+	drift, err := settings.CodexSettingsDrift(d.o.Home)
 	if err != nil {
 		d.printf("codex: %v\n", err)
 		return false
@@ -127,7 +126,7 @@ func saveCodexSettings(d *dialog, old, next map[string]string) bool {
 		d.printf("codex: %v\n", err)
 		return false
 	}
-	if err := generate.ApplyCodexSettings(d.o.Home); err != nil {
+	if err := settings.ApplyCodexSettings(d.o.Home); err != nil {
 		d.printf("codex: preferences saved; native apply failed: %v\n", err)
 		return false
 	}

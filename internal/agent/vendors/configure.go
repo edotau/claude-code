@@ -87,7 +87,7 @@ func applyLaunch(name string, env, argv []string, args bool) ([]string, []string
 	if name == "opencode" {
 		// Every opencode launch (own login, BYOK, headless) points at the tracked overlay; a failed
 		// write is best-effort — opencode still runs on its own global config without it.
-		if cfg, tui, err := settings.WriteOpencodeOverlay(); err == nil {
+		if cfg, tui, err := settings.WriteOpencodeOverlay(Router{}); err == nil {
 			env = append(env, "OPENCODE_CONFIG="+cfg, "OPENCODE_TUI_CONFIG="+tui)
 		}
 	}

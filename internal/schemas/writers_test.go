@@ -15,7 +15,6 @@ import (
 	_ "github.com/edotau/claude-code/internal/audit"
 	_ "github.com/edotau/claude-code/internal/cli"
 	_ "github.com/edotau/claude-code/internal/crossgen"
-	_ "github.com/edotau/claude-code/internal/generate"
 	_ "github.com/edotau/claude-code/internal/hooks"
 	_ "github.com/edotau/claude-code/internal/launch"
 	_ "github.com/edotau/claude-code/internal/memory"
@@ -60,12 +59,12 @@ var writers = map[string]string{
 	"internal/databricks/config.go:writeScratch":                     unversioned("foreign: temp rescue config"),
 	"internal/databricks/export.go:writeFile0600":                    unversioned("foreign: -o export output"),
 	"internal/desktop/transaction.go:atomicWrite":                    "desktop-state",
-	"internal/generate/codex_settings.go:restoreCodexConfigLocked":   unversioned("foreign: codex config.toml revert in the vendor home"),
-	"internal/generate/codex_settings.go:writeCodexConfig":           unversioned("foreign: codex config.toml in the vendor home"),
-	"internal/generate/generate.go:commitOverlayFile":                unversioned("foreign: generated vendor overlay, vendor-owned shape"),
-	"internal/generate/versions.go:backupAndWrite":                   unversioned("foreign: vendor config plus its backup"),
-	"internal/generate/versions.go:revertOne":                        unversioned("foreign: vendor config revert"),
-	"internal/generate/versions.go:writeVendorBaseline":              "vendor-baseline",
+	"internal/settings/codex_settings.go:restoreCodexConfigLocked":   unversioned("foreign: codex config.toml revert in the vendor home"),
+	"internal/settings/codex_settings.go:writeCodexConfig":           unversioned("foreign: codex config.toml in the vendor home"),
+	"internal/settings/generate.go:commitOverlayFile":                unversioned("foreign: generated vendor overlay, vendor-owned shape"),
+	"internal/settings/versions.go:backupAndWrite":                   unversioned("foreign: vendor config plus its backup"),
+	"internal/settings/versions.go:revertOne":                        unversioned("foreign: vendor config revert"),
+	"internal/settings/versions.go:writeVendorBaseline":              "vendor-baseline",
 	"internal/history/history.go:Snapshot":                           unversioned("text: session history snapshot of a transcript"),
 	"internal/hooks/checkpoint.go:contextCheckpoint":                 unversioned("marker: context-checkpoint flag file"),
 	"internal/hooks/codexaudit.go:appendCodexRoute":                  "codex-routing",

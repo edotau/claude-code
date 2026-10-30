@@ -1,9 +1,11 @@
-package generate
+package settings_test
 
 import (
 	"bytes"
 	"crypto/sha256"
 	"fmt"
+	"github.com/edotau/claude-code/internal/agent/vendors"
+	"github.com/edotau/claude-code/internal/settings"
 	"os"
 	"path/filepath"
 	"strings"
@@ -24,7 +26,7 @@ func TestCodexLifecycleTrustUsesMergedPositions(t *testing.T) {
 	if err := os.WriteFile(hooksPath, seed, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Run(Options{Home: home, Vendors: true, Agents: []string{"codex"}, Out: &bytes.Buffer{}}); err != nil {
+	if _, err := settings.Run(settings.Options{Router: vendors.Router{}, Home: home, Vendors: true, Agents: []string{"codex"}, Out: &bytes.Buffer{}}); err != nil {
 		t.Fatal(err)
 	}
 	config, err := os.ReadFile(filepath.Join(dir, "config.toml"))
@@ -46,7 +48,7 @@ func TestCodexLifecycleTrustUsesMergedPositions(t *testing.T) {
 		// Canonical identities observed in Codex 0.163.0, independent of the production digest helper.
 		identity := fmt.Sprintf(`{"event_name":%q,"hooks":[{"async":false,"command":"HARNESS_HOOK_AGENT=codex $HOME/.claude/bin/claude-code hook %s","timeout":5,"type":"command"}]}`, c.native, c.command)
 		digest := fmt.Sprintf("sha256:%x", sha256.Sum256([]byte(identity)))
-		source := codexHookSourcePath(hooksPath)
+		source := settings.CodexHookSourcePath(hooksPath)
 		want := fmt.Sprintf("[hooks.state.%q]\ntrusted_hash = %q", source+":"+c.native+":1:0", digest)
 		if !strings.Contains(string(config), want) {
 			t.Errorf("missing lifecycle trust %s in %s", want, config)
@@ -56,7 +58,7 @@ func TestCodexLifecycleTrustUsesMergedPositions(t *testing.T) {
 		}
 	}
 	unsupported := []byte(`{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"$HOME/.claude/bin/claude-code hook stop"}]}]}}`)
-	if _, err := codexTrustEntries(hooksPath, unsupported); err == nil || !strings.Contains(err.Error(), `unsupported hook event "Stop"`) {
+	if _, err := settings.CodexTrustEntries(hooksPath, unsupported); err == nil || !strings.Contains(err.Error(), `unsupported hook event "Stop"`) {
 		t.Errorf("unsupported harness event error = %v", err)
 	}
 }
@@ -68,13 +70,13 @@ func TestCodexHomeControlsConfigAndHooks(t *testing.T) {
 			t.Setenv("HOME", home)
 			codexHome := filepath.Join(t.TempDir(), "custom-codex")
 			t.Setenv("CODEX_HOME", codexHome)
-			o := Options{Vendors: true, Agents: []string{"codex"}, Out: &bytes.Buffer{}}
+			o := settings.Options{Router: vendors.Router{}, Vendors: true, Agents: []string{"codex"}, Out: &bytes.Buffer{}}
 			want, absent := codexHome, filepath.Join(home, ".codex")
 			if explicitHome {
 				o.Home = home
 				want, absent = absent, want
 			}
-			if _, err := Run(o); err != nil {
+			if _, err := settings.Run(o); err != nil {
 				t.Fatal(err)
 			}
 			for _, name := range []string{"config.toml", "hooks.json"} {
@@ -89,7 +91,7 @@ func TestCodexHomeControlsConfigAndHooks(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if !strings.Contains(string(config), codexHookSourcePath(filepath.Join(want, "hooks.json"))+":session_start:0:0") {
+			if !strings.Contains(string(config), settings.CodexHookSourcePath(filepath.Join(want, "hooks.json"))+":session_start:0:0") {
 				t.Errorf("trust source does not follow selected home: %s", config)
 			}
 		})

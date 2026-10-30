@@ -1,5 +1,5 @@
 // Package generate renders agent configs and hooks without launching a session.
-package generate
+package settings
 
 import (
 	"bytes"
@@ -14,11 +14,9 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/edotau/claude-code/internal/agent/vendors"
 	"github.com/edotau/claude-code/internal/hooks/hookspec"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/settings"
 )
 
 // DefaultAgents is every vendor generate renders when Options.Agents is empty.
@@ -26,12 +24,13 @@ var DefaultAgents = []string{"codex", "opencode", "gemini", "copilot"}
 
 // Options controls one generate pass.
 type Options struct {
-	Agents  []string  // vendors to render; default DefaultAgents
-	DryRun  bool      // print the rendered blocks; write nothing
-	Check   bool      // report drift; never writes
-	Home    string    // overrides os.UserHomeDir() for vendor config paths (tests)
-	Out     io.Writer // status lines; nil -> os.Stdout
-	Vendors bool      // force vendor-config renders even when CLAUDE_CONFIG_DIR is not the default ~/.claude
+	Agents  []string     // vendors to render; default DefaultAgents
+	DryRun  bool         // print the rendered blocks; write nothing
+	Check   bool         // report drift; never writes
+	Home    string       // overrides os.UserHomeDir() for vendor config paths (tests)
+	Out     io.Writer    // status lines; nil -> os.Stdout
+	Router  VendorRouter // vendor routing for codex/copilot/opencode renders; nil is an error there
+	Vendors bool         // force vendor-config renders even when CLAUDE_CONFIG_DIR is not the default ~/.claude
 	// Confirm asks whether to overwrite path given its lost hand-edited lines; nil means write and warn.
 	Confirm func(path string, lost []string) bool
 	// Prepare's write queue: commitFile and the JSONC retire append to it, Apply runs it.
@@ -150,9 +149,12 @@ func codexBannerSection(block string) string {
 	return "# >>> claude-code:managed:begin >>>\n" + block + "\n# <<< claude-code:managed:end <<<\n"
 }
 
-func codexProviderSection(reg *providers.Registry, sel providers.Selection, existing string, out io.Writer) (string, error) {
+func codexProviderSection(r VendorRouter, reg *providers.Registry, sel providers.Selection, existing string, out io.Writer) (string, error) {
+	if r == nil {
+		return "", errNoRouter
+	}
 	ctx := context.Background()
-	target, note, err := vendors.ResolveTarget(reg, "codex", sel, false)
+	target, note, err := r.ResolveTarget(reg, "codex", sel, false)
 	if err != nil {
 		fmt.Fprintf(out, "codex: skipped: %v\n", err)
 		return "", nil
@@ -169,7 +171,7 @@ func codexProviderSection(reg *providers.Registry, sel providers.Selection, exis
 		fmt.Fprintf(out, "codex: %s runs on codex's own login; writing approval/sandbox keys only\n", target.Provider.Name)
 		return codexBannerSection(strings.TrimRight(keys, "\n")), nil
 	}
-	_, argv, err := vendors.Configure(ctx, "codex", target, "")
+	_, argv, err := r.Configure(ctx, "codex", target, "")
 	if err != nil {
 		fmt.Fprintf(out, "codex: skipped: %v\n", err)
 		return "", nil
@@ -202,7 +204,7 @@ func codexCredStoreKey(existing string, out io.Writer) string {
 // codexPermissionKeys renders approval_policy/sandbox_mode/cli_auth_credentials_store as top-level
 // TOML keys; approval/sandbox skip when unset, a vendorconfig load error is treated as unset.
 func codexPermissionKeys(existing string, out io.Writer) string {
-	cfg, err := settings.Load()
+	cfg, err := Load()
 	if err != nil {
 		fmt.Fprintf(out, "codex: vendorconfig: %v\n", err)
 		return ""
@@ -220,7 +222,7 @@ func codexPermissionKeys(existing string, out io.Writer) string {
 }
 
 // codexBlockFromArgv rebuilds a `[model_providers.claude-code]` TOML block from the `-c key=value`
-// pairs vendors.Configure("codex", ...) returns, renaming the provider id to the fixed "claude-code".
+// pairs Router.Configure("codex", ...) returns, renaming the provider id to the fixed "claude-code".
 func codexBlockFromArgv(argv []string) (string, error) {
 	var model, tableVal, catalog string
 	for i := 0; i+1 < len(argv); i++ {
@@ -306,12 +308,12 @@ func commitFile(path string, raw, next []byte, existed bool, o Options, out io.W
 		return changed, nil
 	case !changed:
 		if label == "codex" {
-			base, err := settings.LoadCodexBaseline(path)
+			base, err := LoadCodexBaseline(path)
 			if err != nil {
 				return false, err
 			}
 			if base == nil && existed {
-				*o.staged = append(*o.staged, func() error { return settings.SaveCodexBaseline(path, next) })
+				*o.staged = append(*o.staged, func() error { return SaveCodexBaseline(path, next) })
 			}
 			fmt.Fprintf(out, "%s: %s unchanged\n", label, path)
 			return false, nil
@@ -367,7 +369,7 @@ func commitWrite(path string, raw, next []byte, existed bool, o Options, out io.
 
 // renderOpenCodeOverlay writes the tracked opencode.json/tui.json overlay templates.
 func renderOpenCodeOverlay(o Options, out io.Writer) (bool, error) {
-	cfgPath, cfgBody, tuiPath, tuiBody, err := settings.OpencodeOverlayRendered()
+	cfgPath, cfgBody, tuiPath, tuiBody, err := OpencodeOverlayRendered(o.Router)
 	if err != nil {
 		return false, fmt.Errorf("opencode: %w", err)
 	}
@@ -427,7 +429,7 @@ func reportGemini(sel providers.Selection, out io.Writer) (bool, error) {
 // renderGeminiSettings merges the spec's exact-match guard denies into agy's
 // ~/.gemini/antigravity-cli/settings.json permissions.deny, preserving every other key.
 func renderGeminiSettings(home string, o Options, out io.Writer) (bool, error) {
-	cfg, err := settings.Load()
+	cfg, err := Load()
 	if err != nil {
 		fmt.Fprintf(out, "gemini-settings: skipped: %v\n", err)
 		return false, nil
@@ -508,7 +510,10 @@ func renderCopilot(reg *providers.Registry, sel providers.Selection, home string
 	}
 	drift = drift || sd
 	ctx := context.Background()
-	target, note, err := vendors.ResolveTarget(reg, "copilot", sel, false)
+	if o.Router == nil {
+		return drift, errNoRouter
+	}
+	target, note, err := o.Router.ResolveTarget(reg, "copilot", sel, false)
 	if err != nil {
 		fmt.Fprintf(out, "copilot: skipped: %v\n", err)
 		return drift, nil
@@ -516,7 +521,7 @@ func renderCopilot(reg *providers.Registry, sel providers.Selection, home string
 	if note != "" {
 		fmt.Fprintln(out, note)
 	}
-	if _, _, err := vendors.Configure(ctx, "copilot", target, ""); err != nil {
+	if _, _, err := o.Router.Configure(ctx, "copilot", target, ""); err != nil {
 		fmt.Fprintf(out, "copilot: skipped: %v\n", err)
 		return drift, nil
 	}
@@ -527,7 +532,7 @@ func renderCopilot(reg *providers.Registry, sel providers.Selection, home string
 // renderCopilotSettings merges defaultPermissionMode from the vendor spec into ~/.copilot/settings.json,
 // keeping every other key untouched; a non-JSON existing file is skipped, never clobbered.
 func renderCopilotSettings(home string, o Options, out io.Writer) (bool, error) {
-	cfg, err := settings.Load()
+	cfg, err := Load()
 	if err != nil {
 		fmt.Fprintf(out, "copilot-settings: skipped: %v\n", err)
 		return false, nil

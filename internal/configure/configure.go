@@ -24,7 +24,6 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent/vendors"
 	"github.com/edotau/claude-code/internal/copilotsdk"
-	"github.com/edotau/claude-code/internal/generate"
 	"github.com/edotau/claude-code/internal/launch"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
@@ -32,6 +31,7 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/proxy"
 	"github.com/edotau/claude-code/internal/secrets"
+	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/ui/ansi"
 	"github.com/edotau/claude-code/internal/ui/tui"
 )
@@ -841,12 +841,12 @@ func modelsReport(d *dialog) bool {
 // --- agents ---
 
 func runAgents(d *dialog) bool {
-	agentList := generate.DefaultAgents
+	agentList := settings.DefaultAgents
 	if d.o.Vendor != "" {
 		agentList = []string{d.o.Vendor}
 	}
-	_, err := generate.Run(generate.Options{
-		Agents: agentList, DryRun: d.o.DryRun || d.o.Check, Check: d.o.Check, Home: d.o.Home, Out: d.out,
+	_, err := settings.Run(settings.Options{
+		Agents: agentList, DryRun: d.o.DryRun || d.o.Check, Check: d.o.Check, Home: d.o.Home, Out: d.out, Router: vendors.Router{},
 	})
 	if err != nil {
 		d.println(err)
