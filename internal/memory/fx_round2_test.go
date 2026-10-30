@@ -4,6 +4,7 @@ import (
 	"context"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 // An endpoint that moved to a new dimension converges: stale-dimension rows are re-embedded once, then nothing repeats.
@@ -25,6 +26,7 @@ func TestFxEmbedFollowsEndpointDimension(t *testing.T) {
 		}}
 	}
 	run := func(c *EmbedClient) int {
+		expireEmbed(t)
 		n, _, err := EmbedEntries(context.Background(), root, c)
 		if err != nil {
 			t.Fatal(err)
@@ -64,7 +66,12 @@ func TestFxStaleRunCannotRevertDimension(t *testing.T) {
 	}
 	newer := mk(2, nil)
 	old := mk(3, func() { // the old-dimension run is mid-embed when the migration finishes
-		if _, _, err := EmbedEntries(context.Background(), root, newer); err != nil {
+		cur := freshEmbedCache(newer)
+		cur.Dim, cur.DimAt = 2, time.Now().UnixNano()
+		for id, h := range currentEntryHashes(root) {
+			cur.Rows[id] = embedRow{Root: root, Hash: h, Vec: encodeVec([]float32{1, 0})}
+		}
+		if err := saveEmbedCache("fake", cur); err != nil {
 			t.Error(err)
 		}
 	})

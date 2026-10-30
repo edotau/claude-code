@@ -40,21 +40,12 @@ const (
 )
 
 var embedFormat = schemas.Register(schemas.Format{
-	Name: "memory-embeddings", Owner: "internal/memory", Kind: schemas.Cache, Version: embedCacheSchema,
-	Glob: func() string { return filepath.Join(StateDir(), embedCachePre+"*.json") },
-	New:  func() any { return &embedCacheFile{} },
-	Keep: "rebuildable cache; a version mismatch is a miss",
+	Name: "memory-embeddings", Owner: "internal/memory", Kind: schemas.Store, Version: embedCacheSchema,
+	Glob: EmbedDBPath,
+	Keep: "bbolt cache, one JSON record per profile; a version mismatch is a miss",
 })
 
 var safeProfile = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
-
-// EmbedCachePath is profile's entry-vector cache, scoped by CLAUDE_CONFIG_DIR like StateDir; "" for an unsafe name.
-func EmbedCachePath(profile string) string {
-	if !safeProfile.MatchString(profile) {
-		return ""
-	}
-	return filepath.Join(StateDir(), embedCachePre+profile+".json")
-}
 
 // embedCacheFile maps an entry id to the vector of its content; Namespace (profile|host|model) pins which
 // workspace's endpoint wrote it, since identically named endpoints on different workspaces are different models.
@@ -62,8 +53,9 @@ type embedCacheFile struct {
 	Schema    int                 `json:"schema"`
 	Namespace string              `json:"namespace"`
 	Model     string              `json:"model"`
-	Dim       int                 `json:"dim,omitempty"`    // vector dimension of the endpoint's latest response
-	DimAt     int64               `json:"dim_at,omitempty"` // start time (ns) of the run that set Dim; older runs cannot move it
+	Dim       int                 `json:"dim,omitempty"`       // vector dimension of the endpoint's latest response
+	DimAt     int64               `json:"dim_at,omitempty"`    // start time (ns) of the run that set Dim; older runs cannot move it
+	MintedAt  int64               `json:"minted_at,omitempty"` // unix ns of the last full mint; the validity lease runs from it
 	Rows      map[string]embedRow `json:"rows"`
 }
 
@@ -92,38 +84,6 @@ var routerLink = func(ctx context.Context) (base, secret string, ok bool) {
 	}
 	secret, err := proxy.ClientSecret()
 	return proxy.Base(st.Port), secret, err == nil
-}
-
-func loadEmbedCache(profile string) embedCacheFile {
-	path := EmbedCachePath(profile)
-	if path == "" {
-		return embedCacheFile{}
-	}
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		return embedCacheFile{}
-	}
-	var f embedCacheFile
-	if !schemas.DecodeOK(embedFormat, raw, &f) {
-		return embedCacheFile{}
-	}
-	return f
-}
-
-func saveEmbedCache(profile string, f embedCacheFile) error {
-	path := EmbedCachePath(profile)
-	if path == "" {
-		return fmt.Errorf("embeddings: unsafe profile name %q", profile)
-	}
-	f.Schema = embedCacheSchema
-	raw, err := json.Marshal(f)
-	if err != nil {
-		return err
-	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return err
-	}
-	return paths.AtomicWrite(path, raw, 0o600)
 }
 
 // entryEmbedText is what an entry is embedded as: its type and body, capped.
@@ -160,18 +120,92 @@ func currentEntryHashes(root string) map[string]string {
 	return out
 }
 
-// EmbedEntries embeds root's current (non-archived) entries, calling the endpoint only for new or changed content.
-// Returns how many entries it embedded now and how many are indexed in all. Concurrent runs merge their rows
-// into the cache under a file lock, so neither overwrites the other's vectors.
+// EmbedEntries mints root's current (non-archived) entries into the profile's record, calling the endpoint only for
+// new or changed content. While the record is valid it does nothing and returns ErrEmbedValid; embedded is 0 on a no-op.
 func EmbedEntries(ctx context.Context, root string, c *EmbedClient) (embedded, total int, err error) {
-	if EmbedCachePath(c.Profile) == "" {
+	return embedEntries(ctx, root, c, false)
+}
+
+// ReembedEntries is EmbedEntries' manual override: it re-embeds every row of root once the override window is open
+// (the record's last embedOverrideAt, or expired/missing) and returns ErrReembedEarly before that.
+func ReembedEntries(ctx context.Context, root string, c *EmbedClient) (embedded, total int, err error) {
+	return embedEntries(ctx, root, c, true)
+}
+
+// checkEmbedLease is nil when a mint may start on rec: expired or missing, or force inside the override window.
+func checkEmbedLease(rec embedCacheFile, now time.Time, force bool) error {
+	if force {
+		if at, open := reembedOpensAt(rec, now); !open {
+			return fmt.Errorf("%w: opens at %s", ErrReembedEarly, at.Format("15:04"))
+		}
+		return nil
+	}
+	if embedValid(rec, now) {
+		return fmt.Errorf("%w until %s", ErrEmbedValid, mintedTime(rec).Add(embedValidity).Format("15:04"))
+	}
+	return nil
+}
+
+func embedEntries(ctx context.Context, root string, c *EmbedClient, force bool) (embedded, total int, err error) {
+	if !safeEmbedProfile(c.Profile) {
 		return 0, 0, fmt.Errorf("embeddings: unsafe profile name %q", c.Profile)
 	}
-	cache := loadEmbedCache(c.Profile)
-	if cache.Namespace != c.Namespace || cache.Rows == nil {
-		cache = freshEmbedCache(c)
+	now := time.Now()
+	rec, err := readEmbedCache(c.Profile)
+	if err != nil {
+		return 0, 0, err
 	}
-	var ids, texts, hashes []string
+	if err := checkEmbedLease(rec, now, force); err != nil {
+		return 0, 0, err
+	}
+	if force || rec.Namespace != c.Namespace || rec.Rows == nil {
+		rec = freshEmbedCache(c)
+	}
+	ids, texts, hashes, total := pendingEmbeds(root, rec)
+	started := now.UnixNano()
+	if len(texts) > 0 { // one session pays the network cost at a time; the claim expires on its own
+		held, ok, err := claimEmbedMint(c.Profile, started, now)
+		if err != nil {
+			return 0, total, err
+		}
+		if !ok {
+			return 0, total, fmt.Errorf("%w until %s", ErrEmbedBusy, held.Format("15:04"))
+		}
+	}
+	run := &embedRun{c: c, root: root, force: force, fresh: map[string]embedRow{}, started: started}
+	var embedErr error
+	for i := 0; i < len(texts) && embedErr == nil; i += embedBatch { // network calls stay outside any transaction
+		j := min(i+embedBatch, len(texts))
+		vecs, err := c.Embed(ctx, texts[i:j])
+		if err == nil && len(vecs) != j-i {
+			err = fmt.Errorf("embedding endpoint returned %d vectors for %d texts", len(vecs), j-i)
+		}
+		if err != nil {
+			embedErr = err
+			break
+		}
+		for k, v := range vecs {
+			run.freshDim = len(v)
+			run.fresh[ids[i+k]] = embedRow{Root: root, Hash: hashes[i+k], Vec: encodeVec(normalize(v))}
+		}
+		embedded += j - i
+	}
+	run.current = currentEntryHashes(root)
+	stored, cerr := commitEmbedMint(c.Profile, started, func(cur embedCacheFile) embedCacheFile {
+		out := run.merge(cur)
+		if embedErr == nil { // a partial run keeps its paid-for rows but does not start the lease
+			out.MintedAt = time.Now().UnixNano()
+		}
+		return out
+	})
+	if !stored {
+		embedded = 0
+	}
+	return embedded, total, errors.Join(embedErr, cerr)
+}
+
+// pendingEmbeds lists root's live entries whose vector in cache is missing, stale or undecodable, and the live count.
+func pendingEmbeds(root string, cache embedCacheFile) (ids, texts, hashes []string, total int) {
 	live := map[string]bool{}
 	cacheDim := cacheDimOf(cache)
 	for _, h := range corpusBlocks(root) {
@@ -190,76 +224,72 @@ func EmbedEntries(ctx context.Context, root string, c *EmbedClient) (embedded, t
 		}
 		ids, texts, hashes = append(ids, e.ID), append(texts, text), append(hashes, hash)
 	}
-	fresh := map[string]embedRow{}
-	freshDim := 0
-	started := time.Now().UnixNano()
-	merge := func() error {
-		return paths.WithFileLock(EmbedCachePath(c.Profile), func() error {
-			cur := loadEmbedCache(c.Profile)
-			if cur.Namespace != c.Namespace || cur.Rows == nil {
-				cur = freshEmbedCache(c)
-			}
-			current := currentEntryHashes(root)                                 // an older run merging last must not clobber a newer vector
-			stale := freshDim > 0 && cur.Dim != freshDim && cur.DimAt > started // a newer run already moved the dimension
-			if stale {
-				fresh = nil
-			} else if freshDim > 0 && cur.Dim != freshDim { // the endpoint's dimension moved: drop vectors it cannot match
-				for id, r := range cur.Rows {
-					if v, ok := decodeVec(r.Vec); ok && len(v) > 0 && len(v) != freshDim {
-						delete(cur.Rows, id)
-					}
-				}
-				cur.Dim, cur.DimAt = freshDim, started
-			}
-			for id, row := range fresh {
-				want, ok := current[id]
-				if !ok || row.Hash != want {
-					continue
-				}
-				if old, have := cur.Rows[id]; have && old.Hash == want {
-					oldVec, oldOK := decodeVec(old.Vec)
-					newVec, newOK := decodeVec(row.Vec)
-					if oldOK && newOK && len(oldVec) == len(newVec) {
-						continue
-					}
-				}
-				cur.Rows[id] = row
-			}
-			own := 0
-			for _, r := range cur.Rows {
-				if r.Root == root {
-					own++
-				}
-			}
-			if own > embedMaxRows { // shed only this root's rows that its corpus no longer has
-				for id, r := range cur.Rows {
-					if _, ok := current[id]; r.Root == root && !ok {
-						delete(cur.Rows, id)
-					}
-				}
-			}
-			return saveEmbedCache(c.Profile, cur)
-		})
+	return ids, texts, hashes, len(live)
+}
+
+// embedRun is one mint's paid-for rows, merged into the record that is current at commit time.
+type embedRun struct {
+	c        *EmbedClient
+	root     string
+	force    bool // override: fresh rows replace the old ones even when their hash matches
+	fresh    map[string]embedRow
+	freshDim int
+	started  int64
+	current  map[string]string // content hash of each embeddable entry in root right now
+}
+
+func (r *embedRun) merge(cur embedCacheFile) embedCacheFile {
+	if cur.Namespace != r.c.Namespace || cur.Rows == nil {
+		cur = freshEmbedCache(r.c)
 	}
-	for i := 0; i < len(texts); i += embedBatch {
-		j := min(i+embedBatch, len(texts))
-		vecs, err := c.Embed(ctx, texts[i:j])
-		if err == nil && len(vecs) != j-i {
-			err = fmt.Errorf("embedding endpoint returned %d vectors for %d texts", len(vecs), j-i)
+	fresh := r.fresh
+	if r.freshDim > 0 && cur.Dim != r.freshDim {
+		if cur.DimAt > r.started { // a newer run already moved the dimension
+			fresh = nil
+		} else { // the endpoint's dimension moved: drop vectors it cannot match
+			for id, row := range cur.Rows {
+				if v, ok := decodeVec(row.Vec); ok && len(v) > 0 && len(v) != r.freshDim {
+					delete(cur.Rows, id)
+				}
+			}
+			cur.Dim, cur.DimAt = r.freshDim, r.started
 		}
-		if err != nil {
-			return embedded, len(live), errors.Join(err, merge()) // keep the batches already paid for
-		}
-		for k, v := range vecs {
-			freshDim = len(v)
-			fresh[ids[i+k]] = embedRow{Root: root, Hash: hashes[i+k], Vec: encodeVec(normalize(v))}
-		}
-		embedded += j - i
 	}
-	if embedded == 0 {
-		return 0, len(live), nil
+	for id, row := range fresh {
+		if want, ok := r.current[id]; !ok || row.Hash != want {
+			continue
+		}
+		if old, have := cur.Rows[id]; have && !r.force && old.Hash == row.Hash && sameDim(old, row) {
+			continue
+		}
+		cur.Rows[id] = row
 	}
-	return embedded, len(live), merge()
+	r.shed(cur)
+	return cur
+}
+
+func sameDim(a, b embedRow) bool {
+	av, aok := decodeVec(a.Vec)
+	bv, bok := decodeVec(b.Vec)
+	return aok && bok && len(av) == len(bv)
+}
+
+// shed drops this root's rows whose entry is gone once the root holds more than embedMaxRows.
+func (r *embedRun) shed(cur embedCacheFile) {
+	own := 0
+	for _, row := range cur.Rows {
+		if row.Root == r.root {
+			own++
+		}
+	}
+	if own <= embedMaxRows {
+		return
+	}
+	for id, row := range cur.Rows {
+		if _, ok := r.current[id]; row.Root == r.root && !ok {
+			delete(cur.Rows, id)
+		}
+	}
 }
 
 // Semantic scores entries against one embedded query, from the cached entry vectors.
@@ -277,10 +307,14 @@ func NewSemantic(query string) (*Semantic, error) {
 	var profile string
 	var cache embedCacheFile
 	for _, name := range []string{providers.SessionProfile(), providers.Pin(providers.PinProfile)} {
-		if name == "" || name == profile {
+		if name == "" || name == profile || !safeEmbedProfile(name) {
 			continue
 		}
-		if c := loadEmbedCache(name); c.Model != "" && len(c.Rows) > 0 {
+		c, err := readEmbedCache(name)
+		if err != nil {
+			return nil, fmt.Errorf("embedding cache unreadable: %w", err)
+		}
+		if c.Model != "" && len(c.Rows) > 0 {
 			profile, cache = name, c
 			break
 		}

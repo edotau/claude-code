@@ -44,6 +44,16 @@ func fakeEmbedServer(t *testing.T, embedded *int) *EmbedClient {
 	}}
 }
 
+// expireEmbed ends the validity lease of profile "fake" so the next EmbedEntries may mint again.
+func expireEmbed(t *testing.T) {
+	t.Helper()
+	f := loadEmbedCache("fake")
+	f.MintedAt = 0
+	if err := saveEmbedCache("fake", f); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // An unchanged entry is not re-embedded; an edited one is, alone; the cosine follows the vectors.
 func TestEmbedEntriesReusesCacheByContentHash(t *testing.T) {
 	isolatedConfig1(t)
@@ -57,10 +67,12 @@ func TestEmbedEntriesReusesCacheByContentHash(t *testing.T) {
 	if err != nil || n != 2 || total != 2 || calls != 2 {
 		t.Fatalf("first index: embedded %d of %d, %d texts sent, err %v", n, total, calls, err)
 	}
+	expireEmbed(t)
 	if n, _, err = EmbedEntries(context.Background(), root, c); err != nil || n != 0 || calls != 2 {
 		t.Fatalf("unchanged entries re-embedded: n=%d texts sent=%d err=%v", n, calls, err)
 	}
 	write(t, bank, "# D\n\n## 2026-10-01 — gamma choice <!-- id:aaaa0001 -->\n\nbody one\n\n## 2026-10-02 — delta choice <!-- id:aaaa0002 -->\n\nbody two EDITED\n")
+	expireEmbed(t)
 	if n, _, err = EmbedEntries(context.Background(), root, c); err != nil || n != 1 || calls != 3 {
 		t.Fatalf("edit must re-embed only that entry: n=%d texts sent=%d err=%v", n, calls, err)
 	}
@@ -109,7 +121,7 @@ func TestPickEmbeddingModelPrefersGteThenBge(t *testing.T) {
 	}
 }
 
-// Two index runs overlapping in time keep each other's vectors (the late writer merges, not overwrites).
+// A run that commits while another's vectors landed meanwhile keeps them (the late writer merges, not overwrites).
 func TestEmbedEntriesConcurrentRunsMerge(t *testing.T) {
 	isolatedConfig1(t)
 	root := t.TempDir()
@@ -122,7 +134,9 @@ func TestEmbedEntriesConcurrentRunsMerge(t *testing.T) {
 		if !nested { // while run A is mid-embed, run B indexes a second entry and finishes
 			nested = true
 			write(t, bank, "# D\n\n## 2026-10-01 — gamma one <!-- id:aaaa0001 -->\n\nbody\n\n## 2026-10-02 — delta two <!-- id:aaaa0002 -->\n\nbody\n")
-			if _, _, err := EmbedEntries(ctx, root, inner); err != nil {
+			cur := freshEmbedCache(inner)
+			cur.Rows["aaaa0002"] = embedRow{Root: root, Hash: currentEntryHashes(root)["aaaa0002"], Vec: encodeVec([]float32{1, 0, 0})}
+			if err := saveEmbedCache("fake", cur); err != nil {
 				t.Error(err)
 			}
 		}
@@ -151,6 +165,7 @@ func TestEmbedCacheNamespaceAndDimension(t *testing.T) {
 		t.Fatalf("seed: %v calls=%d", err, calls)
 	}
 	other := &EmbedClient{Profile: "fake", Model: c.Model, Namespace: "other|https://w2|fake-gte", Embed: c.Embed}
+	expireEmbed(t)
 	if n, _, err := EmbedEntries(context.Background(), root, other); err != nil || n != 1 {
 		t.Errorf("same model name on another workspace must re-embed: n=%d err=%v", n, err)
 	}
@@ -239,7 +254,9 @@ func TestEmbedMergeKeepsVectorMatchingCurrentContent(t *testing.T) {
 		if !nested { // the entry changes mid-run and a newer run embeds the new content first
 			nested = true
 			write(t, bank, v2)
-			if _, _, err := EmbedEntries(ctx, root, inner); err != nil {
+			cur := freshEmbedCache(inner)
+			cur.Rows["aaaa0001"] = embedRow{Root: root, Hash: currentEntryHashes(root)["aaaa0001"], Vec: encodeVec([]float32{1, 0, 0})}
+			if err := saveEmbedCache("fake", cur); err != nil {
 				t.Error(err)
 			}
 		}
@@ -368,8 +385,8 @@ func TestNewSemanticPerProfileCacheFallsBackToPin(t *testing.T) {
 	if _, err := NewSemantic("q"); err != nil || len(opened) != 1 || opened[0] != "qa" {
 		t.Fatalf("qa cache present: opened %v err %v, want the session's own qa profile", opened, err)
 	}
-	if EmbedCachePath("../escape") != "" || saveEmbedCache("../escape", embedCacheFile{}) == nil {
-		t.Error("an unsafe profile name must not map to a cache path")
+	if saveEmbedCache("../escape", embedCacheFile{}) == nil {
+		t.Error("an unsafe profile name must not be stored")
 	}
 }
 
