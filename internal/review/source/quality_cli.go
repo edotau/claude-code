@@ -7,8 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/edotau/claude-code/internal/helptext"
-	"github.com/edotau/claude-code/internal/outfmt"
+	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
 type qualityArgs struct {
@@ -36,7 +35,7 @@ func parseQualityArgs(args []string, stdout, stderr io.Writer) (qualityArgs, int
 		return qualityArgs{}, 0, true
 	}
 	fs.SetOutput(stderr)
-	positional, err := outfmt.Parse(fs, args)
+	positional, err := helptext.ParseArgs(fs, args)
 	if err != nil {
 		return qualityArgs{}, helptext.ExitCode(err), true
 	}

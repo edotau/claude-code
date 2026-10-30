@@ -12,8 +12,8 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/gitexec"
-	"github.com/edotau/claude-code/internal/helptext"
 	"github.com/edotau/claude-code/internal/review/source"
+	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
 var severityWeights = map[string]int{"critical": 100, "high": 75, "medium": 50, "low": 25, "info": 10}

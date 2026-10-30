@@ -10,7 +10,7 @@ import (
 	"github.com/edotau/claude-code/internal/launch"
 )
 
-// TestWorktreeListJSONWriteError ensures that when outfmt.Write fails,
+// TestWorktreeListJSONWriteError ensures that when helptext.WriteJSON fails,
 // the command exits with non-zero status, not silently succeeding with partial output.
 // This regression test for internal/cli/worktree.go:90 verifies that JSON write errors
 // are properly reported to the user.

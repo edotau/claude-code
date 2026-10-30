@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/ansi"
 	"github.com/edotau/claude-code/internal/configure"
+	"github.com/edotau/claude-code/internal/ui/ansi"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )

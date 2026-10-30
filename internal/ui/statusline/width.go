@@ -6,7 +6,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/edotau/claude-code/internal/ansi"
+	"github.com/edotau/claude-code/internal/ui/ansi"
 )
 
 // lineWidth is config "width", else $COLUMNS when the terminal exported it, else 0 (no clip).

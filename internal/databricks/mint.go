@@ -9,10 +9,9 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/clipboard"
-	"github.com/edotau/claude-code/internal/helptext"
-	"github.com/edotau/claude-code/internal/outfmt"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/secrets"
+	"github.com/edotau/claude-code/internal/ui/helptext"
 	"github.com/edotau/claude-code/internal/vault"
 )
 
@@ -108,7 +107,7 @@ func mint(args []string) int {
 	doCopy := fs.Bool("copy", false, "put the token on the clipboard, then clear it")
 	clearAfter := fs.Duration("clear-after", clipboard.DefaultClearAfter, "with --copy: clear the clipboard after this long")
 	profileName := profileFlag(fs)
-	names, err := outfmt.Parse(fs, args)
+	names, err := helptext.ParseArgs(fs, args)
 	if err != nil {
 		return helptext.ExitCode(err)
 	}

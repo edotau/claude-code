@@ -5,7 +5,7 @@ import (
 	"io"
 	"strings"
 
-	"github.com/edotau/claude-code/internal/helptext"
+	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
 const skeletonUsage = "usage: workflow_skeleton.py [-h] [--name NAME]\n" +

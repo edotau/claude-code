@@ -6,7 +6,7 @@ import (
 )
 
 // TestNetworkSubcommandsRejectUnknownFormat: browsers/setup/view all validate --format through
-// outfmt.Check before doing any work — an unknown value is a usage error (2).
+// helptext.CheckFormat before doing any work — an unknown value is a usage error (2).
 func TestNetworkSubcommandsRejectUnknownFormat(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	cases := []struct {

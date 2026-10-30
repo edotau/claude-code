@@ -11,11 +11,10 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/edotau/claude-code/internal/helptext"
-	"github.com/edotau/claude-code/internal/outfmt"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/proxy"
 	"github.com/edotau/claude-code/internal/router"
+	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
 var gatewayPage = helptext.Page{
@@ -99,14 +98,14 @@ func cmdGatewayProxy(args []string) int {
 	status := fs.Bool("status", false, "proxy pid, URL and the profile fallback chain; exit 1 when not running")
 	serve := fs.Bool("serve", false, "run the proxy in the foreground until interrupted")
 	port := fs.Int("port", proxy.DefaultPort, "with --serve: loopback port (a busy port held by an older proxy is reclaimed, else an error)")
-	format := outfmt.Flag(fs)
+	format := helptext.FormatFlag(fs)
 	if code, done := helptext.Parse(fs, args); done {
 		return code
 	}
 	if fs.NArg() > 0 {
 		return fail("gateway proxy: unexpected argument %q", fs.Arg(0))
 	}
-	if err := outfmt.Check(*format); err != nil {
+	if err := helptext.CheckFormat(*format); err != nil {
 		return fail("gateway proxy: %v", err)
 	}
 	n := 0
@@ -123,7 +122,7 @@ func cmdGatewayProxy(args []string) int {
 	if portSet && !*serve {
 		return fail("gateway proxy: --port needs --serve")
 	}
-	if *format == outfmt.JSON && (*start || *stop || *serve) {
+	if *format == helptext.JSON && (*start || *stop || *serve) {
 		return fail("gateway proxy: --format json applies to --status only")
 	}
 	ctx := context.Background()
@@ -172,8 +171,8 @@ func proxyStatus(ctx context.Context, format string) int {
 	if err != nil {
 		return fail("%v", err)
 	}
-	if format == outfmt.JSON {
-		if err := outfmt.Write(os.Stdout, ps); err != nil {
+	if format == helptext.JSON {
+		if err := helptext.WriteJSON(os.Stdout, ps); err != nil {
 			return 1
 		}
 	} else {

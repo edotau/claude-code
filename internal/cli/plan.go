@@ -9,12 +9,11 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/edotau/claude-code/internal/helptext"
 	"github.com/edotau/claude-code/internal/hooks"
-	"github.com/edotau/claude-code/internal/outfmt"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/plans"
 	"github.com/edotau/claude-code/internal/textutil"
+	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
 var planPage = helptext.Page{
@@ -47,22 +46,22 @@ func cmdPlan(args []string) int {
 func cmdPlanStatus(args []string) int {
 	fs := helptext.NewFlagSet("plan status", helptext.Page{Usage: "claude-code plan status [flags]"})
 	all := fs.Bool("all", false, "every repo under the plans home, not just this repo's")
-	format := outfmt.Flag(fs)
+	format := helptext.FormatFlag(fs)
 	if code, done := helptext.Parse(fs, args); done {
 		return code
 	}
-	if err := outfmt.Check(*format); err != nil {
+	if err := helptext.CheckFormat(*format); err != nil {
 		return fail("%v", err)
 	}
 	summaries, err := plans.Status(planDirs(*all)...)
 	if err != nil {
 		return fail("plan status: %v", err)
 	}
-	if *format == outfmt.JSON {
+	if *format == helptext.JSON {
 		if summaries == nil {
 			summaries = []plans.Summary{}
 		}
-		if err := outfmt.Write(os.Stdout, summaries); err != nil {
+		if err := helptext.WriteJSON(os.Stdout, summaries); err != nil {
 			return fail("plan status: %v", err)
 		}
 		return 0

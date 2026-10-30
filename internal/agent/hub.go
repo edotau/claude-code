@@ -8,10 +8,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agent/vendors"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/agent/vendors"
 )
 
 // opencodeLogins is a seam over vendors.OpencodeLogins, so tests never shell out to opencode auth.

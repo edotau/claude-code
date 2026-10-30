@@ -4,8 +4,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/edotau/claude-code/internal/ansi"
-	"github.com/edotau/claude-code/internal/theme"
+	"github.com/edotau/claude-code/internal/ui/ansi"
+	"github.com/edotau/claude-code/internal/ui/theme"
 )
 
 // palette is the theme source; tests swap it for a fixed Palette or ok=false.

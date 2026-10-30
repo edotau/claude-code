@@ -14,10 +14,9 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/audit"
-	"github.com/edotau/claude-code/internal/helptext"
 	"github.com/edotau/claude-code/internal/network/tailscale"
-	"github.com/edotau/claude-code/internal/outfmt"
 	"github.com/edotau/claude-code/internal/secrets"
+	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
 var tailscalePage = helptext.Page{
@@ -46,7 +45,7 @@ func cmdNetworkTailscale(args []string) int {
 	exitNode := fs.String("exit-node", "", "on|off|approve: advertise, stop or approve this box as an exit node")
 	subnet := fs.String("subnet", "", "<cidr>[,…]|approve|off: advertise, approve or withdraw LAN routes")
 	route := fs.String("route", "", "<peer>|off: send this box's traffic through a peer exit node")
-	format := outfmt.Flag(fs)
+	format := helptext.FormatFlag(fs)
 	var o tsOpts
 	fs.StringVar(&o.authKey, "auth-key", "", "an auth key, or - to read it from stdin (tskey-auth-…)")
 	fs.StringVar(&o.keyEnv, "key-env", "", "read the auth key from this env var instead")
@@ -148,15 +147,15 @@ func failUsage(format string, a ...any) int {
 }
 
 func tailscaleStatus(ctx context.Context, format string) int {
-	if err := outfmt.Check(format); err != nil {
+	if err := helptext.CheckFormat(format); err != nil {
 		return fail("%v", err)
 	}
 	st, err := tailscale.Status(ctx)
 	if err != nil && !errors.Is(err, tailscale.ErrNotRunning) {
 		return fail("network tailscale status: %v", err)
 	}
-	if format == outfmt.JSON {
-		if err := outfmt.Write(os.Stdout, st); err != nil {
+	if format == helptext.JSON {
+		if err := helptext.WriteJSON(os.Stdout, st); err != nil {
 			return fail("network tailscale status: %v", err)
 		}
 		return 0
@@ -175,7 +174,7 @@ func tailscaleStatus(ctx context.Context, format string) int {
 }
 
 func tailscaleMachines(ctx context.Context, format string) int {
-	if err := outfmt.Check(format); err != nil {
+	if err := helptext.CheckFormat(format); err != nil {
 		return fail("%v", err)
 	}
 	machines, err := tailscale.Machines(ctx)
@@ -187,8 +186,8 @@ func tailscaleMachines(ctx context.Context, format string) int {
 		names = append(names, m.Name)
 	}
 	writeDispatchCache(names) // `dispatch --host` completion reads this cache; never calls the network itself
-	if format == outfmt.JSON {
-		if err := outfmt.Write(os.Stdout, machines); err != nil {
+	if format == helptext.JSON {
+		if err := helptext.WriteJSON(os.Stdout, machines); err != nil {
 			return fail("network tailscale machines: %v", err)
 		}
 		return 0

@@ -14,17 +14,17 @@ import (
 	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/network/remote"
-	"github.com/edotau/claude-code/internal/outfmt"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/schemas"
 	"github.com/edotau/claude-code/internal/secrets"
 	"github.com/edotau/claude-code/internal/tools"
+	"github.com/edotau/claude-code/internal/ui/helptext"
 	"github.com/edotau/claude-code/internal/worktree"
 )
 
 // formatValues is the shared text|json domain almost every --format flag offers.
-func formatValues() []string { return []string{outfmt.Text, outfmt.JSON} }
+func formatValues() []string { return []string{helptext.Text, helptext.JSON} }
 
 func setupWorkspaceSubwords() []string { return []string{"init", "link", "status"} }
 

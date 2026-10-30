@@ -6,7 +6,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/router"
-	"github.com/edotau/claude-code/internal/statusline"
+	"github.com/edotau/claude-code/internal/ui/statusline"
 )
 
 // specTree returns the one completion spec tree, keyed by each verb's canonical name (command.name —

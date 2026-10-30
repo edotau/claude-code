@@ -12,9 +12,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/edotau/claude-code/internal/helptext"
-	"github.com/edotau/claude-code/internal/outfmt"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
 // opencodeMenuVerbs are the `opencode catalog` subverbs this file owns; bare `catalog` stays the CLI's own catalog.
@@ -56,7 +55,7 @@ func cmdOpencodeMenu(args []string) int {
 	timeout := 30 * time.Second
 	format := new(string)
 	if verb == "list" || verb == "check" {
-		format = outfmt.Flag(fs)
+		format = helptext.FormatFlag(fs)
 	}
 	switch verb {
 	case "list":
@@ -79,7 +78,7 @@ func cmdOpencodeMenu(args []string) int {
 		fs.BoolVar(&refresh, "refresh", false, "rediscover instead of using cached models")
 		fs.BoolVar(&verify, "verify", false, "probe eligible models; exclude failed additions")
 	}
-	pos, err := outfmt.Parse(fs, rest)
+	pos, err := helptext.ParseArgs(fs, rest)
 	if err != nil {
 		if err == flag.ErrHelp {
 			return 0
@@ -87,7 +86,7 @@ func cmdOpencodeMenu(args []string) int {
 		return 2
 	}
 	if verb == "list" || verb == "check" {
-		if err := outfmt.Check(*format); err != nil {
+		if err := helptext.CheckFormat(*format); err != nil {
 			return fail("opencode catalog "+verb+": %v", err)
 		}
 	}
@@ -230,8 +229,8 @@ func opencodeMenuList(live bool, provider, format string, fail func(string, ...a
 		}
 		rows = append(rows, r)
 	}
-	if format == outfmt.JSON {
-		_ = outfmt.Write(os.Stdout, rows)
+	if format == helptext.JSON {
+		_ = helptext.WriteJSON(os.Stdout, rows)
 		return 0
 	}
 	idW, labW := len("ID"), len("LABEL")
@@ -369,8 +368,8 @@ func opencodeMenuCheck(ids []string, all bool, provider string, timeout time.Dur
 	if err := providers.SaveCheckCache(providers.CheckCache{CheckedAt: time.Now().UTC(), Provider: p.Name, Results: results}); err != nil {
 		fmt.Fprintf(os.Stderr, "opencode catalog check: cache not written: %v\n", err)
 	}
-	if format == outfmt.JSON {
-		_ = outfmt.Write(os.Stdout, results)
+	if format == helptext.JSON {
+		_ = helptext.WriteJSON(os.Stdout, results)
 		return 0
 	}
 	idW := len("ID")

@@ -14,11 +14,11 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/edotau/claude-code/internal/agent/vendors"
 	"github.com/edotau/claude-code/internal/codexsettings"
 	"github.com/edotau/claude-code/internal/hookspec"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/agent/vendors"
 )
 
 // DefaultAgents is every vendor generate renders when Options.Agents is empty.
@@ -363,7 +363,7 @@ func commitWrite(path string, raw, next []byte, existed bool, o Options, out io.
 }
 
 // --- opencode: a tracked overlay (state/harness/opencode/{opencode,tui}.json), never opencode's own
-// ~/.config/opencode files; the harness only writes those for the custom theme (see internal/theme). ---
+// ~/.config/opencode files; the harness only writes those for the custom theme (see internal/ui/theme). ---
 
 // renderOpenCodeOverlay writes the tracked opencode.json/tui.json overlay templates.
 func renderOpenCodeOverlay(o Options, out io.Writer) (bool, error) {

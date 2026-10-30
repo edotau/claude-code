@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/outfmt"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
 const dbxCLIToken = "dapi-cli-secret-token"
@@ -43,7 +43,7 @@ func TestListLiveDatabricksText(t *testing.T) {
 	t.Setenv("DBX_CLI_TOKEN", dbxCLIToken)
 	srv, got := dbxCLIServer(t)
 	code, stdout, stderr := captureOutput(t, func() int {
-		return listLive(&providers.Registry{}, dbxCLIProvider(srv.URL), outfmt.Text)
+		return listLive(&providers.Registry{}, dbxCLIProvider(srv.URL), helptext.Text)
 	})
 	if code != 0 {
 		t.Fatalf("exit %d, stderr=%s", code, stderr)
@@ -71,7 +71,7 @@ func TestListLiveDatabricksJSON(t *testing.T) {
 	t.Setenv("DBX_CLI_TOKEN", dbxCLIToken)
 	srv, _ := dbxCLIServer(t)
 	code, stdout, stderr := captureOutput(t, func() int {
-		return listLive(&providers.Registry{}, dbxCLIProvider(srv.URL), outfmt.JSON)
+		return listLive(&providers.Registry{}, dbxCLIProvider(srv.URL), helptext.JSON)
 	})
 	if code != 0 {
 		t.Fatalf("exit %d, stderr=%s", code, stderr)
@@ -93,11 +93,11 @@ func TestListLiveDatabricksJSON(t *testing.T) {
 func TestListLiveNonDatabricksHasNoTaskReady(t *testing.T) {
 	cliScratch(t)
 	srv := fakeModelsServer(t, []string{"model-a"})
-	_, text, _ := captureOutput(t, func() int { return listLive(&providers.Registry{}, fakeProvider(srv.URL), outfmt.Text) })
+	_, text, _ := captureOutput(t, func() int { return listLive(&providers.Registry{}, fakeProvider(srv.URL), helptext.Text) })
 	if !strings.HasPrefix(text, "ID") || strings.Contains(text, "TASK") {
 		t.Errorf("text = %q, want the ID/Model table", text)
 	}
-	_, js, _ := captureOutput(t, func() int { return listLive(&providers.Registry{}, fakeProvider(srv.URL), outfmt.JSON) })
+	_, js, _ := captureOutput(t, func() int { return listLive(&providers.Registry{}, fakeProvider(srv.URL), helptext.JSON) })
 	if strings.Contains(js, `"task"`) || strings.Contains(js, `"ready"`) {
 		t.Errorf("json = %s, want no task/ready keys", js)
 	}

@@ -5,7 +5,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/edotau/claude-code/internal/ansi"
+	"github.com/edotau/claude-code/internal/ui/ansi"
 )
 
 const (

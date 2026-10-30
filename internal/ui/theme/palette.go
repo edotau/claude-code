@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"sync"
 
-	"github.com/edotau/claude-code/internal/ansi"
+	"github.com/edotau/claude-code/internal/ui/ansi"
 )
 
 // Palette is the shared look the TUI panels inherit: Border becomes Accent, Sel becomes Selection.

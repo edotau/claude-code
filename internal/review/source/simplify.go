@@ -12,8 +12,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/edotau/claude-code/internal/helptext"
-	"github.com/edotau/claude-code/internal/outfmt"
+	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
 type simplifyArgs struct {
@@ -62,7 +61,7 @@ func parseSimplifyArgs(args []string, stdout, stderr io.Writer) (simplifyArgs, i
 		return simplifyArgs{}, 0, true
 	}
 	fs.SetOutput(stderr)
-	targets, err := outfmt.Parse(fs, args)
+	targets, err := helptext.ParseArgs(fs, args)
 	if err != nil {
 		return simplifyArgs{}, helptext.ExitCode(err), true
 	}

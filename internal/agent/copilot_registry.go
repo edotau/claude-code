@@ -8,12 +8,12 @@ import (
 
 	copilot "github.com/github/copilot-sdk/go"
 
+	"github.com/edotau/claude-code/internal/agent/vendors"
 	"github.com/edotau/claude-code/internal/copilotreg"
 	"github.com/edotau/claude-code/internal/copilotsdk"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/proxy"
-	"github.com/edotau/claude-code/internal/agent/vendors"
 )
 
 // Seams for the registry route: tests stub the router, the session mint and endpoint discovery.

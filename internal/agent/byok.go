@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agent/vendors"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
-	"github.com/edotau/claude-code/internal/agent/vendors"
 )
 
 func (rc routeCtx) byokCandidate(leg Leg, cand router.Candidate, tier string) Leg {

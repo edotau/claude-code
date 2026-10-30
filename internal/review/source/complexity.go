@@ -12,9 +12,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/edotau/claude-code/internal/helptext"
-	"github.com/edotau/claude-code/internal/outfmt"
 	"github.com/edotau/claude-code/internal/review/pyjson"
+	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
 // ComplexityThresholds mirrors complexity_checker.THRESHOLDS.
@@ -288,7 +287,7 @@ func parseComplexityArgs(args []string, stdout, stderr io.Writer) (complexityArg
 		return complexityArgs{}, 0, true
 	}
 	fs.SetOutput(stderr)
-	targets, err := outfmt.Parse(fs, args)
+	targets, err := helptext.ParseArgs(fs, args)
 	if err != nil {
 		return complexityArgs{}, helptext.ExitCode(err), true
 	}

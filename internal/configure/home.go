@@ -28,7 +28,7 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/secrets"
 	"github.com/edotau/claude-code/internal/settings"
-	"github.com/edotau/claude-code/internal/tui"
+	"github.com/edotau/claude-code/internal/ui/tui"
 )
 
 // homeRow is one selectable home-page row: name, state, check, and what picking it does.

@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/agent/vendors"
+	"github.com/edotau/claude-code/internal/providers"
 )
 
 // DatabricksResponses: the session/pinned profile is a signed-in Databricks row with a Responses route + catalog model.

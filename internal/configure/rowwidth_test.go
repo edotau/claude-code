@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/agent/vendors"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/settings"
-	"github.com/edotau/claude-code/internal/agent/vendors"
 )
 
 // maxRuneLen is the widest label (rune count) among rows a picker renders together.

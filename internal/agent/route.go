@@ -10,11 +10,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agent/vendors"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/routetable"
-	"github.com/edotau/claude-code/internal/agent/vendors"
 )
 
 // Leg is one routed step: the agent plus the cell it runs (model, effort) and the account it bills.

@@ -12,10 +12,9 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/databricks/sdkport"
-	"github.com/edotau/claude-code/internal/helptext"
-	"github.com/edotau/claude-code/internal/outfmt"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
+	"github.com/edotau/claude-code/internal/ui/helptext"
 	"github.com/edotau/claude-code/internal/vault"
 )
 
@@ -41,7 +40,7 @@ func login(args []string) int {
 	authType := fs.String("auth-type", providers.AuthOAuth, "auth type to switch the profile to first: oauth, m2m or pat")
 	fs.StringVar(authType, "t", providers.AuthOAuth, "shorthand for --auth-type")
 	profileName := profileFlag(fs)
-	names, err := outfmt.Parse(fs, args)
+	names, err := helptext.ParseArgs(fs, args)
 	if err != nil {
 		return helptext.ExitCode(err)
 	}

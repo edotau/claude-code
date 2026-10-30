@@ -9,9 +9,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/outfmt"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/ui/helptext"
 	"github.com/edotau/claude-code/internal/vault"
 )
 
@@ -125,7 +125,7 @@ func TestListLiveCopilotReportsMissingCLI(t *testing.T) {
 	cliScratch(t)
 	reg := &providers.Registry{}
 	p := &providers.Provider{Name: "personal", Provider: "github"}
-	code, _, stderr := captureOutput(t, func() int { return listLive(reg, p, outfmt.Text) })
+	code, _, stderr := captureOutput(t, func() int { return listLive(reg, p, helptext.Text) })
 	if code == 0 {
 		t.Fatal("listLive: want a non-zero exit when the copilot CLI is missing")
 	}
@@ -157,7 +157,7 @@ func TestListLiveJSONFormatsFakeCatalog(t *testing.T) {
 	srv := fakeModelsServer(t, []string{"model-a", "model-b"})
 	p := fakeProvider(srv.URL)
 	reg := &providers.Registry{}
-	code, stdout, _ := captureOutput(t, func() int { return listLive(reg, p, outfmt.JSON) })
+	code, stdout, _ := captureOutput(t, func() int { return listLive(reg, p, helptext.JSON) })
 	if code != 0 {
 		t.Fatalf("listLive exit = %d", code)
 	}
@@ -197,7 +197,7 @@ func TestListLiveSubscriptionFallbackNeverPrintsToken(t *testing.T) {
 		Models:   map[string]string{"opus": "claude-opus-5-5"},
 	}
 	reg := &providers.Registry{}
-	code, stdout, stderr := captureOutput(t, func() int { return listLive(reg, p, outfmt.Text) })
+	code, stdout, stderr := captureOutput(t, func() int { return listLive(reg, p, helptext.Text) })
 	if code != 0 {
 		t.Fatalf("listLive exit = %d, stderr=%s", code, stderr)
 	}

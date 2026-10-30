@@ -8,13 +8,12 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/edotau/claude-code/internal/ansi"
 	"github.com/edotau/claude-code/internal/configure"
-	"github.com/edotau/claude-code/internal/helptext"
-	"github.com/edotau/claude-code/internal/outfmt"
 	"github.com/edotau/claude-code/internal/secrets"
-	"github.com/edotau/claude-code/internal/statusline"
-	"github.com/edotau/claude-code/internal/tui"
+	"github.com/edotau/claude-code/internal/ui/ansi"
+	"github.com/edotau/claude-code/internal/ui/helptext"
+	"github.com/edotau/claude-code/internal/ui/statusline"
+	"github.com/edotau/claude-code/internal/ui/tui"
 )
 
 // vaultSections is every `vault list` section, in print order.
@@ -29,7 +28,7 @@ func vaultList(args []string) int {
 	})
 	ts := fs.Bool("tailscale", false, "show Tailscale credential presence, not JSON")
 	format := fs.String("format", "", "text or json (default: text on a terminal, json otherwise)")
-	names, err := outfmt.Parse(fs, args)
+	names, err := helptext.ParseArgs(fs, args)
 	if err != nil {
 		return helptext.ExitCode(err)
 	}
@@ -46,12 +45,12 @@ func vaultList(args []string) int {
 	}
 	f := *format
 	if f == "" {
-		f = outfmt.JSON
+		f = helptext.JSON
 		if tui.StdoutIsTerminal() {
-			f = outfmt.Text
+			f = helptext.Text
 		}
 	}
-	if err := outfmt.Check(f); err != nil {
+	if err := helptext.CheckFormat(f); err != nil {
 		fmt.Fprintln(os.Stderr, "vault list:", err)
 		return 2
 	}
@@ -66,7 +65,7 @@ func vaultList(args []string) int {
 		return fail("vault list: %v", err)
 	}
 	var out []byte
-	if f == outfmt.JSON {
+	if f == helptext.JSON {
 		out, err = vaultListJSON(raw, stored, sel)
 	} else {
 		var doc configure.Doc

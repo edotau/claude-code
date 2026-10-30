@@ -10,10 +10,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/edotau/claude-code/internal/helptext"
 	"github.com/edotau/claude-code/internal/models"
-	"github.com/edotau/claude-code/internal/outfmt"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
 const (
@@ -37,7 +36,7 @@ func checkAll(args []string) int {
 	model := fs.String("model", aliasID(models.Haiku), "canonical model id to probe")
 	only := new(string)
 	profileFlagVar(fs, only, "probe only this Databricks profile (default: all)")
-	if rest, err := outfmt.Parse(fs, args); err != nil {
+	if rest, err := helptext.ParseArgs(fs, args); err != nil {
 		return helptext.ExitCode(err)
 	} else if len(rest) > 0 {
 		fs.Usage()

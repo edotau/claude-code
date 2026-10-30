@@ -13,8 +13,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/helptext"
-	"github.com/edotau/claude-code/internal/outfmt"
+	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
 // cmdGemini is the gemini agent verb: bridge reaches the harness's own 1M-context sweep; everything
@@ -61,7 +60,7 @@ func cmdGeminiBridge(args []string) int {
 	index := fs.Bool("index", false, "prepend a nested path index of every matched path")
 	diff := fs.Bool("diff", false, "ingest only files changed vs HEAD")
 	// Interspersed: `bridge "task" --dirs d` must ingest d, not append "--dirs d" to the task.
-	pos, err := outfmt.Parse(fs, args)
+	pos, err := helptext.ParseArgs(fs, args)
 	if err != nil {
 		return helptext.ExitCode(err)
 	}

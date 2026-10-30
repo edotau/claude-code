@@ -5,9 +5,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/edotau/claude-code/internal/helptext"
 	"github.com/edotau/claude-code/internal/history"
-	"github.com/edotau/claude-code/internal/outfmt"
+	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
 var historyPage = helptext.Page{
@@ -85,11 +84,11 @@ func printSnapshot(plane string, r history.Result) {
 func historyLog(args []string) int {
 	fs := helptext.NewFlagSet("history log", helptext.Page{Usage: "claude-code history log [flags]"})
 	n := fs.Int("n", 20, "commits per plane")
-	format := outfmt.Flag(fs)
+	format := helptext.FormatFlag(fs)
 	if code, done := helptext.Parse(fs, args); done {
 		return code
 	}
-	if err := outfmt.Check(*format); err != nil {
+	if err := helptext.CheckFormat(*format); err != nil {
 		fmt.Fprintln(os.Stderr, "history:", err)
 		return 2
 	}
@@ -102,14 +101,14 @@ func historyLog(args []string) int {
 			fmt.Fprintf(os.Stderr, "history: %s: %v\n", plane, err)
 			rc = 1
 		}
-		if *format == outfmt.JSON {
+		if *format == helptext.JSON {
 			planes[plane] = parseLog(lines)
 			continue
 		}
 		printLog(plane, lines)
 	}
-	if *format == outfmt.JSON {
-		_ = outfmt.Write(os.Stdout, planes)
+	if *format == helptext.JSON {
+		_ = helptext.WriteJSON(os.Stdout, planes)
 	}
 	return rc
 }

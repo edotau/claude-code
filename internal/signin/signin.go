@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agent/vendors"
 	"github.com/edotau/claude-code/internal/databricks"
 	"github.com/edotau/claude-code/internal/databricks/sdkport"
 	"github.com/edotau/claude-code/internal/network/tailscale"
@@ -19,8 +20,7 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/secrets"
-	"github.com/edotau/claude-code/internal/tui"
-	"github.com/edotau/claude-code/internal/agent/vendors"
+	"github.com/edotau/claude-code/internal/ui/tui"
 )
 
 // Signin checks one provider's credential and, when it is missing or refused, signs in again.

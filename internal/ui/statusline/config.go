@@ -11,8 +11,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/edotau/claude-code/internal/ansi"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/ui/ansi"
 )
 
 //go:embed default_config.json

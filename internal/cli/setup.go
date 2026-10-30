@@ -7,9 +7,9 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/edotau/claude-code/internal/helptext"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/setup"
+	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
 var setupPage = helptext.Page{

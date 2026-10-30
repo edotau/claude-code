@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/ansi"
+	"github.com/edotau/claude-code/internal/ui/ansi"
 )
 
 func TestLoadPalette(t *testing.T) {

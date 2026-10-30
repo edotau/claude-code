@@ -12,7 +12,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/secrets"
-	"github.com/edotau/claude-code/internal/tui"
+	"github.com/edotau/claude-code/internal/ui/tui"
 )
 
 // probeValue live-checks a candidate value for p without storing it first, via the env-var seam

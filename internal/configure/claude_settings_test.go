@@ -12,7 +12,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/launch"
 	"github.com/edotau/claude-code/internal/settings"
-	"github.com/edotau/claude-code/internal/tui"
+	"github.com/edotau/claude-code/internal/ui/tui"
 	"github.com/edotau/claude-code/internal/vault"
 )
 

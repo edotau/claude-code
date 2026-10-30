@@ -4,8 +4,8 @@ package configure
 import (
 	"slices"
 
-	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/agent/vendors"
+	"github.com/edotau/claude-code/internal/providers"
 )
 
 // agentPinRows is agent's Active row (not for claude, which is always on) and its Route row.

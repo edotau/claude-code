@@ -10,11 +10,10 @@ import (
 	"syscall"
 
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/helptext"
 	"github.com/edotau/claude-code/internal/network/browser"
 	"github.com/edotau/claude-code/internal/network/web"
-	"github.com/edotau/claude-code/internal/outfmt"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
 // cmdNetworkBrowser lists every installed browser's control paths and the system default; --setup repairs one.
@@ -26,9 +25,9 @@ func cmdNetworkBrowser(args []string) int {
 	setup := fs.Bool("setup", false, "repair what the harness owns for one browser and open its extension page")
 	name := fs.String("browser", "default", "chrome|edge|brave|arc|vivaldi|chromium|default (with --setup)")
 	dryRun := fs.Bool("dry-run", false, "describe the actions without running them (with --setup)")
-	format := outfmt.Flag(fs)
+	format := helptext.FormatFlag(fs)
 	ex := addExtractFlags(fs)
-	if _, err := outfmt.Parse(fs, args); err != nil {
+	if _, err := helptext.ParseArgs(fs, args); err != nil {
 		return helptext.ExitCode(err)
 	}
 	if *ex.url != "" {
@@ -46,7 +45,7 @@ func cmdNetworkBrowser(args []string) int {
 	if bad := extractFlagsSet(fs); bad != "" {
 		return failUsage("network browser: --%s belongs to --extract", bad)
 	}
-	if err := outfmt.Check(*format); err != nil {
+	if err := helptext.CheckFormat(*format); err != nil {
 		fail("network browser: %v", err)
 		return 2
 	}
@@ -68,7 +67,7 @@ func cmdNetworkBrowser(args []string) int {
 func networkBrowserList(format string) int {
 	rep := browser.Detect(browser.NewEnv())
 	if format == "json" {
-		if err := outfmt.Write(os.Stdout, rep); err != nil {
+		if err := helptext.WriteJSON(os.Stdout, rep); err != nil {
 			return fail("network browser: %v", err)
 		}
 		return 0
@@ -86,7 +85,7 @@ func networkBrowserSetup(name string, dryRun bool, format string) int {
 		return fail("network browser --setup: %v", err)
 	}
 	if format == "json" {
-		if err := outfmt.Write(os.Stdout, acts); err != nil {
+		if err := helptext.WriteJSON(os.Stdout, acts); err != nil {
 			return fail("network browser --setup: %v", err)
 		}
 		return 0
@@ -115,12 +114,12 @@ func cmdNetworkView(args []string) int {
 	days := fs.Int("days", 1, "session scope in days")
 	n := fs.Int("n", 40, "trailing events in the snapshot")
 	follow := fs.Bool("follow", false, "after the snapshot, stream new events until the agent finishes")
-	format := outfmt.Flag(fs)
-	rest, err := outfmt.Parse(fs, args)
+	format := helptext.FormatFlag(fs)
+	rest, err := helptext.ParseArgs(fs, args)
 	if err != nil {
 		return helptext.ExitCode(err)
 	}
-	if err := outfmt.Check(*format); err != nil {
+	if err := helptext.CheckFormat(*format); err != nil {
 		fail("network view: %v", err)
 		return 2
 	}
@@ -134,7 +133,7 @@ func cmdNetworkView(args []string) int {
 		return fail("network view: %v", err)
 	}
 	if *format == "json" {
-		if err := outfmt.Write(os.Stdout, snap); err != nil {
+		if err := helptext.WriteJSON(os.Stdout, snap); err != nil {
 			return fail("network view: %v", err)
 		}
 	} else {

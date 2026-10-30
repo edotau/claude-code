@@ -13,8 +13,7 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/edotau/claude-code/internal/helptext"
-	"github.com/edotau/claude-code/internal/outfmt"
+	"github.com/edotau/claude-code/internal/ui/helptext"
 	"github.com/edotau/claude-code/internal/worktree"
 )
 
@@ -74,22 +73,22 @@ func cmdWorktree(args []string) int {
 
 func cmdWorktreeList(repo *worktree.Repo, args []string) int {
 	fs := helptext.NewFlagSet("worktree list", helptext.Page{Usage: "claude-code worktree list [flags]"})
-	format := outfmt.Flag(fs)
+	format := helptext.FormatFlag(fs)
 	if code, done := helptext.Parse(fs, args); done {
 		return code
 	}
-	if err := outfmt.Check(*format); err != nil {
+	if err := helptext.CheckFormat(*format); err != nil {
 		return fail("%v", err)
 	}
 	entries, err := worktree.List(repo)
 	if err != nil {
 		return fail("worktree list: %v", err)
 	}
-	if *format == outfmt.JSON {
+	if *format == helptext.JSON {
 		if entries == nil {
 			entries = []worktree.Entry{} // [] not null, so JSON consumers can iterate
 		}
-		if err := outfmt.Write(os.Stdout, entries); err != nil {
+		if err := helptext.WriteJSON(os.Stdout, entries); err != nil {
 			return fail("worktree list: %v", err)
 		}
 		return 0

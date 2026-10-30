@@ -6,9 +6,8 @@ import (
 	"os"
 	"time"
 
-	"github.com/edotau/claude-code/internal/helptext"
-	"github.com/edotau/claude-code/internal/outfmt"
 	"github.com/edotau/claude-code/internal/proxy"
+	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
 var restartPage = helptext.Page{
@@ -30,18 +29,18 @@ type restartRow struct {
 func cmdRestart(args []string) int {
 	fs := helptext.NewFlagSet("network restart", restartPage)
 	dry := fs.Bool("dry-run", false, "report what would restart; change nothing")
-	format := outfmt.Flag(fs)
+	format := helptext.FormatFlag(fs)
 	if code, done := helptext.Parse(fs, args); done {
 		return code
 	}
-	if err := outfmt.Check(*format); err != nil {
+	if err := helptext.CheckFormat(*format); err != nil {
 		return fail("restart: %v", err)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	row := restartRouter(ctx, *dry)
-	if *format == outfmt.JSON {
-		if err := outfmt.Write(os.Stdout, map[string]any{"daemons": []restartRow{row}}); err != nil {
+	if *format == helptext.JSON {
+		if err := helptext.WriteJSON(os.Stdout, map[string]any{"daemons": []restartRow{row}}); err != nil {
 			return fail("restart: %v", err)
 		}
 	} else {

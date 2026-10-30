@@ -10,15 +10,14 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/helptext"
+	"github.com/edotau/claude-code/internal/agent/vendors"
 	"github.com/edotau/claude-code/internal/hooks"
 	"github.com/edotau/claude-code/internal/models"
-	"github.com/edotau/claude-code/internal/outfmt"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/routetable"
+	"github.com/edotau/claude-code/internal/ui/helptext"
 	usagepkg "github.com/edotau/claude-code/internal/usage"
-	"github.com/edotau/claude-code/internal/agent/vendors"
 )
 
 // routeRefresh re-fetches a stale account for a pick; a var so tests stay offline.
@@ -61,11 +60,11 @@ func gatewayRoute(args []string, withProxy bool) int {
 	want := fs.String("agent", "", "the agent asked for; it leads when it passes the gates")
 	task := fs.String("task", "", "task text the classifier reads when --model is absent")
 	fallback := fs.String("fallback", agent.FallbackAll, "all, agents or none")
-	format := outfmt.Flag(fs)
+	format := helptext.FormatFlag(fs)
 	if code, done := helptext.Parse(fs, args); done {
 		return code
 	}
-	if err := outfmt.Check(*format); err != nil {
+	if err := helptext.CheckFormat(*format); err != nil {
 		return fail(name+": %v", err)
 	}
 	if !slices.Contains(agent.FallbackModes, *fallback) {
@@ -87,7 +86,7 @@ func gatewayRoute(args []string, withProxy bool) int {
 			return fail(name+": %v", err)
 		}
 	}
-	if *format == outfmt.JSON {
+	if *format == helptext.JSON {
 		var payload any = rj
 		if withProxy {
 			payload = struct {
@@ -95,7 +94,7 @@ func gatewayRoute(args []string, withProxy bool) int {
 				Proxy proxyState `json:"proxy"`
 			}{rj, ps}
 		}
-		if err := outfmt.Write(os.Stdout, payload); err != nil {
+		if err := helptext.WriteJSON(os.Stdout, payload); err != nil {
 			return 1
 		}
 		return 0

@@ -14,9 +14,9 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/edotau/claude-code/internal/helptext"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
 const (

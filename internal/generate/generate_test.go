@@ -9,11 +9,11 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/agent/vendors"
 	"github.com/edotau/claude-code/internal/codexsettings"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
-	"github.com/edotau/claude-code/internal/agent/vendors"
 )
 
 // scratch sets CLAUDE_CONFIG_DIR to its own temp dir, a keyed provider as default (so every vendor

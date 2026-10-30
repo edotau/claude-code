@@ -10,9 +10,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/edotau/claude-code/internal/ansi"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/signin"
+	"github.com/edotau/claude-code/internal/ui/ansi"
 )
 
 // Test seams: the sign-in factory, the TTY gate, and the prompt's input and output.

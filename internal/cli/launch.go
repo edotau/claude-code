@@ -11,19 +11,18 @@ import (
 	"strings"
 	"time"
 
-	"github.com/edotau/claude-code/internal/ansi"
 	"github.com/edotau/claude-code/internal/audit"
 	"github.com/edotau/claude-code/internal/generate"
-	"github.com/edotau/claude-code/internal/helptext"
 	"github.com/edotau/claude-code/internal/hooks"
 	"github.com/edotau/claude-code/internal/launch"
-	"github.com/edotau/claude-code/internal/outfmt"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/preflight"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/tools"
-	"github.com/edotau/claude-code/internal/tui"
+	"github.com/edotau/claude-code/internal/ui/ansi"
+	"github.com/edotau/claude-code/internal/ui/helptext"
+	"github.com/edotau/claude-code/internal/ui/tui"
 	usagecmd "github.com/edotau/claude-code/internal/usage"
 )
 
@@ -410,7 +409,7 @@ func cmdDoctor(args []string) int {
 			"and proxy failovers instead. --scan, --git and --secrets audit for plaintext " +
 			"credentials instead and exit 1 on any finding.",
 	})
-	format := outfmt.Flag(fs)
+	format := helptext.FormatFlag(fs)
 	auditMode := fs.Bool("audit", false, "print the typed action log instead of health checks")
 	days := fs.Int("days", 7, "with --audit: events from the last N days")
 	scan := fs.Bool("scan", false, "scan paths given, else configs and vault, for inline secrets")
@@ -422,7 +421,7 @@ func cmdDoctor(args []string) int {
 	if code, done := helptext.Parse(fs, args); done {
 		return code
 	}
-	if err := outfmt.Check(*format); err != nil {
+	if err := helptext.CheckFormat(*format); err != nil {
 		fail("doctor: %v", err)
 		return 2
 	}
@@ -431,7 +430,7 @@ func cmdDoctor(args []string) int {
 		return 2
 	}
 	if *scan || *gitScan || *all {
-		if *format == outfmt.JSON {
+		if *format == helptext.JSON {
 			fail("doctor: --scan, --git and --secrets print text only")
 			return 2
 		}
@@ -444,10 +443,10 @@ func cmdDoctor(args []string) int {
 		refreshServed()
 	}
 	var ok bool
-	if *format == outfmt.JSON {
+	if *format == helptext.JSON {
 		var checks []launch.Check
 		checks, ok = doctorChecks()
-		if err := outfmt.Write(os.Stdout, struct {
+		if err := helptext.WriteJSON(os.Stdout, struct {
 			OK     bool           `json:"ok"`
 			Checks []launch.Check `json:"checks"`
 		}{ok, checks}); err != nil {
@@ -523,8 +522,8 @@ func printAudit(days int, format string) int {
 	if err != nil {
 		return fail("doctor --audit: %v", err)
 	}
-	if format == outfmt.JSON {
-		if err := outfmt.Write(os.Stdout, struct {
+	if format == helptext.JSON {
+		if err := helptext.WriteJSON(os.Stdout, struct {
 			Days    int                  `json:"days"`
 			Summary map[audit.Action]int `json:"summary"`
 			Events  []audit.Event        `json:"events"`

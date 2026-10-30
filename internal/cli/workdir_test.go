@@ -7,10 +7,10 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agent/vendors"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
-	"github.com/edotau/claude-code/internal/agent/vendors"
 )
 
 // scratchRepo makes a throwaway git repo (no commits needed — router.IsWorkRepo only reads the origin

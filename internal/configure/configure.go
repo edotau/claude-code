@@ -22,7 +22,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/edotau/claude-code/internal/ansi"
+	"github.com/edotau/claude-code/internal/agent/vendors"
 	"github.com/edotau/claude-code/internal/copilotsdk"
 	"github.com/edotau/claude-code/internal/generate"
 	"github.com/edotau/claude-code/internal/launch"
@@ -32,8 +32,8 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/proxy"
 	"github.com/edotau/claude-code/internal/secrets"
-	"github.com/edotau/claude-code/internal/tui"
-	"github.com/edotau/claude-code/internal/agent/vendors"
+	"github.com/edotau/claude-code/internal/ui/ansi"
+	"github.com/edotau/claude-code/internal/ui/tui"
 )
 
 // Sections runs in this order when no section is named.

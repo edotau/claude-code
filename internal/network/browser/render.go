@@ -6,7 +6,7 @@ import (
 )
 
 // RenderText prints one line per known browser plus the resolved system default, for `web browsers`.
-// JSON output needs no equivalent here: Report's json tags are the shape (internal/outfmt.Write(w, report)).
+// JSON output needs no equivalent here: Report's json tags are the shape (internal/helptext.WriteJSON(w, report)).
 func RenderText(w io.Writer, r Report) {
 	fmt.Fprintf(w, "default: %s\n", orDash(r.Default))
 	for _, b := range r.Browsers {

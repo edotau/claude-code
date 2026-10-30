@@ -14,7 +14,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/gitexec"
-	"github.com/edotau/claude-code/internal/helptext"
+	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
 type fileCategory struct {

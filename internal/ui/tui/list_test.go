@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/ansi"
-	"github.com/edotau/claude-code/internal/theme"
+	"github.com/edotau/claude-code/internal/ui/ansi"
+	"github.com/edotau/claude-code/internal/ui/theme"
 )
 
 func ctrl(r rune) Key { return Key{Kind: KeyCtrl, Rune: r} }

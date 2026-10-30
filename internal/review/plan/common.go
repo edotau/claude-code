@@ -8,8 +8,7 @@ import (
 	"regexp"
 	"sync"
 
-	"github.com/edotau/claude-code/internal/helptext"
-	"github.com/edotau/claude-code/internal/outfmt"
+	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
 var lineSplitRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\r\n|\r|\n`) })
@@ -51,7 +50,7 @@ func parseInputJSONArgs(tool, about string, args []string, stdout, stderr io.Wri
 		return "-", false, 0, true
 	}
 	fs.SetOutput(stderr)
-	positional, err := outfmt.Parse(fs, args)
+	positional, err := helptext.ParseArgs(fs, args)
 	if err != nil {
 		return "-", false, helptext.ExitCode(err), true
 	}

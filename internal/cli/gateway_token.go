@@ -6,8 +6,8 @@ import (
 	"os"
 	"time"
 
-	"github.com/edotau/claude-code/internal/helptext"
 	"github.com/edotau/claude-code/internal/proxy"
+	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
 var (

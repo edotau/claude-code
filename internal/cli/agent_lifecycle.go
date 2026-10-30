@@ -10,8 +10,7 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/helptext"
-	"github.com/edotau/claude-code/internal/outfmt"
+	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
 // agentsJobPage returns `agents <verb> -h`.
@@ -28,16 +27,16 @@ func agentsJobPage(verb string) helptext.Page {
 // cmdAgentsJob is `claude-code agents status|result|tail|cancel <id>`: the agent comes from the dispatch record.
 func cmdAgentsJob(verb string, args []string) int {
 	fs := helptext.NewFlagSet("agents "+verb, agentsJobPage(verb))
-	format := outfmt.Flag(fs)
+	format := helptext.FormatFlag(fs)
 	follow := new(bool)
 	if verb == "tail" {
 		follow = fs.Bool("f", false, "follow until the job finishes, with a heartbeat on silence")
 	}
-	pos, err := outfmt.Parse(fs, args)
+	pos, err := helptext.ParseArgs(fs, args)
 	if err != nil {
 		return helptext.ExitCode(err)
 	}
-	if err := outfmt.Check(*format); err != nil {
+	if err := helptext.CheckFormat(*format); err != nil {
 		return fail("agents %s: %v", verb, err)
 	}
 	if len(pos) != 1 {
@@ -61,8 +60,8 @@ func cmdAgentsJob(verb string, args []string) int {
 	if err != nil {
 		return fail("agents cancel: %v", err)
 	}
-	if *format == outfmt.JSON {
-		if err := outfmt.Write(os.Stdout, struct {
+	if *format == helptext.JSON {
+		if err := helptext.WriteJSON(os.Stdout, struct {
 			ID     string `json:"id"`
 			Status string `json:"status"`
 			Error  string `json:"error,omitempty"`
@@ -80,8 +79,8 @@ func agentsStatus(rec agent.Record, format, cwd string) int {
 	if err != nil {
 		return fail("agents status: %v", err)
 	}
-	if format == outfmt.JSON {
-		if err := outfmt.Write(os.Stdout, rows); err != nil {
+	if format == helptext.JSON {
+		if err := helptext.WriteJSON(os.Stdout, rows); err != nil {
 			return fail("agents status: %v", err)
 		}
 		return 0
@@ -96,7 +95,7 @@ func agentsTail(rec agent.Record, format string, follow bool, cwd string) int {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 	var err error
-	if format == outfmt.JSON {
+	if format == helptext.JSON {
 		rec, err = agent.TailEvents(ctx, rec, follow, os.Stdout)
 	} else {
 		rec, err = agent.Tail(ctx, rec.Agent, cwd, rec.ID, follow, os.Stdout)
@@ -112,8 +111,8 @@ func agentsResult(rec agent.Record, format, cwd string) int {
 	if err != nil {
 		return fail("agents result: %v", err)
 	}
-	if format == outfmt.JSON {
-		if err := outfmt.Write(os.Stdout, recordEnvelope(rec)); err != nil {
+	if format == helptext.JSON {
+		if err := helptext.WriteJSON(os.Stdout, recordEnvelope(rec)); err != nil {
 			return fail("agents result: %v", err)
 		}
 		return resultExit(rec)
