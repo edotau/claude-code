@@ -20,6 +20,7 @@ while IFS= read -r line; do
   case "$p" in
     remember*) mem=${p#remember }; ans=ok ;;
     slow*) sleep 2; ans=slow ;;
+    boom*) printf '{"type":"error","message":"kaboom"}\n'; ans=late ;;
     *) ans="$mem pid $$" ;;
   esac
   printf '{"type":"assistant","session_id":"s1","message":{"content":[{"type":"text","text":"%s"}]}}\n' "$ans"
@@ -28,7 +29,9 @@ done
 `
 
 // liveEnv gives the test a short config dir (a unix socket path caps near 108 bytes) holding the fake claude.
-func liveEnv(t *testing.T) {
+func liveEnv(t *testing.T) { liveEnvScript(t, fakeLiveClaude) }
+
+func liveEnvScript(t *testing.T, script string) {
 	t.Helper()
 	dir, err := os.MkdirTemp("", "lv")
 	if err != nil {
@@ -39,7 +42,7 @@ func liveEnv(t *testing.T) {
 	if err := os.MkdirAll(paths.BinDir(), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(paths.BinDir(), "claude"), []byte(fakeLiveClaude), 0o755); err != nil {
+	if err := os.WriteFile(filepath.Join(paths.BinDir(), "claude"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -148,5 +151,33 @@ func TestLiveCapOfFour(t *testing.T) {
 	_ = dead.Save()
 	if n := LiveCount(""); n != MaxLiveSessions {
 		t.Errorf("LiveCount = %d, want %d (finished sessions do not count)", n, MaxLiveSessions)
+	}
+}
+
+// fakeNoisyClaude writes 200 KB to stdout before it reads stdin, so an undrained stdout blocks claude and,
+// with a large prompt, the holder's stdin write too.
+const fakeNoisyClaude = `#!/bin/sh
+printf '{"type":"system","subtype":"noise","message":"%s"}\n' "$(head -c 200000 /dev/zero | tr '\0' x)"
+` + fakeLiveClaude
+
+// A large prompt sent while claude's between-turn output fills the stdout pipe must not deadlock the holder.
+func TestLiveLargePromptWithPendingOutputDoesNotDeadlock(t *testing.T) {
+	liveEnvScript(t, fakeNoisyClaude)
+	id, wait := startHolder(t, context.Background(), 5*time.Second)
+	done := make(chan error, 1)
+	go func() {
+		_, err := SendLive(context.Background(), id, strings.Repeat("y", 200000), Discard)
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(15 * time.Second):
+		t.Fatal("send deadlocked: stdin write blocked behind an undrained stdout")
+	}
+	if err := wait(); err != nil { // the idle timer must still run and end the session
+		t.Fatal(err)
 	}
 }
