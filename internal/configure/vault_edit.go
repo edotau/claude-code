@@ -54,9 +54,10 @@ func Edit(stdout, stderr io.Writer) error {
 	for {
 		cmd := exec.CommandContext(context.Background(), argv[0], append(argv[1:], f.Name())...) // top-level: interactive editor, no caller ctx
 		cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
-		signal.Ignore(os.Interrupt)
+		swallow := make(chan os.Signal, 1) // caught, not ignored: SIG_IGN would stick and be inherited by later children
+		signal.Notify(swallow, os.Interrupt)
 		err := cmd.Run()
-		signal.Reset(os.Interrupt)
+		signal.Stop(swallow)
 		if err != nil {
 			return fmt.Errorf("editor %s: %w", argv[0], err)
 		}
