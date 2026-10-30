@@ -6,7 +6,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/edotau/claude-code/internal/ansi"
+	"github.com/edotau/claude-code/internal/ui/ansi"
 )
 
 // cell is one output rune tagged with how it is colored: g|sep|dot|filled|empty|dim|pad.

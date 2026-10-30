@@ -11,8 +11,8 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/gitexec"
-	"github.com/edotau/claude-code/internal/helptext"
 	"github.com/edotau/claude-code/internal/review/source"
+	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
 var gateFileRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\.(py|ts|tsx|js|jsx)$`) })

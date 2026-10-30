@@ -4,11 +4,11 @@ import (
 	"io"
 	"os"
 
-	"github.com/edotau/claude-code/internal/helptext"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/review/diff"
 	"github.com/edotau/claude-code/internal/review/plan"
 	"github.com/edotau/claude-code/internal/review/source"
+	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
 // reviewTools are the evaluate-code/simplify detectors, each keeping its former Python CLI.

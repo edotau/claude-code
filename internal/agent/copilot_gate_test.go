@@ -10,13 +10,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agent/vendors"
 	"github.com/edotau/claude-code/internal/copilotsdk"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
-	"github.com/edotau/claude-code/internal/agent/vendors"
 )
 
 // ghRow is a github (Copilot) profile row body without its login field.

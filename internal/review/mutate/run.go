@@ -5,7 +5,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/edotau/claude-code/internal/helptext"
+	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
 // Page is the help for `claude-code test mutate`.

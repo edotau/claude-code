@@ -16,10 +16,9 @@ import (
 	"slices"
 	"time"
 
-	"github.com/edotau/claude-code/internal/helptext"
-	"github.com/edotau/claude-code/internal/outfmt"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/transcript"
+	"github.com/edotau/claude-code/internal/ui/helptext"
 	"github.com/edotau/claude-code/internal/usageledger"
 )
 
@@ -56,14 +55,14 @@ func Run(args []string, claudeDir string, out, errw io.Writer) int {
 	fs.SetOutput(errw)
 	sessionFlag := fs.String("session", "", "scope to one session id (every project dir is searched)")
 	daysFlag := fs.Int("days", 1, "select sessions modified in N days (ignored with --session)")
-	formatFlag := outfmt.Flag(fs)
+	formatFlag := helptext.FormatFlag(fs)
 	workflowsFlag := fs.Bool("workflows", false, "show workflow phases and model rollups, newest runs first")
 	providersFlag := fs.Bool("providers", true, "append live plan quotas (GitHub Copilot, OpenAI, Google); =false stays offline")
 	showFlag := fs.String("show", "used", "quota column: used (default), left, or total")
 	if code, done := helptext.Parse(fs, args); done {
 		return code
 	}
-	if err := outfmt.Check(*formatFlag); err != nil {
+	if err := helptext.CheckFormat(*formatFlag); err != nil {
 		fmt.Fprintln(errw, "usage:", err)
 		return 2
 	}
@@ -72,7 +71,7 @@ func Run(args []string, claudeDir string, out, errw io.Writer) int {
 		fmt.Fprintf(errw, "usage: --show must be left, used, or total (got %q)\n", *showFlag)
 		return 2
 	}
-	session, days, jsonOut, workflowsOut := *sessionFlag, *daysFlag, *formatFlag == outfmt.JSON, *workflowsFlag
+	session, days, jsonOut, workflowsOut := *sessionFlag, *daysFlag, *formatFlag == helptext.JSON, *workflowsFlag
 	if workflowsOut && jsonOut {
 		fmt.Fprintln(errw, "usage: --workflows has no JSON form; drop --format json (the per-model aggregate does)")
 		return 2

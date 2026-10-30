@@ -7,9 +7,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/tui"
 	"github.com/edotau/claude-code/internal/agent/vendors"
+	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/ui/tui"
 )
 
 // Seams for the opencode page; tests replace them so no real opencode or terminal is touched.

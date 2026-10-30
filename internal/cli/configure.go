@@ -6,14 +6,13 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/edotau/claude-code/internal/ansi"
 	"github.com/edotau/claude-code/internal/configure"
 	"github.com/edotau/claude-code/internal/generate"
-	"github.com/edotau/claude-code/internal/helptext"
 	"github.com/edotau/claude-code/internal/launch"
-	"github.com/edotau/claude-code/internal/outfmt"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/tui"
+	"github.com/edotau/claude-code/internal/ui/ansi"
+	"github.com/edotau/claude-code/internal/ui/helptext"
+	"github.com/edotau/claude-code/internal/ui/tui"
 )
 
 // configurePage: --profile picks the profile that serves model calls; --agent scopes to one agent CLI's own setup.
@@ -76,7 +75,7 @@ func cmdConfigure(args []string) int {
 	noAgents := fs.Bool("no-agents", false, "with --restore: settings.json only, skip the agent configs")
 	list := fs.Bool("list", false, "with provider: list profiles and credential state")
 	all := fs.Bool("all", false, "with provider: check every profile's sign-in and log in where needed")
-	format := outfmt.Flag(fs)
+	format := helptext.FormatFlag(fs)
 	var drop, keep keyList
 	fs.Var(&drop, "drop", "remove these top-level settings.json keys each render (comma or repeat)")
 	fs.Var(&keep, "keep", "stop dropping these keys")
@@ -85,7 +84,7 @@ func cmdConfigure(args []string) int {
 	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
 		section, args = args[0], args[1:]
 	}
-	pos, err := outfmt.Parse(fs, args)
+	pos, err := helptext.ParseArgs(fs, args)
 	if err != nil {
 		return helptext.ExitCode(err)
 	}
@@ -112,7 +111,7 @@ func cmdConfigure(args []string) int {
 			return fail("configure: unknown profile %s (see configure provider --list)", profile)
 		}
 	}
-	if *list || *format != outfmt.Text && !*all {
+	if *list || *format != helptext.Text && !*all {
 		if section != "provider" {
 			return fail("configure: --list needs the provider page")
 		}
@@ -130,7 +129,7 @@ func cmdConfigure(args []string) int {
 	}
 	return configure.Run(configure.Options{
 		Provider: *provider, Vendor: *agent, DryRun: *dryRun, Check: *check, All: *all, Profile: profile,
-		JSON: *format == outfmt.JSON, Drop: drop, Keep: keep, Interactive: isTTY(os.Stdin) && isTTY(os.Stderr),
+		JSON: *format == helptext.JSON, Drop: drop, Keep: keep, Interactive: isTTY(os.Stdin) && isTTY(os.Stderr),
 	}, section)
 }
 

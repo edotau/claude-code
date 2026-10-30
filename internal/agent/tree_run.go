@@ -5,8 +5,7 @@ import (
 	"io"
 	"time"
 
-	"github.com/edotau/claude-code/internal/helptext"
-	"github.com/edotau/claude-code/internal/outfmt"
+	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
 // clearScreen re-homes the cursor and wipes the terminal between --watch redraws.
@@ -31,15 +30,15 @@ func RunTree(args []string, claudeDir string, out, errw io.Writer) int {
 	fs.BoolVar(&background, "bg", false, "shorthand for --background")
 	watch := fs.Bool("watch", false, "clear and re-render on --interval (text only)")
 	interval := fs.Duration("interval", 2*time.Second, "redraw interval for --watch")
-	format := outfmt.Flag(fs)
+	format := helptext.FormatFlag(fs)
 	if code, done := helptext.Parse(fs, args); done {
 		return code
 	}
-	if err := outfmt.Check(*format); err != nil {
+	if err := helptext.CheckFormat(*format); err != nil {
 		fmt.Fprintln(errw, "agents tree:", err)
 		return 2
 	}
-	if *watch && *format == outfmt.JSON {
+	if *watch && *format == helptext.JSON {
 		fmt.Fprintln(errw, "agents tree: --watch has no JSON form; drop --format json")
 		return 2
 	}
@@ -77,8 +76,8 @@ func renderOnce(claudeDir string, opts Options, format string, showAll bool, out
 		tree.Dispatches = RunningDispatches(now)
 		tree.Sessions = dropDispatchSessions(tree.Sessions, tree.Dispatches)
 	}
-	if format == outfmt.JSON {
-		return boolToExit(outfmt.Write(out, tree) == nil)
+	if format == helptext.JSON {
+		return boolToExit(helptext.WriteJSON(out, tree) == nil)
 	}
 	RenderText(out, tree, now)
 	return 0

@@ -10,7 +10,7 @@ import (
 	"github.com/edotau/claude-code/internal/clipboard"
 	"github.com/edotau/claude-code/internal/databricks"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/tui"
+	"github.com/edotau/claude-code/internal/ui/tui"
 )
 
 // Seams for the databricks page; tests replace them so no network, vault or clipboard is touched.

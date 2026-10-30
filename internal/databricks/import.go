@@ -9,11 +9,10 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/databricks/dbxcfg"
-	"github.com/edotau/claude-code/internal/helptext"
-	"github.com/edotau/claude-code/internal/outfmt"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/secrets"
-	"github.com/edotau/claude-code/internal/tui"
+	"github.com/edotau/claude-code/internal/ui/helptext"
+	"github.com/edotau/claude-code/internal/ui/tui"
 	"github.com/edotau/claude-code/internal/vault"
 )
 
@@ -49,7 +48,7 @@ func importCfg(args []string) int {
 	replace := fs.Bool("replace", false, "overwrite an existing row of the same id")
 	rename := renameFlag{}
 	fs.Var(rename, "rename", "import section OLD as profile NEW (repeatable)")
-	if rest, err := outfmt.Parse(fs, args); err != nil {
+	if rest, err := helptext.ParseArgs(fs, args); err != nil {
 		return helptext.ExitCode(err)
 	} else if len(rest) > 0 {
 		fs.Usage()

@@ -4,11 +4,10 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/edotau/claude-code/internal/helptext"
 	"github.com/edotau/claude-code/internal/launch"
 	"github.com/edotau/claude-code/internal/network/mcp"
-	"github.com/edotau/claude-code/internal/outfmt"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
 // cmdNetworkMCP reads every MCP scope Claude Code uses, runs live connect health, and flags
@@ -17,11 +16,11 @@ func cmdNetworkMCP(args []string) int {
 	fs := helptext.NewFlagSet("network mcp", helptext.Page{Usage: "claude-code network mcp [flags]",
 		About: "Live health of every MCP server, plus cross-scope drift and inline plaintext secrets.\n" +
 			"Read-only; exits 1 on any failed server or secret."})
-	format := outfmt.Flag(fs)
+	format := helptext.FormatFlag(fs)
 	if code, done := helptext.Parse(fs, args); done {
 		return code
 	}
-	if err := outfmt.Check(*format); err != nil {
+	if err := helptext.CheckFormat(*format); err != nil {
 		fail("network mcp: %v", err)
 		return 2
 	}
@@ -41,7 +40,7 @@ func cmdNetworkMCP(args []string) int {
 		SettingsFiles: settingsFiles,
 		Claude:        claude,
 		Home:          home,
-		JSON:          *format == outfmt.JSON,
+		JSON:          *format == helptext.JSON,
 	})
 	return code
 }

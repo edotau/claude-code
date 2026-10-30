@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/clipboard"
-	"github.com/edotau/claude-code/internal/helptext"
+	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
 // cmdClip saves the Windows clipboard image as a PNG and prints its WSL path, for @-reference when

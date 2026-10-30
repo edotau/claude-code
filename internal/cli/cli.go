@@ -7,15 +7,15 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/edotau/claude-code/internal/ansi"
+	"github.com/edotau/claude-code/internal/agent/vendors"
 	"github.com/edotau/claude-code/internal/buildver"
 	"github.com/edotau/claude-code/internal/databricks"
-	"github.com/edotau/claude-code/internal/helptext"
 	"github.com/edotau/claude-code/internal/models"
-	"github.com/edotau/claude-code/internal/mutate"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/statusline"
-	"github.com/edotau/claude-code/internal/agent/vendors"
+	"github.com/edotau/claude-code/internal/review/mutate"
+	"github.com/edotau/claude-code/internal/ui/ansi"
+	"github.com/edotau/claude-code/internal/ui/helptext"
+	"github.com/edotau/claude-code/internal/ui/statusline"
 )
 
 // command is one top-level verb; group places it on the menu, hidden keeps it dispatchable but off the menu.

@@ -3,7 +3,7 @@ package statusline
 import (
 	"testing"
 
-	"github.com/edotau/claude-code/internal/ansi"
+	"github.com/edotau/claude-code/internal/ui/ansi"
 )
 
 func near(a, b ansi.RGB) bool {

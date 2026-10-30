@@ -9,11 +9,10 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/buildver"
-	"github.com/edotau/claude-code/internal/helptext"
 	"github.com/edotau/claude-code/internal/hookspec"
 	"github.com/edotau/claude-code/internal/models"
-	"github.com/edotau/claude-code/internal/outfmt"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
 // Describe is the one machine-readable map of the harness: an agent constructing commands reads this
@@ -87,7 +86,7 @@ func cmdDescribe(args []string) int {
 	}
 	switch *format {
 	case "json":
-		_ = outfmt.Write(os.Stdout, d)
+		_ = helptext.WriteJSON(os.Stdout, d)
 	case "text":
 		printDescribe(d)
 	default:

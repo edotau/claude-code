@@ -11,7 +11,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/statusline"
+	"github.com/edotau/claude-code/internal/ui/statusline"
 )
 
 // hermeticTheme isolates the statusline config dir from the live ~/.claude.

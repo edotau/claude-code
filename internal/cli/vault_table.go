@@ -12,11 +12,11 @@ import (
 
 	"unicode/utf8"
 
-	"github.com/edotau/claude-code/internal/ansi"
 	"github.com/edotau/claude-code/internal/configure"
-	"github.com/edotau/claude-code/internal/helptext"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/secrets"
+	"github.com/edotau/claude-code/internal/ui/ansi"
+	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
 // vaultTableWidth is $COLUMNS when set, else 120 (no live TTY-size query exists in this repo).

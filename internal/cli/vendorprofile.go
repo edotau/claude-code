@@ -5,11 +5,10 @@ import (
 	"os"
 	"time"
 
-	"github.com/edotau/claude-code/internal/helptext"
-	"github.com/edotau/claude-code/internal/outfmt"
+	"github.com/edotau/claude-code/internal/agent/vendors"
 	"github.com/edotau/claude-code/internal/preflight"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/agent/vendors"
+	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
 // cmdAgentProfile is `<agent> profile [<profile>] [--clear]`: show, set or clear the agent's <AGENT>_PROFILE pin.
@@ -20,7 +19,7 @@ func cmdAgentProfile(agent string, args []string) int {
 	}
 	fs := newVendorFlags(agent, "profile")
 	unpin := fs.Bool("clear", false, "unpin: launches use today's selection again")
-	pos, err := outfmt.Parse(fs, args)
+	pos, err := helptext.ParseArgs(fs, args)
 	if err != nil {
 		return helptext.ExitCode(err)
 	}

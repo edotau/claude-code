@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/helptext"
+	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
 var helpFormatRow = regexp.MustCompile(`^  (\S(?:.*?\S)?) {2,}(\S.*)$`)

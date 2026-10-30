@@ -10,9 +10,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/edotau/claude-code/internal/ansi"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/signin"
+	"github.com/edotau/claude-code/internal/ui/ansi"
 )
 
 // Seams for --all; tests replace the sign-in factory, its cap and the TTY gates.

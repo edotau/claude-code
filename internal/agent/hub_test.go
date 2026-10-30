@@ -7,10 +7,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agent/vendors"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
-	"github.com/edotau/claude-code/internal/agent/vendors"
 )
 
 // hubRegistry builds a minimal registry for hub tests: a ladder of four providers, one without an

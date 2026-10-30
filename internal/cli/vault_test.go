@@ -573,7 +573,7 @@ func TestVaultListTextTruncatesToWidth(t *testing.T) {
 	}
 }
 
-// usageRow mirrors internal/helptext's unexported row/isRow matcher — kept in sync by hand; if
+// usageRow mirrors internal/ui/helptext's unexported row/isRow matcher — kept in sync by hand; if
 // helptext's own regex changes, this test and the real painter can drift apart.
 var usageRow = regexp.MustCompile(`^(\s{2,})(\S.*?)(\s{2,}\S.*)?$`)
 

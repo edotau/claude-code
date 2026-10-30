@@ -9,10 +9,9 @@ import (
 	"os/exec"
 	"path/filepath"
 
-	"github.com/edotau/claude-code/internal/helptext"
 	"github.com/edotau/claude-code/internal/network/vscode"
-	"github.com/edotau/claude-code/internal/outfmt"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
 // cmdVSCode merges the tracked VS Code settings template into VS Code's Machine settings.json.
@@ -199,7 +198,7 @@ func cmdNetworkVSCode(args []string) int {
 }
 
 func vscodeServeStart(ctx context.Context, opts vscode.Options, format string) int {
-	if err := outfmt.Check(format); err != nil {
+	if err := helptext.CheckFormat(format); err != nil {
 		return fail("network vscode: %v", err)
 	}
 	res, err := vscode.Start(ctx, opts)
@@ -210,7 +209,7 @@ func vscodeServeStart(ctx context.Context, opts vscode.Options, format string) i
 		fmt.Fprintln(os.Stderr, "claude-code: network vscode: "+n)
 	}
 	if format == "json" {
-		if err := outfmt.Write(os.Stdout, res.State); err != nil {
+		if err := helptext.WriteJSON(os.Stdout, res.State); err != nil {
 			return fail("network vscode: %v", err)
 		}
 		return 0
@@ -222,7 +221,7 @@ func vscodeServeStart(ctx context.Context, opts vscode.Options, format string) i
 }
 
 func vscodeServeStop(format string) int {
-	if err := outfmt.Check(format); err != nil {
+	if err := helptext.CheckFormat(format); err != nil {
 		return fail("network vscode: %v", err)
 	}
 	st, wasRunning := vscode.Running()
@@ -256,13 +255,13 @@ func vscodeServeStop(format string) int {
 // vscodeServeStatus reports the daemon from our own state plus a live re-query of `tailscale serve
 // status --json` for the mapping — the source of truth, since the daemon may have started earlier.
 func vscodeServeStatus(ctx context.Context, format string) int {
-	if err := outfmt.Check(format); err != nil {
+	if err := helptext.CheckFormat(format); err != nil {
 		return fail("network vscode: %v", err)
 	}
 	st, running := vscode.Running()
 	_, mapped := vscode.TailscaleMapping(ctx, st.Port)
 	if format == "json" {
-		if err := outfmt.Write(os.Stdout, struct {
+		if err := helptext.WriteJSON(os.Stdout, struct {
 			Running bool `json:"running"`
 			Mapped  bool `json:"tailscale_mapped"`
 			vscode.State

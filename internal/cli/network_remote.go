@@ -11,10 +11,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/edotau/claude-code/internal/helptext"
 	"github.com/edotau/claude-code/internal/network/remote"
-	"github.com/edotau/claude-code/internal/outfmt"
 	"github.com/edotau/claude-code/internal/proc"
+	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
 // remotePage documents the three modes: start, --list, --attach; each has its own usage line
@@ -47,13 +46,13 @@ func cmdNetworkRemote(args []string) int {
 	status := fs.Bool("status", false, "with --list, classify each pane's state")
 	interval := fs.Duration("interval", 0, "with --status, sample every interval (0 = once)")
 	attach := fs.Bool("attach", false, "attach to a session on --host (positional: session name)")
-	format := fs.String("format", outfmt.Text, "--list output format: text|json")
+	format := fs.String("format", helptext.Text, "--list output format: text|json")
 	// Interspersed: a trailing --dry-run must not join the task and run it for real.
 	if len(args) == 0 || args[0] == "help" {
 		fs.Usage()
 		return 0
 	}
-	rest, err := outfmt.Parse(fs, args)
+	rest, err := helptext.ParseArgs(fs, args)
 	if err != nil {
 		return helptext.ExitCode(err)
 	}
@@ -130,7 +129,7 @@ func dispatchStart(ctx context.Context, host, dir, agentName, name, task string,
 
 // dispatchList dispatches to the plain session list or, with withStatus, the pane-status sampler.
 func dispatchList(ctx context.Context, host, format string, withStatus bool, interval time.Duration) int {
-	if err := outfmt.Check(format); err != nil {
+	if err := helptext.CheckFormat(format); err != nil {
 		return fail("%v", err)
 	}
 	if !withStatus {
@@ -148,8 +147,8 @@ func dispatchListPlain(ctx context.Context, host, format string) int {
 		return fail("network remote --list: %v", err)
 	}
 	sessions := remote.ParseSessions(string(out))
-	if format == outfmt.JSON {
-		if err := outfmt.Write(os.Stdout, sessions); err != nil {
+	if format == helptext.JSON {
+		if err := helptext.WriteJSON(os.Stdout, sessions); err != nil {
 			return fail("network remote --list: %v", err)
 		}
 		return 0
@@ -187,8 +186,8 @@ func dispatchListStatus(ctx context.Context, host, format string, interval time.
 
 // printPaneStatus writes one sample of pane statuses in the requested format.
 func printPaneStatus(statuses []remote.PaneStatus, format string) error {
-	if format == outfmt.JSON {
-		return outfmt.Write(os.Stdout, statuses)
+	if format == helptext.JSON {
+		return helptext.WriteJSON(os.Stdout, statuses)
 	}
 	for _, p := range statuses {
 		fmt.Printf("%-24s %-6s agent=%-10s state=%-13s %s\n", p.Session, p.PaneID, p.Agent, p.State, p.Reason)

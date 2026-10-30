@@ -13,9 +13,9 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/edotau/claude-code/internal/helptext"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
 // multi is a repeatable string flag.

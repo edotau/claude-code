@@ -11,7 +11,7 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/completion"
-	"github.com/edotau/claude-code/internal/helptext"
+	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
 // completionBin is the installed binary name the completion script registers against.

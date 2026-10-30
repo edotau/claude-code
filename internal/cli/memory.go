@@ -13,14 +13,13 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/helptext"
 	"github.com/edotau/claude-code/internal/hooks"
 	"github.com/edotau/claude-code/internal/launch"
 	"github.com/edotau/claude-code/internal/memory"
-	"github.com/edotau/claude-code/internal/outfmt"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
+	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
 // memorySub is one sub-verb's synopsis args and blurb; public ones are the memory page's COMMANDS rows.
@@ -145,20 +144,20 @@ func cmdMemoryRecall(args []string) int {
 	k := fs.Int("k", 3, "maximum hits")
 	all := fs.Bool("all", false, "search the home tier and every repo store")
 	load := fs.Int("load", 0, "append the show bodies of the top N hits (4KB cap)")
-	format := outfmt.Flag(fs)
-	terms, err := outfmt.Parse(fs, args)
+	format := helptext.FormatFlag(fs)
+	terms, err := helptext.ParseArgs(fs, args)
 	if err != nil {
 		return helptext.ExitCode(err)
 	}
-	if err := outfmt.Check(*format); err != nil {
+	if err := helptext.CheckFormat(*format); err != nil {
 		return failUsage("memory recall: %v", err)
 	}
 	if len(terms) == 0 {
 		return fail("memory recall: no query (usage: %s)", memorySubPage("recall").Usage)
 	}
 	hits, _ := searchHits(*repo, *all, strings.Join(terms, " "), *k)
-	if *format == outfmt.JSON {
-		if err := outfmt.Write(os.Stdout, hits); err != nil {
+	if *format == helptext.JSON {
+		if err := helptext.WriteJSON(os.Stdout, hits); err != nil {
 			return fail("memory recall: %v", err)
 		}
 		return 0
@@ -204,7 +203,7 @@ func cmdMemoryRemember(args []string) int {
 	fs, repo := memoryRepoFlagSet("remember")
 	kind := fs.String("type", "feedback", "project->decisionLog.md; user/feedback/reference->conventions.md; "+
 		"reads like a rule? use memory promote --to rules instead")
-	terms, err := outfmt.Parse(fs, args)
+	terms, err := helptext.ParseArgs(fs, args)
 	if err != nil {
 		return helptext.ExitCode(err)
 	}
@@ -240,19 +239,19 @@ func cmdMemorySearch(args []string) int {
 	fs, repo := memoryRepoFlagSet("search")
 	k := fs.Int("k", 8, "maximum hits")
 	all := fs.Bool("all", false, "search the home tier and every repo store")
-	format := outfmt.Flag(fs)
-	terms, err := outfmt.Parse(fs, args)
+	format := helptext.FormatFlag(fs)
+	terms, err := helptext.ParseArgs(fs, args)
 	if err != nil {
 		return helptext.ExitCode(err)
 	}
-	if err := outfmt.Check(*format); err != nil {
+	if err := helptext.CheckFormat(*format); err != nil {
 		return failUsage("memory search: %v", err)
 	}
 	if len(terms) == 0 {
 		return fail("memory search: no query (usage: %s)", memorySubPage("search").Usage)
 	}
 	now := time.Now()
-	if len(terms) == 1 && *format != outfmt.JSON && memoryIDRef.MatchString(terms[0]) {
+	if len(terms) == 1 && *format != helptext.JSON && memoryIDRef.MatchString(terms[0]) {
 		if path, block, err := memory.ShowBlock(terms[0]); err == nil { // a recall pointer's id expands in place
 			memory.LogShown(path, terms[0], memory.AccessSearch, now)
 			fmt.Printf("<!-- %s -->\n%s\n", path, strings.TrimSpace(block))
@@ -261,8 +260,8 @@ func cmdMemorySearch(args []string) int {
 	}
 	hits, root := searchHits(*repo, *all, strings.Join(terms, " "), *k)
 	memory.LogHits(root, hits, memory.AccessSearch, now)
-	if *format == outfmt.JSON {
-		if err := outfmt.Write(os.Stdout, hits); err != nil {
+	if *format == helptext.JSON {
+		if err := helptext.WriteJSON(os.Stdout, hits); err != nil {
 			return fail("memory search: %v", err)
 		}
 		return 0
@@ -557,7 +556,7 @@ func cmdMemoryPromote(args []string) int {
 	fs, repo := memoryRepoFlagSet("promote")
 	to := fs.String("to", "", "promotion target: home, rules, skill, or claude-md")
 	dryRun := fs.Bool("dry-run", false, "print the move without writing")
-	pos, err := outfmt.Parse(fs, args)
+	pos, err := helptext.ParseArgs(fs, args)
 	if err != nil {
 		return helptext.ExitCode(err)
 	}

@@ -16,7 +16,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/edotau/claude-code/internal/helptext"
+	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
 // lintOpusOK marks a deliberate reasoning-tier agent() call (on the line the call closes on).

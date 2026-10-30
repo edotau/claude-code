@@ -12,7 +12,7 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/edotau/claude-code/internal/tui"
+	"github.com/edotau/claude-code/internal/ui/tui"
 )
 
 // isTerminal and confirmEdit are seams for the re-edit prompt.

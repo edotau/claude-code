@@ -4,7 +4,7 @@ import (
 	"os"
 	"unicode/utf8"
 
-	"github.com/edotau/claude-code/internal/ansi"
+	"github.com/edotau/claude-code/internal/ui/ansi"
 )
 
 // promptUser is PS1's \u; the hostname is dead weight on a single-machine bar.

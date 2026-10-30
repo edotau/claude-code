@@ -6,9 +6,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/edotau/claude-code/internal/helptext"
-	"github.com/edotau/claude-code/internal/outfmt"
 	"github.com/edotau/claude-code/internal/setup"
+	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
 var setupWorkspacePage = helptext.Page{
@@ -46,7 +45,7 @@ func cmdSetupWorkspace(args []string) int {
 	fs := helptext.NewFlagSet("setup workspace "+args[0], op)
 	with := fs.String("with", "", "subset of agents,commands,skills,settings,memory (default all)")
 	dryRun := fs.Bool("dry-run", false, "print the plan, write nothing")
-	pos, err := outfmt.Parse(fs, args[1:])
+	pos, err := helptext.ParseArgs(fs, args[1:])
 	if err != nil {
 		return helptext.ExitCode(err)
 	}

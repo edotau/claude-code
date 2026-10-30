@@ -1,7 +1,7 @@
 package configure
 
 import (
-	"github.com/edotau/claude-code/internal/tui"
+	"github.com/edotau/claude-code/internal/ui/tui"
 	"regexp"
 	"strings"
 )

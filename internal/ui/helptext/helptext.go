@@ -13,8 +13,8 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/edotau/claude-code/internal/ansi"
-	"github.com/edotau/claude-code/internal/statusline"
+	"github.com/edotau/claude-code/internal/ui/ansi"
+	"github.com/edotau/claude-code/internal/ui/statusline"
 )
 
 // row is an indented command line: the left column ends at the first run of 2+ spaces (or the line, for a flag).

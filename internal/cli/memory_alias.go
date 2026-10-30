@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/edotau/claude-code/internal/helptext"
 	"github.com/edotau/claude-code/internal/memory"
+	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
 var memoryAliasPage = helptext.Page{

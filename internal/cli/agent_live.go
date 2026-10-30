@@ -14,8 +14,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/helptext"
-	"github.com/edotau/claude-code/internal/outfmt"
+	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
 // liveExclusive are the ask flags a live session cannot honor: it has no single task, route or envelope of its own.
@@ -127,7 +126,7 @@ var agentsSendPage = helptext.Page{
 func cmdAgentsSend(args []string) int {
 	fs := helptext.NewFlagSet("agents send", agentsSendPage)
 	format := fs.String("format", formatText, "stream text, print the JSON envelope, or stream-json NDJSON events")
-	pos, err := outfmt.Parse(fs, args)
+	pos, err := helptext.ParseArgs(fs, args)
 	if err != nil {
 		return helptext.ExitCode(err)
 	}

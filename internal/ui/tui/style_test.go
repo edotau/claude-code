@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/ansi"
-	"github.com/edotau/claude-code/internal/theme"
+	"github.com/edotau/claude-code/internal/ui/ansi"
+	"github.com/edotau/claude-code/internal/ui/theme"
 )
 
 func setPalette(t *testing.T, p theme.Palette, ok bool) {

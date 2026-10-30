@@ -5,8 +5,8 @@ import (
 	"slices"
 	"time"
 
-	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/agent/vendors"
+	"github.com/edotau/claude-code/internal/providers"
 )
 
 // BYOKModel requests the least-recently-picked model in the shared Databricks pool.

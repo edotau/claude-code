@@ -9,10 +9,10 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/desktop"
-	"github.com/edotau/claude-code/internal/helptext"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/proxy"
+	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
 var desktopPage = helptext.Page{

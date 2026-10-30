@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/agent/vendors"
+	"github.com/edotau/claude-code/internal/paths"
 )
 
 var maxTierRE = regexp.MustCompile(`max_(\d+x)`)

@@ -6,8 +6,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/edotau/claude-code/internal/helptext"
 	"github.com/edotau/claude-code/internal/network/mcp"
+	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
 // cmdNetworkWebsearch: bare `network websearch` runs the stdio MCP server (Claude Code invokes this); `network websearch <query>`

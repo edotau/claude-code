@@ -8,13 +8,12 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/audit"
-	"github.com/edotau/claude-code/internal/helptext"
-	"github.com/edotau/claude-code/internal/outfmt"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/secrets"
 	"github.com/edotau/claude-code/internal/signin"
-	"github.com/edotau/claude-code/internal/tui"
+	"github.com/edotau/claude-code/internal/ui/helptext"
+	"github.com/edotau/claude-code/internal/ui/tui"
 	"github.com/edotau/claude-code/internal/vault"
 )
 
@@ -80,7 +79,7 @@ func cmdVaultGet(args []string) int {
 	})
 	export := fs.Bool("export", false, "print export NAME='value' lines for a shell")
 	key := fs.Bool("key", false, "print the master key (base64) instead; refused on a terminal")
-	names, err := outfmt.Parse(fs, args)
+	names, err := helptext.ParseArgs(fs, args)
 	if err != nil {
 		return helptext.ExitCode(err)
 	}
@@ -146,7 +145,7 @@ func cmdVaultDelete(args []string) int {
 		Usage: "claude-code vault delete NAME",
 		About: "Remove a secret from the vault.",
 	})
-	names, err := outfmt.Parse(fs, args)
+	names, err := helptext.ParseArgs(fs, args)
 	if err != nil {
 		return helptext.ExitCode(err)
 	}
@@ -174,7 +173,7 @@ func cmdVaultImport(args []string) int {
 		About: "Store each NAME=value line of a .env (# lines skipped); - reads stdin.",
 	})
 	yes := fs.Bool("yes", false, "skip the confirm; required for - (stdin)")
-	rest, err := outfmt.Parse(fs, args)
+	rest, err := helptext.ParseArgs(fs, args)
 	if err != nil {
 		return helptext.ExitCode(err)
 	}
@@ -236,7 +235,7 @@ func cmdVaultExport(args []string) int {
 		About: "Append stored secrets to a .env file (0600); names already there are kept.",
 	})
 	out := fs.String("out", ".env", "file to append to; vault get prints to stdout instead")
-	names, err := outfmt.Parse(fs, args)
+	names, err := helptext.ParseArgs(fs, args)
 	if err != nil {
 		return helptext.ExitCode(err)
 	}

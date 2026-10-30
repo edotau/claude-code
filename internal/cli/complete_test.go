@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/edotau/claude-code/internal/statusline"
+	"github.com/edotau/claude-code/internal/ui/statusline"
 )
 
 // TestCompletionTopLevel: an empty partial offers every visible command (+help), never a hidden one.

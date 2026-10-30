@@ -3,7 +3,7 @@ package cli
 import (
 	"os"
 
-	"github.com/edotau/claude-code/internal/helptext"
+	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
 var networkPage = helptext.Page{

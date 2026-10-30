@@ -6,9 +6,9 @@ import (
 	"os"
 	"slices"
 
-	"github.com/edotau/claude-code/internal/secrets"
-	"github.com/edotau/claude-code/internal/tui"
 	"github.com/edotau/claude-code/internal/agent/vendors"
+	"github.com/edotau/claude-code/internal/secrets"
+	"github.com/edotau/claude-code/internal/ui/tui"
 )
 
 // pickMenu is the home page's sectioned picker seam; tests replace it.

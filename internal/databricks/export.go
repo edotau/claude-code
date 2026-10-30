@@ -8,9 +8,8 @@ import (
 	"path/filepath"
 
 	"github.com/edotau/claude-code/internal/databricks/dbxcfg"
-	"github.com/edotau/claude-code/internal/helptext"
-	"github.com/edotau/claude-code/internal/outfmt"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
 var exportPage = helptext.Page{
@@ -29,7 +28,7 @@ func export(args []string) int {
 	force := fs.Bool("force", false, "overwrite --out, or with --merge replace same-name sections")
 	rename := renameFlag{}
 	fs.Var(rename, "rename", "write row OLD as section NEW (repeatable)")
-	if rest, err := outfmt.Parse(fs, args); err != nil {
+	if rest, err := helptext.ParseArgs(fs, args); err != nil {
 		return helptext.ExitCode(err)
 	} else if len(rest) > 0 {
 		fs.Usage()

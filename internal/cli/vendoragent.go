@@ -11,10 +11,9 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/vendors"
-	"github.com/edotau/claude-code/internal/helptext"
-	"github.com/edotau/claude-code/internal/outfmt"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/secrets/shapes"
+	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
 // vendorSubverbs are the words vendorVerb routes to cmdVendorSub.
@@ -171,12 +170,12 @@ func cmdVendorResume(vendor string, args []string) int {
 func cmdVendorStatus(vendor string, args []string) int {
 	fs := newVendorFlags(vendor, "status")
 	all := fs.Bool("all", false, "every repo, not just this one")
-	format := outfmt.Flag(fs)
-	pos, err := outfmt.Parse(fs, args)
+	format := helptext.FormatFlag(fs)
+	pos, err := helptext.ParseArgs(fs, args)
 	if err != nil {
 		return helptext.ExitCode(err)
 	}
-	if err := outfmt.Check(*format); err != nil {
+	if err := helptext.CheckFormat(*format); err != nil {
 		return fail("%s status: %v", vendor, err)
 	}
 	ref := ""
@@ -188,8 +187,8 @@ func cmdVendorStatus(vendor string, args []string) int {
 	if err != nil {
 		return fail("%s status: %v", vendor, err)
 	}
-	if *format == outfmt.JSON {
-		if err := outfmt.Write(os.Stdout, rows); err != nil {
+	if *format == helptext.JSON {
+		if err := helptext.WriteJSON(os.Stdout, rows); err != nil {
 			return fail("%s status: %v", vendor, err)
 		}
 		return 0
@@ -208,7 +207,7 @@ func cmdVendorStatus(vendor string, args []string) int {
 func cmdVendorTail(vendor string, args []string) int {
 	fs := newVendorFlags(vendor, "tail")
 	follow := fs.Bool("f", false, "follow until the job finishes, with a heartbeat on silence")
-	pos, err := outfmt.Parse(fs, args)
+	pos, err := helptext.ParseArgs(fs, args)
 	if err != nil {
 		return helptext.ExitCode(err)
 	}
@@ -242,12 +241,12 @@ func tailExit(rec agent.Record, follow bool) int {
 // cmdVendorResult is `claude-code <v> result [id] [--format text|json]`.
 func cmdVendorResult(vendor string, args []string) int {
 	fs := newVendorFlags(vendor, "result")
-	format := outfmt.Flag(fs)
-	pos, err := outfmt.Parse(fs, args)
+	format := helptext.FormatFlag(fs)
+	pos, err := helptext.ParseArgs(fs, args)
 	if err != nil {
 		return helptext.ExitCode(err)
 	}
-	if err := outfmt.Check(*format); err != nil {
+	if err := helptext.CheckFormat(*format); err != nil {
 		return fail("%s result: %v", vendor, err)
 	}
 	ref := ""
@@ -259,8 +258,8 @@ func cmdVendorResult(vendor string, args []string) int {
 	if err != nil {
 		return fail("%s result: %v", vendor, err)
 	}
-	if *format == outfmt.JSON {
-		if err := outfmt.Write(os.Stdout, struct {
+	if *format == helptext.JSON {
+		if err := helptext.WriteJSON(os.Stdout, struct {
 			ID      string `json:"id"`
 			Session string `json:"session,omitempty"`
 			Resume  string `json:"resume,omitempty"`
@@ -318,16 +317,16 @@ func cmdVendorCancel(vendor string, args []string) int {
 // cmdVendorSetup is `claude-code <v> setup [--format text|json]`.
 func cmdVendorSetup(vendor string, args []string) int {
 	fs := newVendorFlags(vendor, "setup")
-	format := outfmt.Flag(fs)
+	format := helptext.FormatFlag(fs)
 	if code, done := helptext.Parse(fs, args); done {
 		return code
 	}
-	if err := outfmt.Check(*format); err != nil {
+	if err := helptext.CheckFormat(*format); err != nil {
 		return fail("%s setup: %v", vendor, err)
 	}
 	rep := agent.Setup(vendor)
-	if *format == outfmt.JSON {
-		if err := outfmt.Write(os.Stdout, rep); err != nil {
+	if *format == helptext.JSON {
+		if err := helptext.WriteJSON(os.Stdout, rep); err != nil {
 			return fail("%s setup: %v", vendor, err)
 		}
 	} else {
@@ -441,15 +440,15 @@ func cmdVendorModels(vendor string, args []string) int {
 	if !ok {
 		return fail("unknown agent %q", vendor)
 	}
-	format := outfmt.Text
+	format := helptext.Text
 	if vendor == "copilot" {
 		fs := newVendorFlags(vendor, "catalog")
 		profile := fs.String("profile", "", "list this profile's models (default: the session profile)")
-		f := outfmt.Flag(fs)
+		f := helptext.FormatFlag(fs)
 		if code, done := helptext.Parse(fs, args); done {
 			return code
 		}
-		if err := outfmt.Check(*f); err != nil {
+		if err := helptext.CheckFormat(*f); err != nil {
 			return fail("%s catalog: %v", vendor, err)
 		}
 		format = *f
@@ -464,7 +463,7 @@ func cmdVendorModels(vendor string, args []string) int {
 		if cat.Databricks {
 			return printCopilotCatalog(vendor, cat, format)
 		}
-		if format == outfmt.Text {
+		if format == helptext.Text {
 			fmt.Println(cat.Source)
 		}
 	} else if len(args) > 0 {
@@ -493,8 +492,8 @@ func cmdVendorModels(vendor string, args []string) int {
 
 // printCopilotCatalog prints a Databricks row's chat endpoints as a NAME / TESTED table, or JSON.
 func printCopilotCatalog(vendor string, cat agent.CopilotCatalog, format string) int {
-	if format == outfmt.JSON {
-		if err := outfmt.Write(os.Stdout, cat); err != nil {
+	if format == helptext.JSON {
+		if err := helptext.WriteJSON(os.Stdout, cat); err != nil {
 			return fail("%s catalog: %v", vendor, err)
 		}
 		return 0

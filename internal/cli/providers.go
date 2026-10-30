@@ -12,19 +12,18 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/vendors"
 	"github.com/edotau/claude-code/internal/copilotsdk"
-	"github.com/edotau/claude-code/internal/helptext"
 	"github.com/edotau/claude-code/internal/models"
-	"github.com/edotau/claude-code/internal/outfmt"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/preflight"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/proxy"
 	"github.com/edotau/claude-code/internal/secrets"
+	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
 // configureProviderList prints every provider's credential state, or one provider's detail; json mirrors describe.
 func configureProviderList(name, format string) int {
-	if err := outfmt.Check(format); err != nil {
+	if err := helptext.CheckFormat(format); err != nil {
 		fmt.Fprintln(os.Stderr, "claude-code: configure provider:", err)
 		return 2
 	}
@@ -32,7 +31,7 @@ func configureProviderList(name, format string) int {
 	if err != nil {
 		return fail("%v", err)
 	}
-	if format == outfmt.JSON {
+	if format == helptext.JSON {
 		return providerListJSON(reg, name)
 	}
 	if name == "" {
@@ -220,10 +219,10 @@ func providerListJSON(reg *providers.Registry, name string) int {
 		list = append(list, e)
 	}
 	if name != "" {
-		_ = outfmt.Write(os.Stdout, list[0])
+		_ = helptext.WriteJSON(os.Stdout, list[0])
 		return 0
 	}
-	_ = outfmt.Write(os.Stdout, struct {
+	_ = helptext.WriteJSON(os.Stdout, struct {
 		Session  string              `json:"session"`
 		Default  string              `json:"default"`
 		Fallback []string            `json:"fallback,omitempty"`
@@ -246,13 +245,13 @@ func cmdModels(args []string) int {
 	unpin := fs.Bool("unpin", false, "clear every model pin")
 	live := fs.Bool("live", false, "list the models the profile serves (GET /models)")
 	dryRun := fs.Bool("dry-run", false, "with --pin/--unpin: print the vault pins change, write nothing")
-	format := outfmt.Flag(fs)
+	format := helptext.FormatFlag(fs)
 	var pins []string
 	fs.Func("pin", "alias=model, or all=model (repeatable)", func(v string) error {
 		pins = append(pins, v)
 		return nil
 	})
-	args, err := outfmt.Parse(fs, args)
+	args, err := helptext.ParseArgs(fs, args)
 	if err != nil {
 		return helptext.ExitCode(err)
 	}
@@ -260,7 +259,7 @@ func cmdModels(args []string) int {
 		fmt.Fprintf(os.Stderr, "claude-code: models: unexpected argument %q\n", args[0])
 		return 2
 	}
-	if err := outfmt.Check(*format); err != nil {
+	if err := helptext.CheckFormat(*format); err != nil {
 		fmt.Fprintln(os.Stderr, "claude-code: models:", err)
 		return 2
 	}
@@ -348,7 +347,7 @@ func renderModelSelection(reg *providers.Registry, sel providers.Selection, form
 				byAlias[s] = t.Spec()
 			}
 		}
-		if err := outfmt.Write(os.Stdout, map[string]any{"profile": sel.Provider.Name, "proxy": sel.NeedsRouter(reg), "models": byAlias}); err != nil {
+		if err := helptext.WriteJSON(os.Stdout, map[string]any{"profile": sel.Provider.Name, "proxy": sel.NeedsRouter(reg), "models": byAlias}); err != nil {
 			return fail("models: %v", err)
 		}
 		return 0
@@ -516,13 +515,13 @@ func listLive(reg *providers.Registry, p *providers.Provider, format string) int
 	if gwErr != nil {
 		fmt.Fprintln(os.Stderr, "claude-code: models: ai gateway listing unavailable:", gwErr)
 	}
-	if format == outfmt.JSON {
+	if format == helptext.JSON {
 		rows := make([]liveModel, 0, len(infos)+len(gw))
 		for _, m := range append(slices.Clone(infos), gw...) {
 			rows = append(rows, liveModel{ID: m.ID, Name: m.Name, UseCase: m.UseCase, Capabilities: m.Capabilities,
 				Task: m.Task, Ready: m.Ready, Gateway: m.Gateway})
 		}
-		_ = outfmt.Write(os.Stdout, rows)
+		_ = helptext.WriteJSON(os.Stdout, rows)
 		return 0
 	}
 	if len(infos) > 0 && infos[0].Task != "" {

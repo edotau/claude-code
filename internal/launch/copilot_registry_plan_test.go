@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/agent/vendors"
+	"github.com/edotau/claude-code/internal/paths/pathstest"
 )
 
 // registryFixture serves a Databricks workspace over TLS (the one network boundary) with one READY chat endpoint,

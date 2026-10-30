@@ -8,10 +8,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agent/vendors"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/routetable"
-	"github.com/edotau/claude-code/internal/agent/vendors"
 )
 
 // Fallback modes, matching `ask --fallback`: every runner ending in claude, vendors only, or the wanted runner alone.

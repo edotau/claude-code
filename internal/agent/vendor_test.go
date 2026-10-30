@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/agent/vendors"
+	"github.com/edotau/claude-code/internal/providers"
 )
 
 // attachPrompt per runner: codex folds the file inline (stdin has no live-read channel). gemini (agy)

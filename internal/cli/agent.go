@@ -23,14 +23,13 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/vendors"
 	"github.com/edotau/claude-code/internal/crossgen"
-	"github.com/edotau/claude-code/internal/helptext"
 	"github.com/edotau/claude-code/internal/hooks"
 	"github.com/edotau/claude-code/internal/inflight"
 	"github.com/edotau/claude-code/internal/network/remote"
-	"github.com/edotau/claude-code/internal/outfmt"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
+	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
 // askPage is `ask -h`; the task is the trailing args, or stdin when absent or "-".
@@ -877,7 +876,7 @@ func listAgents(format string) int {
 		}
 	}
 	if format == formatJSON {
-		_ = outfmt.Write(os.Stdout, rows)
+		_ = helptext.WriteJSON(os.Stdout, rows)
 	}
 	return 0
 }
@@ -886,7 +885,7 @@ func listAgents(format string) int {
 func printDispatchLog(format string) int {
 	recs := agent.RecentRecords(20)
 	if format == formatJSON {
-		_ = outfmt.Write(os.Stdout, recs)
+		_ = helptext.WriteJSON(os.Stdout, recs)
 		return 0
 	}
 	if len(recs) == 0 {

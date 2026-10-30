@@ -1,4 +1,4 @@
-package outfmt
+package helptext
 
 import (
 	"flag"
@@ -6,23 +6,23 @@ import (
 	"testing"
 )
 
-// Parse must honor a flag after positionals and stop flag parsing at "--".
+// ParseArgs must honor a flag after positionals and stop flag parsing at "--".
 func TestParseInterspersed(t *testing.T) {
 	fs := flag.NewFlagSet("t", flag.ContinueOnError)
-	f := Flag(fs)
-	pos, err := Parse(fs, []string{"gemini", "--format", "json", "router", "--", "--format"})
+	f := FormatFlag(fs)
+	pos, err := ParseArgs(fs, []string{"gemini", "--format", "json", "router", "--", "--format"})
 	if err != nil || *f != JSON || !slices.Equal(pos, []string{"gemini", "router", "--format"}) {
-		t.Fatalf("Parse = %v, %v, format=%q", pos, err, *f)
+		t.Fatalf("ParseArgs = %v, %v, format=%q", pos, err, *f)
 	}
-	if Check("xml") == nil || Check(Text) != nil {
+	if CheckFormat("xml") == nil || CheckFormat(Text) != nil {
 		t.Error("Check accepts only text|json")
 	}
 }
 
-// Parse must never flag-parse anything after a literal "--", even a later "-h".
+// ParseArgs must never flag-parse anything after a literal "--", even a later "-h".
 func TestParseDoubleDashIsAllPositional(t *testing.T) {
 	fs := flag.NewFlagSet("t", flag.ContinueOnError)
-	pos, err := Parse(fs, []string{"--", "file.py", "-h"})
+	pos, err := ParseArgs(fs, []string{"--", "file.py", "-h"})
 	if err != nil {
 		t.Fatalf("Parse err = %v, want nil", err)
 	}
@@ -31,11 +31,11 @@ func TestParseDoubleDashIsAllPositional(t *testing.T) {
 	}
 }
 
-// Parse must treat "--" as a non-bool flag's VALUE, not the terminator, when given bare ("--output --").
+// ParseArgs must treat "--" as a non-bool flag's VALUE, not the terminator, when given bare ("--output --").
 func TestParseDoubleDashAsFlagValue(t *testing.T) {
 	fs := flag.NewFlagSet("t", flag.ContinueOnError)
 	out := fs.String("output", "", "")
-	pos, err := Parse(fs, []string{"--output", "--", "x"})
+	pos, err := ParseArgs(fs, []string{"--output", "--", "x"})
 	if err != nil {
 		t.Fatalf("Parse err = %v, want nil", err)
 	}
@@ -47,11 +47,11 @@ func TestParseDoubleDashAsFlagValue(t *testing.T) {
 	}
 }
 
-// Parse must still honor "--" as the terminator when the flag's value arrives via "=", not a separate token.
+// ParseArgs must still honor "--" as the terminator when the flag's value arrives via "=", not a separate token.
 func TestParseEqualsFormThenDoubleDashTerminates(t *testing.T) {
 	fs := flag.NewFlagSet("t", flag.ContinueOnError)
 	out := fs.String("output", "", "")
-	pos, err := Parse(fs, []string{"--output=--", "x"})
+	pos, err := ParseArgs(fs, []string{"--output=--", "x"})
 	if err != nil {
 		t.Fatalf("Parse err = %v, want nil", err)
 	}
@@ -63,11 +63,11 @@ func TestParseEqualsFormThenDoubleDashTerminates(t *testing.T) {
 	}
 }
 
-// Parse must still terminate on "--" right after a bool flag, since a bool flag never consumes the next token.
+// ParseArgs must still terminate on "--" right after a bool flag, since a bool flag never consumes the next token.
 func TestParseBoolFlagThenDoubleDashTerminates(t *testing.T) {
 	fs := flag.NewFlagSet("t", flag.ContinueOnError)
 	verbose := fs.Bool("verbose", false, "")
-	pos, err := Parse(fs, []string{"--verbose", "--", "-h"})
+	pos, err := ParseArgs(fs, []string{"--verbose", "--", "-h"})
 	if err != nil {
 		t.Fatalf("Parse err = %v, want nil", err)
 	}
@@ -79,12 +79,12 @@ func TestParseBoolFlagThenDoubleDashTerminates(t *testing.T) {
 	}
 }
 
-// Parse must still error on a genuinely unknown flag preceding "--": consumesValue only skips a token
+// ParseArgs must still error on a genuinely unknown flag preceding "--": consumesValue only skips a token
 // for a REGISTERED non-bool flag, so an unregistered one leaves the terminator scan untouched and
 // fs.Parse still rejects the unknown flag on the head slice it was handed.
 func TestParseUnknownFlagBeforeDoubleDashStillErrors(t *testing.T) {
 	fs := flag.NewFlagSet("t", flag.ContinueOnError)
-	_, err := Parse(fs, []string{"--nope", "--", "x"})
+	_, err := ParseArgs(fs, []string{"--nope", "--", "x"})
 	if err == nil {
 		t.Fatal("Parse err = nil, want an error for the unregistered flag")
 	}
@@ -94,7 +94,7 @@ func TestParseUnknownFlagBeforeDoubleDashStillErrors(t *testing.T) {
 func TestParseShortFlagDoubleDashAsValue(t *testing.T) {
 	fs := flag.NewFlagSet("t", flag.ContinueOnError)
 	out := fs.String("o", "", "")
-	pos, err := Parse(fs, []string{"-o", "--", "x"})
+	pos, err := ParseArgs(fs, []string{"-o", "--", "x"})
 	if err != nil {
 		t.Fatalf("Parse err = %v, want nil", err)
 	}
