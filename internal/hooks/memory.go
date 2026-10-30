@@ -397,7 +397,7 @@ func servedRefreshDue(now time.Time) bool {
 		return false
 	}
 	reg, err := providers.Load()
-	return err == nil && preflight.Stale(reg, now)
+	return err == nil && preflight.Stale(reg, now) && preflight.ClaimRefresh(now)
 }
 
 // spawnServed is the detached `preflight --refresh` seam; tests replace it.
