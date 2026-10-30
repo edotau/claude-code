@@ -13,7 +13,9 @@ import (
 	"github.com/edotau/claude-code/internal/inflight"
 	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/preflight"
 	"github.com/edotau/claude-code/internal/proc"
+	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/transcript"
 	"github.com/edotau/claude-code/internal/worktree"
@@ -49,10 +51,19 @@ func SessionStart(r io.Reader, stdout io.Writer) int {
 		cwd, _ = os.Getwd()
 	}
 	ctx := memoryContext(cwd, in.SessionID, in.TranscriptPath, time.Now())
-	if out := MergeContext("SessionStart", []string{ctx}); out != "" {
+	if out := MergeContext("SessionStart", []string{ctx, preflightNotice(time.Now())}); out != "" {
 		fmt.Fprintln(stdout, out)
 	}
 	return ExitProceed
+}
+
+// preflightNotice is the static pin check (cached listings only): one short line when something needs a fix.
+func preflightNotice(now time.Time) string {
+	reg, err := providers.Load()
+	if err != nil {
+		return ""
+	}
+	return preflight.StaticLine(reg, now)
 }
 
 // memoryContext renders the note line + bank surface and advances the session chain.

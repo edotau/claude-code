@@ -88,6 +88,7 @@ func commands() []command {
 		{name: "help-svg", hidden: true, summary: "render this menu as the README SVG (--out f, --check f)", run: cmdMenuSVG},
 		{name: "ask", hidden: true, summary: "one-shot task on an agent; --format json = envelope", run: cmdAsk},
 		{name: "agents", hidden: true, summary: "list agents; sync roster + instructions into agent homes", run: cmdAgents},
+		{name: "preflight", hidden: true, summary: "pin check per agent; --live runs the post-install pong round", run: cmdPreflight},
 		{name: "models", hidden: true, summary: "model aliases; --pin alias=model, --live", run: cmdModels},
 		{name: "review", hidden: true, summary: "code-review detectors: quality|complexity|diff|pr|gate", run: cmdReview},
 		{name: "workflow", hidden: true, summary: "skeleton <pattern> | lint (model/effort pins, meta/throw)", run: cmdWorkflow},

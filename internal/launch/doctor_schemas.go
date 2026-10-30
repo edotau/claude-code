@@ -17,7 +17,7 @@ import (
 var knownStateNames = []string{
 	"harness", "plans-scratch", "copilot", "projections", "statusline", "usage", "vault.db*",
 	"*.lock", "*.log", "backups", "cache", "locks", "history*", "checkpoint", "agents-inflight", "memory",
-	"codex", "opencode", "dispatch", "vendors", "vendor-baseline", "stop-format", "worktree-merge-ops",
+	"codex", "opencode", "preflight", "dispatch", "vendors", "vendor-baseline", "stop-format", "worktree-merge-ops",
 	"agentversion.json", "opencode-models-check.json", "router.json", "tailscale-machines.json",
 }
 
