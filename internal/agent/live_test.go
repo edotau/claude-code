@@ -181,3 +181,17 @@ func TestLiveLargePromptWithPendingOutputDoesNotDeadlock(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// A turn that fails with a top-level error must never leave its late result to answer the next send.
+func TestLiveTurnErrorNeverLeaksIntoNextTurn(t *testing.T) {
+	liveEnv(t)
+	id, wait := startHolder(t, context.Background(), 5*time.Second)
+	if _, err := SendLive(context.Background(), id, "boom", Discard); err != nil {
+		t.Logf("failing turn: %v", err)
+	}
+	env, err := SendLive(context.Background(), id, "remember 7", Discard)
+	if err == nil && env.Answer == "late" {
+		t.Fatalf("next send got the previous turn's answer %q", env.Answer)
+	}
+	_ = wait()
+}
