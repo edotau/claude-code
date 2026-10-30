@@ -1,0 +1,1 @@
+{"schema":1,"fetched_at":"2026-01-02T03:04:05Z","profile":"dev","rows":[{"provider":"databricks","account":"dev","plan":"per-user","window":"month","used_percent":100.6,"left_percent":0,"used_credits":100.6,"limit_credits":100,"unit":"USD"}]}
