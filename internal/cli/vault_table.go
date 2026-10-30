@@ -12,7 +12,9 @@ import (
 
 	"unicode/utf8"
 
+	"github.com/edotau/claude-code/internal/ansi"
 	"github.com/edotau/claude-code/internal/config"
+	"github.com/edotau/claude-code/internal/helptext"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/secrets"
 )
@@ -27,13 +29,18 @@ func vaultTableWidth() int {
 
 // renderVaultText lays out each selected section, uppercase heading + aligned rows, in vaultSections order.
 func renderVaultText(doc config.Doc, stored []secrets.Stored, sel []string, width int) string {
+	return renderVaultTextStyled(doc, stored, sel, width, false)
+}
+
+// renderVaultTextStyled is renderVaultText, painting every section when color is on (agents paints its own rows).
+func renderVaultTextStyled(doc config.Doc, stored []secrets.Stored, sel []string, width int, color bool) string {
 	render := map[string]func() string{
 		"secrets":   func() string { return vaultSectionMax("SECRETS", vaultSecretRows(stored), width, 0, 0) },
-		"pins":      func() string { return vaultSection("PINS", vaultMapRows(doc.Pins), width) },
+		"pins":      func() string { return vaultSection("PINS", vaultMapRows(vaultLoosePins(doc)), width) },
 		"env":       func() string { return vaultSection("ENV", vaultMapRows(doc.Env), width) },
 		"providers": func() string { return vaultProvidersText(doc.Providers, width) },
 		"routing":   func() string { return vaultRoutingText(doc.Providers, width) },
-		"agents":    func() string { return vaultVendorsText(doc.Vendors, doc.Pins, width) },
+		"agents":    func() string { return vaultVendorsText(doc.Vendors, doc.Pins, width, color) },
 		"settings":  func() string { return vaultSection("SETTINGS", vaultFlattenSection(doc.Settings), width) },
 		"vault":     func() string { return vaultSection("VAULT", vaultVaultRows(doc.Vault.KeyCommand), width) },
 	}
@@ -42,6 +49,9 @@ func renderVaultText(doc config.Doc, stored []secrets.Stored, sel []string, widt
 		out := render[s]()
 		if len(sel) == len(vaultSections) && emptySection(out) { // bare/all hides empty sections; named ones say (none)
 			continue
+		}
+		if color && s != "agents" {
+			out = paintMarks(helptext.Paint(out))
 		}
 		if b.Len() > 0 {
 			b.WriteString("\n")
@@ -477,54 +487,183 @@ func vaultTable(head []string, colMax []int, rows [][]string, width int) string 
 	return b.String()
 }
 
-// vaultVendorsText renders one block per agent, ACTIVE first, then its overlay; unknown keys fall back to the flatten.
-func vaultVendorsText(raw json.RawMessage, pins map[string]string, width int) string {
-	var b strings.Builder
-	b.WriteString("AGENTS\n")
-	var top map[string]any
-	if s := strings.TrimSpace(string(raw)); s != "" && s != "null" {
-		if err := json.Unmarshal(raw, &top); err != nil {
-			return vaultSection("AGENTS", vaultFlattenSection(raw), width)
+// vaultTableStyled is vaultTable with a style code per row (painted after alignment, so padding sees plain text).
+func vaultTableStyled(head []string, colMax []int, rows [][]string, width int, codes []string, color bool) string {
+	lines := strings.Split(strings.TrimRight(vaultTable(head, colMax, rows, width), "\n"), "\n")
+	for i, l := range lines {
+		code := ansi.Dim
+		if i > 0 {
+			code = codes[i-1]
+		}
+		lines[i] = ansi.Style(color && code != "", code, l)
+	}
+	return strings.Join(lines, "\n") + "\n"
+}
+
+// vaultAgentCols are the leading agent-table columns; other pin suffixes follow alphabetically.
+var vaultAgentCols = []string{"PROFILE", "MODEL", "EFFORT", "CONTEXT"}
+
+// vaultClaudeTiers are claude's tier pins, folded into its MODEL cell as tier=id.
+var vaultClaudeTiers = []string{"OPUS", "SONNET", "HAIKU", "FABLE"}
+
+// vaultAgentNames is claude, then the other AgentSpecs agents alphabetically, then extra overlay agent names.
+func vaultAgentNames(vs map[string]any) []string {
+	names := []string{"claude"}
+	var rest []string
+	for _, sp := range providers.AgentSpecs() {
+		if sp.Name != "claude" {
+			rest = append(rest, sp.Name)
 		}
 	}
-	vs, _ := top["agents"].(map[string]any)
-	names := []string{"claude", "codex", "copilot", "gemini", "opencode"}
+	names = append(names, slices.Sorted(slices.Values(rest))...)
 	for _, name := range slices.Sorted(maps.Keys(vs)) {
 		if !slices.Contains(names, name) {
 			names = append(names, name)
 		}
 	}
-	var blocks []string
-	for _, name := range names {
-		var rows [][2]string
-		if key := providers.AgentActivePin(name); key != "" || name == "claude" {
-			rows = append(rows, [2]string{"ACTIVE", vaultAgentActive(key, pins)})
+	return names
+}
+
+// vaultOverlayAgents decodes the agents overlay: the top-level object and its "agents" map.
+func vaultOverlayAgents(raw json.RawMessage) (top, vs map[string]any, err error) {
+	if s := strings.TrimSpace(string(raw)); s != "" && s != "null" {
+		if err = json.Unmarshal(raw, &top); err != nil {
+			return nil, nil, err
 		}
-		if v, ok := vs[name]; ok {
-			rows = append(rows, vaultVendorRows(v)...)
-		}
-		blocks = append(blocks, "  "+name+"\n"+strings.TrimPrefix(vaultIndent(vaultSection("", rows, width-2)), "\n"))
 	}
-	var rest [][2]string
+	vs, _ = top["agents"].(map[string]any)
+	return top, vs, nil
+}
+
+// vaultLoosePins are the pins that belong to no agent (no AGENT_ key prefix).
+func vaultLoosePins(doc config.Doc) map[string]string {
+	var vs map[string]any
+	if _, v, err := vaultOverlayAgents(doc.Vendors); err == nil {
+		vs = v
+	}
+	names := vaultAgentNames(vs)
+	loose := map[string]string{}
+	for k, v := range doc.Pins {
+		if !slices.ContainsFunc(names, func(n string) bool { return strings.HasPrefix(k, strings.ToUpper(n)+"_") }) {
+			loose[k] = v
+		}
+	}
+	return loose
+}
+
+// vaultAgentPins is one agent's pin suffixes (after "<AGENT>_") to values; claude's tier pins fold into MODEL.
+func vaultAgentPins(name string, pins map[string]string) map[string]string {
+	prefix, out := strings.ToUpper(name)+"_", map[string]string{}
+	for k, v := range pins {
+		if suffix, ok := strings.CutPrefix(k, prefix); ok && strings.TrimSpace(v) != "" {
+			out[suffix] = v
+		}
+	}
+	if name != "claude" {
+		return out
+	}
+	var tiers []string
+	for _, t := range vaultClaudeTiers {
+		if v, ok := out[t+"_MODEL"]; ok {
+			tiers = append(tiers, strings.ToLower(t)+"="+v)
+		}
+		delete(out, t+"_MODEL")
+	}
+	if len(tiers) > 0 {
+		out["MODEL"] = strings.TrimSpace(out["MODEL"] + " " + strings.Join(tiers, " "))
+	}
+	return out
+}
+
+// vaultAgentOff reports an agent whose ACTIVE pin says off (claude is always on).
+func vaultAgentOff(name string, pins map[string]string) bool {
+	return name != "claude" && strings.TrimSpace(pins[strings.ToUpper(name)+"_ACTIVE"]) == providers.AgentOff
+}
+
+// vaultAgentTable is the AGENT/PROFILE/MODEL/... table, one row per agent; empty columns drop.
+func vaultAgentTable(names []string, pins map[string]string, width int, color bool) string {
+	per := make([]map[string]string, len(names))
+	extra := map[string]bool{}
+	for i, n := range names {
+		per[i] = vaultAgentPins(n, pins)
+		delete(per[i], "ACTIVE")
+		for k := range per[i] {
+			if !slices.Contains(vaultAgentCols, k) {
+				extra[k] = true
+			}
+		}
+	}
+	cols := append(slices.Clone(vaultAgentCols), slices.Sorted(maps.Keys(extra))...)
+	head, colMax := append([]string{"AGENT"}, cols...), []int{0}
+	for _, c := range cols {
+		colMax = append(colMax, map[string]int{"MODEL": 60, "PROFILE": 24}[c])
+	}
+	rows, codes := make([][]string, len(names)), make([]string, len(names))
+	for i, n := range names {
+		row := []string{n}
+		for _, c := range cols {
+			row = append(row, per[i][c])
+		}
+		off := vaultAgentOff(n, pins)
+		switch {
+		case !off:
+			codes[i] = ansi.Cyan
+		case len(per[i]) == 0:
+			codes[i] = ansi.Dim
+		}
+		if off && !color {
+			row[0] += " (off)"
+		}
+		rows[i] = row
+	}
+	head, colMax, rows = vaultDropEmptyCols(head, colMax, rows)
+	return vaultTableStyled(head, colMax, rows, width, codes, color)
+}
+
+// vaultVendorsText renders the agent table, then the per-agent overlay rows (and other top-level keys) below it.
+func vaultVendorsText(raw json.RawMessage, pins map[string]string, width int, color bool) string {
+	top, vs, err := vaultOverlayAgents(raw)
+	if err != nil {
+		return vaultSection("AGENTS", vaultFlattenSection(raw), width)
+	}
+	names := vaultAgentNames(vs)
+	var rows [][3]string
+	for _, name := range names {
+		if v, ok := vs[name]; ok {
+			for _, r := range vaultVendorRows(v) {
+				rows = append(rows, [3]string{name, r[0], r[1]})
+			}
+		}
+	}
 	for _, k := range slices.Sorted(maps.Keys(top)) {
 		if k == "_comment" || (k == "agents" && vs != nil) {
 			continue
 		}
-		rest = append(rest, vaultFlattenValue(k, top[k])...)
+		for _, r := range vaultFlattenValue(k, top[k]) {
+			rows = append(rows, [3]string{"", r[0], r[1]})
+		}
 	}
-	if len(rest) > 0 {
-		blocks = append(blocks, strings.TrimPrefix(vaultSection("", rest, width), "\n"))
+	out := vaultAgentTable(names, pins, width, color)
+	if len(rows) == 0 {
+		return out
 	}
-	b.WriteString(strings.Join(blocks, "\n"))
-	return b.String()
+	return out + "\n" + vaultOverlayLines(rows, width)
 }
 
-// vaultAgentActive is an agent's ACTIVE value: off only when its pin says off (claude has no pin, always on).
-func vaultAgentActive(key string, pins map[string]string) string {
-	if key != "" && strings.TrimSpace(pins[key]) == providers.AgentOff {
-		return providers.AgentOff
+// vaultOverlayLines aligns agent/path/value rows (path and value clipped like the key/value sections).
+func vaultOverlayLines(rows [][3]string, width int) string {
+	clipped := make([][3]string, len(rows))
+	aw, pw := 0, 0
+	for i, r := range rows {
+		clipped[i] = [3]string{r[0], vaultTruncateMiddle(r[1], kvKeyMax+8), vaultTruncate(r[2], kvValueMax)}
+		aw, pw = max(aw, utf8.RuneCountInString(r[0])), max(pw, utf8.RuneCountInString(clipped[i][1]))
 	}
-	return providers.AgentOn
+	var b strings.Builder
+	for _, r := range clipped {
+		line := fmt.Sprintf("  %-*s  %-*s  %s", aw, r[0], pw, r[1], r[2])
+		b.WriteString(vaultTruncate(line, width) + "\n")
+	}
+	return b.String()
 }
 
 // vaultVendorRows renders one vendor entry: launch.env, launch.args, permission and mcp.allow read as lists.
@@ -577,15 +716,4 @@ func vaultStringList(v any) ([]string, bool) {
 		out = append(out, s)
 	}
 	return out, true
-}
-
-// vaultIndent adds two spaces before every non-empty line.
-func vaultIndent(s string) string {
-	lines := strings.Split(s, "\n")
-	for i, l := range lines {
-		if l != "" {
-			lines[i] = "  " + l
-		}
-	}
-	return strings.Join(lines, "\n")
 }

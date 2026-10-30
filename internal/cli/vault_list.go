@@ -71,12 +71,7 @@ func vaultList(args []string) int {
 	} else {
 		var doc config.Doc
 		if err = json.Unmarshal(raw, &doc); err == nil {
-			text := renderVaultText(doc, stored, sel, vaultTableWidth())
-			if !ansi.Enabled(os.Stdout) {
-				fmt.Print(text)
-				return 0
-			}
-			fmt.Print(paintMarks(helptext.Paint(text)))
+			fmt.Print(renderVaultTextStyled(doc, stored, sel, vaultTableWidth(), ansi.Enabled(os.Stdout)))
 			return 0
 		}
 	}

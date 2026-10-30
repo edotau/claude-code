@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/ansi"
+	"github.com/edotau/claude-code/internal/config"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -51,17 +53,17 @@ func TestVaultListSections(t *testing.T) {
 			}
 			var headings []string
 			for line := range strings.SplitSeq(bare, "\n") {
-				if slices.Contains([]string{"SECRETS", "PINS", "ENV", "PROVIDERS", "AGENTS", "SETTINGS", "VAULT"}, line) {
+				if slices.Contains([]string{"SECRETS", "PINS", "ENV", "PROVIDERS", "SETTINGS", "VAULT"}, line) {
 					headings = append(headings, line)
 				}
 			}
-			if !slices.Equal(headings, []string{"SECRETS", "PINS", "ENV", "PROVIDERS", "AGENTS", "SETTINGS", "VAULT"}) { // AGENTS always lists ACTIVE
+			if !slices.Equal(headings, []string{"SECRETS", "PINS", "ENV", "PROVIDERS", "SETTINGS", "VAULT"}) {
 				t.Errorf("section order = %v", headings)
 			}
 			if !strings.HasPrefix(filtered, "SECRETS\n") || !strings.Contains(filtered, "\nPINS\n") {
 				t.Error("filtered sections must retain canonical order")
 			}
-			for _, head := range []string{"ENV", "PROVIDERS", "AGENTS", "SETTINGS", "VAULT"} {
+			for _, head := range []string{"ENV", "PROVIDERS", "SETTINGS", "VAULT"} {
 				if strings.Contains(filtered, "\n"+head+"\n") {
 					t.Errorf("filtered text includes %s", head)
 				}
@@ -97,7 +99,7 @@ func TestVaultListProviderAndVendorTables(t *testing.T) {
 	for _, want := range []string{
 		"NAME PROVIDER AUTH SONNET", "fake openai none fake-sonnet",
 		"ROUTING", "opencode.ladder[0] one", "opencode.ladder[1] two",
-		"opencode ACTIVE on", "launch.env.FAKE_ENV enabled", "launch.args --fake", "future.enabled true",
+		"launch.env.FAKE_ENV enabled", "launch.args --fake", "future.enabled true",
 	} {
 		if !strings.Contains(normalized, want) {
 			t.Errorf("missing table content %q", want)
@@ -145,5 +147,49 @@ func TestVaultListNestedOverlayRowsPerProfileNoPlans(t *testing.T) {
 	_, stdout, _ = captureOutput(t, func() int { return cmdVault([]string{"list", "--format", "text"}) })
 	if strings.Contains(stdout, "PROVIDERS") {
 		t.Errorf("a section with only empty/removed rows must not render:\n%s", stdout)
+	}
+}
+
+// TestVaultAgentsTableSpansPinsToText: agent pins fold into one AGENT table, loose pins stay under PINS, JSON keeps raw pins.
+func TestVaultAgentsTableSpansPinsToText(t *testing.T) {
+	useVaultTest(t)
+	t.Setenv("COLUMNS", "200")
+	pins := map[string]string{
+		"CLAUDE_PROFILE": "dev", "CLAUDE_MODEL": "sonnet", "CLAUDE_OPUS_MODEL": "opus-x",
+		"CODEX_PROFILE": "personal", "CODEX_EFFORT": "high", "CODEX_MODEL": "",
+		"GEMINI_ACTIVE": "off", "HARNESS_PROVIDER": "anthropic",
+	}
+	for k, v := range pins {
+		vaulttest.Put(t, vault.Pins, k, v)
+	}
+	raw, err := config.Export()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc config.Doc
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatal(err)
+	}
+	text := renderVaultText(doc, nil, []string{"pins", "agents"}, 200)
+	flat := strings.Join(strings.Fields(text), " ")
+	for _, want := range []string{"AGENT PROFILE MODEL EFFORT", "claude dev sonnet opus=opus-x", "codex personal high", "gemini (off)"} {
+		if !strings.Contains(flat, want) {
+			t.Errorf("missing %q in:\n%s", want, text)
+		}
+	}
+	if strings.Contains(text, "AGENTS") || strings.Contains(text, "ACTIVE") || strings.Contains(text, "CLAUDE_OPUS_MODEL") {
+		t.Errorf("agent pins leaked outside the table:\n%s", text)
+	}
+	pinsBlock, _, _ := strings.Cut(text, "AGENT")
+	if !strings.Contains(pinsBlock, "PINS\n") || !vaultTextHasRow(pinsBlock, "HARNESS_PROVIDER", "anthropic") || strings.Contains(pinsBlock, "CODEX_") {
+		t.Errorf("PINS must hold only the non-agent pin:\n%s", pinsBlock)
+	}
+	if colored := renderVaultTextStyled(doc, nil, []string{"agents"}, 200, true); !strings.Contains(colored, ansi.Dim+"  gemini") {
+		t.Errorf("off agent with no other pins not dimmed:\n%q", colored)
+	}
+	code, out, _ := captureOutput(t, func() int { return cmdVault([]string{"list", "pins", "--format", "json"}) })
+	var got struct{ Pins map[string]string }
+	if err := json.Unmarshal([]byte(out), &got); code != 0 || err != nil || got.Pins["CODEX_EFFORT"] != "high" || got.Pins["GEMINI_ACTIVE"] != "off" {
+		t.Errorf("JSON must keep every raw pin: code %d err %v out %s", code, err, out)
 	}
 }
