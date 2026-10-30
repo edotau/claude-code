@@ -16,12 +16,30 @@ import (
 // WSL2 Ctrl+V image paste fails on the bridged BMP.
 func cmdClip(args []string) int {
 	fs := helptext.NewFlagSet("clip", helptext.Page{
-		Usage: "claude-code clip",
+		Usage: "claude-code clip [--serve | --ssh-stdout]",
 		About: "Saves the clipboard image to a PNG and prints its path (macOS, WSL). " +
 			"Fallback for Ctrl+V image paste; hand the path to ask --attach.",
 	})
+	serve := fs.Bool("serve", false, "write the macOS clipboard PNG to stdout (launchd bridge)")
+	sshOut := fs.Bool("ssh-stdout", false, "write the SSH client's clipboard PNG to stdout")
 	if code, done := helptext.Parse(fs, args); done {
 		return code
+	}
+	switch {
+	case *serve: // stdout is the bridge socket: errors go to stderr only
+		if err := clipboard.ServePNG(os.Stdout); err != nil {
+			return fail("clip --serve: %v", err)
+		}
+		return 0
+	case *sshOut:
+		b, err := clipboard.ReadSSH()
+		if err != nil {
+			return fail("clip: %v", err)
+		}
+		if _, err := os.Stdout.Write(b); err != nil {
+			return fail("clip: %v", err)
+		}
+		return 0
 	}
 	path, dim, err := clipboard.Grab()
 	if err != nil {
