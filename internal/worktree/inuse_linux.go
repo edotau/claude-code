@@ -11,19 +11,22 @@ import (
 )
 
 func init() {
-	processesIn = processesInLinux
+	processesIn = scanIn
+	scanProcs = scanProcsLinux
+	procCmdline = procCmdlineLinux
 	parentOf = parentOfLinux
 	commName = commOf
 }
 
-// processesInLinux scans /proc/*/cwd; a readlink that fails (permission denied, or the process
-// already exited) is skipped since a process we can't inspect isn't ours to report.
-func processesInLinux(dir string) ([]Proc, error) {
+// scanProcsLinux walks /proc once; a readlink that fails (permission denied, or the process already exited)
+// is skipped since a process we can't inspect isn't ours to report.
+func scanProcsLinux() ([]procCwd, error) {
 	entries, err := os.ReadDir("/proc")
 	if err != nil {
 		return nil, err
 	}
-	var procs []Proc
+	resolvedBy := map[string]string{}
+	var procs []procCwd
 	for _, e := range entries {
 		pid, err := strconv.Atoi(e.Name())
 		if err != nil {
@@ -33,16 +36,25 @@ func processesInLinux(dir string) ([]Proc, error) {
 		if err != nil {
 			continue
 		}
-		resolved, err := filepath.EvalSymlinks(link)
-		if err != nil {
-			resolved = link
+		resolved, ok := resolvedBy[link]
+		if !ok {
+			if resolved, err = filepath.EvalSymlinks(link); err != nil {
+				resolved = link
+			}
+			resolvedBy[link] = resolved
 		}
-		if !within(resolved, dir) {
-			continue
-		}
-		procs = append(procs, Proc{PID: pid, Comm: commOf(pid)})
+		procs = append(procs, procCwd{PID: pid, Cwd: resolved})
 	}
 	return procs, nil
+}
+
+// procCmdlineLinux reads /proc/<pid>/cmdline (NUL-separated) as a space-joined command line.
+func procCmdlineLinux(pid int) (string, error) {
+	b, err := os.ReadFile(fmt.Sprintf("/proc/%d/cmdline", pid))
+	if err != nil {
+		return "", err
+	}
+	return strings.ReplaceAll(strings.TrimRight(string(b), "\x00"), "\x00", " "), nil
 }
 
 func commOf(pid int) string {

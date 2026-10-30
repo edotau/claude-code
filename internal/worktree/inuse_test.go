@@ -242,15 +242,13 @@ func TestInUseByRealProcess(t *testing.T) {
 func TestPeerAgentsIgnoresLinkedAndOwnTree(t *testing.T) {
 	co, linked := "/co", "/co/wt"
 	self := os.Getpid()
-	stubProcesses(t, func(dir string) ([]Proc, error) {
-		if dir == co+"/.git" {
-			return nil, nil
-		}
-		if dir == linked {
-			return []Proc{{PID: 300, Comm: "claude"}}, nil
-		}
-		return []Proc{{PID: 100, Comm: "claude"}, {PID: 200, Comm: "codex"}, {PID: 300, Comm: "claude"}, {PID: 400, Comm: "opencode"}, {PID: 500, Comm: "vim"}, {PID: 600, Comm: "agy"}}, nil
-	})
+	stubProcesses(t, nil)
+	origScan := scanProcs
+	scanProcs = func() ([]procCwd, error) {
+		return []procCwd{{100, co, "claude"}, {200, co, "codex"}, {300, linked, "claude"}, {400, co, "opencode"},
+			{500, co, "vim"}, {600, co, "agy"}, {700, "/elsewhere", "claude"}}, nil
+	}
+	t.Cleanup(func() { scanProcs = origScan })
 	origArgs := procArgs
 	procArgs = func(pid int) (string, error) {
 		if pid == 600 {
@@ -272,5 +270,37 @@ func TestPeerAgentsIgnoresLinkedAndOwnTree(t *testing.T) {
 	got, err := PeerAgents(co, []string{linked})
 	if err != nil || len(got) != 1 || got[0].PID != 400 {
 		t.Fatalf("PeerAgents = %v, %v; want only pid 400", got, err)
+	}
+}
+
+// PeerAgents walks the process table once however many linked worktrees there are, and still partitions them.
+func TestPeerAgentsScansOnceWithLinkedDirs(t *testing.T) {
+	co := "/co"
+	linkedDirs := []string{"/co/wt1", "/co/wt2", "/co/wt3"}
+	stubProcesses(t, nil)
+	parentOf = func(pid int) (int, error) { return 0, nil }
+	scans := 0
+	origScan, origArgs, origName := scanProcs, procArgs, commName
+	scanProcs = func() ([]procCwd, error) {
+		scans++
+		return []procCwd{{101, co, "claude"}, {102, "/co/wt1", "claude"}, {103, "/co/wt3/sub", "codex"},
+			{104, "/co/.git/hooks", "claude"}, {105, "/co/src", "opencode"}, {106, "/elsewhere", "claude"}}, nil
+	}
+	procArgs = func(int) (string, error) { return "agent", nil }
+	commName = func(int) string { return "" }
+	t.Cleanup(func() { scanProcs, procArgs, commName = origScan, origArgs, origName })
+	got, err := PeerAgents(co, linkedDirs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if scans != 1 {
+		t.Errorf("scanProcs ran %d times, want 1", scans)
+	}
+	var pids []int
+	for _, p := range got {
+		pids = append(pids, p.PID)
+	}
+	if len(pids) != 2 || pids[0] != 101 || pids[1] != 105 {
+		t.Errorf("peers = %v, want [101 105] (linked and .git dirs skipped)", pids)
 	}
 }
