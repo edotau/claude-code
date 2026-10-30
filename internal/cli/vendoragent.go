@@ -65,7 +65,7 @@ func vendorPage(vendor string) helptext.Page {
 		Commands: rows,
 		Flags:    vendorLaunchFlags(vendor),
 		Hint: "claude-code " + vendor + " <command> -h lists that command's flags.\n" +
-			"claude-code " + vendor + " " + helptext.DocsFlag + " prints " + vendorBinary(vendor) + "'s own help.",
+			"claude-code " + vendor + " " + helptext.DocsFlag + " prints " + agent.AgentBinary(vendor) + "'s own help.",
 	}
 }
 
@@ -264,7 +264,7 @@ func cmdVendorResult(vendor string, args []string) int {
 			Session string `json:"session,omitempty"`
 			Resume  string `json:"resume,omitempty"`
 			Log     string `json:"log"`
-		}{rec.ID, rec.SessionID, resumeHint(vendor, rec.SessionID), log}); err != nil {
+		}{rec.ID, rec.SessionID, agent.ResumeHint(vendor, rec.SessionID), log}); err != nil {
 			return fail("%s result: %v", vendor, err)
 		}
 		return resultExit(rec)
@@ -275,7 +275,7 @@ func cmdVendorResult(vendor string, args []string) int {
 	}
 	if rec.SessionID != "" {
 		fmt.Printf("session: %s\n", rec.SessionID)
-		fmt.Printf("resume: %s\n", resumeHint(vendor, rec.SessionID))
+		fmt.Printf("resume: %s\n", agent.ResumeHint(vendor, rec.SessionID))
 	}
 	return resultExit(rec)
 }
@@ -287,15 +287,6 @@ func resultExit(rec agent.Record) int {
 	}
 	fmt.Fprintf(os.Stderr, "error: %s\n", rec.Error)
 	return 1
-}
-
-// resumeHint renders Adapter.ResumeHint for id, empty when the vendor has none.
-func resumeHint(vendor, id string) string {
-	a, ok := agent.LookupAdapter(vendor)
-	if !ok || a.ResumeHint == nil || id == "" {
-		return ""
-	}
-	return a.ResumeHint(id)
 }
 
 // cmdVendorCancel is `claude-code <v> cancel [id]`.
@@ -363,7 +354,7 @@ func cmdVendorReview(vendor string, args []string) int {
 		return fail("%s review: %v", vendor, err)
 	}
 	focus := strings.Join(fs.Args(), " ")
-	if parts := reviewParts(diff, *adversarial, focus, *rubric); len(parts) > 1 {
+	if parts := agent.ReviewParts(diff, *adversarial, focus, *rubric); len(parts) > 1 {
 		return runSplitReview(vendor, args, parts, scope, *adversarial, *background, focus, *rubric)
 	}
 	askArgs, cleanup, err := agent.ReviewArgs(vendor, scope, diff, *adversarial, *background, focus, *rubric)
@@ -426,7 +417,7 @@ func cmdVendorTransfer(vendor string, args []string) int {
 	code := cmdAsk(agent.TransferArgs(vendor, cwd, prompt, *wait))
 	if code == 0 && *wait {
 		if rec, _, err := agent.JobResult(context.Background(), vendor, cwd, ""); err == nil {
-			if hint := resumeHint(vendor, rec.SessionID); hint != "" {
+			if hint := agent.ResumeHint(vendor, rec.SessionID); hint != "" {
 				fmt.Printf("resume: %s\n", hint)
 			}
 		}
@@ -476,12 +467,11 @@ func cmdVendorModels(vendor string, args []string) int {
 		if err != nil {
 			return fail("%v", err)
 		}
-		for _, n := range reg.ProfilesOf(a.ModelsProvider) {
-			if reg.Providers[n].Auth.Login == vendor {
-				return cmdModels([]string{"--live", "--profile", n, "--format", format})
-			}
+		n, err := agent.ModelsProfile(reg, vendor)
+		if err != nil {
+			return fail("%v", err)
 		}
-		return fail("%s: no %s profile with a %s login", vendor, a.ModelsProvider, vendor)
+		return cmdModels([]string{"--live", "--profile", n, "--format", format})
 	case len(a.ModelsArgv) > 0:
 		return launchVendor(vendor, a.ModelsArgv)
 	default:
@@ -529,12 +519,6 @@ func vendorLaunchFlags(vendor string) *flag.FlagSet {
 		fs.String("f", "", "config.toml whose keys ride as -c overrides")
 	}
 	return fs
-}
-
-// vendorBinary is the wrapped CLI an agent verb drives (gemini → agy).
-func vendorBinary(vendor string) string {
-	spec, _ := agent.LookupSpec(vendor)
-	return spec.Binary
 }
 
 // statusDetail is a status row's tail: progress and preview, or the preview plus the one-line error text.

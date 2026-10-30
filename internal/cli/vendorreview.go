@@ -11,20 +11,10 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/launch"
-	"github.com/edotau/claude-code/internal/proc/inflight"
 )
 
 // reviewJobEnv names the parent job record a detached split review updates with progress and its outcome.
 const reviewJobEnv = "CLAUDE_REVIEW_JOB"
-
-// reviewParts reports the parts an oversized diff splits into (one part means the plain single call).
-func reviewParts(diff []byte, adversarial bool, focus, rubric string) []agent.Part {
-	promptLen := len(agent.ReviewPrompt(adversarial, focus))
-	if fi, err := os.Stat(rubric); rubric != "" && err == nil {
-		promptLen += int(fi.Size())
-	}
-	return agent.SplitDiff(diff, promptLen, agent.ReviewBudget)
-}
 
 // runSplitReview runs a multi-part review: detached as one job when background, else sequentially in place.
 func runSplitReview(vendor string, args []string, parts []agent.Part, scope agent.Scope,
@@ -40,7 +30,7 @@ func runSplitReview(vendor string, args []string, parts []agent.Part, scope agen
 	}
 	answers := make([]string, 0, len(parts))
 	for i, p := range parts {
-		setReviewProgress(job, fmt.Sprintf("part %d/%d", i+1, len(parts)))
+		agent.SetReviewProgress(job, fmt.Sprintf("part %d/%d", i+1, len(parts)))
 		askArgs, cleanup, err := agent.ReviewArgs(vendor, scope, p.Diff, adversarial, false,
 			strings.TrimSpace(focus+"\n"+p.Header(i+1, len(parts))), rubric)
 		if err != nil {
@@ -50,7 +40,7 @@ func runSplitReview(vendor string, args []string, parts []agent.Part, scope agen
 		cleanup()
 		if rc != 0 {
 			fmt.Print(agent.MergeReports(adversarial, parts[:len(answers)], answers))
-			return finishSplitReview(job, fmt.Errorf("part %d/%d failed: %s", i+1, len(parts), lastDispatchError(vendor)))
+			return finishSplitReview(job, fmt.Errorf("part %d/%d failed: %s", i+1, len(parts), agent.LastDispatchError(vendor)))
 		}
 		answers = append(answers, ans)
 	}
@@ -62,8 +52,7 @@ func runSplitReview(vendor string, args []string, parts []agent.Part, scope agen
 func spawnSplitReview(vendor string, args []string, n int) int {
 	cwd, _ := os.Getwd()
 	req := agent.Request{Prompt: fmt.Sprintf("%s review split into %d parts", vendor, n), WorkDir: cwd, Launcher: launch.Launcher{}}
-	rec := agent.ClaimRecord(vendor, req, time.Now())
-	rec.Repo, rec.Owner, rec.Log = agent.RepoRoot(context.Background(), cwd), inflight.SessionOwner(), rec.LogPath()
+	rec := agent.BuildAskRecord(context.Background(), vendor, req, nil, cwd, true)
 	rec.Progress = fmt.Sprintf("part 0/%d", n)
 	_ = rec.Save()
 	argv := append([]string{vendor, "review"}, slices.DeleteFunc(slices.Clone(args), func(a string) bool {
@@ -77,15 +66,6 @@ func spawnSplitReview(vendor string, args []string, n int) int {
 	return 0
 }
 
-// setReviewProgress stores p on the job record, when there is one.
-func setReviewProgress(job *agent.Record, p string) {
-	if job == nil {
-		return
-	}
-	job.Progress = p
-	_ = job.Save()
-}
-
 // finishSplitReview closes the parent job record (when any) with err's text and returns the exit code.
 func finishSplitReview(job *agent.Record, err error) int {
 	if job != nil {
@@ -97,16 +77,6 @@ func finishSplitReview(job *agent.Record, err error) int {
 		return fail("review: %v", err)
 	}
 	return 0
-}
-
-// lastDispatchError is the newest failed dispatch's error text for vendor, so a split report names the real cause.
-func lastDispatchError(vendor string) string {
-	for _, r := range agent.RecentRecords(5) {
-		if r.Agent == vendor && r.Status == "error" {
-			return agent.Preview(r.Error, 400)
-		}
-	}
-	return "see claude-code " + vendor + " status"
 }
 
 // captureAnswer runs f with os.Stdout redirected to a pipe and returns what it wrote.

@@ -2,6 +2,8 @@ package agent
 
 import (
 	"fmt"
+
+	"github.com/edotau/claude-code/internal/providers"
 )
 
 // Adapter is the per-agent data behind the `claude-code <v> status|tail|result|cancel|setup|models` verbs.
@@ -63,3 +65,23 @@ func LookupAdapter(name string) (Adapter, bool) {
 
 // errUnknownAgent is the shared "no adapter" error, so callers report consistently.
 func errUnknownAgent(name string) error { return fmt.Errorf("unknown agent %q", name) }
+
+// ResumeHint renders Adapter.ResumeHint for id, empty when the vendor has none.
+func ResumeHint(vendor, id string) string {
+	a, ok := LookupAdapter(vendor)
+	if !ok || a.ResumeHint == nil || id == "" {
+		return ""
+	}
+	return a.ResumeHint(id)
+}
+
+// ModelsProfile is the vendor's profile on its ModelsProvider that carries the vendor's own login.
+func ModelsProfile(reg *providers.Registry, vendor string) (string, error) {
+	a, _ := LookupAdapter(vendor)
+	for _, n := range reg.ProfilesOf(a.ModelsProvider) {
+		if reg.Providers[n].Auth.Login == vendor {
+			return n, nil
+		}
+	}
+	return "", fmt.Errorf("%s: no %s profile with a %s login", vendor, a.ModelsProvider, vendor)
+}
