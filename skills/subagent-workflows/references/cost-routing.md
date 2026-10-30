@@ -37,7 +37,8 @@ follow `internal/routetable/table.json` as the single source.
 
 ## Ask flags and lifecycle
 
-Dispatch roles live in `../SKILL.md`; this section is the flag surface every agent shares. Per-agent levels:
+Dispatch roles live in [Leaf types](../SKILL.md#leaf-types); this section is the flag surface every agent shares.
+Per-agent levels:
 `claude-code agents --format json` prints `{name, binary, available, caps{…, cost, background, live, remote}, events[]}`
 (`--host <h>` lists a remote's); a flag an agent cannot honor is named in the envelope's `dropped`, never silent.
 
