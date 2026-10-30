@@ -18,7 +18,8 @@ func tomlString(v string) string {
 	return strings.TrimSpace(v)
 }
 
-func tomlStr(s string) string {
+// TOMLQuote renders s as a TOML basic string (a JSON string is one) for a codex -c override.
+func TOMLQuote(s string) string {
 	b, _ := json.Marshal(s) // a JSON string is a valid TOML basic string
 	return string(b)
 }

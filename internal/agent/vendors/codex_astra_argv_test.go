@@ -28,15 +28,15 @@ func TestCodexKeepsExplicitGPTModel(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s: %v", c.name, err)
 		}
-		if want := "model=" + tomlStr(c.model); !slices.Contains(argv, want) {
+		if want := "model=" + TOMLQuote(c.model); !slices.Contains(argv, want) {
 			t.Errorf("%s: argv %q lacks %s", c.name, argv, want)
 		}
 		for _, sol := range []string{"gpt-6-1-sol", "databricks-gpt-6-1-sol"} {
-			if slices.Contains(argv, "model="+tomlStr(sol)) {
+			if slices.Contains(argv, "model="+TOMLQuote(sol)) {
 				t.Errorf("%s: argv %q routed to %s", c.name, argv, sol)
 			}
 		}
-		if want := "model_reasoning_effort=" + tomlStr("high"); !slices.Contains(argv, want) {
+		if want := "model_reasoning_effort=" + TOMLQuote("high"); !slices.Contains(argv, want) {
 			t.Errorf("%s: argv %q lacks %s", c.name, argv, want)
 		}
 	}

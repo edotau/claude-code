@@ -454,7 +454,7 @@ func codexRouteDetail() string {
 }
 
 // geminiRouteDetail reports agy's own GEMINI_MODEL pin (effort rides the id's own suffix) — unset
-// means agy's own default (agent.AgyDefaultModel).
+// means agy's own default (vendors.AgyDefaultModel).
 func geminiRouteDetail() string {
 	model, source := providers.GeminiModel()
 	return fmt.Sprintf("model=%s source=%s", cmp.Or(model, "(default)"), source)

@@ -40,7 +40,7 @@ type OpencodeIntegration struct {
 
 // opencodeOutput is the exec seam for the installed opencode CLI (stdout only); tests replace it.
 var opencodeOutput = func(ctx context.Context, args ...string) ([]byte, error) {
-	bin, err := paths.VendorBin("opencode")
+	bin, err := opencodeBin()
 	if err != nil {
 		return nil, err
 	}
@@ -64,7 +64,7 @@ var opencodeVersionRe = regexp.MustCompile(`(\d+)\.\d+`)
 
 // opencodeBinKey identifies the installed opencode binary (path+size+mtime), so a change or upgrade re-probes.
 func opencodeBinKey() string {
-	p, err := paths.VendorBin("opencode")
+	p, err := opencodeBin()
 	if err != nil {
 		return ""
 	}

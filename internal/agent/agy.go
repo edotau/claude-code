@@ -10,7 +10,6 @@ import (
 	"os"
 	"strings"
 
-	"github.com/edotau/claude-code/internal/agent/vendors"
 	"github.com/edotau/claude-code/internal/paths"
 )
 
@@ -26,9 +25,6 @@ type AgyRequest struct {
 
 // agyEffort maps the harness's own effort vocabulary onto agy's (identity today; unknown values drop).
 var agyEffort = map[string]string{"low": "low", "medium": "medium", "high": "high", "xhigh": "xhigh", "max": "max"}
-
-// AgyDefaultModel runs agy when the caller names no model: fast, and enough for headless legs.
-const AgyDefaultModel = vendors.AgyDefaultModel
 
 // agyToolLessPreamble is agy's own verified tool-less instruction (no tools-off flag exists).
 const agyToolLessPreamble = "Answer from the text below only. Do not call any tools.\n\n"

@@ -72,7 +72,7 @@ func modelRow(d *dialog, name string) *billingRow {
 	}
 	if name == "gemini" {
 		model, source := providers.GeminiModel()
-		desc := cmp.Or(model, agent.AgyDefaultModel) + " (" + source + ")"
+		desc := cmp.Or(model, vendors.AgyDefaultModel) + " (" + source + ")"
 		return &billingRow{label: "Model", desc: desc, run: func() bool { pickGeminiModel(d); return true }}
 	}
 	p, claude := modelTarget(d, name)

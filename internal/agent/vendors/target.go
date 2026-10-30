@@ -81,20 +81,15 @@ func CopilotFallback(reg *providers.Registry, detail string) (providers.Target, 
 	return ft, ri.Reason, nil
 }
 
-// orderedDatabricks lists Databricks profiles in registry order.
-func orderedDatabricks(reg *providers.Registry) []string {
-	return providers.DatabricksProfiles(reg)
-}
-
 // copilotDatabricksFallback: this session's (else the vault-pinned) profile when it is a signed-in Databricks row,
-// else the first one in orderedDatabricks whose credential resolves, else LegNone. detail names why GitHub was refused.
+// else the first Databricks profile whose credential resolves, else LegNone. detail names why GitHub was refused.
 func copilotDatabricksFallback(reg *providers.Registry, detail string) RouteInfo {
 	pick := func(p *providers.Provider) RouteInfo {
 		return RouteInfo{Agent: "copilot", Leg: LegDatabricks, Provider: p.Name, Model: p.Models[models.Opus],
 			Reason: "copilot: " + detail + " — using databricks profile " + p.Name, OK: true}
 	}
 	pin := cmp.Or(providers.SessionProfile(), providers.Pin(providers.PinProfile))
-	for _, name := range append([]string{pin}, orderedDatabricks(reg)...) {
+	for _, name := range append([]string{pin}, providers.DatabricksProfiles(reg)...) {
 		if p := reg.Providers[name]; databricksUsable(p) {
 			return pick(p)
 		}

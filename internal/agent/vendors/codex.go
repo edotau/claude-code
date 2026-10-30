@@ -60,7 +60,7 @@ func codex(p *providers.Provider, base, model, cred string, h *Headless) ([]stri
 	if err != nil {
 		return nil, nil, err
 	}
-	fields := [][2]string{{"name", tomlStr(p.Name)}, {"base_url", tomlStr(base)}, {"wire_api", tomlStr("responses")}}
+	fields := [][2]string{{"name", TOMLQuote(p.Name)}, {"base_url", TOMLQuote(base)}, {"wire_api", TOMLQuote("responses")}}
 	var env []string
 	if p.Preset == providers.PresetDatabricks {
 		env = append(env, hookspec.CodexProfileEnv+"="+p.Name, hookspec.CodexCatalogEnv+"=")
@@ -68,19 +68,19 @@ func codex(p *providers.Provider, base, model, cred string, h *Headless) ([]stri
 	if cred != "" {
 		env = append(env, CodexKeyEnv+"="+cred)
 		if p.Auth.HeaderStyle() == providers.HeaderXAPIKey {
-			fields = append(fields, [2]string{"env_http_headers", tomlInline([][2]string{{tomlStr("x-api-key"), tomlStr(CodexKeyEnv)}})})
+			fields = append(fields, [2]string{"env_http_headers", tomlInline([][2]string{{TOMLQuote("x-api-key"), TOMLQuote(CodexKeyEnv)}})})
 		} else {
-			fields = append(fields, [2]string{"env_key", tomlStr(CodexKeyEnv)})
+			fields = append(fields, [2]string{"env_key", TOMLQuote(CodexKeyEnv)})
 		}
 	}
 	if len(p.Headers) > 0 {
 		var hs [][2]string
 		for _, k := range slices.Sorted(maps.Keys(p.Headers)) {
-			hs = append(hs, [2]string{tomlStr(k), tomlStr(p.Headers[k])})
+			hs = append(hs, [2]string{TOMLQuote(k), TOMLQuote(p.Headers[k])})
 		}
 		fields = append(fields, [2]string{"http_headers", tomlInline(hs)})
 	}
-	argv := []string{"-c", "model_provider=" + tomlStr(id), "-c", "model=" + tomlStr(model),
+	argv := []string{"-c", "model_provider=" + TOMLQuote(id), "-c", "model=" + TOMLQuote(model),
 		"-c", "model_providers." + id + "=" + tomlInline(fields)}
 	catalog := codexCatalogArgs(p)
 	argv = append(argv, catalog...) // /model offers only ids this row serves
@@ -117,7 +117,7 @@ func codexLogin(model string, h *Headless) ([]string, []string, error) {
 	if err := codexChatGPTLogin(); err != nil {
 		return nil, nil, err
 	}
-	argv := []string{"-c", "model_provider=" + tomlStr("openai"), "-c", "model=" + tomlStr(model)}
+	argv := []string{"-c", "model_provider=" + TOMLQuote("openai"), "-c", "model=" + TOMLQuote(model)}
 	return nil, codexHeadless(argv, h), nil
 }
 
@@ -188,7 +188,7 @@ func codexHeadless(argv []string, h *Headless) []string {
 		effort = h.Effort
 	}
 	if effort = cmp.Or(effort, providers.Pin(providers.PinCodexEffort)); effort != "" {
-		argv = append(argv, "-c", "model_reasoning_effort="+tomlStr(effort))
+		argv = append(argv, "-c", "model_reasoning_effort="+TOMLQuote(effort))
 	}
 	if h == nil {
 		return argv

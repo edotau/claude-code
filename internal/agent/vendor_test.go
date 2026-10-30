@@ -111,7 +111,7 @@ func geminiOwnLoginFixture(t *testing.T) {
 }
 
 // vendorRunner.Run's gemini branch resolves the model agy actually runs as: the GEMINI_AGENT_MODEL pin
-// when the caller named none, else AgyDefaultModel; res.Model is set before RunAgy ever runs, so it
+// when the caller named none, else vendors.AgyDefaultModel; res.Model is set before RunAgy ever runs, so it
 // comes back correct even though no real agy binary is installed here (RunAgy errors, Run still
 // returns res with Model set — vendor.go Run()).
 func TestVendorRunnerGeminiModelResolutionPinBeatsDefault(t *testing.T) {
@@ -125,8 +125,8 @@ func TestVendorRunnerGeminiModelResolutionPinBeatsDefault(t *testing.T) {
 	if err == nil {
 		t.Fatal("want an error (no real agy binary installed), got nil")
 	}
-	if res.Model != AgyDefaultModel {
-		t.Errorf("res.Model = %q, want AgyDefaultModel %q (no pin, no explicit model)", res.Model, AgyDefaultModel)
+	if res.Model != vendors.AgyDefaultModel {
+		t.Errorf("res.Model = %q, want vendors.AgyDefaultModel %q (no pin, no explicit model)", res.Model, vendors.AgyDefaultModel)
 	}
 
 	if err := providers.SetPins(map[string]string{providers.PinGeminiModel: "gemini-2.5-pro"}); err != nil {
