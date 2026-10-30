@@ -104,7 +104,7 @@ func (v vendorRunner) Name() string { return v.name }
 func (v vendorRunner) Caps() Caps {
 	c := Caps{Model: Native, Provider: Native, Effort: Native, WorkDir: Native, SessionID: Native, Tools: Native, Autonomous: Native,
 		NoPersist: lv(v.name == "codex"), SafeMode: lv(v.name == "codex" || v.name == "opencode"), DebugFile: lv(v.name == "gemini"),
-		Direct: Native, Env: Native, SystemPrompt: Emulated, AppendSystemPrompt: Emulated, OutputSchema: Emulated}
+		Direct: Native, Env: Native, SystemPrompt: Emulated, AppendSystemPrompt: Emulated, OutputSchema: Emulated, Persona: Emulated}
 	switch v.name { // levels verified by live probe: codex -c instructions/developer_instructions, opencode agent prompt, agy --json-schema
 	case "codex":
 		c.SystemPrompt, c.AppendSystemPrompt, c.OutputSchema = Native, Native, Native
@@ -461,7 +461,7 @@ type copilotRunner struct{}
 func (copilotRunner) Name() string { return "copilot" }
 func (copilotRunner) Caps() Caps {
 	return Caps{Model: Native, Provider: Native, Effort: Native, WorkDir: Native, Tools: Native, SessionID: Native, Autonomous: Native,
-		Memory: Native, Direct: Native, Env: Native, SystemPrompt: Emulated, AppendSystemPrompt: Emulated, OutputSchema: Emulated}
+		Memory: Native, Direct: Native, Env: Native, SystemPrompt: Emulated, AppendSystemPrompt: Emulated, OutputSchema: Emulated, Persona: Emulated}
 }
 func (copilotRunner) Available() error { _, err := paths.VendorBin("copilot"); return err }
 
