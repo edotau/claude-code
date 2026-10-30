@@ -1,4 +1,4 @@
-package vendors
+package settings
 
 import (
 	_ "embed"
@@ -7,11 +7,10 @@ import (
 	"fmt"
 	"io/fs"
 
-	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/vault"
 )
 
-//go:embed defaults.json
+//go:embed agents.json
 var defaultsJSON []byte
 
 // GuardRules are prompts carried over into a vendor opted in via Permission.UseGuardRules.
@@ -129,7 +128,7 @@ func Parse(base, overlay []byte) (*Config, error) {
 
 // templateGuardRules reads the embedded settings template's permissions.ask/deny verbatim.
 func templateGuardRules() (GuardRules, error) {
-	rendered, err := settings.Render()
+	rendered, err := Render()
 	if err != nil {
 		return GuardRules{}, fmt.Errorf("vendorconfig guard rules: %w", err)
 	}

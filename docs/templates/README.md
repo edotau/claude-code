@@ -11,7 +11,7 @@
 | Settings defaults | [`defaults/claude/settings.json`](../../defaults/claude/settings.json) | `claude-code configure --restore`, baked into `claude-code install` | [settings/settings.json](examples/settings/settings.json) |
 | Provider defaults | [`internal/providers/defaults.json`](../../internal/providers/defaults.json) | `claude-code configure provider --list`, `claude-code switch`, `claude-code models` | — |
 | Status line default config + palettes | [`internal/ui/statusline/default_config.json`](../../internal/ui/statusline/default_config.json), [`default_palettes.json`](../../internal/ui/statusline/default_palettes.json) | `claude-code theme statusline` (invoked by `settings.json`'s `statusLine.command`) | — |
-| Agent config defaults | [`internal/agent/vendors/defaults.json`](../../internal/agent/vendors/defaults.json) | `claude-code agents sync`, `claude-code configure --restore --agents` | — |
+| Agent config defaults | [`internal/settings/agents.json`](../../internal/settings/agents.json) | `claude-code agents sync`, `claude-code configure --restore --agents` | — |
 | tmux.conf | [`internal/launch/tmux.conf`](../../internal/launch/tmux.conf) | `claude-code install` (`seedTmuxConf`; only when no tmux config exists) | — |
 | VS Code machine-settings template | [`internal/network/vscode/machine-settings.template.json`](../../internal/network/vscode/machine-settings.template.json) | `claude-code theme vscode` | — |
 | VS Code keybindings template | [`internal/network/vscode/keybindings.template.json`](../../internal/network/vscode/keybindings.template.json) | `claude-code theme vscode` (keybindings step) | — |
