@@ -18,7 +18,7 @@ type Persona struct {
 	Name        string   `json:"name"`
 	Description string   `json:"description,omitempty"`
 	Prompt      string   `json:"prompt"`
-	Tools       []string `json:"tools,omitempty"`
+	Tools       []string `json:"tools"` // nil = inherit, empty = no tools
 	Model       string   `json:"model,omitempty"`
 	MaxTurns    int      `json:"max_turns,omitempty"`
 }
@@ -59,8 +59,9 @@ func LoadPersona(ref string) (*Persona, error) {
 	}
 	switch t := fm["tools"].(type) {
 	case []string:
-		p.Tools = t
+		p.Tools = append([]string{}, t...)
 	case string:
+		p.Tools = []string{}
 		for f := range strings.SplitSeq(t, ",") {
 			if f = strings.TrimSpace(f); f != "" {
 				p.Tools = append(p.Tools, f)
@@ -76,7 +77,7 @@ func LoadPersona(ref string) (*Persona, error) {
 // personaArgs renders claude's `--agents '{"<name>":{…}}' --agent <name>` with only the selected persona.
 func personaArgs(p Persona) []string {
 	def := map[string]any{"description": cmp.Or(p.Description, p.Name), "prompt": p.Prompt}
-	if len(p.Tools) > 0 {
+	if p.Tools != nil {
 		def["tools"] = p.Tools
 	}
 	if p.Model != "" {
@@ -92,8 +93,8 @@ func personaArgs(p Persona) []string {
 // emulatePersona folds the persona into system text for an agent with no definition channel and names the fields lost.
 func emulatePersona(c Caps, req Request, dropped []string) (Request, []string) {
 	p := req.Persona
-	if len(p.Tools) > 0 {
-		dropped = append(dropped, "--persona.tools="+strings.Join(p.Tools, ","))
+	if p.Tools != nil {
+		dropped = append(dropped, "--persona.tools="+cmp.Or(strings.Join(p.Tools, ","), "none"))
 	}
 	if p.Model != "" {
 		dropped = append(dropped, "--persona.model="+p.Model)
