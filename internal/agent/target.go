@@ -32,7 +32,7 @@ func ResolveVendorTarget(reg *providers.Registry, name string, sel providers.Sel
 	}
 	if explicit || (providers.CanServe(name, t.Provider) && geminiFollowsPin(name, t.Provider)) {
 		if name == "copilot" {
-			return CopilotGate(reg, t)
+			return copilotGate(reg, t)
 		}
 		return t, "", nil
 	}
@@ -58,21 +58,21 @@ func ResolveVendorTarget(reg *providers.Registry, name string, sel providers.Sel
 	return t, "", nil
 }
 
-// CopilotGate keeps t unless it is copilot's GitHub login on an unworkable pin; then the Databricks fallback and its
+// copilotGate keeps t unless it is copilot's GitHub login on an unworkable pin; then the Databricks fallback and its
 // notice — never another GitHub account.
-func CopilotGate(reg *providers.Registry, t providers.Target) (providers.Target, string, error) {
+func copilotGate(reg *providers.Registry, t providers.Target) (providers.Target, string, error) {
 	if t.Provider == nil || t.Provider.Auth.Login != "copilot" {
 		return t, "", nil
 	}
-	detail, ok := copilotHeadroom(context.Background(), CopilotPinLogin())
+	detail, ok := copilotHeadroom(context.Background(), copilotPinLogin())
 	if ok {
 		return t, "", nil
 	}
-	return CopilotFallback(reg, detail)
+	return copilotFallback(reg, detail)
 }
 
-// CopilotFallback is the copilot Databricks fallback target and its notice; detail names why GitHub was refused.
-func CopilotFallback(reg *providers.Registry, detail string) (providers.Target, string, error) {
+// copilotFallback is the copilot Databricks fallback target and its notice; detail names why GitHub was refused.
+func copilotFallback(reg *providers.Registry, detail string) (providers.Target, string, error) {
 	ri := copilotDatabricksFallback(reg, detail)
 	ft, ok := routeTarget(reg, ri)
 	if !ok {

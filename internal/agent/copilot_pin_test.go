@@ -29,7 +29,7 @@ func TestCopilotPinMissingFailsClosed(t *testing.T) {
 // Unpinned behaviour is unchanged: gh's active account resolves and the launch token has no error.
 func TestCopilotUnpinnedUnchanged(t *testing.T) {
 	copilotAuthEnv(t)
-	if err := CopilotPinError(); err != nil {
+	if err := copilotPinError(); err != nil {
 		t.Fatalf("no pin must mean no pin error: %v", err)
 	}
 	if a, ok := copilotAuthSource(); !ok || a.Source != srcActive || a.Account != "alice" {

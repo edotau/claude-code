@@ -41,8 +41,8 @@ func codexResponsesModel(p *providers.Provider, model string) string {
 	return cmp.Or(providers.FirstResponsesModel(p), model)
 }
 
-// CodexRanModel is the model codex runs for t: t.Model unless the Responses swap replaced it.
-func CodexRanModel(t providers.Target) string {
+// codexRanModel is the model codex runs for t: t.Model unless the Responses swap replaced it.
+func codexRanModel(t providers.Target) string {
 	if t.Provider == nil {
 		return t.Model
 	}
@@ -60,7 +60,7 @@ func codex(p *providers.Provider, base, model, cred string, h *Headless) ([]stri
 	if err != nil {
 		return nil, nil, err
 	}
-	fields := [][2]string{{"name", TOMLQuote(p.Name)}, {"base_url", TOMLQuote(base)}, {"wire_api", TOMLQuote("responses")}}
+	fields := [][2]string{{"name", tomlQuote(p.Name)}, {"base_url", tomlQuote(base)}, {"wire_api", tomlQuote("responses")}}
 	var env []string
 	if p.Preset == providers.PresetDatabricks {
 		env = append(env, hookspec.CodexProfileEnv+"="+p.Name, hookspec.CodexCatalogEnv+"=")
@@ -68,19 +68,19 @@ func codex(p *providers.Provider, base, model, cred string, h *Headless) ([]stri
 	if cred != "" {
 		env = append(env, CodexKeyEnv+"="+cred)
 		if p.Auth.HeaderStyle() == providers.HeaderXAPIKey {
-			fields = append(fields, [2]string{"env_http_headers", tomlInline([][2]string{{TOMLQuote("x-api-key"), TOMLQuote(CodexKeyEnv)}})})
+			fields = append(fields, [2]string{"env_http_headers", tomlInline([][2]string{{tomlQuote("x-api-key"), tomlQuote(CodexKeyEnv)}})})
 		} else {
-			fields = append(fields, [2]string{"env_key", TOMLQuote(CodexKeyEnv)})
+			fields = append(fields, [2]string{"env_key", tomlQuote(CodexKeyEnv)})
 		}
 	}
 	if len(p.Headers) > 0 {
 		var hs [][2]string
 		for _, k := range slices.Sorted(maps.Keys(p.Headers)) {
-			hs = append(hs, [2]string{TOMLQuote(k), TOMLQuote(p.Headers[k])})
+			hs = append(hs, [2]string{tomlQuote(k), tomlQuote(p.Headers[k])})
 		}
 		fields = append(fields, [2]string{"http_headers", tomlInline(hs)})
 	}
-	argv := []string{"-c", "model_provider=" + TOMLQuote(id), "-c", "model=" + TOMLQuote(model),
+	argv := []string{"-c", "model_provider=" + tomlQuote(id), "-c", "model=" + tomlQuote(model),
 		"-c", "model_providers." + id + "=" + tomlInline(fields)}
 	catalog := codexCatalogArgs(p)
 	argv = append(argv, catalog...) // /model offers only ids this row serves
@@ -117,7 +117,7 @@ func codexLogin(model string, h *Headless) ([]string, []string, error) {
 	if err := codexChatGPTLogin(); err != nil {
 		return nil, nil, err
 	}
-	argv := []string{"-c", "model_provider=" + TOMLQuote("openai"), "-c", "model=" + TOMLQuote(model)}
+	argv := []string{"-c", "model_provider=" + tomlQuote("openai"), "-c", "model=" + tomlQuote(model)}
 	return nil, codexHeadless(argv, h), nil
 }
 
@@ -188,7 +188,7 @@ func codexHeadless(argv []string, h *Headless) []string {
 		effort = h.Effort
 	}
 	if effort = cmp.Or(effort, providers.Pin(providers.PinCodexEffort)); effort != "" {
-		argv = append(argv, "-c", "model_reasoning_effort="+TOMLQuote(effort))
+		argv = append(argv, "-c", "model_reasoning_effort="+tomlQuote(effort))
 	}
 	if h == nil {
 		return argv

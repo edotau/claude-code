@@ -97,7 +97,7 @@ func RunGemini(ctx context.Context, o GeminiOptions, stream, log io.Writer) (Res
 	if useAgy {
 		fmt.Fprintln(log, "gemini bridge: agy (Google login)")
 		model := geminiAgyModel(reg, sel, p, o.Model)
-		agyReq := AgyRequest{Prompt: prompt, Model: model, Effort: o.Effort, Cwd: o.Cwd}
+		agyReq := agyRequest{Prompt: prompt, Model: model, Effort: o.Effort, Cwd: o.Cwd}
 		// agy's own stdin-NDJSON path, not Run/vendorRunner.Run: that runner's argv-prompt cap
 		// (MaxPromptBytes) and provider-fallback resolution are both wrong for a multi-MB inlined
 		// sweep over agy's own Google login. Do + Classify reuse the same retry/backoff shape ask gets;
@@ -123,7 +123,7 @@ func RunGemini(ctx context.Context, o GeminiOptions, stream, log io.Writer) (Res
 				var res Result
 				aerr := Do(ctx, policy, func(actx context.Context, _ int) *Error {
 					cw.n = 0
-					out, err := RunAgy(actx, agyReq, sink)
+					out, err := runAgy(actx, agyReq, sink)
 					res = out
 					return Classify("gemini", err, cw.n > 0)
 				})
@@ -175,7 +175,7 @@ func resolveProvider(o GeminiOptions) (*providers.Registry, providers.Selection,
 	if p == nil {
 		return nil, providers.Selection{}, nil, "", fmt.Errorf("gemini: provider %q not found", providerName)
 	}
-	model := ResolveModel(o.Model, ModelEnvKeys, p.Models[models.Sonnet])
+	model := ResolveModel(o.Model, modelEnvKeys, p.Models[models.Sonnet])
 	return reg, sel, p, model, nil
 }
 
@@ -267,7 +267,7 @@ func compactRecordPrompt(task string, ctxFiles Context) string {
 
 // geminiAgyModel is the named (flag or process env) model for agy, else the GEMINI_MODEL pin, else AgyDefaultModel.
 func geminiAgyModel(reg *providers.Registry, sel providers.Selection, p *providers.Provider, named string) string {
-	if model := ResolveModel(named, ModelEnvKeys, ""); model != "" {
+	if model := ResolveModel(named, modelEnvKeys, ""); model != "" {
 		return resolvedModelID(reg, sel, p, model)
 	}
 	t, _ := providers.ResolveAgentModel(providers.ModelAsk{Agent: "gemini", Target: providers.Target{Provider: p, Model: AgyDefaultModel}})

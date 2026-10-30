@@ -30,7 +30,7 @@ func TestCodexResponsesModel(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s: %v", c.name, err)
 		}
-		if want := "model=" + TOMLQuote(c.want); !slices.Contains(argv, want) {
+		if want := "model=" + tomlQuote(c.want); !slices.Contains(argv, want) {
 			t.Errorf("%s: argv %q lacks %s", c.name, argv, want)
 		}
 	}

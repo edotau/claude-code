@@ -66,7 +66,7 @@ func describeCopilotRoute(reg *providers.Registry) RouteInfo {
 		return RouteInfo{Agent: "copilot", Leg: LegDatabricks, Provider: p.Name, Model: t.Model,
 			Reason: "copilot: pinned databricks profile " + p.Name, OK: true}
 	}
-	detail, workable := copilotHeadroom(context.Background(), CopilotPinLogin())
+	detail, workable := copilotHeadroom(context.Background(), copilotPinLogin())
 	if a, ok := copilotAuthSource(); ok && workable {
 		if p, ok := loginProvider(reg, "github", "copilot"); ok {
 			model, _ := providers.CopilotModel(reg)

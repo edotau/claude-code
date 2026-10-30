@@ -393,7 +393,7 @@ func TestOpencodeCopilotLoginHeadlessCarriesModel(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ResolveTarget: %v", err)
 	}
-	_, argv, err := ConfigureHeadless(context.Background(), "opencode", target, Headless{Prompt: "pong"})
+	_, argv, err := configureHeadless(context.Background(), "opencode", target, Headless{Prompt: "pong"})
 	if errors.Is(err, ErrOwnLogin) {
 		t.Fatal("ConfigureHeadless must not surface ErrOwnLogin: the headless runner cannot fall back to an interactive model menu")
 	}
@@ -430,11 +430,11 @@ func TestOpencodeHeadlessToolsOffBeatsLaunchEnv(t *testing.T) {
 		}
 	}
 	h := Headless{Prompt: "hi", Tools: false}
-	env, _, err := OwnLoginHeadless("opencode", h)
+	env, _, err := ownLoginHeadless("opencode", h)
 	if err != nil {
 		t.Fatal(err)
 	}
 	check("OwnLoginHeadless", env)
-	env, _ = OpencodeRunArgv("opencode-go/x", h)
+	env, _ = opencodeRunArgv("opencode-go/x", h)
 	check("OpencodeRunArgv", env)
 }

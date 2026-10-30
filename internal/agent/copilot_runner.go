@@ -59,7 +59,7 @@ func (copilotRunner) Run(ctx context.Context, req Request, sink Sink) (Result, e
 	var route *copilotRegistryRoute
 	switch {
 	case own:
-	case CopilotRegistryEligible(req.Direct, t):
+	case copilotRegistryEligible(req.Direct, t):
 		if route, err = prepareCopilotRegistry(ctx, t); err != nil {
 			return res, &Error{Kind: KindFatal, Agent: "copilot", Err: err}
 		}

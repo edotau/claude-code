@@ -5,7 +5,7 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 )
 
-// CopilotChoice is the copilot registry's model choice: the requested models, else the agent's model pin.
-func CopilotChoice(requested []string) copilotreg.Choice {
+// copilotChoice is the copilot registry's model choice: the requested models, else the agent's model pin.
+func copilotChoice(requested []string) copilotreg.Choice {
 	return copilotreg.Choice{Requested: requested, Pin: providers.AgentModelPin("copilot")}
 }

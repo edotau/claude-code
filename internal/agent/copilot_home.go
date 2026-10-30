@@ -51,35 +51,35 @@ func checkCopilotRegistryOS() error {
 // CopilotRegistryBanner is the one-line launch notice; GitHub models are unreachable by construction in this mode.
 const CopilotRegistryBanner = "copilot: GitHub models are unavailable in this mode"
 
-// CopilotStripEnv is the inherited GitHub login/routing env a registry child must not see (plus CopilotStripPrefix).
-var CopilotStripEnv = []string{
+// copilotStripEnv is the inherited GitHub login/routing env a registry child must not see (plus CopilotStripPrefix).
+var copilotStripEnv = []string{
 	"GH_TOKEN", "GITHUB_TOKEN", "GITHUB_ENTERPRISE_TOKEN", "GH_ENTERPRISE_TOKEN", "COPILOT_GITHUB_TOKEN",
 	"COPILOT_SDK_AUTH_TOKEN", "GH_HOST", "COPILOT_GH_HOST", "COPILOT_API_URL", "GH_CONFIG_DIR",
 	"COPILOT_PROVIDERS_CONFIG",
 }
 
-// CopilotStripPrefix names the singular BYOK block (COPILOT_PROVIDER_*) a registry child must not inherit.
-const CopilotStripPrefix = "COPILOT_PROVIDER_"
+// copilotStripPrefix names the singular BYOK block (COPILOT_PROVIDER_*) a registry child must not inherit.
+const copilotStripPrefix = "COPILOT_PROVIDER_"
 
-// CopilotPrivateHome is the private login-free copilot home: the env to set and the names to strip.
-type CopilotPrivateHome struct {
+// copilotPrivateHome is the private login-free copilot home: the env to set and the names to strip.
+type copilotPrivateHome struct {
 	Env      []string
 	Unset    []string // exact names; also strip anything with CopilotStripPrefix
 	Warnings []string
 }
 
 // PrepareCopilotHome seeds the private home (not when dry), guards logins, returns its env; launch and ask share it.
-func PrepareCopilotHome(dry bool) (CopilotPrivateHome, error) {
+func PrepareCopilotHome(dry bool) (copilotPrivateHome, error) {
 	if err := checkCopilotRegistryOS(); err != nil {
-		return CopilotPrivateHome{}, err
+		return copilotPrivateHome{}, err
 	}
 	home, xdg := copilotRegistryHome(), copilotRegistryXDG()
-	out := CopilotPrivateHome{
+	out := copilotPrivateHome{
 		Env: []string{
 			"COPILOT_HOME=" + home, "XDG_CONFIG_HOME=" + xdg,
 			"DBUS_SESSION_BUS_ADDRESS=", // no session bus, so no keyring: nothing to log in with
 		},
-		Unset: append(slices.Clone(CopilotStripEnv), "COPILOT_MODEL"),
+		Unset: append(slices.Clone(copilotStripEnv), "COPILOT_MODEL"),
 	}
 	if dry {
 		return out, nil
@@ -91,13 +91,13 @@ func PrepareCopilotHome(dry bool) (CopilotPrivateHome, error) {
 		return serr
 	})
 	if err != nil {
-		return CopilotPrivateHome{}, err
+		return copilotPrivateHome{}, err
 	}
 	return out, nil
 }
 
-// CopilotRegistry is one registry launch: the env to set, names to unset, argv prefix, and the minted token.
-type CopilotRegistry struct {
+// copilotRegistry is one registry launch: the env to set, names to unset, argv prefix, and the minted token.
+type copilotRegistry struct {
 	Env      []string
 	Unset    []string
 	Argv     []string
@@ -107,15 +107,15 @@ type CopilotRegistry struct {
 }
 
 // Revoke drops the launch's session token; a launch that never minted one is a no-op.
-func (c CopilotRegistry) Revoke() {
+func (c copilotRegistry) Revoke() {
 	if c.Token != "" {
 		_ = revokeSession(context.Background(), c.Token)
 	}
 }
 
-// CopilotRegistryEligible: a keyed Databricks profile the router can mint a session for (not direct, not a login,
+// copilotRegistryEligible: a keyed Databricks profile the router can mint a session for (not direct, not a login,
 // not auth none/cli — the router cannot authenticate those rows).
-func CopilotRegistryEligible(direct bool, t providers.Target) bool {
+func copilotRegistryEligible(direct bool, t providers.Target) bool {
 	p := t.Provider
 	return p != nil && !direct && p.Preset == providers.PresetDatabricks && p.Auth.Login == "" &&
 		p.Auth.Method() != providers.AuthNone && p.Auth.Method() != providers.AuthCLI
@@ -123,14 +123,14 @@ func CopilotRegistryEligible(direct bool, t providers.Target) bool {
 
 // UsesCopilotRegistry reports whether t is a Databricks row whose copilot launch runs on the registry.
 func UsesCopilotRegistry(ctx context.Context, t providers.Target) bool {
-	return CopilotRegistryEligible(isDirect(ctx), t)
+	return copilotRegistryEligible(isDirect(ctx), t)
 }
 
 // ConfigureCopilotRegistry builds the registry launch for t; errors are fatal (no plain fallback); dry mints nothing.
 func ConfigureCopilotRegistry(
 	ctx context.Context, reg *providers.Registry, t providers.Target, args []string, dry bool,
-) (CopilotRegistry, error) {
-	var out CopilotRegistry
+) (copilotRegistry, error) {
+	var out copilotRegistry
 	if err := checkCopilotRegistryOS(); err != nil { // before discovery or minting
 		return out, err
 	}
@@ -147,7 +147,7 @@ func ConfigureCopilotRegistry(
 	rp := *p
 	rp.Headers = map[string]string{proxy.AgentHeader: "copilot"} // the router adds the provider's own headers upstream
 	r := copilotreg.Build(p.Name, &rp, eps, rb)
-	ref, err := r.Select(CopilotChoice(requested))
+	ref, err := r.Select(copilotChoice(requested))
 	if err != nil {
 		return out, fmt.Errorf("copilot: %w", err)
 	}

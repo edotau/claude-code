@@ -19,10 +19,10 @@ const AgyDefaultModel = "gemini-3.8-flash-high"
 // agyEfforts are the effort suffixes agy bakes into its model ids (gemini-3.8-flash-high).
 var agyEfforts = []string{"low", "medium", "high", "xhigh", "max"}
 
-// AgyGatewayArg returns the dotted catalog id agy lists for model (effort suffix dropped) and the --model agy takes in
+// agyGatewayArg returns the dotted catalog id agy lists for model (effort suffix dropped) and the --model agy takes in
 // gateway mode (base plus model's effort suffix); a non-Gemini id (a Databricks Claude slot) falls back to the
 // GEMINI_MODEL pin, else AgyDefaultModel.
-func AgyGatewayArg(model string) (base, arg string) {
+func agyGatewayArg(model string) (base, arg string) {
 	base, effort, ok := agyGatewayBase(model)
 	if !ok {
 		base, effort, _ = agyGatewayBase(cmp.Or(providers.Pin(providers.PinGeminiModel), AgyDefaultModel))
@@ -58,7 +58,7 @@ func geminiGateway(ctx context.Context, p *providers.Provider, model string, h *
 	if err != nil {
 		return nil, nil, fmt.Errorf("gemini: session token for profile %s: %w", p.Name, err)
 	}
-	base, arg := AgyGatewayArg(model)
+	base, arg := agyGatewayArg(model)
 	env := []string{
 		"AGY_LLM_GATEWAY_URL=" + proxy.SessionBase(rb, p.Name) + "/" + providers.ProtocolGemini,
 		"AGY_LLM_GATEWAY_API_KEY=" + tok,

@@ -158,7 +158,7 @@ func TestResolveTargetGeminiFallsBackToGoogleLogin(t *testing.T) {
 	if target.Provider == nil || target.Provider.Provider != "google" || !strings.Contains(note, "Google login") {
 		t.Fatalf("expected the Google-login gemini route, got %v / %q", target.Provider, note)
 	}
-	env, _, err := ConfigureHeadless(context.Background(), "gemini", target, Headless{Prompt: "hi"})
+	env, _, err := configureHeadless(context.Background(), "gemini", target, Headless{Prompt: "hi"})
 	if err != nil {
 		t.Fatalf("a login with no key must still configure: %v", err)
 	}

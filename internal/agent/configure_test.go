@@ -53,7 +53,7 @@ func TestConfigure(t *testing.T) {
 			var env, argv []string
 			var err error
 			if c.h != nil {
-				env, argv, err = ConfigureHeadless(ctx, c.vendor, tg, *c.h)
+				env, argv, err = configureHeadless(ctx, c.vendor, tg, *c.h)
 			} else {
 				env, argv, err = Configure(ctx, c.vendor, tg, "")
 			}
@@ -158,7 +158,7 @@ func TestLaunchSpecAppliedOnEveryRoute(t *testing.T) {
 // skip-permissions launch arg — that would silently re-enable tools the caller explicitly turned off.
 func TestHeadlessLegsGetNoLaunchArgs(t *testing.T) {
 	tg := target(t, "personal", "claude-opus-5.5")
-	_, argv, err := ConfigureHeadless(context.Background(), "copilot", tg, Headless{Prompt: "hi", Tools: false})
+	_, argv, err := configureHeadless(context.Background(), "copilot", tg, Headless{Prompt: "hi", Tools: false})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -177,7 +177,7 @@ func TestHeadlessLegsGetNoLaunchArgs(t *testing.T) {
 	}
 	gtg := target(t, "antigravity", "gemini-2.5-pro")
 	t.Setenv("HOME", home) // target() reset HOME to its own tempdir; point it back at the marker
-	_, argv, err = ConfigureHeadless(context.Background(), "gemini", gtg, Headless{Prompt: "hi", Tools: false})
+	_, argv, err = configureHeadless(context.Background(), "gemini", gtg, Headless{Prompt: "hi", Tools: false})
 	if err != nil {
 		t.Fatal(err)
 	}

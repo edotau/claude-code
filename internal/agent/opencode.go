@@ -76,7 +76,7 @@ func opencode(p *providers.Provider, dialect, base, model, cred string, routed b
 	if err != nil {
 		return nil, nil, err
 	}
-	env = append(env, OpencodeConfigEnv+"="+string(body))
+	env = append(env, opencodeConfigEnv+"="+string(body))
 	if h == nil {
 		return env, nil, nil
 	}
@@ -89,7 +89,7 @@ func opencodeDatabricksModel(env []string) string {
 		Model string `json:"model"`
 	}
 	for _, kv := range env {
-		if v, ok := strings.CutPrefix(kv, OpencodeConfigEnv+"="); ok {
+		if v, ok := strings.CutPrefix(kv, opencodeConfigEnv+"="); ok {
 			_ = json.Unmarshal([]byte(v), &cfg)
 		}
 	}
@@ -100,7 +100,7 @@ func opencodeDatabricksModel(env []string) string {
 func opencodeHeadlessRun(env []string, h *Headless, fullModel string) ([]string, []string, error) {
 	if !h.Tools {
 		var err error
-		if env, err = MutateOpencodeConfigEnv(env, false, func(cfg map[string]any) { cfg["permission"] = "deny" }); err != nil {
+		if env, err = mutateOpencodeConfigEnv(env, false, func(cfg map[string]any) { cfg["permission"] = "deny" }); err != nil {
 			return nil, nil, err
 		}
 	}
@@ -143,9 +143,9 @@ func opencodeModels(p *providers.Provider, model string, h *Headless) map[string
 	return menu
 }
 
-// OwnLoginHeadless is the headless form of a vendor running on its own stored login/config: argv only, no
+// ownLoginHeadless is the headless form of a vendor running on its own stored login/config: argv only, no
 // harness route injected. Tools off still rides OPENCODE_CONFIG_CONTENT, which opencode merges over its config.
-func OwnLoginHeadless(name string, h Headless) (env, argv []string, err error) {
+func ownLoginHeadless(name string, h Headless) (env, argv []string, err error) {
 	if strings.TrimSpace(h.Prompt) == "" {
 		return nil, nil, errors.New("agents: empty prompt")
 	}
@@ -153,16 +153,16 @@ func OwnLoginHeadless(name string, h Headless) (env, argv []string, err error) {
 		return nil, nil, fmt.Errorf("%s: no headless form on its own login; pass --provider", name)
 	}
 	env, argv = opencodeRun("", h)
-	if cred, err := OpencodeCredential("opencode"); err == nil {
+	if cred, err := opencodeCredential("opencode"); err == nil {
 		env = append(env, cred...) // the vault key when opencode stores no login of its own
 	}
 	launchEnv, argv := applyLaunch("opencode", nil, argv, false) // headless: never Launch.Args
 	return routeEnvLast(launchEnv, env), argv, nil
 }
 
-// OpencodeRunArgv is opencodeRun exported for the hub runner (internal/agent): one ladder leg execs
+// opencodeRunArgv is opencodeRun exported for the hub runner (internal/agent): one ladder leg execs
 // `opencode run` directly on an opencode-native "provider/model" id, bypassing the harness-route config.
-func OpencodeRunArgv(model string, h Headless) (env, argv []string) {
+func opencodeRunArgv(model string, h Headless) (env, argv []string) {
 	env, argv = opencodeRun(model, h)
 	launchEnv, argv := applyLaunch("opencode", nil, argv, false) // headless: never Launch.Args
 	return routeEnvLast(launchEnv, env), argv
@@ -171,7 +171,7 @@ func OpencodeRunArgv(model string, h Headless) (env, argv []string) {
 // opencodeRun is `opencode run --format json` for h; a non-empty model adds -m (opencode's provider/model form).
 func opencodeRun(model string, h Headless) (env, argv []string) {
 	if !h.Tools {
-		env = append(env, OpencodeConfigEnv+`={"permission":"deny"}`)
+		env = append(env, opencodeConfigEnv+`={"permission":"deny"}`)
 	}
 	argv = []string{"run", "--format", "json"}
 	if model != "" {
@@ -270,15 +270,15 @@ func slotModelID(reg *providers.Registry, p *providers.Provider, slot string) st
 	return id
 }
 
-// OpencodeConfigEnv is the env var carrying opencode's inline JSON config.
-const OpencodeConfigEnv = "OPENCODE_CONFIG_CONTENT"
+// opencodeConfigEnv is the env var carrying opencode's inline JSON config.
+const opencodeConfigEnv = "OPENCODE_CONFIG_CONTENT"
 
-// MutateOpencodeConfigEnv applies fn to the JSON in each OpencodeConfigEnv entry of env (appending one when absent).
+// mutateOpencodeConfigEnv applies fn to the JSON in each OpencodeConfigEnv entry of env (appending one when absent).
 // An unreadable block is an error, or with lenient replaced by an empty config.
-func MutateOpencodeConfigEnv(env []string, lenient bool, fn func(map[string]any)) ([]string, error) {
+func mutateOpencodeConfigEnv(env []string, lenient bool, fn func(map[string]any)) ([]string, error) {
 	found := false
 	for i, kv := range env {
-		body, ok := strings.CutPrefix(kv, OpencodeConfigEnv+"=")
+		body, ok := strings.CutPrefix(kv, opencodeConfigEnv+"=")
 		if !ok {
 			continue
 		}
@@ -295,7 +295,7 @@ func MutateOpencodeConfigEnv(env []string, lenient bool, fn func(map[string]any)
 		if err != nil {
 			return nil, err
 		}
-		env[i] = OpencodeConfigEnv + "=" + string(out)
+		env[i] = opencodeConfigEnv + "=" + string(out)
 	}
 	if found {
 		return env, nil
@@ -306,7 +306,7 @@ func MutateOpencodeConfigEnv(env []string, lenient bool, fn func(map[string]any)
 	if err != nil {
 		return nil, err
 	}
-	return append(env, OpencodeConfigEnv+"="+string(out)), nil
+	return append(env, opencodeConfigEnv+"="+string(out)), nil
 }
 
 // opencodeOverlayModels is the overlay's model/small_model: github-copilot/ ids on the copilot-only leg (no

@@ -10,7 +10,7 @@ import (
 // D6: agy's model is flag > process env > the GEMINI_MODEL vault pin > agy's default.
 func TestAgyModelPrecedence(t *testing.T) {
 	vaulttest.Use(t)
-	for _, k := range ModelEnvKeys {
+	for _, k := range modelEnvKeys {
 		t.Setenv(k, "")
 	}
 	reg, err := providers.Load()

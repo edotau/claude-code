@@ -48,7 +48,7 @@ func TestHubLegForOpencodeDefault(t *testing.T) {
 		t.Fatal(err)
 	}
 	l := r.(hubLeg)
-	_, argv := OpencodeRunArgv(l.provider.OpencodeID+"/"+l.resolveModel(model), Headless{Prompt: "p", Effort: cell.Effort})
+	_, argv := opencodeRunArgv(l.provider.OpencodeID+"/"+l.resolveModel(model), Headless{Prompt: "p", Effort: cell.Effort})
 	got := strings.Join(argv, " ")
 	if !strings.Contains(got, "-m opencode-go/kimi-k3.1-pro") || !strings.Contains(got, "--variant high") {
 		t.Errorf("opencode default argv = %q, want -m opencode-go/kimi-k3.1-pro --variant high", got)
