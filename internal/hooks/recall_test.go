@@ -123,6 +123,13 @@ func TestPickTierAccessBoost(t *testing.T) {
 	if len(picks) != 1 || picks[0].e.ID != "aa000001" {
 		t.Fatalf("a returned-to entry failing the gate must not be admitted: %+v", picks)
 	}
+
+	// A boosted top hit must not raise the relative floor: a hit at half the raw top still survives.
+	half := []memory.SearchHit{hit("aa000001", 10, 3), hit("cc000003", 5, 3)}
+	picks, _ = pickTier(half, false, 3, nil, nil, map[string]int{"aa000001": recallAccessCap})
+	if len(picks) != 2 {
+		t.Fatalf("the boost lifted the floor over a qualifying hit: %+v", picks)
+	}
 }
 
 // TestMemoryRecallHandlesCwdGracefully: MemoryRecall must handle missing or invalid CWD
