@@ -1,5 +1,5 @@
 // Package clean is the explicit state sweep: `claude-code clean` applies by default and the
-// age-out every target protects against is otherwise a LAZY side effect (harvest, hooks, install
+// age-out every target protects against is otherwise a LAZY side effect (update, hooks, install
 // each prune only their own path on their own schedule — nothing ever sweeps the rest). --dry-run
 // previews without deleting.
 //
@@ -67,11 +67,11 @@ func targets() []target {
 			globs: func() []string { return []string{s("codex", "routing-*.jsonl")} },
 		},
 		{
-			name: "memory-state", doc: "state/harness/memory: harvest logs, session stamps, harvest receipts, recall-seen sets, watcher claims",
+			name: "memory-state", doc: "state/harness/memory: update logs, session stamps, update receipts, recall-seen sets, watcher claims",
 			globs: func() []string {
 				return []string{
-					s("memory", "harvest-*.log"), s("memory", "stamp-*"),
-					s("memory", "harvest-result-*"), s("memory", "recall-seen", "*"),
+					s("memory", "update-*.log"), s("memory", "stamp-*"),
+					s("memory", "update-result-*"), s("memory", "recall-seen", "*"),
 					s("memory", "watch-*"),
 				}
 			},

@@ -29,13 +29,13 @@ func e2eModuleRoot(t *testing.T) string {
 	return filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
 }
 
-// e2eRun executes the binary with a from-scratch env (no inherited CLAUDE_*, GIT_* or harvest-child vars).
+// e2eRun executes the binary with a from-scratch env (no inherited CLAUDE_*, GIT_* or update-child vars).
 func (e e2eEnv) run(t *testing.T, stdin string, args ...string) (stdout, stderr string, code int) {
 	t.Helper()
 	cmd := exec.Command(e.bin, args...)
 	cmd.Dir = e.repo
 	cmd.Env = []string{
-		"PATH=" + e.pathDir, // git only: a detached dream/harvest child cannot find a model CLI
+		"PATH=" + e.pathDir, // git only: a detached dream/update child cannot find a model CLI
 		"HOME=" + e.home,
 		"XDG_CONFIG_HOME=" + filepath.Join(e.home, ".config"),
 		"CLAUDE_CONFIG_DIR=" + e.cfg,
@@ -251,15 +251,15 @@ func TestE2EMemoryLifecycle(t *testing.T) {
 
 	t.Run("update-transcript", func(t *testing.T) {
 		// copilot and the other vendor legs are absent from <cfg>/bin, so the chain lands on the fake claude there
-		const marker = "e2e-harvest-marker-7731"
-		const session = "e2e-harvest-session"
+		const marker = "e2e-update-marker-7731"
+		const session = "e2e-update-session"
 		argvLog, stdinLog := filepath.Join(t.TempDir(), "argv.log"), filepath.Join(t.TempDir(), "stdin.log")
 		script := "#!/bin/sh\n" +
 			"for a in \"$@\"; do printf '%s\\n' \"$a\" >> '" + argvLog + "'; done\n" +
 			"while IFS= read -r l || [ -n \"$l\" ]; do printf '%s\\n' \"$l\"; done > '" + stdinLog + "'\n" + // PATH has no cat
 			"printf '\\n- " + marker + "\\n' >> '" + filepath.Join(bankDir, "sessionHistory.md") + "'\n" +
-			"echo '{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"harvested\"}]}}'\n" +
-			"echo '{\"type\":\"result\",\"subtype\":\"success\",\"result\":\"harvested\"}'\n"
+			"echo '{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"updated\"}]}}'\n" +
+			"echo '{\"type\":\"result\",\"subtype\":\"success\",\"result\":\"updated\"}'\n"
 		write(t, filepath.Join(cfg, "bin", "claude"), script)
 		if err := os.Chmod(filepath.Join(cfg, "bin", "claude"), 0o755); err != nil {
 			t.Fatal(err)
@@ -274,7 +274,7 @@ func TestE2EMemoryLifecycle(t *testing.T) {
 			t.Errorf("update reported no runner:\n%s", out)
 		}
 		prompt, _ := os.ReadFile(stdinLog)
-		for _, want := range []string{transcript, "Background harvest", "DECISION: ship the zebrafish gearbox"} {
+		for _, want := range []string{transcript, "Background update", "DECISION: ship the zebrafish gearbox"} {
 			if !strings.Contains(string(prompt), want) {
 				t.Errorf("fake claude prompt lacks %q:\n%s", want, prompt)
 			}
@@ -285,9 +285,9 @@ func TestE2EMemoryLifecycle(t *testing.T) {
 		if hist, _ := os.ReadFile(filepath.Join(bankDir, "sessionHistory.md")); !strings.Contains(string(hist), marker) {
 			t.Error("the fake reply's sessionHistory write is missing from the bank")
 		}
-		res, ok := ReadHarvestResult(session)
-		if !ok || res.Status != HarvestOK || !res.BankUpdated {
-			t.Errorf("harvest result = %+v ok=%v, want status ok with bank_updated", res, ok)
+		res, ok := ReadUpdateResult(session)
+		if !ok || res.Status != UpdateOK || !res.BankUpdated {
+			t.Errorf("update result = %+v ok=%v, want status ok with bank_updated", res, ok)
 		}
 		store, _ := filepath.EvalSymlinks(filepath.Join(cfg, "memory"))
 		for p := range dirHashes(t, cfg) {

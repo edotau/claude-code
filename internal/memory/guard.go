@@ -21,7 +21,7 @@ func StartupGuard() Guard {
 		if reason == "" {
 			reason = "no reason recorded"
 		}
-		return Guard{Paused: true, Notice: "memory maintenance in progress (" + reason + "): memory scaffolding and harvests are paused until it completes; see " + MaintenancePath()}
+		return Guard{Paused: true, Notice: "memory maintenance in progress (" + reason + "): memory scaffolding and updates are paused until it completes; see " + MaintenancePath()}
 	}
 	return Guard{}
 }

@@ -13,7 +13,7 @@ import (
 	"github.com/edotau/claude-code/internal/settings"
 )
 
-// TestStopCombinesBlocksAndStillFormats: through the Stop event, checkpoint and harvest both block with both
+// TestStopCombinesBlocksAndStillFormats: through the Stop event, checkpoint and update both block with both
 // messages shown, the format group runs anyway, stop_hook_active skips only the checkpoint, and a disabled
 // format group leaves the file unformatted while memory still blocks.
 func TestStopCombinesBlocksAndStillFormats(t *testing.T) {
@@ -24,7 +24,7 @@ func TestStopCombinesBlocksAndStillFormats(t *testing.T) {
 	}
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv("HARNESS_VAULT_KEY", "0123456789abcdef0123456789abcdef")
-	t.Setenv(memory.HarvestChildEnv, "")
+	t.Setenv(memory.UpdateChildEnv, "")
 	for _, k := range []string{"ANTHROPIC_MODEL", "ANTHROPIC_DEFAULT_OPUS_MODEL", "ANTHROPIC_DEFAULT_SONNET_MODEL", "ANTHROPIC_DEFAULT_HAIKU_MODEL", "ANTHROPIC_DEFAULT_FABLE_MODEL"} {
 		t.Setenv(k, "")
 	}

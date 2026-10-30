@@ -164,12 +164,12 @@ func TestAccessNominationsHotAndCold(t *testing.T) {
 func TestCollectBankStatsAndTimeline(t *testing.T) {
 	tempConfig(t)
 	root := repoRoot(t, "proj")
-	_ = WriteHarvestResult("s1", HarvestResult{Status: HarvestOK, Time: time.Now(), BankUpdated: true})
-	_ = WriteHarvestResult("s2", HarvestResult{Status: HarvestFailed, Time: time.Now()})
+	_ = WriteUpdateResult("s1", UpdateResult{Status: UpdateOK, Time: time.Now(), BankUpdated: true})
+	_ = WriteUpdateResult("s2", UpdateResult{Status: UpdateFailed, Time: time.Now()})
 	write(t, filepath.Join(Dir(root), "sessionHistory.md"), "# H\n\n## 2026-01-02 — did work\n")
 
 	s := CollectBankStats()
-	if s.Harvests != 2 || s.OK != 1 || s.Failed != 1 || s.BankUpdated != 1 {
+	if s.Updates != 2 || s.OK != 1 || s.Failed != 1 || s.BankUpdated != 1 {
 		t.Errorf("stats %+v", s)
 	}
 	report := s.Report()

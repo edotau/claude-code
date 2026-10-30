@@ -61,9 +61,9 @@ func RotateSessionHistory(dir string, now time.Time) (int, error) {
 	return len(overflow), nil
 }
 
-// lockPath serializes bank writers (the harvest worker's headless pass, then its settle); the
+// lockPath serializes bank writers (the update worker's headless pass, then its settle); the
 // physical lock lives under state, namespaced per store key — never beside the committed bank.
-func lockPath(dir string) string { return filepath.Join(storeLockDir(dir), ".postharvest") }
+func lockPath(dir string) string { return filepath.Join(storeLockDir(dir), ".postupdate") }
 
 // BankSettlement counts what one settle pass moved — rotation, promotion, archiving, and whether
 // the index was refreshed. A single "moved" number would hide rotation and index refreshes entirely.
@@ -80,7 +80,7 @@ func SettleBank(root string, now time.Time) (BankSettlement, error) {
 	return settleUnified(root, now) // overflow archives in scope; no auto-promotion to home
 }
 
-// NewestMtime is the newest mtime across dir's six typed files — the "did the harvest write?" probe.
+// NewestMtime is the newest mtime across dir's six typed files — the "did the update write?" probe.
 func NewestMtime(dir string) time.Time {
 	var newest time.Time
 	for _, name := range bankFiles {

@@ -67,7 +67,7 @@ func Digest(dir, claude string) (string, error) {
 	defer cancel()
 	cmd := exec.CommandContext(ctx, claude, "-p", fmt.Sprintf(digestPromptFmt, digestMaxLines, input), "--model", digestModel, "--max-turns", "1")
 	cmd.Dir = dir
-	cmd.Env = append(os.Environ(), HarvestChildEnv+"=1")
+	cmd.Env = append(os.Environ(), UpdateChildEnv+"=1")
 	if os.Getenv(providers.OAuthTokenEnv) == "" {
 		if tok := providers.HeadlessOAuthToken(); tok != "" {
 			cmd.Env = append(cmd.Env, providers.OAuthTokenEnv+"="+tok)

@@ -124,13 +124,13 @@ var Registry = []Group{
 		{Name: "paths-resolve", Event: EventUserPromptSubmit, Budget: 5 * sec, Vendors: []string{"codex", "copilot"}},
 	}},
 	{Name: "memory", Events: []EventSpec{
-		// One Stop hook: context checkpoint, then the memory harvest; a block from either blocks.
+		// One Stop hook: context checkpoint, then the memory update; a block from either blocks.
 		{Name: "memory-update", Event: EventStop, Budget: 20 * sec},
 		{Name: "memory-start", Event: EventSessionStart, Budget: 10 * sec, StatusMessage: "Loading session memory"},
 		// Per-prompt bank recall: advisory and capped, so an empty bank costs the turn nothing.
 		{Name: "memory-recall", Event: EventUserPromptSubmit, Budget: 5 * sec, Vendors: []string{"codex", "copilot"}},
 		{Name: "memory-end", Event: EventSessionEnd, Budget: 15 * sec},
-		// Before a compaction, harvest edits no earlier dispatch covered (never blocks; the transcript survives).
+		// Before a compaction, update edits no earlier dispatch covered (never blocks; the transcript survives).
 		{Name: "memory-compact", Event: EventPreCompact, Budget: 15 * sec},
 	}},
 	{Name: "format", Events: []EventSpec{

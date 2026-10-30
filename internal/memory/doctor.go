@@ -80,27 +80,27 @@ func Doctor(root string, staleDays int, now time.Time) []string {
 		problems = append(problems, bankProblems("local", Stat(root), staleDays, now)...)
 	}
 	problems = append(problems, bankProblems("home", HomeBankStat(), staleDays, now)...)
-	problems = append(problems, harvestProblems(now)...)
+	problems = append(problems, updateProblems(now)...)
 	return append(problems, AccessNominations(now)...)
 }
 
-// harvestProblems surfaces receipts that need a human: a failed harvest, or one still "pending" past the
+// updateProblems surfaces receipts that need a human: a failed update, or one still "pending" past the
 // grace window (the worker died before reporting) — otherwise `memory stats` counts them forever.
-func harvestProblems(now time.Time) []string {
+func updateProblems(now time.Time) []string {
 	var problems []string
-	matches, _ := filepath.Glob(filepath.Join(StateDir(), "harvest-result-*"))
+	matches, _ := filepath.Glob(filepath.Join(StateDir(), "update-result-*"))
 	for _, p := range matches {
-		id := strings.TrimPrefix(filepath.Base(p), "harvest-result-")
-		r, ok := ReadHarvestResult(id)
+		id := strings.TrimPrefix(filepath.Base(p), "update-result-")
+		r, ok := ReadUpdateResult(id)
 		// A lost "pending" receipt is a bug to chase whenever it happened; a plain failure ages out after a week.
-		if !ok || !r.NeedsAttention(now) || (r.Status == HarvestFailed && now.Sub(r.Time) > 7*24*time.Hour) {
+		if !ok || !r.NeedsAttention(now) || (r.Status == UpdateFailed && now.Sub(r.Time) > 7*24*time.Hour) {
 			continue
 		}
 		short := id
 		if len(short) > 8 {
 			short = short[:8]
 		}
-		problems = append(problems, "harvest "+short+" "+r.Status+" since "+r.Time.Format("2006-01-02")+
+		problems = append(problems, "update "+short+" "+r.Status+" since "+r.Time.Format("2006-01-02")+
 			" — see "+r.Log+" (claude-code memory stats)")
 	}
 	return problems

@@ -248,7 +248,7 @@ Remaining: <what is still uncommitted, or "clean">
   reason, not an edit you make silently.
 - **Invent a test framework** where none exists. Report that there is no suite.
 - **Consolidate memory** — that's `opencode` (PERSIST mode, driven by `claude-code memory update` and the
-  session-harvest flow).
+  session-update flow).
 - **Force-push a shared branch**, rewrite published history, or commit a secret — scan the
   staged diff first.
 

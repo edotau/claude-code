@@ -39,13 +39,13 @@ every module on the event, the gate included.
 | `docs-plan-save` | PostToolUse (ExitPlanMode) | Files approved text at the mirror destination (or files a response-only plan), adds a missing checklist, verifies, removes the draft |
 | `docs-plan-skeleton` / `-prompt` | PostToolUse (EnterPlanMode) / UserPromptSubmit | Injects the `agents/Plan.md` skeleton when plan mode starts, and once per plan on a plan-mode prompt |
 | `docs-plan-tick` / `docs-plan-reminder` | PostToolUse (Bash) / Stop | A landed commit ticks the plan tasks its `owns:` covers (`claude-code plan status`); partly landed tasks are reported once at Stop |
-| `memory-update` | Stop | Context checkpoint first: once per session at ≥85% context it blocks Stop so the model writes a handoff (`claude-code memory update`). Then the harvest, weighing edits and user turns (2 turns = 1 edit) |
+| `memory-update` | Stop | Context checkpoint first: once per session at ≥85% context it blocks Stop so the model writes a handoff (`claude-code memory update`). Then the memory update, weighing edits and user turns (2 turns = 1 edit) |
 | `format-stop` | Stop | Formats files edited this turn: the repo's `make format\|fmt` if it takes a per-file variable, else the pyproject python chain, else gofmt/ruff/prettier/shfmt; a repo with its own pre-commit switches the group off |
 | `memory-start` | SessionStart | Injects `memory/index.md` + this repo's focus (Current Focus/Blockers/Next Steps, In Progress); repairs `projects/<slug>/memory` |
 | `paths-resolve` | UserPromptSubmit | Reports existing paths in the prompt; translates Windows ⇄ `/mnt/…` on WSL |
 | `memory-recall` | UserPromptSubmit | Injects ≤3 bank blocks matching ≥2 prompt terms (plus a repo store the prompt names); skips blocks in context; logs hits to `access.log` (the hot/cold signal for `memory review`) |
-| `memory-compact` | PreCompact | Dispatches a background harvest for uncovered edits; never blocks |
-| `memory-end` | SessionEnd | After enough edits spawns `claude-code memory update`; the first dispatch claims one detached `memory watch` that harvests after 10 quiet minutes, so a crash loses nothing |
+| `memory-compact` | PreCompact | Dispatches a background update for uncovered edits; never blocks |
+| `memory-end` | SessionEnd | After enough edits spawns `claude-code memory update`; the first dispatch claims one detached `memory watch` that updates after 10 quiet minutes, so a crash loses nothing |
 | `worktree-create` / `worktree-remove` | WorktreeCreate / WorktreeRemove | Create at `~/worktrees/<repo>/<name>` (honors `worktree.baseRef`, seeds `.venv`/`.env`, opens ledger `memory/<repo>/worktrees/<name>.md`); remove refuses a dirty tree and `branch -d`s only a merged branch |
 | `worktree-mode` / `worktree-busy` | SessionStart / UserPromptSubmit | Vault env `HARNESS_WORKTREE` (default `off`). Off: names another live agent session in this checkout (not this session's own tree, a linked worktree, or an `agy --hub` daemon) and tells Claude to ask before editing; the prompt hook repeats only when that peer set changes. On: tells Claude to ask before every change. Never creates a worktree; no yes means keep working in place |
 

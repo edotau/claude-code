@@ -42,7 +42,7 @@ func subagentStopRunner(in *Input) Result {
 }
 
 // ownerDead is true only when the probe itself is trusted: off unix Alive is always false, and
-// treating every pid as dead there would silently disable both this and the idle-harvest watcher.
+// treating every pid as dead there would silently disable both this and the idle-update watcher.
 func ownerDead(pid int) bool {
 	return pid > 0 && proc.Alive(os.Getpid()) && !proc.Alive(pid)
 }

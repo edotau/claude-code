@@ -158,33 +158,33 @@ func TestUpdateRecordsOutcome(t *testing.T) {
 	dir, _ := Init(root)
 	bin := t.TempDir()
 	ok := filepath.Join(bin, "claude-ok")
-	write(t, ok, "#!/bin/sh\n[ \"$"+HarvestChildEnv+"\" = 1 ] || exit 3\nsleep 0.01\nprintf '\\n## 2026-09-16 — harvested\\n' >> "+filepath.Join(dir, "sessionHistory.md")+"\n")
+	write(t, ok, "#!/bin/sh\n[ \"$"+UpdateChildEnv+"\" = 1 ] || exit 3\nsleep 0.01\nprintf '\\n## 2026-09-16 — updated-by-child\\n' >> "+filepath.Join(dir, "sessionHistory.md")+"\n")
 	bad := filepath.Join(bin, "claude-bad")
 	write(t, bad, "#!/bin/sh\nexit 1\n")
 	_ = os.Chmod(ok, 0o755)
 	_ = os.Chmod(bad, 0o755)
-	_ = WriteHarvestResult("11111111-1111-1111-1111-111111111111", HarvestResult{Status: HarvestPending, Time: time.Now(), Log: "/l.log"})
+	_ = WriteUpdateResult("11111111-1111-1111-1111-111111111111", UpdateResult{Status: UpdatePending, Time: time.Now(), Log: "/l.log"})
 
 	if err := Update(UpdateOptions{Claude: ok, CWD: root, Session: "11111111-1111-1111-1111-111111111111"}); err != nil {
 		t.Fatal(err)
 	}
-	r, _ := ReadHarvestResult("11111111-1111-1111-1111-111111111111")
-	if r.Status != HarvestOK || !r.BankUpdated || r.Log != "/l.log" || r.NeedsAttention(time.Now()) {
+	r, _ := ReadUpdateResult("11111111-1111-1111-1111-111111111111")
+	if r.Status != UpdateOK || !r.BankUpdated || r.Log != "/l.log" || r.NeedsAttention(time.Now()) {
 		t.Errorf("success result %+v", r)
 	}
-	if !strings.Contains(mustRead(t, filepath.Join(dir, NativeIndexFile)), "harvested") {
+	if !strings.Contains(mustRead(t, filepath.Join(dir, NativeIndexFile)), "updated-by-child") {
 		t.Error("update did not settle/index the bank")
 	}
 	if err := Update(UpdateOptions{Claude: bad, CWD: root, Session: "s2"}); err == nil {
 		t.Error("failing claude must return an error")
 	}
-	if r, _ := ReadHarvestResult("s2"); r.Status != HarvestFailed || r.BankUpdated || !r.NeedsAttention(time.Now()) {
+	if r, _ := ReadUpdateResult("s2"); r.Status != UpdateFailed || r.BankUpdated || !r.NeedsAttention(time.Now()) {
 		t.Errorf("failure result %+v", r)
 	}
 	if err := Update(UpdateOptions{CWD: root, Session: "s3"}); err == nil {
 		t.Error("missing claude must fail")
 	}
-	stale := HarvestResult{Status: HarvestPending, Time: time.Now().Add(-20 * time.Minute)}
+	stale := UpdateResult{Status: UpdatePending, Time: time.Now().Add(-20 * time.Minute)}
 	if !stale.NeedsAttention(time.Now()) {
 		t.Error("a pending result past the grace window needs attention")
 	}

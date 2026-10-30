@@ -506,7 +506,7 @@ func runPresentKey(d *dialog, kt keyTarget) (ok, changed bool) {
 		d.printf("%-10s present (%s)\n", kt.label, kt.source)
 	}
 	if len(kt.mintArgv) > 0 && !kt.headless && d.o.Interactive && !d.o.Check &&
-		confirm(d, "Mint a long-lived token so unattended runs (harvest, ask, cron) survive /login expiry?") {
+		confirm(d, "Mint a long-lived token so unattended runs (update, ask, cron) survive /login expiry?") {
 		return true, runAuthOption(d, kt, authOption{mint: kt.mintArgv, env: kt.envVar})
 	}
 	return true, false

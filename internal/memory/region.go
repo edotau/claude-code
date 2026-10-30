@@ -201,7 +201,7 @@ func settleDir(d string, now time.Time, s *BankSettlement) error {
 	if _, err = writeBankRegion(d, now); err != nil {
 		return err
 	}
-	_, err = formatFiles(dirFmtTargets(d), false) // harvest writes land wrapped, so lint-docs stays clean
+	_, err = formatFiles(dirFmtTargets(d), false) // update writes land wrapped, so lint-docs stays clean
 	return err
 }
 
@@ -213,7 +213,7 @@ func writeCatalog(now time.Time) error {
 	return paths.AtomicWrite(filepath.Join(StoreDir(), CatalogFile), []byte(c), 0o644)
 }
 
-// commitStore commits every dirty path in the store (harvest writes + settle output) as one settle commit.
+// commitStore commits every dirty path in the store (update writes + settle output) as one settle commit.
 func commitStore(subject string) error {
 	repo := StoreRepo()
 	if !repo.Exists() {

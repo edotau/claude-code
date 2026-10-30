@@ -106,12 +106,12 @@ func TestRetiredAndUnknownGuardHookNames(t *testing.T) {
 	}
 }
 
-// A harvest in a linked worktree logs one ledger line.
-func TestHarvestAppendsWorktreeLedger(t *testing.T) {
+// An update in a linked worktree logs one ledger line.
+func TestUpdateAppendsWorktreeLedger(t *testing.T) {
 	home, _ := filepath.EvalSymlinks(t.TempDir())
 	t.Setenv("HOME", home)
 	t.Setenv("CLAUDE_CONFIG_DIR", home+"/.claude")
-	t.Setenv(memory.HarvestChildEnv, "")
+	t.Setenv(memory.UpdateChildEnv, "")
 	main := filepath.Join(home, "repo")
 	for _, a := range [][]string{{"init", "-q", "-b", "main", main}, {"-C", main, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "--allow-empty", "-q", "-m", "i"}} {
 		if out, err := exec.Command("git", a...).CombinedOutput(); err != nil {
@@ -129,12 +129,12 @@ func TestHarvestAppendsWorktreeLedger(t *testing.T) {
 	stubSpawn(t, true)
 	tr := filepath.Join(t.TempDir(), "t.jsonl")
 	writeEdits(t, tr, 3)
-	if sessionHarvest(ParseInput(strings.NewReader(harvestPayload(tr, dest))), &bytes.Buffer{}) != ExitProceed {
-		t.Fatal("harvest blocked")
+	if sessionUpdate(ParseInput(strings.NewReader(updatePayload(tr, dest))), &bytes.Buffer{}) != ExitProceed {
+		t.Fatal("update blocked")
 	}
 	data, err := os.ReadFile(filepath.Join(memory.Dir(main), "worktrees", "wt-h.md"))
-	if err != nil || !strings.Contains(string(data), "harvest (") {
-		t.Fatalf("no harvest line in ledger: %v\n%s", err, data)
+	if err != nil || !strings.Contains(string(data), "update (") {
+		t.Fatalf("no update line in ledger: %v\n%s", err, data)
 	}
 }
 

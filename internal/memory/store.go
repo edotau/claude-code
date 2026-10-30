@@ -37,12 +37,12 @@ var FileCaps = map[string]int{
 	"conventions.md":    80,
 }
 
-// HarvestChildEnv marks a spawned harvest worker so its own session hooks never schedule another.
-const HarvestChildEnv = "CLAUDE_SESSION_HARVEST_CHILD"
+// UpdateChildEnv marks a spawned update worker so its own session hooks never schedule another.
+const UpdateChildEnv = "CLAUDE_SESSION_UPDATE_CHILD"
 
-// IsHarvestChild reports whether this process runs inside a harvest worker.
-func IsHarvestChild() bool {
-	v := os.Getenv(HarvestChildEnv)
+// IsUpdateChild reports whether this process runs inside an update worker.
+func IsUpdateChild() bool {
+	v := os.Getenv(UpdateChildEnv)
 	return v != "" && v != "0"
 }
 

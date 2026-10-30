@@ -55,11 +55,11 @@ func TestLedgerLifecycle(t *testing.T) {
 	}
 
 	// Append from inside the worktree lands in the log; from a non-worktree dir it is a no-op.
-	ok, err := AppendLedger(dest, "harvest note", time.Now())
+	ok, err := AppendLedger(dest, "update note", time.Now())
 	if err != nil || !ok {
 		t.Fatalf("AppendLedger(worktree) = %v, %v; want true, nil", ok, err)
 	}
-	if text := ledgerFile(t, main, "ledgered"); !strings.Contains(text, "harvest note") {
+	if text := ledgerFile(t, main, "ledgered"); !strings.Contains(text, "update note") {
 		t.Fatalf("ledger missing the appended line:\n%s", text)
 	}
 	ok, err = AppendLedger(main, "must not land", time.Now())

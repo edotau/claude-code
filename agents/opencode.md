@@ -1,7 +1,7 @@
 ---
 name: opencode
 description: |
-  Docs + memory specialist on the OpenCode CLI, driven through `claude-code opencode <verb>`; five modes. DOC-UPDATE refreshes READMEs/guides after a structural change, in-agent or, when large, drafted on `opencode ask --tools --workdir <repo>`. DOC-LOOKUP answers library/API questions from current official sources. ANALYZE (via `claude-code memory review`) is a read-only memory-health report. EXTRACT (via `memory promote --to skill`) turns a proven pattern into a skill. PERSIST (via session-harvest or `memory update`) writes the session into the memory bank. Also: `opencode review [--adversarial]` for a diff review on the OpenCode CLI, `opencode resume <id>` to continue a session. The dispatcher sets the mode; infer it if invoked directly. Manual memory commands use it; the background `memory update` and daily `memory dream` run on the Copilot CLI (Claude fallback; model in `internal/routetable/table.json`).
+  Docs + memory specialist on the OpenCode CLI, driven through `claude-code opencode <verb>`; five modes. DOC-UPDATE refreshes READMEs/guides after a structural change, in-agent or, when large, drafted on `opencode ask --tools --workdir <repo>`. DOC-LOOKUP answers library/API questions from current official sources. ANALYZE (via `claude-code memory review`) is a read-only memory-health report. EXTRACT (via `memory promote --to skill`) turns a proven pattern into a skill. PERSIST (via session-update or `memory update`) writes the session into the memory bank. Also: `opencode review [--adversarial]` for a diff review on the OpenCode CLI, `opencode resume <id>` to continue a session. The dispatcher sets the mode; infer it if invoked directly. Manual memory commands use it; the background `memory update` and daily `memory dream` run on the Copilot CLI (Claude fallback; model in `internal/routetable/table.json`).
 
   <example>
   Context: User added a new module and wants docs refreshed.
@@ -134,7 +134,7 @@ Run the verb; a verb that needs judgment prints its own embedded procedure, incl
 | --- | --- | --- |
 | ANALYZE | Read-only memory-health assessment and prioritized promotion report. | `claude-code memory review --candidates` |
 | EXTRACT | Turn a proven, recurring pattern into a portable skill, not hypothetical coverage. | `claude-code memory promote <id> --to skill` |
-| PERSIST | Save a supported session narrative for the session-harvest gate or manual save. | `claude-code memory update` |
+| PERSIST | Save a supported session narrative for the session-update gate or manual save. | `claude-code memory update` |
 
 ### Failure modes
 

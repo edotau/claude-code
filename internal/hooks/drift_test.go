@@ -13,7 +13,7 @@ import (
 func TestSessionStartDriftLine(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv("HARNESS_VAULT_KEY", "0123456789abcdef0123456789abcdef")
-	t.Setenv(memory.HarvestChildEnv, "")
+	t.Setenv(memory.UpdateChildEnv, "")
 	orig := defaultsDrift
 	t.Cleanup(func() { defaultsDrift = orig })
 	cases := []struct {

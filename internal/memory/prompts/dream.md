@@ -17,7 +17,7 @@ project's `MEMORY.md` + topic files (lines, duplicates, staleness).
 
 ## Phase 3: Review recent sessions
 
-Run `claude-code memory timeline` for the recent harvest/dream/update trail:
+Run `claude-code memory timeline` for the recent update/dream trail:
 
 1. Extract recurring themes (patterns appearing in 2+ sessions)
 2. Extract corrections (things that failed and their fixes)
@@ -113,4 +113,4 @@ After all updates:
 
 ## Integration
 
-- `claude-code memory timeline` — harvest/dream/update receipts + sessionHistory, the real recent-session trail
+- `claude-code memory timeline` — update/dream receipts + sessionHistory, the real recent-session trail
