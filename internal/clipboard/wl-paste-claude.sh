@@ -155,15 +155,18 @@ apply_png() {
 	exit 1 # fail the leg: the chain still has its BMP legs and the PowerShell fallback behind it
 }
 
-# apply_ssh answers an SSH session's image request from the client's clipboard bridge, never WSLg:
-# png comes from `clip --ssh-stdout`, bmp fails the leg (the bridge carries PNG only).
+# apply_ssh answers an SSH session's image request from the client's clipboard bridge, never WSLg.
+# Always exit 0 (empty on failure): a non-zero leg lets the CLI's chain fall through to PowerShell.
 apply_ssh() {
 	local bin
-	requests_type image/bmp "$@" && exit 1
+	requests_type image/bmp "$@" && exit 0
 	requests_type image/png "$@" || return 0
-	bin=$(harness_bin) || exit 1
-	"$bin" clip --ssh-stdout
-	exit $?
+	if bin=$(harness_bin) && [[ -n $bin ]]; then
+		"$bin" clip --ssh-stdout
+	else
+		echo "wl-paste: no claude-code binary for the SSH clipboard bridge" >&2
+	fi
+	exit 0
 }
 
 # intercept routes the two image legs; anything else falls through to plain delegation.
