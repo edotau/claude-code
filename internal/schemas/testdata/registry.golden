@@ -4,6 +4,7 @@
 # legacy-layout: audit
 # legacy-layout: codex-catalog
 # legacy-layout: codex-routing
+# legacy-layout: dispatch-events
 # legacy-layout: dispatch-record
 # legacy-layout: migrations
 # legacy-layout: oauth-usage-cache
@@ -27,6 +28,7 @@ ask-envelope | wire | 1 | - | internal/agent | keep
 audit | log | 1 | state/harness/audit.jsonl* | internal/audit | keep
 codex-catalog | derived | 1 | state/harness/codex/catalog-*.json | internal/vendors | keep
 codex-routing | log | 1 | state/harness/codex/routing-*.jsonl | internal/hooks | clean:codex-audit
+dispatch-events | log | 1 | state/harness/dispatch/*.events.jsonl | internal/agent | clean:dispatch-log
 dispatch-record | record | 1 | state/harness/dispatch/*.json | internal/agent | clean:dispatch-log
 memory-embeddings | cache | 1 | state/harness/memory/embeddings.json | internal/memory | keep
 memory-journal | record | 1 | state/harness/memory/journal/*.json | internal/memory | keep

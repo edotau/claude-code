@@ -3,6 +3,7 @@ package agent
 import (
 	"path/filepath"
 
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/schemas"
 )
 
@@ -16,6 +17,13 @@ var (
 		New:     func() any { return new(Record) },
 		Clean:   "dispatch-log",
 		Migrate: schemas.SameShape,
+	})
+
+	_ = schemas.Register(schemas.Format{
+		Name: "dispatch-events", Owner: "internal/agent", Kind: schemas.Log, Version: EventSchema,
+		Glob:  func() string { return filepath.Join(DispatchDir(), "*"+paths.DispatchEventsSuffix) },
+		New:   func() any { return new(Event) },
+		Clean: "dispatch-log",
 	})
 
 	_ = schemas.Register(schemas.Format{
