@@ -260,7 +260,7 @@ func TestProxySSHBranch(t *testing.T) {
 		}
 	}
 	pngPath := filepath.Join(home, "x.png")
-	if err := os.WriteFile(pngPath, testPNG(t), 0o644); err != nil {
+	if err := os.WriteFile(pngPath, pngBytes(t), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	touched := filepath.Join(home, "touched")
