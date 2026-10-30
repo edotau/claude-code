@@ -54,7 +54,7 @@ claude-code configure --revert [--agent a,b]        # restore agent CLI configs 
 - `configure` reuses what already exists (env, vault, agent CLI logins) and prompts only for what is missing.
 - **Claude subscription** keeps Remote Control; **API key** pays per token. For headless runs on a Max plan,
   `configure` mints `claude setup-token` into the vault as `CLAUDE_CODE_OAUTH_TOKEN`.
-- Agent CLI configs are merged, never replaced, with 5 backups per file; details: `rules/harness/agent-clis.md`.
+- Agent CLI configs are merged, never replaced, with 5 backups per file; details: `rules/harness/agent.md`.
 - From a worktree, render only that checkout:
   `CLAUDE_CONFIG_DIR="$PWD" claude-code configure --restore --out "$PWD/settings.json"`
   (agent CLI homes are skipped unless `--agents`).
@@ -218,7 +218,7 @@ claude-code usage --days 7                             # subagent token usage
 Without `--tools`, agents are read-only. `agents sync` renders under `state/projections/<agent>/`, installs into
 `~/.codex`, `~/.copilot`, `~/.gemini`, `~/.config/opencode`, and links `skills/` into `~/.agents/skills`; no AGENTS.md
 lives at this root (Claude Code would load it as a second CLAUDE.md). Envelope fields and per-agent behavior:
-`rules/harness/agent-clis.md`; in-session fan-out: `rules/workflow/master-workflow.md`.
+`rules/harness/agent.md`; in-session fan-out: `rules/workflow/master-workflow.md`.
 
 ## Hooks
 
