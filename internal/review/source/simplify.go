@@ -1,6 +1,7 @@
 package source
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -103,7 +104,7 @@ func simplifyBase(flag string) string {
 func changedSimplifyFiles(base string) ([]string, error) {
 	tops, err := gitLines(".", "rev-parse", "--show-toplevel")
 	if err != nil || len(tops) == 0 {
-		return nil, fmt.Errorf("not a git repository")
+		return nil, errors.New("not a git repository")
 	}
 	names, err := changedNames(tops[0], base)
 	if err != nil {

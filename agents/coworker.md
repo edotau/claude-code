@@ -66,8 +66,9 @@ a leaf).
 
 ## Report contract
 
-The Handoff contract's Report (out), status first, plus one row per dispatch: `agent` · `model` (the endpoint the router picked, from the envelope's `model`) · `job` ·
-`fallback` · verified yes/no · what you had to fix. For `compare`, say where the agents agreed and
+The Handoff contract's Report (out), status first, plus one row per dispatch: `agent` · `model` (the endpoint the
+router picked, from the envelope's `model`) · `job` · `fallback` · verified yes/no · what you had to fix. For
+`compare`, say where the agents agreed and
 where they differed, and which answer you trust and why. TASK/ISSUE facts as plain sentences.
 
 ## Don't

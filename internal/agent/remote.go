@@ -231,9 +231,8 @@ func (r remoteRunner) noResult(werr error, tail *TailBuffer, streamed bool) *Err
 	if len(detail) > 600 {
 		detail = "…" + detail[len(detail)-600:]
 	}
-	var ee *exec.ExitError
 	code := -1
-	if errors.As(werr, &ee) {
+	if ee, ok := errors.AsType[*exec.ExitError](werr); ok {
 		code = ee.ExitCode()
 	}
 	msg := fmt.Sprintf("ssh %s: connection failed (exit %d)", r.host, code)

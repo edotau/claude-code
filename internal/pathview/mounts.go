@@ -155,7 +155,7 @@ var learnDistro = sync.OnceValue(func() string {
 // distroFromUNC extracts <distro> from `\\wsl.localhost\<distro>\` or `\\wsl$\<distro>\`.
 func distroFromUNC(out string) string {
 	parts := strings.Split(strings.Trim(strings.TrimSpace(out), `\`), `\`)
-	if len(parts) < 2 || !(strings.EqualFold(parts[0], "wsl.localhost") || strings.EqualFold(parts[0], "wsl$")) {
+	if len(parts) < 2 || (!strings.EqualFold(parts[0], "wsl.localhost") && !strings.EqualFold(parts[0], "wsl$")) {
 		return ""
 	}
 	return parts[1]

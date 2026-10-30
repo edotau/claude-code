@@ -25,5 +25,5 @@ or in-context when cost-routing says so.
 
 `team` mode (`/code-workers team <goal>`): `code-worker` leaves with `Agent: gemini` scan (read-only, cites
 file:line) → `Agent: codex` reviews the list (KEEP/CHANGE/DROP) → STOP and show the reviewed list for the user's
-approval → approved items go to `code-worker` leaves with `Agent: opencode` (worktree) ‖ a `copilot` test agent (feature/bug fix only)
-when code changes. Watch each dispatch with `claude-code <agent> tail -f`.
+approval → approved items go to `code-worker` leaves with `Agent: opencode` (worktree) ‖ a `copilot` test agent
+(feature/bug fix only) when code changes. Watch each dispatch with `claude-code <agent> tail -f`.

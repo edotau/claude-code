@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -761,7 +762,7 @@ func TestEmbedIndexAndGateUseTheResolvedProfile(t *testing.T) {
 	t.Cleanup(func() { memory.OpenEmbedClient = prev })
 	memory.OpenEmbedClient = func(_ context.Context, profile, _ string) (*memory.EmbedClient, error) {
 		opened = profile
-		return nil, fmt.Errorf("stub")
+		return nil, errors.New("stub")
 	}
 	embedIndex(t.TempDir(), "resolved", false)
 	if opened != "resolved" {

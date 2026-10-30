@@ -117,7 +117,7 @@ func ParseHeaders(raw string, log io.Writer) map[string]string {
 		protected[textproto.CanonicalMIMEHeaderKey(k)] = true
 	}
 	bad := 0
-	for _, line := range strings.Split(strings.ReplaceAll(raw, "\r\n", "\n"), "\n") {
+	for line := range strings.SplitSeq(strings.ReplaceAll(raw, "\r\n", "\n"), "\n") {
 		if strings.TrimSpace(line) == "" {
 			continue
 		}

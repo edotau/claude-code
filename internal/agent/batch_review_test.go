@@ -234,7 +234,7 @@ func TestBatchParkedTasksDoNotHoldPoolSlots(t *testing.T) {
 	if !RunBatch(context.Background(), tasks, BatchOptions{Jobs: n, Out: &out}) {
 		t.Fatalf("batch failed: %s", out.String())
 	}
-	if first := strings.SplitN(out.String(), "\n", 2)[0]; !strings.Contains(first, `"task_id":"b"`) {
+	if first, _, _ := strings.Cut(out.String(), "\n"); !strings.Contains(first, `"task_id":"b"`) {
 		t.Errorf("first envelope = %s, want task b: it queued behind parked account-A tasks", first)
 	}
 }
@@ -369,7 +369,7 @@ func TestBatchCoolingAccountDoesNotBlockOthers(t *testing.T) {
 	if !RunBatch(context.Background(), tasks, BatchOptions{Jobs: 2, Out: &out}) {
 		t.Fatalf("batch failed: %s", out.String())
 	}
-	if first := strings.SplitN(out.String(), "\n", 2)[0]; !strings.Contains(first, `"task_id":"free"`) {
+	if first, _, _ := strings.Cut(out.String(), "\n"); !strings.Contains(first, `"task_id":"free"`) {
 		t.Errorf("first envelope = %s, want the free-account task", first)
 	}
 }
@@ -463,11 +463,9 @@ func TestReserveIsExclusiveAcrossBatches(t *testing.T) {
 	ids := make([]string, n)
 	var wg sync.WaitGroup
 	for i := range n {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			ids[i] = ClaimRecord("codex", Request{Prompt: "p"}, now).ID // the one allocator every dispatch path uses
-		}()
+		})
 	}
 	wg.Wait()
 	seen := map[string]bool{}
@@ -517,7 +515,7 @@ func TestBatchBackoffReleasesLegPermit(t *testing.T) {
 	if !RunBatch(context.Background(), tasks, BatchOptions{Jobs: 1, Out: &out}) {
 		t.Fatalf("batch failed: %s", out.String())
 	}
-	if first := strings.SplitN(out.String(), "\n", 2)[0]; !strings.Contains(first, `"task_id":"free"`) {
+	if first, _, _ := strings.Cut(out.String(), "\n"); !strings.Contains(first, `"task_id":"free"`) {
 		t.Errorf("first envelope = %s, want the free-account task to finish during the backoff", first)
 	}
 }
@@ -581,7 +579,7 @@ func TestBatchFirstAttemptCooldownReleasesLegPermit(t *testing.T) {
 	if !RunBatch(context.Background(), tasks, BatchOptions{Jobs: 1, Out: &out}) {
 		t.Fatalf("batch failed: %s", out.String())
 	}
-	if first := strings.SplitN(out.String(), "\n", 2)[0]; !strings.Contains(first, `"task_id":"free"`) {
+	if first, _, _ := strings.Cut(out.String(), "\n"); !strings.Contains(first, `"task_id":"free"`) {
 		t.Errorf("first envelope = %s, want the free-account task to run during the cooldown", first)
 	}
 }
@@ -623,7 +621,7 @@ func TestQueuedLegSkipsAccountMarkedAuthDead(t *testing.T) {
 	if runs.Load() != 0 {
 		t.Errorf("the queued leg ran %d times on an auth-dead account", runs.Load())
 	}
-	for _, ln := range strings.Split(strings.TrimSpace(out.String()), "\n") {
+	for ln := range strings.SplitSeq(strings.TrimSpace(out.String()), "\n") {
 		if strings.Contains(ln, `"task_id":"second"`) && !strings.Contains(ln, `"kind":"auth"`) {
 			t.Errorf("second task's envelope = %s, want an auth error", ln)
 		}
@@ -691,7 +689,7 @@ func TestRetryRechecksAccountAfterBackoff(t *testing.T) {
 	if n.Load() != 1 {
 		t.Errorf("the rate-limited leg ran %d times, want 1: its retry must not run on an auth-dead account", n.Load())
 	}
-	for _, ln := range strings.Split(strings.TrimSpace(out.String()), "\n") {
+	for ln := range strings.SplitSeq(strings.TrimSpace(out.String()), "\n") {
 		if strings.Contains(ln, `"task_id":"limited"`) && !strings.Contains(ln, `"kind":"auth"`) {
 			t.Errorf("limited task's envelope = %s, want an auth error", ln)
 		}

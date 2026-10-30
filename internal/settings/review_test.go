@@ -111,12 +111,10 @@ func TestWriteRepoDefaultsConcurrentWritersKeepAllKeys(t *testing.T) {
 	var wg sync.WaitGroup
 	errs := make(chan error, len(keys))
 	for _, k := range keys {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			_, err := WriteRepoDefaults(map[string]json.RawMessage{k: json.RawMessage("false")})
 			errs <- err
-		}()
+		})
 	}
 	wg.Wait()
 	close(errs)

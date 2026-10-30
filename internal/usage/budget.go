@@ -4,6 +4,7 @@ package usage
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -110,7 +111,7 @@ type budgetStatus struct {
 func fetchBudgetRows(ctx context.Context, p *providers.Provider) ([]quota, error) {
 	host := providers.PresetHost(p.Host)
 	if host == "" {
-		return nil, fmt.Errorf("no workspace host")
+		return nil, errors.New("no workspace host")
 	}
 	var rows []quota
 	token := ""

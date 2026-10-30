@@ -32,7 +32,7 @@ func safeRest(rest string) error {
 	if strings.ContainsAny(rest, "\\%\x00") || strings.Contains(rest, "//") || strings.HasPrefix(rest, "/") {
 		return errors.New("proxy: passthrough path must be plain segments")
 	}
-	for _, seg := range strings.Split(rest, "/") {
+	for seg := range strings.SplitSeq(rest, "/") {
 		if seg == "." || seg == ".." {
 			return errors.New("proxy: passthrough path must not contain dot segments")
 		}

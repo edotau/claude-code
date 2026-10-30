@@ -265,12 +265,10 @@ func (s *liveSession) accept(ctx context.Context, ln net.Listener, wg *sync.Wait
 		if err != nil {
 			return
 		}
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			defer c.Close()
 			s.serveConn(ctx, c)
-		}()
+		})
 	}
 }
 

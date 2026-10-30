@@ -126,7 +126,7 @@ func dropTornRoute(path string, data []byte) error {
 
 func parseCodexRoutes(data []byte) []codexRouteRecord {
 	var records []codexRouteRecord
-	for _, line := range bytes.Split(data[:bytes.LastIndexByte(data, '\n')+1], []byte{'\n'}) {
+	for line := range bytes.SplitSeq(data[:bytes.LastIndexByte(data, '\n')+1], []byte{'\n'}) {
 		var row codexRouteRecord
 		if len(bytes.TrimSpace(line)) > 0 && schemas.DecodeOK(codexRouteFormat, line, &row) {
 			records = append(records, row)

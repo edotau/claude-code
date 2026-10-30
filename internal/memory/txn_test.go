@@ -3,6 +3,7 @@ package memory
 import (
 	"encoding/json"
 	"errors"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -340,9 +341,7 @@ func writeJournal(t *testing.T, id string, extra map[string]any) {
 		"id": id, "subject": "seeded", "state": "pending",
 		"changes": []map[string]any{{"rel": "r/seeded.md", "delete": false, "hasPreimage": false, "data": []byte("seeded\n")}},
 	}
-	for k, v := range extra {
-		doc[k] = v
-	}
+	maps.Copy(doc, extra)
 	data, err := json.Marshal(doc)
 	if err != nil {
 		t.Fatal(err)

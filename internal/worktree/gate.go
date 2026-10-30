@@ -42,10 +42,10 @@ func ScopedGoGate(ctx context.Context, dir, base string) (cmd string, pkgs []str
 		return "", nil, false, err
 	}
 	changed, src := map[string]bool{}, cachedReader()
-	for _, f := range strings.Split(string(out), "\x00") {
-		switch {
-		case f == "":
-		case f == "go.mod" || f == "go.sum":
+	for f := range strings.SplitSeq(string(out), "\x00") {
+		switch f {
+		case "":
+		case "go.mod", "go.sum":
 			return fullGoGate, nil, true, nil
 		default:
 			owners := filePackages(list, abs, f, src)

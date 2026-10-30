@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -168,12 +169,7 @@ func TestDispatchWorkflowBatchIsAllOrNothing(t *testing.T) {
 }
 
 func contains(list []string, s string) bool {
-	for _, x := range list {
-		if x == s {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(list, s)
 }
 
 // agent-inflight-post (PostToolUseFailure) releases an Agent's exact id and leaves others.

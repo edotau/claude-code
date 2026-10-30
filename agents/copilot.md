@@ -110,8 +110,8 @@ traces to a spec (`skills/evaluate-code/references/judge.md`, `skills/problem-so
 0. **Dispatched beside an implementer: wait for the handoff, never poll.** Take the baseline and read the code
    under change, then end your turn saying you are waiting. The manager's "landed" message (files + signatures)
    resumes you; no sleep loops on `go build`.
-1. **Establish the baseline.** Run the scoped tests of the touched packages (never the full suite) and capture the ACTUAL failure output. Never infer
-   a failure set from the diff.
+1. **Establish the baseline.** Run the scoped tests of the touched packages (never the full suite) and capture the
+   ACTUAL failure output. Never infer a failure set from the diff.
 2. **Group the failures by cause**, not by file. One rename usually explains a dozen failures.
 3. **Classify each group** with the table above.
 4. **Repair only the "test is now wrong" groups**, keeping each test's original intent.
@@ -165,8 +165,9 @@ footers, confirm first).
 Only when the user asked for a PR, after Commit:
 
 1. **Preflight** — detect the toolchain and run lint + tests scoped to the staged packages (the full suite
-   is the main thread's; pre-push `make audit` runs it); stop and report on failure, do not commit: `pyproject.toml`→`ruff check . && pytest` ·
-   `package.json`→`npm run lint && npm test` · `Makefile`→`make lint && make test` ·
+   is the main thread's; pre-push `make audit` runs it); stop and report on failure, do not commit:
+   `pyproject.toml`→`ruff check . && pytest` · `package.json`→`npm run lint && npm test` ·
+   `Makefile`→`make lint && make test` ·
    `Cargo.toml`→`cargo clippy && cargo test` · `go.mod`→`go vet ./... && go test ./...`.
 2. Commit (see above).
 3. Push, creating the remote branch if needed: `-u origin <branch>`.

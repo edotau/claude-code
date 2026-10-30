@@ -153,16 +153,14 @@ func runBudgeted(b Bound, in *Input, wg *sync.WaitGroup) (Result, error) {
 		err error
 	}
 	done := make(chan outcome, 1)
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		defer func() {
 			if p := recover(); p != nil {
 				done <- outcome{err: fmt.Errorf("panic: %v", p)}
 			}
 		}()
 		done <- outcome{r: b.Run(in)}
-	}()
+	})
 	budget := b.Spec.Budget
 	if budget <= 0 {
 		budget = 5 * time.Second

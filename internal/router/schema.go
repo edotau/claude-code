@@ -3,6 +3,7 @@ package router
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/edotau/claude-code/internal/schemas"
@@ -27,7 +28,7 @@ var format = schemas.Register(schemas.Format{
 func decodeState(raw []byte) (State, error) {
 	var probe map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &probe); err != nil || probe == nil {
-		return State{}, fmt.Errorf("quota: not a JSON object")
+		return State{}, errors.New("quota: not a JSON object")
 	}
 	_, hasSchema := probe["schema"]
 	_, hasAccounts := probe["accounts"]

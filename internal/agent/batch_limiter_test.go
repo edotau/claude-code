@@ -79,9 +79,7 @@ func TestBatchAndSpawnsShareTheAccountCap(t *testing.T) {
 
 	var wg sync.WaitGroup
 	for range 13 { // 13 batch legs: exactly what one leg does in l.acquire — take, hold, release
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			release, err := l.acquire(context.Background(), account)
 			if err != nil {
 				t.Errorf("leg acquire: %v", err)
@@ -89,7 +87,7 @@ func TestBatchAndSpawnsShareTheAccountCap(t *testing.T) {
 			}
 			hold(150 * time.Millisecond)
 			release()
-		}()
+		})
 	}
 	for i := range 5 { // 5 Agent spawns from a second, live owner pid; retry a refused claim
 		wg.Add(1)

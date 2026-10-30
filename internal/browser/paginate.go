@@ -3,6 +3,7 @@ package browser
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -47,7 +48,7 @@ func templatePages(ctx context.Context, env Env, c *cdp.Conn, gate *robotsGate, 
 	for page := 1; page <= o.MaxPages; page++ {
 		if page > 1 {
 			env.politeDelay()
-			u := strings.ReplaceAll(o.Template, "{page}", fmt.Sprint(page))
+			u := strings.ReplaceAll(o.Template, "{page}", strconv.Itoa(page))
 			if err := gate.check(ctx, u); err != nil {
 				return all, err
 			}
@@ -105,7 +106,7 @@ func sigJS(container string) string {
 
 // waitChange polls until the expression differs from before (true) or 10s pass (false).
 func waitChange(ctx context.Context, env Env, c *cdp.Conn, expr, before string) (bool, error) {
-	for i := 0; i < 50; i++ {
+	for range 50 {
 		env.sleep(200 * time.Millisecond)
 		var now string
 		if err := c.Eval(ctx, expr, &now); err == nil && now != before {

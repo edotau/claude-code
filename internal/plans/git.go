@@ -14,7 +14,7 @@ func CommitFiles(ctx context.Context, dir, sha string) ([]string, error) {
 		return nil, fmt.Errorf("git show %s: %w", sha, err)
 	}
 	var files []string
-	for _, f := range strings.Split(string(raw), "\x00") {
+	for f := range strings.SplitSeq(string(raw), "\x00") {
 		if f = strings.TrimPrefix(f, "\n"); f != "" {
 			files = append(files, f)
 		}
@@ -32,7 +32,7 @@ func RangeCommits(ctx context.Context, dir, rng string) ([]Commit, error) {
 		return nil, fmt.Errorf("git rev-list %s: %w", rng, err)
 	}
 	var commits []Commit
-	for _, sha := range strings.Fields(string(raw)) {
+	for sha := range strings.FieldsSeq(string(raw)) {
 		files, err := CommitFiles(ctx, dir, sha)
 		if err != nil {
 			return nil, err

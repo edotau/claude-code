@@ -21,7 +21,7 @@ func ledgerLines(t *testing.T) []map[string]any {
 		t.Fatal(err)
 	}
 	var out []map[string]any
-	for _, l := range bytes.Split(bytes.TrimSpace(b), []byte("\n")) {
+	for l := range bytes.SplitSeq(bytes.TrimSpace(b), []byte("\n")) {
 		var m map[string]any
 		if err := json.Unmarshal(l, &m); err != nil {
 			t.Fatal(err)

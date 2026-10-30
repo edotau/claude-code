@@ -661,7 +661,8 @@ func vaultOverlayLines(rows [][3]string, width int) string {
 	var b strings.Builder
 	for _, r := range clipped {
 		line := fmt.Sprintf("  %-*s  %-*s  %s", aw, r[0], pw, r[1], r[2])
-		b.WriteString(vaultTruncate(line, width) + "\n")
+		b.WriteString(vaultTruncate(line, width))
+		b.WriteString("\n")
 	}
 	return b.String()
 }

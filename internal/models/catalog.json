@@ -20,6 +20,7 @@
     {"id": "gpt-6-astra", "name": "GPT-6 Astra", "thinking": true, "responses_only": true},
     {"id": "gpt-6-luna", "name": "GPT-6 Luna", "thinking": true},
     {"id": "gpt-5-5", "name": "GPT 5.5", "version": "5-5", "thinking": true, "responses_only": true},
+    {"id": "gpt-5-5-pro", "name": "GPT 5.5 Pro", "version": "5-5", "responses_only": true},
     {"id": "gpt-5", "name": "GPT-5", "thinking": true},
     {"id": "gpt-5-mini", "name": "GPT-5 Mini"},
     {"id": "gpt-5-nano", "name": "GPT-5 Nano"},

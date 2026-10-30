@@ -34,7 +34,7 @@ func newFakeBrowser(t *testing.T, h func(f *fakeBrowser, id int, method string, 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/json/new", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPut {
-			http.Error(w, "PUT only", 405)
+			http.Error(w, "PUT only", http.StatusMethodNotAllowed)
 			return
 		}
 		_, _ = io.WriteString(w, `{"id":"TAB1","webSocketDebuggerUrl":"ws://`+r.Host+`/ws"}`)

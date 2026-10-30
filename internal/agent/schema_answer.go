@@ -203,8 +203,8 @@ func jsonSpan(answer string) string {
 	if json.Valid([]byte(s)) {
 		return s
 	}
-	if i := strings.Index(s, "```"); i >= 0 {
-		body := s[i+3:]
+	if _, after, ok := strings.Cut(s, "```"); ok {
+		body := after
 		body = body[strings.IndexByte(body, '\n')+1:]
 		if j := strings.Index(body, "```"); j >= 0 && json.Valid([]byte(strings.TrimSpace(body[:j]))) {
 			return strings.TrimSpace(body[:j])

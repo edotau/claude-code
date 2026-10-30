@@ -3,9 +3,9 @@ package cli
 import (
 	"context"
 	"flag"
-	"fmt"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 
@@ -15,7 +15,7 @@ import (
 // fieldFlag collects repeatable --field name=selector[@attr] values.
 type fieldFlag []browser.Field
 
-func (f *fieldFlag) String() string { return fmt.Sprint(len(*f)) }
+func (f *fieldFlag) String() string { return strconv.Itoa(len(*f)) }
 func (f *fieldFlag) Set(s string) error {
 	fld, err := browser.ParseField(s)
 	if err != nil {

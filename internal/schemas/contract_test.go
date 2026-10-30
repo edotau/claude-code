@@ -223,7 +223,7 @@ func goldenLegacy(t *testing.T) map[string]bool {
 	if err != nil {
 		return m
 	}
-	for _, l := range strings.Split(string(b), "\n") {
+	for l := range strings.SplitSeq(string(b), "\n") {
 		if n, ok := strings.CutPrefix(l, legacyTag); ok {
 			m[strings.TrimSpace(n)] = true
 		}

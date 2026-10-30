@@ -52,12 +52,8 @@ func (j summaryJSON) fileSummary() *FileSummary {
 			s.Models[k] = &u
 		}
 	}
-	for k, v := range j.ModelTurns {
-		s.ModelTurns[k] = v
-	}
-	for k, v := range j.PerMin {
-		s.perMin[k] = v
-	}
+	maps.Copy(s.ModelTurns, j.ModelTurns)
+	maps.Copy(s.perMin, j.PerMin)
 	return s
 }
 

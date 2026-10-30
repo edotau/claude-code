@@ -82,7 +82,7 @@ func parseRobots(txt string) []robotsRule {
 	groups := map[string][]robotsRule{}
 	var agents []string
 	inRules := false
-	for _, line := range strings.Split(txt, "\n") {
+	for line := range strings.SplitSeq(txt, "\n") {
 		if i := strings.IndexByte(line, '#'); i >= 0 {
 			line = line[:i]
 		}

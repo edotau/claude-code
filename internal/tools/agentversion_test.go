@@ -229,12 +229,10 @@ func TestProbedVersionLineSharesCacheAndSurvivesConcurrentWrites(t *testing.T) {
 	const n = 24
 	var wg sync.WaitGroup
 	for i := range n {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			p := "/fake/bin" + strconv.Itoa(i)
 			writeVersionCache(p, p+"|1|1", "v"+strconv.Itoa(i))
-		}()
+		})
 	}
 	wg.Wait()
 	cache := readVersionCache()

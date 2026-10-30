@@ -176,7 +176,7 @@ func TestEventsSubscribersShareOneBuild(t *testing.T) {
 
 	const n = 5
 	var chans []<-chan string
-	for i := 0; i < n; i++ {
+	for range n {
 		fr, _ := openEvents(t, f.ts.URL)
 		chans = append(chans, fr)
 	}
@@ -248,8 +248,7 @@ func TestHubRunStopsAndSkipsUnchanged(t *testing.T) {
 	)
 	ctx, cancel := context.WithCancel(context.Background())
 	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() { defer wg.Done(); h.run(ctx) }()
+	wg.Go(func() { ; h.run(ctx) })
 
 	waitFor(t, 2*time.Second, "several fingerprint ticks", func() bool { return fps.Load() >= 5 })
 	if got := builds.Load(); got != 1 {

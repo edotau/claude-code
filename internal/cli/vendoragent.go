@@ -56,7 +56,7 @@ func vendorPage(vendor string) helptext.Page {
 	}
 	if vendor == "opencode" {
 		rows[slices.IndexFunc(rows, func(r [2]string) bool { return r[0] == "catalog" })][1] =
-			"model catalog; list|add|remove|import|reset|check the menu"
+			"model menu: list|add|remove|import|reset|check|sync"
 	}
 	if a, ok := vendoragent.Lookup(vendor); ok {
 		rows = append(rows, a.ExtraUsage...)
@@ -97,6 +97,9 @@ func vendorSubPage(vendor, verb string) helptext.Page {
 		about = fmt.Sprintf(about, vendor)
 	}
 	page := helptext.Page{Usage: "claude-code " + vendor + " " + sp[0], About: about}
+	if vendor == "opencode" && verb == "catalog" {
+		page.Hint = "Serving-only discovery: claude-code opencode catalog sync --profile P"
+	}
 	return page
 }
 
