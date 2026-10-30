@@ -33,7 +33,7 @@ CLASSIFY → REVIEW → CODEBASE INTEL → RESEARCH → PLAN → [REFINE: opt-in
 |-------|--------|----------|
 | TRIVIAL | Single-line fix, typo, rename | Inline — the only inline scope; skip all phases |
 | LOW | One function or file | Dispatch (not inline); phases 2, 3, 8 |
-| MEDIUM | 2–5 files or needs tests, one module | Phases 1–4, 8–9; sequential, no worktrees |
+| MEDIUM | 2–5 files or needs tests, one module | Phases 1–4, 8–9; sequential unless 2+ parallel-safe tasks, then fan out via Phase 6; no worktrees |
 | HIGH | Cross-module, 5+ files | Full pipeline, parallel dispatch |
 | EPIC | Multi-session, architectural | Full pipeline, phased across sessions |
 

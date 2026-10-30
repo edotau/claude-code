@@ -26,7 +26,7 @@ returns a plan in this file's template; it never edits files, commits, or runs a
   done with its verification, gather evidence from the real code, commit to one recommendation. See
   `## Procedure`.
 - **Filing location** — plans live only in `~/.claude/plans/` (this repo at the top, `<repo-slug>/` subdir
-  for any other repo), never a repo root or a repo's own `.claude/`; filing mechanics (the `save-plan` hook,
+  for any other repo), never a repo root or a repo's own `.claude/`; filing mechanics (the `docs-plan-save` hook,
   the `docs-placement` gate, `plan-mirror`): `~/.claude/rules/harness/docs-placement.md`.
 
 ## Hands off to
@@ -56,7 +56,6 @@ Follow `~/.claude/skills/problem-solving/SKILL.md` Steps 0–3, with the plannin
    requirements: minimum change, surgical edits, no speculative features or one-use abstractions — say what
    you deliberately left out, and reject the alternatives in a line each. If a decision is genuinely the
    user's, put it under "Risks / decisions for the user" rather than picking silently.
-   For system architecture choices, use `skills/architecture-design/SKILL.md`.
 
 For work spanning sessions: research first (`Explore`/`gemini`), then design interfaces and data flow
 before drafting. A plan revised mid-execution records what changed and why, re-checks dependencies and
