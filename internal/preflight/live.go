@@ -17,8 +17,8 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 )
 
-// Budget is the wall-clock cap on the live pong round.
-const Budget = 30 * time.Second
+// Budget is the wall-clock cap on the whole install step (refresh and pongs); a var for tests.
+var Budget = 45 * time.Second
 
 // RefreshStale re-lists every Databricks profile in use whose cache is missing or past TTL (all when force); errors skip.
 func RefreshStale(ctx context.Context, reg *providers.Registry, ps []Pin, now time.Time, force bool) []error {
@@ -79,9 +79,13 @@ type envelope struct {
 }
 
 // runAsk runs `<bin> ask --agent a --fallback none --format json` and returns the envelope; a seam for tests.
-var runAsk = func(ctx context.Context, bin, agentName string) (envelope, error) {
+var runAsk = defaultRunAsk
+
+func defaultRunAsk(ctx context.Context, bin, agentName string) (envelope, error) {
 	cmd := exec.CommandContext(ctx, bin, "ask", "--agent", agentName, "--fallback", "none", "--format", "json",
 		"Reply with the single word: pong")
+	groupKill(cmd)
+	cmd.WaitDelay = 2 * time.Second
 	out, err := cmd.Output()
 	var env envelope
 	if jerr := json.Unmarshal(out, &env); jerr != nil {
@@ -93,10 +97,8 @@ var runAsk = func(ctx context.Context, bin, agentName string) (envelope, error) 
 	return env, nil
 }
 
-// LivePongs asks every pinned agent (profile resolved, credential present) for "pong" in parallel within Budget.
+// LivePongs asks every pinned agent (profile resolved, credential present) for "pong" in parallel within ctx's deadline.
 func LivePongs(ctx context.Context, bin string, ps []Pin) []Pong {
-	ctx, cancel := context.WithTimeout(ctx, Budget)
-	defer cancel()
 	var live []Pin
 	for _, p := range ps {
 		if p.Status != StatusUnpinned && p.Served != "no" && !strings.HasPrefix(p.Detail, "no credential") {
@@ -149,6 +151,8 @@ func RunInstallStep(ctx context.Context, w io.Writer, reg *providers.Registry, b
 	if len(Profiles(reg, ps)) == 0 && !anyCredential(reg, ps) {
 		return // no credential anywhere: nothing to ping
 	}
+	ctx, cancel := context.WithTimeout(ctx, Budget)
+	defer cancel()
 	for _, err := range RefreshStale(ctx, reg, ps, now, false) {
 		fmt.Fprintf(w, "preflight  listing refresh failed: %s\n", oneLine(err.Error()))
 	}
