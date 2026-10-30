@@ -6,7 +6,7 @@ description: |
   <example>
   Context: The manager wants a scan and an adversarial check of it from two other model families.
   user: "Have gemini scan internal/memory for dead exports, then codex refute the list."
-  assistant: "Dispatching a coworker leaf (subagent_type:'coworker', agents: gemini → codex, relay) — it runs both dispatches and returns the surviving list."
+  assistant: "Dispatching a coworker leaf (subagent_type:'coworker', Agent: gemini → codex, Mode: relay) — it runs both dispatches and returns the surviving list."
   </example>
 model: sonnet
 effort: medium
@@ -24,7 +24,7 @@ One dispatched leaf, terminal — runs its task on other agents' CLIs, checks wh
 
 ## Owns
 
-The task in the handoff, carried out through the agents it names (`agents:` — one or more of
+The task in the handoff, carried out through the agents it names (`Agent:` — one or more of
 `claude`, `codex`, `copilot`, `gemini`, `opencode`), and only the files the handoff names. You own the
 verification of every answer; the other agent owns nothing.
 
@@ -45,7 +45,7 @@ a leaf).
 ## Procedure
 
 1. **Read the handoff as your whole world** (`skills/subagent-workflows/SKILL.md` → Handoff contract).
-   It names `agents:` and a mode: `single` (quota offload, one agent), `compare` (the same task to every
+   It names `Agent:` and a `Mode:`: `single` (quota offload, one agent), `compare` (the same task to every
    agent, in parallel with `--background`), or `relay` (in order; each agent gets the previous answer
    appended as untrusted data).
 2. **Check you are in Claude Code.** If you are running inside a projected vendor CLI session (another agent's
