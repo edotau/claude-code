@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/base64"
 	"os"
+	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -150,5 +152,65 @@ func TestNoCredentialSkips(t *testing.T) {
 	}
 	if c := byAgent(Check(reg, time.Now()))["codex"]; c.Status != StatusUnserved || !strings.Contains(c.Detail, "no credential") {
 		t.Fatalf("codex without a credential = %+v", c)
+	}
+}
+
+// A pin must match the listing the way the runtime spells it: no blind databricks- stripping.
+func TestHasDoesNotStripPrefix(t *testing.T) {
+	s := Served{Models: []ServedModel{{ID: "databricks-my-endpoint", Ready: "READY"}}}
+	if listed, _ := s.Has(registry(true).Providers["dev"], "my-endpoint"); listed {
+		t.Fatal("pin my-endpoint must not match databricks-my-endpoint")
+	}
+}
+
+// A listing stamped in the future is stale, not fresh forever.
+func TestFutureListingIsStale(t *testing.T) {
+	now := time.Now()
+	if (Served{FetchedAt: now.Add(48 * time.Hour)}).Fresh(now) {
+		t.Fatal("future fetched_at must not be fresh")
+	}
+	if !(Served{FetchedAt: now.Add(time.Minute)}).Fresh(now) {
+		t.Fatal("small skew must stay fresh")
+	}
+}
+
+// Refresh and pongs share one budget; a hung listing cannot push the step past it.
+func TestInstallStepSharesBudget(t *testing.T) {
+	t.Setenv("CLAUDE_PROFILE", "")
+	setPins(t, map[string]string{"CLAUDE_PROFILE": "dev", "COPILOT_PROFILE": "dev", "OPENCODE_PROFILE": "dev", "CODEX_MODEL": "m"})
+	old := Budget
+	Budget = 300 * time.Millisecond
+	t.Cleanup(func() { Budget = old; listModels = providers.ListModels })
+	listModels = func(ctx context.Context, _ *providers.Registry, _ *providers.Provider) ([]providers.ModelInfo, error) {
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
+	runAsk = func(ctx context.Context, _, _ string) (envelope, error) { <-ctx.Done(); return envelope{}, ctx.Err() }
+	var buf bytes.Buffer
+	start := time.Now()
+	RunInstallStep(context.Background(), &buf, registry(true), "claude-code", time.Now().Add(48*time.Hour))
+	if d := time.Since(start); d > 2*time.Second {
+		t.Fatalf("step took %v, want within the shared budget", d)
+	}
+	if !strings.Contains(buf.String(), "fail · timeout") {
+		t.Fatalf("want timeout rows, got %q", buf.String())
+	}
+}
+
+// Killing a timed-out ask must also kill its children, or the pipe keeps Output() blocked.
+func TestRunAskKillsProcessGroup(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("process groups are unix-only")
+	}
+	script := filepath.Join(t.TempDir(), "fake")
+	if err := os.WriteFile(script, []byte("#!/bin/sh\nsleep 30 &\nsleep 30\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	_, _ = defaultRunAsk(ctx, script, "codex")
+	if d := time.Since(start); d > 5*time.Second {
+		t.Fatalf("runAsk blocked %v on an orphaned child", d)
 	}
 }
