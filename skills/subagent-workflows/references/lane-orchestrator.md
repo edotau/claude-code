@@ -2,21 +2,22 @@
 
 Many leaf-sized tasks across disjoint packages: the manager splits them into lanes; one Claude subagent per lane
 fans out agent leaves through `claude-code ask` (which does not count against the 24-agent inflight cap), verifies
-each leaf in an isolated copy, and commits it.
+each leaf in an isolated copy, and commits it. Leaf types and the `Agent:` request:
+[SKILL.md → Leaf types](../SKILL.md#leaf-types).
 
 | Role | Who | Does | Never |
 |---|---|---|---|
-| Manager | main session | splits lanes by disjoint packages, dispatches one `claude`/`code-worker` per lane, merges, runs the suite once | edits a lane's files |
+| Manager | main session | splits lanes by disjoint packages, dispatches one `code-worker` (or `claude`) per lane, merges, runs the suite once | edits a lane's files |
 | Lane orchestrator | that subagent | writes the lane checklist, dispatches and verifies each leaf, commits named files, ticks the box | edits outside its lane |
-| Leaf | `copilot`, `codex`, `gemini`, `opencode` or `claude` via `claude-code ask` | one checklist line, owned files only | commits or dispatches |
+| Leaf | a `code-worker` that requests `Agent: <x>` via `claude-code ask` (`copilot`, `codex`, `gemini`, `opencode` or `claude`) | one checklist line, owned files only | commits or dispatches (subagents; the `Agent:` request is allowed) |
 
 ## Lane plan
 
 `lanes/<lane>.md` beside the plan (plan home: `rules/harness/docs-placement.md`), holding only a checklist:
 
 ```markdown
-- [ ] <verb> <object> — agent: <copilot|codex|gemini|opencode|claude> — owns: <files>
-- [x] <verb> <object> — agent: copilot — owns: internal/foo/bar.go — a1b2c3d
+- [ ] <verb> <object> — Agent: <copilot|codex|gemini|opencode|claude> — owns: <files>
+- [x] <verb> <object> — Agent: copilot — owns: internal/foo/bar.go — a1b2c3d
 ```
 
 Leaf size and the checklist line format: `agents/Plan.md` → `## Tasks` (25–40-item dispatches timed out, 5–10 finished).

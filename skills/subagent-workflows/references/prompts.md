@@ -2,12 +2,15 @@
 
 Every reviewer inspects the artifact itself (code, tests, plan), never the report describing it, returns findings as
 file:line plus a concrete fix, and edits nothing. Paste the context each role needs; never make it reconstruct the plan.
-Each template instantiates `../SKILL.md` → Handoff contract; its field names match the contract.
+Each template instantiates `../SKILL.md` → Handoff contract; its field names match the contract. `Agent:` names the
+agent the leaf requests (omit it, or write `in-context`, when the leaf does the work itself); the leaf types and the
+label rule are in [SKILL.md → Leaf types](../SKILL.md#leaf-types).
 
 ## Implementer
 
 ```markdown
 Objective: implement Task <N>: <name>.
+Agent: <in-context | agent this leaf requests via `claude-code ask --agent <x>`>
 Task: <complete requirements>
 Context: <working directory, files, dependencies, prior decisions>
 Owns: <files>. Do NOT edit others — agents are in this package concurrently.
@@ -31,6 +34,7 @@ changed; verification output; the TASK/ISSUE facts as plain sentences; concerns.
 
 ```markdown
 Objective: answer <question> for <caller requirement>.
+Agent: <in-context | agent this leaf requests>
 Context: <facts already established, links supplied>. Do not re-derive them.
 Sources: <primary sources to prefer>. Budget: <requests or minutes>; stop at it and return what you have.
 Tools: <exact tool names and auth state>. On an auth failure or denial, stop that operation and report the tool and
@@ -48,6 +52,7 @@ After implementation, before simplify and quality review.
 
 ```markdown
 Review the implementation against the specification.
+Agent: <in-context | agent this leaf requests>
 Specification: <requirements and acceptance criteria>
 Implementation report: <implementer report>
 Scope: <base..head or changed files>
@@ -61,10 +66,11 @@ Return SPEC_COMPLIANT with brief evidence, or SPEC_ISSUES with file:line finding
 
 ```markdown
 Simplify the change below, behavior-preserving, by the procedure in ~/.claude/skills/simplify/SKILL.md.
+Agent: <in-context | agent this leaf requests>
 Read that file first and follow it; its references are under ~/.claude/skills/simplify/references/.
 
 You are a terminal leaf: run the four angles (reuse, simplification, efficiency, altitude) yourself in
-one pass — do not dispatch agents — and say so in the summary.
+one pass — do not dispatch agents (subagents; the `Agent:` request is allowed) — and say so in the summary.
 
 Scope:
 Base: <base revision>
@@ -89,10 +95,11 @@ Return:
 Only after `SPEC_COMPLIANT` and the simplify pass.
 
 ```markdown
+Agent: <in-context | agent this leaf requests>
 Load evaluate-code (Skill tool, or read ~/.claude/skills/evaluate-code/SKILL.md) and apply its lenses — the
 performance lens on any hot path touched.
 You are a read-only terminal reviewer: apply only its Lenses and Verdicts — skip its Review a diff scope and
-mechanical-gate steps (the manager ran them); never edit files or dispatch agents.
+mechanical-gate steps (the manager ran them); never edit files or dispatch agents (subagents; the `Agent:` request is allowed).
 Task: <summary>
 Scope: base <rev>, head <rev>, files <list>
 Simplify report (if one ran; flagged items left on purpose): <report>
@@ -106,10 +113,11 @@ Return: verdict SHIP | FIX REQUIRED | BLOCK first; findings CRITICAL / HIGH / ME
 After a plan is written, before executing it.
 
 ```markdown
+Agent: <in-context | agent this leaf requests>
 Review plan <PLAN_PATH> against spec <SPEC_PATH> by
 `~/.claude/skills/evaluate-code/references/task-review.md` → Plan review. Return its verdict first.
 You are a read-only terminal reviewer: apply only that procedure and skip any dispatch or mechanical-gate
-steps (the manager ran them); never edit files or dispatch agents.
+steps (the manager ran them); never edit files or dispatch agents (subagents; the `Agent:` request is allowed).
 ```
 
 ## Lane leaf
@@ -118,7 +126,9 @@ Brief for a lane orchestrator's leaf ([lane-orchestrator.md](lane-orchestrator.m
 context.
 
 ```text
-You are a terminal leaf: never dispatch, commit, or git stash/checkout/reset/restore.
+You are a terminal leaf: never dispatch (subagents; the `Agent:` request is allowed), commit, or git
+stash/checkout/reset/restore.
+Agent: <in-context | agent this leaf requests>
 Task: <checklist line, verbatim>. Edit only: <owned files>. Scratch: /tmp/claude-1000/<leaf>; delete it when done.
 Done when: <scoped test> exits 0 and <live check> shows <expected>.
 Before a behavior change write TASK: code does X; check expects Y; spec says Z (Y vs Z disagree = stop, report).
