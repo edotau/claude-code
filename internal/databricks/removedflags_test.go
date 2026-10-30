@@ -1,11 +1,11 @@
-package removedflags
+package databricks
 
 import (
 	"strings"
 	"testing"
 )
 
-func TestHint(t *testing.T) {
+func TestRemovedFlagHint(t *testing.T) {
 	tests := []struct {
 		name string
 		args []string
@@ -25,15 +25,15 @@ func TestHint(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := Hint(tt.args)
+			err := RemovedFlagHint(tt.args)
 			if tt.want == "" {
 				if err != nil {
-					t.Fatalf("Hint(%q) = %v, want nil", tt.args, err)
+					t.Fatalf("RemovedFlagHint(%q) = %v, want nil", tt.args, err)
 				}
 				return
 			}
 			if err == nil || !strings.Contains(err.Error(), tt.want) {
-				t.Fatalf("Hint(%q) = %v, want containing %q", tt.args, err, tt.want)
+				t.Fatalf("RemovedFlagHint(%q) = %v, want containing %q", tt.args, err, tt.want)
 			}
 		})
 	}

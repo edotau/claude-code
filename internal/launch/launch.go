@@ -17,13 +17,13 @@ import (
 
 	"github.com/edotau/claude-code/internal/ansi"
 	"github.com/edotau/claude-code/internal/codexsettings"
+	"github.com/edotau/claude-code/internal/databricks"
 	"github.com/edotau/claude-code/internal/envscrub"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/proxy"
-	"github.com/edotau/claude-code/internal/removedflags"
 	"github.com/edotau/claude-code/internal/secrets"
 	"github.com/edotau/claude-code/internal/secrets/shapes"
 	"github.com/edotau/claude-code/internal/tools"
@@ -56,7 +56,7 @@ func flagValue(args []string, i int, name, val string, hasVal bool) (string, int
 func ParseArgs(args []string, claude bool) (Options, []string, error) {
 	var o Options
 	var rest []string
-	if err := removedflags.Hint(args); err != nil {
+	if err := databricks.RemovedFlagHint(args); err != nil {
 		return o, nil, err
 	}
 	for i := 0; i < len(args); i++ {
