@@ -60,8 +60,10 @@ func (b *claudeLive) parse(dec *json.Decoder, sink Sink, lg eventLog) (Result, e
 
 // agyLive holds `agy --input-format stream-json`: one conversation, one NDJSON line per turn.
 type agyLive struct {
-	tools bool
-	prev  Usage
+	tools   bool
+	intro   string // emulated system prompts, owed to the first turn only
+	resumed bool   // a --session conversation: agy's cumulative usage already holds its history
+	prev    Usage
 }
 
 func (b *agyLive) build(ctx context.Context, req Request) (*exec.Cmd, *TailBuffer, string, error) {
@@ -76,12 +78,19 @@ func (b *agyLive) build(ctx context.Context, req Request) (*exec.Cmd, *TailBuffe
 	if err != nil {
 		return nil, nil, "", fmt.Errorf("gemini: %w", err)
 	}
-	b.tools = areq.Tools
+	b.tools, b.resumed = areq.Tools, req.SessionID != ""
+	if req.SystemPrompt != "" { // agy has no system-prompt flag: the one-shot path prepends it, so does the first turn
+		b.intro += preamble(req.SystemPrompt)
+	}
+	if req.AppendSystemPrompt != "" {
+		b.intro += preamble(req.AppendSystemPrompt)
+	}
 	cmd, tail := childCmd(ctx, bin, agyArgv(areq), areq.Env, areq.Cwd, "", areq.KeepEnv, true)
 	return cmd, tail, p.res.Provider, nil
 }
 
 func (b *agyLive) writeTurn(w io.Writer, prompt string) error {
+	prompt, b.intro = b.intro+prompt, ""
 	line, err := agyStdin(AgyRequest{Prompt: prompt, Tools: b.tools})
 	if err != nil {
 		return err
