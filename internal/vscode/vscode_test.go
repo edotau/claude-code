@@ -3,6 +3,7 @@ package vscode
 import (
 	"encoding/json"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/textutil"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -143,31 +144,6 @@ func TestSyncCheckCreatesNoLockFile(t *testing.T) {
 	}
 }
 
-func TestStripJSONCHandlesCommentsStringsAndTrailingCommas(t *testing.T) {
-	in := `{
-  // a line comment
-  "a": "value with // not a comment and /* not a block */",
-  "b": [1, 2, 3,],
-  /* a block
-     comment */
-  "c": {"nested": true,},
-}`
-	var out map[string]any
-	if err := json.Unmarshal(stripJSONC([]byte(in)), &out); err != nil {
-		t.Fatalf("stripped JSONC did not parse: %v\n%s", err, stripJSONC([]byte(in)))
-	}
-	if out["a"] != "value with // not a comment and /* not a block */" {
-		t.Errorf("string content was mangled: %v", out["a"])
-	}
-	if out["b"].([]any) == nil || len(out["b"].([]any)) != 3 {
-		t.Errorf("array trailing comma not stripped cleanly: %v", out["b"])
-	}
-	nested, ok := out["c"].(map[string]any)
-	if !ok || nested["nested"] != true {
-		t.Errorf("object trailing comma not stripped cleanly: %v", out["c"])
-	}
-}
-
 // User entries and a leading header comment survive a merge; template entries append in order.
 func TestSyncKeybindingsAppendsTemplateEntriesPreservingUserEntryAndComment(t *testing.T) {
 	hermeticVSCode(t)
@@ -196,7 +172,7 @@ func TestSyncKeybindingsAppendsTemplateEntriesPreservingUserEntryAndComment(t *t
 		t.Errorf("leading comment not preserved:\n%s", body)
 	}
 	var entries []map[string]any
-	if err := json.Unmarshal(stripJSONC(body), &entries); err != nil {
+	if err := json.Unmarshal(textutil.StripJSONC(body), &entries); err != nil {
 		t.Fatalf("merged keybindings did not parse: %v\n%s", err, body)
 	}
 	if len(entries) != 2 {
@@ -253,7 +229,7 @@ func TestSyncKeybindingsReplacesStaleEntryByCommandAndProfile(t *testing.T) {
 	}
 	var entries []map[string]any
 	body, _ := os.ReadFile(dest)
-	if err := json.Unmarshal(stripJSONC(body), &entries); err != nil {
+	if err := json.Unmarshal(textutil.StripJSONC(body), &entries); err != nil {
 		t.Fatalf("merged keybindings did not parse: %v\n%s", err, body)
 	}
 	if len(entries) != 1 {
@@ -285,7 +261,7 @@ func TestSyncKeybindingsCheckReportsDriftWithoutWriting(t *testing.T) {
 // terminal.integrated.profiles.linux key in the settings template, or the terminal command 404s.
 func TestKeybindingsTemplateProfilesExistInSettingsTemplate(t *testing.T) {
 	var entries []map[string]any
-	if err := json.Unmarshal(stripJSONC(defaultKeybindingsTemplate), &entries); err != nil {
+	if err := json.Unmarshal(textutil.StripJSONC(defaultKeybindingsTemplate), &entries); err != nil {
 		t.Fatalf("embedded keybindings template did not parse: %v", err)
 	}
 	if len(entries) == 0 {
@@ -293,7 +269,7 @@ func TestKeybindingsTemplateProfilesExistInSettingsTemplate(t *testing.T) {
 	}
 
 	var settings map[string]any
-	if err := json.Unmarshal(stripJSONC(defaultTemplate), &settings); err != nil {
+	if err := json.Unmarshal(textutil.StripJSONC(defaultTemplate), &settings); err != nil {
 		t.Fatalf("embedded settings template did not parse: %v", err)
 	}
 	profiles, ok := settings["terminal.integrated.profiles.linux"].(map[string]any)
@@ -352,41 +328,4 @@ func keybindingsFixture(t *testing.T, live string) (tmpl, dest string) {
 		t.Fatal(err)
 	}
 	return tmpl, dest
-}
-
-func TestDefaultDestIsPlatformSpecific(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	if runtime.GOOS == "windows" {
-		t.Skip("HOME-based home dir override does not apply on windows")
-	}
-
-	dest, err := DefaultDest()
-	if err != nil {
-		t.Fatal(err)
-	}
-	switch runtime.GOOS {
-	case "darwin":
-		want := filepath.Join(home, "Library", "Application Support", "Code", "User", "settings.json")
-		if dest != want {
-			t.Errorf("dest = %s, want %s", dest, want)
-		}
-	default:
-		// No vscode-server dir yet: falls back to the desktop (User scope) path.
-		want := filepath.Join(home, ".config", "Code", "User", "settings.json")
-		if dest != want {
-			t.Errorf("dest (no vscode-server) = %s, want %s", dest, want)
-		}
-		if err := os.MkdirAll(filepath.Join(home, ".vscode-server"), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		dest, err = DefaultDest()
-		if err != nil {
-			t.Fatal(err)
-		}
-		want = filepath.Join(home, ".vscode-server", "data", "Machine", "settings.json")
-		if dest != want {
-			t.Errorf("dest (with vscode-server) = %s, want %s", dest, want)
-		}
-	}
 }

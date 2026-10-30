@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // DefaultKeybindingsDest returns the local client's User keybindings.json. Keybindings are UI-side —
@@ -49,7 +50,7 @@ func SyncKeybindings(template, dest string, check bool) (Result, error) {
 		rawTemplate = b
 	}
 	var overlay []map[string]any
-	if err := json.Unmarshal(stripJSONC(rawTemplate), &overlay); err != nil {
+	if err := json.Unmarshal(textutil.StripJSONC(rawTemplate), &overlay); err != nil {
 		return Result{}, fmt.Errorf("keybindings template: %w", err)
 	}
 
@@ -77,7 +78,7 @@ func mergeKeybindings(dest string, overlay []map[string]any, check bool) (Result
 	rawBase, err := os.ReadFile(dest)
 	switch {
 	case err == nil && len(rawBase) > 0:
-		if err := json.Unmarshal(stripJSONC(rawBase), &base); err != nil {
+		if err := json.Unmarshal(textutil.StripJSONC(rawBase), &base); err != nil {
 			return Result{}, fmt.Errorf("live keybindings: %w", err)
 		}
 	case err != nil && !os.IsNotExist(err):

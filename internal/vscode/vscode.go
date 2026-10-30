@@ -10,11 +10,11 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
-	"runtime"
 	"strings"
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // lockWait bounds the wait for a sibling invocation; past the budget the merge errors rather than hang.
@@ -28,27 +28,6 @@ var BeforeWrite func(dest string)
 type Result struct {
 	Changed bool
 	Backup  string
-}
-
-// DefaultDest returns the platform's VS Code Machine settings path. WSL/Linux with a running
-// vscode-server uses its Machine scope; macOS and Linux desktop fall back to the User scope, the
-// closest equivalent outside a remote session.
-func DefaultDest() (string, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", err
-	}
-	switch runtime.GOOS {
-	case "darwin":
-		return filepath.Join(home, "Library", "Application Support", "Code", "User", "settings.json"), nil
-	case "windows":
-		return filepath.Join(home, "AppData", "Roaming", "Code", "User", "settings.json"), nil
-	default:
-		if info, statErr := os.Stat(filepath.Join(home, ".vscode-server")); statErr == nil && info.IsDir() {
-			return filepath.Join(home, ".vscode-server", "data", "Machine", "settings.json"), nil
-		}
-		return filepath.Join(home, ".config", "Code", "User", "settings.json"), nil
-	}
 }
 
 // Sync renders template with __CLAUDE_HOME__/__CLAUDE_BIN__ expanded, then merges it into dest.
@@ -66,7 +45,7 @@ func Sync(template, dest, claudeHome, claudeBin string, check bool) (Result, err
 	rendered := strings.ReplaceAll(string(rawTemplate), "__CLAUDE_HOME__", claudeHome)
 	rendered = strings.ReplaceAll(rendered, "__CLAUDE_BIN__", claudeBin)
 	var overlay map[string]any
-	if err := json.Unmarshal(stripJSONC([]byte(rendered)), &overlay); err != nil {
+	if err := json.Unmarshal(textutil.StripJSONC([]byte(rendered)), &overlay); err != nil {
 		return Result{}, fmt.Errorf("template: %w", err)
 	}
 
@@ -97,7 +76,7 @@ func merge(dest string, overlay map[string]any, claudeWrapper string, check bool
 	rawBase, err := os.ReadFile(dest)
 	switch {
 	case err == nil && len(rawBase) > 0:
-		if err := json.Unmarshal(stripJSONC(rawBase), &base); err != nil {
+		if err := json.Unmarshal(textutil.StripJSONC(rawBase), &base); err != nil {
 			return Result{}, fmt.Errorf("live settings: %w", err)
 		}
 	case err != nil && !os.IsNotExist(err):

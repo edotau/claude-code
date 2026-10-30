@@ -85,7 +85,7 @@ func resolveVSCodeDest(dest string) (string, error) {
 	if dest != "" {
 		return dest, nil
 	}
-	return vscode.DefaultDest()
+	return paths.VSCodeSettings()
 }
 
 // resolveKeybindingsDest: explicit --keybindings-dest wins outright; explicit --dest with no

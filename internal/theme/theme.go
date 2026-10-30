@@ -12,7 +12,7 @@ import (
 	"reflect"
 
 	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/vscode"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 var beforeWrite func(dest string)
@@ -29,7 +29,7 @@ type Target struct {
 
 // Targets maps each theme/<name>.json to its destination; VS Code's path is platform-specific.
 func Targets(home string) []Target {
-	vs, _ := vscode.DefaultDest()
+	vs, _ := paths.VSCodeSettings()
 	cfg := os.Getenv("XDG_CONFIG_HOME")
 	if cfg == "" {
 		cfg = filepath.Join(home, ".config")
@@ -110,7 +110,7 @@ func readJSON(path string) (map[string]any, error) {
 		return nil, err
 	}
 	var m map[string]any
-	if err := json.Unmarshal(vscode.StripJSONC(b), &m); err != nil {
+	if err := json.Unmarshal(textutil.StripJSONC(b), &m); err != nil {
 		return nil, err
 	}
 	return m, nil
@@ -154,7 +154,7 @@ func mergeFile(dest string, overlay map[string]any, dryRun bool) (changed bool, 
 		return false, "", err
 	}
 	if len(raw) > 0 {
-		if err := json.Unmarshal(vscode.StripJSONC(raw), &base); err != nil {
+		if err := json.Unmarshal(textutil.StripJSONC(raw), &base); err != nil {
 			return false, "", fmt.Errorf("existing file: %w", err)
 		}
 	}
