@@ -306,7 +306,7 @@ func (s *liveSession) runTurn(ctx context.Context, prompt string, sink Sink) {
 	s.session = cmp.Or(res.SessionID, s.session)
 	s.mu.Unlock()
 	_ = sink.Emit(ResultEvent(NewEnvelope(res, err, s.rec.ID)))
-	if err != nil && streamBroken(err) || errors.Is(err, io.ErrClosedPipe) {
+	if _, atBoundary := errors.AsType[resultError](err); err != nil && !atBoundary { // the turn's result is unread or lost
 		s.cancel(fmt.Errorf("session stream broke: %w", err))
 	}
 }

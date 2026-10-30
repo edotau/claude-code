@@ -12,7 +12,6 @@ import (
 	"os/exec"
 	"slices"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/edotau/claude-code/internal/launch"
@@ -256,11 +255,6 @@ func parseClaudeEvents(dec *json.Decoder, untilResult bool, sink Sink, logs ...e
 
 var errNoResult = errors.New("claude: stream ended without a result event")
 
-// streamBroken is true when err left the stream unreadable (not just a failed turn), so a live session must end.
-func streamBroken(err error) bool {
-	return errors.Is(err, errNoResult) || strings.HasPrefix(err.Error(), "decode stream-json")
-}
-
 // clock is the time seam for stream timing.
 var clock = time.Now
 
@@ -341,10 +335,15 @@ func applyClaudeResult(res *Result, ev claudeEvent) error {
 		res.Structured = ev.Structured
 	}
 	if ev.IsError {
-		return fmt.Errorf("claude %s: %s", ev.Subtype, ev.Result)
+		return resultError{fmt.Errorf("claude %s: %s", ev.Subtype, ev.Result)}
 	}
 	return nil
 }
+
+// resultError is a failed turn whose result event was consumed, so the stream stays at a turn boundary.
+type resultError struct{ error }
+
+func (e resultError) Unwrap() error { return e.error }
 
 // claudeAttach inlines text files; images are named by absolute path so claude's Read tool opens them (needs tools).
 func claudeAttach(prompt string, paths []string, tools bool) (string, error) {
