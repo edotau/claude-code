@@ -16,8 +16,8 @@ import (
 // TTL is the backstop for a marker whose owner cannot be probed (or parsed): it stops counting after this long.
 const TTL = 30 * time.Minute
 
-// Idle: a spawn marker whose agent transcript is untouched this long stopped without a SubagentStop.
-const Idle = 10 * time.Minute
+// Idle: an agent transcript silent this long stopped without a SubagentStop; it outlasts Bash's 10-minute ceiling.
+const Idle = 15 * time.Minute
 
 // Grace: how long a spawn marker may wait for its agent transcript to appear before it is abandoned.
 const Grace = 2 * time.Minute

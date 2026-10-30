@@ -32,13 +32,17 @@ func subagentStopRunner(in *Input) Result {
 	if in.AgentTranscriptPath != "" {
 		dirs = append([]string{filepath.Dir(in.AgentTranscriptPath)}, dirs...)
 	}
+	note, blocked := leafStopBlock(in, id)
+	if blocked {
+		return note // a blocked stop retires nothing: the leaf is still running
+	}
 	clearStoppedClaim(in, dirs, id) // before the retire: it reads the same meta.json
 	for _, d := range dirs {
 		if d != "" {
 			inflight.RetireAgent(owner, d, id)
 		}
 	}
-	return Result{}
+	return note
 }
 
 // ownerDead is true only when the probe itself is trusted: off unix Alive is always false, and
