@@ -81,11 +81,12 @@ const ENVELOPE = {
 // One `claude-code ask` relay per call; the heredoc-to-file hop keeps shell quoting away from the task text.
 const run = (task, label) =>
   agent(
-    `Relay one external-model call; do NOT answer the task yourself. Write the TASK below verbatim to a scratch file with a quoted heredoc (<<'EOF'), ` +
+    `Agent: ${a.agent}\n` +
+      `Relay one external-model call; do NOT answer the task yourself. Write the TASK below verbatim to a scratch file with a quoted heredoc (<<'EOF'), ` +
       `then run exactly: cd ${CWD} && claude-code ask --agent ${a.agent} --format json --workdir ${CWD} --timeout ${MIN}m${TOOLS ? ' --tools' : ''} - < <that file>. ` +
       `Set the Bash tool timeout to 600000. It prints ONE JSON line {agent, status, provider, model, answer, error, transport, …}. ok = exit 0 AND error empty AND answer non-empty. ` +
       `Copy status and transport verbatim. Copy answer verbatim, never summarise. error = the envelope error, or the stderr tail on a non-JSON exit. Never retry.\n\nTASK:\n${task}`,
-    { label, phase: 'Agent', schema: ENVELOPE, model: 'haiku', effort: 'low' }
+    { label, phase: 'Agent', schema: ENVELOPE, agentType: 'code-worker', model: 'haiku', effort: 'low' }
   )
 
 phase('Agent')
@@ -100,6 +101,7 @@ if (!FALLBACK_ENABLED || TOOLS) return { ...res, agent: a.agent, skipped: true }
 const fb = await agent(`${a.task}\n\n(Work in ${CWD}; prefix every shell command with cd ${CWD} &&. Read-only unless the task says otherwise.)`, {
   label: 'fallback:' + a.agent,
   phase: 'Agent',
+  agentType: 'code-worker',
   model: routeModel('sonnet'),
   effort: 'medium',
 })
