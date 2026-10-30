@@ -4,12 +4,16 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"os/exec"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/network/browser"
 	"github.com/edotau/claude-code/internal/network/remote"
 	"github.com/edotau/claude-code/internal/network/tailscale"
 )
@@ -216,3 +220,154 @@ var (
 	errUnsupportedContentType = errors.New("web: Content-Type must be application/json or application/x-www-form-urlencoded")
 	errMissingField           = errors.New("web: host, agent and task are required")
 )
+
+// statusCacheTTL bounds how long a cached pane-status sample is served before a fresh capture
+// runs: short enough to track an agent, long enough that dashboard polling doesn't hammer ssh/tmux.
+const statusCacheTTL = 4 * time.Second
+
+// hostStatus is one host's last-known pane statuses; its own lock serializes concurrent cache
+// misses for that host into a single capture round trip instead of one ssh call per request.
+type hostStatus struct {
+	mu       sync.Mutex
+	statuses []remote.PaneStatus
+	sampled  time.Time
+}
+
+// statusCache holds one hostStatus per host, synchronized for concurrent requests across hosts.
+type statusCache struct {
+	mu     sync.Mutex
+	byHost map[string]*hostStatus
+}
+
+// newStatusCache returns an empty cache.
+func newStatusCache() *statusCache { return &statusCache{byHost: map[string]*hostStatus{}} }
+
+// entry returns (creating if absent) host's hostStatus record.
+func (c *statusCache) entry(host string) *hostStatus {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	h, ok := c.byHost[host]
+	if !ok {
+		h = &hostStatus{}
+		c.byHost[host] = h
+	}
+	return h
+}
+
+// get returns host's cached pane statuses, refreshing via run when the cache has aged past
+// statusCacheTTL. It never returns raw captures — only the classified, bounded remote.PaneStatus.
+func (c *statusCache) get(ctx context.Context, host string, run remote.Runner, now time.Time) ([]remote.PaneStatus, error) {
+	h := c.entry(host)
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if !h.sampled.IsZero() && now.Sub(h.sampled) < statusCacheTTL {
+		return h.statuses, nil
+	}
+	caps, err := remote.CapturePanes(ctx, host, true, run)
+	h.statuses = remote.Observe(h.statuses, caps, err, now)
+	h.sampled = now
+	if err != nil && len(h.statuses) == 0 {
+		return nil, err
+	}
+	return h.statuses, nil
+}
+
+// handleView serves /api/view?session=&agent=[&n=][&follow=1]: the drill-down snapshot for one
+// subagent, or (follow=1) its live event stream as text/plain, reusing agent.View/Follow —
+// the same engine `claude-code network view` uses, so dashboard and CLI never drift.
+func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
+	name := r.URL.Query().Get("agent")
+	if name == "" {
+		http.Error(w, "web: ?agent is required", http.StatusBadRequest)
+		return
+	}
+	opts := s.viewOptions(r, name)
+	snap, err := agent.View(opts)
+	if err != nil {
+		http.Error(w, "web: "+err.Error(), http.StatusNotFound)
+		return
+	}
+	if r.URL.Query().Get("follow") != "1" {
+		writeJSON(w, snap)
+		return
+	}
+	// The server's 30s WriteTimeout would otherwise cut a live follow stream; ctx still ends it on disconnect.
+	if err := http.NewResponseController(w).SetWriteDeadline(time.Time{}); err != nil {
+		s.logger.Printf("view follow: clearing write deadline: %v", err)
+	}
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	if fl, ok := w.(http.Flusher); ok {
+		fl.Flush() // headers reach the client before the first event; a quiet agent would otherwise hang the fetch
+	}
+	fw := flushWriter{w}
+	if err := agent.Follow(r.Context(), opts, fw); err != nil && r.Context().Err() == nil {
+		fmt.Fprintf(fw, "error: %v\n", err)
+	}
+}
+
+// viewOptions builds agent.ViewOptions from the request's query params, defaulting Days the
+// same way handleTree does.
+func (s *Server) viewOptions(r *http.Request, name string) agent.ViewOptions {
+	days := s.opts.Days
+	if days <= 0 {
+		days = 1
+	}
+	opts := agent.ViewOptions{
+		ClaudeDir: s.opts.ClaudeDir,
+		Session:   r.URL.Query().Get("session"),
+		Days:      days,
+		Agent:     name,
+		Now:       s.now,
+	}
+	if n, err := strconv.Atoi(r.URL.Query().Get("n")); err == nil && n > 0 {
+		opts.N = n
+	}
+	return opts
+}
+
+// flushWriter flushes after every Write, so a streamed follow response arrives line by line
+// instead of buffering until the handler returns or the response reaches its default buffer size.
+type flushWriter struct {
+	w http.ResponseWriter
+}
+
+func (f flushWriter) Write(p []byte) (int, error) {
+	n, err := f.w.Write(p)
+	if fl, ok := f.w.(http.Flusher); ok {
+		fl.Flush()
+	}
+	return n, err
+}
+
+// browserCacheTTL bounds how long a cached browser report is served before browser.Detect runs
+// again: Detect shells out to mdfind/plutil/defaults per browser, so every request must not re-probe.
+const browserCacheTTL = 30 * time.Second
+
+// browserCache holds the one most-recent browser.Report, synchronized for concurrent requests.
+type browserCache struct {
+	mu      sync.Mutex
+	report  browser.Report
+	sampled time.Time
+}
+
+func newBrowserCache() *browserCache { return &browserCache{} }
+
+// get returns the cached report, refreshing via browser.Detect(env) once sampled has aged past
+// browserCacheTTL.
+func (c *browserCache) get(env browser.Env, now time.Time) browser.Report {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if !c.sampled.IsZero() && now.Sub(c.sampled) < browserCacheTTL {
+		return c.report
+	}
+	c.report = browser.Detect(env)
+	c.sampled = now
+	return c.report
+}
+
+// handleBrowsers serves /api/browsers: the cached browser.Detect report (installed browsers, the
+// system default, and each one's control-path state), read-only.
+func (s *Server) handleBrowsers(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, s.browsers.get(s.browserEnv, s.now()))
+}

@@ -47,7 +47,7 @@ var writers = map[string]string{
 	"internal/cli/complete_domains.go:writeDispatchCache":             "tailscale-machines",
 	"internal/cli/helpsvg.go:cmdMenuSVG":                              unversioned("foreign: -o output"),
 	"internal/cli/theme.go:setGradient":                               unversioned("foreign: theme file in a vendor home"),
-	"internal/cli/web_extract.go:networkBrowserExtract":               unversioned("foreign: --extract -o output"),
+	"internal/cli/network_browser.go:networkBrowserExtract":           unversioned("foreign: --extract -o output"),
 	"internal/clipboard/clipboard.go:grabMac":                         unversioned("foreign: clipboard PNG in the temp dir"),
 	"internal/clipboard/clipboard.go:savePNG":                         unversioned("foreign: clipboard PNG in the temp dir"),
 	"internal/clipboard/launchd.go:installLaunchAgentAt":              unversioned("foreign: launchd plist (Apple format)"),

@@ -130,7 +130,7 @@ func BuildRemoteCommand(opts Opts) (string, string, error) {
 	agentCmd := agentCommand(opts.Agent, opts.Task) + `; exec "${SHELL:-/bin/sh}" -l`
 	var b strings.Builder
 	fmt.Fprintf(&b, "if ! command -v tmux >/dev/null 2>&1; then echo %s >&2; exit 1; fi\n",
-		QuoteSH("dispatch: tmux not found on PATH"))
+		QuoteSH("network remote: tmux not found on PATH"))
 	parts := []string{"tmux", "new-session", "-d", "-s", QuoteSH(name)}
 	if df := dirFlag(opts.Dir); df != "" {
 		parts = append(parts, df)

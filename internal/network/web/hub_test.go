@@ -310,3 +310,10 @@ func TestEventsDispatchRecordChangeStreams(t *testing.T) {
 		t.Fatal("frame identical after a dispatch record appeared")
 	}
 }
+
+// subscribers counts registered streams; tests use it to wait for registration.
+func (h *hub) subscribers() int {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return len(h.subs)
+}
