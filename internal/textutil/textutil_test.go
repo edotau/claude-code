@@ -47,3 +47,36 @@ func TestTruncateRunes(t *testing.T) {
 		})
 	}
 }
+
+func TestCapRunes(t *testing.T) {
+	cases := []struct {
+		name string
+		s    string
+		n    int
+		want string
+	}{
+		{"ascii over", "abcdef", 3, "abc!"},
+		{"exactly n", "abc", 3, "abc"},
+		{"n+1", "abcd", 3, "abc!"},
+		{"multibyte", "日本語abc", 4, "日本語a!"},
+		{"emoji", "😀😀😀", 2, "😀😀!"},
+		{"n=0", "abc", 0, "!"},
+		{"n negative", "abc", -2, "!"},
+		{"empty", "", 0, ""},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := CapRunes(c.s, c.n, "!"); got != c.want {
+				t.Errorf("CapRunes(%q, %d) = %q, want %q", c.s, c.n, got, c.want)
+			}
+		})
+	}
+}
+
+func TestRuneLen(t *testing.T) {
+	for s, want := range map[string]int{"": 0, "abc": 3, "日本語": 3, "😀a": 2} {
+		if got := RuneLen(s); got != want {
+			t.Errorf("RuneLen(%q) = %d, want %d", s, got, want)
+		}
+	}
+}

@@ -1,6 +1,8 @@
 // Package textutil holds small rune-safe string-truncation and lowercase-token primitives shared across the harness.
 package textutil
 
+import "unicode/utf8"
+
 // Truncate cuts s to at most n runes, replacing the tail with "…" when it does not fit so the
 // result (including the ellipsis) never exceeds n runes.
 func Truncate(s string, n int) string {
@@ -22,3 +24,14 @@ func TruncateRunes(s string, n int) string {
 	}
 	return s
 }
+
+// CapRunes keeps the first n runes of s and appends suffix when s is longer; s is returned unchanged otherwise.
+func CapRunes(s string, n int, suffix string) string {
+	if r := []rune(s); len(r) > n {
+		return string(r[:max(n, 0)]) + suffix
+	}
+	return s
+}
+
+// RuneLen is the rune count of s.
+func RuneLen(s string) int { return utf8.RuneCountInString(s) }
