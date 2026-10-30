@@ -61,6 +61,50 @@ func CheckLiveCap(skip string) error {
 	return nil
 }
 
+// pumpBuf is an unbounded in-memory pipe: a goroutine drains claude's stdout into it for the session's life, so a
+// stdin write can never block behind output nobody has read yet.
+type pumpBuf struct {
+	mu     sync.Mutex
+	cond   *sync.Cond
+	buf    []byte
+	closed bool
+}
+
+func newPumpBuf(src io.Reader) *pumpBuf {
+	b := &pumpBuf{}
+	b.cond = sync.NewCond(&b.mu)
+	go func() {
+		chunk := make([]byte, 32<<10)
+		for {
+			n, err := src.Read(chunk)
+			b.mu.Lock()
+			b.buf = append(b.buf, chunk[:n]...)
+			b.closed = err != nil
+			b.cond.Broadcast()
+			b.mu.Unlock()
+			if err != nil {
+				return
+			}
+		}
+	}()
+	return b
+}
+
+// Read blocks until data or the end of claude's stdout.
+func (b *pumpBuf) Read(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	for len(b.buf) == 0 && !b.closed {
+		b.cond.Wait()
+	}
+	if len(b.buf) == 0 {
+		return 0, io.EOF
+	}
+	n := copy(p, b.buf)
+	b.buf = b.buf[n:]
+	return n, nil
+}
+
 // liveSession is the holder's state: one claude child, its stdin, and one decoder over its stdout.
 type liveSession struct {
 	rec     *Record
@@ -118,7 +162,7 @@ func ServeLive(ctx context.Context, rec *Record, notify func(string)) (err error
 	go func() { exited <- cmd.Wait() }()
 	events := NewEventLog(rec.EventsPath(), rec.ID)
 	defer events.Close()
-	s := &liveSession{rec: rec, stdin: stdin, dec: json.NewDecoder(stdout), events: events, idleFor: cmp.Or(req.Timeout, DefaultLiveIdle),
+	s := &liveSession{rec: rec, stdin: stdin, dec: json.NewDecoder(newPumpBuf(stdout)), events: events, idleFor: cmp.Or(req.Timeout, DefaultLiveIdle),
 		cancel: func(e error) { cancel(e) }, profile: plan.Set[providers.PinProfile]}
 	s.idle = time.AfterFunc(s.idleFor, func() { cancel(errLiveIdle) })
 	_ = rec.Save() // the pid is on disk before the first send can find the record
@@ -235,7 +279,6 @@ func (s *liveSession) serveConn(ctx context.Context, c net.Conn) {
 		return
 	}
 	defer s.busy.Store(false)
-	s.idle.Stop()
 	defer s.idle.Reset(s.idleFor)
 	if ctx.Err() != nil {
 		refuse(statusRefused, "the session is ending")
@@ -252,7 +295,9 @@ func (s *liveSession) runTurn(ctx context.Context, prompt string, sink Sink) {
 	msg, _ := json.Marshal(map[string]any{"type": "user", "message": map[string]any{"role": "user", "content": prompt}})
 	var res Result
 	var err error
-	if _, err = s.stdin.Write(append(msg, '\n')); err == nil {
+	_, err = s.stdin.Write(append(msg, '\n')) // the idle timer keeps running until the write lands
+	s.idle.Stop()
+	if err == nil {
 		res, err = parseClaudeEvents(s.dec, true, sink, eventLogFor(ctx))
 	}
 	res.Agent, res.Provider, res.DurationMs = "claude", s.profile, time.Since(begin).Milliseconds()
