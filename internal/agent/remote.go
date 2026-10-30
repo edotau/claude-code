@@ -59,9 +59,6 @@ func remoteDropped(req Request) []string {
 	if req.DebugFile != "" {
 		out = append(out, "--debug-file="+req.DebugFile)
 	}
-	if req.Persona != nil {
-		out = append(out, "--persona="+req.Persona.Name)
-	}
 	return out
 }
 
@@ -81,6 +78,9 @@ func remoteScript(bin, agentName, fallback string, req Request) (string, error) 
 	}
 	w := []string{"exec", dispatch.QuotePath(bin), "ask", "--format", "stream-json", "--fallback", dispatch.QuoteSH(cmp.Or(fallback, FallbackNone)),
 		"--stdin-framed", "--agent", dispatch.QuoteSH(agentName)}
+	if req.Persona != nil {
+		w[len(w)-1] = dispatch.QuoteSH(agentName + ":" + req.Persona.Name)
+	}
 	opt := func(flag, v string) {
 		if v != "" {
 			w = append(w, flag, dispatch.QuoteSH(v))

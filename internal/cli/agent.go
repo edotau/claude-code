@@ -48,7 +48,7 @@ func cmdAsk(args []string) int { return runAsk(args, false) }
 // runAsk is cmdAsk; resume makes the first positional the session id (`<agent> resume [flags] <id> <task>`).
 func runAsk(args []string, resume bool) int {
 	fs := helptext.NewFlagSet("ask", askPage)
-	name := fs.String("agent", "claude", "agent: claude|codex|gemini|opencode|copilot")
+	name := fs.String("agent", "claude", "vendor, agents/<name>.md name, or vendor:name")
 	fallback := fs.String("fallback", agent.FallbackAll, "fallback: all (agents, then claude)|agents|none")
 	native := fs.Bool("native", false, "opencode: skip the hub ladder; run on its default login")
 	provider := fs.String("profile", "", "profile or hub start (default: pin, then registry)")
@@ -69,7 +69,6 @@ func runAsk(args []string, resume bool) int {
 	fs.Var(&env, "env", "set NAME=VALUE in the agent's environment (repeatable); credential names are refused")
 	systemPrompt := fs.String("system-prompt", "", "claude only: replace the system prompt")
 	appendSystemPrompt := fs.String("append-system-prompt", "", "claude only: append to the system prompt")
-	personaRef := fs.String("persona", "", "agent name (agents/<name>.md) or file: run as that agent definition")
 	outputSchema := fs.String("output-schema", "", "JSON Schema (file or inline) the answer must satisfy; envelope gains structured")
 	direct := fs.Bool("direct", false, "agents: hand the CLI the profile route, skip the proxy")
 	autonomous := fs.Bool("autonomous", false, "drive the run without stopping to ask, per agent")
@@ -104,15 +103,14 @@ func runAsk(args []string, resume bool) int {
 	if err != nil {
 		return failAskCode(*format, *name, err, 2)
 	}
-	var persona *agent.Persona
-	if *personaRef != "" && *job == "" {
-		if persona, err = agent.LoadPersona(*personaRef); err != nil {
-			return failAskCode(*format, *name, err, 2)
-		}
+	vendor, persona, err := agent.ResolveTarget(*name)
+	if err != nil {
+		return failAskCode(*format, *name, err, 2)
 	}
+	*name = vendor
 	if *live {
 		if persona != nil {
-			return failAskCode(*format, *name, errors.New("--persona cannot be combined with --live"), 2)
+			return failAskCode(*format, *name, errors.New("--live cannot run an agents/<name>.md persona: use a plain vendor"), 2)
 		}
 		if err := askLiveCheck(fs, *name); err != nil {
 			return failAskCode(*format, *name, err, 2)
@@ -159,10 +157,10 @@ func runAsk(args []string, resume bool) int {
 			return rc
 		}
 	}
-	if *personaRef != "" && *job == "" { // --job carries its persona in the record; a flag beats a --retry's
-		if persona, err = agent.LoadPersona(*personaRef); err != nil {
-			return failAskCode(*format, *name, err, 2)
-		}
+	if rest, p, rerr := agent.ResolveTarget(*name); rerr != nil { // a --retry re-parse puts the raw --agent value back
+		return failAskCode(*format, *name, rerr, 2)
+	} else if *name = rest; p != nil { // an explicit persona beats the record's
+		persona = p
 	}
 	if *outputSchema != "" { // a --retry/--job record may carry an already-resolved schema
 		if schema, err = resolveOutputSchema(*outputSchema); err != nil {
@@ -206,6 +204,9 @@ func runAsk(args []string, resume bool) int {
 	}
 	if err != nil {
 		return failAsk(*format, *name, err)
+	}
+	if err = agent.RefusePersona(r.Caps(), r.Name(), persona); err != nil {
+		return failAskCode(*format, *name, err, 2)
 	}
 	if *rubric != "" {
 		if prompt, err = agent.RubricPrompt(*rubric, prompt); err != nil {

@@ -1,7 +1,9 @@
 package agent
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -31,14 +33,14 @@ func TestPersonaClaudeNativeAndEmulated(t *testing.T) {
 	if out.Persona != nil || !strings.Contains(out.Prompt, "Be strict.") || !strings.HasSuffix(out.Prompt, "T") {
 		t.Errorf("emulated prompt = %q persona=%v", out.Prompt, out.Persona)
 	}
-	if !slices.Contains(emulated, "--persona") || len(dropped) != 3 {
+	if !slices.Contains(emulated, "persona") || len(dropped) != 3 {
 		t.Errorf("emulated=%q dropped=%q, want --persona and tools/model/max_turns dropped", emulated, dropped)
 	}
 	out, _, _ = applyCaps(Caps{Persona: Emulated, AppendSystemPrompt: Native}, req)
 	if out.Persona != nil || !strings.Contains(out.AppendSystemPrompt, "Be strict.") {
 		t.Errorf("native-append route = %+v", out)
 	}
-	if _, dropped, _ := applyCaps(Caps{}, req); !slices.Equal(dropped, []string{"--persona=reviewer"}) {
+	if _, dropped, _ := applyCaps(Caps{}, req); !slices.Equal(dropped, []string{"persona=reviewer"}) {
 		t.Errorf("no channel: dropped = %q", dropped)
 	}
 }
@@ -72,7 +74,79 @@ func TestPersonaEmptyToolsIsNotInherit(t *testing.T) {
 	if err := json.Unmarshal(b, &back); err != nil || back.Persona.Tools == nil {
 		t.Errorf("round-trip lost the empty list: %s (%v)", b, err)
 	}
-	if _, dropped, _ := applyCaps(Caps{Persona: Emulated, AppendSystemPrompt: Emulated}, Request{Persona: p}); !slices.Contains(dropped, "--persona.tools=none") {
+	if _, dropped, _ := applyCaps(Caps{Persona: Emulated, AppendSystemPrompt: Emulated}, Request{Persona: p}); !slices.Contains(dropped, "persona.tools=none") {
 		t.Errorf("dropped = %q, want tools=none named", dropped)
+	}
+}
+
+func TestResolveTarget(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", dir)
+	if err := os.MkdirAll(filepath.Join(dir, "agents"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, n := range []string{"codex", "helper"} {
+		if err := os.WriteFile(filepath.Join(dir, "agents", n+".md"), []byte("---\nname: "+n+"\n---\nBody "+n+".\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	file := filepath.Join(dir, "x.md")
+	if err := os.WriteFile(file, []byte("Body x.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct{ ref, vendor, persona string }{
+		{"codex", "codex", ""}, // the vendor beats agents/codex.md
+		{"codex:helper", "codex", "helper"},
+		{"helper", "claude", "helper"},
+		{file, "claude", "x"},
+	} {
+		v, p, err := ResolveTarget(c.ref)
+		if err != nil || v != c.vendor || personaName(p) != c.persona {
+			t.Errorf("ResolveTarget(%q) = %q, %+v, %v; want %q persona %q", c.ref, v, p, err, c.vendor, c.persona)
+		}
+	}
+	for _, ref := range []string{"notvendor:helper", "nosuch"} {
+		if _, _, err := ResolveTarget(ref); err == nil || !strings.Contains(err.Error(), "codex") {
+			t.Errorf("ResolveTarget(%q) err = %v, want one listing the vendors", ref, err)
+		}
+	}
+}
+
+func TestRefusePersona(t *testing.T) {
+	emu, nat := Caps{Persona: Emulated}, Caps{Persona: Native}
+	p := func(tools []string) *Persona { return &Persona{Name: "p", Tools: tools} }
+	for _, c := range []struct {
+		name   string
+		caps   Caps
+		tools  []string
+		refuse bool
+	}{
+		{"nil tools inherit", emu, nil, false},
+		{"full toolset", emu, []string{"Bash", "Write", "Edit", "Read"}, false},
+		{"scoped Bash is not Bash", emu, []string{"Bash(go test*)", "Write", "Edit"}, true},
+		{"empty means no tools", emu, []string{}, true},
+		{"read only", emu, []string{"Read"}, true},
+		{"native never refuses", nat, []string{}, false},
+	} {
+		if err := RefusePersona(c.caps, "codex", p(c.tools)); (err != nil) != c.refuse {
+			t.Errorf("%s: err = %v, refuse want %v", c.name, err, c.refuse)
+		}
+	}
+	if err := RefusePersona(emu, "codex", nil); err != nil {
+		t.Errorf("nil persona: %v", err)
+	}
+}
+
+// A hop to an emulating agent must not run a tool-limited persona unrestricted.
+func TestFallbackHopRefusesRestrictivePersona(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	down := &fakeRunner{name: "codex", errs: []error{errors.New(`exec: "codex": executable file not found in $PATH`)}, emptyAnswer: true}
+	emu := &fakeRunner{name: "gemini", caps: Caps{Persona: Emulated, AppendSystemPrompt: Emulated}, errs: []error{nil}}
+	res, err := RunWithFallback(context.Background(), chainOf([]Runner{down, emu}), Request{Prompt: "p", Persona: testPersona}, Discard, nil)
+	if err == nil || len(emu.seen) != 0 || len(res.Hops) != 2 {
+		t.Fatalf("agent=%q err=%v emulating runs=%d, want a refusal on the second hop and no run", res.Agent, err, len(emu.seen))
+	}
+	if !strings.Contains(err.Error(), "cannot enforce") {
+		t.Errorf("err = %v \n%d hops, last %s/%s, want the persona refusal", err, len(res.Hops), res.Hops[len(res.Hops)-1].Agent, res.Hops[len(res.Hops)-1].ErrorKind)
 	}
 }

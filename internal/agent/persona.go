@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/edotau/claude-code/internal/frontmatter"
@@ -74,6 +75,41 @@ func LoadPersona(ref string) (*Persona, error) {
 	return p, nil
 }
 
+// ResolveTarget splits an --agent value: a vendor name, vendor:persona, or an agents/<name>.md name or file on claude.
+func ResolveTarget(ref string) (vendor string, p *Persona, err error) {
+	var names []string
+	for _, r := range Runners() {
+		names = append(names, r.Name())
+	}
+	if slices.Contains(names, ref) {
+		return ref, nil, nil
+	}
+	if v, name, ok := strings.Cut(ref, ":"); ok {
+		if !slices.Contains(names, v) {
+			return "", nil, fmt.Errorf("unknown agent %q (%s)", v, strings.Join(names, "|"))
+		}
+		p, err = LoadPersona(name)
+		return v, p, err
+	}
+	if p, err = LoadPersona(ref); err != nil {
+		return "", nil, fmt.Errorf("unknown agent %q (%s, or an agents/<name>.md definition): %w", ref, strings.Join(names, "|"), err)
+	}
+	return "claude", p, nil
+}
+
+// RefusePersona rejects a persona whose tool limit an emulating agent could not enforce.
+func RefusePersona(c Caps, agentName string, p *Persona) error {
+	if p == nil || c.Persona != Emulated || p.Tools == nil {
+		return nil
+	}
+	for _, t := range []string{"Bash", "Write", "Edit"} {
+		if !slices.Contains(p.Tools, t) {
+			return fmt.Errorf("persona %q limits tools to %q and %s cannot enforce that; run it on claude", p.Name, strings.Join(p.Tools, ","), agentName)
+		}
+	}
+	return nil
+}
+
 // personaArgs renders claude's `--agents '{"<name>":{…}}' --agent <name>` with only the selected persona.
 func personaArgs(p Persona) []string {
 	def := map[string]any{"description": cmp.Or(p.Description, p.Name), "prompt": p.Prompt}
@@ -94,13 +130,13 @@ func personaArgs(p Persona) []string {
 func emulatePersona(c Caps, req Request, dropped []string) (Request, []string) {
 	p := req.Persona
 	if p.Tools != nil {
-		dropped = append(dropped, "--persona.tools="+cmp.Or(strings.Join(p.Tools, ","), "none"))
+		dropped = append(dropped, "persona.tools="+cmp.Or(strings.Join(p.Tools, ","), "none"))
 	}
 	if p.Model != "" {
-		dropped = append(dropped, "--persona.model="+p.Model)
+		dropped = append(dropped, "persona.model="+p.Model)
 	}
 	if p.MaxTurns > 0 {
-		dropped = append(dropped, fmt.Sprintf("--persona.max_turns=%d", p.MaxTurns))
+		dropped = append(dropped, fmt.Sprintf("persona.max_turns=%d", p.MaxTurns))
 	}
 	text := "You are the " + p.Name + " agent."
 	if p.Description != "" {
