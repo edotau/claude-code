@@ -1,10 +1,18 @@
 package agent
 
 import (
+	"context"
+	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"slices"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
@@ -152,5 +160,109 @@ func TestCopilotRegistryEligible(t *testing.T) {
 	ctx := WithDirect(t.Context())
 	if UsesCopilotRegistry(ctx, row(nil)) || !UsesCopilotRegistry(t.Context(), row(nil)) {
 		t.Error("UsesCopilotRegistry must follow CopilotRegistryEligible")
+	}
+}
+
+func TestMenuWire(t *testing.T) {
+	p := dbxRow("qa", "databricks-")
+	cases := []struct{ id, want string }{
+		{"gpt-6-1-sol", "databricks-gpt-6-1-sol"},
+		{"glm-5-3", "databricks-glm-5-3"},                         // a version-looking id is never rewritten
+		{"databricks-glm-5-3", "databricks-glm-5-3"},              // already wire: no double prefix
+		{"new-live-only-model", "databricks-new-live-only-model"}, // outside the catalog still takes the row's prefix
+	}
+	for _, c := range cases {
+		if got := menuWire(p, c.id); got != c.want {
+			t.Errorf("menuWire(%q) = %q, want %q", c.id, got, c.want)
+		}
+	}
+}
+
+func TestCodexSlug(t *testing.T) {
+	for id, want := range map[string]string{"gpt-6-1-sol": "gpt-6.1-sol", "gpt-6-luna": "gpt-6-luna", "glm-5-3": "glm-5.3", "unknown-9-9": "unknown-9-9"} {
+		if got := codexSlug(id); got != want {
+			t.Errorf("codexSlug(%q) = %q, want %q", id, got, want)
+		}
+	}
+}
+
+// The copilot fallback keeps the registry's declared Databricks profile order.
+func TestOrderedDatabricksKeepsRegistryOrder(t *testing.T) {
+	reg, err := providers.Parse([]byte(`{"providers":{"databricks":{
+		"prod":{"preset":"databricks","host":"https://h.cloud.databricks.com"},
+		"zeta":{"preset":"databricks","host":"https://h.cloud.databricks.com"},
+		"dev":{"preset":"databricks","host":"https://h.cloud.databricks.com"},
+		"qa":{"preset":"databricks","host":"https://h.cloud.databricks.com"},
+		"alpha":{"preset":"databricks","host":"https://h.cloud.databricks.com"}}}}`), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reg.Providers["max"] = &providers.Provider{Name: "max", Provider: "anthropic"}
+	want := []string{"prod", "zeta", "dev", "qa", "alpha"}
+	if got := providers.DatabricksProfiles(reg); !slices.Equal(got, want) {
+		t.Errorf("DatabricksProfiles = %v, want %v", got, want)
+	}
+}
+
+// dbxServing points a Databricks serving row's routes at srv (anthropic at /anthropic, openai/responses at /v1).
+func dbxServing(t *testing.T, srv *httptest.Server) {
+	t.Helper()
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("TEST_DBX_KEY", "dbx-key")
+	body := fmt.Sprintf(`{"providers":{"databricks":{"dbx":{"preset":"databricks","host":"https://h.cloud.databricks.com",
+	  "base_url":%q,"routes":{"openai":%q,"responses":%q},"auth":{"type":"key","env":"TEST_DBX_KEY"}}}}}`,
+		srv.URL+"/anthropic", srv.URL+"/v1", srv.URL+"/v1")
+	vaulttest.Put(t, vault.Overlay, "providers", body)
+}
+
+// NoTools one-shot routing on a Databricks row: Claude rides /anthropic, other chat models /v1, Responses-only is refused.
+func TestClaudeNoToolsRouting(t *testing.T) {
+	chat := func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/chat/completions" {
+			http.Error(w, "wrong route", http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, "data: {\"model\":\"kimi-k3\",\"choices\":[{\"delta\":{\"content\":\"ok\"}}]}\n\ndata: [DONE]\n\n")
+	}
+	claude := func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		io.WriteString(w, anthropicSSE)
+	}
+	cases := []struct {
+		name, model, wantOut, wantErr string
+		resp                          http.HandlerFunc
+		wantPaths                     []string
+	}{
+		{"non-claude model uses the openai chat route", "databricks-kimi-k3", "ok", "", chat, []string{"/v1/chat/completions"}},
+		{"responses-only model refused before any request", "databricks-gpt-5-5", "", "databricks-gpt-5-5", nil, nil},
+		{"claude model uses the anthropic route", "databricks-claude-haiku-4-5", "", "", claude, []string{"/anthropic/v1/messages"}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			var mu sync.Mutex
+			var paths []string
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				mu.Lock()
+				paths = append(paths, r.URL.Path)
+				mu.Unlock()
+				c.resp(w, r)
+			}))
+			defer srv.Close()
+			dbxServing(t, srv)
+
+			var out strings.Builder
+			res, err := claudeRunner{}.Run(context.Background(), Request{Prompt: "hi", Provider: "dbx", Model: c.model, NoTools: true}, NewTextSink(&out))
+			if c.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), c.wantErr) {
+					t.Errorf("err = %v, want it to name %q", err, c.wantErr)
+				}
+			} else if err != nil || res.Provider != "dbx" || (c.wantOut != "" && out.String() != c.wantOut) {
+				t.Fatalf("res = %+v err = %v out %q", res, err, out.String())
+			}
+			if !slices.Equal(paths, c.wantPaths) {
+				t.Errorf("paths = %v, want %v", paths, c.wantPaths)
+			}
+		})
 	}
 }
