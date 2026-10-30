@@ -163,14 +163,16 @@ func embedEntries(ctx context.Context, root string, c *EmbedClient, force bool) 
 	}
 	ids, texts, hashes, total := pendingEmbeds(root, rec)
 	started := now.UnixNano()
-	if len(texts) > 0 { // one session pays the network cost at a time; the claim expires on its own
-		held, ok, err := claimEmbedMint(c.Profile, started, now)
-		if err != nil {
-			return 0, total, err
-		}
-		if !ok {
-			return 0, total, fmt.Errorf("%w until %s", ErrEmbedBusy, held.Format("15:04"))
-		}
+	owner, err := newEmbedOwner()
+	if err != nil {
+		return 0, total, err
+	}
+	held, ok, err := claimEmbedMint(c.Profile, owner, now, embedClaimExpiry(ctx, now)) // always, even with nothing pending
+	if err != nil {
+		return 0, total, err
+	}
+	if !ok {
+		return 0, total, fmt.Errorf("%w until %s", ErrEmbedBusy, held.Format("15:04"))
 	}
 	run := &embedRun{c: c, root: root, force: force, fresh: map[string]embedRow{}, started: started}
 	var embedErr error
@@ -191,15 +193,19 @@ func embedEntries(ctx context.Context, root string, c *EmbedClient, force bool) 
 		embedded += j - i
 	}
 	run.current = currentEntryHashes(root)
-	stored, cerr := commitEmbedMint(c.Profile, started, func(cur embedCacheFile) embedCacheFile {
+	stored, cerr := commitEmbedMint(c.Profile, owner, started, func(cur embedCacheFile) embedCacheFile {
 		out := run.merge(cur)
 		if embedErr == nil { // a partial run keeps its paid-for rows but does not start the lease
 			out.MintedAt = time.Now().UnixNano()
 		}
 		return out
 	})
-	if !stored {
+	if cerr != nil {
+		releaseEmbedMint(c.Profile, owner) // the tx rolled back, so the claim is still ours
+	}
+	if !stored && cerr == nil {
 		embedded = 0
+		cerr = ErrEmbedSuperseded
 	}
 	return embedded, total, errors.Join(embedErr, cerr)
 }
@@ -298,6 +304,9 @@ type Semantic struct {
 	rows  map[string]embedRow
 }
 
+// readProfileCache is the per-profile read NewSemantic uses; a var so tests can fail one profile.
+var readProfileCache = readEmbedCache
+
 // NewSemantic embeds query within embedRecallWait and pairs it with the cached vectors; any failure is the
 // caller's cue to rank by keyword alone. The session profile's cache wins, else the pinned profile's.
 func NewSemantic(query string) (*Semantic, error) {
@@ -306,13 +315,15 @@ func NewSemantic(query string) (*Semantic, error) {
 	}
 	var profile string
 	var cache embedCacheFile
+	var readErr error
 	for _, name := range []string{providers.SessionProfile(), providers.Pin(providers.PinProfile)} {
 		if name == "" || name == profile || !safeEmbedProfile(name) {
 			continue
 		}
-		c, err := readEmbedCache(name)
-		if err != nil {
-			return nil, fmt.Errorf("embedding cache unreadable: %w", err)
+		c, err := readProfileCache(name)
+		if err != nil { // a locked or unreadable profile is a miss; the next one may serve
+			readErr = err
+			continue
 		}
 		if c.Model != "" && len(c.Rows) > 0 {
 			profile, cache = name, c
@@ -320,8 +331,12 @@ func NewSemantic(query string) (*Semantic, error) {
 		}
 	}
 	if profile == "" {
+		if readErr != nil {
+			return nil, fmt.Errorf("embedding cache unreadable: %w", readErr)
+		}
 		return nil, errors.New("no embedding cache")
 	}
+	attempt := time.Now()
 	backoff := filepath.Join(StateDir(), embedCachePre+profile+".backoff")
 	if st, err := os.Stat(backoff); err == nil && time.Since(st.ModTime()) < embedBackoff {
 		return nil, fmt.Errorf("endpoint timed out recently; semantic paused until %s", st.ModTime().Add(embedBackoff).Format("15:04"))
@@ -362,7 +377,9 @@ func NewSemantic(query string) (*Semantic, error) {
 		if r.err != nil {
 			return nil, r.err
 		}
-		_ = os.Remove(backoff)
+		if st, err := os.Stat(backoff); err == nil && st.ModTime().Before(attempt) { // keep a marker a racing recall just wrote
+			_ = os.Remove(backoff)
+		}
 		return &Semantic{query: r.vec, rows: cache.Rows}, nil
 	case <-ctx.Done():
 		_ = paths.AtomicWrite(backoff, nil, 0o600) // a slow endpoint costs one prompt the full wait, not every prompt

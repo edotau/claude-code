@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -399,11 +400,11 @@ func TestNewSemanticBacksOffAfterTimeout(t *testing.T) {
 	if err := saveEmbedCache("fake", f); err != nil {
 		t.Fatal(err)
 	}
-	var opens int
+	var opens atomic.Int32 // the abandoned embed goroutine still runs when the test reads it
 	prev := OpenEmbedClient
 	t.Cleanup(func() { OpenEmbedClient = prev })
 	OpenEmbedClient = func(_ context.Context, profile, model string) (*EmbedClient, error) {
-		opens++
+		opens.Add(1)
 		return &EmbedClient{Profile: profile, Model: model, Namespace: "fake|h|gte", Embed: func(ctx context.Context, _ []string) ([][]float32, error) {
 			<-ctx.Done()
 			return nil, ctx.Err()
@@ -416,7 +417,7 @@ func TestNewSemanticBacksOffAfterTimeout(t *testing.T) {
 	if _, err := NewSemantic("q"); err == nil || !strings.Contains(err.Error(), "paused") {
 		t.Fatalf("second query: err %v, want the backoff", err)
 	}
-	if opens != 1 || time.Since(start) > embedRecallWait/2 {
-		t.Errorf("backoff still reached the endpoint: opens=%d took %s", opens, time.Since(start))
+	if opens.Load() != 1 || time.Since(start) > embedRecallWait/2 {
+		t.Errorf("backoff still reached the endpoint: opens=%d took %s", opens.Load(), time.Since(start))
 	}
 }

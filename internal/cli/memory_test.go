@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -748,5 +749,25 @@ func TestMemoryShowAndSearchLogAccess(t *testing.T) {
 	}
 	if !strings.Contains(log, "abcd1234 -- "+memory.AccessSearch) {
 		t.Errorf("search return not logged id-keyed: %q", log)
+	}
+}
+
+// embedIndex uses the profile it is handed, not a fresh session/pin lookup; reembedGate refuses an unsafe one.
+func TestEmbedIndexAndGateUseTheResolvedProfile(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("CLAUDE_PROFILE", "session")
+	var opened string
+	prev := memory.OpenEmbedClient
+	t.Cleanup(func() { memory.OpenEmbedClient = prev })
+	memory.OpenEmbedClient = func(_ context.Context, profile, _ string) (*memory.EmbedClient, error) {
+		opened = profile
+		return nil, fmt.Errorf("stub")
+	}
+	embedIndex(t.TempDir(), "resolved", false)
+	if opened != "resolved" {
+		t.Fatalf("embedIndex opened %q, want the profile it was given", opened)
+	}
+	if code := reembedGate("../escape", time.Now()); code != 1 {
+		t.Fatalf("reembedGate on an unsafe profile = %d, want 1", code)
 	}
 }

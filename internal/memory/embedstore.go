@@ -1,6 +1,8 @@
 package memory
 
 import (
+	"context"
+	"crypto/rand"
 	"encoding/binary"
 	"encoding/json"
 	"errors"
@@ -15,9 +17,10 @@ import (
 )
 
 const (
-	embedValidity   = time.Hour       // a minted record is left alone for this long
-	embedOverrideAt = 8 * time.Minute // --reembed opens in the record's final stretch of the lease
-	embedClaimTTL   = 2 * time.Minute // a minting claim older than this is abandoned
+	embedValidity   = time.Hour        // a minted record is left alone for this long
+	embedOverrideAt = 8 * time.Minute  // --reembed opens in the record's final stretch of the lease
+	embedClaimTTL   = 2 * time.Minute  // a minting claim older than this is abandoned
+	embedClaimSlack = 30 * time.Second // added to the caller's ctx deadline when sizing a claim
 )
 
 // Buckets of embeddings.db: cache holds profile -> embedCacheFile JSON, claims holds profile -> expiry+owner.
@@ -37,6 +40,8 @@ var (
 	ErrEmbedValid = errors.New("embedding cache is still valid")
 	// ErrEmbedBusy means another session holds the minting claim.
 	ErrEmbedBusy = errors.New("another session is minting the embedding cache")
+	// ErrEmbedSuperseded means a newer record landed during the mint, so this run's vectors were discarded.
+	ErrEmbedSuperseded = errors.New("a newer mint landed first; this run's vectors were discarded")
 	// ErrReembedEarly means --reembed was asked before the override window opened.
 	ErrReembedEarly = errors.New("re-embed is not open yet")
 )
@@ -48,9 +53,9 @@ func safeEmbedProfile(profile string) bool { return safeProfile.MatchString(prof
 
 func mintedTime(f embedCacheFile) time.Time { return time.Unix(0, f.MintedAt) }
 
-// embedValid reports whether f was minted less than embedValidity before now.
+// embedValid reports whether f was minted less than embedValidity before now; a future MintedAt is not valid.
 func embedValid(f embedCacheFile, now time.Time) bool {
-	return f.MintedAt > 0 && now.Sub(mintedTime(f)) < embedValidity
+	return f.MintedAt > 0 && !mintedTime(f).After(now) && now.Sub(mintedTime(f)) < embedValidity
 }
 
 // reembedOpensAt is when --reembed becomes allowed for f (the zero time if it already is) and whether it is allowed now.
@@ -155,8 +160,25 @@ func saveEmbedCache(profile string, f embedCacheFile) error {
 	return updateEmbedDB(func(tx *bbolt.Tx) error { return putEmbedRecord(tx, profile, f) })
 }
 
-// claimEmbedMint takes profile's minting claim for owner; held is the live claim's expiry when another owner has it.
-func claimEmbedMint(profile string, owner int64, now time.Time) (held time.Time, ok bool, err error) {
+// newEmbedOwner is a random claim token, distinct from the mint's start time.
+func newEmbedOwner() (int64, error) {
+	var b [8]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return 0, err
+	}
+	return int64(binary.BigEndian.Uint64(b[:])), nil
+}
+
+// embedClaimExpiry is ctx's deadline plus slack when it has one, else embedClaimTTL, counted from now.
+func embedClaimExpiry(ctx context.Context, now time.Time) time.Time {
+	if dl, ok := ctx.Deadline(); ok {
+		return dl.Add(embedClaimSlack)
+	}
+	return now.Add(embedClaimTTL)
+}
+
+// claimEmbedMint takes profile's claim for owner until expiry; held is the live claim's expiry when another has it.
+func claimEmbedMint(profile string, owner int64, now, expiry time.Time) (held time.Time, ok bool, err error) {
 	err = updateEmbedDB(func(tx *bbolt.Tx) error {
 		b := tx.Bucket(embedClaimBucket)
 		if v := b.Get([]byte(profile)); len(v) == 16 {
@@ -166,7 +188,7 @@ func claimEmbedMint(profile string, owner int64, now time.Time) (held time.Time,
 			}
 		}
 		var v [16]byte
-		binary.BigEndian.PutUint64(v[:8], uint64(now.Add(embedClaimTTL).UnixNano()))
+		binary.BigEndian.PutUint64(v[:8], uint64(expiry.UnixNano()))
 		binary.BigEndian.PutUint64(v[8:], uint64(owner))
 		ok = true
 		return b.Put([]byte(profile), v[:])
@@ -189,13 +211,13 @@ func releaseEmbedMint(profile string, owner int64) {
 
 // commitEmbedMint stores build(current) as profile's record in one transaction and drops owner's claim. It discards
 // the result (false) when a record was minted at or after started, so a mint that began earlier never overwrites it.
-func commitEmbedMint(profile string, started int64, build func(cur embedCacheFile) embedCacheFile) (stored bool, err error) {
+func commitEmbedMint(profile string, owner, started int64, build func(cur embedCacheFile) embedCacheFile) (stored bool, err error) {
 	err = updateEmbedDB(func(tx *bbolt.Tx) error {
-		if err := dropClaim(tx, profile, started); err != nil {
+		if err := dropClaim(tx, profile, owner); err != nil {
 			return err
 		}
 		cur := decodeEmbedRecord(tx, profile)
-		if cur.MintedAt >= started {
+		if cur.MintedAt >= started && cur.MintedAt <= time.Now().UnixNano() { // a future stamp (skew) never blocks
 			return nil
 		}
 		stored = true
