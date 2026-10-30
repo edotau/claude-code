@@ -28,13 +28,16 @@ func opencodeOverlayDir() string { return filepath.Join(paths.StateDir(), "openc
 // template with model/small_model overwritten from the routing table's opencode sonnet/haiku cells (the
 // template's own values are only a fallback for a table load error); tuiBody keeps a theme `theme apply`
 // already wrote at tuiPath, else the template's.
-func OpencodeOverlayRendered() (cfgPath string, cfgBody []byte, tuiPath string, tuiBody []byte, err error) {
+func OpencodeOverlayRendered(r VendorRouter) (cfgPath string, cfgBody []byte, tuiPath string, tuiBody []byte, err error) {
+	if r == nil {
+		return "", nil, "", nil, errNoRouter
+	}
 	dir := opencodeOverlayDir()
 	cfgBody, err = opencodeOverlayFS.ReadFile("template/opencode.json")
 	if err != nil {
 		return "", nil, "", nil, err
 	}
-	cfgBody = applyOpencodeTableModels(cfgBody)
+	cfgBody = applyOpencodeTableModels(cfgBody, r)
 	tuiTemplate, err := opencodeOverlayFS.ReadFile("template/opencode-tui.json")
 	if err != nil {
 		return "", nil, "", nil, err
@@ -47,11 +50,8 @@ func OpencodeOverlayRendered() (cfgPath string, cfgBody []byte, tuiPath string, 
 
 // applyOpencodeTableModels overwrites model/small_model from the routing table's opencode sonnet/haiku
 // cells; a table load error leaves the template's own hard-coded values (its one fallback use) untouched.
-func applyOpencodeTableModels(cfgBody []byte) []byte {
-	if OpencodeOverlayModels == nil {
-		return cfgBody
-	}
-	mainModel, smallModel, ok := OpencodeOverlayModels()
+func applyOpencodeTableModels(cfgBody []byte, r VendorRouter) []byte {
+	mainModel, smallModel, ok := r.OpencodeOverlayModels()
 	if !ok {
 		return cfgBody
 	}
@@ -70,13 +70,10 @@ func applyOpencodeTableModels(cfgBody []byte) []byte {
 	return buf.Bytes()
 }
 
-// OpencodeOverlayModels returns the overlay's model/small_model; vendors sets it (nil keeps the template values).
-var OpencodeOverlayModels func() (mainModel, smallModel string, ok bool)
-
 // WriteOpencodeOverlay writes the tracked opencode.json/tui.json templates to state/harness/opencode
 // and returns their paths; a theme already applied into the existing tui.json (theme apply) survives.
-func WriteOpencodeOverlay() (cfg, tui string, err error) {
-	cfgPath, cfgBody, tuiPath, tuiBody, err := OpencodeOverlayRendered()
+func WriteOpencodeOverlay(r VendorRouter) (cfg, tui string, err error) {
+	cfgPath, cfgBody, tuiPath, tuiBody, err := OpencodeOverlayRendered(r)
 	if err != nil {
 		return "", "", err
 	}

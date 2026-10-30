@@ -26,7 +26,7 @@ func TestOpencodeOverlayModelComesFromTable(t *testing.T) {
 	isolateOpencodeRouteEnv(t)
 	vaulttest.Use(t)
 	fixtureTableModels(t, "fix/sonnet", "fix/haiku", true)
-	_, cfgBody, _, _, err := settings.OpencodeOverlayRendered()
+	_, cfgBody, _, _, err := settings.OpencodeOverlayRendered(Router{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -81,7 +81,7 @@ func TestOpencodeCopilotOnlyOverlayModels(t *testing.T) {
 	if !ok {
 		t.Fatal("no copilot model ids")
 	}
-	_, body, _, _, err := settings.OpencodeOverlayRendered()
+	_, body, _, _, err := settings.OpencodeOverlayRendered(Router{})
 	if err != nil {
 		t.Fatal(err)
 	}

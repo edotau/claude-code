@@ -2,6 +2,7 @@ package router
 
 import (
 	"encoding/json"
+	"github.com/edotau/claude-code/internal/agent/vendors"
 	"strings"
 	"testing"
 
@@ -211,7 +212,7 @@ func TestOverlayAcceptsCanonicalAndTierKeys(t *testing.T) {
 func TestOpencodeOverlayModelsFollowTable(t *testing.T) {
 	vaulttest.Use(t)
 	render := func() map[string]any {
-		_, body, _, _, err := settings.OpencodeOverlayRendered()
+		_, body, _, _, err := settings.OpencodeOverlayRendered(vendors.Router{})
 		if err != nil {
 			t.Fatal(err)
 		}

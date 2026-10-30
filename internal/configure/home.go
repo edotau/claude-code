@@ -19,7 +19,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/edotau/claude-code/internal/generate"
+	"github.com/edotau/claude-code/internal/agent/vendors"
 	"github.com/edotau/claude-code/internal/launch"
 	"github.com/edotau/claude-code/internal/network/browser"
 	"github.com/edotau/claude-code/internal/network/tailscale"
@@ -412,7 +412,7 @@ func rerenderConfigs(d *dialog) bool {
 		}
 		d.printf("settings.json updated (backup %s)\n", backup)
 	}
-	if _, err := generate.Run(generate.Options{Out: d.out}); err != nil {
+	if _, err := settings.Run(settings.Options{Out: d.out, Router: vendors.Router{}}); err != nil {
 		d.printf("agent configs: %v\n", err)
 	}
 	return true

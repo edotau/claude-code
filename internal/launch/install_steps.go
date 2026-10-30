@@ -13,10 +13,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agent/vendors"
 	"github.com/edotau/claude-code/internal/clipboard"
 	"github.com/edotau/claude-code/internal/completion"
 	"github.com/edotau/claude-code/internal/crossgen"
-	"github.com/edotau/claude-code/internal/generate"
 	"github.com/edotau/claude-code/internal/history"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/preflight"
@@ -354,10 +354,10 @@ func agentsSyncCompact(w io.Writer) {
 // returns a one-token summary; best-effort, so a render failure warns on w and never fails install.
 func agentConfigsSummary(w io.Writer) string {
 	var changed []string
-	for _, a := range generate.DefaultAgents {
+	for _, a := range settings.DefaultAgents {
 		var buf bytes.Buffer
-		o := generate.Options{Agents: []string{a}, Check: true, Out: &buf}
-		drift, err := generate.Run(o)
+		o := settings.Options{Agents: []string{a}, Check: true, Out: &buf, Router: vendors.Router{}}
+		drift, err := settings.Run(o)
 		if err != nil {
 			fmt.Fprintf(w, "agents   config render skip (%s)  %v\n", a, err)
 			continue
@@ -369,7 +369,7 @@ func agentConfigsSummary(w io.Writer) string {
 			continue
 		}
 		o.Check = false
-		if _, err := generate.Run(o); err != nil {
+		if _, err := settings.Run(o); err != nil {
 			fmt.Fprintf(w, "agents   config render skip (%s)  %v\n", a, err)
 			continue
 		}

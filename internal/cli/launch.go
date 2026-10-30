@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
+	agentvendors "github.com/edotau/claude-code/internal/agent/vendors"
 	"github.com/edotau/claude-code/internal/audit"
-	"github.com/edotau/claude-code/internal/generate"
 	"github.com/edotau/claude-code/internal/hooks"
 	"github.com/edotau/claude-code/internal/launch"
 	"github.com/edotau/claude-code/internal/paths"
@@ -202,7 +202,7 @@ func cmdRestore(agents, out string, check, dryRun, vendors, noAgents bool) int {
 	if err != nil {
 		return fail("%v", err)
 	}
-	var prepared *generate.Prepared
+	var prepared *settings.Prepared
 	var drift bool
 	if !noAgents { // --no-agents: lint checks the repo's settings, not this machine's agent configs
 		if prepared, drift, err = renderVendorConfigs(agents, out, check, dryRun, vendors); err != nil {
@@ -314,20 +314,20 @@ func checkLiveSettings(rendered []byte) (bool, error) {
 }
 
 // renderVendorConfigs prepares the vendor configs; they preview whenever the settings render does.
-func renderVendorConfigs(agents, out string, check, dryRun, vendors bool) (*generate.Prepared, bool, error) {
+func renderVendorConfigs(agents, out string, check, dryRun, vendors bool) (*settings.Prepared, bool, error) {
 	var vendorAgents []string
 	if agents != "" {
 		vendorAgents = strings.Split(agents, ",")
 	}
 	preview := dryRun || (out == "" && !check)
-	opts := generate.Options{Agents: vendorAgents, DryRun: preview, Check: check, Out: os.Stdout, Vendors: vendors}
+	opts := settings.Options{Agents: vendorAgents, DryRun: preview, Check: check, Out: os.Stdout, Vendors: vendors, Router: agentvendors.Router{}}
 	// Interactive only on a real terminal write: launch/configure callers never reach this function.
 	if !preview && !check && tui.StdinIsTerminal() && tui.StdoutIsTerminal() {
 		opts.Confirm = func(path string, lost []string) bool {
 			return tui.ConfirmKey(fmt.Sprintf("overwrite %s?", path), true)
 		}
 	}
-	return generate.Prepare(opts)
+	return settings.Prepare(opts)
 }
 
 // cmdRevert handles `configure --revert [--agent a,b] [--dry-run]`.
@@ -336,7 +336,7 @@ func cmdRevert(agents string, dryRun bool) int {
 	if agents != "" {
 		vendorAgents = strings.Split(agents, ",")
 	}
-	if err := generate.Revert(generate.Options{Agents: vendorAgents, DryRun: dryRun, Out: os.Stdout}); err != nil {
+	if err := settings.Revert(settings.Options{Agents: vendorAgents, DryRun: dryRun, Out: os.Stdout, Router: agentvendors.Router{}}); err != nil {
 		return fail("configure --revert: %v", err)
 	}
 	return 0

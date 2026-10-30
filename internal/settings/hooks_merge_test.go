@@ -1,9 +1,11 @@
-package generate
+package settings_test
 
 import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"github.com/edotau/claude-code/internal/agent/vendors"
+	"github.com/edotau/claude-code/internal/settings"
 	"os"
 	"path/filepath"
 	"strings"
@@ -33,7 +35,7 @@ func TestMergeCodexHooksKeepsForeignEntries(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	merged, err := mergeCodexHooks(existing, body)
+	merged, err := settings.MergeCodexHooks(existing, body)
 	if err != nil {
 		t.Fatalf("mergeCodexHooks: %v", err)
 	}
@@ -70,7 +72,7 @@ func TestMergeCodexHooksAgainstBrokenRender(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	merged, err := mergeCodexHooks(existing, body)
+	merged, err := settings.MergeCodexHooks(existing, body)
 	if err != nil {
 		t.Fatalf("mergeCodexHooks: %v", err)
 	}
@@ -91,7 +93,7 @@ func TestRenderCodexHooksFilePreservesOrcaOnDisk(t *testing.T) {
 		t.Fatal(err)
 	}
 	var out bytes.Buffer
-	if _, err := Run(Options{Home: home, Vendors: true, Out: &out, Agents: []string{"codex"}}); err != nil {
+	if _, err := settings.Run(settings.Options{Router: vendors.Router{}, Home: home, Vendors: true, Out: &out, Agents: []string{"codex"}}); err != nil {
 		t.Fatalf("Run: %v\n%s", err, out.String())
 	}
 	got, err := os.ReadFile(hooksPath)
@@ -125,7 +127,7 @@ func TestMergeCopilotHooksKeepsForeignEntries(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	merged, err := mergeCopilotHooks(existing, body)
+	merged, err := settings.MergeCopilotHooks(existing, body)
 	if err != nil {
 		t.Fatalf("mergeCopilotHooks: %v", err)
 	}
@@ -187,7 +189,7 @@ func TestMergeCodexHooksPreservesUnknownFieldsAndNoTimeout(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	merged, err := mergeCodexHooks(existing, body)
+	merged, err := settings.MergeCodexHooks(existing, body)
 	if err != nil {
 		t.Fatalf("mergeCodexHooks: %v", err)
 	}
@@ -210,7 +212,7 @@ func TestMergeCodexHooksRoundTripsForeignGroupByteIdentical(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	merged, err := mergeCodexHooks(existing, body)
+	merged, err := settings.MergeCodexHooks(existing, body)
 	if err != nil {
 		t.Fatalf("mergeCodexHooks: %v", err)
 	}
@@ -251,7 +253,7 @@ func TestMergeCodexHooksPreservesUnknownTopLevelKey(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	merged, err := mergeCodexHooks(existing, body)
+	merged, err := settings.MergeCodexHooks(existing, body)
 	if err != nil {
 		t.Fatalf("mergeCodexHooks: %v", err)
 	}
@@ -271,7 +273,7 @@ func TestMergeCopilotHooksPreservesUnknownTopLevelKey(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	merged, err := mergeCopilotHooks(existing, body)
+	merged, err := settings.MergeCopilotHooks(existing, body)
 	if err != nil {
 		t.Fatalf("mergeCopilotHooks: %v", err)
 	}
@@ -296,7 +298,7 @@ func TestMergeCodexHooksPreservesLessThanUnescaped(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	merged, err := mergeCodexHooks(existing, body)
+	merged, err := settings.MergeCodexHooks(existing, body)
 	if err != nil {
 		t.Fatalf("mergeCodexHooks: %v", err)
 	}
@@ -326,9 +328,9 @@ func TestRenderCodexFailsHooksMergeLeavesConfigTomlUntouched(t *testing.T) {
 		t.Fatal(err)
 	}
 	var out bytes.Buffer
-	_, err := Run(Options{Home: home, Vendors: true, Out: &out, Agents: []string{"codex"}})
+	_, err := settings.Run(settings.Options{Router: vendors.Router{}, Home: home, Vendors: true, Out: &out, Agents: []string{"codex"}})
 	if err == nil {
-		t.Fatalf("expected Run to fail on a malformed hooks.json, got no error:\n%s", out.String())
+		t.Fatalf("expected settings.Run to fail on a malformed hooks.json, got no error:\n%s", out.String())
 	}
 	got, readErr := os.ReadFile(tomlPath)
 	if readErr != nil {
@@ -364,7 +366,7 @@ func TestMergeCodexHooksForeignFirstStaysFirst(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	merged, err := mergeCodexHooks(existing, body)
+	merged, err := settings.MergeCodexHooks(existing, body)
 	if err != nil {
 		t.Fatalf("mergeCodexHooks: %v", err)
 	}
@@ -394,7 +396,7 @@ func TestMergeCodexHooksHarnessFirstStaysFirst(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	merged, err := mergeCodexHooks(existing, body)
+	merged, err := settings.MergeCodexHooks(existing, body)
 	if err != nil {
 		t.Fatalf("mergeCodexHooks: %v", err)
 	}
@@ -421,7 +423,7 @@ func TestMergeCodexHooksNoHarnessItemPrepends(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	merged, err := mergeCodexHooks(existing, body)
+	merged, err := settings.MergeCodexHooks(existing, body)
 	if err != nil {
 		t.Fatalf("mergeCodexHooks: %v", err)
 	}
@@ -454,7 +456,7 @@ func TestMergeCodexHooksMixedGroupSplicesInPlace(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	merged, err := mergeCodexHooks(existing, body)
+	merged, err := settings.MergeCodexHooks(existing, body)
 	if err != nil {
 		t.Fatalf("mergeCodexHooks: %v", err)
 	}
@@ -488,13 +490,13 @@ func TestMergeCodexHooksIdempotent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	once, err := mergeCodexHooks(existing, body)
+	once, err := settings.MergeCodexHooks(existing, body)
 	if err != nil {
-		t.Fatalf("first mergeCodexHooks: %v", err)
+		t.Fatalf("first settings.MergeCodexHooks: %v", err)
 	}
-	twice, err := mergeCodexHooks(once, body)
+	twice, err := settings.MergeCodexHooks(once, body)
 	if err != nil {
-		t.Fatalf("second mergeCodexHooks: %v", err)
+		t.Fatalf("second settings.MergeCodexHooks: %v", err)
 	}
 	if !bytes.Equal(once, twice) {
 		t.Fatalf("merge is not idempotent:\nonce:\n%s\ntwice:\n%s", once, twice)
@@ -516,13 +518,13 @@ func TestMergeCopilotHooksIdempotent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	once, err := mergeCopilotHooks(existing, body)
+	once, err := settings.MergeCopilotHooks(existing, body)
 	if err != nil {
-		t.Fatalf("first mergeCopilotHooks: %v", err)
+		t.Fatalf("first settings.MergeCopilotHooks: %v", err)
 	}
-	twice, err := mergeCopilotHooks(once, body)
+	twice, err := settings.MergeCopilotHooks(once, body)
 	if err != nil {
-		t.Fatalf("second mergeCopilotHooks: %v", err)
+		t.Fatalf("second settings.MergeCopilotHooks: %v", err)
 	}
 	if !bytes.Equal(once, twice) {
 		t.Fatalf("merge is not idempotent:\nonce:\n%s\ntwice:\n%s", once, twice)
@@ -546,7 +548,7 @@ func TestMergeCopilotHooksForeignFirstStaysFirst(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	merged, err := mergeCopilotHooks(existing, body)
+	merged, err := settings.MergeCopilotHooks(existing, body)
 	if err != nil {
 		t.Fatalf("mergeCopilotHooks: %v", err)
 	}
@@ -585,14 +587,14 @@ func TestCodexTrustEntriesSurviveForeignFirstOrder(t *testing.T) {
 		t.Fatal(err)
 	}
 	var out bytes.Buffer
-	if _, err := Run(Options{Home: home, Vendors: true, Out: &out, Agents: []string{"codex"}}); err != nil {
+	if _, err := settings.Run(settings.Options{Router: vendors.Router{}, Home: home, Vendors: true, Out: &out, Agents: []string{"codex"}}); err != nil {
 		t.Fatalf("Run: %v\n%s", err, out.String())
 	}
 	body, err := hookspec.CodexJSON()
 	if err != nil {
 		t.Fatal(err)
 	}
-	rendered, err := codexTrustEntries(hooksPath, body)
+	rendered, err := settings.CodexTrustEntries(hooksPath, body)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -600,7 +602,7 @@ func TestCodexTrustEntriesSurviveForeignFirstOrder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	src := codexHookSourcePath(hooksPath)
+	src := settings.CodexHookSourcePath(hooksPath)
 	// Rendered alone, safety-scan sits at 0:0; behind Orca's group it is 1:0, and Orca's slot gets no entry.
 	safetyScan := rendered[src+":pre_tool_use:0:0"]
 	want := fmt.Sprintf("[hooks.state.%q]\ntrusted_hash = %q", src+":pre_tool_use:1:0", safetyScan)
@@ -634,7 +636,7 @@ func TestMergeCopilotHooksPreservesPowershellCwdEnv(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	merged, err := mergeCopilotHooks(existing, body)
+	merged, err := settings.MergeCopilotHooks(existing, body)
 	if err != nil {
 		t.Fatalf("mergeCopilotHooks: %v", err)
 	}
@@ -670,7 +672,7 @@ func TestMergeCodexHooksDropsStaleHarnessNames(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	merged, err := mergeCodexHooks(stale, body)
+	merged, err := settings.MergeCodexHooks(stale, body)
 	if err != nil {
 		t.Fatal(err)
 	}

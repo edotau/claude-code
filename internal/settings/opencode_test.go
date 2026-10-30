@@ -1,17 +1,30 @@
 package settings
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
+	"github.com/edotau/claude-code/internal/providers"
 	"os"
 	"testing"
 )
 
-// fixtureOverlayModels swaps the OpencodeOverlayModels seam (vendors sets it in production) for fixed models.
-func fixtureOverlayModels(t *testing.T, mainModel, smallModel string, ok bool) {
-	t.Helper()
-	orig := OpencodeOverlayModels
-	OpencodeOverlayModels = func() (string, string, bool) { return mainModel, smallModel, ok }
-	t.Cleanup(func() { OpencodeOverlayModels = orig })
+// fakeRouter is a VendorRouter whose only live method is the overlay models.
+type fakeRouter struct {
+	mainModel, smallModel string
+	ok                    bool
+}
+
+func (fakeRouter) ResolveTarget(*providers.Registry, string, providers.Selection, bool) (providers.Target, string, error) {
+	return providers.Target{}, "", errors.New("fake")
+}
+
+func (fakeRouter) Configure(context.Context, string, providers.Target, string) ([]string, []string, error) {
+	return nil, nil, errors.New("fake")
+}
+
+func (f fakeRouter) OpencodeOverlayModels() (string, string, bool) {
+	return f.mainModel, f.smallModel, f.ok
 }
 
 // TestOpencodeOverlayTemplatesParse pins the embedded templates as valid JSON.
@@ -32,9 +45,8 @@ func TestOpencodeOverlayTemplatesParse(t *testing.T) {
 // with mode 0600, and that the cfg file's model/small_model come from the routing table, every other
 // field unchanged from the embedded template (the table-driven contract applyOpencodeTableModels keeps).
 func TestWriteOpencodeOverlayWritesBothFiles(t *testing.T) {
-	fixtureOverlayModels(t, "fix/sonnet", "fix/haiku", true)
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	cfg, tui, err := WriteOpencodeOverlay()
+	cfg, tui, err := WriteOpencodeOverlay(fakeRouter{"fix/sonnet", "fix/haiku", true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -80,17 +92,10 @@ func TestApplyOpencodeTableModelsFallsBackOnLoadError(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for name, set := range map[string]func(){
-		"not ok": func() { fixtureOverlayModels(t, "x/a", "x/b", false) },
-		"unset": func() {
-			orig := OpencodeOverlayModels
-			OpencodeOverlayModels = nil
-			t.Cleanup(func() { OpencodeOverlayModels = orig })
-		},
-	} {
-		set()
-		if got := applyOpencodeTableModels(tmpl); string(got) != string(tmpl) {
-			t.Errorf("%s: applyOpencodeTableModels = %s, want the template unchanged", name, got)
-		}
+	if got := applyOpencodeTableModels(tmpl, fakeRouter{"x/a", "x/b", false}); string(got) != string(tmpl) {
+		t.Errorf("not ok: applyOpencodeTableModels = %s, want the template unchanged", got)
+	}
+	if _, _, err := WriteOpencodeOverlay(nil); !errors.Is(err, errNoRouter) {
+		t.Errorf("nil router: err = %v, want errNoRouter", err)
 	}
 }

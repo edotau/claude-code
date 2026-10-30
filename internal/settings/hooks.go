@@ -1,4 +1,4 @@
-package generate
+package settings
 
 import (
 	"bytes"
@@ -18,7 +18,6 @@ import (
 
 	"github.com/edotau/claude-code/internal/hooks/hookspec"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/settings"
 )
 
 // renderHooksFile writes body to path, merging it over whatever is already there when merge is
@@ -285,7 +284,7 @@ func renderCodex(reg *providers.Registry, sel providers.Selection, o Options, ou
 	if err != nil {
 		return false, err
 	}
-	path, err := settings.CodexConfigPath(o.Home)
+	path, err := CodexConfigPath(o.Home)
 	if err != nil {
 		return false, err
 	}
@@ -295,7 +294,7 @@ func renderCodex(reg *providers.Registry, sel providers.Selection, o Options, ou
 	}
 	existed := err == nil
 	stripped := codexBannerRE().ReplaceAllString(string(raw), "") // sans any prior banner, for the user-value check
-	section, err := codexProviderSection(reg, sel, stripped, out)
+	section, err := codexProviderSection(o.Router, reg, sel, stripped, out)
 	if err != nil {
 		return false, err
 	}
@@ -325,7 +324,7 @@ func renderCodex(reg *providers.Registry, sel providers.Selection, o Options, ou
 		return false, err
 	}
 	next = mergeCodexTrust(next, entries)
-	overlay, err := settings.LoadCodexOverlay()
+	overlay, err := LoadCodexOverlay()
 	if err != nil {
 		return false, err
 	}
