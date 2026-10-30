@@ -92,7 +92,11 @@ func applyLabel(updated map[string]any, task string) bool {
 	if !labelTypes[st] {
 		return false
 	}
-	desc, _ := updated["description"].(string)
+	orig, _ := updated["description"].(string)
+	desc := orig
+	if rest, ok := strings.CutPrefix(desc, st+":"); ok { // a hand-typed own-type prefix ("copilot: …") repeats the row
+		desc = strings.TrimSpace(rest)
+	}
 	label := agentLabel(st, task)
 	var out string
 	switch {
@@ -107,7 +111,7 @@ func applyLabel(updated map[string]any, task string) bool {
 	default:
 		out = label + ": " + lowerFirst(desc)
 	}
-	if out == desc {
+	if out == orig {
 		return false
 	}
 	updated["description"] = out
