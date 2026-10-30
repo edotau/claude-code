@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/pathview"
+	"github.com/edotau/claude-code/internal/paths"
 )
 
 func TestTrailingPunctuationKeepsRealFilename(t *testing.T) {
@@ -16,7 +16,7 @@ func TestTrailingPunctuationKeepsRealFilename(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	res := &pathview.Resolver{}
+	res := &paths.Resolver{}
 	reps := collectReports("read "+filepath.Join(dir, "wow!")+" now", res)
 	if len(reps) != 1 || !strings.HasSuffix(reps[0].path, "wow!") {
 		t.Fatalf("reps = %+v", reps)
@@ -34,7 +34,7 @@ func TestBothPunctuatedAndPlainFilesReported(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	reps := collectReports(filepath.Join(dir, "wow!")+" "+filepath.Join(dir, "wow"), &pathview.Resolver{})
+	reps := collectReports(filepath.Join(dir, "wow!")+" "+filepath.Join(dir, "wow"), &paths.Resolver{})
 	if len(reps) != 2 {
 		t.Fatalf("reps = %+v", reps)
 	}

@@ -14,7 +14,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/edotau/claude-code/internal/pathview"
+	"github.com/edotau/claude-code/internal/paths"
 )
 
 // posixPathRE matches an absolute POSIX path token. Deliberately greedy-but-bounded: every hit is
@@ -115,7 +115,7 @@ func describe(p string) (detail string, isImage bool, ok bool) {
 
 // collectReports resolves every path token to a report through the mount-table resolver. Ordered
 // foreign forms (Windows, UNC, URL, ~) first, then POSIX, each in prompt order.
-func collectReports(prompt string, res *pathview.Resolver) []pathReport {
+func collectReports(prompt string, res *paths.Resolver) []pathReport {
 	seen := map[string]bool{}
 	var reps []pathReport
 	add := func(orig string, toks ...string) {
@@ -204,7 +204,7 @@ func modelContext(reps []pathReport) string {
 }
 
 // pathResolverResult is the native form: user-visible feedback plus model-visible context, empty when no path hits.
-func pathResolverResult(in *Input, res *pathview.Resolver) Result {
+func pathResolverResult(in *Input, res *paths.Resolver) Result {
 	reps := collectReports(in.Prompt, res)
 	if len(reps) == 0 {
 		return Result{}
@@ -213,11 +213,11 @@ func pathResolverResult(in *Input, res *pathview.Resolver) Result {
 }
 
 // nativePathResolver binds pathResolverResult to the host's mount view.
-func nativePathResolver(in *Input) Result { return pathResolverResult(in, pathview.Default()) }
+func nativePathResolver(in *Input) Result { return pathResolverResult(in, paths.Default()) }
 
 // promptPathFeedback is the hook core with the resolver injected, so tests do not depend on the host's mounts.
 // Silent when the prompt names no existing file.
-func promptPathFeedback(r io.Reader, stdout io.Writer, res *pathview.Resolver) int {
+func promptPathFeedback(r io.Reader, stdout io.Writer, res *paths.Resolver) int {
 	in := ParseInput(r)
 	return Emit(in.Vendor(), "UserPromptSubmit", pathResolverResult(in, res), stdout, io.Discard)
 }
@@ -259,7 +259,7 @@ func scanWinTokens(text string) []pathToken {
 // PathResolver (UserPromptSubmit) reports every existing file path the prompt names, resolving Windows, UNC,
 // URL, ~ and remote-mount forms to this machine's view, for BOTH the model (added context) and user (systemMessage).
 func PathResolver(r io.Reader, stdout io.Writer) int {
-	return promptPathFeedback(r, stdout, pathview.Default())
+	return promptPathFeedback(r, stdout, paths.Default())
 }
 
 // humanBytes renders n as B/KB/MB/GB with one decimal above bytes.

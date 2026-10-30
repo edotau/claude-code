@@ -12,7 +12,7 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/hookspec"
-	"github.com/edotau/claude-code/internal/pathview"
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
@@ -44,7 +44,7 @@ func TestPathResolverEmitsUserVisibleFeedback(t *testing.T) {
 
 	var out bytes.Buffer
 	in := strings.NewReader(`{"prompt":"look at ` + img + `"}`)
-	if code := promptPathFeedback(in, &out, pathview.NewResolver(nil)); code != ExitProceed {
+	if code := promptPathFeedback(in, &out, paths.NewResolver(nil)); code != ExitProceed {
 		t.Fatalf("exit = %d, want ExitProceed", code)
 	}
 	var got struct {
@@ -73,7 +73,7 @@ func TestPathResolverEmitsUserVisibleFeedback(t *testing.T) {
 func TestPromptPathFeedbackSilentWhenNothingToReport(t *testing.T) {
 	var out bytes.Buffer
 	in := strings.NewReader(`{"prompt":"just prose about a png in the abstract"}`)
-	promptPathFeedback(in, &out, pathview.NewResolver(nil))
+	promptPathFeedback(in, &out, paths.NewResolver(nil))
 	if out.Len() != 0 {
 		t.Errorf("expected silence, got:\n%s", out.String())
 	}
@@ -88,7 +88,7 @@ func TestPromptPathFeedbackReportsNonImageFile(t *testing.T) {
 	}
 	var out bytes.Buffer
 	in := strings.NewReader(`{"prompt":"read ` + f + `"}`)
-	promptPathFeedback(in, &out, pathview.NewResolver(nil))
+	promptPathFeedback(in, &out, paths.NewResolver(nil))
 	if !strings.Contains(out.String(), "notes.md") {
 		t.Errorf("expected the resolved path in the feedback:\n%s", out.String())
 	}
@@ -136,7 +136,7 @@ func TestPromptPathsIgnorePosixInsideForeignToken(t *testing.T) {
 	if _, err := os.Stat("/etc/hostname"); err != nil {
 		t.Skip("needs /etc/hostname")
 	}
-	res := &pathview.Resolver{Home: t.TempDir()}
+	res := &paths.Resolver{Home: t.TempDir()}
 	for _, prompt := range []string{"read ~/etc/hostname", `read "~/etc/hostname"`, "read file://nohost/etc/hostname"} {
 		if reps := collectReports(prompt, res); len(reps) != 0 {
 			t.Errorf("%q leaked %+v", prompt, reps)
@@ -154,8 +154,8 @@ func TestPromptPathsHostPathNotDrive(t *testing.T) {
 	if err := os.WriteFile(f, []byte("x"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	res := &pathview.Resolver{Mounts: []pathview.Mount{
-		{Point: dir, Kind: pathview.KindNFS, Host: "nas", RemotePath: "/export/data"}}}
+	res := &paths.Resolver{Mounts: []paths.Mount{
+		{Point: dir, Kind: paths.KindNFS, Host: "nas", RemotePath: "/export/data"}}}
 	var out bytes.Buffer
 	promptPathFeedback(strings.NewReader(`{"prompt":"open nas:/export/data/d/a.txt now"}`), &out, res)
 	if !strings.Contains(out.String(), f) {
