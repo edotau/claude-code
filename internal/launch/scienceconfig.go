@@ -46,7 +46,7 @@ func scienceDefaultsFile() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if fileExists(filepath.Join(home, ".claude-science", "config.toml")) {
+	if paths.IsFile(filepath.Join(home, ".claude-science", "config.toml")) {
 		return "", nil
 	}
 	dir, err := os.UserCacheDir()
@@ -105,8 +105,6 @@ func scienceArgv(args []string, cfg string, port int, busy func(int) bool) ([]st
 func hasArg(args []string, flag string) bool {
 	return slices.ContainsFunc(args, func(a string) bool { return a == flag || strings.HasPrefix(a, flag+"=") })
 }
-
-func fileExists(p string) bool { st, err := os.Stat(p); return err == nil && !st.IsDir() }
 
 // portBusy reports whether a loopback TCP port is taken; a failed bind is the only honest probe.
 func portBusy(port int) bool {

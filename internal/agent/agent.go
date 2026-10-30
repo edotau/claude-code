@@ -19,8 +19,8 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/edotau/claude-code/internal/envscrub"
 	"github.com/edotau/claude-code/internal/models"
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/secrets/shapes"
 )
@@ -481,11 +481,11 @@ func childCmd(ctx context.Context, bin string, argv, env []string, dir, stdin st
 	cmd := exec.CommandContext(ctx, bin, argv...)
 	ownGroup(cmd)
 	cmd.WaitDelay = 5 * time.Second
-	scrub := envscrub.Scrub
+	scrub := proc.Scrub
 	if vendor {
-		scrub = envscrub.ScrubVendor
+		scrub = proc.ScrubVendor
 	}
-	base, _ := scrub(os.Environ(), envscrub.KeepSet(keepEnv))
+	base, _ := scrub(os.Environ(), proc.EnvKeepSet(keepEnv))
 	cmd.Env = append(scrubIsolated(ctx, base, keepEnv), env...) // the launch's own values go on after the scrub; later wins
 	cmd.Dir = dir
 	if dir != "" {

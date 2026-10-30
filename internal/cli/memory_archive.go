@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/memory"
+	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
@@ -135,7 +136,7 @@ func runSplitNative(dir string, keepLines int, apply bool) int {
 		}
 		if st.IndexEntries <= keepLines {
 			fmt.Printf("dry-run: %s already has %d pointer line%s (cap %d) — nothing to split\n",
-				memory.NativeIndexFile, st.IndexEntries, plural(st.IndexEntries), keepLines)
+				memory.NativeIndexFile, st.IndexEntries, textutil.Plural(st.IndexEntries), keepLines)
 			return 0
 		}
 		fmt.Printf("dry-run: would move %d of %d pointer lines to %s\n",
@@ -152,7 +153,7 @@ func runSplitNative(dir string, keepLines int, apply bool) int {
 		fmt.Println("nothing to split")
 		return 0
 	}
-	fmt.Printf("moved %d pointer line%s from %s to %s\n", moved, plural(moved), memory.NativeIndexFile, memory.NativeSearchableFile)
+	fmt.Printf("moved %d pointer line%s from %s to %s\n", moved, textutil.Plural(moved), memory.NativeIndexFile, memory.NativeSearchableFile)
 	return 0
 }
 
@@ -166,18 +167,18 @@ func reportNativeStats(dir string) int {
 	fmt.Printf("store:     %s\n", dir)
 	fmt.Printf("index:     %s — %d entr%s, %s (injected EVERY session)\n", memory.NativeIndexFile,
 		st.IndexEntries, entrySuffix(st.IndexEntries), byteSize(st.IndexBytes))
-	fmt.Printf("topics:    %d file%s, %s (read only on recall)\n", st.TopicFiles, plural(st.TopicFiles), byteSize(st.TopicBytes))
+	fmt.Printf("topics:    %d file%s, %s (read only on recall)\n", st.TopicFiles, textutil.Plural(st.TopicFiles), byteSize(st.TopicBytes))
 	if st.IndexEntries > memory.NativeCoreCap {
 		fmt.Printf("over cap:  %d pointer line%s over the %d-line injected core — `--split %d --apply` moves the rest to %s\n",
-			st.IndexEntries-memory.NativeCoreCap, plural(st.IndexEntries-memory.NativeCoreCap), memory.NativeCoreCap,
+			st.IndexEntries-memory.NativeCoreCap, textutil.Plural(st.IndexEntries-memory.NativeCoreCap), memory.NativeCoreCap,
 			memory.NativeCoreCap, memory.NativeSearchableFile)
 	}
 	if len(st.Dangling) > 0 {
-		fmt.Printf("dangling:  %d pointer%s with no topic file: %s\n", len(st.Dangling), plural(len(st.Dangling)),
+		fmt.Printf("dangling:  %d pointer%s with no topic file: %s\n", len(st.Dangling), textutil.Plural(len(st.Dangling)),
 			strings.Join(st.Dangling, ", "))
 	}
 	if len(st.Orphans) > 0 {
-		fmt.Printf("orphans:   %d topic file%s no pointer reaches: %s\n", len(st.Orphans), plural(len(st.Orphans)),
+		fmt.Printf("orphans:   %d topic file%s no pointer reaches: %s\n", len(st.Orphans), textutil.Plural(len(st.Orphans)),
 			strings.Join(st.Orphans, ", "))
 	}
 	fmt.Println("archive one: claude-code memory archive <name>... [--apply]   dupes: --dupes   trim: --split N --apply")
@@ -196,7 +197,7 @@ func reportNativeDupes(dir string) int {
 		return 0
 	}
 	fmt.Printf("%d near-duplicate cluster%s (Jaccard >= %.0f%%); the survivor is the longest body:\n",
-		len(clusters), plural(len(clusters)), dupeThreshold*100)
+		len(clusters), textutil.Plural(len(clusters)), dupeThreshold*100)
 	for _, c := range clusters {
 		fmt.Printf("  keep %s  (%.0f%%)\n", c.Keep, c.Score*100)
 		for _, l := range c.Losers {
@@ -213,13 +214,6 @@ func entrySuffix(n int) string {
 		return "y"
 	}
 	return "ies"
-}
-
-func plural(n int) string {
-	if n == 1 {
-		return ""
-	}
-	return "s"
 }
 
 // byteSize renders a size in the units the rest of the audit output uses.

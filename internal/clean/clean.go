@@ -29,6 +29,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/tui"
 	"github.com/edotau/claude-code/internal/vault"
 )
@@ -233,7 +234,7 @@ func Run(args []string, out, errw io.Writer) int {
 		if apply {
 			verb = "removed"
 		}
-		fmt.Fprintf(errw, "%-16s %s %d entr%s (%s)\n", t.name, verb, len(hits), pluralWord(len(hits), "y", "ies"), humanBytes(size))
+		fmt.Fprintf(errw, "%-16s %s %d entr%s (%s)\n", t.name, verb, len(hits), textutil.PluralWord(len(hits), "y", "ies"), textutil.HumanBytes(size))
 	}
 	if totalFiles == 0 {
 		fmt.Fprintf(errw, "clean: nothing older than %s in %d target(s) — already clean\n", *olderThan, len(selected))
@@ -241,11 +242,11 @@ func Run(args []string, out, errw io.Writer) int {
 	}
 	if apply {
 		fmt.Fprintf(errw, "\nreclaimed %s across %d entries. Credentials, user settings, and the memory bank were not touched.\n",
-			humanBytes(totalBytes), totalFiles)
+			textutil.HumanBytes(totalBytes), totalFiles)
 		return 0
 	}
 	fmt.Fprintf(errw, "\ndry run — nothing deleted. %s across %d entries would go; re-run without --dry-run to apply.\n",
-		humanBytes(totalBytes), totalFiles)
+		textutil.HumanBytes(totalBytes), totalFiles)
 	return 0
 }
 
@@ -271,8 +272,8 @@ func confirmSessions(selected []target, cutoff time.Time, olderThan string, auto
 	for _, h := range hits {
 		repos[filepath.Base(filepath.Dir(h))] = true
 	}
-	fmt.Fprintf(errw, "sessions: %d transcript%s (%s) older\n", len(hits), pluralWord(len(hits), "", "s"), humanBytes(size))
-	fmt.Fprintf(errw, "  than %s across %d repo%s\n", olderThan, len(repos), pluralWord(len(repos), "", "s"))
+	fmt.Fprintf(errw, "sessions: %d transcript%s (%s) older\n", len(hits), textutil.PluralWord(len(hits), "", "s"), textutil.HumanBytes(size))
+	fmt.Fprintf(errw, "  than %s across %d repo%s\n", olderThan, len(repos), textutil.PluralWord(len(repos), "", "s"))
 	if autoYes {
 		return true
 	}
@@ -323,7 +324,7 @@ func pruneAged(patterns []string, cutoff time.Time, apply bool, keep func(string
 			if strings.HasSuffix(m, ".lock") || protected(m) || (keep != nil && keep(m)) {
 				continue // live bookkeeping, memory stores/migration state, live sessions: never debris
 			}
-			sz := dirSize(m)
+			sz := paths.DirSize(m)
 			if apply {
 				if err := os.RemoveAll(m); err != nil {
 					continue
@@ -430,52 +431,6 @@ func newestMTime(p string) (time.Time, bool) {
 		return nil
 	})
 	return newest, true
-}
-
-// dirSize sums a file's size, or every file under a directory. Best-effort: an unreadable entry counts 0.
-func dirSize(p string) int64 {
-	st, err := os.Stat(p)
-	if err != nil {
-		return 0
-	}
-	if !st.IsDir() {
-		return st.Size()
-	}
-	var total int64
-	_ = filepath.WalkDir(p, func(_ string, d os.DirEntry, err error) error {
-		if err != nil || d.IsDir() {
-			return nil //nolint:nilerr // an unreadable subtree contributes 0, never aborts the walk
-		}
-		if info, err := d.Info(); err == nil {
-			total += info.Size()
-		}
-		return nil
-	})
-	return total
-}
-
-// humanBytes renders a byte count compactly in binary units (1 decimal past B).
-func humanBytes(n int64) string {
-	const unit = 1024
-	if n < unit {
-		return fmt.Sprintf("%d B", n)
-	}
-	f := float64(n)
-	for _, suffix := range []string{"KiB", "MiB", "GiB", "TiB"} {
-		f /= unit
-		if f < unit {
-			return fmt.Sprintf("%.1f %s", f, suffix)
-		}
-	}
-	return fmt.Sprintf("%.1f PiB", f/unit)
-}
-
-// pluralWord picks one or many for n.
-func pluralWord(n int, one, many string) string {
-	if n == 1 {
-		return one
-	}
-	return many
 }
 
 // stalePluginVersions lists plugin cache version dirs that installed_plugins.json no longer points at. An unreadable

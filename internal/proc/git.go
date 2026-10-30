@@ -1,6 +1,5 @@
-// Package gitexec is the one exec seam for shelling out to git: sanitized environment, caller-supplied
-// timeout via ctx, and output trimmed only on the right (porcelain output carries meaning in column 0).
-package gitexec
+// Git exec seam: sanitized environment, caller-supplied timeout via ctx, output trimmed only on the right.
+package proc
 
 import (
 	"context"
@@ -10,10 +9,10 @@ import (
 	"strings"
 )
 
-// Env is the process environment with every GIT_* variable removed. Without this an inherited
+// GitEnv is the process environment with every GIT_* variable removed. Without this an inherited
 // GIT_DIR, GIT_WORK_TREE or GIT_INDEX_FILE OVERRIDES a -C flag, retargeting the command to
 // whatever repo the caller's environment happened to name.
-func Env() []string {
+func GitEnv() []string {
 	env := os.Environ()
 	out := make([]string, 0, len(env))
 	for _, kv := range env {
@@ -27,7 +26,7 @@ func Env() []string {
 // RunGit executes git with the sanitized environment. dir is passed as -C when non-empty; pass ""
 // when args already carries its own -C (or other global flags) ahead of the subcommand.
 func RunGit(ctx context.Context, dir string, args ...string) (string, error) {
-	return run(ctx, Env(), dir, args...)
+	return run(ctx, GitEnv(), dir, args...)
 }
 
 // RunGitInherit executes git with the caller's own environment, unmodified. Use this only for

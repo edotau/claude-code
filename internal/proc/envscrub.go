@@ -1,5 +1,5 @@
-// Package envscrub drops inherited credential/routing env from a child launch unless kept explicitly.
-package envscrub
+// Env scrubbing: drops inherited credential/routing env from a child launch unless kept explicitly.
+package proc
 
 import (
 	"os"
@@ -8,9 +8,9 @@ import (
 	"strings"
 )
 
-// Deny is every inherited var a launch never passes through: another provider's or environment's
+// ScrubDeny is every inherited var a launch never passes through: another provider's or environment's
 // credential/routing knob, which would otherwise override the launch's own resolution.
-var Deny = []string{
+var ScrubDeny = []string{
 	"DATABRICKS_*",
 	"ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL", "ANTHROPIC_CUSTOM_HEADERS",
 	"OPENAI_API_KEY", "OPENAI_BASE_URL", "OPENAI_ORG_ID", "AZURE_OPENAI_*",
@@ -24,21 +24,21 @@ var Deny = []string{
 	"HARNESS_CODEX_PROFILE", "HARNESS_CODEX_CATALOG",
 }
 
-// KeepEnvVar opts bare shims back into an inherited name; their argv belongs to the vendor, not the harness.
-const KeepEnvVar = "HARNESS_KEEP_ENV"
+// EnvKeepVar opts bare shims back into an inherited name; their argv belongs to the vendor, not the harness.
+const EnvKeepVar = "HARNESS_KEEP_ENV"
 
-// VendorOnlyDeny drops from a vendor CLI child's env only; the Claude Code launch itself keeps these,
+// ScrubVendorOnlyDeny drops from a vendor CLI child's env only; the Claude Code launch itself keeps these,
 // since hooks inherit Claude's env (HARNESS_VAULT_KEY opens the vault there).
-var VendorOnlyDeny = []string{"HARNESS_VAULT_KEY"}
+var ScrubVendorOnlyDeny = []string{"HARNESS_VAULT_KEY"}
 
-// Scrub splits environ (KEY=VALUE entries) into kept and dropped (names only) against Deny, honoring keep.
+// Scrub splits environ (KEY=VALUE entries) into kept and dropped (names only) against ScrubDeny, honoring keep.
 func Scrub(environ []string, keep map[string]bool) (kept, dropped []string) {
-	return scrub(environ, keep, Deny)
+	return scrub(environ, keep, ScrubDeny)
 }
 
-// ScrubVendor is Scrub plus VendorOnlyDeny: use for codex/gemini/opencode/copilot child launches.
+// ScrubVendor is Scrub plus ScrubVendorOnlyDeny: use for codex/gemini/opencode/copilot child launches.
 func ScrubVendor(environ []string, keep map[string]bool) (kept, dropped []string) {
-	return scrub(environ, keep, append(slices.Clone(Deny), VendorOnlyDeny...))
+	return scrub(environ, keep, append(slices.Clone(ScrubDeny), ScrubVendorOnlyDeny...))
 }
 
 func scrub(environ []string, keep map[string]bool, deny []string) (kept, dropped []string) {
@@ -53,18 +53,18 @@ func scrub(environ []string, keep map[string]bool, deny []string) (kept, dropped
 	return kept, dropped
 }
 
-// Blocked reports whether name is one a launch never passes through (Deny, VendorOnlyDeny, anything HARNESS_*).
-func Blocked(name string) bool {
-	return strings.HasPrefix(name, "HARNESS_") || denied(name, Deny) || denied(name, VendorOnlyDeny)
+// EnvBlocked reports whether name is one a launch never passes through (ScrubDeny, ScrubVendorOnlyDeny, anything HARNESS_*).
+func EnvBlocked(name string) bool {
+	return strings.HasPrefix(name, "HARNESS_") || denied(name, ScrubDeny) || denied(name, ScrubVendorOnlyDeny)
 }
 
-// KeepSet unions explicit names with HARNESS_KEEP_ENV, comma-separated.
-func KeepSet(names []string) map[string]bool {
+// EnvKeepSet unions explicit names with HARNESS_KEEP_ENV, comma-separated.
+func EnvKeepSet(names []string) map[string]bool {
 	keep := map[string]bool{}
 	for _, n := range names {
 		keep[n] = true
 	}
-	for n := range strings.SplitSeq(os.Getenv(KeepEnvVar), ",") {
+	for n := range strings.SplitSeq(os.Getenv(EnvKeepVar), ",") {
 		if n = strings.TrimSpace(n); n != "" {
 			keep[n] = true
 		}

@@ -10,7 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/edotau/claude-code/internal/gitexec"
+	"github.com/edotau/claude-code/internal/proc"
 )
 
 // Scope is the diff range `<v> review` acts on. Kind: uncommitted|base|commit|pr; Ref holds the
@@ -54,24 +54,24 @@ const untrackedTotalCap = 512 * 1024
 // binarySniff is how many leading bytes are checked for a NUL (binary) marker.
 const binarySniff = 8 * 1024
 
-// Diff materializes s's diff in cwd via gitexec. Empty content is an error, not an empty slice.
+// Diff materializes s's diff in cwd via proc. Empty content is an error, not an empty slice.
 func Diff(ctx context.Context, cwd string, s Scope) ([]byte, error) {
 	var out string
 	var err error
 	switch s.Kind {
 	case "base":
-		out, err = gitexec.RunGit(ctx, cwd, "diff", "--end-of-options", s.Ref+"...HEAD")
+		out, err = proc.RunGit(ctx, cwd, "diff", "--end-of-options", s.Ref+"...HEAD")
 	case "commit":
-		out, err = gitexec.RunGit(ctx, cwd, "show", "--no-color", "--format=", "--end-of-options", s.Ref)
+		out, err = proc.RunGit(ctx, cwd, "show", "--no-color", "--format=", "--end-of-options", s.Ref)
 	case "pr":
 		var base string
-		base, err = gitexec.RunGit(ctx, cwd, "rev-parse", "--abbrev-ref", "origin/HEAD")
+		base, err = proc.RunGit(ctx, cwd, "rev-parse", "--abbrev-ref", "origin/HEAD")
 		if err != nil {
 			return nil, err
 		}
-		out, err = gitexec.RunGit(ctx, cwd, "diff", "--end-of-options", strings.TrimSpace(base)+"...HEAD") // origin/<default>, not local
+		out, err = proc.RunGit(ctx, cwd, "diff", "--end-of-options", strings.TrimSpace(base)+"...HEAD") // origin/<default>, not local
 	default: // uncommitted
-		out, err = gitexec.RunGit(ctx, cwd, "diff", "HEAD")
+		out, err = proc.RunGit(ctx, cwd, "diff", "HEAD")
 		if err == nil {
 			var untracked string
 			untracked, err = untrackedBlock(ctx, cwd)
@@ -92,7 +92,7 @@ func Diff(ctx context.Context, cwd string, s Scope) ([]byte, error) {
 // untrackedBlock renders every untracked regular text file as a "new file: <path>" header plus content,
 // capped at untrackedCap per file and untrackedTotalCap overall; non-regular and binary files get a marker.
 func untrackedBlock(ctx context.Context, cwd string) (string, error) {
-	listing, err := gitexec.RunGit(ctx, cwd, "ls-files", "--others", "--exclude-standard")
+	listing, err := proc.RunGit(ctx, cwd, "ls-files", "--others", "--exclude-standard")
 	if err != nil {
 		return "", err
 	}

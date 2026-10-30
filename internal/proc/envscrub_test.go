@@ -1,4 +1,4 @@
-package envscrub
+package proc
 
 import (
 	"slices"
@@ -48,8 +48,8 @@ func TestScrubHonoursKeep(t *testing.T) {
 }
 
 func TestKeepSetParsesHarnessKeepEnv(t *testing.T) {
-	t.Setenv(KeepEnvVar, " DATABRICKS_HOST ,, HOME,")
-	keep := KeepSet([]string{"PATH"})
+	t.Setenv(EnvKeepVar, " DATABRICKS_HOST ,, HOME,")
+	keep := EnvKeepSet([]string{"PATH"})
 	for _, want := range []string{"PATH", "DATABRICKS_HOST", "HOME"} {
 		if !keep[want] {
 			t.Errorf("keep[%q] missing from %v", want, keep)
@@ -61,8 +61,8 @@ func TestKeepSetParsesHarnessKeepEnv(t *testing.T) {
 }
 
 func TestKeepSetEmpty(t *testing.T) {
-	t.Setenv(KeepEnvVar, "")
-	if keep := KeepSet(nil); len(keep) != 0 {
+	t.Setenv(EnvKeepVar, "")
+	if keep := EnvKeepSet(nil); len(keep) != 0 {
 		t.Errorf("keep = %v, want empty", keep)
 	}
 }

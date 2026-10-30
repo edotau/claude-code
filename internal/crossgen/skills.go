@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/edotau/claude-code/internal/paths"
 )
 
 // linkSkills points ~/.agents/skills/<name> at <skillsDir>/<dir> for every projected skill: one location, read
@@ -17,7 +19,7 @@ func linkSkills(out io.Writer, skills []Source, skillsDir, agentsSkills string, 
 	}
 	for _, skill := range skills {
 		name := skill.Name()
-		if !safeName(name) {
+		if !paths.SafeName(name) {
 			fmt.Fprintf(os.Stderr, "  ERROR unsafe skill name %q (must be a plain path component)\n", name)
 			res.errored++
 			continue

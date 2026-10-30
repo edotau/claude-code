@@ -9,8 +9,8 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/agent/vendors"
-	"github.com/edotau/claude-code/internal/envscrub"
 	"github.com/edotau/claude-code/internal/models"
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 )
 
@@ -230,7 +230,7 @@ func scrubExcept(env []string, ownName string, mine, keepEnv []string) []string 
 			}
 		}
 	}
-	keep := envscrub.KeepSet(keepEnv)
+	keep := proc.EnvKeepSet(keepEnv)
 	return slices.DeleteFunc(slices.Clone(env), func(kv string) bool {
 		name, _, _ := strings.Cut(kv, "=")
 		return foreign[name] && !keep[name]

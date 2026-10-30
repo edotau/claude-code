@@ -13,7 +13,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/gitexec"
+	"github.com/edotau/claude-code/internal/proc"
 )
 
 // fixtureGit runs git on dir minus inherited GIT_* (GIT_DIR beats -C), user/system config, hooks and signing.
@@ -22,7 +22,7 @@ func fixtureGit(t *testing.T, dir string, args ...string) {
 	full := append([]string{"-C", dir, "-c", "core.hooksPath=/dev/null", "-c", "commit.gpgsign=false",
 		"-c", "user.email=t@example.com", "-c", "user.name=t"}, args...)
 	cmd := exec.Command("git", full...)
-	cmd.Env = append(gitexec.Env(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_SYSTEM=/dev/null")
+	cmd.Env = append(proc.GitEnv(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_SYSTEM=/dev/null")
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("git %v: %v %s", args, err, out)
 	}

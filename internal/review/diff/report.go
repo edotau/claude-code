@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/edotau/claude-code/internal/gitexec"
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/review/source"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
@@ -185,7 +185,7 @@ func getChangedSourceFiles(repo, base, head string) []string {
 	for _, extra := range tryArgs {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		full := append([]string{"diff", "--name-only"}, extra...)
-		out, err := gitexec.RunGitInherit(ctx, repo, full...)
+		out, err := proc.RunGitInherit(ctx, repo, full...)
 		cancel()
 		if err != nil {
 			continue

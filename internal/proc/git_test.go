@@ -1,4 +1,4 @@
-package gitexec
+package proc
 
 import (
 	"context"
@@ -8,15 +8,15 @@ import (
 	"time"
 )
 
-func TestEnvStripsGitPrefixed(t *testing.T) {
+func TestGitEnvStripsGitPrefixed(t *testing.T) {
 	t.Setenv("GIT_DIR", "/somewhere/.git")
 	t.Setenv("GIT_WORK_TREE", "/somewhere")
 	t.Setenv("GITEXEC_TEST_KEEP", "keep-me")
 
-	env := Env()
+	env := GitEnv()
 	for _, kv := range env {
 		if strings.HasPrefix(kv, "GIT_") {
-			t.Fatalf("Env() leaked a GIT_* var: %q", kv)
+			t.Fatalf("GitEnv() leaked a GIT_* var: %q", kv)
 		}
 	}
 	found := false
@@ -26,16 +26,16 @@ func TestEnvStripsGitPrefixed(t *testing.T) {
 		}
 	}
 	if !found {
-		t.Fatal("Env() dropped a non-GIT_* var it should have kept")
+		t.Fatal("GitEnv() dropped a non-GIT_* var it should have kept")
 	}
 }
 
-func TestEnvDoesNotMutateProcessEnviron(t *testing.T) {
+func TestGitEnvDoesNotMutateProcessEnviron(t *testing.T) {
 	before := len(os.Environ())
-	_ = Env()
+	_ = GitEnv()
 	after := len(os.Environ())
 	if before != after {
-		t.Fatalf("Env() mutated the process environment: before=%d after=%d", before, after)
+		t.Fatalf("GitEnv() mutated the process environment: before=%d after=%d", before, after)
 	}
 }
 
