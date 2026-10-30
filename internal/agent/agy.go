@@ -163,6 +163,9 @@ func parseAgyEvents(dec *json.Decoder, sink Sink, once bool, lg eventLog) (res R
 				lg.emit("error", err.Error())
 				_ = sink.Emit(Event{Type: EventError, Text: err.Error()}) // the agy error returned below aborts
 				res.Answer = strings.TrimSpace(answer.String())
+				if once {
+					err = resultError{err} // the result was consumed: the turn failed, the stream is at a boundary
+				}
 				return res, err
 			}
 			lg.emit("result", cmp.Or(response, answer.String()))
