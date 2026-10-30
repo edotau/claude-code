@@ -4,10 +4,13 @@ CODE QUALITY REPORT
 
 File: @TESTDATA@/quality/gate-loop.js
 Language: javascript
-Quality Score: 100/100 (A)
+Quality Score: 98/100 (A)
 
 Lines: 68 (60 code, 3 comments)
 Functions: 0   Classes: 0
 Avg Complexity: 0.0
+
+--- CODE SMELLS ---
+  [LOW] Comment block has 2 lines (max: 1) (line 9)
 
 ============================================================
