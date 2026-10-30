@@ -305,3 +305,35 @@ func TestAttachFlagSetRejectsBinary(t *testing.T) {
 		t.Errorf("Set(multibyte text): err = %v, a = %q, want accepted", err, a)
 	}
 }
+
+// agents --format json carries each agent's binary, the cost/background/live/remote levels and its event kinds.
+func TestAgentsJSONCapabilitySchema(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	out := captureStdout(t, func() { listAgents(formatJSON) })
+	var rows []struct {
+		Name, Binary string
+		Caps         map[string]string
+		Events       []string
+	}
+	if err := json.Unmarshal([]byte(out), &rows); err != nil {
+		t.Fatal(err, out)
+	}
+	byName := map[string]int{}
+	for i, r := range rows {
+		byName[r.Name] = i
+		for _, k := range []string{"cost", "background", "live", "remote", "env", "system-prompt"} {
+			if r.Caps[k] == "" {
+				t.Errorf("%s: caps lacks %s", r.Name, k)
+			}
+		}
+		if r.Binary == "" || !slices.Contains(r.Events, "start") || !slices.Contains(r.Events, "result") {
+			t.Errorf("%s: binary %q events %v", r.Name, r.Binary, r.Events)
+		}
+	}
+	if c := rows[byName["claude"]]; c.Caps["live"] != "native" || c.Caps["cost"] != "native" {
+		t.Errorf("claude caps = %v, want live and cost native", c.Caps)
+	}
+	if g := rows[byName["gemini"]]; g.Binary != "agy" || g.Caps["live"] != "none" {
+		t.Errorf("gemini = %+v, want binary agy and no live", g)
+	}
+}

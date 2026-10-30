@@ -47,6 +47,8 @@ Does its own CLI work; may request: copilot, gemini, opencode, via the brief `Ag
 Shared table and bullets: `skills/subagent-workflows/references/agent-verbs.md`. Codex deltas:
 
 - Resume the underlying CLI session directly with `codex resume <id>`.
+- `ask --agent codex` honors `--system-prompt`/`--append-system-prompt` natively and `--env NAME=VALUE`; it reports no
+  `cost_usd`. Stream, `--host` and `agents status|result|tail|cancel`: `cost-routing.md` → Ask flags and lifecycle.
 
 ## Hands off to
 
