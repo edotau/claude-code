@@ -96,6 +96,7 @@ func pruneSkillLinks(out io.Writer, agentsSkills, skillsDir string, projected ma
 
 // pruneLegacyGeminiSkills removes every banner-marked skill dir an earlier sync wrote under ~/.gemini/skills, the
 // pre-agy location: skills now reach agy through GeminiSkillsDir, and a copy in both tiers conflicts.
+// Migration: remove after 2026-11-13 once every machine has run a post-2026-10-17 build.
 func pruneLegacyGeminiSkills(out io.Writer, root string, dryRun bool) int {
 	entries, err := os.ReadDir(root)
 	if err != nil {

@@ -67,7 +67,7 @@ func cmdSetupNuke(args []string) int {
 	})
 	dir := fs.String("dir", paths.ConfigDir(), "the harness directory to remove")
 	apply := fs.Bool("apply", false, "actually remove it (dry-run without this flag)")
-	keepMemory := fs.Bool("keep-memory", false, "archive memory/, plans/, and any legacy memory dirs before removing")
+	keepMemory := fs.Bool("keep-memory", false, "archive memory/, plans/, and any old memory dirs before removing")
 	account := fs.Bool("account", false, "report what removing the Claude Code account state would take")
 	removeCLI := fs.Bool("cli", false, "report what removing the Claude Code CLI install would take")
 	if code, done := helptext.Parse(fs, args); done {

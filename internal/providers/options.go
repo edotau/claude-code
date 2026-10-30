@@ -32,7 +32,7 @@ func (p *Provider) IsAIGateway() bool { return p.Preset == PresetDatabricks && p
 // SpellingRule is the models.Wire rule p's model ids use; "" means ids pass through as written.
 func (p Provider) SpellingRule() string {
 	switch {
-	case p.Preset == PresetDatabricks && p.isGateway(), p.ModelPrefix == gatewayModelPrefix: // prefix: legacy Go-built rows
+	case p.Preset == PresetDatabricks && p.isGateway(), p.ModelPrefix == gatewayModelPrefix: // prefix: rows built without options.wire
 		return "databricks-ai-gateway"
 	case p.Preset == PresetDatabricks || p.ModelPrefix == models.DatabricksPrefix:
 		return "databricks-serving"

@@ -113,13 +113,13 @@ type NativeResult struct {
 	Restored []string
 	Skipped  []string
 	Applied  bool
-	Commit   string // memory-Git commit the applied pass settled into; empty for a dry run or a legacy dir outside the store
+	Commit   string // memory-Git commit the applied pass settled into; empty for a dry run or a dir outside the store
 }
 
 // nativeBatch plans dir-relative checked changes, then lands them in one pass: via the store transaction (journal,
-// settle, commit) when dir is inside the store, else applied directly with the same preimage rules (legacy dir, no repo).
+// settle, commit) when dir is inside the store, else applied directly with the same preimage rules (dir outside the store, no repo).
 type nativeBatch struct {
-	base, prefix string // base is the store (prefix = dir's path inside it) or dir itself for a legacy dir
+	base, prefix string // base is the store (prefix = dir's path inside it) or dir itself for a dir outside the store
 	inStore      bool
 	changes      []Change
 }
@@ -154,7 +154,7 @@ func (b *nativeBatch) del(rel string, preimage []byte) {
 }
 
 // commit lands the batch in order and returns the memory-Git commit it settled into ("" when nothing changed or
-// the dir is a legacy one); a divergent preimage names its path and, in the store, leaves the rest committed.
+// the dir is outside the store); a divergent preimage names its path and, in the store, leaves the rest committed.
 func (b *nativeBatch) commit(subject string) (string, error) {
 	if len(b.changes) == 0 {
 		return "", nil
@@ -317,7 +317,7 @@ func ArchiveNative(dir string, names []string, apply bool) (NativeResult, error)
 var nativeArchiveRel = filepath.Join("archive", "native")
 
 // archiveNativeLocked is ArchiveNative's apply path for a caller that already holds the bank lock: one batch that
-// records, strikes, lands, then removes — a replay or a legacy crash leaves an orphan a re-run moves, never a
+// records, strikes, lands, then removes — a replay or a crash leaves an orphan a re-run moves, never a
 // dangling pointer. The reconcile repair rides in the same batch rather than as a separate write.
 func archiveNativeLocked(dir string, todo []string, res *NativeResult) error {
 	index, healed, err := healedIndex(dir)
@@ -739,7 +739,7 @@ func splitNativeIndexLocked(dir string, keepLines int) (int, error) {
 			kept = append(kept, line)
 		}
 	}
-	// One batch, SEARCHABLE.md first: a legacy crash between the two leaves a duplicated pointer, never a lost one.
+	// One batch, SEARCHABLE.md first: a crash between the two leaves a duplicated pointer, never a lost one.
 	b := newNativeBatch(dir)
 	searchable, _ := os.ReadFile(filepath.Join(dir, NativeSearchableFile))
 	b.put(NativeSearchableFile, []byte(indexWithLines(string(searchable), overflow)), searchable)

@@ -153,6 +153,7 @@ var legacyRoutingKeys = map[string]string{
 
 // checkLegacyRoutingKeys rejects an overlay document that still carries a retired top-level routing key;
 // an empty overlay (no document at all) has none.
+// Migration: remove after 2026-11-13 once every machine has run a post-2026-10-25 build.
 func checkLegacyRoutingKeys(overlay []byte) error {
 	if len(overlay) == 0 {
 		return nil

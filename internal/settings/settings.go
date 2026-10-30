@@ -137,7 +137,7 @@ func Merge(existing, rendered []byte, dropped []string) ([]byte, Summary, error)
 	for _, k := range ex.keys {
 		_, owned := tp.vals[k]
 		switch {
-		case k == "autoMemoryDirectory": // legacy: a flat dir that merges every repo's memory; the one retired key still dropped
+		case k == "autoMemoryDirectory": // retired: a flat dir that merges every repo's memory; the one retired key still dropped
 			sum.Dropped = append(sum.Dropped, k)
 			continue
 		case !owned && slices.Contains(dropped, k): // a template key is never dropped: its existing value still merges

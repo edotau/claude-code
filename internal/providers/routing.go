@@ -185,6 +185,7 @@ func validRouteRow(key string) bool {
 // ids; an entry that is already a sub id, or names nothing in r.Providers, passes through unchanged
 // (Validate catches a truly unknown id). Duplicates after mapping are dropped, first occurrence wins.
 // Called from Parse before Validate, so a legacy provider-name entry normalizes before it is checked.
+// Migration: remove after 2026-11-13 once every machine has run a post-2026-10-25 build.
 func NormalizeOpencodeLadder(r *Registry) *[]string {
 	ladder := r.Routing.Opencode.LadderOrder()
 	if ladder == nil {

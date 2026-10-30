@@ -53,7 +53,7 @@ type Provider struct {
 	CLIProfile string `json:"cliProfile,omitempty"`
 	// Env is the non-secret launch env for sessions on this provider.
 	Env map[string]string `json:"env,omitempty"`
-	// ModelPrefix is the wire-id prefix a databricks preset derives; WireModel does not read it (deprecated: Phase 4).
+	// ModelPrefix is the wire-id prefix a databricks preset derives; WireModel does not read it; SpellingRule still does.
 	ModelPrefix string `json:"modelPrefix,omitempty"`
 	// Options are a preset row's non-secret knobs (databricks: options.wire serving|gateway).
 	Options Options `json:"options,omitzero"`
