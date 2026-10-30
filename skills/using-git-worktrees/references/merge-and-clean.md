@@ -39,8 +39,12 @@ tree unless `CLAUDE_CONFIG_DIR` points at it.
 2. Ask: "Merge $SLUG into <target>? (Y/n)".
 3. **Apply:** `claude-code worktree merge "$SLUG"` (`--verify "<cmd>"` overrides auto-detection from
    Makefile test / go.mod / pyproject / package.json / Cargo.toml; `--no-verify` is the only unverified path;
-   no gate found refuses before integrating). Preflight re-runs; a failing gate stops with the worktree
-   untouched on disk; success promotes and, unless `--no-clean`, cleans exactly as `clean` would. A failure
+   no gate found refuses before integrating). A Makefile test target plus `go.mod` runs the scoped gate:
+   `go build ./... && go vet ./...`, then `go test` on the packages `<target>...HEAD` changed plus the
+   registry packages (`internal/{hooks,hookspec,settings,cli,schemas}`, where present); a `go.mod`/`go.sum`
+   change tests `./...`. `--full-verify` runs `make test` instead; the full `make audit` stays the pre-push
+   gate. Preflight re-runs; a failing gate stops with the worktree untouched on disk; success promotes and, unless
+   `--no-clean`, cleans exactly as `clean` would. A failure
    after promotion prints a retry hint instead of leaving a merge commit; re-run step 1.
 4. **Report:** `Merge complete` / `Branch: <branch> -> <target>` / `Verify: <cmd> pass|fail`.
 
