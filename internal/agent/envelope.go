@@ -1,9 +1,13 @@
 package agent
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"slices"
+	"strings"
 
 	"github.com/edotau/claude-code/internal/secrets/shapes"
 )
@@ -41,6 +45,7 @@ type Envelope struct {
 	TaskID          string          `json:"task_id,omitempty"`    // ask --batch: the task's id
 	BatchID         string          `json:"batch_id,omitempty"`   // ask --batch: the id shared by every task of the run
 	Hops            []Hop           `json:"hops,omitempty"`       // every leg tried, in order
+	RanOn           string          `json:"ran_on,omitempty"`     // the one-line "ran on" summary of the leg that answered
 	Structured      json.RawMessage `json:"structured,omitempty"` // --output-schema: the answer as JSON satisfying the schema
 }
 
@@ -48,7 +53,7 @@ type Envelope struct {
 func NewEnvelope(res Result, err error, dispatchID string) Envelope {
 	env := Envelope{Schema: EnvelopeSchema, Status: res.Status, Agent: res.Agent, Provider: res.Provider, Model: res.Model,
 		Invoked: res.Invoked, DispatchID: dispatchID, SessionID: res.SessionID, FallbackReason: res.FallbackReason,
-		DurationMs: res.DurationMs, Answer: res.Answer, Dropped: res.Dropped, Emulated: res.Emulated, Handoff: res.Handoff, Transport: res.Transport, Hops: res.Hops, Structured: res.Structured, SchemaUnchecked: res.SchemaUnchecked}
+		DurationMs: res.DurationMs, Answer: res.Answer, Dropped: res.Dropped, Emulated: res.Emulated, Handoff: res.Handoff, Transport: res.Transport, Hops: res.Hops, RanOn: RanOn(res), Structured: res.Structured, SchemaUnchecked: res.SchemaUnchecked}
 	if env.Dropped == nil {
 		env.Dropped = []string{}
 	}
@@ -109,4 +114,25 @@ func errorKind(err error) string {
 		}
 	}
 	return "fatal"
+}
+
+// RanOn is the "ran on" line for a finished run, from its final hop: agent · account·profile · model · fallback.
+func RanOn(res Result) string {
+	who, acct, model := res.Agent, "", res.Model
+	if n := len(res.Hops); n > 0 {
+		h := res.Hops[n-1]
+		who, model = cmp.Or(h.Agent, who), cmp.Or(h.Model, model)
+		acct = h.Account
+		if h.Profile != "" && !strings.HasSuffix(acct, h.Profile) { // the account label may already name the profile
+			acct = strings.Join(slices.DeleteFunc([]string{acct, h.Profile}, func(s string) bool { return s == "" }), "·")
+		}
+	}
+	if who == "" {
+		return ""
+	}
+	fb := "none"
+	if res.Fallback != "" {
+		fb = "from " + res.Fallback
+	}
+	return fmt.Sprintf("ran on %s · %s · %s · fallback %s", who, cmp.Or(acct, "own login"), cmp.Or(model, "default"), fb)
 }

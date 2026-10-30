@@ -76,7 +76,7 @@ for a read-only research dispatch. Verdict words come first and alone, one close
 Status below.
 
 - Status: `DONE` | `DONE_WITH_CONCERNS` | `NEEDS_CONTEXT` | `BLOCKED`.
-- `Ran on:` agent (model) · job · session · fallback <none|who> — a stand-in is reported, never hidden.
+- `Ran on:` quote the `ask: ran on …` line · job · session; `self — <why>` in-context. A stand-in is never hidden.
 - Files changed, and the API surface the integrator wires.
 - Verification: each command, its exit code, the load-bearing output.
 - Coverage: each `Acceptance:` item → the evidence that settles it (file:line, command output, URL), or the gap left.

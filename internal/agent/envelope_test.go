@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/cli"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/vendors"
@@ -223,5 +224,25 @@ func TestUnknownProfileErrorEnvelopeIsUsageKindForAllAgents(t *testing.T) {
 				t.Errorf("error.message = %v, want non-empty", e["message"])
 			}
 		})
+	}
+}
+
+// RanOn reads the answering (final) hop: a fallback run names the original agent, an own-login run says so.
+func TestRanOnFromHops(t *testing.T) {
+	fb := agent.Result{Agent: "copilot", Model: "m2", Fallback: "codex", Hops: []agent.Hop{
+		{Agent: "codex", Account: "work", ErrorKind: "quota"},
+		{Agent: "copilot", Account: "personal", Profile: "dev", Model: "m2"}}}
+	if got, want := agent.RanOn(fb), "ran on copilot · personal·dev · m2 · fallback from codex"; got != want {
+		t.Errorf("fallback = %q, want %q", got, want)
+	}
+	own := agent.Result{Agent: "claude", Model: "opus", Hops: []agent.Hop{{Agent: "claude", Model: "opus"}}}
+	if got, want := agent.RanOn(own), "ran on claude · own login · opus · fallback none"; got != want {
+		t.Errorf("own login = %q, want %q", got, want)
+	}
+	if got := agent.NewEnvelope(fb, nil, "d").RanOn; got != agent.RanOn(fb) {
+		t.Errorf("envelope ran_on = %q", got)
+	}
+	if agent.RanOn(agent.Result{}) != "" {
+		t.Error("empty result must have no ran-on line")
 	}
 }

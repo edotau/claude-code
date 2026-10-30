@@ -131,13 +131,13 @@ result.
 
 ## Report contract
 
-Envelope (`Ran on:` line, outcome first, plain-sentence facts): `skills/subagent-workflows/SKILL.md` →
-Handoff contract; this agent's body:
+Envelope (quote the `ask: ran on …` line, outcome first, plain-sentence facts):
+`skills/subagent-workflows/SKILL.md` → Handoff contract; this agent's body:
 
 ```markdown
 ## codex (<verb>)
 
-Ran on: codex (<model>) · job <id|—> · session <id|—> · fallback <none|who answered>
+Ran on: <the `ask: ran on …` line, quoted> · job <id|—> · session <id|—>
 
 <verdict line first: SHIP IT | NEEDS WORK | BLOCK, READY | NEEDS CLARIFICATION,
 VERDICT: no actionable findings, or PASS | FAIL per verb>

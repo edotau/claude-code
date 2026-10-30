@@ -142,13 +142,13 @@ Run the verb; a verb that needs judgment prints its own embedded procedure, incl
 
 ## Report contract
 
-Envelope (`Ran on:` line, outcome first, plain-sentence facts): `skills/subagent-workflows/SKILL.md` →
-Handoff contract; this agent's body:
+Envelope (quote the `ask: ran on …` line, outcome first, plain-sentence facts):
+`skills/subagent-workflows/SKILL.md` → Handoff contract; this agent's body:
 
 ```markdown
 ## opencode (<mode|verb>)
 
-Ran on: opencode CLI (<model>) · job <id|—> · session <id|—> · fallback <none|who> | self — small change, or why
+Ran on: <the `ask: ran on …` line, quoted> · job <id|—> · session <id|—> | self — small change, or why
 
 Files: <paths changed, or "none">
 

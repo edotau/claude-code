@@ -293,6 +293,9 @@ func runAskAndReport(ctx context.Context, rec *agent.Record, chain agent.Chain, 
 			return agent.RunWithFallback(ctx, chain, req, sink, notify)
 		})
 	reportAskResult(format, res, err, rec.ID)
+	if line := agent.RanOn(res); line != "" {
+		fmt.Fprintln(os.Stderr, "ask:", line)
+	}
 	fmt.Fprintln(os.Stderr, "ask: dispatch", rec.ID, "(claude-code ask --retry <id> replays it)")
 	if err != nil {
 		return fail("ask: %v", err)

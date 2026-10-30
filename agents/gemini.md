@@ -233,11 +233,11 @@ them and potentially hanging.
 
 ## Report contract
 
-Envelope (`Ran on:` line, outcome first, plain-sentence facts): `skills/subagent-workflows/SKILL.md` →
-Handoff contract; this agent's body:
+Envelope (quote the `ask: ran on …` line, outcome first, plain-sentence facts):
+`skills/subagent-workflows/SKILL.md` → Handoff contract; this agent's body:
 
 ```markdown
-Ran on: <gemini (model) via ask|bridge | sonnet in-process — why> · job <id|—> · session <id|—> · fallback <none|who>
+Ran on: <the `ask: ran on …` line, quoted | bridge | sonnet in-process — why> · job <id|—> · session <id|—>
 
 ## Findings
 
