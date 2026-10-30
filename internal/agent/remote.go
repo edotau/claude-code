@@ -11,6 +11,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -65,6 +66,18 @@ func remoteDropped(req Request) []string {
 	return out
 }
 
+// remoteHomePath rewrites a path under the local home to ~/…: the remote's home differs (/Users/x vs /home/x).
+func remoteHomePath(p string) string {
+	home, err := os.UserHomeDir()
+	if err != nil || p == "" {
+		return p
+	}
+	if rel, err := filepath.Rel(home, p); err == nil && filepath.IsAbs(p) && rel != ".." && !strings.HasPrefix(rel, "../") {
+		return filepath.Join("~", rel)
+	}
+	return p
+}
+
 // remoteTarget is the --agent value the remote side resolves.
 func remoteTarget(agentName string, req Request) string {
 	if req.Persona != nil {
@@ -87,7 +100,7 @@ func remoteScript(bin, agentName, fallback string, req Request) (string, error) 
 	if strings.TrimSpace(bin) == "" || strings.ContainsAny(bin, "\r\n") {
 		return "", fmt.Errorf("remote ask: invalid remote binary %q", bin)
 	}
-	w := []string{remotePath, "exec", dispatch.QuotePath(bin), "ask", "--format", "stream-json", "--fallback", dispatch.QuoteSH(cmp.Or(fallback, FallbackNone)),
+	w := []string{remotePath, "exec", dispatch.QuotePath(remoteHomePath(bin)), "ask", "--format", "stream-json", "--fallback", dispatch.QuoteSH(cmp.Or(fallback, FallbackNone)),
 		"--stdin-framed", "--agent", dispatch.QuoteSH(remoteTarget(agentName, req))}
 	opt := func(flag, v string) {
 		if v != "" {
@@ -102,7 +115,7 @@ func remoteScript(bin, agentName, fallback string, req Request) (string, error) 
 	opt("--append-system-prompt", req.AppendSystemPrompt)
 	opt("--output-schema", req.OutputSchema)
 	if req.WorkDir != "" {
-		w = append(w, "--workdir", dispatch.QuotePath(req.WorkDir))
+		w = append(w, "--workdir", dispatch.QuotePath(remoteHomePath(req.WorkDir)))
 	}
 	if req.Timeout > 0 {
 		opt("--timeout", req.Timeout.String())
