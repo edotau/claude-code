@@ -28,7 +28,7 @@ set -u
 
 # A shell without WSLg's env (VS Code Remote-WSL terminals) gets the WSLg socket by absolute path.
 wslg_socket=/mnt/wslg/runtime-dir/wayland-0
-if [[ -z ${WAYLAND_DISPLAY:-} && -S $wslg_socket ]]; then
+if [[ -z ${SSH_CONNECTION:-} && -z ${WAYLAND_DISPLAY:-} && -S $wslg_socket ]]; then
 	export WAYLAND_DISPLAY=$wslg_socket
 fi
 
@@ -155,8 +155,20 @@ apply_png() {
 	exit 1 # fail the leg: the chain still has its BMP legs and the PowerShell fallback behind it
 }
 
+# apply_ssh answers an SSH session's image request from the client's clipboard bridge, never WSLg:
+# png comes from `clip --ssh-stdout`, bmp fails the leg (the bridge carries PNG only).
+apply_ssh() {
+	local bin
+	requests_type image/bmp "$@" && exit 1
+	requests_type image/png "$@" || return 0
+	bin=$(harness_bin) || exit 1
+	"$bin" clip --ssh-stdout
+	exit $?
+}
+
 # intercept routes the two image legs; anything else falls through to plain delegation.
 intercept() {
+	[[ -z ${SSH_CONNECTION:-} ]] || apply_ssh "$@"
 	requests_type image/bmp "$@" && apply_fix "$@"
 	# reject mode is the pre-transcoder comparison, so it leaves the new PNG leg untouched.
 	[[ ${CLAUDE_WL_PASTE_PROXY:-auto} == reject ]] || { requests_type image/png "$@" && apply_png "$@"; }
@@ -171,6 +183,7 @@ case ${CLAUDE_WL_PASTE_PROXY:-auto} in
 	if is_cli_clipboard_read; then
 		intercept "$@"
 	elif is_vendor_clipboard_read; then
+		[[ -z ${SSH_CONNECTION:-} ]] || apply_ssh "$@"
 		requests_type image/png "$@" && apply_png "$@"
 	fi
 	;;

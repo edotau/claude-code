@@ -2,7 +2,9 @@ package clipboard
 
 import (
 	"bytes"
+	"image/png"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -244,5 +246,54 @@ func TestDoctorDetailCurrentOnWSL(t *testing.T) {
 	}
 	if !strings.Contains(detail, "claude-code clip") {
 		t.Errorf("detail = %q, want it to name claude-code clip as the fallback", detail)
+	}
+}
+
+// Under SSH the proxy answers png from `clip --ssh-stdout`, fails bmp, and never runs the real wl-paste.
+func TestProxySSHBranch(t *testing.T) {
+	home := t.TempDir()
+	bin := filepath.Join(home, ".claude", "bin")
+	proxyDir, realDir := t.TempDir(), t.TempDir()
+	for _, d := range []string{bin, proxyDir, realDir} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	pngPath := filepath.Join(home, "x.png")
+	if err := os.WriteFile(pngPath, testPNG(t), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	touched := filepath.Join(home, "touched")
+	files := map[string]string{
+		filepath.Join(bin, "claude-code"):  "#!/bin/sh\n[ \"$*\" = \"clip --ssh-stdout\" ] && cat " + pngPath + "\n",
+		filepath.Join(realDir, "wl-paste"): "#!/bin/sh\ntouch " + touched + "\n",
+	}
+	for p, body := range files {
+		if err := os.WriteFile(p, []byte(body), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	proxy := filepath.Join(proxyDir, "wl-paste")
+	if err := os.WriteFile(proxy, ProxyScript, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	run := func(mime string) ([]byte, error) {
+		cmd := exec.Command(proxy, "--type", mime)
+		cmd.Env = []string{"HOME=" + home, "PATH=" + proxyDir + ":" + realDir + ":/usr/bin:/bin",
+			"SSH_CONNECTION=x", "CLAUDE_WL_PASTE_PROXY=1"}
+		return cmd.Output()
+	}
+	out, err := run("image/png")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := png.DecodeConfig(bytes.NewReader(out)); err != nil {
+		t.Fatalf("png leg is not a PNG: %v", err)
+	}
+	if _, err := run("image/bmp"); err == nil {
+		t.Fatal("bmp leg succeeded under SSH")
+	}
+	if _, err := os.Stat(touched); err == nil {
+		t.Fatal("real wl-paste ran under SSH")
 	}
 }
