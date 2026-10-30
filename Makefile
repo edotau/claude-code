@@ -42,6 +42,7 @@ YAMLFMT_VERSION ?= v0.21.0
 # Markdown linter/fixer, installed to bin/ by `make install`; its pkg/markdown is the Go code's parser too.
 MDSMITH_VERSION ?= v0.57.0
 MDSMITH         := bin/mdsmith
+RTK_VERSION     ?= 0.42.4
 YAML_FILES      := $(shell git ls-files '*.yml' '*.yaml' 2>/dev/null)
 
 .DEFAULT_GOAL := help
@@ -59,7 +60,7 @@ build: install  # (dev recipe, hidden from help) compile + install + lint fix + 
 # install.go already links the bare shims, renders settings.json, and writes bash completion
 # (internal/launch/install.go: Install() -> completion.Install) — one call does all three.
 .PHONY: install
-install: compile mdsmith  ## Build + install + lint/vuln tools (DEV_TOOLS=0: skip)
+install: compile mdsmith rtk  ## Build + install + lint/vuln tools (DEV_TOOLS=0: skip)
 	$(BIN) install$(if $(filter 1,$(V)), --verbose,)
 	@if [ "$(DEV_TOOLS)" = 1 ]; then \
 		$(GO) install golang.org/x/vuln/cmd/govulncheck@$(GOVULN_VERSION) && \
@@ -277,6 +278,21 @@ lint-fix: compile mdsmith  ## Auto-fix lint, then an AI agent fixes the rest (WH
 mdsmith:  # (folded into `install`) pinned mdsmith binary in bin/
 	@if ! $(MDSMITH) version 2>/dev/null | grep -qF '$(MDSMITH_VERSION)'; then \
 		GOBIN=$(CURDIR)/bin $(GO) install github.com/jeduden/mdsmith/cmd/mdsmith@$(MDSMITH_VERSION); fi
+
+.PHONY: rtk
+rtk:  # (folded into `install`) pinned rtk release in bin/; a warning, never a failure
+	@if bin/rtk --version 2>/dev/null | grep -qF ' $(RTK_VERSION)'; then exit 0; fi; \
+	case "$$(uname -s)-$$(uname -m)" in \
+		Linux-x86_64) a=x86_64-unknown-linux-musl;; Linux-aarch64|Linux-arm64) a=aarch64-unknown-linux-gnu;; \
+		Darwin-x86_64) a=x86_64-apple-darwin;; Darwin-arm64) a=aarch64-apple-darwin;; \
+		*) echo -e "$(C_NOTE)rtk skipped: unsupported platform $$(uname -s)-$$(uname -m)"; exit 0;; esac; \
+	sum() { if command -v sha256sum >/dev/null; then sha256sum "$$1"; else shasum -a 256 "$$1"; fi; }; \
+	u=https://github.com/rtk-ai/rtk/releases/download/v$(RTK_VERSION); t=$$(mktemp -d); \
+	if curl -fsSL -o $$t/rtk.tgz $$u/rtk-$$a.tar.gz && curl -fsSL -o $$t/checksums.txt $$u/checksums.txt \
+		&& [ "$$(sum $$t/rtk.tgz | cut -d' ' -f1)" = "$$(grep -F "rtk-$$a.tar.gz" $$t/checksums.txt | cut -d' ' -f1)" ] \
+		&& tar -xzf $$t/rtk.tgz -C $$t rtk && mkdir -p bin && install -m 0755 $$t/rtk bin/rtk; then \
+		echo -e "$(C_OK)rtk $(RTK_VERSION) installed (checksum verified)"; \
+	else echo -e "$(C_NOTE)rtk $(RTK_VERSION) skipped: download or checksum failed"; fi; rm -rf $$t
 
 .PHONY: verify
 verify: audit  ## audit + doctor + proxy status

@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -119,14 +120,16 @@ func RTKCommandList() string {
 // rtkBinary returns the proxy binary to invoke, or "" when it is not available. Absence is the
 // normal case on a machine without rtk and must degrade to a no-op, never an error.
 func rtkBinary() string {
-	name := os.Getenv(rtkBinaryEnv)
-	if name == "" {
-		name = "rtk"
+	candidates := []string{filepath.Join(paths.BinDir(), "rtk"), "rtk"} // the pinned install first, then PATH
+	if name := os.Getenv(rtkBinaryEnv); name != "" {
+		candidates = []string{name}
 	}
-	if _, err := exec.LookPath(name); err != nil {
-		return ""
+	for _, name := range candidates {
+		if _, err := exec.LookPath(name); err == nil {
+			return name
+		}
 	}
-	return name
+	return ""
 }
 
 // rtkEligible reports whether cmd should be routed through the proxy: it is a single command whose
