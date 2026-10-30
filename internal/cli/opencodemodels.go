@@ -2,7 +2,6 @@ package cli
 
 import (
 	"context"
-	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -12,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
@@ -148,48 +148,6 @@ func opencodeMenuWrite(next []providers.OpencodeModel, msg string, fail func(str
 	return 0
 }
 
-// opencodeProvider resolves the workspace profile: --profile, else the OPENCODE_PROFILE pin.
-func opencodeProvider(name string) (*providers.Registry, *providers.Provider, error) {
-	reg, err := providers.Load()
-	if err != nil {
-		return nil, nil, err
-	}
-	if name == "" {
-		if name = providers.Pin(providers.PinOpencodeProfile); name == "" {
-			return nil, nil, errors.New("no profile pinned for opencode; pass --profile")
-		}
-	}
-	p, err := reg.Get(name)
-	return reg, p, err
-}
-
-// opencodeServed lists the workspace's endpoints by name.
-func opencodeServed(name string) (map[string]providers.ModelInfo, *providers.Provider, error) {
-	reg, p, err := opencodeProvider(name)
-	if err != nil {
-		return nil, nil, err
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-	defer cancel()
-	infos, err := providers.ListModels(ctx, reg, p)
-	if err != nil {
-		return nil, p, err
-	}
-	out := make(map[string]providers.ModelInfo, len(infos))
-	for _, m := range infos {
-		out[m.ID] = m
-	}
-	return out, p, nil
-}
-
-func servedInfo(served map[string]providers.ModelInfo, p *providers.Provider, id string) (providers.ModelInfo, bool) {
-	if m, ok := served[p.ModelPrefix+id]; ok {
-		return m, true
-	}
-	m, ok := served[id]
-	return m, ok
-}
-
 type ocMenuRow struct {
 	ID        string `json:"id"`
 	Label     string `json:"label"`
@@ -209,7 +167,7 @@ func opencodeMenuList(live bool, provider, format string, fail func(string, ...a
 	var p *providers.Provider
 	if live {
 		var err error
-		if served, p, err = opencodeServed(provider); err != nil {
+		if served, p, err = agent.OpencodeServed(provider); err != nil {
 			return fail("%v", err)
 		}
 	}
@@ -222,7 +180,7 @@ func opencodeMenuList(live bool, provider, format string, fail func(string, ...a
 		r := ocMenuRow{ID: m.ID, Label: m.Label, Responses: m.Responses, Source: src}
 		if live {
 			r.Live = "missing"
-			if info, ok := servedInfo(served, p, m.ID); ok {
+			if info, ok := agent.ServedInfo(served, p, m.ID); ok {
 				r.Live, r.Ready = "served", info.Ready
 			}
 			r.Check = checkCell(cache, m.ID)
@@ -259,11 +217,11 @@ func opencodeMenuAdd(arg string, responses, responsesSet, force bool, provider s
 		return fail("empty model id")
 	}
 	if !force {
-		served, p, err := opencodeServed(provider)
+		served, p, err := agent.OpencodeServed(provider)
 		if err != nil {
 			return fail("cannot check %s against the workspace (--force skips): %v", id, err)
 		}
-		if _, ok := servedInfo(served, p, id); !ok {
+		if _, ok := agent.ServedInfo(served, p, id); !ok {
 			return fail("%s%s is not served by %s (--force skips the check)", p.ModelPrefix, id, p.Name)
 		}
 	}
@@ -319,45 +277,12 @@ func checkCell(cache map[string]providers.CheckResult, id string) string {
 	return r.Status
 }
 
-// opencodeCheckTargets resolves the probe set: explicit ids, every served chat endpoint, or the menu.
-func opencodeCheckTargets(ids []string, all bool, served map[string]providers.ModelInfo, p *providers.Provider) []providers.CheckTarget {
-	var out []providers.CheckTarget
-	if all {
-		for name, info := range served {
-			if info.Task != "llm/v1/chat" {
-				continue
-			}
-			id := providers.MenuID(name)
-			out = append(out, providers.CheckTarget{ID: id, Wire: name, Responses: providers.ResponsesID(id)})
-		}
-		return out
-	}
-	if len(ids) == 0 {
-		for _, m := range providers.OpencodeMenu() {
-			ids = append(ids, m.ID)
-		}
-	}
-	for _, raw := range ids {
-		id := providers.MenuID(raw)
-		t := providers.CheckTarget{ID: id, Responses: providers.ResponsesID(id)}
-		if _, ok := served[p.ModelPrefix+id]; ok {
-			t.Wire = p.ModelPrefix + id
-		} else if _, ok := served[id]; ok {
-			t.Wire = id
-		} else {
-			t.Missing = true
-		}
-		out = append(out, t)
-	}
-	return out
-}
-
 func opencodeMenuCheck(ids []string, all bool, provider string, timeout time.Duration, format string, fail func(string, ...any) int) int {
-	served, p, err := opencodeServed(provider)
+	served, p, err := agent.OpencodeServed(provider)
 	if err != nil {
 		return fail("%v", err)
 	}
-	targets := opencodeCheckTargets(ids, all, served, p)
+	targets := agent.OpencodeCheckTargets(ids, all, served, p)
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 	results, err := providers.ProbeEndpoints(ctx, p, targets, providers.CheckOptions{Concurrency: 4, Timeout: timeout})
