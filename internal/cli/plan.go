@@ -1,9 +1,12 @@
 package cli
 
 import (
+	"context"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/edotau/claude-code/internal/helptext"
 	"github.com/edotau/claude-code/internal/outfmt"
@@ -17,6 +20,7 @@ var planPage = helptext.Page{
 	About: "Plan checklists: ticked/total per plan, live task claims and partly-landed notes.",
 	Commands: [][2]string{
 		{"status", "progress per plan; --all spans every repo under the plans home"},
+		{"tick", "tick tasks covered by each commit in --range <a>..<b> (--dry-run)"},
 	},
 	Hint: "claude-code plan status -h lists its flags.",
 }
@@ -29,6 +33,8 @@ func cmdPlan(args []string) int {
 	switch args[0] {
 	case "status":
 		return cmdPlanStatus(args[1:])
+	case "tick":
+		return cmdPlanTick(args[1:])
 	default:
 		fail("plan: unknown subcommand %q", args[0])
 		planPage.Fprint(os.Stderr)
@@ -103,4 +109,68 @@ func planDirs(all bool) []string {
 		}
 	}
 	return dirs
+}
+
+func cmdPlanTick(args []string) int {
+	fs := helptext.NewFlagSet("plan tick", helptext.Page{Usage: "claude-code plan tick --range <a>..<b> [flags]"})
+	rng := fs.String("range", "", "commits to tick, <a>..<b> as git rev-list reads it")
+	plan := fs.String("plan", "", "plan file to tick (default: this repo's active plan)")
+	dryRun := fs.Bool("dry-run", false, "print what would tick without writing the plan")
+	if code, done := helptext.Parse(fs, args); done {
+		return code
+	}
+	if *rng == "" {
+		return fail("plan tick: --range <a>..<b> is required")
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		return fail("plan tick: %v", err)
+	}
+	top, _ := paths.CheckoutOf(cwd)
+	if top == "" {
+		return fail("plan tick: %s is not in a git checkout", cwd)
+	}
+	worktree := "" // a linked worktree's name, matched against task claims
+	if main := paths.MainCheckout(top); main != top {
+		worktree = filepath.Base(top)
+	}
+	if err := tickRange(context.Background(), top, worktree, *rng, *plan, *dryRun, os.Stdout); err != nil {
+		return fail("plan tick: %v", err)
+	}
+	return 0
+}
+
+// tickRange ticks plan (default: dir's active plan, preferring worktree's claim) for each commit in rng.
+func tickRange(ctx context.Context, dir, worktree, rng, plan string, dryRun bool, w io.Writer) error {
+	if plan == "" {
+		var ok bool
+		if plan, ok = plans.Active(plans.Home(paths.MainCheckout(dir)), worktree, nil); !ok {
+			fmt.Fprintln(w, "plans: no active plan to tick")
+			return nil
+		}
+	}
+	commits, err := plans.RangeCommits(ctx, dir, rng)
+	if err != nil {
+		return err
+	}
+	results, err := plans.TickCommits(plan, commits, dryRun)
+	if err != nil {
+		return err
+	}
+	verb, base := "ticked", strings.TrimSuffix(filepath.Base(plan), ".md")
+	if dryRun {
+		verb = "would tick"
+	}
+	for _, r := range results {
+		if len(r.Ticked) > 0 {
+			fmt.Fprintf(w, "plans: %s %s (%s) in %s\n", verb, strings.Join(r.Ticked, "; "), r.Sha, base)
+		}
+		if len(r.Partial) > 0 {
+			fmt.Fprintf(w, "plans: partly landed %s (%s) in %s\n", strings.Join(r.Partial, "; "), r.Sha, base)
+		}
+	}
+	if len(results) == 0 {
+		fmt.Fprintf(w, "plans: %d commits, nothing to tick in %s\n", len(commits), base)
+	}
+	return nil
 }
