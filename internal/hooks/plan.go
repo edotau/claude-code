@@ -260,8 +260,6 @@ func hasPlanHeading(headings []planHeading, want templateHeading) bool {
 	return false
 }
 
-// PlanGate is the PreToolUse(Write|Edit) plan-gate hook: the first write to a native plan draft must carry the template.
-
 // checkPlanTemplate denies the FIRST write to an undated draft under <config>/plans/ that lacks the plan
 // template's required headings (deny-one-call); the message pastes the skeleton so the retry is right.
 func checkPlanTemplate(in *Input, stderr io.Writer) int {
@@ -342,7 +340,7 @@ func recordDest(draftBase, dest string) error {
 }
 
 // planMirror is a PostToolUse(Write|Edit) hook: every write to an undated draft under <config>/plans/ is
-// copied to its dated, repo-tagged file (SavePlan's own slug/title/dest logic), so the draft is never the
+// copied to its dated, repo-tagged file (savePlan's own slug/title/dest logic), so the draft is never the
 // file of record. The first mirror picks the destination (and never clobbers an unrelated existing dated
 // file, via planDest's collision check); it is then recorded so a later H1 change keeps the same file.
 func planMirror(in *Input, stderr io.Writer) int {

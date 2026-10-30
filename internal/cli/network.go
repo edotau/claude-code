@@ -268,7 +268,7 @@ func cmdNetworkPage(args []string) int {
 	defer stop()
 	if err := web.Run(ctx, web.Options{
 		Addr: *addr, Hosts: hostList, Days: *days, DryRunDispatch: *dryRun,
-		Out: os.Stdout, ErrOut: os.Stderr,
+		ErrOut: os.Stderr,
 	}); err != nil {
 		return fail("network page: %v", err)
 	}

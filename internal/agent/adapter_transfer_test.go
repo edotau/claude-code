@@ -218,7 +218,7 @@ func TestProjectSessionsDirUsesPaths(t *testing.T) {
 	cwd := filepath.Join(t.TempDir(), "proj")
 	dir := projectSessionsDir(t, cwd)
 	if !strings.HasPrefix(dir, paths.ConfigDir()) {
-		t.Skip("memory layout changed; DefaultSource test fixtures may need updating")
+		t.Fatalf("projectSessionsDir = %q, not under paths.ConfigDir() = %q", dir, paths.ConfigDir())
 	}
 }
 

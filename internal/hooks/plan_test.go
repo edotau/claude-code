@@ -96,7 +96,7 @@ func TestSavePlanResponseFallbacksAndAudit(t *testing.T) {
 			}
 			for range 2 {
 				if code := runDirect("docs-plan-save", bytes.NewReader(raw), io.Discard, &bytes.Buffer{}); code != ExitProceed {
-					t.Fatalf("SavePlan = %d", code)
+					t.Fatalf("savePlan = %d", code)
 				}
 			}
 			names := savedPlans(t, cfg)
@@ -154,7 +154,7 @@ func TestSavePlanFilesTaggedOnceAndVersionsEdits(t *testing.T) {
 	}
 	save := func(plan string) {
 		if code := runDirect("docs-plan-save", strings.NewReader(planPayload(t, repo, plan, "")), io.Discard, &bytes.Buffer{}); code != ExitProceed {
-			t.Fatalf("SavePlan must never block, got %d", code)
+			t.Fatalf("savePlan must never block, got %d", code)
 		}
 	}
 	plan := "# Plan: Port the Thing\n\nsteps\n"

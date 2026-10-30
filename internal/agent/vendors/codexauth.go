@@ -11,12 +11,6 @@ import (
 	"time"
 )
 
-// Where codex's ChatGPT auth.json payload came from.
-const (
-	codexAuthFile    = "file"
-	codexAuthKeyring = "keyring"
-)
-
 // codexKeychainService is the macOS/Linux keyring service codex stores its ChatGPT login under when
 // config.toml sets cli_auth_credentials_store = "keyring" (the whole auth.json body as the secret value).
 const codexKeychainService = "Codex Auth"
@@ -33,19 +27,19 @@ var codexKeychainCmd = func(ctx context.Context, args ...string) ([]byte, error)
 
 // codexAuthJSON is codex's ChatGPT login payload, $CODEX_HOME/auth.json first and the OS keyring second —
 // codex writes there instead of the file once config.toml sets cli_auth_credentials_store = "keyring", but
-// that setting is only a hint: the file is always tried first regardless of what it says. data is nil and
-// source is "" when neither holds a login; keyringNote is "" normally, or the reason a keyring lookup
+// that setting is only a hint: the file is always tried first regardless of what it says. data is nil
+// when neither holds a login; keyringNote is "" normally, or the reason a keyring lookup
 // failed for something other than "nothing stored", for a caller that wants to say why.
-func codexAuthJSON() (data []byte, source, keyringNote string) {
+func codexAuthJSON() (data []byte, keyringNote string) {
 	if b, err := os.ReadFile(filepath.Join(codexHome(), "auth.json")); err == nil {
-		return b, codexAuthFile, ""
+		return b, ""
 	}
 	if b, note := codexKeyringAuthJSON(); b != nil {
-		return b, codexAuthKeyring, ""
+		return b, ""
 	} else if note != "" {
-		return nil, "", note
+		return nil, note
 	}
-	return nil, "", ""
+	return nil, ""
 }
 
 // codexKeyringAuthJSON looks up the "Codex Auth" keyring item; an item with several accounts answers

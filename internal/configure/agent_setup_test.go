@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"maps"
 	"slices"
 	"strings"
 	"testing"
@@ -29,9 +30,7 @@ func installSetupFake(t *testing.T, f *setupFake) {
 	}
 	t.Cleanup(func() {
 		setupState, setupVerify, setupRoute = st, ve, ro
-		for k, v := range logins {
-			setupLogins[k] = v
-		}
+		maps.Copy(setupLogins, logins)
 	})
 	setupState = func(*dialog, string) agentState { return agentState{verified: f.verified} }
 	setupVerify = func(context.Context, string) error { f.calls = append(f.calls, "verify"); return f.verifyErr }
