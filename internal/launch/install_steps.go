@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/vendors"
 	"github.com/edotau/claude-code/internal/clipboard"
 	"github.com/edotau/claude-code/internal/completion"
@@ -623,7 +624,7 @@ type RestoreResult struct {
 func RestoreSettings(file string) (RestoreResult, error) {
 	var r RestoreResult
 	if h, err := history.SnapshotConfig("before restore"); err != nil {
-		fmt.Fprintln(NoticeOut, "restore: history snapshot:", err)
+		fmt.Fprintln(agent.NoticeOut, "restore: history snapshot:", err)
 	} else {
 		r.Commit = h.Commit
 	}

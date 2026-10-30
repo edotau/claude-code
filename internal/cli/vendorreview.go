@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/launch"
 	"github.com/edotau/claude-code/internal/proc/inflight"
 )
 
@@ -60,7 +61,7 @@ func runSplitReview(vendor string, args []string, parts []agent.Part, scope agen
 // spawnSplitReview detaches this same review (minus --background) as one job that runs the parts in order.
 func spawnSplitReview(vendor string, args []string, n int) int {
 	cwd, _ := os.Getwd()
-	req := agent.Request{Prompt: fmt.Sprintf("%s review split into %d parts", vendor, n), WorkDir: cwd}
+	req := agent.Request{Prompt: fmt.Sprintf("%s review split into %d parts", vendor, n), WorkDir: cwd, Launcher: launch.Launcher{}}
 	rec := agent.ClaimRecord(vendor, req, time.Now())
 	rec.Repo, rec.Owner, rec.Log = agent.RepoRoot(context.Background(), cwd), inflight.SessionOwner(), rec.LogPath()
 	rec.Progress = fmt.Sprintf("part 0/%d", n)

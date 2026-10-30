@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 )
 
@@ -23,7 +24,7 @@ func TestClaudeBinaryPrefersBinDirOverVersions(t *testing.T) {
 		}
 	}
 	bin := pathstest.FakeVendor(t, "claude", "")
-	got, err := ClaudeBinary()
+	got, err := agent.ClaudeBinary()
 	if err != nil || got != bin {
 		t.Fatalf("ClaudeBinary = %q, %v; want %q", got, err, bin)
 	}
@@ -31,7 +32,7 @@ func TestClaudeBinaryPrefersBinDirOverVersions(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := filepath.Join(versions, "2.0.14")
-	got, err = ClaudeBinary()
+	got, err = agent.ClaudeBinary()
 	if err != nil || got != want {
 		t.Fatalf("without bin/claude = %q, %v; want %q", got, err, want)
 	}
@@ -42,7 +43,7 @@ func TestClaudeBinaryDoesNotSearchPATH(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	source := vendorPATHFixture(t, "claude", "")
 	t.Setenv("PATH", filepath.Dir(source))
-	if bin, err := ClaudeBinary(); err == nil || !strings.Contains(err.Error(), "not found in") || bin != "" {
+	if bin, err := agent.ClaudeBinary(); err == nil || !strings.Contains(err.Error(), "not found in") || bin != "" {
 		t.Fatalf("ClaudeBinary = %q, %v; want not found despite PATH vendor", bin, err)
 	}
 }

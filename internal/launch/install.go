@@ -17,6 +17,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/vendors"
 	"github.com/edotau/claude-code/internal/audit"
 	"github.com/edotau/claude-code/internal/clean"
@@ -64,7 +65,7 @@ func DoctorChecks() (checks []Check, ok bool) {
 			ok = false
 		}
 	}
-	bin, err := ClaudeBinary()
+	bin, err := agent.ClaudeBinary()
 	check(err == nil, true, "claude binary", orErr(bin, err))
 	checks = append(checks, codexConfigChecks()...)
 	reg, err := providers.Load()
@@ -633,7 +634,7 @@ func extraPATHCopies(name, primary string) string {
 // toolPATHCopies lists distinct executables named name on PATH, skipping BinDir and the harness binary.
 func toolPATHCopies(name string) []string {
 	binDir, _ := filepath.Abs(paths.BinDir())
-	self, _ := SelfBinary()
+	self, _ := agent.SelfBinary()
 	seen := map[string]bool{}
 	var copies []string
 	for _, dir := range filepath.SplitList(os.Getenv("PATH")) {

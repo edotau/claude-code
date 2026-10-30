@@ -11,6 +11,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/vendors"
+	"github.com/edotau/claude-code/internal/launch"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/secrets/shapes"
 	"github.com/edotau/claude-code/internal/ui/helptext"
@@ -324,7 +325,7 @@ func cmdVendorSetup(vendor string, args []string) int {
 	if err := helptext.CheckFormat(*format); err != nil {
 		return fail("%s setup: %v", vendor, err)
 	}
-	rep := agent.Setup(vendor)
+	rep := agent.Setup(vendor, launch.RouteDetail)
 	if *format == helptext.JSON {
 		if err := helptext.WriteJSON(os.Stdout, rep); err != nil {
 			return fail("%s setup: %v", vendor, err)

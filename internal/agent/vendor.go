@@ -13,7 +13,6 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/agent/vendors"
-	"github.com/edotau/claude-code/internal/launch"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 )
@@ -34,7 +33,7 @@ func ownProfile(name string) string {
 func vendorTarget(req Request, name string) (providers.Target, bool, error) {
 	t, own, note, err := vendorTargetNote(req, name)
 	if note != "" {
-		fmt.Fprintln(launch.NoticeOut, note)
+		fmt.Fprintln(NoticeOut, note)
 	}
 	return t, own, err
 }

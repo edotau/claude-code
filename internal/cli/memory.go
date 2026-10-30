@@ -92,7 +92,7 @@ func memoryAgent() memory.AgentFunc {
 			return "", err
 		}
 		req := agent.Request{Prompt: prompt, Model: "claude-opus-5.5",
-			Effort: "medium", Tools: true, WorkDir: workdir}
+			Effort: "medium", Tools: true, WorkDir: workdir, Launcher: launch.Launcher{}}
 		notify := func(m string) { fmt.Fprintln(os.Stderr, m) }
 		res, err := agent.RunWithFallback(ctx, chain, req, agent.NewTextSink(os.Stdout), notify)
 		who := res.Agent
@@ -409,7 +409,7 @@ func cmdMemoryUpdate(args []string) int {
 		fmt.Printf("memory update (dry run): session %s, transcript %s, bank %s\n", *session, *transcript, memory.Dir(root))
 		return 0
 	}
-	claude, err := launch.ClaudeBinary() // "" is fine here: Run (memoryAgent) handles the update, Claude is only its fallback
+	claude, err := agent.ClaudeBinary() // "" is fine here: Run (memoryAgent) handles the update, Claude is only its fallback
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "claude-code: memory update:", err)
 	}
@@ -453,7 +453,7 @@ func cmdMemoryDigest(args []string) int {
 	if code, done := helptext.Parse(fs, args); done {
 		return code
 	}
-	claude, _ := launch.ClaudeBinary()
+	claude, _ := agent.ClaudeBinary()
 	path, err := memory.Digest(memory.Dir(memoryRoot(*repo)), claude)
 	if err != nil {
 		return fail("memory digest: %v", err)

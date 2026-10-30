@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agent"
 	agentvendors "github.com/edotau/claude-code/internal/agent/vendors"
 	"github.com/edotau/claude-code/internal/audit"
 	"github.com/edotau/claude-code/internal/hooks"
@@ -125,7 +126,7 @@ func anthropicSecret(o launch.AnthropicOptions) (string, error) {
 
 // runSetupToken runs `claude setup-token` on the inherited terminal; a failure only means the user pastes a token.
 func runSetupToken() {
-	bin, err := launch.ClaudeBinary()
+	bin, err := agent.ClaudeBinary()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "claude-code:", err)
 		return

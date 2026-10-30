@@ -1,4 +1,4 @@
-package agent
+package agent_test
 
 import (
 	"context"
@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/launch"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
@@ -71,9 +72,11 @@ func TestLaunchAndAgentAgreeOnModel(t *testing.T) {
 			if c.agent == "copilot" {
 				pin = "claude-haiku-5-5"
 			}
-			setPin(t, c.pinKey, pin)
+			if err := providers.SetPins(map[string]string{c.pinKey: pin}); err != nil {
+				t.Fatal(err)
+			}
 			t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
-			tg, _, _, err := vendorTargetNote(Request{Provider: c.profile, Model: c.flag}, c.agent)
+			tg, _, _, err := agent.VendorTargetNote(agent.Request{Provider: c.profile, Model: c.flag}, c.agent)
 			if err != nil {
 				t.Fatal(err)
 			}

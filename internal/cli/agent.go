@@ -24,6 +24,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent/vendors"
 	"github.com/edotau/claude-code/internal/crossgen"
 	"github.com/edotau/claude-code/internal/hooks"
+	"github.com/edotau/claude-code/internal/launch"
 	"github.com/edotau/claude-code/internal/network/tailscale"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc/inflight"
@@ -123,7 +124,7 @@ func runAsk(args []string, resume bool) int {
 		base := agent.Request{Model: *model, Provider: *provider, Effort: *effort, WorkDir: *workdir, Tools: *tools, NoTools: *noTools,
 			Timeout: *timeout, KeepEnv: []string(keepEnv), Autonomous: *autonomous, EnableMemory: *enableMemory, Direct: *direct,
 			NoPersist: *noPersist, SafeMode: *safeMode, SystemPrompt: *systemPrompt, AppendSystemPrompt: *appendSystemPrompt,
-			Env: []string(env), OutputSchema: schema, Persona: persona}
+			Env: []string(env), OutputSchema: schema, Persona: persona, Launcher: launch.Launcher{}}
 		return runAskBatch(fs, resume, *batch, batchOpts{jobs: *jobs, failFast: *failFast, agent: *name, fallback: *fallback, native: *native}, base)
 	}
 	if flagExplicit(fs, "jobs") || flagExplicit(fs, "fail-fast") {
@@ -226,7 +227,7 @@ func runAsk(args []string, resume bool) int {
 		WorkDir: *workdir, SessionID: *session, Tools: *tools, NoTools: *noTools, Timeout: *timeout,
 		Attach: []string(attach), KeepEnv: []string(keepEnv), Autonomous: *autonomous, EnableMemory: *enableMemory, Direct: *direct,
 		NoPersist: *noPersist, SafeMode: *safeMode, DebugFile: *debugFile, SystemPrompt: *systemPrompt,
-		AppendSystemPrompt: *appendSystemPrompt, Env: []string(env), OutputSchema: schema, Persona: persona}
+		AppendSystemPrompt: *appendSystemPrompt, Env: []string(env), OutputSchema: schema, Persona: persona, Launcher: launch.Launcher{}}
 	recDir := *workdir
 	if *host != "" {
 		recDir = "" // --workdir is a remote path: it is no local repo to record
@@ -384,6 +385,7 @@ func loadAskJob(job, format string, s *askState, prompt *string) (rec *agent.Rec
 	}
 	s.applyRecord(r)
 	*prompt, *s.rubric = r.Request.Prompt, ""
+	r.Request.Launcher = launch.Launcher{} // the record JSON never carries it
 	r.PID = os.Getpid()
 	return &r, 0, false
 }
@@ -565,7 +567,7 @@ func resolveAskChain(ctx context.Context, name, provider, model, prompt, fallbac
 		}
 	}
 	if agent.ExplicitBackend(agent.Request{Provider: provider, Model: model}) {
-		req := agent.Request{Provider: provider, Model: model}
+		req := agent.Request{Provider: provider, Model: model, Launcher: launch.Launcher{}}
 		if provider == "" || native || !agent.IsHubAgent(name) {
 			return r, tierSlot(agent.ExplicitChain(r, req), name, model, prompt), nil
 		}

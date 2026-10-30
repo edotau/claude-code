@@ -5,7 +5,6 @@ import (
 	"os"
 
 	"github.com/edotau/claude-code/internal/crossgen"
-	"github.com/edotau/claude-code/internal/launch"
 	"github.com/edotau/claude-code/internal/paths"
 )
 
@@ -22,7 +21,7 @@ type Report struct {
 }
 
 // Setup runs the binary, login, route and projection checks for an agent. Text rendering is the caller's job.
-func Setup(name string) Report {
+func Setup(name string, routeDetail func(string) (string, bool)) Report {
 	a, ok := LookupAdapter(name)
 	if !ok {
 		return Report{Agent: name, Checks: []Check{{Name: "agent", State: "fail", Detail: errUnknownAgent(name).Error()}}}
@@ -31,7 +30,7 @@ func Setup(name string) Report {
 	loginCheck := loginCheck(a)
 	rep := Report{
 		Agent:  name,
-		Checks: []Check{binCheck, loginCheck, routeCheck(name), projectionCheck(name)},
+		Checks: []Check{binCheck, loginCheck, routeCheck(name, routeDetail), projectionCheck(name)},
 		OK:     binCheck.State == "ok" && loginCheck.State == "ok",
 	}
 	return rep
@@ -54,9 +53,9 @@ func loginCheck(a Adapter) Check {
 	return Check{Name: "login", State: "ok", Detail: a.Name + " login present"}
 }
 
-// routeCheck pulls the "<name> route" detail from launch.RouteDetail, without running the full doctor sweep.
-func routeCheck(name string) Check {
-	detail, ok := launch.RouteDetail(name)
+// routeCheck pulls the "<name> route" detail from routeDetail, without running the full doctor sweep.
+func routeCheck(name string, routeDetail func(string) (string, bool)) Check {
+	detail, ok := routeDetail(name)
 	if !ok {
 		return Check{Name: "route", State: "warn", Detail: "no route check found for " + name}
 	}
