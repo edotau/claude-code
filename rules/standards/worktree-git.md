@@ -20,9 +20,9 @@ Executor mechanics (account switching, the `git rm` staging gotcha): `agents/cop
 
 ## Worktrees
 
-**Default is no worktree** — work in the checkout. The vault env `HARNESS_WORKTREE` (default `off`) decides when to
-ask: off = only when the `worktree-mode` hook names another session in this checkout; on = before every change.
-Never create one without the user's yes; no answer means keep working in place.
+**Default is the current branch.** Vault env `HARNESS_WORKTREE=off` means work on the current branch with no asks;
+unset (or any other value) means ask the user once, before the first change, whether to use a linked worktree, plus
+when another session joins the checkout. Never create one without the user's yes; no answer means keep working in place.
 
 | To… | Run |
 | --- | --- |

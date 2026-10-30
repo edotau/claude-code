@@ -89,7 +89,7 @@ func agentEffortResult(in *Input) Result {
 	return Result{UpdatedInput: updated, Context: note, SystemMessage: systemMessage}
 }
 
-// applyLabel prefixes the description with the agents the `Agent:` line sends work to, minus the leaf's own type.
+// applyLabel prefixes the description with the agents doing the work, minus the leaf's own type.
 func applyLabel(updated map[string]any, task string) bool {
 	st, _ := updated["subagent_type"].(string)
 	if !labelTypes[st] {
@@ -101,6 +101,9 @@ func applyLabel(updated map[string]any, task string) bool {
 		desc = strings.TrimSpace(rest)
 	}
 	label := agentLabel(st, task)
+	if label == "" && st == "code-worker" { // a wrapper leaf names who runs it; other types are their own agent
+		label = "claude"
+	}
 	var out string
 	switch {
 	case label == "":

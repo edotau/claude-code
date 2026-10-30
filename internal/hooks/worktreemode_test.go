@@ -8,7 +8,7 @@ import (
 	"github.com/edotau/claude-code/internal/worktree"
 )
 
-// TestWorktreeModeAndBusy: on asks every session; off stays silent until a peer appears, then reports a changed set once.
+// TestWorktreeModeAndBusy: off|false|0 is silent even with a peer; unset asks at start and reports a changed peer set once.
 func TestWorktreeModeAndBusy(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	cwd := t.TempDir()
@@ -21,13 +21,18 @@ func TestWorktreeModeAndBusy(t *testing.T) {
 	defer func() { peerAgents = old }()
 	in := &Input{SessionID: "s1", CWD: cwd}
 
-	t.Setenv(worktreeModeEnv, "on")
-	if got := worktreeMode(in).Context; !strings.HasPrefix(got, "Worktree mode on:") {
-		t.Fatalf("on: %q", got)
+	for _, v := range []string{"off", "false", "0", "OFF"} {
+		t.Setenv(worktreeModeEnv, v)
+		if got := worktreeMode(in).Context + worktreeBusy(in).Context; got != "" {
+			t.Fatalf("%s must be silent with a peer present, got %q", v, got)
+		}
 	}
 	t.Setenv(worktreeModeEnv, "")
-	if got := worktreeMode(in).Context; !strings.Contains(got, "claude pid 4242") {
-		t.Fatalf("off start: %q", got)
+	if got := worktreeMode(in).Context; got != worktreeAskLine {
+		t.Fatalf("unset start: %q", got)
+	}
+	if got := worktreeBusy(in).Context; !strings.Contains(got, "claude pid 4242") {
+		t.Fatalf("unset busy: %q", got)
 	}
 	if got := worktreeBusy(in).Context; got != "" {
 		t.Fatalf("same peers must dedupe, got %q", got)

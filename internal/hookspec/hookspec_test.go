@@ -29,6 +29,9 @@ func TestIsHarness(t *testing.T) {
 		want    bool
 	}{
 		{HookBin + " hook x", true},
+		{"rtk hook claude", true}, // the stale entry `rtk init -g` writes
+		{"/opt/bin/rtk hook claude", true},
+		{"rtk hook codex", false},
 		{"HARNESS_HOOK_AGENT=codex " + HookBin + " hook x", true},
 		{"HARNESS_HOOK_AGENT=vendor_2 " + HookBin + " hook x", true},
 		{"HARNESS_HOOK_VENDOR=codex " + HookBin + " hook x", true}, // the pre-rename marker

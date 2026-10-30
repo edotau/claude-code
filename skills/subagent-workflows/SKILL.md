@@ -32,12 +32,14 @@ check with `git rev-parse --show-toplevel` from the granted path.
 ## Leaf types
 
 A leaf either does the work itself or requests one agent through `claude-code ask --agent <x>`. The UI row is
-`<leaf type>  <requested agent>: <task>` for a request, `<leaf type>  <task>` otherwise.
+`<leaf type>  <requested agent>: <task>` for a request, `<leaf type>  <task>` otherwise; `code-worker` always names
+who runs it (`claude` in-context). Pass the task alone as `description`: `dispatch-effort` adds the label, and an
+agent's name never appears twice.
 
 | Leaf type | Does the work itself | Requests |
 | --- | --- | --- |
 | `claude` — near the main thread | `claude  <task>` | rare: `claude  copilot: <task>` |
-| `code-worker` — default fan-out leaf | `code-worker  <task>` | `code-worker  claude: reviewing code` |
+| `code-worker` — default fan-out leaf | `code-worker  claude: <task>` | `code-worker  gemini: scanning repo` |
 | `codex` / `copilot` / `gemini` / `opencode` | `copilot  <task>` | `copilot  gemini: scanning repo` |
 | `coworker` — always requests | — | `coworker  codex: <task>` |
 

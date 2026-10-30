@@ -77,9 +77,12 @@ const AllFlag = "--all"
 // Any HARNESS_HOOK_* marker counts, so a renamed marker's stale entries are replaced on render, not kept as foreign.
 var harnessCommand = regexp.MustCompile(`^(?:HARNESS_HOOK_[A-Z]+=\w+ )?` + regexp.QuoteMeta(HookBin) + ` `)
 
-// IsHarness reports whether a hook command belongs to this harness, including vendor-marked commands.
+// foreignRTKHook is the bare `rtk hook claude` entry `rtk init -g` writes; the harness rtk-rewrite replaces it.
+var foreignRTKHook = regexp.MustCompile(`^(?:\S*/)?rtk hook claude\b`)
+
+// IsHarness reports whether a hook command belongs to this harness, including vendor-marked commands and the stale foreign rtk hook.
 func IsHarness(command string) bool {
-	return harnessCommand.MatchString(strings.TrimSpace(command))
+	return harnessCommand.MatchString(strings.TrimSpace(command)) || foreignRTKHook.MatchString(strings.TrimSpace(command))
 }
 
 const sec = time.Second
@@ -145,7 +148,7 @@ var Registry = []Group{
 		// Native worktrees live at ~/worktrees/<repo>/<name>, the same root Orca uses; these replace Claude's git logic.
 		{Name: "worktree-create", Event: EventWorktreeCreate, Budget: 60 * sec},
 		{Name: "worktree-remove", Event: EventWorktreeRemove, Budget: 30 * sec},
-		// Ask-about-a-worktree notes (HARNESS_WORKTREE); the busy check runs every prompt, so it stays cheap.
+		// Ask-about-a-worktree notes (silent when HARNESS_WORKTREE=off); the busy check runs every prompt, so it stays cheap.
 		{Name: "worktree-mode", Event: EventSessionStart, Budget: 5 * sec},
 		{Name: "worktree-busy", Event: EventUserPromptSubmit, Budget: 5 * sec},
 	}},

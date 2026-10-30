@@ -212,13 +212,15 @@ func TestDispatchAgentLabels(t *testing.T) {
 	lower := []struct{ st, agent, desc, want string }{
 		{"code-worker", "copilot", "Fix bug", "copilot: fix bug"},
 		{"code-worker", "copilot", "copilot: Fix bug", "copilot: fix bug"},
-		{"code-worker", "none", "Exercising live-session cap", "exercising live-session cap"},
-		{"code-worker", "none", "HTTP retry", "HTTP retry"},
+		{"code-worker", "none", "Exercising live-session cap", "claude: exercising live-session cap"},
+		{"code-worker", "none", "HTTP retry", "claude: HTTP retry"},
 		{"code-worker", "copilot", "CLAUDE.md rewrite", "copilot: CLAUDE.md rewrite"},
-		{"code-worker", "none", "internal_x fix", "internal_x fix"},
-		{"code-worker", "none", "Fix v2 bug", "fix v2 bug"},
-		{"code-worker", "none", "V2 bug", "V2 bug"},
-		{"code-worker", "none", "Done. Next", "done. Next"},
+		{"code-worker", "none", "internal_x fix", "claude: internal_x fix"},
+		{"code-worker", "none", "Fix v2 bug", "claude: fix v2 bug"},
+		{"code-worker", "none", "V2 bug", "claude: V2 bug"},
+		{"code-worker", "none", "Done. Next", "claude: done. Next"},
+		{"code-worker", "none", "code-worker: RTK hook", "claude: RTK hook"},
+		{"copilot", "none", "copilot: repair tests", "repair tests"},
 	}
 	for _, c := range lower {
 		if got := labelOf(t, c.st, "do it\nAgent: "+c.agent, c.desc); got != c.want {
@@ -226,7 +228,8 @@ func TestDispatchAgentLabels(t *testing.T) {
 		}
 	}
 	cases := []struct{ st, agent, want string }{
-		{"code-worker", "none", "task"},
+		{"code-worker", "none", "claude: task"},
+		{"code-worker", "claude (in-context)", "claude: task"},
 		{"claude", "copilot", "copilot: task"},
 		{"copilot", "claude", "claude: task"},
 		{"coworker", "codex", "codex: task"},
