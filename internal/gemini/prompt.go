@@ -10,14 +10,17 @@ import (
 const PromptCap = DefaultTotalBytes
 
 // FitPrompt renders the prompt, moving whole trailing files to Skipped ("prompt-cap") until it fits limit.
-// It returns the prompt, the possibly reduced Context and the paths left out.
-func FitPrompt(task string, ctx Context, limit int) (string, Context, []string) {
+// task is rebuilt per trim so an index reflects what stays inlined; it errors if zero files still exceed limit.
+func FitPrompt(task func(Context) string, ctx Context, limit int) (string, Context, []string, error) {
 	var dropped []string
 	for {
-		prompt := BuildPrompt(task, ctx)
+		prompt := BuildPrompt(task(ctx), ctx)
 		excess := len(prompt) - limit
-		if excess <= 0 || len(ctx.Included) == 0 {
-			return prompt, ctx, dropped
+		if excess > 0 && len(ctx.Included) == 0 {
+			return prompt, ctx, dropped, fmt.Errorf("gemini bridge: task and file inventory alone are %d bytes, over the %d byte cap", len(prompt), limit)
+		}
+		if excess <= 0 {
+			return prompt, ctx, dropped, nil
 		}
 		inc := append([]IncludedFile(nil), ctx.Included...)
 		skipped := append([]SkippedFile(nil), ctx.Skipped...)

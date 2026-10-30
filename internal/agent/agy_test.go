@@ -184,3 +184,24 @@ func TestParseAgyStreamPartial(t *testing.T) {
 		t.Errorf("finished command then answer: err = %v, want nil", err)
 	}
 }
+
+// TestParseAgyStreamOpenCommandSurvivesResponse: a response delta after an ACTIVE command does not close it.
+func TestParseAgyStreamOpenCommandSurvivesResponse(t *testing.T) {
+	step := func(state string) string {
+		s := `"step_type":"run_command"`
+		if state != "" {
+			s += `,"state":"` + state + `"`
+		}
+		return `{"event":"step_update","step_update":{` + s + `}}` + "\n"
+	}
+	text := `{"event":"step_update","step_update":{"step_type":"agent_response","text_delta":"bg"}}` + "\n"
+	ok := `{"event":"result","result":{"status":"SUCCESS"}}`
+	_, err := parseAgyStream(strings.NewReader(step("ACTIVE")+text+ok), NewTextSink(&strings.Builder{}), nil)
+	var e *Error
+	if !errors.As(err, &e) || statusOf(e) != StatusPartial {
+		t.Errorf("active command then response: err = %v, want partial", err)
+	}
+	if _, err := parseAgyStream(strings.NewReader(step("")+text+ok), NewTextSink(&strings.Builder{}), nil); err != nil {
+		t.Errorf("state-less step: err = %v, want nil", err)
+	}
+}
