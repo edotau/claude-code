@@ -187,6 +187,7 @@ func Revert(o Options) error {
 }
 
 // legacyBackupSource picks the newest pre-mirror "<path>.backup.<stamp>" file, else the plain ".backup"; codex restore only.
+// Migration: remove after 2026-11-13 once every machine has run a post-2026-10-28 build.
 func legacyBackupSource(path string) (src string, stepBack, ok bool) {
 	if versions, err := filepath.Glob(path + ".backup.*"); err == nil && len(versions) > 0 {
 		sort.Strings(versions)

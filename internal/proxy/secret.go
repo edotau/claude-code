@@ -16,7 +16,8 @@ import (
 const secretName = "CLAUDE_CODE_ROUTER_SECRET"
 
 // ClientSecret returns the per-install secret clients must present, sealed in the vault.
-// First use imports a legacy state/router.secret (same value), reads it back, then deletes the file.
+// First use imports state/router.secret (same value), reads it back, then deletes the file.
+// Migration: remove after 2026-11-13 once every machine has run a post-2026-10-28 build.
 func ClientSecret() (string, error) {
 	s, found, err := vault.ReadSecret(secretName)
 	if err != nil {

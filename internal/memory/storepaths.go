@@ -2,7 +2,7 @@ package memory
 
 // The unified store tree (plan §1): ~/.claude/memory/ is one local Git repo holding the home bank under
 // home/, every repo's memory under <repo>/ (keyed by its origin remote), and the harness's own under
-// claude-code/. Legacy paths (HomeBankDir, Dir, NativeDir) stay untouched until the Phase 2 cutover.
+// claude-code/. HomeBankDir, Dir and NativeDir (store.go, native.go) remain the live path resolvers.
 
 import (
 	"path/filepath"

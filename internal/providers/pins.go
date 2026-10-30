@@ -231,7 +231,7 @@ func PinDiff(kv map[string]string) ([]string, error) {
 	return out, nil
 }
 
-// RenderPins renders vault pins in the legacy format for history.
+// RenderPins renders vault pins as the plain-text snapshot history records.
 func RenderPins() ([]byte, error) {
 	pins, err := readPins()
 	if err != nil {

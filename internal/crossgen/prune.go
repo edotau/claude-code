@@ -80,7 +80,7 @@ func pruneGeneratedFiles(out io.Writer, dir, ext string, keep map[string]bool, d
 	return pruned
 }
 
-// removeGeneratedSkillDir deletes a legacy generated skill dir: its symlinks, then SKILL.md, then the dir itself.
+// removeGeneratedSkillDir deletes an old generated skill dir: its symlinks, then SKILL.md, then the dir itself.
 // Never RemoveAll; refuses any path that is not a direct child of root.
 func removeGeneratedSkillDir(path, root string) error {
 	resolved, err := filepath.Abs(path)

@@ -11,7 +11,7 @@ import (
 // palette is the theme source; tests swap it for a fixed Palette or ok=false.
 var palette = theme.Current
 
-// colorMode is truecolor or ansi256 from the environment; "" (16-color, NO_COLOR, unknown) keeps the legacy codes.
+// colorMode is truecolor or ansi256 from the environment; "" (16-color, NO_COLOR, unknown) keeps the basic 16-color ANSI codes.
 func colorMode() string {
 	if os.Getenv("NO_COLOR") != "" {
 		return ""
