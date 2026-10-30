@@ -1,5 +1,4 @@
-// Package pathview maps paths between this machine's view and Windows, UNC and share views, driven by the live mount table.
-package pathview
+package paths
 
 import (
 	"context"

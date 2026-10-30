@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/pathview"
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/schemas"
 )
 
@@ -342,7 +342,7 @@ func TestDeduplicateOwnedEntry(t *testing.T) {
 }
 
 func TestWindowsResolutionAndHelpers(t *testing.T) {
-	resolver := &pathview.Resolver{Mounts: []pathview.Mount{{Point: "/windows", Drive: "C", Root: "/", Kind: pathview.KindDrvFS}}}
+	resolver := &paths.Resolver{Mounts: []paths.Mount{{Point: "/windows", Drive: "C", Root: "/", Kind: paths.KindDrvFS}}}
 	query := func() (string, error) { return `C:\Users\A Person\AppData\Local`, nil }
 	root, err := rootFor("linux", true, "/home/me", "", query, resolver.Resolve)
 	if err != nil || root != "/windows/Users/A Person/AppData/Local/Claude-3p" {

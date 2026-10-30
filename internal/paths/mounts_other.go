@@ -1,5 +1,5 @@
 //go:build !linux && !darwin
 
-package pathview
+package paths
 
 func readMounts() []Mount { return nil }
