@@ -614,14 +614,8 @@ func pageFieldCount(t *testing.T) int {
 	if err != nil {
 		t.Fatal(err)
 	}
-	n := 0
-	for _, sec := range sections {
-		for _, k := range sec.Keys {
-			if _, ok := settings.FieldFor(k); ok {
-				n++
-			}
-		}
-	}
+	_, fields, _ := pageSections(sections, nil, nil, nil)
+	n := len(fields)
 	return n
 }
 
@@ -788,5 +782,43 @@ func TestReportFlattensEnvAndShowsAddedKeys(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), name+"  ") || strings.Contains(out.String(), name+"    ") {
 		t.Errorf("env row blank or absent for %s:\n%s", name, out.String())
+	}
+}
+
+// TestPageRowsSchemaHiddenAndObjectFlattened: $schema is no page row; worktree shows as worktree.baseRef and an
+// edit stages the whole parent object with the other sub-keys kept.
+func TestPageRowsSchemaHiddenAndObjectFlattened(t *testing.T) {
+	sections, err := settings.Sections()
+	if err != nil {
+		t.Fatal(err)
+	}
+	tmpl := map[string]json.RawMessage{
+		"$schema":  json.RawMessage(`"https://x"`),
+		"worktree": json.RawMessage(`{"baseRef":"head","bgIsolation":"none"}`),
+	}
+	secs, fields, _ := pageSections(sections, tmpl, map[string]json.RawMessage{}, nil)
+	var labels []string
+	for _, s := range secs {
+		for _, r := range s.Rows {
+			labels = append(labels, r[0])
+		}
+	}
+	if slices.Contains(labels, "$schema") {
+		t.Errorf("$schema must not be a page row: %v", labels)
+	}
+	if !slices.Contains(labels, "worktree.baseRef") || slices.Contains(labels, "worktree") {
+		t.Errorf("worktree must flatten to worktree.baseRef: %v", labels)
+	}
+	if len(fields) == 0 {
+		t.Fatal("no fields")
+	}
+	ov, staged, reset := map[string]json.RawMessage{}, map[string]json.RawMessage{}, map[string]bool{}
+	stageField(ov, staged, reset, map[string]json.RawMessage{}, tmpl, "worktree.baseRef", json.RawMessage(`"fresh"`))
+	var got map[string]string
+	if err := json.Unmarshal(staged["worktree"], &got); err != nil || got["baseRef"] != "fresh" || got["bgIsolation"] != "none" {
+		t.Errorf("staged worktree = %s (%v); want baseRef fresh with bgIsolation none kept", staged["worktree"], err)
+	}
+	if string(tmpl["worktree"]) != `{"baseRef":"head","bgIsolation":"none"}` {
+		t.Errorf("template mutated: %s", tmpl["worktree"])
 	}
 }

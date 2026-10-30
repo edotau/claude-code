@@ -46,14 +46,51 @@ func claudeSettingsRow(d *dialog) homeRow {
 // (default|mine), flagging when the live settings.json holds something else. tmpl/ov/live are
 // parsed top-level settings objects; a missing live map (no file yet) never raises the flag.
 func settingRow(f settings.Field, tmpl, ov, live map[string]json.RawMessage) [2]string {
-	eff, source := tmpl[f.Key], "default"
-	if v, ok := ov[f.Key]; ok {
+	eff, _ := lookupKey(tmpl, f.Key)
+	source := "default"
+	if v, ok := lookupKey(ov, f.Key); ok {
 		eff, source = v, "mine"
 	}
-	if l, ok := live[f.Key]; ok && !jsonEqual(l, eff) {
+	if l, ok := lookupKey(live, f.Key); ok && !jsonEqual(l, eff) {
 		source += " · live differs"
 	}
 	return [2]string{f.Key, settingText(eff) + "  " + source}
+}
+
+// lookupKey reads key from m, or "parent.sub" from the parent's object when m has no such top-level key.
+func lookupKey(m map[string]json.RawMessage, key string) (json.RawMessage, bool) {
+	if v, ok := m[key]; ok {
+		return v, true
+	}
+	parent, sub, nested := strings.Cut(key, ".")
+	var obj map[string]json.RawMessage
+	if !nested || json.Unmarshal(m[parent], &obj) != nil {
+		return nil, false
+	}
+	v, ok := obj[sub]
+	return v, ok
+}
+
+// fieldRows is f's page rows: one row per scalar leaf for an object setting (worktree.baseRef), else its own row.
+func fieldRows(f settings.Field, tmpl, cur, live map[string]json.RawMessage) ([][2]string, []settings.Field) {
+	eff, ok := cur[f.Key]
+	if !ok {
+		eff = tmpl[f.Key]
+	}
+	var obj map[string]json.RawMessage
+	if f.Kind != settings.KindObject || json.Unmarshal(eff, &obj) != nil || len(obj) == 0 {
+		return [][2]string{settingRow(f, tmpl, cur, live)}, []settings.Field{f}
+	}
+	var rows [][2]string
+	var fields []settings.Field
+	for _, sub := range slices.Sorted(maps.Keys(obj)) {
+		lf, ok := settings.SubField(f.Key, sub)
+		if !ok {
+			return [][2]string{settingRow(f, tmpl, cur, live)}, []settings.Field{f}
+		}
+		rows, fields = append(rows, settingRow(lf, tmpl, cur, live)), append(fields, lf)
+	}
+	return rows, fields
 }
 
 // settingText renders a raw JSON scalar as plain text: quotes stripped off a string, everything else as-is.
@@ -362,11 +399,11 @@ func pageSections(sections []settings.Section, tmpl, cur, live map[string]json.R
 		for _, key := range sec.Keys {
 			shown[key] = true
 			f, ok := settings.FieldFor(key)
-			if !ok {
+			if !ok || key == "$schema" { // $schema is a reference, not a setting; settings.json still gets it
 				continue
 			}
-			rows = append(rows, settingRow(f, tmpl, cur, live))
-			fields = append(fields, f)
+			r, fs := fieldRows(f, tmpl, cur, live)
+			rows, fields = append(rows, r...), append(fields, fs...)
 		}
 		if len(rows) > 0 {
 			out = append(out, tui.Section{Title: "== " + sec.Name + " ==", Rows: rows})
@@ -375,8 +412,8 @@ func pageSections(sections []settings.Section, tmpl, cur, live map[string]json.R
 	var rows [][2]string
 	for _, key := range slices.Sorted(maps.Keys(cur)) {
 		if f, ok := settings.FieldFor(key); ok && !shown[key] {
-			rows = append(rows, settingRow(f, tmpl, cur, live))
-			fields = append(fields, f)
+			r, fs := fieldRows(f, tmpl, cur, live)
+			rows, fields = append(rows, r...), append(fields, fs...)
 		}
 	}
 	if len(rows) > 0 {
@@ -428,8 +465,9 @@ func runClaudeSettingsMenu(d *dialog, ov map[string]json.RawMessage, sections []
 			saveRepoDefaults(d, staged)
 		default:
 			f := fields[idx]
-			if raw, ok := editSetting(d, f, tmpl[f.Key]); ok {
-				stageSetting(ov, staged, reset, f.Key, raw, tmpl[f.Key])
+			tv, _ := lookupKey(tmpl, f.Key)
+			if raw, ok := editSetting(d, f, tv); ok {
+				stageField(ov, staged, reset, cur, tmpl, f.Key, raw)
 			}
 		}
 	}
@@ -500,6 +538,35 @@ func saveRepoDefaults(d *dialog, staged map[string]json.RawMessage) {
 		d.printf("claude code: git diff --stat: %v\n", err)
 	}
 	d.println(strings.TrimRight(stat, "\n"))
+}
+
+// stageField stages key, writing a "parent.sub" leaf back into a copy of the parent object (other sub-keys kept).
+func stageField(ov, staged map[string]json.RawMessage, reset map[string]bool, cur, tmpl map[string]json.RawMessage, key string, raw json.RawMessage) {
+	parent, sub, nested := strings.Cut(key, ".")
+	if _, top := tmpl[key]; !nested || top {
+		stageSetting(ov, staged, reset, key, raw, tmpl[key])
+		return
+	}
+	base, ok := cur[parent]
+	if !ok {
+		base = tmpl[parent]
+	}
+	var obj map[string]json.RawMessage
+	_ = json.Unmarshal(base, &obj)
+	next := maps.Clone(obj)
+	if next == nil {
+		next = map[string]json.RawMessage{}
+	}
+	if raw == nil { // remove from mine: back to the repo default's sub-value
+		raw, _ = lookupKey(tmpl, key)
+	}
+	if raw == nil {
+		delete(next, sub)
+	} else {
+		next[sub] = raw
+	}
+	b, _ := json.Marshal(next)
+	stageSetting(ov, staged, reset, parent, b, tmpl[parent])
 }
 
 // stageSetting records one edit: nil (explicit remove) or a value matching the repo default both remove the

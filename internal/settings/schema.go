@@ -224,6 +224,20 @@ func SchemaKey(name string) (Key, bool) {
 	return k, ok
 }
 
+// SubField returns the Field for a scalar property of an object setting (parent.sub); ok is false for anything else.
+func SubField(parent, sub string) (Field, bool) {
+	pk, ok := SchemaKey(parent)
+	sk, found := pk.props[sub]
+	if !ok || !found || sk.Kind == KindObject || sk.Kind == KindArray || sk.ref {
+		return Field{}, false
+	}
+	f := Field{Key: parent + "." + sub, Kind: sk.Kind, Values: sk.Enum, Source: "schema"}
+	if sk.Min != nil {
+		f.Min = int(*sk.Min)
+	}
+	return f, true
+}
+
 // SchemaKeys returns every schema entry sorted by name.
 func SchemaKeys() []Key {
 	m := schemaIndex()

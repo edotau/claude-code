@@ -374,3 +374,16 @@ func TestListSectionHeadUsesAccent(t *testing.T) {
 		t.Errorf("themed head = %q, want truecolor accent 38;2;71;150;228", got)
 	}
 }
+
+// TestListNewlineValueKeepsOneRowPerLine: a Detail with a newline folds to one terminal row, so countLines is exact.
+func TestListNewlineValueKeepsOneRowPerLine(t *testing.T) {
+	s := newListState(ListSpec{Title: "t", Rows: []ListRow{{Label: "k", Detail: "a\nb\tc"}}}, 30)
+	ls := listLines(s, false, 120, 20)
+	want := countLines(ls, 120)
+	if got := strings.Count(renderList(ls), "\n") + 1; got > want {
+		t.Errorf("rendered %d lines but countLines says %d", got, want)
+	}
+	if strings.Contains(renderList(ls), "a\nb") {
+		t.Errorf("newline leaked into the frame")
+	}
+}

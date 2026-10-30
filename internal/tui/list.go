@@ -189,6 +189,11 @@ type line struct{ plain, styled string }
 
 func runeLen(s string) int { return utf8.RuneCountInString(s) }
 
+// oneLine folds newlines, tabs and carriage returns to a space so a row is one terminal row, as countLines assumes.
+func oneLine(s string) string {
+	return strings.Join(strings.FieldsFunc(s, func(r rune) bool { return r == '\n' || r == '\r' || r == '\t' }), " ")
+}
+
 func pad(s string, w int) string { return s + strings.Repeat(" ", max(0, w-runeLen(s))) }
 
 // listLines builds the frame: title, Search line, grouped rows (windowed to fit h-1 lines at cols), blank, footer.
@@ -204,13 +209,14 @@ func listLines(s listState, color bool, cols, h int) []line {
 	lw, dw := 0, 0 // column widths over every row, so filtering never shifts the columns
 	hasSec := false
 	for _, r := range s.spec.Rows {
-		lw, dw = max(lw, runeLen(r.Label)), max(dw, runeLen(r.Detail))
+		lw, dw = max(lw, runeLen(oneLine(r.Label))), max(dw, runeLen(oneLine(r.Detail)))
 		hasSec = hasSec || r.Section != ""
 	}
 	at := -1 // body index of the cursor row
 	sec := "\x00"
 	for p, i := range s.view {
 		r := s.spec.Rows[i]
+		r.Label, r.Detail, r.Status = oneLine(r.Label), oneLine(r.Detail), oneLine(r.Status)
 		if r.Section != sec {
 			sec = r.Section
 			if hasSec && sec != "" {
