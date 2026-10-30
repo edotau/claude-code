@@ -69,6 +69,7 @@ var writers = map[string]string{
 	"internal/hooks/checkpoint.go:contextCheckpoint":               unversioned("marker: context-checkpoint flag file"),
 	"internal/hooks/codexaudit.go:appendCodexRoute":                "codex-routing",
 	"internal/inflight/limiter.go:writeMarker":                     unversioned("marker: in-flight dispatch marker (account key)"),
+	"internal/hooks/worktreemode.go:busyLine":                      unversioned("marker: per-session worktree-busy dedupe stamp"),
 	"internal/hooks/memory.go:writeChain":                          unversioned("text: last-session chain stamp"),
 	"internal/hooks/memory.go:writeCountState":                     unversioned("text: edit count stamp"),
 	"internal/hooks/memory.go:writeSidecar":                        unversioned("text: harvest sidecar text"),
