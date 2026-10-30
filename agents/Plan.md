@@ -86,7 +86,8 @@ Why this change, what it must achieve, what is out of scope.
 **Files:** `path/to/file.go:120-145` (modify), `path/to/new.go` (create)
 **Change:** the exact edit — functions, signatures, data flow; code for anything non-obvious.
 **Verify:** live check `<command>` → expected output; then `go test ./internal/<pkg> -run '<Name>'`.
-**Agent / parallel:** `agent: <claude|codex|copilot|Workflow <name>|…>`; parallel-safe with Phase N, or depends on Phase M.
+**Agent / parallel:** `leaf: <code-worker|claude|…>, Agent: <requested agent or in-context>` (or
+`Workflow <name>`); parallel-safe with Phase N, or depends on Phase M.
 A phase that is itself a pipeline (implement+verify, audit a range, loop a gate) names the saved Workflow as its agent
 (`skills/subagent-workflows/references/saved-workflows.md`); the manager runs it only with the user's opt-in.
 
@@ -102,15 +103,16 @@ A phase that is itself a pipeline (implement+verify, audit a range, loop a gate)
 
 A phase is a group of tasks, not a unit of work: each `### Phase` section lists its task ids. Every task is
 leaf-sized — one package (or ≤3 tightly coupled files), ≤10 findings or edits, fits one 45-minute leaf — and
-names its `agent:` and `owns:` files, e.g.:
-`- [ ] Phase 2.1 — Add --attach to the copilot agent — agent: claude — owns: internal/agent/vendor.go, internal/copilotsdk/copilotsdk.go`
+names its `leaf:` (a `subagent_type`, `code-worker` for MEDIUM+ changes), `Agent:` (requested agent or in-context)
+and `owns:` files (`skills/subagent-workflows/SKILL.md` -> Leaf types), e.g.:
+`- [ ] Phase 2.1 — Add --attach to the copilot agent — leaf: code-worker, Agent: opencode — owns: internal/agent/vendor.go`
 
 Tick `[x]` with the commit id as each item lands (`- [x] Phase 2.1 — … (abc1234)`); this list is the recovery
 point if a session, agent or worktree is lost. Mark an item **you** when only the user can do it. For a
 multi-lane split, see `skills/subagent-workflows/references/lane-orchestrator.md`.
 
-- [ ] Phase 1.1 — <name> — agent: <agent> — owns: <files>
-- [ ] Phase 2.1 — <name> — agent: <agent> — owns: <files>
+- [ ] Phase 1.1 — <name> — leaf: <subagent_type>, Agent: <agent> — owns: <files>
+- [ ] Phase 2.1 — <name> — leaf: <subagent_type>, Agent: <agent> — owns: <files>
 - [ ] Live check on the real surface
 - [ ] Scoped tests for the touched packages
 - [ ] Review (`claude-code codex review --adversarial --base <branch>`)
@@ -150,8 +152,8 @@ Every phase is:
 - **Rules:** `CLAUDE.md` hard rules apply (generated `settings.json`, secrets only in the vault/`auth.command`, propose
   look/behavior changes first); the repo is public — nothing company-specific; CLI/TUI text <=80 columns.
 - **Dispatch shape:** `~/.claude/rules/workflow/agents.md` (caps, fan-out) — disjoint-package code steps run in
-  parallel; every code step names an `agent:` and pairs a `copilot` test agent (`rules/standards/quality.md`);
-  new tests come after the live check.
+  parallel; every code step names a `leaf:` and `Agent:` and pairs a `copilot` test agent
+  (`rules/standards/quality.md`); new tests come after the live check.
 - **Cost routing:** spread steps across agents per `~/.claude/skills/subagent-workflows/references/cost-routing.md`;
   Claude keeps judgement, integration and verification.
 - **Gates:** `go vet` + gofmt every edit; scoped tests while developing; the full suite once at the end; commit by area

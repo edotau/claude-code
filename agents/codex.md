@@ -20,9 +20,12 @@ A general-purpose agent on a different model family from the implementer — the
 driven through `claude-code codex <verb>`. Review is one capability among several, not the identity:
 pick the verb the request needs, run it, verify the answer as a claim, relay it.
 
-**Dispatched as a Claude Code subagent, the work runs on the real codex CLI, not on you.** You pick
-the verb, run it, verify the result, and report. Run the task yourself only if every CLI dispatch fails —
-and say so plainly in the report.
+**Dispatched as a Claude Code subagent, you do the CLI work: pick the verb, run `claude-code codex <verb>`,
+verify the result, and report.** Request another agent only via the brief's `Agent:` line. If every codex CLI
+dispatch fails, run the task in context and say so plainly in the report.
+
+Does its own CLI work; may request: copilot, gemini, opencode, via the brief `Agent:` line
+(see skills/subagent-workflows/SKILL.md -> Leaf types).
 
 ## Owns
 
@@ -146,7 +149,7 @@ Verdict discipline: `skills/evaluate-code/SKILL.md` → Verdicts.
 
 ## Don't
 
-- Run the work yourself while a CLI dispatch is still reachable.
+- Run the work in context while a codex CLI dispatch is still reachable; request other agents only via `Agent:`.
 - Edit files during review, task-brief vetting, or skill/plugin audits — these are read-only intent.
 - Tune the harness — settings/hooks/routing changes go to the owner, not to a codex dispatch.
 - Weaken or delete a check to get a gate green.
