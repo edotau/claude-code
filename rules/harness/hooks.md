@@ -12,7 +12,7 @@ both, then `make install`. **Never hand-edit `settings.json`** → `settings-man
 ## Groups and the dispatcher
 
 `hookspec.Registry` lists groups in execution order: `safety`, `rtk`, `docs`, `dispatch`, `paths`, `memory`,
-`format`, `worktree`, `codex` (codex-only, never rendered into Claude settings). Settings carry **one dispatcher
+`format`, `review`, `worktree`, `codex` (codex-only, never rendered into Claude settings). Settings carry **one dispatcher
 entry per event** (`hook <Event>`) matching the union of its groups' matchers; it reads the payload once, runs each
 enabled group within its budget, recovers panics and merges results. `--<module>` runs one module; `--all` runs
 every module on the event, the gate included.
@@ -41,6 +41,7 @@ every module on the event, the gate included.
 | `docs-plan-tick` / `docs-plan-reminder` | PostToolUse (Bash) / Stop | A landed commit ticks the plan tasks its `owns:` covers (`claude-code plan status`); partly landed tasks are reported once at Stop |
 | `memory-update` | Stop | Context checkpoint first: once per session at ≥85% context it blocks Stop so the model writes a handoff (`claude-code memory update`). Then the memory update, weighing edits and user turns (2 turns = 1 edit) |
 | `format-stop` | Stop | Formats files edited this turn: the repo's `make format\|fmt` if it takes a per-file variable, else the pyproject python chain, else gofmt/ruff/prettier/shfmt; a repo with its own pre-commit switches the group off |
+| `review-simplicity` | PostToolUse (Write\|Edit) | Advisory, never blocks: feeds back ≤8 comment, complexity and smell findings the edit introduced (not ones already in the file) |
 | `memory-start` | SessionStart | Injects `memory/index.md` + this repo's focus (Current Focus/Blockers/Next Steps, In Progress); repairs `projects/<slug>/memory` |
 | `paths-resolve` | UserPromptSubmit | Reports existing paths in the prompt; translates Windows ⇄ `/mnt/…` on WSL |
 | `memory-recall` | UserPromptSubmit | Injects ≤3 bank blocks matching ≥2 prompt terms (plus a repo store the prompt names); skips blocks in context; logs hits to `access.log` (the hot/cold signal for `memory review`) |

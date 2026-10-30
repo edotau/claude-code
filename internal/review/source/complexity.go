@@ -138,7 +138,11 @@ func analyzeFileComplexity(path string, th ComplexityThresholds) (*FileResult, e
 	if err != nil {
 		return nil, err
 	}
-	text := string(data)
+	return complexityContent(path, string(data), lang, th), nil
+}
+
+// complexityContent is analyzeFileComplexity over already-read text.
+func complexityContent(path, text, lang string, th ComplexityThresholds) *FileResult {
 	lineCount := len(strings.Split(text, "\n"))
 	if text != "" && strings.HasSuffix(text, "\n") {
 		lineCount-- // splitlines() drops a trailing newline's empty tail; strings.Split does not.
@@ -169,7 +173,7 @@ func analyzeFileComplexity(path string, th ComplexityThresholds) (*FileResult, e
 	if score < 0 {
 		score = 0
 	}
-	return &FileResult{File: path, Language: lang, Lines: lineCount, Score: score, Findings: nonNilFindings(findings)}, nil
+	return &FileResult{File: path, Language: lang, Lines: lineCount, Score: score, Findings: nonNilFindings(findings)}
 }
 
 func nonNilFindings(f []Finding) []Finding {
