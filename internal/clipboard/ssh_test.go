@@ -3,22 +3,12 @@ package clipboard
 import (
 	"bytes"
 	"errors"
-	"image"
 	"image/png"
 	"net"
 	"os"
 	"path/filepath"
 	"testing"
 )
-
-func testPNG(t *testing.T) []byte {
-	t.Helper()
-	var buf bytes.Buffer
-	if err := png.Encode(&buf, image.NewRGBA(image.Rect(0, 0, 7, 5))); err != nil {
-		t.Fatal(err)
-	}
-	return buf.Bytes()
-}
 
 // serveOnce answers one connection on sock with payload, then closes (the bridge protocol).
 func serveOnce(t *testing.T, sock string, payload []byte) {
@@ -52,10 +42,10 @@ func TestGrabSSHBridge(t *testing.T) {
 		t.Fatalf("missing socket: err = %v, want errNoBridge", err)
 	}
 	_ = os.Remove(sock)
-	serveOnce(t, sock, testPNG(t))
+	serveOnce(t, sock, pngBytes(t))
 	path, dim, err := Grab()
-	if err != nil || dim != "7x5" {
-		t.Fatalf("Grab = %q %q %v, want 7x5", path, dim, err)
+	if err != nil || dim != "3x2" {
+		t.Fatalf("Grab = %q %q %v, want 3x2", path, dim, err)
 	}
 	_ = os.Remove(path)
 }
@@ -75,19 +65,11 @@ func TestReadSSHBadReplies(t *testing.T) {
 }
 
 func TestServePNG(t *testing.T) {
-	dir := t.TempDir()
-	src := filepath.Join(dir, "src.png")
-	if err := os.WriteFile(src, testPNG(t), 0o644); err != nil {
+	src := filepath.Join(t.TempDir(), "src.png")
+	if err := os.WriteFile(src, pngBytes(t), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	osa := func(body string) {
-		script := "#!/bin/sh\n" + body + "\n"
-		if err := os.WriteFile(filepath.Join(dir, "osascript"), []byte(script), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		t.Setenv("PATH", dir+":/usr/bin:/bin")
-	}
-	osa(`cp "` + src + `" "$3"; echo OK`)
+	fakeOsascript(t, `cp "`+src+`" "$3"; echo OK`)
 	var out bytes.Buffer
 	if err := servePNG(&out); err != nil {
 		t.Fatal(err)
@@ -95,7 +77,7 @@ func TestServePNG(t *testing.T) {
 	if _, err := png.DecodeConfig(&out); err != nil {
 		t.Fatalf("served bytes are not a PNG: %v", err)
 	}
-	osa(`echo NOIMAGE`)
+	fakeOsascript(t, `echo NOIMAGE`)
 	out.Reset()
 	if err := servePNG(&out); err != nil || out.Len() != 0 {
 		t.Fatalf("no image: err = %v, %d bytes; want nil, 0", err, out.Len())
