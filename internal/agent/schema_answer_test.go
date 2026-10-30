@@ -63,3 +63,20 @@ func TestNoToolsOneShotReportsEnvDropped(t *testing.T) {
 		t.Errorf("dropped = %v, want [--env]", res.Dropped)
 	}
 }
+
+// Boolean schemas: false forbids any value at that spot, true allows any.
+func TestStructuredAnswerBooleanSchemas(t *testing.T) {
+	const schema = `{"type":"object","properties":{"x":false,"y":true,"l":{"type":"array","items":false}}}`
+	for answer, wantErr := range map[string]bool{
+		`{"y":{"any":1},"l":[]}`: false,
+		`{"x":1}`:                true, // property false: must be absent
+		`{"l":[1]}`:              true, // items false: no elements
+	} {
+		if _, _, err := structuredAnswer(answer, schema); (err != nil) != wantErr {
+			t.Errorf("%s: err=%v, want error=%v", answer, err, wantErr)
+		}
+	}
+	if _, _, err := structuredAnswer(`{}`, `false`); err == nil {
+		t.Error("top-level false schema accepted an answer")
+	}
+}
