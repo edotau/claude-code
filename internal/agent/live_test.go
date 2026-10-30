@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/vendors"
 )
 
 // fakeLiveClaude is a shell claude that holds stdin open and answers each stream-json user turn with a result.
@@ -39,6 +40,15 @@ func liveEnvScript(t *testing.T, script string) {
 	}
 	t.Cleanup(func() { _ = os.RemoveAll(dir) })
 	t.Setenv("CLAUDE_CONFIG_DIR", dir)
+	home := filepath.Join(dir, "home") // the agy target needs a Google sign-in marker; never read the developer's
+	marker := vendors.AgyLoginMarker(home)
+	if err := os.MkdirAll(filepath.Dir(marker), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(marker, []byte("test"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", home)
 	if err := os.MkdirAll(paths.BinDir(), 0o755); err != nil {
 		t.Fatal(err)
 	}
