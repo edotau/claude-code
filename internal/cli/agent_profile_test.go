@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
+	"github.com/edotau/claude-code/internal/hooks"
 	"testing"
 
 	"github.com/edotau/claude-code/internal/agent"
@@ -60,5 +61,19 @@ func TestResolveAskChainHonorsCancellation(t *testing.T) {
 	}
 	if refreshes != 0 {
 		t.Errorf("%d quota refreshes ran under a cancelled ctx", refreshes)
+	}
+}
+
+// An explicit --profile with no --model runs the classifier's tier slot, as the pinned route does.
+func TestResolveAskChainProfileTakesTierSlot(t *testing.T) {
+	profileFixture(t, "")
+	for _, profile := range []string{"chatgpt", "acme"} { // hub leg and native (no opencodeID)
+		_, chain, err := resolveAskChain(context.Background(), "opencode", profile, "", "pong", agent.FallbackAgents, false, "")
+		if err != nil || len(chain.Legs) != 1 {
+			t.Fatalf("%s: chain = %+v, err %v", profile, chain, err)
+		}
+		if want := (hooks.RuleClassifier{}).Tier("pong"); chain.Legs[0].Model != want {
+			t.Errorf("%s: leg model = %q, want tier %q", profile, chain.Legs[0].Model, want)
+		}
 	}
 }

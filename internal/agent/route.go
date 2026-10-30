@@ -409,6 +409,17 @@ func ExplicitChain(r Runner, req Request) Chain {
 	return c
 }
 
+// WithTier makes c's lone explicit leg run the router's tier slot when the caller named no model, as a routed pick does.
+func WithTier(c Chain, tier string) Chain {
+	if len(c.Legs) != 1 || tier == "" {
+		return c
+	}
+	leg := c.Legs[0]
+	leg.Model, leg.keepCaller, leg.unroutedLeg = tier, false, false
+	c.Legs = []Leg{leg}
+	return c
+}
+
 // explicitAccount is the <provider>·<profile> key of the named backend; a hub leg names its own profile.
 func explicitAccount(r Runner, req Request) (string, string) {
 	if l, ok := r.(hubLeg); ok {

@@ -99,3 +99,17 @@ func TestOwnLoginLegRecordsTheProfileItRan(t *testing.T) {
 		t.Errorf("hop account = %q, want databricks·dbx (what the runner resolves)", got)
 	}
 }
+
+// Skip notices name only the wanted agent's gates; other agents' reasons are not printed.
+func TestSkipNoticeOnlyForWantedAgent(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	c := Single(&fakeRunner{name: "copilot", errs: []error{nil}})
+	c.Skipped = []string{"opencode·openai: not configured", "copilot: exhausted"}
+	var got []string
+	if _, err := RunWithFallback(context.Background(), c, Request{Prompt: "p"}, Discard, func(s string) { got = append(got, s) }); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || strings.Contains(got[0], "opencode") || !strings.Contains(got[0], "copilot: exhausted") {
+		t.Errorf("notices = %q, want only the copilot skip", got)
+	}
+}

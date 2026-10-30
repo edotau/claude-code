@@ -308,8 +308,10 @@ func runAskAndReport(ctx context.Context, rec *agent.Record, chain agent.Chain, 
 			return agent.RunWithFallback(ctx, chain, req, sink, notify)
 		})
 	reportAskResult(format, res, err, rec.ID)
-	if line := agent.RanOn(res); line != "" {
-		fmt.Fprintln(os.Stderr, "ask:", line)
+	for _, line := range []string{agent.RanOn(res), agent.DidNotRun(res)} {
+		if line != "" {
+			fmt.Fprintln(os.Stderr, "ask:", line)
+		}
 	}
 	fmt.Fprintln(os.Stderr, "ask: dispatch", rec.ID, "(claude-code ask --retry <id> replays it)")
 	if err != nil {
@@ -567,20 +569,20 @@ func resolveAskChain(ctx context.Context, name, provider, model, prompt, fallbac
 	if agent.ExplicitBackend(agent.Request{Provider: provider, Model: model}) {
 		req := agent.Request{Provider: provider, Model: model}
 		if provider == "" || native || !agent.IsHubAgent(name) {
-			return r, agent.ExplicitChain(r, req), nil
+			return r, tierSlot(agent.ExplicitChain(r, req), name, model, prompt), nil
 		}
 		reg, err := providers.Load()
 		if err != nil {
 			return nil, agent.Chain{}, err
 		}
 		if p, perr := reg.Get(provider); perr == nil && p.OpencodeID == "" {
-			return r, agent.ExplicitChain(r, req), nil // no opencode id: the hub can't route it; run native
+			return r, tierSlot(agent.ExplicitChain(r, req), name, model, prompt), nil // no opencode id: run native
 		}
 		start, err := agent.HubStart(reg, name, provider)
 		if err != nil {
 			return nil, agent.Chain{}, err
 		}
-		return r, agent.ExplicitChain(agent.NewHubLeg(name, start, reg), req), nil
+		return r, tierSlot(agent.ExplicitChain(agent.NewHubLeg(name, start, reg), req), name, model, prompt), nil
 	}
 	if err := ctx.Err(); err != nil { // a cancelled batch routes nothing and refreshes no quota
 		return nil, agent.Chain{}, err
@@ -588,6 +590,14 @@ func resolveAskChain(ctx context.Context, name, provider, model, prompt, fallbac
 	chain, _, err := agent.RouteChainFor(ctx, name, model, hooks.RuleClassifier{}.Tier(prompt), fallback, native,
 		router.Opts{Refresh: routeRefresh, WorkRepo: func() bool { return router.IsWorkRepo(workDir) }})
 	return r, chain, err
+}
+
+// tierSlot gives an opencode --profile run with no --model the tier slot the pinned route picks for the task.
+func tierSlot(c agent.Chain, name, model, prompt string) agent.Chain {
+	if name != "opencode" || model != "" {
+		return c
+	}
+	return agent.WithTier(c, hooks.RuleClassifier{}.Tier(prompt))
 }
 
 // backgroundExtraFlags carries explicitly-set --fallback/--native over to the spawned --job child;
