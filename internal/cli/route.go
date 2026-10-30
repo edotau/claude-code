@@ -15,7 +15,7 @@ import (
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
-	"github.com/edotau/claude-code/internal/routetable"
+	"github.com/edotau/claude-code/internal/router/routetable"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 	usagepkg "github.com/edotau/claude-code/internal/usage"
 )

@@ -7,7 +7,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/hookspec"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/routetable"
+	"github.com/edotau/claude-code/internal/router/routetable"
 )
 
 // nativeCodexAgentRoute fills a fresh, unpinned child's model; the builder renders the updated input as an allow.
