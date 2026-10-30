@@ -188,7 +188,13 @@ func mergeObject(base, overlay json.RawMessage) (json.RawMessage, error) {
 	return b.marshal()
 }
 
-// mergePermissions unions the allow/ask/deny lists; other existing permission keys stay.
+// retiredPermissions left the template; the union below would otherwise keep them in an existing file forever.
+var retiredPermissions = []string{
+	"Bash(pytest *)", "Bash(npm *)", "Bash(npx vitest *)", "Bash(git push --force origin main:*)",
+	"Bash(git push -f origin main:*)", "Bash(git push --force origin master:*)", "Bash(git push -f origin master:*)",
+}
+
+// mergePermissions unions the allow/ask/deny lists minus retired rules; other existing permission keys stay.
 func mergePermissions(base, overlay json.RawMessage) (json.RawMessage, error) {
 	b, err := parseObject(orEmpty(base))
 	if err != nil {
@@ -207,6 +213,7 @@ func mergePermissions(base, overlay json.RawMessage) (json.RawMessage, error) {
 		if raw, ok := b.vals[k]; ok && json.Unmarshal(raw, &have) != nil {
 			return nil, fmt.Errorf("permissions.%s is not a string list", k)
 		}
+		have = slices.DeleteFunc(have, func(r string) bool { return slices.Contains(retiredPermissions, r) })
 		for _, r := range add {
 			if !slices.Contains(have, r) {
 				have = append(have, r)

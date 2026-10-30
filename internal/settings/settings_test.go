@@ -310,3 +310,26 @@ func TestMergeKeepsRuntimeKeysWithoutReportingThem(t *testing.T) {
 		t.Errorf("a real foreign key must still be reported: %v", sum.Kept)
 	}
 }
+
+// A rule retired from the template leaves an existing file; a user's own rule and foreign keys stay.
+func TestMergeDropsRetiredPermissionsKeepsForeign(t *testing.T) {
+	existing := []byte(`{"enabledPlugins":{"x@y":true},"permissions":{"ask":["Bash(npm *)","Bash(my-tool *)","Bash(git push -f origin main:*)"]}}`)
+	rendered := []byte(`{"permissions":{"ask":["Bash(npm publish:*)"]}}`)
+	out, _, err := Merge(existing, rendered, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got struct {
+		EnabledPlugins map[string]bool `json:"enabledPlugins"`
+		Permissions    struct {
+			Ask []string `json:"ask"`
+		} `json:"permissions"`
+	}
+	if err := json.Unmarshal(out, &got); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"Bash(my-tool *)", "Bash(npm publish:*)"}
+	if !slices.Equal(got.Permissions.Ask, want) || !got.EnabledPlugins["x@y"] {
+		t.Fatalf("merged = %s, want ask %v and enabledPlugins kept", out, want)
+	}
+}
