@@ -107,3 +107,25 @@ func TestRemoteArgvPersonaIsOneAgentValue(t *testing.T) {
 		t.Fatalf("script = %s, want one --agent 'codex:reviewer' and no --persona", script)
 	}
 }
+
+// ssh's non-login shell has no harness PATH: a bare claude-code must still resolve from ~/.local/bin.
+func TestRemoteScriptResolvesHarnessPath(t *testing.T) {
+	home := t.TempDir()
+	dir := filepath.Join(home, ".local", "bin")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "claude-code"), []byte("#!/bin/sh\necho resolved\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	script, err := remoteScript("claude-code", "codex", "", Request{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command("/bin/sh", "-c", script)
+	cmd.Env = []string{"HOME=" + home, "PATH=/usr/bin:/bin"}
+	out, err := cmd.CombinedOutput()
+	if err != nil || strings.TrimSpace(string(out)) != "resolved" {
+		t.Fatalf("script %q = %q, %v; want the ~/.local/bin claude-code", script, out, err)
+	}
+}

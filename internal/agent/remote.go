@@ -20,6 +20,9 @@ import (
 // RemoteBinEnv names the remote claude-code binary when --remote-bin is absent; the fallback is "claude-code" on the remote PATH.
 const RemoteBinEnv = "HARNESS_REMOTE_BIN"
 
+// remotePath is `make install`'s login PATH: ssh's non-login shell lacks it, so claude-code and auth commands fail.
+const remotePath = `export PATH="$HOME/.claude/bin:$HOME/.local/bin:$HOME/.local/go/bin:$HOME/go/bin:$PATH";`
+
 // remoteGrace pads --timeout for the local ssh's silence watchdog (reset per remote line); the remote's verdict wins.
 var remoteGrace = 30 * time.Second
 
@@ -62,6 +65,14 @@ func remoteDropped(req Request) []string {
 	return out
 }
 
+// remoteTarget is the --agent value the remote side resolves.
+func remoteTarget(agentName string, req Request) string {
+	if req.Persona != nil {
+		return agentName + ":" + req.Persona.Name
+	}
+	return agentName
+}
+
 // remoteScript is the POSIX sh line run on the remote: every element is single-quoted, the prompt is never in it.
 // --env values do ride this line, so they are visible to the remote `ps` (and, base64-wrapped, to the local one).
 func remoteScript(bin, agentName, fallback string, req Request) (string, error) {
@@ -76,11 +87,8 @@ func remoteScript(bin, agentName, fallback string, req Request) (string, error) 
 	if strings.TrimSpace(bin) == "" || strings.ContainsAny(bin, "\r\n") {
 		return "", fmt.Errorf("remote ask: invalid remote binary %q", bin)
 	}
-	w := []string{"exec", dispatch.QuotePath(bin), "ask", "--format", "stream-json", "--fallback", dispatch.QuoteSH(cmp.Or(fallback, FallbackNone)),
-		"--stdin-framed", "--agent", dispatch.QuoteSH(agentName)}
-	if req.Persona != nil {
-		w[len(w)-1] = dispatch.QuoteSH(agentName + ":" + req.Persona.Name)
-	}
+	w := []string{remotePath, "exec", dispatch.QuotePath(bin), "ask", "--format", "stream-json", "--fallback", dispatch.QuoteSH(cmp.Or(fallback, FallbackNone)),
+		"--stdin-framed", "--agent", dispatch.QuoteSH(remoteTarget(agentName, req))}
 	opt := func(flag, v string) {
 		if v != "" {
 			w = append(w, flag, dispatch.QuoteSH(v))
