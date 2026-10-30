@@ -3,7 +3,10 @@ package worktree
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"slices"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -92,4 +95,69 @@ func ancestry(pid int) map[int]bool {
 		pid = ppid
 	}
 	return seen
+}
+
+// agentComms are the process names that count as a live agent session in PeerAgents.
+var agentComms = map[string]bool{"claude": true, "codex": true, "copilot": true, "opencode": true, "agy": true}
+
+// PeerAgents lists agent processes with a cwd inside checkout (not .git, not a linked worktree), excluding the
+// caller's ancestry and everything descended from an agent in it. Linked worktrees are passed in as linked.
+func PeerAgents(checkout string, linked []string) ([]Proc, error) {
+	if processesIn == nil {
+		return nil, nil
+	}
+	procs, err := processesIn(checkout)
+	if err != nil {
+		return nil, err
+	}
+	skip := map[int]bool{}
+	for _, dir := range append([]string{filepath.Join(checkout, ".git")}, linked...) {
+		inner, _ := processesIn(dir)
+		for _, p := range inner {
+			skip[p.PID] = true
+		}
+	}
+	mine := ancestry(os.Getpid())
+	own := map[int]bool{}
+	for pid := range mine {
+		if commKnown(pid) {
+			own[pid] = true
+		}
+	}
+	var out []Proc
+	for _, p := range procs {
+		if !agentComms[p.Comm] || skip[p.PID] || mine[p.PID] || descendsFrom(p.PID, own) || isDaemon(p.PID) {
+			continue
+		}
+		out = append(out, p)
+	}
+	return out, nil
+}
+
+// isDaemon reports a background agent server rather than a working session (agy's `--hub` from the IDE extension).
+func isDaemon(pid int) bool {
+	out, err := procArgs(pid)
+	return err == nil && slices.ContainsFunc(strings.Fields(out), func(a string) bool { return strings.HasPrefix(a, "--hub") })
+}
+
+// procArgs reads a pid's command line; a seam so tests never shell out.
+var procArgs = func(pid int) (string, error) {
+	out, err := exec.Command("ps", "-o", "args=", "-p", strconv.Itoa(pid)).Output()
+	return string(out), err
+}
+
+// commKnown reports whether pid is itself an agent process by name.
+func commKnown(pid int) bool { return commName != nil && agentComms[commName(pid)] }
+
+// commName reads a pid's process name; each platform's init() assigns it where available.
+var commName func(pid int) string
+
+// descendsFrom reports whether pid's parent chain passes through any pid in roots.
+func descendsFrom(pid int, roots map[int]bool) bool {
+	for anc := range ancestry(pid) {
+		if anc != pid && roots[anc] {
+			return true
+		}
+	}
+	return false
 }

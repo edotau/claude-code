@@ -42,7 +42,9 @@ Files under `agents/`, `commands/`, `rules/`, `skills/` and this file go live th
    `claude-code worktree create`) branch freely; merge back with `claude-code worktree merge <slug>`
    (verified, fast-forward-only: `skills/using-git-worktrees/references/merge-and-clean.md`).
    `make install` and `claude-code` verbs still write to `~/.claude` from a worktree unless `CLAUDE_CONFIG_DIR`
-   points at it.
+   points at it. **When to use one** is the vault env `HARNESS_WORKTREE` (default `off`): off = work in the
+   checkout, ask only when the `worktree-mode` hook reports another session here; on = always ask first. Never
+   create one without a yes; no answer means no worktree.
 
 ## Behavioral guidelines
 

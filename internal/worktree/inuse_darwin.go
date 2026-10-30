@@ -5,6 +5,7 @@ package worktree
 import (
 	"bufio"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 )
@@ -12,6 +13,7 @@ import (
 func init() {
 	processesIn = processesInDarwin
 	parentOf = parentOfDarwin
+	commName = commOfDarwin
 }
 
 // processesInDarwin shells out to lsof (stdlib os/exec only, no cgo) since macOS has no /proc. The
@@ -54,4 +56,12 @@ func parentOfDarwin(pid int) (int, error) {
 		return 0, err
 	}
 	return strconv.Atoi(strings.TrimSpace(string(out)))
+}
+
+func commOfDarwin(pid int) string {
+	out, err := exec.Command("ps", "-o", "comm=", "-p", strconv.Itoa(pid)).Output()
+	if err != nil {
+		return "?"
+	}
+	return filepath.Base(strings.TrimSpace(string(out)))
 }

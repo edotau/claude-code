@@ -251,6 +251,8 @@ var Registry = map[string]Handler{
 	"memory-compact":            func(in io.Reader, _, _ io.Writer) int { return PreCompact(in) },
 	"worktree-create":           func(in io.Reader, out, errw io.Writer) int { return WorktreeCreate(in, out, errw) },
 	"worktree-remove":           func(in io.Reader, _, errw io.Writer) int { return WorktreeRemove(in, errw) },
+	"worktree-mode":             nativeHandler("worktree-mode"),
+	"worktree-busy":             nativeHandler("worktree-busy"),
 }
 
 // Native binds a hook module straight to a Runner; the dispatcher prefers it over the legacy adapter.
@@ -264,6 +266,8 @@ var Native = map[string]Runner{
 	"dispatch-failure":     releaseSpawn,
 	"dispatch-workflow":    releaseSpawn,
 	"dispatch-stop":        subagentStopRunner,
+	"worktree-mode":        worktreeMode,
+	"worktree-busy":        worktreeBusy,
 }
 
 // nativeHandler serves a direct `hook <Event> --<module>` call from the named Runner, resolved lazily so the verb table
