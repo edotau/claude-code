@@ -336,7 +336,7 @@ func redact(raw []byte, headers map[string]string) []byte {
 			}
 		case string:
 			for _, value := range headers {
-				if value != "" && strings.Contains(n, value) {
+				if value != "" && n == value {
 					return "[REDACTED]"
 				}
 			}
