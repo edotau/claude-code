@@ -180,7 +180,7 @@ var hookPage = helptext.Page{
 	About: "Run one lifecycle hook on the event JSON on stdin; settings.json and the agent hook files invoke it.",
 	Hint: "modules: safety-scan|rtk-rewrite|docs-placement|dispatch-effort|\n" +
 		"         dispatch-failure|dispatch-workflow|dispatch-stop|\n" +
-		"         docs-plan-mirror|docs-plan-save|memory-harvest|format-stop|\n" +
+		"         docs-plan-mirror|docs-plan-save|memory-update|format-stop|\n" +
 		"         memory-start|paths-resolve|memory-recall|\n" +
 		"         memory-end|memory-compact|worktree-create|worktree-remove\n" +
 		"events: <Event> runs the dispatcher, --<module> one module, --all every module",
