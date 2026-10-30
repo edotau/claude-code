@@ -234,14 +234,37 @@ func hasOpenOwnedTask(plan Plan) bool {
 	return false
 }
 
+// spliceOwn expands an entry abbreviated against the previous one; an entry a file already matches stays as is.
+func spliceOwn(prev, entry string, files []string) string {
+	first, _, ok := strings.Cut(entry, "/")
+	if !ok || prev == "" || first == "" {
+		return entry
+	}
+	for _, f := range files {
+		if filepath.ToSlash(f) == entry || strings.HasPrefix(filepath.ToSlash(f), strings.TrimSuffix(entry, "/")+"/") {
+			return entry
+		}
+	}
+	segs := strings.Split(prev, "/")
+	for i := len(segs) - 2; i >= 1; i-- {
+		if segs[i] == first {
+			return strings.Join(segs[:i], "/") + "/" + entry
+		}
+	}
+	return entry
+}
+
 // Covers reports which of owns a commit's files touch: all entries and/or at least one.
 func Covers(owns, files []string) (all, any bool) {
 	if len(owns) == 0 {
 		return false, false
 	}
 	all = true
+	prev := ""
 	for _, own := range owns {
 		entry := filepath.ToSlash(strings.TrimSpace(ownNote.ReplaceAllString(own, "")))
+		entry = spliceOwn(prev, entry, files)
+		prev = entry
 		dir := strings.TrimSuffix(entry, "/")
 		touched := false
 		for _, f := range files {
