@@ -1,4 +1,4 @@
-package vendors_test
+package launch
 
 import (
 	"context"
@@ -6,8 +6,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"github.com/edotau/claude-code/internal/launch"
 )
 
 func launchCodexProfile(t *testing.T, profile string, withFile bool) error {
@@ -21,11 +19,11 @@ func launchCodexProfile(t *testing.T, profile string, withFile bool) error {
 			t.Fatal(err)
 		}
 	}
-	opts, rest, err := launch.ParseArgs([]string{"--profile", profile}, false)
+	opts, rest, err := ParseArgs([]string{"--profile", profile}, false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = launch.Vendor(context.Background(), "codex", opts, rest)
+	_, err = Vendor(context.Background(), "codex", opts, rest)
 	return err
 }
 

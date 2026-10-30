@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/edotau/claude-code/internal/launch"
+	agentpkg "github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/preflight"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/secrets/shapes"
@@ -98,7 +98,7 @@ func quotaFailure(err error) bool {
 
 // verifyAgent asks the agent for "pong" through `claude-code ask`, the same request preflight sends.
 func verifyAgent(ctx context.Context, agent string) error {
-	bin, err := launch.SelfBinary()
+	bin, err := agentpkg.SelfBinary()
 	if err != nil {
 		return err
 	}

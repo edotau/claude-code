@@ -61,7 +61,7 @@ func TestClaudeRunMapsSystemPromptSchemaAndResult(t *testing.T) {
 	argv := fakeCLI(t, "claude", "cat >/dev/null; printf '%s\\n' '"+claudeStructured+"'")
 	const schema = `{"type":"object","properties":{"a":{"type":"integer"}}}`
 	res, err := claudeRunner{}.Run(context.Background(), Request{Prompt: "task", Provider: "tanth", Tools: true,
-		SystemPrompt: "SYS", AppendSystemPrompt: "APP", OutputSchema: schema, Env: []string{"HARNESS_TEST_X=1"}}, Discard)
+		SystemPrompt: "SYS", AppendSystemPrompt: "APP", OutputSchema: schema, Env: []string{"HARNESS_TEST_X=1"}, Launcher: testLauncher{}}, Discard)
 	if err != nil {
 		t.Fatal(err)
 	}

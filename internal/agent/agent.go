@@ -41,6 +41,7 @@ type Request struct {
 	OutputSchema                                        string   // JSON Schema text the answer must satisfy
 	Persona                                             *Persona `json:"persona,omitempty"` // claude: native agent definition; others: emulated
 	Timeout                                             time.Duration
+	Launcher                                            Launcher `json:"-"` // claude only: resolves the launch plan
 }
 
 // Usage is token accounting where the agent reports it.

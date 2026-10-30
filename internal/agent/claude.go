@@ -8,14 +8,12 @@ import (
 	"fmt"
 	"io"
 	"maps"
-	"os"
 	"os/exec"
 	"slices"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/edotau/claude-code/internal/launch"
 	"github.com/edotau/claude-code/internal/providers"
 )
 
@@ -30,7 +28,7 @@ func (claudeRunner) Caps() Caps {
 		OutputSchema: Native, Persona: Native}
 }
 
-func (claudeRunner) Available() error { _, err := launch.ClaudeBinary(); return err }
+func (claudeRunner) Available() error { _, err := ClaudeBinary(); return err }
 
 func (claudeRunner) Run(ctx context.Context, req Request, sink Sink) (Result, error) {
 	if req.NoTools { // the one-shot has no system-prompt or schema channel; those go through the claude process
@@ -48,7 +46,7 @@ func (claudeRunner) Run(ctx context.Context, req Request, sink Sink) (Result, er
 		return Result{}, err
 	}
 	args := claudeArgs([]string{"--print", "--output-format", "stream-json", "--verbose", "--include-partial-messages"}, req)
-	cmd, tail, plan, err := claudeCmd(ctx, req, args, prompt)
+	cmd, tail, cl, err := claudeCmd(ctx, req, args, prompt)
 	if err != nil {
 		return Result{}, err
 	}
@@ -62,7 +60,7 @@ func (claudeRunner) Run(ctx context.Context, req Request, sink Sink) (Result, er
 	res, perr := parseClaudeStream(stdout, sink, eventLogFor(ctx))
 	_, _ = io.Copy(io.Discard, stdout)
 	werr := cmd.Wait()
-	res.Provider = plan.Set[providers.PinProfile]
+	res.Provider = cl.Set[providers.PinProfile]
 	if werr != nil || ctx.Err() != nil {
 		return res, childErr(ctx, "claude", errors.Join(werr, perr), tail)
 	}
@@ -106,20 +104,21 @@ func claudeArgs(args []string, req Request) []string {
 }
 
 // claudeCmd resolves the launch plan for args and returns the unstarted child with its env layered (--env last).
-func claudeCmd(ctx context.Context, req Request, args []string, prompt string) (*exec.Cmd, *TailBuffer, launch.Plan, error) {
-	plan, err := launch.Claude(ctx, launch.Options{Provider: cmp.Or(req.Provider, sessionProvider("claude")), Model: req.Model, KeepEnv: req.KeepEnv}, args)
+func claudeCmd(ctx context.Context, req Request, args []string, prompt string) (*exec.Cmd, *TailBuffer, ClaudeLaunch, error) {
+	if req.Launcher == nil {
+		return nil, nil, ClaudeLaunch{}, errors.New("claude: no launcher (caller must set Request.Launcher)")
+	}
+	o := ClaudeOptions{Provider: cmp.Or(req.Provider, sessionProvider("claude")), Model: req.Model, KeepEnv: req.KeepEnv}
+	cl, err := req.Launcher.Claude(ctx, o, args)
 	if err != nil {
-		return nil, nil, plan, err
+		return nil, nil, cl, err
 	}
-	if err := plan.WriteOverlay(); err != nil {
-		return nil, nil, plan, err
-	}
-	cmd, tail := childCmd(ctx, plan.Binary, plan.Argv, nil, req.WorkDir, prompt, req.KeepEnv, false)
-	// plan.Env also merges the vault's custom env (any profile's vars): filter the result, sparing only the plan's own
-	// route and token (plan.Set), so another profile's custom credential var never reaches this child
-	cmd.Env = scrubIsolated(ctx, plan.Env(os.Environ()), append(slices.Clone(req.KeepEnv), slices.Collect(maps.Keys(plan.Set))...))
+	cmd, tail := childCmd(ctx, cl.Binary, cl.Argv, nil, req.WorkDir, prompt, req.KeepEnv, false)
+	// cl.Env also merges the vault's custom env (any profile's vars): filter the result, sparing only the plan's own
+	// route and token (cl.Set), so another profile's custom credential var never reaches this child
+	cmd.Env = scrubIsolated(ctx, cl.Env, append(slices.Clone(req.KeepEnv), slices.Collect(maps.Keys(cl.Set))...))
 	cmd.Env = append(cmd.Env, req.Env...) // --env goes last, after the route keys, so it wins
-	return cmd, tail, plan, nil
+	return cmd, tail, cl, nil
 }
 
 // claudeEvent is the union of stream-json fields the agent reads.

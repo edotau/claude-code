@@ -27,6 +27,7 @@ type GeminiOptions struct {
 	MaxFiles, MaxFileBytes                     int // <=0 → package defaults
 	Timeout                                    time.Duration
 	Index, Diff, PrintCommand, IndexOnly       bool // IndexOnly inlines no bodies (the index still lists every path)
+	Launcher                                   Launcher
 }
 
 // RunGemini resolves the provider/model, collects workspace context into one prompt, and dispatches the
@@ -140,7 +141,7 @@ func RunGemini(ctx context.Context, o GeminiOptions, stream, log io.Writer) (Res
 		return Result{}, err
 	}
 	return Run(ctx, r, Request{
-		Prompt: prompt, Model: model, Provider: p.Name, Effort: o.Effort, Timeout: o.Timeout, NoTools: true,
+		Prompt: prompt, Model: model, Provider: p.Name, Effort: o.Effort, Timeout: o.Timeout, NoTools: true, Launcher: o.Launcher,
 	}, NewTextSink(stream), func(s string) { fmt.Fprintln(log, s) })
 }
 

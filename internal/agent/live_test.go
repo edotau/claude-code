@@ -78,6 +78,7 @@ func startHolderAs(t *testing.T, ctx context.Context, name string, idle time.Dur
 	t.Helper()
 	rec := ClaimRecord(name, Request{Timeout: idle}, time.Now())
 	rec.Live, rec.PID = true, os.Getpid()
+	rec.Request.Launcher = testLauncher{}
 	if err := rec.Save(); err != nil {
 		t.Fatal(err)
 	}

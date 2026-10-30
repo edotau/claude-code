@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/launch"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
@@ -55,7 +56,7 @@ func startLive(s *askState, name, format string) int {
 	req := agent.Request{Model: *s.model, Provider: *s.provider, Effort: *s.effort, WorkDir: *s.workdir, SessionID: *s.session,
 		Tools: *s.tools, Timeout: *s.timeout, KeepEnv: []string(*s.keepEnv), NoPersist: *s.noPersist, SafeMode: *s.safeMode,
 		DebugFile: absDebugFile(*s.debugFile), SystemPrompt: *s.systemPrompt, AppendSystemPrompt: *s.appendSystemPrompt,
-		Autonomous: *s.autonomous, Direct: *s.direct}
+		Autonomous: *s.autonomous, Direct: *s.direct, Launcher: launch.Launcher{}}
 	rec := buildAskRecord(context.Background(), r, req, nil, *s.workdir, true)
 	rec.Live = true
 	if err := rec.Save(); err != nil {

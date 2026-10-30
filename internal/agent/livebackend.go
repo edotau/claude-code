@@ -41,8 +41,8 @@ type claudeLive struct{ prevCost float64 }
 func (*claudeLive) build(ctx context.Context, req Request) (*exec.Cmd, *TailBuffer, string, error) {
 	args := claudeArgs([]string{"--print", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
 		"--include-partial-messages"}, req)
-	cmd, tail, plan, err := claudeCmd(ctx, req, args, "")
-	return cmd, tail, plan.Set[providers.PinProfile], err
+	cmd, tail, cl, err := claudeCmd(ctx, req, args, "")
+	return cmd, tail, cl.Set[providers.PinProfile], err
 }
 
 func (*claudeLive) writeTurn(w io.Writer, prompt string) error {

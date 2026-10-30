@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/launch"
 	"github.com/edotau/claude-code/internal/network/mcp"
 	"github.com/edotau/claude-code/internal/network/web"
 	"github.com/edotau/claude-code/internal/paths"
@@ -85,7 +84,7 @@ func cmdNetworkMCP(args []string) int {
 	if err != nil {
 		return fail("network mcp: %v", err)
 	}
-	claude, _ := launch.ClaudeBinary() // "" on error: Doctor fails OPEN on a missing claude binary
+	claude, _ := agent.ClaudeBinary() // "" on error: Doctor fails OPEN on a missing claude binary
 	cwd, _ := os.Getwd()
 	settingsFiles := []string{
 		filepath.Join(paths.ConfigDir(), "settings.json"),
