@@ -254,18 +254,30 @@ func spliceOwn(prev, entry string, files []string) string {
 	return entry
 }
 
-// Covers reports which of owns a commit's files touch: all entries and/or at least one.
+// isDirOwn reports whether an owns entry names a directory: a trailing slash, or a pathed name without an extension.
+func isDirOwn(entry string) bool {
+	if strings.HasSuffix(entry, "/") {
+		return true
+	}
+	base := path.Base(entry)
+	return strings.Contains(entry, "/") && !strings.Contains(base, ".") && !strings.ContainsAny(base, "*?[")
+}
+
+// Covers reports which of owns a commit's files touch: all entries and/or at least one; a directory entry never
+// completes a task alone, so all needs at least one file entry.
 func Covers(owns, files []string) (all, any bool) {
 	if len(owns) == 0 {
 		return false, false
 	}
 	all = true
+	hasFile := false
 	prev := ""
 	for _, own := range owns {
 		entry := filepath.ToSlash(strings.TrimSpace(ownNote.ReplaceAllString(own, "")))
 		entry = spliceOwn(prev, entry, files)
 		prev = entry
 		dir := strings.TrimSuffix(entry, "/")
+		hasFile = hasFile || !isDirOwn(entry)
 		touched := false
 		for _, f := range files {
 			file := filepath.ToSlash(f)
@@ -284,7 +296,82 @@ func Covers(owns, files []string) (all, any bool) {
 			all = false
 		}
 	}
-	return all, any
+	return all && hasFile, any
+}
+
+// planScore is how well a commit range matches one plan: tasks fully owned by it, then tasks with a file entry touched.
+type planScore struct{ exact, touched int }
+
+// scorePlan counts open tasks the range's union of files completes (exact) or touches through a file entry.
+func scorePlan(plan Plan, files []string) (s planScore) {
+	for _, t := range plan.Tasks {
+		if t.Done || len(t.Owns) == 0 {
+			continue
+		}
+		if all, _ := Covers(t.Owns, files); all {
+			s.exact++
+			continue
+		}
+		for _, o := range t.Owns {
+			entry := filepath.ToSlash(strings.TrimSpace(ownNote.ReplaceAllString(o, "")))
+			if isDirOwn(entry) {
+				continue
+			}
+			if _, any := Covers([]string{o}, files); any {
+				s.touched++
+				break
+			}
+		}
+	}
+	return s
+}
+
+// Select picks the one plan under home (dated, not in skip) whose tasks the commits' files match best; plans tied on the
+// best score narrow to the one whose claim names worktree, else none is chosen and tied lists them.
+func Select(home, worktree string, skip []string, commits []Commit) (plan string, tied []string) {
+	entries, err := os.ReadDir(home)
+	if err != nil {
+		return "", nil
+	}
+	var files []string
+	for _, c := range commits {
+		files = append(files, c.Files...)
+	}
+	var best planScore
+	var cands []string
+	claimed := map[string]bool{}
+	for _, e := range entries {
+		p := filepath.Join(home, e.Name())
+		if !e.Type().IsRegular() || !datedName.MatchString(e.Name()) || slices.Contains(skip, p) {
+			continue
+		}
+		parsed, err := Parse(p)
+		if err != nil {
+			continue
+		}
+		s := scorePlan(parsed, files)
+		if s == (planScore{}) || s.exact < best.exact || s.exact == best.exact && s.touched < best.touched {
+			continue
+		}
+		if s != best {
+			best, cands, claimed = s, nil, map[string]bool{}
+		}
+		cands = append(cands, p)
+		claimed[p] = worktree != "" && claimsWorktree(parsed, worktree)
+	}
+	if len(cands) == 1 {
+		return cands[0], nil
+	}
+	var linked []string
+	for _, p := range cands {
+		if claimed[p] {
+			linked = append(linked, p)
+		}
+	}
+	if len(linked) == 1 {
+		return linked[0], nil
+	}
+	return "", cands
 }
 
 // Status summarizes every *.md directly in each dir that carries at least one task, sorted by path.

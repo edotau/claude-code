@@ -142,21 +142,25 @@ func cmdPlanTick(args []string) int {
 	return 0
 }
 
-// tickRange ticks plan (default: dir's active plan, preferring worktree's claim) for each commit in rng.
+// tickRange ticks plan (default: the one plan the range's files match, see plans.Select) for each commit in rng.
 func tickRange(ctx context.Context, dir, worktree, rng, plan string, dryRun bool, w io.Writer) error {
 	drafts := hooks.MirrorDests()
+	commits, err := plans.RangeCommits(ctx, dir, rng)
+	if err != nil {
+		return err
+	}
 	if plan == "" {
-		var ok bool
-		if plan, ok = plans.Active(plans.Home(paths.MainCheckout(dir)), worktree, drafts); !ok {
-			fmt.Fprintln(w, "plans: no active plan to tick")
+		var tied []string
+		if plan, tied = plans.Select(plans.Home(paths.MainCheckout(dir)), worktree, drafts, commits); plan == "" {
+			if len(tied) > 0 {
+				fmt.Fprintf(w, "plans: ambiguous, %d plans match equally (%s); nothing annotated\n", len(tied), baseNames(tied))
+			} else {
+				fmt.Fprintln(w, "plans: no plan owns these files; nothing to tick")
+			}
 			return nil
 		}
 	} else if abs, err := filepath.Abs(plan); err == nil && slices.Contains(drafts, abs) {
 		return fmt.Errorf("%s mirrors an unapproved draft; approve it before ticking", plan)
-	}
-	commits, err := plans.RangeCommits(ctx, dir, rng)
-	if err != nil {
-		return err
 	}
 	results, err := plans.TickCommits(plan, commits, dryRun)
 	if err != nil {
@@ -178,4 +182,13 @@ func tickRange(ctx context.Context, dir, worktree, rng, plan string, dryRun bool
 		fmt.Fprintf(w, "plans: %d commits, nothing to tick in %s\n", len(commits), base)
 	}
 	return nil
+}
+
+// baseNames joins the plan file names without their extension.
+func baseNames(ps []string) string {
+	names := make([]string, len(ps))
+	for i, p := range ps {
+		names[i] = strings.TrimSuffix(filepath.Base(p), ".md")
+	}
+	return strings.Join(names, ", ")
 }
