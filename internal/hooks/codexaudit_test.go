@@ -44,13 +44,13 @@ func readCodexAuditFixture(t *testing.T) ([]codexRouteRecord, []byte) {
 	return rows, body
 }
 
-func runCodexAuditHandler(t *testing.T, handler Handler, payload map[string]any) {
+func runCodexAuditHandler(t *testing.T, name string, payload map[string]any) {
 	t.Helper()
 	payload["session_id"] = "native-session"
 	payload["prompt"] = "PROMPT-SECRET-SENTINEL"
 	payload["tool_input"] = map[string]any{"message": "TASK-SECRET-SENTINEL", "task_name": "NAME-SECRET-SENTINEL"}
 	var out, stderr bytes.Buffer
-	if code := handler(bytes.NewReader(mustCodexJSON(t, payload)), &out, &stderr); code != ExitProceed {
+	if code := runDirect(name, bytes.NewReader(mustCodexJSON(t, payload)), &out, &stderr); code != ExitProceed {
 		t.Fatalf("exit = %d", code)
 	}
 	if out.Len() != 0 || stderr.Len() != 0 {
@@ -77,10 +77,10 @@ func TestCodexAuditCausalJoinBothArrivalOrders(t *testing.T) {
 					t.Fatal("fixture did not route")
 				}
 				result := func() {
-					runCodexAuditHandler(t, nativeHandler("codex-routing-result"), map[string]any{"tool_name": "collaborationspawn_agent", "tool_use_id": "spawn-1", "tool_response": `{"agent_id":"child-uuid"}`})
+					runCodexAuditHandler(t, "codex-routing-result", map[string]any{"tool_name": "collaborationspawn_agent", "tool_use_id": "spawn-1", "tool_response": `{"agent_id":"child-uuid"}`})
 				}
 				child := func() {
-					runCodexAuditHandler(t, nativeHandler("codex-subagent-start"), map[string]any{"agent_id": "child-uuid", "model": model})
+					runCodexAuditHandler(t, "codex-subagent-start", map[string]any{"agent_id": "child-uuid", "model": model})
 				}
 				if order == "result first" {
 					result()
@@ -124,9 +124,9 @@ func TestCodexAuditNativeResultWithoutAgentIDRemainsUnknown(t *testing.T) {
 	if runCodexRoute(t, codexRoutePayload(map[string]any{"fork_turns": "none", "message": "add a --verbose flag"})) == nil {
 		t.Fatal("fixture did not route")
 	}
-	runCodexAuditHandler(t, nativeHandler("codex-routing-start"), map[string]any{"model": "databricks-gpt-6-1-sol"})
-	runCodexAuditHandler(t, nativeHandler("codex-routing-result"), map[string]any{"tool_name": "collaborationspawn_agent", "tool_use_id": "spawn-1", "tool_response": `{"task_name":"/root/probe_child"}`})
-	runCodexAuditHandler(t, nativeHandler("codex-subagent-start"), map[string]any{"agent_id": "native-child-uuid", "model": codexRouteWireModel})
+	runCodexAuditHandler(t, "codex-routing-start", map[string]any{"model": "databricks-gpt-6-1-sol"})
+	runCodexAuditHandler(t, "codex-routing-result", map[string]any{"tool_name": "collaborationspawn_agent", "tool_use_id": "spawn-1", "tool_response": `{"task_name":"/root/probe_child"}`})
+	runCodexAuditHandler(t, "codex-subagent-start", map[string]any{"agent_id": "native-child-uuid", "model": codexRouteWireModel})
 	rows, body := readCodexAuditFixture(t)
 	if len(rows) != 4 || len(verifiedCodexRows(rows)) != 0 {
 		t.Fatalf("native unmatched records = %+v", rows)
@@ -155,14 +155,14 @@ func TestCodexAuditConcurrentSameModelChildrenUseIDs(t *testing.T) {
 			t.Fatal("fixture did not route")
 		}
 	}
-	runCodexAuditHandler(t, nativeHandler("codex-subagent-start"), map[string]any{"agent_id": "child-b", "model": codexRouteWireModel})
-	runCodexAuditHandler(t, nativeHandler("codex-subagent-start"), map[string]any{"agent_id": "child-a", "model": codexRouteWireModel})
+	runCodexAuditHandler(t, "codex-subagent-start", map[string]any{"agent_id": "child-b", "model": codexRouteWireModel})
+	runCodexAuditHandler(t, "codex-subagent-start", map[string]any{"agent_id": "child-a", "model": codexRouteWireModel})
 	rows, _ := readCodexAuditFixture(t)
 	if len(verifiedCodexRows(rows)) != 0 {
 		t.Fatal("same model was used as a causal join")
 	}
-	runCodexAuditHandler(t, nativeHandler("codex-routing-result"), map[string]any{"tool_name": "spawn_agent", "tool_use_id": "spawn-a", "tool_response": map[string]any{"agent_id": "child-a"}})
-	runCodexAuditHandler(t, nativeHandler("codex-routing-result"), map[string]any{"tool_name": "spawn_agent", "tool_use_id": "spawn-b", "tool_response": map[string]any{"agent_id": "child-b"}})
+	runCodexAuditHandler(t, "codex-routing-result", map[string]any{"tool_name": "spawn_agent", "tool_use_id": "spawn-a", "tool_response": map[string]any{"agent_id": "child-a"}})
+	runCodexAuditHandler(t, "codex-routing-result", map[string]any{"tool_name": "spawn_agent", "tool_use_id": "spawn-b", "tool_response": map[string]any{"agent_id": "child-b"}})
 	rows, _ = readCodexAuditFixture(t)
 	verified := verifiedCodexRows(rows)
 	if len(verified) != 2 {
@@ -195,8 +195,8 @@ func TestCodexAuditMissingCausalFieldsRemainUnknown(t *testing.T) {
 			if runCodexRoute(t, payload) == nil {
 				t.Fatal("fixture did not route")
 			}
-			runCodexAuditHandler(t, nativeHandler("codex-routing-result"), result)
-			runCodexAuditHandler(t, nativeHandler("codex-subagent-start"), child)
+			runCodexAuditHandler(t, "codex-routing-result", result)
+			runCodexAuditHandler(t, "codex-subagent-start", child)
 			rows, _ := readCodexAuditFixture(t)
 			if len(verifiedCodexRows(rows)) != 0 {
 				t.Fatalf("verified missing %s: %+v", missing, rows)
@@ -209,13 +209,13 @@ func TestCodexAuditIgnoresOtherVendorsAndMissingSessions(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	for _, vendor := range []string{VendorClaude, VendorCopilot, VendorCodex} {
 		t.Setenv(hookspec.AgentEnv, vendor)
-		for _, handler := range []Handler{nativeHandler("codex-routing-start"), nativeHandler("codex-routing-result"), nativeHandler("codex-subagent-start")} {
+		for _, name := range []string{"codex-routing-start", "codex-routing-result", "codex-subagent-start"} {
 			payload := map[string]any{"tool_name": "spawn_agent", "agent_id": "child", "model": codexRouteWireModel}
 			if vendor != VendorCodex {
 				payload["session_id"] = "session"
 			}
 			var out, stderr bytes.Buffer
-			if handler(bytes.NewReader(mustCodexJSON(t, payload)), &out, &stderr) != ExitProceed {
+			if runDirect(name, bytes.NewReader(mustCodexJSON(t, payload)), &out, &stderr) != ExitProceed {
 				t.Fatal("audit blocked")
 			}
 		}

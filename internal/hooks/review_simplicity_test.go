@@ -22,7 +22,7 @@ func rsRun(t *testing.T, tool, path, oldS, newS string) string {
 		t.Fatal(err)
 	}
 	var out bytes.Buffer
-	if code := ReviewSimplicity(bytes.NewReader(payload), &out, nil); code != ExitProceed {
+	if code := runDirect("review-simplicity", bytes.NewReader(payload), &out, nil); code != ExitProceed {
 		t.Fatalf("exit %d, want %d", code, ExitProceed)
 	}
 	return out.String()

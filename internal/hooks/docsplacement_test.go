@@ -3,6 +3,7 @@ package hooks
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -172,7 +173,7 @@ func TestDocsPlacementPatchArgumentKeys(t *testing.T) {
 						t.Fatal(err)
 					}
 					var stderr bytes.Buffer
-					if code := DocsPlacement(bytes.NewReader(raw), &stderr); code != ExitBlock {
+					if code := runDirect("docs-placement", bytes.NewReader(raw), io.Discard, &stderr); code != ExitBlock {
 						t.Fatalf("code = %d, want block: %s", code, &stderr)
 					}
 					if !strings.Contains(stderr.String(), "docs-placement: BLOCKED") {
@@ -213,7 +214,7 @@ func TestDocsPlacementGate(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			var stderr bytes.Buffer
-			code := DocsPlacement(strings.NewReader(placementPayload(t, c.tool, c.path)), &stderr)
+			code := runDirect("docs-placement", strings.NewReader(placementPayload(t, c.tool, c.path)), io.Discard, &stderr)
 			want := ExitProceed
 			if c.block {
 				want = ExitBlock
@@ -235,7 +236,7 @@ func TestDocsPlacementNamesCanonicalPaths(t *testing.T) {
 	repo := placementRepo(t)
 
 	var stderr bytes.Buffer
-	if code := DocsPlacement(strings.NewReader(placementPayload(t, "Write", filepath.Join(repo, "PLAN.md"))), &stderr); code != ExitBlock {
+	if code := runDirect("docs-placement", strings.NewReader(placementPayload(t, "Write", filepath.Join(repo, "PLAN.md"))), io.Discard, &stderr); code != ExitBlock {
 		t.Fatalf("code = %d, want block", code)
 	}
 	for _, want := range []string{
@@ -260,7 +261,7 @@ func TestDocsPlacementKnobOff(t *testing.T) {
 	repo := placementRepo(t)
 
 	var stderr bytes.Buffer
-	if code := DocsPlacement(strings.NewReader(placementPayload(t, "Write", filepath.Join(repo, "PLAN.md"))), &stderr); code != ExitProceed {
+	if code := runDirect("docs-placement", strings.NewReader(placementPayload(t, "Write", filepath.Join(repo, "PLAN.md"))), io.Discard, &stderr); code != ExitProceed {
 		t.Fatalf("code = %d, want proceed when the knob is 0 (stderr: %s)", code, stderr.String())
 	}
 }
@@ -290,7 +291,7 @@ func TestDocsPlacementThroughSymlink(t *testing.T) {
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			var stderr bytes.Buffer
-			code := DocsPlacement(strings.NewReader(placementPayload(t, "Write", c.path)), &stderr)
+			code := runDirect("docs-placement", strings.NewReader(placementPayload(t, "Write", c.path)), io.Discard, &stderr)
 			want := ExitProceed
 			if c.block {
 				want = ExitBlock
@@ -309,7 +310,7 @@ func TestDocsPlacementGlobShapedNameStillBlocks(t *testing.T) {
 	repo := placementRepo(t)
 
 	var stderr bytes.Buffer
-	if code := DocsPlacement(strings.NewReader(placementPayload(t, "Write", filepath.Join(repo, "*.md"))), &stderr); code != ExitBlock {
+	if code := runDirect("docs-placement", strings.NewReader(placementPayload(t, "Write", filepath.Join(repo, "*.md"))), io.Discard, &stderr); code != ExitBlock {
 		t.Fatalf("code = %d, want block for a glob-shaped root doc (stderr: %s)", code, stderr.String())
 	}
 }
@@ -367,7 +368,7 @@ func TestDocsPlacementIgnoredDocsDir(t *testing.T) {
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			var stderr bytes.Buffer
-			code := DocsPlacement(strings.NewReader(placementPayload(t, "Write", c.path)), &stderr)
+			code := runDirect("docs-placement", strings.NewReader(placementPayload(t, "Write", c.path)), io.Discard, &stderr)
 			want := ExitProceed
 			if c.block {
 				want = ExitBlock
@@ -395,7 +396,7 @@ func TestDocsPlacementHarnessDocsTreeExempt(t *testing.T) {
 	} {
 		var stderr bytes.Buffer
 		p := filepath.Join(harness, "docs", filepath.FromSlash(name))
-		if code := DocsPlacement(strings.NewReader(placementPayload(t, "Write", p)), &stderr); code != want {
+		if code := runDirect("docs-placement", strings.NewReader(placementPayload(t, "Write", p)), io.Discard, &stderr); code != want {
 			t.Errorf("%s: code = %d, want %d (stderr: %s)", name, code, want, stderr.String())
 		}
 	}
@@ -425,7 +426,7 @@ func TestDocsPlacementGitFileRoot(t *testing.T) {
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			var stderr bytes.Buffer
-			if code := DocsPlacement(strings.NewReader(placementPayload(t, "Write", c.path)), &stderr); code != c.want {
+			if code := runDirect("docs-placement", strings.NewReader(placementPayload(t, "Write", c.path)), io.Discard, &stderr); code != c.want {
 				t.Fatalf("code = %d, want %d (stderr: %s)", code, c.want, stderr.String())
 			}
 		})

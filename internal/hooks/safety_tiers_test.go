@@ -70,7 +70,7 @@ func copilotBashPayloadCwd(cmd, cwd string) io.Reader {
 func askReason(t *testing.T, payload io.Reader) string {
 	t.Helper()
 	var out, errb bytes.Buffer
-	if code := SafetyScan(payload, &out, &errb); code != ExitProceed {
+	if code := runDirect("safety-scan", payload, &out, &errb); code != ExitProceed {
 		t.Fatalf("exit = %d, want 0 (stderr %s)", code, errb.String())
 	}
 	var doc struct {
@@ -140,7 +140,7 @@ func TestSafetyTierDecisions(t *testing.T) {
 func TestSafetyAskDocumentExactShape(t *testing.T) {
 	tierHarness(t)
 	var out, errb bytes.Buffer
-	if code := SafetyScan(bashPayload("sudo apt-get install jq"), &out, &errb); code != ExitProceed {
+	if code := runDirect("safety-scan", bashPayload("sudo apt-get install jq"), &out, &errb); code != ExitProceed {
 		t.Fatalf("exit = %d, want 0 (stderr %s)", code, errb.String())
 	}
 	var top map[string]json.RawMessage
@@ -207,7 +207,7 @@ func TestSafetyAskFallsBackToBlockOffClaude(t *testing.T) {
 		t.Setenv("HARNESS_HOOK_AGENT", "codex")
 		for _, c := range askRows {
 			var out, errb bytes.Buffer
-			if code := SafetyScan(tierPayload(c.cmd, c.cwd), &out, &errb); code != ExitBlock {
+			if code := runDirect("safety-scan", tierPayload(c.cmd, c.cwd), &out, &errb); code != ExitBlock {
 				t.Errorf("%q: exit = %d, want block (stderr %s)", c.cmd, code, errb.String())
 				continue
 			}
@@ -223,7 +223,7 @@ func TestSafetyAskFallsBackToBlockOffClaude(t *testing.T) {
 				payload = copilotBashPayloadCwd(c.cmd, c.cwd)
 			}
 			var out, errb bytes.Buffer
-			if code := SafetyScan(payload, &out, &errb); code != ExitBlock {
+			if code := runDirect("safety-scan", payload, &out, &errb); code != ExitBlock {
 				t.Errorf("%q: exit = %d, want block (stderr %s)", c.cmd, code, errb.String())
 				continue
 			}

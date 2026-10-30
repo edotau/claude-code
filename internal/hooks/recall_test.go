@@ -3,6 +3,7 @@ package hooks
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -20,7 +21,7 @@ func recallAs(t *testing.T, session, prompt, cwd string) string {
 	t.Helper()
 	raw, _ := json.Marshal(map[string]string{"prompt": prompt, "cwd": cwd, "session_id": session})
 	var out bytes.Buffer
-	if code := MemoryRecall(bytes.NewReader(raw), &out); code != ExitProceed {
+	if code := runDirect("memory-recall", bytes.NewReader(raw), &out, io.Discard); code != ExitProceed {
 		t.Fatalf("MemoryRecall = %d", code)
 	}
 	if out.Len() == 0 {
@@ -85,7 +86,7 @@ func TestMemoryRecallSkipsWhatIsInContext(t *testing.T) {
 	const sessionS = "44444444-4444-4444-8444-444444444444"
 	const sessionT = "55555555-5555-4555-8555-555555555555"
 	raw, _ := json.Marshal(map[string]string{"cwd": cwd, "session_id": sessionS})
-	if SessionStart(bytes.NewReader(raw), &bytes.Buffer{}) != ExitProceed {
+	if runDirect("memory-start", bytes.NewReader(raw), &bytes.Buffer{}, io.Discard) != ExitProceed {
 		t.Fatal("SessionStart failed")
 	}
 	got := recallAs(t, sessionS, "alpha bravo charlie delta echo", cwd)
@@ -147,7 +148,7 @@ func TestMemoryRecallHandlesCwdGracefully(t *testing.T) {
 	// Test 1: With explicit CWD provided, recall works.
 	raw, _ := json.Marshal(map[string]string{"prompt": "alpha bravo charlie delta", "cwd": cwd})
 	var out1 bytes.Buffer
-	code1 := MemoryRecall(bytes.NewReader(raw), &out1)
+	code1 := runDirect("memory-recall", bytes.NewReader(raw), &out1, io.Discard)
 	if code1 != ExitProceed {
 		t.Fatalf("MemoryRecall with explicit CWD failed: code=%d", code1)
 	}
@@ -155,7 +156,7 @@ func TestMemoryRecallHandlesCwdGracefully(t *testing.T) {
 	// Test 2: With empty CWD, fallback to Getwd should work (on most systems).
 	raw2, _ := json.Marshal(map[string]string{"prompt": "alpha bravo charlie delta", "cwd": ""})
 	var out2 bytes.Buffer
-	code2 := MemoryRecall(bytes.NewReader(raw2), &out2)
+	code2 := runDirect("memory-recall", bytes.NewReader(raw2), &out2, io.Discard)
 	if code2 != ExitProceed {
 		t.Fatalf("MemoryRecall with empty CWD failed: code=%d", code2)
 	}

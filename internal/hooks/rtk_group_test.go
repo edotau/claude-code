@@ -76,7 +76,7 @@ func TestRtkSplitSafetyScanNeverRewrites(t *testing.T) {
 	payload := rtkBashIn("git status")
 
 	var stdout strings.Builder
-	if rc := SafetyScan(strings.NewReader(payload), &stdout, io.Discard); rc != ExitProceed {
+	if rc := runDirect("safety-scan", strings.NewReader(payload), &stdout, io.Discard); rc != ExitProceed {
 		t.Fatalf("SafetyScan rc = %d, want ExitProceed (%d)", rc, ExitProceed)
 	}
 	if stdout.Len() != 0 {

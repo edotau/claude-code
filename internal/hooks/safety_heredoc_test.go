@@ -66,7 +66,7 @@ func TestSafetyScanChecksPythonHeredocBodies(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			var errb bytes.Buffer
-			if got := SafetyScan(bashPayload(c.cmd), io.Discard, &errb); got != c.want {
+			if got := runDirect("safety-scan", bashPayload(c.cmd), io.Discard, &errb); got != c.want {
 				t.Errorf("%q: got %d want %d (%s)", c.cmd, got, c.want, errb.String())
 			}
 		})
@@ -81,7 +81,7 @@ func TestSafetyScanChecksExecutedHeredocBodiesCopilot(t *testing.T) {
 			"sessionId": "x", "toolName": "Bash", "toolArgs": map[string]string{"command": cmd},
 		})
 		var out, errb bytes.Buffer
-		if got := SafetyScan(bytes.NewReader(payload), &out, &errb); got != ExitBlock {
+		if got := runDirect("safety-scan", bytes.NewReader(payload), &out, &errb); got != ExitBlock {
 			t.Errorf("copilot shape %q: got %d want ExitBlock (out=%s err=%s)", cmd, got, out.String(), errb.String())
 		}
 	}
@@ -123,7 +123,7 @@ func TestSafetyScanIgnoresArithmeticShift(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	cmd := "echo $((1<<y))"
 	var errb bytes.Buffer
-	if got := SafetyScan(bashPayload(cmd), io.Discard, &errb); got != ExitProceed {
+	if got := runDirect("safety-scan", bashPayload(cmd), io.Discard, &errb); got != ExitProceed {
 		t.Errorf("%q: got %d want ExitProceed (%s)", cmd, got, errb.String())
 	}
 }
@@ -133,7 +133,7 @@ func TestSafetyScanBlockMessageShowsOriginalCommand(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	cmd := "bash <<'EOF'\nsudo rm -rf /\nEOF"
 	var errb bytes.Buffer
-	if got := SafetyScan(bashPayload(cmd), io.Discard, &errb); got != ExitBlock {
+	if got := runDirect("safety-scan", bashPayload(cmd), io.Discard, &errb); got != ExitBlock {
 		t.Fatalf("got %d want ExitBlock", got)
 	}
 	if !strings.Contains(errb.String(), "sudo rm -rf /") {

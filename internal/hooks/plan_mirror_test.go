@@ -3,6 +3,7 @@ package hooks
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -155,7 +156,7 @@ func TestPlanMirrorTopLevelWhenCWDIsConfigDir(t *testing.T) {
 	if err := os.WriteFile(draft, []byte(planTemplate), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if code := PlanMirror(strings.NewReader(mirrorPayload(t, "Write", cfg, draft)), &bytes.Buffer{}); code != ExitProceed {
+	if code := runDirect("docs-plan-mirror", strings.NewReader(mirrorPayload(t, "Write", cfg, draft)), io.Discard, &bytes.Buffer{}); code != ExitProceed {
 		t.Fatalf("PlanMirror = %d", code)
 	}
 	want := filepath.Join(cfg, "plans", dateStamp()+"-widget-refactor.md")
@@ -179,7 +180,7 @@ func TestPlanMirrorRepoTaggedWhenCWDIsAnotherRepo(t *testing.T) {
 	if err := os.WriteFile(draft, []byte(planTemplate), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if code := PlanMirror(strings.NewReader(mirrorPayload(t, "Write", repo, draft)), &bytes.Buffer{}); code != ExitProceed {
+	if code := runDirect("docs-plan-mirror", strings.NewReader(mirrorPayload(t, "Write", repo, draft)), io.Discard, &bytes.Buffer{}); code != ExitProceed {
 		t.Fatalf("PlanMirror = %d", code)
 	}
 	want := filepath.Join(cfg, "plans", filepath.Base(repo), dateStamp()+"-widget-refactor.md")
@@ -200,7 +201,7 @@ func TestPlanMirrorEditReusesDestAndSurvivesH1Change(t *testing.T) {
 	if err := os.WriteFile(draft, []byte(planTemplate), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if code := PlanMirror(strings.NewReader(mirrorPayload(t, "Write", cfg, draft)), &bytes.Buffer{}); code != ExitProceed {
+	if code := runDirect("docs-plan-mirror", strings.NewReader(mirrorPayload(t, "Write", cfg, draft)), io.Discard, &bytes.Buffer{}); code != ExitProceed {
 		t.Fatalf("first mirror = %d", code)
 	}
 	dest := filepath.Join(cfg, "plans", dateStamp()+"-widget-refactor.md")
@@ -209,7 +210,7 @@ func TestPlanMirrorEditReusesDestAndSurvivesH1Change(t *testing.T) {
 	if err := os.WriteFile(draft, []byte(edited), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if code := PlanMirror(strings.NewReader(mirrorPayload(t, "Edit", cfg, draft)), &bytes.Buffer{}); code != ExitProceed {
+	if code := runDirect("docs-plan-mirror", strings.NewReader(mirrorPayload(t, "Edit", cfg, draft)), io.Discard, &bytes.Buffer{}); code != ExitProceed {
 		t.Fatalf("edit mirror = %d", code)
 	}
 	if got, err := os.ReadFile(dest); err != nil || string(got) != edited {
@@ -220,7 +221,7 @@ func TestPlanMirrorEditReusesDestAndSurvivesH1Change(t *testing.T) {
 	if err := os.WriteFile(draft, []byte(renamed), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if code := PlanMirror(strings.NewReader(mirrorPayload(t, "Edit", cfg, draft)), &bytes.Buffer{}); code != ExitProceed {
+	if code := runDirect("docs-plan-mirror", strings.NewReader(mirrorPayload(t, "Edit", cfg, draft)), io.Discard, &bytes.Buffer{}); code != ExitProceed {
 		t.Fatalf("H1-change mirror = %d", code)
 	}
 	if got, err := os.ReadFile(dest); err != nil || string(got) != renamed {
@@ -259,7 +260,7 @@ func TestPlanMirrorNeverClobbersAnUnrelatedDatedFile(t *testing.T) {
 	if err := os.WriteFile(draft, []byte(planTemplate), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if code := PlanMirror(strings.NewReader(mirrorPayload(t, "Write", cfg, draft)), &bytes.Buffer{}); code != ExitProceed {
+	if code := runDirect("docs-plan-mirror", strings.NewReader(mirrorPayload(t, "Write", cfg, draft)), io.Discard, &bytes.Buffer{}); code != ExitProceed {
 		t.Fatalf("PlanMirror = %d", code)
 	}
 	if got, err := os.ReadFile(preexisting); err != nil || string(got) != unrelated {
@@ -288,10 +289,10 @@ func TestPlanMirrorNeverAdoptsAnIdenticalDatedFile(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if code := PlanMirror(strings.NewReader(mirrorPayload(t, "Write", cfg, draftA)), &bytes.Buffer{}); code != ExitProceed {
+	if code := runDirect("docs-plan-mirror", strings.NewReader(mirrorPayload(t, "Write", cfg, draftA)), io.Discard, &bytes.Buffer{}); code != ExitProceed {
 		t.Fatalf("mirror A = %d", code)
 	}
-	if code := PlanMirror(strings.NewReader(mirrorPayload(t, "Write", cfg, draftB)), &bytes.Buffer{}); code != ExitProceed {
+	if code := runDirect("docs-plan-mirror", strings.NewReader(mirrorPayload(t, "Write", cfg, draftB)), io.Discard, &bytes.Buffer{}); code != ExitProceed {
 		t.Fatalf("mirror B = %d", code)
 	}
 	destA := filepath.Join(plansDir, dateStamp()+"-widget-refactor.md")
@@ -310,7 +311,7 @@ func TestPlanMirrorNeverAdoptsAnIdenticalDatedFile(t *testing.T) {
 	if err := os.WriteFile(draftB, []byte(edited), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if code := PlanMirror(strings.NewReader(mirrorPayload(t, "Edit", cfg, draftB)), &bytes.Buffer{}); code != ExitProceed {
+	if code := runDirect("docs-plan-mirror", strings.NewReader(mirrorPayload(t, "Edit", cfg, draftB)), io.Discard, &bytes.Buffer{}); code != ExitProceed {
 		t.Fatalf("edit mirror B = %d", code)
 	}
 	if got, err := os.ReadFile(destA); err != nil || string(got) != planTemplate {
@@ -335,7 +336,7 @@ func TestSavePlanReusesMirroredDestAndCleansUpDraft(t *testing.T) {
 	if err := os.WriteFile(draft, []byte(planTemplate), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if code := PlanMirror(strings.NewReader(mirrorPayload(t, "Write", repo, draft)), &bytes.Buffer{}); code != ExitProceed {
+	if code := runDirect("docs-plan-mirror", strings.NewReader(mirrorPayload(t, "Write", repo, draft)), io.Discard, &bytes.Buffer{}); code != ExitProceed {
 		t.Fatalf("PlanMirror = %d", code)
 	}
 	dest := filepath.Join(cfg, "plans", filepath.Base(repo), dateStamp()+"-widget-refactor.md")
@@ -350,7 +351,7 @@ func TestSavePlanReusesMirroredDestAndCleansUpDraft(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if code := SavePlan(bytes.NewReader(raw), &bytes.Buffer{}); code != ExitProceed {
+	if code := runDirect("docs-plan-save", bytes.NewReader(raw), io.Discard, &bytes.Buffer{}); code != ExitProceed {
 		t.Fatalf("SavePlan = %d", code)
 	}
 	if got, err := os.ReadFile(dest); err != nil || string(got) != planTemplate {
@@ -385,7 +386,7 @@ func TestSavePlanKeepsDraftEditedAfterApproval(t *testing.T) {
 		t.Fatal(err)
 	}
 	var stderr bytes.Buffer
-	if code := SavePlan(bytes.NewReader(raw), &stderr); code != ExitProceed {
+	if code := runDirect("docs-plan-save", bytes.NewReader(raw), io.Discard, &stderr); code != ExitProceed {
 		t.Fatalf("SavePlan = %d", code)
 	}
 	dest := filepath.Join(cfg, "plans", dateStamp()+"-widget-refactor.md")
@@ -423,7 +424,7 @@ func TestSavePlanPreservesRecordWhenDraftRemovalFails(t *testing.T) {
 		t.Fatal(err)
 	}
 	var stderr bytes.Buffer
-	if code := SavePlan(bytes.NewReader(raw), &stderr); code != ExitProceed {
+	if code := runDirect("docs-plan-save", bytes.NewReader(raw), io.Discard, &stderr); code != ExitProceed {
 		t.Fatalf("SavePlan = %d, want ExitProceed", code)
 	}
 	if !strings.HasPrefix(stderr.String(), "save-plan: ") || !strings.Contains(stderr.String(), draft) {

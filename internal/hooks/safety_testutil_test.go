@@ -11,7 +11,7 @@ import (
 func safetyScanDecision(t *testing.T, payload io.Reader) (Decision, string) {
 	t.Helper()
 	var out, errb bytes.Buffer
-	code := SafetyScan(payload, &out, &errb)
+	code := runDirect("safety-scan", payload, &out, &errb)
 	if code == ExitBlock {
 		return Block, errb.String()
 	}
