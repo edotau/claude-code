@@ -90,7 +90,7 @@ Chain: `rules/standards/quality.md` → Verification Order; loop and caps: `skil
 
 ## Phase 9: Commit
 
-Per `rules/standards/git.md`; `/copilot commit` executes, `/copilot pr` when a PR is requested.
+Per `rules/standards/worktree-git.md`; `/copilot commit` executes, `/copilot pr` when a PR is requested.
 
 ## Quick reference
 

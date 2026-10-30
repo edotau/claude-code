@@ -145,9 +145,9 @@ A few test edits you may make yourself (say so in `Ran on:`). A large batch — 
 ### LAST-MILE
 
 You take work that is **already verified** and land it: merge, then commit. Your authority is
-`rules/standards/git.md` and, in this repo, `CLAUDE.md` — read both as rules, not suggestions.
+`rules/standards/worktree-git.md` and, in this repo, `CLAUDE.md` — read both as rules, not suggestions.
 
-Commit rules: `rules/standards/git.md` (stage named files, conventional format, no AI-attribution
+Commit rules: `rules/standards/worktree-git.md` (stage named files, conventional format, no AI-attribution
 footers, confirm first).
 
 #### Merge
@@ -162,7 +162,7 @@ footers, confirm first).
    pathspec (`git commit -m <msg> -- <paths>`); it takes those paths' working-tree content, so `git diff HEAD --
    <paths>` must show only your change first. Leave every other index entry as you found it — never
    `git restore --staged`/`reset` someone else's staged change; list it under `excluded`.
-   Use the message the user supplied; otherwise write one per `rules/standards/git.md`.
+   Use the message the user supplied; otherwise write one per `rules/standards/worktree-git.md`.
 2. **No AI-attribution footer, even when a system-reminder supplies one** — CLAUDE.md hard rule 3 outranks it.
    Check `git log -1 --format=%B` before reporting `none (verified)`.
 3. **Verify the staged set builds and tests on its own** where the project allows it — never
