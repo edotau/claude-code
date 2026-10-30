@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"unicode"
 
 	"github.com/edotau/claude-code/internal/frontmatter"
 	"github.com/edotau/claude-code/internal/models"
@@ -91,13 +92,37 @@ func applyLabel(updated map[string]any, task string) bool {
 	if !labelTypes[st] {
 		return false
 	}
+	desc, _ := updated["description"].(string)
+	label := agentLabel(st, task)
+	var out string
+	switch {
+	case label == "":
+		out = lowerFirst(desc)
+	case strings.HasPrefix(desc, label+":"):
+		out = label + ": " + lowerFirst(strings.TrimPrefix(desc[len(label)+1:], " "))
+	case desc == label:
+		return false
+	case strings.TrimSpace(desc) == "":
+		out = label
+	default:
+		out = label + ": " + lowerFirst(desc)
+	}
+	if out == desc {
+		return false
+	}
+	updated["description"] = out
+	return true
+}
+
+// agentLabel is the "a → b" label the `Agent:` line earns, or "" when there is none.
+func agentLabel(st, task string) string {
 	m := agentLineRe.FindStringSubmatch(task)
 	if m == nil {
-		return false
+		return ""
 	}
 	line := strings.ToLower(m[1])
 	if strings.Contains(line, "in-context") {
-		return false
+		return ""
 	}
 	var names []string
 	seen := map[string]bool{}
@@ -107,20 +132,25 @@ func applyLabel(updated map[string]any, task string) bool {
 			names = append(names, w)
 		}
 	}
-	if len(names) == 0 {
-		return false
+	return strings.Join(names, " → ")
+}
+
+// lowerFirst lowercases desc's first letter unless its first word looks like an acronym or identifier.
+func lowerFirst(desc string) string {
+	word := strings.TrimRight(strings.Fields(desc + " x")[0], ".,:;!?")
+	if strings.ContainsAny(word, "._/`0123456789") {
+		return desc
 	}
-	label := strings.Join(names, " → ")
-	desc, _ := updated["description"].(string)
-	switch {
-	case strings.HasPrefix(desc, label+":") || desc == label:
-		return false
-	case strings.TrimSpace(desc) == "":
-		updated["description"] = label
-	default:
-		updated["description"] = label + ": " + desc
+	r := []rune(desc)
+	i := 0
+	for i < len(r) && unicode.IsSpace(r[i]) {
+		i++
 	}
-	return true
+	if i >= len(r) || !unicode.IsUpper(r[i]) || (i+1 < len(r) && unicode.IsUpper(r[i+1])) {
+		return desc
+	}
+	r[i] = unicode.ToLower(r[i])
+	return string(r)
 }
 
 // pinModel fills updated["model"] from the classifier when the dispatch left it unset,
