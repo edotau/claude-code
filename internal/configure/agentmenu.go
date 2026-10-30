@@ -94,6 +94,9 @@ func runAgentMenu(d *dialog, name string, m agentMenu) bool {
 		}
 	}
 	m.rows = append(m.rows, agentPinRows(d, internal)...)
+	if _, ok := setupLogins[internal]; ok {
+		m.rows = append([]billingRow{setupRow(d, internal)}, m.rows...)
+	}
 	title := name + " (current: " + m.state.mode
 	if m.state.verified {
 		title += " · verified"
