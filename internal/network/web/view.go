@@ -6,20 +6,20 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/edotau/claude-code/internal/agenttree"
+	"github.com/edotau/claude-code/internal/agent"
 )
 
 // handleView serves /api/view?session=&agent=[&n=][&follow=1]: the drill-down snapshot for one
-// subagent, or (follow=1) its live event stream as text/plain, reusing agenttree.View/Follow —
+// subagent, or (follow=1) its live event stream as text/plain, reusing agent.View/Follow —
 // the same engine `claude-code network view` uses, so dashboard and CLI never drift.
 func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
-	agent := r.URL.Query().Get("agent")
-	if agent == "" {
+	name := r.URL.Query().Get("agent")
+	if name == "" {
 		http.Error(w, "web: ?agent is required", http.StatusBadRequest)
 		return
 	}
-	opts := s.viewOptions(r, agent)
-	snap, err := agenttree.View(opts)
+	opts := s.viewOptions(r, name)
+	snap, err := agent.View(opts)
 	if err != nil {
 		http.Error(w, "web: "+err.Error(), http.StatusNotFound)
 		return
@@ -38,23 +38,23 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
 		fl.Flush() // headers reach the client before the first event; a quiet agent would otherwise hang the fetch
 	}
 	fw := flushWriter{w}
-	if err := agenttree.Follow(r.Context(), opts, fw); err != nil && r.Context().Err() == nil {
+	if err := agent.Follow(r.Context(), opts, fw); err != nil && r.Context().Err() == nil {
 		fmt.Fprintf(fw, "error: %v\n", err)
 	}
 }
 
-// viewOptions builds agenttree.ViewOptions from the request's query params, defaulting Days the
+// viewOptions builds agent.ViewOptions from the request's query params, defaulting Days the
 // same way handleTree does.
-func (s *Server) viewOptions(r *http.Request, agent string) agenttree.ViewOptions {
+func (s *Server) viewOptions(r *http.Request, name string) agent.ViewOptions {
 	days := s.opts.Days
 	if days <= 0 {
 		days = 1
 	}
-	opts := agenttree.ViewOptions{
+	opts := agent.ViewOptions{
 		ClaudeDir: s.opts.ClaudeDir,
 		Session:   r.URL.Query().Get("session"),
 		Days:      days,
-		Agent:     agent,
+		Agent:     name,
 		Now:       s.now,
 	}
 	if n, err := strconv.Atoi(r.URL.Query().Get("n")); err == nil && n > 0 {

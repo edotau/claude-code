@@ -10,12 +10,11 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agent/vendors"
 	"github.com/edotau/claude-code/internal/helptext"
 	"github.com/edotau/claude-code/internal/outfmt"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/secrets/shapes"
-	"github.com/edotau/claude-code/internal/vendoragent"
-	"github.com/edotau/claude-code/internal/vendors"
 )
 
 // vendorSubverbs are the words vendorVerb routes to cmdVendorSub.
@@ -58,7 +57,7 @@ func vendorPage(vendor string) helptext.Page {
 		rows[slices.IndexFunc(rows, func(r [2]string) bool { return r[0] == "catalog" })][1] =
 			"model menu: list|add|remove|import|reset|check|sync"
 	}
-	if a, ok := vendoragent.Lookup(vendor); ok {
+	if a, ok := agent.LookupAdapter(vendor); ok {
 		rows = append(rows, a.ExtraUsage...)
 	}
 	return helptext.Page{
@@ -185,7 +184,7 @@ func cmdVendorStatus(vendor string, args []string) int {
 		ref = pos[0]
 	}
 	cwd, _ := os.Getwd()
-	rows, err := vendoragent.Status(context.Background(), vendor, cwd, ref, *all)
+	rows, err := agent.Status(context.Background(), vendor, cwd, ref, *all)
 	if err != nil {
 		return fail("%s status: %v", vendor, err)
 	}
@@ -220,7 +219,7 @@ func cmdVendorTail(vendor string, args []string) int {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 	cwd, _ := os.Getwd()
-	rec, err := vendoragent.Tail(ctx, vendor, cwd, ref, *follow, os.Stdout)
+	rec, err := agent.Tail(ctx, vendor, cwd, ref, *follow, os.Stdout)
 	if err != nil {
 		return fail("%s tail: %v", vendor, err)
 	}
@@ -256,7 +255,7 @@ func cmdVendorResult(vendor string, args []string) int {
 		ref = pos[0]
 	}
 	cwd, _ := os.Getwd()
-	rec, log, err := vendoragent.Result(context.Background(), vendor, cwd, ref)
+	rec, log, err := agent.JobResult(context.Background(), vendor, cwd, ref)
 	if err != nil {
 		return fail("%s result: %v", vendor, err)
 	}
@@ -293,7 +292,7 @@ func resultExit(rec agent.Record) int {
 
 // resumeHint renders Adapter.ResumeHint for id, empty when the vendor has none.
 func resumeHint(vendor, id string) string {
-	a, ok := vendoragent.Lookup(vendor)
+	a, ok := agent.LookupAdapter(vendor)
 	if !ok || a.ResumeHint == nil || id == "" {
 		return ""
 	}
@@ -308,7 +307,7 @@ func cmdVendorCancel(vendor string, args []string) int {
 	}
 	ref := fs.Arg(0)
 	cwd, _ := os.Getwd()
-	rec, err := vendoragent.CancelJob(context.Background(), vendor, cwd, ref)
+	rec, err := agent.CancelJob(context.Background(), vendor, cwd, ref)
 	if err != nil {
 		return fail("%s cancel: %v", vendor, err)
 	}
@@ -326,7 +325,7 @@ func cmdVendorSetup(vendor string, args []string) int {
 	if err := outfmt.Check(*format); err != nil {
 		return fail("%s setup: %v", vendor, err)
 	}
-	rep := vendoragent.Setup(vendor)
+	rep := agent.Setup(vendor)
 	if *format == outfmt.JSON {
 		if err := outfmt.Write(os.Stdout, rep); err != nil {
 			return fail("%s setup: %v", vendor, err)
@@ -355,12 +354,12 @@ func cmdVendorReview(vendor string, args []string) int {
 	if code, done := helptext.Parse(fs, args); done {
 		return code
 	}
-	scope, err := vendoragent.ParseScope(*uncommitted, *base, *commit, *pr)
+	scope, err := agent.ParseScope(*uncommitted, *base, *commit, *pr)
 	if err != nil {
 		return fail("%s review: %v", vendor, err)
 	}
 	cwd, _ := os.Getwd()
-	diff, err := vendoragent.Diff(context.Background(), cwd, scope)
+	diff, err := agent.Diff(context.Background(), cwd, scope)
 	if err != nil {
 		return fail("%s review: %v", vendor, err)
 	}
@@ -368,7 +367,7 @@ func cmdVendorReview(vendor string, args []string) int {
 	if parts := reviewParts(diff, *adversarial, focus, *rubric); len(parts) > 1 {
 		return runSplitReview(vendor, args, parts, scope, *adversarial, *background, focus, *rubric)
 	}
-	askArgs, cleanup, err := vendoragent.ReviewArgs(vendor, scope, diff, *adversarial, *background, focus, *rubric)
+	askArgs, cleanup, err := agent.ReviewArgs(vendor, scope, diff, *adversarial, *background, focus, *rubric)
 	if err != nil {
 		return fail("%s review: %v", vendor, err)
 	}
@@ -390,7 +389,7 @@ func cmdVendorExplore(vendor string, args []string) int {
 		return fail("%s explore: usage: claude-code %s explore [--no-web] [--background] <question>", vendor, vendor)
 	}
 	cwd, _ := os.Getwd()
-	askArgs := vendoragent.ExploreArgs(vendor, cwd, question, !*noWeb, *background)
+	askArgs := agent.ExploreArgs(vendor, cwd, question, !*noWeb, *background)
 	if *format != "text" {
 		task := askArgs[len(askArgs)-1]
 		askArgs = append(askArgs[:len(askArgs)-1], "--format", *format, task)
@@ -409,25 +408,25 @@ func cmdVendorTransfer(vendor string, args []string) int {
 	cwd, _ := os.Getwd()
 	src := *source
 	if src != "" {
-		if err := vendoragent.ValidateSource(src); err != nil {
+		if err := agent.ValidateSource(src); err != nil {
 			return fail("%s transfer: %v", vendor, err)
 		}
 	} else {
 		var err error
-		src, err = vendoragent.DefaultSource(cwd)
+		src, err = agent.DefaultSource(cwd)
 		if err != nil {
 			return fail("%s transfer: %v", vendor, err)
 		}
 	}
 	fmt.Fprintf(os.Stderr, "transfer: source %s\n", src)
 	note := strings.Join(fs.Args(), " ")
-	prompt, err := vendoragent.Handoff(src, cwd, note)
+	prompt, err := agent.Handoff(src, cwd, note)
 	if err != nil {
 		return fail("%s transfer: %v", vendor, err)
 	}
-	code := cmdAsk(vendoragent.TransferArgs(vendor, cwd, prompt, *wait))
+	code := cmdAsk(agent.TransferArgs(vendor, cwd, prompt, *wait))
 	if code == 0 && *wait {
-		if rec, _, err := vendoragent.Result(context.Background(), vendor, cwd, ""); err == nil {
+		if rec, _, err := agent.JobResult(context.Background(), vendor, cwd, ""); err == nil {
 			if hint := resumeHint(vendor, rec.SessionID); hint != "" {
 				fmt.Printf("resume: %s\n", hint)
 			}
@@ -438,7 +437,7 @@ func cmdVendorTransfer(vendor string, args []string) int {
 
 // cmdVendorModels is `claude-code <v> catalog` : the agent's own catalog, or a note that it has none.
 func cmdVendorModels(vendor string, args []string) int {
-	a, ok := vendoragent.Lookup(vendor)
+	a, ok := agent.LookupAdapter(vendor)
 	if !ok {
 		return fail("unknown agent %q", vendor)
 	}
@@ -458,7 +457,7 @@ func cmdVendorModels(vendor string, args []string) int {
 		if err != nil {
 			return fail("%v", err)
 		}
-		cat, err := vendoragent.CopilotModelSource(context.Background(), reg, *profile)
+		cat, err := agent.CopilotModelSource(context.Background(), reg, *profile)
 		if err != nil {
 			return fail("%s catalog: %v", vendor, err)
 		}
@@ -493,7 +492,7 @@ func cmdVendorModels(vendor string, args []string) int {
 }
 
 // printCopilotCatalog prints a Databricks row's chat endpoints as a NAME / TESTED table, or JSON.
-func printCopilotCatalog(vendor string, cat vendoragent.CopilotCatalog, format string) int {
+func printCopilotCatalog(vendor string, cat agent.CopilotCatalog, format string) int {
 	if format == outfmt.JSON {
 		if err := outfmt.Write(os.Stdout, cat); err != nil {
 			return fail("%s catalog: %v", vendor, err)
@@ -540,7 +539,7 @@ func vendorBinary(vendor string) string {
 }
 
 // statusDetail is a status row's tail: progress and preview, or the preview plus the one-line error text.
-func statusDetail(r vendoragent.Row) string {
+func statusDetail(r agent.Row) string {
 	d := r.Preview
 	if r.Progress != "" {
 		d = "[" + r.Progress + "] " + d

@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/vendors"
+	"github.com/edotau/claude-code/internal/agent/vendors"
 )
 
 // copilot present via a raw env token override offers no rotate CLI (`copilot login` would rotate

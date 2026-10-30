@@ -9,7 +9,7 @@ import (
 	"github.com/edotau/claude-code/internal/outfmt"
 	"github.com/edotau/claude-code/internal/preflight"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/vendors"
+	"github.com/edotau/claude-code/internal/agent/vendors"
 )
 
 // cmdAgentProfile is `<agent> profile [<profile>] [--clear]`: show, set or clear the agent's <AGENT>_PROFILE pin.

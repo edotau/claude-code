@@ -8,14 +8,14 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/copilotreg"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/vendoragent"
 )
 
 func TestPickCopilotModelDatabricksStoresCanonicalID(t *testing.T) {
 	reg := menuTestEnv(t)
-	cat := vendoragent.CopilotCatalog{
+	cat := agent.CopilotCatalog{
 		Databricks: true,
 		Source:     "dev serving endpoints",
 		Rows: []copilotreg.Endpoint{
@@ -25,7 +25,7 @@ func TestPickCopilotModelDatabricksStoresCanonicalID(t *testing.T) {
 	}
 	orig := copilotSourceFn
 	t.Cleanup(func() { copilotSourceFn = orig })
-	copilotSourceFn = func(context.Context, *providers.Registry, string) (vendoragent.CopilotCatalog, error) {
+	copilotSourceFn = func(context.Context, *providers.Registry, string) (agent.CopilotCatalog, error) {
 		return cat, nil
 	}
 

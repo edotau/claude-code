@@ -21,7 +21,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/agenttree"
+	"github.com/edotau/claude-code/internal/agent/vendors"
 	"github.com/edotau/claude-code/internal/crossgen"
 	"github.com/edotau/claude-code/internal/helptext"
 	"github.com/edotau/claude-code/internal/hooks"
@@ -31,8 +31,6 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
-	"github.com/edotau/claude-code/internal/vendoragent"
-	"github.com/edotau/claude-code/internal/vendors"
 )
 
 // askPage is `ask -h`; the task is the trailing args, or stdin when absent or "-".
@@ -243,7 +241,7 @@ func runAsk(args []string, resume bool) int {
 	}
 	_ = rec.Save() // fail-open: the log is for replay and forensics, never a gate on the run
 	if *background {
-		if err := vendoragent.Spawn(&rec, backgroundExtraFlags(fs, *fallback, *native)); err != nil {
+		if err := agent.Spawn(&rec, backgroundExtraFlags(fs, *fallback, *native)); err != nil {
 			return failAsk(*format, *name, err)
 		}
 		reportBackgroundStart(*format, rec)
@@ -284,7 +282,7 @@ func buildAskRecord(ctx context.Context, r agent.Runner, req agent.Request, jobR
 	if cwd == "" {
 		cwd, _ = os.Getwd()
 	}
-	rec.Repo = vendoragent.RepoRoot(ctx, cwd)
+	rec.Repo = agent.RepoRoot(ctx, cwd)
 	rec.Owner = inflight.SessionOwner()
 	rec.Log = rec.LogPath()
 	if !background {
@@ -709,7 +707,7 @@ func cmdAgents(args []string) int {
 	case "sync":
 		return cmdAgentsSync(args[1:])
 	case "tree":
-		return agenttree.Run(args[1:], paths.ConfigDir(), os.Stdout, os.Stderr)
+		return agent.RunTree(args[1:], paths.ConfigDir(), os.Stdout, os.Stderr)
 	case "reap":
 		return cmdAgentsReap(args[1:])
 	case "status", "result", "tail", "cancel":
@@ -736,7 +734,7 @@ func cmdAgentsReap(args []string) int {
 		fs.Usage()
 		return 2
 	}
-	return agenttree.Reap(*dryRun, os.Stdout, os.Stderr)
+	return agent.Reap(*dryRun, os.Stdout, os.Stderr)
 }
 
 // cmdAgentsSync renders agents/ into state/projections, installs the copies into agent homes and links skills/.

@@ -32,7 +32,7 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/setup"
 	"github.com/edotau/claude-code/internal/tools"
-	"github.com/edotau/claude-code/internal/vendors"
+	"github.com/edotau/claude-code/internal/agent/vendors"
 )
 
 // userBinDir is where install links claude-code onto PATH (~/.local/bin is on PATH by convention).

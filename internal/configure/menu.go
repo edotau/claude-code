@@ -8,7 +8,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/secrets"
 	"github.com/edotau/claude-code/internal/tui"
-	"github.com/edotau/claude-code/internal/vendors"
+	"github.com/edotau/claude-code/internal/agent/vendors"
 )
 
 // pickMenu is the home page's sectioned picker seam; tests replace it.

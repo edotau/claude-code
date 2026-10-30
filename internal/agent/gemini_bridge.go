@@ -1,0 +1,275 @@
+package agent
+
+import (
+	"cmp"
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"strings"
+	"time"
+
+	"github.com/edotau/claude-code/internal/agent/vendors"
+	"github.com/edotau/claude-code/internal/inflight"
+	"github.com/edotau/claude-code/internal/models"
+	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/providers"
+)
+
+// bridgeDispatchLabel marks a bridge run's dispatch Record so `ask --log` distinguishes it from an
+// `ask --agent gemini` run, even though both execute on the same "gemini" Runner.
+const bridgeDispatchLabel = "gemini-bridge"
+
+// GeminiOptions configures one bridge run: inline workspace files into one prompt, one chat call.
+type GeminiOptions struct {
+	Task, Model, Provider, Effort, Rubric, Cwd string
+	Dirs, Files                                []string
+	MaxFiles, MaxFileBytes                     int // <=0 → package defaults
+	Timeout                                    time.Duration
+	Index, Diff, PrintCommand, IndexOnly       bool // IndexOnly inlines no bodies (the index still lists every path)
+}
+
+// RunGemini resolves the provider/model, collects workspace context into one prompt, and dispatches the
+// chat call through the shared api runner — no HTTP code lives here.
+func RunGemini(ctx context.Context, o GeminiOptions, stream, log io.Writer) (Result, error) {
+	reg, sel, p, model, err := resolveProvider(o)
+	if err != nil {
+		return Result{}, err
+	}
+
+	files, err := diffFiles(ctx, o)
+	if err != nil {
+		return Result{}, err
+	}
+
+	task := o.Task
+	if o.Rubric != "" {
+		task, err = RubricPrompt(o.Rubric, task)
+		if err != nil {
+			return Result{}, err
+		}
+	}
+
+	maxFiles := o.MaxFiles
+	if o.IndexOnly {
+		maxFiles = 0
+	} else if maxFiles <= 0 {
+		maxFiles = DefaultMaxFiles
+	}
+	ctxFiles, err := CollectContext(ctx, o.Cwd, o.Dirs, files, maxFiles, o.MaxFileBytes)
+	if err != nil {
+		return Result{}, err
+	}
+	prompt, ctxFiles, dropped, err := FitPrompt(func(c Context) string {
+		if o.Index {
+			return task + "\n\n" + IndexPrompt(c)
+		}
+		return task
+	}, ctxFiles, PromptCap)
+	if err != nil {
+		return Result{}, err
+	}
+	logContextStats(log, ctxFiles)
+	if w := CoverageWarning(ctxFiles); w != "" {
+		fmt.Fprintln(stream, w)
+	}
+	if len(dropped) > 0 {
+		fmt.Fprintf(stream, "bridge: prompt over %d KB; left out whole files: %s\n", PromptCap/1024, strings.Join(dropped, ", "))
+	}
+
+	useAgy := o.Provider == "" // the default runs on agy's Google sign-in; --provider picks an API-key provider
+	if useAgy && !o.PrintCommand {
+		if _, lookErr := paths.VendorBin("agy"); lookErr != nil {
+			return Result{}, fmt.Errorf("gemini bridge: %w", lookErr)
+		}
+		if !vendors.GeminiLoginPresent() {
+			return Result{}, errors.New("gemini bridge: agy is not signed in; run `agy`, or pass --provider")
+		}
+	}
+
+	if o.PrintCommand {
+		if useAgy {
+			return printAgyCommand(reg, sel, p, model, o, ctxFiles, prompt, log), nil
+		}
+		return printCommand(reg, sel, p, model, ctxFiles, prompt, log), nil
+	}
+
+	if useAgy {
+		fmt.Fprintln(log, "gemini bridge: agy (Google login)")
+		model := geminiAgyModel(reg, sel, p, o.Model)
+		agyReq := AgyRequest{Prompt: prompt, Model: model, Effort: o.Effort, Cwd: o.Cwd}
+		// agy's own stdin-NDJSON path, not Run/vendorRunner.Run: that runner's argv-prompt cap
+		// (MaxPromptBytes) and provider-fallback resolution are both wrong for a multi-MB inlined
+		// sweep over agy's own Google login. Do + Classify reuse the same retry/backoff shape ask gets;
+		// the context byte budget (DefaultTotalBytes), not a quota step-down, bounds this prompt's size.
+		policy := DefaultPolicy()
+		if o.Timeout > 0 {
+			policy.AttemptTimeout = o.Timeout
+		}
+		policy.Notify = func(s string) { fmt.Fprintln(log, s) }
+
+		// The Record never carries the full inlined prompt (MiBs of source): a compact summary instead.
+		rec := ClaimRecord(bridgeDispatchLabel, Request{
+			Prompt: compactRecordPrompt(o.Task, ctxFiles), Model: model, Effort: o.Effort, WorkDir: o.Cwd, Timeout: o.Timeout,
+		}, time.Now())
+		rec.Owner = inflight.SessionOwner()
+		rec.Log = rec.LogPath()
+		_ = rec.Save() // fail-open: the log is for replay and forensics, never a gate on the run
+
+		cw := &countingWriter{w: stream}
+		return Dispatch(ctx, &rec, bridgeDispatchLabel, NewTextSink(cw),
+			DispatchOpts{Notify: func(s string) { fmt.Fprintln(log, s) }},
+			func(ctx context.Context, sink Sink) (Result, error) {
+				var res Result
+				aerr := Do(ctx, policy, func(actx context.Context, _ int) *Error {
+					cw.n = 0
+					out, err := RunAgy(actx, agyReq, sink)
+					res = out
+					return Classify("gemini", err, cw.n > 0)
+				})
+				res.Provider, res.Model = cmp.Or(res.Provider, "agy"), cmp.Or(res.Model, model)
+				if aerr != nil {
+					return res, aerr
+				}
+				return res, nil
+			})
+	}
+
+	r, err := Lookup("claude")
+	if err != nil {
+		return Result{}, err
+	}
+	return Run(ctx, r, Request{
+		Prompt: prompt, Model: model, Provider: p.Name, Effort: o.Effort, Timeout: o.Timeout, NoTools: true,
+	}, NewTextSink(stream), func(s string) { fmt.Fprintln(log, s) })
+}
+
+// resolvedModelID resolves a slot name or provider:model to the concrete model id agy expects.
+func resolvedModelID(reg *providers.Registry, sel providers.Selection, p *providers.Provider, model string) string {
+	if t, ok := sel.Slots[model]; ok {
+		return t.Model
+	}
+	return providers.ParseTarget(reg, model, p).Model
+}
+
+// resolveProvider selects the profile (default: the google profile with a gemini login) and resolves the model to call.
+func resolveProvider(o GeminiOptions) (*providers.Registry, providers.Selection, *providers.Provider, string, error) {
+	reg, err := providers.Load()
+	if err != nil {
+		return nil, providers.Selection{}, nil, "", err
+	}
+	providerName := o.Provider
+	if providerName == "" {
+		for _, n := range reg.ProfilesOf("google") {
+			if reg.Providers[n].Auth.Login == "gemini" {
+				providerName = n
+				break
+			}
+		}
+	}
+	sel, err := providers.Select(reg, providerName)
+	if err != nil {
+		return nil, providers.Selection{}, nil, "", err
+	}
+	p := sel.Provider
+	if p == nil {
+		return nil, providers.Selection{}, nil, "", fmt.Errorf("gemini: provider %q not found", providerName)
+	}
+	model := ResolveModel(o.Model, ModelEnvKeys, p.Models[models.Sonnet])
+	return reg, sel, p, model, nil
+}
+
+// diffFiles returns o.Files, plus files changed vs HEAD when o.Diff is set; a git failure or an empty
+// diff is a usage error, not a silent full-tree fallback.
+func diffFiles(ctx context.Context, o GeminiOptions) ([]string, error) {
+	files := append([]string{}, o.Files...)
+	if !o.Diff {
+		return files, nil
+	}
+	changed, err := ChangedFilesVsHEAD(ctx, o.Cwd)
+	if err != nil {
+		return nil, fmt.Errorf("--diff: %w", err)
+	}
+	if len(changed) == 0 {
+		return nil, errors.New("--diff: nothing changed vs HEAD")
+	}
+	return append(files, changed...), nil
+}
+
+// logContextStats writes the indexed/inlined summary line, followed by the inlined path list.
+func logContextStats(log io.Writer, ctxFiles Context) {
+	fmt.Fprintf(log, "%d path(s) indexed, %d inlined; skipped: %s\n",
+		IndexPathCount(ctxFiles), len(ctxFiles.Included), strings.Join(SortedSkipReasons(ctxFiles), ", "))
+	for _, f := range ctxFiles.Included {
+		fmt.Fprintf(log, "  %s\n", f.Path)
+	}
+}
+
+// printCommand logs the resolved request line for --print-command and returns the Result it would send.
+func printCommand(reg *providers.Registry, sel providers.Selection, p *providers.Provider, model string,
+	ctxFiles Context, prompt string, log io.Writer) Result {
+	route, ok := p.Route(providers.ProtocolAnthropic)
+	suffix := "/v1/messages"
+	if !ok {
+		route, _ = p.Route(providers.ProtocolOpenAI)
+		suffix = "/chat/completions"
+	}
+	shown := geminiAgyModel(reg, sel, p, model) // a slot name or provider:id resolves the way Run will
+	fmt.Fprintf(log, "POST %s%s model=%s provider=%s files=%d prompt_bytes=%d\n",
+		route, suffix, shown, p.Name, len(ctxFiles.Included), len(prompt))
+	return Result{Provider: p.Name, Model: shown}
+}
+
+// printAgyCommand logs the resolved agy argv for --print-command on the agy backend and returns its Result.
+func printAgyCommand(reg *providers.Registry, sel providers.Selection, p *providers.Provider, model string,
+	o GeminiOptions, ctxFiles Context, prompt string, log io.Writer) Result {
+	shown := geminiAgyModel(reg, sel, p, o.Model)
+	argv := []string{"agy", "--model", shown}
+	if o.Effort != "" {
+		argv = append(argv, "--effort", o.Effort)
+	}
+	argv = append(argv, "--input-format", "stream-json", "--output-format", "stream-json", "-p=")
+	fmt.Fprintf(log, "%s (stdin stream-json) files=%d prompt_bytes=%d\n",
+		strings.Join(argv, " "), len(ctxFiles.Included), len(prompt))
+	return Result{Provider: "agy", Model: shown}
+}
+
+// countingWriter tracks whether any bytes reached stream this attempt, so a retry never repeats output
+// that already streamed to the caller (Classify's Progressed gate).
+type countingWriter struct {
+	w io.Writer
+	n int64
+}
+
+func (c *countingWriter) Write(p []byte) (int, error) {
+	n, err := c.w.Write(p)
+	c.n += int64(n)
+	return n, err
+}
+
+// compactRecordPrompt is the dispatch Record's Prompt field: the task plus a short inlined-file summary,
+// never the full swept source (that would bloat state/dispatch to MiBs per bridge run).
+func compactRecordPrompt(task string, ctxFiles Context) string {
+	const recordCap = 4 << 10 // a few KB: task text plus a representative file list
+	var totalBytes int
+	paths := make([]string, len(ctxFiles.Included))
+	for i, f := range ctxFiles.Included {
+		totalBytes += f.Bytes
+		paths[i] = f.Path
+	}
+	out := fmt.Sprintf("%s\n[bridge: %d files, %d KB inlined: %s]",
+		task, len(paths), totalBytes/1024, strings.Join(paths, ", "))
+	if len(out) > recordCap {
+		out = out[:recordCap-len("…(truncated)")] + "…(truncated)"
+	}
+	return out
+}
+
+// geminiAgyModel is the named (flag or process env) model for agy, else the GEMINI_MODEL pin, else AgyDefaultModel.
+func geminiAgyModel(reg *providers.Registry, sel providers.Selection, p *providers.Provider, named string) string {
+	if model := ResolveModel(named, ModelEnvKeys, ""); model != "" {
+		return resolvedModelID(reg, sel, p, model)
+	}
+	t, _ := vendors.ResolveAgentModel(vendors.ModelAsk{Agent: "gemini", Target: providers.Target{Provider: p, Model: AgyDefaultModel}})
+	return t.Model
+}

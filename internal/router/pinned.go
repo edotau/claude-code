@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/vendors"
+	"github.com/edotau/claude-code/internal/agent/vendors"
 )
 
 // gatePinned gates a non-claude agent pinned to pin: exactly one candidate on that profile, or a Skip.
