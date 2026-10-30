@@ -16,7 +16,6 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/helptext"
 	"github.com/edotau/claude-code/internal/outfmt"
-	"github.com/edotau/claude-code/internal/vendoragent"
 )
 
 // liveExclusive are the ask flags a live session cannot honor: it has no single task, route or envelope of its own.
@@ -63,7 +62,7 @@ func startLive(s *askState, name, format string) int {
 	if err := rec.Save(); err != nil {
 		return failAsk(format, name, err)
 	}
-	if err := vendoragent.Spawn(&rec, nil); err != nil {
+	if err := agent.Spawn(&rec, nil); err != nil {
 		return failAsk(format, name, err)
 	}
 	if err := waitLiveReady(rec.ID, rec.PID); err != nil {
@@ -143,7 +142,7 @@ func cmdAgentsSend(args []string) int {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
 	defer stop()
 	id := pos[0]
-	if rec, ferr := vendoragent.Find(id); ferr == nil {
+	if rec, ferr := agent.Find(id); ferr == nil {
 		id = rec.ID
 	}
 	env, err := agent.SendLive(ctx, id, prompt, askStdoutSink(*format, id))

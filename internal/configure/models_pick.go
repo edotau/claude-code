@@ -11,12 +11,11 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agent/vendors"
 	"github.com/edotau/claude-code/internal/copilotsdk"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/vendoragent"
-	"github.com/edotau/claude-code/internal/vendors"
 )
 
 // tierUse says in a few words what each tier is for; a tier row stays within 80 columns.
@@ -131,8 +130,8 @@ func copilotModelDesc(m copilotsdk.Model, cur string) string {
 	return desc
 }
 
-// copilotSourceFn is the injectable seam over vendoragent.CopilotModelSource; tests fake the Databricks rows.
-var copilotSourceFn = vendoragent.CopilotModelSource
+// copilotSourceFn is the injectable seam over agent.CopilotModelSource; tests fake the Databricks rows.
+var copilotSourceFn = agent.CopilotModelSource
 
 // pickCopilotModel is the copilot page's Model row: Effort and Context first (both acting on the
 // current model, defaulting to "default"/"auto" = pin unset), then the model list — a Databricks
@@ -209,7 +208,7 @@ func copilotExtraRows(d *dialog, cur string) (rows [][2]string, runs []func() bo
 }
 
 // appendDatabricksCopilotRows adds one row per serving endpoint: "tested" when on the curated menu, plus current.
-func appendDatabricksCopilotRows(cat vendoragent.CopilotCatalog, cur string, rows [][2]string) ([]string, [][2]string) {
+func appendDatabricksCopilotRows(cat agent.CopilotCatalog, cur string, rows [][2]string) ([]string, [][2]string) {
 	var ids []string
 	for _, r := range cat.Rows {
 		var marks []string

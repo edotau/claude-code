@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agent/vendors"
 	"github.com/edotau/claude-code/internal/copilotsdk"
 	"github.com/edotau/claude-code/internal/helptext"
 	"github.com/edotau/claude-code/internal/models"
@@ -18,8 +20,6 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/proxy"
 	"github.com/edotau/claude-code/internal/secrets"
-	"github.com/edotau/claude-code/internal/vendoragent"
-	"github.com/edotau/claude-code/internal/vendors"
 )
 
 // configureProviderList prints every provider's credential state, or one provider's detail; json mirrors describe.
@@ -427,7 +427,7 @@ func validateDatabricksCopilotPin(
 	ids, ok := served[name]
 	if !ok {
 		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-		cat, err := vendoragent.CopilotModelSource(ctx, reg, name)
+		cat, err := agent.CopilotModelSource(ctx, reg, name)
 		cancel()
 		if err != nil {
 			return fmt.Sprintf("could not verify against %s serving endpoints (pin written anyway): %v", name, err), nil

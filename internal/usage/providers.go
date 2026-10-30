@@ -17,7 +17,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/edotau/claude-code/internal/vendors"
+	"github.com/edotau/claude-code/internal/agent/vendors"
 )
 
 // quota is one provider-account-window row; Note replaces the numbers on failure, Group labels a valid row.

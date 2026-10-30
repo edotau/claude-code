@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/edotau/claude-code/internal/vendors"
+	"github.com/edotau/claude-code/internal/agent/vendors"
 )
 
 func TestAgyCommandMissingVendorStartFails(t *testing.T) {

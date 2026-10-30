@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/vendors"
+	"github.com/edotau/claude-code/internal/agent/vendors"
 )
 
 var maxTierRE = regexp.MustCompile(`max_(\d+x)`)

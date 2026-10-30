@@ -29,7 +29,7 @@
 agentversion | cache | 1 | state/harness/agentversion.json | internal/tools | keep
 ask-envelope | wire | 1 | - | internal/agent | keep
 audit | log | 1 | state/harness/audit.jsonl* | internal/audit | keep
-codex-catalog | derived | 1 | state/harness/codex/catalog-*.json | internal/vendors | keep
+codex-catalog | derived | 1 | state/harness/codex/catalog-*.json | internal/agent/vendors | keep
 codex-routing | log | 1 | state/harness/codex/routing-*.jsonl | internal/hooks | clean:codex-audit
 desktop-meta | derived | 0 | <fixed at init> | internal/desktop | keep
 desktop-profile | derived | 0 | <fixed at init> | internal/desktop | keep
@@ -42,9 +42,9 @@ memory-embeddings | store | 1 | state/harness/memory/embeddings.db | internal/me
 memory-journal | record | 1 | state/harness/memory/journal/*.json | internal/memory | keep
 migrations | log | 1 | state/harness/migrations.jsonl | schemas | keep
 oauth-usage-cache | cache | 1 | state/harness/cache/claude-oauth-usage.json | internal/usage | keep
-opencode-auth-cache | cache | 1 | state/harness/vendors/opencode-auth.json | internal/vendors | keep
+opencode-auth-cache | cache | 1 | state/harness/vendors/opencode-auth.json | internal/agent/vendors | keep
 opencode-models-check | cache | 1 | state/harness/opencode-models-check.json | internal/providers | keep
-opencode-overlay | derived | 1 | state/harness/opencode/*.json | internal/vendors | keep
+opencode-overlay | derived | 1 | state/harness/opencode/*.json | internal/agent/vendors | keep
 projections | derived | 1 | state/projections/* | internal/crossgen | clean:projections
 quota | derived | 0 | state/harness/quota.json | internal/router | keep
 router-runtime | record | 1 | state/harness/router.json | internal/proxy | keep

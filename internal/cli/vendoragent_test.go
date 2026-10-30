@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/vendoragent"
 	"slices"
 	"strings"
 	"testing"
@@ -211,7 +210,7 @@ func saveResultRecord(t *testing.T, status, errMsg string) agent.Record {
 	cwd, _ := os.Getwd()
 	rec := agent.NewRecord("codex", agent.Request{Prompt: "p"}, time.Now())
 	rec.Status, rec.Error = status, errMsg
-	rec.Repo = vendoragent.RepoRoot(context.Background(), cwd)
+	rec.Repo = agent.RepoRoot(context.Background(), cwd)
 	if err := rec.Save(); err != nil {
 		t.Fatal(err)
 	}

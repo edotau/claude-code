@@ -9,7 +9,7 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/edotau/claude-code/internal/agenttree"
+	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/helptext"
 	"github.com/edotau/claude-code/internal/network/browser"
 	"github.com/edotau/claude-code/internal/network/web"
@@ -128,8 +128,8 @@ func cmdNetworkView(args []string) int {
 		fs.Usage()
 		return 2
 	}
-	opts := agenttree.ViewOptions{ClaudeDir: paths.ConfigDir(), Session: *session, Days: *days, Agent: rest[0], N: *n}
-	snap, err := agenttree.View(opts)
+	opts := agent.ViewOptions{ClaudeDir: paths.ConfigDir(), Session: *session, Days: *days, Agent: rest[0], N: *n}
+	snap, err := agent.View(opts)
 	if err != nil {
 		return fail("network view: %v", err)
 	}
@@ -138,14 +138,14 @@ func cmdNetworkView(args []string) int {
 			return fail("network view: %v", err)
 		}
 	} else {
-		agenttree.RenderSnapshot(os.Stdout, snap)
+		agent.RenderSnapshot(os.Stdout, snap)
 	}
 	if !*follow {
 		return 0
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	if err := agenttree.Follow(ctx, opts, os.Stdout); err != nil && ctx.Err() == nil {
+	if err := agent.Follow(ctx, opts, os.Stdout); err != nil && ctx.Err() == nil {
 		return fail("network view: %v", err)
 	}
 	return 0

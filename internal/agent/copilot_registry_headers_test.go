@@ -2,7 +2,7 @@ package agent
 
 import (
 	"context"
-	"github.com/edotau/claude-code/internal/vendors"
+	"github.com/edotau/claude-code/internal/agent/vendors"
 	"testing"
 
 	"github.com/edotau/claude-code/internal/copilotreg"

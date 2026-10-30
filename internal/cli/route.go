@@ -18,7 +18,7 @@ import (
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/routetable"
 	usagepkg "github.com/edotau/claude-code/internal/usage"
-	"github.com/edotau/claude-code/internal/vendors"
+	"github.com/edotau/claude-code/internal/agent/vendors"
 )
 
 // routeRefresh re-fetches a stale account for a pick; a var so tests stay offline.

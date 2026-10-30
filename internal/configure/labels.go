@@ -8,7 +8,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/vendors"
+	"github.com/edotau/claude-code/internal/agent/vendors"
 )
 
 // labelMax is the mode column's room in an 80-column row (name 11 · label · check 12, plus gaps).

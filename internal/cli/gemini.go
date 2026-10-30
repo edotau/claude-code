@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/gemini"
 	"github.com/edotau/claude-code/internal/helptext"
 	"github.com/edotau/claude-code/internal/outfmt"
 )
@@ -54,8 +53,8 @@ func cmdGeminiBridge(args []string) int {
 	dirs := fs.String("dirs", "", "comma-separated dirs to ingest recursively")
 	files := fs.String("files", "", "comma-separated file globs to ingest")
 	format := fs.String("format", "text", "output format: text|json")
-	maxFiles := fs.Int("max-files", gemini.DefaultMaxFiles, "max files to inline")
-	maxFileBytes := fs.Int("max-file-bytes", gemini.DefaultMaxFileBytes, "max bytes per file")
+	maxFiles := fs.Int("max-files", agent.DefaultMaxFiles, "max files to inline")
+	maxFileBytes := fs.Int("max-file-bytes", agent.DefaultMaxFileBytes, "max bytes per file")
 	timeout := fs.Duration("timeout", 10*time.Minute, "per-attempt deadline")
 	printCommand := fs.Bool("print-command", false, "print the resolved request and exit")
 	rubric := fs.String("rubric", "", "review standard file quoted verbatim ahead of the task")
@@ -93,7 +92,7 @@ func cmdGeminiBridge(args []string) int {
 	if *format == "json" {
 		stream = io.Discard
 	}
-	opts := gemini.Options{
+	opts := agent.GeminiOptions{
 		Task: taskText, Model: *model, Provider: *provider, Effort: *effort, Rubric: *rubric, Cwd: cwd,
 		Dirs: splitCSV(*dirs), Files: splitCSV(*files),
 		MaxFiles: *maxFiles, MaxFileBytes: *maxFileBytes, Timeout: *timeout, IndexOnly: *maxFiles == 0,
@@ -101,7 +100,7 @@ func cmdGeminiBridge(args []string) int {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	res, err := gemini.Run(ctx, opts, stream, os.Stderr)
+	res, err := agent.RunGemini(ctx, opts, stream, os.Stderr)
 	if *format == "json" {
 		body, merr := json.Marshal(agent.NewEnvelope(res, err, ""))
 		if merr != nil {

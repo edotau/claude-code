@@ -3,7 +3,7 @@ package agent
 import (
 	"context"
 	"errors"
-	"github.com/edotau/claude-code/internal/vendors"
+	"github.com/edotau/claude-code/internal/agent/vendors"
 	"strings"
 	"testing"
 

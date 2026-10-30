@@ -11,23 +11,22 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/inflight"
-	"github.com/edotau/claude-code/internal/vendoragent"
 )
 
 // reviewJobEnv names the parent job record a detached split review updates with progress and its outcome.
 const reviewJobEnv = "CLAUDE_REVIEW_JOB"
 
 // reviewParts reports the parts an oversized diff splits into (one part means the plain single call).
-func reviewParts(diff []byte, adversarial bool, focus, rubric string) []vendoragent.Part {
-	promptLen := len(vendoragent.ReviewPrompt(adversarial, focus))
+func reviewParts(diff []byte, adversarial bool, focus, rubric string) []agent.Part {
+	promptLen := len(agent.ReviewPrompt(adversarial, focus))
 	if fi, err := os.Stat(rubric); rubric != "" && err == nil {
 		promptLen += int(fi.Size())
 	}
-	return vendoragent.SplitDiff(diff, promptLen, vendoragent.ReviewBudget)
+	return agent.SplitDiff(diff, promptLen, agent.ReviewBudget)
 }
 
 // runSplitReview runs a multi-part review: detached as one job when background, else sequentially in place.
-func runSplitReview(vendor string, args []string, parts []vendoragent.Part, scope vendoragent.Scope,
+func runSplitReview(vendor string, args []string, parts []agent.Part, scope agent.Scope,
 	adversarial, background bool, focus, rubric string) int {
 	if background && os.Getenv(reviewJobEnv) == "" {
 		return spawnSplitReview(vendor, args, len(parts))
@@ -41,7 +40,7 @@ func runSplitReview(vendor string, args []string, parts []vendoragent.Part, scop
 	answers := make([]string, 0, len(parts))
 	for i, p := range parts {
 		setReviewProgress(job, fmt.Sprintf("part %d/%d", i+1, len(parts)))
-		askArgs, cleanup, err := vendoragent.ReviewArgs(vendor, scope, p.Diff, adversarial, false,
+		askArgs, cleanup, err := agent.ReviewArgs(vendor, scope, p.Diff, adversarial, false,
 			strings.TrimSpace(focus+"\n"+p.Header(i+1, len(parts))), rubric)
 		if err != nil {
 			return finishSplitReview(job, fmt.Errorf("part %d/%d: %w", i+1, len(parts), err))
@@ -49,12 +48,12 @@ func runSplitReview(vendor string, args []string, parts []vendoragent.Part, scop
 		ans, rc := captureAnswer(func() int { return cmdAsk(askArgs) })
 		cleanup()
 		if rc != 0 {
-			fmt.Print(vendoragent.MergeReports(adversarial, parts[:len(answers)], answers))
+			fmt.Print(agent.MergeReports(adversarial, parts[:len(answers)], answers))
 			return finishSplitReview(job, fmt.Errorf("part %d/%d failed: %s", i+1, len(parts), lastDispatchError(vendor)))
 		}
 		answers = append(answers, ans)
 	}
-	fmt.Print(vendoragent.MergeReports(adversarial, parts, answers))
+	fmt.Print(agent.MergeReports(adversarial, parts, answers))
 	return finishSplitReview(job, nil)
 }
 
@@ -63,13 +62,13 @@ func spawnSplitReview(vendor string, args []string, n int) int {
 	cwd, _ := os.Getwd()
 	req := agent.Request{Prompt: fmt.Sprintf("%s review split into %d parts", vendor, n), WorkDir: cwd}
 	rec := agent.ClaimRecord(vendor, req, time.Now())
-	rec.Repo, rec.Owner, rec.Log = vendoragent.RepoRoot(context.Background(), cwd), inflight.SessionOwner(), rec.LogPath()
+	rec.Repo, rec.Owner, rec.Log = agent.RepoRoot(context.Background(), cwd), inflight.SessionOwner(), rec.LogPath()
 	rec.Progress = fmt.Sprintf("part 0/%d", n)
 	_ = rec.Save()
 	argv := append([]string{vendor, "review"}, slices.DeleteFunc(slices.Clone(args), func(a string) bool {
 		return a == "--background" || a == "-background" || a == "--background=true"
 	})...)
-	if err := vendoragent.SpawnArgv(&rec, argv, []string{reviewJobEnv + "=" + rec.ID}); err != nil {
+	if err := agent.SpawnArgv(&rec, argv, []string{reviewJobEnv + "=" + rec.ID}); err != nil {
 		return fail("%s review: %v", vendor, err)
 	}
 	_ = rec.Save() // record the child's pid so status can tell running from lost

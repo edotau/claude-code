@@ -11,7 +11,7 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/vendors"
+	"github.com/edotau/claude-code/internal/agent/vendors"
 )
 
 // AgyRequest is one headless agy run: the prompt rides stdin as a single stream-json NDJSON line.

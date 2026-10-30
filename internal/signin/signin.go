@@ -20,7 +20,7 @@ import (
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/secrets"
 	"github.com/edotau/claude-code/internal/tui"
-	"github.com/edotau/claude-code/internal/vendors"
+	"github.com/edotau/claude-code/internal/agent/vendors"
 )
 
 // Signin checks one provider's credential and, when it is missing or refused, signs in again.
