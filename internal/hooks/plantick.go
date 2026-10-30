@@ -1,6 +1,7 @@
 package hooks
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -23,27 +24,28 @@ var (
 	leadingCD    = regexp.MustCompile(`^\s*cd\s+("[^"]+"|'[^']+'|[^\s&;]+)\s*&&`)
 )
 
-// PlanTick is the PostToolUse(Bash) plan-tick hook: a landed `git commit` ticks the active plan's covered tasks.
-func PlanTick(r io.Reader, stdout, stderr io.Writer) int {
-	in := ParseInput(r)
+// planTick is the PostToolUse(Bash) plan-tick hook: a landed `git commit` ticks the active plan's covered tasks.
+func planTick(in *Input) Result {
 	cmd := in.ToolCommand()
 	if in.ToolName != "Bash" || !gitCommitCmd.MatchString(cmd) {
-		return ExitProceed
+		return Result{}
 	}
 	out := in.nested("tool_response", "stdout")
 	if out == "" {
 		out = in.ToolResponseText()
 	}
 	var blocks []string
+	var stderr bytes.Buffer
 	seen := map[string]bool{}
 	for _, m := range commitLine.FindAllStringSubmatch(out, -1) {
 		if !seen[m[1]] {
 			seen[m[1]] = true
-			blocks = append(blocks, tickCommit(in, cmd, m[1], stderr)...)
+			blocks = append(blocks, tickCommit(in, cmd, m[1], &stderr)...)
 		}
 	}
-	fmt.Fprint(stdout, MergeContext("PostToolUse", blocks, in.Vendor()))
-	return ExitProceed
+	res := exitResult(ExitProceed, stderr.String())
+	res.Context = joinContext(blocks...)
+	return res
 }
 
 // tickCommit ticks the active plan's tasks covered by one landed commit and returns the context blocks.

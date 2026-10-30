@@ -196,7 +196,7 @@ func TestScanWinPathsStopsAtBacktick(t *testing.T) {
 }
 
 // The paths and codex groups run natively: Bind must hand each declared handler the Runner from
-// Native (same function pointer), not the legacy adapter, and that Runner returns a Result directly.
+// Native (same function pointer), and that Runner returns a Result directly.
 func TestBindPrefersNativeRunners(t *testing.T) {
 	if len(Native) == 0 {
 		t.Fatal("Native is empty")
@@ -209,7 +209,7 @@ func TestBindPrefersNativeRunners(t *testing.T) {
 		}
 		seen[b.Spec.Name] = true
 		if reflect.ValueOf(b.Run).Pointer() != reflect.ValueOf(native).Pointer() {
-			t.Errorf("%s: bound to the legacy adapter, want the Native runner", b.Spec.Name)
+			t.Errorf("%s: not bound to its Native runner", b.Spec.Name)
 		}
 	}
 	for name := range Native {
@@ -228,7 +228,7 @@ func TestBindPrefersNativeRunners(t *testing.T) {
 		if b.Spec.Name != "paths-resolve" {
 			continue
 		}
-		r := b.Run(in) // native: a Result straight from the Runner, not re-parsed adapter output
+		r := b.Run(in) // a Result straight from the Runner
 		if r.Context == "" || r.SystemMessage == "" {
 			t.Errorf("path-resolver Result = %+v, want Context and SystemMessage", r)
 		}

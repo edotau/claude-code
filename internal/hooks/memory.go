@@ -43,18 +43,14 @@ var sidecarLockWait = 2 * time.Second
 // defaultsDrift reads settings drift; var seam so tests can stub it.
 var defaultsDrift = settings.DefaultsDrift
 
-// SessionStart injects the memory bank (auto-scaffolding it for safe roots) as additionalContext.
-func SessionStart(r io.Reader, stdout io.Writer) int {
-	in := ParseInput(r)
+// sessionStart injects the memory bank (auto-scaffolding it for safe roots) as additionalContext.
+func sessionStart(in *Input) Result {
 	cwd := in.CWD
 	if cwd == "" {
 		cwd, _ = os.Getwd()
 	}
 	ctx := memoryContext(cwd, in.SessionID, in.TranscriptPath, time.Now())
-	if out := MergeContext("SessionStart", []string{ctx, preflightNotice(time.Now())}); out != "" {
-		fmt.Fprintln(stdout, out)
-	}
-	return ExitProceed
+	return Result{Context: joinContext(ctx, preflightNotice(time.Now()))}
 }
 
 // preflightNotice is the static pin check (cached listings only): one short line when something needs a fix.
@@ -275,25 +271,23 @@ func sessionUpdate(in *Input, stderr io.Writer) int {
 	return ExitProceed
 }
 
-// SessionUpdateEnd (SessionEnd) updates the final state when work since the last dispatch crosses the floor.
-func SessionUpdateEnd(r io.Reader) int {
-	in := ParseInput(r)
+// sessionUpdateEnd (SessionEnd) updates the final state when work since the last dispatch crosses the floor.
+func sessionUpdateEnd(in *Input) Result {
 	if !updatable(in) || memory.StartupGuard().Paused {
-		return ExitProceed
+		return Result{}
 	}
 	updateIfNew(in, triggerSessionEnd, time.Now())
-	return ExitProceed
+	return Result{}
 }
 
-// PreCompact (ADK add_events_to_memory): before Claude Code compacts the context, update any work no earlier
+// preCompact (ADK add_events_to_memory): before Claude Code compacts the context, update any work no earlier
 // dispatch covered so the bank holds them; the transcript file itself survives compaction, so this never blocks.
-func PreCompact(r io.Reader) int {
-	in := ParseInput(r)
+func preCompact(in *Input) Result {
 	if !updatable(in) || memory.StartupGuard().Paused {
-		return ExitProceed
+		return Result{}
 	}
 	updateIfNew(in, triggerPreCompact, time.Now())
-	return ExitProceed
+	return Result{}
 }
 
 // updateIfNew spawns an update when work (edits or user turns) is new since the stamp; blocked = Stop must block.

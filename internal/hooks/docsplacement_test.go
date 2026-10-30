@@ -138,7 +138,7 @@ func TestDocsPlacementFirstDenial(t *testing.T) {
 
 func TestPlanTemplateCommandRetired(t *testing.T) {
 	for _, old := range []string{"plan-template", "plan-gate"} {
-		if _, ok := Registry[old]; ok {
+		if _, ok := Native[old]; ok {
 			t.Fatalf("retired %s module remains registered", old)
 		}
 	}

@@ -206,7 +206,7 @@ func TestSafetyShellDashCNoArgDoesNotPanic(t *testing.T) {
 
 func TestRegistryMatchesHookspec(t *testing.T) {
 	for _, s := range hookspec.Specs() {
-		if _, ok := Registry[s.Name]; !ok {
+		if _, ok := Native[s.Name]; !ok {
 			t.Errorf("hookspec %q has no handler", s.Name)
 		}
 	}
@@ -236,18 +236,5 @@ func TestContextCheckpoint(t *testing.T) {
 	other := strings.Replace(payload, "s1", "s2", 1)
 	if got := contextCheckpoint(ParseInput(strings.NewReader(other)), &bytes.Buffer{}); got != ExitProceed {
 		t.Error("a [1m] session at 180K is 18% and must proceed")
-	}
-}
-
-func TestMergeContext(t *testing.T) {
-	if MergeContext("SessionStart", []string{"", ""}) != "" {
-		t.Error("empty blocks should render nothing")
-	}
-	out := MergeContext("SessionStart", []string{"a", "", strings.Repeat("x", 20000)})
-	var doc struct {
-		H struct{ AdditionalContext string } `json:"hookSpecificOutput"`
-	}
-	if err := json.Unmarshal([]byte(out), &doc); err != nil || len([]rune(doc.H.AdditionalContext)) > contextCapChars+1 || !strings.HasPrefix(doc.H.AdditionalContext, "a\n\n") {
-		t.Errorf("merge: %v %d", err, len(doc.H.AdditionalContext))
 	}
 }

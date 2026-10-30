@@ -148,7 +148,7 @@ func (in *Input) cloneToolInput() map[string]any {
 	return clone
 }
 
-// ToolCommand is the Bash command under tool_input (legacy top-level .command tolerated).
+// ToolCommand is the Bash command under tool_input (a top-level .command is the fallback).
 func (in *Input) ToolCommand() string {
 	if c := in.nested("tool_input", "command"); c != "" {
 		return c
@@ -186,32 +186,6 @@ func (in *Input) ToolResponseText() string {
 // contextCapChars stays under Claude Code's 10,000-char additionalContext ceiling (larger payloads are dropped).
 const contextCapChars = 9500
 
-// MergeContext joins context blocks into ONE additionalContext envelope; the protocol accepts a single object.
-func MergeContext(event string, blocks []string, vendor ...string) string {
-	kept := blocks[:0:0]
-	for _, b := range blocks {
-		if b != "" {
-			kept = append(kept, b)
-		}
-	}
-	if len(kept) == 0 {
-		return ""
-	}
-	text := strings.Join(kept, "\n\n")
-	if r := []rune(text); len(r) > contextCapChars {
-		text = string(r[:contextCapChars]) + "…"
-	}
-	payload := map[string]any{"hookSpecificOutput": map[string]any{"hookEventName": event, "additionalContext": text}}
-	if len(vendor) > 0 && vendor[0] == VendorCopilot {
-		payload = map[string]any{"additionalContext": text}
-	}
-	out, _ := json.Marshal(payload)
-	return string(out)
-}
-
-// Handler runs one hook.
-type Handler func(stdin io.Reader, stdout, stderr io.Writer) int
-
 // hookContext gives subprocesses the registered hook budget without changing process signal handling.
 func hookContext(name string) (context.Context, context.CancelFunc) {
 	for _, spec := range hookspec.Specs() {
@@ -222,77 +196,86 @@ func hookContext(name string) (context.Context, context.CancelFunc) {
 	panic("unknown hook: " + name)
 }
 
-// Registry maps hook modules to handlers; names must match hookspec.Registry.
-var Registry = map[string]Handler{
-	"safety-scan":               SafetyScan,
-	"rtk-rewrite":               RTKRewrite,
-	"docs-placement":            func(in io.Reader, _, errw io.Writer) int { return DocsPlacement(in, errw) },
-	"memory-start":              func(in io.Reader, out, _ io.Writer) int { return SessionStart(in, out) },
-	"memory-recall":             func(in io.Reader, out, _ io.Writer) int { return MemoryRecall(in, out) },
-	"paths-resolve":             nativeHandler("paths-resolve"),
-	"memory-update":             func(in io.Reader, _, errw io.Writer) int { return Stop(in, errw) },
-	"review-simplicity":         ReviewSimplicity,
-	"format-stop":               func(in io.Reader, _, _ io.Writer) int { return StopFormat(in) },
-	"memory-end":                func(in io.Reader, _, _ io.Writer) int { return SessionUpdateEnd(in) },
-	"dispatch-effort":           nativeHandler("dispatch-effort"),
-	"codex-agent-route":         nativeHandler("codex-agent-route"),
-	"codex-routing-start":       nativeHandler("codex-routing-start"),
-	"codex-routing-result":      nativeHandler("codex-routing-result"),
-	"codex-subagent-start":      nativeHandler("codex-subagent-start"),
-	"dispatch-failure":          nativeHandler("dispatch-failure"),
-	"dispatch-workflow":         nativeHandler("dispatch-workflow"),
-	"docs-plan-gate":            func(in io.Reader, _, errw io.Writer) int { return PlanGate(in, errw) },
-	"docs-plan-skeleton":        PlanSkeleton,
-	"docs-plan-skeleton-prompt": PlanSkeleton,
-	"docs-plan-tick":            PlanTick,
-	"docs-plan-reminder":        PlanReminder,
-	"docs-plan-mirror":          func(in io.Reader, _, errw io.Writer) int { return PlanMirror(in, errw) },
-	"docs-plan-save":            func(in io.Reader, _, errw io.Writer) int { return SavePlan(in, errw) },
-	"dispatch-stop":             nativeHandler("dispatch-stop"),
-	"memory-compact":            func(in io.Reader, _, _ io.Writer) int { return PreCompact(in) },
-	"worktree-create":           func(in io.Reader, out, errw io.Writer) int { return WorktreeCreate(in, out, errw) },
-	"worktree-remove":           func(in io.Reader, _, errw io.Writer) int { return WorktreeRemove(in, errw) },
-	"worktree-mode":             nativeHandler("worktree-mode"),
-	"worktree-busy":             nativeHandler("worktree-busy"),
-}
-
-// Native binds a hook module straight to a Runner; the dispatcher prefers it over the legacy adapter.
+// Native maps every hook module to its Runner; names must match hookspec.Registry.
 var Native = map[string]Runner{
-	"paths-resolve":        nativePathResolver,
-	"codex-agent-route":    nativeCodexAgentRoute,
-	"codex-routing-start":  nativeCodexRoutingStart,
-	"codex-routing-result": nativeCodexRoutingResult,
-	"codex-subagent-start": nativeCodexSubagentStart,
-	"dispatch-effort":      dispatchPre,
-	"dispatch-failure":     releaseSpawn,
-	"dispatch-workflow":    releaseSpawn,
-	"dispatch-stop":        subagentStopRunner,
-	"worktree-mode":        worktreeMode,
-	"worktree-busy":        worktreeBusy,
+	"safety-scan":               safetyScan,
+	"rtk-rewrite":               rtkRewrite,
+	"docs-placement":            viaStderr(docsPlacement),
+	"memory-start":              sessionStart,
+	"memory-recall":             memoryRecall,
+	"paths-resolve":             nativePathResolver,
+	"memory-update":             memoryUpdateStop,
+	"review-simplicity":         reviewSimplicity,
+	"format-stop":               stopFormatRun,
+	"memory-end":                sessionUpdateEnd,
+	"dispatch-effort":           dispatchPre,
+	"codex-agent-route":         nativeCodexAgentRoute,
+	"codex-routing-start":       nativeCodexRoutingStart,
+	"codex-routing-result":      nativeCodexRoutingResult,
+	"codex-subagent-start":      nativeCodexSubagentStart,
+	"dispatch-failure":          releaseSpawn,
+	"dispatch-workflow":         releaseSpawn,
+	"docs-plan-gate":            viaStderr(checkPlanTemplate),
+	"docs-plan-skeleton":        planSkeleton,
+	"docs-plan-skeleton-prompt": planSkeleton,
+	"docs-plan-tick":            planTick,
+	"docs-plan-reminder":        planReminder,
+	"docs-plan-mirror":          viaStderr(planMirror),
+	"docs-plan-save":            viaStderr(savePlan),
+	"dispatch-stop":             subagentStopRunner,
+	"memory-compact":            preCompact,
+	"worktree-create":           worktreeCreate,
+	"worktree-remove":           viaStderr(worktreeRemove),
+	"worktree-mode":             worktreeMode,
+	"worktree-busy":             worktreeBusy,
 }
 
-// nativeHandler serves a direct `hook <Event> --<module>` call from the named Runner, resolved lazily so the verb table
-// and Native can be initialized in either order.
-func nativeHandler(name string) Handler {
-	return func(stdin io.Reader, stdout, stderr io.Writer) int {
-		r, ok := Native[name]
-		if !ok {
-			return ExitProceed
-		}
-		in := ParseInput(stdin)
-		return Emit(in.Vendor(), eventOf(name), r(in), stdout, stderr)
+// runDirect is `hook <Event> --<module>`: one Runner rendered for its own process. A module that blocks exits 2 with
+// its reason on stderr, which is how a guard run by a vendor or by safety-scan's own entry blocks.
+func runDirect(name string, stdin io.Reader, stdout, stderr io.Writer) int {
+	run, ok := Native[name]
+	if !ok {
+		return ExitProceed
 	}
+	in := ParseInput(stdin)
+	res := run(in)
+	if res.Decision == Block && specOf(name).Blocks {
+		if name == "safety-scan" && in.Vendor() == VendorCopilot {
+			fmt.Fprintln(stdout, OutputCopilot(hookspec.EventPreToolUse, res))
+		}
+		fmt.Fprintln(stderr, res.Reason)
+		return ExitBlock
+	}
+	if r := []rune(res.Context); len(r) > contextCapChars {
+		res.Context = string(r[:contextCapChars]) + "…"
+	}
+	if !bareStdout[name] {
+		return Emit(in.Vendor(), eventOf(name), res, stdout, stderr)
+	}
+	var out strings.Builder
+	code := Emit(in.Vendor(), eventOf(name), res, &out, stderr)
+	_, _ = io.WriteString(stdout, strings.TrimSuffix(out.String(), "\n"))
+	return code
+}
+
+// bareStdout lists the modules whose own-process stdout never carried a trailing newline.
+var bareStdout = map[string]bool{
+	"review-simplicity": true, "docs-plan-skeleton": true, "docs-plan-skeleton-prompt": true,
+	"docs-plan-tick": true, "docs-plan-reminder": true,
+}
+
+// specOf is the hookspec entry for a module; the zero spec when unknown.
+func specOf(name string) hookspec.EventSpec {
+	for _, s := range hookspec.Specs() {
+		if s.Name == name {
+			return s
+		}
+	}
+	return hookspec.EventSpec{}
 }
 
 // eventOf names the hookspec event a handler is declared on.
-func eventOf(name string) string {
-	for _, s := range hookspec.Specs() {
-		if s.Name == name {
-			return s.Event
-		}
-	}
-	return ""
-}
+func eventOf(name string) string { return specOf(name).Event }
 
 // RunArgs is `hook <Event> [--<module>|--all]`; an unknown event or module fails closed only when it reads as a guard.
 func RunArgs(event string, flags []string, stdin io.Reader, stdout, stderr io.Writer) int {
@@ -313,14 +296,13 @@ func RunArgs(event string, flags []string, stdin io.Reader, stdout, stderr io.Wr
 
 // runModule runs one module on its declared event; a group switched off in harnessHooks proceeds.
 func runModule(event, name string, stdin io.Reader, stdout, stderr io.Writer) int {
-	h, ok := Registry[name]
-	if !ok || eventOf(name) != event {
+	if _, ok := Native[name]; !ok || eventOf(name) != event {
 		return unknownHook(name, "no module on "+event+" named", stderr)
 	}
 	if g, found := hookspec.GroupOf(name); found && !enabledGroups()(g.Name, g.Gate) {
 		return ExitProceed
 	}
-	return h(stdin, stdout, stderr)
+	return runDirect(name, stdin, stdout, stderr)
 }
 
 // unknownHook fails closed when the unknown name reads as a guard; a stale vendor hook file must not drop its gate.
