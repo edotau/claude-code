@@ -214,7 +214,8 @@ lint-%: compile mdsmith  # (helper) one lint kind: $(LINT_WHAT) deep; CHECK=1 on
 		if [ -n "$$out" ]; then echo "help rows break the wrap rule:"; echo "$$out"; exit 1; fi ;; \
 	settings) live="$${CLAUDE_CONFIG_DIR:-$$HOME/.claude}"; \
 		if [ "$$(realpath "$(CURDIR)" 2>/dev/null)" = "$$(realpath "$$live" 2>/dev/null)" ]; then \
-			CLAUDE_CONFIG_DIR=$(CURDIR) $(BIN) configure --restore --check --no-agents; \
+			CLAUDE_CONFIG_DIR=$(CURDIR) $(BIN) configure --restore --check --no-agents $(if $(filter 1,$(CHECK)),, \
+				|| echo -e "$(C_NOTE)settings: warning only (CHECK=1 fails): make install syncs drift; claude-code clean drops a nested config"); \
 		else t="$$(mktemp -d)"; trap 'rm -rf "$$t"' EXIT; \
 			CLAUDE_CONFIG_DIR=$(CURDIR) $(BIN) configure --restore --out "$$t/settings.json" --no-agents >/dev/null && \
 			CLAUDE_CONFIG_DIR=$(CURDIR) $(BIN) configure --restore --out "$$t/settings.json" --check --no-agents && \
