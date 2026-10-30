@@ -35,6 +35,27 @@ follow `internal/routetable/table.json` as the single source.
 5. An agent in a shared tree runs in its own clean copy: `skills/subagent-workflows/scripts/isolate.sh <copy>`,
    `--workdir <copy>`, then apply and verify its diff (opencode has ignored `--workdir` and written the live tree).
 
+## Ask flags and lifecycle
+
+Dispatch roles live in `../SKILL.md`; this section is the flag surface every agent shares. Per-agent levels:
+`claude-code agents --format json` prints `{name, binary, available, caps{…, cost, background, live, remote}, events[]}`
+(`--host <h>` lists a remote's); a flag an agent cannot honor is named in the envelope's `dropped`, never silent.
+
+- **Stream**: `ask --format stream-json` prints NDJSON events (`start|text|tool_use|tool_result|retry|result|error`);
+  the `result` event carries the envelope, `usage.cost_usd` where the agent reports it (claude; gemini if agy does).
+  Every dispatch also writes `state/harness/dispatch/<id>.events.jsonl`.
+- **System prompt and env**: `--system-prompt`/`--append-system-prompt` are native on claude (and codex), emulated as a
+  task preamble on the rest (listed in `emulated`). `--env NAME=VALUE` (repeatable) reaches every agent after the
+  credential scrub; credential-looking names (`*_API_KEY`, `*_TOKEN`, `*_SECRET`, `*AUTH*`) are refused (use the vault),
+  and the dispatch record keeps names only. Not with `--background`.
+- **Lifecycle, any agent**: `ask --background` detaches; then `claude-code agents status|result|cancel <id>` and
+  `agents tail <id> [-f] [--format json]` (json follows the events file). `agents reap` clears dead dispatches.
+- **Remote**: `ask --host <tailnet-host> [--remote-bin <path>]` runs the ask over ssh; profiles resolve on the remote
+  vault, `--attach` and `--keep-env` are dropped.
+- **Live claude session**: `ask --agent claude --live [--timeout <idle>]` starts a background holder (one claude
+  process, unix socket `<id>.sock`); `agents send <id> "<task>"` runs one turn on it and streams its events. One turn
+  in flight (a second `send` is refused), 10 minutes idle by default, at most 4 sessions, `agents cancel <id>` ends one.
+
 ## Fallback
 
 The router (`internal/router`) dynamically picks and ranks agent + model for every `claude-code ask` dispatch.

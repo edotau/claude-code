@@ -57,6 +57,8 @@ Shared table and bullets: `skills/subagent-workflows/references/agent-verbs.md`.
 - `claude-code gemini bridge …` — 1M-context sweep across many files → answer.
 - `claude-code ask --agent gemini --tools` equals `claude-code gemini ask --tools`.
 - Resume the underlying agy conversation directly with `agy --conversation <id>`.
+- `ask --agent gemini`: both system-prompt flags are emulated (named in `emulated`), `--env` honored, `cost_usd` only if
+  agy reports one. Stream, `--host` and the generic lifecycle verbs: `cost-routing.md` → Ask flags and lifecycle.
 
 ## Hands off to
 

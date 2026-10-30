@@ -32,6 +32,7 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/vendoragent"
+	"github.com/edotau/claude-code/internal/vendors"
 )
 
 // askPage is `ask -h`; the task is the trailing args, or stdin when absent or "-".
@@ -742,7 +743,7 @@ func cmdAgentsList(args []string) int {
 	fs := helptext.NewFlagSet("agents", agentsPage)
 	host := fs.String("host", "", "list the agents on this ssh host instead (runs its agents --format)")
 	remoteBin := fs.String("remote-bin", "", "remote claude-code path for --host (default $"+agent.RemoteBinEnv+", then claude-code)")
-	format := fs.String("format", "text", "text, or json: per agent {name, available, reason, caps{field: level}}")
+	format := fs.String("format", "text", "text, or json: per agent {name, binary, available, reason, caps, events}")
 	if code, done := helptext.Parse(fs, args); done {
 		return code
 	}
@@ -776,12 +777,50 @@ func listRemoteAgents(host, bin, format string) int {
 	return 0
 }
 
+// agentFeatures are the ask capabilities beyond the Request fields: what an agent reports or how it can run.
+func agentFeatures(name string) map[string]agent.Level {
+	return map[string]agent.Level{"cost": lvl(name == "claude" || name == "gemini"), "background": agent.Native,
+		"live": lvl(name == "claude"), "remote": agent.Native}
+}
+
+func lvl(ok bool) agent.Level {
+	if ok {
+		return agent.Native
+	}
+	return agent.None
+}
+
+// agentBinary is the CLI binary the agent drives.
+func agentBinary(name string) string {
+	if spec, ok := vendors.Lookup(name); ok {
+		return spec.Binary
+	}
+	return name
+}
+
+// agentEvents are the typed event kinds the agent's stream can carry; every dispatch brackets them with start and result.
+func agentEvents(name string) []string {
+	ev := []string{agent.EventStart, agent.EventText}
+	switch name {
+	case "claude":
+		ev = append(ev, agent.EventToolUse, agent.EventRetry)
+	case "codex", "opencode":
+		ev = append(ev, agent.EventToolUse, agent.EventToolResult)
+	}
+	if name != "claude" && agent.IsHubAgent(name) {
+		ev = append(ev, agent.EventRetry)
+	}
+	return append(ev, agent.EventResult, agent.EventError)
+}
+
 func listAgents(format string) int {
 	type row struct {
 		Name      string            `json:"name"`
+		Binary    string            `json:"binary"`
 		Available bool              `json:"available"`
 		Reason    string            `json:"reason,omitempty"`
 		Caps      map[string]string `json:"caps"`
+		Events    []string          `json:"events"`
 	}
 	var rows []row
 	for _, r := range agent.Runners() {
@@ -798,7 +837,10 @@ func listAgents(format string) int {
 				shown = append(shown, f.name+":"+f.l.String())
 			}
 		}
-		rows = append(rows, row{r.Name(), reason == "", reason, caps})
+		for k, l := range agentFeatures(r.Name()) {
+			caps[k] = l.String()
+		}
+		rows = append(rows, row{r.Name(), agentBinary(r.Name()), reason == "", reason, caps, agentEvents(r.Name())})
 		if format != formatJSON {
 			fmt.Printf("%s %-9s %s %s\n", mark, r.Name(), strings.Join(shown, ","), reason)
 		}
