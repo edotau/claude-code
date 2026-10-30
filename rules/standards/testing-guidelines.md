@@ -24,7 +24,7 @@ corner cases you found or split it by behavior — never raise the limit.
 
 ## A test must guard
 
-- **Call the code under test** (`got := renderVaultText(doc, …)`), never an inline copy of its logic — that
+- **Call the code under test** (`got := renderVaultTextStyled(doc, …)`), never an inline copy of its logic — that
   passes with the fix reverted.
 - **Prove the teeth:** `claude-code test mutate <file> <old> <new> [--run RE] <pkg>` (exit 0 = the suite caught the
   defect); check the failure message names it. Never edit-and-restore a tracked file. A test that can't fail is

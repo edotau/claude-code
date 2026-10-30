@@ -11,7 +11,6 @@ import (
 
 	"github.com/edotau/claude-code/internal/inflight"
 	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/proc"
 )
 
 // runningTTL caps the marker + dispatch sweep at one per 3s across renders.
@@ -38,8 +37,8 @@ func runningCounts(in Input) (agents, legs int) {
 	return agents, legs
 }
 
-// liveDispatches counts this session's dispatch records whose job is alive; it mirrors agent.Record.Alive
-// because agent imports hooks, which imports this package.
+// liveDispatches counts this session's dispatch records whose job is alive; agent's cone is too
+// heavy for the status line, so the record is re-read here and shares inflight.DispatchAlive.
 func liveDispatches() int {
 	dir := filepath.Join(paths.StateDir(), "dispatch")
 	entries, err := os.ReadDir(dir)
@@ -62,10 +61,10 @@ func liveDispatches() int {
 			Time   time.Time `json:"time"`
 			Owner  int       `json:"owner"`
 		}
-		if json.Unmarshal(b, &r) != nil || r.Status != "running" || r.Owner != owner {
+		if json.Unmarshal(b, &r) != nil || r.Owner != owner {
 			continue
 		}
-		if (r.PID > 0 && proc.Alive(r.PID)) || (r.PID <= 0 && time.Since(r.Time) < time.Minute) {
+		if inflight.DispatchAlive(r.Status, r.PID, r.Time) {
 			n++
 		}
 	}

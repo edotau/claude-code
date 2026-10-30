@@ -2,6 +2,7 @@ package statusline
 
 import (
 	"encoding/json"
+	"github.com/edotau/claude-code/internal/ui/theme"
 	"maps"
 	"os"
 	"path/filepath"
@@ -34,10 +35,10 @@ func enableAgents(t *testing.T) {
 	segs := maps.Clone(embeddedConfig().Segments) // the embedded map is shared: never mutate it
 	segs["agents"] = true
 	b, _ := json.Marshal(map[string]any{"segments": segs})
-	if err := os.MkdirAll(ConfigDir(), 0o700); err != nil {
+	if err := os.MkdirAll(theme.StatuslineDir(), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(ConfigDir(), "config.json"), b, 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(theme.StatuslineDir(), "config.json"), b, 0o600); err != nil {
 		t.Fatal(err)
 	}
 }

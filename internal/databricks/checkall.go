@@ -12,6 +12,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
@@ -154,9 +155,5 @@ func classify(status int, body string) string {
 
 // clip cuts s to n runes on one line.
 func clip(s string, n int) string {
-	s = strings.Join(strings.Fields(s), " ")
-	if r := []rune(s); len(r) > n {
-		return string(r[:n-1]) + "…"
-	}
-	return s
+	return textutil.Truncate(strings.Join(strings.Fields(s), " "), n)
 }

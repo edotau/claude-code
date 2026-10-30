@@ -6,7 +6,6 @@
 package usage
 
 import (
-	"encoding/json"
 	"fmt"
 	"io"
 	"io/fs"
@@ -117,9 +116,7 @@ func Run(args []string, claudeDir string, out, errw io.Writer) int {
 			fmt.Fprintln(errw, "usage: warning: ledger unreadable:", ledgerErr)
 		}
 		aggs := aggregateLedger(ledgerEntries, time.Now())
-		enc := json.NewEncoder(out)
-		enc.SetIndent("", "  ")
-		if err := enc.Encode(struct {
+		if err := helptext.WriteJSON(out, struct {
 			*transcript.UsageAggregate
 			Providers  []quota      `json:"providers,omitempty"`
 			API        []ledgerAgg  `json:"api,omitempty"`
