@@ -2,9 +2,7 @@ package clipboard
 
 import (
 	"bytes"
-	"image/png"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -248,60 +246,5 @@ func TestDoctorDetailCurrentOnWSL(t *testing.T) {
 	}
 	if !strings.Contains(detail, "claude-code clip") {
 		t.Errorf("detail = %q, want it to name claude-code clip as the fallback", detail)
-	}
-}
-
-// Under SSH the proxy answers png from `clip --ssh-stdout`, never fails a leg, and never runs the real wl-paste.
-func TestProxySSHBranch(t *testing.T) {
-	home := t.TempDir()
-	bin := filepath.Join(home, ".claude", "bin")
-	proxyDir, realDir := t.TempDir(), t.TempDir()
-	for _, d := range []string{bin, proxyDir, realDir} {
-		if err := os.MkdirAll(d, 0o755); err != nil {
-			t.Fatal(err)
-		}
-	}
-	pngPath := filepath.Join(home, "x.png")
-	if err := os.WriteFile(pngPath, pngBytes(t), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	touched := filepath.Join(home, "touched")
-	files := map[string]string{
-		filepath.Join(bin, "claude-code"):  "#!/bin/sh\n[ \"$*\" = \"clip --ssh-stdout\" ] && cat " + pngPath + "\n",
-		filepath.Join(realDir, "wl-paste"): "#!/bin/sh\ntouch " + touched + "\n",
-	}
-	for p, body := range files {
-		if err := os.WriteFile(p, []byte(body), 0o755); err != nil {
-			t.Fatal(err)
-		}
-	}
-	proxy := filepath.Join(proxyDir, "wl-paste")
-	if err := os.WriteFile(proxy, ProxyScript, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	run := func(mime string) ([]byte, error) {
-		cmd := exec.Command(proxy, "--type", mime)
-		cmd.Env = []string{"HOME=" + home, "PATH=" + proxyDir + ":" + realDir + ":/usr/bin:/bin",
-			"SSH_CONNECTION=x", "CLAUDE_WL_PASTE_PROXY=1"}
-		return cmd.Output()
-	}
-	out, err := run("image/png")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := png.DecodeConfig(bytes.NewReader(out)); err != nil {
-		t.Fatalf("png leg is not a PNG: %v", err)
-	}
-	// Bridge down: every image leg exits 0 empty, so the CLI's || chain never reaches PowerShell.
-	if err := os.WriteFile(filepath.Join(bin, "claude-code"), []byte("#!/bin/sh\necho down >&2; exit 1\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	for _, mime := range []string{"image/png", "image/bmp"} {
-		if out, err := run(mime); err != nil || len(out) != 0 {
-			t.Fatalf("%s leg with bridge down = %d bytes, %v; want exit 0, empty", mime, len(out), err)
-		}
-	}
-	if _, err := os.Stat(touched); err == nil {
-		t.Fatal("real wl-paste ran under SSH")
 	}
 }

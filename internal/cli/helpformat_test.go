@@ -38,7 +38,7 @@ func TestHelpFormat(t *testing.T) {
 	}
 	hidden := []string{
 		"ask", "agents", "models", "review", "workflow", "hook",
-		"help-svg", "clip", "bmp-transcode", "completion",
+		"help-svg", "clip", "completion",
 	}
 	var verbs []string
 	for _, c := range commands() {
@@ -61,8 +61,8 @@ func TestTopLevelCommandRowsSingleWordSingleLine(t *testing.T) {
 	for _, c := range commands() {
 		t.Run(c.name, func(t *testing.T) {
 			switch c.name {
-			case "opus", "sonnet", "haiku", "fable", "science", "claude":
-				t.Skip("external CLI launcher has no harness-owned top-level help page")
+			case "opus", "sonnet", "haiku", "fable", "science", "claude", "wl-paste":
+				t.Skip("external CLI launcher or wl-paste proxy: -h is forwarded, not a help page")
 			}
 			code, stdout, stderr := captureOutput(t, func() int {
 				return Run([]string{"claude-code", c.name, "-h"})
