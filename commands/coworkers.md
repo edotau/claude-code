@@ -12,7 +12,8 @@ an optional `agents=` list (default: per `skills/subagent-workflows/references/c
 on `|` into the task list.
 
 Dispatch each task as one `coworker` leaf (`subagent_type: "coworker"`), all in ONE message in the background,
-with a brief per the Handoff contract that names `Agent:` (one line), `Mode:` (`single|compare|relay`; absent with several names = relay), `Owns:` and `Verify:`. A task that
+with a brief per the Handoff contract that names `Agent:` (one line), `Mode:` (`single|compare|relay`;
+absent with several names = relay), `Owns:` and `Verify:`. A task that
 changes code also gets a `copilot` test agent in the SAME message (`rules/standards/quality.md`) and runs its
 edits in a worktree. Relay one consolidated report: per task, the agent rows (agent · model · job · fallback ·
 verified), the verified answer or change, and for `compare` where the agents agreed and differed.
