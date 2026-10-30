@@ -32,14 +32,16 @@ const (
 
 // Entry is one account's remembered quota.
 type Entry struct {
-	UsedPct        float64   `json:"used_pct"`
-	Window         string    `json:"window,omitempty"`
-	ResetsAt       time.Time `json:"resets_at,omitzero"`
-	ExhaustedUntil time.Time `json:"exhausted_until,omitzero"`
-	Reason         string    `json:"reason,omitempty"`
-	Seen           time.Time `json:"seen"`
-	AuthReason     string    `json:"auth_reason,omitempty"`
-	AuthAt         time.Time `json:"auth_at,omitzero"`
+	UsedPct        float64              `json:"used_pct"`
+	Window         string               `json:"window,omitempty"`
+	ResetsAt       time.Time            `json:"resets_at,omitzero"`
+	ExhaustedUntil time.Time            `json:"exhausted_until,omitzero"`
+	Reason         string               `json:"reason,omitempty"`
+	Seen           time.Time            `json:"seen"`
+	AuthReason     string               `json:"auth_reason,omitempty"`
+	AuthAt         time.Time            `json:"auth_at,omitzero"`
+	BYOK           map[string]time.Time `json:"byok,omitempty"`
+	BYOKSkip       map[string]time.Time `json:"byok_skip,omitempty"` // "agent|entry" -> when it was marked unusable
 }
 
 // State is every account's entry, keyed by account key.

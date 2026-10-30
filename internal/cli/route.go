@@ -115,7 +115,7 @@ func previewRoute(model, task, want, fallback string) (router.Result, error) {
 		return router.Result{}, err
 	}
 	id, _, ok := models.Resolve(model)
-	if exact := ok && models.FamilyKind(id) != models.FamilyClaude; model != "" && !exact && tb.TierOf(model) == "" {
+	if exact := ok && models.FamilyKind(id) != models.FamilyClaude; model != "" && model != router.BYOKModel && !exact && tb.TierOf(model) == "" {
 		return router.Result{}, fmt.Errorf("--model %q names no alias or version the table routes", model)
 	}
 	hint := tb.TierOf(model)
