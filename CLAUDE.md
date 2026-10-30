@@ -44,7 +44,8 @@ Files under `agents/`, `commands/`, `rules/`, `skills/` and this file go live th
    numbers, prefer the narrowly scoped mechanism over a global knob, and let the user pick.
 8. **Parallel by default; keep the main thread free.** Plan and brief, then dispatch `code-worker` ‖ `copilot`
    in one message in the background (`copilot` only when the change needs a test agent); inline only for a
-   one-line edit; never re-steer a running agent → `rules/standards/quality.md`.
+   one-line edit; never re-steer a running agent → `rules/standards/quality.md`. A leaf does the work or requests
+   one agent via `Agent:` → label: `skills/subagent-workflows/SKILL.md` → Leaf types.
    Many leaves: one lane orchestrator per lane → `skills/subagent-workflows/references/lane-orchestrator.md`.
 9. **Tag notable moments** in replies, one per line: `DECISION:` (what, rejected alt, why) · `BUG:` · `NEXT:` ·
    `NOTE:` — the harvest files them.

@@ -50,7 +50,8 @@ ALWAYS use parallel Agent calls for independent operations — launch in a **sin
 - **Cost per leaf is controlled by the leaf's own `model:` frontmatter, not by the session.**
   An `inherit`-model agent (`claude`, `codex`) dispatched *as a fan-out leaf* runs at the
   parent's model — dispatch fan-out leaves as `code-worker` (frontmatter `model: sonnet`),
-  NOT as `inherit` managers (Opus only by escalation — below).
+  NOT as `inherit` managers (Opus only by escalation — below). `claude` does its own work near the main thread,
+  not the routine fan-out leaf.
 - A provider with its own rate limit may throttle a wide fan-out before either cap bites —
   `claude-code doctor` reports profile/proxy health; drop to sequential if a shared
   provider starts throwing sustained errors.
@@ -80,8 +81,7 @@ First agent 1, then agent 2, then agent 3
 
 ## Cross-Agent Teams
 
-Managers (top-level claude, a Workflow, the main session) may recruit codex / copilot / gemini as extra hands via
-`claude-code ask --agent <agent>`; a leaf runs the agent its brief names the same way, and recruits no other.
+Leaf types, the `Agent:` request and its label: `../../skills/subagent-workflows/SKILL.md` → Leaf types.
 
 Route by use case: `../../skills/subagent-workflows/references/cost-routing.md`.
 
