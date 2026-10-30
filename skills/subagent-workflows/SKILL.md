@@ -51,8 +51,8 @@ The one definition of what passes manager → leaf → manager. Agent files poin
 
 - `Objective:` one outcome. `Agent:` the agent this leaf requests via `claude-code ask --agent <x>`
   ([cost-routing.md](references/cost-routing.md)); omitted, `in-context`, or the leaf's own type = does the work
-  itself. One line; `Mode:` decides, and several names with no `Mode:` = relay (`gemini → codex`). The hook turns it into the label
-  ([Leaf types](#leaf-types)). `Agent:` is the only spelling.
+  itself. One line; `Mode:` decides, and several names with no `Mode:` = relay (`gemini → codex`).
+  The hook turns it into the label ([Leaf types](#leaf-types)). `Agent:` is the only spelling.
 - `Task:` (optional) the plan task id the leaf lands (`Task: 1.2`); the dispatch hook claims it in the plan.
 - `Owns:` the exact files, plus "Do NOT edit <others> — agents are in this package concurrently".
 - `Method:` the skill to follow, as a file path for a leaf without the `Skill` tool.
