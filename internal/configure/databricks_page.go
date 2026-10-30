@@ -122,6 +122,7 @@ func runDatabricksEnv(d *dialog, env string) {
 		label, desc string
 		run         func()
 	}{
+		{"Set up", "sign in, verify a token, apply to agents", func() { dbxSetUp(d, env) }},
 		{"Login", "browser sign-in (u2m)", func() { dbxDo(d, env, "login", func(c context.Context) error { return dbxLogin(c, env, d.out) }) }},
 		{"Paste PAT", "hidden input", func() { dbxPaste(d, env) }},
 		{"Mint now", "fresh token, expiry only", func() { dbxMintNow(d, env, false) }},
@@ -207,15 +208,48 @@ func dbxProfileNames(reg *providers.Registry) []string {
 	return providers.DatabricksProfiles(reg)
 }
 
+// dbxSetUp signs in with OAuth, verifies a token (discarded) and applies the profile, stopping at the first failure.
+func dbxSetUp(d *dialog, env string) {
+	if err := dbxLogin(context.Background(), env, d.out); err != nil {
+		d.printf("%s: set up stopped at sign-in: %v\n", env, err)
+		return
+	}
+	d.changed = true
+	res, _, err := dbxMint(context.Background(), env)
+	if err != nil {
+		d.printf("%s: set up stopped at token check: %v\n", env, err)
+		return
+	}
+	exp := "no expiry reported"
+	if !res.Expiry.IsZero() {
+		exp = "expires in " + dbxDur(time.Until(res.Expiry))
+	}
+	d.printf("%s · %s · token verified · %s\n", env, res.AuthType, exp)
+	cancelled, err := dbxApplyPins(d, env)
+	switch {
+	case err != nil:
+		d.printf("%s: set up stopped at apply: %v\n", env, err)
+	case cancelled:
+		d.printf("%s: signed in; agents were not changed\n", env)
+	}
+}
+
 // dbxApply pins one agent's <AGENT>_PROFILE (or all of them) to the profile.
 func dbxApply(d *dialog, env string) {
+	if _, err := dbxApplyPins(d, env); err != nil {
+		d.printf("%s: apply: %v\n", env, err)
+	}
+}
+
+// dbxApplyPins is dbxApply's engine: cancelled when the picker was dismissed, err when the pins could not be written.
+func dbxApplyPins(d *dialog, env string) (cancelled bool, err error) {
 	rows := [][2]string{{"All agents", "pin every agent to " + env}}
 	for _, a := range dbxAgents {
 		rows = append(rows, [2]string{a.name, "this agent only"})
 	}
-	idx, err := dbxPick("apply "+env+" to", rows, 0)
-	if err != nil || idx < 0 {
-		return
+	idx, perr := dbxPick("apply "+env+" to", rows, 0)
+	if perr != nil || idx < 0 {
+		return true, nil
 	}
 	pins := map[string]string{}
 	for i, a := range dbxAgents {
@@ -225,21 +259,20 @@ func dbxApply(d *dialog, env string) {
 	}
 	diff, err := providers.PinDiff(pins)
 	if err != nil {
-		d.printf("%s: apply: %v\n", env, err)
-		return
+		return false, err
 	}
 	if len(diff) == 0 {
 		d.printf("%s: already applied\n", env)
-		return
+		return false, nil
 	}
 	if err := providers.SetPins(pins); err != nil {
-		d.printf("%s: apply: %v\n", env, err)
-		return
+		return false, err
 	}
 	d.changed = true
 	for _, l := range diff {
 		d.println(l)
 	}
+	return false, nil
 }
 
 // reload refreshes the registry after a login, PAT or apply changed it.

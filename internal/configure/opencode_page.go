@@ -182,6 +182,9 @@ func ocAccountActions(d *dialog, r ocRow) {
 	if sw, _ := opencodeSwitchArgv(r.in.ID, r.conn.ID); sw != nil && !r.conn.Active {
 		acts = append(acts, act{"Make active", func() { ocSwitch(d, r, sw) }})
 	}
+	if r.in.ID == "databricks" {
+		acts = append(acts, act{"Set up Databricks", func() { ocSetUpDatabricks(d) }})
+	}
 	acts = append(acts, act{"Log out", func() {
 		if confirmKey(fmt.Sprintf("Log out of %s (%s)?", r.row.Label, r.row.Detail), false) {
 			ocLogout(d, r)
@@ -196,6 +199,29 @@ func ocAccountActions(d *dialog, r ocRow) {
 		return
 	}
 	acts[res.Index].run()
+}
+
+// ocSetUpDatabricks runs the Databricks set-up flow, asking for the profile only when there are several.
+func ocSetUpDatabricks(d *dialog) {
+	names := dbxProfileNames(d.reg)
+	idx := 0
+	switch {
+	case len(names) == 0:
+		d.println("databricks: no profile configured")
+		return
+	case len(names) > 1:
+		rows := make([][2]string, len(names))
+		for i, n := range names {
+			rows[i] = [2]string{n, "Databricks profile"}
+		}
+		var err error
+		if idx, err = dbxPick("Set up Databricks", rows, 0); err != nil || idx < 0 {
+			return
+		}
+	}
+	dbxSetUp(d, names[idx])
+	d.reload()
+	invalidateOpencodeAuth()
 }
 
 // ocLogout runs opencode's own non-interactive logout for one account (the double press or [y/N] already confirmed).

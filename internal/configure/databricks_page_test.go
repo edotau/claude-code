@@ -441,3 +441,85 @@ func TestDbxLoginFailureReported(t *testing.T) {
 		t.Errorf("out=%q changed=%v", dbxOut(d), d.changed)
 	}
 }
+
+// dbxSetUpEnv is a hermetic dialog over three declared Databricks profiles (dev, qa, prod) in the current overlay shape.
+func dbxSetUpEnv(t *testing.T) *dialog {
+	t.Helper()
+	vaulttest.UseKeyring(t)
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	for _, k := range []string{providers.PinProfile, providers.PinModel, providers.PinCodexProfile, providers.PinOpencodeProfile} {
+		t.Setenv(k, "")
+	}
+	row := func(n string) string {
+		return `"` + n + `":{"preset":"databricks","host":"https://` + n + `.cloud.databricks.com"}`
+	}
+	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"databricks":{`+row("dev")+","+row("qa")+","+row("prod")+`}}}`)
+	reg, err := providers.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &dialog{reg: reg, out: &bytes.Buffer{}}
+}
+
+func TestDbxSetUpOrderAndStops(t *testing.T) {
+	loginErr, mintErr := errors.New("browser closed"), errors.New("invalid_grant")
+	for _, c := range []struct {
+		name          string
+		loginErr      error
+		mintErr       error
+		picks         []int
+		calls         []string
+		want, notWant string
+		changed       bool
+	}{
+		{"success", nil, nil, []int{0}, []string{"login:dev", "mint:dev"}, "token verified", "stopped", true},
+		{"login fails", loginErr, nil, []int{0}, []string{"login:dev"}, "stopped at sign-in: browser closed", "token verified", false},
+		{"mint fails", nil, mintErr, []int{0}, []string{"login:dev", "mint:dev"}, "stopped at token check: invalid_grant", "agents", true},
+		{"apply cancelled", nil, nil, nil, []string{"login:dev", "mint:dev"}, "signed in; agents were not changed", "stopped", true},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			d := dbxSetUpEnv(t)
+			f := &dbxFake{picks: c.picks, mintErr: c.mintErr, authType: "u2m", expiry: time.Now().Add(time.Hour)}
+			installDbxFake(t, f)
+			if c.loginErr != nil {
+				dbxLogin = func(context.Context, string, io.Writer) error {
+					f.calls = append(f.calls, "login:dev")
+					return c.loginErr
+				}
+			}
+			dbxSetUp(d, "dev")
+			out := dbxOut(d)
+			if strings.Join(f.calls, ",") != strings.Join(c.calls, ",") {
+				t.Errorf("calls = %v, want %v", f.calls, c.calls)
+			}
+			if !strings.Contains(out, c.want) || strings.Contains(out, c.notWant) || strings.Contains(out, dbxTok) {
+				t.Errorf("out = %q, want %q without %q or the token", out, c.want, c.notWant)
+			}
+			if c.name == "success" {
+				if len(f.titles) != 1 || f.titles[0] != "apply dev to" || !strings.Contains(out, "dev") {
+					t.Errorf("apply picker titles = %v, out = %q", f.titles, out)
+				}
+			}
+			if reached := len(f.titles) > 0; reached != (c.loginErr == nil && c.mintErr == nil) {
+				t.Errorf("apply picker reached = %v after %v", reached, f.calls)
+			}
+			if d.changed != c.changed {
+				t.Errorf("changed = %v, want %v", d.changed, c.changed)
+			}
+		})
+	}
+}
+
+func TestDbxEnvPageFirstRowIsSetUp(t *testing.T) {
+	d := dbxSetUpEnv(t)
+	f := &dbxFake{picks: []int{0, 0}, expiry: time.Now().Add(time.Hour)}
+	installDbxFake(t, f)
+	runDatabricksEnv(d, "dev")
+	if got := f.rows[0][0]; got != [2]string{"Set up", "sign in, verify a token, apply to agents"} {
+		t.Errorf("first row = %v", got)
+	}
+	if strings.Join(f.calls, ",") != "login:dev,mint:dev" {
+		t.Errorf("calls = %v", f.calls)
+	}
+}

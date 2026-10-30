@@ -362,3 +362,46 @@ func TestOpencodeHomeRowOpensPage(t *testing.T) {
 		t.Errorf("page rows = %s", got)
 	}
 }
+
+func TestOpencodeDatabricksRowSetsUp(t *testing.T) {
+	for _, c := range []struct {
+		name     string
+		profiles int
+		picks    []int
+		want     string
+	}{
+		{"one profile skips the picker", 1, []int{0}, "login:dev,mint:dev"},
+		{"several profiles ask", 3, []int{1}, ""},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			d := dbxSetUpEnv(t)
+			for _, n := range []string{"qa", "prod"}[:3-c.profiles] {
+				delete(d.reg.Providers, n)
+			}
+			if c.want == "" { // the second listed profile is the one picked
+				n := dbxProfileNames(d.reg)[1]
+				c.want = "login:" + n + ",mint:" + n
+			}
+			df := &dbxFake{picks: c.picks}
+			installDbxFake(t, df)
+			f := &ocFake{ints: v1Data(), major: 1, answers: []tui.ListResult{{Index: 0}, {Index: 0}}}
+			installOCFake(t, f)
+			runOpencodePage(d)
+			if got := strings.Join(df.calls, ","); got != c.want {
+				t.Errorf("calls = %q, want %q", got, c.want)
+			}
+			picker := 0
+			for _, ti := range df.titles {
+				if ti == "Set up Databricks" {
+					picker++
+				}
+			}
+			if (picker == 1) != (c.profiles > 1) {
+				t.Errorf("profile picker shown %d times with %d profiles", picker, c.profiles)
+			}
+			if strings.Contains(dbxOut(d), dbxTok) {
+				t.Errorf("output leaked the token: %q", dbxOut(d))
+			}
+		})
+	}
+}
