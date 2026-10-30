@@ -11,7 +11,7 @@ import (
 )
 
 // New coverage for the journal-backed status, activity, vendor-legs and drill-down work
-// (plans/2026-10-18-agents-tree-visibility.md Part 1). Written after `go build ./internal/agenttree`
+// (plans/2026-10-18-agents-tree-visibility.md Part 1). Written after `go build ./internal/agent`
 // succeeded against the implementer's change; dispatched concurrently as the copilot test agent.
 
 // subagentByID finds one subagent inside a session's direct Subagents or any of its Workflow phases.

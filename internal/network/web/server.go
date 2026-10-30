@@ -31,7 +31,7 @@ import (
 type Options struct {
 	Addr           string    // "" resolves this node's tailnet IPv4 address on DefaultPort
 	Hosts          []string  // allowed dispatch hosts; empty uses the tailnet machine list
-	Days           int       // agent-tree scope in days, forwarded to agenttree.Options
+	Days           int       // agent-tree scope in days, forwarded to agent.Options
 	DryRunDispatch bool      // POST /api/dispatch returns the ssh argv instead of running it
 	ClaudeDir      string    // "" defaults to paths.ConfigDir()
 	Out, ErrOut    io.Writer // "" defaults to os.Stdout/os.Stderr; tests redirect these

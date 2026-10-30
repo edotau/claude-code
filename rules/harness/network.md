@@ -1,11 +1,6 @@
 ---
 paths:
-  - "internal/web/**"
-  - "internal/websearch/**"
-  - "internal/browser/**"
-  - "internal/cdp/**"
-  - "internal/mcpx/**"
-  - "internal/tailscale/**"
+  - "internal/network/**"
   - "internal/clean/**"
 ---
 # Network, Web, MCP, Cleanup

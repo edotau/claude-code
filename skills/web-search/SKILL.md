@@ -7,7 +7,7 @@ allowed-tools: Bash, mcp__web_search__web_search
 # Web Search
 
 Restores web search on providers where the built-in `WebSearch` tool is unavailable. Backed by Tavily
-through `claude-code network websearch` (`internal/websearch`). Two ways to call it — pick by what the agent
+through `claude-code network websearch` (`internal/network/mcp`). Two ways to call it — pick by what the agent
 already has:
 
 ## Which path

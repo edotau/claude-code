@@ -460,7 +460,7 @@ func findLineContaining(s, substr string) string {
 	return ""
 }
 
-// WorkflowRunDirs/WorkflowAgentFiles/WorkflowPhaseFromMeta are exported solely for internal/agenttree;
+// WorkflowRunDirs/WorkflowAgentFiles/WorkflowPhaseFromMeta are exported solely for internal/agent;
 // this pins their contract against the same fixture shapes workflowRunDirsForScope already exercises.
 func TestExportedWorkflowWrappersForAgentTree(t *testing.T) {
 	dir := t.TempDir()

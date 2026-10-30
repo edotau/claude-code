@@ -115,12 +115,12 @@ func workflowRunDirsForScope(claudeDir, session string, days int) ([]string, err
 	return dirs, nil
 }
 
-// WorkflowPhaseFromMeta reads one agent transcript's sibling meta's workflowPhase (exported for internal/agenttree).
+// WorkflowPhaseFromMeta reads one agent transcript's sibling meta's workflowPhase (exported for internal/agent).
 func WorkflowPhaseFromMeta(transcriptPath string) string {
 	return workflowPhaseFromMeta(transcriptPath, io.Discard)
 }
 
-// WorkflowRunDirs lists one session's subagents/workflows/<runId> dirs (exported for internal/agenttree).
+// WorkflowRunDirs lists one session's subagents/workflows/<runId> dirs (exported for internal/agent).
 func WorkflowRunDirs(sessionDir string) []string {
 	matches, err := filepath.Glob(filepath.Join(sessionDir, "subagents", "workflows", "*"))
 	if err != nil {
@@ -141,7 +141,7 @@ func keepDirs(matches []string) []string {
 	return dirs
 }
 
-// WorkflowAgentFiles lists one run dir's agent transcripts (exported for internal/agenttree); the agent-*.jsonl shape keeps the sibling
+// WorkflowAgentFiles lists one run dir's agent transcripts (exported for internal/agent); the agent-*.jsonl shape keeps the sibling
 // *.meta.json sidecars out of the token scan.
 func WorkflowAgentFiles(runDir string) []string {
 	matches, err := filepath.Glob(filepath.Join(runDir, "agent-*.jsonl"))

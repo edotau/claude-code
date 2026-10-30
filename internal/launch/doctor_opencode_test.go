@@ -86,7 +86,7 @@ func TestDoctorOpenCodeRouteWithoutCopilotLogin(t *testing.T) {
 
 // With opencode's own github-copilot login present, the doctor row names provider=personal and
 // both model/small_model: the registry now pins both slots to concrete ids (no "auto" default to
-// swap for OpencodeFallback any more — that swap path is covered directly in internal/vendors).
+// swap for OpencodeFallback any more — that swap path is covered directly in internal/agent/vendors).
 func TestDoctorOpenCodeRouteWithCopilotLogin(t *testing.T) {
 	xdgData := doctorScratch(t)
 	// github-copilot's registry defaults are "auto" (Copilot's own router); pin real ids here so this
