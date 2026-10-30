@@ -72,7 +72,7 @@ Verdict: PASS / FAIL (Gate N)
 
 ## Claim Discipline
 
-`rules/standards/communication.md` carries the honesty rule; this is its pre-completion form:
+`rules/standards/principles.md` carries the honesty rule; this is its pre-completion form:
 **if you haven't run the verification command in *this* message, you cannot claim it passes.**
 Stale output, "should work now", "I'm confident", "the linter passed", and an agent's own success
 report are all non-evidence — verify a subagent's work from the VCS diff, not its summary.

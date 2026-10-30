@@ -1,7 +1,7 @@
 ---
 name: claude
 description: |
-  Full-lifecycle coding near the main thread (/claude); does its own work - not the fan-out implementation leaf (that is code-worker). Explores, designs, implements, simplifies, and reviews before handing off: "how should we build this" through "ready to verify", and "review my diff". Operationalizes CLAUDE.md discipline (Think Before Coding, Simplicity First, Surgical Changes, Goal-Driven Execution).
+  Full-lifecycle coding near the main thread (/claude); does its own work - not the fan-out implementation leaf (that is code-worker). Explores, designs, implements, simplifies, and reviews before handing off: "how should we build this" through "ready to verify", and "review my diff". Operationalizes CLAUDE.md discipline (Clarify Assumptions, Simplicity First, Surgical Changes, Goal-Driven Execution).
 
   <example>
   Context: Cross-module change with real design choices to make.
@@ -27,9 +27,9 @@ orchestration layer — leaves are terminal and never fan out further.
   (naming, error handling, test conventions, generated artifacts like `settings.json`). When CLAUDE.md
   (or surrounding code) defines a paradigm, follow it; don't introduce a new one. CLAUDE.md wins over
   generic preference.
-- **Simplify** — `Skill(simplify)` is the authoritative owner of Simplicity First (#2) and Surgical
-  Changes (#3): automated detectors plus manual touched-code review. This is a mandatory quality
-  gate, run after Implement and before Review — never a cleanup pass skipped under time pressure.
+- **Simplify** — `Skill(simplify)` is the authoritative owner of Simplicity first and Surgical changes
+  (`rules/standards/principles.md`): automated detectors plus manual touched-code review. This is a mandatory
+  quality gate, run after Implement and before Review — never a cleanup pass skipped under time pressure.
 - **Design, only when self-contained** — dispatched as a subagent (no `Plan` to hand to), run `problem-solving`
   Steps 0-3 and write `agents/Plan.md`'s template yourself; at the top level design is `Plan`'s.
 - **Top-level orchestration** — ONLY at the top level (main session, Agent tool available) with a

@@ -37,7 +37,8 @@ paths:
 1. Non-trivial task — the Codebase Intelligence Protocol first (`master-workflow.md` → Phase 2):
    Structure/Conventions on `Explore` (Sonnet), Dependencies on `claude-code gemini bridge` when the area is large.
 2. Complex feature or architectural decision — `Plan` designs, then `claude` builds.
-3. Code just written — `claude` reviews.
+3. Code just written — review per `../standards/quality.md` → Completion (`/code-review`); dispatch `claude` only
+   when the review needs design judgment across modules.
 
 A test agent rides along only when the change adds a feature or fixes a bug
 (`../standards/testing-guidelines.md` → Test agent).

@@ -1,17 +1,12 @@
-# The four principles — review lens and worked examples
+# Anti-patterns — the four principles as review findings
 
-> **Attribution.** The four principles are adapted from Andrej Karpathy's observations on
-> LLM coding pitfalls (X post, 2025). The detector tooling, anti-pattern gallery, and
-> enforcement levels in this skill are original.
-
-Severity per principle: `../SKILL.md` → Lenses → Discipline. Detector per principle: `detectors.md#detector-index`.
+The four coding principles (`rules/standards/principles.md`) are adapted from Andrej Karpathy's observations on
+LLM coding pitfalls (X post, 2025); the detectors and this gallery are original. Severity per principle:
+`../SKILL.md` → Lenses → Discipline. Detector per principle: `detectors.md#detector-index`.
 
 ---
 
-## #1 Think Before Coding
-
-> *State assumptions explicitly. If uncertain, ask. If multiple interpretations exist,
-> present them — don't pick silently.*
+## #1 Clarify Assumptions
 
 The failure: an ambiguous requirement gets one interpretation, silently. The code looks
 finished, but it answered a question nobody confirmed. The damage is invisible until it
@@ -40,9 +35,6 @@ Hopeful, not verified. **Fix:** "3. Wire the endpoint. verify: `curl -H 'Authori
 
 ## #2 Simplicity First
 
-> *No abstractions for single-use code. If you write 200 lines and it could be 50,
-> rewrite it.*
-
 The failure: speculative generality. A factory for one product, a Protocol with one
 implementer, error handling for states that can't occur, a config knob nobody turns. Each
 adds surface area and reading cost for flexibility that never pays off.
@@ -57,8 +49,6 @@ The before/after fixes: `../../simplify/references/simplification-patterns.md`.
 ---
 
 ## #3 Surgical Changes
-
-> *Every changed line should trace directly to the request.*
 
 The failure: drive-by edits. Reformatting an untouched function, swapping quote styles,
 churning comments, "while I'm here" refactors. They inflate the diff, bury the real change,
@@ -93,9 +83,6 @@ inside a feature diff. **Fix:** separate commit.
 ---
 
 ## #4 Goal-Driven Execution
-
-> *Define success criteria. Loop until verified. Don't say what to do — give success
-> criteria and watch it go.*
 
 The failure: "looks right." Work declared done with no concrete check — no test added, no
 command run, no observable criterion. It passes review on vibes and fails in production.
