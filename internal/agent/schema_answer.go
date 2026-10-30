@@ -5,8 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"maps"
-	"reflect"
+	"math/big"
 	"slices"
 	"sort"
 	"strings"
@@ -34,16 +35,17 @@ func compactJSON(s string) string {
 // type, required, properties, items and enum, recursively; any other validation keyword is returned in unchecked.
 func structuredAnswer(answer, schema string) (raw json.RawMessage, unchecked []string, err error) {
 	span := jsonSpan(answer)
-	var v, sch any
-	if err := json.Unmarshal([]byte(span), &v); err != nil {
+	v, err := decodeExact(span)
+	if err != nil {
 		return nil, nil, fmt.Errorf("%w: answer is not JSON: %v", ErrSchema, err)
 	}
-	if err := json.Unmarshal([]byte(schema), &sch); err != nil {
+	sch, err := decodeExact(schema)
+	if err != nil {
 		return nil, nil, fmt.Errorf("%w: unreadable schema: %v", ErrSchema, err)
 	}
 	skipped := map[string]bool{}
 	collectUnchecked(sch, skipped)
-	if err := checkSchema("answer", v, sch); err != nil {
+	if err = checkSchema("answer", v, sch); err != nil {
 		return nil, nil, fmt.Errorf("%w: %v", ErrSchema, err)
 	}
 	for k := range skipped {
@@ -51,6 +53,41 @@ func structuredAnswer(answer, schema string) (raw json.RawMessage, unchecked []s
 	}
 	sort.Strings(unchecked)
 	return json.RawMessage(span), unchecked, nil
+}
+
+// decodeExact decodes one JSON value with numbers kept as json.Number, so no integer loses precision.
+func decodeExact(s string) (any, error) {
+	dec := json.NewDecoder(strings.NewReader(s))
+	dec.UseNumber()
+	var v any
+	if err := dec.Decode(&v); err != nil {
+		return nil, err
+	}
+	if _, err := dec.Token(); err != io.EOF {
+		return nil, errors.New("trailing data after the JSON value")
+	}
+	return v, nil
+}
+
+// jsonEqual is enum equality: numbers compare by exact value (1 == 1.0), everything else structurally.
+func jsonEqual(a, b any) bool {
+	switch x := a.(type) {
+	case json.Number:
+		y, ok := b.(json.Number)
+		if !ok {
+			return false
+		}
+		rx, okx := new(big.Rat).SetString(string(x))
+		ry, oky := new(big.Rat).SetString(string(y))
+		return okx && oky && rx.Cmp(ry) == 0
+	case []any:
+		y, ok := b.([]any)
+		return ok && slices.EqualFunc(x, y, jsonEqual)
+	case map[string]any:
+		y, ok := b.(map[string]any)
+		return ok && maps.EqualFunc(x, y, jsonEqual)
+	}
+	return a == b
 }
 
 // schemaKnown are the keywords checkSchema enforces; schemaNotes only annotate. Every other keyword is unchecked.
@@ -71,7 +108,7 @@ func checkSchema(path string, v, sch any) error {
 	if t, ok := m["type"]; ok && !typeMatches(v, t) {
 		return fmt.Errorf("%s is %s, schema wants %v", path, jsonTypeName(v), t)
 	}
-	if enum, ok := m["enum"].([]any); ok && !slices.ContainsFunc(enum, func(e any) bool { return reflect.DeepEqual(e, v) }) {
+	if enum, ok := m["enum"].([]any); ok && !slices.ContainsFunc(enum, func(e any) bool { return jsonEqual(e, v) }) {
 		return fmt.Errorf("%s is not one of the schema's enum values", path)
 	}
 	switch x := v.(type) {
@@ -142,8 +179,8 @@ func jsonTypeName(v any) string {
 		return "null"
 	case bool:
 		return "boolean"
-	case float64:
-		if x == float64(int64(x)) {
+	case json.Number:
+		if r, ok := new(big.Rat).SetString(string(x)); ok && r.IsInt() {
 			return "integer"
 		}
 		return "number"

@@ -80,3 +80,18 @@ func TestStructuredAnswerBooleanSchemas(t *testing.T) {
 		t.Error("top-level false schema accepted an answer")
 	}
 }
+
+// Enum numbers compare exactly: 2^53+1 is not 2^53, and 1.0 still equals 1.
+func TestStructuredAnswerEnumExactNumbers(t *testing.T) {
+	const schema = `{"type":"integer","enum":[9007199254740992, 1.0]}`
+	for answer, wantErr := range map[string]bool{
+		`9007199254740992`: false,
+		`9007199254740993`: true,
+		`1`:                false,
+		`1 trailing`:       true,
+	} {
+		if _, _, err := structuredAnswer(answer, schema); (err != nil) != wantErr {
+			t.Errorf("%s: err=%v, want error=%v", answer, err, wantErr)
+		}
+	}
+}
