@@ -47,6 +47,7 @@ every module on the event, the gate included.
 | `memory-compact` | PreCompact | Dispatches a background harvest for uncovered edits; never blocks |
 | `memory-end` | SessionEnd | After enough edits spawns `claude-code memory update`; the first dispatch claims one detached `memory watch` that harvests after 10 quiet minutes, so a crash loses nothing |
 | `worktree-create` / `worktree-remove` | WorktreeCreate / WorktreeRemove | Create at `~/worktrees/<repo>/<name>` (honors `worktree.baseRef`, seeds `.venv`/`.env`, opens ledger `memory/<repo>/worktrees/<name>.md`); remove refuses a dirty tree and `branch -d`s only a merged branch |
+| `worktree-mode` / `worktree-busy` | SessionStart / UserPromptSubmit | Vault env `HARNESS_WORKTREE` (default `off`). Off: names another live agent session in this checkout (not this session's own tree, a linked worktree, or an `agy --hub` daemon) and tells Claude to ask before editing; the prompt hook repeats only when that peer set changes. On: tells Claude to ask before every change. Never creates a worktree; no yes means keep working in place |
 
 ## Authoring a gate
 
