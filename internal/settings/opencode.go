@@ -1,4 +1,4 @@
-package vendors
+package settings
 
 import (
 	"bytes"
@@ -8,11 +8,17 @@ import (
 	"path/filepath"
 
 	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/schemas"
 )
 
 //go:embed template/opencode.json template/opencode-tui.json
 var opencodeOverlayFS embed.FS
+
+var _ = schemas.Register(schemas.Format{
+	Name: "opencode-overlay", Owner: "internal/settings", Kind: schemas.Derived,
+	Glob:    func() string { return filepath.Join(opencodeOverlayDir(), "*.json") },
+	Version: 1, Keep: "re-rendered from the template on every launch; opencode reads it, so no schema field",
+})
 
 // opencodeOverlayDir is state/harness/opencode: the one place the harness writes for opencode, never
 // opencode's own ~/.config/opencode (configure/theme apply write there only for the themes file).
@@ -42,7 +48,10 @@ func OpencodeOverlayRendered() (cfgPath string, cfgBody []byte, tuiPath string, 
 // applyOpencodeTableModels overwrites model/small_model from the routing table's opencode sonnet/haiku
 // cells; a table load error leaves the template's own hard-coded values (its one fallback use) untouched.
 func applyOpencodeTableModels(cfgBody []byte) []byte {
-	mainModel, smallModel, ok := opencodeOverlayModels()
+	if OpencodeOverlayModels == nil {
+		return cfgBody
+	}
+	mainModel, smallModel, ok := OpencodeOverlayModels()
 	if !ok {
 		return cfgBody
 	}
@@ -61,23 +70,8 @@ func applyOpencodeTableModels(cfgBody []byte) []byte {
 	return buf.Bytes()
 }
 
-// OpencodeTableModels returns the routing table's opencode sonnet/haiku models; router sets it (it imports this package).
-var OpencodeTableModels func() (mainModel, smallModel string, ok bool)
-
-// opencodeOverlayModels is the overlay's model/small_model: github-copilot/ ids on the copilot-only leg (no
-// opencode-go login, so the table's opencode-go cells would be unservable), else the table's opencode cells.
-func opencodeOverlayModels() (mainModel, smallModel string, ok bool) {
-	if !OpencodeOwnLoginPresent() && OpencodeCopilotLoginPresent() {
-		reg, _ := providers.Load()
-		if m, s, found := OpencodeCopilotModelIDs(reg); found {
-			return "github-copilot/" + m, "github-copilot/" + s, true
-		}
-	}
-	if OpencodeTableModels == nil {
-		return "", "", false
-	}
-	return OpencodeTableModels()
-}
+// OpencodeOverlayModels returns the overlay's model/small_model; vendors sets it (nil keeps the template values).
+var OpencodeOverlayModels func() (mainModel, smallModel string, ok bool)
 
 // WriteOpencodeOverlay writes the tracked opencode.json/tui.json templates to state/harness/opencode
 // and returns their paths; a theme already applied into the existing tui.json (theme apply) survives.

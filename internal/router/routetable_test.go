@@ -5,9 +5,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/agent/vendors"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -211,7 +211,7 @@ func TestOverlayAcceptsCanonicalAndTierKeys(t *testing.T) {
 func TestOpencodeOverlayModelsFollowTable(t *testing.T) {
 	vaulttest.Use(t)
 	render := func() map[string]any {
-		_, body, _, _, err := vendors.OpencodeOverlayRendered()
+		_, body, _, _, err := settings.OpencodeOverlayRendered()
 		if err != nil {
 			t.Fatal(err)
 		}
