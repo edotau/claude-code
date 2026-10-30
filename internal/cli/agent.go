@@ -79,6 +79,7 @@ func runAsk(args []string, resume bool) int {
 	format := fs.String("format", "text", "stream text, print the JSON result envelope, or stream-json NDJSON events")
 	rubric := fs.String("rubric", "", "review standard file quoted verbatim ahead of the task")
 	retry := fs.String("retry", "", "replay a logged dispatch by id (or unique id prefix); see --log")
+	live := fs.Bool("live", false, "claude: hold a session open for agents send; --timeout is its idle limit")
 	showLog := fs.Bool("log", false, "list the 20 most recent dispatches and exit")
 	background := fs.Bool("background", false, "detach: log a job, print its id, exit")
 	job := fs.String("job", "", "internal: run saved dispatch <id> in place")
@@ -100,6 +101,11 @@ func runAsk(args []string, resume bool) int {
 	schema, err := resolveOutputSchema(*outputSchema)
 	if err != nil {
 		return failAskCode(*format, *name, err, 2)
+	}
+	if *live {
+		if err := askLiveCheck(fs, *name); err != nil {
+			return failAskCode(*format, *name, err, 2)
+		}
 	}
 	if *host != "" && (*background || *job != "" || *batch != "") {
 		return failAskCode(*format, *name, errors.New("--host cannot be combined with --background, --job or --batch"), 2)
@@ -146,6 +152,12 @@ func runAsk(args []string, resume bool) int {
 		if schema, err = resolveOutputSchema(*outputSchema); err != nil {
 			return failAskCode(*format, *name, err, 2)
 		}
+	}
+	if *live {
+		return startLive(state, *format)
+	}
+	if jobRec != nil && jobRec.Live {
+		return runLiveHolder(jobRec)
 	}
 	var framed *bufio.Reader
 	if *stdinFramed {
@@ -636,6 +648,7 @@ var agentsPage = helptext.Page{
 		{"result", "print a finished dispatch's answer or envelope: result <id>"},
 		{"tail", "follow a dispatch's log or events: tail <id> [-f]"},
 		{"cancel", "interrupt a running dispatch: cancel <id>"},
+		{"send", "send one turn to a live claude session: send <id> <task>"},
 	},
 	Hint: "claude-code agents <command> -h lists that command's flags.",
 }
@@ -667,6 +680,8 @@ func cmdAgents(args []string) int {
 		return cmdAgentsReap(args[1:])
 	case "status", "result", "tail", "cancel":
 		return cmdAgentsJob(args[0], args[1:])
+	case "send":
+		return cmdAgentsSend(args[1:])
 	case "-h", "--help", "help":
 		agentsPage.Fprint(os.Stderr)
 		return 0
