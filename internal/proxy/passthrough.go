@@ -64,9 +64,28 @@ func (r *Router) passthrough(w http.ResponseWriter, in *http.Request, provider, 
 		return
 	}
 	route, ok := p.Route(dialect)
+	dbxGemini := false
+	if !ok && dialect == providers.ProtocolGemini {
+		route, ok = databricksGemini(p)
+		dbxGemini = ok
+	}
 	if !ok {
 		writeError(sw, http.StatusNotFound, "proxy: provider "+p.Name+" has no "+dialect+" route")
 		return
+	}
+	if err := safeRest(rest); err != nil {
+		writeError(sw, http.StatusBadRequest, err.Error())
+		return
+	}
+	query := in.URL.RawQuery
+	if dbxGemini {
+		if rest, query, model, err = geminiGatewayCall(p, rest, in.URL.Query()); err != nil || in.Method != http.MethodPost {
+			if err == nil {
+				err = errors.New("proxy: databricks gemini route takes POST only")
+			}
+			writeError(sw, http.StatusNotFound, err.Error())
+			return
+		}
 	}
 	var body []byte
 	if in.Method == http.MethodPost {
@@ -79,14 +98,17 @@ func (r *Router) passthrough(w http.ResponseWriter, in *http.Request, provider, 
 			writeError(sw, http.StatusRequestEntityTooLarge, "proxy: request body over 64MiB")
 			return
 		}
-		model = passthroughModel(body)
+		model = cmp.Or(passthroughModel(body), model)
+		if dbxGemini {
+			body = dropOffThoughts(body)
+		}
 		if dialect == providers.ProtocolOpenAI && strings.HasSuffix(rest, "chat/completions") && translate.IsGeminiModel(model) {
 			body = fixGeminiChat(body)
 		}
 	}
 	target := route + "/" + rest
-	if in.URL.RawQuery != "" {
-		target += "?" + in.URL.RawQuery
+	if query != "" {
+		target += "?" + query
 	}
 	resp, err := r.sendMethod(in, in.Method, p, target, body, func(h http.Header) {
 		for k, vs := range in.Header {

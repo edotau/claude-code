@@ -164,7 +164,11 @@ func (v vendorRunner) prepare(ctx context.Context, req Request) (vendorPrep, err
 	if own {
 		p.env, p.argv, err = vendors.OwnLoginHeadless(v.name, h)
 	} else {
-		p.env, p.argv, err = vendors.ConfigureHeadless(ctx, v.name, t, h)
+		ct := t
+		if v.name == "gemini" { // the gateway route lists the model agy will run, not the row's slot id
+			ct.Model = agyModel(req, t)
+		}
+		p.env, p.argv, err = vendors.ConfigureHeadless(ctx, v.name, ct, h)
 	}
 	if err != nil {
 		return p, &Error{Kind: KindFatal, Agent: v.name, Err: err}
@@ -176,15 +180,23 @@ func (v vendorRunner) prepare(ctx context.Context, req Request) (vendorPrep, err
 	return p, nil
 }
 
+// agyModel is the --model agy runs for req on t; a Databricks row gets the id its gateway mode lists.
+func agyModel(req Request, t providers.Target) string {
+	if req.Model == "" || t.Model == "" { // the slot table's opus id isn't agy's own: GEMINI_MODEL pin, else flash-high
+		t.Model = AgyDefaultModel
+	}
+	gt, _ := vendors.ResolveAgentModel(vendors.ModelAsk{Agent: "gemini", Flag: req.Model, Target: t, Applied: true})
+	if vendors.GeminiGatewayRow(t.Provider) {
+		_, arg := vendors.AgyGatewayArg(gt.Model)
+		return arg
+	}
+	return gt.Model
+}
+
 // agyRequest is the agy run for req: only the resolved credential env carries over, agy builds its own argv.
 func (p vendorPrep) agyRequest(req Request) AgyRequest {
-	def := p.t
-	if req.Model == "" || def.Model == "" { // the slot table's opus id isn't agy's own: GEMINI_MODEL pin, else flash-high
-		def.Model = AgyDefaultModel
-	}
-	gt, _ := vendors.ResolveAgentModel(vendors.ModelAsk{Agent: "gemini", Flag: req.Model, Target: def, Applied: true})
 	return AgyRequest{
-		Prompt: p.prompt, Model: gt.Model, Effort: req.Effort, Cwd: req.WorkDir, Tools: req.Tools, Autonomous: req.Autonomous,
+		Prompt: p.prompt, Model: agyModel(req, p.t), Effort: req.Effort, Cwd: req.WorkDir, Tools: req.Tools, Autonomous: req.Autonomous,
 		DebugFile: req.DebugFile, Env: p.env, KeepEnv: req.KeepEnv, SessionID: req.SessionID, OutputSchema: req.OutputSchema,
 	}
 }
