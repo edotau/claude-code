@@ -90,9 +90,13 @@ func installLaunchAgentAt(w io.Writer, home, bin string, uid int, dryRun bool) e
 		return err
 	}
 	plist := launchPlistPath(home)
+	domain := "gui/" + strconv.Itoa(uid)
 	if have, err := os.ReadFile(plist); err == nil && bytes.Equal(have, want) {
-		fmt.Fprintf(w, "  %-17s %s\n", "clip agent", "current: "+plist)
-		return nil
+		if launchctl("print", domain+"/"+launchLabel) == nil {
+			fmt.Fprintf(w, "  %-17s %s\n", "clip agent", "current: "+plist)
+			return nil
+		}
+		return bootstrapAgent(w, home, domain, plist, dryRun) // plist current but not loaded
 	}
 	if dryRun {
 		fmt.Fprintf(w, "  %-17s %s\n", "clip agent", "would write "+plist+" (skipped: --dry-run)")
@@ -107,12 +111,27 @@ func installLaunchAgentAt(w io.Writer, home, bin string, uid int, dryRun bool) e
 	if err := os.WriteFile(plist, want, 0o644); err != nil {
 		return err
 	}
-	domain := "gui/" + strconv.Itoa(uid)
 	_ = launchctl("bootout", domain+"/"+launchLabel) // not loaded yet is fine
 	if err := launchctl("bootstrap", domain, plist); err != nil {
 		return fmt.Errorf("launchctl bootstrap: %w", err)
 	}
 	fmt.Fprintf(w, "  %-17s %s\n", "clip agent", "wrote "+plist)
+	return nil
+}
+
+// bootstrapAgent loads an already-current plist that launchd does not have (booted out, failed bootstrap).
+func bootstrapAgent(w io.Writer, home, domain, plist string, dryRun bool) error {
+	if dryRun {
+		fmt.Fprintf(w, "  %-17s %s\n", "clip agent", "would load "+plist+" (skipped: --dry-run)")
+		return nil
+	}
+	if err := os.MkdirAll(filepath.Dir(launchSocket(home)), 0o755); err != nil {
+		return err
+	}
+	if err := launchctl("bootstrap", domain, plist); err != nil {
+		return fmt.Errorf("launchctl bootstrap: %w", err)
+	}
+	fmt.Fprintf(w, "  %-17s %s\n", "clip agent", "loaded "+plist)
 	return nil
 }
 

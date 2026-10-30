@@ -13,7 +13,9 @@ func TestLaunchAgentInstall(t *testing.T) {
 	home := t.TempDir()
 	bindir := t.TempDir()
 	log := filepath.Join(home, "launchctl.log")
-	if err := os.WriteFile(filepath.Join(bindir, "launchctl"), []byte("#!/bin/sh\necho \"$@\" >> "+log+"\n"), 0o755); err != nil {
+	loaded := filepath.Join(home, "loaded") // present = launchd has the agent; print fails without it
+	fake := "#!/bin/sh\nif [ \"$1\" = print ]; then [ -e " + loaded + " ]; exit $?; fi\necho \"$@\" >> " + log + "\n"
+	if err := os.WriteFile(filepath.Join(bindir, "launchctl"), []byte(fake), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", bindir+":/usr/bin:/bin")
@@ -40,12 +42,25 @@ func TestLaunchAgentInstall(t *testing.T) {
 		t.Fatalf("launchctl calls = %q", got)
 	}
 
+	// Current plist, agent not loaded (booted out): rerun bootstraps it instead of reporting current.
 	out.Reset()
 	if err := installLaunchAgentAt(&out, home, bin, 501, false); err != nil {
 		t.Fatal(err)
 	}
-	if again, _ := os.ReadFile(log); !bytes.Equal(again, calls) {
-		t.Fatalf("unchanged plist reloaded: %q", again)
+	reloaded, _ := os.ReadFile(log)
+	if want := string(calls) + "bootstrap gui/501 " + launchPlistPath(home) + "\n"; string(reloaded) != want {
+		t.Fatalf("unloaded agent: launchctl calls = %q, want a bootstrap", reloaded)
+	}
+
+	if err := os.WriteFile(loaded, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	if err := installLaunchAgentAt(&out, home, bin, 501, false); err != nil {
+		t.Fatal(err)
+	}
+	if again, _ := os.ReadFile(log); !bytes.Equal(again, reloaded) {
+		t.Fatalf("unchanged loaded plist reloaded: %q", again)
 	}
 	if !strings.Contains(out.String(), "current") {
 		t.Errorf("rerun output = %q", out.String())
