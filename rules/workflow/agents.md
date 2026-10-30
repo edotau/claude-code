@@ -39,7 +39,8 @@ paths:
 2. Complex feature or architectural decision — `Plan` designs, then `claude` builds.
 3. Code just written — `claude` reviews.
 
-A test agent rides along only when the change adds a feature or fixes a bug (`../standards/quality.md` → RULE).
+A test agent rides along only when the change adds a feature or fixes a bug
+(`../standards/testing-guidelines.md` → Test agent).
 
 ## Parallel dispatch
 

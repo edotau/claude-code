@@ -32,25 +32,7 @@ leftover debug prints.
 Lint gates the rest: a syntax error makes test output meaningless. Untouched packages are noise during development.
 Report which steps ran and which did not.
 
-## Testing
-
-Tests verify logic, not a coverage number: per feature, one test spanning its functions end to end plus the corner
-cases known while building it; per caught bug, one regression test that fails without the fix. Nothing more unless
-asked.
-
-- Mock only real boundaries — network, model calls, the clock, external CLIs; everything else runs real code
-  against a hermetic config dir.
-- No fixtures for states the code can no longer produce; a refactor that breaks only tests means rewrite them
-  against behavior.
-- A test that cannot fail when the code is wrong is deleted. Renames, moves and deletions need no new tests.
-
-## Test agent — only when the change needs one
-
-Dispatch it in the SAME message as the implementer only when the change **adds a feature** (the spanning test +
-corner cases) or **fixes a bug** (the regression test). Rename, move, deletion or refactor: none — the implementer
-keeps the build and existing tests green. The test agent waits for the manager's "landed" `SendMessage`, never a
-polling loop. Ownership split, sizing, invalid patterns, exceptions, no-live-surface checks:
-`skills/testing-guidelines/references/test-discipline.md`.
+Live first, test scope, what makes a test a guard, and the test agent: `testing-guidelines.md`.
 
 ## Completion
 
