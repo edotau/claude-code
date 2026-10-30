@@ -11,7 +11,7 @@ Gates and scope for `claude-code memory update` and `memory dream`. The operatio
 
 | Verb | Does | Edits files? | When |
 | --- | --- | --- | --- |
-| `memory update` | Session narrative: summary → activeContext/progress → decisions → conventions → settle | yes | Session end; ≥85% context (`memory-harvest`'s checkpoint nudges it) |
+| `memory update` | Session narrative: summary → activeContext/progress → decisions → conventions → settle | yes | Session end; ≥85% context (`memory-update`'s checkpoint nudges it) |
 | `memory dream` | Consolidation (Sonnet): baseline → audit → recent sessions → prune native memory → refresh bank → cross-pollinate → report | yes | Periodic hygiene, context pressure |
 | `memory dream --dry-run` | Audit only | **no** | Before a real dream |
 

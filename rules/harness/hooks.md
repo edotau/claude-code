@@ -39,7 +39,7 @@ every module on the event, the gate included.
 | `docs-plan-save` | PostToolUse (ExitPlanMode) | Files approved text at the mirror destination (or files a response-only plan), adds a missing checklist, verifies, removes the draft |
 | `docs-plan-skeleton` / `-prompt` | PostToolUse (EnterPlanMode) / UserPromptSubmit | Injects the `agents/Plan.md` skeleton when plan mode starts, and once per plan on a plan-mode prompt |
 | `docs-plan-tick` / `docs-plan-reminder` | PostToolUse (Bash) / Stop | A landed commit ticks the plan tasks its `owns:` covers (`claude-code plan status`); partly landed tasks are reported once at Stop |
-| `memory-harvest` | Stop | Context checkpoint first: once per session at ≥85% context it blocks Stop so the model writes a handoff (`claude-code memory update`). Then the harvest, weighing edits and user turns (2 turns = 1 edit) |
+| `memory-update` | Stop | Context checkpoint first: once per session at ≥85% context it blocks Stop so the model writes a handoff (`claude-code memory update`). Then the harvest, weighing edits and user turns (2 turns = 1 edit) |
 | `format-stop` | Stop | Formats files edited this turn: the repo's `make format\|fmt` if it takes a per-file variable, else the pyproject python chain, else gofmt/ruff/prettier/shfmt; a repo with its own pre-commit switches the group off |
 | `memory-start` | SessionStart | Injects `memory/index.md` + this repo's focus (Current Focus/Blockers/Next Steps, In Progress); repairs `projects/<slug>/memory` |
 | `paths-resolve` | UserPromptSubmit | Reports existing paths in the prompt; translates Windows ⇄ `/mnt/…` on WSL |

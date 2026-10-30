@@ -43,7 +43,7 @@ Typed files carry `harness_kind: bank` frontmatter. `MEMORY.md` carries a genera
   it.
 - `claude-code memory update` — the session-close writer: summary → sessionHistory, rewrite activeContext + progress,
   decisions → decisionLog, patterns → conventions.
-- `memory-harvest` / `memory-end` (Stop / SessionEnd) — after enough edits, run `memory update` headless so a session
+- `memory-update` / `memory-end` (Stop / SessionEnd) — after enough edits, run `memory update` headless so a session
   that forgets still persists; the first dispatch claims a detached `memory watch` that harvests after 10 quiet
   minutes (a crash fires no SessionEnd). `memory-compact` does the same before compaction.
 - `memory index` — regenerates the `MEMORY.md` bank region and `memory/index.md`, rotates sessionHistory, commits the

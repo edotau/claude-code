@@ -230,7 +230,7 @@ var Registry = map[string]Handler{
 	"memory-start":              func(in io.Reader, out, _ io.Writer) int { return SessionStart(in, out) },
 	"memory-recall":             func(in io.Reader, out, _ io.Writer) int { return MemoryRecall(in, out) },
 	"paths-resolve":             nativeHandler("paths-resolve"),
-	"memory-harvest":            func(in io.Reader, _, errw io.Writer) int { return Stop(in, errw) },
+	"memory-update":             func(in io.Reader, _, errw io.Writer) int { return Stop(in, errw) },
 	"format-stop":               func(in io.Reader, _, _ io.Writer) int { return StopFormat(in) },
 	"memory-end":                func(in io.Reader, _, _ io.Writer) int { return SessionHarvestEnd(in) },
 	"dispatch-effort":           nativeHandler("dispatch-effort"),

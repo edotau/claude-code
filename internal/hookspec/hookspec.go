@@ -125,7 +125,7 @@ var Registry = []Group{
 	}},
 	{Name: "memory", Events: []EventSpec{
 		// One Stop hook: context checkpoint, then the memory harvest; a block from either blocks.
-		{Name: "memory-harvest", Event: EventStop, Budget: 20 * sec},
+		{Name: "memory-update", Event: EventStop, Budget: 20 * sec},
 		{Name: "memory-start", Event: EventSessionStart, Budget: 10 * sec, StatusMessage: "Loading session memory"},
 		// Per-prompt bank recall: advisory and capped, so an empty bank costs the turn nothing.
 		{Name: "memory-recall", Event: EventUserPromptSubmit, Budget: 5 * sec, Vendors: []string{"codex", "copilot"}},
