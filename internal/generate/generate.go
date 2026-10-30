@@ -367,7 +367,7 @@ func commitWrite(path string, raw, next []byte, existed bool, o Options, out io.
 
 // renderOpenCodeOverlay writes the tracked opencode.json/tui.json overlay templates.
 func renderOpenCodeOverlay(o Options, out io.Writer) (bool, error) {
-	cfgPath, cfgBody, tuiPath, tuiBody, err := vendors.OpencodeOverlayRendered()
+	cfgPath, cfgBody, tuiPath, tuiBody, err := settings.OpencodeOverlayRendered()
 	if err != nil {
 		return false, fmt.Errorf("opencode: %w", err)
 	}
