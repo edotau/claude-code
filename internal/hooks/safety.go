@@ -254,7 +254,7 @@ func nestedShellCommand(toks []string) (string, bool) {
 // harnessGitBlocked reports a banned git verb whose target tree (--work-tree / --git-dir / -C chain, else the
 // segment's cwd after any `cd`) sits under the config dir; shell segments and global options are parsed, not regexed.
 func harnessGitBlocked(cmd, cwd string) bool {
-	masked, subs := extractSubstitutions(cmd)
+	masked, subs := extractSubstitutions(dropRemoteHeredocs(cmd))
 	for _, sub := range subs {
 		if harnessGitBlocked(sub, cwd) { // a substitution's cd only affects its own nested evaluation
 			return true
@@ -272,7 +272,7 @@ func harnessGitBlocked(cmd, cwd string) bool {
 // gitSegmentBlocked processes one shell segment: follows a `cd`'s cwd change and checks any git invocation.
 func gitSegmentBlocked(seg string, cwd, harness, worktrees *string) bool {
 	toks := shellTokens(seg)
-	if len(toks) == 0 {
+	if len(toks) == 0 || toks[0] == "ssh" { // ssh runs its command on the remote host, not in this checkout
 		return false
 	}
 	if next, ok := cdTarget(toks, *cwd); ok {
