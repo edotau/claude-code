@@ -247,6 +247,23 @@ func TestMergeHooksPreservesForeignFieldsAndOrder(t *testing.T) {
 	}
 }
 
+// A rendered file carrying the stale `rtk hook claude` entry loses it; a real foreign hook stays.
+func TestMergeDropsStaleRTKHookKeepsForeign(t *testing.T) {
+	base := `{"PreToolUse":[{"matcher":"Bash","hooks":[
+		{"type":"command","command":"/Users/x/.claude/bin/rtk hook claude"},
+		{"type":"command","command":"rtk hook claude"},
+		{"type":"command","command":"my-linter --check"}
+	]}]}`
+	var sum Summary
+	got, err := mergeHooks(json.RawMessage(base), json.RawMessage(`{}`), &sum)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(got), "rtk hook claude") || !strings.Contains(string(got), "my-linter --check") || sum.ForeignHooks != 1 {
+		t.Fatalf("mergeHooks = %s, %+v", got, sum)
+	}
+}
+
 // TestMergeDropsListedForeignKey: a dropped foreign key is removed and recorded; a template key in the list stays.
 func TestMergeDropsListedForeignKey(t *testing.T) {
 	rendered, err := Render()

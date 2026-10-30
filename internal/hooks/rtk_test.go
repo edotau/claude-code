@@ -31,6 +31,21 @@ func rtkOut(t *testing.T, in string) (cmd string, emitted bool) {
 	return s, true
 }
 
+// fakeRTK installs a stub rtk (HARNESS_RTK_BIN) and returns its absolute path. `rewrite <cmd>` prints
+// FAKE_RTK_OUT, else "rtk <cmd>", and exits FAKE_RTK_EXIT (default 0).
+func fakeRTK(t *testing.T) string {
+	t.Helper()
+	bin := filepath.Join(t.TempDir(), "rtk")
+	script := "#!/bin/sh\n[ \"$1\" = rewrite ] || exit 9\n" +
+		"if [ -n \"$FAKE_RTK_OUT\" ]; then printf '%s' \"$FAKE_RTK_OUT\"; else printf '%s' \"rtk $2\"; fi\n" +
+		"exit ${FAKE_RTK_EXIT:-0}\n"
+	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(rtkBinaryEnv, bin)
+	return bin
+}
+
 func rtkBashIn(cmd string) string {
 	b, _ := json.Marshal(map[string]any{
 		"tool_name":  "Bash",
@@ -40,15 +55,15 @@ func rtkBashIn(cmd string) string {
 }
 
 func TestRTKWrapsEligibleCommand(t *testing.T) {
-	t.Setenv(rtkBinaryEnv, "echo") // stand-in for an installed rtk
+	bin := fakeRTK(t)
 	got, ok := rtkOut(t, rtkBashIn("git log --oneline -20"))
-	if !ok || got != "echo git log --oneline -20" {
+	if !ok || got != bin+" git log --oneline -20" {
 		t.Fatalf("command = %q (emitted=%v), want the wrapped form", got, ok)
 	}
 }
 
 func TestRTKSkipsCodex(t *testing.T) {
-	t.Setenv(rtkBinaryEnv, "echo")
+	bin := fakeRTK(t)
 	payload := rtkBashIn("git log --oneline -20")
 	t.Setenv("HARNESS_HOOK_AGENT", "codex")
 	if vendor := ParseInput(strings.NewReader(payload)).Vendor(); vendor != VendorCodex {
@@ -58,7 +73,7 @@ func TestRTKSkipsCodex(t *testing.T) {
 		t.Fatalf("Codex command rewritten to %q", got)
 	}
 	t.Setenv("HARNESS_HOOK_AGENT", "")
-	if got, ok := rtkOut(t, payload); !ok || got != "echo git log --oneline -20" {
+	if got, ok := rtkOut(t, payload); !ok || got != bin+" git log --oneline -20" {
 		t.Fatalf("Claude command = %q (emitted=%v), want the wrapped form", got, ok)
 	}
 }
@@ -66,7 +81,7 @@ func TestRTKSkipsCodex(t *testing.T) {
 func TestCodexSafetyScanStillBlocks(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv("HARNESS_HOOK_AGENT", "codex")
-	t.Setenv(rtkBinaryEnv, "echo")
+	fakeRTK(t)
 	var stdout, stderr strings.Builder
 	rc := SafetyScan(strings.NewReader(rtkBashIn("sudo apt install x")), &stdout, &stderr)
 	if rc != ExitBlock {
@@ -100,15 +115,14 @@ func TestCopilotPayloadOverridesCodexVendor(t *testing.T) {
 }
 
 func TestRTKMachineReadableFlagsMatchTokens(t *testing.T) {
-	t.Setenv(rtkBinaryEnv, "echo")
+	bin := fakeRTK(t)
 	for _, cmd := range []string{
 		"git checkout feature-zero",
-		`git commit -m "add -z flag"`,
 		"git checkout feature--json",
 		"git log --formatter=short",
 		"kubectl get pods -o wide json",
 	} {
-		if got, ok := rtkOut(t, rtkBashIn(cmd)); !ok || got != "echo "+cmd {
+		if got, ok := rtkOut(t, rtkBashIn(cmd)); !ok || got != bin+" "+cmd {
 			t.Errorf("%q: got %q (emitted=%v), want rewrite", cmd, got, ok)
 		}
 	}
@@ -130,7 +144,7 @@ func TestRTKMachineReadableFlagsMatchTokens(t *testing.T) {
 
 // updatedInput REPLACES the whole record, so every sibling key must survive the rewrite.
 func TestRTKPreservesOtherInputKeys(t *testing.T) {
-	t.Setenv(rtkBinaryEnv, "echo")
+	fakeRTK(t)
 	var sb strings.Builder
 	RTKRewrite(strings.NewReader(rtkBashIn("npm install")), &sb, io.Discard)
 	var out struct {
@@ -150,7 +164,7 @@ func TestRTKPreservesOtherInputKeys(t *testing.T) {
 // The whole point of the guard: this harness's own hooks and workflows parse porcelain/JSON output.
 // Compressing it would silently corrupt every parser downstream.
 func TestRTKNeverWrapsMachineReadableOutput(t *testing.T) {
-	t.Setenv(rtkBinaryEnv, "echo")
+	fakeRTK(t)
 	for _, cmd := range []string{
 		"git status --porcelain",
 		"git diff --name-only",
@@ -171,7 +185,7 @@ func TestRTKNeverWrapsMachineReadableOutput(t *testing.T) {
 // one line is parsed verbatim by callers. Compressing a VALUE is the same corruption as compressing
 // porcelain — the subcommand, not a flag, is what identifies it.
 func TestRTKNeverWrapsValueProducingSubcommands(t *testing.T) {
-	t.Setenv(rtkBinaryEnv, "echo")
+	fakeRTK(t)
 	for _, cmd := range []string{
 		"git rev-parse HEAD",
 		"git rev-parse --abbrev-ref HEAD",
@@ -198,10 +212,10 @@ func TestRTKNeverWrapsValueProducingSubcommands(t *testing.T) {
 	}
 }
 
-// An unrecognized global flag makes gitRTKSubcommand return "" (documented "fail closed"); rtkEligible
+// An unrecognized global flag makes gitRTKSubcommand return "" (documented "fail closed"); rtkVetoed
 // must treat that the same as a known value subcommand and skip wrapping, not fall through to wrap.
 func TestRTKNeverWrapsUnrecognizedGlobalFlag(t *testing.T) {
-	t.Setenv(rtkBinaryEnv, "echo")
+	fakeRTK(t)
 	for _, cmd := range []string{
 		"git --unknown-global-flag rev-parse HEAD",
 		"git -Z rev-parse HEAD",
@@ -212,43 +226,70 @@ func TestRTKNeverWrapsUnrecognizedGlobalFlag(t *testing.T) {
 	}
 }
 
-// Eligibility is judged on the FIRST word, but the rewrite prefixes the whole string. In a chain the
-// later segments were never checked, and the "output is summarized" notice then misdescribes output
-// that partly did not pass through rtk at all.
-func TestRTKNeverWrapsCommandChains(t *testing.T) {
-	t.Setenv(rtkBinaryEnv, "echo")
-	for _, cmd := range []string{
-		"git log --oneline -5 && ls",
-		"git log -1; cat README.md",
-		"git fetch || git remote -v",
-		"git log --oneline\ncat go.mod",
-	} {
-		if got, ok := rtkOut(t, rtkBashIn(cmd)); ok {
-			t.Errorf("%q was wrapped to %q — only the first segment was ever checked for eligibility", cmd, got)
+// rtk rewrite owns chains: its rewritten text replaces the whole command, pipelines included.
+func TestRTKRewritesChainsAndPipelines(t *testing.T) {
+	bin := fakeRTK(t)
+	for _, cmd := range []string{"git log --oneline -5 && ls", "git log -1; cat README.md", "git log --oneline | head -20"} {
+		if got, ok := rtkOut(t, rtkBashIn(cmd)); !ok || got != bin+" "+cmd {
+			t.Errorf("%q = %q (emitted=%v), want %q", cmd, got, ok, bin+" "+cmd)
 		}
 	}
 }
 
-// A pipe is not a chain: rtk's compressed stdout is what the caller asked the filter to read, and a
-// single eligible command feeding `head`/`grep` is the common case the compressor exists for.
-func TestRTKStillWrapsPipelines(t *testing.T) {
-	t.Setenv(rtkBinaryEnv, "echo")
-	if got, ok := rtkOut(t, rtkBashIn("git log --oneline | head -20")); !ok {
-		t.Errorf("pipeline was not wrapped (got %q); a pipe does not start a new command", got)
+func TestRTKSkipsAlreadyWrappedAndEmpty(t *testing.T) {
+	bin := fakeRTK(t)
+	for _, cmd := range []string{"rtk git log", bin + " git log", ""} {
+		if got, ok := rtkOut(t, rtkBashIn(cmd)); ok {
+			t.Errorf("%q was rewritten to %q, want no rewrite", cmd, got)
+		}
 	}
 }
 
-func TestRTKSkipsIneligibleAndAlreadyWrapped(t *testing.T) {
-	t.Setenv(rtkBinaryEnv, "echo")
-	for _, cmd := range []string{
-		"ls -la",                // not an eligible command
-		"echo git status",       // eligible name is not the first word
-		"echo git log",          // already the binary itself: never double-wrap
-		"cd /tmp && git status", // first word is cd, so the wrap would not apply to git anyway
-		"",                      // nothing to do
+// Anything but exit 0/3 with changed stdout leaves the command alone.
+func TestRTKRewriteExitCodesAndFailures(t *testing.T) {
+	fakeRTK(t)
+	for _, tc := range []struct{ name, exit, out string }{
+		{"exit 1", "1", "rtk ls"}, {"exit 2", "2", "rtk ls"}, {"exit 9", "9", "rtk ls"},
+		{"unchanged", "0", "ls"}, {"empty", "0", " "},
 	} {
+		t.Setenv("FAKE_RTK_EXIT", tc.exit)
+		t.Setenv("FAKE_RTK_OUT", tc.out)
+		if got, ok := rtkOut(t, rtkBashIn("ls")); ok {
+			t.Errorf("%s: rewritten to %q, want unchanged", tc.name, got)
+		}
+	}
+	t.Setenv("FAKE_RTK_EXIT", "3")
+	t.Setenv("FAKE_RTK_OUT", "rtk ls")
+	if got, ok := rtkOut(t, rtkBashIn("ls")); !ok || !strings.HasSuffix(got, " ls") {
+		t.Errorf("exit 3 = %q (emitted=%v), want a rewrite", got, ok)
+	}
+	bad := filepath.Join(t.TempDir(), "rtk") // present but not executable: a failure, not a rewrite
+	if err := os.WriteFile(bad, []byte("#!/bin/sh\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(rtkBinaryEnv, bad)
+	if got, ok := rtkOut(t, rtkBashIn("ls")); ok {
+		t.Errorf("unrunnable rtk rewrote to %q", got)
+	}
+}
+
+// A bare `rtk` at any command position gets the pinned absolute bin; `echo rtk status` is an argument.
+func TestRTKAbsoluteAtEveryCommandPosition(t *testing.T) {
+	bin := fakeRTK(t)
+	t.Setenv("FAKE_RTK_OUT", "rtk git log && rtk ls | rtk wc ; rtk a || rtk b\nrtk c; echo rtk status")
+	got, ok := rtkOut(t, rtkBashIn("git log && ls | wc ; a || b\nc; echo x"))
+	want := bin + " git log && " + bin + " ls | " + bin + " wc ; " + bin + " a || " + bin + " b\n" + bin + " c; echo rtk status"
+	if !ok || got != want {
+		t.Errorf("got %q (emitted=%v)\nwant %q", got, ok, want)
+	}
+}
+
+// The docs-plan-tick bug: a rewritten commit chain hides git's own output from the plan tick.
+func TestRTKNeverRewritesGitCommit(t *testing.T) {
+	fakeRTK(t)
+	for _, cmd := range []string{`git add x && git commit -m y`, `git commit -m y`, `cd /tmp && git commit -am y`} {
 		if got, ok := rtkOut(t, rtkBashIn(cmd)); ok {
-			t.Errorf("%q was wrapped to %q, want no rewrite", cmd, got)
+			t.Errorf("%q was rewritten to %q", cmd, got)
 		}
 	}
 }
@@ -261,18 +302,12 @@ func TestRTKMissingBinaryIsNoOp(t *testing.T) {
 }
 
 func TestRTKIgnoresNonBashTools(t *testing.T) {
-	t.Setenv(rtkBinaryEnv, "echo")
+	fakeRTK(t)
 	b, _ := json.Marshal(map[string]any{
 		"tool_name": "Read", "tool_input": map[string]any{"command": "git log"},
 	})
 	if got, ok := rtkOut(t, string(b)); ok {
 		t.Errorf("non-Bash tool wrapped to %q", got)
-	}
-}
-
-func TestRTKCommandList(t *testing.T) {
-	if got, want := RTKCommandList(), "cargo docker git kubectl npm pytest"; got != want {
-		t.Errorf("RTKCommandList() = %q, want %q", got, want)
 	}
 }
 
@@ -285,7 +320,7 @@ func rtkCwdIn(cmd, cwd string) string {
 }
 
 func TestRTKGitInLinkedWorktreeIsNotRewritten(t *testing.T) {
-	t.Setenv(rtkBinaryEnv, "echo")
+	bin := fakeRTK(t)
 	base := t.TempDir()
 	main, wt := filepath.Join(base, "main"), filepath.Join(base, "wt")
 	for _, d := range []string{filepath.Join(main, ".git", "worktrees", "x"), filepath.Join(wt, "sub")} {
@@ -302,13 +337,18 @@ func TestRTKGitInLinkedWorktreeIsNotRewritten(t *testing.T) {
 			t.Errorf("git in worktree %q rewritten to %q", cwd, got)
 		}
 	}
-	if got, ok := rtkOut(t, rtkCwdIn("npm ls", wt)); !ok || got != "echo npm ls" {
+	if got, ok := rtkOut(t, rtkCwdIn("npm ls", wt)); !ok || got != bin+" npm ls" {
 		t.Errorf("npm in worktree = %q (emitted=%v), want wrapped", got, ok)
 	}
-	if got, ok := rtkOut(t, rtkCwdIn("git log --oneline -5", main)); !ok || got != "echo git log --oneline -5" {
+	if got, ok := rtkOut(t, rtkCwdIn("git log --oneline -5", main)); !ok || got != bin+" git log --oneline -5" {
 		t.Errorf("git in main checkout = %q (emitted=%v), want wrapped", got, ok)
 	}
-	if got, ok := rtkOut(t, rtkCwdIn("git log -1 && ls", main)); ok {
-		t.Errorf("chain rewritten to %q", got)
+	for _, cmd := range []string{"cd " + wt + " && git status", "git -C " + wt + " status"} {
+		if got, ok := rtkOut(t, rtkCwdIn(cmd, main)); ok {
+			t.Errorf("%q from the main checkout rewritten to %q", cmd, got)
+		}
+	}
+	if got, ok := rtkOut(t, rtkCwdIn("git log -1 && ls", main)); !ok || got != bin+" git log -1 && ls" {
+		t.Errorf("chain in main = %q (emitted=%v), want rewritten", got, ok)
 	}
 }

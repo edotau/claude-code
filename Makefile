@@ -42,7 +42,7 @@ YAMLFMT_VERSION ?= v0.21.0
 # Markdown linter/fixer, installed to bin/ by `make install`; its pkg/markdown is the Go code's parser too.
 MDSMITH_VERSION ?= v0.57.0
 MDSMITH         := bin/mdsmith
-RTK_VERSION     ?= 0.42.4
+RTK_VERSION     ?= 1.1.0
 YAML_FILES      := $(shell git ls-files '*.yml' '*.yaml' 2>/dev/null)
 
 .DEFAULT_GOAL := help

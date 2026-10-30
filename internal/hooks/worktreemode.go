@@ -1,6 +1,6 @@
 // `worktree-mode` (SessionStart) and `worktree-busy` (UserPromptSubmit): tell Claude when to ask the user about a
-// linked worktree. They never create one. HARNESS_WORKTREE=on asks every session; off (default) asks only when
-// another live agent session works in the same checkout.
+// linked worktree. They never create one. HARNESS_WORKTREE=off|false|0 stays silent; any other value (or unset) asks
+// once at session start, and again when a peer session joins the checkout.
 package hooks
 
 import (
@@ -17,41 +17,41 @@ import (
 	"github.com/edotau/claude-code/internal/worktree"
 )
 
-// worktreeModeEnv selects the mode: on|true|1 asks every session; anything else (default) asks only when busy.
+// worktreeModeEnv selects the mode: off|false|0 never asks; unset or anything else asks (session start, new peer).
 const worktreeModeEnv = "HARNESS_WORKTREE"
 
 // peerAgents is the process scan; a var seam so tests never see the host's live sessions.
 var peerAgents = worktree.PeerAgents
 
-const worktreeOnLine = "Worktree mode on: before starting a change, ask the user whether to work in a linked worktree " +
+const worktreeAskLine = "Worktree: before starting a change, ask the user whether to work in a linked worktree " +
 	"(`claude-code worktree create <slug>` / EnterWorktree); without a yes, keep working in the checkout."
 
-func worktreeModeOn() bool {
+func worktreeModeOff() bool {
 	switch strings.ToLower(strings.TrimSpace(os.Getenv(worktreeModeEnv))) {
-	case "on", "true", "1":
+	case "off", "false", "0":
 		return true
 	}
 	return false
 }
 
-// worktreeMode runs on SessionStart: the mode line when on, else the busy line when a peer shares the checkout.
+// worktreeMode runs on SessionStart: the ask line once, unless the mode is off.
 func worktreeMode(in *Input) Result {
-	if worktreeModeOn() {
-		return Result{Context: worktreeOnLine}
-	}
-	return Result{Context: busyLine(in, false)}
-}
-
-// worktreeBusy runs on UserPromptSubmit in off mode: the busy line only when the peer set changed since last report.
-func worktreeBusy(in *Input) Result {
-	if worktreeModeOn() {
+	if worktreeModeOff() {
 		return Result{}
 	}
-	return Result{Context: busyLine(in, true)}
+	return Result{Context: worktreeAskLine}
 }
 
-// busyLine returns the busy line for the peers sharing in.CWD's checkout; "" on no peers, an error, or (dedupe) no change.
-func busyLine(in *Input, dedupe bool) string {
+// worktreeBusy runs on UserPromptSubmit: the busy line only when the peer set changed since last report.
+func worktreeBusy(in *Input) Result {
+	if worktreeModeOff() {
+		return Result{}
+	}
+	return Result{Context: busyLine(in)}
+}
+
+// busyLine returns the busy line for the peers sharing in.CWD's checkout; "" on no peers, an error, or no change.
+func busyLine(in *Input) string {
 	cwd := in.CWD
 	if cwd == "" {
 		cwd, _ = os.Getwd()
@@ -73,7 +73,7 @@ func busyLine(in *Input, dedupe bool) string {
 	sort.Strings(ids)
 	key := strings.Join(ids, ",")
 	file := filepath.Join(paths.StateDir(), "worktree-busy", paths.Slug(in.SessionID, "", 80, "session"))
-	if prev, _ := os.ReadFile(file); dedupe && string(prev) == key {
+	if prev, _ := os.ReadFile(file); string(prev) == key {
 		return ""
 	}
 	if os.MkdirAll(filepath.Dir(file), 0o755) == nil {

@@ -335,7 +335,7 @@ func browserDoctorDetail() string {
 // rtkDoctorStatus reports whether the rtk output compressor is on PATH; the PreToolUse hook no-ops without it.
 func rtkDoctorStatus() string {
 	if bin := hooks.RTKBinary(); bin != "" {
-		return bin + " (" + hooks.RTKCommandList() + ")"
+		return bin + " (rtk rewrite)"
 	}
 	return "not on PATH — the rtk hook skips the rewrite"
 }

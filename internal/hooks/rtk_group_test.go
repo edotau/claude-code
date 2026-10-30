@@ -72,7 +72,7 @@ func TestRtkGroupIsOwnNonGateGroup(t *testing.T) {
 // command — rewriting is the rtk group's job, in a separate process after the gate.
 func TestRtkSplitSafetyScanNeverRewrites(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	t.Setenv(rtkBinaryEnv, "echo")
+	bin := fakeRTK(t)
 	payload := rtkBashIn("git status")
 
 	var stdout strings.Builder
@@ -84,8 +84,8 @@ func TestRtkSplitSafetyScanNeverRewrites(t *testing.T) {
 	}
 
 	got, ok := rtkOut(t, payload)
-	if !ok || got != "echo git status" {
-		t.Fatalf("RTKRewrite command = %q (emitted=%v), want %q", got, ok, "echo git status")
+	if !ok || got != bin+" git status" {
+		t.Fatalf("RTKRewrite command = %q (emitted=%v), want %q", got, ok, bin+" git status")
 	}
 }
 
@@ -93,7 +93,7 @@ func TestRtkSplitSafetyScanNeverRewrites(t *testing.T) {
 // merges its rewrite, while the gate lives in its own process — no permissionDecision can appear.
 func TestRtkDispatcherBareRunsRtk(t *testing.T) {
 	rtkHermetic(t)
-	t.Setenv(rtkBinaryEnv, "echo")
+	bin := fakeRTK(t)
 
 	run := func(cmd string) map[string]json.RawMessage {
 		t.Helper()
@@ -119,8 +119,8 @@ func TestRtkDispatcherBareRunsRtk(t *testing.T) {
 	if err := json.Unmarshal(raw, &inner); err != nil {
 		t.Fatal(err)
 	}
-	if got, _ := inner.UpdatedInput["command"].(string); got != "echo git status" {
-		t.Errorf("dispatcher updatedInput.command = %q, want %q", got, "echo git status")
+	if got, _ := inner.UpdatedInput["command"].(string); got != bin+" git status" {
+		t.Errorf("dispatcher updatedInput.command = %q, want %q", got, bin+" git status")
 	}
 	if strings.Contains(string(raw), "permissionDecision") {
 		t.Errorf("dispatcher output carries a permissionDecision — the gate is not in this process: %s", raw)
@@ -135,7 +135,7 @@ func TestRtkDispatcherBareRunsRtk(t *testing.T) {
 // refuses to be switched off.
 func TestRtkGroupToggle(t *testing.T) {
 	rtkHermetic(t)
-	t.Setenv(rtkBinaryEnv, "echo")
+	fakeRTK(t)
 
 	if err := settings.SaveHarnessHooks(map[string]bool{"rtk": false}); err != nil {
 		t.Fatalf("SaveHarnessHooks(rtk:false): %v", err)
