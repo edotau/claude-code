@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/vault"
-	"github.com/edotau/claude-code/internal/vault/keyring"
 )
 
 func Use(t testing.TB) string {
@@ -39,10 +38,10 @@ func (f *FakeKeyring) lookup(name string) (string, bool, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.Down {
-		return "", false, keyring.ErrUnavailable
+		return "", false, vault.ErrKeyringUnavailable
 	}
 	if f.Slow {
-		return "", false, keyring.ErrNoAnswer
+		return "", false, vault.ErrKeyringNoAnswer
 	}
 	v, ok := f.values[name]
 	return v, ok, nil
@@ -52,10 +51,10 @@ func (f *FakeKeyring) set(name, value string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.Down {
-		return keyring.ErrUnavailable
+		return vault.ErrKeyringUnavailable
 	}
 	if f.Slow {
-		return keyring.ErrNoAnswer
+		return vault.ErrKeyringNoAnswer
 	}
 	f.values[name] = value
 	return nil
@@ -65,10 +64,10 @@ func (f *FakeKeyring) delete(name string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.Down {
-		return keyring.ErrUnavailable
+		return vault.ErrKeyringUnavailable
 	}
 	if f.Slow {
-		return keyring.ErrNoAnswer
+		return vault.ErrKeyringNoAnswer
 	}
 	delete(f.values, name)
 	return nil

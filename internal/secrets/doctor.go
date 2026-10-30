@@ -11,7 +11,6 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault"
-	"github.com/edotau/claude-code/internal/vault/keyring"
 )
 
 // Check is one vault-health row; a failed Gate row fails doctor --secrets, the rest only advise.
@@ -148,7 +147,7 @@ func checkRetiredKeys() []Check {
 	var out []Check
 	for _, kid := range kids {
 		row := Check{Name: "vault retired key " + kid}
-		_, found, err := keyring.Lookup("vault-key/" + id + "." + kid)
+		_, found, err := vault.KeyringLookup("vault-key/" + id + "." + kid)
 		switch {
 		case err != nil:
 			row.Detail = err.Error()
@@ -225,8 +224,8 @@ func editDistance(a, b string) int {
 
 // checkKeyringTool is informational: without one the master key must come from env or key_command.
 func checkKeyringTool() Check {
-	if keyring.Available() {
-		return Check{Name: "keyring tool", OK: true, Detail: keyring.Tool() + " on PATH"}
+	if vault.KeyringAvailable() {
+		return Check{Name: "keyring tool", OK: true, Detail: vault.KeyringTool() + " on PATH"}
 	}
 	return Check{Name: "keyring tool", OK: true, Detail: "none on PATH — set HARNESS_VAULT_KEY or the vault key_command"}
 }

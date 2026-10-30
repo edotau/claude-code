@@ -1,4 +1,4 @@
-package keyring
+package vault
 
 import (
 	"os"
@@ -38,21 +38,21 @@ func hermetic(t *testing.T) {
 // never touch the real OS keychain regardless of what runs this test.
 func TestDegradesWithoutTool(t *testing.T) {
 	hermetic(t)
-	if Available() {
-		t.Fatal("Available() must be false with PATH pointed at an empty dir")
+	if KeyringAvailable() {
+		t.Fatal("KeyringAvailable() must be false with PATH pointed at an empty dir")
 	}
-	if _, ok := Get("ANYTHING"); ok {
+	if _, ok := keyringGet("ANYTHING"); ok {
 		t.Fatal("Get must miss when no keyring tool is available")
 	}
-	if err := Set("ANYTHING", "v"); err == nil {
+	if err := KeyringSet("ANYTHING", "v"); err == nil {
 		t.Fatal("Set must error when no keyring tool is available")
 	}
-	if err := Delete("ANYTHING"); err != nil {
+	if err := KeyringDelete("ANYTHING"); err != nil {
 		t.Fatalf("Delete must be a no-op, not an error, when no keyring tool is available: %v", err)
 	}
 }
 
-// Lookup must return ErrNoAnswer, not a plain miss, when the tool times out.
+// Lookup must return ErrKeyringNoAnswer, not a plain miss, when the tool times out.
 func TestLookupTimesOutReturnsErrNoAnswer(t *testing.T) {
 	hermetic(t)
 	slowSecretTool(t)
@@ -60,9 +60,9 @@ func TestLookupTimesOutReturnsErrNoAnswer(t *testing.T) {
 	timeout = 50 * time.Millisecond
 	t.Cleanup(func() { timeout = saved })
 
-	v, found, err := Lookup("ANYTHING")
-	if v != "" || found || err != ErrNoAnswer {
-		t.Fatalf("Lookup = (%q, %v, %v), want (\"\", false, ErrNoAnswer)", v, found, err)
+	v, found, err := KeyringLookup("ANYTHING")
+	if v != "" || found || err != ErrKeyringNoAnswer {
+		t.Fatalf("Lookup = (%q, %v, %v), want (\"\", false, ErrKeyringNoAnswer)", v, found, err)
 	}
 	if !down.Load() {
 		t.Fatal("down must latch true after a timeout")
@@ -81,31 +81,31 @@ func TestConcurrentLookupSetDeleteTimeout(t *testing.T) {
 	for range 4 {
 		wg.Go(func() {
 			<-start
-			if _, _, err := Lookup("CONCURRENT"); err != ErrNoAnswer {
-				t.Errorf("Lookup error = %v, want ErrNoAnswer", err)
+			if _, _, err := KeyringLookup("CONCURRENT"); err != ErrKeyringNoAnswer {
+				t.Errorf("Lookup error = %v, want ErrKeyringNoAnswer", err)
 			}
 		})
 		wg.Go(func() {
 			<-start
-			if err := Set("CONCURRENT", "value"); err == nil {
+			if err := KeyringSet("CONCURRENT", "value"); err == nil {
 				t.Error("Set must fail when the tool times out")
 			}
 		})
 		wg.Go(func() {
 			<-start
-			if err := Delete("CONCURRENT"); err == nil {
+			if err := KeyringDelete("CONCURRENT"); err == nil {
 				t.Error("Delete must fail when the tool times out")
 			}
 		})
 	}
 	close(start)
 	wg.Wait()
-	if _, _, err := Lookup("CONCURRENT"); err != ErrNoAnswer {
-		t.Errorf("latched Lookup error = %v, want ErrNoAnswer", err)
+	if _, _, err := KeyringLookup("CONCURRENT"); err != ErrKeyringNoAnswer {
+		t.Errorf("latched Lookup error = %v, want ErrKeyringNoAnswer", err)
 	}
 }
 
-// Lookup must short-circuit to ErrNoAnswer, without even running the tool, once down is already set.
+// Lookup must short-circuit to ErrKeyringNoAnswer, without even running the tool, once down is already set.
 func TestLookupLatchedDownReturnsErrNoAnswer(t *testing.T) {
 	hermetic(t)
 	if runtime.GOOS != "linux" {
@@ -117,13 +117,13 @@ func TestLookupLatchedDownReturnsErrNoAnswer(t *testing.T) {
 	}
 	t.Setenv("PATH", dir)
 	down.Store(true)
-	v, found, err := Lookup("ANYTHING")
-	if v != "" || found || err != ErrNoAnswer {
-		t.Fatalf("Lookup = (%q, %v, %v), want (\"\", false, ErrNoAnswer)", v, found, err)
+	v, found, err := KeyringLookup("ANYTHING")
+	if v != "" || found || err != ErrKeyringNoAnswer {
+		t.Fatalf("Lookup = (%q, %v, %v), want (\"\", false, ErrKeyringNoAnswer)", v, found, err)
 	}
 }
 
-// A plain miss (tool answers, account not stored) must read as ("", false, nil), not ErrNoAnswer.
+// A plain miss (tool answers, account not stored) must read as ("", false, nil), not ErrKeyringNoAnswer.
 func TestLookupPlainMiss(t *testing.T) {
 	hermetic(t)
 	if runtime.GOOS != "linux" {
@@ -135,7 +135,7 @@ func TestLookupPlainMiss(t *testing.T) {
 	}
 	t.Setenv("PATH", dir)
 
-	v, found, err := Lookup("ANYTHING")
+	v, found, err := KeyringLookup("ANYTHING")
 	if v != "" || found || err != nil {
 		t.Fatalf("Lookup = (%q, %v, %v), want (\"\", false, nil)", v, found, err)
 	}
@@ -143,24 +143,24 @@ func TestLookupPlainMiss(t *testing.T) {
 
 func TestSetRejectsEmptyAndMultiline(t *testing.T) {
 	hermetic(t)
-	if err := Set("NAME", ""); err == nil {
+	if err := KeyringSet("NAME", ""); err == nil {
 		t.Fatal("Set must reject an empty value")
 	}
-	if err := Set("", "v"); err == nil || err.Error() != "keyring: empty name" {
+	if err := KeyringSet("", "v"); err == nil || err.Error() != "keyring: empty name" {
 		t.Fatalf("Set with an empty name = %v, want keyring: empty name", err)
 	}
-	if err := Set("NAME", "line1\nline2"); err == nil {
+	if err := KeyringSet("NAME", "line1\nline2"); err == nil {
 		t.Fatal("Set must reject a value spanning more than one line")
 	}
 }
 
 func TestSetDeleteLatchedDownErrors(t *testing.T) {
 	hermetic(t)
-	if Tool() == "" {
+	if KeyringTool() == "" {
 		t.Skip("no keyring tool is implemented for this OS")
 	}
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, Tool()), []byte("#!/bin/sh\nexit 99\n"), 0o755); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, KeyringTool()), []byte("#!/bin/sh\nexit 99\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", dir)
@@ -171,8 +171,8 @@ func TestSetDeleteLatchedDownErrors(t *testing.T) {
 		run  func() error
 		want string
 	}{
-		{"Set", func() error { return Set("NAME", "value") }, "keyring: the keyring did not answer earlier this run — set HARNESS_VAULT_KEY or meta/key_command instead"},
-		{"Delete", func() error { return Delete("NAME") }, "keyring: the keyring did not answer earlier this run"},
+		{"Set", func() error { return KeyringSet("NAME", "value") }, "keyring: the keyring did not answer earlier this run — set HARNESS_VAULT_KEY or meta/key_command instead"},
+		{"Delete", func() error { return KeyringDelete("NAME") }, "keyring: the keyring did not answer earlier this run"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			if err := tt.run(); err == nil || err.Error() != tt.want {

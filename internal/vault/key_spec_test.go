@@ -10,8 +10,6 @@ import (
 	"os"
 	"sync"
 	"testing"
-
-	"github.com/edotau/claude-code/internal/vault/keyring"
 )
 
 type specKeyring struct {
@@ -74,16 +72,16 @@ func TestEnsureKeyNoAnswerDoesNotGenerate(t *testing.T) {
 	t.Setenv("HARNESS_VAULT_KEY", "")
 	ring := &specKeyring{
 		values: make(map[string]string),
-		err:    keyring.ErrNoAnswer,
+		err:    ErrKeyringNoAnswer,
 	}
 	useSpecKeyring(t, ring)
 
 	key, err := EnsureKey()
 	if err == nil {
-		t.Fatal("EnsureKey succeeded after keyring.ErrNoAnswer")
+		t.Fatal("EnsureKey succeeded after ErrKeyringNoAnswer")
 	}
 	if key != nil {
-		t.Fatal("EnsureKey returned a key after keyring.ErrNoAnswer")
+		t.Fatal("EnsureKey returned a key after ErrKeyringNoAnswer")
 	}
 	ring.mu.Lock()
 	defer ring.mu.Unlock()

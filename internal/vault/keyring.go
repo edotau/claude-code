@@ -1,7 +1,7 @@
-// Package keyring is the OS secret-service plane: a shell-out to `secret-tool` (libsecret) on Linux,
+// The keyring plane (this file) is the OS secret-service plane: a shell-out to `secret-tool` (libsecret) on Linux,
 // `security` on macOS. Degrades rather than failing hard: no tool, no session, or a locked keyring
 // all read as "this plane holds nothing", so callers fall through to HARNESS_VAULT_KEY or key_command.
-package keyring
+package vault
 
 import (
 	"context"
@@ -29,21 +29,21 @@ var timeout = 3 * time.Second
 // names (`configure provider --list`) pays the timeout once, not once per name.
 var down atomic.Bool
 
-// ErrNoAnswer means the tool timed out or the `down` latch was already set — not a plain miss.
-var ErrNoAnswer = errors.New("keyring: did not answer")
+// ErrKeyringNoAnswer means the tool timed out or the `down` latch was already set — not a plain miss.
+var ErrKeyringNoAnswer = errors.New("keyring: did not answer")
 
-// ErrUnavailable means the tool ran and failed for a reason other than "not stored" (a genuine
+// ErrKeyringUnavailable means the tool ran and failed for a reason other than "not stored" (a genuine
 // keyring failure, not a positively established absence).
-var ErrUnavailable = errors.New("keyring: unavailable")
+var ErrKeyringUnavailable = errors.New("keyring: unavailable")
 
-// ErrNoTool means no keyring tool is on PATH, or this OS has none wired up (Windows). Wraps
-// ErrUnavailable so existing errors.Is(err, ErrUnavailable) callers still match; callers that must
+// ErrKeyringNoTool means no keyring tool is on PATH, or this OS has none wired up (Windows). Wraps
+// ErrKeyringUnavailable so errors.Is(err, ErrKeyringUnavailable) still matches; callers that must
 // treat "no tool ever existed" differently from "an installed tool just failed" (R4) check this
 // more specific sentinel first.
-var ErrNoTool = fmt.Errorf("keyring: no tool on PATH for this OS: %w", ErrUnavailable)
+var ErrKeyringNoTool = fmt.Errorf("keyring: no tool on PATH for this OS: %w", ErrKeyringUnavailable)
 
-// Tool returns the plane's binary name for this OS, or "" where none is wired up.
-func Tool() string {
+// KeyringTool returns the plane's binary name for this OS, or "" where none is wired up.
+func KeyringTool() string {
 	switch runtime.GOOS {
 	case "linux":
 		return "secret-tool"
@@ -54,12 +54,12 @@ func Tool() string {
 	}
 }
 
-// Available reports whether a keyring tool is on PATH for this OS; HARNESS_KEYRING=off forces false.
-func Available() bool {
+// KeyringAvailable reports whether a keyring tool is on PATH for this OS; HARNESS_KEYRING=off forces false.
+func KeyringAvailable() bool {
 	if os.Getenv("HARNESS_KEYRING") == "off" {
 		return false
 	}
-	b := Tool()
+	b := KeyringTool()
 	if b == "" {
 		return false
 	}
@@ -67,18 +67,18 @@ func Available() bool {
 	return err == nil
 }
 
-// Lookup looks up name in the OS keyring. err is ErrNoAnswer when the tool timed out or the
-// `down` latch is already set, ErrNoTool when no tool is on PATH for this OS; a plain,
+// KeyringLookup looks up name in the OS keyring. err is ErrKeyringNoAnswer when the tool timed out or the
+// `down` latch is already set, ErrKeyringNoTool when no tool is on PATH for this OS; a plain,
 // positively-established miss reads as ("", false, nil).
-func Lookup(name string) (value string, found bool, err error) {
+func KeyringLookup(name string) (value string, found bool, err error) {
 	if name == "" {
 		return "", false, nil
 	}
-	if !Available() {
-		return "", false, ErrNoTool
+	if !KeyringAvailable() {
+		return "", false, ErrKeyringNoTool
 	}
 	if down.Load() {
-		return "", false, ErrNoAnswer
+		return "", false, ErrKeyringNoAnswer
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
@@ -93,7 +93,7 @@ func Lookup(name string) (value string, found bool, err error) {
 	out, err2 := cmd.Output()
 	if ctx.Err() != nil {
 		down.Store(true)
-		return "", false, ErrNoAnswer
+		return "", false, ErrKeyringNoAnswer
 	}
 	if err2 != nil {
 		var exit *exec.ExitError
@@ -112,23 +112,23 @@ func Lookup(name string) (value string, found bool, err error) {
 			}
 		}
 		if stderr != "" {
-			return "", false, fmt.Errorf("%w: %s", ErrUnavailable, stderr)
+			return "", false, fmt.Errorf("%w: %s", ErrKeyringUnavailable, stderr)
 		}
-		return "", false, ErrUnavailable
+		return "", false, ErrKeyringUnavailable
 	}
 	v := strings.TrimSpace(string(out))
 	return v, v != "", nil
 }
 
-// Get is Lookup's "found?" shape, the API most callers want: ErrNoAnswer reads as a miss too.
-func Get(name string) (string, bool) {
-	v, found, _ := Lookup(name)
+// keyringGet is KeyringLookup's "found?" shape, the API most callers want: ErrKeyringNoAnswer reads as a miss too.
+func keyringGet(name string) (string, bool) {
+	v, found, _ := KeyringLookup(name)
 	return v, found
 }
 
-// Set stores value under name, overwriting any existing entry. The value always goes on stdin, never
+// KeyringSet stores value under name, overwriting any existing entry. The value always goes on stdin, never
 // argv: an argv secret is visible to every same-uid process (`ps`) for the life of the call.
-func Set(name, value string) error {
+func KeyringSet(name, value string) error {
 	if name == "" {
 		return errors.New("keyring: empty name")
 	}
@@ -139,7 +139,7 @@ func Set(name, value string) error {
 	if strings.ContainsAny(name+value, "\r\n") {
 		return fmt.Errorf("keyring: %s: name or value spans more than one line", name)
 	}
-	if !Available() {
+	if !KeyringAvailable() {
 		return fmt.Errorf("keyring: no keyring tool on PATH for %s — set HARNESS_VAULT_KEY or meta/key_command instead", runtime.GOOS)
 	}
 	if down.Load() {
@@ -177,9 +177,9 @@ func Set(name, value string) error {
 	return nil
 }
 
-// Delete removes name from the keyring; a name that is not stored is not an error, a refused delete is.
-func Delete(name string) error {
-	if name == "" || !Available() {
+// KeyringDelete removes name from the keyring; a name that is not stored is not an error, a refused delete is.
+func KeyringDelete(name string) error {
+	if name == "" || !KeyringAvailable() {
 		return nil
 	}
 	if down.Load() {
@@ -201,7 +201,7 @@ func Delete(name string) error {
 		return nil
 	}
 	if runtime.GOOS == "linux" && errors.As(err, &exit) && exit.ExitCode() == 1 && ctx.Err() == nil {
-		if _, found := Get(name); !found { // secret-tool clear exits 1 for an absent item too: nothing to delete
+		if _, found := keyringGet(name); !found { // secret-tool clear exits 1 for an absent item too: nothing to delete
 			return nil
 		}
 	}

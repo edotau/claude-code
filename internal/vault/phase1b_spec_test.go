@@ -17,7 +17,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/edotau/claude-code/internal/vault/keyring"
 	"go.etcd.io/bbolt"
 	bolterrors "go.etcd.io/bbolt/errors"
 )
@@ -139,7 +138,7 @@ func TestTwoRootsBootstrapDistinctAccounts(t *testing.T) {
 }
 
 func TestEnsureKeyUnavailableDoesNotGenerate(t *testing.T) {
-	for _, cause := range []error{keyring.ErrUnavailable, keyring.ErrNoAnswer} {
+	for _, cause := range []error{ErrKeyringUnavailable, ErrKeyringNoAnswer} {
 		t.Run(cause.Error(), func(t *testing.T) {
 			ring := phase1bRing(t)
 			ring.err = cause
@@ -226,7 +225,7 @@ func TestResolveKeyTriesCommandAfterUnavailableKeyring(t *testing.T) {
 	}
 	invalidateKey()
 	ring.mu.Lock()
-	ring.err = keyring.ErrUnavailable
+	ring.err = ErrKeyringUnavailable
 	ring.mu.Unlock()
 
 	got, source, err := MasterKey()
@@ -246,7 +245,7 @@ func TestResolveKeyUnavailableNoCommandIsLockedWithActionableMessage(t *testing.
 	phase1bPut(t, "TOKEN", "value")
 	invalidateKey()
 	ring.mu.Lock()
-	ring.err = keyring.ErrUnavailable
+	ring.err = ErrKeyringUnavailable
 	ring.mu.Unlock()
 
 	_, _, err := MasterKey()

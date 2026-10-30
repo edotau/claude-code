@@ -179,9 +179,9 @@ audit-git: compile  # (folded into `audit`) doctor --git over the unpushed commi
 		$(BIN) doctor --git --range '@{u}..HEAD'
 
 .PHONY: audit-nokeyring
-audit-nokeyring:  # (folded into `audit`) re-test vault/keyring importers with no keyring, as CI runs them
+audit-nokeyring:  # (folded into `audit`) re-test vault importers with no keyring, as CI runs them
 	@pkgs=$$($(GO) list -f '{{.ImportPath}} {{join .Imports " "}} {{join .TestImports " "}} {{join .XTestImports " "}}' $(PKGS) \
-		| awk '/internal\/(vault|keyring)( |$$)/ {print $$1}'); \
+		| awk '/internal\/vault( |$$)/ {print $$1}'); \
 		env -u HARNESS_VAULT_KEY -u DBUS_SESSION_BUS_ADDRESS HARNESS_KEYRING=off \
 		$(GO) test -count=1 -timeout $(GO_TEST_TIMEOUT) $$pkgs
 
