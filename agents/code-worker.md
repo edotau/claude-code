@@ -63,8 +63,8 @@ before starting — progressive disclosure here is a file read.
 ### Agent: cost routing
 
 The handoff names an `Agent:` (`claude`, `copilot`, `codex`, `gemini` or `opencode`); the manager spreads
-leaves evenly across them per `skills/subagent-workflows/references/cost-routing.md`. `claude` or no agent:
-do the task in-context. Any other agent is binding: always run the agent your brief names through
+leaves evenly across them per `skills/subagent-workflows/references/cost-routing.md`. Omitted, `in-context` or
+your own type means do the task in-context; any named agent, `claude` included, is a request and binding: always run the agent your brief names through
 `claude-code ask` first — size and "mechanical" are the manager's call, never yours. Gemini dispatches are for
 read-heavy sweeps and research, and their brief must say "open the files and cite file:line" (a gemini dispatch
 once answered from memory). Pick and fallback: `skills/subagent-workflows/references/cost-routing.md`. E.g.:
