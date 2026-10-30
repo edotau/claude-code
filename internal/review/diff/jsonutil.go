@@ -4,11 +4,10 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"github.com/edotau/claude-code/internal/review/source"
 	"math"
 	"strconv"
 	"strings"
-
-	"github.com/edotau/claude-code/internal/review/pyjson"
 )
 
 // pyFloat marshals like Python's json.dumps: shortest round-trip decimal, ".0" for integral values.
@@ -41,7 +40,7 @@ func mustIndentJSON(v any) string {
 		return fmt.Sprintf("{\"error\": %q}", err.Error())
 	}
 	compact := bytes.TrimRight(enc.Bytes(), "\n")
-	ascii := pyjson.EscapeNonASCII(compact)
+	ascii := source.PyEscapeNonASCII(compact)
 	spaced := insertColonSpace(ascii)
 	var buf bytes.Buffer
 	if err := json.Indent(&buf, spaced, "", "  "); err != nil {

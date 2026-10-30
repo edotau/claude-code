@@ -1,5 +1,6 @@
-// Package pyjson emulates Python's json.dumps byte output (ensure_ascii, indent=2) for the review ports.
-package pyjson
+// Python json.dumps byte emulation (ensure_ascii, indent=2) for the review ports.
+
+package source
 
 import (
 	"bytes"
@@ -8,8 +9,8 @@ import (
 	"unicode/utf16"
 )
 
-// MarshalIndent matches Python's json.dumps(v, indent=2): ensure_ascii escaping and no HTML-escaping of <, >, &.
-func MarshalIndent(v any) ([]byte, error) {
+// PyMarshalIndent matches Python's json.dumps(v, indent=2): ensure_ascii escaping and no HTML-escaping of <, >, &.
+func PyMarshalIndent(v any) ([]byte, error) {
 	var buf bytes.Buffer
 	enc := json.NewEncoder(&buf)
 	enc.SetEscapeHTML(false)
@@ -17,7 +18,7 @@ func MarshalIndent(v any) ([]byte, error) {
 		return nil, err
 	}
 	compact := bytes.TrimRight(buf.Bytes(), "\n")
-	escaped := EscapeNonASCII(compact)
+	escaped := PyEscapeNonASCII(compact)
 	var out bytes.Buffer
 	if err := json.Indent(&out, escaped, "", "  "); err != nil {
 		return nil, err
@@ -25,8 +26,8 @@ func MarshalIndent(v any) ([]byte, error) {
 	return out.Bytes(), nil
 }
 
-// EscapeNonASCII matches Python's json.dumps default ensure_ascii=True (surrogate pairs above U+FFFF).
-func EscapeNonASCII(b []byte) []byte {
+// PyEscapeNonASCII matches Python's json.dumps default ensure_ascii=True (surrogate pairs above U+FFFF).
+func PyEscapeNonASCII(b []byte) []byte {
 	var out bytes.Buffer
 	for _, r := range string(b) {
 		if r < 0x80 {

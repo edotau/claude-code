@@ -1,9 +1,8 @@
 // Adapted from github.com/databricks/databricks-sdk-go v0.190.0 config/config_file.go; modified.
 
-// Package dbxcfg reads a Databricks CLI config ONCE into vault provider rows (so nothing reads ~/.databrickscfg
-// at mint time) and writes vault rows back out as secret-free sections. Enumeration returns Candidate,
-// which has no secret field.
-package dbxcfg
+// The dbxcfg files read a Databricks CLI config ONCE into vault provider rows and write rows back out secret-free.
+
+package databricks
 
 import (
 	"io"

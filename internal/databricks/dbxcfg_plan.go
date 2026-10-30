@@ -1,4 +1,4 @@
-package dbxcfg
+package databricks
 
 import (
 	"encoding/json"
@@ -16,14 +16,14 @@ type Row struct {
 	Reason string // why skipped
 }
 
-// Options steer Plan.
-type Options struct {
+// ImportOptions steer ImportPlan.
+type ImportOptions struct {
 	Rename  map[string]string // source name to row id
 	Replace bool
 }
 
-// Plan maps candidates to rows against the existing provider rows (id to raw JSON).
-func Plan(cands []Candidate, existing map[string]json.RawMessage, o Options) []Row {
+// ImportPlan maps candidates to rows against the existing provider rows (id to raw JSON).
+func ImportPlan(cands []Candidate, existing map[string]json.RawMessage, o ImportOptions) []Row {
 	rows := make([]Row, 0, len(cands))
 	taken := map[string]bool{}
 	names := sealedNames(existing)

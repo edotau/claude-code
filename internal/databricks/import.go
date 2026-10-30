@@ -8,7 +8,6 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/edotau/claude-code/internal/databricks/dbxcfg"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/secrets"
 	"github.com/edotau/claude-code/internal/ui/helptext"
@@ -56,9 +55,9 @@ func importCfg(args []string) int {
 	}
 	path := *file
 	if path == "" {
-		path = dbxcfg.DefaultPath()
+		path = DefaultPath()
 	}
-	cands, err := dbxcfg.Candidates(path)
+	cands, err := Candidates(path)
 	if err != nil {
 		return fail("import: %v", err)
 	}
@@ -70,10 +69,10 @@ func importCfg(args []string) int {
 			return fail("import: %v", err)
 		}
 	}
-	var rows []dbxcfg.Row
+	var rows []Row
 	oldDoc, newDoc, err := providers.UpdateOverlayDoc(false, func(top map[string]json.RawMessage, _ *vault.Tx) error {
-		rows = dbxcfg.Plan(cands, dbxcfg.Existing(top), dbxcfg.Options{Rename: rename, Replace: *replace})
-		return dbxcfg.Apply(top, rows)
+		rows = ImportPlan(cands, Existing(top), ImportOptions{Rename: rename, Replace: *replace})
+		return Apply(top, rows)
 	})
 	if err != nil {
 		return fail("import: %v", err)
@@ -82,7 +81,7 @@ func importCfg(args []string) int {
 	if !printDiff(os.Stdout, oldDoc, newDoc) {
 		fmt.Println("no changes")
 	}
-	if !slices.ContainsFunc(rows, func(r dbxcfg.Row) bool { return r.Action != "skip" }) {
+	if !slices.ContainsFunc(rows, func(r Row) bool { return r.Action != "skip" }) {
 		fmt.Println("nothing to import")
 		return 0
 	}
@@ -91,7 +90,7 @@ func importCfg(args []string) int {
 		return 0
 	}
 	if _, _, err := providers.UpdateOverlayDoc(true, func(top map[string]json.RawMessage, _ *vault.Tx) error {
-		return dbxcfg.Apply(top, rows)
+		return Apply(top, rows)
 	}); err != nil {
 		return fail("import: %v", err)
 	}
@@ -103,14 +102,14 @@ func importCfg(args []string) int {
 }
 
 // sealImported stores each written row's client secret / PAT; the only place secrets are read.
-func sealImported(path string, rows []dbxcfg.Row) int {
+func sealImported(path string, rows []Row) int {
 	code := 0
 	for _, r := range rows {
-		name := dbxcfg.SecretNameOf(r)
+		name := SecretNameOf(r)
 		if r.Action == "skip" || name == "" || !r.HasSecret {
 			continue
 		}
-		s, err := dbxcfg.ReadSecrets(path, r.Name)
+		s, err := ReadSecrets(path, r.Name)
 		val := s.ClientSecret
 		if r.Auth == providers.AuthPAT {
 			val = s.Token
@@ -128,7 +127,7 @@ func sealImported(path string, rows []dbxcfg.Row) int {
 	return code
 }
 
-func printImportTable(rows []dbxcfg.Row) {
+func printImportTable(rows []Row) {
 	fmt.Printf("%-32s %-10s %-46s %-6s %-7s %s\n", "PROFILE", "AUTHTYPE", "HOST", "SECRET", "ACTION", "NOTE")
 	for _, r := range rows {
 		kind, has := r.Auth, "no"
@@ -147,7 +146,7 @@ func printImportTable(rows []dbxcfg.Row) {
 }
 
 // pickCandidates toggles candidates in the arrow-key picker until Done; Esc cancels.
-func pickCandidates(cands []dbxcfg.Candidate) ([]dbxcfg.Candidate, error) {
+func pickCandidates(cands []Candidate) ([]Candidate, error) {
 	labels := make([][2]string, len(cands))
 	for i, c := range cands {
 		labels[i] = [2]string{c.Name, c.Host}
@@ -156,7 +155,7 @@ func pickCandidates(cands []dbxcfg.Candidate) ([]dbxcfg.Candidate, error) {
 	if err != nil {
 		return nil, err
 	}
-	var out []dbxcfg.Candidate
+	var out []Candidate
 	for i, c := range cands {
 		if on[i] {
 			out = append(out, c)

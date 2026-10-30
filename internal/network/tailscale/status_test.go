@@ -1,4 +1,4 @@
-package remote
+package tailscale
 
 import (
 	"testing"
@@ -22,20 +22,20 @@ func TestNormalize_StripsANSIAndSpinnerNoise(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			if got, want := Normalize(c.a), Normalize(c.b); got != want {
-				t.Errorf("Normalize(%q) = %q, Normalize(%q) = %q; want equal", c.a, got, c.b, want)
+			if got, want := NormalizePane(c.a), NormalizePane(c.b); got != want {
+				t.Errorf("NormalizePane(%q) = %q, NormalizePane(%q) = %q; want equal", c.a, got, c.b, want)
 			}
 		})
 	}
 }
 
 func TestFingerprint_StableAndSensitive(t *testing.T) {
-	a := Fingerprint(Normalize("hello world"))
-	b := Fingerprint(Normalize("hello world"))
+	a := FingerprintPane(NormalizePane("hello world"))
+	b := FingerprintPane(NormalizePane("hello world"))
 	if a != b {
 		t.Errorf("Fingerprint not stable across identical normalized input: %q vs %q", a, b)
 	}
-	c := Fingerprint(Normalize("hello WORLD"))
+	c := FingerprintPane(NormalizePane("hello WORLD"))
 	if a == c {
 		t.Errorf("Fingerprint did not change for different content")
 	}
@@ -45,7 +45,7 @@ func TestFingerprint_StableAndSensitive(t *testing.T) {
 }
 
 func TestClassify_WorkingIndicator(t *testing.T) {
-	state, reason, _ := Classify("", paneCap("doing stuff\nesc to interrupt"))
+	state, reason, _ := ClassifyPane("", paneCap("doing stuff\nesc to interrupt"))
 	if state != StateWorking {
 		t.Errorf("state = %q, want %q (reason=%q)", state, StateWorking, reason)
 	}
@@ -58,23 +58,23 @@ func TestClassify_InputNeeded(t *testing.T) {
 		"╭───╮\n│ >  │\n╰───╯",
 	}
 	for _, text := range cases {
-		state, _, _ := Classify("", paneCap(text))
+		state, _, _ := ClassifyPane("", paneCap(text))
 		if state != StateInputNeeded {
-			t.Errorf("Classify(%q) state = %q, want %q", text, state, StateInputNeeded)
+			t.Errorf("ClassifyPane(%q) state = %q, want %q", text, state, StateInputNeeded)
 		}
 	}
 }
 
 func TestClassify_ReadySettledPrompt(t *testing.T) {
-	prevFP := Fingerprint(Normalize("$ "))
-	state, _, _ := Classify(prevFP, paneCap("$ "))
+	prevFP := FingerprintPane(NormalizePane("$ "))
+	state, _, _ := ClassifyPane(prevFP, paneCap("$ "))
 	if state != StateReady {
 		t.Errorf("state = %q, want %q", state, StateReady)
 	}
 }
 
 func TestClassify_FirstObservationIsUnknownNotIdle(t *testing.T) {
-	state, reason, _ := Classify("", paneCap("some static text with no prompt"))
+	state, reason, _ := ClassifyPane("", paneCap("some static text with no prompt"))
 	if state != StateUnknown {
 		t.Errorf("state = %q, want %q (first observation has no baseline): %s", state, StateUnknown, reason)
 	}
@@ -82,16 +82,16 @@ func TestClassify_FirstObservationIsUnknownNotIdle(t *testing.T) {
 
 func TestClassify_StaticAmbiguousOutputIsUnknownNotIdle(t *testing.T) {
 	text := "some static ambiguous text"
-	prevFP := Fingerprint(Normalize(text))
-	state, _, _ := Classify(prevFP, paneCap(text))
+	prevFP := FingerprintPane(NormalizePane(text))
+	state, _, _ := ClassifyPane(prevFP, paneCap(text))
 	if state != StateUnknown {
 		t.Errorf("state = %q, want %q: static unchanged non-prompt text must never be reported idle", state, StateUnknown)
 	}
 }
 
 func TestClassify_OutputChangedIsWorking(t *testing.T) {
-	prevFP := Fingerprint(Normalize("old static text"))
-	state, _, _ := Classify(prevFP, paneCap("new static text, still no prompt"))
+	prevFP := FingerprintPane(NormalizePane("old static text"))
+	state, _, _ := ClassifyPane(prevFP, paneCap("new static text, still no prompt"))
 	if state != StateWorking {
 		t.Errorf("state = %q, want %q (changed output => working)", state, StateWorking)
 	}
@@ -99,7 +99,7 @@ func TestClassify_OutputChangedIsWorking(t *testing.T) {
 
 func TestClassify_ShellAfterAgentExit(t *testing.T) {
 	c := PaneCapture{Host: "h", Session: "cc-claude-x", PaneID: "%1", Agent: "claude", CurrentCmd: "-bash", Text: "$ "}
-	state, reason, _ := Classify("", c)
+	state, reason, _ := ClassifyPane("", c)
 	if state != StateReady {
 		t.Errorf("state = %q, want %q (shell after agent exit): %s", state, StateReady, reason)
 	}
@@ -107,7 +107,7 @@ func TestClassify_ShellAfterAgentExit(t *testing.T) {
 
 func TestClassify_InjectionShapedOutputNeverPanics(t *testing.T) {
 	// Terminal text an agent might legitimately print (e.g. echoing a shell command or JSON blob)
-	// shaped like shell/HTML/ANSI injection; Classify must only classify, never execute or crash.
+	// shaped like shell/HTML/ANSI injection; ClassifyPane must only classify, never execute or crash.
 	payloads := []string{
 		"$(rm -rf ~)\nesc to interrupt",
 		"<script>alert(1)</script>",
@@ -119,10 +119,10 @@ func TestClassify_InjectionShapedOutputNeverPanics(t *testing.T) {
 		func() {
 			defer func() {
 				if r := recover(); r != nil {
-					t.Errorf("Classify panicked on %q: %v", p, r)
+					t.Errorf("ClassifyPane panicked on %q: %v", p, r)
 				}
 			}()
-			Classify("", paneCap(p))
+			ClassifyPane("", paneCap(p))
 		}()
 	}
 }
@@ -130,7 +130,7 @@ func TestClassify_InjectionShapedOutputNeverPanics(t *testing.T) {
 func TestObserve_TypingKeepsWorkingAndAdvancesChangedAt(t *testing.T) {
 	t0 := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	c1 := paneCap("esc to interrupt: typed so f")
-	out := Observe(nil, []PaneCapture{c1}, nil, t0)
+	out := ObservePanes(nil, []PaneCapture{c1}, nil, t0)
 	if len(out) != 1 || out[0].State != StateWorking {
 		t.Fatalf("first sample = %+v, want 1 working status", out)
 	}
@@ -140,7 +140,7 @@ func TestObserve_TypingKeepsWorkingAndAdvancesChangedAt(t *testing.T) {
 
 	t1 := t0.Add(2 * time.Second)
 	c2 := paneCap("esc to interrupt: typed so far")
-	out2 := Observe(out, []PaneCapture{c2}, nil, t1)
+	out2 := ObservePanes(out, []PaneCapture{c2}, nil, t1)
 	if out2[0].State != StateWorking {
 		t.Fatalf("second sample state = %q, want %q", out2[0].State, StateWorking)
 	}
@@ -151,7 +151,7 @@ func TestObserve_TypingKeepsWorkingAndAdvancesChangedAt(t *testing.T) {
 
 func TestObserve_StartupFirstSampleIsUnknown(t *testing.T) {
 	now := time.Now()
-	out := Observe(nil, []PaneCapture{paneCap("some banner with no recognizable prompt")}, nil, now)
+	out := ObservePanes(nil, []PaneCapture{paneCap("some banner with no recognizable prompt")}, nil, now)
 	if len(out) != 1 || out[0].State != StateUnknown {
 		t.Fatalf("startup sample = %+v, want 1 unknown status", out)
 	}
@@ -162,9 +162,9 @@ func TestObserve_StartupFirstSampleIsUnknown(t *testing.T) {
 
 func TestObserve_PaneDisappearanceReportsGone(t *testing.T) {
 	t0 := time.Now()
-	prev := Observe(nil, []PaneCapture{paneCap("$ ")}, nil, t0)
+	prev := ObservePanes(nil, []PaneCapture{paneCap("$ ")}, nil, t0)
 	t1 := t0.Add(time.Second)
-	out := Observe(prev, nil, nil, t1)
+	out := ObservePanes(prev, nil, nil, t1)
 	if len(out) != 1 || out[0].State != StateGone {
 		t.Fatalf("after pane vanished = %+v, want 1 gone status", out)
 	}
@@ -175,9 +175,9 @@ func TestObserve_PaneDisappearanceReportsGone(t *testing.T) {
 
 func TestObserve_SSHFailureDegradesExistingPanesToErrorWithoutDroppingThem(t *testing.T) {
 	t0 := time.Now()
-	prev := Observe(nil, []PaneCapture{paneCap("$ ")}, nil, t0)
+	prev := ObservePanes(nil, []PaneCapture{paneCap("$ ")}, nil, t0)
 	t1 := t0.Add(time.Second)
-	out := Observe(prev, nil, errFakeSSH, t1)
+	out := ObservePanes(prev, nil, errFakeSSH, t1)
 	if len(out) != 1 {
 		t.Fatalf("capture error must preserve previously known panes, got %+v", out)
 	}
@@ -192,13 +192,13 @@ func TestObserve_SSHFailureDegradesExistingPanesToErrorWithoutDroppingThem(t *te
 func TestObserve_ShellAfterAgentExitAcrossSamples(t *testing.T) {
 	t0 := time.Now()
 	running := paneCap("thinking...")
-	prev := Observe(nil, []PaneCapture{running}, nil, t0)
+	prev := ObservePanes(nil, []PaneCapture{running}, nil, t0)
 	if prev[0].State != StateWorking {
 		t.Fatalf("precondition: first sample should be working, got %q", prev[0].State)
 	}
 	t1 := t0.Add(5 * time.Second)
 	exited := PaneCapture{Host: "h", Session: "cc-claude-x", PaneID: "%1", Agent: "claude", CurrentCmd: "bash", Text: "$ "}
-	out := Observe(prev, []PaneCapture{exited}, nil, t1)
+	out := ObservePanes(prev, []PaneCapture{exited}, nil, t1)
 	if out[0].State != StateReady {
 		t.Errorf("state after agent exit = %q, want %q", out[0].State, StateReady)
 	}

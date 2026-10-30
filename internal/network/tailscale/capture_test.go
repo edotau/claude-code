@@ -1,4 +1,4 @@
-package remote
+package tailscale
 
 import (
 	"context"
@@ -9,7 +9,7 @@ import (
 )
 
 // fakeRunner returns out/err for every call, regardless of argv, and records the argv it was called with.
-func fakeRunner(out []byte, err error) (Runner, *[][]string) {
+func fakeRunner(out []byte, err error) (RemoteRunner, *[][]string) {
 	var calls [][]string
 	return func(_ context.Context, argv []string) ([]byte, error) {
 		calls = append(calls, argv)
@@ -149,7 +149,7 @@ func writeStubTmuxListPanesFails(t *testing.T, dir string) {
 }
 
 // TestCapturePanes_RealScriptPropagatesListPanesFailure is the regression test for Appendix A
-// codex-review finding #11 (internal/network/remote/capture.go:29): it exercises the REAL captureCommand
+// codex-review finding #11 (internal/network/tailscale/capture.go:29): it exercises the REAL captureCommand
 // shell script (via ExecRunner, run locally through sh -c since host="localhost") against a stub
 // tmux whose `list-panes` fails, and requires CapturePanes to surface that as an error rather than
 // a successful empty capture — which previously made every tracked pane look "gone".

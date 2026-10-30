@@ -1,4 +1,4 @@
-package dbxcfg
+package databricks
 
 import (
 	"encoding/json"
@@ -40,7 +40,7 @@ func TestImportFollowsSectionOrder(t *testing.T) {
 		t.Fatalf("Candidates = %v, want section order %v", names, want)
 	}
 	top := map[string]json.RawMessage{}
-	if err := Apply(top, Plan(cs, Existing(top), Options{})); err != nil {
+	if err := Apply(top, ImportPlan(cs, Existing(top), ImportOptions{})); err != nil {
 		t.Fatal(err)
 	}
 	if got, want := providers.ObjectKeys(top["providers"]), []string{"prod", "dev", "qa"}; !slices.Equal(got, want) {
@@ -62,7 +62,7 @@ func TestApplyKeepsExistingRowsInPlaceAndAppendsNew(t *testing.T) {
 		"legacy": json.RawMessage(`{"preset":"databricks","host":"https://l.cloud.databricks.com"}`),
 	})
 	top := map[string]json.RawMessage{"providers": ex}
-	if err := Apply(top, Plan(cs, Existing(top), Options{Replace: true})); err != nil {
+	if err := Apply(top, ImportPlan(cs, Existing(top), ImportOptions{Replace: true})); err != nil {
 		t.Fatal(err)
 	}
 	if got, want := providers.ObjectKeys(top["providers"]), []string{"qa", "legacy", "prod", "dev"}; !slices.Equal(got, want) {

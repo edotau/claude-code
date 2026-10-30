@@ -1,4 +1,4 @@
-package remote
+package tailscale
 
 import (
 	"os"
@@ -65,7 +65,7 @@ func TestQuoteSH_NoInjectionViaEcho(t *testing.T) {
 }
 
 func TestValidAgent(t *testing.T) {
-	for _, a := range Agents {
+	for _, a := range RemoteAgents {
 		if !ValidAgent(a) {
 			t.Errorf("ValidAgent(%q) = false, want true", a)
 		}
@@ -115,7 +115,7 @@ func TestAgentLaunchArgs_Interactive(t *testing.T) {
 
 func TestBuildRemoteCommand_RejectsBadName(t *testing.T) {
 	for _, bad := range []string{"a b", "../x", strings.Repeat("x", 65), " "} {
-		if _, _, err := BuildRemoteCommand(Opts{Agent: "claude", Name: bad, Task: "hi"}); err == nil {
+		if _, _, err := BuildRemoteCommand(RemoteOpts{Agent: "claude", Name: bad, Task: "hi"}); err == nil {
 			t.Errorf("BuildRemoteCommand with --name %q: want error, got nil", bad)
 		}
 	}
@@ -123,16 +123,16 @@ func TestBuildRemoteCommand_RejectsBadName(t *testing.T) {
 
 func TestBuildRemoteCommand_RejectsUnknownAgent(t *testing.T) {
 	for _, bad := range []string{"", "bash", "Claude", "claude;rm"} {
-		if _, _, err := BuildRemoteCommand(Opts{Agent: bad, Task: "hi"}); err == nil {
+		if _, _, err := BuildRemoteCommand(RemoteOpts{Agent: bad, Task: "hi"}); err == nil {
 			t.Errorf("BuildRemoteCommand with --agent %q: want error, got nil", bad)
 		}
 	}
 }
 
 func TestBuildRemoteCommand_SyntaxAndShape(t *testing.T) {
-	for _, agent := range Agents {
+	for _, agent := range RemoteAgents {
 		t.Run(agent, func(t *testing.T) {
-			cmd, name, err := BuildRemoteCommand(Opts{
+			cmd, name, err := BuildRemoteCommand(RemoteOpts{
 				Agent: agent,
 				Dir:   `/tmp/a dir with "quotes" and spaces`,
 				Name:  "cc-" + agent + "-test",
@@ -158,7 +158,7 @@ func TestBuildRemoteCommand_SyntaxAndShape(t *testing.T) {
 }
 
 func TestBuildRemoteCommand_DefaultDirAndName(t *testing.T) {
-	cmd, name, err := BuildRemoteCommand(Opts{Agent: "claude", Task: "hi"})
+	cmd, name, err := BuildRemoteCommand(RemoteOpts{Agent: "claude", Task: "hi"})
 	if err != nil {
 		t.Fatalf("BuildRemoteCommand: %v", err)
 	}
@@ -191,7 +191,7 @@ func TestDirFlag(t *testing.T) {
 }
 
 func TestBuildRemoteCommand_TildeDirUsesHOME(t *testing.T) {
-	cmd, _, err := BuildRemoteCommand(Opts{Agent: "codex", Dir: "~/my repo", Task: "hi"})
+	cmd, _, err := BuildRemoteCommand(RemoteOpts{Agent: "codex", Dir: "~/my repo", Task: "hi"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -205,7 +205,7 @@ func TestBuildRemoteCommand_TildeDirUsesHOME(t *testing.T) {
 }
 
 func TestBuildRemoteCommand_KeepsSessionAliveAfterAgentExits(t *testing.T) {
-	cmd, _, err := BuildRemoteCommand(Opts{Agent: "claude", Task: "hi"})
+	cmd, _, err := BuildRemoteCommand(RemoteOpts{Agent: "claude", Task: "hi"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -218,7 +218,7 @@ func TestBuildRemoteCommand_NeverExecutesTask(t *testing.T) {
 	// A task payload that would create a marker file if it were ever interpreted instead of quoted.
 	dir := t.TempDir()
 	marker := dir + "/pwned"
-	cmd, _, err := BuildRemoteCommand(Opts{
+	cmd, _, err := BuildRemoteCommand(RemoteOpts{
 		Agent: "claude",
 		Name:  "cc-claude-safe",
 		Task:  "$(touch " + marker + ")",
@@ -262,11 +262,11 @@ func writeFailingNewSessionTmux(t *testing.T, dir, logPath string) {
 }
 
 // TestBuildRemoteCommand_TaggingSkippedWhenNewSessionFails is the regression test for Appendix A
-// codex-review finding #10 (internal/network/remote/remote.go:137): a duplicate session name makes
+// codex-review finding #10 (internal/network/tailscale/remote.go:137): a duplicate session name makes
 // `tmux new-session` fail, and the generated script must not then tag whatever unrelated session
 // already holds that name with this dispatch's @cc_agent metadata.
 func TestBuildRemoteCommand_TaggingSkippedWhenNewSessionFails(t *testing.T) {
-	cmd, name, err := BuildRemoteCommand(Opts{Agent: "claude", Name: "cc-claude-dup", Task: "hi"})
+	cmd, name, err := BuildRemoteCommand(RemoteOpts{Agent: "claude", Name: "cc-claude-dup", Task: "hi"})
 	if err != nil {
 		t.Fatalf("BuildRemoteCommand: %v", err)
 	}
@@ -356,7 +356,7 @@ func TestParseSessions(t *testing.T) {
 	if len(got) != 2 {
 		t.Fatalf("ParseSessions returned %d sessions, want 2: %+v", len(got), got)
 	}
-	want := []Session{
+	want := []RemoteSession{
 		{Name: "cc-claude-ab12", Created: "1700000000", Attached: true, CurrentCmd: "claude", Agent: "claude"},
 		{Name: "cc-codex-ff00", Created: "1700000100", Attached: false, CurrentCmd: "bash", Agent: "codex"},
 	}
@@ -386,7 +386,7 @@ func TestParseSessions_ShortRowsDoNotPanic(t *testing.T) {
 }
 
 func TestDefaultName_MatchesValidName(t *testing.T) {
-	for _, a := range Agents {
+	for _, a := range RemoteAgents {
 		n := DefaultName(a)
 		if !ValidName(n) {
 			t.Errorf("DefaultName(%q) = %q, fails ValidName", a, n)

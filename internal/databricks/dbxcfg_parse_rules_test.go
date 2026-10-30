@@ -1,4 +1,4 @@
-package dbxcfg
+package databricks
 
 import (
 	"os"

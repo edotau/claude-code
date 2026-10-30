@@ -1,4 +1,4 @@
-package dbxcfg
+package databricks
 
 import (
 	"encoding/json"
@@ -38,7 +38,7 @@ host = http://insecure.example.com
 host = https://bad.example.cloud.databricks.com
 `
 
-func writeCfg(t *testing.T) string {
+func writeFixtureCfg(t *testing.T) string {
 	t.Helper()
 	p := filepath.Join(t.TempDir(), "cfg")
 	if err := os.WriteFile(p, []byte(fixture), 0o600); err != nil {
@@ -48,7 +48,7 @@ func writeCfg(t *testing.T) string {
 }
 
 func TestCandidates(t *testing.T) {
-	cs, err := Candidates(writeCfg(t))
+	cs, err := Candidates(writeFixtureCfg(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -81,7 +81,7 @@ func TestCandidates(t *testing.T) {
 }
 
 func TestReadSecrets(t *testing.T) {
-	p := writeCfg(t)
+	p := writeFixtureCfg(t)
 	s, err := ReadSecrets(p, "beta")
 	if err != nil || s.ClientSecret != "shh-beta" {
 		t.Fatalf("%+v %v", s, err)
@@ -92,24 +92,24 @@ func TestReadSecrets(t *testing.T) {
 }
 
 func TestPlan(t *testing.T) {
-	cs, _ := Candidates(writeCfg(t))
+	cs, _ := Candidates(writeFixtureCfg(t))
 	existing := map[string]json.RawMessage{
 		"alpha": json.RawMessage(`{"auth":{"type":"oauth"}}`),
 		"beta":  json.RawMessage(`{"auth":{"type":"pat"}}`),
 	}
-	byID := func(o Options) map[string]Row {
+	byID := func(o ImportOptions) map[string]Row {
 		m := map[string]Row{}
-		for _, r := range Plan(cs, existing, o) {
+		for _, r := range ImportPlan(cs, existing, o) {
 			m[r.Name] = r
 		}
 		return m
 	}
-	m := byID(Options{Rename: map[string]string{"gamma": "gamma2", "bad name": "fixed"}})
+	m := byID(ImportOptions{Rename: map[string]string{"gamma": "gamma2", "bad name": "fixed"}})
 	if m["alpha"].Action != "skip" || m["gamma"].ID != "gamma2" || m["gamma"].Action != "add" ||
 		m["bad name"].Action != "add" || m["delta"].Action != "skip" {
 		t.Errorf("plan: %+v", m)
 	}
-	if m := byID(Options{Replace: true}); m["alpha"].Action != "replace" ||
+	if m := byID(ImportOptions{Replace: true}); m["alpha"].Action != "replace" ||
 		!strings.Contains(m["beta"].Reason, "never changed") || m["bad name"].Action != "skip" {
 		t.Errorf("replace plan: %+v", m)
 	}

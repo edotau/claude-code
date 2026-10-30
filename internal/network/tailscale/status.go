@@ -1,4 +1,4 @@
-package remote
+package tailscale
 
 import (
 	"crypto/sha256"
@@ -22,7 +22,7 @@ const (
 )
 
 // PaneStatus is one observed tmux pane's classified state. fingerprint is carried internally across
-// Observe calls (bounded, never the captured text) and is deliberately not exported/serialized.
+// ObservePanes calls (bounded, never the captured text) and is deliberately not exported/serialized.
 type PaneStatus struct {
 	Host       string    `json:"host"`
 	Session    string    `json:"session"`
@@ -78,9 +78,9 @@ func lastNonEmptyLine(s string) string {
 	return ""
 }
 
-// Normalize strips ANSI escapes and known animation noise so two samples of unchanged substantive
+// NormalizePane strips ANSI escapes and known animation noise so two samples of unchanged substantive
 // content fingerprint identically even if a spinner or elapsed-time counter ticked between them.
-func Normalize(raw string) string {
+func NormalizePane(raw string) string {
 	s := ansiRE().ReplaceAllString(raw, "")
 	s = spinnerRE().ReplaceAllString(s, "·")
 	lines := strings.Split(s, "\n")
@@ -90,17 +90,17 @@ func Normalize(raw string) string {
 	return strings.Join(lines, "\n")
 }
 
-// Fingerprint returns a bounded (16 hex char) hash of normalized pane text — never the text itself.
-func Fingerprint(normalized string) string {
+// FingerprintPane returns a bounded (16 hex char) hash of normalized pane text — never the text itself.
+func FingerprintPane(normalized string) string {
 	sum := sha256.Sum256([]byte(normalized))
 	return hex.EncodeToString(sum[:])[:16]
 }
 
-// Classify maps one pane capture against its previous fingerprint to a state, a human-readable
-// reason, and the capture's own bounded fingerprint (fed back into the next Observe call).
-func Classify(prevFingerprint string, c PaneCapture) (state, reason, fingerprint string) {
-	norm := Normalize(c.Text)
-	fingerprint = Fingerprint(norm)
+// ClassifyPane maps one pane capture against its previous fingerprint to a state, a human-readable
+// reason, and the capture's own bounded fingerprint (fed back into the next ObservePanes call).
+func ClassifyPane(prevFingerprint string, c PaneCapture) (state, reason, fingerprint string) {
+	norm := NormalizePane(c.Text)
+	fingerprint = FingerprintPane(norm)
 	switch {
 	case isShellAfterExit(c):
 		return StateReady, "agent exited; login shell idle at prompt", fingerprint
@@ -122,7 +122,7 @@ func Classify(prevFingerprint string, c PaneCapture) (state, reason, fingerprint
 // observeOne classifies one fresh capture against its previous status (zero value if new), carrying
 // ChangedAt forward only while the classified state stays the same across samples.
 func observeOne(old PaneStatus, c PaneCapture, now time.Time) PaneStatus {
-	state, reason, fp := Classify(old.fingerprint, c)
+	state, reason, fp := ClassifyPane(old.fingerprint, c)
 	changedAt := now
 	if old.PaneID == c.PaneID && old.State == state && !old.ChangedAt.IsZero() {
 		changedAt = old.ChangedAt
@@ -157,12 +157,12 @@ func degradeToError(prev []PaneStatus, err error, now time.Time) []PaneStatus {
 	return out
 }
 
-// Observe advances prev (one host's last-known pane statuses) using a fresh capture pass: new panes
+// ObservePanes advances prev (one host's last-known pane statuses) using a fresh capture pass: new panes
 // are classified against their matching previous entry (by PaneID), vanished panes report gone, and
 // a host-wide capture failure (captureErr != nil) degrades every previously known pane to error
 // instead of dropping it. now and the capture/error inputs are both caller-supplied, so tests can
 // fake tmux/ssh and the clock without exercising a real pane.
-func Observe(prev []PaneStatus, captures []PaneCapture, captureErr error, now time.Time) []PaneStatus {
+func ObservePanes(prev []PaneStatus, captures []PaneCapture, captureErr error, now time.Time) []PaneStatus {
 	if captureErr != nil {
 		return degradeToError(prev, captureErr, now)
 	}

@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/edotau/claude-code/internal/databricks/dbxcfg"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
@@ -38,13 +37,13 @@ func export(args []string) int {
 	if err != nil {
 		return fail("export: %v", err)
 	}
-	rows, skipped := dbxcfg.ExportRows(reg)
+	rows, skipped := ExportRows(reg)
 	if *pick && len(rows) > 0 {
 		if rows, err = pickExport(rows); err != nil {
 			return fail("export: %v", err)
 		}
 	}
-	rows, more := dbxcfg.Rename(rows, rename)
+	rows, more := Rename(rows, rename)
 	for _, s := range append(skipped, more...) {
 		fmt.Fprintln(os.Stderr, "skip "+s)
 	}
@@ -55,14 +54,14 @@ func export(args []string) int {
 		return code
 	}
 	for _, r := range rows {
-		fmt.Fprintln(os.Stderr, "use: "+dbxcfg.Hint(r))
+		fmt.Fprintln(os.Stderr, "use: "+Hint(r))
 	}
 	return 0
 }
 
-func writeExport(rows []dbxcfg.ExportRow, out string, merge, force bool) int {
+func writeExport(rows []ExportRow, out string, merge, force bool) int {
 	if !merge {
-		text := dbxcfg.Render(rows)
+		text := RenderExport(rows)
 		if out == "" {
 			_, _ = io.WriteString(os.Stdout, text)
 			return 0
@@ -74,13 +73,13 @@ func writeExport(rows []dbxcfg.ExportRow, out string, merge, force bool) int {
 		return 0
 	}
 	if out == "" {
-		out = dbxcfg.DefaultPath()
+		out = DefaultPath()
 	}
 	old, err := os.ReadFile(out)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return fail("export: %v", err)
 	}
-	text, notes := dbxcfg.Merge(string(old), rows, force)
+	text, notes := Merge(string(old), rows, force)
 	for _, n := range notes {
 		fmt.Fprintln(os.Stderr, n)
 	}
@@ -95,7 +94,7 @@ func writeExport(rows []dbxcfg.ExportRow, out string, merge, force bool) int {
 	return 0
 }
 
-func pickExport(rows []dbxcfg.ExportRow) ([]dbxcfg.ExportRow, error) {
+func pickExport(rows []ExportRow) ([]ExportRow, error) {
 	labels := make([][2]string, len(rows))
 	for i, r := range rows {
 		labels[i] = [2]string{r.ID, r.Auth + " " + r.Host}
@@ -104,7 +103,7 @@ func pickExport(rows []dbxcfg.ExportRow) ([]dbxcfg.ExportRow, error) {
 	if err != nil {
 		return nil, err
 	}
-	var out []dbxcfg.ExportRow
+	var out []ExportRow
 	for i, r := range rows {
 		if on[i] {
 			out = append(out, r)

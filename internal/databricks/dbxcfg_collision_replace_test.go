@@ -1,4 +1,4 @@
-package dbxcfg
+package databricks
 
 import (
 	"encoding/json"
@@ -13,7 +13,7 @@ func patCand(name string) Candidate {
 }
 
 func TestPlanSkipsCollidingSecretNames(t *testing.T) {
-	rows := Plan([]Candidate{patCand("a-b"), patCand("a_b")}, nil, Options{})
+	rows := ImportPlan([]Candidate{patCand("a-b"), patCand("a_b")}, nil, ImportOptions{})
 	if rows[0].Action != "add" {
 		t.Errorf("first = %+v", rows[0])
 	}
@@ -26,7 +26,7 @@ func TestPlanReplaceOfNoAuthTypeRowSkipsOnlyThatRow(t *testing.T) {
 	existing := map[string]json.RawMessage{
 		"keep": json.RawMessage(`{"preset":"databricks","host":"https://example.cloud.databricks.com","auth":{"type":"key"}}`),
 	}
-	rows := Plan([]Candidate{patCand("keep"), patCand("fresh")}, existing, Options{Replace: true})
+	rows := ImportPlan([]Candidate{patCand("keep"), patCand("fresh")}, existing, ImportOptions{Replace: true})
 	if rows[0].Action != "skip" || !strings.Contains(rows[0].Reason, "databricks login --profile keep --auth-type oauth") {
 		t.Errorf("existing = %+v", rows[0])
 	}
