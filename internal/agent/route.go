@@ -24,6 +24,7 @@ type Leg struct {
 	Account, Billing        string
 	note                    string
 	repick                  func(failed string) string // byok: skip the failed model, return the next pool model or ""
+	servedRepick            func(failed string) string // codex on Databricks: mark the endpoint gone, return the next
 	keepCaller, unroutedLeg bool                       // keepCaller: the wanted leg keeps the caller's own --model
 	otherRoute              bool                       // not the wanted agent's own login or pinned profile
 }
@@ -130,6 +131,7 @@ func routeChain(ctx context.Context, want, tier, row, exact, callerModel, mode s
 			continue
 		}
 		leg = rc.byokCandidate(leg, cand, tier)
+		leg.servedRepick = rc.servedRepickFor(cand)
 		leg.otherRoute = cand.Agent != want || (want != "claude" && cand.Profile != pins[want].Profile)
 		c.Legs = append(c.Legs, leg)
 	}
@@ -189,6 +191,9 @@ func (rc routeCtx) profileCell(cand router.Candidate, cell router.Cell) (router.
 		wire := p.WireModel(rc.exact)
 		if !providers.ServesResponses(p, wire) {
 			return cell, who + ": serves no " + rc.exact + " over Responses"
+		}
+		if ready, fresh := router.ServedReady(p, wire, time.Now()); fresh && !ready {
+			return cell, who + ": " + rc.exact + " is not a READY endpoint on " + cand.Profile
 		}
 		cell.Model = wire
 		return cell, ""

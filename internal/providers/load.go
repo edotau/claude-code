@@ -225,6 +225,9 @@ func applyRoutingOverlay(base, o *Routing) {
 	if o.Subagents != nil {
 		base.Subagents = o.Subagents
 	}
+	if o.ServedAware != nil {
+		base.ServedAware = o.ServedAware
+	}
 	if o.Opencode.Ladder != nil {
 		base.Opencode.Ladder = o.Opencode.Ladder
 	}

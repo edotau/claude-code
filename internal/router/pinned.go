@@ -43,7 +43,10 @@ func (t *Table) gateProfile(
 		res.Skipped = append(res.Skipped, Skip{runner, GateAvailable, "pinned profile " + pin + " cannot serve " + runner + " (no route or credential)"})
 		return nil, false
 	}
-	c := Cell{Model: pinnedModel(runner, tier, cell, p, model), Effort: cmp.Or(effort, cell.Effort), Account: ProviderAccount(pin), Price: cell.Price}
+	c := Cell{Model: pinnedModel(runner, tier, cell, p, model, now), Effort: cmp.Or(effort, cell.Effort), Account: ProviderAccount(pin), Price: cell.Price}
+	if sp := vendors.SpellPin(p, model); model != "" && model != BYOKModel && sp != "" && c.Model != sp {
+		res.Skipped = append(res.Skipped, Skip{runner, GateAvailable, "pinned model " + sp + " is not READY on " + pin + "; using " + c.Model})
+	}
 	if err := configured(runner, c); err != nil {
 		res.Skipped = append(res.Skipped, Skip{runner, GateAvailable, "not configured: " + firstLine(err.Error())})
 		return nil, false
@@ -63,12 +66,25 @@ func (t *Table) gateProfile(
 	return []Candidate{cand}, true
 }
 
-// pinnedModel: model pin if p serves it, else the own-account cell, else (codex) a Responses model, else the slot.
-func pinnedModel(runner, tier string, cell Cell, p *providers.Provider, modelPin string) string {
+// pinnedModel resolves the pin's model, then swaps one a fresh served listing marks not READY for the first READY one.
+func pinnedModel(runner, tier string, cell Cell, p *providers.Provider, modelPin string, now time.Time) string {
 	if modelPin == BYOKModel {
 		model, _ := PinnedModel(runner, tier, cell, p, modelPin)
 		return model
 	}
+	m := selectPinnedModel(runner, tier, cell, p, modelPin)
+	if p != nil && p.Preset == providers.PresetDatabricks {
+		if ready, fresh := ServedReady(p, m, now); fresh && !ready {
+			if alt, _ := ServedFirst(p, runner == "codex", now); alt != "" {
+				return alt
+			}
+		}
+	}
+	return m
+}
+
+// selectPinnedModel: model pin if p serves it, else own-account cell, else (codex) a Responses model, else the slot.
+func selectPinnedModel(runner, tier string, cell Cell, p *providers.Provider, modelPin string) string {
 	if p == nil {
 		return cell.Model
 	}

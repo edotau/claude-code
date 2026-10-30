@@ -11,7 +11,7 @@ import (
 )
 
 // DatabricksResponses: the session/pinned profile is a signed-in Databricks row with a Responses route + catalog model.
-func DatabricksResponses(reg *providers.Registry) (profile, model string, ok bool) {
+func DatabricksResponses(reg *providers.Registry, now time.Time) (profile, model string, ok bool) {
 	if reg == nil {
 		return "", "", false
 	}
@@ -19,6 +19,12 @@ func DatabricksResponses(reg *providers.Registry) (profile, model string, ok boo
 	p := reg.Providers[profile]
 	if p == nil || p.Preset != providers.PresetDatabricks || !vendors.CanServe("codex", p) || !providers.CredentialPresent(p) {
 		return "", "", false
+	}
+	if first, fresh := ServedFirst(p, true, now); fresh { // a fresh listing proves what the workspace serves
+		if first == "" {
+			return "", "", false
+		}
+		return profile, first, true
 	}
 	if model = providers.FirstResponsesModel(p); model != "" {
 		return profile, model, true
@@ -34,8 +40,8 @@ type pickGate struct {
 
 // codexHop is the model and effort codex's Databricks hops run for tier: codex's own pick respelled for the
 // profile when it serves Responses, else the profile's first Responses model.
-func (t *Table) codexHop(reg *providers.Registry, tier string) (profile, model, effort string, ok bool) {
-	profile, first, ok := DatabricksResponses(reg)
+func (t *Table) codexHop(reg *providers.Registry, tier string, now time.Time) (profile, model, effort string, ok bool) {
+	profile, first, ok := DatabricksResponses(reg, now)
 	if !ok {
 		return "", "", "", false
 	}
@@ -44,6 +50,9 @@ func (t *Table) codexHop(reg *providers.Registry, tier string) (profile, model, 
 	pick, _ := vendors.ResolveAgentModel(vendors.ModelAsk{Agent: "codex", Target: providers.Target{Provider: p, Model: cell.Model}})
 	cell.Model = pick.Model
 	if wire := p.WireModel(cell.Model); cell.Model != "" && providers.ServesResponses(p, wire) {
+		if ready, fresh := ServedReady(p, wire, now); fresh && !ready {
+			return profile, first, cell.Effort, true
+		}
 		return profile, wire, cell.Effort, true
 	}
 	return profile, first, cell.Effort, true
@@ -55,7 +64,7 @@ func (t *Table) gateDatabricksCodex(
 	pg *pickGate, tier string, st State, now time.Time, configured func(runner string, c Cell) error, res *Result,
 ) (Candidate, bool) {
 	reg := pg.reg
-	profile, model, effort, ok := t.codexHop(reg, tier)
+	profile, model, effort, ok := t.codexHop(reg, tier, now)
 	if !ok {
 		return Candidate{}, false
 	}
@@ -110,7 +119,7 @@ func (t *Table) gateCandidate(
 			group = append(group, d)
 		}
 		if res.Want == "codex" {
-			if _, model, effort, ok := t.codexHop(pg.reg, tier); ok {
+			if _, model, effort, ok := t.codexHop(pg.reg, tier, now); ok {
 				hop := t.gateSessionCopilot(ctx, pg, tier, model, effort, pins["copilot"], nil, st, o, now, configured, res)
 				for _, c := range hop {
 					pg.held[c.Account] = true

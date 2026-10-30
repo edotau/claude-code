@@ -29,8 +29,10 @@ type Routing struct {
 	// Cells overrides internal/routetable's table cells, keyed runner → tier (was top-level route).
 	Cells map[string]map[string]RouteCell `json:"cells,omitempty"`
 	// Subagents toggles the agent-effort pressure hook's coworker offload; nil = on.
-	Subagents *bool           `json:"subagents,omitempty"`
-	Opencode  OpencodeRouting `json:"opencode,omitzero"`
+	Subagents *bool `json:"subagents,omitempty"`
+	// ServedAware lets the router pick Databricks models the workspace lists READY; nil = off (static menu).
+	ServedAware *bool           `json:"servedAware,omitempty"`
+	Opencode    OpencodeRouting `json:"opencode,omitzero"`
 }
 
 // OpencodeRouting is opencode's own sub-pick knobs: the paid-backend ladder order, the work-repo markers
@@ -88,6 +90,17 @@ func (o OpencodeRouting) FirstOutput() time.Duration {
 // SubagentsOn reports whether subagent offload routing is on: nil (unset) defaults to on.
 func (r Routing) SubagentsOn() bool {
 	return r.Subagents == nil || *r.Subagents
+}
+
+// ServedAwareOn reports whether served-model-aware routing is on: nil (unset) defaults to off.
+func (r Routing) ServedAwareOn() bool {
+	return r.ServedAware != nil && *r.ServedAware
+}
+
+// ServedRoutingOn reads the overlay's servedAware switch (defaults.json never sets it); a read failure reads as off.
+func ServedRoutingOn() bool {
+	ov, err := RoutingOverlay()
+	return err == nil && ov.ServedAwareOn()
 }
 
 // DefaultRouting is defaults.json's own routing object, with no overlay applied — lane B labels a resolved
