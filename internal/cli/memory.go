@@ -3,6 +3,7 @@ package cli
 import (
 	"cmp"
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -301,10 +302,16 @@ func cmdMemoryShow(args []string) int {
 
 func cmdMemoryIndex(args []string) int {
 	fs, repo := memoryRepoFlagSet("index")
+	reembed := fs.Bool("reembed", false, "re-embed all entries; last 8 min of the lease or expired")
 	if code, done := helptext.Parse(fs, args); done {
 		return code
 	}
 	root := memoryRoot(*repo)
+	if *reembed {
+		if code := reembedGate(time.Now()); code != 0 {
+			return code
+		}
+	}
 	s, err := memory.SettleBank(root, time.Now())
 	if err != nil {
 		return fail("memory index: %v", err)
@@ -320,23 +327,43 @@ func cmdMemoryIndex(args []string) int {
 		fmt.Printf(" (archived %d block(s))", s.Archived)
 	}
 	fmt.Println()
-	embedIndex(root)
+	embedIndex(root, *reembed)
+	return 0
+}
+
+// reembedGate refuses --reembed (exit 1) before the override window opens; 0 when it is open.
+func reembedGate(now time.Time) int {
+	profile := cmp.Or(providers.SessionProfile(), providers.Pin(providers.PinProfile))
+	if profile == "" {
+		return 0
+	}
+	at, open, err := memory.ReembedWindow(profile, now)
+	if err != nil {
+		return fail("memory index --reembed: %v", err)
+	}
+	if !open {
+		return fail("memory index --reembed: embeddings are valid; the override opens at %s", at.Format("15:04"))
+	}
 	return 0
 }
 
 // embedIndex refreshes the entry-vector cache after an index; a missing endpoint or credential is a stderr note only.
-func embedIndex(root string) {
+func embedIndex(root string, reembed bool) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 	profile := cmp.Or(providers.SessionProfile(), providers.Pin(providers.PinProfile)) // session first, then the pin
 	c, err := memory.OpenEmbedClient(ctx, profile, "")
 	if err == nil {
 		var n, total int
-		if n, total, err = memory.EmbedEntries(ctx, root, c); err == nil && n > 0 {
+		embed := memory.EmbedEntries
+		if reembed {
+			embed = memory.ReembedEntries
+		}
+		if n, total, err = embed(ctx, root, c); err == nil && n > 0 {
 			fmt.Printf("embedded %d of %d entries (%s)\n", n, total, c.Model)
 		}
 	}
-	if err != nil {
+	if err != nil && !errors.Is(err, memory.ErrEmbedValid) { // a valid cache is the normal case, not a skip
 		fmt.Fprintf(os.Stderr, "memory index: embeddings skipped: %v\n", err)
 	}
 }

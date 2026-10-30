@@ -74,6 +74,7 @@ func TestFxMixedDimensionsAreDeterministicAndReindexed(t *testing.T) {
 	r := cache.Rows["aaaa0002"]
 	r.Vec = encodeVec([]float32{1, 0, 0, 0, 0})
 	cache.Rows["aaaa0002"] = r
+	cache.MintedAt = 0 // lease over
 	if err := saveEmbedCache("fake", cache); err != nil {
 		t.Fatal(err)
 	}
