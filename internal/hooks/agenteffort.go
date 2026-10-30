@@ -77,6 +77,9 @@ func agentEffortResult(in *Input) Result {
 	if applyLabel(updated, task) {
 		changed = true
 	}
+	if hint := byokHint(in.nested("tool_input", "subagent_type"), task); hint != "" {
+		note = strings.TrimSpace(note + "\n" + hint)
+	}
 	if note != "" {
 		changed = true
 	}

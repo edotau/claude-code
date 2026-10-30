@@ -22,8 +22,10 @@ type Leg struct {
 	Agent                   Runner
 	Model, Effort           string
 	Account, Billing        string
-	keepCaller, unroutedLeg bool // keepCaller: the wanted leg keeps the caller's own --model
-	otherRoute              bool // otherRoute: not the wanted agent's requested route (own login, or its pinned profile)
+	note                    string
+	repick                  func(failed string) string // byok: skip the failed model, return the next pool model or ""
+	keepCaller, unroutedLeg bool                       // keepCaller: the wanted leg keeps the caller's own --model
+	otherRoute              bool                       // not the wanted agent's own login or pinned profile
 }
 
 // Chain is a routed dispatch: Want is the agent asked for, Legs run in order, Skipped are gate drops.
@@ -48,6 +50,9 @@ var (
 // modelRow resolves a --model (or tier) value to the route-table row it names: the tier the pick runs at and the
 // canonical Claude id of the row. exact is the canonical id of a non-Claude model, which only agents serving it may run.
 func modelRow(model string) (tier, row, exact string) {
+	if model == router.BYOKModel {
+		return "", "", ""
+	}
 	canonical, _, ok := models.Resolve(model)
 	switch {
 	case !ok:
@@ -124,6 +129,7 @@ func routeChain(ctx context.Context, want, tier, row, exact, callerModel, mode s
 			c.Skipped = append(c.Skipped, skip)
 			continue
 		}
+		leg = rc.byokCandidate(leg, cand, tier)
 		leg.otherRoute = cand.Agent != want || (want != "claude" && cand.Profile != pins[want].Profile)
 		c.Legs = append(c.Legs, leg)
 	}
@@ -140,14 +146,15 @@ type routeCtx struct {
 	explicitModel, native         bool
 }
 
-// candidateCell is the cell cand runs, adjusted for the pick's row or exact model; skip is non-empty when cand serves none.
+// candidateCell adjusts cand's cell for the row or exact model; skip is non-empty when cand serves none.
 func (rc routeCtx) candidateCell(cand router.Candidate) (cell router.Cell, skip string) {
 	cell = cand.Cell
 	pinned := cand.Profile != "" && rc.pins[cand.Agent].Profile == cand.Profile
 	switch {
-	case cand.Agent == "claude" && rc.legID != "": // Claude's tier for a non-Claude leg: the lowest tier whose cell serves it
+	case cand.Agent == "claude" && rc.legID != "": // lowest Claude tier serving the non-Claude leg
 		rc.claudeTierCell(&cell)
-	case pinned && cand.Agent == rc.want && rc.explicitModel && rc.row == "" && cmp.Or(rc.exact, rc.callerModel) != "":
+	case pinned && cand.Agent == rc.want && rc.explicitModel && rc.callerModel != router.BYOKModel &&
+		rc.row == "" && cmp.Or(rc.exact, rc.callerModel) != "":
 		cell.Model = cmp.Or(rc.exact, rc.callerModel) // the caller's model, respelled for the pinned profile
 		if rc.reg != nil && rc.reg.Providers[cand.Profile] != nil {
 			cell.Model = rc.reg.Providers[cand.Profile].WireModel(cell.Model)
@@ -206,7 +213,7 @@ func (rc routeCtx) claudeTierCell(cell *router.Cell) {
 // buildLeg turns cand's cell into a leg; skip is non-empty when the leg cannot run, err when its agent is unknown.
 func (rc routeCtx) buildLeg(cand router.Candidate, cell router.Cell) (leg Leg, skip string, err error) {
 	leg = Leg{Model: cell.Model, Effort: cell.Effort, Account: cand.Account, Billing: cand.Billing}
-	leg.keepCaller = cand.Agent == rc.want && rc.explicitModel && cand.Profile == ""
+	leg.keepCaller = cand.Agent == rc.want && rc.explicitModel && cand.Profile == "" && rc.callerModel != router.BYOKModel
 	if leg.keepCaller && rc.exact != "" {
 		leg.Model = rc.exact // an exact non-Claude id runs as asked; an alias runs the cell's model
 	}
@@ -399,6 +406,10 @@ func ExplicitChain(r Runner, req Request) Chain {
 	c := Single(r)
 	acct, billing := explicitAccount(r, req)
 	c.Legs[0].Account, c.Legs[0].Billing = acct, billing
+	if req.Model == router.BYOKModel {
+		reg, _ := providers.Load()
+		c.Legs[0] = byokLeg(c.Legs[0], router.Tiers[1], reg, req.Provider, false)
+	}
 	if acct == "" || acct == copilotLoginAccount() { // copilot's own gate falls back to Databricks instead
 		return c
 	}
@@ -409,7 +420,7 @@ func ExplicitChain(r Runner, req Request) Chain {
 	return c
 }
 
-// WithTier makes c's lone explicit leg run the router's tier slot when the caller named no model, as a routed pick does.
+// WithTier runs c's lone explicit leg on the router's tier slot when the caller named no model.
 func WithTier(c Chain, tier string) Chain {
 	if len(c.Legs) != 1 || tier == "" {
 		return c
@@ -486,6 +497,7 @@ func hubLegFor(reg *providers.Registry, cell string) (Runner, string, error) {
 // legRequest is req for leg: the wanted leg keeps an explicit caller model; every other leg drops the original
 // provider and session (they belong to the leg that minted them) and runs its cell, the caller's --effort winning.
 func legRequest(req Request, leg Leg, first bool) Request {
+	leg.byokNote()
 	out := req
 	if leg.unroutedLeg {
 		return out

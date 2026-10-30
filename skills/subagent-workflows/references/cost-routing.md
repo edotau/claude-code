@@ -16,8 +16,8 @@ adds real coverage (independent review, broad-context sweep). Stay inline for sm
 
 Docs and implementation edits rotate across agents including `opencode` (model and effort from
 `internal/routetable/table.json`). Architecture, judgement, integration and final verification never leave Claude.
-The classifier is `claude-code gateway router --task "<text>"`; a caller's kind is a hint: route by judgement and say
-so when you disagree.
+Task kind is the manager's judgement, and a caller's kind is a hint: say so when you disagree. `claude-code gateway
+router --task "<text>"` only picks a model tier (low effort → haiku, else sonnet).
 
 Gemini needs `--tools` for any repo or web work — without it agy answers from model memory. Model cell mappings
 follow `internal/routetable/table.json` as the single source.
@@ -134,6 +134,7 @@ in sequence. Dispatches on one provider share its rate limit — reduce concurre
 | standard edits, docs | rotate `claude` · `copilot` · `codex` · `opencode` | `code-worker`, `Agent: <rotated agent>` |
 | review / vet | `codex` | `code-worker`, `Agent: codex` |
 | compare, relay, quota offload | several agents | `coworker` (always requests) |
+| BYOK pool (rare Databricks models) | `copilot` · `opencode` | `coworker`, `--model byok` (router picks; skips capped) |
 | reasoning / integration | `claude` (in-context) | `claude`, or the main thread |
 
 Leaf types, the `Agent:` field and the label rule: [SKILL.md → Leaf types](../SKILL.md#leaf-types).
