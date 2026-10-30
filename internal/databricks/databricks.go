@@ -17,7 +17,6 @@ import (
 	"github.com/edotau/claude-code/internal/helptext"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/removedflags"
 )
 
 const (
@@ -67,7 +66,7 @@ var spawn = func(bin string, argv, env []string, stdin io.Reader, stdout, stderr
 
 // Run is the `claude-code databricks` verb; args follow the verb name and it returns the exit code.
 func Run(args []string) int {
-	if err := removedflags.Hint(args); err != nil {
+	if err := RemovedFlagHint(args); err != nil {
 		fmt.Fprintf(os.Stderr, "claude-code databricks: %v\n", err)
 		return 2
 	}
