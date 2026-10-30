@@ -373,3 +373,17 @@ func TestLiveAgyErrorResultKeepsSession(t *testing.T) {
 		t.Fatalf("turn after an ERROR result = %+v, %v; the session must survive", env2, err)
 	}
 }
+
+// System prompts are emulated on gemini live as the one-shot path does: prepended to the first turn only.
+func TestLiveAgySystemPromptOnFirstTurn(t *testing.T) {
+	id, cancel, wait := startAgy(t, fakeErrAgy, Request{Timeout: time.Minute, AppendSystemPrompt: "SPEAK-FRENCH"})
+	defer func() { cancel(); _ = wait() }()
+	e1, err := SendLive(context.Background(), id, "hello", Discard)
+	if err != nil || !strings.Contains(e1.Answer, "SPEAK-FRENCH") {
+		t.Fatalf("turn 1 = %+v, %v; want the system prompt in the first turn", e1, err)
+	}
+	e2, err := SendLive(context.Background(), id, "hello", Discard)
+	if err != nil || strings.Contains(e2.Answer, "SPEAK-FRENCH") {
+		t.Fatalf("turn 2 = %+v, %v; the system prompt must not repeat", e2, err)
+	}
+}
