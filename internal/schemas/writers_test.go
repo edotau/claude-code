@@ -139,6 +139,7 @@ var writers = map[string]string{
 	"internal/tools/tools.go:installBinary":                        unversioned("foreign: installed binary"),
 	"internal/transcript/summary_cache.go:Save":                    "transcript-summary",
 	"internal/usage/claude.go:writeClaudeUsageCache":               "oauth-usage-cache",
+	"internal/usage/budget.go:writeBudgetCache":                    "gateway-budget-cache",
 	"internal/usageledger/ledger.go:Append":                        "usage-ledger",
 	"internal/vault/vault.go:create":                               "vault",
 	"internal/vendoragent/jobs.go:SpawnArgv":                       unversioned("log: vendor job log, humans only"),

@@ -492,6 +492,7 @@ type liveModel struct {
 	Capabilities string `json:"capabilities,omitempty"`
 	Task         string `json:"task,omitempty"`
 	Ready        string `json:"ready,omitempty"`
+	Gateway      bool   `json:"gateway,omitempty"`
 }
 
 // listLive prints the provider's live model catalog via providers.ListModels (github-copilot's own SDK,
@@ -510,19 +511,28 @@ func listLive(reg *providers.Registry, p *providers.Provider, format string) int
 	if note != "" {
 		fmt.Fprintln(os.Stderr, "claude-code: models:", note)
 	}
+	gw, gwErr := providers.GatewayModels(ctx, p)
+	if gwErr != nil {
+		fmt.Fprintln(os.Stderr, "claude-code: models: ai gateway listing unavailable:", gwErr)
+	}
 	if format == outfmt.JSON {
-		rows := make([]liveModel, len(infos))
-		for i, m := range infos {
-			rows[i] = liveModel{ID: m.ID, Name: m.Name, UseCase: m.UseCase, Capabilities: m.Capabilities,
-				Task: m.Task, Ready: m.Ready}
+		rows := make([]liveModel, 0, len(infos)+len(gw))
+		for _, m := range append(slices.Clone(infos), gw...) {
+			rows = append(rows, liveModel{ID: m.ID, Name: m.Name, UseCase: m.UseCase, Capabilities: m.Capabilities,
+				Task: m.Task, Ready: m.Ready, Gateway: m.Gateway})
 		}
 		_ = outfmt.Write(os.Stdout, rows)
 		return 0
 	}
 	if len(infos) > 0 && infos[0].Task != "" {
 		printEndpointTable(infos)
+		if len(gw) > 0 {
+			fmt.Println("\nAI GATEWAY (anthropic)")
+			printModelTable(gw)
+		}
 		return 0
 	}
+	infos = append(infos, gw...)
 	printModelTable(infos)
 	return 0
 }
