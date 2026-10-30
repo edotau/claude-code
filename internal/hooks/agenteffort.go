@@ -11,9 +11,9 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/edotau/claude-code/internal/frontmatter"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // RuleClassifier is route.Classifier over the prompt rules: low → haiku, medium/high → sonnet.
@@ -206,7 +206,7 @@ func rosterModel(name string) string {
 	if err != nil {
 		return ""
 	}
-	fm, _ := frontmatter.Parse(string(raw))
+	fm, _ := textutil.ParseFrontmatter(string(raw))
 	model, _ := fm["model"].(string)
 	return model
 }
@@ -224,7 +224,7 @@ func agentPinsModel(name string) bool {
 	if err != nil {
 		return false // not a harness agent (built-in like Explore/Plan) — classifier may apply
 	}
-	fm, _ := frontmatter.Parse(string(raw))
+	fm, _ := textutil.ParseFrontmatter(string(raw))
 	model, _ := fm["model"].(string)
 	return model != ""
 }

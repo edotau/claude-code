@@ -1,11 +1,11 @@
-package frontmatter
+package textutil
 
 import "testing"
 
 // A CRLF (or BOM-prefixed) agent.md must not silently parse as all-body — that drops `name:`.
-func TestParseCRLFAndBOM(t *testing.T) {
+func TestParseFrontmatterCRLFAndBOM(t *testing.T) {
 	content := "\ufeff---\r\nname: claude\r\ndescription: builds things\r\n---\r\nBody text.\r\n"
-	fm, body := Parse(content)
+	fm, body := ParseFrontmatter(content)
 	if fm["name"] != "claude" {
 		t.Errorf("name = %v, want claude", fm["name"])
 	}
@@ -18,7 +18,7 @@ func TestParseCRLFAndBOM(t *testing.T) {
 }
 
 // Quoted scalar and list-item values must have their quotes stripped, both kinds.
-func TestParseQuotedValues(t *testing.T) {
+func TestParseFrontmatterQuotedValues(t *testing.T) {
 	content := "---\n" +
 		"name: \"claude\"\n" +
 		"title: 'agent one'\n" +
@@ -26,7 +26,7 @@ func TestParseQuotedValues(t *testing.T) {
 		"  - \"alpha\"\n" +
 		"  - 'beta'\n" +
 		"---\nBody.\n"
-	fm, _ := Parse(content)
+	fm, _ := ParseFrontmatter(content)
 	if fm["name"] != "claude" {
 		t.Errorf("name = %v, want claude (quotes stripped)", fm["name"])
 	}
@@ -40,9 +40,9 @@ func TestParseQuotedValues(t *testing.T) {
 }
 
 // Inline-bracket list values quote their items too.
-func TestParseQuotedInlineList(t *testing.T) {
+func TestParseFrontmatterQuotedInlineList(t *testing.T) {
 	content := "---\nnames: [\"a\", 'b', c]\n---\nBody.\n"
-	fm, _ := Parse(content)
+	fm, _ := ParseFrontmatter(content)
 	names, ok := fm["names"].([]string)
 	if !ok || len(names) != 3 || names[0] != "a" || names[1] != "b" || names[2] != "c" {
 		t.Errorf("names = %v, want [a b c]", fm["names"])
@@ -50,18 +50,18 @@ func TestParseQuotedInlineList(t *testing.T) {
 }
 
 // A duplicate key keeps the LAST value seen, not the first.
-func TestParseDuplicateKeyKeepsLast(t *testing.T) {
+func TestParseFrontmatterDuplicateKeyKeepsLast(t *testing.T) {
 	content := "---\nname: first\nname: second\n---\nBody.\n"
-	fm, _ := Parse(content)
+	fm, _ := ParseFrontmatter(content)
 	if fm["name"] != "second" {
 		t.Errorf("name = %v, want second (last value wins)", fm["name"])
 	}
 }
 
 // An indented continuation line (no list marker) joins onto the current key's string value.
-func TestParseContinuationLineJoinsDescription(t *testing.T) {
+func TestParseFrontmatterContinuationLineJoinsDescription(t *testing.T) {
 	content := "---\ndescription: first line\n  second line\n---\nBody.\n"
-	fm, _ := Parse(content)
+	fm, _ := ParseFrontmatter(content)
 	if fm["description"] != "first line second line" {
 		t.Errorf("description = %q, want %q", fm["description"], "first line second line")
 	}
