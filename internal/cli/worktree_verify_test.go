@@ -1,11 +1,9 @@
 package cli
 
 import (
-	"context"
 	"os"
 	"strings"
 	"testing"
-	"time"
 )
 
 // TestCmdWorktreeMergeNoDetectableGateRefusesWithoutNoVerify covers the default (no --verify, no
@@ -161,26 +159,5 @@ func TestCmdWorktreeMergeVerifyPipelineFailureFailsGate(t *testing.T) {
 	}
 	if _, err := os.Stat(wt); err != nil {
 		t.Fatalf("worktree must survive a failed pipeline verify: %v", err)
-	}
-}
-
-// TestRunVerifyCancelledByContextStopsPromptly covers runVerify's ctx wiring directly: a cancelled
-// context must kill the (otherwise long-running) verify command and return an error promptly, rather
-// than letting it run to completion — the seam cmdWorktreeMerge's SIGINT/SIGTERM handling relies on.
-func TestRunVerifyCancelledByContextStopsPromptly(t *testing.T) {
-	repo := mergeFixtureCLISetup(t)
-	wt := mergeFixtureCLIWorktreePath(t, repo)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel() // already cancelled before runVerify is ever called
-
-	start := time.Now()
-	err := runVerify(ctx, wt, "sleep 30")
-	elapsed := time.Since(start)
-	if err == nil {
-		t.Fatal("runVerify: want an error for an already-cancelled context")
-	}
-	if elapsed > 5*time.Second {
-		t.Fatalf("runVerify took %s to return after cancellation, want it to stop promptly", elapsed)
 	}
 }
