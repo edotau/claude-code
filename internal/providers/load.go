@@ -108,7 +108,7 @@ func decodeRegistry(doc []byte, known map[string]string) (*Registry, error) {
 }
 
 // Parse merges base with an optional overlay document; it always returns a non-nil Registry (even one
-// Validate rejects), so a caller that discards the error (routetable's "a broken registry still routes
+// Validate rejects), so a caller that discards the error (router's "a broken registry still routes
 // on the embedded table" resilience) still has a usable reg to fall back from.
 func Parse(base, overlay []byte) (*Registry, error) {
 	reg, err := decodeRegistry(base, nil)
@@ -208,7 +208,7 @@ func applyOverlay(base, o *Registry) error {
 	return errors.Join(errs...)
 }
 
-// applyRoutingOverlay merges o into base: cells cell by cell (matching how routetable.LoadFrom applies
+// applyRoutingOverlay merges o into base: cells cell by cell (matching how router.LoadFrom applies
 // them), every other field replaced whole when the overlay sets it.
 func applyRoutingOverlay(base, o *Routing) {
 	for runner, tiers := range o.Cells {

@@ -9,7 +9,6 @@ import (
 
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/router/routetable"
 )
 
 //go:embed template/opencode.json template/opencode-tui.json
@@ -62,6 +61,9 @@ func applyOpencodeTableModels(cfgBody []byte) []byte {
 	return buf.Bytes()
 }
 
+// OpencodeTableModels returns the routing table's opencode sonnet/haiku models; router sets it (it imports this package).
+var OpencodeTableModels func() (mainModel, smallModel string, ok bool)
+
 // opencodeOverlayModels is the overlay's model/small_model: github-copilot/ ids on the copilot-only leg (no
 // opencode-go login, so the table's opencode-go cells would be unservable), else the table's opencode cells.
 func opencodeOverlayModels() (mainModel, smallModel string, ok bool) {
@@ -71,19 +73,10 @@ func opencodeOverlayModels() (mainModel, smallModel string, ok bool) {
 			return "github-copilot/" + m, "github-copilot/" + s, true
 		}
 	}
-	t, err := routetable.Load()
-	if err != nil {
+	if OpencodeTableModels == nil {
 		return "", "", false
 	}
-	sonnet, ok := t.Cell("opencode", "sonnet")
-	if !ok || sonnet.Model == "" {
-		return "", "", false
-	}
-	haiku, ok := t.Cell("opencode", "haiku")
-	if !ok || haiku.Model == "" {
-		return "", "", false
-	}
-	return sonnet.Model, haiku.Model, true
+	return OpencodeTableModels()
 }
 
 // WriteOpencodeOverlay writes the tracked opencode.json/tui.json templates to state/harness/opencode

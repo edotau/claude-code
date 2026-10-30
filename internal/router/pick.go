@@ -11,7 +11,6 @@ import (
 	"github.com/edotau/claude-code/internal/agent/vendors"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/router/routetable"
 )
 
 // Fallback modes, matching `ask --fallback`: every runner ending in claude, vendors only, or the wanted runner alone.
@@ -183,7 +182,7 @@ func (t *Table) gateRunner(
 func (t *Table) gateAccount(
 	ctx context.Context, name string, c Cell, billing string, st State, o Opts, now time.Time, res *Result,
 ) (Candidate, bool) {
-	if c.Account == routetable.CopilotUnpinned {
+	if c.Account == CopilotUnpinned {
 		res.Skipped = append(res.Skipped, Skip{name, GateAccount, "no pinned Copilot account (claude-code configure github)"})
 		return Candidate{}, false
 	}
@@ -218,7 +217,7 @@ func (t *Table) opencodeOrder() []string {
 }
 
 // gateOpencodeCandidate runs the opencode sub-pick at tier: zen-free first (skipped at opus or on a work
-// repo, routetable.BillFree), then each ladder id in order, every one gated on its own login (configured,
+// repo, BillFree), then each ladder id in order, every one gated on its own login (configured,
 // which checks the cell's model prefix) and quota. The first to clear every gate wins; a low account sorts
 // after the non-low ones while otherwise keeping this order. ok is false when every sub-candidate was skipped.
 // When the winner bills free, the first surviving paid sub-candidate rides along right after it, so a stalled
@@ -253,11 +252,11 @@ func (t *Table) gateOpencodeCandidate(
 			continue // e.g. zen-free carries no "opus" row — that is how it stays out of opus, not a tier check
 		}
 		billing := t.Billing[c.Account]
-		if billing == routetable.BillFree && workRepo() {
+		if billing == BillFree && workRepo() {
 			res.Skipped = append(res.Skipped, Skip{name, GateFree, "free blocked on a work repo"})
 			continue
 		}
-		if billing == routetable.BillFree && !t.OpencodeRouting.FreeTierOK(tier) {
+		if billing == BillFree && !t.OpencodeRouting.FreeTierOK(tier) {
 			res.Skipped = append(res.Skipped, Skip{name, GateFree, "free not enabled at " + tier})
 			continue
 		}
@@ -281,9 +280,9 @@ func (t *Table) gateOpencodeCandidate(
 		return []Candidate{{Agent: "opencode", Cell: w.c, State: w.state, Billing: w.billing}}, true
 	}
 	group := []Candidate{{Agent: "opencode", Cell: w.c, State: w.state, Billing: w.billing}}
-	if w.billing == routetable.BillFree {
+	if w.billing == BillFree {
 		for _, s := range ok[1:] {
-			if s.billing != routetable.BillFree {
+			if s.billing != BillFree {
 				group = append(group, Candidate{Agent: "opencode", Cell: s.c, State: s.state, Billing: s.billing})
 				break
 			}
@@ -382,7 +381,7 @@ func headroom(e Entry) float64 {
 }
 
 // blended weights input 3:1 over output, the usual agentic read/write mix.
-func blended(p routetable.Price) float64 { return (3*p.In + p.Out) / 4 }
+func blended(p Price) float64 { return (3*p.In + p.Out) / 4 }
 
 // authSkipReason is the mark's own reason, else the login hint for the account's provider.
 func authSkipReason(reason, account string) string {

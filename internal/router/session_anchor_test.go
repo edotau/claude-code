@@ -35,7 +35,7 @@ func TestSessionProfileAgents(t *testing.T) {
 	}
 	vaulttest.Secret(t, providers.AuthSecretName(p), "profile-auth")
 	vaulttest.Put(t, vault.Pins, providers.PinCopilotProfile, githubProfile)
-	tb, err := load(reg, githubProfile)
+	tb, err := LoadFrom(reg, githubProfile)
 	if err != nil {
 		t.Fatal(err)
 	}

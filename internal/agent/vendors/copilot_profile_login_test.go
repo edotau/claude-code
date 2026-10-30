@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/router/routetable"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -46,17 +45,14 @@ func ghArgsOnPin(t *testing.T, pin string) string {
 }
 
 func TestCopilotProfilePinPassesLoginToGh(t *testing.T) {
-	for _, tc := range []struct{ name, pin, want, account string }{
-		{"profile pin passes its login", "personal", "auth token -u edotau", "personal"},
-		{"unset pin passes no user", "", "auth token", ""},
-		{"profile with no login passes no user", "bare", "auth token", "bare"},
+	for _, tc := range []struct{ name, pin, want string }{
+		{"profile pin passes its login", "personal", "auth token -u edotau"},
+		{"unset pin passes no user", "", "auth token"},
+		{"profile with no login passes no user", "bare", "auth token"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := ghArgsOnPin(t, tc.pin); got != tc.want {
 				t.Errorf("gh argv = %q, want %q", got, tc.want)
-			}
-			if got := routetable.CopilotUser(); got != tc.account {
-				t.Errorf("routing account = %q, want %q", got, tc.account)
 			}
 		})
 	}

@@ -189,7 +189,7 @@ type RouteCell struct {
 	Account string `json:"account_key,omitempty"`
 }
 
-// RouteRunners are the routing table's columns, in roster order; internal/router/routetable embeds the same list.
+// RouteRunners are the routing table's columns, in roster order; internal/router embeds the same list.
 var RouteRunners = []string{"claude", "copilot", "codex", "opencode", "gemini"}
 
 // RouteTiers are the routed tiers, strongest first; fable stays Claude Code's own slot.
@@ -203,10 +203,10 @@ var RouteWeightNames = []string{"price", "headroom"}
 var RouteBillingKeys = []string{"anthropic·max", "openai·chatgpt", "google·antigravity", "github·copilot",
 	"opencode·go", "opencode·github-copilot", "opencode·openai", "opencode·nvidia", "opencode·zen-free"}
 
-// RouteOpencodeModelPrefixes are the prefixes an opencode override cell may carry (see routetable).
+// RouteOpencodeModelPrefixes are the prefixes an opencode override cell may carry (see internal/router).
 var RouteOpencodeModelPrefixes = []string{"opencode-go", "opencode", "github-copilot", "openai", "nvidia"}
 
-// RouteOpencodeSubIDs are the ids an opencodeLadder entry may name; kept in sync with routetable's opencode_sub keys.
+// RouteOpencodeSubIDs are the ids an opencodeLadder entry may name; kept in sync with router's opencode_sub keys.
 var RouteOpencodeSubIDs = []string{"opencode-go", "github-copilot", "openai", "nvidia"}
 
 // validRouteAccountKey reports whether key is a known static billing key or the "github·" dynamic family.

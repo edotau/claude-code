@@ -14,7 +14,6 @@ import (
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
-	"github.com/edotau/claude-code/internal/router/routetable"
 )
 
 // Leg is one routed step: the agent plus the cell it runs (model, effort) and the account it bills.
@@ -464,7 +463,7 @@ func explicitAccount(r Runner, req Request) (string, string) {
 
 // copilotLoginAccount is the pinned copilot profile's route-state key (github·<profile>), or "" when no user is pinned.
 func copilotLoginAccount() string {
-	if u := routetable.CopilotUser(); u != "" {
+	if u := router.CopilotUser(); u != "" {
 		return "github·" + u
 	}
 	return ""

@@ -1,5 +1,6 @@
-// Package routetable is the embedded Claude-row × runner routing grid (table.json, vault-overridable).
-package routetable
+// Package router picks the runner and model for one task: a runner × tier table (table.json, vault-overridable),
+// each account's remembered quota state (quota.json), and a cost score. It reads state only and never dispatches.
+package router
 
 import (
 	_ "embed"
@@ -8,6 +9,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/edotau/claude-code/internal/agent/vendors"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
 )
@@ -27,6 +29,25 @@ const (
 	BillCredits      = "credits"
 	BillFree         = "free"
 )
+
+func init() { vendors.OpencodeTableModels = opencodeTableModels }
+
+// opencodeTableModels reads the opencode sonnet/haiku cells for the opencode overlay; ok is false on a load error.
+func opencodeTableModels() (string, string, bool) {
+	t, err := Load()
+	if err != nil {
+		return "", "", false
+	}
+	sonnet, ok := t.Cell("opencode", "sonnet")
+	if !ok || sonnet.Model == "" {
+		return "", "", false
+	}
+	haiku, ok := t.Cell("opencode", "haiku")
+	if !ok || haiku.Model == "" {
+		return "", "", false
+	}
+	return sonnet.Model, haiku.Model, true
+}
 
 // Price is USD per 1M tokens.
 type Price struct {
@@ -105,7 +126,7 @@ func Load() (*Table, error) {
 func LoadFrom(reg *providers.Registry, ghUser string) (*Table, error) {
 	var f fileTable
 	if err := json.Unmarshal(tableJSON, &f); err != nil {
-		return nil, fmt.Errorf("routetable: table.json: %w", err)
+		return nil, fmt.Errorf("router: table.json: %w", err)
 	}
 	t := Table{Billing: f.Billing, Weights: f.Weights, ByModel: f.Rows, OpencodeRowOverridden: map[string]bool{}}
 	copilotKey := CopilotUnpinned
@@ -117,7 +138,7 @@ func LoadFrom(reg *providers.Registry, ghUser string) (*Table, error) {
 		return nil, err
 	}
 	if err := providers.ValidateRouteWeights(t.Weights); err != nil {
-		return nil, fmt.Errorf("routetable: %w", err)
+		return nil, fmt.Errorf("router: %w", err)
 	}
 	t.indexRows(copilotKey)
 	t.OpencodeSub = opencodeSubTiers(f.OpencodeSub)
@@ -187,12 +208,12 @@ func (t *Table) applyRouteOverlayCell(runner, key string, o providers.RouteCell)
 	id := rowKey(key)
 	c, ok := t.ByModel[id][runner]
 	if !ok {
-		return "", fmt.Errorf("routetable: overlay names unknown cell %s/%s", runner, key)
+		return "", fmt.Errorf("router: overlay names unknown cell %s/%s", runner, key)
 	}
 	if o.Account == "" && o.Model != "" && runner == "opencode" && prefixOf(o.Model) != prefixOf(c.Model) {
 		acct, err := opencodeOverrideAccount(prefixOf(o.Model))
 		if err != nil {
-			return "", fmt.Errorf("routetable: overlay %s/%s: %w", runner, key, err)
+			return "", fmt.Errorf("router: overlay %s/%s: %w", runner, key, err)
 		}
 		c.Account = acct
 	}
@@ -204,7 +225,7 @@ func (t *Table) applyRouteOverlayCell(runner, key string, o providers.RouteCell)
 	}
 	if o.Account != "" {
 		if _, ok := t.Billing[o.Account]; !ok {
-			return "", fmt.Errorf("routetable: overlay %s/%s: account_key %q names no known billing entry", runner, key, o.Account)
+			return "", fmt.Errorf("router: overlay %s/%s: account_key %q names no known billing entry", runner, key, o.Account)
 		}
 		c.Account = o.Account
 	}

@@ -26,7 +26,7 @@ const firstOutputFloor = 90 * time.Second
 type Routing struct {
 	// Weights replaces internal/route's composite-score weights whole (was top-level routeWeights).
 	Weights map[string]float64 `json:"weights,omitempty"`
-	// Cells overrides internal/router/routetable's table cells, keyed runner → tier (was top-level route).
+	// Cells overrides internal/router's table cells, keyed runner → tier (was top-level route).
 	Cells map[string]map[string]RouteCell `json:"cells,omitempty"`
 	// Subagents toggles the agent-effort pressure hook's coworker offload; nil = on.
 	Subagents *bool `json:"subagents,omitempty"`

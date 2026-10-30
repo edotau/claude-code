@@ -276,7 +276,7 @@ func TestOpencodeSubPickNoLoginSkipsAndChainContinues(t *testing.T) {
 // still serving the free leg at haiku.
 func TestFreeTierOKGateBlocksSonnetAllowsHaiku(t *testing.T) {
 	reg := &providers.Registry{Routing: providers.Routing{Opencode: providers.OpencodeRouting{FreeTiers: &[]string{"haiku"}}}}
-	tb, err := load(reg, "work-user")
+	tb, err := LoadFrom(reg, "work-user")
 	if err != nil {
 		t.Fatal(err)
 	}

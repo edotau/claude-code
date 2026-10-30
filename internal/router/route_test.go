@@ -8,17 +8,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/router/routetable"
 )
-
-// load builds a Table against an explicit registry and Copilot gh user.
-func load(reg *providers.Registry, ghUser string) (*Table, error) {
-	t, err := routetable.LoadFrom(reg, ghUser)
-	if err != nil {
-		return nil, err
-	}
-	return &Table{*t}, nil
-}
 
 func testTable(t *testing.T) *Table {
 	t.Helper()
@@ -26,7 +16,7 @@ func testTable(t *testing.T) *Table {
 	// a bare table.json load carries no registry, so set the defaults.json-shaped opencode free-tier
 	// policy explicitly: zen-free may serve sonnet/haiku, same as production's merged registry.
 	reg := &providers.Registry{Routing: providers.Routing{Opencode: providers.OpencodeRouting{FreeTiers: &[]string{"sonnet", "haiku"}}}}
-	tb, err := load(reg, "work-user")
+	tb, err := LoadFrom(reg, "work-user")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -65,7 +55,7 @@ func TestOverlayCellAndWeights(t *testing.T) {
 		Cells:   map[string]map[string]providers.RouteCell{"opencode": {"sonnet": {Model: "opencode-go/y"}}},
 		Weights: map[string]float64{"price": 0.2, "headroom": 0.8},
 	}}
-	tb, err := load(reg, "u")
+	tb, err := LoadFrom(reg, "u")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -76,7 +66,7 @@ func TestOverlayCellAndWeights(t *testing.T) {
 		t.Errorf("weights = %v", tb.Weights)
 	}
 	bad := &providers.Registry{Routing: providers.Routing{Cells: map[string]map[string]providers.RouteCell{"ghost": {"opus": {Model: "m"}}}}}
-	if _, err := load(bad, "u"); err == nil {
+	if _, err := LoadFrom(bad, "u"); err == nil {
 		t.Error("unknown overlay cell must fail")
 	}
 }
@@ -88,7 +78,7 @@ func TestWeightValidation(t *testing.T) {
 		"extra":   {"price": 0.5, "headroom": 0.5, "latency": 0},
 		"range":   {"price": 1.5, "headroom": -0.5},
 	} {
-		if _, err := load(&providers.Registry{Routing: providers.Routing{Weights: w}}, "u"); err == nil {
+		if _, err := LoadFrom(&providers.Registry{Routing: providers.Routing{Weights: w}}, "u"); err == nil {
 			t.Errorf("%s: weights %v accepted", name, w)
 		}
 	}
@@ -161,7 +151,7 @@ func pick(tb *Table, tier, want string, st State, mode string) Result {
 // pickRepo is pick with the work-repo answer pinned, so the opencode sub-pick's free gate is deterministic.
 func pickRepo(tb *Table, tier string, st State, work bool) Result {
 	if len(tb.OpencodeLadder) == 0 {
-		tb.OpencodeLadder = []string{"opencode-go", "github-copilot", "openai"} // defaults.json order; load(nil) has none
+		tb.OpencodeLadder = []string{"opencode-go", "github-copilot", "openai"} // defaults.json order; LoadFrom(nil) has none
 	}
 	return tb.Pick(context.Background(), tier, "", st, Opts{Fallback: FallbackVendors, Configured: allConfigured,
 		Now: func() time.Time { return now0 }, WorkRepo: func() bool { return work }})
@@ -188,7 +178,7 @@ func TestPickGatesBeatScore(t *testing.T) {
 	if last := r.Candidates[len(r.Candidates)-1]; last.Agent != "claude" || last.Model != "claude-sonnet-5-5" {
 		t.Errorf("claude leg = %+v, want sonnet tier kept", last)
 	}
-	unpinned, _ := load(nil, "")
+	unpinned, _ := LoadFrom(nil, "")
 	r = pick(unpinned, "opus", "copilot", State{}, FallbackVendors)
 	if r.Skipped[0].Gate != GateAccount || strings.Contains(runners(r), "claude") {
 		t.Errorf("unpinned copilot must drop at the account gate, vendors mode has no claude: %+v %s", r.Skipped, runners(r))
@@ -233,8 +223,8 @@ func TestPickTwoDimOrderingAndLowLast(t *testing.T) {
 // the pricier one in the composite total.
 func TestPriceDimCheaperCreditsOutranksAtEqualHeadroom(t *testing.T) {
 	tb := testTable(t)
-	cheap := Candidate{Agent: "codex", Billing: BillCredits, Account: "openai·chatgpt", Price: routetable.Price{In: 1, Out: 1}}
-	pricey := Candidate{Agent: "gemini", Billing: BillCredits, Account: "google·antigravity", Price: routetable.Price{In: 4, Out: 4}}
+	cheap := Candidate{Agent: "codex", Billing: BillCredits, Account: "openai·chatgpt", Price: Price{In: 1, Out: 1}}
+	pricey := Candidate{Agent: "gemini", Billing: BillCredits, Account: "google·antigravity", Price: Price{In: 4, Out: 4}}
 	st := State{} // both accounts unseen: headroom ties at 0.5 for each
 	scored := tb.score([]Candidate{cheap, pricey}, st)
 	a, b := scored[0], scored[1]
@@ -257,7 +247,7 @@ func TestPickOpencodeGithubCopilotOverrideHeadroomUnknown(t *testing.T) {
 	reg := &providers.Registry{
 		Routing: providers.Routing{Cells: map[string]map[string]providers.RouteCell{"opencode": {"sonnet": {Model: "github-copilot/kimi-k3"}}}},
 	}
-	tb, err := load(reg, "work-user")
+	tb, err := LoadFrom(reg, "work-user")
 	if err != nil {
 		t.Fatal(err)
 	}
