@@ -23,7 +23,9 @@ the generated `settings.json`, silently erased by the next `make install`.
 3. **Rule added or moved** — a new `workflow/` or `harness/` rule needs `paths:` or it loads into every prompt
    (`rules/README.md`); grep and fix references to a moved rule's old path.
 4. **`CLAUDE.md` or the agent roster changed** — `claude-code agents sync` (check: `agents sync --check`).
-5. **Record it** — the commit message says what was rebuilt and what was left for later.
+5. **New file writer or on-disk format** — register or classify it in `internal/schemas` (writers map, registry
+   golden); a hook or settings change regenerates its golden files and examples in the same commit.
+6. **Record it** — the commit message says what was rebuilt and what was left for later.
 6. **New or changed component (agent/skill/hook/plugin)** — write the manifest first (exact files, action on each)
    and get approval before writing.
 
