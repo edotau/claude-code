@@ -9,7 +9,7 @@ import (
 // parseMountinfo reads /proc/self/mountinfo text into classified mounts.
 func parseMountinfo(text string) []Mount {
 	var out []Mount
-	for _, line := range strings.Split(text, "\n") {
+	for line := range strings.SplitSeq(text, "\n") {
 		f := strings.Fields(line)
 		sep := indexOf(f, "-")
 		if len(f) < 7 || sep < 6 || len(f) < sep+3 {
@@ -42,7 +42,7 @@ func withRoot(m Mount, root string) Mount {
 // parseDarwinMount reads macOS `mount` output ("src on /point (fstype, opts)") into classified mounts.
 func parseDarwinMount(text string) []Mount {
 	var out []Mount
-	for _, line := range strings.Split(text, "\n") {
+	for line := range strings.SplitSeq(text, "\n") {
 		src, rest, ok := strings.Cut(line, " on ")
 		open := strings.LastIndex(rest, " (")
 		if !ok || open < 0 || !strings.HasSuffix(rest, ")") {

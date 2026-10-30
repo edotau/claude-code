@@ -51,13 +51,11 @@ func TestTryClaimBurst(t *testing.T) {
 	var wins atomic.Int32
 	var wg sync.WaitGroup
 	for i := range 30 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			if ok, _ := TryClaim(Claim{Owner: owner, ID: "leg." + strconv.Itoa(i), Account: "acct-a"}, lim); ok {
 				wins.Add(1)
 			}
-		}()
+		})
 	}
 	wg.Wait()
 	if got := wins.Load(); got != 12 {

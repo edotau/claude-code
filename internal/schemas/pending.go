@@ -25,7 +25,7 @@ func docs(f Format, data []byte) [][]byte {
 		return [][]byte{data}
 	}
 	var out [][]byte
-	for _, l := range bytes.Split(data, []byte("\n")) {
+	for l := range bytes.SplitSeq(data, []byte("\n")) {
 		if l = bytes.TrimSpace(l); len(l) > 0 {
 			out = append(out, l)
 		}

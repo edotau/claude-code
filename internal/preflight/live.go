@@ -31,9 +31,7 @@ func RefreshStale(ctx context.Context, reg *providers.Registry, ps []Pin, now ti
 		if c, ok := LoadServed(prov.Name); ok && !force && c.Fresh(now) {
 			continue
 		}
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			lctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 			defer cancel()
 			if _, err := Refresh(lctx, reg, prov, now); err != nil {
@@ -41,7 +39,7 @@ func RefreshStale(ctx context.Context, reg *providers.Registry, ps []Pin, now ti
 				errs = append(errs, fmt.Errorf("%s: %w", prov.Name, err))
 				mu.Unlock()
 			}
-		}()
+		})
 	}
 	wg.Wait()
 	return errs
@@ -108,11 +106,9 @@ func LivePongs(ctx context.Context, bin string, ps []Pin) []Pong {
 	out := make([]Pong, len(live))
 	var wg sync.WaitGroup
 	for i, p := range live {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			out[i] = pong(ctx, bin, p)
-		}()
+		})
 	}
 	wg.Wait()
 	return out

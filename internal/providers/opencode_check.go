@@ -17,6 +17,7 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/schemas"
 )
@@ -41,9 +42,10 @@ type CheckResult struct {
 
 // CheckOptions tunes ProbeEndpoints; zero values mean http.DefaultClient, 4 workers and a 30s request timeout.
 type CheckOptions struct {
-	Client      *http.Client
-	Concurrency int
-	Timeout     time.Duration
+	Client       *http.Client
+	Concurrency  int
+	Timeout      time.Duration
+	ClientRoutes bool // opt in to client-equivalent serving routes and larger bounded probe token budgets
 }
 
 const checkPrompt = "Reply with OK."
@@ -67,6 +69,19 @@ func ProbeEndpoints(ctx context.Context, p *Provider, targets []CheckTarget, o C
 		respBase = chatBase
 	}
 	o.Client = cmp.Or(o.Client, http.DefaultClient)
+	if o.ClientRoutes {
+		if _, err := servingDiscoveryScope(p, ""); err != nil {
+			return nil, err
+		}
+		for _, t := range targets {
+			if _, _, err := clientProbeRoute(p, t); !t.Missing && err != nil {
+				return nil, err
+			}
+		}
+		client := *o.Client
+		client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+		o.Client = &client
+	}
 	o.Concurrency = max(cmp.Or(o.Concurrency, 4), 1)
 	o.Timeout = cmp.Or(o.Timeout, 30*time.Second)
 	out := make([]CheckResult, len(targets))
@@ -94,7 +109,16 @@ func probeOne(ctx context.Context, p *Provider, o CheckOptions, t CheckTarget, c
 	if t.Responses {
 		url, body = respBase+"/responses", func(tools bool) map[string]any { return responsesBody(t.Wire, tools) }
 	}
-	code, ms, msg, err := probeRequest(ctx, p, o, url, body(true))
+	anthropic := false
+	if o.ClientRoutes {
+		route, dialect, err := clientProbeRoute(p, t)
+		if err != nil {
+			return CheckResult{ID: t.ID, Status: "fail", Error: "client route unavailable"}
+		}
+		url, anthropic = route, dialect == ProtocolAnthropic
+		body = func(tools bool) map[string]any { return clientProbeBody(t.Wire, dialect, tools) }
+	}
+	code, ms, msg, err := probeRequest(ctx, p, o, url, body(true), anthropic)
 	r.HTTP, r.LatencyMS = code, ms
 	switch {
 	case err != nil:
@@ -103,11 +127,49 @@ func probeOne(ctx context.Context, p *Provider, o CheckOptions, t CheckTarget, c
 		r.Status, r.Tools = "ok", "yes"
 	default:
 		r.Status, r.Error = "fail", fmt.Sprintf("HTTP %d: %s", code, msg)
-		if code2, ms2, _, err2 := probeRequest(ctx, p, o, url, body(false)); err2 == nil && code2/100 == 2 {
+		if code2, ms2, _, err2 := probeRequest(ctx, p, o, url, body(false), anthropic); err2 == nil && code2/100 == 2 {
 			r.Status, r.HTTP, r.LatencyMS, r.Tools, r.Error = "ok", code2, ms2, "no", ""
 		}
 	}
 	return r
+}
+
+// clientProbeRoute follows OpenCode's menu partition: explicit Responses, native Claude, then chat.
+func clientProbeRoute(p *Provider, t CheckTarget) (string, string, error) {
+	dialect, suffix := ProtocolOpenAI, "/chat/completions"
+	_, claudeRoute := p.Route(ProtocolAnthropic)
+	switch {
+	case t.Responses:
+		dialect, suffix = ProtocolResponses, "/responses"
+	case claudeRoute && models.FamilyKind(t.ID) == models.FamilyClaude:
+		dialect, suffix = ProtocolAnthropic, "/v1/messages"
+	}
+	base, ok := p.Route(dialect)
+	if !ok {
+		return "", "", errors.New("requested model has no resolved client route")
+	}
+	return base + suffix, dialect, nil
+}
+
+func clientProbeBody(model, dialect string, tools bool) map[string]any {
+	if dialect == ProtocolResponses {
+		b := responsesBody(model, tools)
+		b["max_output_tokens"] = 128
+		return b
+	}
+	b := chatBody(false)
+	b["model"], b["max_tokens"] = model, 256
+	if dialect == ProtocolAnthropic {
+		b["max_tokens"] = 32
+		if tools {
+			b["tools"] = []any{map[string]any{"name": "ping", "description": "Return pong.",
+				"input_schema": map[string]any{"type": "object", "properties": map[string]any{}}}}
+			b["tool_choice"] = map[string]any{"type": "auto"}
+		}
+	} else if tools {
+		b["tools"], b["tool_choice"] = []any{checkChatTool}, "auto"
+	}
+	return b
 }
 
 func chatBody(tools bool) map[string]any {
@@ -127,7 +189,7 @@ func responsesBody(model string, tools bool) map[string]any {
 }
 
 // probeRequest POSTs body and returns status, latency, a truncated server message and any transport error.
-func probeRequest(ctx context.Context, p *Provider, o CheckOptions, url string, body map[string]any) (int, int64, string, error) {
+func probeRequest(ctx context.Context, p *Provider, o CheckOptions, url string, body map[string]any, anthropic bool) (int, int64, string, error) {
 	raw, err := json.Marshal(body)
 	if err != nil {
 		return 0, 0, "", err
@@ -141,6 +203,9 @@ func probeRequest(ctx context.Context, p *Provider, o CheckOptions, url string, 
 	req.Header.Set("Content-Type", "application/json")
 	if err := Authorize(ctx, p, req.Header); err != nil {
 		return 0, 0, "", errors.New("credential: " + err.Error())
+	}
+	if anthropic {
+		req.Header.Set("anthropic-version", "2023-06-01")
 	}
 	start := time.Now()
 	resp, err := o.Client.Do(req)

@@ -89,6 +89,7 @@ func ParseBytes(path string, b []byte) Plan {
 		indent := len(m[1])
 		text := m[3]
 		end := i
+		var textSb92 strings.Builder
 		for j := i + 1; j < len(lines); j++ {
 			line := lines[j]
 			if strings.TrimSpace(line) == "" || listLine.MatchString(line) || isFence(line) {
@@ -97,9 +98,10 @@ func ParseBytes(path string, b []byte) Plan {
 			if len(line)-len(strings.TrimLeft(line, " \t")) <= indent {
 				break
 			}
-			text += " " + strings.TrimSpace(line)
+			textSb92.WriteString(" " + strings.TrimSpace(line))
 			end = j
 		}
+		text += textSb92.String()
 		t := Task{Start: i, End: end, Done: m[2] == "x" || m[2] == "X"}
 		t.ID, t.Title, t.Owns, t.Sha, t.Claim, t.Partial = parseTaskText(text)
 		p.Tasks = append(p.Tasks, t)

@@ -209,7 +209,7 @@ claude-code ask --agent codex "Review this branch."    # one-shot; --format json
 claude-code ask --log | --retry <id>                   # recent dispatches; replay one
 claude-code ask --batch tasks.jsonl|- [--jobs N] [--fail-fast]   # many tasks on a pool; one envelope per line
 claude-code opencode --profile ollama --model qwen3-coder   # interactive; -- forces passthrough
-claude-code opencode catalog [list|add|remove|import|reset|check]   # model menu; also codex|copilot|gemini
+claude-code opencode catalog [list|add|remove|import|reset|check|sync]   # shared Databricks model menu
 claude-code codex review --adversarial --base main     # per-agent verbs; claude-code codex -h lists them
 claude-code gemini bridge --dirs internal "<task>"     # one 1M-context sweep via agy
 claude-code usage --days 7                             # subagent token usage
@@ -219,6 +219,66 @@ Without `--tools`, agents are read-only. `agents sync` renders under `state/proj
 `~/.codex`, `~/.copilot`, `~/.gemini`, `~/.config/opencode`, and links `skills/` into `~/.agents/skills`; no AGENTS.md
 lives at this root (Claude Code would load it as a second CLAUDE.md). Envelope fields and per-agent behavior:
 `rules/harness/agent.md`; in-session fan-out: `rules/workflow/master-workflow.md`.
+
+### Sync the Databricks model menu
+
+Discovery is explicit and repeatable, never a launch-time network call. Select a **serving** profile; sync uses
+its existing authentication and **Serving Endpoints only**, rejecting AI Gateway and non-Databricks profiles
+before requests. `--profile` is required (no pin fallback), and positional arguments are not accepted.
+
+```bash
+claude-code opencode catalog sync --profile dev             # authenticated cache reuse, or discover on miss
+claude-code opencode catalog sync --profile dev --dry-run   # explicit preview; no discovery/menu writes
+claude-code opencode catalog sync --profile dev --refresh   # force discovery; no stale fallback on failure
+claude-code opencode catalog sync --profile dev --verify    # probe eligible endpoints before previewing additions
+claude-code opencode catalog sync --profile dev --verify --apply  # seal snapshot/results and add non-failures
+claude-code opencode catalog check --profile dev --all      # existing tiny inference/tool probes
+```
+
+Every sync first validates the current credential via the workspace's SCIM `Me` endpoint (HTTP 200, nonempty
+identity ID, not explicitly inactive). Token presence or expiry alone is not accepted as proof. This establishes
+**valid identity, not endpoint permissions**. A refreshed token for the same identity can reuse discovery.
+
+Discovery and sanitized probe outcomes are **encrypted vault secrets**, separate from the plaintext menu overlay.
+The `model-discovery/v1/<sha256 JSON scope>` key covers the resolved profile name, CLI profile, normalized workspace
+host, serving spelling rule, resolved Anthropic/chat/Responses route URLs and authenticated subject ID.
+Changed route URLs cannot reuse old discovery/probe snapshots. No token, token fingerprint, raw probe error or secret
+prefix is stored in the snapshot. There is **no TTL**: use `--refresh` when the serving catalog changes. An unlocked
+vault key is required; vault/decryption and authentication errors fail closed, even with `--refresh`. Refresh can
+replace invalid snapshot JSON/schema only after successful decryption. It cannot overwrite inaccessible ciphertext.
+A successful refresh retains readable historical probe results until
+`--verify` replaces them.
+
+Preview/`--dry-run` never saves discovery, verification results or menu changes; normal authentication may refresh
+its own credentials. `--apply` (exclusive with `--dry-run`) seals a new/refreshed or freshly verified snapshot even
+with zero menu additions. An unchanged cache hit is not rewritten. Launches consume the existing saved menu;
+they do not perform discovery or identity validation for this cache.
+
+Sync selects non-gateway `READY` endpoints with task `llm/v1/chat` and a `databricks-` name whose canonical menu ID
+round-trips to the exact serving name. It deduplicates and sorts eligible IDs, then appends only absent entries.
+Existing entries retain their order, labels and explicit Responses flags, even when absent from discovery;
+new entries use the catalog's inferred Responses flag. Nothing is removed. Failed probe outcomes block new
+additions, including cached outcomes explicitly labeled **historical**, not live. Listing-only models without a
+known failed check may be added as **discovered/unverified**. Empty discovery and no-change runs do not write the
+menu. Discovery/authentication failures do not save a snapshot or change the menu.
+
+`--verify` uses existing menu Responses flags and catalog inference for new models, following the clients' resolved
+routes: Responses entries use `/responses`, otherwise Claude uses the native Anthropic route's `/v1/messages` when
+present, and other models use the chat route's `/chat/completions`. No route is replaced with a hardcoded base.
+Resolved routes must stay under the same workspace's HTTPS `/serving-endpoints` path; redirects are rejected.
+Verification uses four workers, 30-second request timeouts, a five-minute overall bound and token allowances of
+256 for chat, 128 for Responses and 32 for Anthropic. HTTP rejection retries without tools. Success means
+HTTP/tool-definition acceptance, **not an actual tool call or a validated generated answer**. A failed probe can
+reflect token budget or API-selection limitations rather than an unusable endpoint; no model-specific exceptions are
+applied.
+After separate successful manual verification, `catalog add --responses` can explicitly select Responses.
+Sync seals only status, HTTP code, tool-definition acceptance and latency per model, never raw error text;
+the existing `catalog check` command keeps its legacy routes, 8/16-token budgets and result storage.
+
+The vault menu overlay is **shared across profiles**, not scoped to `dev`: OpenCode uses all entries, while Codex
+only includes Responses entries with matching bundled model metadata. Relaunch `claude-code opencode` and/or
+`claude-code codex` after applying. Listing an endpoint is **not proof of inference access or tool support**;
+use `check --all` for verification. Gateway listings are not used as evidence of Serving Endpoints availability.
 
 ### Clipboard over SSH
 

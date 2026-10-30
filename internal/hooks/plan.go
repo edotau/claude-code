@@ -449,7 +449,7 @@ func PlanReminder(r io.Reader, stdout, stderr io.Writer) int {
 // stillPartial joins the recorded "<path>\t<plan>: <task>" lines whose task is still open, re-read from the plan.
 func stillPartial(data string) string {
 	var out []string
-	for _, line := range strings.Split(strings.TrimSpace(data), "\n") {
+	for line := range strings.SplitSeq(strings.TrimSpace(data), "\n") {
 		path, entry, ok := strings.Cut(line, "\t")
 		if !ok {
 			path, entry = "", line

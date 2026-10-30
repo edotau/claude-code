@@ -200,7 +200,7 @@ func tripFailFast(ctx context.Context, c Chain, i int, req Request, res Result, 
 	if trip == nil || err == nil || errors.Is(err, context.Canceled) {
 		return
 	}
-	if i+1 < len(c.Legs) && !(i == 0 && ExplicitBackend(req)) && legUnavailable(c.Legs[i].Agent, res, err) {
+	if i+1 < len(c.Legs) && (i != 0 || !ExplicitBackend(req)) && legUnavailable(c.Legs[i].Agent, res, err) {
 		return
 	}
 	trip()

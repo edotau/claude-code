@@ -129,7 +129,7 @@ func TestPinsFlow(t *testing.T) {
 		!strings.Contains(out, "copilot unserved: ") || slices.Contains(asked, "copilot") {
 		t.Fatalf("install step rows:\n%s", out)
 	}
-	for _, l := range strings.Split(out, "\n") {
+	for l := range strings.SplitSeq(out, "\n") {
 		if strings.HasPrefix(l, "pong ") && len([]rune(l)) > 80 {
 			t.Fatalf("row over 80 columns: %q", l)
 		}

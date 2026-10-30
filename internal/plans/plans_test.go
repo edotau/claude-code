@@ -160,7 +160,7 @@ func TestClaimClearClaim(t *testing.T) {
 	}
 	got := readFile(t, path)
 	line22 := ""
-	for _, l := range strings.Split(got, "\n") {
+	for l := range strings.SplitSeq(got, "\n") {
 		if strings.Contains(l, "2.2 Second") {
 			line22 = l
 		}

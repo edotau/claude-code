@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"slices"
 
 	"github.com/edotau/claude-code/internal/paths"
 )
@@ -53,8 +54,8 @@ func transact(changes []change, before map[string]snapshot, ops fileOps, library
 	}
 	touched := []string{}
 	rollback := func(cause error) error {
-		for i := len(touched) - 1; i >= 0; i-- {
-			p := touched[i]
+		for _, p := range slices.Backward(touched) {
+
 			s := before[p]
 			var err error
 			if s.exists {

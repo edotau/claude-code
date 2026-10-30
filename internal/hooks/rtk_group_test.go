@@ -58,7 +58,7 @@ func TestRtkGroupIsOwnNonGateGroup(t *testing.T) {
 		t.Fatalf("PreToolUse has no %q dispatcher entry", want)
 	}
 	var bash bool
-	for _, m := range strings.Split(disp.Matcher, "|") {
+	for m := range strings.SplitSeq(disp.Matcher, "|") {
 		if m == "Bash" {
 			bash = true
 		}

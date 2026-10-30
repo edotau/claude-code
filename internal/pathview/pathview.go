@@ -246,7 +246,7 @@ func rawRest(p, prefix string, fold bool) string {
 		return ""
 	}
 	for i, s := range pre {
-		if raw[i] != s && !(fold && strings.EqualFold(raw[i], s)) {
+		if raw[i] != s && (!fold || !strings.EqualFold(raw[i], s)) {
 			return ""
 		}
 	}
@@ -264,12 +264,7 @@ func rawRest(p, prefix string, fold bool) string {
 }
 
 func hasKind(kinds []Kind, k Kind) bool {
-	for _, v := range kinds {
-		if v == k {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(kinds, k)
 }
 
 // trimPrefixPath strips prefix from p on a path-element boundary.

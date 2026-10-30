@@ -1,6 +1,7 @@
 package plans
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 )
@@ -17,7 +18,7 @@ func claim(planPath, taskID, text string, onlyFree bool) error {
 		return fmt.Errorf("plans: claim text must not contain %q", "-->")
 	}
 	if !claimWord.MatchString(text) {
-		return fmt.Errorf("plans: claim text must start with working: or finished:")
+		return errors.New("plans: claim text must start with working: or finished:")
 	}
 	return editTask(planPath, taskID, func(t Task, lines []string) []string {
 		if onlyFree && t.Claim != "" {

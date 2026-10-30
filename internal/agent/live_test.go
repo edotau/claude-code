@@ -72,7 +72,7 @@ func startHolderAs(t *testing.T, ctx context.Context, name string, idle time.Dur
 	}
 	done, id := make(chan error, 1), rec.ID
 	go func() { done <- ServeLive(ctx, &rec, nil) }()
-	for i := 0; i < 200; i++ {
+	for range 200 {
 		if _, err := os.Stat(LiveSocket(id)); err == nil {
 			break
 		}
@@ -362,7 +362,7 @@ func startAgy(t *testing.T, script string, req Request) (string, func(), func() 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() { done <- ServeLive(ctx, &rec, nil) }()
-	for i := 0; i < 200; i++ {
+	for range 200 {
 		if _, err := os.Stat(LiveSocket(rec.ID)); err == nil {
 			break
 		}

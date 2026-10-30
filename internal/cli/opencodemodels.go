@@ -18,7 +18,7 @@ import (
 )
 
 // opencodeMenuVerbs are the `opencode catalog` subverbs this file owns; bare `catalog` stays the CLI's own catalog.
-var opencodeMenuVerbs = []string{"list", "add", "remove", "import", "reset", "check"}
+var opencodeMenuVerbs = []string{"list", "add", "remove", "import", "reset", "check", "sync"}
 
 func isOpencodeMenuVerb(vendor string, args []string) bool {
 	return vendor == "opencode" && len(args) > 0 && slices.Contains(opencodeMenuVerbs, args[0])
@@ -36,6 +36,8 @@ func opencodeMenuPage(verb string) helptext.Page {
 		"reset": {"reset", "Delete the vault menu and fall back to the built-in one."},
 		"check": {"check [--all | <id>...] [flags]",
 			"Probe endpoints with one tiny request: status, latency, tool calls."},
+		"sync": {"sync --profile P [flags]",
+			"Preview serving models from authenticated cache or discovery; --apply writes."},
 	}[verb]
 	return helptext.Page{Usage: "claude-code opencode catalog " + usage[0], About: usage[1]}
 }
@@ -44,11 +46,11 @@ func opencodeMenuFlags(verb string) *flag.FlagSet {
 	return helptext.NewFlagSet("opencode catalog "+verb, opencodeMenuPage(verb))
 }
 
-// cmdOpencodeMenu is `claude-code opencode catalog list|add|remove|import|reset|check`.
+// cmdOpencodeMenu is `claude-code opencode catalog list|add|remove|import|reset|check|sync`.
 func cmdOpencodeMenu(args []string) int {
 	verb, rest := args[0], args[1:]
 	fs := opencodeMenuFlags(verb)
-	var live, force, apply, responses bool
+	var live, force, apply, responses, dryRun, refresh, verify bool
 	var provider string
 	var all bool
 	timeout := 30 * time.Second
@@ -70,6 +72,12 @@ func cmdOpencodeMenu(args []string) int {
 		fs.StringVar(&provider, "profile", "", "workspace profile (default: the OPENCODE_PROFILE pin)")
 	case "import":
 		fs.BoolVar(&apply, "apply", false, "write the change (default: print the diff)")
+	case "sync":
+		fs.StringVar(&provider, "profile", "", "Databricks serving profile (required)")
+		fs.BoolVar(&apply, "apply", false, "seal discovery and persist menu additions")
+		fs.BoolVar(&dryRun, "dry-run", false, "preview additions without writing (default)")
+		fs.BoolVar(&refresh, "refresh", false, "rediscover instead of using cached models")
+		fs.BoolVar(&verify, "verify", false, "probe eligible models; exclude failed additions")
 	}
 	pos, err := outfmt.Parse(fs, rest)
 	if err != nil {
@@ -85,6 +93,17 @@ func cmdOpencodeMenu(args []string) int {
 	}
 	fail := func(f string, a ...any) int { return fail("opencode catalog "+verb+": "+f, a...) }
 	switch verb {
+	case "sync":
+		if len(pos) != 0 {
+			return fail("takes no positional arguments")
+		}
+		if apply && dryRun {
+			return fail("--apply and --dry-run are mutually exclusive")
+		}
+		if strings.TrimSpace(provider) == "" {
+			return fail("--profile is required")
+		}
+		return opencodeMenuSync(provider, opencodeSyncOptions{Apply: apply, Refresh: refresh, Verify: verify}, fail)
 	case "list":
 		return opencodeMenuList(live, provider, *format, fail)
 	case "check":

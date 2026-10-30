@@ -3,6 +3,7 @@ package inflight
 import (
 	"bytes"
 	"encoding/json"
+	"maps"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -192,9 +193,7 @@ func writeMarker(dir, name, body string) bool {
 
 func cloneCounts(m map[string]int) map[string]int {
 	out := make(map[string]int, len(m)+1)
-	for k, v := range m {
-		out[k] = v
-	}
+	maps.Copy(out, m)
 	return out
 }
 

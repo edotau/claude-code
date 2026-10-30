@@ -122,8 +122,8 @@ func windowsAbsolute(s string) bool {
 	if strings.ContainsAny(s, "\x00\r\n") {
 		return false
 	}
-	if strings.HasPrefix(s, `\\`) {
-		parts := strings.Split(strings.TrimPrefix(s, `\\`), `\`)
+	if after, ok := strings.CutPrefix(s, `\\`); ok {
+		parts := strings.Split(after, `\`)
 		return len(parts) >= 2 && parts[0] != "" && parts[1] != ""
 	}
 	return len(s) >= 3 && ((s[0] >= 'A' && s[0] <= 'Z') || (s[0] >= 'a' && s[0] <= 'z')) &&

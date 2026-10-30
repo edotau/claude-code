@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -134,7 +135,8 @@ func grabFrom(t *testing.T, value string) []Row {
 	return rows
 }
 
-func str(s string) *string { return &s }
+//go:fix inline
+func str(s string) *string { return new(s) }
 
 func TestExtractPipeline(t *testing.T) {
 	// raw rows: dirty whitespace, zero-width chars, null selector, whitespace-only, duplicate key, null key twice
@@ -145,8 +147,8 @@ func TestExtractPipeline(t *testing.T) {
  ["Alpha Beta", "/dup"],
  [null, "/n1"],
  [null, "/n2"]]`)
-	want := []Row{{str("Alpha Beta"), str("/a")}, {str("Gamma"), nil}, {nil, str("/c")},
-		{str("Alpha Beta"), str("/dup")}, {nil, str("/n1")}, {nil, str("/n2")}}
+	want := []Row{{new("Alpha Beta"), new("/a")}, {new("Gamma"), nil}, {nil, new("/c")},
+		{new("Alpha Beta"), new("/dup")}, {nil, new("/n1")}, {nil, new("/n2")}}
 	if !reflect.DeepEqual(rows, want) {
 		t.Fatalf("cleaned rows = %s", dump(rows))
 	}
@@ -169,7 +171,7 @@ func TestExtractPipeline(t *testing.T) {
 	}
 
 	var js bytes.Buffer
-	if err := writeRows(&js, ExtractOptions{Fields: fields, Format: "json"}, []Row{{str("a&b"), nil}}); err != nil {
+	if err := writeRows(&js, ExtractOptions{Fields: fields, Format: "json"}, []Row{{new("a&b"), nil}}); err != nil {
 		t.Fatal(err)
 	}
 	var arr []map[string]*string
@@ -297,7 +299,7 @@ func (s *site) handle(method string, params json.RawMessage) (string, bool) {
 			s.scrolls++
 			return evalResult(`null`), false
 		default: // container count (initial wait or per-round)
-			return evalResult(fmt.Sprint(s.count(s.scrolls))), false
+			return evalResult(strconv.Itoa(s.count(s.scrolls))), false
 		}
 	}
 	return `{}`, false
@@ -308,7 +310,7 @@ func TestExtractPagination(t *testing.T) {
 	t.Cleanup(origin.Close)
 	rowsFor := func(tag string, n int) string {
 		var rs []string
-		for i := 0; i < n; i++ {
+		for i := range n {
 			rs = append(rs, fmt.Sprintf(`["%s%d"]`, tag, i))
 		}
 		return "[" + strings.Join(rs, ",") + "]"

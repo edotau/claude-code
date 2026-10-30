@@ -125,7 +125,8 @@ Verdict discipline — closed vocabulary first, evidence after, never soften or 
 - **Security deep-dive** → `evaluate-code` → Security lens; you flag only obvious CRITICAL secrets/injection.
 - **Full verification gate loop** (format → lint → test → security) → `skills/problem-solving/references/verify.md`;
   `Workflow green-keeper-loop` only when the user asks for it.
-- **New test coverage** → `copilot` (TEST mode), feature or bug fix only: `rules/standards/testing-guidelines.md` → Test agent.
+- **New test coverage** → `copilot` (TEST mode), feature or bug fix only: `rules/standards/testing-guidelines.md` →
+  Test agent.
 - **Full build + full test suite + security scan** → the main thread, once, with the owner's approval — never a
   subagent.
 - **Trivial task** → skip the plan, implement directly.

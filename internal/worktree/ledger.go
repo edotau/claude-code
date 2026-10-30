@@ -184,9 +184,11 @@ func CloseLedger(main, name string, c LedgerClose) error {
 		if commits == "" {
 			text += "  - none\n"
 		} else {
-			for _, commit := range strings.Split(commits, "\n") {
-				text += "  - " + commit + "\n"
+			var textSb187 strings.Builder
+			for commit := range strings.SplitSeq(commits, "\n") {
+				textSb187.WriteString("  - " + commit + "\n")
 			}
+			text += textSb187.String()
 		}
 		return paths.AtomicWrite(path, []byte(text), 0o600)
 	})
@@ -247,8 +249,8 @@ func ledgerName(name string) error {
 func ledgerField(text, field string) string {
 	prefix := "- " + field + ": "
 	for line := range strings.SplitSeq(text, "\n") {
-		if strings.HasPrefix(line, prefix) {
-			return strings.TrimPrefix(line, prefix)
+		if after, ok := strings.CutPrefix(line, prefix); ok {
+			return after
 		}
 	}
 	return ""

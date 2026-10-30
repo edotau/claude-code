@@ -32,7 +32,7 @@ func ledgerLines(t *testing.T, format string) []map[string]any {
 		t.Fatal(err)
 	}
 	var out []map[string]any
-	for _, l := range strings.Split(strings.TrimSpace(string(b)), "\n") {
+	for l := range strings.SplitSeq(strings.TrimSpace(string(b)), "\n") {
 		if l == "" {
 			continue
 		}
@@ -126,7 +126,7 @@ func TestLedgerAppendsOneJSONLineMode0600(t *testing.T) {
 func writeN(t *testing.T, dir, prefix string, n int, body string) []string {
 	t.Helper()
 	var paths []string
-	for i := 0; i < n; i++ {
+	for i := range n {
 		p := filepath.Join(dir, fmt.Sprintf("%s%d.json", prefix, i))
 		if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
 			t.Fatal(err)

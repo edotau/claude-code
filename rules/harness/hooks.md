@@ -12,9 +12,10 @@ both, then `make install`. **Never hand-edit `settings.json`** → `settings-man
 ## Groups and the dispatcher
 
 `hookspec.Registry` lists groups in execution order: `safety`, `rtk`, `docs`, `dispatch`, `paths`, `memory`,
-`format`, `review`, `worktree`, `codex` (codex-only, never rendered into Claude settings). Settings carry **one dispatcher
-entry per event** (`hook <Event>`) matching the union of its groups' matchers; it reads the payload once, runs each
-enabled group within its budget, recovers panics and merges results. `--<module>` runs one module; `--all` runs
+`format`, `review`, `worktree`, `codex` (codex-only, never rendered into Claude settings). Settings carry **one
+dispatcher entry per event** (`hook <Event>`) matching the union of its groups' matchers; it reads the payload once,
+runs each enabled group within its budget, recovers panics and merges results. `--<module>` runs one module; `--all`
+runs
 every module on the event, the gate included.
 
 - **`safety` keeps its own process** (`hook PreToolUse --safety-scan`) so a hung group can never delay or skip a

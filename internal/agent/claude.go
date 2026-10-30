@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/edotau/claude-code/internal/launch"
@@ -358,8 +359,10 @@ func claudeAttach(prompt string, paths []string, tools bool) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	var promptSb361 strings.Builder
 	for _, p := range images {
-		prompt += "\n\nAttached image (open it with the Read tool): " + p
+		promptSb361.WriteString("\n\nAttached image (open it with the Read tool): " + p)
 	}
+	prompt += promptSb361.String()
 	return prompt, nil
 }
