@@ -212,3 +212,31 @@ func ReviewArgs(agentName string, s Scope, diff []byte, adversarial, background 
 	}
 	return args, cleanup, nil
 }
+
+// ReviewParts reports the parts an oversized diff splits into (one part means the plain single call).
+func ReviewParts(diff []byte, adversarial bool, focus, rubric string) []Part {
+	promptLen := len(ReviewPrompt(adversarial, focus))
+	if fi, err := os.Stat(rubric); rubric != "" && err == nil {
+		promptLen += int(fi.Size())
+	}
+	return SplitDiff(diff, promptLen, ReviewBudget)
+}
+
+// SetReviewProgress stores p on the job record, when there is one.
+func SetReviewProgress(job *Record, p string) {
+	if job == nil {
+		return
+	}
+	job.Progress = p
+	_ = job.Save()
+}
+
+// LastDispatchError is the newest failed dispatch's error text for vendor, so a split report names the real cause.
+func LastDispatchError(vendor string) string {
+	for _, r := range RecentRecords(5) {
+		if r.Agent == vendor && r.Status == "error" {
+			return Preview(r.Error, 400)
+		}
+	}
+	return "see claude-code " + vendor + " status"
+}
