@@ -24,12 +24,13 @@ func (RuleClassifier) Tier(task string) string {
 	return models.TierModel(t)
 }
 
-// externalAgents are the agents a dispatch label may name; labelTypes are the subagent types that carry one.
+// labelAgents are the agents a dispatch label may name; labelTypes are the subagent types that carry one.
 var (
-	externalAgents = map[string]bool{"codex": true, "copilot": true, "gemini": true, "opencode": true}
-	labelTypes     = map[string]bool{"claude": true, "code-worker": true, "coworker": true}
-	agentLineRe    = regexp.MustCompile(`(?m)^[ \t]*Agent:[ \t]*(.+)$`)
-	agentNameRe    = regexp.MustCompile(`[a-z]+`)
+	labelAgents = map[string]bool{"claude": true, "codex": true, "copilot": true, "gemini": true, "opencode": true}
+	labelTypes  = map[string]bool{"claude": true, "code-worker": true, "coworker": true,
+		"codex": true, "copilot": true, "gemini": true, "opencode": true}
+	agentLineRe = regexp.MustCompile(`(?m)^[ \t]*Agent:[ \t]*(.+)$`)
+	agentNameRe = regexp.MustCompile(`[a-z]+`)
 )
 
 // agentEffortResult is the pin step as a Result: a spawn gets one UpdatedInput (model pin, recall block, quota
@@ -84,7 +85,7 @@ func agentEffortResult(in *Input) Result {
 	return Result{UpdatedInput: updated, Context: note, SystemMessage: systemMessage}
 }
 
-// applyLabel prefixes the description with the external agents the prompt's `Agent:` line names ("gemini → codex: …").
+// applyLabel prefixes the description with the agents the `Agent:` line sends work to, minus the leaf's own type.
 func applyLabel(updated map[string]any, task string) bool {
 	st, _ := updated["subagent_type"].(string)
 	if !labelTypes[st] {
@@ -94,10 +95,14 @@ func applyLabel(updated map[string]any, task string) bool {
 	if m == nil {
 		return false
 	}
+	line := strings.ToLower(m[1])
+	if strings.Contains(line, "in-context") {
+		return false
+	}
 	var names []string
 	seen := map[string]bool{}
-	for _, w := range agentNameRe.FindAllString(strings.ToLower(m[1]), -1) {
-		if externalAgents[w] && !seen[w] {
+	for _, w := range agentNameRe.FindAllString(line, -1) {
+		if labelAgents[w] && w != st && !seen[w] {
 			seen[w] = true
 			names = append(names, w)
 		}

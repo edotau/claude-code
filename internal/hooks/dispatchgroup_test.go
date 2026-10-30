@@ -213,8 +213,20 @@ func TestDispatchAgentLabels(t *testing.T) {
 	if got := labelOf(t, "Explore", prompt, "review thing"); got != "review thing" {
 		t.Errorf("Explore type relabelled: %q", got)
 	}
-	if got := labelOf(t, "code-worker", "just do it\nAgent: none", "review thing"); got != "review thing" {
-		t.Errorf("no external agent relabelled: %q", got)
+	cases := []struct{ st, agent, want string }{
+		{"code-worker", "none", "task"},
+		{"claude", "copilot", "copilot: task"},
+		{"copilot", "claude", "claude: task"},
+		{"coworker", "codex", "codex: task"},
+		{"code-worker", "claude", "claude: task"},
+		{"claude", "claude (in-context)", "task"},
+		{"claude", "claude", "task"},
+		{"codex", "codex → gemini", "gemini: task"},
+	}
+	for _, c := range cases {
+		if got := labelOf(t, c.st, "do it\nAgent: "+c.agent, "task"); got != c.want {
+			t.Errorf("%s + Agent: %s = %q, want %q", c.st, c.agent, got, c.want)
+		}
 	}
 }
 
