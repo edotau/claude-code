@@ -15,9 +15,8 @@ func DatabricksResponses(reg *providers.Registry, now time.Time) (profile, model
 	if reg == nil {
 		return "", "", false
 	}
-	profile = cmp.Or(providers.SessionProfile(), providers.Pin(providers.PinProfile))
-	p := reg.Providers[profile]
-	if p == nil || p.Preset != providers.PresetDatabricks || !vendors.CanServe("codex", p) || !providers.CredentialPresent(p) {
+	profile, p, ok := sessionDatabricks(reg, "codex")
+	if !ok {
 		return "", "", false
 	}
 	if first, fresh := ServedFirst(p, true, now); fresh { // a fresh listing proves what the workspace serves
@@ -149,9 +148,8 @@ func (t *Table) gateSessionCopilot(
 			return nil
 		}
 	}
-	profile := cmp.Or(providers.SessionProfile(), providers.Pin(providers.PinProfile))
-	p := reg.Providers[profile]
-	if p == nil || p.Preset != providers.PresetDatabricks || !vendors.CanServe("copilot", p) || !providers.CredentialPresent(p) {
+	profile, _, ok := sessionDatabricks(reg, "copilot")
+	if !ok {
 		return nil
 	}
 	account := ProviderAccount(profile)
@@ -174,6 +172,19 @@ func (t *Table) gateSessionCopilot(
 	}
 	group, _ := t.gateProfile(ctx, reg, tier, "copilot", profile, model, effort, st, o, now, configured, res)
 	return group
+}
+
+// sessionDatabricks is the session or pinned profile when it is a signed-in Databricks row agent can use.
+func sessionDatabricks(reg *providers.Registry, agent string) (profile string, p *providers.Provider, ok bool) {
+	if reg == nil {
+		return "", nil, false
+	}
+	profile = cmp.Or(providers.SessionProfile(), providers.Pin(providers.PinProfile))
+	p = reg.Providers[profile]
+	if p == nil || p.Preset != providers.PresetDatabricks || !vendors.CanServe(agent, p) || !providers.CredentialPresent(p) {
+		return "", nil, false
+	}
+	return profile, p, true
 }
 
 func hasProfileAccount(group []Candidate, account string) bool {
