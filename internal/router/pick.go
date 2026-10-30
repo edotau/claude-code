@@ -3,13 +3,10 @@ package router
 import (
 	"cmp"
 	"context"
-	"fmt"
 	"slices"
 	"strings"
 	"time"
 
-	"github.com/edotau/claude-code/internal/agent/vendors"
-	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 )
 
@@ -58,7 +55,7 @@ type Result struct {
 	Skipped    []Skip             `json:"skipped,omitempty"`
 }
 
-// Opts tunes a pick; nil funcs take the defaults (binary/login presence, no refresh, time.Now).
+// Opts tunes a pick; nil funcs take the defaults (no presence check, no refresh, time.Now).
 type Opts struct {
 	Fallback   string
 	Configured func(runner string, c Cell) error
@@ -97,7 +94,7 @@ func (t *Table) Pick(ctx context.Context, tier, want string, st State, o Opts) R
 		now = o.Now()
 	}
 	if configured == nil {
-		configured = Configured
+		configured = func(string, Cell) error { return nil }
 	}
 	if st == nil {
 		st = State{}
@@ -405,33 +402,6 @@ func ExhaustedReason(account string, e Entry, now time.Time) string {
 		s += " (" + e.Reason + ")"
 	}
 	return s
-}
-
-// GHAccounts lists the gh logins the copilot gate checks the pin against; a var so tests never exec gh.
-var GHAccounts = vendors.GHAccounts
-
-// Configured is the no-network presence check: the vendor binary, plus an opencode login for the cell's provider.
-func Configured(runner string, c Cell) error {
-	if runner == "claude" {
-		return nil
-	}
-	spec, ok := vendors.Lookup(runner)
-	if !ok {
-		return fmt.Errorf("unknown runner %s", runner)
-	}
-	if _, err := paths.VendorBin(spec.Binary); err != nil {
-		return err
-	}
-	if u := vendors.CopilotPinLogin(); runner == "copilot" && u != "" && !slices.Contains(GHAccounts(), u) {
-		return fmt.Errorf("pinned gh user %s is not logged in (gh auth login); no other account is used", u)
-	}
-	if runner == "opencode" {
-		if id, _, found := strings.Cut(c.Model, "/"); found {
-			_, err := vendors.OpencodeCredential(id)
-			return err
-		}
-	}
-	return nil
 }
 
 func firstLine(s string) string {

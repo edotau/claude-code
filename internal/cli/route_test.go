@@ -47,9 +47,7 @@ func TestRouteVerbJSON(t *testing.T) {
 		}
 	}
 	routeRefresh = func(context.Context, string) bool { return false }
-	oldGH := router.GHAccounts
-	router.GHAccounts = func() []string { return []string{"work-user"} }
-	t.Cleanup(func() { router.GHAccounts = oldGH })
+	ghHosts(t, "work-user")
 	t.Cleanup(func() { routeRefresh = nil })
 	if err := router.MarkExhausted("github·work", time.Now().Add(240*time.Hour), time.Now(), "402"); err != nil {
 		t.Fatal(err)
@@ -148,4 +146,15 @@ func TestRouteVerbSourcesNameWhereEachKnobCameFrom(t *testing.T) {
 	if !strings.Contains(textOut, "(vault)") || !strings.Contains(textOut, "subagents off (env)") {
 		t.Errorf("text output = %q, want it to name the vault weights source and env subagents source", textOut)
 	}
+}
+
+// ghHosts makes user the only gh login: a scratch hosts.yml under GH_CONFIG_DIR.
+func ghHosts(t *testing.T, user string) {
+	t.Helper()
+	dir := t.TempDir()
+	hosts := "github.com:\n    user: " + user + "\n    users:\n        " + user + ":\n            oauth_token: tok\n"
+	if err := os.WriteFile(filepath.Join(dir, "hosts.yml"), []byte(hosts), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GH_CONFIG_DIR", dir)
 }

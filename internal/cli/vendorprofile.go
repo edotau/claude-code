@@ -5,7 +5,6 @@ import (
 	"os"
 	"time"
 
-	"github.com/edotau/claude-code/internal/agent/vendors"
 	"github.com/edotau/claude-code/internal/preflight"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/ui/helptext"
@@ -55,7 +54,7 @@ func cmdAgentProfile(agent string, args []string) int {
 	if err := providers.ValidAgentPin(reg, agent, pos[0]); err != nil {
 		return fail("%s profile: %v (see claude-code configure provider --list)", agent, err)
 	}
-	if row := reg.Providers[pos[0]]; row != nil && agent != "claude" && !vendors.CanServe(agent, row) {
+	if row := reg.Providers[pos[0]]; row != nil && agent != "claude" && !providers.CanServe(agent, row) {
 		return fail("%s profile: %s cannot serve profile %q", agent, agent, pos[0])
 	}
 	if err := providers.SetPins(map[string]string{pin: pos[0]}); err != nil {

@@ -9,7 +9,6 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/edotau/claude-code/internal/agent/vendors"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
 )
@@ -30,10 +29,8 @@ const (
 	BillFree         = "free"
 )
 
-func init() { vendors.OpencodeTableModels = opencodeTableModels }
-
-// opencodeTableModels reads the opencode sonnet/haiku cells for the opencode overlay; ok is false on a load error.
-func opencodeTableModels() (string, string, bool) {
+// OpencodeTableModels reads the opencode sonnet/haiku cells for the opencode overlay; ok is false on a load error.
+func OpencodeTableModels() (string, string, bool) {
 	t, err := Load()
 	if err != nil {
 		return "", "", false

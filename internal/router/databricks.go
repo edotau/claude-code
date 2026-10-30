@@ -6,7 +6,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/edotau/claude-code/internal/agent/vendors"
 	"github.com/edotau/claude-code/internal/providers"
 )
 
@@ -46,7 +45,7 @@ func (t *Table) codexHop(reg *providers.Registry, tier string, now time.Time) (p
 	}
 	cell, _ := t.Cell("codex", tier)
 	p := reg.Providers[profile]
-	pick, _ := vendors.ResolveAgentModel(vendors.ModelAsk{Agent: "codex", Target: providers.Target{Provider: p, Model: cell.Model}})
+	pick, _ := providers.ResolveAgentModel(providers.ModelAsk{Agent: "codex", Target: providers.Target{Provider: p, Model: cell.Model}})
 	cell.Model = pick.Model
 	if wire := p.WireModel(cell.Model); cell.Model != "" && providers.ServesResponses(p, wire) {
 		if ready, fresh := ServedReady(p, wire, now); fresh && !ready {
@@ -181,7 +180,7 @@ func sessionDatabricks(reg *providers.Registry, agent string) (profile string, p
 	}
 	profile = cmp.Or(providers.SessionProfile(), providers.Pin(providers.PinProfile))
 	p = reg.Providers[profile]
-	if p == nil || p.Preset != providers.PresetDatabricks || !vendors.CanServe(agent, p) || !providers.CredentialPresent(p) {
+	if p == nil || p.Preset != providers.PresetDatabricks || !providers.CanServe(agent, p) || !providers.CredentialPresent(p) {
 		return "", nil, false
 	}
 	return profile, p, true

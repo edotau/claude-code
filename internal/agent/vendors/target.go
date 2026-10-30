@@ -30,7 +30,7 @@ func ResolveTarget(reg *providers.Registry, name string, sel providers.Selection
 			return gt, gnote, nil
 		}
 	}
-	if explicit || (CanServe(name, t.Provider) && geminiFollowsPin(name, t.Provider)) {
+	if explicit || (providers.CanServe(name, t.Provider) && geminiFollowsPin(name, t.Provider)) {
 		if name == "copilot" {
 			return CopilotGate(reg, t)
 		}
@@ -52,7 +52,7 @@ func ResolveTarget(reg *providers.Registry, name string, sel providers.Selection
 			return providers.Target{}, "", errors.New(ri.Reason)
 		}
 	}
-	if name == "gemini" && GeminiGatewayRow(t.Provider) { // Databricks only on a GEMINI_PROFILE pin, never silently
+	if name == "gemini" && providers.GeminiGatewayRow(t.Provider) { // Databricks only on a GEMINI_PROFILE pin, never silently
 		return providers.Target{}, "", errors.New("gemini: agy needs a Google login (agy auth login) or a GEMINI_PROFILE pin")
 	}
 	return t, "", nil
@@ -110,15 +110,6 @@ func databricksUsable(p *providers.Provider) bool {
 // ErrOwnLogin means the vendor should run on the credentials its own CLI stores (no harness route injected).
 var ErrOwnLogin = errors.New("agent runs on its own login")
 
-// CanServe reports whether p is usable by vendor name (providers.Serves without the reason).
-func CanServe(name string, p *providers.Provider) bool {
-	if name == "gemini" && GeminiGatewayRow(p) {
-		return true
-	}
-	ok, _ := providers.Serves(name, p, "")
-	return ok
-}
-
 // fallbackTarget is each vendor's own route to a working credential when the session provider has none.
 func fallbackTarget(reg *providers.Registry, name string) (providers.Target, string, bool) {
 	switch name {
@@ -129,7 +120,7 @@ func fallbackTarget(reg *providers.Registry, name string) (providers.Target, str
 			if own := codexOwnModel(); own != "" {
 				model = own
 			}
-			t, _ := ResolveAgentModel(ModelAsk{Agent: name, Target: providers.Target{Provider: p, Model: model}}) // pin beats both
+			t, _ := providers.ResolveAgentModel(providers.ModelAsk{Agent: name, Target: providers.Target{Provider: p, Model: model}}) // pin beats both
 			return t, "chatgpt (codex login)", true
 		}
 	case "copilot":
@@ -142,7 +133,7 @@ func fallbackTarget(reg *providers.Registry, name string) (providers.Target, str
 	case "gemini":
 		if p, ok := loginProvider(reg, "google", "gemini"); ok && GeminiLoginPresent() {
 			// the GEMINI_MODEL pin beats the registry's bare slot id
-			t, _ := ResolveAgentModel(ModelAsk{Agent: name, Target: providers.Target{Provider: p, Model: p.Models[models.Opus]}})
+			t, _ := providers.ResolveAgentModel(providers.ModelAsk{Agent: name, Target: providers.Target{Provider: p, Model: p.Models[models.Opus]}})
 			return t, "gemini (Google login via agy)", true
 		}
 	case "opencode":

@@ -96,7 +96,7 @@ func printProviderTable(reg *providers.Registry) {
 	for _, v := range vendors.Names() {
 		var names, vm []string
 		for _, p := range ready {
-			if vendors.CanServe(v, p) {
+			if providers.CanServe(v, p) {
 				names, vm = append(names, p.Name), appendUnique(vm, providerMode(p))
 			}
 		}

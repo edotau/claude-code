@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"reflect"
 	"slices"
 	"strings"
@@ -395,9 +396,7 @@ func TestRunWithFallback(t *testing.T) {
 func TestRouteChainSkipsExhaustedAndRetriesExpired(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	pinGitHubProfile(t, "work-user", "")
-	old := router.GHAccounts
-	router.GHAccounts = func() []string { return []string{"work-user"} }
-	t.Cleanup(func() { router.GHAccounts = old })
+	ghHosts(t, "work-user")
 	all := router.Opts{Configured: func(string, router.Cell) error { return nil }}
 	tb, err := router.Load()
 	if err != nil {
@@ -578,4 +577,15 @@ func TestRunWithFallbackSkippedRequestedRoute(t *testing.T) {
 			t.Fatalf("res=%+v err=%v, want no fallback", res, err)
 		}
 	})
+}
+
+// ghHosts makes user the only gh login: a scratch hosts.yml under GH_CONFIG_DIR.
+func ghHosts(t *testing.T, user string) {
+	t.Helper()
+	dir := t.TempDir()
+	hosts := "github.com:\n    user: " + user + "\n    users:\n        " + user + ":\n            oauth_token: tok\n"
+	if err := os.WriteFile(filepath.Join(dir, "hosts.yml"), []byte(hosts), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GH_CONFIG_DIR", dir)
 }

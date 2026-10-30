@@ -6,7 +6,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/edotau/claude-code/internal/agent/vendors"
 	"github.com/edotau/claude-code/internal/providers"
 )
 
@@ -20,7 +19,7 @@ func IsPoolModel(p *providers.Provider, model string) bool {
 	}
 	wire := strings.TrimPrefix(model, p.Name+":")
 	return slices.ContainsFunc(providers.BYOKPool(), func(entry string) bool {
-		return vendors.SpellPin(p, entry) == wire
+		return providers.SpellPin(p, entry) == wire
 	})
 }
 
@@ -54,7 +53,7 @@ func pickPool(runner string, p *providers.Provider, pool []string, now time.Time
 		account := ProviderAccount(p.Name)
 		e := s[account]
 		for _, entry := range pool {
-			wire := vendors.SpellPin(p, entry)
+			wire := providers.SpellPin(p, entry)
 			if wire != "" && !e.byokSkipped(runner, entry, now) && (selected == "" || e.BYOK[entry].Before(e.BYOK[selected])) {
 				selected, model = entry, wire
 			}
@@ -79,7 +78,7 @@ func servedPool(p *providers.Provider, pool []string, now time.Time) []string {
 		return pool
 	}
 	return slices.DeleteFunc(slices.Clone(pool), func(entry string) bool {
-		return !ready(entry) && vendors.SpellPin(p, entry) != ""
+		return !ready(entry) && providers.SpellPin(p, entry) != ""
 	})
 }
 
@@ -98,7 +97,7 @@ func SkipBYOK(runner string, p *providers.Provider, wire string) string {
 	var hit string
 	_ = Update(func(s State) {
 		for _, entry := range providers.BYOKPool() {
-			if vendors.SpellPin(p, entry) != wire {
+			if providers.SpellPin(p, entry) != wire {
 				continue
 			}
 			account := ProviderAccount(p.Name)

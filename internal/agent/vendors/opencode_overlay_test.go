@@ -8,24 +8,20 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
-// fixtureTableModels swaps the OpencodeTableModels seam (router sets it in production) for fixed models.
-func fixtureTableModels(t *testing.T, mainModel, smallModel string, ok bool) {
-	t.Helper()
-	orig := OpencodeTableModels
-	OpencodeTableModels = func() (string, string, bool) { return mainModel, smallModel, ok }
-	t.Cleanup(func() { OpencodeTableModels = orig })
-}
-
-// TestOpencodeOverlayModelComesFromTable checks the rendered overlay's model/small_model are the seam's table models.
+// TestOpencodeOverlayModelComesFromTable checks the overlay's model/small_model are the routing table's opencode models.
 func TestOpencodeOverlayModelComesFromTable(t *testing.T) {
 	isolateOpencodeRouteEnv(t)
 	vaulttest.Use(t)
-	fixtureTableModels(t, "fix/sonnet", "fix/haiku", true)
+	wantMain, wantSmall, ok := router.OpencodeTableModels()
+	if !ok {
+		t.Fatal("routing table has no opencode sonnet/haiku models")
+	}
 	_, cfgBody, _, _, err := settings.OpencodeOverlayRendered(Router{})
 	if err != nil {
 		t.Fatal(err)
@@ -34,8 +30,8 @@ func TestOpencodeOverlayModelComesFromTable(t *testing.T) {
 	if err := json.Unmarshal(cfgBody, &doc); err != nil {
 		t.Fatal(err)
 	}
-	if doc["model"] != "fix/sonnet" || doc["small_model"] != "fix/haiku" {
-		t.Errorf("model=%v small_model=%v, want the seam's fix/sonnet and fix/haiku", doc["model"], doc["small_model"])
+	if doc["model"] != wantMain || doc["small_model"] != wantSmall {
+		t.Errorf("model=%v small_model=%v, want the table's %s and %s", doc["model"], doc["small_model"], wantMain, wantSmall)
 	}
 }
 
