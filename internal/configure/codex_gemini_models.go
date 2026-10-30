@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agent/vendors"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 )
@@ -312,7 +312,7 @@ func geminiFindBase(list []geminiModelInfo, base string) *geminiModelInfo {
 
 // geminiCurrent is the effective (base, effort) today: the GEMINI_MODEL pin if set, else agy's own default.
 func geminiCurrent() (base, effort string) {
-	id := cmp.Or(providers.Pin(providers.PinGeminiModel), agent.AgyDefaultModel)
+	id := cmp.Or(providers.Pin(providers.PinGeminiModel), vendors.AgyDefaultModel)
 	base, effort, _ = geminiEffortSuffix(id)
 	return base, effort
 }

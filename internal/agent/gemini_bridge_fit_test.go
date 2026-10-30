@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"github.com/edotau/claude-code/internal/agent/vendors"
 	"io"
 	"os"
 	"path/filepath"
@@ -40,8 +41,8 @@ func TestBridgeRunAgyModelFilled(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.Model != AgyDefaultModel || res.Provider != "agy" {
-		t.Errorf("model/provider = %q/%q, want %q/agy", res.Model, res.Provider, AgyDefaultModel)
+	if res.Model != vendors.AgyDefaultModel || res.Provider != "agy" {
+		t.Errorf("model/provider = %q/%q, want %q/agy", res.Model, res.Provider, vendors.AgyDefaultModel)
 	}
 }
 

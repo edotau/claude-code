@@ -33,12 +33,6 @@ func codexExecArgs(argv []string, extra ...string) []string {
 	return append(append([]string{"exec"}, extra...), argv[1:]...)
 }
 
-// tomlQuote renders s as a TOML basic string (a JSON string is one) for a codex -c override.
-func tomlQuote(s string) string {
-	b, _ := json.Marshal(s)
-	return string(b)
-}
-
 // codexSchemaFile writes the strict form of schema to a 0600 temp file for --output-schema; remove it after the run.
 func codexSchemaFile(schema string) (string, error) {
 	var v any

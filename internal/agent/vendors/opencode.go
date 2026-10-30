@@ -75,7 +75,7 @@ func opencode(p *providers.Provider, dialect, base, model, cred string, routed b
 	if err != nil {
 		return nil, nil, err
 	}
-	env = append(env, "OPENCODE_CONFIG_CONTENT="+string(body))
+	env = append(env, OpencodeConfigEnv+"="+string(body))
 	if h == nil {
 		return env, nil, nil
 	}
@@ -88,7 +88,7 @@ func opencodeDatabricksModel(env []string) string {
 		Model string `json:"model"`
 	}
 	for _, kv := range env {
-		if v, ok := strings.CutPrefix(kv, "OPENCODE_CONFIG_CONTENT="); ok {
+		if v, ok := strings.CutPrefix(kv, OpencodeConfigEnv+"="); ok {
 			_ = json.Unmarshal([]byte(v), &cfg)
 		}
 	}
@@ -98,21 +98,9 @@ func opencodeDatabricksModel(env []string) string {
 // opencodeHeadlessRun finishes a headless launch: tools-off permission merged into the config env, then the run argv.
 func opencodeHeadlessRun(env []string, h *Headless, fullModel string) ([]string, []string, error) {
 	if !h.Tools {
-		for i, kv := range env {
-			v, ok := strings.CutPrefix(kv, "OPENCODE_CONFIG_CONTENT=")
-			if !ok {
-				continue
-			}
-			var cfg map[string]any
-			if err := json.Unmarshal([]byte(v), &cfg); err != nil {
-				return nil, nil, err
-			}
-			cfg["permission"] = "deny"
-			body, err := json.Marshal(cfg)
-			if err != nil {
-				return nil, nil, err
-			}
-			env[i] = "OPENCODE_CONFIG_CONTENT=" + string(body)
+		var err error
+		if env, err = MutateOpencodeConfigEnv(env, false, func(cfg map[string]any) { cfg["permission"] = "deny" }); err != nil {
+			return nil, nil, err
 		}
 	}
 	argv := []string{"run", "--format", "json", "-m", fullModel}
@@ -182,7 +170,7 @@ func OpencodeRunArgv(model string, h Headless) (env, argv []string) {
 // opencodeRun is `opencode run --format json` for h; a non-empty model adds -m (opencode's provider/model form).
 func opencodeRun(model string, h Headless) (env, argv []string) {
 	if !h.Tools {
-		env = append(env, `OPENCODE_CONFIG_CONTENT={"permission":"deny"}`)
+		env = append(env, OpencodeConfigEnv+`={"permission":"deny"}`)
 	}
 	argv = []string{"run", "--format", "json"}
 	if model != "" {
@@ -279,4 +267,43 @@ func slotModelID(reg *providers.Registry, p *providers.Provider, slot string) st
 		return p.OpencodeFallback
 	}
 	return id
+}
+
+// OpencodeConfigEnv is the env var carrying opencode's inline JSON config.
+const OpencodeConfigEnv = "OPENCODE_CONFIG_CONTENT"
+
+// MutateOpencodeConfigEnv applies fn to the JSON in each OpencodeConfigEnv entry of env (appending one when absent).
+// An unreadable block is an error, or with lenient replaced by an empty config.
+func MutateOpencodeConfigEnv(env []string, lenient bool, fn func(map[string]any)) ([]string, error) {
+	found := false
+	for i, kv := range env {
+		body, ok := strings.CutPrefix(kv, OpencodeConfigEnv+"=")
+		if !ok {
+			continue
+		}
+		found = true
+		var cfg map[string]any
+		if err := json.Unmarshal([]byte(body), &cfg); err != nil && !lenient {
+			return nil, err
+		}
+		if cfg == nil { // unreadable (lenient) or JSON null
+			cfg = map[string]any{}
+		}
+		fn(cfg)
+		out, err := json.Marshal(cfg)
+		if err != nil {
+			return nil, err
+		}
+		env[i] = OpencodeConfigEnv + "=" + string(out)
+	}
+	if found {
+		return env, nil
+	}
+	cfg := map[string]any{}
+	fn(cfg)
+	out, err := json.Marshal(cfg)
+	if err != nil {
+		return nil, err
+	}
+	return append(env, OpencodeConfigEnv+"="+string(out)), nil
 }

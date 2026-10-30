@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"github.com/edotau/claude-code/internal/agent/vendors"
 	"testing"
 
 	"github.com/edotau/claude-code/internal/providers"
@@ -18,8 +19,8 @@ func TestAgyModelPrecedence(t *testing.T) {
 		t.Fatal(err)
 	}
 	sel, _ := providers.Select(reg, "")
-	if got := geminiAgyModel(reg, sel, reg.Providers["anthropic"], ""); got != AgyDefaultModel {
-		t.Errorf("nothing set = %q, want the default %q", got, AgyDefaultModel)
+	if got := geminiAgyModel(reg, sel, reg.Providers["anthropic"], ""); got != vendors.AgyDefaultModel {
+		t.Errorf("nothing set = %q, want the default %q", got, vendors.AgyDefaultModel)
 	}
 	if err := providers.SetPins(map[string]string{providers.PinGeminiModel: "gemini-pinned"}); err != nil {
 		t.Fatal(err)

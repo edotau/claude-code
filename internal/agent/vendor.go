@@ -184,7 +184,7 @@ func (v vendorRunner) prepare(ctx context.Context, req Request) (vendorPrep, err
 // agyModel is the --model agy runs for req on t; a Databricks row gets the id its gateway mode lists.
 func agyModel(req Request, t providers.Target) string {
 	if req.Model == "" || t.Model == "" { // the slot table's opus id isn't agy's own: GEMINI_MODEL pin, else flash-high
-		t.Model = AgyDefaultModel
+		t.Model = vendors.AgyDefaultModel
 	}
 	gt, _ := vendors.ResolveAgentModel(vendors.ModelAsk{Agent: "gemini", Flag: req.Model, Target: t, Applied: true})
 	if vendors.GeminiGatewayRow(t.Provider) {
@@ -234,10 +234,10 @@ func (v vendorRunner) Run(ctx context.Context, req Request, sink Sink) (Result, 
 	if v.name == "codex" {
 		var extra []string
 		if req.SystemPrompt != "" {
-			extra = append(extra, "-c", "instructions="+tomlQuote(req.SystemPrompt))
+			extra = append(extra, "-c", "instructions="+vendors.TOMLQuote(req.SystemPrompt))
 		}
 		if req.AppendSystemPrompt != "" {
-			extra = append(extra, "-c", "developer_instructions="+tomlQuote(req.AppendSystemPrompt))
+			extra = append(extra, "-c", "developer_instructions="+vendors.TOMLQuote(req.AppendSystemPrompt))
 		}
 		if req.OutputSchema != "" {
 			file, err := codexSchemaFile(req.OutputSchema)

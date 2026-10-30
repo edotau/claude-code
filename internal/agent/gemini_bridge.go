@@ -265,11 +265,11 @@ func compactRecordPrompt(task string, ctxFiles Context) string {
 	return out
 }
 
-// geminiAgyModel is the named (flag or process env) model for agy, else the GEMINI_MODEL pin, else AgyDefaultModel.
+// geminiAgyModel is the named (flag or process env) model for agy, else the GEMINI_MODEL pin, else vendors.AgyDefaultModel.
 func geminiAgyModel(reg *providers.Registry, sel providers.Selection, p *providers.Provider, named string) string {
 	if model := ResolveModel(named, ModelEnvKeys, ""); model != "" {
 		return resolvedModelID(reg, sel, p, model)
 	}
-	t, _ := vendors.ResolveAgentModel(vendors.ModelAsk{Agent: "gemini", Target: providers.Target{Provider: p, Model: AgyDefaultModel}})
+	t, _ := vendors.ResolveAgentModel(vendors.ModelAsk{Agent: "gemini", Target: providers.Target{Provider: p, Model: vendors.AgyDefaultModel}})
 	return t.Model
 }

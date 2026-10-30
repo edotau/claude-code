@@ -192,3 +192,22 @@ func TestOpenCodeModelMenu(t *testing.T) {
 		}
 	})
 }
+
+func TestMutateOpencodeConfigEnvPolicies(t *testing.T) {
+	set := func(c map[string]any) { c["k"] = "v" }
+	bad := []string{"A=1", OpencodeConfigEnv + "={nope"}
+	if _, err := MutateOpencodeConfigEnv(append([]string(nil), bad...), false, set); err == nil {
+		t.Error("strict: an unreadable block must be an error")
+	}
+	got, err := MutateOpencodeConfigEnv(append([]string(nil), bad...), true, set)
+	if err != nil || got[1] != OpencodeConfigEnv+`={"k":"v"}` || len(got) != 2 {
+		t.Errorf("lenient = %v, %v; want the block replaced in place", got, err)
+	}
+	got, _ = MutateOpencodeConfigEnv([]string{"A=1", OpencodeConfigEnv + `={"m":1}`}, false, set)
+	if got[1] != OpencodeConfigEnv+`={"k":"v","m":1}` {
+		t.Errorf("merge = %v", got)
+	}
+	if got, _ = MutateOpencodeConfigEnv(nil, false, set); len(got) != 1 || got[0] != OpencodeConfigEnv+`={"k":"v"}` {
+		t.Errorf("absent = %v, want one appended entry", got)
+	}
+}

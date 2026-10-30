@@ -74,7 +74,7 @@ esac
 	args := codexCatalogArgs(profile)
 	path := filepath.Join(paths.StateDir(), "codex", "catalog-qa.json")
 	keyPath := filepath.Join(paths.StateDir(), "codex", "catalog-qa.key")
-	wantArgs := []string{"-c", "model_catalog_json=" + tomlStr(path)}
+	wantArgs := []string{"-c", "model_catalog_json=" + TOMLQuote(path)}
 	if !reflect.DeepEqual(args, wantArgs) {
 		t.Fatalf("args = %q, want %q; warnings: %s", args, wantArgs, &warnings)
 	}
@@ -220,7 +220,7 @@ esac
 			if len(catalogArgs) != 0 {
 				t.Errorf("failed catalog leaked into argv: %q", catalogArgs)
 			}
-		} else if !reflect.DeepEqual(catalogArgs, []string{"model_catalog_json=" + tomlStr(wantCatalog)}) {
+		} else if !reflect.DeepEqual(catalogArgs, []string{"model_catalog_json=" + TOMLQuote(wantCatalog)}) {
 			t.Errorf("catalog marker disagrees with CLI override: marker %q, args %q", catalog, catalogArgs)
 		}
 	}
