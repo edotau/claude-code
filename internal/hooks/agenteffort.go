@@ -99,15 +99,15 @@ func agentEffortResult(in *Input) Result {
 // applyLabel prefixes the description with the agents doing the work, minus the leaf's own type.
 func applyLabel(updated map[string]any, task string) bool {
 	st, _ := updated["subagent_type"].(string)
-	if !labelTypes[st] {
-		return false
-	}
 	orig, _ := updated["description"].(string)
 	desc := orig
-	if rest, ok := strings.CutPrefix(desc, st+":"); ok { // a hand-typed own-type prefix ("copilot: …") repeats the row
+	if rest, ok := strings.CutPrefix(desc, st+":"); ok { // a hand-typed own-type prefix ("Plan: …") repeats the row
 		desc = strings.TrimSpace(rest)
 	}
-	label := agentLabel(st, task)
+	label := ""
+	if labelTypes[st] { // only harness leaves carry an agent label; any type gets the prefix strip + lowercase
+		label = agentLabel(st, task)
+	}
 	if label == "" && st == "code-worker" { // a wrapper leaf names who runs it; other types are their own agent
 		label = "claude"
 	}
