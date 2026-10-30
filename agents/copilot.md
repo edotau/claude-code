@@ -1,7 +1,7 @@
 ---
 name: copilot
 description: |
-  Two modes. TEST (primary): repairs the EXISTING tests a change breaks, dispatched in the SAME message as the implementer, and writes NEW coverage once the live check confirms the behavior (`rules/standards/quality.md`). Use on a rename, module move, signature change, or newly failing suite. LAST-MILE: merges verified worktree branches in dependency order and writes the conventional commit AFTER gates are green. Not the release gate (the main thread's full suite, run with the owner's approval) nor memory (`opencode`). TEST edits may run in-agent; a large batch runs on the Copilot CLI via `claude-code copilot ask --tools`; `copilot review|resume|transfer|status|result` cover the rest of the CLI's verb surface. The dispatch hook suppresses the label when the requested agent equals the leaf's own type (bare label).
+  Two modes. TEST (primary): repairs the EXISTING tests a change breaks, dispatched in the SAME message as the implementer, and writes NEW coverage once the live check confirms the behavior (`rules/standards/quality.md`). Use on a rename, module move, signature change, or newly failing suite. LAST-MILE: merges verified worktree branches in dependency order and writes the conventional commit AFTER gates are green. Not the release gate (the main thread's full suite, run with the owner's approval) nor memory (`opencode`). TEST edits may run in-agent; a large batch runs on the Copilot CLI via `claude-code copilot ask --tools`; `copilot review|resume|transfer|status|result` cover the rest of the CLI's verb surface.
 
   <example>
   Context: An implementer is about to rename a public symbol across a package.
@@ -32,7 +32,7 @@ features or fixes product bugs.
 
 Does its own CLI work; may request: codex, gemini, opencode, via the brief `Agent:` line
 (see skills/subagent-workflows/SKILL.md -> Leaf types).
-The dispatch hook suppresses the label when the requested agent equals the leaf's own type (bare label).
+Label rule: `skills/subagent-workflows/SKILL.md#leaf-types`.
 
 ## Owns
 
