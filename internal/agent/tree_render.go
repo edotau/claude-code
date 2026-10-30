@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/edotau/claude-code/internal/ui/ansi"
 )
 
 // defaultWidth is the fallback render width when COLUMNS isn't set (or isn't a usable int) — widest
@@ -15,14 +17,7 @@ const defaultWidth = 120
 
 // terminalWidth reads COLUMNS (the shell exports it on an interactive tty; --watch callers inherit
 // it too), falling back to defaultWidth so a redirected/piped run still wraps sanely.
-func terminalWidth() int {
-	if v := strings.TrimSpace(os.Getenv("COLUMNS")); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n > 0 {
-			return n
-		}
-	}
-	return defaultWidth
-}
+func terminalWidth() int { return ansi.Columns(defaultWidth) }
 
 // columnWidths sizes the type/status columns to the longest value actually in the rendered set, so
 // a table stays aligned instead of a fixed guess (e.g. "code-worker") breaking it.

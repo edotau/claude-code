@@ -96,6 +96,18 @@ func Liveness(now time.Time) func(name string) bool {
 	}
 }
 
+// DispatchAlive is the shared liveness rule for a dispatch record (status, pid, start time): a
+// non-running record is dead; a recorded pid is probed; an unrecorded pid counts for one minute.
+func DispatchAlive(status string, pid int, t time.Time) bool {
+	if status != "running" {
+		return false
+	}
+	if pid > 0 {
+		return proc.Alive(pid)
+	}
+	return time.Since(t) < time.Minute
+}
+
 // SubagentDir is where Claude Code writes this session's agent-<id>.jsonl: <project>/<session>/subagents.
 func SubagentDir(parentTranscript string) string {
 	if parentTranscript == "" {

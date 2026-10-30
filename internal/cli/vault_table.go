@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
-	"os"
 	"slices"
 	"strconv"
 	"strings"
@@ -20,19 +19,10 @@ import (
 )
 
 // vaultTableWidth is $COLUMNS when set, else 120 (no live TTY-size query exists in this repo).
-func vaultTableWidth() int {
-	if n, err := strconv.Atoi(os.Getenv("COLUMNS")); err == nil && n > 0 {
-		return n
-	}
-	return 120
-}
+func vaultTableWidth() int { return ansi.Columns(120) }
 
-// renderVaultText lays out each selected section, uppercase heading + aligned rows, in vaultSections order.
-func renderVaultText(doc configure.Doc, stored []secrets.Stored, sel []string, width int) string {
-	return renderVaultTextStyled(doc, stored, sel, width, false)
-}
-
-// renderVaultTextStyled is renderVaultText, painting every section when color is on (agents paints its own rows).
+// renderVaultTextStyled lays out each selected section (uppercase heading + aligned rows, in
+// vaultSections order), painting every section when color is on (agents paints its own rows).
 func renderVaultTextStyled(doc configure.Doc, stored []secrets.Stored, sel []string, width int, color bool) string {
 	render := map[string]func() string{
 		"secrets":   func() string { return vaultSectionMax("SECRETS", vaultSecretRows(stored), width, 0, 0) },

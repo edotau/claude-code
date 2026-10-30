@@ -5,8 +5,19 @@ import (
 	"os"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 )
+
+// Columns is $COLUMNS (trimmed) when it parses to > 0, else def.
+func Columns(def int) int {
+	if v := strings.TrimSpace(os.Getenv("COLUMNS")); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			return n
+		}
+	}
+	return def
+}
 
 // Semantic 16-color SGR codes for plain CLI output: every terminal renders them, and they compose with Bold.
 const (

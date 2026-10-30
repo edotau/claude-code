@@ -15,8 +15,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/edotau/claude-code/internal/inflight"
 	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/schemas"
 	"github.com/edotau/claude-code/internal/secrets/shapes"
 	"github.com/edotau/claude-code/internal/textutil"
@@ -50,16 +50,8 @@ type Record struct {
 	Live           bool      `json:"live,omitempty"`            // ask --live: a claude session held open on <id>.sock
 }
 
-// Alive reports whether this dispatch is still running: pid alive, or not yet recorded within a minute.
-func (r Record) Alive() bool {
-	if r.Status != "running" {
-		return false
-	}
-	if r.PID > 0 {
-		return proc.Alive(r.PID)
-	}
-	return time.Since(r.Time) < time.Minute
-}
+// Alive reports whether this dispatch is still running, by the shared inflight.DispatchAlive rule.
+func (r Record) Alive() bool { return inflight.DispatchAlive(r.Status, r.PID, r.Time) }
 
 // LogPath is the dispatch's log file: Log when set, else <id>.log beside the record.
 func (r Record) LogPath() string { return cmp.Or(r.Log, filepath.Join(DispatchDir(), r.ID+".log")) }

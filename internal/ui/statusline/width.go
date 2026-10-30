@@ -1,8 +1,6 @@
 package statusline
 
 import (
-	"os"
-	"strconv"
 	"strings"
 	"unicode/utf8"
 
@@ -14,8 +12,7 @@ func lineWidth(cfg Config) int {
 	if cfg.Width > 0 {
 		return cfg.Width
 	}
-	n, _ := strconv.Atoi(os.Getenv("COLUMNS"))
-	return max(n, 0)
+	return ansi.Columns(0)
 }
 
 // clip truncates each line to width visible cells (one per rune), keeping SGR escapes and ending in "…".
