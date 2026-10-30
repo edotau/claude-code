@@ -101,7 +101,7 @@ then surfaces a 503; `test_retry_exhausted` covers it."
 `review goals` → missing-final
 
 Six well-specified steps, no end-to-end step. Each unit can pass while the integration is
-broken. **Fix:** add "7. Run the full suite + smoke the happy path end-to-end."
+broken. **Fix:** add "7. Run the change on its real surface end-to-end; full suite once at wrap-up with approval."
 
 ### A12. Metric claim without a number
 

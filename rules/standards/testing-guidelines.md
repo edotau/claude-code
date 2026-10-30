@@ -19,6 +19,8 @@ before writing any NEW test.** A test written before the live run pins your gues
 Per feature, one end-to-end test plus the corner cases found while building it; per bug, one regression test that
 fails without the fix. Nothing more unless asked. Renames, moves and deletions need none; a refactor that breaks
 only tests means rewriting them against behavior, not keeping fixtures for states the code can no longer produce.
+A test the `review-simplicity` hook flags (complexity > 10, > 50 lines) is testing too much at once: cut it to the
+corner cases you found or split it by behavior — never raise the limit.
 
 ## A test must guard
 

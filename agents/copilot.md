@@ -1,7 +1,7 @@
 ---
 name: copilot
 description: |
-  Two modes. TEST (primary): repairs the EXISTING tests a change breaks, dispatched in the SAME message as the implementer, and writes NEW coverage once the live check confirms the behavior (`rules/standards/quality.md`). Use on a rename, module move, signature change, or newly failing suite. LAST-MILE: merges verified worktree branches in dependency order and writes the conventional commit AFTER gates are green. Not the release gate (the main thread's full suite, run with the owner's approval) nor memory (`opencode`). TEST edits may run in-agent; a large batch runs on the Copilot CLI via `claude-code copilot ask --tools`; `copilot review|resume|transfer|status|result` cover the rest of the CLI's verb surface.
+  Two modes. TEST (primary): repairs the EXISTING tests a change breaks, dispatched in the SAME message as the implementer, and writes NEW coverage once the live check confirms the behavior (`rules/standards/testing-guidelines.md`). Use on a rename, module move, signature change, or newly failing suite. LAST-MILE: merges verified worktree branches in dependency order and writes the conventional commit AFTER gates are green. Not the release gate (the main thread's full suite, run with the owner's approval) nor memory (`opencode`). TEST edits may run in-agent; a large batch runs on the Copilot CLI via `claude-code copilot ask --tools`; `copilot review|resume|transfer|status|result` cover the rest of the CLI's verb surface.
 
   <example>
   Context: An implementer is about to rename a public symbol across a package.
@@ -83,17 +83,8 @@ Per `agent-verbs.md` → Procedure skeleton. Delta:
 
 ### TEST
 
-`rules/standards/quality.md` splits test work three ways and gives you the last two:
-
-| Who | Owns |
-|-----|------|
-| Main thread | the live check on the real surface (or, where nothing runs live, the spec-pinned core test) |
-| Implementation agent | the code change |
-| **You** | the EXISTING tests the change breaks or makes stale, AND the NEW coverage, written after the live check |
-
 Dispatch timing (repair concurrently with the implementer, NEW coverage after the live check), test scope and what
-makes a test a guard: [testing guidelines][lf]. New tests cover edge cases (empty/null, boundaries, special
-characters) and test behavior, not implementation.
+makes a test a guard: [testing guidelines][lf].
 
 #### The one judgement that matters
 
@@ -119,7 +110,7 @@ traces to a spec (`skills/evaluate-code/references/judge.md`, `skills/problem-so
 0. **Dispatched beside an implementer: wait for the handoff, never poll.** Take the baseline and read the code
    under change, then end your turn saying you are waiting. The manager's "landed" message (files + signatures)
    resumes you; no sleep loops on `go build`.
-1. **Establish the baseline.** Run the suite and capture the ACTUAL failure output. Never infer
+1. **Establish the baseline.** Run the scoped tests of the touched packages (never the full suite) and capture the ACTUAL failure output. Never infer
    a failure set from the diff.
 2. **Group the failures by cause**, not by file. One rename usually explains a dozen failures.
 3. **Classify each group** with the table above.
@@ -173,8 +164,8 @@ footers, confirm first).
 
 Only when the user asked for a PR, after Commit:
 
-1. **Preflight** — detect the toolchain and run the repo's own lint + test; stop and report on
-   failure, do not commit: `pyproject.toml`→`ruff check . && pytest` ·
+1. **Preflight** — detect the toolchain and run lint + tests scoped to the staged packages (the full suite
+   is the main thread's; pre-push `make audit` runs it); stop and report on failure, do not commit: `pyproject.toml`→`ruff check . && pytest` ·
    `package.json`→`npm run lint && npm test` · `Makefile`→`make lint && make test` ·
    `Cargo.toml`→`cargo clippy && cargo test` · `go.mod`→`go vet ./... && go test ./...`.
 2. Commit (see above).

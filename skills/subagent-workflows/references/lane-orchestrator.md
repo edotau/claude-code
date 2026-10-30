@@ -7,7 +7,7 @@ each leaf in an isolated copy, and commits it. Leaf types and the `Agent:` reque
 
 | Role | Who | Does | Never |
 |---|---|---|---|
-| Manager | main session | splits lanes by disjoint packages, dispatches one `code-worker` (or `claude`) per lane, merges, runs the suite once | edits a lane's files |
+| Manager | main session | splits lanes by disjoint packages, dispatches one `code-worker` (or `claude`) per lane, merges, runs the suite once with user approval | edits a lane's files |
 | Lane orchestrator | that subagent | writes the lane checklist, dispatches and verifies each leaf, commits named files, ticks the box | edits outside its lane |
 | Leaf | a `code-worker` that requests `Agent: <x>` via `claude-code ask` (`copilot`, `codex`, `gemini`, `opencode` or `claude`) | one checklist line, owned files only | commits or dispatches (subagents; the `Agent:` request is allowed) |
 
@@ -25,8 +25,8 @@ Agents per [cost-routing.md](cost-routing.md).
 
 ## Dispatch
 
-Bug fixes first capture RED with no copy: `git show HEAD:<file>` to scratch, mapped over the live file with
-`go test -overlay <overlay.json>`. Then run each leaf in the background:
+Bug fixes: reproduce on the real surface first (the live before/after run is the RED). Then run each leaf in the
+background:
 
 ```bash
 iso="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/skills/subagent-workflows/scripts/isolate.sh"
@@ -38,8 +38,8 @@ echo "<leaf> exit=$? wall=$(( $(date +%s)-s ))s" >> /tmp/claude-1000/<lane>/stat
 
 Wait in one foreground call (≤10 min, repeat):
 `until n=$(grep -c exit= <status> 2>/dev/null); [ "${n:-0}" -ge N ]; do timeout 5 tail -f /dev/null; done`.
-Disjoint leaves run concurrently; overlapping ones wait; a test-repair leaf starts only after its implementer's exit
-line. A small leaf still running at ~10 min needs a look, not more waiting.
+Disjoint leaves run concurrently; overlapping ones wait; test repair runs concurrently with its implementer; new
+tests wait for "landed". A small leaf still running at ~10 min needs a look, not more waiting.
 
 Brief: [prompts.md#lane-leaf](prompts.md#lane-leaf); the attached lane plan carries the context.
 
@@ -52,7 +52,8 @@ A finding outside the leaf's files becomes a new line in this lane (same package
 3. The leaf's live check on real input.
 4. A changed seam (signature, argv/env builder, flag, file format): read producer and every consumer and run each
    consumer's tests — `go build ./...` alone has missed a broken consumer package.
-5. Read the diff: no weakened or deleted assertions, nothing outside `owns:`, no leftover old names.
+5. Read the diff: assertions intact (`testing-guidelines.md` → When a test fails), nothing outside `owns:`, no
+   leftover old names.
 6. `git add <new files>; git commit -m "<msg>" -- <files>` (a pathspec commit, so other lanes' staged files never ride
    along); tick the box with the short id; `"$iso" --remove <copy>`; delete the leaf scratch.
 

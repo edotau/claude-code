@@ -33,12 +33,12 @@ The import rule, in Python: `grep -nE '^(import|from)' <test> | grep <module>` â
 A cloud client built with its default credential chain reaches the network (boto3 with `session=None` probed
 `169.254.169.254`, 2.15s per test). Pass a stub session (`session=MagicMock()`) or inject the client.
 
-Audit, don't assume: a conftest plugin wrapping `socket.socket.connect`/`connect_ex`/`socket.getaddrinfo` (loopback
+Audit only when asked: a conftest plugin wrapping `socket.socket.connect`/`connect_ex`/`socket.getaddrinfo` (loopback
 allowed) that RECORDS each connection per `item.nodeid` names every offender in one run without failing it. The same
 shape on `unittest.mock._patch.__enter__/__exit__` finds vacuous mocks: `call_count == 0` AND `mock_calls == []`.
 Neither sees a subprocess's traffic.
 
 ## Endpoints and contracts
 
-DRF/FastAPI contract suites (auth/permission and input-validation matrices, `APIClient`/`httpx` patterns):
+DRF/FastAPI contract suites (`APIClient`/`httpx` patterns; one case per risk found, no matrices):
 `skills/subagent-workflows/references/api-contract-testing.md`.

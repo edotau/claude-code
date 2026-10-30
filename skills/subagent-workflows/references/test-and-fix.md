@@ -11,7 +11,7 @@ test fails): how to run the loop alone or as parallel and concurrent subagent lo
    | --- | --- |
    | One test | `go test ./internal/<pkg> -run '<TestName>' -count=1` (`-count=1` defeats the cache after an edit) |
    | Touched packages | `go test ./internal/<a> ./internal/<b>`; `-race` for concurrent code |
-   | Repo tiers | `make test-smoke`/`test-unit`/`test-all` if defined (`make -n <target>`), else `make test-unit`, else `make test` |
+   | Full suite | not a leaf's: `make test` is the full `make audit`; the main thread runs it once, with approval |
 
    Other languages: the overlay's commands (`rules/software/<lang>/testing.md`).
 2. **Triage each failure** per the rule → When a test fails (test-wrong vs code-wrong, with evidence).
@@ -26,7 +26,7 @@ test fails): how to run the loop alone or as parallel and concurrent subagent lo
 | --- | --- |
 | One failing test or package | The loop yourself, or one `copilot` leaf |
 | Failures across several packages | **Parallel:** one `copilot` (or `code-worker`) leaf per failing package in ONE message, each owning only that package's test files; fan in and re-run the union |
-| A change being implemented | **Concurrent:** `code-worker` ‖ `copilot` in one message; copilot repairs broken tests now, writes new coverage after your "landed" `SendMessage` |
+| A change being implemented | **Concurrent:** `code-worker` ‖ `copilot` in one message; copilot repairs broken tests now, writes new tests after your "landed" `SendMessage` |
 | A fixed bug | **Regression leaf:** after your live before/after, one leaf writes the regression test and returns the `test mutate` proof; one leaf per bug in disjoint packages |
 | A suite must go green, bounded | `Workflow green-keeper-loop` (gate → fix in scope → re-run, ≤N), one call per repo — only when the user asks ([saved-workflows.md](saved-workflows.md)) |
 | Audit findings to fix and test | `Workflow code-analyzer` (fix ‖ test per package → green-keeper-loop) — only when the user asks |
@@ -52,15 +52,10 @@ go test -overlay /tmp/ov.json -run '<RE>' ./<pkg>    # must FAIL; the real file 
 Prove a mutation landed (`count(old) == 1` before writing, grep the marker after) — a no-op mutation passes for the
 very reason you were disproving.
 
-## Pin the behavior first — Given / When / Then
+## Live first, then pin
 
-```text
-Given a vault whose only agent pin is COPILOT_ACTIVE=off
-When `vault list agents` renders without color
-Then the copilot row reads `copilot (off)` and no PINS section is printed
-```
-
-One criterion, one test; "should work well" is not a criterion; anything untraceable is scope creep.
+Run the change on the real surface first, then pin what you observed (Given / When / Then where nothing runs live):
+`rules/standards/testing-guidelines.md` → Live first, then tests.
 
 ## Go shapes and mock anti-patterns
 
@@ -71,12 +66,7 @@ One criterion, one test; "should work well" is not a criterion; anything untrace
 | Seam | a package var swapped and restored with `t.Cleanup` (the rule's example) |
 | Golden output | the package's documented `-update` flag; read the diff before accepting it |
 
-| Anti-pattern | Gate question | Fix |
-| --- | --- | --- |
-| Asserting on a mock | "Real behavior, or just the mock?" | Unmock it, or delete the assertion |
-| Test-only method on a production type | "Only tests call it?" | Move it to a `_test.go` helper; keep the seam a package var |
-| Mocking without understanding | "What side effects does the real call have, and does the test need them?" | Stub only the slow/external call; keep the write path real |
-| Incomplete fake | "What fields does the real API return?" | Mirror the complete real shape |
+Mocks: `rules/standards/testing-guidelines.md` → A test must guard (mock only real boundaries).
 
 Python (pytest, `@patch`, DRF/FastAPI contract matrices): `rules/software/python/testing.md` and
 [api-contract-testing.md](api-contract-testing.md).

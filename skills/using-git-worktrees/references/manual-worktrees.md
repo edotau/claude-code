@@ -53,7 +53,7 @@ shared `.venv`.
 Run the project's fast gate so new failures are distinguishable from pre-existing ones:
 
 ```bash
-make test-unit 2>/dev/null || make test 2>/dev/null || .venv/bin/python -m pytest -q
+# the touched area's scoped tests, e.g. go test ./internal/<pkg> or pytest <path>
 ```
 
 If the baseline is red, report it and ask before proceeding — don't start work on top of an
@@ -121,7 +121,7 @@ git worktree prune                                    # clear stale metadata
 | `rm -rf` a worktree, leaving phantom metadata | `git worktree remove` then `git worktree prune` |
 | Force-removing a dirty worktree | Check `status --porcelain` + `--merged` first |
 | Fresh `uv sync` per worktree (slow) | Symlink the shared `.venv` unless deps differ |
-| Starting work on a red baseline | Run the fast gate first; report failures before proceeding |
+| Starting work on a red baseline | Run the touched area's scoped tests first; report failures before proceeding |
 
 ## Validation checklist
 

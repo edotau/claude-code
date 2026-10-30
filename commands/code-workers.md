@@ -14,8 +14,8 @@ rest on `|` into the task list. Blank task list: read the most recent
 breakdown. `auto` or no mode: infer parallel for independent tasks, sequential for
 coupled/ordered/plan-derived ones, per the skill's work-shape table — state the choice and why.
 
-Dispatch each task as a `code-worker` leaf per the skill's process, each with a `copilot` test agent
-(`rules/standards/quality.md`). Run the spec → simplify → quality
+Dispatch each task as a `code-worker` leaf per the skill's process, feature/bug-fix tasks add a `copilot` test agent
+(`rules/standards/testing-guidelines.md`). Run the spec → simplify → quality
 gates from the skill before moving to the next task (sequential) or over the integrated diff
 (parallel). Relay one consolidated report: per-task status, files, verification, overall verdict.
 
@@ -25,5 +25,5 @@ or in-context when cost-routing says so.
 
 `team` mode (`/code-workers team <goal>`): `code-worker` leaves with `Agent: gemini` scan (read-only, cites
 file:line) → `Agent: codex` reviews the list (KEEP/CHANGE/DROP) → STOP and show the reviewed list for the user's
-approval → approved items go to `code-worker` leaves with `Agent: opencode` (worktree) ‖ a `copilot` test agent
+approval → approved items go to `code-worker` leaves with `Agent: opencode` (worktree) ‖ a `copilot` test agent (feature/bug fix only)
 when code changes. Watch each dispatch with `claude-code <agent> tail -f`.

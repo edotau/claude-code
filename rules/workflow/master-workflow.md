@@ -99,7 +99,7 @@ Per `rules/standards/worktree-git.md`; `/copilot commit` executes, `/copilot pr`
 
 | Scenario | Path |
 |----------|------|
-| Bug fix (LOW) | fix → test-and-fix loop (`subagent-workflows/references/test-and-fix.md`) → `/copilot commit` |
+| Bug fix (LOW) | fix → live re-run → regression test → `/copilot commit` |
 | One-module feature (MEDIUM) | review → plan → implement → verify (simplify is its step 5) → commit |
 | Cross-module feature (HIGH) | review → orchestrate `[--refine]` → verify → commit |
 | Tech debt | `skills/evaluate-code/references/techdebt.md` |

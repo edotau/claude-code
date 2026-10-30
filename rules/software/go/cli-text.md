@@ -12,7 +12,7 @@ the row→key mapping. Be concise but descriptive — every word counts.
 
 - Lead with what the item does; drop filler ("this will", "allows you to") and `·`-chained clauses.
 - Name the one fact the user needs to choose (the key it writes, the command it runs), not every effect.
-- Data-driven menus carry a width test that renders each row and asserts ≤80 per line and hanging-indent alignment.
+- One width test per menu table, driving the real renderer.
 - `-h` text is only ever a `helptext.Page` (`helptext.NewFlagSet` + `helptext.Parse`); FLAGS rows come from the FlagSet.
 
 ```text

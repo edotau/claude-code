@@ -157,5 +157,6 @@ mid-run.
 ## Fan-in
 
 Treat every report as a claim. Inspect the integrated diff for edits outside each agent's files; confirm a new guard
-test can fail (break what it protects, re-run); re-run the scoped checks yourself (`-race` for concurrent code);
-rebuild before trusting a binary; simplify the integrated diff (lanes duplicate helpers); report only verified results.
+test can fail (`testing-guidelines.md` → A test must guard); re-run the scoped checks yourself (`-race` for
+concurrent code); rebuild before trusting a binary; simplify the integrated diff (lanes duplicate helpers);
+report only verified results.

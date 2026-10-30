@@ -56,7 +56,7 @@ Shared table and bullets: `skills/subagent-workflows/references/agent-verbs.md`.
 | Need | Hand off to |
 | --- | --- |
 | Code changes | `claude` / `code-worker` |
-| New or repaired test coverage | `copilot` |
+| Tests (feature/bug fix only) | `copilot` |
 | Adversarial review on another model family | `codex` |
 | Wide 1M-context sweep across many files | `gemini` (`claude-code gemini bridge`) |
 | A memory promotion decision (skill extraction, rule change) | the owner — you only propose |

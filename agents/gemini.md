@@ -66,7 +66,7 @@ Shared table and bullets: `skills/subagent-workflows/references/agent-verbs.md`.
 | --- | --- |
 | Implementation | `claude` / `code-worker` |
 | Adversarial diff review on another model family | `codex` |
-| New test coverage | `copilot` |
+| New tests (feature/bug fix only) | `copilot` |
 | Docs refresh or memory persistence | `opencode` |
 | Architecture decisions | the manager (`opus`) — you only feed it findings |
 

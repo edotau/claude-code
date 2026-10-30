@@ -12,9 +12,8 @@ paths:
 
 ## Scope every run to what changed
 
-The full suite (`npm test`, `npm run test`, bare `npx vitest run`, `--coverage`, cypress/e2e) runs once, at wrap-up,
-with the user's approval — the same rule as `make test`; an `ask` permission enforces it. During development and in
-every subagent brief, name the files:
+Full suite: `rules/standards/quality.md` step 6 (once, with approval); an `ask` permission enforces it. During
+development and in every subagent brief, name the files:
 
 | Step | Command |
 | --- | --- |
@@ -23,7 +22,6 @@ every subagent brief, name the files:
 | One test file | `npx vitest run <path/to/file.test.tsx>` (jest: `npx jest <path>`) |
 | One test | `npx vitest run <path> -t "<name>"` |
 | Tests for a dir | `npx vitest run src/<feature>/` |
-| Coverage of a dir | `npx vitest run src/<feature>/ --coverage --coverage.include='src/<feature>/**'` |
 | E2E (cypress/playwright) | wrap-up only, user-approved: it builds and serves the whole app |
 
 Read `package.json` `scripts` first and use the repo's runner and flags; never `npm install` a test tool to run one.
