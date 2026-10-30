@@ -97,3 +97,38 @@ func TestScopedGoGateReverseDeps(t *testing.T) {
 		t.Errorf("pkgs=%v want %v", pkgs, want)
 	}
 }
+
+// TestScopedGoGateNonGoFiles is the regression test: goldens outside a package select the tests naming them, an
+// embed in a sub-package dir selects its embedder, unowned markdown selects nothing, and other unowned files go full.
+func TestScopedGoGateNonGoFiles(t *testing.T) {
+	dir, run, write := gateRepo(t)
+	write("mem/mem.go", "package mem\n")
+	write("mem/mem_test.go", "package mem\n\nconst golden = \"../docs/examples/mem\"\n")
+	write("emb/emb.go", "package emb\n\nimport _ \"embed\"\n\n//go:embed sub/x.json\nvar x string\n")
+	write("emb/sub/sub.go", "package sub\n")
+	write("emb/sub/x.json", "{}\n")
+	write("z/z.go", "package z\n")
+	run("add", "-A")
+	run("commit", "-q", "-m", "base")
+	base := run("rev-parse", "HEAD")
+	write("docs/examples/mem/index.md", "x\n")
+	write("emb/sub/x.json", "{\"a\":1}\n")
+	write("docs/notes.md", "x\n")
+	run("add", "-A")
+	run("commit", "-q", "-m", "data")
+
+	_, pkgs, full, err := ScopedGoGate(context.Background(), dir, base)
+	if err != nil || full {
+		t.Fatalf("err=%v full=%v", err, full)
+	}
+	if want := []string{"emb", "emb/sub", "mem"}; !slices.Equal(pkgs, want) {
+		t.Errorf("pkgs=%v want %v", pkgs, want)
+	}
+
+	write("tools/run.sh", "#!/bin/sh\n")
+	run("add", "-A")
+	run("commit", "-q", "-m", "script")
+	if cmd, _, full, err := ScopedGoGate(context.Background(), dir, base); err != nil || !full || cmd != fullGoGate {
+		t.Fatalf("unowned non-markdown file: cmd=%s full=%v err=%v", cmd, full, err)
+	}
+}

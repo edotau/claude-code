@@ -6,7 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -17,29 +19,19 @@ var registryPkgs = []string{"internal/hooks", "internal/hookspec", "internal/set
 
 // goPkg is the slice of `go list -json` the gate reads.
 type goPkg struct {
-	ImportPath, Dir                    string
-	Imports, TestImports, XTestImports []string
+	ImportPath, Dir                             string
+	Imports, TestImports, XTestImports          []string
+	EmbedFiles, TestEmbedFiles, XTestEmbedFiles []string
+	TestGoFiles, XTestGoFiles                   []string
 }
 
 // ScopedGoGate builds the merge gate: build and vet everything, test the packages base...HEAD changed, every
-// package that imports them (tests included, transitively) and the registry packages. full is true when a
-// go.mod/go.sum change makes that unsafe.
+// package that imports them (tests included, transitively) and the registry packages. full is true for a
+// go.mod/go.sum change or an unowned non-markdown file.
 func ScopedGoGate(ctx context.Context, dir, base string) (cmd string, pkgs []string, full bool, err error) {
 	out, err := runGit(ctx, dir, nil, "diff", "--name-only", "-z", base+"...HEAD")
 	if err != nil {
 		return "", nil, false, fmt.Errorf("git diff %s...HEAD: %w (%s)", base, err, gitErrorDetail(err))
-	}
-	changed := map[string]bool{}
-	for _, f := range strings.Split(string(out), "\x00") {
-		switch {
-		case f == "":
-		case f == "go.mod" || f == "go.sum":
-			return "go build ./... && go vet ./... && go test ./...", nil, true, nil
-		default:
-			if p := goPkgOf(dir, filepath.Dir(f)); p != "" {
-				changed[p] = true
-			}
-		}
 	}
 	list, err := listPackages(ctx, dir)
 	if err != nil {
@@ -48,6 +40,22 @@ func ScopedGoGate(ctx context.Context, dir, base string) (cmd string, pkgs []str
 	abs, err := filepath.Abs(dir) // go list reports absolute package dirs
 	if err != nil {
 		return "", nil, false, err
+	}
+	changed, src := map[string]bool{}, cachedReader()
+	for _, f := range strings.Split(string(out), "\x00") {
+		switch {
+		case f == "":
+		case f == "go.mod" || f == "go.sum":
+			return fullGoGate, nil, true, nil
+		default:
+			owners := filePackages(list, abs, f, src)
+			if len(owners) == 0 && !strings.HasSuffix(f, ".md") && !strings.HasSuffix(f, ".go") { // .go: build covers deletions
+				return fullGoGate, nil, true, nil // an unowned non-markdown file may feed any test
+			}
+			for _, p := range owners {
+				changed[p] = true
+			}
+		}
 	}
 	set := reverseDeps(list, abs, changed)
 	for _, p := range registryPkgs {
@@ -64,6 +72,54 @@ func ScopedGoGate(ctx context.Context, dir, base string) (cmd string, pkgs []str
 		args[i] = "./" + p
 	}
 	return "go build ./... && go vet ./... && go test " + strings.Join(args, " "), pkgs, false, nil
+}
+
+const fullGoGate = "go build ./... && go vet ./... && go test ./..."
+
+// filePackages maps a changed file to its package dir; a non-Go file also to packages embedding it or tests naming it.
+func filePackages(list []goPkg, abs, f string, src func(string) string) []string {
+	var out []string
+	if p := goPkgOf(abs, filepath.Dir(f)); p != "" {
+		out = append(out, p)
+	}
+	if strings.HasSuffix(f, ".go") {
+		return out
+	}
+	for _, p := range list {
+		if r, err := filepath.Rel(abs, p.Dir); err == nil && refersTo(p, filepath.ToSlash(r), f, src) {
+			out = append(out, filepath.ToSlash(r))
+		}
+	}
+	return out
+}
+
+// refersTo reports whether p (at repo-relative r) embeds f or has a test file mentioning f or its directory.
+func refersTo(p goPkg, r, f string, src func(string) string) bool {
+	for _, e := range slices.Concat(p.EmbedFiles, p.TestEmbedFiles, p.XTestEmbedFiles) {
+		if path.Join(r, filepath.ToSlash(e)) == f {
+			return true
+		}
+	}
+	d := path.Dir(f)
+	for _, t := range slices.Concat(p.TestGoFiles, p.XTestGoFiles) {
+		if b := src(filepath.Join(p.Dir, t)); strings.Contains(b, f) || d != "." && strings.Contains(b, d) {
+			return true
+		}
+	}
+	return false
+}
+
+// cachedReader returns a file reader that reads each path once; an unreadable file reads as "".
+func cachedReader() func(string) string {
+	seen := map[string]string{}
+	return func(p string) string {
+		if b, ok := seen[p]; ok {
+			return b
+		}
+		b, _ := os.ReadFile(p)
+		seen[p] = string(b)
+		return seen[p]
+	}
 }
 
 // listPackages runs `go list -e -json ./...` in dir and decodes its package stream.
