@@ -111,7 +111,7 @@ func (d *dialog) header(section string) {
 
 // warmServedOnChange warms the served cache when a pin changed or the switch flipped on since the run's snapshot.
 func warmServedOnChange(out io.Writer, skip bool, pins map[string]providers.AgentPinSpec, wasOn bool) {
-	if skip || (wasOn && maps.Equal(pins, providers.AgentPins())) {
+	if skip || !providers.ServedRoutingOn() || (wasOn && maps.Equal(pins, providers.AgentPins())) {
 		return
 	}
 	if reg, err := providers.Load(); err == nil {

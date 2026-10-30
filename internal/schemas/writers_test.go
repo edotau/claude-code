@@ -115,6 +115,7 @@ var writers = map[string]string{
 	"internal/memory/txn.go:commit":                                unversioned("memory-bank: txn receipt in the memory repo"),
 	"internal/memory/txn.go:save":                                  "memory-journal",
 	"internal/mutate/mutate.go:Check":                              unversioned("foreign: mutation-test scratch copy"),
+	"internal/preflight/served.go:ClaimRefresh":                    unversioned("marker: detached served-refresh attempt stamp"),
 	"internal/preflight/served.go:SaveServed":                      "served-models",
 	"internal/providers/opencode_check.go:SaveCheckCache":          "opencode-models-check",
 	"internal/providers/tokenexpiry.go:recordTokenExpiry":          "token-expiry",

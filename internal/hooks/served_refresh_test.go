@@ -65,3 +65,14 @@ func TestSessionStartSpawnsServedRefreshOnlyWhenStale(t *testing.T) {
 		})
 	}
 }
+
+// A failing refresh leaves the cache stale; the next SessionStart inside the retry window must not spawn again.
+func TestSessionStartSpacesServedRefreshAttempts(t *testing.T) {
+	now := time.Now()
+	calls := servedSession(t, true, time.Time{}, "")
+	memoryContext(t.TempDir(), "s1", "", now)
+	memoryContext(t.TempDir(), "s2", "", now.Add(time.Minute))
+	if got := calls.Load(); got != 1 {
+		t.Fatalf("spawnServed calls = %d, want 1", got)
+	}
+}
