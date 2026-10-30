@@ -12,9 +12,29 @@ import (
 
 var boxRe = regexp.MustCompile(`^(\s*[-*] \[)[ xX](\])`)
 
+// Commit is one landed commit: the sha recorded on ticks and the files it changed.
+type Commit struct {
+	Sha   string
+	Files []string
+}
+
+// TickResult is what one commit ticked or marked partly landed.
+type TickResult struct {
+	Sha             string
+	Ticked, Partial []string
+}
+
 // Tick ticks fully covered tasks and notes partly covered ones; returns touched titles, writes only on change.
 func Tick(planPath, sha string, files []string) (ticked, partial []string, err error) {
-	sha = strings.TrimSpace(sha)
+	results, err := TickCommits(planPath, []Commit{{Sha: sha, Files: files}}, false)
+	for _, r := range results {
+		ticked, partial = r.Ticked, r.Partial
+	}
+	return ticked, partial, err
+}
+
+// TickCommits applies Tick to each commit in order under one lock; dryRun reports without writing.
+func TickCommits(planPath string, commits []Commit, dryRun bool) (results []TickResult, err error) {
 	err = paths.WithFileLock(filepath.Join(paths.StateDir(), "plans.lock"), func() error {
 		info, err := os.Stat(planPath)
 		if err != nil {
@@ -24,32 +44,42 @@ func Tick(planPath, sha string, files []string) (ticked, partial []string, err e
 		if err != nil {
 			return err
 		}
-		lines := strings.Split(string(b), "\n")
-		changed := false
-		for _, t := range ParseBytes(planPath, b).Tasks {
-			if t.Done || len(t.Owns) == 0 {
-				continue
-			}
-			all, any := Covers(t.Owns, files)
-			switch {
-			case all:
-				lines = removeClaims(lines, t)
-				lines[t.Start] = boxRe.ReplaceAllString(lines[t.Start], "${1}x${2}")
-				lines[t.End] = appendSuffix(lines[t.End], " ("+sha+")")
-				ticked = append(ticked, t.Title)
-				changed = true
-			case any && !hasSha(t.Partial, sha):
-				lines = addPartial(lines, t, sha)
-				partial = append(partial, t.Title)
-				changed = true
+		text := string(b)
+		for _, c := range commits {
+			r := TickResult{Sha: strings.TrimSpace(c.Sha)}
+			text, r.Ticked, r.Partial = tickText(planPath, text, r.Sha, c.Files)
+			if len(r.Ticked)+len(r.Partial) > 0 {
+				results = append(results, r)
 			}
 		}
-		if !changed {
+		if dryRun || text == string(b) {
 			return nil
 		}
-		return writePlan(planPath, []byte(strings.Join(lines, "\n")), info.Mode().Perm())
+		return writePlan(planPath, []byte(text), info.Mode().Perm())
 	})
-	return ticked, partial, err
+	return results, err
+}
+
+// tickText is Tick's pure edit: one commit's sha and files applied to the plan text.
+func tickText(planPath, text, sha string, files []string) (out string, ticked, partial []string) {
+	lines := strings.Split(text, "\n")
+	for _, t := range ParseBytes(planPath, []byte(text)).Tasks {
+		if t.Done || len(t.Owns) == 0 {
+			continue
+		}
+		all, any := Covers(t.Owns, files)
+		switch {
+		case all:
+			lines = removeClaims(lines, t)
+			lines[t.Start] = boxRe.ReplaceAllString(lines[t.Start], "${1}x${2}")
+			lines[t.End] = appendSuffix(lines[t.End], " ("+sha+")")
+			ticked = append(ticked, t.Title)
+		case any && !hasSha(t.Partial, sha):
+			lines = addPartial(lines, t, sha)
+			partial = append(partial, t.Title)
+		}
+	}
+	return strings.Join(lines, "\n"), ticked, partial
 }
 
 // editTask re-reads planPath under the plans lock, applies fn and writes back only when bytes changed.

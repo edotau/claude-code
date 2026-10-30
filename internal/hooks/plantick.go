@@ -63,16 +63,10 @@ func tickCommit(in *Input, cmd, sha string, stderr io.Writer) []string {
 	if !ok {
 		return nil
 	}
-	raw, err := exec.CommandContext(ctx, "git", "-C", dir, "show", "-z", "--name-only", "--format=", sha).Output()
+	files, err := plans.CommitFiles(ctx, dir, sha)
 	if err != nil {
 		fmt.Fprintf(stderr, "plan-tick: %v\n", err)
 		return nil
-	}
-	var files []string
-	for _, f := range strings.Split(string(raw), "\x00") {
-		if f = strings.TrimPrefix(f, "\n"); f != "" {
-			files = append(files, f)
-		}
 	}
 	short := sha
 	if len(short) > 7 {

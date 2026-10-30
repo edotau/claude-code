@@ -284,6 +284,9 @@ func applyMerge(ctx context.Context, repo *worktree.Repo, plan *worktree.MergePl
 		return fail("worktree merge: promote: %v", err)
 	}
 	fmt.Printf("promoted:   %s -> %s on %s\n", shortOID(promoted.BeforeOID), shortOID(promoted.AfterOID), plan.TargetRef)
+	if err := tickRange(ctx, repo.Main, name, promoted.BeforeOID+".."+promoted.AfterOID, "", false, os.Stdout); err != nil {
+		fmt.Fprintf(os.Stderr, "worktree merge: warning: plan tick: %v\n", err)
+	}
 	if err := worktree.CloseLedger(repo.Main, name, worktree.LedgerClose{
 		Via: "merge", MergeSHA: promoted.AfterOID, Head: integrated.AfterOID,
 	}); err != nil {
