@@ -33,7 +33,7 @@ func Tick(planPath, sha string, files []string) (ticked, partial []string, err e
 	return ticked, partial, err
 }
 
-// TickCommits applies Tick to each commit in order under one lock; dryRun reports without writing.
+// TickCommits ticks per commit in order under one lock, a task completing once the range's union covers it; dryRun skips writing.
 func TickCommits(planPath string, commits []Commit, dryRun bool) (results []TickResult, err error) {
 	err = paths.WithFileLock(filepath.Join(paths.StateDir(), "plans.lock"), func() error {
 		info, err := os.Stat(planPath)
@@ -45,9 +45,11 @@ func TickCommits(planPath string, commits []Commit, dryRun bool) (results []Tick
 			return err
 		}
 		text := string(b)
+		var seen []string
 		for _, c := range commits {
 			r := TickResult{Sha: strings.TrimSpace(c.Sha)}
-			text, r.Ticked, r.Partial = tickText(planPath, text, r.Sha, c.Files)
+			seen = append(seen, c.Files...)
+			text, r.Ticked, r.Partial = tickText(planPath, text, r.Sha, c.Files, seen)
 			if len(r.Ticked)+len(r.Partial) > 0 {
 				results = append(results, r)
 			}
@@ -60,14 +62,15 @@ func TickCommits(planPath string, commits []Commit, dryRun bool) (results []Tick
 	return results, err
 }
 
-// tickText is Tick's pure edit: one commit's sha and files applied to the plan text.
-func tickText(planPath, text, sha string, files []string) (out string, ticked, partial []string) {
+// tickText is Tick's pure edit: ticks on seen (files so far), notes partials from this commit's files.
+func tickText(planPath, text, sha string, files, seen []string) (out string, ticked, partial []string) {
 	lines := strings.Split(text, "\n")
 	for _, t := range ParseBytes(planPath, []byte(text)).Tasks {
 		if t.Done || len(t.Owns) == 0 {
 			continue
 		}
-		all, any := Covers(t.Owns, files)
+		all, _ := Covers(t.Owns, seen)
+		_, any := Covers(t.Owns, files)
 		switch {
 		case all:
 			lines = removeClaims(lines, t)

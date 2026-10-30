@@ -50,7 +50,7 @@ func TestTickRange(t *testing.T) {
 	}
 
 	res, err := TickCommits(plan, commits, true)
-	if err != nil || len(res) != 2 || len(res[0].Partial) != 1 || len(res[1].Ticked) != 1 || len(res[1].Partial) != 1 {
+	if err != nil || len(res) != 2 || len(res[0].Partial) != 1 || len(res[1].Ticked) != 2 || len(res[1].Partial) != 0 {
 		t.Fatalf("dry-run results %+v err=%v", res, err)
 	}
 	if got := readFile(t, plan); strings.Contains(got, "[x]") || strings.Contains(got, "partly") {
@@ -66,5 +66,20 @@ func TestTickRange(t *testing.T) {
 	}
 	if _, err := RangeCommits(context.Background(), repo, "HEAD"); err == nil {
 		t.Fatal("a range without .. must be rejected")
+	}
+}
+
+// A task whose owned files land across several commits ticks once the range covers them all.
+func TestTickCommitsUnionsRange(t *testing.T) {
+	hermetic(t)
+	plan := filepath.Join(t.TempDir(), "plan.md")
+	writeFile(t, plan, "- [ ] 1.1 Split owns: a.go, b.go, c.go\n")
+	commits := []Commit{{Sha: "aaa1111", Files: []string{"a.go"}}, {Sha: "bbb2222", Files: []string{"b.go"}}, {Sha: "ccc3333", Files: []string{"c.go"}}}
+	res, err := TickCommits(plan, commits, false)
+	if err != nil || len(res) != 3 || len(res[2].Ticked) != 1 {
+		t.Fatalf("results %+v err=%v", res, err)
+	}
+	if got := readFile(t, plan); !strings.Contains(got, "- [x] 1.1") || !strings.Contains(got, "(ccc3333)") {
+		t.Fatalf("plan:\n%s", got)
 	}
 }
