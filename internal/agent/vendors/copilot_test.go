@@ -212,7 +212,7 @@ func copilotAuthEnv(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(bin, "gh"), []byte(gh), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("PATH", bin) // gh present, but no `security`/`secret-tool`: keyring.Available() is false
+	t.Setenv("PATH", bin) // gh present, but no `security`/`secret-tool`: vault.KeyringAvailable() is false
 }
 
 // A stored COPILOT_GITHUB_TOKEN (vault) outranks gh's active account.

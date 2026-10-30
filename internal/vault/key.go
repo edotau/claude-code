@@ -16,12 +16,11 @@ import (
 
 	"github.com/edotau/claude-code/internal/audit"
 	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/vault/keyring"
 )
 
-var keyringLookup = keyring.Lookup
-var keyringSet = keyring.Set
-var keyringDelete = keyring.Delete
+var keyringLookup = KeyringLookup
+var keyringSet = KeyringSet
+var keyringDelete = KeyringDelete
 
 // UseKeyringSeams swaps the lookup/set/delete functions this package shells out to for the OS
 // keyring, returning a restore func; exported solely for vaulttest's FakeKeyring.
@@ -102,7 +101,7 @@ func resolveKey(id, kid, command string) (*Key, string, error) {
 		return keyCache.key, keyCache.source, nil
 	}
 	v, found, lookupErr := keyringLookup(account(id))
-	recoverable := lookupErr != nil && (errors.Is(lookupErr, keyring.ErrUnavailable) || errors.Is(lookupErr, keyring.ErrNoAnswer))
+	recoverable := lookupErr != nil && (errors.Is(lookupErr, ErrKeyringUnavailable) || errors.Is(lookupErr, ErrKeyringNoAnswer))
 	if lookupErr != nil && !recoverable {
 		return nil, "", lookupErr
 	}
@@ -226,7 +225,7 @@ func matchKey(id string, k *Key, source, kid, command string) (*Key, string, err
 // wrapKeyringUnavailable turns a keyring that could not positively establish absence into a
 // locked vault with recovery instructions, instead of letting EnsureKey generate over it (R6).
 func wrapKeyringUnavailable(err error) error {
-	if errors.Is(err, keyring.ErrUnavailable) || errors.Is(err, keyring.ErrNoAnswer) {
+	if errors.Is(err, ErrKeyringUnavailable) || errors.Is(err, ErrKeyringNoAnswer) {
 		return fmt.Errorf("%w: set HARNESS_VAULT_KEY or meta/key_command (%v)", ErrLocked, err)
 	}
 	return err
