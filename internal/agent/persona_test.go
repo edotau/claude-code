@@ -2,6 +2,8 @@ package agent
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -47,5 +49,30 @@ func TestLoadPersonaUnknown(t *testing.T) {
 		if p, err := LoadPersona(ref); err == nil {
 			t.Errorf("LoadPersona(%q) = %+v, want an error", ref, p)
 		}
+	}
+}
+
+// An explicit empty tools list means no tools: it survives load, the claude definition and the record round-trip.
+func TestPersonaEmptyToolsIsNotInherit(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", dir)
+	f := filepath.Join(dir, "r.md")
+	if err := os.WriteFile(f, []byte("---\nname: r\ntools: []\n---\nBody.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	p, err := LoadPersona(f)
+	if err != nil || p.Tools == nil || len(p.Tools) != 0 {
+		t.Fatalf("loaded %+v (%v), want non-nil empty Tools", p, err)
+	}
+	if args := personaArgs(*p); !strings.Contains(args[1], `"tools":[]`) {
+		t.Errorf("--agents = %s, want tools:[]", args[1])
+	}
+	b, _ := json.Marshal(Request{Persona: p})
+	var back Request
+	if err := json.Unmarshal(b, &back); err != nil || back.Persona.Tools == nil {
+		t.Errorf("round-trip lost the empty list: %s (%v)", b, err)
+	}
+	if _, dropped, _ := applyCaps(Caps{Persona: Emulated, AppendSystemPrompt: Emulated}, Request{Persona: p}); !slices.Contains(dropped, "--persona.tools=none") {
+		t.Errorf("dropped = %q, want tools=none named", dropped)
 	}
 }
