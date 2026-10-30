@@ -2,12 +2,14 @@ package worktree
 
 import (
 	"context"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 )
 
 // gateRepo is a git repo holding module example.com/m, with run and write helpers.
@@ -130,5 +132,41 @@ func TestScopedGoGateNonGoFiles(t *testing.T) {
 	run("commit", "-q", "-m", "script")
 	if cmd, _, full, err := ScopedGoGate(context.Background(), dir, base); err != nil || !full || cmd != fullGoGate {
 		t.Fatalf("unowned non-markdown file: cmd=%s full=%v err=%v", cmd, full, err)
+	}
+}
+
+// A cancelled ctx must kill the long-running gate promptly instead of letting it finish.
+func TestRunVerifyCancelledByContextStopsPromptly(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	start := time.Now()
+	err := RunVerify(ctx, t.TempDir(), "sleep 30", io.Discard, io.Discard)
+	if err == nil {
+		t.Fatal("RunVerify: want an error for an already-cancelled context")
+	}
+	if elapsed := time.Since(start); elapsed > 5*time.Second {
+		t.Fatalf("RunVerify took %s after cancellation, want it to stop promptly", elapsed)
+	}
+}
+
+// Precedence: --no-verify, then --verify, then detection (Makefile test target beats go.mod); nothing found refuses.
+func TestChooseVerifyGatePrecedence(t *testing.T) {
+	dir := t.TempDir()
+	if _, _, err := ChooseVerifyGate(dir, "", false); err == nil {
+		t.Fatal("empty dir without --no-verify: want a refusal")
+	}
+	if g, _, err := ChooseVerifyGate(dir, "x", true); g != "" || err != nil {
+		t.Fatalf("--no-verify = (%q, %v), want skip", g, err)
+	}
+	if g, s, _ := ChooseVerifyGate(dir, "x", false); g != "x" || s != "flag" {
+		t.Fatalf("--verify = (%q, %q)", g, s)
+	}
+	os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module m\n"), 0o644)
+	if _, s, _ := ChooseVerifyGate(dir, "", false); s != "go.mod" {
+		t.Fatalf("go.mod source = %q", s)
+	}
+	os.WriteFile(filepath.Join(dir, "Makefile"), []byte("test:\n\ttrue\n"), 0o644)
+	if g, s, _ := ChooseVerifyGate(dir, "", false); g != "make test" || s != "Makefile" {
+		t.Fatalf("Makefile = (%q, %q)", g, s)
 	}
 }

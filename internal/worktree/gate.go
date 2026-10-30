@@ -12,6 +12,8 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+
+	"github.com/edotau/claude-code/internal/paths"
 )
 
 // registryPkgs iterate the hook, setting, verb and schema registries, so any change can break them.
@@ -183,4 +185,81 @@ func goPkgOf(dir, rel string) string {
 		rel = filepath.Dir(rel)
 	}
 	return ""
+}
+
+// ChooseVerifyGate picks the post-integration gate: noVerify skips it, an explicit verify wins, else it is detected
+// from worktreePath like workflows/green-keeper-loop.js (Makefile test -> go.mod -> pyproject -> package.json -> Cargo.toml).
+func ChooseVerifyGate(worktreePath, verify string, noVerify bool) (gate, source string, err error) {
+	if noVerify {
+		return "", "", nil
+	}
+	if verify != "" {
+		return verify, "flag", nil
+	}
+	gate, source = detectVerifyGate(worktreePath)
+	if gate == "" {
+		return "", "", errors.New(`no verification gate found — pass --verify "<cmd>" or --no-verify`)
+	}
+	return gate, source, nil
+}
+
+// detectVerifyGate mirrors workflows/green-keeper-loop.js's detection order over dir's own files.
+func detectVerifyGate(dir string) (gate, source string) {
+	if hasMakeTarget(filepath.Join(dir, "Makefile"), "test") {
+		return "make test", "Makefile"
+	}
+	if paths.FileExists(filepath.Join(dir, "go.mod")) {
+		return "go build ./... && go vet ./... && go test ./...", "go.mod"
+	}
+	if paths.FileExists(filepath.Join(dir, "pyproject.toml")) || paths.FileExists(filepath.Join(dir, "setup.cfg")) {
+		return "pytest -q", "pyproject"
+	}
+	if hasNPMTestScript(filepath.Join(dir, "package.json")) {
+		return "npm test", "package.json"
+	}
+	if paths.FileExists(filepath.Join(dir, "Cargo.toml")) {
+		return "cargo build && cargo test", "Cargo.toml"
+	}
+	return "", ""
+}
+
+// hasMakeTarget reports whether makefile declares a target named exactly target; a missing Makefile is "no target".
+func hasMakeTarget(makefile, target string) bool {
+	data, err := os.ReadFile(makefile)
+	if err != nil {
+		return false
+	}
+	prefix := target + ":"
+	for line := range strings.SplitSeq(string(data), "\n") {
+		if strings.HasPrefix(line, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+// hasNPMTestScript reports whether pkgJSON declares a "test" script.
+func hasNPMTestScript(pkgJSON string) bool {
+	data, err := os.ReadFile(pkgJSON)
+	if err != nil {
+		return false
+	}
+	var pkg struct {
+		Scripts map[string]string `json:"scripts"`
+	}
+	if json.Unmarshal(data, &pkg) != nil {
+		return false
+	}
+	_, ok := pkg.Scripts["test"]
+	return ok
+}
+
+// RunVerify runs cmdStr in workDir under `bash -c 'set -o pipefail; ...'` so a failing pipeline stage fails the gate;
+// ctx cancellation kills it, and a nonzero exit is the one signal that stops promotion.
+func RunVerify(ctx context.Context, workDir, cmdStr string, stdout, stderr io.Writer) error {
+	cmd := exec.CommandContext(ctx, "bash", "-c", "set -o pipefail; "+cmdStr)
+	cmd.Dir = workDir
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
+	return cmd.Run()
 }

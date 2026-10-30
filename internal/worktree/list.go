@@ -223,3 +223,8 @@ func asExitErr(err error) (int, bool) {
 	}
 	return 0, false
 }
+
+// EligibleForClean mirrors the bar Clean itself rechecks live; list only offers the command, never acts.
+func (e Entry) EligibleForClean() bool {
+	return e.Exists && !e.Orphaned && !e.Locked && !e.Dirty && e.Merged
+}
