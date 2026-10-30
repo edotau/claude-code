@@ -40,9 +40,10 @@ tree unless `CLAUDE_CONFIG_DIR` points at it.
 3. **Apply:** `claude-code worktree merge "$SLUG"` (`--verify "<cmd>"` overrides auto-detection from
    Makefile test / go.mod / pyproject / package.json / Cargo.toml; `--no-verify` is the only unverified path;
    no gate found refuses before integrating). A Makefile test target plus `go.mod` runs the scoped gate:
-   `go build ./... && go vet ./...`, then `go test` on the packages `<target>...HEAD` changed plus the
+   `go build ./... && go vet ./...`, then `go test` on the packages `<target>...HEAD` changed (a non-Go file maps
+   to its package, embedders and tests naming it), their importers (tests included, transitively) and the
    registry packages (`internal/{hooks,hookspec,settings,cli,schemas}`, where present); a `go.mod`/`go.sum`
-   change tests `./...`. `--full-verify` runs `make test` instead; the full `make audit` stays the pre-push
+   change or an unowned non-markdown file tests `./...`. `--full-verify` runs `make test` instead; the full `make audit` stays the pre-push
    gate. Preflight re-runs; a failing gate stops with the worktree untouched on disk; success promotes, ticks
    the active plan for the promoted commits (`claude-code plan tick --range <old>..<new>`) and, unless
    `--no-clean`, cleans exactly as `clean` would. A failure
