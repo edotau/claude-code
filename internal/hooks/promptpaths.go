@@ -256,12 +256,6 @@ func scanWinTokens(text string) []pathToken {
 	return scanTokens(text, quotedWinPathRE(), winPathRE(), winTrim)
 }
 
-// PathResolver (UserPromptSubmit) reports every existing file path the prompt names, resolving Windows, UNC,
-// URL, ~ and remote-mount forms to this machine's view, for BOTH the model (added context) and user (systemMessage).
-func PathResolver(r io.Reader, stdout io.Writer) int {
-	return promptPathFeedback(r, stdout, paths.Default())
-}
-
 // humanBytes renders n as B/KB/MB/GB with one decimal above bytes.
 func humanBytes(n int64) string {
 	const unit = 1024
