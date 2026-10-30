@@ -130,3 +130,20 @@ func TestEventLogFlushesEachEventBeforeClose(t *testing.T) {
 		t.Fatalf("live reader sees %q before Close", b)
 	}
 }
+
+// A secret inside the result envelope's structured value lands redacted in the event file, nested values too.
+func TestEventLogRedactsStructured(t *testing.T) {
+	tok := "ghp_" + strings.Repeat("b", 36)
+	path := filepath.Join(t.TempDir(), "x.events.jsonl")
+	l := NewEventLog(path, "id1")
+	env := Envelope{Answer: "ok", Structured: json.RawMessage(`{"a":{"list":["` + tok + `",9007199254740993]}}`)}
+	_ = l.Emit(ResultEvent(env))
+	l.Close()
+	raw, _ := os.ReadFile(path)
+	if strings.Contains(string(raw), tok) {
+		t.Fatalf("event file leaks the structured secret:\n%s", raw)
+	}
+	if !strings.Contains(string(raw), "9007199254740993") {
+		t.Fatalf("structured number altered:\n%s", raw)
+	}
+}

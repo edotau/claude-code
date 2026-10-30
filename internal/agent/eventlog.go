@@ -2,7 +2,9 @@ package agent
 
 import (
 	"bufio"
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -100,18 +102,57 @@ func (l *EventLog) writeText(held string) {
 	l.writeLocked(ev)
 }
 
-// writeLocked redacts the event's free text and envelope answer, then writes it.
+// writeLocked redacts the event's free text, envelope answer and structured value, then writes it.
 func (l *EventLog) writeLocked(ev Event) {
 	if ev.Text != "" {
 		ev.Text = shapes.Redact(ev.Text)
 	}
-	if ev.Envelope != nil && ev.Envelope.Answer != "" {
+	if ev.Envelope != nil && (ev.Envelope.Answer != "" || len(ev.Envelope.Structured) > 0) {
 		env := *ev.Envelope
 		env.Answer = shapes.Redact(env.Answer)
+		if len(env.Structured) > 0 {
+			env.Structured = redactJSON(env.Structured)
+		}
 		ev.Envelope = &env
 	}
 	_ = l.sink.Emit(ev) // fail-open
 	_ = l.bw.Flush()    // bufio keeps one event's write atomic; flushing per event lets tail -f see it at once
+}
+
+// redactJSON redacts every string key and value in raw, numbers kept exact; undecodable raw is dropped, never kept.
+func redactJSON(raw json.RawMessage) json.RawMessage {
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber()
+	var v any
+	if err := dec.Decode(&v); err != nil {
+		return nil
+	}
+	b, err := json.Marshal(redactValue(v))
+	if err != nil {
+		return nil
+	}
+	return b
+}
+
+// redactValue returns a copy of v with shapes.Redact applied to every string.
+func redactValue(v any) any {
+	switch x := v.(type) {
+	case string:
+		return shapes.Redact(x)
+	case []any:
+		out := make([]any, len(x))
+		for i, e := range x {
+			out[i] = redactValue(e)
+		}
+		return out
+	case map[string]any:
+		out := make(map[string]any, len(x))
+		for k, e := range x {
+			out[shapes.Redact(k)] = redactValue(e)
+		}
+		return out
+	}
+	return v
 }
 
 // Close flushes held text and the buffer, then closes the file; it is safe to call twice.
