@@ -26,7 +26,8 @@ codex review, vet and judge), `simplify` (simplifier).
 Brief templates for implementer, spec, quality and plan reviewers: [prompts.md](references/prompts.md).
 Shared discipline and per-agent memory-proposal candidates: [memory-updates.md](references/memory-updates.md).
 Concurrency caps: `rules/workflow/agents.md` → Parallel dispatch. Scoping a leaf below the repo root hides
-`.git`/`.venv`: [grant-depth-trap.md](references/grant-depth-trap.md).
+`.git`/`.venv` (`not a git repository`, mass `ModuleNotFoundError` that isn't a regression): scope to the root;
+check with `git rev-parse --show-toplevel` from the granted path.
 
 ## Leaf types
 
@@ -125,10 +126,12 @@ established evidence.
 ## Rules
 
 - Parallelize only independent work.
-- **Simplify before review, every time code changed**: `Skill(simplify)` over the diff, or a leaf briefed with
-  [prompts.md#simplifier](references/prompts.md#simplifier). Never an ad hoc "clean this up" brief.
-- Advisory detectors (`claude-code review *`) run once per pipeline: the simplifier runs `complexity`+`diff`; the
-  manager runs the rest and pastes the output into the quality reviewer's brief; no later stage re-runs them. The
+- **Simplify once per diff, before review**: the manager runs `Skill(simplify)`, or a leaf briefed with
+  [prompts.md#simplifier](references/prompts.md#simplifier). Implementers never simplify their own diff — the
+  `review-simplicity` hook already feeds back each edit's findings. Never an ad hoc "clean this up" brief.
+- Advisory detectors (`claude-code review *`) run once per pipeline: the simplifier runs `simplify`+`diff`; the
+  manager runs `pr`/`assumptions`/`goals` and pastes all output into the quality reviewer's brief; no later stage —
+  `/code-review` included — re-runs them. The
   mechanical `make fmt && make lint` gate is separate and runs after every code change (`rules/standards/quality.md`
   → Verification Order).
 

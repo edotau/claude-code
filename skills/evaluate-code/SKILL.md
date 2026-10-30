@@ -50,12 +50,12 @@ one-line fixes. Detector per principle: the [Detectors](#detectors) table.
 
 | Principle | As a review finding | Severity |
 |---|---|---|
-| **1 Think Before Coding** | silently picked one reading of an ambiguous requirement — that's a **question**, not a decision | should-fix |
+| **1 Clarify Assumptions** | silently picked one reading of an ambiguous requirement — that's a **question**, not a decision | should-fix |
 | **2 Simplicity First** | *would a senior engineer call this overcomplicated?* This skill only **flags**; the fix is the simplify pass's, which ran before this review — send it back there | should-fix |
 | **3 Surgical Changes** | drive-by reformatting, comment churn, refactors of untouched code | nit — **should-fix** if they hide the real change |
 | **4 Goal-Driven Execution** | success criteria not concrete, or not actually verified | should-fix |
 
-Full treatment, attribution, worked examples: `references/principles.md`.
+The principles: `rules/standards/principles.md`; worked anti-patterns: `references/anti-patterns.md`.
 
 ### Performance
 
@@ -88,12 +88,11 @@ REQUIRED**, never a warn; MEDIUM is INFO, LOW is NOTE.
 
 - **Code** — OWASP Top 10 audit of the full changed files, not just the hunks; mechanical scan of added lines first
   (`references/security/owasp-checklist.md` has the grep, the checklist, the response protocol and the false positives).
-- **Config** — Claude Code settings/hooks/MCP/agents touched → `references/security/agentshield-config-scan.md`;
-  cloud / IaC / IAM / CI-CD → `references/security/cloud-infrastructure-security.md`.
-- **Dependencies** — manifests touched, or asked for CVEs / licences → read-only scanners only (`osv-scanner`,
-  `pip-audit` without `--fix`, `npm audit` without `fix`, `pip-licenses`); a scanner that isn't installed reports
-  **UNKNOWN**, never "clean" (`command -v` first; `pipx install pip-audit osv-scanner` on demand). Procedure:
-  `references/security/dependency-auditor.md`; licence grid: `references/security/dependency-license-matrix.md`.
+- **Config** — Claude Code settings/hooks/MCP/agents touched → `claude-code doctor --scan` plus a read of the
+  defaults' `permissions` block and every new hook command for injection or an unsafe path.
+- **Dependencies** — manifests touched, or asked for CVEs / licences → read-only live-feed scanners; one that
+  isn't installed reports **UNKNOWN**, never "clean". Procedure: `references/security/dependency-auditor.md`;
+  licence grid: `references/security/dependency-license-matrix.md`.
 
 ## Detectors
 
@@ -114,7 +113,8 @@ BASE_SHA=$(git merge-base HEAD main); git diff ${BASE_SHA}...HEAD --stat
 
 Mechanical gate first: `rules/standards/quality.md` → Verification Order.
 
-1. Run the detectors on the changed files (advisory; commands in `references/detectors.md`).
+1. Run the detectors on the changed files (advisory; commands in `references/detectors.md`) — unless their
+   output is already in your brief.
 2. Apply the lenses to the diff range + changed files, not the session history; verify every finding by
    reading the code.
 3. Pre-approval checklist: `rules/standards/quality.md` → Code Quality Checklist; severity:

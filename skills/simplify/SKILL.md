@@ -5,9 +5,8 @@ description: 'Behavior-preserving cleanup of changed code — overrides the buil
 
 # Simplify
 
-Applies the fixes for **#2 Simplicity First** and **#3 Surgical Changes**
-(`skills/evaluate-code/references/principles.md`); overrides the built-in `/simplify`. Run it in place or hand
-it to a subagent over a diff.
+Applies the fixes for **Simplicity first** and **Surgical changes** (`rules/standards/principles.md` → Code
+changes); overrides the built-in `/simplify`. Run it in place or hand it to a subagent over a diff.
 
 **The lane:** change *how* code is structured, never *what* it does. Bugs and security findings are reported,
 not fixed here. The failure mode is drive-by cleanup: remove only what *your* simplification made dead.
@@ -27,7 +26,7 @@ cut, finish the sentence from the code in front of you:
 
 Can't finish it → **flag it, don't cut it.** This rule governs every phase below.
 
-Docstrings and comments are in the lane: the 1-line / ≤120-char cap (`rules/standards/communication.md`), no
+Docstrings and comments are in the lane: the 1-line / ≤120-char cap (`rules/standards/quality.md`), no
 banners or restate-the-code comments, a clear name over a comment. Before/after: `references/docstring-style.md`.
 
 ## Process
@@ -35,8 +34,9 @@ banners or restate-the-code comments, a clear name over a comment. Before/after:
 ### Scope
 
 The diff is `git diff @{upstream}...HEAD; git diff HEAD`, or the target argument; outside a git repo, the most
-recently modified files. A `focus on <area>` argument (`/simplify focus on memory efficiency`) goes into every
-brief and ranks its matching findings first.
+recently modified files. One pass per diff: over a merged multi-lane diff whose lanes each had their own pass, run
+only Reuse and Altitude (lanes duplicate helpers and patch symptoms across each other). A `focus on <area>`
+argument (`/simplify focus on memory efficiency`) goes into every brief and ranks its matching findings first.
 
 ### Phase 1 — Review
 
@@ -44,21 +44,20 @@ Run the advisory detectors (exit 0; leads to verify, not verdicts), then launch 
 
 ```bash
 BASE=$(git merge-base @{upstream} HEAD 2>/dev/null || git rev-parse HEAD~1)
-CHANGED=$(git diff --name-only "$BASE")
-[ -n "$CHANGED" ] && claude-code review complexity $CHANGED   # length, nesting, branches (py/ts/js/go)
+claude-code review simplify                                   # complexity + quality on the changed files
 claude-code review diff --file <(git diff "$BASE")            # lines that don't trace to the task
 ```
 
 Launch 4 agents in ONE message (Agent tool, `subagent_type: code-worker`, in background), each with the diff,
-the focus and one angle, returning file, line, one-line summary, concrete cost. Without the Agent tool, do all
-four yourself in one pass and say so.
+the focus, the detector output and one angle — angles judge the detector findings and hunt what detectors can't
+see; none re-scans comment length, nesting or function size — returning file, line, one-line summary, concrete
+cost. Without the Agent tool, do all four yourself in one pass and say so.
 
 - **Reuse** — new code re-implementing an existing helper (Grep shared modules and files next to the change)
   or logic duplicated within the diff; name the one place it should live.
-- **Simplification** — redundant or derivable state, near-copy-paste, deep nesting, leftover dead code,
-  single-use abstractions, speculative flexibility, impossible-state error handling, inconsistent naming,
-  stringly-typed values, leaky abstractions, departures from `CLAUDE.md` and `rules/`; name the simpler form.
-  Patterns: `references/simplification-patterns.md`.
+- **Simplification** — anything `principles.md` → Simplicity first forbids, plus redundant or derivable state,
+  near-copy-paste, deep nesting, leftover dead code, inconsistent naming, stringly-typed values, leaky
+  abstractions; name the simpler form. Patterns: `references/simplification-patterns.md`.
 - **Efficiency** — redundant computation, allocations or I/O, N+1 queries and per-item loops that could batch,
   independent work run sequentially, blocking work on startup or hot paths, needless frontend re-renders,
   closures holding large scopes; name the cheaper form. No measurement → call it a hypothesis.

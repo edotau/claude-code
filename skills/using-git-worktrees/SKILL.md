@@ -65,5 +65,5 @@ cleanup — in [references/manual-worktrees.md](references/manual-worktrees.md).
 ## Scoping a subagent below the root breaks git and the venv
 
 A subagent or sandbox grant on a subdirectory instead of the repo root hides `.git` and
-`.venv`, producing import errors that look like regressions — see
-`skills/subagent-workflows/references/grant-depth-trap.md` (a dispatch concern, not a worktree one).
+`.venv`, producing import errors that look like regressions — see `skills/subagent-workflows/SKILL.md` → the
+scoping note under the reference list (a dispatch concern, not a worktree one).

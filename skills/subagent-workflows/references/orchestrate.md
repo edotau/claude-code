@@ -41,7 +41,7 @@ and stop. Skip for one-line fixes or when a scan is already warm this session.
    | plan (Phase 4) — **stop for user approval** | `## Plan` |
    | refine (Phase 5, `--refine` only) | `## Refined Briefs` |
    | implement (Phase 6) | `## Implementation Notes` |
-   | simplify (Phase 7) | `## Simplification` |
+   | simplify (Phase 8 → Verification Order step 5) | `## Simplification` |
    | review | `## Review` (SHIP / FIX REQUIRED / BLOCK) |
    | verify (Phase 8) | `## Verification` |
 
