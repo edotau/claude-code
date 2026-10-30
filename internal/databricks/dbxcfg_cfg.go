@@ -46,7 +46,7 @@ func isReserved(name string) bool {
 	return strings.EqualFold(name, defaultSection) || name == settingsSection
 }
 
-// parseSections scans INI text into sections in first-appearance order; keys before any header are dropped.
+// parseSections scans INI text into sections in first-appearance order; keys before any header belong to DEFAULT.
 func parseSections(text string) []*section {
 	var out []*section
 	byName := map[string]*section{}
@@ -70,8 +70,12 @@ func parseSections(text string) []*section {
 			}
 			continue
 		}
-		if cur == nil {
-			continue
+		if cur == nil { // keys above the first header belong to DEFAULT
+			if cur = byName[defaultSection]; cur == nil {
+				cur = &section{name: defaultSection, keys: map[string]string{}}
+				byName[defaultSection] = cur
+				out = append(out, cur)
+			}
 		}
 		if i := strings.IndexAny(line, "=:"); i > 0 {
 			cur.keys[strings.TrimSpace(line[:i])] = readValue(line[i+1:], sc)
@@ -151,7 +155,7 @@ func parse(r io.Reader) ([]profile, bool, error) {
 	for _, s := range parseSections(string(b)) {
 		switch {
 		case strings.EqualFold(s.name, defaultSection):
-			hasDefault = true
+			hasDefault = hasDefault || len(s.keys) > 0
 		case isReserved(s.name):
 		default:
 			ps = append(ps, toProfile(s))

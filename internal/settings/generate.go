@@ -1,4 +1,4 @@
-// Package generate renders agent configs and hooks without launching a session.
+// generate.go renders agent configs and hooks without launching a session.
 package settings
 
 import (
