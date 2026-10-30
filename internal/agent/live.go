@@ -237,6 +237,9 @@ func (s *liveSession) finish(cause error) error {
 	return s.rec.Save()
 }
 
+// maxSockPath is macOS's sun_path capacity (104) less the NUL; Linux allows 108.
+const maxSockPath = 103
+
 // listenLive binds the 0600 socket for id in the 0700 dispatch dir, replacing a stale socket file.
 func listenLive(id string) (net.Listener, error) {
 	if err := os.MkdirAll(DispatchDir(), 0o700); err != nil {
@@ -246,6 +249,9 @@ func listenLive(id string) (net.Listener, error) {
 		return nil, err
 	}
 	sock := LiveSocket(id)
+	if len(sock) > maxSockPath {
+		return nil, fmt.Errorf("live socket path is %d bytes, over the %d-byte unix limit: use a shorter CLAUDE_CONFIG_DIR (%s)", len(sock), maxSockPath, sock)
+	}
 	_ = os.Remove(sock)
 	var lc net.ListenConfig
 	ln, err := lc.Listen(context.Background(), "unix", sock)

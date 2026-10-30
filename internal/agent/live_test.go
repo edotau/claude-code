@@ -29,12 +29,12 @@ while IFS= read -r line; do
 done
 `
 
-// liveEnv gives the test a short config dir (a unix socket path caps near 108 bytes) holding the fake claude.
+// liveEnv gives the test a short /tmp config dir (a unix socket path caps at 104 bytes on macOS, 108 on Linux) holding the fake claude.
 func liveEnv(t *testing.T) { liveEnvScript(t, fakeLiveClaude) }
 
 func liveEnvScript(t *testing.T, script string) {
 	t.Helper()
-	dir, err := os.MkdirTemp("", "lv")
+	dir, err := os.MkdirTemp("/tmp", "lv")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -77,6 +77,14 @@ func startHolderAs(t *testing.T, ctx context.Context, name string, idle time.Dur
 			break
 		}
 		time.Sleep(25 * time.Millisecond)
+	}
+	if _, err := os.Stat(LiveSocket(id)); err != nil {
+		select {
+		case serveErr := <-done:
+			t.Fatalf("holder did not open its socket: %v (serve: %v)", err, serveErr)
+		default:
+			t.Fatalf("holder did not open its socket: %v", err)
+		}
 	}
 	return id, func() error { return <-done }
 }
@@ -420,3 +428,11 @@ while IFS= read -r line; do
   printf '{"event":"result","result":{"conversation_id":"c1","status":"SUCCESS","response":"r","usage":{"input_tokens":%d,"output_tokens":1}}}\n' "$n"
 done
 `
+
+// A socket path over the unix limit fails with a message naming the length, not a bare "bind: invalid argument".
+func TestListenLiveRefusesOverlongSocketPath(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", filepath.Join(t.TempDir(), strings.Repeat("d", 100)))
+	if _, err := listenLive("20261016T210512.123-claude"); err == nil || !strings.Contains(err.Error(), "unix limit") {
+		t.Fatalf("listenLive = %v, want an over-the-unix-limit error", err)
+	}
+}

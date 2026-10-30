@@ -24,6 +24,9 @@ const proxyMarker = "Claude-aware `wl-paste` proxy for WSL2"
 // procVersionPath is read to detect a WSL kernel; a var so tests can point it at a fixture.
 var procVersionPath = "/proc/version"
 
+// doctorGOOS is the OS DoctorDetail branches on; tests swap it to exercise the Linux/WSL paths on any host.
+var doctorGOOS = runtime.GOOS
+
 // OnWSLKernel reports whether /proc/version names a Microsoft (WSL) kernel.
 func OnWSLKernel() bool {
 	b, err := os.ReadFile(procVersionPath)
@@ -113,7 +116,7 @@ func installProxyAt(w io.Writer, dest string, dryRun bool) error {
 // DoctorDetail describes the proxy for `claude-code doctor`; ok is false only on WSL when image paste
 // would go through an unproxied wl-paste.
 func DoctorDetail() (ok bool, detail string) {
-	if runtime.GOOS == "darwin" {
+	if doctorGOOS == "darwin" {
 		return launchDoctorDetail()
 	}
 	if !OnWSLKernel() {
