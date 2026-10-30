@@ -84,3 +84,18 @@ func TestRouteChainNativeOpencodeLeads(t *testing.T) {
 		t.Errorf("fallback none = %d legs, want the native leg only", len(none.Legs))
 	}
 }
+
+// A codex leg keyed on its ChatGPT login that really runs on the session's Databricks profile records and bills that profile.
+func TestOwnLoginLegRecordsTheProfileItRan(t *testing.T) {
+	gateFallbackEnv(t)
+	t.Setenv(providers.EnvSessionProfile, "dbx")
+	r := &fakeRunner{name: "codex", errs: []error{nil}}
+	c := Chain{Want: "codex", Legs: []Leg{{Agent: r, Account: "openai·chatgpt", Billing: router.BillSubscription}}}
+	res, err := RunWithFallback(context.Background(), c, Request{Prompt: "p"}, Discard, nil)
+	if err != nil || len(res.Hops) != 1 {
+		t.Fatalf("res=%+v err=%v", res, err)
+	}
+	if got := res.Hops[0].Account; got != "databricks·dbx" {
+		t.Errorf("hop account = %q, want databricks·dbx (what the runner resolves)", got)
+	}
+}

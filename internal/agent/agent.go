@@ -598,6 +598,7 @@ func RunWithFallback(ctx context.Context, c Chain, req Request, sink Sink, notif
 		}
 		lreq := legRequest(req, leg, i == 0 && leg.Agent.Name() == c.Want)
 		ctx, leg := freezeCopilot(ctx, leg, lreq)           // per leg: the gate's real target, before any permit or cooldown key
+		leg = ownLoginActual(leg, lreq)                     // the hop and its quota key name what the runner resolves
 		key := cmp.Or(leg.Account, leg.Agent.Name()+"·own") // own-login legs still share one cap and cooldown per agent
 		waitCooldown(ctx, key, DefaultMaxDelay)             // holds nothing
 		panicked := false
