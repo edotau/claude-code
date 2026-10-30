@@ -239,7 +239,7 @@ func TestConfigureCopilotRegistryLaunchEnv(t *testing.T) {
 	if !slices.Equal(*revoked, []string{"tok-ok"}) {
 		t.Errorf("revoked = %v, want [tok-ok]", *revoked)
 	}
-	(CopilotRegistry{}).Revoke() // a launch that never minted revokes nothing
+	(copilotRegistry{}).Revoke() // a launch that never minted revokes nothing
 	if len(*revoked) != 1 {
 		t.Errorf("empty-token Revoke hit the router: %v", *revoked)
 	}

@@ -19,9 +19,9 @@ func OpencodeCredID(prefix string) string {
 	return prefix
 }
 
-// OpencodeCredential resolves prefix's credential: opencode's own stored login first, else (for `opencode`) the
+// opencodeCredential resolves prefix's credential: opencode's own stored login first, else (for `opencode`) the
 // vault key as launch env; an error names what is missing. The key value rides env only, never output.
-func OpencodeCredential(prefix string) (env []string, err error) {
+func opencodeCredential(prefix string) (env []string, err error) {
 	id := OpencodeCredID(prefix)
 	if slices.Contains(OpencodeLogins(), id) {
 		return nil, nil
@@ -37,6 +37,6 @@ func OpencodeCredential(prefix string) (env []string, err error) {
 
 // OpencodeOwnLoginPresent reports a usable `opencode` credential (Go/Zen plans): a stored login or the vault key.
 func OpencodeOwnLoginPresent() bool {
-	_, err := OpencodeCredential("opencode-go")
+	_, err := opencodeCredential("opencode-go")
 	return err == nil
 }

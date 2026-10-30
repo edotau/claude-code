@@ -86,7 +86,7 @@ func opencodeDatabricks(p *providers.Provider, id, dialect, base, model, cred st
 	if err != nil {
 		return nil, nil, err
 	}
-	return append(env, OpencodeConfigEnv+"="+string(body)), nil, nil
+	return append(env, opencodeConfigEnv+"="+string(body)), nil, nil
 }
 
 // splitMenu sorts the menu over the chat, Responses and Claude providers by wire; dropped are labels p has no route for.

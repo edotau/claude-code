@@ -56,7 +56,7 @@ func vendorTargetBase(req Request, name string) (t providers.Target, own bool, n
 	if err != nil || req.Provider != "" || namesProvider(reg, req.Model) {
 		if err == nil && name == "copilot" { // an explicit GitHub login still passes the credit gate
 			from := t.Provider
-			t, note, err = CopilotGate(reg, t)
+			t, note, err = copilotGate(reg, t)
 			if err == nil && t.Provider != from && req.Provider != "" && req.Provider == providers.Pin(providers.PinCopilotProfile) {
 				return t, false, note, true, &Error{Kind: KindQuota, Agent: "copilot", Err: errors.New(note)}
 			}
@@ -140,7 +140,7 @@ func (v vendorRunner) prepare(ctx context.Context, req Request) (vendorPrep, err
 		}
 		p.res.Provider = t.Provider.Name
 		if v.name == "codex" { // configureRoute swaps a non-Responses model; report the one codex runs
-			p.res.Model = CodexRanModel(t)
+			p.res.Model = codexRanModel(t)
 		}
 	}
 	p.prompt, err = v.attachPrompt(req.Prompt, req.Attach, req.Tools)
@@ -161,13 +161,13 @@ func (v vendorRunner) prepare(ctx context.Context, req Request) (vendorPrep, err
 		h.WorkDir = req.WorkDir // cmd.Dir alone doesn't move opencode's own cwd resolution; --dir does
 	}
 	if own {
-		p.env, p.argv, err = OwnLoginHeadless(v.name, h)
+		p.env, p.argv, err = ownLoginHeadless(v.name, h)
 	} else {
 		ct := t
 		if v.name == "gemini" { // the gateway route lists the model agy will run, not the row's slot id
 			ct.Model = agyModel(req, t)
 		}
-		p.env, p.argv, err = ConfigureHeadless(ctx, v.name, ct, h)
+		p.env, p.argv, err = configureHeadless(ctx, v.name, ct, h)
 	}
 	if err != nil {
 		return p, &Error{Kind: KindFatal, Agent: v.name, Err: err}
@@ -186,15 +186,15 @@ func agyModel(req Request, t providers.Target) string {
 	}
 	gt, _ := providers.ResolveAgentModel(providers.ModelAsk{Agent: "gemini", Flag: req.Model, Target: t, Applied: true})
 	if providers.GeminiGatewayRow(t.Provider) {
-		_, arg := AgyGatewayArg(gt.Model)
+		_, arg := agyGatewayArg(gt.Model)
 		return arg
 	}
 	return gt.Model
 }
 
 // agyRequest is the agy run for req: only the resolved credential env carries over, agy builds its own argv.
-func (p vendorPrep) agyRequest(req Request) AgyRequest {
-	return AgyRequest{
+func (p vendorPrep) agyRequest(req Request) agyRequest {
+	return agyRequest{
 		Prompt: p.prompt, Model: agyModel(req, p.t), Effort: req.Effort, Cwd: req.WorkDir, Tools: req.Tools, Autonomous: req.Autonomous,
 		DebugFile: req.DebugFile, Env: p.env, KeepEnv: req.KeepEnv, SessionID: req.SessionID, OutputSchema: req.OutputSchema,
 	}
@@ -210,7 +210,7 @@ func (v vendorRunner) Run(ctx context.Context, req Request, sink Sink) (Result, 
 	if v.name == "gemini" {
 		areq := p.agyRequest(req)
 		res.Model = areq.Model
-		out, err := RunAgy(ctx, areq, sink)
+		out, err := runAgy(ctx, areq, sink)
 		res.Answer, res.Usage, res.Transport, res.Structured = out.Answer, out.Usage, out.Transport, out.Structured
 		if out.SessionID != "" {
 			res.SessionID = out.SessionID
@@ -232,10 +232,10 @@ func (v vendorRunner) Run(ctx context.Context, req Request, sink Sink) (Result, 
 	if v.name == "codex" {
 		var extra []string
 		if req.SystemPrompt != "" {
-			extra = append(extra, "-c", "instructions="+TOMLQuote(req.SystemPrompt))
+			extra = append(extra, "-c", "instructions="+tomlQuote(req.SystemPrompt))
 		}
 		if req.AppendSystemPrompt != "" {
-			extra = append(extra, "-c", "developer_instructions="+TOMLQuote(req.AppendSystemPrompt))
+			extra = append(extra, "-c", "developer_instructions="+tomlQuote(req.AppendSystemPrompt))
 		}
 		if req.OutputSchema != "" {
 			file, err := codexSchemaFile(req.OutputSchema)

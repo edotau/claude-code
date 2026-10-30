@@ -6,7 +6,7 @@ const opencodeSystemAgent = "harness-system"
 // opencodeSystemPrompt defines a primary agent with prompt in OpencodeConfigEnv (merged into any config
 // already there) and selects it with --agent, the one system-prompt channel opencode run has.
 func opencodeSystemPrompt(env, argv []string, prompt string) ([]string, []string) {
-	env, _ = MutateOpencodeConfigEnv(env, true, func(cfg map[string]any) {
+	env, _ = mutateOpencodeConfigEnv(env, true, func(cfg map[string]any) {
 		agents, _ := cfg["agent"].(map[string]any)
 		if agents == nil {
 			agents = map[string]any{}

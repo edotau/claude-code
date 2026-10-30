@@ -23,7 +23,7 @@ func TestCodexChatOnlyGPTSwapped(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if w := "model=" + TOMLQuote(want); !slices.Contains(argv, w) {
+		if w := "model=" + tomlQuote(want); !slices.Contains(argv, w) {
 			t.Errorf("%s: argv %q lacks %s", model, argv, w)
 		}
 	}

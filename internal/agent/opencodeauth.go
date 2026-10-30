@@ -40,7 +40,7 @@ type OpencodeIntegration struct {
 
 // opencodeOutput is the exec seam for the installed opencode CLI (stdout only); tests replace it.
 var opencodeOutput = func(ctx context.Context, args ...string) ([]byte, error) {
-	bin, err := opencodeBin()
+	bin, err := paths.VendorBin("opencode")
 	if err != nil {
 		return nil, err
 	}
@@ -64,7 +64,7 @@ var opencodeVersionRe = regexp.MustCompile(`(\d+)\.\d+`)
 
 // opencodeBinKey identifies the installed opencode binary (path+size+mtime), so a change or upgrade re-probes.
 func opencodeBinKey() string {
-	p, err := opencodeBin()
+	p, err := paths.VendorBin("opencode")
 	if err != nil {
 		return ""
 	}
@@ -297,7 +297,7 @@ func OpencodeLogins() []string {
 // integration. An unresolved bin/opencode (missing or a broken link) is an error, never a bare "opencode"
 // PATH guess, so callers report the same "not installed / broken link" message as everywhere else.
 func OpencodeLogoutArgv(id, credID string) ([]string, error) {
-	bin, err := opencodeBin()
+	bin, err := paths.VendorBin("opencode")
 	if err != nil {
 		return nil, err
 	}
@@ -312,16 +312,11 @@ func OpencodeSwitchArgv(id, credID string) ([]string, error) {
 	if OpencodeMajor() < 2 {
 		return nil, nil
 	}
-	bin, err := opencodeBin()
+	bin, err := paths.VendorBin("opencode")
 	if err != nil {
 		return nil, err
 	}
 	return []string{bin, "auth", "switch", id, credID}, nil
-}
-
-// opencodeBin is the installed opencode path; it never falls back to a bare PATH lookup.
-func opencodeBin() (string, error) {
-	return paths.VendorBin("opencode")
 }
 
 // opencodeAuthFile is $XDG_DATA_HOME/opencode/auth.json (default ~/.local/share), opencode 1.x's login store.

@@ -15,8 +15,8 @@ import (
 	"strings"
 )
 
-// ModelEnvKeys are process env names consulted in order when no explicit model is passed; the vault pin comes after.
-var ModelEnvKeys = []string{"CLAUDE_CODE_GEMINI_MODEL", "GEMINI_MODEL"}
+// modelEnvKeys are process env names consulted in order when no explicit model is passed; the vault pin comes after.
+var modelEnvKeys = []string{"CLAUDE_CODE_GEMINI_MODEL", "GEMINI_MODEL"}
 
 // Collection defaults. The binding limit for a sweep is the total byte budget below, not the file
 // count: DefaultMaxFiles is now a generous safety cap (an explicit --max-files still overrides it).

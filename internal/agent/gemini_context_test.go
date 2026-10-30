@@ -29,20 +29,20 @@ func TestResolveModel(t *testing.T) {
 	t.Setenv("CLAUDE_CODE_GEMINI_MODEL", "")
 	t.Setenv("GEMINI_MODEL", "")
 
-	if got := ResolveModel("explicit-model", ModelEnvKeys, "def-model"); got != "explicit-model" {
+	if got := ResolveModel("explicit-model", modelEnvKeys, "def-model"); got != "explicit-model" {
 		t.Errorf("explicit arg: got %q", got)
 	}
-	if got := ResolveModel("", ModelEnvKeys, "def-model"); got != "def-model" {
+	if got := ResolveModel("", modelEnvKeys, "def-model"); got != "def-model" {
 		t.Errorf("default: got %q, want %q", got, "def-model")
 	}
 
 	t.Setenv("GEMINI_MODEL", "gemini-env-model")
-	if got := ResolveModel("", ModelEnvKeys, "def-model"); got != "gemini-env-model" {
+	if got := ResolveModel("", modelEnvKeys, "def-model"); got != "gemini-env-model" {
 		t.Errorf("env fallback: got %q", got)
 	}
 
 	t.Setenv("CLAUDE_CODE_GEMINI_MODEL", "gemini-primary-model")
-	if got := ResolveModel("", ModelEnvKeys, "def-model"); got != "gemini-primary-model" {
+	if got := ResolveModel("", modelEnvKeys, "def-model"); got != "gemini-primary-model" {
 		t.Errorf("env precedence: got %q", got)
 	}
 }

@@ -22,7 +22,7 @@ func TestCodexChatGPTLogin(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(home, "auth.json"), []byte(`{"OPENAI_API_KEY":null,"tokens":{"id_token":"x"}}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	env, argv, err := ConfigureHeadless(context.Background(), "codex", tg, Headless{Prompt: "hi"})
+	env, argv, err := configureHeadless(context.Background(), "codex", tg, Headless{Prompt: "hi"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -45,7 +45,7 @@ func TestCodexHeadlessEffortPinUsedWhenEffortEmptyExplicitWinsOverIt(t *testing.
 		t.Fatal(err)
 	}
 
-	_, argv, err := ConfigureHeadless(context.Background(), "codex", tg, Headless{Prompt: "hi"})
+	_, argv, err := configureHeadless(context.Background(), "codex", tg, Headless{Prompt: "hi"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,7 +56,7 @@ func TestCodexHeadlessEffortPinUsedWhenEffortEmptyExplicitWinsOverIt(t *testing.
 	if err := providers.SetPins(map[string]string{providers.PinCodexEffort: "xhigh"}); err != nil {
 		t.Fatal(err)
 	}
-	_, argv, err = ConfigureHeadless(context.Background(), "codex", tg, Headless{Prompt: "hi"})
+	_, argv, err = configureHeadless(context.Background(), "codex", tg, Headless{Prompt: "hi"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -65,7 +65,7 @@ func TestCodexHeadlessEffortPinUsedWhenEffortEmptyExplicitWinsOverIt(t *testing.
 	}
 
 	// An explicit Headless.Effort still wins over the pin.
-	_, argv, err = ConfigureHeadless(context.Background(), "codex", tg, Headless{Prompt: "hi", Effort: "low"})
+	_, argv, err = configureHeadless(context.Background(), "codex", tg, Headless{Prompt: "hi", Effort: "low"})
 	if err != nil {
 		t.Fatal(err)
 	}

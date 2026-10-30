@@ -13,9 +13,9 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 )
 
-// AgyRequest is one headless agy run: the prompt rides stdin as a single stream-json NDJSON line.
+// agyRequest is one headless agy run: the prompt rides stdin as a single stream-json NDJSON line.
 // Env carries extra launch vars; agy authenticates with its own cached Google sign-in, never a key.
-type AgyRequest struct {
+type agyRequest struct {
 	Prompt, Model, Effort, Cwd, SessionID string
 	Tools, Autonomous                     bool
 	DebugFile                             string // --log-file
@@ -30,7 +30,7 @@ var agyEffort = map[string]string{"low": "low", "medium": "medium", "high": "hig
 const agyToolLessPreamble = "Answer from the text below only. Do not call any tools.\n\n"
 
 // agyArgv builds agy's headless argv: stream-json both ways, the prompt rides stdin behind -p=.
-func agyArgv(r AgyRequest) []string {
+func agyArgv(r agyRequest) []string {
 	argv := []string{"--model", r.Model}
 	if e := agyEffort[r.Effort]; e != "" {
 		argv = append(argv, "--effort", e)
@@ -55,7 +55,7 @@ func agyArgv(r AgyRequest) []string {
 }
 
 // agyStdin is the one NDJSON line agy reads behind --input-format stream-json.
-func agyStdin(r AgyRequest) (string, error) {
+func agyStdin(r agyRequest) (string, error) {
 	content := r.Prompt
 	if !r.Tools {
 		content = agyToolLessPreamble + content
@@ -67,9 +67,9 @@ func agyStdin(r AgyRequest) (string, error) {
 	return string(line) + "\n", nil
 }
 
-// RunAgy drives `agy` headless over stream-json: agent_response text deltas stream live, and the
+// runAgy drives `agy` headless over stream-json: agent_response text deltas stream live, and the
 // result event carries the final answer, usage, conversation id and status.
-func RunAgy(ctx context.Context, r AgyRequest, sink Sink) (Result, error) {
+func runAgy(ctx context.Context, r agyRequest, sink Sink) (Result, error) {
 	bin, err := paths.VendorBin("agy")
 	if err != nil {
 		return Result{}, fmt.Errorf("gemini: %w", err)

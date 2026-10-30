@@ -12,12 +12,12 @@ import (
 
 func TestValidEnvNameRefusesScrubbedNames(t *testing.T) {
 	for _, bad := range []string{"HARNESS_VAULT_KEY", "HARNESS_ANYTHING", "ANTHROPIC_API_KEY", "DATABRICKS_HOST", "CLAUDE_PROFILE", "FOO_TOKEN"} {
-		if err := ValidEnvName(bad); err == nil {
+		if err := validEnvName(bad); err == nil {
 			t.Errorf("%s accepted", bad)
 		}
 	}
 	for _, ok := range []string{"HTTP_PROXY", "ANTHROPIC_BASE_URL", "FOO"} {
-		if err := ValidEnvName(ok); err != nil {
+		if err := validEnvName(ok); err != nil {
 			t.Errorf("%s refused: %v", ok, err)
 		}
 	}

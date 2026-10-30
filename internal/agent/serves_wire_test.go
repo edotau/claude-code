@@ -145,7 +145,7 @@ func TestCopilotRegistryEligible(t *testing.T) {
 		{"nil provider", false, providers.Target{}, false},
 	}
 	for _, c := range cases {
-		if got := CopilotRegistryEligible(c.direct, c.t); got != c.want {
+		if got := copilotRegistryEligible(c.direct, c.t); got != c.want {
 			t.Errorf("%s: eligible = %v, want %v", c.name, got, c.want)
 		}
 	}

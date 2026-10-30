@@ -11,8 +11,8 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 )
 
-// OpencodeProvider resolves the workspace profile: --profile, else the OPENCODE_PROFILE pin.
-func OpencodeProvider(name string) (*providers.Registry, *providers.Provider, error) {
+// opencodeProvider resolves the workspace profile: --profile, else the OPENCODE_PROFILE pin.
+func opencodeProvider(name string) (*providers.Registry, *providers.Provider, error) {
 	reg, err := providers.Load()
 	if err != nil {
 		return nil, nil, err
@@ -28,7 +28,7 @@ func OpencodeProvider(name string) (*providers.Registry, *providers.Provider, er
 
 // OpencodeServed lists the workspace's endpoints by name.
 func OpencodeServed(name string) (map[string]providers.ModelInfo, *providers.Provider, error) {
-	reg, p, err := OpencodeProvider(name)
+	reg, p, err := opencodeProvider(name)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -88,7 +88,7 @@ func OpencodeCheckTargets(ids []string, all bool, served map[string]providers.Mo
 
 // OpencodeSyncModels resolves the profile; discovery validates identity before reading the sealed cache.
 func OpencodeSyncModels(profile string, refresh bool) (*providers.Provider, providers.ServingDiscovery, error) {
-	_, p, err := OpencodeProvider(profile)
+	_, p, err := opencodeProvider(profile)
 	if err != nil {
 		return nil, providers.ServingDiscovery{}, errors.New("cannot resolve profile; check the provider configuration")
 	}

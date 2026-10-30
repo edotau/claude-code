@@ -69,7 +69,7 @@ func TestCopilotGateThreshold(t *testing.T) {
 			if _, got := copilotHeadroom(context.Background(), "alice"); got != tt.wantGitHub {
 				t.Errorf("copilotHeadroom ok = %v, want %v", got, tt.wantGitHub)
 			}
-			got, note, err := CopilotGate(reg, gh)
+			got, note, err := copilotGate(reg, gh)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -109,7 +109,7 @@ func TestCopilotGateUnsetLookupAndPin(t *testing.T) {
 			if _, ok := copilotHeadroom(context.Background(), providers.Pin(providers.PinCopilotProfile)); ok {
 				t.Fatal("must not be workable")
 			}
-			got, _, err := CopilotGate(reg, gh)
+			got, _, err := copilotGate(reg, gh)
 			if err != nil || got.Provider.Name != "qa" {
 				t.Errorf("gate = %v %v, want qa fallback", got.Provider, err)
 			}
@@ -145,7 +145,7 @@ func TestCopilotGateNonLoginProviderUntouched(t *testing.T) {
 	reg := gateReg(t, map[string]bool{"dev": true})
 	gateSetup(t, 99, true, reg)
 	in := providers.Target{Provider: reg.Providers["qa"], Model: "m"}
-	got, note, err := CopilotGate(reg, in)
+	got, note, err := copilotGate(reg, in)
 	if err != nil || got != in || note != "" {
 		t.Errorf("gate altered a non-login target: %+v %q %v", got, note, err)
 	}
@@ -180,7 +180,7 @@ func TestCopilotDatabricksFallbackOrder(t *testing.T) {
 		if ri.OK || ri.Leg != LegNone || !strings.Contains(ri.Reason, "no credit-free route for copilot") {
 			t.Errorf("got %+v", ri)
 		}
-		if _, _, err := CopilotGate(reg, gh); err == nil || !strings.Contains(err.Error(), "no credit-free route") {
+		if _, _, err := copilotGate(reg, gh); err == nil || !strings.Contains(err.Error(), "no credit-free route") {
 			t.Errorf("gate err = %v, want no credit-free route", err)
 		}
 		if d := describeCopilotRoute(reg); d.Leg == LegCopilotLogin || d.Provider == "personal" {

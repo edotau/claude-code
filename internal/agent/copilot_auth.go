@@ -59,8 +59,8 @@ const (
 	SrcStoredToken = CopilotTokenEnv + " (stored)"
 )
 
-// CopilotPinLogin is the pinned copilot profile's GitHub login ("" = unpinned: gh's active account).
-func CopilotPinLogin() string {
+// copilotPinLogin is the pinned copilot profile's GitHub login ("" = unpinned: gh's active account).
+func copilotPinLogin() string {
 	reg, _ := providers.Load()
 	login, _ := providers.CopilotLogin(reg)
 	return login
@@ -69,7 +69,7 @@ func CopilotPinLogin() string {
 // copilotAuthSource (no network): the pinned profile's gh login, a stored token, gh's active account, then
 // copilot's own order (env token, its stored login) when gh holds no account.
 func copilotAuthSource() (CopilotAuth, bool) {
-	if pin := CopilotPinLogin(); pin != "" { // a pinned profile with no login falls through to gh's active account
+	if pin := copilotPinLogin(); pin != "" { // a pinned profile with no login falls through to gh's active account
 		if slices.Contains(GHAccounts(), pin) {
 			return CopilotAuth{Account: pin, Source: srcPinned}, true
 		}
@@ -95,7 +95,7 @@ func copilotAuthSource() (CopilotAuth, bool) {
 // CopilotLaunchToken is the token a copilot launch injects (COPILOT_GITHUB_TOKEN for the CLI, GitHubToken for
 // the SDK), or "" to leave copilot on its own credential. It logs the source to stderr and the audit log.
 func CopilotLaunchToken() (string, error) {
-	if err := CopilotPinError(); err != nil {
+	if err := copilotPinError(); err != nil {
 		return "", err
 	}
 	a, ok := copilotAuthSource()
@@ -111,10 +111,10 @@ func CopilotLaunchToken() (string, error) {
 	return tok, nil
 }
 
-// CopilotPinError is non-nil when the copilot profile's GitHub login is pinned but that user is not a gh login: the harness
+// copilotPinError is non-nil when the copilot profile's GitHub login is pinned but that user is not a gh login: the harness
 // fails rather than run copilot on a stored token or another account.
-func CopilotPinError() error {
-	pin := CopilotPinLogin()
+func copilotPinError() error {
+	pin := copilotPinLogin()
 	if pin == "" || slices.Contains(GHAccounts(), pin) {
 		return nil
 	}

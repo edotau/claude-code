@@ -44,8 +44,8 @@ func Configure(ctx context.Context, name string, target providers.Target, headle
 	return configure(ctx, name, target, &Headless{Prompt: headlessPrompt})
 }
 
-// ConfigureHeadless is Configure's runner form with the per-run options each CLI can carry.
-func ConfigureHeadless(ctx context.Context, name string, target providers.Target, h Headless) (env, argv []string, err error) {
+// configureHeadless is Configure's runner form with the per-run options each CLI can carry.
+func configureHeadless(ctx context.Context, name string, target providers.Target, h Headless) (env, argv []string, err error) {
 	if strings.TrimSpace(h.Prompt) == "" {
 		return nil, nil, errors.New("agents: empty prompt")
 	}

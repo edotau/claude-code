@@ -17,7 +17,7 @@ import (
 
 func TestCopilotLogin(t *testing.T) {
 	tg := target(t, "personal", "claude-opus-5.5")
-	env, argv, err := ConfigureHeadless(context.Background(), "copilot", tg, Headless{Prompt: "hi", Tools: true})
+	env, argv, err := configureHeadless(context.Background(), "copilot", tg, Headless{Prompt: "hi", Tools: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -100,7 +100,7 @@ func TestCopilotHeadlessArgvIgnoresPins(t *testing.T) {
 	setPin(t, providers.PinCopilotEffort, "max")
 	setPin(t, providers.PinCopilotContext, "long_context")
 
-	_, argv, err := ConfigureHeadless(context.Background(), "copilot", tg, Headless{Prompt: "hi"})
+	_, argv, err := configureHeadless(context.Background(), "copilot", tg, Headless{Prompt: "hi"})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -10,7 +10,7 @@ import (
 
 func TestOpenCodeConfigShape(t *testing.T) {
 	tg := target(t, "gateway", "anthropic/claude-opus-5")
-	env, argv, err := ConfigureHeadless(WithDirect(context.Background()), "opencode", tg, Headless{Prompt: "hi"})
+	env, argv, err := configureHeadless(WithDirect(context.Background()), "opencode", tg, Headless{Prompt: "hi"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -44,7 +44,7 @@ func TestOpenCodeConfigShape(t *testing.T) {
 func TestOpenCodeDirArgv(t *testing.T) {
 	t.Run("BYOK builder", func(t *testing.T) {
 		tg := target(t, "gateway", "anthropic/claude-opus-5")
-		_, argv, err := ConfigureHeadless(context.Background(), "opencode", tg, Headless{Prompt: "hi", WorkDir: "/work/dir"})
+		_, argv, err := configureHeadless(context.Background(), "opencode", tg, Headless{Prompt: "hi", WorkDir: "/work/dir"})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -52,7 +52,7 @@ func TestOpenCodeDirArgv(t *testing.T) {
 			t.Errorf("argv = %q, want --dir /work/dir", argv)
 		}
 
-		_, argv, err = ConfigureHeadless(context.Background(), "opencode", tg, Headless{Prompt: "hi"})
+		_, argv, err = configureHeadless(context.Background(), "opencode", tg, Headless{Prompt: "hi"})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -62,12 +62,12 @@ func TestOpenCodeDirArgv(t *testing.T) {
 	})
 
 	t.Run("hub ladder", func(t *testing.T) {
-		_, argv := OpencodeRunArgv("github-copilot/claude-opus-5", Headless{Prompt: "hi", WorkDir: "/work/dir"})
+		_, argv := opencodeRunArgv("github-copilot/claude-opus-5", Headless{Prompt: "hi", WorkDir: "/work/dir"})
 		if i := slices.Index(argv, "--dir"); i == -1 || argv[i+1] != "/work/dir" {
 			t.Errorf("argv = %q, want --dir /work/dir", argv)
 		}
 
-		_, argv = OpencodeRunArgv("github-copilot/claude-opus-5", Headless{Prompt: "hi"})
+		_, argv = opencodeRunArgv("github-copilot/claude-opus-5", Headless{Prompt: "hi"})
 		if slices.Contains(argv, "--dir") {
 			t.Errorf("argv = %q, must not contain --dir when WorkDir is unset", argv)
 		}
@@ -94,7 +94,7 @@ func TestOpenCodeOverlayEnvOnEveryRoute(t *testing.T) {
 
 	t.Run("BYOK/gateway (Configure)", func(t *testing.T) {
 		tg := target(t, "gateway", "anthropic/claude-opus-5")
-		env, _, err := ConfigureHeadless(context.Background(), "opencode", tg, Headless{Prompt: "hi"})
+		env, _, err := configureHeadless(context.Background(), "opencode", tg, Headless{Prompt: "hi"})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -102,7 +102,7 @@ func TestOpenCodeOverlayEnvOnEveryRoute(t *testing.T) {
 	})
 
 	t.Run("hub ladder (OpencodeRunArgv)", func(t *testing.T) {
-		env, _ := OpencodeRunArgv("github-copilot/claude-opus-5", Headless{Prompt: "hi"})
+		env, _ := opencodeRunArgv("github-copilot/claude-opus-5", Headless{Prompt: "hi"})
 		hasOverlayEnv(t, env)
 	})
 }
@@ -111,7 +111,7 @@ func TestOpenCodeOverlayEnvOnEveryRoute(t *testing.T) {
 // rides OPENCODE_CONFIG_CONTENT={"permission":"deny"} when tools are off, alongside the new overlay env.
 func TestOpenCodeOwnLoginHeadlessToolsOffDeny(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	env, _, err := OwnLoginHeadless("opencode", Headless{Prompt: "hi"})
+	env, _, err := ownLoginHeadless("opencode", Headless{Prompt: "hi"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -123,7 +123,7 @@ func TestOpenCodeOwnLoginHeadlessToolsOffDeny(t *testing.T) {
 		t.Errorf("env = %v, want both overlay paths alongside the deny", env)
 	}
 
-	env, _, err = OwnLoginHeadless("opencode", Headless{Prompt: "hi", Tools: true})
+	env, _, err = ownLoginHeadless("opencode", Headless{Prompt: "hi", Tools: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -182,7 +182,7 @@ func TestOpenCodeModelMenu(t *testing.T) {
 
 	t.Run("headless carries no menu", func(t *testing.T) {
 		tg := target(t, "anthropic", "claude-sonnet-5-5")
-		env, _, err := ConfigureHeadless(context.Background(), "opencode", tg, Headless{Prompt: "hi"})
+		env, _, err := configureHeadless(context.Background(), "opencode", tg, Headless{Prompt: "hi"})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -195,19 +195,19 @@ func TestOpenCodeModelMenu(t *testing.T) {
 
 func TestMutateOpencodeConfigEnvPolicies(t *testing.T) {
 	set := func(c map[string]any) { c["k"] = "v" }
-	bad := []string{"A=1", OpencodeConfigEnv + "={nope"}
-	if _, err := MutateOpencodeConfigEnv(append([]string(nil), bad...), false, set); err == nil {
+	bad := []string{"A=1", opencodeConfigEnv + "={nope"}
+	if _, err := mutateOpencodeConfigEnv(append([]string(nil), bad...), false, set); err == nil {
 		t.Error("strict: an unreadable block must be an error")
 	}
-	got, err := MutateOpencodeConfigEnv(append([]string(nil), bad...), true, set)
-	if err != nil || got[1] != OpencodeConfigEnv+`={"k":"v"}` || len(got) != 2 {
+	got, err := mutateOpencodeConfigEnv(append([]string(nil), bad...), true, set)
+	if err != nil || got[1] != opencodeConfigEnv+`={"k":"v"}` || len(got) != 2 {
 		t.Errorf("lenient = %v, %v; want the block replaced in place", got, err)
 	}
-	got, _ = MutateOpencodeConfigEnv([]string{"A=1", OpencodeConfigEnv + `={"m":1}`}, false, set)
-	if got[1] != OpencodeConfigEnv+`={"k":"v","m":1}` {
+	got, _ = mutateOpencodeConfigEnv([]string{"A=1", opencodeConfigEnv + `={"m":1}`}, false, set)
+	if got[1] != opencodeConfigEnv+`={"k":"v","m":1}` {
 		t.Errorf("merge = %v", got)
 	}
-	if got, _ = MutateOpencodeConfigEnv(nil, false, set); len(got) != 1 || got[0] != OpencodeConfigEnv+`={"k":"v"}` {
+	if got, _ = mutateOpencodeConfigEnv(nil, false, set); len(got) != 1 || got[0] != opencodeConfigEnv+`={"k":"v"}` {
 		t.Errorf("absent = %v, want one appended entry", got)
 	}
 }

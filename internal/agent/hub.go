@@ -126,7 +126,7 @@ func (l hubLeg) Available() error {
 	if _, err := paths.VendorBin("opencode"); err != nil {
 		return err
 	}
-	_, err := OpencodeCredential(l.provider.OpencodeID)
+	_, err := opencodeCredential(l.provider.OpencodeID)
 	return err
 }
 
@@ -145,11 +145,11 @@ func (l hubLeg) Run(ctx context.Context, req Request, sink Sink) (Result, error)
 	}
 	h := Headless{Prompt: req.Prompt, Effort: req.Effort, SessionID: req.SessionID, Tools: req.Tools,
 		Autonomous: req.Autonomous, Attach: req.Attach, WorkDir: req.WorkDir, SafeMode: req.SafeMode}
-	cred, err := OpencodeCredential(l.provider.OpencodeID)
+	cred, err := opencodeCredential(l.provider.OpencodeID)
 	if err != nil {
 		return res, &Error{Kind: KindFatal, Agent: l.agent, Err: err}
 	}
-	env, argv := OpencodeRunArgv(l.provider.OpencodeID+"/"+model, h)
+	env, argv := opencodeRunArgv(l.provider.OpencodeID+"/"+model, h)
 	env = append(env, cred...)
 	if req.SystemPrompt != "" {
 		env, argv = opencodeSystemPrompt(env, argv, req.SystemPrompt)

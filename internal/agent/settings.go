@@ -4,11 +4,11 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 )
 
-// SettingKind is a field's edit affordance.
-type SettingKind int
+// settingKind is a field's edit affordance.
+type settingKind int
 
 const (
-	KindBool   SettingKind = iota // "true"/"false"
+	KindBool   settingKind = iota // "true"/"false"
 	KindEnum                      // one of Values
 	KindText                      // free text (e.g. a duration string)
 	KindList                      // comma-separated strings
@@ -18,7 +18,7 @@ const (
 // Field is one typed routing knob: read/write providers.Routing, rendered as one configure row.
 type Field struct {
 	Key, Label, Help string
-	Kind             SettingKind
+	Kind             settingKind
 	Values           []string // KindEnum only
 	Get              func(providers.Routing) string
 	Set              func(*providers.Routing, string) error // "" resets to default (removes the overlay field)

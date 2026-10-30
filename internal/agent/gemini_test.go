@@ -33,7 +33,7 @@ func TestGeminiLoginPrecedence(t *testing.T) {
 	// target() reset HOME to its own tempdir; point it back at ours for the marker check.
 	t.Setenv("HOME", home)
 
-	if _, _, err := ConfigureHeadless(context.Background(), "gemini", tg, Headless{Prompt: "hi"}); err == nil || !strings.Contains(err.Error(), "not signed in") {
+	if _, _, err := configureHeadless(context.Background(), "gemini", tg, Headless{Prompt: "hi"}); err == nil || !strings.Contains(err.Error(), "not signed in") {
 		t.Fatalf("without a login marker, err = %v, want a not-signed-in error", err)
 	}
 
@@ -48,7 +48,7 @@ func TestGeminiLoginPrecedence(t *testing.T) {
 		t.Fatal("marker on disk must read as logged in")
 	}
 
-	env, _, err := ConfigureHeadless(context.Background(), "gemini", tg, Headless{Prompt: "hi"})
+	env, _, err := configureHeadless(context.Background(), "gemini", tg, Headless{Prompt: "hi"})
 	if err != nil {
 		t.Fatal(err)
 	}

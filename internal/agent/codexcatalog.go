@@ -60,7 +60,7 @@ func codexCatalogArgs(p *providers.Provider) []string {
 	if path == "" {
 		return nil
 	}
-	return []string{"-c", "model_catalog_json=" + TOMLQuote(path)}
+	return []string{"-c", "model_catalog_json=" + tomlQuote(path)}
 }
 
 func codexCatalogPath(p *providers.Provider) (string, string, error) {
@@ -110,7 +110,7 @@ func codexCatalogPath(p *providers.Provider) (string, string, error) {
 	if err := os.WriteFile(candidate, body, 0o600); err != nil {
 		return "", "", fmt.Errorf("candidate write failed: %w", err)
 	}
-	if _, err := runCodexCatalog(bin, home, "-c", "model_catalog_json="+TOMLQuote(candidate), "debug", "models"); err != nil {
+	if _, err := runCodexCatalog(bin, home, "-c", "model_catalog_json="+tomlQuote(candidate), "debug", "models"); err != nil {
 		return "", "", fmt.Errorf("validation failed: %w", err)
 	}
 	if err := os.MkdirAll(dir, 0o700); err != nil {

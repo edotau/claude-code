@@ -218,9 +218,9 @@ func jsonSpan(answer string) string {
 	return s
 }
 
-// ValidEnvName reports why name cannot be set with --env: credential-shaped and harness-scrubbed names are refused.
+// validEnvName reports why name cannot be set with --env: credential-shaped and harness-scrubbed names are refused.
 // The error names NAME only; a value never appears in it.
-func ValidEnvName(name string) error {
+func validEnvName(name string) error {
 	if name == "" || strings.ContainsAny(name, " \t") {
 		return errors.New("--env: want NAME=VALUE")
 	}
@@ -245,7 +245,7 @@ func ValidateEnv(env []string) error {
 		if !ok {
 			return errors.New("--env: want NAME=VALUE")
 		}
-		if err := ValidEnvName(name); err != nil {
+		if err := validEnvName(name); err != nil {
 			return err
 		}
 	}

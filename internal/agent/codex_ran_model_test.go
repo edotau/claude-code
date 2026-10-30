@@ -19,11 +19,11 @@ func TestCodexRanModelNamesTheSwappedModel(t *testing.T) {
 		{"non-Responses model is swapped", "databricks-claude-opus-x", "databricks-gpt-6-1-sol"},
 		{"Responses model is kept", "databricks-gpt-6-astra", "databricks-gpt-6-astra"},
 	} {
-		if got := CodexRanModel(providers.Target{Provider: p, Model: c.model}); got != c.want {
+		if got := codexRanModel(providers.Target{Provider: p, Model: c.model}); got != c.want {
 			t.Errorf("%s: CodexRanModel(%q) = %q, want %q", c.name, c.model, got, c.want)
 		}
 	}
-	if got := CodexRanModel(providers.Target{Model: "m"}); got != "m" {
+	if got := codexRanModel(providers.Target{Model: "m"}); got != "m" {
 		t.Errorf("nil provider: got %q, want m", got)
 	}
 }

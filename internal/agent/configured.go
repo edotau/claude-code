@@ -21,12 +21,12 @@ func Configured(runner string, c router.Cell) error {
 	if _, err := paths.VendorBin(spec.Binary); err != nil {
 		return err
 	}
-	if u := CopilotPinLogin(); runner == "copilot" && u != "" && !slices.Contains(GHAccounts(), u) {
+	if u := copilotPinLogin(); runner == "copilot" && u != "" && !slices.Contains(GHAccounts(), u) {
 		return fmt.Errorf("pinned gh user %s is not logged in (gh auth login); no other account is used", u)
 	}
 	if runner == "opencode" {
 		if id, _, found := strings.Cut(c.Model, "/"); found {
-			_, err := OpencodeCredential(id)
+			_, err := opencodeCredential(id)
 			return err
 		}
 	}

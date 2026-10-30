@@ -91,7 +91,7 @@ func (b *agyLive) build(ctx context.Context, req Request) (*exec.Cmd, *TailBuffe
 
 func (b *agyLive) writeTurn(w io.Writer, prompt string) error {
 	prompt, b.intro = b.intro+prompt, ""
-	line, err := agyStdin(AgyRequest{Prompt: prompt, Tools: b.tools})
+	line, err := agyStdin(agyRequest{Prompt: prompt, Tools: b.tools})
 	if err != nil {
 		return err
 	}

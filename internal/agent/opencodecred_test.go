@@ -16,7 +16,7 @@ func TestOpencodeCredentialFallsThroughWhenOnlyAnotherLoginExists(t *testing.T) 
 	if l := OpencodeLogins(); len(l) != 1 || l[0] != "openai" {
 		t.Fatalf("precondition: logins = %v, want only openai", l)
 	}
-	env, err := OpencodeCredential("opencode-go")
+	env, err := opencodeCredential("opencode-go")
 	if err == nil {
 		t.Fatalf("env = %v, want an error: the openai login must not cover an opencode-go cell", env)
 	}
@@ -31,7 +31,7 @@ func TestOpencodeCredentialVaultKeyOutranksMissingOwnLogin(t *testing.T) {
 	data, _ := fakeOpencode(t, "1.19.3", "", nil)
 	writeAuthJSON(t, data, `{"openai":{"type":"oauth"}}`)
 	t.Setenv(OpencodeAPIKeyEnv, "sk-test-key")
-	env, err := OpencodeCredential("opencode-go")
+	env, err := opencodeCredential("opencode-go")
 	if err != nil {
 		t.Fatalf("err = %v, want the vault/env key to resolve it", err)
 	}

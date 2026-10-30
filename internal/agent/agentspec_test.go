@@ -74,13 +74,13 @@ func TestResolveAgentModelCodexPinOnDatabricks(t *testing.T) {
 // D7: both copilot registry paths take the model pin through CopilotChoice; a requested model rides alongside it.
 func TestCopilotChoicePin(t *testing.T) {
 	vaulttest.Use(t)
-	if c := CopilotChoice(nil); c.Pin != "" {
+	if c := copilotChoice(nil); c.Pin != "" {
 		t.Fatalf("no pin set: %+v", c)
 	}
 	if err := providers.SetPins(map[string]string{providers.PinCopilotModel: "kimi-k3"}); err != nil {
 		t.Fatal(err)
 	}
-	c := CopilotChoice([]string{"a", "b"})
+	c := copilotChoice([]string{"a", "b"})
 	if c.Pin != "kimi-k3" || strings.Join(c.Requested, ",") != "a,b" {
 		t.Errorf("choice = %+v", c)
 	}

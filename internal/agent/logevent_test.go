@@ -70,7 +70,7 @@ func TestLogEventAgyFormatted(t *testing.T) {
 		pathstest.FakeVendor(t, "agy", emitScript(
 			`{"event":"step_update","step_update":{"step_type":"agent_response","text_delta":"line one\nline two AWS_SECRET=`+evSecret+`"}}`,
 			`{"event":"result","result":{"status":"SUCCESS","conversation_id":"c1","response":"final-answer"}}`))
-		res, err := RunAgy(ctx, AgyRequest{Cwd: t.TempDir(), Prompt: "t"}, NewTextSink(&out))
+		res, err := runAgy(ctx, agyRequest{Cwd: t.TempDir(), Prompt: "t"}, NewTextSink(&out))
 		if err != nil || res.Answer == "" {
 			t.Fatalf("RunAgy = (%+v, %v)", res, err)
 		}
@@ -140,7 +140,7 @@ func TestLogEventJobModeWritesEventsAndStderr(t *testing.T) {
 		pathstest.FakeVendor(t, "agy", "cat > /dev/null\necho child-err >&2\n"+
 			`printf '%s\n' '{"event":"step_update","step_update":{"step_type":"agent_response","text_delta":"hi AWS_SECRET=`+evSecret+`"}}'`+"\n"+
 			`printf '%s\n' '{"event":"result","result":{"status":"SUCCESS","response":"final-answer"}}'`+"\n")
-		if _, err := RunAgy(ctx, AgyRequest{Cwd: t.TempDir(), Prompt: "t"}, Discard); err != nil {
+		if _, err := runAgy(ctx, agyRequest{Cwd: t.TempDir(), Prompt: "t"}, Discard); err != nil {
 			t.Fatalf("RunAgy: %v", err)
 		}
 	})
@@ -189,7 +189,7 @@ func TestLogEventNoSinkNoop(t *testing.T) {
 	pathstest.FakeVendor(t, "agy", emitScript(
 		`{"event":"result","result":{"status":"SUCCESS","response":"final-answer"}}`))
 	var out strings.Builder
-	if _, err := RunAgy(context.Background(), AgyRequest{Cwd: t.TempDir(), Prompt: "t"}, NewTextSink(&out)); err != nil {
+	if _, err := runAgy(context.Background(), agyRequest{Cwd: t.TempDir(), Prompt: "t"}, NewTextSink(&out)); err != nil {
 		t.Fatal(err)
 	}
 	if out.String() != "final-answer" {
@@ -203,7 +203,7 @@ func TestRunAgyKeepsStructured(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	pathstest.FakeVendor(t, "agy", emitScript(
 		`{"event":"result","result":{"status":"SUCCESS","response":"x","structured_output":{"a":1}}}`))
-	res, err := RunAgy(context.Background(), AgyRequest{Cwd: t.TempDir(), Prompt: "t"}, Discard)
+	res, err := runAgy(context.Background(), agyRequest{Cwd: t.TempDir(), Prompt: "t"}, Discard)
 	if err != nil {
 		t.Fatal(err)
 	}

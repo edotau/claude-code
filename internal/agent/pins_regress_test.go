@@ -45,7 +45,7 @@ func TestCodexInteractiveCarriesEffortPin(t *testing.T) {
 	if !slices.Contains(argv, `model_reasoning_effort="medium"`) {
 		t.Errorf("interactive argv = %q, want the effort pin", argv)
 	}
-	_, argv, err = ConfigureHeadless(context.Background(), "codex", tg, Headless{Prompt: "hi", Effort: "low"})
+	_, argv, err = configureHeadless(context.Background(), "codex", tg, Headless{Prompt: "hi", Effort: "low"})
 	if err != nil {
 		t.Fatal(err)
 	}

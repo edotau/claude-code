@@ -73,7 +73,7 @@ func TestAgyArgvAutonomous(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			argv := agyArgv(AgyRequest{Model: "m", Tools: c.tools, Autonomous: c.autonomous})
+			argv := agyArgv(agyRequest{Model: "m", Tools: c.tools, Autonomous: c.autonomous})
 			hasMode := strings.Contains(strings.Join(argv, " "), "--mode auto")
 			hasSkip := slices.Contains(argv, "--dangerously-skip-permissions")
 			if hasMode != c.wantMode || hasSkip != c.wantSkip {
@@ -89,7 +89,7 @@ func TestAgyArgvConversation(t *testing.T) {
 	cases := []struct{ name, session string }{{"unset", ""}, {"set", "conv-123"}}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			argv := agyArgv(AgyRequest{Model: "m", SessionID: c.session})
+			argv := agyArgv(agyRequest{Model: "m", SessionID: c.session})
 			idx := slices.Index(argv, "--conversation")
 			if has := idx >= 0; has != (c.session != "") {
 				t.Fatalf("argv = %q, --conversation present = %v, want %v", argv, has, c.session != "")
@@ -152,10 +152,10 @@ func TestParseAgyStream_TruncatedNoResult(t *testing.T) {
 }
 
 func TestAgyArgvDebugFile(t *testing.T) {
-	if slices.Contains(agyArgv(AgyRequest{Model: "m"}), "--log-file") {
+	if slices.Contains(agyArgv(agyRequest{Model: "m"}), "--log-file") {
 		t.Fatal("--log-file without DebugFile")
 	}
-	argv := agyArgv(AgyRequest{Model: "m", DebugFile: "/tmp/l"})
+	argv := agyArgv(agyRequest{Model: "m", DebugFile: "/tmp/l"})
 	if i := slices.Index(argv, "--log-file"); i < 0 || argv[i+1] != "/tmp/l" {
 		t.Fatalf("argv = %v", argv)
 	}

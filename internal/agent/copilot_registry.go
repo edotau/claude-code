@@ -29,7 +29,7 @@ type copilotRegistryRoute struct {
 	models    []copilot.ProviderModelConfig
 	ref       string // the selected provider/id
 	token     string
-	home      CopilotPrivateHome
+	home      copilotPrivateHome
 }
 
 // prepareCopilotRegistry discovers what t's profile serves, selects t.Model and mints a token for this process.
@@ -52,7 +52,7 @@ func prepareCopilotRegistry(ctx context.Context, t providers.Target) (*copilotRe
 	if cr.Note != "" {
 		eventLogFor(ctx).emit("note", cr.Note)
 	}
-	ref, err := cr.Select(CopilotChoice([]string{models.Strip1M(t.Model)}))
+	ref, err := cr.Select(copilotChoice([]string{models.Strip1M(t.Model)}))
 	if err != nil {
 		return nil, fmt.Errorf("copilot: %w", err)
 	}
@@ -82,7 +82,7 @@ func (rt *copilotRegistryRoute) apply(o *copilotsdk.Options) {
 	o.Providers, o.Models, o.Model = rt.providers, rt.models, rt.ref
 	o.Token = func() (string, error) { return rt.token, nil }
 	o.GitHubToken, o.UseLoggedInUser, o.Env = "", false, nil
-	o.ChildEnv, o.ChildUnset, o.ChildUnsetPrefix = rt.home.Env, rt.home.Unset, CopilotStripPrefix
+	o.ChildEnv, o.ChildUnset, o.ChildUnsetPrefix = rt.home.Env, rt.home.Unset, copilotStripPrefix
 }
 
 // close revokes the run's token; the daemon also expires it, so a failure is not worth failing the run.
