@@ -49,7 +49,7 @@ func runCodexRoute(t *testing.T, payload any) map[string]any {
 		t.Fatal(err)
 	}
 	var out, stderr bytes.Buffer
-	if code := CodexAgentRoute(bytes.NewReader(body), &out, &stderr); code != ExitProceed {
+	if code := nativeHandler("codex-agent-route")(bytes.NewReader(body), &out, &stderr); code != ExitProceed {
 		t.Fatalf("exit = %d, want proceed", code)
 	}
 	if stderr.Len() != 0 {
@@ -151,7 +151,7 @@ func TestCodexAgentRouteMalformedInputFailsOpen(t *testing.T) {
 	setupCodexRoute(t)
 	for _, body := range []string{"", "not-json", "{}", `{"tool_name":"spawn_agent","tool_input":null}`} {
 		var out, stderr bytes.Buffer
-		if code := CodexAgentRoute(strings.NewReader(body), &out, &stderr); code != ExitProceed || out.Len() != 0 {
+		if code := nativeHandler("codex-agent-route")(strings.NewReader(body), &out, &stderr); code != ExitProceed || out.Len() != 0 {
 			t.Errorf("input %q: exit %d, output %q", body, code, &out)
 		}
 	}
@@ -188,7 +188,7 @@ func TestCodexRoutingSchemaStampsNewLinesAndSkipsNewer(t *testing.T) {
 		t.Fatalf("rows = %+v, want only the unstamped session-start (schema 2 skipped)", rows)
 	}
 
-	runCodexAuditHandler(t, CodexRoutingStart, map[string]any{"model": codexRouteWireModel})
+	runCodexAuditHandler(t, nativeHandler("codex-routing-start"), map[string]any{"model": codexRouteWireModel})
 	body, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
@@ -210,7 +210,7 @@ func TestCodexAgentRouteThroughRunKeepsWireShape(t *testing.T) {
 	body := mustCodexJSON(t, codexRoutePayload(args))
 
 	var directOut, directErr bytes.Buffer
-	if code := CodexAgentRoute(bytes.NewReader(body), &directOut, &directErr); code != ExitProceed {
+	if code := nativeHandler("codex-agent-route")(bytes.NewReader(body), &directOut, &directErr); code != ExitProceed {
 		t.Fatalf("direct exit = %d", code)
 	}
 	var runOut, runErr bytes.Buffer

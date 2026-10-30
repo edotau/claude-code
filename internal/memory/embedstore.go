@@ -98,18 +98,6 @@ func readEmbedCache(profile string) (embedCacheFile, error) {
 	return f, err
 }
 
-// loadEmbedCache is readEmbedCache with every failure folded into an empty record.
-func loadEmbedCache(profile string) embedCacheFile {
-	if !safeEmbedProfile(profile) {
-		return embedCacheFile{}
-	}
-	f, err := readEmbedCache(profile)
-	if err != nil {
-		return embedCacheFile{}
-	}
-	return f
-}
-
 func decodeEmbedRecord(tx *bbolt.Tx, profile string) embedCacheFile {
 	b := tx.Bucket(embedCacheBucket)
 	if b == nil {
@@ -150,14 +138,6 @@ func putEmbedRecord(tx *bbolt.Tx, profile string, f embedCacheFile) error {
 		return err
 	}
 	return tx.Bucket(embedCacheBucket).Put([]byte(profile), raw)
-}
-
-// saveEmbedCache stores f as profile's record unconditionally (one Put); the mint path uses commitEmbedMint.
-func saveEmbedCache(profile string, f embedCacheFile) error {
-	if !safeEmbedProfile(profile) {
-		return fmt.Errorf("embeddings: unsafe profile name %q", profile)
-	}
-	return updateEmbedDB(func(tx *bbolt.Tx) error { return putEmbedRecord(tx, profile, f) })
 }
 
 // newEmbedOwner is a random claim token, distinct from the mint's start time.

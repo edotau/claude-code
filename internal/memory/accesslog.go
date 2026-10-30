@@ -148,13 +148,8 @@ type AccessStat struct {
 	Newest time.Time
 }
 
-// AccessStats parses dir's access log into entry → AccessStat (Days = distinct UTC days in
-// (now-windowDays, now]). 2nd return is the OLDEST timestamp — the cold-entry gate needs log > horizon.
-func AccessStats(dir string, now time.Time, windowDays int) (map[string]AccessStat, time.Time) {
-	return accessStatsAt(AccessLogPath(dir), now, windowDays)
-}
-
-// accessStatsAt parses the log path and its rotated generations (.3, .2, .1, active).
+// accessStatsAt parses the log path and its rotated generations (.3, .2, .1, active) into entry → AccessStat (Days =
+// distinct UTC days in (now-windowDays, now]); 2nd return is the OLDEST timestamp, which the cold-entry gate needs.
 func accessStatsAt(path string, now time.Time, windowDays int) (map[string]AccessStat, time.Time) {
 	windowStart := time.Time{}
 	if windowDays > 0 && !now.IsZero() {

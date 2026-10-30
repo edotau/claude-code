@@ -179,7 +179,7 @@ func TestRuntimeDirRejectsUnsafeDirs(t *testing.T) {
 	}
 }
 
-func TestWriteRegistryModeAndSweep(t *testing.T) {
+func TestWriteRegistryModeAndKeep(t *testing.T) {
 	if runtime.GOOS != "linux" {
 		t.Skip("linux runtime dir")
 	}
@@ -200,15 +200,11 @@ func TestWriteRegistryModeAndSweep(t *testing.T) {
 	if err := os.WriteFile(dead, []byte("{}"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	removed, err := Sweep()
-	if err != nil {
-		t.Fatal(err)
+	if Keep(dead) {
+		t.Errorf("dead pid file %s kept", dead)
 	}
-	if _, serr := os.Stat(dead); !os.IsNotExist(serr) {
-		t.Errorf("dead pid file kept (removed %v)", removed)
-	}
-	if _, serr := os.Stat(live); serr != nil {
-		t.Errorf("live pid file swept: %v", serr)
+	if !Keep(live) {
+		t.Errorf("live pid file %s swept", live)
 	}
 }
 

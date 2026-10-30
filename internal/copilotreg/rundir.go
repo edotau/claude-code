@@ -90,23 +90,3 @@ func Glob() string {
 	}
 	return filepath.Join(dir, "*.json")
 }
-
-// Sweep removes registry files whose pid is dead and keeps live ones; a missing dir is nothing to sweep.
-func Sweep() (removed []string, err error) {
-	pattern := Glob()
-	if pattern == "" {
-		return nil, nil
-	}
-	matches, _ := filepath.Glob(pattern)
-	for _, m := range matches {
-		if Keep(m) {
-			continue
-		}
-		if rerr := os.Remove(m); rerr != nil && !os.IsNotExist(rerr) {
-			err = errors.Join(err, rerr)
-			continue
-		}
-		removed = append(removed, m)
-	}
-	return removed, err
-}

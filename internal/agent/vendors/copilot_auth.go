@@ -128,13 +128,8 @@ var CopilotUsedPct func(ctx context.Context, user string) (pct float64, ok bool)
 // copilotWorkablePct is the used credit share at which a copilot GitHub-login leg is no longer started.
 const copilotWorkablePct = 95.0
 
-// CopilotWorkable reports whether user is a gh login whose credits are verified under copilotWorkablePct.
-func CopilotWorkable(ctx context.Context, user string) bool {
-	_, ok := copilotHeadroom(ctx, user)
-	return ok
-}
-
-// copilotHeadroom is CopilotWorkable plus the notice detail naming the account and its verified share.
+// copilotHeadroom reports whether user is a gh login whose credits are verified under copilotWorkablePct, plus the
+// notice detail naming the account and its verified share.
 func copilotHeadroom(ctx context.Context, user string) (detail string, ok bool) {
 	switch {
 	case user == "":

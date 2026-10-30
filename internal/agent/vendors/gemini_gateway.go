@@ -25,14 +25,9 @@ func GeminiGatewayRow(p *providers.Provider) bool {
 		p.Auth.Method() != providers.AuthNone && p.Auth.Method() != providers.AuthCLI
 }
 
-// AgyGatewayModel is the dotted catalog id agy lists for model (effort suffix dropped); a non-Gemini id
-// (a Databricks row's Claude slot) falls back to the GEMINI_MODEL pin, else AgyDefaultModel.
-func AgyGatewayModel(model string) string {
-	base, _ := AgyGatewayArg(model)
-	return base
-}
-
-// AgyGatewayArg is AgyGatewayModel plus the --model agy takes in gateway mode: the base with model's effort suffix.
+// AgyGatewayArg returns the dotted catalog id agy lists for model (effort suffix dropped) and the --model agy takes in
+// gateway mode (base plus model's effort suffix); a non-Gemini id (a Databricks Claude slot) falls back to the
+// GEMINI_MODEL pin, else AgyDefaultModel.
 func AgyGatewayArg(model string) (base, arg string) {
 	base, effort, ok := agyGatewayBase(model)
 	if !ok {
