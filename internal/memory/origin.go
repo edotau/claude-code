@@ -16,6 +16,7 @@ import (
 	"github.com/edotau/claude-code/internal/vault"
 )
 
+// Migration: remove after 2026-11-17 once every machine has run a post-2026-10-20 build.
 // legacyOriginFile is the pre-vault per-store record; resolveOrigins imports it into the vault once and removes it.
 const legacyOriginFile = ".origin"
 
@@ -102,6 +103,7 @@ func resolveOrigins(keys []string) (found map[string]Origin, errs map[string]err
 			}
 			continue
 		}
+		// Migration: remove after 2026-11-17 once every machine has run a post-2026-10-20 build.
 		if catalog == nil {
 			catalog = catalogOrigins()
 		}
@@ -123,6 +125,7 @@ func resolveOrigins(keys []string) (found map[string]Origin, errs map[string]err
 	return found, errs
 }
 
+// Migration: remove after 2026-11-17 once every machine has run a post-2026-10-20 build.
 // importOrigins writes the rows still absent in one transaction, .
 func importOrigins(origins []Origin) error {
 	return vault.Update(func(t *vault.Tx) error {
@@ -236,6 +239,7 @@ func catalogOriginComment(o Origin) string {
 	return catalogOriginTag + string(data) + " -->"
 }
 
+// Migration: remove after 2026-11-17 once every machine has run a post-2026-10-20 build.
 // catalogOrigins parses the origin comments of index.md's repo rows ("- <key> — …"), keyed by store key.
 func catalogOrigins() map[string]Origin {
 	out := map[string]Origin{}

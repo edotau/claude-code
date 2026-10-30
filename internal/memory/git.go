@@ -313,6 +313,16 @@ func runGit(full []string) (string, error) {
 	return proc.RunGit(ctx, "", full...)
 }
 
+// headBytes is rel's content at HEAD, byte-exact: run trims trailing newlines, which would corrupt a recovery copy.
+func headBytes(repo Repo, rel string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "git", "--git-dir="+filepath.Join(repo.Dir, ".git"), "--work-tree="+repo.Dir,
+		"cat-file", "blob", "HEAD:"+rel)
+	cmd.Env = proc.GitEnv()
+	return cmd.Output()
+}
+
 // exitCode is the git process exit status wrapped in err, -1 when err is not an exit error.
 func exitCode(err error) int {
 	if ee, ok := errors.AsType[*exec.ExitError](err); ok {

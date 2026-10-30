@@ -6,7 +6,6 @@ package memory
 
 import (
 	"bytes"
-	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
@@ -14,7 +13,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path"
 	"path/filepath"
 	"slices"
@@ -23,7 +21,6 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/schemas"
 )
 
@@ -282,16 +279,6 @@ func (j *journal) captureNative(repo Repo, rec *Receipt, capture, missing []stri
 		rec.NativeCommit = sha
 	}
 	return nil
-}
-
-// headBytes is rel's content at HEAD, byte-exact: run trims trailing newlines, which would corrupt a recovery copy.
-func headBytes(repo Repo, rel string) ([]byte, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, "git", "--git-dir="+filepath.Join(repo.Dir, ".git"), "--work-tree="+repo.Dir,
-		"cat-file", "blob", "HEAD:"+rel)
-	cmd.Env = proc.GitEnv()
-	return cmd.Output()
 }
 
 // commit writes the receipt beside the batch and commits both; the receipt is dropped if nothing was committed.

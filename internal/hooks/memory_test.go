@@ -252,64 +252,6 @@ func TestSessionStartProbeIDDoesNotClobberLastSession(t *testing.T) {
 	}
 }
 
-// assertPausedSuppressesUpdate drives Stop then SessionEnd for session "s1" against a paused guard and
-// asserts neither spawns an update or writes a stamp — shared by every "guard pauses the write paths" test.
-func assertPausedSuppressesUpdate(t *testing.T, cwd string) {
-	t.Helper()
-	tr := filepath.Join(t.TempDir(), "t.jsonl")
-	writeEdits(t, tr, 20)
-	calls := stubSpawn(t, false)
-	var errb bytes.Buffer
-	if code := sessionUpdate(ParseInput(strings.NewReader(updatePayload(tr, cwd))), &errb); code != ExitProceed || calls.Load() != 0 || errb.Len() != 0 {
-		t.Errorf("paused Stop: code=%d spawns=%d stderr=%q", code, calls.Load(), errb.String())
-	}
-	if runDirect("memory-end", strings.NewReader(updatePayload(tr, cwd)), io.Discard, io.Discard); calls.Load() != 0 {
-		t.Error("paused SessionEnd must not spawn")
-	}
-	if _, ok := readStamp(stampPath("s1")); ok {
-		t.Error("paused update wrote a stamp")
-	}
-}
-
-// A raised maintenance marker pauses every memory write path: no scaffold, no spawn, no block, no stamp —
-// the notice alone is injected, and an existing surface still loads read-only behind it.
-func TestMemoryGuardPausesScaffoldAndUpdate(t *testing.T) {
-	if _, err := exec.LookPath("git"); err != nil {
-		t.Skip("git not installed")
-	}
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	t.Setenv(memory.UpdateChildEnv, "")
-	repo := filepath.Join(t.TempDir(), "repo")
-	if err := exec.Command("git", "init", "-q", repo).Run(); err != nil {
-		t.Fatal(err)
-	}
-	if err := memory.SetMaintenance("test pause"); err != nil {
-		t.Fatal(err)
-	}
-	got := memoryContext(repo, "s1", "", time.Now())
-	if memory.HasBank(repo) || !strings.Contains(got, "memory maintenance in progress (test pause)") || strings.Contains(got, "scaffolded") {
-		t.Fatalf("paused SessionStart must emit the notice alone and scaffold nothing: %q", got)
-	}
-	assertPausedSuppressesUpdate(t, repo)
-	if err := memory.ClearMaintenance(); err != nil {
-		t.Fatal(err)
-	}
-	dir, err := memory.Init(repo)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, "activeContext.md"), []byte("# Active\n\n## Current Focus\n\n- readonly focus\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := memory.SetMaintenance("again"); err != nil {
-		t.Fatal(err)
-	}
-	got = memoryContext(repo, "s2", "", time.Now())
-	if !strings.HasPrefix(got, "memory maintenance in progress (again)") || !strings.Contains(got, "readonly focus") {
-		t.Errorf("paused with a bank: notice must prefix the read-only surface: %q", got[:min(len(got), 300)])
-	}
-}
-
 // cutoverStore creates the unified store's git repo, the state memoryContext needs before repairing a native link.
 func cutoverStore(t *testing.T) {
 	t.Helper()
@@ -338,10 +280,6 @@ func TestSessionStartLinksNativeMemoryAfterCutover(t *testing.T) {
 	// separate ordering bug — see the note below — so this test isolates the link-repair contract.
 	if _, err := memory.EnsureRepoDir(repo); err != nil {
 		t.Fatal(err)
-	}
-
-	if g := memory.StartupGuard(); g.Paused {
-		t.Fatalf("test setup: guard = %+v, want unpaused", g)
 	}
 
 	memoryContext(repo, "s1", "", time.Now())
@@ -419,13 +357,6 @@ func TestPreCompactUpdatesOnlyUncoveredEdits(t *testing.T) {
 	writeEdits(t, tr, 4)
 	if run(); calls.Load() != 2 {
 		t.Errorf("new edits after the stamp must spawn again, calls=%d", calls.Load())
-	}
-	if err := memory.SetMaintenance("test"); err != nil {
-		t.Fatal(err)
-	}
-	writeEdits(t, tr, 9)
-	if run() != ExitProceed || calls.Load() != 2 {
-		t.Error("paused memory must not spawn")
 	}
 }
 

@@ -220,31 +220,6 @@ func TestRepoDirReadOnlyAndEnsureIdempotent(t *testing.T) {
 	}
 }
 
-func TestIdentityCreationHonoursMaintenance(t *testing.T) {
-	storeFixture(t)
-	root := gitRepo(t, canonTemp(t, t.TempDir()), "proj")
-	if err := SetMaintenance("migrate"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := EnsureRepoDir(root); !errors.Is(err, ErrMemoryPaused) {
-		t.Fatalf("EnsureRepoDir under maintenance = %v", err)
-	}
-	if _, err := os.Stat(StoreDir()); !os.IsNotExist(err) {
-		t.Fatal("paused EnsureRepoDir created the store")
-	}
-	ClearMaintenance()
-	dir, err := EnsureRepoDir(root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := SetMaintenance("migrate"); err != nil {
-		t.Fatal(err)
-	}
-	if err := AddOriginAlias(dir, t.TempDir()); !errors.Is(err, ErrMemoryPaused) {
-		t.Fatalf("AddOriginAlias under maintenance = %v", err)
-	}
-}
-
 func mustRepoDir(t *testing.T, root string) string {
 	t.Helper()
 	dir, err := RepoDir(root)

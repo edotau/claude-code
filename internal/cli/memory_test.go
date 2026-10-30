@@ -81,21 +81,12 @@ func TestMemoryRootIgnoresNonRepoProjectDir(t *testing.T) {
 	}
 }
 
-// `memory update` is refused while maintenance is raised, and `memory migrate` no longer exists.
-func TestMemoryUpdatePausedAndMigrateVerbGone(t *testing.T) {
+// `memory migrate` no longer exists.
+func TestMemoryMigrateVerbGone(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	if code, _, stderr := captureOutput(t, func() int { return cmdMemory([]string{"migrate", "--dry-run"}) }); code != 1 || !strings.Contains(stderr, "unknown subcommand") {
 		t.Errorf("memory migrate: code=%d stderr=%q, want exit 1 unknown subcommand", code, stderr)
-	}
-	if err := memory.SetMaintenance("test"); err != nil {
-		t.Fatal(err)
-	}
-	code, _, stderr := captureOutput(t, func() int {
-		return cmdMemory([]string{"update", "--transcript", "/nonexistent", "--cwd", cfg, "--session", "s"})
-	})
-	if code != 1 || !strings.Contains(stderr, "memory maintenance in progress (test)") {
-		t.Errorf("paused update: code=%d stderr=%q", code, stderr)
 	}
 }
 
@@ -222,70 +213,6 @@ func TestCmdMemoryFmt(t *testing.T) {
 
 	if !strings.Contains(memoryPage.Hint, "fmt") {
 		t.Error("memoryPage's plumbing hint does not list `fmt`")
-	}
-}
-
-// TestCmdMemoryFmtRefusedWhilePaused: fmt is a settle writer, gated the same as index/promote/update/dream.
-func TestCmdMemoryFmtRefusedWhilePaused(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	if err := memory.SetMaintenance("test"); err != nil {
-		t.Fatal(err)
-	}
-	code, _, stderr := captureOutput(t, func() int { return cmdMemory([]string{"fmt"}) })
-	if code != 1 || !strings.Contains(stderr, "memory maintenance in progress (test)") {
-		t.Errorf("paused fmt: code=%d stderr=%q", code, stderr)
-	}
-}
-
-// Phase 1 safety: a raised guard refuses every archive write (--apply, --restore --apply, --split --apply) at the
-// memory layer, exit 1 with the notice, and the store is untouched; dry runs and reports stay ungated.
-func TestMemoryArchiveWritesRefusedWhilePaused(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	repo := t.TempDir()
-	dir := memory.NativeDir(repo)
-	if err := os.MkdirAll(memory.NativeArchiveDir(dir), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	files := map[string]string{
-		"topic.md":              "# T\nbody\n",
-		memory.NativeIndexFile:  "- [T](topic.md) — t\n",
-		"archive/native/old.md": "# O\nold\n",
-	}
-	for name, body := range files {
-		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o600); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if err := memory.SetMaintenance("test"); err != nil {
-		t.Fatal(err)
-	}
-	writes := [][]string{
-		{"--repo", repo, "topic", "--apply"},
-		{"--repo", repo, "--restore", "old", "--apply"},
-		{"--repo", repo, "--split", "0", "--apply"},
-	}
-	for _, args := range writes {
-		code, _, stderr := captureOutput(t, func() int { return cmdMemoryArchive(args) })
-		if code != 1 || !strings.Contains(stderr, "memory maintenance in progress (test)") {
-			t.Errorf("paused archive %v: code=%d stderr=%q", args, code, stderr)
-		}
-	}
-	for name, body := range files {
-		data, err := os.ReadFile(filepath.Join(dir, name))
-		if err != nil || string(data) != body {
-			t.Errorf("%s changed under a paused guard: %q err=%v", name, data, err)
-		}
-	}
-	reads := [][]string{
-		{"--repo", repo, "topic"},
-		{"--repo", repo, "--split", "0"},
-		{"--repo", repo},
-		{"--repo", repo, "--dupes"},
-	}
-	for _, args := range reads {
-		if code, _, stderr := captureOutput(t, func() int { return cmdMemoryArchive(args) }); code != 0 {
-			t.Errorf("read-only archive %v under a paused guard: code=%d stderr=%q", args, code, stderr)
-		}
 	}
 }
 

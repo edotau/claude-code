@@ -74,11 +74,7 @@ func HasBank(root string) bool {
 }
 
 // Init ensures root's bank exists and seeds missing files (never overwrites); returns the bank dir.
-// It is a scaffold write, so the startup guard gates it.
 func Init(root string) (string, error) {
-	if err := CheckWritable(); err != nil {
-		return "", err
-	}
 	dir, err := EnsureRepoDir(root) // a new repo store needs its origin record before any file lands in it
 	if err != nil {
 		return "", err

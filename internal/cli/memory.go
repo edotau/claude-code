@@ -602,12 +602,6 @@ func cmdMemory(args []string) int {
 		return 0
 	}
 	sub := args[0]
-	switch sub {
-	case "index", "promote", "update", "dream", "fmt", "remember": // settle/update writers: an update receipt stays pending; SessionStart surfaces it
-		if g := memory.StartupGuard(); g.Paused {
-			return fail("memory %s: %s", sub, g.Notice)
-		}
-	}
 	h, ok := memorySubcommands[sub]
 	if !ok {
 		return fail("memory: unknown subcommand %q (claude-code memory -h lists them)", sub)

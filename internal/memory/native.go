@@ -309,7 +309,7 @@ func ArchiveNative(dir string, names []string, apply bool) (NativeResult, error)
 		res.Archived = todo
 		return res, nil
 	}
-	err := WithWritableBankLock(BankLockWait, func() error { return archiveNativeLocked(dir, todo, &res) })
+	err := WithBankLock(BankLockWait, func() error { return archiveNativeLocked(dir, todo, &res) })
 	return res, err
 }
 
@@ -600,7 +600,7 @@ func RestoreNative(dir string, names []string, apply bool) (NativeResult, error)
 		res.Restored = todo
 		return res, nil
 	}
-	err := WithWritableBankLock(BankLockWait, func() error { return restoreNativeLocked(dir, todo, &res) })
+	err := WithBankLock(BankLockWait, func() error { return restoreNativeLocked(dir, todo, &res) })
 	return res, err
 }
 
@@ -686,7 +686,7 @@ func liveCollision(dst string, archived []byte) (bool, error) {
 // Returns the number of lines moved. apply is the caller's job — this always writes when there is work.
 func SplitNativeIndex(dir string, keepLines int) (int, error) {
 	var moved int
-	err := WithWritableBankLock(BankLockWait, func() (err error) {
+	err := WithBankLock(BankLockWait, func() (err error) {
 		moved, err = splitNativeIndexLocked(dir, keepLines)
 		return err
 	})

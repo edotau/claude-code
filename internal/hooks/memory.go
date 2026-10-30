@@ -64,28 +64,24 @@ func preflightNotice(now time.Time) string {
 
 // memoryContext renders the note line + bank surface and advances the session chain.
 func memoryContext(cwd, sessionID, transcriptPath string, now time.Time) string {
-	guard := memory.StartupGuard()
-	prefix := guard.Notice // paused: the notice ("" otherwise); else a fresh-scaffold notice or ""
-	if !guard.Paused {
-		prefix = maybeAutoInit(cwd)
-	}
-	if !guard.Paused && !memory.IsUpdateChild() {
+	prefix := maybeAutoInit(cwd) // a fresh-scaffold notice or ""
+	if !memory.IsUpdateChild() {
 		memory.LinkNativeFor(cwd) // after the scaffold, so the link targets the store Init named (origin record in the vault)
 	}
 	chain := filepath.Join(memory.StateDir(), "last-session")
-	out := guard.Notice // paused with no bank: the notice alone; an existing surface is still injected read-only
+	out := ""
 	drift := driftNotice()
 	if bank := memory.SessionSurface(cwd); bank != "" {
-		note := bankLoadNote(prefix) + chainNote(chain, sessionID, now, guard) + doctorNotice()
+		note := bankLoadNote(prefix) + chainNote(chain, sessionID, now) + doctorNotice()
 		out = strings.TrimSpace(note+"\n"+drift) + "\n\n" + bank
 	} else {
-		if !guard.Paused && prefix != "" {
+		if prefix != "" {
 			out = prefix // a fresh scaffold has no surface yet; still say where the bank went
 		}
 		out = strings.TrimSpace(out + "\n" + drift)
 	}
 	// The daily dream (promote + consolidate) runs detached on the Copilot CLI; never blocks launch.
-	if !guard.Paused && !memory.IsUpdateChild() && memory.HasBank(cwd) && memory.DreamDue(cwd, now) {
+	if !memory.IsUpdateChild() && memory.HasBank(cwd) && memory.DreamDue(cwd, now) {
 		spawnDream(cwd)
 	}
 	// A stale served-endpoint cache is re-listed detached; needs no memory bank.
@@ -114,7 +110,7 @@ func bankLoadNote(prefix string) string {
 }
 
 // chainNote appends the previous-session pointer and any catch-up/attention note, or "" with no chain entry.
-func chainNote(chain, sessionID string, now time.Time, guard memory.Guard) string {
+func chainNote(chain, sessionID string, now time.Time) string {
 	entry, ok := readChain(chain)
 	if !ok {
 		return ""
@@ -122,7 +118,7 @@ func chainNote(chain, sessionID string, now time.Time, guard memory.Guard) strin
 	prevID := entry.sessionID
 	note := " Previous session id: " + prevID + " (reference for the prior session's transcript / claude --resume)."
 	caughtUp := ""
-	if !guard.Paused && !memory.IsUpdateChild() {
+	if !memory.IsUpdateChild() {
 		caughtUp = catchUpPrevious(entry, sessionID, now)
 	}
 	if caughtUp != "" {
@@ -262,7 +258,7 @@ func scaffoldSafe(cwd string) bool {
 // sessionUpdate (Stop) dispatches a detached `memory update` once a session has substantive work;
 // with no spawn possible it blocks at most updateMaxBlocks times asking for `claude-code memory update`.
 func sessionUpdate(in *Input, stderr io.Writer) int {
-	if !updatable(in) || memory.StartupGuard().Paused {
+	if !updatable(in) {
 		return ExitProceed
 	}
 	if blocked, work := updateIfNew(in, triggerStop, time.Now()); blocked {
@@ -273,7 +269,7 @@ func sessionUpdate(in *Input, stderr io.Writer) int {
 
 // sessionUpdateEnd (SessionEnd) updates the final state when work since the last dispatch crosses the floor.
 func sessionUpdateEnd(in *Input) Result {
-	if !updatable(in) || memory.StartupGuard().Paused {
+	if !updatable(in) {
 		return Result{}
 	}
 	updateIfNew(in, triggerSessionEnd, time.Now())
@@ -283,7 +279,7 @@ func sessionUpdateEnd(in *Input) Result {
 // preCompact (ADK add_events_to_memory): before Claude Code compacts the context, update any work no earlier
 // dispatch covered so the bank holds them; the transcript file itself survives compaction, so this never blocks.
 func preCompact(in *Input) Result {
-	if !updatable(in) || memory.StartupGuard().Paused {
+	if !updatable(in) {
 		return Result{}
 	}
 	updateIfNew(in, triggerPreCompact, time.Now())

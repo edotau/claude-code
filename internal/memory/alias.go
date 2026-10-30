@@ -62,7 +62,7 @@ func AliasRepo(opt AliasOptions) (AliasResult, error) {
 		tgt, _ := findStore(opt.Into)
 		return res, AddOriginAlias(tgt.Dir, canon)
 	}
-	err = WithWritableBankLock(BankLockWait, func() error {
+	err = WithBankLock(BankLockWait, func() error {
 		var perr error
 		if res, p, perr = planAlias(opt, canon); perr != nil { // replan: the store may have moved since the preview read
 			return perr
@@ -161,6 +161,7 @@ func (p *aliasPlan) foldFiles(src, tgt RepoEntry, res *AliasResult) error {
 		cur, rerr := os.ReadFile(dst)
 		have := rerr == nil
 		switch {
+		// Migration: remove after 2026-11-17 once every machine has run a post-2026-10-20 build.
 		case rel == legacyOriginFile || rel == BankIndexFile || strings.HasSuffix(rel, ".lock") || filepath.Base(rel) == ".postupdate":
 			return nil // identity, generated index and lock files do not travel
 		case rel == NativeIndexFile:

@@ -97,7 +97,6 @@ var writers = map[string]string{
 	"internal/memory/git.go:writeIfAbsent":                           unversioned("memory-bank: memory repo seed files"),
 	"internal/memory/update.go:WriteUpdateResult":                    unversioned("text: update result text"),
 	"internal/memory/ids.go:assignIDs":                               unversioned("memory-bank: bank id comments"),
-	"internal/memory/maintenance.go:SetMaintenance":                  unversioned("marker: maintenance reason marker"),
 	"internal/memory/native.go:applyChecked":                         unversioned("memory-bank: native auto-memory files"),
 	"internal/memory/native.go:writeExclusive":                       unversioned("memory-bank: native auto-memory files"),
 	"internal/memory/promote.go:promoteFile":                         unversioned("memory-bank: bank promote"),
