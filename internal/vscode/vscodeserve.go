@@ -1,5 +1,4 @@
-// Package vscodeserve runs `code serve-web` as a detached daemon and publishes it over the tailnet.
-package vscodeserve
+package vscode
 
 import (
 	"context"
@@ -19,7 +18,6 @@ import (
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/schemas"
 	"github.com/edotau/claude-code/internal/tailscale"
-	"github.com/edotau/claude-code/internal/vscode"
 )
 
 // DefaultPort is the first port tried; FreePort walks 10 more if it is busy.
@@ -50,8 +48,8 @@ type Options struct {
 	Folder      string // opened by default in the browser (absolute path); "" leaves the Welcome page
 }
 
-// Result is what Start reports: the resulting state plus any non-fatal notes (tailscale fallbacks).
-type Result struct {
+// ServeResult is what Start reports: the resulting state plus any non-fatal notes (tailscale fallbacks).
+type ServeResult struct {
 	State State
 	Notes []string
 }
@@ -251,15 +249,15 @@ func ParseTailscaleStatus(data []byte, localPort int) (dnsName string, ok bool) 
 
 // Start ensures the daemon is up (idempotent: a healthy daemon is reused, never respawned) and
 // applies the requested tailscale mapping, returning the resulting state and any fallback notes.
-func Start(ctx context.Context, opts Options) (Result, error) {
+func Start(ctx context.Context, opts Options) (ServeResult, error) {
 	st, ok := Running()
 	if !ok {
 		bin, err := ResolveCodeBinary()
 		if err != nil {
-			return Result{}, err
+			return ServeResult{}, err
 		}
 		if _, err := ClientSecret(); err != nil { // ensures the secret file spawn's --connection-token-file reads
-			return Result{}, err
+			return ServeResult{}, err
 		}
 		want := opts.Port
 		if want == 0 {
@@ -267,15 +265,15 @@ func Start(ctx context.Context, opts Options) (Result, error) {
 		}
 		port, err := FreePort(want)
 		if err != nil {
-			return Result{}, err
+			return ServeResult{}, err
 		}
 		notes := prepareDataDir()
 		pid, err := spawn(bin, port, opts.Folder)
 		if err != nil {
-			return Result{}, err
+			return ServeResult{}, err
 		}
 		if err := waitHealthy(ctx, port); err != nil {
-			return Result{}, err
+			return ServeResult{}, err
 		}
 		st = State{PID: pid, Port: port, Started: time.Now().UTC()}
 		res, err := applyTailscale(ctx, st, opts)
@@ -289,7 +287,7 @@ func Start(ctx context.Context, opts Options) (Result, error) {
 }
 
 // applyTailscaleNoting is applyTailscale with one note prepended.
-func applyTailscaleNoting(ctx context.Context, st State, opts Options, note string) (Result, error) {
+func applyTailscaleNoting(ctx context.Context, st State, opts Options, note string) (ServeResult, error) {
 	res, err := applyTailscale(ctx, st, opts)
 	res.Notes = append([]string{note}, res.Notes...)
 	return res, err
@@ -317,7 +315,7 @@ func prepareDataDir() []string {
 			notes = append(notes, "settings: "+err.Error())
 		}
 	}
-	if _, err := vscode.Sync("", MachineSettingsPath(), paths.ConfigDir(), paths.BinDir(), false); err != nil {
+	if _, err := Sync("", MachineSettingsPath(), paths.ConfigDir(), paths.BinDir(), false); err != nil {
 		notes = append(notes, "settings: "+err.Error())
 	}
 	return notes
@@ -441,10 +439,10 @@ func queryTailscaleServeStatus(ctx context.Context, bin string, port int) (strin
 
 // applyTailscale sets (or skips) the tailscale/funnel mapping, builds st.URL, persists state, and
 // returns any fallback notes (missing CLI, mapping failure) instead of failing Start outright.
-func applyTailscale(ctx context.Context, st State, opts Options) (Result, error) {
+func applyTailscale(ctx context.Context, st State, opts Options) (ServeResult, error) {
 	token, err := ClientSecret()
 	if err != nil {
-		return Result{}, err
+		return ServeResult{}, err
 	}
 	if opts.NoTailscale {
 		st.Tailscale, st.Funnel = false, false
@@ -481,11 +479,11 @@ func applyTailscale(ctx context.Context, st State, opts Options) (Result, error)
 	return finish(st, notes)
 }
 
-func finish(st State, notes []string) (Result, error) {
+func finish(st State, notes []string) (ServeResult, error) {
 	if err := writeState(st); err != nil {
-		return Result{}, err
+		return ServeResult{}, err
 	}
-	return Result{State: st, Notes: notes}, nil
+	return ServeResult{State: st, Notes: notes}, nil
 }
 
 // lanHost is this node's first tailnet IPv4, falling back to loopback when status can't be read.

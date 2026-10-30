@@ -1,4 +1,4 @@
-package vscodeserve
+package vscode
 
 import (
 	"encoding/json"

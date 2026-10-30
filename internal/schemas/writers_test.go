@@ -29,7 +29,7 @@ import (
 	_ "github.com/edotau/claude-code/internal/usageledger"
 	_ "github.com/edotau/claude-code/internal/vault"
 	_ "github.com/edotau/claude-code/internal/vendors"
-	_ "github.com/edotau/claude-code/internal/vscodeserve"
+	_ "github.com/edotau/claude-code/internal/vscode"
 	_ "github.com/edotau/claude-code/internal/worktree"
 )
 
@@ -155,8 +155,8 @@ var writers = map[string]string{
 	"internal/vendors/opencodeauth.go:updateOpencodeDiskCache":     "opencode-auth-cache",
 	"internal/vscode/keybindings.go:mergeKeybindings":              unversioned("foreign: VS Code keybindings.json and backup"),
 	"internal/vscode/vscode.go:merge":                              unversioned("foreign: VS Code settings.json and backup"),
-	"internal/vscodeserve/vscodeserve.go:prepareDataDir":           unversioned("foreign: VS Code machine settings seed"),
-	"internal/vscodeserve/vscodeserve.go:writeState":               "vscode-serve-runtime",
+	"internal/vscode/vscodeserve.go:prepareDataDir":                unversioned("foreign: VS Code machine settings seed"),
+	"internal/vscode/vscodeserve.go:writeState":                    "vscode-serve-runtime",
 	"internal/worktree/ledger.go:editLedger":                       unversioned("memory-bank: worktree ledger log line and task fill"),
 	"internal/worktree/ledger.go:CloseLedger":                      unversioned("memory-bank: worktree ledger close"),
 	"internal/worktree/ledger.go:OpenLedger":                       unversioned("memory-bank: worktree ledger open"),

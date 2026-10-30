@@ -32,7 +32,7 @@ import (
 	"github.com/edotau/claude-code/internal/tailscale"
 	"github.com/edotau/claude-code/internal/tools"
 	"github.com/edotau/claude-code/internal/vendors"
-	"github.com/edotau/claude-code/internal/vscodeserve"
+	"github.com/edotau/claude-code/internal/vscode"
 )
 
 // userBinDir is where install links claude-code onto PATH (~/.local/bin is on PATH by convention).
@@ -488,7 +488,7 @@ func routerStatus() string {
 
 // vscodeServeDoctorDetail reports the vscode-serve daemon and its tailscale mapping, token redacted.
 func vscodeServeDoctorDetail() string {
-	st, running := vscodeserve.Running()
+	st, running := vscode.Running()
 	if !running {
 		return "stopped"
 	}
