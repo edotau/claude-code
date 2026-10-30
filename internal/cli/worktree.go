@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 
@@ -35,7 +36,8 @@ var worktreePage = helptext.Page{
 const worktreeVerifyNote = `Verify inside the worktree after integration, before promotion.
 Set --verify or detect a gate from Makefile's test target, go.mod, pyproject,
 package.json, or Cargo.toml. Without a gate, promotion is refused.
-Only --no-verify skips the gate.`
+Makefile + go.mod: build+vet all, test changed and registry packages;
+--full-verify runs the full Makefile gate. Only --no-verify skips the gate.`
 
 func cmdWorktree(args []string) int {
 	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" || args[0] == "help" {
@@ -175,6 +177,7 @@ func cmdWorktreeMerge(repo *worktree.Repo, args []string) int {
 	noClean := fs.Bool("no-clean", false, "leave the worktree on disk after a successful promote")
 	verify := fs.String("verify", "", "run this worktree gate after integration; failure blocks promotion")
 	noVerify := fs.Bool("no-verify", false, "promote without any verification gate — the only way to skip one")
+	fullVerify := fs.Bool("full-verify", false, "run the full Makefile gate instead of the scoped one")
 	resolveAgent := fs.String("resolve-agent", "", "resolve predicted conflicts with claude|codex")
 	resume := fs.Bool("resume", false, "resume --resolve-agent for <name> without restarting the agent")
 	if code, done := helptext.Parse(fs, args); done {
@@ -198,7 +201,7 @@ func cmdWorktreeMerge(repo *worktree.Repo, args []string) int {
 
 	var code int
 	if err := worktree.WithWorktreeLease(repo, name, func() error {
-		code = mergeLocked(ctx, repo, name, *target, *resolveAgent, *resume, *noClean, *verify, *noVerify)
+		code = mergeLocked(ctx, repo, name, *target, *resolveAgent, *resume, *noClean, *fullVerify, *verify, *noVerify)
 		return nil
 	}); err != nil {
 		return fail("worktree merge: %v", err)
@@ -221,7 +224,7 @@ func mergeDryRun(ctx context.Context, repo *worktree.Repo, name, target, resolve
 
 // mergeLocked runs the full non-dry-run merge lifecycle under the lease cmdWorktreeMerge already
 // acquired: resume-or-plan, the verify-gate decision, then integrate -> verify -> promote -> clean.
-func mergeLocked(ctx context.Context, repo *worktree.Repo, name, target, resolveAgent string, resume, noClean bool, verify string, noVerify bool) int {
+func mergeLocked(ctx context.Context, repo *worktree.Repo, name, target, resolveAgent string, resume, noClean, fullVerify bool, verify string, noVerify bool) int {
 	var plan *worktree.MergePlan
 	var err error
 	if resume {
@@ -240,19 +243,30 @@ func mergeLocked(ctx context.Context, repo *worktree.Repo, name, target, resolve
 	if err != nil {
 		return fail("worktree merge: %v", err)
 	}
-	return applyMerge(ctx, repo, plan, name, gate, gateSource, noClean)
+	return applyMerge(ctx, repo, plan, name, gate, gateSource, noClean, fullVerify)
 }
 
 // applyMerge runs IntegrateTarget -> the verify gate (if any) -> Promote -> an optional Clean, already
 // inside the caller's worktree lease — so it calls worktree.CleanInLease, never the self-locking Clean.
-func applyMerge(ctx context.Context, repo *worktree.Repo, plan *worktree.MergePlan, name, gate, gateSource string, noClean bool) int {
+func applyMerge(ctx context.Context, repo *worktree.Repo, plan *worktree.MergePlan, name, gate, gateSource string, noClean, fullVerify bool) int {
 	integrated, err := worktree.IntegrateTarget(ctx, repo, plan)
 	if err != nil {
 		return fail("worktree merge: integrate: %v", err)
 	}
 	fmt.Printf("integrated: %s -> %s\n", shortOID(integrated.BeforeOID), shortOID(integrated.AfterOID))
 
+	if gateSource == "Makefile" && !fullVerify && fileExists(filepath.Join(plan.WorktreePath, "go.mod")) {
+		scoped, pkgs, full, err := worktree.ScopedGoGate(ctx, plan.WorktreePath, plan.TargetOID)
+		if err != nil {
+			return fail("worktree merge: scoped gate: %v", err)
+		}
+		gate, gateSource = scoped, "scoped go gate, "+strconv.Itoa(len(pkgs))+" test pkgs"
+		if full {
+			gateSource = "go.mod changed, all packages"
+		}
+	}
 	if gate != "" {
+		fmt.Printf("verify: %s\n", gate)
 		if err := runVerify(ctx, plan.WorktreePath, gate); err != nil {
 			fmt.Fprintf(os.Stderr, "worktree left on disk at %s for inspection\n", plan.WorktreePath)
 			return fail("worktree merge: verify failed, not promoting: %v", err)
