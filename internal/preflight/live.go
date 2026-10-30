@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -16,6 +17,9 @@ import (
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 )
+
+// profileTimeout caps one profile's listing refresh.
+const profileTimeout = 20 * time.Second
 
 // Budget is the wall-clock cap on the whole install step (refresh and pongs); a var for tests.
 var Budget = 45 * time.Second
@@ -32,7 +36,7 @@ func RefreshStale(ctx context.Context, reg *providers.Registry, ps []Pin, now ti
 			continue
 		}
 		wg.Go(func() {
-			lctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+			lctx, cancel := context.WithTimeout(ctx, profileTimeout)
 			defer cancel()
 			if _, err := Refresh(lctx, reg, prov, now); err != nil {
 				mu.Lock()
@@ -156,6 +160,32 @@ func RunInstallStep(ctx context.Context, w io.Writer, reg *providers.Registry, b
 	for _, r := range LivePongs(ctx, bin, ps) {
 		fmt.Fprintln(w, r.Line())
 	}
+	printFixRows(w, ps)
+}
+
+// Stale reports whether a Databricks profile in use has no fresh listing.
+func Stale(reg *providers.Registry, now time.Time) bool {
+	return slices.ContainsFunc(Profiles(reg, Check(reg, now)), func(p *providers.Provider) bool {
+		c, ok := LoadServed(p.Name)
+		return !ok || !c.Fresh(now)
+	})
+}
+
+// Warm re-lists stale profiles and prints each pin needing a fix when served routing is on; never fails the caller.
+func Warm(w io.Writer, reg *providers.Registry, now time.Time) {
+	if !providers.ServedRoutingOn() {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), profileTimeout)
+	defer cancel()
+	for _, err := range RefreshStale(ctx, reg, Check(reg, now), now, false) {
+		fmt.Fprintf(w, "preflight  listing refresh failed: %s\n", oneLine(err.Error()))
+	}
+	printFixRows(w, Check(reg, now))
+}
+
+// printFixRows prints one line per pin that is not OK, with its fix or detail.
+func printFixRows(w io.Writer, ps []Pin) {
 	for _, p := range ps {
 		if p.Status != StatusOK {
 			fmt.Fprintf(w, "%s %s: %s\n", p.Agent, p.Status, cmp.Or(p.Fix, p.Detail))

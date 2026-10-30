@@ -2,6 +2,7 @@ package router
 
 import (
 	"maps"
+	"slices"
 	"time"
 
 	"github.com/edotau/claude-code/internal/providers"
@@ -13,27 +14,29 @@ const BYOKModel = "byok"
 
 // PinnedModel resolves a pin and reports why a BYOK request fell back to the tier slot.
 func PinnedModel(runner, tier string, cell Cell, p *providers.Provider, pin string) (string, string) {
+	now := time.Now()
 	if pin != BYOKModel {
-		return pinnedModel(runner, tier, cell, p, pin), ""
+		return pinnedModel(runner, tier, cell, p, pin, now), ""
 	}
 	if runner != "copilot" && runner != "opencode" {
-		return pinnedModel(runner, tier, cell, p, ""), "byok requires copilot or opencode; using tier slot"
+		return pinnedModel(runner, tier, cell, p, "", now), "byok requires copilot or opencode; using tier slot"
 	}
 	if p == nil || p.Preset != providers.PresetDatabricks {
-		return pinnedModel(runner, tier, cell, p, ""), "byok requires Databricks; using tier slot"
+		return pinnedModel(runner, tier, cell, p, "", now), "byok requires Databricks; using tier slot"
 	}
-	model, err := pickPool(runner, p, providers.BYOKPool(), time.Now())
+	model, err := pickPool(runner, p, providers.BYOKPool(), now)
 	if err != nil {
-		return pinnedModel(runner, tier, cell, p, ""), "byok state unavailable; using tier slot"
+		return pinnedModel(runner, tier, cell, p, "", now), "byok state unavailable; using tier slot"
 	}
 	if model == "" {
-		return pinnedModel(runner, tier, cell, p, ""), "byok pool has no served model; using tier slot"
+		return pinnedModel(runner, tier, cell, p, "", now), "byok pool has no served model; using tier slot"
 	}
 	return model, ""
 }
 
 // pickPool selects and records under the same lock, so simultaneous picks see each other's timestamps.
 func pickPool(runner string, p *providers.Provider, pool []string, now time.Time) (string, error) {
+	pool = servedPool(p, pool, now)
 	var selected, model string
 	err := Update(func(s State) {
 		account := ProviderAccount(p.Name)
@@ -55,6 +58,17 @@ func pickPool(runner string, p *providers.Provider, pool []string, now time.Time
 		s[account] = e
 	})
 	return model, err
+}
+
+// servedPool drops entries a fresh listing marks not READY; unchanged when the switch is off or the cache cold.
+func servedPool(p *providers.Provider, pool []string, now time.Time) []string {
+	ready, fresh := servedView(p, now)
+	if !fresh {
+		return pool
+	}
+	return slices.DeleteFunc(slices.Clone(pool), func(entry string) bool {
+		return !ready(entry) && vendors.SpellPin(p, entry) != ""
+	})
 }
 
 // byokSkipTTL is how long a model that failed for an agent stays out of that agent's rotation.

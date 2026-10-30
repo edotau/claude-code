@@ -13,7 +13,7 @@ type routingModule struct{}
 func (routingModule) Vendor() string { return "routing" }
 
 func (routingModule) Fields() []Field {
-	return []Field{weightsPriceField(), subagentsField()}
+	return []Field{weightsPriceField(), subagentsField(), servedAwareField()}
 }
 
 // Env exports HARNESS_ROUTE_SUBAGENTS=0 when subagent offload is off; on (the default) exports nothing,
@@ -73,6 +73,31 @@ func subagentsField() Field {
 				return fmt.Errorf("subagents: %w", err)
 			}
 			r.Subagents = &b
+			return nil
+		},
+	}
+}
+
+func servedAwareField() Field {
+	return Field{
+		Key:   "servedAware",
+		Label: "served-aware",
+		Help:  "pick Databricks models the workspace lists READY; off = static menu",
+		Kind:  KindBool,
+		Get: func(r providers.Routing) string {
+			return strconv.FormatBool(r.ServedAwareOn())
+		},
+		IsSet: func(r providers.Routing) bool { return r.ServedAware != nil },
+		Set: func(r *providers.Routing, input string) error {
+			if input == "" {
+				r.ServedAware = nil
+				return nil
+			}
+			b, err := strconv.ParseBool(input)
+			if err != nil {
+				return fmt.Errorf("servedAware: %w", err)
+			}
+			r.ServedAware = &b
 			return nil
 		},
 	}
