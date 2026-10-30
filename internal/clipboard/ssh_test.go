@@ -83,3 +83,23 @@ func TestServePNG(t *testing.T) {
 		t.Fatalf("no image: err = %v, %d bytes; want nil, 0", err, out.Len())
 	}
 }
+
+// A symlink or a plain file at the bridge path is refused before dialing, even if it leads to a live socket.
+func TestReadSSHRefusesForeignPath(t *testing.T) {
+	dir := t.TempDir()
+	real := filepath.Join(dir, "real.sock")
+	serveOnce(t, real, pngBytes(t))
+	link := filepath.Join(dir, "link.sock")
+	if err := os.Symlink(real, link); err != nil {
+		t.Fatal(err)
+	}
+	plain := filepath.Join(dir, "plain.sock")
+	if err := os.WriteFile(plain, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range []string{link, plain} {
+		if _, err := readSSH(p); !errors.Is(err, errNoBridge) {
+			t.Errorf("%s: err = %v, want errNoBridge", filepath.Base(p), err)
+		}
+	}
+}

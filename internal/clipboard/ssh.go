@@ -44,9 +44,12 @@ func ReadSSH() ([]byte, error) { return readSSH(sshSocket()) }
 
 // readSSH dials sock and reads one PNG; the server writes it and closes, zero bytes meaning none.
 func readSSH(sock string) ([]byte, error) {
+	if err := checkSocket(sock); err != nil {
+		return nil, err
+	}
 	conn, err := net.DialTimeout("unix", sock, sshTimeout)
 	if err != nil {
-		return nil, fmt.Errorf("%w (%s: add RemoteForward to the client's ~/.ssh/config)", errNoBridge, sock)
+		return nil, fmt.Errorf("%w (%s: %v)", errNoBridge, sock, err)
 	}
 	defer func() { _ = conn.Close() }()
 	_ = conn.SetDeadline(time.Now().Add(sshTimeout))
@@ -64,6 +67,21 @@ func readSSH(sock string) ([]byte, error) {
 		return nil, fmt.Errorf("clipboard bridge sent a non-PNG: %w", err)
 	}
 	return b, nil
+}
+
+// checkSocket refuses a /tmp path another local user could have pre-bound: it must be our own socket.
+func checkSocket(sock string) error {
+	fi, err := os.Lstat(sock)
+	switch {
+	case err != nil:
+		return fmt.Errorf("%w (%s: add RemoteForward to the client's ~/.ssh/config)", errNoBridge, sock)
+	case fi.Mode()&os.ModeSocket == 0:
+		return fmt.Errorf("%w (%s is not a socket)", errNoBridge, sock)
+	}
+	if uid, ok := ownerUID(fi); !ok || uid != os.Getuid() {
+		return fmt.Errorf("%w (%s is not owned by you)", errNoBridge, sock)
+	}
+	return nil
 }
 
 // grabSSH saves the SSH client's clipboard image as a local PNG and returns its path plus "WxH".
