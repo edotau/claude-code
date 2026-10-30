@@ -52,7 +52,7 @@ func codexSchemaFile(schema string) (string, error) {
 	}
 	defer f.Close()
 	if _, err := f.Write(body); err != nil {
-		os.Remove(f.Name())
+		_ = os.Remove(f.Name())
 		return "", err
 	}
 	return f.Name(), nil

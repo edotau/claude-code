@@ -88,7 +88,7 @@ func configure(opts Options, w io.Writer, ops fileOps, display func(string) (str
 	opts.Root = root
 	info, err := os.Stat(root)
 	if err != nil || !info.IsDir() {
-		return fmt.Errorf("Desktop root %s is unavailable; open Desktop first", root)
+		return fmt.Errorf("desktop root %s is unavailable; open Desktop first", root)
 	}
 	run := func() error { return configureLocked(opts, w, ops, display) }
 	if opts.DryRun {
@@ -151,7 +151,7 @@ func configureLocked(opts Options, w io.Writer, ops fileOps, display func(string
 	if !hasState {
 		var currentID string
 		if json.Unmarshal(meta["appliedId"], &currentID) == nil && currentID == ProfileID {
-			return errors.New("Desktop profile is already applied without saved revert state")
+			return errors.New("desktop profile is already applied without saved revert state")
 		}
 	}
 	filtered := make([]json.RawMessage, 0, len(entries)+1)
@@ -247,21 +247,21 @@ func configureLocked(opts Options, w io.Writer, ops fileOps, display func(string
 func validateOptions(opts *Options) error {
 	u, err := url.Parse(opts.BaseURL)
 	if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
-		return errors.New("Desktop gateway URL must be an absolute HTTP(S) URL without credentials, query, or fragment")
+		return errors.New("desktop gateway URL must be an absolute HTTP(S) URL without credentials, query, or fragment")
 	}
 	if !helperAbsolute(opts.HelperPath, opts.HelperWindows) {
-		return errors.New("Desktop credential helper must be an absolute path")
+		return errors.New("desktop credential helper must be an absolute path")
 	}
 	if opts.Profile == "" {
 		opts.Profile = "claude-code gateway"
 	}
 	if len(opts.Models) == 0 {
-		return errors.New("Desktop requires at least one static model")
+		return errors.New("desktop requires at least one static model")
 	}
 	seen := map[string]bool{}
 	for _, m := range opts.Models {
 		if strings.TrimSpace(m.Name) == "" || seen[m.Name] {
-			return errors.New("Desktop model names must be nonempty and unique")
+			return errors.New("desktop model names must be nonempty and unique")
 		}
 		seen[m.Name] = true
 	}

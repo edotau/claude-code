@@ -30,14 +30,14 @@ func noBrowserHint() string {
 
 // Conn is one CDP session bound to a tab this package opened.
 type Conn struct {
-	ws, base, id string
-	sock         *wsConn
-	mu           sync.Mutex
-	next         int
-	pending      map[int]chan response
-	waiters      map[string][]chan json.RawMessage
-	err          error
-	done         chan struct{}
+	base, id string
+	sock     *wsConn
+	mu       sync.Mutex
+	next     int
+	pending  map[int]chan response
+	waiters  map[string][]chan json.RawMessage
+	err      error
+	done     chan struct{}
 }
 
 type response struct {

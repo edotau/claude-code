@@ -243,7 +243,7 @@ func (v vendorRunner) Run(ctx context.Context, req Request, sink Sink) (Result, 
 			if err != nil {
 				return res, &Error{Kind: KindFatal, Agent: v.name, Err: err}
 			}
-			defer os.Remove(file)
+			defer func() { _ = os.Remove(file) }()
 			extra = append(extra, "--output-schema", file)
 		}
 		if codexJSON = codexHasJSON(); codexJSON {

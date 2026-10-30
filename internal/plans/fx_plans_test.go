@@ -7,8 +7,6 @@ import (
 	"time"
 )
 
-const openTask = "# Plan: x\n\n- [ ] 1.1 Task owns: a/b.go%s\n"
-
 // A symlinked .md (pointing outside plans/) is never summarized.
 func TestStatusSkipsSymlink(t *testing.T) {
 	dir, outside := t.TempDir(), t.TempDir()

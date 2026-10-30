@@ -280,7 +280,7 @@ func Run(ctx context.Context, r Runner, req Request, sink Sink, notify func(stri
 			}
 		}
 		if e != nil {
-			note(e)
+			_ = note(e)
 		}
 		return e
 	})
@@ -452,7 +452,7 @@ func splitImages(paths []string) (images, rest []string) {
 			continue
 		}
 		n, _ := f.Read(head)
-		f.Close()
+		_ = f.Close()
 		if IsImage(head[:n]) {
 			images = append(images, p)
 		} else {

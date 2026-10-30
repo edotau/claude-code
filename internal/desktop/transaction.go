@@ -94,7 +94,7 @@ func transact(changes []change, before map[string]snapshot, ops fileOps, library
 			err = ops.write(c.path, c.data, mode)
 		}
 		if err != nil {
-			return rollback(fmt.Errorf("Desktop transaction %s: %w", c.path, err))
+			return rollback(fmt.Errorf("desktop transaction %s: %w", c.path, err))
 		}
 	}
 	return nil
