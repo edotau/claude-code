@@ -10,6 +10,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/launch"
 	"github.com/edotau/claude-code/internal/preflight"
+	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/secrets/shapes"
 )
 
@@ -112,12 +113,11 @@ func verifyAgent(ctx context.Context, agent string) error {
 	return nil
 }
 
-// routeAgent runs the agent's Route row; changed is false when the picker was dismissed or left the pin as is.
+// routeAgent runs the agent's route picker; changed is false (err nil) when it was dismissed or left the pin as is.
 func routeAgent(d *dialog, agent string) (changed bool, err error) {
-	for _, r := range agentPinRows(d, agent) {
-		if r.label == "Route" {
-			return r.run(), nil
-		}
+	key := providers.AgentProfilePin(agent)
+	if key == "" {
+		return false, errors.New("no route pin for this agent")
 	}
-	return false, errors.New("no route pin for this agent")
+	return pickAgentRoute(d, agent, key, providers.Pin(key))
 }
