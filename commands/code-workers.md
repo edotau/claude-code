@@ -20,9 +20,10 @@ gates from the skill before moving to the next task (sequential) or over the int
 (parallel). Relay one consolidated report: per-task status, files, verification, overall verdict.
 
 Default agents: when the plan or task names no agent, set each leaf's `Agent:` from the "Default agent per
-task class" table in `skills/subagent-workflows/references/cost-routing.md` instead of running it in-context.
+task class" table in `skills/subagent-workflows/references/cost-routing.md`,
+or in-context when cost-routing says so.
 
-`team` mode (`/code-workers team <goal>`): one `gemini` leaf scans (read-only, cites file:line) → one `codex`
-leaf reviews the list (KEEP/CHANGE/DROP) → STOP and show the reviewed list for the user's approval → approved
-items go to `opencode` leaves (edits in a worktree) ‖ a `copilot` test agent when code changes. Watch each dispatch
-with `claude-code <agent> tail -f`.
+`team` mode (`/code-workers team <goal>`): `code-worker` leaves with `Agent: gemini` scan (read-only, cites
+file:line) → `Agent: codex` reviews the list (KEEP/CHANGE/DROP) → STOP and show the reviewed list for the user's
+approval → approved items go to `code-worker` leaves with `Agent: opencode` (worktree) ‖ a `copilot` test agent
+when code changes. Watch each dispatch with `claude-code <agent> tail -f`.

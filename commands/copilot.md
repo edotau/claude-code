@@ -11,7 +11,8 @@ lists the surface.
 
 First token of `$ARGUMENTS`: `test` (default) or `commit`/`pr` — dispatch one `Agent` with
 `subagent_type: "copilot"`, in the background, briefed with that mode, the rest as the task plus the files
-or packages in scope and the exact verification command; relay its report. Any other verb
+or packages in scope and the exact verification command; the leaf does its own work (bare label); relay
+its report. Any other verb
 (`ask|resume|review|explore|transfer|status|tail|result|cancel|setup|catalog|env`) — run
 `claude-code copilot <verb> <rest>` straight through via Bash and relay the output
 (`--background` → relay the `job <id>` line and name `claude-code copilot status|result|cancel`).

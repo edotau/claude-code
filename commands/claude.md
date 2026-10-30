@@ -13,5 +13,5 @@ current diff (`git diff ${RANGE:---cached}` against `git merge-base HEAD main`, 
 `git diff --cached` with a note if there's no divergence and nothing staged).
 
 Dispatch one `Agent` with `subagent_type: "claude"`, passing the mode, resolved scope, and changed
-files (not this session's history). For a `review`, the Security lens runs with the quality lenses. Relay its
-verdict.
+files (not this session's history); the leaf does its own work (bare label). For a `review`, the
+Security lens runs with the quality lenses. Relay its verdict.
