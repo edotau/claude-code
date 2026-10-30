@@ -36,21 +36,26 @@ func liveBackendFor(name string) liveBackend {
 func HasLive(name string) bool { return liveBackendFor(name) != nil }
 
 // claudeLive holds `claude --print --input-format stream-json`: one process, one user message per turn.
-type claudeLive struct{}
+type claudeLive struct{ prevCost float64 }
 
-func (claudeLive) build(ctx context.Context, req Request) (*exec.Cmd, *TailBuffer, string, error) {
+func (*claudeLive) build(ctx context.Context, req Request) (*exec.Cmd, *TailBuffer, string, error) {
 	args := claudeArgs([]string{"--print", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
 		"--include-partial-messages"}, req)
 	cmd, tail, plan, err := claudeCmd(ctx, req, args, "")
 	return cmd, tail, plan.Set[providers.PinProfile], err
 }
 
-func (claudeLive) writeTurn(w io.Writer, prompt string) error {
+func (*claudeLive) writeTurn(w io.Writer, prompt string) error {
 	return writeJSONLine(w, map[string]any{"type": "user", "message": map[string]any{"role": "user", "content": prompt}})
 }
 
-func (claudeLive) parse(dec *json.Decoder, sink Sink, lg eventLog) (Result, error) {
-	return parseClaudeEvents(dec, true, sink, lg)
+// parse prices the turn alone: claude's total_cost_usd accumulates over the process, its token counts do not.
+func (b *claudeLive) parse(dec *json.Decoder, sink Sink, lg eventLog) (Result, error) {
+	res, err := parseClaudeEvents(dec, true, sink, lg)
+	total := res.Usage.CostUSD
+	res.Usage.CostUSD = max(total-b.prevCost, 0)
+	b.prevCost = max(b.prevCost, total)
+	return res, err
 }
 
 // agyLive holds `agy --input-format stream-json`: one conversation, one NDJSON line per turn.
