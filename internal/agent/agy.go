@@ -150,16 +150,16 @@ func parseAgyEvents(dec *json.Decoder, sink Sink, once bool, lg eventLog) (res R
 		case "init":
 			res.SessionID = ev.ConvID
 		case "step_update":
-			if t := ev.StepUpdate.StepType; t != "agent_response" && t != "user_input" {
-				openStep = ""
-				if ev.StepUpdate.State != "DONE" {
+			if t, st := ev.StepUpdate.StepType, ev.StepUpdate.State; t != "agent_response" && t != "user_input" && st != "" {
+				if st != "DONE" {
 					openStep = t
+				} else if openStep == t {
+					openStep = ""
 				}
 			}
 			if ev.StepUpdate.StepType != "agent_response" || ev.StepUpdate.TextDelta == "" {
 				continue
 			}
-			openStep = ""
 			if err := sink.Emit(Event{Type: EventText, Text: ev.StepUpdate.TextDelta}); err != nil {
 				return res, err
 			}

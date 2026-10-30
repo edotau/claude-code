@@ -61,10 +61,15 @@ func Run(ctx context.Context, o Options, stream, log io.Writer) (agent.Result, e
 	if err != nil {
 		return agent.Result{}, err
 	}
-	if o.Index {
-		task += "\n\n" + IndexPrompt(ctxFiles)
+	prompt, ctxFiles, dropped, err := FitPrompt(func(c Context) string {
+		if o.Index {
+			return task + "\n\n" + IndexPrompt(c)
+		}
+		return task
+	}, ctxFiles, PromptCap)
+	if err != nil {
+		return agent.Result{}, err
 	}
-	prompt, ctxFiles, dropped := FitPrompt(task, ctxFiles, PromptCap)
 	logContextStats(log, ctxFiles)
 	if w := CoverageWarning(ctxFiles); w != "" {
 		fmt.Fprintln(stream, w)
