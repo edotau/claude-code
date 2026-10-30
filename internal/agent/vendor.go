@@ -298,7 +298,7 @@ func runEventStream(ctx context.Context, name string, cmd *exec.Cmd, tail *TailB
 	out, perr := parse(stdout, sink, onMeaningful, eventLogFor(ctx))
 	_, _ = io.Copy(io.Discard, stdout)
 	werr := cmd.Wait()
-	res.Answer, res.Usage, res.SessionID, res.Transport = out.Answer, out.Usage, out.SessionID, out.Transport
+	res.Answer, res.Usage, res.SessionID, res.Transport, res.Structured = out.Answer, out.Usage, out.SessionID, out.Transport, out.Structured
 	if werr != nil || ctx.Err() != nil {
 		return res, childErr(ctx, name, errors.Join(werr, perr), tail)
 	}

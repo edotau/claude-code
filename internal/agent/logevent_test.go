@@ -196,3 +196,18 @@ func TestLogEventNoSinkNoop(t *testing.T) {
 		t.Errorf("stream = %q", out.String())
 	}
 }
+
+// agy's result.structured_output survives RunAgy's runEventStream into the Result.
+func TestRunAgyKeepsStructured(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("HOME", t.TempDir())
+	pathstest.FakeVendor(t, "agy", emitScript(
+		`{"event":"result","result":{"status":"SUCCESS","response":"x","structured_output":{"a":1}}}`))
+	res, err := RunAgy(context.Background(), AgyRequest{Cwd: t.TempDir(), Prompt: "t"}, Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(res.Structured) != `{"a":1}` {
+		t.Errorf("structured = %q, want {\"a\":1}", res.Structured)
+	}
+}
