@@ -1,8 +1,8 @@
 # Testing Guidelines
 
 Order, always: **run it live → pin what you observed → prove the test bites.** Gate order (lint → live → scoped →
-full suite once): `quality.md` → Verification Order. Optional test-and-fix loop and tooling: the `testing-guidelines`
-skill.
+full suite once): `quality.md` → Verification Order. Optional test-and-fix loops (parallel and concurrent) and tooling:
+`skills/subagent-workflows/references/test-and-fix.md`.
 
 ## Live first, then tests — no core-contract exception
 

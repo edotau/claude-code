@@ -46,5 +46,5 @@ Neither sees a subprocess's traffic.
 
 ## Reference
 
-Rules: `rules/standards/testing-guidelines.md`; pytest quick reference and the optional test-and-fix loop: the
-`testing-guidelines` skill.
+Rules: `rules/standards/testing-guidelines.md`; pytest quick reference and the optional test-and-fix loop:
+`skills/subagent-workflows/references/test-and-fix.md`.
