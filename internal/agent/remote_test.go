@@ -129,3 +129,30 @@ func TestRemoteScriptResolvesHarnessPath(t *testing.T) {
 		t.Fatalf("script %q = %q, %v; want the ~/.local/bin claude-code", script, out, err)
 	}
 }
+
+// A local absolute path must not reach the remote: its home is a different directory.
+func TestRemoteHomePath(t *testing.T) {
+	t.Setenv("HOME", "/Users/me")
+	for in, want := range map[string]string{
+		"/Users/me":          "~",
+		"/Users/me/.claude":  "~/.claude",
+		"/Users/me/a/../b":   "~/b",
+		"/Users/mallory/x":   "/Users/mallory/x",
+		"/Users/me/../other": "/Users/me/../other",
+		"/srv/repo":          "/srv/repo",
+		"~/.claude":          "~/.claude",
+		"relative/dir":       "relative/dir",
+		"":                   "",
+	} {
+		if got := remoteHomePath(in); got != want {
+			t.Errorf("remoteHomePath(%q) = %q, want %q", in, got, want)
+		}
+	}
+	script, err := remoteScript("/Users/me/.local/bin/claude-code", "codex", "", Request{WorkDir: "/Users/me/.claude"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(script, "/Users/me") || !strings.Contains(script, `"$HOME"/'.claude'`) {
+		t.Fatalf("local home leaked into the remote script: %s", script)
+	}
+}
