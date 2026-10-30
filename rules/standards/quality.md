@@ -27,7 +27,8 @@ leftover debug prints.
 | 2 | **Live check** — run the verb, endpoint or flow on real input | Every change with a runnable surface, before any new test |
 | 3 | The one thing changed — targeted assertion, negative control | Every edit |
 | 4 | Scoped tests for the packages you touched, named explicitly | Once the direction settles, or before commit |
-| 5 | Full suite + gate chain (format → lint → test → security) | **Once** at wrap-up, **only with the user's approval**, never a subagent |
+| 5 | **Simplify** — `Skill(simplify)` over the (merged) diff; re-run step 4 if it changed code | Every code change, before review, merge or commit — never skipped |
+| 6 | Full suite + gate chain (format → lint → test → security) | **Once** at wrap-up, **only with the user's approval**, never a subagent |
 
 Lint gates the rest: a syntax error makes test output meaningless. Untouched packages are noise during development.
 Report which steps ran and which did not. Judge a run by its own exit code (`set -o pipefail`), never `| tail`.
