@@ -189,7 +189,7 @@ type RouteCell struct {
 	Account string `json:"account_key,omitempty"`
 }
 
-// RouteRunners are the routing table's columns, in roster order; internal/routetable embeds the same list.
+// RouteRunners are the routing table's columns, in roster order; internal/router/routetable embeds the same list.
 var RouteRunners = []string{"claude", "copilot", "codex", "opencode", "gemini"}
 
 // RouteTiers are the routed tiers, strongest first; fable stays Claude Code's own slot.

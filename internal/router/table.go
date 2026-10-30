@@ -3,7 +3,7 @@
 package router
 
 import (
-	"github.com/edotau/claude-code/internal/routetable"
+	"github.com/edotau/claude-code/internal/router/routetable"
 )
 
 // Tiers are the routed tiers, strongest first; fable stays Claude Code's own slot.

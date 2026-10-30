@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/routetable"
+	"github.com/edotau/claude-code/internal/router/routetable"
 )
 
 // load builds a Table against an explicit registry and Copilot gh user.
