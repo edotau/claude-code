@@ -437,6 +437,9 @@ func codexProfileHint(o Options) error {
 		"for codex's own config profile ($CODEX_HOME/%s.config.toml) use -p %s", o.Provider, o.Provider, o.Provider))
 }
 
+// noticeOut is where launch notices (fallback, banner, plain-CLI, custom-env) print; tests discard it.
+var noticeOut io.Writer = os.Stderr
+
 // agentVersionTTY and versionWarnOut are the version warning's terminal gate and sink (tests swap them).
 var (
 	agentVersionTTY           = func() bool { return ansi.IsTerminal(os.Stderr) }
@@ -509,7 +512,7 @@ func vendorPlan(ctx context.Context, name string, o Options, args []string) (Pla
 	showOwnLoginNote := o.PrintEnv || (ansi.IsTerminal(os.Stderr) && interactiveVendorArgs(args))
 	if errors.Is(err, vendors.ErrOwnLogin) {
 		if showOwnLoginNote {
-			fmt.Fprintln(os.Stderr, note)
+			fmt.Fprintln(noticeOut, note)
 		}
 		return plainPlan(spec, args)
 	}
@@ -523,12 +526,12 @@ func vendorPlan(ctx context.Context, name string, o Options, args []string) (Pla
 	if errors.Is(err, vendors.ErrOwnLogin) {
 		// The vendor's own login (opencode on Copilot) picks the model itself: plain launch, not a failure.
 		if showOwnLoginNote {
-			fmt.Fprintln(os.Stderr, note)
+			fmt.Fprintln(noticeOut, note)
 		}
 		return plainPlan(spec, args)
 	}
 	if note != "" {
-		fmt.Fprintln(os.Stderr, note)
+		fmt.Fprintln(noticeOut, note)
 	}
 	if err != nil {
 		reason := fmt.Errorf("%w; %s", err, vendors.ConfigureHint(name))
@@ -573,7 +576,7 @@ func copilotRegistryPlan(
 	dry bool,
 ) (Plan, error) {
 	if note != "" {
-		fmt.Fprintln(os.Stderr, note)
+		fmt.Fprintln(noticeOut, note)
 	}
 	cr, err := vendors.ConfigureCopilotRegistry(ctx, reg, t, args, dry)
 	if err != nil {
@@ -585,7 +588,7 @@ func copilotRegistryPlan(
 		return Plan{}, err
 	}
 	lenv, lprefix := vendors.LaunchSpec(spec.Name)
-	fmt.Fprintln(os.Stderr, vendors.CopilotRegistryBanner)
+	fmt.Fprintln(noticeOut, vendors.CopilotRegistryBanner)
 	return Plan{
 		Binary: bin, Set: envMap(append(lenv, cr.Env...)), Unset: cr.Unset, Warnings: cr.Warnings,
 		Argv:       append(append(lprefix, cr.Argv...), cr.Args...),
@@ -603,7 +606,7 @@ func retryVendorConfigure(ctx context.Context, name string, o Options) ([]string
 		return nil, nil, err
 	}
 	if note != "" {
-		fmt.Fprintln(os.Stderr, note)
+		fmt.Fprintln(noticeOut, note)
 	}
 	return vendors.Configure(ctx, name, target, "")
 }
@@ -677,20 +680,20 @@ var customEnv = func() map[string]string {
 	vals, missing, err := providers.ResolveCustomEnv(func(k string) (string, bool) {
 		v, _, err := secrets.Lookup(k)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "claude-code: custom env %s: %v; not set\n", k, err)
+			fmt.Fprintf(noticeOut, "claude-code: custom env %s: %v; not set\n", k, err)
 			errored[k] = true
 			return "", false
 		}
 		return v, v != ""
 	})
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "claude-code: custom env unreadable: %v\n", err)
+		fmt.Fprintf(noticeOut, "claude-code: custom env unreadable: %v\n", err)
 	}
 	for _, k := range missing {
 		if errored[k] {
 			continue // already warned above with the real error
 		}
-		fmt.Fprintf(os.Stderr, "claude-code: custom env %s=@secret has no vault value; not set\n", k)
+		fmt.Fprintf(noticeOut, "claude-code: custom env %s=@secret has no vault value; not set\n", k)
 	}
 	return vals
 }
@@ -870,7 +873,7 @@ func passthrough(spec vendors.Spec, name string, reason error, args []string) (P
 	if _, err := lookPath(spec.Binary); err != nil {
 		return Plan{}, reason // no CLI to fall back to: the routing error is the whole story
 	}
-	fmt.Fprintf(os.Stderr, "%v\nlaunching the plain %s CLI on its own login (not routed by claude-code)\n", reason, name)
+	fmt.Fprintf(noticeOut, "%v\nlaunching the plain %s CLI on its own login (not routed by claude-code)\n", reason, name)
 	return plainPlan(spec, args)
 }
 

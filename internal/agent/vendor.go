@@ -20,6 +20,9 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 )
 
+// NoticeOut is where the vendor-fallback note prints; tests discard it (also via other packages' TestMain).
+var NoticeOut io.Writer = os.Stderr
+
 // ownProfile is the profile a run on the agent's own login bills: the registry row naming that login, else the agent.
 func ownProfile(name string) string {
 	if reg, err := providers.Load(); err == nil {
@@ -36,7 +39,7 @@ func ownProfile(name string) string {
 func vendorTarget(req Request, name string) (providers.Target, bool, error) {
 	t, own, note, err := vendorTargetNote(req, name)
 	if note != "" {
-		fmt.Fprintln(os.Stderr, note)
+		fmt.Fprintln(NoticeOut, note)
 	}
 	return t, own, err
 }

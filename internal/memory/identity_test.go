@@ -1,6 +1,8 @@
 package memory
 
 import (
+	"github.com/edotau/claude-code/internal/hosttest"
+
 	"errors"
 	"maps"
 	"os"
@@ -63,7 +65,9 @@ func gitRepoTemplate(t *testing.T) string {
 }
 
 func TestMain(m *testing.M) {
+	cleanup := hosttest.Setup()
 	code := m.Run()
+	cleanup()
 	if gitTmplDir != "" {
 		os.RemoveAll(gitTmplDir)
 	}

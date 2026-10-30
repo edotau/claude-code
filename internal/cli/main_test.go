@@ -1,20 +1,21 @@
 package cli
 
 import (
+	"io"
 	"os"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/models"
-	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/desktop"
+	"github.com/edotau/claude-code/internal/hosttest"
 )
 
-// TestMain drops the session's provider/model pins: a test must never resolve the developer's live provider.
+// TestMain runs in the hermetic host (hosttest): no live provider pins, vault or vendor CLIs are reachable.
 func TestMain(m *testing.M) {
-	for _, k := range []string{providers.PinProfile, providers.PinModel} {
-		_ = os.Unsetenv(k)
-	}
-	for _, slot := range models.Slots {
-		_ = os.Unsetenv(providers.SlotPin(slot))
-	}
-	os.Exit(m.Run())
+	agent.NoticeOut = io.Discard
+	cleanup := hosttest.Setup()
+	desktop.OnWSL = func() bool { return false } // the host's WSL-ness must not decide the desktop tests
+	code := m.Run()
+	cleanup()
+	os.Exit(code)
 }

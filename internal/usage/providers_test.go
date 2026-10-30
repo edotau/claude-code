@@ -1,6 +1,8 @@
 package usage
 
 import (
+	"github.com/edotau/claude-code/internal/hosttest"
+
 	"bytes"
 	"encoding/json"
 	"os"
@@ -12,9 +14,12 @@ import (
 
 // TestMain keeps every Run in this package offline: the live quota fetch is stubbed out.
 func TestMain(m *testing.M) {
+	cleanup := hosttest.Setup()
 	fetchQuotas = func() []quota { return nil }
 	recordQuotaState = func([]quota) {}
-	os.Exit(m.Run())
+	code := m.Run()
+	cleanup()
+	os.Exit(code)
 }
 
 func TestParseCopilot(t *testing.T) {
