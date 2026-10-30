@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/edotau/claude-code/internal/statusline"
@@ -33,15 +34,31 @@ func captureOutput(t *testing.T, fn func() int) (code int, stdout, stderr string
 	if err != nil {
 		t.Fatal(err)
 	}
+	var bo, be bytes.Buffer
+	var drained sync.WaitGroup
+	drained.Go(func() { io.Copy(&bo, ro) }) // drain while fn runs: a full pipe would block its writes forever
+	drained.Go(func() { io.Copy(&be, re) })
 	os.Stdout, os.Stderr = wo, we
 	code = fn()
 	wo.Close()
 	we.Close()
 	os.Stdout, os.Stderr = oldOut, oldErr
-	var bo, be bytes.Buffer
-	io.Copy(&bo, ro)
-	io.Copy(&be, re)
+	drained.Wait()
 	return code, bo.String(), be.String()
+}
+
+// A command printing past the pipe buffer must not deadlock: the audit hung 5m on a large settings render.
+func TestCaptureOutputDrainsPastThePipeBuffer(t *testing.T) {
+	want := 256 << 10
+	code, stdout, _ := captureOutput(t, func() int {
+		if _, err := os.Stdout.Write(make([]byte, want)); err != nil {
+			return 1
+		}
+		return 0
+	})
+	if code != 0 || len(stdout) != want {
+		t.Fatalf("code %d, captured %d bytes, want %d", code, len(stdout), want)
+	}
 }
 
 func configPath(dir string) string { return filepath.Join(dir, "state", "statusline", "config.json") }
