@@ -76,3 +76,6 @@ func gatewayGet(ctx context.Context, p *Provider, u string) ([]byte, error) {
 	}
 	return body, nil
 }
+
+// PresetHost is the https://host origin of a preset row's Host, "" when it is not a bare https origin.
+func PresetHost(host string) string { return presetHost(host) }
