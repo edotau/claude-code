@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/edotau/claude-code/internal/databricks/sdkport"
+	"github.com/edotau/claude-code/internal/databricks/oauth"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault"
 )
@@ -31,7 +31,7 @@ func seedCLIProfileRow(t *testing.T) {
 func fakeLogin(t *testing.T, fn func(*providers.Provider) (time.Duration, error)) {
 	t.Helper()
 	old := loginU2M
-	loginU2M = func(_ context.Context, p *providers.Provider, _ sdkport.LoginOptions) (time.Duration, error) {
+	loginU2M = func(_ context.Context, p *providers.Provider, _ oauth.LoginOptions) (time.Duration, error) {
 		return fn(p)
 	}
 	t.Cleanup(func() { loginU2M = old })

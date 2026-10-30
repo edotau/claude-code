@@ -5,7 +5,7 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/edotau/claude-code/internal/databricks/sdkport"
+	"github.com/edotau/claude-code/internal/databricks/oauth"
 )
 
 // AuthVerdict is what an auth failure means for routing: only needs_login and rejected condemn the account.
@@ -23,9 +23,9 @@ func Verdict(err error) AuthVerdict {
 	switch {
 	case err == nil:
 		return VerdictOK
-	case errors.Is(err, ErrNeedsLogin) || sdkport.IsLoginRequired(err):
+	case errors.Is(err, ErrNeedsLogin) || oauth.IsLoginRequired(err):
 		return VerdictNeedsLogin
-	case sdkport.IsRejected(err):
+	case oauth.IsRejected(err):
 		return VerdictRejected
 	}
 	return VerdictTransient

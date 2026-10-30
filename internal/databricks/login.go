@@ -11,7 +11,7 @@ import (
 	"runtime"
 	"time"
 
-	"github.com/edotau/claude-code/internal/databricks/sdkport"
+	"github.com/edotau/claude-code/internal/databricks/oauth"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/ui/helptext"
@@ -109,7 +109,7 @@ func LoginRow(ctx context.Context, name string, out io.Writer) error {
 		switched = true
 		defer func() { rollbackHint(p.Name, was, switched) }()
 	}
-	ttl, err := loginU2M(ctx, p, sdkport.LoginOptions{Open: openLoginURL, Out: os.Stderr})
+	ttl, err := loginU2M(ctx, p, oauth.LoginOptions{Open: openLoginURL, Out: os.Stderr})
 	if err != nil {
 		return err
 	}

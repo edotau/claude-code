@@ -1,4 +1,4 @@
-package sdkport
+package oauth
 
 import (
 	"os"

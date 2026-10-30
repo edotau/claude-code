@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/edotau/claude-code/internal/databricks/sdkport"
+	"github.com/edotau/claude-code/internal/databricks/oauth"
 )
 
 // rotatingIdP is a strict OIDC token endpoint: each refresh token works once, a reused one is invalid_grant.
@@ -163,7 +163,7 @@ func TestLoginU2MDoesNotRefreshAfterExchange(t *testing.T) {
 		}()
 		return nil
 	}
-	d, err := LoginU2M(context.Background(), p, sdkport.LoginOptions{Open: open, Port: port, Timeout: 20 * time.Second})
+	d, err := LoginU2M(context.Background(), p, oauth.LoginOptions{Open: open, Port: port, Timeout: 20 * time.Second})
 	if err != nil {
 		t.Fatal(err)
 	}
