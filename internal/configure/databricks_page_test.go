@@ -23,12 +23,10 @@ import (
 
 const dbxTok = "dapiSECRETTOKEN0123456789"
 
-const dbxDoc = `{"providers":{
+const dbxDoc = `{"providers":{"databricks":{
 "dev":{"preset":"databricks","host":"https://adb-1.azuredatabricks.net","cliProfile":"dev","auth":{"type":"oauth"}},
 "qa":{"preset":"databricks","host":"https://adb-2.azuredatabricks.net","cliProfile":"qa","auth":{"type":"key","command":"echo x"}},
-"prod":{"preset":"databricks","host":"https://adb-3.azuredatabricks.net","cliProfile":"prod","auth":{"type":"key","command":"echo x"}}},
-"profiles":{"active":"DEFAULT","sets":{"DEFAULT":{
-"session":{"account":"dev"},"codex":{"account":"dev"},"copilot":{"account":"dev"},"opencode":{"account":"dev"}}}}}`
+"prod":{"preset":"databricks","host":"https://adb-3.azuredatabricks.net","cliProfile":"prod","auth":{"type":"key","command":"echo x"}}}}}`
 
 type dbxFake struct {
 	picks    []int // popped per dbxPick call; exhausted = Back
@@ -98,7 +96,7 @@ func dbxEnv(t *testing.T) *dialog {
 	vaulttest.Put(t, vault.Overlay, "providers", dbxDoc)
 	reg, err := providers.Load()
 	if err != nil {
-		t.Skip(err)
+		t.Fatal(err)
 	}
 	return &dialog{reg: reg, out: &bytes.Buffer{}}
 }
@@ -133,7 +131,7 @@ func TestDbxDur(t *testing.T) {
 
 func TestDbxStateAndHomeRow(t *testing.T) {
 	d := dbxEnv(t)
-	if at, text, ok := dbxState(d.reg, "dev"); at != "u2m" || text != "no login" || ok {
+	if at, text, ok := dbxState(d.reg, "dev"); at != "oauth" || text != "no login" || ok {
 		t.Errorf("dev = %q %q %v", at, text, ok)
 	}
 	if at, text, _ := dbxState(d.reg, "qa"); at != "command" || text != "logged in" {
@@ -168,7 +166,7 @@ func TestDbxPageRowsAndDispatch(t *testing.T) {
 	f.secret = dbxTok
 
 	// env list: qa -> Login, Paste PAT, Mint now, then Back out of both levels.
-	f.picks = []int{1, 0, 1, 2, -1, -1}
+	f.picks = []int{1, 1, 2, 3, -1, -1}
 	runDatabricksPage(d)
 	want := []string{"login:qa", "pat:qa:" + dbxTok, "mint:qa"}
 	if strings.Join(f.calls, ",") != strings.Join(want, ",") {
@@ -181,7 +179,7 @@ func TestDbxPageRowsAndDispatch(t *testing.T) {
 	if len(envRows) != 3 || envRows[0][0] != "dev" || envRows[1][0] != "qa" || envRows[2][0] != "prod" {
 		t.Fatalf("env rows = %v", envRows)
 	}
-	if envRows[1][1] != "command  token expires in 59m" || envRows[0][1] != "u2m  no login" {
+	if envRows[1][1] != "command  token expires in 59m" || envRows[0][1] != "oauth  no login" {
 		t.Errorf("env row text = %q / %q", envRows[2][1], envRows[0][1])
 	}
 	if f.titles[1] != "databricks · qa" {
@@ -191,7 +189,7 @@ func TestDbxPageRowsAndDispatch(t *testing.T) {
 	for _, r := range f.rows[1] {
 		labels = append(labels, r[0])
 	}
-	if strings.Join(labels, "|") != "Login|Paste PAT|Mint now|Copy token|Apply to agents" {
+	if strings.Join(labels, "|") != "Set up|Login|Paste PAT|Mint now|Copy token|Apply to agents" {
 		t.Errorf("actions = %v", labels)
 	}
 	out := dbxOut(d)
@@ -209,7 +207,7 @@ func TestDbxPasteEmptyIsNoop(t *testing.T) {
 	d := dbxEnv(t)
 	f := &dbxFake{}
 	installDbxFake(t, f)
-	f.picks = []int{1, -1}
+	f.picks = []int{2, -1}
 	runDatabricksEnv(d, "qa")
 	if len(f.calls) != 0 {
 		t.Errorf("empty paste called %v", f.calls)
@@ -220,7 +218,7 @@ func TestDbxMintErrorNoTokenInOutput(t *testing.T) {
 	d := dbxEnv(t)
 	f := &dbxFake{mintErr: errors.New("oidc rejected")}
 	installDbxFake(t, f)
-	f.picks = []int{2, 3, -1}
+	f.picks = []int{3, 4, -1}
 	runDatabricksEnv(d, "qa")
 	out := dbxOut(d)
 	if strings.Count(out, "qa: mint: oidc rejected") != 2 {
@@ -235,7 +233,7 @@ func TestDbxCopyReportsClear(t *testing.T) {
 	d := dbxEnv(t)
 	f := &dbxFake{}
 	installDbxFake(t, f)
-	f.picks = []int{3, -1}
+	f.picks = []int{4, -1}
 	runDatabricksEnv(d, "qa")
 	out := dbxOut(d)
 	if !strings.Contains(out, "qa · copied · clears in 30s") {
@@ -256,7 +254,7 @@ func TestDbxCopyNoClipboardNotesRouter(t *testing.T) {
 	d := dbxEnv(t)
 	f := &dbxFake{copyErr: fmt.Errorf("wrapped: %w", clipboard.ErrNoClipboard)}
 	installDbxFake(t, f)
-	f.picks = []int{3, -1}
+	f.picks = []int{4, -1}
 	runDatabricksEnv(d, "qa")
 	out := dbxOut(d)
 	if !strings.Contains(out, "qa: no clipboard here; the agents fetch via the proxy") {
@@ -274,7 +272,7 @@ func TestDbxCopyOtherErrorNoSchedule(t *testing.T) {
 	d := dbxEnv(t)
 	f := &dbxFake{copyErr: errors.New("pipe broke")}
 	installDbxFake(t, f)
-	f.picks = []int{3, -1}
+	f.picks = []int{4, -1}
 	runDatabricksEnv(d, "qa")
 	out := dbxOut(d)
 	if !strings.Contains(out, "qa: copy: pipe broke") || len(f.sched) != 0 || strings.Contains(out, "via the router") {
@@ -294,7 +292,7 @@ func TestDbxCopyRealWriteSecretSeam(t *testing.T) {
 	f := &dbxFake{}
 	installDbxFake(t, f)
 	dbxCopy = clipboard.WriteSecret // real writer, no tool on PATH
-	f.picks = []int{3, -1}
+	f.picks = []int{4, -1}
 	runDatabricksEnv(d, "qa")
 	if !strings.Contains(dbxOut(d), "no clipboard here; the agents fetch via the proxy") {
 		t.Errorf("real ErrNoClipboard not mapped:\n%s", dbxOut(d))
@@ -304,7 +302,7 @@ func TestDbxCopyRealWriteSecretSeam(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(bin, "xclip"), []byte(stub), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	f.picks = []int{3, -1}
+	f.picks = []int{4, -1}
 	runDatabricksEnv(d, "qa")
 	got, err := os.ReadFile(sink)
 	if err != nil || string(got) != dbxTok {
@@ -319,7 +317,7 @@ func TestDbxApplyAllSetsAgentProfilePins(t *testing.T) {
 	d := dbxEnv(t)
 	f := &dbxFake{}
 	installDbxFake(t, f)
-	f.picks = []int{4, 0, -1} // Apply to agents -> All agents
+	f.picks = []int{5, 0, -1} // Apply to agents -> All agents
 	runDatabricksEnv(d, "qa")
 	for _, a := range dbxAgents {
 		if got := providers.Pin(a.pin); got != "qa" {
@@ -341,7 +339,7 @@ func TestDbxApplyPerAgentSetsOnePin(t *testing.T) {
 	d := dbxEnv(t)
 	f := &dbxFake{}
 	installDbxFake(t, f)
-	f.picks = []int{4, 2, -1} // codex is dbxAgents[1] -> picker row 2
+	f.picks = []int{5, 2, -1} // codex is dbxAgents[1] -> picker row 2
 	runDatabricksEnv(d, "qa")
 	for _, a := range dbxAgents {
 		want := ""
@@ -358,7 +356,7 @@ func TestDbxApplyAlreadyAppliedAndCancel(t *testing.T) {
 	d := dbxEnv(t)
 	f := &dbxFake{}
 	installDbxFake(t, f)
-	f.picks = []int{4, 2, 4, 2, 4, -1, -1} // codex twice: second is a no-op diff; then cancel the picker
+	f.picks = []int{5, 2, 5, 2, 5, -1, -1} // codex twice: second is a no-op diff; then cancel the picker
 	runDatabricksEnv(d, "qa")
 	if !strings.Contains(dbxOut(d), "qa: already applied") {
 		t.Errorf("missing already applied:\n%s", dbxOut(d))
@@ -370,7 +368,7 @@ func TestDbxApplyRowsFitEightyColumns(t *testing.T) {
 	d := dbxEnv(t)
 	f := &dbxFake{}
 	installDbxFake(t, f)
-	f.picks = []int{4, -1, -1}
+	f.picks = []int{5, -1, -1}
 	runDatabricksEnv(d, "qa")
 	if len(f.rows) < 2 || len(f.rows[1]) != len(dbxAgents)+1 {
 		t.Fatalf("apply picker not captured: %v", f.rows)
@@ -399,7 +397,7 @@ func TestDbxReportNoTokenAndShape(t *testing.T) {
 	if len(lines) != 3 {
 		t.Fatalf("report lines = %q", lines)
 	}
-	want := map[string]string{"dev": "dev u2m no login", "prod": "prod command logged in", "qa": "qa command token expires in 59m"}
+	want := map[string]string{"dev": "dev oauth no login", "prod": "prod command logged in", "qa": "qa command token expires in 59m"}
 	for _, l := range lines {
 		got := strings.Join(strings.Fields(l), " ")
 		f0 := strings.Fields(l)[0]
@@ -435,7 +433,7 @@ func TestDbxLoginFailureReported(t *testing.T) {
 	f := &dbxFake{}
 	installDbxFake(t, f)
 	dbxLogin = func(context.Context, string, io.Writer) error { return errors.New("browser closed") }
-	f.picks = []int{0, -1}
+	f.picks = []int{1, -1}
 	runDatabricksEnv(d, "qa")
 	if !strings.Contains(dbxOut(d), "qa: login: browser closed") || d.changed {
 		t.Errorf("out=%q changed=%v", dbxOut(d), d.changed)

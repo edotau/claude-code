@@ -130,7 +130,7 @@ func buildSpecTree() map[string]*compNode {
 		}},
 		"agents": {sub: map[string]*compNode{
 			"sync": {flags: []flagInfo{valuedFlag("agent", vendorNames), boolFlag("dry-run"), boolFlag("check"), boolFlag("no-prune")}},
-			"tree": {flags: []flagInfo{flag("days"), flag("session"), boolFlag("running"), boolFlag("all"),
+			"tree": {flags: []flagInfo{flag("days"), flag("session"), boolFlag("background"), boolFlag("bg"),
 				boolFlag("watch"), flag("interval"), formatFlag()}},
 			"reap": {flags: []flagInfo{boolFlag("dry-run")}},
 		}},

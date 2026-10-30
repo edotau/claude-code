@@ -73,7 +73,7 @@ func flagPerm(file string) (Check, bool) {
 		Detail: fmt.Sprintf("%s is %04o, want 0600 — run: chmod 600 %s", file, fi.Mode().Perm(), file)}, true
 }
 
-// manifestBackups reads state/vault-migration.json directly (not internal/config, which imports this
+// manifestBackups reads state/vault-migration.json directly (not internal/configure, which imports this
 // package) for each item's "backup" path.
 func manifestBackups() []string {
 	raw, err := os.ReadFile(filepath.Join(paths.ConfigDir(), "state", "vault-migration.json"))

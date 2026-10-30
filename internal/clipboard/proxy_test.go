@@ -20,7 +20,9 @@ func withProcVersion(t *testing.T, content string) {
 	}
 	old := procVersionPath
 	procVersionPath = path
-	t.Cleanup(func() { procVersionPath = old })
+	oldOS := doctorGOOS
+	doctorGOOS = "linux" // the /proc/version fixture models a Linux host, whatever runs the test
+	t.Cleanup(func() { procVersionPath, doctorGOOS = old, oldOS })
 }
 
 func TestOnWSLKernel(t *testing.T) {

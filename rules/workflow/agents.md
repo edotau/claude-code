@@ -17,10 +17,11 @@ paths:
 | Sweep many files in one Gemini call (1M context) | `claude-code gemini bridge --dirs <d> [--index] [--diff] [--rubric <file>] "<task>"` · `gemini ask` drives agy |
 | Fan out a MEDIUM+ change (MEDIUM only with 2+ parallel-safe tasks) | `/code-workers` leaves on disjoint packages, plus `copilot` only for features and bug fixes (`rules/standards/testing-guidelines.md`), same message (`master-workflow.md` → Phase 6) |
 | Cross-agent leaves (compare, relay) | `/coworkers` |
+| Dispatch on another profile | brief `Profile: <name>` → `coworker` runs `ask --agent <x> --profile <p>`; subagents and `agent()` stay on the session route |
 | Run a saved Workflow — only when the user asks | `Workflow code-engineer\|code-analyzer\|green-keeper-loop\|code-agent` (`skills/subagent-workflows/references/saved-workflows.md`) |
 | Review a diff; second opinion on another model | `/code-review` · `claude-code codex review [--adversarial] [--base <b>]` · `/codex` |
 | Project agents + CLAUDE.md into every agent CLI | `claude-code agents sync [--agent a] [--dry-run\|--check]` (also run by `install`) |
-| Subagent status | `claude-code agents tree [--watch\|--running]` · `agents reap` |
+| Subagent status | `claude-code agents tree [--watch\|--background]` · `agents reap` |
 
 ## Agent and command files
 

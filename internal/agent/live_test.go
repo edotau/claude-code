@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -29,12 +30,22 @@ while IFS= read -r line; do
 done
 `
 
-// liveEnv gives the test a short config dir (a unix socket path caps near 108 bytes) holding the fake claude.
+// socketAccepts dials rather than stats: the socket file exists a moment before the holder listens on it.
+func socketAccepts(path string) bool {
+	c, err := net.DialTimeout("unix", path, time.Second)
+	if err != nil {
+		return false
+	}
+	_ = c.Close()
+	return true
+}
+
+// liveEnv gives the test a short /tmp config dir (a unix socket path caps at 104 bytes on macOS, 108 on Linux) holding the fake claude.
 func liveEnv(t *testing.T) { liveEnvScript(t, fakeLiveClaude) }
 
 func liveEnvScript(t *testing.T, script string) {
 	t.Helper()
-	dir, err := os.MkdirTemp("", "lv")
+	dir, err := os.MkdirTemp("/tmp", "lv")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -73,10 +84,18 @@ func startHolderAs(t *testing.T, ctx context.Context, name string, idle time.Dur
 	done, id := make(chan error, 1), rec.ID
 	go func() { done <- ServeLive(ctx, &rec, nil) }()
 	for range 200 {
-		if _, err := os.Stat(LiveSocket(id)); err == nil {
+		if socketAccepts(LiveSocket(id)) {
 			break
 		}
 		time.Sleep(25 * time.Millisecond)
+	}
+	if _, err := os.Stat(LiveSocket(id)); err != nil {
+		select {
+		case serveErr := <-done:
+			t.Fatalf("holder did not open its socket: %v (serve: %v)", err, serveErr)
+		default:
+			t.Fatalf("holder did not open its socket: %v", err)
+		}
 	}
 	return id, func() error { return <-done }
 }
@@ -363,7 +382,7 @@ func startAgy(t *testing.T, script string, req Request) (string, func(), func() 
 	done := make(chan error, 1)
 	go func() { done <- ServeLive(ctx, &rec, nil) }()
 	for range 200 {
-		if _, err := os.Stat(LiveSocket(rec.ID)); err == nil {
+		if socketAccepts(LiveSocket(rec.ID)) {
 			break
 		}
 		time.Sleep(25 * time.Millisecond)
@@ -402,11 +421,17 @@ func TestLiveAgySystemPromptOnFirstTurn(t *testing.T) {
 func TestLiveAgyResumedUsageBaseline(t *testing.T) {
 	id, cancel, wait := startAgy(t, fakeCumAgy, Request{Timeout: time.Minute, SessionID: "old"})
 	defer func() { cancel(); _ = wait() }()
-	e1, _ := SendLive(context.Background(), id, "a", Discard)
+	e1, err := SendLive(context.Background(), id, "a", Discard)
+	if err != nil {
+		t.Fatalf("first turn: %v", err)
+	}
 	if e1.Usage != nil {
 		t.Errorf("first resumed turn usage = %+v, want none (unknown), not the history", e1.Usage)
 	}
-	e2, _ := SendLive(context.Background(), id, "b", Discard)
+	e2, err := SendLive(context.Background(), id, "b", Discard)
+	if err != nil {
+		t.Fatalf("second turn: %v", err)
+	}
 	if e2.Usage == nil || e2.Usage.InputTokens != 10 {
 		t.Errorf("second turn usage = %+v, want its own 10", e2.Usage)
 	}
@@ -420,3 +445,11 @@ while IFS= read -r line; do
   printf '{"event":"result","result":{"conversation_id":"c1","status":"SUCCESS","response":"r","usage":{"input_tokens":%d,"output_tokens":1}}}\n' "$n"
 done
 `
+
+// A socket path over the unix limit fails with a message naming the length, not a bare "bind: invalid argument".
+func TestListenLiveRefusesOverlongSocketPath(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", filepath.Join(t.TempDir(), strings.Repeat("d", 100)))
+	if _, err := listenLive("20261016T210512.123-claude"); err == nil || !strings.Contains(err.Error(), "unix limit") {
+		t.Fatalf("listenLive = %v, want an over-the-unix-limit error", err)
+	}
+}
