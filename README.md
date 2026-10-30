@@ -220,6 +220,27 @@ Without `--tools`, agents are read-only. `agents sync` renders under `state/proj
 lives at this root (Claude Code would load it as a second CLAUDE.md). Envelope fields and per-agent behavior:
 `rules/harness/agent.md`; in-session fan-out: `rules/workflow/master-workflow.md`.
 
+### Clipboard over SSH
+
+Image paste in an SSH session reads the client's clipboard, never the WSL host's: the `wl-paste` proxy and
+`claude-code clip` go through a forwarded socket (`/tmp/claude-clip-<user>.sock`) to a Mac-side bridge. Two one-time
+owner steps:
+
+```text
+# Mac ~/.ssh/config
+Host <wsl-host>
+    RemoteForward /tmp/claude-clip-%r.sock %d/.claude/run/clip.sock
+
+# WSL /etc/ssh/sshd_config (then: sudo systemctl restart ssh)
+StreamLocalBindUnlink yes
+```
+
+`make install` on the Mac installs an on-demand launchd agent (`clip --serve` on `~/.claude/run/clip.sock`); nothing
+runs per session. Diagnose from the SSH session with `claude-code clip` (saves the image, prints its path;
+`--ssh-stdout` writes the PNG). Failures: `no clipboard bridge from the SSH client (<sock>: …)` (forward missing, not a
+socket, or "is not owned by you" — a socket another user pre-bound is refused), and `no image in the SSH client's
+clipboard — copy one there first (or its bridge is down)`.
+
 ## Hooks
 
 Declared as **groups** in `internal/hookspec/hookspec.go`, implemented in `internal/hooks/`; add one by registering it
