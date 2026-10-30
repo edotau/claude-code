@@ -43,6 +43,7 @@ projections | derived | 1 | state/projections/* | internal/crossgen | clean:proj
 quota | derived | 0 | state/harness/quota.json | internal/router | keep
 router-runtime | record | 1 | state/harness/router.json | internal/proxy | keep
 router-sessions | record | 1 | state/harness/proxy/sessions.json | internal/proxy | keep
+served-models | cache | 1 | state/harness/preflight/*.json | internal/preflight | keep
 settings-overlay | derived | 1 | state/harness/overlay-*.json | internal/launch | keep
 setup-state | record | 1 | state/harness/setup.json | internal/setup | keep
 stop-format | cache | 1 | state/harness/stop-format/*.json | internal/hooks | keep
