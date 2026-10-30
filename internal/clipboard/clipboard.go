@@ -57,6 +57,9 @@ func runPowerShell(script string) (string, error) {
 
 // Grab saves the clipboard image to a PNG and returns its path plus "WxH": macOS osascript; WSLg, then PowerShell.
 func Grab() (path, dim string, err error) {
+	if inSSH() {
+		return grabSSH() // the keyboard's machine owns the clipboard; never read the host's
+	}
 	if runtime.GOOS == "darwin" {
 		return grabMac()
 	}
@@ -99,7 +102,12 @@ func grabWSLg() (path, dim string, err error) {
 	if err := TranscodePNG(bytes.NewReader(bmp), &buf); err != nil {
 		return "", "", err
 	}
-	cfg, err := png.DecodeConfig(bytes.NewReader(buf.Bytes()))
+	return savePNG(buf.Bytes())
+}
+
+// savePNG writes PNG bytes to a temp file and returns its path plus "WxH".
+func savePNG(b []byte) (path, dim string, err error) {
+	cfg, err := png.DecodeConfig(bytes.NewReader(b))
 	if err != nil {
 		return "", "", err
 	}
@@ -107,7 +115,7 @@ func grabWSLg() (path, dim string, err error) {
 	if err != nil {
 		return "", "", err
 	}
-	if _, err := f.Write(buf.Bytes()); err != nil {
+	if _, err := f.Write(b); err != nil {
 		_ = f.Close()
 		return "", "", err
 	}
@@ -116,6 +124,9 @@ func grabWSLg() (path, dim string, err error) {
 	}
 	return f.Name(), fmt.Sprintf("%dx%d", cfg.Width, cfg.Height), nil
 }
+
+// errNoMacImage: osascript found no PNG on the macOS clipboard.
+var errNoMacImage = errors.New("no image in the clipboard — copy or screenshot one first (Cmd+Ctrl+Shift+4)")
 
 // macClipScript writes the clipboard's PNG to argv 1; "NOIMAGE" when the clipboard holds none.
 const macClipScript = `on run argv
@@ -148,7 +159,7 @@ func grabMac() (path, dim string, err error) {
 	}
 	if strings.TrimSpace(string(out)) != "OK" {
 		_ = os.Remove(path)
-		return "", "", errors.New("no image in the clipboard — copy or screenshot one first (Cmd+Ctrl+Shift+4)")
+		return "", "", errNoMacImage
 	}
 	b, err := os.ReadFile(path)
 	if err != nil {
