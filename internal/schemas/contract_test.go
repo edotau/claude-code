@@ -139,6 +139,14 @@ func TestContractLayout(t *testing.T) {
 			continue
 		}
 		t.Run(f.Name, func(t *testing.T) {
+			// Desktop owns its external data root; none of these files may be swept by harness clean.
+			switch f.Name {
+			case "desktop-profile", "desktop-meta", "desktop-state":
+				if f.Owner != "internal/desktop" || f.Clean != "" {
+					t.Fatal("Desktop formats must remain externally owned and kept")
+				}
+				return
+			}
 			rel := relGlob(dir, f)
 			if rel == outside {
 				t.Fatalf("glob %s is outside %s", f.Glob(), dir)

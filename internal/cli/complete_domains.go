@@ -64,7 +64,9 @@ func reviewToolNames() []string {
 }
 
 // configureSections derives from configure.Sections, the package's own run order.
-func configureSections() []string { return configure.Sections }
+func configureSections() []string {
+	return append(append([]string{}, configure.Sections...), "desktop")
+}
 
 // modelPinSlots offers "slot=" stems for --pin; the user types the model id after the "=" themselves.
 func modelPinSlots() []string {

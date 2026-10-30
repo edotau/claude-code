@@ -34,6 +34,7 @@ var configurePage = helptext.Page{
 		{"remote", "tailscale connectivity and remote hosts (read-only)"},
 		{"browser", "browsers Claude in Chrome can drive (read-only)"},
 		{"claude", "per-machine settings.json overrides"},
+		{"desktop", "Claude Desktop loopback profile; --revert restores selection"},
 		{"codex", "Codex preferences with encrypted config history"},
 		{"routing", "price weight, subagent offload, opencode's sub-pick knobs"},
 		{"databricks", "browser sign-in and token mint per Databricks profile"},
@@ -60,6 +61,9 @@ func (k *keyList) Set(v string) error {
 
 // cmdConfigure is the guided setup: every section in order, or the one named.
 func cmdConfigure(args []string) int {
+	if len(args) > 0 && args[0] == "desktop" {
+		return cmdConfigureDesktop(args[1:])
+	}
 	fs := helptext.NewFlagSet("configure", configurePage)
 	provider := fs.String("profile", "", "select the session profile non-interactively")
 	agent := fs.String("agent", "", "set up one CLI: claude|codex|copilot|opencode|gemini")
