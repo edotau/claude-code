@@ -103,6 +103,10 @@ func (b *agyLive) writeTurn(w io.Writer, prompt string) error {
 func (b *agyLive) parse(dec *json.Decoder, sink Sink, lg eventLog) (Result, error) {
 	res, err := parseAgyEvents(dec, sink, true, lg)
 	total := res.Usage
+	if b.resumed { // the history behind a --session is unknown: this turn reports no usage, later ones their delta
+		b.resumed, b.prev, res.Usage = false, total, Usage{}
+		return res, err
+	}
 	res.Usage = Usage{InputTokens: max(total.InputTokens-b.prev.InputTokens, 0), OutputTokens: max(total.OutputTokens-b.prev.OutputTokens, 0),
 		CacheReadTokens: max(total.CacheReadTokens-b.prev.CacheReadTokens, 0), CostUSD: max(total.CostUSD-b.prev.CostUSD, 0)}
 	b.prev = total

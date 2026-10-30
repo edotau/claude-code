@@ -387,3 +387,26 @@ func TestLiveAgySystemPromptOnFirstTurn(t *testing.T) {
 		t.Fatalf("turn 2 = %+v, %v; the system prompt must not repeat", e2, err)
 	}
 }
+
+// A resumed agy conversation reports no usage for its first turn (the history is unknown), then per-turn deltas.
+func TestLiveAgyResumedUsageBaseline(t *testing.T) {
+	id, cancel, wait := startAgy(t, fakeCumAgy, Request{Timeout: time.Minute, SessionID: "old"})
+	defer func() { cancel(); _ = wait() }()
+	e1, _ := SendLive(context.Background(), id, "a", Discard)
+	if e1.Usage != nil {
+		t.Errorf("first resumed turn usage = %+v, want none (unknown), not the history", e1.Usage)
+	}
+	e2, _ := SendLive(context.Background(), id, "b", Discard)
+	if e2.Usage == nil || e2.Usage.InputTokens != 10 {
+		t.Errorf("second turn usage = %+v, want its own 10", e2.Usage)
+	}
+}
+
+// fakeCumAgy reports cumulative usage that starts at 1000 (a resumed conversation) and grows 10 per turn.
+const fakeCumAgy = `#!/bin/sh
+n=1000
+while IFS= read -r line; do
+  n=$((n + 10))
+  printf '{"event":"result","result":{"conversation_id":"c1","status":"SUCCESS","response":"r","usage":{"input_tokens":%d,"output_tokens":1}}}\n' "$n"
+done
+`
