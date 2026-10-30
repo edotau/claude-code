@@ -22,7 +22,7 @@ func TestRemoteArgvSurvivesHostileValues(t *testing.T) {
 	req := Request{Model: hostile[0], Provider: hostile[1], Effort: hostile[2], SessionID: hostile[3], SystemPrompt: hostile[4],
 		AppendSystemPrompt: hostile[5], OutputSchema: hostile[6], WorkDir: "/w/" + hostile[7], Env: []string{"K=" + hostile[0] + hostile[5]},
 		Timeout: time.Minute, Tools: true}
-	argv, err := RemoteArgv("wks", stub, "codex", req)
+	argv, err := RemoteArgv("wks", stub, "codex", "", req)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -49,14 +49,14 @@ func TestRemoteArgvSurvivesHostileValues(t *testing.T) {
 
 func TestRemoteArgvRefusals(t *testing.T) {
 	for _, host := range []string{"-oProxyCommand=x", "", "a b", "h\n"} {
-		if _, err := RemoteArgv(host, "claude-code", "codex", Request{}); err == nil {
+		if _, err := RemoteArgv(host, "claude-code", "codex", "", Request{}); err == nil {
 			t.Errorf("host %q accepted", host)
 		}
 	}
-	if _, err := RemoteArgv("h", "claude-code", "codex", Request{Model: "a\x00b"}); err == nil {
+	if _, err := RemoteArgv("h", "claude-code", "codex", "", Request{Model: "a\x00b"}); err == nil {
 		t.Error("NUL value accepted")
 	}
-	if _, err := RemoteArgv("h", "bin\nx", "codex", Request{}); err == nil {
+	if _, err := RemoteArgv("h", "bin\nx", "codex", "", Request{}); err == nil {
 		t.Error("newline in remote bin accepted")
 	}
 }

@@ -190,3 +190,41 @@ func TestAskHostRefusesLocalOnlyModes(t *testing.T) {
 		}
 	}
 }
+
+// recordingRemote wraps the fixture's remote bin so each invocation appends its argv line to the returned file.
+func recordingRemote(t *testing.T, bin string) string {
+	t.Helper()
+	calls := filepath.Join(t.TempDir(), "calls")
+	inner := bin + ".inner"
+	if err := os.Rename(bin, inner); err != nil {
+		t.Fatal(err)
+	}
+	body := "#!/bin/sh\necho \"$*\" >> '" + calls + "'\nexec '" + inner + "' \"$@\"\n"
+	if err := os.WriteFile(bin, []byte(body), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return calls
+}
+
+func readCalls(t *testing.T, calls string) []string {
+	t.Helper()
+	b, err := os.ReadFile(calls)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return strings.Split(strings.TrimSpace(string(b)), "\n")
+}
+
+// The caller's --fallback reaches the remote ask instead of a hard-coded none.
+func TestAskHostForwardsFallback(t *testing.T) {
+	lines := ndjson(t, resultEvent(agent.Envelope{Status: agent.StatusOK, Agent: "claude", Answer: "ok"}))
+	bin := hostFixture(t, "", lines, 0)
+	calls := recordingRemote(t, bin)
+	if code, out := captureAskStdout(t, "--host", "fakehost", "--remote-bin", bin, "--fallback", "agents",
+		"--format", "json", "go"); code != 0 {
+		t.Fatalf("exit %d:\n%s", code, out)
+	}
+	if got := readCalls(t, calls); !strings.Contains(got[0], "--fallback agents") {
+		t.Fatalf("remote argv %q lacks --fallback agents", got[0])
+	}
+}
