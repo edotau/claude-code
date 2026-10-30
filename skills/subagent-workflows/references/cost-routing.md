@@ -26,8 +26,8 @@ follow `internal/routetable/table.json` as the single source.
 
 1. `claude-code agents` lists available agents (✓ = binary + credential). Availability is not a working
    credential: smoke-test once with `claude-code ask --agent <a> "Reply READY only."`.
-2. Assign agents round-robin across implementation steps and name it in the brief as `agent: <name>`; keep the
-   split even across the session. Assign `agent: claude` when the brief would cost more than the work, the step
+2. Assign agents round-robin across implementation steps and name it in the brief as `Agent: <name>`; keep the
+   split even across the session. Assign `Agent: claude` when the brief would cost more than the work, the step
    needs context only this session holds, or the agent failed its smoke test.
 3. Size the model alias (`opus`, `sonnet`, `haiku`): `internal/routetable/table.json` is the single source for
    agent × model, effort, account and price. Each dispatch runs the requested alias's cell, including Claude.
@@ -105,13 +105,16 @@ in sequence. Dispatches on one provider share its rate limit — reduce concurre
 
 **Default agent per task class**
 
-| Task class | Agent |
-| --- | --- |
-| sweep / research | `gemini` |
-| mechanical edits | `copilot` |
-| standard edits, docs | rotate `claude` · `copilot` · `codex` · `opencode` |
-| review / vet | `codex` |
-| reasoning / integration | `claude` (in-context) |
+| Task class | Agent | Leaf type |
+| --- | --- | --- |
+| sweep / research | `gemini` | `code-worker`, `Agent: gemini` (or a `gemini` leaf) |
+| mechanical edits | `copilot` | `code-worker`, `Agent: copilot` |
+| standard edits, docs | rotate `claude` · `copilot` · `codex` · `opencode` | `code-worker`, `Agent: <rotated agent>` |
+| review / vet | `codex` | `code-worker`, `Agent: codex` |
+| compare, relay, quota offload | several agents | `coworker` (always requests) |
+| reasoning / integration | `claude` (in-context) | `claude`, or the main thread |
+
+Leaf types, the `Agent:` field and the label rule: [SKILL.md → Leaf types](../SKILL.md#leaf-types).
 
 ## Verify and compare
 

@@ -21,12 +21,12 @@ PROMPT --> CLASSIFY --> REVIEW --> CODEBASE INTEL --> RESEARCH --> PLAN
 | Phase | Command / Agent | Output | Gate |
 |-------|----------------|--------|------|
 | 0. Classify | (inline) | Scope tier | Determines which phases run |
-| 1. Review | `Plan` subagent, or `claude-code ask --agent <agent>` for a second model family | Refined Task Brief | READY / NEEDS CLARIFICATION verdict |
+| 1. Review | `Plan` subagent, or a second model family via the `ask` pointer under Phase 1 | Refined Task Brief | READY / NEEDS CLARIFICATION verdict |
 | 2. Codebase Intel | 3 parallel `Explore` subagents, or one `gemini` dispatch (`claude-code gemini explore`) | Codebase Context Brief | Structure, conventions, deps covered |
 | 3. Research | `gh` search, WebFetch, WebSearch, `claude-code gemini explore` (web research) | Prior art links + library refs | At least 1 relevant reference |
 | 4. Plan | plan mode, or a `Plan` subagent (plan-only) | Implementation plan with task breakdown | User approval |
 | 5. Refine *(opt-in)* | `general-purpose` subagent | Self-contained brief per sub-task | Each brief passes the cold-start test — **only with `--refine` on orchestrate** |
-| 6. Dispatch | orchestrate (`subagent-workflows`), `/code-workers`, or `Agent` scoped to disjoint files in the shared tree | Completed sub-tasks | Each sub-task passes local checks |
+| 6. Dispatch | orchestrate (`subagent-workflows`), `/code-workers`, or a `code-worker` scoped to disjoint files in the shared tree | Completed sub-tasks | Each sub-task passes local checks |
 | 7. Merge + simplify | `claude-code worktree merge`, then `Skill(simplify)` over the merged diff | Simplified changes on working branch | No merge conflicts; behavior gate green before and after simplify |
 | 8. Verify | the `testing-guidelines` test-and-fix loop + the `problem-solving` gate chain | All gates green | format + lint + test + security pass |
 | 9. Commit | `/copilot commit` (or plain git per `standards/git.md`) | Git commit on branch | Clean working tree |
@@ -53,9 +53,9 @@ user override ("just do it").
 **Trigger**: MEDIUM+ scope.
 
 Vet the *task request* before any code is written — in a `Plan` subagent, or on a different model
-family via `claude-code ask --agent codex|gemini|opencode` (`claude-code agents` lists the available CLI
-agents). Checklist, output format and verdict discipline: `skills/evaluate-code/references/task-review.md` (on
-codex: `claude-code codex ask`).
+family (`claude-code ask --agent <agent>`; agent choice, call forms and the `Agent:` request:
+[cost-routing.md](../../skills/subagent-workflows/references/cost-routing.md)). Checklist, output format and
+verdict discipline: `skills/evaluate-code/references/task-review.md` (on codex: `claude-code codex ask`).
 
 The same adversarial pass run on the finished branch diff (verdict SHIP IT / NEEDS WORK / BLOCK) is the
 pre-commit review around Phase 8 (`claude-code codex review [--adversarial] --base <branch>`).
@@ -143,10 +143,10 @@ handoff alone."
 
 **Trigger**: 2+ parallel-safe sub-tasks.
 
-- orchestrate (`subagent-workflows`) or `/code-workers parallel` — each sub-task as an `Agent` owning disjoint
+- orchestrate (`subagent-workflows`) or `/code-workers parallel` — each sub-task as a `code-worker` owning disjoint
   (ideally new) files in the shared tree; `copilot` in the SAME message (`standards/quality.md`).
-- A second model family for one lane: `claude-code ask --agent <agent> "<brief>"` from Bash
-  (`--format json` for a machine-readable envelope).
+- A second model family for one lane: the `code-worker` brief carries `Agent: <x>`
+  ([Leaf types](../../skills/subagent-workflows/SKILL.md#leaf-types)).
 - Manual worktrees: `claude-code worktree create|list|merge|clean`.
 
 Concurrency: 12 in flight per available account, 4 × CPUs at most, test agents included (`agents.md`; the
@@ -204,14 +204,14 @@ Commit per `rules/standards/git.md` (stage named files, conventional message, co
 | Fix failing tests | the `testing-guidelines` test-and-fix loop |
 | Clean up tech debt | `skills/evaluate-code/references/techdebt.md` (scan, then fix) |
 | Review current changes | `/code-review` (quality + security lenses, `evaluate-code`) |
-| Second opinion from another model | `claude-code ask --agent <agent> "<review brief>"` |
+| Second opinion from another model | `ask` per Phase 1 pointer (`/codex` for an adversarial pass) |
 
 ## Agent Reference
 
 Roster (`Explore`, `Plan`, `claude`, `code-worker`, `copilot`, `codex`, `gemini`, `opencode`) and
 purposes: `rules/workflow/agents.md` → Available Agents. Phase mapping here: `Plan` → 1, 4;
 `codex`/`gemini`/`opencode` → 1; `Explore` → 2; `general-purpose` (built-in) → 5, 6;
-`code-worker`/`copilot` → 6; `claude` → 6, 7; `claude-code ask --agent <agent>` → 1, 6, 8.
+`code-worker`/`copilot` → 6; `claude` → 7 only; `claude-code ask --agent <agent>` → 1, 6, 8.
 
 > **Security review is a lens of `evaluate-code`, not an agent** — `skills/evaluate-code/SKILL.md` → Security,
 > typically alongside Phase 8.

@@ -27,6 +27,7 @@ Ask each lane to report the exact API surface it produced, so integration needs 
 
 ```text
 Agent(subagent_type="code-worker", description="Token cache for the proxy", prompt="""
+Agent: codex
 Own ONLY: internal/proxy/tokencache.go (new). Do NOT edit proxy.go — other agents are in this package.
 Objective: in-memory, provider-keyed credential cache with single-flight and a refresher.
 Constraints: keyed by provider name, never process-global; providers/creds.go's TTL stays authoritative;
@@ -36,3 +37,6 @@ Shared tree: per ../SKILL.md → Shared tree.
 Return: files, exact API surface to wire, verification output, risks.
 """)
 ```
+
+The `Agent: codex` line makes the hook label this leaf `code-worker  codex: Token cache for the proxy`
+([SKILL.md → Leaf types](../SKILL.md#leaf-types)).
