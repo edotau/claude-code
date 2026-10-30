@@ -146,7 +146,7 @@
           {
             "type": "command",
             "command": "$HOME/.claude/bin/claude-code hook SessionStart",
-            "timeout": 10,
+            "timeout": 15,
             "statusMessage": "Loading session memory"
           }
         ]
@@ -180,7 +180,7 @@
           {
             "type": "command",
             "command": "$HOME/.claude/bin/claude-code hook UserPromptSubmit",
-            "timeout": 15
+            "timeout": 20
           }
         ]
       }

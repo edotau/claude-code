@@ -141,6 +141,9 @@ var Registry = []Group{
 		// Native worktrees live at ~/worktrees/<repo>/<name>, the same root Orca uses; these replace Claude's git logic.
 		{Name: "worktree-create", Event: EventWorktreeCreate, Budget: 60 * sec},
 		{Name: "worktree-remove", Event: EventWorktreeRemove, Budget: 30 * sec},
+		// Ask-about-a-worktree notes (HARNESS_WORKTREE); the busy check runs every prompt, so it stays cheap.
+		{Name: "worktree-mode", Event: EventSessionStart, Budget: 5 * sec},
+		{Name: "worktree-busy", Event: EventUserPromptSubmit, Budget: 5 * sec},
 	}},
 	{Name: "codex", VendorOnly: true, Events: []EventSpec{
 		{Name: "codex-agent-route", Event: EventPreToolUse, Matcher: ".*spawn_agent$", Budget: 5 * sec, Vendors: []string{"codex"}},
@@ -198,6 +201,7 @@ func Events() map[string][]MatcherGroup {
 		seconds  int
 		n        int
 		status   string
+		nstatus  int // modules on the event that set a status; the spinner shows only when exactly one does
 		pos      int
 	}
 	disp := map[string]*slot{}
@@ -219,7 +223,9 @@ func Events() map[string][]MatcherGroup {
 			}
 			d.n++
 			d.seconds += s.Seconds()
-			d.status = s.StatusMessage
+			if s.StatusMessage != "" {
+				d.status, d.nstatus = s.StatusMessage, d.nstatus+1
+			}
 			if s.Matcher == "" {
 				d.any = true
 			} else if !slices.Contains(d.matchers, s.Matcher) {
@@ -232,7 +238,7 @@ func Events() map[string][]MatcherGroup {
 		if !d.any {
 			mg.Matcher = strings.Join(d.matchers, "|")
 		}
-		if d.n == 1 {
+		if d.nstatus == 1 {
 			mg.Hooks[0].StatusMessage = d.status
 		}
 		block[event][d.pos] = mg

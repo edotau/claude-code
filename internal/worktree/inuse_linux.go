@@ -13,6 +13,7 @@ import (
 func init() {
 	processesIn = processesInLinux
 	parentOf = parentOfLinux
+	commName = commOf
 }
 
 // processesInLinux scans /proc/*/cwd; a readlink that fails (permission denied, or the process

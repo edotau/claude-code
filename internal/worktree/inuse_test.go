@@ -237,3 +237,40 @@ func TestInUseByRealProcess(t *testing.T) {
 		t.Fatalf("reason = %q, want clear after the process was killed", reason)
 	}
 }
+
+// PeerAgents ignores agents in a linked worktree, the caller's own agent ancestor and that agent's descendants.
+func TestPeerAgentsIgnoresLinkedAndOwnTree(t *testing.T) {
+	co, linked := "/co", "/co/wt"
+	self := os.Getpid()
+	stubProcesses(t, func(dir string) ([]Proc, error) {
+		if dir == co+"/.git" {
+			return nil, nil
+		}
+		if dir == linked {
+			return []Proc{{PID: 300, Comm: "claude"}}, nil
+		}
+		return []Proc{{PID: 100, Comm: "claude"}, {PID: 200, Comm: "codex"}, {PID: 300, Comm: "claude"}, {PID: 400, Comm: "opencode"}, {PID: 500, Comm: "vim"}, {PID: 600, Comm: "agy"}}, nil
+	})
+	origArgs := procArgs
+	procArgs = func(pid int) (string, error) {
+		if pid == 600 {
+			return "/home/u/.gemini/bin/agy --hub --hub-port=1", nil // IDE hub daemon, not a working session
+		}
+		return "agent", nil
+	}
+	t.Cleanup(func() { procArgs = origArgs })
+	parents := map[int]int{self: 100, 200: 100, 100: 1}
+	parentOf = func(pid int) (int, error) { return parents[pid], nil }
+	origName := commName
+	commName = func(pid int) string {
+		if pid == 100 {
+			return "claude"
+		}
+		return ""
+	}
+	t.Cleanup(func() { commName = origName })
+	got, err := PeerAgents(co, []string{linked})
+	if err != nil || len(got) != 1 || got[0].PID != 400 {
+		t.Fatalf("PeerAgents = %v, %v; want only pid 400", got, err)
+	}
+}

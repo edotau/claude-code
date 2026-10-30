@@ -130,3 +130,22 @@ func TestPlanHooksRegistered(t *testing.T) {
 		t.Errorf("rendered settings contain %d PreToolUse dispatcher entries, want 1: %s", found, b)
 	}
 }
+
+// A merged dispatcher entry keeps the spinner text only when exactly one module on the event sets one.
+func TestEventsDispatcherStatusMessage(t *testing.T) {
+	old := Registry
+	defer func() { Registry = old }()
+	status := func(a, b string) string {
+		Registry = []Group{{Name: "x", Events: []EventSpec{
+			{Name: "x-a", Event: EventSessionStart, Budget: 5 * sec, StatusMessage: a},
+			{Name: "x-b", Event: EventSessionStart, Budget: 5 * sec, StatusMessage: b},
+		}}}
+		return Events()[EventSessionStart][0].Hooks[0].StatusMessage
+	}
+	if got := status("Loading", ""); got != "Loading" {
+		t.Fatalf("one status: %q", got)
+	}
+	if got := status("Loading", "Other"); got != "" {
+		t.Fatalf("two statuses: %q", got)
+	}
+}
