@@ -30,7 +30,7 @@
     "total": true,
     "duration": false,
     "session": false,
-    "agents": false,
+    "agents": true,
     "git": true,
     "velocity": true
   },

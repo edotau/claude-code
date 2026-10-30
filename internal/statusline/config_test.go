@@ -16,8 +16,8 @@ func TestDefaultConfigOrder(t *testing.T) {
 	if !cfg.seg("limits", false) {
 		t.Error("segments.limits should default to true")
 	}
-	if cfg.seg("agents", true) {
-		t.Error("segments.agents should default to false")
+	if !cfg.seg("agents", false) {
+		t.Error("segments.agents should default to true")
 	}
 	if cfg.GradientEase != 0.45 {
 		t.Errorf("GradientEase = %v, want 0.45", cfg.GradientEase)
