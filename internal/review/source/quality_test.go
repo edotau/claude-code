@@ -122,3 +122,36 @@ func TestRunQualityOutputWriteError(t *testing.T) {
 		t.Errorf("stderr = %q, want write error containing %q", stderr.String(), output)
 	}
 }
+
+func TestCommentSmells(t *testing.T) {
+	long := "// " + strings.Repeat("x", 118)  // 121 chars
+	short := "// " + strings.Repeat("x", 113) // 116 chars
+	cases := []struct {
+		name, lang, src string
+		want            []string // "type@location"
+	}{
+		{"go two-line block", "go", "package a\n\n// first\n// second\nfunc f() {}\n", []string{"long_comment@line 3"}},
+		{"go single line", "go", "package a\n\n// only one\nfunc f() {}\n", nil},
+		{"go over 120 chars", "go", "package a\n\n" + long + "\nfunc f() {}\n", []string{"long_comment_line@line 3"}},
+		{"go 116 chars ok", "go", "package a\n\n" + short + "\nfunc f() {}\n", nil},
+		{"python docstring with sections", "python", "def f(a):\n    \"\"\"Do it.\n\n    Args:\n        a: the input value\n\n    Returns:\n        the result\n    \"\"\"\n    return a\n", nil},
+		{"python 3-line prose docstring", "python", "def f(a):\n    \"\"\"Do it.\n    More prose here.\n    Even more prose.\n    \"\"\"\n    return a\n", []string{"long_comment@line 2"}},
+		{"file header block", "go", "// header one\n// header two\npackage a\n", nil},
+		{"NOTE gotcha block", "go", "package a\n\n// NOTE: careful\n// with this\nfunc f() {}\n", nil},
+		{"directive plus one prose line", "go", "package a\n\n//go:generate stringer -type=T\n// one prose line\nfunc f() {}\n", nil},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var got []string
+			for _, s := range commentSmells(tc.src, tc.lang) {
+				if s.Severity != "low" {
+					t.Errorf("severity = %q, want low", s.Severity)
+				}
+				got = append(got, s.Type+"@"+s.Location)
+			}
+			if strings.Join(got, ",") != strings.Join(tc.want, ",") {
+				t.Errorf("smells = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}

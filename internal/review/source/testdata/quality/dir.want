@@ -4,12 +4,12 @@ CODE QUALITY REPORT
 
 Directory: @TESTDATA@/quality
 Files Analyzed: 2
-Average Score: 100.0/100 (A)
-Total Code Smells: 0
+Average Score: 99.0/100 (A)
+Total Code Smells: 1
 Total SOLID Violations: 0
 
 --- FILES BY QUALITY ---
-  100/100 [A] @TESTDATA@/quality/gate-loop.js
+   98/100 [A] @TESTDATA@/quality/gate-loop.js
   100/100 [A] @TESTDATA@/quality/paths.go
 
 ============================================================

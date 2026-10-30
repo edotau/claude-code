@@ -12,9 +12,16 @@
     "classes": 0,
     "avg_complexity": 0.0
   },
-  "quality_score": 100,
+  "quality_score": 98,
   "grade": "A",
-  "smells": [],
+  "smells": [
+    {
+      "type": "long_comment",
+      "severity": "low",
+      "message": "Comment block has 2 lines (max: 1)",
+      "location": "line 9"
+    }
+  ],
   "solid_violations": [],
   "function_details": [],
   "class_details": []

@@ -246,7 +246,7 @@ func isWordByte(b byte) bool {
 }
 
 // checkCodeSmells ports quality_core.check_code_smells.
-func checkCodeSmells(content string, functions []FunctionInfo, classes []ClassInfo) []Smell {
+func checkCodeSmells(content, lang string, functions []FunctionInfo, classes []ClassInfo) []Smell {
 	var smells []Smell
 	for _, f := range functions {
 		smells = append(smells, functionSmells(f)...)
@@ -274,7 +274,7 @@ func checkCodeSmells(content string, functions []FunctionInfo, classes []ClassIn
 				Message: "Commented-out code should be removed", Location: fmt.Sprintf("line %d", lineNo)})
 		}
 	}
-	return smells
+	return append(smells, commentSmells(content, lang)...)
 }
 
 // functionSmells is the per-function slice of check_code_smells (kept separate to stay under 50 lines).
@@ -394,11 +394,15 @@ func Quality(path, language string) (QualityReport, error) {
 	if content == "" {
 		return QualityReport{}, fmt.Errorf("could not read file: %s", path)
 	}
+	return QualityContent(path, content, lang)
+}
 
+// QualityContent is Quality over already-read content; lang must be set.
+func QualityContent(path, content, lang string) (QualityReport, error) {
 	lineMetrics := countLines(content)
 	functions := findFunctions(content, lang)
 	classes := findClasses(content, lang)
-	smells := checkCodeSmells(content, functions, classes)
+	smells := checkCodeSmells(content, lang, functions, classes)
 	violations := checkSolidViolations(content)
 	score := calculateQualityScore(lineMetrics, functions, smells, violations)
 
