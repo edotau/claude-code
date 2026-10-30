@@ -209,24 +209,6 @@ func TestDispatchAgentLabels(t *testing.T) {
 	if got := labelOf(t, "Explore", prompt, "review thing"); got != "review thing" {
 		t.Errorf("Explore type relabelled: %q", got)
 	}
-	lower := []struct{ st, agent, desc, want string }{
-		{"code-worker", "copilot", "Fix bug", "copilot: fix bug"},
-		{"code-worker", "copilot", "copilot: Fix bug", "copilot: fix bug"},
-		{"code-worker", "none", "Exercising live-session cap", "claude: exercising live-session cap"},
-		{"code-worker", "none", "HTTP retry", "claude: HTTP retry"},
-		{"code-worker", "copilot", "CLAUDE.md rewrite", "copilot: CLAUDE.md rewrite"},
-		{"code-worker", "none", "internal_x fix", "claude: internal_x fix"},
-		{"code-worker", "none", "Fix v2 bug", "claude: fix v2 bug"},
-		{"code-worker", "none", "V2 bug", "claude: V2 bug"},
-		{"code-worker", "none", "Done. Next", "claude: done. Next"},
-		{"code-worker", "none", "code-worker: RTK hook", "claude: RTK hook"},
-		{"copilot", "none", "copilot: repair tests", "repair tests"},
-	}
-	for _, c := range lower {
-		if got := labelOf(t, c.st, "do it\nAgent: "+c.agent, c.desc); got != c.want {
-			t.Errorf("%s + Agent: %s on %q = %q, want %q", c.st, c.agent, c.desc, got, c.want)
-		}
-	}
 	cases := []struct{ st, agent, want string }{
 		{"code-worker", "none", "claude: task"},
 		{"code-worker", "claude (in-context)", "claude: task"},
@@ -252,6 +234,30 @@ func TestDispatchAgentLabels(t *testing.T) {
 	for _, c := range cases {
 		if got := labelOf(t, c.st, "do it\nAgent: "+c.agent, "task"); got != c.want {
 			t.Errorf("%s + Agent: %s = %q, want %q", c.st, c.agent, got, c.want)
+		}
+	}
+}
+
+// Descriptions start lowercase and drop a hand-typed prefix that repeats the row's own type, for any subagent type.
+func TestDispatchLabelLowercase(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	lower := []struct{ st, agent, desc, want string }{
+		{"code-worker", "copilot", "Fix bug", "copilot: fix bug"},
+		{"code-worker", "copilot", "copilot: Fix bug", "copilot: fix bug"},
+		{"code-worker", "none", "Exercising live-session cap", "claude: exercising live-session cap"},
+		{"code-worker", "none", "HTTP retry", "claude: HTTP retry"},
+		{"code-worker", "copilot", "CLAUDE.md rewrite", "copilot: CLAUDE.md rewrite"},
+		{"code-worker", "none", "internal_x fix", "claude: internal_x fix"},
+		{"code-worker", "none", "Fix v2 bug", "claude: fix v2 bug"},
+		{"code-worker", "none", "V2 bug", "claude: V2 bug"},
+		{"code-worker", "none", "Done. Next", "claude: done. Next"},
+		{"code-worker", "none", "code-worker: RTK hook", "claude: RTK hook"},
+		{"copilot", "none", "copilot: repair tests", "repair tests"},
+		{"Plan", "none", "Plan: Repo-wide package consolidation", "repo-wide package consolidation"},
+	}
+	for _, c := range lower {
+		if got := labelOf(t, c.st, "do it\nAgent: "+c.agent, c.desc); got != c.want {
+			t.Errorf("%s + Agent: %s on %q = %q, want %q", c.st, c.agent, c.desc, got, c.want)
 		}
 	}
 }
