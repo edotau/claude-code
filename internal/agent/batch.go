@@ -216,7 +216,7 @@ type TaskLine struct {
 	Workdir string `json:"workdir"`
 	Tools   *bool  `json:"tools"`
 	Timeout string `json:"timeout"` // a Go duration such as 5m
-	Persona string `json:"persona"` // agent name or file, as ask --persona
+	Persona string `json:"persona"` // agents/<name>.md name or file path
 }
 
 // ParsedLine is one non-blank input line: its 1-based number, the decoded task, or why it did not decode.

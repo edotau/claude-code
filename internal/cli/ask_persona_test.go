@@ -9,7 +9,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 )
 
-// --persona loads agents/<name>.md or a path into the logged request, and --retry replays it without the flag.
+// --agent vendor:persona loads agents/<name>.md or a path into the logged request, and --retry replays it without the flag.
 func TestAskPersonaLoadsAndRetryKeepsIt(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", dir)
@@ -33,13 +33,13 @@ func TestAskPersonaLoadsAndRetryKeepsIt(t *testing.T) {
 		}
 		return agent.RecentRecords(1)[0].Request
 	}
-	base := []string{"--agent", "claude", "--fallback", "none", "--format", "json"}
-	p := ask(append(base, "--persona", "tester", "go")...).Persona
+	base := []string{"--fallback", "none", "--format", "json"}
+	p := ask(append(base, "--agent", "claude:tester", "go")...).Persona
 	if p == nil || p.Name != "tester" || p.Description != "Tests things" || p.Prompt != "You test." || p.Model != "sonnet" ||
 		len(p.Tools) != 2 || p.Tools[0] != "Read" {
 		t.Fatalf("named persona = %+v", p)
 	}
-	if p := ask(append(base, "--persona", other, "go")...).Persona; p == nil || p.Name != "other" || p.Prompt != "You are by path." {
+	if p := ask(append(base, "--agent", "claude:"+other, "go")...).Persona; p == nil || p.Name != "other" || p.Prompt != "You are by path." {
 		t.Fatalf("path persona = %+v", p)
 	}
 	rec := agent.NewRecord("claude", agent.Request{Prompt: "again", Persona: p}, time.Now().Add(-time.Hour))
@@ -49,7 +49,7 @@ func TestAskPersonaLoadsAndRetryKeepsIt(t *testing.T) {
 	if got := ask(append(base, "--retry", rec.ID)...).Persona; got == nil || got.Name != "tester" {
 		t.Fatalf("retry persona = %+v, want tester", got)
 	}
-	code, _, stderr := captureOutput(t, func() int { return cmdAsk(append(base, "--persona", "nope", "go")) })
+	code, _, stderr := captureOutput(t, func() int { return cmdAsk(append(base, "--agent", "claude:nope", "go")) })
 	if code != 2 || stderr == "" {
 		t.Fatalf("unknown persona: exit %d stderr %q, want 2 with a message", code, stderr)
 	}

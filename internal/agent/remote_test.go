@@ -96,3 +96,14 @@ func TestRemoteRunDeadlineIsPerActivityNotWholeRun(t *testing.T) {
 		t.Fatalf("silent remote: err=%v after %s, want a deadline well before 5s", err, time.Since(start))
 	}
 }
+
+// A persona rides the single --agent value as vendor:persona.
+func TestRemoteArgvPersonaIsOneAgentValue(t *testing.T) {
+	script, err := remoteScript("claude-code", "codex", "", Request{Persona: &Persona{Name: "reviewer", Prompt: "x"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Count(script, "--agent") != 1 || !strings.Contains(script, "--agent 'codex:reviewer'") || strings.Contains(script, "--persona") {
+		t.Fatalf("script = %s, want one --agent 'codex:reviewer' and no --persona", script)
+	}
+}

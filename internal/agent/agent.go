@@ -180,10 +180,10 @@ func applyCaps(c Caps, req Request) (out Request, dropped, emulated []string) {
 	drop(c.Direct, req.Direct, "--direct", func() { req.Direct = false })
 	drop(c.DebugFile, req.DebugFile != "", "--debug-file="+req.DebugFile, func() { req.DebugFile = "" })
 	drop(c.Env, len(req.Env) > 0, "--env", func() { req.Env = nil })
-	drop(c.Persona, req.Persona != nil, "--persona="+personaName(req.Persona), func() { req.Persona = nil })
+	drop(c.Persona, req.Persona != nil, "persona="+personaName(req.Persona), func() { req.Persona = nil })
 	if req.Persona != nil && c.Persona == Emulated {
 		req, dropped = emulatePersona(c, req, dropped)
-		emulated = append(emulated, "--persona")
+		emulated = append(emulated, "persona")
 	}
 	if req.SystemPrompt != "" && c.SystemPrompt == Emulated {
 		req.Prompt, req.SystemPrompt = preamble(req.SystemPrompt)+req.Prompt, ""
@@ -211,6 +211,9 @@ func preamble(text string) string {
 func Run(ctx context.Context, r Runner, req Request, sink Sink, notify func(string)) (Result, error) {
 	if sink == nil {
 		sink = Discard
+	}
+	if err := RefusePersona(r.Caps(), r.Name(), req.Persona); err != nil {
+		return Result{Agent: r.Name(), Status: StatusError}, &Error{Kind: KindFatal, Agent: r.Name(), Err: err}
 	}
 	req, dropped, emulated := applyCaps(r.Caps(), req)
 	res := Result{Agent: r.Name(), Status: StatusError, Dropped: dropped, Emulated: emulated}
