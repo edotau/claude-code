@@ -84,3 +84,15 @@ func TestExplicitAuthTypeWinsOverInference(t *testing.T) {
 		t.Errorf("explicit databricks-cli must map to u2m with no secret: %+v", c)
 	}
 }
+
+func TestParseMultiLineValues(t *testing.T) {
+	body := "[m]\ntoken = \"\"\"ab\ncd\"\"\"\nclient_secret = x\\\n  y\nclient_id = `p\nq`\nhost = h # c\n"
+	ps, _, err := parse(strings.NewReader(body))
+	if err != nil || len(ps) != 1 {
+		t.Fatalf("parse = %v, %v", ps, err)
+	}
+	p := ps[0]
+	if p.token != "ab\ncd" || p.clientSecret != "xy" || p.clientID != "p\nq" || p.host != "h" {
+		t.Errorf("profile = %+v", p)
+	}
+}

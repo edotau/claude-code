@@ -74,7 +74,7 @@ func parseSections(text string) []*section {
 			continue
 		}
 		if i := strings.IndexAny(line, "=:"); i > 0 {
-			cur.keys[strings.TrimSpace(line[:i])] = cleanValue(line[i+1:])
+			cur.keys[strings.TrimSpace(line[:i])] = readValue(line[i+1:], sc)
 		}
 	}
 	return out
@@ -94,6 +94,28 @@ func headerName(line string) (string, bool) {
 		return "", false
 	}
 	return strings.TrimSpace(line[1:end]), true
+}
+
+// readValue reads a value that may span lines: a triple-quoted or backtick block, or lines ending in a backslash.
+func readValue(raw string, sc *bufio.Scanner) string {
+	v := strings.TrimSpace(raw)
+	for _, d := range []string{`"""`, `'''`, "`"} {
+		if !strings.HasPrefix(v, d) {
+			continue
+		}
+		rest := v[len(d):]
+		for !strings.Contains(rest, d) && sc.Scan() {
+			rest += "\n" + sc.Text()
+		}
+		if end := strings.Index(rest, d); end >= 0 {
+			rest = rest[:end]
+		}
+		return rest
+	}
+	for strings.HasSuffix(v, `\`) && sc.Scan() {
+		v = strings.TrimSuffix(v, `\`) + strings.TrimSpace(sc.Text())
+	}
+	return cleanValue(v)
 }
 
 // cleanValue trims a value, strips one pair of matching quotes, else cuts an inline " #" / " ;" comment.
