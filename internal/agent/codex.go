@@ -63,8 +63,17 @@ func codexSchemaFile(schema string) (string, error) {
 func codexStrict(v any) any {
 	switch x := v.(type) {
 	case map[string]any:
-		for k, c := range x {
-			x[k] = codexStrict(c)
+		for _, k := range codexSchemaMaps {
+			if m, ok := x[k].(map[string]any); ok {
+				for n, c := range m {
+					m[n] = codexStrict(c)
+				}
+			}
+		}
+		for _, k := range codexSubschemas {
+			if c, ok := x[k]; ok {
+				x[k] = codexStrict(c)
+			}
 		}
 		if props, ok := x["properties"].(map[string]any); ok {
 			req := make([]string, 0, len(props))
@@ -81,6 +90,13 @@ func codexStrict(v any) any {
 	}
 	return v
 }
+
+// codexSchemaMaps hold name-to-schema maps; codexSubschemas hold one schema or a list of them. Other keys are data.
+var (
+	codexSchemaMaps = []string{"properties", "patternProperties", "$defs", "definitions", "dependentSchemas"}
+	codexSubschemas = []string{"items", "prefixItems", "additionalProperties", "unevaluatedProperties", "contains",
+		"not", "if", "then", "else", "anyOf", "oneOf", "allOf"}
+)
 
 // codexEvent mirrors `codex exec --json`: thread.started, item.started|completed, turn.completed|failed, error.
 type codexEvent struct {
