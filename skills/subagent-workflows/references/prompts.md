@@ -18,8 +18,8 @@ Acceptance: <testable outcomes>
 Verify: `<scoped command>`
 
 Report NEEDS_CONTEXT before editing if anything is unclear. Implement only this task, minimally, following existing
-patterns; stop rather than guess at a new design decision or scope growth. Test files belong to `copilot`: list the
-behaviors that need coverage. Shared tree: never git stash/checkout/reset/restore; confirm each write with
+patterns; stop rather than guess at a new design decision or scope growth. Tests: a test agent per
+`rules/standards/testing-guidelines.md` (feature or bug fix only). Shared tree: never git stash/checkout/reset/restore; confirm each write with
 `git diff --stat -- <file>`.
 
 Before a behavior change write TASK: code does X; check expects Y; spec says Z (Y vs Z disagree = stop, report).

@@ -50,8 +50,8 @@ wouldn't call it overcomplicated" is the bar.
 ## Verify — don't assume
 
 Behavior preservation is only proven by a green run, not by reading the diff. Run the same
-tests and lint that passed before the extraction (`make test && make lint`, or the
-change's targeted tests) and **read the actual output** — confirm zero failures rather than
+tests and lint that passed before the extraction (scoped tests + `make lint`; the full
+suite runs once at wrap-up with approval) and **read the actual output** — confirm zero failures rather than
 assuming they passed. If a test fails, the extraction changed behavior: find the dropped
 guard / empty-collection check / inverted condition, restore it, re-run. If no test covers
 the method you're restructuring, that absence *is* a finding — say so before cutting, since

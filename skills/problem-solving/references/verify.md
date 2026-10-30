@@ -13,12 +13,13 @@ IDENTIFY → RUN → READ output → VERIFY success → CLAIM
 
 ## Gate Sequence
 
-Run in order. A failure blocks subsequent gates until fixed.
+Run in order. A failure blocks subsequent gates until fixed. Per task only Gates 1-2 run; Gate 3-5 (the full
+chain) run once per change set at wrap-up, with the user's approval, never in a subagent.
 
 ```text
 Gate 1: FORMAT/LINT   — formatters + linters clean                         — every iteration
 Gate 2: SCOPED TESTS  — the tests for the packages/modules touched, named  — every iteration
-Gate 3: FINAL PASS    — full build + full test suite + security scan      — run ONCE, after an iteration is clean
+Gate 3: FINAL PASS    — full build + full test suite + security scan      — run ONCE per change set, with user approval
 Gate 4: AUTH/SEC      — auth verification (auth changes only); no hardcoded secrets — part of the final pass
 Gate 5: DIFF REVIEW   — diff matches intent, no unrelated changes?        — part of the final pass
 ```
@@ -27,7 +28,7 @@ This harness: `make lint` → scoped `go test ./internal/<pkg>` per iteration; `
 If `defaults/claude/settings.json` was touched, also render it (`claude-code configure --restore --dry-run`) and diff
 the output against the live `settings.json` as part of Gate 3.
 
-## Gate Loop (max 5 iterations per task)
+## Gate Loop (max 5 iterations per change set)
 
 Scripted form: `Workflow green-keeper-loop` (only when the user asks for one; it caps 3 iterations per call;
 `../../subagent-workflows/references/saved-workflows.md`).
@@ -44,7 +45,7 @@ Per-gate fix strategy:
 
 - **Format** — auto-fix and re-run.
 - **Lint** — fix only the flagged lines.
-- **Scoped tests** — fix the code, not the tests (unless the test itself is wrong).
+- **Scoped tests** — a failing test is guilty until traced: `rules/standards/testing-guidelines.md` → When a test fails.
 - **Final pass** — if it fails, trace the failure to its package and fix minimally, then re-run
   from Gate 1; do not re-run the full suite again until the next iteration is clean.
 
@@ -82,7 +83,7 @@ Claims whose evidence is *not* just the obvious command:
 | Claim | Requires |
 |-------|----------|
 | Bug fixed | The original symptom re-tested — not "code changed, assumed fixed" |
-| Regression test works | Red-green cycle verified — not one green run |
+| Regression test works | prove the teeth with `claude-code test mutate` (`rules/standards/testing-guidelines.md`) |
 | Agent completed | VCS diff showing the changes |
 | Requirements met | Line-by-line checklist — tests passing is not it |
 

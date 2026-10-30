@@ -15,6 +15,7 @@ const a = args && typeof args === 'object' && !Array.isArray(args) ? args : {}
 let GATE = a.gate || ''
 let GATE_SOURCE = a.gate ? 'args' : ''
 const CD = a.cwd ? `cwd: ${a.cwd}. Prefix every command with \`cd ${a.cwd} &&\` (the shell cwd resets).\n` : ''
+const SCOPE_GIVEN = Array.isArray(a.scope) && a.scope.length > 0
 const SCOPE = Array.isArray(a.scope) && a.scope.length ? a.scope : ['(whole repo — scope not given; prefer the smallest fix)']
 const MAX_ITER = Number.isInteger(a.maxIterations) && a.maxIterations > 0 ? a.maxIterations : 3
 const FIXES = Number.isInteger(a.fixesPerIteration) && a.fixesPerIteration > 0 ? a.fixesPerIteration : 3
@@ -60,6 +61,9 @@ const DETECT_SCHEMA = {
 }
 
 // ── Detect (ADK leaf: pick the verify gate when the caller didn't pass one) ─────────────────
+if (!GATE && !SCOPE_GIVEN) {
+  return { status: 'error', exit: 'error', gate: null, gateSource: 'none', iterations: 0, filesChanged: [], residual: ['no scope and no gate: pass args.gate or args.scope; a suite-wide gate is never auto-detected'], history: [] }
+}
 if (!GATE) {
   phase('Detect')
   const d = await agent(
@@ -67,9 +71,9 @@ if (!GATE) {
     `The toolchain file decides; a Makefile only ever PREPENDS a lint step. Scope dirs: ${SCOPE.join(' ') || '(repo root)'}. ` +
     `(1) go.mod → "go build ./... && go vet ./<dir>/... && go test ./<dir>/..." over the scope dirs (./... when the scope is the root); ` +
     `(2) pyproject.toml/setup.cfg → "ruff check <dir> && pytest -q <dir-or-tests>" (ruff only if configured; prefix each with .venv/bin/python -m when .venv exists); ` +
-    `(3) package.json → "npm run lint && npm test" using only scripts that exist; (4) Cargo.toml → "cargo build && cargo test". ` +
+    `(3) package.json → "npm run lint && npm test -- <scope paths>" using only scripts that exist; (4) Cargo.toml → "cargo build && cargo test -p <crate of each scope dir>". ` +
     `If a Makefile has a lint (or fmt/vet) target, return "make lint && " + that command and source "Makefile"; never return make test/audit/check/install/deploy/release/e2e — a suite-wide target is not a scoped gate. ` +
-    `(5) Makefile only, no toolchain file → its fastest test/check target. Nothing matches → gate "" and source "none".`,
+    `(5) Makefile only, no toolchain file, or no scoped command derivable → gate "" and source "none" (the caller must pass args.gate).`,
     { label: 'detect', phase: 'Detect', schema: DETECT_SCHEMA, model: routeModel('haiku'), effort: 'low' }
   )
   GATE = (d && d.gate) || ''

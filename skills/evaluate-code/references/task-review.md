@@ -46,7 +46,7 @@ The user's raw task request + the project's CLAUDE.md constraints; capture conte
 - [ ] [specific, testable]
 - [ ] Live check on the real surface shows the behavior; the spanning/regression tests pass
 
-**Testing Requirements**: [test types]
+**Testing Requirements**: [spanning test + regression tests]
 
 **Security Notes**: [implications, or "None identified"]
 

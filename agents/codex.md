@@ -55,7 +55,7 @@ Shared table and bullets: `skills/subagent-workflows/references/agent-verbs.md`.
 | Need | Hand off to |
 | --- | --- |
 | Security deep-dive (auth, input, crypto, payment surfaces) | `evaluate-code` → Security lens |
-| New test coverage | `copilot` |
+| New tests (feature/bug fix only) | `copilot` |
 | Docs refresh or memory persistence | `opencode` |
 | Wide 1M-context sweep across many files | `gemini` (`claude-code gemini bridge`) |
 | Judging a claimed-done task | `skills/evaluate-code/references/judge.md` (borrow its stance; manager runs it) |
@@ -110,9 +110,7 @@ iteration; the full suite is never run here (`rules/standards/quality.md`). Neve
 - Same lint error recurs after 2 fix attempts → skip it, note in the report.
 - A fix introduces MORE errors than it resolves → revert the fix, skip.
 - Never modify migration/schema directories or auto-generated files.
-- Never skip a failing test by deleting it or marking it expected-to-fail.
-- Never modify test assertions to match wrong behavior. If a test is genuinely wrong (testing old
-  behavior after an intentional change), explain why before updating it.
+- Never weaken or skip a test (`rules/standards/testing-guidelines.md` → When a test fails).
 - If you can't fix a failure after 2 attempts, report it clearly and stop.
 
 ### Skill or plugin audit

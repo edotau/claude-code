@@ -20,26 +20,14 @@ Per route, read the view + serializer for required fields, permission classes (`
 `DjangoModelPermissions`, object-level checks) and declared status codes. The serializer is the contract: assert
 against it, not a hand-typed dict.
 
-## The two matrices (per endpoint)
+## One spanning test per endpoint
 
-| Auth / permission case | Expected |
-| --- | --- |
-| No `Authorization` header | 401 |
-| Malformed, garbage or expired token | 401 |
-| Valid token, insufficient role/permission | 403 |
-| Valid token, not the object owner | 403 (or 404 when existence is hidden) |
-| Valid token, correct permission | 2xx |
+Cover the cases the view and serializer actually show; auth and validation cases only where the code has that branch:
 
-Test the missing header apart from the invalid token: DRF routes them through authentication vs permission and they
-regress independently.
-
-| Input case (POST/PUT/PATCH) | Expected |
-| --- | --- |
-| Empty body `{}`; each required field missing, one at a time; `null` for a required field | 400 |
-| Wrong type (str where int expected) | 400 |
-| Boundary: min−1 / min / max / max+1 | 400 / 2xx / 2xx / 400 |
-| Injection or oversized free text | 400, or 2xx sanitized — never 500 |
-| Unknown/extra field | the serializer's policy — assert the one chosen |
+- Auth/permission: missing header (401) apart from a bad token (401), insufficient role or non-owner (403, or 404 when
+  existence is hidden), correct permission (2xx). DRF routes them through different layers, so they regress alone.
+- Input (POST/PUT/PATCH): each required field missing, wrong type, a null on a required field (400); boundaries only
+  where the serializer declares min/max; the serializer's unknown-field policy; never a 500 on free text.
 
 ## DRF pattern
 

@@ -48,7 +48,7 @@ A live session (`ask --agent claude --live`, `agents send <id>`) and `--host`:
 | Review | `evaluate-code` skill — verdict `SHIP \| FIX REQUIRED \| BLOCK` |
 | Security deep-dive | `evaluate-code` → Security lens; you flag only obvious CRITICAL secrets/injection yourself |
 | Gate chain (format → lint → test → security) | `skills/problem-solving/references/verify.md`; the full suite is the main thread's, run once with the owner's approval (`rules/standards/quality.md`) |
-| New test coverage | `copilot` TEST mode (`rules/standards/quality.md` → every code dispatch carries a test agent) |
+| New test coverage | `copilot` TEST mode, feature or bug fix only (`rules/standards/testing-guidelines.md` → Test agent) |
 | One well-scoped fan-out task | `code-worker` (leaf types: `skills/subagent-workflows/SKILL.md` → Leaf types) |
 | Wide codebase sweep | `gemini` (`claude-code gemini bridge --dirs <d> "<task>"`, 1M-context pass) |
 | A whole pipeline — implement+verify, audit a range, loop a gate, a dispatch to another agent as a stage | a saved `Workflow` (`code-engineer`, `code-analyzer`, `green-keeper-loop`, `code-agent`; `rules/workflow/master-workflow.md` → Saved Workflows). Weigh it against a hand fan-out every time; run it only when the user opted in, otherwise name it as the option in one line |
@@ -73,11 +73,9 @@ For system architecture choices, use `skills/architecture-design/SKILL.md`.
 
 Follow the chosen approach. Respect existing patterns per CLAUDE.md. Write the minimal code that
 satisfies the requirement — no speculative flexibility, no error handling for impossible states.
-Add/update tests for new/changed behavior (NEW coverage is `copilot`'s job: `rules/standards/quality.md`).
+Tests: `rules/standards/testing-guidelines.md`.
 
-**Tests travel with the code that necessitates them — never a trailing "test migration" phase.** A
-change that renames a symbol, moves a module, or alters a signature MUST update every test it breaks
-in the same step. Every phase leaves the suite green.
+Repair the tests your change breaks in the same step (`rules/standards/testing-guidelines.md`).
 
 **Verifiable-goal loop.** Before writing code, state the verifiable goal and its exact verification
 command (from the plan's Verification section). Then: implement → run the command → iterate while
@@ -127,7 +125,7 @@ Verdict discipline — closed vocabulary first, evidence after, never soften or 
 - **Security deep-dive** → `evaluate-code` → Security lens; you flag only obvious CRITICAL secrets/injection.
 - **Full verification gate loop** (format → lint → test → security) → `skills/problem-solving/references/verify.md`;
   `Workflow green-keeper-loop` only when the user asks for it.
-- **New test coverage** → `copilot` (TEST mode): `rules/standards/quality.md`.
+- **New test coverage** → `copilot` (TEST mode), feature or bug fix only: `rules/standards/testing-guidelines.md` → Test agent.
 - **Full build + full test suite + security scan** → the main thread, once, with the owner's approval — never a
   subagent.
 - **Trivial task** → skip the plan, implement directly.

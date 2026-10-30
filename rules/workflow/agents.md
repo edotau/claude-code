@@ -40,8 +40,7 @@ paths:
 3. Code just written — review per `../standards/quality.md` → Completion (`/code-review`); dispatch `claude` only
    when the review needs design judgment across modules.
 
-A test agent rides along only when the change adds a feature or fixes a bug
-(`../standards/testing-guidelines.md` → Test agent).
+Test agent: `../standards/testing-guidelines.md` → Test agent.
 
 ## Parallel dispatch
 

@@ -174,7 +174,7 @@ Two halves, plus a third whenever you fixed a defect:
 - **(c)** whenever you fixed a defect, write the forced `ISSUE:` sweep before reporting it fixed
   (`references/notes.md`).
 
-Code instantiation: live first, then tests with teeth (`rules/standards/quality.md` → Testing).
+Code instantiation: live first, then tests with teeth (`rules/standards/testing-guidelines.md`).
 
 On failure, route: a mechanical mistake → Step 4; a surprise or contradiction → Step 2. **Hard
 bound:** after 3 failed fix-verify cycles on the same issue, or when blocked by anything outside

@@ -48,9 +48,8 @@ Follow `~/.claude/skills/problem-solving/SKILL.md` Steps 0–3, with the plannin
 
 1. **Step 0 — Classify.** Restate the goal in one line. A request spanning independent subsystems becomes
    one plan per subsystem; say so.
-2. **Step 1 — Define done.** Make every phase verifiable: each phase names its live check on the real
-   surface (run the verb, hook or endpoint) before any new test, then the scoped tests for the packages it
-   touches. Spec-pinned tests only where nothing can be run live (`rules/standards/quality.md`).
+2. **Step 1 — Define done.** Make every phase verifiable: each phase names its live check and scoped tests per
+   `rules/standards/testing-guidelines.md`.
 3. **Step 2 — Gather evidence.** Read the real code — name files, functions and line numbers; a plan built
    on guessed structure is wrong. List the assumptions found along the way.
 4. **Step 3 — Decide and commit.** Identify 2–3 approaches, then recommend the simplest design that meets
@@ -152,8 +151,8 @@ Every phase is:
 - **Rules:** `CLAUDE.md` hard rules apply (generated `settings.json`, secrets only in the vault/`auth.command`, propose
   look/behavior changes first); the repo is public — nothing company-specific; CLI/TUI text <=80 columns.
 - **Dispatch shape:** `~/.claude/rules/workflow/agents.md` (caps, fan-out) — disjoint-package code steps run in
-  parallel; every code step names a `leaf:` and `Agent:` and pairs a `copilot` test agent
-  (`rules/standards/quality.md`); new tests come after the live check.
+  parallel; every code step names a `leaf:` and `Agent:` and pairs a `copilot` test agent only for a
+  feature or bug fix (`rules/standards/testing-guidelines.md` → Test agent).
 - **Cost routing:** spread steps across agents per `~/.claude/skills/subagent-workflows/references/cost-routing.md`;
   Claude keeps judgement, integration and verification.
 - **Gates:** `go vet` + gofmt every edit; scoped tests while developing; the full suite once at the end; commit by area
