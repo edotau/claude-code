@@ -1,4 +1,4 @@
-package remote
+package tailscale
 
 import (
 	"context"
@@ -31,7 +31,7 @@ const (
 // list-panes's own exit status is checked explicitly, outside any pipe, before filtering/looping:
 // piped straight into awk/while, a list-panes failure (exit nonzero, empty stdout) is indistinguishable
 // from "no cc-* panes exist" (both yield zero loop iterations, and a while loop that never ran its
-// body exits 0) — the ssh round trip reports success with an empty capture, and CapturePanes/Observe
+// body exits 0) — the ssh round trip reports success with an empty capture, and CapturePanes/ObservePanes
 // then has no way to tell a transient tmux failure apart from every tracked pane having vanished. A
 // capture-pane failure inside the loop instead `exit`s the loop (its subshell, piped as the script's
 // last statement) immediately, which is still the pipeline's — and so the whole script's — exit status.
@@ -51,18 +51,18 @@ type PaneCapture struct {
 	Text                                     string
 }
 
-// Runner executes argv (as built by ExecArgs) and returns its output; production code wraps
+// RemoteRunner executes argv (as built by ExecArgs) and returns its output; production code wraps
 // exec.CommandContext, tests substitute a fake with no real ssh/tmux involved.
-type Runner func(ctx context.Context, argv []string) ([]byte, error)
+type RemoteRunner func(ctx context.Context, argv []string) ([]byte, error)
 
-// ExecRunner is the production Runner.
+// ExecRunner is the production RemoteRunner.
 func ExecRunner(ctx context.Context, argv []string) ([]byte, error) {
 	return exec.CommandContext(ctx, argv[0], argv[1:]...).Output()
 }
 
 // CapturePanes lists and captures every cc-* tmux pane on host via run, bounding the round trip to
 // captureTimeout and the parsed result to maxCaptureBytes/maxPanes; batch forbids ssh password prompts.
-func CapturePanes(ctx context.Context, host string, batch bool, run Runner) ([]PaneCapture, error) {
+func CapturePanes(ctx context.Context, host string, batch bool, run RemoteRunner) ([]PaneCapture, error) {
 	cctx, cancel := context.WithTimeout(ctx, captureTimeout)
 	defer cancel()
 	argv := ExecArgs(cctx, host, captureCommand, batch)

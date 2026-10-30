@@ -1,4 +1,4 @@
-package dbxcfg
+package databricks
 
 import (
 	"fmt"
@@ -39,7 +39,7 @@ func Candidates(path string) ([]Candidate, error) {
 	}
 	out := make([]Candidate, 0, len(ps))
 	for _, p := range ps {
-		out = append(out, classify(p))
+		out = append(out, classifyProfile(p))
 	}
 	if len(out) == 0 && hasDefault {
 		out = append(out, Candidate{Name: defaultSection, Skip: defaultOnlySkip})
@@ -47,8 +47,8 @@ func Candidates(path string) ([]Candidate, error) {
 	return out, nil
 }
 
-// classify maps a profile to a row authType; an explicit auth_type wins over inference from the keys present.
-func classify(p profile) Candidate {
+// classifyProfile maps a profile to a row authType; an explicit auth_type wins over inference from the keys present.
+func classifyProfile(p profile) Candidate {
 	c := Candidate{Name: p.name, AuthType: p.authType, ClientID: p.clientID,
 		AccountID: p.accountID, WorkspaceID: p.workspaceID,
 		HasSecret: p.clientSecret != "" || p.token != ""}

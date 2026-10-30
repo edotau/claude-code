@@ -13,7 +13,7 @@ import (
 	"github.com/edotau/claude-code/internal/hooks/hookspec"
 	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/models"
-	"github.com/edotau/claude-code/internal/network/remote"
+	"github.com/edotau/claude-code/internal/network/tailscale"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/schemas"
@@ -194,8 +194,8 @@ func dispatchHostNames() []string {
 	return c.Names
 }
 
-// dispatchAgentNames is remote.Agents, named to match the other *Names domain functions.
-func dispatchAgentNames() []string { return remote.Agents }
+// dispatchAgentNames is tailscale.RemoteAgents, named to match the other *Names domain functions.
+func dispatchAgentNames() []string { return tailscale.RemoteAgents }
 
 // webViewAgentIDs lists subagent ids from the current project's most recent sessions — a bounded
 // directory glob (no transcript parsing), current session first, fast enough for the Tab path.

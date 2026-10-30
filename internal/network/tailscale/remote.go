@@ -1,6 +1,7 @@
-// Package remote builds the ssh/tmux command that starts an agent TUI on another tailnet machine
+// The remote files build the ssh/tmux command that starts an agent TUI on another tailnet machine
 // in a detached tmux session, so a laptop or phone SSH client can attach to it later.
-package remote
+
+package tailscale
 
 import (
 	"context"
@@ -14,16 +15,14 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	"github.com/edotau/claude-code/internal/network/tailscale"
 )
 
-// Agents lists the allowed --agent values, in the order they're tried/offered.
-var Agents = []string{"claude", "codex", "opencode", "gemini", "copilot"}
+// RemoteAgents lists the allowed --agent values, in the order they're tried/offered.
+var RemoteAgents = []string{"claude", "codex", "opencode", "gemini", "copilot"}
 
-// ValidAgent reports whether name is one of Agents.
+// ValidAgent reports whether name is one of RemoteAgents.
 func ValidAgent(name string) bool {
-	return slices.Contains(Agents, name)
+	return slices.Contains(RemoteAgents, name)
 }
 
 // nameRe is the --name / session-name allowlist: tmux session names embed in shell text we build.
@@ -50,10 +49,10 @@ func randID() string {
 	return hex.EncodeToString(b[:])
 }
 
-// Opts configures one dispatch's remote command.
-type Opts struct {
+// RemoteOpts configures one dispatch's remote command.
+type RemoteOpts struct {
 	Dir   string // remote working directory; "" means the login home (~)
-	Agent string // one of Agents
+	Agent string // one of RemoteAgents
 	Name  string // tmux session name; "" generates one from DefaultName
 	Task  string // the initial prompt handed to the agent
 }
@@ -116,9 +115,9 @@ func dirFlag(dir string) string {
 // a detached session named opts.Name (or a generated one) in opts.Dir running the agent command
 // through the user's own login shell (so PATH entries from .profile/.bashrc, e.g. mise/npm-installed
 // agent CLIs, are on PATH) and keeps the session open under that shell once the agent exits.
-func BuildRemoteCommand(opts Opts) (string, string, error) {
+func BuildRemoteCommand(opts RemoteOpts) (string, string, error) {
 	if !ValidAgent(opts.Agent) {
-		return "", "", fmt.Errorf("dispatch: --agent %q must be one of %s", opts.Agent, strings.Join(Agents, "|"))
+		return "", "", fmt.Errorf("dispatch: --agent %q must be one of %s", opts.Agent, strings.Join(RemoteAgents, "|"))
 	}
 	name := opts.Name
 	if name == "" {
@@ -149,7 +148,7 @@ func BuildRemoteCommand(opts Opts) (string, string, error) {
 // replaces a literal tab byte in expanded format text with "_" (verified against tmux 3.7c), so a
 // tab survives neither sh's quoting (which never expands "\t" to a real tab) nor tmux's own output.
 // "|" is safe for every field here: ValidName already forbids it in session names, pane ids are
-// tmux-generated ("%N"), @cc_agent is one of the fixed Agents list, and pane_current_command is a
+// tmux-generated ("%N"), @cc_agent is one of the fixed RemoteAgents list, and pane_current_command is a
 // program basename.
 const fieldSep = "|"
 
@@ -161,8 +160,8 @@ const listCommand = `tmux list-sessions -F '#{session_name}` + fieldSep + `#{ses
 // ListCommand returns the remote command --list runs.
 func ListCommand() string { return listCommand }
 
-// Session is one cc-* tmux session reported by --list.
-type Session struct {
+// RemoteSession is one cc-* tmux session reported by --list.
+type RemoteSession struct {
 	Name       string
 	Created    string
 	Attached   bool
@@ -171,14 +170,14 @@ type Session struct {
 }
 
 // ParseSessions parses listCommand's fieldSep-separated output.
-func ParseSessions(output string) []Session {
-	var sessions []Session
+func ParseSessions(output string) []RemoteSession {
+	var sessions []RemoteSession
 	for line := range strings.SplitSeq(strings.TrimRight(output, "\n"), "\n") {
 		if line == "" {
 			continue
 		}
 		cols := strings.Split(line, fieldSep)
-		s := Session{Name: cols[0]}
+		s := RemoteSession{Name: cols[0]}
 		if len(cols) > 1 {
 			s.Created = cols[1]
 		}
@@ -269,7 +268,7 @@ func IsLocalHost(ctx context.Context, host string) bool {
 		return local
 	}
 	selfMu.Unlock()
-	st, err := tailscale.Status(ctx)
+	st, err := Status(ctx)
 	selfMu.Lock()
 	defer selfMu.Unlock()
 	if !selfReady {
@@ -310,7 +309,7 @@ func ResolveHost(ctx context.Context, host string) (string, error) {
 	if host == "localhost" {
 		return host, nil
 	}
-	machines, err := tailscale.Machines(ctx)
+	machines, err := Machines(ctx)
 	if err != nil || len(machines) == 0 {
 		return host, nil
 	}

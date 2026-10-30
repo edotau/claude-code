@@ -1,4 +1,4 @@
-package dbxcfg
+package databricks
 
 import (
 	"fmt"
@@ -92,8 +92,8 @@ func sectionText(r ExportRow) string {
 	return b.String()
 }
 
-// Render is a fresh config holding rows, one section each.
-func Render(rows []ExportRow) string {
+// RenderExport is a fresh config holding rows, one section each.
+func RenderExport(rows []ExportRow) string {
 	parts := make([]string, 0, len(rows))
 	for _, r := range rows {
 		parts = append(parts, sectionText(r))

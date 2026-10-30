@@ -1,4 +1,4 @@
-package dbxcfg
+package databricks
 
 import (
 	"encoding/json"
@@ -27,11 +27,11 @@ func TestCandidateHasNoSecretBearingField(t *testing.T) {
 }
 
 func TestSecretValuesNeverAppearInCandidatesOrPlan(t *testing.T) {
-	cs, err := Candidates(writeCfg(t))
+	cs, err := Candidates(writeFixtureCfg(t))
 	if err != nil {
 		t.Fatal(err)
 	}
-	rows := Plan(cs, nil, Options{})
+	rows := ImportPlan(cs, nil, ImportOptions{})
 	var sb strings.Builder
 	for _, c := range cs {
 		fmt.Fprintf(&sb, "%+v %#v\n", c, c)
@@ -52,7 +52,7 @@ func TestSecretValuesNeverAppearInCandidatesOrPlan(t *testing.T) {
 }
 
 func TestDefaultAndSettingsSectionsAreNeverCandidates(t *testing.T) {
-	cs, err := Candidates(writeCfg(t))
+	cs, err := Candidates(writeFixtureCfg(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -61,7 +61,7 @@ func TestDefaultAndSettingsSectionsAreNeverCandidates(t *testing.T) {
 			t.Errorf("section %q became a candidate", c.Name)
 		}
 	}
-	if _, err := ReadSecrets(writeCfg(t), "__settings__"); err == nil {
+	if _, err := ReadSecrets(writeFixtureCfg(t), "__settings__"); err == nil {
 		t.Error("__settings__ is readable as a secret source")
 	}
 }

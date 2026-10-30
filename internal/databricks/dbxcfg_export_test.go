@@ -1,4 +1,4 @@
-package dbxcfg
+package databricks
 
 import (
 	"strings"
@@ -16,7 +16,7 @@ func sampleRows() []ExportRow {
 }
 
 func TestRenderCarriesNoSecretKeys(t *testing.T) {
-	out := Render(sampleRows())
+	out := RenderExport(sampleRows())
 	for _, bad := range []string{"client_secret", "token =", "dapi"} {
 		if strings.Contains(out, bad) {
 			t.Errorf("render contains %q:\n%s", bad, out)
@@ -69,7 +69,7 @@ func TestMergeKeepsOthersAndReplacesOnlyWithForce(t *testing.T) {
 }
 
 func TestExportThenCandidatesRoundTrip(t *testing.T) {
-	m := candsOf(t, Render(sampleRows()))
+	m := candsOf(t, RenderExport(sampleRows()))
 	for _, r := range sampleRows() {
 		c, ok := m[r.Section]
 		if !ok || c.Auth != r.Auth || c.Host != r.Host || c.ClientID != r.ClientID || c.Skip != "" {

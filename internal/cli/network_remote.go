@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/edotau/claude-code/internal/network/remote"
+	"github.com/edotau/claude-code/internal/network/tailscale"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
@@ -39,7 +39,7 @@ func cmdNetworkRemote(args []string) int {
 	fs := helptext.NewFlagSet("network remote", remotePage)
 	host := fs.String("host", "", "ssh host: alias, MagicDNS/tailnet name, or IP")
 	dir := fs.String("dir", "", "remote working directory (default ~)")
-	agentName := fs.String("agent", "claude", "agent CLI: "+strings.Join(remote.Agents, "|"))
+	agentName := fs.String("agent", "claude", "agent CLI: "+strings.Join(tailscale.RemoteAgents, "|"))
 	name := fs.String("name", "", "tmux session name (default cc-<agent>-<id>)")
 	dryRun := fs.Bool("dry-run", false, "print the ssh argv instead of running it")
 	list := fs.Bool("list", false, "list cc-* tmux sessions on --host")
@@ -76,7 +76,7 @@ func cmdNetworkRemote(args []string) int {
 		return fail("network remote: %v", wrong)
 	}
 	ctx := context.Background()
-	resolved, err := remote.ResolveHost(ctx, *host)
+	resolved, err := tailscale.ResolveHost(ctx, *host)
 	if err != nil {
 		return fail("%v", err)
 	}
@@ -89,8 +89,8 @@ func cmdNetworkRemote(args []string) int {
 		}
 		return dispatchAttach(resolved, rest[0])
 	default:
-		if !remote.ValidAgent(*agentName) {
-			return fail("network remote: --agent %q must be one of %s", *agentName, strings.Join(remote.Agents, "|"))
+		if !tailscale.ValidAgent(*agentName) {
+			return fail("network remote: --agent %q must be one of %s", *agentName, strings.Join(tailscale.RemoteAgents, "|"))
 		}
 		return dispatchStart(ctx, resolved, *dir, *agentName, *name, strings.Join(rest, " "), *dryRun)
 	}
@@ -100,16 +100,16 @@ func dispatchStart(ctx context.Context, host, dir, agentName, name, task string,
 	if task == "" {
 		return fail("network remote: give a task as the final argument")
 	}
-	remoteCmd, session, err := remote.BuildRemoteCommand(remote.Opts{Dir: dir, Agent: agentName, Name: name, Task: task})
+	remoteCmd, session, err := tailscale.BuildRemoteCommand(tailscale.RemoteOpts{Dir: dir, Agent: agentName, Name: name, Task: task})
 	if err != nil {
 		return fail("%v", err)
 	}
-	argv := remote.ExecArgs(ctx, host, remoteCmd, false)
+	argv := tailscale.ExecArgs(ctx, host, remoteCmd, false)
 	if dryRun {
 		for i, a := range argv {
 			fmt.Printf("argv[%d]: %s\n", i, a)
 		}
-		fmt.Println("attach:", remote.AttachCommand(host, session))
+		fmt.Println("attach:", tailscale.AttachCommand(host, session))
 		return 0
 	}
 	cctx, cancel := context.WithTimeout(ctx, sshTimeout)
@@ -123,7 +123,7 @@ func dispatchStart(ctx context.Context, host, dir, agentName, name, task string,
 		return fail("network remote: %v", err)
 	}
 	fmt.Printf("remote: started %s on %s\n", session, host)
-	fmt.Println("attach:", remote.AttachCommand(host, session))
+	fmt.Println("attach:", tailscale.AttachCommand(host, session))
 	return 0
 }
 
@@ -141,12 +141,12 @@ func dispatchList(ctx context.Context, host, format string, withStatus bool, int
 func dispatchListPlain(ctx context.Context, host, format string) int {
 	cctx, cancel := context.WithTimeout(ctx, sshTimeout)
 	defer cancel()
-	argv := remote.ExecArgs(ctx, host, remote.ListCommand(), false)
+	argv := tailscale.ExecArgs(ctx, host, tailscale.ListCommand(), false)
 	out, err := exec.CommandContext(cctx, argv[0], argv[1:]...).Output()
 	if err != nil {
 		return fail("network remote --list: %v", err)
 	}
-	sessions := remote.ParseSessions(string(out))
+	sessions := tailscale.ParseSessions(string(out))
 	if format == helptext.JSON {
 		if err := helptext.WriteJSON(os.Stdout, sessions); err != nil {
 			return fail("network remote --list: %v", err)
@@ -163,10 +163,10 @@ func dispatchListPlain(ctx context.Context, host, format string) int {
 func dispatchListStatus(ctx context.Context, host, format string, interval time.Duration) int {
 	sigCtx, stop := signal.NotifyContext(ctx, os.Interrupt)
 	defer stop()
-	var prev []remote.PaneStatus
+	var prev []tailscale.PaneStatus
 	for {
-		caps, capErr := remote.CapturePanes(sigCtx, host, false, remote.ExecRunner)
-		prev = remote.Observe(prev, caps, capErr, time.Now())
+		caps, capErr := tailscale.CapturePanes(sigCtx, host, false, tailscale.ExecRunner)
+		prev = tailscale.ObservePanes(prev, caps, capErr, time.Now())
 		if capErr != nil && len(prev) == 0 {
 			return fail("network remote --status: %v", capErr)
 		}
@@ -185,7 +185,7 @@ func dispatchListStatus(ctx context.Context, host, format string, interval time.
 }
 
 // printPaneStatus writes one sample of pane statuses in the requested format.
-func printPaneStatus(statuses []remote.PaneStatus, format string) error {
+func printPaneStatus(statuses []tailscale.PaneStatus, format string) error {
 	if format == helptext.JSON {
 		return helptext.WriteJSON(os.Stdout, statuses)
 	}
@@ -196,10 +196,10 @@ func printPaneStatus(statuses []remote.PaneStatus, format string) error {
 }
 
 func dispatchAttach(host, session string) int {
-	if !remote.ValidName(session) {
+	if !tailscale.ValidName(session) {
 		return fail("network remote --attach: session %q must match ^[A-Za-z0-9._-]{1,64}$", session)
 	}
-	argv := remote.AttachArgs(host, session)
+	argv := tailscale.AttachArgs(host, session)
 	bin, err := exec.LookPath(argv[0])
 	if err != nil {
 		return fail("network remote --attach: %v", err)

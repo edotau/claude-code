@@ -12,7 +12,6 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/edotau/claude-code/internal/review/pyjson"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
@@ -384,7 +383,7 @@ func jsonStringLiteral(s string) string {
 	enc := json.NewEncoder(&buf)
 	enc.SetEscapeHTML(false)
 	_ = enc.Encode(s) // a string literal always marshals; nothing here can fail
-	return string(pyjson.EscapeNonASCII(bytes.TrimRight(buf.Bytes(), "\n")))
+	return string(PyEscapeNonASCII(bytes.TrimRight(buf.Bytes(), "\n")))
 }
 
 // pyListRepr mimics Python's str(list[str]): ['py', 'ts', ...] with single quotes.

@@ -3,7 +3,6 @@ package source
 import (
 	"errors"
 	"fmt"
-	"github.com/edotau/claude-code/internal/review/pyjson"
 	"io"
 	"os"
 	"path/filepath"
@@ -544,7 +543,7 @@ func walkExtensions(dir string, extensions []string) []QualityReport {
 // writeJSON matches Python's json.dumps(v, indent=2): ensure_ascii (\uXXXX for non-ASCII, surrogate
 // pairs above U+FFFF) and no HTML-escaping of <, >, & (Go's default does the opposite on both counts).
 func writeJSON(w io.Writer, v any) error {
-	b, err := pyjson.MarshalIndent(v)
+	b, err := PyMarshalIndent(v)
 	if err != nil {
 		return err
 	}

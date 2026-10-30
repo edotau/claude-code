@@ -2,7 +2,7 @@ package plan
 
 import (
 	"fmt"
-	"github.com/edotau/claude-code/internal/review/pyjson"
+	reviewsource "github.com/edotau/claude-code/internal/review/source"
 	"io"
 	"regexp"
 	"strings"
@@ -335,13 +335,13 @@ func RunGoals(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if jsonOut {
 		var b []byte
 		if a.noPlan {
-			b, _ = pyjson.MarshalIndent(noStepsResult{
+			b, _ = reviewsource.PyMarshalIndent(noStepsResult{
 				Status: "ok", Source: a.source, StepsFound: 0, Verdict: a.verdict,
 				Score: 0, MaxScore: 0, StepResults: a.stepResults, Recommendations: a.recommendations,
 				OversizedTasks: a.oversizedTasks,
 			})
 		} else {
-			b, _ = pyjson.MarshalIndent(stepsResult{
+			b, _ = reviewsource.PyMarshalIndent(stepsResult{
 				Status: "ok", Source: a.source, StepsFound: a.stepsFound, Score: a.score, MaxScore: a.maxScore,
 				Percentage: pyFloat(a.percentage), HasFinalVerification: a.hasFinalVerification, Verdict: a.verdict,
 				StepResults: a.stepResults, Recommendations: a.recommendations, OversizedTasks: a.oversizedTasks,

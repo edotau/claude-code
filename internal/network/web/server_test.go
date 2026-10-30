@@ -17,7 +17,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/network/browser"
-	"github.com/edotau/claude-code/internal/network/remote"
+	"github.com/edotau/claude-code/internal/network/tailscale"
 )
 
 // agenttreeTestdata is internal/agent's own testdata fixture dir, reused rather than duplicated.
@@ -53,7 +53,7 @@ func newTestServer(t *testing.T, opts Options, logBuf *bytes.Buffer) *Server {
 
 // newStatusTestServer is newTestServer plus an injected fake Runner and clock, for handleDispatches
 // tests that must never touch a real ssh/tmux and must control cache expiry deterministically.
-func newStatusTestServer(t *testing.T, opts Options, run remote.Runner, now func() time.Time) *Server {
+func newStatusTestServer(t *testing.T, opts Options, run tailscale.RemoteRunner, now func() time.Time) *Server {
 	t.Helper()
 	s := newTestServer(t, opts, nil)
 	s.run = run
@@ -63,7 +63,7 @@ func newStatusTestServer(t *testing.T, opts Options, run remote.Runner, now func
 
 // countingCaptureRunner returns out/err for every call and counts how many times it was invoked, to
 // assert on cache-hit vs. cache-miss behavior without a real ssh/tmux round trip.
-func countingCaptureRunner(out string, err error) (remote.Runner, *int) {
+func countingCaptureRunner(out string, err error) (tailscale.RemoteRunner, *int) {
 	n := 0
 	return func(context.Context, []string) ([]byte, error) {
 		n++
@@ -316,7 +316,7 @@ func TestDispatchMissingFieldsRejected(t *testing.T) {
 	}
 }
 
-// --- hostile task reaches dry-run argv as the same quoted payload remote.BuildRemoteCommand builds,
+// --- hostile task reaches dry-run argv as the same quoted payload tailscale.BuildRemoteCommand builds,
 // and nothing executes (dry-run never calls exec.Command) ---
 
 func TestDispatchHostileTaskDryRunMatchesBuildRemoteCommand(t *testing.T) {
@@ -342,7 +342,7 @@ func TestDispatchHostileTaskDryRunMatchesBuildRemoteCommand(t *testing.T) {
 			}
 			// Rebuild the exact same remote command using the session name the handler generated,
 			// and confirm the handler's dry-run argv is byte-identical to dispatch's own builder.
-			wantCmd, wantName, err := remote.BuildRemoteCommand(remote.Opts{
+			wantCmd, wantName, err := tailscale.BuildRemoteCommand(tailscale.RemoteOpts{
 				Agent: "claude", Task: task, Name: resp.Session,
 			})
 			if err != nil {
@@ -351,7 +351,7 @@ func TestDispatchHostileTaskDryRunMatchesBuildRemoteCommand(t *testing.T) {
 			if wantName != resp.Session {
 				t.Fatalf("name mismatch: got %q want %q", resp.Session, wantName)
 			}
-			wantArgv := remote.ExecArgs(context.Background(), "localhost", wantCmd, true) // localhost runs locally, no ssh
+			wantArgv := tailscale.ExecArgs(context.Background(), "localhost", wantCmd, true) // localhost runs locally, no ssh
 			if len(resp.Argv) != len(wantArgv) {
 				t.Fatalf("argv length = %d, want %d: got=%v want=%v", len(resp.Argv), len(wantArgv), resp.Argv, wantArgv)
 			}
@@ -456,7 +456,7 @@ func TestHandleDispatchesReturnsClassifiedStatusNotRawCaptureText(t *testing.T) 
 	if strings.Contains(body, secretText) {
 		t.Fatalf("/api/dispatches leaked raw pane capture text: %s", body)
 	}
-	var statuses []remote.PaneStatus
+	var statuses []tailscale.PaneStatus
 	if err := json.Unmarshal(w.Body.Bytes(), &statuses); err != nil {
 		t.Fatalf("decode /api/dispatches body: %v; body=%s", err, body)
 	}

@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"github.com/edotau/claude-code/internal/review/pyjson"
+	reviewsource "github.com/edotau/claude-code/internal/review/source"
 	"io"
 	"regexp"
 	"strings"
@@ -250,7 +250,7 @@ func RunAssumptions(args []string, stdin io.Reader, stdout, stderr io.Writer) in
 	}
 
 	if jsonOut {
-		b, _ := pyjson.MarshalIndent(result)
+		b, _ := reviewsource.PyMarshalIndent(result)
 		fmt.Fprintln(stdout, string(b))
 		return 0
 	}

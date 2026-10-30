@@ -24,7 +24,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent/vendors"
 	"github.com/edotau/claude-code/internal/crossgen"
 	"github.com/edotau/claude-code/internal/hooks"
-	"github.com/edotau/claude-code/internal/network/remote"
+	"github.com/edotau/claude-code/internal/network/tailscale"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc/inflight"
 	"github.com/edotau/claude-code/internal/providers"
@@ -191,7 +191,7 @@ func runAsk(args []string, resume bool) int {
 	var chain agent.Chain
 	if *host != "" { // the remote resolves profiles, routing and caps; here only the agent name is checked
 		if _, err = agent.Lookup(*name); err == nil {
-			err = remote.ValidHost(*host)
+			err = tailscale.ValidHost(*host)
 		}
 		r = agent.NewRemoteRunner(*name, *host, agent.RemoteBin(*remoteBin), *fallback)
 		chain = agent.Single(r)
@@ -792,7 +792,7 @@ func listRemoteAgents(host, bin, format string) int {
 	if strings.TrimSpace(bin) == "" || strings.ContainsAny(bin, "\r\n\x00") {
 		return fail("agents: invalid remote binary %q", bin)
 	}
-	argv, err := remote.StreamArgs(host, "exec "+remote.QuotePath(bin)+" agents --format "+remote.QuoteSH(format))
+	argv, err := tailscale.StreamArgs(host, "exec "+tailscale.QuotePath(bin)+" agents --format "+tailscale.QuoteSH(format))
 	if err != nil {
 		return fail("agents: %v", err)
 	}
