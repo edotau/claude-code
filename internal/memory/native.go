@@ -14,7 +14,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/textsim"
+	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/jeduden/mdsmith/pkg/markdown"
 )
 
@@ -776,7 +776,7 @@ func NativeDupes(dir string, threshold float64) ([]NativeDupe, error) {
 		}
 		name := filepath.Base(p)
 		names = append(names, name)
-		sets[name] = textsim.TokenSet(string(b))
+		sets[name] = textutil.TokenSet(string(b))
 		size[name] = len(b)
 	}
 	seen := map[string]bool{}
@@ -790,7 +790,7 @@ func NativeDupes(dir string, threshold float64) ([]NativeDupe, error) {
 			if seen[b] {
 				continue
 			}
-			if s := textsim.Jaccard(sets[a], sets[b]); s >= threshold {
+			if s := textutil.Jaccard(sets[a], sets[b]); s >= threshold {
 				cluster.Losers = append(cluster.Losers, b)
 				seen[b] = true
 				if s > cluster.Score {

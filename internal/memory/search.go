@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/textsim"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // BM25 defaults; a block's first line is its title and weighs 3x.
@@ -61,7 +61,7 @@ func (h SearchHit) Plain() string {
 }
 
 func contentTerms(s string) []string {
-	return ContentQueryTerms(textsim.Tokenize(s))
+	return ContentQueryTerms(textutil.Tokenize(s))
 }
 
 // ContentQueryTerms filters already tokenized query terms without changing their order or multiplicity.

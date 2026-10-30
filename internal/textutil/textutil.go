@@ -1,4 +1,4 @@
-// Package textutil holds small rune-safe string-truncation primitives shared across the harness.
+// Package textutil holds small rune-safe string-truncation and lowercase-token primitives shared across the harness.
 package textutil
 
 // Truncate cuts s to at most n runes, replacing the tail with "…" when it does not fit so the

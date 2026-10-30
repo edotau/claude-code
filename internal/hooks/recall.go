@@ -11,7 +11,7 @@ import (
 	"github.com/edotau/claude-code/internal/hookspec"
 	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/textsim"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // Recall caps: under 4 distinct terms BM25 ranks noise; the total bounds the per-turn context cost.
@@ -48,7 +48,7 @@ func MemoryRecall(r io.Reader, stdout io.Writer) int {
 	if rs := []rune(q); len(rs) > recallQueryCapRunes {
 		q = string(rs[:recallQueryCapRunes])
 	}
-	tokens := textsim.Tokenize(q)
+	tokens := textutil.Tokenize(q)
 	if distinctTokenCount(tokens) < recallMinTerms {
 		return ExitProceed
 	}
