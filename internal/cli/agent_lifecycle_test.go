@@ -101,6 +101,27 @@ func TestAgentsResultJSONWithoutEvents(t *testing.T) {
 	}
 }
 
+// TestAgentsResultWarnsOnUnreadableEvents: an oversized event line warns on stderr and stdout stays a valid envelope.
+func TestAgentsResultWarnsOnUnreadableEvents(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	rec := seedClaudeJob(t, time.Now().Add(-time.Hour), nil)
+	if err := os.WriteFile(rec.EventsPath(), []byte(strings.Repeat("x", 17<<20)+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	code, stdout, stderr := captureOutput(t, func() int { return cmdAgentsJob("result", []string{rec.ID, "--format", "json"}) })
+	var got agent.Envelope
+	if err := json.Unmarshal([]byte(stdout), &got); err != nil || code != 0 {
+		t.Fatalf("result json = %d %q: %v", code, stdout, err)
+	}
+	if got.Answer != "hi there\n" {
+		t.Errorf("answer = %q, want the log rebuilt into the envelope", got.Answer)
+	}
+	if !strings.Contains(stderr, rec.ID) || !strings.Contains(stderr, "token too long") {
+		t.Errorf("stderr = %q, want a warning naming the dispatch and the scan error", stderr)
+	}
+}
+
 // TestAgentsCancelNotRunning: cancel on a finished record exits non-zero.
 func TestAgentsCancelNotRunning(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())

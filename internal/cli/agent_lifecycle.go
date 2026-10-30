@@ -133,7 +133,7 @@ func agentsResult(rec agent.Record, format, cwd string) int {
 	return resultExit(rec)
 }
 
-// recordEnvelope is the result event's envelope, or one rebuilt from rec when the events file is absent.
+// recordEnvelope is the result event's envelope, or one rebuilt from rec when no result event can be read.
 func recordEnvelope(rec agent.Record) agent.Envelope {
 	if f, err := os.Open(rec.EventsPath()); err == nil {
 		defer f.Close()
@@ -145,6 +145,9 @@ func recordEnvelope(rec agent.Record) agent.Envelope {
 			if json.Unmarshal(sc.Bytes(), &ev) == nil && ev.Type == agent.EventResult && ev.Envelope != nil {
 				env = ev.Envelope
 			}
+		}
+		if err := sc.Err(); err != nil {
+			fmt.Fprintf(os.Stderr, "agents result: %s: events unreadable, envelope may be incomplete: %v\n", rec.ID, err)
 		}
 		if env != nil {
 			return *env
