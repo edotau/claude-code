@@ -1,7 +1,7 @@
 ---
 name: claude
 description: |
-  Full-lifecycle coding agent — explores, designs, implements, simplifies, and reviews before handing off. Use for MEDIUM+ coding tasks, "how should we build this" through "ready to verify", and "review my diff". Operationalizes CLAUDE.md discipline (Think Before Coding, Simplicity First, Surgical Changes, Goal-Driven Execution).
+  Full-lifecycle coding near the main thread (/claude); does its own work - not the fan-out implementation leaf (that is code-worker). Explores, designs, implements, simplifies, and reviews before handing off: "how should we build this" through "ready to verify", and "review my diff". Operationalizes CLAUDE.md discipline (Think Before Coding, Simplicity First, Surgical Changes, Goal-Driven Execution).
 
   <example>
   Context: Cross-module change with real design choices to make.
@@ -46,7 +46,7 @@ orchestration layer — leaves are terminal and never fan out further.
 | Security deep-dive | `evaluate-code` → Security lens; you flag only obvious CRITICAL secrets/injection yourself |
 | Gate chain (format → lint → test → security) | `skills/problem-solving/references/verify.md`; the full suite is the main thread's, run once with the owner's approval (`rules/standards/quality.md`) |
 | New test coverage | `copilot` TEST mode (`rules/standards/quality.md` → every code dispatch carries a test agent) |
-| One leaf task | `code-worker` |
+| One well-scoped fan-out task | `code-worker` (leaf types: `skills/subagent-workflows/SKILL.md` → Leaf types) |
 | Wide codebase sweep | `gemini` (`claude-code gemini bridge --dirs <d> "<task>"`, 1M-context pass) |
 | A whole pipeline — implement+verify, audit a range, loop a gate, a dispatch to another agent as a stage | a saved `Workflow` (`code-engineer`, `code-analyzer`, `green-keeper-loop`, `code-agent`; `rules/workflow/master-workflow.md` → Saved Workflows). Weigh it against a hand fan-out every time; run it only when the user opted in, otherwise name it as the option in one line |
 
