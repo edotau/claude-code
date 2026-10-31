@@ -52,13 +52,6 @@ func workableCopilotPin(t *testing.T, user string) {
 }
 
 // setPins seeds vault pins (pins never read the process env).
-func setPins(t *testing.T, kv map[string]string) {
-	t.Helper()
-	if err := providers.SetPins(kv); err != nil {
-		t.Fatal(err)
-	}
-}
-
 func findCheck(checks []Check, name string) *Check {
 	for i := range checks {
 		if checks[i].Name == name {
