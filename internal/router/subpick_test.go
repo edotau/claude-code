@@ -1,4 +1,4 @@
-package agent
+package router
 
 import (
 	"context"
@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/router"
 )
 
 // TestIsWorkRepoMarkers exercises the gitRemoteURLs seam directly: multiple remotes, no remotes, and a
@@ -153,8 +152,8 @@ func opencodeCand(t *testing.T, r PickResult) Candidate {
 }
 
 func TestOpencodeSubPickFreeFirstOnPersonalRepo(t *testing.T) {
-	c := opencodeCand(t, pickRepo(testTable(t), "sonnet", router.State{}, false))
-	if c.Account != "opencode·zen-free" || c.Billing != router.BillFree {
+	c := opencodeCand(t, pickRepo(testTable(t), "sonnet", State{}, false))
+	if c.Account != "opencode·zen-free" || c.Billing != BillFree {
 		t.Errorf("personal sonnet pick = %s (%s), want the free Zen leg", c.Account, c.Billing)
 	}
 }
@@ -162,11 +161,11 @@ func TestOpencodeSubPickFreeFirstOnPersonalRepo(t *testing.T) {
 func TestOpencodeSubPickNeverFreeAtOpusOrOnWorkRepo(t *testing.T) {
 	tb := testTable(t)
 	for name, r := range map[string]PickResult{
-		"opus":      pickRepo(tb, "opus", router.State{}, false),
-		"work-repo": pickRepo(tb, "sonnet", router.State{}, true),
+		"opus":      pickRepo(tb, "opus", State{}, false),
+		"work-repo": pickRepo(tb, "sonnet", State{}, true),
 	} {
 		c := opencodeCand(t, r)
-		if c.Billing == router.BillFree {
+		if c.Billing == BillFree {
 			t.Errorf("%s: picked free leg %s", name, c.Account)
 		}
 		if c.Account != "opencode·go" {
@@ -189,10 +188,10 @@ func opencodeCands(r PickResult) []Candidate {
 // TestOpencodeSubPickAdjacentBackupOnPersonalRepo: the free winner carries its paid backup right after
 // it, both at the front of the pick — score/sort must never separate the pair.
 func TestOpencodeSubPickAdjacentBackupOnPersonalRepo(t *testing.T) {
-	r := pickRepo(testTable(t), "sonnet", router.State{}, false)
+	r := pickRepo(testTable(t), "sonnet", State{}, false)
 	oc := opencodeCands(r)
-	if len(oc) != 2 || oc[0].Account != "opencode·zen-free" || oc[0].Billing != router.BillFree ||
-		oc[1].Account != "opencode·go" || oc[1].Billing == router.BillFree {
+	if len(oc) != 2 || oc[0].Account != "opencode·zen-free" || oc[0].Billing != BillFree ||
+		oc[1].Account != "opencode·go" || oc[1].Billing == BillFree {
 		t.Fatalf("opencode candidates = %+v, want [zen-free, go] adjacent", oc)
 	}
 	for i, c := range r.Candidates {
@@ -210,8 +209,8 @@ func TestOpencodeSubPickAdjacentBackupOnPersonalRepo(t *testing.T) {
 func TestOpencodeSubPickNoBackupDuplicateOffWorkRepoOrOpus(t *testing.T) {
 	tb := testTable(t)
 	for name, r := range map[string]PickResult{
-		"opus":      pickRepo(tb, "opus", router.State{}, false),
-		"work-repo": pickRepo(tb, "sonnet", router.State{}, true),
+		"opus":      pickRepo(tb, "opus", State{}, false),
+		"work-repo": pickRepo(tb, "sonnet", State{}, true),
 	} {
 		oc := opencodeCands(r)
 		if len(oc) != 1 || oc[0].Account != "opencode·go" {
@@ -223,10 +222,10 @@ func TestOpencodeSubPickNoBackupDuplicateOffWorkRepoOrOpus(t *testing.T) {
 // TestOpencodeSubPickZenFreeExhaustedFallsToGoAlone: an exhausted zen-free account drops out of the sub-pick
 // entirely — opencode·go wins alone, with no backup pair (there is nothing left to pair it with).
 func TestOpencodeSubPickZenFreeExhaustedFallsToGoAlone(t *testing.T) {
-	st := router.State{"opencode·zen-free": {UsedPct: 100, Seen: now0, ExhaustedUntil: now0.Add(time.Hour)}}
+	st := State{"opencode·zen-free": {UsedPct: 100, Seen: now0, ExhaustedUntil: now0.Add(time.Hour)}}
 	r := pickRepo(testTable(t), "sonnet", st, false)
 	oc := opencodeCands(r)
-	if len(oc) != 1 || oc[0].Account != "opencode·go" || oc[0].Billing == router.BillFree {
+	if len(oc) != 1 || oc[0].Account != "opencode·go" || oc[0].Billing == BillFree {
 		t.Fatalf("exhausted zen-free: opencode candidates = %+v, want opencode·go alone", oc)
 	}
 	found := false
@@ -253,7 +252,7 @@ func denyOpencode(runner string, _ Cell) error {
 func TestOpencodeSubPickNoLoginSkipsAndChainContinues(t *testing.T) {
 	tb := testTable(t)
 	tb.OpencodeLadder = []string{"opencode-go", "github-copilot", "openai"}
-	r := tb.Pick(context.Background(), "sonnet", "", router.State{}, PickOpts{Fallback: FallbackAgents, Configured: denyOpencode,
+	r := tb.Pick(context.Background(), "sonnet", "", State{}, PickOpts{Fallback: FallbackAgents, Configured: denyOpencode,
 		Now: func() time.Time { return now0 }, WorkRepo: func() bool { return false }})
 	if len(opencodeCands(r)) != 0 {
 		t.Fatalf("opencode must be skipped entirely, got %s", runners(r))
@@ -281,12 +280,12 @@ func TestFreeTierOKGateBlocksSonnetAllowsHaiku(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	sonnet := opencodeCand(t, pickRepo(tb, "sonnet", router.State{}, false))
-	if sonnet.Billing == router.BillFree {
+	sonnet := opencodeCand(t, pickRepo(tb, "sonnet", State{}, false))
+	if sonnet.Billing == BillFree {
 		t.Errorf("sonnet pick = %s (%s), want the free leg blocked (freeTiers = [haiku] only)", sonnet.Account, sonnet.Billing)
 	}
-	haiku := opencodeCand(t, pickRepo(tb, "haiku", router.State{}, false))
-	if haiku.Account != "opencode·zen-free" || haiku.Billing != router.BillFree {
+	haiku := opencodeCand(t, pickRepo(tb, "haiku", State{}, false))
+	if haiku.Account != "opencode·zen-free" || haiku.Billing != BillFree {
 		t.Errorf("haiku pick = %s (%s), want the free Zen leg (freeTiers includes haiku)", haiku.Account, haiku.Billing)
 	}
 }
@@ -296,7 +295,7 @@ func TestFreeTierOKGateBlocksSonnetAllowsHaiku(t *testing.T) {
 func TestOpencodeSubPickOverlayReorderRespected(t *testing.T) {
 	tb := testTable(t)
 	tb.OpencodeLadder = []string{"github-copilot", "opencode-go", "openai"} // overlay: copilot ahead of Go
-	r := tb.Pick(context.Background(), "sonnet", "", router.State{}, PickOpts{Fallback: FallbackAgents, Configured: allConfigured,
+	r := tb.Pick(context.Background(), "sonnet", "", State{}, PickOpts{Fallback: FallbackAgents, Configured: allConfigured,
 		Now: func() time.Time { return now0 }, WorkRepo: func() bool { return false }})
 	oc := opencodeCands(r)
 	if len(oc) != 2 || oc[0].Account != "opencode·zen-free" {

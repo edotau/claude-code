@@ -23,6 +23,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent/tree"
 	"github.com/edotau/claude-code/internal/network/tailscale"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
@@ -42,7 +43,7 @@ func runAsk(args []string, resume bool) int {
 	name := fs.String("agent", "claude", "vendor, agents/<name>.md, vendor:name, or an --agents key")
 	var agents agentsFlag
 	fs.Var(&agents, "agents", "agent definitions: --agent takes their keys")
-	fallback := fs.String("fallback", agent.FallbackAll, "fallback: all (agents, then claude)|agents|none")
+	fallback := fs.String("fallback", router.FallbackAll, "fallback: all (agents, then claude)|agents|none")
 	native := fs.Bool("native", false, "opencode: skip the hub ladder; run on its default login")
 	provider := fs.String("profile", "", "profile or hub start (default: pin, then registry)")
 	model := fs.String("model", "", "alias (opus), version (opus-5-5) or wire id")
@@ -477,8 +478,8 @@ func validateAskFlags(format, fallback string) error {
 	if !slices.Contains([]string{formatText, formatJSON, formatStreamJSON}, format) {
 		return fmt.Errorf("--format %q unknown (text|json|stream-json)", format)
 	}
-	if !slices.Contains(agent.FallbackModes, fallback) {
-		return fmt.Errorf("--fallback %q unknown (%s)", fallback, strings.Join(agent.FallbackModes, "|"))
+	if !slices.Contains(router.FallbackModes, fallback) {
+		return fmt.Errorf("--fallback %q unknown (%s)", fallback, strings.Join(router.FallbackModes, "|"))
 	}
 	return nil
 }
@@ -506,7 +507,7 @@ func resolveAskPrompt(prompt string) (string, error) {
 }
 
 func newClient() *agent.Client {
-	return agent.NewClient(agent.RuleClassifier{}.Tier, routeRefresh,
+	return agent.NewClient(router.RuleClassifier{}.Tier, routeRefresh,
 		func(s string) { fmt.Fprintln(os.Stderr, "ask:", s) })
 }
 

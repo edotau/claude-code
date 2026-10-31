@@ -6,9 +6,9 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/router"
 )
 
 // refreshRetry spaces detached refresh attempts, so an unreachable workspace doesn't spawn one per SessionStart.
@@ -30,14 +30,14 @@ func Claim(now time.Time) bool {
 var listModels = providers.ListModels
 
 // Fetch lists p's endpoints live and caches them.
-func Fetch(ctx context.Context, reg *providers.Registry, p *providers.Provider, now time.Time) (agent.Served, error) {
+func Fetch(ctx context.Context, reg *providers.Registry, p *providers.Provider, now time.Time) (router.Served, error) {
 	infos, err := listModels(ctx, reg, p)
 	if err != nil {
-		return agent.Served{}, err
+		return router.Served{}, err
 	}
-	s := agent.Served{Profile: p.Name, FetchedAt: now.UTC()}
+	s := router.Served{Profile: p.Name, FetchedAt: now.UTC()}
 	for _, m := range infos {
-		s.Models = append(s.Models, agent.ServedModel{ID: m.ID, Task: m.Task, Ready: m.Ready})
+		s.Models = append(s.Models, router.ServedModel{ID: m.ID, Task: m.Task, Ready: m.Ready})
 	}
-	return s, agent.SaveServed(s)
+	return s, router.SaveServed(s)
 }

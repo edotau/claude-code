@@ -9,6 +9,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
+	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/vault"
 )
 
@@ -36,7 +37,7 @@ func TestClientPrepareHubNativeFallback(t *testing.T) {
 	client := newClient()
 	for _, profile := range []string{"acme", "chatgpt"} {
 		p, err := client.Prepare(context.Background(), agent.RunOptions{
-			Agent: "opencode", Provider: profile, Prompt: "p", Fallback: agent.FallbackAgents}, nil)
+			Agent: "opencode", Provider: profile, Prompt: "p", Fallback: router.FallbackAgents}, nil)
 		if err != nil {
 			t.Fatalf("Prepare(%s) = %v", profile, err)
 		}
@@ -61,7 +62,7 @@ func TestClientPrepareHonorsCancellation(t *testing.T) {
 	t.Cleanup(func() { routeRefresh = prev })
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if _, err := newClient().Prepare(ctx, agent.RunOptions{Agent: "opencode", Prompt: "p", Fallback: agent.FallbackAgents}, nil); !errors.Is(err, context.Canceled) {
+	if _, err := newClient().Prepare(ctx, agent.RunOptions{Agent: "opencode", Prompt: "p", Fallback: router.FallbackAgents}, nil); !errors.Is(err, context.Canceled) {
 		t.Errorf("err = %v, want context.Canceled", err)
 	}
 	if refreshes != 0 {
@@ -77,7 +78,7 @@ func TestClientPrepareProfileTakesTierSlot(t *testing.T) {
 	client := newClient()
 	for _, profile := range []string{"chatgpt", "acme"} {
 		p, err := client.Prepare(context.Background(), agent.RunOptions{
-			Agent: "opencode", Provider: profile, Prompt: "pong", Fallback: agent.FallbackAgents}, nil)
+			Agent: "opencode", Provider: profile, Prompt: "pong", Fallback: router.FallbackAgents}, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -85,7 +86,7 @@ func TestClientPrepareProfileTakesTierSlot(t *testing.T) {
 		if len(res.Hops) != 1 {
 			t.Fatalf("%s: hops = %+v, want one unavailable leg", profile, res.Hops)
 		}
-		if want := (agent.RuleClassifier{}).Tier("pong"); res.Hops[0].Model != want {
+		if want := (router.RuleClassifier{}).Tier("pong"); res.Hops[0].Model != want {
 			t.Errorf("%s: leg model = %q, want tier %q", profile, res.Hops[0].Model, want)
 		}
 	}
@@ -99,7 +100,7 @@ func TestClientPrepareProfileIsOneLegUnderFallbackAll(t *testing.T) {
 	client := newClient()
 	for _, name := range []string{"codex", "claude", "opencode", "copilot", "gemini"} {
 		p, err := client.Prepare(context.Background(), agent.RunOptions{
-			Agent: name, Provider: "acme", Prompt: "p", Fallback: agent.FallbackAll}, nil)
+			Agent: name, Provider: "acme", Prompt: "p", Fallback: router.FallbackAll}, nil)
 		if err != nil {
 			t.Fatalf("%s: Prepare = %v", name, err)
 		}
@@ -114,7 +115,7 @@ func TestClientPrepareProfileIsOneLegUnderFallbackAll(t *testing.T) {
 func TestBatchTaskProfileIsOneLeg(t *testing.T) {
 	profileFixture(t, "")
 	line := agent.ParsedLine{N: 1, Task: agent.TaskLine{Prompt: "p", Profile: "acme"}}
-	bt, err := batchTask(line, batchOpts{agent: "codex", fallback: agent.FallbackAll}, agent.RunOptions{}, false, t.TempDir(), map[string]bool{})
+	bt, err := batchTask(line, batchOpts{agent: "codex", fallback: router.FallbackAll}, agent.RunOptions{}, false, t.TempDir(), map[string]bool{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -132,7 +133,7 @@ func TestBatchTaskProfileIsOneLeg(t *testing.T) {
 		t.Fatalf("Exec: %d hops, err %v; want one unavailable leg", len(res.Hops), err)
 	}
 	bad := agent.ParsedLine{N: 2, Task: agent.TaskLine{Prompt: "p", Profile: "no-such-profile"}}
-	bt, err = batchTask(bad, batchOpts{agent: "codex", fallback: agent.FallbackAll}, agent.RunOptions{}, false, t.TempDir(), map[string]bool{})
+	bt, err = batchTask(bad, batchOpts{agent: "codex", fallback: router.FallbackAll}, agent.RunOptions{}, false, t.TempDir(), map[string]bool{})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/router"
 )
 
 // claudeTiers are claude's tier pins, folded into its MODEL cell as tier=id.
@@ -74,12 +75,6 @@ const (
 	AgentOff = "off"
 )
 
-// PinSpec is one agent's routing pins: its profile, its model pin, and whether it is switched off.
-type PinSpec struct {
-	Profile, Model string
-	Off            bool
-}
-
 // AgentProfilePin is the <AGENT>_PROFILE pin key for agent ("" for an unknown agent).
 func AgentProfilePin(agent string) string { s, _ := LookupSchema(agent); return s.CLI.ProfilePin }
 
@@ -129,11 +124,11 @@ func AgentActive(agent string) bool {
 }
 
 // AgentPins reads the vault pins once and returns every agent's spec; claude's profile is the session's, else its pin.
-func AgentPins() map[string]PinSpec {
+func AgentPins() map[string]router.PinSpec {
 	pin, _ := providers.PinLookup()
-	out := make(map[string]PinSpec, len(rosterRows))
+	out := make(map[string]router.PinSpec, len(rosterRows))
 	for _, k := range rosterRows {
-		spec := PinSpec{Profile: pin(k.CLI.ProfilePin), Off: k.CLI.ActivePin != "" && pin(k.CLI.ActivePin) == AgentOff}
+		spec := router.PinSpec{Profile: pin(k.CLI.ProfilePin), Off: k.CLI.ActivePin != "" && pin(k.CLI.ActivePin) == AgentOff}
 		if k.CLI.ModelPin != "" {
 			spec.Model = pin(k.CLI.ModelPin)
 		}

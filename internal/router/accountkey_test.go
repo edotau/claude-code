@@ -1,8 +1,7 @@
-package agent
+package router
 
 import (
 	"encoding/json"
-	"github.com/edotau/claude-code/internal/router"
 	"strings"
 	"testing"
 )
@@ -15,7 +14,7 @@ func TestAccountKeysUseProviderDotProfile(t *testing.T) {
 			t.Errorf("%s account = %q, want %q", agent, got, acct)
 		}
 	}
-	if got := router.ProviderAccount("no-such-profile"); got != "databricks·no-such-profile" {
+	if got := ProviderAccount("no-such-profile"); got != "databricks·no-such-profile" {
 		t.Errorf("unregistered profile = %q, want databricks fallback", got)
 	}
 }
@@ -37,11 +36,11 @@ func TestCandidateAndSkipJSONUseAgentField(t *testing.T) {
 // Negative control: marks under the retired "<agent>:<profile>" keys no longer gate or match.
 func TestOldColonKeysNoLongerMatch(t *testing.T) {
 	tb := testTable(t)
-	old := router.State{"codex:chatgpt": {AuthReason: "auth rejected", AuthAt: now0}}
+	old := State{"codex:chatgpt": {AuthReason: "auth rejected", AuthAt: now0}}
 	if !strings.Contains(runners(pick(tb, "sonnet", "codex", old, FallbackAgents)), "codex") {
 		t.Error("an old-format auth mark still gated codex")
 	}
-	cur := router.State{"openai·chatgpt": {AuthReason: "auth rejected", AuthAt: now0}}
+	cur := State{"openai·chatgpt": {AuthReason: "auth rejected", AuthAt: now0}}
 	if strings.Contains(runners(pick(tb, "sonnet", "codex", cur, FallbackAgents)), "codex") {
 		t.Error("the new-format auth mark did not gate codex")
 	}

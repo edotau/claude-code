@@ -11,6 +11,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/secrets"
 )
 
@@ -303,7 +304,7 @@ func opencodeOverlayModels() (mainModel, smallModel string, ok bool) {
 			return "github-copilot/" + m, "github-copilot/" + s, true
 		}
 	}
-	return OpencodeTableModels()
+	return router.OpencodeTableModels()
 }
 
 type opencodeEngine struct{ baseEngine }
@@ -385,7 +386,7 @@ func (opencodeEngine) launchEnv() []string {
 	return nil
 }
 
-func (opencodeEngine) presence(c Cell) error {
+func (opencodeEngine) presence(c router.Cell) error {
 	if id, _, found := strings.Cut(c.Model, "/"); found {
 		_, err := opencodeCredential(id)
 		return err

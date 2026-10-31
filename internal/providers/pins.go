@@ -318,3 +318,14 @@ func pinCaller() string {
 	}
 	return "via " + cmp.Or(verb, "?") + " (parent " + cmp.Or(proc.Comm(os.Getppid()), "?") + ")"
 }
+
+// SpellPin is pin spelled the way p serves it, or "" when p cannot serve it (a Databricks wire id off Databricks).
+func SpellPin(p *Provider, pin string) string {
+	if p == nil {
+		return pin
+	}
+	if p.Preset != PresetDatabricks && strings.HasPrefix(pin, models.DatabricksPrefix) {
+		return ""
+	}
+	return p.WireModel(models.Strip1M(pin))
+}

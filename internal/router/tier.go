@@ -1,6 +1,6 @@
 // The prompt complexity classifier behind EffortTierSignal: read by the agent-effort hook (fills an unset
 // dispatch model). Advisory and O(len(prompt)) — never a gate.
-package agent
+package router
 
 import (
 	"regexp"

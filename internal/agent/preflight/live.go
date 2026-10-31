@@ -17,6 +17,7 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/router"
 )
 
 // profileTimeout caps one profile's listing refresh.
@@ -33,7 +34,7 @@ func RefreshStale(ctx context.Context, reg *providers.Registry, ps []Pin, now ti
 		errs []error
 	)
 	for _, prov := range Profiles(reg, ps) {
-		if c, ok := agent.LoadServed(prov.Name); ok && !force && c.Fresh(now) {
+		if c, ok := router.LoadServed(prov.Name); ok && !force && c.Fresh(now) {
 			continue
 		}
 		wg.Go(func() {
@@ -167,7 +168,7 @@ func RunInstallStep(ctx context.Context, w io.Writer, reg *providers.Registry, b
 // Stale reports whether a Databricks profile in use has no fresh listing.
 func Stale(reg *providers.Registry, now time.Time) bool {
 	return slices.ContainsFunc(Profiles(reg, Check(reg, now)), func(p *providers.Provider) bool {
-		c, ok := agent.LoadServed(p.Name)
+		c, ok := router.LoadServed(p.Name)
 		return !ok || !c.Fresh(now)
 	})
 }

@@ -397,8 +397,8 @@ func TestRouteChainSkipsExhaustedAndRetriesExpired(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	pinGitHubProfile(t, "work-user", "")
 	ghHosts(t, "work-user")
-	all := PickOpts{Configured: func(string, Cell) error { return nil }}
-	tb, err := Load()
+	all := router.PickOpts{Configured: func(string, router.Cell) error { return nil }}
+	tb, err := router.Load()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -406,7 +406,7 @@ func TestRouteChainSkipsExhaustedAndRetriesExpired(t *testing.T) {
 	if err := router.MarkExhausted(acct, time.Now().Add(time.Hour), time.Now(), "402"); err != nil {
 		t.Fatal(err)
 	}
-	c, _, err := RouteChain(context.Background(), "copilot", "sonnet", FallbackAll, false, false, all)
+	c, _, err := RouteChain(context.Background(), "copilot", "sonnet", router.FallbackAll, false, false, all)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -424,7 +424,7 @@ func TestRouteChainSkipsExhaustedAndRetriesExpired(t *testing.T) {
 	if err := router.Update(func(s router.State) { e := s[acct]; e.ExhaustedUntil = time.Now().Add(-time.Minute); s[acct] = e }); err != nil {
 		t.Fatal(err)
 	}
-	c, _, _ = RouteChain(context.Background(), "copilot", "sonnet", FallbackAll, false, false, all)
+	c, _, _ = RouteChain(context.Background(), "copilot", "sonnet", router.FallbackAll, false, false, all)
 	if c.Legs[0].Agent.Name() != "copilot" || c.Legs[0].Account != "github·work-user" {
 		t.Errorf("expired entry must be retried on the pinned account: %+v", c.Legs[0])
 	}

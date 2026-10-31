@@ -39,11 +39,11 @@ var claudePressure = func() (float64, string, bool) {
 
 // routeHint names the agent pick for model slot ("codex gpt-6.1-sol"); "" when no agent passes the gates.
 var routeHint = func(tier string) (agent, model string) {
-	tb, err := agentpkg.Load()
+	tb, err := router.Load()
 	if err != nil {
 		return "", ""
 	}
-	res := tb.Pick(context.Background(), tier, "", router.LoadState(), agentpkg.PickOpts{Fallback: agentpkg.FallbackAgents, Configured: agentpkg.Configured})
+	res := tb.Pick(context.Background(), tier, "", router.LoadState(), agentpkg.RosterPick(router.PickOpts{Fallback: router.FallbackAgents}))
 	if len(res.Candidates) == 0 {
 		return "", ""
 	}

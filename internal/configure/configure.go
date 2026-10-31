@@ -30,6 +30,7 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/proxy"
+	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/secrets"
 	"github.com/edotau/claude-code/internal/ui/ansi"
 	"github.com/edotau/claude-code/internal/ui/tui"
@@ -102,7 +103,7 @@ func (d *dialog) header(section string) {
 }
 
 // warmServedOnChange warms the served cache when a pin changed or the switch flipped on since the run's snapshot.
-func warmServedOnChange(out io.Writer, skip bool, pins map[string]agent.PinSpec, wasOn bool) {
+func warmServedOnChange(out io.Writer, skip bool, pins map[string]router.PinSpec, wasOn bool) {
 	if skip || !providers.ServedRoutingOn() || (wasOn && maps.Equal(pins, agent.AgentPins())) {
 		return
 	}

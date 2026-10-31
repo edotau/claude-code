@@ -29,24 +29,13 @@ func AgentModelPin(agent string) string {
 	return providers.Pin(spec.CLI.ModelPin)
 }
 
-// SpellPin is pin spelled the way p serves it, or "" when p cannot serve it (a Databricks wire id off Databricks).
-func SpellPin(p *providers.Provider, pin string) string {
-	if p == nil {
-		return pin
-	}
-	if p.Preset != providers.PresetDatabricks && strings.HasPrefix(pin, models.DatabricksPrefix) {
-		return ""
-	}
-	return p.WireModel(models.Strip1M(pin))
-}
-
 // ResolveAgentModel is the one rule for the model an agent runs: flag > the agent's model pin > Target.Model,
 // spelled for Target.Provider. A model alias the provider lacks keeps Target.Model and says so in the note.
 func ResolveAgentModel(a ModelAsk) (providers.Target, string) {
 	t, p := a.Target, a.Target.Provider
 	if a.Flag == "" {
 		if pin := AgentModelPin(a.Agent); pin != "" {
-			if m := SpellPin(p, pin); m != "" {
+			if m := providers.SpellPin(p, pin); m != "" {
 				t.Model = m
 			}
 		}

@@ -30,7 +30,7 @@ func (f *pinFallbackRunner) Run(_ context.Context, req RunOptions, _ Sink) (Resu
 
 func TestPinFirstFallback(t *testing.T) {
 	ctx := context.Background()
-	setup := func(t *testing.T, exhausted bool) (Chain, PickResult, map[string]*pinFallbackRunner) {
+	setup := func(t *testing.T, exhausted bool) (Chain, router.PickResult, map[string]*pinFallbackRunner) {
 		t.Helper()
 		vaulttest.UseKeyring(t)
 		t.Setenv("HOME", t.TempDir())
@@ -50,8 +50,8 @@ func TestPinFirstFallback(t *testing.T) {
 				t.Fatal(err)
 			}
 		}
-		c, pick, err := RouteChainFor(ctx, "codex", "", "sonnet", FallbackAll, false,
-			PickOpts{Configured: func(string, Cell) error { return nil }})
+		c, pick, err := RouteChainFor(ctx, "codex", "", "sonnet", router.FallbackAll, false,
+			router.PickOpts{Configured: func(string, router.Cell) error { return nil }})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -100,7 +100,7 @@ func TestPinFirstFallback(t *testing.T) {
 			t.Errorf("models = %q, %q; want pinned codex and claude at sonnet", c.Legs[0].Model, c.Legs[2].Model)
 		}
 		for _, name := range []string{"copilot", "gemini"} {
-			if !slices.ContainsFunc(pick.Skipped, func(s Skip) bool { return s.Agent == name && s.Gate == GateOff }) {
+			if !slices.ContainsFunc(pick.Skipped, func(s router.Skip) bool { return s.Agent == name && s.Gate == router.GateOff }) {
 				t.Errorf("%s missing off gate: %+v", name, pick.Skipped)
 			}
 			contains(t, strings.Join(c.Skipped, "; "), name+": deactivated ("+strings.ToUpper(name)+"_ACTIVE=off)")

@@ -3,9 +3,9 @@ package cli
 import (
 	"sync"
 
-	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/network/tailscale"
+	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/ui/theme"
 )
 
@@ -34,9 +34,9 @@ func buildSpecTree() map[string]*compNode {
 	formatFlag := func() flagInfo { return valuedFlag("format", formatValues) }
 	// gateway router's flags, which bare `gateway` also takes.
 	gatewayRouteFlags := func() []flagInfo {
-		return []flagInfo{valuedFlag("model", func() []string { return agent.Tiers }),
-			valuedFlag("agent", func() []string { return agent.TableRunners }),
-			flag("task"), valuedFlag("fallback", func() []string { return agent.FallbackModes }), formatFlag()}
+		return []flagInfo{valuedFlag("model", func() []string { return router.Tiers }),
+			valuedFlag("agent", func() []string { return router.TableRunners }),
+			flag("task"), valuedFlag("fallback", func() []string { return router.FallbackModes }), formatFlag()}
 	}
 	vaultSections := func() []string {
 		return []string{"secrets", "pins", "env", "providers", "agents", "settings", "vault", "all"}
@@ -46,7 +46,7 @@ func buildSpecTree() map[string]*compNode {
 		valuedFlag("agent", agentNames), flag("agents"), valuedFlag("profile", providerNames), flag("model"),
 		flag("effort"), flag("workdir"), flag("session"), boolFlag("tools"), boolFlag("read-only"), boolFlag("no-tools"), boolFlag("native"),
 		flag("timeout"), flag("format"), flag("rubric"), flag("retry"), boolFlag("log"),
-		valuedFlag("fallback", func() []string { return agent.FallbackModes }),
+		valuedFlag("fallback", func() []string { return router.FallbackModes }),
 		flag("attach"), flag("keep-env"), boolFlag("autonomous"), boolFlag("enable-memory"),
 		boolFlag("background"), flag("job"), flag("batch"), flag("jobs"), boolFlag("fail-fast"),
 		boolFlag("no-persist"), boolFlag("safe-mode"), flag("debug-file"),

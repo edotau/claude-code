@@ -9,6 +9,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/router"
 )
 
 // engine is the per-CLI behaviour behind cliRunner and configure; every external agent has one.
@@ -54,7 +55,7 @@ type engine interface {
 	// launchEnv is the env every launch of the CLI carries ahead of the agent spec's.
 	launchEnv() []string
 	// presence is the CLI-specific no-network readiness check for a routed cell.
-	presence(c Cell) error
+	presence(c router.Cell) error
 	// ownLogin is the headless form of the CLI running on its own stored login.
 	ownLogin(h Headless) (env, argv []string, err error)
 	// checkLogin probes the CLI's own sign-in for the provider sign-in rows.
@@ -191,7 +192,7 @@ func (baseEngine) followsPin(*providers.Provider) bool { return true }
 
 func (baseEngine) launchEnv() []string { return nil }
 
-func (baseEngine) presence(Cell) error { return nil }
+func (baseEngine) presence(router.Cell) error { return nil }
 
 func (b baseEngine) ownLogin(h Headless) ([]string, []string, error) {
 	if err := checkPrompt(h); err != nil {

@@ -1,4 +1,4 @@
-package agent
+package router
 
 import (
 	"cmp"
@@ -7,12 +7,11 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/router"
 )
 
 // gatePinned gates a non-claude agent pinned to pin: exactly one candidate on that profile, or a Skip.
 func (t *RouteTable) gatePinned(
-	ctx context.Context, reg *providers.Registry, tier, runner, pin string, spec PinSpec, st router.State, o PickOpts, now time.Time,
+	ctx context.Context, reg *providers.Registry, tier, runner, pin string, spec PinSpec, st State, o PickOpts, now time.Time,
 	configured func(runner string, c Cell) error, res *PickResult,
 ) ([]Candidate, bool) {
 	if runner == "opencode" && slices.Contains(providers.RouteOpencodeSubIDs, pin) {
@@ -23,7 +22,7 @@ func (t *RouteTable) gatePinned(
 
 // gateProfile applies the configured and auth checks for an agent on a profile.
 func (t *RouteTable) gateProfile(
-	ctx context.Context, reg *providers.Registry, tier, runner, pin, model, effort string, st router.State, o PickOpts, now time.Time,
+	ctx context.Context, reg *providers.Registry, tier, runner, pin, model, effort string, st State, o PickOpts, now time.Time,
 	configured func(runner string, c Cell) error, res *PickResult,
 ) ([]Candidate, bool) {
 	cell, ok := t.Cell(runner, tier)
@@ -39,12 +38,12 @@ func (t *RouteTable) gateProfile(
 		res.Skipped = append(res.Skipped, Skip{runner, GateRow, "pinned profile " + pin + " is not in the registry"})
 		return nil, false
 	}
-	if !CanServe(runner, p) || !providers.CredentialPresent(p) {
+	if !o.canServe(runner, p) || !providers.CredentialPresent(p) {
 		res.Skipped = append(res.Skipped, Skip{runner, GateAvailable, "pinned profile " + pin + " cannot serve " + runner + " (no route or credential)"})
 		return nil, false
 	}
-	c := Cell{Model: pinnedModel(runner, tier, cell, p, model, now), Effort: cmp.Or(effort, cell.Effort), Account: router.ProviderAccount(pin), Price: cell.Price}
-	if sp := SpellPin(p, model); model != "" && model != BYOKModel && sp != "" && c.Model != sp {
+	c := Cell{Model: pinnedModel(runner, tier, cell, p, model, now), Effort: cmp.Or(effort, cell.Effort), Account: ProviderAccount(pin), Price: cell.Price}
+	if sp := providers.SpellPin(p, model); model != "" && model != BYOKModel && sp != "" && c.Model != sp {
 		res.Skipped = append(res.Skipped, Skip{runner, GateAvailable, "pinned model " + sp + " is not READY on " + pin + "; using " + c.Model})
 	}
 	if err := configured(runner, c); err != nil {
@@ -53,9 +52,9 @@ func (t *RouteTable) gateProfile(
 	}
 	billing := t.Billing[c.Account]
 	if billing == "" {
-		billing = router.BillSubscription
+		billing = BillSubscription
 		if p.APIKeyAuth() {
-			billing = router.BillCredits
+			billing = BillCredits
 		}
 	}
 	cand, ok := t.gateAccount(ctx, runner, c, billing, st, o, now, res)
@@ -89,11 +88,11 @@ func selectPinnedModel(runner, tier string, cell Cell, p *providers.Provider, mo
 		return cell.Model
 	}
 	if modelPin != "" {
-		if m := SpellPin(p, modelPin); m != "" {
+		if m := providers.SpellPin(p, modelPin); m != "" {
 			return m
 		}
 	}
-	if router.ProviderAccount(p.Name) == cell.Account {
+	if ProviderAccount(p.Name) == cell.Account {
 		return cell.Model
 	}
 	m := p.WireModel(cmp.Or(p.Models[tier], cell.Model))

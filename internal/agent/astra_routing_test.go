@@ -7,14 +7,15 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
 const astra = "gpt-6-astra"
 
-func astraOpts() PickOpts {
-	return PickOpts{Configured: func(string, Cell) error { return nil }}
+func astraOpts() router.PickOpts {
+	return router.PickOpts{Configured: func(string, router.Cell) error { return nil }}
 }
 
 // stubLegs swaps every leg's runner for a capturing stub; stubs[i] backs c.Legs[i].
@@ -34,7 +35,7 @@ func TestAstraModelIdentity(t *testing.T) {
 		vaulttest.UseKeyring(t)
 		t.Setenv("HOME", t.TempDir())
 		t.Setenv("CLAUDE_PROFILE", "")
-		c, _, err := RouteChainFor(ctx, "codex", astra, "sonnet", FallbackAgents, false, astraOpts())
+		c, _, err := RouteChainFor(ctx, "codex", astra, "sonnet", router.FallbackAgents, false, astraOpts())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -113,7 +114,7 @@ func TestAstraProfileEligibility(t *testing.T) {
 			{ID: "gpt-6-1-sol", Label: "GPT-6.1 Sol", Responses: true},
 			{ID: astra, Label: "GPT-6 Astra", Responses: true},
 		})
-		c, _, err := RouteChainFor(ctx, "codex", astra, "sonnet", FallbackAgents, false, astraOpts())
+		c, _, err := RouteChainFor(ctx, "codex", astra, "sonnet", router.FallbackAgents, false, astraOpts())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -135,7 +136,7 @@ func TestAstraProfileEligibility(t *testing.T) {
 			{ID: "gpt-6-1-sol", Label: "GPT-6.1 Sol", Responses: true},
 			{ID: astra, Label: "GPT-6 Astra", Responses: false},
 		})
-		c, _, err := RouteChainFor(ctx, "codex", astra, "sonnet", FallbackAgents, false, astraOpts())
+		c, _, err := RouteChainFor(ctx, "codex", astra, "sonnet", router.FallbackAgents, false, astraOpts())
 		if err != nil {
 			t.Fatal(err)
 		}

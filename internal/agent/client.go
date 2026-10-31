@@ -6,6 +6,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/network/tailscale"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/router"
 )
 
 // Client assembles and executes recorded agent dispatches.
@@ -64,9 +65,9 @@ func (c *Client) Prepare(ctx context.Context, o RunOptions, job *Record) (*Prepa
 
 // withDefaults fills the agent, fallback and launcher defaults and resolves o.Agent to its runner.
 func (c *Client) withDefaults(o RunOptions) (RunOptions, error) {
-	o.Agent, o.Fallback, o.Launcher = cmp.Or(o.Agent, "claude"), cmp.Or(o.Fallback, FallbackAll), c.Launcher
+	o.Agent, o.Fallback, o.Launcher = cmp.Or(o.Agent, "claude"), cmp.Or(o.Fallback, router.FallbackAll), c.Launcher
 	if o.SessionID != "" {
-		o.Fallback = FallbackNone
+		o.Fallback = router.FallbackNone
 	}
 	return o, c.resolve(&o)
 }
@@ -135,7 +136,7 @@ func (c *Client) route(ctx context.Context, r Runner, o RunOptions) (Chain, erro
 		return Chain{}, err
 	}
 	chain, _, err := RouteChainFor(ctx, o.Agent, o.Model, c.tier(o.Prompt), o.Fallback, o.Native,
-		PickOpts{Refresh: c.Refresh, WorkRepo: func() bool { return IsWorkRepo(o.WorkDir) }})
+		router.PickOpts{Refresh: c.Refresh, WorkRepo: func() bool { return router.IsWorkRepo(o.WorkDir) }})
 	return chain, err
 }
 

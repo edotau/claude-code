@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
@@ -14,7 +15,7 @@ func TestRequestedAliasSurvivesSharedModel(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv("HOME", t.TempDir())
 	effortAt := func(alias string) string {
-		c, _, err := RouteChainFor(context.Background(), "codex", alias, "sonnet", FallbackNone, false, astraOpts())
+		c, _, err := RouteChainFor(context.Background(), "codex", alias, "sonnet", router.FallbackNone, false, astraOpts())
 		if err != nil || len(c.Legs) == 0 || c.Legs[0].Agent.Name() != "codex" {
 			t.Fatalf("%s chain = %+v, err %v", alias, c, err)
 		}

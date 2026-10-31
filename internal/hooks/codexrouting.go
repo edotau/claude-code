@@ -5,8 +5,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/settings"
 )
 
@@ -64,25 +64,25 @@ func codexSpawnPinned(in *Input) bool {
 	return false
 }
 
-func codexSpawnCell(in *Input, task string) (agent.Cell, string, bool) {
+func codexSpawnCell(in *Input, task string) (router.Cell, string, bool) {
 	reg, err := providers.Load()
 	if err != nil {
-		return agent.Cell{}, "", false
+		return router.Cell{}, "", false
 	}
 	p := reg.Providers[os.Getenv(settings.CodexProfileEnv)]
 	if p == nil || p.Preset != providers.PresetDatabricks || !providers.ServesResponses(p, in.nested("model")) {
-		return agent.Cell{}, "", false
+		return router.Cell{}, "", false
 	}
-	table, err := agent.LoadFrom(reg, "")
+	table, err := router.LoadFrom(reg, "")
 	if err != nil {
-		return agent.Cell{}, "", false
+		return router.Cell{}, "", false
 	}
-	cell := table.Rows["codex"][agent.RuleClassifier{}.Tier(task)]
+	cell := table.Rows["codex"][router.RuleClassifier{}.Tier(task)]
 	cell.Model = p.WireModel(cell.Model)
 	if !providers.ServesResponses(p, cell.Model) || !codexListedModel(cell.Model) {
-		return agent.Cell{}, "", false
+		return router.Cell{}, "", false
 	}
-	_, signal := agent.EffortTierSignal(task)
+	_, signal := router.EffortTierSignal(task)
 	return cell, signal, true
 }
 

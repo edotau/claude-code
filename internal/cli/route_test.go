@@ -73,7 +73,7 @@ func TestRouteVerbJSON(t *testing.T) {
 			skip = &res.Skipped[i]
 		}
 	}
-	if skip == nil || skip.Gate != agent.GateExhausted || !strings.Contains(skip.Reason, "github·work exhausted until") {
+	if skip == nil || skip.Gate != router.GateExhausted || !strings.Contains(skip.Reason, "github·work exhausted until") {
 		t.Errorf("copilot skip = %+v in %+v", skip, res.Skipped)
 	}
 	if c := res.Candidates[len(res.Candidates)-1]; c.Agent != "claude" || c.Model != "claude-sonnet-5-5" || c.Scores == nil {
@@ -165,7 +165,7 @@ func ghHosts(t *testing.T, user string) {
 func TestRouteEndsNamesResolvedClaudeAccount(t *testing.T) {
 	vaulttest.Use(t)
 	oldAcct, oldRefresh := agent.ResolveAccount, routeRefresh
-	agent.ResolveAccount = func(runner string, _ agent.Cell) (string, string) {
+	agent.ResolveAccount = func(runner string, _ router.Cell) (string, string) {
 		if runner == "claude" {
 			return "databricks·prod", ""
 		}
@@ -279,8 +279,8 @@ func TestRouterPreviewMatchesDispatch(t *testing.T) {
 			if err := json.Unmarshal([]byte(out), &got); err != nil {
 				t.Fatalf("not JSON: %v\n%s", err, out)
 			}
-			chain, _, err := agent.RouteChainFor(context.Background(), "codex", tc.model, "sonnet", agent.FallbackAgents, false,
-				agent.PickOpts{Refresh: routeRefresh, WorkRepo: func() bool { return agent.IsWorkRepo("") }})
+			chain, _, err := agent.RouteChainFor(context.Background(), "codex", tc.model, "sonnet", router.FallbackAgents, false,
+				router.PickOpts{Refresh: routeRefresh, WorkRepo: func() bool { return router.IsWorkRepo("") }})
 			if err != nil {
 				t.Fatal(err)
 			}

@@ -9,6 +9,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/router"
 )
 
 // Agents are the third-party CLIs whose pins are checked.
@@ -61,7 +62,7 @@ func Check(reg *providers.Registry, now time.Time) []Pin {
 	return out
 }
 
-func checkAgent(reg *providers.Registry, name string, spec agent.PinSpec, session string, now time.Time) Pin {
+func checkAgent(reg *providers.Registry, name string, spec router.PinSpec, session string, now time.Time) Pin {
 	p := Pin{Agent: name, Profile: spec.Profile, ProfileSource: "pin", Model: spec.Model, Served: "n/a"}
 	if p.Profile == "" && name == "codex" {
 		p.Profile, p.ProfileSource = session, "follows CLAUDE_PROFILE"
@@ -92,7 +93,7 @@ func checkAgent(reg *providers.Registry, name string, spec agent.PinSpec, sessio
 		return p
 	}
 	p.Served = "unknown"
-	cat, ok := agent.LoadServed(p.Profile)
+	cat, ok := router.LoadServed(p.Profile)
 	switch {
 	case !ok:
 		p.Detail = "workspace listing not cached"

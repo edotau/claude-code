@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -375,7 +376,7 @@ func TestProbeEndpointsClientRoutesRejectUnsafeDestinations(t *testing.T) {
 func TestOpencodeOverlayModelComesFromTable(t *testing.T) {
 	isolateOpencodeRouteEnv(t)
 	vaulttest.Use(t)
-	wantMain, wantSmall, ok := OpencodeTableModels()
+	wantMain, wantSmall, ok := router.OpencodeTableModels()
 	if !ok {
 		t.Fatal("routing table has no opencode sonnet/haiku models")
 	}
@@ -467,7 +468,7 @@ func TestOpencodeOverlayModelsFollowTable(t *testing.T) {
 		}
 		return doc
 	}
-	tb, err := Load()
+	tb, err := router.Load()
 	if err != nil {
 		t.Fatal(err)
 	}

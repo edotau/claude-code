@@ -325,7 +325,7 @@ func geminiCells(t *testing.T, pin string) []string {
 			t.Fatal(err)
 		}
 	}
-	r := tb.Pick(context.Background(), "sonnet", "gemini", router.State{}, PickOpts{Configured: allConfigured, Now: func() time.Time { return now0 }})
+	r := tb.Pick(context.Background(), "sonnet", "gemini", router.State{}, RosterPick(router.PickOpts{Configured: allConfigured, Now: func() time.Time { return now0 }}))
 	var models []string
 	for _, c := range r.Candidates {
 		if c.Agent == "gemini" {
