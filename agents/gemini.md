@@ -48,6 +48,12 @@ Does its own CLI work; may request: codex, copilot, opencode, via the brief `Age
 - **Continuing an agy conversation** — `claude-code gemini resume <id> <task>`.
 - **Any delegated read-only research task** — `claude-code gemini ask --tools [--background] "<brief>"`.
 
+## Account and model
+
+- Sign-in: `claude-code configure agents --agent gemini` → sign in (runs `agy`, Google); `--profile` picks an API key.
+- Model ids: `claude-code gemini catalog`; the effort is part of the id (`gemini-4-argon-high`).
+- Pin `GEMINI_MODEL` in `claude-code vault edit`; `gemini off|on` toggles routing; `gemini setup` checks.
+
 ## Verbs
 
 Shared table and bullets: `skills/subagent-workflows/references/agent-verbs.md`. Gemini deltas:
