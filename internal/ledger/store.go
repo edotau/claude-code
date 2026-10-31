@@ -1,5 +1,5 @@
-// Package usageledger is the per-token ledger the router appends to and `usage` reads; stdlib-light for the router.
-package usageledger
+// Package ledger is the per-token ledger the proxy appends to and usage and the status line read; stdlib-light for the proxy.
+package ledger
 
 import (
 	"bufio"
@@ -100,7 +100,7 @@ func TotalsBySession(id string) (in, out, cacheRead int) {
 const schemaVersion = 1
 
 var format = schemas.Register(schemas.Format{
-	Name: "usage-ledger", Owner: "internal/usage/usageledger", Kind: schemas.Log,
+	Name: "usage-ledger", Owner: "internal/ledger", Kind: schemas.Log,
 	Glob:    Path,
 	New:     func() any { return &Entry{} },
 	Version: schemaVersion, Keep: "usage history is the ledger of record", Migrate: schemas.SameShape,

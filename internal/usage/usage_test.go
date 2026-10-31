@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/ledger"
 	"github.com/edotau/claude-code/internal/transcript"
-	"github.com/edotau/claude-code/internal/usage/usageledger"
 )
 
 // writeFile creates path (with parents) holding content at 0o600.
@@ -600,13 +600,13 @@ func TestUsageShowTotalSkipsSubscriptionFetch(t *testing.T) {
 // timestamps fixed relative to the real now (the readLedger seam, not wall-clock fetch, is injected).
 func TestUsageLedgerAggregationWindows(t *testing.T) {
 	now := time.Now()
-	entries := []usageledger.Entry{
+	entries := []ledger.Entry{
 		{Ts: time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location()), Provider: "openai", Model: "gpt-5", Input: 100, Output: 10}, // local midnight: today at any hour (now-1h broke 00:00–01:00)
 		{Ts: now.Add(-20 * 24 * time.Hour), Provider: "openai", Model: "gpt-5", Input: 50, Output: 5},                                               // within 30d, not today
 		{Ts: now.Add(-400 * 24 * time.Hour), Provider: "openai", Model: "gpt-5", Input: 9, Output: 1},                                               // all-time only
 	}
 	origRead, origQuotas := readLedger, fetchQuotas
-	readLedger = func() ([]usageledger.Entry, error) { return entries, nil }
+	readLedger = func() ([]ledger.Entry, error) { return entries, nil }
 	fetchQuotas = func() []quota { return nil }
 	t.Cleanup(func() { readLedger, fetchQuotas = origRead, origQuotas })
 
@@ -639,7 +639,7 @@ func TestUsageLedgerAggregationWindows(t *testing.T) {
 // instead of a header with zero rows.
 func TestUsageLedgerEmptyPrintsStartedMessage(t *testing.T) {
 	origRead, origQuotas := readLedger, fetchQuotas
-	readLedger = func() ([]usageledger.Entry, error) { return nil, nil }
+	readLedger = func() ([]ledger.Entry, error) { return nil, nil }
 	fetchQuotas = func() []quota { return nil }
 	t.Cleanup(func() { readLedger, fetchQuotas = origRead, origQuotas })
 
@@ -655,7 +655,7 @@ func TestUsageLedgerEmptyPrintsStartedMessage(t *testing.T) {
 // aggregateLedger groups per profile: platform in Provider, profile in Profile; legacy lines read Provider as the profile.
 func TestAggregateLedgerByProfile(t *testing.T) {
 	now := time.Now()
-	got := aggregateLedger([]usageledger.Entry{
+	got := aggregateLedger([]ledger.Entry{
 		{Ts: now, Provider: "databricks", Profile: "prod", Model: "m", Input: 10},
 		{Ts: now, Provider: "databricks", Profile: "qa", Model: "m", Input: 5},
 		{Ts: now, Provider: "openai", Model: "m", Input: 1},

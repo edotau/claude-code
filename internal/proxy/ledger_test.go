@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/ledger"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/usage/usageledger"
 )
 
 func TestMeteredExcludesOnlyCLIPassthrough(t *testing.T) {
@@ -44,9 +44,9 @@ func TestRelayedRequestWritesLedgerForNonKeyAuth(t *testing.T) {
 	if resp.StatusCode != 200 {
 		t.Fatalf("status %d: %s", resp.StatusCode, body(t, resp))
 	}
-	var got []usageledger.Entry
+	var got []ledger.Entry
 	for i := 0; i < 100 && len(got) == 0; i++ { // the append lands just after the relay returns
-		if got, _ = usageledger.Read(); len(got) == 0 {
+		if got, _ = ledger.Read(); len(got) == 0 {
 			time.Sleep(20 * time.Millisecond)
 		}
 	}
@@ -57,7 +57,7 @@ func TestRelayedRequestWritesLedgerForNonKeyAuth(t *testing.T) {
 	if e.Profile != "prod" || e.Provider != "databricks" || e.Session != "sess-1" || e.Agent != "code-worker" || e.Input != 7 || e.Output != 3 || e.CacheRead != 2 {
 		t.Errorf("entry = %+v", e)
 	}
-	if in, out, cr := usageledger.TotalsBySession("sess-1"); in != 7 || out != 3 || cr != 2 {
+	if in, out, cr := ledger.TotalsBySession("sess-1"); in != 7 || out != 3 || cr != 2 {
 		t.Errorf("totals = %d %d %d", in, out, cr)
 	}
 }
@@ -106,9 +106,9 @@ func TestLedgerAttributionHeaders(t *testing.T) {
 			if resp.StatusCode != 200 {
 				t.Fatalf("status %d: %s", resp.StatusCode, body(t, resp))
 			}
-			var got []usageledger.Entry
+			var got []ledger.Entry
 			for i := 0; i < 100 && len(got) == 0; i++ {
-				if got, _ = usageledger.Read(); len(got) == 0 {
+				if got, _ = ledger.Read(); len(got) == 0 {
 					time.Sleep(20 * time.Millisecond)
 				}
 			}
@@ -145,9 +145,9 @@ func TestLedgerDirectProviderNamed(t *testing.T) {
 	if resp := post(t, srv.URL+"/p/direct/v1/messages", `{"model":"m-haiku"}`, nil); resp.StatusCode != 200 {
 		t.Fatalf("status %d: %s", resp.StatusCode, body(t, resp))
 	}
-	var got []usageledger.Entry
+	var got []ledger.Entry
 	for i := 0; i < 100 && len(got) == 0; i++ {
-		if got, _ = usageledger.Read(); len(got) == 0 {
+		if got, _ = ledger.Read(); len(got) == 0 {
 			time.Sleep(20 * time.Millisecond)
 		}
 	}
