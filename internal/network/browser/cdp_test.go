@@ -27,10 +27,11 @@ type fakeBrowser struct {
 	pongs   int
 	conn    interface{ Write([]byte) (int, error) }
 	writeMu sync.Mutex
+	wsDone  chan struct{} // closed when serveWS returns, so every client frame is counted
 }
 
 func newFakeBrowser(t *testing.T, h func(f *fakeBrowser, id int, method string, params json.RawMessage)) *fakeBrowser {
-	f := &fakeBrowser{t: t, handle: h}
+	f := &fakeBrowser{t: t, handle: h, wsDone: make(chan struct{})}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/json/new", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPut {
@@ -52,6 +53,7 @@ func newFakeBrowser(t *testing.T, h func(f *fakeBrowser, id int, method string, 
 }
 
 func (f *fakeBrowser) serveWS(w http.ResponseWriter, r *http.Request) {
+	defer close(f.wsDone)
 	sum := sha1.Sum([]byte(r.Header.Get("Sec-WebSocket-Key") + wsGUID))
 	c, brw, err := w.(http.Hijacker).Hijack()
 	if err != nil {
@@ -199,6 +201,11 @@ func TestRoundTrip(t *testing.T) {
 	}
 	if err := c.Close(); err != nil {
 		t.Fatal(err)
+	}
+	select {
+	case <-f.wsDone:
+	case <-ctx5(t).Done():
+		t.Fatal("fake browser never saw the socket close")
 	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
