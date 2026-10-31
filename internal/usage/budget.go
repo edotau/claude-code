@@ -79,7 +79,11 @@ func sessionBudgetQuotas(ctx context.Context) []quota {
 	if err != nil || sel.Provider == nil || sel.Provider.Preset != providers.PresetDatabricks {
 		return nil
 	}
-	return withTokenExpiry(budgetQuotas(ctx, sel.Provider, time.Now()), sel.Provider.Name)
+	rows := withTokenExpiry(budgetQuotas(ctx, sel.Provider, time.Now()), sel.Provider.Name)
+	for i := range rows {
+		rows[i].AuthMethod = sel.Provider.Auth.Method()
+	}
+	return rows
 }
 
 // withTokenExpiry stamps every row with the profile's recorded token expiry (kept out of the cache so it stays fresh).
