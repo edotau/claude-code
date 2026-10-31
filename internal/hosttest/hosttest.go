@@ -8,7 +8,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 )
@@ -102,7 +101,9 @@ func keepGo() {
 		_ = os.Setenv("GOCACHE", filepath.Join(cache, "go-build"))
 	}
 	if os.Getenv("GOROOT") == "" {
-		_ = os.Setenv("GOROOT", runtime.GOROOT())
+		if out, err := exec.Command("go", "env", "GOROOT").Output(); err == nil {
+			_ = os.Setenv("GOROOT", strings.TrimSpace(string(out)))
+		}
 	}
 }
 

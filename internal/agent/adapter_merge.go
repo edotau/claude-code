@@ -36,7 +36,8 @@ func MergeReports(adversarial bool, parts []Part, answers []string) string {
 				continue
 			}
 			seen[t] = true
-			body.WriteString(l + "\n")
+			body.WriteString(l)
+			body.WriteString("\n")
 			n++
 		}
 		if n == 0 {
