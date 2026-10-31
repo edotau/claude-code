@@ -74,7 +74,7 @@ func TestVendorRunnerOversizedPromptRefusalScopedToArgv(t *testing.T) {
 
 	for _, name := range []string{"codex", "gemini"} {
 		t.Run(name+"/not-refused", func(t *testing.T) {
-			_, err := newVendorRunner(name).Run(context.Background(), RunOptions{Prompt: big, Provider: "max"}, Discard)
+			_, err := newCLIRunner(name).Run(context.Background(), RunOptions{Prompt: big, Provider: "max"}, Discard)
 			if err == nil {
 				t.Fatalf("%s: want a non-nil error (no route for a fake provider), got nil", name)
 			}
@@ -85,7 +85,7 @@ func TestVendorRunnerOversizedPromptRefusalScopedToArgv(t *testing.T) {
 	}
 
 	t.Run("opencode/still-refused", func(t *testing.T) {
-		_, err := newVendorRunner("opencode").Run(context.Background(), RunOptions{Prompt: big, Provider: "max"}, Discard)
+		_, err := newCLIRunner("opencode").Run(context.Background(), RunOptions{Prompt: big, Provider: "max"}, Discard)
 		var e *Error
 		if !errors.As(err, &e) || !errors.Is(e, ErrPromptTooLarge) {
 			t.Fatalf("opencode: err = %v, want *Error wrapping ErrPromptTooLarge (prompt rides argv)", err)
@@ -120,7 +120,7 @@ func TestVendorRunnerGeminiModelResolutionPinBeatsDefault(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	res, err := newVendorRunner("gemini").Run(context.Background(), RunOptions{Prompt: "task"}, Discard)
+	res, err := newCLIRunner("gemini").Run(context.Background(), RunOptions{Prompt: "task"}, Discard)
 	if err == nil {
 		t.Fatal("want an error (no real agy binary installed), got nil")
 	}
@@ -131,7 +131,7 @@ func TestVendorRunnerGeminiModelResolutionPinBeatsDefault(t *testing.T) {
 	if err := providers.SetPins(map[string]string{providers.PinGeminiModel: "gemini-2.5-pro"}); err != nil {
 		t.Fatal(err)
 	}
-	res, err = newVendorRunner("gemini").Run(context.Background(), RunOptions{Prompt: "task"}, Discard)
+	res, err = newCLIRunner("gemini").Run(context.Background(), RunOptions{Prompt: "task"}, Discard)
 	if err == nil {
 		t.Fatal("want an error (no real agy binary installed), got nil")
 	}
@@ -147,7 +147,7 @@ func TestVendorRunnerGeminiExplicitModelBeatsPin(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	res, err := newVendorRunner("gemini").Run(context.Background(), RunOptions{Prompt: "task", Model: "gemini-3.8-flash-low"}, Discard)
+	res, err := newCLIRunner("gemini").Run(context.Background(), RunOptions{Prompt: "task", Model: "gemini-3.8-flash-low"}, Discard)
 	if err == nil {
 		t.Fatal("want an error (no real agy binary installed), got nil")
 	}
@@ -160,7 +160,7 @@ func TestVendorRunnerGeminiExplicitModelBeatsPin(t *testing.T) {
 // own Caps additionally carries SessionID and Memory, which only its own runner needs.
 func TestVendorCapsAutonomous(t *testing.T) {
 	for _, name := range []string{"codex", "gemini", "opencode"} {
-		if c := newVendorRunner(name).Caps(); c.Autonomous != Native {
+		if c := newCLIRunner(name).Caps(); c.Autonomous != Native {
 			t.Errorf("vendorRunner{%s}.Caps().Autonomous = false, want true", name)
 		}
 	}

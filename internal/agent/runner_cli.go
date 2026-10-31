@@ -87,8 +87,8 @@ func namesProvider(reg *providers.Registry, spec string) bool {
 // cliRunner execs an agent CLI's headless mode wired by ConfigureHeadless.
 type cliRunner struct{ eng headlessEngine }
 
-// newVendorRunner is the runner for a roster CLI with a headless engine: codex, gemini or opencode.
-func newVendorRunner(name string) cliRunner { return cliRunner{engines[name].(headlessEngine)} }
+// newCLIRunner is the runner for a roster CLI with a headless engine: codex, gemini or opencode.
+func newCLIRunner(name string) cliRunner { return cliRunner{engines[name].(headlessEngine)} }
 
 func (v cliRunner) Name() string { return v.eng.Name() }
 

@@ -144,7 +144,7 @@ type Runner interface {
 
 // Agents lists every agent in roster order.
 func Runners() []Runner {
-	return []Runner{claudeRunner{}, newVendorRunner("codex"), newVendorRunner("gemini"), newVendorRunner("opencode"), copilotRunner{}}
+	return []Runner{claudeRunner{}, newCLIRunner("codex"), newCLIRunner("gemini"), newCLIRunner("opencode"), copilotRunner{}}
 }
 
 // Lookup finds an agent by name.
