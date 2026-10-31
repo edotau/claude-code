@@ -58,9 +58,11 @@ function buildProvider(id, account, rows) {
   let plan = null;
   let note = null;
   let tokenExpiresAtMs = null;
+  let authMethod = null;
   const windows = [];
   for (const row of rows) {
     if (tokenExpiresAtMs == null) tokenExpiresAtMs = toMs(row.token_expires_at);
+    authMethod = authMethod || row.auth_method || null;
     if (plan == null && row.plan) plan = row.plan;
     if (!row.window) {
       if (row.note) note = row.note;
@@ -92,7 +94,7 @@ function buildProvider(id, account, rows) {
     if (w.resetsAtMs != null && (resetsAtMs == null || w.resetsAtMs < resetsAtMs)) resetsAtMs = w.resetsAtMs;
   }
   const resetLabel = resetsAtMs != null ? formatResetCountdown(resetsAtMs - Date.now()) : null;
-  return { id, account: account || null, name: meta.name, icon: meta.icon, plan, resetsAtMs, resetLabel, note, tokenExpiresAtMs, windows };
+  return { id, account: account || null, name: meta.name, icon: meta.icon, plan, resetsAtMs, resetLabel, note, tokenExpiresAtMs, authMethod, windows };
 }
 
 /** One `agents[]` model entry → {provider, model, turns, tokens, costUsd}. */

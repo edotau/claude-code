@@ -42,6 +42,7 @@ type quota struct {
 	Unit     string  `json:"unit,omitempty"` // "USD" renders Used/Limit as dollars; empty means credits
 	// TokenExpiresAt is the Databricks auth token's expiry (RFC3339 UTC), absent when none is recorded.
 	TokenExpiresAt string `json:"token_expires_at,omitempty"`
+	AuthMethod     string `json:"auth_method,omitempty"` // the session profile's auth type: oauth, m2m or pat
 }
 
 // googleNote: AI Studio keys have no quota API, and Antigravity's cloudcode-pa quota calls 403 for this client.

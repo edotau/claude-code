@@ -126,28 +126,48 @@ function renderCreditsNotes(windows, show) {
   return lines.map((l) => `<div class="credits-note muted">${esc(l)}</div>`).join('');
 }
 
-/** "$100.60 used this month": a pay-per-use window's total spend, no percent, bar or limit. */
-function spendLabel(w) {
-  const amount = w.unit === 'USD' ? `$${(w.usedCredits || 0).toFixed(2)}` : `${w.usedCredits || 0} ${w.unit || ''}`.trim();
-  return `${amount} used this ${w.window}`;
+/** "$100.60 of $100": spend in cents, a whole-dollar limit without them; other units print the bare number. */
+function budgetAmounts(w) {
+  const used = w.usedCredits || 0;
+  const limit = w.limitCredits;
+  if (w.unit !== 'USD') return `${used} of ${limit == null ? '?' : limit} ${w.unit || ''}`.trim();
+  const lim = limit == null ? '?' : `$${Number.isInteger(limit) ? limit : limit.toFixed(2)}`;
+  return `$${used.toFixed(2)} of ${lim}`;
 }
 
-/** Neutral rows for API-rate billing, plus (Remaining only) the auth token's time left; no bar, no red. */
-function renderSpendRows(p, spend, show) {
-  const rows = spend.map((w) => `<div class="spend-row">${esc(spendLabel(w))}</div>`);
-  if (show === 'left' && p.tokenExpiresAtMs != null) {
-    const ms = p.tokenExpiresAtMs - Date.now();
-    const left = ms > 0 ? `${formatResetDuration(ms)} left` : 'expired';
-    rows.push(`<div class="spend-row token-row"><span class="muted">auth token</span>  ${esc(left)}</div>`);
+/** One AI Gateway budget row; at/over the limit a warning line (not red) says serving is not limited. */
+function budgetRow(w) {
+  const line = `<div class="spend-row"><span class="muted">AI Gateway budget</span>  ${esc(budgetAmounts(w))}</div>`;
+  const reached = w.state === 'exceeded' || (w.limitCredits != null && (w.usedCredits || 0) >= w.limitCredits);
+  if (!reached) return line;
+  return `${line}<div class="spend-row" style="color:var(--vscode-editorWarning-foreground)">limit reached \u00B7 serving not limited</div>`;
+}
+
+/** "2790.8M tokens · 30d": the account's databricks API-ledger total; '' when it has no rows. */
+function databricksTotalRow(p, api) {
+  const rows = (api || []).filter((r) => r.provider === 'databricks' && r.profile === p.account);
+  if (!rows.length) return '';
+  const total = rows.reduce((sum, r) => sum + r.last30d, 0);
+  return `<div class="spend-row">${esc(formatCount(total))} tokens \u00B7 30d</div>`;
+}
+
+/** Databricks rows: ledger total, budget alerts, and (Remaining only) the auth method and token time left; no bar, no red. */
+function renderSpendRows(p, spend, show, api) {
+  const rows = [databricksTotalRow(p, api), ...spend.map(budgetRow)];
+  if (show === 'left' && (p.authMethod || p.tokenExpiresAtMs != null)) {
+    const ms = p.tokenExpiresAtMs == null ? null : p.tokenExpiresAtMs - Date.now();
+    const left = ms == null ? '' : `token ${ms > 0 ? `${formatResetDuration(ms)} left` : 'expired'}`;
+    const auth = [p.authMethod, left].filter(Boolean).join(' \u00B7 ');
+    rows.push(`<div class="spend-row token-row"><span class="muted">auth</span>  ${esc(auth)}</div>`);
   }
   return rows.join('');
 }
 
-function renderProvider(p, show, detailed) {
+function renderProvider(p, show, detailed, api) {
   const resets = p.resetsAtMs != null ? formatResetCountdown(p.resetsAtMs - Date.now()) : '';
   const spend = p.windows.filter((w) => w.spend);
   if (spend.length) p = { ...p, windows: p.windows.filter((w) => !w.spend) };
-  const spendBody = spend.length ? renderSpendRows(p, spend, show) : '';
+  const spendBody = spend.length ? renderSpendRows(p, spend, show, api) : '';
   const body = p.windows.length
     ? detailed
       ? hasMultipleGroups(p.windows)
@@ -438,7 +458,7 @@ function renderUsageHtml(model, opts) {
   const overviewBody = skeleton ? renderSkeletonStats() : detailed ? renderStatsSection(model.stats) : '';
   // The CLI prints PROVIDER QUOTAS and API KEYS as two always-present sections — never either/or on billing mode.
   const pending = skeleton || (quotasPending && !model.providers.length);
-  const quotasBody = pending ? renderSkeletonProviders(3) : model.providers.map((p) => renderProvider(p, show, detailed)).join('');
+  const quotasBody = pending ? renderSkeletonProviders(3) : model.providers.map((p) => renderProvider(p, show, detailed, model.api)).join('');
   const apiKeysBody = skeleton ? renderSkeletonCards(1) : renderApiCards(model);
   const modelsBody = skeleton ? '' : renderProviderModels(model);
   const agentsBody = skeleton ? `<div class="agents-section">${renderSkeletonCards(3)}</div>` : renderAgentsBody(model, detailed);

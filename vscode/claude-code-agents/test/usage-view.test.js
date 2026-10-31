@@ -315,27 +315,42 @@ test('renderUsageHtml: API KEYS section always renders, in both subscription and
   assert.ok(!apiHtml.includes('No token usage yet'), 'api-mode fixture has api[] rows, so the empty state must not show');
 });
 
-function databricksCard(show, tokenExpiresAt) {
-  const row = { provider: 'databricks', account: 'dev', plan: 'per-user', window: 'month', used_percent: 100.6, left_percent: -0.6, used_credits: 100.6, limit_credits: 100, state: 'exceeded', unit: 'USD' };
+function databricksCard(show, tokenExpiresAt, opts = {}) {
+  const row = { provider: 'databricks', account: 'dev', plan: 'per-user', window: 'month', used_percent: 100.6, left_percent: -0.6, used_credits: opts.used ?? 100.6, limit_credits: 100, state: opts.state || 'exceeded', unit: 'USD' };
   if (tokenExpiresAt) row.token_expires_at = tokenExpiresAt;
-  const second = { ...row, plan: 'workspace', used_credits: 12 };
-  const html = renderUsageHtml(buildUsageModel({ providers: [row, second] }, {}, Date.now()), { detailed: true, show, nonce: 'n', cspSource: 'c' });
+  if (opts.auth) row.auth_method = opts.auth;
+  const api = opts.noApi ? [] : [
+    { provider: 'databricks', profile: 'dev', model: 'a', last_30d: 2000000000 },
+    { provider: 'databricks', profile: 'dev', model: 'b', last_30d: 790800000 },
+    { provider: 'databricks', profile: 'test', model: 'c', last_30d: 5 },
+  ];
+  const html = renderUsageHtml(buildUsageModel({ providers: [row], api }, {}, Date.now()), { detailed: true, show, nonce: 'n', cspSource: 'c' });
   return providerCardSlices(html).find((c) => c.includes('provider-name'));
 }
 
-test('renderUsageHtml: Databricks shows neutral spend rows, no percent, bar, red or credits note', () => {
+test('renderUsageHtml: Databricks over limit shows total, budget and a warning (not red), no percent or bar', () => {
   for (const show of ['used', 'left']) {
     const card = databricksCard(show);
-    assert.ok(card.includes('$100.60 used this month') && card.includes('$12.00 used this month'), show);
-    for (const bad of ['%', 'window-fill', 'editorError', 'credits-note', 'auth token']) assert.ok(!card.includes(bad), `${show}: ${bad}`);
+    assert.ok(card.includes('2790.8M tokens \u00B7 30d'), show);
+    assert.ok(card.includes('AI Gateway budget</span>  $100.60 of $100<'), show);
+    assert.ok(card.includes('limit reached \u00B7 serving not limited') && card.includes('editorWarning-foreground'), show);
+    for (const bad of ['%', 'window-fill', 'editorError', '#ef2929', 'credits-note', 'used this month', 'auth</span>']) assert.ok(!card.includes(bad), `${show}: ${bad}`);
   }
 });
 
-test('renderUsageHtml: auth token row only under Remaining; past expiry reads expired', () => {
+test('renderUsageHtml: Databricks under limit has no warning line; no api rows omits the total', () => {
+  const under = databricksCard('used', null, { used: 40, state: 'ok' });
+  assert.ok(under.includes('$40.00 of $100<') && !under.includes('limit reached'));
+  assert.ok(!databricksCard('used', null, { noApi: true }).includes('tokens'));
+});
+
+test('renderUsageHtml: auth row only under Remaining; past expiry reads expired; no expiry shows just the method', () => {
   const soon = new Date(Date.now() + 42 * 60000 + 5000).toISOString();
-  assert.ok(databricksCard('left', soon).includes('auth token</span>  42m left'));
-  assert.ok(!databricksCard('used', soon).includes('auth token'));
+  assert.ok(databricksCard('left', soon).includes('auth</span>  token 42m left'));
+  assert.ok(databricksCard('left', soon, { auth: 'oauth' }).includes('auth</span>  oauth \u00B7 token 42m left'));
+  assert.ok(databricksCard('left', null, { auth: 'pat' }).includes('auth</span>  pat<'));
+  assert.ok(!databricksCard('used', soon, { auth: 'oauth' }).includes('auth</span>'));
   const past = new Date(Date.now() - 60000).toISOString();
   const card = databricksCard('left', past);
-  assert.ok(card.includes('auth token</span>  expired') && !card.includes('editorError'));
+  assert.ok(card.includes('auth</span>  token expired') && !card.includes('editorError'));
 });
