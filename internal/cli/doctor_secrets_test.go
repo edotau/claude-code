@@ -139,7 +139,7 @@ func TestDoctorPlainIncludesVaultRows(t *testing.T) {
 	useVaultTest(t)
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("PATH", t.TempDir()) // no real tool --version probes
-	browser.SetCommandTimeout(t, 50*time.Millisecond)
+	t.Cleanup(browser.SetCommandTimeout(50 * time.Millisecond))
 	if err := secrets.Store("PLAIN_DOCTOR_FAKE_KEY", "obviously-fake-doctor-value"); err != nil {
 		t.Fatal(err)
 	}
