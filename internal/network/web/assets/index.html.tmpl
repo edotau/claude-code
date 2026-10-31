@@ -59,7 +59,6 @@
   .plan-x summary { cursor: pointer; font-size: 0.8rem; color: #cfc6cd; }
   .task code { background: #441d3d; padding: 0 0.3rem; border-radius: 4px; cursor: pointer; }
   .plan-more pre { white-space: pre-wrap; font-family: ui-monospace, monospace; font-size: 0.78rem; max-height: 50vh; overflow: auto; margin: 0.4rem 0 0; }
-  .plan-h { font-weight: 600; color: #cfc6cd; margin: 0.5rem 0 0.15rem; }
   /* The --vscode-* variables the shared usage-view.js reads; copied into its iframe. Ubuntu terminal palette, dark only. */
   :root {
     --vscode-foreground: #e0dce0; --vscode-sideBar-background: #512645; --vscode-descriptionForeground: #b5acb3;
@@ -435,7 +434,7 @@ function el(tag, cls, text) {
 
 const planX = el('div', 'plan-x'); // the open plan's expansion, parked off-DOM across list rebuilds
 const planPark = document.createDocumentFragment();
-const planMoreOpen = new Set(); // start lines of the open plan's expanded plan-more runs
+let planFullOpen = false; // the open plan's Show full plan state, kept across re-renders
 
 function renderPlans(list) {
   plansList = list || [];
@@ -498,9 +497,8 @@ function postTick(path, t, done, cb) {
   });
 }
 
-function taskRow(path, t, indent) {
+function taskRow(path, t) {
   const row = el('label', 'task');
-  row.style.marginLeft = (indent * 0.5) + 'rem';
   const cb = document.createElement('input');
   cb.type = 'checkbox';
   cb.checked = t.done;
@@ -515,52 +513,33 @@ function taskRow(path, t, indent) {
   return row;
 }
 
-// planMore builds the closed <details> for a run of non-task lines starting at line `start`, or null when it is blank.
-function planMore(run, start) {
-  const lines = run.join('\n').replace(/<!--[\s\S]*?-->/g, '').split('\n');
-  while (lines.length && !lines[0].trim()) lines.shift();
-  while (lines.length && !lines[lines.length - 1].trim()) lines.pop();
-  if (!lines.length) return null;
+// planFull is the one closed container: the markdown in its original order, minus the task lines shown above it.
+function planFull(d) {
+  const taskLines = new Set(d.tasks.map(function (t) { return t.line; }));
+  const rest = (d.markdown || '').split('\n').filter(function (ln, i) { return !taskLines.has(i + 1); }).join('\n')
+    .replace(/<!--[\s\S]*?-->/g, '').replace(/\n{3,}/g, '\n\n').trim();
+  if (!rest) return null;
   const det = el('details', 'plan-more');
-  det.appendChild(el('summary', null, lines.length + (lines.length === 1 ? ' line' : ' lines')));
-  det.appendChild(el('pre', null, lines.join('\n')));
-  det.open = planMoreOpen.has(start);
-  det.addEventListener('toggle', function () { if (det.open) planMoreOpen.add(start); else planMoreOpen.delete(start); });
+  det.appendChild(el('summary', null, 'Show full plan'));
+  det.appendChild(el('pre', null, rest));
+  det.open = planFullOpen;
+  det.addEventListener('toggle', function () { planFullOpen = det.open; });
   return det;
 }
 
-// renderPlanDetail walks the markdown in order: headings, task rows in place, other runs folded into plan-more.
 function renderPlanDetail(d) {
   planX.textContent = '';
-  const tasks = new Map(d.tasks.map(function (t) { return [t.line, t]; }));
-  let fence = false, run = [], start = 0;
-  function flush() {
-    if (run.length) { const det = planMore(run, start); if (det) planX.appendChild(det); }
-    run = [];
-  }
-  (d.markdown || '').split('\n').forEach(function (ln, i) {
-    const t = tasks.get(i + 1);
-    const h = !fence && !t && /^(#{1,6})\s+(.*)$/.exec(ln);
-    if (t || h) flush();
-    if (t) { planX.appendChild(taskRow(d.path, t, /^ */.exec(ln)[0].length)); return; }
-    if (h) {
-      const hd = el('div', 'plan-h', h[2].replace(/<!--[\s\S]*?-->/g, '').trim());
-      hd.style.fontSize = (1.05 - 0.05 * h[1].length) + 'rem';
-      planX.appendChild(hd);
-      return;
-    }
-    if (/^\s*```/.test(ln)) fence = !fence;
-    if (!run.length) start = i + 1;
-    run.push(ln);
-  });
-  flush();
+  d.tasks.forEach(function (t) { planX.appendChild(taskRow(d.path, t)); });
+  const full = planFull(d);
+  if (full) planX.appendChild(full);
 }
 
 function showPlan(path) {
-  if (openPlan !== path) { planX.textContent = ''; planMoreOpen.clear(); }
-  openPlan = path;
   const card = planCardFor(path);
-  if (card) card.appendChild(planX);
+  const top = card && card.getBoundingClientRect().top; // a plan open above collapses: hold this row where it was
+  if (openPlan !== path) { planX.textContent = ''; planFullOpen = false; }
+  openPlan = path;
+  if (card) { card.appendChild(planX); window.scrollBy(0, card.getBoundingClientRect().top - top); }
   return fetch('/api/plan?path=' + encodeURIComponent(path))
     .then(function (r) { if (!r.ok) return r.text().then(function (t) { throw new Error(t); }); return r.json(); })
     .then(function (d) { if (openPlan === path) renderPlanDetail(d); })
