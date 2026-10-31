@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/edotau/claude-code/internal/memory"
+	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/settings"
 )
 
@@ -154,12 +154,12 @@ func TestGoldenProbesNowNonEmpty(t *testing.T) {
 
 	// memory search --repo ⇥ needs a seeded repo store — memoryRepoNames() reads the catalog, and an
 	// empty fixture dir legitimately has none yet.
-	storeDir := memory.StoreDir()
+	storeDir := memstore.StoreDir()
 	repoDir := filepath.Join(storeDir, "fixturerepo")
 	if err := os.MkdirAll(repoDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := memory.WriteOrigin(repoDir, memory.Origin{Version: memory.OriginVersion, Key: "fixturerepo", Origin: "/fixture/origin"}); err != nil {
+	if err := memstore.WriteOrigin(repoDir, memstore.Origin{Version: memstore.OriginVersion, Key: "fixturerepo", Origin: "/fixture/origin"}); err != nil {
 		t.Fatal(err)
 	}
 	if got := completionCandidates([]string{"memory", "search", "--repo", ""}); !slices.Contains(got, "fixturerepo") {

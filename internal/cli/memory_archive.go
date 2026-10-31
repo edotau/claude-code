@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/memory"
+	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
@@ -74,7 +75,7 @@ func cmdMemoryArchive(args []string) int {
 	if code, done := helptext.Parse(fs, args); done {
 		return code
 	}
-	dir := memory.NativeDir(memoryRoot(*repo))
+	dir := memstore.NativeDir(memoryRoot(*repo))
 	names := fs.Args()
 
 	switch {

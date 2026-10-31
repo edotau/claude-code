@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/memory"
+	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
@@ -85,7 +86,7 @@ func recallLoad(hits []memory.SearchHit, n int) {
 
 func recallExplain(repo, query string) int {
 	root := memoryRoot(repo)
-	if e, ok := memory.RepoByName(repo); repo != "" && ok && e.Origin.Origin != "" {
+	if e, ok := memstore.RepoByName(repo); repo != "" && ok && e.Origin.Origin != "" {
 		root = e.Origin.Origin
 	}
 	_, trace := memory.RecallPicks(root, os.Getenv(memory.SessionIDEnv), query, true, true)

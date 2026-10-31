@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/memory"
+	"github.com/edotau/claude-code/internal/memstore"
 )
 
 func aliasGit(t *testing.T, dir string, args ...string) {
@@ -51,11 +52,11 @@ func aliasFixture(t *testing.T) (a, b, ka, kb string) {
 		aliasGit(t, r, "commit", "-q", "--allow-empty", "-m", "init")
 	}
 	a, b = filepath.Join(parent, "alpha"), filepath.Join(parent, "beta")
-	da, err := memory.EnsureRepoDir(a)
+	da, err := memstore.EnsureRepoDir(a)
 	if err != nil {
 		t.Fatal(err)
 	}
-	db, err := memory.EnsureRepoDir(b)
+	db, err := memstore.EnsureRepoDir(b)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -84,7 +85,7 @@ func TestMemoryAliasUsageErrors(t *testing.T) {
 
 func TestMemoryAliasDryRunThenApply(t *testing.T) {
 	_, b, ka, kb := aliasFixture(t)
-	db, _ := memory.RepoDir(b)
+	db, _ := memstore.RepoDir(b)
 
 	code, out, _ := captureOutput(t, func() int { return cmdMemoryAlias([]string{"--repo", b, "--into", ka, "--dry-run"}) })
 	if code != 0 || !strings.Contains(out, "dry run") || !strings.Contains(out, kb) {
@@ -101,7 +102,7 @@ func TestMemoryAliasDryRunThenApply(t *testing.T) {
 	if _, err := os.Stat(db); !os.IsNotExist(err) {
 		t.Errorf("source store survived apply: %v", err)
 	}
-	if got, _ := memory.RepoDir(b); filepath.Base(got) != ka {
+	if got, _ := memstore.RepoDir(b); filepath.Base(got) != ka {
 		t.Errorf("RepoDir(beta) = %s, want key %s", got, ka)
 	}
 	if code, _, _ = captureOutput(t, func() int { return cmdMemoryAlias([]string{"--repo", b, "--into", ka}) }); code == 0 {

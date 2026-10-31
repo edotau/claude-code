@@ -15,6 +15,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/hooks"
 	"github.com/edotau/claude-code/internal/memory"
+	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/ui/helptext"
@@ -119,7 +120,7 @@ func cmdMemoryInit(args []string) int {
 	if err != nil {
 		return fail("memory init: %v", err)
 	}
-	fmt.Printf("bank:    %s\nhome:    %s\nsession-start injects it; `claude-code memory update` (or the background update) writes it.\n", dir, memory.HomeBankDir())
+	fmt.Printf("bank:    %s\nhome:    %s\nsession-start injects it; `claude-code memory update` (or the background update) writes it.\n", dir, memstore.HomeBankDir())
 	if memory.IsProjectContextTemplate(root) {
 		ref, err := memory.Reference("init")
 		if err != nil {
@@ -147,7 +148,7 @@ func cmdMemoryRemember(args []string) int {
 	if err != nil {
 		return fail("memory remember: %v", err)
 	}
-	fmt.Printf("remembered [%s] -> %s\n", id, memory.Dir(root))
+	fmt.Printf("remembered [%s] -> %s\n", id, memstore.Dir(root))
 	return 0
 }
 
@@ -158,7 +159,7 @@ func searchHits(repo string, all bool, q string, k int) ([]memory.SearchHit, str
 	case all:
 		return memory.SearchAll(q, k), root
 	case repo != "": // a store name from the catalog, else a checkout path
-		if e, ok := memory.RepoByName(repo); ok && e.Origin.Origin != "" {
+		if e, ok := memstore.RepoByName(repo); ok && e.Origin.Origin != "" {
 			root = e.Origin.Origin
 		}
 		return memory.SearchBanks(root, q, k), root
@@ -253,7 +254,7 @@ func cmdMemoryIndex(args []string) int {
 	if err != nil {
 		return fail("memory index: %v", err)
 	}
-	fmt.Printf("indexed %s", memory.Dir(root))
+	fmt.Printf("indexed %s", memstore.Dir(root))
 	if s.Rotated > 0 {
 		fmt.Printf(" (rotated %d sessionHistory entries to archive/)", s.Rotated)
 	}
@@ -308,7 +309,7 @@ func cmdMemoryPath(args []string) int {
 	if code, done := helptext.Parse(fs, args); done {
 		return code
 	}
-	fmt.Println(memory.Dir(memoryRoot(*repo)))
+	fmt.Println(memstore.Dir(memoryRoot(*repo)))
 	return 0
 }
 
@@ -343,7 +344,7 @@ func cmdMemoryUpdate(args []string) int {
 		return 0
 	}
 	if *dryRun {
-		fmt.Printf("memory update (dry run): session %s, transcript %s, bank %s\n", *session, *transcript, memory.Dir(root))
+		fmt.Printf("memory update (dry run): session %s, transcript %s, bank %s\n", *session, *transcript, memstore.Dir(root))
 		return 0
 	}
 	claude, err := agent.ClaudeBinary() // "" is fine here: Run (memoryAgent) handles the update, Claude is only its fallback
@@ -391,7 +392,7 @@ func cmdMemoryDigest(args []string) int {
 		return code
 	}
 	claude, _ := agent.ClaudeBinary()
-	path, err := memory.Digest(memory.Dir(memoryRoot(*repo)), claude)
+	path, err := memory.Digest(memstore.Dir(memoryRoot(*repo)), claude)
 	if err != nil {
 		return fail("memory digest: %v", err)
 	}
@@ -554,12 +555,12 @@ func memoryRoot(repo string) string {
 		abs, _ := filepath.Abs(repo)
 		return abs
 	}
-	if d := os.Getenv("CLAUDE_PROJECT_DIR"); d != "" && (paths.SamePath(d, paths.ConfigDir()) || paths.SamePath(paths.MainCheckout(d), paths.ConfigDir()) || paths.SamePath(memory.GitToplevel(d), d)) {
+	if d := os.Getenv("CLAUDE_PROJECT_DIR"); d != "" && (paths.SamePath(d, paths.ConfigDir()) || paths.SamePath(paths.MainCheckout(d), paths.ConfigDir()) || paths.SamePath(memstore.GitToplevel(d), d)) {
 		return d
 	}
 	cwd, _ := os.Getwd()
 	// Inside the store its own toplevel is the store root; keep cwd so memory/<repo>/ resolves to that repo.
-	if top := memory.GitToplevel(cwd); top != "" && !paths.SamePath(top, memory.StoreDir()) {
+	if top := memstore.GitToplevel(cwd); top != "" && !paths.SamePath(top, memstore.StoreDir()) {
 		return top
 	}
 	return cwd
