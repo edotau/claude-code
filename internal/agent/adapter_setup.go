@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/edotau/claude-code/internal/crossgen"
 	"github.com/edotau/claude-code/internal/paths"
 )
 
@@ -73,7 +72,7 @@ func routeCheck(name string, routeDetail func(string) (string, bool)) Check {
 
 // projectionCheck reports whether state/projections/<agent>/agents has any rendered agents.
 func projectionCheck(name string) Check {
-	dir := crossgen.ProjectionDir(paths.ConfigDir(), name)
+	dir := ProjectionDir(paths.ConfigDir(), name)
 	entries, err := os.ReadDir(dir)
 	if err != nil || len(entries) == 0 {
 		return Check{Name: "projection", State: "warn", Detail: fmt.Sprintf("no rendered agents at %s (claude-code agents sync)", dir)}

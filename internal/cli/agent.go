@@ -19,7 +19,6 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/crossgen"
 	"github.com/edotau/claude-code/internal/hooks"
 	"github.com/edotau/claude-code/internal/launch"
 	"github.com/edotau/claude-code/internal/network/tailscale"
@@ -650,7 +649,7 @@ func cmdAgentsReap(args []string) int {
 // cmdAgentsSync renders agents/ into state/projections, installs the copies into agent homes and links skills/.
 func cmdAgentsSync(args []string) int {
 	fs := helptext.NewFlagSet("agents sync", agentsSyncPage)
-	vendor := fs.String("agent", "", "one target: "+strings.Join(crossgen.VendorNames(), "|")+" (default: all)")
+	vendor := fs.String("agent", "", "one target: "+strings.Join(agent.VendorNames(), "|")+" (default: all)")
 	dryRun := fs.Bool("dry-run", false, "report without writing")
 	check := fs.Bool("check", false, "dry-run; exit 1 when the projection is stale")
 	noPrune := fs.Bool("no-prune", false, "keep orphaned projections")
@@ -661,7 +660,7 @@ func cmdAgentsSync(args []string) int {
 		fs.Usage()
 		return 2
 	}
-	return crossgen.Sync(crossgen.SyncOptions{DryRun: *dryRun, Check: *check, NoPrune: *noPrune, Vendor: *vendor, Out: os.Stdout})
+	return agent.Sync(agent.ProjectionOptions{DryRun: *dryRun, Check: *check, NoPrune: *noPrune, Agent: *vendor, Out: os.Stdout})
 }
 
 // cmdAgentsList is bare `agents`: the local roster, or with --host the remote's own `agents` output.

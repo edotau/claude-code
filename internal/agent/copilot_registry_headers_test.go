@@ -4,7 +4,6 @@ import (
 	"context"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/agent/copilotreg"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/proxy"
 )
@@ -16,10 +15,10 @@ func TestPrepareCopilotRegistryDropsUpstreamHeaders(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	oldD, oldE, oldM := copilotDiscover, copilotEnsureRouter, copilotMintToken
 	t.Cleanup(func() { copilotDiscover, copilotEnsureRouter, copilotMintToken = oldD, oldE, oldM })
-	copilotDiscover = func(context.Context, *providers.Registry, *providers.Provider) ([]copilotreg.Endpoint, error) {
-		var ep copilotreg.Endpoint
+	copilotDiscover = func(context.Context, *providers.Registry, *providers.Provider) ([]CopilotEndpoint, error) {
+		var ep CopilotEndpoint
 		ep.ID, ep.Name = "databricks-claude-sonnet-4", "s"
-		return []copilotreg.Endpoint{ep}, nil
+		return []CopilotEndpoint{ep}, nil
 	}
 	copilotEnsureRouter = func(context.Context) (string, error) { return "http://127.0.0.1:1", nil }
 	copilotMintToken = func(context.Context, string, int) (string, error) { return "tok", nil }

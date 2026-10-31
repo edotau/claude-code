@@ -11,7 +11,6 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/edotau/claude-code/internal/agent/copilotreg"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/proxy"
@@ -19,7 +18,7 @@ import (
 
 // Seams for tests: model discovery and the router's session tokens.
 var (
-	discoverModels = copilotreg.Discover
+	discoverModels = discoverCopilotEndpoints
 	mintSession    = proxy.MintSessionToken
 	revokeSession  = proxy.RevokeSessionToken
 	runningRouter  = proxy.Running
@@ -146,7 +145,7 @@ func ConfigureCopilotRegistry(
 	}
 	rp := *p
 	rp.Headers = map[string]string{proxy.AgentHeader: "copilot"} // the router adds the provider's own headers upstream
-	r := copilotreg.Build(p.Name, &rp, eps, rb)
+	r := copilotBuildRegistry(p.Name, &rp, eps, rb)
 	ref, err := r.Select(copilotChoice(requested))
 	if err != nil {
 		return out, fmt.Errorf("copilot: %w", err)
@@ -188,16 +187,16 @@ func copilotRouterBase(ctx context.Context, dry bool) (string, error) {
 }
 
 // prepareRegistry mints the token and writes the registry file; on error the caller revokes.
-func prepareRegistry(ctx context.Context, r copilotreg.Registry, profile string, pid int,
+func prepareRegistry(ctx context.Context, r CopilotRegistry, profile string, pid int,
 ) (file, token string, err error) {
 	if token, err = mintSession(ctx, profile, pid); err != nil {
 		return "", "", fmt.Errorf("copilot: session token for profile %s: %w", profile, err)
 	}
-	data, err := copilotreg.Render(r, token)
+	data, err := renderCopilotRegistry(r, token)
 	if err != nil {
 		return "", token, fmt.Errorf("copilot: render registry: %w", err)
 	}
-	if file, err = copilotreg.WriteRegistry(pid, data); err != nil {
+	if file, err = WriteCopilotRegistry(pid, data); err != nil {
 		return "", token, fmt.Errorf("copilot: %w", err)
 	}
 	return file, token, nil
@@ -205,16 +204,16 @@ func prepareRegistry(ctx context.Context, r copilotreg.Registry, profile string,
 
 // registryFile is the registry file path; dry only computes it (--print-env creates no directory or token).
 func registryFile(
-	ctx context.Context, r copilotreg.Registry, profile string, pid int, dry bool,
+	ctx context.Context, r CopilotRegistry, profile string, pid int, dry bool,
 ) (file, token string, err error) {
 	if !dry {
 		return prepareRegistry(ctx, r, profile, pid)
 	}
-	glob := copilotreg.Glob()
+	glob := CopilotRegistryGlob()
 	if glob == "" {
 		return "", "", errors.New("copilot: no registry runtime directory")
 	}
-	return copilotreg.RegistryFile(filepath.Dir(glob), pid), "", nil
+	return CopilotRegistryFile(filepath.Dir(glob), pid), "", nil
 }
 
 func copilotRegistryHome() string {
