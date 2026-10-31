@@ -224,6 +224,25 @@ func TestOpencodeUsageMissingStore(t *testing.T) {
 	}
 }
 
+// An absolute OPENCODE_DB is the store usage reads, as opencode's own login probe does; XDG's default is ignored.
+func TestOpencodeUsageHonorsOpencodeDB(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir()) // the default store does not exist
+	db := filepath.Join(t.TempDir(), "opencode-beta.db")
+	if err := os.WriteFile(db, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("OPENCODE_DB", db)
+	stubLookPathSqlite3(t, func() error { return nil })
+	var read string
+	orig := opencodeSqliteCmd
+	opencodeSqliteCmd = func(_ context.Context, path, _ string) ([]byte, error) { read = path; return []byte("[]"), nil }
+	t.Cleanup(func() { opencodeSqliteCmd = orig })
+	got := opencodeUsage(context.Background(), time.Now().Add(-24*time.Hour))
+	if read != db {
+		t.Errorf("sqlite read %q, want the OPENCODE_DB store %q (note %q)", read, db, got.Note)
+	}
+}
+
 // TestOpencodeUsageSqlite3Missing: the store exists but sqlite3 isn't installed reports "sqlite3 not installed".
 func TestOpencodeUsageSqlite3Missing(t *testing.T) {
 	writeOpencodeStore(t)
