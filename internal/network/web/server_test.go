@@ -21,7 +21,7 @@ import (
 )
 
 // agenttreeTestdata is internal/agent's own testdata fixture dir, reused rather than duplicated.
-const agenttreeTestdata = "../../agent/testdata"
+const agenttreeTestdata = "../../agent/tree/testdata"
 
 const testCSRFToken = "test-csrf-token-0123456789abcdef"
 

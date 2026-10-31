@@ -97,7 +97,7 @@ func opencodeMajorLocked(key string) int {
 	out, err := opencodeOutput(ctx, "--version")
 	v := 0
 	if err == nil {
-		v = parseOpencodeMajor(string(out))
+		v = ParseOpencodeMajor(string(out))
 	}
 	opencodeMajorKey, opencodeMajorVal, opencodeMajorSet = key, v, true
 	if err == nil && v > 0 && strings.Contains(key, "|") {
@@ -106,8 +106,8 @@ func opencodeMajorLocked(key string) int {
 	return v
 }
 
-// parseOpencodeMajor reads the major from "1.19.3", "v2.0.32" or "opencode 2.0.32"; 0 when none.
-func parseOpencodeMajor(s string) int {
+// ParseOpencodeMajor reads the major from "1.19.3", "v2.0.32" or "opencode 2.0.32"; 0 when none.
+func ParseOpencodeMajor(s string) int {
 	m := opencodeVersionRe.FindStringSubmatch(s)
 	if m == nil {
 		return 0

@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agent/preflight"
+	"github.com/edotau/claude-code/internal/agent/tools"
 	"github.com/edotau/claude-code/internal/audit"
 	"github.com/edotau/claude-code/internal/hooks"
 	"github.com/edotau/claude-code/internal/launch"
@@ -141,8 +143,27 @@ func launchAgent(name string, args []string) int {
 		return fail("%v", err)
 	}
 	plan, err := agent.LaunchPlan(context.Background(), name, opts, rest)
+	if err == nil {
+		warnVersion(name, plan.Binary, opts, rest)
+	}
 	return runPlan(plan, opts, err)
 }
+
+// warnVersion prints the one-line out-of-bounds warning for an interactive launch of the agent binary at path.
+func warnVersion(name, path string, opts agent.LaunchOptions, args []string) {
+	if !agent.WantsVersionWarning(opts, args) || !agentVersionTTY() {
+		return
+	}
+	if line := tools.VersionWarning(name, path); line != "" {
+		fmt.Fprintln(versionWarnOut, line)
+	}
+}
+
+// agentVersionTTY and versionWarnOut are the version warning's terminal gate and sink (tests swap them).
+var (
+	agentVersionTTY           = func() bool { return ansi.IsTerminal(os.Stderr) }
+	versionWarnOut  io.Writer = os.Stderr
+)
 
 func cmdUsage(args []string) int { return usagecmd.Run(args, paths.ConfigDir(), os.Stdout, os.Stderr) }
 
@@ -385,7 +406,7 @@ func cmdInstall(args []string) int {
 		return fail("install: --setup must come first: claude-code install --setup <mode> [flags]")
 	}
 	if tf.set {
-		if err := agent.InstallSelected(context.Background(), os.Stdout, tf.names, *dry); err != nil {
+		if err := tools.Install(context.Background(), os.Stdout, tf.names, *dry); err != nil {
 			return fail("install --tools: %v", err)
 		}
 		return 0
@@ -465,8 +486,8 @@ func refreshServed() {
 		fmt.Fprintf(os.Stderr, "doctor --refresh: %v\n", err)
 		return
 	}
-	ps := agent.PreflightCheck(reg, time.Now())
-	for _, err := range agent.RefreshStale(context.Background(), reg, ps, time.Now(), true) {
+	ps := preflight.Check(reg, time.Now())
+	for _, err := range preflight.RefreshStale(context.Background(), reg, ps, time.Now(), true) {
 		fmt.Fprintf(os.Stderr, "doctor --refresh: %v\n", err)
 	}
 }
@@ -489,9 +510,9 @@ func cmdPreflight(args []string) int {
 	}
 	if *refresh {
 		now := time.Now()
-		ctx, cancel := context.WithTimeout(context.Background(), agent.PreflightBudget)
+		ctx, cancel := context.WithTimeout(context.Background(), preflight.Budget)
 		defer cancel()
-		agent.RefreshStale(ctx, reg, agent.PreflightCheck(reg, now), now, false)
+		preflight.RefreshStale(ctx, reg, preflight.Check(reg, now), now, false)
 		return 0
 	}
 	if *live {
@@ -499,10 +520,10 @@ func cmdPreflight(args []string) int {
 		if err != nil {
 			return fail("preflight: %v", err)
 		}
-		agent.RunInstallStep(context.Background(), os.Stdout, reg, bin, time.Now())
+		preflight.RunInstallStep(context.Background(), os.Stdout, reg, bin, time.Now())
 		return 0
 	}
-	for _, p := range agent.PreflightCheck(reg, time.Now()) {
+	for _, p := range preflight.Check(reg, time.Now()) {
 		fmt.Printf("%-8s %-9s %s\n", p.Agent, p.Status, p.Line())
 	}
 	return 0

@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agent/preflight"
 	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
@@ -59,7 +59,7 @@ func preflightNotice(now time.Time) string {
 	if err != nil {
 		return ""
 	}
-	return agent.StaticLine(reg, now)
+	return preflight.StaticLine(reg, now)
 }
 
 // memoryContext renders the note line + bank surface and advances the session chain.
@@ -387,7 +387,7 @@ func servedRefreshDue(now time.Time) bool {
 		return false
 	}
 	reg, err := providers.Load()
-	return err == nil && agent.PreflightStale(reg, now) && agent.ClaimRefresh(now)
+	return err == nil && preflight.Stale(reg, now) && preflight.Claim(now)
 }
 
 // spawnServed is the detached `preflight --refresh` seam; tests replace it.

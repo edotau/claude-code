@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agent/tools"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 )
@@ -49,7 +49,7 @@ func TestToolPATHCopiesAndExtras(t *testing.T) {
 		})
 	}
 
-	status := agent.ToolStatus{Name: "opencode", Path: aBin, Version: "1.0.0"}
+	status := tools.Status{Name: "opencode", Path: aBin, Version: "1.0.0"}
 	for _, order := range []string{join(a, bin, b), join(bin, a, b)} {
 		t.Run(order, func(t *testing.T) {
 			t.Setenv("PATH", order)

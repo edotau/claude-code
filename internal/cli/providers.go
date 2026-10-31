@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agent/preflight"
 	"github.com/edotau/claude-code/internal/copilotsdk"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
@@ -594,7 +595,7 @@ func cmdSwitch(args []string) int {
 		return fail("%v", err)
 	}
 	fmt.Printf("profile pinned: %s (relaunch to apply)\n", args[0])
-	agent.PreflightWarm(os.Stdout, reg, time.Now())
+	preflight.Warm(os.Stdout, reg, time.Now())
 	return 0
 }
 

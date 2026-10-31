@@ -9,6 +9,7 @@ import (
 	"time"
 
 	agentpkg "github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agent/preflight"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/secrets/shapes"
 )
@@ -103,8 +104,8 @@ func verifyAgent(ctx context.Context, agent string) error {
 	}
 	ctx, cancel := context.WithTimeout(ctx, setupVerifyTimeout)
 	defer cancel()
-	pin := agentpkg.PreflightPin{Agent: agent, Status: agentpkg.PreflightStatusOK, Served: "n/a"}
-	for _, p := range agentpkg.LivePongs(ctx, bin, []agentpkg.PreflightPin{pin}) {
+	pin := preflight.Pin{Agent: agent, Status: preflight.StatusOK, Served: "n/a"}
+	for _, p := range preflight.LivePongs(ctx, bin, []preflight.Pin{pin}) {
 		if !p.OK {
 			return errors.New(p.Err)
 		}

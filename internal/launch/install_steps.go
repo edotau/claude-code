@@ -14,6 +14,9 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agent/preflight"
+	"github.com/edotau/claude-code/internal/agent/project"
+	"github.com/edotau/claude-code/internal/agent/tools"
 	"github.com/edotau/claude-code/internal/clipboard"
 	"github.com/edotau/claude-code/internal/completion"
 	"github.com/edotau/claude-code/internal/history"
@@ -110,7 +113,7 @@ func PreflightStep(w io.Writer, bin string) {
 	if err != nil {
 		return // no registry: nothing to check
 	}
-	agent.RunInstallStep(context.Background(), w, reg, bin, time.Now())
+	preflight.RunInstallStep(context.Background(), w, reg, bin, time.Now())
 }
 
 // installLine renders the "install" summary line: the installed binary path and, when the pre-install
@@ -154,7 +157,7 @@ func installBinaryAndLinks(w io.Writer, dryRun bool) (string, error) {
 			}
 		}
 	}
-	agent.LinkTools(w, nil, dryRun)
+	tools.Link(w, nil, dryRun)
 	return target, nil
 }
 
@@ -174,11 +177,11 @@ func installBinaryTarget() (target string, err error) {
 	return target, nil
 }
 
-// agentsCompactLine groups agent.LinkResults into one "links" line (linked / kept), printing any
+// agentsCompactLine groups tools.LinkResults into one "links" line (linked / kept), printing any
 // other status (skip, remove, missing, error) in full on its own line.
 func agentsCompactLine(w io.Writer) {
 	var linked, kept []string
-	for _, r := range agent.LinkResults(nil, false) {
+	for _, r := range tools.LinkResults(nil, false) {
 		switch {
 		case r.Status == "ok" || r.Status == "link":
 			linked = append(linked, r.Bin)
@@ -340,11 +343,11 @@ func windowsSettingsCompact(w io.Writer) {
 // agentsSyncCompact runs the agents/skills/instructions projection and reports the agents synced, or
 // the sync's own failure note in full.
 func agentsSyncCompact(w io.Writer) {
-	if rc := agent.Sync(agent.ProjectionOptions{Out: io.Discard}); rc != 0 {
+	if rc := project.Sync(project.Options{Out: io.Discard}); rc != 0 {
 		fmt.Fprintf(w, "agents   sync exit %d (see `claude-code agents sync`) · %s\n", rc, agentConfigsSummary(w))
 		return
 	}
-	fmt.Fprintf(w, "agents   synced: %s · %s\n", strings.Join(agent.ProjectionNames(), " "), agentConfigsSummary(w))
+	fmt.Fprintf(w, "agents   synced: %s · %s\n", strings.Join(project.Names(), " "), agentConfigsSummary(w))
 }
 
 // agentConfigsSummary re-renders the agent configs `configure --restore` writes (codex, opencode, gemini, copilot) and
@@ -501,7 +504,7 @@ func installGitHooks(w io.Writer, dryRun bool) {
 // repo; best-effort, like completion.
 func syncAgents(w io.Writer, dryRun bool) {
 	fmt.Fprintln(w, "agents   sync agents/ + skills/ + instructions into agent homes (claude-code agents sync)")
-	if rc := agent.Sync(agent.ProjectionOptions{DryRun: dryRun, Out: io.Discard}); rc != 0 {
+	if rc := project.Sync(project.Options{DryRun: dryRun, Out: io.Discard}); rc != 0 {
 		fmt.Fprintf(w, "  agents sync exit %d — run `claude-code agents sync` for details\n", rc)
 	}
 }
