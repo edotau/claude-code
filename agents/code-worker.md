@@ -75,6 +75,9 @@ claude-code ask --agent copilot --tools --workdir <repo> --model sonnet \
   --fallback none --format json "<the handoff, verbatim, plus: never git stash/checkout/reset/restore>"
 ```
 
+An ask that may pass 150s adds `--background`, then `status`/`result`
+(`skills/subagent-workflows/references/agent-verbs.md` step 3).
+
 Then check it as a claim: the envelope has no `fallback`, `git diff --stat` shows only your files, and
 the handoff's verification command passes. Fix small gaps yourself; if the dispatch failed or the result is
 wrong, do the task in-context. The row label for a request is `skills/subagent-workflows/SKILL.md` → Leaf types.

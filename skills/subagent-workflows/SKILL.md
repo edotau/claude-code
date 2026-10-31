@@ -124,7 +124,9 @@ distinct work — never repeat its searches.
 A gap, a missing `Acceptance:` item, or a correction goes back to the same agent (`SendMessage` resumes it with its
 context): name the gap, the evidence wanted, and the stop condition; batch independent questions. It amends; it does
 not restart the investigation, and no reviewer is added for it. Wait on completion notifications — elapsed time alone
-is not a stall, and status polling is not progress. Re-dispatch fresh only when the owner is gone; then hand over its
+is not a stall, and status polling is not progress. A leaf's own long `claude-code ask` is the exception: it
+runs `--background` and polls (`references/agent-verbs.md` step 3), since a foreground call idles it at 180s.
+Re-dispatch fresh only when the owner is gone; then hand over its
 established evidence.
 
 ## Rules

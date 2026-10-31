@@ -58,8 +58,9 @@ a leaf).
    with `--tools --workdir <worktree or isolate.sh copy>` (opencode has ignored `--workdir` before —
    confirm with `git diff --stat` where the diff landed). A read-only scan uses `--read-only`, never `--tools`: copilot
    approves only file reads and URL fetches; agents that can't enforce it run with no tools, so a gemini read-only
-   sweep goes through `gemini bridge`. Background dispatches: follow with
-   `claude-code <agent> tail -f <job>`, never a sleep loop. Gemini dispatches are for read-heavy sweeps and
+   sweep goes through `gemini bridge`. Any ask that may pass 150s runs with
+   `--background` (`references/agent-verbs.md` step 3); follow with `claude-code <agent> tail -f <job>`.
+   Gemini dispatches are for read-heavy sweeps and
    research, and their brief must say "open the files and cite file:line" (a gemini dispatch once answered from
    memory); such a dispatch needs `--tools`, or agy refuses rather than read files.
 4. **Treat every answer as a claim.** Re-run the handoff's verification command yourself; for a
