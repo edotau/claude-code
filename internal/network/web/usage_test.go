@@ -49,7 +49,7 @@ func TestUsageEndpointServesReportJSONAndCaches(t *testing.T) {
 	if err := helptext.WriteJSON(&want, &usage.Document{WindowDays: 7}); err != nil {
 		t.Fatal(err)
 	}
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		w := do(s, newReq(t, "GET", "/api/usage?days=7", "127.0.0.1:7777"))
 		var got, wantTree any
 		if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
@@ -90,7 +90,7 @@ func TestUsageEndpointMasksEmailAndTokens(t *testing.T) {
 	t.Cleanup(func() { usageReport = orig })
 	s := newTestServer(t, Options{}, nil)
 
-	for i := 0; i < 2; i++ { // second call is served from the cache
+	for i := range 2 { // second call is served from the cache
 		body := do(s, newReq(t, "GET", "/api/usage?days=7", "127.0.0.1:7777")).Body.String()
 		if strings.Contains(body, email) || strings.Contains(body, token) || !strings.Contains(body, "e…@gmail.com") {
 			t.Fatalf("call %d body not masked: %s", i, body)
