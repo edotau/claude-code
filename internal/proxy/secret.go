@@ -76,6 +76,8 @@ func secretErr(err error) error {
 func authHint(p *providers.Provider) string {
 	a := p.Auth
 	switch {
+	case p.Preset == providers.PresetDatabricks && a.Type == providers.AuthPAT: // login refuses a pat row without the switch
+		return "run `claude-code databricks login --profile " + p.Name + " --auth-type oauth`"
 	case p.Preset == providers.PresetDatabricks || a.Type == providers.AuthOAuth || a.Type == providers.AuthM2M:
 		return "run `claude-code databricks login --profile " + p.Name + "`"
 	case a.Command != "":
