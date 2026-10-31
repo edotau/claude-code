@@ -409,7 +409,7 @@ func TestModelDeniedVsIsQuota(t *testing.T) {
 }
 
 // TestValidateRejectsUnknownRouteTierAndRunner checks Registry.Validate catches an overlay cell naming a
-// runner or tier outside RouteRunners/RouteTiers before it ever reaches agent.LoadFrom.
+// runner or tier outside RouteRunners/RouteTiers before it ever reaches router.LoadFrom.
 func TestValidateRejectsUnknownRouteTierAndRunner(t *testing.T) {
 	badTier := &Registry{Providers: map[string]*Provider{}, Routing: Routing{Cells: map[string]map[string]RouteCell{"opencode": {"ultra": {Model: "x"}}}}}
 	if err := badTier.Validate(); err == nil || !strings.Contains(err.Error(), "unknown tier") {

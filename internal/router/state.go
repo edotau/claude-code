@@ -1,4 +1,4 @@
-// Package router holds each account's remembered quota state (quota.json); the pick and the table live in agent.
+// Package router is the agent+model pick: route table, candidate gates, served cache and each account's quota state.
 package router
 
 import (

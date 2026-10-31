@@ -531,16 +531,6 @@ func errPromptTooLarge(n int) error {
 	return fmt.Errorf("%w: %d bytes, over the %d limit for one argv element", ErrPromptTooLarge, n, MaxPromptBytes)
 }
 
-// Fallback modes for an unavailable dispatch: the full chain ending in claude, other agents only, or none.
-const (
-	FallbackAll    = "all"
-	FallbackAgents = "agents"
-	FallbackNone   = "none"
-)
-
-// FallbackModes lists the accepted --fallback values.
-var FallbackModes = []string{FallbackAll, FallbackAgents, FallbackNone}
-
 var contentPolicyRE = regexp.MustCompile(`(?i)content[ _-]?(?:policy|filter)|safety (?:system|filter|polic)|` +
 	`responsible ai|violates (?:our|the) (?:usage|content) polic|request entity too large|payload too large`)
 

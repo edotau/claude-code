@@ -1,4 +1,4 @@
-package agent
+package router
 
 import (
 	"encoding/json"
@@ -21,7 +21,7 @@ const ServedTTL = 24 * time.Hour
 const servedSchema = 1
 
 var servedFormat = schemas.Register(schemas.Format{
-	Name: "served-models", Owner: "internal/agent", Kind: schemas.Cache,
+	Name: "served-models", Owner: "internal/router", Kind: schemas.Cache,
 	Glob:    func() string { return filepath.Join(paths.StateDir(), "preflight", "*.json") },
 	New:     func() any { return &Served{} },
 	Version: servedSchema, Keep: "rebuildable cache; a version mismatch is a miss",
@@ -94,7 +94,7 @@ func SaveServed(s Served) error {
 // Has reports whether the listing serves pin as a READY endpoint; ready is false for a listed but unready one.
 func (s Served) Has(p *providers.Provider, pin string) (listed, ready bool) {
 	pin = strings.TrimSpace(pin)
-	want := p.WireModel(models.Strip1M(pin)) // the spelling the agents request (agent.SpellPin)
+	want := p.WireModel(models.Strip1M(pin)) // the spelling the agents request (providers.SpellPin)
 	for _, m := range s.Models {
 		if m.ID == want {
 			return true, m.Ready == "" || m.Ready == "READY"

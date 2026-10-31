@@ -1,4 +1,4 @@
-package agent
+package router
 
 import (
 	"context"
@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/router"
 )
 
 func testTable(t *testing.T) *RouteTable {
@@ -97,19 +96,19 @@ func TestParseReset(t *testing.T) {
 		{"quota exhausted until 2026-11-01", time.Date(2026, 11, 1, 0, 0, 0, 0, time.Local)},
 	}
 	for _, c := range cases {
-		got, ok := router.ParseReset(c.text, now0)
+		got, ok := ParseReset(c.text, now0)
 		if !ok || !got.Equal(c.want) {
 			t.Errorf("ParseReset(%q) = %v %v, want %v", c.text, got, ok, c.want)
 		}
 	}
-	if got, _ := router.ParseReset("resets 2026-10-25T09:00:00Z", now0); !got.Equal(time.Date(2026, 10, 25, 9, 0, 0, 0, time.UTC)) {
+	if got, _ := ParseReset("resets 2026-10-25T09:00:00Z", now0); !got.Equal(time.Date(2026, 10, 25, 9, 0, 0, 0, time.UTC)) {
 		t.Errorf("a Z timestamp must keep UTC, got %v", got)
 	}
 	ny, _ := time.LoadLocation("America/New_York")
-	if got := router.ResetFor("boom", router.BillCredits, router.Entry{}, time.Date(2026, 10, 31, 21, 0, 0, 0, ny)); !got.Equal(time.Date(2026, 12, 1, 0, 0, 0, 0, time.UTC)) {
+	if got := ResetFor("boom", BillCredits, Entry{}, time.Date(2026, 10, 31, 21, 0, 0, 0, ny)); !got.Equal(time.Date(2026, 12, 1, 0, 0, 0, 0, time.UTC)) {
 		t.Errorf("Oct 31 21:00 NY is Nov 1 UTC: next month boundary = %v", got)
 	}
-	if _, ok := router.ParseReset("connection reset", now0); ok {
+	if _, ok := ParseReset("connection reset", now0); ok {
 		t.Error("no reset in a non-quota text")
 	}
 	for _, q := range []string{"HTTP 402", "insufficient_quota", "You've hit your usage limit", "limit: 0"} {
@@ -120,7 +119,7 @@ func TestParseReset(t *testing.T) {
 	if providers.IsQuota("429 too many requests") || providers.IsQuota("line 4021") {
 		t.Error("a plain rate limit or a bare number is not a quota failure")
 	}
-	if got := router.ResetFor("boom", router.BillCredits, router.Entry{}, now0); !got.Equal(time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC)) {
+	if got := ResetFor("boom", BillCredits, Entry{}, now0); !got.Equal(time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC)) {
 		t.Errorf("credits default reset = %v", got)
 	}
 }
@@ -128,16 +127,16 @@ func TestParseReset(t *testing.T) {
 func TestStatusThresholds(t *testing.T) {
 	seen := now0.Add(-time.Minute)
 	for _, c := range []struct {
-		e    router.Entry
+		e    Entry
 		want string
 	}{
-		{router.Entry{}, router.StateUnknown},
-		{router.Entry{UsedPct: 50, Seen: seen}, router.StateOK},
-		{router.Entry{UsedPct: 90, Seen: seen}, router.StateLow},
-		{router.Entry{UsedPct: 100, Seen: seen, ResetsAt: now0.Add(time.Hour)}, router.StateExhausted},
-		{router.Entry{UsedPct: 100, Seen: seen, ResetsAt: now0.Add(-time.Hour)}, router.StateOK},
-		{router.Entry{UsedPct: 5, Seen: seen, ExhaustedUntil: now0.Add(time.Hour)}, router.StateExhausted},
-		{router.Entry{UsedPct: 5, Seen: seen, ExhaustedUntil: now0.Add(-time.Hour)}, router.StateOK},
+		{Entry{}, StateUnknown},
+		{Entry{UsedPct: 50, Seen: seen}, StateOK},
+		{Entry{UsedPct: 90, Seen: seen}, StateLow},
+		{Entry{UsedPct: 100, Seen: seen, ResetsAt: now0.Add(time.Hour)}, StateExhausted},
+		{Entry{UsedPct: 100, Seen: seen, ResetsAt: now0.Add(-time.Hour)}, StateOK},
+		{Entry{UsedPct: 5, Seen: seen, ExhaustedUntil: now0.Add(time.Hour)}, StateExhausted},
+		{Entry{UsedPct: 5, Seen: seen, ExhaustedUntil: now0.Add(-time.Hour)}, StateOK},
 	} {
 		if got := c.e.Status(now0); got != c.want {
 			t.Errorf("Status(%+v) = %s, want %s", c.e, got, c.want)
@@ -145,12 +144,12 @@ func TestStatusThresholds(t *testing.T) {
 	}
 }
 
-func pick(tb *RouteTable, tier, want string, st router.State, mode string) PickResult {
+func pick(tb *RouteTable, tier, want string, st State, mode string) PickResult {
 	return tb.Pick(context.Background(), tier, want, st, PickOpts{Fallback: mode, Configured: allConfigured, Now: func() time.Time { return now0 }})
 }
 
 // pickRepo is pick with the work-repo answer pinned, so the opencode sub-pick's free gate is deterministic.
-func pickRepo(tb *RouteTable, tier string, st router.State, work bool) PickResult {
+func pickRepo(tb *RouteTable, tier string, st State, work bool) PickResult {
 	if len(tb.OpencodeLadder) == 0 {
 		tb.OpencodeLadder = []string{"opencode-go", "github-copilot", "openai"} // defaults.json order; LoadFrom(nil) has none
 	}
@@ -168,7 +167,7 @@ func runners(r PickResult) string {
 
 func TestPickGatesBeatScore(t *testing.T) {
 	tb := testTable(t)
-	st := router.State{"github·work-user": {UsedPct: 0, Seen: now0, ExhaustedUntil: time.Date(2026, 11, 1, 0, 0, 0, 0, time.Local), Reason: "402"}}
+	st := State{"github·work-user": {UsedPct: 0, Seen: now0, ExhaustedUntil: time.Date(2026, 11, 1, 0, 0, 0, 0, time.Local), Reason: "402"}}
 	r := pick(tb, "sonnet", "copilot", st, FallbackAll)
 	if strings.Contains(runners(r), "copilot") {
 		t.Fatalf("exhausted copilot picked: %s", runners(r))
@@ -180,21 +179,21 @@ func TestPickGatesBeatScore(t *testing.T) {
 		t.Errorf("claude leg = %+v, want sonnet tier kept", last)
 	}
 	unpinned, _ := LoadFrom(nil, "")
-	r = pick(unpinned, "opus", "copilot", router.State{}, FallbackAgents)
+	r = pick(unpinned, "opus", "copilot", State{}, FallbackAgents)
 	if r.Skipped[0].Gate != GateAccount || strings.Contains(runners(r), "claude") {
 		t.Errorf("unpinned copilot must drop at the account gate, vendors mode has no claude: %+v %s", r.Skipped, runners(r))
 	}
-	if got := runners(pick(tb, "opus", "copilot", router.State{}, FallbackNone)); got != "copilot" {
+	if got := runners(pick(tb, "opus", "copilot", State{}, FallbackNone)); got != "copilot" {
 		t.Errorf("fallback none = %s", got)
 	}
-	if got := runners(pick(tb, "opus", "claude", router.State{}, FallbackAll)); got != "claude" {
+	if got := runners(pick(tb, "opus", "claude", State{}, FallbackAll)); got != "claude" {
 		t.Errorf("claude never falls back: %s", got)
 	}
 }
 
 func TestPickTwoDimOrderingAndLowLast(t *testing.T) {
 	tb := testTable(t)
-	st := router.State{
+	st := State{
 		"openai·chatgpt":     {UsedPct: 10, Seen: now0},
 		"google·antigravity": {UsedPct: 60, Seen: now0},
 		"opencode·go":        {UsedPct: 20, Seen: now0},
@@ -207,7 +206,7 @@ func TestPickTwoDimOrderingAndLowLast(t *testing.T) {
 	if c.Scores["price"] != 0.9 || c.Scores["headroom"] != 0.9 || c.Total != 0.9 {
 		t.Errorf("codex scores = %+v total %v", c.Scores, c.Total)
 	}
-	st["openai·chatgpt"] = router.Entry{UsedPct: 95, Seen: now0}
+	st["openai·chatgpt"] = Entry{UsedPct: 95, Seen: now0}
 	if got := runners(pickRepo(tb, "sonnet", st, true)); !strings.HasSuffix(got, ",codex") {
 		t.Errorf("low codex must sort after every non-low runner: %s", got)
 	}
@@ -224,9 +223,9 @@ func TestPickTwoDimOrderingAndLowLast(t *testing.T) {
 // the pricier one in the composite total.
 func TestPriceDimCheaperCreditsOutranksAtEqualHeadroom(t *testing.T) {
 	tb := testTable(t)
-	cheap := Candidate{Agent: "codex", Billing: router.BillCredits, Account: "openai·chatgpt", Price: Price{In: 1, Out: 1}}
-	pricey := Candidate{Agent: "gemini", Billing: router.BillCredits, Account: "google·antigravity", Price: Price{In: 4, Out: 4}}
-	st := router.State{} // both accounts unseen: headroom ties at 0.5 for each
+	cheap := Candidate{Agent: "codex", Billing: BillCredits, Account: "openai·chatgpt", Price: Price{In: 1, Out: 1}}
+	pricey := Candidate{Agent: "gemini", Billing: BillCredits, Account: "google·antigravity", Price: Price{In: 4, Out: 4}}
+	st := State{} // both accounts unseen: headroom ties at 0.5 for each
 	scored := tb.score([]Candidate{cheap, pricey}, st)
 	a, b := scored[0], scored[1]
 	if a.Scores["headroom"] != b.Scores["headroom"] {
@@ -252,7 +251,7 @@ func TestPickOpencodeGithubCopilotOverrideHeadroomUnknown(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	r := pick(tb, "sonnet", "opencode", router.State{}, FallbackNone)
+	r := pick(tb, "sonnet", "opencode", State{}, FallbackNone)
 	if len(r.Candidates) != 1 {
 		t.Fatalf("candidates = %+v, want exactly the wanted opencode leg", r.Candidates)
 	}
@@ -260,14 +259,14 @@ func TestPickOpencodeGithubCopilotOverrideHeadroomUnknown(t *testing.T) {
 	if c.Account != "opencode·github-copilot" {
 		t.Errorf("account = %q, want opencode's own copilot login, not the pinned gh user's", c.Account)
 	}
-	if c.State != router.StateUnknown {
+	if c.State != StateUnknown {
 		t.Errorf("state = %q, want unknown (never-seen account)", c.State)
 	}
 	if c.Scores["headroom"] != 0.5 {
 		t.Errorf("headroom = %v, want 0.5 for an unseen account", c.Scores["headroom"])
 	}
 	// A reading on the pinned gh user's own copilot account must not leak into the derived one.
-	st := router.State{"github·work-user": {UsedPct: 90, Seen: now0}}
+	st := State{"github·work-user": {UsedPct: 90, Seen: now0}}
 	r = pick(tb, "sonnet", "opencode", st, FallbackNone)
 	if got := r.Candidates[0].Scores["headroom"]; got != 0.5 {
 		t.Errorf("headroom = %v, want 0.5 still — github·work-user's state must not apply to opencode·github-copilot", got)
@@ -277,23 +276,23 @@ func TestPickOpencodeGithubCopilotOverrideHeadroomUnknown(t *testing.T) {
 func TestStateRoundTripScopedToConfigDir(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", dir)
-	if err := router.Record("openai·chatgpt", 40, "5h", now0.Add(time.Hour), now0); err != nil {
+	if err := Record("openai·chatgpt", 40, "5h", now0.Add(time.Hour), now0); err != nil {
 		t.Fatal(err)
 	}
-	if err := router.MarkExhausted("github·u", now0.Add(time.Hour), now0, "402"); err != nil {
+	if err := MarkExhausted("github·u", now0.Add(time.Hour), now0, "402"); err != nil {
 		t.Fatal(err)
 	}
-	if err := router.MarkExhausted("github·u", now0.Add(time.Minute), now0, "short"); err != nil {
+	if err := MarkExhausted("github·u", now0.Add(time.Minute), now0, "short"); err != nil {
 		t.Fatal(err)
 	}
-	s := router.LoadState()
+	s := LoadState()
 	if !s["github·u"].ExhaustedUntil.Equal(now0.Add(time.Hour)) {
 		t.Errorf("a shorter concurrent deadline replaced a longer one: %v", s["github·u"].ExhaustedUntil)
 	}
-	if s["openai·chatgpt"].UsedPct != 40 || s["github·u"].Status(now0) != router.StateExhausted {
+	if s["openai·chatgpt"].UsedPct != 40 || s["github·u"].Status(now0) != StateExhausted {
 		t.Errorf("state = %+v", s)
 	}
-	if !strings.HasPrefix(router.StatePath(), dir) {
-		t.Errorf("StatePath = %s", router.StatePath())
+	if !strings.HasPrefix(StatePath(), dir) {
+		t.Errorf("StatePath = %s", StatePath())
 	}
 }

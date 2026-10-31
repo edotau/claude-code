@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/network/tailscale"
+	"github.com/edotau/claude-code/internal/router"
 )
 
 // RemoteBinEnv names the remote claude-code binary when --remote-bin is absent; the fallback is "claude-code" on the remote PATH.
@@ -109,7 +110,7 @@ func remoteScript(bin, agentName, fallback string, req RunOptions) (string, erro
 	if strings.TrimSpace(bin) == "" || strings.ContainsAny(bin, "\r\n") {
 		return "", fmt.Errorf("remote ask: invalid remote binary %q", bin)
 	}
-	w := []string{remotePath, "exec", tailscale.QuotePath(remoteHomePath(bin)), "ask", "--format", "stream-json", "--fallback", tailscale.QuoteSH(cmp.Or(fallback, FallbackNone)),
+	w := []string{remotePath, "exec", tailscale.QuotePath(remoteHomePath(bin)), "ask", "--format", "stream-json", "--fallback", tailscale.QuoteSH(cmp.Or(fallback, router.FallbackNone)),
 		"--stdin-framed", "--agent", tailscale.QuoteSH(remoteTarget(agentName, req))}
 	opt := func(flag, v string) {
 		if v != "" {

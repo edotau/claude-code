@@ -1,4 +1,4 @@
-package agent
+package router
 
 import (
 	"encoding/json"
@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/vault"
 )
 
@@ -22,7 +21,7 @@ func IsPoolModel(p *providers.Provider, model string) bool {
 	}
 	wire := strings.TrimPrefix(model, p.Name+":")
 	return slices.ContainsFunc(BYOKPool(), func(entry string) bool {
-		return SpellPin(p, entry) == wire
+		return providers.SpellPin(p, entry) == wire
 	})
 }
 
@@ -52,11 +51,11 @@ func PinnedModel(runner, tier string, cell Cell, p *providers.Provider, pin stri
 func pickPool(runner string, p *providers.Provider, pool []string, now time.Time) (string, error) {
 	pool = servedPool(p, pool, now)
 	var selected, model string
-	err := router.Update(func(s router.State) {
-		account := router.ProviderAccount(p.Name)
+	err := Update(func(s State) {
+		account := ProviderAccount(p.Name)
 		e := s[account]
 		for _, entry := range pool {
-			wire := SpellPin(p, entry)
+			wire := providers.SpellPin(p, entry)
 			if wire != "" && !byokSkipped(e, runner, entry, now) && (selected == "" || e.BYOK[entry].Before(e.BYOK[selected])) {
 				selected, model = entry, wire
 			}
@@ -81,7 +80,7 @@ func servedPool(p *providers.Provider, pool []string, now time.Time) []string {
 		return pool
 	}
 	return slices.DeleteFunc(slices.Clone(pool), func(entry string) bool {
-		return !ready(entry) && SpellPin(p, entry) != ""
+		return !ready(entry) && providers.SpellPin(p, entry) != ""
 	})
 }
 
@@ -90,7 +89,7 @@ const byokSkipTTL = 7 * 24 * time.Hour
 
 func byokSkipKey(runner, entry string) string { return runner + "|" + entry }
 
-func byokSkipped(e router.Entry, runner, entry string, now time.Time) bool {
+func byokSkipped(e Entry, runner, entry string, now time.Time) bool {
 	at, ok := e.BYOKSkip[byokSkipKey(runner, entry)]
 	return ok && now.Sub(at) < byokSkipTTL
 }
@@ -98,12 +97,12 @@ func byokSkipped(e router.Entry, runner, entry string, now time.Time) bool {
 // SkipBYOK marks the pool entry p serves as wire unusable for runner and returns it, "" when none matches.
 func SkipBYOK(runner string, p *providers.Provider, wire string) string {
 	var hit string
-	_ = router.Update(func(s router.State) {
+	_ = Update(func(s State) {
 		for _, entry := range BYOKPool() {
-			if SpellPin(p, entry) != wire {
+			if providers.SpellPin(p, entry) != wire {
 				continue
 			}
-			account := router.ProviderAccount(p.Name)
+			account := ProviderAccount(p.Name)
 			e := s[account]
 			e.BYOKSkip = maps.Clone(e.BYOKSkip)
 			if e.BYOKSkip == nil {

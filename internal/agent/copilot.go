@@ -15,6 +15,7 @@ import (
 	"github.com/edotau/claude-code/internal/copilotsdk"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/router"
 )
 
 // copilotEngine is copilot's engine and its Runner: it drives the CLI through the SDK; tools are denied unless asked.
@@ -230,7 +231,7 @@ func (copilotEngine) fallbackNote(ft providers.Target, note string) (string, boo
 	return note, ft.Provider != nil && ft.Provider.Preset == providers.PresetDatabricks
 }
 
-func (copilotEngine) presence(Cell) error {
+func (copilotEngine) presence(router.Cell) error {
 	if u := copilotPinLogin(); u != "" && !slices.Contains(GHAccounts(), u) {
 		return fmt.Errorf("pinned gh user %s is not logged in (gh auth login); no other account is used", u)
 	}

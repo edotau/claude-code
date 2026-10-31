@@ -56,7 +56,7 @@ func gatewayRoute(args []string, withProxy bool) int {
 	model := fs.String("model", "", "alias (opus) or version (opus-5-5) (default: classify --task, else sonnet)")
 	want := fs.String("agent", "", "the agent asked for; it leads when it passes the gates")
 	task := fs.String("task", "", "task text the classifier reads when --model is absent")
-	fallback := fs.String("fallback", agent.FallbackAll, "all, agents or none")
+	fallback := fs.String("fallback", router.FallbackAll, "all, agents or none")
 	format := helptext.FormatFlag(fs)
 	if code, done := helptext.Parse(fs, args); done {
 		return code
@@ -64,11 +64,11 @@ func gatewayRoute(args []string, withProxy bool) int {
 	if err := helptext.CheckFormat(*format); err != nil {
 		return badFormat(name, err)
 	}
-	if !slices.Contains(agent.FallbackModes, *fallback) {
-		return fail(name+": --fallback %q unknown (%s)", *fallback, strings.Join(agent.FallbackModes, "|"))
+	if !slices.Contains(router.FallbackModes, *fallback) {
+		return fail(name+": --fallback %q unknown (%s)", *fallback, strings.Join(router.FallbackModes, "|"))
 	}
-	if *want != "" && !slices.Contains(agent.TableRunners, *want) {
-		return fail(name+": --agent %q unknown (%s)", *want, strings.Join(agent.TableRunners, "|"))
+	if *want != "" && !slices.Contains(router.TableRunners, *want) {
+		return fail(name+": --agent %q unknown (%s)", *want, strings.Join(router.TableRunners, "|"))
 	}
 	res, err := previewRoute(*model, *task, *want, *fallback)
 	if err != nil {
@@ -105,26 +105,26 @@ func gatewayRoute(args []string, withProxy bool) int {
 
 // previewRoute resolves the pick through the chain `ask` runs, so each candidate carries the model it would execute;
 // a leg dropped after the pick (model or profile gate) moves to Skipped. It starts no agent.
-func previewRoute(model, task, want, fallback string) (agent.PickResult, error) {
-	tb, err := agent.Load()
+func previewRoute(model, task, want, fallback string) (router.PickResult, error) {
+	tb, err := router.Load()
 	if err != nil {
-		return agent.PickResult{}, err
+		return router.PickResult{}, err
 	}
 	id, _, ok := models.Resolve(model)
-	if exact := ok && models.FamilyKind(id) != models.FamilyClaude; model != "" && model != agent.BYOKModel && !exact && tb.TierOf(model) == "" {
-		return agent.PickResult{}, fmt.Errorf("--model %q names no alias or version the table routes", model)
+	if exact := ok && models.FamilyKind(id) != models.FamilyClaude; model != "" && model != router.BYOKModel && !exact && tb.TierOf(model) == "" {
+		return router.PickResult{}, fmt.Errorf("--model %q names no alias or version the table routes", model)
 	}
 	hint := tb.TierOf(model)
 	if hint == "" && task != "" {
-		hint = agent.RuleClassifier{}.Tier(task)
+		hint = router.RuleClassifier{}.Tier(task)
 	}
 	if hint == "" {
-		hint = agent.Tiers[1]
+		hint = router.Tiers[1]
 	}
 	chain, pick, err := agent.RouteChainFor(context.Background(), want, model, hint, fallback, false,
-		agent.PickOpts{Refresh: routeRefresh, WorkRepo: func() bool { return agent.IsWorkRepo("") }})
+		router.PickOpts{Refresh: routeRefresh, WorkRepo: func() bool { return router.IsWorkRepo("") }})
 	if err != nil {
-		return agent.PickResult{}, err
+		return router.PickResult{}, err
 	}
 	res := pick
 	res.Candidates = nil
@@ -140,11 +140,11 @@ func previewRoute(model, task, want, fallback string) (agent.PickResult, error) 
 	}
 	res.Skipped = slices.Clone(pick.Skipped)
 	for _, s := range chain.Skipped {
-		if slices.ContainsFunc(pick.Skipped, func(k agent.Skip) bool { return s == k.Agent+": "+k.Reason }) {
+		if slices.ContainsFunc(pick.Skipped, func(k router.Skip) bool { return s == k.Agent+": "+k.Reason }) {
 			continue
 		}
 		who, why, _ := strings.Cut(s, ": ")
-		res.Skipped = append(res.Skipped, agent.Skip{Agent: who, Gate: "model", Reason: why})
+		res.Skipped = append(res.Skipped, router.Skip{Agent: who, Gate: "model", Reason: why})
 	}
 	return res, nil
 }
@@ -195,7 +195,7 @@ type candidateJSON struct {
 	Model      string             `json:"model"`
 	Effort     string             `json:"effort,omitempty"`
 	AccountKey string             `json:"account_key"`
-	Price      agent.Price        `json:"price"`
+	Price      router.Price       `json:"price"`
 	State      string             `json:"state"`
 	Billing    string             `json:"billing"`
 	Scores     map[string]float64 `json:"scores,omitempty"`
@@ -211,7 +211,7 @@ type skipJSON struct {
 }
 
 // newRouteJSON maps a pick onto the emitted shape (agent for runner, <provider>·<profile> account keys).
-func newRouteJSON(res agent.PickResult, src routeSources) routeJSON {
+func newRouteJSON(res router.PickResult, src routeSources) routeJSON {
 	out := routeJSON{Model: res.Tier, Want: res.Want, Weights: res.Weights, Sources: src,
 		Candidates: make([]candidateJSON, 0, len(res.Candidates)), Pins: routePins()}
 	for _, c := range res.Candidates {
@@ -241,9 +241,9 @@ func routeWeightsSource() string {
 
 // printRoute renders the pick: weights (and their source), one scored row per candidate, then each
 // skip's gate and reason, then the subagents switch and its source.
-func printRoute(res agent.PickResult, src routeSources) {
+func printRoute(res router.PickResult, src routeSources) {
 	var ws []string
-	for _, d := range agent.Dimensions {
+	for _, d := range router.Dimensions {
 		ws = append(ws, fmt.Sprintf("%s=%.2f", d.Name(), res.Weights[d.Name()]))
 	}
 	fmt.Printf("model %s  weights %s (%s)\n", res.Tier, strings.Join(ws, " "), src.Weights)
@@ -300,7 +300,7 @@ func printPins(pins map[string]pinJSON) {
 }
 
 // printEnds names where the chain ends: the claude hop's account and model, or why there is none.
-func printEnds(res agent.PickResult) {
+func printEnds(res router.PickResult) {
 	for _, c := range res.Candidates {
 		if c.Agent == "claude" {
 			fmt.Printf("ends at claude on %s (%s)\n", c.Account, c.Model)

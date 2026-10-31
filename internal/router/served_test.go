@@ -1,4 +1,4 @@
-package agent
+package router
 
 import (
 	"context"
@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -77,7 +76,7 @@ func TestServedSwitchOffKeepsStaticPick(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, model, ok := DatabricksResponses(reg, time.Now()); !ok || model != "m-a" {
+	if _, model, ok := DatabricksResponses(reg, time.Now(), func(string, *providers.Provider) bool { return true }); !ok || model != "m-a" {
 		t.Fatalf("switch off picked %q (ok=%v), want the static m-a", model, ok)
 	}
 	on := strings.Replace(routeDbxRow, `{"providers"`, `{"routing":{"servedAware":true},"providers"`, 1)
@@ -86,7 +85,7 @@ func TestServedSwitchOffKeepsStaticPick(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, model, ok := DatabricksResponses(reg, time.Now()); !ok || model != "m-b" {
+	if _, model, ok := DatabricksResponses(reg, time.Now(), func(string, *providers.Provider) bool { return true }); !ok || model != "m-b" {
 		t.Fatalf("switch on picked %q (ok=%v), want the served m-b", model, ok)
 	}
 }
@@ -175,7 +174,7 @@ func TestGateProfileSwapSkipOnlyForExplicitPin(t *testing.T) {
 	}
 	skips := func(pin string) bool {
 		res := &PickResult{}
-		tb.gateProfile(context.Background(), reg, "sonnet", "codex", "dev", pin, "", router.State{}, PickOpts{}, time.Now(), allConfigured, res)
+		tb.gateProfile(context.Background(), reg, "sonnet", "codex", "dev", pin, "", State{}, PickOpts{}, time.Now(), allConfigured, res)
 		return slices.ContainsFunc(res.Skipped, func(s Skip) bool { return strings.Contains(s.Reason, "is not READY on dev") })
 	}
 	if !skips("m-pin") {
@@ -215,9 +214,9 @@ func TestMarkUnservedHidesModel(t *testing.T) {
 func TestMarkUnservedExpiresAfterAnHour(t *testing.T) {
 	p := dbxProv("dev")
 	stubServed(t, []providers.OpencodeModel{respA}, listing("dev", map[string]string{"m-a": "READY", "m-b": "READY"}))
-	acct := router.ProviderAccount(p.Name)
+	acct := ProviderAccount(p.Name)
 	now := time.Now()
-	if err := router.Update(func(s router.State) {
+	if err := Update(func(s State) {
 		e := s[acct]
 		e.Unserved = map[string]time.Time{"m-a": now.Add(-2 * time.Hour), "m-old": now.Add(-3 * time.Hour), "m-new": now.Add(-10 * time.Minute)}
 		s[acct] = e
@@ -230,7 +229,7 @@ func TestMarkUnservedExpiresAfterAnHour(t *testing.T) {
 	if err := MarkUnserved(p, "m-b"); err != nil {
 		t.Fatal(err)
 	}
-	got := router.LoadState()[acct].Unserved
+	got := LoadState()[acct].Unserved
 	if _, ok := got["m-old"]; ok || got["m-new"].IsZero() || got["m-b"].IsZero() {
 		t.Errorf("after write Unserved = %v, want m-old pruned, m-new and m-b kept", got)
 	}

@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/router"
 )
 
 func preflightRegistry(cred bool) *providers.Registry {
@@ -87,7 +87,7 @@ func TestPinsFlow(t *testing.T) {
 		t.Fatalf("codex on an unready endpoint = %+v", c)
 	}
 	setPins(t, map[string]string{"CODEX_MODEL": "good-model"})
-	if c := byAgent(Check(reg, now.Add(agent.ServedTTL+time.Hour)))["codex"]; c.Status != StatusStale || c.Fix != "claude-code doctor --refresh" {
+	if c := byAgent(Check(reg, now.Add(router.ServedTTL+time.Hour)))["codex"]; c.Status != StatusStale || c.Fix != "claude-code doctor --refresh" {
 		t.Fatalf("codex past the TTL = %+v, want stale", c)
 	}
 	setPins(t, map[string]string{"OPENCODE_PROFILE": "nope"})
@@ -147,7 +147,7 @@ func TestNoCredentialSkips(t *testing.T) {
 
 // A pin must match the listing the way the runtime spells it: no blind databricks- stripping.
 func TestHasDoesNotStripPrefix(t *testing.T) {
-	s := agent.Served{Models: []agent.ServedModel{{ID: "databricks-my-endpoint", Ready: "READY"}}}
+	s := router.Served{Models: []router.ServedModel{{ID: "databricks-my-endpoint", Ready: "READY"}}}
 	if listed, _ := s.Has(preflightRegistry(true).Providers["dev"], "my-endpoint"); listed {
 		t.Fatal("pin my-endpoint must not match databricks-my-endpoint")
 	}
@@ -156,10 +156,10 @@ func TestHasDoesNotStripPrefix(t *testing.T) {
 // A listing stamped in the future is stale, not fresh forever.
 func TestFutureListingIsStale(t *testing.T) {
 	now := time.Now()
-	if (agent.Served{FetchedAt: now.Add(48 * time.Hour)}).Fresh(now) {
+	if (router.Served{FetchedAt: now.Add(48 * time.Hour)}).Fresh(now) {
 		t.Fatal("future fetched_at must not be fresh")
 	}
-	if !(agent.Served{FetchedAt: now.Add(time.Minute)}).Fresh(now) {
+	if !(router.Served{FetchedAt: now.Add(time.Minute)}).Fresh(now) {
 		t.Fatal("small skew must stay fresh")
 	}
 }

@@ -1,4 +1,4 @@
-package agent
+package router
 
 import (
 	"cmp"
@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/router"
 )
 
 // Gates a candidate must pass before it is scored; a Skip names the one that dropped it.
@@ -62,12 +61,37 @@ type PickOpts struct {
 	// offers a free Zen candidate there; nil defaults to IsWorkRepo("") (the cwd's git remote), so callers
 	// that never heard of this rule still get it for free.
 	WorkRepo func() bool
+	// Pins is every agent's routing pins, read once by the caller (agent.AgentPins).
+	Pins map[string]PinSpec
+	// CanServe reports whether provider p is usable by agent name (the roster's Serves).
+	CanServe func(agent string, p *providers.Provider) bool
+	// CodexModel respells codex's Databricks target for the agent (the pin or flag rule).
+	CodexModel func(providers.Target) providers.Target
+}
+
+// canServe is CanServe, or true for every pair when unset.
+func (o PickOpts) canServe(agent string, p *providers.Provider) bool {
+	return o.CanServe == nil || o.CanServe(agent, p)
+}
+
+// codexModel is CodexModel applied to t, or t itself when unset.
+func (o PickOpts) codexModel(t providers.Target) providers.Target {
+	if o.CodexModel == nil {
+		return t
+	}
+	return o.CodexModel(t)
+}
+
+// PinSpec is one agent's routing pins: its profile, its model pin, and whether it is switched off.
+type PinSpec struct {
+	Profile, Model string
+	Off            bool
 }
 
 // PickScope is what a Dimension may read: the account states and every candidate scored together.
 type PickScope struct {
 	Table      *RouteTable
-	State      router.State
+	State      State
 	Candidates []Candidate
 }
 
@@ -82,7 +106,7 @@ var Dimensions = []Dimension{priceDim{}, headroomDim{}}
 
 // Pick gates then scores the runners for tier: want first when it passes the gates, then the other agents by
 // total score (low accounts after all non-low), then claude under FallbackAll. claude itself never falls back.
-func (t *RouteTable) Pick(ctx context.Context, tier, want string, st router.State, o PickOpts) PickResult {
+func (t *RouteTable) Pick(ctx context.Context, tier, want string, st State, o PickOpts) PickResult {
 	now, configured := time.Now(), o.Configured
 	if o.Now != nil {
 		now = o.Now()
@@ -91,10 +115,10 @@ func (t *RouteTable) Pick(ctx context.Context, tier, want string, st router.Stat
 		configured = func(string, Cell) error { return nil }
 	}
 	if st == nil {
-		st = router.State{}
+		st = State{}
 	}
 	res := PickResult{Tier: tier, Want: want, Weights: t.Weights}
-	pins := AgentPins()
+	pins := o.Pins
 	reg, _ := providers.Load()
 	pg := &pickGate{reg: reg, held: map[string]bool{}}
 	gate := func(runner string) ([]Candidate, bool) {
@@ -141,7 +165,7 @@ func regroup(groups [][]Candidate, flat []Candidate) [][]Candidate {
 // gateRunner runs one runner through the row/configured/account/exhausted gates, recording a Skip on failure.
 // It returns a group of candidates from this one runner — one, unless it's opencode's free+backup pair.
 func (t *RouteTable) gateRunner(
-	ctx context.Context, tier, runner string, st router.State, o PickOpts, now time.Time,
+	ctx context.Context, tier, runner string, st State, o PickOpts, now time.Time,
 	configured func(runner string, c Cell) error, res *PickResult,
 ) ([]Candidate, bool) {
 	if runner == "opencode" && !t.OpencodeRowOverridden[tier] {
@@ -171,23 +195,23 @@ func (t *RouteTable) gateRunner(
 
 // gateAccount runs a resolved cell through the copilot-pin, auth-mark, refresh and exhausted gates; name labels Skips.
 func (t *RouteTable) gateAccount(
-	ctx context.Context, name string, c Cell, billing string, st router.State, o PickOpts, now time.Time, res *PickResult,
+	ctx context.Context, name string, c Cell, billing string, st State, o PickOpts, now time.Time, res *PickResult,
 ) (Candidate, bool) {
 	if c.Account == CopilotUnpinned {
 		res.Skipped = append(res.Skipped, Skip{name, GateAccount, "no pinned Copilot account (claude-code configure github)"})
 		return Candidate{}, false
 	}
 	if reason, marked := st.AccountAuthMarked(c.Account, now); marked {
-		res.Skipped = append(res.Skipped, Skip{name, router.GateAuth, authSkipReason(reason, c.Account)})
+		res.Skipped = append(res.Skipped, Skip{name, GateAuth, authSkipReason(reason, c.Account)})
 		return Candidate{}, false
 	}
 	e := st[c.Account]
-	if o.Refresh != nil && now.Sub(e.Seen) > router.StaleAfter && e.Status(now) != router.StateExhausted && o.Refresh(ctx, c.Account) {
-		e = router.LoadState()[c.Account]
+	if o.Refresh != nil && now.Sub(e.Seen) > StaleAfter && e.Status(now) != StateExhausted && o.Refresh(ctx, c.Account) {
+		e = LoadState()[c.Account]
 		st[c.Account] = e
 	}
 	s := e.Status(now)
-	if s == router.StateExhausted {
+	if s == StateExhausted {
 		res.Skipped = append(res.Skipped, Skip{name, GateExhausted, ExhaustedReason(c.Account, e, now)})
 		return Candidate{}, false
 	}
@@ -214,7 +238,7 @@ func (t *RouteTable) opencodeOrder() []string {
 // When the winner bills free, the first surviving paid sub-candidate rides along right after it, so a stalled
 // free leg has a ready backup without a second opencode pick.
 func (t *RouteTable) gateOpencodeCandidate(
-	ctx context.Context, tier, only string, st router.State, o PickOpts, now time.Time,
+	ctx context.Context, tier, only string, st State, o PickOpts, now time.Time,
 	configured func(runner string, c Cell) error, res *PickResult,
 ) ([]Candidate, bool) {
 	type sub struct {
@@ -243,11 +267,11 @@ func (t *RouteTable) gateOpencodeCandidate(
 			continue // e.g. zen-free carries no "opus" row — that is how it stays out of opus, not a tier check
 		}
 		billing := t.Billing[c.Account]
-		if billing == router.BillFree && workRepo() {
+		if billing == BillFree && workRepo() {
 			res.Skipped = append(res.Skipped, Skip{name, GateFree, "free blocked on a work repo"})
 			continue
 		}
-		if billing == router.BillFree && !t.OpencodeRouting.FreeTierOK(tier) {
+		if billing == BillFree && !t.OpencodeRouting.FreeTierOK(tier) {
 			res.Skipped = append(res.Skipped, Skip{name, GateFree, "free not enabled at " + tier})
 			continue
 		}
@@ -271,9 +295,9 @@ func (t *RouteTable) gateOpencodeCandidate(
 		return []Candidate{{Agent: "opencode", Cell: w.c, State: w.state, Billing: w.billing}}, true
 	}
 	group := []Candidate{{Agent: "opencode", Cell: w.c, State: w.state, Billing: w.billing}}
-	if w.billing == router.BillFree {
+	if w.billing == BillFree {
 		for _, s := range ok[1:] {
-			if s.billing != router.BillFree {
+			if s.billing != BillFree {
 				group = append(group, Candidate{Agent: "opencode", Cell: s.c, State: s.state, Billing: s.billing})
 				break
 			}
@@ -310,7 +334,7 @@ func (t *RouteTable) gatherCandidates(want string, o PickOpts, gate func(string)
 }
 
 // score fills each candidate's per-dimension scores and weighted total.
-func (t *RouteTable) score(cs []Candidate, st router.State) []Candidate {
+func (t *RouteTable) score(cs []Candidate, st State) []Candidate {
 	sc := PickScope{Table: t, State: st, Candidates: cs}
 	out := make([]Candidate, len(cs))
 	for i, c := range cs {
@@ -326,7 +350,7 @@ func (t *RouteTable) score(cs []Candidate, st router.State) []Candidate {
 }
 
 func lowRank(s string) int {
-	if s == router.StateLow {
+	if s == StateLow {
 		return 1
 	}
 	return 0
@@ -338,15 +362,15 @@ type priceDim struct{}
 func (priceDim) Name() string { return "price" }
 
 func (priceDim) Score(c Candidate, s PickScope) float64 {
-	if c.Billing == router.BillFree {
+	if c.Billing == BillFree {
 		return 1
 	}
-	if c.Billing == router.BillSubscription {
+	if c.Billing == BillSubscription {
 		return headroom(s.State[c.Account])
 	}
 	p, low := blended(c.Price), -1.0
 	for _, o := range s.Candidates {
-		if b := blended(o.Price); o.Billing != router.BillSubscription && b > 0 && (low < 0 || b < low) {
+		if b := blended(o.Price); o.Billing != BillSubscription && b > 0 && (low < 0 || b < low) {
 			low = b
 		}
 	}
@@ -364,7 +388,7 @@ func (headroomDim) Name() string { return "headroom" }
 func (headroomDim) Score(c Candidate, s PickScope) float64 { return headroom(s.State[c.Account]) }
 
 // headroom of an unseen account is 0.5: unknown ranks below a reading known to have room.
-func headroom(e router.Entry) float64 {
+func headroom(e Entry) float64 {
 	if e.Seen.IsZero() {
 		return 0.5
 	}
@@ -383,7 +407,7 @@ func authSkipReason(reason, account string) string {
 }
 
 // ExhaustedReason names the account and its reset, e.g. "github·aueric_boehcp exhausted until 2026-11-01".
-func ExhaustedReason(account string, e router.Entry, now time.Time) string {
+func ExhaustedReason(account string, e Entry, now time.Time) string {
 	s := account + " exhausted"
 	if u := e.Until(now); !u.IsZero() {
 		layout := "2006-01-02 15:04"
@@ -402,3 +426,13 @@ func firstLine(s string) string {
 	s, _, _ = strings.Cut(strings.TrimSpace(s), "\n")
 	return s
 }
+
+// Fallback modes for an unavailable dispatch: the full chain ending in claude, other agents only, or none.
+const (
+	FallbackAll    = "all"
+	FallbackAgents = "agents"
+	FallbackNone   = "none"
+)
+
+// FallbackModes lists the accepted --fallback values.
+var FallbackModes = []string{FallbackAll, FallbackAgents, FallbackNone}

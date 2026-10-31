@@ -10,9 +10,10 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/router"
 )
 
-// scratchRepo makes a throwaway git repo (no commits needed — agent.IsWorkRepo only reads the origin
+// scratchRepo makes a throwaway git repo (no commits needed — router.IsWorkRepo only reads the origin
 // remote) with origin set to url, so a test controls exactly what "the repo this leg runs in" looks like.
 func scratchRepo(t *testing.T, origin string) string {
 	t.Helper()
@@ -74,7 +75,7 @@ func runPreparedWorkdir(t *testing.T, workdir string) agent.Result {
 	t.Helper()
 	client := newClient()
 	p, err := client.Prepare(context.Background(), agent.RunOptions{Agent: "opencode", Prompt: "test prompt",
-		Fallback: agent.FallbackAgents, WorkDir: workdir}, nil)
+		Fallback: router.FallbackAgents, WorkDir: workdir}, nil)
 	if err != nil {
 		t.Fatalf("Prepare() = %v", err)
 	}

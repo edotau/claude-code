@@ -208,7 +208,7 @@ func applyOverlay(base, o *Registry) error {
 	return errors.Join(errs...)
 }
 
-// applyRoutingOverlay merges o into base: cells cell by cell (matching how agent.LoadFrom applies
+// applyRoutingOverlay merges o into base: cells cell by cell (matching how router.LoadFrom applies
 // them), every other field replaced whole when the overlay sets it.
 func applyRoutingOverlay(base, o *Routing) {
 	for runner, tiers := range o.Cells {

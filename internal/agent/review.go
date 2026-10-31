@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/proc"
+	"github.com/edotau/claude-code/internal/router"
 )
 
 // Scope is the diff range `<v> review` acts on. Kind: uncommitted|base|commit|pr; Ref holds the
@@ -198,7 +199,7 @@ func ReviewArgs(agentName string, s Scope, diff []byte, adversarial, background 
 		_ = os.Remove(f.Name()) // best-effort cleanup; the close error is already being returned
 		return nil, nil, err
 	}
-	args := []string{"--agent", agentName, "--fallback", FallbackAgents, "--attach", f.Name()}
+	args := []string{"--agent", agentName, "--fallback", router.FallbackAgents, "--attach", f.Name()}
 	if background {
 		args = append(args, "--background")
 	}

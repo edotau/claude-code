@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -36,18 +37,18 @@ func TestSessionProfileAgents(t *testing.T) {
 	}
 	vaulttest.Secret(t, providers.AuthSecretName(p), "profile-auth")
 	vaulttest.Put(t, vault.Pins, providers.PinCopilotProfile, githubProfile)
-	tb, err := LoadFrom(reg, githubProfile)
+	tb, err := router.LoadFrom(reg, githubProfile)
 	if err != nil {
 		t.Fatal(err)
 	}
 	dbx, github := router.ProviderAccount(profile), router.ProviderAccount(githubProfile)
 	st := router.State{github: {UsedPct: 100, Seen: now0, ExhaustedUntil: now0.Add(time.Hour)}}
-	opts := PickOpts{Configured: allConfigured, Now: func() time.Time { return now0 }, WorkRepo: func() bool { return true }}
-	pickAgent := func(agent string, state router.State, opts PickOpts) PickResult {
-		return tb.Pick(context.Background(), "sonnet", agent, state, opts)
+	opts := router.PickOpts{Configured: allConfigured, Now: func() time.Time { return now0 }, WorkRepo: func() bool { return true }}
+	pickAgent := func(agent string, state router.State, opts router.PickOpts) router.PickResult {
+		return tb.Pick(context.Background(), "sonnet", agent, state, RosterPick(opts))
 	}
-	models := func(r PickResult, agent, account string) []Candidate {
-		var out []Candidate
+	models := func(r router.PickResult, agent, account string) []router.Candidate {
+		var out []router.Candidate
 		for _, c := range r.Candidates {
 			if c.Agent == agent && c.Account == account {
 				out = append(out, c)
@@ -55,7 +56,7 @@ func TestSessionProfileAgents(t *testing.T) {
 		}
 		return out
 	}
-	assertProfile := func(t *testing.T, c Candidate, agent, model string) {
+	assertProfile := func(t *testing.T, c router.Candidate, agent, model string) {
 		t.Helper()
 		if c.Agent != agent || c.Account != dbx || c.Profile != profile || c.Model != model {
 			t.Errorf("agent = %+v, want %s %s profile %s model %s", c, agent, dbx, profile, model)
@@ -67,8 +68,8 @@ func TestSessionProfileAgents(t *testing.T) {
 			t.Fatalf("copilot absent: %+v", r)
 		}
 		assertProfile(t, r.Candidates[0], "copilot", p.WireModel(p.Models["sonnet"]))
-		if len(models(r, "copilot", github)) != 0 || !slices.ContainsFunc(r.Skipped, func(s Skip) bool {
-			return s.Agent == "copilot" && s.Gate == GateExhausted
+		if len(models(r, "copilot", github)) != 0 || !slices.ContainsFunc(r.Skipped, func(s router.Skip) bool {
+			return s.Agent == "copilot" && s.Gate == router.GateExhausted
 		}) {
 			t.Errorf("copilot github profile = %+v", r)
 		}
@@ -97,7 +98,7 @@ func TestSessionProfileAgents(t *testing.T) {
 	})
 	t.Run("copilot auth", func(t *testing.T) {
 		blocked := opts
-		blocked.Configured = func(agent string, c Cell) error {
+		blocked.Configured = func(agent string, c router.Cell) error {
 			if agent == "copilot" && c.Account == dbx {
 				return errors.New("profile auth")
 			}
@@ -105,8 +106,8 @@ func TestSessionProfileAgents(t *testing.T) {
 		}
 		for _, agent := range []string{"copilot", "codex"} {
 			r := pickAgent(agent, st, blocked)
-			if len(models(r, "copilot", dbx)) != 0 || !slices.ContainsFunc(r.Skipped, func(s Skip) bool {
-				return agentOf(s.Agent) == "copilot" && s.Gate == GateAvailable
+			if len(models(r, "copilot", dbx)) != 0 || !slices.ContainsFunc(r.Skipped, func(s router.Skip) bool {
+				return strings.Split(s.Agent, "·")[0] == "copilot" && s.Gate == router.GateAvailable
 			}) {
 				t.Errorf("%s copilot profile auth = %+v", agent, r)
 			}
@@ -115,7 +116,7 @@ func TestSessionProfileAgents(t *testing.T) {
 	t.Run("copilot off", func(t *testing.T) {
 		t.Cleanup(func() { vaulttest.Put(t, vault.Pins, providers.PinCopilotActive, "") })
 		vaulttest.Put(t, vault.Pins, providers.PinCopilotActive, AgentOff)
-		if r := pickAgent("codex", st, opts); slices.ContainsFunc(r.Candidates, func(c Candidate) bool { return c.Agent == "copilot" }) {
+		if r := pickAgent("codex", st, opts); slices.ContainsFunc(r.Candidates, func(c router.Candidate) bool { return c.Agent == "copilot" }) {
 			t.Errorf("copilot off = %+v", r)
 		}
 	})
@@ -125,13 +126,13 @@ func TestSessionProfileAgents(t *testing.T) {
 			entry router.Entry
 		}{
 			{router.GateAuth, router.Entry{AuthAt: now0, AuthReason: "profile auth"}},
-			{GateExhausted, router.Entry{Seen: now0, ExhaustedUntil: now0.Add(time.Hour)}},
+			{router.GateExhausted, router.Entry{Seen: now0, ExhaustedUntil: now0.Add(time.Hour)}},
 		} {
 			blocked := router.State{github: st[github], dbx: state.entry}
 			for _, agent := range []string{"copilot", "codex"} {
 				r := pickAgent(agent, blocked, opts)
-				if len(models(r, "copilot", dbx)) != 0 || !slices.ContainsFunc(r.Skipped, func(s Skip) bool {
-					return agentOf(s.Agent) == "copilot" && s.Gate == state.gate
+				if len(models(r, "copilot", dbx)) != 0 || !slices.ContainsFunc(r.Skipped, func(s router.Skip) bool {
+					return strings.Split(s.Agent, "·")[0] == "copilot" && s.Gate == state.gate
 				}) {
 					t.Errorf("%s copilot profile %s = %+v", agent, state.gate, r)
 				}
@@ -142,7 +143,7 @@ func TestSessionProfileAgents(t *testing.T) {
 		t.Cleanup(func() { vaulttest.Put(t, vault.Pins, providers.PinCopilotProfile, githubProfile) })
 		vaulttest.Put(t, vault.Pins, providers.PinCopilotProfile, profile)
 		only := opts
-		only.Fallback = FallbackNone
+		only.Fallback = router.FallbackNone
 		r := pickAgent("copilot", st, only)
 		if len(r.Candidates) != 1 {
 			t.Fatalf("copilot profile = %+v", r)
@@ -160,7 +161,7 @@ func TestSessionProfileAgents(t *testing.T) {
 		cell.Account, cell.Model = dbx, p.WireModel(p.Models["sonnet"])
 		tb.Rows["copilot"]["sonnet"] = cell
 		only := opts
-		only.Fallback = FallbackNone
+		only.Fallback = router.FallbackNone
 		if r := pickAgent("copilot", st, only); len(r.Candidates) != 1 || r.Candidates[0].Cell != cell {
 			t.Errorf("copilot profile model = %+v, want %+v", r, cell)
 		}

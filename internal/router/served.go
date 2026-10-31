@@ -1,4 +1,4 @@
-package agent
+package router
 
 import (
 	"strings"
@@ -6,7 +6,6 @@ import (
 
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/router"
 )
 
 // unservedTTL is how long a model whose endpoint a live call found gone stays out of served-aware picks.
@@ -27,7 +26,7 @@ func servedKey(p *providers.Provider, model string) string {
 }
 
 // unservedMarked reports whether wire carries an unexpired mark in the profile account's entry e.
-func unservedMarked(e router.Entry, p *providers.Provider, model string, now time.Time) bool {
+func unservedMarked(e Entry, p *providers.Provider, model string, now time.Time) bool {
 	at, ok := e.Unserved[servedKey(p, model)]
 	return ok && now.Sub(at) < unservedTTL
 }
@@ -38,7 +37,7 @@ func servedView(p *providers.Provider, now time.Time) (ready func(model string) 
 	if !ok {
 		return nil, false
 	}
-	e := router.LoadState()[router.ProviderAccount(p.Name)]
+	e := LoadState()[ProviderAccount(p.Name)]
 	return func(model string) bool {
 		_, ready := s.Has(p, model)
 		return ready && !unservedMarked(e, p, model, now)
@@ -72,8 +71,8 @@ func ServedFirst(p *providers.Provider, responsesOnly bool, now time.Time) (mode
 // MarkUnserved remembers that p's endpoint for model is gone, so served-aware picks skip it for unservedTTL.
 func MarkUnserved(p *providers.Provider, model string) error {
 	now := time.Now()
-	return router.Update(func(s router.State) {
-		account := router.ProviderAccount(p.Name)
+	return Update(func(s State) {
+		account := ProviderAccount(p.Name)
 		e := s[account]
 		next := make(map[string]time.Time, len(e.Unserved)+1)
 		for k, at := range e.Unserved {

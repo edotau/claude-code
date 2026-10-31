@@ -106,10 +106,10 @@ func TestResolveAgentModelMissingAlias(t *testing.T) {
 // A databricks- pin is dropped off Databricks (the default stands) and kept on it.
 func TestSpellPinDropsDatabricksOffDatabricks(t *testing.T) {
 	const pin = "databricks-gpt-6-1-sol"
-	if got := SpellPin(specTarget("fallback").Provider, pin); got != "" {
+	if got := providers.SpellPin(specTarget("fallback").Provider, pin); got != "" {
 		t.Errorf("off-Databricks = %q, want dropped", got)
 	}
-	if got := SpellPin(specTarget("databricks").Provider, pin); got != pin {
+	if got := providers.SpellPin(specTarget("databricks").Provider, pin); got != pin {
 		t.Errorf("Databricks = %q, want kept", got)
 	}
 	vaulttest.Use(t)

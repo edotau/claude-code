@@ -1,4 +1,4 @@
-package agent
+package router
 
 import (
 	"context"
@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -17,7 +16,7 @@ const routeDbxRow = `{"providers":{"databricks":{"dev":{"preset":"databricks","h
 
 // dbxCandidates seeds a hermetic vault (a signed-in Databricks row "dev", the given menu), runs a codex pick
 // under session profile and returns the codex candidates' accounts plus the pick.
-func dbxCandidates(t *testing.T, profile string, menu []providers.OpencodeModel, st router.State) ([]string, PickResult) {
+func dbxCandidates(t *testing.T, profile string, menu []providers.OpencodeModel, st State) ([]string, PickResult) {
 	t.Helper()
 	tb := testTable(t)
 	vaulttest.Use(t)
@@ -78,7 +77,7 @@ func TestCodexDatabricksCandidate(t *testing.T) {
 	}
 
 	// Exhausted Databricks account: no candidate, one matching skip.
-	st := router.State{dbx: {UsedPct: 100, ExhaustedUntil: now0.Add(3600e9), Seen: now0}}
+	st := State{dbx: {UsedPct: 100, ExhaustedUntil: now0.Add(3600e9), Seen: now0}}
 	accts, r = dbxCandidates(t, "dev", []providers.OpencodeModel{gpt}, st)
 	if !slices.Equal(accts, []string{chatgpt}) || !hasDbxSkip(r, GateExhausted) {
 		t.Errorf("exhausted: accounts = %v skipped = %+v", accts, r.Skipped)

@@ -10,6 +10,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -36,7 +37,7 @@ func servedHarness(t *testing.T, on bool) *int {
 
 func cached(t *testing.T) bool {
 	t.Helper()
-	_, ok := agent.LoadServed("qa")
+	_, ok := router.LoadServed("qa")
 	return ok
 }
 

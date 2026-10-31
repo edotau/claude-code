@@ -11,9 +11,9 @@ import (
 	"strings"
 	"unicode"
 
-	agentpkg "github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
@@ -172,7 +172,7 @@ func pinModel(in *Input, updated map[string]any, task string) (note, systemMessa
 	if explicitModel(in) || task == "" || agentPinsModel(in.nested("tool_input", "subagent_type")) {
 		return "", ""
 	}
-	tier, signal := agentpkg.EffortTierSignal(task)
+	tier, signal := router.EffortTierSignal(task)
 	model := models.TierModel(tier)
 	if model == "" { // a tier with no row: never emit an empty pin
 		return "", ""
