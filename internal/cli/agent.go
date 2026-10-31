@@ -108,12 +108,12 @@ func runAsk(args []string, resume bool) int {
 	if *host != "" && agents != "" {
 		return failAskCode(*format, *name, errors.New("--host cannot be combined with --agents: the remote cannot see an inline definition"), 2)
 	}
-	ref := *name // the raw selector Prepare resolves; *name becomes the runner so envelopes publish it
-	runner, persona, err := agent.SelectAgent(ref, defs)
+	ref := *name // the raw selector Prepare resolves; *name becomes the agent so envelopes publish it
+	ag, persona, err := agent.SelectAgent(ref, defs)
 	if err != nil {
 		return failAskCode(*format, *name, err, 2)
 	}
-	*name = runner
+	*name = ag
 	if *live {
 		if persona != nil {
 			return failAskCode(*format, *name, errors.New("--live cannot run a persona (agents/<name>.md or an --agents key): use a plain vendor"), 2)
@@ -163,13 +163,13 @@ func runAsk(args []string, resume bool) int {
 			return rc
 		}
 	}
-	if *name != runner { // --job/--retry replaced the agent: resolve the record's (or re-typed) value instead
+	if *name != ag { // --job/--retry replaced the agent: resolve the record's (or re-typed) value instead
 		ref = *name
 	}
 	if rest, p, rerr := agent.SelectAgent(ref, defs); rerr != nil { // a --retry re-parse puts the raw --agent value back
 		return failAskCode(*format, *name, rerr, 2)
 	} else {
-		runner, *name = rest, rest
+		ag, *name = rest, rest
 		if p != nil { // an explicit persona beats the record's
 			persona = p
 		}
@@ -207,8 +207,8 @@ func runAsk(args []string, resume bool) int {
 	if *retry == "" && *job == "" && *tools && !timeoutExplicit(fs) {
 		*timeout = 45 * time.Minute
 	}
-	if s, ok := agent.LookupSchema(runner); *enableMemory && ok && s.CLI.Caps.Memory == agent.None {
-		fmt.Fprintf(os.Stderr, "ask: --enable-memory has no effect on the %s agent (copilot only)\n", runner)
+	if s, ok := agent.LookupSchema(ag); *enableMemory && ok && s.CLI.Caps.Memory == agent.None {
+		fmt.Fprintf(os.Stderr, "ask: --enable-memory has no effect on the %s agent (copilot only)\n", ag)
 	}
 	*debugFile = absDebugFile(*debugFile)
 	req := agent.RunOptions{Prompt: prompt, Model: *model, Provider: *provider, Effort: *effort,
@@ -400,7 +400,7 @@ func (a *attachFlag) Set(s string) error {
 	if !info.Mode().IsRegular() {
 		return fmt.Errorf("--attach %q: not a regular file", s)
 	}
-	// reject non-image binary up front: it fails the same way on every runner, so it must never reach the fallback chain
+	// reject non-image binary up front: it fails the same way on every agent, so it must never reach the fallback chain
 	if data, err := os.ReadFile(abs); err != nil {
 		return fmt.Errorf("--attach %q: %w", s, err)
 	} else if !agent.IsText(data) && !agent.IsImage(data) {
@@ -579,7 +579,7 @@ func reportAskResult(format string, res agent.Result, err error, dispatchID stri
 	}
 }
 
-// agentsPage is `agents -h`; bare `agents` lists the runners.
+// agentsPage is `agents -h`; bare `agents` lists the agents.
 var agentsPage = helptext.Page{
 	Usage: "claude-code agents [<command>] [flags]",
 	About: "With no command, list each agent, whether it is available and which " +
@@ -715,7 +715,7 @@ func listAgents(format string) int {
 		Events    []string          `json:"events"`
 	}
 	var rows []row
-	for _, r := range agent.Runners() {
+	for _, r := range agent.Engines() {
 		mark, reason := "✓", ""
 		if err := r.Available(); err != nil {
 			mark, reason = "✗", err.Error()

@@ -18,7 +18,7 @@ func astraOpts() router.PickOpts {
 	return router.PickOpts{Configured: func(string, router.Cell) error { return nil }}
 }
 
-// stubDispatches swaps every dispatch's runner for a capturing stub; stubs[i] backs c.Dispatches[i].
+// stubDispatches swaps every dispatch's engine for a capturing stub; stubs[i] backs c.Dispatches[i].
 func stubDispatches(c *Chain) []*pinFallbackRunner {
 	stubs := make([]*pinFallbackRunner, len(c.Dispatches))
 	for i := range c.Dispatches {
@@ -52,10 +52,10 @@ func TestAstraModelIdentity(t *testing.T) {
 		}
 		got := stubs[0].seen[0].Model
 		if got != astra {
-			t.Errorf("codex runner model = %q, want %q", got, astra)
+			t.Errorf("codex agent model = %q, want %q", got, astra)
 		}
 		if c.Dispatches[0].Model != got {
-			t.Errorf("codex Dispatch.Model = %q but runner got %q: planned dispatch records the stale tier default, not the model run", c.Dispatches[0].Model, got)
+			t.Errorf("codex Dispatch.Model = %q but agent got %q: planned dispatch records the stale tier default, not the model run", c.Dispatches[0].Model, got)
 		}
 	})
 
@@ -67,7 +67,7 @@ func TestAstraModelIdentity(t *testing.T) {
 			t.Errorf("err = %v, want *Error KindFatal", err)
 		}
 		if len(stub.seen) != 0 {
-			t.Errorf("runner calls = %d, want 0", len(stub.seen))
+			t.Errorf("agent calls = %d, want 0", len(stub.seen))
 		}
 	})
 }

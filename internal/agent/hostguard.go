@@ -45,7 +45,7 @@ type frozenTarget struct {
 	note string
 }
 
-// freezeCopilot resolves copilot's real target once, so the permit, cooldown key, guard and runner all use the same
+// freezeCopilot resolves copilot's real target once, so the permit, cooldown key, guard and agent all use the same
 // account. When the gate moved the dispatch to another provider, the dispatch bills that provider's account instead.
 func freezeCopilot(ctx context.Context, disp Dispatch, req RunOptions) (context.Context, Dispatch) {
 	if disp.Agent.Name() != "copilot" {
@@ -53,7 +53,7 @@ func freezeCopilot(ctx context.Context, disp Dispatch, req RunOptions) (context.
 	}
 	t, own, note, err := schemaFor("copilot").targetNote(req)
 	if err != nil {
-		return ctx, disp // the runner reports its own resolution failure
+		return ctx, disp // the agent reports its own resolution failure
 	}
 	if !own && t.Provider != nil && t.Provider.Auth.Login != "copilot" {
 		disp.Account, disp.Billing = profileAccount(t.Provider), billingOf(t.Provider)
@@ -61,7 +61,7 @@ func freezeCopilot(ctx context.Context, disp Dispatch, req RunOptions) (context.
 	return context.WithValue(ctx, frozenKey{}, frozenTarget{t, own, note}), disp
 }
 
-// ownLoginActual re-keys a dispatch the table put on the agent's own login when the runner really resolves another profile.
+// ownLoginActual re-keys a dispatch the table put on the agent's own login when the agent really resolves another profile.
 func ownLoginActual(disp Dispatch, req RunOptions) Dispatch {
 	name := disp.Agent.Name()
 	if name == "copilot" || name == "claude" || name == "opencode" || !ownLoginAccount(name, disp.Account) {
@@ -106,19 +106,19 @@ func guardRouteHost(ctx context.Context, p *providers.Provider) error {
 }
 
 // guardProvider is the provider whose credential the hop sends; nil for an unpinned agent dispatch (own login).
-func guardProvider(r Runner, req RunOptions) (*providers.Provider, error) {
+func guardProvider(r Engine, req RunOptions) (*providers.Provider, error) {
 	if l, ok := r.(hubDispatch); ok {
 		return l.provider, nil
 	}
 	s, known := LookupSchema(r.Name())
 	if known && s.External() {
-		// the same target the runner picks: --provider, a provider:model prefix, the session, the copilot gate
+		// the same target the agent picks: --provider, a provider:model prefix, the session, the copilot gate
 		t, own, _, err := s.targetNote(req)
 		if err != nil {
 			if req.Provider != "" {
 				return nil, err
 			}
-			return nil, nil // the runner reports its own resolution failure with its own kind
+			return nil, nil // the agent reports its own resolution failure with its own kind
 		}
 		if own {
 			return nil, nil
@@ -136,7 +136,7 @@ func guardProvider(r Runner, req RunOptions) (*providers.Provider, error) {
 }
 
 // guardAttempt runs inside a timed attempt: it validates the hop's credential and marks its one own profile on ctx.
-func guardAttempt(ctx context.Context, r Runner, req RunOptions) (context.Context, *Error) {
+func guardAttempt(ctx context.Context, r Engine, req RunOptions) (context.Context, *Error) {
 	var gp *providers.Provider
 	var err error
 	if f, ok := ctx.Value(frozenKey{}).(frozenTarget); ok && r.Name() == "copilot" {

@@ -239,9 +239,9 @@ func TestOpencodeSubPickZenFreeExhaustedFallsToGoAlone(t *testing.T) {
 	}
 }
 
-// denyOpencode fails every opencode cell (simulating no opencode login at all) and passes every other runner.
-func denyOpencode(runner string, _ Cell) error {
-	if runner == "opencode" {
+// denyOpencode fails every opencode cell (simulating no opencode login at all) and passes every other agent.
+func denyOpencode(agent string, _ Cell) error {
+	if agent == "opencode" {
 		return errors.New("not configured: no opencode login")
 	}
 	return nil

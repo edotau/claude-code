@@ -199,7 +199,7 @@ func TestAskPersonaLoadsAndRetryKeepsIt(t *testing.T) {
 	ask := func(args ...string) agent.RunOptions {
 		t.Helper()
 		if code, _, stderr := captureOutput(t, func() int { return cmdAsk(args) }); code != 1 {
-			t.Fatalf("exit = %d, want 1 for unavailable runner; stderr=%s", code, stderr)
+			t.Fatalf("exit = %d, want 1 for unavailable agent; stderr=%s", code, stderr)
 		}
 		return agent.RecentRecords(1)[0].Request
 	}

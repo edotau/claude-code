@@ -26,29 +26,29 @@ func IsPoolModel(p *providers.Provider, model string) bool {
 }
 
 // PinnedModel resolves a pin and reports why a BYOK request fell back to the tier slot.
-func PinnedModel(runner, tier string, cell Cell, p *providers.Provider, pin string) (string, string) {
+func PinnedModel(agent, tier string, cell Cell, p *providers.Provider, pin string) (string, string) {
 	now := time.Now()
 	if pin != BYOKModel {
-		return pinnedModel(runner, tier, cell, p, pin, now), ""
+		return pinnedModel(agent, tier, cell, p, pin, now), ""
 	}
-	if runner != "copilot" && runner != "opencode" {
-		return pinnedModel(runner, tier, cell, p, "", now), "byok requires copilot or opencode; using tier slot"
+	if agent != "copilot" && agent != "opencode" {
+		return pinnedModel(agent, tier, cell, p, "", now), "byok requires copilot or opencode; using tier slot"
 	}
 	if p == nil || p.Preset != providers.PresetDatabricks {
-		return pinnedModel(runner, tier, cell, p, "", now), "byok requires Databricks; using tier slot"
+		return pinnedModel(agent, tier, cell, p, "", now), "byok requires Databricks; using tier slot"
 	}
-	model, err := pickPool(runner, p, BYOKPool(), now)
+	model, err := pickPool(agent, p, BYOKPool(), now)
 	if err != nil {
-		return pinnedModel(runner, tier, cell, p, "", now), "byok state unavailable; using tier slot"
+		return pinnedModel(agent, tier, cell, p, "", now), "byok state unavailable; using tier slot"
 	}
 	if model == "" {
-		return pinnedModel(runner, tier, cell, p, "", now), "byok pool has no served model; using tier slot"
+		return pinnedModel(agent, tier, cell, p, "", now), "byok pool has no served model; using tier slot"
 	}
 	return model, ""
 }
 
 // pickPool selects and records under the same lock, so simultaneous picks see each other's timestamps.
-func pickPool(runner string, p *providers.Provider, pool []string, now time.Time) (string, error) {
+func pickPool(agent string, p *providers.Provider, pool []string, now time.Time) (string, error) {
 	pool = servedPool(p, pool, now)
 	var selected, model string
 	err := Update(func(s State) {
@@ -56,7 +56,7 @@ func pickPool(runner string, p *providers.Provider, pool []string, now time.Time
 		e := s[account]
 		for _, entry := range pool {
 			wire := providers.SpellPin(p, entry)
-			if wire != "" && !byokSkipped(e, runner, entry, now) && (selected == "" || e.BYOK[entry].Before(e.BYOK[selected])) {
+			if wire != "" && !byokSkipped(e, agent, entry, now) && (selected == "" || e.BYOK[entry].Before(e.BYOK[selected])) {
 				selected, model = entry, wire
 			}
 		}
@@ -87,15 +87,15 @@ func servedPool(p *providers.Provider, pool []string, now time.Time) []string {
 // byokSkipTTL is how long a model that failed for an agent stays out of that agent's rotation.
 const byokSkipTTL = 7 * 24 * time.Hour
 
-func byokSkipKey(runner, entry string) string { return runner + "|" + entry }
+func byokSkipKey(agent, entry string) string { return agent + "|" + entry }
 
-func byokSkipped(e Entry, runner, entry string, now time.Time) bool {
-	at, ok := e.BYOKSkip[byokSkipKey(runner, entry)]
+func byokSkipped(e Entry, agent, entry string, now time.Time) bool {
+	at, ok := e.BYOKSkip[byokSkipKey(agent, entry)]
 	return ok && now.Sub(at) < byokSkipTTL
 }
 
-// SkipBYOK marks the pool entry p serves as wire unusable for runner and returns it, "" when none matches.
-func SkipBYOK(runner string, p *providers.Provider, wire string) string {
+// SkipBYOK marks the pool entry p serves as wire unusable for agent and returns it, "" when none matches.
+func SkipBYOK(agent string, p *providers.Provider, wire string) string {
 	var hit string
 	_ = Update(func(s State) {
 		for _, entry := range BYOKPool() {
@@ -108,7 +108,7 @@ func SkipBYOK(runner string, p *providers.Provider, wire string) string {
 			if e.BYOKSkip == nil {
 				e.BYOKSkip = make(map[string]time.Time)
 			}
-			e.BYOKSkip[byokSkipKey(runner, entry)] = time.Now()
+			e.BYOKSkip[byokSkipKey(agent, entry)] = time.Now()
 			s[account] = e
 			hit = entry
 			return

@@ -222,7 +222,7 @@ func TestCmdAskRetryFlags(t *testing.T) {
 			}
 			code, _, stderr := captureOutput(t, func() int { return cmdAsk(args) })
 			if code != 1 {
-				t.Fatalf("exit = %d, want 1 for unavailable runner; stderr=%s", code, stderr)
+				t.Fatalf("exit = %d, want 1 for unavailable agent; stderr=%s", code, stderr)
 			}
 			records := agent.RecentRecords(2)
 			if len(records) != wantRecords {

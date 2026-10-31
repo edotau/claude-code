@@ -26,7 +26,7 @@ func (rc routeCtx) byokCandidate(disp Dispatch, cand router.Candidate, tier stri
 	return byokDispatch(disp, tier, rc.reg, cand.Profile, picked)
 }
 
-// byokDispatch freezes a pool choice before a runner or agent resolver sees the request.
+// byokDispatch freezes a pool choice before an agent or agent resolver sees the request.
 func byokDispatch(disp Dispatch, tier string, reg *providers.Registry, profile string, picked bool) Dispatch {
 	tb, err := router.Load()
 	if err != nil {

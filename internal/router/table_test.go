@@ -11,7 +11,7 @@ import (
 )
 
 // TestLoadEveryCellResolves exercises Load() directly (no registry overlay, an isolated empty vault):
-// every runner × tier cell has a model, account and billing, and TierOf round-trips each cell's own
+// every agent × tier cell has a model, account and billing, and TierOf round-trips each cell's own
 // model back to its tier.
 func TestLoadEveryCellResolves(t *testing.T) {
 	vaulttest.Use(t)
@@ -19,7 +19,7 @@ func TestLoadEveryCellResolves(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, r := range TableRunners {
+	for _, r := range TableAgents {
 		for _, tier := range Tiers {
 			c, ok := tb.Cell(r, tier)
 			if !ok || c.Model == "" || c.Account == "" || tb.Billing[c.Account] == "" {
@@ -34,7 +34,7 @@ func TestLoadEveryCellResolves(t *testing.T) {
 }
 
 // TestLoadFromOverlayCellAndWeights checks LoadFrom applies a registry's per-cell Route override and
-// replaces Weights whole, and rejects an overlay cell naming an unknown runner/tier.
+// replaces Weights whole, and rejects an overlay cell naming an unknown agent/tier.
 func TestLoadFromOverlayCellAndWeights(t *testing.T) {
 	reg := &providers.Registry{
 		// opencode-go/y keeps the opencode cell's own backend prefix, so the override only replaces the model.
@@ -104,7 +104,7 @@ func TestLoadFromOpencodeOverrideAccountKey(t *testing.T) {
 }
 
 // TestLoadFromNonOpencodeOverrideWithSlashKeepsAccount checks the account re-derivation guard is scoped to
-// the opencode runner: a "/"-bearing model override on another runner (codex here) must not trigger
+// the opencode agent: a "/"-bearing model override on another agent (codex here) must not trigger
 // opencodeOverrideAccount at all, and the cell keeps the table's own billing account unchanged.
 func TestLoadFromNonOpencodeOverrideWithSlashKeepsAccount(t *testing.T) {
 	reg := &providers.Registry{
@@ -119,7 +119,7 @@ func TestLoadFromNonOpencodeOverrideWithSlashKeepsAccount(t *testing.T) {
 		t.Errorf("model = %q, want the override applied", c.Model)
 	}
 	if c.Account != "openai·chatgpt" {
-		t.Errorf("account = %q, want the table's own codex account unchanged (no opencode re-derivation off-runner)", c.Account)
+		t.Errorf("account = %q, want the table's own codex account unchanged (no opencode re-derivation off-agent)", c.Account)
 	}
 }
 
@@ -175,7 +175,7 @@ func TestRowsKeyedByClaudeID(t *testing.T) {
 		id, _ := models.Alias(tier)
 		for _, key := range []string{tier, id, strings.TrimPrefix(id, "claude-")} {
 			row, ok := tb.Row(key)
-			if !ok || len(row) != len(TableRunners) {
+			if !ok || len(row) != len(TableAgents) {
 				t.Fatalf("Row(%q) ok=%v runners=%d", key, ok, len(row))
 			}
 			if row["claude"].Model != id || row["claude"] != tb.Rows["claude"][tier] {

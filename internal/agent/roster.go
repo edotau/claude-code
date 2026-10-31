@@ -17,7 +17,7 @@ type Schema struct {
 	Tools       []string `json:"tools"` // nil = inherit, empty = no tools
 	Model       string   `json:"model,omitempty"`
 	MaxTurns    int      `json:"max_turns,omitempty"`
-	Runner      string   `json:"runner,omitempty"`  // roster agent that runs it; "" = claude
+	Agent       string   `json:"runner,omitempty"`  // roster agent that runs it; "" = claude
 	Profile     string   `json:"profile,omitempty"` // provider profile; "" = routed
 	Effort      string   `json:"effort,omitempty"`
 	CLI         CLI      `json:"-"` // roster facts; zero on a definition

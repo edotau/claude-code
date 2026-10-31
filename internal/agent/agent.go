@@ -136,23 +136,23 @@ func (l Level) String() string { return [...]string{"none", "emulated", "native"
 // MarshalText renders the level as its name, so describe prints "native" rather than 2.
 func (l Level) MarshalText() ([]byte, error) { return []byte(l.String()), nil }
 
-// Agent is one agent backend.
-type Runner interface {
+// Engine is one agent backend.
+type Engine interface {
 	Name() string
 	Caps() Caps
 	Available() error
 	Run(ctx context.Context, req RunOptions, sink Sink) (Result, error)
 }
 
-// Agents lists every agent in roster order.
-func Runners() []Runner {
-	return []Runner{claudeAgent, newCLIRunner("codex"), newCLIRunner("gemini"), newCLIRunner("opencode"), copilotAgent}
+// Engines lists every agent in roster order.
+func Engines() []Engine {
+	return []Engine{claudeAgent, newCLIEngine("codex"), newCLIEngine("gemini"), newCLIEngine("opencode"), copilotAgent}
 }
 
 // Lookup finds an agent by name.
-func Lookup(name string) (Runner, error) {
+func Lookup(name string) (Engine, error) {
 	var names []string
-	for _, r := range Runners() {
+	for _, r := range Engines() {
 		if r.Name() == name {
 			return r, nil
 		}
@@ -213,7 +213,7 @@ func preamble(text string) string {
 }
 
 // Run drops unsupported fields loudly, then runs r under DefaultPolicy with req.Timeout per attempt.
-func Run(ctx context.Context, r Runner, req RunOptions, sink Sink, notify func(string)) (Result, error) {
+func Run(ctx context.Context, r Engine, req RunOptions, sink Sink, notify func(string)) (Result, error) {
 	if sink == nil {
 		sink = Discard
 	}
@@ -575,7 +575,7 @@ func RunWithFallback(ctx context.Context, c Chain, req RunOptions, sink Sink, no
 	}
 	var res Result
 	var err error
-	var prev Runner
+	var prev Engine
 	var prevDispatch Dispatch
 	stopped := false   // the loop ended on a fail-fast, not by running out of dispatches
 	ran := 0           // index of the last dispatch that ran
@@ -607,7 +607,7 @@ func RunWithFallback(ctx context.Context, c Chain, req RunOptions, sink Sink, no
 		}
 		lreq := dispatchRequest(req, disp, i == 0 && disp.Agent.Name() == c.Want)
 		ctx, disp := freezeCopilot(ctx, disp, lreq)           // per dispatch: the gate's real target, before any permit or cooldown key
-		disp = ownLoginActual(disp, lreq)                     // the hop and its quota key name what the runner resolves
+		disp = ownLoginActual(disp, lreq)                     // the hop and its quota key name what the agent resolves
 		key := cmp.Or(disp.Account, disp.Agent.Name()+"·own") // own-login dispatches still share one cap and cooldown per agent
 		waitCooldown(ctx, key, DefaultMaxDelay)               // holds nothing
 		panicked := false
@@ -752,7 +752,7 @@ func switchHint(reasons []string) string {
 }
 
 // dispatchLabel names a dispatch in fallback reasons: a hub dispatch by its account, since every hub dispatch shares the agent name.
-func dispatchLabel(r Runner) string {
+func dispatchLabel(r Engine) string {
 	if l, ok := r.(hubDispatch); ok {
 		return l.provider.Name
 	}
@@ -772,7 +772,7 @@ func fallbackReason(err error) string {
 // dispatchUnavailable narrows "the dispatch failed" to "the dispatch itself is unreachable": the binary, the resolved target,
 // or the exec failed before producing an answer — excluding timeouts, cancellation, an oversized prompt and a
 // partial answer. claude/api are the end of every chain and never count as unavailable here.
-func dispatchUnavailable(r Runner, res Result, err error) bool {
+func dispatchUnavailable(r Engine, res Result, err error) bool {
 	if requestFault(err) {
 		return false
 	}

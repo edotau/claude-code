@@ -79,8 +79,8 @@ func TestRunDropsAndProgressVeto(t *testing.T) {
 }
 
 // TestRunAgentFallsBackToRunnerNameWhenUnset proves the cmp.Or in Run() only fills Agent from the
-// runner's own name when the runner itself left it blank — the non-passthrough/non-delegating path
-// (here named "api" to match the real runner) still reports Agent "api", not an empty envelope field.
+// agent's own name when the agent itself left it blank — the non-passthrough/non-delegating path
+// (here named "api" to match the real agent) still reports Agent "api", not an empty envelope field.
 func TestRunAgentFallsBackToRunnerNameWhenUnset(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	f := &fakeRunner{name: "api", errs: []error{nil}}
@@ -133,7 +133,7 @@ func TestChildCmdSetsPWD(t *testing.T) {
 }
 
 // A vendor CLI child never sees HARNESS_VAULT_KEY (it would open the vault outside the harness's own
-// process); the claude runner's own child keeps it since hooks need it to read the vault.
+// process); the claude agent's own child keeps it since hooks need it to read the vault.
 func TestChildCmdScrubsVaultKeyForVendorOnly(t *testing.T) {
 	t.Setenv("HARNESS_VAULT_KEY", "secret-value")
 	hasKey := func(env []string) bool {
@@ -234,7 +234,7 @@ func TestDispatchUnavailable(t *testing.T) {
 
 	cases := []struct {
 		name string
-		r    Runner
+		r    Engine
 		req  RunOptions
 		res  Result
 		err  error
@@ -248,7 +248,7 @@ func TestDispatchUnavailable(t *testing.T) {
 		{"canceled", &fakeRunner{name: "codex"}, RunOptions{}, Result{}, canceled, false},
 		{"prompt too large", &fakeRunner{name: "codex"}, RunOptions{}, Result{}, tooLarge, false},
 		{"progressed", &fakeRunner{name: "codex"}, RunOptions{}, Result{}, progressed, false},
-		{"wrapped progressed", &fakeRunner{name: "codex"}, RunOptions{}, Result{}, fmt.Errorf("runner: %w", progressed), false},
+		{"wrapped progressed", &fakeRunner{name: "codex"}, RunOptions{}, Result{}, fmt.Errorf("agent: %w", progressed), false},
 		{"not progressed", &fakeRunner{name: "codex"}, RunOptions{}, Result{}, &Error{Kind: KindFatal, Err: genericErr}, true},
 		{"binary missing", &fakeRunner{name: "codex"}, RunOptions{}, Result{}, genericErr, true},
 		{"claude model slot stays eligible", &fakeRunner{name: "codex"}, RunOptions{Model: "opus"}, Result{}, genericErr, true},
@@ -262,9 +262,9 @@ func TestDispatchUnavailable(t *testing.T) {
 	}
 }
 
-// chainOf is a routed chain over rs: the first dispatch is the wanted runner keeping the caller's model, each later
+// chainOf is a routed chain over rs: the first dispatch is the wanted agent keeping the caller's model, each later
 // dispatch runs models[i] (its cell).
-func chainOf(rs []Runner, models ...string) Chain {
+func chainOf(rs []Engine, models ...string) Chain {
 	c := Chain{Want: rs[0].Name()}
 	for i, r := range rs {
 		disp := Dispatch{Agent: r, keepCaller: i == 0}
@@ -277,7 +277,7 @@ func chainOf(rs []Runner, models ...string) Chain {
 }
 
 // TestRunWithFallback wires the classifier into Run: codex failing with no answer must rerun on the
-// fallback runner with Fallback set, while a successful or excluded-class codex run must not.
+// fallback agent with Fallback set, while a successful or excluded-class codex run must not.
 func TestRunWithFallback(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	unavailable := errors.New(`exec: "codex": executable file not found in $PATH`)
@@ -285,7 +285,7 @@ func TestRunWithFallback(t *testing.T) {
 	t.Run("falls back and reports it", func(t *testing.T) {
 		codex := &fakeRunner{name: "codex", errs: []error{unavailable}, emptyAnswer: true}
 		claude := &fakeRunner{name: "claude", errs: []error{nil}}
-		res, err := RunWithFallback(context.Background(), chainOf([]Runner{codex, claude}), RunOptions{Prompt: "p"}, Discard, nil)
+		res, err := RunWithFallback(context.Background(), chainOf([]Engine{codex, claude}), RunOptions{Prompt: "p"}, Discard, nil)
 		if err != nil || res.Fallback != "codex" || res.Agent != "claude" || res.Answer != "a" {
 			t.Fatalf("res=%+v err=%v", res, err)
 		}
@@ -304,7 +304,7 @@ func TestRunWithFallback(t *testing.T) {
 		opencode := &fakeRunner{name: "opencode", caps: Caps{Model: Native}, errs: []error{nil}}
 		claude := &fakeRunner{name: "claude", errs: []error{nil}}
 		req := RunOptions{Prompt: "p", Model: "gpt-6.1-sol"}
-		res, err := RunWithFallback(context.Background(), chainOf([]Runner{codex, gemini, opencode, claude}, "", "gemini-4-argon", "kimi-k3", "opus"), req, Discard, nil)
+		res, err := RunWithFallback(context.Background(), chainOf([]Engine{codex, gemini, opencode, claude}, "", "gemini-4-argon", "kimi-k3", "opus"), req, Discard, nil)
 		if err != nil || res.Agent != "opencode" || res.Fallback != "codex" || len(claude.seen) != 0 {
 			t.Fatalf("res=%+v err=%v claude.seen=%d", res, err, len(claude.seen))
 		}
@@ -319,7 +319,7 @@ func TestRunWithFallback(t *testing.T) {
 	t.Run("the tier is kept on the claude dispatch", func(t *testing.T) {
 		codex := &fakeRunner{name: "codex", caps: Caps{Model: Native}, errs: []error{unavailable}, emptyAnswer: true}
 		claude := &fakeRunner{name: "claude", caps: Caps{Model: Native}, errs: []error{nil}}
-		if _, err := RunWithFallback(context.Background(), chainOf([]Runner{codex, claude}, "", "opus"), RunOptions{Prompt: "p", Model: "claude-opus-5.5"}, Discard, nil); err != nil {
+		if _, err := RunWithFallback(context.Background(), chainOf([]Engine{codex, claude}, "", "opus"), RunOptions{Prompt: "p", Model: "claude-opus-5.5"}, Discard, nil); err != nil {
 			t.Fatal(err)
 		}
 		if claude.seen[0].Model != "opus" {
@@ -344,7 +344,7 @@ func TestRunWithFallback(t *testing.T) {
 		quota := errors.New("402 Payment Required: You have exceeded your monthly quota")
 		copilot := &fakeRunner{name: "copilot", errs: []error{quota}, emptyAnswer: true}
 		claude := &fakeRunner{name: "claude", errs: []error{nil}}
-		c := chainOf([]Runner{copilot, claude}, "", "sonnet")
+		c := chainOf([]Engine{copilot, claude}, "", "sonnet")
 		c.Dispatches[0].Account, c.Dispatches[0].Billing = "github·u", "credits"
 		res, err := RunWithFallback(context.Background(), c, RunOptions{Prompt: "p"}, Discard, nil)
 		if err != nil || res.Agent != "claude" || len(copilot.seen) != 1 {
@@ -366,7 +366,7 @@ func TestRunWithFallback(t *testing.T) {
 	t.Run("success needs no fallback", func(t *testing.T) {
 		codex := &fakeRunner{name: "codex", errs: []error{nil}}
 		claude := &fakeRunner{name: "claude", errs: []error{nil}}
-		res, err := RunWithFallback(context.Background(), chainOf([]Runner{codex, claude}), RunOptions{Prompt: "p"}, Discard, nil)
+		res, err := RunWithFallback(context.Background(), chainOf([]Engine{codex, claude}), RunOptions{Prompt: "p"}, Discard, nil)
 		if err != nil || res.Fallback != "" || res.Agent != "codex" || len(claude.seen) != 0 {
 			t.Fatalf("res=%+v err=%v claude.seen=%+v", res, err, claude.seen)
 		}
@@ -375,7 +375,7 @@ func TestRunWithFallback(t *testing.T) {
 	t.Run("prompt too large is not retried on the fallback", func(t *testing.T) {
 		codex := &fakeRunner{name: "codex", errs: []error{fmt.Errorf("p: %w", ErrPromptTooLarge)}, emptyAnswer: true}
 		claude := &fakeRunner{name: "claude", errs: []error{nil}}
-		res, err := RunWithFallback(context.Background(), chainOf([]Runner{codex, claude}), RunOptions{Prompt: "p"}, Discard, nil)
+		res, err := RunWithFallback(context.Background(), chainOf([]Engine{codex, claude}), RunOptions{Prompt: "p"}, Discard, nil)
 		if err == nil || res.Fallback != "" || len(claude.seen) != 0 {
 			t.Fatalf("res=%+v err=%v claude.seen=%+v", res, err, claude.seen)
 		}
@@ -385,7 +385,7 @@ func TestRunWithFallback(t *testing.T) {
 		codex := &fakeRunner{name: "codex", caps: Caps{Model: Native}, errs: []error{unavailable}, emptyAnswer: true}
 		claude := &fakeRunner{name: "claude", errs: []error{nil}}
 		req := RunOptions{Prompt: "p", Model: "openai:gpt-4"}
-		res, err := RunWithFallback(context.Background(), chainOf([]Runner{codex, claude}), req, Discard, nil)
+		res, err := RunWithFallback(context.Background(), chainOf([]Engine{codex, claude}), req, Discard, nil)
 		if err == nil || res.Fallback != "" || len(claude.seen) != 0 {
 			t.Fatalf("res=%+v err=%v claude.seen=%+v", res, err, claude.seen)
 		}
@@ -437,7 +437,7 @@ func TestRunWithFallback_TimeoutAndCancelNotRetried(t *testing.T) {
 	claude := &fakeRunner{name: "claude", errs: []error{nil}}
 
 	codex := &codexHang{}
-	_, err := RunWithFallback(context.Background(), chainOf([]Runner{codex, claude}),
+	_, err := RunWithFallback(context.Background(), chainOf([]Engine{codex, claude}),
 		RunOptions{Prompt: "p", Tools: true, Timeout: 20 * time.Millisecond}, NewTextSink(io.Discard), nil)
 	if err == nil || len(claude.seen) != 0 {
 		t.Fatalf("tools-on timeout must not fall back: err=%v claude.seen=%+v", err, claude.seen)
@@ -446,7 +446,7 @@ func TestRunWithFallback_TimeoutAndCancelNotRetried(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	codex = &codexHang{}
-	_, err = RunWithFallback(ctx, chainOf([]Runner{codex, claude}), RunOptions{Prompt: "p"}, Discard, nil)
+	_, err = RunWithFallback(ctx, chainOf([]Engine{codex, claude}), RunOptions{Prompt: "p"}, Discard, nil)
 	if err == nil || len(claude.seen) != 0 {
 		t.Fatalf("a canceled caller context must not fall back: err=%v claude.seen=%+v", err, claude.seen)
 	}
@@ -572,7 +572,7 @@ func TestRunWithFallbackSkippedRequestedRoute(t *testing.T) {
 	})
 	t.Run("gemini answering itself stays null", func(t *testing.T) {
 		gemini := &fakeRunner{name: "gemini", errs: []error{nil}}
-		res, err := RunWithFallback(context.Background(), chainOf([]Runner{gemini}), RunOptions{Prompt: "p"}, Discard, nil)
+		res, err := RunWithFallback(context.Background(), chainOf([]Engine{gemini}), RunOptions{Prompt: "p"}, Discard, nil)
 		if err != nil || res.Fallback != "" || res.FallbackReason != "" {
 			t.Fatalf("res=%+v err=%v, want no fallback", res, err)
 		}

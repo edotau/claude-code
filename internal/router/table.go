@@ -17,8 +17,8 @@ var tableJSON []byte
 // Tiers are the routed tiers, strongest first; fable stays Claude Code's own slot.
 var Tiers = providers.RouteTiers
 
-// TableRunners are the table's columns in roster order; ties in a pick's cost score keep this order.
-var TableRunners = providers.RouteRunners
+// TableAgents are the table's columns in roster order; ties in a pick's cost score keep this order.
+var TableAgents = providers.RouteAgents
 
 // OpencodeTableModels reads the opencode sonnet/haiku cells for the opencode overlay; ok is false on a load error.
 func OpencodeTableModels() (string, string, bool) {
@@ -44,7 +44,7 @@ type Price struct {
 	Out      float64 `json:"out"`
 }
 
-// Cell is one runner × tier row.
+// Cell is one agent × tier row.
 type Cell struct {
 	Model   string `json:"model"`
 	Effort  string `json:"effort,omitempty"`
@@ -52,14 +52,14 @@ type Cell struct {
 	Price   Price  `json:"price"`
 }
 
-// RouteTable is the loaded routing table: Rows[runner][tier] for the current row of each alias, ByModel[claudeID][runner]
+// RouteTable is the loaded routing table: Rows[agent][tier] for the current row of each alias, ByModel[claudeID][agent]
 // for every row, and each account key's billing type.
 type RouteTable struct {
 	Billing map[string]string  `json:"billing"`
 	Weights map[string]float64 `json:"weights"`
 	// Rows is the tier view (opus/sonnet/haiku) of the rows the aliases currently point at.
 	Rows map[string]map[string]Cell `json:"-"`
-	// ByModel holds every row, keyed by canonical Claude id, then runner.
+	// ByModel holds every row, keyed by canonical Claude id, then agent.
 	ByModel map[string]map[string]Cell `json:"-"`
 	// OpencodeSub are opencode's own sub-candidates, keyed by sub id (opencode-go, github-copilot, openai,
 	// nvidia, zen-free) then tier; a missing tier (zen-free has no "opus") means that id never serves it.
@@ -75,7 +75,7 @@ type RouteTable struct {
 	OpencodeRowOverridden map[string]bool `json:"-"`
 }
 
-// fileTable is table.json's shape: rows keyed by canonical Claude id, then runner.
+// fileTable is table.json's shape: rows keyed by canonical Claude id, then agent.
 type fileTable struct {
 	Billing     map[string]string          `json:"billing"`
 	Weights     map[string]float64         `json:"weights"`
@@ -138,13 +138,13 @@ func (t *RouteTable) applyRegistry(reg *providers.Registry) error {
 	if reg == nil {
 		return nil
 	}
-	for runner, rows := range reg.Routing.Cells {
+	for agent, rows := range reg.Routing.Cells {
 		for key, o := range rows {
-			id, err := t.applyRouteOverlayCell(runner, key, o)
+			id, err := t.applyRouteOverlayCell(agent, key, o)
 			if err != nil {
 				return err
 			}
-			if tier := rowTier(id); runner == "opencode" && tier != "" {
+			if tier := rowTier(id); agent == "opencode" && tier != "" {
 				t.OpencodeRowOverridden[tier] = true
 			}
 		}
@@ -160,19 +160,19 @@ func (t *RouteTable) applyRegistry(reg *providers.Registry) error {
 // indexRows stamps copilot's account key on every row and builds the per-tier Rows view.
 func (t *RouteTable) indexRows(copilotKey string) {
 	t.Rows = map[string]map[string]Cell{}
-	for id, byRunner := range t.ByModel {
-		c := byRunner["copilot"]
+	for id, byAgent := range t.ByModel {
+		c := byAgent["copilot"]
 		c.Account = copilotKey
-		byRunner["copilot"] = c
+		byAgent["copilot"] = c
 		tier := rowTier(id)
 		if tier == "" {
 			continue
 		}
-		for runner, cell := range byRunner {
-			if t.Rows[runner] == nil {
-				t.Rows[runner] = map[string]Cell{}
+		for agent, cell := range byAgent {
+			if t.Rows[agent] == nil {
+				t.Rows[agent] = map[string]Cell{}
 			}
-			t.Rows[runner][tier] = cell
+			t.Rows[agent][tier] = cell
 		}
 	}
 }
@@ -191,17 +191,17 @@ func opencodeSubTiers(subs map[string]map[string]Cell) map[string]map[string]Cel
 	return out
 }
 
-// applyRouteOverlayCell merges one overlay cell (o) into ByModel[row][runner] and returns the row id.
-func (t *RouteTable) applyRouteOverlayCell(runner, key string, o providers.RouteCell) (string, error) {
+// applyRouteOverlayCell merges one overlay cell (o) into ByModel[row][agent] and returns the row id.
+func (t *RouteTable) applyRouteOverlayCell(agent, key string, o providers.RouteCell) (string, error) {
 	id := rowKey(key)
-	c, ok := t.ByModel[id][runner]
+	c, ok := t.ByModel[id][agent]
 	if !ok {
-		return "", fmt.Errorf("router: overlay names unknown cell %s/%s", runner, key)
+		return "", fmt.Errorf("router: overlay names unknown cell %s/%s", agent, key)
 	}
-	if o.Account == "" && o.Model != "" && runner == "opencode" && prefixOf(o.Model) != prefixOf(c.Model) {
+	if o.Account == "" && o.Model != "" && agent == "opencode" && prefixOf(o.Model) != prefixOf(c.Model) {
 		acct, err := opencodeOverrideAccount(prefixOf(o.Model))
 		if err != nil {
-			return "", fmt.Errorf("router: overlay %s/%s: %w", runner, key, err)
+			return "", fmt.Errorf("router: overlay %s/%s: %w", agent, key, err)
 		}
 		c.Account = acct
 	}
@@ -213,11 +213,11 @@ func (t *RouteTable) applyRouteOverlayCell(runner, key string, o providers.Route
 	}
 	if o.Account != "" {
 		if _, ok := t.Billing[o.Account]; !ok {
-			return "", fmt.Errorf("router: overlay %s/%s: account_key %q names no known billing entry", runner, key, o.Account)
+			return "", fmt.Errorf("router: overlay %s/%s: account_key %q names no known billing entry", agent, key, o.Account)
 		}
 		c.Account = o.Account
 	}
-	t.ByModel[id][runner] = c
+	t.ByModel[id][agent] = c
 	return id, nil
 }
 
@@ -258,16 +258,16 @@ func opencodeOverrideAccount(prefix string) (string, error) {
 	}
 }
 
-// Row returns every runner's cell for a Claude row, named by alias (opus), short form (opus-5-5), canonical id or
+// Row returns every agent's cell for a Claude row, named by alias (opus), short form (opus-5-5), canonical id or
 // any wire spelling; ok is false when no row matches.
 func (t *RouteTable) Row(key string) (map[string]Cell, bool) {
 	r, ok := t.ByModel[rowKey(key)]
 	return r, ok
 }
 
-// Cell returns the runner's row at tier; ok is false for an unknown runner or tier.
-func (t *RouteTable) Cell(runner, tier string) (Cell, bool) {
-	c, ok := t.Rows[runner][tier]
+// Cell returns the agent's row at tier; ok is false for an unknown agent or tier.
+func (t *RouteTable) Cell(agent, tier string) (Cell, bool) {
+	c, ok := t.Rows[agent][tier]
 	return c, ok
 }
 
@@ -293,8 +293,8 @@ func (t *RouteTable) TierOf(model string) string {
 		bare = model
 	}
 	for _, tier := range Tiers {
-		for _, runner := range TableRunners {
-			if m := t.Rows[runner][tier].Model; m == bare || m[strings.Index(m, "/")+1:] == bare {
+		for _, agent := range TableAgents {
+			if m := t.Rows[agent][tier].Model; m == bare || m[strings.Index(m, "/")+1:] == bare {
 				return tier
 			}
 		}

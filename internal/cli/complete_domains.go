@@ -91,11 +91,11 @@ func providerNames() []string {
 	return reg.Names()
 }
 
-// agentNames lists the `ask --agent` runner names; agent.Runners() only builds the roster, it never
-// dials a runner.
+// agentNames lists the `ask --agent` agent names; agent.Engines() only builds the roster, it never
+// dials an agent.
 func agentNames() []string {
 	var out []string
-	for _, r := range agent.Runners() {
+	for _, r := range agent.Engines() {
 		out = append(out, r.Name())
 	}
 	return out

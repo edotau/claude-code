@@ -100,7 +100,7 @@ func swapIdleTimer(t *testing.T) *handTimer {
 func TestRemoteRunDeadlineIsPerActivityNotWholeRun(t *testing.T) {
 	h := swapIdleTimer(t)
 	req := RunOptions{Prompt: "p", Timeout: time.Minute}
-	r := NewRemoteRunner("codex", "fakehost", "claude-code", "")
+	r := NewRemoteEngine("codex", "fakehost", "claude-code", "")
 
 	fakeSSH(t, "for i in 1 2 3 4 5 6 7 8; do echo 'ask: transient, retrying' >&2; done\n"+
 		`printf '%s\n' '{"schema":1,"type":"result","envelope":{"status":"ok","answer":"done"}}'`+"\n")

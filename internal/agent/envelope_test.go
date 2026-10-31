@@ -78,7 +78,7 @@ func decodeEnvelope(t *testing.T, out string) map[string]any {
 	return env
 }
 
-// Every runner's --format json success emits the one standard envelope.
+// Every agent's --format json success emits the one standard envelope.
 func TestEnvelopeContractSuccess(t *testing.T) {
 	noUsage := map[string]bool{"codex": true}
 	for _, name := range []string{"claude", "codex", "gemini", "opencode"} {
@@ -132,7 +132,7 @@ func cliMarker(t *testing.T, vendor, body string) string {
 	return marker
 }
 
-// A resume whose launch fails returns an error and never runs another agent's runner.
+// A resume whose launch fails returns an error and never runs another agent's engine.
 func TestResumeNeverFallsBack(t *testing.T) {
 	cliEnv(t)
 	codexRan := cliMarker(t, "codex", "echo 'codex: boom' >&2; exit 1")
@@ -146,7 +146,7 @@ func TestResumeNeverFallsBack(t *testing.T) {
 		t.Errorf("exit = 0, want non-zero: the resumed session's launch failed\nstdout: %s", out)
 	}
 	if _, err := os.Stat(codexRan); err != nil {
-		t.Fatalf("the codex runner was never reached (%v); the test proves nothing\nstderr: %s", err, stderr)
+		t.Fatalf("the codex agent was never reached (%v); the test proves nothing\nstderr: %s", err, stderr)
 	}
 	for name, marker := range others {
 		if _, err := os.Stat(marker); err == nil {
@@ -155,7 +155,7 @@ func TestResumeNeverFallsBack(t *testing.T) {
 	}
 }
 
-// --profile given to resume reaches the runner's target resolution instead of being dropped.
+// --profile given to resume reaches the agent's target resolution instead of being dropped.
 func TestResumeForwardsProfile(t *testing.T) {
 	cliEnv(t)
 	cliMarker(t, "codex", "echo ok")

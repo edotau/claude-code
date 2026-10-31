@@ -1,6 +1,6 @@
 package agent
 
-// CapFields lists a runner's capability levels in RunOptions-flag order, named as the flags are.
+// CapFields lists an agent's capability levels in RunOptions-flag order, named as the flags are.
 func CapFields(c Caps) []struct {
 	Name string
 	L    Level

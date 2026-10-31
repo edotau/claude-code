@@ -18,7 +18,7 @@ const (
 )
 
 // Configure returns extra env (KEY=VALUE) and leading argv that point the agent CLI at target.
-// headlessPrompt != "" asks for the non-interactive form (the runner path).
+// headlessPrompt != "" asks for the non-interactive form (the agent path).
 func (s Schema) Configure(ctx context.Context, target providers.Target, headlessPrompt string) (env, argv []string, err error) {
 	if headlessPrompt == "" {
 		return s.configure(ctx, target, nil)
@@ -26,7 +26,7 @@ func (s Schema) Configure(ctx context.Context, target providers.Target, headless
 	return s.configure(ctx, target, &Headless{Prompt: headlessPrompt})
 }
 
-// configureHeadless is Configure's runner form with the per-run options each CLI can carry.
+// configureHeadless is Configure's agent form with the per-run options each CLI can carry.
 func (s Schema) configureHeadless(ctx context.Context, target providers.Target, h Headless) (env, argv []string, err error) {
 	if err := checkPrompt(h); err != nil {
 		return nil, nil, err

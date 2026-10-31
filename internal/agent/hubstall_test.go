@@ -39,7 +39,7 @@ func setupStallFixture(t *testing.T) {
 }
 
 // TestWatchFreeDispatchOnlyWatchesFreeBilling: watchFreeDispatch sets the stall watchdog on a hub dispatch only when the
-// cell it runs bills free; any other billing (or any non-hub runner) passes through untouched — a paid
+// cell it runs bills free; any other billing (or any non-hub agent) passes through untouched — a paid
 // opencode dispatch never gets the watchdog.
 func TestWatchFreeDispatchOnlyWatchesFreeBilling(t *testing.T) {
 	orig := freeFirstOutput
@@ -57,10 +57,10 @@ func TestWatchFreeDispatchOnlyWatchesFreeBilling(t *testing.T) {
 		t.Errorf("free dispatch missing its watchdog: firstOutput=%v, want %v", r.firstOutput, freeFirstOutput)
 	}
 
-	// a non-hub runner (another vendor) must pass through unchanged, not panic on the type assertion.
+	// a non-hub agent (another vendor) must pass through unchanged, not panic on the type assertion.
 	fr := &fakeRunner{name: "codex"}
 	if r := watchFreeDispatch(fr, router.BillFree); r != fr {
-		t.Errorf("non-hub runner must pass through unchanged, got %v", r)
+		t.Errorf("non-hub agent must pass through unchanged, got %v", r)
 	}
 }
 

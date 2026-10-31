@@ -8,10 +8,10 @@ import (
 )
 
 // Configured is the no-network presence check: the agent binary, plus an opencode login for the cell's provider.
-func Configured(runner string, c router.Cell) error {
-	s, ok := LookupSchema(runner)
+func Configured(agent string, c router.Cell) error {
+	s, ok := LookupSchema(agent)
 	if !ok {
-		return fmt.Errorf("unknown runner %s", runner)
+		return fmt.Errorf("unknown agent %s", agent)
 	}
 	if !s.External() {
 		return nil

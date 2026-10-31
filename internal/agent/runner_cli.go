@@ -83,11 +83,11 @@ func namesProvider(reg *providers.Registry, spec string) bool {
 	return ok && found
 }
 
-// cliRunner execs an agent CLI's headless mode wired by ConfigureHeadless; the engine supplies Name, Caps, Available.
-type cliRunner struct{ headlessEngine }
+// cliEngine execs an agent CLI's headless mode wired by ConfigureHeadless; the engine supplies Name, Caps, Available.
+type cliEngine struct{ headlessEngine }
 
-// newCLIRunner is the runner for a roster CLI with a headless engine: codex, gemini or opencode.
-func newCLIRunner(name string) cliRunner { return cliRunner{engines[name].(headlessEngine)} }
+// newCLIEngine is the agent for a roster CLI with a headless engine: codex, gemini or opencode.
+func newCLIEngine(name string) cliEngine { return cliEngine{engines[name].(headlessEngine)} }
 
 // cliPrep is an agent run resolved up to its child's env: the route target, the prompt and the headless argv.
 type cliPrep struct {
@@ -99,7 +99,7 @@ type cliPrep struct {
 }
 
 // prepare resolves req's route and headless argv; the Result comes back populated even on error.
-func (v cliRunner) prepare(ctx context.Context, req RunOptions) (cliPrep, error) {
+func (v cliEngine) prepare(ctx context.Context, req RunOptions) (cliPrep, error) {
 	name := v.Name()
 	s := schemaFor(name)
 	t, own, err := s.target(req)
@@ -161,7 +161,7 @@ func (p cliPrep) agyRequest(req RunOptions) agyRequest {
 	}
 }
 
-func (v cliRunner) Run(ctx context.Context, req RunOptions, sink Sink) (Result, error) {
+func (v cliEngine) Run(ctx context.Context, req RunOptions, sink Sink) (Result, error) {
 	ctx = directCtx(ctx, req)
 	p, err := v.prepare(ctx, req)
 	if err != nil {

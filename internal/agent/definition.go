@@ -42,7 +42,7 @@ func LoadSchema(ref string) (*Schema, error) {
 	fm, body := textutil.ParseFrontmatter(string(raw))
 	str := func(k string) string { s, _ := fm[k].(string); return strings.TrimSpace(s) }
 	p := &Schema{Name: str("name"), Description: str("description"), Prompt: body, Model: str("model"),
-		Runner: str("runner"), Profile: str("profile"), Effort: str("effort")}
+		Agent: str("runner"), Profile: str("profile"), Effort: str("effort")}
 	if p.Name == "" {
 		p.Name = strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
 	}
@@ -76,7 +76,7 @@ type agentsDef struct {
 	Tools       []string `json:"tools"` // nil = inherit, empty = no tools
 	Model       string   `json:"model"`
 	MaxTurns    int      `json:"max_turns"`
-	Runner      string   `json:"runner"`
+	Agent       string   `json:"runner"`
 	Profile     string   `json:"profile"`
 	Effort      string   `json:"effort"`
 }
@@ -119,11 +119,11 @@ func buildAgents(wire map[string]agentsDef) (map[string]*Schema, error) {
 			return nil, fmt.Errorf("--agents: key %q is not a valid agent name", key)
 		case strings.TrimSpace(d.Prompt) == "":
 			return nil, fmt.Errorf("--agents: %s has no prompt", key)
-		case d.Runner != "" && !slices.Contains(names, d.Runner):
-			return nil, fmt.Errorf("--agents: %s runner %q is not a roster agent (%s)", key, d.Runner, strings.Join(names, "|"))
+		case d.Agent != "" && !slices.Contains(names, d.Agent):
+			return nil, fmt.Errorf("--agents: %s agent %q is not a roster agent (%s)", key, d.Agent, strings.Join(names, "|"))
 		}
 		agents[key] = &Schema{Name: key, Description: d.Description, Prompt: d.Prompt, Tools: d.Tools, Model: d.Model,
-			MaxTurns: d.MaxTurns, Runner: d.Runner, Profile: d.Profile, Effort: d.Effort}
+			MaxTurns: d.MaxTurns, Agent: d.Agent, Profile: d.Profile, Effort: d.Effort}
 	}
 	return agents, nil
 }
@@ -138,19 +138,19 @@ func rosterNames() []string {
 }
 
 // SelectAgent resolves an --agent value: a roster name, an agents key, vendor:name, or agents/<name>.md or a file.
-func SelectAgent(ref string, agents map[string]*Schema) (runner string, def *Schema, err error) {
+func SelectAgent(ref string, agents map[string]*Schema) (agent string, def *Schema, err error) {
 	if _, ok := LookupSchema(ref); ok {
 		return ref, nil, nil
 	}
 	names := rosterNames()
 	if def, ok := agents[ref]; ok {
-		return cmp.Or(def.Runner, "claude"), def, nil
+		return cmp.Or(def.Agent, "claude"), def, nil
 	}
 	if v, name, ok := strings.Cut(ref, ":"); ok {
 		if !slices.Contains(names, v) {
 			return "", nil, fmt.Errorf("unknown agent %q (%s)", v, strings.Join(names, "|"))
 		}
-		if def, ok := agents[name]; ok { // the agent beats def.Runner
+		if def, ok := agents[name]; ok { // the agent beats def.Agent
 			return v, def, nil
 		}
 		def, err = LoadSchema(name)
@@ -159,7 +159,7 @@ func SelectAgent(ref string, agents map[string]*Schema) (runner string, def *Sch
 	if def, err = LoadSchema(ref); err != nil {
 		return "", nil, fmt.Errorf("unknown agent %q (%s, or an agents/<name>.md definition): %w", ref, strings.Join(names, "|"), err)
 	}
-	return cmp.Or(def.Runner, "claude"), def, nil
+	return cmp.Or(def.Agent, "claude"), def, nil
 }
 
 // RefusePersona rejects a persona whose tool limit an emulating agent could not enforce.

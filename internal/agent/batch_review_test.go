@@ -121,7 +121,7 @@ func TestGuardProviderResolvesModelPrefixForVendorAgent(t *testing.T) {
 	}
 }
 
-// The host mismatch of a prefix-routed vendor request fails as auth and the runner never starts.
+// The host mismatch of a prefix-routed vendor request fails as auth and the agent never starts.
 func TestRunPrefixRoutedHostMismatchFailsAuth(t *testing.T) {
 	hmProfile(t, "true")
 	t.Setenv("HM_KEY", hmJWT("adb-2.azuredatabricks.net"))
@@ -191,7 +191,7 @@ func (s slowRunner) Run(context.Context, RunOptions, Sink) (Result, error) {
 }
 
 // acctTask is a batch task whose single dispatch bills account.
-func acctTask(t *testing.T, name, account string, r Runner) BatchTask {
+func acctTask(t *testing.T, name, account string, r Engine) BatchTask {
 	return BatchTask{ID: name, Agent: name, Req: RunOptions{Prompt: "p"},
 		Prepare: func(context.Context) (*Prepared, error) {
 			rec := Record{ID: "id-" + name, Agent: name, Log: filepath.Join(t.TempDir(), "l.log")}
@@ -200,7 +200,7 @@ func acctTask(t *testing.T, name, account string, r Runner) BatchTask {
 		}}
 }
 
-// A panicking runner (recovered by the batch) must give its dispatch permit back: later tasks on the account still run.
+// A panicking agent (recovered by the batch) must give its dispatch permit back: later tasks on the account still run.
 func TestBatchPanickingDispatchesReleaseTheirPermits(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	var tasks []BatchTask
@@ -212,7 +212,7 @@ func TestBatchPanickingDispatchesReleaseTheirPermits(t *testing.T) {
 	defer cancel()
 	var out strings.Builder
 	if RunBatch(ctx, tasks, BatchOptions{Jobs: 2, Out: &out}) {
-		t.Fatal("batch reported ok although every runner panicked")
+		t.Fatal("batch reported ok although every agent panicked")
 	}
 	lines := strings.Split(strings.TrimSpace(out.String()), "\n")
 	if len(lines) != len(tasks) || strings.Contains(out.String(), "cancel") {
@@ -264,7 +264,7 @@ func TestCommandCredentialHostMismatchIsAuthAndFallsBack(t *testing.T) {
 	}
 }
 
-// dispatchGauge is a runner that fails (as auth) or answers after a pause, tracking one gauge shared by every dispatch.
+// dispatchGauge is an agent that fails (as auth) or answers after a pause, tracking one gauge shared by every dispatch.
 type dispatchGauge struct {
 	name     string
 	fail     bool

@@ -457,11 +457,11 @@ func ParseBatchTask(l ParsedLine, agentName string, base RunOptions, timeoutSet 
 	}
 	req := base
 	req.Prompt, req.Provider, req.Model = tl.Prompt, cmp.Or(tl.Profile, base.Provider), cmp.Or(tl.Model, base.Model)
-	runner, err := selectAndOverlay(t.Agent, base.Agents, &req) // explicit line/base options win over the definition
+	agent, err := selectAndOverlay(t.Agent, base.Agents, &req) // explicit line/base options win over the definition
 	if err != nil {
 		return t, fmt.Errorf("line %d: %w", l.N, err)
 	}
-	t.Agent = runner
+	t.Agent = agent
 	if tl.Tools != nil {
 		req.Tools = *tl.Tools
 	}

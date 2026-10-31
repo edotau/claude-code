@@ -37,17 +37,17 @@ func TestParseAgentsInlineAndFile(t *testing.T) {
 	for _, arg := range []string{body, file} {
 		got, err := ParseAgents(arg)
 		d := got["sec"]
-		if err != nil || d == nil || d.Name != "sec" || d.Runner != "codex" || d.Model != "m" || d.Profile != "p" ||
+		if err != nil || d == nil || d.Name != "sec" || d.Agent != "codex" || d.Model != "m" || d.Profile != "p" ||
 			d.Effort != "high" || d.MaxTurns != 4 || d.Tools == nil || len(d.Tools) != 0 {
 			t.Errorf("ParseAgents(%.20q) = %+v, %v", arg, d, err)
 		}
 	}
 }
 
-// SelectAgent rejects an unknown vendor prefix and an unknown bare ref, and lets the vendor beat def.Runner.
+// SelectAgent rejects an unknown vendor prefix and an unknown bare ref, and lets the vendor beat def.Agent.
 func TestSelectAgentRejectionsAndVendorPrefix(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	agents := map[string]*Schema{"sec": {Name: "sec", Prompt: "p", Runner: "codex"}}
+	agents := map[string]*Schema{"sec": {Name: "sec", Prompt: "p", Agent: "codex"}}
 	for _, ref := range []string{"nope:sec", "ghost", "codex:ghost"} {
 		if r, d, err := SelectAgent(ref, agents); err == nil {
 			t.Errorf("SelectAgent(%q) = %q, %v, want an error", ref, r, d)
@@ -57,7 +57,7 @@ func TestSelectAgentRejectionsAndVendorPrefix(t *testing.T) {
 		t.Errorf("sec = %q, %v, %v, want codex with the definition", r, d, err)
 	}
 	if r, d, err := SelectAgent("gemini:sec", agents); err != nil || r != "gemini" || d != agents["sec"] {
-		t.Errorf("gemini:sec = %q, %v, %v, want the vendor to beat def.Runner", r, d, err)
+		t.Errorf("gemini:sec = %q, %v, %v, want the vendor to beat def.Agent", r, d, err)
 	}
 	if r, d, err := SelectAgent("codex", agents); err != nil || r != "codex" || d != nil {
 		t.Errorf("codex = %q, %v, %v, want a plain roster name", r, d, err)
@@ -90,7 +90,7 @@ func TestOverlayInheritModelIsNone(t *testing.T) {
 	}
 }
 
-// Record resolves the selector to its runner but, unlike Prepare, never routes or applies the rubric.
+// Record resolves the selector to its agent but, unlike Prepare, never routes or applies the rubric.
 func TestClientRecordSkipsRouting(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	defs, err := ParseAgents(`{"sec":{"prompt":"p","runner":"codex"}}`)

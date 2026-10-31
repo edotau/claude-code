@@ -12,11 +12,11 @@ import (
 	"github.com/edotau/claude-code/internal/router"
 )
 
-// engine is the per-CLI behaviour behind cliRunner and configure; every external agent has one.
+// engine is the per-CLI behaviour behind cliEngine and configure; every external agent has one.
 type engine interface {
 	// Name is the roster agent the engine drives.
 	Name() string
-	// Caps is the roster row's verified flags; with Name and Available it is every Runner's shared base.
+	// Caps is the roster row's verified flags; with Name and Available it is every Engine's shared base.
 	Caps() Caps
 	// Available reports whether the CLI's binary is installed.
 	Available() error
@@ -74,7 +74,7 @@ type engine interface {
 	routeDetail() (detail string, ok bool)
 }
 
-// headlessEngine is an engine cliRunner can exec; copilotEngine is its own Runner instead.
+// headlessEngine is an engine cliEngine can exec; copilotEngine is its own Engine instead.
 type headlessEngine interface {
 	engine
 	// exec runs the prepared child and fills the Result.

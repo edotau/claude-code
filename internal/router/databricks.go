@@ -56,9 +56,9 @@ func (t *RouteTable) codexHop(reg *providers.Registry, tier string, o PickOpts, 
 }
 
 // gateDatabricksCodex is codex's Databricks candidate at tier: the same configured/auth/exhausted gates as any
-// runner, on account databricks·<profile>. ok is false (no Skip) when Databricks is off or serves no usable model.
+// agent, on account databricks·<profile>. ok is false (no Skip) when Databricks is off or serves no usable model.
 func (t *RouteTable) gateDatabricksCodex(
-	pg *pickGate, tier string, st State, o PickOpts, now time.Time, configured func(runner string, c Cell) error, res *PickResult,
+	pg *pickGate, tier string, st State, o PickOpts, now time.Time, configured func(agent string, c Cell) error, res *PickResult,
 ) (Candidate, bool) {
 	reg := pg.reg
 	profile, model, effort, ok := t.codexHop(reg, tier, o, now)
@@ -87,31 +87,31 @@ func (t *RouteTable) gateDatabricksCodex(
 	return Candidate{Agent: "codex", Cell: c, State: e.Status(now), Billing: billing, Profile: profile}, true
 }
 
-// gateCandidate gates one runner (off, pinned or unpinned); codex and copilot also offer candidates on the session profile.
+// gateCandidate gates one agent (off, pinned or unpinned); codex and copilot also offer candidates on the session profile.
 func (t *RouteTable) gateCandidate(
-	ctx context.Context, pg *pickGate, tier, runner string, pins map[string]PinSpec, st State, o PickOpts, now time.Time,
-	configured func(runner string, c Cell) error, res *PickResult,
+	ctx context.Context, pg *pickGate, tier, agent string, pins map[string]PinSpec, st State, o PickOpts, now time.Time,
+	configured func(agent string, c Cell) error, res *PickResult,
 ) ([]Candidate, bool) {
-	spec := pins[runner]
+	spec := pins[agent]
 	if spec.Off {
-		res.Skipped = append(res.Skipped, Skip{runner, GateOff, "deactivated (" + strings.ToUpper(runner) + "_ACTIVE=off)"})
+		res.Skipped = append(res.Skipped, Skip{agent, GateOff, "deactivated (" + strings.ToUpper(agent) + "_ACTIVE=off)"})
 		return nil, false
 	}
 	var group []Candidate
-	if runner != "claude" && spec.Profile != "" {
-		group, _ = t.gatePinned(ctx, pg.reg, tier, runner, spec.Profile, spec, st, o, now, configured, res)
+	if agent != "claude" && spec.Profile != "" {
+		group, _ = t.gatePinned(ctx, pg.reg, tier, agent, spec.Profile, spec, st, o, now, configured, res)
 	} else {
-		group, _ = t.gateRunner(ctx, tier, runner, st, o, now, configured, res)
-		if runner == "gemini" && spec.Model != "" { // native agy login: the GEMINI_MODEL pin beats the table cell
+		group, _ = t.gateAgent(ctx, tier, agent, st, o, now, configured, res)
+		if agent == "gemini" && spec.Model != "" { // native agy login: the GEMINI_MODEL pin beats the table cell
 			for i := range group {
 				group[i].Model = spec.Model
 			}
 		}
 	}
-	if runner == "copilot" {
+	if agent == "copilot" {
 		group = append(group, t.gateSessionCopilot(ctx, pg, tier, "", "", spec, group, st, o, now, configured, res)...)
 	}
-	if runner == "codex" && spec.Profile == "" {
+	if agent == "codex" && spec.Profile == "" {
 		if d, ok := t.gateDatabricksCodex(pg, tier, st, o, now, configured, res); ok && !hasProfileAccount(group, d.Account) {
 			group = append(group, d)
 		}
@@ -131,7 +131,7 @@ func (t *RouteTable) gateCandidate(
 // gateSessionCopilot checks copilot on the session's Databricks profile.
 func (t *RouteTable) gateSessionCopilot(
 	ctx context.Context, pg *pickGate, tier, model, effort string, spec PinSpec, own []Candidate, st State, o PickOpts, now time.Time,
-	configured func(runner string, c Cell) error, res *PickResult,
+	configured func(agent string, c Cell) error, res *PickResult,
 ) []Candidate {
 	if spec.Off {
 		return nil

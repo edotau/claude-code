@@ -17,18 +17,18 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 )
 
-// claudeRunner execs `claude -p --output-format stream-json` with the launcher's provider env and overlay.
-type claudeRunner struct{ baseEngine }
+// claudeEngine execs `claude -p --output-format stream-json` with the launcher's provider env and overlay.
+type claudeEngine struct{ baseEngine }
 
-// claudeAgent is the claude runner; Name and Caps come from the shared base, like every other agent.
-var claudeAgent = claudeRunner{baseEngine{"claude"}}
+// claudeAgent is the claude agent; Name and Caps come from the shared base, like every other agent.
+var claudeAgent = claudeEngine{baseEngine{"claude"}}
 
-var _ Runner = claudeAgent
+var _ Engine = claudeAgent
 
 // Available also finds the native installer's versions dir (ClaudeBinary), which the base's VendorBin lookup does not.
-func (claudeRunner) Available() error { _, err := ClaudeBinary(); return err }
+func (claudeEngine) Available() error { _, err := ClaudeBinary(); return err }
 
-func (claudeRunner) Run(ctx context.Context, req RunOptions, sink Sink) (Result, error) {
+func (claudeEngine) Run(ctx context.Context, req RunOptions, sink Sink) (Result, error) {
 	if req.NoTools { // the one-shot has no system-prompt or schema channel; those go through the claude process
 		if req.Tools {
 			return Result{}, errors.New("claude: --no-tools and --tools are exclusive")

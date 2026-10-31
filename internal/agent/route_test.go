@@ -72,8 +72,8 @@ func TestRouteChainNativeOpencodeLeads(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := c.Dispatches[0].Agent.(cliRunner); !ok || !c.Dispatches[0].unroutedDispatch {
-		t.Fatalf("first dispatch = %+v, want the native opencode runner, unrouted", c.Dispatches[0])
+	if _, ok := c.Dispatches[0].Agent.(cliEngine); !ok || !c.Dispatches[0].unroutedDispatch {
+		t.Fatalf("first dispatch = %+v, want the native opencode agent, unrouted", c.Dispatches[0])
 	}
 	for _, l := range c.Dispatches[1:] {
 		if l.Agent.Name() == "opencode" {
@@ -97,7 +97,7 @@ func TestOwnLoginDispatchRecordsTheProfileItRan(t *testing.T) {
 		t.Fatalf("res=%+v err=%v", res, err)
 	}
 	if got := res.Hops[0].Account; got != "databricks·dbx" {
-		t.Errorf("hop account = %q, want databricks·dbx (what the runner resolves)", got)
+		t.Errorf("hop account = %q, want databricks·dbx (what the agent resolves)", got)
 	}
 }
 

@@ -16,11 +16,11 @@ func TestRosterMatchesSpecs(t *testing.T) {
 	if !slices.Equal(names, []string{"claude", "codex", "gemini", "opencode", "copilot"}) {
 		t.Fatalf("roster order = %v", names)
 	}
-	for _, r := range Runners() {
+	for _, r := range Engines() {
 		runners = append(runners, r.Name())
 	}
 	for label, other := range map[string][]string{
-		"Runners": runners, "RouteRunners": slices.Clone(providers.RouteRunners),
+		"Engines": runners, "RouteAgents": slices.Clone(providers.RouteAgents),
 	} {
 		slices.Sort(other)
 		want := slices.Clone(names)

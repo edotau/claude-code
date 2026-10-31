@@ -33,7 +33,7 @@ func (b *burstRunner) Run(ctx context.Context, _ RunOptions, w Sink) (Result, er
 	return Result{Answer: "a"}, nil
 }
 
-func streamPrepared(t *testing.T, r Runner) *Prepared {
+func streamPrepared(t *testing.T, r Engine) *Prepared {
 	t.Helper()
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	return &Prepared{Opts: RunOptions{Agent: "fake", Prompt: "p"}, Record: ClaimRecord("fake", RunOptions{Prompt: "p"}, time.Now()), chain: Single(r)}

@@ -26,7 +26,7 @@ const firstOutputFloor = 90 * time.Second
 type Routing struct {
 	// Weights replaces internal/route's composite-score weights whole (was top-level routeWeights).
 	Weights map[string]float64 `json:"weights,omitempty"`
-	// Cells overrides internal/router's table cells, keyed runner → tier (was top-level route).
+	// Cells overrides internal/router's table cells, keyed agent → tier (was top-level route).
 	Cells map[string]map[string]RouteCell `json:"cells,omitempty"`
 	// Subagents toggles the agent-effort pressure hook's coworker offload; nil = on.
 	Subagents *bool `json:"subagents,omitempty"`
@@ -130,23 +130,23 @@ func RouteSubagentsOn() (on bool, source string) {
 	return reg.Routing.SubagentsOn(), "default"
 }
 
-// validateRouting checks a routing object's shape: weight names/sum, cell runner/tier/account names, and
+// validateRouting checks a routing object's shape: weight names/sum, cell agent/tier/account names, and
 // opencode's own freeTiers/freeFirstOutput.
 func validateRouting(r Routing) []string {
 	var errs []string
-	for runner, tiers := range r.Cells {
-		if !slices.Contains(RouteRunners, runner) {
-			errs = append(errs, fmt.Sprintf("routing.cells names unknown runner %q", runner))
+	for agent, tiers := range r.Cells {
+		if !slices.Contains(RouteAgents, agent) {
+			errs = append(errs, fmt.Sprintf("routing.cells names unknown agent %q", agent))
 			continue
 		}
 		for tier, cell := range tiers {
 			if !validRouteRow(tier) {
-				errs = append(errs, fmt.Sprintf("routing.cells %s/%s names unknown tier, alias or Claude id", runner, tier))
+				errs = append(errs, fmt.Sprintf("routing.cells %s/%s names unknown tier, alias or Claude id", agent, tier))
 			}
 			switch {
 			case cell.Account != "" && !validRouteAccountKey(cell.Account):
-				errs = append(errs, fmt.Sprintf("routing.cells %s/%s names account_key %q with no known billing entry", runner, tier, cell.Account))
-			case cell.Account == "" && runner == "opencode" && cell.Model != "" &&
+				errs = append(errs, fmt.Sprintf("routing.cells %s/%s names account_key %q with no known billing entry", agent, tier, cell.Account))
+			case cell.Account == "" && agent == "opencode" && cell.Model != "" &&
 				!slices.Contains(RouteOpencodeModelPrefixes, routeModelPrefix(cell.Model)):
 				errs = append(errs, fmt.Sprintf("routing.cells opencode/%s model %q prefix has no known billing account; set account_key explicitly", tier, cell.Model))
 			}

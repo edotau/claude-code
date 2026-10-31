@@ -50,7 +50,7 @@ func TestAgyAndOpenCodeStreamTiming(t *testing.T) {
 func TestVendorIsolationCaps(t *testing.T) {
 	for name, want := range map[string][3]Level{
 		"codex": {Native, Native, None}, "opencode": {None, Native, None}, "gemini": {None, None, Native}} {
-		c := newCLIRunner(name).Caps()
+		c := newCLIEngine(name).Caps()
 		if got := [3]Level{c.NoPersist, c.SafeMode, c.DebugFile}; got != want {
 			t.Errorf("%s caps = %v, want %v", name, got, want)
 		}
