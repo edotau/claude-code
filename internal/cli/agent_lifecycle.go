@@ -35,7 +35,7 @@ func cmdAgentsJob(verb string, args []string) int {
 		return helptext.ExitCode(err)
 	}
 	if err := helptext.CheckFormat(*format); err != nil {
-		return fail("agents %s: %v", verb, err)
+		return badFormat("agents "+verb, err)
 	}
 	if len(pos) != 1 {
 		fs.Usage()
