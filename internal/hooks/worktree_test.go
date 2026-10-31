@@ -3,7 +3,6 @@ package hooks
 import (
 	"bytes"
 	"encoding/json"
-	"github.com/edotau/claude-code/internal/worktree"
 	"io"
 	"os"
 	"os/exec"
@@ -12,6 +11,8 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/memory"
+	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/worktree"
 )
 
 func scrubGitEnv(t *testing.T) {
@@ -333,5 +334,85 @@ func TestUpdateAppendsWorktreeLedger(t *testing.T) {
 	data, err := os.ReadFile(filepath.Join(memory.Dir(main), "worktrees", "wt-h.md"))
 	if err != nil || !strings.Contains(string(data), "update (") {
 		t.Fatalf("no update line in ledger: %v\n%s", err, data)
+	}
+}
+
+// A failing worktree handler must fail the dispatcher: Claude Code reads exit 0 as "worktree created".
+func TestWorktreeFailureKeepsExitCode(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	orig := Native["worktree-create"]
+	Native["worktree-create"] = func(*Input) Result { return Result{Stderr: "worktree-create: boom", ExitCode: 1} }
+	t.Cleanup(func() { Native["worktree-create"] = orig })
+
+	var out, errb strings.Builder
+	code := RunEvent("WorktreeCreate", false, strings.NewReader(`{"hook_event_name":"WorktreeCreate","name":"x"}`), &out, &errb)
+	if code != 1 || !strings.Contains(errb.String(), "boom") || out.Len() != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q; want exit 1, empty stdout, stderr kept", code, out.String(), errb.String())
+	}
+}
+
+// TestWorktreeModeAndBusy: off|false|0 is silent even with a peer; unset asks at start and reports a changed peer set once.
+func TestWorktreeModeAndBusy(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	cwd := t.TempDir()
+	if err := exec.Command("git", "-C", cwd, "init", "-q").Run(); err != nil {
+		t.Fatal(err)
+	}
+	peers := []worktree.Proc{{PID: 4242, Comm: "claude"}}
+	old := peerAgents
+	peerAgents = func(string, []string) ([]worktree.Proc, error) { return peers, nil }
+	defer func() { peerAgents = old }()
+	in := &Input{SessionID: "s1", CWD: cwd}
+
+	for _, v := range []string{"off", "false", "0", "OFF"} {
+		t.Setenv(worktreeModeEnv, v)
+		if got := worktreeMode(in).Context + worktreeBusy(in).Context; got != "" {
+			t.Fatalf("%s must be silent with a peer present, got %q", v, got)
+		}
+	}
+	t.Setenv(worktreeModeEnv, "")
+	if got := worktreeMode(in).Context; got != worktreeAskLine {
+		t.Fatalf("unset start: %q", got)
+	}
+	if got := worktreeBusy(in).Context; !strings.Contains(got, "claude pid 4242") {
+		t.Fatalf("unset busy: %q", got)
+	}
+	if got := worktreeBusy(in).Context; got != "" {
+		t.Fatalf("same peers must dedupe, got %q", got)
+	}
+	peers = []worktree.Proc{{PID: 4242, Comm: "claude"}, {PID: 77, Comm: "codex"}}
+	if got := worktreeBusy(in).Context; got == "" {
+		t.Fatal("changed peer set must re-report")
+	}
+	peers = nil
+	if got := worktreeBusy(in).Context; got != "" {
+		t.Fatalf("no peers: %q", got)
+	}
+}
+
+// TestWorktreeBusyStateFileIs0600: the busy-peer state file is private to the owner.
+func TestWorktreeBusyStateFileIs0600(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv(worktreeModeEnv, "")
+	cwd := t.TempDir()
+	if err := exec.Command("git", "-C", cwd, "init", "-q").Run(); err != nil {
+		t.Fatal(err)
+	}
+	old := peerAgents
+	peerAgents = func(string, []string) ([]worktree.Proc, error) {
+		return []worktree.Proc{{PID: 4242, Comm: "claude"}}, nil
+	}
+	defer func() { peerAgents = old }()
+	worktreeBusy(&Input{SessionID: "s1", CWD: cwd})
+	files, _ := filepath.Glob(filepath.Join(paths.StateDir(), "worktree-busy", "*"))
+	if len(files) != 1 {
+		t.Fatalf("want one state file, got %v", files)
+	}
+	st, err := os.Stat(files[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Mode().Perm() != 0o600 {
+		t.Fatalf("mode = %v; want 0600", st.Mode().Perm())
 	}
 }

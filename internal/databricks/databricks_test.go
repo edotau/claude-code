@@ -2,6 +2,8 @@ package databricks
 
 import (
 	"bytes"
+	"encoding/base64"
+	"flag"
 	"io"
 	"os"
 	"slices"
@@ -10,6 +12,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/vault"
 )
 
 // call is one recorded spawn of the child.
@@ -291,7 +294,7 @@ func TestRunProfileErrorExit2(t *testing.T) {
 	}
 }
 
-// TestLaunchArgvNoShellAndBetaEnv pins the list-argv launch; the beta opt-out is covered in dialect_test.go.
+// TestLaunchArgvNoShellAndBetaEnv pins the list-argv launch; the beta opt-out is covered below.
 func TestLaunchArgvNoShellAndBetaEnv(t *testing.T) {
 	seedOverlay(t, threeProfiles)
 	f := &fakeChild{}
@@ -388,5 +391,139 @@ func TestRunRemovedFlagsExit2NoLaunch(t *testing.T) {
 		if len(f.calls) != 0 {
 			t.Errorf("Run(%q) launched the child: %v", args, f.calls)
 		}
+	}
+}
+
+func TestRemovedFlagHint(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+		want string // substring of the error; "" means nil
+	}{
+		{"provider", []string{"--provider", "x"}, "--profile"},
+		{"provider=", []string{"--provider=x"}, "--profile"},
+		{"env", []string{"--env", "qa"}, "--profile"},
+		{"tier", []string{"--tier", "opus"}, "--model"},
+		{"router", []string{"--router"}, "removed"},
+		{"after other args", []string{"-p", "hi", "--tier=opus"}, "--tier"},
+		{"profile valid", []string{"--profile", "x"}, ""},
+		{"model valid", []string{"--model=opus"}, ""},
+		{"after double dash", []string{"--", "--provider"}, ""},
+		{"value lookalike", []string{"--profile", "--providers"}, ""},
+		{"none", nil, ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := RemovedFlagHint(tt.args)
+			if tt.want == "" {
+				if err != nil {
+					t.Fatalf("RemovedFlagHint(%q) = %v, want nil", tt.args, err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("RemovedFlagHint(%q) = %v, want containing %q", tt.args, err, tt.want)
+			}
+		})
+	}
+}
+
+func TestCheckHelpShowsCheckPageNotTopLevel(t *testing.T) {
+	code, out, errs := captureOutput(t, func() int { return Run([]string{"check", "--help"}) })
+	all := out + errs
+	if code != 0 || !strings.Contains(all, "databricks check [MODEL]") {
+		t.Fatalf("check --help: exit %d, want check's own page:\n%s", code, all)
+	}
+	// Negative control: the plain page is the launcher's.
+	_, out, errs = captureOutput(t, func() int { return Run([]string{"--help"}) })
+	if strings.Contains(out+errs, "databricks check [MODEL]") {
+		t.Errorf("top-level help shows check's usage:\n%s", out+errs)
+	}
+}
+
+// -p NAME selects the same profile as --profile NAME through bind() (config, rescue).
+func TestProfileShorthandMatchesLongFlag(t *testing.T) {
+	for _, args := range [][]string{{"-p", "bb"}, {"-p=bb"}, {"--profile", "bb"}} {
+		var f cfgFlags
+		fs := flag.NewFlagSet("t", flag.ContinueOnError)
+		fs.SetOutput(io.Discard)
+		bind(fs, &f, "harness", true)
+		if err := fs.Parse(args); err != nil || f.profile != "bb" {
+			t.Errorf("bind %v: profile=%q err=%v, want bb", args, f.profile, err)
+		}
+	}
+}
+
+// -p names the profile on check and on the bare launch verb; claude's print mode passes through as --print.
+func TestPlanShorthandProfile(t *testing.T) {
+	seedOverlay(t, threeProfiles)
+	t.Setenv(providers.EnvSessionProfile, "")
+	c, err := plan([]string{"check", "-p", "cc"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	l, err := plan([]string{"-p", "aa", "--print", "hi"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Provider != "cc" || len(c.Rest) != 0 {
+		t.Errorf("check -p cc: provider %q rest %v", c.Provider, c.Rest)
+	}
+	if l.Provider != "aa" || len(l.Rest) != 2 || l.Rest[0] != "--print" {
+		t.Errorf("launch -p aa: provider %q rest %v", l.Provider, l.Rest)
+	}
+}
+
+const dbxHost = `"host":"https://adb-1.azuredatabricks.net"`
+
+// seedOverlay isolates the vault in a temp config dir and writes doc as the providers overlay ("" = none).
+func seedOverlay(t *testing.T, doc string) {
+	t.Helper()
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("HARNESS_VAULT_KEY", base64.StdEncoding.EncodeToString(make([]byte, 32)))
+	if doc == "" {
+		return
+	}
+	if err := vault.Update(func(tx *vault.Tx) error { return tx.Put(vault.Overlay, "providers", doc) }); err != nil {
+		t.Fatalf("seed overlay: %v", err)
+	}
+}
+
+// presetOnly defines one preset profile (which injects the beta opt-out into its Env).
+const presetOnly = `{"providers":{"databricks":{"aa":{"preset":"databricks",` + dbxHost + `}}}}`
+
+func TestPlanNoBetaOnlyWhenProviderEnvHasKey(t *testing.T) {
+	seedOverlay(t, presetOnly)
+	p, err := plan([]string{"sonnet", "--profile", "aa"})
+	if err != nil || !p.NoBeta {
+		t.Errorf("preset provider Env carries the beta key: NoBeta should be true (err %v)", err)
+	}
+	if providerHasBetaOff(nil, "aa") || providerHasBetaOff(mustLoad(t), "missing") {
+		t.Error("unknown profile: NoBeta should be false")
+	}
+}
+
+func TestChildEnvBeta(t *testing.T) {
+	t.Setenv(betaKey, "")
+	os.Unsetenv(betaKey)
+	if slices.Contains(childEnv(Plan{NoBeta: true}), betaOff) {
+		t.Error("NoBeta plan must not inject the opt-out")
+	}
+	if !slices.Contains(childEnv(Plan{}), betaOff) {
+		t.Error("plan without NoBeta must inject the opt-out")
+	}
+}
+
+func TestLaunchBetaInjectionFollowsProvider(t *testing.T) {
+	t.Setenv(betaKey, "")
+	os.Unsetenv(betaKey)
+	seedOverlay(t, presetOnly)
+	f := &fakeChild{}
+	useFake(t, f)
+	if code := Run([]string{"sonnet", "--profile", "aa"}); code != 0 {
+		t.Fatalf("exit = %d", code)
+	}
+	if slices.Contains(f.calls[0].env, betaOff) {
+		t.Error("preset provider owns the opt-out: launch must not inject it")
 	}
 }

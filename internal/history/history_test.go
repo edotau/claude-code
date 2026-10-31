@@ -213,7 +213,7 @@ func TestLogListsCommits(t *testing.T) {
 	}
 }
 
-// A clean git env is the whole point of gitenv.go: a snapshot taken inside a session must never
+// A clean git env is the whole point of history.go: a snapshot taken inside a session must never
 // touch whichever repo GIT_DIR/GIT_WORK_TREE/GIT_INDEX_FILE happen to name — only the history store.
 func TestSnapshotIgnoresInheritedGitEnv(t *testing.T) {
 	decoy := t.TempDir()

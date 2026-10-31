@@ -1,6 +1,7 @@
 package memory
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -231,5 +232,191 @@ func TestSeenSetTracksInjectedBlocks(t *testing.T) {
 		if len(SeenBlocks(bad)) != 0 {
 			t.Errorf("session id %q must be a no-op", bad)
 		}
+	}
+}
+
+// credentialPattern is the coarse memory tripwire: ghs_ with 10+ body characters is caught, a short stub is not.
+func TestCredentialPatternGitHubShapes(t *testing.T) {
+	if !credentialPattern.MatchString("token ghs_abcdefghij12 leaked") {
+		t.Error("ghs_ + 12 chars must match")
+	}
+	if credentialPattern.MatchString("see ghs_abc for the format") {
+		t.Error("ghs_abc is too short to be a token")
+	}
+}
+
+// TestSearchHitPlainStripsMarkup: a preview drops heading/bullet marks and id markers but keeps every word.
+func TestSearchHitPlainStripsMarkup(t *testing.T) {
+	t.Parallel()
+	h := SearchHit{Block: "## 2026-10-23 — Routing stays local <!-- id:7e92d61b -->\n\n- Rejected the remote router.\n"}
+	want := "2026-10-23 — Routing stays local Rejected the remote router."
+	if got := h.Plain(); got != want {
+		t.Errorf("Plain() = %q, want %q", got, want)
+	}
+}
+
+// TestCompoundMatchFindsHyphenatedAndSubstringTerms: "agent routing" finds a block that only carries
+// "subagent" (agent is a substring of subagent) and "routing" exactly; a block with an exact "agent"
+// outranks the substring-only match; a hyphenated query term ("agent-routing") matches both parts.
+func TestCompoundMatchFindsHyphenatedAndSubstringTerms(t *testing.T) {
+	isolatedConfig(t)
+	initStore(t)
+	repo := gitRepo(t, t.TempDir(), "routing")
+	dir, err := EnsureRepoDir(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	write(t, filepath.Join(dir, "decisionLog.md"), "# Decisions\n\n"+
+		"## compound candidate\nSubagent routing stays on the local classifier\n\n"+
+		"## exact candidate\nAgent routing stays on the local classifier\n\n"+
+		"## unrelated entry\nnothing to do with either term\n")
+
+	hits := SearchBanks(repo, "agent routing", 0)
+	var compoundScore, exactScore float64
+	var compoundMatched, exactMatched int
+	var compoundSeen, exactSeen bool
+	for _, h := range hits {
+		switch {
+		case strings.Contains(h.Block, "Subagent routing"):
+			compoundSeen, compoundScore, compoundMatched = true, h.Score, h.Matched
+		case strings.Contains(h.Block, "Agent routing"):
+			exactSeen, exactScore, exactMatched = true, h.Score, h.Matched
+		}
+	}
+	if !compoundSeen {
+		t.Fatalf("\"agent routing\" missed the compound (subagent) block: %#v", hits)
+	}
+	if !exactSeen {
+		t.Fatalf("\"agent routing\" missed the exact block: %#v", hits)
+	}
+	// Matched must credit BOTH query terms on the compound block — "agent" only via the subagent
+	// substring — not just the one term ("routing") that was already an exact token.
+	if compoundMatched != 2 {
+		t.Errorf("compound block matched %d terms, want 2 (agent via substring, routing exact): %#v", compoundMatched, hits)
+	}
+	if exactMatched != 2 {
+		t.Errorf("exact block matched %d terms, want 2: %#v", exactMatched, hits)
+	}
+	if exactScore <= compoundScore {
+		t.Errorf("exact match score %v did not outrank the compound match score %v", exactScore, compoundScore)
+	}
+
+	hyphen := SearchBanks(repo, "agent-routing", 0)
+	var hyphenHitsCompound, hyphenHitsExact bool
+	for _, h := range hyphen {
+		if strings.Contains(h.Block, "Subagent routing") {
+			hyphenHitsCompound = true
+		}
+		if strings.Contains(h.Block, "Agent routing") {
+			hyphenHitsExact = true
+		}
+	}
+	if !hyphenHitsCompound || !hyphenHitsExact {
+		t.Fatalf("hyphenated query \"agent-routing\" did not match both parts: %#v", hyphen)
+	}
+}
+
+// LiveTranscript prefers projects/<slug(cwd)>/<id>.jsonl, falls back to any project, and is "" otherwise.
+func TestLiveTranscript(t *testing.T) {
+	cfg, _ := isolatedConfig(t)
+	cwd := t.TempDir()
+	write := func(slug, id string) string {
+		p := filepath.Join(cfg, "projects", slug, id+".jsonl")
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte("{}\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	exact := write(ProjectSlug(cwd), "s1")
+	write("-other-project", "s1")
+	other := write("-other-project", "s2")
+	if got := LiveTranscript(cwd, "s1"); got != exact {
+		t.Errorf("exact: got %q, want %q", got, exact)
+	}
+	if got := LiveTranscript(cwd, "s1.jsonl"); got != exact {
+		t.Errorf("exact with .jsonl: got %q, want %q", got, exact)
+	}
+	if got := LiveTranscript(cwd, "s2"); got != other {
+		t.Errorf("glob fallback: got %q, want %q", got, other)
+	}
+	for _, id := range []string{"", "missing"} {
+		if got := LiveTranscript(cwd, id); got != "" {
+			t.Errorf("id %q: got %q, want \"\"", id, got)
+		}
+	}
+}
+
+// embeddedVerbs are every verb Go actually calls memory.Reference with — grepped by hand from
+// update.go, dream.go, promote.go — each must resolve to a non-empty embedded prompt.
+var embeddedVerbs = []string{"init", "review", "promote", "update", "dream"}
+
+// TestReferenceEmbeddedVerbsNonEmpty: every verb Go calls Reference(verb) with resolves to a
+// non-empty embedded prompt — no disk path left to go missing at runtime.
+func TestReferenceEmbeddedVerbsNonEmpty(t *testing.T) {
+	for _, verb := range embeddedVerbs {
+		got, err := Reference(verb)
+		if err != nil {
+			t.Errorf("Reference(%q): %v", verb, err)
+			continue
+		}
+		if strings.TrimSpace(got) == "" {
+			t.Errorf("Reference(%q) = empty, want a non-empty procedure", verb)
+		}
+	}
+}
+
+// TestReferenceUnknownVerbErrors: a verb with no embedded prompts/<verb>.md is an error, not an
+// empty string — a caller must never run a background job on a silently empty prompt.
+func TestReferenceUnknownVerbErrors(t *testing.T) {
+	if _, err := Reference("does-not-exist"); err == nil {
+		t.Fatal("Reference(\"does-not-exist\") = nil error, want one")
+	}
+}
+
+// TestReferenceEmptyVerbErrors: the empty string is also an unknown verb.
+func TestReferenceEmptyVerbErrors(t *testing.T) {
+	if _, err := Reference(""); err == nil {
+		t.Fatal("Reference(\"\") = nil error, want one")
+	}
+}
+
+// TestAgentDreamPrompt_UsesReference: the embedded dream procedure lands in the built prompt.
+func TestAgentDreamPrompt_UsesReference(t *testing.T) {
+	got, err := agentDreamPrompt()
+	if err != nil {
+		t.Fatalf("agentDreamPrompt: %v", err)
+	}
+	ref, err := Reference("dream")
+	if err != nil {
+		t.Fatalf("Reference(\"dream\"): %v", err)
+	}
+	if !strings.Contains(got, ref) {
+		t.Errorf("prompt missing the embedded dream reference:\n%s", got)
+	}
+}
+
+// TestDreamFreshStoreRunsWithoutDeadlock: on a fresh store Dream used to re-take its
+// own bank lock inside SettleBank and hang. Reference("dream") is now embedded and always resolves
+// (the old "missing reference" repro is unreachable), so this instead confirms Dream still returns
+// promptly and the agent still runs, proving the lock-then-settle-outside-the-lock fix holds.
+func TestDreamFreshStoreRunsWithoutDeadlock(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	ran := false
+	run := func(context.Context, string, string) (string, error) { ran = true; return "stub", nil }
+	done := make(chan error, 1)
+	go func() { done <- Dream(DreamOptions{CWD: t.TempDir(), Run: run}) }()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Errorf("Dream error = %v, want nil", err)
+		}
+		if !ran {
+			t.Error("agent did not run despite an embedded reference")
+		}
+	case <-time.After(20 * time.Second):
+		t.Fatal("Dream deadlocked on a fresh store")
 	}
 }

@@ -1,6 +1,8 @@
 package models
 
-import "testing"
+import (
+	"testing"
+)
 
 func TestParseAndKnobs(t *testing.T) {
 	cases := []struct {
@@ -71,6 +73,85 @@ func TestUseCase(t *testing.T) {
 	for _, c := range cases {
 		if got := UseCase(c.id, c.name); got != c.want {
 			t.Errorf("UseCase(%q, %q) = %q, want %q", c.id, c.name, got, c.want)
+		}
+	}
+}
+
+func TestTierModel(t *testing.T) {
+	for tier, want := range map[string]string{
+		EffortLow: Haiku, EffortMedium: Sonnet, EffortHigh: Sonnet, "": "", "bogus": "", "LOW": "",
+	} {
+		if got := TierModel(tier); got != want {
+			t.Errorf("TierModel(%q) = %q, want %q", tier, got, want)
+		}
+	}
+}
+
+func TestCanonical(t *testing.T) {
+	cases := []struct {
+		in   string
+		want string
+		oneM bool
+	}{
+		{"opus-5-5[1m]", "claude-opus-5-5", true},
+		{"databricks-claude-opus-5-5", "claude-opus-5-5", false},
+		{"system.ai.claude-opus-5", "claude-opus-5", false},
+		{"system.ai-claude-sonnet-5", "claude-sonnet-5", false},
+		{"my-endpoint", "my-endpoint", false},
+		{"gpt-5", "gpt-5", false},
+		{"databricks-my-endpoint", "databricks-my-endpoint", false},
+		{"a/b", "a/b", false},
+		{"  claude-opus-5[1m]  ", "claude-opus-5", true},
+		{"  opus  ", "opus", false},
+		{"system.ai.opus", "system.ai.opus", false},
+		{"databricks-opus", "databricks-opus", false},
+		{"claude-opus-5-5", "claude-opus-5-5", false},
+	}
+	for _, c := range cases {
+		got, oneM := Canonical(c.in)
+		if got != c.want || oneM != c.oneM {
+			t.Errorf("Canonical(%q) = %q,%v; want %q,%v", c.in, got, oneM, c.want, c.oneM)
+		}
+		if again, _ := Canonical(got); again != got {
+			t.Errorf("Canonical not idempotent on %q: %q", got, again)
+		}
+	}
+}
+
+func TestFamilyKindAndWireFlags(t *testing.T) {
+	cases := []struct {
+		id                                  string
+		fam                                 Family
+		respOnly, chatOnly, openAIReasoning bool
+	}{
+		{"claude-opus-5-5", FamilyClaude, false, false, false},
+		{"databricks-claude-opus-5-5", FamilyClaude, false, false, false},
+		{"system.ai.claude-opus-5-5", FamilyClaude, false, false, false},
+		{"claude-opus-5.5", FamilyClaude, false, false, false},
+		{"claude-opus-5-5[1m]", FamilyClaude, false, false, false},
+		{"claude-3-7-sonnet", FamilyClaude, false, false, false},
+		{"databricks-claude-3-7-sonnet", FamilyClaude, false, false, false},
+		{"us.anthropic.claude-3-5-sonnet-20241022-v2:0", FamilyClaude, false, false, false},
+		{"gpt-oss-120b", FamilyGPT, false, true, false},
+		{"databricks-gpt-oss-120b", FamilyGPT, false, true, false},
+		{"gpt-6-luna", FamilyGPT, false, false, true},
+		{"databricks-gpt-6-1-sol", FamilyGPT, true, false, true},
+		{"gpt-5.5", FamilyGPT, true, false, true},
+		{"gemini-4-argon", FamilyGemini, false, false, false},
+		{"totally-unknown-model", FamilyOther, false, false, false},
+	}
+	for _, c := range cases {
+		if got := FamilyKind(c.id); got != c.fam {
+			t.Errorf("FamilyKind(%q) = %q, want %q", c.id, got, c.fam)
+		}
+		if got := ResponsesOnly(c.id); got != c.respOnly {
+			t.Errorf("ResponsesOnly(%q) = %v, want %v", c.id, got, c.respOnly)
+		}
+		if got := ChatOnly(c.id); got != c.chatOnly {
+			t.Errorf("ChatOnly(%q) = %v, want %v", c.id, got, c.chatOnly)
+		}
+		if got := IsOpenAIReasoning(c.id); got != c.openAIReasoning {
+			t.Errorf("IsOpenAIReasoning(%q) = %v, want %v", c.id, got, c.openAIReasoning)
 		}
 	}
 }

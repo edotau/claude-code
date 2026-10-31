@@ -1,8 +1,12 @@
 package databricks
 
 import (
+	"encoding/json"
+	"errors"
+	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -188,5 +192,151 @@ func TestRescueRefusals(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
 	if code, _, _ := runCaptured(t, func() int { return rescue([]string{"--host", exHost}) }); code != 2 || len(f.calls) != 0 {
 		t.Errorf("missing claude: %d", code)
+	}
+}
+
+func TestConfigHostOverrideOut(t *testing.T) {
+	out := filepath.Join(t.TempDir(), "s.json")
+	args := []string{"claude", "--host", "https://x.example.com", "--auth", "cli", "--out", out}
+	if code := config(args); code != 0 {
+		t.Fatalf("code %d", code)
+	}
+	fi, err := os.Stat(out)
+	if err != nil || fi.Mode().Perm() != 0o600 {
+		t.Fatalf("stat %v %v", fi, err)
+	}
+	if code := config(args); code != 2 {
+		t.Errorf("overwrite without --force gave %d", code)
+	}
+	if code := config(append(args, "--force")); code != 0 {
+		t.Errorf("force gave %d", code)
+	}
+	if code := config([]string{"claude", "--host", "https://x.example.com", "--set", "A_TOKEN=1"}); code != 2 {
+		t.Errorf("credential --set gave %d", code)
+	}
+}
+
+func TestScrubbed(t *testing.T) {
+	got := scrubbed([]string{"HARNESS_X=1", "ANTHROPIC_BASE_URL=u", "PATH=/bin"})
+	if len(got) != 1 || !strings.HasPrefix(got[0], "PATH=") {
+		t.Errorf("got %v", got)
+	}
+}
+
+func TestRescuePrint(t *testing.T) {
+	fakeClaudeOnPath(t)
+	f := &fakeChild{}
+	useFake(t, f)
+	code, out, _ := runCaptured(t, func() int { return rescue([]string{"--host", "https://x.example.com", "--print"}) })
+	if code != 0 || len(f.calls) != 0 {
+		t.Fatalf("code %d calls %v", code, f.calls)
+	}
+	if i := strings.Index(out, "claude --settings "); i >= 0 {
+		t.Cleanup(func() { os.Remove(strings.Fields(out[i:])[2]) })
+	}
+}
+
+// rescueScratch runs rescue with a recording spawn; it returns the scratch path and whether it existed mid-run.
+func rescueScratch(t *testing.T, spawnErr error) (path string, existedDuring bool, code int) {
+	t.Helper()
+	fakeClaudeOnPath(t)
+	old := spawn
+	spawn = func(_ string, argv, _ []string, _ io.Reader, _, _ io.Writer) (int, error) {
+		path = argValue(argv, "--settings")
+		_, err := os.Stat(path)
+		existedDuring = err == nil
+		return 3, spawnErr
+	}
+	t.Cleanup(func() { spawn = old })
+	code, _, _ = runCaptured(t, func() int { return rescue([]string{"--host", exHost}) })
+	t.Cleanup(func() { os.Remove(path) })
+	return path, existedDuring, code
+}
+
+func TestRescueDeletesScratchAfterChildExits(t *testing.T) {
+	path, during, code := rescueScratch(t, nil)
+	if code != 3 || path == "" || !during {
+		t.Fatalf("code %d path %q existedDuring %v", code, path, during)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Errorf("scratch survived the child: %v", err)
+	}
+}
+
+func TestRescueDeletesScratchWhenSpawnFails(t *testing.T) {
+	path, _, code := rescueScratch(t, errors.New("boom"))
+	if code != 2 || path == "" {
+		t.Fatalf("code %d path %q", code, path)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Errorf("scratch survived a failed spawn: %v", err)
+	}
+}
+
+func TestRescuePrintKeepsScratch(t *testing.T) {
+	fakeClaudeOnPath(t)
+	f := &fakeChild{}
+	useFake(t, f)
+	_, out, _ := runCaptured(t, func() int { return rescue([]string{"--host", exHost, "--print"}) })
+	i := strings.Index(out, "claude --settings ")
+	if i < 0 {
+		t.Fatalf("no command line:\n%s", out)
+	}
+	file := strings.Fields(out[i:])[2]
+	t.Cleanup(func() { os.Remove(file) })
+	if _, err := os.Stat(file); err != nil {
+		t.Errorf("--print removed the scratch file: %v", err)
+	}
+}
+
+func TestApiKeyHelperQuotesPathWithSpace(t *testing.T) {
+	o := base(t, TargetClaude, "serving")
+	o.Self = "/opt/my tools/claude-code"
+	r, err := Render(o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var d struct {
+		K string `json:"apiKeyHelper"`
+	}
+	if err := json.Unmarshal([]byte(r.Text), &d); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(d.K, "'/opt/my tools/claude-code' resolve --profile ") {
+		t.Errorf("helper path not quoted: %q", d.K)
+	}
+	o.Self = "/bin/cc"
+	if r, _ = Render(o); strings.Contains(r.Text, "'/bin/cc'") {
+		t.Errorf("a safe path must stay unquoted:\n%s", r.Text)
+	}
+}
+
+func TestSetRejectsKeysThatBreakOutOfTOML(t *testing.T) {
+	for _, k := range []string{"a b", `a"b`, "a]b", "a\nb", "[table]", "", "é"} {
+		for _, target := range []string{TargetCodex, TargetClaude} {
+			o := base(t, target, "serving")
+			o.Set = []string{k + "=v"}
+			if _, err := Render(o); err == nil {
+				t.Errorf("%s: --set key %q accepted", target, k)
+			}
+		}
+	}
+	o := base(t, TargetCodex, "serving")
+	o.Set = []string{"model_reasoning_effort=high"}
+	if _, err := Render(o); err != nil {
+		t.Errorf("plain key refused: %v", err)
+	}
+}
+
+func TestRescueScrubsInheritedAuthEnv(t *testing.T) {
+	environ := []string{
+		"CLAUDE_CODE_USE_BEDROCK=1", "CLAUDE_CODE_USE_VERTEX=1", "CLAUDE_CODE_OAUTH_TOKEN=x", "CLAUDE_CONFIG_DIR=/c",
+		"DATABRICKS_TOKEN=x", "DATABRICKS_HOST=h", "DATABRICKS_CONFIG_PROFILE=p", "HARNESS_PROVIDER=p", "CLAUDE_PROFILE=dev", "CLAUDE_OPUS_MODEL=m", "ANTHROPIC_API_KEY=x",
+		"PATH=/bin", "HOME=/h", "CLAUDE_CODE_NO_FLICKER=1", "MY_DATABRICKS_NOTE=keep",
+	}
+	got := scrubbed(environ)
+	want := []string{"PATH=/bin", "HOME=/h", "CLAUDE_CODE_NO_FLICKER=1", "MY_DATABRICKS_NOTE=keep"}
+	if !slices.Equal(got, want) {
+		t.Errorf("scrubbed = %v, want %v", got, want)
 	}
 }

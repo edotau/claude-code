@@ -108,7 +108,7 @@ func TestLedgerLifecycle(t *testing.T) {
 	}
 }
 
-// TestCleanForceClosesLedger is the regression test for the CloseLedger call in cleanforce.go:
+// TestCleanForceClosesLedger is the regression test for the CloseLedger call in lifecycle.go:
 // force-removing a dirty or unmerged worktree must still record the close, via "clean --force".
 func TestCleanForceClosesLedger(t *testing.T) {
 	t.Parallel()

@@ -4,12 +4,13 @@
 // ONE repo under state/harness/history (gitignored) carries both "planes" — config files and the
 // memory view (tree.go) — as flat labeled copies. A plane's commit subject is prefixed "config: " or
 // "memory: ", and Log/Diff filter on that prefix (git log --grep), so the two stay independent
-// histories without needing two separate repos. Every git call runs through gitenv.go's sanitized
+// histories without needing two separate repos. Every git call runs through history.go's sanitized
 // environment, so a snapshot taken inside a session never touches that session's OWN repo.
 package history
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -18,9 +19,11 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 )
 
@@ -279,4 +282,20 @@ func (s *Store) Diff(rev, plane string) (string, error) {
 func SnapshotConfig(note string) (Result, error) {
 	s := &Store{Dir: Dir()}
 	return s.Snapshot(ConfigFiles(), "config", note)
+}
+
+// One exec seam for the store, via internal/proc. The environment handling there must never
+// drift: getting it wrong is silently destructive (a retargeted repo gets `add -A` + `commit` run
+// against it).
+
+// gitTimeout bounds one shadow-history git call; a var so tests need not wait it out.
+var gitTimeout = 30 * time.Second
+
+// runGit executes git via the shared proc seam. full is the complete argv after "git",
+// already carrying its own -C: dir stays "" here so proc does not add a second one.
+func runGit(full []string) (string, error) {
+	// A tree walk this size is seconds at most; a hung index.lock or filesystem must not hold a hook.
+	ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+	defer cancel()
+	return proc.RunGit(ctx, "", full...)
 }

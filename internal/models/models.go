@@ -284,3 +284,21 @@ func containsAny(s string, subs ...string) bool {
 }
 
 func inCatalog(canonical string) bool { _, ok := Lookup(canonical); return ok }
+
+// Effort tiers; the strings equal the hooks package's TierLow/Medium/High.
+const (
+	EffortLow    = "low"
+	EffortMedium = "medium"
+	EffortHigh   = "high"
+)
+
+// TierModel is the Agent-tool alias for an effort tier ("" for an unknown tier); an alias, so `models --pin` applies.
+func TierModel(tier string) string {
+	switch tier {
+	case EffortLow:
+		return Haiku
+	case EffortMedium, EffortHigh:
+		return Sonnet
+	}
+	return ""
+}

@@ -84,3 +84,13 @@ func TokenExpiry(name string) (time.Time, bool) {
 	}
 	return time.Unix(*rec.Exp, 0), true
 }
+
+// tokenExpirySchema is the token-expiry record's schema version; a mismatch is a cache miss.
+const tokenExpirySchema = 1
+
+var tokenExpiryFormat = schemas.Register(schemas.Format{
+	Name: "token-expiry", Owner: "internal/providers", Kind: schemas.Cache,
+	Glob:    func() string { return filepath.Join(paths.StateDir(), "cache", "token-expiry", "*.json") },
+	New:     func() any { return &tokenExpiryRecord{} },
+	Version: tokenExpirySchema, Keep: "rebuildable cache; a version mismatch is a miss",
+})
