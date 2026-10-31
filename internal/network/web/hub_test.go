@@ -301,7 +301,7 @@ func TestEventsDispatchRecordChangeStreams(t *testing.T) {
 	frames, _ := openEvents(t, f.ts.URL)
 	first := nextFrame(t, frames, 5*time.Second)
 
-	// finished-session's relay transcript names this id in an "ask: dispatch" line, so its leg comes from the record
+	// finished-session's relay transcript names this id in an "ask: dispatch" line, so its dispatch comes from the record
 	rec := agent.NewRecord("codex", agent.RunOptions{}, time.Date(2026, 10, 17, 23, 11, 31, 948_000_000, time.UTC))
 	rec.Status = "ok"
 	if err := rec.Save(); err != nil {

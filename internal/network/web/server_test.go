@@ -556,7 +556,7 @@ func TestRenderDispatchesTemplateEscapesStatusFields(t *testing.T) {
 	}
 }
 
-// --- dashboard template escapes the new activity/leg/snapshot/browser fields before interpolating ---
+// --- dashboard template escapes the new activity/dispatch/snapshot/browser fields before interpolating ---
 
 // extractJSFunc returns the body of the first JS function named name in src, the same
 // start/end-delimiter approach TestRenderDispatchesTemplateEscapesStatusFields uses.

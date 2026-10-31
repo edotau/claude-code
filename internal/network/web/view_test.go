@@ -19,7 +19,7 @@ import (
 )
 
 // withEmptyDispatchDir points internal/agent's dispatch log at an empty temp dir for the duration of
-// the test, so a /api/view request's vendor-leg lookup never touches this machine's real dispatch
+// the test, so a /api/view request's vendor-dispatch lookup never touches this machine's real dispatch
 // log under ~/.claude/state/harness/dispatch.
 func withEmptyDispatchDir(t *testing.T) {
 	t.Helper()
