@@ -36,7 +36,7 @@ func TestCopilotRegistryExplicitModelWins(t *testing.T) {
 	lookPath = func(string) (string, error) { return "/bin/copilot", nil }
 
 	argvModel := func(model string) string {
-		plan, err := Vendor(context.Background(), "copilot", LaunchOptions{Provider: "dbx", Model: model, PrintEnv: true}, nil)
+		plan, err := LaunchPlan(context.Background(), "copilot", LaunchOptions{Provider: "dbx", Model: model, PrintEnv: true}, nil)
 		if err != nil {
 			t.Fatal(err)
 		}

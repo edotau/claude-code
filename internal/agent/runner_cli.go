@@ -84,28 +84,28 @@ func namesProvider(reg *providers.Registry, spec string) bool {
 	return ok && found
 }
 
-// vendorRunner execs an agent CLI's headless mode wired by ConfigureHeadless.
-type vendorRunner struct{ eng headlessEngine }
+// cliRunner execs an agent CLI's headless mode wired by ConfigureHeadless.
+type cliRunner struct{ eng headlessEngine }
 
 // newVendorRunner is the runner for a roster CLI with a headless engine: codex, gemini or opencode.
-func newVendorRunner(name string) vendorRunner { return vendorRunner{engines[name].(headlessEngine)} }
+func newVendorRunner(name string) cliRunner { return cliRunner{engines[name].(headlessEngine)} }
 
-func (v vendorRunner) Name() string { return v.eng.Name() }
+func (v cliRunner) Name() string { return v.eng.Name() }
 
 // Caps follow each CLI's verified headless flags.
-func (v vendorRunner) Caps() Caps {
+func (v cliRunner) Caps() Caps {
 	s, _ := LookupSchema(v.Name())
 	return s.CLI.Caps
 }
 
-func (v vendorRunner) Available() error {
+func (v cliRunner) Available() error {
 	s, _ := LookupSchema(v.Name())
 	_, err := paths.VendorBin(s.CLI.Binary)
 	return err
 }
 
-// vendorPrep is a vendor run resolved up to its child's env: the route target, the prompt and the headless argv.
-type vendorPrep struct {
+// cliPrep is a vendor run resolved up to its child's env: the route target, the prompt and the headless argv.
+type cliPrep struct {
 	res    Result
 	t      providers.Target
 	prompt string
@@ -114,14 +114,14 @@ type vendorPrep struct {
 }
 
 // prepare resolves req's route and headless argv; the Result comes back populated even on error.
-func (v vendorRunner) prepare(ctx context.Context, req RunOptions) (vendorPrep, error) {
+func (v cliRunner) prepare(ctx context.Context, req RunOptions) (cliPrep, error) {
 	name := v.Name()
 	s := schemaFor(name)
 	t, own, err := s.target(req)
 	if err != nil {
-		return vendorPrep{}, err
+		return cliPrep{}, err
 	}
-	p := vendorPrep{t: t, res: Result{Provider: s.ownProfile(), Model: t.Model, SessionID: req.SessionID}}
+	p := cliPrep{t: t, res: Result{Provider: s.ownProfile(), Model: t.Model, SessionID: req.SessionID}}
 	if !own {
 		if t.Provider == nil { // vendorTargetNote can report a non-own target with no provider resolved
 			return p, &Error{Kind: KindFatal, Agent: name, Err: errors.New("agent target resolved to no provider")}
@@ -169,14 +169,14 @@ func agyModel(req RunOptions, t providers.Target) string {
 }
 
 // agyRequest is the agy run for req: only the resolved credential env carries over, agy builds its own argv.
-func (p vendorPrep) agyRequest(req RunOptions) agyRequest {
+func (p cliPrep) agyRequest(req RunOptions) agyRequest {
 	return agyRequest{
 		Prompt: p.prompt, Model: agyModel(req, p.t), Effort: req.Effort, Cwd: req.WorkDir, Tools: req.Tools, Autonomous: req.Autonomous,
 		DebugFile: req.DebugFile, Env: p.env, KeepEnv: req.KeepEnv, SessionID: req.SessionID, OutputSchema: req.OutputSchema,
 	}
 }
 
-func (v vendorRunner) Run(ctx context.Context, req RunOptions, sink Sink) (Result, error) {
+func (v cliRunner) Run(ctx context.Context, req RunOptions, sink Sink) (Result, error) {
 	ctx = directCtx(ctx, req)
 	p, err := v.prepare(ctx, req)
 	if err != nil {

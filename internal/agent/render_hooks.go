@@ -16,7 +16,7 @@ import (
 	"github.com/edotau/claude-code/internal/settings"
 )
 
-var vendorEvents = map[string]string{
+var agentEvents = map[string]string{
 	settings.EventPreToolUse:       "preToolUse",
 	settings.EventPostToolUse:      "postToolUse",
 	settings.EventUserPromptSubmit: "userPromptSubmitted",
@@ -50,7 +50,7 @@ func CopilotJSON() ([]byte, error) {
 	}
 	events := map[string][]entry{}
 	for _, s := range settings.Specs() {
-		event := vendorEvents[s.Event]
+		event := agentEvents[s.Event]
 		if !slices.Contains(s.Vendors, "copilot") || event == "" {
 			continue
 		}

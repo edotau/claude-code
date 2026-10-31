@@ -299,8 +299,8 @@ func commitFile(path string, raw, next []byte, existed bool, o RenderOptions, ou
 			return false, nil
 		}
 		// Seed a missing baseline from an unchanged file, or later hand edits go undetected.
-		if _, err := os.Stat(vendorBaselinePath(label, path)); os.IsNotExist(err) && existed {
-			_ = writeVendorBaseline(label, path, next)
+		if _, err := os.Stat(baselinePath(label, path)); os.IsNotExist(err) && existed {
+			_ = writeBaseline(label, path, next)
 		}
 		fmt.Fprintf(out, "%s: %s unchanged\n", label, path)
 		return false, nil
@@ -337,7 +337,7 @@ func commitWrite(path string, raw, next []byte, existed bool, o RenderOptions, o
 	if err := write(path, raw, next, existed); err != nil {
 		return fmt.Errorf("%s: %w", label, err)
 	}
-	if err := writeVendorBaseline(label, path, next); err != nil {
+	if err := writeBaseline(label, path, next); err != nil {
 		fmt.Fprintf(out, "%s: baseline: %v (next run can't detect hand edits)\n", label, err)
 	}
 	fmt.Fprintf(out, "%s: wrote %s\n", label, path)

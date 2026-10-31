@@ -32,7 +32,7 @@ func (s Schema) Live() (LiveCapable, bool) {
 		return nil, false
 	}
 	var cli any = r
-	if v, ok := r.(vendorRunner); ok {
+	if v, ok := r.(cliRunner); ok {
 		cli = v.eng
 	}
 	lc, ok := cli.(LiveCapable)

@@ -52,7 +52,7 @@ func TestSyncProjectsAgentsToEveryVendorAndLinksSkills(t *testing.T) {
 	if code := Sync(ProjectionOptions{Out: io.Discard}); code != 0 {
 		t.Fatalf("Sync exit = %d, want 0", code)
 	}
-	for _, vendor := range VendorNames() {
+	for _, vendor := range ProjectionNames() {
 		tg := targets[vendor]
 		for _, name := range []string{"unique-agent", "shared"} {
 			dist := filepath.Join(ProjectionDir(claude, vendor), name+tg.ext)

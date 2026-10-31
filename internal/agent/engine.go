@@ -20,7 +20,7 @@ type engine interface {
 	// before adjusts the target configure sees and prints any pre-run notice.
 	before(req RunOptions, t providers.Target) providers.Target
 	// after applies per-CLI options to the configured env and argv.
-	after(p *vendorPrep, req RunOptions)
+	after(p *cliPrep, req RunOptions)
 	// ranModel is the model the CLI runs on t, as reported in the Result.
 	ranModel(t providers.Target) string
 	// loginServes reports whether p's sign-in is one this CLI can run on.
@@ -73,7 +73,7 @@ type engine interface {
 type headlessEngine interface {
 	engine
 	// exec runs the prepared child and fills the Result.
-	exec(ctx context.Context, p vendorPrep, req RunOptions, sink Sink) (Result, error)
+	exec(ctx context.Context, p cliPrep, req RunOptions, sink Sink) (Result, error)
 }
 
 // engines holds every external CLI's engine by agent name.
@@ -148,7 +148,7 @@ func (baseEngine) attach(prompt string, _ []string, _ bool) (string, error) { re
 
 func (baseEngine) before(_ RunOptions, t providers.Target) providers.Target { return t }
 
-func (baseEngine) after(*vendorPrep, RunOptions) {}
+func (baseEngine) after(*cliPrep, RunOptions) {}
 
 func (baseEngine) ranModel(t providers.Target) string { return t.Model }
 

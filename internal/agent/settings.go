@@ -29,7 +29,7 @@ type Field struct {
 
 // Module is one vendor's routing fields plus the env it contributes at launch.
 type Module interface {
-	Vendor() string
+	Name() string
 	Fields() []Field
 	Env(r providers.Routing) map[string]string
 }

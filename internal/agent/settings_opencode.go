@@ -12,7 +12,7 @@ import (
 // block zen-free, which tiers zen-free may serve, and the free leg's stall deadline.
 type opencodeModule struct{}
 
-func (opencodeModule) Vendor() string { return "opencode" }
+func (opencodeModule) Name() string { return "opencode" }
 
 func (opencodeModule) Fields() []Field {
 	return []Field{ladderField(), workRepoMarkersField(), freeTiersField(), freeFirstOutputField()}

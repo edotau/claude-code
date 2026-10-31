@@ -71,8 +71,8 @@ func reportRouting(d *dialog, r, overlay providers.Routing) bool {
 		if len(fields) == 0 {
 			continue
 		}
-		if m.Vendor() != "routing" {
-			d.println("== " + m.Vendor() + " ==")
+		if m.Name() != "routing" {
+			d.println("== " + m.Name() + " ==")
 		}
 		for _, f := range fields {
 			d.println(f.Key + "  " + f.Get(r) + "  " + routingSource(f, overlay))
@@ -105,7 +105,7 @@ func runRoutingMenu(d *dialog, r, overlay providers.Routing) bool {
 				fields = append(fields, f)
 			}
 			if len(rows) > 0 {
-				sections = append(sections, tui.Section{Title: "== " + m.Vendor() + " ==", Rows: rows})
+				sections = append(sections, tui.Section{Title: "== " + m.Name() + " ==", Rows: rows})
 			}
 		}
 		idx, err := pickSettingsPage("routing", sections, enterRow("save and go back"), start)

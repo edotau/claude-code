@@ -35,7 +35,7 @@ var codexModelArg = regexp.MustCompile(`^model="(.*)"$`)
 func launchModel(t *testing.T, name string, o agent.LaunchOptions) string {
 	t.Helper()
 	o.PrintEnv = true
-	plan, err := agent.Vendor(context.Background(), name, o, nil)
+	plan, err := agent.LaunchPlan(context.Background(), name, o, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

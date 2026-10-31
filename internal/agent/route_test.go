@@ -71,7 +71,7 @@ func TestRouteChainNativeOpencodeLeads(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := c.Legs[0].Agent.(vendorRunner); !ok || !c.Legs[0].unroutedLeg {
+	if _, ok := c.Legs[0].Agent.(cliRunner); !ok || !c.Legs[0].unroutedLeg {
 		t.Fatalf("first leg = %+v, want the native opencode runner, unrouted", c.Legs[0])
 	}
 	for _, l := range c.Legs[1:] {
