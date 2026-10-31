@@ -312,14 +312,6 @@ func foreignHookGroups(event string, raw json.RawMessage, sum *Summary) ([]json.
 	return foreign, nil
 }
 
-func rawList(items []json.RawMessage) json.RawMessage {
-	parts := make([][]byte, len(items))
-	for i, it := range items {
-		parts[i] = bytes.TrimSpace(it)
-	}
-	return json.RawMessage("[" + string(bytes.Join(parts, []byte(","))) + "]")
-}
-
 // WriteWithBackup copies to the cache-mirrored backup path (numbered on collision), then writes data atomically.
 func WriteWithBackup(path string, data []byte) (backup string, err error) {
 	mode := os.FileMode(0o644)
@@ -337,11 +329,4 @@ func WriteWithBackup(path string, data []byte) (backup string, err error) {
 		return "", fmt.Errorf("read %s: %w", path, rerr)
 	}
 	return backup, paths.AtomicWrite(path, data, mode)
-}
-
-func orEmpty(raw json.RawMessage) json.RawMessage {
-	if len(bytes.TrimSpace(raw)) == 0 || string(bytes.TrimSpace(raw)) == "null" {
-		return json.RawMessage("{}")
-	}
-	return raw
 }

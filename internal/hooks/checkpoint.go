@@ -1,6 +1,7 @@
 package hooks
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"os"
@@ -34,4 +35,11 @@ func contextCheckpoint(in *Input, stderr io.Writer) int {
 	_ = os.WriteFile(flag, nil, 0o600)
 	fmt.Fprintf(stderr, "Context usage ~%d%% (≥%d%%). Before stopping, write a short handoff of open work and decisions (or run /compact) so nothing is lost to compaction.\n", pct, checkpointPct)
 	return ExitBlock
+}
+
+// memoryUpdateStop runs the context checkpoint and memory update; a block from either blocks the stop.
+func memoryUpdateStop(in *Input) Result {
+	var cp, hv bytes.Buffer
+	code := max(contextCheckpoint(in, &cp), sessionUpdate(in, &hv))
+	return exitResult(code, cp.String()+hv.String())
 }

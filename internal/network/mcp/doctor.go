@@ -241,9 +241,6 @@ type SecretFinding struct {
 // separator and param name so redact() can replace just the value.
 var queryParamSecret = regexp.MustCompile(`(?i)([?&](?:token|key)=)[^&\s]+`)
 
-// looksLikeSecret is the shared credential-shape heuristic (internal/secrets/shapes).
-func looksLikeSecret(val string) bool { return shapes.Looks(val) }
-
 // FindSecrets scans every server's env, headers, and url for inline plaintext credentials.
 func FindSecrets(defs []Def) []SecretFinding {
 	var out []SecretFinding
@@ -283,7 +280,7 @@ func scanMap(d Def, field string, m map[string]string) []SecretFinding {
 	sort.Strings(keys)
 	var out []SecretFinding
 	for _, k := range keys {
-		if looksLikeSecret(m[k]) {
+		if shapes.Looks(m[k]) {
 			out = append(out, SecretFinding{Scope: d.Scope, Server: d.Server, Field: field, Key: k})
 		}
 	}

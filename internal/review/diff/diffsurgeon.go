@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/proc"
+	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
@@ -152,25 +153,18 @@ func detectQuoteSwaps(changes []string) []diffFinding {
 		if aBody != dBody && strings.ReplaceAll(aBody, `"`, "'") == strings.ReplaceAll(dBody, `"`, "'") {
 			findings = append(findings, diffFinding{
 				Category: "quote-style-swap",
-				Line:     fmt.Sprintf("%s -> %s", truncate(d, 60), truncate(a, 60)),
+				Line:     fmt.Sprintf("%s -> %s", textutil.TruncateRunes(d, 60), textutil.TruncateRunes(a, 60)),
 			})
 		}
 	}
 	return findings
 }
 
-func truncate(s string, n int) string {
-	if len(s) <= n {
-		return s
-	}
-	return s[:n]
-}
-
 func analyzeDiffFile(fd *diffFileEntry) []diffFinding {
 	var findings []diffFinding
 	for _, line := range fd.changes {
 		if cat := classifyLine(line); cat != "" {
-			findings = append(findings, diffFinding{Category: cat, Line: truncate(line, 120)})
+			findings = append(findings, diffFinding{Category: cat, Line: textutil.TruncateRunes(line, 120)})
 		}
 	}
 	findings = append(findings, detectQuoteSwaps(fd.changes)...)
@@ -281,4 +275,26 @@ func RunDiff(args []string, stdout, stderr io.Writer) int {
 	}
 	printDiffReport(stdout, result)
 	return 0
+}
+
+// splitPositional separates positional args from flags so Go's flag.Parse (which stops at the
+// first non-flag token) can still handle argparse-style interleaving like ". --base main".
+func splitPositional(args []string, boolFlags map[string]bool) (positional, rest []string) {
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		if len(a) > 0 && a[0] == '-' && a != "-" {
+			rest = append(rest, a)
+			name := strings.TrimLeft(a, "-")
+			if strings.Contains(name, "=") || boolFlags[name] {
+				continue
+			}
+			if i+1 < len(args) {
+				i++
+				rest = append(rest, args[i])
+			}
+			continue
+		}
+		positional = append(positional, a)
+	}
+	return positional, rest
 }

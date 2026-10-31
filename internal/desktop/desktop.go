@@ -74,7 +74,7 @@ func Configure(opts Options, w io.Writer) error {
 			return err
 		}
 	}
-	return configure(opts, w, fileOps{write: atomicWrite, remove: os.Remove}, targetPath)
+	return configure(opts, w, fileOps{write: paths.AtomicWrite, remove: os.Remove}, targetPath)
 }
 
 func configure(opts Options, w io.Writer, ops fileOps, display func(string) (string, error)) error {
