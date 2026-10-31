@@ -95,10 +95,10 @@ func (s Schema) configureRoute(ctx context.Context, t providers.Target, h *Headl
 	if p.Auth.Login != "" {
 		return login(e, p, models.Strip1M(t.Model), h)
 	}
-	if len(s.CLI.Dialects) == 0 && providers.GeminiGatewayRow(p) { // a CLI with no dialect reaches a gateway row only here
+	if len(s.CLI.Dialects) == 0 && GeminiGatewayRow(p) { // a CLI with no dialect reaches a gateway row only here
 		return e.wire(ctx, wireRoute{Target: t, Provider: p}, h)
 	}
-	if ok, why := providers.Serves(name, p, ""); !ok {
+	if ok, why := Serves(name, p, ""); !ok {
 		return nil, nil, fmt.Errorf("%s: %s", name, why)
 	}
 	dialect, base := "", ""

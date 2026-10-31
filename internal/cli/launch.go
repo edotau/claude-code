@@ -16,7 +16,6 @@ import (
 	"github.com/edotau/claude-code/internal/hooks"
 	"github.com/edotau/claude-code/internal/launch"
 	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/preflight"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/ui/ansi"
@@ -466,8 +465,8 @@ func refreshServed() {
 		fmt.Fprintf(os.Stderr, "doctor --refresh: %v\n", err)
 		return
 	}
-	ps := preflight.Check(reg, time.Now())
-	for _, err := range preflight.RefreshStale(context.Background(), reg, ps, time.Now(), true) {
+	ps := agent.PreflightCheck(reg, time.Now())
+	for _, err := range agent.RefreshStale(context.Background(), reg, ps, time.Now(), true) {
 		fmt.Fprintf(os.Stderr, "doctor --refresh: %v\n", err)
 	}
 }
@@ -490,9 +489,9 @@ func cmdPreflight(args []string) int {
 	}
 	if *refresh {
 		now := time.Now()
-		ctx, cancel := context.WithTimeout(context.Background(), preflight.Budget)
+		ctx, cancel := context.WithTimeout(context.Background(), agent.PreflightBudget)
 		defer cancel()
-		preflight.RefreshStale(ctx, reg, preflight.Check(reg, now), now, false)
+		agent.RefreshStale(ctx, reg, agent.PreflightCheck(reg, now), now, false)
 		return 0
 	}
 	if *live {
@@ -500,10 +499,10 @@ func cmdPreflight(args []string) int {
 		if err != nil {
 			return fail("preflight: %v", err)
 		}
-		preflight.RunInstallStep(context.Background(), os.Stdout, reg, bin, time.Now())
+		agent.RunInstallStep(context.Background(), os.Stdout, reg, bin, time.Now())
 		return 0
 	}
-	for _, p := range preflight.Check(reg, time.Now()) {
+	for _, p := range agent.PreflightCheck(reg, time.Now()) {
 		fmt.Printf("%-8s %-9s %s\n", p.Agent, p.Status, p.Line())
 	}
 	return 0

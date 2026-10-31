@@ -9,7 +9,6 @@ import (
 
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/router"
 )
 
 // hubRegistry builds a minimal registry for hub tests: a ladder of four providers, one without an
@@ -38,7 +37,7 @@ func hubRegistry() *providers.Registry {
 func TestHubLegForOpencodeDefault(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	reg := hubRegistry()
-	tb, err := router.Load()
+	tb, err := Load()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -178,8 +177,8 @@ func TestLegLabel(t *testing.T) {
 // TestBuildLegPinnedRowWithoutOpencodeID: a pinned Databricks-style row (no opencode id) runs native, not a hub leg.
 func TestBuildLegPinnedRowWithoutOpencodeID(t *testing.T) {
 	rc := routeCtx{reg: hubRegistry(), want: "opencode"}
-	cand := router.Candidate{Agent: "opencode", Profile: "nvidia"}
-	leg, skip, err := rc.buildLeg(cand, router.Cell{Model: "nv-opus"})
+	cand := Candidate{Agent: "opencode", Profile: "nvidia"}
+	leg, skip, err := rc.buildLeg(cand, Cell{Model: "nv-opus"})
 	if err != nil || skip != "" {
 		t.Fatalf("skip=%q err=%v", skip, err)
 	}

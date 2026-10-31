@@ -43,7 +43,7 @@ func (s Schema) targetNote(req RunOptions) (t providers.Target, own bool, note s
 	if err != nil {
 		return t, own, note, err
 	}
-	t, modelNote := providers.ResolveAgentModel(providers.ModelAsk{Agent: s.Name, Flag: req.Model, Target: t, Applied: applied})
+	t, modelNote := ResolveAgentModel(ModelAsk{Agent: s.Name, Flag: req.Model, Target: t, Applied: applied})
 	if modelNote != "" {
 		note = strings.Join(slices.DeleteFunc([]string{note, modelNote}, func(n string) bool { return n == "" }), "; ")
 	}
@@ -160,8 +160,8 @@ func agyModel(req RunOptions, t providers.Target) string {
 	if req.Model == "" || t.Model == "" { // the slot table's opus id isn't agy's own: GEMINI_MODEL pin, else flash-high
 		t.Model = AgyDefaultModel
 	}
-	gt, _ := providers.ResolveAgentModel(providers.ModelAsk{Agent: "gemini", Flag: req.Model, Target: t, Applied: true})
-	if providers.GeminiGatewayRow(t.Provider) {
+	gt, _ := ResolveAgentModel(ModelAsk{Agent: "gemini", Flag: req.Model, Target: t, Applied: true})
+	if GeminiGatewayRow(t.Provider) {
 		_, arg := agyGatewayArg(gt.Model)
 		return arg
 	}

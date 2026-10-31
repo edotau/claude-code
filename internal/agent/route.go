@@ -49,7 +49,7 @@ var (
 // modelRow resolves a --model (or tier) value to the route-table row it names: the tier the pick runs at and the
 // canonical Claude id of the row. exact is the canonical id of a non-Claude model, which only agents serving it may run.
 func modelRow(model string) (tier, row, exact string) {
-	if model == router.BYOKModel {
+	if model == BYOKModel {
 		return "", "", ""
 	}
 	canonical, _, ok := models.Resolve(model)
@@ -60,28 +60,28 @@ func modelRow(model string) (tier, row, exact string) {
 		return "", "", canonical
 	}
 	tier = cmp.Or(models.AliasOf(canonical), models.FamilyOf(canonical))
-	if !slices.Contains(router.Tiers, tier) {
+	if !slices.Contains(Tiers, tier) {
 		tier = ""
 	}
 	return tier, canonical, ""
 }
 
 // RouteChain turns a pick at tier (or a Claude row) into legs; each leg runs that row's cell of its agent.
-func RouteChain(ctx context.Context, want, tier, mode string, explicitModel, native bool, o router.Opts) (Chain, router.Result, error) {
+func RouteChain(ctx context.Context, want, tier, mode string, explicitModel, native bool, o PickOpts) (Chain, PickResult, error) {
 	t, row, _ := modelRow(tier)
 	return routeChain(ctx, want, cmp.Or(t, tier), row, "", "", mode, explicitModel, native, o)
 }
 
 // RouteChainFor routes a caller's --model: an alias or Claude id picks that row's cell; a non-Claude id is exact.
-func RouteChainFor(ctx context.Context, want, model, tierHint, mode string, native bool, o router.Opts) (Chain, router.Result, error) {
+func RouteChainFor(ctx context.Context, want, model, tierHint, mode string, native bool, o PickOpts) (Chain, PickResult, error) {
 	tier, row, exact := modelRow(model)
 	return routeChain(ctx, want, cmp.Or(tier, tierHint), row, exact, strings.TrimSpace(model), mode, strings.TrimSpace(model) != "", native, o)
 }
 
-func routeChain(ctx context.Context, want, tier, row, exact, callerModel, mode string, explicitModel, native bool, o router.Opts) (Chain, router.Result, error) {
-	tb, err := router.Load()
+func routeChain(ctx context.Context, want, tier, row, exact, callerModel, mode string, explicitModel, native bool, o PickOpts) (Chain, PickResult, error) {
+	tb, err := Load()
 	if err != nil {
-		return Chain{}, router.Result{}, err
+		return Chain{}, PickResult{}, err
 	}
 	o.Fallback = mode
 	if o.Account == nil {
@@ -110,7 +110,7 @@ func routeChain(ctx context.Context, want, tier, row, exact, callerModel, mode s
 		}
 	}
 	current, _ := models.Alias(tier)
-	pins := providers.AgentPins()
+	pins := AgentPins()
 	rc := routeCtx{tb: tb, reg: reg, pins: pins, want: want, row: row, exact: exact, callerModel: callerModel,
 		current: current, legID: nonClaudeLegID(exact, explicitModel, pins[want].Model),
 		explicitModel: explicitModel, native: native}
@@ -141,22 +141,22 @@ func routeChain(ctx context.Context, want, tier, row, exact, callerModel, mode s
 
 // routeCtx is the per-pick state routeChain's candidate helpers share.
 type routeCtx struct {
-	tb                            *router.Table
+	tb                            *RouteTable
 	reg                           *providers.Registry
-	pins                          map[string]providers.AgentPinSpec
+	pins                          map[string]PinSpec
 	want, row, exact, callerModel string
 	current, legID                string
 	explicitModel, native         bool
 }
 
 // candidateCell adjusts cand's cell for the row or exact model; skip is non-empty when cand serves none.
-func (rc routeCtx) candidateCell(cand router.Candidate) (cell router.Cell, skip string) {
+func (rc routeCtx) candidateCell(cand Candidate) (cell Cell, skip string) {
 	cell = cand.Cell
 	pinned := cand.Profile != "" && rc.pins[cand.Agent].Profile == cand.Profile
 	switch {
 	case cand.Agent == "claude" && rc.legID != "": // lowest Claude tier serving the non-Claude leg
 		rc.claudeTierCell(&cell)
-	case pinned && cand.Agent == rc.want && rc.explicitModel && rc.callerModel != router.BYOKModel &&
+	case pinned && cand.Agent == rc.want && rc.explicitModel && rc.callerModel != BYOKModel &&
 		rc.row == "" && cmp.Or(rc.exact, rc.callerModel) != "":
 		cell.Model = cmp.Or(rc.exact, rc.callerModel) // the caller's model, respelled for the pinned profile
 		if rc.reg != nil && rc.reg.Providers[cand.Profile] != nil {
@@ -182,7 +182,7 @@ func (rc routeCtx) candidateCell(cand router.Candidate) (cell router.Cell, skip 
 
 // profileCell validates a profile-backed candidate against the exact model: codex needs a Responses route for it,
 // any other agent a cell that already serves it; the accepted cell runs the model as the profile spells it.
-func (rc routeCtx) profileCell(cand router.Candidate, cell router.Cell) (router.Cell, string) {
+func (rc routeCtx) profileCell(cand Candidate, cell Cell) (Cell, string) {
 	who := cand.Agent + " (" + cmp.Or(cand.Account, cand.Profile) + ")"
 	var p *providers.Provider
 	if rc.reg != nil {
@@ -193,7 +193,7 @@ func (rc routeCtx) profileCell(cand router.Candidate, cell router.Cell) (router.
 		if !providers.ServesResponses(p, wire) {
 			return cell, who + ": serves no " + rc.exact + " over Responses"
 		}
-		if ready, fresh := router.ServedReady(p, wire, time.Now()); fresh && !ready {
+		if ready, fresh := ServedReady(p, wire, time.Now()); fresh && !ready {
 			return cell, who + ": " + rc.exact + " is not a READY endpoint on " + cand.Profile
 		}
 		cell.Model = wire
@@ -206,7 +206,7 @@ func (rc routeCtx) profileCell(cand router.Candidate, cell router.Cell) (router.
 }
 
 // claudeTierCell points cell at claude's lowest tier serving the non-Claude leg model.
-func (rc routeCtx) claudeTierCell(cell *router.Cell) {
+func (rc routeCtx) claudeTierCell(cell *Cell) {
 	t := lowestTierServing(rc.tb, rc.want, rc.legID)
 	if t == "" {
 		return
@@ -217,9 +217,9 @@ func (rc routeCtx) claudeTierCell(cell *router.Cell) {
 }
 
 // buildLeg turns cand's cell into a leg; skip is non-empty when the leg cannot run, err when its agent is unknown.
-func (rc routeCtx) buildLeg(cand router.Candidate, cell router.Cell) (leg Leg, skip string, err error) {
+func (rc routeCtx) buildLeg(cand Candidate, cell Cell) (leg Leg, skip string, err error) {
 	leg = Leg{Model: cell.Model, Effort: cell.Effort, Account: cand.Account, Billing: cand.Billing}
-	leg.keepCaller = cand.Agent == rc.want && rc.explicitModel && cand.Profile == "" && rc.callerModel != router.BYOKModel
+	leg.keepCaller = cand.Agent == rc.want && rc.explicitModel && cand.Profile == "" && rc.callerModel != BYOKModel
 	if leg.keepCaller && rc.exact != "" {
 		leg.Model = rc.exact // an exact non-Claude id runs as asked; an alias runs the cell's model
 	}
@@ -281,8 +281,8 @@ func nonClaudeLegID(exact string, explicitModel bool, pinModel string) string {
 
 // lowestTierServing is the lowest router tier (haiku up) whose cell for agentName resolves to id, else "".
 // Several tiers may share id (codex gpt-6.1-sol at opus and sonnet); a caller that named an alias never reaches this.
-func lowestTierServing(tb *router.Table, agentName, id string) string {
-	for _, tier := range slices.Backward(router.Tiers) {
+func lowestTierServing(tb *RouteTable, agentName, id string) string {
+	for _, tier := range slices.Backward(Tiers) {
 		if c, ok := tb.Rows[agentName][tier]; ok {
 			if cid, _, ok := models.Resolve(c.Model); ok && cid == id {
 				return tier
@@ -303,15 +303,15 @@ func claudeCellModel(cell string) string {
 }
 
 // cellServing is agentName's table cell (any row, then opencode's sub-candidates) whose model is exact.
-func cellServing(tb *router.Table, agentName, exact string) (router.Cell, bool) {
-	serves := func(c router.Cell) bool { id, _, ok := models.Resolve(c.Model); return ok && id == exact }
+func cellServing(tb *RouteTable, agentName, exact string) (Cell, bool) {
+	serves := func(c Cell) bool { id, _, ok := models.Resolve(c.Model); return ok && id == exact }
 	for _, row := range slices.Sorted(maps.Keys(tb.ByModel)) {
 		if c, ok := tb.ByModel[row][agentName]; ok && serves(c) {
 			return c, true
 		}
 	}
 	if !IsHubAgent(agentName) {
-		return router.Cell{}, false
+		return Cell{}, false
 	}
 	for _, sub := range slices.Sorted(maps.Keys(tb.OpencodeSub)) {
 		for _, tier := range slices.Sorted(maps.Keys(tb.OpencodeSub[sub])) {
@@ -320,7 +320,7 @@ func cellServing(tb *router.Table, agentName, exact string) (router.Cell, bool) 
 			}
 		}
 	}
-	return router.Cell{}, false
+	return Cell{}, false
 }
 
 // watchFreeLeg sets the stall watchdog on r when billing is free; any other agent (or billing) passes through.
@@ -348,11 +348,11 @@ var ResolveAccount = resolveAccount
 
 // resolveAccount is the account an agent's dispatch actually bills: "" keeps the table's key (the agent's own login
 // or subscription); an agent resolving to another profile (an API key, a BYOK route) bills that <provider>·<profile>.
-func resolveAccount(agentName string, c router.Cell) (string, string) {
+func resolveAccount(agentName string, c Cell) (string, string) {
 	var t providers.Target
 	switch agentName {
 	case "opencode":
-		return "", "" // the cell's provider prefix is the account; router.Configured gates its credential
+		return "", "" // the cell's provider prefix is the account; Configured gates its credential
 	case "claude":
 		_, ct, err := resolveTarget(RunOptions{Provider: providers.SessionProfile(), Model: c.Model})
 		if err != nil || ct.Provider == nil || ct.Provider.Auth.Method() == providers.AuthCLI {
@@ -378,7 +378,7 @@ func sessionProvider(agentName string) string {
 	if err != nil {
 		return ""
 	}
-	if p := reg.Providers[providers.SessionProfile()]; p != nil && (agentName == "claude" || providers.CanServe(agentName, p)) {
+	if p := reg.Providers[providers.SessionProfile()]; p != nil && (agentName == "claude" || CanServe(agentName, p)) {
 		return p.Name
 	}
 	return ""
@@ -412,16 +412,16 @@ func ExplicitChain(r Runner, req RunOptions) Chain {
 	c := Single(r)
 	acct, billing := explicitAccount(r, req)
 	c.Legs[0].Account, c.Legs[0].Billing = acct, billing
-	if req.Model == router.BYOKModel {
+	if req.Model == BYOKModel {
 		reg, _ := providers.Load()
-		c.Legs[0] = byokLeg(c.Legs[0], router.Tiers[1], reg, req.Provider, false)
+		c.Legs[0] = byokLeg(c.Legs[0], Tiers[1], reg, req.Provider, false)
 	}
 	if acct == "" || acct == copilotLoginAccount() { // copilot's own gate falls back to Databricks instead
 		return c
 	}
 	now := time.Now()
 	if e := loadState()[acct]; e.Status(now) == router.StateExhausted {
-		return Chain{Want: r.Name(), Skipped: []string{r.Name() + ": " + router.ExhaustedReason(acct, e, now)}}
+		return Chain{Want: r.Name(), Skipped: []string{r.Name() + ": " + ExhaustedReason(acct, e, now)}}
 	}
 	return c
 }
@@ -465,7 +465,7 @@ func explicitAccount(r Runner, req RunOptions) (string, string) {
 
 // copilotLoginAccount is the pinned copilot profile's route-state key (github·<profile>), or "" when no user is pinned.
 func copilotLoginAccount() string {
-	if u := router.CopilotUser(); u != "" {
+	if u := CopilotUser(); u != "" {
 		return "github·" + u
 	}
 	return ""
@@ -530,7 +530,7 @@ func exhaustedSince(leg Leg) *Error {
 	if e.Status(now) != router.StateExhausted {
 		return nil
 	}
-	return &Error{Kind: KindQuota, Agent: leg.Agent.Name(), Err: errors.New(router.ExhaustedReason(leg.Account, e, now))}
+	return &Error{Kind: KindQuota, Agent: leg.Agent.Name(), Err: errors.New(ExhaustedReason(leg.Account, e, now))}
 }
 
 // authMarkedSince is a KindAuth error when leg's account was marked auth-dead after the chain was built, else nil.
@@ -577,7 +577,7 @@ func condemnAuth(e *Error, recoverErr error) {
 	}
 }
 
-// noteAuth marks the leg's account auth-dead for a condemned KindAuth, so router.Pick skips it until a login clears it.
+// noteAuth marks the leg's account auth-dead for a condemned KindAuth, so Pick skips it until a login clears it.
 func noteAuth(leg Leg, err error) {
 	var e *Error
 	if leg.Account == "" || !errors.As(err, &e) || e.AuthReason == "" {

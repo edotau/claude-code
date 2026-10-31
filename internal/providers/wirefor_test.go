@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// wireRows are the fixtures WireFor, AnthropicRoute and Serves are proved over.
+// wireRows are the fixtures WireFor and AnthropicRoute are proved over.
 func wireRows(t *testing.T) map[string]*Provider {
 	t.Helper()
 	return map[string]*Provider{
@@ -103,45 +103,5 @@ func TestClaudeCodeError(t *testing.T) {
 		if err := ClaudeCodeError(rows[c.row], c.model); err != nil {
 			t.Errorf("%s/%s: err = %v, want nil", c.row, c.model, err)
 		}
-	}
-}
-
-func TestServesReasons(t *testing.T) {
-	rows := wireRows(t)
-	cli := &Provider{Name: "sub", Protocol: ProtocolAnthropic, BaseURL: "https://s", Auth: Auth{Type: AuthCLI}}
-	login := &Provider{Name: "gh", Protocol: ProtocolOpenAI, BaseURL: "https://g", Auth: Auth{Type: AuthCLI, Login: "copilot"}}
-	cases := []struct {
-		agent string
-		p     *Provider
-		model string
-		ok    bool
-		why   string
-	}{
-		{"gemini", rows["serving"], "", false, "agy has no custom base URL"},
-		{"codex", rows["anthropic"], "", false, "serves no responses route"},
-		{"copilot", rows["serving"], "", true, ""},
-		{"copilot", cli, "", false, "uses cli (subscription) auth"},
-		{"copilot", login, "", true, ""},
-		{"codex", login, "", false, "carries a copilot login"},
-		{"nope", rows["serving"], "", false, `unknown agent "nope"`},
-		{"copilot", rows["gateway"], "system.ai.kimi-k3", false, "no openai route"},
-		{"copilot", rows["gateway"], "system.ai.claude-opus-5-5", true, ""},
-		{"codex", rows["serving"], "databricks-gpt-5-5", true, ""},
-		{"copilot", rows["serving"], "databricks-gpt-5-5", true, ""}, // responses rides the router suffix
-	}
-	for _, c := range cases {
-		ok, why := Serves(c.agent, c.p, c.model)
-		if ok != c.ok || (c.why == "") != (why == "") || !strings.Contains(why, c.why) {
-			t.Errorf("Serves(%s,%s,%q) = %v,%q, want %v containing %q", c.agent, c.p.Name, c.model, ok, why, c.ok, c.why)
-		}
-	}
-}
-
-// A wire the agent neither speaks nor has a router suffix for is refused; every roster agent has its suffixes.
-func TestServesRefusesWireOutsideAgentSuffix(t *testing.T) {
-	rows := wireRows(t)
-	ok, why := Serves("codex", rows["serving"], "databricks-kimi-k3") // codex: responses only; kimi rides openai
-	if ok || !strings.Contains(why, "does not speak the openai wire") {
-		t.Errorf("Serves = %v,%q", ok, why)
 	}
 }

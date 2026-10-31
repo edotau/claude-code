@@ -92,7 +92,7 @@ func (e codexEngine) fallbackTarget(reg *providers.Registry) (providers.Target, 
 		if own := codexOwnModel(); own != "" {
 			model = own
 		}
-		t, _ := providers.ResolveAgentModel(providers.ModelAsk{Agent: e.name, Target: providers.Target{Provider: p, Model: model}})
+		t, _ := ResolveAgentModel(ModelAsk{Agent: e.name, Target: providers.Target{Provider: p, Model: model}})
 		return t, "chatgpt (codex login)", true
 	}
 	return providers.Target{}, "", false

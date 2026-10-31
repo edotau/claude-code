@@ -9,24 +9,18 @@ import (
 )
 
 func TestRosterMatchesSpecs(t *testing.T) {
-	var names, specs, runners []string
+	var names, runners []string
 	for _, s := range Roster() {
 		names = append(names, s.Name)
 	}
 	if !slices.Equal(names, []string{"claude", "codex", "gemini", "opencode", "copilot"}) {
 		t.Fatalf("roster order = %v", names)
 	}
-	for _, s := range providers.AgentSpecs() {
-		specs = append(specs, s.Name)
-	}
-	if !slices.Contains(specs, "claude") {
-		specs = append(specs, "claude")
-	}
 	for _, r := range Runners() {
 		runners = append(runners, r.Name())
 	}
 	for label, other := range map[string][]string{
-		"AgentSpecs": specs, "Runners": runners, "RouteRunners": slices.Clone(providers.RouteRunners),
+		"Runners": runners, "RouteRunners": slices.Clone(providers.RouteRunners),
 	} {
 		slices.Sort(other)
 		want := slices.Clone(names)
@@ -55,14 +49,10 @@ func TestRosterFacts(t *testing.T) {
 				t.Errorf("External() = %v", s.External())
 			}
 			if s.Name == "claude" {
-				if !reflect.DeepEqual(s.CLI.AgentSpec, providers.AgentSpec{}) {
-					t.Errorf("claude wire facts = %+v", s.CLI.AgentSpec)
+				if s.CLI.Binary != "" || s.CLI.Dialects != nil || s.CLI.RouterSuffix != nil {
+					t.Errorf("claude wire facts = %+v", s.CLI)
 				}
 				return
-			}
-			spec, ok := providers.LookupAgentSpec(s.Name)
-			if !ok || !reflect.DeepEqual(s.CLI.AgentSpec, spec) {
-				t.Errorf("wire facts = %+v, want %+v", s.CLI.AgentSpec, spec)
 			}
 			want := catalogs[s.Name]
 			if s.ResumeHint("session") != want.ResumeFormat {

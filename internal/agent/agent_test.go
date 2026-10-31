@@ -397,8 +397,8 @@ func TestRouteChainSkipsExhaustedAndRetriesExpired(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	pinGitHubProfile(t, "work-user", "")
 	ghHosts(t, "work-user")
-	all := router.Opts{Configured: func(string, router.Cell) error { return nil }}
-	tb, err := router.Load()
+	all := PickOpts{Configured: func(string, Cell) error { return nil }}
+	tb, err := Load()
 	if err != nil {
 		t.Fatal(err)
 	}

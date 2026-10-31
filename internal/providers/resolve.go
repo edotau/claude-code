@@ -48,7 +48,7 @@ func ParseTarget(reg *Registry, spec string, def *Provider) Target {
 // Select resolves the session: profile = flag → CLAUDE_PROFILE pin → registry default; each slot =
 // CLAUDE_<TIER>_MODEL → CLAUDE_MODEL → the profile's model table.
 func Select(reg *Registry, providerFlag string) (Selection, error) {
-	pin, err := pinLookup()
+	pin, err := PinLookup()
 	if err != nil {
 		return Selection{}, fmt.Errorf("vault: pins unreadable (another process may hold the lock): %w", err)
 	}

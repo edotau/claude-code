@@ -10,8 +10,6 @@ import (
 	"sync"
 	"testing"
 	"time"
-
-	"github.com/edotau/claude-code/internal/providers"
 )
 
 func TestParseVersion(t *testing.T) {
@@ -36,12 +34,12 @@ func TestParseVersion(t *testing.T) {
 }
 
 func TestVersionProblem(t *testing.T) {
-	spec := func(name string) providers.AgentSpec {
-		s, ok := providers.LookupAgentSpec(name)
+	spec := func(name string) CLI {
+		s, ok := LookupSchema(name)
 		if !ok {
 			t.Fatalf("no spec %q", name)
 		}
-		return s
+		return s.CLI
 	}
 	for _, tc := range []struct {
 		agent, version, wantPrefix string

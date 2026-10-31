@@ -11,19 +11,11 @@ import (
 	"strings"
 	"unicode"
 
+	agentpkg "github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/textutil"
 )
-
-// RuleClassifier is route.Classifier over the prompt rules: low → haiku, medium/high → sonnet.
-type RuleClassifier struct{}
-
-// Tier maps task through EffortTierSignal and models.TierModel.
-func (RuleClassifier) Tier(task string) string {
-	t, _ := EffortTierSignal(task)
-	return models.TierModel(t)
-}
 
 // labelAgents are the agents a dispatch label may name; labelTypes are the subagent types that carry one.
 var (
@@ -180,7 +172,7 @@ func pinModel(in *Input, updated map[string]any, task string) (note, systemMessa
 	if explicitModel(in) || task == "" || agentPinsModel(in.nested("tool_input", "subagent_type")) {
 		return "", ""
 	}
-	tier, signal := EffortTierSignal(task)
+	tier, signal := agentpkg.EffortTierSignal(task)
 	model := models.TierModel(tier)
 	if model == "" { // a tier with no row: never emit an empty pin
 		return "", ""

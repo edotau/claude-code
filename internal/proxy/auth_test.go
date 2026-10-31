@@ -18,7 +18,7 @@ import (
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
-// fakeGate is an in-memory route store behind router.Gate; the real quota.json is never touched.
+// fakeGate is an in-memory route store behind agent.Gate; the real quota.json is never touched.
 type fakeGate struct {
 	mu      sync.Mutex
 	marks   map[string]string

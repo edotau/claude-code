@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -151,7 +152,7 @@ func TestOpencodeCheckProbes(t *testing.T) {
 	if strings.Contains(stdout, `"error": ""`) {
 		t.Errorf("error must be omitted when empty:\n%s", stdout)
 	}
-	cache := providers.CheckCachePath()
+	cache := agent.CheckCachePath()
 	if !strings.HasPrefix(cache, dir) {
 		t.Fatalf("cache %s escaped temp dir %s", cache, dir)
 	}
@@ -166,10 +167,10 @@ func TestOpencodeCheckProbes(t *testing.T) {
 	if strings.Contains(stdout+stderr, ocCheckToken) {
 		t.Error("token in output")
 	}
-	if m, ok := providers.LoadCheckCache("ocfake"); !ok || len(m) != 5 {
+	if m, ok := agent.LoadCheckCache("ocfake"); !ok || len(m) != 5 {
 		t.Errorf("cache load = %v %v", m, ok)
 	}
-	if _, ok := providers.LoadCheckCache("other"); ok {
+	if _, ok := agent.LoadCheckCache("other"); ok {
 		t.Error("cache must be scoped to its provider")
 	}
 }
@@ -223,12 +224,12 @@ func TestOpencodeCheckExplicitIDsAndAll(t *testing.T) {
 }
 
 func TestOpencodeCheckSortOrder(t *testing.T) {
-	rs := []providers.CheckResult{
+	rs := []agent.CheckResult{
 		{ID: "kimi-k3", Status: "ok", LatencyMS: 5}, {ID: "glm-5-2", Status: "fail", LatencyMS: 1},
 		{ID: "glm-5-3", Status: "ok", LatencyMS: 900}, {ID: "glm-5-1", Status: "ok", LatencyMS: 100},
 		{ID: "claude-x", Status: "ok", LatencyMS: 50},
 	}
-	providers.SortCheckResults(rs)
+	agent.SortCheckResults(rs)
 	var ids []string
 	for _, r := range rs {
 		ids = append(ids, r.ID)
@@ -313,8 +314,8 @@ func TestOpencodeListLiveCheckColumn(t *testing.T) {
 		}
 	}
 	// a cache for another provider must not show
-	if err := providers.SaveCheckCache(providers.CheckCache{Provider: "other",
-		Results: []providers.CheckResult{{ID: "glm-5-2", Status: "ok", Tools: "yes"}}}); err != nil {
+	if err := agent.SaveCheckCache(agent.CheckCache{Provider: "other",
+		Results: []agent.CheckResult{{ID: "glm-5-2", Status: "ok", Tools: "yes"}}}); err != nil {
 		t.Fatal(err)
 	}
 	if c := listJSON()["glm-5-2"]; c != "-" {
@@ -324,7 +325,7 @@ func TestOpencodeListLiveCheckColumn(t *testing.T) {
 
 func TestOpencodeCheckFamily(t *testing.T) {
 	for in, want := range map[string]string{"claude-opus-5-5": "claude", "databricks-glm-5-2": "glm", "gpt-oss-120b": "gpt", "inkling": "inkling"} {
-		if got := providers.CheckFamily(in); got != want {
+		if got := agent.CheckFamily(in); got != want {
 			t.Errorf("CheckFamily(%q) = %q, want %q", in, got, want)
 		}
 	}

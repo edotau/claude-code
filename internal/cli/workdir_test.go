@@ -12,7 +12,7 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 )
 
-// scratchRepo makes a throwaway git repo (no commits needed — router.IsWorkRepo only reads the origin
+// scratchRepo makes a throwaway git repo (no commits needed — agent.IsWorkRepo only reads the origin
 // remote) with origin set to url, so a test controls exactly what "the repo this leg runs in" looks like.
 func scratchRepo(t *testing.T, origin string) string {
 	t.Helper()

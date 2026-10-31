@@ -25,7 +25,6 @@ import (
 	"github.com/edotau/claude-code/internal/network/tailscale"
 	"github.com/edotau/claude-code/internal/network/vscode"
 	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/preflight"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/setup"
@@ -82,14 +81,14 @@ func DoctorChecks() (checks []Check, ok bool) {
 		check(true, false, "copilot route", routeDetail("copilot"))
 		check(true, false, "codex route", routeDetail("codex"))
 		check(true, false, "gemini route", routeDetail("gemini"))
-		for _, pin := range preflight.Check(reg, time.Now()) {
-			check(pin.Status == preflight.StatusOK, false, "pin "+pin.Agent, pin.Line())
+		for _, pin := range agent.PreflightCheck(reg, time.Now()) {
+			check(pin.Status == agent.PreflightStatusOK, false, "pin "+pin.Agent, pin.Line())
 		}
 	}
 	for _, s := range agent.StatusAll() {
 		check(toolDoctorOK(s), false, "tool "+s.Name, toolDoctorDetail(s))
 	}
-	for _, spec := range providers.AgentSpecs() {
+	for _, spec := range agent.Roster() {
 		pass, detail := agentVersionDetail(spec)
 		check(pass, false, "agent version "+spec.Name, detail)
 	}
@@ -206,8 +205,8 @@ func profileInUse(reg *providers.Registry, name string) bool {
 	if name == reg.Default || slices.Contains(reg.Fallback, name) {
 		return true
 	}
-	for _, spec := range providers.AgentSpecs() {
-		if spec.ProfilePin != "" && providers.Pin(spec.ProfilePin) == name {
+	for _, spec := range agent.Roster() {
+		if spec.CLI.ProfilePin != "" && providers.Pin(spec.CLI.ProfilePin) == name {
 			return true
 		}
 	}
@@ -447,7 +446,7 @@ func toolDoctorOK(s agent.ToolStatus) bool {
 }
 
 // agentVersionDetail renders one agent's version row: ok <ver>, warn <ver> below|above <bound>: <reason>, or not installed.
-func agentVersionDetail(spec providers.AgentSpec) (pass bool, detail string) {
+func agentVersionDetail(spec agent.Schema) (pass bool, detail string) {
 	v, err := agent.AgentVersion(spec.Name)
 	switch {
 	case errors.Is(err, agent.ErrAgentNotInstalled):
@@ -455,7 +454,7 @@ func agentVersionDetail(spec providers.AgentSpec) (pass bool, detail string) {
 	case err != nil:
 		return true, "version unknown (" + err.Error() + ")"
 	}
-	if p := agent.VersionProblem(spec, v); p != "" {
+	if p := agent.VersionProblem(spec.CLI, v); p != "" {
 		return false, "warn " + v + " " + p
 	}
 	return true, "ok " + v

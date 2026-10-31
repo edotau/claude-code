@@ -7,15 +7,14 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
 const astra = "gpt-6-astra"
 
-func astraOpts() router.Opts {
-	return router.Opts{Configured: func(string, router.Cell) error { return nil }}
+func astraOpts() PickOpts {
+	return PickOpts{Configured: func(string, Cell) error { return nil }}
 }
 
 // stubLegs swaps every leg's runner for a capturing stub; stubs[i] backs c.Legs[i].

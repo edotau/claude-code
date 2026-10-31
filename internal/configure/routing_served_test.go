@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/preflight"
+	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -36,7 +36,7 @@ func servedHarness(t *testing.T, on bool) *int {
 
 func cached(t *testing.T) bool {
 	t.Helper()
-	_, ok := preflight.LoadServed("qa")
+	_, ok := agent.LoadServed("qa")
 	return ok
 }
 
@@ -47,7 +47,7 @@ func TestWarmServedOnFlipOn(t *testing.T) {
 		t.Fatal(err)
 	}
 	var out bytes.Buffer
-	warmServedOnChange(&out, false, providers.AgentPins(), false)
+	warmServedOnChange(&out, false, agent.AgentPins(), false)
 	if *n == 0 || !cached(t) {
 		t.Fatalf("flip-on made %d requests, cached=%v, want a warmed cache", *n, cached(t))
 	}
@@ -56,7 +56,7 @@ func TestWarmServedOnFlipOn(t *testing.T) {
 // a pin change with the switch already on warms; the same pins with it already on do not.
 func TestWarmServedOnPinChangeOnly(t *testing.T) {
 	n := servedHarness(t, true)
-	before := providers.AgentPins()
+	before := agent.AgentPins()
 	var out bytes.Buffer
 	warmServedOnChange(&out, false, before, true)
 	if *n != 0 {
@@ -74,7 +74,7 @@ func TestWarmServedOnPinChangeOnly(t *testing.T) {
 // with the switch off, even a pin change makes no request.
 func TestWarmServedSwitchOffNeverWarms(t *testing.T) {
 	n := servedHarness(t, false)
-	before := providers.AgentPins()
+	before := agent.AgentPins()
 	if err := providers.SetPins(map[string]string{providers.PinProfile: "qa"}); err != nil {
 		t.Fatal(err)
 	}
@@ -87,7 +87,7 @@ func TestWarmServedSwitchOffNeverWarms(t *testing.T) {
 // --check and --dry-run never warm, whatever changed.
 func TestWarmServedSkippedForCheckAndDryRun(t *testing.T) {
 	n := servedHarness(t, true)
-	before := providers.AgentPins()
+	before := agent.AgentPins()
 	if err := providers.SetPins(map[string]string{providers.PinProfile: "qa"}); err != nil {
 		t.Fatal(err)
 	}

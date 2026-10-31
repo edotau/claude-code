@@ -5,6 +5,7 @@ import (
 	"maps"
 	"slices"
 
+	"github.com/edotau/claude-code/internal/copilotsdk"
 	"github.com/edotau/claude-code/internal/providers"
 )
 
@@ -24,27 +25,38 @@ type Schema struct {
 
 // CLI is a roster row's platform group.
 type CLI struct {
-	providers.AgentSpec // Name, Binary, Dialects, RouterSuffix, pin keys, version bounds
-	Caps                Caps
-	Events              []string    // typed event kinds the stream can carry
-	Cost                bool        // reports a cost
-	ResumeFormat        string      // "codex resume %s"; "" = none
-	ModelsArgv          []string    // args that list models; nil = no catalog verb
-	ModelsProvider      string      // list via models --live on this provider instead
-	ReadNeedsTools      bool        // file reads are denied without --tools
-	PromptInArgv        bool        // prompt rides argv, so MaxPromptBytes applies
-	DirFlag             bool        // Headless.WorkDir must be set; cmd.Dir alone is not enough
-	Hub                 bool        // ask routes it through the opencode hub unless --native is set
-	ConfigureHint       string      // the command to run when no credential resolved
-	DisplayName         string      // TUI label; "" = Name
-	LoginArgv           []string    // the CLI's own sign-in command
-	ExtraUsage          [][2]string // extra help rows
-	CatalogUsage        string      // override for the catalog help row
-	CatalogHint         string      // extra hint on the catalog page
+	Binary string // executable on PATH; "" = claude, which the harness launches itself (not a roster agent)
+	// Dialects are the wires the agent speaks, preferred first; none = it runs only on its own login.
+	Dialects []string
+	// RouterSuffix is the path appended to the router session base for a wire; it covers every Dialects entry.
+	RouterSuffix map[string]string
+	// ProfilePin, ModelPin and ActivePin are the agent's vault pin keys; ModelPin is "" when it has no model pin.
+	ProfilePin, ModelPin, ActivePin string
+	// MinVersion and MaxVersion bound the CLI versions the harness is known to work with; "" = no bound.
+	// MaxVersion may end in ".x" ("1.x" = any 1.y.z). Each bound carries its one-line reason.
+	MinVersion, MinReason string
+	MaxVersion, MaxReason string
+	Caps                  Caps
+	Events                []string    // typed event kinds the stream can carry
+	Cost                  bool        // reports a cost
+	ResumeFormat          string      // "codex resume %s"; "" = none
+	ModelsArgv            []string    // args that list models; nil = no catalog verb
+	ModelsProvider        string      // list via models --live on this provider instead
+	ReadNeedsTools        bool        // file reads are denied without --tools
+	PromptInArgv          bool        // prompt rides argv, so MaxPromptBytes applies
+	DirFlag               bool        // Headless.WorkDir must be set; cmd.Dir alone is not enough
+	Hub                   bool        // ask routes it through the opencode hub unless --native is set
+	ConfigureHint         string      // the command to run when no credential resolved
+	DisplayName           string      // TUI label; "" = Name
+	LoginArgv             []string    // the CLI's own sign-in command
+	ExtraUsage            [][2]string // extra help rows
+	CatalogUsage          string      // override for the catalog help row
+	CatalogHint           string      // extra hint on the catalog page
 }
 
 var rosterRows = []Schema{
 	{Name: "claude", CLI: CLI{
+		ProfilePin: providers.PinProfile, ModelPin: providers.PinModel,
 		Caps: Caps{Model: Native, Provider: Native, Effort: Native, WorkDir: Native, SessionID: Native,
 			Tools: Native, NoTools: Native, NoPersist: Native, SafeMode: Native, DebugFile: Native,
 			SystemPrompt: Native, AppendSystemPrompt: Native, Env: Native, OutputSchema: Native, Persona: Native},
@@ -52,6 +64,9 @@ var rosterRows = []Schema{
 		Cost:   true, ConfigureHint: "run `claude-code configure agents`", LoginArgv: []string{"claude", "auth", "login"},
 	}},
 	{Name: "codex", CLI: CLI{
+		Binary: "codex", Dialects: []string{providers.ProtocolResponses},
+		RouterSuffix: map[string]string{providers.ProtocolResponses: "/" + providers.ProtocolResponses},
+		ProfilePin:   providers.PinCodexProfile, ModelPin: providers.PinCodexModel, ActivePin: providers.PinCodexActive,
 		Caps: Caps{Model: Native, Provider: Native, Effort: Native, WorkDir: Native, SessionID: Native,
 			Tools: Native, Autonomous: Native, NoPersist: Native, SafeMode: Native, Direct: Native, Env: Native,
 			SystemPrompt: Native, AppendSystemPrompt: Native, OutputSchema: Native, Persona: Emulated},
@@ -60,6 +75,7 @@ var rosterRows = []Schema{
 		ConfigureHint: "run `codex login` (ChatGPT) or `claude-code configure` → codex → API key",
 	}},
 	{Name: "gemini", CLI: CLI{
+		Binary: "agy", ProfilePin: providers.PinGeminiProfile, ModelPin: providers.PinGeminiModel, ActivePin: providers.PinGeminiActive,
 		Caps: Caps{Model: Native, Provider: Native, Effort: Native, WorkDir: Native, SessionID: Native,
 			Tools: Native, Autonomous: Native, DebugFile: Native, Direct: Native, Env: Native,
 			SystemPrompt: Emulated, AppendSystemPrompt: Emulated, OutputSchema: Native, Persona: Emulated},
@@ -69,6 +85,11 @@ var rosterRows = []Schema{
 		ExtraUsage: [][2]string{{"bridge", "ingest files for a large-context task"}},
 	}},
 	{Name: "opencode", CLI: CLI{
+		Binary: "opencode", Dialects: []string{providers.ProtocolAnthropic, providers.ProtocolGemini, providers.ProtocolOpenAI},
+		RouterSuffix: map[string]string{providers.ProtocolAnthropic: "", providers.ProtocolGemini: "/" + providers.ProtocolGemini,
+			providers.ProtocolOpenAI: "/" + providers.ProtocolOpenAI, providers.ProtocolResponses: "/" + providers.ProtocolResponses},
+		ProfilePin: providers.PinOpencodeProfile, ActivePin: providers.PinOpencodeActive,
+		MaxVersion: "1.x", MaxReason: "2.x broke the harness opencode route", // keep in step with opencodeMaxMajor
 		Caps: Caps{Model: Native, Provider: Native, Effort: Native, WorkDir: Native, SessionID: Native,
 			Tools: Native, Autonomous: Native, SafeMode: Native, Direct: Native, Env: Native,
 			SystemPrompt: Native, AppendSystemPrompt: Emulated, OutputSchema: Emulated, Persona: Emulated},
@@ -80,6 +101,11 @@ var rosterRows = []Schema{
 		CatalogHint:   "Serving-only discovery: claude-code opencode catalog sync --profile P",
 	}},
 	{Name: "copilot", CLI: CLI{
+		Binary: "copilot", Dialects: []string{providers.ProtocolAnthropic, providers.ProtocolOpenAI},
+		RouterSuffix: map[string]string{providers.ProtocolAnthropic: "", providers.ProtocolOpenAI: "/" + providers.ProtocolOpenAI,
+			providers.ProtocolResponses: "/" + providers.ProtocolResponses},
+		ProfilePin: providers.PinCopilotProfile, ModelPin: providers.PinCopilotModel, ActivePin: providers.PinCopilotActive,
+		MinVersion: copilotsdk.MinMultiProviderCLI, MinReason: "named-provider model registry needs it",
 		Caps: Caps{Model: Native, Provider: Native, Effort: Native, WorkDir: Native, SessionID: Native,
 			Tools: Native, Autonomous: Native, Memory: Native, Direct: Native, Env: Native,
 			SystemPrompt: Emulated, AppendSystemPrompt: Emulated, OutputSchema: Emulated, Persona: Emulated},
@@ -95,9 +121,6 @@ func Roster() []Schema {
 	rows := slices.Clone(rosterRows)
 	for i := range rows {
 		s := &rows[i]
-		if spec, ok := providers.LookupAgentSpec(s.Name); ok && spec.Binary != "" {
-			s.CLI.AgentSpec = spec
-		}
 		s.Tools = slices.Clone(s.Tools)
 		s.CLI.Dialects = slices.Clone(s.CLI.Dialects)
 		s.CLI.RouterSuffix = maps.Clone(s.CLI.RouterSuffix)

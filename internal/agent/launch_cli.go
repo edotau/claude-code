@@ -62,7 +62,7 @@ func withFlagModel(args []string, model string) []string {
 // agentModelTarget applies flag > the agent's model pin > default to t; a fallback provider respells the flag itself.
 func agentModelTarget(name string, t providers.Target, sel providers.Selection, flagModel string) (providers.Target, string) {
 	applied := t.Provider == nil || t.Provider == sel.Slots[models.Opus].Provider
-	return providers.ResolveAgentModel(providers.ModelAsk{Agent: name, Flag: flagModel, Target: t, Applied: applied})
+	return ResolveAgentModel(ModelAsk{Agent: name, Flag: flagModel, Target: t, Applied: applied})
 }
 
 func vendorPlan(ctx context.Context, name string, o LaunchOptions, args []string) (Plan, error) {
@@ -147,12 +147,12 @@ func vendorPlan(ctx context.Context, name string, o LaunchOptions, args []string
 // withAgentPins fills the profile the flags left empty from the agent's vault pin: --profile > pin > default.
 // The model pin is applied after the target resolves (agentModelTarget).
 func withAgentPins(name string, o LaunchOptions) LaunchOptions {
-	pin, ok := providers.AgentPins()[name]
+	pin, ok := AgentPins()[name]
 	if !ok || pin.Off {
 		return o
 	}
 	if o.Provider == "" && pin.Profile != "" {
-		if reg, err := providers.Load(); err == nil && providers.ValidAgentPin(reg, name, pin.Profile) == nil && reg.Providers[pin.Profile] != nil {
+		if reg, err := providers.Load(); err == nil && ValidAgentPin(reg, name, pin.Profile) == nil && reg.Providers[pin.Profile] != nil {
 			o.Provider = pin.Profile
 		}
 	}

@@ -43,7 +43,7 @@ func (geminiEngine) login(_ *providers.Provider, model string, h *Headless) ([]s
 	return geminiLogin(model, h)
 }
 
-// wire serves only a gateway row: providers.Serves refuses agy every other non-login row.
+// wire serves only a gateway row: Serves refuses agy every other non-login row.
 func (geminiEngine) wire(ctx context.Context, r wireRoute, h *Headless) ([]string, []string, error) {
 	if isDirect(ctx) { // --direct skips the router that swaps the Databricks token
 		return nil, nil, fmt.Errorf("gemini: --direct has no Databricks route for agy (profile %s needs the router's token swap)", r.Provider.Name)
@@ -54,7 +54,7 @@ func (geminiEngine) wire(ctx context.Context, r wireRoute, h *Headless) ([]strin
 func (e geminiEngine) fallbackTarget(reg *providers.Registry) (providers.Target, string, bool) {
 	if p, ok := loginProvider(reg, "google", e.name); ok && GeminiLoginPresent() {
 		// the GEMINI_MODEL pin beats the registry's bare slot id
-		t, _ := providers.ResolveAgentModel(providers.ModelAsk{Agent: e.name, Target: providers.Target{Provider: p, Model: p.Models[models.Opus]}})
+		t, _ := ResolveAgentModel(ModelAsk{Agent: e.name, Target: providers.Target{Provider: p, Model: p.Models[models.Opus]}})
 		return t, "gemini (Google login via agy)", true
 	}
 	return providers.Target{}, "", false
@@ -66,12 +66,12 @@ func (geminiEngine) LoginStatus() (bool, string) {
 
 // followsPin keeps agy on its Google login unless GEMINI_PROFILE names the session's Databricks row.
 func (geminiEngine) followsPin(p *providers.Provider) bool {
-	return !providers.GeminiGatewayRow(p) || providers.Pin(providers.PinGeminiProfile) == p.Name
+	return !GeminiGatewayRow(p) || providers.Pin(providers.PinGeminiProfile) == p.Name
 }
 
 // noRoute refuses a Databricks gateway row that no GEMINI_PROFILE pin selected: never silently.
 func (geminiEngine) noRoute(_ *providers.Registry, t providers.Target) error {
-	if providers.GeminiGatewayRow(t.Provider) {
+	if GeminiGatewayRow(t.Provider) {
 		return errors.New("gemini: agy needs a Google login (agy auth login) or a GEMINI_PROFILE pin")
 	}
 	return nil

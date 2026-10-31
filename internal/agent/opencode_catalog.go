@@ -54,15 +54,15 @@ func ServedInfo(served map[string]providers.ModelInfo, p *providers.Provider, id
 }
 
 // OpencodeCheckTargets resolves the probe set: explicit ids, every served chat endpoint, or the menu.
-func OpencodeCheckTargets(ids []string, all bool, served map[string]providers.ModelInfo, p *providers.Provider) []providers.CheckTarget {
-	var out []providers.CheckTarget
+func OpencodeCheckTargets(ids []string, all bool, served map[string]providers.ModelInfo, p *providers.Provider) []CheckTarget {
+	var out []CheckTarget
 	if all {
 		for name, info := range served {
 			if info.Task != "llm/v1/chat" {
 				continue
 			}
-			id := providers.MenuID(name)
-			out = append(out, providers.CheckTarget{ID: id, Wire: name, Responses: providers.ResponsesID(id)})
+			id := MenuID(name)
+			out = append(out, CheckTarget{ID: id, Wire: name, Responses: providers.ResponsesID(id)})
 		}
 		return out
 	}
@@ -72,8 +72,8 @@ func OpencodeCheckTargets(ids []string, all bool, served map[string]providers.Mo
 		}
 	}
 	for _, raw := range ids {
-		id := providers.MenuID(raw)
-		t := providers.CheckTarget{ID: id, Responses: providers.ResponsesID(id)}
+		id := MenuID(raw)
+		t := CheckTarget{ID: id, Responses: providers.ResponsesID(id)}
 		if _, ok := served[p.ModelPrefix+id]; ok {
 			t.Wire = p.ModelPrefix + id
 		} else if _, ok := served[id]; ok {
@@ -87,12 +87,12 @@ func OpencodeCheckTargets(ids []string, all bool, served map[string]providers.Mo
 }
 
 // OpencodeSyncModels resolves the profile; discovery validates identity before reading the sealed cache.
-func OpencodeSyncModels(profile string, refresh bool) (*providers.Provider, providers.ServingDiscovery, error) {
+func OpencodeSyncModels(profile string, refresh bool) (*providers.Provider, ServingDiscovery, error) {
 	_, p, err := opencodeProvider(profile)
 	if err != nil {
-		return nil, providers.ServingDiscovery{}, errors.New("cannot resolve profile; check the provider configuration")
+		return nil, ServingDiscovery{}, errors.New("cannot resolve profile; check the provider configuration")
 	}
-	snapshot, err := providers.DiscoverServingModels(context.Background(), p, refresh)
+	snapshot, err := DiscoverServingModels(context.Background(), p, refresh)
 	return p, snapshot, err
 }
 
@@ -104,7 +104,7 @@ func OpencodeSyncIDs(infos []providers.ModelInfo) []string {
 			!strings.HasPrefix(info.ID, models.DatabricksPrefix) {
 			continue
 		}
-		id := providers.MenuID(info.ID)
+		id := MenuID(info.ID)
 		if id != "" && models.Wire("databricks-serving", id) == info.ID {
 			ids = append(ids, id)
 		}
@@ -113,7 +113,7 @@ func OpencodeSyncIDs(infos []providers.ModelInfo) []string {
 	return slices.Compact(ids)
 }
 
-func OpencodeSyncMerge(menu []providers.OpencodeModel, ids []string, checks []providers.CheckResult) ([]providers.OpencodeModel, int) {
+func OpencodeSyncMerge(menu []providers.OpencodeModel, ids []string, checks []CheckResult) ([]providers.OpencodeModel, int) {
 	failed := make(map[string]bool)
 	for _, c := range checks {
 		failed[c.ID] = c.Status == "fail" || c.Status == "missing"
@@ -127,33 +127,33 @@ func OpencodeSyncMerge(menu []providers.OpencodeModel, ids []string, checks []pr
 				continue
 			}
 			// MenuAdd canonicalizes its input, so pass the lossless wire name rather than canonicalizing the id twice.
-			next = providers.MenuAdd(next, models.Wire("databricks-serving", id), "", nil)
+			next = MenuAdd(next, models.Wire("databricks-serving", id), "", nil)
 		}
 	}
 	return next, skipped
 }
 
-func OpencodeSyncVerify(p *providers.Provider, snapshot *providers.ServingDiscovery, ids []string, menu []providers.OpencodeModel) error {
+func OpencodeSyncVerify(p *providers.Provider, snapshot *ServingDiscovery, ids []string, menu []providers.OpencodeModel) error {
 	responses := make(map[string]bool, len(menu))
 	for _, m := range menu {
 		responses[m.ID] = m.Responses
 	}
-	targets := make([]providers.CheckTarget, 0, len(ids))
+	targets := make([]CheckTarget, 0, len(ids))
 	for _, id := range ids {
 		r, exists := responses[id]
 		if !exists {
 			r = models.ResponsesOnly(id)
 		}
-		targets = append(targets, providers.CheckTarget{ID: id, Wire: models.Wire("databricks-serving", id), Responses: r})
+		targets = append(targets, CheckTarget{ID: id, Wire: models.Wire("databricks-serving", id), Responses: r})
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
-	checks, err := providers.ProbeEndpoints(ctx, p, targets,
-		providers.CheckOptions{ClientRoutes: true, Concurrency: 4, Timeout: 30 * time.Second})
+	checks, err := ProbeEndpoints(ctx, p, targets,
+		CheckOptions{ClientRoutes: true, Concurrency: 4, Timeout: 30 * time.Second})
 	if err != nil {
 		return errors.New("serving verification did not complete; no discovery/menu writes")
 	}
-	snapshot.Checks = providers.SanitizeServingChecks(checks)
+	snapshot.Checks = SanitizeServingChecks(checks)
 	snapshot.CheckedAt = time.Now().UTC()
 	return nil
 }

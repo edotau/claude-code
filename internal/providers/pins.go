@@ -169,12 +169,12 @@ func ReadEnvFile(path string) map[string]string {
 
 // Pin reads key from the vault pins; it never reads the process env.
 func Pin(key string) string {
-	pin, _ := pinLookup()
+	pin, _ := PinLookup()
 	return pin(key)
 }
 
-// pinLookup reads the vault pins once.
-func pinLookup() (func(string) string, error) {
+// PinLookup reads the vault pins once.
+func PinLookup() (func(string) string, error) {
 	pins, err := readPins()
 	return func(key string) string { return strings.TrimSpace(pins[key]) }, err
 }

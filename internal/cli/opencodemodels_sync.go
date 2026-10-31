@@ -30,7 +30,7 @@ func opencodeMenuSync(profile string, opts opencodeSyncOptions) error {
 	}
 	opencodeSyncSummary(snapshot, opts.Verify)
 	next, skipped := agent.OpencodeSyncMerge(menu, ids, snapshot.Checks)
-	changes := providers.DiffMenu(menu, next)
+	changes := agent.DiffMenu(menu, next)
 	fmt.Printf("opencode catalog sync: %d listed, %d eligible, %d additions, %d failed additions skipped, %d retained, %d total\n",
 		len(snapshot.Models), len(ids), len(changes), skipped, len(menu), len(next))
 	for _, c := range changes {
@@ -44,7 +44,7 @@ func opencodeMenuSync(profile string, opts opencodeSyncOptions) error {
 		return nil
 	}
 	if !snapshot.CacheHit || opts.Verify {
-		if err := providers.SaveServingDiscovery(p, snapshot); err != nil {
+		if err := agent.SaveServingDiscovery(p, snapshot); err != nil {
 			return err
 		}
 		fmt.Println("opencode catalog: discovery snapshot sealed in vault")
@@ -59,7 +59,7 @@ func opencodeMenuSync(profile string, opts opencodeSyncOptions) error {
 	return nil
 }
 
-func opencodeSyncSummary(snapshot providers.ServingDiscovery, verified bool) {
+func opencodeSyncSummary(snapshot agent.ServingDiscovery, verified bool) {
 	source := "live discovery"
 	if snapshot.CacheHit {
 		source = "encrypted cache hit"

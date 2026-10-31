@@ -273,6 +273,6 @@ func geminiAgyModel(reg *providers.Registry, sel providers.Selection, p *provide
 	if model := ResolveModel(named, modelEnvKeys, ""); model != "" {
 		return resolvedModelID(reg, sel, p, model)
 	}
-	t, _ := providers.ResolveAgentModel(providers.ModelAsk{Agent: "gemini", Target: providers.Target{Provider: p, Model: AgyDefaultModel}})
+	t, _ := ResolveAgentModel(ModelAsk{Agent: "gemini", Target: providers.Target{Provider: p, Model: AgyDefaultModel}})
 	return t.Model
 }

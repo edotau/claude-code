@@ -18,7 +18,6 @@ import (
 	"github.com/edotau/claude-code/internal/completion"
 	"github.com/edotau/claude-code/internal/history"
 	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/preflight"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/schemas"
 	"github.com/edotau/claude-code/internal/settings"
@@ -111,7 +110,7 @@ func PreflightStep(w io.Writer, bin string) {
 	if err != nil {
 		return // no registry: nothing to check
 	}
-	preflight.RunInstallStep(context.Background(), w, reg, bin, time.Now())
+	agent.RunInstallStep(context.Background(), w, reg, bin, time.Now())
 }
 
 // installLine renders the "install" summary line: the installed binary path and, when the pre-install
