@@ -120,7 +120,7 @@ func AuthHost(p *Provider) string {
 
 // rawAuthHost is AuthHost before the scheme check.
 func rawAuthHost(p *Provider) string {
-	if h := presetHost(p.Host); h != "" {
+	if h := PresetHost(p.Host); h != "" {
 		return h
 	}
 	u, err := url.Parse(p.BaseURL)

@@ -75,3 +75,18 @@ func encode(v any) (json.RawMessage, error) {
 	}
 	return bytes.TrimSpace(buf.Bytes()), nil
 }
+
+func rawList(items []json.RawMessage) json.RawMessage {
+	parts := make([][]byte, len(items))
+	for i, it := range items {
+		parts[i] = bytes.TrimSpace(it)
+	}
+	return json.RawMessage("[" + string(bytes.Join(parts, []byte(","))) + "]")
+}
+
+func orEmpty(raw json.RawMessage) json.RawMessage {
+	if len(bytes.TrimSpace(raw)) == 0 || string(bytes.TrimSpace(raw)) == "null" {
+		return json.RawMessage("{}")
+	}
+	return raw
+}

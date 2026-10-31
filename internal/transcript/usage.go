@@ -148,13 +148,3 @@ func (a *UsageAggregate) Add(s *FileSummary) {
 		a.PeakInputTokensPerMin = max(a.PeakInputTokensPerMin, a.perMin[minute])
 	}
 }
-
-// AddFile summarizes path and folds it in.
-func (a *UsageAggregate) AddFile(path string) error {
-	s, err := SummarizeFile(path)
-	if err != nil {
-		return err
-	}
-	a.Add(s)
-	return nil
-}

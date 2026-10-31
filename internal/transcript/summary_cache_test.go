@@ -44,7 +44,7 @@ func aggregate(t *testing.T, c *SummaryCache, files []string) *UsageAggregate {
 	for _, f := range files {
 		var err error
 		if c == nil {
-			err = agg.AddFile(f)
+			err = addFile(agg, f)
 		} else {
 			err = agg.AddFileCached(c, f)
 		}

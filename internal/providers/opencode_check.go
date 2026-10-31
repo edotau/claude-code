@@ -60,7 +60,7 @@ var checkResponsesTool = map[string]any{"type": "function", "name": "ping", "des
 
 // ProbeEndpoints sends one tiny request per target (bounded concurrency) and returns results in target order.
 func ProbeEndpoints(ctx context.Context, p *Provider, targets []CheckTarget, o CheckOptions) ([]CheckResult, error) {
-	host := presetHost(p.Host)
+	host := PresetHost(p.Host)
 	if host == "" {
 		return nil, fmt.Errorf("%s has no https workspace host to probe", p.Name)
 	}

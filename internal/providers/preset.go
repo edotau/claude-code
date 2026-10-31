@@ -34,7 +34,7 @@ var databricksModels = map[string]string{
 // expandPresets fills each preset provider's empty fields; load-only. Invalid presets are left for Validate.
 func expandPresets(r *Registry) {
 	for _, p := range r.Providers {
-		if p == nil || p.Preset != PresetDatabricks || presetHost(p.Host) == "" {
+		if p == nil || p.Preset != PresetDatabricks || PresetHost(p.Host) == "" {
 			continue
 		}
 		expandDatabricks(p)
@@ -55,8 +55,8 @@ func decorateModels(r *Registry) {
 	}
 }
 
-// presetHost returns the https://host of an absolute https host URL with no path, else "".
-func presetHost(host string) string {
+// PresetHost returns the https://host of an absolute https host URL with no path, else "".
+func PresetHost(host string) string {
 	u, err := url.Parse(host)
 	if err != nil || u.Scheme != "https" || u.Host == "" || (u.Path != "" && u.Path != "/") || u.RawQuery != "" {
 		return ""
@@ -65,7 +65,7 @@ func presetHost(host string) string {
 }
 
 func expandDatabricks(p *Provider) {
-	host := presetHost(p.Host)
+	host := PresetHost(p.Host)
 	if p.Protocol == "" {
 		p.Protocol = ProtocolAnthropic
 	}
@@ -159,7 +159,7 @@ func validatePreset(n string, p *Provider) []string {
 	if p.Preset != PresetDatabricks {
 		return append(errs, fmt.Sprintf("%s: unknown preset %q (known: %s)", n, p.Preset, PresetDatabricks))
 	}
-	if presetHost(p.Host) == "" {
+	if PresetHost(p.Host) == "" {
 		errs = append(errs, fmt.Sprintf("%s: preset %s needs host as an absolute https URL with no path", n, p.Preset))
 	}
 	if p.CLIProfile != "" && !cliProfileRE.MatchString(p.CLIProfile) {
@@ -218,7 +218,7 @@ func (e *HostMismatchError) Error() string { return e.msg }
 
 // checkIssuer fails a preset provider's minted JWT whose issuer host is not the preset host; never names the token.
 func checkIssuer(p *Provider, v string) error {
-	want := strings.TrimPrefix(presetHost(p.Host), "https://")
+	want := strings.TrimPrefix(PresetHost(p.Host), "https://")
 	if p.Preset == "" || want == "" {
 		return nil
 	}

@@ -9,12 +9,22 @@ import (
 	"time"
 )
 
+// addFile summarizes path uncached and folds it into agg.
+func addFile(agg *UsageAggregate, path string) error {
+	s, err := SummarizeFile(path)
+	if err != nil {
+		return err
+	}
+	agg.Add(s)
+	return nil
+}
+
 func TestUsageAggregateFixtures(t *testing.T) {
 	agg := NewUsageAggregate()
-	if err := agg.AddFile("testdata/usage_a.jsonl"); err != nil {
+	if err := addFile(agg, "testdata/usage_a.jsonl"); err != nil {
 		t.Fatalf("AddFile(usage_a): %v", err)
 	}
-	if err := agg.AddFile("testdata/usage_b.jsonl"); err != nil {
+	if err := addFile(agg, "testdata/usage_b.jsonl"); err != nil {
 		t.Fatalf("AddFile(usage_b): %v", err)
 	}
 
@@ -48,7 +58,7 @@ func TestUsageAggregateFixtures(t *testing.T) {
 
 func TestUsageAggregateMissingFile(t *testing.T) {
 	agg := NewUsageAggregate()
-	if err := agg.AddFile("testdata/does-not-exist.jsonl"); err == nil {
+	if err := addFile(agg, "testdata/does-not-exist.jsonl"); err == nil {
 		t.Error("AddFile on a missing file: want error, got nil")
 	}
 }

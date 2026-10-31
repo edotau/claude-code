@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 // golden commands (captured with python3 on PATH):
@@ -68,5 +69,23 @@ func TestRunDiffBadFlag(t *testing.T) {
 	code := RunDiff([]string{"--nope"}, &stdout, &stderr)
 	if code != 2 {
 		t.Fatalf("exit code = %d, want 2 (argparse unrecognized arguments)", code)
+	}
+}
+
+// A5: findings truncate by rune, so a multibyte line crossing the 60/120 cut stays valid UTF-8.
+func TestAnalyzeDiffFileTruncatesOnRuneBoundary(t *testing.T) {
+	long := strings.Repeat("é", 100)
+	findings := analyzeDiffFile(&diffFileEntry{changes: []string{"+// x" + long}})
+	findings = append(findings, detectQuoteSwaps([]string{"-" + long + `"q"`, "+" + long + `'q'`})...)
+	var comment, swap bool
+	for _, f := range findings {
+		if !utf8.ValidString(f.Line) {
+			t.Errorf("%s finding is not valid UTF-8: %q", f.Category, f.Line)
+		}
+		comment = comment || f.Category == "comment-only"
+		swap = swap || f.Category == "quote-style-swap"
+	}
+	if !comment || !swap {
+		t.Fatalf("want comment-only and quote-style-swap findings, got %+v", findings)
 	}
 }

@@ -562,3 +562,15 @@ func renderCopilotSettings(home string, o Options, out io.Writer) (bool, error) 
 	}
 	return commitFile(path, raw, append(body, '\n'), existed, o, out, "copilot-settings")
 }
+
+// VendorRouter is the vendor routing the renders need; internal/agent implements it (settings cannot import it).
+type VendorRouter interface {
+	ResolveTarget(reg *providers.Registry, name string, sel providers.Selection, explicit bool) (
+		target providers.Target, note string, err error)
+	Configure(ctx context.Context, name string, target providers.Target, headlessPrompt string) (
+		env, argv []string, err error)
+	// OpencodeOverlayModels returns the overlay's model/small_model; ok false keeps the template's values.
+	OpencodeOverlayModels() (mainModel, smallModel string, ok bool)
+}
+
+var errNoRouter = errors.New("settings: Options.Router is nil")

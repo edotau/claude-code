@@ -136,7 +136,7 @@ func (c *SummaryCache) Save() error {
 	return paths.AtomicWrite(c.path, raw, 0o600)
 }
 
-// AddFileCached is AddFile through c.
+// AddFileCached summarizes path through c and folds it in.
 func (a *UsageAggregate) AddFileCached(c *SummaryCache, path string) error {
 	s, err := c.Summarize(path)
 	if err != nil {
@@ -145,3 +145,13 @@ func (a *UsageAggregate) AddFileCached(c *SummaryCache, path string) error {
 	a.Add(s)
 	return nil
 }
+
+// summaryCacheSchema is the summary cache's current schema version; a mismatch is a miss, never migrated.
+const summaryCacheSchema = 1
+
+var summaryCacheFormat = schemas.Register(schemas.Format{
+	Name: "transcript-summary", Owner: "internal/transcript", Kind: schemas.Cache,
+	Glob:    SummaryCachePath,
+	New:     func() any { return &summaryCacheFile{} },
+	Version: summaryCacheSchema, Keep: "rebuildable cache; a version mismatch is a miss",
+})

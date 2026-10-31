@@ -44,7 +44,7 @@ func servingDiscoveryScope(p *Provider, subject string) (ServingDiscoveryScope, 
 		(p.Options.Wire != "" && p.Options.Wire != WireServing) {
 		return ServingDiscoveryScope{}, errors.New("requires a Databricks serving profile; AI Gateway is not supported")
 	}
-	host := presetHost(p.Host)
+	host := PresetHost(p.Host)
 	if host == "" {
 		return ServingDiscoveryScope{}, errors.New("serving discovery requires an HTTPS workspace host")
 	}

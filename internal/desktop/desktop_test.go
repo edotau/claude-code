@@ -38,7 +38,7 @@ func options(root string) Options {
 		Headers: map[string]string{"X-Workspace": "secret-tenant"}}
 }
 func run(opts Options, w io.Writer) error {
-	return configure(opts, w, fileOps{write: atomicWrite, remove: os.Remove}, func(p string) (string, error) { return p, nil })
+	return configure(opts, w, fileOps{write: paths.AtomicWrite, remove: os.Remove}, func(p string) (string, error) { return p, nil })
 }
 func read(t *testing.T, p string) []byte {
 	t.Helper()
@@ -102,7 +102,7 @@ func TestConfigureIdempotentRevert(t *testing.T) {
 			meta := read(t, metaPath)
 			prof := read(t, profilePath)
 			writes := 0
-			spy := fileOps{write: func(p string, b []byte, m os.FileMode) error { writes++; return atomicWrite(p, b, m) }, remove: os.Remove}
+			spy := fileOps{write: func(p string, b []byte, m os.FileMode) error { writes++; return paths.AtomicWrite(p, b, m) }, remove: os.Remove}
 			if err := configure(opts, io.Discard, spy, func(p string) (string, error) { return p, nil }); err != nil {
 				t.Fatal(err)
 			}
@@ -271,7 +271,7 @@ func TestRollbackEveryMutation(t *testing.T) {
 				count := 0
 				failure := errors.New("injected failure")
 				ops := fileOps{write: func(p string, b []byte, m os.FileMode) error {
-					if err := atomicWrite(p, b, m); err != nil {
+					if err := paths.AtomicWrite(p, b, m); err != nil {
 						return err
 					}
 					count++
@@ -316,7 +316,7 @@ func TestRollbackRemovesNewLibrary(t *testing.T) {
 		if calls == 3 {
 			return errors.New("fail")
 		}
-		return atomicWrite(p, b, m)
+		return paths.AtomicWrite(p, b, m)
 	}, remove: os.Remove}
 	if err := configure(options(root), io.Discard, ops, func(p string) (string, error) { return p, nil }); err == nil {
 		t.Fatal("expected failure")
