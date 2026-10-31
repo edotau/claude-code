@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agent/tree"
 )
 
 // hubFixture is a Server over a temp copy of the agenttree fixture with fast scan timings and a counted Build.
@@ -36,7 +37,7 @@ func newHubFixture(t *testing.T) *hubFixture {
 	}
 	var builds atomic.Int64
 	origBuild, origScan := buildTree, scanInterval
-	buildTree = func(root string, o agent.Options) (*agent.Tree, error) {
+	buildTree = func(root string, o tree.Options) (*tree.Tree, error) {
 		builds.Add(1)
 		return origBuild(root, o)
 	}
@@ -131,11 +132,11 @@ func TestEventsStreamsTreeThenChange(t *testing.T) {
 	frames, _ := openEvents(t, f.ts.URL)
 
 	first := nextFrame(t, frames, 5*time.Second)
-	var tree agent.Tree
-	if err := json.Unmarshal([]byte(first), &tree); err != nil {
+	var got tree.Tree
+	if err := json.Unmarshal([]byte(first), &got); err != nil {
 		t.Fatalf("first frame is not agenttree JSON: %v; %s", err, first)
 	}
-	if len(tree.Sessions) == 0 {
+	if len(got.Sessions) == 0 {
 		t.Fatalf("first frame has no sessions: %s", first)
 	}
 
@@ -160,7 +161,7 @@ func TestEventsStreamsTreeThenChange(t *testing.T) {
 	if second == first {
 		t.Fatal("second frame identical to the first; frames must only be sent on change")
 	}
-	if err := json.Unmarshal([]byte(second), new(agent.Tree)); err != nil {
+	if err := json.Unmarshal([]byte(second), new(tree.Tree)); err != nil {
 		t.Fatalf("second frame is not agenttree JSON: %v", err)
 	}
 }

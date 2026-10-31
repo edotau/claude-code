@@ -6,6 +6,7 @@ import (
 	"time"
 
 	agentpkg "github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agent/preflight"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
@@ -61,7 +62,7 @@ func cmdAgentProfile(agent string, args []string) int {
 		return fail("%s profile: %v", agent, err)
 	}
 	fmt.Printf("%s: now on %s (%s); relaunch `claude-code %s` to apply\n", agent, pos[0], pin, agent)
-	agentpkg.PreflightWarm(os.Stdout, reg, time.Now())
+	preflight.Warm(os.Stdout, reg, time.Now())
 	if agent == "codex" {
 		fmt.Println("plain codex: run `claude-code configure --restore --agents` to re-render config.toml")
 	}

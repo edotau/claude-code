@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agent/preflight"
 	"github.com/edotau/claude-code/internal/copilotsdk"
 	"github.com/edotau/claude-code/internal/launch"
 	"github.com/edotau/claude-code/internal/models"
@@ -113,7 +114,7 @@ func warmServedOnChange(out io.Writer, skip bool, pins map[string]agent.PinSpec,
 		return
 	}
 	if reg, err := providers.Load(); err == nil {
-		agent.PreflightWarm(out, reg, time.Now())
+		preflight.Warm(out, reg, time.Now())
 	}
 }
 

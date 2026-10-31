@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"slices"
@@ -20,11 +19,6 @@ import (
 func LaunchPlan(ctx context.Context, name string, o LaunchOptions, args []string) (Plan, error) {
 	plan, err := cliPlan(ctx, name, o, args)
 	plan.Keep, plan.CLI = o.KeepEnv, true
-	if err == nil && !o.PrintEnv && !authArgs(args) && interactiveArgs(args) && agentVersionTTY() {
-		if line := VersionWarning(name, plan.Binary); line != "" {
-			fmt.Fprintln(versionWarnOut, line)
-		}
-	}
 	return plan, err
 }
 
@@ -44,12 +38,6 @@ func codexProfileHint(o LaunchOptions) error {
 	return UsageError(fmt.Sprintf("claude-code codex: --profile %q is not a harness profile; "+
 		"for codex's own config profile ($CODEX_HOME/%s.config.toml) use -p %s", o.Provider, o.Provider, o.Provider))
 }
-
-// agentVersionTTY and versionWarnOut are the version warning's terminal gate and sink (tests swap them).
-var (
-	agentVersionTTY           = func() bool { return ansi.IsTerminal(os.Stderr) }
-	versionWarnOut  io.Writer = os.Stderr
-)
 
 // withFlagModel re-adds the --model ParseArgs consumed, so the registry selects flag > pin > default.
 func withFlagModel(args []string, model string) []string {
@@ -205,6 +193,11 @@ func retryConfigure(ctx context.Context, name string, o LaunchOptions) ([]string
 // authArgs reports an agent's own sign-in subcommand: codex/copilot login|logout, gemini/opencode auth.
 func authArgs(args []string) bool {
 	return len(args) > 0 && (args[0] == "login" || args[0] == "logout" || args[0] == "auth")
+}
+
+// WantsVersionWarning reports whether a launch of args is an interactive session, the only one that warns on a version.
+func WantsVersionWarning(o LaunchOptions, args []string) bool {
+	return !o.PrintEnv && !authArgs(args) && interactiveArgs(args)
 }
 
 func interactiveArgs(args []string) bool {

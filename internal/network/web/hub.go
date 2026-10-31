@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agent/tree"
 )
 
 // Hub timings and the Build seam are vars so tests can shorten the intervals and count builds.
@@ -21,7 +22,7 @@ var (
 	scanInterval  = time.Second      // how often the scanner computes the cheap fingerprint
 	scanHeartbeat = 30 * time.Second // forced rebuild: catches pid deaths and clock-driven status changes
 	ssePing       = 20 * time.Second // SSE comment keep-alive so idle proxies keep the stream open
-	buildTree     = agent.Build      // the one full scan; a seam for counting builds
+	buildTree     = tree.Build       // the one full scan; a seam for counting builds
 	sseWriteLimit = 10 * time.Second // per-frame write deadline: a client that stops reading is dropped
 )
 
@@ -139,19 +140,19 @@ func (s *Server) treeDays() int {
 
 // treeJSON is Build plus the default idle filter, marshalled the way writeJSON does (trailing newline included).
 func (s *Server) treeJSON() ([]byte, error) {
-	tree, err := buildTree(s.opts.ClaudeDir, agent.Options{Days: s.treeDays()})
+	snap, err := buildTree(s.opts.ClaudeDir, tree.Options{Days: s.treeDays()})
 	if err != nil {
 		return nil, err
 	}
-	tree.Sessions = agent.FilterIdleSessions(tree.Sessions)
+	snap.Sessions = tree.FilterIdleSessions(snap.Sessions)
 	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(tree); err != nil {
+	if err := json.NewEncoder(&buf).Encode(snap); err != nil {
 		return nil, err
 	}
 	return buf.Bytes(), nil
 }
 
-// treeFingerprint hashes name, mtime and size of every file agent.Build reads: sessions plus dispatch records.
+// treeFingerprint hashes name, mtime and size of every file tree.Build reads: sessions plus dispatch records.
 func (s *Server) treeFingerprint() uint64 {
 	root := s.opts.ClaudeDir
 	cutoff := time.Now().Add(-time.Duration(s.treeDays()) * 24 * time.Hour)

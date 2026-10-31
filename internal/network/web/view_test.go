@@ -15,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agent/tree"
 )
 
 // withEmptyDispatchDir points internal/agent's dispatch log at an empty temp dir for the duration of
@@ -69,7 +69,7 @@ func TestHandleViewUnknownAgentIsNotFoundNot500(t *testing.T) {
 	}
 }
 
-// --- snapshot JSON decodes to agent.Snapshot ---
+// --- snapshot JSON decodes to tree.Snapshot ---
 
 func TestHandleViewSnapshotDecodesAgenttreeSnapshot(t *testing.T) {
 	withEmptyDispatchDir(t)
@@ -82,9 +82,9 @@ func TestHandleViewSnapshotDecodesAgenttreeSnapshot(t *testing.T) {
 	if ct := w.Header().Get("Content-Type"); !strings.HasPrefix(ct, "application/json") {
 		t.Errorf("Content-Type = %q, want application/json", ct)
 	}
-	var snap agent.Snapshot
+	var snap tree.Snapshot
 	if err := json.Unmarshal(w.Body.Bytes(), &snap); err != nil {
-		t.Fatalf("decode /api/view body into agent.Snapshot: %v; body=%s", err, w.Body.String())
+		t.Fatalf("decode /api/view body into tree.Snapshot: %v; body=%s", err, w.Body.String())
 	}
 	if snap.ID != "fakewfagent002" {
 		t.Errorf("snap.ID = %q, want fakewfagent002", snap.ID)
@@ -153,7 +153,7 @@ func TestHandleViewFollowStopsOnContextCancel(t *testing.T) {
 		errc <- err
 	}()
 
-	time.Sleep(200 * time.Millisecond) // let handleView reach agent.Follow's poll loop
+	time.Sleep(200 * time.Millisecond) // let handleView reach tree.Follow's poll loop
 	cancel()
 
 	select {

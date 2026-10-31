@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/edotau/claude-code/internal/agent/project"
 	"github.com/edotau/claude-code/internal/paths"
 )
 
@@ -62,7 +63,7 @@ func (s Schema) routeCheck() Check {
 
 // projectionCheck reports whether state/projections/<agent>/agents has any rendered agents.
 func (s Schema) projectionCheck() Check {
-	dir := ProjectionDir(paths.ConfigDir(), s.Name)
+	dir := project.Dir(paths.ConfigDir(), s.Name)
 	entries, err := os.ReadDir(dir)
 	if err != nil || len(entries) == 0 {
 		return Check{Name: "projection", State: "warn", Detail: fmt.Sprintf("no rendered agents at %s (claude-code agents sync)", dir)}

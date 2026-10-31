@@ -17,6 +17,8 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agent/preflight"
+	"github.com/edotau/claude-code/internal/agent/tools"
 	"github.com/edotau/claude-code/internal/audit"
 	"github.com/edotau/claude-code/internal/clean"
 	"github.com/edotau/claude-code/internal/clipboard"
@@ -81,11 +83,11 @@ func DoctorChecks() (checks []Check, ok bool) {
 		check(true, false, "copilot route", routeDetail("copilot"))
 		check(true, false, "codex route", routeDetail("codex"))
 		check(true, false, "gemini route", routeDetail("gemini"))
-		for _, pin := range agent.PreflightCheck(reg, time.Now()) {
-			check(pin.Status == agent.PreflightStatusOK, false, "pin "+pin.Agent, pin.Line())
+		for _, pin := range preflight.Check(reg, time.Now()) {
+			check(pin.Status == preflight.StatusOK, false, "pin "+pin.Agent, pin.Line())
 		}
 	}
-	for _, s := range agent.StatusAll() {
+	for _, s := range tools.StatusAll() {
 		check(toolDoctorOK(s), false, "tool "+s.Name, toolDoctorDetail(s))
 	}
 	for _, spec := range agent.Roster() {
@@ -433,7 +435,7 @@ func settingsHasHooks(file string) (bool, error) {
 }
 
 // toolDoctorOK is false only for a bin/<agent> entry that exists but cannot run (broken link, retired shim).
-func toolDoctorOK(s agent.ToolStatus) bool {
+func toolDoctorOK(s tools.Status) bool {
 	bin, ok := paths.VendorName(s.Name)
 	if !ok {
 		return true
@@ -447,21 +449,21 @@ func toolDoctorOK(s agent.ToolStatus) bool {
 
 // agentVersionDetail renders one agent's version row: ok <ver>, warn <ver> below|above <bound>: <reason>, or not installed.
 func agentVersionDetail(spec agent.Schema) (pass bool, detail string) {
-	v, err := agent.AgentVersion(spec.Name)
+	v, err := tools.Version(spec.Name)
 	switch {
-	case errors.Is(err, agent.ErrAgentNotInstalled):
+	case errors.Is(err, tools.ErrAgentNotInstalled):
 		return true, "not installed"
 	case err != nil:
 		return true, "version unknown (" + err.Error() + ")"
 	}
-	if p := agent.VersionProblem(spec.CLI, v); p != "" {
+	if p := tools.VersionProblem(spec.CLI, v); p != "" {
 		return false, "warn " + v + " " + p
 	}
 	return true, "ok " + v
 }
 
 // toolDoctorDetail renders one tool's doctor line: an agent's bin/ entry, else path + version, then extra PATH copies.
-func toolDoctorDetail(s agent.ToolStatus) string {
+func toolDoctorDetail(s tools.Status) string {
 	if bin, ok := paths.VendorName(s.Name); ok {
 		return agentDoctorDetail(s, bin)
 	}
@@ -487,7 +489,7 @@ func toolDoctorDetail(s agent.ToolStatus) string {
 }
 
 // agentDoctorDetail renders BinDir/<bin>: `<dst> → <Target> <version>`, a direct install, or why it is unusable.
-func agentDoctorDetail(s agent.ToolStatus, bin string) string {
+func agentDoctorDetail(s tools.Status, bin string) string {
 	dst := filepath.Join(paths.BinDir(), bin)
 	if _, err := paths.VendorBin(bin); err != nil {
 		if s.Path != "" {
@@ -576,7 +578,7 @@ func toolPATHCopies(name string) []string {
 }
 
 // toolPATHVersion is the first --version line of a PATH copy, cached by path+size+mtime like the tools version cache.
-func toolPATHVersion(path string) string { return agent.ProbedVersionLine(path, spawnPATHVersion) }
+func toolPATHVersion(path string) string { return tools.ProbedVersionLine(path, spawnPATHVersion) }
 
 func spawnPATHVersion(path string) string {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)

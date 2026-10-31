@@ -19,6 +19,8 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agent/project"
+	"github.com/edotau/claude-code/internal/agent/tree"
 	"github.com/edotau/claude-code/internal/network/tailscale"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/ui/helptext"
@@ -614,7 +616,7 @@ func cmdAgents(args []string) int {
 	case "sync":
 		return cmdAgentsSync(args[1:])
 	case "tree":
-		return agent.RunTree(args[1:], paths.ConfigDir(), os.Stdout, os.Stderr)
+		return tree.Run(args[1:], paths.ConfigDir(), os.Stdout, os.Stderr)
 	case "reap":
 		return cmdAgentsReap(args[1:])
 	case "status", "result", "tail", "cancel":
@@ -641,13 +643,13 @@ func cmdAgentsReap(args []string) int {
 		fs.Usage()
 		return 2
 	}
-	return agent.Reap(*dryRun, os.Stdout, os.Stderr)
+	return tree.Reap(*dryRun, os.Stdout, os.Stderr)
 }
 
 // cmdAgentsSync renders agents/ into state/projections, installs the copies into agent homes and links skills/.
 func cmdAgentsSync(args []string) int {
 	fs := helptext.NewFlagSet("agents sync", agentsSyncPage)
-	name := fs.String("agent", "", "one target: "+strings.Join(agent.ProjectionNames(), "|")+" (default: all)")
+	name := fs.String("agent", "", "one target: "+strings.Join(project.Names(), "|")+" (default: all)")
 	dryRun := fs.Bool("dry-run", false, "report without writing")
 	check := fs.Bool("check", false, "dry-run; exit 1 when the projection is stale")
 	noPrune := fs.Bool("no-prune", false, "keep orphaned projections")
@@ -658,7 +660,7 @@ func cmdAgentsSync(args []string) int {
 		fs.Usage()
 		return 2
 	}
-	return agent.Sync(agent.ProjectionOptions{DryRun: *dryRun, Check: *check, NoPrune: *noPrune, Agent: *name, Out: os.Stdout})
+	return project.Sync(project.Options{DryRun: *dryRun, Check: *check, NoPrune: *noPrune, Agent: *name, Out: os.Stdout})
 }
 
 // cmdAgentsList is bare `agents`: the local roster, or with --host the remote's own `agents` output.
