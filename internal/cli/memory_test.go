@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/memory"
+	"github.com/edotau/claude-code/internal/memstore"
 )
 
 func TestMemoryRootHonorsHarnessWorktreePointer(t *testing.T) {
@@ -154,7 +155,7 @@ func TestNoPreRenameLabelInUserOutput(t *testing.T) {
 		t.Errorf("memory index output still names the pre-rename global tier: %q", out)
 	}
 
-	if err := os.WriteFile(filepath.Join(memory.HomeBankDir(), "conventions.md"), []byte("# C\n\n- a rule\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(memstore.HomeBankDir(), "conventions.md"), []byte("# C\n\n- a rule\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	catalog, err := memory.BuildCatalog(time.Now())
@@ -174,7 +175,7 @@ func TestNoPreRenameLabelInUserOutput(t *testing.T) {
 // settle-writer guard both name "fmt".
 func TestCmdMemoryFmt(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	bank := memory.HomeBankDir()
+	bank := memstore.HomeBankDir()
 	target := filepath.Join(bank, "decisionLog.md")
 	longLine := "- " + strings.Repeat("xxxxxxxxxx ", 14) + "xxxxxxxxxx"
 	if err := os.MkdirAll(bank, 0o755); err != nil {
@@ -232,13 +233,13 @@ func TestMemoryRecallRanksAndFormatsUnstampedHits(t *testing.T) {
 	if _, err := memory.Init(repo); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(memory.Dir(repo), "conventions.md"),
+	if err := os.WriteFile(filepath.Join(memstore.Dir(repo), "conventions.md"),
 		[]byte("# Conventions\n\n- stamped id-marked rule <!-- id:deadbeef -->\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	// Append an unstamped line by hand, after Remember's settle pass already assigned ids above —
 	// activeContext.md is never id-assigned, so it stays unstamped (SearchBanks still indexes it).
-	if err := os.WriteFile(filepath.Join(memory.Dir(repo), "activeContext.md"),
+	if err := os.WriteFile(filepath.Join(memstore.Dir(repo), "activeContext.md"),
 		[]byte("# Active Context\n\n- rule stamped id-marked never settled here\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -281,7 +282,7 @@ func TestMemoryRecallLoadResolvesUnstampedHitByContentRef(t *testing.T) {
 	if _, err := memory.Init(repo); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(memory.Dir(repo), "activeContext.md"),
+	if err := os.WriteFile(filepath.Join(memstore.Dir(repo), "activeContext.md"),
 		[]byte("# Active Context\n\n- never settled widget rollout detail\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -403,7 +404,7 @@ func TestMemoryReviewBriefPrintsOnlyCount(t *testing.T) {
 	if _, err := memory.Init(repo); err != nil {
 		t.Fatal(err)
 	}
-	decisionLogOverCLI(t, filepath.Join(memory.Dir(repo), "decisionLog.md"), 80)
+	decisionLogOverCLI(t, filepath.Join(memstore.Dir(repo), "decisionLog.md"), 80)
 	code, out, stderr := captureOutput(t, func() int { return cmdMemory([]string{"review", "--repo", repo, "--brief"}) })
 	if code != 0 {
 		t.Fatalf("memory review --brief: code=%d stderr=%q", code, stderr)
@@ -459,17 +460,17 @@ func TestMemoryDreamDryRunWritesNothing(t *testing.T) {
 	if _, err := memory.Init(repo); err != nil {
 		t.Fatal(err)
 	}
-	before := dirChecksum(t, memory.Dir(repo))
+	before := dirChecksum(t, memstore.Dir(repo))
 
 	code, out, stderr := captureOutput(t, func() int { return cmdMemory([]string{"dream", "--cwd", repo, "--dry-run"}) })
 	if code != 0 {
 		t.Fatalf("memory dream --dry-run: code=%d stderr=%q", code, stderr)
 	}
-	if !strings.Contains(out, "bank: "+memory.Dir(repo)) {
+	if !strings.Contains(out, "bank: "+memstore.Dir(repo)) {
 		t.Errorf("output missing the preview's bank line: %q", out)
 	}
 
-	after := dirChecksum(t, memory.Dir(repo))
+	after := dirChecksum(t, memstore.Dir(repo))
 	if before != after {
 		t.Errorf("--dry-run changed the bank directory: before=%s after=%s", before, after)
 	}
@@ -550,7 +551,7 @@ func TestMemoryPromoteCLIHomeMovesBlockAndDryRunWritesNothing(t *testing.T) {
 	if code != 0 || !strings.Contains(out, "would move") {
 		t.Fatalf("memory promote --dry-run: code=%d out=%q stderr=%q", code, out, stderr)
 	}
-	data, _ := os.ReadFile(filepath.Join(memory.HomeBankDir(), "conventions.md"))
+	data, _ := os.ReadFile(filepath.Join(memstore.HomeBankDir(), "conventions.md"))
 	if strings.Contains(string(data), id) {
 		t.Error("--dry-run via the CLI still wrote the home bank")
 	}
@@ -560,7 +561,7 @@ func TestMemoryPromoteCLIHomeMovesBlockAndDryRunWritesNothing(t *testing.T) {
 	if code != 0 || !strings.Contains(out, "promoted ["+id+"]") {
 		t.Fatalf("memory promote: code=%d out=%q stderr=%q", code, out, stderr)
 	}
-	data, err = os.ReadFile(filepath.Join(memory.HomeBankDir(), "conventions.md"))
+	data, err = os.ReadFile(filepath.Join(memstore.HomeBankDir(), "conventions.md"))
 	if err != nil || !strings.Contains(string(data), id) {
 		t.Fatalf("home bank missing the promoted id after the real run: %v %q", err, data)
 	}
@@ -625,7 +626,7 @@ func TestMemoryUpdateLiveSession(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	dir := t.TempDir()
-	tr := filepath.Join(cfg, "projects", memory.ProjectSlug(dir), "live-1.jsonl")
+	tr := filepath.Join(cfg, "projects", memstore.ProjectSlug(dir), "live-1.jsonl")
 	if err := os.MkdirAll(filepath.Dir(tr), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -649,7 +650,7 @@ func TestMemoryShowAndSearchLogAccess(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv("CLAUDE_PROJECT_DIR", "")
 	t.Chdir(t.TempDir()) // a non-repo cwd: search rides the home bank
-	bank := filepath.Join(memory.HomeBankDir(), "decisionLog.md")
+	bank := filepath.Join(memstore.HomeBankDir(), "decisionLog.md")
 	if err := os.MkdirAll(filepath.Dir(bank), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -667,7 +668,7 @@ func TestMemoryShowAndSearchLogAccess(t *testing.T) {
 		t.Fatalf("memory search: code=%d out=%q", code, out)
 	}
 
-	data, err := os.ReadFile(memory.AccessLogPath(memory.HomeBankDir()))
+	data, err := os.ReadFile(memory.AccessLogPath(memstore.HomeBankDir()))
 	if err != nil {
 		t.Fatal(err)
 	}

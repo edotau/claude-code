@@ -9,7 +9,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/edotau/claude-code/internal/memory"
+	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/secrets/shapes"
 	"github.com/edotau/claude-code/internal/transcript"
@@ -22,10 +22,10 @@ const maxTurns = 40
 const handoffCap = 64 * 1024
 
 // DefaultSource finds the newest *.jsonl Claude Code session file for cwd, under Claude Code's own
-// projects/<slug> dir (ConfigDir()/projects/<slug>) — never memory.NativeDir, which redirects into the
+// projects/<slug> dir (ConfigDir()/projects/<slug>) — never memstore.NativeDir, which redirects into the
 // memory store post-cutover and holds no transcripts.
 func DefaultSource(cwd string) (string, error) {
-	dir := filepath.Join(paths.ConfigDir(), "projects", memory.ProjectSlug(cwd))
+	dir := filepath.Join(paths.ConfigDir(), "projects", memstore.ProjectSlug(cwd))
 	ents, err := os.ReadDir(dir)
 	if err != nil {
 		return "", fmt.Errorf("no Claude session for %s; pass --source", cwd)

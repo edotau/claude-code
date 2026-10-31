@@ -11,7 +11,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/tools"
 	"github.com/edotau/claude-code/internal/configure"
-	"github.com/edotau/claude-code/internal/memory"
+	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
@@ -120,7 +120,7 @@ func secretNames() []string {
 
 // memoryRepoNames lists the catalog's repo keys (dirs under memory/ with a valid origin record).
 func memoryRepoNames() []string {
-	ents, err := memory.RepoDirs()
+	ents, err := memstore.RepoDirs()
 	if err != nil {
 		return nil
 	}
@@ -210,7 +210,7 @@ func webViewAgentIDs() []string {
 	if err != nil {
 		return nil
 	}
-	projectDir := filepath.Join(paths.ConfigDir(), "projects", memory.ProjectSlug(cwd))
+	projectDir := filepath.Join(paths.ConfigDir(), "projects", memstore.ProjectSlug(cwd))
 	sessions, err := filepath.Glob(filepath.Join(projectDir, "*.jsonl"))
 	if err != nil || len(sessions) == 0 {
 		return nil

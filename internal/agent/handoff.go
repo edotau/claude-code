@@ -14,14 +14,14 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/copilotsdk"
-	"github.com/edotau/claude-code/internal/memory"
+	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/secrets/shapes"
 )
 
 // Seams for the mid-dispatch quota hand-off; tests replace them.
-var handoffDir = func(root string) string { return memory.HandoffsDir(memory.Dir(root)) }
+var handoffDir = func(root string) string { return memstore.HandoffsDir(memstore.Dir(root)) }
 
 // copilotQuotaHandoff marks the exhausted account and returns a redacted handoff for the next fallback dispatch.
 func copilotQuotaHandoff(req RunOptions, res Result, partial copilotsdk.Result, cause error, creds []string) (Result, error) {
