@@ -22,7 +22,6 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/schemas"
 	"github.com/edotau/claude-code/internal/settings"
-	"github.com/edotau/claude-code/internal/tools"
 )
 
 // Install copies the binary into BinDir, links the vendor CLIs, and merges the harness settings
@@ -156,7 +155,7 @@ func installBinaryAndLinks(w io.Writer, dryRun bool) (string, error) {
 			}
 		}
 	}
-	tools.LinkVendors(w, nil, dryRun)
+	agent.LinkTools(w, nil, dryRun)
 	return target, nil
 }
 
@@ -176,11 +175,11 @@ func installBinaryTarget() (target string, err error) {
 	return target, nil
 }
 
-// vendorsCompactLine groups tools.LinkResults into one "links" line (linked / kept), printing any
+// vendorsCompactLine groups agent.LinkResults into one "links" line (linked / kept), printing any
 // other status (skip, remove, missing, error) in full on its own line.
 func vendorsCompactLine(w io.Writer) {
 	var linked, kept []string
-	for _, r := range tools.LinkResults(nil, false) {
+	for _, r := range agent.LinkResults(nil, false) {
 		switch {
 		case r.Status == "ok" || r.Status == "link":
 			linked = append(linked, r.Bin)

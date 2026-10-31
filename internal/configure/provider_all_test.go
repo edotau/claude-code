@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/signin"
 )
 
 type fakeSignin struct {
@@ -45,7 +45,7 @@ func allSeams(t *testing.T, per map[string]func() error, tty bool, timeout time.
 	t.Cleanup(func() { allSigninFor, allCheckTimeout, allStdinTTY, allStderrTTY = f, to, si, se })
 	var mu sync.Mutex
 	var logins []string
-	allSigninFor = func(p *providers.Provider) signin.Signin {
+	allSigninFor = func(p *providers.Provider) agent.Signin {
 		return fakeSignin{p: p, check: per[p.Name], login: func(n string) {
 			mu.Lock()
 			defer mu.Unlock()

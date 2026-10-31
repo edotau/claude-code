@@ -1,4 +1,4 @@
-package tools
+package agent
 
 import (
 	"fmt"
@@ -10,20 +10,20 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 )
 
-// LinkVendors points BinDir/<bin> at each vendor's PATH copy (names empty = all); never fatal, errors print.
-func LinkVendors(w io.Writer, names []string, dryRun bool) {
+// LinkTools points BinDir/<bin> at each vendor's PATH copy (names empty = all); never fatal, errors print.
+func LinkTools(w io.Writer, names []string, dryRun bool) {
 	for _, r := range LinkResults(names, dryRun) {
 		fmt.Fprintf(w, "  %-8s %s\n", r.Status, r.Detail)
 	}
 }
 
-// LinkResult is one vendor's bin/ link outcome: Status is the %-8s verb LinkVendors prints
+// LinkResult is one vendor's bin/ link outcome: Status is the %-8s verb LinkTools prints
 // ("ok", "link", "keep", "skip", "remove", "missing", "error"); Bin is the BinDir/<bin> name.
 type LinkResult struct {
 	Bin, Status, Detail string
 }
 
-// LinkResults computes LinkVendors' per-vendor outcomes (applying the side effects on a real run),
+// LinkResults computes LinkTools' per-vendor outcomes (applying the side effects on a real run),
 // for callers that render a compact summary instead of one line per vendor.
 func LinkResults(names []string, dryRun bool) []LinkResult {
 	var out []LinkResult

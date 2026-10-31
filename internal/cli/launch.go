@@ -19,7 +19,6 @@ import (
 	"github.com/edotau/claude-code/internal/preflight"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/settings"
-	"github.com/edotau/claude-code/internal/tools"
 	"github.com/edotau/claude-code/internal/ui/ansi"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 	"github.com/edotau/claude-code/internal/ui/tui"
@@ -387,7 +386,7 @@ func cmdInstall(args []string) int {
 		return fail("install: --setup must come first: claude-code install --setup <mode> [flags]")
 	}
 	if tf.set {
-		if err := tools.InstallSelected(context.Background(), os.Stdout, tf.names, *dry); err != nil {
+		if err := agent.InstallSelected(context.Background(), os.Stdout, tf.names, *dry); err != nil {
 			return fail("install --tools: %v", err)
 		}
 		return 0

@@ -23,7 +23,6 @@ import (
 	_ "github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/schemas"
 	_ "github.com/edotau/claude-code/internal/setup"
-	_ "github.com/edotau/claude-code/internal/tools"
 	_ "github.com/edotau/claude-code/internal/usage"
 	_ "github.com/edotau/claude-code/internal/usage/usageledger"
 	_ "github.com/edotau/claude-code/internal/vault"
@@ -135,9 +134,9 @@ var writers = map[string]string{
 	"internal/ui/statusline/cache.go:writeStamp":                   unversioned("text: statusline pipe-separated stamp"),
 	"internal/network/tailscale/cli.go:writeAuthKeyFile":           unversioned("foreign: temp auth key file"),
 	"internal/ui/theme/theme.go:writeMerged":                       unversioned("foreign: theme file and backup in a vendor home"),
-	"internal/tools/agentversion.go:writeVersionCache":             "agentversion",
-	"internal/tools/install.go:runInstallScript":                   unversioned("foreign: temp installer script"),
-	"internal/tools/tools.go:installBinary":                        unversioned("foreign: installed binary"),
+	"internal/agent/tools_version.go:writeVersionCache":            "agentversion",
+	"internal/agent/tools_install.go:runInstallScript":             unversioned("foreign: temp installer script"),
+	"internal/agent/tools.go:installBinary":                        unversioned("foreign: installed binary"),
 	"internal/transcript/summary_cache.go:Save":                    "transcript-summary",
 	"internal/usage/claude.go:writeClaudeUsageCache":               "oauth-usage-cache",
 	"internal/usage/budget.go:writeBudgetCache":                    "gateway-budget-cache",

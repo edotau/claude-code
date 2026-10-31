@@ -1,5 +1,5 @@
 // Package tools installs and updates vendor agent CLIs (into ~/.claude/bin or their existing dir) and reports the rest.
-package tools
+package agent
 
 import (
 	"cmp"
@@ -45,7 +45,7 @@ var Tools = []Tool{
 }
 
 // Names lists every tool in roster order.
-func Names() []string {
+func ToolNames() []string {
 	out := make([]string, len(Tools))
 	for i, t := range Tools {
 		out[i] = t.Name
@@ -54,7 +54,7 @@ func Names() []string {
 }
 
 // Lookup returns the tool by name.
-func Lookup(name string) (Tool, bool) {
+func LookupTool(name string) (Tool, bool) {
 	for _, t := range Tools {
 		if t.Name == name {
 			return t, true
@@ -85,7 +85,7 @@ func InstallSelected(ctx context.Context, w io.Writer, names []string, dryRun bo
 		npmCleanupFor(ctx, w, t.Name, dir, dryRun)
 	}
 	cleanupGeminiCLI(ctx, w, dryRun)
-	LinkVendors(w, names, dryRun)
+	LinkTools(w, names, dryRun)
 	return errors.Join(errs...)
 }
 
@@ -95,9 +95,9 @@ func resolve(names []string) ([]Tool, error) {
 	}
 	sel := make([]Tool, 0, len(names))
 	for _, n := range names {
-		t, ok := Lookup(n)
+		t, ok := LookupTool(n)
 		if !ok {
-			return nil, fmt.Errorf("unknown tool %q (%s)", n, strings.Join(Names(), ", "))
+			return nil, fmt.Errorf("unknown tool %q (%s)", n, strings.Join(ToolNames(), ", "))
 		}
 		sel = append(sel, t)
 	}
