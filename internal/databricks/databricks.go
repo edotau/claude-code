@@ -133,7 +133,7 @@ func defaultModel(reg *providers.Registry, profile string) string {
 	return id
 }
 
-// resolveProfile is name, else the session profile, else the vault CLAUDE_PROFILE pin, each only when it is
+// resolveProfile is name, else the session profile, else the claude record profile, each only when it is
 // a Databricks profile, else the first Databricks profile; "" when there is none.
 func resolveProfile(reg *providers.Registry, name string) string {
 	if name != "" || reg == nil {
@@ -141,7 +141,7 @@ func resolveProfile(reg *providers.Registry, name string) string {
 	}
 	profs := providers.DatabricksProfiles(reg)
 	// The session profile shadows the vault pin, even when it is not a Databricks profile.
-	if c := cmp.Or(providers.SessionProfile(), providers.Pin(providers.PinProfile)); slices.Contains(profs, c) {
+	if c := cmp.Or(providers.SessionProfile(), providers.AgentRecord("claude").Profile); slices.Contains(profs, c) {
 		return c
 	}
 	if len(profs) > 0 {

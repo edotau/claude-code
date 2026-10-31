@@ -170,7 +170,7 @@ type routeJSON struct {
 	Ends       string             `json:"ends"` // the claude candidate's account; "" when no claude hop
 }
 
-// pinJSON is one agent's routing pins; active is false when <AGENT>_ACTIVE=off.
+// pinJSON is one agent's routing pins; active is false when the agent has no record profile.
 type pinJSON struct {
 	Profile string `json:"profile"`
 	Model   string `json:"model"`

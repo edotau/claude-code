@@ -52,7 +52,7 @@ func describeOpenCodeRoute(reg *providers.Registry) RouteInfo {
 // describeCopilotRoute: 1) copilot's GitHub login on a workable pin; 2) the Databricks fallback; 3) BYOK with the
 // registry anthropic provider's key; 4) none.
 func describeCopilotRoute(reg *providers.Registry) RouteInfo {
-	if pin := providers.Pin(providers.PinCopilotProfile); reg != nil && databricksUsable(reg.Providers[pin]) { // a pinned Databricks profile is the route
+	if pin := GetAgentRecord("copilot").Profile; reg != nil && databricksUsable(reg.Providers[pin]) { // a pinned Databricks profile is the route
 		p := reg.Providers[pin]
 		t, _ := ResolveAgentModel(ModelAsk{Agent: "copilot", Target: providers.Target{Provider: p, Model: p.Models[models.Opus]}})
 		return RouteInfo{Agent: "copilot", Route: RouteDatabricks, Provider: p.Name, Model: t.Model,

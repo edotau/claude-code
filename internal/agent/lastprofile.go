@@ -94,7 +94,7 @@ func lastProfile(reg *providers.Registry, agentName string) string {
 
 // withLastProfile fills an unset --profile of an agent CLI launch from this workspace's last-used profile (before its pin).
 func withLastProfile(name string, o LaunchOptions) LaunchOptions {
-	if o.Provider != "" || AgentPins()[name].Off || (name != "copilot" && name != "opencode") {
+	if o.Provider != "" || AgentPins()[name].Off || (name != "copilot" && name != "opencode" && name != "codex") {
 		return o
 	}
 	if reg, err := providers.Load(); err == nil {

@@ -75,7 +75,7 @@ func (geminiEngine) LoginStatus() (bool, string) {
 
 // followsPin keeps agy on its Google login unless GEMINI_PROFILE names the session's Databricks row.
 func (geminiEngine) followsPin(p *providers.Provider) bool {
-	return !GeminiGatewayRow(p) || providers.Pin(providers.PinGeminiProfile) == p.Name
+	return !GeminiGatewayRow(p) || GetAgentRecord("gemini").Profile == p.Name
 }
 
 // noRoute refuses a Databricks gateway row that no GEMINI_PROFILE pin selected: never silently.
@@ -172,7 +172,7 @@ var agyEfforts = []string{"low", "medium", "high", "xhigh", "max"}
 func agyGatewayArg(model string) (base, arg string) {
 	base, effort, ok := agyGatewayBase(model)
 	if !ok {
-		base, effort, _ = agyGatewayBase(cmp.Or(providers.Pin(providers.PinGeminiModel), AgyDefaultModel))
+		base, effort, _ = agyGatewayBase(cmp.Or(GetAgentRecord("gemini").Model, AgyDefaultModel))
 	}
 	if effort == "" {
 		return base, base

@@ -20,13 +20,13 @@ type ModelAsk struct {
 	Applied bool
 }
 
-// AgentModelPin is the agent's own model pin (<AGENT>_MODEL, vault only), or "" when it has none or none is set.
+// AgentModelPin is the agent's own model pin (its vault record's model), or "" when it has none or none is set.
 func AgentModelPin(agent string) string {
 	spec, ok := LookupSchema(agent)
 	if !ok || spec.CLI.ModelPin == "" {
 		return ""
 	}
-	return providers.Pin(spec.CLI.ModelPin)
+	return GetAgentRecord(agent).Model
 }
 
 // ResolveAgentModel is the one rule for the model an agent runs: flag > the agent's model pin > Target.Model,

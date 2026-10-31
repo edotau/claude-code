@@ -25,11 +25,8 @@ var (
 	dbxSchedule = clipboard.ScheduleClear
 )
 
-// dbxAgents maps each agent "Apply to agents" can repoint to its <AGENT>_PROFILE pin.
-var dbxAgents = []struct{ name, pin string }{
-	{"claude", providers.PinProfile}, {"codex", providers.PinCodexProfile}, {"opencode", providers.PinOpencodeProfile},
-	{"copilot", providers.PinCopilotProfile},
-}
+// dbxAgents are the agents "Apply to agents" can repoint.
+var dbxAgents = []string{"claude", "codex", "opencode", "copilot"}
 
 // dbxState is one env's authType and its no-network expiry text ("token expires in 52m", "no login").
 func dbxState(reg *providers.Registry, env string) (authType, text string, ok bool) {
@@ -236,7 +233,7 @@ func dbxSetUp(d *dialog, env string) {
 	}
 }
 
-// dbxApply pins one agent's <AGENT>_PROFILE (or all of them) to the profile.
+// dbxApply sets one agent's record profile (or all of them) to the profile.
 func dbxApply(d *dialog, env string) {
 	if _, err := dbxApplyPins(d, env); err != nil {
 		d.printf("%s: apply: %v\n", env, err)
@@ -247,36 +244,38 @@ func dbxApply(d *dialog, env string) {
 func dbxApplyPins(d *dialog, env string) (cancelled bool, err error) {
 	rows := [][2]string{{"All agents", "pin every agent to " + env}}
 	for _, a := range dbxAgents {
-		rows = append(rows, [2]string{a.name, "this agent only"})
+		rows = append(rows, [2]string{a, "this agent only"})
 	}
 	idx, perr := dbxPick("apply "+env+" to", rows, 0)
 	if perr != nil || idx < 0 {
 		return true, nil
 	}
-	pins := map[string]string{}
-	for i, a := range dbxAgents {
-		if idx == 0 || idx == i+1 {
-			pins[a.pin] = env
+	var changed []string
+	err = agentpkg.UpdateAgentRecords(func(m map[string]agentpkg.AgentRecord) {
+		for i, a := range dbxAgents {
+			if r := m[a]; (idx == 0 || idx == i+1) && r.Profile != env {
+				r.Profile = env
+				m[a] = r
+				changed = append(changed, a)
+			}
 		}
-	}
-	diff, err := providers.PinDiff(pins)
+	})
 	if err != nil {
 		return false, err
 	}
-	if len(diff) == 0 {
+	if len(changed) == 0 {
 		d.printf("%s: already applied\n", env)
 		return false, nil
 	}
-	if err := providers.SetPins(pins); err != nil {
-		return false, err
+	gone := map[string]string{}
+	for _, a := range changed {
+		gone[agentpkg.AgentProfilePin(a)] = ""
+		d.printf("  %s profile: %s\n", a, env)
 	}
-	if err := agentpkg.ClearLastProfilesFor(pins); err != nil {
+	if err := agentpkg.ClearLastProfilesFor(gone); err != nil {
 		return false, err
 	}
 	d.changed = true
-	for _, l := range diff {
-		d.println(l)
-	}
 	return false, nil
 }
 

@@ -21,7 +21,7 @@ func opencodeProvider(name string) (*providers.Registry, *providers.Provider, er
 		return nil, nil, err
 	}
 	if name == "" {
-		if name = providers.Pin(providers.PinOpencodeProfile); name == "" {
+		if name = GetAgentRecord("opencode").Profile; name == "" {
 			return nil, nil, errors.New("no profile pinned for opencode; pass --profile")
 		}
 	}

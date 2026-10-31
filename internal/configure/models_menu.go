@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	agentpkg "github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/ui/tui"
@@ -103,7 +104,7 @@ func catalogForSlot(ctx context.Context, reg *providers.Registry, p *providers.P
 
 // pinModel writes slot's pin, same call cmdModels' --pin flag makes.
 func pinModel(d *dialog, slot, id string) {
-	if err := providers.SetPins(map[string]string{providers.SlotPin(slot): id}); err != nil {
+	if _, err := writeAgentField(d, "claude", strings.ToUpper(slot)+"_MODEL", id); err != nil {
 		d.println(err)
 		return
 	}
@@ -112,11 +113,12 @@ func pinModel(d *dialog, slot, id string) {
 
 // unpinAllModels clears every model pin, same call cmdModels' --unpin flag makes.
 func unpinAllModels(d *dialog) {
-	kv := map[string]string{providers.PinModel: ""}
-	for _, s := range models.Slots {
-		kv[providers.SlotPin(s)] = ""
-	}
-	if err := providers.SetPins(kv); err != nil {
+	err := agentpkg.UpdateAgentRecords(func(m map[string]agentpkg.AgentRecord) {
+		r := m["claude"]
+		r.Model, r.Slots = "", nil
+		m["claude"] = r
+	})
+	if err != nil {
 		d.println(err)
 		return
 	}

@@ -179,10 +179,10 @@ func pickCopilotModel(d *dialog) {
 		}
 		id := ids[j-nExtra]
 		if cat.Databricks {
-			saveAgentModel(d, "copilot", providers.PinCopilotModel, copilotCanonicalID(id))
+			saveAgentModel(d, "copilot", copilotCanonicalID(id))
 			return
 		}
-		saveAgentModel(d, "copilot", providers.PinCopilotModel, id)
+		saveAgentModel(d, "copilot", id)
 		clearIneligibleCopilotPins(d, id)
 		return
 	}
@@ -244,17 +244,16 @@ func pickCopilotModelFallback(d *dialog, cur string) {
 	if err != nil || j < 0 {
 		return
 	}
-	saveAgentModel(d, "copilot", providers.PinCopilotModel, ids[j])
+	saveAgentModel(d, "copilot", ids[j])
 }
 
-// saveAgentModel pins an agent's model env var (copilot's COPILOT_MODEL is independent of the github-copilot opus slot).
-func saveAgentModel(d *dialog, agent, pin, id string) {
-	if err := providers.SetPins(map[string]string{pin: id}); err != nil {
+// saveAgentModel stores an agent's model in its record (copilot's is independent of the github-copilot opus slot).
+func saveAgentModel(d *dialog, agent, id string) {
+	if _, err := writeAgentField(d, agent, "MODEL", id); err != nil {
 		d.printf("model: %v\n", err)
 		return
 	}
 	d.printf("model: %s = %s\n", agent, id)
-	d.changed = true
 }
 
 // pickModel is the tier list (tier · use · current), then the account's model ids; the pick is saved at once.
@@ -301,7 +300,7 @@ func padTo(s string, n int) string {
 func saveModel(d *dialog, p *providers.Provider, claude bool, slot, id string) {
 	var err error
 	if claude {
-		err = providers.SetPins(map[string]string{providers.SlotPin(slot): id})
+		_, err = writeAgentField(d, "claude", strings.ToUpper(slot)+"_MODEL", id)
 	} else {
 		err = providers.SetProviderModel(p.Name, slot, id)
 	}

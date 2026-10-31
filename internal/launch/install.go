@@ -207,8 +207,8 @@ func profileInUse(reg *providers.Registry, name string) bool {
 	if name == reg.Default || slices.Contains(reg.Fallback, name) {
 		return true
 	}
-	for _, spec := range agent.Roster() {
-		if spec.CLI.ProfilePin != "" && providers.Pin(spec.CLI.ProfilePin) == name {
+	for _, rec := range providers.AgentRecords() {
+		if rec.Profile == name {
 			return true
 		}
 	}

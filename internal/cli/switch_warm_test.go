@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"github.com/edotau/claude-code/internal/agent"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -90,5 +91,26 @@ func TestSwitchWithSwitchOffMakesNoRequests(t *testing.T) {
 	}
 	if len(*got) != 0 {
 		t.Fatalf("switch off still made requests: %v", *got)
+	}
+}
+
+// switch moves claude and each agent that is on, and leaves an off agent off (dry-run says so).
+func TestSwitchKeepsOffAgentsOff(t *testing.T) {
+	srv, _ := dbxCLIServer(t)
+	qaProfile(t, srv.URL, false)
+	if err := agent.SetAgentRecord("codex", agent.AgentRecord{Profile: "chatgpt"}); err != nil {
+		t.Fatal(err)
+	}
+	_, out, _ := captureOutput(t, func() int { return cmdSwitch([]string{"qa", "--dry-run"}) })
+	if !strings.Contains(out, "codex.profile: chatgpt → qa") || !strings.Contains(out, "copilot: off (kept)") {
+		t.Fatalf("dry-run = %q", out)
+	}
+	if code, _, stderr := captureOutput(t, func() int { return cmdSwitch([]string{"qa"}) }); code != 0 {
+		t.Fatalf("exit %d stderr=%q", code, stderr)
+	}
+	recs := agent.AgentRecords()
+	if recs["claude"].Profile != "qa" || recs["codex"].Profile != "qa" || recs["copilot"].Profile != "" {
+		t.Fatalf("profiles claude=%q codex=%q copilot=%q, want qa qa and copilot off",
+			recs["claude"].Profile, recs["codex"].Profile, recs["copilot"].Profile)
 	}
 }

@@ -53,7 +53,7 @@ var routeHint = func(tier string) (agent, model string) {
 // billsSubscription is false only when the session provider is known and not passthrough (Databricks, an API key):
 // the cached claude.ai windows then describe a plan this session does not spend.
 func billsSubscription() bool {
-	name := cmp.Or(providers.SessionProfile(), providers.Pin(providers.PinProfile))
+	name := cmp.Or(providers.SessionProfile(), providers.AgentRecord("claude").Profile)
 	if u, err := url.Parse(os.Getenv("ANTHROPIC_BASE_URL")); err == nil && (u.Hostname() == "127.0.0.1" || u.Hostname() == "localhost") {
 		if rest, ok := strings.CutPrefix(u.Path, "/p/"); ok {
 			name, _, _ = strings.Cut(rest, "/")

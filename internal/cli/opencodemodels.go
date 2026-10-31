@@ -61,15 +61,15 @@ func cmdOpencodeMenu(args []string) int {
 	switch verb {
 	case "list":
 		fs.BoolVar(&live, "live", false, "mark each entry served or missing on the workspace")
-		fs.StringVar(&provider, "profile", "", "workspace profile (default: the OPENCODE_PROFILE pin)")
+		fs.StringVar(&provider, "profile", "", "workspace profile (default: opencode's record profile)")
 	case "check":
 		fs.BoolVar(&all, "all", false, "probe every chat endpoint, not just the menu")
-		fs.StringVar(&provider, "profile", "", "workspace profile (default: the OPENCODE_PROFILE pin)")
+		fs.StringVar(&provider, "profile", "", "workspace profile (default: opencode's record profile)")
 		fs.DurationVar(&timeout, "timeout", timeout, "per-request timeout")
 	case "add":
 		fs.BoolVar(&responses, "responses", false, "serve through the Responses API")
 		fs.BoolVar(&force, "force", false, "skip the workspace check")
-		fs.StringVar(&provider, "profile", "", "workspace profile (default: the OPENCODE_PROFILE pin)")
+		fs.StringVar(&provider, "profile", "", "workspace profile (default: opencode's record profile)")
 	case "import":
 		fs.BoolVar(&apply, "apply", false, "write the change (default: print the diff)")
 	case "sync":

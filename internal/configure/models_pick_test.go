@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	agentpkg "github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/copilotsdk"
 	"github.com/edotau/claude-code/internal/providers"
 )
@@ -54,9 +55,7 @@ func TestModelRowCopilotSkipsTierPicker(t *testing.T) {
 // pickCopilotModel with the newline-separated answers and returns everything it printed.
 func runCopilotPicker(t *testing.T, reg *providers.Registry, modelID, answers string) string {
 	t.Helper()
-	if err := providers.SetPins(map[string]string{providers.PinCopilotModel: modelID}); err != nil {
-		t.Fatal(err)
-	}
+	putRec(t, "copilot", "MODEL", modelID)
 	in := strings.NewReader(answers)
 	var out bytes.Buffer
 	d := &dialog{reg: reg, o: Options{In: in}, br: bufio.NewReader(in), out: &out}
@@ -142,7 +141,7 @@ func TestPickCopilotModelEffortSubPickSetsPinAndRerendersDesc(t *testing.T) {
 	stubCatalog(t, effortStub, nil)
 
 	shown := runCopilotPicker(t, reg, "stub-model-1", "1\n3\n\n")
-	if got := providers.Pin(providers.PinCopilotEffort); got != "high" {
+	if got := agentpkg.GetAgentRecord("copilot").Effort; got != "high" {
 		t.Errorf("effort pin = %q, want high", got)
 	}
 	renders := strings.Split(shown, copilotPickerTitle)
@@ -163,12 +162,10 @@ func TestPickCopilotModelEffortSubPickDefaultClearsPin(t *testing.T) {
 	reg := menuTestEnv(t)
 	fakeCopilotBin(t)
 	stubCatalog(t, effortStub, nil)
-	if err := providers.SetPins(map[string]string{providers.PinCopilotEffort: "high"}); err != nil {
-		t.Fatal(err)
-	}
+	putRec(t, "copilot", "EFFORT", "high")
 
 	runCopilotPicker(t, reg, "stub-model-1", "1\n1\n\n")
-	if got := providers.Pin(providers.PinCopilotEffort); got != "" {
+	if got := agentpkg.GetAgentRecord("copilot").Effort; got != "" {
 		t.Errorf("effort pin = %q, want cleared", got)
 	}
 }
@@ -187,7 +184,7 @@ func TestPickCopilotModelSavesModelAfterSettingEffort(t *testing.T) {
 	if got, _ := providers.CopilotModel(reg); got != "stub-model-1" {
 		t.Errorf("COPILOT_MODEL resolver = %q, want stub-model-1", got)
 	}
-	if got := providers.Pin(providers.PinCopilotEffort); got != "high" {
+	if got := agentpkg.GetAgentRecord("copilot").Effort; got != "high" {
 		t.Errorf("effort pin = %q, want high (stub-model-1 supports it)", got)
 	}
 }

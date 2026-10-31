@@ -2,13 +2,14 @@ package configure
 
 import (
 	"bytes"
-	"github.com/edotau/claude-code/internal/ui/tui"
 	"os"
 	"strings"
 	"testing"
 
+	agentpkg "github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/secrets"
+	"github.com/edotau/claude-code/internal/ui/tui"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -24,7 +25,7 @@ func menuTestEnv(t *testing.T) *providers.Registry {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("CODEX_HOME", t.TempDir()) // Orca exports its own codex account home; codex must read unconfigured
 	t.Setenv("PATH", t.TempDir())
-	vaulttest.Put(t, vault.Pins, providers.PinProfile, "max")
+	vaulttest.Put(t, vault.Pins, providers.PinProfile, "max") // seed_test clears this pin to start first-run
 	t.Setenv("CLAUDE_CODE_OAUTH_TOKEN", "")
 	// Copilot/codex/gemini pin env beats the vault pin (providers.Pin); a session running inside one of
 	// these agents exports its own model/effort pin into the process env.
@@ -84,12 +85,12 @@ func TestRunMenuDoneLeavesImmediatelyAndChangesNothing(t *testing.T) {
 		calls++
 		return -1, nil // Esc
 	})
-	cur := providers.Pin(providers.PinProfile)
+	cur := agentpkg.GetAgentRecord("claude").Profile
 	rc := runMenu(&dialog{reg: reg, out: discardWriter{}})
 	if rc != 0 || calls != 1 {
 		t.Fatalf("rc=%d calls=%d, want rc=0 after exactly one picker call", rc, calls)
 	}
-	if got := providers.Pin(providers.PinProfile); got != cur {
+	if got := agentpkg.GetAgentRecord("claude").Profile; got != cur {
 		t.Errorf("provider pin changed: %q -> %q", cur, got)
 	}
 }
@@ -137,13 +138,13 @@ func TestKeepOrPinWritesTheProviderPinOnlyOnAnExplicitDifferentPick(t *testing.T
 	if !keepOrPin(d, "subscription", "subscription") {
 		t.Fatal("keepOrPin(same) = false")
 	}
-	if got := providers.Pin(providers.PinProfile); got != "" {
+	if got := agentpkg.GetAgentRecord("claude").Profile; got != "" {
 		t.Errorf("vault pin written on a same-as-current pick: %q", got)
 	}
 	if !keepOrPin(d, "subscription", "anthropic") {
 		t.Fatal("keepOrPin(different) = false")
 	}
-	if got := providers.Pin(providers.PinProfile); got != "anthropic" {
+	if got := agentpkg.GetAgentRecord("claude").Profile; got != "anthropic" {
 		t.Errorf("pin(%s) = %q, want %q after an explicit different pick", providers.PinProfile, got, "anthropic")
 	}
 }

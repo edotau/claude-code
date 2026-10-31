@@ -325,7 +325,7 @@ func NewSemantic(query string) (*Semantic, error) {
 	var profile string
 	var cache embedCacheFile
 	var readErr error
-	for _, name := range []string{providers.SessionProfile(), providers.Pin(providers.PinProfile)} {
+	for _, name := range []string{providers.SessionProfile(), providers.AgentRecord("claude").Profile} {
 		if name == "" || name == profile || !safeEmbedProfile(name) {
 			continue
 		}

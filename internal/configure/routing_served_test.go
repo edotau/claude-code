@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/providers"
+	agentpkg "github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -44,9 +44,7 @@ func cached(t *testing.T) bool {
 // the switch flipping off -> on warms the cache even though no pin changed.
 func TestWarmServedOnFlipOn(t *testing.T) {
 	n := servedHarness(t, true)
-	if err := providers.SetPins(map[string]string{providers.PinProfile: "qa"}); err != nil {
-		t.Fatal(err)
-	}
+	putRec(t, "claude", "PROFILE", "qa")
 	var out bytes.Buffer
 	warmServedOnChange(&out, false, agent.AgentPins(), false)
 	if *n == 0 || !cached(t) {
@@ -63,9 +61,7 @@ func TestWarmServedOnPinChangeOnly(t *testing.T) {
 	if *n != 0 {
 		t.Fatalf("unchanged pins and switch warmed: %d requests", *n)
 	}
-	if err := providers.SetPins(map[string]string{providers.PinProfile: "qa"}); err != nil {
-		t.Fatal(err)
-	}
+	putRec(t, "claude", "PROFILE", "qa")
 	warmServedOnChange(&out, false, before, true)
 	if *n == 0 || !cached(t) {
 		t.Fatalf("pin change made %d requests, cached=%v, want a warmed cache", *n, cached(t))
@@ -76,9 +72,7 @@ func TestWarmServedOnPinChangeOnly(t *testing.T) {
 func TestWarmServedSwitchOffNeverWarms(t *testing.T) {
 	n := servedHarness(t, false)
 	before := agent.AgentPins()
-	if err := providers.SetPins(map[string]string{providers.PinProfile: "qa"}); err != nil {
-		t.Fatal(err)
-	}
+	putRec(t, "claude", "PROFILE", "qa")
 	warmServedOnChange(&bytes.Buffer{}, false, before, false)
 	if *n != 0 || cached(t) {
 		t.Fatalf("switch off: %d requests, cached=%v", *n, cached(t))
@@ -89,9 +83,7 @@ func TestWarmServedSwitchOffNeverWarms(t *testing.T) {
 func TestWarmServedSkippedForCheckAndDryRun(t *testing.T) {
 	n := servedHarness(t, true)
 	before := agent.AgentPins()
-	if err := providers.SetPins(map[string]string{providers.PinProfile: "qa"}); err != nil {
-		t.Fatal(err)
-	}
+	putRec(t, "claude", "PROFILE", "qa")
 	warmServedOnChange(&bytes.Buffer{}, true, before, false)
 	if *n != 0 || cached(t) {
 		t.Fatalf("skip=true: %d requests, cached=%v", *n, cached(t))
@@ -112,7 +104,7 @@ func TestRunProviderPinChangeWarmsUnlessDryRun(t *testing.T) {
 	if rc := Run(Options{Provider: "qa", In: strings.NewReader(""), Out: &out}, "provider"); rc != 0 {
 		t.Fatalf("rc=%d out=%s", rc, out.String())
 	}
-	if providers.Pin(providers.PinProfile) != "qa" || *n == 0 || !cached(t) {
-		t.Fatalf("pin=%q requests=%d cached=%v out=%s", providers.Pin(providers.PinProfile), *n, cached(t), out.String())
+	if agentpkg.GetAgentRecord("claude").Profile != "qa" || *n == 0 || !cached(t) {
+		t.Fatalf("pin=%q requests=%d cached=%v out=%s", agentpkg.GetAgentRecord("claude").Profile, *n, cached(t), out.String())
 	}
 }

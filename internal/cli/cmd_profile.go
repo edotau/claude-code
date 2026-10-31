@@ -9,9 +9,10 @@ import (
 	"github.com/edotau/claude-code/internal/agent/preflight"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/ui/helptext"
+	"github.com/edotau/claude-code/internal/vault"
 )
 
-// cmdAgentProfile is `<agent> profile [<profile>] [--clear]`: show, set or clear the agent's <AGENT>_PROFILE pin.
+// cmdAgentProfile is `<agent> profile [<profile>] [--clear]`: show, set or clear the agent's record profile.
 func cmdAgentProfile(agent string, args []string) int {
 	pin := agentpkg.AgentProfilePin(agent)
 	if pin == "" {
@@ -28,18 +29,19 @@ func cmdAgentProfile(agent string, args []string) int {
 	}
 	switch {
 	case *unpin:
-		if err := providers.SetPins(map[string]string{pin: ""}); err != nil {
+		own := vault.OwnLoginProfiles[agent] // an external agent's cleared profile is its own login, not off
+		if err := setAgentProfile(agent, own); err != nil {
 			return fail("%s profile: %v", agent, err)
 		}
 		if err := agentpkg.ClearLastProfilesFor(map[string]string{pin: ""}); err != nil {
 			return fail("%s profile: %v", agent, err)
 		}
-		fmt.Printf("%s: profile pin cleared\n", agent)
+		fmt.Printf("%s: profile cleared (own login)\n", agent)
 		return 0
 	case len(pos) == 0:
-		line := fmt.Sprintf("%s: no profile pinned (%s unset; launches use today's selection)", agent, pin)
-		if v := providers.Pin(pin); v != "" {
-			line = fmt.Sprintf("%s: profile %s (%s)", agent, v, pin)
+		line := fmt.Sprintf("%s: no profile set (launches use today's selection)", agent)
+		if v := agentpkg.GetAgentRecord(agent).Profile; v != "" {
+			line = fmt.Sprintf("%s: profile %s", agent, v)
 		}
 		if active := agentpkg.AgentActivePin(agent); active != "" {
 			state := agentpkg.AgentOn
@@ -48,7 +50,7 @@ func cmdAgentProfile(agent string, args []string) int {
 			} else if why := agentpkg.AgentUnbillable(agent); why != "" {
 				state = agentpkg.AgentOff + ", " + why
 			}
-			line += fmt.Sprintf(" · %s (%s)", state, active)
+			line += " · " + state
 		}
 		fmt.Println(line)
 		return 0
@@ -63,13 +65,13 @@ func cmdAgentProfile(agent string, args []string) int {
 	if row := reg.Providers[pos[0]]; row != nil && agent != "claude" && !agentpkg.CanServe(agent, row) {
 		return fail("%s profile: %s cannot serve profile %q", agent, agent, pos[0])
 	}
-	if err := providers.SetPins(map[string]string{pin: pos[0]}); err != nil {
+	if err := setAgentProfile(agent, pos[0]); err != nil {
 		return fail("%s profile: %v", agent, err)
 	}
 	if err := agentpkg.ClearLastProfilesFor(map[string]string{pin: pos[0]}); err != nil {
 		return fail("%s profile: %v", agent, err)
 	}
-	fmt.Printf("%s: now on %s (%s); relaunch `claude-code %s` to apply\n", agent, pos[0], pin, agent)
+	fmt.Printf("%s: now on %s; relaunch `claude-code %s` to apply\n", agent, pos[0], agent)
 	preflight.Warm(os.Stdout, reg, time.Now())
 	if agent == "codex" {
 		fmt.Println("plain codex: run `claude-code configure --restore --agents` to re-render config.toml")
@@ -77,7 +79,16 @@ func cmdAgentProfile(agent string, args []string) int {
 	return 0
 }
 
-// cmdAgentOnOff is `<agent> on|off`: set the agent's <AGENT>_ACTIVE pin; claude cannot be turned off.
+// setAgentProfile writes profile into agent's record, leaving its other fields.
+func setAgentProfile(agent, profile string) error {
+	return agentpkg.UpdateAgentRecords(func(m map[string]agentpkg.AgentRecord) {
+		r := m[agent]
+		r.Profile = profile
+		m[agent] = r
+	})
+}
+
+// cmdAgentOnOff is `<agent> on|off`: off clears the record's profile, on sets the own login; claude is always on.
 func cmdAgentOnOff(agent string, on bool, args []string) int {
 	verb, value := "off", agentpkg.AgentOff
 	if on {
@@ -97,13 +108,17 @@ func cmdAgentOnOff(agent string, on bool, args []string) int {
 	if err := agentpkg.ValidAgentActive(agent, value); err != nil {
 		return fail("%s %s: %v", agent, verb, err)
 	}
-	if err := providers.SetPins(map[string]string{pin: value}); err != nil {
+	profile := ""
+	if on {
+		profile = vault.OwnLoginProfiles[agent]
+	}
+	if err := setAgentProfile(agent, profile); err != nil {
 		return fail("%s %s: %v", agent, verb, err)
 	}
 	if on {
 		fmt.Printf("%s: on\n", agent)
 	} else {
-		fmt.Printf("%s: off (%s)\n", agent, pin)
+		fmt.Printf("%s: off\n", agent)
 	}
 	return 0
 }

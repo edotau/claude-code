@@ -116,8 +116,8 @@ func TestSetUpIsEveryAgentPagesFirstRow(t *testing.T) {
 		if strings.Join(f.calls, ",") != "login,verify,route" {
 			t.Errorf("%s calls = %v", agent, f.calls)
 		}
-		if !slices.ContainsFunc(agentPinRows(d, agent), func(r billingRow) bool { return r.label == "Route" }) {
-			t.Errorf("%s has no Route row for the configure step", agent)
+		if !slices.ContainsFunc(agentPinRows(d, agent), func(r billingRow) bool { return r.label == "Profile" }) {
+			t.Errorf("%s has no Profile row for the configure step", agent)
 		}
 	}
 }

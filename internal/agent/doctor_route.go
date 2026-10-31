@@ -71,8 +71,8 @@ func copilotRouteDetail(reg *providers.Registry, selErr error) string {
 	detail := fmt.Sprintf("dispatch=%s provider=%s model=%s (%s)", ri.Route, ri.Provider, ri.Model, ri.Reason)
 	if ri.Route == RouteCopilotLogin {
 		_, source := providers.CopilotModel(reg)
-		effort := cmp.Or(providers.Pin(providers.PinCopilotEffort), "default")
-		context := cmp.Or(providers.Pin(providers.PinCopilotContext), "default")
+		rec := GetAgentRecord("copilot")
+		effort, context := cmp.Or(rec.Effort, "default"), cmp.Or(rec.Context, "default")
 		detail += fmt.Sprintf(" source=%s effort=%s context=%s", source, effort, context)
 	}
 	return detail

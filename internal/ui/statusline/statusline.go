@@ -221,7 +221,7 @@ func sessionProvider() (name string, routed bool) {
 			return name, true
 		}
 	}
-	if p := cmp.Or(providers.SessionProfile(), providers.Pin(providers.PinProfile)); p != "" {
+	if p := cmp.Or(providers.SessionProfile(), providers.AgentRecord("claude").Profile); p != "" {
 		return p, false
 	}
 	if reg := registry(); reg != nil {

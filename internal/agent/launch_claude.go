@@ -138,7 +138,7 @@ func Claude(ctx context.Context, o LaunchOptions, args []string) (Plan, error) {
 		plan.Unset = append(plan.Unset, "CLAUDE_CONFIG_DIR")
 	}
 	setModelSlotEnv(&plan, sel)
-	if err := setMainModel(&plan, sel, p, MainTier(o), o.Model != "" || providers.Pin(providers.PinModel) != ""); err != nil {
+	if err := setMainModel(&plan, sel, p, MainTier(o), o.Model != "" || GetAgentRecord("claude").Model != ""); err != nil {
 		return Plan{}, err
 	}
 	set1MOff(&plan, sel, p)

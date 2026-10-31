@@ -269,7 +269,7 @@ func copilotMenu(d *dialog) agentMenu {
 	if auth.Source == agent.SrcStoredToken {
 		st = agentState{mode: modeAPIKey, verified: auth.Account != ""}
 	}
-	pinned := providers.Pin(providers.PinCopilotProfile)
+	pinned := agent.GetAgentRecord("copilot").Profile
 	rows := []billingRow{
 		{"Subscription", "GitHub Copilot · " + bracket(loggedIn, withTier(auth.Label(), tier), "not logged in"), modeSubscription, func() bool {
 			if loggedIn {
@@ -311,12 +311,12 @@ const copilotContextBaseline = 200_000
 // all. Lists only modelID's own SupportedReasoningEfforts when the SDK catalog resolves it, else falls
 // back to the fixed list (today's behavior) since there is nothing to check eligibility against.
 func copilotEffortRow(d *dialog, modelID string) *billingRow {
-	cur := providers.Pin(providers.PinCopilotEffort)
+	cur := agent.GetAgentRecord("copilot").Effort
 	m, ok := copilotCatalogModel(d, modelID)
 	if !ok {
 		desc := "reasoning effort on every launch " + bracket(cur != "", cur, "unset")
 		r := billingRow{"Effort", desc, "", func() bool {
-			return pickCopilotPin(d, "effort", providers.PinCopilotEffort, copilotEffortChoices, cur)
+			return pickCopilotPin(d, "effort", "EFFORT", copilotEffortChoices, cur)
 		}}
 		return &r
 	}
@@ -337,7 +337,7 @@ func copilotEffortRow(d *dialog, modelID string) *billingRow {
 		choices[i] = [2]string{label, e}
 	}
 	r := billingRow{"Effort", desc, "", func() bool {
-		return pickCopilotPin(d, "effort", providers.PinCopilotEffort, choices, cur)
+		return pickCopilotPin(d, "effort", "EFFORT", choices, cur)
 	}}
 	return &r
 }
@@ -357,10 +357,10 @@ func copilotContextRow(d *dialog, modelID string) *billingRow {
 	if !copilotContextEligible(d, modelID) {
 		return nil
 	}
-	cur := providers.Pin(providers.PinCopilotContext)
+	cur := agent.GetAgentRecord("copilot").Context
 	desc := "context window on every launch " + bracket(cur != "", copilotContextLabel(cur), "auto")
 	r := billingRow{"Context", desc, "", func() bool {
-		return pickCopilotPin(d, "context", providers.PinCopilotContext, copilotContextChoices, cur)
+		return pickCopilotPin(d, "context", "CONTEXT", copilotContextChoices, cur)
 	}}
 	return &r
 }
@@ -378,23 +378,23 @@ func copilotContextLabel(val string) string {
 // clearIneligibleCopilotPins drops the effort/context pins a newly chosen model can't honor, after a
 // copilot model switch; each cleared pin prints the reason on one line.
 func clearIneligibleCopilotPins(d *dialog, modelID string) {
-	if cur := providers.Pin(providers.PinCopilotEffort); cur != "" {
+	if cur := agent.GetAgentRecord("copilot").Effort; cur != "" {
 		if m, ok := copilotCatalogModel(d, modelID); ok && !slices.Contains(m.Efforts, cur) {
-			clearCopilotPin(d, providers.PinCopilotEffort, cur, modelID, "doesn't support that effort")
+			clearCopilotPin(d, "EFFORT", cur, modelID, "doesn't support that effort")
 		}
 	}
-	if cur := providers.Pin(providers.PinCopilotContext); cur != "" && !copilotContextEligible(d, modelID) {
-		clearCopilotPin(d, providers.PinCopilotContext, cur, modelID, "has no long-context tier")
+	if cur := agent.GetAgentRecord("copilot").Context; cur != "" && !copilotContextEligible(d, modelID) {
+		clearCopilotPin(d, "CONTEXT", cur, modelID, "has no long-context tier")
 	}
 }
 
-// clearCopilotPin unsets key and reports why.
+// clearCopilotPin unsets the record field key and reports why.
 func clearCopilotPin(d *dialog, key, cur, modelID, why string) {
-	if err := providers.SetPins(map[string]string{key: ""}); err != nil {
+	if _, err := writeAgentField(d, "copilot", key, ""); err != nil {
 		d.printf("copilot: %v\n", err)
 		return
 	}
-	d.printf("copilot: cleared %s pin (%s) — %s %s\n", key, cur, modelID, why)
+	d.printf("copilot: cleared %s pin (%s) — %s %s\n", strings.ToLower(key), cur, modelID, why)
 }
 
 // pickCopilotPin lists "unset" plus choices (label, value); a pick pins key to that value (or clears it).
@@ -418,12 +418,10 @@ func pickAgentPin(d *dialog, name, title, key string, choices [][2]string, cur s
 	if idx > 0 {
 		val = choices[idx-1][1]
 	}
-	if err := providers.SetPins(map[string]string{key: val}); err != nil {
+	if _, err := writeAgentField(d, name, key, val); err != nil {
 		d.printf("%s: %v\n", name, err)
 		return false
 	}
-	d.printf("%s: %s = %s\n", name, key, cmp.Or(val, "unset"))
-	d.changed = true
 	return true
 }
 
@@ -516,13 +514,12 @@ func pinCopilotProfile(d *dialog, user string) bool {
 			profile = "personal"
 		}
 	}
-	pins := map[string]string{providers.PinCopilotProfile: profile}
-	if err := providers.SetPins(pins); err != nil {
+	if user == "" {
+		profile = signInProfile(d, "copilot") // gh's active account is copilot's own-login profile
+	}
+	if _, err := writeAgentField(d, "copilot", "PROFILE", profile); err != nil {
 		d.printf("copilot: %v\n", err)
 		return false
-	}
-	if err := agent.ClearLastProfilesFor(pins); err != nil {
-		d.printf("copilot: %v\n", err)
 	}
 	d.printf("%-10s runs as %s\n", "copilot", bracket(user != "", user+" (pinned as "+profile+")", "gh's active account"))
 	return true

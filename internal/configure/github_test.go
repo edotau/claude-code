@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	agentpkg "github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
@@ -133,14 +134,12 @@ func TestWriteGithubCopilotModelsKeepsPreviousOverlay(t *testing.T) {
 func TestWriteGithubCopilotModelsLeavesCopilotModelPinUntouched(t *testing.T) {
 	githubScratch(t)
 	t.Setenv(providers.PinCopilotModel, "")
-	if err := providers.SetPins(map[string]string{providers.PinCopilotModel: "claude-opus-5.5"}); err != nil {
-		t.Fatal(err)
-	}
+	putRec(t, "copilot", "MODEL", "claude-opus-5.5")
 	picks := map[string]string{models.Opus: "gpt-6.1-sol", models.Sonnet: "claude-sonnet-5.5", models.Haiku: "claude-haiku-4.5"}
 	if err := WriteGithubCopilotModels(picks, ""); err != nil {
 		t.Fatalf("WriteGithubCopilotModels: %v", err)
 	}
-	if got := providers.Pin(providers.PinCopilotModel); got != "claude-opus-5.5" {
+	if got := agentpkg.GetAgentRecord("copilot").Model; got != "claude-opus-5.5" {
 		t.Errorf("COPILOT_MODEL pin = %q, want unchanged claude-opus-5.5: the fallback section must not touch it", got)
 	}
 }
