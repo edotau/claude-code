@@ -482,28 +482,6 @@ func vaultTableStyled(head []string, colMax []int, rows [][]string, width int, c
 // vaultAgentCols are the leading agent-table columns; other pin suffixes follow alphabetically.
 var vaultAgentCols = []string{"PROFILE", "MODEL", "EFFORT", "CONTEXT"}
 
-// vaultClaudeTiers are claude's tier pins, folded into its MODEL cell as tier=id.
-var vaultClaudeTiers = []string{"OPUS", "SONNET", "HAIKU", "FABLE"}
-
-// vaultAgentNames is claude, then the other AgentSpecs agents alphabetically, then extra overlay agent names.
-func vaultAgentNames(vs map[string]any) []string {
-	var names, rest []string
-	for _, sp := range providers.AgentSpecs() {
-		if sp.Binary == "" {
-			names = append(names, sp.Name)
-		} else {
-			rest = append(rest, sp.Name)
-		}
-	}
-	names = append(names, slices.Sorted(slices.Values(rest))...)
-	for _, name := range slices.Sorted(maps.Keys(vs)) {
-		if !slices.Contains(names, name) {
-			names = append(names, name)
-		}
-	}
-	return names
-}
-
 // vaultOverlayAgents decodes the agents overlay: the top-level object and its "agents" map.
 func vaultOverlayAgents(raw json.RawMessage) (top, vs map[string]any, err error) {
 	if s := strings.TrimSpace(string(raw)); s != "" && s != "null" {
@@ -521,7 +499,7 @@ func vaultLoosePins(doc configure.Doc) map[string]string {
 	if _, v, err := vaultOverlayAgents(doc.Vendors); err == nil {
 		vs = v
 	}
-	names := vaultAgentNames(vs)
+	names := agent.VaultAgentNames(vs)
 	loose := map[string]string{}
 	for k, v := range doc.Pins {
 		if !slices.ContainsFunc(names, func(n string) bool { return strings.HasPrefix(k, strings.ToUpper(n)+"_") }) {
@@ -531,47 +509,12 @@ func vaultLoosePins(doc configure.Doc) map[string]string {
 	return loose
 }
 
-// vaultAgentPins is one agent's pin suffixes (after "<AGENT>_") to values; claude's tier pins fold into MODEL.
-func vaultAgentPins(name string, pins map[string]string) map[string]string {
-	prefix, out := strings.ToUpper(name)+"_", map[string]string{}
-	for k, v := range pins {
-		if suffix, ok := strings.CutPrefix(k, prefix); ok && strings.TrimSpace(v) != "" {
-			out[suffix] = v
-		}
-	}
-	if !vaultAgentIsClaude(name) {
-		return out
-	}
-	var tiers []string
-	for _, t := range vaultClaudeTiers {
-		if v, ok := out[t+"_MODEL"]; ok {
-			tiers = append(tiers, strings.ToLower(t)+"="+v)
-		}
-		delete(out, t+"_MODEL")
-	}
-	if len(tiers) > 0 {
-		out["MODEL"] = strings.TrimSpace(out["MODEL"] + " " + strings.Join(tiers, " "))
-	}
-	return out
-}
-
-// vaultAgentIsClaude reports the roster row the harness launches itself (no external binary).
-func vaultAgentIsClaude(name string) bool {
-	s, ok := agent.LookupSchema(name)
-	return ok && !s.External()
-}
-
-// vaultAgentOff reports an agent whose ACTIVE pin says off (claude is always on).
-func vaultAgentOff(name string, pins map[string]string) bool {
-	return !vaultAgentIsClaude(name) && strings.TrimSpace(pins[strings.ToUpper(name)+"_ACTIVE"]) == providers.AgentOff
-}
-
 // vaultAgentTable is the AGENT/PROFILE/MODEL/... table, one row per agent; empty columns drop.
 func vaultAgentTable(names []string, pins map[string]string, width int, color bool) string {
 	per := make([]map[string]string, len(names))
 	extra := map[string]bool{}
 	for i, n := range names {
-		per[i] = vaultAgentPins(n, pins)
+		per[i] = agent.VaultAgentPins(n, pins)
 		delete(per[i], "ACTIVE")
 		for k := range per[i] {
 			if !slices.Contains(vaultAgentCols, k) {
@@ -590,7 +533,7 @@ func vaultAgentTable(names []string, pins map[string]string, width int, color bo
 		for _, c := range cols {
 			row = append(row, per[i][c])
 		}
-		off := vaultAgentOff(n, pins)
+		off := agent.VaultAgentOff(n, pins)
 		switch {
 		case !off:
 			codes[i] = ansi.Cyan
@@ -612,7 +555,7 @@ func vaultVendorsText(raw json.RawMessage, pins map[string]string, width int, co
 	if err != nil {
 		return vaultSection("AGENTS", vaultFlattenSection(raw), width)
 	}
-	names := vaultAgentNames(vs)
+	names := agent.VaultAgentNames(vs)
 	var rows [][3]string
 	for _, name := range names {
 		if v, ok := vs[name]; ok {
