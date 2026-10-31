@@ -29,6 +29,13 @@ func TestByokRetryModelSkipsFailedAndStaysOnPool(t *testing.T) {
 	if got := retryModel(leg, RunOptions{Model: "dbx:m-a"}, capErr); got != "dbx:m-b" {
 		t.Errorf("capability retry = %q, want dbx:m-b", got)
 	}
+	schemaErr := errors.New(`Bad Request: Invalid JSON payload received. Unknown name "$schema" at 'tools[0].function_declarations[0].parameters'`)
+	if got := retryModel(leg, RunOptions{Model: "dbx:m-b"}, schemaErr); got != "" {
+		t.Errorf("tool-schema retry with the pool exhausted = %q, want none", got)
+	}
+	if router.LoadState()[router.ProviderAccount(p.Name)].BYOKSkip["opencode|m-b"].IsZero() {
+		t.Error("tool-schema rejection did not mark m-b skipped for opencode")
+	}
 	at := router.LoadState()[router.ProviderAccount(p.Name)].BYOKSkip["opencode|m-a"]
 	if time.Since(at) > time.Minute || at.IsZero() {
 		t.Errorf("m-a not marked skipped for opencode: %v", at)

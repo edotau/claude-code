@@ -134,7 +134,7 @@ in sequence. Dispatches on one provider share its rate limit — reduce concurre
 | standard edits, docs | rotate `claude` · `copilot` · `codex` · `opencode` | `code-worker`, `Agent: <rotated agent>` |
 | review / vet | `codex` | `code-worker`, `Agent: codex` |
 | compare, relay, quota offload | several agents | `coworker` (always requests) |
-| BYOK pool (rare Databricks models) | `copilot` · `opencode` | `coworker`, `--model byok` (router picks; skips capped) |
+| BYOK pool (rare Databricks models) | `copilot` · `opencode` | `coworker`, `--model byok` (router picks; skips models that refuse the agent) |
 | reasoning / integration | `claude` (in-context) | `claude`, or the main thread |
 
 Leaf types, the `Agent:` field and the label rule: [SKILL.md → Leaf types](../SKILL.md#leaf-types).

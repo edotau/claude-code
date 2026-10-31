@@ -72,15 +72,16 @@ func byokRepick(agent, tier string, cell Cell, p *providers.Provider, prefix str
 			return ""
 		}
 		next, _ := PinnedModel(agent, tier, cell, p, BYOKModel)
-		if next == wire {
+		if next == "" || next == wire {
 			return ""
 		}
-		fmt.Fprintf(os.Stderr, "byok: %s skipped for %s (output cap)\n", wire, agent)
+		fmt.Fprintf(os.Stderr, "byok: %s skipped for %s (model capability)\n", wire, agent)
 		return prefix + next
 	}
 }
 
-var capabilityErr = regexp.MustCompile(`max_new_tokens|max_output_tokens|max_tokens|context length|maximum context`)
+// capabilityErr is a model refusing the request itself: an output cap, or Google rejecting JSON-schema tool keys.
+var capabilityErr = regexp.MustCompile(`max_new_tokens|max_output_tokens|max_tokens|context length|maximum context|Invalid JSON payload received\. Unknown name`)
 
 // endpointErr is a workspace's answer for a serving endpoint that does not exist (captured from codex on Databricks).
 var endpointErr = regexp.MustCompile(`ENDPOINT_NOT_FOUND`)
