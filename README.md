@@ -96,19 +96,20 @@ claude-code models --unpin | --live --profile p     # clear pins | list what ups
 claude-code --profile example --model sonnet         # this launch only
 ```
 
-Precedence: `--profile` → vault pin `CLAUDE_PROFILE` → registry `default`. Model: `--model` → `CLAUDE_<TIER>_MODEL` →
-`CLAUDE_MODEL` → the profile's `models`. Pins are read from the vault only; an exported `CLAUDE_PROFILE` marks the
-session, it is not a pin.
+Precedence: `--profile` → the claude agent record's `profile` → registry `default`. Model: `--model` → the record's
+tier `slots` (`models --pin`) → the profile's `models`. Settings live in one vault record per agent; an exported
+`CLAUDE_PROFILE` marks the session, it is not a setting.
 
 ### Vault
 
-`state/vault.db` holds pins, custom launch env, provider/agent overlays and `key_command` as one JSON document, plus
+`state/vault.db` holds custom launch env, provider/agent overlays and `key_command` as one JSON document, plus
 sealed secrets. `vault edit` opens it in `$EDITOR` and saves atomically; secrets never appear in it. `vault list`
 shows secrets as `<prefix>***  N chars` and marks failing entries ✗ first (`--format json` keeps empty sections).
 
 ```jsonc
 {
-  "pins": {"CLAUDE_PROFILE": "max", "CLAUDE_HAIKU_MODEL": "openai:gpt-5-nano"},
+  "agents": {"records": {"claude": {"profile": "max", "slots": {"haiku": "openai:gpt-5-nano"}},
+                         "codex": {"profile": "chatgpt", "model": "databricks-gpt-6-astra", "effort": "medium"}}},
   "env": {"MY_PROJECT_ROOT": "/home/me/work", "SOME_API_TOKEN": "@secret"},   // @secret = vault secret of that name
   "providers": {"default": "example"}, "vault": {"key_command": ""}
 }
