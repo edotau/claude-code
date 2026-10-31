@@ -32,7 +32,7 @@ func TestAttachImageDelivery(t *testing.T) {
 	paths := []string{img, txt}
 
 	// codex: image rides -i right after exec; the prompt inlines only the text file.
-	prompt, err := vendorRunner{name: "codex"}.attachPrompt("ask", paths, false)
+	prompt, err := engines["codex"].attach("ask", paths, false)
 	if err != nil {
 		t.Fatal(err)
 	}

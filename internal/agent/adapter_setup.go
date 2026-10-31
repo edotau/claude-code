@@ -45,17 +45,9 @@ func binaryCheck(s Schema) Check {
 	return Check{Name: "binary", State: "ok", Detail: p}
 }
 
-var loginProbes = map[string]func() bool{
-	"codex":    CodexChatGPTLoginPresent,
-	"gemini":   GeminiLoginPresent,
-	"copilot":  CopilotLoginPresent,
-	"opencode": func() bool { return len(OpencodeLogins()) > 0 },
-}
-
 // loginCheck runs the CLI's own login probe.
 func loginCheck(s Schema) Check {
-	probe := loginProbes[s.Name]
-	if probe == nil || !probe() {
+	if present, _ := LoginStatus(s.Name); !present {
 		return Check{Name: "login", State: "fail", Detail: "no " + s.Name + " login found (claude-code vault set / agent's own login)"}
 	}
 	return Check{Name: "login", State: "ok", Detail: s.Name + " login present"}

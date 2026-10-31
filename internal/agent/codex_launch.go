@@ -91,25 +91,11 @@ func codex(p *providers.Provider, base, model, cred string, h *Headless) ([]stri
 }
 
 // login runs the vendor on its own subscription sign-in; a login provider serves only the CLI it names.
-func login(name string, p *providers.Provider, model string, h *Headless) ([]string, []string, error) {
-	switch {
-	case name == "opencode" && p.Provider == "github":
-		// a github profile's Auth.Login names "copilot", not "opencode": opencode runs on its own GitHub
-		// Copilot login (opencode auth login), never the harness's copilot-vendor credential.
-		if model == "auto" && p.OpencodeFallback != "" { // Copilot's own router id; opencode's catalog lacks it
-			model = p.OpencodeFallback
-		}
-		return opencodeCopilotLogin(model, h)
-	case p.Auth.Login != name:
-		return nil, nil, fmt.Errorf("%s: provider %s is the %s sign-in; use claude-code run %s --provider %s", name, p.Name, p.Auth.Login, p.Auth.Login, p.Name)
-	case name == "codex":
-		return codexLogin(model, h)
-	case name == "copilot":
-		return copilotLogin(model, h)
-	case name == "gemini":
-		return geminiLogin(model, h)
+func login(e engine, p *providers.Provider, model string, h *Headless) ([]string, []string, error) {
+	if !e.loginServes(p) {
+		return nil, nil, fmt.Errorf("%s: provider %s is the %s sign-in; use claude-code run %s --provider %s", e.Name(), p.Name, p.Auth.Login, p.Auth.Login, p.Name)
 	}
-	return nil, nil, fmt.Errorf("%s: no subscription sign-in support", name)
+	return e.login(p, model, h)
 }
 
 // codexLogin runs codex on its own ChatGPT sign-in: the built-in openai provider, no key injected.

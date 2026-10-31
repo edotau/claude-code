@@ -91,8 +91,9 @@ func applyLaunch(name string, env, argv []string, args bool) ([]string, []string
 func LaunchSpec(name string) (env, argv []string) { return applyLaunch(name, nil, nil, true) }
 
 func configureRoute(ctx context.Context, name string, t providers.Target, h *Headless) ([]string, []string, error) {
-	s, ok := LookupSchema(name)
-	if !ok || !s.External() {
+	s, _ := LookupSchema(name)
+	e, ok := engines[name]
+	if !ok {
 		return nil, nil, fmt.Errorf("unknown agent %q (%s)", name, strings.Join(Names(), "|"))
 	}
 	p := t.Provider
@@ -100,13 +101,10 @@ func configureRoute(ctx context.Context, name string, t providers.Target, h *Hea
 		return nil, nil, fmt.Errorf("%s: no provider/model resolved", name)
 	}
 	if p.Auth.Login != "" {
-		return login(name, p, models.Strip1M(t.Model), h)
+		return login(e, p, models.Strip1M(t.Model), h)
 	}
-	if name == "gemini" && providers.GeminiGatewayRow(p) {
-		if isDirect(ctx) {
-			return nil, nil, fmt.Errorf("gemini: --direct has no Databricks route for agy (profile %s needs the router's token swap)", p.Name)
-		}
-		return geminiGateway(ctx, p, t.Model, h) // always routed: the router fixes agy's requests for Databricks
+	if len(s.CLI.Dialects) == 0 && providers.GeminiGatewayRow(p) { // a CLI with no dialect reaches a gateway row only here
+		return e.wire(ctx, wireRoute{Target: t, Provider: p}, h)
 	}
 	if ok, why := providers.Serves(name, p, ""); !ok {
 		return nil, nil, fmt.Errorf("%s: %s", name, why)
@@ -131,16 +129,7 @@ func configureRoute(ctx context.Context, name string, t providers.Target, h *Hea
 	} else if cred, err = providers.Credential(ctx, p); err != nil {
 		return nil, nil, err
 	}
-	switch name {
-	case "codex":
-		return codex(p, base, model, cred, h)
-	case "opencode":
-		return opencode(p, dialect, base, model, cred, routed, h)
-	default:
-		// The same resolver as the Claude launch decides [1m]; it reads a prefixed wire id (databricks-claude-…) itself.
-		client := providers.Target{Provider: t.Provider, Model: t.Model, OneM: t.OneM}.ClientModel()
-		return copilotWire(p, dialect, base, model, providers.ContextWindow(t.Provider, client), cred, routed, h)
-	}
+	return e.wire(ctx, wireRoute{Target: t, Provider: p, Dialect: dialect, Base: base, Model: model, Cred: cred, Routed: routed}, h)
 }
 
 // Router seams (tests stub these so no daemon is spawned).

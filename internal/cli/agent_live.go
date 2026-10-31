@@ -84,6 +84,7 @@ func runLiveHolder(rec *agent.Record) int {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
 	defer stop()
 	notify := func(s string) { fmt.Fprintln(os.Stderr, "ask:", s) }
+	rec.Request.Launcher = newClient().Launcher // json:"-", so the record loaded from disk has none
 	if err := agent.ServeLive(ctx, rec, notify); err != nil {
 		rec.Status, rec.Error = "error", err.Error()
 		_ = rec.Save()

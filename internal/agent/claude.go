@@ -106,7 +106,7 @@ func claudeArgs(args []string, req RunOptions) []string {
 // claudeCmd resolves the launch plan for args and returns the unstarted child with its env layered (--env last).
 func claudeCmd(ctx context.Context, req RunOptions, args []string, prompt string) (*exec.Cmd, *TailBuffer, ClaudeLaunch, error) {
 	if req.Launcher == nil {
-		return nil, nil, ClaudeLaunch{}, errors.New("claude: no launcher (caller must set Request.Launcher)")
+		return nil, nil, ClaudeLaunch{}, errors.New("claude: no launcher (caller must set RunOptions.Launcher)")
 	}
 	o := ClaudeOptions{Provider: cmp.Or(req.Provider, sessionProvider("claude")), Model: req.Model, KeepEnv: req.KeepEnv}
 	cl, err := req.Launcher.Claude(ctx, o, args)

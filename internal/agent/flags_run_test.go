@@ -193,7 +193,7 @@ for a in "$@"; do
 done
 echo '{"type":"item.completed","item":{"id":"i","type":"agent_message","text":"ok"}}'`
 	argv := fakeCLI(t, "codex", body)
-	_, err := vendorRunner{name: "codex"}.Run(context.Background(), RunOptions{Prompt: "task", Provider: "toai", Tools: true,
+	_, err := newVendorRunner("codex").Run(context.Background(), RunOptions{Prompt: "task", Provider: "toai", Tools: true,
 		SystemPrompt: `be "terse"`, AppendSystemPrompt: "APP", OutputSchema: `{"type":"object","properties":{"a":{"type":"string"}}}`}, Discard)
 	if err != nil {
 		t.Fatal(err)

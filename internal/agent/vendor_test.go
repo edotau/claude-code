@@ -11,7 +11,7 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 )
 
-// attachPrompt per runner: codex folds the file inline (stdin has no live-read channel). gemini (agy)
+// attach per engine: codex folds the file inline (stdin has no live-read channel). gemini (agy)
 // inlines it too when tools are off (agy's no-tools preamble bars it from reading @path live), but
 // appends a live @path reference once tools are on. Every other vendor (opencode included) leaves the
 // prompt untouched since it carries the attachment in its own argv instead (opencodeRun's -f).
@@ -35,12 +35,12 @@ func TestVendorRunnerAttachPrompt(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			got, err := vendorRunner{name: c.vendor}.attachPrompt("task", []string{f}, c.tools)
+			got, err := engines[c.vendor].attach("task", []string{f}, c.tools)
 			if err != nil {
 				t.Fatal(err)
 			}
 			if got != c.want {
-				t.Errorf("attachPrompt(%s, tools=%v) = %q, want %q", c.vendor, c.tools, got, c.want)
+				t.Errorf("attach(%s, tools=%v) = %q, want %q", c.vendor, c.tools, got, c.want)
 			}
 		})
 	}
@@ -55,7 +55,7 @@ func TestVendorRunnerAttachPromptMissingPath(t *testing.T) {
 	}{
 		{"codex", true}, {"gemini", false},
 	} {
-		if _, err := (vendorRunner{name: c.vendor}).attachPrompt("task", []string{"/does/not/exist"}, c.tools); err == nil {
+		if _, err := engines[c.vendor].attach("task", []string{"/does/not/exist"}, c.tools); err == nil {
 			t.Fatalf("%s tools=%v: want an error for a missing attachment, got nil", c.vendor, c.tools)
 		}
 	}
@@ -74,7 +74,7 @@ func TestVendorRunnerOversizedPromptRefusalScopedToArgv(t *testing.T) {
 
 	for _, name := range []string{"codex", "gemini"} {
 		t.Run(name+"/not-refused", func(t *testing.T) {
-			_, err := vendorRunner{name: name}.Run(context.Background(), RunOptions{Prompt: big, Provider: "max"}, Discard)
+			_, err := newVendorRunner(name).Run(context.Background(), RunOptions{Prompt: big, Provider: "max"}, Discard)
 			if err == nil {
 				t.Fatalf("%s: want a non-nil error (no route for a fake provider), got nil", name)
 			}
@@ -85,7 +85,7 @@ func TestVendorRunnerOversizedPromptRefusalScopedToArgv(t *testing.T) {
 	}
 
 	t.Run("opencode/still-refused", func(t *testing.T) {
-		_, err := vendorRunner{name: "opencode"}.Run(context.Background(), RunOptions{Prompt: big, Provider: "max"}, Discard)
+		_, err := newVendorRunner("opencode").Run(context.Background(), RunOptions{Prompt: big, Provider: "max"}, Discard)
 		var e *Error
 		if !errors.As(err, &e) || !errors.Is(e, ErrPromptTooLarge) {
 			t.Fatalf("opencode: err = %v, want *Error wrapping ErrPromptTooLarge (prompt rides argv)", err)
@@ -120,7 +120,7 @@ func TestVendorRunnerGeminiModelResolutionPinBeatsDefault(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	res, err := vendorRunner{name: "gemini"}.Run(context.Background(), RunOptions{Prompt: "task"}, Discard)
+	res, err := newVendorRunner("gemini").Run(context.Background(), RunOptions{Prompt: "task"}, Discard)
 	if err == nil {
 		t.Fatal("want an error (no real agy binary installed), got nil")
 	}
@@ -131,7 +131,7 @@ func TestVendorRunnerGeminiModelResolutionPinBeatsDefault(t *testing.T) {
 	if err := providers.SetPins(map[string]string{providers.PinGeminiModel: "gemini-2.5-pro"}); err != nil {
 		t.Fatal(err)
 	}
-	res, err = vendorRunner{name: "gemini"}.Run(context.Background(), RunOptions{Prompt: "task"}, Discard)
+	res, err = newVendorRunner("gemini").Run(context.Background(), RunOptions{Prompt: "task"}, Discard)
 	if err == nil {
 		t.Fatal("want an error (no real agy binary installed), got nil")
 	}
@@ -147,7 +147,7 @@ func TestVendorRunnerGeminiExplicitModelBeatsPin(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	res, err := vendorRunner{name: "gemini"}.Run(context.Background(), RunOptions{Prompt: "task", Model: "gemini-3.8-flash-low"}, Discard)
+	res, err := newVendorRunner("gemini").Run(context.Background(), RunOptions{Prompt: "task", Model: "gemini-3.8-flash-low"}, Discard)
 	if err == nil {
 		t.Fatal("want an error (no real agy binary installed), got nil")
 	}
@@ -160,7 +160,7 @@ func TestVendorRunnerGeminiExplicitModelBeatsPin(t *testing.T) {
 // own Caps additionally carries SessionID and Memory, which only its own runner needs.
 func TestVendorCapsAutonomous(t *testing.T) {
 	for _, name := range []string{"codex", "gemini", "opencode"} {
-		if c := (vendorRunner{name: name}).Caps(); c.Autonomous != Native {
+		if c := newVendorRunner(name).Caps(); c.Autonomous != Native {
 			t.Errorf("vendorRunner{%s}.Caps().Autonomous = false, want true", name)
 		}
 	}

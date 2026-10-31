@@ -219,7 +219,6 @@ type TaskLine struct {
 	Workdir string `json:"workdir"`
 	Tools   *bool  `json:"tools"`
 	Timeout string `json:"timeout"` // a Go duration such as 5m
-	Persona string `json:"persona"` // agents/<name>.md name or file path
 }
 
 // ParsedLine is one non-blank input line: its 1-based number, the decoded task, or why it did not decode.
@@ -454,14 +453,12 @@ func ParseBatchTask(l ParsedLine, agentName string, base RunOptions, timeoutSet 
 		return t, fmt.Errorf("line %d: no task: give a prompt", l.N)
 	}
 	req := base
-	if tl.Persona != "" {
-		p, err := LoadSchema(tl.Persona)
-		if err != nil {
-			return t, fmt.Errorf("line %d: %w", l.N, err)
-		}
-		req.Persona = p
-	}
 	req.Prompt, req.Provider, req.Model = tl.Prompt, cmp.Or(tl.Profile, base.Provider), cmp.Or(tl.Model, base.Model)
+	runner, err := selectAndOverlay(t.Agent, base.Agents, &req) // explicit line/base options win over the definition
+	if err != nil {
+		return t, fmt.Errorf("line %d: %w", l.N, err)
+	}
+	t.Agent = runner
 	if tl.Tools != nil {
 		req.Tools = *tl.Tools
 	}
