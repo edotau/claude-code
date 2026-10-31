@@ -102,11 +102,18 @@ func TestTailFollowSilentHeartbeat(t *testing.T) {
 	fastTail(t)
 	cwd := t.TempDir()
 	rec := tailRecord(t, cwd, filepath.Join(cwd, "job.log"), []byte{}, "running", os.Getpid())
-	saved := finishLater(rec, 150*time.Millisecond)
+	var out syncBuffer
+	saved := make(chan error, 1)
+	go func() { // finish only once a heartbeat printed: a fixed delay races it under suite load
+		for end := time.Now().Add(4 * time.Second); !strings.Contains(out.String(), "no output for") && time.Now().Before(end); {
+			time.Sleep(10 * time.Millisecond)
+		}
+		rec.Finish(Result{}, nil, time.Second)
+		saved <- rec.Save()
+	}()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	var out syncBuffer
 	got, err := Tail(ctx, "codex", cwd, "", true, &out)
 	if err != nil {
 		t.Fatalf("Tail follow: %v (output %q)", err, out.String())
