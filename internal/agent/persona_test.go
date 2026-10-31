@@ -33,8 +33,8 @@ func TestPersonaClaudeNativeAndEmulated(t *testing.T) {
 	if out.Persona != nil || !strings.Contains(out.Prompt, "Be strict.") || !strings.HasSuffix(out.Prompt, "T") {
 		t.Errorf("emulated prompt = %q persona=%v", out.Prompt, out.Persona)
 	}
-	if !slices.Contains(emulated, "persona") || len(dropped) != 3 {
-		t.Errorf("emulated=%q dropped=%q, want --persona and tools/model/max_turns dropped", emulated, dropped)
+	if !slices.Contains(emulated, "persona") || len(dropped) != 2 {
+		t.Errorf("emulated=%q dropped=%q, want tools/max_turns dropped (model is carried, plan 4.2)", emulated, dropped)
 	}
 	out, _, _ = applyCaps(Caps{Persona: Emulated, AppendSystemPrompt: Native}, req)
 	if out.Persona != nil || !strings.Contains(out.AppendSystemPrompt, "Be strict.") {

@@ -22,19 +22,30 @@ type liveBackend interface {
 	parse(dec *bufio.Reader, sink Sink, lg eventLog) (Result, error)
 }
 
-// liveBackendFor is a fresh backend for the agent name, or nil when the agent has no live mode.
-func liveBackendFor(name string) liveBackend {
-	switch name {
-	case "claude":
-		return &claudeLive{}
-	case "gemini":
-		return &agyLive{}
+// LiveCapable is a CLI that can hold a session open; a fresh backend serves each session.
+type LiveCapable interface{ newLive() liveBackend }
+
+// liveCapable asserts on the CLI behind name's runner: the runner itself, or a vendorRunner's engine.
+func liveCapable(name string) (LiveCapable, bool) {
+	r, err := Lookup(name)
+	if err != nil {
+		return nil, false
 	}
-	return nil
+	var cli any = r
+	if v, ok := r.(vendorRunner); ok {
+		cli = v.eng
+	}
+	lc, ok := cli.(LiveCapable)
+	return lc, ok
 }
 
 // HasLive reports whether the named agent can hold a live session.
-func HasLive(name string) bool { return liveBackendFor(name) != nil }
+func HasLive(name string) bool {
+	_, ok := liveCapable(name)
+	return ok
+}
+
+func (claudeRunner) newLive() liveBackend { return &claudeLive{} }
 
 // claudeLive holds `claude --print --input-format stream-json`: one process, one user message per turn.
 type claudeLive struct{ prevCost float64 }
@@ -70,7 +81,7 @@ type agyLive struct {
 func (b *agyLive) build(ctx context.Context, req RunOptions) (*exec.Cmd, *TailBuffer, string, error) {
 	ctx = directCtx(ctx, req)
 	req.Prompt = cmp.Or(req.Prompt, "live session") // prepare wants a prompt; the turns carry the real ones
-	p, err := (vendorRunner{"gemini"}).prepare(ctx, req)
+	p, err := newVendorRunner("gemini").prepare(ctx, req)
 	if err != nil {
 		return nil, nil, "", err
 	}

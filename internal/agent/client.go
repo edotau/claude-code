@@ -3,6 +3,8 @@ package agent
 import (
 	"cmp"
 	"context"
+	"maps"
+	"slices"
 
 	"github.com/edotau/claude-code/internal/network/tailscale"
 	"github.com/edotau/claude-code/internal/providers"
@@ -37,6 +39,9 @@ func (c *Client) Prepare(ctx context.Context, o RunOptions, job *Record) (*Prepa
 	if o.SessionID != "" {
 		o.Fallback = FallbackNone
 	}
+	if err := c.resolve(&o); err != nil {
+		return nil, err
+	}
 	r, err := Lookup(o.Agent)
 	if err != nil {
 		return nil, err
@@ -63,6 +68,51 @@ func (c *Client) Prepare(ctx context.Context, o RunOptions, job *Record) (*Prepa
 	p.Record = c.record(ctx, o, job)
 	return p, nil
 }
+
+// resolve maps o.Agent — a roster name, an agents key, vendor:name or a definition file — to its runner and
+// applies the definition's model, profile and effort under the caller's explicit options.
+func (c *Client) resolve(o *RunOptions) error {
+	agents := mergeAgents(c.Agents, o.Agents)
+	if isRosterName(o.Agent) && len(agents) == 0 {
+		return nil
+	}
+	runner, err := selectAndOverlay(o.Agent, agents, o)
+	if err != nil {
+		return clientUsageError{err}
+	}
+	o.Agent = runner
+	return nil // an explicit persona (a --retry record) survives a plain roster name
+}
+
+// selectAndOverlay resolves ref to its runner and, when it names a definition, records the persona and
+// fills the unset model, profile and effort under the options already in o.
+func selectAndOverlay(ref string, agents map[string]*Schema, o *RunOptions) (runner string, err error) {
+	runner, def, err := SelectAgent(ref, agents)
+	if err != nil {
+		return "", err
+	}
+	if def != nil {
+		o.Persona = def
+		o.Model, o.Provider, o.Effort = cmp.Or(o.Model, def.Model), cmp.Or(o.Provider, def.Profile), cmp.Or(o.Effort, def.Effort)
+	}
+	return runner, nil
+}
+
+// mergeAgents layers defs over base: a nil side is just the other map, and shared keys take defs.
+func mergeAgents(base, defs map[string]*Schema) map[string]*Schema {
+	if len(base) == 0 {
+		return defs
+	}
+	if len(defs) == 0 {
+		return base
+	}
+	merged := maps.Clone(base)
+	maps.Copy(merged, defs)
+	return merged
+}
+
+// isRosterName reports whether name is a plain roster agent rather than a definition selector.
+func isRosterName(name string) bool { return slices.Contains(rosterNames(), name) }
 
 type clientUsageError struct{ error }
 

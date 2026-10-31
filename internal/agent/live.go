@@ -146,10 +146,11 @@ type liveSession struct {
 // rec.Request.Timeout is the idle limit; the record is finalized on the way out.
 func ServeLive(ctx context.Context, rec *Record, notify func(string)) (err error) {
 	req, name := rec.Request, rec.Agent
-	be := liveBackendFor(name)
-	if be == nil {
+	lc, ok := liveCapable(name)
+	if !ok {
 		return fmt.Errorf("%s has no live mode (claude|gemini)", name)
 	}
+	be := lc.newLive()
 	release, err := AcquireLiveSlot()
 	if err != nil {
 		return err

@@ -112,37 +112,8 @@ var ErrOwnLogin = errors.New("agent runs on its own login")
 
 // fallbackTarget is each vendor's own route to a working credential when the session provider has none.
 func fallbackTarget(reg *providers.Registry, name string) (providers.Target, string, bool) {
-	switch name {
-	case "codex":
-		if p, ok := loginProvider(reg, "openai", "codex"); ok && codexChatGPTLogin() == nil {
-			// codex's own config.toml model beats the catalog: the ChatGPT account only serves what codex itself lists.
-			model := p.Models[models.Opus]
-			if own := codexOwnModel(); own != "" {
-				model = own
-			}
-			t, _ := providers.ResolveAgentModel(providers.ModelAsk{Agent: name, Target: providers.Target{Provider: p, Model: model}}) // pin beats both
-			return t, "chatgpt (codex login)", true
-		}
-	case "copilot":
-		// copilot's own chain (DescribeRoute): its GitHub login, then BYOK with an anthropic or gemini key.
-		if ri := DescribeRoute(reg, "copilot"); ri.OK {
-			if t, ok := routeTarget(reg, ri); ok {
-				return t, ri.Reason, true
-			}
-		}
-	case "gemini":
-		if p, ok := loginProvider(reg, "google", "gemini"); ok && GeminiLoginPresent() {
-			// the GEMINI_MODEL pin beats the registry's bare slot id
-			t, _ := providers.ResolveAgentModel(providers.ModelAsk{Agent: name, Target: providers.Target{Provider: p, Model: p.Models[models.Opus]}})
-			return t, "gemini (Google login via agy)", true
-		}
-	case "opencode":
-		// opencode's own chain (DescribeRoute): its own GitHub Copilot login, then an anthropic or gemini key.
-		if ri := DescribeRoute(reg, "opencode"); ri.OK {
-			if t, ok := routeTarget(reg, ri); ok {
-				return t, ri.Reason, true
-			}
-		}
+	if e, ok := engines[name]; ok {
+		return e.fallbackTarget(reg)
 	}
 	return providers.Target{}, "", false
 }

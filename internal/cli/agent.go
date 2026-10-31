@@ -40,7 +40,9 @@ func cmdAsk(args []string) int { return runAsk(args, false) }
 // runAsk is cmdAsk; resume makes the first positional the session id (`<agent> resume [flags] <id> <task>`).
 func runAsk(args []string, resume bool) int {
 	fs := helptext.NewFlagSet("ask", askPage)
-	name := fs.String("agent", "claude", "vendor, agents/<name>.md name, or vendor:name")
+	name := fs.String("agent", "claude", "vendor, agents/<name>.md, vendor:name, or an --agents key")
+	var agents agentsFlag
+	fs.Var(&agents, "agents", "agent definitions: --agent takes their keys")
 	fallback := fs.String("fallback", agent.FallbackAll, "fallback: all (agents, then claude)|agents|none")
 	native := fs.Bool("native", false, "opencode: skip the hub ladder; run on its default login")
 	provider := fs.String("profile", "", "profile or hub start (default: pin, then registry)")
@@ -95,14 +97,22 @@ func runAsk(args []string, resume bool) int {
 	if err != nil {
 		return failAskCode(*format, *name, err, 2)
 	}
-	vendor, persona, err := agent.SelectAgent(*name, nil)
+	var defs map[string]*agent.Schema
+	if agents != "" {
+		if defs, err = agent.ParseAgents(string(agents)); err != nil {
+			return failAskCode(*format, *name, err, 2)
+		}
+	}
+	if *host != "" && agents != "" {
+		return failAskCode(*format, *name, errors.New("--host cannot be combined with --agents: the remote cannot see an inline definition"), 2)
+	}
+	vendor, persona, err := agent.SelectAgent(*name, defs)
 	if err != nil {
 		return failAskCode(*format, *name, err, 2)
 	}
-	*name = vendor
 	if *live {
 		if persona != nil {
-			return failAskCode(*format, *name, errors.New("--live cannot run an agents/<name>.md persona: use a plain vendor"), 2)
+			return failAskCode(*format, *name, errors.New("--live cannot run a persona (agents/<name>.md or an --agents key): use a plain vendor"), 2)
 		}
 		if err := askLiveCheck(fs, *name); err != nil {
 			return failAskCode(*format, *name, err, 2)
@@ -118,7 +128,7 @@ func runAsk(args []string, resume bool) int {
 		base := agent.RunOptions{Model: *model, Provider: *provider, Effort: *effort, WorkDir: *workdir, Tools: *tools, NoTools: *noTools,
 			Timeout: *timeout, KeepEnv: []string(keepEnv), Autonomous: *autonomous, EnableMemory: *enableMemory, Direct: *direct,
 			NoPersist: *noPersist, SafeMode: *safeMode, SystemPrompt: *systemPrompt, AppendSystemPrompt: *appendSystemPrompt,
-			Env: []string(env), OutputSchema: schema, Persona: persona}
+			Env: []string(env), OutputSchema: schema, Agents: defs}
 		return runAskBatch(fs, resume, *batch, batchOpts{jobs: *jobs, failFast: *failFast, agent: *name, fallback: *fallback, native: *native}, base)
 	}
 	if flagExplicit(fs, "jobs") || flagExplicit(fs, "fail-fast") {
@@ -149,10 +159,13 @@ func runAsk(args []string, resume bool) int {
 			return rc
 		}
 	}
-	if rest, p, rerr := agent.SelectAgent(*name, nil); rerr != nil { // a --retry re-parse puts the raw --agent value back
+	if rest, p, rerr := agent.SelectAgent(*name, defs); rerr != nil { // a --retry re-parse puts the raw --agent value back
 		return failAskCode(*format, *name, rerr, 2)
-	} else if *name = rest; p != nil { // an explicit persona beats the record's
-		persona = p
+	} else {
+		vendor = rest
+		if p != nil { // an explicit persona beats the record's
+			persona = p
+		}
 	}
 	if *outputSchema != "" { // a --retry/--job record may carry an already-resolved schema
 		if schema, err = agent.ResolveOutputSchema(*outputSchema); err != nil {
@@ -187,8 +200,8 @@ func runAsk(args []string, resume bool) int {
 	if *retry == "" && *job == "" && *tools && !timeoutExplicit(fs) {
 		*timeout = 45 * time.Minute
 	}
-	if s, ok := agent.LookupSchema(*name); *enableMemory && ok && s.CLI.Caps.Memory == agent.None {
-		fmt.Fprintf(os.Stderr, "ask: --enable-memory has no effect on the %s agent (copilot only)\n", *name)
+	if s, ok := agent.LookupSchema(vendor); *enableMemory && ok && s.CLI.Caps.Memory == agent.None {
+		fmt.Fprintf(os.Stderr, "ask: --enable-memory has no effect on the %s agent (copilot only)\n", vendor)
 	}
 	*debugFile = absDebugFile(*debugFile)
 	req := agent.RunOptions{Prompt: prompt, Model: *model, Provider: *provider, Effort: *effort,
@@ -196,7 +209,7 @@ func runAsk(args []string, resume bool) int {
 		Attach: []string(attach), KeepEnv: []string(keepEnv), Autonomous: *autonomous, EnableMemory: *enableMemory, Direct: *direct,
 		NoPersist: *noPersist, SafeMode: *safeMode, DebugFile: *debugFile, SystemPrompt: *systemPrompt,
 		AppendSystemPrompt: *appendSystemPrompt, Env: []string(env), OutputSchema: schema, Persona: persona,
-		Agent: *name, Fallback: *fallback, Native: *native, Host: *host, RemoteBin: *remoteBin, Rubric: *rubric, Background: *background}
+		Agent: *name, Agents: defs, Fallback: *fallback, Native: *native, Host: *host, RemoteBin: *remoteBin, Rubric: *rubric, Background: *background}
 	client := newClient()
 	prepared, err := client.Prepare(ctx, req, jobRec)
 	if err != nil {
@@ -414,6 +427,20 @@ func (e *envFlag) Placeholder() string { return "NAME=VALUE" }
 // Set accepts anything: the flag parser echoes a rejected value in its error, so runAsk validates after Parse.
 func (e *envFlag) Set(s string) error {
 	*e = append(*e, s)
+	return nil
+}
+
+// agentsFlag is the --agents value: inline JSON or a file of agent definitions.
+type agentsFlag string
+
+func (a *agentsFlag) String() string { return string(*a) }
+
+// Placeholder names the FLAGS placeholder for agentsFlag (helptext.Placeholder).
+func (a *agentsFlag) Placeholder() string { return "JSON|FILE" }
+
+// Set accepts anything: the flag parser echoes a rejected value in its error, so runAsk validates after Parse.
+func (a *agentsFlag) Set(s string) error {
+	*a = agentsFlag(s)
 	return nil
 }
 

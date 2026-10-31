@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"os/exec"
 	"slices"
 	"strings"
@@ -93,18 +92,21 @@ func namesProvider(reg *providers.Registry, spec string) bool {
 }
 
 // vendorRunner execs an agent CLI's headless mode wired by ConfigureHeadless.
-type vendorRunner struct{ name string }
+type vendorRunner struct{ eng headlessEngine }
 
-func (v vendorRunner) Name() string { return v.name }
+// newVendorRunner is the runner for a roster CLI with a headless engine: codex, gemini or opencode.
+func newVendorRunner(name string) vendorRunner { return vendorRunner{engines[name].(headlessEngine)} }
+
+func (v vendorRunner) Name() string { return v.eng.Name() }
 
 // Caps follow each CLI's verified headless flags.
 func (v vendorRunner) Caps() Caps {
-	s, _ := LookupSchema(v.name)
+	s, _ := LookupSchema(v.Name())
 	return s.CLI.Caps
 }
 
 func (v vendorRunner) Available() error {
-	s, _ := LookupSchema(v.name)
+	s, _ := LookupSchema(v.Name())
 	_, err := paths.VendorBin(s.CLI.Binary)
 	return err
 }
@@ -120,30 +122,27 @@ type vendorPrep struct {
 
 // prepare resolves req's route and headless argv; the Result comes back populated even on error.
 func (v vendorRunner) prepare(ctx context.Context, req RunOptions) (vendorPrep, error) {
-	t, own, err := vendorTarget(req, v.name)
+	name := v.Name()
+	t, own, err := vendorTarget(req, name)
 	if err != nil {
 		return vendorPrep{}, err
 	}
-	p := vendorPrep{t: t, res: Result{Provider: ownProfile(v.name), Model: t.Model, SessionID: req.SessionID}}
+	p := vendorPrep{t: t, res: Result{Provider: ownProfile(name), Model: t.Model, SessionID: req.SessionID}}
 	if !own {
 		if t.Provider == nil { // vendorTargetNote can report a non-own target with no provider resolved
-			return p, &Error{Kind: KindFatal, Agent: v.name, Err: errors.New("agent target resolved to no provider")}
+			return p, &Error{Kind: KindFatal, Agent: name, Err: errors.New("agent target resolved to no provider")}
 		}
 		p.res.Provider = t.Provider.Name
-		if v.name == "codex" { // configureRoute swaps a non-Responses model; report the one codex runs
-			p.res.Model = codexRanModel(t)
-		}
+		p.res.Model = v.eng.ranModel(t)
 	}
-	p.prompt, err = v.attachPrompt(req.Prompt, req.Attach, req.Tools)
+	p.prompt, err = v.eng.attach(req.Prompt, req.Attach, req.Tools)
 	if err != nil {
-		return p, &Error{Kind: KindFatal, Agent: v.name, Err: err}
+		return p, &Error{Kind: KindFatal, Agent: name, Err: err}
 	}
-	if req.Autonomous && v.name == "codex" {
-		fmt.Fprintln(os.Stderr, "ask: codex exec has no ask-step to disable; --tools already grants workspace-write")
-	}
-	s, _ := LookupSchema(v.name)
+	ct := v.eng.before(req, t)
+	s, _ := LookupSchema(name)
 	if s.CLI.PromptInArgv && len(p.prompt) > MaxPromptBytes {
-		return p, &Error{Kind: KindFatal, Agent: v.name, Err: errPromptTooLarge(len(p.prompt))}
+		return p, &Error{Kind: KindFatal, Agent: name, Err: errPromptTooLarge(len(p.prompt))}
 	}
 	h := Headless{Prompt: p.prompt, Effort: req.Effort, SessionID: req.SessionID, Tools: req.Tools,
 		Autonomous: req.Autonomous, Attach: req.Attach, NoPersist: req.NoPersist, SafeMode: req.SafeMode}
@@ -151,20 +150,14 @@ func (v vendorRunner) prepare(ctx context.Context, req RunOptions) (vendorPrep, 
 		h.WorkDir = req.WorkDir // cmd.Dir alone doesn't move opencode's own cwd resolution; --dir does
 	}
 	if own {
-		p.env, p.argv, err = ownLoginHeadless(v.name, h)
+		p.env, p.argv, err = ownLoginHeadless(name, h)
 	} else {
-		ct := t
-		if v.name == "gemini" { // the gateway route lists the model agy will run, not the row's slot id
-			ct.Model = agyModel(req, t)
-		}
-		p.env, p.argv, err = configureHeadless(ctx, v.name, ct, h)
+		p.env, p.argv, err = configureHeadless(ctx, name, ct, h)
 	}
 	if err != nil {
-		return p, &Error{Kind: KindFatal, Agent: v.name, Err: err}
+		return p, &Error{Kind: KindFatal, Agent: name, Err: err}
 	}
-	if v.name == "opencode" && req.SystemPrompt != "" {
-		p.env, p.argv = opencodeSystemPrompt(p.env, p.argv, req.SystemPrompt)
-	}
+	v.eng.after(&p, req)
 	p.env = append(p.env, req.Env...) // --env goes last, after the route keys, so it wins
 	return p, nil
 }
@@ -193,87 +186,10 @@ func (p vendorPrep) agyRequest(req RunOptions) agyRequest {
 func (v vendorRunner) Run(ctx context.Context, req RunOptions, sink Sink) (Result, error) {
 	ctx = directCtx(ctx, req)
 	p, err := v.prepare(ctx, req)
-	res, prompt, env, argv := p.res, p.prompt, p.env, p.argv
 	if err != nil {
-		return res, err
+		return p.res, err
 	}
-	if v.name == "gemini" {
-		areq := p.agyRequest(req)
-		res.Model = areq.Model
-		out, err := runAgy(ctx, areq, sink)
-		res.Answer, res.Usage, res.Transport, res.Structured = out.Answer, out.Usage, out.Transport, out.Structured
-		if out.SessionID != "" {
-			res.SessionID = out.SessionID
-		}
-		return res, err
-	}
-	s, _ := LookupSchema(v.name)
-	bin, err := paths.VendorBin(s.CLI.Binary)
-	if err != nil {
-		return res, &Error{Kind: KindFatal, Agent: v.name, Err: err}
-	}
-	var answer strings.Builder
-	var banner headBuffer
-	stdin := ""
-	if v.name == "codex" {
-		stdin = prompt // codex exec reads the prompt from stdin behind its `-` operand
-	}
-	codexJSON := false
-	if v.name == "codex" {
-		var extra []string
-		if req.SystemPrompt != "" {
-			extra = append(extra, "-c", "instructions="+tomlQuote(req.SystemPrompt))
-		}
-		if req.AppendSystemPrompt != "" {
-			extra = append(extra, "-c", "developer_instructions="+tomlQuote(req.AppendSystemPrompt))
-		}
-		if req.OutputSchema != "" {
-			file, err := codexSchemaFile(req.OutputSchema)
-			if err != nil {
-				return res, &Error{Kind: KindFatal, Agent: v.name, Err: err}
-			}
-			defer func() { _ = os.Remove(file) }()
-			extra = append(extra, "--output-schema", file)
-		}
-		if codexJSON = codexHasJSON(); codexJSON {
-			extra = append(extra, "--json")
-		}
-		argv = codexExecArgs(codexImageArgs(argv, req.Attach), extra...)
-	}
-	cmd, tail := childCmd(ctx, bin, argv, env, req.WorkDir, stdin, req.KeepEnv, true)
-	cmd.Stderr = io.MultiWriter(cmd.Stderr, &banner)
-	if codexJSON {
-		return v.runStream(ctx, cmd, tail, res, sink, parseCodexStream)
-	}
-	if v.name == "opencode" {
-		return v.runStream(ctx, cmd, tail, res, sink, parseOpenCodeStream)
-	}
-	cmd.Stdout = teeWriter(ctx, io.MultiWriter(sinkWriter(sink), &answer))
-	err = cmd.Run()
-	res.Answer = strings.TrimSpace(answer.String())
-	if id := sessionFromBanner(banner.String()); id != "" {
-		res.SessionID = id
-	}
-	if err == nil && res.Answer == "" {
-		return res, emptyAnswer(v.name)
-	}
-	return res, childErr(ctx, v.name, err, tail)
-}
-
-// attachPrompt folds --attach into the prompt for agents with no file-list argv (codex, gemini).
-func (v vendorRunner) attachPrompt(prompt string, paths []string, tools bool) (string, error) {
-	switch v.name {
-	case "codex":
-		_, rest := splitImages(paths) // images ride codex's -i flag (codexImageArgs)
-		return attachInline(prompt, rest)
-	case "gemini":
-		if tools {
-			return attachSuffix(prompt, paths), nil
-		}
-		return attachInline(prompt, paths)
-	default:
-		return prompt, nil
-	}
+	return v.eng.exec(ctx, p, req, sink)
 }
 
 // codexImageArgs adds `-i <img>` after the exec subcommand; -i is variadic, so the next token must be a flag.
@@ -296,9 +212,9 @@ func emptyAnswer(name string) error {
 }
 
 // runStream reads a CLI's JSON event stream: the answer, session id, usage and errors ride in it.
-func (v vendorRunner) runStream(ctx context.Context, cmd *exec.Cmd, tail *TailBuffer, res Result, sink Sink,
+func runStream(ctx context.Context, name string, cmd *exec.Cmd, tail *TailBuffer, res Result, sink Sink,
 	parse func(*bufio.Reader, Sink, func(), ...eventLog) (Result, error)) (Result, error) {
-	out, err := runEventStream(ctx, v.name, cmd, tail, sink, parse, nil)
+	out, err := runEventStream(ctx, name, cmd, tail, sink, parse, nil)
 	res.Answer, res.Usage, res.Transport = out.Answer, out.Usage, out.Transport
 	if out.SessionID != "" {
 		res.SessionID = out.SessionID

@@ -3,7 +3,10 @@ package agent
 import (
 	"cmp"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -66,12 +69,77 @@ func LoadSchema(ref string) (*Schema, error) {
 	return p, nil
 }
 
-// SelectAgent resolves an --agent value: a roster name, an agents key, vendor:name, or agents/<name>.md or a file.
-func SelectAgent(ref string, agents map[string]*Schema) (runner string, def *Schema, err error) {
+// agentsDef is the strict wire shape of one --agents entry; every key is optional except the prompt.
+type agentsDef struct {
+	Description string   `json:"description"`
+	Prompt      string   `json:"prompt"`
+	Tools       []string `json:"tools"` // nil = inherit, empty = no tools
+	Model       string   `json:"model"`
+	MaxTurns    int      `json:"max_turns"`
+	Runner      string   `json:"runner"`
+	Profile     string   `json:"profile"`
+	Effort      string   `json:"effort"`
+}
+
+// ParseAgents reads an --agents argument: inline JSON when it starts with "{", else a file of the same shape.
+func ParseAgents(arg string) (map[string]*Schema, error) {
+	body := strings.TrimSpace(arg)
+	if body == "" {
+		return nil, errors.New("--agents: no definitions")
+	}
+	if !strings.HasPrefix(body, "{") {
+		data, err := os.ReadFile(arg)
+		if err != nil {
+			return nil, fmt.Errorf("--agents: %w", err)
+		}
+		body = strings.TrimSpace(string(data))
+	}
+	dec := json.NewDecoder(strings.NewReader(body))
+	dec.DisallowUnknownFields()
+	var wire map[string]agentsDef
+	if err := dec.Decode(&wire); err != nil {
+		return nil, fmt.Errorf("--agents: %w", err)
+	}
+	if extra := (json.RawMessage)(nil); !errors.Is(dec.Decode(&extra), io.EOF) {
+		return nil, errors.New("--agents: trailing data after the JSON object")
+	}
+	return buildAgents(wire)
+}
+
+// buildAgents validates the decoded entries in key order and stamps each Schema.Name with its key.
+func buildAgents(wire map[string]agentsDef) (map[string]*Schema, error) {
+	names := rosterNames()
+	agents := make(map[string]*Schema, len(wire))
+	for _, key := range slices.Sorted(maps.Keys(wire)) {
+		d := wire[key]
+		switch {
+		case slices.Contains(names, key):
+			return nil, fmt.Errorf("--agents: key %q is a roster agent name (%s)", key, strings.Join(names, "|"))
+		case !personaNameRE.MatchString(key):
+			return nil, fmt.Errorf("--agents: key %q is not a valid agent name", key)
+		case strings.TrimSpace(d.Prompt) == "":
+			return nil, fmt.Errorf("--agents: %s has no prompt", key)
+		case d.Runner != "" && !slices.Contains(names, d.Runner):
+			return nil, fmt.Errorf("--agents: %s runner %q is not a roster agent (%s)", key, d.Runner, strings.Join(names, "|"))
+		}
+		agents[key] = &Schema{Name: key, Description: d.Description, Prompt: d.Prompt, Tools: d.Tools, Model: d.Model,
+			MaxTurns: d.MaxTurns, Runner: d.Runner, Profile: d.Profile, Effort: d.Effort}
+	}
+	return agents, nil
+}
+
+// rosterNames lists the roster agents' names, claude first.
+func rosterNames() []string {
 	var names []string
 	for _, r := range Runners() {
 		names = append(names, r.Name())
 	}
+	return names
+}
+
+// SelectAgent resolves an --agent value: a roster name, an agents key, vendor:name, or agents/<name>.md or a file.
+func SelectAgent(ref string, agents map[string]*Schema) (runner string, def *Schema, err error) {
+	names := rosterNames()
 	if slices.Contains(names, ref) {
 		return ref, nil, nil
 	}
@@ -128,9 +196,6 @@ func emulatePersona(c Caps, req RunOptions, dropped []string) (RunOptions, []str
 	p := req.Persona
 	if p.Tools != nil {
 		dropped = append(dropped, "persona.tools="+cmp.Or(strings.Join(p.Tools, ","), "none"))
-	}
-	if p.Model != "" {
-		dropped = append(dropped, "persona.model="+p.Model)
 	}
 	if p.MaxTurns > 0 {
 		dropped = append(dropped, fmt.Sprintf("persona.max_turns=%d", p.MaxTurns))

@@ -444,49 +444,23 @@ func vendorKeyTarget(reg *providers.Registry, name string) keyTarget {
 		}
 		return keyTarget{label: name, present: false, fixCmd: hint}
 	}
-	switch name {
-	case "codex":
-		if agent.CodexChatGPTLoginPresent() {
-			return keyTarget{label: name, present: true, source: "ChatGPT login (codex login)",
-				loginArgv: []string{"codex", "login"}} // rotate: re-run the same ChatGPT sign-in
-		}
-		kt := fallback()
-		if !kt.present {
-			kt.loginArgv = []string{"codex", "login"}
+	s, _ := agent.LookupSchema(name)
+	if present, source := agent.LoginStatus(name); present {
+		kt := keyTarget{label: name, present: true, source: source}
+		// copilot's label is the only trace of its source: a gh account or env token has no sign-in to re-run
+		if name != "copilot" || strings.HasSuffix(source, "copilot login") {
+			kt.loginArgv = s.CLI.LoginArgv // rotate: re-run the CLI's own sign-in
 		}
 		return kt
-	case "copilot":
-		if a, ok := agent.ResolveCopilotAuth(); ok {
-			kt := keyTarget{label: name, present: true, source: a.Label()}
-			if a.Source == "copilot login" || a.Source == "gh" {
-				kt.loginArgv = []string{"copilot", "login"} // rotate: re-run copilot's own sign-in
-			}
-			return kt
-		}
-		kt := fallback()
-		if !kt.present {
-			kt.loginArgv = []string{"copilot", "login"}
-		}
-		return kt
-	case "gemini":
-		if agent.GeminiLoginPresent() {
-			return keyTarget{label: name, present: true, source: "Google login (agy)",
-				loginArgv: []string{"agy"}} // rotate: re-run `agy` and sign in again
-		}
-		return keyTarget{label: name, present: false, loginArgv: []string{"agy"}, fixCmd: "run `agy` to sign in with Google"}
-	case "opencode":
-		if names := agent.OpencodeLogins(); len(names) > 0 {
-			return keyTarget{label: name, present: true, source: "opencode auth login: " + strings.Join(names, ", "),
-				loginArgv: []string{"opencode", "auth", "login"}} // rotate: re-run opencode's own login
-		}
-		kt := fallback()
-		if !kt.present {
-			kt.loginArgv = []string{"opencode", "auth", "login"}
-		}
-		return kt
-	default:
-		return fallback()
 	}
+	if name == "gemini" { // agy has no key route, so nothing to fall back to
+		return keyTarget{label: name, present: false, loginArgv: s.CLI.LoginArgv, fixCmd: "run `agy` to sign in with Google"}
+	}
+	kt := fallback()
+	if !kt.present {
+		kt.loginArgv = s.CLI.LoginArgv
+	}
+	return kt
 }
 
 func runKeysChanged(d *dialog) (allOK, changed bool) {

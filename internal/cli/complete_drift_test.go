@@ -228,8 +228,8 @@ func TestFlagEqualsValueForm(t *testing.T) {
 		}
 	}
 	// A bare flag with no "=" is untouched by the new branch.
-	if got := completionCandidates([]string{"ask", "--agent"}); !slices.Equal(got, []string{"--agent"}) {
-		t.Errorf("ask --agent (no =) = %v, want [--agent] unaffected", got)
+	if got := completionCandidates([]string{"ask", "--agent"}); !slices.Equal(got, []string{"--agent", "--agents"}) {
+		t.Errorf("ask --agent (no =) = %v, want [--agent --agents] (prefix match, no = branch)", got)
 	}
 }
 
@@ -347,7 +347,7 @@ func TestAskFlagsMatchItsOwnFlagSet(t *testing.T) {
 	}
 	slices.Sort(got)
 	want := []string{
-		"agent", "attach", "autonomous", "background", "batch", "debug-file", "effort", "enable-memory", "fail-fast", "fallback",
+		"agent", "agents", "attach", "autonomous", "background", "batch", "debug-file", "effort", "enable-memory", "fail-fast", "fallback",
 		"format", "job", "jobs", "keep-env", "log", "model", "native", "no-persist", "no-tools", "profile", "retry", "rubric", "safe-mode", "session", "timeout",
 		"tools", "workdir",
 	}
