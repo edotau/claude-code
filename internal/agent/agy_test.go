@@ -16,9 +16,8 @@ func TestParseAgyStreamResultApplication(t *testing.T) {
 		usage                                      Usage
 	}{
 		{
-			name: "response fallback and result metadata",
-			stream: init + `{"event":"result","result":{"status":"SUCCESS","conversation_id":"result-id",
-				"response":" answer \n","usage":{"input_tokens":7,"output_tokens":3,"thinking_tokens":2,"cache_read_tokens":4}}}`,
+			name:   "response fallback and result metadata",
+			stream: init + `{"event":"result","result":{"status":"SUCCESS","conversation_id":"result-id","response":" answer \n","usage":{"input_tokens":7,"output_tokens":3,"thinking_tokens":2,"cache_read_tokens":4}}}`,
 			answer: "answer", output: " answer \n", session: "result-id",
 			usage: Usage{InputTokens: 7, OutputTokens: 5, CacheReadTokens: 4},
 		},
@@ -28,9 +27,8 @@ func TestParseAgyStreamResultApplication(t *testing.T) {
 			answer: "partial", output: " partial ", session: "init-id",
 		},
 		{
-			name: "failure retains partial answer and usage",
-			stream: init + delta + `{"event":"result","result":{"status":"ERROR","response":"not emitted",
-				"error":"upstream failed","usage":{"input_tokens":7,"thinking_tokens":2}}}`,
+			name:   "failure retains partial answer and usage",
+			stream: init + delta + `{"event":"result","result":{"status":"ERROR","response":"not emitted","error":"upstream failed","usage":{"input_tokens":7,"thinking_tokens":2}}}`,
 			answer: "partial", output: " partial ", session: "init-id", err: "upstream failed",
 			usage: Usage{InputTokens: 7, OutputTokens: 2},
 		},
@@ -46,7 +44,7 @@ func TestParseAgyStreamResultApplication(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			var out strings.Builder
-			res, err := parseAgyStream(strings.NewReader(tc.stream), NewTextSink(&out), nil)
+			res, err := parseAgyStream(newBR(tc.stream), NewTextSink(&out), nil)
 			if (err == nil) != (tc.err == "") || err != nil && err.Error() != tc.err {
 				t.Fatalf("err = %v, want %q", err, tc.err)
 			}
@@ -110,7 +108,7 @@ func TestParseAgyStreamWriteErrors(t *testing.T) {
 		agyOK,
 		`{"event":"result","result":{"status":"SUCCESS","response":"fallback"}}`,
 	} {
-		if _, err := parseAgyStream(strings.NewReader(stream), NewTextSink(failingStreamWriter{}), nil); !errors.Is(err, io.ErrClosedPipe) {
+		if _, err := parseAgyStream(newBR(stream), NewTextSink(failingStreamWriter{}), nil); !errors.Is(err, io.ErrClosedPipe) {
 			t.Fatalf("err = %v, want closed pipe", err)
 		}
 	}
@@ -141,7 +139,7 @@ func truncateBeforeResult(t *testing.T, stream string) string {
 func TestParseAgyStream_TruncatedNoResult(t *testing.T) {
 	truncated := truncateBeforeResult(t, agyOK)
 	var out strings.Builder
-	res, err := parseAgyStream(strings.NewReader(truncated), NewTextSink(&out), nil)
+	res, err := parseAgyStream(newBR(truncated), NewTextSink(&out), nil)
 	if err == nil || err.Error() != "agy: stream ended without a result event" {
 		t.Fatalf("err = %v, want \"agy: stream ended without a result event\"", err)
 	}
@@ -172,7 +170,7 @@ func TestParseAgyStreamPartial(t *testing.T) {
 		"open command": text + step("run_command", "ACTIVE") + ok,
 		"empty answer": step("user_input", "DONE") + ok,
 	} {
-		res, err := parseAgyStream(strings.NewReader(stream), NewTextSink(&strings.Builder{}), nil)
+		res, err := parseAgyStream(newBR(stream), NewTextSink(&strings.Builder{}), nil)
 		var e *Error
 		if !errors.As(err, &e) || !e.Progressed || statusOf(e) != StatusPartial {
 			t.Errorf("%s: err = %v, want a partial-status error", name, err)
@@ -180,7 +178,7 @@ func TestParseAgyStreamPartial(t *testing.T) {
 		_ = res
 	}
 	done := text + step("run_command", "DONE") + `{"event":"step_update","step_update":{"step_type":"agent_response","text_delta":" done"}}` + "\n" + ok
-	if _, err := parseAgyStream(strings.NewReader(done), NewTextSink(&strings.Builder{}), nil); err != nil {
+	if _, err := parseAgyStream(newBR(done), NewTextSink(&strings.Builder{}), nil); err != nil {
 		t.Errorf("finished command then answer: err = %v, want nil", err)
 	}
 }
@@ -196,12 +194,12 @@ func TestParseAgyStreamOpenCommandSurvivesResponse(t *testing.T) {
 	}
 	text := `{"event":"step_update","step_update":{"step_type":"agent_response","text_delta":"bg"}}` + "\n"
 	ok := `{"event":"result","result":{"status":"SUCCESS"}}`
-	_, err := parseAgyStream(strings.NewReader(step("ACTIVE")+text+ok), NewTextSink(&strings.Builder{}), nil)
+	_, err := parseAgyStream(newBR(step("ACTIVE")+text+ok), NewTextSink(&strings.Builder{}), nil)
 	var e *Error
 	if !errors.As(err, &e) || statusOf(e) != StatusPartial {
 		t.Errorf("active command then response: err = %v, want partial", err)
 	}
-	if _, err := parseAgyStream(strings.NewReader(step("")+text+ok), NewTextSink(&strings.Builder{}), nil); err != nil {
+	if _, err := parseAgyStream(newBR(step("")+text+ok), NewTextSink(&strings.Builder{}), nil); err != nil {
 		t.Errorf("state-less step: err = %v, want nil", err)
 	}
 }

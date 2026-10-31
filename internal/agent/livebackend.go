@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"bufio"
 	"cmp"
 	"context"
 	"encoding/json"
@@ -18,7 +19,7 @@ type liveBackend interface {
 	build(ctx context.Context, req RunOptions) (cmd *exec.Cmd, tail *TailBuffer, provider string, err error)
 	writeTurn(w io.Writer, prompt string) error
 	// parse reads dec up to and including the turn's result event; usage and cost are that turn's alone.
-	parse(dec *json.Decoder, sink Sink, lg eventLog) (Result, error)
+	parse(dec *bufio.Reader, sink Sink, lg eventLog) (Result, error)
 }
 
 // liveBackendFor is a fresh backend for the agent name, or nil when the agent has no live mode.
@@ -50,7 +51,7 @@ func (*claudeLive) writeTurn(w io.Writer, prompt string) error {
 }
 
 // parse prices the turn alone: claude's total_cost_usd accumulates over the process, its token counts do not.
-func (b *claudeLive) parse(dec *json.Decoder, sink Sink, lg eventLog) (Result, error) {
+func (b *claudeLive) parse(dec *bufio.Reader, sink Sink, lg eventLog) (Result, error) {
 	res, err := parseClaudeEvents(dec, true, sink, lg)
 	total := res.Usage.CostUSD
 	res.Usage.CostUSD = max(total-b.prevCost, 0)
@@ -100,7 +101,7 @@ func (b *agyLive) writeTurn(w io.Writer, prompt string) error {
 }
 
 // parse subtracts the usage already reported: agy's result usage is cumulative over the conversation.
-func (b *agyLive) parse(dec *json.Decoder, sink Sink, lg eventLog) (Result, error) {
+func (b *agyLive) parse(dec *bufio.Reader, sink Sink, lg eventLog) (Result, error) {
 	res, err := parseAgyEvents(dec, sink, true, lg)
 	total := res.Usage
 	if b.resumed { // the history behind a --session is unknown: this turn reports no usage, later ones their delta

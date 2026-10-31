@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"bufio"
 	"cmp"
 	"context"
 	"encoding/json"
@@ -296,7 +297,7 @@ func emptyAnswer(name string) error {
 
 // runStream reads a CLI's JSON event stream: the answer, session id, usage and errors ride in it.
 func (v vendorRunner) runStream(ctx context.Context, cmd *exec.Cmd, tail *TailBuffer, res Result, sink Sink,
-	parse func(io.Reader, Sink, func(), ...eventLog) (Result, error)) (Result, error) {
+	parse func(*bufio.Reader, Sink, func(), ...eventLog) (Result, error)) (Result, error) {
 	out, err := runEventStream(ctx, v.name, cmd, tail, sink, parse, nil)
 	res.Answer, res.Usage, res.Transport = out.Answer, out.Usage, out.Transport
 	if out.SessionID != "" {
@@ -307,7 +308,7 @@ func (v vendorRunner) runStream(ctx context.Context, cmd *exec.Cmd, tail *TailBu
 
 // runEventStream runs cmd, decoding stdout via parse while streaming live; onMeaningful fires on the first model event.
 func runEventStream(ctx context.Context, name string, cmd *exec.Cmd, tail *TailBuffer, sink Sink,
-	parse func(io.Reader, Sink, func(), ...eventLog) (Result, error), onMeaningful func()) (Result, error) {
+	parse func(*bufio.Reader, Sink, func(), ...eventLog) (Result, error), onMeaningful func()) (Result, error) {
 	var res Result
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -317,7 +318,7 @@ func runEventStream(ctx context.Context, name string, cmd *exec.Cmd, tail *TailB
 		return res, childErr(ctx, name, err, tail)
 	}
 	// the parser writes formatted event lines to the dispatch log and fires onMeaningful on its first real event.
-	out, perr := parse(stdout, sink, onMeaningful, eventLogFor(ctx))
+	out, perr := parse(bufio.NewReader(stdout), sink, onMeaningful, eventLogFor(ctx))
 	_, _ = io.Copy(io.Discard, stdout)
 	werr := cmd.Wait()
 	res.Answer, res.Usage, res.SessionID, res.Transport, res.Structured = out.Answer, out.Usage, out.SessionID, out.Transport, out.Structured
@@ -369,20 +370,17 @@ func isMeaningfulOpenCodeEvent(ev openCodeEvent) bool {
 }
 
 // parseOpenCodeStream streams the root session's text parts; onMeaningful fires once on the first meaningful event.
-func parseOpenCodeStream(r io.Reader, sink Sink, onMeaningful func(), logs ...eventLog) (res Result, _ error) {
+func parseOpenCodeStream(br *bufio.Reader, sink Sink, onMeaningful func(), logs ...eventLog) (res Result, _ error) {
 	ts := transportTracker{start: clock()}
 	defer func() { res.Transport = ts.timing() }()
 	lg := pickLog(logs)
 	var texts, errs []string
 	seenTools := map[string]bool{}
 	fired := false
-	dec := json.NewDecoder(r)
-	for {
+	err := decodeLines(br, lg, func(raw []byte) (bool, error) {
 		var ev openCodeEvent
-		if err := dec.Decode(&ev); errors.Is(err, io.EOF) {
-			break
-		} else if err != nil {
-			return res, fmt.Errorf("decode opencode json: %w", err)
+		if err := json.Unmarshal(raw, &ev); err != nil {
+			return false, fmt.Errorf("decode opencode json: %w", err)
 		}
 		ts.event(clock())
 		if ev.SessionID != "" {
@@ -395,16 +393,16 @@ func parseOpenCodeStream(r io.Reader, sink Sink, onMeaningful func(), logs ...ev
 		switch ev.Type {
 		case "text":
 			if ev.Part.Text == "" {
-				continue
+				return false, nil
 			}
 			if err := sink.Emit(Event{Type: EventText, Text: ev.Part.Text, Sep: len(texts) > 0}); err != nil {
-				return res, err
+				return false, err
 			}
 			texts = append(texts, ev.Part.Text)
 			lg.emit("assistant", ev.Part.Text)
 		case "tool", "tool_use":
 			if err := emitOpenCodeTool(sink, ev, seenTools); err != nil {
-				return res, err
+				return false, err
 			}
 		case "step_finish":
 			t := ev.Part.Tokens
@@ -418,9 +416,13 @@ func parseOpenCodeStream(r io.Reader, sink Sink, onMeaningful func(), logs ...ev
 			errs = append(errs, msg)
 			lg.emit("error", msg)
 			if err := sink.Emit(Event{Type: EventError, Text: msg}); err != nil {
-				return res, err
+				return false, err
 			}
 		}
+		return false, nil
+	})
+	if err != nil {
+		return res, err
 	}
 	res.Answer = strings.TrimSpace(strings.Join(texts, "\n"))
 	if len(errs) > 0 {
