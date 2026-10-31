@@ -184,6 +184,12 @@ func (r *runSink) Emit(ev Event) error {
 }
 
 // toolEvent is a tool_use event for the named tool.
+// emitError logs msg as an error line and emits it as an EventError, returning the sink's error.
+func emitError(lg eventLog, sink Sink, msg string) error {
+	lg.emit("error", msg)
+	return sink.Emit(Event{Type: EventError, Text: msg})
+}
+
 func toolEvent(name, id string) Event {
 	return Event{Type: EventToolUse, Tool: &ToolRef{Name: name, ID: id}}
 }

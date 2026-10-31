@@ -328,7 +328,7 @@ func parseAgyStream(br *bufio.Reader, sink Sink, onMeaningful func(), logs ...ev
 // parseAgyEvents stops at the first result when once is set, preserving buffered lines for the next turn.
 func parseAgyEvents(br *bufio.Reader, sink Sink, once bool, lg eventLog) (res Result, _ error) {
 	ts := transportTracker{start: clock()}
-	defer func() { res.Transport = ts.timing() }()
+	defer func() { res.Transport = ts.result() }()
 	var answer, pending strings.Builder
 	flush := func() {
 		lg.emit("assistant", pending.String())
@@ -341,8 +341,7 @@ func parseAgyEvents(br *bufio.Reader, sink Sink, once bool, lg eventLog) (res Re
 		var ev agyEvent
 		if err := json.Unmarshal(raw, &ev); err != nil {
 			flush()
-			lg.emit("error", "decode agy stream-json: "+err.Error())
-			_ = sink.Emit(Event{Type: EventError, Text: "decode agy stream-json: " + err.Error()}) // the decode error aborts
+			_ = emitError(lg, sink, "decode agy stream-json: "+err.Error()) // the decode error aborts
 			return false, fmt.Errorf("decode agy stream-json: %w", err)
 		}
 		ts.event(clock())
@@ -370,8 +369,7 @@ func parseAgyEvents(br *bufio.Reader, sink Sink, once bool, lg eventLog) (res Re
 			response = ev.Result.Response
 			flush()
 			if err := applyAgyResult(&res, ev); err != nil {
-				lg.emit("error", err.Error())
-				_ = sink.Emit(Event{Type: EventError, Text: err.Error()}) // the agy error returned below aborts
+				_ = emitError(lg, sink, err.Error()) // the agy error returned below aborts
 				res.Answer = strings.TrimSpace(answer.String())
 				if once {
 					err = resultError{err} // the result was consumed: the turn failed, the stream is at a boundary

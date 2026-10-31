@@ -167,14 +167,6 @@ func copilotModelID(id string) string {
 	return id
 }
 
-// directCtx carries req.Direct to Configure (skip the router).
-func directCtx(ctx context.Context, req RunOptions) context.Context {
-	if req.Direct {
-		return WithDirect(ctx)
-	}
-	return ctx
-}
-
 // absPaths makes each path absolute (the SDK sends them to a runtime with its own working directory).
 func absPaths(paths []string) ([]string, error) {
 	out := make([]string, len(paths))

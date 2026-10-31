@@ -267,7 +267,7 @@ type codexEvent struct {
 // command executions become tool events, turn.completed adds usage and turn.failed fails the run.
 func parseCodexStream(br *bufio.Reader, sink Sink, onMeaningful func(), logs ...eventLog) (res Result, _ error) {
 	ts := transportTracker{start: clock()}
-	defer func() { res.Transport = ts.timing() }()
+	defer func() { res.Transport = ts.result() }()
 	lg := pickLog(logs)
 	var last string
 	var failure string
@@ -311,8 +311,7 @@ func parseCodexStream(br *bufio.Reader, sink Sink, onMeaningful func(), logs ...
 			lg.emit("result", fmt.Sprintf("turn finished, tokens in=%d out=%d", u.InputTokens, u.OutputTokens))
 		case ev.Type == "turn.failed":
 			failure = cmp.Or(ev.Error.Message, "codex turn failed")
-			lg.emit("error", failure)
-			if err := sink.Emit(Event{Type: EventError, Text: failure}); err != nil {
+			if err := emitError(lg, sink, failure); err != nil {
 				return false, err
 			}
 		}

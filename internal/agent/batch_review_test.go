@@ -606,7 +606,7 @@ func TestChatStreamWithoutDoneIsRetried(t *testing.T) {
 	}))
 	defer srv.Close()
 	registry(t, srv)
-	res, err := Run(context.Background(), claudeRunner{}, RunOptions{Prompt: "hi", Provider: "toai", NoTools: true}, Discard, nil)
+	res, err := Run(context.Background(), claudeAgent, RunOptions{Prompt: "hi", Provider: "toai", NoTools: true}, Discard, nil)
 	if err != nil || res.Answer != "hi" || res.Transport == nil || res.Transport.Attempts != 2 {
 		t.Fatalf("res=%+v err=%v calls=%d; want an answer on attempt 2", res, err, calls)
 	}

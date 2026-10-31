@@ -13,21 +13,19 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/edotau/claude-code/internal/providers"
 )
 
 // claudeRunner execs `claude -p --output-format stream-json` with the launcher's provider env and overlay.
-type claudeRunner struct{}
+type claudeRunner struct{ baseEngine }
 
-func (claudeRunner) Name() string { return "claude" }
+// claudeAgent is the claude runner; Name and Caps come from the shared base, like every other agent.
+var claudeAgent = claudeRunner{baseEngine{"claude"}}
 
-func (claudeRunner) Caps() Caps {
-	s, _ := LookupSchema("claude")
-	return s.CLI.Caps
-}
+var _ Runner = claudeAgent
 
+// Available also finds the native installer's versions dir (ClaudeBinary), which the base's VendorBin lookup does not.
 func (claudeRunner) Available() error { _, err := ClaudeBinary(); return err }
 
 func (claudeRunner) Run(ctx context.Context, req RunOptions, sink Sink) (Result, error) {
@@ -231,8 +229,7 @@ func parseClaudeEvents(br *bufio.Reader, untilResult bool, sink Sink, logs ...ev
 		case "result":
 			sawResult = true
 			if err := applyClaudeResult(&res, ev); err != nil {
-				lg.emit("error", err.Error())
-				_ = sink.Emit(Event{Type: EventError, Text: err.Error()})
+				_ = emitError(lg, sink, err.Error())
 				return false, err
 			}
 			lg.emit("result", ev.Result)
@@ -241,8 +238,7 @@ func parseClaudeEvents(br *bufio.Reader, untilResult bool, sink Sink, logs ...ev
 			}
 		case "error":
 			if t := ev.text(); t != "" {
-				lg.emit("error", t)
-				_ = sink.Emit(Event{Type: EventError, Text: t})
+				_ = emitError(lg, sink, t)
 				return false, fmt.Errorf("claude: %s", t)
 			}
 		}
@@ -258,44 +254,6 @@ func parseClaudeEvents(br *bufio.Reader, untilResult bool, sink Sink, logs ...ev
 }
 
 var errNoResult = errors.New("claude: stream ended without a result event")
-
-var clock = time.Now
-
-type transportTracker struct {
-	start, last time.Time
-	statuses    []int
-	events      int
-	first, gap  time.Duration
-}
-
-func (t *transportTracker) event(now time.Time) {
-	if t.events == 0 {
-		t.first = now.Sub(t.start)
-	} else if g := now.Sub(t.last); g > t.gap {
-		t.gap = g
-	}
-	t.events++
-	t.last = now
-}
-
-func (t *transportTracker) retry(status *int) {
-	s := 0
-	if status != nil {
-		s = *status
-	}
-	t.statuses = append(t.statuses, s)
-}
-
-func (t *transportTracker) lastStatus() int { return t.statuses[len(t.statuses)-1] }
-
-// result is nil when the stream showed neither a stream_event nor a retry.
-func (t *transportTracker) result() *Transport {
-	if t.events == 0 && len(t.statuses) == 0 {
-		return nil
-	}
-	return &Transport{Retries: len(t.statuses), RetryStatuses: t.statuses,
-		FirstEventMs: t.first.Milliseconds(), MaxGapMs: t.gap.Milliseconds()}
-}
 
 func logClaudeAssistant(lg eventLog, msg claudeMessage) {
 	for _, b := range msg.Content {
@@ -340,11 +298,6 @@ func applyClaudeResult(res *Result, ev claudeEvent) error {
 	}
 	return nil
 }
-
-// resultError is a failed turn whose result event was consumed, so the stream stays at a turn boundary.
-type resultError struct{ error }
-
-func (e resultError) Unwrap() error { return e.error }
 
 func claudeAttach(prompt string, paths []string, tools bool) (string, error) {
 	images, rest := splitImages(paths)
