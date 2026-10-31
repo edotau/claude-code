@@ -42,24 +42,24 @@ func RemoteBin(flagValue string) string {
 	return cmp.Or(flagValue, os.Getenv(RemoteBinEnv), "claude-code")
 }
 
-// remoteRunner runs the named agent through `claude-code ask` on another host over ssh; the remote applies the caps.
-type remoteRunner struct{ agent, host, bin, fallback string }
+// remoteEngine runs the named agent through `claude-code ask` on another host over ssh; the remote applies the caps.
+type remoteEngine struct{ agent, host, bin, fallback string }
 
-// NewRemoteRunner wraps agentName for host; bin is the remote claude-code path (see RemoteBin), fallback the remote's policy.
-func NewRemoteRunner(agentName, host, bin, fallback string) Runner {
-	return remoteRunner{agentName, host, bin, fallback}
+// NewRemoteEngine wraps agentName for host; bin is the remote claude-code path (see RemoteBin), fallback the remote's policy.
+func NewRemoteEngine(agentName, host, bin, fallback string) Engine {
+	return remoteEngine{agentName, host, bin, fallback}
 }
 
-func (r remoteRunner) Name() string { return r.agent }
+func (r remoteEngine) Name() string { return r.agent }
 
 // Caps is all-native: the remote's applyCaps does the dropping, and its envelope reports what it dropped.
-func (r remoteRunner) Caps() Caps {
+func (r remoteEngine) Caps() Caps {
 	n := Native
 	return Caps{Model: n, Provider: n, Effort: n, WorkDir: n, SessionID: n, Tools: n, NoTools: n, Autonomous: n, Memory: n,
 		NoPersist: n, SafeMode: n, Direct: n, SystemPrompt: n, AppendSystemPrompt: n, Env: n, OutputSchema: n, Persona: n}
 }
 
-func (r remoteRunner) Available() error { return nil }
+func (r remoteEngine) Available() error { return nil }
 
 // remoteDropped names the flags that mean nothing on another host.
 func remoteDropped(req RunOptions) []string {
@@ -193,7 +193,7 @@ func resultFromEnvelope(env Envelope, agentName string, dropped []string) Result
 }
 
 // Run streams the remote ask: events are re-emitted on sink, the remote result event becomes the Result.
-func (r remoteRunner) Run(ctx context.Context, req RunOptions, sink Sink) (Result, error) {
+func (r remoteEngine) Run(ctx context.Context, req RunOptions, sink Sink) (Result, error) {
 	argv, err := RemoteArgv(r.host, r.bin, r.agent, r.fallback, req)
 	if err != nil {
 		return Result{Agent: r.agent, Status: StatusError}, &Error{Kind: KindFatal, Agent: r.agent, Err: err}
@@ -257,7 +257,7 @@ func (r remoteRunner) Run(ctx context.Context, req RunOptions, sink Sink) (Resul
 }
 
 // noResult classifies an ssh exit that never delivered a result event.
-func (r remoteRunner) noResult(werr error, tail *TailBuffer, streamed bool) *Error {
+func (r remoteEngine) noResult(werr error, tail *TailBuffer, streamed bool) *Error {
 	detail := strings.TrimSpace(tail.String())
 	if len(detail) > 600 {
 		detail = "…" + detail[len(detail)-600:]
@@ -280,7 +280,7 @@ func (r remoteRunner) noResult(werr error, tail *TailBuffer, streamed bool) *Err
 
 // relay reads the remote's NDJSON: events go to sink under the local dispatch id, the result event is returned,
 // anything else (ssh banners, warnings) goes to the dispatch log. A dead sink stops the child via stop.
-func (r remoteRunner) relay(ctx context.Context, out io.Reader, sink Sink, stop, touch func()) (env *Envelope, streamed bool, sinkErr error) {
+func (r remoteEngine) relay(ctx context.Context, out io.Reader, sink Sink, stop, touch func()) (env *Envelope, streamed bool, sinkErr error) {
 	rd := bufio.NewReaderSize(out, 64<<10)
 	for {
 		line, rerr := rd.ReadBytes('\n')

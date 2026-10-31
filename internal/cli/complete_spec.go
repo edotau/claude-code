@@ -35,7 +35,7 @@ func buildSpecTree() map[string]*compNode {
 	// gateway router's flags, which bare `gateway` also takes.
 	gatewayRouteFlags := func() []flagInfo {
 		return []flagInfo{valuedFlag("model", func() []string { return router.Tiers }),
-			valuedFlag("agent", func() []string { return router.TableRunners }),
+			valuedFlag("agent", func() []string { return router.TableAgents }),
 			flag("task"), valuedFlag("fallback", func() []string { return router.FallbackModes }), formatFlag()}
 	}
 	vaultSections := func() []string {

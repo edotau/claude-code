@@ -139,7 +139,7 @@ func TestRunWithFallbackCarriesHandoff(t *testing.T) {
 
 	t.Run("dispatch 2 succeeds", func(t *testing.T) {
 		second := &handoffRunner{name: "claude", res: Result{Answer: "from dispatch 2"}}
-		res, err := RunWithFallback(context.Background(), chainOf([]Runner{first(), second}, "", "sonnet"), RunOptions{Prompt: "p"}, Discard, nil)
+		res, err := RunWithFallback(context.Background(), chainOf([]Engine{first(), second}, "", "sonnet"), RunOptions{Prompt: "p"}, Discard, nil)
 		if err != nil || res.Answer != "from dispatch 2" || res.Handoff != "/tmp/x.md" {
 			t.Fatalf("res=%+v err=%v; want dispatch 2's answer with handoff /tmp/x.md", res, err)
 		}
@@ -148,7 +148,7 @@ func TestRunWithFallbackCarriesHandoff(t *testing.T) {
 	t.Run("dispatch 2 fails with another error", func(t *testing.T) {
 		boom := errors.New("boom: unrelated failure")
 		second := &handoffRunner{name: "claude", err: boom}
-		res, err := RunWithFallback(context.Background(), chainOf([]Runner{first(), second}, "", "sonnet"), RunOptions{Prompt: "p"}, Discard, nil)
+		res, err := RunWithFallback(context.Background(), chainOf([]Engine{first(), second}, "", "sonnet"), RunOptions{Prompt: "p"}, Discard, nil)
 		if err == nil || !errors.Is(err, boom) || res.Handoff != "/tmp/x.md" {
 			t.Fatalf("res=%+v err=%v; want dispatch 2's error with handoff /tmp/x.md", res, err)
 		}
@@ -156,7 +156,7 @@ func TestRunWithFallbackCarriesHandoff(t *testing.T) {
 
 	t.Run("a later dispatch's own handoff wins", func(t *testing.T) {
 		second := &handoffRunner{name: "claude", res: Result{Answer: "ok", Handoff: "/tmp/y.md"}}
-		res, _ := RunWithFallback(context.Background(), chainOf([]Runner{first(), second}, "", "sonnet"), RunOptions{Prompt: "p"}, Discard, nil)
+		res, _ := RunWithFallback(context.Background(), chainOf([]Engine{first(), second}, "", "sonnet"), RunOptions{Prompt: "p"}, Discard, nil)
 		if res.Handoff != "/tmp/y.md" {
 			t.Errorf("handoff = %q, want the later dispatch's /tmp/y.md", res.Handoff)
 		}
@@ -196,7 +196,7 @@ func TestCopilotHandoffRedactsEveryToken(t *testing.T) {
 	}
 }
 
-// The runner writes redacted context and leaves resumption to the next fallback dispatch.
+// The agent writes redacted context and leaves resumption to the next fallback dispatch.
 func TestCopilotRunnerHandoffRedacted(t *testing.T) {
 	_, _ = stubHandoff(t)
 	ghLogin(t, "alice", 10)
@@ -290,7 +290,7 @@ func TestRunWithFallbackNextDispatchGetsHandoff(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			second := &fakeRunner{name: "claude", errs: []error{nil}}
 			first := &handoffRunner{name: "copilot", res: Result{Handoff: path}, err: quota}
-			if _, err := RunWithFallback(context.Background(), chainOf([]Runner{first, second}, "", "sonnet"), RunOptions{Prompt: "BARE-TASK"}, Discard, nil); err != nil {
+			if _, err := RunWithFallback(context.Background(), chainOf([]Engine{first, second}, "", "sonnet"), RunOptions{Prompt: "BARE-TASK"}, Discard, nil); err != nil {
 				t.Fatal(err)
 			}
 			got := second.seen[0].Prompt

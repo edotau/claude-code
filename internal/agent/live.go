@@ -156,9 +156,9 @@ func ServeLive(ctx context.Context, rec *Record, notify func(string)) (err error
 		return err
 	}
 	defer release()
-	runner, err := Lookup(name)
+	agent, err := Lookup(name)
 	if err == nil {
-		err = runner.Available()
+		err = agent.Available()
 	}
 	if err != nil {
 		return err

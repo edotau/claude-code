@@ -67,8 +67,8 @@ func gatewayRoute(args []string, withProxy bool) int {
 	if !slices.Contains(router.FallbackModes, *fallback) {
 		return fail(name+": --fallback %q unknown (%s)", *fallback, strings.Join(router.FallbackModes, "|"))
 	}
-	if *want != "" && !slices.Contains(router.TableRunners, *want) {
-		return fail(name+": --agent %q unknown (%s)", *want, strings.Join(router.TableRunners, "|"))
+	if *want != "" && !slices.Contains(router.TableAgents, *want) {
+		return fail(name+": --agent %q unknown (%s)", *want, strings.Join(router.TableAgents, "|"))
 	}
 	res, err := previewRoute(*model, *task, *want, *fallback)
 	if err != nil {
@@ -210,7 +210,7 @@ type skipJSON struct {
 	Reason string `json:"reason"`
 }
 
-// newRouteJSON maps a pick onto the emitted shape (agent for runner, <provider>·<profile> account keys).
+// newRouteJSON maps a pick onto the emitted shape (agent for agent, <provider>·<profile> account keys).
 func newRouteJSON(res router.PickResult, src routeSources) routeJSON {
 	out := routeJSON{Model: res.Tier, Want: res.Want, Weights: res.Weights, Sources: src,
 		Candidates: make([]candidateJSON, 0, len(res.Candidates)), Pins: routePins()}

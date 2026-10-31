@@ -18,15 +18,15 @@ import (
 	"github.com/edotau/claude-code/internal/router"
 )
 
-// copilotEngine is copilot's engine and its Runner: it drives the CLI through the SDK; tools are denied unless asked.
+// copilotEngine is copilot's engine and its Engine: it drives the CLI through the SDK; tools are denied unless asked.
 type copilotEngine struct{ baseEngine }
 
-// copilotAgent is the one copilot engine, shared by the engines table and the runner roster.
+// copilotAgent is the one copilot engine, shared by the engines table and the agent roster.
 var copilotAgent = copilotEngine{baseEngine{"copilot"}}
 
 var (
 	_ engine = copilotAgent
-	_ Runner = copilotAgent
+	_ Engine = copilotAgent
 )
 
 func (e copilotEngine) Run(ctx context.Context, req RunOptions, sink Sink) (Result, error) {

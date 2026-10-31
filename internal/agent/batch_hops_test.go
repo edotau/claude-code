@@ -77,6 +77,6 @@ func TestRunWithFallbackCancelledBeforeDispatchNeverRuns(t *testing.T) {
 		t.Errorf("err = %v, want context.Canceled", err)
 	}
 	if len(r.seen) != 0 {
-		t.Errorf("runner ran %d times under a cancelled context", len(r.seen))
+		t.Errorf("agent ran %d times under a cancelled context", len(r.seen))
 	}
 }

@@ -278,7 +278,7 @@ func TestAskRetryKeepsFallbackPolicy(t *testing.T) {
 	}
 }
 
-// A failure after selector resolution publishes the resolved runner, not the raw --agents key.
+// A failure after selector resolution publishes the resolved agent, not the raw --agents key.
 func TestAskFailureEnvelopeCarriesResolvedRunner(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", dir)
@@ -291,7 +291,7 @@ func TestAskFailureEnvelopeCarriesResolvedRunner(t *testing.T) {
 		t.Fatalf("exit %d, stdout %q, err %v, stderr %q; want a usage envelope", code, stdout, err, stderr)
 	}
 	if env.Agent != "codex" {
-		t.Fatalf("envelope agent = %q, want the resolved runner codex", env.Agent)
+		t.Fatalf("envelope agent = %q, want the resolved agent codex", env.Agent)
 	}
 }
 

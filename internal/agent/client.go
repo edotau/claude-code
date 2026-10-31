@@ -27,7 +27,7 @@ type Prepared struct {
 	Opts   RunOptions
 	Record Record
 	chain  Chain
-	remote Runner
+	remote Engine
 }
 
 // Prepare routes the raw task before applying its rubric and claiming a dispatch record.
@@ -45,7 +45,7 @@ func (c *Client) Prepare(ctx context.Context, o RunOptions, job *Record) (*Prepa
 		if err := tailscale.ValidHost(o.Host); err != nil {
 			return nil, err
 		}
-		r = NewRemoteRunner(o.Agent, o.Host, RemoteBin(o.RemoteBin), o.Fallback)
+		r = NewRemoteEngine(o.Agent, o.Host, RemoteBin(o.RemoteBin), o.Fallback)
 		p.chain, p.remote = Single(r), r
 	} else if p.chain, err = c.route(ctx, r, o); err != nil {
 		return nil, err
@@ -63,7 +63,7 @@ func (c *Client) Prepare(ctx context.Context, o RunOptions, job *Record) (*Prepa
 	return p, nil
 }
 
-// withDefaults fills the agent, fallback and launcher defaults and resolves o.Agent to its runner.
+// withDefaults fills the agent, fallback and launcher defaults and resolves o.Agent to its agent.
 func (c *Client) withDefaults(o RunOptions) (RunOptions, error) {
 	o.Agent, o.Fallback, o.Launcher = cmp.Or(o.Agent, "claude"), cmp.Or(o.Fallback, router.FallbackAll), c.Launcher
 	if o.SessionID != "" {
@@ -81,24 +81,24 @@ func (c *Client) Record(ctx context.Context, o RunOptions, job *Record) (Record,
 	return c.record(ctx, o, job), nil
 }
 
-// resolve maps o.Agent — a roster name, an agents key, vendor:name or a definition file — to its runner and
+// resolve maps o.Agent — a roster name, an agents key, vendor:name or a definition file — to its agent and
 // applies the definition's model, profile and effort under the caller's explicit options.
 func (c *Client) resolve(o *RunOptions) error {
 	if _, ok := LookupSchema(o.Agent); ok && len(o.Agents) == 0 { // a plain roster agent, not a definition selector
 		return nil
 	}
-	runner, err := selectAndOverlay(o.Agent, o.Agents, o)
+	agent, err := selectAndOverlay(o.Agent, o.Agents, o)
 	if err != nil {
 		return clientUsageError{err}
 	}
-	o.Agent = runner
+	o.Agent = agent
 	return nil // an explicit persona (a --retry record) survives a plain roster name
 }
 
-// selectAndOverlay resolves ref to its runner and, when it names a definition, records the persona and
+// selectAndOverlay resolves ref to its agent and, when it names a definition, records the persona and
 // fills the unset model, profile and effort under the options already in o.
-func selectAndOverlay(ref string, agents map[string]*Schema, o *RunOptions) (runner string, err error) {
-	runner, def, err := SelectAgent(ref, agents)
+func selectAndOverlay(ref string, agents map[string]*Schema, o *RunOptions) (agent string, err error) {
+	agent, def, err := SelectAgent(ref, agents)
 	if err != nil {
 		return "", err
 	}
@@ -106,7 +106,7 @@ func selectAndOverlay(ref string, agents map[string]*Schema, o *RunOptions) (run
 		o.Persona = def
 		o.Model, o.Provider, o.Effort = cmp.Or(o.Model, defModel(def)), cmp.Or(o.Provider, def.Profile), cmp.Or(o.Effort, def.Effort)
 	}
-	return runner, nil
+	return agent, nil
 }
 
 // defModel is the definition's model for routing; "inherit" means no model of its own.
@@ -121,7 +121,7 @@ type clientUsageError struct{ error }
 
 func (clientUsageError) ExitCode() int { return 2 }
 
-func (c *Client) route(ctx context.Context, r Runner, o RunOptions) (Chain, error) {
+func (c *Client) route(ctx context.Context, r Engine, o RunOptions) (Chain, error) {
 	if o.Provider != "" {
 		if reg, err := providers.Load(); err == nil {
 			if _, err := reg.Get(o.Provider); err != nil {
@@ -140,7 +140,7 @@ func (c *Client) route(ctx context.Context, r Runner, o RunOptions) (Chain, erro
 	return chain, err
 }
 
-func (c *Client) explicit(r Runner, o RunOptions) (Chain, error) {
+func (c *Client) explicit(r Engine, o RunOptions) (Chain, error) {
 	if o.Provider != "" && !o.Native && IsHubAgent(o.Agent) {
 		reg, err := providers.Load()
 		if err != nil {

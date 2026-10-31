@@ -17,7 +17,7 @@ import (
 
 // Dispatch is one routed step: the agent plus the cell it runs (model, effort) and the account it bills.
 type Dispatch struct {
-	Agent                        Runner
+	Agent                        Engine
 	Model, Effort                string
 	Account, Billing             string
 	note                         string
@@ -35,7 +35,7 @@ type Chain struct {
 }
 
 // Single is a one-dispatch chain on r with the caller's request untouched (an explicit backend, or a test).
-func Single(r Runner) Chain {
+func Single(r Engine) Chain {
 	return Chain{Want: r.Name(), Dispatches: []Dispatch{{Agent: r, keepCaller: true, unroutedDispatch: true}}}
 }
 
@@ -96,7 +96,7 @@ func routeChain(ctx context.Context, want, tier, row, exact, callerModel, mode s
 	reg, _ := providers.Load()
 	c := Chain{Want: want}
 	if nativeLead {
-		c.Dispatches = append(c.Dispatches, Dispatch{Agent: newCLIRunner("opencode"), keepCaller: true, unroutedDispatch: true})
+		c.Dispatches = append(c.Dispatches, Dispatch{Agent: newCLIEngine("opencode"), keepCaller: true, unroutedDispatch: true})
 		if mode == router.FallbackNone {
 			return c, pick, nil
 		}
@@ -225,7 +225,7 @@ func (rc routeCtx) buildDispatch(cand router.Candidate, cell router.Cell) (disp 
 	}
 	hubOpencode := IsHubAgent(cand.Agent) && (!rc.native || cand.Agent != rc.want)
 	if pr := profileRow(rc.reg, cand.Profile); pr != nil && pr.OpencodeID == "" {
-		hubOpencode = false // a row with no opencode id can't ride the hub; the native runner takes <profile>:<model>
+		hubOpencode = false // a row with no opencode id can't ride the hub; the native agent takes <profile>:<model>
 	}
 	switch {
 	case hubOpencode && cand.Profile != "" && rc.reg != nil && rc.reg.Providers[cand.Profile] != nil:
@@ -321,7 +321,7 @@ func cellServing(tb *router.RouteTable, agentName, exact string) (router.Cell, b
 }
 
 // watchFreeDispatch sets the stall watchdog on r when billing is free; any other agent (or billing) passes through.
-func watchFreeDispatch(r Runner, billing string) Runner {
+func watchFreeDispatch(r Engine, billing string) Engine {
 	if billing != router.BillFree {
 		return r
 	}
@@ -405,7 +405,7 @@ func billingOf(p *providers.Provider) string {
 
 // ExplicitChain is r alone on the caller's explicit backend (--provider or provider:model), carrying that backend's
 // account: a remembered exhaustion skips it without an attempt, and a quota failure is recorded on it.
-func ExplicitChain(r Runner, req RunOptions) Chain {
+func ExplicitChain(r Engine, req RunOptions) Chain {
 	c := Single(r)
 	acct, billing := explicitAccount(r, req)
 	c.Dispatches[0].Account, c.Dispatches[0].Billing = acct, billing
@@ -435,7 +435,7 @@ func WithTier(c Chain, tier string) Chain {
 }
 
 // explicitAccount is the <provider>·<profile> key of the named backend; a hub dispatch names its own profile.
-func explicitAccount(r Runner, req RunOptions) (string, string) {
+func explicitAccount(r Engine, req RunOptions) (string, string) {
 	if l, ok := r.(hubDispatch); ok {
 		if OpencodeCredID(l.provider.OpencodeID) == "opencode" {
 			return "opencode·go", router.BillSubscription
@@ -469,7 +469,7 @@ func copilotLoginAccount() string {
 }
 
 // hubDispatchFor maps an opencode cell "<opencodeID>/<model>" to the hub dispatch on that provider and the bare model.
-func hubDispatchFor(reg *providers.Registry, cell string) (Runner, string, error) {
+func hubDispatchFor(reg *providers.Registry, cell string) (Engine, string, error) {
 	id, model, ok := strings.Cut(cell, "/")
 	if !ok || reg == nil {
 		return nil, "", fmt.Errorf("cell %q is not <opencodeID>/<model>", cell)

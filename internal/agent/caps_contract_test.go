@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-// The capability matrix end to end: each runner's real Caps through applyCaps, per level.
+// The capability matrix end to end: each agent's real Caps through applyCaps, per level.
 func TestCapabilityMatrixApplyCaps(t *testing.T) {
 	const schema = `{"type": "object"}`
 	want := map[string]struct {
@@ -19,10 +19,10 @@ func TestCapabilityMatrixApplyCaps(t *testing.T) {
 		"opencode": {Native, Emulated, Emulated},
 		"copilot":  {Emulated, Emulated, Emulated},
 	}
-	for _, r := range Runners() {
+	for _, r := range Engines() {
 		w, ok := want[r.Name()]
 		if !ok {
-			t.Fatalf("unexpected runner %q", r.Name())
+			t.Fatalf("unexpected agent %q", r.Name())
 		}
 		t.Run(r.Name(), func(t *testing.T) {
 			c := r.Caps()

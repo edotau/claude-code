@@ -95,22 +95,22 @@ func TestSelectAgent(t *testing.T) {
 		t.Fatal(err)
 	}
 	agents := map[string]*Schema{
-		"sec":   {Name: "sec", Prompt: "S.", Runner: "codex"},
+		"sec":   {Name: "sec", Prompt: "S.", Agent: "codex"},
 		"plain": {Name: "plain", Prompt: "P."},
-		"help":  {Name: "help", Prompt: "H.", Runner: "gemini"},
+		"help":  {Name: "help", Prompt: "H.", Agent: "gemini"},
 	}
-	for _, c := range []struct{ ref, runner, persona string }{
+	for _, c := range []struct{ ref, agent, persona string }{
 		{"codex", "codex", ""},              // the roster name beats agents/codex.md
-		{"sec", "codex", "sec"},             // an agents key resolves to def.Runner
-		{"plain", "claude", "plain"},        // an agents key with no runner runs on claude
+		{"sec", "codex", "sec"},             // an agents key resolves to def.Agent
+		{"plain", "claude", "plain"},        // an agents key with no agent runs on claude
 		{"codex:helper", "codex", "helper"}, // vendor:name loads agents/<name>.md
-		{"codex:help", "codex", "help"},     // the vendor beats def.Runner
-		{"helper", "claude", "helper"},      // agents/<name>.md with no runner runs on claude
+		{"codex:help", "codex", "help"},     // the vendor beats def.Agent
+		{"helper", "claude", "helper"},      // agents/<name>.md with no agent runs on claude
 		{file, "claude", "x"},               // a file path
 	} {
 		v, p, err := SelectAgent(c.ref, agents)
-		if err != nil || v != c.runner || personaName(p) != c.persona {
-			t.Errorf("SelectAgent(%q) = %q, %+v, %v; want %q persona %q", c.ref, v, p, err, c.runner, c.persona)
+		if err != nil || v != c.agent || personaName(p) != c.persona {
+			t.Errorf("SelectAgent(%q) = %q, %+v, %v; want %q persona %q", c.ref, v, p, err, c.agent, c.persona)
 		}
 	}
 	for _, ref := range []string{"notvendor:helper", "nosuch"} {
@@ -150,7 +150,7 @@ func TestFallbackHopRefusesRestrictivePersona(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	down := &fakeRunner{name: "codex", errs: []error{errors.New(`exec: "codex": executable file not found in $PATH`)}, emptyAnswer: true}
 	emu := &fakeRunner{name: "gemini", caps: Caps{Persona: Emulated, AppendSystemPrompt: Emulated}, errs: []error{nil}}
-	res, err := RunWithFallback(context.Background(), chainOf([]Runner{down, emu}), RunOptions{Prompt: "p", Persona: testPersona}, Discard, nil)
+	res, err := RunWithFallback(context.Background(), chainOf([]Engine{down, emu}), RunOptions{Prompt: "p", Persona: testPersona}, Discard, nil)
 	if err == nil || len(emu.seen) != 0 || len(res.Hops) != 2 {
 		t.Fatalf("agent=%q err=%v emulating runs=%d, want a refusal on the second hop and no run", res.Agent, err, len(emu.seen))
 	}

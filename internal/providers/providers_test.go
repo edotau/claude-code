@@ -405,22 +405,22 @@ func TestModelDeniedVsIsQuota(t *testing.T) {
 	}
 }
 
-// TestValidateRejectsUnknownRouteTierAndRunner checks Registry.Validate catches an overlay cell naming a
-// runner or tier outside RouteRunners/RouteTiers before it ever reaches router.LoadFrom.
-func TestValidateRejectsUnknownRouteTierAndRunner(t *testing.T) {
+// TestValidateRejectsUnknownRouteTierAndAgent checks Registry.Validate catches an overlay cell naming a
+// agent or tier outside RouteAgents/RouteTiers before it ever reaches router.LoadFrom.
+func TestValidateRejectsUnknownRouteTierAndAgent(t *testing.T) {
 	badTier := &Registry{Providers: map[string]*Provider{}, Routing: Routing{Cells: map[string]map[string]RouteCell{"opencode": {"ultra": {Model: "x"}}}}}
 	if err := badTier.Validate(); err == nil || !strings.Contains(err.Error(), "unknown tier") {
 		t.Errorf("unknown tier: err = %v, want it to name the rule", err)
 	}
-	badRunner := &Registry{Providers: map[string]*Provider{}, Routing: Routing{Cells: map[string]map[string]RouteCell{"ghost": {"sonnet": {Model: "x"}}}}}
-	if err := badRunner.Validate(); err == nil || !strings.Contains(err.Error(), "unknown runner") {
-		t.Errorf("unknown runner: err = %v, want it to name the rule", err)
+	badAgent := &Registry{Providers: map[string]*Provider{}, Routing: Routing{Cells: map[string]map[string]RouteCell{"ghost": {"sonnet": {Model: "x"}}}}}
+	if err := badAgent.Validate(); err == nil || !strings.Contains(err.Error(), "unknown agent") {
+		t.Errorf("unknown agent: err = %v, want it to name the rule", err)
 	}
 }
 
 // TestValidateRejectsUnknownAccountKeyAndOpencodePrefix checks Registry.Validate catches an explicit
 // account_key naming no known billing entry and an opencode cell whose override model prefix has no
-// derivable billing account, while letting a "github·" dynamic key and an off-runner "/" model override
+// derivable billing account, while letting a "github·" dynamic key and an off-agent "/" model override
 // (no account-key rule applies outside opencode) through.
 func TestValidateRejectsUnknownAccountKeyAndOpencodePrefix(t *testing.T) {
 	badAccount := &Registry{Providers: map[string]*Provider{}, Routing: Routing{Cells: map[string]map[string]RouteCell{

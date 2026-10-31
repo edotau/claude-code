@@ -25,14 +25,14 @@ type liveBackend interface {
 // LiveCapable is a CLI that can hold a session open; a fresh backend serves each session.
 type LiveCapable interface{ newLive() liveBackend }
 
-// Live asserts on the CLI behind the agent's runner: the runner itself, or a cliRunner's engine.
+// Live asserts on the CLI behind the agent: the engine itself, or a cliEngine's engine.
 func (s Schema) Live() (LiveCapable, bool) {
 	r, err := Lookup(s.Name)
 	if err != nil {
 		return nil, false
 	}
 	var cli any = r
-	if v, ok := r.(cliRunner); ok {
+	if v, ok := r.(cliEngine); ok {
 		cli = v.headlessEngine
 	}
 	lc, ok := cli.(LiveCapable)
@@ -45,7 +45,7 @@ func (s Schema) HasLive() bool {
 	return ok
 }
 
-func (claudeRunner) newLive() liveBackend { return &claudeLive{} }
+func (claudeEngine) newLive() liveBackend { return &claudeLive{} }
 
 // claudeLive holds `claude --print --input-format stream-json`: one process, one user message per turn.
 type claudeLive struct{ prevCost float64 }
@@ -81,7 +81,7 @@ type agyLive struct {
 func (b *agyLive) build(ctx context.Context, req RunOptions) (*exec.Cmd, *TailBuffer, string, error) {
 	ctx = directCtx(ctx, req)
 	req.Prompt = cmp.Or(req.Prompt, "live session") // prepare wants a prompt; the turns carry the real ones
-	p, err := newCLIRunner("gemini").prepare(ctx, req)
+	p, err := newCLIEngine("gemini").prepare(ctx, req)
 	if err != nil {
 		return nil, nil, "", err
 	}

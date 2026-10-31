@@ -147,7 +147,7 @@ func opencodeModels(p *providers.Provider, model string, h *Headless) map[string
 	return menu
 }
 
-// opencodeRunArgv is opencodeRun exported for the hub runner (internal/agent): one ladder dispatch execs
+// opencodeRunArgv is opencodeRun exported for the hub agent (internal/agent): one ladder dispatch execs
 // `opencode run` directly on an opencode-native "provider/model" id, bypassing the harness-route config.
 func opencodeRunArgv(model string, h Headless) (env, argv []string) {
 	env, argv = opencodeRun(model, h)

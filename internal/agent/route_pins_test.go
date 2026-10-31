@@ -112,7 +112,7 @@ func TestPinFirstFallback(t *testing.T) {
 		}
 		for _, name := range []string{"codex", "opencode", "claude"} {
 			if f := fakes[name]; f == nil || len(f.seen) != 1 {
-				t.Errorf("%s runner = %+v, want one request", name, f)
+				t.Errorf("%s agent = %+v, want one request", name, f)
 			}
 		}
 		if got := fakes["claude"].seen[0].Model; got != "sonnet" {
@@ -156,7 +156,7 @@ func TestPinFirstFallback(t *testing.T) {
 		}
 		for _, name := range []string{"opencode", "claude"} {
 			if f := fakes[name]; f == nil || len(f.seen) != 0 {
-				t.Errorf("%s runner = %+v, want zero requests", name, f)
+				t.Errorf("%s agent = %+v, want zero requests", name, f)
 			}
 		}
 	})

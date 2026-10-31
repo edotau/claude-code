@@ -107,13 +107,13 @@ type hubDispatch struct {
 }
 
 // NewHubDispatch builds a hub dispatch Agent for agentName on provider; reg resolves a provider:model override.
-func NewHubDispatch(agentName string, provider *providers.Provider, reg *providers.Registry) Runner {
+func NewHubDispatch(agentName string, provider *providers.Provider, reg *providers.Registry) Engine {
 	return hubDispatch{agent: agentName, provider: provider, reg: reg}
 }
 
 func (l hubDispatch) Name() string { return l.agent }
 
-// Caps mirrors cliRunner's: every RunOptions field the opencode CLI can carry.
+// Caps mirrors cliEngine's: every RunOptions field the opencode CLI can carry.
 func (l hubDispatch) Caps() Caps {
 	return Caps{Model: Native, Provider: Native, Effort: Native, WorkDir: Native, SessionID: Native, Tools: Native, Autonomous: Native,
 		SafeMode: Native, Direct: Native, Env: Native, SystemPrompt: Native, AppendSystemPrompt: Emulated, OutputSchema: Emulated, Persona: Emulated}

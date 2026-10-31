@@ -29,7 +29,7 @@ var now0 = time.Date(2026, 10, 25, 2, 6, 0, 0, time.Local)
 
 func TestEveryCellResolvesAndTierOfRoundTrips(t *testing.T) {
 	tb := testTable(t)
-	for _, r := range TableRunners {
+	for _, r := range TableAgents {
 		for _, tier := range Tiers {
 			c, ok := tb.Cell(r, tier)
 			if !ok || c.Model == "" || c.Account == "" || tb.Billing[c.Account] == "" {
@@ -208,7 +208,7 @@ func TestPickTwoDimOrderingAndLowLast(t *testing.T) {
 	}
 	st["openai·chatgpt"] = Entry{UsedPct: 95, Seen: now0}
 	if got := runners(pickRepo(tb, "sonnet", st, true)); !strings.HasSuffix(got, ",codex") {
-		t.Errorf("low codex must sort after every non-low runner: %s", got)
+		t.Errorf("low codex must sort after every non-low agent: %s", got)
 	}
 	out, _ := json.Marshal(r)
 	for _, k := range []string{`"weights"`, `"scores"`, `"total"`} {

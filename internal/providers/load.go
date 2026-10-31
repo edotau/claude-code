@@ -211,14 +211,14 @@ func applyOverlay(base, o *Registry) error {
 // applyRoutingOverlay merges o into base: cells cell by cell (matching how router.LoadFrom applies
 // them), every other field replaced whole when the overlay sets it.
 func applyRoutingOverlay(base, o *Routing) {
-	for runner, tiers := range o.Cells {
+	for agent, tiers := range o.Cells {
 		if base.Cells == nil {
 			base.Cells = map[string]map[string]RouteCell{}
 		}
-		if base.Cells[runner] == nil {
-			base.Cells[runner] = map[string]RouteCell{}
+		if base.Cells[agent] == nil {
+			base.Cells[agent] = map[string]RouteCell{}
 		}
-		maps.Copy(base.Cells[runner], tiers)
+		maps.Copy(base.Cells[agent], tiers)
 	}
 	if o.Weights != nil {
 		base.Weights = o.Weights // an overlay replaces the weights whole, per its docstring

@@ -362,7 +362,7 @@ func TestOpencodeOwnConfigModelIsNoLongerAFallbackDispatch(t *testing.T) {
 }
 
 // Regression: ConfigureHeadless on opencode's own GitHub Copilot login must not surface ErrOwnLogin (the
-// headless runner has no interactive menu to pick a model from) and must carry the resolved model as
+// headless agent has no interactive menu to pick a model from) and must carry the resolved model as
 // `-m github-copilot/<model>`, not silently fall back to opencode's own default.
 func TestOpencodeCopilotLoginHeadlessCarriesModel(t *testing.T) {
 	data := t.TempDir()
@@ -391,7 +391,7 @@ func TestOpencodeCopilotLoginHeadlessCarriesModel(t *testing.T) {
 	}
 	_, argv, err := schemaFor("opencode").configureHeadless(context.Background(), target, Headless{Prompt: "pong"})
 	if errors.Is(err, ErrOwnLogin) {
-		t.Fatal("ConfigureHeadless must not surface ErrOwnLogin: the headless runner cannot fall back to an interactive model menu")
+		t.Fatal("ConfigureHeadless must not surface ErrOwnLogin: the headless agent cannot fall back to an interactive model menu")
 	}
 	if err != nil {
 		t.Fatalf("ConfigureHeadless: %v", err)

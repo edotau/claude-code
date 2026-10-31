@@ -122,7 +122,7 @@ func describe(reg *providers.Registry) (Describe, error) {
 			Credential: providers.CredentialPresent(p), Models: p.Models,
 		})
 	}
-	for _, r := range agent.Runners() {
+	for _, r := range agent.Engines() {
 		s, _ := agent.LookupSchema(r.Name())
 		dr := DescribeAgent{Name: s.Name, Available: true, Caps: s.CLI.Caps}
 		if err := r.Available(); err != nil {

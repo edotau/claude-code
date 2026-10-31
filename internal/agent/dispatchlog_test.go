@@ -316,7 +316,7 @@ func TestFreshBackgroundRecordReadsBackAlive(t *testing.T) {
 }
 
 // The record keeps the original request, and the model a fallback hop was asked to run survives Finish even when
-// the runner reports no model; the reported Model stays empty rather than echoing the invocation.
+// the agent reports no model; the reported Model stays empty rather than echoing the invocation.
 func TestRecordKeepsRequestAndInvokedModel(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv("HOME", t.TempDir())
@@ -347,7 +347,7 @@ func TestRecordKeepsRequestAndInvokedModel(t *testing.T) {
 		t.Errorf("invoked %q ran_as %q, want the fallback hop's model", got.Invoked, got.RanAs)
 	}
 	if got.Model != "" {
-		t.Errorf("model = %q: a runner that reported none must not be filled from the invocation", got.Model)
+		t.Errorf("model = %q: an agent that reported none must not be filled from the invocation", got.Model)
 	}
 }
 

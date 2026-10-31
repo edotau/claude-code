@@ -20,7 +20,7 @@ import (
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
-// gemChatBody is the wire shape the api runner's openai-dialect chatStream sends.
+// gemChatBody is the wire shape the api agent's openai-dialect chatStream sends.
 type gemChatBody struct {
 	Model    string `json:"model"`
 	Messages []struct {
@@ -198,7 +198,7 @@ func TestBridgeRunIndex(t *testing.T) {
 	}
 }
 
-// TestBridgeRunLargeFileAccepted: the api runner does not enforce MaxPromptBytes (only exec
+// TestBridgeRunLargeFileAccepted: the api agent does not enforce MaxPromptBytes (only exec
 // runners do), so a 200 KiB inlined file must sail through, not error.
 func TestBridgeRunLargeFileAccepted(t *testing.T) {
 	var hits []gotRequest
@@ -502,7 +502,7 @@ func TestBridgeRunNoCachedLoginErrors(t *testing.T) {
 	}
 }
 
-// TestBridgeRunExplicitProviderSkipsAgy: an explicit --provider stays on the api runner even with a
+// TestBridgeRunExplicitProviderSkipsAgy: an explicit --provider stays on the api agent even with a
 // cached agy login and installed agy — only the no-flag default (Provider=="") considers agy at all.
 func TestBridgeRunExplicitProviderSkipsAgy(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
@@ -532,7 +532,7 @@ func TestBridgeRunExplicitProviderSkipsAgy(t *testing.T) {
 }
 
 // TestBridgeRunAgyBackendWhenLoginPresent: Provider=="" with a cached agy login and installed agy routes
-// through RunAgy instead of the api runner — zero HTTP hits, the agy backend log line, and the
+// through RunAgy instead of the api agent — zero HTTP hits, the agy backend log line, and the
 // result event's conversation id surfacing as SessionID even though the fixture carries no step_update.
 func TestBridgeRunAgyBackendWhenLoginPresent(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
@@ -567,7 +567,7 @@ func TestBridgeRunAgyBackendWhenLoginPresent(t *testing.T) {
 }
 
 // TestBridgeRunPrintCommandAgyBackend: --print-command on the agy path prints the resolved agy argv
-// (model, stream-json both ways) instead of the api runner's POST line, and sends nothing over the wire.
+// (model, stream-json both ways) instead of the api agent's POST line, and sends nothing over the wire.
 func TestBridgeRunPrintCommandAgyBackend(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv("HOME", loginHome(t, true))
@@ -737,7 +737,7 @@ func TestBridgeRunAgyWritesDispatchRecord(t *testing.T) {
 }
 
 // TestBridgeRunAgyOverMaxPromptBytesSucceeds: a sweep whose inlined files push the composed prompt well
-// over MaxPromptBytes (96 KiB, the argv-element cap that bounds a vendor-exec runner's prompt) must
+// over MaxPromptBytes (96 KiB, the argv-element cap that bounds a vendor-exec agent's prompt) must
 // still succeed — the bridge drives agy over its own stdin-NDJSON path (RunAgy), not the argv-bound
 // vendorRunner, so that cap does not apply here. Regression guard for the CRITICAL that reintroduced it.
 func TestBridgeRunAgyOverMaxPromptBytesSucceeds(t *testing.T) {

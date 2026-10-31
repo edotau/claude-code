@@ -32,13 +32,13 @@ type Record struct {
 	Status         string     `json:"status"` // running | ok | error
 	Error          string     `json:"error,omitempty"`
 	Provider       string     `json:"provider,omitempty"`
-	Model          string     `json:"model,omitempty"`         // as the runner reported it; may be empty
+	Model          string     `json:"model,omitempty"`         // as the agent reported it; may be empty
 	Invoked        string     `json:"invoked_model,omitempty"` // the model the last hop was asked to run; RunOptions keeps the original
 	SessionID      string     `json:"session_id,omitempty"`
 	DurationMs     int64      `json:"duration_ms,omitempty"`
-	Fallback       string     `json:"fallback,omitempty"` // the original runner's name, when it ran instead
+	Fallback       string     `json:"fallback,omitempty"` // the original agent's name, when it ran instead
 	FallbackReason string     `json:"fallback_reason,omitempty"`
-	RanAs          string     `json:"ran_as,omitempty"`          // the runner that answered, when a fallback dispatch did
+	RanAs          string     `json:"ran_as,omitempty"`          // the agent that answered, when a fallback dispatch did
 	Repo           string     `json:"repo,omitempty"`            // main checkout root the job belongs to
 	PID            int        `json:"pid,omitempty"`             // pid of the detached `claude-code ask --job` child
 	Log            string     `json:"log,omitempty"`             // absolute path of the job's combined stdout+stderr log

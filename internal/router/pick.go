@@ -20,7 +20,7 @@ const (
 	GateOff       = "off"  // the agent is deactivated (<AGENT>_ACTIVE=off)
 )
 
-// Candidate is one runnable dispatch: the runner, its cell at the tier, its account's state and its composite score.
+// Candidate is one runnable dispatch: the agent, its cell at the tier, its account's state and its composite score.
 type Candidate struct {
 	Agent string `json:"agent"`
 	Cell
@@ -32,14 +32,14 @@ type Candidate struct {
 	Profile string `json:"profile,omitempty"`
 }
 
-// Skip is a runner dropped by a gate, with why.
+// Skip is an agent dropped by a gate, with why.
 type Skip struct {
 	Agent  string `json:"agent"`
 	Gate   string `json:"gate"`
 	Reason string `json:"reason"`
 }
 
-// PickResult is a pick: candidates in run order, the weights that scored them, then every skipped runner.
+// PickResult is a pick: candidates in run order, the weights that scored them, then every skipped agent.
 type PickResult struct {
 	Tier       string             `json:"tier"`
 	Want       string             `json:"want,omitempty"`
@@ -51,9 +51,9 @@ type PickResult struct {
 // PickOpts tunes a pick; nil funcs take the defaults (no presence check, no refresh, time.Now).
 type PickOpts struct {
 	Fallback   string
-	Configured func(runner string, c Cell) error
-	// Account resolves the backend a runner actually uses ("" keeps the table's account key) and its billing type.
-	Account func(runner string, c Cell) (account, billing string)
+	Configured func(agent string, c Cell) error
+	// Account resolves the backend an agent actually uses ("" keeps the table's account key) and its billing type.
+	Account func(agent string, c Cell) (account, billing string)
 	// Refresh re-fetches one stale account and records it; the pick then rereads that entry.
 	Refresh func(ctx context.Context, account string) bool
 	Now     func() time.Time
@@ -104,7 +104,7 @@ type Dimension interface {
 // Dimensions are the scored axes; table.json's weights must name exactly these.
 var Dimensions = []Dimension{priceDim{}, headroomDim{}}
 
-// Pick gates then scores the runners for tier: want first when it passes the gates, then the other agents by
+// Pick gates then scores the agents for tier: want first when it passes the gates, then the other agents by
 // total score (low accounts after all non-low), then claude under FallbackAll. claude itself never falls back.
 func (t *RouteTable) Pick(ctx context.Context, tier, want string, st State, o PickOpts) PickResult {
 	now, configured := time.Now(), o.Configured
@@ -121,8 +121,8 @@ func (t *RouteTable) Pick(ctx context.Context, tier, want string, st State, o Pi
 	pins := o.Pins
 	reg, _ := providers.Load()
 	pg := &pickGate{reg: reg, held: map[string]bool{}}
-	gate := func(runner string) ([]Candidate, bool) {
-		return t.gateCandidate(ctx, pg, tier, runner, pins, st, o, now, configured, &res)
+	gate := func(agent string) ([]Candidate, bool) {
+		return t.gateCandidate(ctx, pg, tier, agent, pins, st, o, now, configured, &res)
 	}
 	firstG, restG, lastG := t.gatherCandidates(want, o, gate)
 	flatFirst, flatRest, flatLast := flattenGroups(firstG), flattenGroups(restG), flattenGroups(lastG)
@@ -162,31 +162,31 @@ func regroup(groups [][]Candidate, flat []Candidate) [][]Candidate {
 	return out
 }
 
-// gateRunner runs one runner through the row/configured/account/exhausted gates, recording a Skip on failure.
-// It returns a group of candidates from this one runner — one, unless it's opencode's free+backup pair.
-func (t *RouteTable) gateRunner(
-	ctx context.Context, tier, runner string, st State, o PickOpts, now time.Time,
-	configured func(runner string, c Cell) error, res *PickResult,
+// gateAgent runs one agent through the row/configured/account/exhausted gates, recording a Skip on failure.
+// It returns a group of candidates from this one agent — one, unless it's opencode's free+backup pair.
+func (t *RouteTable) gateAgent(
+	ctx context.Context, tier, agent string, st State, o PickOpts, now time.Time,
+	configured func(agent string, c Cell) error, res *PickResult,
 ) ([]Candidate, bool) {
-	if runner == "opencode" && !t.OpencodeRowOverridden[tier] {
+	if agent == "opencode" && !t.OpencodeRowOverridden[tier] {
 		return t.gateOpencodeCandidate(ctx, tier, "", st, o, now, configured, res)
 	}
-	c, ok := t.Cell(runner, tier)
+	c, ok := t.Cell(agent, tier)
 	if !ok {
-		res.Skipped = append(res.Skipped, Skip{runner, GateRow, "no " + tier + " row"})
+		res.Skipped = append(res.Skipped, Skip{agent, GateRow, "no " + tier + " row"})
 		return nil, false
 	}
-	if err := configured(runner, c); err != nil {
-		res.Skipped = append(res.Skipped, Skip{runner, GateAvailable, "not configured: " + firstLine(err.Error())})
+	if err := configured(agent, c); err != nil {
+		res.Skipped = append(res.Skipped, Skip{agent, GateAvailable, "not configured: " + firstLine(err.Error())})
 		return nil, false
 	}
 	billing := t.Billing[c.Account]
 	if o.Account != nil {
-		if a, b := o.Account(runner, c); a != "" {
+		if a, b := o.Account(agent, c); a != "" {
 			c.Account, billing = a, b
 		}
 	}
-	cand, ok := t.gateAccount(ctx, runner, c, billing, st, o, now, res)
+	cand, ok := t.gateAccount(ctx, agent, c, billing, st, o, now, res)
 	if !ok {
 		return nil, false
 	}
@@ -218,7 +218,7 @@ func (t *RouteTable) gateAccount(
 	return Candidate{Agent: agentOf(name), Cell: c, State: s, Billing: billing}, true
 }
 
-// agentOf strips a "<agent>·<sub>" Skip label back to the runner.
+// agentOf strips a "<agent>·<sub>" Skip label back to the agent.
 func agentOf(name string) string {
 	a, _, _ := strings.Cut(name, "·")
 	return a
@@ -239,7 +239,7 @@ func (t *RouteTable) opencodeOrder() []string {
 // free dispatch has a ready backup without a second opencode pick.
 func (t *RouteTable) gateOpencodeCandidate(
 	ctx context.Context, tier, only string, st State, o PickOpts, now time.Time,
-	configured func(runner string, c Cell) error, res *PickResult,
+	configured func(agent string, c Cell) error, res *PickResult,
 ) ([]Candidate, bool) {
 	type sub struct {
 		id      string
@@ -306,7 +306,7 @@ func (t *RouteTable) gateOpencodeCandidate(
 	return group, true
 }
 
-// gatherCandidates runs the wanted runner, then (unless suppressed) the other agents, then claude under
+// gatherCandidates runs the wanted agent, then (unless suppressed) the other agents, then claude under
 // FallbackAll. Each gate call's group (usually one candidate, two for a free opencode winner + its paid
 // backup) stays together as one element, so a later sort over groups never splits the pair.
 func (t *RouteTable) gatherCandidates(want string, o PickOpts, gate func(string) ([]Candidate, bool)) (first, rest, last [][]Candidate) {
@@ -316,7 +316,7 @@ func (t *RouteTable) gatherCandidates(want string, o PickOpts, gate func(string)
 		}
 	}
 	if want != "claude" && o.Fallback != FallbackNone {
-		for _, r := range TableRunners {
+		for _, r := range TableAgents {
 			if r == want || r == "claude" {
 				continue
 			}

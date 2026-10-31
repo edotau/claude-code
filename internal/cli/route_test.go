@@ -165,8 +165,8 @@ func ghHosts(t *testing.T, user string) {
 func TestRouteEndsNamesResolvedClaudeAccount(t *testing.T) {
 	vaulttest.Use(t)
 	oldAcct, oldRefresh := agent.ResolveAccount, routeRefresh
-	agent.ResolveAccount = func(runner string, _ router.Cell) (string, string) {
-		if runner == "claude" {
+	agent.ResolveAccount = func(ag string, _ router.Cell) (string, string) {
+		if ag == "claude" {
 			return "databricks·prod", ""
 		}
 		return "", ""
