@@ -1,4 +1,4 @@
-// provider_all.go — `configure provider --all`: check every provider's sign-in, log in where needed, recheck.
+// provider.go — `configure provider --all`: check every provider's sign-in, log in where needed, recheck.
 package configure
 
 import (
