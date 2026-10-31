@@ -27,14 +27,14 @@ paths:
 
 ## Language overlays
 
-A `software/<lang>/<topic>.md` opens with `> This file extends [standards/<topic>.md](../../standards/<topic>.md)`.
+A `software/<lang>/<topic>.md` opens with a `> This file extends …` line linking its `standards/<topic>.md` counterpart.
 Where idioms conflict, **the language rule wins**.
 
 ## Writers and reach
 
 - `claude-code memory remember` then `memory promote <id> --to rules` routes a session correction into the matching
   `standards/` or `software/` file — thin entries, imperative voice. `memory dream` promotes only gated hard rules
-  to `CLAUDE.md`.
+  to `CLAUDE.md` (ladder: `skills/reflection/SKILL.md` → Promotion ladder).
 - Other agent CLIs see rules only through `CLAUDE.md` prose (`claude-code agents sync`); `workflow/` and `harness/`
   are not bridged.
 

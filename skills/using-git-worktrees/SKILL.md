@@ -29,7 +29,7 @@ The verbs handle everything with the harness conventions baked in:
 
 ```bash
 claude-code worktree create add-auth-endpoint   # → ~/worktrees/<repo>/add-auth-endpoint, branch worktree-add-auth-endpoint
-claude-code worktree list                        # all worktrees + status
+claude-code worktree list [--format json]        # all worktrees + status
 claude-code worktree merge add-auth-endpoint     # preview, verify gate, fast-forward-only promote, clean
 claude-code worktree clean add-auth-endpoint     # safe single removal
 ```
@@ -39,12 +39,14 @@ More verbs and options:
 | Verb | Does |
 |------|------|
 | `claude-code worktree create <name> [--branch <b>]` | New worktree, then the venv/env steps |
-| `claude-code worktree merge <name> [--target <ref>] [--no-clean] [--verify "<cmd>"\|--no-verify]` | `--dry-run` preview, confirm, apply |
+| `claude-code worktree merge <name> [--target <ref>] [--no-clean] [--verify "<cmd>"\|--no-verify\|--full-verify]` | `--dry-run` preview, confirm, apply |
 | `claude-code worktree merge <name> --resolve-agent claude\|codex` · `--resume` | Agent resolves a predicted conflict; reattach |
 | `claude-code worktree clean <name>` · `clean-all [--yes]` | `--dry-run` preview, confirm, apply |
 
 `clean`/`clean-all` take `--force` (discard uncommitted and unmerged work); every other verb refuses
 with a reason instead. Only pass `--force` with the user's explicit go — it is a data-loss operation.
+`merge` refuses when `main` moved mid-verify (re-run it); `clean` refuses while a process has its cwd
+inside (`cd` out or `ExitWorktree`).
 Inside a session prefer the native `EnterWorktree`/`ExitWorktree` for create/enter; the additive value
 here is `merge` and `clean-all`.
 
@@ -52,13 +54,13 @@ here is `merge` and `clean-all`.
 Claude Code and Orca) via `git worktree add`; the `.venv` symlink and `.env` copy are manual follow-up
 lines, not something `create` does itself. The full procedure, those follow-up lines, the
 fast-forward-only merge rule and conflict handling:
-[references/merge-and-clean.md](references/merge-and-clean.md).
+[references/manual-worktrees.md](references/manual-worktrees.md) Part 1.
 In the harness repo itself, a worktree here is a separate checkout exempt from CLAUDE.md hard rule 4 —
 but `make install` and `claude-code` verbs run from it still target the live `~/.claude`.
 
 ## Manual control / non-harness repos
 
-When `claude-code worktree` doesn't apply, follow the full mechanics — directory selection,
+When `claude-code worktree` doesn't apply, follow the full mechanics (Part 2) — directory selection,
 gitignore safety, `.venv` symlink, port allocation for parallel dev servers, and gated
 cleanup — in [references/manual-worktrees.md](references/manual-worktrees.md).
 

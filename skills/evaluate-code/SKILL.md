@@ -15,8 +15,8 @@ that catches how LLM-written code characteristically fails. Read-only: findings 
 
 - **Review a diff/PR** → [Review a diff](#review-a-diff).
 - **Security review (code, Claude Code config, dependencies)** → [Security](#security) lens.
-- **Audit a transcript** → [Audit a transcript](#audit-a-transcript) (grade the evidence loop the work
-  claimed to follow against what actually happened).
+- **Audit a transcript** → [Audit a transcript](#audit-a-transcript) (grade the evidence loop in
+  `skills/problem-solving/SKILL.md` the work claimed to follow against what actually happened).
 - **Judge a claimed-done** → `references/judge.md` (is the claim true, not whether the code is good).
 - **Scan tech debt** → `references/techdebt.md`.
 - **Review a skill or plugin** → `references/codex-skill-plugin-review.md` (the SKILL/PLUGIN

@@ -1,7 +1,7 @@
 # Completion criteria and review severity
 
 The completion checklist every task meets before "done" is canonical in `rules/standards/quality.md` →
-Completion Criteria. This is this skill's severity scale.
+Completion. This is this skill's severity scale.
 
 ## Severity
 

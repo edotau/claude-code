@@ -80,7 +80,7 @@ Cap: `agents.md` → Parallel dispatch.
 ## Phase 7: Merge
 
 Default is no worktree (`rules/standards/worktree-git.md`); if one was used, merge per
-`skills/using-git-worktrees/references/merge-and-clean.md`. Never `stash`/`checkout`/`reset` the live tree.
+`skills/using-git-worktrees/SKILL.md`. Never `stash`/`checkout`/`reset` the live tree.
 After a merge, stop any leaf still running on that work; a leaf at its turn limit commits or reports what's uncommitted.
 
 ## Phase 8: Verify
