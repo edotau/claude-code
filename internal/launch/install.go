@@ -1,7 +1,6 @@
 package launch
 
 import (
-	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -22,7 +21,6 @@ import (
 	"github.com/edotau/claude-code/internal/clean"
 	"github.com/edotau/claude-code/internal/clipboard"
 	"github.com/edotau/claude-code/internal/hooks"
-	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/network/browser"
 	"github.com/edotau/claude-code/internal/network/tailscale"
 	"github.com/edotau/claude-code/internal/network/vscode"
@@ -33,6 +31,9 @@ import (
 	"github.com/edotau/claude-code/internal/setup"
 	"github.com/edotau/claude-code/internal/ui/ansi"
 )
+
+// selfBinary is the running harness binary; a seam so install tests never link the test binary.
+var selfBinary = agent.SelfBinary
 
 // userBinDir is where install links claude-code onto PATH (~/.local/bin is on PATH by convention).
 var userBinDir = func() string {
@@ -65,7 +66,9 @@ func DoctorChecks() (checks []Check, ok bool) {
 	}
 	bin, err := agent.ClaudeBinary()
 	check(err == nil, true, "claude binary", orErr(bin, err))
-	checks = append(checks, codexConfigChecks()...)
+	for _, c := range agent.CodexConfigChecks() {
+		check(c.State == "ok", false, c.Name, c.Detail)
+	}
 	reg, err := providers.Load()
 	check(err == nil, true, "provider registry", orErr("vault overlay/providers", err))
 	if reg != nil {
@@ -73,12 +76,12 @@ func DoctorChecks() (checks []Check, ok bool) {
 		for _, c := range providerCredentialChecks(reg, sel, serr, reg.Names()) {
 			check(c.OK, c.Hard, c.Name, c.Detail)
 		}
-		check(true, false, "opencode route", opencodeRouteDetail(reg, sel, serr))
+		check(true, false, "opencode route", routeDetail("opencode"))
 		staticOK, staticDetail := opencodeStaticKeysDetail(reg)
 		check(staticOK, false, "opencode auth.json", staticDetail)
-		check(true, false, "copilot route", copilotRouteDetail(reg, serr))
-		check(true, false, "codex route", codexRouteDetail())
-		check(true, false, "gemini route", geminiRouteDetail())
+		check(true, false, "copilot route", routeDetail("copilot"))
+		check(true, false, "codex route", routeDetail("codex"))
+		check(true, false, "gemini route", routeDetail("gemini"))
 		for _, pin := range preflight.Check(reg, time.Now()) {
 			check(pin.Status == preflight.StatusOK, false, "pin "+pin.Agent, pin.Line())
 		}
@@ -120,31 +123,10 @@ func DoctorChecks() (checks []Check, ok bool) {
 	return checks, ok
 }
 
-// RouteDetail returns the "<agent> route" detail string DoctorChecks would emit for agent, without
-// running the rest of the doctor sweep; ok is false for an unknown vendor or a registry load error.
-func RouteDetail(vendor string) (detail string, ok bool) {
-	switch vendor {
-	case "codex":
-		return codexRouteDetail(), true
-	case "gemini":
-		return geminiRouteDetail(), true
-	case "opencode":
-		reg, err := providers.Load()
-		if err != nil || reg == nil {
-			return "", false
-		}
-		sel, selErr := providers.Select(reg, "")
-		return opencodeRouteDetail(reg, sel, selErr), true
-	case "copilot":
-		reg, err := providers.Load()
-		if err != nil || reg == nil {
-			return "", false
-		}
-		_, selErr := providers.Select(reg, "")
-		return copilotRouteDetail(reg, selErr), true
-	default:
-		return "", false
-	}
+// routeDetail is the "<agent> route" row; the caller loaded the registry already, so a miss is not a doctor failure.
+func routeDetail(vendor string) string {
+	detail, _ := agent.RouteDetail(vendor)
+	return detail
 }
 
 // credentialProbeWorkers caps the concurrent live credential probes doctor runs.
@@ -348,37 +330,6 @@ func setupDoctorDetail() string {
 	return fmt.Sprintf("adopted %s from %s; backup %s", st.Date.Format("2006-01-02"), st.Commit, st.BackupDir)
 }
 
-// opencodeRouteDetail reports the opencode route `claude-code configure --restore` would render: provider,
-// model/small_model (the github-copilot route only), the file it writes, and — names/booleans only,
-// never a credential — whether opencode has its own GitHub Copilot login and whether the copilot CLI has one.
-func opencodeRouteDetail(reg *providers.Registry, sel providers.Selection, selErr error) string {
-	own := agent.OpencodeOwnLoginPresent()
-	opencodeLogin := own || agent.OpencodeCopilotLoginPresent()
-	copilotCLILogin := agent.CopilotLoginPresent()
-	if own { // opencode's own Go/Zen credential serves the routed opencode legs, whatever the session provider
-		return fmt.Sprintf("provider=opencode-go leg=%s opencode_login=true copilot_cli_login=%v", agent.LegOwnLogin, copilotCLILogin)
-	}
-	if selErr != nil {
-		return fmt.Sprintf("opencode_login=%v copilot_cli_login=%v (%v)", opencodeLogin, copilotCLILogin, selErr)
-	}
-	target, _, err := agent.ResolveVendorTarget(reg, "opencode", sel, false)
-	if err != nil || target.Provider == nil {
-		return fmt.Sprintf("opencode_login=%v copilot_cli_login=%v (%v)", opencodeLogin, copilotCLILogin, orErr("", err))
-	}
-	file := filepath.Join(paths.StateDir(), "opencode", "opencode.json") // the overlay, not opencode's own config
-	if target.Provider.Provider != "github" {
-		return fmt.Sprintf("provider=%s file=%s opencode_login=%v copilot_cli_login=%v", target.Provider.Name, file, opencodeLogin, copilotCLILogin)
-	}
-	mainID, smallID, ok := agent.OpencodeCopilotModelIDs(reg)
-	if !ok {
-		return fmt.Sprintf("provider=%s file=%s (no sonnet/haiku model configured) opencode_login=%v copilot_cli_login=%v", target.Provider.Name, file, opencodeLogin, copilotCLILogin)
-	}
-	// opus/sonnet/haiku here are github-copilot's own table (configure github), separate from COPILOT_MODEL.
-	opusID := target.Provider.Models[models.Opus]
-	return fmt.Sprintf("provider=%s model=github-copilot/%s small_model=github-copilot/%s opus/sonnet/haiku=%s/%s/%s file=%s opencode_login=%v copilot_cli_login=%v",
-		target.Provider.Name, mainID, smallID, opusID, mainID, smallID, file, opencodeLogin, copilotCLILogin)
-}
-
 // opencodeStaticKeysDetail flags an opencode auth.json static key for a provider the harness vault
 // already supplies via the {env:} indirection — names only, never a credential value.
 func opencodeStaticKeysDetail(reg *providers.Registry) (bool, string) {
@@ -421,42 +372,6 @@ func opencodeProviderByID(reg *providers.Registry, id string) *providers.Provide
 		}
 	}
 	return nil
-}
-
-// copilotRouteDetail reports the copilot CLI's resolved leg (DescribeRoute): its own GitHub login,
-// BYOK with an anthropic or gemini key, or none — names/booleans/leg only, never a credential. On the
-// GitHub login leg it also names COPILOT_MODEL's source and the effort/context pins every launch reads.
-func copilotRouteDetail(reg *providers.Registry, selErr error) string {
-	if selErr != nil {
-		return fmt.Sprintf("(%v)", selErr)
-	}
-	ri := agent.DescribeRoute(reg, "copilot")
-	if !ri.OK {
-		return ri.Reason
-	}
-	detail := fmt.Sprintf("leg=%s provider=%s model=%s (%s)", ri.Leg, ri.Provider, ri.Model, ri.Reason)
-	if ri.Leg == agent.LegCopilotLogin {
-		_, source := providers.CopilotModel(reg)
-		effort := cmp.Or(providers.Pin(providers.PinCopilotEffort), "default")
-		context := cmp.Or(providers.Pin(providers.PinCopilotContext), "default")
-		detail += fmt.Sprintf(" source=%s effort=%s context=%s", source, effort, context)
-	}
-	return detail
-}
-
-// codexRouteDetail reports codex's own CODEX_MODEL/CODEX_REASONING_EFFORT pins — names/booleans only,
-// never a credential; unset means codex's own default (config.toml, then its ChatGPT-login catalog).
-func codexRouteDetail() string {
-	model, source := providers.CodexModel()
-	effort, _ := providers.CodexEffort()
-	return fmt.Sprintf("model=%s source=%s effort=%s", cmp.Or(model, "(default)"), source, cmp.Or(effort, "default"))
-}
-
-// geminiRouteDetail reports agy's own GEMINI_MODEL pin (effort rides the id's own suffix) — unset
-// means agy's own default (agent.AgyDefaultModel).
-func geminiRouteDetail() string {
-	model, source := providers.GeminiModel()
-	return fmt.Sprintf("model=%s source=%s", cmp.Or(model, "(default)"), source)
 }
 
 func routerStatus() string {

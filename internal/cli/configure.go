@@ -8,7 +8,6 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/configure"
-	"github.com/edotau/claude-code/internal/launch"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/ui/ansi"
 	"github.com/edotau/claude-code/internal/ui/helptext"
@@ -165,7 +164,7 @@ func configureRender(restore, revert bool, section, agents, out string, check, d
 
 func init() {
 	// An agent the harness cannot route gets one interactive setup offer before the plain-CLI passthrough.
-	launch.OfferConfigure = func(vendor string, reason error) bool {
+	agent.OfferConfigure = func(vendor string, reason error) bool {
 		if !ansi.IsTerminal(os.Stdin) || !ansi.IsTerminal(os.Stderr) {
 			return false
 		}

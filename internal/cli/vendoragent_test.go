@@ -13,7 +13,7 @@ import (
 	"unicode/utf8"
 )
 
-// notAVendor is an unregistered vendor name: every vendoragent lookup and launch.Vendor's own lookup
+// notAVendor is an unregistered vendor name: every vendoragent lookup and agent.Vendor's own lookup
 // reject it in-process, fast, so dispatch routing can be probed without touching a real vendor binary.
 const notAVendor = "zzz-not-a-vendor"
 
@@ -35,7 +35,7 @@ func TestVendorUsageFits80(t *testing.T) {
 
 // TestVendorVerbDoubleDashForcesPassthrough: `<v> -- status` must reach launchVendor, not
 // cmdVendorStatus, even though "status" is also a subverb word — distinguished here by message
-// shape: launchVendor's failure is launch.Vendor's generic "unknown agent" text, never the
+// shape: launchVendor's failure is agent.Vendor's generic "unknown agent" text, never the
 // "<v> status: ..." prefix cmdVendorStatus would produce.
 func TestVendorVerbDoubleDashForcesPassthrough(t *testing.T) {
 	_, _, stderr := captureOutput(t, func() int { return vendorVerb(notAVendor, []string{"--", "status"}) })
@@ -43,7 +43,7 @@ func TestVendorVerbDoubleDashForcesPassthrough(t *testing.T) {
 		t.Errorf("-- status reached cmdVendorStatus instead of launchVendor: %q", stderr)
 	}
 	if !strings.Contains(stderr, "unknown agent") {
-		t.Errorf("-- status stderr = %q, want launch.Vendor's \"unknown agent\" message", stderr)
+		t.Errorf("-- status stderr = %q, want agent.Vendor's \"unknown agent\" message", stderr)
 	}
 }
 
@@ -98,7 +98,7 @@ func TestVendorVerbRoutesResumeToCmdVendorResume(t *testing.T) {
 func TestVendorVerbBareLaunchesEvenWhenFirstWordLooksLikeASubverb(t *testing.T) {
 	_, _, stderr := captureOutput(t, func() int { return vendorVerb(notAVendor, []string{"--native-flag", "x"}) })
 	if !strings.Contains(stderr, "unknown agent") {
-		t.Errorf("bare launch stderr = %q, want launch.Vendor's unknown-vendor message", stderr)
+		t.Errorf("bare launch stderr = %q, want agent.Vendor's unknown-vendor message", stderr)
 	}
 }
 

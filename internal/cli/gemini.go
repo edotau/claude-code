@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/launch"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
@@ -96,7 +95,7 @@ func cmdGeminiBridge(args []string) int {
 		Task: taskText, Model: *model, Provider: *provider, Effort: *effort, Rubric: *rubric, Cwd: cwd,
 		Dirs: splitCSV(*dirs), Files: splitCSV(*files),
 		MaxFiles: *maxFiles, MaxFileBytes: *maxFileBytes, Timeout: *timeout, IndexOnly: *maxFiles == 0,
-		Index: *index, Diff: *diff, PrintCommand: *printCommand, Launcher: launch.Launcher{},
+		Index: *index, Diff: *diff, PrintCommand: *printCommand,
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

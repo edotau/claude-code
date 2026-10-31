@@ -20,7 +20,6 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/hooks"
-	"github.com/edotau/claude-code/internal/launch"
 	"github.com/edotau/claude-code/internal/network/tailscale"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/ui/helptext"
@@ -504,7 +503,7 @@ func resolveAskPrompt(prompt string) (string, error) {
 }
 
 func newClient() *agent.Client {
-	return agent.NewClient(launch.Launcher{}, hooks.RuleClassifier{}.Tier, routeRefresh,
+	return agent.NewClient(hooks.RuleClassifier{}.Tier, routeRefresh,
 		func(s string) { fmt.Fprintln(os.Stderr, "ask:", s) })
 }
 
