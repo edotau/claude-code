@@ -155,6 +155,16 @@ func worktreeNames() []string {
 	return out
 }
 
+// dispatchCacheSchema is the cache's current schema version; a mismatch is a cache miss, never migrated.
+const dispatchCacheSchema = 1
+
+var dispatchCacheFormat = schemas.Register(schemas.Format{
+	Name: "tailscale-machines", Owner: "internal/cli", Kind: schemas.Cache,
+	Glob:    func() string { return dispatchCachePath() },
+	New:     func() any { return &dispatchMachineCache{} },
+	Version: dispatchCacheSchema, Keep: "rebuildable cache; a version mismatch is a miss",
+})
+
 // dispatchCachePath is where `network tailscale --machines` leaves its last successful listing for completion
 // to read; completion never calls the network itself.
 func dispatchCachePath() string { return filepath.Join(paths.StateDir(), "tailscale-machines.json") }
@@ -244,13 +254,3 @@ func webViewAgentIDs() []string {
 	}
 	return ids
 }
-
-// dispatchCacheSchema is the cache's current schema version; a mismatch is a cache miss, never migrated.
-const dispatchCacheSchema = 1
-
-var dispatchCacheFormat = schemas.Register(schemas.Format{
-	Name: "tailscale-machines", Owner: "internal/cli", Kind: schemas.Cache,
-	Glob:    func() string { return dispatchCachePath() },
-	New:     func() any { return &dispatchMachineCache{} },
-	Version: dispatchCacheSchema, Keep: "rebuildable cache; a version mismatch is a miss",
-})
