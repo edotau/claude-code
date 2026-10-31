@@ -16,6 +16,7 @@ import (
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/schemas"
 )
 
 var catalogWarn io.Writer = os.Stderr
@@ -155,3 +156,11 @@ func writeCodexCatalog(path string, body []byte) error {
 	}
 	return os.Rename(f.Name(), path)
 }
+
+var (
+	_ = schemas.Register(schemas.Format{
+		Name: "codex-catalog", Owner: "internal/agent", Kind: schemas.Derived,
+		Glob:    func() string { return filepath.Join(paths.StateDir(), "codex", "catalog-*.json") },
+		Version: 1, Keep: "rebuilt from the provider catalog; codex reads it, so no schema field",
+	})
+)

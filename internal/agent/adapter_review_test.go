@@ -11,8 +11,7 @@ import (
 	"testing"
 )
 
-// initRepo creates a git repo at t.TempDir() with one commit on main; runGit is a tiny helper that
-// fails the test on error so call sites stay single-line.
+// initRepo creates a git repo at t.TempDir() with one commit on main;
 func initRepo(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()

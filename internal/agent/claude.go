@@ -45,6 +45,11 @@ func (claudeRunner) Run(ctx context.Context, req RunOptions, sink Sink) (Result,
 	if err != nil {
 		return Result{}, err
 	}
+	return claudeExec(ctx, req, prompt, sink)
+}
+
+// claudeExec runs one stream-json claude process to completion and parses its events into sink.
+func claudeExec(ctx context.Context, req RunOptions, prompt string, sink Sink) (Result, error) {
 	args := claudeArgs([]string{"--print", "--output-format", "stream-json", "--verbose", "--include-partial-messages"}, req)
 	cmd, tail, cl, err := claudeCmd(ctx, req, args, prompt)
 	if err != nil {
@@ -58,6 +63,9 @@ func (claudeRunner) Run(ctx context.Context, req RunOptions, sink Sink) (Result,
 		return Result{}, err
 	}
 	res, perr := parseClaudeStream(bufio.NewReader(stdout), sink, eventLogFor(ctx))
+	if perr != nil {
+		_ = cmd.Cancel() // a dead consumer or bad stream must not leave claude running to --timeout
+	}
 	_, _ = io.Copy(io.Discard, stdout)
 	werr := cmd.Wait()
 	res.Provider = cl.Set[providers.PinProfile]
@@ -69,36 +77,32 @@ func (claudeRunner) Run(ctx context.Context, req RunOptions, sink Sink) (Result,
 
 // claudeArgs appends the request's option flags to base; shared by the one-shot and the live session.
 func claudeArgs(args []string, req RunOptions) []string {
-	if req.NoPersist {
-		args = append(args, "--no-session-persistence")
-	}
-	if req.SafeMode {
-		args = append(args, "--safe-mode")
-	}
-	if req.DebugFile != "" {
-		args = append(args, "--debug-file", req.DebugFile)
-	}
-	if req.Effort != "" {
-		args = append(args, "--effort", req.Effort)
-	}
-	if req.SystemPrompt != "" {
-		args = append(args, "--system-prompt", req.SystemPrompt)
-	}
-	if req.AppendSystemPrompt != "" {
-		args = append(args, "--append-system-prompt", req.AppendSystemPrompt)
+	for _, f := range []struct {
+		on   bool
+		flag []string
+	}{
+		{req.NoPersist, []string{"--no-session-persistence"}},
+		{req.SafeMode, []string{"--safe-mode"}},
+		{req.DebugFile != "", []string{"--debug-file", req.DebugFile}},
+		{req.Effort != "", []string{"--effort", req.Effort}},
+		{req.SystemPrompt != "", []string{"--system-prompt", req.SystemPrompt}},
+		{req.AppendSystemPrompt != "", []string{"--append-system-prompt", req.AppendSystemPrompt}},
+		{req.OutputSchema != "", []string{"--json-schema", req.OutputSchema}},
+		{req.SessionID != "", []string{"--resume", req.SessionID}},
+		{req.Autonomous && req.Tools, []string{"--permission-mode", "bypassPermissions"}},
+	} {
+		if f.on {
+			args = append(args, f.flag...)
+		}
 	}
 	if req.Persona != nil {
 		args = append(args, personaArgs(req.Persona)...)
 	}
-	if req.OutputSchema != "" {
-		args = append(args, "--json-schema", req.OutputSchema)
-	}
-	if req.SessionID != "" {
-		args = append(args, "--resume", req.SessionID)
-	}
 	if !req.Tools {
-		// A one-shot answer needs no house rules: CLAUDE.md + rules + skills + roster were ~395K cache-write tokens per call.
+
 		args = append(args, "--tools", "", "--setting-sources", "")
+	} else {
+		args = append(args, "--exclude-dynamic-system-prompt-sections") // per-session sections defeat the prompt cache
 	}
 	return args
 }
@@ -114,8 +118,6 @@ func claudeCmd(ctx context.Context, req RunOptions, args []string, prompt string
 		return nil, nil, cl, err
 	}
 	cmd, tail := childCmd(ctx, cl.Binary, cl.Argv, nil, req.WorkDir, prompt, req.KeepEnv, false)
-	// cl.Env also merges the vault's custom env (any profile's vars): filter the result, sparing only the plan's own
-	// route and token (cl.Set), so another profile's custom credential var never reaches this child
 	cmd.Env = scrubIsolated(ctx, cl.Env, append(slices.Clone(req.KeepEnv), slices.Collect(maps.Keys(cl.Set))...))
 	cmd.Env = append(cmd.Env, req.Env...) // --env goes last, after the route keys, so it wins
 	return cmd, tail, cl, nil
@@ -154,7 +156,7 @@ type claudeMessage struct {
 	Content []struct {
 		Type string `json:"type"`
 		Text string `json:"text"`
-		Name string `json:"name"` // tool_use blocks
+		Name string `json:"name"`
 		ID   string `json:"id"`
 	} `json:"content"`
 }
@@ -216,7 +218,7 @@ func parseClaudeEvents(br *bufio.Reader, untilResult bool, sink Sink, logs ...ev
 			}
 		case "assistant":
 			if ev.ParentToolUseID != "" {
-				return false, nil // a subagent's turn, not the answer
+				return false, nil
 			}
 			msg := ev.object()
 			if msg.Model != "" {
@@ -230,7 +232,7 @@ func parseClaudeEvents(br *bufio.Reader, untilResult bool, sink Sink, logs ...ev
 			sawResult = true
 			if err := applyClaudeResult(&res, ev); err != nil {
 				lg.emit("error", err.Error())
-				_ = sink.Emit(Event{Type: EventError, Text: err.Error()}) // the parse error below already aborts
+				_ = sink.Emit(Event{Type: EventError, Text: err.Error()})
 				return false, err
 			}
 			lg.emit("result", ev.Result)
@@ -240,7 +242,7 @@ func parseClaudeEvents(br *bufio.Reader, untilResult bool, sink Sink, logs ...ev
 		case "error":
 			if t := ev.text(); t != "" {
 				lg.emit("error", t)
-				_ = sink.Emit(Event{Type: EventError, Text: t}) // the claude error below already aborts
+				_ = sink.Emit(Event{Type: EventError, Text: t})
 				return false, fmt.Errorf("claude: %s", t)
 			}
 		}
@@ -257,10 +259,8 @@ func parseClaudeEvents(br *bufio.Reader, untilResult bool, sink Sink, logs ...ev
 
 var errNoResult = errors.New("claude: stream ended without a result event")
 
-// clock is the time seam for stream timing.
 var clock = time.Now
 
-// transportTracker accumulates Transport stats while a claude stream is parsed.
 type transportTracker struct {
 	start, last time.Time
 	statuses    []int
@@ -308,7 +308,6 @@ func logClaudeAssistant(lg eventLog, msg claudeMessage) {
 	}
 }
 
-// emitClaudeAssistant emits msg's tool calls and text blocks; *wrote marks the first text, later text starts a turn.
 func emitClaudeAssistant(sink Sink, msg claudeMessage, wrote *bool) error {
 	for _, b := range msg.Content {
 		var ev Event
@@ -347,7 +346,6 @@ type resultError struct{ error }
 
 func (e resultError) Unwrap() error { return e.error }
 
-// claudeAttach inlines text files; images are named by absolute path so claude's Read tool opens them (needs tools).
 func claudeAttach(prompt string, paths []string, tools bool) (string, error) {
 	images, rest := splitImages(paths)
 	if len(images) > 0 && !tools {
@@ -357,10 +355,11 @@ func claudeAttach(prompt string, paths []string, tools bool) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	var promptSb361 strings.Builder
+	var sb strings.Builder
 	for _, p := range images {
-		promptSb361.WriteString("\n\nAttached image (open it with the Read tool): " + p)
+		sb.WriteString("\n\nAttached image (open it with the Read tool): ")
+		sb.WriteString(p)
 	}
-	prompt += promptSb361.String()
+	prompt += sb.String()
 	return prompt, nil
 }
