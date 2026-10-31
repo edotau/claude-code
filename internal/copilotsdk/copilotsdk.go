@@ -36,6 +36,7 @@ type Options struct {
 	Context          string // ContextTier: "default" or "long_context"; empty leaves the model's own default
 	WorkingDirectory string
 	AllowAllTools    bool
+	ReadOnlyTools    bool // with AllowAllTools: approve only file reads and URL fetches
 	UseLoggedInUser  bool // always explicit: unset, the SDK silently falls back to the GitHub subscription
 	GitHubToken      string
 	Autonomous       bool   // MessageOptions.AgentMode = AgentModeAutopilot
@@ -123,6 +124,9 @@ func buildResumeSessionConfig(o Options) *copilot.ResumeSessionConfig {
 }
 
 func permissionHandler(o Options) copilot.PermissionHandlerFunc {
+	if o.AllowAllTools && o.ReadOnlyTools {
+		return approveReadOnly
+	}
 	if o.AllowAllTools {
 		return approveToolOnce
 	}
@@ -179,6 +183,19 @@ func denyAllTools(_ copilot.PermissionRequest, _ copilot.PermissionInvocation) (
 }
 
 // approveToolOnce is the explicit opt-in; managed org settings still win.
+// readOnlyKinds are the requests a read-only run approves: file reads and URL fetches, never write, shell or memory.
+var readOnlyKinds = map[rpc.PermissionRequestKind]bool{rpc.PermissionRequestKindRead: true, rpc.PermissionRequestKindURL: true}
+
+const readOnlyFeedback = "This run is read-only: only file reads and URL fetches are allowed. Report instead of changing anything."
+
+func approveReadOnly(req copilot.PermissionRequest, inv copilot.PermissionInvocation) (rpc.PermissionDecision, error) {
+	if !readOnlyKinds[req.Kind()] {
+		feedback := readOnlyFeedback
+		return &rpc.PermissionDecisionReject{Feedback: &feedback}, nil
+	}
+	return approveToolOnce(req, inv)
+}
+
 func approveToolOnce(_ copilot.PermissionRequest, inv copilot.PermissionInvocation) (rpc.PermissionDecision, error) {
 	if inv.ManagedSettingsEnabled {
 		return &rpc.PermissionDecisionNoResult{}, nil

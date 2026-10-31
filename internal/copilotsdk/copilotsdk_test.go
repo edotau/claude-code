@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	copilot "github.com/github/copilot-sdk/go"
+	"github.com/github/copilot-sdk/go/rpc"
 )
 
 // funcName compares function VALUES by the symbol they point to (PermissionHandlerFunc values are not
@@ -236,5 +237,25 @@ func TestListModelsEmptyCatalog(t *testing.T) {
 	}
 	if len(got) != 0 {
 		t.Errorf("got %d models, want 0", len(got))
+	}
+}
+
+// A read-only run approves reads and URL fetches through BuildSessionConfig's handler and rejects writes and shell.
+func TestReadOnlyToolsApproveOnlyReads(t *testing.T) {
+	h := BuildSessionConfig(Options{AllowAllTools: true, ReadOnlyTools: true}).OnPermissionRequest
+	for _, tc := range []struct {
+		req  copilot.PermissionRequest
+		want bool
+	}{
+		{rpc.PermissionRequestRead{}, true}, {rpc.PermissionRequestURL{}, true},
+		{rpc.PermissionRequestWrite{}, false}, {rpc.PermissionRequestShell{}, false},
+	} {
+		d, err := h(tc.req, copilot.PermissionInvocation{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, approved := d.(*rpc.PermissionDecisionApproveOnce); approved != tc.want {
+			t.Errorf("%s: approved = %v, want %v", tc.req.Kind(), approved, tc.want)
+		}
 	}
 }

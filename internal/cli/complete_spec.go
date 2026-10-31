@@ -44,7 +44,7 @@ func buildSpecTree() map[string]*compNode {
 
 	askFlags := []flagInfo{
 		valuedFlag("agent", agentNames), flag("agents"), valuedFlag("profile", providerNames), flag("model"),
-		flag("effort"), flag("workdir"), flag("session"), boolFlag("tools"), boolFlag("no-tools"), boolFlag("native"),
+		flag("effort"), flag("workdir"), flag("session"), boolFlag("tools"), boolFlag("read-only"), boolFlag("no-tools"), boolFlag("native"),
 		flag("timeout"), flag("format"), flag("rubric"), flag("retry"), boolFlag("log"),
 		valuedFlag("fallback", func() []string { return agent.FallbackModes }),
 		flag("attach"), flag("keep-env"), boolFlag("autonomous"), boolFlag("enable-memory"),

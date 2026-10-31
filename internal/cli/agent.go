@@ -50,6 +50,7 @@ func runAsk(args []string, resume bool) int {
 	workdir := fs.String("workdir", "", "working directory for the agent")
 	session := fs.String("session", "", "resume this session id")
 	tools := fs.Bool("tools", false, "allow tool use where the agent can gate it (default: disabled)")
+	readOnly := fs.Bool("read-only", false, "tools may read files but never write, run shell or commit; implies --tools")
 	noTools := fs.Bool("no-tools", false, "claude only: answer from the profile directly, no tools; not with --tools")
 	noPersist := fs.Bool("no-persist", false, "claude, codex: do not save the session for later resume")
 	safeMode := fs.Bool("safe-mode", false, "claude, codex, opencode: skip hooks, plugins, customizations")
@@ -89,6 +90,7 @@ func runAsk(args []string, resume bool) int {
 	if err := validateAskFlags(*format, *fallback); err != nil {
 		return failAsk(*format, *name, err)
 	}
+	*tools = *tools || *readOnly // read-only tools are still tools
 	if err := askExclusive(*background, *job, *tools, *noTools); err != nil {
 		return failAsk(*format, *name, err)
 	}
@@ -126,7 +128,7 @@ func runAsk(args []string, resume bool) int {
 		return failAskCode(*format, *name, errors.New("--env cannot be combined with --background: env values are never stored in the dispatch record"), 2)
 	}
 	if *batch != "" {
-		base := agent.RunOptions{Model: *model, Provider: *provider, Effort: *effort, WorkDir: *workdir, Tools: *tools, NoTools: *noTools,
+		base := agent.RunOptions{Model: *model, Provider: *provider, Effort: *effort, WorkDir: *workdir, Tools: *tools, ReadOnly: *readOnly, NoTools: *noTools,
 			Timeout: *timeout, KeepEnv: []string(keepEnv), Autonomous: *autonomous, EnableMemory: *enableMemory, Direct: *direct,
 			NoPersist: *noPersist, SafeMode: *safeMode, SystemPrompt: *systemPrompt, AppendSystemPrompt: *appendSystemPrompt,
 			Env: []string(env), OutputSchema: schema, Agents: defs}
@@ -209,7 +211,7 @@ func runAsk(args []string, resume bool) int {
 	}
 	*debugFile = absDebugFile(*debugFile)
 	req := agent.RunOptions{Prompt: prompt, Model: *model, Provider: *provider, Effort: *effort,
-		WorkDir: *workdir, SessionID: *session, Tools: *tools, NoTools: *noTools, Timeout: *timeout,
+		WorkDir: *workdir, SessionID: *session, Tools: *tools, ReadOnly: *readOnly, NoTools: *noTools, Timeout: *timeout,
 		Attach: []string(attach), KeepEnv: []string(keepEnv), Autonomous: *autonomous, EnableMemory: *enableMemory, Direct: *direct,
 		NoPersist: *noPersist, SafeMode: *safeMode, DebugFile: *debugFile, SystemPrompt: *systemPrompt,
 		AppendSystemPrompt: *appendSystemPrompt, Env: []string(env), OutputSchema: schema, Persona: persona,
