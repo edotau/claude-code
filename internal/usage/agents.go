@@ -18,9 +18,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/transcript"
 )
 
@@ -189,11 +189,6 @@ func claudeDailyFromFiles(files []string) []dailyBucket {
 	return dailyFromCounts(counts)
 }
 
-// codexHome honors CODEX_HOME, else ~/.codex.
-func codexHome() (string, error) {
-	return settings.CodexHome()
-}
-
 // codexEventPayload mirrors a codex session line's payload: turn_context carries the model, event_msg
 // carries token_count with the cumulative total_token_usage for the session so far; Timestamp is the
 // line's own RFC3339 clock, used to date a session by its LAST token_count line.
@@ -277,7 +272,7 @@ func parseCodexSession(path string) codexSessionSummary {
 
 // codexUsage walks ~/.codex/sessions for *.jsonl files modified within the window, one session per file.
 func codexUsage(cutoff time.Time) agentUsage {
-	home, err := codexHome()
+	home, err := agent.CodexHome()
 	if err != nil {
 		return agentUsage{Agent: "codex", Note: "store not found: " + err.Error()}
 	}

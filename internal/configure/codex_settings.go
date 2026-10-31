@@ -3,7 +3,7 @@ package configure
 import (
 	"maps"
 
-	"github.com/edotau/claude-code/internal/settings"
+	"github.com/edotau/claude-code/internal/agent"
 )
 
 func codexPreferenceValue(key string, overlay, live map[string]string) (value, source string) {
@@ -17,17 +17,17 @@ func codexPreferenceValue(key string, overlay, live map[string]string) (value, s
 }
 
 func runCodexSettings(d *dialog) bool {
-	ov, err := settings.LoadCodexOverlay()
+	ov, err := agent.LoadCodexOverlay()
 	if err != nil {
 		d.printf("codex: %v\n", err)
 		return false
 	}
-	live, err := settings.ReadCodexSettings(d.o.Home)
+	live, err := agent.ReadCodexSettings(d.o.Home)
 	if err != nil {
 		d.printf("codex: %v\n", err)
 		return false
 	}
-	path, err := settings.CodexConfigPath(d.o.Home)
+	path, err := agent.CodexConfigPath(d.o.Home)
 	if err != nil {
 		d.printf("codex: %v\n", err)
 		return false
@@ -36,12 +36,12 @@ func runCodexSettings(d *dialog) bool {
 	if d.o.Interactive && !d.o.Check && !d.o.DryRun && isStdinTTY() {
 		return runCodexSettingsMenu(d, ov, live)
 	}
-	drift, err := settings.CodexSettingsDrift(d.o.Home)
+	drift, err := agent.CodexSettingsDrift(d.o.Home)
 	if err != nil {
 		d.printf("codex: %v\n", err)
 		return false
 	}
-	for _, field := range settings.CodexFields() {
+	for _, field := range agent.CodexFields() {
 		value, source := codexPreferenceValue(field.Key, ov, live)
 		if saved, exists := ov[field.Key]; exists {
 			value, source = saved, "vault"
@@ -60,7 +60,7 @@ func runCodexSettings(d *dialog) bool {
 // runCodexSettingsMenu stages choices; only the explicit Save row writes or applies them.
 func runCodexSettingsMenu(d *dialog, ov, live map[string]string) bool {
 	next := maps.Clone(ov)
-	fields := settings.CodexFields()
+	fields := agent.CodexFields()
 	for {
 		rows := make([][2]string, 0, len(fields)+1)
 		for _, f := range fields {
@@ -107,8 +107,8 @@ func runCodexSettingsMenu(d *dialog, ov, live map[string]string) bool {
 }
 
 func saveCodexSettings(d *dialog, old, next map[string]string) bool {
-	err := settings.UpdateCodexOverlay(func(current map[string]string) map[string]string {
-		for _, f := range settings.CodexFields() {
+	err := agent.UpdateCodexOverlay(func(current map[string]string) map[string]string {
+		for _, f := range agent.CodexFields() {
 			before, hadBefore := old[f.Key]
 			after, hasAfter := next[f.Key]
 			if hadBefore == hasAfter && before == after {
@@ -126,7 +126,7 @@ func saveCodexSettings(d *dialog, old, next map[string]string) bool {
 		d.printf("codex: %v\n", err)
 		return false
 	}
-	if err := settings.ApplyCodexSettings(d.o.Home); err != nil {
+	if err := agent.ApplyCodexSettings(d.o.Home); err != nil {
 		d.printf("codex: preferences saved; native apply failed: %v\n", err)
 		return false
 	}

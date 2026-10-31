@@ -399,8 +399,8 @@ func TestUntrackedBlockTotalCap(t *testing.T) {
 	}
 }
 
-// commitFile rewrites a.txt to content and commits it.
-func commitFile(t *testing.T, dir, content, msg string) {
+// commitGitFile rewrites a.txt to content and commits it.
+func commitGitFile(t *testing.T, dir, content, msg string) {
 	t.Helper()
 	if err := os.WriteFile(filepath.Join(dir, "a.txt"), []byte(content), 0o644); err != nil {
 		t.Fatal(err)
@@ -420,9 +420,9 @@ func setOriginHEAD(t *testing.T, dir, branch string) {
 func TestDiffPRUsesOriginDefaultBranch(t *testing.T) {
 	dir := initRepo(t)
 	setOriginHEAD(t, dir, "main")
-	commitFile(t, dir, "one\nunpushed-on-local-main\n", "local only")
+	commitGitFile(t, dir, "one\nunpushed-on-local-main\n", "local only")
 	runGit(t, dir, "checkout", "-q", "-b", "feature")
-	commitFile(t, dir, "one\nunpushed-on-local-main\nfeature-line\n", "feature")
+	commitGitFile(t, dir, "one\nunpushed-on-local-main\nfeature-line\n", "feature")
 
 	out, err := Diff(context.Background(), dir, Scope{Kind: "pr"})
 	if err != nil {
@@ -440,7 +440,7 @@ func TestDiffPRPassesEndOfOptions(t *testing.T) {
 	dir := initRepo(t)
 	setOriginHEAD(t, dir, "-main")
 	runGit(t, dir, "checkout", "-q", "-b", "feature")
-	commitFile(t, dir, "one\nfeature-line\n", "feature")
+	commitGitFile(t, dir, "one\nfeature-line\n", "feature")
 
 	out, err := Diff(context.Background(), dir, Scope{Kind: "pr"})
 	if err != nil {

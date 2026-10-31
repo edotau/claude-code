@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/router"
-	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -15,7 +14,7 @@ import (
 func TestOpencodeOverlayModelsFollowTable(t *testing.T) {
 	vaulttest.Use(t)
 	render := func() map[string]any {
-		_, body, _, _, err := settings.OpencodeOverlayRendered(Router{})
+		_, body, _, _, err := OpencodeOverlayRendered()
 		if err != nil {
 			t.Fatal(err)
 		}

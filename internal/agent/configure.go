@@ -10,7 +10,6 @@ import (
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/proxy"
-	"github.com/edotau/claude-code/internal/settings"
 )
 
 // Credentials ride these env vars (never argv); the config text names the variable, not the secret.
@@ -71,15 +70,15 @@ func applyLaunch(name string, env, argv []string, args bool) ([]string, []string
 	if name == "opencode" {
 		// Every opencode launch (own login, BYOK, headless) points at the tracked overlay; a failed
 		// write is best-effort — opencode still runs on its own global config without it.
-		if cfg, tui, err := settings.WriteOpencodeOverlay(Router{}); err == nil {
+		if cfg, tui, err := WriteOpencodeOverlay(); err == nil {
 			env = append(env, "OPENCODE_CONFIG="+cfg, "OPENCODE_TUI_CONFIG="+tui)
 		}
 	}
-	vc, err := settings.Load()
+	vc, err := LoadConfig()
 	if err != nil {
 		return env, argv
 	}
-	launch := vc.Vendor(name).Launch
+	launch := vc.Agent(name).Launch
 	env = append(env, launch.Env...)
 	if args {
 		argv = append(argv, launch.Args...)

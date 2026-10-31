@@ -1,18 +1,18 @@
-package settings_test
+package agent_test
 
 import (
-	"github.com/edotau/claude-code/internal/settings"
+	"github.com/edotau/claude-code/internal/agent"
 	"strings"
 	"testing"
 )
 
-// settings.MergeCodexTrust must not mistake a "["-led line inside an open array for a table header: an
+// agent.MergeCodexTrust must not mistake a "["-led line inside an open array for a table header: an
 // existing trusted_hash AFTER the array, still inside the same table, is replaced in place —
 // not left stale with a duplicate appended at EOF because the array wrongly reset the active table.
 func TestMergeCodexTrustBracketInArrayNotHeader(t *testing.T) {
 	raw := "[hooks.state.\"K\"]\nextra = [\n  [1, 2],\n]\ntrusted_hash = \"old\"\n"
 	entries := map[string]string{"K": "abc123"}
-	got := settings.MergeCodexTrust(raw, entries)
+	got := agent.MergeCodexTrust(raw, entries)
 	want := "[hooks.state.\"K\"]\nextra = [\n  [1, 2],\n]\ntrusted_hash = \"abc123\"\n"
 	if got != want {
 		t.Fatalf("mergeCodexTrust:\n%q\nwant:\n%q", got, want)
@@ -27,7 +27,7 @@ func TestMergeCodexTrustBracketInArrayNotHeader(t *testing.T) {
 func TestMergeCodexTrustHeaderAfterArrayStillMatches(t *testing.T) {
 	raw := "extra = [\n  [1, 2],\n]\n[hooks.state.\"K2\"]\nother = 1\n"
 	entries := map[string]string{"K2": "def456"}
-	got := settings.MergeCodexTrust(raw, entries)
+	got := agent.MergeCodexTrust(raw, entries)
 	want := "extra = [\n  [1, 2],\n]\n[hooks.state.\"K2\"]\nother = 1\ntrusted_hash = \"def456\"\n"
 	if got != want {
 		t.Fatalf("mergeCodexTrust:\n%q\nwant:\n%q", got, want)
@@ -66,11 +66,11 @@ trusted_hash = "first"
 trusted_hash = "last"
 `
 	entries := map[string]string{"active": "new", "missing": "added", "z": "last", "a": "first"}
-	got := settings.MergeCodexTrust(raw, entries)
+	got := agent.MergeCodexTrust(raw, entries)
 	if got != want {
 		t.Fatalf("mergeCodexTrust:\n%s\nwant:\n%s", got, want)
 	}
-	if again := settings.MergeCodexTrust(got, entries); again != got {
+	if again := agent.MergeCodexTrust(got, entries); again != got {
 		t.Fatalf("merge is not idempotent:\n%s", again)
 	}
 	if len(entries) != 4 {
@@ -92,7 +92,7 @@ func TestInsertTopLevelTOMLSkipsMultilineStrings(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			in := "note = " + c.quote + "\nsome text\n[looks like a table]\nmore text\n" + c.quote + "\n\n[real.table]\nkey = 1\n"
 			section := "[inserted]\nx = 1\n"
-			got := settings.InsertTopLevelTOML(in, section)
+			got := agent.InsertTopLevelTOML(in, section)
 
 			wantString := "note = " + c.quote + "\nsome text\n[looks like a table]\nmore text\n" + c.quote + "\n"
 			idxString := indexOf(got, wantString)
@@ -117,7 +117,7 @@ func TestInsertTopLevelTOMLSkipsMultilineStrings(t *testing.T) {
 func TestInsertTopLevelTOMLSkipsNestedArrays(t *testing.T) {
 	in := "matrix = [\n  [1, 2],\n  [3, 4],\n]\n\n[real]\nk = 1\n"
 	section := "[inserted]\nx = 1\n"
-	got := settings.InsertTopLevelTOML(in, section)
+	got := agent.InsertTopLevelTOML(in, section)
 
 	wantArray := "matrix = [\n  [1, 2],\n  [3, 4],\n]\n"
 	idxArray := indexOf(got, wantArray)

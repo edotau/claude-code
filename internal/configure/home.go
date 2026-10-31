@@ -121,7 +121,7 @@ type mcpClient struct {
 }
 
 func webSearchClients() []mcpClient {
-	codexCfg, cfgErr := settings.CodexConfigPath("")
+	codexCfg, cfgErr := agent.CodexConfigPath("")
 	return []mcpClient{
 		{"claude", func() bool { return claudeJSONWired(paths.ClaudeJSON()) }, registerClaudeMCP},
 		{"codex", func() bool { return codexWired(codexCfg) }, func(bin string) error {
@@ -206,7 +206,7 @@ func registerCodexMCP(path, bin string) error {
 		next = append(append(raw, '\n'), block...)
 	}
 	if len(raw) > 0 {
-		if err := settings.CodexBackup(path, raw, true); err != nil {
+		if err := agent.CodexBackup(path, raw, true); err != nil {
 			return err
 		}
 	}
@@ -411,7 +411,7 @@ func rerenderConfigs(d *dialog) bool {
 		}
 		d.printf("settings.json updated (backup %s)\n", backup)
 	}
-	if _, err := settings.Run(settings.Options{Out: d.out, Router: agent.Router{}}); err != nil {
+	if _, err := agent.RenderConfigs(agent.RenderOptions{Out: d.out}); err != nil {
 		d.printf("agent configs: %v\n", err)
 	}
 	return true

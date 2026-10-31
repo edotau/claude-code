@@ -45,7 +45,7 @@ migrations | log | 1 | state/harness/migrations.jsonl | schemas | keep
 oauth-usage-cache | cache | 1 | state/harness/cache/claude-oauth-usage.json | internal/usage | keep
 opencode-auth-cache | cache | 1 | state/harness/vendors/opencode-auth.json | internal/agent | keep
 opencode-models-check | cache | 1 | state/harness/opencode-models-check.json | internal/providers | keep
-opencode-overlay | derived | 1 | state/harness/opencode/*.json | internal/settings | keep
+opencode-overlay | derived | 1 | state/harness/opencode/*.json | internal/agent | keep
 projections | derived | 1 | state/projections/* | internal/agent | clean:projections
 quota | derived | 0 | state/harness/quota.json | internal/router | keep
 router-runtime | record | 1 | state/harness/router.json | internal/proxy | keep
@@ -59,6 +59,6 @@ token-expiry | cache | 1 | state/harness/cache/token-expiry/*.json | internal/pr
 transcript-summary | cache | 1 | state/harness/transcript/summary.json | internal/transcript | keep
 usage-ledger | log | 1 | state/usage/ledger.jsonl | internal/usage/usageledger | keep
 vault | store | 3 | state/vault.db | vault | keep
-vendor-baseline | derived | 1 | state/harness/vendor-baseline/* | internal/settings | keep
+vendor-baseline | derived | 1 | state/harness/vendor-baseline/* | internal/agent | keep
 vscode-serve-runtime | record | 1 | state/harness/vscode-serve.json | internal/network/vscode | keep
 worktree-merge-op | record | 1 | state/harness/worktree-merge-ops/*.json | internal/worktree | keep

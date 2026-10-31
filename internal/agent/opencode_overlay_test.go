@@ -9,7 +9,6 @@ import (
 
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
-	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -22,7 +21,7 @@ func TestOpencodeOverlayModelComesFromTable(t *testing.T) {
 	if !ok {
 		t.Fatal("routing table has no opencode sonnet/haiku models")
 	}
-	_, cfgBody, _, _, err := settings.OpencodeOverlayRendered(Router{})
+	_, cfgBody, _, _, err := OpencodeOverlayRendered()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -77,7 +76,7 @@ func TestOpencodeCopilotOnlyOverlayModels(t *testing.T) {
 	if !ok {
 		t.Fatal("no copilot model ids")
 	}
-	_, body, _, _, err := settings.OpencodeOverlayRendered(Router{})
+	_, body, _, _, err := OpencodeOverlayRendered()
 	if err != nil {
 		t.Fatal(err)
 	}

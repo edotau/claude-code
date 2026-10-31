@@ -1,4 +1,4 @@
-package settings
+package agent
 
 import (
 	"bytes"
@@ -70,14 +70,14 @@ func TestCodexPreferencesApplyPreservesAndRestoresNativeConfig(t *testing.T) {
 	if err != nil || !found || latest.Name != b.Name {
 		t.Fatal("no-op apply added a snapshot")
 	}
-	if err := Revert(Options{Agents: []string{"codex"}, DryRun: true, Out: io.Discard}); err != nil {
+	if err := RevertConfigs(RenderOptions{Agents: []string{"codex"}, DryRun: true, Out: io.Discard}); err != nil {
 		t.Fatal(err)
 	}
 	unchanged, err := os.ReadFile(path)
 	if err != nil || !bytes.Equal(unchanged, after) {
 		t.Fatalf("dry restore modified config: %v", err)
 	}
-	if err := Revert(Options{Agents: []string{"codex"}, Out: io.Discard}); err != nil {
+	if err := RevertConfigs(RenderOptions{Agents: []string{"codex"}, Out: io.Discard}); err != nil {
 		t.Fatal(err)
 	}
 	restored, err := os.ReadFile(path)
@@ -140,15 +140,15 @@ func TestCodexPreferencesRestoreMissingOriginalAndOwnedValues(t *testing.T) {
 	if err := ApplyCodexSettings(home); err != nil {
 		t.Fatal(err)
 	}
-	opts := Options{Home: home, Agents: []string{"codex"}, Out: io.Discard}
-	if err := Revert(opts); err != nil {
+	opts := RenderOptions{Home: home, Agents: []string{"codex"}, Out: io.Discard}
+	if err := RevertConfigs(opts); err != nil {
 		t.Fatal(err)
 	}
 	ov, err := LoadCodexOverlay()
 	if err != nil || ov["model_verbosity"] != "low" {
 		t.Fatalf("restored preference was not synchronized: %v, %v", ov, err)
 	}
-	if err := Revert(opts); err != nil {
+	if err := RevertConfigs(opts); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
@@ -243,7 +243,7 @@ func TestCodexRestoreMissingOriginalKeepsSymlinkTarget(t *testing.T) {
 	if err := os.Symlink(target, path); err != nil {
 		t.Fatal(err)
 	}
-	if err := Revert(Options{Home: home, Agents: []string{"codex"}, Out: io.Discard}); err != nil {
+	if err := RevertConfigs(RenderOptions{Home: home, Agents: []string{"codex"}, Out: io.Discard}); err != nil {
 		t.Fatal(err)
 	}
 	if got, err := os.ReadFile(target); err != nil || string(got) != "model = 'keep'\n" {

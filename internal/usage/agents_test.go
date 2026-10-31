@@ -3,7 +3,7 @@ package usage
 // Mirrors antigravity_test.go / claude_test.go's seam-stub style against agents.go's real seams:
 // lookPathSqlite3 (the sqlite3-installed check), opencodeSqliteCmd / copilotSqliteCmd (the sqlite3
 // -json exec seams, keyed on dbPath+query), and codexUsage's plain filesystem walk under
-// CODEX_HOME/sessions (no exec seam — codexHome() honors the env var directly).
+// CODEX_HOME/sessions (no exec seam — agent.CodexHome() honors the env var directly).
 import (
 	"context"
 	"errors"

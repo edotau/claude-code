@@ -24,7 +24,6 @@ import (
 	"github.com/edotau/claude-code/internal/proxy"
 	"github.com/edotau/claude-code/internal/secrets"
 	"github.com/edotau/claude-code/internal/secrets/shapes"
-	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/ui/ansi"
 )
 
@@ -424,7 +423,7 @@ func codexProfileHint(o Options) error {
 	if o.Provider == "" || strings.ContainsAny(o.Provider, `/\`) {
 		return nil
 	}
-	home, err := settings.CodexHome()
+	home, err := agent.CodexHome()
 	if err != nil {
 		return nil
 	}

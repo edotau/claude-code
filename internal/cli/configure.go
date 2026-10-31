@@ -6,10 +6,10 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/configure"
 	"github.com/edotau/claude-code/internal/launch"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/ui/ansi"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 	"github.com/edotau/claude-code/internal/ui/tui"
@@ -147,8 +147,8 @@ func configureRender(restore, revert bool, section, agents, out string, check, d
 	}
 	// the engine skips unknown names silently, so a typo would render nothing; reject it here
 	for a := range strings.SplitSeq(agents, ",") {
-		if a = strings.TrimSpace(a); a != "" && !slices.Contains(settings.DefaultAgents, a) {
-			return fail("configure: unknown --agent %q (%s)", a, strings.Join(settings.DefaultAgents, "|"))
+		if a = strings.TrimSpace(a); a != "" && !slices.Contains(agent.DefaultAgents, a) {
+			return fail("configure: unknown --agent %q (%s)", a, strings.Join(agent.DefaultAgents, "|"))
 		}
 	}
 	if revert {

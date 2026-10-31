@@ -108,7 +108,7 @@ func codexLogin(model string, h *Headless) ([]string, []string, error) {
 
 // codexHome is $CODEX_HOME or ~/.codex, where codex keeps auth.json and config.toml.
 func codexHome() string {
-	home, err := settings.CodexHome()
+	home, err := CodexHome()
 	if err != nil {
 		return filepath.Join(".codex") // no resolvable home: a relative path simply misses
 	}

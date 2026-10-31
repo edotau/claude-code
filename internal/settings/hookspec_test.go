@@ -51,36 +51,6 @@ func TestIsHarness(t *testing.T) {
 	}
 }
 
-func TestCodexJSONVendorMarker(t *testing.T) {
-	b, err := CodexJSON()
-	if err != nil {
-		t.Fatal(err)
-	}
-	var block struct {
-		Hooks map[string][]MatcherGroup `json:"hooks"`
-	}
-	if err := json.Unmarshal(b, &block); err != nil {
-		t.Fatal(err)
-	}
-	count := 0
-	for _, groups := range block.Hooks {
-		for _, group := range groups {
-			for _, hook := range group.Hooks {
-				count++
-				if !strings.HasPrefix(hook.Command, "HARNESS_HOOK_AGENT=codex $HOME/.claude/bin/claude-code hook ") {
-					t.Errorf("Codex command missing vendor marker: %q", hook.Command)
-				}
-				if !IsHarness(hook.Command) {
-					t.Errorf("Codex command not recognized as harness: %q", hook.Command)
-				}
-			}
-		}
-	}
-	if count == 0 {
-		t.Fatal("no Codex commands rendered")
-	}
-}
-
 func TestPlanHooksRegistered(t *testing.T) {
 	byName := map[string]EventSpec{}
 	docsCount := 0

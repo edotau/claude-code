@@ -1,10 +1,9 @@
-package settings_test
+package agent_test
 
 import (
 	"bytes"
 	"encoding/json"
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/settings"
 	"os"
 	"path/filepath"
 	"strings"
@@ -25,7 +24,7 @@ func TestCodexApprovalKeysPrecedeExistingTables(t *testing.T) {
 	}
 
 	var out bytes.Buffer
-	if _, err := settings.Run(settings.Options{Router: agent.Router{}, Home: home, Vendors: true, Out: &out, Agents: []string{"codex"}}); err != nil {
+	if _, err := agent.RenderConfigs(agent.RenderOptions{Home: home, ForceHomes: true, Out: &out, Agents: []string{"codex"}}); err != nil {
 		t.Fatalf("Run: %v\n%s", err, out.String())
 	}
 
@@ -56,8 +55,8 @@ func TestCodexApprovalKeysPrecedeExistingTables(t *testing.T) {
 	}
 
 	var out2 bytes.Buffer
-	if _, err := settings.Run(settings.Options{Router: agent.Router{}, Home: home, Vendors: true, Out: &out2, Agents: []string{"codex"}}); err != nil {
-		t.Fatalf("second settings.Run: %v\n%s", err, out2.String())
+	if _, err := agent.RenderConfigs(agent.RenderOptions{Home: home, ForceHomes: true, Out: &out2, Agents: []string{"codex"}}); err != nil {
+		t.Fatalf("second agent.RenderConfigs: %v\n%s", err, out2.String())
 	}
 	raw2, err := os.ReadFile(path)
 	if err != nil {
@@ -70,7 +69,7 @@ func TestCodexApprovalKeysPrecedeExistingTables(t *testing.T) {
 
 // topLevelKeyCount counts "key = " assignments in content that land before the first top-level
 // [table] header (TOML has no way for such a key to belong to any table), skipping bracket-nested
-// and multiline-string content the same way settings.InsertTopLevelTOML does.
+// and multiline-string content the same way agent.InsertTopLevelTOML does.
 func topLevelKeyCount(content, key string) int {
 	count := 0
 	for _, line := range strings.SplitAfter(content, "\n") {
@@ -100,7 +99,7 @@ func TestCodexBannerReplacesExistingTopLevelPermissionKeys(t *testing.T) {
 	}
 
 	var out bytes.Buffer
-	if _, err := settings.Run(settings.Options{Router: agent.Router{}, Home: home, Vendors: true, Out: &out, Agents: []string{"codex"}}); err != nil {
+	if _, err := agent.RenderConfigs(agent.RenderOptions{Home: home, ForceHomes: true, Out: &out, Agents: []string{"codex"}}); err != nil {
 		t.Fatalf("Run: %v\n%s", err, out.String())
 	}
 
@@ -135,7 +134,7 @@ func TestCopilotSettingsMergesDefaultPermissionModeKeepingOtherKeys(t *testing.T
 	}
 
 	var out bytes.Buffer
-	if _, err := settings.Run(settings.Options{Router: agent.Router{}, Home: home, Vendors: true, Out: &out, Agents: []string{"copilot"}}); err != nil {
+	if _, err := agent.RenderConfigs(agent.RenderOptions{Home: home, ForceHomes: true, Out: &out, Agents: []string{"copilot"}}); err != nil {
 		t.Fatalf("Run: %v\n%s", err, out.String())
 	}
 
@@ -173,7 +172,7 @@ func TestCopilotSettingsLeavesInvalidJSONUntouched(t *testing.T) {
 	}
 
 	var out bytes.Buffer
-	if _, err := settings.Run(settings.Options{Router: agent.Router{}, Home: home, Vendors: true, Out: &out, Agents: []string{"copilot"}}); err != nil {
+	if _, err := agent.RenderConfigs(agent.RenderOptions{Home: home, ForceHomes: true, Out: &out, Agents: []string{"copilot"}}); err != nil {
 		t.Fatalf("Run: %v\n%s", err, out.String())
 	}
 
@@ -207,7 +206,7 @@ func TestCopilotSettingsNullJSONUntouched(t *testing.T) {
 					}
 				}()
 				var out bytes.Buffer
-				if _, err := settings.Run(settings.Options{Router: agent.Router{}, Home: home, Vendors: true, Out: &out, Agents: []string{"copilot"}}); err != nil {
+				if _, err := agent.RenderConfigs(agent.RenderOptions{Home: home, ForceHomes: true, Out: &out, Agents: []string{"copilot"}}); err != nil {
 					t.Fatalf("Run: %v\n%s", err, out.String())
 				}
 			}()

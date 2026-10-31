@@ -352,10 +352,10 @@ func agentsSyncCompact(w io.Writer) {
 // returns a one-token summary; best-effort, so a render failure warns on w and never fails install.
 func agentConfigsSummary(w io.Writer) string {
 	var changed []string
-	for _, a := range settings.DefaultAgents {
+	for _, a := range agent.DefaultAgents {
 		var buf bytes.Buffer
-		o := settings.Options{Agents: []string{a}, Check: true, Out: &buf, Router: agent.Router{}}
-		drift, err := settings.Run(o)
+		o := agent.RenderOptions{Agents: []string{a}, Check: true, Out: &buf}
+		drift, err := agent.RenderConfigs(o)
 		if err != nil {
 			fmt.Fprintf(w, "agents   config render skip (%s)  %v\n", a, err)
 			continue
@@ -367,7 +367,7 @@ func agentConfigsSummary(w io.Writer) string {
 			continue
 		}
 		o.Check = false
-		if _, err := settings.Run(o); err != nil {
+		if _, err := agent.RenderConfigs(o); err != nil {
 			fmt.Fprintf(w, "agents   config render skip (%s)  %v\n", a, err)
 			continue
 		}
