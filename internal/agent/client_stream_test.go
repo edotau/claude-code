@@ -71,6 +71,10 @@ func TestStreamConsumerReadsNothingStillFinishes(t *testing.T) {
 	p := streamPrepared(t, &burstRunner{n: 3 * streamBuffer})
 	base := runtime.NumGoroutine()
 	ch := streamPreparedRun(&Client{}, p)
+	// Under suite load other tests' goroutines can drop the count early, so wait for the full buffer too.
+	for end := time.Now().Add(5 * time.Second); len(ch) < streamBuffer && time.Now().Before(end); {
+		time.Sleep(10 * time.Millisecond)
+	}
 	waitGoroutines(t, base)
 	if len(ch) != streamBuffer {
 		t.Errorf("buffered = %d, want a full %d (oldest dropped)", len(ch), streamBuffer)
