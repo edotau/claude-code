@@ -28,12 +28,13 @@ import (
 
 // Options configures Run.
 type Options struct {
-	Addr           string    // "" resolves this node's tailnet IPv4 address on DefaultPort
-	Hosts          []string  // allowed dispatch hosts; empty uses the tailnet machine list
-	Days           int       // agent-tree scope in days, forwarded to tree.Options
-	DryRunDispatch bool      // POST /api/dispatch returns the ssh argv instead of running it
-	ClaudeDir      string    // "" defaults to paths.ConfigDir()
-	ErrOut         io.Writer // nil discards
+	Addr           string     // "" resolves this node's tailnet IPv4 address on DefaultPort
+	Hosts          []string   // allowed dispatch hosts; empty uses the tailnet machine list
+	Days           int        // agent-tree scope in days, forwarded to tree.Options
+	DryRunDispatch bool       // POST /api/dispatch returns the ssh argv instead of running it
+	ClaudeDir      string     // "" defaults to paths.ConfigDir()
+	ErrOut         io.Writer  // nil discards
+	Verbs          func() any // CLI verb tree for /api/architecture; nil omits it
 }
 
 // Server is the bound web dashboard: its CSRF token and host allowlist are fixed for the process.
@@ -49,6 +50,7 @@ type Server struct {
 	status     *statusCache  // expiring, synchronized pane-status cache, keyed by host
 	browserEnv browser.Env   // the detection seam; tests fake its Run/Home/AppSupport
 	browsers   *browserCache // expiring, synchronized browser.Detect cache
+	arch       archCache     // ~60s /api/architecture body
 	usage      usageCache    // short-lived /api/usage bodies, keyed by day window
 	hosts      hostsCache    // expiring tailnet machine-name list for resolveHosts
 	hubOnce    sync.Once     // lazily creates hub, so struct-literal Servers need no setup
@@ -157,6 +159,8 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/browsers", s.guard(s.handleBrowsers))
 	s.mux.HandleFunc("GET /api/usage", s.guard(s.handleUsage))
 	s.mux.HandleFunc("GET /assets/usage/{name}", s.guard(s.handleUsageAsset))
+	s.mux.HandleFunc("GET /api/architecture", s.guard(s.handleArchitecture))
+	s.mux.HandleFunc("GET /assets/architecture.js", s.guard(s.handleArchitectureJS))
 }
 
 // guard wraps h with the Host-header/Origin DNS-rebinding defence and a one-line access log; a
@@ -324,7 +328,7 @@ func (s *Server) checkCSRF(r *http.Request) bool {
 	return constantTimeEqual(r.Header.Get(csrfHeader), s.csrfToken)
 }
 
-//go:embed assets/index.html.tmpl assets/usage/*.js
+//go:embed assets/index.html.tmpl assets/usage/*.js assets/architecture.json assets/architecture.js
 var assetsFS embed.FS
 
 // indexTemplate is the dashboard page: inline CSS/JS plus the shared usage modules under /assets/usage/.
