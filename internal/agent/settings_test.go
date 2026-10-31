@@ -83,7 +83,7 @@ func TestSubagentsRoundTripsAndResets(t *testing.T) {
 func TestCoreRoutingEnvExportsSubagentsOffOnly(t *testing.T) {
 	var core Module
 	for _, m := range Modules() {
-		if m.Vendor() == "routing" {
+		if m.Name() == "routing" {
 			core = m
 		}
 	}
@@ -189,7 +189,7 @@ func TestFreeFirstOutputRoundTripsAndRejectsBadDuration(t *testing.T) {
 func TestOpencodeModuleEnvContributesNothing(t *testing.T) {
 	var oc Module
 	for _, m := range Modules() {
-		if m.Vendor() == "opencode" {
+		if m.Name() == "opencode" {
 			oc = m
 		}
 	}

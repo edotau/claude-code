@@ -10,7 +10,7 @@ import (
 // routingModule is the core module: the composite-score weight and the subagent offload switch.
 type routingModule struct{}
 
-func (routingModule) Vendor() string { return "routing" }
+func (routingModule) Name() string { return "routing" }
 
 func (routingModule) Fields() []Field {
 	return []Field{weightsPriceField(), subagentsField(), servedAwareField()}

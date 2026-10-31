@@ -20,7 +20,7 @@ func TestVendorPassesThroughWhenUnroutable(t *testing.T) {
 	OfferConfigure = func(vendor string, reason error) bool { offers++; return false }
 	t.Cleanup(func() { OfferConfigure = nil })
 
-	plan, err := Vendor(context.Background(), "gemini", LaunchOptions{}, []string{"-p", "hi"})
+	plan, err := LaunchPlan(context.Background(), "gemini", LaunchOptions{}, []string{"-p", "hi"})
 	if err != nil {
 		t.Fatalf("expected a passthrough plan, got %v", err)
 	}
@@ -34,7 +34,7 @@ func TestVendorPassesThroughWhenUnroutable(t *testing.T) {
 	}
 	// --print-env never prompts.
 	offers = 0
-	if _, err := Vendor(context.Background(), "gemini", LaunchOptions{PrintEnv: true}, nil); err != nil || offers != 0 {
+	if _, err := LaunchPlan(context.Background(), "gemini", LaunchOptions{PrintEnv: true}, nil); err != nil || offers != 0 {
 		t.Errorf("print-env: err=%v offers=%d", err, offers)
 	}
 }
@@ -58,7 +58,7 @@ func TestVendorSignInSkipsRouting(t *testing.T) {
 		{"gemini", "agy", []string{"auth", "login"}},
 	} {
 		fake := pathstest.FakeVendor(t, c.bin, "")
-		plan, err := Vendor(context.Background(), c.vendor, LaunchOptions{}, c.args)
+		plan, err := LaunchPlan(context.Background(), c.vendor, LaunchOptions{}, c.args)
 		if err != nil {
 			t.Fatalf("%s %v: err = %v, want a plain sign-in launch", c.vendor, c.args, err)
 		}

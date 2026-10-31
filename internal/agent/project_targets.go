@@ -23,8 +23,8 @@ var targets = map[string]projectionTarget{
 	"opencode": {name: "opencode", ext: ".md", home: sub(".config", "opencode", "agents"), render: renderOpenCodeAgent},
 }
 
-// VendorNames lists the sync targets, sorted.
-func VendorNames() []string {
+// ProjectionNames lists the sync targets, sorted.
+func ProjectionNames() []string {
 	names := make([]string, 0, len(targets))
 	for n := range targets {
 		names = append(names, n)

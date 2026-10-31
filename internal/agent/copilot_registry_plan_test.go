@@ -48,7 +48,7 @@ func TestCopilotRegistryPlanFailsClosed(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			registryFixture(t)
-			plan, err := Vendor(context.Background(), "copilot", LaunchOptions{Provider: "dbx"}, tc.args)
+			plan, err := LaunchPlan(context.Background(), "copilot", LaunchOptions{Provider: "dbx"}, tc.args)
 			if err == nil {
 				t.Fatalf("plan = %+v, want an error, not a launch", plan)
 			}
@@ -80,7 +80,7 @@ func TestCopilotChildEnvScrubbed(t *testing.T) {
 
 	t.Run("own-login route", func(t *testing.T) {
 		pathstest.FakeVendor(t, "copilot", "exit 0")
-		plan, err := Vendor(context.Background(), "copilot", LaunchOptions{}, []string{"login"})
+		plan, err := LaunchPlan(context.Background(), "copilot", LaunchOptions{}, []string{"login"})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -101,7 +101,7 @@ func TestCopilotChildEnvScrubbed(t *testing.T) {
 			t.Fatal(err)
 		}
 		// Same shape copilotRegistryPlan builds: the registry file is Set, the private-home Unset list rides along.
-		plan := Plan{Vendor: true, Set: map[string]string{"COPILOT_PROVIDERS_CONFIG": "/run/own.json"}, Unset: ph.Unset}
+		plan := Plan{CLI: true, Set: map[string]string{"COPILOT_PROVIDERS_CONFIG": "/run/own.json"}, Unset: ph.Unset}
 		env := plan.Env(inherited)
 		if !has(env, "COPILOT_PROVIDERS_CONFIG") {
 			t.Fatalf("registry file missing: %v", env)

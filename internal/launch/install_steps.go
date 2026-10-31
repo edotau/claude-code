@@ -344,7 +344,7 @@ func agentsSyncCompact(w io.Writer) {
 		fmt.Fprintf(w, "agents   sync exit %d (see `claude-code agents sync`) · %s\n", rc, agentConfigsSummary(w))
 		return
 	}
-	fmt.Fprintf(w, "agents   synced: %s · %s\n", strings.Join(agent.VendorNames(), " "), agentConfigsSummary(w))
+	fmt.Fprintf(w, "agents   synced: %s · %s\n", strings.Join(agent.ProjectionNames(), " "), agentConfigsSummary(w))
 }
 
 // agentConfigsSummary re-renders the agent configs `configure --restore` writes (codex, opencode, gemini, copilot) and

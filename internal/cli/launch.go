@@ -140,7 +140,7 @@ func launchVendor(name string, args []string) int {
 	if err != nil {
 		return fail("%v", err)
 	}
-	plan, err := agent.Vendor(context.Background(), name, opts, rest)
+	plan, err := agent.LaunchPlan(context.Background(), name, opts, rest)
 	return runPlan(plan, opts, err)
 }
 

@@ -32,7 +32,7 @@ func (codexEngine) before(req RunOptions, t providers.Target) providers.Target {
 
 func (codexEngine) ranModel(t providers.Target) string { return codexRanModel(t) }
 
-func (e codexEngine) exec(ctx context.Context, p vendorPrep, req RunOptions, sink Sink) (Result, error) {
+func (e codexEngine) exec(ctx context.Context, p cliPrep, req RunOptions, sink Sink) (Result, error) {
 	res, prompt, env, argv := p.res, p.prompt, p.env, p.argv
 	bin, err := e.bin()
 	if err != nil {

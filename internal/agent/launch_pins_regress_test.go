@@ -34,7 +34,7 @@ func geminiArgv(t *testing.T, pin, flag string) []string {
 			t.Fatal(err)
 		}
 	}
-	plan, err := Vendor(context.Background(), "gemini", LaunchOptions{Model: flag, PrintEnv: true}, nil)
+	plan, err := LaunchPlan(context.Background(), "gemini", LaunchOptions{Model: flag, PrintEnv: true}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -70,7 +70,7 @@ func Sync(opts ProjectionOptions) int {
 		fmt.Fprintln(os.Stderr, "sync: HOME is not set")
 		return 1
 	}
-	vendors := VendorNames()
+	vendors := ProjectionNames()
 	if opts.Agent != "" {
 		if _, ok := targets[opts.Agent]; !ok {
 			fmt.Fprintf(os.Stderr, "sync: unknown vendor %q (want one of %s)\n", opts.Agent, strings.Join(vendors, ", "))
@@ -115,7 +115,7 @@ func Sync(opts ProjectionOptions) int {
 	var res syncResult
 	pruned := 0
 	for _, vendor := range vendors {
-		r, p := syncVendorAssets(out, vendor, root, home, skillsDir, agents, skills, docs, hasDocs, dryRun, prune)
+		r, p := syncProjectionAssets(out, vendor, root, home, skillsDir, agents, skills, docs, hasDocs, dryRun, prune)
 		res.add(r)
 		pruned += p
 	}
@@ -150,10 +150,10 @@ func Sync(opts ProjectionOptions) int {
 	return 0
 }
 
-func syncVendorAssets(out io.Writer, vendor, root, home, skillsDir string, agents, skills []Source, docs string, hasDocs, dryRun, prune bool) (syncResult, int) {
+func syncProjectionAssets(out io.Writer, vendor, root, home, skillsDir string, agents, skills []Source, docs string, hasDocs, dryRun, prune bool) (syncResult, int) {
 	fmt.Fprintf(out, "== %s ==\n", vendor)
 	tg := targets[vendor]
-	res, pruned := syncVendor(out, vendor, tg, agents, ProjectionDir(root, vendor), tg.home(home), dryRun, prune)
+	res, pruned := syncProjection(out, vendor, tg, agents, ProjectionDir(root, vendor), tg.home(home), dryRun, prune)
 	if tg.skills != nil {
 		// agy reads its own skills dir rather than ~/.agents/skills.
 		geminiSkills := tg.skills(home)
@@ -173,9 +173,9 @@ func syncVendorAssets(out io.Writer, vendor, root, home, skillsDir string, agent
 	return res, pruned
 }
 
-// syncVendor renders every projected agent into distDir (tracked) and installs a copy into homeDir, then prunes
+// syncProjection renders every projected agent into distDir (tracked) and installs a copy into homeDir, then prunes
 // generated files in both that the roster no longer produces.
-func syncVendor(out io.Writer, vendor string, t projectionTarget, agents []Source, distDir, homeDir string, dryRun, prune bool) (syncResult, int) {
+func syncProjection(out io.Writer, vendor string, t projectionTarget, agents []Source, distDir, homeDir string, dryRun, prune bool) (syncResult, int) {
 	var res syncResult
 	rendered := make(map[string]bool, len(agents))
 	for _, agent := range agents {

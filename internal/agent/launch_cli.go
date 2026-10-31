@@ -16,11 +16,11 @@ import (
 	"github.com/edotau/claude-code/internal/ui/ansi"
 )
 
-// Vendor resolves `claude-code run <vendor>`: the opus target via Configure, else the vendor's own login.
-func Vendor(ctx context.Context, name string, o LaunchOptions, args []string) (Plan, error) {
-	plan, err := vendorPlan(ctx, name, o, args)
-	plan.Keep, plan.Vendor = o.KeepEnv, true
-	if err == nil && !o.PrintEnv && !authVendorArgs(args) && interactiveVendorArgs(args) && agentVersionTTY() {
+// LaunchPlan resolves `claude-code run <vendor>`: the opus target via Configure, else the vendor's own login.
+func LaunchPlan(ctx context.Context, name string, o LaunchOptions, args []string) (Plan, error) {
+	plan, err := cliPlan(ctx, name, o, args)
+	plan.Keep, plan.CLI = o.KeepEnv, true
+	if err == nil && !o.PrintEnv && !authArgs(args) && interactiveArgs(args) && agentVersionTTY() {
 		if line := VersionWarning(name, plan.Binary); line != "" {
 			fmt.Fprintln(versionWarnOut, line)
 		}
@@ -65,7 +65,7 @@ func agentModelTarget(name string, t providers.Target, sel providers.Selection, 
 	return ResolveAgentModel(ModelAsk{Agent: name, Flag: flagModel, Target: t, Applied: applied})
 }
 
-func vendorPlan(ctx context.Context, name string, o LaunchOptions, args []string) (Plan, error) {
+func cliPlan(ctx context.Context, name string, o LaunchOptions, args []string) (Plan, error) {
 	if o.Direct {
 		ctx = WithDirect(ctx)
 	}
@@ -73,7 +73,7 @@ func vendorPlan(ctx context.Context, name string, o LaunchOptions, args []string
 	if !ok || !spec.External() {
 		return Plan{}, fmt.Errorf("unknown agent %q (codex|gemini|opencode|copilot)", name)
 	}
-	if authVendorArgs(args) {
+	if authArgs(args) {
 		return plainPlan(spec, args) // signing in needs no model route; resolving one first blocks the very login it needs
 	}
 	args, err := spec.eng().launchArgs(o.File, args)
@@ -99,7 +99,7 @@ func vendorPlan(ctx context.Context, name string, o LaunchOptions, args []string
 		}
 	}
 	// An own-login note is only worth a line on an interactive launch (or --print-env): `opencode --version` stays quiet.
-	showOwnLoginNote := o.PrintEnv || (ansi.IsTerminal(os.Stderr) && interactiveVendorArgs(args))
+	showOwnLoginNote := o.PrintEnv || (ansi.IsTerminal(os.Stderr) && interactiveArgs(args))
 	if errors.Is(err, ErrOwnLogin) {
 		if showOwnLoginNote {
 			fmt.Fprintln(NoticeOut, note)
@@ -127,7 +127,7 @@ func vendorPlan(ctx context.Context, name string, o LaunchOptions, args []string
 		reason := fmt.Errorf("%w; %s", err, spec.CLI.ConfigureHint)
 		// A human at a terminal is offered configure once; a yes re-resolves on the new state.
 		if OfferConfigure != nil && !o.PrintEnv && OfferConfigure(name, reason) {
-			env, prefix, err = retryVendorConfigure(ctx, name, o)
+			env, prefix, err = retryConfigure(ctx, name, o)
 		}
 		if errors.Is(err, ErrOwnLogin) {
 			return plainPlan(spec, args)
@@ -186,7 +186,7 @@ func copilotRegistryPlan(
 	}, nil
 }
 
-func retryVendorConfigure(ctx context.Context, name string, o LaunchOptions) ([]string, []string, error) {
+func retryConfigure(ctx context.Context, name string, o LaunchOptions) ([]string, []string, error) {
 	reg, sel, err := selection(o)
 	if err != nil {
 		return nil, nil, err
@@ -202,12 +202,12 @@ func retryVendorConfigure(ctx context.Context, name string, o LaunchOptions) ([]
 	return spec.Configure(ctx, target, "")
 }
 
-// authVendorArgs reports a vendor's own sign-in subcommand: codex/copilot login|logout, gemini/opencode auth.
-func authVendorArgs(args []string) bool {
+// authArgs reports a vendor's own sign-in subcommand: codex/copilot login|logout, gemini/opencode auth.
+func authArgs(args []string) bool {
 	return len(args) > 0 && (args[0] == "login" || args[0] == "logout" || args[0] == "auth")
 }
 
-func interactiveVendorArgs(args []string) bool {
+func interactiveArgs(args []string) bool {
 	if len(args) > 0 && args[0] == "run" {
 		return false
 	}

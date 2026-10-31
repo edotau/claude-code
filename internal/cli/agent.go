@@ -647,7 +647,7 @@ func cmdAgentsReap(args []string) int {
 // cmdAgentsSync renders agents/ into state/projections, installs the copies into agent homes and links skills/.
 func cmdAgentsSync(args []string) int {
 	fs := helptext.NewFlagSet("agents sync", agentsSyncPage)
-	vendor := fs.String("agent", "", "one target: "+strings.Join(agent.VendorNames(), "|")+" (default: all)")
+	vendor := fs.String("agent", "", "one target: "+strings.Join(agent.ProjectionNames(), "|")+" (default: all)")
 	dryRun := fs.Bool("dry-run", false, "report without writing")
 	check := fs.Bool("check", false, "dry-run; exit 1 when the projection is stale")
 	noPrune := fs.Bool("no-prune", false, "keep orphaned projections")

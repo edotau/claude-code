@@ -13,13 +13,13 @@ type opencodeEngine struct{ baseEngine }
 
 var _ headlessEngine = opencodeEngine{}
 
-func (opencodeEngine) after(p *vendorPrep, req RunOptions) {
+func (opencodeEngine) after(p *cliPrep, req RunOptions) {
 	if req.SystemPrompt != "" {
 		p.env, p.argv = opencodeSystemPrompt(p.env, p.argv, req.SystemPrompt)
 	}
 }
 
-func (e opencodeEngine) exec(ctx context.Context, p vendorPrep, req RunOptions, sink Sink) (Result, error) {
+func (e opencodeEngine) exec(ctx context.Context, p cliPrep, req RunOptions, sink Sink) (Result, error) {
 	bin, err := e.bin()
 	if err != nil {
 		return p.res, err

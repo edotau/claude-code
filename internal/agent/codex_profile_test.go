@@ -23,7 +23,7 @@ func launchCodexProfile(t *testing.T, profile string, withFile bool) error {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = Vendor(context.Background(), "codex", opts, rest)
+	_, err = LaunchPlan(context.Background(), "codex", opts, rest)
 	return err
 }
 

@@ -22,7 +22,7 @@ func TestVendorLaunchVersionWarning(t *testing.T) {
 	}
 	launch := func(args []string, o LaunchOptions) {
 		t.Helper()
-		plan, err := Vendor(context.Background(), "opencode", o, args)
+		plan, err := LaunchPlan(context.Background(), "opencode", o, args)
 		if err != nil || plan.Binary == "" {
 			t.Fatalf("Vendor err=%v plan=%+v, want a Plan", err, plan)
 		}
@@ -73,7 +73,7 @@ func TestInteractiveVendorArgs(t *testing.T) {
 		{[]string{"chat", "--version"}, false},
 	}
 	for _, tc := range cases {
-		if got := interactiveVendorArgs(tc.args); got != tc.want {
+		if got := interactiveArgs(tc.args); got != tc.want {
 			t.Errorf("interactiveVendorArgs(%q) = %v, want %v", tc.args, got, tc.want)
 		}
 	}

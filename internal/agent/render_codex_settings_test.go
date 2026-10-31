@@ -58,7 +58,7 @@ func TestCodexPreferencesApplyPreservesAndRestoresNativeConfig(t *testing.T) {
 	if err != nil || !bytes.Equal(baseline, after) {
 		t.Fatalf("encrypted baseline missing: %v", err)
 	}
-	for _, p := range []string{path + ".backup", vendorBaselinePath("codex", path)} {
+	for _, p := range []string{path + ".backup", baselinePath("codex", path)} {
 		if _, err := os.Stat(p); !os.IsNotExist(err) {
 			t.Fatalf("unexpected plaintext history at %s: %v", p, err)
 		}

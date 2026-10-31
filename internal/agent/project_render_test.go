@@ -42,7 +42,7 @@ func TestGeneratedBannerMustBeFirstBodyLine(t *testing.T) {
 // Every renderer must stamp the banner as the first body line, or its own output could never be pruned.
 func TestEveryRendererStampsPrunableBanner(t *testing.T) {
 	agent := Source{dirName: "demo", frontmatter: map[string]any{"name": "demo", "description": "Does things. <example>x</example>", "tools": "Read, Grep", "effort": "max"}, body: "# demo\n\n## Memory\nkeep out\n\n## Work\nbody\n"}
-	for _, name := range VendorNames() {
+	for _, name := range ProjectionNames() {
 		content := targets[name].render(agent)
 		if !hasGeneratedBanner(content) {
 			t.Errorf("%s: rendered agent lacks a prunable banner:\n%s", name, content)

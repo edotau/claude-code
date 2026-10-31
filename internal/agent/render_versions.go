@@ -64,18 +64,18 @@ func pruneMirror(path string) {
 	}
 }
 
-// vendorBaselinePath is where the bytes this tool last wrote to path are cached, keyed by label+path.
-func vendorBaselinePath(label, path string) string {
+// baselinePath is where the bytes this tool last wrote to path are cached, keyed by label+path.
+func baselinePath(label, path string) string {
 	sum := sha256.Sum256([]byte(path))
 	return filepath.Join(paths.StateDir(), "vendor-baseline", label+"-"+hex.EncodeToString(sum[:4]))
 }
 
-// writeVendorBaseline caches next as the baseline for path's next commitFile call.
-func writeVendorBaseline(label, path string, next []byte) error {
+// writeBaseline caches next as the baseline for path's next commitFile call.
+func writeBaseline(label, path string, next []byte) error {
 	if label == "codex" {
 		return SaveCodexBaseline(path, next)
 	}
-	return paths.AtomicWrite(vendorBaselinePath(label, path), next, 0o600)
+	return paths.AtomicWrite(baselinePath(label, path), next, 0o600)
 }
 
 // lostLinesFor reports theirs' (the current on-disk file) lines that are absent from both the saved
@@ -87,7 +87,7 @@ func lostLinesFor(label, path string, theirs, next []byte) ([]string, error) {
 	if label == "codex" {
 		base, err = LoadCodexBaseline(path)
 	} else {
-		base, err = os.ReadFile(vendorBaselinePath(label, path))
+		base, err = os.ReadFile(baselinePath(label, path))
 		if err != nil {
 			return nil, nil
 		}

@@ -27,7 +27,7 @@ func (geminiEngine) before(req RunOptions, t providers.Target) providers.Target 
 	return t
 }
 
-func (geminiEngine) exec(ctx context.Context, p vendorPrep, req RunOptions, sink Sink) (Result, error) {
+func (geminiEngine) exec(ctx context.Context, p cliPrep, req RunOptions, sink Sink) (Result, error) {
 	areq := p.agyRequest(req)
 	res := p.res
 	res.Model = areq.Model

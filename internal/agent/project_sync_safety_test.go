@@ -94,7 +94,7 @@ func TestSyncPrunesOrphansButKeepsHandAuthoredFiles(t *testing.T) {
 	if code := Sync(ProjectionOptions{Out: &out}); code != 0 {
 		t.Fatalf("prune Sync exit = %d, want 0\n%s", code, out.String())
 	}
-	for _, vendor := range VendorNames() {
+	for _, vendor := range ProjectionNames() {
 		tg := targets[vendor]
 		for _, p := range []string{filepath.Join(ProjectionDir(claude, vendor), "doomed"+tg.ext), filepath.Join(tg.home(home), "doomed"+tg.ext)} {
 			if _, err := os.Lstat(p); !os.IsNotExist(err) {

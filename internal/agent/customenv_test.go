@@ -84,7 +84,7 @@ func TestPlanVendorScrubsVaultKeyClaudeDoesNot(t *testing.T) {
 		t.Errorf("Claude Plan.Env = %v, want HARNESS_VAULT_KEY kept", claude)
 	}
 
-	vendor := Plan{Vendor: true}.envWith(base, nil, nil)
+	vendor := Plan{CLI: true}.envWith(base, nil, nil)
 	if slices.ContainsFunc(vendor, func(kv string) bool { return strings.HasPrefix(kv, "HARNESS_VAULT_KEY=") }) {
 		t.Errorf("vendor Plan.Env = %v, want HARNESS_VAULT_KEY scrubbed", vendor)
 	}
