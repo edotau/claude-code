@@ -83,3 +83,12 @@ func TestResolveOverlayAndAgentsPrecedence(t *testing.T) {
 		t.Error("an unknown ref must fail resolve")
 	}
 }
+
+// A definition with `model: inherit` carries no model of its own, so nothing reaches routing.
+func TestOverlayInheritModelIsNone(t *testing.T) {
+	c := &Client{Agents: map[string]*Schema{"plan": {Name: "plan", Prompt: "p", Model: "inherit"}}}
+	o := RunOptions{Agent: "plan"}
+	if err := c.resolve(&o); err != nil || o.Model != "" || o.Persona.Model != "inherit" {
+		t.Fatalf("inherit leaked into the request model: %+v, %v", o, err)
+	}
+}
