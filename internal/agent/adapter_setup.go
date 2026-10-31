@@ -20,16 +20,15 @@ type Report struct {
 }
 
 // Setup runs the binary, login, route and projection checks for an agent. Text rendering is the caller's job.
-func Setup(name string) Report {
-	s, ok := LookupSchema(name)
-	if !ok || !s.External() {
-		return Report{Agent: name, Checks: []Check{{Name: "agent", State: "fail", Detail: errUnknownAgent(name).Error()}}}
+func (s Schema) Setup() Report {
+	if !s.External() {
+		return Report{Agent: s.Name, Checks: []Check{{Name: "agent", State: "fail", Detail: errUnknownAgent(s.Name).Error()}}}
 	}
 	binCheck := binaryCheck(s)
 	loginCheck := loginCheck(s)
 	rep := Report{
-		Agent:  name,
-		Checks: []Check{binCheck, loginCheck, routeCheck(name), projectionCheck(name)},
+		Agent:  s.Name,
+		Checks: []Check{binCheck, loginCheck, s.routeCheck(), s.projectionCheck()},
 		OK:     binCheck.State == "ok" && loginCheck.State == "ok",
 	}
 	return rep
@@ -46,33 +45,24 @@ func binaryCheck(s Schema) Check {
 
 // loginCheck runs the CLI's own login probe.
 func loginCheck(s Schema) Check {
-	if !loginPresent(s.Name) {
+	if !s.loginPresent() {
 		return Check{Name: "login", State: "fail", Detail: "no " + s.Name + " login found (claude-code vault set / agent's own login)"}
 	}
 	return Check{Name: "login", State: "ok", Detail: s.Name + " login present"}
 }
 
-// loginPresent is LoginStatus's presence bit; copilot's stays local, as its label may call api.github.com.
-func loginPresent(name string) bool {
-	if name == "copilot" {
-		return CopilotLoginPresent()
-	}
-	present, _ := LoginStatus(name)
-	return present
-}
-
 // routeCheck pulls the "<name> route" detail from RouteDetail, without running the full doctor sweep.
-func routeCheck(name string) Check {
-	detail, ok := RouteDetail(name)
+func (s Schema) routeCheck() Check {
+	detail, ok := s.eng().routeDetail()
 	if !ok {
-		return Check{Name: "route", State: "warn", Detail: "no route check found for " + name}
+		return Check{Name: "route", State: "warn", Detail: "no route check found for " + s.Name}
 	}
 	return Check{Name: "route", State: "ok", Detail: detail}
 }
 
 // projectionCheck reports whether state/projections/<agent>/agents has any rendered agents.
-func projectionCheck(name string) Check {
-	dir := ProjectionDir(paths.ConfigDir(), name)
+func (s Schema) projectionCheck() Check {
+	dir := ProjectionDir(paths.ConfigDir(), s.Name)
 	entries, err := os.ReadDir(dir)
 	if err != nil || len(entries) == 0 {
 		return Check{Name: "projection", State: "warn", Detail: fmt.Sprintf("no rendered agents at %s (claude-code agents sync)", dir)}

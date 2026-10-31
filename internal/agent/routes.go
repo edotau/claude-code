@@ -25,14 +25,9 @@ type RouteInfo struct {
 	OK                                              bool
 }
 
-// DescribeRoute reports the fallback leg vendor (opencode|copilot) resolves to today, in priority
-// order. Every other vendor reports LegNone with a plain explanation — they have no fallback chain.
-func DescribeRoute(reg *providers.Registry, agentName string) RouteInfo {
-	if e, ok := engines[agentName]; ok {
-		return e.describeRoute(reg)
-	}
-	return baseEngine{agentName}.describeRoute(reg)
-}
+// DescribeRoute reports the fallback leg the agent (opencode|copilot) resolves to today, in priority
+// order. Every other agent reports LegNone with a plain explanation — they have no fallback chain.
+func (s Schema) DescribeRoute(reg *providers.Registry) RouteInfo { return s.eng().describeRoute(reg) }
 
 // describeOpenCodeRoute: 1) opencode's own login (Go plan); 2) opencode's GitHub Copilot login; 3) none.
 func describeOpenCodeRoute(reg *providers.Registry) RouteInfo {

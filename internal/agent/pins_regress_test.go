@@ -38,14 +38,14 @@ func TestDescribeCopilotRoutePinnedProfileDefaultsToOpusSlot(t *testing.T) {
 func TestCodexInteractiveCarriesEffortPin(t *testing.T) {
 	tg := target(t, "openai", "gpt-5")
 	setPin(t, providers.PinCodexEffort, "medium")
-	_, argv, err := Configure(context.Background(), "codex", tg, "")
+	_, argv, err := schemaFor("codex").Configure(context.Background(), tg, "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !slices.Contains(argv, `model_reasoning_effort="medium"`) {
 		t.Errorf("interactive argv = %q, want the effort pin", argv)
 	}
-	_, argv, err = configureHeadless(context.Background(), "codex", tg, Headless{Prompt: "hi", Effort: "low"})
+	_, argv, err = schemaFor("codex").configureHeadless(context.Background(), tg, Headless{Prompt: "hi", Effort: "low"})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -43,7 +43,7 @@ var routeHint = func(tier string) (agent, model string) {
 	if err != nil {
 		return "", ""
 	}
-	res := tb.Pick(context.Background(), tier, "", router.LoadState(), router.Opts{Fallback: router.FallbackVendors, Configured: agentpkg.Configured})
+	res := tb.Pick(context.Background(), tier, "", router.LoadState(), router.Opts{Fallback: router.FallbackAgents, Configured: agentpkg.Configured})
 	if len(res.Candidates) == 0 {
 		return "", ""
 	}

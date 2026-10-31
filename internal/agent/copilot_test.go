@@ -16,7 +16,7 @@ import (
 
 func TestCopilotLogin(t *testing.T) {
 	tg := target(t, "personal", "claude-opus-5.5")
-	env, argv, err := configureHeadless(context.Background(), "copilot", tg, Headless{Prompt: "hi", Tools: true})
+	env, argv, err := schemaFor("copilot").configureHeadless(context.Background(), tg, Headless{Prompt: "hi", Tools: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -29,7 +29,7 @@ func TestCopilotLogin(t *testing.T) {
 	if want := []string{"--prompt", "hi", "--allow-all-tools"}; !slices.Equal(argv, want) {
 		t.Errorf("argv %q, want %q", argv, want)
 	}
-	if _, _, err := Configure(context.Background(), "codex", tg, ""); err == nil || !strings.Contains(err.Error(), "copilot sign-in") {
+	if _, _, err := schemaFor("codex").Configure(context.Background(), tg, ""); err == nil || !strings.Contains(err.Error(), "copilot sign-in") {
 		t.Errorf("codex must refuse the copilot login: %v", err)
 	}
 }
@@ -55,7 +55,7 @@ func TestCopilotLoginArgvCarriesPinsWhenSetOmitsWhenUnset(t *testing.T) {
 		t.Setenv(k, "")
 	}
 
-	_, argv, err := Configure(context.Background(), "copilot", tg, "")
+	_, argv, err := schemaFor("copilot").Configure(context.Background(), tg, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -65,7 +65,7 @@ func TestCopilotLoginArgvCarriesPinsWhenSetOmitsWhenUnset(t *testing.T) {
 
 	setPin(t, providers.PinCopilotEffort, "xhigh")
 	setPin(t, providers.PinCopilotContext, "long_context")
-	_, argv, err = Configure(context.Background(), "copilot", tg, "")
+	_, argv, err = schemaFor("copilot").Configure(context.Background(), tg, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -81,7 +81,7 @@ func TestCopilotBYOKArgvCarriesPinsWhenSet(t *testing.T) {
 	setPin(t, providers.PinCopilotEffort, "low")
 	setPin(t, providers.PinCopilotContext, "default")
 
-	_, argv, err := Configure(context.Background(), "copilot", tg, "")
+	_, argv, err := schemaFor("copilot").Configure(context.Background(), tg, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -99,7 +99,7 @@ func TestCopilotHeadlessArgvIgnoresPins(t *testing.T) {
 	setPin(t, providers.PinCopilotEffort, "max")
 	setPin(t, providers.PinCopilotContext, "long_context")
 
-	_, argv, err := configureHeadless(context.Background(), "copilot", tg, Headless{Prompt: "hi"})
+	_, argv, err := schemaFor("copilot").configureHeadless(context.Background(), tg, Headless{Prompt: "hi"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -110,7 +110,7 @@ func TestCopilotHeadlessArgvIgnoresPins(t *testing.T) {
 
 // The registry's "auto" slot must not override copilot's own default model: COPILOT_MODEL goes out blank.
 func TestCopilotLoginAutoDefersToCopilotDefault(t *testing.T) {
-	env, _, err := Configure(context.Background(), "copilot", target(t, "personal", "auto"), "")
+	env, _, err := schemaFor("copilot").Configure(context.Background(), target(t, "personal", "auto"), "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -145,7 +145,7 @@ func TestCopilotLoginPresentHonoursEveryTokenVar(t *testing.T) {
 func TestCopilotBYOKHeadersBearerAndBudget(t *testing.T) {
 	tg := target(t, "openai", "gpt-5")
 	tg.Provider.Headers = map[string]string{"X-Tenant": "t1", "Authorization-Extra": "z"}
-	env, _, err := Configure(WithDirect(context.Background()), "copilot", tg, "")
+	env, _, err := schemaFor("copilot").Configure(WithDirect(context.Background()), tg, "")
 	if err != nil {
 		t.Fatal(err)
 	}

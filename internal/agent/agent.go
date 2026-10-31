@@ -563,8 +563,6 @@ func askedSkips(reasons []string, want string) []string {
 	})
 }
 
-func notClaude(name string) bool { return name != "claude" }
-
 // RunWithFallback runs c's legs in turn while the previous one turned out unavailable — binary missing, no provider
 // can serve it, a login/quota failure, or an exit with no answer. It never moves on after a timeout, cancellation,
 // an oversized prompt or a partial answer, nor when the caller pinned an explicit non-Claude --provider/--model.
@@ -789,7 +787,8 @@ func legUnavailable(r Runner, res Result, err error) bool {
 	if errors.As(err, &ae) && ae.AuthReason != "" && res.Answer == "" {
 		return true
 	}
-	return notClaude(r.Name()) && hopFailed(res, err)
+	s, ok := LookupSchema(r.Name())
+	return (!ok || s.External()) && hopFailed(res, err)
 }
 
 // hopFailed is true when a leg failed before giving any answer for a reason a later hop could fix.

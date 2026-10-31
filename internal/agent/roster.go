@@ -34,6 +34,7 @@ type CLI struct {
 	ReadNeedsTools      bool        // file reads are denied without --tools
 	PromptInArgv        bool        // prompt rides argv, so MaxPromptBytes applies
 	DirFlag             bool        // Headless.WorkDir must be set; cmd.Dir alone is not enough
+	Hub                 bool        // ask routes it through the opencode hub unless --native is set
 	ConfigureHint       string      // the command to run when no credential resolved
 	DisplayName         string      // TUI label; "" = Name
 	LoginArgv           []string    // the CLI's own sign-in command
@@ -73,7 +74,7 @@ var rosterRows = []Schema{
 			SystemPrompt: Native, AppendSystemPrompt: Emulated, OutputSchema: Emulated, Persona: Emulated},
 		Events:       []string{EventStart, EventText, EventToolUse, EventToolResult, EventRetry, EventResult, EventError},
 		ResumeFormat: "opencode run --session %s", ModelsArgv: []string{"models"}, ReadNeedsTools: true,
-		PromptInArgv: true, DirFlag: true, LoginArgv: []string{"opencode", "auth", "login"},
+		PromptInArgv: true, DirFlag: true, Hub: true, LoginArgv: []string{"opencode", "auth", "login"},
 		ConfigureHint: "run `opencode auth login` (opencode Go) or `claude-code configure github` (Copilot)",
 		CatalogUsage:  "model menu: list|add|remove|import|reset|check|sync",
 		CatalogHint:   "Serving-only discovery: claude-code opencode catalog sync --profile P",
@@ -131,13 +132,12 @@ func (s Schema) ResumeHint(id string) string {
 
 func errUnknownAgent(name string) error { return fmt.Errorf("unknown agent %q", name) }
 
-// ModelsProfile is the vendor's profile on its ModelsProvider that carries the vendor's own login.
-func ModelsProfile(reg *providers.Registry, vendor string) (string, error) {
-	s, _ := LookupSchema(vendor)
+// ModelsProfile is the agent's profile on its ModelsProvider that carries the agent's own login.
+func (s Schema) ModelsProfile(reg *providers.Registry) (string, error) {
 	for _, n := range reg.ProfilesOf(s.CLI.ModelsProvider) {
-		if reg.Providers[n].Auth.Login == vendor {
+		if reg.Providers[n].Auth.Login == s.Name {
 			return n, nil
 		}
 	}
-	return "", fmt.Errorf("%s: no %s profile with a %s login", vendor, s.CLI.ModelsProvider, vendor)
+	return "", fmt.Errorf("%s: no %s profile with a %s login", s.Name, s.CLI.ModelsProvider, s.Name)
 }

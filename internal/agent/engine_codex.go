@@ -2,12 +2,15 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"strings"
 
 	"github.com/edotau/claude-code/internal/models"
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 )
 
@@ -101,3 +104,51 @@ func (codexEngine) LoginStatus() (bool, string) {
 	}
 	return false, ""
 }
+
+func (codexEngine) checkLogin(ctx context.Context) (providers.AuthVerdict, string) {
+	bin, err := paths.VendorBin("codex")
+	if err != nil {
+		return providers.VerdictTransient, err.Error()
+	}
+	ctx, cancel := context.WithTimeout(ctx, probeTimeout)
+	defer cancel()
+	out, err := codexStatus(ctx, bin)
+	var ee *exec.ExitError
+	switch {
+	case err == nil:
+		line, _, _ := strings.Cut(strings.TrimSpace(string(out)), "\n")
+		line, _, _ = strings.Cut(line, " - ") // drop the account/key tail codex appends
+		return providers.VerdictOK, line
+	case errors.As(err, &ee):
+		return providers.VerdictNeedsLogin, ""
+	}
+	return providers.VerdictTransient, err.Error()
+}
+
+func (codexEngine) render(reg *providers.Registry, sel providers.Selection, _ string, o RenderOptions, out io.Writer) (bool, error) {
+	return renderCodex(reg, sel, o, out)
+}
+
+func (codexEngine) configPaths(home string) ([]labelPath, error) {
+	path, err := CodexConfigPath(home)
+	if err != nil {
+		return nil, err
+	}
+	return []labelPath{{"codex", path}}, nil
+}
+
+// launchArgs prepends the -f file's codex overrides (after the harness prefix, so the file's keys win).
+func (codexEngine) launchArgs(file string, args []string) ([]string, error) {
+	if file == "" {
+		return args, nil
+	}
+	overrides, err := codexFileOverrides(file)
+	if err != nil {
+		return nil, err
+	}
+	return append(overrides, args...), nil
+}
+
+func (codexEngine) profileHint(o LaunchOptions) error { return codexProfileHint(o) }
+
+func (codexEngine) routeDetail() (string, bool) { return codexRouteDetail(), true }

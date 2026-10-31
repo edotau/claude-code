@@ -424,9 +424,10 @@ func keyTargets(reg *providers.Registry, vendorFilter string) ([]keyTarget, erro
 
 func vendorKeyTarget(reg *providers.Registry, name string) keyTarget {
 	sel, err := providers.Select(reg, "")
+	s, _ := agent.LookupSchema(name)
 	fallback := func() keyTarget {
 		if err == nil {
-			target, note, rerr := agent.ResolveVendorTarget(reg, name, sel, false)
+			target, note, rerr := s.ResolveTarget(reg, sel, false)
 			// The vendor's own stored config/login is a working setup, not a missing key.
 			if errors.Is(rerr, agent.ErrOwnLogin) {
 				return keyTarget{label: name, present: true, source: afterUsing(note)}
@@ -443,8 +444,7 @@ func vendorKeyTarget(reg *providers.Registry, name string) keyTarget {
 		}
 		return keyTarget{label: name, present: false, fixCmd: hint}
 	}
-	s, _ := agent.LookupSchema(name)
-	if present, source := agent.LoginStatus(name); present {
+	if present, source := s.LoginStatus(); present {
 		kt := keyTarget{label: name, present: true, source: source}
 		// copilot's label is the only trace of its source: a gh account or env token has no sign-in to re-run
 		if name != "copilot" || strings.HasSuffix(source, "copilot login") {
@@ -836,18 +836,18 @@ func runAgents(d *dialog) bool {
 	}
 	ok := true
 	for _, name := range agentList {
-		target, note, rerr := agent.ResolveVendorTarget(d.reg, name, sel, false)
+		s, _ := agent.LookupSchema(name)
+		target, note, rerr := s.ResolveTarget(d.reg, sel, false)
 		if errors.Is(rerr, agent.ErrOwnLogin) {
 			d.printf("%-10s runs on %s\n", name, afterUsing(note))
 			continue
 		}
-		s, _ := agent.LookupSchema(name)
 		if rerr != nil {
 			d.printf("%-10s FIX: %v; %s\n", name, rerr, s.CLI.ConfigureHint)
 			ok = false
 			continue
 		}
-		_, _, cerr := agent.Configure(context.Background(), name, target, "")
+		_, _, cerr := s.Configure(context.Background(), target, "")
 		if errors.Is(cerr, agent.ErrOwnLogin) { // e.g. opencode on its own Copilot sign-in: working, nothing to inject
 			d.printf("%-10s runs on its own %s login (%s)\n", name, target.Provider.Name, target.Model)
 			continue

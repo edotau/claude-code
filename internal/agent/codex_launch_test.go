@@ -16,13 +16,13 @@ func TestCodexChatGPTLogin(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir()) // no bin/codex: the auth.json fallback is what this test exercises
 	t.Setenv("PATH", t.TempDir())
 	tg := target(t, "chatgpt", "gpt-5.5")
-	if _, _, err := Configure(context.Background(), "codex", tg, ""); err == nil || !strings.Contains(err.Error(), "codex login") {
+	if _, _, err := schemaFor("codex").Configure(context.Background(), tg, ""); err == nil || !strings.Contains(err.Error(), "codex login") {
 		t.Fatalf("no auth.json: err = %v, want a codex login hint", err)
 	}
 	if err := os.WriteFile(filepath.Join(home, "auth.json"), []byte(`{"OPENAI_API_KEY":null,"tokens":{"id_token":"x"}}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	env, argv, err := configureHeadless(context.Background(), "codex", tg, Headless{Prompt: "hi"})
+	env, argv, err := schemaFor("codex").configureHeadless(context.Background(), tg, Headless{Prompt: "hi"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -30,7 +30,7 @@ func TestCodexChatGPTLogin(t *testing.T) {
 	if len(env) != 0 || !slices.Equal(argv, want) {
 		t.Errorf("env %q argv %q, want no env and %q", env, argv, want)
 	}
-	if _, _, err := Configure(context.Background(), "gemini", tg, ""); err == nil || !strings.Contains(err.Error(), "codex sign-in") {
+	if _, _, err := schemaFor("gemini").Configure(context.Background(), tg, ""); err == nil || !strings.Contains(err.Error(), "codex sign-in") {
 		t.Errorf("only codex may use the chatgpt login: %v", err)
 	}
 }
@@ -45,7 +45,7 @@ func TestCodexHeadlessEffortPinUsedWhenEffortEmptyExplicitWinsOverIt(t *testing.
 		t.Fatal(err)
 	}
 
-	_, argv, err := configureHeadless(context.Background(), "codex", tg, Headless{Prompt: "hi"})
+	_, argv, err := schemaFor("codex").configureHeadless(context.Background(), tg, Headless{Prompt: "hi"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,7 +56,7 @@ func TestCodexHeadlessEffortPinUsedWhenEffortEmptyExplicitWinsOverIt(t *testing.
 	if err := providers.SetPins(map[string]string{providers.PinCodexEffort: "xhigh"}); err != nil {
 		t.Fatal(err)
 	}
-	_, argv, err = configureHeadless(context.Background(), "codex", tg, Headless{Prompt: "hi"})
+	_, argv, err = schemaFor("codex").configureHeadless(context.Background(), tg, Headless{Prompt: "hi"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -65,7 +65,7 @@ func TestCodexHeadlessEffortPinUsedWhenEffortEmptyExplicitWinsOverIt(t *testing.
 	}
 
 	// An explicit Headless.Effort still wins over the pin.
-	_, argv, err = configureHeadless(context.Background(), "codex", tg, Headless{Prompt: "hi", Effort: "low"})
+	_, argv, err = schemaFor("codex").configureHeadless(context.Background(), tg, Headless{Prompt: "hi", Effort: "low"})
 	if err != nil {
 		t.Fatal(err)
 	}

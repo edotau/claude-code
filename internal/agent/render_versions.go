@@ -140,32 +140,12 @@ func printLostLines(out io.Writer, lines []string) {
 // labelPath is one file this tool can write, named by its commitFile label.
 type labelPath struct{ label, path string }
 
-// vendorLabelPaths lists the files commitFile writes for one top-level vendor name.
-func vendorLabelPaths(vendor, home string) ([]labelPath, error) {
-	if vendor == "codex" {
-		path, err := CodexConfigPath(home)
-		if err != nil {
-			return nil, err
-		}
-		return []labelPath{{"codex", path}}, nil
+// homeOr is home, else the user's home directory.
+func homeOr(home string) (string, error) {
+	if home != "" {
+		return home, nil
 	}
-	if home == "" {
-		var err error
-		home, err = os.UserHomeDir()
-		if err != nil {
-			return nil, err
-		}
-	}
-	switch vendor {
-	case "gemini":
-		return []labelPath{{"gemini-settings", filepath.Join(home, ".gemini", "antigravity-cli", "settings.json")}}, nil
-	case "copilot":
-		return []labelPath{
-			{"copilot-hooks", filepath.Join(home, ".copilot", "hooks", "claude-code-harness.json")},
-			{"copilot-settings", filepath.Join(home, ".copilot", "settings.json")},
-		}, nil
-	}
-	return nil, nil
+	return os.UserHomeDir()
 }
 
 // RevertConfigs restores each selected vendor's files to their newest backup version, removing the restored version so a second revert steps one version further back.
@@ -179,7 +159,7 @@ func RevertConfigs(o RenderOptions) error {
 		out = os.Stdout
 	}
 	for _, a := range agents {
-		files, err := vendorLabelPaths(a, o.Home)
+		files, err := schemaFor(a).eng().configPaths(o.Home)
 		if err != nil {
 			return fmt.Errorf("generate: %w", err)
 		}

@@ -19,11 +19,11 @@ func TestVendorTargetBaseDiffersFromResolveTargetOnTier(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rt, _, err := ResolveVendorTarget(reg, "codex", sel, false)
+	rt, _, err := schemaFor("codex").ResolveTarget(reg, sel, false)
 	if err != nil {
 		t.Fatalf("ResolveTarget: %v", err)
 	}
-	bt, _, _, _, err := vendorTargetBase(RunOptions{Prompt: "p", Model: "haiku"}, "codex")
+	bt, _, _, _, err := schemaFor("codex").targetBase(RunOptions{Prompt: "p", Model: "haiku"})
 	if err != nil {
 		t.Fatalf("vendorTargetBase: %v", err)
 	}

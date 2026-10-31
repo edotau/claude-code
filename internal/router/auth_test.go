@@ -127,7 +127,7 @@ func TestMarkAuthKeepsQuotaFields(t *testing.T) {
 func TestPickSkipsAuthMarkedAccountWithReason(t *testing.T) {
 	tb := testTable(t)
 	marked := State{"openai·chatgpt": {AuthReason: "auth needs_login: run `claude-code databricks login --profile chatgpt`", AuthAt: now0.Add(-time.Hour)}}
-	r := pick(tb, "sonnet", "codex", marked, FallbackVendors)
+	r := pick(tb, "sonnet", "codex", marked, FallbackAgents)
 	if strings.Contains(runners(r), "codex") {
 		t.Fatalf("auth-marked codex picked: %s", runners(r))
 	}
@@ -149,7 +149,7 @@ func TestPickSkipsAuthMarkedAccountWithReason(t *testing.T) {
 		"expired": {"openai·chatgpt": {AuthReason: "r", AuthAt: now0.Add(-AuthMarkTTL - time.Minute)}},
 		"cleared": {"openai·chatgpt": {UsedPct: 5, Seen: now0}},
 	} {
-		if !strings.Contains(runners(pick(tb, "sonnet", "codex", st, FallbackVendors)), "codex") {
+		if !strings.Contains(runners(pick(tb, "sonnet", "codex", st, FallbackAgents)), "codex") {
 			t.Errorf("%s: codex wrongly gated", name)
 		}
 	}
@@ -158,7 +158,7 @@ func TestPickSkipsAuthMarkedAccountWithReason(t *testing.T) {
 func TestPickAuthGateComesBeforeExhausted(t *testing.T) {
 	tb := testTable(t)
 	st := State{"openai·chatgpt": {AuthReason: "auth rejected", AuthAt: now0, ExhaustedUntil: now0.Add(time.Hour), Reason: "402"}}
-	r := pick(tb, "sonnet", "codex", st, FallbackVendors)
+	r := pick(tb, "sonnet", "codex", st, FallbackAgents)
 	for _, s := range r.Skipped {
 		if s.Agent == "codex" && s.Gate != GateAuth {
 			t.Fatalf("codex skipped at %q, want the auth gate first: %+v", s.Gate, s)
@@ -216,7 +216,7 @@ func TestAccountAuthMarkedFallsBackToTheProviderMark(t *testing.T) {
 func TestPickGatesLegAccountOnRouterProviderMark(t *testing.T) {
 	tb := testTable(t)
 	st := State{ProviderAccount("chatgpt"): {AuthReason: "auth rejected: run `claude-code databricks login --profile chatgpt`", AuthAt: now0}}
-	r := pick(tb, "sonnet", "codex", st, FallbackVendors)
+	r := pick(tb, "sonnet", "codex", st, FallbackAgents)
 	if strings.Contains(runners(r), "codex") {
 		t.Fatalf("openai·chatgpt picked despite databricks·chatgpt mark: %s", runners(r))
 	}

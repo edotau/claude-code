@@ -3,7 +3,6 @@ package agent
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
 	"slices"
 	"strings"
 
@@ -143,28 +142,11 @@ func opencodeModels(p *providers.Provider, model string, h *Headless) map[string
 	return menu
 }
 
-// ownLoginHeadless is the headless form of a vendor running on its own stored login/config: argv only, no
-// harness route injected. Tools off still rides OPENCODE_CONFIG_CONTENT, which opencode merges over its config.
-func ownLoginHeadless(name string, h Headless) (env, argv []string, err error) {
-	if strings.TrimSpace(h.Prompt) == "" {
-		return nil, nil, errors.New("agents: empty prompt")
-	}
-	if name != "opencode" {
-		return nil, nil, fmt.Errorf("%s: no headless form on its own login; pass --provider", name)
-	}
-	env, argv = opencodeRun("", h)
-	if cred, err := opencodeCredential("opencode"); err == nil {
-		env = append(env, cred...) // the vault key when opencode stores no login of its own
-	}
-	launchEnv, argv := applyLaunch("opencode", nil, argv, false) // headless: never Launch.Args
-	return routeEnvLast(launchEnv, env), argv, nil
-}
-
 // opencodeRunArgv is opencodeRun exported for the hub runner (internal/agent): one ladder leg execs
 // `opencode run` directly on an opencode-native "provider/model" id, bypassing the harness-route config.
 func opencodeRunArgv(model string, h Headless) (env, argv []string) {
 	env, argv = opencodeRun(model, h)
-	launchEnv, argv := applyLaunch("opencode", nil, argv, false) // headless: never Launch.Args
+	launchEnv, argv := schemaFor("opencode").applyLaunch(nil, argv, false) // headless: never Launch.Args
 	return routeEnvLast(launchEnv, env), argv
 }
 

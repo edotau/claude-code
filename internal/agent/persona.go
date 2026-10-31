@@ -139,7 +139,7 @@ func rosterNames() []string {
 
 // SelectAgent resolves an --agent value: a roster name, an agents key, vendor:name, or agents/<name>.md or a file.
 func SelectAgent(ref string, agents map[string]*Schema) (runner string, def *Schema, err error) {
-	if isRosterName(ref) {
+	if _, ok := LookupSchema(ref); ok {
 		return ref, nil, nil
 	}
 	names := rosterNames()

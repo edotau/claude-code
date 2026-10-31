@@ -51,7 +51,7 @@ func freezeCopilot(ctx context.Context, leg Leg, req RunOptions) (context.Contex
 	if leg.Agent.Name() != "copilot" {
 		return ctx, leg
 	}
-	t, own, note, err := vendorTargetNote(req, "copilot")
+	t, own, note, err := schemaFor("copilot").targetNote(req)
 	if err != nil {
 		return ctx, leg // the runner reports its own resolution failure
 	}
@@ -67,7 +67,7 @@ func ownLoginActual(leg Leg, req RunOptions) Leg {
 	if name == "copilot" || name == "claude" || name == "opencode" || !ownLoginAccount(name, leg.Account) {
 		return leg
 	}
-	t, own, _, err := vendorTargetNote(req, name)
+	t, own, _, err := schemaFor(name).targetNote(req)
 	if err != nil || own || t.Provider == nil || t.Provider.Auth.Login == name {
 		return leg
 	}
@@ -75,9 +75,9 @@ func ownLoginActual(leg Leg, req RunOptions) Leg {
 	return leg
 }
 
-// vendorTargetCtx is vendorTarget, except a target frozen on ctx is used as is.
-func vendorTargetCtx(ctx context.Context, req RunOptions, name string) (providers.Target, bool, error) {
-	if f, ok := ctx.Value(frozenKey{}).(frozenTarget); ok && name == "copilot" {
+// targetCtx is target, except a target frozen on ctx is used as is.
+func (s Schema) targetCtx(ctx context.Context, req RunOptions) (providers.Target, bool, error) {
+	if f, ok := ctx.Value(frozenKey{}).(frozenTarget); ok && s.Name == "copilot" {
 		if f.note != "" {
 			fmt.Fprintln(os.Stderr, f.note)
 		}
@@ -87,7 +87,7 @@ func vendorTargetCtx(ctx context.Context, req RunOptions, name string) (provider
 		}
 		return t, f.own, nil
 	}
-	return vendorTarget(req, name)
+	return s.target(req)
 }
 
 // guardRouteHost fails a hop before any child starts when p's credential was issued for another host than its route.
@@ -113,7 +113,7 @@ func guardProvider(r Runner, req RunOptions) (*providers.Provider, error) {
 	s, known := LookupSchema(r.Name())
 	if known && s.External() {
 		// the same target the runner picks: --provider, a provider:model prefix, the session, the copilot gate
-		t, own, _, err := vendorTargetNote(req, r.Name())
+		t, own, _, err := s.targetNote(req)
 		if err != nil {
 			if req.Provider != "" {
 				return nil, err

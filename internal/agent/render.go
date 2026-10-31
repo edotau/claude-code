@@ -101,22 +101,7 @@ func PrepareConfigs(o RenderOptions) (*RenderPlan, bool, error) {
 		if !want[name] {
 			continue
 		}
-		var d bool
-		switch name {
-		case "codex":
-			d, err = renderCodex(reg, sel, o, out)
-		case "opencode":
-			d, err = renderOpenCodeOverlay(o, out)
-		case "gemini":
-			d, err = reportGemini(sel, out)
-			if err == nil {
-				var gd bool
-				gd, err = renderGeminiSettings(home, o, out)
-				d = d || gd
-			}
-		case "copilot":
-			d, err = renderCopilot(reg, sel, home, o, out)
-		}
+		d, err := schemaFor(name).eng().render(reg, sel, home, o, out)
 		if err != nil {
 			return nil, drift, err
 		}
@@ -149,7 +134,7 @@ func codexBannerSection(block string) string {
 
 func codexProviderSection(reg *providers.Registry, sel providers.Selection, existing string, out io.Writer) (string, error) {
 	ctx := context.Background()
-	target, note, err := ResolveVendorTarget(reg, "codex", sel, false)
+	target, note, err := schemaFor("codex").ResolveTarget(reg, sel, false)
 	if err != nil {
 		fmt.Fprintf(out, "codex: skipped: %v\n", err)
 		return "", nil
@@ -166,7 +151,7 @@ func codexProviderSection(reg *providers.Registry, sel providers.Selection, exis
 		fmt.Fprintf(out, "codex: %s runs on codex's own login; writing approval/sandbox keys only\n", target.Provider.Name)
 		return codexBannerSection(strings.TrimRight(keys, "\n")), nil
 	}
-	_, argv, err := Configure(ctx, "codex", target, "")
+	_, argv, err := schemaFor("codex").Configure(ctx, target, "")
 	if err != nil {
 		fmt.Fprintf(out, "codex: skipped: %v\n", err)
 		return "", nil
@@ -217,7 +202,7 @@ func codexPermissionKeys(existing string, out io.Writer) string {
 }
 
 // codexBlockFromArgv rebuilds a `[model_providers.claude-code]` TOML block from the `-c key=value`
-// pairs Configure("codex", ...) returns, renaming the provider id to the fixed "claude-code".
+// pairs the Configure(codex) result returns, renaming the provider id to the fixed "claude-code".
 func codexBlockFromArgv(argv []string) (string, error) {
 	var model, tableVal, catalog string
 	for i := 0; i+1 < len(argv); i++ {
@@ -505,7 +490,7 @@ func renderCopilot(reg *providers.Registry, sel providers.Selection, home string
 	}
 	drift = drift || sd
 	ctx := context.Background()
-	target, note, err := ResolveVendorTarget(reg, "copilot", sel, false)
+	target, note, err := schemaFor("copilot").ResolveTarget(reg, sel, false)
 	if err != nil {
 		fmt.Fprintf(out, "copilot: skipped: %v\n", err)
 		return drift, nil
@@ -513,7 +498,7 @@ func renderCopilot(reg *providers.Registry, sel providers.Selection, home string
 	if note != "" {
 		fmt.Fprintln(out, note)
 	}
-	if _, _, err := Configure(ctx, "copilot", target, ""); err != nil {
+	if _, _, err := schemaFor("copilot").Configure(ctx, target, ""); err != nil {
 		fmt.Fprintf(out, "copilot: skipped: %v\n", err)
 		return drift, nil
 	}

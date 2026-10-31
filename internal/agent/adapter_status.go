@@ -13,12 +13,6 @@ import (
 	"github.com/edotau/claude-code/internal/secrets/shapes"
 )
 
-// known reports whether name is in the roster, including claude.
-func known(name string) bool {
-	_, ok := LookupSchema(name)
-	return ok
-}
-
 // Find resolves ref (exact id or unique prefix) across every agent's records, so the caller learns the agent.
 func Find(ref string) (Record, error) {
 	return Resolve(RecentRecords(1<<20), ref, func(Record) bool { return false })
@@ -37,7 +31,7 @@ type Row struct {
 
 // Status lists rows for name's jobs in cwd's repo (all repos when all is set), newest first; ref narrows via Resolve.
 func Status(ctx context.Context, name, cwd, ref string, all bool) ([]Row, error) {
-	if !known(name) {
+	if _, ok := LookupSchema(name); !ok {
 		return nil, errUnknownAgent(name)
 	}
 	recs := List(name, RepoRoot(ctx, cwd), all || ref != "")
@@ -57,7 +51,7 @@ func Status(ctx context.Context, name, cwd, ref string, all bool) ([]Row, error)
 
 // JobResult returns ref's record (default: newest finished) and its log text; a running match errors.
 func JobResult(ctx context.Context, name, cwd, ref string) (Record, string, error) {
-	if !known(name) {
+	if _, ok := LookupSchema(name); !ok {
 		return Record{}, "", errUnknownAgent(name)
 	}
 	recs := List(name, RepoRoot(ctx, cwd), ref != "") // an explicit id resolves across repos; the default stays local
@@ -81,7 +75,7 @@ var (
 // Tail copies ref's log (default: name's newest job in cwd's repo) to w. With follow it keeps copying until the
 // record stops being alive, printing a heartbeat line per tailBeat of silence. It returns the record as last seen.
 func Tail(ctx context.Context, name, cwd, ref string, follow bool, w io.Writer) (Record, error) {
-	if !known(name) {
+	if _, ok := LookupSchema(name); !ok {
 		return Record{}, errUnknownAgent(name)
 	}
 	recs := List(name, RepoRoot(ctx, cwd), ref != "") // an explicit id resolves across repos; the default stays local
@@ -219,7 +213,7 @@ func sleepCtx(ctx context.Context, d time.Duration) error {
 
 // CancelJob interrupts ref's job, default: the single running job for name in cwd's repo.
 func CancelJob(ctx context.Context, name, cwd, ref string) (Record, error) {
-	if !known(name) {
+	if _, ok := LookupSchema(name); !ok {
 		return Record{}, errUnknownAgent(name)
 	}
 	recs := List(name, RepoRoot(ctx, cwd), ref != "") // an explicit id resolves across repos; the default stays local

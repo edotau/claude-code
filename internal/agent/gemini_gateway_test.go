@@ -17,7 +17,7 @@ func TestResolveTargetGeminiNoLoginNoPinRefuses(t *testing.T) {
 	p := dbxRow("qa", "databricks-")
 	reg.Providers[p.Name] = p
 	sel := providers.Selection{Provider: p, Slots: map[string]providers.Target{"opus": {Provider: p, Model: "databricks-claude-opus-5-5"}}}
-	_, _, err := ResolveVendorTarget(reg, "gemini", sel, false)
+	_, _, err := schemaFor("gemini").ResolveTarget(reg, sel, false)
 	if err == nil || !strings.Contains(err.Error(), "GEMINI_PROFILE") {
 		t.Fatalf("err = %v, want the Google-login-or-pin refusal", err)
 	}
@@ -27,7 +27,7 @@ func TestResolveTargetGeminiNoLoginNoPinRefuses(t *testing.T) {
 func TestGeminiGatewayRefusesDirect(t *testing.T) {
 	vaulttest.Use(t)
 	StubRouterForTest(t, "http://127.0.0.1:1")
-	_, _, err := configureRoute(WithDirect(context.Background()), "gemini",
+	_, _, err := schemaFor("gemini").configureRoute(WithDirect(context.Background()),
 		providers.Target{Provider: dbxRow("qa", "databricks-"), Model: "gemini-3.8-flash"}, &Headless{Prompt: "hi"})
 	if err == nil || !strings.Contains(err.Error(), "--direct") {
 		t.Fatalf("err = %v, want a --direct refusal", err)

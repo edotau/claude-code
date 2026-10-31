@@ -17,52 +17,45 @@ import (
 )
 
 // ownProfile is the profile a run on the agent's own login bills: the registry row naming that login, else the agent.
-func ownProfile(name string) string {
+func (s Schema) ownProfile() string {
 	if reg, err := providers.Load(); err == nil {
 		for _, n := range reg.Names() {
-			if reg.Providers[n].Auth.Login == name {
+			if reg.Providers[n].Auth.Login == s.Name {
 				return n
 			}
 		}
 	}
-	return name
+	return s.Name
 }
 
-// vendorTarget mirrors launch.Vendor: the session target if it serves the agent, else its own login or a keyed one.
-func vendorTarget(req RunOptions, name string) (providers.Target, bool, error) {
-	t, own, note, err := vendorTargetNote(req, name)
+// target mirrors launch.Vendor: the session target if it serves the agent, else its own login or a keyed one.
+func (s Schema) target(req RunOptions) (providers.Target, bool, error) {
+	t, own, note, err := s.targetNote(req)
 	if note != "" {
 		fmt.Fprintln(NoticeOut, note)
 	}
 	return t, own, err
 }
 
-// vendorTargetNote is vendorTarget without printing: the router resolves every candidate's backend through it.
-func vendorTargetNote(req RunOptions, name string) (t providers.Target, own bool, note string, err error) {
-	t, own, note, applied, err := vendorTargetBase(req, name)
+// targetNote is target without printing: the router resolves every candidate's backend through it.
+func (s Schema) targetNote(req RunOptions) (t providers.Target, own bool, note string, err error) {
+	t, own, note, applied, err := s.targetBase(req)
 	if err != nil {
 		return t, own, note, err
 	}
-	t, modelNote := providers.ResolveAgentModel(providers.ModelAsk{Agent: name, Flag: req.Model, Target: t, Applied: applied})
+	t, modelNote := providers.ResolveAgentModel(providers.ModelAsk{Agent: s.Name, Flag: req.Model, Target: t, Applied: applied})
 	if modelNote != "" {
-		note = strings.Join(slices.DeleteFunc([]string{note, modelNote}, func(s string) bool { return s == "" }), "; ")
+		note = strings.Join(slices.DeleteFunc([]string{note, modelNote}, func(n string) bool { return n == "" }), "; ")
 	}
 	return t, own, note, nil
 }
 
-// vendorTargetBase picks the target; applied is true when t.Model already carries req.Model (no fallback respelled it).
-func vendorTargetBase(req RunOptions, name string) (t providers.Target, own bool, note string, applied bool, err error) {
+// targetBase picks the target; applied is true when t.Model already carries req.Model (no fallback respelled it).
+func (s Schema) targetBase(req RunOptions) (t providers.Target, own bool, note string, applied bool, err error) {
 	reg, t, err := resolveTarget(req)
 	if err != nil || req.Provider != "" || namesProvider(reg, req.Model) {
-		if err == nil && name == "copilot" { // an explicit GitHub login still passes the credit gate
-			from := t.Provider
-			t, note, err = copilotGate(reg, t)
-			if err == nil && t.Provider != from && req.Provider != "" && req.Provider == providers.Pin(providers.PinCopilotProfile) {
-				return t, false, note, true, &Error{Kind: KindQuota, Agent: "copilot", Err: errors.New(note)}
-			}
-			if tier := resumeSlot(req.Model); err == nil && t.Provider != from && t.Provider.Models[tier] != "" {
-				t.Model = t.Provider.Models[tier] // the fallback serves the requested tier, not its default opus
-			}
+		if err == nil { // an explicit login still passes the CLI's own gate
+			t, note, err = s.eng().gateExplicit(req, reg, t)
 		}
 		return t, false, note, true, err
 	}
@@ -70,7 +63,7 @@ func vendorTargetBase(req RunOptions, name string) (t providers.Target, own bool
 	if err != nil {
 		return t, false, "", true, err
 	}
-	ft, note, err := ResolveVendorTarget(reg, name, sel, false)
+	ft, note, err := s.ResolveTarget(reg, sel, false)
 	own = errors.Is(err, ErrOwnLogin)
 	if own {
 		err = nil
@@ -123,11 +116,12 @@ type vendorPrep struct {
 // prepare resolves req's route and headless argv; the Result comes back populated even on error.
 func (v vendorRunner) prepare(ctx context.Context, req RunOptions) (vendorPrep, error) {
 	name := v.Name()
-	t, own, err := vendorTarget(req, name)
+	s := schemaFor(name)
+	t, own, err := s.target(req)
 	if err != nil {
 		return vendorPrep{}, err
 	}
-	p := vendorPrep{t: t, res: Result{Provider: ownProfile(name), Model: t.Model, SessionID: req.SessionID}}
+	p := vendorPrep{t: t, res: Result{Provider: s.ownProfile(), Model: t.Model, SessionID: req.SessionID}}
 	if !own {
 		if t.Provider == nil { // vendorTargetNote can report a non-own target with no provider resolved
 			return p, &Error{Kind: KindFatal, Agent: name, Err: errors.New("agent target resolved to no provider")}
@@ -140,7 +134,6 @@ func (v vendorRunner) prepare(ctx context.Context, req RunOptions) (vendorPrep, 
 		return p, &Error{Kind: KindFatal, Agent: name, Err: err}
 	}
 	ct := v.eng.before(req, t)
-	s, _ := LookupSchema(name)
 	if s.CLI.PromptInArgv && len(p.prompt) > MaxPromptBytes {
 		return p, &Error{Kind: KindFatal, Agent: name, Err: errPromptTooLarge(len(p.prompt))}
 	}
@@ -150,9 +143,9 @@ func (v vendorRunner) prepare(ctx context.Context, req RunOptions) (vendorPrep, 
 		h.WorkDir = req.WorkDir // cmd.Dir alone doesn't move opencode's own cwd resolution; --dir does
 	}
 	if own {
-		p.env, p.argv, err = ownLoginHeadless(name, h)
+		p.env, p.argv, err = v.eng.ownLogin(h)
 	} else {
-		p.env, p.argv, err = configureHeadless(ctx, name, ct, h)
+		p.env, p.argv, err = s.configureHeadless(ctx, ct, h)
 	}
 	if err != nil {
 		return p, &Error{Kind: KindFatal, Agent: name, Err: err}

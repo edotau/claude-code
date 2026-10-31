@@ -37,11 +37,11 @@ func TestCandidateAndSkipJSONUseAgentField(t *testing.T) {
 func TestOldColonKeysNoLongerMatch(t *testing.T) {
 	tb := testTable(t)
 	old := State{"codex:chatgpt": {AuthReason: "auth rejected", AuthAt: now0}}
-	if !strings.Contains(runners(pick(tb, "sonnet", "codex", old, FallbackVendors)), "codex") {
+	if !strings.Contains(runners(pick(tb, "sonnet", "codex", old, FallbackAgents)), "codex") {
 		t.Error("an old-format auth mark still gated codex")
 	}
 	cur := State{"openai·chatgpt": {AuthReason: "auth rejected", AuthAt: now0}}
-	if strings.Contains(runners(pick(tb, "sonnet", "codex", cur, FallbackVendors)), "codex") {
+	if strings.Contains(runners(pick(tb, "sonnet", "codex", cur, FallbackAgents)), "codex") {
 		t.Error("the new-format auth mark did not gate codex")
 	}
 	if _, ok := old.accountAuthMarked("openai·chatgpt", now0); ok {

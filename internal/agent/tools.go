@@ -28,12 +28,14 @@ type Tool struct {
 	Install action
 	Update  action
 	Hint    string // shown in status/doctor when Install and Update are both nil
+	// UserLocal installs into ~/.local/bin, never the harness bin/.
+	UserLocal bool
 }
 
 // Tools is the install table in roster order; npmPackages below must cover any entry that also
 // ships via npm, so a fresh install can retire the old global copy.
 var Tools = []Tool{
-	{Name: "claude", Binary: "claude", Install: installClaude},
+	{Name: "claude", Binary: "claude", Install: installClaude, UserLocal: true},
 	{Name: "copilot", Binary: "copilot", Install: installCopilot},
 	{Name: "codex", Binary: "codex", Install: installCodex},
 	{Name: "opencode", Binary: "opencode", Install: installOpencode},
@@ -126,7 +128,7 @@ func runOne(ctx context.Context, w io.Writer, t Tool, oldPath, dir string, dryRu
 
 // installDir: a direct bin/ install, else the existing install's dir, else bin/ for a vendor, else ~/.local/bin.
 func installDir(t Tool, oldPath string) string {
-	if t.Name == "claude" {
+	if t.UserLocal {
 		return localBinDir()
 	}
 	_, vendor := paths.VendorName(t.Name)

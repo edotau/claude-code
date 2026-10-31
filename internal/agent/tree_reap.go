@@ -55,7 +55,7 @@ func dropDispatchSessions(sessions []Session, legs []TreeLeg) []Session {
 // matchesClaudeLeg reports whether s is the session a running claude dispatch spawned (by id, else by cwd+time).
 func matchesClaudeLeg(s Session, legs []TreeLeg) bool {
 	for _, l := range legs {
-		if l.Agent != "claude" {
+		if s, ok := LookupSchema(l.Agent); !ok || s.External() { // not the Claude launcher
 			continue
 		}
 		if l.sessionID != "" && l.sessionID == s.ID {

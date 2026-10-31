@@ -10,7 +10,7 @@ import (
 
 func TestOpenCodeConfigShape(t *testing.T) {
 	tg := target(t, "gateway", "anthropic/claude-opus-5")
-	env, argv, err := configureHeadless(WithDirect(context.Background()), "opencode", tg, Headless{Prompt: "hi"})
+	env, argv, err := schemaFor("opencode").configureHeadless(WithDirect(context.Background()), tg, Headless{Prompt: "hi"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -44,7 +44,7 @@ func TestOpenCodeConfigShape(t *testing.T) {
 func TestOpenCodeDirArgv(t *testing.T) {
 	t.Run("BYOK builder", func(t *testing.T) {
 		tg := target(t, "gateway", "anthropic/claude-opus-5")
-		_, argv, err := configureHeadless(context.Background(), "opencode", tg, Headless{Prompt: "hi", WorkDir: "/work/dir"})
+		_, argv, err := schemaFor("opencode").configureHeadless(context.Background(), tg, Headless{Prompt: "hi", WorkDir: "/work/dir"})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -52,7 +52,7 @@ func TestOpenCodeDirArgv(t *testing.T) {
 			t.Errorf("argv = %q, want --dir /work/dir", argv)
 		}
 
-		_, argv, err = configureHeadless(context.Background(), "opencode", tg, Headless{Prompt: "hi"})
+		_, argv, err = schemaFor("opencode").configureHeadless(context.Background(), tg, Headless{Prompt: "hi"})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -88,13 +88,13 @@ func TestOpenCodeOverlayEnvOnEveryRoute(t *testing.T) {
 	}
 
 	t.Run("own login (LaunchSpec)", func(t *testing.T) {
-		env, _ := LaunchSpec("opencode")
+		env, _ := schemaFor("opencode").LaunchSpec()
 		hasOverlayEnv(t, env)
 	})
 
 	t.Run("BYOK/gateway (Configure)", func(t *testing.T) {
 		tg := target(t, "gateway", "anthropic/claude-opus-5")
-		env, _, err := configureHeadless(context.Background(), "opencode", tg, Headless{Prompt: "hi"})
+		env, _, err := schemaFor("opencode").configureHeadless(context.Background(), tg, Headless{Prompt: "hi"})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -111,7 +111,7 @@ func TestOpenCodeOverlayEnvOnEveryRoute(t *testing.T) {
 // rides OPENCODE_CONFIG_CONTENT={"permission":"deny"} when tools are off, alongside the new overlay env.
 func TestOpenCodeOwnLoginHeadlessToolsOffDeny(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	env, _, err := ownLoginHeadless("opencode", Headless{Prompt: "hi"})
+	env, _, err := schemaFor("opencode").eng().ownLogin(Headless{Prompt: "hi"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -123,7 +123,7 @@ func TestOpenCodeOwnLoginHeadlessToolsOffDeny(t *testing.T) {
 		t.Errorf("env = %v, want both overlay paths alongside the deny", env)
 	}
 
-	env, _, err = ownLoginHeadless("opencode", Headless{Prompt: "hi", Tools: true})
+	env, _, err = schemaFor("opencode").eng().ownLogin(Headless{Prompt: "hi", Tools: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -149,7 +149,7 @@ func opencodeMenu(t *testing.T, env []string, id string) (map[string]any, string
 func TestOpenCodeModelMenu(t *testing.T) {
 	t.Run("known tier id", func(t *testing.T) {
 		tg := target(t, "anthropic", "claude-sonnet-5-5")
-		env, _, err := Configure(context.Background(), "opencode", tg, "")
+		env, _, err := schemaFor("opencode").Configure(context.Background(), tg, "")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -167,7 +167,7 @@ func TestOpenCodeModelMenu(t *testing.T) {
 
 	t.Run("model not in table", func(t *testing.T) {
 		tg := target(t, "anthropic", "claude-custom")
-		env, _, err := Configure(context.Background(), "opencode", tg, "")
+		env, _, err := schemaFor("opencode").Configure(context.Background(), tg, "")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -182,7 +182,7 @@ func TestOpenCodeModelMenu(t *testing.T) {
 
 	t.Run("headless carries no menu", func(t *testing.T) {
 		tg := target(t, "anthropic", "claude-sonnet-5-5")
-		env, _, err := configureHeadless(context.Background(), "opencode", tg, Headless{Prompt: "hi"})
+		env, _, err := schemaFor("opencode").configureHeadless(context.Background(), tg, Headless{Prompt: "hi"})
 		if err != nil {
 			t.Fatal(err)
 		}

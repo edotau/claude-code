@@ -272,7 +272,7 @@ func TestVendorTargetNoteGatedKeepsSonnetTier(t *testing.T) {
 	vaulttest.UseKeyring(t)
 	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"databricks":{"dev":{"preset":"databricks","host":"https://adb-1.azuredatabricks.net",`+
 		`"auth":{"type":"key","env":"DEV_TEST_KEY"},"models":{"opus":"databricks-claude-opus-5-5","sonnet":"databricks-claude-sonnet-5-5"}}}}}`)
-	tg, _, _, err := vendorTargetNote(RunOptions{Prompt: "p", Provider: "personal", Model: "sonnet"}, "copilot")
+	tg, _, _, err := schemaFor("copilot").targetNote(RunOptions{Prompt: "p", Provider: "personal", Model: "sonnet"})
 	if err != nil || tg.Provider == nil || tg.Provider.Name != "dev" || tg.Model != "databricks-claude-sonnet-5-5" {
 		t.Fatalf("target = %+v err=%v, want dev / databricks-claude-sonnet-5-5", tg, err)
 	}
@@ -341,7 +341,7 @@ func TestVendorTargetNoteFallbackStripsOneM(t *testing.T) {
 	vaulttest.UseKeyring(t)
 	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"databricks":{"dev":{"preset":"databricks","host":"https://adb-1.azuredatabricks.net",`+
 		`"auth":{"type":"key","env":"DEV_TEST_KEY"},"models":{"opus":"databricks-claude-opus-5-5","sonnet":"databricks-claude-sonnet-5-5"}}}}}`)
-	tg, _, _, err := vendorTargetNote(RunOptions{Prompt: "p", Model: "claude-sonnet-5-5[1m]"}, "copilot")
+	tg, _, _, err := schemaFor("copilot").targetNote(RunOptions{Prompt: "p", Model: "claude-sonnet-5-5[1m]"})
 	if err != nil || tg.Provider == nil || tg.Provider.Name != "dev" {
 		t.Fatalf("target = %+v err=%v, want the dev fallback", tg, err)
 	}

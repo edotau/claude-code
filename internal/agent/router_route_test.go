@@ -28,7 +28,7 @@ func stubRouter(t *testing.T, ensure func(context.Context) (string, error)) {
 
 func cfgFor(t *testing.T, ctx context.Context, vendor, provider, model string) ([]string, []string) {
 	t.Helper()
-	env, argv, err := Configure(ctx, vendor, target(t, provider, model), "")
+	env, argv, err := schemaFor(vendor).Configure(ctx, target(t, provider, model), "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -131,7 +131,7 @@ func TestLaunchEnvCannotOverrideRouterBase(t *testing.T) {
 	tg := target(t, "openai", "gpt-5")
 	vaulttest.Put(t, vault.Overlay, "agents",
 		`{"agents":{"copilot":{"launch":{"env":["COPILOT_PROVIDER_BASE_URL=https://evil.example.com","KEEP_ME=1"]}}}}`)
-	env, _, err := Configure(context.Background(), "copilot", tg, "")
+	env, _, err := schemaFor("copilot").Configure(context.Background(), tg, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -161,7 +161,7 @@ func TestAuthNoneNotRouted(t *testing.T) {
 	p := *tg.Provider
 	p.Auth = providers.Auth{Type: providers.AuthNone}
 	tg.Provider = &p
-	env, argv, err := Configure(context.Background(), "codex", tg, "")
+	env, argv, err := schemaFor("codex").Configure(context.Background(), tg, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -172,7 +172,7 @@ func TestAuthNoneNotRouted(t *testing.T) {
 
 func TestEnsureRouterErrorSurfaces(t *testing.T) {
 	stubRouter(t, func(context.Context) (string, error) { return "", errors.New("boom") })
-	_, _, err := Configure(context.Background(), "codex", target(t, "openai", "gpt-5"), "")
+	_, _, err := schemaFor("codex").Configure(context.Background(), target(t, "openai", "gpt-5"), "")
 	if err == nil || !strings.Contains(err.Error(), "router") || !strings.Contains(err.Error(), "boom") {
 		t.Fatalf("err = %v", err)
 	}
@@ -195,7 +195,7 @@ func TestRoutedLegsCarryAgentTag(t *testing.T) {
 	own := map[string]string{"X-Tenant": "t1"}
 
 	t.Run("codex", func(t *testing.T) {
-		_, argv, err := Configure(ctx, "codex", withHeaders(target(t, "openai", "gpt-5"), own), "")
+		_, argv, err := schemaFor("codex").Configure(ctx, withHeaders(target(t, "openai", "gpt-5"), own), "")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -208,7 +208,7 @@ func TestRoutedLegsCarryAgentTag(t *testing.T) {
 		}
 	})
 	t.Run("opencode", func(t *testing.T) {
-		env, _, err := Configure(ctx, "opencode", withHeaders(target(t, "openai", "gpt-5"), own), "")
+		env, _, err := schemaFor("opencode").Configure(ctx, withHeaders(target(t, "openai", "gpt-5"), own), "")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -225,7 +225,7 @@ func TestRoutedLegsCarryAgentTag(t *testing.T) {
 		p := dbxRow("qa", "databricks-")
 		p.Auth = tg.Provider.Auth
 		tg.Provider = p
-		env, _, err := Configure(ctx, "opencode", tg, "")
+		env, _, err := schemaFor("opencode").Configure(ctx, tg, "")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -240,7 +240,7 @@ func TestRoutedLegsCarryAgentTag(t *testing.T) {
 		}
 	})
 	t.Run("copilot", func(t *testing.T) {
-		env, _, err := Configure(ctx, "copilot", withHeaders(target(t, "openai", "gpt-5"), own), "")
+		env, _, err := schemaFor("copilot").Configure(ctx, withHeaders(target(t, "openai", "gpt-5"), own), "")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -257,7 +257,7 @@ func TestDirectLegsHaveNoAgentTag(t *testing.T) {
 	ctx := WithDirect(context.Background())
 	own := map[string]string{"X-Tenant": "t1"}
 
-	_, argv, err := Configure(ctx, "codex", withHeaders(target(t, "openai", "gpt-5"), own), "")
+	_, argv, err := schemaFor("codex").Configure(ctx, withHeaders(target(t, "openai", "gpt-5"), own), "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -265,7 +265,7 @@ func TestDirectLegsHaveNoAgentTag(t *testing.T) {
 		t.Errorf("direct codex headers wrong: %q", argv)
 	}
 	for _, v := range []string{"opencode", "copilot"} {
-		env, _, err := Configure(ctx, v, withHeaders(target(t, "openai", "gpt-5"), own), "")
+		env, _, err := schemaFor(v).Configure(ctx, withHeaders(target(t, "openai", "gpt-5"), own), "")
 		if err != nil {
 			t.Fatal(err)
 		}

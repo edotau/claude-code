@@ -2,7 +2,6 @@ package agent
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -18,33 +17,33 @@ const (
 	OpenCodeKeyEnv = "HARNESS_OPENCODE_API_KEY"
 )
 
-// Configure returns extra env (KEY=VALUE) and leading argv that point the vendor CLI at target.
+// Configure returns extra env (KEY=VALUE) and leading argv that point the agent CLI at target.
 // headlessPrompt != "" asks for the non-interactive form (the runner path).
-func Configure(ctx context.Context, name string, target providers.Target, headlessPrompt string) (env, argv []string, err error) {
+func (s Schema) Configure(ctx context.Context, target providers.Target, headlessPrompt string) (env, argv []string, err error) {
 	if headlessPrompt == "" {
-		return configure(ctx, name, target, nil)
+		return s.configure(ctx, target, nil)
 	}
-	return configure(ctx, name, target, &Headless{Prompt: headlessPrompt})
+	return s.configure(ctx, target, &Headless{Prompt: headlessPrompt})
 }
 
 // configureHeadless is Configure's runner form with the per-run options each CLI can carry.
-func configureHeadless(ctx context.Context, name string, target providers.Target, h Headless) (env, argv []string, err error) {
-	if strings.TrimSpace(h.Prompt) == "" {
-		return nil, nil, errors.New("agents: empty prompt")
+func (s Schema) configureHeadless(ctx context.Context, target providers.Target, h Headless) (env, argv []string, err error) {
+	if err := checkPrompt(h); err != nil {
+		return nil, nil, err
 	}
-	return configure(ctx, name, target, &h)
+	return s.configure(ctx, target, &h)
 }
 
-// configure resolves the route for name, then applies the vendor's spec launch env/args — on every
+// configure resolves the route for the agent, then applies its spec launch env/args — on every
 // route (own login, BYOK, gateway, router) — so no path can skip it; h != nil (a headless leg) never
 // gets Launch.Args, tools-off must stay tools-off and a tools-on leg already carries its own flags.
-func configure(ctx context.Context, name string, t providers.Target, h *Headless) ([]string, []string, error) {
-	env, argv, err := configureRoute(ctx, name, t, h)
+func (s Schema) configure(ctx context.Context, t providers.Target, h *Headless) ([]string, []string, error) {
+	env, argv, err := s.configureRoute(ctx, t, h)
 	if err != nil {
 		return env, argv, err
 	}
 	// Route keys go last and shadow same-named launch.env entries, so a spec overlay can never redirect a vendor.
-	launchEnv, argv := applyLaunch(name, nil, argv, h == nil)
+	launchEnv, argv := s.applyLaunch(nil, argv, h == nil)
 	return routeEnvLast(launchEnv, env), argv, nil
 }
 
@@ -64,21 +63,15 @@ func routeEnvLast(launchEnv, env []string) []string {
 	return append(out, env...)
 }
 
-// applyLaunch appends vendor's spec Launch.Env (always) and Launch.Args (only when args is true) to
+// applyLaunch appends the agent's spec Launch.Env (always) and Launch.Args (only when args is true) to
 // an already-built launch; a broken overlay is best-effort and must not break the launch.
-func applyLaunch(name string, env, argv []string, args bool) ([]string, []string) {
-	if name == "opencode" {
-		// Every opencode launch (own login, BYOK, headless) points at the tracked overlay; a failed
-		// write is best-effort — opencode still runs on its own global config without it.
-		if cfg, tui, err := WriteOpencodeOverlay(); err == nil {
-			env = append(env, "OPENCODE_CONFIG="+cfg, "OPENCODE_TUI_CONFIG="+tui)
-		}
-	}
+func (s Schema) applyLaunch(env, argv []string, args bool) ([]string, []string) {
+	env = append(env, s.eng().launchEnv()...)
 	vc, err := LoadConfig()
 	if err != nil {
 		return env, argv
 	}
-	launch := vc.Agent(name).Launch
+	launch := vc.Agent(s.Name).Launch
 	env = append(env, launch.Env...)
 	if args {
 		argv = append(argv, launch.Args...)
@@ -86,11 +79,11 @@ func applyLaunch(name string, env, argv []string, args bool) ([]string, []string
 	return env, argv
 }
 
-// LaunchSpec is vendor name's spec env and argv prefix for an interactive launch that bypasses Configure (own login).
-func LaunchSpec(name string) (env, argv []string) { return applyLaunch(name, nil, nil, true) }
+// LaunchSpec is the agent's spec env and argv prefix for an interactive launch that bypasses Configure (own login).
+func (s Schema) LaunchSpec() (env, argv []string) { return s.applyLaunch(nil, nil, true) }
 
-func configureRoute(ctx context.Context, name string, t providers.Target, h *Headless) ([]string, []string, error) {
-	s, _ := LookupSchema(name)
+func (s Schema) configureRoute(ctx context.Context, t providers.Target, h *Headless) ([]string, []string, error) {
+	name := s.Name
 	e, ok := engines[name]
 	if !ok {
 		return nil, nil, fmt.Errorf("unknown agent %q (%s)", name, strings.Join(Names(), "|"))

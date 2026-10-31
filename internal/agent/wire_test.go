@@ -70,7 +70,7 @@ func TestConfigureRouteUsesServesReason(t *testing.T) {
 		if why == "" {
 			t.Fatalf("%s/%s: control: Serves has no reason", c.agent, c.p.Name)
 		}
-		_, _, err := configureRoute(t.Context(), c.agent, providers.Target{Provider: c.p, Model: "m"}, nil)
+		_, _, err := schemaFor(c.agent).configureRoute(t.Context(), providers.Target{Provider: c.p, Model: "m"}, nil)
 		if err == nil || err.Error() != c.agent+": "+why {
 			t.Errorf("%s/%s: err = %v, want %q", c.agent, c.p.Name, err, c.agent+": "+why)
 		}

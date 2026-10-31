@@ -29,7 +29,7 @@ func TestResolveTargetFallsBackWhenSessionProviderCannotServe(t *testing.T) {
 	sel := providers.Selection{Provider: sub, Slots: map[string]providers.Target{"opus": {Provider: sub, Model: "claude-opus-5-5"}}}
 
 	// codex: subscription can't serve it, no ChatGPT login present -> target unchanged, no note.
-	target, note, err := ResolveVendorTarget(reg, "codex", sel, false)
+	target, note, err := schemaFor("codex").ResolveTarget(reg, sel, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -47,7 +47,7 @@ func TestResolveTargetFallsBackWhenSessionProviderCannotServe(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "codex", "auth.json"), []byte(`{"tokens":{"access_token":"x"}}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	target, note, err = ResolveVendorTarget(reg, "codex", sel, false)
+	target, note, err = schemaFor("codex").ResolveTarget(reg, sel, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -64,7 +64,7 @@ func TestResolveTargetFallsBackWhenSessionProviderCannotServe(t *testing.T) {
 	if err := providers.SetPins(map[string]string{providers.PinCodexModel: "gpt-6.1-sol"}); err != nil {
 		t.Fatal(err)
 	}
-	target, _, err = ResolveVendorTarget(reg, "codex", sel, false)
+	target, _, err = schemaFor("codex").ResolveTarget(reg, sel, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -73,7 +73,7 @@ func TestResolveTargetFallsBackWhenSessionProviderCannotServe(t *testing.T) {
 	}
 
 	// An explicit provider choice is never overridden by a fallback.
-	target, note, err = ResolveVendorTarget(reg, "codex", sel, true)
+	target, note, err = schemaFor("codex").ResolveTarget(reg, sel, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -109,7 +109,7 @@ func TestResolveTargetGeminiModelPinBeatsRegistryDefault(t *testing.T) {
 	if err := providers.SetPins(map[string]string{providers.PinGeminiModel: ""}); err != nil {
 		t.Fatal(err)
 	}
-	target, _, err := ResolveVendorTarget(reg, "gemini", sel, false)
+	target, _, err := schemaFor("gemini").ResolveTarget(reg, sel, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -121,7 +121,7 @@ func TestResolveTargetGeminiModelPinBeatsRegistryDefault(t *testing.T) {
 	if err := providers.SetPins(map[string]string{providers.PinGeminiModel: "gemini-2.5-pro"}); err != nil {
 		t.Fatal(err)
 	}
-	target, _, err = ResolveVendorTarget(reg, "gemini", sel, false)
+	target, _, err = schemaFor("gemini").ResolveTarget(reg, sel, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -151,14 +151,14 @@ func TestResolveTargetGeminiFallsBackToGoogleLogin(t *testing.T) {
 		t.Fatal(err)
 	}
 	sel := providers.Selection{Provider: sub, Slots: map[string]providers.Target{"opus": {Provider: sub, Model: "claude-opus-5-5"}}}
-	target, note, err := ResolveVendorTarget(reg, "gemini", sel, false)
+	target, note, err := schemaFor("gemini").ResolveTarget(reg, sel, false)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if target.Provider == nil || target.Provider.Provider != "google" || !strings.Contains(note, "Google login") {
 		t.Fatalf("expected the Google-login gemini route, got %v / %q", target.Provider, note)
 	}
-	env, _, err := configureHeadless(context.Background(), "gemini", target, Headless{Prompt: "hi"})
+	env, _, err := schemaFor("gemini").configureHeadless(context.Background(), target, Headless{Prompt: "hi"})
 	if err != nil {
 		t.Fatalf("a login with no key must still configure: %v", err)
 	}

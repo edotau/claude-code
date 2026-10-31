@@ -146,7 +146,7 @@ type liveSession struct {
 // rec.Request.Timeout is the idle limit; the record is finalized on the way out.
 func ServeLive(ctx context.Context, rec *Record, notify func(string)) (err error) {
 	req, name := rec.Request, rec.Agent
-	lc, ok := liveCapable(name)
+	lc, ok := schemaFor(name).Live()
 	if !ok {
 		return fmt.Errorf("%s has no live mode (claude|gemini)", name)
 	}

@@ -76,7 +76,7 @@ Per `agent-verbs.md` → Procedure skeleton. Delta:
 - **Run it** with default model and effort; add `--model <alias or version> --effort high` only for an
   unusually complex task (a cross-package design call, a subtle concurrency or auth bug).
   Pick and fallback: `skills/subagent-workflows/references/cost-routing.md`.
-  `review` always runs `--fallback vendors` — it never falls back to Claude.
+  `review` always runs `--fallback agents` — it never falls back to Claude.
 - **Verify as a claim**: same adversarial stance as `skills/evaluate-code/references/judge.md` — a
   report is claims, not evidence.
 

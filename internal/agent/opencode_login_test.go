@@ -87,7 +87,7 @@ func TestOpencodeNonCopilotOwnLoginIsNotAFallbackLeg(t *testing.T) {
 		t.Fatal(err)
 	}
 	sel := subscriptionSelection(t, reg)
-	target, _, err := ResolveVendorTarget(reg, "opencode", sel, false)
+	target, _, err := schemaFor("opencode").ResolveTarget(reg, sel, false)
 	if errors.Is(err, ErrOwnLogin) {
 		t.Fatal("a non-copilot opencode auth.json entry must not resolve to ErrOwnLogin")
 	}
@@ -101,7 +101,7 @@ func TestOpencodeNonCopilotOwnLoginIsNotAFallbackLeg(t *testing.T) {
 		t.Errorf("the subscription (passthrough) provider must never be chosen for opencode; got %+v", target.Provider)
 	}
 	// --provider is explicit: the session provider is used as-is regardless of the fallback chain.
-	if _, _, err := ResolveVendorTarget(reg, "opencode", sel, true); err != nil {
+	if _, _, err := schemaFor("opencode").ResolveTarget(reg, sel, true); err != nil {
 		t.Errorf("an explicit provider must resolve as-is, got err=%v", err)
 	}
 }
@@ -115,12 +115,12 @@ func TestDescribeOpenCodeRouteChainOrder(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if ri := DescribeRoute(reg, "opencode"); ri.OK || ri.Leg != LegNone {
+	if ri := schemaFor("opencode").DescribeRoute(reg); ri.OK || ri.Leg != LegNone {
 		t.Fatalf("with nothing configured, want LegNone; got %+v", ri)
 	}
 
 	t.Setenv("ANTHROPIC_API_KEY", secret)
-	if ri := DescribeRoute(reg, "opencode"); ri.OK || ri.Leg != LegNone {
+	if ri := schemaFor("opencode").DescribeRoute(reg); ri.OK || ri.Leg != LegNone {
 		t.Fatalf("an ANTHROPIC_API_KEY alone must not route opencode; got %+v", ri)
 	}
 
@@ -132,14 +132,14 @@ func TestDescribeOpenCodeRouteChainOrder(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(data, "opencode", "auth.json"), []byte(`{"github-copilot":{"type":"oauth"}}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if ri := DescribeRoute(reg, "opencode"); !ri.OK || ri.Leg != LegCopilotLogin || ri.Provider != "personal" {
+	if ri := schemaFor("opencode").DescribeRoute(reg); !ri.OK || ri.Leg != LegCopilotLogin || ri.Provider != "personal" {
 		t.Fatalf("opencode's own copilot login must route; got %+v", ri)
 	}
 	if err := os.WriteFile(filepath.Join(data, "opencode", "auth.json"),
 		[]byte(`{"github-copilot":{"type":"oauth"},"opencode":{"type":"api"}}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if ri := DescribeRoute(reg, "opencode"); !ri.OK || ri.Leg != LegOwnLogin || ri.Provider != "opencode-go" {
+	if ri := schemaFor("opencode").DescribeRoute(reg); !ri.OK || ri.Leg != LegOwnLogin || ri.Provider != "opencode-go" {
 		t.Fatalf("opencode's own opencode login must outrank the copilot login; got %+v", ri)
 	}
 
@@ -147,9 +147,9 @@ func TestDescribeOpenCodeRouteChainOrder(t *testing.T) {
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
 	t.Setenv("ANTHROPIC_API_KEY", "")
 	t.Setenv("GEMINI_API_KEY", "")
-	none := DescribeRoute(reg, "opencode")
+	none := schemaFor("opencode").DescribeRoute(reg)
 	sel := subscriptionSelection(t, reg)
-	_, _, rerr := ResolveVendorTarget(reg, "opencode", sel, false)
+	_, _, rerr := schemaFor("opencode").ResolveTarget(reg, sel, false)
 	if rerr == nil || rerr.Error() != none.Reason {
 		t.Fatalf("ResolveVendorTarget error = %v, want DescribeRoute's reason %q", rerr, none.Reason)
 	}
@@ -163,28 +163,28 @@ func TestDescribeCopilotRouteChainOrder(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if ri := DescribeRoute(reg, "copilot"); ri.OK || ri.Leg != LegNone {
+	if ri := schemaFor("copilot").DescribeRoute(reg); ri.OK || ri.Leg != LegNone {
 		t.Fatalf("with nothing configured, want LegNone; got %+v", ri)
 	}
 
 	t.Setenv("ANTHROPIC_API_KEY", secret)
-	if ri := DescribeRoute(reg, "copilot"); !ri.OK || ri.Leg != LegByokAnthropic || ri.Provider != "anthropic" {
+	if ri := schemaFor("copilot").DescribeRoute(reg); !ri.OK || ri.Leg != LegByokAnthropic || ri.Provider != "anthropic" {
 		t.Fatalf("with only ANTHROPIC_API_KEY, want byok-anthropic; got %+v", ri)
 	}
 
 	workableCopilotPin(t, "alice")
-	if ri := DescribeRoute(reg, "copilot"); !ri.OK || ri.Leg != LegCopilotLogin || ri.Provider != "personal" {
+	if ri := schemaFor("copilot").DescribeRoute(reg); !ri.OK || ri.Leg != LegCopilotLogin || ri.Provider != "personal" {
 		t.Fatalf("copilot's own GitHub login must outrank BYOK; got %+v", ri)
 	}
 
 	setPin(t, providers.PinCopilotProfile, "")
 	t.Setenv("ANTHROPIC_API_KEY", "")
-	none := DescribeRoute(reg, "copilot")
+	none := schemaFor("copilot").DescribeRoute(reg)
 	if none.OK || none.Leg != LegNone || !strings.Contains(none.Reason, "claude-code configure github") {
 		t.Fatalf("LegNone's reason must name `claude-code configure github`; got %+v", none)
 	}
 	sel := subscriptionSelection(t, reg)
-	_, _, rerr := ResolveVendorTarget(reg, "copilot", sel, false)
+	_, _, rerr := schemaFor("copilot").ResolveTarget(reg, sel, false)
 	if rerr == nil || rerr.Error() != none.Reason {
 		t.Fatalf("ResolveVendorTarget error = %v, want DescribeRoute's reason %q", rerr, none.Reason)
 	}
@@ -201,14 +201,14 @@ func TestDescribeCopilotRouteModelFollowsPin(t *testing.T) {
 	}
 
 	wantDefault := reg.Providers["personal"].Models["opus"]
-	if ri := DescribeRoute(reg, "copilot"); ri.Model != wantDefault {
+	if ri := schemaFor("copilot").DescribeRoute(reg); ri.Model != wantDefault {
 		t.Fatalf("Model (unpinned) = %q, want github-copilot's own opus slot %q", ri.Model, wantDefault)
 	}
 
 	if err := providers.SetPins(map[string]string{providers.PinCopilotModel: "claude-opus-5.5"}); err != nil {
 		t.Fatal(err)
 	}
-	if ri := DescribeRoute(reg, "copilot"); ri.Model != "claude-opus-5.5" {
+	if ri := schemaFor("copilot").DescribeRoute(reg); ri.Model != "claude-opus-5.5" {
 		t.Fatalf("Model (pinned) = %q, want the COPILOT_MODEL pin claude-opus-5.5", ri.Model)
 	}
 }
@@ -228,7 +228,7 @@ func TestResolveTargetCopilotExplicitModelBeatsPin(t *testing.T) {
 	sub := subscriptionSelection(t, reg)
 	sub.Slots["opus"] = providers.Target{Provider: sub.Provider, Model: "explicit-model"}
 
-	target, note, err := ResolveVendorTarget(reg, "copilot", sub, true)
+	target, note, err := schemaFor("copilot").ResolveTarget(reg, sub, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -268,7 +268,7 @@ func TestOpencodeCopilotLoginTakesPrecedence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	target, note, err := ResolveVendorTarget(reg, "opencode", sel, false)
+	target, note, err := schemaFor("opencode").ResolveTarget(reg, sel, false)
 	if err != nil {
 		t.Fatalf("ResolveTarget: %v", err)
 	}
@@ -279,7 +279,7 @@ func TestOpencodeCopilotLoginTakesPrecedence(t *testing.T) {
 		t.Errorf("note = %q, want it to name opencode auth login", note)
 	}
 	// --provider is explicit: the github-copilot login leg must not override an explicit choice.
-	explicitTarget, _, err := ResolveVendorTarget(reg, "opencode", sel, true)
+	explicitTarget, _, err := schemaFor("opencode").ResolveTarget(reg, sel, true)
 	if err != nil {
 		t.Fatalf("ResolveVendorTarget (explicit): %v", err)
 	}
@@ -353,7 +353,7 @@ func TestOpencodeOwnConfigModelIsNoLongerAFallbackLeg(t *testing.T) {
 		t.Fatal(err)
 	}
 	sel := subscriptionSelection(t, reg)
-	target, _, err := ResolveVendorTarget(reg, "opencode", sel, false)
+	target, _, err := schemaFor("opencode").ResolveTarget(reg, sel, false)
 	if errors.Is(err, ErrOwnLogin) {
 		t.Fatal("opencode.jsonc's own model must not resolve to ErrOwnLogin under the new chain")
 	}
@@ -389,11 +389,11 @@ func TestOpencodeCopilotLoginHeadlessCarriesModel(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	target, _, err := ResolveVendorTarget(reg, "opencode", sel, false)
+	target, _, err := schemaFor("opencode").ResolveTarget(reg, sel, false)
 	if err != nil {
 		t.Fatalf("ResolveTarget: %v", err)
 	}
-	_, argv, err := configureHeadless(context.Background(), "opencode", target, Headless{Prompt: "pong"})
+	_, argv, err := schemaFor("opencode").configureHeadless(context.Background(), target, Headless{Prompt: "pong"})
 	if errors.Is(err, ErrOwnLogin) {
 		t.Fatal("ConfigureHeadless must not surface ErrOwnLogin: the headless runner cannot fall back to an interactive model menu")
 	}
@@ -409,7 +409,7 @@ func TestOpencodeCopilotLoginHeadlessCarriesModel(t *testing.T) {
 		t.Errorf("argv = %v, want it to carry -m %q", argv, want)
 	}
 	// Interactive (h == nil, via Configure) keeps the old behavior: opencode launches plain on its own login.
-	if _, _, err := Configure(context.Background(), "opencode", target, ""); !errors.Is(err, ErrOwnLogin) {
+	if _, _, err := schemaFor("opencode").Configure(context.Background(), target, ""); !errors.Is(err, ErrOwnLogin) {
 		t.Errorf("Configure (interactive) err = %v, want ErrOwnLogin", err)
 	}
 }
@@ -430,7 +430,7 @@ func TestOpencodeHeadlessToolsOffBeatsLaunchEnv(t *testing.T) {
 		}
 	}
 	h := Headless{Prompt: "hi", Tools: false}
-	env, _, err := ownLoginHeadless("opencode", h)
+	env, _, err := schemaFor("opencode").eng().ownLogin(h)
 	if err != nil {
 		t.Fatal(err)
 	}

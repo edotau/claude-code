@@ -198,7 +198,7 @@ esac
 	target := providers.Target{Provider: profile, Model: "databricks-gpt-6-1-sol"}
 	checkLaunch := func(wantCatalog string) {
 		t.Helper()
-		env, argv, err := Configure(context.Background(), "codex", target, "")
+		env, argv, err := schemaFor("codex").Configure(context.Background(), target, "")
 		if err != nil {
 			t.Fatal(err)
 		}

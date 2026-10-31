@@ -44,11 +44,12 @@ func applyCopilotToken(opts *copilotsdk.Options, own bool, env []string) error {
 
 func (copilotRunner) Run(ctx context.Context, req RunOptions, sink Sink) (Result, error) {
 	ctx = directCtx(ctx, req)
-	t, own, err := vendorTargetCtx(ctx, req, "copilot")
+	cs := schemaFor("copilot")
+	t, own, err := cs.targetCtx(ctx, req)
 	if err != nil {
 		return Result{}, err
 	}
-	res := Result{Provider: ownProfile("copilot"), Model: models.Strip1M(t.Model)}
+	res := Result{Provider: cs.ownProfile(), Model: models.Strip1M(t.Model)}
 	if !own {
 		if t.Provider == nil {
 			return res, &Error{Kind: KindFatal, Agent: "copilot", Err: errors.New("agent target resolved to no provider")}
@@ -65,7 +66,7 @@ func (copilotRunner) Run(ctx context.Context, req RunOptions, sink Sink) (Result
 		}
 		defer route.close()
 	default:
-		env, _, err = Configure(ctx, "copilot", t, "")
+		env, _, err = cs.Configure(ctx, t, "")
 		if err != nil {
 			return res, &Error{Kind: KindFatal, Agent: "copilot", Err: err}
 		}
