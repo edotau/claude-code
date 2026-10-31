@@ -17,7 +17,8 @@ paths:
 
 **Never edit `~/.claude/settings.json`.** `claude-code configure --restore` (and `make install`) renders it from
 `defaults/claude/settings.json` (tracked), the vault overlay and the hook chain in
-`internal/hooks/hookspec/hookspec.go`; a direct edit is discarded on the next render. That covers `env`, hooks, permissions, `apiKeyHelper`, `statusLine`.
+`internal/hooks/hookspec/hookspec.go`; a direct edit is discarded on the next render. That covers `env`, hooks,
+permissions, `apiKeyHelper`, `statusLine`.
 The defaults derive paths from `CLAUDE_CONFIG_DIR`/`CLAUDE_PROJECT_DIR` — never hardcode a machine path there.
 
 1. Edit `defaults/claude/settings.json` (hooks: `hooks.md`). Confirm a new field's name and shape against the schema
