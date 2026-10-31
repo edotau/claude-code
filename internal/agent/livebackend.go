@@ -81,7 +81,7 @@ type agyLive struct {
 func (b *agyLive) build(ctx context.Context, req RunOptions) (*exec.Cmd, *TailBuffer, string, error) {
 	ctx = directCtx(ctx, req)
 	req.Prompt = cmp.Or(req.Prompt, "live session") // prepare wants a prompt; the turns carry the real ones
-	p, err := newVendorRunner("gemini").prepare(ctx, req)
+	p, err := newCLIRunner("gemini").prepare(ctx, req)
 	if err != nil {
 		return nil, nil, "", err
 	}

@@ -99,7 +99,7 @@ func routeChain(ctx context.Context, want, tier, row, exact, callerModel, mode s
 	reg, _ := providers.Load()
 	c := Chain{Want: want}
 	if nativeLead {
-		c.Legs = append(c.Legs, Leg{Agent: newVendorRunner("opencode"), keepCaller: true, unroutedLeg: true})
+		c.Legs = append(c.Legs, Leg{Agent: newCLIRunner("opencode"), keepCaller: true, unroutedLeg: true})
 		if mode == FallbackNone {
 			return c, pick, nil
 		}
