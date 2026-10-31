@@ -184,7 +184,7 @@ func checkHelpFormat(t *testing.T, path []string, parents []string) {
 	}
 	flagless := map[string]bool{
 		"hook": true, "clip": true, "history diff": true, "workflow lint": true,
-		"vault delete": true, "vault edit": true, "gateway token": true,
+		"vault delete": true, "vault edit": true, "gateway token": true, "test ramdisk": true,
 	}
 	if len(path) == 2 {
 		switch path[0] {
