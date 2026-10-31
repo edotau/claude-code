@@ -14,11 +14,9 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/hooks"
-	"github.com/edotau/claude-code/internal/launch"
 	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
@@ -87,14 +85,11 @@ func memorySynopsis(sub, args string) string {
 // memoryAgent runs background memory jobs on the Copilot CLI (claude-opus-5.5, medium), falling back to Claude.
 func memoryAgent() memory.AgentFunc {
 	return func(ctx context.Context, prompt, workdir string) (string, error) {
-		chain, _, err := agent.RouteChain(ctx, "copilot", "opus", agent.FallbackAll, true, false, router.Opts{})
-		if err != nil {
-			return "", err
-		}
-		req := agent.RunOptions{Prompt: prompt, Model: "claude-opus-5.5",
-			Effort: "medium", Tools: true, WorkDir: workdir, Launcher: launch.Launcher{}}
-		notify := func(m string) { fmt.Fprintln(os.Stderr, m) }
-		res, err := agent.RunWithFallback(ctx, chain, req, agent.NewTextSink(os.Stdout), notify)
+		client := newClient()
+		client.Refresh = nil
+		client.Notify = func(m string) { fmt.Fprintln(os.Stderr, m) }
+		res, err := client.Run(ctx, agent.RunOptions{Agent: "copilot", Prompt: prompt, Model: "claude-opus-5.5",
+			Effort: "medium", Tools: true, WorkDir: workdir}, agent.NewTextSink(os.Stdout))
 		who := res.Agent
 		if res.Fallback != "" {
 			who += "<-" + res.Fallback

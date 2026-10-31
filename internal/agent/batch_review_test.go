@@ -97,8 +97,10 @@ func TestBatchCapsConcurrencyPerBilledAccount(t *testing.T) {
 		name := fmt.Sprintf("agent%d", i)
 		r := gaugeRunner{name: name, cur: &cur, max: &peak}
 		tasks = append(tasks, BatchTask{ID: name, Agent: name, Req: RunOptions{Prompt: "p"},
-			Prepare: func(context.Context) (Chain, Record, error) {
-				return Chain{Want: name, Legs: []Leg{{Agent: r, Account: "shared·acct", keepCaller: true}}}, Record{ID: "id-" + name, Agent: name, Log: filepath.Join(t.TempDir(), "l.log")}, nil
+			Prepare: func(context.Context) (*Prepared, error) {
+				return &Prepared{Opts: RunOptions{Prompt: "p"},
+					chain:  Chain{Want: name, Legs: []Leg{{Agent: r, Account: "shared·acct", keepCaller: true}}},
+					Record: Record{ID: "id-" + name, Agent: name, Log: filepath.Join(t.TempDir(), "l.log")}}, nil
 			}})
 	}
 	var out strings.Builder
@@ -191,9 +193,10 @@ func (s slowRunner) Run(context.Context, RunOptions, Sink) (Result, error) {
 // acctTask is a batch task whose single leg bills account.
 func acctTask(t *testing.T, name, account string, r Runner) BatchTask {
 	return BatchTask{ID: name, Agent: name, Req: RunOptions{Prompt: "p"},
-		Prepare: func(context.Context) (Chain, Record, error) {
+		Prepare: func(context.Context) (*Prepared, error) {
 			rec := Record{ID: "id-" + name, Agent: name, Log: filepath.Join(t.TempDir(), "l.log")}
-			return Chain{Want: name, Legs: []Leg{{Agent: r, Account: account, keepCaller: true}}}, rec, nil
+			return &Prepared{Opts: RunOptions{Prompt: "p"}, Record: rec,
+				chain: Chain{Want: name, Legs: []Leg{{Agent: r, Account: account, keepCaller: true}}}}, nil
 		}}
 }
 
@@ -293,9 +296,10 @@ func TestBatchJobsCapHoldsAcrossFallbackHops(t *testing.T) {
 		name := fmt.Sprintf("f%d", i)
 		first, second := legGauge{name: "codex", fail: true, cur: &cur, max: &peak}, legGauge{name: "gemini", cur: &cur, max: &peak}
 		tasks = append(tasks, BatchTask{ID: name, Agent: name, Req: RunOptions{Prompt: "p"}, // distinct keys: the old per-key gate would cap at 4
-			Prepare: func(context.Context) (Chain, Record, error) {
+			Prepare: func(context.Context) (*Prepared, error) {
 				rec := Record{ID: "id-" + name, Agent: "codex", Log: filepath.Join(t.TempDir(), "l.log")}
-				return Chain{Want: "codex", Legs: []Leg{{Agent: first, Account: "A·acct", keepCaller: true}, {Agent: second, Account: "B·acct"}}}, rec, nil
+				return &Prepared{Opts: RunOptions{Prompt: "p"}, Record: rec, chain: Chain{Want: "codex", Legs: []Leg{
+					{Agent: first, Account: "A·acct", keepCaller: true}, {Agent: second, Account: "B·acct"}}}}, nil
 			}})
 	}
 	var out strings.Builder
@@ -331,7 +335,7 @@ func failFastPair(t *testing.T, first BatchTask) {
 	var prepared, runs atomic.Int32
 	second := acctTask(t, "second", "ff·acct", flagRunner{name: "second", runs: &runs})
 	inner := second.Prepare
-	second.Prepare = func(ctx context.Context) (Chain, Record, error) { prepared.Add(1); return inner(ctx) }
+	second.Prepare = func(ctx context.Context) (*Prepared, error) { prepared.Add(1); return inner(ctx) }
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	var out strings.Builder
@@ -349,7 +353,7 @@ func failFastPair(t *testing.T, first BatchTask) {
 // --fail-fast with a Prepare failure: the next task never spawns.
 func TestBatchFailFastPrepareFailureStopsQueuedTask(t *testing.T) {
 	failFastPair(t, BatchTask{ID: "first", Agent: "first", Req: RunOptions{Prompt: "p"},
-		Prepare: func(context.Context) (Chain, Record, error) { return Chain{}, Record{}, errors.New("route failed") }})
+		Prepare: func(context.Context) (*Prepared, error) { return nil, errors.New("route failed") }})
 }
 
 // --fail-fast with a panicking leg: the next task never spawns.
@@ -379,7 +383,7 @@ func TestBatchPrepareFailureFreesSlotWithoutFailFast(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	var runs atomic.Int32
 	first := BatchTask{ID: "first", Agent: "first", Req: RunOptions{Prompt: "p"},
-		Prepare: func(context.Context) (Chain, Record, error) { return Chain{}, Record{}, errors.New("route failed") }}
+		Prepare: func(context.Context) (*Prepared, error) { return nil, errors.New("route failed") }}
 	second := acctTask(t, "second", "pf·acct", flagRunner{name: "second", runs: &runs})
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -395,12 +399,12 @@ func TestBatchPanickingLegDoesNotFallBack(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	var runs atomic.Int32
 	task := BatchTask{ID: "t", Agent: "boom", Req: RunOptions{Prompt: "p"},
-		Prepare: func(context.Context) (Chain, Record, error) {
+		Prepare: func(context.Context) (*Prepared, error) {
 			rec := Record{ID: "id-t", Agent: "boom", Log: filepath.Join(t.TempDir(), "l.log")}
-			return Chain{Want: "boom", Legs: []Leg{
+			return &Prepared{Opts: RunOptions{Prompt: "p"}, Record: rec, chain: Chain{Want: "boom", Legs: []Leg{
 				{Agent: slowRunner{name: "boom", boom: true}, Account: "boom·A"},
 				{Agent: flagRunner{name: "next", runs: &runs}, Account: "next·B"},
-			}}, rec, nil
+			}}}, nil
 		}}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -418,12 +422,12 @@ func TestBatchPanickingFallbackLegIsReported(t *testing.T) {
 	authEnv(t, `{"protocol":"anthropic","base_url":"http://127.0.0.1:1","auth":{"type":"key","env":"AGAUTH_UNSET"},"models":{"opus":"m"}}`)
 	first := &fakeRunner{name: "claude", errs: []error{fmt.Errorf("agauth: %w", providers.ErrNeedsLogin)}, emptyAnswer: true}
 	task := BatchTask{ID: "t", Agent: "claude", Req: RunOptions{Prompt: "p"},
-		Prepare: func(context.Context) (Chain, Record, error) {
+		Prepare: func(context.Context) (*Prepared, error) {
 			rec := Record{ID: "id-t", Agent: "claude", Log: filepath.Join(t.TempDir(), "l.log")}
-			return Chain{Want: "claude", Legs: []Leg{
+			return &Prepared{Opts: RunOptions{Prompt: "p"}, Record: rec, chain: Chain{Want: "claude", Legs: []Leg{
 				{Agent: first, Account: "claude:agauth"},
 				{Agent: slowRunner{name: "boom", boom: true}, Account: "boom·B"},
-			}}, rec, nil
+			}}}, nil
 		}}
 	var out strings.Builder
 	RunBatch(context.Background(), []BatchTask{task}, BatchOptions{Jobs: 2, Out: &out})
@@ -483,8 +487,9 @@ func TestReserveIsExclusiveAcrossBatches(t *testing.T) {
 // --fail-fast: a task that fails outside any leg (an empty chain) still cancels before the next task is prepared.
 func TestBatchFailFastEmptyChainStopsQueuedTask(t *testing.T) {
 	failFastPair(t, BatchTask{ID: "first", Agent: "first", Req: RunOptions{Prompt: "p"},
-		Prepare: func(context.Context) (Chain, Record, error) {
-			return Chain{Want: "first"}, Record{ID: "id-first", Agent: "first", Log: filepath.Join(t.TempDir(), "l.log")}, nil
+		Prepare: func(context.Context) (*Prepared, error) {
+			return &Prepared{Opts: RunOptions{Prompt: "p"}, chain: Chain{Want: "first"},
+				Record: Record{ID: "id-first", Agent: "first", Log: filepath.Join(t.TempDir(), "l.log")}}, nil
 		}})
 }
 
@@ -764,9 +769,10 @@ func TestCopilotGateFallbackIsCappedOnTheDatabricksAccount(t *testing.T) {
 		name := fmt.Sprintf("g%d", i)
 		r := gaugeRunner{name: "copilot", cur: &cur, max: &peak}
 		tasks = append(tasks, BatchTask{ID: name, Agent: "copilot", Req: RunOptions{Prompt: "p", Model: "alice:opus"},
-			Prepare: func(context.Context) (Chain, Record, error) {
+			Prepare: func(context.Context) (*Prepared, error) {
 				rec := Record{ID: "id-" + name, Agent: "copilot", Log: filepath.Join(t.TempDir(), "l.log")}
-				return Chain{Want: "copilot", Legs: []Leg{{Agent: r, Account: "github·" + name, keepCaller: true}}}, rec, nil
+				return &Prepared{Opts: RunOptions{Prompt: "p", Model: "alice:opus"}, Record: rec,
+					chain: Chain{Want: "copilot", Legs: []Leg{{Agent: r, Account: "github·" + name, keepCaller: true}}}}, nil
 			}})
 	}
 	var out strings.Builder
@@ -874,8 +880,10 @@ func TestBatchCapsOwnLoginLegsPerAgent(t *testing.T) {
 	for i := range DefaultPerKey + 3 {
 		id := fmt.Sprintf("own%d", i)
 		tasks = append(tasks, BatchTask{ID: id, Agent: "opencode", Req: RunOptions{Prompt: "p"},
-			Prepare: func(context.Context) (Chain, Record, error) {
-				return Chain{Want: "opencode", Legs: []Leg{{Agent: r, keepCaller: true}}}, Record{ID: "id-" + id, Agent: "opencode", Log: filepath.Join(t.TempDir(), "l.log")}, nil
+			Prepare: func(context.Context) (*Prepared, error) {
+				return &Prepared{Opts: RunOptions{Prompt: "p"},
+					chain:  Chain{Want: "opencode", Legs: []Leg{{Agent: r, keepCaller: true}}},
+					Record: Record{ID: "id-" + id, Agent: "opencode", Log: filepath.Join(t.TempDir(), "l.log")}}, nil
 			}})
 	}
 	var out strings.Builder

@@ -141,9 +141,10 @@ func TestRunBatchMarkersAppearAndClear(t *testing.T) {
 	for _, name := range []string{"a", "b", "c"} {
 		r := gaugeRunner{name: name, cur: &cur, max: &runPeak}
 		tasks = append(tasks, BatchTask{ID: name, Agent: name, Req: RunOptions{Prompt: "p"},
-			Prepare: func(context.Context) (Chain, Record, error) {
-				return Chain{Want: name, Legs: []Leg{{Agent: r, Account: account, keepCaller: true}}},
-					Record{ID: "id-" + name, Agent: name, Log: filepath.Join(t.TempDir(), "l.log")}, nil
+			Prepare: func(context.Context) (*Prepared, error) {
+				return &Prepared{Opts: RunOptions{Prompt: "p"},
+					chain:  Chain{Want: name, Legs: []Leg{{Agent: r, Account: account, keepCaller: true}}},
+					Record: Record{ID: "id-" + name, Agent: name, Log: filepath.Join(t.TempDir(), "l.log")}}, nil
 			}})
 	}
 	stop := make(chan struct{})

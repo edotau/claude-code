@@ -13,7 +13,6 @@ import (
 	"syscall"
 
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/launch"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
@@ -51,8 +50,12 @@ func startLive(s *askState, name, format string) int {
 	req := agent.RunOptions{Model: *s.model, Provider: *s.provider, Effort: *s.effort, WorkDir: *s.workdir, SessionID: *s.session,
 		Tools: *s.tools, Timeout: *s.timeout, KeepEnv: []string(*s.keepEnv), NoPersist: *s.noPersist, SafeMode: *s.safeMode,
 		DebugFile: absDebugFile(*s.debugFile), SystemPrompt: *s.systemPrompt, AppendSystemPrompt: *s.appendSystemPrompt,
-		Autonomous: *s.autonomous, Direct: *s.direct, Launcher: launch.Launcher{}}
-	rec := agent.BuildAskRecord(context.Background(), r.Name(), req, nil, *s.workdir, true)
+		Autonomous: *s.autonomous, Direct: *s.direct, Agent: name, Background: true}
+	prepared, err := newClient().Prepare(context.Background(), req, nil)
+	if err != nil {
+		return failAsk(format, name, err)
+	}
+	rec := prepared.Record
 	rec.Live = true
 	if err := rec.Save(); err != nil {
 		return failAsk(format, name, err)
