@@ -128,7 +128,8 @@ func TestAskStdinFramedCancelsOnEOF(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	pathstest.FakeVendor(t, "claude", "cat > /dev/null\nexec sleep 60\n")
+	ready := filepath.Join(t.TempDir(), "ready")
+	pathstest.FakeVendor(t, "claude", "cat > /dev/null\ntouch "+ready+"\nexec sleep 60\n")
 	pr, pw, err := os.Pipe()
 	if err != nil {
 		t.Fatal(err)
@@ -148,11 +149,20 @@ func TestAskStdinFramedCancelsOnEOF(t *testing.T) {
 		code, out := captureAskStdout(t, "--format", "json", "--fallback", "none", "--stdin-framed")
 		done <- outcome{code, out}
 	}()
-	time.Sleep(700 * time.Millisecond) // the run is blocked in the fake claude by now
-	select {
-	case o := <-done:
-		t.Fatalf("run ended before stdin closed: %+v", o)
-	default:
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		if _, err := os.Stat(ready); err == nil {
+			break
+		}
+		select {
+		case o := <-done:
+			t.Fatalf("run ended before stdin closed: %+v", o)
+		default:
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("fake claude never started")
+		}
+		time.Sleep(5 * time.Millisecond)
 	}
 	start := time.Now()
 	pw.Close()

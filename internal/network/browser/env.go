@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"testing"
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
@@ -38,9 +39,20 @@ func appSupportRoot(home, goos string) string {
 	return filepath.Join(home, ".config")
 }
 
+// commandTimeout bounds one detection command. 30s covers a slow setup probe; tests set it lower.
+var commandTimeout = 30 * time.Second
+
+// SetCommandTimeout overrides commandTimeout until the test ends. Production keeps 30s.
+func SetCommandTimeout(t testing.TB, d time.Duration) {
+	t.Helper()
+	saved := commandTimeout
+	commandTimeout = d
+	t.Cleanup(func() { commandTimeout = saved })
+}
+
 // runReal bounds detection/setup commands and returns trimmed stdout.
 func runReal(name string, args ...string) (string, error) {
-	return runCommand(30*time.Second, name, args...)
+	return runCommand(commandTimeout, name, args...)
 }
 
 func runCommand(timeout time.Duration, name string, args ...string) (string, error) {

@@ -185,11 +185,12 @@ func TestRecallFallsBackToKeywordOnTimeout(t *testing.T) {
 		t.Fatalf("fixture invalid: blend and keyword results are identical:\n%s", keyword)
 	}
 
+	t.Cleanup(memory.SetEmbedRecallWait(100 * time.Millisecond))
 	useEmbedServer(t, vecServer(t, 10*time.Second))
 	start := time.Now()
 	got := recallAs(t, "slow", prompt, cwd)
-	if el := time.Since(start); el > 1800*time.Millisecond {
-		t.Errorf("recall took %s with a stalled endpoint, budget is ~1.2s", el)
+	if el := time.Since(start); el > 600*time.Millisecond {
+		t.Errorf("recall took %s with a stalled endpoint, budget is ~100ms", el)
 	}
 	if got != keyword {
 		t.Errorf("timeout must fall back to the keyword result:\n got: %s\nwant: %s", got, keyword)

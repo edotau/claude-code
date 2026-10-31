@@ -126,7 +126,7 @@ sleep 5
 const opencodeTextFast = `
 if [ "$1" = "--version" ]; then echo "0.0.0"; exit 0; fi
 echo '{"type":"text","part":{"text":"hi"}}'
-sleep 1.5
+sleep 0.6
 `
 
 // opencodeEmptyTextThenStalls prints a text event with an empty Part.Text (bookkeeping, not real output)
@@ -203,7 +203,7 @@ func TestHubLegRunTextOutputDisarmsWatchdog(t *testing.T) {
 	pathstest.FakeVendor(t, "opencode", opencodeTextFast)
 	t.Setenv(OpencodeAPIKeyEnv, "test-key")
 	orig := freeFirstOutput
-	freeFirstOutput = 500 * time.Millisecond // headroom for a loaded box to start the fake child
+	freeFirstOutput = 300 * time.Millisecond // headroom for a loaded box to start the fake child
 	t.Cleanup(func() { freeFirstOutput = orig })
 
 	l := hubLeg{agent: "opencode", provider: stallProvider(), firstOutput: freeFirstOutput}

@@ -67,7 +67,7 @@ func ocCheckEnv(t *testing.T) (*ocCheckFake, string) {
 		case strings.Contains(r.URL.Path, "slow-1"):
 			select {
 			case <-r.Context().Done():
-			case <-time.After(3 * time.Second):
+			case <-time.After(200 * time.Millisecond):
 			}
 		default:
 			_, _ = w.Write([]byte(`{"ok":true}`))
@@ -112,7 +112,7 @@ func TestOpencodeCheckProbes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	code, rows, stdout, stderr := ocCheckJSON(t, "--timeout", "300ms")
+	code, rows, stdout, stderr := ocCheckJSON(t, "--timeout", "30ms")
 	if code != 0 {
 		t.Fatalf("code %d %s", code, stderr)
 	}
@@ -206,7 +206,7 @@ func TestOpencodeCheckExplicitIDsAndAll(t *testing.T) {
 	if code, _, _, stderr := ocCheckJSON(t, "--all", "glm-5-2"); code != 1 || stderr == "" {
 		t.Errorf("--all with ids: code=%d stderr=%q", code, stderr)
 	}
-	code, rows, _, _ = ocCheckJSON(t, "--all", "--timeout", "300ms")
+	code, rows, _, _ = ocCheckJSON(t, "--all", "--timeout", "30ms")
 	if code != 0 {
 		t.Fatalf("--all code %d", code)
 	}

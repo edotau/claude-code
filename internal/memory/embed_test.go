@@ -395,6 +395,7 @@ func TestNewSemanticPerProfileCacheFallsBackToPin(t *testing.T) {
 // A timed-out query pauses the semantic leg: the next prompt skips the endpoint instead of waiting again.
 func TestNewSemanticBacksOffAfterTimeout(t *testing.T) {
 	isolatedConfig1(t)
+	t.Cleanup(SetEmbedRecallWait(50 * time.Millisecond))
 	t.Setenv("CLAUDE_RECALL_SEMANTIC", "")
 	t.Setenv("CLAUDE_PROFILE", "fake")
 	f := embedCacheFile{Namespace: "fake|h|gte", Model: "gte", Rows: map[string]embedRow{"aaaa0001": {Hash: "h", Vec: encodeVec([]float32{1, 0, 0})}}}

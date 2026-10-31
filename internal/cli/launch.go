@@ -460,10 +460,8 @@ func cmdDoctor(args []string) int {
 	if *refresh {
 		refreshServed()
 	}
-	var ok bool
+	checks, ok := doctorChecks()
 	if *format == helptext.JSON {
-		var checks []launch.Check
-		checks, ok = doctorChecks()
 		if err := helptext.WriteJSON(os.Stdout, struct {
 			OK     bool           `json:"ok"`
 			Checks []launch.Check `json:"checks"`
@@ -471,7 +469,7 @@ func cmdDoctor(args []string) int {
 			return fail("doctor: %v", err)
 		}
 	} else {
-		ok = launch.Doctor(os.Stdout)
+		launch.PrintChecks(os.Stdout, checks)
 	}
 	if !ok {
 		return 1

@@ -243,6 +243,6 @@ func secretsDoctorChecks() (checks []Check, gateOK bool) {
 func VaultDoctor(w io.Writer) bool {
 	checks, ok := secretsDoctorChecks()
 	fmt.Fprintln(w, "== vault checks ==")
-	printChecks(w, checks)
+	PrintChecks(w, checks)
 	return ok
 }

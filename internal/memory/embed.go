@@ -30,14 +30,23 @@ import (
 const embedCacheSchema = 1
 
 const (
-	embedBatch      = 16
-	embedTextRunes  = 2000
-	embedMaxRows    = 4000
-	embedBodyLimit  = 32 << 20
-	embedCachePre   = "embeddings-"
-	embedRecallWait = 1200 * time.Millisecond // hard budget for the per-prompt embedding, credential included
-	embedBackoff    = 5 * time.Minute         // after a timed-out query, keyword-only for this long
+	embedBatch     = 16
+	embedTextRunes = 2000
+	embedMaxRows   = 4000
+	embedBodyLimit = 32 << 20
+	embedCachePre  = "embeddings-"
+	embedBackoff   = 5 * time.Minute // after a timed-out query, keyword-only for this long
 )
+
+// embedRecallWait is the hard budget for the per-prompt embedding, credential included; tests shorten it.
+var embedRecallWait = 1200 * time.Millisecond
+
+// SetEmbedRecallWait overrides the per-prompt embedding budget and returns the restore func (tests only).
+func SetEmbedRecallWait(d time.Duration) (restore func()) {
+	prev := embedRecallWait
+	embedRecallWait = d
+	return func() { embedRecallWait = prev }
+}
 
 var embedFormat = schemas.Register(schemas.Format{
 	Name: "memory-embeddings", Owner: "internal/memory", Kind: schemas.Store, Version: embedCacheSchema,
