@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/ledger"
 	"github.com/edotau/claude-code/internal/translate"
-	"github.com/edotau/claude-code/internal/usage/usageledger"
 )
 
 // dbxGeminiSetup is a Databricks serving row whose derived gemini route lands on a recording upstream.
@@ -144,11 +144,11 @@ func TestPassthroughNonGeminiChatUntouched(t *testing.T) {
 	}
 }
 
-func ledgerSettled(t *testing.T, want int) []usageledger.Entry {
+func ledgerSettled(t *testing.T, want int) []ledger.Entry {
 	t.Helper()
-	var got []usageledger.Entry
+	var got []ledger.Entry
 	for i := range 100 {
-		got, _ = usageledger.Read()
+		got, _ = ledger.Read()
 		if len(got) >= want && want > 0 {
 			return got
 		}

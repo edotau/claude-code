@@ -5,9 +5,9 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"github.com/edotau/claude-code/internal/ledger"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/ui/theme"
-	"github.com/edotau/claude-code/internal/usage/usageledger"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 	"net/http"
@@ -376,8 +376,8 @@ func TestTotalSegment(t *testing.T) {
 	if got := totalSegment(in); got != "total:46.0k" {
 		t.Errorf("payload only = %q, want total:46.0k", got)
 	}
-	usageledger.Append(usageledger.Entry{Session: "s1", Input: 1000, Output: 500})
-	usageledger.Append(usageledger.Entry{Session: "other", Input: 9_000_000})
+	ledger.Append(ledger.Entry{Session: "s1", Input: 1000, Output: 500})
+	ledger.Append(ledger.Entry{Session: "other", Input: 9_000_000})
 	if got := totalSegment(in); got != "total:47.5k" {
 		t.Errorf("with ledger = %q, want total:47.5k", got)
 	}

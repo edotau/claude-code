@@ -1,4 +1,4 @@
-package usageledger
+package ledger
 
 import (
 	"encoding/json"

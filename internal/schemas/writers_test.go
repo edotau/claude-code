@@ -15,6 +15,7 @@ import (
 	_ "github.com/edotau/claude-code/internal/cli"
 	_ "github.com/edotau/claude-code/internal/hooks"
 	_ "github.com/edotau/claude-code/internal/launch"
+	_ "github.com/edotau/claude-code/internal/ledger"
 	_ "github.com/edotau/claude-code/internal/memory"
 	_ "github.com/edotau/claude-code/internal/network/vscode"
 	_ "github.com/edotau/claude-code/internal/providers"
@@ -23,7 +24,6 @@ import (
 	"github.com/edotau/claude-code/internal/schemas"
 	_ "github.com/edotau/claude-code/internal/setup"
 	_ "github.com/edotau/claude-code/internal/usage"
-	_ "github.com/edotau/claude-code/internal/usage/usageledger"
 	_ "github.com/edotau/claude-code/internal/vault"
 	_ "github.com/edotau/claude-code/internal/worktree"
 )
@@ -139,7 +139,7 @@ var writers = map[string]string{
 	"internal/transcript/summary_cache.go:Save":                        "transcript-summary",
 	"internal/usage/claude.go:writeClaudeUsageCache":                   "oauth-usage-cache",
 	"internal/usage/budget.go:writeBudgetCache":                        "gateway-budget-cache",
-	"internal/usage/usageledger/store.go:Append":                       "usage-ledger",
+	"internal/ledger/store.go:Append":                                  "usage-ledger",
 	"internal/vault/vault.go:create":                                   "vault",
 	"internal/agent/job.go:SpawnArgv":                                  unversioned("log: vendor job log, humans only"),
 	"internal/agent/review.go:ReviewArgs":                              unversioned("foreign: temp diff handed to a vendor CLI"),

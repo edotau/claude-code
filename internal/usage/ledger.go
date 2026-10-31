@@ -1,4 +1,4 @@
-// ledger.go reads internal/usage/usageledger's per-token entries and rolls them up for the API KEYS section.
+// ledger.go reads internal/ledger's per-token entries and rolls them up for the API KEYS section.
 package usage
 
 import (
@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/edotau/claude-code/internal/usage/usageledger"
+	"github.com/edotau/claude-code/internal/ledger"
 )
 
 // ledgerAgg is one provider+profile+model row for the API KEYS section: tokens over today / 30d / all-time.
@@ -22,7 +22,7 @@ type ledgerAgg struct {
 }
 
 // aggregateLedger rolls entries up per provider+profile+model, sorted by provider, profile, then model.
-func aggregateLedger(entries []usageledger.Entry, now time.Time) []ledgerAgg {
+func aggregateLedger(entries []ledger.Entry, now time.Time) []ledgerAgg {
 	type key struct{ provider, profile, model string }
 	byKey := map[key]*ledgerAgg{}
 	var order []key
@@ -56,7 +56,7 @@ func aggregateLedger(entries []usageledger.Entry, now time.Time) []ledgerAgg {
 }
 
 // ledgerSince is the earliest entry's timestamp, used for the "ledger started <date>" empty message.
-func ledgerSince(entries []usageledger.Entry) time.Time {
+func ledgerSince(entries []ledger.Entry) time.Time {
 	var since time.Time
 	for _, e := range entries {
 		if since.IsZero() || e.Ts.Before(since) {
