@@ -2,6 +2,8 @@ package web
 
 import (
 	"bufio"
+	"bytes"
+	"context"
 	"encoding/json"
 	"go/ast"
 	"go/parser"
@@ -9,6 +11,7 @@ import (
 	"io/fs"
 	"net/http"
 	"os"
+	"os/exec"
 	"path"
 	"path/filepath"
 	"sort"
@@ -19,12 +22,26 @@ import (
 
 const archTTL = 60 * time.Second
 
-var (
-	archGoRoots   = []string{"internal", "cmd", "defaults"}
-	archTreeRoots = []string{"agents", "commands", "rules", "skills", "workflows", "docs", "theme", "vscode", ".github", ".githooks", "defaults"}
-)
+var archGoRoots = []string{"internal", "cmd", "defaults"}
 
-const archTreeDepth = 3
+const gitListTimeout = 10 * time.Second
+
+// gitListFiles lists the tracked and unignored files under root, slash-separated and relative; tests swap it.
+var gitListFiles = func(root string) ([]string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), gitListTimeout)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "git", "-C", root, "ls-files", "--cached", "--others", "--exclude-standard", "-z").Output()
+	if err != nil {
+		return nil, err
+	}
+	var files []string
+	for _, f := range bytes.Split(out, []byte{0}) {
+		if len(f) > 0 {
+			files = append(files, string(f))
+		}
+	}
+	return files, nil
+}
 
 // archCache holds the last /api/architecture body; the lock spans the build so concurrent callers coalesce.
 type archCache struct {
@@ -49,32 +66,30 @@ func (c *archCache) get(now time.Time, build func() ([]byte, error)) ([]byte, er
 
 // archDir is one scanned directory; every slice is non-nil so the JSON carries [] rather than null.
 type archDir struct {
-	Path        string     `json:"path"`
-	Package     string     `json:"package"`
-	Files       int        `json:"files"`
-	TestFiles   int        `json:"testFiles"`
-	LOC         int        `json:"loc"`
-	Imports     []string   `json:"imports"`
-	TestImports []string   `json:"testImports"`
-	ImportedBy  []string   `json:"importedBy"`
-	External    []string   `json:"external"`
-	Layer       int        `json:"layer"`
-	HasDoc      bool       `json:"hasDoc"`
-	GoFiles     []archFile `json:"goFiles"`
+	Path        string   `json:"path"`
+	Package     string   `json:"package"`
+	Files       int      `json:"files"`
+	TestFiles   int      `json:"testFiles"`
+	LOC         int      `json:"loc"`
+	Imports     []string `json:"imports"`
+	TestImports []string `json:"testImports"`
+	ImportedBy  []string `json:"importedBy"`
+	External    []string `json:"external"`
+	Layer       int      `json:"layer"`
+	HasDoc      bool     `json:"hasDoc"`
 }
 
-// archFile is one non-test Go file with its line count.
+// archFile is one tracked or unignored file; Lines is set for .go files only.
 type archFile struct {
-	Name  string `json:"name"`
-	Lines int    `json:"lines"`
+	Path  string `json:"path"`
+	Lines int    `json:"lines,omitempty"`
 }
 
 type archScan struct {
-	Dirs        []archDir `json:"dirs"`
-	Top         []string  `json:"top"`
-	Tree        []string  `json:"tree"`
-	ParseErrors int       `json:"parseErrors"`
-	Error       string    `json:"error,omitempty"`
+	Dirs        []archDir  `json:"dirs"`
+	Files       []archFile `json:"files"`
+	ParseErrors int        `json:"parseErrors"`
+	Error       string     `json:"error,omitempty"`
 }
 
 type archBody struct {
@@ -112,7 +127,7 @@ func (s *Server) buildArchitecture() ([]byte, error) {
 		s.logger.Printf("architecture: curated json unavailable: %v", err)
 		curated = []byte("{}")
 	}
-	out := archBody{Curated: curated, Scan: archScan{Dirs: []archDir{}, Top: []string{}, Tree: []string{}}}
+	out := archBody{Curated: curated, Scan: archScan{Dirs: []archDir{}, Files: []archFile{}}}
 	if s.opts.Verbs != nil {
 		out.Verbs = s.opts.Verbs()
 	}
@@ -136,11 +151,25 @@ func scanArchitecture(root string, sc *archScan) error {
 		walkGoDirs(root, r, mod, sc)
 	}
 	linkArchitecture(sc.Dirs)
-	sc.Top = topDirs(root)
-	for _, r := range archTreeRoots {
-		walkTree(root, r, 1, sc)
-	}
+	listArchFiles(root, sc)
 	return nil
+}
+
+// listArchFiles fills sc.Files from git so .gitignore decides what renders; a git failure sets sc.Error.
+func listArchFiles(root string, sc *archScan) {
+	list, err := gitListFiles(root)
+	if err != nil {
+		sc.Error = "file list unavailable (git ls-files failed)"
+		return
+	}
+	sort.Strings(list)
+	for _, f := range list {
+		af := archFile{Path: f}
+		if strings.HasSuffix(f, ".go") {
+			af.Lines = countLines(filepath.Join(root, filepath.FromSlash(f)))
+		}
+		sc.Files = append(sc.Files, af)
+	}
 }
 
 func modulePath(root string) string {
@@ -162,13 +191,15 @@ func skipArchName(n string) bool {
 	return n == "testdata" || strings.HasPrefix(n, ".") || strings.HasPrefix(n, "_")
 }
 
-// walkGoDirs emits rel and every directory below it, Go or not.
+// walkGoDirs emits each directory under rel (and rel itself) that holds Go files.
 func walkGoDirs(root, rel, mod string, sc *archScan) {
 	entries, err := os.ReadDir(filepath.Join(root, rel))
 	if err != nil {
 		return
 	}
-	sc.Dirs = append(sc.Dirs, scanGoDir(root, rel, mod, entries, sc))
+	if hasGoFile(entries) {
+		sc.Dirs = append(sc.Dirs, scanGoDir(root, rel, mod, entries, sc))
+	}
 	for _, e := range entries {
 		if e.IsDir() && !skipArchName(e.Name()) {
 			walkGoDirs(root, path.Join(rel, e.Name()), mod, sc)
@@ -176,8 +207,17 @@ func walkGoDirs(root, rel, mod string, sc *archScan) {
 	}
 }
 
+func hasGoFile(entries []os.DirEntry) bool {
+	for _, e := range entries {
+		if !e.IsDir() && strings.HasSuffix(e.Name(), ".go") {
+			return true
+		}
+	}
+	return false
+}
+
 func scanGoDir(root, rel, mod string, entries []os.DirEntry, sc *archScan) archDir {
-	d := archDir{Path: rel, Imports: []string{}, TestImports: []string{}, ImportedBy: []string{}, External: []string{}, GoFiles: []archFile{}}
+	d := archDir{Path: rel, Imports: []string{}, TestImports: []string{}, ImportedBy: []string{}, External: []string{}}
 	imps, tests, ext := map[string]bool{}, map[string]bool{}, map[string]bool{}
 	fset := token.NewFileSet()
 	for _, e := range entries {
@@ -195,9 +235,7 @@ func scanGoDir(root, rel, mod string, entries []os.DirEntry, sc *archScan) archD
 			d.TestFiles++
 		} else {
 			d.Files++
-			n := countLines(full)
-			d.LOC += n
-			d.GoFiles = append(d.GoFiles, archFile{Name: e.Name(), Lines: n})
+			d.LOC += countLines(full)
 			d.HasDoc = d.HasDoc || hasPackageDoc(f)
 		}
 		if d.Package == "" || (!isTest && strings.HasSuffix(d.Package, "_test")) {
@@ -296,38 +334,5 @@ func fillLayers(dirs []archDir, idx map[string]int) {
 	}
 	for i := range dirs {
 		dirs[i].Layer = layer(dirs[i].Path)
-	}
-}
-
-func topDirs(root string) []string {
-	out := []string{}
-	entries, err := os.ReadDir(root)
-	if err != nil {
-		return out
-	}
-	for _, e := range entries {
-		if e.IsDir() && e.Name() != ".git" {
-			out = append(out, e.Name())
-		}
-	}
-	return out
-}
-
-// walkTree emits dirs under rel to archTreeDepth, skipping node_modules, hidden names and skills/synced's children.
-func walkTree(root, rel string, depth int, sc *archScan) {
-	entries, err := os.ReadDir(filepath.Join(root, filepath.FromSlash(rel)))
-	if err != nil || depth > archTreeDepth {
-		return
-	}
-	for _, e := range entries {
-		n := e.Name()
-		if !e.IsDir() || n == "node_modules" || strings.HasPrefix(n, ".") {
-			continue
-		}
-		p := path.Join(rel, n)
-		sc.Tree = append(sc.Tree, p)
-		if p != "skills/synced" {
-			walkTree(root, p, depth+1, sc)
-		}
 	}
 }

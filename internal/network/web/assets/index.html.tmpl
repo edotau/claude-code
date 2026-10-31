@@ -10,54 +10,58 @@
   * { box-sizing: border-box; }
   body {
     margin: 0; padding: 0.75rem; font: 15px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-    background: #421a36; color: #c0c0c0;
+    background: #512645; color: #e0dce0;
   }
   h1 { font-size: 1.1rem; margin: 0.25rem 0 0.75rem; }
-  h2 { font-size: 0.95rem; color: #a89fa6; margin: 1.25rem 0 0.4rem; text-transform: uppercase; letter-spacing: 0.04em; }
+  h2 { font-size: 0.95rem; color: #cfc6cd; margin: 1.25rem 0 0.4rem; text-transform: uppercase; letter-spacing: 0.04em; }
   section { margin-bottom: 1rem; }
-  .card { background: #512645; border: 1px solid #40404055; border-radius: 10px; padding: 0.6rem 0.75rem; margin-bottom: 0.5rem; }
+  .card { background: #633758; border: 1px solid #40404055; border-radius: 10px; padding: 0.6rem 0.75rem; margin-bottom: 0.5rem; }
   .row { display: flex; justify-content: space-between; align-items: baseline; gap: 0.5rem; }
-  .muted { color: #8f8a8d; font-size: 0.82rem; }
+  .muted { color: #b5acb3; font-size: 0.82rem; }
   .chip { display: inline-block; padding: 0.1rem 0.5rem; border-radius: 999px; font-size: 0.72rem; font-weight: 600; }
   .chip-running, .chip-active, .chip-working { background: #1d3a0a; color: #8ae234; }
-  .chip-finished, .chip-idle, .chip-ready { background: #5e2f52; color: #c0c0c0; }
+  .chip-finished, .chip-idle, .chip-ready { background: #734469; color: #e0dce0; }
   .chip-stale, .chip-error { background: #4a1010; color: #ef2929; }
   .chip-input-needed { background: #4a3d00; color: #fce94f; }
-  .chip-unknown, .chip-gone { background: #371430; color: #8f8a8d; }
+  .chip-unknown, .chip-gone { background: #441d3d; color: #b5acb3; }
   .sub { margin-left: 0.9rem; border-left: 2px solid #40404055; padding-left: 0.6rem; margin-top: 0.35rem; }
   .agent-row { cursor: pointer; padding: 0.2rem 0; }
-  .agent-row:hover { background: #5e2f52; }
+  .agent-row:hover { background: #734469; }
   .activity { font-size: 0.78rem; color: #729fcf; margin-top: 0.1rem; }
-  .leg { font-size: 0.78rem; margin: 0.1rem 0 0 0.5rem; color: #a89fa6; }
+  .leg { font-size: 0.78rem; margin: 0.1rem 0 0 0.5rem; color: #cfc6cd; }
   .linklike { background: none; border: none; color: #729fcf; width: auto; padding: 0; margin: 0; font-weight: 400; cursor: pointer; }
   #detailEvents { white-space: pre-wrap; font-family: ui-monospace, monospace; font-size: 0.78rem; max-height: 40vh; overflow: auto; margin: 0.4rem 0 0; }
-  label { display: block; font-size: 0.82rem; color: #a89fa6; margin: 0.5rem 0 0.2rem; }
+  label { display: block; font-size: 0.82rem; color: #cfc6cd; margin: 0.5rem 0 0.2rem; }
   select, input, textarea, button {
     width: 100%; padding: 0.5rem; border-radius: 8px; border: 1px solid #40404055;
-    background: #371430; color: #c0c0c0; font-size: 0.95rem;
+    background: #441d3d; color: #e0dce0; font-size: 0.95rem;
   }
   textarea { min-height: 4.5rem; resize: vertical; }
   button { margin-top: 0.75rem; background: #E95420; border-color: #E95420; color: #fff; font-weight: 600; cursor: pointer; }
   button:disabled { opacity: 0.6; }
   #dispatchResult { white-space: pre-wrap; font-family: ui-monospace, monospace; font-size: 0.8rem; margin-top: 0.5rem; }
   #hostTabs { display: flex; gap: 0.4rem; flex-wrap: wrap; margin-bottom: 0.4rem; }
-  #hostTabs button { width: auto; background: #5e2f52; border-color: #40404055; color: #c0c0c0; font-weight: 400; margin-top: 0; padding: 0.3rem 0.6rem; }
+  #hostTabs button { width: auto; background: #734469; border-color: #40404055; color: #e0dce0; font-weight: 400; margin-top: 0; padding: 0.3rem 0.6rem; }
   #hostTabs button.active { background: #E95420; border-color: #E95420; color: #fff; }
   #tabs { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 0.5rem; }
-  #tabs button { width: auto; margin-top: 0; padding: 0.3rem 0.8rem; background: #5e2f52; border-color: #40404055; color: #c0c0c0; font-weight: 400; }
+  #tabs button { width: auto; margin-top: 0; padding: 0.3rem 0.8rem; background: #734469; border-color: #40404055; color: #e0dce0; font-weight: 400; }
   #tabs button.active { background: #E95420; border-color: #E95420; color: #fff; }
-  #usageDays button { width: auto; margin-top: 0; padding: 0.2rem 0.7rem; background: #5e2f52; border-color: #40404055; color: #c0c0c0; font-weight: 400; }
+  #usageDays button { width: auto; margin-top: 0; padding: 0.2rem 0.7rem; background: #734469; border-color: #40404055; color: #e0dce0; font-weight: 400; }
   #usageDays button.active { background: #E95420; border-color: #E95420; color: #fff; }
   .bar { height: 6px; background: #40404055; border-radius: 3px; margin: 0.35rem 0 0.2rem; overflow: hidden; }
   .bar > span { display: block; height: 100%; background: #8ae234; }
   .plan-row { cursor: pointer; }
-  .plan-row + #planSection { margin: 0 0 0.6rem 0.4rem; padding-left: 0.6rem; border-left: 2px solid #E95420; }
-  .task { margin: 0.25rem 0; }
-  .task code { background: #371430; padding: 0 0.3rem; border-radius: 4px; cursor: pointer; }
+  .plan-x { margin-top: 0.5rem; cursor: default; border-top: 1px solid #40404055; padding-top: 0.4rem; }
+  .task { margin: 0.25rem 0; display: flex; gap: 0.5rem; align-items: baseline; }
+  .task input { width: auto; flex: none; padding: 0; margin: 0; }
+  .plan-err { color: #ef2929; font-size: 0.8rem; margin: 0.3rem 0; }
+  .plan-x details { margin-top: 0.5rem; }
+  .plan-x summary { cursor: pointer; font-size: 0.8rem; color: #cfc6cd; }
+  .task code { background: #441d3d; padding: 0 0.3rem; border-radius: 4px; cursor: pointer; }
   #planMd { white-space: pre-wrap; font-family: ui-monospace, monospace; font-size: 0.78rem; max-height: 50vh; overflow: auto; margin: 0.4rem 0 0; }
   /* The --vscode-* variables the shared usage-view.js reads; copied into its iframe. Ubuntu terminal palette, dark only. */
   :root {
-    --vscode-foreground: #c0c0c0; --vscode-sideBar-background: #421a36; --vscode-descriptionForeground: #8f8a8d;
+    --vscode-foreground: #e0dce0; --vscode-sideBar-background: #512645; --vscode-descriptionForeground: #b5acb3;
     --vscode-widget-border: #40404055; --vscode-button-background: #E95420; --vscode-button-foreground: #ffffff;
     --vscode-badge-background: #5f5961; --vscode-badge-foreground: #ffffff; --vscode-charts-blue: #729fcf;
     --vscode-charts-green: #8ae234; --vscode-charts-orange: #E95420; --vscode-charts-yellow: #fce94f;
@@ -65,76 +69,34 @@
     --vscode-font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   }
   #architecturePane { overflow-wrap: anywhere; }
-  .arch-subtabs { display: flex; flex-wrap: wrap; gap: 0 1rem; margin-bottom: 0.7rem; border-bottom: 1px solid #40404088; }
-  .arch-subtabs button { width: auto; margin: 0 0 -1px; padding: 0.3rem 0.1rem; background: none; border: 0; border-bottom: 2px solid transparent; border-radius: 0; color: #a89fa6; font-weight: 400; font-size: 0.82rem; }
+  .arch-subtabs { display: flex; gap: 0 1rem; margin-bottom: 0.7rem; border-bottom: 1px solid #40404088; }
+  .arch-subtabs button { width: auto; margin: 0 0 -1px; padding: 0.3rem 0.1rem; background: none; border: 0; border-bottom: 2px solid transparent; border-radius: 0; color: #cfc6cd; font-weight: 400; font-size: 0.82rem; }
   .arch-subtabs button.active { border-bottom-color: #E95420; color: #fff; }
-  .arch-count { display: inline-block; margin-left: 0.3rem; padding: 0 0.4rem; border-radius: 999px; background: #5f5961; color: #fff; font-size: 0.7rem; }
-  .arch-body input, .arch-body select { margin: 0.2rem 0 0.5rem; font-size: 0.85rem; }
-  .arch-body a, .arch-a { color: #729fcf; text-decoration: none; }
+  .arch-body a { color: #729fcf; text-decoration: none; }
   .arch-body a:hover { text-decoration: underline; }
-  .arch-sec h3 { font-size: 0.9rem; color: #a89fa6; margin: 1rem 0 0.4rem; }
-  .arch-title { text-transform: none; letter-spacing: 0; color: #fff; font-size: 1.05rem; margin: 0.3rem 0; display: flex; align-items: center; gap: 0.2rem; flex-wrap: wrap; }
+  .arch-split { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: 0 0.8rem; align-items: start; }
+  .arch-left { min-width: 0; }
+  .arch-left input { margin: 0 0 0.5rem; font-size: 0.85rem; }
+  .arch-tree { background: #633758; border: 1px solid #40404055; border-radius: 10px; padding: 0.4rem 0; overflow: auto; max-height: 80vh; font: 0.78rem/1.55 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .arch-tl { width: max-content; min-width: 100%; padding: 0 0.6rem; white-space: pre; cursor: pointer; color: #cfc6cd; }
+  .arch-tl:hover { background: #734469; }
+  .arch-tl.sel { background: #734469; box-shadow: inset 2px 0 0 #E95420; }
+  .arch-tn { display: inline-block; min-width: var(--nw, 30ch); }
+  .arch-d { color: #fff; }
+  .arch-tc { color: #b5acb3; }
+  .arch-detail { position: sticky; top: 0.5rem; max-height: calc(100vh - 1rem); overflow: auto; background: #633758; border: 1px solid #40404055; border-radius: 10px; padding: 0.3rem 0.8rem 0.6rem; font-size: 0.86rem; }
+  .arch-detail h4 { font-size: 0.85rem; color: #cfc6cd; margin: 0.8rem 0 0.3rem; }
+  .arch-title { text-transform: none; letter-spacing: 0; color: #fff; font-size: 1rem; margin: 0.6rem 0 0.3rem; font-family: ui-monospace, monospace; }
   .arch-chips { display: flex; flex-wrap: wrap; gap: 0.3rem; margin: 0.25rem 0; }
-  .arch-chip { display: inline-block; padding: 0.1rem 0.5rem; background: #5e2f52; border: 1px solid #40404055; border-radius: 999px; font-size: 0.75rem; overflow-wrap: anywhere; }
-  .arch-pill { width: auto; margin: 0; padding: 0.1rem 0.6rem; background: #371430; border: 1px solid #40404055; border-radius: 999px; color: #c0c0c0; font-size: 0.75rem; font-weight: 400; }
-  .arch-pill.on { background: #E95420; border-color: #E95420; color: #fff; }
-  .arch-badge { display: inline-block; padding: 0.05rem 0.45rem; border: 1px solid #40404055; border-radius: 999px; background: #371430; font-size: 0.72rem; color: #c0c0c0; }
-  .arch-badge.sev-critical { background: #4a1010; color: #ef2929; }
-  .arch-badge.sev-high { background: #4a2a00; color: #E95420; }
-  .arch-badge.sev-medium { background: #4a3d00; color: #fce94f; }
-  .arch-badge.sev-low { background: #1d3a0a; color: #8ae234; }
-  .arch-crumbs { display: flex; flex-wrap: wrap; gap: 0.35rem; align-items: center; margin: 0.2rem 0 0.5rem; font-size: 0.9rem; }
-  .arch-list { background: #512645; border: 1px solid #40404055; border-radius: 10px; margin: 0.3rem 0 0.8rem; overflow: hidden; }
-  .arch-row { display: grid; grid-template-columns: 1.4rem minmax(0, 14rem) minmax(0, 1fr) auto; gap: 0 0.5rem; align-items: center; width: 100%; margin: 0; padding: 0.4rem 0.6rem; border: 0; border-top: 1px solid #40404055; border-radius: 0; background: none; color: #c0c0c0; font-size: 0.85rem; font-weight: 400; text-align: left; }
-  .arch-row:first-child { border-top: 0; }
-  a.arch-row:hover, button.arch-rt:hover { background: #4a1a3d; text-decoration: none; }
-  .arch-row.file { color: #a89fa6; }
-  .arch-ico { width: 1rem; height: 1rem; }
-  .arch-rn, .arch-rd { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
-  .arch-rn { color: #fff; }
-  .arch-rd, .arch-rm { color: #a89fa6; font-size: 0.8rem; }
-  .arch-rm { text-align: right; white-space: nowrap; }
-  .arch-rt .arch-rn { color: #a89fa6; }
-  .arch-readme { border: 1px solid #40404055; border-radius: 10px; margin: 0.8rem 0; overflow: hidden; }
-  .arch-readme-h { padding: 0.4rem 0.7rem; background: #371430; border-bottom: 1px solid #40404055; font-size: 0.82rem; font-weight: 600; }
-  .arch-readme-b { padding: 0.2rem 0.8rem 0.6rem; font-size: 0.86rem; }
+  .arch-chip { display: inline-block; padding: 0.1rem 0.5rem; background: #734469; border: 1px solid #40404055; border-radius: 999px; font-size: 0.75rem; }
+  .arch-badge { display: inline-block; padding: 0.05rem 0.45rem; border: 1px solid #40404055; border-radius: 999px; background: #441d3d; font-size: 0.72rem; color: #e0dce0; }
   .arch-field { margin: 0.35rem 0; }
-  .arch-listhead { font-size: 0.85rem; font-weight: 600; margin: 0.4rem 0; }
-  .arch-irow { display: flex; gap: 0.5rem; align-items: flex-start; padding: 0.5rem 0.6rem; border-top: 1px solid #40404055; color: #fff; }
-  .arch-irow:first-child { border-top: 0; }
-  .arch-irow:hover { background: #4a1a3d; text-decoration: none; }
-  .arch-irow .arch-ico { margin-top: 0.15rem; flex: none; }
-  .arch-im { min-width: 0; }
-  .arch-it { display: block; font-weight: 600; font-size: 0.9rem; }
-  .arch-is { display: flex; flex-wrap: wrap; gap: 0.3rem; align-items: center; font-size: 0.76rem; }
-  .arch-labels { display: inline-flex; flex-wrap: wrap; gap: 0.25rem; }
-  .arch-diff { border: 1px solid #40404055; border-radius: 10px; margin: 0.8rem 0; overflow: hidden; }
-  .arch-diff-h { padding: 0.4rem 0.7rem; background: #371430; font-size: 0.82rem; font-weight: 600; }
-  .arch-ln { padding: 0.15rem 0.7rem; font-family: ui-monospace, monospace; font-size: 0.78rem; white-space: pre-wrap; overflow-wrap: anywhere; }
-  .arch-ln.del { background: #4a101055; color: #ff9d9d; }
-  .arch-ln.add { background: #1d3a0a88; color: #b6f27a; }
-  .arch-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(7rem, 1fr)); gap: 0.5rem; margin-bottom: 0.5rem; }
-  .arch-tile { background: #512645; border: 1px solid #40404055; border-top: 3px solid #E95420; border-radius: 10px; padding: 0.5rem 0.7rem; display: flex; flex-direction: column; }
-  .arch-tile b { font-size: 1.3rem; color: #fff; }
-  .arch-tile span { font-size: 0.76rem; }
-  .arch-band { margin-bottom: 0.4rem; }
-  .arch-sw { display: inline-block; width: 0.7rem; height: 0.7rem; border-radius: 3px; margin-right: 0.4rem; }
-  .arch-seams { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
-  .arch-seams th, .arch-seams td { text-align: left; vertical-align: top; padding: 0.35rem 0.5rem; border-top: 1px solid #40404055; }
-  .arch-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 0 0.8rem; }
-  .arch-path { font-family: ui-monospace, monospace; font-size: 0.82rem; color: #fff; }
-  .arch-sub { margin-top: 0.4rem; font-size: 0.84rem; }
-  .arch-flags { display: flex; flex-wrap: wrap; gap: 0.1rem 0.7rem; color: #a89fa6; font-family: ui-monospace, monospace; font-size: 0.76rem; }
+  .arch-flags { display: flex; flex-wrap: wrap; gap: 0.1rem 0.7rem; color: #cfc6cd; font-family: ui-monospace, monospace; font-size: 0.76rem; }
   .arch-flags span { white-space: nowrap; }
-  @media (max-width: 600px) {
-    .arch-row { grid-template-columns: 1.4rem minmax(0, 1fr) auto; }
-    .arch-rd { grid-column: 2 / -1; grid-row: 2; }
-    .arch-pair { grid-template-columns: 1fr; }
-    .arch-seams thead { display: none; }
-    .arch-seams, .arch-seams tbody, .arch-seams tr, .arch-seams td { display: block; }
-    .arch-seams tr { background: #512645; border: 1px solid #40404055; border-radius: 10px; margin-bottom: 0.5rem; padding: 0.3rem 0; }
-    .arch-seams td { border: 0; padding: 0.15rem 0.7rem; }
-    .arch-seams td::before { content: attr(data-label) ': '; color: #a89fa6; }
+  @media (max-width: 700px) {
+    .arch-split { grid-template-columns: minmax(0, 1fr); gap: 0.8rem 0; }
+    .arch-tree { max-height: 60vh; }
+    .arch-detail { position: static; max-height: none; }
   }
   #usageFrame { width: 100%; min-height: 320px; height: 70vh; border: 1px solid var(--vscode-widget-border); border-radius: 10px; }
 </style>
@@ -159,10 +121,6 @@
   <section>
     <h2>Plans</h2>
     <div id="plansList"><p class="muted">loading…</p></div>
-  </section>
-  <section id="planSection" style="display:none">
-    <h2>Plan <button type="button" class="linklike" id="planCloseBtn">[close]</button></h2>
-    <div id="planDetail"></div>
   </section>
 </div>
 
@@ -474,77 +432,116 @@ function el(tag, cls, text) {
   return n;
 }
 
+const planX = el('div', 'plan-x'); // the open plan's expansion, parked off-DOM across list rebuilds
+const planPark = document.createDocumentFragment();
+let planMdOpen = false;
+
 function renderPlans(list) {
   plansList = list || [];
   const box = document.getElementById('plansList');
-  document.getElementById('plansPane').appendChild(document.getElementById('planSection')); // keep it across the rebuild
+  planPark.appendChild(planX);
   box.textContent = '';
   if (!plansList.length) { box.appendChild(el('p', 'muted', 'no plans')); return; }
   const byRepo = new Map();
   plansList.forEach(function (p) { if (!byRepo.has(p.repo)) byRepo.set(p.repo, []); byRepo.get(p.repo).push(p); });
   Array.from(byRepo.keys()).sort().forEach(function (repo) {
     box.appendChild(el('h2', null, repo));
-    byRepo.get(repo).forEach(function (p) {
-      const card = el('div', 'card plan-row');
-      card.dataset.path = p.path;
-      const row = el('div', 'row');
-      row.appendChild(el('strong', null, p.path.split('/').pop()));
-      const note = p.ticked + '/' + p.total + (p.claims.length ? ' · ' + p.claims.length + ' claimed' : '');
-      row.appendChild(el('span', 'muted', note));
-      card.appendChild(row);
-      const bar = el('div', 'bar');
-      const fill = document.createElement('span');
-      fill.style.width = (p.total ? Math.round(100 * p.ticked / p.total) : 0) + '%';
-      bar.appendChild(fill);
-      card.appendChild(bar);
-      card.addEventListener('click', function () { if (openPlan === p.path) closePlan(); else showPlan(p.path); });
-      box.appendChild(card);
-    });
+    byRepo.get(repo).forEach(function (p) { box.appendChild(planCard(p)); });
   });
+  const open = openPlan && planCardFor(openPlan);
+  if (open) open.appendChild(planX);
+}
+
+function planCard(p) {
+  const card = el('div', 'card plan-row');
+  card.dataset.path = p.path;
+  const row = el('div', 'row');
+  row.appendChild(el('strong', null, p.path.split('/').pop()));
+  row.appendChild(el('span', 'muted', p.ticked + '/' + p.total + (p.claims.length ? ' · ' + p.claims.length + ' claimed' : '')));
+  card.appendChild(row);
+  const bar = el('div', 'bar');
+  const fill = document.createElement('span');
+  fill.style.width = (p.total ? Math.round(100 * p.ticked / p.total) : 0) + '%';
+  bar.appendChild(fill);
+  card.appendChild(bar);
+  card.addEventListener('click', function (e) {
+    if (e.target.closest('.plan-x')) return;
+    if (openPlan === p.path) closePlan(); else showPlan(p.path);
+  });
+  return card;
+}
+
+function planCardFor(path) {
+  return Array.from(document.querySelectorAll('.plan-row')).find(function (c) { return c.dataset.path === path; });
+}
+
+function userTitle(mark) {
+  const m = /^(ticked|unticked)\s+(\S+)$/.exec(mark || '');
+  return m ? m[1] + ' by you ' + m[2] : '';
+}
+
+function postTick(path, t, done, cb) {
+  cb.disabled = true;
+  fetch('/api/plan/tick', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
+    body: JSON.stringify({ path: path, line: t.line, title: t.title, done: done }),
+  }).then(function (r) {
+    if (r.ok) return showPlan(path);
+    return r.text().then(function (m) { throw new Error(m.trim() || 'HTTP ' + r.status); });
+  }).catch(function (err) {
+    cb.checked = !done;
+    cb.disabled = false;
+    planX.querySelectorAll('.plan-err').forEach(function (n) { n.remove(); });
+    planX.prepend(el('div', 'plan-err', 'Tick failed: ' + String(err.message || err)));
+  });
+}
+
+function taskRow(path, t) {
+  const row = el('label', 'task');
+  const cb = document.createElement('input');
+  cb.type = 'checkbox';
+  cb.checked = t.done;
+  if (t.userMark) cb.title = userTitle(t.userMark);
+  cb.addEventListener('change', function () { postTick(path, t, cb.checked, cb); });
+  const text = el('span', null, t.title + ' ');
+  if (t.sha) text.appendChild(el('code', null, t.sha));
+  if (t.claim) text.appendChild(el('div', 'activity', 'claim: ' + t.claim));
+  t.partial.forEach(function (n) { text.appendChild(el('div', 'activity', 'partly landed: ' + n)); });
+  row.appendChild(cb);
+  row.appendChild(text);
+  return row;
 }
 
 function renderPlanDetail(d) {
-  const box = document.getElementById('planDetail');
-  box.textContent = '';
-  box.appendChild(el('div', 'muted', d.path));
-  d.tasks.forEach(function (t) {
-    const row = el('div', 'task');
-    row.appendChild(document.createTextNode((t.done ? '☑ ' : '☐ ') + (t.id ? t.id + ' ' : '') + t.title + ' '));
-    if (t.sha) {
-      const code = el('code', null, t.sha);
-      code.title = 'copy';
-      code.addEventListener('click', function () { if (navigator.clipboard) navigator.clipboard.writeText(t.sha).catch(function () {}); });
-      row.appendChild(code);
-    }
-    if (t.claim) row.appendChild(el('div', 'activity', 'claim: ' + t.claim));
-    t.partial.forEach(function (n) { row.appendChild(el('div', 'activity', 'partly landed: ' + n)); });
-    box.appendChild(row);
-  });
-  box.appendChild(el('pre', null, d.markdown)).id = 'planMd';
+  planX.textContent = '';
+  d.tasks.forEach(function (t) { planX.appendChild(taskRow(d.path, t)); });
+  const det = el('details');
+  det.appendChild(el('summary', null, 'Show full plan'));
+  det.appendChild(el('pre', null, d.markdown)).id = 'planMd';
+  det.open = planMdOpen;
+  det.addEventListener('toggle', function () { planMdOpen = det.open; });
+  planX.appendChild(det);
 }
 
 function showPlan(path) {
-  if (openPlan !== path) document.getElementById('planDetail').textContent = '';
+  if (openPlan !== path) { planX.textContent = ''; planMdOpen = false; }
   openPlan = path;
-  const section = document.getElementById('planSection');
-  const card = Array.from(document.querySelectorAll('.plan-row')).find(function (c) { return c.dataset.path === path; });
-  if (card) card.after(section);
-  section.style.display = '';
-  fetch('/api/plan?path=' + encodeURIComponent(path))
+  const card = planCardFor(path);
+  if (card) card.appendChild(planX);
+  return fetch('/api/plan?path=' + encodeURIComponent(path))
     .then(function (r) { if (!r.ok) return r.text().then(function (t) { throw new Error(t); }); return r.json(); })
     .then(function (d) { if (openPlan === path) renderPlanDetail(d); })
     .catch(function (err) {
-      const box = document.getElementById('planDetail');
-      box.textContent = '';
-      box.appendChild(el('p', 'muted', String(err.message || err)));
+      planX.textContent = '';
+      planX.appendChild(el('p', 'muted', String(err.message || err)));
     });
 }
 
 function closePlan() {
   openPlan = null;
-  document.getElementById('planSection').style.display = 'none';
+  planPark.appendChild(planX);
 }
-document.getElementById('planCloseBtn').addEventListener('click', closePlan);
 
 // Usage tab: the vscode extension's CommonJS modules (served from /assets/usage/) behind a minimal require shim.
 const USAGE_MODULES = ['format', 'pricing', 'usage-model', 'usage-view'];

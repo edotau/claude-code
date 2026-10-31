@@ -33,13 +33,15 @@ type planEntry struct {
 }
 
 type planTask struct {
-	ID      string   `json:"id"`
-	Title   string   `json:"title"`
-	Done    bool     `json:"done"`
-	Sha     string   `json:"sha"`
-	Claim   string   `json:"claim"`
-	Partial []string `json:"partial"`
-	Owns    []string `json:"owns"`
+	Line     int      `json:"line"` // 1-based file line of the box
+	UserMark string   `json:"userMark"`
+	ID       string   `json:"id"`
+	Title    string   `json:"title"`
+	Done     bool     `json:"done"`
+	Sha      string   `json:"sha"`
+	Claim    string   `json:"claim"`
+	Partial  []string `json:"partial"`
+	Owns     []string `json:"owns"`
 }
 
 type planDetail struct {
@@ -190,7 +192,7 @@ func (s *Server) handlePlan(w http.ResponseWriter, r *http.Request) {
 	tasks := make([]planTask, 0)
 	for _, t := range plans.ParseBytes(full, b).Tasks {
 		tasks = append(tasks, planTask{
-			ID: t.ID, Title: t.Title, Done: t.Done, Sha: t.Sha, Claim: t.Claim,
+			Line: t.Start + 1, UserMark: t.UserMark, ID: t.ID, Title: t.Title, Done: t.Done, Sha: t.Sha, Claim: t.Claim,
 			Partial: nonNil(t.Partial), Owns: nonNil(t.Owns),
 		})
 	}
@@ -202,4 +204,39 @@ func nonNil(s []string) []string {
 		return []string{}
 	}
 	return s
+}
+
+type tickRequest struct {
+	Path  string `json:"path"`
+	Line  int    `json:"line"`
+	Title string `json:"title"`
+	Done  bool   `json:"done"`
+}
+
+// handlePlanTick records a user tick or untick; 409 means the task moved under the caller.
+func (s *Server) handlePlanTick(w http.ResponseWriter, r *http.Request) {
+	if !s.checkCSRF(r) {
+		http.Error(w, "web: missing or bad "+csrfHeader, http.StatusForbidden)
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
+	var req tickRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Line < 1 {
+		http.Error(w, "web: bad tick request", http.StatusBadRequest)
+		return
+	}
+	full, ok := s.resolvePlan(req.Path)
+	if !ok {
+		http.Error(w, "invalid plan path", http.StatusBadRequest)
+		return
+	}
+	switch err := plans.UserTick(full, req.Line, req.Title, req.Done, s.now()); {
+	case errors.Is(err, plans.ErrTaskMoved):
+		http.Error(w, "plan changed; reload", http.StatusConflict)
+	case err != nil:
+		s.logger.Printf("plan tick: %v", err)
+		http.Error(w, "tick failed", http.StatusInternalServerError)
+	default:
+		writeJSON(w, map[string]bool{"ok": true})
+	}
 }

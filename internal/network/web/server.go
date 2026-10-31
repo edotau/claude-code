@@ -153,6 +153,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/events", s.guard(s.handleEvents))
 	s.mux.HandleFunc("GET /api/plans", s.guard(s.handlePlans))
 	s.mux.HandleFunc("GET /api/plan", s.guard(s.handlePlan))
+	s.mux.HandleFunc("POST /api/plan/tick", s.guard(s.handlePlanTick))
 	s.mux.HandleFunc("GET /api/dispatches", s.guard(s.handleDispatches))
 	s.mux.HandleFunc("POST /api/dispatch", s.guard(s.handleDispatch))
 	s.mux.HandleFunc("GET /api/view", s.guard(s.handleView))

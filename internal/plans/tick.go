@@ -7,9 +7,13 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
 )
+
+// ErrTaskMoved means the task at the requested line no longer carries the requested title.
+var ErrTaskMoved = errors.New("plans: task moved")
 
 var boxRe = regexp.MustCompile(`^(\s*[-*] \[)[ xX](\])`)
 
@@ -220,6 +224,53 @@ func findTask(p Plan, taskID string) (Task, bool) {
 	}
 	for _, t := range p.Tasks {
 		if taskID != "" && strings.HasPrefix(t.Title, taskID) {
+			return t, true
+		}
+	}
+	return Task{}, false
+}
+
+// UserTick sets the task at 1-based line to done and records one hidden user marker stamped at, under the plans lock.
+func UserTick(planPath string, line int, title string, done bool, at time.Time) error {
+	return paths.WithFileLock(filepath.Join(paths.StateDir(), "plans.lock"), func() error {
+		info, err := os.Stat(planPath)
+		if err != nil {
+			return err
+		}
+		b, err := os.ReadFile(planPath)
+		if err != nil {
+			return err
+		}
+		t, ok := taskAtLine(ParseBytes(planPath, b), line-1, title)
+		if !ok {
+			return ErrTaskMoved
+		}
+		lines := strings.Split(string(b), "\n")
+		box := " "
+		verb := "unticked"
+		if done {
+			box, verb = "x", "ticked"
+		}
+		lines[t.Start] = boxRe.ReplaceAllString(lines[t.Start], "${1}"+box+"${2}")
+		for i := t.Start; i <= t.End; i++ {
+			if userRe.MatchString(lines[i]) {
+				lines[i] = strings.TrimRight(userRe.ReplaceAllString(lines[i], ""), " \t")
+			}
+		}
+		mark := " <!-- user: " + verb + " " + at.UTC().Format(time.RFC3339) + " -->"
+		lines[t.End] = appendSuffix(lines[t.End], mark)
+		out := strings.Join(lines, "\n")
+		if out == string(b) {
+			return nil
+		}
+		return writePlan(planPath, []byte(out), info.Mode().Perm())
+	})
+}
+
+// taskAtLine finds the task starting at 0-based start whose Title is title.
+func taskAtLine(p Plan, start int, title string) (Task, bool) {
+	for _, t := range p.Tasks {
+		if t.Start == start && t.Title == title {
 			return t, true
 		}
 	}
