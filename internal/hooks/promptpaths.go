@@ -214,16 +214,6 @@ var quotedWinPathRE = sync.OnceValue(func() *regexp.Regexp {
 	return regexp.MustCompile(`"(` + foreignHead + `[^"]+)"`)
 })
 
-// OnWSL reports whether we're running under WSL — /proc/version carries "microsoft", or
-// WSL_DISTRO_NAME is set. Off-WSL the normalizer is a no-op (Windows paths never appear).
-func OnWSL() bool {
-	if os.Getenv("WSL_DISTRO_NAME") != "" {
-		return true
-	}
-	b, err := os.ReadFile("/proc/version")
-	return err == nil && strings.Contains(strings.ToLower(string(b)), "microsoft")
-}
-
 const winTrim = ".,;:!?)]}'\""
 
 func scanWinTokens(text string) []pathToken {

@@ -15,8 +15,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/edotau/claude-code/internal/hooks"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/settings"
 )
 
@@ -38,7 +38,7 @@ func WindowsProfileDir() string {
 	if v := strings.TrimSpace(os.Getenv(windowsProfileEnv)); v != "" {
 		return v
 	}
-	if !hooks.OnWSL() {
+	if !proc.OnWSL() {
 		return ""
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), cmdExeTimeout)
@@ -81,7 +81,7 @@ func windowsLocalSettingsFile() string {
 // Windows settings.json, backing up first. A no-op off WSL, or with a one-line skip note when the
 // Windows profile can't be resolved.
 func InstallWindowsSettings(w io.Writer, dryRun bool) error {
-	if !hooks.OnWSL() && os.Getenv(windowsProfileEnv) == "" {
+	if !proc.OnWSL() && os.Getenv(windowsProfileEnv) == "" {
 		return nil
 	}
 	file := WindowsSettingsFile()

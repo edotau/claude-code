@@ -15,8 +15,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/edotau/claude-code/internal/hooks"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/proc"
 )
 
 // clipPS saves the Windows clipboard image as a PNG (GDI+, bypassing WSLg's 32bpp BI_BITFIELDS BMP
@@ -63,12 +63,12 @@ func Grab() (path, dim string, err error) {
 	if runtime.GOOS == "darwin" {
 		return grabMac()
 	}
-	if hooks.OnWSL() {
+	if proc.OnWSL() {
 		if path, dim, err = grabWSLg(); err == nil || errors.Is(err, errNoImage) {
 			return path, dim, err
 		}
 	}
-	return grab(hooks.OnWSL, runPowerShell, translateWin)
+	return grab(proc.OnWSL, runPowerShell, translateWin)
 }
 
 // wslgSocket is WSLg's Wayland socket; a shell without WSLg's env (VS Code Remote-WSL) still reaches it.

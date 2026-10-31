@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/edotau/claude-code/internal/hooks"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/settings"
 )
 
@@ -348,7 +348,7 @@ func TestCheckWindowsSettingsDrift_MissingProfile(t *testing.T) {
 // TestInstallWindowsSettings_MissingProfileSkip proves InstallWindowsSettings prints a one-line skip
 // note and returns nil, never an error, when the profile can't be resolved.
 func TestInstallWindowsSettings_MissingProfileSkip(t *testing.T) {
-	if !hooks.OnWSL() {
+	if !proc.OnWSL() {
 		t.Skip("off WSL InstallWindowsSettings is a silent no-op (TestInstallWindowsSettings_NonWSLNoop covers it)")
 	}
 	hermetic(t, "")
@@ -363,12 +363,12 @@ func TestInstallWindowsSettings_MissingProfileSkip(t *testing.T) {
 }
 
 // TestInstallWindowsSettings_NonWSLNoop proves InstallWindowsSettings is silent off WSL. This dev box
-// is itself WSL (no seam exists to fake hooks.OnWSL() false), so the assertion only runs on a genuine
+// is itself WSL (no seam exists to fake proc.OnWSL() false), so the assertion only runs on a genuine
 // non-WSL host; elsewhere it documents why it skips rather than asserting something unexercised.
 func TestInstallWindowsSettings_NonWSLNoop(t *testing.T) {
 	hermetic(t, "")
 	t.Setenv(windowsProfileEnv, "")
-	if hooks.OnWSL() {
+	if proc.OnWSL() {
 		t.Skip("host is WSL; the off-WSL no-op branch has no test seam and only runs on a non-WSL host")
 	}
 	var out bytes.Buffer
