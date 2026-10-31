@@ -35,7 +35,7 @@ var gitListFiles = func(root string) ([]string, error) {
 		return nil, err
 	}
 	var files []string
-	for _, f := range bytes.Split(out, []byte{0}) {
+	for f := range bytes.SplitSeq(out, []byte{0}) {
 		if len(f) > 0 {
 			files = append(files, string(f))
 		}
