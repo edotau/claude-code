@@ -89,3 +89,15 @@ func TestPressureSkipsNonSubscriptionSession(t *testing.T) {
 		t.Error("routed openai session must not count as the subscription")
 	}
 }
+
+// A read-only Explore is never escalated to a write-capable coworker, even at 98%.
+func TestPressureNeverOffloadsReadOnlyExplore(t *testing.T) {
+	withPressure(t, 98)
+	got, _ := runAgentEffort(t, spawn("Explore", ""))
+	if got["subagent_type"] != "Explore" {
+		t.Fatalf("98%% Explore = %+v, want the type kept", got)
+	}
+	if p, _ := got["prompt"].(string); strings.Contains(p, "--tools") {
+		t.Errorf("prompt = %q, must not carry the write-tools route", p)
+	}
+}
