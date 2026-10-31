@@ -589,3 +589,20 @@ func TestClientSecretLockedVaultErrorsWithoutWritingAFile(t *testing.T) {
 		t.Fatalf("a secret file was written: %v", serr)
 	}
 }
+
+// A 403 that survives the re-mint is a rejected credential: the caller gets the proxy's 401 and the mark.
+func TestForbiddenAfterRemintIsAnAuthRejection(t *testing.T) {
+	g := useGate(t)
+	up := newUpstream(t, func(w http.ResponseWriter, _ *http.Request, _ int) { w.WriteHeader(http.StatusForbidden) })
+	t.Setenv("UP1_KEY", "k1")
+	srv := setupRouter(t, `{"default":"up1","providers":{"anthropic":{"up1":`+anthropicProvider(up.URL, "UP1_KEY", `{"opus":"m1"}`)+`}}}`, nil)
+
+	resp := post(t, srv.URL+"/p/up1/v1/messages", `{"model":"m1"}`, nil)
+	b := body(t, resp)
+	if resp.StatusCode != 401 || !strings.Contains(b, "authentication failed; run `claude-code vault set UP1_KEY`") {
+		t.Fatalf("status %d body %s, want 401 authentication failed", resp.StatusCode, b)
+	}
+	if _, ok := g.marked("up1"); !ok {
+		t.Fatal("a 403 after the re-mint must mark the provider")
+	}
+}

@@ -772,7 +772,7 @@ func (r *Router) sendMethod(in *http.Request, method string, p *providers.Provid
 			return nil, err
 		}
 		resp.Body = newIdleBody(resp.Body, idleTimeout)
-		if resp.StatusCode == http.StatusUnauthorized || invalidToken(resp, p) {
+		if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden || invalidToken(resp, p) {
 			drain(resp)
 			r.condemn(p, providers.VerdictRejected)
 			return nil, &fallbackError{error: errors.New("credential rejected after re-mint"), status: http.StatusUnauthorized, auth: true}
