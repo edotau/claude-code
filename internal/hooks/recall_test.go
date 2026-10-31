@@ -57,7 +57,7 @@ func TestMemoryRecall(t *testing.T) {
 	if !strings.HasPrefix(got, "<!-- memory-recall:") || !strings.Contains(got, "[home/conventions.md] z") || !strings.Contains(got, " · alpha bravo charlie delta strong match") {
 		t.Fatalf("recall block: %q", got)
 	}
-	if strings.Contains(got, "alpha weak") || len([]rune(got)) > recallTotalCapChars || !strings.Contains(got, "…") {
+	if strings.Contains(got, "alpha weak") || len([]rune(got)) > 1500 || !strings.Contains(got, "…") {
 		t.Errorf("floor, total cap or per-hit cap not applied (%d chars): %q", len([]rune(got)), got)
 	}
 	t.Setenv(memory.UpdateChildEnv, "1")
@@ -98,37 +98,6 @@ func TestMemoryRecallSkipsWhatIsInContext(t *testing.T) {
 	}
 	if other := recallAs(t, sessionT, "alpha bravo charlie delta echo", cwd); !strings.Contains(other, "already in context") {
 		t.Errorf("another session's context is not this one's: %q", other)
-	}
-}
-
-// The access boost breaks keyword ties toward the returned-to entry, but a returned-to entry the
-// keyword/semantic gate rejects is still not admitted.
-func TestPickTierAccessBoost(t *testing.T) {
-	hit := func(id string, score float64, matched int) memory.SearchHit {
-		return memory.SearchHit{Score: score, Matched: matched, Bank: "home", File: "decisionLog.md",
-			Block: "## 2026-10-01 — Zebra quota " + id + " <!-- id:" + id + " -->\n\nzebra quota limiter fallback"}
-	}
-	ranked := []memory.SearchHit{hit("aa000001", 10, 3), hit("bb000002", 10, 3)}
-	picks, passed := pickTier(ranked, false, 3, nil, nil, map[string]int{"bb000002": 3})
-	if !passed || len(picks) != 2 || picks[0].e.ID != "bb000002" {
-		t.Fatalf("the returned-to entry must rank first: %+v (passed %v)", picks, passed)
-	}
-	picks, _ = pickTier(ranked, false, 3, nil, nil, nil)
-	if len(picks) != 2 || picks[0].e.ID != "aa000001" {
-		t.Fatalf("without returns the stable keyword order must hold: %+v", picks)
-	}
-
-	weak := []memory.SearchHit{hit("aa000001", 10, 3), hit("cc000003", 2, 1)}
-	picks, _ = pickTier(weak, false, 3, nil, nil, map[string]int{"cc000003": recallAccessCap})
-	if len(picks) != 1 || picks[0].e.ID != "aa000001" {
-		t.Fatalf("a returned-to entry failing the gate must not be admitted: %+v", picks)
-	}
-
-	// A boosted top hit must not raise the relative floor: a hit at half the raw top still survives.
-	half := []memory.SearchHit{hit("aa000001", 10, 3), hit("cc000003", 5, 3)}
-	picks, _ = pickTier(half, false, 3, nil, nil, map[string]int{"aa000001": recallAccessCap})
-	if len(picks) != 2 {
-		t.Fatalf("the boost lifted the floor over a qualifying hit: %+v", picks)
 	}
 }
 

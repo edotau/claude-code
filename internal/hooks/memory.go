@@ -13,7 +13,6 @@ import (
 	"github.com/edotau/claude-code/internal/agent/preflight"
 	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/proc/inflight"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/settings"
@@ -258,6 +257,7 @@ func scaffoldSafe(cwd string) bool {
 // sessionUpdate (Stop) dispatches a detached `memory update` once a session has substantive work;
 // with no spawn possible it blocks at most updateMaxBlocks times asking for `claude-code memory update`.
 func sessionUpdate(in *Input, stderr io.Writer) int {
+	refreshEmbeddings(in.CWD)
 	if !updatable(in) {
 		return ExitProceed
 	}
@@ -269,6 +269,7 @@ func sessionUpdate(in *Input, stderr io.Writer) int {
 
 // sessionUpdateEnd (SessionEnd) updates the final state when work since the last dispatch crosses the floor.
 func sessionUpdateEnd(in *Input) Result {
+	refreshEmbeddings(in.CWD)
 	if !updatable(in) {
 		return Result{}
 	}
@@ -356,70 +357,6 @@ func blockForUpdate(stderr io.Writer, edits int) int {
 	fmt.Fprintf(stderr, "Session update (~%d file edits this session): the background worker could not be started. "+
 		"Before stopping, run `claude-code memory update` to save the session to the memory bank.\n", edits)
 	return ExitBlock
-}
-
-// spawnUpdate is the detached-worker seam; tests replace it.
-var spawnUpdate = func(transcriptPath, cwd, sessionID string) bool {
-	self, err := os.Executable()
-	if err != nil {
-		return false
-	}
-	logPath := filepath.Join(memory.StateDir(), "update-"+time.Now().Format("20060102-150405")+".log")
-	if os.MkdirAll(filepath.Dir(logPath), 0o700) != nil {
-		return false
-	}
-	log, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
-	if err != nil {
-		return false
-	}
-	defer log.Close()
-	args := []string{"memory", "update", "--transcript", transcriptPath, "--cwd", cwd, "--session", sessionID}
-	if !proc.SpawnDetached(self, args, cwd, log) {
-		return false
-	}
-	_ = memory.WriteUpdateResult(sessionID, memory.UpdateResult{Status: memory.UpdatePending, Time: time.Now(), Log: logPath})
-	return true
-}
-
-// servedRefreshDue reports whether served routing is on and an in-use Databricks profile has no fresh listing.
-func servedRefreshDue(now time.Time) bool {
-	if !providers.ServedRoutingOn() {
-		return false
-	}
-	reg, err := providers.Load()
-	return err == nil && preflight.Stale(reg, now) && preflight.Claim(now)
-}
-
-// spawnServed is the detached `preflight --refresh` seam; tests replace it.
-var spawnServed = func(cwd string) bool {
-	self, err := os.Executable()
-	if err != nil {
-		return false
-	}
-	null, err := os.OpenFile(os.DevNull, os.O_WRONLY, 0)
-	if err != nil {
-		return false
-	}
-	defer null.Close()
-	return proc.SpawnDetached(self, []string{"preflight", "--refresh"}, cwd, null)
-}
-
-// spawnDream is the detached memory-dream seam; tests replace it.
-var spawnDream = func(cwd string) bool {
-	self, err := os.Executable()
-	if err != nil {
-		return false
-	}
-	logPath := filepath.Join(memory.StateDir(), "dream-"+time.Now().Format("20060102-150405")+".log")
-	if os.MkdirAll(filepath.Dir(logPath), 0o700) != nil {
-		return false
-	}
-	log, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
-	if err != nil {
-		return false
-	}
-	defer log.Close()
-	return proc.SpawnDetached(self, []string{"memory", "dream", "--cwd", cwd}, cwd, log)
 }
 
 // updateStamp is "<RFC3339>|<bg|block count|catchup>|<edits covered>".

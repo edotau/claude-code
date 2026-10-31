@@ -131,69 +131,6 @@ func cmdMemoryInit(args []string) int {
 	return 0
 }
 
-// recallLoadCap bounds `memory recall --load N`'s total appended bytes across every loaded block.
-const recallLoadCap = 4096
-
-func cmdMemoryRecall(args []string) int {
-	fs, repo := memoryRepoFlagSet("recall")
-	k := fs.Int("k", 3, "maximum hits")
-	all := fs.Bool("all", false, "search the home tier and every repo store")
-	load := fs.Int("load", 0, "append the show bodies of the top N hits (4KB cap)")
-	format := helptext.FormatFlag(fs)
-	terms, err := helptext.ParseArgs(fs, args)
-	if err != nil {
-		return helptext.ExitCode(err)
-	}
-	if err := helptext.CheckFormat(*format); err != nil {
-		return badFormat("memory recall", err)
-	}
-	if len(terms) == 0 {
-		return fail("memory recall: no query (usage: %s)", memorySubPage("recall").Usage)
-	}
-	hits, _ := searchHits(*repo, *all, strings.Join(terms, " "), *k)
-	if *format == helptext.JSON {
-		if err := helptext.WriteJSON(os.Stdout, hits); err != nil {
-			return fail("memory recall: %v", err)
-		}
-		return 0
-	}
-	if len(hits) == 0 {
-		fmt.Println("no matching blocks (banks empty or query all stopwords)")
-		return 0
-	}
-	for _, h := range hits {
-		fmt.Printf("%s — %s\n", h.ID, h.Title())
-	}
-	if *load > 0 {
-		recallLoad(hits, *load)
-	}
-	return 0
-}
-
-// recallLoad appends the top n hits' full block text (ShowBlock), capped at recallLoadCap bytes total.
-func recallLoad(hits []memory.SearchHit, n int) {
-	if n > len(hits) {
-		n = len(hits)
-	}
-	budget := recallLoadCap
-	for _, h := range hits[:n] {
-		if budget <= 0 {
-			continue
-		}
-		_, block, err := memory.ShowBlock(h.ID)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "claude-code: memory recall --load: %s: %v\n", h.ID, err)
-			continue
-		}
-		block = strings.TrimSpace(block)
-		if len(block) > budget {
-			block = block[:budget]
-		}
-		fmt.Printf("\n<!-- %s -->\n%s\n", h.ID, block)
-		budget -= len(block)
-	}
-}
-
 func cmdMemoryRemember(args []string) int {
 	fs, repo := memoryRepoFlagSet("remember")
 	kind := fs.String("type", "feedback", "project->decisionLog.md; user/feedback/reference->conventions.md; "+
@@ -297,15 +234,20 @@ func cmdMemoryShow(args []string) int {
 func cmdMemoryIndex(args []string) int {
 	fs, repo := memoryRepoFlagSet("index")
 	reembed := fs.Bool("reembed", false, "re-embed all entries; last 8 min of the lease or expired")
+	mintOnly := fs.Bool("mint-only", false, "refresh embedding cache without settling bank contents")
 	if code, done := helptext.Parse(fs, args); done {
 		return code
 	}
 	root := memoryRoot(*repo)
-	profile := cmp.Or(providers.SessionProfile(), providers.AgentRecord("claude").Profile) // session first, then the pin
+	profile := cmp.Or(memory.EmbedProfile(), providers.SessionProfile())
 	if *reembed {
 		if code := reembedGate(profile, time.Now()); code != 0 {
 			return code
 		}
+	}
+	if *mintOnly {
+		embedIndex(root, profile, *reembed)
+		return 0
 	}
 	s, err := memory.SettleBank(root, time.Now())
 	if err != nil {

@@ -4,19 +4,14 @@ package hooks
 
 import (
 	"fmt"
-	"os"
 	"strings"
-	"time"
 
 	"github.com/edotau/claude-code/internal/memory"
-	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // Same relevance floor as recall.go's recallMinTerms; a one-line preview stays short, the whole
 // block stays well under additionalContext's cost and the spec's 1KB cap.
 const (
-	agentRecallQueryCapRunes = 2000
 	agentRecallPreviewRunes  = 160
 	agentRecallBlockCapBytes = 1024
 )
@@ -32,33 +27,12 @@ func agentRecall(sessionID, cwd, task string) (block string, ids []string) {
 	if q == "" || strings.Contains(q, agentRecallMarker) {
 		return "", nil
 	}
-	if rs := []rune(q); len(rs) > agentRecallQueryCapRunes {
-		q = string(rs[:agentRecallQueryCapRunes])
-	}
-	tokens := textutil.Tokenize(q)
-	if distinctTokenCount(tokens) < recallMinTerms {
-		return "", nil
-	}
-	root := cwd
-	if root == "" {
-		// A deleted cwd leaves Getwd erroring; fall back to the config dir rather than an empty root.
-		if wd, err := os.Getwd(); err == nil {
-			root = wd
-		} else {
-			root = paths.ConfigDir()
-		}
-	}
-	terms := memory.ContentQueryTerms(tokens)
-	counts := memory.ReturnCounts([]string{memory.Dir(root), memory.HomeBankDir()}, time.Now())
-	picks := selectRecall(sessionID, terms, memory.SearchBanksTerms(root, q, terms, 0), nil, false, counts)
+	picks, _ := memory.RecallPicks(cwd, sessionID, q, false, false)
 
 	var lines []string
-	for i, p := range picks {
-		if i == recallK {
-			break
-		}
-		lines = append(lines, "\n- "+recallCut(p.e.Pointer(), agentRecallPreviewRunes))
-		ids = append(ids, p.e.ID)
+	for _, e := range memory.RecallPointers(picks) {
+		lines = append(lines, "\n- "+recallCut(e.Pointer(), agentRecallPreviewRunes))
+		ids = append(ids, e.ID)
 	}
 	block, n := capRecallLines(lines)
 	if block == "" {
