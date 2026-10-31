@@ -37,8 +37,8 @@ var loginPage = helptext.Page{
 func login(args []string) int {
 	fs := helptext.NewFlagSet("databricks login", loginPage)
 	dryRun := fs.Bool("dry-run", false, "report what would happen; open no browser, write nothing")
-	authType := fs.String("auth-type", providers.AuthOAuth, "auth type to switch the profile to first: oauth, m2m or pat")
-	fs.StringVar(authType, "t", providers.AuthOAuth, "shorthand for --auth-type")
+	authType := fs.String("auth-type", "", "auth type to switch the profile to: oauth, m2m or pat (needed to change a non-oauth profile)")
+	fs.StringVar(authType, "t", "", "shorthand for --auth-type")
 	profileName := profileFlag(fs)
 	names, err := helptext.ParseArgs(fs, args)
 	if err != nil {
@@ -48,7 +48,7 @@ func login(args []string) int {
 		return usageProfile("login", names[0])
 	}
 	switch *authType {
-	case providers.AuthOAuth:
+	case "", providers.AuthOAuth:
 	case providers.AuthM2M, providers.AuthPAT:
 		fail("login: --auth-type %q does not sign in through the browser; "+
 			"m2m and pat secrets come from `vault set` or `databricks import --seal-secrets`", *authType)
