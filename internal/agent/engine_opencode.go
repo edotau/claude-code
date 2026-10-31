@@ -5,7 +5,6 @@ import (
 	"errors"
 	"strings"
 
-	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 )
 
@@ -19,14 +18,13 @@ func (opencodeEngine) after(p *vendorPrep, req RunOptions) {
 	}
 }
 
-func (opencodeEngine) exec(ctx context.Context, p vendorPrep, req RunOptions, sink Sink) (Result, error) {
-	s, _ := LookupSchema("opencode")
-	bin, err := paths.VendorBin(s.CLI.Binary)
+func (e opencodeEngine) exec(ctx context.Context, p vendorPrep, req RunOptions, sink Sink) (Result, error) {
+	bin, err := e.bin()
 	if err != nil {
-		return p.res, &Error{Kind: KindFatal, Agent: "opencode", Err: err}
+		return p.res, err
 	}
 	cmd, tail := childCmd(ctx, bin, p.argv, p.env, req.WorkDir, "", req.KeepEnv, true)
-	return runStream(ctx, "opencode", cmd, tail, p.res, sink, parseOpenCodeStream)
+	return runStream(ctx, e.name, cmd, tail, p.res, sink, parseOpenCodeStream)
 }
 
 // loginServes adds github: that profile's Auth.Login names copilot, yet opencode has its own GitHub Copilot login.

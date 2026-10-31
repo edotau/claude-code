@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"runtime"
@@ -38,6 +39,13 @@ func streamPrepared(t *testing.T, r Runner) *Prepared {
 	return &Prepared{Opts: RunOptions{Agent: "fake", Prompt: "p"}, Record: ClaimRecord("fake", RunOptions{Prompt: "p"}, time.Now()), chain: Single(r)}
 }
 
+// streamPreparedRun streams p through c.Exec, as Stream does for a RunOptions.
+func streamPreparedRun(c *Client, p *Prepared) <-chan Event {
+	return c.streamWith(context.Background(), cmp.Or(p.Opts.Agent, "claude"), func(ctx context.Context, sink Sink) (Result, error) {
+		return c.Exec(ctx, p, sink, DispatchOpts{})
+	})
+}
+
 func drainEvents(ch <-chan Event) (results int, last Event) {
 	for ev := range ch {
 		if ev.Type == EventResult {
@@ -62,7 +70,7 @@ func waitGoroutines(t *testing.T, base int) {
 func TestStreamConsumerReadsNothingStillFinishes(t *testing.T) {
 	p := streamPrepared(t, &burstRunner{n: 3 * streamBuffer})
 	base := runtime.NumGoroutine()
-	ch := (&Client{}).stream(context.Background(), p)
+	ch := streamPreparedRun(&Client{}, p)
 	waitGoroutines(t, base)
 	if len(ch) != streamBuffer {
 		t.Errorf("buffered = %d, want a full %d (oldest dropped)", len(ch), streamBuffer)
@@ -74,7 +82,7 @@ func TestStreamFullBufferDropsStillEndsInOneResult(t *testing.T) {
 	var notes []string
 	c := &Client{Notify: func(s string) { notes = append(notes, s) }}
 	base := runtime.NumGoroutine()
-	ch := c.stream(context.Background(), streamPrepared(t, &burstRunner{n: 2 * streamBuffer}))
+	ch := streamPreparedRun(c, streamPrepared(t, &burstRunner{n: 2 * streamBuffer}))
 	waitGoroutines(t, base) // finish with nobody reading, so drops are certain
 	results, last := drainEvents(ch)
 	if results != 1 || last.Type != EventResult {

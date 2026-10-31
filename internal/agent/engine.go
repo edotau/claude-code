@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 )
 
@@ -75,6 +76,16 @@ func routeFallback(reg *providers.Registry, ri RouteInfo) (providers.Target, str
 type baseEngine struct{ name string }
 
 func (b baseEngine) Name() string { return b.name }
+
+// bin is the CLI's executable, as a fatal Error when it is not installed.
+func (b baseEngine) bin() (string, error) {
+	s, _ := LookupSchema(b.name)
+	bin, err := paths.VendorBin(s.CLI.Binary)
+	if err != nil {
+		return "", &Error{Kind: KindFatal, Agent: b.name, Err: err}
+	}
+	return bin, nil
+}
 
 func (baseEngine) attach(prompt string, _ []string, _ bool) (string, error) { return prompt, nil }
 

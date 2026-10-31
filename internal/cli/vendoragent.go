@@ -52,11 +52,10 @@ func vendorPage(vendor string) helptext.Page {
 		{"on", "route to " + vendor + " again"},
 		{"off", "stop routing to " + vendor},
 	}
-	if vendor == "opencode" {
-		rows[slices.IndexFunc(rows, func(r [2]string) bool { return r[0] == "catalog" })][1] =
-			"model menu: list|add|remove|import|reset|check|sync"
-	}
 	s, _ := agent.LookupSchema(vendor)
+	if s.CLI.CatalogUsage != "" {
+		rows[slices.IndexFunc(rows, func(r [2]string) bool { return r[0] == "catalog" })][1] = s.CLI.CatalogUsage
+	}
 	rows = append(rows, s.CLI.ExtraUsage...)
 	binary := vendor
 	if s.External() {
@@ -98,8 +97,8 @@ func vendorSubPage(vendor, verb string) helptext.Page {
 		about = fmt.Sprintf(about, vendor)
 	}
 	page := helptext.Page{Usage: "claude-code " + vendor + " " + sp[0], About: about}
-	if vendor == "opencode" && verb == "catalog" {
-		page.Hint = "Serving-only discovery: claude-code opencode catalog sync --profile P"
+	if s, _ := agent.LookupSchema(vendor); verb == "catalog" {
+		page.Hint = s.CLI.CatalogHint
 	}
 	return page
 }

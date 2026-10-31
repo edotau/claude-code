@@ -131,18 +131,18 @@ func buildAgents(wire map[string]agentsDef) (map[string]*Schema, error) {
 // rosterNames lists the roster agents' names, claude first.
 func rosterNames() []string {
 	var names []string
-	for _, r := range Runners() {
-		names = append(names, r.Name())
+	for _, s := range Roster() {
+		names = append(names, s.Name)
 	}
 	return names
 }
 
 // SelectAgent resolves an --agent value: a roster name, an agents key, vendor:name, or agents/<name>.md or a file.
 func SelectAgent(ref string, agents map[string]*Schema) (runner string, def *Schema, err error) {
-	names := rosterNames()
-	if slices.Contains(names, ref) {
+	if isRosterName(ref) {
 		return ref, nil, nil
 	}
+	names := rosterNames()
 	if def, ok := agents[ref]; ok {
 		return cmp.Or(def.Runner, "claude"), def, nil
 	}

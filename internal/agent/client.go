@@ -3,7 +3,6 @@ package agent
 import (
 	"cmp"
 	"context"
-	"maps"
 	"slices"
 
 	"github.com/edotau/claude-code/internal/network/tailscale"
@@ -17,7 +16,6 @@ type Client struct {
 	Tier     func(task string) string
 	Refresh  func(ctx context.Context, account string) bool
 	Notify   func(string)
-	Agents   map[string]*Schema
 }
 
 // NewClient accepts launch, classification and refresh seams without depending on their CLI implementations.
@@ -72,11 +70,10 @@ func (c *Client) Prepare(ctx context.Context, o RunOptions, job *Record) (*Prepa
 // resolve maps o.Agent — a roster name, an agents key, vendor:name or a definition file — to its runner and
 // applies the definition's model, profile and effort under the caller's explicit options.
 func (c *Client) resolve(o *RunOptions) error {
-	agents := mergeAgents(c.Agents, o.Agents)
-	if isRosterName(o.Agent) && len(agents) == 0 {
+	if isRosterName(o.Agent) && len(o.Agents) == 0 {
 		return nil
 	}
-	runner, err := selectAndOverlay(o.Agent, agents, o)
+	runner, err := selectAndOverlay(o.Agent, o.Agents, o)
 	if err != nil {
 		return clientUsageError{err}
 	}
@@ -104,19 +101,6 @@ func defModel(def *Schema) string {
 		return ""
 	}
 	return def.Model
-}
-
-// mergeAgents layers defs over base: a nil side is just the other map, and shared keys take defs.
-func mergeAgents(base, defs map[string]*Schema) map[string]*Schema {
-	if len(base) == 0 {
-		return defs
-	}
-	if len(defs) == 0 {
-		return base
-	}
-	merged := maps.Clone(base)
-	maps.Copy(merged, defs)
-	return merged
 }
 
 // isRosterName reports whether name is a plain roster agent rather than a definition selector.

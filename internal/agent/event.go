@@ -76,33 +76,47 @@ func (s *TextSink) Emit(ev Event) error {
 	return err
 }
 
+// stamper numbers and times a sink's events; the caller holds the sink's lock.
+type stamper struct {
+	seq   int64
+	start time.Time
+	host  string
+}
+
+func newStamper() stamper {
+	host, _ := os.Hostname()
+	return stamper{start: clock(), host: host}
+}
+
+// stamp sets ev's schema, seq, t_ms and, when unset, host.
+func (s *stamper) stamp(ev *Event) {
+	s.seq++
+	ev.Schema, ev.Seq, ev.TMs = EventSchema, s.seq, clock().Sub(s.start).Milliseconds()
+	if ev.Host == "" {
+		ev.Host = s.host
+	}
+}
+
 // JSONLSink writes one JSON object per line, stamping schema, seq, t_ms and the dispatch identity.
 type JSONLSink struct {
+	stamper
 	mu         sync.Mutex
 	w          io.Writer
 	dispatchID string
-	host       string
-	start      time.Time
-	seq        int64
 }
 
 // NewJSONLSink is a JSONLSink over w for dispatchID.
 func NewJSONLSink(w io.Writer, dispatchID string) *JSONLSink {
-	host, _ := os.Hostname()
-	return &JSONLSink{w: w, dispatchID: dispatchID, host: host, start: clock()}
+	return &JSONLSink{stamper: newStamper(), w: w, dispatchID: dispatchID}
 }
 
 // Emit stamps ev and writes it as one line.
 func (s *JSONLSink) Emit(ev Event) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.seq++
-	ev.Schema, ev.Seq, ev.TMs = EventSchema, s.seq, clock().Sub(s.start).Milliseconds()
+	s.stamp(&ev)
 	if ev.DispatchID == "" {
 		ev.DispatchID = s.dispatchID
-	}
-	if ev.Host == "" {
-		ev.Host = s.host
 	}
 	b, err := json.Marshal(ev)
 	if err != nil {

@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/models"
-	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 )
 
@@ -32,10 +31,9 @@ func (codexEngine) ranModel(t providers.Target) string { return codexRanModel(t)
 
 func (e codexEngine) exec(ctx context.Context, p vendorPrep, req RunOptions, sink Sink) (Result, error) {
 	res, prompt, env, argv := p.res, p.prompt, p.env, p.argv
-	s, _ := LookupSchema(e.name)
-	bin, err := paths.VendorBin(s.CLI.Binary)
+	bin, err := e.bin()
 	if err != nil {
-		return res, &Error{Kind: KindFatal, Agent: e.name, Err: err}
+		return res, err
 	}
 	var extra []string
 	if req.SystemPrompt != "" {
