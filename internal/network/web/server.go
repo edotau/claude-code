@@ -30,7 +30,7 @@ import (
 type Options struct {
 	Addr           string    // "" resolves this node's tailnet IPv4 address on DefaultPort
 	Hosts          []string  // allowed dispatch hosts; empty uses the tailnet machine list
-	Days           int       // agent-tree scope in days, forwarded to agent.Options
+	Days           int       // agent-tree scope in days, forwarded to tree.Options
 	DryRunDispatch bool      // POST /api/dispatch returns the ssh argv instead of running it
 	ClaudeDir      string    // "" defaults to paths.ConfigDir()
 	ErrOut         io.Writer // nil discards
@@ -49,6 +49,7 @@ type Server struct {
 	status     *statusCache  // expiring, synchronized pane-status cache, keyed by host
 	browserEnv browser.Env   // the detection seam; tests fake its Run/Home/AppSupport
 	browsers   *browserCache // expiring, synchronized browser.Detect cache
+	usage      usageCache    // short-lived /api/usage bodies, keyed by day window
 	hosts      hostsCache    // expiring tailnet machine-name list for resolveHosts
 	hubOnce    sync.Once     // lazily creates hub, so struct-literal Servers need no setup
 	hub        *hub          // the single shared tree scanner behind /api/events and /api/tree
@@ -154,6 +155,8 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/dispatch", s.guard(s.handleDispatch))
 	s.mux.HandleFunc("GET /api/view", s.guard(s.handleView))
 	s.mux.HandleFunc("GET /api/browsers", s.guard(s.handleBrowsers))
+	s.mux.HandleFunc("GET /api/usage", s.guard(s.handleUsage))
+	s.mux.HandleFunc("GET /assets/usage/{name}", s.guard(s.handleUsageAsset))
 }
 
 // guard wraps h with the Host-header/Origin DNS-rebinding defence and a one-line access log; a
@@ -321,8 +324,8 @@ func (s *Server) checkCSRF(r *http.Request) bool {
 	return constantTimeEqual(r.Header.Get(csrfHeader), s.csrfToken)
 }
 
-//go:embed assets/index.html.tmpl
+//go:embed assets/index.html.tmpl assets/usage/*.js
 var assetsFS embed.FS
 
-// indexTemplate is the dashboard page: inline CSS/JS, no external assets, parsed once on first use.
+// indexTemplate is the dashboard page: inline CSS/JS plus the shared usage modules under /assets/usage/.
 var indexTemplate = sync.OnceValue(func() *template.Template { return template.Must(template.ParseFS(assetsFS, "assets/index.html.tmpl")) })

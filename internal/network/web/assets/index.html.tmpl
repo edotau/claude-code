@@ -52,6 +52,24 @@
   .task { margin: 0.25rem 0; }
   .task code { background: #11141c; padding: 0 0.3rem; border-radius: 4px; cursor: pointer; }
   #planMd { white-space: pre-wrap; font-family: ui-monospace, monospace; font-size: 0.78rem; max-height: 50vh; overflow: auto; margin: 0.4rem 0 0; }
+  /* The --vscode-* variables the shared usage-view.js reads; copied into its iframe. Dark = this page's palette. */
+  :root {
+    --vscode-foreground: #e6e6e6; --vscode-sideBar-background: #0f1117; --vscode-descriptionForeground: #8a8f9c;
+    --vscode-widget-border: #272b36; --vscode-button-background: #2d6cdf; --vscode-button-foreground: #fff;
+    --vscode-badge-background: #272b36; --vscode-badge-foreground: #e6e6e6; --vscode-charts-blue: #6fa8dc;
+    --vscode-charts-green: #3fb950; --vscode-charts-orange: #f0883e; --vscode-charts-yellow: #d29922;
+    --vscode-editorWarning-foreground: #fc8; --vscode-editorError-foreground: #f96;
+    --vscode-font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --vscode-foreground: #1f2328; --vscode-sideBar-background: #fff; --vscode-descriptionForeground: #59636e;
+      --vscode-widget-border: #d0d7de; --vscode-badge-background: #eaeef2; --vscode-badge-foreground: #1f2328;
+      --vscode-charts-blue: #0969da; --vscode-charts-green: #1a7f37; --vscode-charts-orange: #bc4c00;
+      --vscode-charts-yellow: #9a6700; --vscode-editorWarning-foreground: #9a6700; --vscode-editorError-foreground: #cf222e;
+    }
+  }
+  #usageFrame { width: 100%; min-height: 320px; height: 70vh; border: 1px solid var(--vscode-widget-border); border-radius: 10px; }
 </style>
 </head>
 <body>
@@ -59,6 +77,12 @@
 <div id="tabs">
   <button type="button" data-tab="agents" class="active">Agents</button>
   <button type="button" data-tab="plans">Plans</button>
+  <button type="button" data-tab="usage">Usage</button>
+</div>
+
+<div id="usagePane" style="display:none">
+  <p class="muted"><span id="usageDays"><button type="button" data-days="7">7d</button> <button type="button" data-days="30">30d</button></span> <span id="usageStatus">loading…</span></p>
+  <iframe id="usageFrame" sandbox="allow-scripts" title="Usage" hidden></iframe>
 </div>
 
 <div id="plansPane" style="display:none">
@@ -445,12 +469,97 @@ document.getElementById('planCloseBtn').addEventListener('click', function () {
   document.getElementById('planSection').style.display = 'none';
 });
 
+// Usage tab: the vscode extension's CommonJS modules (served from /assets/usage/) behind a minimal require shim.
+const USAGE_MODULES = ['format', 'pricing', 'usage-model', 'usage-view'];
+const USAGE_VARS = ['foreground', 'sideBar-background', 'descriptionForeground', 'widget-border', 'button-background',
+  'button-foreground', 'badge-background', 'badge-foreground', 'charts-blue', 'charts-green', 'charts-orange',
+  'charts-yellow', 'editorWarning-foreground', 'editorError-foreground', 'font-family'];
+const usageState = { json: null, show: 'used', detailed: true, days: 7, mods: null };
+
+function loadUsageModules() {
+  if (usageState.mods) return usageState.mods;
+  usageState.mods = Promise.all(USAGE_MODULES.map(function (n) {
+    return fetch('/assets/usage/' + n + '.js').then(function (r) {
+      if (!r.ok) throw new Error(n + '.js: HTTP ' + r.status);
+      return r.text();
+    });
+  })).then(function (srcs) {
+    const cache = {};
+    function req(id) {
+      const i = USAGE_MODULES.indexOf(id.replace(/^\.\//, ''));
+      if (i < 0) throw new Error('unknown module ' + id);
+      if (!cache[i]) {
+        const m = cache[i] = { exports: {} };
+        new Function('require', 'module', 'exports', srcs[i])(req, m, m.exports);
+      }
+      return cache[i].exports;
+    }
+    return { model: req('usage-model'), view: req('usage-view') };
+  });
+  return usageState.mods;
+}
+
+function usageThemeCSS() {
+  const cs = getComputedStyle(document.documentElement);
+  return ':root{color-scheme:' + cs.colorScheme + ';' + USAGE_VARS.map(function (v) {
+    return '--vscode-' + v + ':' + cs.getPropertyValue('--vscode-' + v) + ';';
+  }).join('') + '}';
+}
+
+function renderUsage() {
+  if (!usageState.json) return;
+  loadUsageModules().then(function (m) {
+    const nonce = Array.from(crypto.getRandomValues(new Uint8Array(12)), function (b) { return b.toString(16).padStart(2, '0'); }).join('');
+    const model = m.model.buildUsageModel(usageState.json, null, Date.now());
+    const html = m.view.renderUsageHtml(model, { detailed: usageState.detailed, show: usageState.show, days: usageState.days, nonce: nonce });
+    const bridge = '<style>' + usageThemeCSS() + '</style><script nonce="' + nonce + '">' +
+      'window.acquireVsCodeApi=function(){return{postMessage:function(m){parent.postMessage(m,"*")}}};' +
+      'new ResizeObserver(function(){parent.postMessage({type:"height",h:document.body.scrollHeight},"*")}).observe(document.body);' +
+      '<\/script>';
+    const frame = document.getElementById('usageFrame');
+    frame.srcdoc = html.replace('<head>', '<head>' + bridge);
+    frame.hidden = false;
+    document.getElementById('usageStatus').textContent = '';
+  }).catch(function (err) {
+    document.getElementById('usageStatus').textContent = 'usage render failed: ' + err.message;
+  });
+}
+
+function loadUsage(fresh) {
+  const status = document.getElementById('usageStatus');
+  status.textContent = 'loading…';
+  fetch('/api/usage?days=' + usageState.days + (fresh ? '&fresh=1' : '')).then(function (r) {
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    return r.json();
+  }).then(function (j) { usageState.json = j; renderUsage(); })
+    .catch(function (err) { status.textContent = 'usage unavailable: ' + err.message; });
+}
+
+document.getElementById('usageDays').addEventListener('click', function (e) {
+  const d = Number(e.target.dataset && e.target.dataset.days);
+  if (!d || d === usageState.days) return;
+  usageState.days = d;
+  loadUsage(false);
+});
+
+window.addEventListener('message', function (e) {
+  const frame = document.getElementById('usageFrame');
+  const msg = e.data || {};
+  if (e.source !== frame.contentWindow) return;
+  if (msg.type === 'height') frame.style.height = Math.max(320, Number(msg.h) + 2) + 'px';
+  else if (msg.type === 'refresh') loadUsage(true);
+  else if (msg.type === 'show') { usageState.show = msg.show === 'left' ? 'left' : 'used'; renderUsage(); }
+  else if (msg.type === 'toggle') { usageState.detailed = !!msg.detailed; renderUsage(); }
+});
+
 document.getElementById('tabs').addEventListener('click', function (e) {
   const tab = e.target.dataset && e.target.dataset.tab;
   if (!tab) return;
   document.querySelectorAll('#tabs button').forEach(function (b) { b.classList.toggle('active', b === e.target); });
   document.getElementById('agentsPane').style.display = tab === 'agents' ? '' : 'none';
   document.getElementById('plansPane').style.display = tab === 'plans' ? '' : 'none';
+  document.getElementById('usagePane').style.display = tab === 'usage' ? '' : 'none';
+  if (tab === 'usage') loadUsage(false);
 });
 
 loadTree();
