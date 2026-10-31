@@ -16,7 +16,7 @@ paths:
 | See providers and credential state | `claude-code configure provider --list [<name>]` |
 | Set a credential | `claude-code vault set [NAME]` (bare on a terminal = guided dialog), or a provider's `auth.command` |
 | Inspect or edit the vault | `claude-code vault list\|get\|delete\|import\|export\|edit\|rotate-secret` |
-| Switch the session profile | `claude-code switch <profile> [--dry-run]` (relaunch) · one launch: `claude-code --profile <p>`; with no flag or `CLAUDE_PROFILE` pin, a Claude launch reuses the profile last launched in this repo (a default, never a pin; `state/harness/last-profile.json`) |
+| Switch the session profile | `claude-code switch <profile> [--dry-run]` (relaunch) · one launch: `claude-code --profile <p>`; with no flag, a Claude launch reuses the profile last launched in this repo, else the `CLAUDE_PROFILE` pin (a default, never a pin; `state/harness/last-profile.json`; `switch` clears it) |
 | Pin models | `claude-code models --pin opus=<id>` · `--pin all=<id>` · `--unpin` (`--dry-run` previews) |
 | List what a provider serves | `claude-code models --live [--profile <p>]` |
 | Run the model proxy | `claude-code gateway proxy --start\|--stop\|--status` · foreground: `--serve --port N` |

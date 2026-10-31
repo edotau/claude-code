@@ -70,6 +70,14 @@ func lastProfile(reg *providers.Registry) string {
 	return name
 }
 
+// ClearLastProfiles forgets every workspace's default, so a fresh `switch` pin applies everywhere.
+func ClearLastProfiles() error {
+	if err := os.Remove(lastProfileFile()); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
+}
+
 // RecordLastProfile stores plan's profile as this workspace's default; headless runs and failures leave it alone.
 func RecordLastProfile(plan Plan, args []string) {
 	name, ws := plan.Set[providers.EnvSessionProfile], workspaceKey()
