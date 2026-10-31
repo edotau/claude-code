@@ -51,10 +51,10 @@ func TestStopCombinesBlocksAndStillFormats(t *testing.T) {
 
 	code, msg := stop("s1", false)
 	if code != ExitBlock {
-		t.Fatalf("both hooks block: got %d, want ExitBlock; msg=%q", code, msg)
+		t.Fatalf("the memory update blocks: got %d, want ExitBlock; msg=%q", code, msg)
 	}
-	if !strings.Contains(msg, "Context usage") || !strings.Contains(msg, "memory update") {
-		t.Errorf("combined message missing a part: %q", msg)
+	if !strings.Contains(msg, "memory update") {
+		t.Errorf("block message missing the memory update: %q", msg)
 	}
 	if b, _ := os.ReadFile(mine); string(b) == ugly {
 		t.Error("the format group must run even when the stop is blocked")

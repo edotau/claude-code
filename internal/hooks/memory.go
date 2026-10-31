@@ -309,10 +309,8 @@ func updateIfNew(in *Input, trigger string, now time.Time) (blocked bool, work i
 				return false, 0 // cheap gate before the whole-transcript count
 			}
 			work = countEdits(in.TranscriptPath, countPath(in.SessionID))
-			if work >= covered+updateRearmEdits && spawnUpdate(in.TranscriptPath, in.CWD, in.SessionID) {
-				logUpdateToLedger(in, trigger, work, now)
-				writeStamp(stamp, now, "bg", work)
-				spawnIdleWatcher(in)
+			if work >= covered+updateRearmEdits {
+				dispatchUpdate(in, trigger, work, now)
 			}
 			return false, 0
 		}
@@ -332,12 +330,7 @@ func updateIfNew(in *Input, trigger string, now time.Time) (blocked bool, work i
 	}
 	work = countEdits(in.TranscriptPath, countPath(in.SessionID))
 	if work > covered && work >= floor {
-		if spawnUpdate(in.TranscriptPath, in.CWD, in.SessionID) {
-			logUpdateToLedger(in, trigger, work, now)
-			writeStamp(stamp, now, "bg", work)
-			if trigger == triggerStop {
-				spawnIdleWatcher(in) // the session is update-worthy: its final state gets a watcher too
-			}
+		if dispatchUpdate(in, trigger, work, now) {
 			return false, 0
 		}
 		if trigger == triggerStop {
