@@ -103,7 +103,7 @@ A phase is a group of tasks, not a unit of work: each `### Phase` section lists 
 leaf-sized — one package (or ≤3 tightly coupled files), ≤10 findings or edits, fits one 45-minute leaf — and
 names its `leaf:` (a `subagent_type`, `code-worker` for MEDIUM+ changes), `Agent:` (requested agent or in-context)
 and `owns:` files (`skills/subagent-workflows/SKILL.md` -> Leaf types), e.g.:
-`- [ ] Phase 2.1 — Add --attach to the copilot agent — leaf: code-worker, Agent: opencode — owns: internal/agent/vendor.go`
+`- [ ] Phase 2.1 — Add --attach to the copilot agent — leaf: code-worker, Agent: opencode — owns: internal/agent/runner_cli.go`
 
 Tick `[x]` with the commit id as each item lands (`- [x] Phase 2.1 — … (abc1234)`); this list is the recovery
 point if a session, agent or worktree is lost. Mark an item **you** when only the user can do it. For a

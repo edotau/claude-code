@@ -20,7 +20,7 @@ Parse the first token of `$ARGUMENTS`:
   pin and on/off state; a profile pins opencode there (relaunch to apply).
 - `on|off` — run `claude-code opencode on|off`: route to opencode again, or stop routing to it.
 - anything else — run `claude-code ask --agent opencode --tools "<task>"` (routed; the default model
-  is in `internal/router/table.json`).
+  is in `internal/agent/table.json`).
 
 Relay the output. `--background` → relay the `job <id>` line and name
 `claude-code opencode status|result|cancel`. Replays: `claude-code ask --log` / `ask --retry <id>`
