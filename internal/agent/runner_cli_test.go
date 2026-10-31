@@ -164,9 +164,9 @@ func TestVendorCapsAutonomous(t *testing.T) {
 			t.Errorf("vendorRunner{%s}.Caps().Autonomous = false, want true", name)
 		}
 	}
-	c := copilotRunner{}.Caps()
+	c := copilotAgent.Caps()
 	if c.SessionID != Native || c.Autonomous != Native || c.Memory != Native {
-		t.Errorf("copilotRunner.Caps() = %+v, want SessionID, Autonomous and Memory all true", c)
+		t.Errorf("copilotEngine.Caps() = %+v, want SessionID, Autonomous and Memory all true", c)
 	}
 }
 
@@ -265,7 +265,7 @@ func TestParseAgyStream_SoftDeny(t *testing.T) {
 // TestVendorRunnerNilProviderDefense tests that vendorRunner.Run safely handles
 // the edge case where vendorTarget returns own=false with nil Provider.
 // Line 104 (res.Provider = t.Provider.Name) must not panic when t.Provider is nil.
-// Similarly, copilotRunner.Run (copilot_runner.go) must handle nil Provider.
+// Similarly, copilotEngine.Run (copilot.go) must handle nil Provider.
 func TestVendorRunnerNilProviderDefense(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv("HOME", t.TempDir())

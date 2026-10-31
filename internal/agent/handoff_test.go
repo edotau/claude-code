@@ -208,7 +208,7 @@ func TestCopilotRunnerHandoffRedacted(t *testing.T) {
 		}
 		return copilotsdk.Result{Text: "half " + secret, SessionID: "0a1b2c3d-4e5f-6789-abcd-ef0123456789"}, errQuotaMidTask
 	})
-	res, err := copilotRunner{}.Run(context.Background(), RunOptions{Prompt: "do it " + secret, Model: "sonnet", Provider: "personal", Direct: true}, Discard)
+	res, err := copilotAgent.Run(context.Background(), RunOptions{Prompt: "do it " + secret, Model: "sonnet", Provider: "personal", Direct: true}, Discard)
 	if !errors.Is(err, errQuotaMidTask) || Classify("copilot", err, false).Kind != KindQuota || *calls != 1 {
 		t.Fatalf("res=%+v err=%v calls=%d; want quota and one SDK call", res, err, *calls)
 	}
