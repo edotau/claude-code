@@ -25,13 +25,12 @@ func menuTestEnv(t *testing.T) *providers.Registry {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("CODEX_HOME", t.TempDir()) // Orca exports its own codex account home; codex must read unconfigured
 	t.Setenv("PATH", t.TempDir())
-	vaulttest.Put(t, vault.Pins, providers.PinProfile, "max") // seed_test clears this pin to start first-run
+	vaulttest.SetRecord(t, "claude", "profile", "max") // seed_test clears this pin to start first-run
 	t.Setenv("CLAUDE_CODE_OAUTH_TOKEN", "")
 	// Copilot/codex/gemini pin env beats the vault pin (providers.Pin); a session running inside one of
 	// these agents exports its own model/effort pin into the process env.
 	for _, k := range []string{"GH_TOKEN", "GITHUB_TOKEN", "COPILOT_GITHUB_TOKEN", "GEMINI_API_KEY", "ANTHROPIC_API_KEY",
-		providers.PinCopilotModel, providers.PinCopilotEffort, providers.PinCopilotContext,
-		providers.PinCodexModel, providers.PinCodexEffort, providers.PinGeminiModel} {
+		"COPILOT_MODEL", "COPILOT_EFFORT", "COPILOT_CONTEXT", "CODEX_MODEL", "CODEX_EFFORT", "GEMINI_MODEL"} {
 		t.Setenv(k, "")
 	}
 	reg, err := providers.Load()
@@ -145,7 +144,7 @@ func TestKeepOrPinWritesTheProviderPinOnlyOnAnExplicitDifferentPick(t *testing.T
 		t.Fatal("keepOrPin(different) = false")
 	}
 	if got := agentpkg.GetAgentRecord("claude").Profile; got != "anthropic" {
-		t.Errorf("pin(%s) = %q, want %q after an explicit different pick", providers.PinProfile, got, "anthropic")
+		t.Errorf("claude profile = %q, want %q after an explicit different pick", got, "anthropic")
 	}
 }
 

@@ -54,14 +54,11 @@ func TestProfilesOfOverlayRowsFollowDefaults(t *testing.T) {
 
 func TestPinIgnoresProcessEnv(t *testing.T) {
 	vaulttest.UseKeyring(t)
-	t.Setenv(PinCopilotModel, "from-env")
-	if got := Pin(PinCopilotModel); got != "" {
+	if got := AgentRecord("copilot").Model; got != "" {
 		t.Errorf("Pin(env only) = %q, want empty: pins are vault-only", got)
 	}
-	if err := SetPins(map[string]string{PinCopilotModel: "from-vault"}); err != nil {
-		t.Fatal(err)
-	}
-	if got := Pin(PinCopilotModel); got != "from-vault" {
+	vaulttest.SetRecord(t, "copilot", "model", "from-vault")
+	if got := AgentRecord("copilot").Model; got != "from-vault" {
 		t.Errorf("Pin(vault+env) = %q, want from-vault", got)
 	}
 }
@@ -69,8 +66,8 @@ func TestPinIgnoresProcessEnv(t *testing.T) {
 func TestPinProfileIsNotTheSessionMarker(t *testing.T) {
 	vaulttest.UseKeyring(t)
 	t.Setenv(EnvSessionProfile, "qa")
-	if got := Pin(PinProfile); got != "" {
-		t.Errorf("Pin(PinProfile) = %q, want empty: the session marker is read by SessionProfile only", got)
+	if got := AgentRecord("claude").Profile; got != "" {
+		t.Errorf("claude record profile = %q, want empty: the session marker is read by SessionProfile only", got)
 	}
 	if got := SessionProfile(); got != "qa" {
 		t.Errorf("SessionProfile = %q, want qa", got)

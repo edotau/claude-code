@@ -20,14 +20,8 @@ type ModelAsk struct {
 	Applied bool
 }
 
-// AgentModelPin is the agent's own model pin (its vault record's model), or "" when it has none or none is set.
-func AgentModelPin(agent string) string {
-	spec, ok := LookupSchema(agent)
-	if !ok || spec.CLI.ModelPin == "" {
-		return ""
-	}
-	return GetAgentRecord(agent).Model
-}
+// AgentModelPin is the agent's own model (its vault record's model), or "" when none is set.
+func AgentModelPin(agent string) string { return GetAgentRecord(agent).Model }
 
 // ResolveAgentModel is the one rule for the model an agent runs: flag > the agent's model pin > Target.Model,
 // spelled for Target.Provider. A model alias the provider lacks keeps Target.Model and says so in the note.

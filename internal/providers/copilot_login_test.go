@@ -1,6 +1,7 @@
 package providers
 
 import (
+	"reflect"
 	"testing"
 
 	"github.com/edotau/claude-code/internal/vault"
@@ -17,9 +18,7 @@ func copilotLoginReg(t *testing.T, pin string) *Registry {
 	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"github":{`+
 		`"personal":{`+ghRow+`,"login":"edotau"},"bare":{`+ghRow+`}}}}`)
 	if pin != "" {
-		if err := SetPins(map[string]string{PinCopilotProfile: pin}); err != nil {
-			t.Fatal(err)
-		}
+		vaulttest.SetRecord(t, "copilot", "profile", pin)
 	}
 	reg, err := Load()
 	if err != nil {
@@ -67,5 +66,24 @@ func TestGithubAccountNameAndLoginRoundTrip(t *testing.T) {
 	}
 	if GithubAccountName(nil, "edotau") != "edotau" || GithubAccountLogin(nil, "x") != "x" {
 		t.Error("nil registry must pass the value through")
+	}
+}
+
+// AgentRecord(s) read what a vault write stored; an unset agent is the zero record.
+func TestAgentRecordsReadStoredRecords(t *testing.T) {
+	vaulttest.Use(t)
+	if err := vault.Update(func(tx *vault.Tx) error {
+		return tx.PutAgentRecords(map[string]vault.AgentRecord{"codex": {Profile: "chatgpt", Model: "m1"}})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if got := AgentRecord("codex"); got.Profile != "chatgpt" || got.Model != "m1" {
+		t.Errorf("AgentRecord(codex) = %+v", got)
+	}
+	if got := AgentRecord("gemini"); !reflect.DeepEqual(got, vault.AgentRecord{}) {
+		t.Errorf("AgentRecord(gemini) = %+v, want zero", got)
+	}
+	if recs := AgentRecords(); len(recs) != 1 || recs["codex"].Profile != "chatgpt" {
+		t.Errorf("AgentRecords = %+v, want only codex", recs)
 	}
 }

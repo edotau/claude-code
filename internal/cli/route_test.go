@@ -39,9 +39,7 @@ func TestRouteVerbJSON(t *testing.T) {
 	dir := vaulttest.Use(t)
 	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"github":{"work":{"protocol":"openai",
 		"base_url":"https://api.githubcopilot.com","auth":{"type":"cli","login":"copilot"},"login":"work-user"}}}}`)
-	if err := providers.SetPins(map[string]string{providers.PinCopilotProfile: "work"}); err != nil {
-		t.Fatal(err)
-	}
+	vaulttest.SetRecord(t, "copilot", "profile", "work")
 	if err := os.MkdirAll(filepath.Join(dir, "bin"), 0o755); err != nil {
 		t.Fatal(err)
 	}

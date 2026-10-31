@@ -10,11 +10,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
-	"github.com/edotau/claude-code/internal/vault"
 )
-
-// claudeTiers are claude's tier pins, folded into its MODEL cell as tier=id.
-var claudeTiers = []string{"OPUS", "SONNET", "HAIKU", "FABLE"}
 
 // VaultAgentNames is claude, then the other roster agents alphabetically, then extra overlay agent names.
 func VaultAgentNames(vs map[string]any) []string {
@@ -35,64 +31,17 @@ func VaultAgentNames(vs map[string]any) []string {
 	return names
 }
 
-// VaultAgentPins is one agent's pin suffixes (after "<AGENT>_") to values; claude's tier pins fold into MODEL.
-func VaultAgentPins(name string, pins map[string]string) map[string]string {
-	prefix, out := strings.ToUpper(name)+"_", map[string]string{}
-	for k, v := range withRecordPins(pins) {
-		if suffix, ok := strings.CutPrefix(k, prefix); ok && strings.TrimSpace(v) != "" {
-			out[suffix] = v
-		}
-	}
-	if !VaultAgentIsClaude(name) {
-		return out
-	}
-	var tiers []string
-	for _, t := range claudeTiers {
-		if v, ok := out[t+"_MODEL"]; ok {
-			tiers = append(tiers, strings.ToLower(t)+"="+v)
-		}
-		delete(out, t+"_MODEL")
-	}
-	if len(tiers) > 0 {
-		out["MODEL"] = strings.TrimSpace(out["MODEL"] + " " + strings.Join(tiers, " "))
-	}
-	return out
-}
-
 // VaultAgentIsClaude reports the roster row the harness launches itself (no external binary).
 func VaultAgentIsClaude(name string) bool {
 	s, ok := LookupSchema(name)
 	return ok && !s.External()
 }
 
-// VaultAgentOff reports an agent whose ACTIVE pin says off (claude is always on).
-func VaultAgentOff(name string, pins map[string]string) bool {
-	return !VaultAgentIsClaude(name) && strings.TrimSpace(withRecordPins(pins)[strings.ToUpper(name)+"_ACTIVE"]) == AgentOff
-}
-
-// withRecordPins is pins plus the agent records rendered as legacy keys (explicit pins win); Phase 2 drops the pins arg.
-func withRecordPins(pins map[string]string) map[string]string {
-	out := vault.LegacyPins(AgentRecords(), true)
-	for _, a := range vault.LegacyAgents {
-		if k := strings.ToUpper(a) + "_"; pins[k+"PROFILE"] != "" && pins[k+"ACTIVE"] == "" {
-			delete(out, k+"ACTIVE")
-		}
-	}
-	maps.Copy(out, pins)
-	return out
-}
-
-// AgentOn and AgentOff are the <AGENT>_ACTIVE pin values; unset means on.
+// AgentOn and AgentOff are the values `<agent> on|off` and ValidAgentActive accept.
 const (
 	AgentOn  = "on"
 	AgentOff = "off"
 )
-
-// AgentProfilePin is the <AGENT>_PROFILE pin key for agent ("" for an unknown agent).
-func AgentProfilePin(agent string) string { s, _ := LookupSchema(agent); return s.CLI.ProfilePin }
-
-// AgentActivePin is the <AGENT>_ACTIVE pin key for agent ("" for claude or an unknown agent).
-func AgentActivePin(agent string) string { s, _ := LookupSchema(agent); return s.CLI.ActivePin }
 
 // ValidAgentActive rejects any value but on|off, and off for claude.
 func ValidAgentActive(agent, v string) error {
@@ -103,7 +52,7 @@ func ValidAgentActive(agent, v string) error {
 	case AgentOn:
 		return nil
 	case AgentOff:
-		if AgentActivePin(agent) == "" {
+		if VaultAgentIsClaude(agent) {
 			return errors.New("claude is always on")
 		}
 		return nil
@@ -152,9 +101,7 @@ func AgentPins() map[string]router.PinSpec {
 		if ownLogin(reg, k.Name, r.Profile) {
 			spec.Profile = "" // the agent's own login profile routes as the old unset pin did
 		}
-		if k.CLI.ModelPin != "" {
-			spec.Model = r.Model
-		}
+		spec.Model = r.Model
 		if !k.External() {
 			spec.Profile = cmp.Or(providers.SessionProfile(), spec.Profile)
 		}

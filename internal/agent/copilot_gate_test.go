@@ -39,7 +39,7 @@ func pinGitHubProfile(t *testing.T, login, extra string) {
 		extra = "," + extra
 	}
 	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{`+ghProfiles(login)+extra+`}}`)
-	setPin(t, providers.PinCopilotProfile, login)
+	vaulttest.SetRecord(t, "copilot", "profile", login)
 }
 
 // ghLogin makes user a gh login (scratch hosts.yml) pinned as the COPILOT_PROFILE's login, with pct% of credits used.
@@ -74,7 +74,7 @@ func TestExplicitAccountCopilotLoginIsPinnedUser(t *testing.T) {
 	if acct != "github·alice" {
 		t.Errorf("account = %q, want github·alice", acct)
 	}
-	setPin(t, providers.PinCopilotProfile, "")
+	vaulttest.SetRecord(t, "copilot", "profile", "")
 	if acct, _ := explicitAccount(&fakeRunner{name: "copilot"}, RunOptions{Provider: "personal"}); acct != "" {
 		t.Errorf("no pin: account = %q, want empty", acct)
 	}
@@ -190,14 +190,6 @@ func TestCopilotRunnerQuotaTriggersHandoff(t *testing.T) {
 		t.Fatalf("handoff = %q, want a file under %s", res.Handoff, dir)
 	}
 	if _, err := os.Stat(res.Handoff); err != nil {
-		t.Fatal(err)
-	}
-}
-
-// setPin seeds (value != "") or clears a vault pin; pins are vault-only, never read from env.
-func setPin(t *testing.T, key, value string) {
-	t.Helper()
-	if err := providers.SetPins(map[string]string{key: value}); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -339,9 +331,9 @@ func TestCopilotGateThreshold(t *testing.T) {
 func TestCopilotGateUnsetLookupAndPin(t *testing.T) {
 	cases := map[string]func(t *testing.T){
 		"lookup unset": func(t *testing.T) { CopilotUsedPct = nil },
-		"no pin":       func(t *testing.T) { setPin(t, providers.PinCopilotProfile, "") },
+		"no pin":       func(t *testing.T) { vaulttest.SetRecord(t, "copilot", "profile", "") },
 		"pin not a gh login": func(t *testing.T) {
-			setPin(t, providers.PinCopilotProfile, "mallory")
+			vaulttest.SetRecord(t, "copilot", "profile", "mallory")
 		},
 	}
 	for name, mutate := range cases {
@@ -349,7 +341,7 @@ func TestCopilotGateUnsetLookupAndPin(t *testing.T) {
 			reg := gateReg(t, map[string]bool{"qa": true})
 			gh := gateSetup(t, 1, true, reg)
 			mutate(t)
-			if _, ok := copilotHeadroom(context.Background(), providers.Pin(providers.PinCopilotProfile)); ok {
+			if _, ok := copilotHeadroom(context.Background(), providers.AgentRecord("copilot").Profile); ok {
 				t.Fatal("must not be workable")
 			}
 			got, _, err := copilotGate(reg, gh)
@@ -399,9 +391,7 @@ func TestCopilotDatabricksFallbackOrder(t *testing.T) {
 	t.Run("vault pin databricks row wins", func(t *testing.T) {
 		reg := gateReg(t, map[string]bool{"dev": true, "prod": true})
 		isolateOpencodeRouteEnv(t)
-		if err := providers.SetPins(map[string]string{providers.PinProfile: "prod"}); err != nil {
-			t.Fatal(err)
-		}
+		vaulttest.SetRecord(t, "claude", "profile", "prod")
 		if ri := copilotDatabricksFallback(reg, "d"); !ri.OK || ri.Provider != "prod" || ri.Route != RouteDatabricks {
 			t.Errorf("got %+v, want prod", ri)
 		}
@@ -409,9 +399,7 @@ func TestCopilotDatabricksFallbackOrder(t *testing.T) {
 	t.Run("non-databricks pin ignored, first OK env", func(t *testing.T) {
 		reg := gateReg(t, map[string]bool{"qa": true}) // dev and prod fail
 		isolateOpencodeRouteEnv(t)
-		if err := providers.SetPins(map[string]string{providers.PinProfile: "anthropic"}); err != nil {
-			t.Fatal(err)
-		}
+		vaulttest.SetRecord(t, "claude", "profile", "anthropic")
 		if ri := copilotDatabricksFallback(reg, "d"); !ri.OK || ri.Provider != "qa" {
 			t.Errorf("got %+v, want qa (the only OK row)", ri)
 		}
@@ -473,9 +461,7 @@ func TestCopilotFallbackSkipsPinnedRowWithFailingCredential(t *testing.T) {
 		isolateOpencodeRouteEnv(t)
 		t.Setenv("GATE_TEST_WSX", "")
 		custom(reg, "GATE_TEST_WSX")
-		if err := providers.SetPins(map[string]string{providers.PinProfile: "workspace-x"}); err != nil {
-			t.Fatal(err)
-		}
+		vaulttest.SetRecord(t, "claude", "profile", "workspace-x")
 		if ri := copilotDatabricksFallback(reg, "d"); !ri.OK || ri.Provider != "qa" {
 			t.Errorf("got %+v, want qa after the pinned row's credential failed", ri)
 		}
@@ -485,9 +471,7 @@ func TestCopilotFallbackSkipsPinnedRowWithFailingCredential(t *testing.T) {
 		isolateOpencodeRouteEnv(t)
 		t.Setenv("GATE_TEST_WSX", "tok")
 		custom(reg, "GATE_TEST_WSX")
-		if err := providers.SetPins(map[string]string{providers.PinProfile: "workspace-x"}); err != nil {
-			t.Fatal(err)
-		}
+		vaulttest.SetRecord(t, "claude", "profile", "workspace-x")
 		if ri := copilotDatabricksFallback(reg, "d"); !ri.OK || ri.Provider != "workspace-x" {
 			t.Errorf("got %+v, want workspace-x", ri)
 		}

@@ -45,7 +45,7 @@ func workableCopilotPin(t *testing.T, user string) {
 	t.Setenv("GH_CONFIG_DIR", dir)
 	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"github":{"work":{"protocol":"openai",`+
 		`"base_url":"https://api.githubcopilot.com","login":"`+user+`","auth":{"type":"cli","login":"copilot"}}}}}`)
-	setPins(t, map[string]string{providers.PinCopilotProfile: "work"})
+	vaulttest.SetRecord(t, "copilot", "profile", "work")
 	prev := agent.CopilotUsedPct
 	agent.CopilotUsedPct = func(context.Context, string) (float64, bool) { return 10, true }
 	t.Cleanup(func() { agent.CopilotUsedPct = prev })
@@ -92,7 +92,8 @@ func TestDoctorOpenCodeRouteWithCopilotLogin(t *testing.T) {
 	xdgData := doctorScratch(t)
 	// github-copilot's registry defaults are "auto" (Copilot's own router); pin real ids here so this
 	// test still proves slot ids pass through unchanged, distinct from the auto -> OpencodeFallback swap.
-	setPins(t, map[string]string{providers.SlotPin("sonnet"): "gpt-5.3-codex", providers.SlotPin("haiku"): "gpt-5.4-mini"})
+	vaulttest.SetRecord(t, "claude", "slots.sonnet", "gpt-5.3-codex")
+	vaulttest.SetRecord(t, "claude", "slots.haiku", "gpt-5.4-mini")
 	authDir := filepath.Join(xdgData, "opencode")
 	if err := os.MkdirAll(authDir, 0o755); err != nil {
 		t.Fatal(err)
@@ -142,8 +143,9 @@ func TestDoctorCopilotRouteSourceEffortContextUnpinned(t *testing.T) {
 func TestDoctorCopilotRouteSourceEffortContextPinned(t *testing.T) {
 	doctorScratch(t)
 	workableCopilotPin(t, "alice")
-	setPins(t, map[string]string{providers.PinCopilotModel: "claude-opus-5.5", providers.PinCopilotEffort: "high",
-		providers.PinCopilotContext: "long_context"})
+	vaulttest.SetRecord(t, "copilot", "model", "claude-opus-5.5")
+	vaulttest.SetRecord(t, "copilot", "effort", "high")
+	vaulttest.SetRecord(t, "copilot", "context", "long_context")
 	checks, _ := DoctorChecks()
 	c := findCheck(checks, "copilot route")
 	if c == nil {
@@ -246,7 +248,7 @@ func TestDoctorUnusedProviderMissingKeyIsSoft(t *testing.T) {
 	if c == nil || !c.OK || !strings.Contains(c.Detail, "unused") {
 		t.Fatalf("unused openai row = %+v, want OK with an unused note", c)
 	}
-	setPins(t, map[string]string{providers.PinCodexProfile: "openai"})
+	vaulttest.SetRecord(t, "codex", "profile", "openai")
 	checks, _ = DoctorChecks()
 	if c := findCheck(checks, "credential openai"); c == nil || c.OK {
 		t.Fatalf("pinned openai row = %+v, want ✗ for the missing key", c)
@@ -315,7 +317,7 @@ func TestAltAuthUnknownProvider(t *testing.T) {
 func TestRouteDetailMatchesDoctorChecks(t *testing.T) {
 	doctorScratch(t)
 	t.Setenv("GH_TOKEN", "ghp_doctorFAKEtoken1234567890")
-	setPins(t, map[string]string{providers.SlotPin("sonnet"): "gpt-5.3-codex"})
+	vaulttest.SetRecord(t, "claude", "slots.sonnet", "gpt-5.3-codex")
 
 	checks, _ := DoctorChecks()
 	for _, vendor := range []string{"codex", "gemini", "opencode", "copilot"} {

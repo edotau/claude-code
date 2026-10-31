@@ -25,7 +25,7 @@ func hermetic(t *testing.T, userProviders string) {
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
 	t.Setenv("XDG_DATA_HOME", filepath.Join(home, ".local", "share"))
 	t.Setenv("BASH_COMPLETION_USER_DIR", "")
-	for _, k := range []string{providers.PinProfile, providers.PinModel, "CLAUDE_OPUS_MODEL", "CLAUDE_SONNET_MODEL",
+	for _, k := range []string{providers.EnvSessionProfile, "CLAUDE_MODEL", "CLAUDE_OPUS_MODEL", "CLAUDE_SONNET_MODEL",
 		"CLAUDE_HAIKU_MODEL", "CLAUDE_FABLE_MODEL", "ANTHROPIC_API_KEY", "TEST_GW_KEY"} {
 		t.Setenv(k, "")
 	}

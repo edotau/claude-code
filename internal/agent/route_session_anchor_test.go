@@ -36,7 +36,7 @@ func TestSessionProfileAgents(t *testing.T) {
 		t.Fatal("profile absent")
 	}
 	vaulttest.Secret(t, providers.AuthSecretName(p), "profile-auth")
-	setPin(t, providers.PinCopilotProfile, githubProfile)
+	vaulttest.SetRecord(t, "copilot", "profile", githubProfile)
 	activateAgents(t, "codex", "opencode")
 	tb, err := router.LoadFrom(reg, githubProfile)
 	if err != nil {
@@ -115,8 +115,8 @@ func TestSessionProfileAgents(t *testing.T) {
 		}
 	})
 	t.Run("copilot off", func(t *testing.T) {
-		t.Cleanup(func() { setPin(t, providers.PinCopilotProfile, githubProfile) })
-		setPin(t, providers.PinCopilotProfile, "")
+		t.Cleanup(func() { vaulttest.SetRecord(t, "copilot", "profile", githubProfile) })
+		vaulttest.SetRecord(t, "copilot", "profile", "")
 		if r := pickAgent("codex", st, opts); slices.ContainsFunc(r.Candidates, func(c router.Candidate) bool { return c.Agent == "copilot" }) {
 			t.Errorf("copilot off = %+v", r)
 		}
@@ -141,8 +141,8 @@ func TestSessionProfileAgents(t *testing.T) {
 		}
 	})
 	t.Run("copilot profile", func(t *testing.T) {
-		t.Cleanup(func() { setPin(t, providers.PinCopilotProfile, githubProfile) })
-		setPin(t, providers.PinCopilotProfile, profile)
+		t.Cleanup(func() { vaulttest.SetRecord(t, "copilot", "profile", githubProfile) })
+		vaulttest.SetRecord(t, "copilot", "profile", profile)
 		only := opts
 		only.Fallback = router.FallbackNone
 		r := pickAgent("copilot", st, only)
@@ -155,7 +155,7 @@ func TestSessionProfileAgents(t *testing.T) {
 		own := tb.Rows["copilot"]["sonnet"]
 		t.Cleanup(func() {
 			tb.Rows["copilot"]["sonnet"] = own
-			setPin(t, providers.PinCopilotProfile, githubProfile)
+			vaulttest.SetRecord(t, "copilot", "profile", githubProfile)
 		})
 		cell := own
 		cell.Account, cell.Model = dbx, p.WireModel(p.Models["sonnet"])

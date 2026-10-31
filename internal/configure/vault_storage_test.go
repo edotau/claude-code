@@ -317,10 +317,10 @@ func TestImportAudit(t *testing.T) {
 		name, key, value, resource string
 		action                     audit.Action
 	}{
-		{"opus", "CLAUDE_OPUS_MODEL", "new-model", "CLAUDE_OPUS_MODEL", audit.ModelPin},
-		{"sonnet", "CLAUDE_SONNET_MODEL", "new-model", "CLAUDE_SONNET_MODEL", audit.ModelPin},
-		{"haiku", "CLAUDE_HAIKU_MODEL", "new-model", "CLAUDE_HAIKU_MODEL", audit.ModelPin},
-		{"provider", "CLAUDE_PROFILE", "openai", "openai", audit.ProviderSwitch},
+		{"opus", "OPUS_MODEL", "new-model", "claude.slots.opus", audit.ModelPin},
+		{"sonnet", "SONNET_MODEL", "new-model", "claude.slots.sonnet", audit.ModelPin},
+		{"haiku", "HAIKU_MODEL", "new-model", "claude.slots.haiku", audit.ModelPin},
+		{"provider", "PROFILE", "openai", "openai", audit.ProviderSwitch},
 		{"unchanged", "", "", "", ""},
 	}
 	for _, tt := range tests {
@@ -330,7 +330,19 @@ func TestImportAudit(t *testing.T) {
 			orig := exportTestDoc(t)
 			edited := orig
 			if tt.key != "" {
-				edited = editTestDoc(t, orig, func(d *Doc) { d.Pins[tt.key] = tt.value })
+				edited = editTestDoc(t, orig, func(d *Doc) {
+					rest, recs, err := splitAgentRecords(d.Agents)
+					if err != nil {
+						t.Fatal(err)
+					}
+					if recs == nil {
+						recs = map[string]vault.AgentRecord{}
+					}
+					recs["claude"] = recs["claude"].WithPin(tt.key, tt.value)
+					if d.Agents, err = mergeAgentRecords(rest, recs); err != nil {
+						t.Fatal(err)
+					}
+				})
 			}
 			if err := Import(orig, edited); err != nil {
 				t.Fatal(err)

@@ -30,8 +30,6 @@ type CLI struct {
 	Dialects []string
 	// RouterSuffix is the path appended to the router session base for a wire; it covers every Dialects entry.
 	RouterSuffix map[string]string
-	// ProfilePin, ModelPin and ActivePin are the agent's vault pin keys; ModelPin is "" when it has no model pin.
-	ProfilePin, ModelPin, ActivePin string
 	// MinVersion and MaxVersion bound the CLI versions the harness is known to work with; "" = no bound.
 	// MaxVersion may end in ".x" ("1.x" = any 1.y.z). Each bound carries its one-line reason.
 	MinVersion, MinReason string
@@ -56,7 +54,6 @@ type CLI struct {
 
 var rosterRows = []Schema{
 	{Name: "claude", CLI: CLI{
-		ProfilePin: providers.PinProfile, ModelPin: providers.PinModel,
 		Caps: Caps{Model: Native, Provider: Native, Effort: Native, WorkDir: Native, SessionID: Native,
 			Tools: Native, NoTools: Native, Autonomous: Native, NoPersist: Native, SafeMode: Native, DebugFile: Native,
 			SystemPrompt: Native, AppendSystemPrompt: Native, Env: Native, OutputSchema: Native, Persona: Native},
@@ -66,7 +63,6 @@ var rosterRows = []Schema{
 	{Name: "codex", CLI: CLI{
 		Binary: "codex", Dialects: []string{providers.ProtocolResponses},
 		RouterSuffix: map[string]string{providers.ProtocolResponses: "/" + providers.ProtocolResponses},
-		ProfilePin:   providers.PinCodexProfile, ModelPin: providers.PinCodexModel, ActivePin: providers.PinCodexActive,
 		Caps: Caps{Model: Native, Provider: Native, Effort: Native, WorkDir: Native, SessionID: Native,
 			Tools: Native, Autonomous: Native, NoPersist: Native, SafeMode: Native, Direct: Native, Env: Native,
 			SystemPrompt: Native, AppendSystemPrompt: Native, OutputSchema: Native, Persona: Emulated},
@@ -75,7 +71,7 @@ var rosterRows = []Schema{
 		ConfigureHint: "run `codex login` (ChatGPT) or `claude-code configure` → codex → API key",
 	}},
 	{Name: "gemini", CLI: CLI{
-		Binary: "agy", ProfilePin: providers.PinGeminiProfile, ModelPin: providers.PinGeminiModel, ActivePin: providers.PinGeminiActive,
+		Binary: "agy",
 		Caps: Caps{Model: Native, Provider: Native, Effort: Native, WorkDir: Native, SessionID: Native,
 			Tools: Native, Autonomous: Native, DebugFile: Native, Direct: Native, Env: Native,
 			SystemPrompt: Emulated, AppendSystemPrompt: Emulated, OutputSchema: Native, Persona: Emulated},
@@ -88,7 +84,6 @@ var rosterRows = []Schema{
 		Binary: "opencode", Dialects: []string{providers.ProtocolAnthropic, providers.ProtocolGemini, providers.ProtocolOpenAI},
 		RouterSuffix: map[string]string{providers.ProtocolAnthropic: "", providers.ProtocolGemini: "/" + providers.ProtocolGemini,
 			providers.ProtocolOpenAI: "/" + providers.ProtocolOpenAI, providers.ProtocolResponses: "/" + providers.ProtocolResponses},
-		ProfilePin: providers.PinOpencodeProfile, ActivePin: providers.PinOpencodeActive,
 		MaxVersion: "1.x", MaxReason: "2.x broke the harness opencode route", // keep in step with opencodeMaxMajor
 		Caps: Caps{Model: Native, Provider: Native, Effort: Native, WorkDir: Native, SessionID: Native,
 			Tools: Native, Autonomous: Native, SafeMode: Native, Direct: Native, Env: Native,
@@ -104,7 +99,6 @@ var rosterRows = []Schema{
 		Binary: "copilot", Dialects: []string{providers.ProtocolAnthropic, providers.ProtocolOpenAI},
 		RouterSuffix: map[string]string{providers.ProtocolAnthropic: "", providers.ProtocolOpenAI: "/" + providers.ProtocolOpenAI,
 			providers.ProtocolResponses: "/" + providers.ProtocolResponses},
-		ProfilePin: providers.PinCopilotProfile, ModelPin: providers.PinCopilotModel, ActivePin: providers.PinCopilotActive,
 		MinVersion: copilotsdk.MinMultiProviderCLI, MinReason: "named-provider model registry needs it",
 		Caps: Caps{Model: Native, Provider: Native, Effort: Native, WorkDir: Native, SessionID: Native,
 			Tools: Native, ReadOnly: Native, Autonomous: Native, Memory: Native, Direct: Native, Env: Native,

@@ -169,10 +169,8 @@ func TestCodexChatGPTLogin(t *testing.T) {
 // case already proves the no-pin explicit path, so this proves the pin-only and pin-vs-explicit paths).
 func TestCodexHeadlessEffortPinUsedWhenEffortEmptyExplicitWinsOverIt(t *testing.T) {
 	tg := target(t, "openai", "gpt-5")
-	setPin(t, providers.PinCodexEffort, "")
-	if err := providers.SetPins(map[string]string{providers.PinCodexEffort: ""}); err != nil {
-		t.Fatal(err)
-	}
+	vaulttest.SetRecord(t, "codex", "effort", "")
+	vaulttest.SetRecord(t, "codex", "effort", "")
 
 	_, argv, err := schemaFor("codex").configureHeadless(context.Background(), tg, Headless{Prompt: "hi"})
 	if err != nil {
@@ -182,9 +180,7 @@ func TestCodexHeadlessEffortPinUsedWhenEffortEmptyExplicitWinsOverIt(t *testing.
 		t.Errorf("argv %q with no pin and no explicit effort, want no model_reasoning_effort flag", argv)
 	}
 
-	if err := providers.SetPins(map[string]string{providers.PinCodexEffort: "xhigh"}); err != nil {
-		t.Fatal(err)
-	}
+	vaulttest.SetRecord(t, "codex", "effort", "xhigh")
 	_, argv, err = schemaFor("codex").configureHeadless(context.Background(), tg, Headless{Prompt: "hi"})
 	if err != nil {
 		t.Fatal(err)

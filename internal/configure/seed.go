@@ -32,6 +32,9 @@ func seedProfiles(d *dialog, agent string) []string {
 	}
 	slices.Sort(own)
 	slices.Sort(rest)
+	if agent == "opencode" {
+		own = append([]string{agentpkg.OpencodeOwnLogin}, own...)
+	}
 	return append(own, rest...)
 }
 
@@ -46,6 +49,11 @@ func seedLabel(agent, profile string) string {
 	return seedOff
 }
 
+// seedOwnLogin reports whether profile is agent's own sign-in (opencode's Zen id has no registry row).
+func seedOwnLogin(d *dialog, agent, profile string) bool {
+	return profile == agentpkg.OpencodeOwnLogin || d.reg.Providers[profile].Auth.Login == agent
+}
+
 // seedDefaults is each agent's current choice; an agent with no profile set gets its own login pre-selected.
 func seedDefaults(d *dialog) map[string]string {
 	recs := agentpkg.AgentRecords()
@@ -53,7 +61,7 @@ func seedDefaults(d *dialog) map[string]string {
 	for _, a := range seedAgents() {
 		out[a] = recs[a].Profile
 		if out[a] == "" && a != "claude" && d.reg != nil {
-			if ps := seedProfiles(d, a); len(ps) > 0 && d.reg.Providers[ps[0]].Auth.Login == a {
+			if ps := seedProfiles(d, a); len(ps) > 0 && seedOwnLogin(d, a, ps[0]) {
 				out[a] = ps[0]
 			}
 		}

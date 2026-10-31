@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
@@ -68,12 +67,12 @@ func renderPayload(t *testing.T, model string) string {
 func TestLabelTracksSessionEnvOverVaultPin(t *testing.T) {
 	hermetic(t)
 	labelRegistry(t)
-	vaulttest.Put(t, vault.Pins, providers.PinProfile, "antigravity")
+	vaulttest.SetRecord(t, "claude", "profile", "antigravity")
 	t.Setenv(providers.EnvSessionProfile, "qa")
 	if got := renderPayload(t, "claude-opus-5"); !strings.Contains(got, "databricks·qa") || strings.Contains(got, "antigravity") {
 		t.Errorf("env session label: %q", got)
 	}
-	vaulttest.Put(t, vault.Pins, providers.PinProfile, "openai") // the other session switches again
+	vaulttest.SetRecord(t, "claude", "profile", "openai") // the other session switches again
 	if got := renderPayload(t, "claude-opus-5"); !strings.Contains(got, "databricks·qa") || strings.Contains(got, "openai") {
 		t.Errorf("label moved with the pin: %q", got)
 	}

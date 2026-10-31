@@ -55,7 +55,7 @@ func noCopilotLogin(t *testing.T) {
 func TestCopilotLoginArgvCarriesPinsWhenSetOmitsWhenUnset(t *testing.T) {
 	tg := target(t, "personal", "claude-opus-5.5")
 	noCopilotLogin(t)
-	for _, k := range []string{providers.PinCopilotEffort, providers.PinCopilotContext} {
+	for _, k := range []string{"COPILOT_EFFORT", "COPILOT_CONTEXT"} {
 		t.Setenv(k, "")
 	}
 
@@ -67,8 +67,8 @@ func TestCopilotLoginArgvCarriesPinsWhenSetOmitsWhenUnset(t *testing.T) {
 		t.Errorf("argv %q with no pins set, want neither flag", argv)
 	}
 
-	setPin(t, providers.PinCopilotEffort, "xhigh")
-	setPin(t, providers.PinCopilotContext, "long_context")
+	vaulttest.SetRecord(t, "copilot", "effort", "xhigh")
+	vaulttest.SetRecord(t, "copilot", "context", "long_context")
 	_, argv, err = schemaFor("copilot").Configure(context.Background(), tg, "")
 	if err != nil {
 		t.Fatal(err)
@@ -82,8 +82,8 @@ func TestCopilotLoginArgvCarriesPinsWhenSetOmitsWhenUnset(t *testing.T) {
 // Interactive copilot (h == nil, BYOK/gateway route): same pin-to-argv wiring as the own-login route.
 func TestCopilotBYOKArgvCarriesPinsWhenSet(t *testing.T) {
 	tg := target(t, "openai", "gpt-5")
-	setPin(t, providers.PinCopilotEffort, "low")
-	setPin(t, providers.PinCopilotContext, "default")
+	vaulttest.SetRecord(t, "copilot", "effort", "low")
+	vaulttest.SetRecord(t, "copilot", "context", "default")
 
 	_, argv, err := schemaFor("copilot").Configure(context.Background(), tg, "")
 	if err != nil {
@@ -100,8 +100,8 @@ func TestCopilotBYOKArgvCarriesPinsWhenSet(t *testing.T) {
 func TestCopilotHeadlessArgvIgnoresPins(t *testing.T) {
 	tg := target(t, "personal", "claude-opus-5.5")
 	noCopilotLogin(t)
-	setPin(t, providers.PinCopilotEffort, "max")
-	setPin(t, providers.PinCopilotContext, "long_context")
+	vaulttest.SetRecord(t, "copilot", "effort", "max")
+	vaulttest.SetRecord(t, "copilot", "context", "long_context")
 
 	_, argv, err := schemaFor("copilot").configureHeadless(context.Background(), tg, Headless{Prompt: "hi"})
 	if err != nil {
@@ -390,9 +390,7 @@ func ghArgsOnPin(t *testing.T, pin string) string {
 	}
 	t.Setenv("PATH", bin)
 	if pin != "" {
-		if err := providers.SetPins(map[string]string{providers.PinCopilotProfile: pin}); err != nil {
-			t.Fatal(err)
-		}
+		vaulttest.SetRecord(t, "copilot", "profile", pin)
 	}
 	if _, err := CopilotLaunchToken(); err != nil {
 		t.Fatalf("CopilotLaunchToken(pin %q): %v", pin, err)

@@ -12,18 +12,8 @@ import (
 func selectTestRegistry(t *testing.T) *Registry {
 	t.Helper()
 	reg := load(t)
-	for _, key := range append([]string{PinProfile, PinModel}, slotPinKeys()...) {
-		t.Setenv(key, "")
-	}
+	t.Setenv(EnvSessionProfile, "")
 	return reg
-}
-
-func slotPinKeys() []string {
-	keys := make([]string, 0, len(models.Slots))
-	for _, slot := range models.Slots {
-		keys = append(keys, SlotPin(slot))
-	}
-	return keys
 }
 
 func writeProviderPins(t *testing.T, pins map[string]string) {
@@ -47,12 +37,10 @@ func writeProviderPins(t *testing.T, pins map[string]string) {
 
 func TestSelectReadsVaultPinsWithSlotPrecedence(t *testing.T) {
 	reg := selectTestRegistry(t)
-	writeProviderPins(t, map[string]string{
-		PinProfile:            "gateway",
-		PinModel:              "all-from-vault",
-		SlotPin(models.Opus):  "openai:gpt-5-nano",
-		SlotPin(models.Haiku): "haiku-from-vault",
-	})
+	vaulttest.SetRecord(t, "claude", "profile", "gateway")
+	vaulttest.SetRecord(t, "claude", "model", "all-from-vault")
+	vaulttest.SetRecord(t, "claude", "slots.opus", "openai:gpt-5-nano")
+	vaulttest.SetRecord(t, "claude", "slots.haiku", "haiku-from-vault")
 
 	sel, err := Select(reg, "")
 	if err != nil {
@@ -78,14 +66,12 @@ func TestSelectReadsVaultPinsWithSlotPrecedence(t *testing.T) {
 
 func TestSelectIgnoresEnvAndFlagBeatsPin(t *testing.T) {
 	reg := selectTestRegistry(t)
-	writeProviderPins(t, map[string]string{
-		PinProfile:           "gateway",
-		PinModel:             "all-from-vault",
-		SlotPin(models.Opus): "opus-from-vault",
-	})
-	t.Setenv(PinProfile, "  gw  ")
-	t.Setenv(PinModel, "  all-from-env  ")
-	t.Setenv(SlotPin(models.Opus), "env-opus")
+	vaulttest.SetRecord(t, "claude", "profile", "gateway")
+	vaulttest.SetRecord(t, "claude", "model", "all-from-vault")
+	vaulttest.SetRecord(t, "claude", "slots.opus", "opus-from-vault")
+	t.Setenv(EnvSessionProfile, "  gw  ")
+	t.Setenv("CLAUDE_MODEL", "  all-from-env  ")
+	t.Setenv("CLAUDE_OPUS_MODEL", "env-opus")
 
 	sel, err := Select(reg, "")
 	if err != nil {
@@ -101,11 +87,10 @@ func TestSelectIgnoresEnvAndFlagBeatsPin(t *testing.T) {
 		t.Errorf("sonnet = %+v, want the vault all-model pin, not the env", got)
 	}
 
-	t.Setenv(PinProfile, "")
-	writeProviderPins(t, map[string]string{
-		PinProfile:           "gw",
-		SlotPin(models.Opus): "opus-from-vault",
-	})
+	t.Setenv(EnvSessionProfile, "")
+	vaulttest.SetRecord(t, "claude", "profile", "gw")
+	vaulttest.SetRecord(t, "claude", "model", "")
+	vaulttest.SetRecord(t, "claude", "slots.opus", "opus-from-vault")
 	flagSel, err := Select(reg, "gateway")
 	if err != nil {
 		t.Fatal(err)
@@ -120,10 +105,8 @@ func TestSelectIgnoresEnvAndFlagBeatsPin(t *testing.T) {
 
 func TestSelectAllModelPinBeatsProviderDefaults(t *testing.T) {
 	reg := selectTestRegistry(t)
-	writeProviderPins(t, map[string]string{
-		PinProfile: "gateway",
-		PinModel:   "all-from-vault",
-	})
+	vaulttest.SetRecord(t, "claude", "profile", "gateway")
+	vaulttest.SetRecord(t, "claude", "model", "all-from-vault")
 
 	sel, err := Select(reg, "")
 	if err != nil {
@@ -135,7 +118,7 @@ func TestSelectAllModelPinBeatsProviderDefaults(t *testing.T) {
 		}
 	}
 
-	writeProviderPins(t, map[string]string{PinProfile: "gateway"})
+	vaulttest.SetRecord(t, "claude", "model", "")
 	sel, err = Select(reg, "")
 	if err != nil {
 		t.Fatal(err)
@@ -238,19 +221,14 @@ func TestHasSecretNeverResolvesAKey(t *testing.T) {
 // github-copilot provider's own opus slot — and names which source won in both cases.
 func TestCopilotModelPinBeatsFallback(t *testing.T) {
 	reg := load(t)
-	t.Setenv(PinCopilotModel, "")
-	if err := SetPins(map[string]string{PinCopilotModel: ""}); err != nil {
-		t.Fatal(err)
-	}
+	vaulttest.SetRecord(t, "copilot", "model", "")
 
 	wantFallback := reg.Providers["personal"].Models[models.Opus]
 	if got, src := CopilotModel(reg); got != wantFallback || src != "github-copilot default" {
 		t.Errorf("CopilotModel(unset) = (%q, %q), want (%q, github-copilot default)", got, src, wantFallback)
 	}
 
-	if err := SetPins(map[string]string{PinCopilotModel: "claude-opus-5.5"}); err != nil {
-		t.Fatal(err)
-	}
+	vaulttest.SetRecord(t, "copilot", "model", "claude-opus-5.5")
 	if got, src := CopilotModel(reg); got != "claude-opus-5.5" || src != "pin" {
 		t.Errorf("CopilotModel(pinned) = (%q, %q), want (claude-opus-5.5, pin)", got, src)
 	}
@@ -259,10 +237,7 @@ func TestCopilotModelPinBeatsFallback(t *testing.T) {
 // A process env var for COPILOT_MODEL is ignored: pins are vault-only.
 func TestCopilotModelIgnoresEnv(t *testing.T) {
 	reg := load(t)
-	if err := SetPins(map[string]string{PinCopilotModel: "from-vault"}); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv(PinCopilotModel, "from-env")
+	vaulttest.SetRecord(t, "copilot", "model", "from-vault")
 	if got, src := CopilotModel(reg); got != "from-vault" || src != "pin" {
 		t.Errorf("CopilotModel(env set) = (%q, %q), want (from-vault, pin): env is not a pin source", got, src)
 	}
@@ -271,16 +246,11 @@ func TestCopilotModelIgnoresEnv(t *testing.T) {
 // CodexModel resolves CODEX_MODEL: the pin if set, else "" (codex's own default decides, not the registry).
 func TestCodexModelResolverPinVsDefault(t *testing.T) {
 	load(t)
-	t.Setenv(PinCodexModel, "")
-	if err := SetPins(map[string]string{PinCodexModel: ""}); err != nil {
-		t.Fatal(err)
-	}
+	vaulttest.SetRecord(t, "codex", "model", "")
 	if got, src := CodexModel(); got != "" || src != "default" {
 		t.Errorf("CodexModel(unset) = (%q, %q), want (\"\", default)", got, src)
 	}
-	if err := SetPins(map[string]string{PinCodexModel: "gpt-6.1-sol"}); err != nil {
-		t.Fatal(err)
-	}
+	vaulttest.SetRecord(t, "codex", "model", "gpt-6.1-sol")
 	if got, src := CodexModel(); got != "gpt-6.1-sol" || src != "pin" {
 		t.Errorf("CodexModel(pinned) = (%q, %q), want (gpt-6.1-sol, pin)", got, src)
 	}
@@ -289,20 +259,14 @@ func TestCodexModelResolverPinVsDefault(t *testing.T) {
 // CodexEffort resolves CODEX_EFFORT the same way; a process env var is not a pin source.
 func TestCodexEffortResolverPinVsDefault(t *testing.T) {
 	load(t)
-	t.Setenv(PinCodexEffort, "")
-	if err := SetPins(map[string]string{PinCodexEffort: ""}); err != nil {
-		t.Fatal(err)
-	}
+	vaulttest.SetRecord(t, "codex", "effort", "")
 	if got, src := CodexEffort(); got != "" || src != "default" {
 		t.Errorf("CodexEffort(unset) = (%q, %q), want (\"\", default)", got, src)
 	}
-	if err := SetPins(map[string]string{PinCodexEffort: "high"}); err != nil {
-		t.Fatal(err)
-	}
+	vaulttest.SetRecord(t, "codex", "effort", "high")
 	if got, src := CodexEffort(); got != "high" || src != "pin" {
 		t.Errorf("CodexEffort(pinned) = (%q, %q), want (high, pin)", got, src)
 	}
-	t.Setenv(PinCodexEffort, "low")
 	if got, src := CodexEffort(); got != "high" || src != "pin" {
 		t.Errorf("CodexEffort(env set) = (%q, %q), want (high, pin): env is not a pin source", got, src)
 	}
@@ -311,16 +275,11 @@ func TestCodexEffortResolverPinVsDefault(t *testing.T) {
 // GeminiModel resolves GEMINI_MODEL from the vault only: the pin if set, else "" (agy's own default decides).
 func TestGeminiModelResolverPinVsDefaultIgnoresEnv(t *testing.T) {
 	load(t)
-	t.Setenv(PinGeminiModel, "env-never-read")
-	if err := SetPins(map[string]string{PinGeminiModel: ""}); err != nil {
-		t.Fatal(err)
-	}
+	vaulttest.SetRecord(t, "gemini", "model", "")
 	if got, src := GeminiModel(); got != "" || src != "default" {
 		t.Errorf("GeminiModel(unset) = (%q, %q), want (\"\", default): env must not leak in", got, src)
 	}
-	if err := SetPins(map[string]string{PinGeminiModel: "gemini-3.8-flash-high"}); err != nil {
-		t.Fatal(err)
-	}
+	vaulttest.SetRecord(t, "gemini", "model", "gemini-3.8-flash-high")
 	if got, src := GeminiModel(); got != "gemini-3.8-flash-high" || src != "pin" {
 		t.Errorf("GeminiModel(pinned) = (%q, %q), want (gemini-3.8-flash-high, pin)", got, src)
 	}
@@ -333,7 +292,7 @@ func TestSelectDoesNotTranslateLegacyDatabricksPin(t *testing.T) {
 	row.Name, row.Preset = "qa", PresetDatabricks
 	reg.Providers["qa"] = &row
 	for _, pin := range []string{"databricks-qa", "databricks-dev-oai"} {
-		writeProviderPins(t, map[string]string{PinProfile: pin})
+		vaulttest.SetRecord(t, "claude", "profile", pin)
 		sel, err := Select(reg, "")
 		if err == nil || !strings.Contains(err.Error(), pin) {
 			t.Errorf("Select with pin %q = %+v, %v; want an unknown-provider error naming the pin", pin, sel.Provider, err)

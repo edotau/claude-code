@@ -212,9 +212,7 @@ func TestCopilotUserFollowsProfilePin(t *testing.T) {
 		vaulttest.Use(t)
 		vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"github":{"personal":{`+row+`,"login":"edotau"},"bare":{`+row+`}}}}`)
 		if tc.pin != "" {
-			if err := providers.SetPins(map[string]string{providers.PinCopilotProfile: tc.pin}); err != nil {
-				t.Fatal(err)
-			}
+			vaulttest.SetRecord(t, "copilot", "profile", tc.pin)
 		}
 		if got := CopilotUser(); got != tc.want {
 			t.Errorf("pin %q: CopilotUser = %q, want %q", tc.pin, got, tc.want)

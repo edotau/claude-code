@@ -80,9 +80,7 @@ func TestAgyModelPrecedence(t *testing.T) {
 	if got := geminiAgyModel(reg, sel, reg.Providers["anthropic"], ""); got != AgyDefaultModel {
 		t.Errorf("nothing set = %q, want the default %q", got, AgyDefaultModel)
 	}
-	if err := providers.SetPins(map[string]string{providers.PinGeminiModel: "gemini-pinned"}); err != nil {
-		t.Fatal(err)
-	}
+	vaulttest.SetRecord(t, "gemini", "model", "gemini-pinned")
 	if got := geminiAgyModel(reg, sel, reg.Providers["anthropic"], ""); got != "gemini-pinned" {
 		t.Errorf("vault pin = %q, want gemini-pinned", got)
 	}
@@ -322,9 +320,7 @@ func geminiCells(t *testing.T, pin string) []string {
 	vaulttest.Use(t)
 	activateAgents(t, "gemini")
 	if pin != "" {
-		if err := providers.SetPins(map[string]string{providers.PinGeminiModel: pin}); err != nil {
-			t.Fatal(err)
-		}
+		vaulttest.SetRecord(t, "gemini", "model", pin)
 	}
 	r := tb.Pick(context.Background(), "sonnet", "gemini", router.State{}, RosterPick(router.PickOpts{Configured: allConfigured, Now: func() time.Time { return now0 }}))
 	var models []string

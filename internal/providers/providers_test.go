@@ -29,8 +29,8 @@ const overlay = `{
 
 func load(t *testing.T) *Registry {
 	t.Helper()
-	vaulttest.UseKeyring(t)  // scratch config dir + in-memory keyring: never the real OS keyring
-	t.Setenv(PinProfile, "") // a session launched with a provider pin must not leak into the registry tests
+	vaulttest.UseKeyring(t)         // scratch config dir + in-memory keyring: never the real OS keyring
+	t.Setenv(EnvSessionProfile, "") // a session launched with a provider pin must not leak into the registry tests
 	reg, err := Parse(defaultsJSON, []byte(overlay))
 	if err != nil {
 		t.Fatal(err)
@@ -106,7 +106,7 @@ func TestValidateRejectsOpencodeFallbackAuto(t *testing.T) {
 // an overlay's opencodeLadder/opencodePlugins replace the defaults' whole, not merge into them.
 func TestOverlayReplacesOpencodeLadderAndPlugins(t *testing.T) {
 	vaulttest.UseKeyring(t)
-	t.Setenv(PinProfile, "")
+	t.Setenv(EnvSessionProfile, "")
 	base := []byte(`{"providers": {"anthropic": {"a": {"protocol": "anthropic", "base_url": "https://a", "auth": {"type": "none"}},
 		"b": {"protocol": "anthropic", "base_url": "https://b", "auth": {"type": "none"}}}},
 		"routing": {"opencode": {"ladder": ["opencode-go"]}}, "opencodePlugins": ["old-plugin"]}`)
@@ -129,7 +129,7 @@ func TestOverlayReplacesOpencodeLadderAndPlugins(t *testing.T) {
 // (two "chatgpt" entries, or a "chatgpt"/"openai" collision) must collapse to one, first occurrence wins.
 func TestOverlayLadderNormalizesLegacyProviderNamesAndDropsDuplicates(t *testing.T) {
 	vaulttest.UseKeyring(t)
-	t.Setenv(PinProfile, "")
+	t.Setenv(EnvSessionProfile, "")
 	base := []byte(`{"providers": {
 		"openai": {"chatgpt": {"protocol": "openai", "base_url": "https://a", "auth": {"type": "none"}, "opencodeID": "openai"}},
 		"github": {"personal": {"protocol": "openai", "base_url": "https://b", "auth": {"type": "none"}, "opencodeID": "github-copilot"}}
@@ -173,9 +173,8 @@ func TestValidateAcceptsOpencodeSubIDsWithoutProviders(t *testing.T) {
 
 func TestSelectPinsAndCrossProvider(t *testing.T) {
 	reg := load(t)
-	if err := SetPins(map[string]string{PinModel: "claude-opus-4-8", SlotPin("haiku"): "openai:gpt-5-nano"}); err != nil {
-		t.Fatal(err)
-	}
+	vaulttest.SetRecord(t, "claude", "model", "claude-opus-4-8")
+	vaulttest.SetRecord(t, "claude", "slots.haiku", "openai:gpt-5-nano")
 	sel, err := Select(reg, "")
 	if err != nil {
 		t.Fatal(err)
@@ -196,7 +195,7 @@ func TestSelectPinsAndCrossProvider(t *testing.T) {
 		t.Errorf("unregistered prefix must stay a model: %+v", tgt)
 	}
 	if err := vault.View(func(tx *vault.Tx) error {
-		if got := Pin(PinModel); got != "claude-opus-4-8" {
+		if got := AgentRecord("claude").Model; got != "claude-opus-4-8" {
 			t.Errorf("vault pin = %q; want claude-opus-4-8", got)
 		}
 		return nil
@@ -283,14 +282,12 @@ func TestProviderMarshalRedactsHeaders(t *testing.T) {
 // PinDiff previews only real changes and never writes the vault.
 func TestPinDiffPreviewsWithoutWriting(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	if err := SetPins(map[string]string{PinProfile: "gemini"}); err != nil {
-		t.Fatal(err)
-	}
+	vaulttest.Put(t, vault.Pins, "A", "1")
 	before, err := os.ReadFile(vault.Path())
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, err := PinDiff(map[string]string{PinProfile: "gemini", SlotPin("opus"): "x"})
+	got, err := PinDiff(map[string]string{"A": "1", "B": "x"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -298,7 +295,7 @@ func TestPinDiffPreviewsWithoutWriting(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got) != 1 || got[0] != SlotPin("opus")+": (unset) → x" || !bytes.Equal(before, after) {
+	if len(got) != 1 || got[0] != "B: (unset) → x" || !bytes.Equal(before, after) {
 		t.Fatalf("PinDiff = %q (vault changed: %v)", got, !bytes.Equal(before, after))
 	}
 }

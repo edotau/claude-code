@@ -16,7 +16,6 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths/pathstest"
-	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -153,9 +152,7 @@ func TestBridgeRunModelPin(t *testing.T) {
 	srv := newServer(&hits, 0)
 	defer srv.Close()
 	setupRegistry(t, srv)
-	if err := providers.SetPins(map[string]string{providers.SlotPin("sonnet"): "claude-sonnet-5"}); err != nil { // vault-only
-		t.Fatal(err)
-	}
+	vaulttest.SetRecord(t, "claude", "slots.sonnet", "claude-sonnet-5")
 
 	dir := t.TempDir()
 

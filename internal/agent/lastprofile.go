@@ -111,14 +111,8 @@ func ClearLastProfiles() error {
 	return nil
 }
 
-// ClearLastProfilesFor forgets the defaults of every agent whose profile pin is a key of pins, in all workspaces.
-func ClearLastProfilesFor(pins map[string]string) error {
-	var gone []string
-	for _, k := range rosterRows {
-		if _, ok := pins[k.CLI.ProfilePin]; ok && k.CLI.ProfilePin != "" {
-			gone = append(gone, k.Name)
-		}
-	}
+// ClearLastProfilesFor forgets the defaults of the named agents, in all workspaces.
+func ClearLastProfilesFor(gone ...string) error {
 	if len(gone) == 0 {
 		return nil
 	}

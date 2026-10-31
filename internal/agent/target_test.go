@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/vault/vaulttest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -60,10 +61,8 @@ func TestResolveTargetFallsBackWhenSessionProviderCannotServe(t *testing.T) {
 
 	// The CODEX_MODEL pin beats both the chatgpt provider's own opus slot and codexOwnModel's
 	// config.toml (unset here), once the ChatGPT login fallback applies.
-	setPin(t, providers.PinCodexModel, "")
-	if err := providers.SetPins(map[string]string{providers.PinCodexModel: "gpt-6.1-sol"}); err != nil {
-		t.Fatal(err)
-	}
+	vaulttest.SetRecord(t, "codex", "model", "")
+	vaulttest.SetRecord(t, "codex", "model", "gpt-6.1-sol")
 	target, _, err = schemaFor("codex").ResolveTarget(reg, sel, false)
 	if err != nil {
 		t.Fatal(err)
@@ -105,10 +104,8 @@ func TestResolveTargetGeminiModelPinBeatsRegistryDefault(t *testing.T) {
 	}
 	sel := providers.Selection{Provider: sub, Slots: map[string]providers.Target{"opus": {Provider: sub, Model: "claude-opus-5-5"}}}
 
-	setPin(t, providers.PinGeminiModel, "")
-	if err := providers.SetPins(map[string]string{providers.PinGeminiModel: ""}); err != nil {
-		t.Fatal(err)
-	}
+	vaulttest.SetRecord(t, "gemini", "model", "")
+	vaulttest.SetRecord(t, "gemini", "model", "")
 	target, _, err := schemaFor("gemini").ResolveTarget(reg, sel, false)
 	if err != nil {
 		t.Fatal(err)
@@ -118,9 +115,7 @@ func TestResolveTargetGeminiModelPinBeatsRegistryDefault(t *testing.T) {
 		t.Fatalf("unpinned: target.Model = %q, want the registry's gemini opus slot %q", target.Model, wantDefault)
 	}
 
-	if err := providers.SetPins(map[string]string{providers.PinGeminiModel: "gemini-2.5-pro"}); err != nil {
-		t.Fatal(err)
-	}
+	vaulttest.SetRecord(t, "gemini", "model", "gemini-2.5-pro")
 	target, _, err = schemaFor("gemini").ResolveTarget(reg, sel, false)
 	if err != nil {
 		t.Fatal(err)

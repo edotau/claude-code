@@ -45,7 +45,7 @@ func (testLauncher) Claude(_ context.Context, o ClaudeOptions, args []string) (C
 	if err != nil {
 		return ClaudeLaunch{}, err
 	}
-	return ClaudeLaunch{Binary: bin, Argv: args, Env: os.Environ(), Set: map[string]string{providers.PinProfile: o.Provider}}, nil
+	return ClaudeLaunch{Binary: bin, Argv: args, Env: os.Environ(), Set: map[string]string{providers.EnvSessionProfile: o.Provider}}, nil
 }
 
 // activateAgents turns the external agents on (an external agent with no profile is off) via registry profiles.

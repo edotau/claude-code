@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
 // attach per engine: codex folds the file inline (stdin has no live-read channel). gemini (agy)
@@ -115,10 +115,8 @@ func geminiOwnLoginFixture(t *testing.T) {
 // returns res with Model set — vendor.go Run()).
 func TestVendorRunnerGeminiModelResolutionPinBeatsDefault(t *testing.T) {
 	geminiOwnLoginFixture(t)
-	setPin(t, providers.PinGeminiModel, "")
-	if err := providers.SetPins(map[string]string{providers.PinGeminiModel: ""}); err != nil {
-		t.Fatal(err)
-	}
+	vaulttest.SetRecord(t, "gemini", "model", "")
+	vaulttest.SetRecord(t, "gemini", "model", "")
 
 	res, err := newCLIRunner("gemini").Run(context.Background(), RunOptions{Prompt: "task"}, Discard)
 	if err == nil {
@@ -128,9 +126,7 @@ func TestVendorRunnerGeminiModelResolutionPinBeatsDefault(t *testing.T) {
 		t.Errorf("res.Model = %q, want AgyDefaultModel %q (no pin, no explicit model)", res.Model, AgyDefaultModel)
 	}
 
-	if err := providers.SetPins(map[string]string{providers.PinGeminiModel: "gemini-2.5-pro"}); err != nil {
-		t.Fatal(err)
-	}
+	vaulttest.SetRecord(t, "gemini", "model", "gemini-2.5-pro")
 	res, err = newCLIRunner("gemini").Run(context.Background(), RunOptions{Prompt: "task"}, Discard)
 	if err == nil {
 		t.Fatal("want an error (no real agy binary installed), got nil")
@@ -143,9 +139,7 @@ func TestVendorRunnerGeminiModelResolutionPinBeatsDefault(t *testing.T) {
 // An explicit RunOptions.Model still wins over the GEMINI_AGENT_MODEL pin.
 func TestVendorRunnerGeminiExplicitModelBeatsPin(t *testing.T) {
 	geminiOwnLoginFixture(t)
-	if err := providers.SetPins(map[string]string{providers.PinGeminiModel: "gemini-2.5-pro"}); err != nil {
-		t.Fatal(err)
-	}
+	vaulttest.SetRecord(t, "gemini", "model", "gemini-2.5-pro")
 
 	res, err := newCLIRunner("gemini").Run(context.Background(), RunOptions{Prompt: "task", Model: "gemini-3.8-flash-low"}, Discard)
 	if err == nil {

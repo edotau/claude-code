@@ -91,7 +91,7 @@ func dbxEnv(t *testing.T) *dialog {
 	vaulttest.UseKeyring(t)
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	for _, k := range []string{providers.PinProfile, providers.PinModel} {
+	for _, k := range []string{providers.EnvSessionProfile} {
 		t.Setenv(k, "")
 	}
 	vaulttest.Put(t, vault.Overlay, "providers", dbxDoc)
@@ -447,7 +447,7 @@ func dbxSetUpEnv(t *testing.T) *dialog {
 	vaulttest.UseKeyring(t)
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	for _, k := range []string{providers.PinProfile, providers.PinModel, providers.PinCodexProfile, providers.PinOpencodeProfile} {
+	for _, k := range []string{providers.EnvSessionProfile} {
 		t.Setenv(k, "")
 	}
 	row := func(n string) string {

@@ -7,6 +7,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/schemas"
+	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
 // Given a recorded workspace profile, a Claude launch resolves flag > last-used > pin > registry default.
@@ -36,13 +37,11 @@ func TestClaudeProfileResolutionLastUsed(t *testing.T) {
 	if got := profile(LaunchOptions{Provider: "anthropic"}); got != "anthropic" {
 		t.Errorf("flag: got %q, want anthropic", got)
 	}
-	if err := providers.SetPins(map[string]string{providers.PinProfile: "max"}); err != nil {
-		t.Fatal(err)
-	}
+	vaulttest.SetRecord(t, "claude", "profile", "max")
 	if got := profile(LaunchOptions{}); got != "nvidia" {
 		t.Errorf("pin set: got %q, want nvidia (this workspace beats the pin)", got)
 	}
-	if got := providers.Pin(providers.PinProfile); got != "max" {
+	if got := providers.AgentRecord("claude").Profile; got != "max" {
 		t.Errorf("recording must not touch the pin, got %q", got)
 	}
 	if err := ClearLastProfiles(); err != nil {
@@ -51,9 +50,7 @@ func TestClaudeProfileResolutionLastUsed(t *testing.T) {
 	if got := profile(LaunchOptions{}); got != "max" {
 		t.Errorf("after switch clears the cache: got %q, want the pin max", got)
 	}
-	if err := providers.SetPins(map[string]string{providers.PinProfile: ""}); err != nil {
-		t.Fatal(err)
-	}
+	vaulttest.SetRecord(t, "claude", "profile", "")
 	if err := os.WriteFile(lastProfileFile(), []byte("{not json"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -66,9 +63,8 @@ func TestClaudeProfileResolutionLastUsed(t *testing.T) {
 func TestAgentLastProfileIsPerAgent(t *testing.T) {
 	hermetic(t, "")
 	t.Chdir(t.TempDir())
-	if err := providers.SetPins(map[string]string{providers.PinOpencodeProfile: "nvidia", providers.PinCopilotProfile: "nvidia"}); err != nil {
-		t.Fatal(err)
-	}
+	vaulttest.SetRecord(t, "opencode", "profile", "nvidia")
+	vaulttest.SetRecord(t, "copilot", "profile", "nvidia")
 	resolved := func(name string) string { return launchProfile(name, LaunchOptions{}).Provider }
 	RecordLastProfile("claude", "anthropic", nil)
 	RecordLastProfile("opencode", "openai", nil)
@@ -81,7 +77,7 @@ func TestAgentLastProfileIsPerAgent(t *testing.T) {
 	if got := launchProfile("opencode", LaunchOptions{Provider: "nvidia"}).Provider; got != "nvidia" {
 		t.Errorf("flag: got %q, want nvidia", got)
 	}
-	if err := ClearLastProfilesFor(map[string]string{providers.PinOpencodeProfile: "x"}); err != nil {
+	if err := ClearLastProfilesFor("opencode"); err != nil {
 		t.Fatal(err)
 	}
 	if got := resolved("opencode"); got != "nvidia" {
@@ -101,5 +97,24 @@ func TestLastProfileMigratesV1ToClaude(t *testing.T) {
 	}
 	if got := st.Workspaces["/w/a"]["claude"].Profile; got != "prod" || len(st.Workspaces["/w/a"]) != 1 {
 		t.Errorf("v1 entry: got %+v, want claude=prod only", st.Workspaces)
+	}
+}
+
+// Given codex records, its launch reuses the repo's last profile (own-login chatgpt included) and an off codex stays off.
+func TestCodexReusesLastProfileButOffStaysOff(t *testing.T) {
+	hermetic(t, "")
+	t.Chdir(t.TempDir())
+	if err := SetAgentRecord("codex", AgentRecord{Profile: "openai"}); err != nil {
+		t.Fatal(err)
+	}
+	RecordLastProfile("codex", "chatgpt", nil)
+	if got := launchProfile("codex", LaunchOptions{}).Provider; got != "chatgpt" {
+		t.Errorf("on codex: got %q, want the repo's last-used chatgpt over its record", got)
+	}
+	if err := SetAgentRecord("codex", AgentRecord{}); err != nil {
+		t.Fatal(err)
+	}
+	if got := launchProfile("codex", LaunchOptions{}).Provider; got != "" {
+		t.Errorf("off codex: got %q, the cache must never turn it on", got)
 	}
 }

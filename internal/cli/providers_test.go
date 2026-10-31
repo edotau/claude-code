@@ -13,6 +13,7 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 	"github.com/edotau/claude-code/internal/vault"
+	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
 // fakeModelsServer serves the OpenAI-shaped {"data":[{"id":...}]} catalog listLive's non-copilot dispatch GETs.
@@ -250,13 +251,11 @@ func TestApplyModelPinsQualifiesAcrossSessionProvider(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := providers.SetPins(map[string]string{providers.PinProfile: "anthropic"}); err != nil {
-		t.Fatal(err)
-	}
+	vaulttest.SetRecord(t, "claude", "profile", "anthropic")
 	if code, handled := applyModelPins(reg, "personal", false, false, []string{"opus=claude-opus-5.5"}); handled || code != 0 {
 		t.Fatalf("applyModelPins: code=%d handled=%v, want 0, false", code, handled)
 	}
-	if got := providers.Pin(providers.SlotPin("opus")); got != "personal:claude-opus-5.5" {
+	if got := providers.AgentRecord("claude").Slots["opus"]; got != "personal:claude-opus-5.5" {
 		t.Errorf("CLAUDE_OPUS_MODEL = %q, want %q", got, "personal:claude-opus-5.5")
 	}
 }
@@ -268,13 +267,11 @@ func TestApplyModelPinsBareWhenProviderMatchesSession(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := providers.SetPins(map[string]string{providers.PinProfile: "personal"}); err != nil {
-		t.Fatal(err)
-	}
+	vaulttest.SetRecord(t, "claude", "profile", "personal")
 	if code, handled := applyModelPins(reg, "personal", false, false, []string{"opus=claude-opus-5.5"}); handled || code != 0 {
 		t.Fatalf("applyModelPins: code=%d handled=%v, want 0, false", code, handled)
 	}
-	if got := providers.Pin(providers.SlotPin("opus")); got != "claude-opus-5.5" {
+	if got := providers.AgentRecord("claude").Slots["opus"]; got != "claude-opus-5.5" {
 		t.Errorf("CLAUDE_OPUS_MODEL = %q, want the bare spec %q", got, "claude-opus-5.5")
 	}
 }
@@ -300,13 +297,11 @@ func TestApplyModelPinsAllSlotQualifies(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := providers.SetPins(map[string]string{providers.PinProfile: "anthropic"}); err != nil {
-		t.Fatal(err)
-	}
+	vaulttest.SetRecord(t, "claude", "profile", "anthropic")
 	if code, handled := applyModelPins(reg, "personal", false, false, []string{"all=claude-opus-5.5"}); handled || code != 0 {
 		t.Fatalf("applyModelPins: code=%d handled=%v, want 0, false", code, handled)
 	}
-	if got := providers.Pin(providers.PinModel); got != "personal:claude-opus-5.5" {
+	if got := providers.AgentRecord("claude").Model; got != "personal:claude-opus-5.5" {
 		t.Errorf("CLAUDE_MODEL = %q, want %q", got, "personal:claude-opus-5.5")
 	}
 }
