@@ -290,7 +290,7 @@ func projectLinksTo(dir string) []string {
 		if fi, err := os.Lstat(l); err != nil || fi.Mode()&os.ModeSymlink == 0 {
 			continue
 		}
-		if t, err := filepath.EvalSymlinks(l); err == nil && t == want {
+		if paths.SamePath(nativeLinkTarget(l), want) {
 			out = append(out, l)
 		}
 	}

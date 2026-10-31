@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/transcript"
 )
@@ -16,7 +17,7 @@ const checkpointPct = 85
 
 // contextCheckpoint blocks Stop once per session at ≥85% context so the model can hand off before compaction.
 func contextCheckpoint(in *Input, stderr io.Writer) int {
-	if in.SessionID == "" || in.TranscriptPath == "" || in.StopHookActive {
+	if memory.IsUpdateChild() || in.SessionID == "" || in.TranscriptPath == "" || in.StopHookActive {
 		return ExitProceed
 	}
 	flag := filepath.Join(paths.StateDir(), "checkpoint", filepath.Base(in.SessionID))

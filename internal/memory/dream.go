@@ -117,10 +117,12 @@ func IsDreamChild() bool {
 }
 
 // DreamStampPath records the last consolidation time.
-func DreamStampPath() string { return filepath.Join(StateDir(), "last-dream") }
+func DreamStampPath(root string) string {
+	return filepath.Join(StateDir(), "last-dream-"+filepath.Base(Dir(root)))
+}
 
-func dreamStamp() (time.Time, bool) {
-	data, err := os.ReadFile(DreamStampPath())
+func dreamStamp(root string) (time.Time, bool) {
+	data, err := os.ReadFile(DreamStampPath(root))
 	if err != nil {
 		return time.Time{}, false
 	}
@@ -130,7 +132,7 @@ func dreamStamp() (time.Time, bool) {
 
 // DreamDue: the last dream is over a day old (or never ran) and a bank changed since.
 func DreamDue(cwd string, now time.Time) bool {
-	stamp, ok := dreamStamp()
+	stamp, ok := dreamStamp(cwd)
 	if ok && now.Sub(stamp) < dreamInterval {
 		return false
 	}
@@ -192,6 +194,6 @@ func Dream(o DreamOptions) error {
 	if _, err := SettleBank(o.CWD, time.Now()); err != nil {
 		fmt.Fprintln(o.Out, "memory dream: settle:", err)
 	}
-	stampErr := paths.AtomicWrite(DreamStampPath(), []byte(time.Now().Format(time.RFC3339)+"\n"), 0o600)
+	stampErr := paths.AtomicWrite(DreamStampPath(o.CWD), []byte(time.Now().Format(time.RFC3339)+"\n"), 0o600)
 	return errors.Join(lockErr, runErr, stampErr)
 }

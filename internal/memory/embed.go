@@ -82,7 +82,7 @@ type EmbedClient struct {
 	Embed     func(ctx context.Context, texts []string) ([][]float32, error)
 }
 
-// OpenEmbedClient builds profile's client for model ("" = discover one; profile "" = the pin); a var so tests fake it.
+// OpenEmbedClient builds a model client; an empty profile uses the agent record.
 var OpenEmbedClient = openDatabricksEmbed
 
 // routerLink is the running loopback router's base URL and client secret; ok is false when it is down (never started here).
@@ -316,8 +316,7 @@ type Semantic struct {
 // readProfileCache is the per-profile read NewSemantic uses; a var so tests can fail one profile.
 var readProfileCache = readEmbedCache
 
-// NewSemantic embeds query within embedRecallWait and pairs it with the cached vectors; any failure is the
-// caller's cue to rank by keyword alone. The session profile's cache wins, else the pinned profile's.
+// NewSemantic pairs query vectors with the session profile cache, falling back to the agent record; errors use keywords.
 func NewSemantic(query string) (*Semantic, error) {
 	if os.Getenv("CLAUDE_RECALL_SEMANTIC") == "0" {
 		return nil, errors.New("disabled by CLAUDE_RECALL_SEMANTIC=0")
@@ -508,7 +507,7 @@ func openDatabricksEmbed(ctx context.Context, profile, model string) (*EmbedClie
 	if err != nil {
 		return nil, err
 	}
-	sel, err := providers.Select(reg, profile) // "" = the pin, then the registry default
+	sel, err := providers.Select(reg, profile) // "" = the agent record, then the registry default
 	if err != nil {
 		return nil, err
 	}
@@ -582,33 +581,4 @@ func PostEmbeddings(ctx context.Context, url string, texts []string, authorize f
 		}
 	}
 	return out, nil
-}
-
-// Candidates are the top k current entries of root's corpus by cosine alone (at least floor), for prompts that
-// share no keyword with the entry they mean; an in-memory scan, no network.
-func (s *Semantic) Candidates(root string, k int, floor float64, skip func(SearchHit) bool) (hits []SearchHit, skipped bool) {
-	type scored struct {
-		hit SearchHit
-		cos float64
-	}
-	var all []scored
-	for _, h := range corpusBlocks(root) {
-		e := EntryFromHit(h)
-		if e.Archived || e.Superseded {
-			continue
-		}
-		if cos, ok := s.Cosine(e); ok && cos >= floor {
-			if skip != nil && skip(h) {
-				skipped = true // a qualifying match already in context
-				continue
-			}
-			h.ID = e.ID
-			all = append(all, scored{h, cos})
-		}
-	}
-	sort.SliceStable(all, func(i, j int) bool { return all[i].cos > all[j].cos })
-	for _, a := range all[:min(k, len(all))] {
-		hits = append(hits, a.hit)
-	}
-	return hits, skipped
 }

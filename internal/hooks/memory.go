@@ -48,6 +48,7 @@ func sessionStart(in *Input) Result {
 	if cwd == "" {
 		cwd, _ = os.Getwd()
 	}
+	recordSessionRoot(in.SessionID, cwd)
 	ctx := memoryContext(cwd, in.SessionID, in.TranscriptPath, time.Now())
 	return Result{Context: joinContext(ctx, preflightNotice(time.Now()))}
 }
@@ -71,7 +72,7 @@ func memoryContext(cwd, sessionID, transcriptPath string, now time.Time) string 
 	out := ""
 	drift := driftNotice()
 	if bank := memory.SessionSurface(cwd); bank != "" {
-		note := bankLoadNote(prefix) + chainNote(chain, sessionID, now) + doctorNotice()
+		note := bankLoadNote(prefix) + chainNote(chain, sessionID, now) + doctorNotice(cwd)
 		out = strings.TrimSpace(note+"\n"+drift) + "\n\n" + bank
 	} else {
 		if prefix != "" {
@@ -115,7 +116,10 @@ func chainNote(chain, sessionID string, now time.Time) string {
 		return ""
 	}
 	prevID := entry.sessionID
-	note := " Previous session id: " + prevID + " (reference for the prior session's transcript / claude --resume)."
+	note := ""
+	if prevID != sessionID {
+		note = " Previous session id: " + prevID + " (reference for the prior session's transcript / claude --resume)."
+	}
 	caughtUp := ""
 	if !memory.IsUpdateChild() {
 		caughtUp = catchUpPrevious(entry, sessionID, now)
@@ -135,8 +139,8 @@ func chainNote(chain, sessionID string, now time.Time) string {
 
 // doctorNotice is the cached memory-review notice line (from `memory update`'s settle path), or "" with none.
 // A full Doctor pass tokenizes the home bank + access log, which has no place on the launch path.
-func doctorNotice() string {
-	data, err := os.ReadFile(memory.DoctorNoticePath())
+func doctorNotice(root string) string {
+	data, err := os.ReadFile(memory.DoctorNoticePath(root))
 	if err != nil {
 		return ""
 	}
@@ -257,6 +261,7 @@ func scaffoldSafe(cwd string) bool {
 // sessionUpdate (Stop) dispatches a detached `memory update` once a session has substantive work;
 // with no spawn possible it blocks at most updateMaxBlocks times asking for `claude-code memory update`.
 func sessionUpdate(in *Input, stderr io.Writer) int {
+	in = sessionRootInput(in)
 	refreshEmbeddings(in.CWD)
 	if !updatable(in) {
 		return ExitProceed
@@ -269,6 +274,7 @@ func sessionUpdate(in *Input, stderr io.Writer) int {
 
 // sessionUpdateEnd (SessionEnd) updates the final state when work since the last dispatch crosses the floor.
 func sessionUpdateEnd(in *Input) Result {
+	in = sessionRootInput(in)
 	refreshEmbeddings(in.CWD)
 	if !updatable(in) {
 		return Result{}
@@ -280,6 +286,7 @@ func sessionUpdateEnd(in *Input) Result {
 // preCompact (ADK add_events_to_memory): before Claude Code compacts the context, update any work no earlier
 // dispatch covered so the bank holds them; the transcript file itself survives compaction, so this never blocks.
 func preCompact(in *Input) Result {
+	in = sessionRootInput(in)
 	if !updatable(in) {
 		return Result{}
 	}

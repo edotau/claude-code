@@ -23,6 +23,7 @@ const agentRecallMarker = "<memory-recall>"
 // it cites, for up to 3 hits (persisted id or derived ContentRef — `memory show` loads either);
 // ("", nil) on no match.
 func agentRecall(sessionID, cwd, task string) (block string, ids []string) {
+	cwd = sessionRoot(sessionID, cwd)
 	q := strings.TrimSpace(task)
 	if q == "" || strings.Contains(q, agentRecallMarker) {
 		return "", nil

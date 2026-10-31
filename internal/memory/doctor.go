@@ -50,12 +50,12 @@ func statBank(dir string) BankStat {
 // DefaultStaleDays is the doctor's bank-staleness horizon.
 const DefaultStaleDays = 90
 
-// DoctorNoticePath is the cached one-line doctor summary SessionStart reads instead of running Doctor
-// (which tokenizes the home bank + access log) on the launch path.
-func DoctorNoticePath() string { return filepath.Join(StateDir(), "doctor-notice") }
+// DoctorNoticePath is the per-store cached doctor summary read at SessionStart.
+func DoctorNoticePath(root string) string {
+	return filepath.Join(StateDir(), "doctor-notice-"+filepath.Base(Dir(root)))
+}
 
-// WriteDoctorNotice runs Doctor for root and caches its first problem (with a +N-more count) as one line;
-// an empty file means "checked, nothing wrong", distinct from no file at all.
+// WriteDoctorNotice caches root's first problem and a count; an empty file means checked and healthy.
 func WriteDoctorNotice(root string, staleDays int, now time.Time) error {
 	problems := Doctor(root, staleDays, now)
 	line := ""
@@ -65,7 +65,7 @@ func WriteDoctorNotice(root string, staleDays int, now time.Time) error {
 			line += " (+" + strconv.Itoa(len(problems)-1) + " more)"
 		}
 	}
-	return paths.AtomicWrite(DoctorNoticePath(), []byte(line), 0o600)
+	return paths.AtomicWrite(DoctorNoticePath(root), []byte(line), 0o600)
 }
 
 // credentialPattern is a coarse credential-shaped tripwire, not a full secrets scanner.
@@ -81,6 +81,7 @@ func Doctor(root string, staleDays int, now time.Time) []string {
 	}
 	problems = append(problems, bankProblems("home", HomeBankStat(), staleDays, now)...)
 	problems = append(problems, updateProblems(now)...)
+	problems = append(problems, nativeLinkProblems(root)...)
 	return append(problems, AccessNominations(now)...)
 }
 

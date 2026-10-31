@@ -6,7 +6,7 @@
 // Invariants, in order of importance:
 //  1. Credentials are NEVER touched: the vault (state/vault.db), settings.json, .credentials.json.
 //  2. The memory store (memory/** — the local memory Git repo incl. .git, raw archives)
-//     and migration state (state/harness/memory/{migrate,journal,access}, bank.lock) are NEVER targets, not even opt-in — they hold irrecoverable history and in-flight writes.
+//     and migration state (state/harness/memory/{migrate,journal}, bank.lock) are NEVER targets. Access state is protected except the two named orphan logs.
 //  3. The opt-in `--target sessions` target always requires confirmation before it deletes anything:
 //     a [y/N] prompt on a TTY, --yes without one.
 package clean
@@ -68,14 +68,17 @@ func targets() []target {
 			globs: func() []string { return []string{s("codex", "routing-*.jsonl")} },
 		},
 		{
-			name: "memory-state", doc: "state/harness/memory: update logs, session stamps, update receipts, recall-seen sets, watcher claims",
+			name: "memory-state", doc: "state/harness/memory: aged session state, worker logs and orphan global/memories access logs",
 			globs: func() []string {
 				return []string{
 					s("memory", "update-*.log"), s("memory", "stamp-*"),
 					s("memory", "update-result-*"), s("memory", "recall-seen", "*"),
-					s("memory", "watch-*"),
+					s("memory", "watch-*"), s("memory", "count-*"), s("memory", "root-*"),
+					s("memory", "dream-*.log"), s("memory", "harvest-*.log"),
+					s("memory", "access", "global.log"), s("memory", "access", "memories.log"),
 				}
 			},
+			keep: memoryStateKeeper(),
 		},
 		{
 			name: "hook-state", doc: "per-session hook flags under state/harness: checkpoint/, stop-format/, agents-inflight markers, plans-scratch/*.dest",
@@ -348,7 +351,10 @@ func protected(p string) bool {
 	if p == filepath.Clean(memory.BankLockPath()) {
 		return true
 	}
-	for _, root := range []string{memory.StoreDir(), memory.JournalDir(), memory.AccessStateDir()} {
+	if access := filepath.Clean(memory.AccessStateDir()); p == access || strings.HasPrefix(p, access+string(filepath.Separator)) {
+		return !orphanAccessLog(p)
+	}
+	for _, root := range []string{memory.StoreDir(), memory.JournalDir()} {
 		root = filepath.Clean(root)
 		if p == root || strings.HasPrefix(p, root+string(filepath.Separator)) {
 			return true
