@@ -8,13 +8,11 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
-	"os/signal"
 	"slices"
 	"strings"
-	"syscall"
 
 	"github.com/edotau/claude-code/internal/models"
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
@@ -35,34 +33,8 @@ type Plan struct {
 	Rest     []string
 }
 
-// spawn runs bin with argv and env, returning the child's exit code (err only if it could not start).
-// A package var so tests never launch the real CLI.
-var spawn = func(bin string, argv, env []string, stdin io.Reader, stdout, stderr io.Writer) (int, error) {
-	cmd := exec.Command(bin, argv...)
-	cmd.Env = env
-	cmd.Stdin = stdin
-	cmd.Stdout = stdout
-	cmd.Stderr = stderr
-	if err := cmd.Start(); err != nil {
-		return 0, err
-	}
-	// The tty already delivers SIGINT to the child; the parent only survives it and forwards SIGTERM.
-	sigs := make(chan os.Signal, 2)
-	signal.Notify(sigs, os.Interrupt, syscall.SIGTERM)
-	defer signal.Stop(sigs)
-	go func() {
-		for s := range sigs {
-			if s == syscall.SIGTERM {
-				_ = cmd.Process.Signal(s)
-			}
-		}
-	}()
-	err := cmd.Wait()
-	if ee, ok := errors.AsType[*exec.ExitError](err); ok {
-		return ee.ExitCode(), nil
-	}
-	return 0, err
-}
+// spawn is a package var so tests never launch the real CLI.
+var spawn = proc.RunForwarding
 
 // Run is the `claude-code databricks` verb; args follow the verb name and it returns the exit code.
 func Run(args []string) int {

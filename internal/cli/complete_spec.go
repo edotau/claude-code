@@ -149,7 +149,7 @@ func buildSpecTree() map[string]*compNode {
 			"clean":     {args: []func() []string{worktreeNames}, flags: []flagInfo{boolFlag("dry-run"), boolFlag("force")}},
 			"clean-all": {flags: []flagInfo{boolFlag("dry-run"), boolFlag("yes")}},
 		}},
-		"test": {sub: map[string]*compNode{"mutate": {flags: []flagInfo{flag("run")}}}},
+		"test": {sub: map[string]*compNode{"mutate": {flags: []flagInfo{flag("run")}}, "ramdisk": {}}},
 		"plan": {sub: map[string]*compNode{
 			"status": {flags: []flagInfo{boolFlag("all"), formatFlag()}},
 			"tick":   {flags: []flagInfo{flag("range"), flag("plan"), boolFlag("dry-run")}},

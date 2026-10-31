@@ -30,8 +30,8 @@ const DefaultPerKey = 4
 // sharedTryClaim is the machine-wide limiter seam; tests count or stub it.
 var sharedTryClaim = inflight.TryClaim
 
-// sharedPoll is how often a waiting leg re-checks the shared limiter.
-const sharedPoll = 250 * time.Millisecond
+// sharedPoll is how often a waiting leg re-checks the shared limiter; a var so tests can shorten it.
+var sharedPoll = 250 * time.Millisecond
 
 // legSeq makes each permit's shared marker id unique within the process.
 var legSeq atomic.Uint64
