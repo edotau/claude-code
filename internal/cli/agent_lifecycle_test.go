@@ -13,7 +13,7 @@ import (
 // seedClaudeJob saves a finished claude record with a log and, when events is non-nil, an events file.
 func seedClaudeJob(t *testing.T, at time.Time, events []agent.Event) agent.Record {
 	t.Helper()
-	rec := agent.NewRecord("claude", agent.Request{Prompt: "say hi"}, at)
+	rec := agent.NewRecord("claude", agent.RunOptions{Prompt: "say hi"}, at)
 	rec.Repo = t.TempDir()
 	rec.Status, rec.SessionID, rec.DurationMs = "ok", "sess-1", 42
 	if err := rec.Save(); err != nil {

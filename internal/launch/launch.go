@@ -475,8 +475,8 @@ func vendorPlan(ctx context.Context, name string, o Options, args []string) (Pla
 	if o.Direct {
 		ctx = agent.WithDirect(ctx)
 	}
-	spec, ok := agent.LookupSpec(name)
-	if !ok {
+	spec, ok := agent.LookupSchema(name)
+	if !ok || !spec.External() {
 		return Plan{}, fmt.Errorf("unknown agent %q (codex|gemini|opencode|copilot)", name)
 	}
 	if authVendorArgs(args) {
@@ -530,7 +530,7 @@ func vendorPlan(ctx context.Context, name string, o Options, args []string) (Pla
 		fmt.Fprintln(agent.NoticeOut, note)
 	}
 	if err != nil {
-		reason := fmt.Errorf("%w; %s", err, agent.ConfigureHint(name))
+		reason := fmt.Errorf("%w; %s", err, spec.CLI.ConfigureHint)
 		// A human at a terminal is offered configure once; a yes re-resolves on the new state.
 		if OfferConfigure != nil && !o.PrintEnv && OfferConfigure(name, reason) {
 			env, prefix, err = retryVendorConfigure(ctx, name, o)
@@ -542,7 +542,7 @@ func vendorPlan(ctx context.Context, name string, o Options, args []string) (Pla
 			return passthrough(spec, name, reason, args)
 		}
 	}
-	bin, err := lookPath(spec.Binary)
+	bin, err := lookPath(spec.CLI.Binary)
 	if err != nil {
 		return Plan{}, err
 	}
@@ -568,7 +568,7 @@ func withAgentPins(name string, o Options) Options {
 // copilotRegistryPlan is the interactive Databricks copilot launch on a native model registry. It fails closed:
 // no error here reaches passthrough or the plain CLI, which would run on copilot's own GitHub login.
 func copilotRegistryPlan(
-	ctx context.Context, spec agent.Spec, reg *providers.Registry, t providers.Target, note string, args []string,
+	ctx context.Context, spec agent.Schema, reg *providers.Registry, t providers.Target, note string, args []string,
 	dry bool,
 ) (Plan, error) {
 	if note != "" {
@@ -578,7 +578,7 @@ func copilotRegistryPlan(
 	if err != nil {
 		return Plan{}, err
 	}
-	bin, err := lookPath(spec.Binary)
+	bin, err := lookPath(spec.CLI.Binary)
 	if err != nil {
 		cr.Revoke()
 		return Plan{}, err
@@ -865,8 +865,8 @@ var OfferConfigure func(vendor string, reason error) bool
 
 // passthrough launches the vendor's own CLI untouched when the harness cannot route it: the user installed
 // that CLI and it carries its own login, so refusing to run it would only hide its own `agy` sign-in.
-func passthrough(spec agent.Spec, name string, reason error, args []string) (Plan, error) {
-	if _, err := lookPath(spec.Binary); err != nil {
+func passthrough(spec agent.Schema, name string, reason error, args []string) (Plan, error) {
+	if _, err := lookPath(spec.CLI.Binary); err != nil {
 		return Plan{}, reason // no CLI to fall back to: the routing error is the whole story
 	}
 	fmt.Fprintf(agent.NoticeOut, "%v\nlaunching the plain %s CLI on its own login (not routed by claude-code)\n", reason, name)
@@ -874,8 +874,8 @@ func passthrough(spec agent.Spec, name string, reason error, args []string) (Pla
 }
 
 // plainPlan is the vendor's own CLI on its own login: no routing env, but the vendor spec's launch env/args still apply.
-func plainPlan(spec agent.Spec, args []string) (Plan, error) {
-	bin, err := lookPath(spec.Binary)
+func plainPlan(spec agent.Schema, args []string) (Plan, error) {
+	bin, err := lookPath(spec.CLI.Binary)
 	if err != nil {
 		return Plan{}, err
 	}

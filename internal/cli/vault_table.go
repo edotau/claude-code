@@ -11,6 +11,7 @@ import (
 
 	"unicode/utf8"
 
+	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/configure"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/secrets"
@@ -498,10 +499,11 @@ var vaultClaudeTiers = []string{"OPUS", "SONNET", "HAIKU", "FABLE"}
 
 // vaultAgentNames is claude, then the other AgentSpecs agents alphabetically, then extra overlay agent names.
 func vaultAgentNames(vs map[string]any) []string {
-	names := []string{"claude"}
-	var rest []string
+	var names, rest []string
 	for _, sp := range providers.AgentSpecs() {
-		if sp.Name != "claude" {
+		if sp.Binary == "" {
+			names = append(names, sp.Name)
+		} else {
 			rest = append(rest, sp.Name)
 		}
 	}
@@ -549,7 +551,7 @@ func vaultAgentPins(name string, pins map[string]string) map[string]string {
 			out[suffix] = v
 		}
 	}
-	if name != "claude" {
+	if !vaultAgentIsClaude(name) {
 		return out
 	}
 	var tiers []string
@@ -565,9 +567,15 @@ func vaultAgentPins(name string, pins map[string]string) map[string]string {
 	return out
 }
 
+// vaultAgentIsClaude reports the roster row the harness launches itself (no external binary).
+func vaultAgentIsClaude(name string) bool {
+	s, ok := agent.LookupSchema(name)
+	return ok && !s.External()
+}
+
 // vaultAgentOff reports an agent whose ACTIVE pin says off (claude is always on).
 func vaultAgentOff(name string, pins map[string]string) bool {
-	return name != "claude" && strings.TrimSpace(pins[strings.ToUpper(name)+"_ACTIVE"]) == providers.AgentOff
+	return !vaultAgentIsClaude(name) && strings.TrimSpace(pins[strings.ToUpper(name)+"_ACTIVE"]) == providers.AgentOff
 }
 
 // vaultAgentTable is the AGENT/PROFILE/MODEL/... table, one row per agent; empty columns drop.

@@ -64,11 +64,10 @@ var agentMenus = map[string]func(d *dialog) agentMenu{
 // pickAgent is the submenu picker seam; tests replace it.
 var pickAgent = tui.PickBack
 
-// displayLabel is the user-facing name for an agent row: every vendor is its own name except gemini,
-// whose runner is agy 1.4.2 (Antigravity) — the internal vendor/runner name stays "gemini" everywhere else.
+// displayLabel is the user-facing name for an agent row: its roster DisplayName, else its own name.
 func displayLabel(name string) string {
-	if name == "gemini" {
-		return "antigravity"
+	if s, ok := agent.LookupSchema(name); ok && s.CLI.DisplayName != "" {
+		return s.CLI.DisplayName
 	}
 	return name
 }
@@ -76,8 +75,10 @@ func displayLabel(name string) string {
 // runAgentMenu shows one agent's submenu with its current mode (and verified) in the title, cursor on that mode's row.
 func runAgentMenu(d *dialog, name string, m agentMenu) bool {
 	internal := name // the page title carries the display label; undo displayLabel
-	if name == displayLabel("gemini") {
-		internal = "gemini"
+	for _, s := range agent.Roster() {
+		if s.CLI.DisplayName == name {
+			internal = s.Name
+		}
 	}
 	if r := modelRow(d, internal); r != nil {
 		m.rows = append(m.rows, *r)

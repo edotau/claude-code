@@ -79,7 +79,7 @@ type gaugeRunner struct {
 func (g gaugeRunner) Name() string     { return g.name }
 func (g gaugeRunner) Caps() Caps       { return Caps{} }
 func (g gaugeRunner) Available() error { return nil }
-func (g gaugeRunner) Run(context.Context, Request, Sink) (Result, error) {
+func (g gaugeRunner) Run(context.Context, RunOptions, Sink) (Result, error) {
 	n := g.cur.Add(1)
 	for m := g.max.Load(); n > m && !g.max.CompareAndSwap(m, n); m = g.max.Load() {
 	}
@@ -96,7 +96,7 @@ func TestBatchCapsConcurrencyPerBilledAccount(t *testing.T) {
 	for i := range DefaultPerKey + 3 {
 		name := fmt.Sprintf("agent%d", i)
 		r := gaugeRunner{name: name, cur: &cur, max: &peak}
-		tasks = append(tasks, BatchTask{ID: name, Agent: name, Req: Request{Prompt: "p"},
+		tasks = append(tasks, BatchTask{ID: name, Agent: name, Req: RunOptions{Prompt: "p"},
 			Prepare: func(context.Context) (Chain, Record, error) {
 				return Chain{Want: name, Legs: []Leg{{Agent: r, Account: "shared·acct", keepCaller: true}}}, Record{ID: "id-" + name, Agent: name, Log: filepath.Join(t.TempDir(), "l.log")}, nil
 			}})
@@ -113,7 +113,7 @@ func TestBatchCapsConcurrencyPerBilledAccount(t *testing.T) {
 // A routed provider:model request on a vendor agent is guarded as that provider, not skipped as an own login.
 func TestGuardProviderResolvesModelPrefixForVendorAgent(t *testing.T) {
 	hmProfile(t, "true")
-	p, err := guardProvider(&fakeRunner{name: "codex"}, Request{Model: "hm:opus"})
+	p, err := guardProvider(&fakeRunner{name: "codex"}, RunOptions{Model: "hm:opus"})
 	if err != nil || p == nil || p.Name != "hm" {
 		t.Fatalf("guardProvider = %v, %v; want the hm profile", p, err)
 	}
@@ -126,7 +126,7 @@ func TestRunPrefixRoutedHostMismatchFailsAuth(t *testing.T) {
 	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"databricks":{"hm":{"preset":"databricks",`+
 		`"host":"https://adb-1.azuredatabricks.net","auth":{"type":"key","env":"HM_KEY"},"models":{"opus":"m"}}}}}`)
 	r := &fakeRunner{name: "codex", caps: Caps{Model: Native}, errs: []error{nil}}
-	_, err := Run(withIsolation(context.Background()), r, Request{Prompt: "p", Model: "hm:opus"}, Discard, nil)
+	_, err := Run(withIsolation(context.Background()), r, RunOptions{Prompt: "p", Model: "hm:opus"}, Discard, nil)
 	var e *Error
 	if !errors.As(err, &e) || e.Kind != KindAuth || len(r.seen) != 0 {
 		t.Fatalf("err = %v, runs = %d; want KindAuth before any run", err, len(r.seen))
@@ -140,7 +140,7 @@ func TestRunTransientCredentialFailureIsRetried(t *testing.T) {
 	name := fmt.Sprintf("hmt%d", time.Now().UnixNano())
 	hmNamed(t, name, fmt.Sprintf("if [ -f %[1]s ]; then echo %[2]s; else touch %[1]s; echo 'connection reset' >&2; exit 1; fi", flag, hmJWT("adb-1.azuredatabricks.net")))
 	r := &fakeRunner{name: "claude", caps: Caps{Provider: Native}, errs: []error{nil}}
-	res, err := Run(context.Background(), r, Request{Prompt: "p", Provider: name}, Discard, nil)
+	res, err := Run(context.Background(), r, RunOptions{Prompt: "p", Provider: name}, Discard, nil)
 	if err != nil || res.Answer != "a" || res.Transport.Attempts != 2 {
 		t.Fatalf("res=%+v err=%v; want an answer on attempt 2", res, err)
 	}
@@ -163,7 +163,7 @@ func TestCopilotSDKEnvBlanksForeignCredentials(t *testing.T) {
 		return copilotsdk.Result{Text: "hi", SessionID: "s"}, nil
 	}
 	t.Cleanup(func() { copilotAsk = prev })
-	if _, err := Run(withIsolation(context.Background()), copilotRunner{}, Request{Prompt: "p", Provider: "alice", Direct: true}, Discard, nil); err != nil {
+	if _, err := Run(withIsolation(context.Background()), copilotRunner{}, RunOptions{Prompt: "p", Provider: "alice", Direct: true}, Discard, nil); err != nil {
 		t.Fatal(err)
 	}
 	if !slices.Contains(seen, "HM_OTHER_KEY=") || slices.Contains(seen, "HM_OTHER_KEY=foreign-secret") {
@@ -180,7 +180,7 @@ type slowRunner struct {
 func (s slowRunner) Name() string     { return s.name }
 func (s slowRunner) Caps() Caps       { return Caps{} }
 func (s slowRunner) Available() error { return nil }
-func (s slowRunner) Run(context.Context, Request, Sink) (Result, error) {
+func (s slowRunner) Run(context.Context, RunOptions, Sink) (Result, error) {
 	if s.boom {
 		panic("boom")
 	}
@@ -190,7 +190,7 @@ func (s slowRunner) Run(context.Context, Request, Sink) (Result, error) {
 
 // acctTask is a batch task whose single leg bills account.
 func acctTask(t *testing.T, name, account string, r Runner) BatchTask {
-	return BatchTask{ID: name, Agent: name, Req: Request{Prompt: "p"},
+	return BatchTask{ID: name, Agent: name, Req: RunOptions{Prompt: "p"},
 		Prepare: func(context.Context) (Chain, Record, error) {
 			rec := Record{ID: "id-" + name, Agent: name, Log: filepath.Join(t.TempDir(), "l.log")}
 			return Chain{Want: name, Legs: []Leg{{Agent: r, Account: account, keepCaller: true}}}, rec, nil
@@ -252,7 +252,7 @@ func TestCommandCredentialHostMismatchIsAuthAndFallsBack(t *testing.T) {
 	first := &fakeRunner{name: "claude", caps: Caps{Provider: Native}, errs: []error{nil}}
 	second := &fakeRunner{name: "gemini", errs: []error{nil}}
 	c := Chain{Want: "claude", Legs: []Leg{{Agent: first, Account: "claude:" + name, keepCaller: true}, {Agent: second}}}
-	res, err := RunWithFallback(context.Background(), c, Request{Prompt: "p"}, Discard, nil)
+	res, err := RunWithFallback(context.Background(), c, RunOptions{Prompt: "p"}, Discard, nil)
 	if err != nil || res.Answer != "a" || len(first.seen) != 0 || len(second.seen) != 1 {
 		t.Fatalf("res=%+v err=%v first=%d second=%d; want hop 2 to answer", res, err, len(first.seen), len(second.seen))
 	}
@@ -271,7 +271,7 @@ type legGauge struct {
 func (g legGauge) Name() string     { return g.name }
 func (g legGauge) Caps() Caps       { return Caps{} }
 func (g legGauge) Available() error { return nil }
-func (g legGauge) Run(context.Context, Request, Sink) (Result, error) {
+func (g legGauge) Run(context.Context, RunOptions, Sink) (Result, error) {
 	n := g.cur.Add(1)
 	for m := g.max.Load(); n > m && !g.max.CompareAndSwap(m, n); m = g.max.Load() {
 	}
@@ -292,7 +292,7 @@ func TestBatchJobsCapHoldsAcrossFallbackHops(t *testing.T) {
 	for i := range 12 {
 		name := fmt.Sprintf("f%d", i)
 		first, second := legGauge{name: "codex", fail: true, cur: &cur, max: &peak}, legGauge{name: "gemini", cur: &cur, max: &peak}
-		tasks = append(tasks, BatchTask{ID: name, Agent: name, Req: Request{Prompt: "p"}, // distinct keys: the old per-key gate would cap at 4
+		tasks = append(tasks, BatchTask{ID: name, Agent: name, Req: RunOptions{Prompt: "p"}, // distinct keys: the old per-key gate would cap at 4
 			Prepare: func(context.Context) (Chain, Record, error) {
 				rec := Record{ID: "id-" + name, Agent: "codex", Log: filepath.Join(t.TempDir(), "l.log")}
 				return Chain{Want: "codex", Legs: []Leg{{Agent: first, Account: "A·acct", keepCaller: true}, {Agent: second, Account: "B·acct"}}}, rec, nil
@@ -319,7 +319,7 @@ type flagRunner struct {
 func (f flagRunner) Name() string     { return f.name }
 func (f flagRunner) Caps() Caps       { return Caps{} }
 func (f flagRunner) Available() error { return nil }
-func (f flagRunner) Run(context.Context, Request, Sink) (Result, error) {
+func (f flagRunner) Run(context.Context, RunOptions, Sink) (Result, error) {
 	f.runs.Add(1)
 	return Result{Answer: "a"}, nil
 }
@@ -348,7 +348,7 @@ func failFastPair(t *testing.T, first BatchTask) {
 
 // --fail-fast with a Prepare failure: the next task never spawns.
 func TestBatchFailFastPrepareFailureStopsQueuedTask(t *testing.T) {
-	failFastPair(t, BatchTask{ID: "first", Agent: "first", Req: Request{Prompt: "p"},
+	failFastPair(t, BatchTask{ID: "first", Agent: "first", Req: RunOptions{Prompt: "p"},
 		Prepare: func(context.Context) (Chain, Record, error) { return Chain{}, Record{}, errors.New("route failed") }})
 }
 
@@ -378,7 +378,7 @@ func TestBatchCoolingAccountDoesNotBlockOthers(t *testing.T) {
 func TestBatchPrepareFailureFreesSlotWithoutFailFast(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	var runs atomic.Int32
-	first := BatchTask{ID: "first", Agent: "first", Req: Request{Prompt: "p"},
+	first := BatchTask{ID: "first", Agent: "first", Req: RunOptions{Prompt: "p"},
 		Prepare: func(context.Context) (Chain, Record, error) { return Chain{}, Record{}, errors.New("route failed") }}
 	second := acctTask(t, "second", "pf·acct", flagRunner{name: "second", runs: &runs})
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -394,7 +394,7 @@ func TestBatchPrepareFailureFreesSlotWithoutFailFast(t *testing.T) {
 func TestBatchPanickingLegDoesNotFallBack(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	var runs atomic.Int32
-	task := BatchTask{ID: "t", Agent: "boom", Req: Request{Prompt: "p"},
+	task := BatchTask{ID: "t", Agent: "boom", Req: RunOptions{Prompt: "p"},
 		Prepare: func(context.Context) (Chain, Record, error) {
 			rec := Record{ID: "id-t", Agent: "boom", Log: filepath.Join(t.TempDir(), "l.log")}
 			return Chain{Want: "boom", Legs: []Leg{
@@ -417,7 +417,7 @@ func TestBatchPanickingLegDoesNotFallBack(t *testing.T) {
 func TestBatchPanickingFallbackLegIsReported(t *testing.T) {
 	authEnv(t, `{"protocol":"anthropic","base_url":"http://127.0.0.1:1","auth":{"type":"key","env":"AGAUTH_UNSET"},"models":{"opus":"m"}}`)
 	first := &fakeRunner{name: "claude", errs: []error{fmt.Errorf("agauth: %w", providers.ErrNeedsLogin)}, emptyAnswer: true}
-	task := BatchTask{ID: "t", Agent: "claude", Req: Request{Prompt: "p"},
+	task := BatchTask{ID: "t", Agent: "claude", Req: RunOptions{Prompt: "p"},
 		Prepare: func(context.Context) (Chain, Record, error) {
 			rec := Record{ID: "id-t", Agent: "claude", Log: filepath.Join(t.TempDir(), "l.log")}
 			return Chain{Want: "claude", Legs: []Leg{
@@ -464,7 +464,7 @@ func TestReserveIsExclusiveAcrossBatches(t *testing.T) {
 	var wg sync.WaitGroup
 	for i := range n {
 		wg.Go(func() {
-			ids[i] = ClaimRecord("codex", Request{Prompt: "p"}, now).ID // the one allocator every dispatch path uses
+			ids[i] = ClaimRecord("codex", RunOptions{Prompt: "p"}, now).ID // the one allocator every dispatch path uses
 		})
 	}
 	wg.Wait()
@@ -482,7 +482,7 @@ func TestReserveIsExclusiveAcrossBatches(t *testing.T) {
 
 // --fail-fast: a task that fails outside any leg (an empty chain) still cancels before the next task is prepared.
 func TestBatchFailFastEmptyChainStopsQueuedTask(t *testing.T) {
-	failFastPair(t, BatchTask{ID: "first", Agent: "first", Req: Request{Prompt: "p"},
+	failFastPair(t, BatchTask{ID: "first", Agent: "first", Req: RunOptions{Prompt: "p"},
 		Prepare: func(context.Context) (Chain, Record, error) {
 			return Chain{Want: "first"}, Record{ID: "id-first", Agent: "first", Log: filepath.Join(t.TempDir(), "l.log")}, nil
 		}})
@@ -496,7 +496,7 @@ type rateOnce struct {
 func (r rateOnce) Name() string     { return r.name }
 func (r rateOnce) Caps() Caps       { return Caps{} }
 func (r rateOnce) Available() error { return nil }
-func (r rateOnce) Run(context.Context, Request, Sink) (Result, error) {
+func (r rateOnce) Run(context.Context, RunOptions, Sink) (Result, error) {
 	if r.n.Add(1) == 1 {
 		return Result{}, &Error{Kind: KindRateLimit, Agent: r.name, RetryAfter: 300 * time.Millisecond, Err: errors.New("HTTP 429")}
 	}
@@ -554,7 +554,7 @@ func TestReservedRecordSurvivesPrune(t *testing.T) {
 	if err := done.Save(); err != nil {
 		t.Fatal(err)
 	}
-	rec := ClaimRecord("aa", Request{Prompt: "p"}, time.Now())
+	rec := ClaimRecord("aa", RunOptions{Prompt: "p"}, time.Now())
 	pruneDispatches(dir) // lands between reserve and Save
 	if _, err := os.Stat(filepath.Join(dir, rec.ID+".json")); err != nil {
 		t.Errorf("the reserved record was pruned before Save: %v", err)
@@ -601,7 +601,7 @@ func TestChatStreamWithoutDoneIsRetried(t *testing.T) {
 	}))
 	defer srv.Close()
 	registry(t, srv)
-	res, err := Run(context.Background(), claudeRunner{}, Request{Prompt: "hi", Provider: "toai", NoTools: true}, Discard, nil)
+	res, err := Run(context.Background(), claudeRunner{}, RunOptions{Prompt: "hi", Provider: "toai", NoTools: true}, Discard, nil)
 	if err != nil || res.Answer != "hi" || res.Transport == nil || res.Transport.Attempts != 2 {
 		t.Fatalf("res=%+v err=%v calls=%d; want an answer on attempt 2", res, err, calls)
 	}
@@ -636,7 +636,7 @@ type markingRunner struct {
 func (m markingRunner) Name() string     { return m.name }
 func (m markingRunner) Caps() Caps       { return Caps{} }
 func (m markingRunner) Available() error { return nil }
-func (m markingRunner) Run(context.Context, Request, Sink) (Result, error) {
+func (m markingRunner) Run(context.Context, RunOptions, Sink) (Result, error) {
 	m.mark()
 	time.Sleep(50 * time.Millisecond)
 	return Result{Answer: "a"}, nil
@@ -646,7 +646,7 @@ func (m markingRunner) Run(context.Context, Request, Sink) (Result, error) {
 func TestHopKeepsRecoveredAttemptErrors(t *testing.T) {
 	fastDefaultBackoff(t)
 	r := &fakeRunner{name: "claude", errs: []error{&Error{Kind: KindRateLimit, Agent: "claude", Err: errors.New("HTTP 429")}, nil}}
-	res, err := RunWithFallback(context.Background(), Single(r), Request{Prompt: "p"}, Discard, nil)
+	res, err := RunWithFallback(context.Background(), Single(r), RunOptions{Prompt: "p"}, Discard, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -703,7 +703,7 @@ func TestHopKeepsRecoveredGuardFailure(t *testing.T) {
 	name := fmt.Sprintf("hmg%d", time.Now().UnixNano())
 	hmNamed(t, name, fmt.Sprintf("if [ -f %[1]s ]; then echo %[2]s; else touch %[1]s; echo 'connection reset' >&2; exit 1; fi", flag, hmJWT("adb-1.azuredatabricks.net")))
 	r := &fakeRunner{name: "claude", caps: Caps{Provider: Native}, errs: []error{nil}}
-	res, err := RunWithFallback(context.Background(), Single(r), Request{Prompt: "p", Provider: name}, Discard, nil)
+	res, err := RunWithFallback(context.Background(), Single(r), RunOptions{Prompt: "p", Provider: name}, Discard, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -733,7 +733,7 @@ type cancelAfterRun struct {
 func (c cancelAfterRun) Name() string     { return c.name }
 func (c cancelAfterRun) Caps() Caps       { return Caps{} }
 func (c cancelAfterRun) Available() error { return nil }
-func (c cancelAfterRun) Run(context.Context, Request, Sink) (Result, error) {
+func (c cancelAfterRun) Run(context.Context, RunOptions, Sink) (Result, error) {
 	c.cancel() // the parent ctx dies at the moment the leg succeeds
 	return Result{Answer: "a"}, nil
 }
@@ -744,7 +744,7 @@ func TestSuccessSurvivesCancelRightAfterIt(t *testing.T) {
 	defer cancel()
 	var runs atomic.Int32
 	c := Chain{Want: "first", Legs: []Leg{{Agent: cancelAfterRun{name: "first", cancel: cancel}}, {Agent: flagRunner{name: "second", runs: &runs}}}}
-	res, err := RunWithFallback(ctx, c, Request{Prompt: "p"}, Discard, nil)
+	res, err := RunWithFallback(ctx, c, RunOptions{Prompt: "p"}, Discard, nil)
 	if err != nil || res.Answer != "a" || runs.Load() != 0 || len(res.Hops) != 1 {
 		t.Fatalf("res=%+v err=%v second ran %d times; want the first leg's answer alone", res, err, runs.Load())
 	}
@@ -763,7 +763,7 @@ func TestCopilotGateFallbackIsCappedOnTheDatabricksAccount(t *testing.T) {
 	for i := range DefaultPerKey + 2 {
 		name := fmt.Sprintf("g%d", i)
 		r := gaugeRunner{name: "copilot", cur: &cur, max: &peak}
-		tasks = append(tasks, BatchTask{ID: name, Agent: "copilot", Req: Request{Prompt: "p", Model: "alice:opus"},
+		tasks = append(tasks, BatchTask{ID: name, Agent: "copilot", Req: RunOptions{Prompt: "p", Model: "alice:opus"},
 			Prepare: func(context.Context) (Chain, Record, error) {
 				rec := Record{ID: "id-" + name, Agent: "copilot", Log: filepath.Join(t.TempDir(), "l.log")}
 				return Chain{Want: "copilot", Legs: []Leg{{Agent: r, Account: "github·" + name, keepCaller: true}}}, rec, nil
@@ -783,7 +783,7 @@ func TestHubLegGuardIgnoresAbsentRegistryCredential(t *testing.T) {
 	vaulttest.UseKeyring(t)
 	p := &providers.Provider{Name: "ocgo", Preset: providers.PresetDatabricks, Auth: providers.Auth{Type: "key", Command: "false"}}
 	leg := hubLeg{agent: "opencode", provider: p}
-	if _, gerr := guardAttempt(withIsolation(context.Background()), leg, Request{}); gerr != nil {
+	if _, gerr := guardAttempt(withIsolation(context.Background()), leg, RunOptions{}); gerr != nil {
 		t.Errorf("guardAttempt = %v, want the hub leg to pass: its credential is the opencode login", gerr)
 	}
 }
@@ -813,7 +813,7 @@ func TestFrozenCopilotTargetFollowsTheDowngradedModel(t *testing.T) {
 		return copilotsdk.Result{Text: "hi", SessionID: "s"}, nil
 	}
 	t.Cleanup(func() { copilotAsk = prev })
-	res, err := RunWithFallback(context.Background(), Single(copilotRunner{}), Request{Prompt: "p", Model: "opus", Direct: true}, Discard, nil)
+	res, err := RunWithFallback(context.Background(), Single(copilotRunner{}), RunOptions{Prompt: "p", Model: "opus", Direct: true}, Discard, nil)
 	if err != nil || res.Answer != "hi" || len(envs) != 2 {
 		t.Fatalf("res=%+v err=%v calls=%d; want the retry to answer", res, err, len(envs))
 	}
@@ -835,7 +835,7 @@ func TestGateFallbackLegBillsCreditsWindow(t *testing.T) {
 	quota := errors.New("402 Payment Required")
 	r := &fakeRunner{name: "copilot", errs: []error{quota}, emptyAnswer: true}
 	c := Chain{Want: "copilot", Legs: []Leg{{Agent: r, Account: "github·alice", Billing: router.BillSubscription, keepCaller: true}}}
-	_, _ = RunWithFallback(context.Background(), c, Request{Prompt: "p", Model: "alice:opus"}, Discard, nil)
+	_, _ = RunWithFallback(context.Background(), c, RunOptions{Prompt: "p", Model: "alice:opus"}, Discard, nil)
 	want := router.ResetFor(quota.Error(), router.BillCredits, router.Entry{}, at)
 	if account != "databricks·dbx" || !until.Equal(want) {
 		t.Errorf("marked %q until %v, want databricks·dbx until the credits reset %v", account, until, want)
@@ -873,7 +873,7 @@ func TestBatchCapsOwnLoginLegsPerAgent(t *testing.T) {
 	var tasks []BatchTask
 	for i := range DefaultPerKey + 3 {
 		id := fmt.Sprintf("own%d", i)
-		tasks = append(tasks, BatchTask{ID: id, Agent: "opencode", Req: Request{Prompt: "p"},
+		tasks = append(tasks, BatchTask{ID: id, Agent: "opencode", Req: RunOptions{Prompt: "p"},
 			Prepare: func(context.Context) (Chain, Record, error) {
 				return Chain{Want: "opencode", Legs: []Leg{{Agent: r, keepCaller: true}}}, Record{ID: "id-" + id, Agent: "opencode", Log: filepath.Join(t.TempDir(), "l.log")}, nil
 			}})

@@ -249,13 +249,15 @@ func (s vendor) Check(ctx context.Context) (providers.AuthVerdict, string) {
 }
 
 func (s vendor) Login(ctx context.Context, in io.Reader, out io.Writer) error {
-	switch s.name {
-	case "codex", "copilot":
-		return runVendor(ctx, s.name, []string{"login"}, in, out)
-	case "gemini":
-		return errors.New("agy has no login subcommand; run `agy` yourself and sign in with Google")
+	row, ok := agent.LookupSchema(s.name)
+	switch {
+	case !ok || len(row.CLI.LoginArgv) == 0:
+		return fmt.Errorf("no sign-in known for %q", s.name)
+	case len(row.CLI.LoginArgv) == 1:
+		bin := row.CLI.LoginArgv[0]
+		return fmt.Errorf("%s has no login subcommand; run `%s` yourself and sign in with Google", bin, bin)
 	}
-	return fmt.Errorf("no sign-in known for %q", s.name)
+	return runVendor(ctx, s.name, row.CLI.LoginArgv[1:], in, out)
 }
 
 // runVendorCLI runs the vendor CLI's own login on the caller's terminal (list args, no shell).

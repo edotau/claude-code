@@ -75,7 +75,7 @@ func startHolder(t *testing.T, ctx context.Context, idle time.Duration) (string,
 
 func startHolderAs(t *testing.T, ctx context.Context, name string, idle time.Duration) (string, func() error) {
 	t.Helper()
-	rec := ClaimRecord(name, Request{Timeout: idle}, time.Now())
+	rec := ClaimRecord(name, RunOptions{Timeout: idle}, time.Now())
 	rec.Live, rec.PID = true, os.Getpid()
 	rec.Request.Launcher = testLauncher{}
 	if err := rec.Save(); err != nil {
@@ -173,14 +173,14 @@ func TestLiveIdleTimeoutEndsOK(t *testing.T) {
 func TestLiveCapOfFour(t *testing.T) {
 	liveEnv(t)
 	for range MaxLiveSessions {
-		rec := ClaimRecord("claude", Request{}, time.Now())
+		rec := ClaimRecord("claude", RunOptions{}, time.Now())
 		rec.Live, rec.PID = true, os.Getpid()
 		_ = rec.Save()
 	}
 	if err := CheckLiveCap(""); err == nil {
 		t.Fatal("cap must refuse a fifth session")
 	}
-	dead := ClaimRecord("claude", Request{}, time.Now())
+	dead := ClaimRecord("claude", RunOptions{}, time.Now())
 	dead.Live, dead.Status = true, "ok"
 	_ = dead.Save()
 	if n := LiveCount(""); n != MaxLiveSessions {
@@ -326,7 +326,7 @@ func TestLiveAgySession(t *testing.T) {
 // An agent without a live mode is refused before anything starts.
 func TestServeLiveRejectsAgentWithoutLive(t *testing.T) {
 	liveEnv(t)
-	rec := ClaimRecord("codex", Request{}, time.Now())
+	rec := ClaimRecord("codex", RunOptions{}, time.Now())
 	rec.Live = true
 	if err := ServeLive(context.Background(), &rec, nil); err == nil || !strings.Contains(err.Error(), "no live mode") {
 		t.Errorf("ServeLive(codex) = %v, want a no-live-mode error", err)
@@ -367,7 +367,7 @@ while IFS= read -r line; do
 done
 `
 
-func startAgy(t *testing.T, script string, req Request) (string, func(), func() error) {
+func startAgy(t *testing.T, script string, req RunOptions) (string, func(), func() error) {
 	t.Helper()
 	liveEnv(t)
 	if err := os.WriteFile(filepath.Join(paths.BinDir(), "gemini"), []byte(script), 0o755); err != nil {
@@ -392,7 +392,7 @@ func startAgy(t *testing.T, script string, req Request) (string, func(), func() 
 
 // An agy ERROR result fails that turn only: the session stays usable for the next one.
 func TestLiveAgyErrorResultKeepsSession(t *testing.T) {
-	id, cancel, wait := startAgy(t, fakeErrAgy, Request{Timeout: time.Minute})
+	id, cancel, wait := startAgy(t, fakeErrAgy, RunOptions{Timeout: time.Minute})
 	defer func() { cancel(); _ = wait() }()
 	env, err := SendLive(context.Background(), id, "fail now", Discard)
 	if err == nil && env.Status != StatusError {
@@ -405,7 +405,7 @@ func TestLiveAgyErrorResultKeepsSession(t *testing.T) {
 
 // System prompts are emulated on gemini live as the one-shot path does: prepended to the first turn only.
 func TestLiveAgySystemPromptOnFirstTurn(t *testing.T) {
-	id, cancel, wait := startAgy(t, fakeErrAgy, Request{Timeout: time.Minute, AppendSystemPrompt: "SPEAK-FRENCH"})
+	id, cancel, wait := startAgy(t, fakeErrAgy, RunOptions{Timeout: time.Minute, AppendSystemPrompt: "SPEAK-FRENCH"})
 	defer func() { cancel(); _ = wait() }()
 	e1, err := SendLive(context.Background(), id, "hello", Discard)
 	if err != nil || !strings.Contains(e1.Answer, "SPEAK-FRENCH") {
@@ -419,7 +419,7 @@ func TestLiveAgySystemPromptOnFirstTurn(t *testing.T) {
 
 // A resumed agy conversation reports no usage for its first turn (the history is unknown), then per-turn deltas.
 func TestLiveAgyResumedUsageBaseline(t *testing.T) {
-	id, cancel, wait := startAgy(t, fakeCumAgy, Request{Timeout: time.Minute, SessionID: "old"})
+	id, cancel, wait := startAgy(t, fakeCumAgy, RunOptions{Timeout: time.Minute, SessionID: "old"})
 	defer func() { cancel(); _ = wait() }()
 	e1, err := SendLive(context.Background(), id, "a", Discard)
 	if err != nil {

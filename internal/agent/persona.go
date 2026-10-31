@@ -14,27 +14,17 @@ import (
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
-// Persona is an inline agent definition: claude takes it as --agents/--agent, the rest get it as system text.
-type Persona struct {
-	Name        string   `json:"name"`
-	Description string   `json:"description,omitempty"`
-	Prompt      string   `json:"prompt"`
-	Tools       []string `json:"tools"` // nil = inherit, empty = no tools
-	Model       string   `json:"model,omitempty"`
-	MaxTurns    int      `json:"max_turns,omitempty"`
-}
-
 var personaNameRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
 
-func personaName(p *Persona) string {
+func personaName(p *Schema) string {
 	if p == nil {
 		return ""
 	}
 	return p.Name
 }
 
-// LoadPersona resolves ref: a bare name is <config dir>/agents/<name>.md, anything else is a file path.
-func LoadPersona(ref string) (*Persona, error) {
+// LoadSchema resolves ref: a bare name is <config dir>/agents/<name>.md, anything else is a file path.
+func LoadSchema(ref string) (*Schema, error) {
 	path := ref
 	if !strings.ContainsAny(ref, `/\`) && !strings.HasSuffix(ref, ".md") {
 		if !personaNameRE.MatchString(ref) {
@@ -48,7 +38,8 @@ func LoadPersona(ref string) (*Persona, error) {
 	}
 	fm, body := textutil.ParseFrontmatter(string(raw))
 	str := func(k string) string { s, _ := fm[k].(string); return strings.TrimSpace(s) }
-	p := &Persona{Name: str("name"), Description: str("description"), Prompt: body, Model: str("model")}
+	p := &Schema{Name: str("name"), Description: str("description"), Prompt: body, Model: str("model"),
+		Runner: str("runner"), Profile: str("profile"), Effort: str("effort")}
 	if p.Name == "" {
 		p.Name = strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
 	}
@@ -75,8 +66,8 @@ func LoadPersona(ref string) (*Persona, error) {
 	return p, nil
 }
 
-// ResolveTarget splits an --agent value: a vendor name, vendor:persona, or an agents/<name>.md name or file on claude.
-func ResolveTarget(ref string) (vendor string, p *Persona, err error) {
+// SelectAgent resolves an --agent value: a roster name, an agents key, vendor:name, or agents/<name>.md or a file.
+func SelectAgent(ref string, agents map[string]*Schema) (runner string, def *Schema, err error) {
 	var names []string
 	for _, r := range Runners() {
 		names = append(names, r.Name())
@@ -84,21 +75,27 @@ func ResolveTarget(ref string) (vendor string, p *Persona, err error) {
 	if slices.Contains(names, ref) {
 		return ref, nil, nil
 	}
+	if def, ok := agents[ref]; ok {
+		return cmp.Or(def.Runner, "claude"), def, nil
+	}
 	if v, name, ok := strings.Cut(ref, ":"); ok {
 		if !slices.Contains(names, v) {
 			return "", nil, fmt.Errorf("unknown agent %q (%s)", v, strings.Join(names, "|"))
 		}
-		p, err = LoadPersona(name)
-		return v, p, err
+		if def, ok := agents[name]; ok { // the vendor beats def.Runner
+			return v, def, nil
+		}
+		def, err = LoadSchema(name)
+		return v, def, err
 	}
-	if p, err = LoadPersona(ref); err != nil {
+	if def, err = LoadSchema(ref); err != nil {
 		return "", nil, fmt.Errorf("unknown agent %q (%s, or an agents/<name>.md definition): %w", ref, strings.Join(names, "|"), err)
 	}
-	return "claude", p, nil
+	return cmp.Or(def.Runner, "claude"), def, nil
 }
 
 // RefusePersona rejects a persona whose tool limit an emulating agent could not enforce.
-func RefusePersona(c Caps, agentName string, p *Persona) error {
+func RefusePersona(c Caps, agentName string, p *Schema) error {
 	if p == nil || c.Persona != Emulated || p.Tools == nil {
 		return nil
 	}
@@ -111,7 +108,7 @@ func RefusePersona(c Caps, agentName string, p *Persona) error {
 }
 
 // personaArgs renders claude's `--agents '{"<name>":{…}}' --agent <name>` with only the selected persona.
-func personaArgs(p Persona) []string {
+func personaArgs(p *Schema) []string {
 	def := map[string]any{"description": cmp.Or(p.Description, p.Name), "prompt": p.Prompt}
 	if p.Tools != nil {
 		def["tools"] = p.Tools
@@ -127,7 +124,7 @@ func personaArgs(p Persona) []string {
 }
 
 // emulatePersona folds the persona into system text for an agent with no definition channel and names the fields lost.
-func emulatePersona(c Caps, req Request, dropped []string) (Request, []string) {
+func emulatePersona(c Caps, req RunOptions, dropped []string) (RunOptions, []string) {
 	p := req.Persona
 	if p.Tools != nil {
 		dropped = append(dropped, "persona.tools="+cmp.Or(strings.Join(p.Tools, ","), "none"))

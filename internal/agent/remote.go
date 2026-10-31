@@ -61,7 +61,7 @@ func (r remoteRunner) Caps() Caps {
 func (r remoteRunner) Available() error { return nil }
 
 // remoteDropped names the flags that mean nothing on another host.
-func remoteDropped(req Request) []string {
+func remoteDropped(req RunOptions) []string {
 	var out []string
 	if len(req.Attach) > 0 {
 		out = append(out, "--attach")
@@ -88,7 +88,7 @@ func remoteHomePath(p string) string {
 }
 
 // remoteTarget is the --agent value the remote side resolves.
-func remoteTarget(agentName string, req Request) string {
+func remoteTarget(agentName string, req RunOptions) string {
 	if req.Persona != nil {
 		return agentName + ":" + req.Persona.Name
 	}
@@ -97,7 +97,7 @@ func remoteTarget(agentName string, req Request) string {
 
 // remoteScript is the POSIX sh line run on the remote: every element is single-quoted, the prompt is never in it.
 // --env values do ride this line, so they are visible to the remote `ps` (and, base64-wrapped, to the local one).
-func remoteScript(bin, agentName, fallback string, req Request) (string, error) {
+func remoteScript(bin, agentName, fallback string, req RunOptions) (string, error) {
 	vals := []string{bin, agentName, req.Model, req.Provider, req.Effort, req.WorkDir, req.SessionID, req.SystemPrompt,
 		req.AppendSystemPrompt, req.OutputSchema}
 	vals = append(vals, req.Env...)
@@ -145,7 +145,7 @@ func remoteScript(bin, agentName, fallback string, req Request) (string, error) 
 }
 
 // RemoteArgv is the full local ssh argv for one remote ask.
-func RemoteArgv(host, bin, agentName, fallback string, req Request) ([]string, error) {
+func RemoteArgv(host, bin, agentName, fallback string, req RunOptions) ([]string, error) {
 	script, err := remoteScript(bin, agentName, fallback, req)
 	if err != nil {
 		return nil, err
@@ -192,7 +192,7 @@ func resultFromEnvelope(env Envelope, agentName string, dropped []string) Result
 }
 
 // Run streams the remote ask: events are re-emitted on sink, the remote result event becomes the Result.
-func (r remoteRunner) Run(ctx context.Context, req Request, sink Sink) (Result, error) {
+func (r remoteRunner) Run(ctx context.Context, req RunOptions, sink Sink) (Result, error) {
 	argv, err := RemoteArgv(r.host, r.bin, r.agent, r.fallback, req)
 	if err != nil {
 		return Result{Agent: r.agent, Status: StatusError}, &Error{Kind: KindFatal, Agent: r.agent, Err: err}

@@ -44,7 +44,7 @@ func TestResolveTargetCanonicalIDTakesTheTierPin(t *testing.T) {
 	if err := providers.SetPins(map[string]string{providers.SlotPin("sonnet"): "claude-sonnet-5"}); err != nil {
 		t.Fatal(err)
 	}
-	_, got, err := resolveTarget(Request{Provider: "dev", Model: "claude-sonnet-5-5"})
+	_, got, err := resolveTarget(RunOptions{Provider: "dev", Model: "claude-sonnet-5-5"})
 	if err != nil || got.Model != "claude-sonnet-5" {
 		t.Errorf("claude-sonnet-5-5 = %+v (%v), want the pinned claude-sonnet-5", got, err)
 	}

@@ -69,12 +69,12 @@ func ghLogin(t *testing.T, user string, pct float64) {
 // The GitHub-login provider bills the pinned account's route state; no pin yields no account.
 func TestExplicitAccountCopilotLoginIsPinnedUser(t *testing.T) {
 	ghLogin(t, "alice", 10)
-	acct, _ := explicitAccount(&fakeRunner{name: "copilot"}, Request{Provider: "personal"})
+	acct, _ := explicitAccount(&fakeRunner{name: "copilot"}, RunOptions{Provider: "personal"})
 	if acct != "github·alice" {
 		t.Errorf("account = %q, want github·alice", acct)
 	}
 	setPin(t, providers.PinCopilotProfile, "")
-	if acct, _ := explicitAccount(&fakeRunner{name: "copilot"}, Request{Provider: "personal"}); acct != "" {
+	if acct, _ := explicitAccount(&fakeRunner{name: "copilot"}, RunOptions{Provider: "personal"}); acct != "" {
 		t.Errorf("no pin: account = %q, want empty", acct)
 	}
 }
@@ -85,7 +85,7 @@ func TestExplicitChainCopilotNotPreSkippedAndMarks(t *testing.T) {
 	ghLogin(t, "alice", 10)
 	quota := errors.New("402 Payment Required: You have exceeded your monthly quota")
 	cp := &fakeRunner{name: "copilot", errs: []error{quota}, emptyAnswer: true}
-	req := Request{Prompt: "p", Provider: "personal"}
+	req := RunOptions{Prompt: "p", Provider: "personal"}
 	c := ExplicitChain(cp, req)
 	if len(c.Legs) != 1 || c.Legs[0].Account != "github·alice" {
 		t.Fatalf("chain = %+v, want one leg on github·alice", c)
@@ -105,7 +105,7 @@ func TestExplicitChainCopilotNotPreSkippedAndMarks(t *testing.T) {
 // vendorTargetNote gates an explicit --provider personal (the GitHub login): kept under 95%, refused to Databricks (or an
 // error naming no credit-free route) at/over it — never silently another GitHub leg.
 func TestVendorTargetNoteExplicitCopilotGated(t *testing.T) {
-	req := Request{Prompt: "p", Provider: "personal"}
+	req := RunOptions{Prompt: "p", Provider: "personal"}
 
 	ghLogin(t, "alice", 10)
 	tg, own, _, err := vendorTargetNote(req, "copilot")
@@ -154,7 +154,7 @@ func TestCopilotRunnerEmptyAnswerIsFatal(t *testing.T) {
 	ghLogin(t, "alice", 10)
 	fakeCopilotBin(t)
 	stubAsk(t, func(int) (copilotsdk.Result, error) { return copilotsdk.Result{Text: "  \n", SessionID: "s1"}, nil })
-	res, err := copilotRunner{}.Run(context.Background(), Request{Prompt: "p", Provider: "personal", Direct: true}, Discard)
+	res, err := copilotRunner{}.Run(context.Background(), RunOptions{Prompt: "p", Provider: "personal", Direct: true}, Discard)
 	var e *Error
 	if !errors.As(err, &e) || e.Kind != KindFatal || e.Agent != "copilot" || !strings.Contains(e.Err.Error(), "empty answer") {
 		t.Fatalf("err = %v, want KindFatal emptyAnswer(copilot)", err)
@@ -175,7 +175,7 @@ func TestCopilotRunnerQuotaTriggersHandoff(t *testing.T) {
 		}
 		return copilotsdk.Result{Text: "Step 1 done.", SessionID: "0a1b2c3d-4e5f-6789-abcd-ef0123456789"}, errQuotaMidTask
 	})
-	res, err := copilotRunner{}.Run(context.Background(), Request{Prompt: "Refactor foo", Model: "opus", Provider: "personal", Direct: true}, Discard)
+	res, err := copilotRunner{}.Run(context.Background(), RunOptions{Prompt: "Refactor foo", Model: "opus", Provider: "personal", Direct: true}, Discard)
 	if !errors.Is(err, errQuotaMidTask) || Classify("copilot", err, false).Kind != KindQuota {
 		t.Fatalf("res=%+v err=%v; want the KindQuota cause", res, err)
 	}
@@ -210,7 +210,7 @@ func TestCopilotPartialAnswerKeptOnTransientError(t *testing.T) {
 	})
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	res, err := Run(ctx, copilotRunner{}, Request{Prompt: "p", Provider: "personal", Direct: true}, Discard, nil)
+	res, err := Run(ctx, copilotRunner{}, RunOptions{Prompt: "p", Provider: "personal", Direct: true}, Discard, nil)
 	if err == nil {
 		t.Fatal("err = nil, want the SDK failure")
 	}
@@ -235,7 +235,7 @@ func TestCopilotResultJSONUsageNull(t *testing.T) {
 	stubAsk(t, func(int) (copilotsdk.Result, error) {
 		return copilotsdk.Result{Text: "hello", SessionID: "sess-1", Model: "m"}, nil
 	})
-	res, err := Run(context.Background(), copilotRunner{}, Request{Prompt: "p", Provider: "personal", Direct: true}, Discard, nil)
+	res, err := Run(context.Background(), copilotRunner{}, RunOptions{Prompt: "p", Provider: "personal", Direct: true}, Discard, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

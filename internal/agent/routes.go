@@ -54,7 +54,8 @@ func describeOpenCodeRoute(reg *providers.Registry) RouteInfo {
 				Reason: "opencode's own GitHub Copilot login, but no sonnet/haiku model configured for github-copilot"}
 		}
 	}
-	return RouteInfo{Agent: "opencode", Leg: LegNone, Reason: "no route for opencode: " + ConfigureHint("opencode")}
+	s, _ := LookupSchema("opencode")
+	return RouteInfo{Agent: "opencode", Leg: LegNone, Reason: "no route for opencode: " + s.CLI.ConfigureHint}
 }
 
 // describeCopilotRoute: 1) copilot's GitHub login on a workable pin; 2) the Databricks fallback; 3) BYOK with the
@@ -81,7 +82,8 @@ func describeCopilotRoute(reg *providers.Registry) RouteInfo {
 		return RouteInfo{Agent: "copilot", Leg: LegByokAnthropic, Provider: p.Name, Model: p.Models[models.Opus],
 			Reason: "BYOK via ANTHROPIC_API_KEY", OK: true}
 	}
-	return RouteInfo{Agent: "copilot", Leg: LegNone, Reason: "no route for copilot: " + ConfigureHint("copilot")}
+	s, _ := LookupSchema("copilot")
+	return RouteInfo{Agent: "copilot", Leg: LegNone, Reason: "no route for copilot: " + s.CLI.ConfigureHint}
 }
 
 // routeTarget converts a resolved RouteInfo (OK and naming a registered provider) into a Target;

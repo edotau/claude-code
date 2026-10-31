@@ -74,7 +74,7 @@ func TestVendorRunnerOversizedPromptRefusalScopedToArgv(t *testing.T) {
 
 	for _, name := range []string{"codex", "gemini"} {
 		t.Run(name+"/not-refused", func(t *testing.T) {
-			_, err := vendorRunner{name: name}.Run(context.Background(), Request{Prompt: big, Provider: "max"}, Discard)
+			_, err := vendorRunner{name: name}.Run(context.Background(), RunOptions{Prompt: big, Provider: "max"}, Discard)
 			if err == nil {
 				t.Fatalf("%s: want a non-nil error (no route for a fake provider), got nil", name)
 			}
@@ -85,7 +85,7 @@ func TestVendorRunnerOversizedPromptRefusalScopedToArgv(t *testing.T) {
 	}
 
 	t.Run("opencode/still-refused", func(t *testing.T) {
-		_, err := vendorRunner{name: "opencode"}.Run(context.Background(), Request{Prompt: big, Provider: "max"}, Discard)
+		_, err := vendorRunner{name: "opencode"}.Run(context.Background(), RunOptions{Prompt: big, Provider: "max"}, Discard)
 		var e *Error
 		if !errors.As(err, &e) || !errors.Is(e, ErrPromptTooLarge) {
 			t.Fatalf("opencode: err = %v, want *Error wrapping ErrPromptTooLarge (prompt rides argv)", err)
@@ -120,7 +120,7 @@ func TestVendorRunnerGeminiModelResolutionPinBeatsDefault(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	res, err := vendorRunner{name: "gemini"}.Run(context.Background(), Request{Prompt: "task"}, Discard)
+	res, err := vendorRunner{name: "gemini"}.Run(context.Background(), RunOptions{Prompt: "task"}, Discard)
 	if err == nil {
 		t.Fatal("want an error (no real agy binary installed), got nil")
 	}
@@ -131,7 +131,7 @@ func TestVendorRunnerGeminiModelResolutionPinBeatsDefault(t *testing.T) {
 	if err := providers.SetPins(map[string]string{providers.PinGeminiModel: "gemini-2.5-pro"}); err != nil {
 		t.Fatal(err)
 	}
-	res, err = vendorRunner{name: "gemini"}.Run(context.Background(), Request{Prompt: "task"}, Discard)
+	res, err = vendorRunner{name: "gemini"}.Run(context.Background(), RunOptions{Prompt: "task"}, Discard)
 	if err == nil {
 		t.Fatal("want an error (no real agy binary installed), got nil")
 	}
@@ -140,14 +140,14 @@ func TestVendorRunnerGeminiModelResolutionPinBeatsDefault(t *testing.T) {
 	}
 }
 
-// An explicit Request.Model still wins over the GEMINI_AGENT_MODEL pin.
+// An explicit RunOptions.Model still wins over the GEMINI_AGENT_MODEL pin.
 func TestVendorRunnerGeminiExplicitModelBeatsPin(t *testing.T) {
 	geminiOwnLoginFixture(t)
 	if err := providers.SetPins(map[string]string{providers.PinGeminiModel: "gemini-2.5-pro"}); err != nil {
 		t.Fatal(err)
 	}
 
-	res, err := vendorRunner{name: "gemini"}.Run(context.Background(), Request{Prompt: "task", Model: "gemini-3.8-flash-low"}, Discard)
+	res, err := vendorRunner{name: "gemini"}.Run(context.Background(), RunOptions{Prompt: "task", Model: "gemini-3.8-flash-low"}, Discard)
 	if err == nil {
 		t.Fatal("want an error (no real agy binary installed), got nil")
 	}
@@ -274,7 +274,7 @@ func TestVendorRunnerNilProviderDefense(t *testing.T) {
 	// The vulnerable code path is when own=false and t.Provider is accessed.
 	// This test ensures the code doesn't panic with nil dereference.
 
-	req := Request{Prompt: "test"}
+	req := RunOptions{Prompt: "test"}
 
 	// Call vendorTarget and check if t.Provider is nil when own=false.
 	// If it is, the subsequent code must handle it gracefully (not panic).

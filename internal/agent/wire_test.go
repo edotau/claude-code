@@ -237,7 +237,7 @@ func runNoTools(t *testing.T, model string, resp http.HandlerFunc, out *strings.
 	}))
 	defer srv.Close()
 	dbxServing(t, srv)
-	res, err := claudeRunner{}.Run(context.Background(), Request{Prompt: "hi", Provider: "dbx", Model: model, NoTools: true}, NewTextSink(out))
+	res, err := claudeRunner{}.Run(context.Background(), RunOptions{Prompt: "hi", Provider: "dbx", Model: model, NoTools: true}, NewTextSink(out))
 	return res, paths, err
 }
 

@@ -48,7 +48,7 @@ func startLive(s *askState, name, format string) int {
 	if err != nil {
 		return failAsk(format, name, err)
 	}
-	req := agent.Request{Model: *s.model, Provider: *s.provider, Effort: *s.effort, WorkDir: *s.workdir, SessionID: *s.session,
+	req := agent.RunOptions{Model: *s.model, Provider: *s.provider, Effort: *s.effort, WorkDir: *s.workdir, SessionID: *s.session,
 		Tools: *s.tools, Timeout: *s.timeout, KeepEnv: []string(*s.keepEnv), NoPersist: *s.noPersist, SafeMode: *s.safeMode,
 		DebugFile: absDebugFile(*s.debugFile), SystemPrompt: *s.systemPrompt, AppendSystemPrompt: *s.appendSystemPrompt,
 		Autonomous: *s.autonomous, Direct: *s.direct, Launcher: launch.Launcher{}}

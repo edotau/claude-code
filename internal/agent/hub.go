@@ -114,7 +114,7 @@ func NewHubLeg(agentName string, provider *providers.Provider, reg *providers.Re
 
 func (l hubLeg) Name() string { return l.agent }
 
-// Caps mirrors vendorRunner's: every Request field the opencode CLI can carry.
+// Caps mirrors vendorRunner's: every RunOptions field the opencode CLI can carry.
 func (l hubLeg) Caps() Caps {
 	return Caps{Model: Native, Provider: Native, Effort: Native, WorkDir: Native, SessionID: Native, Tools: Native, Autonomous: Native,
 		SafeMode: Native, Direct: Native, Env: Native, SystemPrompt: Native, AppendSystemPrompt: Emulated, OutputSchema: Emulated, Persona: Emulated}
@@ -130,7 +130,7 @@ func (l hubLeg) Available() error {
 	return err
 }
 
-func (l hubLeg) Run(ctx context.Context, req Request, sink Sink) (Result, error) {
+func (l hubLeg) Run(ctx context.Context, req RunOptions, sink Sink) (Result, error) {
 	model := l.resolveModel(req.Model)
 	res := Result{Provider: l.provider.Name, Model: model, SessionID: req.SessionID}
 	if model == "" {

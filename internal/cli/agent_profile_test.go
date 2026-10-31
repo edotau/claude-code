@@ -97,7 +97,7 @@ func TestResolveAskChainProfileIsOneLegUnderFallbackAll(t *testing.T) {
 func TestBatchTaskProfileIsOneLeg(t *testing.T) {
 	profileFixture(t, "")
 	line := agent.ParsedLine{N: 1, Task: agent.TaskLine{Prompt: "p", Profile: "acme"}}
-	bt, err := batchTask(line, batchOpts{agent: "codex", fallback: agent.FallbackAll}, agent.Request{}, false, t.TempDir(), map[string]bool{})
+	bt, err := batchTask(line, batchOpts{agent: "codex", fallback: agent.FallbackAll}, agent.RunOptions{}, false, t.TempDir(), map[string]bool{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -109,7 +109,7 @@ func TestBatchTaskProfileIsOneLeg(t *testing.T) {
 		t.Fatalf("Prepare: %d legs, err %v; want exactly 1 leg", len(chain.Legs), err)
 	}
 	bad := agent.ParsedLine{N: 2, Task: agent.TaskLine{Prompt: "p", Profile: "no-such-profile"}}
-	bt, err = batchTask(bad, batchOpts{agent: "codex", fallback: agent.FallbackAll}, agent.Request{}, false, t.TempDir(), map[string]bool{})
+	bt, err = batchTask(bad, batchOpts{agent: "codex", fallback: agent.FallbackAll}, agent.RunOptions{}, false, t.TempDir(), map[string]bool{})
 	if err != nil {
 		t.Fatal(err)
 	}

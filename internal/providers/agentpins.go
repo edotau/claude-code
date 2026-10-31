@@ -35,7 +35,7 @@ func ValidAgentActive(agent, v string) error {
 	case AgentOn:
 		return nil
 	case AgentOff:
-		if agent == "claude" {
+		if AgentActivePin(agent) == "" {
 			return errors.New("claude is always on")
 		}
 		return nil
@@ -58,7 +58,7 @@ func AgentPins() map[string]AgentPinSpec {
 		if k.ModelPin != "" {
 			spec.Model = pin(k.ModelPin)
 		}
-		if k.Name == "claude" {
+		if k.Binary == "" {
 			spec.Profile = cmp.Or(SessionProfile(), spec.Profile)
 		}
 		out[k.Name] = spec

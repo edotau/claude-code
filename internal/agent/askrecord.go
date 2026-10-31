@@ -14,7 +14,7 @@ import (
 )
 
 // BuildAskRecord constructs the dispatch record for req, reusing jobRec's identity when resuming a job.
-func BuildAskRecord(ctx context.Context, name string, req Request, jobRec *Record, workdir string, background bool) Record {
+func BuildAskRecord(ctx context.Context, name string, req RunOptions, jobRec *Record, workdir string, background bool) Record {
 	if jobRec != nil {
 		return *jobRec // same id: a job run continues the record it was spawned from
 	}

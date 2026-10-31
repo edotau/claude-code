@@ -29,7 +29,7 @@ func ownProfile(name string) string {
 }
 
 // vendorTarget mirrors launch.Vendor: the session target if it serves the agent, else its own login or a keyed one.
-func vendorTarget(req Request, name string) (providers.Target, bool, error) {
+func vendorTarget(req RunOptions, name string) (providers.Target, bool, error) {
 	t, own, note, err := vendorTargetNote(req, name)
 	if note != "" {
 		fmt.Fprintln(NoticeOut, note)
@@ -38,7 +38,7 @@ func vendorTarget(req Request, name string) (providers.Target, bool, error) {
 }
 
 // vendorTargetNote is vendorTarget without printing: the router resolves every candidate's backend through it.
-func vendorTargetNote(req Request, name string) (t providers.Target, own bool, note string, err error) {
+func vendorTargetNote(req RunOptions, name string) (t providers.Target, own bool, note string, err error) {
 	t, own, note, applied, err := vendorTargetBase(req, name)
 	if err != nil {
 		return t, own, note, err
@@ -51,7 +51,7 @@ func vendorTargetNote(req Request, name string) (t providers.Target, own bool, n
 }
 
 // vendorTargetBase picks the target; applied is true when t.Model already carries req.Model (no fallback respelled it).
-func vendorTargetBase(req Request, name string) (t providers.Target, own bool, note string, applied bool, err error) {
+func vendorTargetBase(req RunOptions, name string) (t providers.Target, own bool, note string, applied bool, err error) {
 	reg, t, err := resolveTarget(req)
 	if err != nil || req.Provider != "" || namesProvider(reg, req.Model) {
 		if err == nil && name == "copilot" { // an explicit GitHub login still passes the credit gate
@@ -96,25 +96,15 @@ type vendorRunner struct{ name string }
 
 func (v vendorRunner) Name() string { return v.name }
 
-// Caps follow each CLI's verified headless flags; Autonomous holds for all three (codex is autonomous by construction).
+// Caps follow each CLI's verified headless flags.
 func (v vendorRunner) Caps() Caps {
-	c := Caps{Model: Native, Provider: Native, Effort: Native, WorkDir: Native, SessionID: Native, Tools: Native, Autonomous: Native,
-		NoPersist: lv(v.name == "codex"), SafeMode: lv(v.name == "codex" || v.name == "opencode"), DebugFile: lv(v.name == "gemini"),
-		Direct: Native, Env: Native, SystemPrompt: Emulated, AppendSystemPrompt: Emulated, OutputSchema: Emulated, Persona: Emulated}
-	switch v.name { // levels verified by live probe: codex -c instructions/developer_instructions, opencode agent prompt, agy --json-schema
-	case "codex":
-		c.SystemPrompt, c.AppendSystemPrompt, c.OutputSchema = Native, Native, Native
-	case "opencode":
-		c.SystemPrompt = Native
-	case "gemini":
-		c.OutputSchema = Native
-	}
-	return c
+	s, _ := LookupSchema(v.name)
+	return s.CLI.Caps
 }
 
 func (v vendorRunner) Available() error {
-	spec, _ := LookupSpec(v.name)
-	_, err := paths.VendorBin(spec.Binary)
+	s, _ := LookupSchema(v.name)
+	_, err := paths.VendorBin(s.CLI.Binary)
 	return err
 }
 
@@ -128,7 +118,7 @@ type vendorPrep struct {
 }
 
 // prepare resolves req's route and headless argv; the Result comes back populated even on error.
-func (v vendorRunner) prepare(ctx context.Context, req Request) (vendorPrep, error) {
+func (v vendorRunner) prepare(ctx context.Context, req RunOptions) (vendorPrep, error) {
 	t, own, err := vendorTarget(req, v.name)
 	if err != nil {
 		return vendorPrep{}, err
@@ -150,14 +140,13 @@ func (v vendorRunner) prepare(ctx context.Context, req Request) (vendorPrep, err
 	if req.Autonomous && v.name == "codex" {
 		fmt.Fprintln(os.Stderr, "ask: codex exec has no ask-step to disable; --tools already grants workspace-write")
 	}
-	// Only opencode puts the prompt in argv (opencodeRun); codex rides stdin behind `-` (codexHeadless)
-	// and gemini rides agy's stdin stream-json (RunAgy/agyStdin) — neither is bound by MAX_ARG_STRLEN.
-	if v.name == "opencode" && len(p.prompt) > MaxPromptBytes {
+	s, _ := LookupSchema(v.name)
+	if s.CLI.PromptInArgv && len(p.prompt) > MaxPromptBytes {
 		return p, &Error{Kind: KindFatal, Agent: v.name, Err: errPromptTooLarge(len(p.prompt))}
 	}
 	h := Headless{Prompt: p.prompt, Effort: req.Effort, SessionID: req.SessionID, Tools: req.Tools,
 		Autonomous: req.Autonomous, Attach: req.Attach, NoPersist: req.NoPersist, SafeMode: req.SafeMode}
-	if v.name == "opencode" {
+	if s.CLI.DirFlag {
 		h.WorkDir = req.WorkDir // cmd.Dir alone doesn't move opencode's own cwd resolution; --dir does
 	}
 	if own {
@@ -180,7 +169,7 @@ func (v vendorRunner) prepare(ctx context.Context, req Request) (vendorPrep, err
 }
 
 // agyModel is the --model agy runs for req on t; a Databricks row gets the id its gateway mode lists.
-func agyModel(req Request, t providers.Target) string {
+func agyModel(req RunOptions, t providers.Target) string {
 	if req.Model == "" || t.Model == "" { // the slot table's opus id isn't agy's own: GEMINI_MODEL pin, else flash-high
 		t.Model = AgyDefaultModel
 	}
@@ -193,14 +182,14 @@ func agyModel(req Request, t providers.Target) string {
 }
 
 // agyRequest is the agy run for req: only the resolved credential env carries over, agy builds its own argv.
-func (p vendorPrep) agyRequest(req Request) agyRequest {
+func (p vendorPrep) agyRequest(req RunOptions) agyRequest {
 	return agyRequest{
 		Prompt: p.prompt, Model: agyModel(req, p.t), Effort: req.Effort, Cwd: req.WorkDir, Tools: req.Tools, Autonomous: req.Autonomous,
 		DebugFile: req.DebugFile, Env: p.env, KeepEnv: req.KeepEnv, SessionID: req.SessionID, OutputSchema: req.OutputSchema,
 	}
 }
 
-func (v vendorRunner) Run(ctx context.Context, req Request, sink Sink) (Result, error) {
+func (v vendorRunner) Run(ctx context.Context, req RunOptions, sink Sink) (Result, error) {
 	ctx = directCtx(ctx, req)
 	p, err := v.prepare(ctx, req)
 	res, prompt, env, argv := p.res, p.prompt, p.env, p.argv
@@ -217,8 +206,8 @@ func (v vendorRunner) Run(ctx context.Context, req Request, sink Sink) (Result, 
 		}
 		return res, err
 	}
-	spec, _ := LookupSpec(v.name)
-	bin, err := paths.VendorBin(spec.Binary)
+	s, _ := LookupSchema(v.name)
+	bin, err := paths.VendorBin(s.CLI.Binary)
 	if err != nil {
 		return res, &Error{Kind: KindFatal, Agent: v.name, Err: err}
 	}

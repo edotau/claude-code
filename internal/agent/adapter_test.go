@@ -5,19 +5,13 @@ import (
 	"testing"
 )
 
-// TestRoster pins the roster and its order, matching the verb table in contract.md.
 func TestRoster(t *testing.T) {
-	var got []string
-	for _, a := range adapters {
-		got = append(got, a.Name)
-	}
-	if !slices.Equal(got, []string{"codex", "gemini", "copilot", "opencode"}) {
-		t.Errorf("roster = %v, want [codex gemini copilot opencode]", got)
+	if got := Names(); !slices.Equal(got, []string{"codex", "gemini", "opencode", "copilot"}) {
+		t.Errorf("external roster = %v, want [codex gemini opencode copilot]", got)
 	}
 }
 
-// TestLookupKnownVendors: each of the four vendors resolves with the ResumeHint and model-catalog
-// wiring frozen in contract.md's resume-commands line and Adapter's ModelsArgv/ModelsProvider.
+// TestLookupKnownVendors pins resume commands, model catalogs and file-read permissions.
 func TestLookupKnownVendors(t *testing.T) {
 	cases := []struct {
 		name               string
@@ -33,40 +27,61 @@ func TestLookupKnownVendors(t *testing.T) {
 		{"opencode", "abc123", "opencode run --session abc123", "", []string{"models"}, true},
 	}
 	for _, c := range cases {
-		a, ok := LookupAdapter(c.name)
+		s, ok := LookupSchema(c.name)
 		if !ok {
-			t.Errorf("Lookup(%q) not found", c.name)
+			t.Errorf("LookupSchema(%q) not found", c.name)
 			continue
 		}
-		if a.Name != c.name {
-			t.Errorf("Lookup(%q).Name = %q", c.name, a.Name)
+		if s.Name != c.name {
+			t.Errorf("LookupSchema(%q).Name = %q", c.name, s.Name)
 		}
-		if a.Binary == "" {
-			t.Errorf("Lookup(%q).Binary is empty, want a fallback at least", c.name)
+		if !s.External() {
+			t.Errorf("LookupSchema(%q) is not external", c.name)
 		}
-		if a.ResumeHint == nil {
-			t.Errorf("Lookup(%q).ResumeHint is nil", c.name)
-		} else if got := a.ResumeHint(c.resumeID); got != c.wantResumeHint {
-			t.Errorf("Lookup(%q).ResumeHint(%q) = %q, want %q", c.name, c.resumeID, got, c.wantResumeHint)
+		if got := s.ResumeHint(c.resumeID); got != c.wantResumeHint {
+			t.Errorf("schema %q resume = %q, want %q", c.name, got, c.wantResumeHint)
 		}
-		if a.ModelsProvider != c.wantModelsProv {
-			t.Errorf("Lookup(%q).ModelsProvider = %q, want %q", c.name, a.ModelsProvider, c.wantModelsProv)
+		if s.CLI.ModelsProvider != c.wantModelsProv {
+			t.Errorf("schema %q ModelsProvider = %q, want %q", c.name, s.CLI.ModelsProvider, c.wantModelsProv)
 		}
-		if !slices.Equal(a.ModelsArgv, c.wantModelsArgv) {
-			t.Errorf("Lookup(%q).ModelsArgv = %v, want %v", c.name, a.ModelsArgv, c.wantModelsArgv)
+		if !slices.Equal(s.CLI.ModelsArgv, c.wantModelsArgv) {
+			t.Errorf("schema %q ModelsArgv = %v, want %v", c.name, s.CLI.ModelsArgv, c.wantModelsArgv)
 		}
-		if a.Login == nil {
-			t.Errorf("Lookup(%q).Login is nil", c.name)
+		if loginProbes[s.Name] == nil {
+			t.Errorf("schema %q has no login probe", c.name)
 		}
-		if a.ReadNeedsTools != c.wantReadNeedsTools {
-			t.Errorf("Lookup(%q).ReadNeedsTools = %v, want %v", c.name, a.ReadNeedsTools, c.wantReadNeedsTools)
+		if s.CLI.ReadNeedsTools != c.wantReadNeedsTools {
+			t.Errorf("schema %q ReadNeedsTools = %v, want %v", c.name, s.CLI.ReadNeedsTools, c.wantReadNeedsTools)
 		}
 	}
 }
 
-// TestLookupUnknownVendor: an unregistered name reports not-found, not a zero-value adapter mistaken for real.
 func TestLookupUnknownVendor(t *testing.T) {
-	if a, ok := LookupAdapter("nonexistent-vendor"); ok || a.Name != "" {
-		t.Errorf("Lookup(unknown) = (%+v, %v), want (Adapter{}, false)", a, ok)
+	if s, ok := LookupSchema("nonexistent-vendor"); ok || s.Name != "" {
+		t.Errorf("unknown schema = (%+v, %v), want (Schema{}, false)", s, ok)
+	}
+}
+
+func TestKnownIncludesClaude(t *testing.T) {
+	for _, s := range Roster() {
+		if !known(s.Name) {
+			t.Errorf("known(%q) = false", s.Name)
+		}
+	}
+	if known("nonexistent-vendor") {
+		t.Error("unknown agent is known")
+	}
+}
+
+func TestSetupRejectsNonExternal(t *testing.T) {
+	for _, name := range []string{"claude", "nonexistent-vendor"} {
+		rep := Setup(name, func(string) (string, bool) {
+			t.Fatal("non-external agent must not check routes")
+			return "", false
+		})
+		if rep.OK || len(rep.Checks) != 1 || rep.Checks[0].State != "fail" ||
+			rep.Checks[0].Detail != errUnknownAgent(name).Error() {
+			t.Errorf("Setup(%q) = %+v", name, rep)
+		}
 	}
 }

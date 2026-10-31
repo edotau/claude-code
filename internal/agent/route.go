@@ -354,7 +354,7 @@ func resolveAccount(agentName string, c router.Cell) (string, string) {
 	case "opencode":
 		return "", "" // the cell's provider prefix is the account; router.Configured gates its credential
 	case "claude":
-		_, ct, err := resolveTarget(Request{Provider: providers.SessionProfile(), Model: c.Model})
+		_, ct, err := resolveTarget(RunOptions{Provider: providers.SessionProfile(), Model: c.Model})
 		if err != nil || ct.Provider == nil || ct.Provider.Auth.Method() == providers.AuthCLI {
 			return "", ""
 		}
@@ -363,7 +363,7 @@ func resolveAccount(agentName string, c router.Cell) (string, string) {
 		if ownLoginAccount(agentName, c.Account) {
 			return "", "" // the agent's own login cell keeps its account; a session profile never replaces it
 		}
-		vt, own, _, err := vendorTargetNote(Request{Provider: sessionProvider(agentName), Model: c.Model}, agentName)
+		vt, own, _, err := vendorTargetNote(RunOptions{Provider: sessionProvider(agentName), Model: c.Model}, agentName)
 		if err != nil || own || vt.Provider == nil || vt.Provider.Auth.Login == agentName {
 			return "", ""
 		}
@@ -408,7 +408,7 @@ func billingOf(p *providers.Provider) string {
 
 // ExplicitChain is r alone on the caller's explicit backend (--provider or provider:model), carrying that backend's
 // account: a remembered exhaustion skips it without an attempt, and a quota failure is recorded on it.
-func ExplicitChain(r Runner, req Request) Chain {
+func ExplicitChain(r Runner, req RunOptions) Chain {
 	c := Single(r)
 	acct, billing := explicitAccount(r, req)
 	c.Legs[0].Account, c.Legs[0].Billing = acct, billing
@@ -438,7 +438,7 @@ func WithTier(c Chain, tier string) Chain {
 }
 
 // explicitAccount is the <provider>·<profile> key of the named backend; a hub leg names its own profile.
-func explicitAccount(r Runner, req Request) (string, string) {
+func explicitAccount(r Runner, req RunOptions) (string, string) {
 	if l, ok := r.(hubLeg); ok {
 		if OpencodeCredID(l.provider.OpencodeID) == "opencode" {
 			return "opencode·go", router.BillSubscription
@@ -502,7 +502,7 @@ func hubLegFor(reg *providers.Registry, cell string) (Runner, string, error) {
 
 // legRequest is req for leg: the wanted leg keeps an explicit caller model; every other leg drops the original
 // provider and session (they belong to the leg that minted them) and runs its cell, the caller's --effort winning.
-func legRequest(req Request, leg Leg, first bool) Request {
+func legRequest(req RunOptions, leg Leg, first bool) RunOptions {
 	leg.byokNote()
 	out := req
 	if leg.unroutedLeg {

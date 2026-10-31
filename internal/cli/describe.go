@@ -123,7 +123,8 @@ func describe(reg *providers.Registry) (Describe, error) {
 		})
 	}
 	for _, r := range agent.Runners() {
-		dr := DescribeAgent{Name: r.Name(), Available: true, Caps: r.Caps()}
+		s, _ := agent.LookupSchema(r.Name())
+		dr := DescribeAgent{Name: s.Name, Available: true, Caps: s.CLI.Caps}
 		if err := r.Available(); err != nil {
 			dr.Available, dr.Reason = false, err.Error()
 		}

@@ -11,11 +11,11 @@ import (
 	"testing"
 )
 
-var testPersona = &Persona{Name: "reviewer", Description: "Reviews", Prompt: "Be strict.", Tools: []string{"Read"}, Model: "sonnet", MaxTurns: 3}
+var testPersona = &Schema{Name: "reviewer", Description: "Reviews", Prompt: "Be strict.", Tools: []string{"Read"}, Model: "sonnet", MaxTurns: 3}
 
 // claude renders only the selected persona; the others get it as system text with the lost fields named.
 func TestPersonaClaudeNativeAndEmulated(t *testing.T) {
-	args := claudeArgs(nil, Request{Persona: testPersona})
+	args := claudeArgs(nil, RunOptions{Persona: testPersona})
 	i := slices.Index(args, "--agents")
 	if i < 0 || !slices.Contains(args, "--agent") || args[slices.Index(args, "--agent")+1] != "reviewer" {
 		t.Fatalf("args = %q", args)
@@ -28,7 +28,7 @@ func TestPersonaClaudeNativeAndEmulated(t *testing.T) {
 		t.Errorf("definition = %v", d)
 	}
 
-	req := Request{Prompt: "T", Persona: testPersona}
+	req := RunOptions{Prompt: "T", Persona: testPersona}
 	out, dropped, emulated := applyCaps(Caps{Persona: Emulated, AppendSystemPrompt: Emulated}, req)
 	if out.Persona != nil || !strings.Contains(out.Prompt, "Be strict.") || !strings.HasSuffix(out.Prompt, "T") {
 		t.Errorf("emulated prompt = %q persona=%v", out.Prompt, out.Persona)
@@ -45,11 +45,11 @@ func TestPersonaClaudeNativeAndEmulated(t *testing.T) {
 	}
 }
 
-func TestLoadPersonaUnknown(t *testing.T) {
+func TestLoadSchemaUnknown(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	for _, ref := range []string{"missing", "../x", "/no/such.md", "bad name"} {
-		if p, err := LoadPersona(ref); err == nil {
-			t.Errorf("LoadPersona(%q) = %+v, want an error", ref, p)
+		if p, err := LoadSchema(ref); err == nil {
+			t.Errorf("LoadSchema(%q) = %+v, want an error", ref, p)
 		}
 	}
 }
@@ -62,24 +62,24 @@ func TestPersonaEmptyToolsIsNotInherit(t *testing.T) {
 	if err := os.WriteFile(f, []byte("---\nname: r\ntools: []\n---\nBody.\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	p, err := LoadPersona(f)
+	p, err := LoadSchema(f)
 	if err != nil || p.Tools == nil || len(p.Tools) != 0 {
 		t.Fatalf("loaded %+v (%v), want non-nil empty Tools", p, err)
 	}
-	if args := personaArgs(*p); !strings.Contains(args[1], `"tools":[]`) {
+	if args := personaArgs(p); !strings.Contains(args[1], `"tools":[]`) {
 		t.Errorf("--agents = %s, want tools:[]", args[1])
 	}
-	b, _ := json.Marshal(Request{Persona: p})
-	var back Request
+	b, _ := json.Marshal(RunOptions{Persona: p})
+	var back RunOptions
 	if err := json.Unmarshal(b, &back); err != nil || back.Persona.Tools == nil {
 		t.Errorf("round-trip lost the empty list: %s (%v)", b, err)
 	}
-	if _, dropped, _ := applyCaps(Caps{Persona: Emulated, AppendSystemPrompt: Emulated}, Request{Persona: p}); !slices.Contains(dropped, "persona.tools=none") {
+	if _, dropped, _ := applyCaps(Caps{Persona: Emulated, AppendSystemPrompt: Emulated}, RunOptions{Persona: p}); !slices.Contains(dropped, "persona.tools=none") {
 		t.Errorf("dropped = %q, want tools=none named", dropped)
 	}
 }
 
-func TestResolveTarget(t *testing.T) {
+func TestSelectAgent(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", dir)
 	if err := os.MkdirAll(filepath.Join(dir, "agents"), 0o755); err != nil {
@@ -94,27 +94,35 @@ func TestResolveTarget(t *testing.T) {
 	if err := os.WriteFile(file, []byte("Body x.\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	for _, c := range []struct{ ref, vendor, persona string }{
-		{"codex", "codex", ""}, // the vendor beats agents/codex.md
-		{"codex:helper", "codex", "helper"},
-		{"helper", "claude", "helper"},
-		{file, "claude", "x"},
+	agents := map[string]*Schema{
+		"sec":   {Name: "sec", Prompt: "S.", Runner: "codex"},
+		"plain": {Name: "plain", Prompt: "P."},
+		"help":  {Name: "help", Prompt: "H.", Runner: "gemini"},
+	}
+	for _, c := range []struct{ ref, runner, persona string }{
+		{"codex", "codex", ""},              // the roster name beats agents/codex.md
+		{"sec", "codex", "sec"},             // an agents key resolves to def.Runner
+		{"plain", "claude", "plain"},        // an agents key with no runner runs on claude
+		{"codex:helper", "codex", "helper"}, // vendor:name loads agents/<name>.md
+		{"codex:help", "codex", "help"},     // the vendor beats def.Runner
+		{"helper", "claude", "helper"},      // agents/<name>.md with no runner runs on claude
+		{file, "claude", "x"},               // a file path
 	} {
-		v, p, err := ResolveTarget(c.ref)
-		if err != nil || v != c.vendor || personaName(p) != c.persona {
-			t.Errorf("ResolveTarget(%q) = %q, %+v, %v; want %q persona %q", c.ref, v, p, err, c.vendor, c.persona)
+		v, p, err := SelectAgent(c.ref, agents)
+		if err != nil || v != c.runner || personaName(p) != c.persona {
+			t.Errorf("SelectAgent(%q) = %q, %+v, %v; want %q persona %q", c.ref, v, p, err, c.runner, c.persona)
 		}
 	}
 	for _, ref := range []string{"notvendor:helper", "nosuch"} {
-		if _, _, err := ResolveTarget(ref); err == nil || !strings.Contains(err.Error(), "codex") {
-			t.Errorf("ResolveTarget(%q) err = %v, want one listing the vendors", ref, err)
+		if _, _, err := SelectAgent(ref, nil); err == nil || !strings.Contains(err.Error(), "codex") {
+			t.Errorf("SelectAgent(%q) err = %v, want one listing the vendors", ref, err)
 		}
 	}
 }
 
 func TestRefusePersona(t *testing.T) {
 	emu, nat := Caps{Persona: Emulated}, Caps{Persona: Native}
-	p := func(tools []string) *Persona { return &Persona{Name: "p", Tools: tools} }
+	p := func(tools []string) *Schema { return &Schema{Name: "p", Tools: tools} }
 	for _, c := range []struct {
 		name   string
 		caps   Caps
@@ -142,7 +150,7 @@ func TestFallbackHopRefusesRestrictivePersona(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	down := &fakeRunner{name: "codex", errs: []error{errors.New(`exec: "codex": executable file not found in $PATH`)}, emptyAnswer: true}
 	emu := &fakeRunner{name: "gemini", caps: Caps{Persona: Emulated, AppendSystemPrompt: Emulated}, errs: []error{nil}}
-	res, err := RunWithFallback(context.Background(), chainOf([]Runner{down, emu}), Request{Prompt: "p", Persona: testPersona}, Discard, nil)
+	res, err := RunWithFallback(context.Background(), chainOf([]Runner{down, emu}), RunOptions{Prompt: "p", Persona: testPersona}, Discard, nil)
 	if err == nil || len(emu.seen) != 0 || len(res.Hops) != 2 {
 		t.Fatalf("agent=%q err=%v emulating runs=%d, want a refusal on the second hop and no run", res.Agent, err, len(emu.seen))
 	}

@@ -17,13 +17,13 @@ type pinFallbackRunner struct {
 	name string
 	res  Result
 	err  error
-	seen []Request
+	seen []RunOptions
 }
 
 func (f *pinFallbackRunner) Name() string     { return f.name }
 func (f *pinFallbackRunner) Caps() Caps       { return Caps{Model: Native, Effort: Native} }
 func (f *pinFallbackRunner) Available() error { return nil }
-func (f *pinFallbackRunner) Run(_ context.Context, req Request, _ Sink) (Result, error) {
+func (f *pinFallbackRunner) Run(_ context.Context, req RunOptions, _ Sink) (Result, error) {
 	f.seen = append(f.seen, req)
 	return f.res, f.err
 }
@@ -110,7 +110,7 @@ func TestPinFirstFallback(t *testing.T) {
 	t.Run("quota_auth_fallback", func(t *testing.T) {
 		c, _, fakes := setup(t, false)
 		failVendors(fakes)
-		res, err := RunWithFallback(ctx, c, Request{Prompt: "reply"}, Discard, nil)
+		res, err := RunWithFallback(ctx, c, RunOptions{Prompt: "reply"}, Discard, nil)
 		if err != nil || res.Agent != "claude" || res.Answer != "answer from claude" || res.Fallback != "codex" {
 			t.Fatalf("result = %+v, err = %v", res, err)
 		}
@@ -138,7 +138,7 @@ func TestPinFirstFallback(t *testing.T) {
 			t.Fatal("exhausted claude must be skipped")
 		}
 		failVendors(fakes)
-		_, err := RunWithFallback(ctx, c, Request{Prompt: "reply"}, Discard, nil)
+		_, err := RunWithFallback(ctx, c, RunOptions{Prompt: "reply"}, Discard, nil)
 		if err == nil {
 			t.Fatal("all hops failed, want an error")
 		}
@@ -151,7 +151,7 @@ func TestPinFirstFallback(t *testing.T) {
 		fault := &Error{Agent: "codex", Kind: KindAuth, Status: 403,
 			AuthReason: "request rejected", Err: errors.New("403 content_policy refusal")}
 		fakes["codex"].res, fakes["codex"].err = Result{}, fault
-		_, err := RunWithFallback(ctx, c, Request{Prompt: "reply"}, Discard, nil)
+		_, err := RunWithFallback(ctx, c, RunOptions{Prompt: "reply"}, Discard, nil)
 		if !errors.Is(err, fault) {
 			t.Errorf("err = %v, want original content-policy fault", err)
 		}

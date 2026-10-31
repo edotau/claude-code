@@ -23,14 +23,13 @@ type claudeRunner struct{}
 func (claudeRunner) Name() string { return "claude" }
 
 func (claudeRunner) Caps() Caps {
-	return Caps{Model: Native, Provider: Native, Effort: Native, WorkDir: Native, SessionID: Native, Tools: Native, NoTools: Native,
-		NoPersist: Native, SafeMode: Native, DebugFile: Native, SystemPrompt: Native, AppendSystemPrompt: Native, Env: Native,
-		OutputSchema: Native, Persona: Native}
+	s, _ := LookupSchema("claude")
+	return s.CLI.Caps
 }
 
 func (claudeRunner) Available() error { _, err := ClaudeBinary(); return err }
 
-func (claudeRunner) Run(ctx context.Context, req Request, sink Sink) (Result, error) {
+func (claudeRunner) Run(ctx context.Context, req RunOptions, sink Sink) (Result, error) {
 	if req.NoTools { // the one-shot has no system-prompt or schema channel; those go through the claude process
 		if req.Tools {
 			return Result{}, errors.New("claude: --no-tools and --tools are exclusive")
@@ -68,7 +67,7 @@ func (claudeRunner) Run(ctx context.Context, req Request, sink Sink) (Result, er
 }
 
 // claudeArgs appends the request's option flags to base; shared by the one-shot and the live session.
-func claudeArgs(args []string, req Request) []string {
+func claudeArgs(args []string, req RunOptions) []string {
 	if req.NoPersist {
 		args = append(args, "--no-session-persistence")
 	}
@@ -88,7 +87,7 @@ func claudeArgs(args []string, req Request) []string {
 		args = append(args, "--append-system-prompt", req.AppendSystemPrompt)
 	}
 	if req.Persona != nil {
-		args = append(args, personaArgs(*req.Persona)...)
+		args = append(args, personaArgs(req.Persona)...)
 	}
 	if req.OutputSchema != "" {
 		args = append(args, "--json-schema", req.OutputSchema)
@@ -104,7 +103,7 @@ func claudeArgs(args []string, req Request) []string {
 }
 
 // claudeCmd resolves the launch plan for args and returns the unstarted child with its env layered (--env last).
-func claudeCmd(ctx context.Context, req Request, args []string, prompt string) (*exec.Cmd, *TailBuffer, ClaudeLaunch, error) {
+func claudeCmd(ctx context.Context, req RunOptions, args []string, prompt string) (*exec.Cmd, *TailBuffer, ClaudeLaunch, error) {
 	if req.Launcher == nil {
 		return nil, nil, ClaudeLaunch{}, errors.New("claude: no launcher (caller must set Request.Launcher)")
 	}

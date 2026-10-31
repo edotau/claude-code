@@ -23,17 +23,17 @@ func TestByokRetryModelSkipsFailedAndStaysOnPool(t *testing.T) {
 	}
 	leg := Leg{repick: byokRepick("opencode", router.Tiers[1], router.Cell{}, p, "dbx:")}
 	capErr := errors.New("400: max_new_tokens exceeds the model limit")
-	if got := retryModel(leg, Request{Model: "dbx:m-a"}, errors.New("connection reset")); got != "" {
+	if got := retryModel(leg, RunOptions{Model: "dbx:m-a"}, errors.New("connection reset")); got != "" {
 		t.Errorf("non-capability error retried on %q", got)
 	}
-	if got := retryModel(leg, Request{Model: "dbx:m-a"}, capErr); got != "dbx:m-b" {
+	if got := retryModel(leg, RunOptions{Model: "dbx:m-a"}, capErr); got != "dbx:m-b" {
 		t.Errorf("capability retry = %q, want dbx:m-b", got)
 	}
 	at := router.LoadState()[router.ProviderAccount(p.Name)].BYOKSkip["opencode|m-a"]
 	if time.Since(at) > time.Minute || at.IsZero() {
 		t.Errorf("m-a not marked skipped for opencode: %v", at)
 	}
-	if got := retryModel(Leg{}, Request{Model: "x"}, capErr); got != "" {
+	if got := retryModel(Leg{}, RunOptions{Model: "x"}, capErr); got != "" {
 		t.Errorf("leg without a byok repick retried on %q", got)
 	}
 }

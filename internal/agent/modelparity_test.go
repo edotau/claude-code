@@ -76,7 +76,7 @@ func TestLaunchAndAgentAgreeOnModel(t *testing.T) {
 				t.Fatal(err)
 			}
 			t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
-			tg, _, _, err := agent.VendorTargetNote(agent.Request{Provider: c.profile, Model: c.flag}, c.agent)
+			tg, _, _, err := agent.VendorTargetNote(agent.RunOptions{Provider: c.profile, Model: c.flag}, c.agent)
 			if err != nil {
 				t.Fatal(err)
 			}
