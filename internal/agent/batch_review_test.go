@@ -230,7 +230,7 @@ func TestBatchParkedTasksDoNotHoldPoolSlots(t *testing.T) {
 	n := DefaultPerKey + 2
 	for i := range n {
 		name := fmt.Sprintf("a%d", i)
-		tasks = append(tasks, acctTask(t, name, "A·acct", slowRunner{name: name, sleep: 400 * time.Millisecond}))
+		tasks = append(tasks, acctTask(t, name, "A·acct", slowRunner{name: name, sleep: 150 * time.Millisecond}))
 	}
 	tasks = append(tasks, acctTask(t, "b", "B·acct", slowRunner{name: "b"}))
 	var out strings.Builder
@@ -364,7 +364,7 @@ func TestBatchFailFastPanickingLegStopsQueuedTask(t *testing.T) {
 // A task waiting out its account's cooldown holds nothing: a task on another account runs and finishes first.
 func TestBatchCoolingAccountDoesNotBlockOthers(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	coolDown("cool·A", 700*time.Millisecond)
+	coolDown("cool·A", 250*time.Millisecond)
 	tasks := []BatchTask{
 		acctTask(t, "cooling", "cool·A", slowRunner{name: "cooling"}),
 		acctTask(t, "free", "free·B", slowRunner{name: "free"}),
@@ -572,7 +572,7 @@ func TestBatchFirstAttemptCooldownReleasesLegPermit(t *testing.T) {
 	var once sync.Once
 	prev := loadState
 	loadState = func() router.State {
-		once.Do(func() { coolDown("late·A", 500*time.Millisecond) })
+		once.Do(func() { coolDown("late·A", 200*time.Millisecond) })
 		return prev()
 	}
 	t.Cleanup(func() { loadState = prev })
@@ -855,7 +855,7 @@ func TestFirstAttemptRechecksAccountAfterCooldownIdle(t *testing.T) {
 	var once sync.Once
 	prev := loadState
 	loadState = func() router.State {
-		once.Do(func() { coolDown("late·A", 400*time.Millisecond) })
+		once.Do(func() { coolDown("late·A", 200*time.Millisecond) })
 		return prev()
 	}
 	t.Cleanup(func() { loadState = prev })

@@ -3,6 +3,7 @@ package memory
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -10,6 +11,7 @@ import (
 	"regexp"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -111,17 +113,41 @@ func dirHashes(t *testing.T, dir string) map[string]string {
 	return snap
 }
 
+var e2eBuild struct {
+	once sync.Once
+	bin  string
+	err  error
+}
+
+// e2eBinary builds the claude-code binary once per test process.
+func e2eBinary(t *testing.T) string {
+	t.Helper()
+	root := e2eModuleRoot(t)
+	e2eBuild.once.Do(func() {
+		dir, err := os.MkdirTemp("", "memory-e2e-bin")
+		if err != nil {
+			e2eBuild.err = err
+			return
+		}
+		e2eBuild.bin = filepath.Join(dir, "claude-code")
+		build := exec.Command("go", "build", "-o", e2eBuild.bin, "./cmd/claude-code")
+		build.Dir = root
+		if out, err := build.CombinedOutput(); err != nil {
+			e2eBuild.err = fmt.Errorf("go build: %v\n%s", err, out)
+		}
+	})
+	if e2eBuild.err != nil {
+		t.Fatal(e2eBuild.err)
+	}
+	return e2eBuild.bin
+}
+
 // TestE2EMemoryLifecycle drives init -> session-start -> remember -> recall -> promote -> index through the real binary.
 func TestE2EMemoryLifecycle(t *testing.T) {
 	if testing.Short() {
 		t.Skip("builds the claude-code binary")
 	}
-	bin := filepath.Join(t.TempDir(), "claude-code")
-	build := exec.Command("go", "build", "-o", bin, "./cmd/claude-code") // before isolatedConfig: keeps the real GOCACHE
-	build.Dir = e2eModuleRoot(t)
-	if out, err := build.CombinedOutput(); err != nil {
-		t.Fatalf("go build: %v\n%s", err, out)
-	}
+	bin := e2eBinary(t)            // built before isolatedConfig: keeps the real GOCACHE
 	cfg, home := isolatedConfig(t) // parent env only locates the on-disk seed; subprocesses get their own env
 	gitPath, err := exec.LookPath("git")
 	if err != nil {

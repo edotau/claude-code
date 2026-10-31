@@ -2,7 +2,6 @@ package worktree
 
 import (
 	"fmt"
-	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -43,29 +42,6 @@ func templateRepo(t *testing.T) string {
 	return tmplDir
 }
 
-// copyTree copies src into dst preserving modes; symlinks are not expected in a fresh repo.
-func copyTree(src, dst string) error {
-	return filepath.WalkDir(src, func(p string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		rel, _ := filepath.Rel(src, p)
-		target := filepath.Join(dst, rel)
-		info, err := d.Info()
-		if err != nil {
-			return err
-		}
-		if d.IsDir() {
-			return os.MkdirAll(target, info.Mode().Perm())
-		}
-		data, err := os.ReadFile(p)
-		if err != nil {
-			return err
-		}
-		return os.WriteFile(target, data, info.Mode().Perm())
-	})
-}
-
 // gitRepo makes a fresh git repo with one commit, env wired so every git invocation has an identity.
 func gitRepo(t *testing.T) string {
 	t.Helper()
@@ -74,8 +50,8 @@ func gitRepo(t *testing.T) string {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := copyTree(templateRepo(t), dir); err != nil {
-		t.Fatal(err)
+	if out, err := exec.Command("cp", "-a", templateRepo(t)+"/.", dir).CombinedOutput(); err != nil {
+		t.Fatalf("copy template repo: %v %s", err, out)
 	}
 	dir, err := canonical(dir)
 	if err != nil {

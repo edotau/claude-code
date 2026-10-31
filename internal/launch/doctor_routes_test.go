@@ -351,7 +351,7 @@ func TestPrintChecksGoldenBytes(t *testing.T) {
 		{Name: "sample2", OK: false, Detail: "broken: reason"},
 	}
 	var buf bytes.Buffer
-	printChecks(&buf, checks)
+	PrintChecks(&buf, checks)
 	want := "✓ sample: all good\n✗ sample2: broken: reason\n"
 	if got := buf.String(); got != want {
 		t.Errorf("printChecks =\n%q\nwant\n%q", got, want)

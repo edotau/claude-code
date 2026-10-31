@@ -20,7 +20,7 @@ while IFS= read -r line; do
   p=$(printf '%s' "$line" | sed -n 's/.*"content":"\([^"]*\)".*/\1/p')
   case "$p" in
     remember*) mem=${p#remember }; ans=ok ;;
-    slow*) sleep 2; ans=slow ;;
+    slow*) : > "$CLAUDE_CONFIG_DIR/slow-started"; while [ ! -e "$CLAUDE_CONFIG_DIR/slow-go" ]; do sleep 0.02; done; ans=slow ;;
     boom*) printf '{"type":"error","message":"kaboom"}\n'; ans=late ;;
     *) ans="$mem pid $$" ;;
   esac
@@ -134,9 +134,18 @@ func TestLiveSessionTurnsRefusalAndCancel(t *testing.T) {
 	}
 	slow := make(chan error, 1)
 	go func() { _, e := SendLive(context.Background(), id, "slow", Discard); slow <- e }()
-	time.Sleep(500 * time.Millisecond)
+	started := filepath.Join(os.Getenv("CLAUDE_CONFIG_DIR"), "slow-started")
+	for range 400 {
+		if _, err := os.Stat(started); err == nil {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 	if _, err := SendLive(context.Background(), id, "second", Discard); err != ErrLiveBusy {
 		t.Errorf("concurrent send = %v, want ErrLiveBusy", err)
+	}
+	if err := os.WriteFile(filepath.Join(os.Getenv("CLAUDE_CONFIG_DIR"), "slow-go"), nil, 0o600); err != nil {
+		t.Fatal(err)
 	}
 	if err := <-slow; err != nil {
 		t.Errorf("the in-flight turn must finish: %v", err)
@@ -197,7 +206,7 @@ printf '{"type":"system","subtype":"noise","message":"%s"}\n' "$(head -c 200000 
 // A large prompt sent while claude's between-turn output fills the stdout pipe must not deadlock the holder.
 func TestLiveLargePromptWithPendingOutputDoesNotDeadlock(t *testing.T) {
 	liveEnvScript(t, fakeNoisyClaude)
-	id, wait := startHolder(t, context.Background(), 2*time.Second)
+	id, wait := startHolder(t, context.Background(), 300*time.Millisecond)
 	done := make(chan error, 1)
 	go func() {
 		_, err := SendLive(context.Background(), id, strings.Repeat("y", 200000), Discard)
