@@ -63,8 +63,9 @@ func claudeExec(ctx context.Context, req RunOptions, prompt string, sink Sink) (
 	res, perr := parseClaudeStream(bufio.NewReader(stdout), sink, eventLogFor(ctx))
 	if perr != nil {
 		_ = cmd.Cancel() // a dead consumer or bad stream must not leave claude running to --timeout
+	} else {
+		_, _ = io.Copy(io.Discard, stdout) // no drain after a kill: a grandchild holding stdout would block it; Wait closes it
 	}
-	_, _ = io.Copy(io.Discard, stdout)
 	werr := cmd.Wait()
 	res.Provider = cl.Set[providers.PinProfile]
 	if werr != nil || ctx.Err() != nil {
