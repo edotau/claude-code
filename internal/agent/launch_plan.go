@@ -94,7 +94,7 @@ type Plan struct {
 	Set         map[string]string
 	Unset       []string
 	Keep        []string // names the credential scrub must not drop, from LaunchOptions.KeepEnv
-	CLI      bool     // true for a vendor CLI child: HARNESS_VAULT_KEY is scrubbed too (never for Claude itself)
+	CLI         bool     // true for a vendor CLI child: HARNESS_VAULT_KEY is scrubbed too (never for Claude itself)
 	OverlayPath string
 	Overlay     []byte
 	Warnings    []string
