@@ -1,4 +1,4 @@
-package plan
+package planlint
 
 // `workflow lint` — flag workflow agent() calls without an explicit model/agentType pin or an effort
 // pin (an unpinned leaf inherits the parent session's reasoning tier, a measured cost trap), a pin
