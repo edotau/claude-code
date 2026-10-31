@@ -93,17 +93,17 @@ var (
 	codeTaskRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)\bagent:|\.go\b`) })
 )
 
-// runnerNames head runner alternatives like `(codex/copilot)`, which are not package paths.
-var runnerNames = map[string]bool{"copilot": true, "codex": true, "gemini": true, "opencode": true, "claude": true, "agy": true}
+// agentNames head agent alternatives like `(codex/copilot)`, which are not package paths.
+var agentNames = map[string]bool{"copilot": true, "codex": true, "gemini": true, "opencode": true, "claude": true, "agy": true}
 
-// countPackageMentions counts distinct internal/cmd package pairs and other path heads, excluding runner names.
+// countPackageMentions counts distinct internal/cmd package pairs and other path heads, excluding agent names.
 func countPackageMentions(line string) int {
 	pkgs := map[string]bool{}
 	for _, m := range internalPkgRe().FindAllStringSubmatch(line, -1) {
 		pkgs[m[1]+"/"+m[2]] = true
 	}
 	for _, m := range topDirRe().FindAllStringSubmatch(line, -1) {
-		if m[1] == "internal" || m[1] == "cmd" || runnerNames[m[1]] {
+		if m[1] == "internal" || m[1] == "cmd" || agentNames[m[1]] {
 			continue
 		}
 		pkgs[m[1]] = true
