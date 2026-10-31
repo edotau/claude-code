@@ -266,7 +266,7 @@ func isMeaningfulOpenCodeEvent(ev openCodeEvent) bool {
 // parseOpenCodeStream streams the root session's text parts; onMeaningful fires once on the first meaningful event.
 func parseOpenCodeStream(br *bufio.Reader, sink Sink, onMeaningful func(), logs ...eventLog) (res Result, _ error) {
 	ts := transportTracker{start: clock()}
-	defer func() { res.Transport = ts.timing() }()
+	defer func() { res.Transport = ts.result() }()
 	lg := pickLog(logs)
 	var texts, errs []string
 	seenTools := map[string]bool{}
@@ -308,8 +308,7 @@ func parseOpenCodeStream(br *bufio.Reader, sink Sink, onMeaningful func(), logs 
 		case "error":
 			msg := cmp.Or(ev.Error.Data.Message, ev.Error.Name, "unknown error")
 			errs = append(errs, msg)
-			lg.emit("error", msg)
-			if err := sink.Emit(Event{Type: EventError, Text: msg}); err != nil {
+			if err := emitError(lg, sink, msg); err != nil {
 				return false, err
 			}
 		}
@@ -343,14 +342,6 @@ func emitOpenCodeTool(sink Sink, ev openCodeEvent, seen map[string]bool) error {
 	return nil
 }
 
-// timing is the Transport for agents with no retry signal: Retries and RetryStatuses stay absent.
-func (t *transportTracker) timing() *Transport {
-	if t.events == 0 {
-		return nil
-	}
-	return &Transport{FirstEventMs: t.first.Milliseconds(), MaxGapMs: t.gap.Milliseconds()}
-}
-
 // headBuffer keeps the first 4 KiB of a stream: codex prints the session id in its stderr banner.
 type headBuffer struct{ buf []byte }
 
@@ -371,4 +362,12 @@ func sessionFromBanner(banner string) string {
 		}
 	}
 	return ""
+}
+
+// directCtx carries req.Direct to Configure (skip the router).
+func directCtx(ctx context.Context, req RunOptions) context.Context {
+	if req.Direct {
+		return WithDirect(ctx)
+	}
+	return ctx
 }

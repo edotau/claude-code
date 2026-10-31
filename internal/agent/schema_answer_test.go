@@ -55,7 +55,7 @@ func TestNoToolsOneShotReportsEnvDropped(t *testing.T) {
 	}))
 	defer srv.Close()
 	registry(t, srv)
-	res, err := Run(context.Background(), claudeRunner{}, RunOptions{Prompt: "x", Provider: "tanth", Model: "haiku", NoTools: true, Env: []string{"FOO=1"}}, Discard, nil)
+	res, err := Run(context.Background(), claudeAgent, RunOptions{Prompt: "x", Provider: "tanth", Model: "haiku", NoTools: true, Env: []string{"FOO=1"}}, Discard, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -169,7 +169,7 @@ func TestLegLabel(t *testing.T) {
 	if got := legLabel(l); got != "chatgpt" {
 		t.Errorf("hubLeg label = %q, want the provider's name", got)
 	}
-	if got := legLabel(claudeRunner{}); got != "claude" {
+	if got := legLabel(claudeAgent); got != "claude" {
 		t.Errorf("non-hub leg label = %q, want Name()", got)
 	}
 }
