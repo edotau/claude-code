@@ -37,6 +37,11 @@ func cliEnv(t *testing.T) {
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
 	t.Setenv("OPENCODE_API_KEY", "test-key") // an own-login route for opencode
+	for name, profile := range map[string]string{"codex": "chatgpt", "gemini": "antigravity", "opencode": "nvidia"} {
+		if err := agent.SetAgentRecord(name, agent.AgentRecord{Profile: profile}); err != nil { // an external agent with no profile is off
+			t.Fatal(err)
+		}
+	}
 	marker := agent.AgyLoginMarker(home)
 	if err := os.MkdirAll(filepath.Dir(marker), 0o755); err != nil {
 		t.Fatal(err)

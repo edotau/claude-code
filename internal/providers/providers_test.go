@@ -196,8 +196,8 @@ func TestSelectPinsAndCrossProvider(t *testing.T) {
 		t.Errorf("unregistered prefix must stay a model: %+v", tgt)
 	}
 	if err := vault.View(func(tx *vault.Tx) error {
-		if got, ok := tx.Get(vault.Pins, PinModel); !ok || got != "claude-opus-4-8" {
-			t.Errorf("vault pin = %q, present %v; want claude-opus-4-8", got, ok)
+		if got := Pin(PinModel); got != "claude-opus-4-8" {
+			t.Errorf("vault pin = %q; want claude-opus-4-8", got)
 		}
 		return nil
 	}); err != nil {

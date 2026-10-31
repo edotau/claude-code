@@ -48,6 +48,7 @@ func settingsRows(d *dialog) []homeRow {
 		routingRow(d),
 		{"environment", fmt.Sprintf("%d vars", n), "injected into every launch", runCustomEnv},
 		databricksRow(d),
+		seedRow(),
 	}
 }
 

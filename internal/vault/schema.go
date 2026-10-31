@@ -1,11 +1,15 @@
 package vault
 
 import (
+	"bytes"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"strconv"
+	"time"
 
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/schemas"
 	"go.etcd.io/bbolt"
 )
@@ -66,4 +70,30 @@ func SnapshotTo(path string, w io.Writer) error {
 		_, err := tx.WriteTo(w)
 		return err
 	})
+}
+
+// snapshotBeforeMigration copies an existing, older vault to paths.BackupPath before its first migrating write.
+func snapshotBeforeMigration(db *bbolt.DB, path string) error {
+	var buf bytes.Buffer
+	err := db.View(func(tx *bbolt.Tx) error {
+		if b := tx.Bucket([]byte(Meta)); b != nil && parseSchema(string(b.Get([]byte("schema")))) >= schemaVersion {
+			return nil
+		}
+		if tx.Bucket([]byte(Pins)) == nil {
+			return nil
+		}
+		_, err := tx.WriteTo(&buf)
+		return err
+	})
+	if err != nil || buf.Len() == 0 {
+		return err
+	}
+	return paths.AtomicWrite(paths.BackupPath(path, time.Now()), buf.Bytes(), 0600)
+}
+
+// reportAgentsOff prints one line per agent the migration left without a profile.
+func reportAgentsOff(off []string) {
+	for _, a := range off {
+		fmt.Fprintf(os.Stderr, "vault: %s left off (no profile); pick one in `claude-code configure` → \"Seed agent profiles\"\n", a)
+	}
 }

@@ -35,6 +35,7 @@ func TestAstraModelIdentity(t *testing.T) {
 		vaulttest.UseKeyring(t)
 		t.Setenv("HOME", t.TempDir())
 		t.Setenv("CLAUDE_PROFILE", "")
+		activateAgents(t, "codex")
 		c, _, err := RouteChainFor(ctx, "codex", astra, "sonnet", router.FallbackAgents, false, astraOpts())
 		if err != nil {
 			t.Fatal(err)
@@ -77,6 +78,7 @@ func astraProfile(t *testing.T, profile string, menu []providers.OpencodeModel) 
 	vaulttest.UseKeyring(t)
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("CLAUDE_PROFILE", profile)
+	activateAgents(t, "codex")
 	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"databricks":{"`+profile+`":{"preset":"databricks",`+
 		`"host":"https://profile.example.com","auth":{"type":"pat"},"models":{"sonnet":"gpt-6-1-sol"}}}}}`)
 	if err := providers.SetOpencodeMenu(menu); err != nil {

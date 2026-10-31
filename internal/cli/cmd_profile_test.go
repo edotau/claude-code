@@ -26,9 +26,14 @@ func TestAgentProfileAndOnOffVerbs(t *testing.T) {
 		t.Fatalf("copilot profile: code=%d out=%q", code, out)
 	}
 
-	code, _, errOut = captureOutput(t, func() int { return cmdAgentOnOff("copilot", true, nil) })
-	if code != 0 || providers.Pin(providers.PinCopilotActive) != agent.AgentOn {
-		t.Fatalf("copilot on: code=%d pin=%q err=%q", code, providers.Pin(providers.PinCopilotActive), errOut)
+	// on is a profile: with none recorded the agent stays off, and setting one switches it on.
+	code, _, errOut = captureOutput(t, func() int { return cmdAgentProfile("copilot", []string{"personal"}) })
+	if code != 0 || !agent.AgentActive("copilot") {
+		t.Fatalf("copilot profile personal: code=%d active=%v err=%q", code, agent.AgentActive("copilot"), errOut)
+	}
+	code, _, errOut = captureOutput(t, func() int { return cmdAgentOnOff("copilot", false, nil) })
+	if code != 0 || agent.AgentActive("copilot") {
+		t.Fatalf("copilot off with a profile: code=%d active=%v err=%q", code, agent.AgentActive("copilot"), errOut)
 	}
 
 	// claude has no active pin.

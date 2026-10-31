@@ -163,8 +163,8 @@ func TestSetPinsEmptyDeletesKey(t *testing.T) {
 		if got, ok := tx.Get(vault.Pins, PinProfile); ok {
 			t.Errorf("deleted pin still present: %q", got)
 		}
-		if got, ok := tx.Get(vault.Pins, PinModel); !ok || got != "keep" {
-			t.Errorf("unrelated pin = %q, present %v; want keep", got, ok)
+		if got := Pin(PinModel); got != "keep" {
+			t.Errorf("unrelated pin = %q; want keep", got)
 		}
 		return nil
 	}); err != nil {

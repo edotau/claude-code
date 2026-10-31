@@ -320,6 +320,7 @@ func geminiCells(t *testing.T, pin string) []string {
 	t.Helper()
 	tb := testTable(t)
 	vaulttest.Use(t)
+	activateAgents(t, "gemini")
 	if pin != "" {
 		if err := providers.SetPins(map[string]string{providers.PinGeminiModel: pin}); err != nil {
 			t.Fatal(err)

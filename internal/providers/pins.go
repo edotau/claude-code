@@ -179,21 +179,38 @@ func PinLookup() (func(string) string, error) {
 	return func(key string) string { return strings.TrimSpace(pins[key]) }, err
 }
 
-// readPins is the vault pins table in one read transaction; a missing vault is empty.
-func readPins() (pins map[string]string, err error) {
-	err = vault.View(func(tx *vault.Tx) error { pins = tx.All(vault.Pins); return nil })
+// readPins is the vault pins table plus the agent records rendered as their legacy keys, in one read transaction.
+func readPins() (map[string]string, error) { return readPinsActive(true) }
+
+// readPinsActive is readPins; active adds the derived <AGENT>_ACTIVE=off keys.
+func readPinsActive(active bool) (pins map[string]string, err error) {
+	err = vault.View(func(tx *vault.Tx) error {
+		recs, rerr := tx.AgentRecords()
+		if rerr != nil {
+			return rerr
+		}
+		pins = tx.All(vault.Pins)
+		maps.Copy(pins, vault.LegacyPins(recs, active))
+		return nil
+	})
 	return pins, err
 }
 
-// SetPins writes (value != "") or clears (value == "") keys in the vault pins in one transaction.
+// SetPins writes (value != "") or clears (value == "") keys in one transaction; <AGENT>_<FIELD> keys land in the record.
 func SetPins(kv map[string]string) error {
 	if err := vault.Update(func(tx *vault.Tx) error {
+		recs, err := tx.AgentRecords()
+		if err != nil {
+			return err
+		}
 		for k, v := range kv {
-			if err := tx.Put(vault.Pins, k, v); err != nil {
+			if a, f, ok := vault.ParseAgentPin(k); ok {
+				recs[a] = recs[a].WithPin(f, v)
+			} else if err := tx.Put(vault.Pins, k, v); err != nil {
 				return err
 			}
 		}
-		return nil
+		return tx.PutAgentRecords(recs)
 	}); err != nil {
 		return err
 	}
@@ -233,7 +250,7 @@ func PinDiff(kv map[string]string) ([]string, error) {
 
 // RenderPins renders vault pins as the plain-text snapshot history records.
 func RenderPins() ([]byte, error) {
-	pins, err := readPins()
+	pins, err := readPinsActive(false)
 	if err != nil {
 		return nil, err
 	}

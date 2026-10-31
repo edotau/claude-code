@@ -14,6 +14,7 @@ func TestRequestedAliasSurvivesSharedModel(t *testing.T) {
 	vaulttest.UseKeyring(t)
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv("HOME", t.TempDir())
+	activateAgents(t, "codex")
 	effortAt := func(alias string) string {
 		c, _, err := RouteChainFor(context.Background(), "codex", alias, "sonnet", router.FallbackNone, false, astraOpts())
 		if err != nil || len(c.Dispatches) == 0 || c.Dispatches[0].Agent.Name() != "codex" {

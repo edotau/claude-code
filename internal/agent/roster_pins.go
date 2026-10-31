@@ -10,6 +10,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
+	"github.com/edotau/claude-code/internal/vault"
 )
 
 // claudeTiers are claude's tier pins, folded into its MODEL cell as tier=id.
@@ -37,7 +38,7 @@ func VaultAgentNames(vs map[string]any) []string {
 // VaultAgentPins is one agent's pin suffixes (after "<AGENT>_") to values; claude's tier pins fold into MODEL.
 func VaultAgentPins(name string, pins map[string]string) map[string]string {
 	prefix, out := strings.ToUpper(name)+"_", map[string]string{}
-	for k, v := range pins {
+	for k, v := range withRecordPins(pins) {
 		if suffix, ok := strings.CutPrefix(k, prefix); ok && strings.TrimSpace(v) != "" {
 			out[suffix] = v
 		}
@@ -66,7 +67,19 @@ func VaultAgentIsClaude(name string) bool {
 
 // VaultAgentOff reports an agent whose ACTIVE pin says off (claude is always on).
 func VaultAgentOff(name string, pins map[string]string) bool {
-	return !VaultAgentIsClaude(name) && strings.TrimSpace(pins[strings.ToUpper(name)+"_ACTIVE"]) == AgentOff
+	return !VaultAgentIsClaude(name) && strings.TrimSpace(withRecordPins(pins)[strings.ToUpper(name)+"_ACTIVE"]) == AgentOff
+}
+
+// withRecordPins is pins plus the agent records rendered as legacy keys (explicit pins win); Phase 2 drops the pins arg.
+func withRecordPins(pins map[string]string) map[string]string {
+	out := vault.LegacyPins(AgentRecords(), true)
+	for _, a := range vault.LegacyAgents {
+		if k := strings.ToUpper(a) + "_"; pins[k+"PROFILE"] != "" && pins[k+"ACTIVE"] == "" {
+			delete(out, k+"ACTIVE")
+		}
+	}
+	maps.Copy(out, pins)
+	return out
 }
 
 // AgentOn and AgentOff are the <AGENT>_ACTIVE pin values; unset means on.
@@ -117,20 +130,30 @@ func copilotUnbillable(reg *providers.Registry) string {
 	return "no account to bill"
 }
 
-// AgentActive reports whether agent is on (unset = on; claude is always on).
+// AgentActive reports whether agent is on: claude always, else a profile is set (copilot's no-bill-off stays derived).
 func AgentActive(agent string) bool {
-	k := AgentActivePin(agent)
-	return k == "" || providers.Pin(k) != AgentOff
+	if agent == "claude" {
+		return true
+	}
+	if _, ok := LookupSchema(agent); !ok {
+		return true
+	}
+	return GetAgentRecord(agent).Profile != ""
 }
 
-// AgentPins reads the vault pins once and returns every agent's spec; claude's profile is the session's, else its pin.
+// AgentPins reads the records once and returns every agent's spec; claude's profile is the session's, else its record's.
 func AgentPins() map[string]router.PinSpec {
-	pin, _ := providers.PinLookup()
+	recs := AgentRecords()
+	reg, _ := providers.Load()
 	out := make(map[string]router.PinSpec, len(rosterRows))
 	for _, k := range rosterRows {
-		spec := router.PinSpec{Profile: pin(k.CLI.ProfilePin), Off: k.CLI.ActivePin != "" && pin(k.CLI.ActivePin) == AgentOff}
+		r := recs[k.Name]
+		spec := router.PinSpec{Profile: r.Profile, Off: k.External() && r.Profile == ""}
+		if ownLogin(reg, k.Name, r.Profile) {
+			spec.Profile = "" // the agent's own login profile routes as the old unset pin did
+		}
 		if k.CLI.ModelPin != "" {
-			spec.Model = pin(k.CLI.ModelPin)
+			spec.Model = r.Model
 		}
 		if !k.External() {
 			spec.Profile = cmp.Or(providers.SessionProfile(), spec.Profile)
@@ -140,12 +163,30 @@ func AgentPins() map[string]router.PinSpec {
 	return out
 }
 
+// OpencodeOwnLogin is opencode's own-login profile: the free Zen catalog then the paid ladder, as the old unset pin.
+const OpencodeOwnLogin = "zen-free"
+
+// ownLogin reports a profile that is agent's own sign-in: a registry row with Auth.Login == agent, or opencode's Zen id.
+func ownLogin(reg *providers.Registry, agent, profile string) bool {
+	if profile == "" {
+		return false
+	}
+	if agent == "opencode" {
+		return profile == OpencodeOwnLogin
+	}
+	if reg == nil {
+		return false
+	}
+	p := reg.Providers[profile]
+	return p != nil && p.Auth.Login == agent
+}
+
 // ValidAgentPin checks v as agent's profile pin: a registry profile, or for opencode also a sub id.
 func ValidAgentPin(reg *providers.Registry, agent, v string) error {
 	if _, ok := LookupSchema(agent); !ok {
 		return fmt.Errorf("unknown agent %q", agent)
 	}
-	if agent == "opencode" && slices.Contains(providers.RouteOpencodeSubIDs, v) {
+	if agent == "opencode" && (v == OpencodeOwnLogin || slices.Contains(providers.RouteOpencodeSubIDs, v)) {
 		return nil
 	}
 	if reg == nil || reg.Providers[v] == nil {
