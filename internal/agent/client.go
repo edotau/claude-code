@@ -93,9 +93,17 @@ func selectAndOverlay(ref string, agents map[string]*Schema, o *RunOptions) (run
 	}
 	if def != nil {
 		o.Persona = def
-		o.Model, o.Provider, o.Effort = cmp.Or(o.Model, def.Model), cmp.Or(o.Provider, def.Profile), cmp.Or(o.Effort, def.Effort)
+		o.Model, o.Provider, o.Effort = cmp.Or(o.Model, defModel(def)), cmp.Or(o.Provider, def.Profile), cmp.Or(o.Effort, def.Effort)
 	}
 	return runner, nil
+}
+
+// defModel is the definition's model for routing; "inherit" means no model of its own.
+func defModel(def *Schema) string {
+	if def.Model == "inherit" {
+		return ""
+	}
+	return def.Model
 }
 
 // mergeAgents layers defs over base: a nil side is just the other map, and shared keys take defs.
