@@ -25,9 +25,9 @@ import (
 
 	"github.com/edotau/claude-code/internal/audit"
 	"github.com/edotau/claude-code/internal/buildver"
-	"github.com/edotau/claude-code/internal/ledger"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/tokenledger"
 	"github.com/edotau/claude-code/internal/translate"
 	"github.com/edotau/claude-code/internal/vault"
 )
@@ -647,7 +647,7 @@ func logLedgerUsage(in *http.Request, p *providers.Provider, model string, u led
 	if session == "" {
 		session = in.Header.Get("X-Claude-Code-Session-Id")
 	}
-	ledger.Append(ledger.Entry{
+	tokenledger.Append(tokenledger.Entry{
 		Ts: time.Now(), Profile: p.Name, Provider: p.Provider, Model: model,
 		Agent: in.Header.Get(AgentHeader), Session: session,
 		Input: u.input, Output: u.output, CacheRead: u.cacheRead,
