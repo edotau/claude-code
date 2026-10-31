@@ -52,7 +52,7 @@ func currentModel(d *dialog, p *providers.Provider, claude bool, slot string) st
 	return p.Models[slot]
 }
 
-// modelRow is the agent page's Model row; nil when the agent has no account the hub can route to.
+// modelRow is the agent page's Model row; nil for codex and gemini, or an agent with no account the hub can route to.
 // copilot's launch argv reads only the opus slot (agent.describeCopilotRoute), so its page picks
 // one model directly instead of the tier list every other agent's page shows.
 func modelRow(d *dialog, name string) *billingRow {
@@ -64,15 +64,8 @@ func modelRow(d *dialog, name string) *billingRow {
 		desc := model + " (" + source + ")"
 		return &billingRow{label: "Model", desc: desc, run: func() bool { pickCopilotModel(d); return true }}
 	}
-	if name == "codex" {
-		model, source := providers.CodexModel()
-		desc := cmp.Or(model, "codex's own default") + " (" + source + ")"
-		return &billingRow{label: "Model", desc: desc, run: func() bool { pickCodexModel(d); return true }}
-	}
-	if name == "gemini" {
-		model, source := providers.GeminiModel()
-		desc := cmp.Or(model, agent.AgyDefaultModel) + " (" + source + ")"
-		return &billingRow{label: "Model", desc: desc, run: func() bool { pickGeminiModel(d); return true }}
+	if name == "codex" || name == "gemini" { // their own CLI catalogs pin CODEX_MODEL/GEMINI_MODEL: `vault edit`
+		return nil
 	}
 	p, claude := modelTarget(d, name)
 	if p == nil {

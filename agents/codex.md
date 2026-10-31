@@ -42,6 +42,12 @@ Does its own CLI work; may request: copilot, gemini, opencode, via the brief `Ag
 - **Any delegated task ("rescue")** — `claude-code codex ask --tools [--background] "<brief>"`.
 - **Handing a Claude session over** — `claude-code codex transfer`.
 
+## Account and model
+
+- Sign-in: `claude-code configure agents --agent codex` → Login (`codex login`, ChatGPT) or an API key.
+- Model ids: `codex debug models`; pin `CODEX_MODEL` and `CODEX_EFFORT` in `claude-code vault edit`.
+- `claude-code codex profile <profile>` pins `CODEX_PROFILE`; `codex off|on` toggles routing; `codex setup` checks.
+
 ## Verbs
 
 Shared table and bullets: `skills/subagent-workflows/references/agent-verbs.md`. Codex deltas:

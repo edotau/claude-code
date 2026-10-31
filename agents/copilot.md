@@ -44,6 +44,14 @@ Label rule: `skills/subagent-workflows/SKILL.md#leaf-types`.
 - Any delegated mechanical task (`copilot ask --tools [--background]`) — the `mechanical` task class in
   `skills/subagent-workflows/references/cost-routing.md`.
 
+## Account and model
+
+- Sign-in: `claude-code configure agents --agent copilot` → Login (`copilot login`); `configure github` picks the account.
+- Databricks: `claude-code configure databricks` signs in and mints the token into the vault, then
+  `claude-code copilot profile <profile>` pins `COPILOT_PROFILE`; `--clear` unpins.
+- Pins in `claude-code vault edit`: `COPILOT_MODEL`, `COPILOT_EFFORT`, `COPILOT_CONTEXT`.
+- `claude-code copilot off|on` stops/resumes routing to copilot; `claude-code copilot setup` checks the route.
+
 ## Verbs
 
 Shared table and bullets: `skills/subagent-workflows/references/agent-verbs.md`. Copilot deltas:

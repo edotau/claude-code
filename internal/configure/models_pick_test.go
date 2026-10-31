@@ -12,6 +12,9 @@ import (
 
 // copilot's Model row saves to the COPILOT_MODEL pin (pickCopilotModel): one model list, no tier step,
 // and the github-copilot provider's own models table is left untouched (opencode's fallback ladder reads it).
+// copilotPickerTitle is pickCopilotModel's numbered-prompt title, used to split repeated renders.
+const copilotPickerTitle = "copilot — model (SDK catalog)"
+
 func TestModelRowCopilotSkipsTierPicker(t *testing.T) {
 	reg := menuTestEnv(t)
 	origChoices := modelChoices
@@ -46,39 +49,6 @@ func TestModelRowCopilotSkipsTierPicker(t *testing.T) {
 		t.Errorf("github-copilot sonnet slot = %q, want unchanged %q: copilot's Model row must not write other slots", got, wantSonnet)
 	}
 }
-
-// codex's Model row skips the tier picker too (like copilot's): it goes straight to codex's own
-// `debug models` catalog and saves CODEX_MODEL, never the registry's chatgpt opus slot.
-func TestModelRowCodexSkipsTierPicker(t *testing.T) {
-	reg := menuTestEnv(t)
-	stubCodexCatalog(t, []codexModelInfo{{Slug: "gpt-5-codex", DisplayName: "GPT-5 Codex"}}, nil)
-
-	gp, ok := reg.Providers["chatgpt"]
-	if !ok {
-		t.Skip("no chatgpt provider in the registry")
-	}
-	wantOpus := gp.Models["opus"] // must survive untouched: codex's Model row writes only CODEX_MODEL
-
-	d2 := &dialog{reg: reg, out: discardWriter{}}
-	r := modelRow(d2, "codex")
-	if r == nil {
-		t.Fatal("modelRow(codex) = nil, want the Model row")
-	}
-	in := strings.NewReader("1\n") // numbered pick, non-TTY: row 1 = the only model, no tier prompt first
-	d2.o, d2.br = Options{In: in}, bufio.NewReader(in)
-	if !r.run() {
-		t.Fatal("codex Model row run() = false")
-	}
-	if got, _ := providers.CodexModel(); got != "gpt-5-codex" {
-		t.Errorf("CODEX_MODEL resolver = %q, want gpt-5-codex (one pick, no tier step)", got)
-	}
-	if got := gp.Models["opus"]; got != wantOpus {
-		t.Errorf("chatgpt opus slot = %q, want unchanged %q: codex's Model row must not write the provider", got, wantOpus)
-	}
-}
-
-// copilotPickerTitle is pickCopilotModel's numbered-prompt title, used to split repeated renders.
-const copilotPickerTitle = "copilot — model (SDK catalog)"
 
 // runCopilotPicker pins COPILOT_MODEL to modelID (so Effort/Context act on the stub model), then drives
 // pickCopilotModel with the newline-separated answers and returns everything it printed.
