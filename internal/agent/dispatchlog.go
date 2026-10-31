@@ -414,3 +414,43 @@ func (w *logLineWriter) Write(p []byte) (int, error) {
 	}
 	return len(p), nil // never an error: a log failure must not abort the child's copy
 }
+
+// DispatchOpts tunes Dispatch for the caller's stdout contract.
+type DispatchOpts struct {
+	Job      bool         // a --job child: stdout is the log, so out is dropped and the log keeps events + stderr only
+	AnswerTo io.Writer    // written the final answer once the log is flushed (a job's `<agent> result` reads it)
+	Notify   func(string) // receives non-fatal bookkeeping failures (the record not saving)
+}
+
+// Dispatch runs one recorded dispatch (log, event file, start, run, Finish/Save, result): one pair per id, not per leg.
+func Dispatch(ctx context.Context, rec *Record, agentName string, out Sink, o DispatchOpts,
+	run func(context.Context, Sink) (Result, error)) (Result, error) {
+	logSink := NewLogSink(rec.LogPath())
+	defer logSink.Close() // idempotent: covers a panic in Run
+	ctx = WithLog(ctx, logSink)
+	if o.Job {
+		ctx, out = WithLogEvents(ctx, logSink), Discard
+	}
+	events := NewEventLog(rec.EventsPath(), rec.ID)
+	defer events.Close()
+	sink := Multi(out, events)
+	begin := time.Now()
+	if err := sink.Emit(Event{Type: EventStart, Agent: agentName, DispatchID: rec.ID, Status: "running"}); err != nil {
+		return Result{Agent: agentName, Status: StatusError}, err
+	}
+	res, err := run(ctx, sink)
+	logSink.Close() // flush before the record leaves running, so tail -f never misses the last line
+	if o.AnswerTo != nil && res.Answer != "" {
+		_, _ = io.WriteString(o.AnswerTo, res.Answer)
+	}
+	// the result event lands before the record leaves running, so a tail follower never exits without it
+	rerr := sink.Emit(ResultEvent(NewEnvelope(res, err, rec.ID)))
+	rec.Finish(res, err, time.Since(begin))
+	if serr := rec.Save(); serr != nil && o.Notify != nil {
+		o.Notify(fmt.Sprintf("dispatch %s record not saved, it stays at running: %v", rec.ID, serr))
+	}
+	if rerr != nil && err == nil {
+		err = rerr
+	}
+	return res, err
+}

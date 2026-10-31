@@ -2,16 +2,18 @@ package agent
 
 import (
 	"context"
-	"github.com/edotau/claude-code/internal/models"
-	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/secrets"
-	"github.com/edotau/claude-code/internal/vault/vaulttest"
 	"os"
 	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/models"
+	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/secrets"
+	"github.com/edotau/claude-code/internal/vault"
+	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
 func TestCopilotLogin(t *testing.T) {
@@ -264,5 +266,213 @@ func TestCopilotAuthSourceEnvOnlyTokenIsNotStored(t *testing.T) {
 	// gh's active account still outranks copilot's own env-var order (srcActive beats CopilotTokenEnv here).
 	if a.Source != srcActive {
 		t.Fatalf("got %+v, want gh's active account to win over an env-only token", a)
+	}
+}
+
+// Catalog limits only lower the gated window and the output cap; unknown models keep today's values.
+func TestCapsLowerOnly(t *testing.T) {
+	for _, tc := range []struct {
+		id             string
+		window         int
+		wantCtx, wantO int
+	}{
+		{"databricks-claude-sonnet-5-5", 200_000, 200_000, copilotMaxOutputTokens},
+		{"claude-opus-5-5", 2_000_000, 1_000_000, copilotMaxOutputTokens},
+		{"databricks-gpt-5", 200_000, 200_000, copilotMaxOutputTokens},
+		{"not-a-model", 50_000, 50_000, copilotMaxOutputTokens},
+	} {
+		if ctx, out := copilotCaps(tc.window, tc.id); ctx != tc.wantCtx || out != tc.wantO {
+			t.Errorf("copilotCaps(%d, %q) = %d, %d; want %d, %d", tc.window, tc.id, ctx, out, tc.wantCtx, tc.wantO)
+		}
+	}
+}
+
+// A pinned gh user that is not logged in fails closed: no stored token, no active account, a named fix.
+func TestCopilotPinMissingFailsClosed(t *testing.T) {
+	copilotAuthEnv(t)
+	if err := secrets.Store(CopilotTokenEnv, "stored-tok"); err != nil {
+		t.Fatal(err)
+	}
+	pinCopilotLogin(t, "ghost")
+	if a, ok := copilotAuthSource(); ok {
+		t.Fatalf("a missing pinned user must not resolve another credential: got %+v", a)
+	}
+	tok, err := CopilotLaunchToken()
+	if err == nil || tok != "" || !strings.Contains(err.Error(), "claude-code configure github") || !strings.Contains(err.Error(), "ghost") {
+		t.Fatalf("CopilotLaunchToken = (%q, %v), want an error naming ghost and the fix", tok, err)
+	}
+	if _, _, err := copilotLogin("auto", nil); err == nil {
+		t.Error("the launch env must fail too, not run copilot on its own stored login")
+	}
+}
+
+// Unpinned behaviour is unchanged: gh's active account resolves and the launch token has no error.
+func TestCopilotUnpinnedUnchanged(t *testing.T) {
+	copilotAuthEnv(t)
+	if err := copilotPinError(); err != nil {
+		t.Fatalf("no pin must mean no pin error: %v", err)
+	}
+	if a, ok := copilotAuthSource(); !ok || a.Source != srcActive || a.Account != "alice" {
+		t.Fatalf("unpinned: got %+v, want gh's active account alice", a)
+	}
+}
+
+// Non-Claude models on a routed Databricks row ride the router's openai|responses passthrough; Claude stays anthropic.
+func TestCopilotNonClaudeWire(t *testing.T) {
+	vaulttest.Use(t)
+	if err := providers.SetOpencodeMenu([]providers.OpencodeModel{{ID: "gpt-6-1-sol", Responses: true}}); err != nil {
+		t.Fatal(err)
+	}
+	const base = "http://r/p/dev"
+	cases := []struct {
+		name, model, typ, base, wire, modelID string
+		p                                     *providers.Provider
+		routed                                bool
+	}{
+		{"claude", "databricks-claude-sonnet-5-5", "anthropic", base, "", "", dbxRow("dev", "databricks-"), true},
+		{"chat", "databricks-kimi-k3", "openai", base + "/openai", "", "kimi-k3", dbxRow("dev", "databricks-"), true},
+		{"responses", "databricks-gpt-6-1-sol", "openai", base + "/responses", "responses", "gpt-6-1-sol", dbxRow("dev", "databricks-"), true},
+		{"unrouted", "databricks-kimi-k3", "anthropic", base, "", "", dbxRow("dev", "databricks-"), false},
+		{"non-databricks", "kimi-k3", "anthropic", base, "", "", &providers.Provider{Name: "other"}, true},
+	}
+	for _, c := range cases {
+		env, _, err := copilotWire(c.p, providers.ProtocolAnthropic, base, c.model, 200000, "", c.routed, nil)
+		if err != nil {
+			t.Fatalf("%s: %v", c.name, err)
+		}
+		get := func(k string) (string, bool) {
+			for _, kv := range env {
+				if v, ok := strings.CutPrefix(kv, k+"="); ok {
+					return v, true
+				}
+			}
+			return "", false
+		}
+		if v, _ := get("COPILOT_PROVIDER_TYPE"); v != c.typ {
+			t.Errorf("%s: TYPE=%q, want %q", c.name, v, c.typ)
+		}
+		if v, _ := get("COPILOT_PROVIDER_BASE_URL"); v != c.base {
+			t.Errorf("%s: BASE_URL=%q, want %q", c.name, v, c.base)
+		}
+		if v, _ := get("COPILOT_MODEL"); v != c.model {
+			t.Errorf("%s: COPILOT_MODEL=%q, want %q", c.name, v, c.model)
+		}
+		if v, ok := get("COPILOT_PROVIDER_WIRE_API"); v != c.wire || ok != (c.wire != "") {
+			t.Errorf("%s: WIRE_API=%q (set %v), want %q", c.name, v, ok, c.wire)
+		}
+		if v, ok := get("COPILOT_PROVIDER_MODEL_ID"); v != c.modelID || ok != (c.modelID != "") {
+			t.Errorf("%s: MODEL_ID=%q (set %v), want %q", c.name, v, ok, c.modelID)
+		}
+	}
+}
+
+const ghProfileRow = `"protocol":"openai","base_url":"https://api.githubcopilot.com","auth":{"type":"cli","login":"copilot"},` +
+	`"models":{"opus":"gpt-6.1-sol","sonnet":"claude-sonnet-5.5","haiku":"auto"}`
+
+// ghArgsOnPin runs the launch-token path with COPILOT_PROFILE=pin on a migrated hermetic vault and returns gh's argv.
+func ghArgsOnPin(t *testing.T, pin string) string {
+	t.Helper()
+	copilotAuthEnv(t)
+	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"github":{`+
+		`"personal":{`+ghProfileRow+`,"login":"edotau"},"bare":{`+ghProfileRow+`}}}}`)
+	ghDir := os.Getenv("GH_CONFIG_DIR")
+	hosts := "github.com:\n    user: alice\n    users:\n        alice:\n            oauth_token: t\n" +
+		"        edotau:\n            oauth_token: t\n        octocat:\n            oauth_token: t\n"
+	if err := os.WriteFile(filepath.Join(ghDir, "hosts.yml"), []byte(hosts), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	bin, log := t.TempDir(), filepath.Join(t.TempDir(), "args")
+	script := "#!/bin/sh\necho \"$@\" >> " + log + "\necho tok\n"
+	if err := os.WriteFile(filepath.Join(bin, "gh"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin)
+	if pin != "" {
+		if err := providers.SetPins(map[string]string{providers.PinCopilotProfile: pin}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := CopilotLaunchToken(); err != nil {
+		t.Fatalf("CopilotLaunchToken(pin %q): %v", pin, err)
+	}
+	raw, _ := os.ReadFile(log)
+	return strings.TrimSpace(string(raw))
+}
+
+func TestCopilotProfilePinPassesLoginToGh(t *testing.T) {
+	for _, tc := range []struct{ name, pin, want string }{
+		{"profile pin passes its login", "personal", "auth token -u edotau"},
+		{"unset pin passes no user", "", "auth token"},
+		{"profile with no login passes no user", "bare", "auth token"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := ghArgsOnPin(t, tc.pin); got != tc.want {
+				t.Errorf("gh argv = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+// The shared private home: one COPILOT_HOME for launch and SDK, the login guard fires, dry touches nothing.
+func TestPrepareCopilotHome(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	t.Setenv("COPILOT_HOME", "")
+	t.Setenv("HOME", t.TempDir())
+	home := filepath.Join(cfg, "state", "copilot", "registry-home")
+
+	if _, err := PrepareCopilotHome(true); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(home); err == nil {
+		t.Fatal("dry run created the home")
+	}
+	ph, err := PrepareCopilotHome(false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fi, err := os.Stat(home); err != nil || fi.Mode().Perm() != 0o700 {
+		t.Fatalf("home = %v, %v; want 0700 dir", fi, err)
+	}
+	for _, want := range []string{"COPILOT_HOME=" + home, "DBUS_SESSION_BUS_ADDRESS="} {
+		if !slices.Contains(ph.Env, want) {
+			t.Errorf("env %v lacks %q", ph.Env, want)
+		}
+	}
+	for _, kv := range ph.Env {
+		if strings.HasPrefix(kv, "HOME=") {
+			t.Errorf("env overrides HOME: %q", kv)
+		}
+	}
+	if !slices.Contains(ph.Unset, "GITHUB_ENTERPRISE_TOKEN") || !slices.Contains(ph.Unset, "COPILOT_SDK_AUTH_TOKEN") {
+		t.Errorf("unset %v misses the union list", ph.Unset)
+	}
+	login := `{"loggedInUsers":[{"login":"x"}]}`
+	if err := os.WriteFile(filepath.Join(home, "config.json"), []byte(login), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := PrepareCopilotHome(false); err == nil {
+		t.Fatal("login guard did not refuse a home holding a login")
+	}
+}
+
+// Regression: legacy Claude ids the catalog does not list stay Claude (no OpenAI preference, anthropic wire).
+func TestLegacyClaudeStaysAnthropic(t *testing.T) {
+	vaulttest.Use(t)
+	host := "https://h.example.com"
+	p := &providers.Provider{
+		Name: "dev", Preset: providers.PresetDatabricks, ModelPrefix: "databricks-",
+		Routes: map[string]string{providers.ProtocolAnthropic: host, providers.ProtocolOpenAI: host + "/serving-endpoints"},
+	}
+	for _, id := range []string{"claude-3-7-sonnet", "databricks-claude-3-7-sonnet", "us.anthropic.claude-3-5-sonnet-20241022-v2:0"} {
+		if _, ok := providers.AnthropicRoute(p, id); !ok {
+			t.Errorf("AnthropicRoute(%q) not ok, want the anthropic route", id)
+		}
+		if w, _, ok, _ := copilotEndpointWire(p, id); !ok || w != providers.ProtocolAnthropic {
+			t.Errorf("copilotEndpointWire(%q) = %q,%v, want anthropic wire", id, w, ok)
+		}
+	}
+	if _, ok := providers.AnthropicRoute(p, "databricks-kimi-k3"); ok {
+		t.Error("AnthropicRoute(kimi) ok, want false")
 	}
 }
