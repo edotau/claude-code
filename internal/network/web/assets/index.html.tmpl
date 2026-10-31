@@ -58,7 +58,7 @@
   .plan-x details { margin: 0.25rem 0; }
   .plan-x summary { cursor: pointer; font-size: 0.8rem; color: #cfc6cd; }
   .task code { background: #441d3d; padding: 0 0.3rem; border-radius: 4px; cursor: pointer; }
-  .plan-more pre { white-space: pre-wrap; font-family: ui-monospace, monospace; font-size: 0.78rem; max-height: 50vh; overflow: auto; margin: 0.4rem 0 0; }
+  .plan-more pre { white-space: pre-wrap; font-family: ui-monospace, monospace; font-size: 0.78rem; margin: 0.4rem 0 0.6rem; }
   /* The --vscode-* variables the shared usage-view.js reads; copied into its iframe. Ubuntu terminal palette, dark only. */
   :root {
     --vscode-foreground: #e0dce0; --vscode-sideBar-background: #512645; --vscode-descriptionForeground: #b5acb3;
@@ -513,7 +513,7 @@ function taskRow(path, t) {
   return row;
 }
 
-// planFull is the one closed container: the markdown in its original order, minus the task lines shown above it.
+// planFull is the one closed container: the markdown in its original order, minus the task lines listed below it.
 function planFull(d) {
   const taskLines = new Set(d.tasks.map(function (t) { return t.line; }));
   const rest = (d.markdown || '').split('\n').filter(function (ln, i) { return !taskLines.has(i + 1); }).join('\n')
@@ -529,9 +529,9 @@ function planFull(d) {
 
 function renderPlanDetail(d) {
   planX.textContent = '';
-  d.tasks.forEach(function (t) { planX.appendChild(taskRow(d.path, t)); });
   const full = planFull(d);
   if (full) planX.appendChild(full);
+  d.tasks.forEach(function (t) { planX.appendChild(taskRow(d.path, t)); });
 }
 
 function showPlan(path) {
