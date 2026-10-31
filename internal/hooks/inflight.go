@@ -22,6 +22,9 @@ func releaseSpawn(in *Input) Result {
 	return Result{}
 }
 
+// reapLeaf kills the stopping leaf's leftover background shells; set by leafreap.go where signals exist.
+var reapLeaf = func(*Input) {}
+
 // subagentStopRunner retires the stopping agent's claim by agent id (first stop retires; a second is a no-op).
 func subagentStopRunner(in *Input) Result {
 	owner, id := inflight.SessionOwner(), in.SubagentID()
@@ -36,6 +39,7 @@ func subagentStopRunner(in *Input) Result {
 	if blocked {
 		return note // a blocked stop retires nothing: the leaf is still running
 	}
+	reapLeaf(in)
 	clearStoppedClaim(in, dirs, id) // before the retire: it reads the same meta.json
 	for _, d := range dirs {
 		if d != "" {
