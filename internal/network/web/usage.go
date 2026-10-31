@@ -45,7 +45,7 @@ func (c *usageCache) get(days int, fresh bool, now time.Time, build func() ([]by
 	defer c.mu.Unlock()
 	if e, ok := c.entries[days]; ok {
 		age := now.Sub(e.at)
-		if age < usageTTL && !(fresh && age >= usageFreshMin) {
+		if age < usageTTL && (!fresh || age < usageFreshMin) {
 			return e.body, nil
 		}
 	}
