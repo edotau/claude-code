@@ -43,7 +43,7 @@ the SKILL.md file breaks every one of them.
 
 Known confound (2026-10-23), retired: the harness `subagent-stop` simplify gate overwrote the final report
 in 8/8, 7/8, and 7/8 executor runs across three fable-eval runs despite two rewordings; the gate itself
-was removed (`internal/hooks/simplify.go` deleted) rather than reworded again.
+was removed rather than reworded again.
 Measured here on Haiku, n=2: `ISSUE:` in the leaf brief took s13 from 0/2 to 2/2 sweeps; `TASK:` took s2
 from 0/2 to 2/2 surfaced conflicts, both still siding with the test (score 1, upstream's known residual).
 

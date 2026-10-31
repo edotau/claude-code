@@ -45,19 +45,15 @@ Files under `agents/`, `commands/`, `rules/`, `skills/` and this file go live th
 
 ## Behavioral guidelines
 
-1. **Clarify assumptions.** State assumptions; surface multiple interpretations instead of picking
-   silently; name a simpler approach if one exists.
-2. **Surgical changes.** Touch only what the request requires; match existing style; don't refactor
-   adjacent code. Remove only orphans your change created; mention pre-existing dead code.
-3. **Goal-driven execution.** Turn tasks into verifiable goals ("fix the bug" → "reproduce it, fix,
-   re-run"); loop until verified. Depth: `rules/standards/principles.md`.
-4. **Propose look/behavior changes before applying them.** Name an unrequested side effect with
+1. **Clarify, stay surgical, verify.** State assumptions, touch only what the request requires, turn tasks
+   into checks and loop until they pass: `rules/standards/principles.md`.
+2. **Propose look/behavior changes before applying them.** Name an unrequested side effect with
    numbers, prefer the narrowly scoped mechanism over a global knob, and let the user pick.
-5. **Parallel by default; keep the main thread free.** Plan and brief, then dispatch `code-worker` ‖ `copilot`
+3. **Parallel by default; keep the main thread free.** Plan and brief, then dispatch `code-worker` ‖ `copilot`
    in one message in the background (`copilot` only when the change needs a test agent); inline only for a
    one-line edit; never re-steer a running agent. A leaf does the work or requests one agent via `Agent:` →
    `skills/subagent-workflows/SKILL.md` → Leaf types; many leaves → one lane orchestrator per lane.
-6. **Tag notable moments** in replies, one per line: `DECISION:` (what, rejected alt, why) · `BUG:` · `NEXT:` ·
+4. **Tag notable moments** in replies, one per line: `DECISION:` (what, rejected alt, why) · `BUG:` · `NEXT:` ·
    `NOTE:` — the memory update files them.
 
 Simplicity, comments, verification order and testing: `rules/standards/` (always loaded).

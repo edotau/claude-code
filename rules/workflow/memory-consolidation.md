@@ -17,14 +17,8 @@ Gates and scope for `claude-code memory update` and `memory dream`. The operatio
 
 ## Promotion gradient
 
-```text
-entry ─promote --to home──▶ memory/home/
-      ─promote --to rules─▶ rules/standards/<topic>.md · rules/software/<lang>/<topic>.md
-      ─promote --to skill─▶ skills/<name>/SKILL.md
-      ─promote --to claude-md / memory dream, gated (3+ entries AND a hard prohibition)─▶ CLAUDE.md
-```
-
-Each step up costs more context; `--to claude-md` only prints the block for review — nothing bypasses the gate.
+The ladder (home → rules/skill → `CLAUDE.md`, gated) lives in `skills/reflection/SKILL.md` → Promotion ladder; each
+step up costs more context, and `--to claude-md` only prints the block for review — nothing bypasses the gate.
 
 ## Writer limits
 

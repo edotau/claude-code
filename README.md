@@ -323,7 +323,8 @@ intent-dependent commands) keeps its own process and cannot be turned off; any o
 | `worktree` | Creates/removes under `~/worktrees/<repo>/`, keeps the ledger |
 | `codex` | Codex only: child-agent routing and its log |
 
-Per-hook matrix: `rules/harness/hooks.md`.
+The `review` group adds an advisory `review-simplicity` finding after each edit.
+Per-hook matrix: [`rules/harness/hooks.md`](rules/harness/hooks.md).
 
 ## Memory bank
 
@@ -332,8 +333,8 @@ generated catalog (never hand-edit), `home/` the cross-repo bank, `claude-code/`
 repo keyed by origin remote basename. Each bank dir holds Claude Code's native memory (`MEMORY.md` + topics) and six
 typed files (`projectContext`, `activeContext`, `progress`, `decisionLog`, `conventions`, `sessionHistory`);
 `~/.claude/projects/<slug>/memory` symlinks into it. A session gets the catalog plus this repo's active context; the
-rest loads on demand. `memory dream` consolidates daily in the background. Search: `claude-code memory recall
-[--repo R|--all] <terms>` (BM25). Verbs and file contracts: `rules/workflow/memory-bank.md`.
+rest loads on demand. `memory dream` consolidates daily in the background.
+File contracts: `rules/workflow/memory-bank.md`; verbs and the promotion ladder: `skills/reflection/SKILL.md`.
 
 ## Status line
 
