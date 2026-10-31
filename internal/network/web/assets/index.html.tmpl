@@ -26,6 +26,13 @@
   .chip-unknown, .chip-gone { background: #441d3d; color: #b5acb3; }
   .sub { margin-left: 0.9rem; border-left: 2px solid #40404055; padding-left: 0.6rem; margin-top: 0.35rem; }
   .agent-row { cursor: pointer; padding: 0.2rem 0; }
+  .col { display: inline-block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; margin-right: 0.4rem; }
+  .col-agent { width: min(13rem, 38vw); }
+  @media (max-width: 600px) { .agent-row > .row > .muted { display: none; } }
+  .col-status { width: 4.8rem; }
+  .id-tag { background: #441d3d; padding: 0 0.3rem; border-radius: 4px; font-size: 0.72rem; cursor: copy; }
+  .col-leg { width: min(22rem, 58vw); }
+  .glyph { display: inline-block; width: 1.1em; }
   .agent-row:hover { background: #734469; }
   .activity { font-size: 0.78rem; color: #729fcf; margin-top: 0.1rem; }
   .leg { font-size: 0.78rem; margin: 0.1rem 0 0 0.5rem; color: #cfc6cd; }
@@ -185,6 +192,26 @@ function chip(status) {
   return '<span class="chip chip-' + escapeHTML(status) + '">' + escapeHTML(status) + '</span>';
 }
 
+function statusCol(status) { return '<span class="col col-status">' + chip(status) + '</span>'; }
+
+// idTag shows label or a short id; a click copies the full value, which SendMessage and `network view` take.
+function idTag(id, label) {
+  if (!id) return '';
+  return '<code class="id-tag" data-id="' + escapeHTML(id) + '" title="' + escapeHTML(id) + ' (click to copy)">' + escapeHTML(label || id.slice(0, 8)) + '</code>';
+}
+
+// copyText falls back to execCommand: the tailnet page is plain http, where navigator.clipboard is undefined.
+function copyText(text) {
+  if (navigator.clipboard) return navigator.clipboard.writeText(text);
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  document.body.appendChild(ta);
+  ta.select();
+  const ok = document.execCommand('copy');
+  ta.remove();
+  return ok ? Promise.resolve() : Promise.reject(new Error('copy failed'));
+}
+
 // statusGlyph mirrors internal/agenttree/render.go's statusGlyph: one marker per status at a glance.
 function statusGlyph(status) {
   return { running: '●', finished: '✓', error: '✗', stale: '·' }[status] || ' ';
@@ -199,7 +226,7 @@ function renderActivity(a) {
 // renderLeg mirrors internal/agenttree/render.go's formatLeg: "↳ codex gpt-6-astra running 2m14s".
 function renderLeg(l) {
   const name = l.fallback ? escapeHTML(l.fallback) + '→' + escapeHTML(l.agent) : escapeHTML(l.agent);
-  let line = '↳ ' + name + ' ' + escapeHTML(l.model || '') + ' ' + chip(l.status) + ' ' + escapeHTML(l.duration || '');
+  let line = '<span class="col col-leg">↳ ' + name + ' ' + escapeHTML(l.model || '') + '</span>' + statusCol(l.status) + idTag(l.id) + ' ' + escapeHTML(l.duration || '');
   if (l.fallback) line += ' ⚠ fallback';
   return '<div class="leg">' + line + '</div>';
 }
@@ -208,7 +235,7 @@ function renderSubagents(subs, sessionId) {
   if (!subs || !subs.length) return '';
   return '<div class="sub">' + subs.map(function (s) {
     return '<div class="agent-row" data-session="' + escapeHTML(sessionId) + '" data-agent="' + escapeHTML(s.id) + '">' +
-      '<div class="row"><span>' + statusGlyph(s.status) + ' ' + escapeHTML(s.type || s.id) + ' ' + chip(s.status) + '</span>' +
+      '<div class="row"><span><span class="col col-agent"><span class="glyph">' + statusGlyph(s.status) + '</span>' + escapeHTML(s.type || s.id) + '</span>' + statusCol(s.status) + idTag(s.id) + '</span>' +
       '<span class="muted">' + escapeHTML(s.lastTool || '') + '</span></div>' +
       renderActivity(s.activity) +
       (s.legs || []).map(renderLeg).join('') +
@@ -241,7 +268,7 @@ function renderTree(tree) {
   if (!sessions.length) return '<p class="muted">no recent sessions</p>';
   return sessions.map(function (s) {
     return '<div class="card">' +
-      '<div class="row"><strong>' + escapeHTML(s.title || s.project || s.id) + '</strong>' + chip(s.status) + '</div>' +
+      '<div class="row"><strong>' + escapeHTML(s.title || s.project || s.id) + '</strong><span>' + idTag(s.name, s.name) + ' ' + idTag(s.id) + ' ' + chip(s.status) + '</span></div>' +
       '<div class="muted">' + escapeHTML(s.cwd || '') + (s.branch ? ' @' + escapeHTML(s.branch) : '') + '</div>' +
       renderSubagents(s.subagents, s.id) +
       renderWorkflows(s.workflows, s.id) +
@@ -399,6 +426,15 @@ document.getElementById('dispatchForm').addEventListener('submit', function (e) 
 });
 
 document.getElementById('tree').addEventListener('click', function (e) {
+  const tag = e.target.closest('.id-tag');
+  if (tag) {
+    const short = tag.textContent;
+    copyText(tag.dataset.id).then(function () {
+      tag.textContent = 'copied';
+      setTimeout(function () { tag.textContent = short; }, 900);
+    }).catch(function () { tag.textContent = 'copy failed'; });
+    return;
+  }
   const row = e.target.closest('.agent-row');
   if (!row) return;
   openDetail(row.dataset.session, row.dataset.agent);
