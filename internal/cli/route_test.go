@@ -39,7 +39,9 @@ func TestRouteVerbJSON(t *testing.T) {
 	dir := vaulttest.Use(t)
 	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"github":{"work":{"protocol":"openai",
 		"base_url":"https://api.githubcopilot.com","auth":{"type":"cli","login":"copilot"},"login":"work-user"}}}}`)
-	vaulttest.Put(t, vault.Pins, providers.PinCopilotProfile, "work")
+	if err := providers.SetPins(map[string]string{providers.PinCopilotProfile: "work"}); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.MkdirAll(filepath.Join(dir, "bin"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -249,6 +251,9 @@ func parityEnv(t *testing.T, profile string, responses bool) (marker string) {
 		t.Fatalf("profile absent: %v", err)
 	}
 	vaulttest.Secret(t, providers.AuthSecretName(reg.Providers[profile]), "profile-auth")
+	if err := agent.SetAgentRecord("codex", agent.AgentRecord{Profile: "chatgpt"}); err != nil { // own login = on
+		t.Fatal(err)
+	}
 	old := routeRefresh
 	routeRefresh = func(context.Context, string) bool { return false }
 	t.Cleanup(func() { routeRefresh = old })

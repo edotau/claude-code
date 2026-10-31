@@ -37,6 +37,10 @@ func setupWorkdirFixture(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	pathstest.FakeVendor(t, "opencode", `printf '%s\n' '{"type":"text","part":{"text":"ok"}}'`)
 	t.Setenv(agent.OpencodeAPIKeyEnv, "test-key")
+	t.Setenv("HARNESS_VAULT_KEY", base64.StdEncoding.EncodeToString(make([]byte, 32)))
+	if err := agent.SetAgentRecord("opencode", agent.AgentRecord{Profile: agent.OpencodeOwnLogin}); err != nil { // no profile = off
+		t.Fatal(err)
+	}
 }
 
 // A work --workdir must skip free Zen even when the process cwd is a personal repo.

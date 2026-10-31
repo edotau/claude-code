@@ -52,6 +52,9 @@ func Check(reg *providers.Registry, now time.Time) []Pin {
 	pins := agent.AgentPins()
 	session := pins["claude"].Profile
 	var out []Pin
+	if session != "" { // claude's session profile is always warmed
+		out = append(out, checkAgent(reg, "claude", router.PinSpec{Profile: session}, session, now))
+	}
 	for _, a := range Agents {
 		spec := pins[a]
 		if spec.Off {

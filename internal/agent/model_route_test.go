@@ -54,6 +54,8 @@ func TestResolveTargetCanonicalIDTakesTheTierPin(t *testing.T) {
 func TestRouteChainForNonClaudeIDIsExact(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	all := router.PickOpts{Configured: func(string, router.Cell) error { return nil }}
+	vaulttest.Use(t)
+	activateAgents(t, "codex")
 	c, _, err := RouteChainFor(context.Background(), "codex", "gpt-6.1-sol", "sonnet", router.FallbackAll, false, all)
 	if err != nil {
 		t.Fatal(err)

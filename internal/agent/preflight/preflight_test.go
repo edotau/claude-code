@@ -50,23 +50,21 @@ func TestPinsFlow(t *testing.T) {
 	t.Cleanup(func() { listModels = providers.ListModels })
 
 	got := byAgent(Check(reg, now))
-	for _, a := range Agents {
-		if got[a].Status != StatusUnpinned || !strings.Contains(got[a].Fix, "claude-code "+a+" profile") {
-			t.Fatalf("%s with no pins = %+v, want unpinned with a profile fix", a, got[a])
-		}
+	if len(got) != 0 {
+		t.Fatalf("with no profile every external agent is off and unchecked, got %+v", got)
 	}
 	if line := StaticLine(reg, now); line != "" {
 		t.Fatalf("static line %q, want none while no Databricks profile is in play", line)
 	}
 
 	setPins(t, map[string]string{
-		"CLAUDE_PROFILE": "dev", "COPILOT_PROFILE": "dev", "OPENCODE_PROFILE": "dev",
+		"CLAUDE_PROFILE": "dev", "CODEX_PROFILE": "dev", "COPILOT_PROFILE": "dev", "OPENCODE_PROFILE": "dev",
 		"CODEX_MODEL": "good-model", "COPILOT_MODEL": "gone-model",
 	})
 	ps := Check(reg, now)
 	got = byAgent(ps)
-	if got["codex"].ProfileSource != "follows CLAUDE_PROFILE" || got["codex"].Status != StatusStale {
-		t.Fatalf("codex before any listing = %+v, want stale via CLAUDE_PROFILE", got["codex"])
+	if got["codex"].ProfileSource != "pin" || got["codex"].Status != StatusStale {
+		t.Fatalf("codex before any listing = %+v, want stale via its profile pin", got["codex"])
 	}
 	if errs := RefreshStale(context.Background(), reg, ps, now, false); len(errs) != 0 {
 		t.Fatal(errs)
@@ -130,7 +128,7 @@ func TestNoCredentialSkips(t *testing.T) {
 	t.Setenv("CLAUDE_PROFILE", "")
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir()) // own vault: pins from other tests must not leak in
 	reg := preflightRegistry(false)
-	setPins(t, map[string]string{"CLAUDE_PROFILE": "dev", "COPILOT_PROFILE": "dev", "OPENCODE_PROFILE": "dev", "CODEX_MODEL": "m"})
+	setPins(t, map[string]string{"CLAUDE_PROFILE": "dev", "CODEX_PROFILE": "dev", "COPILOT_PROFILE": "dev", "OPENCODE_PROFILE": "dev", "CODEX_MODEL": "m"})
 	runAsk = func(context.Context, string, string) (envelope, error) {
 		t.Error("ask must not run without a credential")
 		return envelope{}, nil
@@ -168,7 +166,7 @@ func TestFutureListingIsStale(t *testing.T) {
 func TestInstallStepSharesBudget(t *testing.T) {
 	t.Setenv("CLAUDE_PROFILE", "")
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir()) // own vault: pins from other tests must not leak in
-	setPins(t, map[string]string{"CLAUDE_PROFILE": "dev", "COPILOT_PROFILE": "dev", "OPENCODE_PROFILE": "dev", "CODEX_MODEL": "m"})
+	setPins(t, map[string]string{"CLAUDE_PROFILE": "dev", "CODEX_PROFILE": "dev", "COPILOT_PROFILE": "dev", "OPENCODE_PROFILE": "dev", "CODEX_MODEL": "m"})
 	old := Budget
 	Budget = 300 * time.Millisecond
 	t.Cleanup(func() { Budget = old; listModels = providers.ListModels })

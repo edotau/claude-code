@@ -146,6 +146,7 @@ func Run(o Options, section string) int {
 		}
 		return code
 	}
+	seedOnFirstRun(d, section)
 	if section == "" && o.Interactive && !o.Check && !o.DryRun && isStdinTTY() {
 		return runMenu(d)
 	}

@@ -33,9 +33,9 @@ var (
 	ErrWrongKey = errors.New("vault: master key does not match this vault")
 )
 
-// schemaVersion is the on-disk layout (3 = names migrated); hkdfSchema is the oldest this build reads (2).
+// schemaVersion is the on-disk layout (4 = agent pins folded into records); hkdfSchema is the oldest this build reads (2).
 const (
-	schemaVersion = 3
+	schemaVersion = agentRecordSchema
 	hkdfSchema    = 2
 )
 
@@ -161,6 +161,10 @@ func Update(fn func(*Tx) error) error {
 	defer db.Close()
 	restamped := false
 	from := 0
+	var off []string
+	if err := snapshotBeforeMigration(db, path); err != nil {
+		return err
+	}
 	err = db.Update(func(tx *bbolt.Tx) error {
 		t := &Tx{tx}
 		if err := checkSchema(t); err != nil {
@@ -174,6 +178,12 @@ func Update(fn func(*Tx) error) error {
 		}
 		// checkSchema refused a pre-HKDF vault with secrets; any older stamp is re-stamped here, nothing to re-seal.
 		if n := t.Schema(); n < schemaVersion {
+			if n < agentRecordSchema {
+				var merr error
+				if off, merr = migrateAgentPins(t); merr != nil {
+					return merr
+				}
+			}
 			if err := t.SetSchema(schemaVersion); err != nil {
 				return err
 			}
@@ -186,6 +196,7 @@ func Update(fn func(*Tx) error) error {
 	}
 	if restamped {
 		schemas.LogMigration("vault", from, schemaVersion, 0)
+		reportAgentsOff(off)
 	}
 	return nil
 }

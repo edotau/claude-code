@@ -34,9 +34,10 @@ func TestPinFirstFallback(t *testing.T) {
 		t.Helper()
 		vaulttest.UseKeyring(t)
 		t.Setenv("HOME", t.TempDir())
+		t.Setenv("OPENAI_API_KEY", "test-key") // the non-own-login openai profile needs a credential
 		if err := providers.SetPins(map[string]string{
 			providers.PinProfile:         "max",
-			providers.PinCodexProfile:    "chatgpt",
+			providers.PinCodexProfile:    "openai",
 			providers.PinOpencodeProfile: "opencode-go",
 			providers.PinCopilotActive:   AgentOff,
 			providers.PinGeminiActive:    AgentOff,
@@ -92,11 +93,11 @@ func TestPinFirstFallback(t *testing.T) {
 		for _, disp := range c.Dispatches {
 			got = append(got, disp.Agent.Name()+" ("+disp.Account+")")
 		}
-		want := []string{"codex (openai·chatgpt)", "opencode (opencode·go)", "claude (anthropic·max)"}
+		want := []string{"codex (openai·openai)", "opencode (opencode·go)", "claude (anthropic·max)"}
 		if !slices.Equal(got, want) {
 			t.Fatalf("dispatches = %v, want %v", got, want)
 		}
-		if c.Dispatches[0].Model != "chatgpt:gpt-6.1-sol" || c.Dispatches[2].Model != "sonnet" {
+		if c.Dispatches[0].Model != "openai:gpt-6.1-sol" || c.Dispatches[2].Model != "sonnet" {
 			t.Errorf("models = %q, %q; want pinned codex and claude at sonnet", c.Dispatches[0].Model, c.Dispatches[2].Model)
 		}
 		for _, name := range []string{"copilot", "gemini"} {
@@ -123,13 +124,13 @@ func TestPinFirstFallback(t *testing.T) {
 			t.Errorf("claude model = %q, want sonnet", got)
 		}
 		state := router.LoadState()
-		if e := state["openai·chatgpt"]; e.Status(time.Now()) != router.StateExhausted {
-			t.Errorf("quota.json did not mark openai·chatgpt exhausted: %+v", e)
+		if e := state["openai·openai"]; e.Status(time.Now()) != router.StateExhausted {
+			t.Errorf("quota.json did not mark openai·openai exhausted: %+v", e)
 		}
 		if e := state["opencode·go"]; e.AuthReason != "refresh token rejected" || e.AuthAt.IsZero() {
 			t.Errorf("quota.json did not mark opencode·go auth: %+v", e)
 		}
-		contains(t, res.FallbackReason, "codex (openai·chatgpt):", "opencode (opencode·go):")
+		contains(t, res.FallbackReason, "codex (openai·openai):", "opencode (opencode·go):")
 	})
 
 	t.Run("claude_exhausted", func(t *testing.T) {
@@ -142,7 +143,7 @@ func TestPinFirstFallback(t *testing.T) {
 		if err == nil {
 			t.Fatal("all hops failed, want an error")
 		}
-		contains(t, err.Error(), "every hop failed", "codex (openai·chatgpt):", "opencode: auth rejected", "claude: anthropic·max exhausted")
+		contains(t, err.Error(), "every hop failed", "codex (openai·openai):", "opencode: auth rejected", "claude: anthropic·max exhausted")
 	})
 
 	t.Run("content_policy", func(t *testing.T) {

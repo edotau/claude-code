@@ -47,3 +47,18 @@ func (testLauncher) Claude(_ context.Context, o ClaudeOptions, args []string) (C
 	}
 	return ClaudeLaunch{Binary: bin, Argv: args, Env: os.Environ(), Set: map[string]string{providers.PinProfile: o.Provider}}, nil
 }
+
+// activateAgents turns the external agents on (an external agent with no profile is off) via registry profiles.
+func activateAgents(t *testing.T, agents ...string) {
+	t.Helper()
+	profiles := map[string]string{"codex": "chatgpt", "gemini": "antigravity", "copilot": "personal", "opencode": "nvidia"}
+	if err := UpdateAgentRecords(func(m map[string]AgentRecord) {
+		for _, a := range agents {
+			r := m[a]
+			r.Profile = profiles[a]
+			m[a] = r
+		}
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
