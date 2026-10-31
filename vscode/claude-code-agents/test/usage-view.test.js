@@ -314,3 +314,28 @@ test('renderUsageHtml: API KEYS section always renders, in both subscription and
   assert.ok(apiHtml.includes('class="api-card fixed-card"'), 'expected one .api-card per provider/profile in api mode');
   assert.ok(!apiHtml.includes('No token usage yet'), 'api-mode fixture has api[] rows, so the empty state must not show');
 });
+
+function databricksCard(show, tokenExpiresAt) {
+  const row = { provider: 'databricks', account: 'dev', plan: 'per-user', window: 'month', used_percent: 100.6, left_percent: -0.6, used_credits: 100.6, limit_credits: 100, state: 'exceeded', unit: 'USD' };
+  if (tokenExpiresAt) row.token_expires_at = tokenExpiresAt;
+  const second = { ...row, plan: 'workspace', used_credits: 12 };
+  const html = renderUsageHtml(buildUsageModel({ providers: [row, second] }, {}, Date.now()), { detailed: true, show, nonce: 'n', cspSource: 'c' });
+  return providerCardSlices(html).find((c) => c.includes('provider-name'));
+}
+
+test('renderUsageHtml: Databricks shows neutral spend rows, no percent, bar, red or credits note', () => {
+  for (const show of ['used', 'left']) {
+    const card = databricksCard(show);
+    assert.ok(card.includes('$100.60 used this month') && card.includes('$12.00 used this month'), show);
+    for (const bad of ['%', 'window-fill', 'editorError', 'credits-note', 'auth token']) assert.ok(!card.includes(bad), `${show}: ${bad}`);
+  }
+});
+
+test('renderUsageHtml: auth token row only under Remaining; past expiry reads expired', () => {
+  const soon = new Date(Date.now() + 42 * 60000 + 5000).toISOString();
+  assert.ok(databricksCard('left', soon).includes('auth token</span>  42m left'));
+  assert.ok(!databricksCard('used', soon).includes('auth token'));
+  const past = new Date(Date.now() - 60000).toISOString();
+  const card = databricksCard('left', past);
+  assert.ok(card.includes('auth token</span>  expired') && !card.includes('editorError'));
+});

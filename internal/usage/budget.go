@@ -79,7 +79,19 @@ func sessionBudgetQuotas(ctx context.Context) []quota {
 	if err != nil || sel.Provider == nil || sel.Provider.Preset != providers.PresetDatabricks {
 		return nil
 	}
-	return budgetQuotas(ctx, sel.Provider, time.Now())
+	return withTokenExpiry(budgetQuotas(ctx, sel.Provider, time.Now()), sel.Provider.Name)
+}
+
+// withTokenExpiry stamps every row with the profile's recorded token expiry (kept out of the cache so it stays fresh).
+func withTokenExpiry(rows []quota, profile string) []quota {
+	exp, ok := providers.TokenExpiry(profile)
+	if !ok {
+		return rows
+	}
+	for i := range rows {
+		rows[i].TokenExpiresAt = exp.UTC().Format(time.RFC3339)
+	}
+	return rows
 }
 
 // budgetQuotas serves the cache while fresh, else fetches; an unavailable endpoint (404/403/network) yields no rows.
