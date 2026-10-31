@@ -22,7 +22,7 @@ var scrubPrefixes = []string{
 var Tools = []string{
 	"sh", "bash", "env", "cat", "cp", "mv", "rm", "mkdir", "ln", "ls", "chmod", "touch", "true", "false", "sleep",
 	"echo", "printf", "test", "head", "tail", "grep", "sed", "awk", "sort", "tr", "wc", "dirname", "basename",
-	"readlink", "uname", "id", "date", "tee", "xargs", "find", "diff", "stat", "mktemp", "kill", "ps", "pwd",
+	"readlink", "uname", "id", "date", "tee", "xargs", "find", "diff", "stat", "mktemp", "kill", "ps", "lsof", "pwd",
 	"base64", "cut", "uniq", "rmdir", "realpath", "expr", "seq", "timeout", "tar", "gzip", "make", "git", "go", "gofmt", "cc", "gcc", "clang",
 }
 
