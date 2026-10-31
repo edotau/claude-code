@@ -45,11 +45,15 @@ func selection(o LaunchOptions) (*providers.Registry, providers.Selection, error
 	return sessionSelection(o, false)
 }
 
-// sessionSelection loads the registry and applies --profile/--model > pins > defaults; session marks a Claude launch.
+// sessionSelection loads the registry and applies --profile/--model > pins > the workspace's last profile > defaults;
+// session marks a Claude launch.
 func sessionSelection(o LaunchOptions, session bool) (*providers.Registry, providers.Selection, error) {
 	reg, err := providers.Load()
 	if err != nil {
 		return nil, providers.Selection{}, err
+	}
+	if session && o.Provider == "" && providers.Pin(providers.PinProfile) == "" {
+		o.Provider = lastProfile(reg)
 	}
 	sel, err := providers.Select(reg, o.Provider)
 	if o.Model != "" && sel.Provider != nil {

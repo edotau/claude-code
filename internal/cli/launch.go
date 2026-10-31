@@ -36,6 +36,9 @@ func launchClaude(tier string, args []string) int {
 	}
 	opts.Tier = tier
 	plan, err := agent.Claude(context.Background(), opts, rest)
+	if err == nil && !opts.PrintEnv {
+		agent.RecordLastProfile(plan, rest)
+	}
 	return runPlan(plan, opts, err)
 }
 
