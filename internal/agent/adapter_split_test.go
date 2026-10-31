@@ -12,7 +12,9 @@ func fileDiff(path string, hunks, hunkLines int) string {
 	for h := range hunks {
 		fmt.Fprintf(&b, "@@ -%d,1 +%d,1 @@\n", h*10, h*10)
 		for range hunkLines {
-			b.WriteString("+" + strings.Repeat("x", 78) + "\n")
+			b.WriteByte('+')
+			b.WriteString(strings.Repeat("x", 78))
+			b.WriteByte('\n')
 		}
 	}
 	return b.String()

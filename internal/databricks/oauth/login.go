@@ -54,13 +54,14 @@ func (l *loopback) Addr() net.Addr { return l.ls[0].Addr() }
 
 // listenLoopback binds 127.0.0.1 (and ::1 when the host has it) on the first free port from first to first+portSpan.
 func listenLoopback(first int) (*loopback, int, error) {
+	var lc net.ListenConfig
 	for port := first; port <= first+portSpan; port++ {
-		v4, err := net.Listen("tcp4", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)))
+		v4, err := lc.Listen(context.Background(), "tcp4", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)))
 		if err != nil {
 			continue
 		}
 		lb := &loopback{ls: []net.Listener{v4}}
-		v6, err := net.Listen("tcp6", net.JoinHostPort("::1", strconv.Itoa(port)))
+		v6, err := lc.Listen(context.Background(), "tcp6", net.JoinHostPort("::1", strconv.Itoa(port)))
 		switch {
 		case err == nil:
 			lb.ls = append(lb.ls, v6)

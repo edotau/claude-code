@@ -297,14 +297,15 @@ StreamLocalBindUnlink yes
 ```
 
 `make install` on the Mac installs an on-demand launchd agent (`clip --serve` on `~/.claude/run/clip.sock`); nothing
-runs per session. Diagnose from the SSH session with `claude-code clip` (saves the image, prints its path). Failures: `no clipboard bridge from the SSH client (<sock>: …)` (forward missing, not a
+runs per session. Diagnose from the SSH session with `claude-code clip` (saves the image, prints its path). Failures:
+`no clipboard bridge from the SSH client (<sock>: …)` (forward missing, not a
 socket, or "is not owned by you" — a socket another user pre-bound is refused), and `no image in the SSH client's
 clipboard — copy one there first (or its bridge is down)`.
 
 ## Hooks
 
-Declared as **groups** in `internal/hooks/hookspec/hookspec.go`, implemented in `internal/hooks/`; add one by registering it
-in a group and running `make install`. Settings carry one dispatcher entry per event (`claude-code hook <Event>`). The
+Declared as **groups** in `internal/hooks/hookspec/hookspec.go`, implemented in `internal/hooks/`; add one by
+registering it in a group and running `make install`. Settings carry one dispatcher entry per event (`claude-code hook <Event>`). The
 `safety` group (`safety-scan`: blocks destructive Bash, asks on intent-dependent commands) keeps its own process and
 cannot be turned off; any other group is switched off with `"<group>": false` under `harnessHooks` in the vault.
 
