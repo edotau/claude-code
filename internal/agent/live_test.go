@@ -197,7 +197,7 @@ printf '{"type":"system","subtype":"noise","message":"%s"}\n' "$(head -c 200000 
 // A large prompt sent while claude's between-turn output fills the stdout pipe must not deadlock the holder.
 func TestLiveLargePromptWithPendingOutputDoesNotDeadlock(t *testing.T) {
 	liveEnvScript(t, fakeNoisyClaude)
-	id, wait := startHolder(t, context.Background(), 5*time.Second)
+	id, wait := startHolder(t, context.Background(), 2*time.Second)
 	done := make(chan error, 1)
 	go func() {
 		_, err := SendLive(context.Background(), id, strings.Repeat("y", 200000), Discard)
