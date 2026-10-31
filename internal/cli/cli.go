@@ -13,6 +13,7 @@ import (
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/review/mutate"
+	"github.com/edotau/claude-code/internal/review/ramdisk"
 	"github.com/edotau/claude-code/internal/ui/ansi"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 	"github.com/edotau/claude-code/internal/ui/theme"
@@ -279,10 +280,13 @@ func fail(format string, a ...any) int {
 	return 1
 }
 
-// cmdTest dispatches `test <sub>`; mutate is the only sub so far.
+// cmdTest dispatches `test <sub>`.
 func cmdTest(args []string) int {
 	if len(args) > 0 && args[0] == "mutate" {
 		return mutate.Run(args[1:])
+	}
+	if len(args) > 0 && args[0] == "ramdisk" {
+		return ramdisk.Run(args[1:])
 	}
 	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" || args[0] == "help" {
 		testPage.Fprint(os.Stderr)
@@ -294,7 +298,10 @@ func cmdTest(args []string) int {
 }
 
 var testPage = helptext.Page{
-	Usage:    "claude-code test <command> [flags]",
-	Commands: [][2]string{{"mutate", "swap one snippet via -overlay; do the tests notice?"}},
-	Hint:     "claude-code test mutate -h lists that command's flags.",
+	Usage: "claude-code test <command> [flags]",
+	Commands: [][2]string{
+		{"mutate", "swap one snippet via -overlay; do the tests notice?"},
+		{"ramdisk", "run a command with TMPDIR on a throwaway RAM disk"},
+	},
+	Hint: "claude-code test mutate -h lists that command's flags.",
 }

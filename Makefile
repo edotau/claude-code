@@ -157,7 +157,7 @@ audit: compile  ## CI gate: fmt, git secrets, vet, test, build, vuln, docs
 	@out="$$(gofmt -l $(GO_FMT_DIRS))"; if [ -n "$$out" ]; then echo "unformatted:"; echo "$$out"; exit 1; fi
 	@$(MAKE) --no-print-directory audit-git
 	$(GO) vet $(PKGS)
-	scripts/with-test-ramdisk.sh $(GO) test -timeout $(GO_TEST_TIMEOUT) $(PKGS)
+	$(BIN) test ramdisk -- $(GO) test -timeout $(GO_TEST_TIMEOUT) $(PKGS)
 	@$(MAKE) --no-print-directory audit-nokeyring
 	$(GO) build $(PKGS)
 	@echo -e "$(C_OK)go check passed (gofmt + vet + test + build)"
