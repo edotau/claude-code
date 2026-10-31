@@ -64,13 +64,22 @@ func renderOpenCodeAgent(agent Source) string {
 // renderCodexAgent: ~/.codex/agents/<name>.toml — name, description, developer_instructions, reasoning effort.
 func renderCodexAgent(agent Source) string {
 	var b strings.Builder
-	b.WriteString(agentBanner(agent, hashComment) + "\n")
-	b.WriteString("name = " + tomlBasic(agent.Name()) + "\n")
-	b.WriteString("description = " + tomlMultiline(skillDescription(agent)) + "\n")
+	b.WriteString(agentBanner(agent, hashComment))
+	b.WriteString("\n")
+	b.WriteString("name = ")
+	b.WriteString(tomlBasic(agent.Name()))
+	b.WriteString("\n")
+	b.WriteString("description = ")
+	b.WriteString(tomlMultiline(skillDescription(agent)))
+	b.WriteString("\n")
 	if effort := codexEffort(toString(agent.frontmatter["effort"])); effort != "" {
-		b.WriteString("model_reasoning_effort = " + tomlBasic(effort) + "\n")
+		b.WriteString("model_reasoning_effort = ")
+		b.WriteString(tomlBasic(effort))
+		b.WriteString("\n")
 	}
-	b.WriteString("developer_instructions = " + tomlMultiline(agentBody(agent)) + "\n")
+	b.WriteString("developer_instructions = ")
+	b.WriteString(tomlMultiline(agentBody(agent)))
+	b.WriteString("\n")
 	return b.String()
 }
 
