@@ -104,3 +104,6 @@ coverage.*
 /remote-settings.json*
 /tmp.*/
 /.vaultcopy.*/
+
+# Copilot repo instructions: local, not tracked
+/.github/copilot-instructions.md
