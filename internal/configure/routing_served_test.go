@@ -9,7 +9,6 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/agent"
-	agentpkg "github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -104,7 +103,7 @@ func TestRunProviderPinChangeWarmsUnlessDryRun(t *testing.T) {
 	if rc := Run(Options{Provider: "qa", In: strings.NewReader(""), Out: &out}, "provider"); rc != 0 {
 		t.Fatalf("rc=%d out=%s", rc, out.String())
 	}
-	if agentpkg.GetAgentRecord("claude").Profile != "qa" || *n == 0 || !cached(t) {
-		t.Fatalf("pin=%q requests=%d cached=%v out=%s", agentpkg.GetAgentRecord("claude").Profile, *n, cached(t), out.String())
+	if agent.GetAgentRecord("claude").Profile != "qa" || *n == 0 || !cached(t) {
+		t.Fatalf("pin=%q requests=%d cached=%v out=%s", agent.GetAgentRecord("claude").Profile, *n, cached(t), out.String())
 	}
 }
