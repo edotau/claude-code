@@ -105,6 +105,9 @@ func writeAgentPins(d *dialog, kv map[string]string) (bool, error) {
 	if err := providers.SetPins(kv); err != nil {
 		return false, err
 	}
+	if err := agentpkg.ClearLastProfilesFor(kv); err != nil {
+		return false, err
+	}
 	for _, l := range diff {
 		d.printf("  %s\n", l)
 	}

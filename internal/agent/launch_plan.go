@@ -98,6 +98,7 @@ type Plan struct {
 	OverlayPath string
 	Overlay     []byte
 	Warnings    []string
+	Profile     string // the profile an agent CLI launch resolved, for RecordLastProfile
 	OnExecFail  func() // runs when Exec returns (the exec failed): drops state minted for the launch
 }
 

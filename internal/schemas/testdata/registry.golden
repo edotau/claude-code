@@ -40,7 +40,7 @@ desktop-state | record | 1 | <fixed at init> | internal/desktop | keep
 dispatch-events | log | 1 | state/harness/dispatch/*.events.jsonl | internal/agent | clean:dispatch-log
 dispatch-record | record | 1 | state/harness/dispatch/*.json | internal/agent | clean:dispatch-log
 gateway-budget-cache | cache | 1 | state/harness/usage/gateway-budget.json | internal/usage | keep
-last-profile | cache | 1 | state/harness/last-profile.json | internal/agent | keep
+last-profile | cache | 2 | state/harness/last-profile.json | internal/agent | keep
 live-request | wire | 1 | - | internal/agent | keep
 memory-embeddings | store | 1 | state/harness/memory/embeddings.db | internal/memory | keep
 memory-journal | record | 1 | state/harness/memory/journal/*.json | internal/memory | keep

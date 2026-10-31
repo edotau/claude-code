@@ -14,10 +14,10 @@ import (
 	"github.com/edotau/claude-code/internal/schemas"
 )
 
-// lastProfiles is state/harness/last-profile.json: the profile each workspace last launched with (a default, never a pin).
+// lastProfiles is state/harness/last-profile.json: the profile each workspace last launched each agent with (a default, never a pin).
 type lastProfiles struct {
-	Schema     int                      `json:"schema"`
-	Workspaces map[string]lastProfileAt `json:"workspaces"`
+	Schema     int                                 `json:"schema"`
+	Workspaces map[string]map[string]lastProfileAt `json:"workspaces"`
 }
 
 type lastProfileAt struct {
@@ -25,15 +25,33 @@ type lastProfileAt struct {
 	Updated time.Time `json:"updated"`
 }
 
-const lastProfileSchema = 1
+const lastProfileSchema = 2
 
 var lastProfileFormat = schemas.Register(schemas.Format{
 	Name: "last-profile", Owner: "internal/agent", Kind: schemas.Cache, Version: lastProfileSchema,
 	Glob:    lastProfileFile,
 	New:     func() any { return new(lastProfiles) },
 	Keep:    "rebuildable cache: the per-workspace default falls back to the registry default",
-	Migrate: schemas.SameShape,
+	Migrate: migrateLastProfile,
 })
+
+// migrateLastProfile steps v0 -> v1 (stamp) and v1 -> v2 (each workspace entry becomes its "claude" entry).
+func migrateLastProfile(from int, raw []byte) ([]byte, error) {
+	if from != 1 {
+		return schemas.SameShape(from, raw)
+	}
+	var v1 struct {
+		Workspaces map[string]lastProfileAt `json:"workspaces"`
+	}
+	if err := json.Unmarshal(raw, &v1); err != nil {
+		return nil, err
+	}
+	next := lastProfiles{Schema: 2, Workspaces: map[string]map[string]lastProfileAt{}}
+	for ws, at := range v1.Workspaces {
+		next.Workspaces[ws] = map[string]lastProfileAt{"claude": at}
+	}
+	return json.Marshal(next)
+}
 
 func lastProfileFile() string { return filepath.Join(paths.StateDir(), "last-profile.json") }
 
@@ -61,13 +79,28 @@ func readLastProfiles() lastProfiles {
 	return st
 }
 
-// lastProfile is the profile this workspace last launched, "" unless it is registered and can back Claude Code.
-func lastProfile(reg *providers.Registry) string {
-	name := readLastProfiles().Workspaces[workspaceKey()].Profile
-	if p, err := reg.Get(name); name == "" || err != nil || p.Auth.Login != "" {
+// lastProfile is the profile this workspace last launched agentName with, "" unless it is registered and the agent can use it.
+func lastProfile(reg *providers.Registry, agentName string) string {
+	name := readLastProfiles().Workspaces[workspaceKey()][agentName].Profile
+	p, err := reg.Get(name)
+	if name == "" || err != nil {
+		return ""
+	}
+	if agentName == "claude" && p.Auth.Login != "" || agentName != "claude" && !CanServe(agentName, p) {
 		return ""
 	}
 	return name
+}
+
+// withLastProfile fills an unset --profile of an agent CLI launch from this workspace's last-used profile (before its pin).
+func withLastProfile(name string, o LaunchOptions) LaunchOptions {
+	if o.Provider != "" || AgentPins()[name].Off || (name != "copilot" && name != "opencode") {
+		return o
+	}
+	if reg, err := providers.Load(); err == nil {
+		o.Provider = lastProfile(reg, name)
+	}
+	return o
 }
 
 // ClearLastProfiles forgets every workspace's default, so a fresh `switch` pin applies everywhere.
@@ -78,18 +111,52 @@ func ClearLastProfiles() error {
 	return nil
 }
 
-// RecordLastProfile stores plan's profile as this workspace's default; headless runs and failures leave it alone.
-func RecordLastProfile(plan Plan, args []string) {
-	name, ws := plan.Set[providers.EnvSessionProfile], workspaceKey()
-	if name == "" || ws == "" || headless(args) {
-		return
+// ClearLastProfilesFor forgets the defaults of every agent whose profile pin is a key of pins, in all workspaces.
+func ClearLastProfilesFor(pins map[string]string) error {
+	var gone []string
+	for _, k := range rosterRows {
+		if _, ok := pins[k.CLI.ProfilePin]; ok && k.CLI.ProfilePin != "" {
+			gone = append(gone, k.Name)
+		}
+	}
+	if len(gone) == 0 {
+		return nil
 	}
 	st := readLastProfiles()
-	next := map[string]lastProfileAt{}
-	maps.Copy(next, st.Workspaces)
-	next[ws] = lastProfileAt{Profile: name, Updated: time.Now().UTC()}
-	data, err := json.MarshalIndent(lastProfiles{Schema: lastProfileSchema, Workspaces: next}, "", "  ")
-	if err == nil {
-		_ = paths.AtomicWrite(lastProfileFile(), data, 0o600)
+	next := map[string]map[string]lastProfileAt{}
+	for ws, byAgent := range st.Workspaces {
+		kept := maps.Clone(byAgent)
+		for _, n := range gone {
+			delete(kept, n)
+		}
+		if len(kept) > 0 {
+			next[ws] = kept
+		}
 	}
+	return writeLastProfiles(next)
+}
+
+func writeLastProfiles(ws map[string]map[string]lastProfileAt) error {
+	data, err := json.MarshalIndent(lastProfiles{Schema: lastProfileSchema, Workspaces: ws}, "", "  ")
+	if err != nil {
+		return err
+	}
+	return paths.AtomicWrite(lastProfileFile(), data, 0o600)
+}
+
+// RecordLastProfile stores profile as this workspace's default for agentName; headless runs leave it alone.
+func RecordLastProfile(agentName, profile string, args []string) {
+	ws := workspaceKey()
+	if profile == "" || ws == "" || headless(args) {
+		return
+	}
+	next := map[string]map[string]lastProfileAt{}
+	for k, v := range readLastProfiles().Workspaces {
+		next[k] = maps.Clone(v)
+	}
+	if next[ws] == nil {
+		next[ws] = map[string]lastProfileAt{}
+	}
+	next[ws][agentName] = lastProfileAt{Profile: profile, Updated: time.Now().UTC()}
+	_ = writeLastProfiles(next)
 }

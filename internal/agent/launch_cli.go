@@ -69,7 +69,7 @@ func cliPlan(ctx context.Context, name string, o LaunchOptions, args []string) (
 		return Plan{}, err
 	}
 	flagModel := o.Model // the flag alone; the agent's model pin is applied after the target resolves
-	o = withAgentPins(name, o)
+	o = launchProfile(name, o)
 	reg, sel, err := selection(o)
 	if err != nil {
 		if hint := spec.eng().profileHint(o); hint != nil {
@@ -98,7 +98,9 @@ func cliPlan(ctx context.Context, name string, o LaunchOptions, args []string) (
 		return Plan{}, err
 	}
 	if spec.eng().nativeRegistry(ctx, target) {
-		return copilotRegistryPlan(ctx, spec, reg, target, note, withFlagModel(args, flagModel), o.PrintEnv)
+		plan, err := copilotRegistryPlan(ctx, spec, reg, target, note, withFlagModel(args, flagModel), o.PrintEnv)
+		plan.Profile = o.Provider
+		return plan, err
 	}
 	env, prefix, err := spec.Configure(ctx, target, "")
 	if errors.Is(err, ErrOwnLogin) {
@@ -129,7 +131,12 @@ func cliPlan(ctx context.Context, name string, o LaunchOptions, args []string) (
 		return Plan{}, err
 	}
 	set := envMap(env)
-	return Plan{Binary: bin, Set: set, Argv: append(prefix, args...)}, nil
+	return Plan{Binary: bin, Set: set, Argv: append(prefix, args...), Profile: o.Provider}, nil
+}
+
+// launchProfile resolves an agent CLI launch's profile: --profile > this workspace's last-used > the agent pin.
+func launchProfile(name string, o LaunchOptions) LaunchOptions {
+	return withAgentPins(name, withLastProfile(name, o))
 }
 
 // withAgentPins fills the profile the flags left empty from the agent's vault pin: --profile > pin > default.

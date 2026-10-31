@@ -45,6 +45,8 @@ paths:
   `COPILOT_HOME` (`state/copilot/registry-home`); the proxy takes a session token, so no secret sits on disk. An
   unregistered model fails closed; `--direct` keeps the single-model route; macOS is refused until the Keychain check
   lands. `ask --agent copilot` uses the same registry via the SDK.
+- **copilot** and **opencode** interactive launches reuse the repo's last-used profile before the `*_PROFILE` pin and
+  treat it like the pin (copilot's credit gate applies); `<agent> profile` or `configure` pin changes clear it.
 - **gemini** runs only on `agy` and its Google sign-in; `gemini bridge` inlines tracked files only, never `.env*`,
   `state/` or keys.
 
