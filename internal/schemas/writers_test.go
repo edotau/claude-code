@@ -33,6 +33,7 @@ func unversioned(reason string) string { return "unversioned: " + reason }
 var writers = map[string]string{
 	"internal/agent/codex.go:codexSchemaFile":                          unversioned("foreign: codex --output-schema temp file"),
 	"internal/agent/dispatchlog.go:Save":                               "dispatch-record",
+	"internal/agent/lastprofile.go:RecordLastProfile":                  "last-profile",
 	"internal/agent/dispatchlog.go:claimRecord":                        unversioned("claim: the running record, linked in whole"),
 	"internal/agent/dispatchlog.go:openLocked":                         unversioned("log: per-job dispatch log, humans only"),
 	"internal/agent/eventlog.go:NewEventLog":                           "dispatch-events",
