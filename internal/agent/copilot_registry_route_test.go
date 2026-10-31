@@ -8,7 +8,6 @@ import (
 
 	copilot "github.com/github/copilot-sdk/go"
 
-	"github.com/edotau/claude-code/internal/agent/copilotreg"
 	"github.com/edotau/claude-code/internal/copilotsdk"
 	"github.com/edotau/claude-code/internal/providers"
 )
@@ -20,10 +19,10 @@ func registryRouteStubs(t *testing.T) (minted *int) {
 	t.Setenv("COPILOT_HOME", "")
 	oldD, oldE, oldM := copilotDiscover, copilotEnsureRouter, copilotMintToken
 	t.Cleanup(func() { copilotDiscover, copilotEnsureRouter, copilotMintToken = oldD, oldE, oldM })
-	copilotDiscover = func(context.Context, *providers.Registry, *providers.Provider) ([]copilotreg.Endpoint, error) {
-		var ep copilotreg.Endpoint
+	copilotDiscover = func(context.Context, *providers.Registry, *providers.Provider) ([]CopilotEndpoint, error) {
+		var ep CopilotEndpoint
 		ep.ID, ep.Name = "databricks-claude-sonnet-4", "s"
-		return []copilotreg.Endpoint{ep}, nil
+		return []CopilotEndpoint{ep}, nil
 	}
 	copilotEnsureRouter = func(context.Context) (string, error) { return "http://127.0.0.1:1", nil }
 	minted = new(int)
@@ -39,7 +38,7 @@ func TestCopilotRegistryRouteFailsClosedAndScrubs(t *testing.T) {
 	up := &providers.Provider{Name: "dbx"}
 
 	_, err := prepareCopilotRegistry(context.Background(), providers.Target{Provider: up, Model: "databricks-no-such-model"})
-	if !errors.Is(err, copilotreg.ErrUnknownModel) || *minted != 0 {
+	if !errors.Is(err, ErrUnknownModel) || *minted != 0 {
 		t.Fatalf("err = %v, minted = %d; want ErrUnknownModel and no mint", err, *minted)
 	}
 

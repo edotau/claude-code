@@ -8,7 +8,6 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/agent/copilotreg"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/proxy"
 )
@@ -41,10 +40,10 @@ func TestCopilotRegistryDryCreatesNothing(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	oldD, oldE, oldR := discoverModels, ensureRouter, runningRouter
 	t.Cleanup(func() { discoverModels, ensureRouter, runningRouter = oldD, oldE, oldR })
-	discoverModels = func(context.Context, *providers.Registry, *providers.Provider) ([]copilotreg.Endpoint, error) {
-		var ep copilotreg.Endpoint
+	discoverModels = func(context.Context, *providers.Registry, *providers.Provider) ([]CopilotEndpoint, error) {
+		var ep CopilotEndpoint
 		ep.ID = "databricks-claude-sonnet-5-5"
-		return []copilotreg.Endpoint{ep}, nil
+		return []CopilotEndpoint{ep}, nil
 	}
 	ensureRouter = func(context.Context) (string, error) { t.Fatal("dry ensured (may start) the router"); return "", nil }
 	runningRouter = func(context.Context) (proxy.State, bool) { return proxy.State{}, false }

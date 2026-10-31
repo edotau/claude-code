@@ -16,7 +16,6 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/clipboard"
 	"github.com/edotau/claude-code/internal/completion"
-	"github.com/edotau/claude-code/internal/crossgen"
 	"github.com/edotau/claude-code/internal/history"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/preflight"
@@ -343,11 +342,11 @@ func windowsSettingsCompact(w io.Writer) {
 // agentsSyncCompact runs the agents/skills/instructions projection and reports the vendors synced, or
 // the sync's own failure note in full.
 func agentsSyncCompact(w io.Writer) {
-	if rc := crossgen.Sync(crossgen.SyncOptions{Out: io.Discard}); rc != 0 {
+	if rc := agent.Sync(agent.ProjectionOptions{Out: io.Discard}); rc != 0 {
 		fmt.Fprintf(w, "agents   sync exit %d (see `claude-code agents sync`) · %s\n", rc, agentConfigsSummary(w))
 		return
 	}
-	fmt.Fprintf(w, "agents   synced: %s · %s\n", strings.Join(crossgen.VendorNames(), " "), agentConfigsSummary(w))
+	fmt.Fprintf(w, "agents   synced: %s · %s\n", strings.Join(agent.VendorNames(), " "), agentConfigsSummary(w))
 }
 
 // agentConfigsSummary re-renders the agent configs `configure --restore` writes (codex, opencode, gemini, copilot) and
@@ -504,7 +503,7 @@ func installGitHooks(w io.Writer, dryRun bool) {
 // repo; best-effort, like completion.
 func syncVendors(w io.Writer, dryRun bool) {
 	fmt.Fprintln(w, "agents   sync agents/ + skills/ + instructions into agent homes (claude-code agents sync)")
-	if rc := crossgen.Sync(crossgen.SyncOptions{DryRun: dryRun, Out: io.Discard}); rc != 0 {
+	if rc := agent.Sync(agent.ProjectionOptions{DryRun: dryRun, Out: io.Discard}); rc != 0 {
 		fmt.Fprintf(w, "  agents sync exit %d — run `claude-code agents sync` for details\n", rc)
 	}
 }

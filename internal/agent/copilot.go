@@ -7,7 +7,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/edotau/claude-code/internal/agent/copilotreg"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
 )
@@ -54,7 +53,7 @@ func copilotWire(
 	}
 	wire, modelID := "", ""
 	if routed && dialect == providers.ProtocolAnthropic && models.FamilyKind(model) != models.FamilyClaude {
-		w, canonical, ok, why := copilotreg.EndpointWire(p, model)
+		w, canonical, ok, why := copilotEndpointWire(p, model)
 		if !ok {
 			return nil, nil, fmt.Errorf("copilot: %s", why)
 		}
@@ -63,7 +62,7 @@ func copilotWire(
 			typ, base = "openai", base+"/"+wire
 		}
 	}
-	window, output := copilotreg.Caps(window, model)
+	window, output := copilotCaps(window, model)
 	env := []string{
 		"COPILOT_PROVIDER_BASE_URL=" + base,
 		"COPILOT_PROVIDER_TYPE=" + typ,
@@ -80,7 +79,7 @@ func copilotWire(
 		env = append(env, "COPILOT_PROVIDER_MODEL_ID="+modelID)
 	}
 	// Prompt budget = window minus the output cap and a 10% margin, so copilot compacts before the endpoint refuses.
-	if n := copilotreg.PromptTokens(window, output); n > 0 {
+	if n := copilotPromptTokens(window, output); n > 0 {
 		env = append(env, "COPILOT_PROVIDER_MAX_PROMPT_TOKENS="+strconv.Itoa(n))
 	}
 	if cred != "" {

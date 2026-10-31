@@ -3,7 +3,6 @@ package agent
 import (
 	"context"
 
-	"github.com/edotau/claude-code/internal/agent/copilotreg"
 	"github.com/edotau/claude-code/internal/providers"
 )
 
@@ -12,7 +11,7 @@ type CopilotCatalog struct {
 	Source     string
 	Profile    string
 	Databricks bool
-	Rows       []copilotreg.Endpoint
+	Rows       []CopilotEndpoint
 }
 
 // CopilotModelSource resolves profile (default: the session profile) and lists its chat endpoints if Databricks.
@@ -25,7 +24,7 @@ func CopilotModelSource(ctx context.Context, reg *providers.Registry, profile st
 	if !ok || p == nil || p.Preset != providers.PresetDatabricks {
 		return CopilotCatalog{Source: "GitHub Copilot catalog"}, nil
 	}
-	rows, err := copilotreg.Discover(ctx, reg, p)
+	rows, err := discoverCopilotEndpoints(ctx, reg, p)
 	if err != nil {
 		return CopilotCatalog{}, err
 	}

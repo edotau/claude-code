@@ -10,7 +10,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/agent/copilotreg"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -142,8 +141,8 @@ func registryHarness(t *testing.T, mint func() (string, error)) (minted *int, re
 	t.Setenv("XDG_RUNTIME_DIR", shm)
 	od, om, orv := discoverModels, mintSession, revokeSession
 	t.Cleanup(func() { discoverModels, mintSession, revokeSession = od, om, orv })
-	discoverModels = func(context.Context, *providers.Registry, *providers.Provider) ([]copilotreg.Endpoint, error) {
-		return []copilotreg.Endpoint{{ID: "databricks-claude-sonnet-5-5", Name: "S"}}, nil
+	discoverModels = func(context.Context, *providers.Registry, *providers.Provider) ([]CopilotEndpoint, error) {
+		return []CopilotEndpoint{{ID: "databricks-claude-sonnet-5-5", Name: "S"}}, nil
 	}
 	minted, revoked = new(int), new([]string)
 	mintSession = func(context.Context, string, int) (string, error) { *minted++; return mint() }
@@ -184,7 +183,7 @@ func TestConfigureCopilotRegistryFailsClosed(t *testing.T) {
 
 	t.Run("render failure returns the token to revoke", func(t *testing.T) {
 		registryHarness(t, func() (string, error) { return "tok-r", nil })
-		_, tok, err := prepareRegistry(ctx, copilotreg.Registry{}, "dbx", 1)
+		_, tok, err := prepareRegistry(ctx, CopilotRegistry{}, "dbx", 1)
 		if err == nil || !strings.Contains(err.Error(), "render registry") || tok != "tok-r" {
 			t.Errorf("token = %q, err = %v; want the minted token and a render error", tok, err)
 		}
@@ -193,7 +192,7 @@ func TestConfigureCopilotRegistryFailsClosed(t *testing.T) {
 	t.Run("unregistered model", func(t *testing.T) {
 		minted, _ := registryHarness(t, func() (string, error) { return "tok-u", nil })
 		cr, err := ConfigureCopilotRegistry(ctx, nil, registryTarget(), []string{"--model", "no-such-model"}, false)
-		if !errors.Is(err, copilotreg.ErrUnknownModel) || len(cr.Argv) != 0 {
+		if !errors.Is(err, ErrUnknownModel) || len(cr.Argv) != 0 {
 			t.Fatalf("launch = %+v, err = %v; want ErrUnknownModel and no argv", cr, err)
 		}
 		if *minted != 0 {
