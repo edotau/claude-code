@@ -332,9 +332,9 @@ func opencodeDataDir() string {
 	return filepath.Join(base, "opencode")
 }
 
-// opencodeDBPath is the 2.x login database; "" for an in-memory DB (never cached).
+// OpencodeDBPath is opencode's 2.x database; "" for an in-memory DB (never cached).
 // Non-stable channels use opencode-<channel>.db, which we can't detect cheaply; OPENCODE_DB overrides.
-func opencodeDBPath() string {
+func OpencodeDBPath() string {
 	db := os.Getenv("OPENCODE_DB")
 	switch {
 	case db == ":memory:":
@@ -397,7 +397,7 @@ func updateOpencodeDiskCache(fn func(*opencodeDiskCache)) {
 
 // opencodeDBKey is the DB path plus size+mtime of it and its -wal; "" when the DB can't be cached.
 func opencodeDBKey() string {
-	db := opencodeDBPath()
+	db := OpencodeDBPath()
 	if db == "" {
 		return ""
 	}

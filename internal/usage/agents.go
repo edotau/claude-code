@@ -352,19 +352,6 @@ var copilotSqliteCmd = func(ctx context.Context, dbPath, query string) ([]byte, 
 	return exec.CommandContext(ctx, "sqlite3", "-readonly", "-json", dbPath, query).Output()
 }
 
-// opencodeDBPath honors XDG_DATA_HOME, else ~/.local/share/opencode/opencode.db.
-func opencodeDBPath() (string, error) {
-	base := os.Getenv("XDG_DATA_HOME")
-	if base == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return "", err
-		}
-		base = filepath.Join(home, ".local", "share")
-	}
-	return filepath.Join(base, "opencode", "opencode.db"), nil
-}
-
 type opencodeTotalsRow struct {
 	Turns      int     `json:"turns"`
 	Tokens     int     `json:"tokens"`
@@ -386,9 +373,9 @@ type opencodeModelRow struct {
 // opencodeUsage reads opencode's local sqlite store: assistant messages since cutoff, grouped overall
 // for Sessions/Turns/Tokens/Cost and separately by providerID/modelID for the Models breakdown.
 func opencodeUsage(ctx context.Context, cutoff time.Time) agentUsage {
-	dbPath, err := opencodeDBPath()
-	if err != nil {
-		return agentUsage{Agent: "opencode", Note: "store not found: " + err.Error()}
+	dbPath := agent.OpencodeDBPath() // honors OPENCODE_DB like opencode's own login probe
+	if dbPath == "" {
+		return agentUsage{Agent: "opencode", Note: "store not found: OPENCODE_DB is :memory:"}
 	}
 	if _, statErr := os.Stat(dbPath); statErr != nil {
 		return agentUsage{Agent: "opencode", Note: "store not found: " + dbPath}
