@@ -37,7 +37,7 @@ func TestOpencodeOverlayModelComesFromTable(t *testing.T) {
 // TestLaunchEnvCarriesOverlayPaths checks every opencode launch (applyLaunch) carries both overlay env vars.
 func TestLaunchEnvCarriesOverlayPaths(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	env, _ := applyLaunch("opencode", nil, nil, true)
+	env, _ := schemaFor("opencode").applyLaunch(nil, nil, true)
 	var haveCfg, haveTUI bool
 	for _, kv := range env {
 		switch {

@@ -12,11 +12,12 @@ type projectionTarget struct {
 	ext    string                    // output extension incl. dot
 	home   func(home string) string  // vendor agents dir under $HOME
 	render func(agent Source) string // full file content, banner included
+	skills func(home string) string  // the CLI's own skills dir when it does not read ~/.agents/skills; nil = shared
 }
 
 // targets is every vendor the sync projects agents into; skills need no per-vendor table (see skills.go).
 var targets = map[string]projectionTarget{
-	"gemini":   {name: "gemini", ext: ".md", home: sub(".gemini", "agents"), render: renderGeminiAgent},
+	"gemini":   {name: "gemini", ext: ".md", home: sub(".gemini", "agents"), render: renderGeminiAgent, skills: GeminiSkillsDir},
 	"codex":    {name: "codex", ext: ".toml", home: sub(".codex", "agents"), render: renderCodexAgent},
 	"copilot":  {name: "copilot", ext: ".md", home: sub(".copilot", "agents"), render: renderCopilotAgent},
 	"opencode": {name: "opencode", ext: ".md", home: sub(".config", "opencode", "agents"), render: renderOpenCodeAgent},

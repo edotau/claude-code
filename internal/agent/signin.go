@@ -214,37 +214,7 @@ func (claudeSignin) Login(ctx context.Context, in io.Reader, out io.Writer) erro
 type cliSignin struct{ name string }
 
 func (s cliSignin) Check(ctx context.Context) (providers.AuthVerdict, string) {
-	switch s.name {
-	case "codex":
-		bin, err := paths.VendorBin("codex")
-		if err != nil {
-			return providers.VerdictTransient, err.Error()
-		}
-		ctx, cancel := context.WithTimeout(ctx, probeTimeout)
-		defer cancel()
-		out, err := codexStatus(ctx, bin)
-		var ee *exec.ExitError
-		switch {
-		case err == nil:
-			line, _, _ := strings.Cut(strings.TrimSpace(string(out)), "\n")
-			line, _, _ = strings.Cut(line, " - ") // drop the account/key tail codex appends
-			return providers.VerdictOK, line
-		case errors.As(err, &ee):
-			return providers.VerdictNeedsLogin, ""
-		}
-		return providers.VerdictTransient, err.Error()
-	case "copilot":
-		if l := signinCopilotLogin(); l != "" {
-			return providers.VerdictOK, "signed in as " + l
-		}
-		return providers.VerdictNeedsLogin, ""
-	case "gemini":
-		if geminiPresent() {
-			return providers.VerdictOK, "agy login present"
-		}
-		return providers.VerdictNeedsLogin, ""
-	}
-	return providers.VerdictTransient, "unknown sign-in " + s.name
+	return schemaFor(s.name).eng().checkLogin(ctx)
 }
 
 func (s cliSignin) Login(ctx context.Context, in io.Reader, out io.Writer) error {

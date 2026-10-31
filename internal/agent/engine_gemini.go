@@ -2,7 +2,10 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
+	"path/filepath"
 
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
@@ -60,5 +63,44 @@ func (e geminiEngine) fallbackTarget(reg *providers.Registry) (providers.Target,
 func (geminiEngine) LoginStatus() (bool, string) {
 	return GeminiLoginPresent(), "Google login (agy)"
 }
+
+// followsPin keeps agy on its Google login unless GEMINI_PROFILE names the session's Databricks row.
+func (geminiEngine) followsPin(p *providers.Provider) bool {
+	return !providers.GeminiGatewayRow(p) || providers.Pin(providers.PinGeminiProfile) == p.Name
+}
+
+// noRoute refuses a Databricks gateway row that no GEMINI_PROFILE pin selected: never silently.
+func (geminiEngine) noRoute(_ *providers.Registry, t providers.Target) error {
+	if providers.GeminiGatewayRow(t.Provider) {
+		return errors.New("gemini: agy needs a Google login (agy auth login) or a GEMINI_PROFILE pin")
+	}
+	return nil
+}
+
+func (geminiEngine) checkLogin(context.Context) (providers.AuthVerdict, string) {
+	if geminiPresent() {
+		return providers.VerdictOK, "agy login present"
+	}
+	return providers.VerdictNeedsLogin, ""
+}
+
+func (geminiEngine) render(_ *providers.Registry, sel providers.Selection, home string, o RenderOptions, out io.Writer) (bool, error) {
+	d, err := reportGemini(sel, out)
+	if err != nil {
+		return d, err
+	}
+	gd, err := renderGeminiSettings(home, o, out)
+	return d || gd, err
+}
+
+func (geminiEngine) configPaths(home string) ([]labelPath, error) {
+	home, err := homeOr(home)
+	if err != nil {
+		return nil, err
+	}
+	return []labelPath{{"gemini-settings", filepath.Join(home, ".gemini", "antigravity-cli", "settings.json")}}, nil
+}
+
+func (geminiEngine) routeDetail() (string, bool) { return geminiRouteDetail(), true }
 
 func (geminiEngine) newLive() liveBackend { return &agyLive{} }

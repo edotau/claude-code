@@ -252,7 +252,7 @@ func denyOpencode(runner string, _ Cell) error {
 func TestOpencodeSubPickNoLoginSkipsAndChainContinues(t *testing.T) {
 	tb := testTable(t)
 	tb.OpencodeLadder = []string{"opencode-go", "github-copilot", "openai"}
-	r := tb.Pick(context.Background(), "sonnet", "", State{}, Opts{Fallback: FallbackVendors, Configured: denyOpencode,
+	r := tb.Pick(context.Background(), "sonnet", "", State{}, Opts{Fallback: FallbackAgents, Configured: denyOpencode,
 		Now: func() time.Time { return now0 }, WorkRepo: func() bool { return false }})
 	if len(opencodeCands(r)) != 0 {
 		t.Fatalf("opencode must be skipped entirely, got %s", runners(r))
@@ -295,7 +295,7 @@ func TestFreeTierOKGateBlocksSonnetAllowsHaiku(t *testing.T) {
 func TestOpencodeSubPickOverlayReorderRespected(t *testing.T) {
 	tb := testTable(t)
 	tb.OpencodeLadder = []string{"github-copilot", "opencode-go", "openai"} // overlay: copilot ahead of Go
-	r := tb.Pick(context.Background(), "sonnet", "", State{}, Opts{Fallback: FallbackVendors, Configured: allConfigured,
+	r := tb.Pick(context.Background(), "sonnet", "", State{}, Opts{Fallback: FallbackAgents, Configured: allConfigured,
 		Now: func() time.Time { return now0 }, WorkRepo: func() bool { return false }})
 	oc := opencodeCands(r)
 	if len(oc) != 2 || oc[0].Account != "opencode·zen-free" {

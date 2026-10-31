@@ -127,12 +127,12 @@ func TestResolveTargetExplicitCopilotGated(t *testing.T) {
 			reg := gateReg(t, map[string]bool{"dev": true})
 			gh := gateSetup(t, tt.pct, true, reg)
 			sel := providers.Selection{Provider: gh.Provider, Slots: map[string]providers.Target{"opus": gh}}
-			got, _, err := ResolveVendorTarget(reg, "copilot", sel, true)
+			got, _, err := schemaFor("copilot").ResolveTarget(reg, sel, true)
 			if err != nil || got.Provider.Name != tt.wantName {
 				t.Errorf("explicit resolve = %v %v, want %s", got.Provider, err, tt.wantName)
 			}
 			// CanServe path (not explicit) is gated the same way.
-			got, _, err = ResolveVendorTarget(reg, "copilot", sel, false)
+			got, _, err = schemaFor("copilot").ResolveTarget(reg, sel, false)
 			if err != nil || got.Provider.Name != tt.wantName {
 				t.Errorf("CanServe resolve = %v %v, want %s", got.Provider, err, tt.wantName)
 			}
@@ -204,7 +204,7 @@ func TestCopilotPromptCap(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			tg := target(t, "openai", tt.model)
 			tg.OneM = tt.oneM
-			env, _, err := Configure(WithDirect(context.Background()), "copilot", tg, "")
+			env, _, err := schemaFor("copilot").Configure(WithDirect(context.Background()), tg, "")
 			if err != nil {
 				t.Fatal(err)
 			}

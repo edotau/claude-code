@@ -278,7 +278,7 @@ func TestVendorRunnerNilProviderDefense(t *testing.T) {
 
 	// Call vendorTarget and check if t.Provider is nil when own=false.
 	// If it is, the subsequent code must handle it gracefully (not panic).
-	t_, own, err := vendorTarget(req, "opencode")
+	t_, own, err := schemaFor("opencode").target(req)
 
 	// If we got here without panicking, that's good. But we should also check
 	// that if own=false and we got a valid return, t.Provider is not nil OR

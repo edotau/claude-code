@@ -53,9 +53,9 @@ func TestConfigure(t *testing.T) {
 			var env, argv []string
 			var err error
 			if c.h != nil {
-				env, argv, err = configureHeadless(ctx, c.vendor, tg, *c.h)
+				env, argv, err = schemaFor(c.vendor).configureHeadless(ctx, tg, *c.h)
 			} else {
-				env, argv, err = Configure(ctx, c.vendor, tg, "")
+				env, argv, err = schemaFor(c.vendor).Configure(ctx, tg, "")
 			}
 			if c.wantErr != "" {
 				if err == nil || !strings.Contains(err.Error(), c.wantErr) {
@@ -134,7 +134,7 @@ func TestLaunchSpecAppliedOnEveryRoute(t *testing.T) {
 			if c.setup != nil {
 				c.setup(t)
 			}
-			env, argv, err := Configure(context.Background(), c.vendor, tg, "")
+			env, argv, err := schemaFor(c.vendor).Configure(context.Background(), tg, "")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -149,7 +149,7 @@ func TestLaunchSpecAppliedOnEveryRoute(t *testing.T) {
 
 	// opencode's own GitHub Copilot login (ErrOwnLogin on the interactive leg bypasses Configure
 	// entirely) still carries the spec through the exported LaunchSpec escape hatch.
-	if env, _ := LaunchSpec("opencode"); !slices.Contains(env, "OPENCODE_DISABLE_CLAUDE_CODE_SKILLS=1") {
+	if env, _ := schemaFor("opencode").LaunchSpec(); !slices.Contains(env, "OPENCODE_DISABLE_CLAUDE_CODE_SKILLS=1") {
 		t.Errorf("LaunchSpec(opencode) env = %q, want to contain OPENCODE_DISABLE_CLAUDE_CODE_SKILLS=1", env)
 	}
 }
@@ -158,7 +158,7 @@ func TestLaunchSpecAppliedOnEveryRoute(t *testing.T) {
 // skip-permissions launch arg — that would silently re-enable tools the caller explicitly turned off.
 func TestHeadlessLegsGetNoLaunchArgs(t *testing.T) {
 	tg := target(t, "personal", "claude-opus-5.5")
-	_, argv, err := configureHeadless(context.Background(), "copilot", tg, Headless{Prompt: "hi", Tools: false})
+	_, argv, err := schemaFor("copilot").configureHeadless(context.Background(), tg, Headless{Prompt: "hi", Tools: false})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -177,7 +177,7 @@ func TestHeadlessLegsGetNoLaunchArgs(t *testing.T) {
 	}
 	gtg := target(t, "antigravity", "gemini-2.5-pro")
 	t.Setenv("HOME", home) // target() reset HOME to its own tempdir; point it back at the marker
-	_, argv, err = configureHeadless(context.Background(), "gemini", gtg, Headless{Prompt: "hi", Tools: false})
+	_, argv, err = schemaFor("gemini").configureHeadless(context.Background(), gtg, Headless{Prompt: "hi", Tools: false})
 	if err != nil {
 		t.Fatal(err)
 	}

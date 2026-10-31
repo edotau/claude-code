@@ -88,7 +88,7 @@ func routeChain(ctx context.Context, want, tier, row, exact, callerModel, mode s
 		o.Account = ResolveAccount
 	}
 	// --native opencode runs on opencode's own config first: no hub login gate, no table cell
-	pickWant, nativeLead := want, native && want == "opencode"
+	pickWant, nativeLead := want, native && IsHubAgent(want)
 	if nativeLead {
 		pickWant = ""
 	}
@@ -105,7 +105,7 @@ func routeChain(ctx context.Context, want, tier, row, exact, callerModel, mode s
 		}
 	}
 	for _, s := range pick.Skipped {
-		if !nativeLead || s.Agent != "opencode" {
+		if !nativeLead || !IsHubAgent(s.Agent) {
 			c.Skipped = append(c.Skipped, s.Agent+": "+s.Reason)
 		}
 	}
@@ -115,7 +115,7 @@ func routeChain(ctx context.Context, want, tier, row, exact, callerModel, mode s
 		current: current, legID: nonClaudeLegID(exact, explicitModel, pins[want].Model),
 		explicitModel: explicitModel, native: native}
 	for _, cand := range pick.Candidates {
-		if nativeLead && cand.Agent == "opencode" {
+		if nativeLead && IsHubAgent(cand.Agent) {
 			continue
 		}
 		cell, skip := rc.candidateCell(cand)
@@ -162,7 +162,7 @@ func (rc routeCtx) candidateCell(cand router.Candidate) (cell router.Cell, skip 
 		if rc.reg != nil && rc.reg.Providers[cand.Profile] != nil {
 			cell.Model = rc.reg.Providers[cand.Profile].WireModel(cell.Model)
 		}
-	case rc.exact != "" && cand.Profile != "" && cand.Agent != "opencode": // a Databricks leg serves only its own cell's model
+	case rc.exact != "" && cand.Profile != "" && !IsHubAgent(cand.Agent): // a Databricks leg serves only its own cell's model
 		return rc.profileCell(cand, cell)
 	case rc.exact != "": // a non-Claude id runs only where a cell serves it
 		sc, ok := cellServing(rc.tb, cand.Agent, rc.exact)
@@ -172,7 +172,7 @@ func (rc routeCtx) candidateCell(cand router.Candidate) (cell router.Cell, skip 
 		if ok {
 			cell.Model, cell.Effort = sc.Model, sc.Effort
 		}
-	case rc.row != "" && rc.row != rc.current && cand.Agent != "opencode" && cand.Profile == "": // an older row runs its own cell
+	case rc.row != "" && rc.row != rc.current && !IsHubAgent(cand.Agent) && cand.Profile == "": // an older row runs its own cell
 		if oc, ok := rc.tb.ByModel[rc.row][cand.Agent]; ok {
 			cell.Model, cell.Effort = oc.Model, oc.Effort
 		}
@@ -226,7 +226,7 @@ func (rc routeCtx) buildLeg(cand router.Candidate, cell router.Cell) (leg Leg, s
 	if cand.Profile != "" { // provider:model pins the leg to that Databricks profile, not the session's
 		leg.Model = cand.Profile + ":" + cell.Model
 	}
-	hubOpencode := cand.Agent == "opencode" && (!rc.native || cand.Agent != rc.want)
+	hubOpencode := IsHubAgent(cand.Agent) && (!rc.native || cand.Agent != rc.want)
 	if pr := profileRow(rc.reg, cand.Profile); pr != nil && pr.OpencodeID == "" {
 		hubOpencode = false // a row with no opencode id can't ride the hub; the native runner takes <profile>:<model>
 	}
@@ -310,7 +310,7 @@ func cellServing(tb *router.Table, agentName, exact string) (router.Cell, bool) 
 			return c, true
 		}
 	}
-	if agentName != "opencode" {
+	if !IsHubAgent(agentName) {
 		return router.Cell{}, false
 	}
 	for _, sub := range slices.Sorted(maps.Keys(tb.OpencodeSub)) {
@@ -363,7 +363,7 @@ func resolveAccount(agentName string, c router.Cell) (string, string) {
 		if ownLoginAccount(agentName, c.Account) {
 			return "", "" // the agent's own login cell keeps its account; a session profile never replaces it
 		}
-		vt, own, _, err := vendorTargetNote(RunOptions{Provider: sessionProvider(agentName), Model: c.Model}, agentName)
+		vt, own, _, err := schemaFor(agentName).targetNote(RunOptions{Provider: sessionProvider(agentName), Model: c.Model})
 		if err != nil || own || vt.Provider == nil || vt.Provider.Auth.Login == agentName {
 			return "", ""
 		}

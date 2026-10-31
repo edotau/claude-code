@@ -74,8 +74,3 @@ func geminiGateway(ctx context.Context, p *providers.Provider, model string, h *
 	}
 	return env, []string{"--model", arg}, nil
 }
-
-// geminiFollowsPin keeps agy on its Google login unless GEMINI_PROFILE names the session's Databricks row.
-func geminiFollowsPin(name string, p *providers.Provider) bool {
-	return name != "gemini" || !providers.GeminiGatewayRow(p) || providers.Pin(providers.PinGeminiProfile) == p.Name
-}

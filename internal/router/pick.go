@@ -10,11 +10,11 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 )
 
-// Fallback modes, matching `ask --fallback`: every runner ending in claude, vendors only, or the wanted runner alone.
+// Fallback modes, matching `ask --fallback`: every runner ending in claude, agents only, or the wanted runner alone.
 const (
-	FallbackAll     = "all"
-	FallbackVendors = "vendors"
-	FallbackNone    = "none"
+	FallbackAll    = "all"
+	FallbackAgents = "agents"
+	FallbackNone   = "none"
 )
 
 // Gates a candidate must pass before it is scored; a Skip names the one that dropped it.

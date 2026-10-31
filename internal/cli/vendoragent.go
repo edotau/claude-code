@@ -317,7 +317,11 @@ func cmdVendorSetup(vendor string, args []string) int {
 	if err := helptext.CheckFormat(*format); err != nil {
 		return badFormat(vendor+" setup", err)
 	}
-	rep := agent.Setup(vendor)
+	row, ok := agent.LookupSchema(vendor)
+	if !ok {
+		row = agent.Schema{Name: vendor} // reported as an unknown agent, by name
+	}
+	rep := row.Setup()
 	if *format == helptext.JSON {
 		if err := helptext.WriteJSON(os.Stdout, rep); err != nil {
 			return fail("%s setup: %v", vendor, err)
@@ -470,7 +474,7 @@ func cmdVendorModels(vendor string, args []string) int {
 		if err != nil {
 			return fail("%v", err)
 		}
-		n, err := agent.ModelsProfile(reg, vendor)
+		n, err := s.ModelsProfile(reg)
 		if err != nil {
 			return fail("%v", err)
 		}

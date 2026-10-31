@@ -15,7 +15,7 @@ func TestGeminiGateway(t *testing.T) {
 	t.Setenv("GW_KEY", secret)
 	p := &providers.Provider{Name: "gw", Protocol: providers.ProtocolGemini, BaseURL: "https://gw.example/gemini",
 		Auth: providers.Auth{Type: providers.AuthKey, Env: "GW_KEY"}, Headers: map[string]string{"X-Team": "a"}}
-	_, _, err := Configure(context.Background(), "gemini", providers.Target{Provider: p, Model: "m"}, "")
+	_, _, err := schemaFor("gemini").Configure(context.Background(), providers.Target{Provider: p, Model: "m"}, "")
 	if err == nil || !strings.Contains(err.Error(), "no custom base URL") {
 		t.Fatalf("err = %v, want a clear \"no custom base URL\" error", err)
 	}
@@ -33,7 +33,7 @@ func TestGeminiLoginPrecedence(t *testing.T) {
 	// target() reset HOME to its own tempdir; point it back at ours for the marker check.
 	t.Setenv("HOME", home)
 
-	if _, _, err := configureHeadless(context.Background(), "gemini", tg, Headless{Prompt: "hi"}); err == nil || !strings.Contains(err.Error(), "not signed in") {
+	if _, _, err := schemaFor("gemini").configureHeadless(context.Background(), tg, Headless{Prompt: "hi"}); err == nil || !strings.Contains(err.Error(), "not signed in") {
 		t.Fatalf("without a login marker, err = %v, want a not-signed-in error", err)
 	}
 
@@ -48,7 +48,7 @@ func TestGeminiLoginPrecedence(t *testing.T) {
 		t.Fatal("marker on disk must read as logged in")
 	}
 
-	env, _, err := configureHeadless(context.Background(), "gemini", tg, Headless{Prompt: "hi"})
+	env, _, err := schemaFor("gemini").configureHeadless(context.Background(), tg, Headless{Prompt: "hi"})
 	if err != nil {
 		t.Fatal(err)
 	}

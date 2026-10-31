@@ -132,7 +132,7 @@ func TestGeminiRefusedOnRoutedRow(t *testing.T) {
 	if !providers.CanServe("opencode", p) {
 		t.Error("control: opencode speaks gemini and should serve the row")
 	}
-	_, _, err := configureRoute(t.Context(), "gemini", providers.Target{Provider: p, Model: "gemini-x"}, nil)
+	_, _, err := schemaFor("gemini").configureRoute(t.Context(), providers.Target{Provider: p, Model: "gemini-x"}, nil)
 	if err == nil || !strings.Contains(err.Error(), "agy has no custom base URL") {
 		t.Errorf("err = %v, want the agy no-custom-base-URL refusal", err)
 	}

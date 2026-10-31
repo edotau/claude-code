@@ -108,14 +108,14 @@ func TestVendorTargetNoteExplicitCopilotGated(t *testing.T) {
 	req := RunOptions{Prompt: "p", Provider: "personal"}
 
 	ghLogin(t, "alice", 10)
-	tg, own, _, err := vendorTargetNote(req, "copilot")
+	tg, own, _, err := schemaFor("copilot").targetNote(req)
 	if err != nil || own || tg.Provider == nil || tg.Provider.Name != "personal" {
 		t.Fatalf("below threshold: %v own=%v err=%v, want personal", tg.Provider, own, err)
 	}
 
 	for _, pct := range []float64{95, 99} {
 		CopilotUsedPct = func(context.Context, string) (float64, bool) { return pct, true }
-		tg, _, _, err := vendorTargetNote(req, "copilot")
+		tg, _, _, err := schemaFor("copilot").targetNote(req)
 		if err == nil && tg.Provider != nil && tg.Provider.Name == "personal" {
 			t.Fatalf("pct %v: explicit GitHub login must not be used past the gate", pct)
 		}

@@ -59,21 +59,6 @@ func withFlagModel(args []string, model string) []string {
 	return append([]string{"--model", model}, args...)
 }
 
-// withCodexFile prepends the -f file's codex overrides (after the harness prefix, so the file's keys win).
-func withCodexFile(name, file string, args []string) ([]string, error) {
-	if file == "" {
-		return args, nil
-	}
-	if name != "codex" {
-		return nil, fmt.Errorf("-f is codex only (got %s)", name)
-	}
-	overrides, err := codexFileOverrides(file)
-	if err != nil {
-		return nil, err
-	}
-	return append(overrides, args...), nil
-}
-
 // agentModelTarget applies flag > the agent's model pin > default to t; a fallback provider respells the flag itself.
 func agentModelTarget(name string, t providers.Target, sel providers.Selection, flagModel string) (providers.Target, string) {
 	applied := t.Provider == nil || t.Provider == sel.Slots[models.Opus].Provider
@@ -91,7 +76,7 @@ func vendorPlan(ctx context.Context, name string, o LaunchOptions, args []string
 	if authVendorArgs(args) {
 		return plainPlan(spec, args) // signing in needs no model route; resolving one first blocks the very login it needs
 	}
-	args, err := withCodexFile(name, o.File, args)
+	args, err := spec.eng().launchArgs(o.File, args)
 	if err != nil {
 		return Plan{}, err
 	}
@@ -99,14 +84,14 @@ func vendorPlan(ctx context.Context, name string, o LaunchOptions, args []string
 	o = withAgentPins(name, o)
 	reg, sel, err := selection(o)
 	if err != nil {
-		if hint := codexProfileHint(o); name == "codex" && hint != nil {
+		if hint := spec.eng().profileHint(o); hint != nil {
 			return Plan{}, hint
 		}
 		return Plan{}, err
 	}
 	// --profile or the agent's own profile pin is explicit: the session pin is Claude Code's default, not a per-agent choice.
 	explicit := o.Provider != ""
-	target, note, err := ResolveVendorTarget(reg, name, sel, explicit)
+	target, note, err := spec.ResolveTarget(reg, sel, explicit)
 	if err == nil {
 		var modelNote string
 		if target, modelNote = agentModelTarget(name, target, sel, flagModel); modelNote != "" {
@@ -124,10 +109,10 @@ func vendorPlan(ctx context.Context, name string, o LaunchOptions, args []string
 	if err != nil {
 		return Plan{}, err
 	}
-	if name == "copilot" && UsesCopilotRegistry(ctx, target) {
+	if spec.eng().nativeRegistry(ctx, target) {
 		return copilotRegistryPlan(ctx, spec, reg, target, note, withFlagModel(args, flagModel), o.PrintEnv)
 	}
-	env, prefix, err := Configure(ctx, name, target, "")
+	env, prefix, err := spec.Configure(ctx, target, "")
 	if errors.Is(err, ErrOwnLogin) {
 		// The vendor's own login (opencode on Copilot) picks the model itself: plain launch, not a failure.
 		if showOwnLoginNote {
@@ -192,7 +177,7 @@ func copilotRegistryPlan(
 		cr.Revoke()
 		return Plan{}, err
 	}
-	lenv, lprefix := LaunchSpec(spec.Name)
+	lenv, lprefix := spec.LaunchSpec()
 	fmt.Fprintln(NoticeOut, CopilotRegistryBanner)
 	return Plan{
 		Binary: bin, Set: envMap(append(lenv, cr.Env...)), Unset: cr.Unset, Warnings: cr.Warnings,
@@ -206,14 +191,15 @@ func retryVendorConfigure(ctx context.Context, name string, o LaunchOptions) ([]
 	if err != nil {
 		return nil, nil, err
 	}
-	target, note, err := ResolveVendorTarget(reg, name, sel, o.Provider != "")
+	spec := schemaFor(name)
+	target, note, err := spec.ResolveTarget(reg, sel, o.Provider != "")
 	if err != nil {
 		return nil, nil, err
 	}
 	if note != "" {
 		fmt.Fprintln(NoticeOut, note)
 	}
-	return Configure(ctx, name, target, "")
+	return spec.Configure(ctx, target, "")
 }
 
 // authVendorArgs reports a vendor's own sign-in subcommand: codex/copilot login|logout, gemini/opencode auth.
@@ -254,7 +240,7 @@ func plainPlan(spec Schema, args []string) (Plan, error) {
 	if err != nil {
 		return Plan{}, err
 	}
-	env, prefix := LaunchSpec(spec.Name)
+	env, prefix := spec.LaunchSpec()
 	return Plan{Binary: bin, Set: envMap(env), Argv: append(prefix, args...)}, nil
 }
 

@@ -10,50 +10,37 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 )
 
-// ResolveVendorTarget picks the target a vendor launch uses: sel's target when it can serve the vendor
+// ResolveTarget picks the target an agent launch uses: sel's target when it can serve the agent
 // (a login provider naming it, or a route on one of its dialects), else — only when the caller named
-// no provider itself (explicit is false) — the vendor's own subscription login or first keyed
+// no provider itself (explicit is false) — the agent's own subscription login or first keyed
 // provider with a resolvable credential. note is a one-line explanation to print on fallback.
-func ResolveVendorTarget(reg *providers.Registry, name string, sel providers.Selection, explicit bool) (target providers.Target, note string, err error) {
+func (s Schema) ResolveTarget(reg *providers.Registry, sel providers.Selection, explicit bool) (target providers.Target, note string, err error) {
+	name, e := s.Name, s.eng()
 	t, ok := sel.Slots[models.Opus]
 	if !ok {
 		return providers.Target{}, "", fmt.Errorf("%s: no opus target resolved", name)
 	}
-	// "OpenCode defaults to the Copilot plan": opencode's own github-copilot login (unrelated to the
-	// session provider) is preferred whenever it is present, ahead of a session provider that could
-	// otherwise already serve opencode; an explicit --provider still wins.
-	if name == "opencode" && !explicit {
-		if OpencodeOwnLoginPresent() { // opencode's own Go/Zen credential: launch plain on its own config
-			return providers.Target{}, "", ErrOwnLogin
-		}
-		if gt, gnote, ok := opencodeCopilotTarget(reg); ok {
-			return gt, gnote, nil
-		}
+	// "OpenCode defaults to the Copilot plan": a CLI's own login (unrelated to the session provider) is preferred
+	// whenever it is present, ahead of a session provider that could serve it; an explicit --provider still wins.
+	if pt, pnote, ok, perr := e.preRoute(reg, explicit); ok {
+		return pt, pnote, perr
 	}
-	if explicit || (providers.CanServe(name, t.Provider) && geminiFollowsPin(name, t.Provider)) {
-		if name == "copilot" {
-			return copilotGate(reg, t)
-		}
-		return t, "", nil
+	if explicit || (providers.CanServe(name, t.Provider) && e.followsPin(t.Provider)) {
+		return e.gate(reg, t)
 	}
-	if ft, fallbackNote, ok := fallbackTarget(reg, name); ok {
+	if ft, fallbackNote, ok := e.fallbackTarget(reg); ok {
 		note = fmt.Sprintf("%s: session provider %s cannot serve %s; using %s", name, t.Provider.Name, name, fallbackNote)
-		if name == "copilot" && ft.Provider != nil && ft.Provider.Preset == providers.PresetDatabricks {
-			note = fallbackNote // the gate's own notice already names the account and the profile
+		if own, ok := e.fallbackNote(ft, fallbackNote); ok {
+			note = own
 		}
 		if ft.Provider == nil {
-			return ft, note, ErrOwnLogin // the vendor's own stored login: launch it plain, nothing to inject
+			return ft, note, ErrOwnLogin // the agent's own stored login: launch it plain, nothing to inject
 		}
 		return ft, note, nil
 	}
 	// opencode and copilot have a defined fallback chain (DescribeRoute); nothing in it resolved either.
-	if name == "opencode" || name == "copilot" {
-		if ri := DescribeRoute(reg, name); !ri.OK {
-			return providers.Target{}, "", errors.New(ri.Reason)
-		}
-	}
-	if name == "gemini" && providers.GeminiGatewayRow(t.Provider) { // Databricks only on a GEMINI_PROFILE pin, never silently
-		return providers.Target{}, "", errors.New("gemini: agy needs a Google login (agy auth login) or a GEMINI_PROFILE pin")
+	if err := e.noRoute(reg, t); err != nil {
+		return providers.Target{}, "", err
 	}
 	return t, "", nil
 }
@@ -109,14 +96,6 @@ func databricksUsable(p *providers.Provider) bool {
 
 // ErrOwnLogin means the vendor should run on the credentials its own CLI stores (no harness route injected).
 var ErrOwnLogin = errors.New("agent runs on its own login")
-
-// fallbackTarget is each vendor's own route to a working credential when the session provider has none.
-func fallbackTarget(reg *providers.Registry, name string) (providers.Target, string, bool) {
-	if e, ok := engines[name]; ok {
-		return e.fallbackTarget(reg)
-	}
-	return providers.Target{}, "", false
-}
 
 // keyProvider is the first profile under provider that bills on a harness-held key.
 func keyProvider(reg *providers.Registry, provider string) (*providers.Provider, bool) {

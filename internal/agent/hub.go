@@ -39,12 +39,11 @@ func firstOutputDeadline() time.Duration {
 // unwrapped failure, so Do never retries it but legUnavailable falls through to the chain's backup leg.
 var errStalled = errors.New("free leg stalled: no output within the first-output deadline")
 
-// HubAgents are the agent names `ask` routes through the opencode hub by default; --native skips it. codex and
+// IsHubAgent reports whether name is one ask routes through opencode unless --native is set. codex and
 // copilot run their own CLI first (user decision): the hub cannot pass copilot's `auto` or its pinned account.
-var HubAgents = []string{"opencode"}
-
-// IsHubAgent reports whether name is one ask routes through opencode unless --native is set.
-func IsHubAgent(name string) bool { return slices.Contains(HubAgents, name) }
+func IsHubAgent(name string) bool {
+	return slices.ContainsFunc(rosterRows, func(s Schema) bool { return s.Name == name && s.CLI.Hub })
+}
 
 // HubStart resolves the provider a hub agent's first leg targets: explicitProvider when the caller set
 // one (forced, regardless of login or quota), else the first opencodeLadder entry that has a login,

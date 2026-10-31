@@ -730,7 +730,7 @@ func listAgents(format string) int {
 		if s.CLI.Cost {
 			caps["cost"] = agent.Native.String()
 		}
-		if agent.HasLive(s.Name) {
+		if s.HasLive() {
 			caps["live"] = agent.Native.String()
 		}
 		caps["background"], caps["remote"] = agent.Native.String(), agent.Native.String()

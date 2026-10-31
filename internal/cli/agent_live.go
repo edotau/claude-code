@@ -22,7 +22,7 @@ var liveExclusive = []string{"background", "host", "batch", "retry", "job", "env
 
 // askLiveCheck rejects --live with another agent, a task, or a flag that has no meaning for a held-open session.
 func askLiveCheck(fs *flag.FlagSet, name string) error {
-	if !agent.HasLive(name) {
+	if row, _ := agent.LookupSchema(name); !row.HasLive() {
 		return fmt.Errorf("--live is claude or gemini only, not %s", name)
 	}
 	if fs.NArg() > 0 {

@@ -64,18 +64,18 @@ func TestLookupUnknownVendor(t *testing.T) {
 
 func TestKnownIncludesClaude(t *testing.T) {
 	for _, s := range Roster() {
-		if !known(s.Name) {
-			t.Errorf("known(%q) = false", s.Name)
+		if _, ok := LookupSchema(s.Name); !ok {
+			t.Errorf("LookupSchema(%q) = false", s.Name)
 		}
 	}
-	if known("nonexistent-vendor") {
+	if _, ok := LookupSchema("nonexistent-vendor"); ok {
 		t.Error("unknown agent is known")
 	}
 }
 
 func TestSetupRejectsNonExternal(t *testing.T) {
 	for _, name := range []string{"claude", "nonexistent-vendor"} {
-		rep := Setup(name)
+		rep := schemaFor(name).Setup()
 		if rep.OK || len(rep.Checks) != 1 || rep.Checks[0].State != "fail" ||
 			rep.Checks[0].Detail != errUnknownAgent(name).Error() {
 			t.Errorf("Setup(%q) = %+v", name, rep)

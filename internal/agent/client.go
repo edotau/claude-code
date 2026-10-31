@@ -3,7 +3,6 @@ package agent
 import (
 	"cmp"
 	"context"
-	"slices"
 
 	"github.com/edotau/claude-code/internal/network/tailscale"
 	"github.com/edotau/claude-code/internal/providers"
@@ -85,7 +84,7 @@ func (c *Client) Record(ctx context.Context, o RunOptions, job *Record) (Record,
 // resolve maps o.Agent — a roster name, an agents key, vendor:name or a definition file — to its runner and
 // applies the definition's model, profile and effort under the caller's explicit options.
 func (c *Client) resolve(o *RunOptions) error {
-	if isRosterName(o.Agent) && len(o.Agents) == 0 {
+	if _, ok := LookupSchema(o.Agent); ok && len(o.Agents) == 0 { // a plain roster agent, not a definition selector
 		return nil
 	}
 	runner, err := selectAndOverlay(o.Agent, o.Agents, o)
@@ -117,9 +116,6 @@ func defModel(def *Schema) string {
 	}
 	return def.Model
 }
-
-// isRosterName reports whether name is a plain roster agent rather than a definition selector.
-func isRosterName(name string) bool { return slices.Contains(rosterNames(), name) }
 
 type clientUsageError struct{ error }
 

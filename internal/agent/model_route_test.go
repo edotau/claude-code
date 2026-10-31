@@ -99,10 +99,10 @@ func TestCopilotModelIDIsDotted(t *testing.T) {
 // A run on an agent's own login reports the registry profile naming that login, never the retired "own-login".
 func TestOwnProfileNamesTheLoginRow(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	if got := ownProfile("codex"); got == "own-login" || got == "" {
+	if got := schemaFor("codex").ownProfile(); got == "own-login" || got == "" {
 		t.Errorf("ownProfile(codex) = %q", got)
 	}
-	if got := ownProfile("opencode"); got != "opencode" {
+	if got := schemaFor("opencode").ownProfile(); got != "opencode" {
 		t.Errorf("ownProfile(opencode) = %q, want the agent name when no row names its login", got)
 	}
 }

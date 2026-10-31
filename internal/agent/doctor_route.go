@@ -10,31 +10,20 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 )
 
-// RouteDetail returns the "<agent> route" detail string DoctorChecks would emit for agent, without
-// running the rest of the doctor sweep; ok is false for an unknown vendor or a registry load error.
+// RouteDetail returns the "<agent> route" detail string DoctorChecks would emit for the agent, without
+// running the rest of the doctor sweep; ok is false for an unknown agent or a registry load error.
 func RouteDetail(vendor string) (detail string, ok bool) {
-	switch vendor {
-	case "codex":
-		return codexRouteDetail(), true
-	case "gemini":
-		return geminiRouteDetail(), true
-	case "opencode":
-		reg, err := providers.Load()
-		if err != nil || reg == nil {
-			return "", false
-		}
-		sel, selErr := providers.Select(reg, "")
-		return opencodeRouteDetail(reg, sel, selErr), true
-	case "copilot":
-		reg, err := providers.Load()
-		if err != nil || reg == nil {
-			return "", false
-		}
-		_, selErr := providers.Select(reg, "")
-		return copilotRouteDetail(reg, selErr), true
-	default:
-		return "", false
+	return schemaFor(vendor).eng().routeDetail()
+}
+
+// loadSelection is the registry and its unpinned selection; ok is false when the registry does not load.
+func loadSelection() (reg *providers.Registry, sel providers.Selection, selErr error, ok bool) {
+	reg, err := providers.Load()
+	if err != nil || reg == nil {
+		return nil, providers.Selection{}, nil, false
 	}
+	sel, selErr = providers.Select(reg, "")
+	return reg, sel, selErr, true
 }
 
 // opencodeRouteDetail reports the opencode route `claude-code configure --restore` would render: provider,
@@ -50,7 +39,7 @@ func opencodeRouteDetail(reg *providers.Registry, sel providers.Selection, selEr
 	if selErr != nil {
 		return fmt.Sprintf("opencode_login=%v copilot_cli_login=%v (%v)", opencodeLogin, copilotCLILogin, selErr)
 	}
-	target, _, err := ResolveVendorTarget(reg, "opencode", sel, false)
+	target, _, err := schemaFor("opencode").ResolveTarget(reg, sel, false)
 	if err != nil || target.Provider == nil {
 		return fmt.Sprintf("opencode_login=%v copilot_cli_login=%v (%v)", opencodeLogin, copilotCLILogin, errText(err))
 	}
@@ -75,7 +64,7 @@ func copilotRouteDetail(reg *providers.Registry, selErr error) string {
 	if selErr != nil {
 		return fmt.Sprintf("(%v)", selErr)
 	}
-	ri := DescribeRoute(reg, "copilot")
+	ri := schemaFor("copilot").DescribeRoute(reg)
 	if !ri.OK {
 		return ri.Reason
 	}

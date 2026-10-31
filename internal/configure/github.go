@@ -79,8 +79,10 @@ func githubStatusRows(d *dialog) (ghOK, copilotOK bool) {
 		d.printf("%-16s ABSENT: no usable GitHub login\n", "copilot CLI")
 	}
 
-	printRoute(d, agent.DescribeRoute(d.reg, "opencode"))
-	printRoute(d, agent.DescribeRoute(d.reg, "copilot"))
+	oc, _ := agent.LookupSchema("opencode")
+	cp, _ := agent.LookupSchema("copilot")
+	printRoute(d, oc.DescribeRoute(d.reg))
+	printRoute(d, cp.DescribeRoute(d.reg))
 	return
 }
 
@@ -100,7 +102,9 @@ func runGithub(d *dialog) bool {
 		d.println("fix: copilot login")
 	}
 	if d.o.Check {
-		return agent.DescribeRoute(d.reg, "opencode").OK && agent.DescribeRoute(d.reg, "copilot").OK
+		oc, _ := agent.LookupSchema("opencode")
+		cp, _ := agent.LookupSchema("copilot")
+		return oc.DescribeRoute(d.reg).OK && cp.DescribeRoute(d.reg).OK
 	}
 	return true
 }

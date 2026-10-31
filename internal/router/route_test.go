@@ -153,7 +153,7 @@ func pickRepo(tb *Table, tier string, st State, work bool) Result {
 	if len(tb.OpencodeLadder) == 0 {
 		tb.OpencodeLadder = []string{"opencode-go", "github-copilot", "openai"} // defaults.json order; LoadFrom(nil) has none
 	}
-	return tb.Pick(context.Background(), tier, "", st, Opts{Fallback: FallbackVendors, Configured: allConfigured,
+	return tb.Pick(context.Background(), tier, "", st, Opts{Fallback: FallbackAgents, Configured: allConfigured,
 		Now: func() time.Time { return now0 }, WorkRepo: func() bool { return work }})
 }
 
@@ -179,7 +179,7 @@ func TestPickGatesBeatScore(t *testing.T) {
 		t.Errorf("claude leg = %+v, want sonnet tier kept", last)
 	}
 	unpinned, _ := LoadFrom(nil, "")
-	r = pick(unpinned, "opus", "copilot", State{}, FallbackVendors)
+	r = pick(unpinned, "opus", "copilot", State{}, FallbackAgents)
 	if r.Skipped[0].Gate != GateAccount || strings.Contains(runners(r), "claude") {
 		t.Errorf("unpinned copilot must drop at the account gate, vendors mode has no claude: %+v %s", r.Skipped, runners(r))
 	}
