@@ -493,3 +493,16 @@ func TestCopilotFallbackSkipsPinnedRowWithFailingCredential(t *testing.T) {
 		}
 	})
 }
+
+// Copilot reads as off only while nothing can bill it; a Databricks profile with a token turns it back on.
+func TestCopilotUnbillable(t *testing.T) {
+	reg := gateReg(t, nil)
+	isolateOpencodeRouteEnv(t)
+	if got := copilotUnbillable(reg); got != "no account to bill" {
+		t.Errorf("no login, no token: got %q, want no account to bill", got)
+	}
+	t.Setenv("GATE_TEST_DBX_DEV", "tok-dev")
+	if got := copilotUnbillable(reg); got != "" {
+		t.Errorf("databricks dev has a token: got %q, want billable", got)
+	}
+}

@@ -103,6 +103,25 @@ func ValidAgentActive(agent, v string) error {
 	return fmt.Errorf("active must be %q or %q, got %q", AgentOn, AgentOff, v)
 }
 
+// AgentUnbillable is why copilot has no account to bill (no GitHub login under 95%, Databricks profile or key); "" else.
+func AgentUnbillable(agent string) string {
+	if agent != "copilot" {
+		return ""
+	}
+	reg, err := providers.Load()
+	if err != nil {
+		return ""
+	}
+	return copilotUnbillable(reg)
+}
+
+func copilotUnbillable(reg *providers.Registry) string {
+	if describeCopilotRoute(reg).OK {
+		return ""
+	}
+	return "no account to bill"
+}
+
 // AgentActive reports whether agent is on (unset = on; claude is always on).
 func AgentActive(agent string) bool {
 	k := AgentActivePin(agent)

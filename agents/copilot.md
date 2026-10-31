@@ -46,9 +46,12 @@ Label rule: `skills/subagent-workflows/SKILL.md#leaf-types`.
 
 ## Account and model
 
-- Sign-in: `claude-code configure agents --agent copilot` → Login (`copilot login`); `configure github` picks the account.
-- Databricks: `claude-code configure databricks` signs in and mints the token into the vault, then
-  `claude-code copilot profile <profile>` pins `COPILOT_PROFILE`; `--clear` unpins.
+- Sign-in: `claude-code configure agents --agent copilot` → Login (`copilot login`); `configure github` picks
+  the account.
+- Databricks: `claude-code configure databricks` → Set up signs in, saves the token to the vault and applies the
+  profile to copilot (`COPILOT_PROFILE`); `claude-code copilot profile <p>|--clear` sets it by hand.
+- Copilot reads as off (`copilot profile`, configure) while it has no account to bill: no GitHub login under 95%,
+  no usable Databricks profile, no Anthropic key. The `COPILOT_ACTIVE` pin is untouched, so it comes back on its own.
 - Pins in `claude-code vault edit`: `COPILOT_MODEL`, `COPILOT_EFFORT`, `COPILOT_CONTEXT`.
 - `claude-code copilot off|on` stops/resumes routing to copilot; `claude-code copilot setup` checks the route.
 
