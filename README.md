@@ -97,7 +97,8 @@ claude-code --profile example --model sonnet         # this launch only
 ```
 
 Precedence: `--profile` → vault pin `CLAUDE_PROFILE` → registry `default`. Model: `--model` → `CLAUDE_<TIER>_MODEL` →
-`CLAUDE_MODEL` → the profile's `models`. Process env beats vault pins.
+`CLAUDE_MODEL` → the profile's `models`. Pins are read from the vault only; an exported `CLAUDE_PROFILE` marks the
+session, it is not a pin.
 
 ### Vault
 
@@ -115,8 +116,10 @@ shows secrets as `<prefix>***  N chars` and marks failing entries ✗ first (`--
 
 ## Credentials
 
-First non-empty source wins: **process env** (`auth.env`) → **vault** (`claude-code vault set <KEY>`, AES-256-GCM) →
+First non-empty source wins, name by name: the canonical secret name (`ANTHROPIC_KEY`) as **process env**, then in the
+**vault** (`claude-code vault set <KEY>`, AES-256-GCM); then `auth.env` (`ANTHROPIC_API_KEY`) the same way; then
 **`auth.file`** → **`auth.command`** (prints the credential; cached `auth.ttl` seconds, default 300, re-run on 401).
+Sealed `oauth`/`m2m`/`pat` credentials come from the vault only; `cli` profiles use the CLI's own login.
 
 Example: `"auth": {"type": "key", "command": "op read op://Private/example/credential", "ttl": 3600}`.
 `claude-code resolve --profile <p>` is the `apiKeyHelper` Claude Code calls, so no key lands in `settings.json`.
@@ -137,8 +140,26 @@ killed clear process can still keep it). `configure` → databricks offers Set u
 Paste PAT / Mint / Apply to agents.
 
 **The vault key** — 32 random bytes from `HARNESS_VAULT_KEY` → OS keyring (service `claude-code`) → `key_command` (a
-JSON argv, no shell). No key file is written; headless boxes set one of the first or last. `HARNESS_VAULT_KEY` is
-scrubbed from agent CLI children. `vault rotate-secret` re-seals and keeps old keys.
+JSON argv, no shell). No key file is written; headless boxes set one of the first or last; `HARNESS_KEYRING=off`
+skips the keyring. `HARNESS_VAULT_KEY` is scrubbed from agent CLI children. `vault rotate-secret` re-seals and keeps
+old keys.
+
+### Environment overrides
+
+Process env read directly by the harness (not pins; set them in the shell or the vault's `env`):
+
+| Variable | Effect |
+| --- | --- |
+| `HARNESS_KEEP_ENV` | comma-separated names an agent CLI child keeps instead of having them scrubbed |
+| `HARNESS_KEYRING=off` | skip the OS keyring when finding the vault key |
+| `CLAUDE_RECALL_SEMANTIC=0` | memory recall ranks by keyword only (no embeddings) |
+| `OPENCODE_DB` | opencode's database: a file name under its data dir, an absolute path, or `:memory:` |
+| `DATABRICKS_CONFIG_FILE` | Databricks CLI config file (default `~/.databrickscfg`) |
+| `CLAUDE_WL_PASTE_PROXY` | `wl-paste` proxy mode: `0` off, `1` intercept, `reject`; unset = automatic |
+| `HARNESS_REMOTE_BIN` | the remote `claude-code` binary for `--host` runs, after `--remote-bin` |
+| `HARNESS_ALLOW_OPENCODE_2X` | any value lets one install link an opencode newer than 1.x |
+| `HARNESS_USAGE_CACHE_TTL` | seconds a usage fetch stays fresh (default 60; 0 = always refetch) |
+| `HARNESS_USAGE_WARN_PCT` | quota warning threshold in percent, `(0,100]` (default 80) |
 
 ## Naming
 
@@ -167,9 +188,9 @@ only exported at launch, never renamed; model ids are built per provider from th
 
 | Provider | Profile | Auth | Vault entry |
 | --- | --- | --- | --- |
-| anthropic | `max` · `anthropic` | `cli` · `key` | `ANTHROPIC_MAX_OAUTH` (optional; exports `CLAUDE_CODE_OAUTH_TOKEN`) · `ANTHROPIC_KEY` |
+| anthropic | `max` · `anthropic` | `cli` · `key` | `CLAUDE_CODE_OAUTH_TOKEN` (optional, headless Max) · `ANTHROPIC_KEY` |
 | databricks | `dev`, `qa`, `prod` · service principals | `oauth` · `m2m` | `DATABRICKS_<PROFILE>_OAUTH` · `DATABRICKS_<PROFILE>_M2M` |
-| github | `personal`, `work` | `oauth` | `GITHUB_PERSONAL_OAUTH` (exports `COPILOT_GITHUB_TOKEN`) |
+| github | `personal`, `work` | `cli` (gh / `copilot login`) | `COPILOT_GITHUB_TOKEN` (optional; beats gh's active account) |
 | openai | `chatgpt` · `openai` | `cli` · `key` | none · `OPENAI_KEY` |
 | google | `antigravity` | `cli` | none |
 | nvidia | `nvidia` | `key` | `NVIDIA_KEY` |
