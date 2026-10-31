@@ -1,1 +1,1 @@
-{"schema":1,"workspaces":{"/w/a":{"profile":"prod","updated":"2026-01-02T03:04:05Z"}}}
+{"schema":2,"workspaces":{"/w/a":{"claude":{"profile":"prod","updated":"2026-01-02T03:04:05Z"}}}}

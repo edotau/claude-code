@@ -516,9 +516,13 @@ func pinCopilotProfile(d *dialog, user string) bool {
 			profile = "personal"
 		}
 	}
-	if err := providers.SetPins(map[string]string{providers.PinCopilotProfile: profile}); err != nil {
+	pins := map[string]string{providers.PinCopilotProfile: profile}
+	if err := providers.SetPins(pins); err != nil {
 		d.printf("copilot: %v\n", err)
 		return false
+	}
+	if err := agent.ClearLastProfilesFor(pins); err != nil {
+		d.printf("copilot: %v\n", err)
 	}
 	d.printf("%-10s runs as %s\n", "copilot", bracket(user != "", user+" (pinned as "+profile+")", "gh's active account"))
 	return true

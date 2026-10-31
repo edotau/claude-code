@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	agentpkg "github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/clipboard"
 	"github.com/edotau/claude-code/internal/databricks"
 	"github.com/edotau/claude-code/internal/providers"
@@ -267,6 +268,9 @@ func dbxApplyPins(d *dialog, env string) (cancelled bool, err error) {
 		return false, nil
 	}
 	if err := providers.SetPins(pins); err != nil {
+		return false, err
+	}
+	if err := agentpkg.ClearLastProfilesFor(pins); err != nil {
 		return false, err
 	}
 	d.changed = true

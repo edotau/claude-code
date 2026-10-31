@@ -37,7 +37,7 @@ func launchClaude(tier string, args []string) int {
 	opts.Tier = tier
 	plan, err := agent.Claude(context.Background(), opts, rest)
 	if err == nil && !opts.PrintEnv {
-		agent.RecordLastProfile(plan, rest)
+		agent.RecordLastProfile("claude", plan.Set[providers.EnvSessionProfile], rest)
 	}
 	return runPlan(plan, opts, err)
 }
@@ -148,6 +148,9 @@ func launchAgent(name string, args []string) int {
 	plan, err := agent.LaunchPlan(context.Background(), name, opts, rest)
 	if err == nil {
 		warnVersion(name, plan.Binary, opts, rest)
+		if !opts.PrintEnv {
+			agent.RecordLastProfile(name, plan.Profile, rest)
+		}
 	}
 	return runPlan(plan, opts, err)
 }

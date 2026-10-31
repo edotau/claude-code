@@ -31,6 +31,9 @@ func cmdAgentProfile(agent string, args []string) int {
 		if err := providers.SetPins(map[string]string{pin: ""}); err != nil {
 			return fail("%s profile: %v", agent, err)
 		}
+		if err := agentpkg.ClearLastProfilesFor(map[string]string{pin: ""}); err != nil {
+			return fail("%s profile: %v", agent, err)
+		}
 		fmt.Printf("%s: profile pin cleared\n", agent)
 		return 0
 	case len(pos) == 0:
@@ -61,6 +64,9 @@ func cmdAgentProfile(agent string, args []string) int {
 		return fail("%s profile: %s cannot serve profile %q", agent, agent, pos[0])
 	}
 	if err := providers.SetPins(map[string]string{pin: pos[0]}); err != nil {
+		return fail("%s profile: %v", agent, err)
+	}
+	if err := agentpkg.ClearLastProfilesFor(map[string]string{pin: pos[0]}); err != nil {
 		return fail("%s profile: %v", agent, err)
 	}
 	fmt.Printf("%s: now on %s (%s); relaunch `claude-code %s` to apply\n", agent, pos[0], pin, agent)

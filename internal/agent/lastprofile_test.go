@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/schemas"
 )
 
 // Given a recorded workspace profile, a Claude launch resolves flag > last-used > pin > registry default.
@@ -24,11 +25,11 @@ func TestClaudeProfileResolutionLastUsed(t *testing.T) {
 	if got := profile(LaunchOptions{}); got != "max" {
 		t.Fatalf("no record: got %q, want the registry default max", got)
 	}
-	RecordLastProfile(Plan{Set: map[string]string{providers.EnvSessionProfile: "nvidia"}}, nil)
+	RecordLastProfile("claude", "nvidia", nil)
 	if got := profile(LaunchOptions{}); got != "nvidia" {
 		t.Errorf("last-used: got %q, want nvidia", got)
 	}
-	RecordLastProfile(Plan{Set: map[string]string{providers.EnvSessionProfile: "anthropic"}}, []string{"-p", "x"})
+	RecordLastProfile("claude", "anthropic", []string{"-p", "x"})
 	if got := profile(LaunchOptions{}); got != "nvidia" {
 		t.Errorf("headless run recorded: got %q, want nvidia", got)
 	}
@@ -58,5 +59,47 @@ func TestClaudeProfileResolutionLastUsed(t *testing.T) {
 	}
 	if got := profile(LaunchOptions{}); got != "max" {
 		t.Errorf("corrupt file: got %q, want the default", got)
+	}
+}
+
+// Given a claude entry, an agent CLI launch ignores it; its own entry beats the agent pin, and the pin setter clears only it.
+func TestAgentLastProfileIsPerAgent(t *testing.T) {
+	hermetic(t, "")
+	t.Chdir(t.TempDir())
+	if err := providers.SetPins(map[string]string{providers.PinOpencodeProfile: "nvidia", providers.PinCopilotProfile: "nvidia"}); err != nil {
+		t.Fatal(err)
+	}
+	resolved := func(name string) string { return launchProfile(name, LaunchOptions{}).Provider }
+	RecordLastProfile("claude", "anthropic", nil)
+	RecordLastProfile("opencode", "openai", nil)
+	if got := resolved("opencode"); got != "openai" {
+		t.Errorf("opencode entry: got %q, want openai (beats the nvidia pin)", got)
+	}
+	if got := resolved("copilot"); got != "nvidia" {
+		t.Errorf("copilot read another agent's entry: got %q, want its nvidia pin", got)
+	}
+	if got := launchProfile("opencode", LaunchOptions{Provider: "nvidia"}).Provider; got != "nvidia" {
+		t.Errorf("flag: got %q, want nvidia", got)
+	}
+	if err := ClearLastProfilesFor(map[string]string{providers.PinOpencodeProfile: "x"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := resolved("opencode"); got != "nvidia" {
+		t.Errorf("after the opencode pin setter: got %q, want the nvidia pin", got)
+	}
+	if got := readLastProfiles().Workspaces[workspaceKey()]["claude"].Profile; got != "anthropic" {
+		t.Errorf("claude entry lost by the opencode setter: %q", got)
+	}
+}
+
+// Given a v1 file (one entry per workspace), decoding yields that entry under "claude".
+func TestLastProfileMigratesV1ToClaude(t *testing.T) {
+	raw := []byte(`{"schema":1,"workspaces":{"/w/a":{"profile":"prod","updated":"2026-01-02T03:04:05Z"}}}`)
+	var st lastProfiles
+	if _, err := schemas.Decode(lastProfileFormat, raw, &st); err != nil {
+		t.Fatal(err)
+	}
+	if got := st.Workspaces["/w/a"]["claude"].Profile; got != "prod" || len(st.Workspaces["/w/a"]) != 1 {
+		t.Errorf("v1 entry: got %+v, want claude=prod only", st.Workspaces)
 	}
 }
