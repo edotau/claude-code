@@ -68,7 +68,7 @@ func Path() string                  { return filepath.Join(paths.ConfigDir(), "s
 func View(fn func(*Tx) error) error { return ViewAt(Path(), fn) }
 
 func ViewAt(path string, fn func(*Tx) error) error {
-	db, err := bbolt.Open(path, 0600, &bbolt.Options{ReadOnly: true, Timeout: readLockTimeout})
+	db, err := openReadOnly(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return fn(&Tx{})
 	}

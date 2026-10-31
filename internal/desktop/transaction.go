@@ -40,8 +40,6 @@ func capture(p string) (snapshot, error) {
 	return snapshot{data: b, mode: fi.Mode().Perm(), exists: true}, err
 }
 
-func atomicWrite(p string, b []byte, mode os.FileMode) error { return paths.AtomicWrite(p, b, mode) }
-
 func transact(changes []change, before map[string]snapshot, ops fileOps, library string) error {
 	created := false
 	if _, err := os.Stat(library); errors.Is(err, os.ErrNotExist) {
@@ -59,7 +57,7 @@ func transact(changes []change, before map[string]snapshot, ops fileOps, library
 			s := before[p]
 			var err error
 			if s.exists {
-				err = atomicWrite(p, s.data, s.mode)
+				err = paths.AtomicWrite(p, s.data, s.mode)
 			} else {
 				err = os.Remove(p)
 				if errors.Is(err, os.ErrNotExist) {

@@ -18,6 +18,9 @@ func Truncate(s string, n int) string {
 
 // TruncateRunes hard-cuts s to the first n runes with no ellipsis, mirroring Python's s[:n] slicing.
 func TruncateRunes(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
 	r := []rune(s)
 	if len(r) > n {
 		return string(r[:max(n, 0)])
@@ -27,6 +30,9 @@ func TruncateRunes(s string, n int) string {
 
 // CapRunes keeps the first n runes of s and appends suffix when s is longer; s is returned unchanged otherwise.
 func CapRunes(s string, n int, suffix string) string {
+	if len(s) <= n {
+		return s
+	}
 	if r := []rune(s); len(r) > n {
 		return string(r[:max(n, 0)]) + suffix
 	}

@@ -13,7 +13,6 @@ import (
 	_ "github.com/edotau/claude-code/internal/agent"
 	_ "github.com/edotau/claude-code/internal/audit"
 	_ "github.com/edotau/claude-code/internal/cli"
-	_ "github.com/edotau/claude-code/internal/crossgen"
 	_ "github.com/edotau/claude-code/internal/hooks"
 	_ "github.com/edotau/claude-code/internal/launch"
 	_ "github.com/edotau/claude-code/internal/memory"
@@ -53,11 +52,11 @@ var writers = map[string]string{
 	"internal/completion/completion.go:Install":                    unversioned("foreign: shell completion script in the user's shell dirs"),
 	"internal/configure/vault_edit.go:Edit":                        unversioned("foreign: editor scratch temp file"),
 	"internal/configure/home.go:registerCodexMCP":                  unversioned("foreign: codex config.toml in the vendor home"),
-	"internal/agent/copilotreg/rundir.go:WriteRegistry":            unversioned("foreign: copilot registry in a private vendor home"),
-	"internal/crossgen/sync.go:writeProjection":                    "projections",
+	"internal/agent/copilot_rundir.go:WriteCopilotRegistry":        unversioned("foreign: copilot registry in a private vendor home"),
+	"internal/agent/project_sync.go:writeProjection":               "projections",
 	"internal/databricks/config.go:writeScratch":                   unversioned("foreign: temp rescue config"),
 	"internal/databricks/export.go:writeFile0600":                  unversioned("foreign: -o export output"),
-	"internal/desktop/transaction.go:atomicWrite":                  "desktop-state",
+	"internal/desktop/transaction.go:transact":                     "desktop-state",
 	"internal/settings/codex_settings.go:restoreCodexConfigLocked": unversioned("foreign: codex config.toml revert in the vendor home"),
 	"internal/settings/codex_settings.go:writeCodexConfig":         unversioned("foreign: codex config.toml in the vendor home"),
 	"internal/settings/generate.go:commitOverlayFile":              unversioned("foreign: generated vendor overlay, vendor-owned shape"),

@@ -55,10 +55,7 @@ func openReadOnly(path string) (*bbolt.DB, error) {
 // SetSchema stamps meta/schema.
 func (t *Tx) SetSchema(n int) error { return t.Put(Meta, "schema", strconv.Itoa(n)) }
 
-// SnapshotTo writes a consistent, point-in-time copy of the vault at path to w via one read
-// transaction, so an archiver (nuke) never captures bytes straddling an in-flight write (R8).
-// It opens its own bbolt.DB directly rather than going through View, so it runs alongside an
-// unrelated writer without the architectural contract that View/Update callbacks must not nest.
+// SnapshotTo copies the vault at path to w in one read txn (R8); its own bbolt.DB, not View, so it never nests.
 func SnapshotTo(path string, w io.Writer) error {
 	db, err := openReadOnly(path)
 	if err != nil {
