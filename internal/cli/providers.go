@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"fmt"
+	"maps"
 	"os"
 	"slices"
 	"strings"
@@ -242,7 +243,7 @@ func cmdModels(args []string) int {
 	provider := fs.String("profile", "", "profile to resolve (default: pin, then registry default)")
 	unpin := fs.Bool("unpin", false, "clear every model pin")
 	live := fs.Bool("live", false, "list the models the profile serves (GET /models)")
-	dryRun := fs.Bool("dry-run", false, "with --pin/--unpin: print the vault pins change, write nothing")
+	dryRun := fs.Bool("dry-run", false, "with --pin/--unpin: print the agent record change, write nothing")
 	format := helptext.FormatFlag(fs)
 	var pins []string
 	fs.Func("pin", "alias=model, or all=model (repeatable)", func(v string) error {
@@ -278,11 +279,11 @@ func applyModelPins(reg *providers.Registry, provider string, unpin, dryRun bool
 	if !unpin && len(pins) == 0 {
 		return 0, false
 	}
-	kv := map[string]string{}
+	set := map[string]string{} // slot ("" = every slot) -> spec; "" spec unpins
 	if unpin {
-		kv[providers.PinModel] = ""
+		set[""] = ""
 		for _, s := range models.Slots {
-			kv[providers.SlotPin(s)] = ""
+			set[s] = ""
 		}
 	}
 	for _, p := range pins {
@@ -290,14 +291,12 @@ func applyModelPins(reg *providers.Registry, provider string, unpin, dryRun bool
 		if !ok {
 			return fail("--pin wants alias=model, got %q", p), true
 		}
-		key := providers.PinModel
-		if slot != "all" {
-			if !slices.Contains(models.Slots, slot) {
-				return fail("unknown alias %q (opus|sonnet|haiku|fable|all)", slot), true
-			}
-			key = providers.SlotPin(slot)
+		if slot == "all" {
+			slot = ""
+		} else if !slices.Contains(models.Slots, slot) {
+			return fail("unknown alias %q (opus|sonnet|haiku|fable|all)", slot), true
 		}
-		kv[key] = qualifyPinSpec(reg, provider, spec)
+		set[slot] = qualifyPinSpec(reg, provider, spec)
 	}
 	warn, err := validateCopilotPins(provider, pins)
 	if err != nil {
@@ -306,13 +305,36 @@ func applyModelPins(reg *providers.Registry, provider string, unpin, dryRun bool
 	if warn != "" {
 		fmt.Fprintln(os.Stderr, "claude-code: models:", warn)
 	}
+	apply := func(m map[string]agent.AgentRecord) { m["claude"] = withClaudeModels(m["claude"], set) }
 	if dryRun {
-		return printPinDiff(kv), true
+		return printRecordDiff(apply, nil), true
 	}
-	if err := providers.SetPins(kv); err != nil {
+	if err := agent.UpdateAgentRecords(apply); err != nil {
 		return fail("%v", err), true
 	}
+	for _, slot := range slices.Sorted(maps.Keys(set)) {
+		providers.AuditModelPin(slot, set[slot])
+	}
 	return 0, false
+}
+
+// withClaudeModels is r with the model pins in set applied: slot "" is every slot, "" spec clears.
+func withClaudeModels(r agent.AgentRecord, set map[string]string) agent.AgentRecord {
+	r.Slots = maps.Clone(r.Slots)
+	if r.Slots == nil {
+		r.Slots = map[string]string{}
+	}
+	for slot, spec := range set {
+		switch {
+		case slot == "":
+			r.Model = spec
+		case spec == "":
+			delete(r.Slots, slot)
+		default:
+			r.Slots[slot] = spec
+		}
+	}
+	return r
 }
 
 // qualifyPinSpec stores a cross-profile "profile:model" pin when --profile names a profile other than the
@@ -326,7 +348,7 @@ func qualifyPinSpec(reg *providers.Registry, providerFlag, spec string) string {
 			return spec
 		}
 	}
-	session := cmp.Or(providers.SessionProfile(), providers.Pin(providers.PinProfile), reg.Default)
+	session := cmp.Or(providers.SessionProfile(), providers.AgentRecord("claude").Profile, reg.Default)
 	if providerFlag == session {
 		return spec
 	}
@@ -364,7 +386,7 @@ func renderModelSelection(reg *providers.Registry, sel providers.Selection, form
 func validateCopilotPins(providerFlag string, pins []string) (warn string, err error) {
 	fallback := providerFlag
 	if fallback == "" {
-		fallback = cmp.Or(providers.SessionProfile(), providers.Pin(providers.PinProfile))
+		fallback = cmp.Or(providers.SessionProfile(), providers.AgentRecord("claude").Profile)
 	}
 	reg, rerr := providers.Load()
 	if rerr != nil {
@@ -566,7 +588,7 @@ func printModelTable(infos []providers.ModelInfo) {
 
 var switchPage = helptext.Page{
 	Usage: "claude-code switch <profile> [flags]",
-	About: "Pins the session profile in the vault; relaunch to apply. One launch only:\n" +
+	About: "Sets the profile on every agent that can serve it; relaunch to apply. One launch only:\n" +
 		"claude-code --profile <p>.",
 	Hint: "claude-code configure provider --list shows each profile's credential state.",
 }
@@ -588,12 +610,14 @@ func cmdSwitch(args []string) int {
 	if _, err := reg.Get(args[0]); err != nil {
 		return fail("%v", err)
 	}
+	apply := func(m map[string]agent.AgentRecord) { switchAgents(reg, m, args[0]) }
 	if dryRun {
-		return printPinDiff(map[string]string{providers.PinProfile: args[0]})
+		return printRecordDiff(apply, keptOff(reg, agent.AgentRecords(), args[0]))
 	}
-	if err := providers.SetPins(map[string]string{providers.PinProfile: args[0]}); err != nil {
+	if err := agent.UpdateAgentRecords(apply); err != nil {
 		return fail("%v", err)
 	}
+	providers.AuditSwitch(args[0])
 	if err := agent.ClearLastProfiles(); err != nil {
 		return fail("%v", err)
 	}
@@ -605,7 +629,7 @@ func cmdSwitch(args []string) int {
 // switchUsage prints switch's page; its one flag is pulled out by extractBool, so this FlagSet only renders it.
 func switchUsage() {
 	fs := helptext.NewFlagSet("switch", switchPage)
-	fs.Bool("dry-run", false, "print the vault pins change, write nothing")
+	fs.Bool("dry-run", false, "print the agent record change, write nothing")
 	fs.Usage()
 }
 
@@ -647,25 +671,61 @@ func cmdResolve(args []string) int {
 	return 0
 }
 
-// printPinDiff is the shared --dry-run body for switch and models: the change, or that there is none.
-func printPinDiff(kv map[string]string) int {
-	diff, err := providers.PinDiff(kv)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "claude-code:", err)
-		return 1
+// switchTargets are the agents a switch to profile moves: claude, and each external agent that is on and serves it.
+// Serves, not CanServe: a gemini gateway row is reachable only by an explicit `gemini profile`.
+func switchTargets(reg *providers.Registry, recs map[string]agent.AgentRecord, profile string) (move, off []string) {
+	for _, spec := range agent.Roster() {
+		ok, _ := agent.Serves(spec.Name, reg.Providers[profile], "")
+		switch {
+		case !spec.External():
+			move = append(move, spec.Name)
+		case ok && recs[spec.Name].Profile == "":
+			off = append(off, spec.Name)
+		case ok:
+			move = append(move, spec.Name)
+		}
 	}
+	return move, off
+}
+
+// switchAgents sets profile on claude and on every external agent that is on and can serve it (edited in m).
+func switchAgents(reg *providers.Registry, m map[string]agent.AgentRecord, profile string) {
+	move, _ := switchTargets(reg, m, profile)
+	for _, name := range move {
+		r := m[name]
+		r.Profile = profile
+		m[name] = r
+	}
+}
+
+// keptOff lists "agent: off (kept)" for each off agent that could serve profile and a switch leaves off.
+func keptOff(reg *providers.Registry, recs map[string]agent.AgentRecord, profile string) []string {
+	_, off := switchTargets(reg, recs, profile)
+	lines := make([]string, len(off))
+	for i, n := range off {
+		lines[i] = n + ": off (kept)"
+	}
+	return lines
+}
+
+// printRecordDiff is the shared --dry-run body for switch and models: the record change plus notes, or that there is none.
+func printRecordDiff(apply func(map[string]agent.AgentRecord), notes []string) int {
+	before := agent.AgentRecords()
+	after := maps.Clone(before)
+	apply(after)
+	diff := append(providers.RecordDiff(before, after), notes...)
 	if len(diff) == 0 {
-		fmt.Println("no change to the vault pins")
+		fmt.Println("no change to the agent records")
 		return 0
 	}
-	fmt.Println("would write the vault pins:")
+	fmt.Println("would write the agent records:")
 	for _, l := range diff {
 		fmt.Println("  " + l)
 	}
 	return 0
 }
 
-// copilotCatalogOptions lists models as the profile copilot runs as (COPILOT_PROFILE), not its stored login.
+// copilotCatalogOptions lists models as the profile copilot runs as (its record profile), not its stored login.
 func copilotCatalogOptions(bin string) copilotsdk.Options {
 	return copilotsdk.CatalogOptions(bin, agent.CopilotToken())
 }

@@ -54,7 +54,7 @@ func (*claudeLive) build(ctx context.Context, req RunOptions) (*exec.Cmd, *TailB
 	args := claudeArgs([]string{"--print", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
 		"--include-partial-messages"}, req)
 	cmd, tail, cl, err := claudeCmd(ctx, req, args, "")
-	return cmd, tail, cl.Set[providers.PinProfile], err
+	return cmd, tail, cl.Set[providers.EnvSessionProfile], err
 }
 
 func (*claudeLive) writeTurn(w io.Writer, prompt string) error {

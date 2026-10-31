@@ -48,13 +48,13 @@ func ParseTarget(reg *Registry, spec string, def *Provider) Target {
 // Select resolves the session: profile = flag → CLAUDE_PROFILE pin → registry default; each slot =
 // CLAUDE_<TIER>_MODEL → CLAUDE_MODEL → the profile's model table.
 func Select(reg *Registry, providerFlag string) (Selection, error) {
-	pin, err := PinLookup()
+	recs, err := agentRecords()
 	if err != nil {
 		return Selection{}, fmt.Errorf("vault: pins unreadable (another process may hold the lock): %w", err)
 	}
 	name := providerFlag
 	if name == "" {
-		name = pin(PinProfile)
+		name = strings.TrimSpace(recs["claude"].Profile)
 	}
 	if name == "" {
 		name = reg.Default
@@ -64,9 +64,10 @@ func Select(reg *Registry, providerFlag string) (Selection, error) {
 		return Selection{}, err
 	}
 	sel := Selection{Provider: p, Slots: map[string]Target{}}
-	all := pin(PinModel)
+	rec := recs["claude"]
+	all := strings.TrimSpace(rec.Model)
 	for _, slot := range models.Slots {
-		spec := pin(SlotPin(slot))
+		spec := strings.TrimSpace(rec.Slots[slot])
 		if spec == "" {
 			spec = all
 		}
@@ -79,7 +80,7 @@ func Select(reg *Registry, providerFlag string) (Selection, error) {
 		sel.Slots[slot] = ParseTarget(reg, spec, p)
 	}
 	if _, ok := sel.Slots[models.Opus]; !ok {
-		return sel, fmt.Errorf("provider %s: no opus model (set models.opus with `claude-code vault edit` or %s)", p.Name, SlotPin(models.Opus))
+		return sel, fmt.Errorf("provider %s: no opus model (set models.opus with `claude-code vault edit` or `claude-code models --pin opus=<id>`)", p.Name)
 	}
 	return sel, nil
 }

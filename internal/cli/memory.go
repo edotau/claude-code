@@ -301,7 +301,7 @@ func cmdMemoryIndex(args []string) int {
 		return code
 	}
 	root := memoryRoot(*repo)
-	profile := cmp.Or(providers.SessionProfile(), providers.Pin(providers.PinProfile)) // session first, then the pin
+	profile := cmp.Or(providers.SessionProfile(), providers.AgentRecord("claude").Profile) // session first, then the pin
 	if *reembed {
 		if code := reembedGate(profile, time.Now()); code != 0 {
 			return code

@@ -62,10 +62,25 @@ const EnvSessionProfile = PinProfile
 // SessionProfile is the profile of the session this process runs in ("" outside a launched session).
 func SessionProfile() string { return strings.TrimSpace(os.Getenv(EnvSessionProfile)) }
 
+// agentRecords reads every stored agent record in one vault transaction.
+func agentRecords() (recs map[string]vault.AgentRecord, err error) {
+	err = vault.View(func(tx *vault.Tx) (e error) { recs, e = tx.AgentRecords(); return e })
+	return recs, err
+}
+
+// AgentRecords is every stored agent record from one vault read (for packages that cannot import internal/agent).
+func AgentRecords() map[string]vault.AgentRecord {
+	recs, _ := agentRecords()
+	return recs
+}
+
+// AgentRecord is agent's vault record (zero value when unset or unreadable).
+func AgentRecord(agent string) vault.AgentRecord { return AgentRecords()[agent] }
+
 // CopilotModel is the one resolver every copilot agent launch, the configure page and doctor share:
-// PinCopilotModel first, else the github provider's opus slot (no pin = no behavior change).
+// the record's model first, else the github provider's opus slot (no pin = no behavior change).
 func CopilotModel(reg *Registry) (model, source string) {
-	if m := Pin(PinCopilotModel); m != "" {
+	if m := AgentRecord("copilot").Model; m != "" {
 		return m, "pin"
 	}
 	if reg == nil {
@@ -77,10 +92,10 @@ func CopilotModel(reg *Registry) (model, source string) {
 	return "", "github-copilot default"
 }
 
-// CopilotLogin resolves PinCopilotProfile: the pinned github profile's Login ("" when it has none), and that profile.
-// Unset, or a pin naming no github profile, yields ("", "") = gh's active account.
+// CopilotLogin resolves the copilot record's profile: that github profile's Login ("" when it has none), and the profile.
+// Off, or a profile naming no github profile, yields ("", "") = gh's active account.
 func CopilotLogin(reg *Registry) (login, profile string) {
-	pin := Pin(PinCopilotProfile)
+	pin := AgentRecord("copilot").Profile
 	if pin == "" {
 		return "", ""
 	}
@@ -114,26 +129,26 @@ func GithubAccountLogin(reg *Registry, name string) string {
 	return name
 }
 
-// CodexModel resolves CODEX_MODEL: the pin if set, else "" — codex's own default (config.toml's
+// CodexModel resolves the codex record's model: it if set, else "" — codex's own default (config.toml's
 // model, then its ChatGPT-login provider's opus slot) decides.
 func CodexModel() (model, source string) {
-	if m := Pin(PinCodexModel); m != "" {
+	if m := AgentRecord("codex").Model; m != "" {
 		return m, "pin"
 	}
 	return "", "default"
 }
 
-// CodexEffort resolves CODEX_EFFORT: the pin if set, else "" — codex's own default effort.
+// CodexEffort resolves the codex record's effort: it if set, else "" — codex's own default effort.
 func CodexEffort() (effort, source string) {
-	if e := Pin(PinCodexEffort); e != "" {
+	if e := AgentRecord("codex").Effort; e != "" {
 		return e, "pin"
 	}
 	return "", "default"
 }
 
-// GeminiModel resolves GEMINI_MODEL: the pin if set, else "" — agy's own default (AgyDefaultModel) decides.
+// GeminiModel resolves the gemini record's model: it if set, else "" — agy's own default (AgyDefaultModel) decides.
 func GeminiModel() (model, source string) {
-	if m := Pin(PinGeminiModel); m != "" {
+	if m := AgentRecord("gemini").Model; m != "" {
 		return m, "pin"
 	}
 	return "", "default"
@@ -228,6 +243,52 @@ func AuditPins(kv map[string]string) {
 			audit.Log(audit.ModelPin, k, cmp.Or(v, "unpinned"))
 		}
 	}
+}
+
+// AuditSwitch records a session-profile switch.
+func AuditSwitch(profile string) { audit.Log(audit.ProviderSwitch, profile, pinCaller()) }
+
+// AuditModelPin records a claude model pin for slot ("" = every slot); an empty spec is an unpin.
+func AuditModelPin(slot, spec string) {
+	key := PinModel
+	if slot != "" {
+		key = SlotPin(slot)
+	}
+	audit.Log(audit.ModelPin, key, cmp.Or(spec, "unpinned"))
+}
+
+// RecordDiff lists "agent.field: old → new" for every record field that differs between before and after, sorted.
+func RecordDiff(before, after map[string]vault.AgentRecord) []string {
+	var out []string
+	for _, a := range slices.Sorted(maps.Keys(mergeKeys(before, after))) {
+		b, n := recordFields(before[a]), recordFields(after[a])
+		for _, f := range slices.Sorted(maps.Keys(mergeKeys(b, n))) {
+			if b[f] != n[f] {
+				out = append(out, a+"."+f+": "+cmp.Or(b[f], "(unset)")+" → "+cmp.Or(n[f], "(unset)"))
+			}
+		}
+	}
+	return out
+}
+
+func mergeKeys[V any](a, b map[string]V) map[string]struct{} {
+	keys := map[string]struct{}{}
+	for k := range a {
+		keys[k] = struct{}{}
+	}
+	for k := range b {
+		keys[k] = struct{}{}
+	}
+	return keys
+}
+
+// recordFields flattens r to field -> value, tier slots as slots.<tier>.
+func recordFields(r vault.AgentRecord) map[string]string {
+	f := map[string]string{"profile": r.Profile, "model": r.Model, "effort": r.Effort, "context": r.Context, "account": r.Account}
+	for tier, v := range r.Slots {
+		f["slots."+tier] = v
+	}
+	return f
 }
 
 // PinDiff previews SetPins(kv): one "KEY: old → new" line per key whose value would change, sorted.

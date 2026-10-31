@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	agentpkg "github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/copilotsdk"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
@@ -180,21 +181,17 @@ func TestClearIneligibleCopilotPinsOnModelSwitch(t *testing.T) {
 	stubCatalog(t, []copilotsdk.Model{
 		{ID: "new-model", ReasoningEffort: true, Efforts: []string{"low", "medium"}, ContextTokens: 128_000},
 	}, nil)
-	if err := providers.SetPins(map[string]string{
-		providers.PinCopilotEffort:  "high",
-		providers.PinCopilotContext: "long_context",
-	}); err != nil {
-		t.Fatal(err)
-	}
+	putRec(t, "copilot", "EFFORT", "high")
+	putRec(t, "copilot", "CONTEXT", "long_context")
 
 	var out bytes.Buffer
 	d := &dialog{out: &out}
 	clearIneligibleCopilotPins(d, "new-model")
 
-	if got := providers.Pin(providers.PinCopilotEffort); got != "" {
+	if got := agentpkg.GetAgentRecord("copilot").Effort; got != "" {
 		t.Errorf("effort pin = %q, want cleared (new-model doesn't support high)", got)
 	}
-	if got := providers.Pin(providers.PinCopilotContext); got != "" {
+	if got := agentpkg.GetAgentRecord("copilot").Context; got != "" {
 		t.Errorf("context pin = %q, want cleared (new-model has no long-context tier)", got)
 	}
 	if !strings.Contains(out.String(), "doesn't support that effort") || !strings.Contains(out.String(), "has no long-context tier") {
@@ -210,20 +207,16 @@ func TestClearIneligibleCopilotPinsKeepsCompatiblePins(t *testing.T) {
 	stubCatalog(t, []copilotsdk.Model{
 		{ID: "still-fits", ReasoningEffort: true, Efforts: []string{"low", "high"}, ContextTokens: 1_000_000},
 	}, nil)
-	if err := providers.SetPins(map[string]string{
-		providers.PinCopilotEffort:  "high",
-		providers.PinCopilotContext: "long_context",
-	}); err != nil {
-		t.Fatal(err)
-	}
+	putRec(t, "copilot", "EFFORT", "high")
+	putRec(t, "copilot", "CONTEXT", "long_context")
 
 	d := &dialog{out: discardWriter{}}
 	clearIneligibleCopilotPins(d, "still-fits")
 
-	if got := providers.Pin(providers.PinCopilotEffort); got != "high" {
+	if got := agentpkg.GetAgentRecord("copilot").Effort; got != "high" {
 		t.Errorf("effort pin = %q, want unchanged high", got)
 	}
-	if got := providers.Pin(providers.PinCopilotContext); got != "long_context" {
+	if got := agentpkg.GetAgentRecord("copilot").Context; got != "long_context" {
 		t.Errorf("context pin = %q, want unchanged long_context", got)
 	}
 }

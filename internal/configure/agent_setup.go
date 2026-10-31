@@ -10,7 +10,6 @@ import (
 
 	agentpkg "github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/preflight"
-	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/secrets/shapes"
 )
 
@@ -113,11 +112,7 @@ func verifyAgent(ctx context.Context, agent string) error {
 	return nil
 }
 
-// routeAgent runs the agent's route picker; changed is false (err nil) when it was dismissed or left the pin as is.
+// routeAgent runs the agent's profile picker; changed is false (err nil) when it was dismissed or left the profile as is.
 func routeAgent(d *dialog, agent string) (changed bool, err error) {
-	key := agentpkg.AgentProfilePin(agent)
-	if key == "" {
-		return false, errors.New("no route pin for this agent")
-	}
-	return pickAgentRoute(d, agent, key, providers.Pin(key))
+	return pickAgentProfile(d, agent, agentpkg.GetAgentRecord(agent).Profile)
 }

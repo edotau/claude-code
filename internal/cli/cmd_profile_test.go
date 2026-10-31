@@ -11,13 +11,13 @@ import (
 func TestAgentProfileAndOnOffVerbs(t *testing.T) {
 	useVaultTest(t)
 
-	// copilot off pins COPILOT_ACTIVE=off and names the pin.
+	// copilot off leaves its record without a profile.
 	code, out, errOut := captureOutput(t, func() int { return cmdAgentOnOff("copilot", false, nil) })
-	if code != 0 || !strings.Contains(out, providers.PinCopilotActive) {
+	if code != 0 || !strings.Contains(out, "copilot: off") {
 		t.Fatalf("copilot off: code=%d out=%q err=%q", code, out, errOut)
 	}
-	if got := providers.Pin(providers.PinCopilotActive); got != agent.AgentOff {
-		t.Fatalf("COPILOT_ACTIVE = %q, want off", got)
+	if got := providers.AgentRecord("copilot").Profile; got != "" {
+		t.Fatalf("copilot profile = %q, want none", got)
 	}
 
 	// profile with no args reports the off state.
@@ -44,17 +44,17 @@ func TestAgentProfileAndOnOffVerbs(t *testing.T) {
 
 	// unknown profile is refused and leaves the pin unset.
 	code, _, _ = captureOutput(t, func() int { return cmdAgentProfile("codex", []string{"nosuchprofile"}) })
-	if code == 0 || providers.Pin(providers.PinCodexProfile) != "" {
-		t.Fatalf("codex profile nosuchprofile: code=%d pin=%q", code, providers.Pin(providers.PinCodexProfile))
+	if code == 0 || providers.AgentRecord("codex").Profile != "" {
+		t.Fatalf("codex profile nosuchprofile: code=%d pin=%q", code, providers.AgentRecord("codex").Profile)
 	}
 
 	code, _, errOut = captureOutput(t, func() int { return cmdAgentProfile("codex", []string{"openai"}) })
-	if code != 0 || providers.Pin(providers.PinCodexProfile) != "openai" {
-		t.Fatalf("codex profile openai: code=%d pin=%q err=%q", code, providers.Pin(providers.PinCodexProfile), errOut)
+	if code != 0 || providers.AgentRecord("codex").Profile != "openai" {
+		t.Fatalf("codex profile openai: code=%d pin=%q err=%q", code, providers.AgentRecord("codex").Profile, errOut)
 	}
 
 	code, _, errOut = captureOutput(t, func() int { return cmdAgentProfile("codex", []string{"--clear"}) })
-	if code != 0 || providers.Pin(providers.PinCodexProfile) != "" {
-		t.Fatalf("codex profile --clear: code=%d pin=%q err=%q", code, providers.Pin(providers.PinCodexProfile), errOut)
+	if code != 0 || providers.AgentRecord("codex").Profile != "chatgpt" {
+		t.Fatalf("codex profile --clear: code=%d pin=%q err=%q", code, providers.AgentRecord("codex").Profile, errOut)
 	}
 }

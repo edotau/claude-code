@@ -67,7 +67,7 @@ func claudeExec(ctx context.Context, req RunOptions, prompt string, sink Sink) (
 		_, _ = io.Copy(io.Discard, stdout) // no drain after a kill: a grandchild holding stdout would block it; Wait closes it
 	}
 	werr := cmd.Wait()
-	res.Provider = cl.Set[providers.PinProfile]
+	res.Provider = cl.Set[providers.EnvSessionProfile]
 	if werr != nil || ctx.Err() != nil {
 		return res, childErr(ctx, "claude", errors.Join(werr, perr), tail)
 	}

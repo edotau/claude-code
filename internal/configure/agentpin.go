@@ -1,116 +1,100 @@
-// agentpin.go — the Active and Route rows every agent page carries: switch an agent off/on and pin its profile.
+// agentpin.go — the Profile row every agent page carries: the profile an agent runs on, or off; plus record writes.
 package configure
 
 import (
+	"cmp"
+	"reflect"
 	"slices"
+	"strings"
 
 	agentpkg "github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/providers"
 )
 
-// agentPinRows is agent's Active row (not for claude, which is always on) and its Route row.
+// agentPinRows is agent's one Profile row.
 func agentPinRows(d *dialog, agent string) []billingRow {
-	var rows []billingRow
-	if key := agentpkg.AgentActivePin(agent); key != "" {
-		on := agentpkg.AgentActive(agent)
-		state := bracket(on, "on", "off")
-		if why := agentpkg.AgentUnbillable(agent); on && why != "" {
-			state = "[off, " + why + "]"
-		}
-		rows = append(rows, billingRow{label: "Active", desc: "route work to " + agent + " " + state,
-			run: func() bool {
-				next := agentpkg.AgentOff
-				if !on {
-					next = agentpkg.AgentOn
-				}
-				return setAgentPins(d, agent, map[string]string{key: next})
-			}})
+	cur := agentpkg.GetAgentRecord(agent).Profile
+	state := bracket(true, seedLabel(agent, cur), "")
+	if why := agentpkg.AgentUnbillable(agent); cur != "" && why != "" {
+		state = "[off, " + why + "]"
 	}
-	key := agentpkg.AgentProfilePin(agent)
-	if key == "" {
-		return rows
-	}
-	pin := providers.Pin(key)
-	rows = append(rows, billingRow{label: "Route", desc: "pin the profile this agent runs on " + bracket(pin != "", pin, "default"),
+	return []billingRow{{label: "Profile", desc: "profile " + agent + " runs on " + state,
 		run: func() bool {
-			changed, err := pickAgentRoute(d, agent, key, pin)
+			changed, err := pickAgentProfile(d, agent, cur)
 			if err != nil {
 				d.printf("%s: %v\n", agent, err)
 			}
 			return changed
-		}})
-	return rows
+		}}}
 }
 
-// pickAgentRoute lists the profiles agent can run on (opencode also its sub ids), then Default to clear the pin.
-// A dismissed picker or an unchanged pin is (false, nil); a failed pin write is (false, err).
-func pickAgentRoute(d *dialog, agent, key, cur string) (bool, error) {
-	var names []string
-	if d.reg != nil {
-		for n, p := range d.reg.Providers {
-			if p != nil && agentpkg.CanServe(agent, p) {
-				names = append(names, n)
-			}
-		}
-	}
+// agentProfileChoices is the picker's profile values: off ("") first, then the own login, then the rest.
+func agentProfileChoices(d *dialog, agent string) []string {
+	names := seedProfiles(d, agent)
 	if agent == "opencode" {
+		names = slices.DeleteFunc(names, func(n string) bool { return n == agentpkg.OpencodeOwnLogin })
+		names = slices.Insert(names, 0, agentpkg.OpencodeOwnLogin)
 		for _, id := range providers.RouteOpencodeSubIDs {
 			if !slices.Contains(names, id) {
 				names = append(names, id)
 			}
 		}
 	}
-	slices.Sort(names)
-	rows := make([][2]string, 0, len(names)+1)
-	for _, n := range names {
-		rows = append(rows, [2]string{n, curMark(n == cur)})
-	}
-	rows = append(rows, [2]string{"Default", "clear the pin" + curMark(cur == "")})
-	idx, err := pick(d, displayLabel(agent)+" — route", rows)
-	if err != nil || idx < 0 {
-		return false, nil
-	}
-	val := ""
-	if idx < len(names) {
-		val = names[idx]
-	}
-	return writeAgentPins(d, map[string]string{key: val})
+	return append([]string{""}, names...)
 }
 
-// agentActiveOn switches agent back on after a successful sign-in, when its Active pin is off.
+// pickAgentProfile lists off (automatic for claude) and the profiles agent can run on; a pick writes the record.
+// A dismissed picker or an unchanged profile is (false, nil); a failed write is (false, err).
+func pickAgentProfile(d *dialog, agent, cur string) (bool, error) {
+	names := agentProfileChoices(d, agent)
+	rows := make([][2]string, len(names))
+	for i, n := range names {
+		rows[i] = [2]string{seedLabel(agent, n), curMark(n == cur)}
+	}
+	idx, err := pick(d, displayLabel(agent)+" — profile", rows, max(slices.Index(names, cur), 0))
+	if err != nil || idx < 0 || idx >= len(names) {
+		return false, nil
+	}
+	return writeAgentField(d, agent, "PROFILE", names[idx])
+}
+
+// agentActiveOn turns an off agent on after a successful sign-in, by seeding its own login's profile.
 func agentActiveOn(d *dialog, agent string) {
-	if key := agentpkg.AgentActivePin(agent); key != "" && !agentpkg.AgentActive(agent) {
-		setAgentPins(d, agent, map[string]string{key: agentpkg.AgentOn})
+	if agent == "claude" || agentpkg.GetAgentRecord(agent).Profile != "" {
+		return
+	}
+	if profile := signInProfile(d, agent); profile != "" {
+		seedFromSignIn(d, agent, profile)
 	}
 }
 
-// setAgentPins writes kv and prints each changed pin; false when nothing changed or the write failed.
-func setAgentPins(d *dialog, agent string, kv map[string]string) bool {
-	changed, err := writeAgentPins(d, kv)
-	if err != nil {
-		d.printf("%s: %v\n", agent, err)
+// signInProfile is the profile a sign-in to agent means: its own login's profile, "" when none is registered.
+func signInProfile(d *dialog, agent string) string {
+	if agent == "opencode" {
+		return agentpkg.OpencodeOwnLogin
 	}
-	return changed
+	if names := seedProfiles(d, agent); len(names) > 0 && d.reg != nil && d.reg.Providers[names[0]].Auth.Login == agent {
+		return names[0]
+	}
+	return ""
 }
 
-// writeAgentPins writes kv and prints each changed pin; (false, nil) when nothing changed, (false, err) on a failed write.
-func writeAgentPins(d *dialog, kv map[string]string) (bool, error) {
-	diff, err := providers.PinDiff(kv)
-	if err != nil {
-		return false, err
-	}
-	if len(diff) == 0 {
+// writeAgentField sets one record field (a vault.AgentRecord.WithPin name) and prints it; (false, nil) if unchanged.
+func writeAgentField(d *dialog, agent, field, val string) (bool, error) {
+	rec := agentpkg.GetAgentRecord(agent)
+	next := rec.WithPin(field, val)
+	if reflect.DeepEqual(rec, next) {
 		return false, nil
 	}
-	if err := providers.SetPins(kv); err != nil {
+	if err := agentpkg.SetAgentRecord(agent, next); err != nil {
 		return false, err
 	}
-	if err := agentpkg.ClearLastProfilesFor(kv); err != nil {
-		return false, err
+	if field == "PROFILE" {
+		if err := agentpkg.ClearLastProfilesFor(map[string]string{agentpkg.AgentProfilePin(agent): ""}); err != nil {
+			return false, err
+		}
 	}
-	for _, l := range diff {
-		d.printf("  %s\n", l)
-	}
+	d.printf("  %s %s: %s\n", agent, strings.ToLower(field), cmp.Or(val, "unset"))
 	d.changed = true
 	return true, nil
 }

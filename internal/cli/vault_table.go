@@ -13,6 +13,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/configure"
+	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/secrets"
 	"github.com/edotau/claude-code/internal/ui/ansi"
@@ -31,7 +32,7 @@ func renderVaultTextStyled(doc configure.Doc, stored []secrets.Stored, sel []str
 		"env":       func() string { return vaultSection("ENV", vaultMapRows(doc.Env), width) },
 		"providers": func() string { return vaultProvidersText(doc.Providers, width) },
 		"routing":   func() string { return vaultRoutingText(doc.Providers, width) },
-		"agents":    func() string { return vaultAgentsText(doc.Agents, doc.Pins, width, color) },
+		"agents":    func() string { return vaultAgentsText(doc.Agents, width, color) },
 		"settings":  func() string { return vaultSection("SETTINGS", vaultFlattenSection(doc.Settings), width) },
 		"vault":     func() string { return vaultSection("VAULT", vaultVaultRows(doc.Vault.KeyCommand), width) },
 	}
@@ -509,13 +510,29 @@ func vaultLoosePins(doc configure.Doc) map[string]string {
 	return loose
 }
 
+// vaultRecordCells is one agent record as table cells; claude's tier slots fold into MODEL as tier=id.
+func vaultRecordCells(name string, r agent.AgentRecord) map[string]string {
+	cells := map[string]string{"PROFILE": r.Profile, "MODEL": r.Model, "EFFORT": r.Effort, "CONTEXT": r.Context, "ACCOUNT": r.Account}
+	for _, tier := range models.Slots {
+		if v := r.Slots[tier]; v != "" {
+			cells["MODEL"] = strings.TrimSpace(cells["MODEL"] + " " + tier + "=" + v)
+		}
+	}
+	for k, v := range cells {
+		if strings.TrimSpace(v) == "" {
+			delete(cells, k)
+		}
+	}
+	return cells
+}
+
 // vaultAgentTable is the AGENT/PROFILE/MODEL/... table, one row per agent; empty columns drop.
-func vaultAgentTable(names []string, pins map[string]string, width int, color bool) string {
+func vaultAgentTable(names []string, width int, color bool) string {
+	recs := agent.AgentRecords()
 	per := make([]map[string]string, len(names))
 	extra := map[string]bool{}
 	for i, n := range names {
-		per[i] = agent.VaultAgentPins(n, pins)
-		delete(per[i], "ACTIVE")
+		per[i] = vaultRecordCells(n, recs[n])
 		for k := range per[i] {
 			if !slices.Contains(vaultAgentCols, k) {
 				extra[k] = true
@@ -533,7 +550,7 @@ func vaultAgentTable(names []string, pins map[string]string, width int, color bo
 		for _, c := range cols {
 			row = append(row, per[i][c])
 		}
-		off := agent.VaultAgentOff(n, pins)
+		off := !agent.VaultAgentIsClaude(n) && recs[n].Profile == ""
 		switch {
 		case !off:
 			codes[i] = ansi.Cyan
@@ -550,7 +567,7 @@ func vaultAgentTable(names []string, pins map[string]string, width int, color bo
 }
 
 // vaultAgentsText renders the agent table, then the per-agent overlay rows (and other top-level keys) below it.
-func vaultAgentsText(raw json.RawMessage, pins map[string]string, width int, color bool) string {
+func vaultAgentsText(raw json.RawMessage, width int, color bool) string {
 	top, vs, err := vaultOverlayAgents(raw)
 	if err != nil {
 		return vaultSection("AGENTS", vaultFlattenSection(raw), width)
@@ -572,7 +589,7 @@ func vaultAgentsText(raw json.RawMessage, pins map[string]string, width int, col
 			rows = append(rows, [3]string{"", r[0], r[1]})
 		}
 	}
-	out := vaultAgentTable(names, pins, width, color)
+	out := vaultAgentTable(names, width, color)
 	if len(rows) == 0 {
 		return out
 	}

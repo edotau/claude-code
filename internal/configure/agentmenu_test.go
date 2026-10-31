@@ -3,7 +3,7 @@ package configure
 import (
 	"bufio"
 	"bytes"
-	"github.com/edotau/claude-code/internal/providers"
+	agentpkg "github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/secrets"
 	"github.com/edotau/claude-code/internal/ui/tui"
 	"strings"
@@ -98,9 +98,7 @@ func TestCopilotEffortRowShowsPinState(t *testing.T) {
 	if got := copilotEffortRow(d, "auto").desc; !strings.Contains(got, "unset") {
 		t.Errorf("unpinned: desc = %q, want unset", got)
 	}
-	if err := providers.SetPins(map[string]string{providers.PinCopilotEffort: "high"}); err != nil {
-		t.Fatal(err)
-	}
+	putRec(t, "copilot", "EFFORT", "high")
 	if got := copilotEffortRow(d, "auto").desc; !strings.Contains(got, "high") {
 		t.Errorf("pinned: desc = %q, want high", got)
 	}
@@ -114,19 +112,19 @@ func TestPickCopilotPinSetsAndClearsPin(t *testing.T) {
 
 	in := strings.NewReader("2\n") // row 2 = choices[0] = "low"
 	d := &dialog{o: Options{In: in}, br: bufio.NewReader(in), out: discardWriter{}}
-	if !pickCopilotPin(d, "effort", providers.PinCopilotEffort, choices, "") {
+	if !pickCopilotPin(d, "effort", "EFFORT", choices, "") {
 		t.Fatal("pickCopilotPin(set) = false")
 	}
-	if got := providers.Pin(providers.PinCopilotEffort); got != "low" {
+	if got := agentpkg.GetAgentRecord("copilot").Effort; got != "low" {
 		t.Errorf("pin = %q, want low", got)
 	}
 
 	in = strings.NewReader("1\n") // row 1 = "unset"
 	d = &dialog{o: Options{In: in}, br: bufio.NewReader(in), out: discardWriter{}}
-	if !pickCopilotPin(d, "effort", providers.PinCopilotEffort, choices, "low") {
+	if !pickCopilotPin(d, "effort", "EFFORT", choices, "low") {
 		t.Fatal("pickCopilotPin(clear) = false")
 	}
-	if got := providers.Pin(providers.PinCopilotEffort); got != "" {
+	if got := agentpkg.GetAgentRecord("copilot").Effort; got != "" {
 		t.Errorf("pin after clearing = %q, want unset", got)
 	}
 }
@@ -134,15 +132,13 @@ func TestPickCopilotPinSetsAndClearsPin(t *testing.T) {
 // A blank/invalid pick (Back/Esc on the non-TTY path) must leave the pin untouched.
 func TestPickCopilotPinBackLeavesPinUntouched(t *testing.T) {
 	menuTestEnv(t)
-	if err := providers.SetPins(map[string]string{providers.PinCopilotEffort: "medium"}); err != nil {
-		t.Fatal(err)
-	}
+	putRec(t, "copilot", "EFFORT", "medium")
 	in := strings.NewReader("\n")
 	d := &dialog{o: Options{In: in}, br: bufio.NewReader(in), out: discardWriter{}}
-	if pickCopilotPin(d, "effort", providers.PinCopilotEffort, [][2]string{{"Low", "low"}}, "medium") {
+	if pickCopilotPin(d, "effort", "EFFORT", [][2]string{{"Low", "low"}}, "medium") {
 		t.Fatal("pickCopilotPin(blank) = true, want false (Back)")
 	}
-	if got := providers.Pin(providers.PinCopilotEffort); got != "medium" {
+	if got := agentpkg.GetAgentRecord("copilot").Effort; got != "medium" {
 		t.Errorf("pin after Back = %q, want unchanged medium", got)
 	}
 }
@@ -298,5 +294,13 @@ func flatPick(f func(string, [][2]string, int) (int, error)) func(string, []tui.
 			rows = append(rows, s.Rows...)
 		}
 		return f(title, append(rows, trailing), start)
+	}
+}
+
+// putRec sets one field of agent's vault record (a vault.AgentRecord.WithPin field name).
+func putRec(t *testing.T, agent, field, val string) {
+	t.Helper()
+	if err := agentpkg.SetAgentRecord(agent, agentpkg.GetAgentRecord(agent).WithPin(field, val)); err != nil {
+		t.Fatal(err)
 	}
 }

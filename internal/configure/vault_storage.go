@@ -28,6 +28,7 @@ var ErrChanged = errors.New("vault changed while you edited; nothing saved")
 var namePattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
 // Doc is the editable, non-secret vault view: secrets and overlay/providers.prev never appear (D-a).
+// Agents is the agents overlay plus the agent records under "records".
 type Doc struct {
 	Pins      map[string]string `json:"pins"`
 	Env       map[string]string `json:"env"`
@@ -49,6 +50,13 @@ func docFrom(t *vault.Tx) (Doc, error) {
 			}
 			*dst = json.RawMessage(raw)
 		}
+	}
+	recs, err := t.AgentRecords()
+	if err != nil {
+		return Doc{}, err
+	}
+	if d.Agents, err = mergeAgentRecords(d.Agents, recs); err != nil {
+		return Doc{}, err
 	}
 	d.Vault.KeyCommand, _ = t.Get(vault.Meta, "key_command")
 	return d, nil
@@ -230,6 +238,10 @@ func Import(orig, edited []byte) error {
 	if err := validatePinsEnv(d); err != nil {
 		return err
 	}
+	var recs map[string]vault.AgentRecord
+	if d.Agents, recs, err = splitAgentRecords(d.Agents); err != nil {
+		return err
+	}
 	if err := validateOverlaySections(&d); err != nil {
 		return err
 	}
@@ -245,6 +257,13 @@ func Import(orig, edited []byte) error {
 		}
 		if !bytes.Equal(raw, orig) {
 			return ErrChanged
+		}
+		var curRecs map[string]vault.AgentRecord
+		if cur.Agents, curRecs, err = splitAgentRecords(cur.Agents); err != nil {
+			return err
+		}
+		if err := applyAgentRecords(t, curRecs, recs); err != nil {
+			return err
 		}
 		changedPins, err = applyPinsEnv(t, cur, d)
 		if err != nil {

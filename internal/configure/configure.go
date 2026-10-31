@@ -237,7 +237,7 @@ func yes(br *bufio.Reader) bool {
 
 // currentProvider is the configured profile (vault pin), falling back to the registry default when unpinned.
 func currentProvider(reg *providers.Registry) string {
-	if cur := providers.Pin(providers.PinProfile); cur != "" {
+	if cur := agent.GetAgentRecord("claude").Profile; cur != "" {
 		return cur
 	}
 	return reg.Default
@@ -302,7 +302,7 @@ func applyProvider(d *dialog, name string) bool {
 		d.printf("would pin profile: %s\n", name)
 		return true
 	}
-	if err := providers.SetPins(map[string]string{providers.PinProfile: name}); err != nil {
+	if _, err := writeAgentField(d, "claude", "PROFILE", name); err != nil {
 		d.println(err)
 		return false
 	}

@@ -8,16 +8,14 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault"
-	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
 // runRealRoute drives Set up's real route step (picker + pin write) after a verified agent, answering the picker with in.
 func runRealRoute(t *testing.T, in string, readOnlyVault bool) string {
 	t.Helper()
 	reg := menuTestEnv(t)
-	vaulttest.Put(t, vault.Pins, providers.PinCodexActive, "off") // else the migration seeds codex's own login and the pick is a no-op
+	putRec(t, "codex", "EFFORT", "high") // a stored record: codex keeps its own login (chatgpt), so picking off is a real write
 	if readOnlyVault {
 		if err := os.Chmod(vault.Path(), 0o400); err != nil {
 			t.Fatal(err)

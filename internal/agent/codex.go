@@ -470,7 +470,7 @@ func codexHeadless(argv []string, h *Headless) []string {
 	if h != nil {
 		effort = h.Effort
 	}
-	if effort = cmp.Or(effort, providers.Pin(providers.PinCodexEffort)); effort != "" {
+	if effort = cmp.Or(effort, GetAgentRecord("codex").Effort); effort != "" {
 		argv = append(argv, "-c", "model_reasoning_effort="+tomlQuote(effort))
 	}
 	if h == nil {

@@ -56,12 +56,8 @@ func codexSpawnPinned(in *Input) bool {
 	if role != "" && role != "default" {
 		return true
 	}
-	for _, key := range []string{providers.PinCodexModel, providers.PinCodexEffort} {
-		if providers.Pin(key) != "" {
-			return true
-		}
-	}
-	return false
+	rec := providers.AgentRecord("codex")
+	return rec.Model != "" || rec.Effort != ""
 }
 
 func codexSpawnCell(in *Input, task string) (router.Cell, string, bool) {

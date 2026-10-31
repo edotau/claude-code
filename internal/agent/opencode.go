@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -239,10 +240,8 @@ func OpencodeCopilotModelIDs(reg *providers.Registry) (main, small string, ok bo
 // resolved id of "auto" (a router alias opencode's own provider catalog does not list) is swapped for
 // p.OpencodeFallback when the registry sets one — config-driven, no model id hardcoded here.
 func slotModelID(reg *providers.Registry, p *providers.Provider, slot string) string {
-	spec := providers.Pin(providers.SlotPin(slot))
-	if spec == "" {
-		spec = providers.Pin(providers.PinModel)
-	}
+	rec := GetAgentRecord("claude")
+	spec := cmp.Or(rec.Slots[strings.ToLower(slot)], rec.Model)
 	if spec == "" {
 		spec = p.Models[slot]
 	}

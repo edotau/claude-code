@@ -1,11 +1,12 @@
 package configure
 
 import (
+	"strings"
 	"testing"
 
+	agentpkg "github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
@@ -17,7 +18,7 @@ func subscriptionSelection(t *testing.T) (*providers.Registry, providers.Selecti
 	t.Helper()
 	vaulttest.Use(t)
 	t.Setenv("HOME", t.TempDir())
-	vaulttest.Put(t, vault.Pins, providers.PinProfile, "max")
+	putRec(t, "claude", "PROFILE", "max")
 	t.Setenv("CLAUDE_CODE_OAUTH_TOKEN", "")
 	reg, err := providers.Load()
 	if err != nil {
@@ -69,7 +70,7 @@ func TestPickModelForSlotPicksFirstPinsIt(t *testing.T) {
 	}
 	pickModelForSlot(&dialog{reg: reg, out: discardWriter{}}, sel, slot)
 	want := reg.Providers["max"].Models[slot]
-	if got := providers.Pin(providers.SlotPin(slot)); got != want {
+	if got := agentpkg.GetAgentRecord("claude").Slots[strings.ToLower(slot)]; got != want {
 		t.Errorf("pin(%s) = %q, want %q (rows[0]'s id)", providers.SlotPin(slot), got, want)
 	}
 }
@@ -84,7 +85,7 @@ func TestPickModelForSlotMinusOnePinsNothing(t *testing.T) {
 		return -1, nil
 	}
 	pickModelForSlot(&dialog{reg: reg, out: discardWriter{}}, sel, slot)
-	if got := providers.Pin(providers.SlotPin(slot)); got != "" {
+	if got := agentpkg.GetAgentRecord("claude").Slots[strings.ToLower(slot)]; got != "" {
 		t.Errorf("pin(%s) = %q, want unset after Back/Esc", providers.SlotPin(slot), got)
 	}
 }

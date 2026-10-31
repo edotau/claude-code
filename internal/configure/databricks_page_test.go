@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	agentpkg "github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/clipboard"
 	"github.com/edotau/claude-code/internal/databricks"
 	"github.com/edotau/claude-code/internal/paths"
@@ -320,8 +321,8 @@ func TestDbxApplyAllSetsAgentProfilePins(t *testing.T) {
 	f.picks = []int{5, 0, -1} // Apply to agents -> All agents
 	runDatabricksEnv(d, "qa")
 	for _, a := range dbxAgents {
-		if got := providers.Pin(a.pin); got != "qa" {
-			t.Errorf("%s pin %s = %q, want qa", a.name, a.pin, got)
+		if got := agentpkg.GetAgentRecord(a).Profile; got != "qa" {
+			t.Errorf("%s profile = %q, want qa", a, got)
 		}
 	}
 	if !d.changed || !strings.Contains(dbxOut(d), "qa") {
@@ -343,11 +344,11 @@ func TestDbxApplyPerAgentSetsOnePin(t *testing.T) {
 	runDatabricksEnv(d, "qa")
 	for _, a := range dbxAgents {
 		want := ""
-		if a.name == "codex" {
+		if a == "codex" {
 			want = "qa"
 		}
-		if got := providers.Pin(a.pin); got != want {
-			t.Errorf("%s pin = %q, want %q", a.name, got, want)
+		if got := agentpkg.GetAgentRecord(a).Profile; got != want {
+			t.Errorf("%s profile = %q, want %q", a, got, want)
 		}
 	}
 }
