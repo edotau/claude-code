@@ -430,7 +430,7 @@ func TestBuildPromptEmpty(t *testing.T) {
 // cannot — the gemini's "max-files-exceeded" failure was exactly this budget running out.
 func TestBuildIndexNests(t *testing.T) {
 	idx := BuildIndex(Context{
-		Included: []IncludedFile{{Path: "internal/router/leg.go", Bytes: 100}},
+		Included: []IncludedFile{{Path: "internal/router/dispatch.go", Bytes: 100}},
 		Skipped:  []SkippedFile{{Path: "internal/cli/run.go", Reason: "max-files-exceeded"}},
 	})
 	var tree map[string]any

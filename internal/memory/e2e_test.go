@@ -276,7 +276,7 @@ func TestE2EMemoryLifecycle(t *testing.T) {
 	})
 
 	t.Run("update-transcript", func(t *testing.T) {
-		// copilot and the other vendor legs are absent from <cfg>/bin, so the chain lands on the fake claude there
+		// copilot and the other agent dispatches are absent from <cfg>/bin, so the chain lands on the fake claude there
 		const marker = "e2e-update-marker-7731"
 		const session = "e2e-update-session"
 		argvLog, stdinLog := filepath.Join(t.TempDir(), "argv.log"), filepath.Join(t.TempDir(), "stdin.log")

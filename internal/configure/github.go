@@ -51,7 +51,7 @@ func printRoute(d *dialog, ri agent.RouteInfo) {
 		status = "ok"
 	}
 	d.printf("%-9s route(%-8s) %-4s provider=%-16s model=%-24s small_model=%-20s %s\n",
-		ri.Agent, ri.Leg, status, ri.Provider, ri.Model, ri.SmallModel, ri.Reason)
+		ri.Agent, ri.Route, status, ri.Provider, ri.Model, ri.SmallModel, ri.Reason)
 }
 
 // githubStatusRows prints every github section status line and reports which are OK, for both the

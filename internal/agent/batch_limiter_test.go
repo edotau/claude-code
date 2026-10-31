@@ -48,7 +48,7 @@ func samplePeak(dir, account string, interval time.Duration, stop <-chan struct{
 	}
 }
 
-// Verify-2: 13 batch legs plus 5 Agent spawns on one account never exceed the shared cap of 12, every leg and
+// Verify-2: 13 batch dispatches plus 5 Agent spawns on one account never exceed the shared cap of 12, every dispatch and
 // spawn finishes, and the marker dir is empty at the end. The limiter's caps lift the in-process DefaultPerKey=4
 // that RunBatch uses, so the file-backed shared limiter is the binding gate.
 func TestBatchAndSpawnsShareTheAccountCap(t *testing.T) {
@@ -68,7 +68,7 @@ func TestBatchAndSpawnsShareTheAccountCap(t *testing.T) {
 	l.limits = lim
 
 	stop := make(chan struct{})
-	var active, peak atomic.Int32 // holders of a slot right now: batch legs plus spawns
+	var active, peak atomic.Int32 // holders of a slot right now: batch dispatches plus spawns
 	hold := func(d time.Duration) {
 		n := active.Add(1)
 		for cur := peak.Load(); n > cur && !peak.CompareAndSwap(cur, n); cur = peak.Load() {
@@ -78,11 +78,11 @@ func TestBatchAndSpawnsShareTheAccountCap(t *testing.T) {
 	}
 
 	var wg sync.WaitGroup
-	for range 13 { // 13 batch legs: exactly what one leg does in l.acquire — take, hold, release
+	for range 13 { // 13 batch dispatches: exactly what one dispatch does in l.acquire — take, hold, release
 		wg.Go(func() {
 			release, err := l.acquire(context.Background(), account)
 			if err != nil {
-				t.Errorf("leg acquire: %v", err)
+				t.Errorf("dispatch acquire: %v", err)
 				return
 			}
 			hold(150 * time.Millisecond)
@@ -132,7 +132,7 @@ func TestBatchAndSpawnsShareTheAccountCap(t *testing.T) {
 	}
 }
 
-// RunBatch writes one shared marker per running leg and removes every marker when the batch is done.
+// RunBatch writes one shared marker per running dispatch and removes every marker when the batch is done.
 func TestRunBatchMarkersAppearAndClear(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	const account = "shared·acct"
@@ -143,7 +143,7 @@ func TestRunBatchMarkersAppearAndClear(t *testing.T) {
 		tasks = append(tasks, BatchTask{ID: name, Agent: name, Req: RunOptions{Prompt: "p"},
 			Prepare: func(context.Context) (*Prepared, error) {
 				return &Prepared{Opts: RunOptions{Prompt: "p"},
-					chain:  Chain{Want: name, Legs: []Leg{{Agent: r, Account: account, keepCaller: true}}},
+					chain:  Chain{Want: name, Dispatches: []Dispatch{{Agent: r, Account: account, keepCaller: true}}},
 					Record: Record{ID: "id-" + name, Agent: name, Log: filepath.Join(t.TempDir(), "l.log")}}, nil
 			}})
 	}
@@ -163,8 +163,8 @@ func TestRunBatchMarkersAppearAndClear(t *testing.T) {
 	}
 }
 
-// A leg waiting on a full shared account holds no local worker: with Jobs=1 a leg on a free account still runs,
-// and a cancelled wait (or a leg cancelled while capacity is free) leaves no marker behind.
+// A dispatch waiting on a full shared account holds no local worker: with Jobs=1 a dispatch on a free account still runs,
+// and a cancelled wait (or a dispatch cancelled while capacity is free) leaves no marker behind.
 func TestSharedWaitHoldsNoLocalWorker(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	const full, free = "full·acct", "free·acct"
@@ -177,7 +177,7 @@ func TestSharedWaitHoldsNoLocalWorker(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	waited := make(chan error, 1)
 	go func() { _, err := l.acquire(ctx, full); waited <- err }()
-	time.Sleep(3 * sharedPoll) // the full-account leg is now polling
+	time.Sleep(3 * sharedPoll) // the full-account dispatch is now polling
 
 	got := make(chan error, 1)
 	go func() {
@@ -190,17 +190,17 @@ func TestSharedWaitHoldsNoLocalWorker(t *testing.T) {
 	select {
 	case err := <-got:
 		if err != nil {
-			t.Fatalf("free-account leg: %v", err)
+			t.Fatalf("free-account dispatch: %v", err)
 		}
 	case <-time.After(5 * time.Second):
-		t.Fatal("a leg on a free account starved behind one waiting on a full account (Jobs=1)")
+		t.Fatal("a dispatch on a free account starved behind one waiting on a full account (Jobs=1)")
 	}
 	cancel()
 	if err := <-waited; err == nil {
 		t.Fatal("cancelled wait returned a permit")
 	}
 	if _, err := l.acquire(ctx, free); err == nil {
-		t.Fatal("an already-cancelled leg got a permit while capacity was free")
+		t.Fatal("an already-cancelled dispatch got a permit while capacity was free")
 	}
 	if n := countAccountMarkers(inflight.Dir(), full) + countAccountMarkers(inflight.Dir(), free); n != 1 {
 		t.Errorf("markers = %d, want only the seed claim", n)

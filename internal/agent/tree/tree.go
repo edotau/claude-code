@@ -42,16 +42,16 @@ func (t *Tokens) add(o Tokens) {
 
 // Subagent is one subagents/agent-<id>.jsonl + its sibling .meta.json.
 type Subagent struct {
-	ID          string    `json:"id"`
-	Type        string    `json:"type"`
-	Description string    `json:"description"`
-	Status      string    `json:"status"` // running|finished|error|stale
-	Depth       int       `json:"depth"`
-	Tokens      Tokens    `json:"tokens"`
-	LastTool    string    `json:"lastTool"`
-	Updated     time.Time `json:"updated"`
-	Activity    *Activity `json:"activity,omitempty"` // newest tool/text signal; nil when none seen yet
-	Legs        []Leg     `json:"legs,omitempty"`     // agent dispatches this relay agent launched via `ask`
+	ID          string     `json:"id"`
+	Type        string     `json:"type"`
+	Description string     `json:"description"`
+	Status      string     `json:"status"` // running|finished|error|stale
+	Depth       int        `json:"depth"`
+	Tokens      Tokens     `json:"tokens"`
+	LastTool    string     `json:"lastTool"`
+	Updated     time.Time  `json:"updated"`
+	Activity    *Activity  `json:"activity,omitempty"` // newest tool/text signal; nil when none seen yet
+	Dispatches  []Dispatch `json:"legs,omitempty"`     // agent dispatches this relay agent launched via `ask`
 }
 
 // Activity is the newest tool_use and newest assistant text seen in a subagent transcript's tail —
@@ -65,9 +65,9 @@ type Activity struct {
 	Text string    `json:"text,omitempty"`
 }
 
-// Leg is one agent dispatch (`claude-code ask`) a relay subagent launched, read from
+// Dispatch is one agent dispatch (`claude-code ask`) a relay subagent launched, read from
 // state/harness/dispatch/<id>.json via internal/agent.
-type Leg struct {
+type Dispatch struct {
 	ID             string `json:"id"`
 	Agent          string `json:"agent"`
 	Provider       string `json:"provider,omitempty"`
@@ -126,8 +126,8 @@ type Session struct {
 // lastTool, updated}], workflows:[{id, name, status, updated, phases:[{name, agents:[...]}]}]}]};
 // a live session also carries name, pid, live, cliStatus, mode from ~/.claude/sessions/<pid>.json.
 type Tree struct {
-	Sessions   []Session `json:"sessions"`
-	Dispatches []Leg     `json:"dispatches,omitempty"` // unscoped views: live dispatch jobs machine-wide
+	Sessions   []Session  `json:"sessions"`
+	Dispatches []Dispatch `json:"dispatches,omitempty"` // unscoped views: live dispatch jobs machine-wide
 }
 
 // Options scopes a Build: Days bounds by session-dir mtime (ignored when Session is set), Session
@@ -204,7 +204,7 @@ func sessionHasActivity(s Session) bool {
 	return false
 }
 
-// pruneToRunning drops finished/error subagents (with their legs) and workflow runs left with none;
+// pruneToRunning drops finished/error subagents (with their dispatches) and workflow runs left with none;
 // stale ones stay, since an unfinished agent past the window may be stuck. Returns a copy.
 func pruneToRunning(s Session) Session {
 	done := func(sub Subagent) bool { return sub.Status == statusFinished || sub.Status == statusError }
@@ -336,7 +336,7 @@ func subagentFiles(sessionDir string) []string {
 // Token totals come from this file alone: transcript.LastUsage/usageFromLine skip isSidechain
 // records, and every subagent transcript line IS a sidechain, so the per-model aggregate the main
 // session reads would silently see zero — transcript.SummarizeFile has no such filter. cwd is the
-// owning session's cwd, used to strip the repo root from Activity.Arg and to match an agent leg's
+// owning session's cwd, used to strip the repo root from Activity.Arg and to match an agent dispatch's
 // own WorkDir.
 func buildSubagent(transcriptPath string, now time.Time, cwd string) Subagent {
 	meta := readSubagentMeta(transcriptPath)
@@ -363,7 +363,7 @@ func buildSubagent(transcriptPath string, now time.Time, cwd string) Subagent {
 		Tokens:      tok,
 		LastTool:    act.Tool,
 		Updated:     updated,
-		Legs:        buildLegs(transcriptPath, cwd, now, act),
+		Dispatches:  buildDispatches(transcriptPath, cwd, now, act),
 	}
 	if act.Tool != "" || act.Text != "" {
 		a := act
@@ -373,7 +373,7 @@ func buildSubagent(transcriptPath string, now time.Time, cwd string) Subagent {
 }
 
 // subagentIDFromPath extracts the bare id from agent-<id>.jsonl, shared by buildSubagent and the
-// journal/agent-leg lookups that key on the same id.
+// journal/agent-dispatch lookups that key on the same id.
 func subagentIDFromPath(transcriptPath string) string {
 	return strings.TrimSuffix(strings.TrimPrefix(filepath.Base(transcriptPath), "agent-"), ".jsonl")
 }

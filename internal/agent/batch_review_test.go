@@ -88,7 +88,7 @@ func (g gaugeRunner) Run(context.Context, RunOptions, Sink) (Result, error) {
 	return Result{Answer: "a"}, nil
 }
 
-// Tasks queued under different agent names but legs billed to one account never run more than DefaultPerKey at once.
+// Tasks queued under different agent names but dispatches billed to one account never run more than DefaultPerKey at once.
 func TestBatchCapsConcurrencyPerBilledAccount(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	var cur, peak atomic.Int32
@@ -99,7 +99,7 @@ func TestBatchCapsConcurrencyPerBilledAccount(t *testing.T) {
 		tasks = append(tasks, BatchTask{ID: name, Agent: name, Req: RunOptions{Prompt: "p"},
 			Prepare: func(context.Context) (*Prepared, error) {
 				return &Prepared{Opts: RunOptions{Prompt: "p"},
-					chain:  Chain{Want: name, Legs: []Leg{{Agent: r, Account: "shared·acct", keepCaller: true}}},
+					chain:  Chain{Want: name, Dispatches: []Dispatch{{Agent: r, Account: "shared·acct", keepCaller: true}}},
 					Record: Record{ID: "id-" + name, Agent: name, Log: filepath.Join(t.TempDir(), "l.log")}}, nil
 			}})
 	}
@@ -108,7 +108,7 @@ func TestBatchCapsConcurrencyPerBilledAccount(t *testing.T) {
 		t.Fatalf("batch failed: %s", out.String())
 	}
 	if got := int(peak.Load()); got > DefaultPerKey || got < 2 {
-		t.Errorf("peak concurrent legs on one account = %d, want 2..%d", got, DefaultPerKey)
+		t.Errorf("peak concurrent dispatches on one account = %d, want 2..%d", got, DefaultPerKey)
 	}
 }
 
@@ -190,18 +190,18 @@ func (s slowRunner) Run(context.Context, RunOptions, Sink) (Result, error) {
 	return Result{Answer: "a"}, nil
 }
 
-// acctTask is a batch task whose single leg bills account.
+// acctTask is a batch task whose single dispatch bills account.
 func acctTask(t *testing.T, name, account string, r Runner) BatchTask {
 	return BatchTask{ID: name, Agent: name, Req: RunOptions{Prompt: "p"},
 		Prepare: func(context.Context) (*Prepared, error) {
 			rec := Record{ID: "id-" + name, Agent: name, Log: filepath.Join(t.TempDir(), "l.log")}
 			return &Prepared{Opts: RunOptions{Prompt: "p"}, Record: rec,
-				chain: Chain{Want: name, Legs: []Leg{{Agent: r, Account: account, keepCaller: true}}}}, nil
+				chain: Chain{Want: name, Dispatches: []Dispatch{{Agent: r, Account: account, keepCaller: true}}}}, nil
 		}}
 }
 
-// A panicking runner (recovered by the batch) must give its leg permit back: later tasks on the account still run.
-func TestBatchPanickingLegsReleaseTheirPermits(t *testing.T) {
+// A panicking runner (recovered by the batch) must give its dispatch permit back: later tasks on the account still run.
+func TestBatchPanickingDispatchesReleaseTheirPermits(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	var tasks []BatchTask
 	for i := range DefaultPerKey + 2 {
@@ -254,7 +254,7 @@ func TestCommandCredentialHostMismatchIsAuthAndFallsBack(t *testing.T) {
 	t.Cleanup(func() { markAuth = prev })
 	first := &fakeRunner{name: "claude", caps: Caps{Provider: Native}, errs: []error{nil}}
 	second := &fakeRunner{name: "gemini", errs: []error{nil}}
-	c := Chain{Want: "claude", Legs: []Leg{{Agent: first, Account: "claude:" + name, keepCaller: true}, {Agent: second}}}
+	c := Chain{Want: "claude", Dispatches: []Dispatch{{Agent: first, Account: "claude:" + name, keepCaller: true}, {Agent: second}}}
 	res, err := RunWithFallback(context.Background(), c, RunOptions{Prompt: "p"}, Discard, nil)
 	if err != nil || res.Answer != "a" || len(first.seen) != 0 || len(second.seen) != 1 {
 		t.Fatalf("res=%+v err=%v first=%d second=%d; want hop 2 to answer", res, err, len(first.seen), len(second.seen))
@@ -264,17 +264,17 @@ func TestCommandCredentialHostMismatchIsAuthAndFallsBack(t *testing.T) {
 	}
 }
 
-// legGauge is a runner that fails (as auth) or answers after a pause, tracking one gauge shared by every leg.
-type legGauge struct {
+// dispatchGauge is a runner that fails (as auth) or answers after a pause, tracking one gauge shared by every dispatch.
+type dispatchGauge struct {
 	name     string
 	fail     bool
 	cur, max *atomic.Int32
 }
 
-func (g legGauge) Name() string     { return g.name }
-func (g legGauge) Caps() Caps       { return Caps{} }
-func (g legGauge) Available() error { return nil }
-func (g legGauge) Run(context.Context, RunOptions, Sink) (Result, error) {
+func (g dispatchGauge) Name() string     { return g.name }
+func (g dispatchGauge) Caps() Caps       { return Caps{} }
+func (g dispatchGauge) Available() error { return nil }
+func (g dispatchGauge) Run(context.Context, RunOptions, Sink) (Result, error) {
 	n := g.cur.Add(1)
 	for m := g.max.Load(); n > m && !g.max.CompareAndSwap(m, n); m = g.max.Load() {
 	}
@@ -286,7 +286,7 @@ func (g legGauge) Run(context.Context, RunOptions, Sink) (Result, error) {
 	return Result{Answer: "a"}, nil
 }
 
-// Legs in flight never exceed --jobs while tasks fall back from a full account A to account B.
+// Dispatches in flight never exceed --jobs while tasks fall back from a full account A to account B.
 func TestBatchJobsCapHoldsAcrossFallbackHops(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	const jobs = 5
@@ -294,11 +294,11 @@ func TestBatchJobsCapHoldsAcrossFallbackHops(t *testing.T) {
 	var tasks []BatchTask
 	for i := range 12 {
 		name := fmt.Sprintf("f%d", i)
-		first, second := legGauge{name: "codex", fail: true, cur: &cur, max: &peak}, legGauge{name: "gemini", cur: &cur, max: &peak}
+		first, second := dispatchGauge{name: "codex", fail: true, cur: &cur, max: &peak}, dispatchGauge{name: "gemini", cur: &cur, max: &peak}
 		tasks = append(tasks, BatchTask{ID: name, Agent: name, Req: RunOptions{Prompt: "p"}, // distinct keys: the old per-key gate would cap at 4
 			Prepare: func(context.Context) (*Prepared, error) {
 				rec := Record{ID: "id-" + name, Agent: "codex", Log: filepath.Join(t.TempDir(), "l.log")}
-				return &Prepared{Opts: RunOptions{Prompt: "p"}, Record: rec, chain: Chain{Want: "codex", Legs: []Leg{
+				return &Prepared{Opts: RunOptions{Prompt: "p"}, Record: rec, chain: Chain{Want: "codex", Dispatches: []Dispatch{
 					{Agent: first, Account: "A·acct", keepCaller: true}, {Agent: second, Account: "B·acct"}}}}, nil
 			}})
 	}
@@ -307,7 +307,7 @@ func TestBatchJobsCapHoldsAcrossFallbackHops(t *testing.T) {
 		t.Fatalf("batch failed: %s", out.String())
 	}
 	if got := int(peak.Load()); got > jobs || got < 2 {
-		t.Errorf("peak in-flight legs = %d, want 2..%d", got, jobs)
+		t.Errorf("peak in-flight dispatches = %d, want 2..%d", got, jobs)
 	}
 	if n := strings.Count(out.String(), `"hops"`); n != len(tasks) {
 		t.Errorf("%d envelopes carry hops, want %d (every task fell back)", n, len(tasks))
@@ -356,8 +356,8 @@ func TestBatchFailFastPrepareFailureStopsQueuedTask(t *testing.T) {
 		Prepare: func(context.Context) (*Prepared, error) { return nil, errors.New("route failed") }})
 }
 
-// --fail-fast with a panicking leg: the next task never spawns.
-func TestBatchFailFastPanickingLegStopsQueuedTask(t *testing.T) {
+// --fail-fast with a panicking dispatch: the next task never spawns.
+func TestBatchFailFastPanickingDispatchStopsQueuedTask(t *testing.T) {
 	failFastPair(t, acctTask(t, "first", "ff·acct", slowRunner{name: "first", boom: true}))
 }
 
@@ -394,14 +394,14 @@ func TestBatchPrepareFailureFreesSlotWithoutFailFast(t *testing.T) {
 	}
 }
 
-// A leg that panics after streaming output is terminal: the fallback leg never runs and repeats its work.
-func TestBatchPanickingLegDoesNotFallBack(t *testing.T) {
+// A dispatch that panics after streaming output is terminal: the fallback dispatch never runs and repeats its work.
+func TestBatchPanickingDispatchDoesNotFallBack(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	var runs atomic.Int32
 	task := BatchTask{ID: "t", Agent: "boom", Req: RunOptions{Prompt: "p"},
 		Prepare: func(context.Context) (*Prepared, error) {
 			rec := Record{ID: "id-t", Agent: "boom", Log: filepath.Join(t.TempDir(), "l.log")}
-			return &Prepared{Opts: RunOptions{Prompt: "p"}, Record: rec, chain: Chain{Want: "boom", Legs: []Leg{
+			return &Prepared{Opts: RunOptions{Prompt: "p"}, Record: rec, chain: Chain{Want: "boom", Dispatches: []Dispatch{
 				{Agent: slowRunner{name: "boom", boom: true}, Account: "boom·A"},
 				{Agent: flagRunner{name: "next", runs: &runs}, Account: "next·B"},
 			}}}, nil
@@ -410,21 +410,21 @@ func TestBatchPanickingLegDoesNotFallBack(t *testing.T) {
 	defer cancel()
 	var out strings.Builder
 	if RunBatch(ctx, []BatchTask{task}, BatchOptions{Jobs: 2, Out: &out}) {
-		t.Fatal("batch reported ok after a panicking leg")
+		t.Fatal("batch reported ok after a panicking dispatch")
 	}
 	if runs.Load() != 0 || !strings.Contains(out.String(), "panic: boom") {
-		t.Fatalf("fallback leg ran %d times after a panic, want 0:\n%s", runs.Load(), out.String())
+		t.Fatalf("fallback dispatch ran %d times after a panic, want 0:\n%s", runs.Load(), out.String())
 	}
 }
 
-// A fallback leg that panics is still reported as the fallback, with the first leg's failure as the reason.
-func TestBatchPanickingFallbackLegIsReported(t *testing.T) {
+// A fallback dispatch that panics is still reported as the fallback, with the first dispatch's failure as the reason.
+func TestBatchPanickingFallbackDispatchIsReported(t *testing.T) {
 	authEnv(t, `{"protocol":"anthropic","base_url":"http://127.0.0.1:1","auth":{"type":"key","env":"AGAUTH_UNSET"},"models":{"opus":"m"}}`)
 	first := &fakeRunner{name: "claude", errs: []error{fmt.Errorf("agauth: %w", providers.ErrNeedsLogin)}, emptyAnswer: true}
 	task := BatchTask{ID: "t", Agent: "claude", Req: RunOptions{Prompt: "p"},
 		Prepare: func(context.Context) (*Prepared, error) {
 			rec := Record{ID: "id-t", Agent: "claude", Log: filepath.Join(t.TempDir(), "l.log")}
-			return &Prepared{Opts: RunOptions{Prompt: "p"}, Record: rec, chain: Chain{Want: "claude", Legs: []Leg{
+			return &Prepared{Opts: RunOptions{Prompt: "p"}, Record: rec, chain: Chain{Want: "claude", Dispatches: []Dispatch{
 				{Agent: first, Account: "claude:agauth"},
 				{Agent: slowRunner{name: "boom", boom: true}, Account: "boom·B"},
 			}}}, nil
@@ -436,7 +436,7 @@ func TestBatchPanickingFallbackLegIsReported(t *testing.T) {
 		t.Fatalf("decode %q: %v", out.String(), err)
 	}
 	if env.Fallback == nil || env.FallbackReason == "" || len(env.Hops) != 2 {
-		t.Fatalf("fallback=%v reason=%q hops=%d, want the panicking leg reported as the fallback", env.Fallback, env.FallbackReason, len(env.Hops))
+		t.Fatalf("fallback=%v reason=%q hops=%d, want the panicking dispatch reported as the fallback", env.Fallback, env.FallbackReason, len(env.Hops))
 	}
 }
 
@@ -484,7 +484,7 @@ func TestReserveIsExclusiveAcrossBatches(t *testing.T) {
 	}
 }
 
-// --fail-fast: a task that fails outside any leg (an empty chain) still cancels before the next task is prepared.
+// --fail-fast: a task that fails outside any dispatch (an empty chain) still cancels before the next task is prepared.
 func TestBatchFailFastEmptyChainStopsQueuedTask(t *testing.T) {
 	failFastPair(t, BatchTask{ID: "first", Agent: "first", Req: RunOptions{Prompt: "p"},
 		Prepare: func(context.Context) (*Prepared, error) {
@@ -508,8 +508,8 @@ func (r rateOnce) Run(context.Context, RunOptions, Sink) (Result, error) {
 	return Result{Answer: "a"}, nil
 }
 
-// A leg backing off after a 429 holds no permit: with Jobs=1 a task on another account runs during the wait.
-func TestBatchBackoffReleasesLegPermit(t *testing.T) {
+// A dispatch backing off after a 429 holds no permit: with Jobs=1 a task on another account runs during the wait.
+func TestBatchBackoffReleasesDispatchPermit(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	var n atomic.Int32
 	tasks := []BatchTask{
@@ -525,7 +525,7 @@ func TestBatchBackoffReleasesLegPermit(t *testing.T) {
 	}
 }
 
-// A hub leg keeps the credential its launch supplies even when another profile declares the same env name; the
+// A hub dispatch keeps the credential its launch supplies even when another profile declares the same env name; the
 // inherited value of that name is gone.
 func TestChildCmdLaunchValuesSurviveIsolationScrub(t *testing.T) {
 	vaulttest.UseKeyring(t)
@@ -566,8 +566,8 @@ func TestReservedRecordSurvivesPrune(t *testing.T) {
 	}
 }
 
-// A cooldown that starts between the leg's acquire and its first attempt is waited out without the permit.
-func TestBatchFirstAttemptCooldownReleasesLegPermit(t *testing.T) {
+// A cooldown that starts between the dispatch's acquire and its first attempt is waited out without the permit.
+func TestBatchFirstAttemptCooldownReleasesDispatchPermit(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	var once sync.Once
 	prev := loadState
@@ -612,8 +612,8 @@ func TestChatStreamWithoutDoneIsRetried(t *testing.T) {
 	}
 }
 
-// A leg whose account another task marked auth-dead while it waited for a permit does not run: it is an auth hop.
-func TestQueuedLegSkipsAccountMarkedAuthDead(t *testing.T) {
+// A dispatch whose account another task marked auth-dead while it waited for a permit does not run: it is an auth hop.
+func TestQueuedDispatchSkipsAccountMarkedAuthDead(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	var runs atomic.Int32
 	first := markingRunner{name: "first", mark: func() { _ = router.MarkAuth("auth·A", "login expired") }}
@@ -624,7 +624,7 @@ func TestQueuedLegSkipsAccountMarkedAuthDead(t *testing.T) {
 	var out strings.Builder
 	RunBatch(context.Background(), tasks, BatchOptions{Jobs: 1, Out: &out})
 	if runs.Load() != 0 {
-		t.Errorf("the queued leg ran %d times on an auth-dead account", runs.Load())
+		t.Errorf("the queued dispatch ran %d times on an auth-dead account", runs.Load())
 	}
 	for ln := range strings.SplitSeq(strings.TrimSpace(out.String()), "\n") {
 		if strings.Contains(ln, `"task_id":"second"`) && !strings.Contains(ln, `"kind":"auth"`) {
@@ -692,7 +692,7 @@ func TestRetryRechecksAccountAfterBackoff(t *testing.T) {
 	var out strings.Builder
 	RunBatch(context.Background(), tasks, BatchOptions{Jobs: 1, Out: &out})
 	if n.Load() != 1 {
-		t.Errorf("the rate-limited leg ran %d times, want 1: its retry must not run on an auth-dead account", n.Load())
+		t.Errorf("the rate-limited dispatch ran %d times, want 1: its retry must not run on an auth-dead account", n.Load())
 	}
 	for ln := range strings.SplitSeq(strings.TrimSpace(out.String()), "\n") {
 		if strings.Contains(ln, `"task_id":"limited"`) && !strings.Contains(ln, `"kind":"auth"`) {
@@ -739,24 +739,24 @@ func (c cancelAfterRun) Name() string     { return c.name }
 func (c cancelAfterRun) Caps() Caps       { return Caps{} }
 func (c cancelAfterRun) Available() error { return nil }
 func (c cancelAfterRun) Run(context.Context, RunOptions, Sink) (Result, error) {
-	c.cancel() // the parent ctx dies at the moment the leg succeeds
+	c.cancel() // the parent ctx dies at the moment the dispatch succeeds
 	return Result{Answer: "a"}, nil
 }
 
-// A cancel that lands right after a leg succeeded must not overwrite its answer.
+// A cancel that lands right after a dispatch succeeded must not overwrite its answer.
 func TestSuccessSurvivesCancelRightAfterIt(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	var runs atomic.Int32
-	c := Chain{Want: "first", Legs: []Leg{{Agent: cancelAfterRun{name: "first", cancel: cancel}}, {Agent: flagRunner{name: "second", runs: &runs}}}}
+	c := Chain{Want: "first", Dispatches: []Dispatch{{Agent: cancelAfterRun{name: "first", cancel: cancel}}, {Agent: flagRunner{name: "second", runs: &runs}}}}
 	res, err := RunWithFallback(ctx, c, RunOptions{Prompt: "p"}, Discard, nil)
 	if err != nil || res.Answer != "a" || runs.Load() != 0 || len(res.Hops) != 1 {
-		t.Fatalf("res=%+v err=%v second ran %d times; want the first leg's answer alone", res, err, runs.Load())
+		t.Fatalf("res=%+v err=%v second ran %d times; want the first dispatch's answer alone", res, err, runs.Load())
 	}
 }
 
-// A copilot leg whose gate falls back to Databricks bills (and is capped on) that Databricks account, however the
-// router keyed the leg.
+// A copilot dispatch whose gate falls back to Databricks bills (and is capped on) that Databricks account, however the
+// router keyed the dispatch.
 func TestCopilotGateFallbackIsCappedOnTheDatabricksAccount(t *testing.T) {
 	ghLogin(t, "alice", 99)
 	t.Setenv("DBX_GATE_KEY", "dbx-secret")
@@ -772,7 +772,7 @@ func TestCopilotGateFallbackIsCappedOnTheDatabricksAccount(t *testing.T) {
 			Prepare: func(context.Context) (*Prepared, error) {
 				rec := Record{ID: "id-" + name, Agent: "copilot", Log: filepath.Join(t.TempDir(), "l.log")}
 				return &Prepared{Opts: RunOptions{Prompt: "p", Model: "alice:opus"}, Record: rec,
-					chain: Chain{Want: "copilot", Legs: []Leg{{Agent: r, Account: "github·" + name, keepCaller: true}}}}, nil
+					chain: Chain{Want: "copilot", Dispatches: []Dispatch{{Agent: r, Account: "github·" + name, keepCaller: true}}}}, nil
 			}})
 	}
 	var out strings.Builder
@@ -780,17 +780,17 @@ func TestCopilotGateFallbackIsCappedOnTheDatabricksAccount(t *testing.T) {
 		t.Fatalf("batch failed: %s", out.String())
 	}
 	if got := int(peak.Load()); got > DefaultPerKey || got < 2 {
-		t.Errorf("peak concurrent copilot legs = %d, want 2..%d: they all bill the one Databricks account", got, DefaultPerKey)
+		t.Errorf("peak concurrent copilot dispatches = %d, want 2..%d: they all bill the one Databricks account", got, DefaultPerKey)
 	}
 }
 
-// A hub leg authenticates with the stored opencode login, so an absent registry credential must not fail its guard.
-func TestHubLegGuardIgnoresAbsentRegistryCredential(t *testing.T) {
+// A hub dispatch authenticates with the stored opencode login, so an absent registry credential must not fail its guard.
+func TestHubDispatchGuardIgnoresAbsentRegistryCredential(t *testing.T) {
 	vaulttest.UseKeyring(t)
 	p := &providers.Provider{Name: "ocgo", Preset: providers.PresetDatabricks, Auth: providers.Auth{Type: "key", Command: "false"}}
-	leg := hubLeg{agent: "opencode", provider: p}
-	if _, gerr := guardAttempt(withIsolation(context.Background()), leg, RunOptions{}); gerr != nil {
-		t.Errorf("guardAttempt = %v, want the hub leg to pass: its credential is the opencode login", gerr)
+	disp := hubDispatch{agent: "opencode", provider: p}
+	if _, gerr := guardAttempt(withIsolation(context.Background()), disp, RunOptions{}); gerr != nil {
+		t.Errorf("guardAttempt = %v, want the hub dispatch to pass: its credential is the opencode login", gerr)
 	}
 }
 
@@ -829,9 +829,9 @@ func TestFrozenCopilotTargetFollowsTheDowngradedModel(t *testing.T) {
 	}
 }
 
-// A quota failure on a gate-fallback leg is remembered with the Databricks account's credits window, not the
+// A quota failure on a gate-fallback dispatch is remembered with the Databricks account's credits window, not the
 // subscription window of the GitHub login the router keyed it under.
-func TestGateFallbackLegBillsCreditsWindow(t *testing.T) {
+func TestGateFallbackDispatchBillsCreditsWindow(t *testing.T) {
 	gateFallbackEnv(t)
 	var account string
 	var until, at time.Time
@@ -840,7 +840,7 @@ func TestGateFallbackLegBillsCreditsWindow(t *testing.T) {
 	t.Cleanup(func() { markExhausted = prev })
 	quota := errors.New("402 Payment Required")
 	r := &fakeRunner{name: "copilot", errs: []error{quota}, emptyAnswer: true}
-	c := Chain{Want: "copilot", Legs: []Leg{{Agent: r, Account: "github·alice", Billing: router.BillSubscription, keepCaller: true}}}
+	c := Chain{Want: "copilot", Dispatches: []Dispatch{{Agent: r, Account: "github·alice", Billing: router.BillSubscription, keepCaller: true}}}
 	_, _ = RunWithFallback(context.Background(), c, RunOptions{Prompt: "p", Model: "alice:opus"}, Discard, nil)
 	want := router.ResetFor(quota.Error(), router.BillCredits, router.Entry{}, at)
 	if account != "databricks·dbx" || !until.Equal(want) {
@@ -848,7 +848,7 @@ func TestGateFallbackLegBillsCreditsWindow(t *testing.T) {
 	}
 }
 
-// A cooldown that idles the leg before attempt 1 is followed by a recheck: an account marked auth-dead meanwhile
+// A cooldown that idles the dispatch before attempt 1 is followed by a recheck: an account marked auth-dead meanwhile
 // is not attempted.
 func TestFirstAttemptRechecksAccountAfterCooldownIdle(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
@@ -871,8 +871,8 @@ func TestFirstAttemptRechecksAccountAfterCooldownIdle(t *testing.T) {
 	}
 }
 
-// Own-login legs (no account) on one agent still share DefaultPerKey, even when --jobs allows more.
-func TestBatchCapsOwnLoginLegsPerAgent(t *testing.T) {
+// Own-login dispatches (no account) on one agent still share DefaultPerKey, even when --jobs allows more.
+func TestBatchCapsOwnLoginDispatchesPerAgent(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	var cur, peak atomic.Int32
 	r := gaugeRunner{name: "opencode", cur: &cur, max: &peak}
@@ -882,7 +882,7 @@ func TestBatchCapsOwnLoginLegsPerAgent(t *testing.T) {
 		tasks = append(tasks, BatchTask{ID: id, Agent: "opencode", Req: RunOptions{Prompt: "p"},
 			Prepare: func(context.Context) (*Prepared, error) {
 				return &Prepared{Opts: RunOptions{Prompt: "p"},
-					chain:  Chain{Want: "opencode", Legs: []Leg{{Agent: r, keepCaller: true}}},
+					chain:  Chain{Want: "opencode", Dispatches: []Dispatch{{Agent: r, keepCaller: true}}},
 					Record: Record{ID: "id-" + id, Agent: "opencode", Log: filepath.Join(t.TempDir(), "l.log")}}, nil
 			}})
 	}
@@ -891,6 +891,6 @@ func TestBatchCapsOwnLoginLegsPerAgent(t *testing.T) {
 		t.Fatalf("batch failed: %s", out.String())
 	}
 	if got := int(peak.Load()); got > DefaultPerKey || got < 2 {
-		t.Errorf("peak concurrent own-login legs = %d, want 2..%d", got, DefaultPerKey)
+		t.Errorf("peak concurrent own-login dispatches = %d, want 2..%d", got, DefaultPerKey)
 	}
 }

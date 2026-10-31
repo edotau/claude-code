@@ -17,8 +17,8 @@ import (
 // lockWait bounds the wait for the marker-dir lock; the hook itself is killed at 5 s.
 var lockWait = 2 * time.Second
 
-// LegPrefix starts the id of an `ask --batch` leg marker; its owner is the batch process.
-const LegPrefix = "leg."
+// DispatchPrefix starts the id of an `ask --batch` dispatch marker; its owner is the batch process.
+const DispatchPrefix = "leg."
 
 // Claim asks for N slots (default 1) on Account for one id owned by Owner; Transcript feeds the prune.
 type Claim struct {
@@ -244,11 +244,11 @@ func newScanner(now time.Time) *scanner {
 	return &scanner{now: now, trusted: ProbeTrusted(), meta: map[string]map[string]metaAgent{}, sessions: map[string][]byte{}}
 }
 
-// live: legs and markers without a session follow ownerLive; a spawn marker follows its agent's meta.json and transcript.
+// live: dispatches and markers without a session follow ownerLive; a spawn marker follows its agent's meta.json and transcript.
 func (s *scanner) live(name string, mod time.Time, transcript string) bool {
 	owner, _ := Owner(name)
 	id := strings.TrimPrefix(name, Prefix+strconv.Itoa(owner)+"-")
-	if transcript == "" || strings.HasPrefix(id, LegPrefix) {
+	if transcript == "" || strings.HasPrefix(id, DispatchPrefix) {
 		return ownerLive(name, mod, s.now, s.trusted)
 	}
 	if s.trusted && owner > 0 && !proc.Alive(owner) {

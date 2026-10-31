@@ -121,8 +121,8 @@ func RunGemini(ctx context.Context, o GeminiOptions, stream, log io.Writer) (Res
 		_ = rec.Save() // fail-open: the log is for replay and forensics, never a gate on the run
 
 		cw := &countingWriter{w: stream}
-		return Dispatch(ctx, &rec, bridgeDispatchLabel, NewTextSink(cw),
-			DispatchOpts{Notify: func(s string) { fmt.Fprintln(log, s) }},
+		return RunRecorded(ctx, &rec, bridgeDispatchLabel, NewTextSink(cw),
+			RunRecordedOpts{Notify: func(s string) { fmt.Fprintln(log, s) }},
 			func(ctx context.Context, sink Sink) (Result, error) {
 				var res Result
 				aerr := Do(ctx, policy, func(actx context.Context, _ int) *Error {

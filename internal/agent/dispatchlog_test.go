@@ -322,7 +322,7 @@ func TestRecordKeepsRequestAndInvokedModel(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	first := &pinFallbackRunner{name: "codex", err: &Error{Kind: KindQuota, Agent: "codex", Err: io.EOF}}
 	second := &pinFallbackRunner{name: "claude", res: Result{Answer: "ok"}}
-	chain := Chain{Want: "codex", Legs: []Leg{
+	chain := Chain{Want: "codex", Dispatches: []Dispatch{
 		{Agent: first, Model: "prof:gpt-6-astra"},
 		{Agent: second, Model: "prof:claude-sonnet-5-5"},
 	}}

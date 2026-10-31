@@ -24,28 +24,28 @@ const markerLockWait = 2 * time.Second
 const lostError = "lost: process gone"
 
 // RunningDispatches lists live dispatch jobs machine-wide (every repo, any age), newest first.
-func RunningDispatches(now time.Time) []Leg {
-	var legs []Leg
+func RunningDispatches(now time.Time) []Dispatch {
+	var dispatches []Dispatch
 	for _, rec := range agent.RecentRecords(scanAllRecords) {
 		if !rec.Alive() {
 			continue
 		}
-		leg := legFromRecord(rec, "", now)
-		leg.Repo = rec.Repo
-		leg.sessionID, leg.cwd, leg.started, leg.prompt = rec.SessionID, rec.Request.WorkDir, rec.Time, rec.Request.Prompt
-		if leg.cwd == "" {
-			leg.cwd = rec.Repo
+		disp := dispatchFromRecord(rec, "", now)
+		disp.Repo = rec.Repo
+		disp.sessionID, disp.cwd, disp.started, disp.prompt = rec.SessionID, rec.Request.WorkDir, rec.Time, rec.Request.Prompt
+		if disp.cwd == "" {
+			disp.cwd = rec.Repo
 		}
-		legs = append(legs, leg)
+		dispatches = append(dispatches, disp)
 	}
-	return legs
+	return dispatches
 }
 
 // dropDispatchSessions returns sessions minus bare rows that duplicate a running headless claude dispatch.
-func dropDispatchSessions(sessions []Session, legs []Leg) []Session {
+func dropDispatchSessions(sessions []Session, dispatches []Dispatch) []Session {
 	out := make([]Session, 0, len(sessions))
 	for _, s := range sessions {
-		if len(s.Subagents) == 0 && len(s.Workflows) == 0 && matchesClaudeLeg(s, legs) {
+		if len(s.Subagents) == 0 && len(s.Workflows) == 0 && matchesClaudeDispatch(s, dispatches) {
 			continue
 		}
 		out = append(out, s)
@@ -53,9 +53,9 @@ func dropDispatchSessions(sessions []Session, legs []Leg) []Session {
 	return out
 }
 
-// matchesClaudeLeg reports whether s is the session a running claude dispatch spawned (by id, else by cwd+time).
-func matchesClaudeLeg(s Session, legs []Leg) bool {
-	for _, l := range legs {
+// matchesClaudeDispatch reports whether s is the session a running claude dispatch spawned (by id, else by cwd+time).
+func matchesClaudeDispatch(s Session, dispatches []Dispatch) bool {
+	for _, l := range dispatches {
 		if s, ok := agent.LookupSchema(l.Agent); !ok || s.External() { // not the Claude launcher
 			continue
 		}

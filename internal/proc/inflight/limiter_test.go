@@ -138,9 +138,9 @@ func TestTryClaimN(t *testing.T) {
 	}
 }
 
-// Leg owner liveness: a dead owner's leg marker is neither counted nor allowed to survive a
-// prune; a live owner's leg marker counts even past TTL.
-func TestLegOwnerLiveness(t *testing.T) {
+// Dispatch owner liveness: a dead owner's dispatch marker is neither counted nor allowed to survive a
+// prune; a live owner's dispatch marker counts even past TTL.
+func TestDispatchOwnerLiveness(t *testing.T) {
 	if !ProbeTrusted() {
 		t.Skip("proc probing untrusted on this platform; TTL is the sole backstop here")
 	}
@@ -156,14 +156,14 @@ func TestLegOwnerLiveness(t *testing.T) {
 		t.Fatal(err)
 	}
 	if got := Count().Total; got != 0 {
-		t.Fatalf("Count() with a dead leg owner = %d, want 0", got)
+		t.Fatalf("Count() with a dead dispatch owner = %d, want 0", got)
 	}
 	lim := Limits{Base: Base, Total: 100}
 	if ok, _ := TryClaim(Claim{Owner: owner, ID: "probe", Account: "a"}, lim); !ok {
 		t.Fatal("probe claim refused")
 	}
 	if _, err := os.Stat(filepath.Join(Dir(), deadName)); !os.IsNotExist(err) {
-		t.Error("dead owner's leg marker survived a TryClaim prune")
+		t.Error("dead owner's dispatch marker survived a TryClaim prune")
 	}
 
 	oldName := markerName(owner, "leg.old")
@@ -175,7 +175,7 @@ func TestLegOwnerLiveness(t *testing.T) {
 		t.Fatal(err)
 	}
 	if got := Count().Per["a"]; got != 2 {
-		t.Fatalf("live owner's leg marker past TTL not counted: Per[a] = %d, want 2 (probe + leg.old)", got)
+		t.Fatalf("live owner's dispatch marker past TTL not counted: Per[a] = %d, want 2 (probe + leg.old)", got)
 	}
 }
 

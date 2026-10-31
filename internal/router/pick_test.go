@@ -176,7 +176,7 @@ func TestPickGatesBeatScore(t *testing.T) {
 		t.Errorf("skips = %+v", r.Skipped)
 	}
 	if last := r.Candidates[len(r.Candidates)-1]; last.Agent != "claude" || last.Model != "claude-sonnet-5-5" {
-		t.Errorf("claude leg = %+v, want sonnet tier kept", last)
+		t.Errorf("claude dispatch = %+v, want sonnet tier kept", last)
 	}
 	unpinned, _ := LoadFrom(nil, "")
 	r = pick(unpinned, "opus", "copilot", State{}, FallbackAgents)
@@ -198,7 +198,7 @@ func TestPickTwoDimOrderingAndLowLast(t *testing.T) {
 		"google·antigravity": {UsedPct: 60, Seen: now0},
 		"opencode·go":        {UsedPct: 20, Seen: now0},
 	}
-	r := pickRepo(tb, "sonnet", st, true) // work repo: no free leg, so opencode lands on its Go account
+	r := pickRepo(tb, "sonnet", st, true) // work repo: no free dispatch, so opencode lands on its Go account
 	if got := runners(r); got != "codex,opencode,copilot,gemini" {
 		t.Errorf("order = %s (scores %+v)", got, r.Candidates)
 	}
@@ -253,7 +253,7 @@ func TestPickOpencodeGithubCopilotOverrideHeadroomUnknown(t *testing.T) {
 	}
 	r := pick(tb, "sonnet", "opencode", State{}, FallbackNone)
 	if len(r.Candidates) != 1 {
-		t.Fatalf("candidates = %+v, want exactly the wanted opencode leg", r.Candidates)
+		t.Fatalf("candidates = %+v, want exactly the wanted opencode dispatch", r.Candidates)
 	}
 	c := r.Candidates[0]
 	if c.Account != "opencode·github-copilot" {

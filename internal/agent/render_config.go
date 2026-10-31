@@ -34,7 +34,7 @@ type MCP struct {
 }
 
 // LaunchConfig is env and argv a `claude-code <agent>` launch injects, e.g. to disable a native skill
-// scanner or force allow-all; Args never rides a headless leg (tools-off must stay tools-off).
+// scanner or force allow-all; Args never rides a headless dispatch (tools-off must stay tools-off).
 type LaunchConfig struct {
 	Env  []string `json:"env,omitempty"`
 	Args []string `json:"args,omitempty"`

@@ -188,7 +188,7 @@ func withHeaders(tg providers.Target, h map[string]string) providers.Target {
 	return tg
 }
 
-func TestRoutedLegsCarryAgentTag(t *testing.T) {
+func TestRoutedDispatchesCarryAgentTag(t *testing.T) {
 	stubRouter(t, nil)
 	vaulttest.Use(t)
 	ctx := context.Background()
@@ -250,8 +250,8 @@ func TestRoutedLegsCarryAgentTag(t *testing.T) {
 	})
 }
 
-// A direct leg never passes routerRoute, so it carries the provider's own headers and no agent tag.
-func TestDirectLegsHaveNoAgentTag(t *testing.T) {
+// A direct dispatch never passes routerRoute, so it carries the provider's own headers and no agent tag.
+func TestDirectDispatchesHaveNoAgentTag(t *testing.T) {
 	stubRouter(t, nil)
 	vaulttest.Use(t)
 	ctx := WithDirect(context.Background())

@@ -164,7 +164,7 @@ func ClearAuth(account string) error {
 	})
 }
 
-// ClearProviderAuth drops every auth mark on provider: the router's (ProviderAccount) and each leg's "<provider>·<p>".
+// ClearProviderAuth drops every auth mark on provider: the router's (ProviderAccount) and each dispatch's "<provider>·<p>".
 func ClearProviderAuth(provider string) error {
 	hit := func(account string, e Entry) bool {
 		return !e.AuthAt.IsZero() && (account == ProviderAccount(provider) || strings.HasSuffix(account, "·"+provider))

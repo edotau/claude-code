@@ -44,8 +44,8 @@ type Envelope struct {
 	Transport       *Transport      `json:"transport"`
 	TaskID          string          `json:"task_id,omitempty"`    // ask --batch: the task's id
 	BatchID         string          `json:"batch_id,omitempty"`   // ask --batch: the id shared by every task of the run
-	Hops            []Hop           `json:"hops,omitempty"`       // every leg tried, in order
-	RanOn           string          `json:"ran_on,omitempty"`     // the one-line "ran on" summary of the leg that answered
+	Hops            []Hop           `json:"hops,omitempty"`       // every dispatch tried, in order
+	RanOn           string          `json:"ran_on,omitempty"`     // the one-line "ran on" summary of the dispatch that answered
 	Structured      json.RawMessage `json:"structured,omitempty"` // --output-schema: the answer as JSON satisfying the schema
 }
 
@@ -99,7 +99,7 @@ func errorKind(err error) string {
 		return "canceled"
 	}
 	if e, ok := errors.AsType[*Error](err); ok {
-		if e.AuthReason != "" { // a condemned login is an auth failure, whatever the failing leg classified it as
+		if e.AuthReason != "" { // a condemned login is an auth failure, whatever the failing dispatch classified it as
 			return "auth"
 		}
 		switch e.Kind {
@@ -118,7 +118,7 @@ func errorKind(err error) string {
 
 // RanOn is the "ran on" line for a finished run, from its final hop: agent · account·profile · model · fallback.
 func RanOn(res Result) string {
-	if len(res.Hops) == 0 && res.Status == StatusError { // no leg started: nothing ran
+	if len(res.Hops) == 0 && res.Status == StatusError { // no dispatch started: nothing ran
 		return ""
 	}
 	who, acct, model := res.Agent, "", res.Model
@@ -140,7 +140,7 @@ func RanOn(res Result) string {
 	return fmt.Sprintf("ran on %s · %s · %s · fallback %s", who, cmp.Or(acct, "own login"), cmp.Or(model, "default"), fb)
 }
 
-// DidNotRun is the "did not run" line for a dispatch that ended before any leg started, else "".
+// DidNotRun is the "did not run" line for a dispatch that ended before any dispatch started, else "".
 func DidNotRun(res Result) string {
 	if len(res.Hops) > 0 || res.Status != StatusError || res.Agent == "" {
 		return ""

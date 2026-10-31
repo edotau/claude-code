@@ -69,7 +69,7 @@ type askEnvelope struct {
 }
 
 // runResolveAgent shells out to this same claude-code binary's own `ask` verb — --fallback none so an
-// explicitly selected codex leg either runs as codex or fails outright, never silently as claude — once,
+// explicitly selected codex dispatch either runs as codex or fails outright, never silently as claude — once,
 // with tools enabled, on prompt inside workDir. It never retries. The agent only edits files; it is
 // told not to run git add/commit/merge (a sandboxed agent can't write inside .git anyway) — the
 // controller (finalizeAgentResolution) stages and commits its edits once it exits.

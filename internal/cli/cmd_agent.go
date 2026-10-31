@@ -374,7 +374,7 @@ func agentReview(name string, args []string) int {
 // agentExplore is `claude-code <v> explore [--no-web] [--background] [--format f] <question>`.
 func agentExplore(name string, args []string) int {
 	fs := newAgentFlags(name, "explore")
-	noWeb := fs.Bool("no-web", false, "skip the web-research leg; code scan only")
+	noWeb := fs.Bool("no-web", false, "skip the web-research step; code scan only")
 	background := fs.Bool("background", false, "detach; claude-code "+name+" status|result to follow up")
 	format := fs.String("format", "text", "stream text or print the JSON result envelope")
 	if code, done := helptext.Parse(fs, args); done {

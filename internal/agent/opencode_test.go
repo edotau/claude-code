@@ -118,7 +118,7 @@ func TestOpenCodeOverlayEnvOnEveryRoute(t *testing.T) {
 	})
 }
 
-// TestOpenCodeOwnLoginHeadlessToolsOffDeny: opencode's own-login headless leg (OwnLoginHeadless) still
+// TestOpenCodeOwnLoginHeadlessToolsOffDeny: opencode's own-login headless dispatch (OwnLoginHeadless) still
 // rides OPENCODE_CONFIG_CONTENT={"permission":"deny"} when tools are off, alongside the new overlay env.
 func TestOpenCodeOwnLoginHeadlessToolsOffDeny(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())

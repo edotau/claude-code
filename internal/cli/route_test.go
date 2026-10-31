@@ -188,7 +188,7 @@ func TestRouteEndsNamesResolvedClaudeAccount(t *testing.T) {
 }
 
 // TestRouterStartHelpDoesNotStart: `gateway proxy -h` printed nothing and spawned the daemon (seen 2026-10-23 when
-// an opencode audit leg asked for help). The flag must print usage and leave the router alone.
+// an opencode audit dispatch asked for help). The flag must print usage and leave the router alone.
 func TestRouterStartHelpDoesNotStart(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	for _, args := range [][]string{{"proxy", "-h"}, {"proxy", "--help"}, {"-h"}} {
@@ -284,14 +284,14 @@ func TestRouterPreviewMatchesDispatch(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if len(got.Candidates) != len(chain.Legs) {
-				t.Fatalf("preview has %d candidates, dispatch %d\n%s", len(got.Candidates), len(chain.Legs), out)
+			if len(got.Candidates) != len(chain.Dispatches) {
+				t.Fatalf("preview has %d candidates, dispatch %d\n%s", len(got.Candidates), len(chain.Dispatches), out)
 			}
-			for i, leg := range chain.Legs {
+			for i, disp := range chain.Dispatches {
 				c := got.Candidates[i]
-				if c.Agent != leg.Agent.Name() || c.AccountKey != leg.Account || (c.Model != leg.Model && c.Agent != "claude") {
+				if c.Agent != disp.Agent.Name() || c.AccountKey != disp.Account || (c.Model != disp.Model && c.Agent != "claude") {
 					t.Errorf("#%d preview %s/%s/%s, dispatch %s/%s/%s", i+1, c.Agent, c.AccountKey, c.Model,
-						leg.Agent.Name(), leg.Account, leg.Model)
+						disp.Agent.Name(), disp.Account, disp.Model)
 				}
 			}
 			var skips []string

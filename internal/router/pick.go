@@ -20,7 +20,7 @@ const (
 	GateOff       = "off"  // the agent is deactivated (<AGENT>_ACTIVE=off)
 )
 
-// Candidate is one runnable leg: the runner, its cell at the tier, its account's state and its composite score.
+// Candidate is one runnable dispatch: the runner, its cell at the tier, its account's state and its composite score.
 type Candidate struct {
 	Agent string `json:"agent"`
 	Cell
@@ -236,7 +236,7 @@ func (t *RouteTable) opencodeOrder() []string {
 // which checks the cell's model prefix) and quota. The first to clear every gate wins; a low account sorts
 // after the non-low ones while otherwise keeping this order. ok is false when every sub-candidate was skipped.
 // When the winner bills free, the first surviving paid sub-candidate rides along right after it, so a stalled
-// free leg has a ready backup without a second opencode pick.
+// free dispatch has a ready backup without a second opencode pick.
 func (t *RouteTable) gateOpencodeCandidate(
 	ctx context.Context, tier, only string, st State, o PickOpts, now time.Time,
 	configured func(runner string, c Cell) error, res *PickResult,

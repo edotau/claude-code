@@ -56,16 +56,16 @@ func TestPinFirstFallback(t *testing.T) {
 			t.Fatal(err)
 		}
 		fakes := make(map[string]*pinFallbackRunner)
-		for i := range c.Legs {
-			f := &pinFallbackRunner{name: c.Legs[i].Agent.Name(), res: Result{Answer: "answer from " + c.Legs[i].Agent.Name()}}
+		for i := range c.Dispatches {
+			f := &pinFallbackRunner{name: c.Dispatches[i].Agent.Name(), res: Result{Answer: "answer from " + c.Dispatches[i].Agent.Name()}}
 			if fakes[f.name] != nil {
-				t.Fatalf("duplicate leg %q: %+v", f.name, c.Legs)
+				t.Fatalf("duplicate dispatch %q: %+v", f.name, c.Dispatches)
 			}
-			fakes[f.name], c.Legs[i].Agent = f, f
+			fakes[f.name], c.Dispatches[i].Agent = f, f
 		}
 		for _, name := range []string{"codex", "opencode"} {
 			if fakes[name] == nil {
-				t.Fatalf("missing %s leg: %+v; skipped %v", name, c.Legs, c.Skipped)
+				t.Fatalf("missing %s dispatch: %+v; skipped %v", name, c.Dispatches, c.Skipped)
 			}
 		}
 		return c, pick, fakes
@@ -86,18 +86,18 @@ func TestPinFirstFallback(t *testing.T) {
 		}
 	}
 
-	t.Run("legs", func(t *testing.T) {
+	t.Run("dispatches", func(t *testing.T) {
 		c, pick, _ := setup(t, false)
 		var got []string
-		for _, leg := range c.Legs {
-			got = append(got, leg.Agent.Name()+" ("+leg.Account+")")
+		for _, disp := range c.Dispatches {
+			got = append(got, disp.Agent.Name()+" ("+disp.Account+")")
 		}
 		want := []string{"codex (openai·chatgpt)", "opencode (opencode·go)", "claude (anthropic·max)"}
 		if !slices.Equal(got, want) {
-			t.Fatalf("legs = %v, want %v", got, want)
+			t.Fatalf("dispatches = %v, want %v", got, want)
 		}
-		if c.Legs[0].Model != "chatgpt:gpt-6.1-sol" || c.Legs[2].Model != "sonnet" {
-			t.Errorf("models = %q, %q; want pinned codex and claude at sonnet", c.Legs[0].Model, c.Legs[2].Model)
+		if c.Dispatches[0].Model != "chatgpt:gpt-6.1-sol" || c.Dispatches[2].Model != "sonnet" {
+			t.Errorf("models = %q, %q; want pinned codex and claude at sonnet", c.Dispatches[0].Model, c.Dispatches[2].Model)
 		}
 		for _, name := range []string{"copilot", "gemini"} {
 			if !slices.ContainsFunc(pick.Skipped, func(s router.Skip) bool { return s.Agent == name && s.Gate == router.GateOff }) {

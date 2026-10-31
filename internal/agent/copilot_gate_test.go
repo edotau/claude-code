@@ -80,7 +80,7 @@ func TestExplicitAccountCopilotLoginIsPinnedUser(t *testing.T) {
 	}
 }
 
-// An exhausted mark on copilot:<pin> does not pre-skip the explicit leg (the gate falls to Databricks), and a
+// An exhausted mark on copilot:<pin> does not pre-skip the explicit dispatch (the gate falls to Databricks), and a
 // quota failure on it is recorded on that account.
 func TestExplicitChainCopilotNotPreSkippedAndMarks(t *testing.T) {
 	ghLogin(t, "alice", 10)
@@ -88,8 +88,8 @@ func TestExplicitChainCopilotNotPreSkippedAndMarks(t *testing.T) {
 	cp := &fakeRunner{name: "copilot", errs: []error{quota}, emptyAnswer: true}
 	req := RunOptions{Prompt: "p", Provider: "personal"}
 	c := ExplicitChain(cp, req)
-	if len(c.Legs) != 1 || c.Legs[0].Account != "github·alice" {
-		t.Fatalf("chain = %+v, want one leg on github·alice", c)
+	if len(c.Dispatches) != 1 || c.Dispatches[0].Account != "github·alice" {
+		t.Fatalf("chain = %+v, want one dispatch on github·alice", c)
 	}
 	if _, err := RunWithFallback(context.Background(), c, req, Discard, nil); err == nil {
 		t.Fatal("the quota failure must surface")
@@ -98,13 +98,13 @@ func TestExplicitChainCopilotNotPreSkippedAndMarks(t *testing.T) {
 		t.Fatalf("github·alice not marked: %+v", e)
 	}
 	again := ExplicitChain(cp, req)
-	if len(again.Legs) != 1 || len(again.Skipped) != 0 {
-		t.Errorf("exhausted GitHub-login leg must stay in the chain: %+v", again)
+	if len(again.Dispatches) != 1 || len(again.Skipped) != 0 {
+		t.Errorf("exhausted GitHub-login dispatch must stay in the chain: %+v", again)
 	}
 }
 
 // vendorTargetNote gates an explicit --provider personal (the GitHub login): kept under 95%, refused to Databricks (or an
-// error naming no credit-free route) at/over it — never silently another GitHub leg.
+// error naming no credit-free route) at/over it — never silently another GitHub dispatch.
 func TestVendorTargetNoteExplicitCopilotGated(t *testing.T) {
 	req := RunOptions{Prompt: "p", Provider: "personal"}
 
@@ -320,15 +320,15 @@ func TestCopilotGateThreshold(t *testing.T) {
 				if got.Provider != gh.Provider || note != "" {
 					t.Errorf("workable pin must keep GitHub silently: %v %q", got.Provider.Name, note)
 				}
-				if ri := describeCopilotRoute(reg); ri.Leg != LegCopilotLogin {
-					t.Errorf("describe leg = %q, want copilot-login", ri.Leg)
+				if ri := describeCopilotRoute(reg); ri.Route != RouteCopilotLogin {
+					t.Errorf("describe dispatch = %q, want copilot-login", ri.Route)
 				}
 				return
 			}
 			if got.Provider.Name != "dev" || !strings.Contains(note, "alice") {
 				t.Errorf("want dev with a notice naming alice, got %s %q", got.Provider.Name, note)
 			}
-			if ri := describeCopilotRoute(reg); ri.Leg != LegDatabricks || ri.Provider != "dev" {
+			if ri := describeCopilotRoute(reg); ri.Route != RouteDatabricks || ri.Provider != "dev" {
 				t.Errorf("describe = %+v, want databricks dev", ri)
 			}
 		})
@@ -394,7 +394,7 @@ func TestCopilotGateNonLoginProviderUntouched(t *testing.T) {
 	}
 }
 
-// TestCopilotDatabricksFallbackOrder pins vault pin databricks row, then first OK env, then LegNone — never GitHub.
+// TestCopilotDatabricksFallbackOrder pins vault pin databricks row, then first OK env, then RouteNone — never GitHub.
 func TestCopilotDatabricksFallbackOrder(t *testing.T) {
 	t.Run("vault pin databricks row wins", func(t *testing.T) {
 		reg := gateReg(t, map[string]bool{"dev": true, "prod": true})
@@ -402,7 +402,7 @@ func TestCopilotDatabricksFallbackOrder(t *testing.T) {
 		if err := providers.SetPins(map[string]string{providers.PinProfile: "prod"}); err != nil {
 			t.Fatal(err)
 		}
-		if ri := copilotDatabricksFallback(reg, "d"); !ri.OK || ri.Provider != "prod" || ri.Leg != LegDatabricks {
+		if ri := copilotDatabricksFallback(reg, "d"); !ri.OK || ri.Provider != "prod" || ri.Route != RouteDatabricks {
 			t.Errorf("got %+v, want prod", ri)
 		}
 	})
@@ -416,17 +416,17 @@ func TestCopilotDatabricksFallbackOrder(t *testing.T) {
 			t.Errorf("got %+v, want qa (the only OK row)", ri)
 		}
 	})
-	t.Run("all failing is LegNone, never GitHub", func(t *testing.T) {
+	t.Run("all failing is RouteNone, never GitHub", func(t *testing.T) {
 		reg := gateReg(t, nil)
 		gh := gateSetup(t, 99, true, reg)
 		ri := copilotDatabricksFallback(reg, "alice 99.0% of credits used")
-		if ri.OK || ri.Leg != LegNone || !strings.Contains(ri.Reason, "no credit-free route for copilot") {
+		if ri.OK || ri.Route != RouteNone || !strings.Contains(ri.Reason, "no credit-free route for copilot") {
 			t.Errorf("got %+v", ri)
 		}
 		if _, _, err := copilotGate(reg, gh); err == nil || !strings.Contains(err.Error(), "no credit-free route") {
 			t.Errorf("gate err = %v, want no credit-free route", err)
 		}
-		if d := describeCopilotRoute(reg); d.Leg == LegCopilotLogin || d.Provider == "personal" {
+		if d := describeCopilotRoute(reg); d.Route == RouteCopilotLogin || d.Provider == "personal" {
 			t.Errorf("describe must never fall to GitHub: %+v", d)
 		}
 	})

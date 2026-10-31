@@ -80,9 +80,9 @@ type Result struct {
 	Emulated        []string        `json:"emulated,omitempty"`        // flags the harness shimmed because the agent has no channel
 	Fallback        string          `json:"fallback,omitempty"`        // set to the original agent's name when it ran instead
 	FallbackReason  string          `json:"fallback_reason,omitempty"` // why the original agent was unavailable
-	Handoff         string          `json:"handoff,omitempty"`         // hand-off file written when a copilot leg hit its quota
+	Handoff         string          `json:"handoff,omitempty"`         // hand-off file written when a copilot dispatch hit its quota
 	Transport       *Transport      `json:"transport,omitempty"`       // stream health; fields an agent can't report stay absent
-	Hops            []Hop           `json:"hops,omitempty"`            // every leg RunWithFallback tried, in order
+	Hops            []Hop           `json:"hops,omitempty"`            // every dispatch RunWithFallback tried, in order
 	Structured      json.RawMessage `json:"-"`                         // the answer as JSON satisfying RunOptions.OutputSchema
 	recovered       []*Error        // attempts that failed before the successful one, for the hop's errors
 }
@@ -94,14 +94,14 @@ func withCoolKey(ctx context.Context, key string) context.Context {
 	return context.WithValue(ctx, coolKey{}, key)
 }
 
-// Hop is one leg RunWithFallback tried; ErrorKind is the envelope error token, empty when the leg answered.
+// Hop is one dispatch RunWithFallback tried; ErrorKind is the envelope error token, empty when the dispatch answered.
 type Hop struct {
 	Agent     string `json:"agent"`
 	Account   string `json:"account,omitempty"`
 	Profile   string `json:"profile,omitempty"`
 	Model     string `json:"model,omitempty"`
 	ErrorKind string `json:"error_kind,omitempty"`
-	// Errors lists every attempt's failure, oldest first, when the leg was retried.
+	// Errors lists every attempt's failure, oldest first, when the dispatch was retried.
 	Errors []EnvelopeError `json:"errors,omitempty"`
 }
 
@@ -556,17 +556,17 @@ func askedSkips(reasons []string, want string) []string {
 	})
 }
 
-// RunWithFallback runs c's legs in turn while the previous one turned out unavailable — binary missing, no provider
+// RunWithFallback runs c's dispatches in turn while the previous one turned out unavailable — binary missing, no provider
 // can serve it, a login/quota failure, or an exit with no answer. It never moves on after a timeout, cancellation,
 // an oversized prompt or a partial answer, nor when the caller pinned an explicit non-Claude --provider/--model.
-// A KindQuota failure marks the leg's account until its reset. The result names the wanted agent in Fallback and
-// every gate skip and failed leg in FallbackReason.
+// A KindQuota failure marks the dispatch's account until its reset. The result names the wanted agent in Fallback and
+// every gate skip and failed dispatch in FallbackReason.
 func RunWithFallback(ctx context.Context, c Chain, req RunOptions, sink Sink, notify func(string)) (Result, error) {
 	if sink == nil {
 		sink = Discard
 	}
 	reasons := slices.Clone(c.Skipped)
-	if len(c.Legs) == 0 {
+	if len(c.Dispatches) == 0 {
 		return Result{Agent: c.Want, Status: StatusError, FallbackReason: strings.Join(reasons, "; ")},
 			&Error{Kind: KindFatal, Agent: c.Want, Err: fmt.Errorf("no agent available: %s%s", strings.Join(reasons, "; "), switchHint(reasons))}
 	}
@@ -576,18 +576,18 @@ func RunWithFallback(ctx context.Context, c Chain, req RunOptions, sink Sink, no
 	var res Result
 	var err error
 	var prev Runner
-	var prevLeg Leg
-	stopped := false   // the loop ended on a fail-fast, not by running out of legs
-	ran := 0           // index of the last leg that ran
-	var handoff string // a copilot quota hand-off survives the legs that run after it
+	var prevDispatch Dispatch
+	stopped := false   // the loop ended on a fail-fast, not by running out of dispatches
+	ran := 0           // index of the last dispatch that ran
+	var handoff string // a copilot quota hand-off survives the dispatches that run after it
 	var hops []Hop
-	for i, leg := range c.Legs {
-		if i > 0 && !legUnavailable(prev, res, err) { // an answer (or a final failure) ends the chain before any cancel check
+	for i, disp := range c.Dispatches {
+		if i > 0 && !dispatchUnavailable(prev, res, err) { // an answer (or a final failure) ends the chain before any cancel check
 			stopped = true
 			break
 		}
-		if cerr := ctx.Err(); cerr != nil { // a cancelled batch must not start another leg
-			ce := &Error{Kind: KindFatal, Agent: leg.Agent.Name(), Err: cerr}
+		if cerr := ctx.Err(); cerr != nil { // a cancelled batch must not start another dispatch
+			ce := &Error{Kind: KindFatal, Agent: disp.Agent.Name(), Err: cerr}
 			if i == 0 {
 				return Result{Agent: ce.Agent, Status: statusOf(ce)}, ce
 			}
@@ -595,75 +595,75 @@ func RunWithFallback(ctx context.Context, c Chain, req RunOptions, sink Sink, no
 			break
 		}
 		if i > 0 {
-			reasons = append(reasons, hopLabel(prevLeg)+": "+fallbackReason(err))
+			reasons = append(reasons, hopLabel(prevDispatch)+": "+fallbackReason(err))
 			if notify != nil {
-				notify(fmt.Sprintf("%s unavailable (%s) — falling back to %s%s", legLabel(prev), fallbackReason(err), legLabel(leg.Agent), legCell(leg)))
+				notify(fmt.Sprintf("%s unavailable (%s) — falling back to %s%s", dispatchLabel(prev), fallbackReason(err), dispatchLabel(disp.Agent), dispatchCell(disp)))
 			}
-			hop := Event{Type: EventRetry, Agent: leg.Agent.Name(),
-				Text: fmt.Sprintf("fallback %s → %s: %s", legLabel(prev), legLabel(leg.Agent), fallbackReason(err))}
+			hop := Event{Type: EventRetry, Agent: disp.Agent.Name(),
+				Text: fmt.Sprintf("fallback %s → %s: %s", dispatchLabel(prev), dispatchLabel(disp.Agent), fallbackReason(err))}
 			if serr := sink.Emit(hop); serr != nil {
-				return res, &Error{Kind: KindFatal, Agent: leg.Agent.Name(), Err: serr}
+				return res, &Error{Kind: KindFatal, Agent: disp.Agent.Name(), Err: serr}
 			}
 		}
-		lreq := legRequest(req, leg, i == 0 && leg.Agent.Name() == c.Want)
-		ctx, leg := freezeCopilot(ctx, leg, lreq)           // per leg: the gate's real target, before any permit or cooldown key
-		leg = ownLoginActual(leg, lreq)                     // the hop and its quota key name what the runner resolves
-		key := cmp.Or(leg.Account, leg.Agent.Name()+"·own") // own-login legs still share one cap and cooldown per agent
-		waitCooldown(ctx, key, DefaultMaxDelay)             // holds nothing
+		lreq := dispatchRequest(req, disp, i == 0 && disp.Agent.Name() == c.Want)
+		ctx, disp := freezeCopilot(ctx, disp, lreq)           // per dispatch: the gate's real target, before any permit or cooldown key
+		disp = ownLoginActual(disp, lreq)                     // the hop and its quota key name what the runner resolves
+		key := cmp.Or(disp.Account, disp.Agent.Name()+"·own") // own-login dispatches still share one cap and cooldown per agent
+		waitCooldown(ctx, key, DefaultMaxDelay)               // holds nothing
 		panicked := false
-		func() { // the leg's scope: fail-fast is decided and a panic caught before the permit is released
-			release, aerr := acquireLeg(ctx, key) // per billed account, whichever key the task was queued under
+		func() { // the dispatch's scope: fail-fast is decided and a panic caught before the permit is released
+			release, aerr := acquireDispatch(ctx, key) // per billed account, whichever key the task was queued under
 			if aerr != nil {
-				ce := &Error{Kind: KindFatal, Agent: leg.Agent.Name(), Err: aerr}
+				ce := &Error{Kind: KindFatal, Agent: disp.Agent.Name(), Err: aerr}
 				res, err = Result{Agent: ce.Agent, Status: statusOf(ce), Invoked: lreq.Model}, ce
-				hops = append(hops, hopOf(leg, lreq, res, err))
+				hops = append(hops, hopOf(disp, lreq, res, err))
 				return
 			}
 			held := &permit{account: key, release: release,
-				recheck: func() *Error { return cmp.Or(exhaustedSince(leg), authMarkedSince(leg)) }}
+				recheck: func() *Error { return cmp.Or(exhaustedSince(disp), authMarkedSince(disp)) }}
 			defer func() {
 				if r := recover(); r != nil {
 					if ctx.Value(limiterKey{}) == nil {
 						held.release()
 						panic(r)
 					}
-					pe := &Error{Kind: KindFatal, Agent: leg.Agent.Name(), Err: fmt.Errorf("panic: %v", r)}
+					pe := &Error{Kind: KindFatal, Agent: disp.Agent.Name(), Err: fmt.Errorf("panic: %v", r)}
 					res, err = Result{Agent: pe.Agent, Status: StatusError, Invoked: lreq.Model}, pe
-					hops = append(hops, hopOf(leg, lreq, res, err))
+					hops = append(hops, hopOf(disp, lreq, res, err))
 					panicked = true
 				}
 				if panicked {
-					tripFailFast(ctx, Chain{}, 0, req, res, err) // a panic is terminal: no later leg repeats its side effects
+					tripFailFast(ctx, Chain{}, 0, req, res, err) // a panic is terminal: no later dispatch repeats its side effects
 				} else {
 					tripFailFast(ctx, c, i, req, res, err)
 				}
 				held.release()
 			}()
-			// another task may have marked this account dead while this leg waited for its permit
-			if skip := cmp.Or(exhaustedSince(leg), authMarkedSince(leg)); skip != nil {
-				res, err = Result{Agent: leg.Agent.Name(), Status: statusOf(skip), Invoked: lreq.Model}, skip
-				hops = append(hops, hopOf(leg, lreq, res, err))
+			// another task may have marked this account dead while this dispatch waited for its permit
+			if skip := cmp.Or(exhaustedSince(disp), authMarkedSince(disp)); skip != nil {
+				res, err = Result{Agent: disp.Agent.Name(), Status: statusOf(skip), Invoked: lreq.Model}, skip
+				hops = append(hops, hopOf(disp, lreq, res, err))
 				return
 			}
-			res, err = Run(context.WithValue(withCoolKey(ctx, key), permitKey{}, held), leg.Agent, lreq, sink, notify)
+			res, err = Run(context.WithValue(withCoolKey(ctx, key), permitKey{}, held), disp.Agent, lreq, sink, notify)
 			res.Invoked = lreq.Model
-			if next := retryModel(leg, lreq, err); next != "" { // once: the same agent on the next pool model
-				hops = append(hops, hopOf(leg, lreq, res, err))
+			if next := retryModel(disp, lreq, err); next != "" { // once: the same agent on the next pool model
+				hops = append(hops, hopOf(disp, lreq, res, err))
 				lreq.Model = next
-				res, err = Run(context.WithValue(withCoolKey(ctx, key), permitKey{}, held), leg.Agent, lreq, sink, notify)
+				res, err = Run(context.WithValue(withCoolKey(ctx, key), permitKey{}, held), disp.Agent, lreq, sink, notify)
 				res.Invoked = lreq.Model
 			}
-			hops = append(hops, hopOf(leg, lreq, res, err))
-			noteQuota(leg, err)
-			noteAuth(leg, err)
-			noteStall(leg, err)
+			hops = append(hops, hopOf(disp, lreq, res, err))
+			noteQuota(disp, err)
+			noteAuth(disp, err)
+			noteStall(disp, err)
 		}()
 		if res.Handoff != handoff {
 			req.Prompt = promptFromHandoff(res.Handoff, req.Prompt)
 		}
 		handoff = cmp.Or(res.Handoff, handoff)
-		prev, prevLeg, ran = leg.Agent, leg, i
-		if panicked { // after the bookkeeping, so a panicking fallback leg is still reported as the fallback
+		prev, prevDispatch, ran = disp.Agent, disp, i
+		if panicked { // after the bookkeeping, so a panicking fallback dispatch is still reported as the fallback
 			stopped = true
 			break
 		}
@@ -673,9 +673,9 @@ func RunWithFallback(ctx context.Context, c Chain, req RunOptions, sink Sink, no
 		}
 	}
 	if err != nil && !stopped && len(reasons) > 0 && hopFailed(res, err) {
-		err = everyHopFailed(append(reasons, hopLabel(prevLeg)+": "+fallbackReason(err)), err)
+		err = everyHopFailed(append(reasons, hopLabel(prevDispatch)+": "+fallbackReason(err)), err)
 	}
-	if ran > 0 || c.Legs[ran].otherRoute || c.Legs[ran].Agent.Name() != c.Want { // a different agent or route is a fallback
+	if ran > 0 || c.Dispatches[ran].otherRoute || c.Dispatches[ran].Agent.Name() != c.Want { // a different agent or route is a fallback
 		res.Fallback, res.FallbackReason = c.Want, strings.Join(reasons, "; ")
 	}
 	res.Handoff, res.Hops = handoff, hops
@@ -687,15 +687,15 @@ func promptFromHandoff(path, prompt string) string {
 	if path == "" {
 		return prompt
 	}
-	if doc, err := os.ReadFile(path); err == nil { // later legs pick up the progress, not the bare task
+	if doc, err := os.ReadFile(path); err == nil { // later dispatches pick up the progress, not the bare task
 		return handoffPrompt(string(doc))
 	}
 	return prompt
 }
 
-// hopOf records one tried leg: who ran, on which account and profile, and the error token if it failed.
-func hopOf(leg Leg, req RunOptions, res Result, err error) Hop {
-	h := Hop{Agent: cmp.Or(res.Agent, leg.Agent.Name()), Account: leg.Account, Profile: cmp.Or(res.Provider, req.Provider),
+// hopOf records one tried dispatch: who ran, on which account and profile, and the error token if it failed.
+func hopOf(disp Dispatch, req RunOptions, res Result, err error) Hop {
+	h := Hop{Agent: cmp.Or(res.Agent, disp.Agent.Name()), Account: disp.Account, Profile: cmp.Or(res.Provider, req.Provider),
 		Model: cmp.Or(res.Model, req.Model)}
 	if err != nil {
 		h.ErrorKind = errorKind(err)
@@ -705,14 +705,14 @@ func hopOf(leg Leg, req RunOptions, res Result, err error) Hop {
 			}
 		}
 	}
-	for _, a := range res.recovered { // a leg that answered after retries still lists what it recovered from
+	for _, a := range res.recovered { // a dispatch that answered after retries still lists what it recovered from
 		h.Errors = append(h.Errors, EnvelopeError{Kind: errorKind(a), Message: shapes.Redact(a.attemptMessage())})
 	}
 	return h
 }
 
-// legCell is " (model, effort)" for a routed leg, "" for an unrouted one.
-func legCell(l Leg) string {
+// dispatchCell is " (model, effort)" for a routed dispatch, "" for an unrouted one.
+func dispatchCell(l Dispatch) string {
 	if l.Model == "" {
 		return ""
 	}
@@ -722,12 +722,12 @@ func legCell(l Leg) string {
 	return " (" + l.Model + ")"
 }
 
-// hopLabel is legLabel plus the hop's account, "codex (openai·chatgpt)".
-func hopLabel(l Leg) string {
+// hopLabel is dispatchLabel plus the hop's account, "codex (openai·chatgpt)".
+func hopLabel(l Dispatch) string {
 	if l.Account == "" {
-		return legLabel(l.Agent)
+		return dispatchLabel(l.Agent)
 	}
-	return legLabel(l.Agent) + " (" + l.Account + ")"
+	return dispatchLabel(l.Agent) + " (" + l.Account + ")"
 }
 
 // everyHopFailed wraps the last failure with every skip and failed hop, keeping its Kind.
@@ -751,9 +751,9 @@ func switchHint(reasons []string) string {
 	return ""
 }
 
-// legLabel names a leg in fallback reasons: a hub leg by its account, since every hub leg shares the agent name.
-func legLabel(r Runner) string {
-	if l, ok := r.(hubLeg); ok {
+// dispatchLabel names a dispatch in fallback reasons: a hub dispatch by its account, since every hub dispatch shares the agent name.
+func dispatchLabel(r Runner) string {
+	if l, ok := r.(hubDispatch); ok {
 		return l.provider.Name
 	}
 	return r.Name()
@@ -769,10 +769,10 @@ func fallbackReason(err error) string {
 	return s
 }
 
-// legUnavailable narrows "the leg failed" to "the leg itself is unreachable": the binary, the resolved target,
+// dispatchUnavailable narrows "the dispatch failed" to "the dispatch itself is unreachable": the binary, the resolved target,
 // or the exec failed before producing an answer — excluding timeouts, cancellation, an oversized prompt and a
 // partial answer. claude/api are the end of every chain and never count as unavailable here.
-func legUnavailable(r Runner, res Result, err error) bool {
+func dispatchUnavailable(r Runner, res Result, err error) bool {
 	if requestFault(err) {
 		return false
 	}
@@ -784,7 +784,7 @@ func legUnavailable(r Runner, res Result, err error) bool {
 	return (!ok || s.External()) && hopFailed(res, err)
 }
 
-// hopFailed is true when a leg failed before giving any answer for a reason a later hop could fix.
+// hopFailed is true when a dispatch failed before giving any answer for a reason a later hop could fix.
 func hopFailed(res Result, err error) bool {
 	if err == nil || res.Answer != "" || requestFault(err) {
 		return false

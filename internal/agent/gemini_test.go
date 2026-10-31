@@ -335,7 +335,7 @@ func geminiCells(t *testing.T, pin string) []string {
 	return models
 }
 
-// GEMINI_MODEL pin on the profile-less (native agy login) gemini leg beats the table cell.
+// GEMINI_MODEL pin on the profile-less (native agy login) gemini dispatch beats the table cell.
 func TestGeminiModelPinBeatsTableCellWithoutProfile(t *testing.T) {
 	got := geminiCells(t, "gemini-pinned-x")
 	if len(got) == 0 {

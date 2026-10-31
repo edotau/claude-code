@@ -15,7 +15,7 @@ import (
 	"github.com/edotau/claude-code/internal/vault"
 )
 
-// fakeModelsServer serves the OpenAI-shaped {"data":[{"id":...}]} catalog listLive's non-copilot leg GETs.
+// fakeModelsServer serves the OpenAI-shaped {"data":[{"id":...}]} catalog listLive's non-copilot dispatch GETs.
 func fakeModelsServer(t *testing.T, ids []string) *httptest.Server {
 	t.Helper()
 	type entry struct {
@@ -119,7 +119,7 @@ func TestValidateCopilotPinsProviderFlagFallback(t *testing.T) {
 	}
 }
 
-// listLive's copilot leg (dispatched via the provider name, listLiveCopilot no longer exists standalone)
+// listLive's copilot dispatch (dispatched via the provider name, listLiveCopilot no longer exists standalone)
 // reports the copilot CLI as not found (never a panic) when it is absent from bin/.
 func TestListLiveCopilotReportsMissingCLI(t *testing.T) {
 	cliScratch(t)
@@ -151,7 +151,7 @@ func TestCopilotModelIDsReportsMissingVendorBin(t *testing.T) {
 	}
 }
 
-// listLive's non-copilot leg renders a fake provider's catalog as JSON rows, each carrying a use_case.
+// listLive's non-copilot dispatch renders a fake provider's catalog as JSON rows, each carrying a use_case.
 func TestListLiveJSONFormatsFakeCatalog(t *testing.T) {
 	cliScratch(t)
 	srv := fakeModelsServer(t, []string{"model-a", "model-b"})
@@ -178,7 +178,7 @@ func TestListLiveJSONFormatsFakeCatalog(t *testing.T) {
 	}
 }
 
-// listLive's subscription (passthrough) leg falls back to the registry's configured models on a 401,
+// listLive's subscription (passthrough) dispatch falls back to the registry's configured models on a 401,
 // and never prints the OAuth bearer token it tried — in the note, the table, or anywhere else.
 func TestListLiveSubscriptionFallbackNeverPrintsToken(t *testing.T) {
 	cliScratch(t)

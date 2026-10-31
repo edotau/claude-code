@@ -167,6 +167,57 @@ func flagNames(node *compNode) []string {
 	return slices.Sorted(maps.Keys(seen))
 }
 
+// verbSub is one subverb in the dashboard's CLI tree.
+type verbSub struct {
+	Name  string   `json:"name"`
+	Flags []string `json:"flags,omitempty"`
+}
+
+// verbNode is one top-level verb in the dashboard's CLI tree: its own flags plus each subverb's.
+type verbNode struct {
+	Name     string    `json:"name"`
+	Group    string    `json:"group,omitempty"`
+	Summary  string    `json:"summary"`
+	Hidden   bool      `json:"hidden"`
+	Flags    []string  `json:"flags,omitempty"`
+	Subverbs []verbSub `json:"subverbs,omitempty"`
+}
+
+// ownFlagNames lists only node's own flags ("--flag" or "--flag <value>"), sorted.
+func ownFlagNames(node *compNode) []string {
+	if node == nil {
+		return nil
+	}
+	var out []string
+	for _, f := range node.flags {
+		name := "--" + f.name
+		if !f.isBool {
+			name += " <value>"
+		}
+		out = append(out, name)
+	}
+	slices.Sort(out)
+	return out
+}
+
+// verbTree is the verb map behind the network page's Architecture tab, in menu order.
+func verbTree() []verbNode {
+	tree := specTree()
+	var out []verbNode
+	for _, c := range commands() {
+		if strings.HasPrefix(c.name, "__") {
+			continue
+		}
+		node := tree[c.name]
+		v := verbNode{Name: c.name, Group: c.group, Summary: c.summary, Hidden: c.hidden, Flags: ownFlagNames(node)}
+		for _, w := range subwordNames(node) {
+			v.Subverbs = append(v.Subverbs, verbSub{Name: w, Flags: ownFlagNames(node.sub[w])})
+		}
+		out = append(out, v)
+	}
+	return out
+}
+
 func printDescribe(d Describe) {
 	fmt.Printf("claude-code %s\ncommands:\n", d.Version)
 	for _, c := range d.Commands {

@@ -146,7 +146,7 @@ func opencodeModels(p *providers.Provider, model string, h *Headless) map[string
 	return menu
 }
 
-// opencodeRunArgv is opencodeRun exported for the hub runner (internal/agent): one ladder leg execs
+// opencodeRunArgv is opencodeRun exported for the hub runner (internal/agent): one ladder dispatch execs
 // `opencode run` directly on an opencode-native "provider/model" id, bypassing the harness-route config.
 func opencodeRunArgv(model string, h Headless) (env, argv []string) {
 	env, argv = opencodeRun(model, h)
@@ -295,7 +295,7 @@ func mutateOpencodeConfigEnv(env []string, lenient bool, fn func(map[string]any)
 	return append(env, opencodeConfigEnv+"="+string(out)), nil
 }
 
-// opencodeOverlayModels is the overlay's model/small_model: github-copilot/ ids on the copilot-only leg (no
+// opencodeOverlayModels is the overlay's model/small_model: github-copilot/ ids on the copilot-only dispatch (no
 // opencode-go login, so the table's opencode-go cells would be unservable), else the table's opencode cells.
 func opencodeOverlayModels() (mainModel, smallModel string, ok bool) {
 	if !OpencodeOwnLoginPresent() && OpencodeCopilotLoginPresent() {

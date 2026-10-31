@@ -22,7 +22,7 @@ func TestExplorePromptHasFiveSections(t *testing.T) {
 		"file:line", "how does X work?")
 }
 
-// web=false must omit the web-research leg entirely (no URL-citation instruction).
+// web=false must omit the web-research dispatch entirely (no URL-citation instruction).
 func TestExplorePromptOmitsWebWhenDisabled(t *testing.T) {
 	got := ExplorePrompt("q", false)
 	if strings.Contains(got, "URL") || strings.Contains(got, "web") {
@@ -30,7 +30,7 @@ func TestExplorePromptOmitsWebWhenDisabled(t *testing.T) {
 	}
 }
 
-// web=true appends the web-research leg, which cites claims by URL.
+// web=true appends the web-research dispatch, which cites claims by URL.
 func TestExplorePromptIncludesWebWhenEnabled(t *testing.T) {
 	got := ExplorePrompt("q", true)
 	assertContainsAll(t, got, "web", "URL")

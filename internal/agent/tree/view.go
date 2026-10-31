@@ -55,21 +55,21 @@ type Event struct {
 
 // Snapshot is one agent's drill-down view: `claude-code network view <id>`.
 type Snapshot struct {
-	ID          string    `json:"id"`
-	SessionID   string    `json:"sessionId"`
-	Label       string    `json:"label"`
-	Workflow    string    `json:"workflow,omitempty"`
-	Phase       string    `json:"phase,omitempty"`
-	Model       string    `json:"model,omitempty"`
-	Effort      string    `json:"effort,omitempty"`
-	Status      string    `json:"status"`
-	Updated     time.Time `json:"updated"`
-	Tokens      Tokens    `json:"tokens"`
-	FilesEdited []string  `json:"filesEdited,omitempty"`
-	Legs        []Leg     `json:"legs,omitempty"`
-	Activity    *Activity `json:"activity,omitempty"`
-	Result      string    `json:"result,omitempty"`
-	Events      []Event   `json:"events,omitempty"`
+	ID          string     `json:"id"`
+	SessionID   string     `json:"sessionId"`
+	Label       string     `json:"label"`
+	Workflow    string     `json:"workflow,omitempty"`
+	Phase       string     `json:"phase,omitempty"`
+	Model       string     `json:"model,omitempty"`
+	Effort      string     `json:"effort,omitempty"`
+	Status      string     `json:"status"`
+	Updated     time.Time  `json:"updated"`
+	Tokens      Tokens     `json:"tokens"`
+	FilesEdited []string   `json:"filesEdited,omitempty"`
+	Dispatches  []Dispatch `json:"legs,omitempty"`
+	Activity    *Activity  `json:"activity,omitempty"`
+	Result      string     `json:"result,omitempty"`
+	Events      []Event    `json:"events,omitempty"`
 }
 
 // agentLocation is where one resolved agent's transcript lives: its session, and the workflow run
@@ -171,7 +171,7 @@ func snapshotFrom(loc agentLocation, now time.Time, n int) Snapshot {
 		Workflow: loc.RunID, Phase: transcript.WorkflowPhaseFromMeta(loc.TranscriptPath, io.Discard),
 		Model: meta.Model, Effort: effortForLabel(loc, j.Label),
 		Status: sub.Status, Updated: sub.Updated, Tokens: sub.Tokens,
-		FilesEdited: editedFiles(loc.TranscriptPath), Legs: sub.Legs, Activity: sub.Activity,
+		FilesEdited: editedFiles(loc.TranscriptPath), Dispatches: sub.Dispatches, Activity: sub.Activity,
 		Result: result, Events: events,
 	}
 }
@@ -369,8 +369,8 @@ func RenderSnapshot(w io.Writer, snap Snapshot) {
 	for _, f := range snap.FilesEdited {
 		fmt.Fprintf(w, "  edited %s\n", f)
 	}
-	for _, leg := range snap.Legs {
-		fmt.Fprintf(w, "  %s\n", formatLeg(leg))
+	for _, disp := range snap.Dispatches {
+		fmt.Fprintf(w, "  %s\n", formatDispatch(disp))
 	}
 	for _, e := range snap.Events {
 		fmt.Fprintln(w, formatEvent(e))

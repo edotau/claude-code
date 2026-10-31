@@ -16,13 +16,13 @@ import (
 // opencodeLogins is a seam over OpencodeLogins, so tests never shell out to opencode auth.
 var opencodeLogins = OpencodeLogins
 
-// freeFirstOutput overrides the first-output deadline for a free-billed hub leg (route.BillFree); zero (the
+// freeFirstOutput overrides the first-output deadline for a free-billed hub dispatch (route.BillFree); zero (the
 // default) defers to the registry's routing.opencode.freeFirstOutput (providers.OpencodeRouting.FirstOutput,
-// 90s unless the vault overlay sets it). A paid leg carries no deadline (hubLeg.firstOutput stays 0) and
+// 90s unless the vault overlay sets it). A paid dispatch carries no deadline (hubDispatch.firstOutput stays 0) and
 // relies on AttemptTimeout alone.
 var freeFirstOutput time.Duration
 
-// firstOutputDeadline resolves the free-leg stall deadline: the freeFirstOutput override when tests set
+// firstOutputDeadline resolves the free-dispatch stall deadline: the freeFirstOutput override when tests set
 // one, else the registry's own value (a load error falls back to providers.OpencodeRouting's 90s floor).
 func firstOutputDeadline() time.Duration {
 	if freeFirstOutput > 0 {
@@ -35,9 +35,9 @@ func firstOutputDeadline() time.Duration {
 	return reg.Routing.Opencode.FirstOutput()
 }
 
-// errStalled is the sentinel a free leg's Run returns when nothing streamed within firstOutput: a fatal,
-// unwrapped failure, so Do never retries it but legUnavailable falls through to the chain's backup leg.
-var errStalled = errors.New("free leg stalled: no output within the first-output deadline")
+// errStalled is the sentinel a free dispatch's Run returns when nothing streamed within firstOutput: a fatal,
+// unwrapped failure, so Do never retries it but dispatchUnavailable falls through to the chain's backup dispatch.
+var errStalled = errors.New("free dispatch stalled: no output within the first-output deadline")
 
 // IsHubAgent reports whether name is one ask routes through opencode unless --native is set. codex and
 // copilot run their own CLI first (user decision): the hub cannot pass copilot's `auto` or its pinned account.
@@ -45,7 +45,7 @@ func IsHubAgent(name string) bool {
 	return slices.ContainsFunc(rosterRows, func(s Schema) bool { return s.Name == name && s.CLI.Hub })
 }
 
-// HubStart resolves the provider a hub agent's first leg targets: explicitProvider when the caller set
+// HubStart resolves the provider a hub agent's first dispatch targets: explicitProvider when the caller set
 // one (forced, regardless of login or quota), else the first opencodeLadder entry that has a login,
 // falling back to the ladder's first entry at all so the page stays editable with no login anywhere.
 // The ladder orders opencode's own paid backends only — the free Zen catalog (opus excluded, tier- and
@@ -95,33 +95,33 @@ func opencodeLadderProvider(reg *providers.Registry, id string) (*providers.Prov
 	return nil, fmt.Errorf("opencode ladder id %q: no provider has opencodeID %q", id, id)
 }
 
-// hubLeg is one opencode-routed ladder step: `opencode run -m <opencodeID>/<model>` on provider, under
-// the exposed agent name — so Result.Agent reads the same across every leg of the chain, and only
+// hubDispatch is one opencode-routed ladder step: `opencode run -m <opencodeID>/<model>` on provider, under
+// the exposed agent name — so Result.Agent reads the same across every dispatch of the chain, and only
 // Result.Provider shows which account actually answered.
-type hubLeg struct {
+type hubDispatch struct {
 	agent    string
 	provider *providers.Provider
 	reg      *providers.Registry
-	// firstOutput, when non-zero, fails the leg if nothing streams within it — the free Zen leg's stall guard.
+	// firstOutput, when non-zero, fails the dispatch if nothing streams within it — the free Zen dispatch's stall guard.
 	firstOutput time.Duration
 }
 
-// NewHubLeg builds a hub leg Agent for agentName on provider; reg resolves a provider:model override.
-func NewHubLeg(agentName string, provider *providers.Provider, reg *providers.Registry) Runner {
-	return hubLeg{agent: agentName, provider: provider, reg: reg}
+// NewHubDispatch builds a hub dispatch Agent for agentName on provider; reg resolves a provider:model override.
+func NewHubDispatch(agentName string, provider *providers.Provider, reg *providers.Registry) Runner {
+	return hubDispatch{agent: agentName, provider: provider, reg: reg}
 }
 
-func (l hubLeg) Name() string { return l.agent }
+func (l hubDispatch) Name() string { return l.agent }
 
 // Caps mirrors cliRunner's: every RunOptions field the opencode CLI can carry.
-func (l hubLeg) Caps() Caps {
+func (l hubDispatch) Caps() Caps {
 	return Caps{Model: Native, Provider: Native, Effort: Native, WorkDir: Native, SessionID: Native, Tools: Native, Autonomous: Native,
 		SafeMode: Native, Direct: Native, Env: Native, SystemPrompt: Native, AppendSystemPrompt: Emulated, OutputSchema: Emulated, Persona: Emulated}
 }
 
-// Available requires the opencode binary and an opencode login for this leg's provider; a login-less
+// Available requires the opencode binary and an opencode login for this dispatch's provider; a login-less
 // ladder step reports why here instead of failing mid-exec.
-func (l hubLeg) Available() error {
+func (l hubDispatch) Available() error {
 	if _, err := paths.VendorBin("opencode"); err != nil {
 		return err
 	}
@@ -129,7 +129,7 @@ func (l hubLeg) Available() error {
 	return err
 }
 
-func (l hubLeg) Run(ctx context.Context, req RunOptions, sink Sink) (Result, error) {
+func (l hubDispatch) Run(ctx context.Context, req RunOptions, sink Sink) (Result, error) {
 	model := l.resolveModel(req.Model)
 	res := Result{Provider: l.provider.Name, Model: model, SessionID: req.SessionID}
 	if model == "" {
@@ -180,7 +180,7 @@ func (l hubLeg) Run(ctx context.Context, req RunOptions, sink Sink) (Result, err
 
 // resolveModel: "" takes provider's opus slot; a slot name maps through provider's table; anything else (a routed
 // cell's bare model, a raw id or "provider:model") is parsed against it directly.
-func (l hubLeg) resolveModel(reqModel string) string {
+func (l hubDispatch) resolveModel(reqModel string) string {
 	reqModel = strings.TrimPrefix(reqModel, l.provider.OpencodeID+"/")
 	var id string
 	switch {

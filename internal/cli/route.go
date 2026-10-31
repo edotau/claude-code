@@ -104,7 +104,7 @@ func gatewayRoute(args []string, withProxy bool) int {
 }
 
 // previewRoute resolves the pick through the chain `ask` runs, so each candidate carries the model it would execute;
-// a leg dropped after the pick (model or profile gate) moves to Skipped. It starts no agent.
+// a dispatch dropped after the pick (model or profile gate) moves to Skipped. It starts no agent.
 func previewRoute(model, task, want, fallback string) (router.PickResult, error) {
 	tb, err := router.Load()
 	if err != nil {
@@ -128,15 +128,15 @@ func previewRoute(model, task, want, fallback string) (router.PickResult, error)
 	}
 	res := pick
 	res.Candidates = nil
-	legs := chain.Legs
+	dispatches := chain.Dispatches
 	for _, c := range pick.Candidates {
-		if len(legs) == 0 || legs[0].Agent.Name() != c.Agent || legs[0].Account != c.Account {
+		if len(dispatches) == 0 || dispatches[0].Agent.Name() != c.Agent || dispatches[0].Account != c.Account {
 			continue
 		}
 		if c.Agent != "claude" { // the terminal claude hop keeps its cell id; dispatch passes the same row's alias
-			c.Model, c.Effort = legs[0].Model, legs[0].Effort
+			c.Model, c.Effort = dispatches[0].Model, dispatches[0].Effort
 		}
-		res.Candidates, legs = append(res.Candidates, c), legs[1:]
+		res.Candidates, dispatches = append(res.Candidates, c), dispatches[1:]
 	}
 	res.Skipped = slices.Clone(pick.Skipped)
 	for _, s := range chain.Skipped {

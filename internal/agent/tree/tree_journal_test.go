@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-// New coverage for the journal-backed status, activity, vendor-legs and drill-down work
+// New coverage for the journal-backed status, activity, vendor-dispatches and drill-down work
 // (plans/2026-10-18-agents-tree-visibility.md Part 1). Written after `go build ./internal/agent`
 // succeeded against the implementer's change; dispatched concurrently as the copilot test agent.
 
@@ -196,9 +196,9 @@ func withDispatchFixture(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", cfgDir)
 }
 
-// (6) A relay subagent's Legs carry every vendor dispatch its transcript's exit lines named: plain
+// (6) A relay subagent's Dispatches carry every vendor dispatch its transcript's exit lines named: plain
 // ok, still-running, and a fallback (Fallback+FallbackReason set, matched=="" since read directly).
-func TestVendorLegsDirectMatch(t *testing.T) {
+func TestVendorDispatchesDirectMatch(t *testing.T) {
 	withDispatchFixture(t)
 	claudeDir, now := copyTestdataTree(t)
 	tree, err := Build(claudeDir, Options{Days: 60, Now: pinNow(now)})
@@ -210,32 +210,32 @@ func TestVendorLegsDirectMatch(t *testing.T) {
 	if !ok {
 		t.Fatal("fakewfagent002 not found")
 	}
-	if len(gate.Legs) != 3 {
-		t.Fatalf("Legs = %+v, want 3 (codex ok, gemini running, codex->claude fallback)", gate.Legs)
+	if len(gate.Dispatches) != 3 {
+		t.Fatalf("Dispatches = %+v, want 3 (codex ok, gemini running, codex->claude fallback)", gate.Dispatches)
 	}
-	byID := map[string]Leg{}
-	for _, l := range gate.Legs {
+	byID := map[string]Dispatch{}
+	for _, l := range gate.Dispatches {
 		byID[l.ID] = l
 	}
 	if l := byID["20261017T231131.948-codex"]; l.Status != "ok" || l.Matched != "" {
-		t.Errorf("codex leg = %+v, want status=ok matched=\"\"", l)
+		t.Errorf("codex dispatch = %+v, want status=ok matched=\"\"", l)
 	}
 	if l := byID["20261018T095401.709-gemini"]; l.Status != "running" || l.Duration == "" {
-		t.Errorf("gemini leg = %+v, want status=running with an elapsed duration", l)
+		t.Errorf("gemini dispatch = %+v, want status=running with an elapsed duration", l)
 	}
 	fb := byID["20261018T150000.000-codex"]
 	if fb.Fallback != "claude" || fb.FallbackReason == "" {
-		t.Errorf("fallback leg = %+v, want Fallback=claude with a reason", fb)
+		t.Errorf("fallback dispatch = %+v, want Fallback=claude with a reason", fb)
 	}
-	if !strings.Contains(formatLeg(fb), "⚠ fallback") {
-		t.Errorf("formatLeg(fallback) = %q, want it to flag the fallback", formatLeg(fb))
+	if !strings.Contains(formatDispatch(fb), "⚠ fallback") {
+		t.Errorf("formatDispatch(fallback) = %q, want it to flag the fallback", formatDispatch(fb))
 	}
 }
 
 // (7) A relay whose own transcript hasn't logged its `ask` exit line yet (still mid-dispatch) is
 // matched heuristically against the dispatch log's own still-running records: same WorkDir, started
 // no earlier than the subagent itself.
-func TestVendorLegHeuristicRunningMatch(t *testing.T) {
+func TestVendorDispatchHeuristicRunningMatch(t *testing.T) {
 	withDispatchFixture(t)
 	claudeDir, now := copyTestdataTree(t)
 	tree, err := Build(claudeDir, Options{Days: 60, Now: pinNow(now)})
@@ -247,21 +247,21 @@ func TestVendorLegHeuristicRunningMatch(t *testing.T) {
 	if !ok {
 		t.Fatal("fakewfagent020 not found")
 	}
-	var heuristic *Leg
-	for i := range busy.Legs {
-		if busy.Legs[i].Matched == "heuristic" {
-			heuristic = &busy.Legs[i]
+	var heuristic *Dispatch
+	for i := range busy.Dispatches {
+		if busy.Dispatches[i].Matched == "heuristic" {
+			heuristic = &busy.Dispatches[i]
 		}
 	}
 	if heuristic == nil {
-		t.Fatalf("Legs = %+v, want one heuristically matched leg", busy.Legs)
+		t.Fatalf("Dispatches = %+v, want one heuristically matched dispatch", busy.Dispatches)
 	}
 	if heuristic.ID != "20261018T100500.000-gemini" {
-		t.Errorf("heuristic leg id = %q, want the still-running gemini dispatch", heuristic.ID)
+		t.Errorf("heuristic dispatch id = %q, want the still-running gemini dispatch", heuristic.ID)
 	}
 }
 
-// (8) View's Snapshot carries the edited files, legs and a result summary for a finished workflow
+// (8) View's Snapshot carries the edited files, dispatches and a result summary for a finished workflow
 // agent, and the event stream is ordered oldest-first.
 func TestViewSnapshotFields(t *testing.T) {
 	withDispatchFixture(t)
@@ -280,8 +280,8 @@ func TestViewSnapshotFields(t *testing.T) {
 	if len(snap.FilesEdited) != 1 || snap.FilesEdited[0] != wantEdited[0] {
 		t.Errorf("FilesEdited = %v, want %v", snap.FilesEdited, wantEdited)
 	}
-	if len(snap.Legs) != 3 {
-		t.Errorf("Legs = %+v, want 3", snap.Legs)
+	if len(snap.Dispatches) != 3 {
+		t.Errorf("Dispatches = %+v, want 3", snap.Dispatches)
 	}
 	if snap.Result != "green." {
 		t.Errorf("Result = %q, want the journal result preview %q", snap.Result, "green.")
@@ -348,7 +348,7 @@ func TestFollowStopsOnJournalResult(t *testing.T) {
 	}
 }
 
-// Regression: the pre-change JSON schema (lastTool, no activity/legs) still decodes a tree built
+// Regression: the pre-change JSON schema (lastTool, no activity/dispatches) still decodes a tree built
 // after the change — new fields are additive (omitempty), never required.
 func TestJSONSchemaStillDecodesPreChangeShape(t *testing.T) {
 	claudeDir, now := copyTestdataTree(t)

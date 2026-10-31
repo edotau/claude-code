@@ -58,16 +58,16 @@ func TestRouteChainForNonClaudeIDIsExact(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(c.Legs) == 0 || c.Legs[0].Agent.Name() != "codex" || !c.Legs[0].keepCaller {
-		t.Fatalf("legs = %+v, want codex first and keeping the caller's id", c.Legs)
+	if len(c.Dispatches) == 0 || c.Dispatches[0].Agent.Name() != "codex" || !c.Dispatches[0].keepCaller {
+		t.Fatalf("dispatches = %+v, want codex first and keeping the caller's id", c.Dispatches)
 	}
-	for _, l := range c.Legs[1:] {
+	for _, l := range c.Dispatches[1:] {
 		if n := l.Agent.Name(); n == "copilot" {
-			t.Errorf("%s got a leg for a model its cell does not serve", n)
+			t.Errorf("%s got a dispatch for a model its cell does not serve", n)
 		}
 	}
-	if last := c.Legs[len(c.Legs)-1]; last.Agent.Name() != "claude" || last.Model != "sonnet" {
-		t.Errorf("last leg = %+v, want claude at sonnet (the lowest codex tier serving gpt-6.1-sol)", last)
+	if last := c.Dispatches[len(c.Dispatches)-1]; last.Agent.Name() != "claude" || last.Model != "sonnet" {
+		t.Errorf("last dispatch = %+v, want claude at sonnet (the lowest codex tier serving gpt-6.1-sol)", last)
 	}
 }
 
@@ -79,9 +79,9 @@ func TestRouteChainForCanonicalRowUsesItsCell(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, l := range c.Legs {
+	for _, l := range c.Dispatches {
 		if l.Agent.Name() == "claude" && l.Model != "sonnet" {
-			t.Errorf("claude leg model = %q, want the sonnet alias", l.Model)
+			t.Errorf("claude dispatch model = %q, want the sonnet alias", l.Model)
 		}
 	}
 }

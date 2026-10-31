@@ -160,7 +160,7 @@ func agyLoginMarkers(home string) []string {
 	}
 }
 
-// AgyDefaultModel runs agy when the caller names no model: fast, and enough for headless legs.
+// AgyDefaultModel runs agy when the caller names no model: fast, and enough for headless dispatches.
 const AgyDefaultModel = "gemini-3.8-flash-high"
 
 // agyEfforts are the effort suffixes agy bakes into its model ids (gemini-3.8-flash-high).

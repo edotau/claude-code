@@ -59,8 +59,8 @@ func TestRunningSegmentAlwaysShownAtFloor(t *testing.T) {
 	}
 }
 
-// A single live, same-owner leg tips the count from 1 to 2, crossing the plural boundary.
-func TestRunningSegmentCountsOwnLeg(t *testing.T) {
+// A single live, same-owner dispatch tips the count from 1 to 2, crossing the plural boundary.
+func TestRunningSegmentCountsOwnDispatch(t *testing.T) {
 	hermetic(t)
 	enableAgents(t)
 	owner := inflight.SessionOwner()
@@ -71,19 +71,19 @@ func TestRunningSegmentCountsOwnLeg(t *testing.T) {
 	}
 }
 
-// A dead leg (unreachable pid) never lifts the count off the floor.
-func TestRunningSegmentIgnoresDeadLegs(t *testing.T) {
+// A dead dispatch (unreachable pid) never lifts the count off the floor.
+func TestRunningSegmentIgnoresDeadDispatches(t *testing.T) {
 	hermetic(t)
 	enableAgents(t)
 	owner := inflight.SessionOwner()
 	writeRunningDispatch(t, "20261024T000001.000-codex", 1<<22+12345, owner) // beyond pid_max: never alive
 	got := plain(Render([]byte(runningPayload), "gradient"))
 	if !strings.Contains(got, " 1 ◉") {
-		t.Errorf("dead leg counted: %q", got)
+		t.Errorf("dead dispatch counted: %q", got)
 	}
 }
 
-// A live leg owned by a different session, or carrying no owner at all, is not this session's to count.
+// A live dispatch owned by a different session, or carrying no owner at all, is not this session's to count.
 func TestRunningSegmentFiltersByOwner(t *testing.T) {
 	hermetic(t)
 	enableAgents(t)
@@ -95,12 +95,12 @@ func TestRunningSegmentFiltersByOwner(t *testing.T) {
 	writeRunningDispatch(t, "20261024T000002.000-no-owner", os.Getpid(), 0)
 	got := plain(Render([]byte(runningPayload), "gradient"))
 	if !strings.Contains(got, " 1 ◉") {
-		t.Errorf("a foreign-owner or ownerless leg was counted: %q", got)
+		t.Errorf("a foreign-owner or ownerless dispatch was counted: %q", got)
 	}
 }
 
-// total gains a trailing "+" only while one of this session's dispatch legs runs.
-func TestTotalSegmentPlusWhileLegRuns(t *testing.T) {
+// total gains a trailing "+" only while one of this session's dispatch dispatches runs.
+func TestTotalSegmentPlusWhileDispatchRuns(t *testing.T) {
 	hermetic(t)
 	var in Input
 	if err := json.Unmarshal([]byte(`{"session_id":"s1","context_window":{"total_input_tokens":812}}`), &in); err != nil {

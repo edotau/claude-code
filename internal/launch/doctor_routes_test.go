@@ -119,7 +119,7 @@ func TestDoctorOpenCodeRouteWithCopilotLogin(t *testing.T) {
 	}
 }
 
-// On the copilot CLI's own-login leg, the doctor row names COPILOT_MODEL's resolved source and the
+// On the copilot CLI's own-login dispatch, the doctor row names COPILOT_MODEL's resolved source and the
 // effort/context pins: unpinned, source is the github-copilot default and both pins read "default".
 func TestDoctorCopilotRouteSourceEffortContextUnpinned(t *testing.T) {
 	doctorScratch(t)

@@ -23,7 +23,7 @@ func TestParseClaudeStreamStringMessage(t *testing.T) {
 	var out strings.Builder
 	res, err := parseClaudeStream(newBR(stream), NewTextSink(&out))
 	if err != nil {
-		t.Fatalf("a string message event must not fail the leg: %v", err)
+		t.Fatalf("a string message event must not fail the dispatch: %v", err)
 	}
 	if out.String() != "done" || res.Answer != "done" || res.SessionID != "sess-2" {
 		t.Fatalf("res = %+v, output = %q", res, out.String())

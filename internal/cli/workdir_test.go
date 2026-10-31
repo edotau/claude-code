@@ -14,7 +14,7 @@ import (
 )
 
 // scratchRepo makes a throwaway git repo (no commits needed — router.IsWorkRepo only reads the origin
-// remote) with origin set to url, so a test controls exactly what "the repo this leg runs in" looks like.
+// remote) with origin set to url, so a test controls exactly what "the repo this dispatch runs in" looks like.
 func scratchRepo(t *testing.T, origin string) string {
 	t.Helper()
 	dir := t.TempDir()
@@ -55,11 +55,11 @@ func TestClientPrepareWorkRepoFromWorkdirNotCwd(t *testing.T) {
 
 	res := runPreparedWorkdir(t, work)
 	if res.Hops[0].Account != "opencode·go" {
-		t.Errorf("leg.Account = %q, want opencode·go (free blocked on the work repo)", res.Hops[0].Account)
+		t.Errorf("dispatch.Account = %q, want opencode·go (free blocked on the work repo)", res.Hops[0].Account)
 	}
 }
 
-// Without --workdir, a personal process cwd still gets the free Zen leg.
+// Without --workdir, a personal process cwd still gets the free Zen dispatch.
 func TestClientPrepareWorkRepoDefaultsToCwdWhenWorkdirEmpty(t *testing.T) {
 	setupWorkdirFixture(t)
 	personal := scratchRepo(t, "https://github.com/edotau/claude-code.git")
@@ -67,7 +67,7 @@ func TestClientPrepareWorkRepoDefaultsToCwdWhenWorkdirEmpty(t *testing.T) {
 
 	res := runPreparedWorkdir(t, "")
 	if !strings.Contains(res.Hops[0].Account, "zen-free") {
-		t.Errorf("leg = %+v, want free Zen on a personal cwd with no --workdir override", res.Hops[0])
+		t.Errorf("dispatch = %+v, want free Zen on a personal cwd with no --workdir override", res.Hops[0])
 	}
 }
 
@@ -79,9 +79,9 @@ func runPreparedWorkdir(t *testing.T, workdir string) agent.Result {
 	if err != nil {
 		t.Fatalf("Prepare() = %v", err)
 	}
-	res, err := client.Exec(context.Background(), p, nil, agent.DispatchOpts{})
+	res, err := client.Exec(context.Background(), p, nil, agent.RunRecordedOpts{})
 	if err != nil || len(res.Hops) != 1 || res.Answer != "ok" {
-		t.Fatalf("Exec() = %+v, %v; want one successful leg", res, err)
+		t.Fatalf("Exec() = %+v, %v; want one successful dispatch", res, err)
 	}
 	if res.DispatchID != p.Record.ID || res.DispatchID == "" {
 		t.Fatalf("dispatch id = %q, want %q", res.DispatchID, p.Record.ID)

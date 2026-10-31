@@ -36,7 +36,7 @@ type Routing struct {
 }
 
 // OpencodeRouting is opencode's own sub-pick knobs: the paid-backend ladder order, the work-repo markers
-// that block zen-free, which tiers zen-free may serve, and the free leg's stall deadline. Ladder,
+// that block zen-free, which tiers zen-free may serve, and the free dispatch's stall deadline. Ladder,
 // WorkRepoMarkers and FreeTiers are pointers: nil means unset (inherit the default), a pointer to an
 // empty slice means explicitly empty — the distinction `omitempty` on a plain slice cannot survive a
 // marshal round-trip (an empty slice and an absent field both omit).
@@ -49,7 +49,7 @@ type OpencodeRouting struct {
 	WorkRepoMarkers *[]string `json:"workRepoMarkers,omitempty"`
 	// FreeTiers are the tiers zen-free may serve; defaults.json seeds sonnet+haiku. "opus" is rejected by Validate.
 	FreeTiers *[]string `json:"freeTiers,omitempty"`
-	// FreeFirstOutput is the free leg's stall deadline, a Go duration string; defaults.json seeds "90s".
+	// FreeFirstOutput is the free dispatch's stall deadline, a Go duration string; defaults.json seeds "90s".
 	FreeFirstOutput string `json:"freeFirstOutput,omitempty"`
 }
 
@@ -78,7 +78,7 @@ func (o OpencodeRouting) FreeTierOK(tier string) bool {
 	return slices.Contains(*o.FreeTiers, tier)
 }
 
-// FirstOutput is the free leg's stall deadline: the merged registry field when it parses to a positive
+// FirstOutput is the free dispatch's stall deadline: the merged registry field when it parses to a positive
 // duration, else firstOutputFloor — the only case Validate does not already reject is an unset field.
 func (o OpencodeRouting) FirstOutput() time.Duration {
 	if d, err := time.ParseDuration(o.FreeFirstOutput); err == nil && d > 0 {

@@ -38,7 +38,7 @@ func ownProviderFrom(ctx context.Context) *providers.Provider {
 
 type frozenKey struct{}
 
-// frozenTarget is the copilot target a leg resolved once, before its permit: the gate may move it off the GitHub login.
+// frozenTarget is the copilot target a dispatch resolved once, before its permit: the gate may move it off the GitHub login.
 type frozenTarget struct {
 	t    providers.Target
 	own  bool
@@ -46,33 +46,33 @@ type frozenTarget struct {
 }
 
 // freezeCopilot resolves copilot's real target once, so the permit, cooldown key, guard and runner all use the same
-// account. When the gate moved the leg to another provider, the leg bills that provider's account instead.
-func freezeCopilot(ctx context.Context, leg Leg, req RunOptions) (context.Context, Leg) {
-	if leg.Agent.Name() != "copilot" {
-		return ctx, leg
+// account. When the gate moved the dispatch to another provider, the dispatch bills that provider's account instead.
+func freezeCopilot(ctx context.Context, disp Dispatch, req RunOptions) (context.Context, Dispatch) {
+	if disp.Agent.Name() != "copilot" {
+		return ctx, disp
 	}
 	t, own, note, err := schemaFor("copilot").targetNote(req)
 	if err != nil {
-		return ctx, leg // the runner reports its own resolution failure
+		return ctx, disp // the runner reports its own resolution failure
 	}
 	if !own && t.Provider != nil && t.Provider.Auth.Login != "copilot" {
-		leg.Account, leg.Billing = profileAccount(t.Provider), billingOf(t.Provider)
+		disp.Account, disp.Billing = profileAccount(t.Provider), billingOf(t.Provider)
 	}
-	return context.WithValue(ctx, frozenKey{}, frozenTarget{t, own, note}), leg
+	return context.WithValue(ctx, frozenKey{}, frozenTarget{t, own, note}), disp
 }
 
-// ownLoginActual re-keys a leg the table put on the agent's own login when the runner really resolves another profile.
-func ownLoginActual(leg Leg, req RunOptions) Leg {
-	name := leg.Agent.Name()
-	if name == "copilot" || name == "claude" || name == "opencode" || !ownLoginAccount(name, leg.Account) {
-		return leg
+// ownLoginActual re-keys a dispatch the table put on the agent's own login when the runner really resolves another profile.
+func ownLoginActual(disp Dispatch, req RunOptions) Dispatch {
+	name := disp.Agent.Name()
+	if name == "copilot" || name == "claude" || name == "opencode" || !ownLoginAccount(name, disp.Account) {
+		return disp
 	}
 	t, own, _, err := schemaFor(name).targetNote(req)
 	if err != nil || own || t.Provider == nil || t.Provider.Auth.Login == name {
-		return leg
+		return disp
 	}
-	leg.Account, leg.Billing = profileAccount(t.Provider), billingOf(t.Provider)
-	return leg
+	disp.Account, disp.Billing = profileAccount(t.Provider), billingOf(t.Provider)
+	return disp
 }
 
 // targetCtx is target, except a target frozen on ctx is used as is.
@@ -105,9 +105,9 @@ func guardRouteHost(ctx context.Context, p *providers.Provider) error {
 	return providers.CheckRouteHost(p, cred)
 }
 
-// guardProvider is the provider whose credential the hop sends; nil for an unpinned agent leg (own login).
+// guardProvider is the provider whose credential the hop sends; nil for an unpinned agent dispatch (own login).
 func guardProvider(r Runner, req RunOptions) (*providers.Provider, error) {
-	if l, ok := r.(hubLeg); ok {
+	if l, ok := r.(hubDispatch); ok {
 		return l.provider, nil
 	}
 	s, known := LookupSchema(r.Name())
@@ -155,7 +155,7 @@ func guardAttempt(ctx context.Context, r Runner, req RunOptions) (context.Contex
 	if err := checkIsolation(ctx); err != nil {
 		return ctx, &Error{Kind: KindFatal, Agent: r.Name(), Err: err}
 	}
-	if _, hub := r.(hubLeg); hub { // a hub leg sends the opencode login's credential, not the registry's
+	if _, hub := r.(hubDispatch); hub { // a hub dispatch sends the opencode login's credential, not the registry's
 		return withOwnProvider(ctx, gp), nil
 	}
 	if err := guardRouteHost(ctx, gp); err != nil {

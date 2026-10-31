@@ -147,16 +147,16 @@ func TestLaunchSpecAppliedOnEveryRoute(t *testing.T) {
 		})
 	}
 
-	// opencode's own GitHub Copilot login (ErrOwnLogin on the interactive leg bypasses Configure
+	// opencode's own GitHub Copilot login (ErrOwnLogin on the interactive dispatch bypasses Configure
 	// entirely) still carries the spec through the exported LaunchSpec escape hatch.
 	if env, _ := schemaFor("opencode").LaunchSpec(); !slices.Contains(env, "OPENCODE_DISABLE_CLAUDE_CODE_SKILLS=1") {
 		t.Errorf("LaunchSpec(opencode) env = %q, want to contain OPENCODE_DISABLE_CLAUDE_CODE_SKILLS=1", env)
 	}
 }
 
-// TestHeadlessLegsGetNoLaunchArgs: a tools-off headless leg must never pick up a vendor's allow-all /
+// TestHeadlessDispatchesGetNoLaunchArgs: a tools-off headless dispatch must never pick up a vendor's allow-all /
 // skip-permissions launch arg — that would silently re-enable tools the caller explicitly turned off.
-func TestHeadlessLegsGetNoLaunchArgs(t *testing.T) {
+func TestHeadlessDispatchesGetNoLaunchArgs(t *testing.T) {
 	tg := target(t, "personal", "claude-opus-5.5")
 	_, argv, err := schemaFor("copilot").configureHeadless(context.Background(), tg, Headless{Prompt: "hi", Tools: false})
 	if err != nil {

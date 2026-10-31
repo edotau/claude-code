@@ -5,7 +5,7 @@ const explorePromptBase = `Read-only: never modify, create or delete a file.
 Orient first: list the directories that matter, read the README/spec for the area, then read narrowly.
 Cite file:line for every claim about the code.`
 
-// explorePromptWeb appends the web-research leg, cited by URL.
+// explorePromptWeb appends the web-research dispatch, cited by URL.
 const explorePromptWeb = `
 Then research the relevant libraries, APIs and prior art on the web, citing a URL for every claim.
 If a source can't be reached, say so instead of guessing.`
@@ -17,7 +17,7 @@ Open questions. Stop once two more lookups wouldn't change the brief.
 
 Question: `
 
-// ExplorePrompt builds the Codebase Context Brief prompt for question; web adds the web-research leg.
+// ExplorePrompt builds the Codebase Context Brief prompt for question; web adds the web-research dispatch.
 func ExplorePrompt(question string, web bool) string {
 	p := explorePromptBase
 	if web {

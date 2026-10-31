@@ -264,7 +264,7 @@ func absDebugFile(p string) string {
 
 // runAskAndReport executes one prepared foreground dispatch and reports its outcome.
 func runAskAndReport(ctx context.Context, client *agent.Client, p *agent.Prepared, job bool, format string) int {
-	opts := agent.DispatchOpts{Job: job}
+	opts := agent.RunRecordedOpts{Job: job}
 	if job && format == formatText {
 		opts.AnswerTo = os.Stdout // a --job child's stdout is the log: the full answer lands once at the end
 	}

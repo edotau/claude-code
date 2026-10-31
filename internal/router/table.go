@@ -68,7 +68,7 @@ type RouteTable struct {
 	// zen-free always runs first, then this order. Empty keeps whatever defaults.json/the vault overlay set.
 	OpencodeLadder []string `json:"-"`
 	// OpencodeRouting is the registry's routing.opencode object (set from the registry in LoadFrom, not
-	// JSON): work-repo markers, which tiers zen-free may serve, and the free leg's stall deadline.
+	// JSON): work-repo markers, which tiers zen-free may serve, and the free dispatch's stall deadline.
 	OpencodeRouting providers.OpencodeRouting `json:"-"`
 	// OpencodeRowOverridden marks a tier whose Rows["opencode"] cell a route overlay touched directly (set
 	// from the registry in LoadFrom): that explicit operator intent wins over the sub-pick at that tier.

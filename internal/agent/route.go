@@ -15,28 +15,28 @@ import (
 	"github.com/edotau/claude-code/internal/router"
 )
 
-// Leg is one routed step: the agent plus the cell it runs (model, effort) and the account it bills.
-type Leg struct {
-	Agent                   Runner
-	Model, Effort           string
-	Account, Billing        string
-	note                    string
-	repick                  func(failed string) string // byok: skip the failed model, return the next pool model or ""
-	servedRepick            func(failed string) string // codex on Databricks: mark the endpoint gone, return the next
-	keepCaller, unroutedLeg bool                       // keepCaller: the wanted leg keeps the caller's own --model
-	otherRoute              bool                       // not the wanted agent's own login or pinned profile
+// Dispatch is one routed step: the agent plus the cell it runs (model, effort) and the account it bills.
+type Dispatch struct {
+	Agent                        Runner
+	Model, Effort                string
+	Account, Billing             string
+	note                         string
+	repick                       func(failed string) string // byok: skip the failed model, return the next pool model or ""
+	servedRepick                 func(failed string) string // codex on Databricks: mark the endpoint gone, return the next
+	keepCaller, unroutedDispatch bool                       // keepCaller: the wanted dispatch keeps the caller's own --model
+	otherRoute                   bool                       // not the wanted agent's own login or pinned profile
 }
 
-// Chain is a routed dispatch: Want is the agent asked for, Legs run in order, Skipped are gate drops.
+// Chain is a routed dispatch: Want is the agent asked for, Dispatches run in order, Skipped are gate drops.
 type Chain struct {
-	Want    string
-	Legs    []Leg
-	Skipped []string
+	Want       string
+	Dispatches []Dispatch
+	Skipped    []string
 }
 
-// Single is a one-leg chain on r with the caller's request untouched (an explicit backend, or a test).
+// Single is a one-dispatch chain on r with the caller's request untouched (an explicit backend, or a test).
 func Single(r Runner) Chain {
-	return Chain{Want: r.Name(), Legs: []Leg{{Agent: r, keepCaller: true, unroutedLeg: true}}}
+	return Chain{Want: r.Name(), Dispatches: []Dispatch{{Agent: r, keepCaller: true, unroutedDispatch: true}}}
 }
 
 // State seams: tests point them away from the real quota.json.
@@ -66,7 +66,7 @@ func modelRow(model string) (tier, row, exact string) {
 	return tier, canonical, ""
 }
 
-// RouteChain turns a pick at tier (or a Claude row) into legs; each leg runs that row's cell of its agent.
+// RouteChain turns a pick at tier (or a Claude row) into dispatches; each dispatch runs that row's cell of its agent.
 func RouteChain(ctx context.Context, want, tier, mode string, explicitModel, native bool, o router.PickOpts) (Chain, router.PickResult, error) {
 	t, row, _ := modelRow(tier)
 	return routeChain(ctx, want, cmp.Or(t, tier), row, "", "", mode, explicitModel, native, o)
@@ -96,7 +96,7 @@ func routeChain(ctx context.Context, want, tier, row, exact, callerModel, mode s
 	reg, _ := providers.Load()
 	c := Chain{Want: want}
 	if nativeLead {
-		c.Legs = append(c.Legs, Leg{Agent: newCLIRunner("opencode"), keepCaller: true, unroutedLeg: true})
+		c.Dispatches = append(c.Dispatches, Dispatch{Agent: newCLIRunner("opencode"), keepCaller: true, unroutedDispatch: true})
 		if mode == router.FallbackNone {
 			return c, pick, nil
 		}
@@ -109,7 +109,7 @@ func routeChain(ctx context.Context, want, tier, row, exact, callerModel, mode s
 	current, _ := models.Alias(tier)
 	pins := AgentPins()
 	rc := routeCtx{tb: tb, reg: reg, pins: pins, want: want, row: row, exact: exact, callerModel: callerModel,
-		current: current, legID: nonClaudeLegID(exact, explicitModel, pins[want].Model),
+		current: current, dispatchID: nonClaudeDispatchID(exact, explicitModel, pins[want].Model),
 		explicitModel: explicitModel, native: native}
 	for _, cand := range pick.Candidates {
 		if nativeLead && IsHubAgent(cand.Agent) {
@@ -120,7 +120,7 @@ func routeChain(ctx context.Context, want, tier, row, exact, callerModel, mode s
 			c.Skipped = append(c.Skipped, skip)
 			continue
 		}
-		leg, skip, err := rc.buildLeg(cand, cell)
+		disp, skip, err := rc.buildDispatch(cand, cell)
 		if err != nil {
 			return Chain{}, pick, err
 		}
@@ -128,10 +128,10 @@ func routeChain(ctx context.Context, want, tier, row, exact, callerModel, mode s
 			c.Skipped = append(c.Skipped, skip)
 			continue
 		}
-		leg = rc.byokCandidate(leg, cand, tier)
-		leg.servedRepick = rc.servedRepickFor(cand)
-		leg.otherRoute = cand.Agent != want || (want != "claude" && cand.Profile != pins[want].Profile)
-		c.Legs = append(c.Legs, leg)
+		disp = rc.byokCandidate(disp, cand, tier)
+		disp.servedRepick = rc.servedRepickFor(cand)
+		disp.otherRoute = cand.Agent != want || (want != "claude" && cand.Profile != pins[want].Profile)
+		c.Dispatches = append(c.Dispatches, disp)
 	}
 	return c, pick, nil
 }
@@ -142,7 +142,7 @@ type routeCtx struct {
 	reg                           *providers.Registry
 	pins                          map[string]router.PinSpec
 	want, row, exact, callerModel string
-	current, legID                string
+	current, dispatchID           string
 	explicitModel, native         bool
 }
 
@@ -151,7 +151,7 @@ func (rc routeCtx) candidateCell(cand router.Candidate) (cell router.Cell, skip 
 	cell = cand.Cell
 	pinned := cand.Profile != "" && rc.pins[cand.Agent].Profile == cand.Profile
 	switch {
-	case cand.Agent == "claude" && rc.legID != "": // lowest Claude tier serving the non-Claude leg
+	case cand.Agent == "claude" && rc.dispatchID != "": // lowest Claude tier serving the non-Claude dispatch
 		rc.claudeTierCell(&cell)
 	case pinned && cand.Agent == rc.want && rc.explicitModel && rc.callerModel != router.BYOKModel &&
 		rc.row == "" && cmp.Or(rc.exact, rc.callerModel) != "":
@@ -159,7 +159,7 @@ func (rc routeCtx) candidateCell(cand router.Candidate) (cell router.Cell, skip 
 		if rc.reg != nil && rc.reg.Providers[cand.Profile] != nil {
 			cell.Model = rc.reg.Providers[cand.Profile].WireModel(cell.Model)
 		}
-	case rc.exact != "" && cand.Profile != "" && !IsHubAgent(cand.Agent): // a Databricks leg serves only its own cell's model
+	case rc.exact != "" && cand.Profile != "" && !IsHubAgent(cand.Agent): // a Databricks dispatch serves only its own cell's model
 		return rc.profileCell(cand, cell)
 	case rc.exact != "": // a non-Claude id runs only where a cell serves it
 		sc, ok := cellServing(rc.tb, cand.Agent, rc.exact)
@@ -202,9 +202,9 @@ func (rc routeCtx) profileCell(cand router.Candidate, cell router.Cell) (router.
 	return cell, ""
 }
 
-// claudeTierCell points cell at claude's lowest tier serving the non-Claude leg model.
+// claudeTierCell points cell at claude's lowest tier serving the non-Claude dispatch model.
 func (rc routeCtx) claudeTierCell(cell *router.Cell) {
-	t := lowestTierServing(rc.tb, rc.want, rc.legID)
+	t := lowestTierServing(rc.tb, rc.want, rc.dispatchID)
 	if t == "" {
 		return
 	}
@@ -213,15 +213,15 @@ func (rc routeCtx) claudeTierCell(cell *router.Cell) {
 	}
 }
 
-// buildLeg turns cand's cell into a leg; skip is non-empty when the leg cannot run, err when its agent is unknown.
-func (rc routeCtx) buildLeg(cand router.Candidate, cell router.Cell) (leg Leg, skip string, err error) {
-	leg = Leg{Model: cell.Model, Effort: cell.Effort, Account: cand.Account, Billing: cand.Billing}
-	leg.keepCaller = cand.Agent == rc.want && rc.explicitModel && cand.Profile == "" && rc.callerModel != router.BYOKModel
-	if leg.keepCaller && rc.exact != "" {
-		leg.Model = rc.exact // an exact non-Claude id runs as asked; an alias runs the cell's model
+// buildDispatch turns cand's cell into a dispatch; skip is non-empty when the dispatch cannot run, err when its agent is unknown.
+func (rc routeCtx) buildDispatch(cand router.Candidate, cell router.Cell) (disp Dispatch, skip string, err error) {
+	disp = Dispatch{Model: cell.Model, Effort: cell.Effort, Account: cand.Account, Billing: cand.Billing}
+	disp.keepCaller = cand.Agent == rc.want && rc.explicitModel && cand.Profile == "" && rc.callerModel != router.BYOKModel
+	if disp.keepCaller && rc.exact != "" {
+		disp.Model = rc.exact // an exact non-Claude id runs as asked; an alias runs the cell's model
 	}
-	if cand.Profile != "" { // provider:model pins the leg to that Databricks profile, not the session's
-		leg.Model = cand.Profile + ":" + cell.Model
+	if cand.Profile != "" { // provider:model pins the dispatch to that Databricks profile, not the session's
+		disp.Model = cand.Profile + ":" + cell.Model
 	}
 	hubOpencode := IsHubAgent(cand.Agent) && (!rc.native || cand.Agent != rc.want)
 	if pr := profileRow(rc.reg, cand.Profile); pr != nil && pr.OpencodeID == "" {
@@ -229,32 +229,32 @@ func (rc routeCtx) buildLeg(cand router.Candidate, cell router.Cell) (leg Leg, s
 	}
 	switch {
 	case hubOpencode && cand.Profile != "" && rc.reg != nil && rc.reg.Providers[cand.Profile] != nil:
-		// a pinned registry row runs the hub leg on that profile, bare model
+		// a pinned registry row runs the hub dispatch on that profile, bare model
 		_, bare, ok := strings.Cut(cell.Model, "/")
 		if !ok {
 			bare = cell.Model
 		}
-		leg.Agent, leg.Model = watchFreeLeg(NewHubLeg("opencode", rc.reg.Providers[cand.Profile], rc.reg), cand.Billing), bare
+		disp.Agent, disp.Model = watchFreeDispatch(NewHubDispatch("opencode", rc.reg.Providers[cand.Profile], rc.reg), cand.Billing), bare
 	case hubOpencode:
-		r, model, err := hubLegFor(rc.reg, cell.Model)
+		r, model, err := hubDispatchFor(rc.reg, cell.Model)
 		if err != nil {
-			return leg, "opencode: " + err.Error(), nil
+			return disp, "opencode: " + err.Error(), nil
 		}
-		leg.Agent, leg.Model = watchFreeLeg(r, cand.Billing), model
+		disp.Agent, disp.Model = watchFreeDispatch(r, cand.Billing), model
 	default:
 		r, err := Lookup(cand.Agent)
 		if err != nil {
-			return leg, "", err
+			return disp, "", err
 		}
-		leg.Agent = r
+		disp.Agent = r
 		if cand.Agent == "claude" {
-			leg.Model = claudeCellModel(cell.Model)
-			if cand.Profile != "" { // keep the <profile>: spelling so the leg resolves on that profile
-				leg.Model = cand.Profile + ":" + leg.Model
+			disp.Model = claudeCellModel(cell.Model)
+			if cand.Profile != "" { // keep the <profile>: spelling so the dispatch resolves on that profile
+				disp.Model = cand.Profile + ":" + disp.Model
 			}
 		}
 	}
-	return leg, "", nil
+	return disp, "", nil
 }
 
 // profileRow is the registry row named name, or nil when absent.
@@ -265,8 +265,8 @@ func profileRow(reg *providers.Registry, name string) *providers.Provider {
 	return reg.Providers[name]
 }
 
-// nonClaudeLegID is the canonical non-Claude model the leg runs: the exact --model, else the wanted agent's model pin.
-func nonClaudeLegID(exact string, explicitModel bool, pinModel string) string {
+// nonClaudeDispatchID is the canonical non-Claude model the dispatch runs: the exact --model, else the wanted agent's model pin.
+func nonClaudeDispatchID(exact string, explicitModel bool, pinModel string) string {
 	if exact != "" || explicitModel || pinModel == "" {
 		return exact
 	}
@@ -289,7 +289,7 @@ func lowestTierServing(tb *router.RouteTable, agentName, id string) string {
 	return ""
 }
 
-// claudeCellModel is the model a routed claude leg runs: the alias a canonical row id backs, so the session's
+// claudeCellModel is the model a routed claude dispatch runs: the alias a canonical row id backs, so the session's
 // selection (CLAUDE_<TIER>_MODEL pins, auto-[1m]) resolves it; an older row without an alias stays its canonical id.
 func claudeCellModel(cell string) string {
 	canonical, _, ok := models.Resolve(cell)
@@ -320,12 +320,12 @@ func cellServing(tb *router.RouteTable, agentName, exact string) (router.Cell, b
 	return router.Cell{}, false
 }
 
-// watchFreeLeg sets the stall watchdog on r when billing is free; any other agent (or billing) passes through.
-func watchFreeLeg(r Runner, billing string) Runner {
+// watchFreeDispatch sets the stall watchdog on r when billing is free; any other agent (or billing) passes through.
+func watchFreeDispatch(r Runner, billing string) Runner {
 	if billing != router.BillFree {
 		return r
 	}
-	if hl, ok := r.(hubLeg); ok {
+	if hl, ok := r.(hubDispatch); ok {
 		hl.firstOutput = firstOutputDeadline()
 		return hl
 	}
@@ -408,10 +408,10 @@ func billingOf(p *providers.Provider) string {
 func ExplicitChain(r Runner, req RunOptions) Chain {
 	c := Single(r)
 	acct, billing := explicitAccount(r, req)
-	c.Legs[0].Account, c.Legs[0].Billing = acct, billing
+	c.Dispatches[0].Account, c.Dispatches[0].Billing = acct, billing
 	if req.Model == router.BYOKModel {
 		reg, _ := providers.Load()
-		c.Legs[0] = byokLeg(c.Legs[0], router.Tiers[1], reg, req.Provider, false)
+		c.Dispatches[0] = byokDispatch(c.Dispatches[0], router.Tiers[1], reg, req.Provider, false)
 	}
 	if acct == "" || acct == copilotLoginAccount() { // copilot's own gate falls back to Databricks instead
 		return c
@@ -423,20 +423,20 @@ func ExplicitChain(r Runner, req RunOptions) Chain {
 	return c
 }
 
-// WithTier runs c's lone explicit leg on the router's tier slot when the caller named no model.
+// WithTier runs c's lone explicit dispatch on the router's tier slot when the caller named no model.
 func WithTier(c Chain, tier string) Chain {
-	if len(c.Legs) != 1 || tier == "" {
+	if len(c.Dispatches) != 1 || tier == "" {
 		return c
 	}
-	leg := c.Legs[0]
-	leg.Model, leg.keepCaller, leg.unroutedLeg = tier, false, false
-	c.Legs = []Leg{leg}
+	disp := c.Dispatches[0]
+	disp.Model, disp.keepCaller, disp.unroutedDispatch = tier, false, false
+	c.Dispatches = []Dispatch{disp}
 	return c
 }
 
-// explicitAccount is the <provider>·<profile> key of the named backend; a hub leg names its own profile.
+// explicitAccount is the <provider>·<profile> key of the named backend; a hub dispatch names its own profile.
 func explicitAccount(r Runner, req RunOptions) (string, string) {
-	if l, ok := r.(hubLeg); ok {
+	if l, ok := r.(hubDispatch); ok {
 		if OpencodeCredID(l.provider.OpencodeID) == "opencode" {
 			return "opencode·go", router.BillSubscription
 		}
@@ -468,8 +468,8 @@ func copilotLoginAccount() string {
 	return ""
 }
 
-// hubLegFor maps an opencode cell "<opencodeID>/<model>" to the hub leg on that provider and the bare model.
-func hubLegFor(reg *providers.Registry, cell string) (Runner, string, error) {
+// hubDispatchFor maps an opencode cell "<opencodeID>/<model>" to the hub dispatch on that provider and the bare model.
+func hubDispatchFor(reg *providers.Registry, cell string) (Runner, string, error) {
 	id, model, ok := strings.Cut(cell, "/")
 	if !ok || reg == nil {
 		return nil, "", fmt.Errorf("cell %q is not <opencodeID>/<model>", cell)
@@ -481,86 +481,86 @@ func hubLegFor(reg *providers.Registry, cell string) (Runner, string, error) {
 			continue
 		}
 		if providers.CredentialPresent(p) { // rows can share an opencodeID (chatgpt, openai): the signed-in one serves it
-			return hubLeg{agent: "opencode", provider: p, reg: reg}, model, nil
+			return hubDispatch{agent: "opencode", provider: p, reg: reg}, model, nil
 		}
 		if first == nil {
 			first = p
 		}
 	}
 	if first != nil {
-		return hubLeg{agent: "opencode", provider: first, reg: reg}, model, nil
+		return hubDispatch{agent: "opencode", provider: first, reg: reg}, model, nil
 	}
 	// opencode's own plans (opencode-go, opencode) have no registry provider: opencode resolves them itself.
 	if OpencodeCredID(id) == "opencode" {
-		return hubLeg{agent: "opencode", provider: &providers.Provider{Name: id, OpencodeID: id}, reg: reg}, model, nil
+		return hubDispatch{agent: "opencode", provider: &providers.Provider{Name: id, OpencodeID: id}, reg: reg}, model, nil
 	}
 	return nil, "", fmt.Errorf("no provider has opencodeID %q", id)
 }
 
-// legRequest is req for leg: the wanted leg keeps an explicit caller model; every other leg drops the original
-// provider and session (they belong to the leg that minted them) and runs its cell, the caller's --effort winning.
-func legRequest(req RunOptions, leg Leg, first bool) RunOptions {
-	leg.byokNote()
+// dispatchRequest is req for dispatch: the wanted dispatch keeps an explicit caller model; every other dispatch drops the original
+// provider and session (they belong to the dispatch that minted them) and runs its cell, the caller's --effort winning.
+func dispatchRequest(req RunOptions, disp Dispatch, first bool) RunOptions {
+	disp.byokNote()
 	out := req
-	if leg.unroutedLeg {
+	if disp.unroutedDispatch {
 		return out
 	}
 	if !first {
 		out.Provider, out.SessionID = "", ""
 	}
-	if !leg.keepCaller {
-		out.Model = leg.Model
+	if !disp.keepCaller {
+		out.Model = disp.Model
 	}
 	if out.Effort == "" {
-		out.Effort = leg.Effort
+		out.Effort = disp.Effort
 	}
 	return out
 }
 
-// exhaustedSince is a KindQuota error when leg's account is marked exhausted right now, else nil.
-func exhaustedSince(leg Leg) *Error {
-	if leg.Account == "" || leg.Account == copilotLoginAccount() { // copilot's own gate falls back to Databricks instead
+// exhaustedSince is a KindQuota error when dispatch's account is marked exhausted right now, else nil.
+func exhaustedSince(disp Dispatch) *Error {
+	if disp.Account == "" || disp.Account == copilotLoginAccount() { // copilot's own gate falls back to Databricks instead
 		return nil
 	}
 	now := time.Now()
-	e := loadState()[leg.Account]
+	e := loadState()[disp.Account]
 	if e.Status(now) != router.StateExhausted {
 		return nil
 	}
-	return &Error{Kind: KindQuota, Agent: leg.Agent.Name(), Err: errors.New(router.ExhaustedReason(leg.Account, e, now))}
+	return &Error{Kind: KindQuota, Agent: disp.Agent.Name(), Err: errors.New(router.ExhaustedReason(disp.Account, e, now))}
 }
 
-// authMarkedSince is a KindAuth error when leg's account was marked auth-dead after the chain was built, else nil.
-func authMarkedSince(leg Leg) *Error {
-	if leg.Account == "" {
+// authMarkedSince is a KindAuth error when dispatch's account was marked auth-dead after the chain was built, else nil.
+func authMarkedSince(disp Dispatch) *Error {
+	if disp.Account == "" {
 		return nil
 	}
-	reason, marked := loadState().AuthMarked(leg.Account, time.Now())
+	reason, marked := loadState().AuthMarked(disp.Account, time.Now())
 	if !marked {
 		return nil
 	}
-	return &Error{Kind: KindAuth, Agent: leg.Agent.Name(), AuthReason: reason, Err: errors.New(leg.Account + ": " + reason)}
+	return &Error{Kind: KindAuth, Agent: disp.Agent.Name(), AuthReason: reason, Err: errors.New(disp.Account + ": " + reason)}
 }
 
-// noteQuota remembers a KindQuota failure on the leg's account until its parsed reset (else the known window).
-func noteQuota(leg Leg, err error) {
+// noteQuota remembers a KindQuota failure on the dispatch's account until its parsed reset (else the known window).
+func noteQuota(disp Dispatch, err error) {
 	var e *Error
-	if leg.Account == "" || !errors.As(err, &e) || e.Kind != KindQuota {
+	if disp.Account == "" || !errors.As(err, &e) || e.Kind != KindQuota {
 		return
 	}
 	now := time.Now()
-	until := router.ResetFor(err.Error(), leg.Billing, loadState()[leg.Account], now)
-	_ = markExhausted(leg.Account, until, now, fallbackReason(err)) // best-effort: the run's own error still reports it
+	until := router.ResetFor(err.Error(), disp.Billing, loadState()[disp.Account], now)
+	_ = markExhausted(disp.Account, until, now, fallbackReason(err)) // best-effort: the run's own error still reports it
 }
 
-// noteStall remembers a stalled free leg for 15 minutes, so the sub-pick skips it instead of hanging again.
-func noteStall(leg Leg, err error) {
-	if leg.Account == "" || !errors.Is(err, errStalled) {
+// noteStall remembers a stalled free dispatch for 15 minutes, so the sub-pick skips it instead of hanging again.
+func noteStall(disp Dispatch, err error) {
+	if disp.Account == "" || !errors.Is(err, errStalled) {
 		return
 	}
 	now := time.Now()
-	reason := fmt.Sprintf("free leg stalled (no output in %s)", firstOutputDeadline())
-	_ = markExhausted(leg.Account, now.Add(15*time.Minute), now, reason) // best-effort: the run's own error still reports it
+	reason := fmt.Sprintf("free dispatch stalled (no output in %s)", firstOutputDeadline())
+	_ = markExhausted(disp.Account, now.Add(15*time.Minute), now, reason) // best-effort: the run's own error still reports it
 }
 
 // condemnAuth tags a KindAuth whose Recover failed with a condemning verdict, or any error that itself condemns
@@ -574,13 +574,13 @@ func condemnAuth(e *Error, recoverErr error) {
 	}
 }
 
-// noteAuth marks the leg's account auth-dead for a condemned KindAuth, so Pick skips it until a login clears it.
-func noteAuth(leg Leg, err error) {
+// noteAuth marks the dispatch's account auth-dead for a condemned KindAuth, so Pick skips it until a login clears it.
+func noteAuth(disp Dispatch, err error) {
 	var e *Error
-	if leg.Account == "" || !errors.As(err, &e) || e.AuthReason == "" {
+	if disp.Account == "" || !errors.As(err, &e) || e.AuthReason == "" {
 		return
 	}
-	_ = markAuth(leg.Account, e.AuthReason) // best-effort: the run's own error still reports it
+	_ = markAuth(disp.Account, e.AuthReason) // best-effort: the run's own error still reports it
 }
 
 // RosterPick fills o's unset Configured, Pins, CanServe and CodexModel from the roster (the router imports no agent).

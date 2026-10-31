@@ -581,7 +581,7 @@ func TestWithWorktreeLeaseRefusesWhileHeldBeforeResolveRuns(t *testing.T) {
 }
 
 // TestResolveWithAgentExplicitCodexFallenBackToClaudeIsMismatch covers an explicitly selected Codex
-// leg that silently ran as Claude instead (the agent runner's own fallback) — ResolveWithAgent must
+// dispatch that silently ran as Claude instead (the agent runner's own fallback) — ResolveWithAgent must
 // stop and report the mismatch rather than accept a different model's resolution as the selected one.
 func TestResolveWithAgentExplicitCodexFallenBackToClaudeIsMismatch(t *testing.T) {
 	repo, main, wt, plan := resolveFixtureConflictSetup(t)
