@@ -42,6 +42,8 @@ func cmdAgentProfile(agent string, args []string) int {
 			state := agentpkg.AgentOn
 			if !agentpkg.AgentActive(agent) {
 				state = agentpkg.AgentOff
+			} else if why := agentpkg.AgentUnbillable(agent); why != "" {
+				state = agentpkg.AgentOff + ", " + why
 			}
 			line += fmt.Sprintf(" · %s (%s)", state, active)
 		}

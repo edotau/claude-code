@@ -13,7 +13,11 @@ func agentPinRows(d *dialog, agent string) []billingRow {
 	var rows []billingRow
 	if key := agentpkg.AgentActivePin(agent); key != "" {
 		on := agentpkg.AgentActive(agent)
-		rows = append(rows, billingRow{label: "Active", desc: "route work to " + agent + " " + bracket(on, "on", "off"),
+		state := bracket(on, "on", "off")
+		if why := agentpkg.AgentUnbillable(agent); on && why != "" {
+			state = "[off, " + why + "]"
+		}
+		rows = append(rows, billingRow{label: "Active", desc: "route work to " + agent + " " + state,
 			run: func() bool {
 				next := agentpkg.AgentOff
 				if !on {

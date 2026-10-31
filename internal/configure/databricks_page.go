@@ -24,9 +24,10 @@ var (
 	dbxSchedule = clipboard.ScheduleClear
 )
 
-// dbxAgents maps each agent "Apply to agents" can repoint to its <AGENT>_PROFILE pin (copilot's is a GitHub login).
+// dbxAgents maps each agent "Apply to agents" can repoint to its <AGENT>_PROFILE pin.
 var dbxAgents = []struct{ name, pin string }{
 	{"claude", providers.PinProfile}, {"codex", providers.PinCodexProfile}, {"opencode", providers.PinOpencodeProfile},
+	{"copilot", providers.PinCopilotProfile},
 }
 
 // dbxState is one env's authType and its no-network expiry text ("token expires in 52m", "no login").
