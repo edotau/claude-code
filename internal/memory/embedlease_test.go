@@ -258,7 +258,7 @@ func TestEmbedSupersededIsReported(t *testing.T) {
 func TestEmbedCommitErrorReleasesClaim(t *testing.T) {
 	root := leaseFixture(t)
 	prev := embedWriteTimeout
-	embedWriteTimeout = 200 * time.Millisecond
+	embedWriteTimeout = 400 * time.Millisecond // bbolt gives up 50ms early: commit fails near 350ms, release near 700ms
 	t.Cleanup(func() { embedWriteTimeout = prev })
 	var calls int
 	freed := make(chan struct{})
@@ -270,7 +270,7 @@ func TestEmbedCommitErrorReleasesClaim(t *testing.T) {
 			return
 		}
 		go func() { // hold the write lock past the commit's timeout, free it before the release gives up
-			time.Sleep(300 * time.Millisecond)
+			time.Sleep(500 * time.Millisecond)
 			_ = db.Close()
 			close(freed)
 		}()
