@@ -287,6 +287,9 @@ func Ask(ctx context.Context, o Options, prompt string, images []string) (result
 	if err := client.Start(ctx); err != nil {
 		return Result{}, fmt.Errorf("start copilot runtime: %w", err)
 	}
+	// SDK starts the CLI outside childCmd: ForceStop on ctx cancel kills it (direct child only, no process group)
+	stop := context.AfterFunc(ctx, client.ForceStop)
+	defer stop()
 	defer func() {
 		if stopErr := client.Stop(); stopErr != nil {
 			err = errors.Join(err, fmt.Errorf("stop copilot runtime: %w", stopErr))
