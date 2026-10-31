@@ -69,7 +69,7 @@ type engine interface {
 	routeDetail() (detail string, ok bool)
 }
 
-// headlessEngine is an engine cliRunner can exec; copilot runs through copilotRunner instead.
+// headlessEngine is an engine cliRunner can exec; copilotEngine is its own Runner instead.
 type headlessEngine interface {
 	engine
 	// exec runs the prepared child and fills the Result.
@@ -81,7 +81,7 @@ var engines = map[string]engine{
 	"codex":    codexEngine{baseEngine{"codex"}},
 	"gemini":   geminiEngine{baseEngine{"gemini"}},
 	"opencode": opencodeEngine{baseEngine{"opencode"}},
-	"copilot":  copilotEngine{baseEngine{"copilot"}},
+	"copilot":  copilotAgent,
 }
 
 // eng is the engine driving s; a row with none (claude) gets baseEngine's defaults.
@@ -133,6 +133,13 @@ func routeFallback(reg *providers.Registry, ri RouteInfo) (providers.Target, str
 type baseEngine struct{ name string }
 
 func (b baseEngine) Name() string { return b.name }
+
+func (b baseEngine) Caps() Caps { return schemaFor(b.name).CLI.Caps }
+
+func (b baseEngine) Available() error {
+	_, err := paths.VendorBin(schemaFor(b.name).CLI.Binary)
+	return err
+}
 
 // bin is the CLI's executable, as a fatal Error when it is not installed.
 func (b baseEngine) bin() (string, error) {

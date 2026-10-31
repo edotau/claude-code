@@ -50,7 +50,7 @@ var writers = map[string]string{
 	"internal/completion/completion.go:Install":                        unversioned("foreign: shell completion script in the user's shell dirs"),
 	"internal/configure/vault_edit.go:Edit":                            unversioned("foreign: editor scratch temp file"),
 	"internal/configure/home.go:registerCodexMCP":                      unversioned("foreign: codex config.toml in the vendor home"),
-	"internal/agent/copilot_rundir.go:WriteCopilotRegistry":            unversioned("foreign: copilot registry in a private vendor home"),
+	"internal/agent/copilot_registry.go:WriteCopilotRegistry":          unversioned("foreign: copilot registry in a private vendor home"),
 	"internal/agent/project/sync.go:writeProjection":                   "projections",
 	"internal/databricks/config.go:writeScratch":                       unversioned("foreign: temp rescue config"),
 	"internal/databricks/export.go:writeFile0600":                      unversioned("foreign: -o export output"),

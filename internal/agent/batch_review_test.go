@@ -165,7 +165,7 @@ func TestCopilotSDKEnvBlanksForeignCredentials(t *testing.T) {
 		return copilotsdk.Result{Text: "hi", SessionID: "s"}, nil
 	}
 	t.Cleanup(func() { copilotAsk = prev })
-	if _, err := Run(withIsolation(context.Background()), copilotRunner{}, RunOptions{Prompt: "p", Provider: "alice", Direct: true}, Discard, nil); err != nil {
+	if _, err := Run(withIsolation(context.Background()), copilotAgent, RunOptions{Prompt: "p", Provider: "alice", Direct: true}, Discard, nil); err != nil {
 		t.Fatal(err)
 	}
 	if !slices.Contains(seen, "HM_OTHER_KEY=") || slices.Contains(seen, "HM_OTHER_KEY=foreign-secret") {
@@ -819,7 +819,7 @@ func TestFrozenCopilotTargetFollowsTheDowngradedModel(t *testing.T) {
 		return copilotsdk.Result{Text: "hi", SessionID: "s"}, nil
 	}
 	t.Cleanup(func() { copilotAsk = prev })
-	res, err := RunWithFallback(context.Background(), Single(copilotRunner{}), RunOptions{Prompt: "p", Model: "opus", Direct: true}, Discard, nil)
+	res, err := RunWithFallback(context.Background(), Single(copilotAgent), RunOptions{Prompt: "p", Model: "opus", Direct: true}, Discard, nil)
 	if err != nil || res.Answer != "hi" || len(envs) != 2 {
 		t.Fatalf("res=%+v err=%v calls=%d; want the retry to answer", res, err, len(envs))
 	}
