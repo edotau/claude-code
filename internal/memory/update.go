@@ -204,7 +204,7 @@ func tagBlock(transcript string) string {
 // UpdateOptions drive one background update.
 type UpdateOptions struct {
 	Claude     string    // real claude binary; "" records a failure unless Run is set
-	Run        AgentFunc // preferred runner; nil = claude -p
+	Run        AgentFunc // preferred agent; nil = claude -p
 	Transcript string
 	CWD        string
 	Session    string
