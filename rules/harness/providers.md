@@ -53,3 +53,11 @@ static menu: routing never touches the network.
 - **Live rescue:** a codex dispatch that gets `ENDPOINT_NOT_FOUND` marks the model unserved for 1h and retries once
   on the next READY Responses model. An exact `--model` never retries. copilot and opencode refuse unknown models
   client-side, so there is no captured failure text for them.
+
+## Databricks service-principal identity
+
+- A u2m (`oauth`) row may pair a service principal: `auth.spClientId` (not secret) plus the sealed secret
+  `DATABRICKS_<PROFILE>_M2M`; `identity` is `auto` (default) | `user` | `sp`. Unpaired rows are unchanged.
+- Precedence: `--as` (carried by `providers.WithIdentity(ctx, as)`) > the row's `identity` > `auto`.
+- `auto` tries the user token, then `oauth.MintM2M` on a rejection or login-required, with a one-line stderr note;
+  `user` never mints the SP; `sp` mints only the SP, no browser. The SP never refreshes the user login.
