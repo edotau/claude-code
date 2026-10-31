@@ -44,6 +44,61 @@ func resolveBilling() *billing {
 	return &billing{Mode: mode, Provider: sel.Provider.Name}
 }
 
+// Document is the `usage --format json` payload; the web page's /api/usage serves the same value.
+type Document struct {
+	*transcript.UsageAggregate
+	Providers  []quota      `json:"providers,omitempty"`
+	API        []ledgerAgg  `json:"api,omitempty"`
+	Billing    *billing     `json:"billing,omitempty"`
+	Agents     []agentUsage `json:"agents,omitempty"`
+	WindowDays int          `json:"window_days"`
+}
+
+// Report builds the JSON document for one window (session scopes to one id, else the last days days).
+func Report(claudeDir, session string, days int, withQuotas bool, errw io.Writer) (*Document, error) {
+	quotasCh := startQuotaFetch(withQuotas) // overlaps the local scan below
+	agg, files, err := scanUsage(claudeDir, session, days, errw)
+	if err != nil {
+		return nil, err
+	}
+	agents := buildAgentsUsage(agg, claudeSessionCount(claudeDir, session, days, len(files)), days, files)
+	quotas := <-quotasCh
+	ledgerEntries, ledgerErr := readLedger()
+	if ledgerErr != nil {
+		fmt.Fprintln(errw, "usage: warning: ledger unreadable:", ledgerErr)
+	}
+	aggs := aggregateLedger(ledgerEntries, time.Now())
+	return &Document{agg, quotas, aggs, resolveBilling(), agents, days}, nil
+}
+
+// scanUsage aggregates the transcripts selected by session or days, dropping zero-token model rows.
+func scanUsage(claudeDir, session string, days int, errw io.Writer) (*transcript.UsageAggregate, []string, error) {
+	var files []string
+	var err error
+	if session != "" {
+		files, err = usageFilesForSession(claudeDir, session)
+	} else {
+		if days <= 0 {
+			days = 1
+		}
+		files, err = usageFilesWithinDays(claudeDir, days)
+	}
+	if err != nil {
+		return nil, nil, err
+	}
+	agg := transcript.NewUsageAggregate()
+	summaries := transcript.OpenSummaryCache(transcript.SummaryCachePath())
+	for _, f := range files {
+		if addErr := agg.AddFileCached(summaries, f); addErr != nil {
+			fmt.Fprintf(errw, "usage: warning: skipping %s: %v\n", f, addErr)
+		}
+	}
+	_ = summaries.Save() // a cache write failure never fails the verb
+	// zero-token rows (Claude Code's "<synthetic>" placeholder messages) are noise
+	maps.DeleteFunc(agg.Models, func(_ string, u *transcript.ModelUsage) bool { return u.Total() == 0 })
+	return agg, files, nil
+}
+
 // Run is `claude-code usage`; claudeDir is injectable so tests never touch the real ~/.claude/projects tree.
 func Run(args []string, claudeDir string, out, errw io.Writer) int {
 	fs := helptext.NewFlagSet("usage", helptext.Page{
@@ -79,54 +134,26 @@ func Run(args []string, claudeDir string, out, errw io.Writer) int {
 		return runUsageWorkflows(claudeDir, out, errw, session, days)
 	}
 
+	if jsonOut {
+		doc, err := Report(claudeDir, session, days, *providersFlag && show != "total", errw)
+		if err != nil {
+			fmt.Fprintln(errw, "usage:", err)
+			return 1
+		}
+		if err := helptext.WriteJSON(out, doc); err != nil {
+			return 1
+		}
+		return 0
+	}
+
 	// Launched now so the live network round-trips overlap the local scan/aggregation below instead of
 	// following them; startQuotaFetch yields an empty result immediately when quotas aren't wanted.
 	quotasCh := startQuotaFetch(*providersFlag && show != "total")
 
-	var files []string
-	var err error
-	if session != "" {
-		files, err = usageFilesForSession(claudeDir, session)
-	} else {
-		if days <= 0 {
-			days = 1
-		}
-		files, err = usageFilesWithinDays(claudeDir, days)
-	}
+	agg, files, err := scanUsage(claudeDir, session, days, errw)
 	if err != nil {
 		fmt.Fprintln(errw, "usage:", err)
 		return 1
-	}
-	agg := transcript.NewUsageAggregate()
-	summaries := transcript.OpenSummaryCache(transcript.SummaryCachePath())
-	for _, f := range files {
-		if addErr := agg.AddFileCached(summaries, f); addErr != nil {
-			fmt.Fprintf(errw, "usage: warning: skipping %s: %v\n", f, addErr)
-		}
-	}
-	_ = summaries.Save() // a cache write failure never fails the verb
-	// zero-token rows (Claude Code's "<synthetic>" placeholder messages) are noise
-	maps.DeleteFunc(agg.Models, func(_ string, u *transcript.ModelUsage) bool { return u.Total() == 0 })
-
-	if jsonOut {
-		agents := buildAgentsUsage(agg, claudeSessionCount(claudeDir, session, days, len(files)), days, files)
-		quotas := <-quotasCh
-		ledgerEntries, ledgerErr := readLedger()
-		if ledgerErr != nil {
-			fmt.Fprintln(errw, "usage: warning: ledger unreadable:", ledgerErr)
-		}
-		aggs := aggregateLedger(ledgerEntries, time.Now())
-		if err := helptext.WriteJSON(out, struct {
-			*transcript.UsageAggregate
-			Providers  []quota      `json:"providers,omitempty"`
-			API        []ledgerAgg  `json:"api,omitempty"`
-			Billing    *billing     `json:"billing,omitempty"`
-			Agents     []agentUsage `json:"agents,omitempty"`
-			WindowDays int          `json:"window_days"`
-		}{agg, quotas, aggs, resolveBilling(), agents, days}); err != nil {
-			return 1
-		}
-		return 0
 	}
 
 	// Section 1 (MODEL table) prints the moment the local scan is done, even while quotas are in flight.
