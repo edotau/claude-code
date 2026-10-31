@@ -31,7 +31,13 @@ var usageReport = usage.Report
 // usageCache holds the last JSON body per day-window; the lock spans the build so concurrent callers coalesce.
 type usageCache struct {
 	mu      sync.Mutex
-	entries map[int]usageEntry
+	entries map[usageKey]usageEntry
+}
+
+// usageKey separates the quota-less body from the full one for the same window.
+type usageKey struct {
+	days   int
+	quotas bool
 }
 
 type usageEntry struct {
@@ -39,11 +45,11 @@ type usageEntry struct {
 	at   time.Time
 }
 
-// get returns the cached body for days, or builds it with build when missing, stale, or (fresh and old enough).
-func (c *usageCache) get(days int, fresh bool, now time.Time, build func() ([]byte, error)) ([]byte, error) {
+// get returns the cached body for key, or builds it with build when missing, stale, or (fresh and old enough).
+func (c *usageCache) get(key usageKey, fresh bool, now time.Time, build func() ([]byte, error)) ([]byte, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if e, ok := c.entries[days]; ok {
+	if e, ok := c.entries[key]; ok {
 		age := now.Sub(e.at)
 		if age < usageTTL && (!fresh || age < usageFreshMin) {
 			return e.body, nil
@@ -54,9 +60,9 @@ func (c *usageCache) get(days int, fresh bool, now time.Time, build func() ([]by
 		return nil, err
 	}
 	if c.entries == nil {
-		c.entries = map[int]usageEntry{}
+		c.entries = map[usageKey]usageEntry{}
 	}
-	c.entries[days] = usageEntry{body: body, at: now}
+	c.entries[key] = usageEntry{body: body, at: now}
 	return body, nil
 }
 
@@ -106,7 +112,7 @@ func maskedUsageJSON(doc *usage.Document) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-// handleUsage serves /api/usage?days=N[&fresh=1]: `claude-code usage --days N --format json` with emails and token-shaped strings masked.
+// handleUsage serves /api/usage?days=N[&fresh=1][&quotas=0]: `claude-code usage --days N --format json` with emails and token-shaped strings masked.
 func (s *Server) handleUsage(w http.ResponseWriter, r *http.Request) {
 	days := 1
 	if v := r.URL.Query().Get("days"); v != "" {
@@ -117,10 +123,11 @@ func (s *Server) handleUsage(w http.ResponseWriter, r *http.Request) {
 		}
 		days = n
 	}
+	quotas := r.URL.Query().Get("quotas") != "0"
 	// a cold 30-day build took ~29s in measurement, right at the server's 30s WriteTimeout
 	_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(3 * time.Minute))
-	body, err := s.usage.get(days, r.URL.Query().Get("fresh") == "1", s.now(), func() ([]byte, error) {
-		doc, err := usageReport(s.opts.ClaudeDir, "", days, true, io.Discard)
+	body, err := s.usage.get(usageKey{days, quotas}, r.URL.Query().Get("fresh") == "1", s.now(), func() ([]byte, error) {
+		doc, err := usageReport(s.opts.ClaudeDir, "", days, quotas, io.Discard)
 		if err != nil {
 			return nil, err
 		}
