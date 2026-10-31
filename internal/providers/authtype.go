@@ -2,10 +2,12 @@ package providers
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"os"
@@ -182,6 +184,15 @@ func validateAuthType(n string, p *Provider) []string {
 	if k != AuthM2M && p.Auth.ClientID != "" {
 		errs = append(errs, n+": auth.clientId needs auth.type "+AuthM2M)
 	}
+	if _, err := ResolveIdentity(p.Identity, ""); err != nil {
+		errs = append(errs, n+": "+err.Error())
+	}
+	if strings.ContainsAny(p.Auth.SPClientID, "\r\n[=") {
+		errs = append(errs, n+": auth.spClientId must not contain CR, LF, '[' or '='")
+	}
+	if k != AuthOAuth && p.Auth.SPClientID != "" {
+		errs = append(errs, n+": auth.spClientId needs auth.type "+AuthOAuth)
+	}
 	return errs
 }
 
@@ -212,6 +223,13 @@ func authCredential(ctx context.Context, p *Provider, force bool) (string, error
 	if p.Auth.Type != AuthOAuth {
 		return mintOnce(ctx, p, force, func(ctx context.Context) (string, error) { return mintAndCache(ctx, p) })
 	}
+	mode, err := ResolveIdentity(p.Identity, identityFrom(ctx))
+	if err != nil {
+		return "", fmt.Errorf("%s: %w", p.Name, err)
+	}
+	if mode == IdentitySP {
+		return mintSP(ctx, p)
+	}
 	return mintOnce(ctx, p, force, func(ctx context.Context) (string, error) {
 		var out string
 		// mintAuth re-reads the sealed refresh token, so a rotation by another process is picked up.
@@ -223,6 +241,12 @@ func authCredential(ctx context.Context, p *Provider, force bool) (string, error
 				}
 			}
 			v, err := mintAndCache(ctx, p)
+			if err != nil && mode == IdentityAuto && p.Auth.SPClientID != "" && (oauth.IsRejected(err) || oauth.IsLoginRequired(err)) {
+				if sp, spErr := mintSP(ctx, p); spErr == nil {
+					out = sp
+					return nil
+				}
+			}
 			out = v
 			if err == nil {
 				sealAccess(p, v)
@@ -231,6 +255,66 @@ func authCredential(ctx context.Context, p *Provider, force bool) (string, error
 		})
 		return out, err
 	})
+}
+
+// Identity modes for a paired Databricks profile: which credential a launch uses.
+const (
+	IdentityAuto = "auto" // user login first, the service principal when it is rejected or needs a login
+	IdentityUser = "user" // user login only
+	IdentitySP   = "sp"   // service principal only, no browser
+)
+
+// ResolveIdentity picks the mode: flagAs (--as) > the profile's stored identity > auto (user when unpaired).
+func ResolveIdentity(profile, flagAs string) (string, error) {
+	mode := cmp.Or(flagAs, profile, IdentityAuto)
+	switch mode {
+	case IdentityAuto, IdentityUser, IdentitySP:
+		return mode, nil
+	}
+	return "", fmt.Errorf("identity %q must be auto, user or sp", mode)
+}
+
+type identityKey struct{}
+
+// WithIdentity carries a launch's --as value on the credential request's context.
+func WithIdentity(ctx context.Context, as string) context.Context {
+	return context.WithValue(ctx, identityKey{}, as)
+}
+
+func identityFrom(ctx context.Context) string {
+	as, _ := ctx.Value(identityKey{}).(string)
+	return as
+}
+
+// Seams for the token endpoint calls and the fallback note.
+var (
+	refreshU2M           = oauth.RefreshU2M
+	mintM2M              = oauth.MintM2M
+	spNoteOut  io.Writer = os.Stderr
+)
+
+// mintSP mints the paired service principal's token (same workspace host); it never touches the user login.
+func mintSP(ctx context.Context, p *Provider) (string, error) {
+	if p.Auth.SPClientID == "" {
+		return "", fmt.Errorf("%s: identity sp needs a paired service principal (auth.spClientId)", p.Name)
+	}
+	name := SecretName(p.provider(), p.Name, AuthM2M)
+	secret, _, err := EffectiveSecret(name)
+	if err != nil {
+		return "", fmt.Errorf("%s: vault: %w", p.Name, err)
+	}
+	if secret == "" {
+		return "", fmt.Errorf("%s: no service-principal credential (set %s with `claude-code vault set`)", p.Name, name)
+	}
+	tok, err := mintM2M(ctx, AuthHost(p), p.Auth.SPClientID, secret)
+	if err != nil {
+		return "", fmt.Errorf("%s: service principal: %w", p.Name, err)
+	}
+	if err := finishCredential(p, tok.Access, tok.Expiry); err != nil {
+		return "", err
+	}
+	fmt.Fprintf(spNoteOut, "%s: using the service principal %s\n", p.Name, p.Auth.SPClientID)
+	return tok.Access, nil
 }
 
 // sealedAccess returns the sealed access token when it stays valid past the expiry margin.
@@ -293,9 +377,9 @@ func mintAuth(ctx context.Context, p *Provider) (oauth.Token, error) {
 	case AuthPAT:
 		return oauth.Token{Access: secret}, nil
 	case AuthM2M:
-		return oauth.MintM2M(ctx, host, p.Auth.ClientID, secret)
+		return mintM2M(ctx, host, p.Auth.ClientID, secret)
 	}
-	tok, err := oauth.RefreshU2M(ctx, host, secret)
+	tok, err := refreshU2M(ctx, host, secret)
 	if err != nil {
 		wrapped := fmt.Errorf("%s: %w (run `claude-code databricks login --profile %s`)", p.Name, err, p.Name)
 		if oauth.IsLoginRequired(err) {

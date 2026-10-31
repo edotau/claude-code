@@ -39,6 +39,8 @@ type Provider struct {
 	Provider string `json:"provider,omitempty"`
 	// Login is the account login on the provider (a GitHub user for a github profile); not a secret.
 	Login string `json:"login,omitempty"`
+	// Identity selects auto, user, or sp credentials for this profile.
+	Identity string `json:"identity,omitempty"`
 	// Protocol is the wire protocol BaseURL itself speaks; Routes add further dialects (gateway paths).
 	Protocol string            `json:"protocol"`
 	BaseURL  string            `json:"base_url"`
@@ -105,7 +107,8 @@ type Auth struct {
 	Login   string `json:"login,omitempty"`   // cli only: agent CLI whose own sign-in serves it (codex, copilot)
 	// RefreshCommand forces a fresh credential; run when Command's token is near expiry or on a 401.
 	RefreshCommand string `json:"refreshCommand,omitempty"`
-	ClientID       string `json:"clientId,omitempty"` // m2m service-principal client id (not secret)
+	ClientID       string `json:"clientId,omitempty"`   // m2m service-principal client id (not secret)
+	SPClientID     string `json:"spClientId,omitempty"` // paired oauth service-principal client id (not secret)
 	// AccountID and WorkspaceID are non-secret Databricks ids; stored and shown in --list json, no behavior uses them yet.
 	AccountID   string `json:"accountId,omitempty"`
 	WorkspaceID string `json:"workspaceId,omitempty"`
