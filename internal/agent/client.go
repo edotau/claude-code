@@ -33,11 +33,8 @@ type Prepared struct {
 
 // Prepare routes the raw task before applying its rubric and claiming a dispatch record.
 func (c *Client) Prepare(ctx context.Context, o RunOptions, job *Record) (*Prepared, error) {
-	o.Agent, o.Fallback, o.Launcher = cmp.Or(o.Agent, "claude"), cmp.Or(o.Fallback, FallbackAll), c.Launcher
-	if o.SessionID != "" {
-		o.Fallback = FallbackNone
-	}
-	if err := c.resolve(&o); err != nil {
+	o, err := c.withDefaults(o)
+	if err != nil {
 		return nil, err
 	}
 	r, err := Lookup(o.Agent)
@@ -65,6 +62,24 @@ func (c *Client) Prepare(ctx context.Context, o RunOptions, job *Record) (*Prepa
 	p.Opts = o
 	p.Record = c.record(ctx, o, job)
 	return p, nil
+}
+
+// withDefaults fills the agent, fallback and launcher defaults and resolves o.Agent to its runner.
+func (c *Client) withDefaults(o RunOptions) (RunOptions, error) {
+	o.Agent, o.Fallback, o.Launcher = cmp.Or(o.Agent, "claude"), cmp.Or(o.Fallback, FallbackAll), c.Launcher
+	if o.SessionID != "" {
+		o.Fallback = FallbackNone
+	}
+	return o, c.resolve(&o)
+}
+
+// Record builds the dispatch record for o without routing, persona refusal or rubric (live sessions, review jobs).
+func (c *Client) Record(ctx context.Context, o RunOptions, job *Record) (Record, error) {
+	o, err := c.withDefaults(o)
+	if err != nil {
+		return Record{}, err
+	}
+	return c.record(ctx, o, job), nil
 }
 
 // resolve maps o.Agent — a roster name, an agents key, vendor:name or a definition file — to its runner and

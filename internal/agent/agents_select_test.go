@@ -89,3 +89,21 @@ func TestOverlayInheritModelIsNone(t *testing.T) {
 		t.Fatalf("inherit leaked into the request model: %+v, %v", o, err)
 	}
 }
+
+// Record resolves the selector to its runner but, unlike Prepare, never routes or applies the rubric.
+func TestClientRecordSkipsRouting(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	defs, err := ParseAgents(`{"sec":{"prompt":"p","runner":"codex"}}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := NewClient(nil, nil, nil, nil)
+	o := RunOptions{Agent: "sec", Agents: defs, Prompt: "x", Provider: "no-such-provider", Rubric: "/nonexistent/rubric.md"}
+	if _, err := c.Prepare(t.Context(), o, nil); err == nil {
+		t.Fatal("control: Prepare should fail on the unknown provider")
+	}
+	rec, err := c.Record(t.Context(), o, nil)
+	if err != nil || rec.Agent != "codex" {
+		t.Fatalf("Record = agent %q, err %v; want codex and no error", rec.Agent, err)
+	}
+}
