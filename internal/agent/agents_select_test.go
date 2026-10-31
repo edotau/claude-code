@@ -64,20 +64,17 @@ func TestSelectAgentRejectionsAndVendorPrefix(t *testing.T) {
 	}
 }
 
-// Explicit Model/Provider/Effort beat the definition's; RunOptions.Agents beats Client.Agents on the same key.
+// Explicit Model/Provider/Effort beat the definition's.
 func TestResolveOverlayAndAgentsPrecedence(t *testing.T) {
-	c := &Client{Agents: map[string]*Schema{"sec": {Name: "sec", Prompt: "client", Model: "cm", Profile: "cp", Effort: "low"}}}
-	o := RunOptions{Agent: "sec", Model: "mine", Provider: "myprov", Effort: "max"}
+	c := &Client{}
+	defs := map[string]*Schema{"sec": {Name: "sec", Prompt: "client", Model: "cm", Profile: "cp", Effort: "low"}}
+	o := RunOptions{Agent: "sec", Agents: defs, Model: "mine", Provider: "myprov", Effort: "max"}
 	if err := c.resolve(&o); err != nil || o.Model != "mine" || o.Provider != "myprov" || o.Effort != "max" || o.Agent != "claude" {
 		t.Fatalf("explicit options lost: %+v, %v", o, err)
 	}
-	o = RunOptions{Agent: "sec"}
+	o = RunOptions{Agent: "sec", Agents: defs}
 	if err := c.resolve(&o); err != nil || o.Model != "cm" || o.Provider != "cp" || o.Effort != "low" || o.Persona.Prompt != "client" {
 		t.Fatalf("definition not overlaid: %+v, %v", o, err)
-	}
-	o = RunOptions{Agent: "sec", Agents: map[string]*Schema{"sec": {Name: "sec", Prompt: "run", Model: "rm"}}}
-	if err := c.resolve(&o); err != nil || o.Persona.Prompt != "run" || o.Model != "rm" {
-		t.Errorf("RunOptions.Agents must beat Client.Agents: %+v, %v", o, err)
 	}
 	if o = (RunOptions{Agent: "ghost"}); c.resolve(&o) == nil {
 		t.Error("an unknown ref must fail resolve")
@@ -86,8 +83,8 @@ func TestResolveOverlayAndAgentsPrecedence(t *testing.T) {
 
 // A definition with `model: inherit` carries no model of its own, so nothing reaches routing.
 func TestOverlayInheritModelIsNone(t *testing.T) {
-	c := &Client{Agents: map[string]*Schema{"plan": {Name: "plan", Prompt: "p", Model: "inherit"}}}
-	o := RunOptions{Agent: "plan"}
+	c := &Client{}
+	o := RunOptions{Agent: "plan", Agents: map[string]*Schema{"plan": {Name: "plan", Prompt: "p", Model: "inherit"}}}
 	if err := c.resolve(&o); err != nil || o.Model != "" || o.Persona.Model != "inherit" {
 		t.Fatalf("inherit leaked into the request model: %+v, %v", o, err)
 	}

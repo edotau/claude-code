@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"sync"
 	"time"
 )
@@ -18,31 +17,24 @@ var streamStall = 2 * time.Minute
 var ErrStreamAbandoned = errors.New("agent: stream consumer abandoned")
 
 type chanSink struct {
+	stamper
 	mu        sync.Mutex
 	ch        chan Event
 	cancel    context.CancelCauseFunc
-	start     time.Time
-	seq       int64
-	host      string
 	fullSince time.Time
 	dropped   int
 	sawResult bool
 }
 
 func newChanSink(cancel context.CancelCauseFunc) *chanSink {
-	host, _ := os.Hostname()
-	return &chanSink{ch: make(chan Event, streamBuffer), cancel: cancel, start: clock(), host: host}
+	return &chanSink{stamper: newStamper(), ch: make(chan Event, streamBuffer), cancel: cancel}
 }
 
 // Emit stamps ev and drops the oldest buffered event when the consumer falls behind.
 func (s *chanSink) Emit(ev Event) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.seq++
-	ev.Schema, ev.Seq, ev.TMs = EventSchema, s.seq, clock().Sub(s.start).Milliseconds()
-	if ev.Host == "" {
-		ev.Host = s.host
-	}
+	s.stamp(&ev)
 	if ev.Type == EventResult {
 		s.sawResult = true
 	}
@@ -73,12 +65,6 @@ func (s *chanSink) Emit(ev Event) error {
 func (c *Client) Stream(ctx context.Context, o RunOptions) <-chan Event {
 	return c.streamWith(ctx, cmp.Or(o.Agent, "claude"), func(ctx context.Context, sink Sink) (Result, error) {
 		return c.Run(ctx, o, sink)
-	})
-}
-
-func (c *Client) stream(ctx context.Context, p *Prepared) <-chan Event {
-	return c.streamWith(ctx, cmp.Or(p.Opts.Agent, "claude"), func(ctx context.Context, sink Sink) (Result, error) {
-		return c.Exec(ctx, p, sink, DispatchOpts{})
 	})
 }
 

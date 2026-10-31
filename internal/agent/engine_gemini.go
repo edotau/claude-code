@@ -48,11 +48,10 @@ func (geminiEngine) wire(ctx context.Context, r wireRoute, h *Headless) ([]strin
 	return geminiGateway(ctx, r.Provider, r.Target.Model, h) // always routed: the router fixes agy's requests for Databricks
 }
 
-func (geminiEngine) fallbackTarget(reg *providers.Registry) (providers.Target, string, bool) {
-	name := "gemini"
-	if p, ok := loginProvider(reg, "google", name); ok && GeminiLoginPresent() {
+func (e geminiEngine) fallbackTarget(reg *providers.Registry) (providers.Target, string, bool) {
+	if p, ok := loginProvider(reg, "google", e.name); ok && GeminiLoginPresent() {
 		// the GEMINI_MODEL pin beats the registry's bare slot id
-		t, _ := providers.ResolveAgentModel(providers.ModelAsk{Agent: name, Target: providers.Target{Provider: p, Model: p.Models[models.Opus]}})
+		t, _ := providers.ResolveAgentModel(providers.ModelAsk{Agent: e.name, Target: providers.Target{Provider: p, Model: p.Models[models.Opus]}})
 		return t, "gemini (Google login via agy)", true
 	}
 	return providers.Target{}, "", false

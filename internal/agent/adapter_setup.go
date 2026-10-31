@@ -47,10 +47,19 @@ func binaryCheck(s Schema) Check {
 
 // loginCheck runs the CLI's own login probe.
 func loginCheck(s Schema) Check {
-	if present, _ := LoginStatus(s.Name); !present {
+	if !loginPresent(s.Name) {
 		return Check{Name: "login", State: "fail", Detail: "no " + s.Name + " login found (claude-code vault set / agent's own login)"}
 	}
 	return Check{Name: "login", State: "ok", Detail: s.Name + " login present"}
+}
+
+// loginPresent is LoginStatus's presence bit; copilot's stays local, as its label may call api.github.com.
+func loginPresent(name string) bool {
+	if name == "copilot" {
+		return CopilotLoginPresent()
+	}
+	present, _ := LoginStatus(name)
+	return present
 }
 
 // routeCheck pulls the "<name> route" detail from routeDetail, without running the full doctor sweep.
