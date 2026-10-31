@@ -35,6 +35,19 @@ var spawnUpdate = func(transcriptPath, cwd, sessionID string) bool {
 	return true
 }
 
+// dispatchUpdate spawns the worker and records it; a Stop's spawn also gets a watcher for the session's final state.
+func dispatchUpdate(in *Input, trigger string, work int, now time.Time) bool {
+	if !spawnUpdate(in.TranscriptPath, in.CWD, in.SessionID) {
+		return false
+	}
+	logUpdateToLedger(in, trigger, work, now)
+	writeStamp(stampPath(in.SessionID), now, "bg", work)
+	if trigger == triggerStop {
+		spawnIdleWatcher(in)
+	}
+	return true
+}
+
 // servedRefreshDue reports whether served routing is on and an in-use Databricks profile has no fresh listing.
 func servedRefreshDue(now time.Time) bool {
 	if !providers.ServedRoutingOn() {

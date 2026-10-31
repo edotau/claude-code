@@ -3,44 +3,46 @@ package hooks
 import (
 	"bytes"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
+	"time"
 
-	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/transcript"
 )
 
-// checkpointPct is the context-usage share that blocks Stop once per session.
+// checkpointPct is the context-usage share that dispatches a background handoff once per session.
 const checkpointPct = 85
 
-// contextCheckpoint blocks Stop once per session at ≥85% context so the model can hand off before compaction.
-func contextCheckpoint(in *Input, stderr io.Writer) int {
-	if memory.IsUpdateChild() || in.SessionID == "" || in.TranscriptPath == "" || in.StopHookActive {
-		return ExitProceed
+// contextCheckpoint spawns a detached memory update once per session at ≥85% context; it never blocks Stop.
+func contextCheckpoint(in *Input) {
+	in = sessionRootInput(in)
+	if in.StopHookActive || !updatable(in) {
+		return
 	}
 	flag := filepath.Join(paths.StateDir(), "checkpoint", filepath.Base(in.SessionID))
 	if _, err := os.Stat(flag); err == nil {
-		return ExitProceed
+		return
 	}
 	u, ok := transcript.LastUsage(in.TranscriptPath)
-	if !ok {
-		return ExitProceed
-	}
-	pct := u.Tokens * 100 / transcript.Window(u.Model, u.Tokens)
-	if pct < checkpointPct {
-		return ExitProceed
+	if !ok || u.Tokens*100/transcript.Window(u.Model, u.Tokens) < checkpointPct {
+		return
 	}
 	_ = os.MkdirAll(filepath.Dir(flag), 0o700)
-	_ = os.WriteFile(flag, nil, 0o600)
-	fmt.Fprintf(stderr, "Context usage ~%d%% (≥%d%%). Before stopping, write a short handoff of open work and decisions (or run /compact) so nothing is lost to compaction.\n", pct, checkpointPct)
-	return ExitBlock
+	if err := os.WriteFile(flag, nil, 0o600); err != nil {
+		fmt.Fprintf(os.Stderr, "context-checkpoint: write flag %s: %v\n", flag, err)
+		return
+	}
+	// The fresh "bg" stamp makes the same Stop's sessionUpdate a no-op.
+	if !dispatchUpdate(in, triggerStop, countEdits(in.TranscriptPath, countPath(in.SessionID)), time.Now()) {
+		fmt.Fprintln(os.Stderr, "context-checkpoint: could not start the background handoff; retrying at the next Stop")
+		_ = os.Remove(flag)
+	}
 }
 
-// memoryUpdateStop runs the context checkpoint and memory update; a block from either blocks the stop.
+// memoryUpdateStop runs the context checkpoint and memory update; only the memory update can block the stop.
 func memoryUpdateStop(in *Input) Result {
-	var cp, hv bytes.Buffer
-	code := max(contextCheckpoint(in, &cp), sessionUpdate(in, &hv))
-	return exitResult(code, cp.String()+hv.String())
+	var hv bytes.Buffer
+	contextCheckpoint(in)
+	return exitResult(sessionUpdate(in, &hv), hv.String())
 }
