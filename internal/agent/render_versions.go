@@ -1,5 +1,5 @@
 // Vendor-file versions, baselines and lost-line detection behind commitFile, plus `configure --revert`.
-package settings
+package agent
 
 import (
 	"crypto/sha256"
@@ -13,7 +13,14 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/schemas"
 )
+
+var _ = schemas.Register(schemas.Format{
+	Name: "vendor-baseline", Owner: "internal/agent", Kind: schemas.Derived,
+	Glob:    func() string { return filepath.Join(paths.StateDir(), "vendor-baseline", "*") },
+	Version: 1, Keep: "raw bytes last written to a vendor file; reseeded when missing",
+})
 
 // backupAndWrite saves oldRaw (only when the file already existed) to the cache mirror, keeps the newest 5
 // mirror versions, then atomically replaces path with newRaw.
@@ -161,8 +168,8 @@ func vendorLabelPaths(vendor, home string) ([]labelPath, error) {
 	return nil, nil
 }
 
-// Revert restores each selected vendor's files to their newest backup version, removing the restored version so a second revert steps one version further back.
-func Revert(o Options) error {
+// RevertConfigs restores each selected vendor's files to their newest backup version, removing the restored version so a second revert steps one version further back.
+func RevertConfigs(o RenderOptions) error {
 	agents := o.Agents
 	if len(agents) == 0 {
 		agents = DefaultAgents

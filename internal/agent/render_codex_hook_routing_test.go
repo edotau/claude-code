@@ -1,10 +1,12 @@
-package settings
+package agent
 
 import (
 	"encoding/json"
 	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/settings"
 )
 
 func TestCodexNativeRoutingHooksStayVendorScoped(t *testing.T) {
@@ -12,7 +14,7 @@ func TestCodexNativeRoutingHooksStayVendorScoped(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	claude, err := SettingsJSON()
+	claude, err := settings.SettingsJSON()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -21,18 +23,18 @@ func TestCodexNativeRoutingHooksStayVendorScoped(t *testing.T) {
 		t.Fatal(err)
 	}
 	var doc struct {
-		Hooks map[string][]MatcherGroup `json:"hooks"`
+		Hooks map[string][]settings.MatcherGroup `json:"hooks"`
 	}
 	if err := json.Unmarshal(codex, &doc); err != nil {
 		t.Fatal(err)
 	}
 	for name, event := range map[string]string{
-		"codex-agent-route":    EventPreToolUse,
-		"codex-routing-result": EventPostToolUse,
-		"codex-routing-start":  EventSessionStart,
-		"codex-subagent-start": EventSubagentStart,
+		"codex-agent-route":    settings.EventPreToolUse,
+		"codex-routing-result": settings.EventPostToolUse,
+		"codex-routing-start":  settings.EventSessionStart,
+		"codex-subagent-start": settings.EventSubagentStart,
 	} {
-		command := AgentEnv + "=codex " + HookBin + " hook " + event + " --" + name
+		command := settings.AgentEnv + "=codex " + settings.HookBin + " hook " + event + " --" + name
 		found := 0
 		for actualEvent, groups := range doc.Hooks {
 			for _, group := range groups {
@@ -44,7 +46,7 @@ func TestCodexNativeRoutingHooksStayVendorScoped(t *testing.T) {
 					if actualEvent != event || hook.Timeout != 5 || hook.Async {
 						t.Errorf("%s rendered under %s with handler %+v", name, actualEvent, hook)
 					}
-					if event == EventPreToolUse || event == EventPostToolUse {
+					if event == settings.EventPreToolUse || event == settings.EventPostToolUse {
 						matcher, err := regexp.Compile(group.Matcher)
 						if err != nil {
 							t.Fatal(err)
@@ -71,5 +73,35 @@ func TestCodexNativeRoutingHooksStayVendorScoped(t *testing.T) {
 				t.Errorf("%s hook leaked into %s", name, vendor)
 			}
 		}
+	}
+}
+
+func TestCodexJSONVendorMarker(t *testing.T) {
+	b, err := CodexJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var block struct {
+		Hooks map[string][]settings.MatcherGroup `json:"hooks"`
+	}
+	if err := json.Unmarshal(b, &block); err != nil {
+		t.Fatal(err)
+	}
+	count := 0
+	for _, groups := range block.Hooks {
+		for _, group := range groups {
+			for _, hook := range group.Hooks {
+				count++
+				if !strings.HasPrefix(hook.Command, "HARNESS_HOOK_AGENT=codex $HOME/.claude/bin/claude-code hook ") {
+					t.Errorf("Codex command missing vendor marker: %q", hook.Command)
+				}
+				if !settings.IsHarness(hook.Command) {
+					t.Errorf("Codex command not recognized as harness: %q", hook.Command)
+				}
+			}
+		}
+	}
+	if count == 0 {
+		t.Fatal("no Codex commands rendered")
 	}
 }

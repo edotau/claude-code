@@ -1,4 +1,4 @@
-package settings
+package agent
 
 import (
 	_ "embed"
@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io/fs"
 
+	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/vault"
 )
 
@@ -32,28 +33,28 @@ type MCP struct {
 	Allow []string `json:"allow"`
 }
 
-// Launch is env and argv a `claude-code <vendor>` launch injects, e.g. to disable a native skill
+// LaunchConfig is env and argv a `claude-code <vendor>` launch injects, e.g. to disable a native skill
 // scanner or force allow-all; Args never rides a headless leg (tools-off must stay tools-off).
-type Launch struct {
+type LaunchConfig struct {
 	Env  []string `json:"env,omitempty"`
 	Args []string `json:"args,omitempty"`
 }
 
-// Vendor is one CLI's full spec.
-type Vendor struct {
-	Permission Permission `json:"permission"`
-	MCP        MCP        `json:"mcp"`
-	Launch     Launch     `json:"launch"`
+// AgentConfig is one CLI's full spec.
+type AgentConfig struct {
+	Permission Permission   `json:"permission"`
+	MCP        MCP          `json:"mcp"`
+	Launch     LaunchConfig `json:"launch"`
 }
 
 // Config is the merged spec: built-in defaults plus the user's vault overlay/agents.
 type Config struct {
-	GuardRules GuardRules        `json:"guardRules"`
-	Vendors    map[string]Vendor `json:"agents"`
+	GuardRules GuardRules             `json:"guardRules"`
+	Agents     map[string]AgentConfig `json:"agents"`
 }
 
-// OverlayDoc is the user overlay (vault overlay/agents; an entry replaces the built-in whole); fs.ErrNotExist when absent.
-func OverlayDoc() ([]byte, error) {
+// ConfigOverlay is the user overlay (vault overlay/agents; an entry replaces the built-in whole); fs.ErrNotExist when absent.
+func ConfigOverlay() ([]byte, error) {
 	var doc []byte
 	found := false
 	err := vault.View(func(t *vault.Tx) error {
@@ -70,19 +71,19 @@ func OverlayDoc() ([]byte, error) {
 	return doc, nil
 }
 
-// Load merges the embedded defaults with OverlayDoc and returns defaults alone when it's absent.
-func Load() (*Config, error) {
-	user, err := OverlayDoc()
+// LoadConfig merges the embedded defaults with ConfigOverlay and returns defaults alone when it's absent.
+func LoadConfig() (*Config, error) {
+	user, err := ConfigOverlay()
 	if errors.Is(err, fs.ErrNotExist) {
 		user = nil
 	} else if err != nil {
 		return nil, err
 	}
-	return Parse(defaultsJSON, user)
+	return ParseConfig(defaultsJSON, user)
 }
 
-// Parse merges base with an optional overlay document. A nil base uses the embedded defaults.
-func Parse(base, overlay []byte) (*Config, error) {
+// ParseConfig merges base with an optional overlay document. A nil base uses the embedded defaults.
+func ParseConfig(base, overlay []byte) (*Config, error) {
 	if base == nil {
 		base = defaultsJSON
 	}
@@ -97,10 +98,10 @@ func Parse(base, overlay []byte) (*Config, error) {
 	}
 	cfg.GuardRules = guard
 	if len(overlay) > 0 {
-		// Vendors as json.RawMessage so a "name": null entry survives decode to signal removal.
+		// Agents as json.RawMessage so a "name": null entry survives decode to signal removal.
 		var o struct {
 			GuardRules *GuardRules                `json:"guardRules"`
-			Vendors    map[string]json.RawMessage `json:"agents"`
+			Agents     map[string]json.RawMessage `json:"agents"`
 		}
 		if err := json.Unmarshal(overlay, &o); err != nil {
 			return nil, fmt.Errorf("vault overlay/agents: %w", err)
@@ -108,19 +109,19 @@ func Parse(base, overlay []byte) (*Config, error) {
 		if o.GuardRules != nil { // presence replaces wholesale, even an empty {"ask":[],"deny":[]}
 			cfg.GuardRules = *o.GuardRules
 		}
-		if cfg.Vendors == nil {
-			cfg.Vendors = map[string]Vendor{}
+		if cfg.Agents == nil {
+			cfg.Agents = map[string]AgentConfig{}
 		}
-		for name, raw := range o.Vendors {
+		for name, raw := range o.Agents {
 			if raw == nil || string(raw) == "null" { // "name": null removes a built-in vendor
-				delete(cfg.Vendors, name)
+				delete(cfg.Agents, name)
 				continue
 			}
-			var v Vendor
+			var v AgentConfig
 			if err := json.Unmarshal(raw, &v); err != nil {
 				return nil, fmt.Errorf("vault overlay/agents: agents.%s: %w", name, err)
 			}
-			cfg.Vendors[name] = v
+			cfg.Agents[name] = v
 		}
 	}
 	return &cfg, nil
@@ -128,7 +129,7 @@ func Parse(base, overlay []byte) (*Config, error) {
 
 // templateGuardRules reads the embedded settings template's permissions.ask/deny verbatim.
 func templateGuardRules() (GuardRules, error) {
-	rendered, err := Render()
+	rendered, err := settings.Render()
 	if err != nil {
 		return GuardRules{}, fmt.Errorf("vendorconfig guard rules: %w", err)
 	}
@@ -144,12 +145,12 @@ func templateGuardRules() (GuardRules, error) {
 	return GuardRules{Ask: tpl.Permissions.Ask, Deny: tpl.Permissions.Deny}, nil
 }
 
-// Vendor returns name's spec, or the zero value when Config is nil or name is unknown.
-func (c *Config) Vendor(name string) Vendor {
+// Agent returns name's spec, or the zero value when Config is nil or name is unknown.
+func (c *Config) Agent(name string) AgentConfig {
 	if c == nil {
-		return Vendor{}
+		return AgentConfig{}
 	}
-	return c.Vendors[name]
+	return c.Agents[name]
 }
 
 // Guard returns the guard-rule prompts, or the zero value when Config is nil.

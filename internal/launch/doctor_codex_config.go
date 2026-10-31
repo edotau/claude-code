@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"runtime"
 
-	"github.com/edotau/claude-code/internal/settings"
+	"github.com/edotau/claude-code/internal/agent"
 )
 
 var codexManagedPaths = func() []string {
@@ -25,7 +25,7 @@ func codexConfigChecks() []Check {
 	for _, path := range codexManagedPaths() {
 		checks = append(checks, codexConfigCheck("codex machine config", path, true))
 	}
-	cfg, err := settings.CodexConfigPath("")
+	cfg, err := agent.CodexConfigPath("")
 	if err != nil {
 		return append(checks, Check{Name: "codex user config", Detail: "home unavailable; effective route unknown"})
 	}

@@ -1,31 +1,13 @@
-package settings
+package agent
 
 import (
-	"context"
 	"encoding/json"
-	"errors"
-	"github.com/edotau/claude-code/internal/providers"
 	"os"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/vault"
+	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
-
-// fakeRouter is a VendorRouter whose only live method is the overlay models.
-type fakeRouter struct {
-	mainModel, smallModel string
-	ok                    bool
-}
-
-func (fakeRouter) ResolveTarget(*providers.Registry, string, providers.Selection, bool) (providers.Target, string, error) {
-	return providers.Target{}, "", errors.New("fake")
-}
-
-func (fakeRouter) Configure(context.Context, string, providers.Target, string) ([]string, []string, error) {
-	return nil, nil, errors.New("fake")
-}
-
-func (f fakeRouter) OpencodeOverlayModels() (string, string, bool) {
-	return f.mainModel, f.smallModel, f.ok
-}
 
 // TestOpencodeOverlayTemplatesParse pins the embedded templates as valid JSON.
 func TestOpencodeOverlayTemplatesParse(t *testing.T) {
@@ -45,8 +27,10 @@ func TestOpencodeOverlayTemplatesParse(t *testing.T) {
 // with mode 0600, and that the cfg file's model/small_model come from the routing table, every other
 // field unchanged from the embedded template (the table-driven contract applyOpencodeTableModels keeps).
 func TestWriteOpencodeOverlayWritesBothFiles(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	cfg, tui, err := WriteOpencodeOverlay(fakeRouter{"fix/sonnet", "fix/haiku", true})
+	isolateOpencodeRouteEnv(t)
+	vaulttest.Use(t)
+	vaulttest.Put(t, vault.Overlay, "providers", `{"routing":{"cells":{"opencode":{"sonnet":{"model":"github-copilot/fix-sonnet"},"haiku":{"model":"github-copilot/fix-haiku"}}}}}`)
+	cfg, tui, err := WriteOpencodeOverlay()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -67,7 +51,7 @@ func TestWriteOpencodeOverlayWritesBothFiles(t *testing.T) {
 	if err := json.Unmarshal(tmpl, &want); err != nil {
 		t.Fatal(err)
 	}
-	want["model"], want["small_model"] = "fix/sonnet", "fix/haiku"
+	want["model"], want["small_model"] = "github-copilot/fix-sonnet", "github-copilot/fix-haiku"
 
 	raw, err := os.ReadFile(cfg)
 	if err != nil {
@@ -84,18 +68,12 @@ func TestWriteOpencodeOverlayWritesBothFiles(t *testing.T) {
 	}
 }
 
-// TestApplyOpencodeTableModelsFallsBackOnLoadError checks a failed table read (seam not ok, or unset) leaves the
-// template's own hard-coded model/small_model untouched, the one fallback use.
-func TestApplyOpencodeTableModelsFallsBackOnLoadError(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	tmpl, err := opencodeOverlayFS.ReadFile("template/opencode.json")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := applyOpencodeTableModels(tmpl, fakeRouter{"x/a", "x/b", false}); string(got) != string(tmpl) {
-		t.Errorf("not ok: applyOpencodeTableModels = %s, want the template unchanged", got)
-	}
-	if _, _, err := WriteOpencodeOverlay(nil); !errors.Is(err, errNoRouter) {
-		t.Errorf("nil router: err = %v, want errNoRouter", err)
+// TestApplyOpencodeTableModelsKeepsUnparsableTemplate checks a body that is not a JSON object comes back unchanged.
+func TestApplyOpencodeTableModelsKeepsUnparsableTemplate(t *testing.T) {
+	isolateOpencodeRouteEnv(t)
+	vaulttest.Use(t)
+	bad := []byte("not json")
+	if got := applyOpencodeTableModels(bad); string(got) != string(bad) {
+		t.Errorf("applyOpencodeTableModels = %s, want the input unchanged", got)
 	}
 }

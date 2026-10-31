@@ -1,4 +1,4 @@
-package settings
+package agent
 
 import (
 	"encoding/json"
@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -19,13 +20,13 @@ func writeOverlay(t *testing.T, body string) {
 	vaulttest.Put(t, vault.Overlay, "agents", body)
 }
 
-func TestOverlayDocAbsent(t *testing.T) {
+func TestConfigOverlayAbsent(t *testing.T) {
 	vaulttest.Use(t)
 	for _, existing := range []bool{false, true} {
 		if existing {
 			vaulttest.Put(t, vault.Env, "PLAIN", "value")
 		}
-		if _, err := OverlayDoc(); !errors.Is(err, fs.ErrNotExist) {
+		if _, err := ConfigOverlay(); !errors.Is(err, fs.ErrNotExist) {
 			t.Errorf("OverlayDoc (existing vault %v) error = %v, want fs.ErrNotExist", existing, err)
 		}
 	}
@@ -34,11 +35,11 @@ func TestOverlayDocAbsent(t *testing.T) {
 // TestLoadMergesOverlayVendorWhole: an overlay vendor entry replaces the built-in whole (no field-level merge).
 func TestLoadMergesOverlayVendorWhole(t *testing.T) {
 	writeOverlay(t, `{"agents":{"opencode":{"mcp":{"allow":["github"]}}}}`)
-	cfg, err := Load()
+	cfg, err := LoadConfig()
 	if err != nil {
 		t.Fatal(err)
 	}
-	oc := cfg.Vendor("opencode")
+	oc := cfg.Agent("opencode")
 	if len(oc.MCP.Allow) != 1 || oc.MCP.Allow[0] != "github" {
 		t.Errorf("opencode.MCP.Allow = %v, want [github]", oc.MCP.Allow)
 	}
@@ -46,7 +47,7 @@ func TestLoadMergesOverlayVendorWhole(t *testing.T) {
 		t.Errorf("opencode fields not zeroed by whole-entry overlay replace: %+v", oc)
 	}
 	// other vendors keep their defaults untouched
-	gm := cfg.Vendor("gemini")
+	gm := cfg.Agent("gemini")
 	wantGeminiArgs := []string{"--dangerously-skip-permissions"}
 	if !reflect.DeepEqual(gm.Launch.Args, wantGeminiArgs) {
 		t.Errorf("gemini.Launch.Args = %v, want %v (defaults preserved)", gm.Launch.Args, wantGeminiArgs)
@@ -56,16 +57,16 @@ func TestLoadMergesOverlayVendorWhole(t *testing.T) {
 // TestOverlayNullVendorRemovesIt: "name": null in the overlay deletes the built-in vendor, mirroring providers.Parse.
 func TestOverlayNullVendorRemovesIt(t *testing.T) {
 	writeOverlay(t, `{"agents":{"gemini":null}}`)
-	cfg, err := Load()
+	cfg, err := LoadConfig()
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := cfg.Vendor("gemini")
-	want := Vendor{}
+	got := cfg.Agent("gemini")
+	want := AgentConfig{}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("Vendor(\"gemini\") after null overlay = %+v, want zero value", got)
 	}
-	if _, ok := cfg.Vendors["gemini"]; ok {
+	if _, ok := cfg.Agents["gemini"]; ok {
 		t.Error("null overlay must remove gemini from Vendors")
 	}
 }
@@ -73,7 +74,7 @@ func TestOverlayNullVendorRemovesIt(t *testing.T) {
 // TestOverlayGuardRulesReplaceWholesale: GuardRules in the overlay replace the defaults wholesale, like Providers.Fallback.
 func TestOverlayGuardRulesReplaceWholesale(t *testing.T) {
 	writeOverlay(t, `{"guardRules":{"ask":["only-this"],"deny":["also-only-this"]}}`)
-	cfg, err := Load()
+	cfg, err := LoadConfig()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -91,7 +92,7 @@ func TestOverlayGuardRulesReplaceWholesale(t *testing.T) {
 // presence, not length, decides the replace.
 func TestOverlayEmptyGuardRulesClearDefaults(t *testing.T) {
 	writeOverlay(t, `{"guardRules":{"ask":[],"deny":[]}}`)
-	cfg, err := Load()
+	cfg, err := LoadConfig()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -105,11 +106,11 @@ func TestOverlayEmptyGuardRulesClearDefaults(t *testing.T) {
 // the built-in defaults, distinguishing "omitted" from "presented empty".
 func TestOverlayOmittedGuardRulesKeepsDefaults(t *testing.T) {
 	writeOverlay(t, `{"agents":{}}`)
-	cfg, err := Load()
+	cfg, err := LoadConfig()
 	if err != nil {
 		t.Fatal(err)
 	}
-	defaults, err := Parse(nil, nil)
+	defaults, err := ParseConfig(nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -122,7 +123,7 @@ func TestOverlayOmittedGuardRulesKeepsDefaults(t *testing.T) {
 // TestDefaultGuardsMirrorSettingsTemplate: the built-in guard rules are exactly Render()'s
 // permissions.ask/deny, order included — not a hand-copied subset in defaults.json.
 func TestDefaultGuardsMirrorSettingsTemplate(t *testing.T) {
-	rendered, err := Render()
+	rendered, err := settings.Render()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -135,7 +136,7 @@ func TestDefaultGuardsMirrorSettingsTemplate(t *testing.T) {
 	if err := json.Unmarshal(rendered, &doc); err != nil {
 		t.Fatal(err)
 	}
-	cfg, err := Parse(nil, nil)
+	cfg, err := ParseConfig(nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -152,8 +153,8 @@ func TestDefaultGuardsMirrorSettingsTemplate(t *testing.T) {
 func TestMalformedOverlayErrors(t *testing.T) {
 	writeOverlay(t, `{not json`)
 	for name, read := range map[string]func() (*Config, error){
-		"Load":  Load,
-		"Parse": func() (*Config, error) { return Parse([]byte(`{}`), []byte(`{not json`)) },
+		"Load":  LoadConfig,
+		"Parse": func() (*Config, error) { return ParseConfig([]byte(`{}`), []byte(`{not json`)) },
 	} {
 		t.Run(name, func(t *testing.T) {
 			_, err := read()
@@ -167,11 +168,11 @@ func TestMalformedOverlayErrors(t *testing.T) {
 	}
 }
 
-// TestVendorAndGuardAreNilSafe: a nil *Config must not panic on Vendor/Guard, returning zero values instead.
+// TestVendorAndGuardAreNilSafe: a nil *Config must not panic on AgentConfig/Guard, returning zero values instead.
 func TestVendorAndGuardAreNilSafe(t *testing.T) {
 	var c *Config
-	if got := c.Vendor("x"); !reflect.DeepEqual(got, Vendor{}) {
-		t.Errorf("nil.Vendor(x) = %+v, want zero value", got)
+	if got := c.Agent("x"); !reflect.DeepEqual(got, AgentConfig{}) {
+		t.Errorf("nil.Agent(x) = %+v, want zero value", got)
 	}
 	if got := c.Guard(); !reflect.DeepEqual(got, GuardRules{}) {
 		t.Errorf("nil.Guard() = %+v, want zero value", got)
@@ -181,12 +182,12 @@ func TestVendorAndGuardAreNilSafe(t *testing.T) {
 // TestDefaults pins the shipped defaults.json values each vendor consumer relies on.
 func TestDefaults(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	cfg, err := Load()
+	cfg, err := LoadConfig()
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	codex := cfg.Vendor("codex")
+	codex := cfg.Agent("codex")
 	if codex.Permission.ApprovalPolicy != "never" {
 		t.Errorf("codex.Permission.ApprovalPolicy = %q, want never", codex.Permission.ApprovalPolicy)
 	}
@@ -198,7 +199,7 @@ func TestDefaults(t *testing.T) {
 		t.Errorf("codex.Launch.Args = %v, want none (config.toml carries approval/sandbox)", codex.Launch.Args)
 	}
 
-	copilot := cfg.Vendor("copilot")
+	copilot := cfg.Agent("copilot")
 	if copilot.Permission.DefaultPermissionMode != "allow-all" {
 		t.Errorf("copilot.Permission.DefaultPermissionMode = %q, want allow-all", copilot.Permission.DefaultPermissionMode)
 	}
@@ -207,7 +208,7 @@ func TestDefaults(t *testing.T) {
 		t.Errorf("copilot.Launch.Args = %v, want %v", copilot.Launch.Args, wantCopilotArgs)
 	}
 
-	opencode := cfg.Vendor("opencode")
+	opencode := cfg.Agent("opencode")
 	wantEnv := []string{"OPENCODE_DISABLE_CLAUDE_CODE_SKILLS=1"}
 	if len(opencode.Launch.Env) != len(wantEnv) || opencode.Launch.Env[0] != wantEnv[0] {
 		t.Errorf("opencode.Launch.Env = %v, want %v", opencode.Launch.Env, wantEnv)
@@ -221,7 +222,7 @@ func TestDefaults(t *testing.T) {
 		t.Errorf("opencode.Launch.Args = %v, want none", opencode.Launch.Args)
 	}
 
-	gemini := cfg.Vendor("gemini")
+	gemini := cfg.Agent("gemini")
 	wantGeminiArgs := []string{"--dangerously-skip-permissions"}
 	if !reflect.DeepEqual(gemini.Launch.Args, wantGeminiArgs) {
 		t.Errorf("gemini.Launch.Args = %v, want %v", gemini.Launch.Args, wantGeminiArgs)
@@ -245,19 +246,19 @@ func TestDefaults(t *testing.T) {
 // The overlay key is "agents"; a stale "vendors" overlay is ignored.
 func TestOverlayReadsAgentsNotVendors(t *testing.T) {
 	writeOverlay(t, `{"agents":{"opencode":{"mcp":{"allow":["only-agents"]}}}}`)
-	if doc, err := OverlayDoc(); err != nil || !strings.Contains(string(doc), "only-agents") {
+	if doc, err := ConfigOverlay(); err != nil || !strings.Contains(string(doc), "only-agents") {
 		t.Fatalf("OverlayDoc = %q, %v", doc, err)
 	}
 	vaulttest.Use(t)
 	vaulttest.Put(t, vault.Overlay, "vendors", `{"vendors":{"gemini":null}}`)
-	if _, err := OverlayDoc(); !errors.Is(err, fs.ErrNotExist) {
+	if _, err := ConfigOverlay(); !errors.Is(err, fs.ErrNotExist) {
 		t.Errorf("stale vendors overlay read: %v", err)
 	}
-	cfg, err := Load()
+	cfg, err := LoadConfig()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := cfg.Vendors["gemini"]; !ok {
+	if _, ok := cfg.Agents["gemini"]; !ok {
 		t.Error("stale vendors overlay removed gemini")
 	}
 }

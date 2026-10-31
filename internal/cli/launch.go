@@ -201,7 +201,7 @@ func cmdRestore(agents, out string, check, dryRun, vendors, noAgents bool) int {
 	if err != nil {
 		return fail("%v", err)
 	}
-	var prepared *settings.Prepared
+	var prepared *agent.RenderPlan
 	var drift bool
 	if !noAgents { // --no-agents: lint checks the repo's settings, not this machine's agent configs
 		if prepared, drift, err = renderVendorConfigs(agents, out, check, dryRun, vendors); err != nil {
@@ -313,20 +313,20 @@ func checkLiveSettings(rendered []byte) (bool, error) {
 }
 
 // renderVendorConfigs prepares the vendor configs; they preview whenever the settings render does.
-func renderVendorConfigs(agents, out string, check, dryRun, vendors bool) (*settings.Prepared, bool, error) {
+func renderVendorConfigs(agents, out string, check, dryRun, vendors bool) (*agent.RenderPlan, bool, error) {
 	var vendorAgents []string
 	if agents != "" {
 		vendorAgents = strings.Split(agents, ",")
 	}
 	preview := dryRun || (out == "" && !check)
-	opts := settings.Options{Agents: vendorAgents, DryRun: preview, Check: check, Out: os.Stdout, Vendors: vendors, Router: agent.Router{}}
+	opts := agent.RenderOptions{Agents: vendorAgents, DryRun: preview, Check: check, Out: os.Stdout, ForceHomes: vendors}
 	// Interactive only on a real terminal write: launch/configure callers never reach this function.
 	if !preview && !check && tui.StdinIsTerminal() && tui.StdoutIsTerminal() {
 		opts.Confirm = func(path string, lost []string) bool {
 			return tui.ConfirmKey(fmt.Sprintf("overwrite %s?", path), true)
 		}
 	}
-	return settings.Prepare(opts)
+	return agent.PrepareConfigs(opts)
 }
 
 // cmdRevert handles `configure --revert [--agent a,b] [--dry-run]`.
@@ -335,7 +335,7 @@ func cmdRevert(agents string, dryRun bool) int {
 	if agents != "" {
 		vendorAgents = strings.Split(agents, ",")
 	}
-	if err := settings.Revert(settings.Options{Agents: vendorAgents, DryRun: dryRun, Out: os.Stdout, Router: agent.Router{}}); err != nil {
+	if err := agent.RevertConfigs(agent.RenderOptions{Agents: vendorAgents, DryRun: dryRun, Out: os.Stdout}); err != nil {
 		return fail("configure --revert: %v", err)
 	}
 	return 0

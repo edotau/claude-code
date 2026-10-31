@@ -1,11 +1,10 @@
-package settings_test
+package agent_test
 
 import (
 	"bytes"
 	"encoding/json"
 	"fmt"
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/settings"
 	"os"
 	"path/filepath"
 	"strings"
@@ -29,11 +28,11 @@ func readTestdata(t *testing.T, name string) []byte {
 // (testdata/codex-hooks-with-orca.json = ~/.codex/hooks.json.backup) across every event Orca occupies.
 func TestMergeCodexHooksKeepsForeignEntries(t *testing.T) {
 	existing := readTestdata(t, "codex-hooks-with-orca.json")
-	body, err := settings.CodexJSON()
+	body, err := agent.CodexJSON()
 	if err != nil {
 		t.Fatal(err)
 	}
-	merged, err := settings.MergeCodexHooks(existing, body)
+	merged, err := agent.MergeCodexHooks(existing, body)
 	if err != nil {
 		t.Fatalf("mergeCodexHooks: %v", err)
 	}
@@ -67,11 +66,11 @@ func TestMergeCodexHooksAgainstBrokenRender(t *testing.T) {
 	if strings.Contains(string(broken), orcaMarker) {
 		t.Fatal("fixture precondition: the broken render must not itself contain Orca's marker")
 	}
-	body, err := settings.CodexJSON()
+	body, err := agent.CodexJSON()
 	if err != nil {
 		t.Fatal(err)
 	}
-	merged, err := settings.MergeCodexHooks(existing, body)
+	merged, err := agent.MergeCodexHooks(existing, body)
 	if err != nil {
 		t.Fatalf("mergeCodexHooks: %v", err)
 	}
@@ -92,7 +91,7 @@ func TestRenderCodexHooksFilePreservesOrcaOnDisk(t *testing.T) {
 		t.Fatal(err)
 	}
 	var out bytes.Buffer
-	if _, err := settings.Run(settings.Options{Router: agent.Router{}, Home: home, Vendors: true, Out: &out, Agents: []string{"codex"}}); err != nil {
+	if _, err := agent.RenderConfigs(agent.RenderOptions{Home: home, ForceHomes: true, Out: &out, Agents: []string{"codex"}}); err != nil {
 		t.Fatalf("Run: %v\n%s", err, out.String())
 	}
 	got, err := os.ReadFile(hooksPath)
@@ -122,11 +121,11 @@ func TestMergeCopilotHooksKeepsForeignEntries(t *testing.T) {
     ]
   }
 }`)
-	body, err := settings.CopilotJSON()
+	body, err := agent.CopilotJSON()
 	if err != nil {
 		t.Fatal(err)
 	}
-	merged, err := settings.MergeCopilotHooks(existing, body)
+	merged, err := agent.MergeCopilotHooks(existing, body)
 	if err != nil {
 		t.Fatalf("mergeCopilotHooks: %v", err)
 	}
@@ -184,11 +183,11 @@ func findCodexHook(t *testing.T, merged []byte, want string) map[string]any {
 // an injected "timeout": 0 nor lose "customKey".
 func TestMergeCodexHooksPreservesUnknownFieldsAndNoTimeout(t *testing.T) {
 	existing := []byte(`{"hooks":{"PreToolUse":[{"hooks":[{"type":"command","command":"orca-stop","customKey":1}]}]}}`)
-	body, err := settings.CodexJSON()
+	body, err := agent.CodexJSON()
 	if err != nil {
 		t.Fatal(err)
 	}
-	merged, err := settings.MergeCodexHooks(existing, body)
+	merged, err := agent.MergeCodexHooks(existing, body)
 	if err != nil {
 		t.Fatalf("mergeCodexHooks: %v", err)
 	}
@@ -207,11 +206,11 @@ func TestMergeCodexHooksPreservesUnknownFieldsAndNoTimeout(t *testing.T) {
 func TestMergeCodexHooksRoundTripsForeignGroupByteIdentical(t *testing.T) {
 	original := json.RawMessage(`{"matcher":"Bash","extra":{"b":2,"a":1},"hooks":[{"type":"command","command":"orca-stop","async":true,"nested":{"b":2,"a":1}}]}`)
 	existing := []byte(`{"hooks":{"PreToolUse":[` + string(original) + `]}}`)
-	body, err := settings.CodexJSON()
+	body, err := agent.CodexJSON()
 	if err != nil {
 		t.Fatal(err)
 	}
-	merged, err := settings.MergeCodexHooks(existing, body)
+	merged, err := agent.MergeCodexHooks(existing, body)
 	if err != nil {
 		t.Fatalf("mergeCodexHooks: %v", err)
 	}
@@ -248,11 +247,11 @@ func compactJSON(t *testing.T, raw []byte) string {
 // hooks.json key outside "hooks" (e.g. a future Codex field) must survive the merge untouched.
 func TestMergeCodexHooksPreservesUnknownTopLevelKey(t *testing.T) {
 	existing := []byte(`{"hooks":{},"futureField":{"nested":true,"n":1}}`)
-	body, err := settings.CodexJSON()
+	body, err := agent.CodexJSON()
 	if err != nil {
 		t.Fatal(err)
 	}
-	merged, err := settings.MergeCodexHooks(existing, body)
+	merged, err := agent.MergeCodexHooks(existing, body)
 	if err != nil {
 		t.Fatalf("mergeCodexHooks: %v", err)
 	}
@@ -268,11 +267,11 @@ func TestMergeCodexHooksPreservesUnknownTopLevelKey(t *testing.T) {
 // TestMergeCopilotHooksPreservesUnknownTopLevelKey mirrors the Codex case for Copilot's top-level shape.
 func TestMergeCopilotHooksPreservesUnknownTopLevelKey(t *testing.T) {
 	existing := []byte(`{"version":1,"hooks":{},"vendorExtra":"keep-me"}`)
-	body, err := settings.CopilotJSON()
+	body, err := agent.CopilotJSON()
 	if err != nil {
 		t.Fatal(err)
 	}
-	merged, err := settings.MergeCopilotHooks(existing, body)
+	merged, err := agent.MergeCopilotHooks(existing, body)
 	if err != nil {
 		t.Fatalf("mergeCopilotHooks: %v", err)
 	}
@@ -293,11 +292,11 @@ func TestMergeCodexHooksPreservesLessThanUnescaped(t *testing.T) {
 	escaped := string([]byte{0x5c, 'u', '0', '0', '3', 'c'}) // the escape sequence, spelled out so the source never contains a literal backslash-u003c
 	cmd := "test $a " + lt + " $b && echo orca-stop"
 	existing := []byte(`{"hooks":{"PreToolUse":[{"hooks":[{"type":"command","command":"` + cmd + `"}]}]}}`)
-	body, err := settings.CodexJSON()
+	body, err := agent.CodexJSON()
 	if err != nil {
 		t.Fatal(err)
 	}
-	merged, err := settings.MergeCodexHooks(existing, body)
+	merged, err := agent.MergeCodexHooks(existing, body)
 	if err != nil {
 		t.Fatalf("mergeCodexHooks: %v", err)
 	}
@@ -327,9 +326,9 @@ func TestRenderCodexFailsHooksMergeLeavesConfigTomlUntouched(t *testing.T) {
 		t.Fatal(err)
 	}
 	var out bytes.Buffer
-	_, err := settings.Run(settings.Options{Router: agent.Router{}, Home: home, Vendors: true, Out: &out, Agents: []string{"codex"}})
+	_, err := agent.RenderConfigs(agent.RenderOptions{Home: home, ForceHomes: true, Out: &out, Agents: []string{"codex"}})
 	if err == nil {
-		t.Fatalf("expected settings.Run to fail on a malformed hooks.json, got no error:\n%s", out.String())
+		t.Fatalf("expected agent.RenderConfigs to fail on a malformed hooks.json, got no error:\n%s", out.String())
 	}
 	got, readErr := os.ReadFile(tomlPath)
 	if readErr != nil {
@@ -361,11 +360,11 @@ func TestMergeCodexHooksForeignFirstStaysFirst(t *testing.T) {
 		{"hooks":[{"type":"command","command":"orca-stop"}]},
 		{"matcher":"Bash","hooks":[{"type":"command","command":"$HOME/.claude/bin/claude-code hook safety-scan-STALE"}]}
 	]}}`)
-	body, err := settings.CodexJSON()
+	body, err := agent.CodexJSON()
 	if err != nil {
 		t.Fatal(err)
 	}
-	merged, err := settings.MergeCodexHooks(existing, body)
+	merged, err := agent.MergeCodexHooks(existing, body)
 	if err != nil {
 		t.Fatalf("mergeCodexHooks: %v", err)
 	}
@@ -391,11 +390,11 @@ func TestMergeCodexHooksHarnessFirstStaysFirst(t *testing.T) {
 		{"matcher":"Bash","hooks":[{"type":"command","command":"$HOME/.claude/bin/claude-code hook safety-scan-STALE"}]},
 		{"hooks":[{"type":"command","command":"orca-stop"}]}
 	]}}`)
-	body, err := settings.CodexJSON()
+	body, err := agent.CodexJSON()
 	if err != nil {
 		t.Fatal(err)
 	}
-	merged, err := settings.MergeCodexHooks(existing, body)
+	merged, err := agent.MergeCodexHooks(existing, body)
 	if err != nil {
 		t.Fatalf("mergeCodexHooks: %v", err)
 	}
@@ -418,11 +417,11 @@ func TestMergeCodexHooksNoHarnessItemPrepends(t *testing.T) {
 	existing := []byte(`{"hooks":{"PostToolUse":[
 		{"hooks":[{"type":"command","command":"orca-start"}]}
 	]}}`)
-	body, err := settings.CodexJSON()
+	body, err := agent.CodexJSON()
 	if err != nil {
 		t.Fatal(err)
 	}
-	merged, err := settings.MergeCodexHooks(existing, body)
+	merged, err := agent.MergeCodexHooks(existing, body)
 	if err != nil {
 		t.Fatalf("mergeCodexHooks: %v", err)
 	}
@@ -451,11 +450,11 @@ func TestMergeCodexHooksMixedGroupSplicesInPlace(t *testing.T) {
 		]},
 		{"hooks":[{"type":"command","command":"orca-C"}]}
 	]}}`)
-	body, err := settings.CodexJSON()
+	body, err := agent.CodexJSON()
 	if err != nil {
 		t.Fatal(err)
 	}
-	merged, err := settings.MergeCodexHooks(existing, body)
+	merged, err := agent.MergeCodexHooks(existing, body)
 	if err != nil {
 		t.Fatalf("mergeCodexHooks: %v", err)
 	}
@@ -485,17 +484,17 @@ func TestMergeCodexHooksMixedGroupSplicesInPlace(t *testing.T) {
 // the untouched foreign ones, so nothing should move or change.
 func TestMergeCodexHooksIdempotent(t *testing.T) {
 	existing := readTestdata(t, "codex-hooks-with-orca.json")
-	body, err := settings.CodexJSON()
+	body, err := agent.CodexJSON()
 	if err != nil {
 		t.Fatal(err)
 	}
-	once, err := settings.MergeCodexHooks(existing, body)
+	once, err := agent.MergeCodexHooks(existing, body)
 	if err != nil {
-		t.Fatalf("first settings.MergeCodexHooks: %v", err)
+		t.Fatalf("first agent.MergeCodexHooks: %v", err)
 	}
-	twice, err := settings.MergeCodexHooks(once, body)
+	twice, err := agent.MergeCodexHooks(once, body)
 	if err != nil {
-		t.Fatalf("second settings.MergeCodexHooks: %v", err)
+		t.Fatalf("second agent.MergeCodexHooks: %v", err)
 	}
 	if !bytes.Equal(once, twice) {
 		t.Fatalf("merge is not idempotent:\nonce:\n%s\ntwice:\n%s", once, twice)
@@ -513,17 +512,17 @@ func TestMergeCopilotHooksIdempotent(t *testing.T) {
     ]
   }
 }`)
-	body, err := settings.CopilotJSON()
+	body, err := agent.CopilotJSON()
 	if err != nil {
 		t.Fatal(err)
 	}
-	once, err := settings.MergeCopilotHooks(existing, body)
+	once, err := agent.MergeCopilotHooks(existing, body)
 	if err != nil {
-		t.Fatalf("first settings.MergeCopilotHooks: %v", err)
+		t.Fatalf("first agent.MergeCopilotHooks: %v", err)
 	}
-	twice, err := settings.MergeCopilotHooks(once, body)
+	twice, err := agent.MergeCopilotHooks(once, body)
 	if err != nil {
-		t.Fatalf("second settings.MergeCopilotHooks: %v", err)
+		t.Fatalf("second agent.MergeCopilotHooks: %v", err)
 	}
 	if !bytes.Equal(once, twice) {
 		t.Fatalf("merge is not idempotent:\nonce:\n%s\ntwice:\n%s", once, twice)
@@ -543,11 +542,11 @@ func TestMergeCopilotHooksForeignFirstStaysFirst(t *testing.T) {
     ]
   }
 }`)
-	body, err := settings.CopilotJSON()
+	body, err := agent.CopilotJSON()
 	if err != nil {
 		t.Fatal(err)
 	}
-	merged, err := settings.MergeCopilotHooks(existing, body)
+	merged, err := agent.MergeCopilotHooks(existing, body)
 	if err != nil {
 		t.Fatalf("mergeCopilotHooks: %v", err)
 	}
@@ -586,14 +585,14 @@ func TestCodexTrustEntriesSurviveForeignFirstOrder(t *testing.T) {
 		t.Fatal(err)
 	}
 	var out bytes.Buffer
-	if _, err := settings.Run(settings.Options{Router: agent.Router{}, Home: home, Vendors: true, Out: &out, Agents: []string{"codex"}}); err != nil {
+	if _, err := agent.RenderConfigs(agent.RenderOptions{Home: home, ForceHomes: true, Out: &out, Agents: []string{"codex"}}); err != nil {
 		t.Fatalf("Run: %v\n%s", err, out.String())
 	}
-	body, err := settings.CodexJSON()
+	body, err := agent.CodexJSON()
 	if err != nil {
 		t.Fatal(err)
 	}
-	rendered, err := settings.CodexTrustEntries(hooksPath, body)
+	rendered, err := agent.CodexTrustEntries(hooksPath, body)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -601,7 +600,7 @@ func TestCodexTrustEntriesSurviveForeignFirstOrder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	src := settings.CodexHookSourcePath(hooksPath)
+	src := agent.CodexHookSourcePath(hooksPath)
 	// Rendered alone, safety-scan sits at 0:0; behind Orca's group it is 1:0, and Orca's slot gets no entry.
 	safetyScan := rendered[src+":pre_tool_use:0:0"]
 	want := fmt.Sprintf("[hooks.state.%q]\ntrusted_hash = %q", src+":pre_tool_use:1:0", safetyScan)
@@ -631,11 +630,11 @@ func TestMergeCopilotHooksPreservesPowershellCwdEnv(t *testing.T) {
     ]
   }
 }`)
-	body, err := settings.CopilotJSON()
+	body, err := agent.CopilotJSON()
 	if err != nil {
 		t.Fatal(err)
 	}
-	merged, err := settings.MergeCopilotHooks(existing, body)
+	merged, err := agent.MergeCopilotHooks(existing, body)
 	if err != nil {
 		t.Fatalf("mergeCopilotHooks: %v", err)
 	}
@@ -667,11 +666,11 @@ func TestMergeCopilotHooksPreservesPowershellCwdEnv(t *testing.T) {
 func TestMergeCodexHooksDropsStaleHarnessNames(t *testing.T) {
 	stale := []byte(`{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"HARNESS_HOOK_AGENT=codex $HOME/.claude/bin/claude-code hook bash-guard"}]}],` +
 		`"PostToolUse":[{"matcher":"Read","hooks":[{"type":"command","command":"HARNESS_HOOK_AGENT=codex $HOME/.claude/bin/claude-code hook access-trace"}]}]}}`)
-	body, err := settings.CodexJSON()
+	body, err := agent.CodexJSON()
 	if err != nil {
 		t.Fatal(err)
 	}
-	merged, err := settings.MergeCodexHooks(stale, body)
+	merged, err := agent.MergeCodexHooks(stale, body)
 	if err != nil {
 		t.Fatal(err)
 	}

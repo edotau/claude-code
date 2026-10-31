@@ -253,4 +253,4 @@ func Events() map[string][]MatcherGroup {
 }
 
 // SettingsJSON renders the object under settings.json's "hooks" key.
-func SettingsJSON() ([]byte, error) { return marshalIndentNoEscape(Events()) }
+func SettingsJSON() ([]byte, error) { return MarshalIndentNoEscape(Events()) }

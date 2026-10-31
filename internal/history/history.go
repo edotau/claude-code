@@ -19,9 +19,9 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/settings"
 )
 
 // HistoryFile is one watched file: Label names it inside the store (flat namespace — a label must be
@@ -75,7 +75,7 @@ func vendorConfigs() []HistoryFile {
 	if err != nil {
 		return out
 	}
-	if codexCfg, err := settings.CodexConfigPath(""); err == nil {
+	if codexCfg, err := agent.CodexConfigPath(""); err == nil {
 		out = append(out, HistoryFile{Label: "codex-config.toml", Path: codexCfg})
 	}
 	if cfgHome, err := os.UserConfigDir(); err == nil {

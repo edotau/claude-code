@@ -1,15 +1,14 @@
-package settings_test
+package agent_test
 
 import (
 	"bytes"
 	"encoding/json"
-	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/settings"
 	"os"
 	"path/filepath"
 	"reflect"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -32,7 +31,7 @@ func TestGeminiSettingsMergesDenyGuardsKeepingOtherKeys(t *testing.T) {
 	}
 
 	var out bytes.Buffer
-	if _, err := settings.Run(settings.Options{Router: agent.Router{}, Home: home, Vendors: true, Out: &out, Agents: []string{"gemini"}}); err != nil {
+	if _, err := agent.RenderConfigs(agent.RenderOptions{Home: home, ForceHomes: true, Out: &out, Agents: []string{"gemini"}}); err != nil {
 		t.Fatalf("Run: %v\n%s", err, out.String())
 	}
 
@@ -69,8 +68,8 @@ func TestGeminiSettingsMergesDenyGuardsKeepingOtherKeys(t *testing.T) {
 	}
 
 	var out2 bytes.Buffer
-	if _, err := settings.Run(settings.Options{Router: agent.Router{}, Home: home, Vendors: true, Out: &out2, Agents: []string{"gemini"}}); err != nil {
-		t.Fatalf("second settings.Run: %v\n%s", err, out2.String())
+	if _, err := agent.RenderConfigs(agent.RenderOptions{Home: home, ForceHomes: true, Out: &out2, Agents: []string{"gemini"}}); err != nil {
+		t.Fatalf("second agent.RenderConfigs: %v\n%s", err, out2.String())
 	}
 	raw2, err := os.ReadFile(path)
 	if err != nil {
@@ -89,7 +88,7 @@ func TestGeminiSettingsSkipsPrefixAndAskRules(t *testing.T) {
 	vaulttest.Put(t, vault.Overlay, "agents", overlay)
 
 	var out bytes.Buffer
-	if _, err := settings.Run(settings.Options{Router: agent.Router{}, Home: home, Vendors: true, Out: &out, Agents: []string{"gemini"}}); err != nil {
+	if _, err := agent.RenderConfigs(agent.RenderOptions{Home: home, ForceHomes: true, Out: &out, Agents: []string{"gemini"}}); err != nil {
 		t.Fatalf("Run: %v\n%s", err, out.String())
 	}
 
@@ -125,7 +124,7 @@ func TestGeminiSettingsLeavesInvalidJSONUntouched(t *testing.T) {
 	}
 
 	var out bytes.Buffer
-	if _, err := settings.Run(settings.Options{Router: agent.Router{}, Home: home, Vendors: true, Out: &out, Agents: []string{"gemini"}}); err != nil {
+	if _, err := agent.RenderConfigs(agent.RenderOptions{Home: home, ForceHomes: true, Out: &out, Agents: []string{"gemini"}}); err != nil {
 		t.Fatalf("Run: %v\n%s", err, out.String())
 	}
 
@@ -147,7 +146,7 @@ func TestGeminiSettingsMissingFileCreatesDenyOnly(t *testing.T) {
 	}
 
 	var out bytes.Buffer
-	if _, err := settings.Run(settings.Options{Router: agent.Router{}, Home: home, Vendors: true, Out: &out, Agents: []string{"gemini"}}); err != nil {
+	if _, err := agent.RenderConfigs(agent.RenderOptions{Home: home, ForceHomes: true, Out: &out, Agents: []string{"gemini"}}); err != nil {
 		t.Fatalf("Run: %v\n%s", err, out.String())
 	}
 
@@ -194,7 +193,7 @@ func TestGeminiSettingsNullJSONUntouched(t *testing.T) {
 					}
 				}()
 				var out bytes.Buffer
-				if _, err := settings.Run(settings.Options{Router: agent.Router{}, Home: home, Vendors: true, Out: &out, Agents: []string{"gemini"}}); err != nil {
+				if _, err := agent.RenderConfigs(agent.RenderOptions{Home: home, ForceHomes: true, Out: &out, Agents: []string{"gemini"}}); err != nil {
 					t.Fatalf("Run: %v\n%s", err, out.String())
 				}
 			}()

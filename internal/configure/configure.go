@@ -31,7 +31,6 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/proxy"
 	"github.com/edotau/claude-code/internal/secrets"
-	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/ui/ansi"
 	"github.com/edotau/claude-code/internal/ui/tui"
 )
@@ -819,12 +818,12 @@ func modelsReport(d *dialog) bool {
 // --- agents ---
 
 func runAgents(d *dialog) bool {
-	agentList := settings.DefaultAgents
+	agentList := agent.DefaultAgents
 	if d.o.Vendor != "" {
 		agentList = []string{d.o.Vendor}
 	}
-	_, err := settings.Run(settings.Options{
-		Agents: agentList, DryRun: d.o.DryRun || d.o.Check, Check: d.o.Check, Home: d.o.Home, Out: d.out, Router: agent.Router{},
+	_, err := agent.RenderConfigs(agent.RenderOptions{
+		Agents: agentList, DryRun: d.o.DryRun || d.o.Check, Check: d.o.Check, Home: d.o.Home, Out: d.out,
 	})
 	if err != nil {
 		d.println(err)
