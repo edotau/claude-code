@@ -20,7 +20,7 @@ type Report struct {
 }
 
 // Setup runs the binary, login, route and projection checks for an agent. Text rendering is the caller's job.
-func Setup(name string, routeDetail func(string) (string, bool)) Report {
+func Setup(name string) Report {
 	s, ok := LookupSchema(name)
 	if !ok || !s.External() {
 		return Report{Agent: name, Checks: []Check{{Name: "agent", State: "fail", Detail: errUnknownAgent(name).Error()}}}
@@ -29,7 +29,7 @@ func Setup(name string, routeDetail func(string) (string, bool)) Report {
 	loginCheck := loginCheck(s)
 	rep := Report{
 		Agent:  name,
-		Checks: []Check{binCheck, loginCheck, routeCheck(name, routeDetail), projectionCheck(name)},
+		Checks: []Check{binCheck, loginCheck, routeCheck(name), projectionCheck(name)},
 		OK:     binCheck.State == "ok" && loginCheck.State == "ok",
 	}
 	return rep
@@ -61,9 +61,9 @@ func loginPresent(name string) bool {
 	return present
 }
 
-// routeCheck pulls the "<name> route" detail from routeDetail, without running the full doctor sweep.
-func routeCheck(name string, routeDetail func(string) (string, bool)) Check {
-	detail, ok := routeDetail(name)
+// routeCheck pulls the "<name> route" detail from RouteDetail, without running the full doctor sweep.
+func routeCheck(name string) Check {
+	detail, ok := RouteDetail(name)
 	if !ok {
 		return Check{Name: "route", State: "warn", Detail: "no route check found for " + name}
 	}

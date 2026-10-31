@@ -9,7 +9,6 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/launch"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault"
@@ -33,10 +32,10 @@ func fakeBin(t *testing.T, name string) {
 var codexModelArg = regexp.MustCompile(`^model="(.*)"$`)
 
 // launchModel is the model the interactive launch hands the CLI (--print-env plan): codex's -c model=, else COPILOT_MODEL.
-func launchModel(t *testing.T, name string, o launch.Options) string {
+func launchModel(t *testing.T, name string, o agent.LaunchOptions) string {
 	t.Helper()
 	o.PrintEnv = true
-	plan, err := launch.Vendor(context.Background(), name, o, nil)
+	plan, err := agent.Vendor(context.Background(), name, o, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -80,7 +79,7 @@ func TestLaunchAndAgentAgreeOnModel(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			got := launchModel(t, c.agent, launch.Options{Provider: c.profile, Model: c.flag})
+			got := launchModel(t, c.agent, agent.LaunchOptions{Provider: c.profile, Model: c.flag})
 			if got != tg.Model {
 				t.Errorf("launch %q vs agent %q", got, tg.Model)
 			}

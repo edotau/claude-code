@@ -3,6 +3,7 @@ package launch
 import (
 	"testing"
 
+	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/providers"
 )
 
@@ -15,7 +16,7 @@ func TestRouteDetailMatchesDoctorChecks(t *testing.T) {
 
 	checks, _ := DoctorChecks()
 	for _, vendor := range []string{"codex", "gemini", "opencode", "copilot"} {
-		detail, ok := RouteDetail(vendor)
+		detail, ok := agent.RouteDetail(vendor)
 		if !ok {
 			t.Errorf("RouteDetail(%q) ok = false, want true", vendor)
 			continue
@@ -33,7 +34,7 @@ func TestRouteDetailMatchesDoctorChecks(t *testing.T) {
 // An unknown vendor reports ok=false, never a stale/zero detail string.
 func TestRouteDetailUnknownVendor(t *testing.T) {
 	doctorScratch(t)
-	if detail, ok := RouteDetail("not-a-vendor"); ok || detail != "" {
+	if detail, ok := agent.RouteDetail("not-a-vendor"); ok || detail != "" {
 		t.Errorf("RouteDetail(unknown) = (%q, %v), want (\"\", false)", detail, ok)
 	}
 }

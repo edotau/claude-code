@@ -10,7 +10,6 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/launch"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/secrets/shapes"
 	"github.com/edotau/claude-code/internal/ui/helptext"
@@ -318,7 +317,7 @@ func cmdVendorSetup(vendor string, args []string) int {
 	if err := helptext.CheckFormat(*format); err != nil {
 		return badFormat(vendor+" setup", err)
 	}
-	rep := agent.Setup(vendor, launch.RouteDetail)
+	rep := agent.Setup(vendor)
 	if *format == helptext.JSON {
 		if err := helptext.WriteJSON(os.Stdout, rep); err != nil {
 			return fail("%s setup: %v", vendor, err)
@@ -508,7 +507,7 @@ func printCopilotCatalog(vendor string, cat agent.CopilotCatalog, format string)
 	return 0
 }
 
-// vendorLaunchFlags lists the harness flags a bare launch consumes (launch.ParseArgs) for the help page.
+// vendorLaunchFlags lists the harness flags a bare launch consumes (agent.ParseArgs) for the help page.
 func vendorLaunchFlags(vendor string) *flag.FlagSet {
 	fs := helptext.NewFlagSet(vendor, helptext.Page{Usage: "claude-code " + vendor}) // display only; ParseArgs parses
 	fs.String("model", "", "select the model for this launch")

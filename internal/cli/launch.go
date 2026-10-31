@@ -29,12 +29,12 @@ func cmdClaude(args []string) int { return launchClaude("", args) }
 
 // launchClaude launches Claude Code with tier as the main-loop model ("" = opus).
 func launchClaude(tier string, args []string) int {
-	opts, rest, err := launch.ParseArgs(args, true)
+	opts, rest, err := agent.ParseArgs(args, true)
 	if err != nil {
 		return fail("%v", err)
 	}
 	opts.Tier = tier
-	plan, err := launch.Claude(context.Background(), opts, rest)
+	plan, err := agent.Claude(context.Background(), opts, rest)
 	return runPlan(plan, opts, err)
 }
 
@@ -51,7 +51,7 @@ var anthropicPage = helptext.Page{
 	Hint: "claude-code anthropic " + helptext.DocsFlag + " prints claude's own help.",
 }
 
-// anthropicHelp renders the page with its flag rows; the flags are parsed by launch.ParseAnthropicArgs.
+// anthropicHelp renders the page with its flag rows; the flags are parsed by agent.ParseAnthropicArgs.
 func anthropicHelp(w io.Writer) {
 	fs := helptext.NewFlagSet("anthropic", anthropicPage)
 	fs.Bool("oauth", false, "setup-token login; =NAME picks the vault key")
@@ -73,24 +73,24 @@ func cmdAnthropic(args []string) int {
 	if len(args) == 1 && args[0] == helptext.DocsFlag {
 		return helptext.WrappedDocs("claude")
 	}
-	o, rest, err := launch.ParseAnthropicArgs(args)
+	o, rest, err := agent.ParseAnthropicArgs(args)
 	if err != nil {
 		return fail("%v", err)
 	}
 	secret := ""
-	if o.Mode != launch.AuthLogin {
+	if o.Mode != agent.AuthLogin {
 		if secret, err = anthropicSecret(o); err != nil {
 			return fail("%v", err)
 		}
 	}
-	plan, err := launch.Anthropic(context.Background(), o, rest, secret)
-	return runPlan(plan, o.Options, err)
+	plan, err := agent.Anthropic(context.Background(), o, rest, secret)
+	return runPlan(plan, o.LaunchOptions, err)
 }
 
 // anthropicSecret reads the mode's vault key; when it is missing and a terminal is attached, offers to store it.
-func anthropicSecret(o launch.AnthropicOptions) (string, error) {
+func anthropicSecret(o agent.AnthropicOptions) (string, error) {
 	read := func() (string, error) {
-		if o.Mode == launch.AuthOAuth {
+		if o.Mode == agent.AuthOAuth {
 			return providers.StoredSecret(o.Name), nil
 		}
 		v, _, err := providers.EffectiveSecret(o.Name)
@@ -108,7 +108,7 @@ func anthropicSecret(o launch.AnthropicOptions) (string, error) {
 	if !tui.Confirm(o.Name+" is not in the vault — set it now?", true) {
 		return "", missing
 	}
-	if o.Mode == launch.AuthOAuth && tui.Confirm("Run `claude setup-token` first to mint one?", true) {
+	if o.Mode == agent.AuthOAuth && tui.Confirm("Run `claude setup-token` first to mint one?", true) {
 		runSetupToken()
 	}
 	if code := vaultSetSecret(o.Name, false); code != 0 {
@@ -137,11 +137,11 @@ func runSetupToken() {
 }
 
 func launchVendor(name string, args []string) int {
-	opts, rest, err := launch.ParseArgs(args, false)
+	opts, rest, err := agent.ParseArgs(args, false)
 	if err != nil {
 		return fail("%v", err)
 	}
-	plan, err := launch.Vendor(context.Background(), name, opts, rest)
+	plan, err := agent.Vendor(context.Background(), name, opts, rest)
 	return runPlan(plan, opts, err)
 }
 
@@ -149,16 +149,16 @@ func cmdUsage(args []string) int { return usagecmd.Run(args, paths.ConfigDir(), 
 
 // cmdScience takes only a leading --print-env; every other flag is claude-science's own.
 func cmdScience(args []string) int {
-	var opts launch.Options
+	var opts agent.LaunchOptions
 	if len(args) > 0 && args[0] == "--print-env" {
 		opts.PrintEnv, args = true, args[1:]
 	}
-	plan, err := launch.ScienceEnv(args)
+	plan, err := agent.ScienceEnv(args)
 	return runPlan(plan, opts, err)
 }
 
-func runPlan(plan launch.Plan, opts launch.Options, err error) int {
-	if usage, ok := errors.AsType[launch.UsageError](err); ok {
+func runPlan(plan agent.Plan, opts agent.LaunchOptions, err error) int {
+	if usage, ok := errors.AsType[agent.UsageError](err); ok {
 		fmt.Fprintln(os.Stderr, usage)
 		return 2
 	}

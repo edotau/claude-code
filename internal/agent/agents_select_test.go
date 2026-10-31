@@ -97,7 +97,7 @@ func TestClientRecordSkipsRouting(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	c := NewClient(nil, nil, nil, nil)
+	c := NewClient(nil, nil, nil)
 	o := RunOptions{Agent: "sec", Agents: defs, Prompt: "x", Provider: "no-such-provider", Rubric: "/nonexistent/rubric.md"}
 	if _, err := c.Prepare(t.Context(), o, nil); err == nil {
 		t.Fatal("control: Prepare should fail on the unknown provider")

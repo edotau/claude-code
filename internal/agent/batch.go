@@ -421,7 +421,10 @@ func (b *batchRun) run(ctx context.Context, t BatchTask, p *Prepared) (env Envel
 	}()
 	_ = rec.Save() // fail-open: the log is for replay and forensics, never a gate on the run
 	notify := func(s string) { b.logf(t.ID, "%s", s) }
-	client := NewClient(p.Opts.Launcher, nil, nil, notify)
+	client := NewClient(nil, nil, notify)
+	if p.Opts.Launcher != nil {
+		client.Launcher = p.Opts.Launcher
+	}
 	res, err := client.Exec(ctx, p, Discard, DispatchOpts{})
 	for _, d := range res.Dropped {
 		b.logf(t.ID, "%s has no channel on the %s agent — dropped", d, res.Agent)

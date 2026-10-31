@@ -139,6 +139,9 @@ func RunGemini(ctx context.Context, o GeminiOptions, stream, log io.Writer) (Res
 	if err != nil {
 		return Result{}, err
 	}
+	if o.Launcher == nil {
+		o.Launcher = claudeLauncher{}
+	}
 	return Run(ctx, r, RunOptions{
 		Prompt: prompt, Model: model, Provider: p.Name, Effort: o.Effort, Timeout: o.Timeout, NoTools: true, Launcher: o.Launcher,
 	}, NewTextSink(stream), func(s string) { fmt.Fprintln(log, s) })

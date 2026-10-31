@@ -75,10 +75,7 @@ func TestKnownIncludesClaude(t *testing.T) {
 
 func TestSetupRejectsNonExternal(t *testing.T) {
 	for _, name := range []string{"claude", "nonexistent-vendor"} {
-		rep := Setup(name, func(string) (string, bool) {
-			t.Fatal("non-external agent must not check routes")
-			return "", false
-		})
+		rep := Setup(name)
 		if rep.OK || len(rep.Checks) != 1 || rep.Checks[0].State != "fail" ||
 			rep.Checks[0].Detail != errUnknownAgent(name).Error() {
 			t.Errorf("Setup(%q) = %+v", name, rep)

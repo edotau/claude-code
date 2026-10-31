@@ -4,7 +4,6 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
-	"strings"
 	"testing"
 )
 
@@ -28,15 +27,6 @@ func target(t *testing.T, provider, model string) providers.Target {
 		t.Fatal(err)
 	}
 	return providers.Target{Provider: p, Model: model}
-}
-
-func envMap(env []string) map[string]string {
-	m := map[string]string{}
-	for _, kv := range env {
-		k, v, _ := strings.Cut(kv, "=")
-		m[k] = v
-	}
-	return m
 }
 
 // writeGatewayOverlay registers a test-only third-party gateway (no such provider is built in).
