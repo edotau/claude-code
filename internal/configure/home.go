@@ -121,10 +121,9 @@ type mcpClient struct {
 }
 
 func webSearchClients() []mcpClient {
-	home, _ := os.UserHomeDir()
 	codexCfg, cfgErr := settings.CodexConfigPath("")
 	return []mcpClient{
-		{"claude", func() bool { return claudeJSONWired(filepath.Join(home, ".claude.json")) }, registerClaudeMCP},
+		{"claude", func() bool { return claudeJSONWired(paths.ClaudeJSON()) }, registerClaudeMCP},
 		{"codex", func() bool { return codexWired(codexCfg) }, func(bin string) error {
 			if cfgErr != nil {
 				return cfgErr

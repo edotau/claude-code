@@ -1,7 +1,6 @@
 package usage
 
 import (
-	"bufio"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -367,17 +366,15 @@ func scanWorkflowNamesFromTranscript(path string) map[string]string {
 	defer f.Close()
 
 	toolUses := map[string]toolUseBlock{}
-	sc := bufio.NewScanner(f)
-	sc.Buffer(make([]byte, 64*1024), 10<<20)
-	for sc.Scan() {
+	transcript.EachLine(f, func(line []byte) {
 		var rec struct {
 			Type    string `json:"type"`
 			Message struct {
 				Content json.RawMessage `json:"content"`
 			} `json:"message"`
 		}
-		if json.Unmarshal(sc.Bytes(), &rec) != nil {
-			continue
+		if json.Unmarshal(line, &rec) != nil {
+			return
 		}
 		switch rec.Type {
 		case "assistant":
@@ -385,7 +382,7 @@ func scanWorkflowNamesFromTranscript(path string) map[string]string {
 		case "user":
 			matchWorkflowToolResults(rec.Message.Content, toolUses, names)
 		}
-	}
+	})
 	return names
 }
 
