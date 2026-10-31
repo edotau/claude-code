@@ -33,7 +33,7 @@ func (s Schema) Live() (LiveCapable, bool) {
 	}
 	var cli any = r
 	if v, ok := r.(cliRunner); ok {
-		cli = v.eng
+		cli = v.headlessEngine
 	}
 	lc, ok := cli.(LiveCapable)
 	return lc, ok

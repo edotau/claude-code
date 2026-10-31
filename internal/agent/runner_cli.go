@@ -12,7 +12,6 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 )
 
@@ -84,25 +83,11 @@ func namesProvider(reg *providers.Registry, spec string) bool {
 	return ok && found
 }
 
-// cliRunner execs an agent CLI's headless mode wired by ConfigureHeadless.
-type cliRunner struct{ eng headlessEngine }
+// cliRunner execs an agent CLI's headless mode wired by ConfigureHeadless; the engine supplies Name, Caps, Available.
+type cliRunner struct{ headlessEngine }
 
 // newCLIRunner is the runner for a roster CLI with a headless engine: codex, gemini or opencode.
 func newCLIRunner(name string) cliRunner { return cliRunner{engines[name].(headlessEngine)} }
-
-func (v cliRunner) Name() string { return v.eng.Name() }
-
-// Caps follow each CLI's verified headless flags.
-func (v cliRunner) Caps() Caps {
-	s, _ := LookupSchema(v.Name())
-	return s.CLI.Caps
-}
-
-func (v cliRunner) Available() error {
-	s, _ := LookupSchema(v.Name())
-	_, err := paths.VendorBin(s.CLI.Binary)
-	return err
-}
 
 // cliPrep is an agent run resolved up to its child's env: the route target, the prompt and the headless argv.
 type cliPrep struct {
@@ -127,13 +112,13 @@ func (v cliRunner) prepare(ctx context.Context, req RunOptions) (cliPrep, error)
 			return p, &Error{Kind: KindFatal, Agent: name, Err: errors.New("agent target resolved to no provider")}
 		}
 		p.res.Provider = t.Provider.Name
-		p.res.Model = v.eng.ranModel(t)
+		p.res.Model = v.ranModel(t)
 	}
-	p.prompt, err = v.eng.attach(req.Prompt, req.Attach, req.Tools)
+	p.prompt, err = v.attach(req.Prompt, req.Attach, req.Tools)
 	if err != nil {
 		return p, &Error{Kind: KindFatal, Agent: name, Err: err}
 	}
-	ct := v.eng.before(req, t)
+	ct := v.before(req, t)
 	if s.CLI.PromptInArgv && len(p.prompt) > MaxPromptBytes {
 		return p, &Error{Kind: KindFatal, Agent: name, Err: errPromptTooLarge(len(p.prompt))}
 	}
@@ -143,14 +128,14 @@ func (v cliRunner) prepare(ctx context.Context, req RunOptions) (cliPrep, error)
 		h.WorkDir = req.WorkDir // cmd.Dir alone doesn't move opencode's own cwd resolution; --dir does
 	}
 	if own {
-		p.env, p.argv, err = v.eng.ownLogin(h)
+		p.env, p.argv, err = v.ownLogin(h)
 	} else {
 		p.env, p.argv, err = s.configureHeadless(ctx, ct, h)
 	}
 	if err != nil {
 		return p, &Error{Kind: KindFatal, Agent: name, Err: err}
 	}
-	v.eng.after(&p, req)
+	v.after(&p, req)
 	p.env = append(p.env, req.Env...) // --env goes last, after the route keys, so it wins
 	return p, nil
 }
@@ -182,7 +167,7 @@ func (v cliRunner) Run(ctx context.Context, req RunOptions, sink Sink) (Result, 
 	if err != nil {
 		return p.res, err
 	}
-	return v.eng.exec(ctx, p, req, sink)
+	return v.exec(ctx, p, req, sink)
 }
 
 // codexImageArgs adds `-i <img>` after the exec subcommand; -i is variadic, so the next token must be a flag.
