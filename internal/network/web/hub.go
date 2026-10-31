@@ -186,7 +186,7 @@ func (s *Server) treeFingerprint() uint64 {
 	for _, f := range regs {
 		add(f)
 	}
-	recs, _ := filepath.Glob(filepath.Join(agent.DispatchDir(), "*.json")) // buildLegs reads these records
+	recs, _ := filepath.Glob(filepath.Join(agent.DispatchDir(), "*.json")) // buildDispatches reads these records
 	for _, f := range recs {
 		add(f)
 	}
