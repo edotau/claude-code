@@ -19,7 +19,7 @@ func TestPlainPlansResolveVendorBinNotPATH(t *testing.T) {
 			source := vendorPATHFixture(t, paths.Vendors[name], "")
 			t.Setenv("PATH", filepath.Dir(source))
 			bin := pathstest.FakeVendor(t, name, "")
-			spec, ok := agent.LookupSpec(name)
+			spec, ok := agent.LookupSchema(name)
 			if !ok {
 				t.Fatalf("missing vendor %s", name)
 			}

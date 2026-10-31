@@ -14,7 +14,7 @@ func TestExplicitLegFailureDoesNotAdvance(t *testing.T) {
 		first = &fakeRunner{name: "codex", errs: []error{errors.New("exit status 1")}, emptyAnswer: true}
 		next = &fakeRunner{name: "opencode", errs: []error{nil}}
 		c := Chain{Want: "codex", Legs: []Leg{{Agent: first}, {Agent: next}}}
-		_, err = RunWithFallback(context.Background(), c, Request{Prompt: "p", Provider: provider}, Discard, nil)
+		_, err = RunWithFallback(context.Background(), c, RunOptions{Prompt: "p", Provider: provider}, Discard, nil)
 		return first, next, err
 	}
 	if _, next, err := run(""); err != nil || len(next.seen) != 1 {

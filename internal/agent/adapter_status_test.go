@@ -47,7 +47,7 @@ func TestStatusRunningAlive(t *testing.T) {
 	setConfigDir(t)
 	cwd := t.TempDir()
 	base := time.Date(2026, 10, 24, 12, 0, 0, 0, time.UTC)
-	rec := NewRecord("codex", Request{Prompt: "do the thing"}, base)
+	rec := NewRecord("codex", RunOptions{Prompt: "do the thing"}, base)
 	rec.Repo, rec.PID = cwd, os.Getpid()
 	fixtureRecord(t, rec)
 
@@ -72,7 +72,7 @@ func TestStatusRunningLostDeadPID(t *testing.T) {
 	setConfigDir(t)
 	cwd := t.TempDir()
 	base := time.Date(2026, 10, 24, 12, 0, 0, 0, time.UTC)
-	rec := NewRecord("codex", Request{Prompt: "orphaned"}, base)
+	rec := NewRecord("codex", RunOptions{Prompt: "orphaned"}, base)
 	rec.Repo, rec.PID = cwd, adapterDeadPID(t)
 	fixtureRecord(t, rec)
 
@@ -91,7 +91,7 @@ func TestResultRunningErrors(t *testing.T) {
 	setConfigDir(t)
 	cwd := t.TempDir()
 	base := time.Date(2026, 10, 24, 12, 0, 0, 0, time.UTC)
-	rec := NewRecord("codex", Request{Prompt: "still going"}, base)
+	rec := NewRecord("codex", RunOptions{Prompt: "still going"}, base)
 	rec.Repo, rec.PID = cwd, os.Getpid()
 	fixtureRecord(t, rec)
 
@@ -110,7 +110,7 @@ func TestResultOK(t *testing.T) {
 		t.Fatal(err)
 	}
 	base := time.Date(2026, 10, 24, 12, 0, 0, 0, time.UTC)
-	rec := NewRecord("codex", Request{Prompt: "finished job"}, base)
+	rec := NewRecord("codex", RunOptions{Prompt: "finished job"}, base)
 	rec.Repo, rec.Status, rec.Log, rec.SessionID = cwd, "ok", logPath, "sess-1"
 	fixtureRecord(t, rec)
 
@@ -132,7 +132,7 @@ func TestCancelJobNoneRunningErrors(t *testing.T) {
 	setConfigDir(t)
 	cwd := t.TempDir()
 	base := time.Date(2026, 10, 24, 12, 0, 0, 0, time.UTC)
-	rec := NewRecord("codex", Request{Prompt: "already done"}, base)
+	rec := NewRecord("codex", RunOptions{Prompt: "already done"}, base)
 	rec.Repo, rec.Status = cwd, "ok"
 	fixtureRecord(t, rec)
 
@@ -148,7 +148,7 @@ func TestCancelJobAmbiguousPrefixErrors(t *testing.T) {
 	cwd := t.TempDir()
 	base := time.Date(2026, 10, 24, 12, 0, 0, 0, time.UTC)
 	for _, suffix := range []string{"-a", "-b"} {
-		rec := NewRecord("codex", Request{Prompt: "dup"}, base)
+		rec := NewRecord("codex", RunOptions{Prompt: "dup"}, base)
 		rec.ID = "20261024T120000.000-codex" + suffix
 		rec.Repo, rec.PID = cwd, os.Getpid()
 		fixtureRecord(t, rec)

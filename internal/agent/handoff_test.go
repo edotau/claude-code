@@ -32,8 +32,8 @@ func stubHandoff(t *testing.T) (string, *[]string) {
 
 var errQuotaMidTask = errors.New("send prompt: session error: 402 You have exceeded your monthly quota of premium requests")
 
-func quotaReq() (Request, Result, copilotsdk.Result) {
-	req := Request{Prompt: "Refactor foo; token ghp_" + strings.Repeat("a", 36), Model: "opus", WorkDir: "/tmp/repo"}
+func quotaReq() (RunOptions, Result, copilotsdk.Result) {
+	req := RunOptions{Prompt: "Refactor foo; token ghp_" + strings.Repeat("a", 36), Model: "opus", WorkDir: "/tmp/repo"}
 	res := Result{Agent: "copilot", Provider: "personal", Model: "claude-opus-4.5"}
 	return req, res, copilotsdk.Result{Text: "Step 1 done.", SessionID: "0a1b2c3d-4e5f-6789-abcd-ef0123456789"}
 }
@@ -75,37 +75,37 @@ func TestResolveTargetProfileTierRewrite(t *testing.T) {
 	vaulttest.UseKeyring(t)
 	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"databricks":{"dev":{"protocol":"anthropic","base_url":"http://127.0.0.1:1",`+
 		`"auth":{"type":"key","env":"DEV_TEST_KEY"},"models":{"opus":"claude-opus-5-5","sonnet":"claude-sonnet-5","haiku":"claude-haiku-4-5"}}}}}`)
-	_, want, err := resolveTarget(Request{Provider: "dev", Model: "opus"})
+	_, want, err := resolveTarget(RunOptions{Provider: "dev", Model: "opus"})
 	if err != nil || want.Provider == nil || want.Provider.Name != "dev" {
 		t.Fatalf("baseline --provider dev --model opus = %+v, %v", want, err)
 	}
 
 	t.Run("dev:opus equals --provider dev --model opus", func(t *testing.T) {
-		_, got, err := resolveTarget(Request{Model: "dev:opus"})
+		_, got, err := resolveTarget(RunOptions{Model: "dev:opus"})
 		if err != nil || got.Provider == nil || got.Provider.Name != "dev" || got.Model != want.Model {
 			t.Errorf("dev:opus = %+v (%v), want provider dev model %q", got, err, want.Model)
 		}
 	})
 	t.Run("full id keeps its prior behaviour", func(t *testing.T) {
-		_, viaSpec, err1 := resolveTarget(Request{Model: "dev:claude-opus-5-5"})
-		_, viaFlags, err2 := resolveTarget(Request{Provider: "dev", Model: "claude-opus-5-5"})
+		_, viaSpec, err1 := resolveTarget(RunOptions{Model: "dev:claude-opus-5-5"})
+		_, viaFlags, err2 := resolveTarget(RunOptions{Provider: "dev", Model: "claude-opus-5-5"})
 		if err1 != nil || err2 != nil || viaSpec.Provider == nil || viaSpec.Provider.Name != "dev" ||
 			viaSpec.Model != viaFlags.Model {
 			t.Errorf("spec %+v (%v) vs flags %+v (%v)", viaSpec, err1, viaFlags, err2)
 		}
 	})
 	t.Run("unknown row or non-tier is not rewritten", func(t *testing.T) {
-		_, bad, err := resolveTarget(Request{Model: "unknownrow:opus"})
+		_, bad, err := resolveTarget(RunOptions{Model: "unknownrow:opus"})
 		if err == nil && bad.Provider != nil && bad.Provider.Name == "unknownrow" {
 			t.Errorf("unknownrow:opus rewritten: %+v", bad)
 		}
-		_, nt, _ := resolveTarget(Request{Model: "dev:notatier"})
+		_, nt, _ := resolveTarget(RunOptions{Model: "dev:notatier"})
 		if nt.Provider != nil && nt.Provider.Name == "dev" && nt.Model == want.Model {
 			t.Errorf("dev:notatier rewritten to dev's opus tier: %+v", nt)
 		}
 	})
 	t.Run("the explicit backend is still seen", func(t *testing.T) {
-		req := Request{Model: "dev:opus"}
+		req := RunOptions{Model: "dev:opus"}
 		if !ExplicitBackend(req) {
 			t.Error("ExplicitBackend(dev:opus) must stay true")
 		}
@@ -125,7 +125,7 @@ type handoffRunner struct {
 func (h *handoffRunner) Name() string     { return h.name }
 func (h *handoffRunner) Caps() Caps       { return Caps{} }
 func (h *handoffRunner) Available() error { return nil }
-func (h *handoffRunner) Run(context.Context, Request, Sink) (Result, error) {
+func (h *handoffRunner) Run(context.Context, RunOptions, Sink) (Result, error) {
 	return h.res, h.err
 }
 
@@ -139,7 +139,7 @@ func TestRunWithFallbackCarriesHandoff(t *testing.T) {
 
 	t.Run("leg 2 succeeds", func(t *testing.T) {
 		second := &handoffRunner{name: "claude", res: Result{Answer: "from leg 2"}}
-		res, err := RunWithFallback(context.Background(), chainOf([]Runner{first(), second}, "", "sonnet"), Request{Prompt: "p"}, Discard, nil)
+		res, err := RunWithFallback(context.Background(), chainOf([]Runner{first(), second}, "", "sonnet"), RunOptions{Prompt: "p"}, Discard, nil)
 		if err != nil || res.Answer != "from leg 2" || res.Handoff != "/tmp/x.md" {
 			t.Fatalf("res=%+v err=%v; want leg 2's answer with handoff /tmp/x.md", res, err)
 		}
@@ -148,7 +148,7 @@ func TestRunWithFallbackCarriesHandoff(t *testing.T) {
 	t.Run("leg 2 fails with another error", func(t *testing.T) {
 		boom := errors.New("boom: unrelated failure")
 		second := &handoffRunner{name: "claude", err: boom}
-		res, err := RunWithFallback(context.Background(), chainOf([]Runner{first(), second}, "", "sonnet"), Request{Prompt: "p"}, Discard, nil)
+		res, err := RunWithFallback(context.Background(), chainOf([]Runner{first(), second}, "", "sonnet"), RunOptions{Prompt: "p"}, Discard, nil)
 		if err == nil || !errors.Is(err, boom) || res.Handoff != "/tmp/x.md" {
 			t.Fatalf("res=%+v err=%v; want leg 2's error with handoff /tmp/x.md", res, err)
 		}
@@ -156,7 +156,7 @@ func TestRunWithFallbackCarriesHandoff(t *testing.T) {
 
 	t.Run("a later leg's own handoff wins", func(t *testing.T) {
 		second := &handoffRunner{name: "claude", res: Result{Answer: "ok", Handoff: "/tmp/y.md"}}
-		res, _ := RunWithFallback(context.Background(), chainOf([]Runner{first(), second}, "", "sonnet"), Request{Prompt: "p"}, Discard, nil)
+		res, _ := RunWithFallback(context.Background(), chainOf([]Runner{first(), second}, "", "sonnet"), RunOptions{Prompt: "p"}, Discard, nil)
 		if res.Handoff != "/tmp/y.md" {
 			t.Errorf("handoff = %q, want the later leg's /tmp/y.md", res.Handoff)
 		}
@@ -208,7 +208,7 @@ func TestCopilotRunnerHandoffRedacted(t *testing.T) {
 		}
 		return copilotsdk.Result{Text: "half " + secret, SessionID: "0a1b2c3d-4e5f-6789-abcd-ef0123456789"}, errQuotaMidTask
 	})
-	res, err := copilotRunner{}.Run(context.Background(), Request{Prompt: "do it " + secret, Model: "sonnet", Provider: "personal", Direct: true}, Discard)
+	res, err := copilotRunner{}.Run(context.Background(), RunOptions{Prompt: "do it " + secret, Model: "sonnet", Provider: "personal", Direct: true}, Discard)
 	if !errors.Is(err, errQuotaMidTask) || Classify("copilot", err, false).Kind != KindQuota || *calls != 1 {
 		t.Fatalf("res=%+v err=%v calls=%d; want quota and one SDK call", res, err, *calls)
 	}
@@ -272,7 +272,7 @@ func TestVendorTargetNoteGatedKeepsSonnetTier(t *testing.T) {
 	vaulttest.UseKeyring(t)
 	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"databricks":{"dev":{"preset":"databricks","host":"https://adb-1.azuredatabricks.net",`+
 		`"auth":{"type":"key","env":"DEV_TEST_KEY"},"models":{"opus":"databricks-claude-opus-5-5","sonnet":"databricks-claude-sonnet-5-5"}}}}}`)
-	tg, _, _, err := vendorTargetNote(Request{Prompt: "p", Provider: "personal", Model: "sonnet"}, "copilot")
+	tg, _, _, err := vendorTargetNote(RunOptions{Prompt: "p", Provider: "personal", Model: "sonnet"}, "copilot")
 	if err != nil || tg.Provider == nil || tg.Provider.Name != "dev" || tg.Model != "databricks-claude-sonnet-5-5" {
 		t.Fatalf("target = %+v err=%v, want dev / databricks-claude-sonnet-5-5", tg, err)
 	}
@@ -290,7 +290,7 @@ func TestRunWithFallbackNextLegGetsHandoff(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			second := &fakeRunner{name: "claude", errs: []error{nil}}
 			first := &handoffRunner{name: "copilot", res: Result{Handoff: path}, err: quota}
-			if _, err := RunWithFallback(context.Background(), chainOf([]Runner{first, second}, "", "sonnet"), Request{Prompt: "BARE-TASK"}, Discard, nil); err != nil {
+			if _, err := RunWithFallback(context.Background(), chainOf([]Runner{first, second}, "", "sonnet"), RunOptions{Prompt: "BARE-TASK"}, Discard, nil); err != nil {
 				t.Fatal(err)
 			}
 			got := second.seen[0].Prompt
@@ -341,7 +341,7 @@ func TestVendorTargetNoteFallbackStripsOneM(t *testing.T) {
 	vaulttest.UseKeyring(t)
 	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"databricks":{"dev":{"preset":"databricks","host":"https://adb-1.azuredatabricks.net",`+
 		`"auth":{"type":"key","env":"DEV_TEST_KEY"},"models":{"opus":"databricks-claude-opus-5-5","sonnet":"databricks-claude-sonnet-5-5"}}}}}`)
-	tg, _, _, err := vendorTargetNote(Request{Prompt: "p", Model: "claude-sonnet-5-5[1m]"}, "copilot")
+	tg, _, _, err := vendorTargetNote(RunOptions{Prompt: "p", Model: "claude-sonnet-5-5[1m]"}, "copilot")
 	if err != nil || tg.Provider == nil || tg.Provider.Name != "dev" {
 		t.Fatalf("target = %+v err=%v, want the dev fallback", tg, err)
 	}

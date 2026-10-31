@@ -30,7 +30,7 @@ func TestRequestedAliasSurvivesSharedModel(t *testing.T) {
 		t.Errorf("sonnet effort = %q, must not be upgraded to opus's high", got)
 	}
 
-	rec := NewRecord("codex", Request{Prompt: "p", Model: "sonnet"}, time.Date(2026, 10, 28, 2, 0, 0, 0, time.UTC))
+	rec := NewRecord("codex", RunOptions{Prompt: "p", Model: "sonnet"}, time.Date(2026, 10, 28, 2, 0, 0, 0, time.UTC))
 	rec.Finish(Result{Answer: "ok", Model: "gpt-6.1-sol"}, nil, time.Second)
 	if err := rec.Save(); err != nil {
 		t.Fatal(err)

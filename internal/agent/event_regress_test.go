@@ -74,7 +74,7 @@ func TestRunWithFallbackEmitsOneRetryPerHop(t *testing.T) {
 	var evs []Event
 	sink := sinkFunc(func(ev Event) error { evs = append(evs, ev); return nil })
 	c := Chain{Want: "codex", Legs: []Leg{{Agent: first}, {Agent: second}}}
-	if _, err := RunWithFallback(context.Background(), c, Request{Prompt: "p"}, sink, nil); err != nil {
+	if _, err := RunWithFallback(context.Background(), c, RunOptions{Prompt: "p"}, sink, nil); err != nil {
 		t.Fatal(err)
 	}
 	var retries []string
@@ -166,7 +166,7 @@ func (p *resultProbe) Emit(ev Event) error {
 // A tail follower exits on a finished record, so the result event must be written before the record leaves running.
 func TestDispatchWritesResultBeforeFinishedRecord(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	rec := ClaimRecord("codex", Request{}, time.Now())
+	rec := ClaimRecord("codex", RunOptions{}, time.Now())
 	probe := &resultProbe{id: rec.ID}
 	_, err := Dispatch(context.Background(), &rec, "codex", probe, DispatchOpts{},
 		func(context.Context, Sink) (Result, error) {

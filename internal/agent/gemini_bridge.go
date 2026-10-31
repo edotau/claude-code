@@ -109,7 +109,7 @@ func RunGemini(ctx context.Context, o GeminiOptions, stream, log io.Writer) (Res
 		policy.Notify = func(s string) { fmt.Fprintln(log, s) }
 
 		// The Record never carries the full inlined prompt (MiBs of source): a compact summary instead.
-		rec := ClaimRecord(bridgeDispatchLabel, Request{
+		rec := ClaimRecord(bridgeDispatchLabel, RunOptions{
 			Prompt: compactRecordPrompt(o.Task, ctxFiles), Model: model, Effort: o.Effort, WorkDir: o.Cwd, Timeout: o.Timeout,
 		}, time.Now())
 		rec.Owner = inflight.SessionOwner()
@@ -139,7 +139,7 @@ func RunGemini(ctx context.Context, o GeminiOptions, stream, log io.Writer) (Res
 	if err != nil {
 		return Result{}, err
 	}
-	return Run(ctx, r, Request{
+	return Run(ctx, r, RunOptions{
 		Prompt: prompt, Model: model, Provider: p.Name, Effort: o.Effort, Timeout: o.Timeout, NoTools: true, Launcher: o.Launcher,
 	}, NewTextSink(stream), func(s string) { fmt.Fprintln(log, s) })
 }

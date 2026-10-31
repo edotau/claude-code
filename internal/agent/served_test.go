@@ -77,13 +77,13 @@ func TestServedRepickOnEndpointNotFound(t *testing.T) {
 		t.Fatal("codex on a Databricks profile with the switch on must get a repick")
 	}
 	err := errors.New("RESOURCE_DOES_NOT_EXIST: ENDPOINT_NOT_FOUND: no endpoint m-a")
-	if got := retryModel(leg, Request{Model: "dev:m-a"}, err); got != "dev:m-b" {
+	if got := retryModel(leg, RunOptions{Model: "dev:m-a"}, err); got != "dev:m-b" {
 		t.Fatalf("repick = %q, want dev:m-b", got)
 	}
 	if at := router.LoadState()[router.ProviderAccount("dev")].Unserved["m-a"]; at.IsZero() {
 		t.Error("m-a was not marked unserved")
 	}
-	if got := retryModel(leg, Request{Model: "dev:m-b"}, err); got != "" {
+	if got := retryModel(leg, RunOptions{Model: "dev:m-b"}, err); got != "" {
 		t.Errorf("second failure repicked %q, want none left", got)
 	}
 }
@@ -92,7 +92,7 @@ func TestServedRepickOnEndpointNotFound(t *testing.T) {
 func TestServedRepickIgnoresUnrelatedError(t *testing.T) {
 	reg := servedEnv(t, "true", map[string]string{"m-a": "READY", "m-b": "READY"})
 	leg := Leg{servedRepick: routeCtx{reg: reg}.servedRepickFor(servedCand)}
-	if got := retryModel(leg, Request{Model: "dev:m-a"}, errors.New("connection reset")); got != "" {
+	if got := retryModel(leg, RunOptions{Model: "dev:m-a"}, errors.New("connection reset")); got != "" {
 		t.Errorf("unrelated error repicked %q", got)
 	}
 	if at := router.LoadState()[router.ProviderAccount("dev")].Unserved["m-a"]; !at.IsZero() {
@@ -123,7 +123,7 @@ func TestByokRetryModelKeepsCapabilityPathWithServedRepick(t *testing.T) {
 		repick:       func(string) string { return "dev:pool-next" },
 		servedRepick: func(string) string { return "dev:served-next" },
 	}
-	if got := retryModel(leg, Request{Model: "dev:m"}, errors.New("400: max_new_tokens too large")); got != "dev:pool-next" {
+	if got := retryModel(leg, RunOptions{Model: "dev:m"}, errors.New("400: max_new_tokens too large")); got != "dev:pool-next" {
 		t.Errorf("capability error = %q, want the byok pick", got)
 	}
 }

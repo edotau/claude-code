@@ -198,7 +198,7 @@ func acquireLeg(ctx context.Context, account string) (release func(), err error)
 }
 
 // tripFailFast cancels the batch when err ends the task (no fallback follows), before the leg's permit is released.
-func tripFailFast(ctx context.Context, c Chain, i int, req Request, res Result, err error) {
+func tripFailFast(ctx context.Context, c Chain, i int, req RunOptions, res Result, err error) {
 	trip, _ := ctx.Value(failFastKey{}).(func())
 	if trip == nil || err == nil || errors.Is(err, context.Canceled) {
 		return
@@ -260,7 +260,7 @@ func ReadTaskLines(r io.Reader) ([]ParsedLine, error) {
 type BatchTask struct {
 	ID      string
 	Agent   string // the agent asked for, named on a failure envelope
-	Req     Request
+	Req     RunOptions
 	Prepare func(ctx context.Context) (Chain, Record, error)
 	Err     error
 }
@@ -438,7 +438,7 @@ func (b *batchRun) run(ctx context.Context, t BatchTask, chain Chain, rec Record
 var batchIDRE = regexp.MustCompile(`^[A-Za-z0-9._-]{1,64}$`)
 
 // ParseBatchTask validates one line like the ask flags; routing waits for Prepare. On error the task keeps its id and agent.
-func ParseBatchTask(l ParsedLine, agentName string, base Request, timeoutSet bool, cwd string,
+func ParseBatchTask(l ParsedLine, agentName string, base RunOptions, timeoutSet bool, cwd string,
 	seen map[string]bool) (BatchTask, error) {
 	t := BatchTask{ID: cmp.Or(l.Task.ID, "t"+strconv.Itoa(l.N)), Agent: cmp.Or(l.Task.Agent, agentName)}
 	if l.Err != nil {
@@ -457,7 +457,7 @@ func ParseBatchTask(l ParsedLine, agentName string, base Request, timeoutSet boo
 	}
 	req := base
 	if tl.Persona != "" {
-		p, err := LoadPersona(tl.Persona)
+		p, err := LoadSchema(tl.Persona)
 		if err != nil {
 			return t, fmt.Errorf("line %d: %w", l.N, err)
 		}

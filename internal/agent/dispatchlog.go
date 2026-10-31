@@ -24,30 +24,30 @@ import (
 
 // Record is one `ask` dispatch: written as "running" before the run, so a killed run stays visible.
 type Record struct {
-	Schema         int       `json:"schema"`
-	ID             string    `json:"id"`
-	Time           time.Time `json:"time"`
-	Agent          string    `json:"agent"`
-	Request        Request   `json:"request"`
-	Status         string    `json:"status"` // running | ok | error
-	Error          string    `json:"error,omitempty"`
-	Provider       string    `json:"provider,omitempty"`
-	Model          string    `json:"model,omitempty"`         // as the runner reported it; may be empty
-	Invoked        string    `json:"invoked_model,omitempty"` // the model the last hop was asked to run; Request keeps the original
-	SessionID      string    `json:"session_id,omitempty"`
-	DurationMs     int64     `json:"duration_ms,omitempty"`
-	Fallback       string    `json:"fallback,omitempty"` // the original runner's name, when it ran instead
-	FallbackReason string    `json:"fallback_reason,omitempty"`
-	RanAs          string    `json:"ran_as,omitempty"`          // the runner that answered, when a fallback leg did
-	Repo           string    `json:"repo,omitempty"`            // main checkout root the job belongs to
-	PID            int       `json:"pid,omitempty"`             // pid of the detached `claude-code ask --job` child
-	Log            string    `json:"log,omitempty"`             // absolute path of the job's combined stdout+stderr log
-	Progress       string    `json:"progress,omitempty"`        // multi-part review job: "part 2/3"
-	Owner          int       `json:"owner,omitempty"`           // launching Claude Code session pid (inflight.SessionOwner)
-	Host           string    `json:"host,omitempty"`            // ask --host: the ssh host the dispatch ran on
-	RemoteBin      string    `json:"remote_bin,omitempty"`      // ask --host: the remote claude-code binary
-	FallbackPolicy string    `json:"fallback_policy,omitempty"` // the --fallback mode asked for (all|agents|none)
-	Live           bool      `json:"live,omitempty"`            // ask --live: a claude session held open on <id>.sock
+	Schema         int        `json:"schema"`
+	ID             string     `json:"id"`
+	Time           time.Time  `json:"time"`
+	Agent          string     `json:"agent"`
+	Request        RunOptions `json:"request"`
+	Status         string     `json:"status"` // running | ok | error
+	Error          string     `json:"error,omitempty"`
+	Provider       string     `json:"provider,omitempty"`
+	Model          string     `json:"model,omitempty"`         // as the runner reported it; may be empty
+	Invoked        string     `json:"invoked_model,omitempty"` // the model the last hop was asked to run; RunOptions keeps the original
+	SessionID      string     `json:"session_id,omitempty"`
+	DurationMs     int64      `json:"duration_ms,omitempty"`
+	Fallback       string     `json:"fallback,omitempty"` // the original runner's name, when it ran instead
+	FallbackReason string     `json:"fallback_reason,omitempty"`
+	RanAs          string     `json:"ran_as,omitempty"`          // the runner that answered, when a fallback leg did
+	Repo           string     `json:"repo,omitempty"`            // main checkout root the job belongs to
+	PID            int        `json:"pid,omitempty"`             // pid of the detached `claude-code ask --job` child
+	Log            string     `json:"log,omitempty"`             // absolute path of the job's combined stdout+stderr log
+	Progress       string     `json:"progress,omitempty"`        // multi-part review job: "part 2/3"
+	Owner          int        `json:"owner,omitempty"`           // launching Claude Code session pid (inflight.SessionOwner)
+	Host           string     `json:"host,omitempty"`            // ask --host: the ssh host the dispatch ran on
+	RemoteBin      string     `json:"remote_bin,omitempty"`      // ask --host: the remote claude-code binary
+	FallbackPolicy string     `json:"fallback_policy,omitempty"` // the --fallback mode asked for (all|agents|none)
+	Live           bool       `json:"live,omitempty"`            // ask --live: a claude session held open on <id>.sock
 }
 
 // Alive reports whether this dispatch is still running, by the shared inflight.DispatchAlive rule.
@@ -68,13 +68,13 @@ var dispatchKeep = 200
 func DispatchDir() string { return filepath.Join(paths.StateDir(), "dispatch") }
 
 // NewRecord stamps an id that sorts by time and names the agent: 20261016T210512.123-codex.
-func NewRecord(agent string, req Request, now time.Time) Record {
+func NewRecord(agent string, req RunOptions, now time.Time) Record {
 	req.EnvNames = envNames(req.Env)
 	return Record{Schema: DispatchSchema, ID: recordID(now, agent), Time: now.UTC(), Agent: agent, Request: req, Status: "running"}
 }
 
 // ClaimRecord is NewRecord with its id reserved on disk: the allocator for every new dispatch (ask, batch, job).
-func ClaimRecord(agent string, req Request, now time.Time) Record {
+func ClaimRecord(agent string, req RunOptions, now time.Time) Record {
 	return claimRecord(NewRecord(agent, req, now))
 }
 

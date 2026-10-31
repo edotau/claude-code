@@ -29,7 +29,7 @@ func ExplorePrompt(question string, web bool) string {
 // ExploreArgs builds the `ask` argv for an explore run: --tools only when the agent needs it to read.
 func ExploreArgs(agentName, cwd, question string, web, background bool) []string {
 	args := []string{"--agent", agentName, "--workdir", cwd}
-	if a, ok := LookupAdapter(agentName); ok && a.ReadNeedsTools {
+	if s, ok := LookupSchema(agentName); ok && s.CLI.ReadNeedsTools {
 		args = append(args, "--tools")
 	}
 	if background {

@@ -26,7 +26,7 @@ func TestAskPersonaLoadsAndRetryKeepsIt(t *testing.T) {
 	if err := os.WriteFile(other, []byte("---\ndescription: By path\n---\nYou are by path.\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	ask := func(args ...string) agent.Request {
+	ask := func(args ...string) agent.RunOptions {
 		t.Helper()
 		if code, _, stderr := captureOutput(t, func() int { return cmdAsk(args) }); code != 1 {
 			t.Fatalf("exit = %d, want 1 for unavailable runner; stderr=%s", code, stderr)
@@ -42,7 +42,7 @@ func TestAskPersonaLoadsAndRetryKeepsIt(t *testing.T) {
 	if p := ask(append(base, "--agent", "claude:"+other, "go")...).Persona; p == nil || p.Name != "other" || p.Prompt != "You are by path." {
 		t.Fatalf("path persona = %+v", p)
 	}
-	rec := agent.NewRecord("claude", agent.Request{Prompt: "again", Persona: p}, time.Now().Add(-time.Hour))
+	rec := agent.NewRecord("claude", agent.RunOptions{Prompt: "again", Persona: p}, time.Now().Add(-time.Hour))
 	if err := rec.Save(); err != nil {
 		t.Fatal(err)
 	}

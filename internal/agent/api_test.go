@@ -78,7 +78,7 @@ func TestClaudeNoToolsAnthropic(t *testing.T) {
 	t.Setenv("ANTHROPIC_API_KEY", "must-not-leak")
 
 	var out strings.Builder
-	res, err := claudeRunner{}.Run(context.Background(), Request{Prompt: "say ok", Provider: "tanth", Model: "haiku", Effort: "low", NoTools: true}, NewTextSink(&out))
+	res, err := claudeRunner{}.Run(context.Background(), RunOptions{Prompt: "say ok", Provider: "tanth", Model: "haiku", Effort: "low", NoTools: true}, NewTextSink(&out))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,7 +93,7 @@ func TestClaudeNoToolsAnthropic(t *testing.T) {
 	}
 
 	status = http.StatusTooManyRequests
-	_, err = claudeRunner{}.Run(context.Background(), Request{Prompt: "x", Provider: "tanth", NoTools: true}, Discard)
+	_, err = claudeRunner{}.Run(context.Background(), RunOptions{Prompt: "x", Provider: "tanth", NoTools: true}, Discard)
 	if e := Classify("claude", err, false); e.Kind != KindRateLimit || e.RetryAfter != 3*time.Second || e.Status != 429 {
 		t.Errorf("429 classified as %+v", e)
 	}
@@ -122,7 +122,7 @@ func TestClaudeNoToolsOpenAI(t *testing.T) {
 	registry(t, srv)
 
 	var out strings.Builder
-	res, err := claudeRunner{}.Run(context.Background(), Request{Prompt: "hi", Provider: "toai", Effort: "high", NoTools: true}, NewTextSink(&out))
+	res, err := claudeRunner{}.Run(context.Background(), RunOptions{Prompt: "hi", Provider: "toai", Effort: "high", NoTools: true}, NewTextSink(&out))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -133,7 +133,7 @@ func TestClaudeNoToolsOpenAI(t *testing.T) {
 		t.Errorf("auth=%q body=%s", gotAuth, gotBody)
 	}
 
-	_, err = claudeRunner{}.Run(context.Background(), Request{Prompt: "boom", Provider: "toai", NoTools: true}, Discard)
+	_, err = claudeRunner{}.Run(context.Background(), RunOptions{Prompt: "boom", Provider: "toai", NoTools: true}, Discard)
 	var he *httpError
 	if !errors.As(err, &he) || Classify("claude", err, false).Kind != KindTransient {
 		t.Errorf("502 = %v", err)
@@ -157,7 +157,7 @@ func fakeFailingClaude(t *testing.T) {
 // claude CLI itself, which answers tool-less anyway: the envelope names no fallback and carries claude's own error.
 func TestClaudeNoToolsCLIAuthRunsTheCLI(t *testing.T) {
 	fakeFailingClaude(t)
-	req := Request{Prompt: "x", Provider: "max"}
+	req := RunOptions{Prompt: "x", Provider: "max"}
 
 	_, directErr := claudeRunner{}.Run(context.Background(), req, Discard)
 	if directErr == nil {
@@ -175,7 +175,7 @@ func TestClaudeNoToolsCLIAuthRunsTheCLI(t *testing.T) {
 
 // TestClaudeNoToolsAndToolsExclusive: asking for both is refused before anything runs.
 func TestClaudeNoToolsAndToolsExclusive(t *testing.T) {
-	_, err := claudeRunner{}.Run(context.Background(), Request{Prompt: "x", Tools: true, NoTools: true}, Discard)
+	_, err := claudeRunner{}.Run(context.Background(), RunOptions{Prompt: "x", Tools: true, NoTools: true}, Discard)
 	if err == nil || !strings.Contains(err.Error(), "exclusive") {
 		t.Errorf("err = %v, want the --no-tools/--tools exclusivity error", err)
 	}
@@ -183,11 +183,11 @@ func TestClaudeNoToolsAndToolsExclusive(t *testing.T) {
 
 // TestNoToolsDroppedLoudlyByOtherAgents: only claude honors --no-tools; every other agent names the drop.
 func TestNoToolsDroppedLoudlyByOtherAgents(t *testing.T) {
-	_, dropped, _ := applyCaps(Caps{Model: Native}, Request{NoTools: true})
+	_, dropped, _ := applyCaps(Caps{Model: Native}, RunOptions{NoTools: true})
 	if len(dropped) != 1 || dropped[0] != "--no-tools" {
 		t.Errorf("dropped = %v, want [--no-tools]", dropped)
 	}
-	if _, dropped, _ := applyCaps((claudeRunner{}).Caps(), Request{NoTools: true}); len(dropped) != 0 {
+	if _, dropped, _ := applyCaps((claudeRunner{}).Caps(), RunOptions{NoTools: true}); len(dropped) != 0 {
 		t.Errorf("claude dropped %v, want nothing", dropped)
 	}
 }

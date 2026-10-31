@@ -25,8 +25,8 @@ import (
 	"github.com/edotau/claude-code/internal/secrets/shapes"
 )
 
-// Request is one task. Model may be a model alias, a model id, or provider:model.
-type Request struct {
+// RunOptions is one task. Model may be a model alias, a model id, or provider:model.
+type RunOptions struct {
 	Prompt, Model, Provider, Effort, WorkDir, SessionID string
 	Attach                                              []string // absolute file paths, task text precedes them
 	KeepEnv                                             []string // names the credential scrub must not drop, from --keep-env
@@ -39,7 +39,7 @@ type Request struct {
 	Env                                                 []string `json:"-"`                   // KEY=VALUE for the child, layered last; never logged
 	EnvNames                                            []string `json:"env_names,omitempty"` // the names of Env, all the dispatch log keeps
 	OutputSchema                                        string   // JSON Schema text the answer must satisfy
-	Persona                                             *Persona `json:"persona,omitempty"` // claude: native agent definition; others: emulated
+	Persona                                             *Schema  `json:"persona,omitempty"` // claude: native agent definition; others: emulated
 	Timeout                                             time.Duration
 	Launcher                                            Launcher `json:"-"` // claude only: resolves the launch plan
 }
@@ -73,7 +73,7 @@ type Result struct {
 	Handoff         string          `json:"handoff,omitempty"`         // hand-off file written when a copilot leg hit its quota
 	Transport       *Transport      `json:"transport,omitempty"`       // stream health; fields an agent can't report stay absent
 	Hops            []Hop           `json:"hops,omitempty"`            // every leg RunWithFallback tried, in order
-	Structured      json.RawMessage `json:"-"`                         // the answer as JSON satisfying Request.OutputSchema
+	Structured      json.RawMessage `json:"-"`                         // the answer as JSON satisfying RunOptions.OutputSchema
 	recovered       []*Error        // attempts that failed before the successful one, for the hop's errors
 }
 
@@ -104,7 +104,7 @@ type Transport struct {
 	MaxGapMs      int64 `json:"max_gap_ms,omitempty"`     // longest silence between stream_events
 }
 
-// Caps declares which Request fields an agent honors; Prompt, Timeout and Attach are always honored
+// Caps declares which RunOptions fields an agent honors; Prompt, Timeout and Attach are always honored
 // (every agent has at least an inline-block fallback for Attach).
 type Caps struct {
 	Model, Provider, Effort, WorkDir, SessionID, Tools, NoTools, Autonomous, Memory, NoPersist, SafeMode, DebugFile, Direct Level
@@ -138,7 +138,7 @@ type Runner interface {
 	Name() string
 	Caps() Caps
 	Available() error
-	Run(ctx context.Context, req Request, sink Sink) (Result, error)
+	Run(ctx context.Context, req RunOptions, sink Sink) (Result, error)
 }
 
 // Agents lists every agent in roster order.
@@ -160,7 +160,7 @@ func Lookup(name string) (Runner, error) {
 
 // applyCaps clears fields the agent cannot honor and names each one, so a drop is never silent. An Emulated flag
 // runs its harness shim here and is named in emulated; a Native one passes through to the adapter's own flag.
-func applyCaps(c Caps, req Request) (out Request, dropped, emulated []string) {
+func applyCaps(c Caps, req RunOptions) (out RunOptions, dropped, emulated []string) {
 	drop := func(l Level, set bool, flag string, clear func()) {
 		if set && l == None {
 			dropped = append(dropped, flag)
@@ -209,7 +209,7 @@ func preamble(text string) string {
 }
 
 // Run drops unsupported fields loudly, then runs r under DefaultPolicy with req.Timeout per attempt.
-func Run(ctx context.Context, r Runner, req Request, sink Sink, notify func(string)) (Result, error) {
+func Run(ctx context.Context, r Runner, req RunOptions, sink Sink, notify func(string)) (Result, error) {
 	if sink == nil {
 		sink = Discard
 	}
@@ -335,7 +335,7 @@ func statusOf(e *Error) string {
 
 // resolveTarget applies --provider then --model (alias, id, or provider:model) to the registry; an id a Claude alias
 // currently backs takes the session's alias selection, so CLAUDE_<TIER>_MODEL pins win.
-func resolveTarget(req Request) (*providers.Registry, providers.Target, error) {
+func resolveTarget(req RunOptions) (*providers.Registry, providers.Target, error) {
 	reg, err := providers.Load()
 	if err != nil {
 		return nil, providers.Target{}, err
@@ -569,7 +569,7 @@ func notClaude(name string) bool { return name != "claude" }
 // an oversized prompt or a partial answer, nor when the caller pinned an explicit non-Claude --provider/--model.
 // A KindQuota failure marks the leg's account until its reset. The result names the wanted agent in Fallback and
 // every gate skip and failed leg in FallbackReason.
-func RunWithFallback(ctx context.Context, c Chain, req Request, sink Sink, notify func(string)) (Result, error) {
+func RunWithFallback(ctx context.Context, c Chain, req RunOptions, sink Sink, notify func(string)) (Result, error) {
 	if sink == nil {
 		sink = Discard
 	}
@@ -702,7 +702,7 @@ func promptFromHandoff(path, prompt string) string {
 }
 
 // hopOf records one tried leg: who ran, on which account and profile, and the error token if it failed.
-func hopOf(leg Leg, req Request, res Result, err error) Hop {
+func hopOf(leg Leg, req RunOptions, res Result, err error) Hop {
 	h := Hop{Agent: cmp.Or(res.Agent, leg.Agent.Name()), Account: leg.Account, Profile: cmp.Or(res.Provider, req.Provider),
 		Model: cmp.Or(res.Model, req.Model)}
 	if err != nil {
@@ -805,7 +805,7 @@ func hopFailed(res Result, err error) bool {
 
 // ExplicitBackend is true when --provider, or a "provider:model" --model, names a provider outright;
 // the fallback must never override a caller's explicit choice of backend.
-func ExplicitBackend(req Request) bool {
+func ExplicitBackend(req RunOptions) bool {
 	if req.Provider != "" {
 		return true
 	}

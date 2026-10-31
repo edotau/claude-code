@@ -15,7 +15,7 @@ import (
 // liveBackend is how one agent holds a session open: build the process, write a turn, parse one turn's events.
 type liveBackend interface {
 	// build returns the unstarted child and the provider profile it routes through.
-	build(ctx context.Context, req Request) (cmd *exec.Cmd, tail *TailBuffer, provider string, err error)
+	build(ctx context.Context, req RunOptions) (cmd *exec.Cmd, tail *TailBuffer, provider string, err error)
 	writeTurn(w io.Writer, prompt string) error
 	// parse reads dec up to and including the turn's result event; usage and cost are that turn's alone.
 	parse(dec *json.Decoder, sink Sink, lg eventLog) (Result, error)
@@ -38,7 +38,7 @@ func HasLive(name string) bool { return liveBackendFor(name) != nil }
 // claudeLive holds `claude --print --input-format stream-json`: one process, one user message per turn.
 type claudeLive struct{ prevCost float64 }
 
-func (*claudeLive) build(ctx context.Context, req Request) (*exec.Cmd, *TailBuffer, string, error) {
+func (*claudeLive) build(ctx context.Context, req RunOptions) (*exec.Cmd, *TailBuffer, string, error) {
 	args := claudeArgs([]string{"--print", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
 		"--include-partial-messages"}, req)
 	cmd, tail, cl, err := claudeCmd(ctx, req, args, "")
@@ -66,7 +66,7 @@ type agyLive struct {
 	prev    Usage
 }
 
-func (b *agyLive) build(ctx context.Context, req Request) (*exec.Cmd, *TailBuffer, string, error) {
+func (b *agyLive) build(ctx context.Context, req RunOptions) (*exec.Cmd, *TailBuffer, string, error) {
 	ctx = directCtx(ctx, req)
 	req.Prompt = cmp.Or(req.Prompt, "live session") // prepare wants a prompt; the turns carry the real ones
 	p, err := (vendorRunner{"gemini"}).prepare(ctx, req)

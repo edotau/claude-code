@@ -93,7 +93,7 @@ func TestHubLegRunStallsFallsBackAndCoolsDown(t *testing.T) {
 	}}
 
 	start := time.Now()
-	res, err := RunWithFallback(context.Background(), c, Request{Prompt: "p"}, Discard, nil)
+	res, err := RunWithFallback(context.Background(), c, RunOptions{Prompt: "p"}, Discard, nil)
 	if elapsed := time.Since(start); elapsed > 5*time.Second {
 		t.Fatalf("a stalled free leg must fail fast on its own deadline, took %v", elapsed)
 	}
@@ -153,7 +153,7 @@ func TestHubLegRunEmptyTextAloneStillStalls(t *testing.T) {
 
 	l := hubLeg{agent: "opencode", provider: stallProvider(), firstOutput: freeFirstOutput}
 	start := time.Now()
-	res, err := l.Run(context.Background(), Request{Prompt: "p"}, Discard)
+	res, err := l.Run(context.Background(), RunOptions{Prompt: "p"}, Discard)
 	if elapsed := time.Since(start); elapsed > 5*time.Second {
 		t.Fatalf("empty-text-only stall must still fire on firstOutput: took %v", elapsed)
 	}
@@ -180,7 +180,7 @@ func TestHubLegRunStepStartAloneStillStalls(t *testing.T) {
 
 	l := hubLeg{agent: "opencode", provider: stallProvider(), firstOutput: freeFirstOutput}
 	start := time.Now()
-	res, err := l.Run(context.Background(), Request{Prompt: "p"}, Discard)
+	res, err := l.Run(context.Background(), RunOptions{Prompt: "p"}, Discard)
 	if elapsed := time.Since(start); elapsed > 5*time.Second {
 		t.Fatalf("step_start-only stall must still fire on firstOutput: took %v", elapsed)
 	}
@@ -208,7 +208,7 @@ func TestHubLegRunTextOutputDisarmsWatchdog(t *testing.T) {
 
 	l := hubLeg{agent: "opencode", provider: stallProvider(), firstOutput: freeFirstOutput}
 	start := time.Now()
-	res, err := l.Run(context.Background(), Request{Prompt: "p"}, Discard)
+	res, err := l.Run(context.Background(), RunOptions{Prompt: "p"}, Discard)
 	elapsed := time.Since(start)
 	if errors.Is(err, errStalled) {
 		t.Fatalf("a quick text event must disarm the watchdog, got errStalled: %v", err)
@@ -235,7 +235,7 @@ func TestHubLegRunStallErrorIsFatalNotRetried(t *testing.T) {
 
 	l := hubLeg{agent: "opencode", provider: stallProvider(), firstOutput: freeFirstOutput}
 	start := time.Now()
-	res, err := l.Run(context.Background(), Request{Prompt: "p"}, Discard)
+	res, err := l.Run(context.Background(), RunOptions{Prompt: "p"}, Discard)
 	if elapsed := time.Since(start); elapsed > 5*time.Second {
 		t.Fatalf("stall must fire on firstOutput, not AttemptTimeout: took %v", elapsed)
 	}

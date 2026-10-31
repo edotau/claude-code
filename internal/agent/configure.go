@@ -19,22 +19,6 @@ const (
 	OpenCodeKeyEnv = "HARNESS_OPENCODE_API_KEY"
 )
 
-// ConfigureHint names the exact command to run when no credential resolved for vendor name at all.
-func ConfigureHint(name string) string {
-	switch name {
-	case "codex":
-		return "run `codex login` (ChatGPT) or `claude-code configure` → codex → API key"
-	case "copilot":
-		return "run `claude-code configure github` (Copilot) or set an Anthropic/Gemini key"
-	case "opencode":
-		return "run `opencode auth login` (opencode Go) or `claude-code configure github` (Copilot)"
-	case "gemini":
-		return "sign in with `agy` (Google login)"
-	default:
-		return "run `claude-code configure agents`"
-	}
-}
-
 // Configure returns extra env (KEY=VALUE) and leading argv that point the vendor CLI at target.
 // headlessPrompt != "" asks for the non-interactive form (the runner path).
 func Configure(ctx context.Context, name string, target providers.Target, headlessPrompt string) (env, argv []string, err error) {
@@ -107,8 +91,8 @@ func applyLaunch(name string, env, argv []string, args bool) ([]string, []string
 func LaunchSpec(name string) (env, argv []string) { return applyLaunch(name, nil, nil, true) }
 
 func configureRoute(ctx context.Context, name string, t providers.Target, h *Headless) ([]string, []string, error) {
-	spec, ok := LookupSpec(name)
-	if !ok {
+	s, ok := LookupSchema(name)
+	if !ok || !s.External() {
 		return nil, nil, fmt.Errorf("unknown agent %q (%s)", name, strings.Join(Names(), "|"))
 	}
 	p := t.Provider
@@ -128,7 +112,7 @@ func configureRoute(ctx context.Context, name string, t providers.Target, h *Hea
 		return nil, nil, fmt.Errorf("%s: %s", name, why)
 	}
 	dialect, base := "", ""
-	for _, d := range spec.Dialects {
+	for _, d := range s.CLI.Dialects {
 		if r, ok := p.Route(d); ok {
 			dialect, base = d, r
 			break
@@ -140,7 +124,7 @@ func configureRoute(ctx context.Context, name string, t providers.Target, h *Hea
 	routed := false
 	if p.Auth.Method() != providers.AuthNone && !isDirect(ctx) {
 		// Keyed provider: the vendor gets the router base + router secret; the real credential stays in the router.
-		if p, base, cred, err = routerRoute(ctx, spec, p, dialect); err != nil {
+		if p, base, cred, err = routerRoute(ctx, s, p, dialect); err != nil {
 			return nil, nil, err
 		}
 		routed = true
@@ -182,18 +166,18 @@ func WithDirect(ctx context.Context) context.Context {
 func isDirect(ctx context.Context) bool { v, _ := ctx.Value(directKey{}).(bool); return v }
 
 // routerRoute ensures the router daemon and returns a copy of p routed through it with the router secret as key.
-func routerRoute(ctx context.Context, spec Spec, p *providers.Provider, dialect string) (*providers.Provider, string, string, error) {
+func routerRoute(ctx context.Context, s Schema, p *providers.Provider, dialect string) (*providers.Provider, string, string, error) {
 	rb, err := ensureRouter(ctx)
 	if err != nil {
-		return nil, "", "", fmt.Errorf("%s: router: %w", spec.Name, err)
+		return nil, "", "", fmt.Errorf("%s: router: %w", s.Name, err)
 	}
 	secret, err := routerSecret()
 	if err != nil {
-		return nil, "", "", fmt.Errorf("%s: router secret: %w", spec.Name, err)
+		return nil, "", "", fmt.Errorf("%s: router secret: %w", s.Name, err)
 	}
-	base := proxy.SessionBase(rb, p.Name) + spec.RouterSuffix[dialect]
+	base := proxy.SessionBase(rb, p.Name) + s.CLI.RouterSuffix[dialect]
 	rp := *p
-	rp.Headers = map[string]string{proxy.AgentHeader: spec.Name} // the router adds the provider's own headers upstream
+	rp.Headers = map[string]string{proxy.AgentHeader: s.Name} // the router adds the provider's own headers upstream
 	return &rp, base, secret, nil
 }
 

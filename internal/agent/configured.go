@@ -11,14 +11,14 @@ import (
 
 // Configured is the no-network presence check: the vendor binary, plus an opencode login for the cell's provider.
 func Configured(runner string, c router.Cell) error {
-	if runner == "claude" {
-		return nil
-	}
-	spec, ok := LookupSpec(runner)
+	s, ok := LookupSchema(runner)
 	if !ok {
 		return fmt.Errorf("unknown runner %s", runner)
 	}
-	if _, err := paths.VendorBin(spec.Binary); err != nil {
+	if !s.External() {
+		return nil
+	}
+	if _, err := paths.VendorBin(s.CLI.Binary); err != nil {
 		return err
 	}
 	if u := copilotPinLogin(); runner == "copilot" && u != "" && !slices.Contains(GHAccounts(), u) {

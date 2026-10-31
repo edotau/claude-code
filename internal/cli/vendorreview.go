@@ -51,7 +51,7 @@ func runSplitReview(vendor string, args []string, parts []agent.Part, scope agen
 // spawnSplitReview detaches this same review (minus --background) as one job that runs the parts in order.
 func spawnSplitReview(vendor string, args []string, n int) int {
 	cwd, _ := os.Getwd()
-	req := agent.Request{Prompt: fmt.Sprintf("%s review split into %d parts", vendor, n), WorkDir: cwd, Launcher: launch.Launcher{}}
+	req := agent.RunOptions{Prompt: fmt.Sprintf("%s review split into %d parts", vendor, n), WorkDir: cwd, Launcher: launch.Launcher{}}
 	rec := agent.BuildAskRecord(context.Background(), vendor, req, nil, cwd, true)
 	rec.Progress = fmt.Sprintf("part 0/%d", n)
 	_ = rec.Save()

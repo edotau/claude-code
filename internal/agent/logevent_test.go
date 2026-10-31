@@ -94,7 +94,7 @@ func TestLogEventOpenCodeFormatted(t *testing.T) {
 		pathstest.FakeVendor(t, "opencode", emitScript(
 			`{"type":"text","sessionID":"ses_A","part":{"text":"hello AWS_SECRET=`+evSecret+`"}}`,
 			`{"type":"step_finish","sessionID":"ses_A","part":{"tokens":{"input":3,"output":2}}}`))
-		if _, err := r.Run(ctx, Request{Prompt: "p", WorkDir: t.TempDir()}, NewTextSink(&out)); err != nil {
+		if _, err := r.Run(ctx, RunOptions{Prompt: "p", WorkDir: t.TempDir()}, NewTextSink(&out)); err != nil {
 			t.Fatalf("Run: %v", err)
 		}
 	})
@@ -124,7 +124,7 @@ func TestLogEventClaudeFormatted(t *testing.T) {
 		pathstest.FakeVendor(t, "claude", emitScript(
 			`{"type":"assistant","message":{"content":[{"type":"text","text":"thinking aloud AWS_SECRET=`+evSecret+`"}]}}`,
 			`{"type":"result","subtype":"success","is_error":false,"result":"done-answer","session_id":"s1"}`))
-		if _, err := r.Run(ctx, Request{Prompt: "p", WorkDir: t.TempDir(), Launcher: testLauncher{}}, NewTextSink(&out)); err != nil {
+		if _, err := r.Run(ctx, RunOptions{Prompt: "p", WorkDir: t.TempDir(), Launcher: testLauncher{}}, NewTextSink(&out)); err != nil {
 			t.Fatalf("Run: %v", err)
 		}
 	})

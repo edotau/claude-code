@@ -122,7 +122,7 @@ func servedRepick(p *providers.Provider, failed string) string {
 }
 
 // retryModel is the next model after a model-capability (byok) or endpoint-gone (served) failure, else "".
-func retryModel(leg Leg, lreq Request, err error) string {
+func retryModel(leg Leg, lreq RunOptions, err error) string {
 	if err == nil {
 		return ""
 	}

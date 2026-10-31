@@ -105,7 +105,7 @@ func TestCopilotAttachImageRidesSDKAttachment(t *testing.T) {
 		return copilotsdk.Result{Text: "ok", SessionID: "s"}, nil
 	}
 	t.Cleanup(func() { copilotAsk = prev })
-	req := Request{Prompt: "p", Provider: "personal", Direct: true, Attach: []string{"shot.png", "note.txt"}}
+	req := RunOptions{Prompt: "p", Provider: "personal", Direct: true, Attach: []string{"shot.png", "note.txt"}}
 	if _, err := (copilotRunner{}).Run(context.Background(), req, Discard); err != nil {
 		t.Fatal(err)
 	}

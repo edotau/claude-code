@@ -42,7 +42,7 @@ func TestCmdAskJobLogEachLineOnce(t *testing.T) {
 		`printf '%s\n' '{"event":"result","result":{"conversation_id":"c1","status":"SUCCESS","response":"answer-alpha\nanswer-beta","num_turns":1}}'` + "\n"
 	pathstest.FakeVendor(t, "agy", script)
 
-	rec := agent.NewRecord("gemini", agent.Request{Prompt: "p", WorkDir: t.TempDir()}, time.Now())
+	rec := agent.NewRecord("gemini", agent.RunOptions{Prompt: "p", WorkDir: t.TempDir()}, time.Now())
 	rec.Log = rec.LogPath()
 	if err := rec.Save(); err != nil {
 		t.Fatal(err)

@@ -47,7 +47,7 @@ type frozenTarget struct {
 
 // freezeCopilot resolves copilot's real target once, so the permit, cooldown key, guard and runner all use the same
 // account. When the gate moved the leg to another provider, the leg bills that provider's account instead.
-func freezeCopilot(ctx context.Context, leg Leg, req Request) (context.Context, Leg) {
+func freezeCopilot(ctx context.Context, leg Leg, req RunOptions) (context.Context, Leg) {
 	if leg.Agent.Name() != "copilot" {
 		return ctx, leg
 	}
@@ -62,7 +62,7 @@ func freezeCopilot(ctx context.Context, leg Leg, req Request) (context.Context, 
 }
 
 // ownLoginActual re-keys a leg the table put on the agent's own login when the runner really resolves another profile.
-func ownLoginActual(leg Leg, req Request) Leg {
+func ownLoginActual(leg Leg, req RunOptions) Leg {
 	name := leg.Agent.Name()
 	if name == "copilot" || name == "claude" || name == "opencode" || !ownLoginAccount(name, leg.Account) {
 		return leg
@@ -76,7 +76,7 @@ func ownLoginActual(leg Leg, req Request) Leg {
 }
 
 // vendorTargetCtx is vendorTarget, except a target frozen on ctx is used as is.
-func vendorTargetCtx(ctx context.Context, req Request, name string) (providers.Target, bool, error) {
+func vendorTargetCtx(ctx context.Context, req RunOptions, name string) (providers.Target, bool, error) {
 	if f, ok := ctx.Value(frozenKey{}).(frozenTarget); ok && name == "copilot" {
 		if f.note != "" {
 			fmt.Fprintln(os.Stderr, f.note)
@@ -106,11 +106,12 @@ func guardRouteHost(ctx context.Context, p *providers.Provider) error {
 }
 
 // guardProvider is the provider whose credential the hop sends; nil for an unpinned vendor leg (own login).
-func guardProvider(r Runner, req Request) (*providers.Provider, error) {
+func guardProvider(r Runner, req RunOptions) (*providers.Provider, error) {
 	if l, ok := r.(hubLeg); ok {
 		return l.provider, nil
 	}
-	if _, vendor := LookupSpec(r.Name()); vendor && r.Name() != "claude" {
+	s, known := LookupSchema(r.Name())
+	if known && s.External() {
 		// the same target the runner picks: --provider, a provider:model prefix, the session, the copilot gate
 		t, own, _, err := vendorTargetNote(req, r.Name())
 		if err != nil {
@@ -124,7 +125,7 @@ func guardProvider(r Runner, req Request) (*providers.Provider, error) {
 		}
 		return t.Provider, nil
 	}
-	if req.Provider == "" && r.Name() != "claude" {
+	if req.Provider == "" && (!known || s.External()) {
 		return nil, nil
 	}
 	_, t, err := resolveTarget(req)
@@ -135,7 +136,7 @@ func guardProvider(r Runner, req Request) (*providers.Provider, error) {
 }
 
 // guardAttempt runs inside a timed attempt: it validates the hop's credential and marks its one own profile on ctx.
-func guardAttempt(ctx context.Context, r Runner, req Request) (context.Context, *Error) {
+func guardAttempt(ctx context.Context, r Runner, req RunOptions) (context.Context, *Error) {
 	var gp *providers.Provider
 	var err error
 	if f, ok := ctx.Value(frozenKey{}).(frozenTarget); ok && r.Name() == "copilot" {

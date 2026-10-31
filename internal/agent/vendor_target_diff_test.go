@@ -23,7 +23,7 @@ func TestVendorTargetBaseDiffersFromResolveTargetOnTier(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ResolveTarget: %v", err)
 	}
-	bt, _, _, _, err := vendorTargetBase(Request{Prompt: "p", Model: "haiku"}, "codex")
+	bt, _, _, _, err := vendorTargetBase(RunOptions{Prompt: "p", Model: "haiku"}, "codex")
 	if err != nil {
 		t.Fatalf("vendorTargetBase: %v", err)
 	}

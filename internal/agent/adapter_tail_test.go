@@ -45,7 +45,7 @@ func tailRecord(t *testing.T, cwd, logPath string, body []byte, status string, p
 			t.Fatal(err)
 		}
 	}
-	rec := NewRecord("codex", Request{Prompt: "tail me"}, time.Now())
+	rec := NewRecord("codex", RunOptions{Prompt: "tail me"}, time.Now())
 	rec.Repo, rec.Log, rec.Status, rec.PID = cwd, logPath, status, pid
 	return fixtureRecord(t, rec)
 }
@@ -186,8 +186,8 @@ func TestTailNoLogErrors(t *testing.T) {
 // TestFindAmbiguousPrefix: a prefix shared by two dispatches errors and names the count; an exact id resolves.
 func TestFindAmbiguousPrefix(t *testing.T) {
 	setConfigDir(t)
-	a := fixtureRecord(t, NewRecord("claude", Request{Prompt: "a"}, time.Now().Add(-2*time.Hour)))
-	b := fixtureRecord(t, NewRecord("codex", Request{Prompt: "b"}, time.Now().Add(-time.Hour)))
+	a := fixtureRecord(t, NewRecord("claude", RunOptions{Prompt: "a"}, time.Now().Add(-2*time.Hour)))
+	b := fixtureRecord(t, NewRecord("codex", RunOptions{Prompt: "b"}, time.Now().Add(-time.Hour)))
 	prefix := a.ID[:4]
 	if _, err := Find(prefix); err == nil || !strings.Contains(err.Error(), "matches 2") {
 		t.Errorf("Find(%q) err = %v, want an ambiguity error", prefix, err)
@@ -202,7 +202,7 @@ func TestFindAmbiguousPrefix(t *testing.T) {
 func TestTailEventsStopsWhenRecordFinishesWithoutResult(t *testing.T) {
 	setConfigDir(t)
 	fastTail(t)
-	rec := NewRecord("claude", Request{Prompt: "x"}, time.Now())
+	rec := NewRecord("claude", RunOptions{Prompt: "x"}, time.Now())
 	rec.PID = os.Getpid()
 	rec = fixtureRecord(t, rec)
 	line := `{"schema":1,"seq":0,"t_ms":0,"type":"text","text":"partial"}` + "\n"

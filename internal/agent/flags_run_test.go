@@ -60,7 +60,7 @@ func TestClaudeRunMapsSystemPromptSchemaAndResult(t *testing.T) {
 	registry(t, srv)
 	argv := fakeCLI(t, "claude", "cat >/dev/null; printf '%s\\n' '"+claudeStructured+"'")
 	const schema = `{"type":"object","properties":{"a":{"type":"integer"}}}`
-	res, err := claudeRunner{}.Run(context.Background(), Request{Prompt: "task", Provider: "tanth", Tools: true,
+	res, err := claudeRunner{}.Run(context.Background(), RunOptions{Prompt: "task", Provider: "tanth", Tools: true,
 		SystemPrompt: "SYS", AppendSystemPrompt: "APP", OutputSchema: schema, Env: []string{"HARNESS_TEST_X=1"}, Launcher: testLauncher{}}, Discard)
 	if err != nil {
 		t.Fatal(err)
@@ -193,7 +193,7 @@ for a in "$@"; do
 done
 echo '{"type":"item.completed","item":{"id":"i","type":"agent_message","text":"ok"}}'`
 	argv := fakeCLI(t, "codex", body)
-	_, err := vendorRunner{name: "codex"}.Run(context.Background(), Request{Prompt: "task", Provider: "toai", Tools: true,
+	_, err := vendorRunner{name: "codex"}.Run(context.Background(), RunOptions{Prompt: "task", Provider: "toai", Tools: true,
 		SystemPrompt: `be "terse"`, AppendSystemPrompt: "APP", OutputSchema: `{"type":"object","properties":{"a":{"type":"string"}}}`}, Discard)
 	if err != nil {
 		t.Fatal(err)

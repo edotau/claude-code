@@ -97,7 +97,7 @@ func runAsk(args []string, resume bool) int {
 	if err != nil {
 		return failAskCode(*format, *name, err, 2)
 	}
-	vendor, persona, err := agent.ResolveTarget(*name)
+	vendor, persona, err := agent.SelectAgent(*name, nil)
 	if err != nil {
 		return failAskCode(*format, *name, err, 2)
 	}
@@ -117,7 +117,7 @@ func runAsk(args []string, resume bool) int {
 		return failAskCode(*format, *name, errors.New("--env cannot be combined with --background: env values are never stored in the dispatch record"), 2)
 	}
 	if *batch != "" {
-		base := agent.Request{Model: *model, Provider: *provider, Effort: *effort, WorkDir: *workdir, Tools: *tools, NoTools: *noTools,
+		base := agent.RunOptions{Model: *model, Provider: *provider, Effort: *effort, WorkDir: *workdir, Tools: *tools, NoTools: *noTools,
 			Timeout: *timeout, KeepEnv: []string(keepEnv), Autonomous: *autonomous, EnableMemory: *enableMemory, Direct: *direct,
 			NoPersist: *noPersist, SafeMode: *safeMode, SystemPrompt: *systemPrompt, AppendSystemPrompt: *appendSystemPrompt,
 			Env: []string(env), OutputSchema: schema, Persona: persona, Launcher: launch.Launcher{}}
@@ -151,7 +151,7 @@ func runAsk(args []string, resume bool) int {
 			return rc
 		}
 	}
-	if rest, p, rerr := agent.ResolveTarget(*name); rerr != nil { // a --retry re-parse puts the raw --agent value back
+	if rest, p, rerr := agent.SelectAgent(*name, nil); rerr != nil { // a --retry re-parse puts the raw --agent value back
 		return failAskCode(*format, *name, rerr, 2)
 	} else if *name = rest; p != nil { // an explicit persona beats the record's
 		persona = p
@@ -219,7 +219,7 @@ func runAsk(args []string, resume bool) int {
 		fmt.Fprintf(os.Stderr, "ask: --enable-memory has no effect on the %s agent (copilot only)\n", *name)
 	}
 	*debugFile = absDebugFile(*debugFile)
-	req := agent.Request{Prompt: prompt, Model: *model, Provider: *provider, Effort: *effort,
+	req := agent.RunOptions{Prompt: prompt, Model: *model, Provider: *provider, Effort: *effort,
 		WorkDir: *workdir, SessionID: *session, Tools: *tools, NoTools: *noTools, Timeout: *timeout,
 		Attach: []string(attach), KeepEnv: []string(keepEnv), Autonomous: *autonomous, EnableMemory: *enableMemory, Direct: *direct,
 		NoPersist: *noPersist, SafeMode: *safeMode, DebugFile: *debugFile, SystemPrompt: *systemPrompt,
@@ -269,7 +269,7 @@ func absDebugFile(p string) string {
 }
 
 // runAskAndReport runs chain (or remote, when set) in the foreground as one recorded dispatch, then reports it.
-func runAskAndReport(ctx context.Context, rec *agent.Record, chain agent.Chain, remote agent.Runner, req agent.Request,
+func runAskAndReport(ctx context.Context, rec *agent.Record, chain agent.Chain, remote agent.Runner, req agent.RunOptions,
 	jobRec *agent.Record, format string) int {
 	notify := func(s string) { fmt.Fprintln(os.Stderr, "ask:", s) }
 	opts := agent.DispatchOpts{Job: jobRec != nil, Notify: notify}
@@ -322,7 +322,7 @@ type askState struct {
 	debugFile, systemPrompt, appendSystemPrompt, outputSchema *string
 	host, remoteBin, fallback                                 *string
 	timeout                                                   *time.Duration
-	persona                                                   **agent.Persona
+	persona                                                   **agent.Schema
 	attach                                                    *attachFlag
 	keepEnv                                                   *keepEnvFlag
 }
@@ -523,8 +523,8 @@ func resolveAskChain(ctx context.Context, name, provider, model, prompt, fallbac
 			}
 		}
 	}
-	if agent.ExplicitBackend(agent.Request{Provider: provider, Model: model}) {
-		req := agent.Request{Provider: provider, Model: model, Launcher: launch.Launcher{}}
+	if agent.ExplicitBackend(agent.RunOptions{Provider: provider, Model: model}) {
+		req := agent.RunOptions{Provider: provider, Model: model, Launcher: launch.Launcher{}}
 		if provider == "" || native || !agent.IsHubAgent(name) {
 			return r, tierSlot(agent.ExplicitChain(r, req), name, model, prompt), nil
 		}
@@ -768,17 +768,27 @@ func listAgents(format string) int {
 		}
 		caps := map[string]string{}
 		var shown []string
-		for _, f := range agent.CapFields(r.Caps()) {
+		s, _ := agent.LookupSchema(r.Name())
+		for _, f := range agent.CapFields(s.CLI.Caps) {
 			caps[f.Name] = f.L.String()
 			if f.L != agent.None && slices.Contains([]string{"model", "profile", "effort", "workdir", "session", "tools", "system-prompt",
 				"append-system-prompt", "env", "output-schema"}, f.Name) {
 				shown = append(shown, f.Name+":"+f.L.String())
 			}
 		}
-		for k, l := range agent.AgentFeatures(r.Name()) {
-			caps[k] = l.String()
+		caps["cost"], caps["live"] = agent.None.String(), agent.None.String()
+		if s.CLI.Cost {
+			caps["cost"] = agent.Native.String()
 		}
-		rows = append(rows, row{r.Name(), agent.AgentBinary(r.Name()), reason == "", reason, caps, agent.AgentEvents(r.Name())})
+		if agent.HasLive(s.Name) {
+			caps["live"] = agent.Native.String()
+		}
+		caps["background"], caps["remote"] = agent.Native.String(), agent.Native.String()
+		binary := s.CLI.Binary
+		if !s.External() {
+			binary = s.Name
+		}
+		rows = append(rows, row{s.Name, binary, reason == "", reason, caps, s.CLI.Events})
 		if format != formatJSON {
 			fmt.Printf("%s %-9s %s %s\n", mark, r.Name(), strings.Join(shown, ","), reason)
 		}
@@ -830,7 +840,7 @@ type batchOpts struct {
 var batchExclusive = []string{"retry", "job", "background", "session", "log", "attach", "rubric", "debug-file"}
 
 // runAskBatch runs the JSONL tasks in src (a file, or "-" for stdin) on a bounded pool and streams one envelope per line.
-func runAskBatch(fs *flag.FlagSet, resume bool, src string, o batchOpts, base agent.Request) int {
+func runAskBatch(fs *flag.FlagSet, resume bool, src string, o batchOpts, base agent.RunOptions) int {
 	var bad error
 	if resume || fs.NArg() > 0 {
 		bad = errors.New("--batch takes tasks from the JSONL source, not a session id or a positional task")
@@ -889,7 +899,7 @@ func runAskBatch(fs *flag.FlagSet, resume bool, src string, o batchOpts, base ag
 }
 
 // batchTask validates one line like the ask flags and attaches the routing step; routing waits for Prepare.
-func batchTask(l agent.ParsedLine, o batchOpts, base agent.Request, timeoutSet bool, cwd string,
+func batchTask(l agent.ParsedLine, o batchOpts, base agent.RunOptions, timeoutSet bool, cwd string,
 	seen map[string]bool) (agent.BatchTask, error) {
 	t, err := agent.ParseBatchTask(l, o.agent, base, timeoutSet, cwd, seen)
 	if err != nil {

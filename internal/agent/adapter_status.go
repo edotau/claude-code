@@ -13,13 +13,10 @@ import (
 	"github.com/edotau/claude-code/internal/secrets/shapes"
 )
 
-// known reports whether name is an agent with or without a vendor Adapter (claude has none).
+// known reports whether name is in the roster, including claude.
 func known(name string) bool {
-	if _, ok := LookupAdapter(name); ok {
-		return true
-	}
-	_, err := Lookup(name)
-	return err == nil
+	_, ok := LookupSchema(name)
+	return ok
 }
 
 // Find resolves ref (exact id or unique prefix) across every agent's records, so the caller learns the agent.

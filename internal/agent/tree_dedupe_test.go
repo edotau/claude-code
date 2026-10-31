@@ -71,7 +71,7 @@ func (e dedupeEnv) session(t *testing.T, id, prompt string, withSub bool) {
 // dispatch saves a live (this pid) running record started a minute before now; returns its id.
 func (e dedupeEnv) dispatch(t *testing.T, name, prompt, workDir, repo, sessionID string) string {
 	t.Helper()
-	req := Request{Prompt: prompt, WorkDir: workDir}
+	req := RunOptions{Prompt: prompt, WorkDir: workDir}
 	rec := NewRecord(name, req, e.now.Add(-time.Minute))
 	rec.PID, rec.Repo, rec.SessionID = os.Getpid(), repo, sessionID
 	if err := rec.Save(); err != nil {

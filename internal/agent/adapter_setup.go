@@ -22,12 +22,12 @@ type Report struct {
 
 // Setup runs the binary, login, route and projection checks for an agent. Text rendering is the caller's job.
 func Setup(name string, routeDetail func(string) (string, bool)) Report {
-	a, ok := LookupAdapter(name)
-	if !ok {
+	s, ok := LookupSchema(name)
+	if !ok || !s.External() {
 		return Report{Agent: name, Checks: []Check{{Name: "agent", State: "fail", Detail: errUnknownAgent(name).Error()}}}
 	}
-	binCheck := binaryCheck(a)
-	loginCheck := loginCheck(a)
+	binCheck := binaryCheck(s)
+	loginCheck := loginCheck(s)
 	rep := Report{
 		Agent:  name,
 		Checks: []Check{binCheck, loginCheck, routeCheck(name, routeDetail), projectionCheck(name)},
@@ -37,20 +37,28 @@ func Setup(name string, routeDetail func(string) (string, bool)) Report {
 }
 
 // binaryCheck looks up the agent executable via paths.VendorBin.
-func binaryCheck(a Adapter) Check {
-	p, err := paths.VendorBin(a.Name)
+func binaryCheck(s Schema) Check {
+	p, err := paths.VendorBin(s.Name)
 	if err != nil {
 		return Check{Name: "binary", State: "fail", Detail: err.Error()}
 	}
 	return Check{Name: "binary", State: "ok", Detail: p}
 }
 
-// loginCheck runs the adapter's own CLI login probe.
-func loginCheck(a Adapter) Check {
-	if a.Login == nil || !a.Login() {
-		return Check{Name: "login", State: "fail", Detail: "no " + a.Name + " login found (claude-code vault set / agent's own login)"}
+var loginProbes = map[string]func() bool{
+	"codex":    CodexChatGPTLoginPresent,
+	"gemini":   GeminiLoginPresent,
+	"copilot":  CopilotLoginPresent,
+	"opencode": func() bool { return len(OpencodeLogins()) > 0 },
+}
+
+// loginCheck runs the CLI's own login probe.
+func loginCheck(s Schema) Check {
+	probe := loginProbes[s.Name]
+	if probe == nil || !probe() {
+		return Check{Name: "login", State: "fail", Detail: "no " + s.Name + " login found (claude-code vault set / agent's own login)"}
 	}
-	return Check{Name: "login", State: "ok", Detail: a.Name + " login present"}
+	return Check{Name: "login", State: "ok", Detail: s.Name + " login present"}
 }
 
 // routeCheck pulls the "<name> route" detail from routeDetail, without running the full doctor sweep.

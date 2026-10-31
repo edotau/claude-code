@@ -410,7 +410,7 @@ func SendLive(ctx context.Context, id, prompt string, sink Sink) (Envelope, erro
 const liveReadyWait = 20 * time.Second
 
 // IdleOf is the idle limit a live session runs under: the request's timeout, else the default.
-func IdleOf(req Request) time.Duration {
+func IdleOf(req RunOptions) time.Duration {
 	if req.Timeout > 0 {
 		return req.Timeout
 	}

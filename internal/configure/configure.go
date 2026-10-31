@@ -438,7 +438,11 @@ func vendorKeyTarget(reg *providers.Registry, name string) keyTarget {
 					envVar: target.Provider.Auth.Env, provider: target.Provider}
 			}
 		}
-		return keyTarget{label: name, present: false, fixCmd: agent.ConfigureHint(name)}
+		hint := "run `claude-code configure agents`"
+		if s, ok := agent.LookupSchema(name); ok {
+			hint = s.CLI.ConfigureHint
+		}
+		return keyTarget{label: name, present: false, fixCmd: hint}
 	}
 	switch name {
 	case "codex":
@@ -864,8 +868,9 @@ func runAgents(d *dialog) bool {
 			d.printf("%-10s runs on %s\n", name, afterUsing(note))
 			continue
 		}
+		s, _ := agent.LookupSchema(name)
 		if rerr != nil {
-			d.printf("%-10s FIX: %v; %s\n", name, rerr, agent.ConfigureHint(name))
+			d.printf("%-10s FIX: %v; %s\n", name, rerr, s.CLI.ConfigureHint)
 			ok = false
 			continue
 		}
@@ -875,7 +880,7 @@ func runAgents(d *dialog) bool {
 			continue
 		}
 		if cerr != nil {
-			d.printf("%-10s FIX: %v; %s\n", name, cerr, agent.ConfigureHint(name))
+			d.printf("%-10s FIX: %v; %s\n", name, cerr, s.CLI.ConfigureHint)
 			ok = false
 			continue
 		}

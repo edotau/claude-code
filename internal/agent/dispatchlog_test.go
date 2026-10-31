@@ -19,7 +19,7 @@ import (
 func TestDispatchRecordLifecycleAndPrune(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	base := time.Date(2026, 10, 16, 21, 0, 0, 0, time.UTC)
-	r := NewRecord("codex", Request{Prompt: "p", Tools: true}, base)
+	r := NewRecord("codex", RunOptions{Prompt: "p", Tools: true}, base)
 	if err := r.Save(); err != nil {
 		t.Fatal(err)
 	}
@@ -38,7 +38,7 @@ func TestDispatchRecordLifecycleAndPrune(t *testing.T) {
 	dispatchKeep = 2
 	defer func() { dispatchKeep = old }()
 	for i := 1; i <= 3; i++ {
-		_ = NewRecord("gemini", Request{Prompt: "q"}, base.Add(time.Duration(i)*time.Minute)).Save()
+		_ = NewRecord("gemini", RunOptions{Prompt: "q"}, base.Add(time.Duration(i)*time.Minute)).Save()
 	}
 	if recs := RecentRecords(10); len(recs) != 2 || recs[0].Time.Before(recs[1].Time) {
 		t.Fatalf("after prune: %d records, newest first = %v", len(recs), recs)
@@ -84,7 +84,7 @@ func TestPruneDispatchesRemovesLog(t *testing.T) {
 	dispatchKeep = 1
 	defer func() { dispatchKeep = old }()
 
-	first := NewRecord("codex", Request{Prompt: "p"}, base)
+	first := NewRecord("codex", RunOptions{Prompt: "p"}, base)
 	if err := first.Save(); err != nil {
 		t.Fatal(err)
 	}
@@ -97,7 +97,7 @@ func TestPruneDispatchesRemovesLog(t *testing.T) {
 	}
 
 	// second record pushes the first past dispatchKeep=1, triggering prune
-	if err := NewRecord("codex", Request{Prompt: "q"}, base.Add(time.Minute)).Save(); err != nil {
+	if err := NewRecord("codex", RunOptions{Prompt: "q"}, base.Add(time.Minute)).Save(); err != nil {
 		t.Fatal(err)
 	}
 
@@ -125,20 +125,20 @@ func TestPruneDispatchesSkipsActiveBackgroundRecord(t *testing.T) {
 
 	// active sits 2nd-oldest so the prune walk reaches it before excess is exhausted; if the active
 	// guard were missing, the walk would remove it here instead of skipping on to trigger1.
-	finished := NewRecord("codex", Request{Prompt: "old"}, base)
+	finished := NewRecord("codex", RunOptions{Prompt: "old"}, base)
 	finished.Status = "ok"
 	if err := finished.Save(); err != nil {
 		t.Fatal(err)
 	}
 
-	active := NewRecord("codex", Request{Prompt: "bg"}, base.Add(time.Minute))
+	active := NewRecord("codex", RunOptions{Prompt: "bg"}, base.Add(time.Minute))
 	active.Log = filepath.Join(DispatchDir(), active.ID+".log")
 	active.PID = cmd.Process.Pid
 	if err := active.Save(); err != nil {
 		t.Fatal(err)
 	}
 
-	trigger1 := NewRecord("codex", Request{Prompt: "newer"}, base.Add(2*time.Minute))
+	trigger1 := NewRecord("codex", RunOptions{Prompt: "newer"}, base.Add(2*time.Minute))
 	trigger1.Status = "ok"
 	if err := trigger1.Save(); err != nil {
 		t.Fatal(err)
@@ -146,7 +146,7 @@ func TestPruneDispatchesSkipsActiveBackgroundRecord(t *testing.T) {
 
 	// 4th record with dispatchKeep=2 sets excess=2: without the guard, the walk would consume that
 	// excess on `finished` then `active` and leave `trigger1` alone; proving teeth: it does not.
-	trigger2 := NewRecord("codex", Request{Prompt: "newest"}, base.Add(3*time.Minute))
+	trigger2 := NewRecord("codex", RunOptions{Prompt: "newest"}, base.Add(3*time.Minute))
 	trigger2.Status = "ok"
 	if err := trigger2.Save(); err != nil {
 		t.Fatal(err)
@@ -179,14 +179,14 @@ func TestPruneDispatchesPrunesDeadPIDBackgroundRecord(t *testing.T) {
 		t.Fatalf("spawn a short-lived process: %v", err)
 	}
 
-	dead := NewRecord("codex", Request{Prompt: "bg"}, base)
+	dead := NewRecord("codex", RunOptions{Prompt: "bg"}, base)
 	dead.Log = filepath.Join(DispatchDir(), dead.ID+".log")
 	dead.PID = cmd.Process.Pid // reaped, no longer alive
 	if err := dead.Save(); err != nil {
 		t.Fatal(err)
 	}
 
-	if err := NewRecord("codex", Request{Prompt: "new"}, base.Add(time.Minute)).Save(); err != nil {
+	if err := NewRecord("codex", RunOptions{Prompt: "new"}, base.Add(time.Minute)).Save(); err != nil {
 		t.Fatal(err)
 	}
 
@@ -204,12 +204,12 @@ func TestPruneDispatchesPrunesForegroundRunningRecord(t *testing.T) {
 	dispatchKeep = 1
 	defer func() { dispatchKeep = old }()
 
-	fg := NewRecord("codex", Request{Prompt: "fg"}, base) // Status "running", Log left empty
+	fg := NewRecord("codex", RunOptions{Prompt: "fg"}, base) // Status "running", Log left empty
 	if err := fg.Save(); err != nil {
 		t.Fatal(err)
 	}
 
-	if err := NewRecord("codex", Request{Prompt: "new"}, base.Add(time.Minute)).Save(); err != nil {
+	if err := NewRecord("codex", RunOptions{Prompt: "new"}, base.Add(time.Minute)).Save(); err != nil {
 		t.Fatal(err)
 	}
 
@@ -260,25 +260,25 @@ func TestPruneDispatchesKeepsAlivePID0RecordDropsStalePID0Record(t *testing.T) {
 	dispatchKeep = 2
 	defer func() { dispatchKeep = old }()
 
-	stale := NewRecord("codex", Request{Prompt: "stale"}, base) // PID 0, Time stays 8 days in the past: not alive
+	stale := NewRecord("codex", RunOptions{Prompt: "stale"}, base) // PID 0, Time stays 8 days in the past: not alive
 	if err := stale.Save(); err != nil {
 		t.Fatal(err)
 	}
 
 	// alive's ID sorts as 2nd-oldest (so the prune walk reaches it before excess is exhausted), but
 	// its on-disk Time is overridden to "just now" so Alive() reports it live despite Status "running".
-	alive := NewRecord("codex", Request{Prompt: "alive"}, base.Add(30*time.Second))
+	alive := NewRecord("codex", RunOptions{Prompt: "alive"}, base.Add(30*time.Second))
 	alive.Time = time.Now().Add(-5 * time.Second)
 	if err := alive.Save(); err != nil {
 		t.Fatal(err)
 	}
 
-	trigger1 := NewRecord("codex", Request{Prompt: "trigger1"}, base.Add(time.Minute))
+	trigger1 := NewRecord("codex", RunOptions{Prompt: "trigger1"}, base.Add(time.Minute))
 	trigger1.Status = "ok"
 	if err := trigger1.Save(); err != nil {
 		t.Fatal(err)
 	}
-	trigger2 := NewRecord("codex", Request{Prompt: "trigger2"}, base.Add(2*time.Minute))
+	trigger2 := NewRecord("codex", RunOptions{Prompt: "trigger2"}, base.Add(2*time.Minute))
 	trigger2.Status = "ok"
 	if err := trigger2.Save(); err != nil {
 		t.Fatal(err)
@@ -301,7 +301,7 @@ func TestPruneDispatchesKeepsAlivePID0RecordDropsStalePID0Record(t *testing.T) {
 // A fresh --background record (running, Log set, live PID) reads back as running and Alive, not lost.
 func TestFreshBackgroundRecordReadsBackAlive(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	rec := NewRecord("codex", Request{Prompt: "p"}, time.Now())
+	rec := NewRecord("codex", RunOptions{Prompt: "p"}, time.Now())
 	rec.PID, rec.Log = os.Getpid(), "job.log"
 	if err := rec.Save(); err != nil {
 		t.Fatal(err)
@@ -326,7 +326,7 @@ func TestRecordKeepsRequestAndInvokedModel(t *testing.T) {
 		{Agent: first, Model: "prof:gpt-6-astra"},
 		{Agent: second, Model: "prof:claude-sonnet-5-5"},
 	}}
-	req := Request{Prompt: "p", Model: "gpt-6-astra"}
+	req := RunOptions{Prompt: "p", Model: "gpt-6-astra"}
 	rec := NewRecord("codex", req, time.Date(2026, 10, 28, 1, 0, 0, 0, time.UTC))
 	res, err := RunWithFallback(context.Background(), chain, req, Discard, nil)
 	if err != nil {
@@ -371,7 +371,7 @@ func TestDispatchRecordSchemaStampsNewAndRejectsNewer(t *testing.T) {
 		t.Fatalf("pre-schema record: %+v, %v", got, err)
 	}
 
-	rec := NewRecord("copilot", Request{}, time.Date(2026, 1, 3, 0, 0, 0, 0, time.UTC))
+	rec := NewRecord("copilot", RunOptions{}, time.Date(2026, 1, 3, 0, 0, 0, 0, time.UTC))
 	if err := rec.Save(); err != nil {
 		t.Fatal(err)
 	}

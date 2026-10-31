@@ -18,8 +18,8 @@ type copilotRunner struct{}
 
 func (copilotRunner) Name() string { return "copilot" }
 func (copilotRunner) Caps() Caps {
-	return Caps{Model: Native, Provider: Native, Effort: Native, WorkDir: Native, Tools: Native, SessionID: Native, Autonomous: Native,
-		Memory: Native, Direct: Native, Env: Native, SystemPrompt: Emulated, AppendSystemPrompt: Emulated, OutputSchema: Emulated, Persona: Emulated}
+	s, _ := LookupSchema("copilot")
+	return s.CLI.Caps
 }
 func (copilotRunner) Available() error { _, err := paths.VendorBin("copilot"); return err }
 
@@ -42,7 +42,7 @@ func applyCopilotToken(opts *copilotsdk.Options, own bool, env []string) error {
 	return nil
 }
 
-func (copilotRunner) Run(ctx context.Context, req Request, sink Sink) (Result, error) {
+func (copilotRunner) Run(ctx context.Context, req RunOptions, sink Sink) (Result, error) {
 	ctx = directCtx(ctx, req)
 	t, own, err := vendorTargetCtx(ctx, req, "copilot")
 	if err != nil {
@@ -144,7 +144,7 @@ func copilotModelID(id string) string {
 }
 
 // directCtx carries req.Direct to Configure (skip the router).
-func directCtx(ctx context.Context, req Request) context.Context {
+func directCtx(ctx context.Context, req RunOptions) context.Context {
 	if req.Direct {
 		return WithDirect(ctx)
 	}

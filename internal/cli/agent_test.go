@@ -201,7 +201,7 @@ func TestCmdAskRetryFlags(t *testing.T) {
 			args := []string{"--agent", "claude", "--fallback", "none", "--format", "json"}
 			wantRecords := 1
 			if tt.retry {
-				rec := agent.NewRecord("claude", agent.Request{
+				rec := agent.NewRecord("claude", agent.RunOptions{
 					Prompt: "say ok", Tools: true, Timeout: 5 * time.Minute,
 					Attach: []string{filepath.Join(dir, "a.txt")},
 				}, time.Now().Add(-time.Hour))
@@ -273,7 +273,7 @@ func TestCmdAgentsTreeTextNoSessions(t *testing.T) {
 // --job on a record that already finished is refused: only a fresh running, pid-less record may be run.
 func TestCmdAskJobRefusesNonFreshRecord(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	rec := agent.NewRecord("codex", agent.Request{Prompt: "p"}, time.Now())
+	rec := agent.NewRecord("codex", agent.RunOptions{Prompt: "p"}, time.Now())
 	rec.Status = "ok"
 	if err := rec.Save(); err != nil {
 		t.Fatal(err)

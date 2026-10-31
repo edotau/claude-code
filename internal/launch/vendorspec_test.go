@@ -16,7 +16,7 @@ func TestPlainPlanAppliesVendorLaunchSpec(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	fake := pathstest.FakeVendor(t, "opencode", "")
 
-	spec, ok := agent.LookupSpec("opencode")
+	spec, ok := agent.LookupSchema("opencode")
 	if !ok {
 		t.Fatal("opencode vendor spec not found")
 	}

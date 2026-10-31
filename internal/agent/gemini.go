@@ -18,7 +18,8 @@ func isGateway(base string) bool {
 // geminiLogin runs agy on its own cached Google sign-in (AgyLoginMarker); without one it errors with the sign-in hint.
 func geminiLogin(model string, h *Headless) ([]string, []string, error) {
 	if !GeminiLoginPresent() {
-		return nil, nil, errors.New("gemini: agy is not signed in; " + ConfigureHint("gemini"))
+		s, _ := LookupSchema("gemini")
+		return nil, nil, errors.New("gemini: agy is not signed in; " + s.CLI.ConfigureHint)
 	}
 	if h != nil {
 		return nil, nil, nil // headless argv is agent.RunAgy's (prompt over stdin stream-json)

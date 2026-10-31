@@ -24,7 +24,7 @@ import (
 var handoffDir = func(root string) string { return memory.HandoffsDir(memory.Dir(root)) }
 
 // copilotQuotaHandoff marks the exhausted account and returns a redacted handoff for the next fallback leg.
-func copilotQuotaHandoff(req Request, res Result, partial copilotsdk.Result, cause error, creds []string) (Result, error) {
+func copilotQuotaHandoff(req RunOptions, res Result, partial copilotsdk.Result, cause error, creds []string) (Result, error) {
 	acct := copilotLoginAccount()
 	noteQuota(Leg{Account: acct, Billing: router.BillSubscription}, Classify("copilot", cause, false))
 	res.SessionID = cmp.Or(partial.SessionID, res.SessionID)
@@ -58,7 +58,7 @@ func resumeSlot(model string) string {
 
 // writeCopilotHandoff writes memory/<repo>/handoffs/<date>-copilot-<shortid>[-N].md, redacted, and returns path + body.
 func writeCopilotHandoff(
-	req Request, res Result, partial, acct string, cause error, creds []string,
+	req RunOptions, res Result, partial, acct string, cause error, creds []string,
 ) (string, string, error) {
 	root := req.WorkDir
 	if root == "" {

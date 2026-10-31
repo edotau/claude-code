@@ -43,7 +43,7 @@ func TestResolveAccountFollowsSessionProfile(t *testing.T) {
 func TestExplicitChainRecordsAndGates(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	codex := &fakeRunner{name: "codex", errs: []error{errors.New("insufficient_quota: you exceeded your current quota")}, emptyAnswer: true}
-	req := Request{Prompt: "p", Provider: "openai"}
+	req := RunOptions{Prompt: "p", Provider: "openai"}
 	c := ExplicitChain(codex, req)
 	if len(c.Legs) != 1 || c.Legs[0].Account != "openai·openai" {
 		t.Fatalf("chain = %+v, want one leg on openai·openai", c)
@@ -91,7 +91,7 @@ func TestOwnLoginLegRecordsTheProfileItRan(t *testing.T) {
 	t.Setenv(providers.EnvSessionProfile, "dbx")
 	r := &fakeRunner{name: "codex", errs: []error{nil}}
 	c := Chain{Want: "codex", Legs: []Leg{{Agent: r, Account: "openai·chatgpt", Billing: router.BillSubscription}}}
-	res, err := RunWithFallback(context.Background(), c, Request{Prompt: "p"}, Discard, nil)
+	res, err := RunWithFallback(context.Background(), c, RunOptions{Prompt: "p"}, Discard, nil)
 	if err != nil || len(res.Hops) != 1 {
 		t.Fatalf("res=%+v err=%v", res, err)
 	}
@@ -106,7 +106,7 @@ func TestSkipNoticeOnlyForWantedAgent(t *testing.T) {
 	c := Single(&fakeRunner{name: "copilot", errs: []error{nil}})
 	c.Skipped = []string{"opencode·openai: not configured", "copilot: exhausted"}
 	var got []string
-	if _, err := RunWithFallback(context.Background(), c, Request{Prompt: "p"}, Discard, func(s string) { got = append(got, s) }); err != nil {
+	if _, err := RunWithFallback(context.Background(), c, RunOptions{Prompt: "p"}, Discard, func(s string) { got = append(got, s) }); err != nil {
 		t.Fatal(err)
 	}
 	if len(got) != 1 || strings.Contains(got[0], "opencode") || !strings.Contains(got[0], "copilot: exhausted") {

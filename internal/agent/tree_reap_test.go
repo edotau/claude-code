@@ -17,7 +17,7 @@ func TestReapDeadLiveHolder(t *testing.T) {
 	t.Cleanup(func() { _ = os.RemoveAll(dir) })
 	t.Setenv("CLAUDE_CONFIG_DIR", dir)
 	mk := func(pid int) Record {
-		rec := ClaimRecord("claude", Request{}, time.Now())
+		rec := ClaimRecord("claude", RunOptions{}, time.Now())
 		rec.Live, rec.PID = true, pid
 		if err := rec.Save(); err != nil {
 			t.Fatal(err)

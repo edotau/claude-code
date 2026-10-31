@@ -29,7 +29,7 @@ func TestCapabilityMatrixApplyCaps(t *testing.T) {
 			if c.SystemPrompt != w.sys || c.AppendSystemPrompt != w.app || c.OutputSchema != w.schema || c.Env != Native {
 				t.Fatalf("caps sys=%v append=%v schema=%v env=%v, want %v/%v/%v/native", c.SystemPrompt, c.AppendSystemPrompt, c.OutputSchema, c.Env, w.sys, w.app, w.schema)
 			}
-			in := Request{Prompt: "TASK", SystemPrompt: "SYS", AppendSystemPrompt: "APP", OutputSchema: schema, Env: []string{"A=1"}}
+			in := RunOptions{Prompt: "TASK", SystemPrompt: "SYS", AppendSystemPrompt: "APP", OutputSchema: schema, Env: []string{"A=1"}}
 			out, dropped, emulated := applyCaps(c, in)
 			if len(dropped) != 0 || !slices.Equal(out.Env, in.Env) {
 				t.Errorf("dropped = %v, env = %v; env is native everywhere", dropped, out.Env)
@@ -67,7 +67,7 @@ func TestCapabilityMatrixApplyCaps(t *testing.T) {
 
 // Level None drops and names the flag; it is neither emulated nor passed on.
 func TestApplyCapsNoneDropsSystemPrompt(t *testing.T) {
-	out, dropped, emulated := applyCaps(Caps{}, Request{Prompt: "T", SystemPrompt: "S", AppendSystemPrompt: "A"})
+	out, dropped, emulated := applyCaps(Caps{}, RunOptions{Prompt: "T", SystemPrompt: "S", AppendSystemPrompt: "A"})
 	if !slices.Equal(dropped, []string{"--system-prompt", "--append-system-prompt"}) || len(emulated) != 0 || out.Prompt != "T" ||
 		out.SystemPrompt != "" || out.AppendSystemPrompt != "" {
 		t.Errorf("out=%+v dropped=%v emulated=%v", out, dropped, emulated)

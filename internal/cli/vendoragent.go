@@ -34,7 +34,7 @@ var vendorAbout = map[string]string{
 		"with args forwarded; the commands below run it headless.",
 }
 
-// vendorPage is the help page for one agent verb: the shared command roster plus the adapter's extra rows.
+// vendorPage is the help page for one agent verb: the shared command roster plus the CLI's extra rows.
 func vendorPage(vendor string) helptext.Page {
 	rows := [][2]string{
 		{"ask", "one-shot run (= ask --agent " + vendor + ")"},
@@ -56,8 +56,11 @@ func vendorPage(vendor string) helptext.Page {
 		rows[slices.IndexFunc(rows, func(r [2]string) bool { return r[0] == "catalog" })][1] =
 			"model menu: list|add|remove|import|reset|check|sync"
 	}
-	if a, ok := agent.LookupAdapter(vendor); ok {
-		rows = append(rows, a.ExtraUsage...)
+	s, _ := agent.LookupSchema(vendor)
+	rows = append(rows, s.CLI.ExtraUsage...)
+	binary := vendor
+	if s.External() {
+		binary = s.CLI.Binary
 	}
 	return helptext.Page{
 		Usage:    "claude-code " + vendor + " [<command>|--] [launch flags] [args…]",
@@ -65,7 +68,7 @@ func vendorPage(vendor string) helptext.Page {
 		Commands: rows,
 		Flags:    vendorLaunchFlags(vendor),
 		Hint: "claude-code " + vendor + " <command> -h lists that command's flags.\n" +
-			"claude-code " + vendor + " " + helptext.DocsFlag + " prints " + agent.AgentBinary(vendor) + "'s own help.",
+			"claude-code " + vendor + " " + helptext.DocsFlag + " prints " + binary + "'s own help.",
 	}
 }
 
@@ -258,13 +261,14 @@ func cmdVendorResult(vendor string, args []string) int {
 	if err != nil {
 		return fail("%s result: %v", vendor, err)
 	}
+	s, _ := agent.LookupSchema(vendor)
 	if *format == helptext.JSON {
 		if err := helptext.WriteJSON(os.Stdout, struct {
 			ID      string `json:"id"`
 			Session string `json:"session,omitempty"`
 			Resume  string `json:"resume,omitempty"`
 			Log     string `json:"log"`
-		}{rec.ID, rec.SessionID, agent.ResumeHint(vendor, rec.SessionID), log}); err != nil {
+		}{rec.ID, rec.SessionID, s.ResumeHint(rec.SessionID), log}); err != nil {
 			return fail("%s result: %v", vendor, err)
 		}
 		return resultExit(rec)
@@ -275,7 +279,7 @@ func cmdVendorResult(vendor string, args []string) int {
 	}
 	if rec.SessionID != "" {
 		fmt.Printf("session: %s\n", rec.SessionID)
-		fmt.Printf("resume: %s\n", agent.ResumeHint(vendor, rec.SessionID))
+		fmt.Printf("resume: %s\n", s.ResumeHint(rec.SessionID))
 	}
 	return resultExit(rec)
 }
@@ -417,7 +421,8 @@ func cmdVendorTransfer(vendor string, args []string) int {
 	code := cmdAsk(agent.TransferArgs(vendor, cwd, prompt, *wait))
 	if code == 0 && *wait {
 		if rec, _, err := agent.JobResult(context.Background(), vendor, cwd, ""); err == nil {
-			if hint := agent.ResumeHint(vendor, rec.SessionID); hint != "" {
+			s, _ := agent.LookupSchema(vendor)
+			if hint := s.ResumeHint(rec.SessionID); hint != "" {
 				fmt.Printf("resume: %s\n", hint)
 			}
 		}
@@ -427,8 +432,8 @@ func cmdVendorTransfer(vendor string, args []string) int {
 
 // cmdVendorModels is `claude-code <v> catalog` : the agent's own catalog, or a note that it has none.
 func cmdVendorModels(vendor string, args []string) int {
-	a, ok := agent.LookupAdapter(vendor)
-	if !ok {
+	s, ok := agent.LookupSchema(vendor)
+	if !ok || !s.External() {
 		return fail("unknown agent %q", vendor)
 	}
 	format := helptext.Text
@@ -462,7 +467,7 @@ func cmdVendorModels(vendor string, args []string) int {
 		return 2
 	}
 	switch {
-	case a.ModelsProvider != "":
+	case s.CLI.ModelsProvider != "":
 		reg, err := providers.Load()
 		if err != nil {
 			return fail("%v", err)
@@ -472,8 +477,8 @@ func cmdVendorModels(vendor string, args []string) int {
 			return fail("%v", err)
 		}
 		return cmdModels([]string{"--live", "--profile", n, "--format", format})
-	case len(a.ModelsArgv) > 0:
-		return launchVendor(vendor, a.ModelsArgv)
+	case len(s.CLI.ModelsArgv) > 0:
+		return launchVendor(vendor, s.CLI.ModelsArgv)
 	default:
 		fmt.Printf("%s: no model catalog\n", vendor)
 		return 0

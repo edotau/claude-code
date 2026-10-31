@@ -133,7 +133,7 @@ func TestHubLegRunOversizedPromptRefused(t *testing.T) {
 	l := hubLeg{agent: "codex", provider: chatgpt, reg: reg}
 	big := strings.Repeat("x", MaxPromptBytes+10)
 
-	_, err := l.Run(context.Background(), Request{Prompt: big}, Discard)
+	_, err := l.Run(context.Background(), RunOptions{Prompt: big}, Discard)
 	var e *Error
 	if !errors.As(err, &e) || !errors.Is(e, ErrPromptTooLarge) {
 		t.Fatalf("err = %v, want *Error wrapping ErrPromptTooLarge", err)

@@ -77,7 +77,7 @@ func TestListFiltersByAgentAndRepo(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	base := time.Date(2026, 10, 16, 21, 0, 0, 0, time.UTC)
 	mk := func(a, repo string, offset time.Duration) {
-		r := NewRecord(a, Request{Prompt: "p"}, base.Add(offset))
+		r := NewRecord(a, RunOptions{Prompt: "p"}, base.Add(offset))
 		r.Repo = repo
 		if err := r.Save(); err != nil {
 			t.Fatal(err)
@@ -110,7 +110,7 @@ func TestSpawnSetsPIDAndLogThenCancelStops(t *testing.T) {
 	executable = func() (string, error) { return script, nil }
 	defer func() { executable = old }()
 
-	rec := NewRecord("codex", Request{Prompt: "p"}, time.Now())
+	rec := NewRecord("codex", RunOptions{Prompt: "p"}, time.Now())
 	if err := rec.Save(); err != nil {
 		t.Fatal(err)
 	}
@@ -155,7 +155,7 @@ func TestSpawnSetsPIDAndLogThenCancelStops(t *testing.T) {
 // Spawn only sets rec.PID/Log in memory for the caller's print and must never save after cmd.Start().
 func TestSpawnDoesNotSaveAfterFastChildFinishes(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	rec := NewRecord("codex", Request{Prompt: "p"}, time.Now())
+	rec := NewRecord("codex", RunOptions{Prompt: "p"}, time.Now())
 	if err := rec.Save(); err != nil {
 		t.Fatal(err)
 	}
@@ -203,7 +203,7 @@ func TestCancelDetectsPIDReuse(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = unrelated.Process.Kill(); _ = unrelated.Wait() })
 
-	rec := NewRecord("codex", Request{Prompt: "p"}, time.Now())
+	rec := NewRecord("codex", RunOptions{Prompt: "p"}, time.Now())
 	rec.PID = unrelated.Process.Pid                 // pretend the dispatch's old PID was reused by `sleep`
 	rec.Log = filepath.Join(t.TempDir(), "job.log") // a background record: Log is set
 	if err := rec.Save(); err != nil {
@@ -250,7 +250,7 @@ func TestCancelEscalatesToSIGKILL(t *testing.T) {
 	executable = func() (string, error) { return script, nil }
 	defer func() { executable = old }()
 
-	rec := NewRecord("codex", Request{Prompt: "p"}, time.Now())
+	rec := NewRecord("codex", RunOptions{Prompt: "p"}, time.Now())
 	if err := rec.Save(); err != nil {
 		t.Fatal(err)
 	}
@@ -281,7 +281,7 @@ func TestCancelDeadPIDReturnsNilAndMarksRecord(t *testing.T) {
 	if err := cmd.Run(); err != nil {
 		t.Fatal(err)
 	}
-	rec := NewRecord("codex", Request{Prompt: "p"}, time.Now())
+	rec := NewRecord("codex", RunOptions{Prompt: "p"}, time.Now())
 	rec.PID = cmd.Process.Pid
 	if err := rec.Save(); err != nil {
 		t.Fatal(err)
@@ -297,7 +297,7 @@ func TestCancelDeadPIDReturnsNilAndMarksRecord(t *testing.T) {
 // A foreground record (Log=="") whose pid is live but not `ask --job` is never signalled or rewritten.
 func TestCancelForegroundRunErrorsWithoutWriting(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	rec := NewRecord("codex", Request{Prompt: "p"}, time.Now())
+	rec := NewRecord("codex", RunOptions{Prompt: "p"}, time.Now())
 	rec.PID = os.Getpid() // the test process: alive, not a job
 	if err := rec.Save(); err != nil {
 		t.Fatal(err)
@@ -324,7 +324,7 @@ func TestCancelDeadPIDLeavesFinishedRecord(t *testing.T) {
 	if err := cmd.Run(); err != nil {
 		t.Fatal(err)
 	}
-	rec := NewRecord("codex", Request{Prompt: "p"}, time.Now())
+	rec := NewRecord("codex", RunOptions{Prompt: "p"}, time.Now())
 	rec.PID, rec.Status = cmd.Process.Pid, "ok"
 	if err := rec.Save(); err != nil {
 		t.Fatal(err)
@@ -346,7 +346,7 @@ func TestCancelDeadPIDMarksRunningRecordOnce(t *testing.T) {
 	if err := cmd.Run(); err != nil {
 		t.Fatal(err)
 	}
-	rec := NewRecord("codex", Request{Prompt: "p"}, time.Now())
+	rec := NewRecord("codex", RunOptions{Prompt: "p"}, time.Now())
 	rec.PID = cmd.Process.Pid
 	if err := rec.Save(); err != nil {
 		t.Fatal(err)

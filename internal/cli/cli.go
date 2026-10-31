@@ -118,8 +118,8 @@ func vendorVerb(vendor string, args []string) int {
 		return 0
 	}
 	if len(args) == 1 && args[0] == helptext.DocsFlag {
-		spec, _ := agent.LookupSpec(vendor)
-		return helptext.WrappedDocs(spec.Binary)
+		s, _ := agent.LookupSchema(vendor)
+		return helptext.WrappedDocs(s.CLI.Binary)
 	}
 	return launchVendor(vendor, args)
 }
