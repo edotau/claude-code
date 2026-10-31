@@ -25,6 +25,7 @@ only its own deltas (agent-specific rows, flags, and sections).
 - `<id>` = an exact dispatch id or a unique prefix; omitted = the newest job for the agent in this repo.
 - `--background` on `ask`/`review`/`transfer` prints `job <id> started` — follow with `status`/`result`.
 - `claude-code ask --agent <agent>` is the one-shot form saved Workflows use.
+  Inline definitions: `--agents <json|file>` (`rules/harness/agent.md` → Dispatch behavior).
 - A shadowed native name needs the `--` passthrough: `claude-code <agent> -- <native-verb>`.
 - Resume the underlying CLI session directly with the agent's own resume mechanism.
 

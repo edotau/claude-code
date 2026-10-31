@@ -27,6 +27,10 @@ paths:
 - `ask --format json` envelope: `agent`, `status` (`ok|error|partial|quota|stalled`), `model`, `answer`, `usage`,
   `duration_ms`, `fallback*`, `handoff`, `transport`. Isolation flags: `--no-persist` (claude, codex), `--safe-mode`
   (claude, codex, opencode), `--debug-file <path>` (claude, gemini). Without `--tools`, agents are read-only.
+- `ask --agents <json|file>` defines agents inline: `name`, `description`, `prompt`, `tools`, `model`, `max_turns`,
+  `runner`, `profile`, `effort`. `--agent` also takes an `--agents` key, and a definition's `model` applies on every
+  agent. With `--batch`, `--agents` covers the whole file and a line's `agent` takes the same selector; the
+  retired per-line key is an error. `--host` with `--agents` exits 2. Go API: `agent.Client`, `Client.Stream`.
 - The agent subcommand `models` is a compatibility alias for `catalog`; top-level `claude-code models` is separate.
 - **opencode** on a Databricks row runs three providers: `<row>` (chat), `<row>-gpt` (Responses), `<row>-claude`
   (Anthropic); an off-menu `--model` is refused. An `ai-gateway` row has no openai route, so its chat models are
