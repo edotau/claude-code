@@ -15,6 +15,10 @@ import (
 type engine interface {
 	// Name is the roster agent the engine drives.
 	Name() string
+	// Caps is the roster row's verified flags; with Name and Available it is every Runner's shared base.
+	Caps() Caps
+	// Available reports whether the CLI's binary is installed.
+	Available() error
 	// attach folds --attach into the prompt for a CLI with no file-list argv.
 	attach(prompt string, paths []string, tools bool) (string, error)
 	// before adjusts the target configure sees and prints any pre-run notice.

@@ -2,13 +2,17 @@ package agent
 
 import (
 	"bytes"
+	"encoding/json"
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
@@ -303,5 +307,220 @@ func TestCodexPreferenceParserAcceptsMultilineStrings(t *testing.T) {
 	next, err := patchCodexSettings("model_verbosity = '''high'''\n", map[string]string{"model_verbosity": "low"})
 	if err != nil || strings.Contains(next, "high") || !strings.Contains(next, `model_verbosity = "low"`) {
 		t.Fatalf("multiline native value not replaced in existing style: %q, %v", next, err)
+	}
+}
+
+func TestCodexConfigCheck(t *testing.T) {
+	root := t.TempDir()
+	file := filepath.Join(root, "config.toml")
+	if err := os.WriteFile(file, []byte("PRIVATE-CONFIG-CONTENTS\nnot valid TOML"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		name    string
+		path    string
+		managed bool
+		state   string
+		detail  string
+	}{
+		{"absent", filepath.Join(root, "missing.toml"), false, "ok", ": absent"},
+		{"user", file, false, "ok", ": present; CLI and machine settings may override it"},
+		{"machine", file, true, "ok", ": present; machine policy may override CLI settings; effective route unverified"},
+		{"nonregular", root, false, "warn", ": unavailable; effective route unknown"},
+		{"unavailable", filepath.Join(file, "config.toml"), true, "warn", ": unavailable; effective route unknown"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := codexConfigCheck("config check", tt.path, tt.managed)
+			want := Check{Name: "config check", State: tt.state, Detail: tt.path + tt.detail}
+			if got != want {
+				t.Errorf("codexConfigCheck() = %+v, want %+v", got, want)
+			}
+		})
+	}
+}
+
+func TestCodexConfigChecksPaths(t *testing.T) {
+	root := t.TempDir()
+	machine := filepath.Join(root, "managed.toml")
+	requirements := filepath.Join(root, "requirements.toml")
+	if err := os.WriteFile(machine, []byte("PRIVATE-MACHINE-CONTENTS"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	previous := codexManagedPaths
+	codexManagedPaths = func() []string { return []string{machine, requirements} }
+	t.Cleanup(func() { codexManagedPaths = previous })
+	userHome := filepath.Join(root, "user-home")
+	t.Setenv("HOME", userHome)
+	t.Setenv("USERPROFILE", userHome)
+	for _, override := range []string{"", filepath.Join(root, "custom-codex-home")} {
+		name := "default home"
+		if override != "" {
+			name = "CODEX_HOME"
+		}
+		t.Run(name, func(t *testing.T) {
+			t.Setenv("CODEX_HOME", override)
+			home := override
+			if home == "" {
+				home = filepath.Join(userHome, ".codex")
+			}
+			config := filepath.Join(home, "config.toml")
+			if err := os.MkdirAll(home, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(config, []byte("PRIVATE-USER-CONTENTS"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			got := CodexConfigChecks()
+			want := []Check{
+				{Name: "codex machine config", State: "ok", Detail: machine + ": present; machine policy may override CLI settings; effective route unverified"},
+				{Name: "codex machine config", State: "ok", Detail: requirements + ": absent"},
+				{Name: "codex user config", State: "ok", Detail: config + ": present; CLI and machine settings may override it"},
+			}
+			if len(got) != len(want) {
+				t.Fatalf("got %d checks, want %d", len(got), len(want))
+			}
+			for i := range want {
+				if got[i] != want[i] {
+					t.Errorf("check %d = %+v, want %+v", i, got[i], want[i])
+				}
+			}
+		})
+	}
+}
+
+// codexRouteDetail/geminiRouteDetail are doctor's own route rows: names/booleans only (never a
+// credential), unset means each vendor's own default decides.
+func TestCodexRouteDetailShowsPinSource(t *testing.T) {
+	hermetic(t, "") // scratch CLAUDE_CONFIG_DIR: SetPins below must never reach the real vault
+	t.Setenv(providers.PinCodexModel, "")
+	t.Setenv(providers.PinCodexEffort, "")
+	if err := providers.SetPins(map[string]string{providers.PinCodexModel: "", providers.PinCodexEffort: ""}); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := codexRouteDetail(), "model=(default) source=default effort=default"; got != want {
+		t.Errorf("codexRouteDetail(unset) = %q, want %q", got, want)
+	}
+
+	if err := providers.SetPins(map[string]string{providers.PinCodexModel: "gpt-6.1-sol", providers.PinCodexEffort: "high"}); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := codexRouteDetail(), "model=gpt-6.1-sol source=pin effort=high"; got != want {
+		t.Errorf("codexRouteDetail(pinned) = %q, want %q", got, want)
+	}
+}
+
+func TestGeminiRouteDetailShowsPinSource(t *testing.T) {
+	hermetic(t, "") // scratch CLAUDE_CONFIG_DIR: SetPins below must never reach the real vault
+	t.Setenv(providers.PinGeminiModel, "")
+	if err := providers.SetPins(map[string]string{providers.PinGeminiModel: ""}); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := geminiRouteDetail(), "model=(default) source=default"; got != want {
+		t.Errorf("geminiRouteDetail(unset) = %q, want %q", got, want)
+	}
+
+	if err := providers.SetPins(map[string]string{providers.PinGeminiModel: "gemini-2.5-pro"}); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := geminiRouteDetail(), "model=gemini-2.5-pro source=pin"; got != want {
+		t.Errorf("geminiRouteDetail(pinned) = %q, want %q", got, want)
+	}
+}
+
+func TestCodexNativeRoutingHooksStayVendorScoped(t *testing.T) {
+	codex, err := CodexJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	claude, err := settings.SettingsJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	copilot, err := CopilotJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc struct {
+		Hooks map[string][]settings.MatcherGroup `json:"hooks"`
+	}
+	if err := json.Unmarshal(codex, &doc); err != nil {
+		t.Fatal(err)
+	}
+	for name, event := range map[string]string{
+		"codex-agent-route":    settings.EventPreToolUse,
+		"codex-routing-result": settings.EventPostToolUse,
+		"codex-routing-start":  settings.EventSessionStart,
+		"codex-subagent-start": settings.EventSubagentStart,
+	} {
+		command := settings.AgentEnv + "=codex " + settings.HookBin + " hook " + event + " --" + name
+		found := 0
+		for actualEvent, groups := range doc.Hooks {
+			for _, group := range groups {
+				for _, hook := range group.Hooks {
+					if hook.Command != command {
+						continue
+					}
+					found++
+					if actualEvent != event || hook.Timeout != 5 || hook.Async {
+						t.Errorf("%s rendered under %s with handler %+v", name, actualEvent, hook)
+					}
+					if event == settings.EventPreToolUse || event == settings.EventPostToolUse {
+						matcher, err := regexp.Compile(group.Matcher)
+						if err != nil {
+							t.Fatal(err)
+						}
+						for _, tool := range []string{"spawn_agent", "collaborationspawn_agent", "multi_agent_v1.spawn_agent"} {
+							if !matcher.MatchString(tool) {
+								t.Errorf("%s matcher misses %q", name, tool)
+							}
+						}
+						if matcher.MatchString("spawn_agent_extra") {
+							t.Errorf("%s matches unrelated tool", name)
+						}
+					} else if group.Matcher != "" {
+						t.Errorf("%s lifecycle matcher = %q", name, group.Matcher)
+					}
+				}
+			}
+		}
+		if found != 1 {
+			t.Errorf("%s rendered %d times", name, found)
+		}
+		for vendor, body := range map[string][]byte{"claude": claude, "copilot": copilot} {
+			if strings.Contains(string(body), "--"+name) {
+				t.Errorf("%s hook leaked into %s", name, vendor)
+			}
+		}
+	}
+}
+
+func TestCodexJSONVendorMarker(t *testing.T) {
+	b, err := CodexJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var block struct {
+		Hooks map[string][]settings.MatcherGroup `json:"hooks"`
+	}
+	if err := json.Unmarshal(b, &block); err != nil {
+		t.Fatal(err)
+	}
+	count := 0
+	for _, groups := range block.Hooks {
+		for _, group := range groups {
+			for _, hook := range group.Hooks {
+				count++
+				if !strings.HasPrefix(hook.Command, "HARNESS_HOOK_AGENT=codex $HOME/.claude/bin/claude-code hook ") {
+					t.Errorf("Codex command missing vendor marker: %q", hook.Command)
+				}
+				if !settings.IsHarness(hook.Command) {
+					t.Errorf("Codex command not recognized as harness: %q", hook.Command)
+				}
+			}
+		}
+	}
+	if count == 0 {
+		t.Fatal("no Codex commands rendered")
 	}
 }

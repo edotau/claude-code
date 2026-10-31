@@ -169,3 +169,11 @@ func positional(prompt string) []string {
 	}
 	return []string{prompt}
 }
+
+// login runs the agent on its own subscription sign-in; a login provider serves only the CLI it names.
+func login(e engine, p *providers.Provider, model string, h *Headless) ([]string, []string, error) {
+	if !e.loginServes(p) {
+		return nil, nil, fmt.Errorf("%s: provider %s is the %s sign-in; use claude-code run %s --provider %s", e.Name(), p.Name, p.Auth.Login, p.Auth.Login, p.Name)
+	}
+	return e.login(p, model, h)
+}
