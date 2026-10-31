@@ -69,8 +69,8 @@ func TestRecallEntriesFilterOrderAndExpand(t *testing.T) {
 			bodies++
 		}
 	}
-	if bodies != 2 || !strings.HasPrefix(lines[0], "- [home/decisionLog.md] aaaa0002") || !strings.HasPrefix(lines[1], "- [home/decisionLog.md] aaaa0001") {
-		t.Errorf("want 2 bodies, newest decision first:\n%s", got)
+	if bodies != 2 || !strings.HasPrefix(lines[0], "- [home/conventions.md] aaaa0005") || !strings.HasPrefix(lines[1], "- [home/sessionHistory.md] aaaa0004") {
+		t.Errorf("want the 2 strongest matches as bodies regardless of type:\n%s", got)
 	}
 	pointer := regexp.MustCompile(`^- (\S+) · (\d{4}-\d{2}-\d{2}|undated) · \S`)
 	for _, l := range lines[2:] {
@@ -82,10 +82,10 @@ func TestRecallEntriesFilterOrderAndExpand(t *testing.T) {
 			t.Errorf("pointer id %s does not expand: %v", m[1], err)
 		}
 	}
-	if !strings.Contains(lines[2], "aaaa0005") || !strings.Contains(lines[3], "aaaa0004") {
-		t.Errorf("convention must outrank session narrative among pointers:\n%s", got)
+	if !strings.Contains(lines[2], "aaaa0002") || !strings.Contains(lines[3], "aaaa0001") {
+		t.Errorf("newest decision must win an exact relevance tie among pointers:\n%s", got)
 	}
-	if again := recallAs(t, "s1", "zebra quota limiter fallback", cwd); strings.Contains(again, "aaaa0002") || strings.Contains(again, "aaaa0001") {
+	if again := recallAs(t, "s1", "zebra quota limiter fallback", cwd); strings.Contains(again, "aaaa0005") || strings.Contains(again, "aaaa0004") {
 		t.Errorf("bodies already in context must not repeat:\n%s", again)
 	}
 
@@ -304,8 +304,8 @@ func TestRecallNoArchiveFallbackWhenSemanticMatchSeen(t *testing.T) {
 	}
 }
 
-// An entry edited since the index has no vector; it must not outscore and so floor out a strong semantic match.
-func TestRecallUncachedEntryDoesNotFloorOutSemanticMatch(t *testing.T) {
+// An edited entry keeps its full keyword score, so a weaker semantic-only match can fall below the floor.
+func TestRecallUncachedEntryKeepsFullKeywordScore(t *testing.T) {
 	recallEnv(t)
 	plain := func(tail string) string {
 		return "# D\n\n## 2026-10-20 — Walrus harbour choice <!-- id:ffff0001 -->\n\nwalrus harbour tide ledger " + tail + "\n\n" +
@@ -319,7 +319,7 @@ func TestRecallUncachedEntryDoesNotFloorOutSemanticMatch(t *testing.T) {
 	}
 	writeBank(t, "decisionLog.md", plain("edited after the index")) // ffff0001 now has no valid vector
 	got := recallAs(t, "u", "walrus harbour tide ledger zeta", cwd)
-	if !strings.Contains(got, "ffff0001") || !strings.Contains(got, "ffff0002") {
-		t.Errorf("both the uncached keyword match and the semantic match must surface:\n%s", got)
+	if !strings.Contains(got, "ffff0001") || strings.Contains(got, "ffff0002") {
+		t.Errorf("the uncached keyword match must retain its full score and floor out the weaker semantic match:\n%s", got)
 	}
 }

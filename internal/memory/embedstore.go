@@ -205,3 +205,38 @@ func commitEmbedMint(profile string, owner, started int64, build func(cur embedC
 	})
 	return stored, err
 }
+
+// embedRefreshDue reads the mint lease and claim without taking a write lock or opening an endpoint.
+func embedRefreshDue(profile string, now time.Time) bool {
+	if !safeEmbedProfile(profile) {
+		return false
+	}
+	db, err := bbolt.Open(EmbedDBPath(), 0o600, &bbolt.Options{ReadOnly: true, Timeout: time.Nanosecond})
+	if errors.Is(err, os.ErrNotExist) {
+		return true
+	}
+	if err != nil {
+		return false
+	}
+	defer db.Close()
+	due := false
+	err = db.View(func(tx *bbolt.Tx) error {
+		if b := tx.Bucket(embedCacheBucket); b != nil {
+			var lease struct {
+				Schema   int   `json:"schema"`
+				MintedAt int64 `json:"minted_at"`
+			}
+			if schemas.DecodeOK(embedFormat, b.Get([]byte(profile)), &lease) && embedValid(embedCacheFile{MintedAt: lease.MintedAt}, now) {
+				return nil
+			}
+		}
+		if b := tx.Bucket(embedClaimBucket); b != nil {
+			if v := b.Get([]byte(profile)); len(v) == 16 && time.Unix(0, int64(binary.BigEndian.Uint64(v))).After(now) {
+				return nil
+			}
+		}
+		due = true
+		return nil
+	})
+	return err == nil && due
+}
