@@ -51,7 +51,7 @@ type Subagent struct {
 	LastTool    string    `json:"lastTool"`
 	Updated     time.Time `json:"updated"`
 	Activity    *Activity `json:"activity,omitempty"` // newest tool/text signal; nil when none seen yet
-	Legs        []TreeLeg `json:"legs,omitempty"`     // vendor dispatches this relay agent launched via `ask`
+	Legs        []TreeLeg `json:"legs,omitempty"`     // agent dispatches this relay agent launched via `ask`
 }
 
 // Activity is the newest tool_use and newest assistant text seen in a subagent transcript's tail —
@@ -65,7 +65,7 @@ type Activity struct {
 	Text string    `json:"text,omitempty"`
 }
 
-// TreeLeg is one vendor dispatch (`claude-code ask`) a relay subagent launched, read from
+// TreeLeg is one agent dispatch (`claude-code ask`) a relay subagent launched, read from
 // state/harness/dispatch/<id>.json via internal/agent.
 type TreeLeg struct {
 	ID             string `json:"id"`
@@ -336,7 +336,7 @@ func subagentFiles(sessionDir string) []string {
 // Token totals come from this file alone: transcript.LastUsage/usageFromLine skip isSidechain
 // records, and every subagent transcript line IS a sidechain, so the per-model aggregate the main
 // session reads would silently see zero — transcript.SummarizeFile has no such filter. cwd is the
-// owning session's cwd, used to strip the repo root from Activity.Arg and to match a vendor leg's
+// owning session's cwd, used to strip the repo root from Activity.Arg and to match an agent leg's
 // own WorkDir.
 func buildSubagent(transcriptPath string, now time.Time, cwd string) Subagent {
 	meta := readSubagentMeta(transcriptPath)
@@ -373,7 +373,7 @@ func buildSubagent(transcriptPath string, now time.Time, cwd string) Subagent {
 }
 
 // subagentIDFromPath extracts the bare id from agent-<id>.jsonl, shared by buildSubagent and the
-// journal/vendor-leg lookups that key on the same id.
+// journal/agent-leg lookups that key on the same id.
 func subagentIDFromPath(transcriptPath string) string {
 	return strings.TrimSuffix(strings.TrimPrefix(filepath.Base(transcriptPath), "agent-"), ".jsonl")
 }

@@ -31,7 +31,7 @@ func TestRtkGroupIsOwnNonGateGroup(t *testing.T) {
 	if g.Gate {
 		t.Error("rtk group must not be a gate — the safety gate is the only gate")
 	}
-	if g.VendorOnly {
+	if g.AgentOnly {
 		t.Error("rtk group must not be vendor-only — it rewrites Claude's Bash commands")
 	}
 	if len(g.Events) != 1 || g.Events[0].Event != settings.EventPreToolUse || g.Events[0].Matcher != "Bash" {

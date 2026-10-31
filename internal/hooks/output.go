@@ -17,9 +17,9 @@ func decisionName(d Decision, askAsDeny bool) string {
 	return ""
 }
 
-// claudeStyle is how a vendor's Claude-compatible document deviates from Claude's own.
+// claudeStyle is how an agent's Claude-compatible document deviates from Claude's own.
 type claudeStyle struct {
-	askAsDeny      bool // vendor has no ask decision
+	askAsDeny      bool // agent has no ask decision
 	allowWithInput bool // an updatedInput on PreToolUse is an explicit allow
 }
 
@@ -28,7 +28,7 @@ func OutputClaude(event string, r Result) string {
 	return claudeDoc(event, r, claudeStyle{})
 }
 
-// claudeDoc renders the hookSpecificOutput document with one vendor's deviations from Claude's shape.
+// claudeDoc renders the hookSpecificOutput document with one agent's deviations from Claude's shape.
 func claudeDoc(event string, r Result, style claudeStyle) string {
 	if r.Stdout != "" {
 		return r.Stdout
@@ -83,14 +83,14 @@ func marshalDoc(doc map[string]any) string {
 	return string(b)
 }
 
-// Emit writes a merged Result for a vendor and returns the exit code: a block outside PreToolUse, and a Copilot or
+// Emit writes a merged Result for an agent and returns the exit code: a block outside PreToolUse, and a Copilot or
 // Claude block with no JSON channel, is exit 2 with the reason on stderr.
-func Emit(vendor, event string, r Result, stdout, stderr io.Writer) int {
+func Emit(name, event string, r Result, stdout, stderr io.Writer) int {
 	build := OutputClaude
-	switch vendor {
-	case VendorCodex:
+	switch name {
+	case AgentCodex:
 		build = OutputCodex
-	case VendorCopilot:
+	case AgentCopilot:
 		build = OutputCopilot
 	}
 	if r.Stderr != "" {

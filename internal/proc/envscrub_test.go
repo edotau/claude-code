@@ -67,7 +67,7 @@ func TestKeepSetEmpty(t *testing.T) {
 	}
 }
 
-// ScrubVendor drops HARNESS_VAULT_KEY on top of the shared deny table; Scrub itself must keep it,
+// ScrubAgent drops HARNESS_VAULT_KEY on top of the shared deny table; Scrub itself must keep it,
 // since the Claude Code launch (not a vendor child) still needs it to open the vault for hooks.
 func TestScrubVendorDropsVaultKeyScrubKeepsIt(t *testing.T) {
 	environ := []string{"HARNESS_VAULT_KEY=topsecret", "PATH=/bin"}
@@ -75,15 +75,15 @@ func TestScrubVendorDropsVaultKeyScrubKeepsIt(t *testing.T) {
 	if !slices.Contains(kept, "HARNESS_VAULT_KEY=topsecret") {
 		t.Errorf("Scrub kept = %q, want HARNESS_VAULT_KEY kept for the Claude Code launch", kept)
 	}
-	vkept, vdropped := ScrubVendor(environ, nil)
+	vkept, vdropped := ScrubAgent(environ, nil)
 	if slices.ContainsFunc(vkept, func(kv string) bool { return strings.HasPrefix(kv, "HARNESS_VAULT_KEY=") }) {
-		t.Errorf("ScrubVendor kept = %q, want HARNESS_VAULT_KEY dropped from a vendor child", vkept)
+		t.Errorf("ScrubAgent kept = %q, want HARNESS_VAULT_KEY dropped from a vendor child", vkept)
 	}
 	if !slices.Contains(vdropped, "HARNESS_VAULT_KEY") {
-		t.Errorf("ScrubVendor dropped = %q, want HARNESS_VAULT_KEY named", vdropped)
+		t.Errorf("ScrubAgent dropped = %q, want HARNESS_VAULT_KEY named", vdropped)
 	}
 	if !slices.Contains(vkept, "PATH=/bin") {
-		t.Errorf("ScrubVendor kept = %q, want PATH kept", vkept)
+		t.Errorf("ScrubAgent kept = %q, want PATH kept", vkept)
 	}
 	if len(dropped) != 0 {
 		t.Errorf("Scrub dropped = %q, want nothing dropped from this environ", dropped)
@@ -92,7 +92,7 @@ func TestScrubVendorDropsVaultKeyScrubKeepsIt(t *testing.T) {
 
 // A keep name lets a vendor child opt HARNESS_VAULT_KEY back in explicitly (e.g. --keep-env).
 func TestScrubVendorHonoursKeep(t *testing.T) {
-	kept, dropped := ScrubVendor([]string{"HARNESS_VAULT_KEY=x"}, map[string]bool{"HARNESS_VAULT_KEY": true})
+	kept, dropped := ScrubAgent([]string{"HARNESS_VAULT_KEY=x"}, map[string]bool{"HARNESS_VAULT_KEY": true})
 	if !slices.Equal(kept, []string{"HARNESS_VAULT_KEY=x"}) || dropped != nil {
 		t.Errorf("kept = %q dropped = %q, want HARNESS_VAULT_KEY kept via --keep-env", kept, dropped)
 	}
@@ -108,7 +108,7 @@ func TestScrubPinNames(t *testing.T) {
 	for _, k := range append(slices.Clone(drop), keep...) {
 		environ = append(environ, k+"=x")
 	}
-	for name, fn := range map[string]func([]string, map[string]bool) ([]string, []string){"Scrub": Scrub, "ScrubVendor": ScrubVendor} {
+	for name, fn := range map[string]func([]string, map[string]bool) ([]string, []string){"Scrub": Scrub, "ScrubAgent": ScrubAgent} {
 		kept, dropped := fn(environ, nil)
 		if !slices.Equal(slices.Sorted(slices.Values(dropped)), slices.Sorted(slices.Values(drop))) || len(kept) != len(keep) {
 			t.Errorf("%s: dropped = %q kept = %q", name, dropped, kept)

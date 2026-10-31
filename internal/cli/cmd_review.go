@@ -16,10 +16,10 @@ import (
 const reviewJobEnv = "CLAUDE_REVIEW_JOB"
 
 // runSplitReview runs a multi-part review: detached as one job when background, else sequentially in place.
-func runSplitReview(vendor string, args []string, parts []agent.Part, scope agent.Scope,
+func runSplitReview(name string, args []string, parts []agent.Part, scope agent.Scope,
 	adversarial, background bool, focus, rubric string) int {
 	if background && os.Getenv(reviewJobEnv) == "" {
-		return spawnSplitReview(vendor, args, len(parts))
+		return spawnSplitReview(name, args, len(parts))
 	}
 	var job *agent.Record
 	if id := os.Getenv(reviewJobEnv); id != "" {
@@ -30,7 +30,7 @@ func runSplitReview(vendor string, args []string, parts []agent.Part, scope agen
 	answers := make([]string, 0, len(parts))
 	for i, p := range parts {
 		agent.SetReviewProgress(job, fmt.Sprintf("part %d/%d", i+1, len(parts)))
-		askArgs, cleanup, err := agent.ReviewArgs(vendor, scope, p.Diff, adversarial, false,
+		askArgs, cleanup, err := agent.ReviewArgs(name, scope, p.Diff, adversarial, false,
 			strings.TrimSpace(focus+"\n"+p.Header(i+1, len(parts))), rubric)
 		if err != nil {
 			return finishSplitReview(job, fmt.Errorf("part %d/%d: %w", i+1, len(parts), err))
@@ -39,7 +39,7 @@ func runSplitReview(vendor string, args []string, parts []agent.Part, scope agen
 		cleanup()
 		if rc != 0 {
 			fmt.Print(agent.MergeReports(adversarial, parts[:len(answers)], answers))
-			return finishSplitReview(job, fmt.Errorf("part %d/%d failed: %s", i+1, len(parts), agent.LastDispatchError(vendor)))
+			return finishSplitReview(job, fmt.Errorf("part %d/%d failed: %s", i+1, len(parts), agent.LastDispatchError(name)))
 		}
 		answers = append(answers, ans)
 	}
@@ -48,21 +48,21 @@ func runSplitReview(vendor string, args []string, parts []agent.Part, scope agen
 }
 
 // spawnSplitReview detaches this same review (minus --background) as one job that runs the parts in order.
-func spawnSplitReview(vendor string, args []string, n int) int {
+func spawnSplitReview(name string, args []string, n int) int {
 	cwd, _ := os.Getwd()
-	req := agent.RunOptions{Agent: vendor, Prompt: fmt.Sprintf("%s review split into %d parts", vendor, n),
+	req := agent.RunOptions{Agent: name, Prompt: fmt.Sprintf("%s review split into %d parts", name, n),
 		WorkDir: cwd, Background: true}
 	rec, err := newClient().Record(context.Background(), req, nil)
 	if err != nil {
-		return fail("%s review: %v", vendor, err)
+		return fail("%s review: %v", name, err)
 	}
 	rec.Progress = fmt.Sprintf("part 0/%d", n)
 	_ = rec.Save()
-	argv := append([]string{vendor, "review"}, slices.DeleteFunc(slices.Clone(args), func(a string) bool {
+	argv := append([]string{name, "review"}, slices.DeleteFunc(slices.Clone(args), func(a string) bool {
 		return a == "--background" || a == "-background" || a == "--background=true"
 	})...)
 	if err := agent.SpawnArgv(&rec, argv, []string{reviewJobEnv + "=" + rec.ID}); err != nil {
-		return fail("%s review: %v", vendor, err)
+		return fail("%s review: %v", name, err)
 	}
 	_ = rec.Save() // record the child's pid so status can tell running from lost
 	reportBackgroundStart("text", rec)

@@ -76,7 +76,7 @@ func GeminiGatewayRow(p *providers.Provider) bool {
 		p.Auth.Method() != providers.AuthNone && p.Auth.Method() != providers.AuthCLI
 }
 
-// CanServe reports whether p is usable by vendor name (Serves without the reason).
+// CanServe reports whether p is usable by agent name (Serves without the reason).
 func CanServe(name string, p *providers.Provider) bool {
 	if name == "gemini" && GeminiGatewayRow(p) {
 		return true

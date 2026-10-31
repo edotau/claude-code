@@ -18,24 +18,24 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 )
 
-// DefaultAgents is every vendor generate renders when RenderOptions.Agents is empty.
+// DefaultAgents is every agent generate renders when RenderOptions.Agents is empty.
 var DefaultAgents = []string{"codex", "opencode", "gemini", "copilot"}
 
 // RenderOptions controls one generate pass.
 type RenderOptions struct {
-	Agents     []string  // vendors to render; default DefaultAgents
+	Agents     []string  // agents to render; default DefaultAgents
 	DryRun     bool      // print the rendered blocks; write nothing
 	Check      bool      // report drift; never writes
-	Home       string    // overrides os.UserHomeDir() for vendor config paths (tests)
+	Home       string    // overrides os.UserHomeDir() for agent config paths (tests)
 	Out        io.Writer // status lines; nil -> os.Stdout
-	ForceHomes bool      // force vendor-config renders even when CLAUDE_CONFIG_DIR is not the default ~/.claude
+	ForceHomes bool      // force agent-config renders even when CLAUDE_CONFIG_DIR is not the default ~/.claude
 	// Confirm asks whether to overwrite path given its lost hand-edited lines; nil means write and warn.
 	Confirm func(path string, lost []string) bool
 	// PrepareConfigs' write queue: commitFile and the JSONC retire append to it, Apply runs it.
 	staged *[]func() error
 }
 
-// RenderPlan holds ordered vendor writes after all selected renders have validated.
+// RenderPlan holds ordered agent writes after all selected renders have validated.
 type RenderPlan struct {
 	writes []func() error
 }
@@ -50,7 +50,7 @@ func (p *RenderPlan) Apply() error {
 	return nil
 }
 
-// RenderConfigs renders every selected vendor's config and reports whether anything
+// RenderConfigs renders every selected agent's config and reports whether anything
 // differs from what is on disk (Check) or would be written (DryRun never writes either way).
 func RenderConfigs(o RenderOptions) (bool, error) {
 	p, drift, err := PrepareConfigs(o)
@@ -82,7 +82,7 @@ func PrepareConfigs(o RenderOptions) (*RenderPlan, bool, error) {
 		}
 	}
 	if !o.ForceHomes && !configDirIsDefault() {
-		fmt.Fprintf(out, "generate: skipping agent configs (CLAUDE_CONFIG_DIR=%s is not the default ~/.claude); pass --vendors to include them\n", paths.ConfigDir())
+		fmt.Fprintf(out, "generate: skipping agent configs (CLAUDE_CONFIG_DIR=%s is not the default ~/.claude); pass --agents to include them\n", paths.ConfigDir())
 		return p, false, nil
 	}
 	reg, err := providers.Load()
@@ -111,8 +111,8 @@ func PrepareConfigs(o RenderOptions) (*RenderPlan, bool, error) {
 }
 
 // configDirIsDefault reports whether CLAUDE_CONFIG_DIR resolves to the default ~/.claude for the
-// process's real HOME: a worktree or test run that points CLAUDE_CONFIG_DIR elsewhere (while vendor
-// configs stay $HOME-rooted) must not write into the real vendor homes without --vendors.
+// process's real HOME: a worktree or test run that points CLAUDE_CONFIG_DIR elsewhere (while agent
+// configs stay $HOME-rooted) must not write into the real agent homes without --agents.
 func configDirIsDefault() bool {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -182,7 +182,7 @@ func codexCredStoreKey(existing string, out io.Writer) string {
 }
 
 // codexPermissionKeys renders approval_policy/sandbox_mode/cli_auth_credentials_store as top-level
-// TOML keys; approval/sandbox skip when unset, a vendorconfig load error is treated as unset.
+// TOML keys; approval/sandbox skip when unset, an agent config load error is treated as unset.
 func codexPermissionKeys(existing string, out io.Writer) string {
 	cfg, err := LoadConfig()
 	if err != nil {
@@ -393,7 +393,7 @@ func commitOverlayFile(path string, raw, next []byte, o RenderOptions, out io.Wr
 	return true, nil
 }
 
-// --- gemini: report-only. agy (the vendor's binary, name unchanged) has no known settings-file
+// --- gemini: report-only. agy (the agent's binary, name unchanged) has no known settings-file
 // auth-type knob like the old gemini-cli's security.auth.selectedType, so there is nothing to render;
 // auth is the cached Google login marker at launch time (see agent.GeminiLoginPresent).
 
@@ -506,7 +506,7 @@ func renderCopilot(reg *providers.Registry, sel providers.Selection, home string
 	return drift, nil
 }
 
-// renderCopilotSettings merges defaultPermissionMode from the vendor spec into ~/.copilot/settings.json,
+// renderCopilotSettings merges defaultPermissionMode from the agent spec into ~/.copilot/settings.json,
 // keeping every other key untouched; a non-JSON existing file is skipped, never clobbered.
 func renderCopilotSettings(home string, o RenderOptions, out io.Writer) (bool, error) {
 	cfg, err := LoadConfig()

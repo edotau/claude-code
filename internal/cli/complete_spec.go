@@ -131,7 +131,7 @@ func buildSpecTree() map[string]*compNode {
 			"diff":     {},
 		}},
 		"agents": {sub: map[string]*compNode{
-			"sync": {flags: []flagInfo{valuedFlag("agent", vendorNames), boolFlag("dry-run"), boolFlag("check"), boolFlag("no-prune")}},
+			"sync": {flags: []flagInfo{valuedFlag("agent", cliAgentNames), boolFlag("dry-run"), boolFlag("check"), boolFlag("no-prune")}},
 			"tree": {flags: []flagInfo{flag("days"), flag("session"), boolFlag("background"), boolFlag("bg"),
 				boolFlag("watch"), flag("interval"), formatFlag()}},
 			"reap": {flags: []flagInfo{boolFlag("dry-run")}},
@@ -187,9 +187,9 @@ func buildSpecTree() map[string]*compNode {
 		boolFlag("print-env"), flag("keep-env")}}
 	// Agent verbs: ask/resume/review/transfer/status/result/cancel/setup/catalog, same shape per agent.
 	for _, v := range []string{"codex", "copilot", "opencode"} {
-		tree[v] = &compNode{sub: vendorSubNodes(askFlags)}
+		tree[v] = &compNode{sub: agentSubNodes(askFlags)}
 	}
-	geminiSub := vendorSubNodes(askFlags)
+	geminiSub := agentSubNodes(askFlags)
 	geminiSub["bridge"] = &compNode{flags: []flagInfo{flag("task"), flag("model"), valuedFlag("profile", providerNames), flag("effort"),
 		flag("dirs"), flag("files"), flag("format"), flag("max-files"), flag("max-file-bytes"),
 		flag("timeout"), boolFlag("print-command"), flag("rubric"), boolFlag("index"), boolFlag("diff")}}
@@ -215,9 +215,9 @@ func dbxCfgFlags(withOut bool) []flagInfo {
 	return fs
 }
 
-// vendorSubNodes is the one builder for every agent verb's completion subtree (codex, copilot,
+// agentSubNodes is the one builder for every agent verb's completion subtree (codex, copilot,
 // opencode, gemini): ask/resume/review/transfer/status/result/cancel/setup/catalog, same shape per agent.
-func vendorSubNodes(askFlags []flagInfo) map[string]*compNode {
+func agentSubNodes(askFlags []flagInfo) map[string]*compNode {
 	flag := func(name string) flagInfo { return flagInfo{name: name} }
 	boolFlag := func(name string) flagInfo { return flagInfo{name: name, isBool: true} }
 	formatFlag := func() flagInfo { return flagInfo{name: "format", values: formatValues} }

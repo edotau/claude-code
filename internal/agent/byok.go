@@ -25,7 +25,7 @@ func (rc routeCtx) byokCandidate(leg Leg, cand Candidate, tier string) Leg {
 	return byokLeg(leg, tier, rc.reg, cand.Profile, picked)
 }
 
-// byokLeg freezes a pool choice before a runner or vendor resolver sees the request.
+// byokLeg freezes a pool choice before a runner or agent resolver sees the request.
 func byokLeg(leg Leg, tier string, reg *providers.Registry, profile string, picked bool) Leg {
 	tb, err := Load()
 	if err != nil {

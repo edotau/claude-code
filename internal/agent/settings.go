@@ -27,7 +27,7 @@ type Field struct {
 	IsSet func(providers.Routing) bool
 }
 
-// Module is one vendor's routing fields plus the env it contributes at launch.
+// Module is one agent's routing fields plus the env it contributes at launch.
 type Module interface {
 	Name() string
 	Fields() []Field
@@ -35,7 +35,7 @@ type Module interface {
 }
 
 // Modules lists every registered module, in display/merge order: the core routing knobs first, then
-// each vendor's own.
+// each agent's own.
 func Modules() []Module {
 	return []Module{routingModule{}, opencodeModule{}}
 }

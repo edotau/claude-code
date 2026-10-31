@@ -6,7 +6,7 @@ const (
 	AuthM2M   = "m2m"   // client id + sealed client secret
 	AuthPAT   = "pat"   // sealed personal access token
 	AuthKey   = "key"   // a static key sent in a header
-	AuthCLI   = "cli"   // the vendor CLI's own sign-in
+	AuthCLI   = "cli"   // the agent CLI's own sign-in
 	AuthNone  = "none"  // no credential
 )
 

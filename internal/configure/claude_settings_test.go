@@ -465,7 +465,7 @@ func dropFixture(t *testing.T, foreign string) {
 func TestDropRefusesNonClaudeAgent(t *testing.T) {
 	dropFixture(t, "zzForeign")
 	var out bytes.Buffer
-	rc := Run(Options{Vendor: "codex", Drop: []string{"zzForeign"}, In: strings.NewReader(""), Out: &out}, "")
+	rc := Run(Options{Agent: "codex", Drop: []string{"zzForeign"}, In: strings.NewReader(""), Out: &out}, "")
 	if rc != 2 || !strings.Contains(out.String(), "--drop/--keep apply to claude settings only") {
 		t.Fatalf("rc=%d out=%q; want 2 with the guard message", rc, out.String())
 	}

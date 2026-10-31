@@ -80,7 +80,7 @@ type Dimension interface {
 // Dimensions are the scored axes; table.json's weights must name exactly these.
 var Dimensions = []Dimension{priceDim{}, headroomDim{}}
 
-// Pick gates then scores the runners for tier: want first when it passes the gates, then the other vendors by
+// Pick gates then scores the runners for tier: want first when it passes the gates, then the other agents by
 // total score (low accounts after all non-low), then claude under FallbackAll. claude itself never falls back.
 func (t *RouteTable) Pick(ctx context.Context, tier, want string, st router.State, o PickOpts) PickResult {
 	now, configured := time.Now(), o.Configured
@@ -282,7 +282,7 @@ func (t *RouteTable) gateOpencodeCandidate(
 	return group, true
 }
 
-// gatherCandidates runs the wanted runner, then (unless suppressed) the other vendors, then claude under
+// gatherCandidates runs the wanted runner, then (unless suppressed) the other agents, then claude under
 // FallbackAll. Each gate call's group (usually one candidate, two for a free opencode winner + its paid
 // backup) stays together as one element, so a later sort over groups never splits the pair.
 func (t *RouteTable) gatherCandidates(want string, o PickOpts, gate func(string) ([]Candidate, bool)) (first, rest, last [][]Candidate) {

@@ -1,6 +1,6 @@
 // opencode_page.go — the opencode submenu as a searchable account list (tui.List): every stored or env-backed
 // connection, add one via `opencode auth login`, make one active (2.x), log one out (ctrl+d twice), plus the BYOK
-// key and model rows the old submenu carried. Every other vendor keeps runAgentMenu.
+// key and model rows the old submenu carried. Every other agent keeps runAgentMenu.
 package configure
 
 import (

@@ -20,8 +20,8 @@ import (
 // opencodeMenuVerbs are the `opencode catalog` subverbs this file owns; bare `catalog` stays the CLI's own catalog.
 var opencodeMenuVerbs = []string{"list", "add", "remove", "import", "reset", "check", "sync"}
 
-func isOpencodeMenuVerb(vendor string, args []string) bool {
-	return vendor == "opencode" && len(args) > 0 && slices.Contains(opencodeMenuVerbs, args[0])
+func isOpencodeMenuVerb(name string, args []string) bool {
+	return name == "opencode" && len(args) > 0 && slices.Contains(opencodeMenuVerbs, args[0])
 }
 
 func opencodeMenuPage(verb string) helptext.Page {

@@ -98,7 +98,7 @@ func RunGemini(ctx context.Context, o GeminiOptions, stream, log io.Writer) (Res
 		fmt.Fprintln(log, "gemini bridge: agy (Google login)")
 		model := geminiAgyModel(reg, sel, p, o.Model)
 		agyReq := agyRequest{Prompt: prompt, Model: model, Effort: o.Effort, Cwd: o.Cwd}
-		// agy's own stdin-NDJSON path, not Run/vendorRunner.Run: that runner's argv-prompt cap
+		// agy's own stdin-NDJSON path, not Run/cliRunner.Run: that runner's argv-prompt cap
 		// (MaxPromptBytes) and provider-fallback resolution are both wrong for a multi-MB inlined
 		// sweep over agy's own Google login. Do + Classify reuse the same retry/backoff shape ask gets;
 		// the context byte budget (DefaultTotalBytes), not a quota step-down, bounds this prompt's size.

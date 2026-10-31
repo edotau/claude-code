@@ -28,7 +28,7 @@ func (s Schema) ownProfile() string {
 	return s.Name
 }
 
-// target mirrors launch.Vendor: the session target if it serves the agent, else its own login or a keyed one.
+// target mirrors launch.Agent: the session target if it serves the agent, else its own login or a keyed one.
 func (s Schema) target(req RunOptions) (providers.Target, bool, error) {
 	t, own, note, err := s.targetNote(req)
 	if note != "" {
@@ -104,7 +104,7 @@ func (v cliRunner) Available() error {
 	return err
 }
 
-// cliPrep is a vendor run resolved up to its child's env: the route target, the prompt and the headless argv.
+// cliPrep is an agent run resolved up to its child's env: the route target, the prompt and the headless argv.
 type cliPrep struct {
 	res    Result
 	t      providers.Target
@@ -123,7 +123,7 @@ func (v cliRunner) prepare(ctx context.Context, req RunOptions) (cliPrep, error)
 	}
 	p := cliPrep{t: t, res: Result{Provider: s.ownProfile(), Model: t.Model, SessionID: req.SessionID}}
 	if !own {
-		if t.Provider == nil { // vendorTargetNote can report a non-own target with no provider resolved
+		if t.Provider == nil { // agentTargetNote can report a non-own target with no provider resolved
 			return p, &Error{Kind: KindFatal, Agent: name, Err: errors.New("agent target resolved to no provider")}
 		}
 		p.res.Provider = t.Provider.Name

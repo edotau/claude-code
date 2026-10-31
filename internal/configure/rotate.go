@@ -1,5 +1,5 @@
 // rotate.go — rotate or replace a credential that is already present: generate a fresh one via the
-// vendor's own CLI where one exists (`runLogin`/`runMint`), otherwise paste, always probing a keyed
+// agent's own CLI where one exists (`runLogin`/`runMint`), otherwise paste, always probing a keyed
 // replacement live before it overwrites the stored value in the vault.
 package configure
 
@@ -69,8 +69,8 @@ func replaceKey(d *dialog, kt keyTarget) bool {
 	return storeValue(d, kt.envVar, v)
 }
 
-// regenerate re-runs a vendor's own login or mint CLI to rotate a credential that is already present.
-// A login reports the outcome (the session lives in the vendor's own file, not the vault).
+// regenerate re-runs an agent's own login or mint CLI to rotate a credential that is already present.
+// A login reports the outcome (the session lives in the agent's own file, not the vault).
 // A mint writes the printed token back to the vault.
 func regenerate(d *dialog, kt keyTarget, argv []string, mint bool) bool {
 	if !mint {

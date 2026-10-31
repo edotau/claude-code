@@ -73,7 +73,7 @@ func TestVendorKeyTargetRejectsForeignPassthrough(t *testing.T) {
 	t.Setenv("CODEX_HOME", home)
 	t.Setenv("OPENAI_API_KEY", "")
 	t.Setenv("PATH", t.TempDir())
-	out, _ := runKeysCheck(t, Options{Check: true, Vendor: "codex", Home: home, In: strings.NewReader("")})
+	out, _ := runKeysCheck(t, Options{Check: true, Agent: "codex", Home: home, In: strings.NewReader("")})
 	if !strings.Contains(out.String(), "codex") || strings.Contains(out.String(), "codex      present (subscription") {
 		t.Errorf("codex must not read as present on a subscription session:\n%s", out.String())
 	}
@@ -103,7 +103,7 @@ func TestVendorOnOwnConfigReadsAbsentUnderNewChain(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(xdg, "opencode", "opencode.jsonc"), []byte(`{"model": "google/gemini-3.8-flash"}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	out, rc := runKeysCheck(t, Options{Check: true, Vendor: "opencode", Home: home, In: strings.NewReader("")})
+	out, rc := runKeysCheck(t, Options{Check: true, Agent: "opencode", Home: home, In: strings.NewReader("")})
 	if rc != 1 || !strings.Contains(out.String(), "opencode") || !strings.Contains(out.String(), "ABSENT") {
 		t.Errorf("rc = %d; opencode.jsonc's own model must no longer read present:\n%s", rc, out.String())
 	}
@@ -165,7 +165,7 @@ func TestCheckStaysReadOnlyWithRotatableCredential(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(codexHome, "auth.json"), []byte(`{"tokens":{"access_token":"x"}}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	out, rc := runKeysCheck(t, Options{Check: true, Vendor: "codex", Home: home, In: strings.NewReader("")})
+	out, rc := runKeysCheck(t, Options{Check: true, Agent: "codex", Home: home, In: strings.NewReader("")})
 	if rc != 0 {
 		t.Errorf("rc = %d, want 0 (codex reads present, nothing to fix):\n%s", rc, out.String())
 	}

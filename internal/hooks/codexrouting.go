@@ -12,7 +12,7 @@ import (
 
 // nativeCodexAgentRoute fills a fresh, unpinned child's model; the builder renders the updated input as an allow.
 func nativeCodexAgentRoute(in *Input) Result {
-	if in.Vendor() != VendorCodex || !codexSpawnTool(in.ToolName) || !codexFreshSpawn(in) {
+	if in.Agent() != AgentCodex || !codexSpawnTool(in.ToolName) || !codexFreshSpawn(in) {
 		return Result{}
 	}
 	updated := in.cloneToolInput()

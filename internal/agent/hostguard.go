@@ -105,7 +105,7 @@ func guardRouteHost(ctx context.Context, p *providers.Provider) error {
 	return providers.CheckRouteHost(p, cred)
 }
 
-// guardProvider is the provider whose credential the hop sends; nil for an unpinned vendor leg (own login).
+// guardProvider is the provider whose credential the hop sends; nil for an unpinned agent leg (own login).
 func guardProvider(r Runner, req RunOptions) (*providers.Provider, error) {
 	if l, ok := r.(hubLeg); ok {
 		return l.provider, nil

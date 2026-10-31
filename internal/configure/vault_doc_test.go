@@ -137,7 +137,7 @@ func TestImportValidation(t *testing.T) {
 			d.Providers = json.RawMessage(`{"providers":{"x":{"base_url":"nope"}}}`)
 		}},
 		{name: "agents", edit: func(d *Doc) {
-			d.Vendors = json.RawMessage(`{"agents":{"codex":{"launch":{"args":42}}}}`)
+			d.Agents = json.RawMessage(`{"agents":{"codex":{"launch":{"args":42}}}}`)
 		}},
 		{name: "key command not array", edit: func(d *Doc) { d.Vault.KeyCommand = `"pass show x"` }},
 		{name: "key command empty array", edit: func(d *Doc) { d.Vault.KeyCommand = `[]` }},
@@ -185,7 +185,7 @@ func TestImportWrites(t *testing.T) {
 		{"add env", func(d *Doc) { d.Env["NEW_ENV"] = "new" }, vault.Env, "NEW_ENV", "new"},
 		{"set providers", func(d *Doc) { d.Providers = json.RawMessage(`{"default":"openai"}`) },
 			vault.Overlay, "providers", "{\n  \"default\": \"openai\"\n}\n"},
-		{"remove agents", func(d *Doc) { d.Vendors = json.RawMessage("null") }, vault.Overlay, "agents", ""},
+		{"remove agents", func(d *Doc) { d.Agents = json.RawMessage("null") }, vault.Overlay, "agents", ""},
 		{"key command", func(d *Doc) { d.Vault.KeyCommand = `["pass","show","y"]` },
 			vault.Meta, "key_command", `["pass","show","y"]`},
 	}
@@ -289,7 +289,7 @@ func TestImportConflict(t *testing.T) {
 		d.Pins["HARNESS_PROVIDER"] = "openai"
 		d.Env["NEW_ENV"] = "must-not-land"
 		d.Providers = json.RawMessage(`{"default":"openai"}`)
-		d.Vendors = json.RawMessage("null")
+		d.Agents = json.RawMessage("null")
 		d.Vault.KeyCommand = `["pass","show","y"]`
 	})
 	vaulttest.Put(t, vault.Pins, "HARNESS_OPUS_MODEL", "concurrent-model")

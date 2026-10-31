@@ -58,10 +58,10 @@ func commands() []command {
 		{name: "fable", group: groupAnthropic, summary: "separate frontier family; main-session default · $$$$", run: tierVerb(models.Fable)},
 		{name: "anthropic", group: groupAnthropic, hidden: true, summary: "first-party Claude: login, --oauth token or --x-api-key", run: cmdAnthropic},
 		{name: "science", group: groupAnthropic, summary: "Claude for Life Sciences, own login (--print-env)", run: cmdScience},
-		{name: "copilot", group: groupAgents, summary: "Copilot CLI on your Copilot plan", run: func(a []string) int { return vendorVerb("copilot", a) }},
-		{name: "codex", group: groupAgents, summary: "Codex on your ChatGPT login; reviews", run: func(a []string) int { return vendorVerb("codex", a) }},
+		{name: "copilot", group: groupAgents, summary: "Copilot CLI on your Copilot plan", run: func(a []string) int { return AgentVerb("copilot", a) }},
+		{name: "codex", group: groupAgents, summary: "Codex on your ChatGPT login; reviews", run: func(a []string) int { return AgentVerb("codex", a) }},
 		{name: "gemini", group: groupAgents, summary: "Gemini CLI; 1M-context sweeps (bridge)", run: cmdGemini},
-		{name: "opencode", group: groupAgents, summary: "OpenCode on your opencode Go plan; docs and drafting", run: func(a []string) int { return vendorVerb("opencode", a) }},
+		{name: "opencode", group: groupAgents, summary: "OpenCode on your opencode Go plan; docs and drafting", run: func(a []string) int { return AgentVerb("opencode", a) }},
 		{name: "databricks", group: groupAgents, summary: "Claude Code on Databricks; login, import/export, check --all", run: databricks.Run},
 		// AUTH
 		{name: "resolve", group: groupAuth, hidden: true, summary: "resolve + print a profile's credential (apiKeyHelper)", run: cmdResolve},
@@ -103,27 +103,27 @@ func commands() []command {
 	}
 }
 
-// vendorVerb is the top-level spelling of an agent: bare = launch, `--` = forced passthrough,
-// `ask` = `ask --agent <v>`, a word in vendorSubverbs = cmdVendorSub, else launch with args forwarded.
-func vendorVerb(vendor string, args []string) int {
+// AgentVerb is the top-level spelling of an agent: bare = launch, `--` = forced passthrough,
+// `ask` = `ask --agent <v>`, a word in agentSubverbs = agentSub, else launch with args forwarded.
+func AgentVerb(name string, args []string) int {
 	if len(args) > 0 && args[0] == "--" {
-		return launchVendor(vendor, args[1:])
+		return launchAgent(name, args[1:])
 	}
 	if len(args) > 0 && args[0] == "ask" {
-		return cmdAsk(append([]string{"--agent", vendor}, args[1:]...))
+		return cmdAsk(append([]string{"--agent", name}, args[1:]...))
 	}
-	if len(args) > 0 && vendorSubverbs[args[0]] {
-		return cmdVendorSub(vendor, args)
+	if len(args) > 0 && agentSubverbs[args[0]] {
+		return agentSub(name, args)
 	}
 	if len(args) == 1 && (args[0] == "-h" || args[0] == "--help" || args[0] == "help") {
-		vendorPage(vendor).Fprint(os.Stderr)
+		agentPage(name).Fprint(os.Stderr)
 		return 0
 	}
 	if len(args) == 1 && args[0] == helptext.DocsFlag {
-		s, _ := agent.LookupSchema(vendor)
+		s, _ := agent.LookupSchema(name)
 		return helptext.WrappedDocs(s.CLI.Binary)
 	}
-	return launchVendor(vendor, args)
+	return launchAgent(name, args)
 }
 
 // lookup finds a command by its name.

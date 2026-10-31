@@ -104,11 +104,11 @@ func runAsk(args []string, resume bool) int {
 		return failAskCode(*format, *name, errors.New("--host cannot be combined with --agents: the remote cannot see an inline definition"), 2)
 	}
 	ref := *name // the raw selector Prepare resolves; *name becomes the runner so envelopes publish it
-	vendor, persona, err := agent.SelectAgent(ref, defs)
+	runner, persona, err := agent.SelectAgent(ref, defs)
 	if err != nil {
 		return failAskCode(*format, *name, err, 2)
 	}
-	*name = vendor
+	*name = runner
 	if *live {
 		if persona != nil {
 			return failAskCode(*format, *name, errors.New("--live cannot run a persona (agents/<name>.md or an --agents key): use a plain vendor"), 2)
@@ -158,13 +158,13 @@ func runAsk(args []string, resume bool) int {
 			return rc
 		}
 	}
-	if *name != vendor { // --job/--retry replaced the agent: resolve the record's (or re-typed) value instead
+	if *name != runner { // --job/--retry replaced the agent: resolve the record's (or re-typed) value instead
 		ref = *name
 	}
 	if rest, p, rerr := agent.SelectAgent(ref, defs); rerr != nil { // a --retry re-parse puts the raw --agent value back
 		return failAskCode(*format, *name, rerr, 2)
 	} else {
-		vendor, *name = rest, rest
+		runner, *name = rest, rest
 		if p != nil { // an explicit persona beats the record's
 			persona = p
 		}
@@ -202,8 +202,8 @@ func runAsk(args []string, resume bool) int {
 	if *retry == "" && *job == "" && *tools && !timeoutExplicit(fs) {
 		*timeout = 45 * time.Minute
 	}
-	if s, ok := agent.LookupSchema(vendor); *enableMemory && ok && s.CLI.Caps.Memory == agent.None {
-		fmt.Fprintf(os.Stderr, "ask: --enable-memory has no effect on the %s agent (copilot only)\n", vendor)
+	if s, ok := agent.LookupSchema(runner); *enableMemory && ok && s.CLI.Caps.Memory == agent.None {
+		fmt.Fprintf(os.Stderr, "ask: --enable-memory has no effect on the %s agent (copilot only)\n", runner)
 	}
 	*debugFile = absDebugFile(*debugFile)
 	req := agent.RunOptions{Prompt: prompt, Model: *model, Provider: *provider, Effort: *effort,
@@ -647,7 +647,7 @@ func cmdAgentsReap(args []string) int {
 // cmdAgentsSync renders agents/ into state/projections, installs the copies into agent homes and links skills/.
 func cmdAgentsSync(args []string) int {
 	fs := helptext.NewFlagSet("agents sync", agentsSyncPage)
-	vendor := fs.String("agent", "", "one target: "+strings.Join(agent.ProjectionNames(), "|")+" (default: all)")
+	name := fs.String("agent", "", "one target: "+strings.Join(agent.ProjectionNames(), "|")+" (default: all)")
 	dryRun := fs.Bool("dry-run", false, "report without writing")
 	check := fs.Bool("check", false, "dry-run; exit 1 when the projection is stale")
 	noPrune := fs.Bool("no-prune", false, "keep orphaned projections")
@@ -658,7 +658,7 @@ func cmdAgentsSync(args []string) int {
 		fs.Usage()
 		return 2
 	}
-	return agent.Sync(agent.ProjectionOptions{DryRun: *dryRun, Check: *check, NoPrune: *noPrune, Agent: *vendor, Out: os.Stdout})
+	return agent.Sync(agent.ProjectionOptions{DryRun: *dryRun, Check: *check, NoPrune: *noPrune, Agent: *name, Out: os.Stdout})
 }
 
 // cmdAgentsList is bare `agents`: the local roster, or with --host the remote's own `agents` output.

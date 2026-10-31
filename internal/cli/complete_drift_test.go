@@ -53,7 +53,7 @@ func TestSpecTreeSubwordsMatchDispatch(t *testing.T) {
 	// vendor subverb plus its one extra, bridge — derived from vendorSubverbs, not hand-copied, so a
 	// future subverb (e.g. explore) never drifts this test silently.
 	geminiWant := []string{"ask", "bridge"}
-	for sub := range vendorSubverbs {
+	for sub := range agentSubverbs {
 		geminiWant = append(geminiWant, sub)
 	}
 	cases["gemini"] = geminiWant

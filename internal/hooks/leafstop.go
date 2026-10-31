@@ -78,7 +78,7 @@ func leafJobIDs(transcript string) ([]string, error) {
 
 // leafStopBlock returns a Block while a dispatch the stopping leaf started is alive; any error fails open.
 func leafStopBlock(in *Input, agentID string) (Result, bool) {
-	if in.Vendor() != VendorClaude || in.AgentTranscriptPath == "" {
+	if in.Agent() != AgentClaude || in.AgentTranscriptPath == "" {
 		return Result{}, false
 	}
 	ids, err := leafJobIDs(in.AgentTranscriptPath)

@@ -14,13 +14,13 @@ import (
 //go:embed agents.json
 var defaultsJSON []byte
 
-// GuardRules are prompts carried over into a vendor opted in via Permission.UseGuardRules.
+// GuardRules are prompts carried over into an agent opted in via Permission.UseGuardRules.
 type GuardRules struct {
 	Ask  []string `json:"ask"`
 	Deny []string `json:"deny"`
 }
 
-// Permission is one vendor's approval policy: vendor-native knobs only that vendor's renderer consumes.
+// Permission is one agent's approval policy: agent-native knobs only that agent's renderer consumes.
 type Permission struct {
 	UseGuardRules         bool   `json:"useGuardRules,omitempty"`
 	ApprovalPolicy        string `json:"approvalPolicy,omitempty"`
@@ -28,12 +28,12 @@ type Permission struct {
 	DefaultPermissionMode string `json:"defaultPermissionMode,omitempty"`
 }
 
-// MCP is the explicit allowlist a vendor's config is rendered with; omitted servers aren't wired.
+// MCP is the explicit allowlist an agent's config is rendered with; omitted servers aren't wired.
 type MCP struct {
 	Allow []string `json:"allow"`
 }
 
-// LaunchConfig is env and argv a `claude-code <vendor>` launch injects, e.g. to disable a native skill
+// LaunchConfig is env and argv a `claude-code <agent>` launch injects, e.g. to disable a native skill
 // scanner or force allow-all; Args never rides a headless leg (tools-off must stay tools-off).
 type LaunchConfig struct {
 	Env  []string `json:"env,omitempty"`
@@ -113,7 +113,7 @@ func ParseConfig(base, overlay []byte) (*Config, error) {
 			cfg.Agents = map[string]AgentConfig{}
 		}
 		for name, raw := range o.Agents {
-			if raw == nil || string(raw) == "null" { // "name": null removes a built-in vendor
+			if raw == nil || string(raw) == "null" { // "name": null removes a built-in agent
 				delete(cfg.Agents, name)
 				continue
 			}

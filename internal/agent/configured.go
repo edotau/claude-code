@@ -6,7 +6,7 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 )
 
-// Configured is the no-network presence check: the vendor binary, plus an opencode login for the cell's provider.
+// Configured is the no-network presence check: the agent binary, plus an opencode login for the cell's provider.
 func Configured(runner string, c Cell) error {
 	s, ok := LookupSchema(runner)
 	if !ok {

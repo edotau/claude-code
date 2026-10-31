@@ -135,7 +135,7 @@ func runSetupToken() {
 	}
 }
 
-func launchVendor(name string, args []string) int {
+func launchAgent(name string, args []string) int {
 	opts, rest, err := agent.ParseArgs(args, false)
 	if err != nil {
 		return fail("%v", err)
@@ -192,7 +192,7 @@ func cmdHook(args []string) int {
 }
 
 // cmdRestore is `configure --restore`: write settings.json whole from the defaults, then render the agent configs.
-func cmdRestore(agents, out string, check, dryRun, vendors, noAgents bool) int {
+func cmdRestore(agents, out string, check, dryRun, forceHomes, noAgents bool) int {
 	if out == "" && !check && !dryRun { // bare --restore writes the live settings.json
 		out = launch.SettingsFile()
 	}
@@ -203,7 +203,7 @@ func cmdRestore(agents, out string, check, dryRun, vendors, noAgents bool) int {
 	var prepared *agent.RenderPlan
 	var drift bool
 	if !noAgents { // --no-agents: lint checks the repo's settings, not this machine's agent configs
-		if prepared, drift, err = renderVendorConfigs(agents, out, check, dryRun, vendors); err != nil {
+		if prepared, drift, err = renderAgentConfigs(agents, out, check, dryRun, forceHomes); err != nil {
 			return fail("%v", err)
 		}
 	}
@@ -311,14 +311,14 @@ func checkLiveSettings(rendered []byte) (bool, error) {
 	return drift.Drifted(), nil
 }
 
-// renderVendorConfigs prepares the vendor configs; they preview whenever the settings render does.
-func renderVendorConfigs(agents, out string, check, dryRun, vendors bool) (*agent.RenderPlan, bool, error) {
-	var vendorAgents []string
+// renderAgentConfigs prepares the agent configs; they preview whenever the settings render does.
+func renderAgentConfigs(agents, out string, check, dryRun, forceHomes bool) (*agent.RenderPlan, bool, error) {
+	var agentList []string
 	if agents != "" {
-		vendorAgents = strings.Split(agents, ",")
+		agentList = strings.Split(agents, ",")
 	}
 	preview := dryRun || (out == "" && !check)
-	opts := agent.RenderOptions{Agents: vendorAgents, DryRun: preview, Check: check, Out: os.Stdout, ForceHomes: vendors}
+	opts := agent.RenderOptions{Agents: agentList, DryRun: preview, Check: check, Out: os.Stdout, ForceHomes: forceHomes}
 	// Interactive only on a real terminal write: launch/configure callers never reach this function.
 	if !preview && !check && tui.StdinIsTerminal() && tui.StdoutIsTerminal() {
 		opts.Confirm = func(path string, lost []string) bool {
@@ -330,11 +330,11 @@ func renderVendorConfigs(agents, out string, check, dryRun, vendors bool) (*agen
 
 // cmdRevert handles `configure --revert [--agent a,b] [--dry-run]`.
 func cmdRevert(agents string, dryRun bool) int {
-	var vendorAgents []string
+	var agentList []string
 	if agents != "" {
-		vendorAgents = strings.Split(agents, ",")
+		agentList = strings.Split(agents, ",")
 	}
-	if err := agent.RevertConfigs(agent.RenderOptions{Agents: vendorAgents, DryRun: dryRun, Out: os.Stdout}); err != nil {
+	if err := agent.RevertConfigs(agent.RenderOptions{Agents: agentList, DryRun: dryRun, Out: os.Stdout}); err != nil {
 		return fail("configure --revert: %v", err)
 	}
 	return 0

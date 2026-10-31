@@ -26,7 +26,7 @@ type Doc struct {
 	Pins      map[string]string `json:"pins"`
 	Env       map[string]string `json:"env"`
 	Providers json.RawMessage   `json:"providers"`
-	Vendors   json.RawMessage   `json:"agents"`
+	Agents    json.RawMessage   `json:"agents"`
 	Settings  json.RawMessage   `json:"settings"`
 	Vault     struct {
 		KeyCommand string `json:"key_command"`
@@ -36,7 +36,7 @@ type Doc struct {
 // docFrom builds the doc inside an open transaction; it never opens the vault itself.
 func docFrom(t *vault.Tx) (Doc, error) {
 	d := Doc{Pins: t.All(vault.Pins), Env: t.All(vault.Env)}
-	for name, dst := range map[string]*json.RawMessage{"providers": &d.Providers, "agents": &d.Vendors, "settings": &d.Settings} {
+	for name, dst := range map[string]*json.RawMessage{"providers": &d.Providers, "agents": &d.Agents, "settings": &d.Settings} {
 		if raw, ok := t.Get(vault.Overlay, name); ok {
 			if !json.Valid([]byte(raw)) {
 				return Doc{}, fmt.Errorf("vault overlay/%s: invalid JSON", name)
@@ -106,15 +106,15 @@ func validatePinsEnv(d Doc) error {
 // validateOverlaySections normalizes null overlay sections to absent and validates each one present.
 func validateOverlaySections(d *Doc) error {
 	d.Providers = presentJSON(d.Providers)
-	d.Vendors = presentJSON(d.Vendors)
+	d.Agents = presentJSON(d.Agents)
 	d.Settings = presentJSON(d.Settings)
 	if len(d.Providers) != 0 {
 		if err := providers.Validate(d.Providers); err != nil {
 			return sectionError("providers", err)
 		}
 	}
-	if len(d.Vendors) != 0 {
-		if _, err := agent.ParseConfig(nil, d.Vendors); err != nil {
+	if len(d.Agents) != 0 {
+		if _, err := agent.ParseConfig(nil, d.Agents); err != nil {
 			return sectionError("agents", err)
 		}
 	}
@@ -177,7 +177,7 @@ func applyOverlaySections(t *vault.Tx, cur, d Doc) error {
 		name      string
 		old, next json.RawMessage
 	}{
-		{"providers", cur.Providers, d.Providers}, {"agents", cur.Vendors, d.Vendors},
+		{"providers", cur.Providers, d.Providers}, {"agents", cur.Agents, d.Agents},
 		{"settings", cur.Settings, d.Settings},
 	} {
 		var old, next bytes.Buffer

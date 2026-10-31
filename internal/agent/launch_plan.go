@@ -94,7 +94,7 @@ type Plan struct {
 	Set         map[string]string
 	Unset       []string
 	Keep        []string // names the credential scrub must not drop, from LaunchOptions.KeepEnv
-	CLI         bool     // true for a vendor CLI child: HARNESS_VAULT_KEY is scrubbed too (never for Claude itself)
+	CLI         bool     // true for an agent CLI child: HARNESS_VAULT_KEY is scrubbed too (never for Claude itself)
 	OverlayPath string
 	Overlay     []byte
 	Warnings    []string
@@ -123,7 +123,7 @@ func (p Plan) Env(base []string) []string {
 	return p.envWith(merged, customEnv(), locked)
 }
 
-// moduleEnv appends vendorsettings module exports onto base, skipping keys the process env sets; locked names those.
+// moduleEnv appends agent settings module exports onto base, skipping keys the process env sets; locked names those.
 func moduleEnv(base []string) ([]string, map[string]bool) {
 	present := map[string]bool{}
 	for _, kv := range base {
@@ -198,7 +198,7 @@ func (p Plan) envWith(base []string, custom map[string]string, locked map[string
 // plainEnv is the credential scrub, then base minus Unset/Set keys, plus Set.
 func (p Plan) plainEnv(base []string) []string {
 	if p.CLI {
-		base, _ = proc.ScrubVendor(base, proc.EnvKeepSet(p.Keep))
+		base, _ = proc.ScrubAgent(base, proc.EnvKeepSet(p.Keep))
 	} else {
 		base, _ = proc.Scrub(base, proc.EnvKeepSet(p.Keep))
 	}
@@ -264,7 +264,7 @@ func (p Plan) unsetNames() []string {
 	}
 	scrub := proc.Scrub
 	if p.CLI {
-		scrub = proc.ScrubVendor
+		scrub = proc.ScrubAgent
 	}
 	_, dropped := scrub(os.Environ(), proc.EnvKeepSet(p.Keep))
 	for _, k := range dropped {

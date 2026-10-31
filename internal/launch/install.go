@@ -123,8 +123,8 @@ func DoctorChecks() (checks []Check, ok bool) {
 }
 
 // routeDetail is the "<agent> route" row; the caller loaded the registry already, so a miss is not a doctor failure.
-func routeDetail(vendor string) string {
-	detail, _ := agent.RouteDetail(vendor)
+func routeDetail(name string) string {
+	detail, _ := agent.RouteDetail(name)
 	return detail
 }
 
@@ -432,7 +432,7 @@ func settingsHasHooks(file string) (bool, error) {
 	return false, nil
 }
 
-// toolDoctorOK is false only for a bin/<vendor> entry that exists but cannot run (broken link, retired shim).
+// toolDoctorOK is false only for a bin/<agent> entry that exists but cannot run (broken link, retired shim).
 func toolDoctorOK(s agent.ToolStatus) bool {
 	bin, ok := paths.VendorName(s.Name)
 	if !ok {
@@ -460,10 +460,10 @@ func agentVersionDetail(spec agent.Schema) (pass bool, detail string) {
 	return true, "ok " + v
 }
 
-// toolDoctorDetail renders one tool's doctor line: a vendor's bin/ entry, else path + version, then extra PATH copies.
+// toolDoctorDetail renders one tool's doctor line: an agent's bin/ entry, else path + version, then extra PATH copies.
 func toolDoctorDetail(s agent.ToolStatus) string {
 	if bin, ok := paths.VendorName(s.Name); ok {
-		return vendorDoctorDetail(s, bin)
+		return agentDoctorDetail(s, bin)
 	}
 	if s.Path == "" {
 		if s.Hint != "" {
@@ -486,8 +486,8 @@ func toolDoctorDetail(s agent.ToolStatus) string {
 	return detail.String()
 }
 
-// vendorDoctorDetail renders BinDir/<bin>: `<dst> → <Target> <version>`, a direct install, or why it is unusable.
-func vendorDoctorDetail(s agent.ToolStatus, bin string) string {
+// agentDoctorDetail renders BinDir/<bin>: `<dst> → <Target> <version>`, a direct install, or why it is unusable.
+func agentDoctorDetail(s agent.ToolStatus, bin string) string {
 	dst := filepath.Join(paths.BinDir(), bin)
 	if _, err := paths.VendorBin(bin); err != nil {
 		if s.Path != "" {

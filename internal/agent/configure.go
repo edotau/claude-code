@@ -42,7 +42,7 @@ func (s Schema) configure(ctx context.Context, t providers.Target, h *Headless) 
 	if err != nil {
 		return env, argv, err
 	}
-	// Route keys go last and shadow same-named launch.env entries, so a spec overlay can never redirect a vendor.
+	// Route keys go last and shadow same-named launch.env entries, so a spec overlay can never redirect an agent.
 	launchEnv, argv := s.applyLaunch(nil, argv, h == nil)
 	return routeEnvLast(launchEnv, env), argv, nil
 }
@@ -113,7 +113,7 @@ func (s Schema) configureRoute(ctx context.Context, t providers.Target, h *Headl
 	var err error
 	routed := false
 	if p.Auth.Method() != providers.AuthNone && !isDirect(ctx) {
-		// Keyed provider: the vendor gets the router base + router secret; the real credential stays in the router.
+		// Keyed provider: the agent gets the router base + router secret; the real credential stays in the router.
 		if p, base, cred, err = routerRoute(ctx, s, p, dialect); err != nil {
 			return nil, nil, err
 		}
@@ -139,7 +139,7 @@ func StubRouterForTest(t testing.TB, base string) {
 
 type directKey struct{}
 
-// WithDirect makes configure skip the router and hand the vendor the provider's own route and credential.
+// WithDirect makes configure skip the router and hand the agent the provider's own route and credential.
 func WithDirect(ctx context.Context) context.Context {
 	return context.WithValue(ctx, directKey{}, true)
 }

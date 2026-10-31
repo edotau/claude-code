@@ -31,7 +31,7 @@ func renderVaultTextStyled(doc configure.Doc, stored []secrets.Stored, sel []str
 		"env":       func() string { return vaultSection("ENV", vaultMapRows(doc.Env), width) },
 		"providers": func() string { return vaultProvidersText(doc.Providers, width) },
 		"routing":   func() string { return vaultRoutingText(doc.Providers, width) },
-		"agents":    func() string { return vaultVendorsText(doc.Vendors, doc.Pins, width, color) },
+		"agents":    func() string { return vaultAgentsText(doc.Agents, doc.Pins, width, color) },
 		"settings":  func() string { return vaultSection("SETTINGS", vaultFlattenSection(doc.Settings), width) },
 		"vault":     func() string { return vaultSection("VAULT", vaultVaultRows(doc.Vault.KeyCommand), width) },
 	}
@@ -496,7 +496,7 @@ func vaultOverlayAgents(raw json.RawMessage) (top, vs map[string]any, err error)
 // vaultLoosePins are the pins that belong to no agent (no AGENT_ key prefix).
 func vaultLoosePins(doc configure.Doc) map[string]string {
 	var vs map[string]any
-	if _, v, err := vaultOverlayAgents(doc.Vendors); err == nil {
+	if _, v, err := vaultOverlayAgents(doc.Agents); err == nil {
 		vs = v
 	}
 	names := agent.VaultAgentNames(vs)
@@ -549,8 +549,8 @@ func vaultAgentTable(names []string, pins map[string]string, width int, color bo
 	return vaultTableStyled(head, colMax, rows, width, codes, color)
 }
 
-// vaultVendorsText renders the agent table, then the per-agent overlay rows (and other top-level keys) below it.
-func vaultVendorsText(raw json.RawMessage, pins map[string]string, width int, color bool) string {
+// vaultAgentsText renders the agent table, then the per-agent overlay rows (and other top-level keys) below it.
+func vaultAgentsText(raw json.RawMessage, pins map[string]string, width int, color bool) string {
 	top, vs, err := vaultOverlayAgents(raw)
 	if err != nil {
 		return vaultSection("AGENTS", vaultFlattenSection(raw), width)
@@ -559,7 +559,7 @@ func vaultVendorsText(raw json.RawMessage, pins map[string]string, width int, co
 	var rows [][3]string
 	for _, name := range names {
 		if v, ok := vs[name]; ok {
-			for _, r := range vaultVendorRows(v) {
+			for _, r := range vaultAgentRows(v) {
 				rows = append(rows, [3]string{name, r[0], r[1]})
 			}
 		}
@@ -596,8 +596,8 @@ func vaultOverlayLines(rows [][3]string, width int) string {
 	return b.String()
 }
 
-// vaultVendorRows renders one vendor entry: launch.env, launch.args, permission and mcp.allow read as lists.
-func vaultVendorRows(v any) [][2]string {
+// vaultAgentRows renders one agent entry: launch.env, launch.args, permission and mcp.allow read as lists.
+func vaultAgentRows(v any) [][2]string {
 	m, ok := v.(map[string]any)
 	if !ok {
 		if v == nil {

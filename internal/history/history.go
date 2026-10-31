@@ -1,4 +1,4 @@
-// Package history keeps a git-backed shadow history of the config files several tools co-own (vendor
+// Package history keeps a git-backed shadow history of the config files several tools co-own (agent
 // CLIs, Claude Code itself, and the user), so a change made two runs ago stays recoverable.
 //
 // ONE repo under state/harness/history (gitignored) carries both "planes" — config files and the
@@ -62,14 +62,14 @@ func ConfigFiles() []HistoryFile {
 		{Label: "provider.env", Read: providers.RenderPins},
 		{Label: "claude.json", Path: paths.ClaudeJSON()},
 	}
-	return append(files, vendorConfigs()...)
+	return append(files, agentConfigs()...)
 }
 
-// vendorConfigs are the vendor CLIs' own on-disk configs. claude-code itself never writes these —
+// agentConfigs are the agent CLIs' own on-disk configs. claude-code itself never writes these —
 // codex and opencode take their routing via env vars / `-c` flags at launch time, never a file
-// (internal/agent/configure.go) — but the user or the vendor's own `login` can, so a hand-edit here is
+// (internal/agent/configure.go) — but the user or the agent's own `login` can, so a hand-edit here is
 // exactly the kind of contested change this history is for.
-func vendorConfigs() []HistoryFile {
+func agentConfigs() []HistoryFile {
 	var out []HistoryFile
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -89,7 +89,7 @@ func vendorConfigs() []HistoryFile {
 	return out
 }
 
-// secretRE matches credential-SHAPED values (Databricks PATs, JWTs, vendor keys). A git history is
+// secretRE matches credential-SHAPED values (Databricks PATs, JWTs, agent keys). A git history is
 // durable and gets copied around, so a token committed once is leaked for good; a match holds the
 // whole file back rather than redacting it, because a silent redaction teaches nobody to fix the leak.
 //
@@ -104,7 +104,7 @@ var secretRE = regexp.MustCompile(
 		`|\bgh[pousr]_[A-Za-z0-9]{28,}`) // GitHub
 
 // Snapshot copies each of files into the store and commits iff something in THIS plane actually
-// changed. An absent file is a FACT (a vendor config is often absent on a fresh box), not an error;
+// changed. An absent file is a FACT (an agent config is often absent on a fresh box), not an error;
 // its appearance and its deletion are both recorded, so a revert stays auditable. plane names the
 // commit subject prefix ("config") and scopes the commit to just these files, so a stray
 // uncommitted change left over in the other plane never rides along.

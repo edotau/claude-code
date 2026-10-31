@@ -18,7 +18,7 @@ func TestVendorKeyTargetCopilotRotateWiring(t *testing.T) {
 	t.Setenv("GH_CONFIG_DIR", t.TempDir())     // no real gh hosts.yml: GHActiveAccount reads nothing
 	t.Setenv("GH_TOKEN", "ghp_env_override")
 	reg := &providers.Registry{Providers: map[string]*providers.Provider{}}
-	kt := vendorKeyTarget(reg, "copilot")
+	kt := agentKeyTarget(reg, "copilot")
 	if !kt.present || len(kt.loginArgv) != 0 {
 		t.Errorf("env-token copilot = %+v, want present with no loginArgv", kt)
 	}
@@ -35,7 +35,7 @@ func TestVendorKeyTargetCodexRotateWiring(t *testing.T) {
 		t.Fatal(err)
 	}
 	reg := &providers.Registry{Providers: map[string]*providers.Provider{}}
-	kt := vendorKeyTarget(reg, "codex")
+	kt := agentKeyTarget(reg, "codex")
 	if !kt.present {
 		t.Fatalf("codex = %+v, want present via the ChatGPT login file", kt)
 	}
@@ -57,7 +57,7 @@ func TestVendorKeyTargetGeminiGoogleLoginRotateWiring(t *testing.T) {
 		t.Fatal(err)
 	}
 	reg := &providers.Registry{Providers: map[string]*providers.Provider{}}
-	kt := vendorKeyTarget(reg, "gemini")
+	kt := agentKeyTarget(reg, "gemini")
 	if !kt.present {
 		t.Fatalf("gemini = %+v, want present via the agy login marker", kt)
 	}

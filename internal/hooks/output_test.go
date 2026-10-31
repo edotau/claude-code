@@ -47,13 +47,13 @@ func TestOutputCopilotAskIsDeny(t *testing.T) {
 
 func TestOutputEmitBlockOutsidePreToolUse(t *testing.T) {
 	var out, errw bytes.Buffer
-	code := Emit(VendorClaude, "Stop", Result{Decision: Block, Reason: "keep going"}, &out, &errw)
+	code := Emit(AgentClaude, "Stop", Result{Decision: Block, Reason: "keep going"}, &out, &errw)
 	if code != ExitBlock || !strings.Contains(errw.String(), "keep going") || out.Len() != 0 {
 		t.Errorf("code=%d stderr=%q stdout=%q", code, errw.String(), out.String())
 	}
 	out.Reset()
 	errw.Reset()
-	if code := Emit(VendorClaude, "PreToolUse", Result{Decision: Block, Reason: "r"}, &out, &errw); code != ExitProceed || !strings.Contains(out.String(), "deny") {
+	if code := Emit(AgentClaude, "PreToolUse", Result{Decision: Block, Reason: "r"}, &out, &errw); code != ExitProceed || !strings.Contains(out.String(), "deny") {
 		t.Errorf("PreToolUse block rides JSON: code=%d out=%q", code, out.String())
 	}
 }

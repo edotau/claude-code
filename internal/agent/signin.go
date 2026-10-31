@@ -30,7 +30,7 @@ type Signin interface {
 	Login(ctx context.Context, in io.Reader, out io.Writer) error
 }
 
-// Test seams: the credential mint, the u2m login, the secret prompt and store, the vendor probes.
+// Test seams: the credential mint, the u2m login, the secret prompt and store, the agent probes.
 var (
 	credential         = providers.Credential
 	loginRow           = databricks.LoginRow
@@ -229,7 +229,7 @@ func (s cliSignin) Login(ctx context.Context, in io.Reader, out io.Writer) error
 	return runLogin(ctx, s.name, row.CLI.LoginArgv[1:], in, out)
 }
 
-// runLoginCLI runs the vendor CLI's own login on the caller's terminal (list args, no shell).
+// runLoginCLI runs the agent CLI's own login on the caller's terminal (list args, no shell).
 func runLoginCLI(ctx context.Context, name string, args []string, in io.Reader, out io.Writer) error {
 	bin, err := paths.VendorBin(name)
 	if err != nil {

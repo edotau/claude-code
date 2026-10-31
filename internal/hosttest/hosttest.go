@@ -13,13 +13,13 @@ import (
 	"testing"
 )
 
-// scrubPrefixes name the inherited env a test must never see: vendor credentials, routing pins, and host markers.
+// scrubPrefixes name the inherited env a test must never see: agent credentials, routing pins, and host markers.
 var scrubPrefixes = []string{
 	"CLAUDE", "HARNESS_", "ANTHROPIC_", "OPENAI_", "AZURE_OPENAI_", "DATABRICKS_", "GEMINI_", "GOOGLE_", "COPILOT_",
 	"CODEX_", "OPENCODE_", "TAVILY_", "GH_", "GITHUB_", "WSL", "TMUX", "GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE",
 }
 
-// Tools are the host tools the suite shells out to; vendor CLIs, tmux, tailscale and launchctl are deliberately absent.
+// Tools are the host tools the suite shells out to; agent CLIs, tmux, tailscale and launchctl are deliberately absent.
 var Tools = []string{
 	"sh", "bash", "env", "cat", "cp", "mv", "rm", "mkdir", "ln", "ls", "chmod", "touch", "true", "false", "sleep",
 	"echo", "printf", "test", "head", "tail", "grep", "sed", "awk", "sort", "tr", "wc", "dirname", "basename",

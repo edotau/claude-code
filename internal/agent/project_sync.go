@@ -15,7 +15,7 @@ type ProjectionOptions struct {
 	DryRun  bool
 	NoPrune bool
 	Check   bool
-	Agent   string    // one of VendorNames(); "" = every vendor
+	Agent   string    // one of ProjectionNames(); "" = every agent
 	Out     io.Writer // status lines; nil → os.Stdout
 }
 
@@ -57,7 +57,7 @@ func (r *syncResult) add(o syncResult) {
 	r.current += o.current
 }
 
-// Sync renders agents/ into the tracked dist/<vendor>/agents tree, installs each vendor's copy into its home,
+// Sync renders agents/ into the tracked dist/<agent>/agents tree, installs each agent's copy into its home,
 // links skills/ into ~/.agents/skills, and prunes what the roster no longer owns. Exit 0 ok, 1 error or stale (--check).
 func Sync(opts ProjectionOptions) int {
 	out := opts.Out
@@ -70,13 +70,13 @@ func Sync(opts ProjectionOptions) int {
 		fmt.Fprintln(os.Stderr, "sync: HOME is not set")
 		return 1
 	}
-	vendors := ProjectionNames()
+	names := ProjectionNames()
 	if opts.Agent != "" {
 		if _, ok := targets[opts.Agent]; !ok {
-			fmt.Fprintf(os.Stderr, "sync: unknown vendor %q (want one of %s)\n", opts.Agent, strings.Join(vendors, ", "))
+			fmt.Fprintf(os.Stderr, "sync: unknown vendor %q (want one of %s)\n", opts.Agent, strings.Join(names, ", "))
 			return 2
 		}
-		vendors = []string{opts.Agent}
+		names = []string{opts.Agent}
 	}
 	agentsDir, skillsDir := filepath.Join(root, "agents"), filepath.Join(root, "skills")
 	if !paths.IsDir(agentsDir) {
@@ -114,8 +114,8 @@ func Sync(opts ProjectionOptions) int {
 	}
 	var res syncResult
 	pruned := 0
-	for _, vendor := range vendors {
-		r, p := syncProjectionAssets(out, vendor, root, home, skillsDir, agents, skills, docs, hasDocs, dryRun, prune)
+	for _, pname := range names {
+		r, p := syncProjectionAssets(out, pname, root, home, skillsDir, agents, skills, docs, hasDocs, dryRun, prune)
 		res.add(r)
 		pruned += p
 	}
@@ -150,10 +150,10 @@ func Sync(opts ProjectionOptions) int {
 	return 0
 }
 
-func syncProjectionAssets(out io.Writer, vendor, root, home, skillsDir string, agents, skills []Source, docs string, hasDocs, dryRun, prune bool) (syncResult, int) {
-	fmt.Fprintf(out, "== %s ==\n", vendor)
-	tg := targets[vendor]
-	res, pruned := syncProjection(out, vendor, tg, agents, ProjectionDir(root, vendor), tg.home(home), dryRun, prune)
+func syncProjectionAssets(out io.Writer, name, root, home, skillsDir string, agents, skills []Source, docs string, hasDocs, dryRun, prune bool) (syncResult, int) {
+	fmt.Fprintf(out, "== %s ==\n", name)
+	tg := targets[name]
+	res, pruned := syncProjection(out, name, tg, agents, ProjectionDir(root, name), tg.home(home), dryRun, prune)
 	if tg.skills != nil {
 		// agy reads its own skills dir rather than ~/.agents/skills.
 		geminiSkills := tg.skills(home)
@@ -162,12 +162,12 @@ func syncProjectionAssets(out io.Writer, vendor, root, home, skillsDir string, a
 			pruned += pruneSkillLinks(out, geminiSkills, skillsDir, projectedSkillNames(skills), dryRun)
 		}
 	}
-	if rel, ok := instructionFiles[vendor]; ok && hasDocs {
+	if rel, ok := instructionFiles[name]; ok && hasDocs {
 		if !dryRun {
 			_ = os.MkdirAll(filepath.Dir(filepath.Join(home, rel)), 0o755)
-			_ = os.MkdirAll(ProjectionRoot(root, vendor), 0o755)
+			_ = os.MkdirAll(ProjectionRoot(root, name), 0o755)
 		}
-		res.record(writeProjection(out, filepath.Join(ProjectionRoot(root, vendor), filepath.Base(rel)), docs, dryRun))
+		res.record(writeProjection(out, filepath.Join(ProjectionRoot(root, name), filepath.Base(rel)), docs, dryRun))
 		res.record(writeOwnedFile(out, filepath.Join(home, rel), docs, dryRun))
 	}
 	return res, pruned
@@ -175,13 +175,13 @@ func syncProjectionAssets(out io.Writer, vendor, root, home, skillsDir string, a
 
 // syncProjection renders every projected agent into distDir (tracked) and installs a copy into homeDir, then prunes
 // generated files in both that the roster no longer produces.
-func syncProjection(out io.Writer, vendor string, t projectionTarget, agents []Source, distDir, homeDir string, dryRun, prune bool) (syncResult, int) {
+func syncProjection(out io.Writer, target string, t projectionTarget, agents []Source, distDir, homeDir string, dryRun, prune bool) (syncResult, int) {
 	var res syncResult
 	rendered := make(map[string]bool, len(agents))
 	for _, agent := range agents {
 		name := agent.Name()
-		if name == vendor {
-			continue // never project a vendor's own agent into its own CLI home (nesting hazard)
+		if name == target {
+			continue // never project a target's own agent into its own CLI home (nesting hazard)
 		}
 		if !paths.SafeName(name) {
 			fmt.Fprintf(os.Stderr, "  ERROR unsafe agent name %q (must be a plain path component)\n", name)
@@ -206,7 +206,7 @@ func syncProjection(out io.Writer, vendor string, t projectionTarget, agents []S
 	return res, pruned
 }
 
-// writeOwnedFile writes a vendor-home copy, keeping any symlink or bannerless (hand-authored) file at that path.
+// writeOwnedFile writes an agent-home copy, keeping any symlink or bannerless (hand-authored) file at that path.
 func writeOwnedFile(out io.Writer, path, content string, dryRun bool) writeResult {
 	info, err := os.Lstat(path)
 	switch {

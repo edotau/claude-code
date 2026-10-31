@@ -1,4 +1,4 @@
-// Package tools installs and updates vendor agent CLIs (into ~/.claude/bin or their existing dir) and reports the rest.
+// Package tools installs and updates agent agent CLIs (into ~/.claude/bin or their existing dir) and reports the rest.
 package agent
 
 import (
@@ -126,24 +126,24 @@ func runOne(ctx context.Context, w io.Writer, t Tool, oldPath, dir string, dryRu
 	}
 }
 
-// installDir: a direct bin/ install, else the existing install's dir, else bin/ for a vendor, else ~/.local/bin.
+// installDir: a direct bin/ install, else the existing install's dir, else bin/ for an agent, else ~/.local/bin.
 func installDir(t Tool, oldPath string) string {
 	if t.UserLocal {
 		return localBinDir()
 	}
-	_, vendor := paths.VendorName(t.Name)
+	_, linked := paths.VendorName(t.Name)
 	switch {
 	case directInstall(t) != "":
 		return paths.BinDir()
 	case oldPath != "":
 		return filepath.Dir(oldPath)
-	case vendor:
+	case linked:
 		return paths.BinDir()
 	}
 	return localBinDir()
 }
 
-// directInstall is BinDir/<bin> when a vendor's CLI is a regular file there (a direct install), else "".
+// directInstall is BinDir/<bin> when an agent's CLI is a regular file there (a direct install), else "".
 func directInstall(t Tool) string {
 	bin, ok := paths.VendorName(t.Name)
 	if !ok {
@@ -156,7 +156,7 @@ func directInstall(t Tool) string {
 	return ""
 }
 
-// localBinDir is the fallback install target for non-vendor tools.
+// localBinDir is the fallback install target for non-agent tools.
 func localBinDir() string {
 	home, _ := os.UserHomeDir()
 	return filepath.Join(home, ".local", "bin")

@@ -479,13 +479,13 @@ func envNames(env []string) []string {
 // childCmd builds an exec.Cmd in its own process group; a deadline kills the whole tree. The parent env
 // is scrubbed of inherited credentials before env (the launch's own additions) is layered on. agent
 // also scrubs HARNESS_VAULT_KEY: true for every agent CLI child, false for the claude agent's own child.
-func childCmd(ctx context.Context, bin string, argv, env []string, dir, stdin string, keepEnv []string, vendor bool) (*exec.Cmd, *TailBuffer) {
+func childCmd(ctx context.Context, bin string, argv, env []string, dir, stdin string, keepEnv []string, cli bool) (*exec.Cmd, *TailBuffer) {
 	cmd := exec.CommandContext(ctx, bin, argv...)
 	ownGroup(cmd)
 	cmd.WaitDelay = 5 * time.Second
 	scrub := proc.Scrub
-	if vendor {
-		scrub = proc.ScrubVendor
+	if cli {
+		scrub = proc.ScrubAgent
 	}
 	base, _ := scrub(os.Environ(), proc.EnvKeepSet(keepEnv))
 	cmd.Env = append(scrubIsolated(ctx, base, keepEnv), env...) // the launch's own values go on after the scrub; later wins

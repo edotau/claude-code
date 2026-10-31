@@ -114,7 +114,7 @@ func scienceDefaultsFile() (string, error) {
 	return path, paths.AtomicWrite(path, scienceTOML, 0o600)
 }
 
-// scienceArgs splits the harness's leading --port (either argv form) from the vendor argv, which passes untouched.
+// scienceArgs splits the harness's leading --port (either argv form) from the agent argv, which passes untouched.
 func scienceArgs(args []string, defPort int) (port int, rest []string, err error) {
 	port = defPort
 	for len(args) > 0 {

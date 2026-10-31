@@ -28,7 +28,7 @@ func scanWinPaths(text string) []string {
 // promptPathFeedback runs the hook core with res injected, so tests do not depend on the host's mounts.
 func promptPathFeedback(r io.Reader, stdout io.Writer, res *paths.Resolver) int {
 	in := ParseInput(r)
-	return Emit(in.Vendor(), "UserPromptSubmit", pathResolverResult(in, res), stdout, io.Discard)
+	return Emit(in.Agent(), "UserPromptSubmit", pathResolverResult(in, res), stdout, io.Discard)
 }
 
 func TestScanWinPaths(t *testing.T) {
@@ -237,7 +237,7 @@ func TestBindPrefersNativeRunners(t *testing.T) {
 
 // A direct `hook UserPromptSubmit --paths-resolve` call and the UserPromptSubmit dispatcher emit the same document.
 func TestPathResolverRunMatchesDispatcher(t *testing.T) {
-	for _, vendor := range []string{VendorClaude, VendorCopilot} {
+	for _, vendor := range []string{AgentClaude, AgentCopilot} {
 		t.Run(vendor, func(t *testing.T) {
 			vaulttest.Use(t) // hermetic CLAUDE_CONFIG_DIR + vault (harness hook switches)
 			t.Setenv(settings.AgentEnv, vendor)
@@ -262,14 +262,14 @@ func TestPathResolverRunMatchesDispatcher(t *testing.T) {
 			}
 			doc := oneDoc(t, directOut.String())
 			switch vendor {
-			case VendorClaude:
+			case AgentClaude:
 				h, _ := doc["hookSpecificOutput"].(map[string]any)
 				sys, _ := doc["systemMessage"].(string)
 				ctx, _ := h["additionalContext"].(string)
 				if sys == "" || ctx == "" {
 					t.Errorf("claude doc = %v, want systemMessage + hookSpecificOutput.additionalContext", doc)
 				}
-			case VendorCopilot:
+			case AgentCopilot:
 				ctx, _ := doc["additionalContext"].(string)
 				if ctx == "" || len(doc) != 1 {
 					t.Errorf("copilot doc = %v, want only additionalContext", doc)

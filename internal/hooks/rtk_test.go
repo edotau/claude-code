@@ -66,8 +66,8 @@ func TestRTKSkipsCodex(t *testing.T) {
 	bin := fakeRTK(t)
 	payload := rtkBashIn("git log --oneline -20")
 	t.Setenv("HARNESS_HOOK_AGENT", "codex")
-	if vendor := ParseInput(strings.NewReader(payload)).Vendor(); vendor != VendorCodex {
-		t.Fatalf("Vendor() = %q, want %q", vendor, VendorCodex)
+	if vendor := ParseInput(strings.NewReader(payload)).Agent(); vendor != AgentCodex {
+		t.Fatalf("Vendor() = %q, want %q", vendor, AgentCodex)
 	}
 	if got, ok := rtkOut(t, payload); ok {
 		t.Fatalf("Codex command rewritten to %q", got)
@@ -96,8 +96,8 @@ func TestCopilotPayloadOverridesCodexVendor(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv("HARNESS_HOOK_AGENT", "codex")
 	payload := `{"sessionId":"copilot","toolName":"bash","toolArgs":{"command":"sudo apt install x"}}`
-	if vendor := ParseInput(strings.NewReader(payload)).Vendor(); vendor != VendorCopilot {
-		t.Fatalf("Vendor() = %q, want %q", vendor, VendorCopilot)
+	if vendor := ParseInput(strings.NewReader(payload)).Agent(); vendor != AgentCopilot {
+		t.Fatalf("Vendor() = %q, want %q", vendor, AgentCopilot)
 	}
 	var stdout strings.Builder
 	if rc := runDirect("safety-scan", strings.NewReader(payload), &stdout, io.Discard); rc != ExitBlock {

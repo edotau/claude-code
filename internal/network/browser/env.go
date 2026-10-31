@@ -55,7 +55,7 @@ func runCommand(timeout time.Duration, name string, args ...string) (string, err
 	return strings.TrimSpace(string(out)), err
 }
 
-// realClaude resolves the vendor claude binary, or "" on error.
+// realClaude resolves the agent claude binary, or "" on error.
 func realClaude() string {
 	p, _ := paths.VendorBin("claude")
 	return p

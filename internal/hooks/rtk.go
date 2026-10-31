@@ -39,7 +39,7 @@ var rtkValueSubcommands = map[string]bool{
 // rtkRewrite rewrites a Bash command via `rtk rewrite`, the source of truth for what rtk compresses. It says nothing
 // when rtk is absent, the tool is not Bash, a harness veto applies, or rtk leaves the command unchanged.
 func rtkRewrite(in *Input) Result {
-	if in.Vendor() != VendorClaude {
+	if in.Agent() != AgentClaude {
 		return Result{}
 	}
 	if in.ToolName != "" && in.ToolName != "Bash" {

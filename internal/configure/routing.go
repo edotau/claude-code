@@ -1,4 +1,4 @@
-// routing.go — the "routing" page: every internal/agent vendor module's fields, grouped by vendor, edited
+// routing.go — the "routing" page: every internal/agent agent module's fields, grouped by agent, edited
 // and held until the page is left, then written to the providers overlay's routing object via
 // providers.UpdateRouting. Mirrors the "claude code" page's editing shape (claude_settings.go).
 package configure
@@ -64,7 +64,7 @@ func runRouting(d *dialog) bool {
 }
 
 // reportRouting prints one line per field under its module's header: key, effective value, source. The
-// core module (Vendor() "routing") skips its own header — Run's section header already reads "routing".
+// core module (Name() "routing") skips its own header — Run's section header already reads "routing".
 func reportRouting(d *dialog, r, overlay providers.Routing) bool {
 	for _, m := range agent.Modules() {
 		fields := m.Fields()

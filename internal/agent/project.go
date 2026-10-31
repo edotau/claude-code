@@ -1,5 +1,5 @@
-// Package agent (project_*.go) projects agents/ into every vendor's native subagent dir (tracked under dist/), links skills/
-// into ~/.agents/skills (plus agy's own GeminiSkillsDir), and renders each vendor's global instruction file
+// Package agent (project_*.go) projects agents/ into every agent's native subagent dir (tracked under dist/), links skills/
+// into ~/.agents/skills (plus agy's own GeminiSkillsDir), and renders each agent's global instruction file
 // (~/.codex/AGENTS.md, ~/.gemini/GEMINI.md).
 package agent
 
