@@ -26,6 +26,7 @@
   "terminal.integrated.enablePersistentSessions": false,
   "terminal.integrated.persistentSessionReviveProcess": "never",
   "terminal.integrated.stickyScroll.enabled": false,
+  "terminal.integrated.altClickMovesCursor": false,
   "terminal.integrated.allowChords": false,
   "terminal.integrated.profiles.linux": {
     "bash": {
