@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/edotau/claude-code/internal/models"
 )
@@ -15,7 +16,7 @@ import (
 // GatewayModels lists the Anthropic models a Databricks workspace's AI Gateway serves (display names included),
 // following has_more/after_id paging. Non-Databricks providers return nil, nil.
 func GatewayModels(ctx context.Context, p *Provider) ([]ModelInfo, error) {
-	host := presetHost(p.Host)
+	host := PresetHost(p.Host)
 	if p.Preset != PresetDatabricks || host == "" {
 		return nil, nil
 	}
@@ -56,6 +57,13 @@ func GatewayModels(ctx context.Context, p *Provider) ([]ModelInfo, error) {
 	return out, nil
 }
 
+// httpClient is http.DefaultClient (so its Transport stays swappable) with a timeout bounding a hung endpoint.
+func httpClient() *http.Client {
+	c := *http.DefaultClient
+	c.Timeout = 30 * time.Second
+	return &c
+}
+
 func gatewayGet(ctx context.Context, p *Provider, u string) ([]byte, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
@@ -65,7 +73,7 @@ func gatewayGet(ctx context.Context, p *Provider, u string) ([]byte, error) {
 	if err := Authorize(ctx, p, req.Header); err != nil {
 		return nil, err
 	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := httpClient().Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -76,6 +84,3 @@ func gatewayGet(ctx context.Context, p *Provider, u string) ([]byte, error) {
 	}
 	return body, nil
 }
-
-// PresetHost is the https://host origin of a preset row's Host, "" when it is not a bare https origin.
-func PresetHost(host string) string { return presetHost(host) }

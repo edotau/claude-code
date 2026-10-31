@@ -38,14 +38,17 @@ func RegistryModels(p *Provider) []ModelInfo {
 	return out
 }
 
-// CodexCachedModels reads codex's own ~/.codex/models_cache.json (written by the codex CLI on login/use);
-// never a network call, so it's a cheap, always-available stand-in for chatgpt's missing /models route.
+// CodexCachedModels reads codex's models_cache.json under $CODEX_HOME (default ~/.codex); never a network call.
 func CodexCachedModels() ([]ModelInfo, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return nil, err
+	dir := os.Getenv("CODEX_HOME")
+	if dir == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return nil, err
+		}
+		dir = filepath.Join(home, ".codex")
 	}
-	b, err := os.ReadFile(filepath.Join(home, ".codex", "models_cache.json"))
+	b, err := os.ReadFile(filepath.Join(dir, "models_cache.json"))
 	if err != nil {
 		return nil, err
 	}

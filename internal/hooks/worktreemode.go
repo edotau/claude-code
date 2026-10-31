@@ -77,7 +77,7 @@ func busyLine(in *Input) string {
 		return ""
 	}
 	if os.MkdirAll(filepath.Dir(file), 0o755) == nil {
-		_ = os.WriteFile(file, []byte(key), 0o644)
+		_ = os.WriteFile(file, []byte(key), 0o600)
 	}
 	if len(peers) == 0 {
 		return ""

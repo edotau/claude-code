@@ -68,7 +68,7 @@ type liveModelEntry struct{ id, name, task, ready string }
 
 func liveModelEntries(ctx context.Context, p *Provider) ([]liveModelEntry, error) {
 	url, anthropicDialect := "", false
-	if host := presetHost(p.Host); p.Preset == PresetDatabricks && host != "" {
+	if host := PresetHost(p.Host); p.Preset == PresetDatabricks && host != "" {
 		url = host + "/api/2.0/serving-endpoints"
 	} else if r, ok := p.Route(ProtocolAnthropic); ok {
 		url, anthropicDialect = r+"/v1/models", true
@@ -94,7 +94,7 @@ func liveModelEntries(ctx context.Context, p *Provider) ([]liveModelEntry, error
 	} else if err := Authorize(ctx, p, req.Header); err != nil {
 		return nil, err
 	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := httpClient().Do(req)
 	if err != nil {
 		return nil, err
 	}
