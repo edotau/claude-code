@@ -52,7 +52,7 @@ func sessionSelection(o LaunchOptions, session bool) (*providers.Registry, provi
 	if err != nil {
 		return nil, providers.Selection{}, err
 	}
-	if session && o.Provider == "" && providers.Pin(providers.PinProfile) == "" {
+	if session && o.Provider == "" { // this workspace beats the global pin, which only seeds new workspaces
 		o.Provider = lastProfile(reg)
 	}
 	sel, err := providers.Select(reg, o.Provider)

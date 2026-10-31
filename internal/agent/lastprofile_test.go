@@ -8,7 +8,7 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 )
 
-// Given a recorded workspace profile, a Claude launch resolves flag > pin > last-used > registry default.
+// Given a recorded workspace profile, a Claude launch resolves flag > last-used > pin > registry default.
 func TestClaudeProfileResolutionLastUsed(t *testing.T) {
 	hermetic(t, "")
 	ws := t.TempDir()
@@ -38,11 +38,17 @@ func TestClaudeProfileResolutionLastUsed(t *testing.T) {
 	if err := providers.SetPins(map[string]string{providers.PinProfile: "max"}); err != nil {
 		t.Fatal(err)
 	}
-	if got := profile(LaunchOptions{}); got != "max" {
-		t.Errorf("pin set: got %q, want max (last-used ignored)", got)
+	if got := profile(LaunchOptions{}); got != "nvidia" {
+		t.Errorf("pin set: got %q, want nvidia (this workspace beats the pin)", got)
 	}
 	if got := providers.Pin(providers.PinProfile); got != "max" {
 		t.Errorf("recording must not touch the pin, got %q", got)
+	}
+	if err := ClearLastProfiles(); err != nil {
+		t.Fatal(err)
+	}
+	if got := profile(LaunchOptions{}); got != "max" {
+		t.Errorf("after switch clears the cache: got %q, want the pin max", got)
 	}
 	if err := providers.SetPins(map[string]string{providers.PinProfile: ""}); err != nil {
 		t.Fatal(err)

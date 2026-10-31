@@ -594,6 +594,9 @@ func cmdSwitch(args []string) int {
 	if err := providers.SetPins(map[string]string{providers.PinProfile: args[0]}); err != nil {
 		return fail("%v", err)
 	}
+	if err := agent.ClearLastProfiles(); err != nil {
+		return fail("%v", err)
+	}
 	fmt.Printf("profile pinned: %s (relaunch to apply)\n", args[0])
 	preflight.Warm(os.Stdout, reg, time.Now())
 	return 0
