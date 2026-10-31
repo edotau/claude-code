@@ -1,5 +1,5 @@
 // Quota pressure on Claude subagents: near the Anthropic plan's limit the agent-effort hook downshifts an unset
-// dispatch model one model (≥90%) or hands a code-worker/Explore task to a coworker on the routed agent (≥97%).
+// dispatch model one model (≥90%) or hands a code-worker task to a coworker on the routed agent (≥97%).
 package hooks
 
 import (
@@ -19,14 +19,14 @@ import (
 	"github.com/edotau/claude-code/internal/usage"
 )
 
-// OffloadPct is the window share at which a code-worker or Explore dispatch moves to a coworker leaf.
+// OffloadPct is the window share at which a code-worker dispatch moves to a coworker leaf.
 const OffloadPct = 97.0
 
 // envTestPct forces a reading for live checks; the subagents opt-out is providers.RouteSubagentsOn.
 const envTestPct = "HARNESS_ROUTE_TEST_ANTHROPIC_PCT"
 
-// offloadTypes are the agent types whose work a coworker leaf can carry through an agent CLI.
-var offloadTypes = map[string]bool{"code-worker": true, "Explore": true}
+// offloadTypes are the write-capable agent types a coworker leaf can carry; read-only types (Explore) never escalate.
+var offloadTypes = map[string]bool{"code-worker": true}
 
 // claudePressure is the forced test reading, else the cached Anthropic window; ok is false when neither exists.
 var claudePressure = func() (float64, string, bool) {

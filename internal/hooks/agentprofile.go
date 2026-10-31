@@ -48,6 +48,15 @@ func briefAgents(task string) []string {
 	return names
 }
 
+// readOnlyTypes are subagent types without write tools; a Profile: line must not move them to a coworker.
+var readOnlyTypes = map[string]bool{"Plan": true, "Explore": true, "gemini": true, "claude-code-guide": true}
+
+// inContextBrief is true when the brief's Agent: line says in-context.
+func inContextBrief(task string) bool {
+	m := agentLineRe.FindStringSubmatch(task)
+	return m != nil && strings.Contains(strings.ToLower(m[1]), "in-context")
+}
+
 func containsStr(xs []string, s string) bool {
 	return slices.Contains(xs, s)
 }
@@ -63,6 +72,13 @@ func applyProfile(updated map[string]any, promptField, task string) (note string
 		return "", &Result{Decision: Block, Reason: fmt.Sprintf(
 			"agent-effort: unknown Profile: %q — valid profiles: %s.", p, strings.Join(names, ", "))}
 	}
+	st, _ := updated["subagent_type"].(string)
+	if readOnlyTypes[st] {
+		return "agent-effort: Profile: " + p + " ignored — " + st + " is read-only and runs on the session route.", nil
+	}
+	if inContextBrief(task) {
+		return "agent-effort: Profile: " + p + " ignored for an in-context leaf.", nil
+	}
 	var cmds []string
 	for _, a := range cmpSlice(briefAgents(task), []string{"claude"}) {
 		cmds = append(cmds, fmt.Sprintf("claude-code ask --agent %s --profile %s", a, p))
@@ -72,7 +88,7 @@ func applyProfile(updated map[string]any, promptField, task string) (note string
 		updated[promptField] = "Run: " + strings.Join(cmds, " ; ") + " (profile " + p + "; ask resolves host and auth)\n\n" + prompt
 		note = "agent-effort: Profile: " + p + " — leaf must run `" + strings.Join(cmds, "`, `") + "`."
 	}
-	if st, _ := updated["subagent_type"].(string); st != "coworker" {
+	if st != "coworker" {
 		updated["subagent_type"] = "coworker"
 		note = strings.TrimSpace(fmt.Sprintf("agent-effort: Profile: %s — %s dispatch moved to coworker (the session route cannot change profile). %s",
 			p, cmpOr(st, "general-purpose"), note))

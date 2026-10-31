@@ -27,7 +27,7 @@ func profileSpawn(t *testing.T, kind, prompt string) string {
 func TestProfileBriefReroutesToCoworkerIdempotently(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	stubProfiles(t, []string{"dbx", "openai"}, true)
-	for _, kind := range []string{"general-purpose", "code-worker", "Explore", "coworker"} {
+	for _, kind := range []string{"general-purpose", "code-worker", "coworker"} {
 		brief := "Agent: codex\nProfile: dbx\nreview a.go"
 		res := agentEffortResult(ParseInput(strings.NewReader(profileSpawn(t, kind, brief))))
 		if res.Decision == Block || res.UpdatedInput == nil {
@@ -119,5 +119,20 @@ func TestProfileSkipsPressure(t *testing.T) {
 	}
 	if doc.HSO.UpdatedInput["subagent_type"] != "coworker" || doc.HSO.UpdatedInput["model"] == "haiku" {
 		t.Errorf("updated = %+v, want coworker not forced to the pressure haiku", doc.HSO.UpdatedInput)
+	}
+}
+
+// Read-only types and in-context briefs keep their type and get no ask command.
+func TestProfileIgnoredForReadOnlyAndInContext(t *testing.T) {
+	stubProfiles(t, []string{"dbx"}, true)
+	for kind, brief := range map[string]string{
+		"Plan": "Profile: dbx\nplan it", "Explore": "Agent: codex\nProfile: dbx\nlook", "gemini": "Profile: dbx\nlook",
+		"claude-code-guide": "Profile: dbx\nask", "general-purpose": "Agent: in-context\nProfile: dbx\ndo it",
+	} {
+		updated := map[string]any{"subagent_type": kind, "prompt": brief}
+		note, deny := applyProfile(updated, "prompt", brief)
+		if deny != nil || !strings.Contains(note, "ignored") || updated["subagent_type"] != kind || updated["prompt"] != brief {
+			t.Errorf("%s: note=%q deny=%v updated=%v, want type and prompt untouched", kind, note, deny, updated)
+		}
 	}
 }
