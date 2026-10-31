@@ -58,7 +58,7 @@ var rosterRows = []Schema{
 	{Name: "claude", CLI: CLI{
 		ProfilePin: providers.PinProfile, ModelPin: providers.PinModel,
 		Caps: Caps{Model: Native, Provider: Native, Effort: Native, WorkDir: Native, SessionID: Native,
-			Tools: Native, NoTools: Native, NoPersist: Native, SafeMode: Native, DebugFile: Native,
+			Tools: Native, NoTools: Native, Autonomous: Native, NoPersist: Native, SafeMode: Native, DebugFile: Native,
 			SystemPrompt: Native, AppendSystemPrompt: Native, Env: Native, OutputSchema: Native, Persona: Native},
 		Events: []string{EventStart, EventText, EventToolUse, EventRetry, EventResult, EventError},
 		Cost:   true, ConfigureHint: "run `claude-code configure agents`", LoginArgv: []string{"claude", "auth", "login"},

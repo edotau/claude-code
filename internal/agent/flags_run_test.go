@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -11,6 +12,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/vault"
@@ -76,6 +78,29 @@ func TestClaudeRunMapsSystemPromptSchemaAndResult(t *testing.T) {
 	}
 	if string(res.Structured) != `{"a":1}` {
 		t.Errorf("structured = %s", res.Structured)
+	}
+}
+
+type failSink struct{}
+
+func (failSink) Emit(Event) error { return errors.New("consumer gone") }
+
+// A sink that fails mid-stream kills the child at once instead of draining it until it exits on its own.
+func TestClaudeRunKillsChildOnSinkError(t *testing.T) {
+	srv := httptest.NewServer(http.NotFoundHandler())
+	defer srv.Close()
+	registry(t, srv)
+	const text = `{"type":"assistant","message":{"content":[{"type":"text","text":"hi"}]}}`
+	fakeCLI(t, "claude", "cat >/dev/null; printf '%s\\n' '"+text+"'; sleep 30")
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	start := time.Now()
+	_, err := claudeRunner{}.Run(ctx, RunOptions{Prompt: "task", Provider: "tanth", Launcher: testLauncher{}}, failSink{})
+	if took := time.Since(start); took > 10*time.Second {
+		t.Fatalf("Run took %s: the child was drained, not killed", took)
+	}
+	if err == nil || !strings.Contains(err.Error(), "consumer gone") {
+		t.Errorf("err = %v, want the sink error", err)
 	}
 }
 
