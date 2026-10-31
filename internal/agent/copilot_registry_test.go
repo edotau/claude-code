@@ -10,8 +10,11 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/copilotsdk"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/proxy"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
+	copilot "github.com/github/copilot-sdk/go"
 )
 
 // --model in both spellings is lifted out in order; every other arg (including -m and a trailing bare --model) stays.
@@ -241,5 +244,139 @@ func TestConfigureCopilotRegistryLaunchEnv(t *testing.T) {
 	(copilotRegistry{}).Revoke() // a launch that never minted revokes nothing
 	if len(*revoked) != 1 {
 		t.Errorf("empty-token Revoke hit the router: %v", *revoked)
+	}
+}
+
+// gw is an ai-gateway row: anthropic and responses routes, no openai route.
+func gw() *providers.Provider {
+	h := "https://h.example.com/ai-gateway"
+	return &providers.Provider{Preset: providers.PresetDatabricks, Routes: map[string]string{
+		providers.ProtocolAnthropic: h + "/anthropic", providers.ProtocolResponses: h + "/codex/v1"}}
+}
+
+// D5: an endpoint the row has no route for is left out of the registry and named in Note.
+func TestBuildGatewayDropsChatEndpoints(t *testing.T) {
+	eps := []CopilotEndpoint{ep("databricks-claude-sonnet-5-5"), ep("databricks-gpt-5-5"),
+		ep("databricks-meta-llama-3-3-70b-instruct"), ep("databricks-kimi-k3")}
+	r := copilotBuildRegistry("gwdev", gw(), eps, "http://r")
+	out := render(t, r, "cct_x")
+	for _, p := range out.Providers {
+		if p["name"] == "gwdev-openai" {
+			t.Errorf("openai chat provider on a row without an openai route: %v", p)
+		}
+	}
+	ids := map[string]bool{}
+	for _, m := range out.Models {
+		ids[m["id"].(string)] = true
+	}
+	if len(out.Models) != 2 || !ids["claude-sonnet-5-5"] || !ids["gpt-5-5"] {
+		t.Errorf("models = %v, want only claude and gpt", out.Models)
+	}
+	for _, want := range []string{"gwdev", "2 endpoint(s)", "databricks-meta-llama-3-3-70b-instruct", "databricks-kimi-k3"} {
+		if !strings.Contains(r.Note, want) {
+			t.Errorf("Note = %q, missing %q", r.Note, want)
+		}
+	}
+}
+
+// A serving row serves every endpoint and sets no Note.
+func TestBuildServingKeepsChatEndpoints(t *testing.T) {
+	r := copilotBuildRegistry("dev", dbx(), []CopilotEndpoint{ep("databricks-claude-sonnet-5-5"), ep("databricks-kimi-k3")}, "http://r")
+	if len(r.Models) != 2 || r.Note != "" {
+		t.Errorf("models = %v, note %q", r.Models, r.Note)
+	}
+	if w, _, ok, why := copilotEndpointWire(dbx(), "databricks-kimi-k3"); !ok || w != providers.ProtocolOpenAI || why != "" {
+		t.Errorf("copilotEndpointWire(kimi) = %q,%v,%q", w, ok, why)
+	}
+	if w, _, ok, _ := copilotEndpointWire(gw(), "databricks-kimi-k3"); ok || w != "" {
+		t.Errorf("copilotEndpointWire(gateway kimi) = %q,%v, want unservable", w, ok)
+	}
+}
+
+// Regression: upstream provider headers (credentials) must not reach the router-bound SDK providers.
+func TestPrepareCopilotRegistryDropsUpstreamHeaders(t *testing.T) {
+	t.Cleanup(WithCopilotOS("linux")) // the macOS refusal has its own test
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("HOME", t.TempDir())
+	oldD, oldE, oldM := copilotDiscover, copilotEnsureRouter, copilotMintToken
+	t.Cleanup(func() { copilotDiscover, copilotEnsureRouter, copilotMintToken = oldD, oldE, oldM })
+	copilotDiscover = func(context.Context, *providers.Registry, *providers.Provider) ([]CopilotEndpoint, error) {
+		var ep CopilotEndpoint
+		ep.ID, ep.Name = "databricks-claude-sonnet-4", "s"
+		return []CopilotEndpoint{ep}, nil
+	}
+	copilotEnsureRouter = func(context.Context) (string, error) { return "http://127.0.0.1:1", nil }
+	copilotMintToken = func(context.Context, string, int) (string, error) { return "tok", nil }
+
+	up := &providers.Provider{Name: "dbx", Headers: map[string]string{"X-Api-Key": "upstream-secret", "Authorization": "Bearer up"}}
+	rt, err := prepareCopilotRegistry(context.Background(), providers.Target{Provider: up, Model: "databricks-claude-sonnet-4"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rt.providers) == 0 {
+		t.Fatal("no providers built")
+	}
+	for _, p := range rt.providers {
+		if len(p.Headers) != 1 || p.Headers[proxy.AgentHeader] != "copilot" {
+			t.Errorf("provider %s headers = %v, want only %s", p.Name, p.Headers, proxy.AgentHeader)
+		}
+	}
+	if up.Headers["X-Api-Key"] != "upstream-secret" {
+		t.Error("caller's provider was mutated")
+	}
+}
+
+func registryRouteStubs(t *testing.T) (minted *int) {
+	t.Helper()
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("COPILOT_HOME", "")
+	oldD, oldE, oldM := copilotDiscover, copilotEnsureRouter, copilotMintToken
+	t.Cleanup(func() { copilotDiscover, copilotEnsureRouter, copilotMintToken = oldD, oldE, oldM })
+	copilotDiscover = func(context.Context, *providers.Registry, *providers.Provider) ([]CopilotEndpoint, error) {
+		var ep CopilotEndpoint
+		ep.ID, ep.Name = "databricks-claude-sonnet-4", "s"
+		return []CopilotEndpoint{ep}, nil
+	}
+	copilotEnsureRouter = func(context.Context) (string, error) { return "http://127.0.0.1:1", nil }
+	minted = new(int)
+	copilotMintToken = func(context.Context, string, int) (string, error) { *minted++; return "tok", nil }
+	return minted
+}
+
+// An unregistered model fails the SDK registry route before any token is minted, and a registered one yields
+// Options whose child env drops an inherited COPILOT_PROVIDERS_CONFIG / GitHub token / singular BYOK block.
+func TestCopilotRegistryRouteFailsClosedAndScrubs(t *testing.T) {
+	t.Cleanup(WithCopilotOS("linux")) // the macOS refusal has its own test
+	minted := registryRouteStubs(t)
+	up := &providers.Provider{Name: "dbx"}
+
+	_, err := prepareCopilotRegistry(context.Background(), providers.Target{Provider: up, Model: "databricks-no-such-model"})
+	if !errors.Is(err, ErrUnknownModel) || *minted != 0 {
+		t.Fatalf("err = %v, minted = %d; want ErrUnknownModel and no mint", err, *minted)
+	}
+
+	rt, err := prepareCopilotRegistry(context.Background(), providers.Target{Provider: up, Model: "databricks-claude-sonnet-4"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("COPILOT_PROVIDERS_CONFIG", "/tmp/stale.json")
+	t.Setenv("COPILOT_PROVIDER_BASE_URL", "http://stale")
+	t.Setenv("GITHUB_TOKEN", "gh-secret")
+	t.Setenv("GH_TOKEN", "gh-secret")
+	o := copilotsdk.Options{CLIPath: "/fake/copilot", GitHubToken: "gh-secret", UseLoggedInUser: true, Env: []string{"GH_TOKEN=x"}}
+	rt.apply(&o)
+	if o.GitHubToken != "" || o.UseLoggedInUser {
+		t.Fatalf("registry route kept a GitHub login: %+v", o)
+	}
+	co, err := copilotsdk.BuildClientOptions(o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, kv := range co.Connection.(copilot.StdioConnection).Env {
+		if strings.HasPrefix(kv, "COPILOT_PROVIDERS_CONFIG=") || strings.HasPrefix(kv, "COPILOT_PROVIDER_") ||
+			strings.HasPrefix(kv, "GITHUB_TOKEN=") || strings.HasPrefix(kv, "GH_TOKEN=") || strings.Contains(kv, "gh-secret") {
+			t.Errorf("child env kept %q", kv)
+		}
 	}
 }
