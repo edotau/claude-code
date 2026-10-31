@@ -1,4 +1,4 @@
-// Package setup implements the "adopt" and "nuke" setup modes shared by the `setup` CLI verb.
+// Package setup implements the "adopt" and "nuke" setup modes shared by `install --setup`.
 package setup
 
 import (

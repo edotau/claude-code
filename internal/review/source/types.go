@@ -1,4 +1,4 @@
-// Package source ports quality_core.py / code_quality_checker.py / complexity_checker.py to Go stdlib.
+// Package source scores source files: code-quality and complexity checks plus simplify candidates, stdlib only.
 package source
 
 import (

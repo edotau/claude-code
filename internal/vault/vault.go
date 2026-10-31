@@ -1,3 +1,4 @@
+// Package vault is the encrypted bbolt store behind pins, custom env, provider/agent overlays and sealed secrets.
 package vault
 
 import (

@@ -1,4 +1,5 @@
 // format.go is the one --format text|json convention every diagnostic verb shares: data on stdout, diagnostics on stderr.
+
 package helptext
 
 import (

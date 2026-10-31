@@ -212,7 +212,7 @@ function copyText(text) {
   return ok ? Promise.resolve() : Promise.reject(new Error('copy failed'));
 }
 
-// statusGlyph mirrors internal/agenttree/render.go's statusGlyph: one marker per status at a glance.
+// statusGlyph mirrors internal/agent/tree/render.go's statusGlyph: one marker per status at a glance.
 function statusGlyph(status) {
   return { running: '●', finished: '✓', error: '✗', stale: '·' }[status] || ' ';
 }

@@ -1,4 +1,4 @@
-// Package plan ports assumption_linter.py, goal_verifier.py and workflow_skeleton.py to Go stdlib.
+// Package plan checks plans and docs: assumption lint, goal verification, doc drift, workflow skeletons.
 package plan
 
 import (

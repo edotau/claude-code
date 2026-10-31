@@ -1,4 +1,5 @@
 // Git exec seam: sanitized environment, caller-supplied timeout via ctx, output trimmed only on the right.
+
 package proc
 
 import (

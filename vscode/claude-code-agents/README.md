@@ -2,7 +2,7 @@
 
 Dispatch remote work over SSH/tmux and watch per-agent-CLI token usage from the VS Code activity bar.
 
-Runs `claude-code dispatch`, `claude-code usage --format json` and `claude-code configure provider --list --format json`
+Runs `claude-code network remote`, `claude-code usage --format json` and `claude-code configure provider --list --format json`
 via `child_process.execFile` — no shell, no npm dependencies. On Remote-SSH it runs on the remote host
 (workspace extension kind), so usage always reflects the box the binary is actually on.
 

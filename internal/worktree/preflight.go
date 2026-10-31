@@ -11,7 +11,7 @@ import (
 )
 
 // Issue codes Preflight (and Promote's recheck) can append to a MergePlan; each names one condition
-// that must clear before Merge proceeds. IssueConflict is the one Phase 3 (agent resolution) acts on.
+// that must clear before Merge proceeds. IssueConflict is the one agent resolution acts on.
 const (
 	IssueDetachedTarget     = "detached-target"
 	IssueTargetMismatch     = "target-mismatch"
@@ -160,7 +160,7 @@ func preflight(ctx context.Context, repo *Repo, name, target string, trackedOnly
 	}
 	if len(conflicts) > 0 {
 		plan.Issues = append(plan.Issues, Issue{Code: IssueConflict, Paths: conflicts,
-			Detail: "git merge-tree predicts a conflict; Phase 3 adds agent resolution for this"})
+			Detail: "git merge-tree predicts a conflict; merge --resolve-agent can resolve it"})
 	}
 	return plan, nil
 }

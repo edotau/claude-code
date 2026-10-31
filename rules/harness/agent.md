@@ -38,7 +38,7 @@ paths:
   left out with a note.
 - **Claude Code** on a Responses-only model (`gpt-5.5`) is refused at launch and by the router — use codex or copilot.
 - **copilot** follows the session profile through the proxy (`/p/<profile>`, BYOK, `COPILOT_OFFLINE=true`, no
-  credits); `--model <profile>:<tier>` crosses profiles. The GitHub login is used only while the `COPILOT_PROFILE`
+  credits); `--model <profile>:<alias>` crosses profiles. The GitHub login is used only while the `COPILOT_PROFILE`
   pin's verified credits are < 95%, else it falls back to the Databricks profile (never the other GitHub account).
   Usage rows read `databricks/<model>` vs `github·copilot/<model>`. Prompt cap = window − 32k − 10%.
 - Interactive copilot on Databricks gets native `/model` via a per-launch registry (0600, per pid) and a login-free

@@ -22,7 +22,7 @@ every module on the event, the gate included.
   block, and it cannot be switched off.
 - **Switches:** any other group turns off with `"<group>": false` under `harnessHooks` in the vault overlay
   (`claude-code vault edit`); an unknown group or a gate group is rejected.
-- **Vendors:** codex and copilot run only `safety-scan`, `docs-placement`, `docs-plan-gate`, `paths-resolve` and
+- **Agents:** codex and copilot run only `safety-scan`, `docs-placement`, `docs-plan-gate`, `paths-resolve` and
   `memory-recall`, each as `hook <Event> --<module>`. Neither has an ask decision, so a safety ask blocks there.
 
 ## Event → hook matrix
@@ -46,7 +46,7 @@ every module on the event, the gate included.
 | `memory-start` | SessionStart | Injects `memory/index.md` + this repo's focus (Current Focus/Blockers/Next Steps, In Progress); repairs `projects/<slug>/memory` |
 | `paths-resolve` | UserPromptSubmit | Reports existing paths in the prompt; translates Windows ⇄ `/mnt/…` on WSL |
 | `memory-recall` | UserPromptSubmit | Injects ≤3 bank blocks matching ≥2 prompt terms (plus a repo store the prompt names); skips blocks in context; logs hits to `access.log` (the hot/cold signal for `memory review`) |
-| `codex-agent-route` · `codex-routing-result` · `codex-routing-start` · `codex-subagent-start` | codex vendor events | Codex-only routing hooks; never rendered into Claude settings |
+| `codex-agent-route` · `codex-routing-result` · `codex-routing-start` · `codex-subagent-start` | codex agent events | Codex-only routing hooks; never rendered into Claude settings |
 | `memory-compact` | PreCompact | Dispatches a background update for uncovered edits; never blocks |
 | `memory-end` | SessionEnd | After enough edits spawns `claude-code memory update`; the first dispatch claims one detached `memory watch` that updates after 10 quiet minutes, so a crash loses nothing |
 | `worktree-create` / `worktree-remove` | WorktreeCreate / WorktreeRemove | Create at `~/worktrees/<repo>/<name>` (honors `worktree.baseRef`, seeds `.venv`/`.env`, opens ledger `memory/<repo>/worktrees/<name>.md`); remove refuses a dirty tree and `branch -d`s only a merged branch |

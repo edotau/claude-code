@@ -19,7 +19,7 @@ type MergeResult struct {
 
 // IntegrateTarget merges the pinned target OID into the worktree itself — never repo.Main — so any
 // integration commit lands in the worktree's own history. Callers gate on plan.Issues (a predicted
-// conflict) before calling this; Phase 3 adds resolution for the ones that stop here instead.
+// conflict) before calling this; resolve handles the ones that stop here instead.
 func IntegrateTarget(ctx context.Context, repo *Repo, plan *MergePlan) (*MergeResult, error) {
 	if issue, err := checkWorktreeState(ctx, plan.WorktreePath, plan.AfterResolution); err != nil {
 		return nil, err

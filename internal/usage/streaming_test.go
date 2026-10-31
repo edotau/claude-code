@@ -1,6 +1,7 @@
 // usage_stream_test.go covers Run's concurrent section streaming: the MODEL table prints as soon as
 // the local scan finishes, PROVIDER QUOTAS/API KEYS/AGENTS follow in order once their producers land,
 // and a slow or disabled quota fetch never blocks or corrupts the other sections.
+
 package usage
 
 import (

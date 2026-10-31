@@ -1,5 +1,5 @@
-// Package router is the loopback model router Claude Code talks to when a session needs translation,
-// cross-provider slots, or failover.
+// Package proxy is the loopback model proxy Claude Code talks to when a session needs translation,
+// cross-provider model aliases, or failover.
 package proxy
 
 import (
@@ -41,7 +41,7 @@ const (
 	oauthBeta       = "oauth-2025-04-20" // the anthropic-beta Claude Code sends with a subscription bearer token
 )
 
-// AuthGate is the route package's auth marks, injected because route imports router; the zero value is disabled.
+// AuthGate is the router package's auth marks, injected by the CLI so proxy does not import router; zero is disabled.
 type AuthGate struct {
 	Account func(provider string) string                              // router.ProviderAccount
 	Mark    func(account, reason string) error                        // router.MarkAuth
