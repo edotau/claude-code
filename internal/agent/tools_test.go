@@ -1,4 +1,4 @@
-package tools
+package agent
 
 import (
 	"bytes"
@@ -265,9 +265,9 @@ func TestInstallDir(t *testing.T) {
 	} {
 		t.Run(tc.name+"-"+strconv.FormatBool(tc.direct)+"-"+strconv.FormatBool(tc.pathCopy), func(t *testing.T) {
 			env := setupToolsTestEnv(t)
-			tool, ok := Lookup(tc.name)
+			tool, ok := LookupTool(tc.name)
 			if !ok {
-				t.Fatalf("Lookup(%q) failed", tc.name)
+				t.Fatalf("LookupTool(%q) failed", tc.name)
 			}
 			if tc.pathCopy {
 				writeToolsFixture(t, filepath.Join(env.path1, tool.Binary), "#!/bin/sh\nexit 0\n", 0o755)

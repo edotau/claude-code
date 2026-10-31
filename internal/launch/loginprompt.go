@@ -10,14 +10,14 @@ import (
 	"sync"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/signin"
 	"github.com/edotau/claude-code/internal/ui/ansi"
 )
 
 // Test seams: the sign-in factory, the TTY gate, and the prompt's input and output.
 var (
-	signinFor           = signin.For
+	signinFor           = agent.SigninFor
 	canPrompt           = func() bool { return ansi.IsTerminal(os.Stdin) && ansi.IsTerminal(os.Stderr) }
 	loginIn   io.Reader = os.Stdin
 	loginOut  io.Writer = os.Stderr
@@ -62,7 +62,7 @@ func offerLogin(ctx context.Context, o Options, args []string, ps []*providers.P
 
 // checkResult is one provider's concurrent pre-launch check.
 type checkResult struct {
-	s      signin.Signin
+	s      agent.Signin
 	v      providers.AuthVerdict
 	detail string
 	ok     bool
@@ -101,7 +101,7 @@ func offerLoginOne(ctx context.Context, p *providers.Provider, in *bufio.Reader,
 }
 
 // checkSignin runs the check, giving up after credCheckTimeout (ok=false); an abandoned one dies with the exec.
-func checkSignin(ctx context.Context, s signin.Signin) (v providers.AuthVerdict, detail string, ok bool) {
+func checkSignin(ctx context.Context, s agent.Signin) (v providers.AuthVerdict, detail string, ok bool) {
 	type res struct {
 		v      providers.AuthVerdict
 		detail string

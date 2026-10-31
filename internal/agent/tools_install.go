@@ -1,4 +1,4 @@
-package tools
+package agent
 
 import (
 	"archive/tar"
@@ -13,10 +13,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"runtime"
 	"slices"
-	"strconv"
 	"strings"
 	"time"
 
@@ -111,8 +109,6 @@ const opencodeMaxMajor = 1
 // opencodeAllowMajorEnv, set non-empty, lifts the opencodeMaxMajor refusal for one install.
 const opencodeAllowMajorEnv = "HARNESS_ALLOW_OPENCODE_2X"
 
-var opencodeVersionRe = regexp.MustCompile(`(\d+)\.\d+\.\d+`)
-
 // installOpencode runs upstream's installer (INSTALL_DIR is fixed at ~/.opencode/bin), refuses a
 // major version above opencodeMaxMajor, then copies into dir. The prior binary at src is moved
 // aside first so a refusal/failure can restore it instead of leaving the rejected 2.x in place.
@@ -175,12 +171,8 @@ func refuseOpencodeMajor(ctx context.Context, w io.Writer, bin string) error {
 		return nil
 	}
 	version := strings.TrimSpace(string(out))
-	m := opencodeVersionRe.FindStringSubmatch(version)
-	if m == nil {
-		return nil
-	}
-	major, err := strconv.Atoi(m[1])
-	if err != nil || major <= opencodeMaxMajor {
+	major := parseOpencodeMajor(version)
+	if major <= opencodeMaxMajor {
 		return nil
 	}
 	fmt.Fprintf(w, "  refuse   opencode %s (major %d > %d)\n", version, major, opencodeMaxMajor)

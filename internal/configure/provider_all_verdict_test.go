@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/signin"
 )
 
 // verdictSignin reports a fixed verdict per row and records Check and Login calls.
@@ -42,7 +42,7 @@ func verdictSeams(t *testing.T, vs map[string]providers.AuthVerdict, tty bool) (
 	t.Cleanup(func() { allSigninFor, allCheckTimeout, allStdinTTY, allStderrTTY = f, to, si, se })
 	var mu sync.Mutex
 	checks, logins = &[]string{}, &[]string{}
-	allSigninFor = func(p *providers.Provider) signin.Signin {
+	allSigninFor = func(p *providers.Provider) agent.Signin {
 		return verdictSignin{p: p, v: vs[p.Name], mu: &mu, checks: checks, logins: logins}
 	}
 	allCheckTimeout = time.Second

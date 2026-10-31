@@ -1,5 +1,5 @@
-// Package signin is the one check -> login -> recheck flow behind every provider kind.
-package signin
+// Signin is the one check -> login -> recheck flow behind every provider kind (signin.go).
+package agent
 
 import (
 	"context"
@@ -12,7 +12,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/databricks"
 	"github.com/edotau/claude-code/internal/databricks/oauth"
 	"github.com/edotau/claude-code/internal/network/tailscale"
@@ -33,16 +32,16 @@ type Signin interface {
 
 // Test seams: the credential mint, the u2m login, the secret prompt and store, the vendor probes.
 var (
-	credential    = providers.Credential
-	loginRow      = databricks.LoginRow
-	stdinTTY      = tui.StdinIsTerminal
-	promptSecret  = hiddenPrompt
-	storeSecret   = secrets.Store
-	claudeStatus  = providers.ClaudeLoginProbe
-	copilotLogin  = agent.CopilotStoredLogin
-	geminiPresent = agent.GeminiLoginPresent
-	runVendor     = runVendorCLI
-	codexStatus   = func(ctx context.Context, bin string) ([]byte, error) {
+	credential         = providers.Credential
+	loginRow           = databricks.LoginRow
+	stdinTTY           = tui.StdinIsTerminal
+	promptSecret       = hiddenPrompt
+	storeSecret        = secrets.Store
+	claudeStatus       = providers.ClaudeLoginProbe
+	signinCopilotLogin = CopilotStoredLogin
+	geminiPresent      = GeminiLoginPresent
+	runLogin           = runLoginCLI
+	codexStatus        = func(ctx context.Context, bin string) ([]byte, error) {
 		return exec.CommandContext(ctx, bin, "login", "status").CombinedOutput()
 	}
 	probeTimeout = 8 * time.Second
@@ -53,25 +52,25 @@ func hiddenPrompt(name string) (string, error) {
 	return tui.Secret("Paste the value for "+name+" (input hidden, Enter when done): ", secrets.Preview)
 }
 
-// For returns the sign-in for p's kind.
-func For(p *providers.Provider) Signin {
+// SigninFor returns the sign-in for p's kind.
+func SigninFor(p *providers.Provider) Signin {
 	m := p.Auth.Method()
 	switch {
 	case m == providers.AuthNone:
-		return none{p}
+		return noneSignin{p}
 	case m == providers.AuthCLI && p.Auth.Login == "":
-		return claude{}
+		return claudeSignin{}
 	case m == providers.AuthCLI || p.Auth.Login != "":
-		return vendor{p.Auth.Login}
+		return cliSignin{p.Auth.Login}
 	case m == providers.AuthOAuth || (p.Preset == providers.PresetDatabricks && m == ""):
-		return u2m{p}
+		return u2mSignin{p}
 	}
-	return secret{p}
+	return secretSignin{p}
 }
 
 // ValidateSecret rejects a value that cannot be the named credential (shared with `vault set`).
 func ValidateSecret(name, value string) error {
-	if isGitHubToken(name) && !agent.ValidCopilotToken(value) {
+	if isGitHubToken(name) && !ValidCopilotToken(value) {
 		return fmt.Errorf("%s not a GitHub token (want gho_/ghp_/ghu_/github_pat_, >=20 chars)", name)
 	}
 	return tailscale.ValidCredential(name, value)
@@ -79,12 +78,12 @@ func ValidateSecret(name, value string) error {
 
 // isGitHubToken: the transitional env name, or a vault name GITHUB_[<PROFILE>_]PAT (providers.SecretName).
 func isGitHubToken(name string) bool {
-	return name == agent.CopilotTokenEnv || (strings.HasPrefix(name, "GITHUB_") && strings.HasSuffix(name, "_"+strings.ToUpper(providers.AuthPAT)))
+	return name == CopilotTokenEnv || (strings.HasPrefix(name, "GITHUB_") && strings.HasSuffix(name, "_"+strings.ToUpper(providers.AuthPAT)))
 }
 
-type u2m struct{ p *providers.Provider }
+type u2mSignin struct{ p *providers.Provider }
 
-func (s u2m) Check(ctx context.Context) (providers.AuthVerdict, string) {
+func (s u2mSignin) Check(ctx context.Context) (providers.AuthVerdict, string) {
 	_, err := credential(ctx, s.p)
 	v := providers.Verdict(err)
 	switch v {
@@ -102,17 +101,17 @@ func (s u2m) Check(ctx context.Context) (providers.AuthVerdict, string) {
 	return v, ""
 }
 
-func (s u2m) Login(ctx context.Context, _ io.Reader, out io.Writer) error {
+func (s u2mSignin) Login(ctx context.Context, _ io.Reader, out io.Writer) error {
 	if !s.p.Auth.Sealed() { // cliProfile row: LoginRow would switch it to u2m in the vault
 		return fmt.Errorf("%s uses the databricks CLI profile; run `databricks auth login -p %s`", s.p.Name, s.p.CLIProfile)
 	}
 	return loginRow(ctx, s.p.Name, out)
 }
 
-// secret covers sealed (pat, oauth-m2m) and env/file/command credentials.
-type secret struct{ p *providers.Provider }
+// secretSignin covers sealed (pat, oauth-m2m) and env/file/command credentials.
+type secretSignin struct{ p *providers.Provider }
 
-func (s secret) Check(ctx context.Context) (providers.AuthVerdict, string) {
+func (s secretSignin) Check(ctx context.Context) (providers.AuthVerdict, string) {
 	if s.p.Auth.Sealed() {
 		if _, err := providers.HasSecretErr(providers.AuthSecretName(s.p)); err != nil { // a locked vault is not "absent"
 			return providers.VerdictTransient, "vault: " + err.Error()
@@ -135,14 +134,14 @@ func (s secret) Check(ctx context.Context) (providers.AuthVerdict, string) {
 	return v, ""
 }
 
-func (s secret) name() string {
+func (s secretSignin) name() string {
 	if n := providers.AuthSecretName(s.p); n != "" {
 		return n
 	}
 	return s.p.Auth.Env
 }
 
-func (s secret) Login(_ context.Context, _ io.Reader, _ io.Writer) error {
+func (s secretSignin) Login(_ context.Context, _ io.Reader, _ io.Writer) error {
 	name := s.name()
 	if name == "" {
 		return fmt.Errorf("%s: no vault secret to set; edit its auth.command or auth.file", s.p.Name)
@@ -170,10 +169,10 @@ func (s secret) Login(_ context.Context, _ io.Reader, _ io.Writer) error {
 // probeClient is shared by every keyless-endpoint probe (no proxy).
 var probeClient = &http.Client{Transport: &http.Transport{Proxy: nil}}
 
-// none is a keyless endpoint (ollama): reachable or not.
-type none struct{ p *providers.Provider }
+// noneSignin is a keyless endpoint (ollama): reachable or not.
+type noneSignin struct{ p *providers.Provider }
 
-func (s none) Check(ctx context.Context) (providers.AuthVerdict, string) {
+func (s noneSignin) Check(ctx context.Context) (providers.AuthVerdict, string) {
 	if s.p.BaseURL == "" {
 		return providers.VerdictOK, ""
 	}
@@ -191,12 +190,12 @@ func (s none) Check(ctx context.Context) (providers.AuthVerdict, string) {
 	return providers.VerdictOK, ""
 }
 
-func (none) Login(context.Context, io.Reader, io.Writer) error { return nil }
+func (noneSignin) Login(context.Context, io.Reader, io.Writer) error { return nil }
 
-// claude is the passthrough Claude subscription.
-type claude struct{}
+// claudeSignin is the passthrough Claude subscription.
+type claudeSignin struct{}
 
-func (claude) Check(context.Context) (providers.AuthVerdict, string) {
+func (claudeSignin) Check(context.Context) (providers.AuthVerdict, string) {
 	ok, plan, err := claudeStatus()
 	switch {
 	case err != nil:
@@ -207,14 +206,14 @@ func (claude) Check(context.Context) (providers.AuthVerdict, string) {
 	return providers.VerdictNeedsLogin, ""
 }
 
-func (claude) Login(ctx context.Context, in io.Reader, out io.Writer) error {
-	return runVendor(ctx, "claude", []string{"auth", "login"}, in, out)
+func (claudeSignin) Login(ctx context.Context, in io.Reader, out io.Writer) error {
+	return runLogin(ctx, "claude", []string{"auth", "login"}, in, out)
 }
 
-// vendor is a passthrough row served by another CLI's own sign-in (codex, copilot, gemini).
-type vendor struct{ name string }
+// cliSignin is a passthrough row served by another CLI's own sign-in (codex, copilot, gemini).
+type cliSignin struct{ name string }
 
-func (s vendor) Check(ctx context.Context) (providers.AuthVerdict, string) {
+func (s cliSignin) Check(ctx context.Context) (providers.AuthVerdict, string) {
 	switch s.name {
 	case "codex":
 		bin, err := paths.VendorBin("codex")
@@ -235,7 +234,7 @@ func (s vendor) Check(ctx context.Context) (providers.AuthVerdict, string) {
 		}
 		return providers.VerdictTransient, err.Error()
 	case "copilot":
-		if l := copilotLogin(); l != "" {
+		if l := signinCopilotLogin(); l != "" {
 			return providers.VerdictOK, "signed in as " + l
 		}
 		return providers.VerdictNeedsLogin, ""
@@ -248,8 +247,8 @@ func (s vendor) Check(ctx context.Context) (providers.AuthVerdict, string) {
 	return providers.VerdictTransient, "unknown sign-in " + s.name
 }
 
-func (s vendor) Login(ctx context.Context, in io.Reader, out io.Writer) error {
-	row, ok := agent.LookupSchema(s.name)
+func (s cliSignin) Login(ctx context.Context, in io.Reader, out io.Writer) error {
+	row, ok := LookupSchema(s.name)
 	switch {
 	case !ok || len(row.CLI.LoginArgv) == 0:
 		return fmt.Errorf("no sign-in known for %q", s.name)
@@ -257,11 +256,11 @@ func (s vendor) Login(ctx context.Context, in io.Reader, out io.Writer) error {
 		bin := row.CLI.LoginArgv[0]
 		return fmt.Errorf("%s has no login subcommand; run `%s` yourself and sign in with Google", bin, bin)
 	}
-	return runVendor(ctx, s.name, row.CLI.LoginArgv[1:], in, out)
+	return runLogin(ctx, s.name, row.CLI.LoginArgv[1:], in, out)
 }
 
-// runVendorCLI runs the vendor CLI's own login on the caller's terminal (list args, no shell).
-func runVendorCLI(ctx context.Context, name string, args []string, in io.Reader, out io.Writer) error {
+// runLoginCLI runs the vendor CLI's own login on the caller's terminal (list args, no shell).
+func runLoginCLI(ctx context.Context, name string, args []string, in io.Reader, out io.Writer) error {
 	bin, err := paths.VendorBin(name)
 	if err != nil {
 		return err

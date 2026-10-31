@@ -17,7 +17,6 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/schemas"
 	"github.com/edotau/claude-code/internal/secrets"
-	"github.com/edotau/claude-code/internal/tools"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 	"github.com/edotau/claude-code/internal/worktree"
 )
@@ -31,8 +30,8 @@ func setupModes() []string { return []string{"adopt", "nuke", "workspace"} }
 
 func vendorNames() []string { return []string{"codex", "gemini", "opencode", "copilot"} }
 
-// toolNames derives from tools.Tools (internal/tools), the install --tools roster.
-func toolNames() []string { return tools.Names() }
+// toolNames derives from agent.Tools, the install --tools roster.
+func toolNames() []string { return agent.ToolNames() }
 
 // configureAgentNames are the agent CLIs `configure --agent` can scope to: the vendors plus claude itself.
 func configureAgentNames() []string { return append([]string{"claude"}, vendorNames()...) }

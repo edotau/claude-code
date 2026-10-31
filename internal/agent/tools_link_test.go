@@ -1,4 +1,4 @@
-package tools
+package agent
 
 import (
 	"bytes"
@@ -21,7 +21,7 @@ func TestLinkVendorsLinksPathEntryAndIsIdempotent(t *testing.T) {
 	}
 
 	var first bytes.Buffer
-	LinkVendors(&first, []string{"agy"}, false)
+	LinkTools(&first, []string{"agy"}, false)
 	dst := filepath.Join(paths.BinDir(), "gemini")
 	if got := readlink(dst); got != candidate {
 		t.Fatalf("gemini link target = %q, want PATH entry %q", got, candidate)
@@ -31,7 +31,7 @@ func TestLinkVendorsLinksPathEntryAndIsIdempotent(t *testing.T) {
 	}
 
 	var second bytes.Buffer
-	LinkVendors(&second, []string{"agy"}, false)
+	LinkTools(&second, []string{"agy"}, false)
 	if want := "ok       " + dst + " → " + candidate; !strings.Contains(second.String(), want) {
 		t.Errorf("second output = %q, want %q", second.String(), want)
 	}
@@ -45,7 +45,7 @@ func TestLinkVendorsKeepsDirectFileAndReportsPathCopy(t *testing.T) {
 	writeToolsFixture(t, dst, "#!/bin/sh\nexit 0\n", 0o755)
 
 	var out bytes.Buffer
-	LinkVendors(&out, []string{"codex"}, false)
+	LinkTools(&out, []string{"codex"}, false)
 	if got, err := os.Lstat(dst); err != nil || !got.Mode().IsRegular() {
 		t.Fatalf("direct install changed: stat = %v, err = %v", got, err)
 	}
@@ -62,7 +62,7 @@ func TestLinkVendorsRemovesLegacyShimLinkWithoutCandidate(t *testing.T) {
 	symlinkToolsFixture(t, legacy, dst)
 
 	var out bytes.Buffer
-	LinkVendors(&out, []string{"copilot"}, false)
+	LinkTools(&out, []string{"copilot"}, false)
 	if _, err := os.Lstat(dst); !os.IsNotExist(err) {
 		t.Fatalf("legacy link remains: Lstat err = %v", err)
 	}
@@ -77,7 +77,7 @@ func TestLinkVendorsRemovesDanglingLink(t *testing.T) {
 	symlinkToolsFixture(t, filepath.Join(t.TempDir(), "missing"), dst)
 
 	var out bytes.Buffer
-	LinkVendors(&out, []string{"opencode"}, false)
+	LinkTools(&out, []string{"opencode"}, false)
 	if _, err := os.Lstat(dst); !os.IsNotExist(err) {
 		t.Fatalf("dangling link remains: Lstat err = %v", err)
 	}
@@ -94,7 +94,7 @@ func TestLinkVendorsKeepsWorkingLinkWithoutCandidate(t *testing.T) {
 	symlinkToolsFixture(t, target, dst)
 
 	var out bytes.Buffer
-	LinkVendors(&out, []string{"opencode"}, false)
+	LinkTools(&out, []string{"opencode"}, false)
 	if got := readlink(dst); got != target {
 		t.Fatalf("existing link target changed: got %q, want untouched %q", got, target)
 	}
@@ -113,7 +113,7 @@ func TestLinkVendorsKeepsRealCodexInstallNotSymlink(t *testing.T) {
 	writeToolsFixture(t, dst, "#!/bin/sh\nprintf 'real install\\n'\n", 0o755)
 
 	var out bytes.Buffer
-	LinkVendors(&out, []string{"codex"}, false)
+	LinkTools(&out, []string{"codex"}, false)
 	fi, err := os.Lstat(dst)
 	if err != nil {
 		t.Fatalf("Lstat(%s): %v", dst, err)
@@ -142,7 +142,7 @@ func TestLinkVendorsRelinksSymlinkWhenNoRealCodexInstall(t *testing.T) {
 	symlinkToolsFixture(t, oldTarget, dst)
 
 	var out bytes.Buffer
-	LinkVendors(&out, []string{"codex"}, false)
+	LinkTools(&out, []string{"codex"}, false)
 	fi, err := os.Lstat(dst)
 	if err != nil {
 		t.Fatalf("Lstat(%s): %v", dst, err)
@@ -180,7 +180,7 @@ func TestReplaceLinkKeepsRegularFileWithoutReplacing(t *testing.T) {
 func TestLinkVendorsReportsMissingTool(t *testing.T) {
 	setupToolsTestEnv(t)
 	var out bytes.Buffer
-	LinkVendors(&out, []string{"claude"}, false)
+	LinkTools(&out, []string{"claude"}, false)
 	if !strings.Contains(out.String(), "missing  claude not installed (claude-code install --tools=claude)") {
 		t.Errorf("output = %q, want missing-tool report", out.String())
 	}
@@ -192,7 +192,7 @@ func TestLinkVendorsUsesLocalBinFallback(t *testing.T) {
 	writeToolsFixture(t, candidate, "#!/bin/sh\nexit 0\n", 0o755)
 
 	var out bytes.Buffer
-	LinkVendors(&out, []string{"claude"}, false)
+	LinkTools(&out, []string{"claude"}, false)
 	dst := filepath.Join(paths.BinDir(), "claude")
 	if got := readlink(dst); got != candidate {
 		t.Fatalf("claude link target = %q, want local-bin candidate %q", got, candidate)
@@ -210,7 +210,7 @@ func TestLinkVendorsMarksNPMGlobalCandidate(t *testing.T) {
 	symlinkToolsFixture(t, target, candidate)
 
 	var out bytes.Buffer
-	LinkVendors(&out, []string{"copilot"}, false)
+	LinkTools(&out, []string{"copilot"}, false)
 	dst := filepath.Join(paths.BinDir(), "copilot")
 	if got := readlink(dst); got != candidate {
 		t.Fatalf("copilot link target = %q, want PATH entry %q", got, candidate)
@@ -229,7 +229,7 @@ func TestLinkVendorsDryRunDoesNotChangeDisk(t *testing.T) {
 	symlinkToolsFixture(t, oldTarget, dst)
 
 	var out bytes.Buffer
-	LinkVendors(&out, []string{"codex"}, true)
+	LinkTools(&out, []string{"codex"}, true)
 	if got := readlink(dst); got != oldTarget {
 		t.Fatalf("dry-run changed link target to %q, want %q", got, oldTarget)
 	}
@@ -245,7 +245,7 @@ func TestLinkVendorsLinksOnlyNamedTools(t *testing.T) {
 	}
 
 	var out bytes.Buffer
-	LinkVendors(&out, []string{"codex"}, false)
+	LinkTools(&out, []string{"codex"}, false)
 	if got := readlink(filepath.Join(paths.BinDir(), "codex")); got != filepath.Join(env.path1, "codex") {
 		t.Errorf("codex link target = %q", got)
 	}
@@ -258,12 +258,12 @@ func TestStatusOneTargetIsLinkTargetOnly(t *testing.T) {
 	env := setupToolsTestEnv(t)
 	candidate := filepath.Join(env.path1, "codex")
 	writeToolsFixture(t, candidate, "#!/bin/sh\nprintf '1.0.0\\n'\n", 0o755)
-	tool, ok := Lookup("codex")
+	tool, ok := LookupTool("codex")
 	if !ok {
 		t.Fatal("codex tool is missing")
 	}
 
-	LinkVendors(&bytes.Buffer{}, []string{"codex"}, false)
+	LinkTools(&bytes.Buffer{}, []string{"codex"}, false)
 	dst := filepath.Join(paths.BinDir(), "codex")
 	wantTarget, err := os.Readlink(dst)
 	if err != nil {

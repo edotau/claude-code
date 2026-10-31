@@ -31,7 +31,6 @@ import (
 	"github.com/edotau/claude-code/internal/preflight"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/setup"
-	"github.com/edotau/claude-code/internal/tools"
 	"github.com/edotau/claude-code/internal/ui/ansi"
 )
 
@@ -84,7 +83,7 @@ func DoctorChecks() (checks []Check, ok bool) {
 			check(pin.Status == preflight.StatusOK, false, "pin "+pin.Agent, pin.Line())
 		}
 	}
-	for _, s := range tools.StatusAll() {
+	for _, s := range agent.StatusAll() {
 		check(toolDoctorOK(s), false, "tool "+s.Name, toolDoctorDetail(s))
 	}
 	for _, spec := range providers.AgentSpecs() {
@@ -520,7 +519,7 @@ func settingsHasHooks(file string) (bool, error) {
 }
 
 // toolDoctorOK is false only for a bin/<vendor> entry that exists but cannot run (broken link, retired shim).
-func toolDoctorOK(s tools.Status) bool {
+func toolDoctorOK(s agent.ToolStatus) bool {
 	bin, ok := paths.VendorName(s.Name)
 	if !ok {
 		return true
@@ -534,21 +533,21 @@ func toolDoctorOK(s tools.Status) bool {
 
 // agentVersionDetail renders one agent's version row: ok <ver>, warn <ver> below|above <bound>: <reason>, or not installed.
 func agentVersionDetail(spec providers.AgentSpec) (pass bool, detail string) {
-	v, err := tools.AgentVersion(spec.Name)
+	v, err := agent.AgentVersion(spec.Name)
 	switch {
-	case errors.Is(err, tools.ErrAgentNotInstalled):
+	case errors.Is(err, agent.ErrAgentNotInstalled):
 		return true, "not installed"
 	case err != nil:
 		return true, "version unknown (" + err.Error() + ")"
 	}
-	if p := tools.VersionProblem(spec, v); p != "" {
+	if p := agent.VersionProblem(spec, v); p != "" {
 		return false, "warn " + v + " " + p
 	}
 	return true, "ok " + v
 }
 
 // toolDoctorDetail renders one tool's doctor line: a vendor's bin/ entry, else path + version, then extra PATH copies.
-func toolDoctorDetail(s tools.Status) string {
+func toolDoctorDetail(s agent.ToolStatus) string {
 	if bin, ok := paths.VendorName(s.Name); ok {
 		return vendorDoctorDetail(s, bin)
 	}
@@ -574,7 +573,7 @@ func toolDoctorDetail(s tools.Status) string {
 }
 
 // vendorDoctorDetail renders BinDir/<bin>: `<dst> → <Target> <version>`, a direct install, or why it is unusable.
-func vendorDoctorDetail(s tools.Status, bin string) string {
+func vendorDoctorDetail(s agent.ToolStatus, bin string) string {
 	dst := filepath.Join(paths.BinDir(), bin)
 	if _, err := paths.VendorBin(bin); err != nil {
 		if s.Path != "" {
@@ -663,7 +662,7 @@ func toolPATHCopies(name string) []string {
 }
 
 // toolPATHVersion is the first --version line of a PATH copy, cached by path+size+mtime like the tools version cache.
-func toolPATHVersion(path string) string { return tools.ProbedVersionLine(path, spawnPATHVersion) }
+func toolPATHVersion(path string) string { return agent.ProbedVersionLine(path, spawnPATHVersion) }
 
 func spawnPATHVersion(path string) string {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)

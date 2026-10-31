@@ -1,4 +1,4 @@
-package tools
+package agent
 
 import (
 	"context"
@@ -10,8 +10,8 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 )
 
-// Status is one tool's resolved state: path and version are "" when it isn't found on PATH.
-type Status struct {
+// ToolStatus is one tool's resolved state: path and version are "" when it isn't found on PATH.
+type ToolStatus struct {
 	Name      string
 	Path      string
 	Version   string // first line of `<path> --version`, best-effort
@@ -22,8 +22,8 @@ type Status struct {
 }
 
 // StatusAll reports every tool in roster order.
-func StatusAll() []Status {
-	var out []Status
+func StatusAll() []ToolStatus {
+	var out []ToolStatus
 	for _, t := range Tools {
 		if t.Binary != "" { // a setup-only row (browser) has no binary to report; doctor has its own browser row
 			out = append(out, statusOne(t))
@@ -32,8 +32,8 @@ func StatusAll() []Status {
 	return out
 }
 
-func statusOne(t Tool) Status {
-	s := Status{Name: t.Name, Hint: t.Hint}
+func statusOne(t Tool) ToolStatus {
+	s := ToolStatus{Name: t.Name, Hint: t.Hint}
 	if bin, ok := paths.VendorName(t.Name); ok {
 		s.Target = readlink(filepath.Join(paths.BinDir(), bin))
 	}
