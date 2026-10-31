@@ -43,7 +43,7 @@
   #hostTabs { display: flex; gap: 0.4rem; flex-wrap: wrap; margin-bottom: 0.4rem; }
   #hostTabs button { width: auto; background: #46183a; border-color: #40404055; color: #c0c0c0; font-weight: 400; margin-top: 0; padding: 0.3rem 0.6rem; }
   #hostTabs button.active { background: #E95420; border-color: #E95420; color: #fff; }
-  #tabs { display: flex; gap: 0.4rem; margin-bottom: 0.5rem; }
+  #tabs { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 0.5rem; }
   #tabs button { width: auto; margin-top: 0; padding: 0.3rem 0.8rem; background: #46183a; border-color: #40404055; color: #c0c0c0; font-weight: 400; }
   #tabs button.active { background: #E95420; border-color: #E95420; color: #fff; }
   #usageDays button { width: auto; margin-top: 0; padding: 0.2rem 0.7rem; background: #46183a; border-color: #40404055; color: #c0c0c0; font-weight: 400; }
@@ -63,6 +63,28 @@
     --vscode-editorWarning-foreground: #fce94f; --vscode-editorError-foreground: #ef2929;
     --vscode-font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   }
+  #architecturePane { overflow-wrap: anywhere; }
+  .arch-subtabs { display: flex; flex-wrap: wrap; gap: 0 1rem; margin-bottom: 0.7rem; border-bottom: 1px solid #40404088; }
+  .arch-subtabs button { width: auto; margin: 0 0 -1px; padding: 0.3rem 0.1rem; background: none; border: 0; border-bottom: 2px solid transparent; border-radius: 0; color: #a89fa6; font-weight: 400; font-size: 0.82rem; }
+  .arch-subtabs button.active { border-bottom-color: #E95420; color: #fff; }
+  .arch-sec h3 { font-size: 0.9rem; color: #a89fa6; margin: 1rem 0 0.4rem; }
+  .arch-chips { display: flex; flex-wrap: wrap; gap: 0.3rem; margin: 0.25rem 0; }
+  .arch-chip { width: auto; margin: 0; padding: 0.1rem 0.5rem; background: #46183a; border: 1px solid #40404055; border-radius: 999px; color: #c0c0c0; font-size: 0.75rem; font-weight: 400; text-align: left; overflow-wrap: anywhere; }
+  .arch-badge { display: inline-block; padding: 0.05rem 0.45rem; border: 1px solid #40404055; border-radius: 999px; background: #2a081f; font-size: 0.72rem; color: #c0c0c0; }
+  .arch-badge.sev-critical { background: #4a1010; color: #ef2929; }
+  .arch-badge.sev-high { background: #4a2a00; color: #E95420; }
+  .arch-badge.sev-medium { background: #4a3d00; color: #fce94f; }
+  .arch-badge.sev-low { background: #1d3a0a; color: #8ae234; }
+  .arch-band { margin-bottom: 0.4rem; }
+  .arch-dir { background: #3d1431; border: 1px solid #40404055; border-radius: 10px; padding: 0.4rem 0.6rem; margin-bottom: 0.35rem; }
+  .arch-sum { cursor: pointer; }
+  .arch-path { font-family: ui-monospace, monospace; font-size: 0.82rem; color: #fff; }
+  .arch-purpose { display: block; font-size: 0.8rem; color: #a89fa6; }
+  .arch-detail, .arch-sub { margin-top: 0.4rem; font-size: 0.84rem; }
+  .arch-field { margin: 0.2rem 0; }
+  .arch-flags { display: flex; flex-wrap: wrap; gap: 0.1rem 0.7rem; color: #a89fa6; font-family: ui-monospace, monospace; font-size: 0.76rem; }
+  .arch-flags span { white-space: nowrap; }
+  .arch-body ul { padding-left: 1.1rem; margin: 0.3rem 0; }
   #usageFrame { width: 100%; min-height: 320px; height: 70vh; border: 1px solid var(--vscode-widget-border); border-radius: 10px; }
 </style>
 </head>
@@ -72,7 +94,10 @@
   <button type="button" data-tab="agents" class="active">Agents</button>
   <button type="button" data-tab="plans">Plans</button>
   <button type="button" data-tab="usage">Usage</button>
+  <button type="button" data-tab="architecture">Architecture</button>
 </div>
+
+<div id="architecturePane" style="display:none"></div>
 
 <div id="usagePane" style="display:none">
   <p class="muted"><span id="usageDays"><button type="button" data-days="7">7d</button> <button type="button" data-days="30">30d</button></span> <span id="usageStatus">loading…</span></p>
@@ -561,7 +586,14 @@ document.getElementById('tabs').addEventListener('click', function (e) {
   document.getElementById('agentsPane').style.display = tab === 'agents' ? '' : 'none';
   document.getElementById('plansPane').style.display = tab === 'plans' ? '' : 'none';
   document.getElementById('usagePane').style.display = tab === 'usage' ? '' : 'none';
+  document.getElementById('architecturePane').style.display = tab === 'architecture' ? '' : 'none';
   if (tab === 'usage') loadUsage(false);
+  if (tab === 'architecture' && !document.getElementById('archScript')) {
+    const sc = document.createElement('script');
+    sc.id = 'archScript';
+    sc.src = '/assets/architecture.js';
+    document.body.appendChild(sc);
+  }
 });
 
 loadTree();
