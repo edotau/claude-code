@@ -134,14 +134,6 @@ func (l Level) String() string { return [...]string{"none", "emulated", "native"
 // MarshalText renders the level as its name, so describe prints "native" rather than 2.
 func (l Level) MarshalText() ([]byte, error) { return []byte(l.String()), nil }
 
-// lv is Native when ok, else None.
-func lv(ok bool) Level {
-	if ok {
-		return Native
-	}
-	return None
-}
-
 // Agent is one agent backend.
 type Runner interface {
 	Name() string

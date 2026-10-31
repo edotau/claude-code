@@ -178,7 +178,7 @@ func cmdVendorStatus(vendor string, args []string) int {
 		return helptext.ExitCode(err)
 	}
 	if err := helptext.CheckFormat(*format); err != nil {
-		return fail("%s status: %v", vendor, err)
+		return badFormat(vendor+" status", err)
 	}
 	ref := ""
 	if len(pos) > 0 {
@@ -249,7 +249,7 @@ func cmdVendorResult(vendor string, args []string) int {
 		return helptext.ExitCode(err)
 	}
 	if err := helptext.CheckFormat(*format); err != nil {
-		return fail("%s result: %v", vendor, err)
+		return badFormat(vendor+" result", err)
 	}
 	ref := ""
 	if len(pos) > 0 {
@@ -316,7 +316,7 @@ func cmdVendorSetup(vendor string, args []string) int {
 		return code
 	}
 	if err := helptext.CheckFormat(*format); err != nil {
-		return fail("%s setup: %v", vendor, err)
+		return badFormat(vendor+" setup", err)
 	}
 	rep := agent.Setup(vendor, launch.RouteDetail)
 	if *format == helptext.JSON {
@@ -444,7 +444,7 @@ func cmdVendorModels(vendor string, args []string) int {
 			return code
 		}
 		if err := helptext.CheckFormat(*f); err != nil {
-			return fail("%s catalog: %v", vendor, err)
+			return badFormat(vendor+" catalog", err)
 		}
 		format = *f
 		reg, err := providers.Load()

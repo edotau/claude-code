@@ -97,10 +97,6 @@ func (baseEngine) ranModel(t providers.Target) string { return t.Model }
 
 func (b baseEngine) loginServes(p *providers.Provider) bool { return p.Auth.Login == b.name }
 
-func (baseEngine) fallbackTarget(*providers.Registry) (providers.Target, string, bool) {
-	return providers.Target{}, "", false
-}
-
 func (b baseEngine) describeRoute(*providers.Registry) RouteInfo {
 	return RouteInfo{Agent: b.name, Leg: LegNone, Reason: "no fallback chain defined for " + b.name}
 }
