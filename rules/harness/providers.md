@@ -45,7 +45,7 @@ static menu: routing never touches the network.
 - **Refresh:** `make install`, `doctor --refresh`, `preflight --live`; with the switch on, also `switch`,
   `<agent> profile`, `configure` exit (pin changed or switch flipped on) and a detached `preflight --refresh` at
   session start, at most once per 15 minutes.
-- **Fallback ignores the tier:** a swap takes the first READY entry in menu order, so a sonnet dispatch can land on
+- **Fallback ignores the model alias:** a swap takes the first READY entry in menu order, so a sonnet dispatch can land on
   an opus endpoint. Menu order is the control. An explicit pin swaps too; the swap appears in `gateway router` skips.
 - **Live rescue:** a codex dispatch that gets `ENDPOINT_NOT_FOUND` marks the model unserved for 1h and retries once
   on the next READY Responses model. An exact `--model` never retries. copilot and opencode refuse unknown models

@@ -1,3 +1,4 @@
+// Package vaulttest gives tests a hermetic vault: a temp config dir, a fixed key, seeded records and a fake keyring.
 package vaulttest
 
 import (

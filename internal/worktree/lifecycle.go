@@ -237,7 +237,7 @@ func CleanInLease(repo *Repo, name string, dryRun bool, log io.Writer) (CleanRes
 
 // CleanAll previews (or, with apply, executes) Clean across every entry List finds that actually
 // exists on disk and isn't already orphaned; auto-prune and deletion of unregistered directories are
-// deferred to a later phase, so an orphan is only ever reported, never removed, by this call.
+// not done here, so an orphan is only ever reported, never removed, by this call.
 func CleanAll(repo *Repo, apply bool) ([]CleanResult, error) {
 	entries, err := List(repo)
 	if err != nil {

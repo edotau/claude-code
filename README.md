@@ -382,7 +382,7 @@ every embedded (`//go:embed`) template.
 | OpenCode reasoning effort | TUI `ctrl+t` · `opencode run --variant high` · `claude-code ask --effort high` |
 | Worktrees under `~/worktrees/<repo>/` | `claude-code worktree list\|create <n>\|merge <n>\|clean <n>\|clean-all` |
 | Subagent status and dispatches | `claude-code agents tree [--watch\|--background]` · `agents reap [--dry-run]` · `network view <id> [--follow]` |
-| Run an agent on another tailnet box | `claude-code dispatch --host <h> --agent <a> "<task>"` · `--list --status` |
+| Run an agent on another tailnet box | `claude-code ask --host <h> --agent <a> "<task>"` · `network remote --host <h> --list --status` |
 | Watch agents from a phone | `claude-code network page [--addr ip:port]` |
 | See packages, dependencies, the CLI map and the open audit | `claude-code network page` → Architecture tab |
 | Browsers, scraping, web search | `claude-code network browser [--setup --browser <b>]` · `--extract <url> …` · `network websearch --query q` |

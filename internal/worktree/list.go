@@ -202,7 +202,7 @@ func activity(gitDir, worktreePath string) (time.Time, string) {
 	return time.Time{}, ""
 }
 
-// currentBranch is main's checked-out branch (the Phase 1 merge target); detached HEAD uses the OID.
+// currentBranch is main's checked-out branch (the merge target); detached HEAD uses the OID.
 func currentBranch(main string) (string, error) {
 	if out, err := gitCmd(context.Background(), "-C", main, "symbolic-ref", "--short", "-q", "HEAD").Output(); err == nil {
 		return strings.TrimSpace(string(out)), nil

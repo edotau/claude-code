@@ -1,6 +1,6 @@
 // Package worktree is the deterministic Go lifecycle for ~/worktrees/<repo>/<name>: identity,
 // listing/classification, and safe create/clean. Shared by the worktree-create/-remove hooks and the
-// `claude-code worktree` verb; later Appendix A phases add merge/resolve/status on top of it.
+// `claude-code worktree` verb, with merge and agent-assisted resolve on top.
 package worktree
 
 import (

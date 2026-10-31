@@ -1,4 +1,5 @@
 // budget.go — the session Databricks workspace's AI Gateway budget/spend statuses, cached for the status line.
+
 package usage
 
 import (

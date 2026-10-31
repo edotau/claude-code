@@ -1,6 +1,7 @@
 // The keyring plane (this file) is the OS secret-service plane: a shell-out to `secret-tool` (libsecret) on Linux,
 // `security` on macOS. Degrades rather than failing hard: no tool, no session, or a locked keyring
 // all read as "this plane holds nothing", so callers fall through to HARNESS_VAULT_KEY or key_command.
+
 package vault
 
 import (

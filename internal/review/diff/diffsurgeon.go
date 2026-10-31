@@ -1,5 +1,4 @@
-// Package diff ports diff_surgeon.py, pr_analyzer.py, review_report_generator.py and
-// code-review-gate.sh to Go (stdlib only). Text and --json output match the Python byte-for-byte.
+// Package diff analyzes diffs and PRs: hunk surgery, PR analysis, the review report and the review gate, stdlib only.
 package diff
 
 import (

@@ -1,5 +1,6 @@
 // providers.go — live, account-wide plan quota per provider: GitHub Copilot (every gh login), OpenAI (codex's
 // ChatGPT sign-in), Google (Antigravity's agy CLI `/usage`). Tokens stay in memory and child env, never printed.
+
 package usage
 
 import (

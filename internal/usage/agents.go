@@ -1,5 +1,6 @@
 // agents.go — per-agent-CLI usage (claude/codex/opencode/copilot) for the "agents" JSON section and the
 // AGENTS text table: each reads its own CLI's local store, independent of the transcript-based table above.
+
 package usage
 
 import (
