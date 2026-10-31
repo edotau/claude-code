@@ -6,8 +6,10 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strconv"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -84,26 +86,24 @@ func TestListenLoopbackBindsLoopbackOnly(t *testing.T) {
 
 func itoa(n int) string { return strconv.Itoa(n) }
 
-// countingTransport counts the attempts that reach the transport.
-type countingTransport struct{ n atomic.Int32 }
-
-func (c *countingTransport) RoundTrip(r *http.Request) (*http.Response, error) {
-	c.n.Add(1)
-	return http.DefaultTransport.RoundTrip(r)
+// refusedDial counts dial attempts and refuses each one like a closed port, so no request is ever written.
+func refusedDial(n *atomic.Int32) func(context.Context, string, string) (net.Conn, error) {
+	return func(_ context.Context, network, addr string) (net.Conn, error) {
+		n.Add(1)
+		return nil, &net.OpError{Op: "dial", Net: network, Err: os.NewSyscallError("connect", syscall.ECONNREFUSED)}
+	}
 }
 
 func TestRefreshRetriesWhenNothingWasWritten(t *testing.T) {
-	srv := httptest.NewServer(http.NotFoundHandler())
-	url := srv.URL
-	srv.Close() // dial refused: the request is never written
-	ct := &countingTransport{}
+	var dials atomic.Int32
+	tr := &http.Transport{DialContext: refusedDial(&dials)}
 	orig, origBackoff := tokenClient, RetryBackoff
-	tokenClient, RetryBackoff = &http.Client{Transport: ct, Timeout: 5 * time.Second}, time.Millisecond
+	tokenClient, RetryBackoff = &http.Client{Transport: tr, Timeout: 5 * time.Second}, time.Millisecond
 	t.Cleanup(func() { tokenClient, RetryBackoff = orig, origBackoff })
-	if _, err := RefreshU2M(context.Background(), url, "refresh-1"); err == nil {
+	if _, err := RefreshU2M(context.Background(), "http://127.0.0.1:1", "refresh-1"); err == nil {
 		t.Fatal("refused dial reported success")
 	}
-	if n := ct.n.Load(); n != maxAttempts {
+	if n := dials.Load(); n != maxAttempts {
 		t.Fatalf("unwritten one-shot grant attempted %d times, want %d", n, maxAttempts)
 	}
 }
