@@ -30,9 +30,7 @@ func geminiArgv(t *testing.T, pin, flag string) []string {
 	}
 	pathstest.FakeVendor(t, "gemini", "")
 	if pin != "" {
-		if err := providers.SetPins(map[string]string{providers.PinGeminiModel: pin}); err != nil {
-			t.Fatal(err)
-		}
+		vaulttest.SetRecord(t, "gemini", "model", pin)
 	}
 	plan, err := LaunchPlan(context.Background(), "gemini", LaunchOptions{Model: flag, PrintEnv: true}, nil)
 	if err != nil {
@@ -61,19 +59,15 @@ func TestGeminiExplicitModelBeatsPinOnFallback(t *testing.T) {
 // Flags beat the agent's profile pin; a pin fills what the flag left empty; AGENT_ACTIVE=off ignores it.
 func TestWithAgentPinsPrecedence(t *testing.T) {
 	vaulttest.Use(t)
-	pins := map[string]string{providers.PinCopilotProfile: "max", providers.PinCopilotModel: "kimi-k3"}
-	if err := providers.SetPins(pins); err != nil {
-		t.Fatal(err)
-	}
+	vaulttest.SetRecord(t, "copilot", "profile", "max")
+	vaulttest.SetRecord(t, "copilot", "model", "kimi-k3")
 	if got := withAgentPins("copilot", LaunchOptions{}); got.Provider != "max" || got.Model != "" {
 		t.Errorf("pins only = %+v, want max and no model (the model pin applies after the target resolves)", got)
 	}
 	if got := withAgentPins("copilot", LaunchOptions{Provider: "personal", Model: "m"}); got.Provider != "personal" || got.Model != "m" {
 		t.Errorf("flags = %+v, want flags to beat the pins", got)
 	}
-	if err := providers.SetPins(map[string]string{providers.PinCopilotActive: "off"}); err != nil {
-		t.Fatal(err)
-	}
+	vaulttest.SetRecord(t, "copilot", "profile", "")
 	if got := withAgentPins("copilot", LaunchOptions{}); got.Provider != "" || got.Model != "" {
 		t.Errorf("COPILOT_ACTIVE=off = %+v, want the pins ignored", got)
 	}
@@ -87,9 +81,8 @@ func TestAgentModelTargetPin(t *testing.T) {
 	vaulttest.Use(t)
 	vaulttest.Put(t, vault.Overlay, "providers", pinDbxRow)
 	const m = "databricks-gpt-6-1-sol"
-	if err := providers.SetPins(map[string]string{providers.PinCodexProfile: "dev", providers.PinCodexModel: m}); err != nil {
-		t.Fatal(err)
-	}
+	vaulttest.SetRecord(t, "codex", "profile", "dev")
+	vaulttest.SetRecord(t, "codex", "model", m)
 	if got := withAgentPins("codex", LaunchOptions{}); got.Provider != "dev" || got.Model != "" {
 		t.Fatalf("codex = %+v, want the profile only", got)
 	}

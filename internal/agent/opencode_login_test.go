@@ -38,7 +38,7 @@ func pinCopilotLogin(t *testing.T, login string) {
 		`"base_url":"https://api.githubcopilot.com","auth":{"type":"cli","login":"copilot"},"login":"`+login+`",`+
 		`"models":{"opus":"auto","sonnet":"auto","haiku":"auto"},"opencode_fallback":"claude-opus-5.5",`+
 		`"opencode_variant":"medium","opencodeID":"github-copilot"}}}}`)
-	setPin(t, providers.PinCopilotProfile, "personal")
+	vaulttest.SetRecord(t, "copilot", "profile", "personal")
 }
 
 // workableCopilotPin pins user as a gh login (hosts.yml in the isolated GH_CONFIG_DIR) with 10% of credits used.
@@ -69,7 +69,7 @@ func subscriptionSelection(t *testing.T, reg *providers.Registry) providers.Sele
 // ErrOwnLogin — and the subscription session provider is never chosen either.
 func TestOpencodeNonCopilotOwnLoginIsNotAFallbackDispatch(t *testing.T) {
 	data, _ := isolateOpencodeRouteEnv(t)
-	setPin(t, providers.PinProfile, "max")
+	vaulttest.SetRecord(t, "claude", "profile", "max")
 	if got := OpencodeLogins(); got != nil {
 		t.Fatalf("no auth.json yet, got %v", got)
 	}
@@ -177,7 +177,7 @@ func TestDescribeCopilotRouteChainOrder(t *testing.T) {
 		t.Fatalf("copilot's own GitHub login must outrank BYOK; got %+v", ri)
 	}
 
-	setPin(t, providers.PinCopilotProfile, "")
+	vaulttest.SetRecord(t, "copilot", "profile", "")
 	t.Setenv("ANTHROPIC_API_KEY", "")
 	none := schemaFor("copilot").DescribeRoute(reg)
 	if none.OK || none.Route != RouteNone || !strings.Contains(none.Reason, "claude-code configure github") {
@@ -205,9 +205,7 @@ func TestDescribeCopilotRouteModelFollowsPin(t *testing.T) {
 		t.Fatalf("Model (unpinned) = %q, want github-copilot's own opus slot %q", ri.Model, wantDefault)
 	}
 
-	if err := providers.SetPins(map[string]string{providers.PinCopilotModel: "claude-opus-5.5"}); err != nil {
-		t.Fatal(err)
-	}
+	vaulttest.SetRecord(t, "copilot", "model", "claude-opus-5.5")
 	if ri := schemaFor("copilot").DescribeRoute(reg); ri.Model != "claude-opus-5.5" {
 		t.Fatalf("Model (pinned) = %q, want the COPILOT_MODEL pin claude-opus-5.5", ri.Model)
 	}
@@ -222,9 +220,7 @@ func TestResolveTargetCopilotExplicitModelBeatsPin(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := providers.SetPins(map[string]string{providers.PinCopilotModel: "claude-opus-5.5"}); err != nil {
-		t.Fatal(err)
-	}
+	vaulttest.SetRecord(t, "copilot", "model", "claude-opus-5.5")
 	sub := subscriptionSelection(t, reg)
 	sub.Slots["opus"] = providers.Target{Provider: sub.Provider, Model: "explicit-model"}
 
@@ -249,7 +245,7 @@ func TestOpencodeCopilotLoginTakesPrecedence(t *testing.T) {
 	t.Setenv("PATH", t.TempDir()) // no real opencode: OpencodeAuth must read the auth.json fixture, not a 2.x CLI
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	setPin(t, providers.PinProfile, "max")
+	vaulttest.SetRecord(t, "claude", "profile", "max")
 	if err := os.MkdirAll(filepath.Join(data, "opencode"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -323,7 +319,7 @@ func TestOpencodeCopilotModelIDsSwapsAutoForFallback(t *testing.T) {
 // the registry's own haiku default is "auto".
 func TestOpencodeCopilotModelIDsLeavesNonAutoPinUnchanged(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	setPin(t, providers.SlotPin("haiku"), "claude-haiku-4.5")
+	vaulttest.SetRecord(t, "claude", "slots.haiku", "claude-haiku-4.5")
 	reg, err := providers.Load()
 	if err != nil {
 		t.Fatal(err)
@@ -341,7 +337,7 @@ func TestOpencodeCopilotModelIDsLeavesNonAutoPinUnchanged(t *testing.T) {
 // (copilot-login -> anthropic-key -> none) replaced it, so it has no effect on routing.
 func TestOpencodeOwnConfigModelIsNoLongerAFallbackDispatch(t *testing.T) {
 	_, cfg := isolateOpencodeRouteEnv(t)
-	setPin(t, providers.PinProfile, "max")
+	vaulttest.SetRecord(t, "claude", "profile", "max")
 	if err := os.MkdirAll(filepath.Join(cfg, "opencode"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -374,7 +370,7 @@ func TestOpencodeCopilotLoginHeadlessCarriesModel(t *testing.T) {
 	t.Setenv("PATH", t.TempDir()) // no real opencode: OpencodeAuth must read the auth.json fixture, not a 2.x CLI
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	setPin(t, providers.PinProfile, "max")
+	vaulttest.SetRecord(t, "claude", "profile", "max")
 	if err := os.MkdirAll(filepath.Join(data, "opencode"), 0o755); err != nil {
 		t.Fatal(err)
 	}

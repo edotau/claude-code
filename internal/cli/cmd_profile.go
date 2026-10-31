@@ -14,9 +14,8 @@ import (
 
 // cmdAgentProfile is `<agent> profile [<profile>] [--clear]`: show, set or clear the agent's record profile.
 func cmdAgentProfile(agent string, args []string) int {
-	pin := agentpkg.AgentProfilePin(agent)
-	if pin == "" {
-		return fail("%s profile: no profile pin for this agent", agent)
+	if _, ok := agentpkg.LookupSchema(agent); !ok {
+		return fail("%s profile: unknown agent", agent)
 	}
 	fs := newAgentFlags(agent, "profile")
 	unpin := fs.Bool("clear", false, "unpin: launches use today's selection again")
@@ -33,17 +32,17 @@ func cmdAgentProfile(agent string, args []string) int {
 		if err := setAgentProfile(agent, own); err != nil {
 			return fail("%s profile: %v", agent, err)
 		}
-		if err := agentpkg.ClearLastProfilesFor(map[string]string{pin: ""}); err != nil {
+		if err := agentpkg.ClearLastProfilesFor(agent); err != nil {
 			return fail("%s profile: %v", agent, err)
 		}
 		fmt.Printf("%s: profile cleared (own login)\n", agent)
 		return 0
 	case len(pos) == 0:
-		line := fmt.Sprintf("%s: no profile set (launches use today's selection)", agent)
+		line := agent + ": no profile set (launches use today's selection)"
 		if v := agentpkg.GetAgentRecord(agent).Profile; v != "" {
 			line = fmt.Sprintf("%s: profile %s", agent, v)
 		}
-		if active := agentpkg.AgentActivePin(agent); active != "" {
+		if !agentpkg.VaultAgentIsClaude(agent) {
 			state := agentpkg.AgentOn
 			if !agentpkg.AgentActive(agent) {
 				state = agentpkg.AgentOff
@@ -68,7 +67,7 @@ func cmdAgentProfile(agent string, args []string) int {
 	if err := setAgentProfile(agent, pos[0]); err != nil {
 		return fail("%s profile: %v", agent, err)
 	}
-	if err := agentpkg.ClearLastProfilesFor(map[string]string{pin: pos[0]}); err != nil {
+	if err := agentpkg.ClearLastProfilesFor(agent); err != nil {
 		return fail("%s profile: %v", agent, err)
 	}
 	fmt.Printf("%s: now on %s; relaunch `claude-code %s` to apply\n", agent, pos[0], agent)
@@ -101,8 +100,7 @@ func cmdAgentOnOff(agent string, on bool, args []string) int {
 	if fs.NArg() > 0 {
 		return fail("%s %s: takes no arguments", agent, verb)
 	}
-	pin := agentpkg.AgentActivePin(agent)
-	if pin == "" {
+	if agentpkg.VaultAgentIsClaude(agent) {
 		return fail("%s %s: %s is always on", agent, verb, agent)
 	}
 	if err := agentpkg.ValidAgentActive(agent, value); err != nil {

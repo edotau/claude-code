@@ -3,14 +3,17 @@ package cli
 import (
 	"fmt"
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/vault/vaulttest"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/vault"
-	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
 // qaProfile seeds a hermetic vault with a Databricks row "qa" at host, served-aware routing set to on.
@@ -112,5 +115,41 @@ func TestSwitchKeepsOffAgentsOff(t *testing.T) {
 	if recs["claude"].Profile != "qa" || recs["codex"].Profile != "qa" || recs["copilot"].Profile != "" {
 		t.Fatalf("profiles claude=%q codex=%q copilot=%q, want qa qa and copilot off",
 			recs["claude"].Profile, recs["codex"].Profile, recs["copilot"].Profile)
+	}
+}
+
+// switch skips an agent that cannot serve the profile, clears the repo cache; --dry-run writes neither.
+func TestSwitchSkipsUnservableAndClearsRepoCache(t *testing.T) {
+	srv, _ := dbxCLIServer(t)
+	qaProfile(t, srv.URL, false)
+	t.Chdir(t.TempDir())
+	for name, p := range map[string]string{"codex": "chatgpt", "gemini": "antigravity"} {
+		if err := agent.SetAgentRecord(name, agent.AgentRecord{Profile: p}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	agent.RecordLastProfile("codex", "chatgpt", nil)
+	cached := func() bool {
+		_, err := os.Stat(filepath.Join(paths.StateDir(), "last-profile.json"))
+		return err == nil
+	}
+	if !cached() {
+		t.Fatal("fixture: no last-profile cache written")
+	}
+	if code, _, stderr := captureOutput(t, func() int { return cmdSwitch([]string{"qa", "--dry-run"}) }); code != 0 || !cached() {
+		t.Fatalf("dry-run exit %d stderr=%q cache kept=%v", code, stderr, cached())
+	}
+	if recs := agent.AgentRecords(); recs["codex"].Profile != "chatgpt" || recs["claude"].Profile == "qa" {
+		t.Fatalf("dry-run wrote records: %+v", recs)
+	}
+	if code, _, stderr := captureOutput(t, func() int { return cmdSwitch([]string{"qa"}) }); code != 0 {
+		t.Fatalf("exit %d stderr=%q", code, stderr)
+	}
+	recs := agent.AgentRecords()
+	if recs["codex"].Profile != "qa" || recs["gemini"].Profile != "antigravity" {
+		t.Errorf("codex=%q gemini=%q, want qa and gemini untouched", recs["codex"].Profile, recs["gemini"].Profile)
+	}
+	if cached() {
+		t.Error("switch left the repo last-profile cache")
 	}
 }

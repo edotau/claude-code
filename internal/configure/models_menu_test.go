@@ -71,7 +71,7 @@ func TestPickModelForSlotPicksFirstPinsIt(t *testing.T) {
 	pickModelForSlot(&dialog{reg: reg, out: discardWriter{}}, sel, slot)
 	want := reg.Providers["max"].Models[slot]
 	if got := agentpkg.GetAgentRecord("claude").Slots[strings.ToLower(slot)]; got != want {
-		t.Errorf("pin(%s) = %q, want %q (rows[0]'s id)", providers.SlotPin(slot), got, want)
+		t.Errorf("slot %s = %q, want %q (rows[0]'s id)", slot, got, want)
 	}
 }
 
@@ -86,7 +86,7 @@ func TestPickModelForSlotMinusOnePinsNothing(t *testing.T) {
 	}
 	pickModelForSlot(&dialog{reg: reg, out: discardWriter{}}, sel, slot)
 	if got := agentpkg.GetAgentRecord("claude").Slots[strings.ToLower(slot)]; got != "" {
-		t.Errorf("pin(%s) = %q, want unset after Back/Esc", providers.SlotPin(slot), got)
+		t.Errorf("slot %s = %q, want unset after Back/Esc", slot, got)
 	}
 }
 

@@ -150,17 +150,16 @@ func TestVaultListNestedOverlayRowsPerProfileNoPlans(t *testing.T) {
 	}
 }
 
-// TestVaultAgentsTableSpansPinsToText: agent pins fold into one AGENT table, loose pins stay under PINS, JSON keeps raw pins.
-func TestVaultAgentsTableSpansPinsToText(t *testing.T) {
+// TestVaultAgentsTableSpansRecordsToText: agent records fold into one AGENT table once, loose pins stay under PINS.
+func TestVaultAgentsTableSpansRecordsToText(t *testing.T) {
 	useVaultTest(t)
 	t.Setenv("COLUMNS", "200")
-	pins := map[string]string{
-		"CLAUDE_PROFILE": "dev", "CLAUDE_MODEL": "sonnet", "CLAUDE_OPUS_MODEL": "opus-x",
-		"CODEX_PROFILE": "personal", "CODEX_EFFORT": "high", "CODEX_MODEL": "",
-		"GEMINI_ACTIVE": "off", "HARNESS_PROVIDER": "anthropic",
-	}
-	for k, v := range pins {
-		vaulttest.Put(t, vault.Pins, k, v)
+	vaulttest.Put(t, vault.Pins, "HARNESS_PROVIDER", "anthropic")
+	for _, r := range [][3]string{
+		{"claude", "profile", "dev"}, {"claude", "model", "sonnet"}, {"claude", "slots.opus", "opus-x"},
+		{"codex", "profile", "personal"}, {"codex", "effort", "high"},
+	} {
+		vaulttest.SetRecord(t, r[0], r[1], r[2])
 	}
 	raw, err := configure.Export()
 	if err != nil {
@@ -177,19 +176,14 @@ func TestVaultAgentsTableSpansPinsToText(t *testing.T) {
 			t.Errorf("missing %q in:\n%s", want, text)
 		}
 	}
-	if strings.Contains(text, "AGENTS") || strings.Contains(text, "ACTIVE") || strings.Contains(text, "CLAUDE_OPUS_MODEL") {
-		t.Errorf("agent pins leaked outside the table:\n%s", text)
+	if strings.Contains(text, "AGENTS") || strings.Contains(text, "records") || strings.Count(text, "opus-x") != 1 {
+		t.Errorf("records repeated outside the table:\n%s", text)
 	}
 	pinsBlock, _, _ := strings.Cut(text, "AGENT")
-	if !strings.Contains(pinsBlock, "PINS\n") || !vaultTextHasRow(pinsBlock, "HARNESS_PROVIDER", "anthropic") || strings.Contains(pinsBlock, "CODEX_") {
-		t.Errorf("PINS must hold only the non-agent pin:\n%s", pinsBlock)
+	if !strings.Contains(pinsBlock, "PINS\n") || !vaultTextHasRow(pinsBlock, "HARNESS_PROVIDER", "anthropic") {
+		t.Errorf("PINS must hold the non-agent pin:\n%s", pinsBlock)
 	}
 	if colored := renderVaultTextStyled(doc, nil, []string{"agents"}, 200, true); !strings.Contains(colored, ansi.Dim+"  gemini") {
-		t.Errorf("off agent with no other pins not dimmed:\n%q", colored)
-	}
-	code, out, _ := captureOutput(t, func() int { return cmdVault([]string{"list", "pins", "--format", "json"}) })
-	var got struct{ Pins map[string]string }
-	if err := json.Unmarshal([]byte(out), &got); code != 0 || err != nil || got.Pins["CODEX_EFFORT"] != "high" || got.Pins["GEMINI_ACTIVE"] != "off" {
-		t.Errorf("JSON must keep every raw pin: code %d err %v out %s", code, err, out)
+		t.Errorf("off agent with no other fields not dimmed:\n%q", colored)
 	}
 }

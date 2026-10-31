@@ -13,7 +13,6 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -26,8 +25,6 @@ func setupCodexRoute(t *testing.T) string {
 	root := vaulttest.Use(t)
 	t.Setenv(settings.AgentEnv, AgentCodex)
 	t.Setenv(settings.CodexProfileEnv, "probe")
-	t.Setenv(providers.PinCodexModel, "")
-	t.Setenv(providers.PinCodexEffort, "")
 	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"databricks":{"probe":{"preset":"databricks","host":"https://example.invalid","auth":{"type":"none"}}}},"routing":{"cells":{"codex":{"sonnet":{"model":"gpt-6-astra","effort":"high"}}}}}`)
 	catalog := filepath.Join(root, "catalog.json")
 	if err := os.WriteFile(catalog, []byte(`{"models":[{"slug":"`+codexRouteWireModel+`","visibility":"list"}]}`), 0o600); err != nil {
@@ -113,10 +110,10 @@ func TestCodexAgentRouteSkipsIneligibleSpawns(t *testing.T) {
 		{"non Databricks profile", func(t *testing.T, _, _ map[string]any, _ string) { t.Setenv(settings.CodexProfileEnv, "openai") }},
 		{"unsupported parent", func(_ *testing.T, p, _ map[string]any, _ string) { p["model"] = "databricks-claude-sonnet-5-5" }},
 		{"vault model pin", func(t *testing.T, _, _ map[string]any, _ string) {
-			vaulttest.Put(t, vault.Pins, providers.PinCodexModel, "user-model")
+			vaulttest.SetRecord(t, "codex", "model", "user-model")
 		}},
 		{"vault effort pin", func(t *testing.T, _, _ map[string]any, _ string) {
-			vaulttest.Put(t, vault.Pins, providers.PinCodexEffort, "low")
+			vaulttest.SetRecord(t, "codex", "effort", "low")
 		}},
 		{"missing catalog", func(t *testing.T, _, _ map[string]any, _ string) { t.Setenv(settings.CodexCatalogEnv, "") }},
 		{"hidden candidate", func(t *testing.T, _, _ map[string]any, path string) {

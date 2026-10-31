@@ -16,6 +16,7 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/proxy"
 	"github.com/edotau/claude-code/internal/vault"
+	"github.com/edotau/claude-code/internal/vault/vaulttest"
 	"go.etcd.io/bbolt"
 )
 
@@ -358,9 +359,7 @@ func TestEmbedFallsBackToDirectWhenRouterFails(t *testing.T) {
 func TestNewSemanticPerProfileCacheFallsBackToPin(t *testing.T) {
 	isolatedConfig1(t)
 	t.Setenv("CLAUDE_RECALL_SEMANTIC", "")
-	if err := providers.SetPins(map[string]string{providers.PinProfile: "dev"}); err != nil {
-		t.Fatal(err)
-	}
+	vaulttest.SetRecord(t, "claude", "profile", "dev")
 	t.Setenv("CLAUDE_PROFILE", "qa")
 	seed := func(profile string) {
 		row := embedRow{Hash: "h", Vec: encodeVec([]float32{1, 0, 0})}

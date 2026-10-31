@@ -10,9 +10,7 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/settings"
-	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
@@ -278,13 +276,11 @@ func TestCodexRoutesLongLine(t *testing.T) {
 
 func TestCodexSpawnPinnedEnvVsVault(t *testing.T) {
 	vaulttest.Use(t)
-	t.Setenv(providers.PinCodexModel, "gpt-env")
-	t.Setenv(providers.PinCodexEffort, "")
 	in := ParseInput(strings.NewReader(`{"session_id":"s","tool_input":{"message":"x"}}`))
 	if codexSpawnPinned(in) {
 		t.Error("process-env CODEX_MODEL with no vault pin vetoed routing, want proceed")
 	}
-	vaulttest.Put(t, vault.Pins, providers.PinCodexModel, "gpt-vault")
+	vaulttest.SetRecord(t, "codex", "model", "gpt-vault")
 	if !codexSpawnPinned(in) {
 		t.Error("vault CODEX_MODEL pin did not veto routing")
 	}

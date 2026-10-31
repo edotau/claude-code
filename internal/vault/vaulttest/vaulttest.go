@@ -3,6 +3,8 @@ package vaulttest
 
 import (
 	"encoding/base64"
+	"maps"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -22,6 +24,46 @@ func Use(t testing.TB) string {
 func Put(t testing.TB, bucket, key, val string) {
 	t.Helper()
 	if err := vault.Update(func(tx *vault.Tx) error { return tx.Put(bucket, key, val) }); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// SetRecord sets one field of agent's record (profile, model, effort, context, account or slots.<tier>); "" clears it.
+func SetRecord(t testing.TB, agent, field, val string) {
+	t.Helper()
+	err := vault.Update(func(tx *vault.Tx) error {
+		recs, err := tx.AgentRecords()
+		if err != nil {
+			return err
+		}
+		r := recs[agent]
+		switch tier, isSlot := strings.CutPrefix(field, "slots."); {
+		case isSlot:
+			slots := maps.Clone(r.Slots)
+			if slots == nil {
+				slots = map[string]string{}
+			}
+			if slots[tier] = val; val == "" {
+				delete(slots, tier)
+			}
+			r.Slots = slots
+		case field == "profile":
+			r.Profile = val
+		case field == "model":
+			r.Model = val
+		case field == "effort":
+			r.Effort = val
+		case field == "context":
+			r.Context = val
+		case field == "account":
+			r.Account = val
+		default:
+			t.Fatalf("vaulttest.SetRecord: unknown field %q", field)
+		}
+		recs[agent] = r
+		return tx.PutAgentRecords(recs)
+	})
+	if err != nil {
 		t.Fatal(err)
 	}
 }

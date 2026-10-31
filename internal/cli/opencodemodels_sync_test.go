@@ -211,9 +211,7 @@ func TestOpencodeMenuSyncNoAdditionsStillSealsDiscovery(t *testing.T) {
 
 func TestOpencodeMenuSyncControlsBeforeHTTP(t *testing.T) {
 	f := syncEnv(t)
-	if err := providers.SetPins(map[string]string{providers.PinOpencodeProfile: "synctest"}); err != nil {
-		t.Fatal(err)
-	}
+	vaulttest.SetRecord(t, "opencode", "profile", "synctest")
 	for _, args := range [][]string{
 		{"sync"},
 		{"sync", "--profile", "synctest", "--apply", "--dry-run"},

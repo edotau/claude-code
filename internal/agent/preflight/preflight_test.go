@@ -13,6 +13,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
+	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
 func preflightRegistry(cred bool) *providers.Registry {
@@ -23,10 +24,12 @@ func preflightRegistry(cred bool) *providers.Registry {
 	return &providers.Registry{Providers: map[string]*providers.Provider{"dev": p}}
 }
 
+// setPins sets agent record fields from "<AGENT>_<FIELD>" keys (CODEX_MODEL sets codex's model).
 func setPins(t *testing.T, kv map[string]string) {
 	t.Helper()
-	if err := providers.SetPins(kv); err != nil {
-		t.Fatal(err)
+	for k, v := range kv {
+		agent, field, _ := strings.Cut(strings.ToLower(k), "_")
+		vaulttest.SetRecord(t, agent, field, v)
 	}
 }
 

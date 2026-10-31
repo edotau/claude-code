@@ -16,14 +16,15 @@ paths:
 | See providers and credential state | `claude-code configure provider --list [<name>]` |
 | Set a credential | `claude-code vault set [NAME]` (bare on a terminal = guided dialog), or a provider's `auth.command` |
 | Inspect or edit the vault | `claude-code vault list\|get\|delete\|import\|export\|edit\|rotate-secret` |
-| Switch the session profile | `claude-code switch <profile> [--dry-run]` (relaunch) · one launch: `claude-code --profile <p>`; with no flag, an interactive claude, copilot or opencode launch reuses the profile that agent last launched in this repo (if still valid for it), else its `<AGENT>_PROFILE` pin (a default, never a pin; `state/harness/last-profile.json`; `switch` clears all, `<agent> profile` that agent) |
-| Pin models | `claude-code models --pin opus=<id>` · `--pin all=<id>` · `--unpin` (`--dry-run` previews) |
+| Switch the session profile | `claude-code switch <profile> [--dry-run]` (relaunch) · one launch: `claude-code --profile <p>`; with no flag, an interactive claude, copilot or opencode launch reuses the profile that agent last launched in this repo (if still valid for it), else its agent record's profile (a default; `state/harness/last-profile.json`; `switch` clears all, `<agent> profile` that agent) |
+| Set claude's models | `claude-code models --pin opus=<id>` · `--pin all=<id>` · `--unpin` write claude's agent record (`--dry-run` previews) |
 | List what a provider serves | `claude-code models --live [--profile <p>]` |
 | Run the model proxy | `claude-code gateway proxy --start\|--stop\|--status` · foreground: `--serve --port N` |
 
 - Secrets only in the vault or `auth.command` (CLAUDE.md hard rule 2); `configure provider --list` shows the
   source, never the value.
-- Pins are vault-only (`CLAUDE_<TIER>_MODEL`); `--model` beats them. A `switch` pin lands in the vault too.
+- Agent settings are vault-only, one record per agent (`vault list` AGENT table); `--model` beats them.
+  `switch` writes claude's record too.
 - Built-in providers are `internal/providers/defaults.json`; the vault's provider overlay replaces one by name.
 
 ## Model selection
@@ -43,11 +44,12 @@ cached endpoint listing (`state/harness/preflight/served-<profile>.json`, 24h TT
 static menu: routing never touches the network.
 
 - **Refresh:** `make install`, `doctor --refresh`, `preflight --live`; with the switch on, also `switch`,
-  `<agent> profile`, `configure` exit (pin changed or switch flipped on) and a detached `preflight --refresh` at
+  `<agent> profile`, `configure` exit (record changed or switch flipped on) and a detached `preflight --refresh` at
   session start, at most once per 15 minutes.
 - **Fallback ignores the model alias:** a swap takes the first READY entry in menu order, so a sonnet dispatch can land
   on
-  an opus endpoint. Menu order is the control. An explicit pin swaps too; the swap appears in `gateway router` skips.
+  an opus endpoint. Menu order is the control. An explicit model in the record swaps too; the swap appears in
+  `gateway router` skips.
 - **Live rescue:** a codex dispatch that gets `ENDPOINT_NOT_FOUND` marks the model unserved for 1h and retries once
   on the next READY Responses model. An exact `--model` never retries. copilot and opencode refuse unknown models
   client-side, so there is no captured failure text for them.

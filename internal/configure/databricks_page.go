@@ -267,12 +267,10 @@ func dbxApplyPins(d *dialog, env string) (cancelled bool, err error) {
 		d.printf("%s: already applied\n", env)
 		return false, nil
 	}
-	gone := map[string]string{}
 	for _, a := range changed {
-		gone[agentpkg.AgentProfilePin(a)] = ""
 		d.printf("  %s profile: %s\n", a, env)
 	}
-	if err := agentpkg.ClearLastProfilesFor(gone); err != nil {
+	if err := agentpkg.ClearLastProfilesFor(changed...); err != nil {
 		return false, err
 	}
 	d.changed = true

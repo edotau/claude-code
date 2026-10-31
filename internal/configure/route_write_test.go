@@ -15,7 +15,7 @@ import (
 func runRealRoute(t *testing.T, in string, readOnlyVault bool) string {
 	t.Helper()
 	reg := menuTestEnv(t)
-	putRec(t, "codex", "EFFORT", "high") // a stored record: codex keeps its own login (chatgpt), so picking off is a real write
+	putRec(t, "codex", "PROFILE", "chatgpt") // codex is on its own login, so picking off is a real write
 	if readOnlyVault {
 		if err := os.Chmod(vault.Path(), 0o400); err != nil {
 			t.Fatal(err)

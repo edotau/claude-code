@@ -153,9 +153,8 @@ func validateOverlaySections(d *Doc) error {
 	return nil
 }
 
-// applyPinsEnv diffs cur against d for the pins and env buckets and writes the changes; it returns the pin diff.
-func applyPinsEnv(t *vault.Tx, cur, d Doc) (map[string]string, error) {
-	changedPins := map[string]string{}
+// applyPinsEnv diffs cur against d for the pins and env buckets and writes the changes.
+func applyPinsEnv(t *vault.Tx, cur, d Doc) error {
 	for _, section := range []struct {
 		bucket    string
 		old, next map[string]string
@@ -175,14 +174,11 @@ func applyPinsEnv(t *vault.Tx, cur, d Doc) (map[string]string, error) {
 		}
 		for k, v := range changes {
 			if err := t.Put(section.bucket, k, v); err != nil {
-				return nil, err
+				return err
 			}
 		}
-		if section.bucket == vault.Pins {
-			changedPins = changes
-		}
 	}
-	return changedPins, nil
+	return nil
 }
 
 // applyOverlaySections writes each changed providers/agents/settings overlay section, backing up providers first.
@@ -245,7 +241,7 @@ func Import(orig, edited []byte) error {
 	if err := validateOverlaySections(&d); err != nil {
 		return err
 	}
-	var changedPins map[string]string
+	var curRecs map[string]vault.AgentRecord
 	err = vault.Update(func(t *vault.Tx) error {
 		cur, err := docFrom(t)
 		if err != nil {
@@ -258,15 +254,13 @@ func Import(orig, edited []byte) error {
 		if !bytes.Equal(raw, orig) {
 			return ErrChanged
 		}
-		var curRecs map[string]vault.AgentRecord
 		if cur.Agents, curRecs, err = splitAgentRecords(cur.Agents); err != nil {
 			return err
 		}
 		if err := applyAgentRecords(t, curRecs, recs); err != nil {
 			return err
 		}
-		changedPins, err = applyPinsEnv(t, cur, d)
-		if err != nil {
+		if err := applyPinsEnv(t, cur, d); err != nil {
 			return err
 		}
 		if err := applyOverlaySections(t, cur, d); err != nil {
@@ -280,9 +274,7 @@ func Import(orig, edited []byte) error {
 	if err != nil {
 		return err
 	}
-	if len(changedPins) != 0 {
-		providers.AuditPins(changedPins)
-	}
+	providers.AuditRecords(curRecs, recs)
 	return nil
 }
 

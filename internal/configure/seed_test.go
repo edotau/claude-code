@@ -8,15 +8,13 @@ import (
 	"testing"
 
 	agentpkg "github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
 func seedDialog(t *testing.T, script string) (*dialog, *bytes.Buffer) {
 	t.Helper()
 	reg := menuTestEnv(t)
-	vaulttest.Put(t, vault.Pins, providers.PinProfile, "") // menuTestEnv's claude pin folds into a record
+	vaulttest.SetRecord(t, "claude", "profile", "") // menuTestEnv's claude pin folds into a record
 	if got := agentpkg.AgentRecords()["claude"].Profile; got != "" {
 		t.Fatalf("claude record = %q, want a first-run start", got)
 	}

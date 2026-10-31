@@ -12,7 +12,7 @@ import (
 
 	"go.etcd.io/bbolt"
 
-	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
 // leaseClient embeds each text as a 3-dim vector and counts the texts sent.
@@ -317,9 +317,7 @@ func TestNewSemanticReadErrorFallsBackToPin(t *testing.T) {
 	isolatedConfig1(t)
 	t.Setenv("CLAUDE_RECALL_SEMANTIC", "")
 	t.Setenv("CLAUDE_PROFILE", "qa")
-	if err := providers.SetPins(map[string]string{providers.PinProfile: "dev"}); err != nil {
-		t.Fatal(err)
-	}
+	vaulttest.SetRecord(t, "claude", "profile", "dev")
 	f := embedCacheFile{Namespace: "dev|h|gte", Model: "gte", Rows: map[string]embedRow{"aaaa0001": {Hash: "h", Vec: encodeVec([]float32{1, 0, 0})}}}
 	if err := saveEmbedCache("dev", f); err != nil {
 		t.Fatal(err)

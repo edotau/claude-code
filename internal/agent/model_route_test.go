@@ -4,7 +4,6 @@ import (
 	"context"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -41,9 +40,7 @@ func TestResolveTargetCanonicalIDTakesTheTierPin(t *testing.T) {
 	vaulttest.UseKeyring(t)
 	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"databricks":{"dev":{"protocol":"anthropic","base_url":"http://127.0.0.1:1",`+
 		`"auth":{"type":"key","env":"DEV_TEST_KEY"},"models":{"opus":"claude-opus-5-5","sonnet":"claude-sonnet-5-5"}}}}}`)
-	if err := providers.SetPins(map[string]string{providers.SlotPin("sonnet"): "claude-sonnet-5"}); err != nil {
-		t.Fatal(err)
-	}
+	vaulttest.SetRecord(t, "claude", "slots.sonnet", "claude-sonnet-5")
 	_, got, err := resolveTarget(RunOptions{Provider: "dev", Model: "claude-sonnet-5-5"})
 	if err != nil || got.Model != "claude-sonnet-5" {
 		t.Errorf("claude-sonnet-5-5 = %+v (%v), want the pinned claude-sonnet-5", got, err)

@@ -116,31 +116,6 @@ func (t *Tx) PutAgentRecords(recs map[string]AgentRecord) error {
 	return t.Put(Overlay, AgentRecordsKey, string(b))
 }
 
-// LegacyPins renders recs as the pin keys they replace; active adds <AGENT>_ACTIVE=off for each profile-less agent.
-func LegacyPins(recs map[string]AgentRecord, active bool) map[string]string {
-	out := map[string]string{}
-	set := func(a, f, v string) {
-		if v != "" {
-			out[strings.ToUpper(a)+"_"+f] = v
-		}
-	}
-	for _, a := range LegacyAgents {
-		r := recs[a]
-		set(a, "PROFILE", r.Profile)
-		set(a, "MODEL", r.Model)
-		set(a, "EFFORT", r.Effort)
-		set(a, "CONTEXT", r.Context)
-		set(a, "GITHUB_USER", r.Account)
-		for slot, v := range r.Slots {
-			set(a, strings.ToUpper(slot)+"_MODEL", v)
-		}
-		if active && a != "claude" && r.Profile == "" {
-			out[strings.ToUpper(a)+"_ACTIVE"] = "off"
-		}
-	}
-	return out
-}
-
 // foldAgentPins applies every legacy pin in pins to recs (ACTIVE last, so off clears the profile) and lists the keys.
 func foldAgentPins(recs map[string]AgentRecord, pins map[string]string) (folded []string) {
 	keys := slices.Sorted(maps.Keys(pins))

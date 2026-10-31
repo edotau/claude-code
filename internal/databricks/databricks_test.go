@@ -13,6 +13,7 @@ import (
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault"
+	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
 // call is one recorded spawn of the child.
@@ -166,9 +167,7 @@ func TestResolveProfileOrder(t *testing.T) {
 	if got := resolveProfile(reg, ""); got != first {
 		t.Errorf("no pin = %q, want the first profile %q", got, first)
 	}
-	if err := providers.SetPins(map[string]string{providers.PinProfile: "cc"}); err != nil {
-		t.Fatal(err)
-	}
+	vaulttest.SetRecord(t, "claude", "profile", "cc")
 	if got := resolveProfile(reg, ""); got != "cc" {
 		t.Errorf("pinned = %q, want cc", got)
 	}

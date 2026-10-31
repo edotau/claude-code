@@ -38,15 +38,17 @@ paths:
   left out with a note.
 - **Claude Code** on a Responses-only model (`gpt-5.5`) is refused at launch and by the router — use codex or copilot.
 - **copilot** follows the session profile through the proxy (`/p/<profile>`, BYOK, `COPILOT_OFFLINE=true`, no
-  credits); `--model <profile>:<alias>` crosses profiles. The GitHub login is used only while the `COPILOT_PROFILE`
-  pin's verified credits are < 95%, else it falls back to the Databricks profile (never the other GitHub account).
+  credits); `--model <profile>:<alias>` crosses profiles. The GitHub login is used only while the copilot record's
+  GitHub profile's verified credits are < 95%, else it falls back to the Databricks profile (never the other GitHub
+  account).
   Usage rows read `databricks/<model>` vs `github·copilot/<model>`. Prompt cap = window − 32k − 10%.
 - Interactive copilot on Databricks gets native `/model` via a per-launch registry (0600, per pid) and a login-free
   `COPILOT_HOME` (`state/copilot/registry-home`); the proxy takes a session token, so no secret sits on disk. An
   unregistered model fails closed; `--direct` keeps the single-model route; macOS is refused until the Keychain check
   lands. `ask --agent copilot` uses the same registry via the SDK.
-- **copilot** and **opencode** interactive launches reuse the repo's last-used profile before the `*_PROFILE` pin and
-  treat it like the pin (copilot's credit gate applies); `<agent> profile` or `configure` pin changes clear it.
+- **copilot** and **opencode** interactive launches reuse the repo's last-used profile before the agent record's
+  profile and treat it like the record (copilot's credit gate applies); `<agent> profile` or `configure` record
+  changes clear it.
 - **gemini** runs only on `agy` and its Google sign-in; `gemini bridge` inlines tracked files only, never `.env*`,
   `state/` or keys.
 
@@ -55,7 +57,8 @@ paths:
 - Native `spawn_agent` children use the Codex routing cells on a Databricks profile with a validated catalog — only
   explicitly fresh children (`fork_turns="none"` or `fork_context=false`) with no model/effort pin or custom type.
   The child keeps its provider; the model must support Responses and be in the session catalog.
-- A vault `CODEX_MODEL` or `CODEX_EFFORT` pin disables child routing for the whole session (clear it in `vault edit`).
+- A codex record `model` or `effort` disables child routing for the whole session (clear it in `vault edit` →
+  `agents.records.codex`).
 - Codex-only hooks log starts, decisions, spawn results and child models to
   `state/harness/codex/routing-<session-hash>.jsonl` (0600, no prompts). A decision is verified only when the spawn
   result's agent ID joins a child-start event; otherwise `matches_router_decision` stays `null`.

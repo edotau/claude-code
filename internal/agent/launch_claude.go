@@ -33,8 +33,8 @@ var wipeKeys = []string{
 	"CLAUDE_CODE_DISABLE_1M_CONTEXT", "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX", "CLAUDE_CODE_USE_GATEWAY",
 	"CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY", "CLAUDE_CODE_ANTHROPIC_MODEL", "OTEL_EXPORTER_OTLP_HEADERS",
 	"OTEL_EXPORTER_OTLP_TRACES_HEADERS", "OTEL_EXPORTER_OTLP_LOGS_HEADERS", "OTEL_EXPORTER_OTLP_METRICS_HEADERS",
-	providers.EnvSessionProfile, providers.PinModel,
-	providers.SlotPin(models.Opus), providers.SlotPin(models.Sonnet), providers.SlotPin(models.Haiku), providers.SlotPin(models.Fable),
+	providers.EnvSessionProfile, "CLAUDE_MODEL",
+	"CLAUDE_OPUS_MODEL", "CLAUDE_SONNET_MODEL", "CLAUDE_HAIKU_MODEL", "CLAUDE_FABLE_MODEL",
 }
 
 // oauthKey survives the wipe only for cli-auth (subscription login) profiles.

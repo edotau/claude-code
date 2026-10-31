@@ -22,18 +22,14 @@ func specTarget(kind string) providers.Target {
 }
 
 func TestResolveAgentModel(t *testing.T) {
-	pinKey := map[string]string{
-		"codex": providers.PinCodexModel, "copilot": providers.PinCopilotModel, "gemini": providers.PinGeminiModel,
-	}
+	hasModel := map[string]bool{"codex": true, "copilot": true, "gemini": true}
 	for _, agent := range []string{"codex", "copilot", "gemini", "opencode"} {
 		for _, kind := range []string{"databricks", "own-login", "fallback"} {
 			for _, mode := range []string{"flag", "pin", "none"} {
 				t.Run(agent+"/"+kind+"/"+mode, func(t *testing.T) {
 					vaulttest.Use(t)
-					if k := pinKey[agent]; k != "" && mode != "none" {
-						if err := providers.SetPins(map[string]string{k: "pinned-model"}); err != nil {
-							t.Fatal(err)
-						}
+					if hasModel[agent] && mode != "none" {
+						vaulttest.SetRecord(t, agent, "model", "pinned-model")
 					}
 					tg := specTarget(kind)
 					ask := ModelAsk{Agent: agent, Target: tg}
@@ -42,7 +38,7 @@ func TestResolveAgentModel(t *testing.T) {
 					case "flag":
 						ask.Flag, want = "flag-model", "flag-model"
 					case "pin":
-						if pinKey[agent] != "" {
+						if hasModel[agent] {
 							want = "pinned-model"
 						}
 					}
@@ -59,9 +55,7 @@ func TestResolveAgentModel(t *testing.T) {
 // D1: the CODEX_MODEL pin reaches a codex run on a Databricks session target, spelled the way Databricks serves it.
 func TestResolveAgentModelCodexPinOnDatabricks(t *testing.T) {
 	vaulttest.Use(t)
-	if err := providers.SetPins(map[string]string{providers.PinCodexModel: "databricks-gpt-6-1-sol"}); err != nil {
-		t.Fatal(err)
-	}
+	vaulttest.SetRecord(t, "codex", "model", "databricks-gpt-6-1-sol")
 	got, _ := ResolveAgentModel(ModelAsk{Agent: "codex", Target: specTarget("databricks")})
 	if got.Model != "databricks-gpt-6-1-sol" {
 		t.Errorf("model = %q, want the pin", got.Model)
@@ -77,9 +71,7 @@ func TestCopilotChoicePin(t *testing.T) {
 	if c := copilotChoice(nil); c.Pin != "" {
 		t.Fatalf("no pin set: %+v", c)
 	}
-	if err := providers.SetPins(map[string]string{providers.PinCopilotModel: "kimi-k3"}); err != nil {
-		t.Fatal(err)
-	}
+	vaulttest.SetRecord(t, "copilot", "model", "kimi-k3")
 	c := copilotChoice([]string{"a", "b"})
 	if c.Pin != "kimi-k3" || strings.Join(c.Requested, ",") != "a,b" {
 		t.Errorf("choice = %+v", c)
@@ -113,9 +105,7 @@ func TestSpellPinDropsDatabricksOffDatabricks(t *testing.T) {
 		t.Errorf("Databricks = %q, want kept", got)
 	}
 	vaulttest.Use(t)
-	if err := providers.SetPins(map[string]string{providers.PinCodexModel: pin}); err != nil {
-		t.Fatal(err)
-	}
+	vaulttest.SetRecord(t, "codex", "model", pin)
 	if got, _ := ResolveAgentModel(ModelAsk{Agent: "codex", Target: specTarget("fallback")}); got.Model != "fallback-base" {
 		t.Errorf("model = %q, want the default", got.Model)
 	}

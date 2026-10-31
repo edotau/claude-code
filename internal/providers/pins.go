@@ -15,49 +15,9 @@ import (
 	"github.com/edotau/claude-code/internal/vault"
 )
 
-// Pin keys: vault only, never the process env. A model pin may be "provider:model" to cross providers.
-const (
-	PinProfile = "CLAUDE_PROFILE" // the session's profile
-	PinModel   = "CLAUDE_MODEL"   // fills every slot
-	// PinCopilotProfile names the copilot (github) profile, whose login field is the GitHub account; unset = gh's active.
-	PinCopilotProfile = "COPILOT_PROFILE"
-	// PinCopilotEffort is copilot's --reasoning-effort on every launch; unset follows copilot's own default.
-	PinCopilotEffort = "COPILOT_EFFORT"
-	// PinCopilotContext is copilot's --context tier on every launch; unset follows copilot's own default.
-	PinCopilotContext = "COPILOT_CONTEXT"
-	// PinCopilotModel is the copilot agent's own model, independent of the github provider's opus slot
-	// (which opencode's fallback ladder also reads); unset falls back to that slot.
-	PinCopilotModel = "COPILOT_MODEL"
-	// PinCodexProfile, PinGeminiProfile and PinOpencodeProfile name each agent's profile; unset = the agent's own.
-	PinCodexProfile    = "CODEX_PROFILE"
-	PinGeminiProfile   = "GEMINI_PROFILE"
-	PinOpencodeProfile = "OPENCODE_PROFILE"
-	// PinCopilotActive, PinCodexActive, PinGeminiActive and PinOpencodeActive are "on"|"off" (unset = on); claude is always on.
-	PinCopilotActive  = "COPILOT_ACTIVE"
-	PinCodexActive    = "CODEX_ACTIVE"
-	PinGeminiActive   = "GEMINI_ACTIVE"
-	PinOpencodeActive = "OPENCODE_ACTIVE"
-	// PinCodexModel is codex's own model (its `debug models` catalog); unset follows codex's own default
-	// (config.toml's model, else its ChatGPT-login provider's opus slot).
-	PinCodexModel = "CODEX_MODEL"
-	// PinCodexEffort is codex's -c model_reasoning_effort on every launch; unset follows codex's own default.
-	PinCodexEffort = "CODEX_EFFORT"
-	// PinGeminiModel is agy's own model (its `models` catalog, effort baked into the id); unset falls
-	// back to agent.AgyDefaultModel.
-	PinGeminiModel = "GEMINI_MODEL"
-)
-
-// isSlotPin reports whether key is CLAUDE_<TIER>_MODEL for a known tier.
-func isSlotPin(key string) bool {
-	return slices.ContainsFunc(models.Slots, func(slot string) bool { return key == SlotPin(slot) })
-}
-
-// SlotPin is the per-slot pin key, e.g. CLAUDE_OPUS_MODEL; it beats PinModel.
-func SlotPin(slot string) string { return "CLAUDE_" + strings.ToUpper(slot) + "_MODEL" }
-
 // EnvSessionProfile is the env var a launcher stamps into a session's child env so its statusline and hooks
-// know the session's profile. It is a session marker, not a pin: the vault pin of the same name is separate.
-const EnvSessionProfile = PinProfile
+// know the session's profile.
+const EnvSessionProfile = "CLAUDE_PROFILE"
 
 // SessionProfile is the profile of the session this process runs in ("" outside a launched session).
 func SessionProfile() string { return strings.TrimSpace(os.Getenv(EnvSessionProfile)) }
@@ -194,53 +154,34 @@ func PinLookup() (func(string) string, error) {
 	return func(key string) string { return strings.TrimSpace(pins[key]) }, err
 }
 
-// readPins is the vault pins table plus the agent records rendered as their legacy keys, in one read transaction.
-func readPins() (map[string]string, error) { return readPinsActive(true) }
-
-// readPinsActive is readPins; active adds the derived <AGENT>_ACTIVE=off keys.
-func readPinsActive(active bool) (pins map[string]string, err error) {
-	err = vault.View(func(tx *vault.Tx) error {
-		recs, rerr := tx.AgentRecords()
-		if rerr != nil {
-			return rerr
-		}
-		pins = tx.All(vault.Pins)
-		maps.Copy(pins, vault.LegacyPins(recs, active))
-		return nil
-	})
+// readPins is the vault pins table (non-agent keys; agent settings live in records).
+func readPins() (pins map[string]string, err error) {
+	err = vault.View(func(tx *vault.Tx) error { pins = tx.All(vault.Pins); return nil })
 	return pins, err
 }
 
-// SetPins writes (value != "") or clears (value == "") keys in one transaction; <AGENT>_<FIELD> keys land in the record.
+// SetPins writes (value != "") or clears (value == "") keys of the pins table in one transaction.
 func SetPins(kv map[string]string) error {
-	if err := vault.Update(func(tx *vault.Tx) error {
-		recs, err := tx.AgentRecords()
-		if err != nil {
-			return err
-		}
+	return vault.Update(func(tx *vault.Tx) error {
 		for k, v := range kv {
-			if a, f, ok := vault.ParseAgentPin(k); ok {
-				recs[a] = recs[a].WithPin(f, v)
-			} else if err := tx.Put(vault.Pins, k, v); err != nil {
+			if err := tx.Put(vault.Pins, k, v); err != nil {
 				return err
 			}
 		}
-		return tx.PutAgentRecords(recs)
-	}); err != nil {
-		return err
-	}
-	AuditPins(kv)
-	return nil
+		return nil
+	})
 }
 
-// AuditPins records pin changes after their transaction succeeds.
-func AuditPins(kv map[string]string) {
-	for k, v := range kv {
+// AuditRecords audits claude's record changes after their transaction succeeds: a profile switch, a model pin or unpin.
+func AuditRecords(before, after map[string]vault.AgentRecord) {
+	b, n := recordFields(before["claude"]), recordFields(after["claude"])
+	for _, f := range slices.Sorted(maps.Keys(mergeKeys(b, n))) {
 		switch {
-		case k == PinProfile:
-			audit.Log(audit.ProviderSwitch, v, pinCaller())
-		case k == PinModel || isSlotPin(k):
-			audit.Log(audit.ModelPin, k, cmp.Or(v, "unpinned"))
+		case b[f] == n[f]:
+		case f == "profile":
+			audit.Log(audit.ProviderSwitch, n[f], pinCaller())
+		case f == "model" || strings.HasPrefix(f, "slots."):
+			audit.Log(audit.ModelPin, "claude."+f, cmp.Or(n[f], "unpinned"))
 		}
 	}
 }
@@ -250,9 +191,9 @@ func AuditSwitch(profile string) { audit.Log(audit.ProviderSwitch, profile, pinC
 
 // AuditModelPin records a claude model pin for slot ("" = every slot); an empty spec is an unpin.
 func AuditModelPin(slot, spec string) {
-	key := PinModel
+	key := "claude.model"
 	if slot != "" {
-		key = SlotPin(slot)
+		key = "claude.slots." + slot
 	}
 	audit.Log(audit.ModelPin, key, cmp.Or(spec, "unpinned"))
 }
@@ -309,9 +250,9 @@ func PinDiff(kv map[string]string) ([]string, error) {
 	return out, nil
 }
 
-// RenderPins renders vault pins as the plain-text snapshot history records.
+// RenderPins renders the vault pins table as the plain-text snapshot history records.
 func RenderPins() ([]byte, error) {
-	pins, err := readPinsActive(false)
+	pins, err := readPins()
 	if err != nil {
 		return nil, err
 	}

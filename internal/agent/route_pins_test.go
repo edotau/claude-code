@@ -8,7 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -35,16 +34,12 @@ func TestPinFirstFallback(t *testing.T) {
 		vaulttest.UseKeyring(t)
 		t.Setenv("HOME", t.TempDir())
 		t.Setenv("OPENAI_API_KEY", "test-key") // the non-own-login openai profile needs a credential
-		if err := providers.SetPins(map[string]string{
-			providers.PinProfile:         "max",
-			providers.PinCodexProfile:    "openai",
-			providers.PinOpencodeProfile: "opencode-go",
-			providers.PinCopilotActive:   AgentOff,
-			providers.PinGeminiActive:    AgentOff,
-			providers.PinCodexModel:      "gpt-6.1-sol",
-		}); err != nil {
-			t.Fatal(err)
-		}
+		vaulttest.SetRecord(t, "claude", "profile", "max")
+		vaulttest.SetRecord(t, "codex", "profile", "openai")
+		vaulttest.SetRecord(t, "opencode", "profile", "opencode-go")
+		vaulttest.SetRecord(t, "copilot", "profile", "")
+		vaulttest.SetRecord(t, "gemini", "profile", "")
+		vaulttest.SetRecord(t, "codex", "model", "gpt-6.1-sol")
 		if exhausted {
 			now := time.Now()
 			if err := router.MarkExhausted("anthropic·max", now.Add(time.Hour), now, "test quota"); err != nil {

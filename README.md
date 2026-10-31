@@ -172,21 +172,22 @@ Process env read directly by the harness (not pins; set them in the shell or the
 | model | what `--model` takes | an alias (`opus`, follows the table), a version (`opus-5-5`, pinned) or a full wire id |
 | proxy · router | the loopback daemon · the agent + model pick | `gateway proxy` · `gateway router` |
 | wire | the protocol a model rides (`providers.WireFor`): Claude → `anthropic`, Responses-only → `responses`, else `openai` | `anthropic` `openai` `responses` |
-| default · pin | what the harness picks when nothing is set · the user's own choice, saved in the vault | flag beats pin beats default; an unset pin (or Go field) means default |
+| default · agent record | what the harness picks when nothing is set · the user's own choice, saved in the vault | flag beats repo last-used beats agent record beats default; no profile = off, claude always on |
 
 Retired words: runner and vendor (→ agent), router for the daemon (→ proxy), slot and tier (→ model alias), leg
-(→ dispatch), family (→ provider), preference and saved override (→ pin). `gateway` names the verb namespace
-only; the Databricks wire is `ai-gateway`.
+(→ dispatch), family (→ provider), pin, preference and saved override (→ agent record). `gateway` names the verb
+namespace only; the Databricks wire is `ai-gateway`.
 
 | Surface | Form | Example |
 | --- | --- | --- |
 | Label (display) | `<agent> → <provider>·<profile>/<model>` | `copilot → databricks·dev/databricks-claude-opus-5-5` |
-| Pins (vault only) | `<AGENT>_<FIELD>` | `CLAUDE_PROFILE`, `CLAUDE_OPUS_MODEL`, `COPILOT_PROFILE`, `GEMINI_MODEL` |
+| Agent record (vault) | one per agent: profile, model, effort, context, account, aliases | `vault list` AGENT table, `vault edit` → `agents.records` |
 | Vault secret | the tree path flattened, stopping at auth; a profile named after its provider is written once | `DATABRICKS_PROD_OAUTH`, `ANTHROPIC_KEY` |
 
-Pins are read from the vault, never inherited env; vendor-read env (`ANTHROPIC_*`, `CLAUDE_CODE_*`, `COPILOT_*`) is
-only exported at launch, never renamed; model ids are built per provider from the canonical form (`opus-5-5` →
-`claude-opus-5-5`, `databricks-claude-opus-5-5`, `system.ai.claude-opus-5-5`); code never parses a profile name.
+Agent records are read from the vault, never inherited env; vendor-read env (`ANTHROPIC_*`, `CLAUDE_CODE_*`,
+`COPILOT_*`) is only exported at launch, never renamed; model ids are built per provider from the canonical
+form (`opus-5-5` → `claude-opus-5-5`, `databricks-claude-opus-5-5`, `system.ai.claude-opus-5-5`); code never
+parses a profile name.
 
 | Provider | Profile | Auth | Vault entry |
 | --- | --- | --- | --- |

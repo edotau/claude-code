@@ -22,7 +22,7 @@ func putRawPins(t *testing.T, pins map[string]string) {
 	}
 }
 
-// Given legacy pins in every shape, the records answer AgentActive and the old keys read back as the same state.
+// Given unmigrated legacy pins in every shape, the records answer AgentActive and carry the same state.
 func TestLegacyPinsDriveAgentActiveAndRecords(t *testing.T) {
 	vaulttest.Use(t)
 	putRawPins(t, map[string]string{
@@ -40,15 +40,6 @@ func TestLegacyPinsDriveAgentActiveAndRecords(t *testing.T) {
 	if r := GetAgentRecord("opencode"); r.Model != "m" {
 		t.Errorf("opencode record = %+v, want the model kept while off", r)
 	}
-	if got := providers.Pin("COPILOT_ACTIVE"); got != AgentOff {
-		t.Errorf("COPILOT_ACTIVE = %q, want off", got)
-	}
-	if got := providers.Pin("OPENCODE_ACTIVE"); got != AgentOff {
-		t.Errorf("OPENCODE_ACTIVE = %q, want the derived off (no profile)", got)
-	}
-	if got := providers.Pin("CODEX_ACTIVE"); got == AgentOff {
-		t.Errorf("CODEX_ACTIVE = %q, want not off (codex has a profile)", got)
-	}
 }
 
 // An unmigrated vault's raw pin makes the agent on and never reads as every agent off.
@@ -57,9 +48,6 @@ func TestUnmigratedRawPinIsNotReadAsOff(t *testing.T) {
 	putRawPins(t, map[string]string{"COPILOT_PROFILE": "dev"})
 	if got := GetAgentRecord("copilot").Profile; got != "dev" {
 		t.Fatalf("copilot profile = %q, want dev", got)
-	}
-	if got := providers.Pin("COPILOT_ACTIVE"); got == AgentOff {
-		t.Fatalf("COPILOT_ACTIVE = %q, want not off", got)
 	}
 }
 

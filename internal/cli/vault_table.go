@@ -28,7 +28,7 @@ func vaultTableWidth() int { return ansi.Columns(120) }
 func renderVaultTextStyled(doc configure.Doc, stored []secrets.Stored, sel []string, width int, color bool) string {
 	render := map[string]func() string{
 		"secrets":   func() string { return vaultSectionMax("SECRETS", vaultSecretRows(stored), width, 0, 0) },
-		"pins":      func() string { return vaultSection("PINS", vaultMapRows(vaultLoosePins(doc)), width) },
+		"pins":      func() string { return vaultSection("PINS", vaultMapRows(doc.Pins), width) },
 		"env":       func() string { return vaultSection("ENV", vaultMapRows(doc.Env), width) },
 		"providers": func() string { return vaultProvidersText(doc.Providers, width) },
 		"routing":   func() string { return vaultRoutingText(doc.Providers, width) },
@@ -494,22 +494,6 @@ func vaultOverlayAgents(raw json.RawMessage) (top, vs map[string]any, err error)
 	return top, vs, nil
 }
 
-// vaultLoosePins are the pins that belong to no agent (no AGENT_ key prefix).
-func vaultLoosePins(doc configure.Doc) map[string]string {
-	var vs map[string]any
-	if _, v, err := vaultOverlayAgents(doc.Agents); err == nil {
-		vs = v
-	}
-	names := agent.VaultAgentNames(vs)
-	loose := map[string]string{}
-	for k, v := range doc.Pins {
-		if !slices.ContainsFunc(names, func(n string) bool { return strings.HasPrefix(k, strings.ToUpper(n)+"_") }) {
-			loose[k] = v
-		}
-	}
-	return loose
-}
-
 // vaultRecordCells is one agent record as table cells; claude's tier slots fold into MODEL as tier=id.
 func vaultRecordCells(name string, r agent.AgentRecord) map[string]string {
 	cells := map[string]string{"PROFILE": r.Profile, "MODEL": r.Model, "EFFORT": r.Effort, "CONTEXT": r.Context, "ACCOUNT": r.Account}
@@ -582,7 +566,7 @@ func vaultAgentsText(raw json.RawMessage, width int, color bool) string {
 		}
 	}
 	for _, k := range slices.Sorted(maps.Keys(top)) {
-		if k == "_comment" || (k == "agents" && vs != nil) {
+		if k == "_comment" || k == "records" || (k == "agents" && vs != nil) {
 			continue
 		}
 		for _, r := range vaultFlattenValue(k, top[k]) {

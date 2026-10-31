@@ -18,7 +18,7 @@ const testBase = `{"providers": {"anthropic": {"a": {"protocol": "anthropic", "b
 func parseOverlay(t *testing.T, overlay string) (*Registry, error) {
 	t.Helper()
 	vaulttest.UseKeyring(t)
-	t.Setenv(PinProfile, "")
+	t.Setenv(EnvSessionProfile, "")
 	return Parse([]byte(testBase), []byte(overlay))
 }
 

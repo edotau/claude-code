@@ -54,24 +54,10 @@ func TestAPIKeyAuthStaysTrueForTokenSendingRows(t *testing.T) {
 	}
 }
 
-func TestPinNames(t *testing.T) {
-	for got, want := range map[string]string{
-		PinProfile: "CLAUDE_PROFILE", PinModel: "CLAUDE_MODEL", SlotPin("opus"): "CLAUDE_OPUS_MODEL",
-		PinCopilotProfile: "COPILOT_PROFILE", PinCopilotContext: "COPILOT_CONTEXT", PinCodexEffort: "CODEX_EFFORT",
-		PinCopilotEffort: "COPILOT_EFFORT", PinGeminiModel: "GEMINI_MODEL", PinCodexModel: "CODEX_MODEL",
-		PinCopilotModel: "COPILOT_MODEL", PinCodexProfile: "CODEX_PROFILE", PinGeminiProfile: "GEMINI_PROFILE",
-		PinOpencodeProfile: "OPENCODE_PROFILE",
-	} {
-		if got != want {
-			t.Errorf("pin %q, want %q", got, want)
-		}
-	}
-}
-
 func TestSessionProfileIsAnEnvMarkerNotAPin(t *testing.T) {
 	load(t)
 	t.Setenv(EnvSessionProfile, "")
-	writeProviderPins(t, map[string]string{PinProfile: "dev"})
+	vaulttest.SetRecord(t, "claude", "profile", "dev")
 	if SessionProfile() != "" {
 		t.Error("the vault pin leaked into SessionProfile")
 	}
@@ -79,7 +65,7 @@ func TestSessionProfileIsAnEnvMarkerNotAPin(t *testing.T) {
 	if SessionProfile() != "qa" {
 		t.Errorf("SessionProfile = %q", SessionProfile())
 	}
-	if got := Pin(PinCodexModel); got != "" {
+	if got := AgentRecord("codex").Model; got != "" {
 		t.Errorf("unset pin = %q", got)
 	}
 }

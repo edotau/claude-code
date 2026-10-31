@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/memory"
-	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -23,9 +22,7 @@ func servedSession(t *testing.T, on bool, fetched time.Time, updateChild string)
 		`"host":"https://dev.cloud.databricks.com","auth":{"type":"pat"}}}}}`
 	vaulttest.Put(t, vault.Overlay, "providers", fmt.Sprintf(row, on))
 	vaulttest.Secret(t, "DATABRICKS_DEV_PAT", "dapi-test")
-	if err := providers.SetPins(map[string]string{providers.PinProfile: "dev"}); err != nil {
-		t.Fatal(err)
-	}
+	vaulttest.SetRecord(t, "claude", "profile", "dev")
 	if !fetched.IsZero() {
 		if err := router.SaveServed(router.Served{Profile: "dev", FetchedAt: fetched}); err != nil {
 			t.Fatal(err)

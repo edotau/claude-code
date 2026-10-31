@@ -90,7 +90,7 @@ func writeAgentField(d *dialog, agent, field, val string) (bool, error) {
 		return false, err
 	}
 	if field == "PROFILE" {
-		if err := agentpkg.ClearLastProfilesFor(map[string]string{agentpkg.AgentProfilePin(agent): ""}); err != nil {
+		if err := agentpkg.ClearLastProfilesFor(agent); err != nil {
 			return false, err
 		}
 	}

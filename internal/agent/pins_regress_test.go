@@ -6,15 +6,15 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
 // DescribeRoute honors COPILOT_PROFILE/COPILOT_MODEL: the pinned usable Databricks row, not the first fallback.
 func TestDescribeCopilotRouteHonorsProfileAndModelPins(t *testing.T) {
 	reg := gateReg(t, map[string]bool{"dev": true, "qa": true})
 	gateSetup(t, 99, true, reg) // GitHub over quota, so only the pin can explain a qa pick
-	setPin(t, providers.PinCopilotProfile, "qa")
-	setPin(t, providers.PinCopilotModel, "kimi-k3")
+	vaulttest.SetRecord(t, "copilot", "profile", "qa")
+	vaulttest.SetRecord(t, "copilot", "model", "kimi-k3")
 	ri := describeCopilotRoute(reg)
 	if ri.Route != RouteDatabricks || ri.Provider != "qa" || ri.Model != "databricks-kimi-k3" || !ri.OK {
 		t.Fatalf("describe = %+v, want databricks qa databricks-kimi-k3", ri)
@@ -28,7 +28,7 @@ func TestDescribeCopilotRouteHonorsProfileAndModelPins(t *testing.T) {
 func TestDescribeCopilotRoutePinnedProfileDefaultsToOpusSlot(t *testing.T) {
 	reg := gateReg(t, map[string]bool{"dev": true, "qa": true})
 	gateSetup(t, 99, true, reg)
-	setPin(t, providers.PinCopilotProfile, "qa")
+	vaulttest.SetRecord(t, "copilot", "profile", "qa")
 	if ri := describeCopilotRoute(reg); ri.Provider != "qa" || ri.Model != "databricks-claude-opus-5-5" {
 		t.Fatalf("describe = %+v, want qa with its opus slot", ri)
 	}
@@ -37,7 +37,7 @@ func TestDescribeCopilotRoutePinnedProfileDefaultsToOpusSlot(t *testing.T) {
 // Interactive codex (nil Headless) carries the CODEX_EFFORT pin; headless Effort still wins.
 func TestCodexInteractiveCarriesEffortPin(t *testing.T) {
 	tg := target(t, "openai", "gpt-5")
-	setPin(t, providers.PinCodexEffort, "medium")
+	vaulttest.SetRecord(t, "codex", "effort", "medium")
 	_, argv, err := schemaFor("codex").Configure(context.Background(), tg, "")
 	if err != nil {
 		t.Fatal(err)

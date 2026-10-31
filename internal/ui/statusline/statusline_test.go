@@ -5,10 +5,9 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"github.com/edotau/claude-code/internal/tokenledger"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/tokenledger"
 	"github.com/edotau/claude-code/internal/ui/theme"
-	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 	"net/http"
 	"net/http/httptest"
@@ -188,7 +187,7 @@ func TestProviderAndModelSegments(t *testing.T) {
 	if name, routed := sessionProvider(); name != registryDefault(t) || routed {
 		t.Errorf("registry default: %q %v", name, routed)
 	}
-	vaulttest.Put(t, vault.Pins, providers.PinProfile, "antigravity")
+	vaulttest.SetRecord(t, "claude", "profile", "antigravity")
 	if name, _ := sessionProvider(); name != "antigravity" {
 		t.Errorf("vault pins: %q", name)
 	}
