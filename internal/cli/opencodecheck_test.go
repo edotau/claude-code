@@ -262,8 +262,8 @@ func TestOpencodeCheckFlagErrors(t *testing.T) {
 	if code, _, _ := ocMenu(t, "check", "--bogus"); code != 2 {
 		t.Errorf("bad flag code = %d, want 2", code)
 	}
-	if code, _, _ := ocMenu(t, "check", "--format", "xml"); code != 1 {
-		t.Errorf("bad format code = %d, want 1", code)
+	if code, _, _ := ocMenu(t, "check", "--format", "xml"); code != 2 {
+		t.Errorf("bad format code = %d, want 2", code)
 	}
 	if code, _, stderr := ocMenu(t, "check", "--profile", "no-such-provider"); code != 1 || stderr == "" {
 		t.Errorf("unknown provider: code=%d stderr=%q", code, stderr)

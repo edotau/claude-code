@@ -148,7 +148,7 @@ func failUsage(format string, a ...any) int {
 
 func tailscaleStatus(ctx context.Context, format string) int {
 	if err := helptext.CheckFormat(format); err != nil {
-		return fail("%v", err)
+		return badFormat("", err)
 	}
 	st, err := tailscale.Status(ctx)
 	if err != nil && !errors.Is(err, tailscale.ErrNotRunning) {
@@ -175,7 +175,7 @@ func tailscaleStatus(ctx context.Context, format string) int {
 
 func tailscaleMachines(ctx context.Context, format string) int {
 	if err := helptext.CheckFormat(format); err != nil {
-		return fail("%v", err)
+		return badFormat("", err)
 	}
 	machines, err := tailscale.Machines(ctx)
 	if err != nil {

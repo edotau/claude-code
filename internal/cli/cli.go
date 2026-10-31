@@ -9,6 +9,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/buildver"
+	"github.com/edotau/claude-code/internal/clean"
 	"github.com/edotau/claude-code/internal/databricks"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
@@ -68,7 +69,7 @@ func commands() []command {
 		{name: "network", group: groupAuth, summary: "tailnet, browsers, web search, MCP health, agent page", run: cmdNetwork},
 		// SESSION
 		{name: "switch", group: groupSession, hidden: true, summary: "pin the session profile (vault pins)", run: cmdSwitch},
-		{name: "clean", group: groupSession, summary: "sweep accumulated state; --dry-run previews", run: cmdClean},
+		{name: "clean", group: groupSession, summary: "sweep accumulated state; --dry-run previews", run: func(args []string) int { return clean.Run(args, os.Stdout, os.Stderr) }},
 		{name: "history", group: groupSession, summary: "shadow git history of config + memory", run: cmdHistory},
 		{name: "worktree", group: groupSession, summary: "manage worktrees in ~/worktrees/<repo>", run: cmdWorktree},
 		{name: "test", group: groupSession, summary: "test tooling: mutate checks a test has teeth", run: cmdTest},
@@ -278,6 +279,14 @@ func cmdVersion([]string) int {
 func fail(format string, a ...any) int {
 	fmt.Fprintf(os.Stderr, "claude-code: "+format+"\n", a...)
 	return 1
+}
+
+// badFormat reports an invalid --format value as a usage error (exit 2).
+func badFormat(prefix string, err error) int {
+	if prefix == "" {
+		return failUsage("%v", err)
+	}
+	return failUsage(prefix+": %v", err)
 }
 
 // cmdTest dispatches `test <sub>`.

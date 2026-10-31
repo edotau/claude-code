@@ -130,7 +130,7 @@ func dispatchStart(ctx context.Context, host, dir, agentName, name, task string,
 // dispatchList dispatches to the plain session list or, with withStatus, the pane-status sampler.
 func dispatchList(ctx context.Context, host, format string, withStatus bool, interval time.Duration) int {
 	if err := helptext.CheckFormat(format); err != nil {
-		return fail("%v", err)
+		return badFormat("", err)
 	}
 	if !withStatus {
 		return dispatchListPlain(ctx, host, format)

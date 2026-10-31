@@ -105,46 +105,34 @@ func vaultFlattenSection(raw json.RawMessage) [][2]string {
 	return vaultFlattenValue("", top)
 }
 
-// vaultFlattenValue flattens one decoded value under prefix to path/value rows.
+// vaultFlattenValue flattens one decoded value under prefix to sorted-key path/value rows.
 func vaultFlattenValue(prefix string, v any) [][2]string {
-	var kvs []vaultKV
-	flattenVaultValue(prefix, v, "null", &kvs)
-	rows := make([][2]string, len(kvs))
-	for i, kv := range kvs {
-		rows[i] = [2]string{kv.path, kv.value}
-	}
-	return rows
-}
-
-// vaultKV is one flattened dotted-path/value pair.
-type vaultKV struct{ path, value string }
-
-// flattenVaultValue walks a decoded JSON value in sorted-key order (arrays keep index order), one vaultKV per leaf.
-func flattenVaultValue(prefix string, v any, nullLabel string, out *[]vaultKV) {
+	var rows [][2]string
 	switch t := v.(type) {
 	case map[string]any:
 		for _, k := range slices.Sorted(maps.Keys(t)) {
-			vv, p := t[k], k
+			p := k
 			if prefix != "" {
 				p = prefix + "." + k
 			}
-			flattenVaultValue(p, vv, nullLabel, out)
+			rows = append(rows, vaultFlattenValue(p, t[k])...)
 		}
 	case []any:
 		for i, vv := range t {
-			flattenVaultValue(fmt.Sprintf("%s[%d]", prefix, i), vv, nullLabel, out)
+			rows = append(rows, vaultFlattenValue(fmt.Sprintf("%s[%d]", prefix, i), vv)...)
 		}
 	case nil:
-		*out = append(*out, vaultKV{prefix, nullLabel})
+		rows = append(rows, [2]string{prefix, "null"})
 	case string:
-		*out = append(*out, vaultKV{prefix, t})
+		rows = append(rows, [2]string{prefix, t})
 	case bool:
-		*out = append(*out, vaultKV{prefix, strconv.FormatBool(t)})
+		rows = append(rows, [2]string{prefix, strconv.FormatBool(t)})
 	case float64:
-		*out = append(*out, vaultKV{prefix, strconv.FormatFloat(t, 'g', -1, 64)})
+		rows = append(rows, [2]string{prefix, strconv.FormatFloat(t, 'g', -1, 64)})
 	default:
-		*out = append(*out, vaultKV{prefix, fmt.Sprint(t)})
+		rows = append(rows, [2]string{prefix, fmt.Sprint(t)})
 	}
+	return rows
 }
 
 // vaultSection renders one heading plus its aligned, width-truncated rows (or "(none)" when empty).

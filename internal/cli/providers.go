@@ -23,8 +23,7 @@ import (
 // configureProviderList prints every provider's credential state, or one provider's detail; json mirrors describe.
 func configureProviderList(name, format string) int {
 	if err := helptext.CheckFormat(format); err != nil {
-		fmt.Fprintln(os.Stderr, "claude-code: configure provider:", err)
-		return 2
+		return badFormat("configure provider", err)
 	}
 	reg, err := providers.Load()
 	if err != nil {
@@ -259,8 +258,7 @@ func cmdModels(args []string) int {
 		return 2
 	}
 	if err := helptext.CheckFormat(*format); err != nil {
-		fmt.Fprintln(os.Stderr, "claude-code: models:", err)
-		return 2
+		return badFormat("models", err)
 	}
 	reg, err := providers.Load()
 	if err != nil {

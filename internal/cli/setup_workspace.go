@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -61,9 +60,9 @@ func cmdSetupWorkspace(args []string) int {
 			setupWorkspacePage.Fprint(os.Stderr)
 			return 2
 		}
-		return setupWorkspaceErr(setup.WorkspaceLink(setupWorkspaceRoot(pos[2:]), pos[0], pos[1], os.Stdout))
+		return setupExit(setup.WorkspaceLink(setupWorkspaceRoot(pos[2:]), pos[0], pos[1], os.Stdout), "setup workspace")
 	case "status":
-		return setupWorkspaceErr(setup.WorkspaceStatus(setupWorkspaceRoot(pos), os.Stdout))
+		return setupExit(setup.WorkspaceStatus(setupWorkspaceRoot(pos), os.Stdout), "setup workspace")
 	}
 	setupWorkspacePage.Fprint(os.Stderr)
 	return 2
@@ -79,9 +78,9 @@ func setupWorkspaceInit(pos []string, with string, dryRun bool) int {
 	if with != "" {
 		parts = strings.Split(with, ",")
 	}
-	return setupWorkspaceErr(setup.WorkspaceInit(setup.WorkspaceInitOpts{
+	return setupExit(setup.WorkspaceInit(setup.WorkspaceInitOpts{
 		Root: setupWorkspaceRoot(pos), With: parts, DryRun: dryRun, Out: os.Stdout,
-	}))
+	}), "setup workspace")
 }
 
 // setupWorkspaceRoot is the optional trailing positional, else the current directory.
@@ -90,16 +89,4 @@ func setupWorkspaceRoot(pos []string) string {
 		return pos[len(pos)-1]
 	}
 	return "."
-}
-
-// setupWorkspaceErr maps an error to exit 1 with a prefixed message; nil is 0.
-func setupWorkspaceErr(err error) int {
-	if err == nil {
-		return 0
-	}
-	fmt.Fprintln(os.Stderr, "claude-code: setup workspace:", err)
-	if errors.Is(err, setup.ErrWorkspaceUsage) {
-		return 2
-	}
-	return 1
 }

@@ -63,7 +63,7 @@ func gatewayRoute(args []string, withProxy bool) int {
 		return code
 	}
 	if err := helptext.CheckFormat(*format); err != nil {
-		return fail(name+": %v", err)
+		return badFormat(name, err)
 	}
 	if !slices.Contains(agent.FallbackModes, *fallback) {
 		return fail(name+": --fallback %q unknown (%s)", *fallback, strings.Join(agent.FallbackModes, "|"))
