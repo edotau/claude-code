@@ -134,8 +134,9 @@ func writeRel(t *testing.T, root, rel, body string) {
 	}
 }
 
-// Tick spanning: real commit -> PostToolUse Bash -> full tick + partial note + context -> Stop reminder once.
-func TestPlanTickSpanningAndReminder(t *testing.T) {
+// tickFixture commits a/one.go and "b/two file.go" in a fresh repo with a two-task plan; tick feeds a Bash commit result.
+func tickFixture(t *testing.T) (planPath, sha string, tick func(command, out string) string) {
+	t.Helper()
 	_, home := planGroupEnv(t, false)
 	repo := filepath.Join(home, "widgets")
 	if err := os.MkdirAll(repo, 0o755); err != nil {
@@ -147,16 +148,16 @@ func TestPlanTickSpanningAndReminder(t *testing.T) {
 	writeRel(t, repo, "b/two file.go", "package b\n")
 	gitIn(t, repo, "add", "a/one.go", "b/two file.go")
 	gitIn(t, repo, "commit", "-q", "-m", "x", "--no-gpg-sign")
-	sha := strings.TrimSpace(gitIn(t, repo, "rev-parse", "--short=7", "HEAD"))
+	sha = strings.TrimSpace(gitIn(t, repo, "rev-parse", "--short=7", "HEAD"))
 
 	dir := plans.Home(repo)
-	planPath := filepath.Join(dir, "2026-10-29-widgets.md")
+	planPath = filepath.Join(dir, "2026-10-29-widgets.md")
 	writeRel(t, dir, "2026-10-29-widgets.md", "# Plan: w\n\n## Tasks\n\n"+
 		"- [ ] 1.1 Full task owns: a/one.go, b/two file.go\n"+
 		"- [ ] 1.2 Partial task owns: a/one.go, c/never.go\n")
 	t.Setenv("HOME", home)
 
-	tick := func(command, out string) string {
+	tick = func(command, out string) string {
 		_, o, _ := runEventOut(t, "PostToolUse", map[string]any{
 			"hook_event_name": "PostToolUse", "session_id": "tick1", "tool_name": "Bash", "cwd": t.TempDir(),
 			"tool_input":    map[string]string{"command": command},
@@ -164,7 +165,15 @@ func TestPlanTickSpanningAndReminder(t *testing.T) {
 		})
 		return o
 	}
-	cmd := "git -C ~/widgets commit -m x"
+	return planPath, sha, tick
+}
+
+const tickCmd = "git -C ~/widgets commit -m x"
+
+// Tick spanning: real commit -> PostToolUse Bash -> full tick + partial note + context.
+func TestPlanTickSpanning(t *testing.T) {
+	planPath, sha, tick := tickFixture(t)
+	cmd := tickCmd
 
 	before, _ := os.ReadFile(planPath)
 	// corners: no commit line / unknown sha change nothing
@@ -187,6 +196,12 @@ func TestPlanTickSpanningAndReminder(t *testing.T) {
 		t.Fatalf("additionalContext = %q, want both tasks named", out)
 	}
 
+}
+
+// The Stop reminder names a partly-landed task once, then stays quiet.
+func TestPlanTickReminderOnce(t *testing.T) {
+	_, sha, tick := tickFixture(t)
+	tick(tickCmd, "[main "+sha+"] x\n 2 files changed\n")
 	stop := func() string {
 		var o, e bytes.Buffer
 		RunArgs("Stop", []string{"--docs-plan-reminder"}, hookJSON(t, map[string]any{"hook_event_name": "Stop", "session_id": "tick1"}), &o, &e)

@@ -77,12 +77,18 @@ func TestConfigureRouteUsesServesReason(t *testing.T) {
 	}
 }
 
-// D5: an ai-gateway row has no openai route, so the opencode menu has no chat provider; Claude and GPT stay.
-func TestOpencodeDatabricksGatewayDropsChatProvider(t *testing.T) {
+func captureCatalogWarn(t *testing.T) *strings.Builder {
+	t.Helper()
 	var warn strings.Builder
 	old := catalogWarn
 	catalogWarn = &warn
 	t.Cleanup(func() { catalogWarn = old })
+	return &warn
+}
+
+// D5: an ai-gateway row has no openai route, so the opencode menu has no chat provider; Claude and GPT stay.
+func TestOpencodeDatabricksGatewayDropsChatProvider(t *testing.T) {
+	warn := captureCatalogWarn(t)
 	p := gwRow("gw")
 	c := renderOpencode(t, p, providers.ProtocolAnthropic, p.BaseURL, "system.ai.claude-opus-5-5", false)
 	if _, ok := c.Provider["harness-gw"]; ok {
@@ -98,6 +104,12 @@ func TestOpencodeDatabricksGatewayDropsChatProvider(t *testing.T) {
 	if !strings.Contains(warn.String(), "gw has no openai route") || !strings.Contains(warn.String(), "Kimi K3") {
 		t.Errorf("warn = %q", warn.String())
 	}
+}
+
+// A chat model on an ai-gateway row is refused: there is no openai route to send it to.
+func TestOpencodeDatabricksGatewayRefusesChatModel(t *testing.T) {
+	captureCatalogWarn(t)
+	p := gwRow("gw")
 	_, _, err := opencode(p, providers.ProtocolAnthropic, p.BaseURL, "system.ai.kimi-k3", "tok", false, nil)
 	if err == nil || !strings.Contains(err.Error(), "no openai route") {
 		t.Errorf("chat model on a gateway row: err = %v", err)
@@ -106,10 +118,7 @@ func TestOpencodeDatabricksGatewayDropsChatProvider(t *testing.T) {
 
 // A serving row keeps its chat provider and warns of nothing.
 func TestOpencodeDatabricksServingKeepsChatProvider(t *testing.T) {
-	var warn strings.Builder
-	old := catalogWarn
-	catalogWarn = &warn
-	t.Cleanup(func() { catalogWarn = old })
+	warn := captureCatalogWarn(t)
 	p := dbxRow("qa", "databricks-")
 	c := renderOpencode(t, p, providers.ProtocolOpenAI, p.Routes[providers.ProtocolOpenAI], "databricks-claude-opus-5-5", false)
 	if len(c.Provider["harness-qa"].Models) == 0 || warn.Len() != 0 {
@@ -215,6 +224,23 @@ func dbxServing(t *testing.T, srv *httptest.Server) {
 	vaulttest.Put(t, vault.Overlay, "providers", body)
 }
 
+// runNoTools runs a NoTools claude one-shot against a fake Databricks server and returns the paths it served.
+func runNoTools(t *testing.T, model string, resp http.HandlerFunc, out *strings.Builder) (Result, []string, error) {
+	t.Helper()
+	var mu sync.Mutex
+	var paths []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		paths = append(paths, r.URL.Path)
+		mu.Unlock()
+		resp(w, r)
+	}))
+	defer srv.Close()
+	dbxServing(t, srv)
+	res, err := claudeRunner{}.Run(context.Background(), Request{Prompt: "hi", Provider: "dbx", Model: model, NoTools: true}, NewTextSink(out))
+	return res, paths, err
+}
+
 // NoTools one-shot routing on a Databricks row: Claude rides /anthropic, other chat models /v1, Responses-only is refused.
 func TestClaudeNoToolsRouting(t *testing.T) {
 	chat := func(w http.ResponseWriter, r *http.Request) {
@@ -230,39 +256,35 @@ func TestClaudeNoToolsRouting(t *testing.T) {
 		io.WriteString(w, anthropicSSE)
 	}
 	cases := []struct {
-		name, model, wantOut, wantErr string
-		resp                          http.HandlerFunc
-		wantPaths                     []string
+		name, model, wantOut string
+		resp                 http.HandlerFunc
+		wantPaths            []string
 	}{
-		{"non-claude model uses the openai chat route", "databricks-kimi-k3", "ok", "", chat, []string{"/v1/chat/completions"}},
-		{"responses-only model refused before any request", "databricks-gpt-5-5", "", "databricks-gpt-5-5", nil, nil},
-		{"claude model uses the anthropic route", "databricks-claude-haiku-4-5", "", "", claude, []string{"/anthropic/v1/messages"}},
+		{"non-claude model uses the openai chat route", "databricks-kimi-k3", "ok", chat, []string{"/v1/chat/completions"}},
+		{"claude model uses the anthropic route", "databricks-claude-haiku-4-5", "", claude, []string{"/anthropic/v1/messages"}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			var mu sync.Mutex
-			var paths []string
-			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				mu.Lock()
-				paths = append(paths, r.URL.Path)
-				mu.Unlock()
-				c.resp(w, r)
-			}))
-			defer srv.Close()
-			dbxServing(t, srv)
-
 			var out strings.Builder
-			res, err := claudeRunner{}.Run(context.Background(), Request{Prompt: "hi", Provider: "dbx", Model: c.model, NoTools: true}, NewTextSink(&out))
-			if c.wantErr != "" {
-				if err == nil || !strings.Contains(err.Error(), c.wantErr) {
-					t.Errorf("err = %v, want it to name %q", err, c.wantErr)
-				}
-			} else if err != nil || res.Provider != "dbx" || (c.wantOut != "" && out.String() != c.wantOut) {
+			res, paths, err := runNoTools(t, c.model, c.resp, &out)
+			if err != nil || res.Provider != "dbx" || (c.wantOut != "" && out.String() != c.wantOut) {
 				t.Fatalf("res = %+v err = %v out %q", res, err, out.String())
 			}
 			if !slices.Equal(paths, c.wantPaths) {
 				t.Errorf("paths = %v, want %v", paths, c.wantPaths)
 			}
 		})
+	}
+}
+
+// A Responses-only model is refused before any request leaves.
+func TestClaudeNoToolsRefusesResponsesOnly(t *testing.T) {
+	var out strings.Builder
+	_, paths, err := runNoTools(t, "databricks-gpt-5-5", nil, &out)
+	if err == nil || !strings.Contains(err.Error(), "databricks-gpt-5-5") {
+		t.Errorf("err = %v, want it to name the model", err)
+	}
+	if len(paths) != 0 {
+		t.Errorf("paths = %v, want none", paths)
 	}
 }
