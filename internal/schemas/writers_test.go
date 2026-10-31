@@ -48,7 +48,7 @@ var writers = map[string]string{
 	"internal/clipboard/launchd.go:installLaunchAgentAt":               unversioned("foreign: launchd plist (Apple format)"),
 	"internal/clipboard/proxy.go:installProxyAt":                       unversioned("foreign: wl-paste shim binary"),
 	"internal/completion/completion.go:Install":                        unversioned("foreign: shell completion script in the user's shell dirs"),
-	"internal/configure/vault_edit.go:Edit":                            unversioned("foreign: editor scratch temp file"),
+	"internal/configure/vault_storage.go:Edit":                         unversioned("foreign: editor scratch temp file"),
 	"internal/configure/home.go:registerCodexMCP":                      unversioned("foreign: codex config.toml in the vendor home"),
 	"internal/agent/copilot_registry.go:WriteCopilotRegistry":          unversioned("foreign: copilot registry in a private vendor home"),
 	"internal/agent/project/sync.go:writeProjection":                   "projections",
