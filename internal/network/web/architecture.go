@@ -49,17 +49,24 @@ func (c *archCache) get(now time.Time, build func() ([]byte, error)) ([]byte, er
 
 // archDir is one scanned directory; every slice is non-nil so the JSON carries [] rather than null.
 type archDir struct {
-	Path        string   `json:"path"`
-	Package     string   `json:"package"`
-	Files       int      `json:"files"`
-	TestFiles   int      `json:"testFiles"`
-	LOC         int      `json:"loc"`
-	Imports     []string `json:"imports"`
-	TestImports []string `json:"testImports"`
-	ImportedBy  []string `json:"importedBy"`
-	External    []string `json:"external"`
-	Layer       int      `json:"layer"`
-	HasDoc      bool     `json:"hasDoc"`
+	Path        string     `json:"path"`
+	Package     string     `json:"package"`
+	Files       int        `json:"files"`
+	TestFiles   int        `json:"testFiles"`
+	LOC         int        `json:"loc"`
+	Imports     []string   `json:"imports"`
+	TestImports []string   `json:"testImports"`
+	ImportedBy  []string   `json:"importedBy"`
+	External    []string   `json:"external"`
+	Layer       int        `json:"layer"`
+	HasDoc      bool       `json:"hasDoc"`
+	GoFiles     []archFile `json:"goFiles"`
+}
+
+// archFile is one non-test Go file with its line count.
+type archFile struct {
+	Name  string `json:"name"`
+	Lines int    `json:"lines"`
 }
 
 type archScan struct {
@@ -170,7 +177,7 @@ func walkGoDirs(root, rel, mod string, sc *archScan) {
 }
 
 func scanGoDir(root, rel, mod string, entries []os.DirEntry, sc *archScan) archDir {
-	d := archDir{Path: rel, Imports: []string{}, TestImports: []string{}, ImportedBy: []string{}, External: []string{}}
+	d := archDir{Path: rel, Imports: []string{}, TestImports: []string{}, ImportedBy: []string{}, External: []string{}, GoFiles: []archFile{}}
 	imps, tests, ext := map[string]bool{}, map[string]bool{}, map[string]bool{}
 	fset := token.NewFileSet()
 	for _, e := range entries {
@@ -188,7 +195,9 @@ func scanGoDir(root, rel, mod string, entries []os.DirEntry, sc *archScan) archD
 			d.TestFiles++
 		} else {
 			d.Files++
-			d.LOC += countLines(full)
+			n := countLines(full)
+			d.LOC += n
+			d.GoFiles = append(d.GoFiles, archFile{Name: e.Name(), Lines: n})
 			d.HasDoc = d.HasDoc || hasPackageDoc(f)
 		}
 		if d.Package == "" || (!isTest && strings.HasSuffix(d.Package, "_test")) {

@@ -10,23 +10,23 @@
   * { box-sizing: border-box; }
   body {
     margin: 0; padding: 0.75rem; font: 15px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-    background: #300a24; color: #c0c0c0;
+    background: #421a36; color: #c0c0c0;
   }
   h1 { font-size: 1.1rem; margin: 0.25rem 0 0.75rem; }
   h2 { font-size: 0.95rem; color: #a89fa6; margin: 1.25rem 0 0.4rem; text-transform: uppercase; letter-spacing: 0.04em; }
   section { margin-bottom: 1rem; }
-  .card { background: #3d1431; border: 1px solid #40404055; border-radius: 10px; padding: 0.6rem 0.75rem; margin-bottom: 0.5rem; }
+  .card { background: #512645; border: 1px solid #40404055; border-radius: 10px; padding: 0.6rem 0.75rem; margin-bottom: 0.5rem; }
   .row { display: flex; justify-content: space-between; align-items: baseline; gap: 0.5rem; }
   .muted { color: #8f8a8d; font-size: 0.82rem; }
   .chip { display: inline-block; padding: 0.1rem 0.5rem; border-radius: 999px; font-size: 0.72rem; font-weight: 600; }
   .chip-running, .chip-active, .chip-working { background: #1d3a0a; color: #8ae234; }
-  .chip-finished, .chip-idle, .chip-ready { background: #46183a; color: #c0c0c0; }
+  .chip-finished, .chip-idle, .chip-ready { background: #5e2f52; color: #c0c0c0; }
   .chip-stale, .chip-error { background: #4a1010; color: #ef2929; }
   .chip-input-needed { background: #4a3d00; color: #fce94f; }
-  .chip-unknown, .chip-gone { background: #2a081f; color: #8f8a8d; }
+  .chip-unknown, .chip-gone { background: #371430; color: #8f8a8d; }
   .sub { margin-left: 0.9rem; border-left: 2px solid #40404055; padding-left: 0.6rem; margin-top: 0.35rem; }
   .agent-row { cursor: pointer; padding: 0.2rem 0; }
-  .agent-row:hover { background: #46183a; }
+  .agent-row:hover { background: #5e2f52; }
   .activity { font-size: 0.78rem; color: #729fcf; margin-top: 0.1rem; }
   .leg { font-size: 0.78rem; margin: 0.1rem 0 0 0.5rem; color: #a89fa6; }
   .linklike { background: none; border: none; color: #729fcf; width: auto; padding: 0; margin: 0; font-weight: 400; cursor: pointer; }
@@ -34,29 +34,29 @@
   label { display: block; font-size: 0.82rem; color: #a89fa6; margin: 0.5rem 0 0.2rem; }
   select, input, textarea, button {
     width: 100%; padding: 0.5rem; border-radius: 8px; border: 1px solid #40404055;
-    background: #2a081f; color: #c0c0c0; font-size: 0.95rem;
+    background: #371430; color: #c0c0c0; font-size: 0.95rem;
   }
   textarea { min-height: 4.5rem; resize: vertical; }
   button { margin-top: 0.75rem; background: #E95420; border-color: #E95420; color: #fff; font-weight: 600; cursor: pointer; }
   button:disabled { opacity: 0.6; }
   #dispatchResult { white-space: pre-wrap; font-family: ui-monospace, monospace; font-size: 0.8rem; margin-top: 0.5rem; }
   #hostTabs { display: flex; gap: 0.4rem; flex-wrap: wrap; margin-bottom: 0.4rem; }
-  #hostTabs button { width: auto; background: #46183a; border-color: #40404055; color: #c0c0c0; font-weight: 400; margin-top: 0; padding: 0.3rem 0.6rem; }
+  #hostTabs button { width: auto; background: #5e2f52; border-color: #40404055; color: #c0c0c0; font-weight: 400; margin-top: 0; padding: 0.3rem 0.6rem; }
   #hostTabs button.active { background: #E95420; border-color: #E95420; color: #fff; }
   #tabs { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 0.5rem; }
-  #tabs button { width: auto; margin-top: 0; padding: 0.3rem 0.8rem; background: #46183a; border-color: #40404055; color: #c0c0c0; font-weight: 400; }
+  #tabs button { width: auto; margin-top: 0; padding: 0.3rem 0.8rem; background: #5e2f52; border-color: #40404055; color: #c0c0c0; font-weight: 400; }
   #tabs button.active { background: #E95420; border-color: #E95420; color: #fff; }
-  #usageDays button { width: auto; margin-top: 0; padding: 0.2rem 0.7rem; background: #46183a; border-color: #40404055; color: #c0c0c0; font-weight: 400; }
+  #usageDays button { width: auto; margin-top: 0; padding: 0.2rem 0.7rem; background: #5e2f52; border-color: #40404055; color: #c0c0c0; font-weight: 400; }
   #usageDays button.active { background: #E95420; border-color: #E95420; color: #fff; }
   .bar { height: 6px; background: #40404055; border-radius: 3px; margin: 0.35rem 0 0.2rem; overflow: hidden; }
   .bar > span { display: block; height: 100%; background: #8ae234; }
   .plan-row { cursor: pointer; }
   .task { margin: 0.25rem 0; }
-  .task code { background: #2a081f; padding: 0 0.3rem; border-radius: 4px; cursor: pointer; }
+  .task code { background: #371430; padding: 0 0.3rem; border-radius: 4px; cursor: pointer; }
   #planMd { white-space: pre-wrap; font-family: ui-monospace, monospace; font-size: 0.78rem; max-height: 50vh; overflow: auto; margin: 0.4rem 0 0; }
   /* The --vscode-* variables the shared usage-view.js reads; copied into its iframe. Ubuntu terminal palette, dark only. */
   :root {
-    --vscode-foreground: #c0c0c0; --vscode-sideBar-background: #300a24; --vscode-descriptionForeground: #8f8a8d;
+    --vscode-foreground: #c0c0c0; --vscode-sideBar-background: #421a36; --vscode-descriptionForeground: #8f8a8d;
     --vscode-widget-border: #40404055; --vscode-button-background: #E95420; --vscode-button-foreground: #ffffff;
     --vscode-badge-background: #5f5961; --vscode-badge-foreground: #ffffff; --vscode-charts-blue: #729fcf;
     --vscode-charts-green: #8ae234; --vscode-charts-orange: #E95420; --vscode-charts-yellow: #fce94f;
@@ -67,24 +67,74 @@
   .arch-subtabs { display: flex; flex-wrap: wrap; gap: 0 1rem; margin-bottom: 0.7rem; border-bottom: 1px solid #40404088; }
   .arch-subtabs button { width: auto; margin: 0 0 -1px; padding: 0.3rem 0.1rem; background: none; border: 0; border-bottom: 2px solid transparent; border-radius: 0; color: #a89fa6; font-weight: 400; font-size: 0.82rem; }
   .arch-subtabs button.active { border-bottom-color: #E95420; color: #fff; }
+  .arch-count { display: inline-block; margin-left: 0.3rem; padding: 0 0.4rem; border-radius: 999px; background: #5f5961; color: #fff; font-size: 0.7rem; }
+  .arch-body input, .arch-body select { margin: 0.2rem 0 0.5rem; font-size: 0.85rem; }
+  .arch-body a, .arch-a { color: #729fcf; text-decoration: none; }
+  .arch-body a:hover { text-decoration: underline; }
   .arch-sec h3 { font-size: 0.9rem; color: #a89fa6; margin: 1rem 0 0.4rem; }
+  .arch-title { text-transform: none; letter-spacing: 0; color: #fff; font-size: 1.05rem; margin: 0.3rem 0; display: flex; align-items: center; gap: 0.2rem; flex-wrap: wrap; }
   .arch-chips { display: flex; flex-wrap: wrap; gap: 0.3rem; margin: 0.25rem 0; }
-  .arch-chip { width: auto; margin: 0; padding: 0.1rem 0.5rem; background: #46183a; border: 1px solid #40404055; border-radius: 999px; color: #c0c0c0; font-size: 0.75rem; font-weight: 400; text-align: left; overflow-wrap: anywhere; }
-  .arch-badge { display: inline-block; padding: 0.05rem 0.45rem; border: 1px solid #40404055; border-radius: 999px; background: #2a081f; font-size: 0.72rem; color: #c0c0c0; }
+  .arch-chip { display: inline-block; padding: 0.1rem 0.5rem; background: #5e2f52; border: 1px solid #40404055; border-radius: 999px; font-size: 0.75rem; overflow-wrap: anywhere; }
+  .arch-pill { width: auto; margin: 0; padding: 0.1rem 0.6rem; background: #371430; border: 1px solid #40404055; border-radius: 999px; color: #c0c0c0; font-size: 0.75rem; font-weight: 400; }
+  .arch-pill.on { background: #E95420; border-color: #E95420; color: #fff; }
+  .arch-badge { display: inline-block; padding: 0.05rem 0.45rem; border: 1px solid #40404055; border-radius: 999px; background: #371430; font-size: 0.72rem; color: #c0c0c0; }
   .arch-badge.sev-critical { background: #4a1010; color: #ef2929; }
   .arch-badge.sev-high { background: #4a2a00; color: #E95420; }
   .arch-badge.sev-medium { background: #4a3d00; color: #fce94f; }
   .arch-badge.sev-low { background: #1d3a0a; color: #8ae234; }
+  .arch-crumbs { display: flex; flex-wrap: wrap; gap: 0.35rem; align-items: center; margin: 0.2rem 0 0.5rem; font-size: 0.9rem; }
+  .arch-list { background: #512645; border: 1px solid #40404055; border-radius: 10px; margin: 0.3rem 0 0.8rem; overflow: hidden; }
+  .arch-row { display: grid; grid-template-columns: 1.4rem minmax(0, 14rem) minmax(0, 1fr) auto; gap: 0 0.5rem; align-items: center; width: 100%; margin: 0; padding: 0.4rem 0.6rem; border: 0; border-top: 1px solid #40404055; border-radius: 0; background: none; color: #c0c0c0; font-size: 0.85rem; font-weight: 400; text-align: left; }
+  .arch-row:first-child { border-top: 0; }
+  a.arch-row:hover, button.arch-rt:hover { background: #4a1a3d; text-decoration: none; }
+  .arch-row.file { color: #a89fa6; }
+  .arch-ico { width: 1rem; height: 1rem; }
+  .arch-rn, .arch-rd { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+  .arch-rn { color: #fff; }
+  .arch-rd, .arch-rm { color: #a89fa6; font-size: 0.8rem; }
+  .arch-rm { text-align: right; white-space: nowrap; }
+  .arch-rt .arch-rn { color: #a89fa6; }
+  .arch-readme { border: 1px solid #40404055; border-radius: 10px; margin: 0.8rem 0; overflow: hidden; }
+  .arch-readme-h { padding: 0.4rem 0.7rem; background: #371430; border-bottom: 1px solid #40404055; font-size: 0.82rem; font-weight: 600; }
+  .arch-readme-b { padding: 0.2rem 0.8rem 0.6rem; font-size: 0.86rem; }
+  .arch-field { margin: 0.35rem 0; }
+  .arch-listhead { font-size: 0.85rem; font-weight: 600; margin: 0.4rem 0; }
+  .arch-irow { display: flex; gap: 0.5rem; align-items: flex-start; padding: 0.5rem 0.6rem; border-top: 1px solid #40404055; color: #fff; }
+  .arch-irow:first-child { border-top: 0; }
+  .arch-irow:hover { background: #4a1a3d; text-decoration: none; }
+  .arch-irow .arch-ico { margin-top: 0.15rem; flex: none; }
+  .arch-im { min-width: 0; }
+  .arch-it { display: block; font-weight: 600; font-size: 0.9rem; }
+  .arch-is { display: flex; flex-wrap: wrap; gap: 0.3rem; align-items: center; font-size: 0.76rem; }
+  .arch-labels { display: inline-flex; flex-wrap: wrap; gap: 0.25rem; }
+  .arch-diff { border: 1px solid #40404055; border-radius: 10px; margin: 0.8rem 0; overflow: hidden; }
+  .arch-diff-h { padding: 0.4rem 0.7rem; background: #371430; font-size: 0.82rem; font-weight: 600; }
+  .arch-ln { padding: 0.15rem 0.7rem; font-family: ui-monospace, monospace; font-size: 0.78rem; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .arch-ln.del { background: #4a101055; color: #ff9d9d; }
+  .arch-ln.add { background: #1d3a0a88; color: #b6f27a; }
+  .arch-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(7rem, 1fr)); gap: 0.5rem; margin-bottom: 0.5rem; }
+  .arch-tile { background: #512645; border: 1px solid #40404055; border-top: 3px solid #E95420; border-radius: 10px; padding: 0.5rem 0.7rem; display: flex; flex-direction: column; }
+  .arch-tile b { font-size: 1.3rem; color: #fff; }
+  .arch-tile span { font-size: 0.76rem; }
   .arch-band { margin-bottom: 0.4rem; }
-  .arch-dir { background: #3d1431; border: 1px solid #40404055; border-radius: 10px; padding: 0.4rem 0.6rem; margin-bottom: 0.35rem; }
-  .arch-sum { cursor: pointer; }
+  .arch-sw { display: inline-block; width: 0.7rem; height: 0.7rem; border-radius: 3px; margin-right: 0.4rem; }
+  .arch-seams { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
+  .arch-seams th, .arch-seams td { text-align: left; vertical-align: top; padding: 0.35rem 0.5rem; border-top: 1px solid #40404055; }
+  .arch-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 0 0.8rem; }
   .arch-path { font-family: ui-monospace, monospace; font-size: 0.82rem; color: #fff; }
-  .arch-purpose { display: block; font-size: 0.8rem; color: #a89fa6; }
-  .arch-detail, .arch-sub { margin-top: 0.4rem; font-size: 0.84rem; }
-  .arch-field { margin: 0.2rem 0; }
+  .arch-sub { margin-top: 0.4rem; font-size: 0.84rem; }
   .arch-flags { display: flex; flex-wrap: wrap; gap: 0.1rem 0.7rem; color: #a89fa6; font-family: ui-monospace, monospace; font-size: 0.76rem; }
   .arch-flags span { white-space: nowrap; }
-  .arch-body ul { padding-left: 1.1rem; margin: 0.3rem 0; }
+  @media (max-width: 600px) {
+    .arch-row { grid-template-columns: 1.4rem minmax(0, 1fr) auto; }
+    .arch-rd { grid-column: 2 / -1; grid-row: 2; }
+    .arch-pair { grid-template-columns: 1fr; }
+    .arch-seams thead { display: none; }
+    .arch-seams, .arch-seams tbody, .arch-seams tr, .arch-seams td { display: block; }
+    .arch-seams tr { background: #512645; border: 1px solid #40404055; border-radius: 10px; margin-bottom: 0.5rem; padding: 0.3rem 0; }
+    .arch-seams td { border: 0; padding: 0.15rem 0.7rem; }
+    .arch-seams td::before { content: attr(data-label) ': '; color: #a89fa6; }
+  }
   #usageFrame { width: 100%; min-height: 320px; height: 70vh; border: 1px solid var(--vscode-widget-border); border-radius: 10px; }
 </style>
 </head>
@@ -595,6 +645,7 @@ document.getElementById('tabs').addEventListener('click', function (e) {
     document.body.appendChild(sc);
   }
 });
+if (/^#arch/.test(location.hash)) document.querySelector('#tabs [data-tab="architecture"]').click();
 
 loadTree();
 watchTree();

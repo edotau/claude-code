@@ -98,6 +98,12 @@ func TestArchitectureEndToEnd(t *testing.T) {
 	if strings.Join(a.ImportedBy, ",") != "internal/b" || len(b.External) != 1 || b.External[0] != "github.com/x/y" {
 		t.Errorf("a.importedBy=%v b.external=%v", a.ImportedBy, b.External)
 	}
+	if len(a.GoFiles) != 1 || a.GoFiles[0] != (archFile{Name: "a.go", Lines: 4}) {
+		t.Errorf("a.goFiles = %+v, want only non-test a.go with 4 lines", a.GoFiles)
+	}
+	if !strings.Contains(body, `"path":"internal/empty"`) || strings.Contains(body, `"goFiles":null`) {
+		t.Errorf("goFiles must be [] not null: %s", body)
+	}
 	tree := strings.Join(r.Scan.Tree, ",")
 	if !strings.Contains(tree, "skills/synced") || strings.Contains(tree, "skills/synced/child") || !strings.Contains(tree, "skills/other/child") {
 		t.Errorf("tree = %s, want synced listed without children, other expanded", tree)
