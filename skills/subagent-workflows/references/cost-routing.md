@@ -10,17 +10,17 @@ adds real coverage (independent review, broad-context sweep). Stay inline for sm
 |---|---|---|---|
 | `sweep` | many files, whole-repo context, web search | `gemini` (agy, Google sign-in) | `claude-code gemini explore "<question>"`; targeted: `claude-code ask --agent gemini --tools "<brief>"`; 1M context: `claude-code gemini bridge --dirs <d> "<task>"` |
 | `review` | adversarial second opinion on a diff or plan | `codex` (ChatGPT plan) | `claude-code ask --agent codex --format json "<brief>"`; a diff: `claude-code codex review --adversarial [--base <b>]` |
-| `mechanical` | one-liner, lookup, mechanical edit | `copilot` (`haiku`: `internal/router/table.json`) | `claude-code ask --agent copilot --tools --workdir <repo> --fallback none --format json "<brief>"` |
-| `standard` | everything else (the default) | rotate `claude` · `copilot` · `codex` · `opencode` (`sonnet`: `internal/router/table.json`) | as above, `--agent <agent>` |
-| `reasoning` | explicitly flagged hard reasoning | Claude (`opus`: `internal/router/table.json`) | stays in session; never by default |
+| `mechanical` | one-liner, lookup, mechanical edit | `copilot` (`haiku`: `internal/agent/table.json`) | `claude-code ask --agent copilot --tools --workdir <repo> --fallback none --format json "<brief>"` |
+| `standard` | everything else (the default) | rotate `claude` · `copilot` · `codex` · `opencode` (`sonnet`: `internal/agent/table.json`) | as above, `--agent <agent>` |
+| `reasoning` | explicitly flagged hard reasoning | Claude (`opus`: `internal/agent/table.json`) | stays in session; never by default |
 
 Docs and implementation edits rotate across agents including `opencode` (model and effort from
-`internal/router/table.json`). Architecture, judgement, integration and final verification never leave Claude.
+`internal/agent/table.json`). Architecture, judgement, integration and final verification never leave Claude.
 Task kind is the manager's judgement, and a caller's kind is a hint: say so when you disagree. `claude-code gateway
 router --task "<text>"` only picks a model tier (low effort → haiku, else sonnet).
 
 Gemini needs `--tools` for any repo or web work — without it agy answers from model memory. Model cell mappings
-follow `internal/router/table.json` as the single source.
+follow `internal/agent/table.json` as the single source.
 
 ## Run the dispatch
 
@@ -29,7 +29,7 @@ follow `internal/router/table.json` as the single source.
 2. Assign agents round-robin across implementation steps and name it in the brief as `Agent: <name>`; keep the
    split even across the session. Assign `Agent: claude` when the brief would cost more than the work, the step
    needs context only this session holds, or the agent failed its smoke test.
-3. Size the model alias (`opus`, `sonnet`, `haiku`): `internal/router/table.json` is the single source for
+3. Size the model alias (`opus`, `sonnet`, `haiku`): `internal/agent/table.json` is the single source for
    agent × model, effort, account and price. Each dispatch runs the requested alias's cell, including Claude.
 4. Use `--fallback none` so a failed dispatch exits non-zero instead of silently running on Claude — see Fallback below.
 5. An agent in a shared tree runs in its own clean copy: `skills/subagent-workflows/scripts/isolate.sh <copy>`,
@@ -59,8 +59,8 @@ Per-agent levels:
 
 ## Fallback
 
-The router (`internal/router`) dynamically picks and ranks agent + model for every `claude-code ask` dispatch.
-Table: `internal/router/table.json` defines agent × model alias (`claude`, `copilot`, `codex`, `opencode`,
+The router (`internal/agent/route_*.go`) dynamically picks and ranks agent + model for every `claude-code ask` dispatch.
+Table: `internal/agent/table.json` defines agent × model alias (`claude`, `copilot`, `codex`, `opencode`,
 `gemini` × `opus`, `sonnet`, `haiku`) mapping to model, effort, account key (`<provider>·<profile>`, e.g.
 `anthropic·max`, `github·personal`, `openai·chatgpt`) and price. Default weights are `price=0.5` `headroom=0.5`
 (vault-overridable via `route` and `routeWeights`). Each dispatch runs the SAME model alias's cell (alias from

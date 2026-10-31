@@ -1,6 +1,7 @@
 ---
 paths:
   - "internal/settings/**"
+  - "internal/agent/render_*.go"
   - "**/settings.json"
   - "**/settings.local.json"
   - "defaults/claude/settings.json"

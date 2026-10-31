@@ -14,7 +14,7 @@ Files under `agents/`, `commands/`, `rules/`, `skills/` and this file go live th
 
 | Path | Holds |
 | --- | --- |
-| `cmd/claude-code/`, `internal/` | The binary, stdlib-first; external SDKs boxed one package each. `internal/cli` is the verb table only; each verb's engine is its own package |
+| `cmd/claude-code/`, `internal/` | The binary, stdlib-first; external SDKs boxed one package each. `internal/cli` holds verb handlers only; engines live in `internal/agent` and the other packages |
 | `internal/settings/hookspec.go` · `internal/hooks/` | Hook declarations (the one authoring surface) · their handlers |
 | `internal/providers/defaults.json` | Built-in providers; the vault's provider overlay replaces them by name |
 | `defaults/claude/settings.json` | Source of `settings.json` (generated — hard rule 1) |

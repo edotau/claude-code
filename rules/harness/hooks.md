@@ -1,6 +1,7 @@
 ---
 paths:
   - "internal/hooks/**"
+  - "internal/settings/hookspec.go"
 ---
 # Hooks System
 
