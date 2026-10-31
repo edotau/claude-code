@@ -8,7 +8,7 @@ import (
 )
 
 // resolveFixtureOpEnv isolates paths.StateDir() (and therefore operationsDir) per test, same pattern
-// as mergeFixtureLockEnv in lock_test.go.
+// as mergeFixtureLockEnv in merge_test.go.
 func resolveFixtureOpEnv(t *testing.T) {
 	t.Helper()
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())

@@ -1,10 +1,12 @@
 package providers
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -386,4 +388,83 @@ func LoginU2M(ctx context.Context, p *Provider, opts oauth.LoginOptions) (time.D
 		return 0, nil
 	}
 	return time.Until(c.(cached).until) + expiryMargin, nil
+}
+
+// Auth types, the one auth.type value on disk and in memory.
+const (
+	AuthOAuth = "oauth" // browser login once; sealed {refresh, access}
+	AuthM2M   = "m2m"   // client id + sealed client secret
+	AuthPAT   = "pat"   // sealed personal access token
+	AuthKey   = "key"   // a static key sent in a header
+	AuthCLI   = "cli"   // the agent CLI's own sign-in
+	AuthNone  = "none"  // no credential
+)
+
+// Header styles for auth.header.
+const (
+	HeaderXAPIKey = "x-api-key"
+	HeaderBearer  = "bearer"
+)
+
+// resolveKeyHeader fills a key row's header from the dialect: anthropic sends x-api-key, the rest bearer.
+func (a *Auth) resolveKeyHeader(kind string) {
+	if a.Type != AuthKey || a.Header != "" {
+		return
+	}
+	a.Header = HeaderBearer
+	if kind == ProtocolAnthropic {
+		a.Header = HeaderXAPIKey
+	}
+}
+
+// Method is the row's auth.type: oauth m2m pat key cli none; "" when unset.
+func (a Auth) Method() string { return a.Type }
+
+// HeaderStyle is the header a row sends its token in (x-api-key or bearer); "" for cli and none.
+func (a Auth) HeaderStyle() string {
+	switch a.Type {
+	case AuthOAuth, AuthM2M, AuthPAT, AuthKey:
+		if a.Header != "" {
+			return a.Header
+		}
+		return HeaderBearer
+	}
+	return ""
+}
+
+// Sealed reports whether the credential lives in the vault (oauth, m2m or pat).
+func (a Auth) Sealed() bool { return sealedAuth(a.Type) }
+
+// AuthVerdict is what an auth failure means for routing: only needs_login and rejected condemn the account.
+type AuthVerdict string
+
+const (
+	VerdictOK         AuthVerdict = "ok"
+	VerdictNeedsLogin AuthVerdict = "needs_login"
+	VerdictRejected   AuthVerdict = "rejected"
+	VerdictTransient  AuthVerdict = "transient"
+)
+
+// Verdict classifies a mint/refresh error; transport, timeout, 429 and 5xx are transient and never condemn.
+func Verdict(err error) AuthVerdict {
+	switch {
+	case err == nil:
+		return VerdictOK
+	case errors.Is(err, ErrNeedsLogin) || oauth.IsLoginRequired(err):
+		return VerdictNeedsLogin
+	case oauth.IsRejected(err):
+		return VerdictRejected
+	}
+	return VerdictTransient
+}
+
+// Condemns reports whether the verdict should mark the account unusable until a login or credential change.
+func (v AuthVerdict) Condemns() bool { return v == VerdictNeedsLogin || v == VerdictRejected }
+
+// IsInvalidTokenResponse reports the AI Gateway's 400 "Invalid Token" on a Databricks row (a ≤256-byte body peek).
+func IsInvalidTokenResponse(p *Provider, status int, body []byte) bool {
+	if p == nil || (p.Preset != PresetDatabricks && !sealedAuth(p.Auth.Type)) {
+		return false
+	}
+	return status == http.StatusBadRequest && bytes.Contains(body, []byte(`"Invalid Token"`))
 }

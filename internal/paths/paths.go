@@ -3,10 +3,14 @@ package paths
 
 import (
 	"bytes"
+	cryptorand "crypto/rand"
+	"encoding/hex"
 	"errors"
+	"fmt"
 	"math/rand/v2"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 )
@@ -146,4 +150,126 @@ func TryFileLock(path string, wait time.Duration, fn func() error) (ran bool, er
 		}
 	}()
 	return true, fn()
+}
+
+// IsFile reports whether p exists and is a regular (non-dir) entry.
+func IsFile(p string) bool { fi, err := os.Stat(p); return err == nil && !fi.IsDir() }
+
+// IsDir reports whether p exists and is a directory.
+func IsDir(p string) bool { fi, err := os.Stat(p); return err == nil && fi.IsDir() }
+
+// FileExists reports whether p exists (any type).
+func FileExists(p string) bool { _, err := os.Stat(p); return err == nil }
+
+// SafeName reports whether name is a single safe path component — an unsafe name (`../../escape`,
+// `..`, a dot-file, a backslash on Linux) would let a joined path escape the root it is checked under.
+func SafeName(name string) bool {
+	return name != "" && name != "." && name != ".." &&
+		name == filepath.Base(name) &&
+		!strings.ContainsAny(name, `/\`) &&
+		!strings.HasPrefix(name, ".")
+}
+
+// DirSize sums a file's size, or every file under a directory. Best-effort: an unreadable entry counts 0.
+func DirSize(p string) int64 {
+	st, err := os.Stat(p)
+	if err != nil {
+		return 0
+	}
+	if !st.IsDir() {
+		return st.Size()
+	}
+	var total int64
+	_ = filepath.WalkDir(p, func(_ string, d os.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return nil //nolint:nilerr // an unreadable subtree contributes 0, never aborts the walk
+		}
+		if info, err := d.Info(); err == nil {
+			total += info.Size()
+		}
+		return nil
+	})
+	return total
+}
+
+// WriteBackup writes data to base, or base-1, base-2... if taken, never overwriting; returns the path used.
+func WriteBackup(base string, data []byte) (string, error) {
+	for i := 0; ; i++ {
+		dest := base
+		if i > 0 {
+			dest = fmt.Sprintf("%s-%d", base, i)
+		}
+		f, err := os.OpenFile(dest, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+		if os.IsExist(err) {
+			continue
+		}
+		if err != nil {
+			return "", err
+		}
+		_, err = f.Write(data)
+		if err = errors.Join(err, f.Close()); err != nil {
+			return "", errors.Join(err, os.Remove(dest))
+		}
+		return dest, nil
+	}
+}
+
+// Backup writes data to the cache-mirrored backup path for src (dir made 0700), never overwriting; returns the path.
+func Backup(src string, data []byte) (string, error) {
+	base := BackupPath(src, time.Now())
+	if err := os.MkdirAll(filepath.Dir(base), 0o700); err != nil {
+		return "", fmt.Errorf("backup dir %s: %w", filepath.Dir(base), err)
+	}
+	return WriteBackup(base, data)
+}
+
+// ClientSecret returns the 32-byte hex secret in file, minting it 0600 under a file lock on first use.
+func ClientSecret(file string) (string, error) {
+	if s, err := readSecret(file); err == nil {
+		return s, nil
+	}
+	var out string
+	err := WithFileLock(file, func() error {
+		if s, err := readSecret(file); err == nil {
+			out = s
+			return nil
+		}
+		b := make([]byte, 32)
+		if _, err := cryptorand.Read(b); err != nil {
+			return err
+		}
+		out = hex.EncodeToString(b)
+		return AtomicWrite(file, []byte(out+"\n"), 0o600)
+	})
+	return out, err
+}
+
+func readSecret(file string) (string, error) {
+	b, err := os.ReadFile(file)
+	if err != nil {
+		return "", err
+	}
+	if s := strings.TrimSpace(string(b)); s != "" {
+		return s, nil
+	}
+	return "", errors.New("empty secret file " + file)
+}
+
+// VSCodeSettings is the platform's VS Code Machine settings path; outside a vscode-server it is the User scope.
+func VSCodeSettings() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	switch runtime.GOOS {
+	case "darwin":
+		return filepath.Join(home, "Library", "Application Support", "Code", "User", "settings.json"), nil
+	case "windows":
+		return filepath.Join(home, "AppData", "Roaming", "Code", "User", "settings.json"), nil
+	default:
+		if info, statErr := os.Stat(filepath.Join(home, ".vscode-server")); statErr == nil && info.IsDir() {
+			return filepath.Join(home, ".vscode-server", "data", "Machine", "settings.json"), nil
+		}
+		return filepath.Join(home, ".config", "Code", "User", "settings.json"), nil
+	}
 }

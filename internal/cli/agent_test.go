@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
 	"flag"
 	"os"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -335,5 +337,117 @@ func TestAgentsJSONCapabilitySchema(t *testing.T) {
 	}
 	if g := rows[byName["gemini"]]; g.Binary != "agy" || g.Caps["live"] != "native" {
 		t.Errorf("gemini = %+v, want binary agy and live native", g)
+	}
+}
+
+func newAskState() *askState {
+	s := func() *string { return new(string) }
+	b := func() *bool { return new(bool) }
+	return &askState{name: s(), provider: s(), model: s(), effort: s(), workdir: s(), session: s(), rubric: s(),
+		tools: b(), noTools: b(), autonomous: b(), enableMemory: b(), direct: b(),
+		noPersist: b(), safeMode: b(), debugFile: s(), systemPrompt: s(), appendSystemPrompt: s(), outputSchema: s(), host: s(), remoteBin: s(), fallback: s(),
+		timeout: new(time.Duration), attach: new(attachFlag), keepEnv: new(keepEnvFlag)}
+}
+
+// A retried or backgrounded dispatch must keep --no-tools; without it the tools come back on.
+func TestApplyRecordRoundTripsNoTools(t *testing.T) {
+	s := newAskState()
+	s.applyRecord(agent.Record{Agent: "claude", Request: agent.RunOptions{NoTools: true}})
+	if !*s.noTools || *s.tools {
+		t.Errorf("noTools=%v tools=%v; want noTools on, tools off", *s.noTools, *s.tools)
+	}
+	// Negative control: a record without NoTools clears an earlier value.
+	*s.noTools = true
+	s.applyRecord(agent.Record{Agent: "claude", Request: agent.RunOptions{Tools: true}})
+	if *s.noTools || !*s.tools {
+		t.Errorf("noTools=%v tools=%v; want tools on, noTools off", *s.noTools, *s.tools)
+	}
+}
+
+func TestRunLiveHolderRestoresLauncher(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	var got *agent.Record
+	orig := serveLive
+	serveLive = func(_ context.Context, rec *agent.Record, _ func(string)) error { got = rec; return nil }
+	t.Cleanup(func() { serveLive = orig })
+
+	rec := &agent.Record{ID: "live-holder-test"}
+	if rec.Request.Launcher != nil {
+		t.Fatal("fixture must start without a launcher")
+	}
+	if code := runLiveHolder(rec); code != 0 {
+		t.Fatalf("runLiveHolder = %d, want 0", code)
+	}
+	if got == nil || got.Request.Launcher == nil {
+		t.Fatal("ServeLive got a record with no Launcher (json:\"-\" field lost on reload)")
+	}
+}
+
+// lineCount counts whole lines of s equal to want.
+func lineCount(s, want string) int {
+	n := 0
+	for l := range strings.SplitSeq(s, "\n") {
+		if l == want {
+			n++
+		}
+	}
+	return n
+}
+
+// A --job run's stdout+stderr already are the log (Spawn), so the vendor child's stderr must be teed in
+// exactly once and the streamed answer must not be doubled by a second stdout tee.
+func TestCmdAskJobLogEachLineOnce(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	marker := agent.AgyLoginMarker(home)
+	if err := os.MkdirAll(filepath.Dir(marker), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(marker, []byte("token"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	script := "cat > /dev/null\n" +
+		"echo 'child-stderr-one' >&2\n" +
+		"echo 'child-stderr-two' >&2\n" +
+		`printf '%s\n' '{"event":"step_update","step_update":{"step_type":"agent_response","text_delta":"answer-alpha\nanswer-beta\n"}}'` + "\n" +
+		`printf '%s\n' '{"event":"result","result":{"conversation_id":"c1","status":"SUCCESS","response":"answer-alpha\nanswer-beta","num_turns":1}}'` + "\n"
+	pathstest.FakeVendor(t, "agy", script)
+
+	rec := agent.NewRecord("gemini", agent.RunOptions{Prompt: "p", WorkDir: t.TempDir()}, time.Now())
+	rec.Log = rec.LogPath()
+	if err := rec.Save(); err != nil {
+		t.Fatal(err)
+	}
+	// Mirror agent.Spawn: the job child's own stdout and stderr are the log file.
+	lf, err := os.OpenFile(rec.LogPath(), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldOut, oldErr := os.Stdout, os.Stderr
+	os.Stdout, os.Stderr = lf, lf
+	code := cmdAsk([]string{"--job", rec.ID, "--native", "--fallback", "none"})
+	os.Stdout, os.Stderr = oldOut, oldErr
+	lf.Close()
+	if code != 0 {
+		b, _ := os.ReadFile(rec.LogPath())
+		t.Fatalf("exit %d; log:\n%s", code, b)
+	}
+	b, err := os.ReadFile(rec.LogPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := string(b)
+	for _, line := range []string{"child-stderr-one", "child-stderr-two", "answer-alpha", "answer-beta"} {
+		if n := lineCount(got, line); n != 1 {
+			t.Errorf("log line %q appears %d times, want exactly once:\n%s", line, n, got)
+		}
+	}
+	// Job mode now also streams the formatted event lines live, and never the raw NDJSON.
+	if !strings.Contains(got, "▸ assistant: answer-alpha") || !strings.Contains(got, "▸ result: answer-alpha") {
+		t.Errorf("log lacks the ▸ event lines:\n%s", got)
+	}
+	if strings.Contains(got, `{"event"`) {
+		t.Errorf("log holds raw NDJSON:\n%s", got)
 	}
 }

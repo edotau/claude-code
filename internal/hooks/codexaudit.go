@@ -162,3 +162,9 @@ var codexRouteFormat = schemas.Register(schemas.Format{
 	New:     func() any { return &codexRouteRecord{} },
 	Version: codexRouteSchema, Clean: "codex-audit", Migrate: schemas.SameShape,
 })
+
+// OutputCodex is exactly one JSON document in Codex's Claude-compatible schema: no ask decision (deny), and an
+// updatedInput on PreToolUse is an explicit allow (ruling 4).
+func OutputCodex(event string, r Result) string {
+	return claudeDoc(event, r, claudeStyle{askAsDeny: true, allowWithInput: true})
+}

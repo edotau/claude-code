@@ -5,6 +5,7 @@ package settings
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"slices"
@@ -328,4 +329,114 @@ func WriteWithBackup(path string, data []byte) (backup string, err error) {
 		return "", fmt.Errorf("read %s: %w", path, rerr)
 	}
 	return backup, paths.AtomicWrite(path, data, mode)
+}
+
+// object is a JSON object that remembers key order, so a merge leaves the user's layout intact.
+type object struct {
+	keys []string
+	vals map[string]json.RawMessage
+}
+
+func parseObject(b []byte) (*object, error) {
+	dec := json.NewDecoder(bytes.NewReader(b))
+	if tok, err := dec.Token(); err != nil || tok != json.Delim('{') {
+		return nil, errors.New("not a JSON object")
+	}
+	o := &object{vals: map[string]json.RawMessage{}}
+	for dec.More() {
+		tok, err := dec.Token()
+		if err != nil {
+			return nil, err
+		}
+		var raw json.RawMessage
+		if err := dec.Decode(&raw); err != nil {
+			return nil, err
+		}
+		o.set(tok.(string), raw)
+	}
+	if _, err := dec.Token(); err != nil {
+		return nil, err
+	}
+	return o, nil
+}
+
+func (o *object) set(k string, v json.RawMessage) {
+	if _, ok := o.vals[k]; !ok {
+		o.keys = append(o.keys, k)
+	}
+	o.vals[k] = v
+}
+
+// marshal writes 2-space indented JSON without HTML escaping (hook commands carry & and >).
+func (o *object) marshal() ([]byte, error) {
+	var buf bytes.Buffer
+	buf.WriteString("{")
+	for i, k := range o.keys {
+		if i > 0 {
+			buf.WriteString(",")
+		}
+		key, _ := encode(k)
+		buf.WriteString("\n  ")
+		buf.Write(key)
+		buf.WriteString(": ")
+		if err := json.Indent(&buf, bytes.TrimSpace(o.vals[k]), "  ", "  "); err != nil {
+			return nil, fmt.Errorf("%s: %w", k, err)
+		}
+	}
+	if len(o.keys) > 0 {
+		buf.WriteString("\n")
+	}
+	buf.WriteString("}\n")
+	return buf.Bytes(), nil
+}
+
+func encode(v any) (json.RawMessage, error) {
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(v); err != nil {
+		return nil, err
+	}
+	return bytes.TrimSpace(buf.Bytes()), nil
+}
+
+func rawList(items []json.RawMessage) json.RawMessage {
+	parts := make([][]byte, len(items))
+	for i, it := range items {
+		parts[i] = bytes.TrimSpace(it)
+	}
+	return json.RawMessage("[" + string(bytes.Join(parts, []byte(","))) + "]")
+}
+
+func orEmpty(raw json.RawMessage) json.RawMessage {
+	if len(bytes.TrimSpace(raw)) == 0 || string(bytes.TrimSpace(raw)) == "null" {
+		return json.RawMessage("{}")
+	}
+	return raw
+}
+
+// MarshalNoEscape is json.Marshal with HTML-escaping disabled, so a foreign hook's literal "<"/">"/"&"
+// survives unchanged instead of becoming "<" etc; compact, same as json.Marshal otherwise.
+func MarshalNoEscape(v any) ([]byte, error) {
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(v); err != nil {
+		return nil, err
+	}
+	return bytes.TrimSuffix(buf.Bytes(), []byte{'\n'}), nil
+}
+
+// MarshalIndentNoEscape is json.MarshalIndent without HTML-escaping (json.Indent only reformats
+// whitespace, it never re-escapes the bytes MarshalNoEscape already produced).
+func MarshalIndentNoEscape(v any) ([]byte, error) {
+	compact, err := MarshalNoEscape(v)
+	if err != nil {
+		return nil, err
+	}
+	var out bytes.Buffer
+	if err := json.Indent(&out, compact, "", "  "); err != nil {
+		return nil, err
+	}
+	return out.Bytes(), nil
 }

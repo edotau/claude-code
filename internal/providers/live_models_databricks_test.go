@@ -179,3 +179,47 @@ func TestListModelsNon200DoesNotLeakBearer(t *testing.T) {
 		t.Errorf("error leaks the bearer token: %q", err)
 	}
 }
+
+func TestGatewayModelsPagesAndMarksGatewayRows(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/ai-gateway/anthropic/v1/models" {
+			writeJSON(w, 404, `{}`)
+			return
+		}
+		if r.URL.Query().Get("after_id") == "" {
+			writeJSON(w, 200, `{"data":[{"id":"system.ai.claude-opus-5","display_name":"Claude Opus 5"}],"has_more":true,"last_id":"system.ai.claude-opus-5"}`)
+			return
+		}
+		writeJSON(w, 200, `{"data":[{"id":"system.ai.claude-haiku-5-5","display_name":""}],"has_more":false}`)
+	}))
+	t.Cleanup(srv.Close)
+	trustTestTLS(t, srv)
+	got, err := GatewayModels(context.Background(), liveDbxProvider(t, srv.URL, "tok"))
+	if err != nil || len(got) != 2 {
+		t.Fatalf("GatewayModels = %+v, %v; want 2 rows", got, err)
+	}
+	if got[0].Name != "Claude Opus 5" || !got[0].Gateway || got[1].Name == "" || !got[1].Gateway {
+		t.Errorf("rows = %+v", got)
+	}
+}
+
+func TestGatewayModelsNonDatabricksAndMissingEndpoint(t *testing.T) {
+	if got, err := GatewayModels(context.Background(), &Provider{Name: "x"}); got != nil || err != nil {
+		t.Errorf("non-databricks = %v, %v; want nil, nil", got, err)
+	}
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { writeJSON(w, 404, `{}`) }))
+	t.Cleanup(srv.Close)
+	trustTestTLS(t, srv)
+	if _, err := GatewayModels(context.Background(), liveDbxProvider(t, srv.URL, "tok")); err == nil {
+		t.Error("404 listing returned no error")
+	}
+}
+
+// TestDisplayName: a catalog without names still gets a readable Model column.
+func TestDisplayName(t *testing.T) {
+	for id, want := range map[string]string{"models/gemini-2.5-flash": "Gemini 2.5 Flash", "gpt-6-astra": "Gpt 6 Astra"} {
+		if got := displayName(id); got != want {
+			t.Errorf("displayName(%q) = %q, want %q", id, got, want)
+		}
+	}
+}
