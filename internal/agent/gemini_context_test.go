@@ -1,7 +1,10 @@
 package agent
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -419,5 +422,109 @@ func TestBuildPromptEmpty(t *testing.T) {
 	}
 	if !strings.Contains(got, "No inline file payloads were collected.") {
 		t.Error("expected no-payload sentinel")
+	}
+}
+
+// TestBuildIndexNests: a flat path list costs one token per path segment repeated on every line. A
+// nested tree collapses shared prefixes, which is what lets a whole repo fit where inlining files
+// cannot — the gemini's "max-files-exceeded" failure was exactly this budget running out.
+func TestBuildIndexNests(t *testing.T) {
+	idx := BuildIndex(Context{
+		Included: []IncludedFile{{Path: "internal/router/leg.go", Bytes: 100}},
+		Skipped:  []SkippedFile{{Path: "internal/cli/run.go", Reason: "max-files-exceeded"}},
+	})
+	var tree map[string]any
+	if err := json.Unmarshal([]byte(idx), &tree); err != nil {
+		t.Fatalf("index is not valid JSON: %v\n%s", err, idx)
+	}
+	internal, ok := tree["internal"].(map[string]any)
+	if !ok {
+		t.Fatalf("index is not nested by directory: %s", idx)
+	}
+	if _, ok := internal["router"].(map[string]any); !ok {
+		t.Errorf("second level missing: %s", idx)
+	}
+}
+
+// TestIndexCoversSkippedFiles: a file that was too big to inline must STILL appear in the index.
+// Omitting it is what made the gemini answer "contents are not available" — it could not even see
+// that the file existed, so it could not ask for it by name.
+func TestIndexCoversSkippedFiles(t *testing.T) {
+	idx := BuildIndex(Context{Skipped: []SkippedFile{{Path: "internal/router/spillpool.go", Reason: "max-files-exceeded"}}})
+	if !strings.Contains(idx, "spillpool.go") {
+		t.Errorf("skipped file absent from the index — it becomes invisible, not merely unread:\n%s", idx)
+	}
+}
+
+// TestIndexCarriesMetadata: the index is a routing aid, so each leaf needs enough to decide whether
+// the file is worth pulling — size, and whether its contents were actually included.
+func TestIndexCarriesMetadata(t *testing.T) {
+	idx := BuildIndex(Context{Included: []IncludedFile{{Path: "a/b.go", Bytes: 4096}}})
+	for _, want := range []string{"4096", "b.go"} {
+		if !strings.Contains(idx, want) {
+			t.Errorf("index leaf missing %q:\n%s", want, idx)
+		}
+	}
+}
+
+// TestFitPromptDropsWholeFiles: an over-cap sweep loses whole trailing files, listed in the inventory.
+func TestFitPromptDropsWholeFiles(t *testing.T) {
+	var ctx Context
+	for _, n := range []string{"a.go", "b.go", "c.go"} {
+		ctx.Included = append(ctx.Included, IncludedFile{Path: n, MediaType: "text/plain", Bytes: 1000, Content: strings.Repeat("x", 1000)})
+	}
+	prompt, got, dropped, _ := FitPrompt(constTask("question"), ctx, 3000)
+	if len(prompt) > 3000 || strings.Join(dropped, ",") != "c.go" {
+		t.Fatalf("len=%d dropped=%v, want fit and only c.go dropped", len(prompt), dropped)
+	}
+	if !strings.Contains(prompt, "c.go (prompt-cap)") || strings.Contains(prompt, `path="c.go"`) || len(got.Included) != 2 {
+		t.Errorf("prompt must name c.go as skipped and inline none of it:\n%s", prompt[:300])
+	}
+	if p, _, d, _ := FitPrompt(constTask("question"), ctx, 1<<20); len(d) != 0 || len(p) == 0 {
+		t.Errorf("under the cap nothing may drop, got %v", d)
+	}
+}
+
+// TestBridgeRunAgyModelFilled: the agy bridge envelope carries the resolved model, not an empty field.
+func TestBridgeRunAgyModelFilled(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("HOME", loginHome(t, true))
+	fakeAgyScript(t, filepath.Join(t.TempDir(), "ran"))
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "a.go"), []byte("package a\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := RunGemini(context.Background(), GeminiOptions{Cwd: dir, Task: "t", Files: []string{"a.go"}}, io.Discard, io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Model != AgyDefaultModel || res.Provider != "agy" {
+		t.Errorf("model/provider = %q/%q, want %q/agy", res.Model, res.Provider, AgyDefaultModel)
+	}
+}
+
+func constTask(s string) func(Context) string { return func(Context) string { return s } }
+
+// TestFitPromptOverCapWithoutFiles: a task that alone exceeds the cap errors instead of dispatching.
+func TestFitPromptOverCapWithoutFiles(t *testing.T) {
+	ctx := Context{Included: []IncludedFile{{Path: "a.go", MediaType: "text/plain", Bytes: 5, Content: "hello"}}}
+	if _, _, _, err := FitPrompt(constTask(strings.Repeat("q", 5000)), ctx, 3000); err == nil {
+		t.Fatal("want an error when even zero files exceed the cap")
+	}
+}
+
+// TestFitPromptIndexTracksTrim: the index built per trim marks dropped files as not inlined.
+func TestFitPromptIndexTracksTrim(t *testing.T) {
+	var ctx Context
+	for _, n := range []string{"a.go", "b.go"} {
+		ctx.Included = append(ctx.Included, IncludedFile{Path: n, MediaType: "text/plain", Bytes: 1000, Content: strings.Repeat("x", 1000)})
+	}
+	task := func(c Context) string { return "q" + IndexPrompt(c) }
+	prompt, _, dropped, err := FitPrompt(task, ctx, len(BuildPrompt(task(ctx), ctx))-500)
+	if err != nil || len(dropped) != 1 {
+		t.Fatalf("dropped=%v err=%v, want one dropped file", dropped, err)
+	}
+	if !strings.Contains(prompt, `"body": "prompt-cap"`) {
+		t.Errorf("index must mark the dropped file prompt-cap:\n%s", prompt)
 	}
 }
