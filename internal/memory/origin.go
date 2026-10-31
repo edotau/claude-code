@@ -41,7 +41,7 @@ func ReadOrigin(dir string) (Origin, error) {
 	if err != nil {
 		return Origin{}, err
 	}
-	found, errs := resolveOrigins([]string{key})
+	found, errs, _ := resolveOrigins([]string{key})
 	if o, ok := found[key]; ok {
 		return o, nil
 	}
@@ -88,7 +88,7 @@ func originRows() (map[string]string, error) {
 
 // resolveOrigins maps store keys to records: vault row, else index.md. Fallback hits become
 // rows unless the vault is unreadable, which leaves the call read-only. errs holds the misses.
-func resolveOrigins(keys []string) (found map[string]Origin, errs map[string]error) {
+func resolveOrigins(keys []string) (found map[string]Origin, errs map[string]error, vaultErr error) {
 	rows, verr := originRows()
 	found, errs = map[string]Origin{}, map[string]error{}
 	var catalog map[string]Origin
@@ -122,7 +122,7 @@ func resolveOrigins(keys []string) (found map[string]Origin, errs map[string]err
 	if verr == nil && len(imports) > 0 {
 		_ = importOrigins(imports) // best effort on a read path: a failed import is retried by the next read
 	}
-	return found, errs
+	return found, errs, verr
 }
 
 // Migration: remove after 2026-11-17 once every machine has run a post-2026-10-20 build.

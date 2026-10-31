@@ -160,8 +160,8 @@ func TestE2EMemoryLifecycle(t *testing.T) {
 	repo := gitRepo(t, canonTemp(t, t.TempDir()), "proj")
 	e := e2eEnv{bin: bin, cfg: cfg, home: home, repo: repo, pathDir: pathDir}
 
-	initStore(t)                                                      // completed journal + store git repo, written under cfg by the same helper the unit tests use
-	write(t, DreamStampPath(), time.Now().UTC().Format(time.RFC3339)) // dream not due: session-start spawns nothing
+	initStore(t)                                                          // completed journal + store git repo, written under cfg by the same helper the unit tests use
+	write(t, DreamStampPath(repo), time.Now().UTC().Format(time.RFC3339)) // dream not due: session-start spawns nothing
 
 	const fact = "rotate the zebrafish kestrel gearbox calibration before every deploy"
 	var bankDir, factID string

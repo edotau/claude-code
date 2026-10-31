@@ -1116,7 +1116,7 @@ func TestDoctorNoticeTruncationPreservesUTF8(t *testing.T) {
 	if err := os.MkdirAll(stateDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	noticePath := memory.DoctorNoticePath()
+	noticePath := memory.DoctorNoticePath("")
 
 	// Build a notice with multi-byte UTF-8 chars that will span the 200-byte boundary.
 	// Each "Aé中国" iteration = 11 bytes, 4 runes. To hit a boundary in the middle,
@@ -1129,7 +1129,7 @@ func TestDoctorNoticeTruncationPreservesUTF8(t *testing.T) {
 	}
 
 	// Call doctorNotice and verify the result is valid UTF-8.
-	got := doctorNotice()
+	got := doctorNotice("")
 	if !strings.HasPrefix(got, " memory review: ") {
 		t.Fatalf("doctorNotice prefix not found: %q", got)
 	}

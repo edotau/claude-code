@@ -30,10 +30,14 @@ func LinkNativeFor(cwd string) (LinkResult, bool) {
 	if top := mainCheckout(root); top != "" {
 		root = top
 	}
-	target := Dir(cwd)
+	target, err := RepoDir(cwd)
+	if err != nil {
+		return LinkResult{}, false
+	}
 	if fi, err := os.Stat(target); err != nil || !fi.IsDir() {
 		return LinkResult{}, false // no store yet: never mint an origin-less dir that would squat the repo's key
 	}
+	repairNativeLinks(cwd)
 	return ensureLink(projectsMemory(ProjectSlug(root)), target), true
 }
 

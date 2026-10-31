@@ -131,16 +131,16 @@ func mainCheckout(root string) string {
 
 // RepoDir is root's store directory, read-only: it never creates anything (EnsureRepoDir does).
 func RepoDir(root string) (string, error) {
+	entries, err := RepoDirs()
+	if err != nil {
+		return "", err
+	}
 	id := Resolve(root)
 	switch {
 	case id.HomeBank:
 		return homeStoreDir(), nil
 	case id.Harness:
 		return HarnessStoreDir(), nil
-	}
-	entries, err := RepoDirs()
-	if err != nil {
-		return "", err
 	}
 	if e := findEntry(entries, id.Origin); e != nil {
 		return e.Dir, nil
@@ -254,24 +254,35 @@ func slugKey(base, origin string, taken func(key string) (Origin, bool)) (string
 func EnsureRepoDir(root string) (string, error) {
 	var dir string
 	err := WithBankLock(BankLockWait, func() error {
-		id := Resolve(root)
 		var err error
 		if dir, err = RepoDir(root); err != nil {
 			return err
 		}
-		if err := os.MkdirAll(dir, 0o755); err != nil {
-			return err
-		}
-		if id.HomeBank {
-			return nil
-		}
-		// An existing record that already accepts this checkout (origin or alias) is kept, never rewritten.
-		if cur, err := ReadOrigin(dir); err == nil && cur.Accepts(id.Origin) {
-			return nil
-		}
-		return WriteOrigin(dir, Origin{Version: OriginVersion, Key: filepath.Base(dir), Origin: id.Origin})
+		return ensureOriginDir(dir, Resolve(root))
 	})
 	return dir, err
+}
+
+// ensureOriginDir removes a newly created empty directory when its origin cannot be recorded.
+func ensureOriginDir(dir string, id Identity) error {
+	_, before := os.Lstat(dir)
+	if before != nil && !errors.Is(before, fs.ErrNotExist) {
+		return before
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	if id.HomeBank {
+		return nil
+	}
+	if cur, err := ReadOrigin(dir); err == nil && cur.Accepts(id.Origin) {
+		return nil
+	}
+	err := WriteOrigin(dir, Origin{Version: OriginVersion, Key: filepath.Base(dir), Origin: id.Origin})
+	if err != nil && errors.Is(before, fs.ErrNotExist) {
+		return errors.Join(err, os.Remove(dir))
+	}
+	return err
 }
 
 // AddOriginAlias records origin (an existing checkout) as an alias of the store at dir; the only path
@@ -322,7 +333,10 @@ func RepoDirs() ([]RepoEntry, error) {
 			keys = append(keys, e.Name())
 		}
 	}
-	found, _ := resolveOrigins(keys) // one vault read for every store; a dir without a valid record is not a repo store
+	found, _, err := resolveOrigins(keys)
+	if err != nil && len(found) < len(keys) {
+		return nil, err // unreadable vault with unresolved stores: callers must not mint a duplicate
+	}
 	var out []RepoEntry
 	for _, k := range keys {
 		if o, ok := found[k]; ok {

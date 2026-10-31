@@ -95,7 +95,7 @@ func TestWriteDoctorNoticeCachesFirstProblem(t *testing.T) {
 	if err := WriteDoctorNotice(HomeBankDir(), DefaultStaleDays, time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	notice := mustRead(t, DoctorNoticePath())
+	notice := mustRead(t, DoctorNoticePath(HomeBankDir()))
 	if !strings.Contains(notice, "decisionLog.md: over") {
 		t.Errorf("notice %q", notice)
 	}
@@ -104,7 +104,7 @@ func TestWriteDoctorNoticeCachesFirstProblem(t *testing.T) {
 	if err := WriteDoctorNotice(HomeBankDir(), DefaultStaleDays, time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	if notice := mustRead(t, DoctorNoticePath()); notice != "" {
+	if notice := mustRead(t, DoctorNoticePath(HomeBankDir())); notice != "" {
 		t.Errorf("want an empty cached notice, got %q", notice)
 	}
 }
