@@ -109,7 +109,7 @@ var writers = map[string]string{
 	"internal/memory/txn.go:captureNative":                             unversioned("memory-bank: txn native copy"),
 	"internal/memory/txn.go:commit":                                    unversioned("memory-bank: txn receipt in the memory repo"),
 	"internal/memory/txn.go:save":                                      "memory-journal",
-	"internal/review/mutate/mutate.go:Check":                           unversioned("foreign: mutation-test scratch copy"),
+	"internal/testtool/mutate/mutate.go:Check":                         unversioned("foreign: mutation-test scratch copy"),
 	"internal/agent/preflight/refresh.go:Claim":                        unversioned("marker: detached served-refresh attempt stamp"),
 	"internal/router/served_cache.go:SaveServed":                       "served-models",
 	"internal/agent/opencode_check.go:SaveCheckCache":                  "opencode-models-check",

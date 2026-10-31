@@ -1,4 +1,4 @@
-package plan
+package planlint
 
 import (
 	"bytes"
@@ -392,7 +392,7 @@ func TestShippedWorkflowsAreClean(t *testing.T) {
 	if !ok {
 		t.Fatal("runtime.Caller failed — cannot locate the repo root")
 	}
-	repoRoot := filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(thisFile)))) // internal/review/plan/x_test.go -> repo
+	repoRoot := filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(thisFile)))) // internal/review/planlint/x_test.go -> repo
 	var out, errb bytes.Buffer
 	if rc := RunWorkflowLint([]string{repoRoot}, &out, &errb); rc != 0 || !strings.Contains(out.String(), "script(s) clean") || strings.HasPrefix(out.String(), "workflow lint: 0 ") {
 		t.Fatalf("shipped workflows under %s: rc=%d out=%q\n%s", repoRoot, rc, out.String(), errb.String())

@@ -6,7 +6,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/review/diff"
-	"github.com/edotau/claude-code/internal/review/plan"
+	"github.com/edotau/claude-code/internal/review/planlint"
 	"github.com/edotau/claude-code/internal/review/source"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
@@ -16,8 +16,8 @@ var reviewTools = map[string]func(args []string, stdin io.Reader, stdout, stderr
 	"quality":     func(a []string, _ io.Reader, o, e io.Writer) int { return source.RunQuality(a, o, e) },
 	"complexity":  func(a []string, _ io.Reader, o, e io.Writer) int { return source.RunComplexity(a, o, e) },
 	"simplify":    func(a []string, _ io.Reader, o, e io.Writer) int { return source.RunSimplify(a, o, e) },
-	"assumptions": plan.RunAssumptions,
-	"goals":       plan.RunGoals,
+	"assumptions": planlint.RunAssumptions,
+	"goals":       planlint.RunGoals,
 	"diff":        func(a []string, _ io.Reader, o, e io.Writer) int { return diff.RunDiff(a, o, e) },
 	"pr":          func(a []string, _ io.Reader, o, e io.Writer) int { return diff.RunPR(a, o, e) },
 	"report":      func(a []string, _ io.Reader, o, e io.Writer) int { return diff.RunReport(a, o, e) },
@@ -98,12 +98,12 @@ func cmdWorkflow(args []string) int {
 	}
 	switch args[0] {
 	case "skeleton":
-		return plan.RunSkeleton(args[1:], os.Stdout, os.Stderr)
+		return planlint.RunSkeleton(args[1:], os.Stdout, os.Stderr)
 	case "lint":
 		if len(args) == 1 {
-			return plan.RunWorkflowLint([]string{paths.ConfigDir()}, os.Stdout, os.Stderr)
+			return planlint.RunWorkflowLint([]string{paths.ConfigDir()}, os.Stdout, os.Stderr)
 		}
-		return plan.RunWorkflowLint(args[1:], os.Stdout, os.Stderr)
+		return planlint.RunWorkflowLint(args[1:], os.Stdout, os.Stderr)
 	}
 	workflowPage.Fprint(os.Stderr)
 	return 2

@@ -1,5 +1,5 @@
-// Package plan checks plans and docs: assumption lint, goal verification, doc drift, workflow skeletons.
-package plan
+// Package planlint checks plans and docs: assumption lint, goal verification, doc drift, workflow skeletons.
+package planlint
 
 import (
 	"fmt"

@@ -10,7 +10,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/review/plan"
+	"github.com/edotau/claude-code/internal/review/planlint"
 )
 
 const workflowLintName = "inline workflow"
@@ -38,8 +38,8 @@ func workflowResult(in *Input) Result {
 
 func workflowInline(in *Input, script string) Result {
 	model := models.TierModel(models.EffortMedium)
-	out, amb := plan.FillModel(script, model)
-	vals := badPinValueHits(plan.LintPins(workflowLintName, []byte(out)))
+	out, amb := planlint.FillModel(script, model)
+	vals := badPinValueHits(planlint.LintPins(workflowLintName, []byte(out)))
 	if len(amb) > 0 || len(vals) > 0 {
 		var b strings.Builder
 		b.WriteString("workflow-lint: blocked — an unpinned leaf runs on the session model (settings" +
@@ -114,7 +114,7 @@ func lintSavedFile(path string) []string {
 	if err != nil {
 		return nil
 	}
-	return withoutEffortOnly(plan.LintPins(path, data))
+	return withoutEffortOnly(planlint.LintPins(path, data))
 }
 
 // blockSavedLint is the saved-script block naming path and its pin problems.
@@ -155,7 +155,7 @@ func filledModelLines(script string, ambiguous []string) []string {
 		skip[strings.TrimPrefix(a, "line ")] = true
 	}
 	var lines []string
-	for _, m := range plan.LintPins(workflowLintName, []byte(script)) {
+	for _, m := range planlint.LintPins(workflowLintName, []byte(script)) {
 		if !strings.Contains(m, "without model:") {
 			continue
 		}
