@@ -51,11 +51,10 @@ func startLive(s *askState, name, format string) int {
 		Tools: *s.tools, Timeout: *s.timeout, KeepEnv: []string(*s.keepEnv), NoPersist: *s.noPersist, SafeMode: *s.safeMode,
 		DebugFile: absDebugFile(*s.debugFile), SystemPrompt: *s.systemPrompt, AppendSystemPrompt: *s.appendSystemPrompt,
 		Autonomous: *s.autonomous, Direct: *s.direct, Agent: name, Background: true}
-	prepared, err := newClient().Prepare(context.Background(), req, nil)
+	rec, err := newClient().Record(context.Background(), req, nil)
 	if err != nil {
 		return failAsk(format, name, err)
 	}
-	rec := prepared.Record
 	rec.Live = true
 	if err := rec.Save(); err != nil {
 		return failAsk(format, name, err)

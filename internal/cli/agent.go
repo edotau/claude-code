@@ -106,10 +106,12 @@ func runAsk(args []string, resume bool) int {
 	if *host != "" && agents != "" {
 		return failAskCode(*format, *name, errors.New("--host cannot be combined with --agents: the remote cannot see an inline definition"), 2)
 	}
-	vendor, persona, err := agent.SelectAgent(*name, defs)
+	ref := *name // the raw selector Prepare resolves; *name becomes the runner so envelopes publish it
+	vendor, persona, err := agent.SelectAgent(ref, defs)
 	if err != nil {
 		return failAskCode(*format, *name, err, 2)
 	}
+	*name = vendor
 	if *live {
 		if persona != nil {
 			return failAskCode(*format, *name, errors.New("--live cannot run a persona (agents/<name>.md or an --agents key): use a plain vendor"), 2)
@@ -129,7 +131,7 @@ func runAsk(args []string, resume bool) int {
 			Timeout: *timeout, KeepEnv: []string(keepEnv), Autonomous: *autonomous, EnableMemory: *enableMemory, Direct: *direct,
 			NoPersist: *noPersist, SafeMode: *safeMode, SystemPrompt: *systemPrompt, AppendSystemPrompt: *appendSystemPrompt,
 			Env: []string(env), OutputSchema: schema, Agents: defs}
-		return runAskBatch(fs, resume, *batch, batchOpts{jobs: *jobs, failFast: *failFast, agent: *name, fallback: *fallback, native: *native}, base)
+		return runAskBatch(fs, resume, *batch, batchOpts{jobs: *jobs, failFast: *failFast, agent: ref, fallback: *fallback, native: *native}, base)
 	}
 	if flagExplicit(fs, "jobs") || flagExplicit(fs, "fail-fast") {
 		return failAskCode(*format, *name, errors.New("--jobs and --fail-fast need --batch"), 2)
@@ -159,10 +161,13 @@ func runAsk(args []string, resume bool) int {
 			return rc
 		}
 	}
-	if rest, p, rerr := agent.SelectAgent(*name, defs); rerr != nil { // a --retry re-parse puts the raw --agent value back
+	if *name != vendor { // --job/--retry replaced the agent: resolve the record's (or re-typed) value instead
+		ref = *name
+	}
+	if rest, p, rerr := agent.SelectAgent(ref, defs); rerr != nil { // a --retry re-parse puts the raw --agent value back
 		return failAskCode(*format, *name, rerr, 2)
 	} else {
-		vendor = rest
+		vendor, *name = rest, rest
 		if p != nil { // an explicit persona beats the record's
 			persona = p
 		}
@@ -209,7 +214,7 @@ func runAsk(args []string, resume bool) int {
 		Attach: []string(attach), KeepEnv: []string(keepEnv), Autonomous: *autonomous, EnableMemory: *enableMemory, Direct: *direct,
 		NoPersist: *noPersist, SafeMode: *safeMode, DebugFile: *debugFile, SystemPrompt: *systemPrompt,
 		AppendSystemPrompt: *appendSystemPrompt, Env: []string(env), OutputSchema: schema, Persona: persona,
-		Agent: *name, Agents: defs, Fallback: *fallback, Native: *native, Host: *host, RemoteBin: *remoteBin, Rubric: *rubric, Background: *background}
+		Agent: ref, Agents: defs, Fallback: *fallback, Native: *native, Host: *host, RemoteBin: *remoteBin, Rubric: *rubric, Background: *background}
 	client := newClient()
 	prepared, err := client.Prepare(ctx, req, jobRec)
 	if err != nil {
