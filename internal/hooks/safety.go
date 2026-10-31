@@ -106,7 +106,7 @@ func safetyScan(in *Input) Result {
 		detail = "ask: " + detail
 	}
 	audit.Log(audit.HookBlocked, "safety", detail)
-	if decision == Ask && in.Vendor() == VendorClaude {
+	if decision == Ask && in.Agent() == AgentClaude {
 		return Result{Decision: Ask, Reason: strings.TrimSpace(msg), Stderr: strings.TrimSpace(warn.String())}
 	}
 	return Result{Decision: Block, Reason: strings.TrimSpace(warn.String() + msg)}
@@ -172,14 +172,14 @@ func safetyAskVerdict(in *Input) (Decision, string, string) {
 	return Allow, "", ""
 }
 
-// safetyMessage renders the stderr/reason text; an ask that falls back to a block names the vendor.
+// safetyMessage renders the stderr/reason text; an ask that falls back to a block names the agent.
 func safetyMessage(in *Input, decision Decision, what, pattern, hint string) string {
 	word := "BLOCKED"
 	if decision == Ask {
-		if in.Vendor() == VendorClaude {
+		if in.Agent() == AgentClaude {
 			word = "ASK"
 		} else {
-			what += " (no ask decision on " + in.Vendor() + ")"
+			what += " (no ask decision on " + in.Agent() + ")"
 		}
 	}
 	msg := fmt.Sprintf("safety: %s — %s\n", word, what)

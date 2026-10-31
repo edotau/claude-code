@@ -67,7 +67,7 @@ func TestMenuRowsOrderNoSeparateProviderRow(t *testing.T) {
 // TestMenuRowsAgentScopeShowsOnlyThatRow: --agent codex narrows the whole menu to the codex row alone.
 func TestMenuRowsAgentScopeShowsOnlyThatRow(t *testing.T) {
 	reg := menuTestEnv(t)
-	rows, actions := menuRows(&dialog{reg: reg, o: Options{Vendor: "codex"}, out: discardWriter{}})
+	rows, actions := menuRows(&dialog{reg: reg, o: Options{Agent: "codex"}, out: discardWriter{}})
 	if len(rows) != 1 || rows[0][0] != "codex" || len(actions) != 1 {
 		t.Fatalf("rows = %v, want exactly one row: codex", rows)
 	}

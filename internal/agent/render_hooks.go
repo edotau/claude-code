@@ -26,7 +26,7 @@ var agentEvents = map[string]string{
 func CodexJSON() ([]byte, error) {
 	events := map[string][]settings.MatcherGroup{}
 	for _, s := range settings.Specs() {
-		if !slices.Contains(s.Vendors, "codex") {
+		if !slices.Contains(s.Agents, "codex") {
 			continue
 		}
 		h := settings.Hook{Type: "command", Command: settings.AgentEnv + "=codex " + s.Command(), Timeout: s.Seconds(), Async: s.Async, StatusMessage: s.StatusMessage}
@@ -51,7 +51,7 @@ func CopilotJSON() ([]byte, error) {
 	events := map[string][]entry{}
 	for _, s := range settings.Specs() {
 		event := agentEvents[s.Event]
-		if !slices.Contains(s.Vendors, "copilot") || event == "" {
+		if !slices.Contains(s.Agents, "copilot") || event == "" {
 			continue
 		}
 		command := s.Command()

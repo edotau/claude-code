@@ -45,7 +45,7 @@ type EventSpec struct {
 	Matcher       string        // "" = every tool / no matcher
 	Budget        time.Duration // the handler's deadline and its share of the dispatcher's timeout
 	Blocks        bool          // preserve blocking exits; other Copilot hooks are advisory
-	Vendors       []string      // explicit allowlist for non-Claude sessions
+	Agents        []string      // explicit allowlist for non-Claude sessions
 	Async         bool          // runs in the background, so it renders as its own entry, never in the dispatcher
 	StatusMessage string        // spinner text Claude Code shows while the hook runs
 }
@@ -58,10 +58,10 @@ func (s EventSpec) Command() string { return HookBin + " hook " + s.Event + " --
 
 // Group is a module of hook handlers. Gate keeps it in its own process, so no other group can hang or crash it.
 type Group struct {
-	Name       string
-	Events     []EventSpec
-	Gate       bool
-	VendorOnly bool // omitted from Claude's hook chain
+	Name      string
+	Events    []EventSpec
+	Gate      bool
+	AgentOnly bool // omitted from Claude's hook chain
 }
 
 // own reports whether a handler renders as its own settings entry instead of joining the event dispatcher.
@@ -79,7 +79,7 @@ var harnessCommand = regexp.MustCompile(`^(?:HARNESS_HOOK_[A-Z]+=\w+ )?` + regex
 // foreignRTKHook is the bare `rtk hook claude` entry `rtk init -g` writes; the harness rtk-rewrite replaces it.
 var foreignRTKHook = regexp.MustCompile(`^(?:\S*/)?rtk hook claude\b`)
 
-// IsHarness reports whether a hook command belongs to this harness, including vendor-marked commands and the stale foreign rtk hook.
+// IsHarness reports whether a hook command belongs to this harness, including agent-marked commands and the stale foreign rtk hook.
 func IsHarness(command string) bool {
 	return harnessCommand.MatchString(strings.TrimSpace(command)) || foreignRTKHook.MatchString(strings.TrimSpace(command))
 }
@@ -89,7 +89,7 @@ const sec = time.Second
 // Registry is the whole chain: groups in execution order, each naming its events.
 var Registry = []Group{
 	{Name: "safety", Gate: true, Events: []EventSpec{
-		{Name: "safety-scan", Event: EventPreToolUse, Matcher: "Bash", Budget: 5 * sec, StatusMessage: "Checking command safety", Blocks: true, Vendors: []string{"codex", "copilot"}},
+		{Name: "safety-scan", Event: EventPreToolUse, Matcher: "Bash", Budget: 5 * sec, StatusMessage: "Checking command safety", Blocks: true, Agents: []string{"codex", "copilot"}},
 	}},
 	{Name: "rtk", Events: []EventSpec{
 		// An eligible noisy Bash command is rewritten to run through the rtk output compressor (Claude only).
@@ -97,9 +97,9 @@ var Registry = []Group{
 	}},
 	{Name: "docs", Events: []EventSpec{
 		// Markdown writes at a repo root or into an ignored docs/ page are blocked, naming the canonical home.
-		{Name: "docs-placement", Event: EventPreToolUse, Matcher: "Write|Edit", Budget: 5 * sec, StatusMessage: "Checking doc placement", Blocks: true, Vendors: []string{"codex", "copilot"}},
+		{Name: "docs-placement", Event: EventPreToolUse, Matcher: "Write|Edit", Budget: 5 * sec, StatusMessage: "Checking doc placement", Blocks: true, Agents: []string{"codex", "copilot"}},
 		// The first write to a native plan draft must carry the Plan.md template; the denial pastes the skeleton.
-		{Name: "docs-plan-gate", Event: EventPreToolUse, Matcher: "Write|Edit", Budget: 5 * sec, StatusMessage: "Checking plan template", Blocks: true, Vendors: []string{"codex", "copilot"}},
+		{Name: "docs-plan-gate", Event: EventPreToolUse, Matcher: "Write|Edit", Budget: 5 * sec, StatusMessage: "Checking plan template", Blocks: true, Agents: []string{"codex", "copilot"}},
 		// Every write/edit to a native plan-mode draft is mirrored to its dated, repo-tagged file in plans/.
 		{Name: "docs-plan-mirror", Event: EventPostToolUse, Matcher: "Write|Edit", Budget: 10 * sec},
 		// An approved plan is filed under plans/, tagged with its repo.
@@ -123,14 +123,14 @@ var Registry = []Group{
 	}},
 	{Name: "paths", Events: []EventSpec{
 		// A pasted or dragged Windows path (C:\…) resolves to its /mnt form for the model; a no-op off WSL.
-		{Name: "paths-resolve", Event: EventUserPromptSubmit, Budget: 5 * sec, Vendors: []string{"codex", "copilot"}},
+		{Name: "paths-resolve", Event: EventUserPromptSubmit, Budget: 5 * sec, Agents: []string{"codex", "copilot"}},
 	}},
 	{Name: "memory", Events: []EventSpec{
 		// One Stop hook: context checkpoint, then the memory update; a block from either blocks.
 		{Name: "memory-update", Event: EventStop, Budget: 20 * sec},
 		{Name: "memory-start", Event: EventSessionStart, Budget: 10 * sec, StatusMessage: "Loading session memory"},
 		// Per-prompt bank recall: advisory and capped, so an empty bank costs the turn nothing.
-		{Name: "memory-recall", Event: EventUserPromptSubmit, Budget: 5 * sec, Vendors: []string{"codex", "copilot"}},
+		{Name: "memory-recall", Event: EventUserPromptSubmit, Budget: 5 * sec, Agents: []string{"codex", "copilot"}},
 		{Name: "memory-end", Event: EventSessionEnd, Budget: 15 * sec},
 		// Before a compaction, update edits no earlier dispatch covered (never blocks; the transcript survives).
 		{Name: "memory-compact", Event: EventPreCompact, Budget: 15 * sec},
@@ -151,11 +151,11 @@ var Registry = []Group{
 		{Name: "worktree-mode", Event: EventSessionStart, Budget: 5 * sec},
 		{Name: "worktree-busy", Event: EventUserPromptSubmit, Budget: 5 * sec},
 	}},
-	{Name: "codex", VendorOnly: true, Events: []EventSpec{
-		{Name: "codex-agent-route", Event: EventPreToolUse, Matcher: ".*spawn_agent$", Budget: 5 * sec, Vendors: []string{"codex"}},
-		{Name: "codex-routing-result", Event: EventPostToolUse, Matcher: ".*spawn_agent$", Budget: 5 * sec, Vendors: []string{"codex"}},
-		{Name: "codex-routing-start", Event: EventSessionStart, Budget: 5 * sec, Vendors: []string{"codex"}},
-		{Name: "codex-subagent-start", Event: EventSubagentStart, Budget: 5 * sec, Vendors: []string{"codex"}},
+	{Name: "codex", AgentOnly: true, Events: []EventSpec{
+		{Name: "codex-agent-route", Event: EventPreToolUse, Matcher: ".*spawn_agent$", Budget: 5 * sec, Agents: []string{"codex"}},
+		{Name: "codex-routing-result", Event: EventPostToolUse, Matcher: ".*spawn_agent$", Budget: 5 * sec, Agents: []string{"codex"}},
+		{Name: "codex-routing-start", Event: EventSessionStart, Budget: 5 * sec, Agents: []string{"codex"}},
+		{Name: "codex-subagent-start", Event: EventSubagentStart, Budget: 5 * sec, Agents: []string{"codex"}},
 	}},
 }
 
@@ -212,7 +212,7 @@ func Events() map[string][]MatcherGroup {
 	}
 	disp := map[string]*slot{}
 	for _, g := range Registry {
-		if g.VendorOnly {
+		if g.AgentOnly {
 			continue
 		}
 		for _, s := range g.Events {

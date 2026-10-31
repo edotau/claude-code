@@ -17,12 +17,12 @@ import (
 )
 
 // cmdGemini is the gemini agent verb: bridge reaches the harness's own 1M-context sweep; everything
-// else (launch, ask, resume, status, result, cancel, setup, models, help) is vendorVerb's job.
+// else (launch, ask, resume, status, result, cancel, setup, models, help) is AgentVerb's job.
 func cmdGemini(args []string) int {
 	if len(args) > 0 && args[0] == "bridge" {
 		return cmdGeminiBridge(args[1:])
 	}
-	return vendorVerb("gemini", args)
+	return AgentVerb("gemini", args)
 }
 
 // splitCSV splits a comma-separated flag value, trimming blanks and dropping empty entries.

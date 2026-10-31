@@ -20,7 +20,7 @@ func TestGroupRenderOneEntryPerEvent(t *testing.T) {
 	own := map[string]int{}
 	for _, s := range Specs() {
 		g, _ := GroupOf(s.Name)
-		if !g.VendorOnly && (g.Gate || s.Async) {
+		if !g.AgentOnly && (g.Gate || s.Async) {
 			own[s.Event]++
 		}
 	}

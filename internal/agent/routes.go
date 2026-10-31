@@ -18,8 +18,8 @@ const (
 	LegNone          = "none"
 )
 
-// RouteInfo is the vendor leg `claude-code configure github`, `generate` and `doctor` report: which
-// credential path a vendor CLI runs on today, and why. OK is false only for LegNone.
+// RouteInfo is the agent leg `claude-code configure github`, `generate` and `doctor` report: which
+// credential path an agent CLI runs on today, and why. OK is false only for LegNone.
 type RouteInfo struct {
 	Agent, Leg, Provider, Model, SmallModel, Reason string
 	OK                                              bool

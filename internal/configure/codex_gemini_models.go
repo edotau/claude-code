@@ -1,4 +1,4 @@
-// codex_gemini_models.go — the codex and gemini agent pages' own Model row: each vendor's own CLI
+// codex_gemini_models.go — the codex and gemini agent pages' own Model row: each agent's own CLI
 // catalog (never the shared github-copilot provider table), Effort first, same picker shape as copilot's.
 package configure
 
@@ -17,8 +17,8 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 )
 
-// vendorCatalogTimeout bounds a vendor CLI's own model-listing call.
-const vendorCatalogTimeout = 30 * time.Second
+// catalogTimeout bounds an agent CLI's own model-listing call.
+const catalogTimeout = 30 * time.Second
 
 // --- codex: `codex debug models` -------------------------------------------------------------
 
@@ -83,7 +83,7 @@ func codexCatalog(d *dialog) ([]codexModelInfo, error) {
 		return d.codexCatalog, d.codexCatalogErr
 	}
 	d.codexCatalogLoaded = true
-	ctx, cancel := context.WithTimeout(context.Background(), vendorCatalogTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), catalogTimeout)
 	defer cancel()
 	d.codexCatalog, d.codexCatalogErr = codexListModelsFn(ctx)
 	return d.codexCatalog, d.codexCatalogErr
@@ -150,7 +150,7 @@ func codexEffortRow(d *dialog, list []codexModelInfo, model string) *billingRow 
 	desc := "reasoning effort on every launch " + bracket(cur != "", cur, def)
 	choices := codexEffortChoices(*m)
 	r := billingRow{"Effort", desc, "", func() bool {
-		return pickVendorPin(d, "codex", "effort", providers.PinCodexEffort, choices, cur)
+		return pickAgentPin(d, "codex", "effort", providers.PinCodexEffort, choices, cur)
 	}}
 	return &r
 }
@@ -294,7 +294,7 @@ func geminiCatalog(d *dialog) ([]geminiModelInfo, error) {
 		return d.geminiCatalog, d.geminiCatalogErr
 	}
 	d.geminiCatalogLoaded = true
-	ctx, cancel := context.WithTimeout(context.Background(), vendorCatalogTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), catalogTimeout)
 	defer cancel()
 	d.geminiCatalog, d.geminiCatalogErr = geminiListModelsFn(ctx)
 	return d.geminiCatalog, d.geminiCatalogErr

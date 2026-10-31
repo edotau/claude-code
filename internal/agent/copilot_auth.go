@@ -122,7 +122,7 @@ func copilotPinError() error {
 		"(no other account is used)", pin)
 }
 
-// CopilotUsedPct is copilot:<user>'s used credit share from route state; set by cli (usage and route import vendors).
+// CopilotUsedPct is copilot:<user>'s used credit share from route state; set by cli (usage and route import agents).
 var CopilotUsedPct func(ctx context.Context, user string) (pct float64, ok bool)
 
 // copilotWorkablePct is the used credit share at which a copilot GitHub-login leg is no longer started.

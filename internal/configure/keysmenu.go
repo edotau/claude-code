@@ -14,7 +14,7 @@ var pickKey = tui.PickBack
 func keysMenu(d *dialog) (allOK, changed bool) {
 	start := 0
 	for {
-		targets, err := keyTargets(d.reg, d.o.Vendor)
+		targets, err := keyTargets(d.reg, d.o.Agent)
 		if err != nil {
 			d.println(err)
 			return false, changed

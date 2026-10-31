@@ -207,11 +207,11 @@ func TestCodexAuditMissingCausalFieldsRemainUnknown(t *testing.T) {
 
 func TestCodexAuditIgnoresOtherVendorsAndMissingSessions(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	for _, vendor := range []string{VendorClaude, VendorCopilot, VendorCodex} {
+	for _, vendor := range []string{AgentClaude, AgentCopilot, AgentCodex} {
 		t.Setenv(settings.AgentEnv, vendor)
 		for _, name := range []string{"codex-routing-start", "codex-routing-result", "codex-subagent-start"} {
 			payload := map[string]any{"tool_name": "spawn_agent", "agent_id": "child", "model": codexRouteWireModel}
-			if vendor != VendorCodex {
+			if vendor != AgentCodex {
 				payload["session_id"] = "session"
 			}
 			var out, stderr bytes.Buffer

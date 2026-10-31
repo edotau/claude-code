@@ -10,21 +10,21 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 )
 
-// LinkTools points BinDir/<bin> at each vendor's PATH copy (names empty = all); never fatal, errors print.
+// LinkTools points BinDir/<bin> at each agent's PATH copy (names empty = all); never fatal, errors print.
 func LinkTools(w io.Writer, names []string, dryRun bool) {
 	for _, r := range LinkResults(names, dryRun) {
 		fmt.Fprintf(w, "  %-8s %s\n", r.Status, r.Detail)
 	}
 }
 
-// LinkResult is one vendor's bin/ link outcome: Status is the %-8s verb LinkTools prints
+// LinkResult is one agent's bin/ link outcome: Status is the %-8s verb LinkTools prints
 // ("ok", "link", "keep", "skip", "remove", "missing", "error"); Bin is the BinDir/<bin> name.
 type LinkResult struct {
 	Bin, Status, Detail string
 }
 
-// LinkResults computes LinkTools' per-vendor outcomes (applying the side effects on a real run),
-// for callers that render a compact summary instead of one line per vendor.
+// LinkResults computes LinkTools' per-agent outcomes (applying the side effects on a real run),
+// for callers that render a compact summary instead of one line per agent.
 func LinkResults(names []string, dryRun bool) []LinkResult {
 	var out []LinkResult
 	for _, t := range Tools {
@@ -38,7 +38,7 @@ func LinkResults(names []string, dryRun bool) []LinkResult {
 	return out
 }
 
-// linkOne applies the bin/ rule to one vendor: keep a regular file, else link the PATH entry, else
+// linkOne applies the bin/ rule to one agent: keep a regular file, else link the PATH entry, else
 // drop the link; returns the %-8s status verb and its detail text.
 func linkOne(t Tool, bin string, dryRun bool) (status, detail string) {
 	dst := filepath.Join(paths.BinDir(), bin)
@@ -98,7 +98,7 @@ func linkOne(t Tool, bin string, dryRun bool) (status, detail string) {
 	}
 }
 
-// linkCandidate is the vendor's PATH entry (unresolved, so self-updaters are followed), else ~/.local/bin, else "".
+// linkCandidate is the agent's PATH entry (unresolved, so self-updaters are followed), else ~/.local/bin, else "".
 func linkCandidate(t Tool) string {
 	if c, err := paths.LookPathReal(t.Binary); err == nil {
 		return c

@@ -24,7 +24,7 @@ const codexRouteWireModel = "databricks-gpt-6-astra"
 func setupCodexRoute(t *testing.T) string {
 	t.Helper()
 	root := vaulttest.Use(t)
-	t.Setenv(settings.AgentEnv, VendorCodex)
+	t.Setenv(settings.AgentEnv, AgentCodex)
 	t.Setenv(settings.CodexProfileEnv, "probe")
 	t.Setenv(providers.PinCodexModel, "")
 	t.Setenv(providers.PinCodexEffort, "")
@@ -108,7 +108,7 @@ func TestCodexAgentRouteSkipsIneligibleSpawns(t *testing.T) {
 		{"custom role", func(_ *testing.T, _, a map[string]any, _ string) { a["agent_type"] = "explorer" }},
 		{"blank task", func(_ *testing.T, _, a map[string]any, _ string) { a["message"] = "  " }},
 		{"wrong tool", func(_ *testing.T, p, _ map[string]any, _ string) { p["tool_name"] = "send_message" }},
-		{"wrong vendor", func(t *testing.T, _, _ map[string]any, _ string) { t.Setenv(settings.AgentEnv, VendorClaude) }},
+		{"wrong vendor", func(t *testing.T, _, _ map[string]any, _ string) { t.Setenv(settings.AgentEnv, AgentClaude) }},
 		{"unknown profile", func(t *testing.T, _, _ map[string]any, _ string) { t.Setenv(settings.CodexProfileEnv, "missing") }},
 		{"non Databricks profile", func(t *testing.T, _, _ map[string]any, _ string) { t.Setenv(settings.CodexProfileEnv, "openai") }},
 		{"unsupported parent", func(_ *testing.T, p, _ map[string]any, _ string) { p["model"] = "databricks-claude-sonnet-5-5" }},
@@ -169,7 +169,7 @@ func mustCodexJSON(t *testing.T, value any) []byte {
 // TestCodexRoutingSchemaStampsNewLinesAndSkipsNewer pins: unstamped lines read, new lines carry schema 1, schema-2 lines are skipped.
 func TestCodexRoutingSchemaStampsNewLinesAndSkipsNewer(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	t.Setenv(settings.AgentEnv, VendorCodex)
+	t.Setenv(settings.AgentEnv, AgentCodex)
 	path := filepath.Join(paths.StateDir(), "codex", fmt.Sprintf("routing-%x.jsonl", sha256.Sum256([]byte("native-session"))))
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		t.Fatal(err)

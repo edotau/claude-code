@@ -1,4 +1,4 @@
-// Vendor-file versions, baselines and lost-line detection behind commitFile, plus `configure --revert`.
+// Agent-file versions, baselines and lost-line detection behind commitFile, plus `configure --revert`.
 package agent
 
 import (
@@ -135,7 +135,7 @@ func printLostLines(out io.Writer, lines []string) {
 	}
 }
 
-// --- revert: step each vendor file back to its newest backup version ---
+// --- revert: step each agent file back to its newest backup version ---
 
 // labelPath is one file this tool can write, named by its commitFile label.
 type labelPath struct{ label, path string }
@@ -148,7 +148,7 @@ func homeOr(home string) (string, error) {
 	return os.UserHomeDir()
 }
 
-// RevertConfigs restores each selected vendor's files to their newest backup version, removing the restored version so a second revert steps one version further back.
+// RevertConfigs restores each selected agent's files to their newest backup version, removing the restored version so a second revert steps one version further back.
 func RevertConfigs(o RenderOptions) error {
 	agents := o.Agents
 	if len(agents) == 0 {

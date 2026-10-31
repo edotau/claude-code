@@ -25,7 +25,7 @@ type liveBackend interface {
 // LiveCapable is a CLI that can hold a session open; a fresh backend serves each session.
 type LiveCapable interface{ newLive() liveBackend }
 
-// Live asserts on the CLI behind the agent's runner: the runner itself, or a vendorRunner's engine.
+// Live asserts on the CLI behind the agent's runner: the runner itself, or a cliRunner's engine.
 func (s Schema) Live() (LiveCapable, bool) {
 	r, err := Lookup(s.Name)
 	if err != nil {

@@ -64,7 +64,7 @@ func Credential(ctx context.Context, p *Provider) (string, error) {
 	return "", fmt.Errorf("%s: no credential (set %s with `claude-code vault set`%s)", p.Name, orDash(p.Auth.Env), hint(p))
 }
 
-// keyNames are the vault/env names a key row's credential may sit under: its new name, then auth.env (old/vendor name).
+// keyNames are the vault/env names a key row's credential may sit under: its new name, then auth.env (old/agent name).
 func keyNames(p *Provider) []string {
 	var out []string
 	if n := KeySecretName(p); n != "" {

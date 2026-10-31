@@ -16,7 +16,7 @@ import (
 	"github.com/edotau/claude-code/internal/ui/ansi"
 )
 
-// LaunchPlan resolves `claude-code run <vendor>`: the opus target via Configure, else the vendor's own login.
+// LaunchPlan resolves `claude-code run <agent>`: the opus target via Configure, else the agent's own login.
 func LaunchPlan(ctx context.Context, name string, o LaunchOptions, args []string) (Plan, error) {
 	plan, err := cliPlan(ctx, name, o, args)
 	plan.Keep, plan.CLI = o.KeepEnv, true
@@ -114,7 +114,7 @@ func cliPlan(ctx context.Context, name string, o LaunchOptions, args []string) (
 	}
 	env, prefix, err := spec.Configure(ctx, target, "")
 	if errors.Is(err, ErrOwnLogin) {
-		// The vendor's own login (opencode on Copilot) picks the model itself: plain launch, not a failure.
+		// The agent's own login (opencode on Copilot) picks the model itself: plain launch, not a failure.
 		if showOwnLoginNote {
 			fmt.Fprintln(NoticeOut, note)
 		}
@@ -202,7 +202,7 @@ func retryConfigure(ctx context.Context, name string, o LaunchOptions) ([]string
 	return spec.Configure(ctx, target, "")
 }
 
-// authArgs reports a vendor's own sign-in subcommand: codex/copilot login|logout, gemini/opencode auth.
+// authArgs reports an agent's own sign-in subcommand: codex/copilot login|logout, gemini/opencode auth.
 func authArgs(args []string) bool {
 	return len(args) > 0 && (args[0] == "login" || args[0] == "logout" || args[0] == "auth")
 }
@@ -220,11 +220,11 @@ func interactiveArgs(args []string) bool {
 	return true
 }
 
-// OfferConfigure is the interactive seam `configure` installs: asked once when a vendor cannot be routed, it
-// may set up that vendor (login or key) and returns true when the launch should re-resolve. nil = no offer.
-var OfferConfigure func(vendor string, reason error) bool
+// OfferConfigure is the interactive seam `configure` installs: asked once when an agent cannot be routed, it
+// may set up that agent (login or key) and returns true when the launch should re-resolve. nil = no offer.
+var OfferConfigure func(name string, reason error) bool
 
-// passthrough launches the vendor's own CLI untouched when the harness cannot route it: the user installed
+// passthrough launches the agent's own CLI untouched when the harness cannot route it: the user installed
 // that CLI and it carries its own login, so refusing to run it would only hide its own `agy` sign-in.
 func passthrough(spec Schema, name string, reason error, args []string) (Plan, error) {
 	if _, err := lookPath(spec.CLI.Binary); err != nil {
@@ -234,7 +234,7 @@ func passthrough(spec Schema, name string, reason error, args []string) (Plan, e
 	return plainPlan(spec, args)
 }
 
-// plainPlan is the vendor's own CLI on its own login: no routing env, but the vendor spec's launch env/args still apply.
+// plainPlan is the agent's own CLI on its own login: no routing env, but the agent spec's launch env/args still apply.
 func plainPlan(spec Schema, args []string) (Plan, error) {
 	bin, err := lookPath(spec.CLI.Binary)
 	if err != nil {

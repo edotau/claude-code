@@ -68,7 +68,7 @@ func codexResultAgentID(raw any) string {
 }
 
 func recordCodexRoute(in *Input, record codexRouteRecord, stderr io.Writer) {
-	if in.Vendor() != VendorCodex || in.SessionID == "" {
+	if in.Agent() != AgentCodex || in.SessionID == "" {
 		return
 	}
 	record.SessionID, record.At = in.SessionID, time.Now().UnixMilli()

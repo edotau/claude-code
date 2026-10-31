@@ -15,14 +15,14 @@ import (
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
-// vendorSubverbs are the words vendorVerb routes to cmdVendorSub.
-var vendorSubverbs = map[string]bool{
+// agentSubverbs are the words AgentVerb routes to agentSub.
+var agentSubverbs = map[string]bool{
 	"resume": true, "status": true, "tail": true, "result": true, "cancel": true, "setup": true, "catalog": true,
 	"review": true, "transfer": true, "explore": true, "profile": true, "on": true, "off": true,
 }
 
-// vendorAbout expands each agent's one-line menu summary for its help page.
-var vendorAbout = map[string]string{
+// agentAbout expands each agent's one-line menu summary for its help page.
+var agentAbout = map[string]string{
 	"copilot": "GitHub's Copilot CLI, billed to your Copilot plan. Bare launches it with args " +
 		"forwarded; the commands below run it headless, in the background or as a reviewer.",
 	"codex": "OpenAI's Codex CLI on your ChatGPT login, the second-opinion reviewer. Bare " +
@@ -33,45 +33,45 @@ var vendorAbout = map[string]string{
 		"with args forwarded; the commands below run it headless.",
 }
 
-// vendorPage is the help page for one agent verb: the shared command roster plus the CLI's extra rows.
-func vendorPage(vendor string) helptext.Page {
+// agentPage is the help page for one agent verb: the shared command roster plus the CLI's extra rows.
+func agentPage(name string) helptext.Page {
 	rows := [][2]string{
-		{"ask", "one-shot run (= ask --agent " + vendor + ")"},
+		{"ask", "one-shot run (= ask --agent " + name + ")"},
 		{"resume", "continue a session"},
 		{"review", "diff review; --adversarial"},
 		{"explore", "scan code + web research → brief"},
-		{"transfer", "hand this Claude session to " + vendor + "; --source"},
+		{"transfer", "hand this Claude session to " + name + "; --source"},
 		{"status", "background jobs in this repo; --all"},
 		{"tail", "a job's output; -f follows live"},
 		{"result", "a finished job's answer + session"},
 		{"cancel", "interrupt a running job"},
 		{"setup", "binary, login, route, projection; --format json"},
 		{"catalog", "the agent's own model catalog"},
-		{"profile", "show or set " + vendor + "'s harness profile pin"},
-		{"on", "route to " + vendor + " again"},
-		{"off", "stop routing to " + vendor},
+		{"profile", "show or set " + name + "'s harness profile pin"},
+		{"on", "route to " + name + " again"},
+		{"off", "stop routing to " + name},
 	}
-	s, _ := agent.LookupSchema(vendor)
+	s, _ := agent.LookupSchema(name)
 	if s.CLI.CatalogUsage != "" {
 		rows[slices.IndexFunc(rows, func(r [2]string) bool { return r[0] == "catalog" })][1] = s.CLI.CatalogUsage
 	}
 	rows = append(rows, s.CLI.ExtraUsage...)
-	binary := vendor
+	binary := name
 	if s.External() {
 		binary = s.CLI.Binary
 	}
 	return helptext.Page{
-		Usage:    "claude-code " + vendor + " [<command>|--] [launch flags] [args…]",
-		About:    vendorAbout[vendor],
+		Usage:    "claude-code " + name + " [<command>|--] [launch flags] [args…]",
+		About:    agentAbout[name],
 		Commands: rows,
-		Flags:    vendorLaunchFlags(vendor),
-		Hint: "claude-code " + vendor + " <command> -h lists that command's flags.\n" +
-			"claude-code " + vendor + " " + helptext.DocsFlag + " prints " + binary + "'s own help.",
+		Flags:    launchFlags(name),
+		Hint: "claude-code " + name + " <command> -h lists that command's flags.\n" +
+			"claude-code " + name + " " + helptext.DocsFlag + " prints " + binary + "'s own help.",
 	}
 }
 
-// vendorSubPages maps each sub-verb to its synopsis tail and blurb; %s is the vendor name.
-var vendorSubPages = map[string][2]string{
+// agentSubPages maps each sub-verb to its synopsis tail and blurb; %s is the agent name.
+var agentSubPages = map[string][2]string{
 	"resume": {"resume <id> [ask flags] <task>",
 		"Continue session <id> on %s (= ask --agent %[1]s --session <id>); ask's flags apply, see claude-code ask -h."},
 	"status":   {"status [id] [flags]", "Background %s jobs in this repo, newest first; an id narrows to one job."},
@@ -88,88 +88,88 @@ var vendorSubPages = map[string][2]string{
 	"transfer": {"transfer [flags] [note…]", "Hand this Claude session's transcript to %s, detached unless --wait."},
 }
 
-// vendorSubPage is the help page for `<vendor> <verb>`.
-func vendorSubPage(vendor, verb string) helptext.Page {
-	sp := vendorSubPages[verb]
+// agentSubPage is the help page for `<agent> <verb>`.
+func agentSubPage(name, verb string) helptext.Page {
+	sp := agentSubPages[verb]
 	about := sp[1]
 	if strings.Contains(about, "%") {
-		about = fmt.Sprintf(about, vendor)
+		about = fmt.Sprintf(about, name)
 	}
-	page := helptext.Page{Usage: "claude-code " + vendor + " " + sp[0], About: about}
-	if s, _ := agent.LookupSchema(vendor); verb == "catalog" {
+	page := helptext.Page{Usage: "claude-code " + name + " " + sp[0], About: about}
+	if s, _ := agent.LookupSchema(name); verb == "catalog" {
 		page.Hint = s.CLI.CatalogHint
 	}
 	return page
 }
 
-// vendorSubHelp prints the sub-verb's page when args open with -h/--help, for sub-verbs without a FlagSet.
-func vendorSubHelp(vendor, verb string, args []string) bool {
+// agentSubHelp prints the sub-verb's page when args open with -h/--help, for sub-verbs without a FlagSet.
+func agentSubHelp(name, verb string, args []string) bool {
 	if len(args) == 0 || (args[0] != "-h" && args[0] != "--help") {
 		return false
 	}
-	vendorSubPage(vendor, verb).Fprint(os.Stderr)
+	agentSubPage(name, verb).Fprint(os.Stderr)
 	return true
 }
 
-// newVendorFlags makes a ContinueOnError FlagSet named "<vendor> <verb>" whose -h renders the sub-verb's page.
-func newVendorFlags(vendor, verb string) *flag.FlagSet {
-	return helptext.NewFlagSet(vendor+" "+verb, vendorSubPage(vendor, verb))
+// newAgentFlags makes a ContinueOnError FlagSet named "<agent> <verb>" whose -h renders the sub-verb's page.
+func newAgentFlags(name, verb string) *flag.FlagSet {
+	return helptext.NewFlagSet(name+" "+verb, agentSubPage(name, verb))
 }
 
-// cmdVendorSub dispatches an agent's background-job and setup subverbs (resume/status/result/cancel/setup/catalog).
-func cmdVendorSub(vendor string, args []string) int {
+// agentSub dispatches an agent's background-job and setup subverbs (resume/status/result/cancel/setup/catalog).
+func agentSub(name string, args []string) int {
 	switch args[0] {
 	case "resume":
-		return cmdVendorResume(vendor, args[1:])
+		return agentResume(name, args[1:])
 	case "status":
-		return cmdVendorStatus(vendor, args[1:])
+		return agentStatus(name, args[1:])
 	case "tail":
-		return cmdVendorTail(vendor, args[1:])
+		return agentTail(name, args[1:])
 	case "result":
-		return cmdVendorResult(vendor, args[1:])
+		return agentResult(name, args[1:])
 	case "cancel":
-		return cmdVendorCancel(vendor, args[1:])
+		return agentCancel(name, args[1:])
 	case "setup":
-		return cmdVendorSetup(vendor, args[1:])
+		return agentSetup(name, args[1:])
 	case "catalog":
-		if isOpencodeMenuVerb(vendor, args[1:]) {
+		if isOpencodeMenuVerb(name, args[1:]) {
 			return cmdOpencodeMenu(args[1:])
 		}
-		if vendorSubHelp(vendor, "catalog", args[1:]) {
+		if agentSubHelp(name, "catalog", args[1:]) {
 			return 0
 		}
-		return cmdVendorModels(vendor, args[1:])
+		return agentModels(name, args[1:])
 	case "review":
-		return cmdVendorReview(vendor, args[1:])
+		return agentReview(name, args[1:])
 	case "explore":
-		return cmdVendorExplore(vendor, args[1:])
+		return agentExplore(name, args[1:])
 	case "transfer":
-		return cmdVendorTransfer(vendor, args[1:])
+		return agentTransfer(name, args[1:])
 	case "profile":
-		return cmdAgentProfile(vendor, args[1:])
+		return cmdAgentProfile(name, args[1:])
 	case "on", "off":
-		return cmdAgentOnOff(vendor, args[0] == "on", args[1:])
+		return cmdAgentOnOff(name, args[0] == "on", args[1:])
 	}
-	return fail("%s: unknown subcommand %q", vendor, args[0])
+	return fail("%s: unknown subcommand %q", name, args[0])
 }
 
-// cmdVendorResume is `claude-code <v> resume <id> <task…>` = `ask --agent <v> --session <id> <task…>`.
-func cmdVendorResume(vendor string, args []string) int {
-	if vendorSubHelp(vendor, "resume", args) {
+// agentResume is `claude-code <v> resume <id> <task…>` = `ask --agent <v> --session <id> <task…>`.
+func agentResume(name string, args []string) int {
+	if agentSubHelp(name, "resume", args) {
 		return 0
 	}
 	if len(args) < 1 {
-		return fail("%s resume: usage: claude-code %s resume <id> <task>", vendor, vendor)
+		return fail("%s resume: usage: claude-code %s resume <id> <task>", name, name)
 	}
 	if strings.HasPrefix(args[0], "-") { // flags first: ask's own parser, the session id is its first positional
-		return runAsk(append([]string{"--agent", vendor}, args...), true)
+		return runAsk(append([]string{"--agent", name}, args...), true)
 	}
-	return cmdAsk(append([]string{"--agent", vendor, "--session", args[0]}, args[1:]...))
+	return cmdAsk(append([]string{"--agent", name, "--session", args[0]}, args[1:]...))
 }
 
-// cmdVendorStatus is `claude-code <v> status [id] [--all] [--format text|json]`.
-func cmdVendorStatus(vendor string, args []string) int {
-	fs := newVendorFlags(vendor, "status")
+// agentStatus is `claude-code <v> status [id] [--all] [--format text|json]`.
+func agentStatus(name string, args []string) int {
+	fs := newAgentFlags(name, "status")
 	all := fs.Bool("all", false, "every repo, not just this one")
 	format := helptext.FormatFlag(fs)
 	pos, err := helptext.ParseArgs(fs, args)
@@ -177,25 +177,25 @@ func cmdVendorStatus(vendor string, args []string) int {
 		return helptext.ExitCode(err)
 	}
 	if err := helptext.CheckFormat(*format); err != nil {
-		return badFormat(vendor+" status", err)
+		return badFormat(name+" status", err)
 	}
 	ref := ""
 	if len(pos) > 0 {
 		ref = pos[0]
 	}
 	cwd, _ := os.Getwd()
-	rows, err := agent.Status(context.Background(), vendor, cwd, ref, *all)
+	rows, err := agent.Status(context.Background(), name, cwd, ref, *all)
 	if err != nil {
-		return fail("%s status: %v", vendor, err)
+		return fail("%s status: %v", name, err)
 	}
 	if *format == helptext.JSON {
 		if err := helptext.WriteJSON(os.Stdout, rows); err != nil {
-			return fail("%s status: %v", vendor, err)
+			return fail("%s status: %v", name, err)
 		}
 		return 0
 	}
 	if len(rows) == 0 {
-		fmt.Printf("no %s dispatches logged yet\n", vendor)
+		fmt.Printf("no %s dispatches logged yet\n", name)
 		return 0
 	}
 	for _, r := range rows {
@@ -204,9 +204,9 @@ func cmdVendorStatus(vendor string, args []string) int {
 	return 0
 }
 
-// cmdVendorTail is `claude-code <v> tail [id] [-f]`: exit 0 when the job ended ok, 1 on error or a lost job.
-func cmdVendorTail(vendor string, args []string) int {
-	fs := newVendorFlags(vendor, "tail")
+// agentTail is `claude-code <v> tail [id] [-f]`: exit 0 when the job ended ok, 1 on error or a lost job.
+func agentTail(name string, args []string) int {
+	fs := newAgentFlags(name, "tail")
 	follow := fs.Bool("f", false, "follow until the job finishes, with a heartbeat on silence")
 	pos, err := helptext.ParseArgs(fs, args)
 	if err != nil {
@@ -219,9 +219,9 @@ func cmdVendorTail(vendor string, args []string) int {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 	cwd, _ := os.Getwd()
-	rec, err := agent.Tail(ctx, vendor, cwd, ref, *follow, os.Stdout)
+	rec, err := agent.Tail(ctx, name, cwd, ref, *follow, os.Stdout)
 	if err != nil {
-		return fail("%s tail: %v", vendor, err)
+		return fail("%s tail: %v", name, err)
 	}
 	return tailExit(rec, *follow)
 }
@@ -239,27 +239,27 @@ func tailExit(rec agent.Record, follow bool) int {
 	return 0
 }
 
-// cmdVendorResult is `claude-code <v> result [id] [--format text|json]`.
-func cmdVendorResult(vendor string, args []string) int {
-	fs := newVendorFlags(vendor, "result")
+// agentResult is `claude-code <v> result [id] [--format text|json]`.
+func agentResult(name string, args []string) int {
+	fs := newAgentFlags(name, "result")
 	format := helptext.FormatFlag(fs)
 	pos, err := helptext.ParseArgs(fs, args)
 	if err != nil {
 		return helptext.ExitCode(err)
 	}
 	if err := helptext.CheckFormat(*format); err != nil {
-		return badFormat(vendor+" result", err)
+		return badFormat(name+" result", err)
 	}
 	ref := ""
 	if len(pos) > 0 {
 		ref = pos[0]
 	}
 	cwd, _ := os.Getwd()
-	rec, log, err := agent.JobResult(context.Background(), vendor, cwd, ref)
+	rec, log, err := agent.JobResult(context.Background(), name, cwd, ref)
 	if err != nil {
-		return fail("%s result: %v", vendor, err)
+		return fail("%s result: %v", name, err)
 	}
-	s, _ := agent.LookupSchema(vendor)
+	s, _ := agent.LookupSchema(name)
 	if *format == helptext.JSON {
 		if err := helptext.WriteJSON(os.Stdout, struct {
 			ID      string `json:"id"`
@@ -267,7 +267,7 @@ func cmdVendorResult(vendor string, args []string) int {
 			Resume  string `json:"resume,omitempty"`
 			Log     string `json:"log"`
 		}{rec.ID, rec.SessionID, s.ResumeHint(rec.SessionID), log}); err != nil {
-			return fail("%s result: %v", vendor, err)
+			return fail("%s result: %v", name, err)
 		}
 		return resultExit(rec)
 	}
@@ -291,40 +291,40 @@ func resultExit(rec agent.Record) int {
 	return 1
 }
 
-// cmdVendorCancel is `claude-code <v> cancel [id]`.
-func cmdVendorCancel(vendor string, args []string) int {
-	fs := newVendorFlags(vendor, "cancel")
+// agentCancel is `claude-code <v> cancel [id]`.
+func agentCancel(name string, args []string) int {
+	fs := newAgentFlags(name, "cancel")
 	if code, done := helptext.Parse(fs, args); done {
 		return code
 	}
 	ref := fs.Arg(0)
 	cwd, _ := os.Getwd()
-	rec, err := agent.CancelJob(context.Background(), vendor, cwd, ref)
+	rec, err := agent.CancelJob(context.Background(), name, cwd, ref)
 	if err != nil {
-		return fail("%s cancel: %v", vendor, err)
+		return fail("%s cancel: %v", name, err)
 	}
 	fmt.Printf("cancelled %s\n", rec.ID)
 	return 0
 }
 
-// cmdVendorSetup is `claude-code <v> setup [--format text|json]`.
-func cmdVendorSetup(vendor string, args []string) int {
-	fs := newVendorFlags(vendor, "setup")
+// agentSetup is `claude-code <v> setup [--format text|json]`.
+func agentSetup(name string, args []string) int {
+	fs := newAgentFlags(name, "setup")
 	format := helptext.FormatFlag(fs)
 	if code, done := helptext.Parse(fs, args); done {
 		return code
 	}
 	if err := helptext.CheckFormat(*format); err != nil {
-		return badFormat(vendor+" setup", err)
+		return badFormat(name+" setup", err)
 	}
-	row, ok := agent.LookupSchema(vendor)
+	row, ok := agent.LookupSchema(name)
 	if !ok {
-		row = agent.Schema{Name: vendor} // reported as an unknown agent, by name
+		row = agent.Schema{Name: name} // reported as an unknown agent, by name
 	}
 	rep := row.Setup()
 	if *format == helptext.JSON {
 		if err := helptext.WriteJSON(os.Stdout, rep); err != nil {
-			return fail("%s setup: %v", vendor, err)
+			return fail("%s setup: %v", name, err)
 		}
 	} else {
 		for _, c := range rep.Checks {
@@ -337,55 +337,55 @@ func cmdVendorSetup(vendor string, args []string) int {
 	return 0
 }
 
-// cmdVendorReview is `claude-code <v> review [scope flags] [--adversarial] [--background] [--rubric f] [focus…]`.
-func cmdVendorReview(vendor string, args []string) int {
-	fs := newVendorFlags(vendor, "review")
+// agentReview is `claude-code <v> review [scope flags] [--adversarial] [--background] [--rubric f] [focus…]`.
+func agentReview(name string, args []string) int {
+	fs := newAgentFlags(name, "review")
 	uncommitted := fs.Bool("uncommitted", false, "working tree + index vs HEAD (default)")
 	base := fs.String("base", "", "diff against this branch (triple-dot merge base)")
 	commit := fs.String("commit", "", "diff this single commit")
 	pr := fs.Bool("pr", false, "diff against the remote's default branch")
 	adversarial := fs.Bool("adversarial", false, "adversarial findings instead of a neutral verdict")
-	background := fs.Bool("background", false, "detach; claude-code "+vendor+" status|result to follow up")
+	background := fs.Bool("background", false, "detach; claude-code "+name+" status|result to follow up")
 	rubric := fs.String("rubric", "", "grade the review against this rubric file")
 	if code, done := helptext.Parse(fs, args); done {
 		return code
 	}
 	scope, err := agent.ParseScope(*uncommitted, *base, *commit, *pr)
 	if err != nil {
-		return fail("%s review: %v", vendor, err)
+		return fail("%s review: %v", name, err)
 	}
 	cwd, _ := os.Getwd()
 	diff, err := agent.Diff(context.Background(), cwd, scope)
 	if err != nil {
-		return fail("%s review: %v", vendor, err)
+		return fail("%s review: %v", name, err)
 	}
 	focus := strings.Join(fs.Args(), " ")
 	if parts := agent.ReviewParts(diff, *adversarial, focus, *rubric); len(parts) > 1 {
-		return runSplitReview(vendor, args, parts, scope, *adversarial, *background, focus, *rubric)
+		return runSplitReview(name, args, parts, scope, *adversarial, *background, focus, *rubric)
 	}
-	askArgs, cleanup, err := agent.ReviewArgs(vendor, scope, diff, *adversarial, *background, focus, *rubric)
+	askArgs, cleanup, err := agent.ReviewArgs(name, scope, diff, *adversarial, *background, focus, *rubric)
 	if err != nil {
-		return fail("%s review: %v", vendor, err)
+		return fail("%s review: %v", name, err)
 	}
 	defer cleanup()
 	return cmdAsk(askArgs)
 }
 
-// cmdVendorExplore is `claude-code <v> explore [--no-web] [--background] [--format f] <question>`.
-func cmdVendorExplore(vendor string, args []string) int {
-	fs := newVendorFlags(vendor, "explore")
+// agentExplore is `claude-code <v> explore [--no-web] [--background] [--format f] <question>`.
+func agentExplore(name string, args []string) int {
+	fs := newAgentFlags(name, "explore")
 	noWeb := fs.Bool("no-web", false, "skip the web-research leg; code scan only")
-	background := fs.Bool("background", false, "detach; claude-code "+vendor+" status|result to follow up")
+	background := fs.Bool("background", false, "detach; claude-code "+name+" status|result to follow up")
 	format := fs.String("format", "text", "stream text or print the JSON result envelope")
 	if code, done := helptext.Parse(fs, args); done {
 		return code
 	}
 	question := strings.Join(fs.Args(), " ")
 	if question == "" {
-		return fail("%s explore: usage: claude-code %s explore [--no-web] [--background] <question>", vendor, vendor)
+		return fail("%s explore: usage: claude-code %s explore [--no-web] [--background] <question>", name, name)
 	}
 	cwd, _ := os.Getwd()
-	askArgs := agent.ExploreArgs(vendor, cwd, question, !*noWeb, *background)
+	askArgs := agent.ExploreArgs(name, cwd, question, !*noWeb, *background)
 	if *format != "text" {
 		task := askArgs[len(askArgs)-1]
 		askArgs = append(askArgs[:len(askArgs)-1], "--format", *format, task)
@@ -393,9 +393,9 @@ func cmdVendorExplore(vendor string, args []string) int {
 	return cmdAsk(askArgs)
 }
 
-// cmdVendorTransfer is `claude-code <v> transfer [--source f] [--wait] [note…]`.
-func cmdVendorTransfer(vendor string, args []string) int {
-	fs := newVendorFlags(vendor, "transfer")
+// agentTransfer is `claude-code <v> transfer [--source f] [--wait] [note…]`.
+func agentTransfer(name string, args []string) int {
+	fs := newAgentFlags(name, "transfer")
 	source := fs.String("source", "", "transcript .jsonl (default: newest session for this repo)")
 	wait := fs.Bool("wait", false, "block for the answer instead of detaching")
 	if code, done := helptext.Parse(fs, args); done {
@@ -405,25 +405,25 @@ func cmdVendorTransfer(vendor string, args []string) int {
 	src := *source
 	if src != "" {
 		if err := agent.ValidateSource(src); err != nil {
-			return fail("%s transfer: %v", vendor, err)
+			return fail("%s transfer: %v", name, err)
 		}
 	} else {
 		var err error
 		src, err = agent.DefaultSource(cwd)
 		if err != nil {
-			return fail("%s transfer: %v", vendor, err)
+			return fail("%s transfer: %v", name, err)
 		}
 	}
 	fmt.Fprintf(os.Stderr, "transfer: source %s\n", src)
 	note := strings.Join(fs.Args(), " ")
 	prompt, err := agent.Handoff(src, cwd, note)
 	if err != nil {
-		return fail("%s transfer: %v", vendor, err)
+		return fail("%s transfer: %v", name, err)
 	}
-	code := cmdAsk(agent.TransferArgs(vendor, cwd, prompt, *wait))
+	code := cmdAsk(agent.TransferArgs(name, cwd, prompt, *wait))
 	if code == 0 && *wait {
-		if rec, _, err := agent.JobResult(context.Background(), vendor, cwd, ""); err == nil {
-			s, _ := agent.LookupSchema(vendor)
+		if rec, _, err := agent.JobResult(context.Background(), name, cwd, ""); err == nil {
+			s, _ := agent.LookupSchema(name)
 			if hint := s.ResumeHint(rec.SessionID); hint != "" {
 				fmt.Printf("resume: %s\n", hint)
 			}
@@ -432,22 +432,22 @@ func cmdVendorTransfer(vendor string, args []string) int {
 	return code
 }
 
-// cmdVendorModels is `claude-code <v> catalog` : the agent's own catalog, or a note that it has none.
-func cmdVendorModels(vendor string, args []string) int {
-	s, ok := agent.LookupSchema(vendor)
+// agentModels is `claude-code <v> catalog` : the agent's own catalog, or a note that it has none.
+func agentModels(name string, args []string) int {
+	s, ok := agent.LookupSchema(name)
 	if !ok || !s.External() {
-		return fail("unknown agent %q", vendor)
+		return fail("unknown agent %q", name)
 	}
 	format := helptext.Text
-	if vendor == "copilot" {
-		fs := newVendorFlags(vendor, "catalog")
+	if name == "copilot" {
+		fs := newAgentFlags(name, "catalog")
 		profile := fs.String("profile", "", "list this profile's models (default: the session profile)")
 		f := helptext.FormatFlag(fs)
 		if code, done := helptext.Parse(fs, args); done {
 			return code
 		}
 		if err := helptext.CheckFormat(*f); err != nil {
-			return badFormat(vendor+" catalog", err)
+			return badFormat(name+" catalog", err)
 		}
 		format = *f
 		reg, err := providers.Load()
@@ -456,16 +456,16 @@ func cmdVendorModels(vendor string, args []string) int {
 		}
 		cat, err := agent.CopilotModelSource(context.Background(), reg, *profile)
 		if err != nil {
-			return fail("%s catalog: %v", vendor, err)
+			return fail("%s catalog: %v", name, err)
 		}
 		if cat.Databricks {
-			return printCopilotCatalog(vendor, cat, format)
+			return printCopilotCatalog(name, cat, format)
 		}
 		if format == helptext.Text {
 			fmt.Println(cat.Source)
 		}
 	} else if len(args) > 0 {
-		fmt.Fprintf(os.Stderr, "error: %s catalog: unexpected argument %q\n", vendor, args[0])
+		fmt.Fprintf(os.Stderr, "error: %s catalog: unexpected argument %q\n", name, args[0])
 		return 2
 	}
 	switch {
@@ -480,18 +480,18 @@ func cmdVendorModels(vendor string, args []string) int {
 		}
 		return cmdModels([]string{"--live", "--profile", n, "--format", format})
 	case len(s.CLI.ModelsArgv) > 0:
-		return launchVendor(vendor, s.CLI.ModelsArgv)
+		return launchAgent(name, s.CLI.ModelsArgv)
 	default:
-		fmt.Printf("%s: no model catalog\n", vendor)
+		fmt.Printf("%s: no model catalog\n", name)
 		return 0
 	}
 }
 
 // printCopilotCatalog prints a Databricks row's chat endpoints as a NAME / TESTED table, or JSON.
-func printCopilotCatalog(vendor string, cat agent.CopilotCatalog, format string) int {
+func printCopilotCatalog(name string, cat agent.CopilotCatalog, format string) int {
 	if format == helptext.JSON {
 		if err := helptext.WriteJSON(os.Stdout, cat); err != nil {
-			return fail("%s catalog: %v", vendor, err)
+			return fail("%s catalog: %v", name, err)
 		}
 		return 0
 	}
@@ -511,18 +511,18 @@ func printCopilotCatalog(vendor string, cat agent.CopilotCatalog, format string)
 	return 0
 }
 
-// vendorLaunchFlags lists the harness flags a bare launch consumes (agent.ParseArgs) for the help page.
-func vendorLaunchFlags(vendor string) *flag.FlagSet {
-	fs := helptext.NewFlagSet(vendor, helptext.Page{Usage: "claude-code " + vendor}) // display only; ParseArgs parses
+// launchFlags lists the harness flags a bare launch consumes (agent.ParseArgs) for the help page.
+func launchFlags(name string) *flag.FlagSet {
+	fs := helptext.NewFlagSet(name, helptext.Page{Usage: "claude-code " + name}) // display only; ParseArgs parses
 	fs.String("model", "", "select the model for this launch")
 	profileUsage := "harness profile for this launch"
-	if vendor == "codex" {
+	if name == "codex" {
 		profileUsage += " (codex's own: -p NAME)"
 	}
 	helptext.NameVar(fs, new(string), "profile", profileUsage)
 	fs.Bool("direct", false, "skip the proxy; hand the CLI the profile route")
 	fs.Bool("print-env", false, "print the resolved binary, argv and env; do not launch")
-	if vendor == "codex" {
+	if name == "codex" {
 		fs.String("f", "", "config.toml whose keys ride as -c overrides")
 	}
 	return fs

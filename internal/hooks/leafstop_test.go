@@ -66,7 +66,7 @@ func TestLeafStopBlocksRunningDispatch(t *testing.T) {
 		t.Fatalf("got %+v blocked=%v, want a Block naming %s, the tail command and the 600000ms timeout", r, blocked, leafJob)
 	}
 	var out, errb bytes.Buffer
-	if code := Emit(VendorClaude, "SubagentStop", r, &out, &errb); code != ExitBlock || !strings.Contains(errb.String(), leafJob) {
+	if code := Emit(AgentClaude, "SubagentStop", r, &out, &errb); code != ExitBlock || !strings.Contains(errb.String(), leafJob) {
 		t.Fatalf("Emit = %d stderr=%q, want ExitBlock with the reason", code, errb.String())
 	}
 }
@@ -134,7 +134,7 @@ func TestLeafStopNoDispatchAndVendor(t *testing.T) {
 	tx = leafEnv(t, startedLine())
 	writeDispatch(t, leafJob, record(leafJob, "running", os.Getpid()))
 	in := leafInput(tx)
-	in.vendor = VendorCopilot
+	in.agent = AgentCopilot
 	if _, blocked := leafStopBlock(in, "a1"); blocked {
 		t.Fatal("non-Claude vendor was gated")
 	}

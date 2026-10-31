@@ -1,6 +1,6 @@
 // Package configure is the `claude-code configure` dialogue: provider, keys, models, agents, proxy,
-// and doctor sections over the existing provider/secrets/vendors/launch verbs, piped or interactive.
-// It is also launch.Vendor's auto-configure callback, scoped to one vendor via Vendor.
+// and doctor sections over the existing provider/secrets/agents/launch verbs, piped or interactive.
+// It is also agent.LaunchPlan's auto-configure callback, scoped to one agent via Agent.
 package configure
 
 import (
@@ -40,7 +40,7 @@ var Sections = []string{"provider", "models", "agents", "proxy", "github", "remo
 // Options controls one configure pass; In/Out let tests fully control the dialogue.
 type Options struct {
 	Provider    string    // --provider: pick this one non-interactively (provider section)
-	Vendor      string    // --agent: scope keys/agents to one agent CLI
+	Agent       string    // --agent: scope keys/agents to one agent CLI
 	DryRun      bool      // print what would change; write nothing
 	Check       bool      // report only; never writes; Run exits 1 if anything is unset
 	All         bool      // --all (provider page): check every provider's sign-in and log in where needed
@@ -49,7 +49,7 @@ type Options struct {
 	Drop        []string  // --drop: top-level settings.json keys to remove on every render
 	Keep        []string  // --keep: keys to stop dropping
 	Interactive bool      // stdin+stderr are both a terminal; the caller decides this
-	Home        string    // vendor-config home override (tests); "" -> os.UserHomeDir
+	Home        string    // agent-config home override (tests); "" -> os.UserHomeDir
 	In          io.Reader // "" -> os.Stdin
 	Out         io.Writer // "" -> os.Stdout
 }
@@ -87,7 +87,7 @@ type dialog struct {
 	copilotCatalog       []copilotsdk.Model
 	copilotCatalogErr    error
 	copilotCatalogLoaded bool
-	// codexCatalog/geminiCatalog cache that vendor's own CLI model listing for the life of this dialog.
+	// codexCatalog/geminiCatalog cache that agent's own CLI model listing for the life of this dialog.
 	codexCatalog        []codexModelInfo
 	codexCatalogErr     error
 	codexCatalogLoaded  bool
@@ -128,7 +128,7 @@ func Run(o Options, section string) int {
 		}
 		want = []string{section}
 	}
-	if len(o.Drop)+len(o.Keep) > 0 && o.Vendor != "" && o.Vendor != "claude" {
+	if len(o.Drop)+len(o.Keep) > 0 && o.Agent != "" && o.Agent != "claude" {
 		fmt.Fprintln(out, "configure: --drop/--keep apply to claude settings only")
 		return 2
 	}
@@ -202,16 +202,16 @@ func Run(o Options, section string) int {
 	return 0
 }
 
-// Vendor runs the keys then agents sections scoped to name; changed reports whether a login or key
-// write actually happened (telling launch.Vendor it is worth re-resolving). Call only after a human
-// has already said yes on a TTY — Vendor itself still gates every login/write on o.Interactive.
-func Vendor(name string, interactive bool, out io.Writer) (changed bool, err error) {
+// Agent runs the keys then agents sections scoped to name; changed reports whether a login or key
+// write actually happened (telling launch.Agent it is worth re-resolving). Call only after a human
+// has already said yes on a TTY — Agent itself still gates every login/write on o.Interactive.
+func Agent(name string, interactive bool, out io.Writer) (changed bool, err error) {
 	reg, err := providers.Load()
 	if err != nil {
 		return false, err
 	}
 	d := &dialog{
-		o:   Options{Vendor: name, Interactive: interactive, Out: out, In: os.Stdin},
+		o:   Options{Agent: name, Interactive: interactive, Out: out, In: os.Stdin},
 		reg: reg, br: bufio.NewReader(os.Stdin), out: out, color: ansi.Enabled(out),
 	}
 	d.header("keys")
@@ -316,7 +316,7 @@ func applyProvider(d *dialog, name string) bool {
 
 // --- keys ---
 
-// keyTarget is one row `configure keys` reports on: a provider-level credential or a vendor's own login.
+// keyTarget is one row `configure keys` reports on: a provider-level credential or an agent's own login.
 type keyTarget struct {
 	label     string
 	present   bool
@@ -359,7 +359,7 @@ var consoleURLs = map[string]string{
 	"OPENAI_API_KEY":    "https://platform.openai.com/api-keys",
 }
 
-// authOption is one way to satisfy an absent credential: a vendor's browser/device login, or a pasted key.
+// authOption is one way to satisfy an absent credential: an agent's browser/device login, or a pasted key.
 type authOption struct {
 	action string   // one or two words, the picker's first column (Paste API key)
 	desc   string   // one short line, the second column
@@ -391,9 +391,9 @@ func authOptions(kt keyTarget) []authOption {
 	return opts
 }
 
-func keyTargets(reg *providers.Registry, vendorFilter string) ([]keyTarget, error) {
+func keyTargets(reg *providers.Registry, agentFilter string) ([]keyTarget, error) {
 	var out []keyTarget
-	if vendorFilter == "" {
+	if agentFilter == "" {
 		sel, err := providers.Select(reg, "")
 		if err != nil {
 			return nil, err
@@ -413,25 +413,25 @@ func keyTargets(reg *providers.Registry, vendorFilter string) ([]keyTarget, erro
 		out = append(out, kt)
 	}
 	for _, name := range agent.Names() {
-		if vendorFilter != "" && name != vendorFilter {
+		if agentFilter != "" && name != agentFilter {
 			continue
 		}
-		out = append(out, vendorKeyTarget(reg, name))
+		out = append(out, agentKeyTarget(reg, name))
 	}
 	return out, nil
 }
 
-func vendorKeyTarget(reg *providers.Registry, name string) keyTarget {
+func agentKeyTarget(reg *providers.Registry, name string) keyTarget {
 	sel, err := providers.Select(reg, "")
 	s, _ := agent.LookupSchema(name)
 	fallback := func() keyTarget {
 		if err == nil {
 			target, note, rerr := s.ResolveTarget(reg, sel, false)
-			// The vendor's own stored config/login is a working setup, not a missing key.
+			// The agent's own stored config/login is a working setup, not a missing key.
 			if errors.Is(rerr, agent.ErrOwnLogin) {
 				return keyTarget{label: name, present: true, source: afterUsing(note)}
 			}
-			// A passthrough provider carries another vendor's login, never a key this vendor can use.
+			// A passthrough provider carries another agent's login, never a key this agent can use.
 			if rerr == nil && target.Provider.Auth.Method() != providers.AuthCLI && providers.CredentialPresent(target.Provider) {
 				return keyTarget{label: name, present: true, source: target.Provider.Name + " key",
 					envVar: target.Provider.Auth.Env, provider: target.Provider}
@@ -465,7 +465,7 @@ func runKeysChanged(d *dialog) (allOK, changed bool) {
 	if d.o.Interactive && !d.o.Check && !d.o.DryRun && isStdinTTY() {
 		return keysMenu(d) // a terminal gets the pick-one menu; piped runs keep the line-by-line pass below
 	}
-	targets, err := keyTargets(d.reg, d.o.Vendor)
+	targets, err := keyTargets(d.reg, d.o.Agent)
 	if err != nil {
 		d.println(err)
 		return false, false
@@ -723,7 +723,7 @@ func openBrowser(url string) {
 }
 
 // actionConfirmed asks [y/N] (Esc cancels) before a terminal run launches a mint CLI; a stray Enter must
-// never start a run that rewrites a vendor's own auth settings. Non-terminal runs proceed. Sign-in itself
+// never start a run that rewrites an agent's own auth settings. Non-terminal runs proceed. Sign-in itself
 // needs no second confirm — picking its menu row already was the confirmation.
 var actionConfirmed = func(question string) bool {
 	if !isStdinTTY() {
@@ -749,7 +749,7 @@ func confirmLeave(n int, what string) bool {
 // enterRow is every configure page's last row: Enter leaves the page, asking first when it has unsaved changes.
 func enterRow(detail string) [2]string { return [2]string{"Enter", detail} }
 
-// runLogin execs a vendor's own login CLI attached to the real terminal: picking the row that leads here
+// runLogin execs an agent's own login CLI attached to the real terminal: picking the row that leads here
 // already was the confirmation, so it runs directly rather than asking [y/N] a second time.
 func runLogin(argv []string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -757,7 +757,7 @@ func runLogin(argv []string) error {
 	return runLoginContext(ctx, argv)
 }
 
-func vendorArgv(argv []string) ([]string, error) {
+func cliArgv(argv []string) ([]string, error) {
 	name, ok := paths.VendorName(argv[0])
 	if !ok {
 		return argv, nil
@@ -772,7 +772,7 @@ func vendorArgv(argv []string) ([]string, error) {
 }
 
 func runLoginContext(ctx context.Context, argv []string) error {
-	argv, err := vendorArgv(argv)
+	argv, err := cliArgv(argv)
 	if err != nil {
 		return err
 	}
@@ -818,8 +818,8 @@ func modelsReport(d *dialog) bool {
 
 func runAgents(d *dialog) bool {
 	agentList := agent.DefaultAgents
-	if d.o.Vendor != "" {
-		agentList = []string{d.o.Vendor}
+	if d.o.Agent != "" {
+		agentList = []string{d.o.Agent}
 	}
 	_, err := agent.RenderConfigs(agent.RenderOptions{
 		Agents: agentList, DryRun: d.o.DryRun || d.o.Check, Check: d.o.Check, Home: d.o.Home, Out: d.out,

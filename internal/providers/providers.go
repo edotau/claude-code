@@ -102,7 +102,7 @@ type Auth struct {
 	File    string `json:"file,omitempty"`    // file holding the credential (~ expanded)
 	Command string `json:"command,omitempty"` // shell command printing the credential (keychain, op, OAuth mint)
 	TTL     int    `json:"ttl,omitempty"`     // seconds a Command result may be cached; 0 = 300
-	Login   string `json:"login,omitempty"`   // cli only: vendor CLI whose own sign-in serves it (codex, copilot)
+	Login   string `json:"login,omitempty"`   // cli only: agent CLI whose own sign-in serves it (codex, copilot)
 	// RefreshCommand forces a fresh credential; run when Command's token is near expiry or on a 401.
 	RefreshCommand string `json:"refreshCommand,omitempty"`
 	ClientID       string `json:"clientId,omitempty"` // m2m service-principal client id (not secret)
@@ -256,7 +256,7 @@ func ValidateRouteWeights(weights map[string]float64) error {
 }
 
 // Plan is one sign-in plan: ID matches the raw plan ID the login reports (* globs); Tier and Provider override
-// the detected plan name and the agent's vendor.
+// the detected plan name and the agent's agent.
 type Plan struct {
 	ID       string `json:"id"`
 	Tier     string `json:"tier,omitempty"`

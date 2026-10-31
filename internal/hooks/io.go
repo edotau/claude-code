@@ -34,23 +34,23 @@ type Input struct {
 	AgentID             string `json:"agent_id"`
 	AgentTranscriptPath string `json:"agent_transcript_path"`
 
-	Raw    []byte `json:"-"`
-	doc    map[string]any
-	vendor string
+	Raw   []byte `json:"-"`
+	doc   map[string]any
+	agent string
 }
 
 const (
-	VendorClaude  = "claude"
-	VendorCodex   = "codex"
-	VendorCopilot = "copilot"
+	AgentClaude  = "claude"
+	AgentCodex   = "codex"
+	AgentCopilot = "copilot"
 )
 
-// Vendor uses the explicit hook vendor or Copilot's payload shape, defaulting to Claude.
-func (in *Input) Vendor() string {
-	if in == nil || in.vendor == "" {
-		return VendorClaude
+// Agent uses the explicit hook agent or Copilot's payload shape, defaulting to Claude.
+func (in *Input) Agent() string {
+	if in == nil || in.agent == "" {
+		return AgentClaude
 	}
-	return in.vendor
+	return in.agent
 }
 
 // ParseInput never errors: malformed stdin yields a zero Input (fail-open).
@@ -60,9 +60,9 @@ func ParseInput(r io.Reader) *Input {
 	if json.Unmarshal(raw, &in.doc) != nil {
 		return &Input{Raw: raw}
 	}
-	switch vendor := os.Getenv(settings.AgentEnv); vendor {
-	case VendorClaude, VendorCodex, VendorCopilot:
-		in.vendor = vendor
+	switch name := os.Getenv(settings.AgentEnv); name {
+	case AgentClaude, AgentCodex, AgentCopilot:
+		in.agent = name
 	}
 	in.SessionID = in.nested("session_id")
 	in.CWD = in.nested("cwd")
@@ -74,7 +74,7 @@ func ParseInput(r io.Reader) *Input {
 	in.AgentID = in.nested("agent_id")
 	in.AgentTranscriptPath = in.nested("agent_transcript_path")
 	if _, ok := in.doc["sessionId"].(string); ok && in.HookEventName == "" {
-		in.vendor = VendorCopilot
+		in.agent = AgentCopilot
 	}
 	if in.SessionID == "" {
 		in.SessionID = in.nested("sessionId")
@@ -88,7 +88,7 @@ func ParseInput(r io.Reader) *Input {
 	if in.TranscriptPath == "" {
 		in.TranscriptPath = in.nested("transcriptPath")
 	}
-	if in.Vendor() == VendorCopilot {
+	if in.Agent() == AgentCopilot {
 		in.normalizeToolArgs()
 	}
 	return in
@@ -232,7 +232,7 @@ var Native = map[string]Runner{
 }
 
 // runDirect is `hook <Event> --<module>`: one Runner rendered for its own process. A module that blocks exits 2 with
-// its reason on stderr, which is how a guard run by a vendor or by safety-scan's own entry blocks.
+// its reason on stderr, which is how a guard run by an agent or by safety-scan's own entry blocks.
 func runDirect(name string, stdin io.Reader, stdout, stderr io.Writer) int {
 	run, ok := Native[name]
 	if !ok {
@@ -241,7 +241,7 @@ func runDirect(name string, stdin io.Reader, stdout, stderr io.Writer) int {
 	in := ParseInput(stdin)
 	res := run(in)
 	if res.Decision == Block && specOf(name).Blocks {
-		if name == "safety-scan" && in.Vendor() == VendorCopilot {
+		if name == "safety-scan" && in.Agent() == AgentCopilot {
 			fmt.Fprintln(stdout, OutputCopilot(settings.EventPreToolUse, res))
 		}
 		fmt.Fprintln(stderr, res.Reason)
@@ -249,10 +249,10 @@ func runDirect(name string, stdin io.Reader, stdout, stderr io.Writer) int {
 	}
 	res.Context = textutil.CapRunes(res.Context, contextCapChars, "…")
 	if !bareStdout[name] {
-		return Emit(in.Vendor(), eventOf(name), res, stdout, stderr)
+		return Emit(in.Agent(), eventOf(name), res, stdout, stderr)
 	}
 	var out strings.Builder
-	code := Emit(in.Vendor(), eventOf(name), res, &out, stderr)
+	code := Emit(in.Agent(), eventOf(name), res, &out, stderr)
 	_, _ = io.WriteString(stdout, strings.TrimSuffix(out.String(), "\n"))
 	return code
 }
@@ -304,7 +304,7 @@ func runModule(event, name string, stdin io.Reader, stdout, stderr io.Writer) in
 	return runDirect(name, stdin, stdout, stderr)
 }
 
-// unknownHook fails closed when the unknown name reads as a guard; a stale vendor hook file must not drop its gate.
+// unknownHook fails closed when the unknown name reads as a guard; a stale agent hook file must not drop its gate.
 func unknownHook(name, what string, stderr io.Writer) int {
 	fmt.Fprintf(stderr, "claude-code hook: %s %q\n", what, name)
 	for _, w := range []string{"guard", "gate", "safety", "scan", "placement"} {

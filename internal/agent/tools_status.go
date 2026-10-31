@@ -17,7 +17,7 @@ type ToolStatus struct {
 	Version   string // first line of `<path> --version`, best-effort
 	LocalBin  bool   // Path lives under ~/.local/bin
 	NPMGlobal bool   // Path resolves through an npm-global lib/node_modules install
-	Target    string // os.Readlink of BinDir/<bin> for a vendor tool; "" when not a link
+	Target    string // os.Readlink of BinDir/<bin> for an agent tool; "" when not a link
 	Hint      string
 }
 

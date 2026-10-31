@@ -11,7 +11,7 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 )
 
-// engine is the per-CLI behaviour behind vendorRunner and configure; every external agent has one.
+// engine is the per-CLI behaviour behind cliRunner and configure; every external agent has one.
 type engine interface {
 	// Name is the roster agent the engine drives.
 	Name() string
@@ -47,7 +47,7 @@ type engine interface {
 	fallbackNote(ft providers.Target, note string) (string, bool)
 	// followsPin reports whether the CLI runs on session provider p.
 	followsPin(p *providers.Provider) bool
-	// launchEnv is the env every launch of the CLI carries ahead of the vendor spec's.
+	// launchEnv is the env every launch of the CLI carries ahead of the agent spec's.
 	launchEnv() []string
 	// presence is the CLI-specific no-network readiness check for a routed cell.
 	presence(c Cell) error
@@ -69,7 +69,7 @@ type engine interface {
 	routeDetail() (detail string, ok bool)
 }
 
-// headlessEngine is an engine vendorRunner can exec; copilot runs through copilotRunner instead.
+// headlessEngine is an engine cliRunner can exec; copilot runs through copilotRunner instead.
 type headlessEngine interface {
 	engine
 	// exec runs the prepared child and fills the Result.

@@ -16,7 +16,7 @@ func cmdAgentProfile(agent string, args []string) int {
 	if pin == "" {
 		return fail("%s profile: no profile pin for this agent", agent)
 	}
-	fs := newVendorFlags(agent, "profile")
+	fs := newAgentFlags(agent, "profile")
 	unpin := fs.Bool("clear", false, "unpin: launches use today's selection again")
 	pos, err := helptext.ParseArgs(fs, args)
 	if err != nil {
@@ -74,7 +74,7 @@ func cmdAgentOnOff(agent string, on bool, args []string) int {
 	if on {
 		verb, value = "on", agentpkg.AgentOn
 	}
-	fs := newVendorFlags(agent, verb)
+	fs := newAgentFlags(agent, verb)
 	if code, done := helptext.Parse(fs, args); done {
 		return code
 	}

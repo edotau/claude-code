@@ -23,7 +23,7 @@ import (
 	"github.com/edotau/claude-code/internal/settings"
 )
 
-// Install copies the binary into BinDir, links the vendor CLIs, and merges the harness settings
+// Install copies the binary into BinDir, links the agent CLIs, and merges the harness settings
 // (backing up first). A real (non-dry-run) run prints one compact line per step, naming only
 // non-ok items in full; --dry-run and --verbose keep the full step-by-step detail.
 func Install(w io.Writer, dryRun bool, verbose bool) error {
@@ -52,7 +52,7 @@ func installVerbose(w io.Writer, dryRun bool) error {
 	if werr := InstallWindowsSettings(w, dryRun); werr != nil {
 		fmt.Fprintf(w, "settings (windows) skip  %v\n", werr)
 	}
-	syncVendors(w, dryRun)
+	syncAgents(w, dryRun)
 	if !dryRun {
 		fmt.Fprintf(w, "agents   %s\n", agentConfigsSummary(w))
 	}
@@ -67,7 +67,7 @@ func installVerbose(w io.Writer, dryRun bool) error {
 }
 
 // installCompact runs every install step for real (never dry-run) and prints one line per step:
-// install (binary + snapshot), vendors, settings, settings (windows) when applicable, agents, extras.
+// install (binary + snapshot), agents, settings, settings (windows) when applicable, agents, extras.
 // Steps run in installVerbose's order; the extras line prints last. Warnings always print in full.
 func installCompact(w io.Writer) error {
 	commit := snapshotPreInstall(w, false, true)
@@ -76,7 +76,7 @@ func installCompact(w io.Writer) error {
 		return err
 	}
 	fmt.Fprintln(w, installLine(target, commit))
-	vendorsCompactLine(w)
+	agentsCompactLine(w)
 	extras := extrasCompact(w)
 	defer func() {
 		if extras != "" {
@@ -139,7 +139,7 @@ func snapshotPreInstall(w io.Writer, dryRun, quiet bool) string {
 	return r.Commit
 }
 
-// installBinaryAndLinks copies claude-code into BinDir and links each vendor CLI there, returning the target path.
+// installBinaryAndLinks copies claude-code into BinDir and links each agent CLI there, returning the target path.
 func installBinaryAndLinks(w io.Writer, dryRun bool) (string, error) {
 	self, err := selfBinary()
 	if err != nil {
@@ -158,8 +158,8 @@ func installBinaryAndLinks(w io.Writer, dryRun bool) (string, error) {
 	return target, nil
 }
 
-// installBinaryTarget is installBinaryAndLinks without the "copy" progress line or vendor linking —
-// installCompact links vendors separately via vendorsCompactLine.
+// installBinaryTarget is installBinaryAndLinks without the "copy" progress line or agent linking —
+// installCompact links agents separately via agentsCompactLine.
 func installBinaryTarget() (target string, err error) {
 	self, err := selfBinary()
 	if err != nil {
@@ -174,9 +174,9 @@ func installBinaryTarget() (target string, err error) {
 	return target, nil
 }
 
-// vendorsCompactLine groups agent.LinkResults into one "links" line (linked / kept), printing any
+// agentsCompactLine groups agent.LinkResults into one "links" line (linked / kept), printing any
 // other status (skip, remove, missing, error) in full on its own line.
-func vendorsCompactLine(w io.Writer) {
+func agentsCompactLine(w io.Writer) {
 	var linked, kept []string
 	for _, r := range agent.LinkResults(nil, false) {
 		switch {
@@ -337,7 +337,7 @@ func windowsSettingsCompact(w io.Writer) {
 	}
 }
 
-// agentsSyncCompact runs the agents/skills/instructions projection and reports the vendors synced, or
+// agentsSyncCompact runs the agents/skills/instructions projection and reports the agents synced, or
 // the sync's own failure note in full.
 func agentsSyncCompact(w io.Writer) {
 	if rc := agent.Sync(agent.ProjectionOptions{Out: io.Discard}); rc != 0 {
@@ -497,9 +497,9 @@ func installGitHooks(w io.Writer, dryRun bool) {
 	}
 }
 
-// syncVendors projects agents/, skills/ and the vendor instruction files into every vendor home so they track the
+// syncAgents projects agents/, skills/ and the agent instruction files into every agent home so they track the
 // repo; best-effort, like completion.
-func syncVendors(w io.Writer, dryRun bool) {
+func syncAgents(w io.Writer, dryRun bool) {
 	fmt.Fprintln(w, "agents   sync agents/ + skills/ + instructions into agent homes (claude-code agents sync)")
 	if rc := agent.Sync(agent.ProjectionOptions{DryRun: dryRun, Out: io.Discard}); rc != 0 {
 		fmt.Fprintf(w, "  agents sync exit %d — run `claude-code agents sync` for details\n", rc)

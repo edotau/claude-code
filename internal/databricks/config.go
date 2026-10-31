@@ -165,7 +165,7 @@ func configUsage() {
 	fs.Usage()
 }
 
-// findClaude locates the claude binary: the harness vendor link, else PATH.
+// findClaude locates the claude binary: the harness agent link, else PATH.
 func findClaude() (string, error) {
 	if p, err := paths.VendorBin("claude"); err == nil {
 		return p, nil

@@ -159,7 +159,7 @@ func profileName(p *providers.Provider) string {
 	return p.Name
 }
 
-// signIn runs a vendor's own sign-in CLI after the [y/N] confirm and reports the outcome.
+// signIn runs an agent's own sign-in CLI after the [y/N] confirm and reports the outcome.
 func signIn(d *dialog, label string, argv []string) bool {
 	if err := runLogin(argv); err != nil {
 		d.printf("%s: %v\n", label, err)
@@ -203,7 +203,7 @@ func codexMenu(d *dialog) agentMenu {
 	st := agentState{mode: modeNone}
 	if loggedIn {
 		st = agentState{modeSubscription, tier, true}
-	} else if kt := vendorKeyTarget(d.reg, "codex"); kt.present {
+	} else if kt := agentKeyTarget(d.reg, "codex"); kt.present {
 		st = agentState{mode: modeAPIKey, verified: kt.provider == nil || keyVerified(kt.provider)}
 	}
 	key := keyRow(d, "codex", "openai", "pay per token · paste to set or rotate OPENAI_API_KEY")
@@ -399,18 +399,18 @@ func clearCopilotPin(d *dialog, key, cur, modelID, why string) {
 
 // pickCopilotPin lists "unset" plus choices (label, value); a pick pins key to that value (or clears it).
 func pickCopilotPin(d *dialog, title, key string, choices [][2]string, cur string) bool {
-	return pickVendorPin(d, "copilot", title, key, choices, cur)
+	return pickAgentPin(d, "copilot", title, key, choices, cur)
 }
 
-// pickVendorPin is pickCopilotPin generalized over the vendor naming the pin (its title and printf
+// pickAgentPin is pickCopilotPin generalized over the agent naming the pin (its title and printf
 // prefix); copilot, codex and gemini's Effort rows all share it.
-func pickVendorPin(d *dialog, vendor, title, key string, choices [][2]string, cur string) bool {
+func pickAgentPin(d *dialog, name, title, key string, choices [][2]string, cur string) bool {
 	rows := make([][2]string, 0, len(choices)+1)
-	rows = append(rows, [2]string{"unset", vendor + "'s own default" + curMark(cur == "")})
+	rows = append(rows, [2]string{"unset", name + "'s own default" + curMark(cur == "")})
 	for _, c := range choices {
 		rows = append(rows, [2]string{c[0], c[1] + curMark(c[1] == cur)})
 	}
-	idx, err := pick(d, vendor+" — "+title, rows)
+	idx, err := pick(d, name+" — "+title, rows)
 	if err != nil || idx < 0 {
 		return false
 	}
@@ -419,10 +419,10 @@ func pickVendorPin(d *dialog, vendor, title, key string, choices [][2]string, cu
 		val = choices[idx-1][1]
 	}
 	if err := providers.SetPins(map[string]string{key: val}); err != nil {
-		d.printf("%s: %v\n", vendor, err)
+		d.printf("%s: %v\n", name, err)
 		return false
 	}
-	d.printf("%s: %s = %s\n", vendor, key, cmp.Or(val, "unset"))
+	d.printf("%s: %s = %s\n", name, key, cmp.Or(val, "unset"))
 	d.changed = true
 	return true
 }

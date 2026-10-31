@@ -20,8 +20,8 @@ const notAVendor = "zzz-not-a-vendor"
 // TestVendorUsageFits80: every rendered line stays within an 80-column terminal, and gemini's block
 // names its extra bridge verb (contract.md's help-text target).
 func TestVendorUsageFits80(t *testing.T) {
-	for _, vendor := range vendorNames() {
-		usage := renderHelpPage(vendorPage(vendor))
+	for _, vendor := range cliAgentNames() {
+		usage := renderHelpPage(agentPage(vendor))
 		for line := range strings.SplitSeq(strings.TrimRight(usage, "\n"), "\n") {
 			if n := utf8.RuneCountInString(line); n > 80 {
 				t.Errorf("vendorUsage(%q) line %q is %d runes, want <= 80", vendor, line, n)
@@ -38,7 +38,7 @@ func TestVendorUsageFits80(t *testing.T) {
 // shape: launchVendor's failure is agent.Vendor's generic "unknown agent" text, never the
 // "<v> status: ..." prefix cmdVendorStatus would produce.
 func TestVendorVerbDoubleDashForcesPassthrough(t *testing.T) {
-	_, _, stderr := captureOutput(t, func() int { return vendorVerb(notAVendor, []string{"--", "status"}) })
+	_, _, stderr := captureOutput(t, func() int { return AgentVerb(notAVendor, []string{"--", "status"}) })
 	if strings.Contains(stderr, notAVendor+" status:") {
 		t.Errorf("-- status reached cmdVendorStatus instead of launchVendor: %q", stderr)
 	}
@@ -52,7 +52,7 @@ func TestVendorVerbDoubleDashForcesPassthrough(t *testing.T) {
 // appears once vendoragent's own unknown-vendor error is wrapped by that handler.
 func TestVendorVerbRoutesStatusResultCancelToCmdVendorSub(t *testing.T) {
 	for _, sub := range []string{"status", "result", "cancel", "tail"} {
-		_, _, stderr := captureOutput(t, func() int { return vendorVerb(notAVendor, []string{sub}) })
+		_, _, stderr := captureOutput(t, func() int { return AgentVerb(notAVendor, []string{sub}) })
 		want := notAVendor + " " + sub + ":"
 		if !strings.Contains(stderr, want) {
 			t.Errorf("vendorVerb(%q, [%q]) stderr = %q, want it to contain %q", notAVendor, sub, stderr, want)
@@ -64,7 +64,7 @@ func TestVendorVerbRoutesStatusResultCancelToCmdVendorSub(t *testing.T) {
 // error), so unlike the other handlers its routing proof reads stdout, keyed on rep.Vendor appearing
 // as the row's first column.
 func TestVendorVerbRoutesSetupToCmdVendorSetup(t *testing.T) {
-	_, stdout, _ := captureOutput(t, func() int { return vendorVerb(notAVendor, []string{"setup"}) })
+	_, stdout, _ := captureOutput(t, func() int { return AgentVerb(notAVendor, []string{"setup"}) })
 	if !strings.Contains(stdout, notAVendor+"  agent  fail") {
 		t.Errorf("vendorVerb(%q, [setup]) stdout = %q, want cmdVendorSetup's report row", notAVendor, stdout)
 	}
@@ -73,11 +73,11 @@ func TestVendorVerbRoutesSetupToCmdVendorSetup(t *testing.T) {
 // catalog reaches cmdVendorModels, not launchVendor, with canonical diagnostics and help.
 func TestVendorVerbRoutesCatalogToCmdVendorModels(t *testing.T) {
 	for _, sub := range []string{"catalog"} {
-		code, _, stderr := captureOutput(t, func() int { return vendorVerb("codex", []string{sub, "unexpected"}) })
+		code, _, stderr := captureOutput(t, func() int { return AgentVerb("codex", []string{sub, "unexpected"}) })
 		if code != 2 || !strings.Contains(stderr, "codex catalog: unexpected argument") {
 			t.Errorf("vendorVerb(%s): code=%d stderr=%q", sub, code, stderr)
 		}
-		code, _, stderr = captureOutput(t, func() int { return vendorVerb("codex", []string{sub, "--help"}) })
+		code, _, stderr = captureOutput(t, func() int { return AgentVerb("codex", []string{sub, "--help"}) })
 		if code != 0 || !strings.HasPrefix(stderr, "usage: claude-code codex catalog") {
 			t.Errorf("vendorVerb(%s --help): code=%d stderr=%q", sub, code, stderr)
 		}
@@ -87,7 +87,7 @@ func TestVendorVerbRoutesCatalogToCmdVendorModels(t *testing.T) {
 // TestVendorVerbRoutesResumeToCmdVendorResume: `resume` with no id hits cmdVendorResume's own usage
 // check before ever reaching cmdAsk (which would otherwise dispatch a real agent run).
 func TestVendorVerbRoutesResumeToCmdVendorResume(t *testing.T) {
-	_, _, stderr := captureOutput(t, func() int { return vendorVerb("codex", []string{"resume"}) })
+	_, _, stderr := captureOutput(t, func() int { return AgentVerb("codex", []string{"resume"}) })
 	if !strings.Contains(stderr, "codex resume: usage:") {
 		t.Errorf("vendorVerb(resume, no id) stderr = %q, want cmdVendorResume's usage message", stderr)
 	}
@@ -96,7 +96,7 @@ func TestVendorVerbRoutesResumeToCmdVendorResume(t *testing.T) {
 // TestVendorVerbBareLaunchesEvenWhenFirstWordLooksLikeASubverb: an unknown bare word (not "--", not
 // "ask", not in vendorSubverbs) falls through to launchVendor with args forwarded unchanged.
 func TestVendorVerbBareLaunchesEvenWhenFirstWordLooksLikeASubverb(t *testing.T) {
-	_, _, stderr := captureOutput(t, func() int { return vendorVerb(notAVendor, []string{"--native-flag", "x"}) })
+	_, _, stderr := captureOutput(t, func() int { return AgentVerb(notAVendor, []string{"--native-flag", "x"}) })
 	if !strings.Contains(stderr, "unknown agent") {
 		t.Errorf("bare launch stderr = %q, want agent.Vendor's unknown-vendor message", stderr)
 	}
@@ -105,7 +105,7 @@ func TestVendorVerbBareLaunchesEvenWhenFirstWordLooksLikeASubverb(t *testing.T) 
 // TestVendorVerbHelpFlag checks that vendor help uses the shared page and exits successfully.
 func TestVendorVerbHelpFlag(t *testing.T) {
 	for _, flagArg := range []string{"-h", "--help", "help"} {
-		code, _, stderr := captureOutput(t, func() int { return vendorVerb("codex", []string{flagArg}) })
+		code, _, stderr := captureOutput(t, func() int { return AgentVerb("codex", []string{flagArg}) })
 		if code != 0 {
 			t.Errorf("vendorVerb(codex, %q) exit %d, want 0", flagArg, code)
 		}
@@ -122,7 +122,7 @@ func TestVendorVerbHelpFlag(t *testing.T) {
 
 // TestVendorModelsAliasRemoved: models is no longer a subverb; it falls through to the agent launch like any bare word.
 func TestVendorModelsAliasRemoved(t *testing.T) {
-	if vendorSubverbs["models"] {
+	if agentSubverbs["models"] {
 		t.Error("models must not route to cmdVendorSub")
 	}
 }
@@ -133,7 +133,7 @@ func TestVendorModelsAliasRemoved(t *testing.T) {
 // TestSpecTreeSubwordsMatchDispatch's own derivation off the same map.
 func TestVendorSubverbsCoverContractVerbs(t *testing.T) {
 	for _, w := range []string{"resume", "status", "result", "cancel", "tail", "setup", "catalog", "review", "transfer"} {
-		if !vendorSubverbs[w] {
+		if !agentSubverbs[w] {
 			t.Errorf("vendorSubverbs missing %q", w)
 		}
 	}
@@ -144,11 +144,11 @@ func TestVendorSubverbsCoverContractVerbs(t *testing.T) {
 // future addition (e.g. explore) is picked up without a second hand-copied list to keep in lockstep.
 func TestVendorCompletionOffersEverySubverb(t *testing.T) {
 	want := []string{"ask"}
-	for sub := range vendorSubverbs {
+	for sub := range agentSubverbs {
 		want = append(want, sub)
 	}
 	slices.Sort(want)
-	for _, vendor := range vendorNames() {
+	for _, vendor := range cliAgentNames() {
 		got := completionCandidates([]string{vendor, ""})
 		slices.Sort(got)
 		if vendor == "gemini" {
@@ -180,10 +180,10 @@ func TestVendorCompletionDoesNotFollowDoubleDash(t *testing.T) {
 }
 
 func TestVendorUsageBridgeRowOnlyForGemini(t *testing.T) {
-	if u := renderHelpPage(vendorPage("codex")); strings.Contains(u, "bridge") {
+	if u := renderHelpPage(agentPage("codex")); strings.Contains(u, "bridge") {
 		t.Errorf("vendorUsage(codex) must not carry the bridge row:\n%s", u)
 	}
-	if u := renderHelpPage(vendorPage("gemini")); !strings.Contains(u, "  bridge") {
+	if u := renderHelpPage(agentPage("gemini")); !strings.Contains(u, "  bridge") {
 		t.Errorf("vendorUsage(gemini) missing the bridge row:\n%s", u)
 	}
 }
@@ -221,7 +221,7 @@ func TestVendorResultErrorRecordExits1(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	rec := saveResultRecord(t, "error", "boom happened")
 	for _, args := range [][]string{{rec.ID}, {"--format", "json", rec.ID}} {
-		code, _, stderr := captureOutput(t, func() int { return cmdVendorResult("codex", args) })
+		code, _, stderr := captureOutput(t, func() int { return agentResult("codex", args) })
 		if code != 1 || !strings.Contains(stderr, "error: boom happened") {
 			t.Errorf("args %v: exit %d stderr %q, want 1 and \"error: boom happened\"", args, code, stderr)
 		}
@@ -231,7 +231,7 @@ func TestVendorResultErrorRecordExits1(t *testing.T) {
 func TestVendorResultOKRecordExits0(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	rec := saveResultRecord(t, "ok", "")
-	code, _, stderr := captureOutput(t, func() int { return cmdVendorResult("codex", []string{rec.ID}) })
+	code, _, stderr := captureOutput(t, func() int { return agentResult("codex", []string{rec.ID}) })
 	if code != 0 || strings.Contains(stderr, "error:") {
 		t.Errorf("exit %d stderr %q, want 0 and no error line", code, stderr)
 	}
@@ -257,7 +257,7 @@ func seedTailJob(t *testing.T, status, body string) string {
 // TestVendorTailPrintsFinishedLog: tail <id> on a finished ok job prints its log and exits 0.
 func TestVendorTailPrintsFinishedLog(t *testing.T) {
 	id := seedTailJob(t, "ok", "line one\nline two\n")
-	code, stdout, stderr := captureOutput(t, func() int { return vendorVerb("codex", []string{"tail", id}) })
+	code, stdout, stderr := captureOutput(t, func() int { return AgentVerb("codex", []string{"tail", id}) })
 	if code != 0 || stdout != "line one\nline two\n" {
 		t.Errorf("tail ok job = exit %d stdout %q stderr %q, want exit 0 with the log verbatim", code, stdout, stderr)
 	}
@@ -266,7 +266,7 @@ func TestVendorTailPrintsFinishedLog(t *testing.T) {
 // TestVendorTailErrorJobExitsOne: a job that ended in error still prints its log but exits 1.
 func TestVendorTailErrorJobExitsOne(t *testing.T) {
 	id := seedTailJob(t, "error", "boom\n")
-	code, stdout, _ := captureOutput(t, func() int { return vendorVerb("codex", []string{"tail", id}) })
+	code, stdout, _ := captureOutput(t, func() int { return AgentVerb("codex", []string{"tail", id}) })
 	if code != 1 || !strings.Contains(stdout, "boom") {
 		t.Errorf("tail error job = exit %d stdout %q, want exit 1 with the log", code, stdout)
 	}
@@ -275,7 +275,7 @@ func TestVendorTailErrorJobExitsOne(t *testing.T) {
 // TestVendorTailUnknownIDFails: an id matching no job errors with the "<v> tail:" prefix, exit 1.
 func TestVendorTailUnknownIDFails(t *testing.T) {
 	seedTailJob(t, "ok", "x\n")
-	code, _, stderr := captureOutput(t, func() int { return vendorVerb("codex", []string{"tail", "zzzzzzzz"}) })
+	code, _, stderr := captureOutput(t, func() int { return AgentVerb("codex", []string{"tail", "zzzzzzzz"}) })
 	if code != 1 || !strings.Contains(stderr, "codex tail:") {
 		t.Errorf("tail unknown id = exit %d stderr %q, want exit 1 and the \"codex tail:\" prefix", code, stderr)
 	}
@@ -283,8 +283,8 @@ func TestVendorTailUnknownIDFails(t *testing.T) {
 
 // TestVendorUsageNamesTail: every vendor's help block carries a tail row.
 func TestVendorUsageNamesTail(t *testing.T) {
-	for _, vendor := range vendorNames() {
-		if !strings.Contains(renderHelpPage(vendorPage(vendor)), "tail") {
+	for _, vendor := range cliAgentNames() {
+		if !strings.Contains(renderHelpPage(agentPage(vendor)), "tail") {
 			t.Errorf("vendorUsage(%q) has no tail row", vendor)
 		}
 	}

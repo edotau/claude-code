@@ -64,7 +64,7 @@ func BuildClientOptions(o Options) (*copilot.ClientOptions, error) {
 	if strings.TrimSpace(o.CLIPath) == "" {
 		return nil, errors.New("copilot CLI path is empty (the SDK would run its bundled runtime instead)")
 	}
-	base, _ := proc.ScrubVendor(os.Environ(), proc.EnvKeepSet(o.KeepEnv))
+	base, _ := proc.ScrubAgent(os.Environ(), proc.EnvKeepSet(o.KeepEnv))
 	if o.multiProvider() {
 		if err := validateRegistryOptions(o); err != nil {
 			return nil, err

@@ -12,7 +12,7 @@ import (
 )
 
 // linkSkills points ~/.agents/skills/<name> at <skillsDir>/<dir> for every projected skill: one location, read
-// natively by every vendor, and the source is already git-tracked. Returns the count of pending link changes.
+// natively by every agent, and the source is already git-tracked. Returns the count of pending link changes.
 func linkSkills(out io.Writer, skills []Source, skillsDir, agentsSkills string, dryRun bool) (res syncResult) {
 	if !dryRun {
 		_ = os.MkdirAll(agentsSkills, 0o755)

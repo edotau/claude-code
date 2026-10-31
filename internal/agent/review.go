@@ -231,12 +231,12 @@ func SetReviewProgress(job *Record, p string) {
 	_ = job.Save()
 }
 
-// LastDispatchError is the newest failed dispatch's error text for vendor, so a split report names the real cause.
-func LastDispatchError(vendor string) string {
+// LastDispatchError is the newest failed dispatch's error text for agent, so a split report names the real cause.
+func LastDispatchError(name string) string {
 	for _, r := range RecentRecords(5) {
-		if r.Agent == vendor && r.Status == "error" {
+		if r.Agent == name && r.Status == "error" {
 			return Preview(r.Error, 400)
 		}
 	}
-	return "see claude-code " + vendor + " status"
+	return "see claude-code " + name + " status"
 }

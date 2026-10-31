@@ -28,13 +28,13 @@ func setupWorkspaceSubwords() []string { return []string{"init", "link", "status
 
 func setupModes() []string { return []string{"adopt", "nuke", "workspace"} }
 
-func vendorNames() []string { return []string{"codex", "gemini", "opencode", "copilot"} }
+func cliAgentNames() []string { return []string{"codex", "gemini", "opencode", "copilot"} }
 
 // toolNames derives from agent.Tools, the install --tools roster.
 func toolNames() []string { return agent.ToolNames() }
 
-// configureAgentNames are the agent CLIs `configure --agent` can scope to: the vendors plus claude itself.
-func configureAgentNames() []string { return append([]string{"claude"}, vendorNames()...) }
+// configureAgentNames are the agent CLIs `configure --agent` can scope to: the agents plus claude itself.
+func configureAgentNames() []string { return append([]string{"claude"}, cliAgentNames()...) }
 
 // hookEvents derives from the hook chain the registry actually declares — never a hand copy of it.
 func hookEvents() []string {

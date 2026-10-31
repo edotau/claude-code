@@ -127,7 +127,7 @@ func cmdConfigure(args []string) int {
 		return fail("configure: --out, --agents and --no-agents need --restore")
 	}
 	return configure.Run(configure.Options{
-		Provider: *provider, Vendor: *agent, DryRun: *dryRun, Check: *check, All: *all, Profile: profile,
+		Provider: *provider, Agent: *agent, DryRun: *dryRun, Check: *check, All: *all, Profile: profile,
 		JSON: *format == helptext.JSON, Drop: drop, Keep: keep, Interactive: ansi.IsTerminal(os.Stdin) && ansi.IsTerminal(os.Stderr),
 	}, section)
 }
@@ -164,17 +164,17 @@ func configureRender(restore, revert bool, section, agents, out string, check, d
 
 func init() {
 	// An agent the harness cannot route gets one interactive setup offer before the plain-CLI passthrough.
-	agent.OfferConfigure = func(vendor string, reason error) bool {
+	agent.OfferConfigure = func(name string, reason error) bool {
 		if !ansi.IsTerminal(os.Stdin) || !ansi.IsTerminal(os.Stderr) {
 			return false
 		}
 		fmt.Fprintln(os.Stderr, reason)
-		if !tui.Confirm("Set up "+vendor+" now?", true) {
+		if !tui.Confirm("Set up "+name+" now?", true) {
 			return false
 		}
-		changed, err := configure.Vendor(vendor, true, os.Stderr)
+		changed, err := configure.Agent(name, true, os.Stderr)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "configure %s: %v\n", vendor, err)
+			fmt.Fprintf(os.Stderr, "configure %s: %v\n", name, err)
 		}
 		return changed
 	}

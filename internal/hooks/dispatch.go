@@ -23,7 +23,7 @@ const (
 	Block
 )
 
-// Result is what one handler contributes to its event; the dispatcher merges them and a vendor builder renders it.
+// Result is what one handler contributes to its event; the dispatcher merges them and an agent builder renders it.
 type Result struct {
 	Decision      Decision
 	Reason        string
@@ -217,15 +217,15 @@ func RunEvent(event string, all bool, stdin io.Reader, stdout, stderr io.Writer)
 	for _, b := range Bind() {
 		g, _ := settings.GroupOf(b.Spec.Name)
 		switch {
-		case g.VendorOnly, !enabled(b.Group, b.Gate):
+		case g.AgentOnly, !enabled(b.Group, b.Gate):
 		case !all && (b.Gate || b.Spec.Async):
-		case in.Vendor() != VendorClaude && !slices.Contains(b.Spec.Vendors, in.Vendor()):
+		case in.Agent() != AgentClaude && !slices.Contains(b.Spec.Agents, in.Agent()):
 		default:
 			bound = append(bound, b)
 		}
 	}
 	res, _ := Dispatch(bound, event, in, stderr)
-	return Emit(in.Vendor(), event, res, stdout, stderr)
+	return Emit(in.Agent(), event, res, stdout, stderr)
 }
 
 // drain waits, bounded by one more longest-budget period, for overrun handlers so none still runs at output time.

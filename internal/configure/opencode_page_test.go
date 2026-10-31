@@ -339,7 +339,7 @@ func TestOpencodePageAdapterErrorStillRenders(t *testing.T) {
 // TestOpencodeHomeRowOpensPage: the home row keeps opencodeMenu's state columns; its action opens the new page.
 func TestOpencodeHomeRowOpensPage(t *testing.T) {
 	reg := menuTestEnv(t)
-	d := &dialog{reg: reg, out: discardWriter{}, o: Options{Vendor: "opencode"}}
+	d := &dialog{reg: reg, out: discardWriter{}, o: Options{Agent: "opencode"}}
 	rows, actions := menuRows(d)
 	if len(rows) != 1 || rows[0][0] != "opencode" {
 		t.Fatalf("rows = %v", rows)

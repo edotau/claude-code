@@ -476,7 +476,7 @@ func legFromRecord(rec Record, matched string, now time.Time) TreeLeg {
 	}
 }
 
-// buildLegs attaches one TreeLeg per vendor dispatch this subagent's transcript shows: every "ask:
+// buildLegs attaches one TreeLeg per agent dispatch this subagent's transcript shows: every "ask:
 // dispatch <id>" exit line it has already seen, plus (when its newest activity is a Bash call still
 // waiting on `ask`) a heuristic match against the dispatch log's own still-running records.
 func buildLegs(transcriptPath, cwd string, now time.Time, act Activity) []TreeLeg {

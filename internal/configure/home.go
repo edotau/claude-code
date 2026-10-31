@@ -378,7 +378,7 @@ func pickPlain(d *dialog, title string, rows [][2]string) (int, error) {
 	return pick(d, title, rows)
 }
 
-// rerenderConfigs re-renders settings.json (merge: foreign keys/hooks kept, backup first) and the vendor configs;
+// rerenderConfigs re-renders settings.json (merge: foreign keys/hooks kept, backup first) and the agent configs;
 // false when settings.json could not be brought current.
 func rerenderConfigs(d *dialog) bool {
 	file := launch.SettingsFile()

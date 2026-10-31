@@ -150,7 +150,7 @@ func SelectAgent(ref string, agents map[string]*Schema) (runner string, def *Sch
 		if !slices.Contains(names, v) {
 			return "", nil, fmt.Errorf("unknown agent %q (%s)", v, strings.Join(names, "|"))
 		}
-		if def, ok := agents[name]; ok { // the vendor beats def.Runner
+		if def, ok := agents[name]; ok { // the agent beats def.Runner
 			return v, def, nil
 		}
 		def, err = LoadSchema(name)

@@ -218,7 +218,7 @@ func TestVendorHelpHarnessProfileRows(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv("HOME", t.TempDir())
 	for _, vendor := range []string{"codex", "gemini"} {
-		text := renderHelpPage(vendorPage(vendor))
+		text := renderHelpPage(agentPage(vendor))
 		if !strings.Contains(text, "show or set "+vendor+"'s harness profile pin") {
 			t.Errorf("%s help lacks the harness profile pin row:\n%s", vendor, text)
 		}

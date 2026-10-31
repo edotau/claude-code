@@ -19,7 +19,7 @@ var submitRow = enterRow("save keys to the secrets manager and exit")
 
 // runMenu is `configure`'s interactive entry with no section named: the agents, tools and settings sections;
 // picking a row runs it, then the page re-renders with fresh status, cursor kept, until Submit or Esc. --agent
-// narrows it to that agent's row. Any change made here re-renders settings.json and the vendor configs on exit.
+// narrows it to that agent's row. Any change made here re-renders settings.json and the agent configs on exit.
 func runMenu(d *dialog) int {
 	d.pending = map[string]stagedKey{}
 	defer func() {
@@ -52,7 +52,7 @@ func runMenu(d *dialog) int {
 func homeSections(d *dialog) ([]tui.Section, []func(*dialog)) {
 	rows, actions := menuRows(d)
 	sections := []tui.Section{{Title: "== agents ==", Rows: rows}}
-	if d.o.Vendor != "" {
+	if d.o.Agent != "" {
 		return sections, actions
 	}
 	extra, acts := extraSections(d)
@@ -74,14 +74,14 @@ var extraSections = func(d *dialog) ([]tui.Section, []func(*dialog)) {
 	return sections, actions
 }
 
-// menuRows builds one row per agent (name · mode · check) and the submenu each opens, scoped to d.o.Vendor when set.
+// menuRows builds one row per agent (name · mode · check) and the submenu each opens, scoped to d.o.Agent when set.
 func menuRows(d *dialog) ([][2]string, []func(*dialog)) {
 	var names []string
 	var cols [][2]string
 	var actions []func(*dialog)
 	for _, name := range append([]string{"claude"}, agent.Names()...) {
 		build, ok := agentMenus[name]
-		if !ok || (d.o.Vendor != "" && d.o.Vendor != name) {
+		if !ok || (d.o.Agent != "" && d.o.Agent != name) {
 			continue
 		}
 		st := build(d).state

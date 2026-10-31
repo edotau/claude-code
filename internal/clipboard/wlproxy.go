@@ -15,7 +15,7 @@
 // CLI spawns its chain through `sh -c`, so the parent cmdline carries the whole pipeline; requiring the
 // xclip leg beside the wl-paste leg keeps a user's own wl-paste untouched.
 //
-// Vendor TUIs (gemini, opencode) spawn wl-paste directly for image/png with nothing behind it, so they
+// Agent TUIs (gemini, opencode) spawn wl-paste directly for image/png with nothing behind it, so they
 // are an ALLOWLIST; codex (native WSL detection + PowerShell fallback) and copilot (no Linux image paste)
 // are deliberately absent.
 //
@@ -43,8 +43,8 @@ var cliChainRE = regexp.MustCompile(`(?s)wl-paste.*image/bmp`)
 // cliLegRE is the second half of the chain match: the xclip or PowerShell leg beside the wl-paste one.
 var cliLegRE = regexp.MustCompile(`(?s)xclip.*clipboard|powershell`)
 
-// vendorRE matches the allowlisted agent TUIs that spawn wl-paste directly (gemini is a node script).
-var vendorRE = regexp.MustCompile(`(?s)node.*gemini|gemini.*node|opencode`)
+// agentTUIRE matches the allowlisted agent TUIs that spawn wl-paste directly (gemini is a node script).
+var agentTUIRE = regexp.MustCompile(`(?s)node.*gemini|gemini.*node|opencode`)
 
 // proxyExec replaces the process with the real wl-paste; a var so tests never exec.
 var proxyExec = proc.Exec
@@ -84,7 +84,7 @@ func (c proxyCall) route(mode, parent string) (code int, ok bool) {
 		return c.intercept(mode == "reject")
 	case cliChainRE.MatchString(parent) && cliLegRE.MatchString(parent):
 		return c.intercept(false)
-	case vendorRE.MatchString(parent):
+	case agentTUIRE.MatchString(parent):
 		if code, ok := c.sshLeg(); ok {
 			return code, true
 		}

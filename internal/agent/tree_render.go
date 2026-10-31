@@ -191,7 +191,7 @@ func idleSince(sub Subagent, now time.Time) string {
 }
 
 // renderSubagent prints one subagent line (status glyph, idle time), indented two columns per spawn
-// depth beyond the session, then one indented row per vendor leg it launched. Description is
+// depth beyond the session, then one indented row per agent leg it launched. Description is
 // rendered before tool so, when the row still overflows after truncating the description, it's the
 // trailing tool field that gets dropped — the least important part.
 func renderSubagent(w io.Writer, sub Subagent, now time.Time, cols columnWidths, width int, home, cwd string) {
@@ -210,7 +210,7 @@ func renderSubagent(w io.Writer, sub Subagent, now time.Time, cols columnWidths,
 	}
 }
 
-// formatLeg renders one vendor dispatch: "↳ codex gpt-6-astra running 2m14s", or with a fallback,
+// formatLeg renders one agent dispatch: "↳ codex gpt-6-astra running 2m14s", or with a fallback,
 // "↳ codex→claude ok 1m40s ⚠ fallback".
 func formatLeg(l TreeLeg) string {
 	name := l.Agent

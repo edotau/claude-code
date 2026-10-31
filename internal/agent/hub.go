@@ -113,7 +113,7 @@ func NewHubLeg(agentName string, provider *providers.Provider, reg *providers.Re
 
 func (l hubLeg) Name() string { return l.agent }
 
-// Caps mirrors vendorRunner's: every RunOptions field the opencode CLI can carry.
+// Caps mirrors cliRunner's: every RunOptions field the opencode CLI can carry.
 func (l hubLeg) Caps() Caps {
 	return Caps{Model: Native, Provider: Native, Effort: Native, WorkDir: Native, SessionID: Native, Tools: Native, Autonomous: Native,
 		SafeMode: Native, Direct: Native, Env: Native, SystemPrompt: Native, AppendSystemPrompt: Emulated, OutputSchema: Emulated, Persona: Emulated}

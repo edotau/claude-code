@@ -37,7 +37,7 @@ func resolveBilling() *billing {
 	if err != nil || sel.Provider == nil {
 		return nil
 	}
-	mode := "subscription" // cli (vendor login) and none bill by plan; a static key bills per token
+	mode := "subscription" // cli (agent login) and none bill by plan; a static key bills per token
 	if sel.Provider.APIKeyAuth() {
 		mode = "api"
 	}

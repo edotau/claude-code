@@ -106,7 +106,7 @@ func targets() []target {
 			name: "settings-backups", doc: "state/harness/backups/setup/* + backups/.claude.json.backup.* (CLI), aged; the revert mirror is never swept",
 			globs: func() []string {
 				return []string{filepath.Join(paths.CacheDir(), "backups", "setup", "*"), g("backups", ".claude.json.backup.*")}
-			}, // the rest of state/harness/backups is the only vendor-config history (configure --revert)
+			}, // the rest of state/harness/backups is the only agent-config history (configure --revert)
 		},
 		{
 			// Every plugin update leaves the previous version dir behind; only the installPath in
@@ -126,7 +126,7 @@ func targets() []target {
 			},
 		},
 		{
-			// Rebuilt by every `agents sync`/install; kept by default because diffing it shows what each vendor reads.
+			// Rebuilt by every `agents sync`/install; kept by default because diffing it shows what each agent reads.
 			name: "projections", doc: "state/projections: per-vendor agent/instruction renders (opt-in: --target projections)",
 			globs: func() []string { return []string{g("state", "projections", "*")} }, ageless: true, optIn: true,
 		},

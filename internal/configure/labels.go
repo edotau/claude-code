@@ -17,11 +17,11 @@ const labelMax = 48
 // defaultPlanFormat renders lowercase ("anthropic subscription max 20x"); a user's agentPlanFormat renders as written.
 const defaultPlanFormat = "{provider} {mode} {tier}"
 
-// agentVendor is the provider a plan names when its entry gives none.
-var agentVendor = map[string]string{"claude": "Anthropic", "codex": "OpenAI", "gemini": "Google", "copilot": "GitHub", "opencode": "opencode"}
+// agentMaker is the provider a plan names when its entry gives none.
+var agentMaker = map[string]string{"claude": "Anthropic", "codex": "OpenAI", "gemini": "Google", "copilot": "GitHub", "opencode": "opencode"}
 
 // modeLabel renders the mode column from agentPlanFormat with the matching agentPlans entry (tier and provider
-// default to the detected plan and the agent's vendor). No entry and no format keeps today's label.
+// default to the detected plan and the agent's agent). No entry and no format keeps today's label.
 func modeLabel(d *dialog, name string, st agentState) string {
 	if d.reg == nil || (len(d.reg.AgentPlans) == 0 && d.reg.AgentPlanFormat == "") {
 		return st.label()
@@ -39,7 +39,7 @@ func modeLabel(d *dialog, name string, st agentState) string {
 	if format == "" {
 		format, lower = defaultPlanFormat, true
 	}
-	out := strings.NewReplacer("{provider}", cmp.Or(plan.Provider, agentVendor[name]), "{mode}", st.mode,
+	out := strings.NewReplacer("{provider}", cmp.Or(plan.Provider, agentMaker[name]), "{mode}", st.mode,
 		"{tier}", cmp.Or(plan.Tier, st.tier), "{id}", id).Replace(format)
 	out = strings.Join(strings.Fields(out), " ") // an empty placeholder leaves no double space
 	if lower {
