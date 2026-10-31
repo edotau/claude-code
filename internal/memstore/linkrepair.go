@@ -1,4 +1,4 @@
-package memory
+package memstore
 
 import (
 	"errors"
@@ -9,8 +9,8 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 )
 
-// nativeLinkTarget resolves relative symlink text even when its destination no longer exists.
-func nativeLinkTarget(link string) string {
+// NativeLinkTarget resolves relative symlink text even when its destination no longer exists.
+func NativeLinkTarget(link string) string {
 	target, err := os.Readlink(link)
 	if err != nil {
 		return ""
@@ -18,7 +18,7 @@ func nativeLinkTarget(link string) string {
 	if !filepath.IsAbs(target) {
 		target = filepath.Join(filepath.Dir(link), target)
 	}
-	return resolvePath(target)
+	return ResolvePath(target)
 }
 
 // nativeLinkTargets uses recorded paths because project slugs cannot be decoded unambiguously.
@@ -60,7 +60,7 @@ func brokenNativeLinks(root string) []LinkResult {
 	matches, _ := filepath.Glob(filepath.Join(paths.ConfigDir(), "projects", "*", "memory"))
 	var out []LinkResult
 	for _, link := range matches {
-		target := nativeLinkTarget(link)
+		target := NativeLinkTarget(link)
 		if target == "" {
 			continue
 		}
@@ -90,7 +90,7 @@ func repairNativeLinks(root string) {
 	}
 }
 
-func nativeLinkProblems(root string) []string {
+func NativeLinkProblems(root string) []string {
 	var problems []string
 	for _, r := range brokenNativeLinks(root) {
 		problems = append(problems, "native memory link "+r.Link+": "+r.Detail)

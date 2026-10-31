@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/edotau/claude-code/internal/memory"
+	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -256,7 +256,7 @@ func TestCleanTargetsNeverIncludeCredentialsOrMemoryBank(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	bank := filepath.Join(paths.ConfigDir(), "docs", "memory", "bank")
 	envDir := filepath.Join(paths.ConfigDir(), "env.d")
-	store := memory.StoreDir()
+	store := memstore.StoreDir()
 	for _, tg := range targets() {
 		for _, pattern := range tg.globs() {
 			for _, path := range []string{vault.Path(), vault.Path() + ".key"} {

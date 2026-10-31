@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/memstore"
 )
 
 func tempConfig(t *testing.T) string {
@@ -31,7 +33,7 @@ func write(t *testing.T, path, body string) {
 func repoRoot(t *testing.T, name string) string {
 	t.Helper()
 	root := gitRepo(t, canonTemp(t, t.TempDir()), name)
-	if _, err := EnsureRepoDir(root); err != nil {
+	if _, err := memstore.EnsureRepoDir(root); err != nil {
 		t.Fatal(err)
 	}
 	return root
@@ -40,14 +42,14 @@ func repoRoot(t *testing.T, name string) string {
 func TestDirSlugAndInitNoOverwrite(t *testing.T) {
 	tempConfig(t)
 	root := repoRoot(t, "My Repo.v2")
-	if got := Dir(root); filepath.Dir(got) != StoreDir() || !strings.HasPrefix(filepath.Base(got), "my-repo.v2") {
-		t.Errorf("Dir = %s want a my-repo.v2 store under %s", got, StoreDir())
+	if got := memstore.Dir(root); filepath.Dir(got) != memstore.StoreDir() || !strings.HasPrefix(filepath.Base(got), "my-repo.v2") {
+		t.Errorf("Dir = %s want a my-repo.v2 store under %s", got, memstore.StoreDir())
 	}
-	if IsHomeBank(root) {
+	if memstore.IsHomeBank(root) {
 		t.Error("a repo's bank must not be the home bank")
 	}
-	if plain := t.TempDir(); !IsHomeBank(plain) {
-		t.Errorf("a non-repo root must collapse to the global bank, got %s", Dir(plain))
+	if plain := t.TempDir(); !memstore.IsHomeBank(plain) {
+		t.Errorf("a non-repo root must collapse to the global bank, got %s", memstore.Dir(plain))
 	}
 	dir, err := Init(root)
 	if err != nil {
@@ -90,9 +92,9 @@ func TestSplitBlocksFenceAware(t *testing.T) {
 func TestSearchBanksRanking(t *testing.T) {
 	tempConfig(t)
 	root := repoRoot(t, "proj")
-	dir := Dir(root)
+	dir := memstore.Dir(root)
 	write(t, filepath.Join(dir, "decisionLog.md"), "# D\n\n## 2026-01-01 — router retries on 429\n\nwhy: rate limits\n\n## 2026-01-02 — unrelated choice\n\nthe router is mentioned once\n")
-	write(t, filepath.Join(HomeBankDir(), "conventions.md"), "# C\n\n- keep commits small\n")
+	write(t, filepath.Join(memstore.HomeBankDir(), "conventions.md"), "# C\n\n- keep commits small\n")
 	write(t, filepath.Join(dir, "archive", "sessionHistory-2025-12.md"), "# old\n\n## 2025-12-01 — 429 storm\n")
 	hits := SearchBanks(root, "the router 429", 0)
 	if len(hits) != 3 || !strings.Contains(hits[0].Block, "retries on 429") || hits[0].Bank != "local" {
@@ -112,7 +114,7 @@ func TestSearchBanksRanking(t *testing.T) {
 func TestRotateAndSettle(t *testing.T) {
 	tempConfig(t)
 	root := repoRoot(t, "proj")
-	dir := Dir(root)
+	dir := memstore.Dir(root)
 	var b strings.Builder
 	b.WriteString("# Session History\n\n> newest first\n")
 	for i := 35; i >= 1; i-- {
@@ -194,10 +196,10 @@ func TestUpdateRecordsOutcome(t *testing.T) {
 func TestNativeTopicsJoinSearch(t *testing.T) {
 	tempConfig(t)
 	root := repoRoot(t, "proj")
-	if got := ProjectSlug("/Users/a/.claude"); got != "-Users-a--claude" {
+	if got := memstore.ProjectSlug("/Users/a/.claude"); got != "-Users-a--claude" {
 		t.Errorf("ProjectSlug = %q", got)
 	}
-	native := NativeDir(root)
+	native := memstore.NativeDir(root)
 	write(t, filepath.Join(native, "gw.md"), "---\nname: gateway\ndescription: home gateway over ssh\n---\n\nRun the status script.\n")
 	write(t, filepath.Join(native, "MEMORY.md"), "- [gateway](gw.md) — home gateway over ssh status\n")
 	write(t, filepath.Join(native, "loose.md"), "gateway ssh status without frontmatter\n")
@@ -213,7 +215,7 @@ func TestNativeTopicsJoinSearch(t *testing.T) {
 func TestSeenSetTracksInjectedBlocks(t *testing.T) {
 	tempConfig(t)
 	root := t.TempDir()
-	write(t, filepath.Join(HomeBankDir(), "conventions.md"), "# C\n\n- injected rule\n  continues here\n- other rule\n")
+	write(t, filepath.Join(memstore.HomeBankDir(), "conventions.md"), "# C\n\n- injected rule\n  continues here\n- other rule\n")
 	ResetSeen("11111111-1111-1111-1111-111111111111", root, "<!-- surface -->\n- injected   rule\ncontinues here\n")
 	seen := SeenBlocks("11111111-1111-1111-1111-111111111111")
 	if !seen[BlockKey("- injected rule\n  continues here")] || seen[BlockKey("- other rule")] || len(seen) != 1 {
@@ -262,7 +264,7 @@ func TestCompoundMatchFindsHyphenatedAndSubstringTerms(t *testing.T) {
 	isolatedConfig(t)
 	initStore(t)
 	repo := gitRepo(t, t.TempDir(), "routing")
-	dir, err := EnsureRepoDir(repo)
+	dir, err := memstore.EnsureRepoDir(repo)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -330,7 +332,7 @@ func TestLiveTranscript(t *testing.T) {
 		}
 		return p
 	}
-	exact := write(ProjectSlug(cwd), "s1")
+	exact := write(memstore.ProjectSlug(cwd), "s1")
 	write("-other-project", "s1")
 	other := write("-other-project", "s2")
 	if got := LiveTranscript(cwd, "s1"); got != exact {

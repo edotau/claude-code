@@ -14,8 +14,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-	"time"
 
+	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/proc"
 )
 
@@ -23,10 +23,7 @@ import (
 type Repo struct{ Dir string }
 
 // StoreRepo is the live memory store's repo.
-func StoreRepo() Repo { return Repo{Dir: StoreDir()} }
-
-// gitTimeout bounds one git call; a var so tests need not wait it out.
-var gitTimeout = 30 * time.Second
+func StoreRepo() Repo { return Repo{Dir: memstore.StoreDir()} }
 
 // stageSecretRE matches credential-shaped values; \b-anchored like history.secretRE so `sk-` never eats kebab prose.
 var stageSecretRE = regexp.MustCompile(`\bdapi[0-9a-f]{32}|\beyJ[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{16,}|\bsk-[A-Za-z0-9_-]{24,}|\bnvapi-[A-Za-z0-9_-]{24,}|\bgh[pousr]_[A-Za-z0-9]{28,}|\bAKIA[A-Z0-9]{16}\b|-----BEGIN [A-Z ]*PRIVATE KEY`)
@@ -81,23 +78,23 @@ func (r Repo) Ensure() error {
 // checkRoot proves plain discovery from inside Dir lands on gitDir (not an empty .git or a parent's), that no commondir
 // file shares another repo's refs/objects, and that the enclosing checkout, if any, does not share it.
 func (r Repo) checkRoot(gitDir string) error {
-	found, err := gitOut(r.Dir, "rev-parse", "--absolute-git-dir")
+	found, err := memstore.GitOut(r.Dir, "rev-parse", "--absolute-git-dir")
 	if err != nil {
 		return err
 	}
-	want := resolvePath(gitDir)
-	if resolvePath(found) != want {
+	want := memstore.ResolvePath(gitDir)
+	if memstore.ResolvePath(found) != want {
 		return fmt.Errorf("memory repo: git in %s resolves to %q, not %q", r.Dir, found, gitDir)
 	}
-	common, err := gitOut(r.Dir, "rev-parse", "--path-format=absolute", "--git-common-dir")
+	common, err := memstore.GitOut(r.Dir, "rev-parse", "--path-format=absolute", "--git-common-dir")
 	if err != nil {
 		return err
 	}
-	if resolvePath(common) != want {
+	if memstore.ResolvePath(common) != want {
 		return fmt.Errorf("memory repo: %s shares git metadata with %q (commondir)", gitDir, common)
 	}
-	outer, err := gitOut(filepath.Dir(r.Dir), "rev-parse", "--absolute-git-dir")
-	if err == nil && resolvePath(outer) == want {
+	outer, err := memstore.GitOut(filepath.Dir(r.Dir), "rev-parse", "--absolute-git-dir")
+	if err == nil && memstore.ResolvePath(outer) == want {
 		return fmt.Errorf("memory repo: %s is the outer checkout's git dir", gitDir)
 	}
 	return nil
@@ -299,23 +296,18 @@ func (r Repo) run(args ...string) (string, error) {
 	return runGit(append(full, args...))
 }
 
-// gitOut runs `git -C dir args` with the same sanitized env and timeout; for identity probes of OTHER repos only.
-func gitOut(dir string, args ...string) (string, error) {
-	return runGit(append([]string{"-C", dir}, args...))
-}
-
 // runGit is the one exec seam, via internal/proc: env minus every GIT_* (an inherited GIT_DIR
 // overrides --git-dir), bounded, trimming ONLY trailing newlines (porcelain carries meaning in column 0).
 // full already carries its own -C/-c flags, so dir stays "" here to avoid a duplicate -C.
 func runGit(full []string) (string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), memstore.GitTimeout)
 	defer cancel()
 	return proc.RunGit(ctx, "", full...)
 }
 
 // headBytes is rel's content at HEAD, byte-exact: run trims trailing newlines, which would corrupt a recovery copy.
 func headBytes(repo Repo, rel string) ([]byte, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), memstore.GitTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "git", "--git-dir="+filepath.Join(repo.Dir, ".git"), "--work-tree="+repo.Dir,
 		"cat-file", "blob", "HEAD:"+rel)

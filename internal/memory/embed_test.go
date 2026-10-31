@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/proxy"
 	"github.com/edotau/claude-code/internal/vault"
@@ -61,7 +62,7 @@ func expireEmbed(t *testing.T) {
 func TestEmbedEntriesReusesCacheByContentHash(t *testing.T) {
 	isolatedConfig1(t)
 	root := t.TempDir() // a non-repo root collapses to the home bank
-	bank := filepath.Join(HomeBankDir(), "decisionLog.md")
+	bank := filepath.Join(memstore.HomeBankDir(), "decisionLog.md")
 	write(t, bank, "# D\n\n## 2026-10-01 — gamma choice <!-- id:aaaa0001 -->\n\nbody one\n\n## 2026-10-02 — delta choice <!-- id:aaaa0002 -->\n\nbody two\n")
 	var calls int
 	c := fakeEmbedServer(t, &calls)
@@ -128,7 +129,7 @@ func TestPickEmbeddingModelPrefersGteThenBge(t *testing.T) {
 func TestEmbedEntriesConcurrentRunsMerge(t *testing.T) {
 	isolatedConfig1(t)
 	root := t.TempDir()
-	bank := filepath.Join(HomeBankDir(), "decisionLog.md")
+	bank := filepath.Join(memstore.HomeBankDir(), "decisionLog.md")
 	write(t, bank, "# D\n\n## 2026-10-01 — gamma one <!-- id:aaaa0001 -->\n\nbody\n")
 	var calls int
 	inner := fakeEmbedServer(t, &calls)
@@ -161,7 +162,7 @@ func TestEmbedEntriesConcurrentRunsMerge(t *testing.T) {
 func TestEmbedCacheNamespaceAndDimension(t *testing.T) {
 	isolatedConfig1(t)
 	root := t.TempDir()
-	write(t, filepath.Join(HomeBankDir(), "decisionLog.md"), "# D\n\n## 2026-10-01 — gamma one <!-- id:aaaa0001 -->\n\nbody\n")
+	write(t, filepath.Join(memstore.HomeBankDir(), "decisionLog.md"), "# D\n\n## 2026-10-01 — gamma one <!-- id:aaaa0001 -->\n\nbody\n")
 	var calls int
 	c := fakeEmbedServer(t, &calls)
 	if _, _, err := EmbedEntries(context.Background(), root, c); err != nil || calls != 1 {
@@ -217,7 +218,7 @@ func TestOpenEmbedClientUsesGivenProfile(t *testing.T) {
 func TestEmbedPruneNeverCrossesRoots(t *testing.T) {
 	isolatedConfig1(t)
 	root := t.TempDir()
-	write(t, filepath.Join(HomeBankDir(), "decisionLog.md"), "# D\n\n## 2026-10-01 — gamma one <!-- id:aaaa0001 -->\n\nbody\n")
+	write(t, filepath.Join(memstore.HomeBankDir(), "decisionLog.md"), "# D\n\n## 2026-10-01 — gamma one <!-- id:aaaa0001 -->\n\nbody\n")
 	var calls int
 	c := fakeEmbedServer(t, &calls)
 	f := embedCacheFile{Namespace: c.Namespace, Model: c.Model, Rows: map[string]embedRow{"other-live": {Root: "/other/repo", Hash: "h", Vec: ""}}}
@@ -246,7 +247,7 @@ func TestEmbedPruneNeverCrossesRoots(t *testing.T) {
 func TestEmbedMergeKeepsVectorMatchingCurrentContent(t *testing.T) {
 	isolatedConfig1(t)
 	root := t.TempDir()
-	bank := filepath.Join(HomeBankDir(), "decisionLog.md")
+	bank := filepath.Join(memstore.HomeBankDir(), "decisionLog.md")
 	v1 := "# D\n\n## 2026-10-01 — gamma one <!-- id:aaaa0001 -->\n\nversion one\n"
 	v2 := "# D\n\n## 2026-10-01 — gamma one <!-- id:aaaa0001 -->\n\nversion two\n"
 	write(t, bank, v1)
@@ -462,7 +463,7 @@ func dimEmbedClient(dim int, hook func()) *EmbedClient {
 func TestEmbedFollowsEndpointDimension(t *testing.T) {
 	isolatedConfig1(t)
 	root := t.TempDir()
-	bank := filepath.Join(HomeBankDir(), "decisionLog.md")
+	bank := filepath.Join(memstore.HomeBankDir(), "decisionLog.md")
 	a := "## 2026-10-01 — one <!-- id:aaaa0001 -->\n\nbody\n"
 	b := "\n## 2026-10-02 — two <!-- id:aaaa0002 -->\n\nbody\n"
 	c3 := "\n## 2026-10-03 — three <!-- id:aaaa0003 -->\n\nbody\n"
@@ -490,7 +491,7 @@ func TestEmbedFollowsEndpointDimension(t *testing.T) {
 func TestStaleEmbedRunCannotRevertDimension(t *testing.T) {
 	isolatedConfig1(t)
 	root := t.TempDir()
-	bank := filepath.Join(HomeBankDir(), "decisionLog.md")
+	bank := filepath.Join(memstore.HomeBankDir(), "decisionLog.md")
 	write(t, bank, "# D\n\n## 2026-10-01 — one <!-- id:aaaa0001 -->\n\nbody\n\n## 2026-10-02 — two <!-- id:aaaa0002 -->\n\nbody\n")
 	newer := dimEmbedClient(2, nil)
 	old := dimEmbedClient(3, func() { // the old-dimension run is mid-embed when the migration finishes
@@ -521,7 +522,7 @@ func TestStaleEmbedRunCannotRevertDimension(t *testing.T) {
 func TestPruneKeepsRowsOfEntriesAddedMidRun(t *testing.T) {
 	isolatedConfig1(t)
 	root := t.TempDir()
-	bank := filepath.Join(HomeBankDir(), "decisionLog.md")
+	bank := filepath.Join(memstore.HomeBankDir(), "decisionLog.md")
 	e1 := "## 2026-10-01 — gamma one <!-- id:aaaa0001 -->\n\nbody\n"
 	e2 := "\n## 2026-10-02 — gamma two <!-- id:aaaa0002 -->\n\nbody\n"
 	write(t, bank, "# D\n\n"+e1)
@@ -570,7 +571,7 @@ func TestMixedDimensionsAreDeterministicAndReindexed(t *testing.T) {
 
 	isolatedConfig1(t)
 	root := t.TempDir()
-	write(t, filepath.Join(HomeBankDir(), "decisionLog.md"),
+	write(t, filepath.Join(memstore.HomeBankDir(), "decisionLog.md"),
 		"# D\n\n## 2026-10-01 — gamma one <!-- id:aaaa0001 -->\n\nb\n\n## 2026-10-02 — gamma two <!-- id:aaaa0002 -->\n\nb\n\n## 2026-10-03 — gamma three <!-- id:aaaa0003 -->\n\nb\n")
 	var calls int
 	c := fakeEmbedServer(t, &calls)

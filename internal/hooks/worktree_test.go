@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/memory"
+	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/worktree"
 )
@@ -188,7 +189,7 @@ func TestWorktreeRemoveClosesLedger(t *testing.T) {
 		t.Fatalf("create: got %d", code)
 	}
 	wt := strings.TrimSpace(out.String())
-	ledger := filepath.Join(memory.Dir(repo), "worktrees", "led.md")
+	ledger := filepath.Join(memstore.Dir(repo), "worktrees", "led.md")
 	if data, err := os.ReadFile(ledger); err != nil || !strings.Contains(string(data), "- Status: open") {
 		t.Fatalf("ledger not opened by create: %v\n%s", err, data)
 	}
@@ -331,7 +332,7 @@ func TestUpdateAppendsWorktreeLedger(t *testing.T) {
 	if sessionUpdate(ParseInput(strings.NewReader(updatePayload(tr, dest))), &bytes.Buffer{}) != ExitProceed {
 		t.Fatal("update blocked")
 	}
-	data, err := os.ReadFile(filepath.Join(memory.Dir(main), "worktrees", "wt-h.md"))
+	data, err := os.ReadFile(filepath.Join(memstore.Dir(main), "worktrees", "wt-h.md"))
 	if err != nil || !strings.Contains(string(data), "update (") {
 		t.Fatalf("no update line in ledger: %v\n%s", err, data)
 	}

@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/edotau/claude-code/internal/memory"
+	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/paths"
 )
 
@@ -30,7 +30,7 @@ func OpenLedger(main, name string, info LedgerInfo) error {
 	if err := ledgerName(name); err != nil {
 		return err
 	}
-	dir, err := memory.EnsureRepoDir(main)
+	dir, err := memstore.EnsureRepoDir(main)
 	if err != nil {
 		return err
 	}
@@ -97,7 +97,7 @@ func editLedger(cwd string, now time.Time, wait time.Duration, edit func(string)
 	if _, err := ResolveWorktree(repo, name); err != nil {
 		return false, err
 	}
-	path := filepath.Join(memory.Dir(repo.Main), "worktrees", name+".md")
+	path := filepath.Join(memstore.Dir(repo.Main), "worktrees", name+".md")
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		return false, nil
 	} else if err != nil {
@@ -138,7 +138,7 @@ func CloseLedger(main, name string, c LedgerClose) error {
 	if err := ledgerName(name); err != nil {
 		return err
 	}
-	path := filepath.Join(memory.Dir(main), "worktrees", name+".md")
+	path := filepath.Join(memstore.Dir(main), "worktrees", name+".md")
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		return nil
 	} else if err != nil {
@@ -196,12 +196,12 @@ func CloseLedger(main, name string, c LedgerClose) error {
 
 // withLedgerLock runs fn under the memory bank lock (so an update or dream cannot interleave) and the file lock.
 func withLedgerLock(path string, fn func() error) error {
-	return withLedgerLockWithin(memory.BankLockWait, path, fn)
+	return withLedgerLockWithin(memstore.BankLockWait, path, fn)
 }
 
 // withLedgerLockWithin is withLedgerLock with its own bank-lock wait, for best-effort callers inside a hook budget.
 func withLedgerLockWithin(wait time.Duration, path string, fn func() error) error {
-	return memory.WithBankLock(wait, func() error { return paths.WithFileLock(path, fn) })
+	return memstore.WithBankLock(wait, func() error { return paths.WithFileLock(path, fn) })
 }
 
 // openSection is the text of the latest "## Opened" section, or the whole ledger when it was never reopened.

@@ -13,7 +13,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/edotau/claude-code/internal/memory"
+	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/proc/inflight"
 	"github.com/edotau/claude-code/internal/ui/helptext"
@@ -34,7 +34,7 @@ var spawnWatcher = func(args []string, cwd string) bool {
 	if err != nil {
 		return false
 	}
-	logPath := filepath.Join(memory.StateDir(), "watch-"+filepath.Base(args[1])+".log")
+	logPath := filepath.Join(memstore.StateDir(), "watch-"+filepath.Base(args[1])+".log")
 	log, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
 		return false
@@ -48,7 +48,7 @@ func spawnIdleWatcher(in *Input) {
 	if in.SessionID == "" {
 		return
 	}
-	claim := filepath.Join(memory.StateDir(), "watch-"+filepath.Base(in.SessionID))
+	claim := filepath.Join(memstore.StateDir(), "watch-"+filepath.Base(in.SessionID))
 	f, err := os.OpenFile(claim, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
 	if err != nil {
 		return // claimed by an earlier Stop (or the state dir is unwritable — the Stop gate still runs)

@@ -16,11 +16,12 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/memory"
+	"github.com/edotau/claude-code/internal/memstore"
 )
 
 func writeBank(t *testing.T, rel, body string) {
 	t.Helper()
-	p := filepath.Join(memory.HomeBankDir(), rel)
+	p := filepath.Join(memstore.HomeBankDir(), rel)
 	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -205,10 +206,10 @@ func TestSessionStartCarriesNoCatalogRows(t *testing.T) {
 	for i := range 120 {
 		fmt.Fprintf(&cat, "- repo-%03d — some description of the repo · last 2026-10-29 → repo-%03d/MEMORY.md\n", i, i)
 	}
-	if err := os.MkdirAll(memory.StoreDir(), 0o755); err != nil {
+	if err := os.MkdirAll(memstore.StoreDir(), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(memory.StoreDir(), memory.CatalogFile), []byte(cat.String()), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(memstore.StoreDir(), memstore.CatalogFile), []byte(cat.String()), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	raw, _ := json.Marshal(map[string]string{"cwd": t.TempDir(), "session_id": "probe-x"})

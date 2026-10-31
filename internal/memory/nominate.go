@@ -6,6 +6,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/edotau/claude-code/internal/memstore"
 )
 
 // Access-driven nomination thresholds, computed from real recall data.
@@ -19,7 +21,7 @@ const (
 // (recalled often — want a pointer in the injected bank) and cold ones (archive candidates, gated
 // on log age — a young log proves nothing).
 func AccessNominations(now time.Time) []string {
-	files, err := filepath.Glob(filepath.Join(AccessStateDir(), "*.log"))
+	files, err := filepath.Glob(filepath.Join(memstore.AccessStateDir(), "*.log"))
 	if err != nil || len(files) == 0 {
 		return nil
 	}

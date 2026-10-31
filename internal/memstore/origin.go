@@ -1,4 +1,4 @@
-package memory
+package memstore
 
 import (
 	"encoding/json"
@@ -17,8 +17,8 @@ import (
 )
 
 // Migration: remove after 2026-11-17 once every machine has run a post-2026-10-20 build.
-// legacyOriginFile is the pre-vault per-store record; resolveOrigins imports it into the vault once and removes it.
-const legacyOriginFile = ".origin"
+// LegacyOriginFile is the pre-vault per-store record; resolveOrigins imports it into the vault once and removes it.
+const LegacyOriginFile = ".origin"
 
 // OriginVersion is the schema version ReadOrigin accepts.
 const OriginVersion = 1
@@ -26,7 +26,7 @@ const OriginVersion = 1
 // Origin ties a store directory to the canonical checkout it serves; Aliases are explicit, never inferred.
 type Origin struct {
 	Version int      `json:"version"`
-	Key     string   `json:"key"`               // the directory name under StoreDir(); harnessStoreKey() for the config checkout
+	Key     string   `json:"key"`               // the directory name under StoreDir(); HarnessStoreKey() for the config checkout
 	Origin  string   `json:"origin"`            // canonical main-checkout path (EvalSymlinks); "" only for the store root
 	Aliases []string `json:"aliases,omitempty"` // other canonical checkout paths accepted as this repo — explicit only
 	Display []string `json:"display,omitempty"` // human names; never used for matching
@@ -200,11 +200,11 @@ func WriteOrigin(dir string, o Origin) error {
 	case !errors.Is(err, fs.ErrNotExist):
 		return fmt.Errorf("refusing to overwrite: %w", err)
 	}
-	return foldOrigin(dir, o, "")
+	return FoldOrigin(dir, o, "")
 }
 
-// foldOrigin writes dir's record and, when drop is set, deletes that folded store's row in the same transaction.
-func foldOrigin(dir string, o Origin, drop string) error {
+// FoldOrigin writes dir's record and, when drop is set, deletes that folded store's row in the same transaction.
+func FoldOrigin(dir string, o Origin, drop string) error {
 	key, err := originKey(dir)
 	if err != nil {
 		return err
@@ -233,8 +233,8 @@ type catalogOrigin struct {
 	Aliases []string `json:"aliases,omitempty"`
 }
 
-// catalogOriginComment is the trailing comment recording o on its catalog row.
-func catalogOriginComment(o Origin) string {
+// CatalogOriginComment is the trailing comment recording o on its catalog row.
+func CatalogOriginComment(o Origin) string {
 	data, _ := json.Marshal(catalogOrigin{Origin: o.Origin, Aliases: o.Aliases})
 	return catalogOriginTag + string(data) + " -->"
 }

@@ -9,12 +9,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/edotau/claude-code/internal/memory"
+	"github.com/edotau/claude-code/internal/memstore"
 )
 
 func ledgerFile(t *testing.T, main, name string) string {
 	t.Helper()
-	path := filepath.Join(memory.Dir(main), "worktrees", name+".md")
+	path := filepath.Join(memstore.Dir(main), "worktrees", name+".md")
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("read ledger %s: %v", path, err)
@@ -23,7 +23,7 @@ func ledgerFile(t *testing.T, main, name string) string {
 }
 
 func ledgerPath(main, name string) string {
-	return filepath.Join(memory.Dir(main), "worktrees", name+".md")
+	return filepath.Join(memstore.Dir(main), "worktrees", name+".md")
 }
 
 func TestLedgerLifecycle(t *testing.T) {
@@ -261,25 +261,25 @@ func TestLedgerCleanWarningsUseWriter(t *testing.T) {
 // Finding 1: ledger writers take the memory bank lock.
 func TestLedgerTakesBankLock(t *testing.T) {
 	_, main, dest := ledgerSetup(t, "fd")
-	old := memory.BankLockWait
-	memory.BankLockWait = 100 * time.Millisecond
-	t.Cleanup(func() { memory.BankLockWait = old })
+	old := memstore.BankLockWait
+	memstore.BankLockWait = 100 * time.Millisecond
+	t.Cleanup(func() { memstore.BankLockWait = old })
 	var err error
-	lockErr := memory.WithBankLock(time.Second, func() error {
+	lockErr := memstore.WithBankLock(time.Second, func() error {
 		err = CloseLedger(main, "fd", LedgerClose{Via: "merge", Head: revParse(t, dest, "HEAD")})
 		return nil
 	})
 	if lockErr != nil {
 		t.Fatal(lockErr)
 	}
-	if !errors.Is(err, memory.ErrBankBusy) {
+	if !errors.Is(err, memstore.ErrBankBusy) {
 		t.Fatalf("CloseLedger under a held bank lock = %v; want ErrBankBusy", err)
 	}
 }
 
 func TestSetLedgerTaskFillsUnclaimed(t *testing.T) {
 	_, main, dest := ledgerSetup(t, "wt-task")
-	path := memory.Dir(main) + "/worktrees/wt-task.md"
+	path := memstore.Dir(main) + "/worktrees/wt-task.md"
 	if ok, err := SetLedgerTask(dest, "1.2 in plan-x", time.Now()); !ok || err != nil {
 		t.Fatalf("SetLedgerTask = %v, %v", ok, err)
 	}

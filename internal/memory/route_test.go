@@ -3,6 +3,8 @@ package memory
 import (
 	"path/filepath"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/memstore"
 )
 
 // TestRoutedReposWholeWordMatchAndShortKeysIgnored: a routed name must appear in the query as a whole
@@ -11,26 +13,26 @@ func TestRoutedReposWholeWordMatchAndShortKeysIgnored(t *testing.T) {
 	isolatedConfig1(t)
 	initStore(t)
 	repo := gitRepo(t, t.TempDir(), "edotau.github.io")
-	if _, err := EnsureRepoDir(repo); err != nil {
+	if _, err := memstore.EnsureRepoDir(repo); err != nil {
 		t.Fatal(err)
 	}
 	short := gitRepo(t, t.TempDir(), "abc")
-	if _, err := EnsureRepoDir(short); err != nil {
+	if _, err := memstore.EnsureRepoDir(short); err != nil {
 		t.Fatal(err)
 	}
 
-	got := RoutedRepos("check edotau.github.io for the deploy")
+	got := memstore.RoutedRepos("check edotau.github.io for the deploy")
 	if len(got) != 1 || filepath.Base(got[0].Origin.Origin) != "edotau.github.io" {
 		t.Fatalf("got = %+v, want exactly the edotau.github.io entry", got)
 	}
 
-	if got := RoutedRepos("just github alone"); len(got) != 0 {
+	if got := memstore.RoutedRepos("just github alone"); len(got) != 0 {
 		t.Errorf("a bare substring of a routed name matched: %+v", got)
 	}
-	if got := RoutedRepos("abc is here"); len(got) != 0 {
+	if got := memstore.RoutedRepos("abc is here"); len(got) != 0 {
 		t.Errorf("a key under 4 chars matched: %+v", got)
 	}
-	if got := RoutedRepos("nothing names a repo here"); len(got) != 0 {
+	if got := memstore.RoutedRepos("nothing names a repo here"); len(got) != 0 {
 		t.Errorf("an unrelated query matched: %+v", got)
 	}
 }
@@ -41,11 +43,11 @@ func TestRoutedFilesExcludesOwnStore(t *testing.T) {
 	initStore(t)
 	a := gitRepo(t, t.TempDir(), "proja")
 	b := gitRepo(t, t.TempDir(), "projb")
-	da, err := EnsureRepoDir(a)
+	da, err := memstore.EnsureRepoDir(a)
 	if err != nil {
 		t.Fatal(err)
 	}
-	db, err := EnsureRepoDir(b)
+	db, err := memstore.EnsureRepoDir(b)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -79,17 +81,17 @@ func TestRepoByNameMatchesKeyOrOriginBasename(t *testing.T) {
 	isolatedConfig1(t)
 	initStore(t)
 	repo := gitRepo(t, t.TempDir(), "proja")
-	dir, err := EnsureRepoDir(repo)
+	dir, err := memstore.EnsureRepoDir(repo)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if e, ok := RepoByName("proja"); !ok || e.Dir != dir {
+	if e, ok := memstore.RepoByName("proja"); !ok || e.Dir != dir {
 		t.Fatalf("RepoByName(key) = %+v, %v", e, ok)
 	}
-	if e, ok := RepoByName("PROJA"); !ok || e.Dir != dir {
+	if e, ok := memstore.RepoByName("PROJA"); !ok || e.Dir != dir {
 		t.Fatalf("RepoByName must fold case, got %+v, %v", e, ok)
 	}
-	if _, ok := RepoByName("nope"); ok {
+	if _, ok := memstore.RepoByName("nope"); ok {
 		t.Error("RepoByName matched a name no store has")
 	}
 }
@@ -101,10 +103,10 @@ func TestSearchBanksSurfacesRoutedReposOnlyWhenNamed(t *testing.T) {
 	initStore(t)
 	a := gitRepo(t, t.TempDir(), "proja")
 	b := gitRepo(t, t.TempDir(), "projb")
-	if _, err := EnsureRepoDir(a); err != nil {
+	if _, err := memstore.EnsureRepoDir(a); err != nil {
 		t.Fatal(err)
 	}
-	db, err := EnsureRepoDir(b)
+	db, err := memstore.EnsureRepoDir(b)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -131,11 +133,11 @@ func TestSearchAllCoversEveryRepoStore(t *testing.T) {
 	initStore(t)
 	a := gitRepo(t, t.TempDir(), "proja")
 	b := gitRepo(t, t.TempDir(), "projb")
-	da, err := EnsureRepoDir(a)
+	da, err := memstore.EnsureRepoDir(a)
 	if err != nil {
 		t.Fatal(err)
 	}
-	db, err := EnsureRepoDir(b)
+	db, err := memstore.EnsureRepoDir(b)
 	if err != nil {
 		t.Fatal(err)
 	}

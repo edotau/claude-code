@@ -8,11 +8,13 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/memstore"
 )
 
 func readStore(t *testing.T, rel string) string {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Join(StoreDir(), rel))
+	data, err := os.ReadFile(filepath.Join(memstore.StoreDir(), rel))
 	if err != nil {
 		t.Fatalf("read %s: %v", rel, err)
 	}
@@ -21,13 +23,13 @@ func readStore(t *testing.T, rel string) string {
 
 func journals(t *testing.T) []string {
 	t.Helper()
-	files, _ := filepath.Glob(filepath.Join(JournalDir(), "*.json"))
+	files, _ := filepath.Glob(filepath.Join(memstore.JournalDir(), "*.json"))
 	return files
 }
 
 func receipts(t *testing.T) []string {
 	t.Helper()
-	files, _ := filepath.Glob(filepath.Join(StoreDir(), "receipts", "*.json"))
+	files, _ := filepath.Glob(filepath.Join(memstore.StoreDir(), "receipts", "*.json"))
 	return files
 }
 
@@ -35,7 +37,7 @@ func receipts(t *testing.T) []string {
 func commitLocked(t *testing.T, subject string, changes []Change) (Receipt, error) {
 	t.Helper()
 	var rec Receipt
-	err := WithBankLock(BankLockWait, func() error {
+	err := memstore.WithBankLock(memstore.BankLockWait, func() error {
 		var err error
 		rec, err = commitChangesLocked(subject, changes)
 		return err
@@ -200,7 +202,7 @@ func TestCommitChangesLockedRecoversAfterCommitFailure(t *testing.T) {
 	refLock := filepath.Join(store, ".git", "refs", "heads", "main.lock")
 	write(t, refLock, "")
 	var rec Receipt
-	err := WithBankLock(BankLockWait, func() error {
+	err := memstore.WithBankLock(memstore.BankLockWait, func() error {
 		var err error
 		rec, err = commitChangesLocked("batch", []Change{{Rel: "r/x.md", Data: []byte("x\n"), Checked: true}})
 		return err
@@ -230,7 +232,7 @@ func TestCommitChangesLockedRecoversAfterCommitFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 	// The next batch recovers the old journal as its own commit, without a duplicate receipt.
-	err = WithBankLock(BankLockWait, func() error {
+	err = memstore.WithBankLock(memstore.BankLockWait, func() error {
 		var err error
 		rec, err = commitChangesLocked("next", []Change{{Rel: "r/y.md", Data: []byte("y\n")}})
 		return err
@@ -265,7 +267,7 @@ func TestCommitChangesLockedRecoversAfterCommitFailure(t *testing.T) {
 // (or capture) and the write is reported divergent, never overwritten; a late preimage match was never captured.
 func TestApplyRechecksLiveBytesBeforeWrite(t *testing.T) {
 	store, _ := storeFixture(t)
-	if err := WithBankLock(BankLockWait, func() error {
+	if err := memstore.WithBankLock(memstore.BankLockWait, func() error {
 		_, err := commitChangesLocked("seed", []Change{{Rel: "r/a.md", Data: []byte("v1\n")}})
 		return err
 	}); err != nil {
@@ -308,7 +310,7 @@ func TestRecoverJournalsRefusesEscapingPaths(t *testing.T) {
 	if err := bad.save(); err != nil {
 		t.Fatal(err)
 	}
-	err := WithBankLock(BankLockWait, recoverJournals)
+	err := memstore.WithBankLock(memstore.BankLockWait, recoverJournals)
 	if err == nil || !strings.Contains(err.Error(), "invalid path") {
 		t.Fatalf("escaping replay accepted: %v", err)
 	}
@@ -319,12 +321,12 @@ func TestRecoverJournalsRefusesEscapingPaths(t *testing.T) {
 		t.Fatal("refused replay initialized the repo")
 	}
 	os.Remove(bad.path())
-	forged := filepath.Join(JournalDir(), "20000101-000000.000-11111111.json")
-	if err := os.MkdirAll(JournalDir(), 0o700); err != nil {
+	forged := filepath.Join(memstore.JournalDir(), "20000101-000000.000-11111111.json")
+	if err := os.MkdirAll(memstore.JournalDir(), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	write(t, forged, `{"id":"../../forged","subject":"replay","state":"pending","changes":[]}`)
-	err = WithBankLock(BankLockWait, recoverJournals)
+	err = memstore.WithBankLock(memstore.BankLockWait, recoverJournals)
 	if err == nil || !strings.Contains(err.Error(), "does not match its file name") {
 		t.Fatalf("forged id accepted: %v", err)
 	}
@@ -346,10 +348,10 @@ func writeJournal(t *testing.T, id string, extra map[string]any) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.MkdirAll(JournalDir(), 0o755); err != nil {
+	if err := os.MkdirAll(memstore.JournalDir(), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(JournalDir(), id+".json"), data, 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(memstore.JournalDir(), id+".json"), data, 0o600); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -373,7 +375,7 @@ func TestRecoverSkipsNewerSchemaJournal(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(store, "r", "seeded.md")); !os.IsNotExist(err) {
 		t.Fatalf("newer journal was replayed (stat err = %v)", err)
 	}
-	if _, err := os.Stat(filepath.Join(JournalDir(), id+".json")); err != nil {
+	if _, err := os.Stat(filepath.Join(memstore.JournalDir(), id+".json")); err != nil {
 		t.Fatalf("newer journal not left in place: %v", err)
 	}
 	assertDecoyUntouched(t, decoy)

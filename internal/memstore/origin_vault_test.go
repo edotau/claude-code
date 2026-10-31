@@ -1,4 +1,4 @@
-package memory
+package memstore
 
 import (
 	"encoding/base64"
@@ -37,7 +37,7 @@ func TestOriginRoundTripsThroughVault(t *testing.T) {
 	if err := WriteOrigin(dir, o); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(filepath.Join(dir, legacyOriginFile)); !errors.Is(err, fs.ErrNotExist) {
+	if _, err := os.Stat(filepath.Join(dir, LegacyOriginFile)); !errors.Is(err, fs.ErrNotExist) {
 		t.Errorf("WriteOrigin left a legacy file on disk: %v", err)
 	}
 	if raw, ok := vaultGet(t, "proj"); !ok || raw == "" {
@@ -106,7 +106,7 @@ func TestLegacyOriginFileIgnored(t *testing.T) {
 	resetVaultRetry(t)
 	cfg := tempConfig(t)
 	dir := filepath.Join(cfg, "memory", "legacy")
-	legacyPath := filepath.Join(dir, legacyOriginFile)
+	legacyPath := filepath.Join(dir, LegacyOriginFile)
 	write(t, legacyPath, `{"version":1,"key":"legacy","origin":"/src/legacy"}`)
 
 	if _, err := ReadOrigin(dir); err == nil {
@@ -164,7 +164,7 @@ func TestOriginRebuiltFromCatalogWhenRowAndFileAbsent(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := Origin{Version: OriginVersion, Key: "catkey", Origin: "/src/cat", Aliases: []string{"/alt1", "/alt2"}}
-	row := "- catkey — some-hook · last 2024-01-01 → catkey/MEMORY.md" + catalogOriginComment(want) + "\n"
+	row := "- catkey — some-hook · last 2024-01-01 → catkey/MEMORY.md" + CatalogOriginComment(want) + "\n"
 	catalogPath := filepath.Join(cfg, "memory", CatalogFile)
 	write(t, catalogPath, "# Memory catalog\n\n## Repos\n\n"+row)
 	before := readFile(t, catalogPath)
@@ -183,54 +183,17 @@ func TestOriginRebuiltFromCatalogWhenRowAndFileAbsent(t *testing.T) {
 
 // TestCatalogOriginCommentRoundTripsPathWithCommentCloser: an origin path containing the literal
 // bytes "-->" must never be able to close the HTML comment early — json.Marshal escapes '>', so the
-// round trip through catalogOriginComment/catalogOrigins must reproduce it exactly.
+// round trip through CatalogOriginComment/catalogOrigins must reproduce it exactly.
 func TestCatalogOriginCommentRoundTripsPathWithCommentCloser(t *testing.T) {
 	resetVaultRetry(t)
 	cfg := tempConfig(t)
 	want := Origin{Version: OriginVersion, Key: "weird", Origin: "/src/a-->b", Aliases: []string{"/alt-->c"}}
-	row := "- weird — hook · last never → weird/MEMORY.md" + catalogOriginComment(want) + "\n"
+	row := "- weird — hook · last never → weird/MEMORY.md" + CatalogOriginComment(want) + "\n"
 	write(t, filepath.Join(cfg, "memory", CatalogFile), "# Memory catalog\n\n## Repos\n\n"+row)
 
 	got := catalogOrigins()["weird"]
 	if got.Origin != want.Origin || len(got.Aliases) != 1 || got.Aliases[0] != want.Aliases[0] {
 		t.Errorf("catalogOrigins round trip = %+v, want %+v", got, want)
-	}
-}
-
-// TestBuildCatalogRebuildsIdenticalRowsAfterVaultLoss: BuildCatalog's rows (with their origin
-// comments) are the sole durable record once the vault is gone — deleting vault.db and asking
-// RepoDirs again must reproduce exactly the same origins from the catalog it wrote.
-func TestBuildCatalogRebuildsIdenticalRowsAfterVaultLoss(t *testing.T) {
-	resetVaultRetry(t)
-	cfg := tempConfig(t)
-	for _, k := range []string{"alpha", "beta"} {
-		dir := filepath.Join(cfg, "memory", k)
-		os.MkdirAll(dir, 0o755)
-		if err := WriteOrigin(dir, Origin{Version: OriginVersion, Key: k, Origin: "/src/" + k, Aliases: []string{"/alt-" + k}}); err != nil {
-			t.Fatal(err)
-		}
-	}
-	before, err := RepoDirs()
-	if err != nil || len(before) != 2 {
-		t.Fatalf("RepoDirs before = %+v, %v", before, err)
-	}
-	catalog, err := BuildCatalog(time.Now())
-	if err != nil {
-		t.Fatal(err)
-	}
-	write(t, filepath.Join(cfg, "memory", CatalogFile), catalog)
-
-	if err := os.Remove(vault.Path()); err != nil {
-		t.Fatal(err)
-	}
-	after, err := RepoDirs()
-	if err != nil || len(after) != 2 {
-		t.Fatalf("RepoDirs after vault loss = %+v, %v", after, err)
-	}
-	for i := range before {
-		if !reflect.DeepEqual(before[i].Origin, after[i].Origin) {
-			t.Errorf("entry %d origin changed: before %+v, after %+v", i, before[i].Origin, after[i].Origin)
-		}
 	}
 }
 
@@ -247,7 +210,7 @@ func TestVaultLockedFallsBackToCatalogThenSkipsRetryFor30s(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := Origin{Version: OriginVersion, Key: "locked", Origin: "/src/locked"}
-	row := "- locked — hook · last 2024-01-01 → locked/MEMORY.md" + catalogOriginComment(want) + "\n"
+	row := "- locked — hook · last 2024-01-01 → locked/MEMORY.md" + CatalogOriginComment(want) + "\n"
 	write(t, filepath.Join(cfg, "memory", CatalogFile), "# Memory catalog\n\n## Repos\n\n"+row)
 
 	// Force the vault file into existence before taking an external flock on it.
@@ -288,24 +251,6 @@ func TestVaultLockedFallsBackToCatalogThenSkipsRetryFor30s(t *testing.T) {
 	}
 	if _, ok := vaultGet(t, "locked"); ok {
 		t.Error("a locked vault.View must never be followed by a write attempt")
-	}
-}
-
-// TestAliasFoldDeletesSourceVaultRow: AddOriginAlias-style folding (foldOrigin's drop path) must
-// delete the source store's own vault row in the same transaction that gives the target the alias —
-// never leave a stale row behind for a dir that no longer exists.
-func TestAliasFoldDeletesSourceVaultRow(t *testing.T) {
-	resetVaultRetry(t)
-	e := newAliasEnv(t)
-	if _, err := alias(t, e, false); err != nil {
-		t.Fatal(err)
-	}
-	if _, ok := vaultGet(t, e.kb); ok {
-		t.Errorf("source key %q still has a vault row after folding into %q", e.kb, e.ka)
-	}
-	got, err := ReadOrigin(e.da)
-	if err != nil || !got.Accepts(e.b) {
-		t.Errorf("target row missing the folded alias: %+v, %v", got, err)
 	}
 }
 

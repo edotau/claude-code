@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/secrets/shapes"
 )
@@ -23,10 +24,10 @@ type BankStat struct {
 }
 
 // HomeBankStat rolls up the shared home bank.
-func HomeBankStat() BankStat { return statBank(HomeBankDir()) }
+func HomeBankStat() BankStat { return statBank(memstore.HomeBankDir()) }
 
 // Stat rolls up root's local bank.
-func Stat(root string) BankStat { return statBank(Dir(root)) }
+func Stat(root string) BankStat { return statBank(memstore.Dir(root)) }
 
 func statBank(dir string) BankStat {
 	s := BankStat{Dir: dir}
@@ -52,7 +53,7 @@ const DefaultStaleDays = 90
 
 // DoctorNoticePath is the per-store cached doctor summary read at SessionStart.
 func DoctorNoticePath(root string) string {
-	return filepath.Join(StateDir(), "doctor-notice-"+filepath.Base(Dir(root)))
+	return filepath.Join(memstore.StateDir(), "doctor-notice-"+filepath.Base(memstore.Dir(root)))
 }
 
 // WriteDoctorNotice caches root's first problem and a count; an empty file means checked and healthy.
@@ -76,12 +77,12 @@ var credentialPattern = regexp.MustCompile(
 // staleness, credential-shaped lines, and access-log nominations. Never fatal — advisory only.
 func Doctor(root string, staleDays int, now time.Time) []string {
 	var problems []string
-	if !IsHomeBank(root) {
+	if !memstore.IsHomeBank(root) {
 		problems = append(problems, bankProblems("local", Stat(root), staleDays, now)...)
 	}
 	problems = append(problems, bankProblems("home", HomeBankStat(), staleDays, now)...)
 	problems = append(problems, updateProblems(now)...)
-	problems = append(problems, nativeLinkProblems(root)...)
+	problems = append(problems, memstore.NativeLinkProblems(root)...)
 	return append(problems, AccessNominations(now)...)
 }
 
@@ -89,7 +90,7 @@ func Doctor(root string, staleDays int, now time.Time) []string {
 // grace window (the worker died before reporting) — otherwise `memory stats` counts them forever.
 func updateProblems(now time.Time) []string {
 	var problems []string
-	matches, _ := filepath.Glob(filepath.Join(StateDir(), "update-result-*"))
+	matches, _ := filepath.Glob(filepath.Join(memstore.StateDir(), "update-result-*"))
 	for _, p := range matches {
 		id := strings.TrimPrefix(filepath.Base(p), "update-result-")
 		r, ok := ReadUpdateResult(id)

@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/memstore"
 )
 
 // seedConventionBlock plants one id-marked conventions.md bullet in root's local bank via Remember,
@@ -25,7 +27,7 @@ func TestPromoteHomeMovesExactlyOneBlock(t *testing.T) {
 	tempConfig(t)
 	root := repoRoot(t, "proj")
 	id := seedConventionBlock(t, root)
-	localBefore, _ := os.ReadFile(filepath.Join(Dir(root), "conventions.md"))
+	localBefore, _ := os.ReadFile(filepath.Join(memstore.Dir(root), "conventions.md"))
 
 	out, err := Promote(root, id, "home", false, time.Now())
 	if err != nil {
@@ -34,14 +36,14 @@ func TestPromoteHomeMovesExactlyOneBlock(t *testing.T) {
 	if !strings.Contains(out, id) || !strings.Contains(out, "home") {
 		t.Errorf("Promote output missing id/target: %q", out)
 	}
-	localAfter, _ := os.ReadFile(filepath.Join(Dir(root), "conventions.md"))
+	localAfter, _ := os.ReadFile(filepath.Join(memstore.Dir(root), "conventions.md"))
 	if strings.Contains(string(localAfter), "<!-- id:"+id+" -->") {
 		t.Errorf("local bank still has the promoted block: %q", localAfter)
 	}
 	if string(localBefore) == string(localAfter) {
 		t.Error("local bank was not rewritten at all")
 	}
-	homeData, err := os.ReadFile(filepath.Join(HomeBankDir(), "conventions.md"))
+	homeData, err := os.ReadFile(filepath.Join(memstore.HomeBankDir(), "conventions.md"))
 	if err != nil || !strings.Contains(string(homeData), "<!-- id:"+id+" -->") {
 		t.Fatalf("home bank missing the promoted block (id %s): %v %q", id, err, homeData)
 	}
@@ -56,8 +58,8 @@ func TestPromoteHomeDryRunWritesNothing(t *testing.T) {
 	tempConfig(t)
 	root := repoRoot(t, "proj")
 	id := seedConventionBlock(t, root)
-	localPath := filepath.Join(Dir(root), "conventions.md")
-	homePath := filepath.Join(HomeBankDir(), "conventions.md")
+	localPath := filepath.Join(memstore.Dir(root), "conventions.md")
+	homePath := filepath.Join(memstore.HomeBankDir(), "conventions.md")
 	localBefore, _ := os.ReadFile(localPath)
 	_, homeErrBefore := os.Stat(homePath)
 
@@ -91,9 +93,9 @@ func TestPromoteJudgmentTargetsWriteNothingAndPrintTheProcedure(t *testing.T) {
 			tempConfig(t)
 			root := repoRoot(t, "proj")
 			id := seedConventionBlock(t, root)
-			localPath := filepath.Join(Dir(root), "conventions.md")
+			localPath := filepath.Join(memstore.Dir(root), "conventions.md")
 			before, _ := os.ReadFile(localPath)
-			homePath := filepath.Join(HomeBankDir(), "conventions.md")
+			homePath := filepath.Join(memstore.HomeBankDir(), "conventions.md")
 			_, homeErrBefore := os.Stat(homePath)
 
 			out, err := Promote(root, id, to, false, time.Now())
@@ -124,7 +126,7 @@ func TestPromoteClaudeMDRefusedOutsideDream(t *testing.T) {
 	tempConfig(t)
 	root := repoRoot(t, "proj")
 	id := seedConventionBlock(t, root)
-	localPath := filepath.Join(Dir(root), "conventions.md")
+	localPath := filepath.Join(memstore.Dir(root), "conventions.md")
 	before, _ := os.ReadFile(localPath)
 
 	_, err := Promote(root, id, "claude-md", false, time.Now())

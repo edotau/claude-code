@@ -6,9 +6,9 @@ import (
 	"embed"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 
+	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/paths"
 )
 
@@ -46,27 +46,10 @@ func IsUpdateChild() bool {
 	return v != "" && v != "0"
 }
 
-// HomeBankDir is the shared bank: store/home.
-func HomeBankDir() string { return homeStoreDir() }
-
-// homeStoreDir is the home dir inside the store.
-func homeStoreDir() string { return filepath.Join(StoreDir(), "home") }
-
-// Dir is root's local bank; a non-repo root collapses to the home one.
-func Dir(root string) string {
-	if d, err := RepoDir(root); err == nil { // one dir per repo shared with native memory; the harness is memory/claude-code
-		return d
-	}
-	return homeStoreDir()
-}
-
-// IsHomeBank reports whether root's local bank is the home bank (read it once, not twice).
-func IsHomeBank(root string) bool { return paths.SamePath(Dir(root), HomeBankDir()) }
-
 // HasBank reports whether any typed file exists in root's local bank.
 func HasBank(root string) bool {
 	for _, name := range bankFiles {
-		if _, err := os.Stat(filepath.Join(Dir(root), name)); err == nil {
+		if _, err := os.Stat(filepath.Join(memstore.Dir(root), name)); err == nil {
 			return true
 		}
 	}
@@ -75,7 +58,7 @@ func HasBank(root string) bool {
 
 // Init ensures root's bank exists and seeds missing files (never overwrites); returns the bank dir.
 func Init(root string) (string, error) {
-	dir, err := EnsureRepoDir(root) // a new repo store needs its origin record before any file lands in it
+	dir, err := memstore.EnsureRepoDir(root) // a new repo store needs its origin record before any file lands in it
 	if err != nil {
 		return "", err
 	}
@@ -94,20 +77,11 @@ func Init(root string) (string, error) {
 // IsProjectContextTemplate reports whether root's projectContext.md still equals the scaffold
 // template — unfilled, so `memory init` should still offer its enrichment procedure.
 func IsProjectContextTemplate(root string) bool {
-	data, err := os.ReadFile(filepath.Join(Dir(root), "projectContext.md"))
+	data, err := os.ReadFile(filepath.Join(memstore.Dir(root), "projectContext.md"))
 	if err != nil {
 		return false
 	}
 	return string(data) == templates()["projectContext.md"]
-}
-
-// GitToplevel is dir's git work-tree root, "" outside a repo.
-func GitToplevel(dir string) string {
-	out, err := gitOut(dir, "rev-parse", "--show-toplevel")
-	if err != nil {
-		return ""
-	}
-	return strings.TrimSpace(out)
 }
 
 // templates seed a fresh bank's six files; `claude-code memory update` fills them from real session work.

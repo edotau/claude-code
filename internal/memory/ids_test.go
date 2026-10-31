@@ -6,13 +6,15 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/memstore"
 )
 
 // TestBlockIDsPersistAcrossEditsAndArchive: IDs are stamped once, survive a title edit, and `show` finds a block in an archive.
 func TestBlockIDsPersistAcrossEditsAndArchive(t *testing.T) {
 	isolatedConfig(t)
 	initStore(t)
-	dir := filepath.Join(StoreDir(), "repo")
+	dir := filepath.Join(memstore.StoreDir(), "repo")
 	log := filepath.Join(dir, "decisionLog.md")
 	write(t, log, "# Decision Log\n\n## 2026-10-18 — First\nbody one\n\n## 2026-10-17 — Second\nbody two\n")
 	now := time.Now()
@@ -126,7 +128,7 @@ func TestContentRefStableAcrossRunsAndResolvesViaShow(t *testing.T) {
 	isolatedConfig(t)
 	initStore(t)
 	repo := gitRepo(t, t.TempDir(), "widget")
-	dir, err := EnsureRepoDir(repo)
+	dir, err := memstore.EnsureRepoDir(repo)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -173,13 +175,13 @@ func TestContentRefStableAcrossRunsAndResolvesViaShow(t *testing.T) {
 func TestDigestInputIsRawArchiveOnly(t *testing.T) {
 	t.Parallel()
 	dir := filepath.Join(t.TempDir(), "store")
-	write(t, filepath.Join(ArchiveDir(dir), "decisionLog-2026-09.md"), "## 2026-09-01 — old\nraw body\n")
-	write(t, filepath.Join(ArchiveDir(dir), DigestFile), "# Archive digest\n- previous summary\n")
+	write(t, filepath.Join(memstore.ArchiveDir(dir), "decisionLog-2026-09.md"), "## 2026-09-01 — old\nraw body\n")
+	write(t, filepath.Join(memstore.ArchiveDir(dir), DigestFile), "# Archive digest\n- previous summary\n")
 	in, used, err := DigestInput(dir)
 	if err != nil || len(used) != 1 || !strings.Contains(in, "raw body") || strings.Contains(in, "previous summary") {
 		t.Fatalf("DigestInput = %q %v %v; want the raw file only", in, used, err)
 	}
-	write(t, filepath.Join(ArchiveDir(dir), "sessionHistory-2026-09.md"), strings.Repeat("x", digestMaxInput))
+	write(t, filepath.Join(memstore.ArchiveDir(dir), "sessionHistory-2026-09.md"), strings.Repeat("x", digestMaxInput))
 	if _, _, err := DigestInput(dir); err == nil || !strings.Contains(err.Error(), "needs-scope") {
 		t.Errorf("over-cap archive err = %v, want needs-scope", err)
 	}
@@ -259,7 +261,7 @@ func TestAssignIDsIgnoresFencedMarkers(t *testing.T) {
 // Content refs of native topics and knowledge notes (indexed whole) expand through ShowBlock.
 func TestShowBlockExpandsNativeAndKnowledgeRefs(t *testing.T) {
 	isolatedConfig1(t)
-	note := filepath.Join(HomeBankDir(), "knowledge", "wires.md")
+	note := filepath.Join(memstore.HomeBankDir(), "knowledge", "wires.md")
 	write(t, note, "---\ndescription: d\n---\n# Wires\nknowledge body zebra\n")
 	var got SearchHit
 	for _, h := range corpusBlocks(t.TempDir()) {

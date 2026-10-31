@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/paths"
 )
 
@@ -62,7 +63,7 @@ func readFile(t *testing.T, path string) string {
 func nativeStore(t *testing.T) string {
 	t.Helper()
 	tempConfig(t)
-	dir := NativeDir(t.TempDir())
+	dir := memstore.NativeDir(t.TempDir())
 	write(t, filepath.Join(dir, NativeIndexFile), testIndex)
 	for _, n := range []string{"keep-me.md", "stale-fact.md", "also-keep.md"} {
 		write(t, filepath.Join(dir, n), "---\nname: "+strings.TrimSuffix(n, ".md")+"\n---\n\nbody\n")
@@ -336,7 +337,7 @@ func TestSearchableIndexIsIndexedButNotInjected(t *testing.T) {
 // newest within the cap.
 func TestSplitNativeIndexMovesOldestUnpinnedOverflow(t *testing.T) {
 	tempConfig(t)
-	dir := NativeDir(t.TempDir())
+	dir := memstore.NativeDir(t.TempDir())
 	var b strings.Builder
 	b.WriteString("# Memory Index\n\n")
 	for i := 1; i <= 5; i++ {
@@ -373,7 +374,7 @@ func TestSplitNativeIndexMovesOldestUnpinnedOverflow(t *testing.T) {
 // when it is the oldest entry and would otherwise be first to move.
 func TestSplitNativeIndexKeepPinSurvives(t *testing.T) {
 	tempConfig(t)
-	dir := NativeDir(t.TempDir())
+	dir := memstore.NativeDir(t.TempDir())
 	index := "# Memory Index\n\n" +
 		"- [Pinned](pinned.md) — load-bearing <!-- keep -->\n" +
 		"- [Rule 2](rule-2.md) — hook\n" +
@@ -447,8 +448,8 @@ func TestNativeDupesFindsOverlappingBodies(t *testing.T) {
 // so one project's archive never collides with another's.
 func TestNativeArchiveDirIsPerProject(t *testing.T) {
 	tempConfig(t)
-	a := NativeDir(repoRoot(t, "repo-a"))
-	b := NativeDir(repoRoot(t, "repo-b"))
+	a := memstore.NativeDir(repoRoot(t, "repo-a"))
+	b := memstore.NativeDir(repoRoot(t, "repo-b"))
 	if NativeArchiveDir(a) == NativeArchiveDir(b) {
 		t.Errorf("both projects archive into %s", NativeArchiveDir(a))
 	}
@@ -465,8 +466,8 @@ func TestArchiveNativeRefusesSymlinkAndSkipsNonTopics(t *testing.T) {
 	dir := nativeStore(t)
 	write(t, filepath.Join(dir, "activeContext.md"), "# Active\n")
 	write(t, filepath.Join(dir, "custom.md"), "---\nname: custom\nharness_kind: bank\n---\nbody\n")
-	write(t, filepath.Join(dir, CatalogFile), "# catalog\n")
-	write(t, filepath.Join(dir, legacyOriginFile), "{}\n")
+	write(t, filepath.Join(dir, memstore.CatalogFile), "# catalog\n")
+	write(t, filepath.Join(dir, memstore.LegacyOriginFile), "{}\n")
 	if err := os.Symlink(filepath.Join(dir, "keep-me.md"), filepath.Join(dir, "link.md")); err != nil {
 		t.Fatal(err)
 	}
@@ -826,12 +827,12 @@ func TestRestoreNativeRefusesReservedNameEvenIfArchived(t *testing.T) {
 func TestArchiveNativeReturnsErrBankBusy(t *testing.T) {
 	shortBankWait(t)
 	dir := nativeStore(t)
-	if err := os.MkdirAll(filepath.Dir(BankLockPath()), 0o700); err != nil {
+	if err := os.MkdirAll(filepath.Dir(memstore.BankLockPath()), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	ran, err := paths.TryFileLock(BankLockPath(), 0, func() error {
+	ran, err := paths.TryFileLock(memstore.BankLockPath(), 0, func() error {
 		_, archErr := ArchiveNative(dir, []string{"stale-fact"}, true)
-		if !errors.Is(archErr, ErrBankBusy) {
+		if !errors.Is(archErr, memstore.ErrBankBusy) {
 			t.Errorf("ArchiveNative under contention = %v, want errors.Is ErrBankBusy", archErr)
 		}
 		return nil
@@ -842,7 +843,7 @@ func TestArchiveNativeReturnsErrBankBusy(t *testing.T) {
 	if !ran {
 		t.Fatal("outer TryFileLock did not acquire the lock")
 	}
-	if fileExists(BankLockPath() + ".lock") {
+	if fileExists(memstore.BankLockPath() + ".lock") {
 		t.Error("a <lock>.lock file was created; TryFileLock-style contention must not add one")
 	}
 }

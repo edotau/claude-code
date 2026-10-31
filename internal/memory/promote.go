@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/textutil"
 )
@@ -32,15 +33,17 @@ var bottomAppended = map[string]bool{"conventions.md": true}
 
 // homeBankLockPath serializes all home-bank writers (promote, archive) behind one lock file under
 // state — never beside the committed home bank.
-func homeBankLockPath() string { return filepath.Join(storeLockDir(HomeBankDir()), ".promote.lock") }
+func homeBankLockPath() string {
+	return filepath.Join(memstore.StoreLockDir(memstore.HomeBankDir()), ".promote.lock")
+}
 
 // PromoteLocalToGlobal moves settled overflow from root's local durable files into the shared home
 // bank (deduped) and prunes local back under cap. No-op when local IS the home bank.
 func PromoteLocalToGlobal(root string, now time.Time) (int, error) {
-	if IsHomeBank(root) {
+	if memstore.IsHomeBank(root) {
 		return 0, nil
 	}
-	localDir, homeDir := Dir(root), HomeBankDir()
+	localDir, homeDir := memstore.Dir(root), memstore.HomeBankDir()
 	promoted := 0
 	ran, err := paths.TryFileLock(homeBankLockPath(), 2*time.Second, func() error {
 		for name, capLines := range promoteCaps {
@@ -170,15 +173,15 @@ func Promote(root, id, to string, dryRun bool, now time.Time) (string, error) {
 // promoteBlockToHome moves one id-marked block from root's local bank into the matching home-bank
 // file, preserving its id, and settles both.
 func promoteBlockToHome(root, id string, dryRun bool, now time.Time) (string, error) {
-	dir := Dir(root)
-	if IsHomeBank(root) {
+	dir := memstore.Dir(root)
+	if memstore.IsHomeBank(root) {
 		return "", errors.New("root's bank IS the home bank — nothing to promote")
 	}
 	file, block, err := extractBlock(dir, id)
 	if err != nil {
 		return "", err
 	}
-	homePath := filepath.Join(HomeBankDir(), file)
+	homePath := filepath.Join(memstore.HomeBankDir(), file)
 	if dryRun {
 		return fmt.Sprintf("would move [%s] %s -> %s\n\n%s\n", id, filepath.Join(dir, file), homePath, block), nil
 	}
@@ -205,10 +208,10 @@ func promoteJudgment(root, id, to, target string) (string, error) {
 			"(gated: 3+ memory entries AND a hard prohibition) — route %s to rules instead: "+
 			"`memory promote %s --to rules`", id, id)
 	}
-	dir := Dir(root)
+	dir := memstore.Dir(root)
 	_, block, err := extractBlock(dir, id)
-	if err != nil && !IsHomeBank(root) {
-		_, block, err = extractBlock(HomeBankDir(), id)
+	if err != nil && !memstore.IsHomeBank(root) {
+		_, block, err = extractBlock(memstore.HomeBankDir(), id)
 	}
 	if err != nil {
 		return "", err

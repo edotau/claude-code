@@ -1,8 +1,9 @@
-package memory
+// Package memstore locates a memory store and locks it: identity, origin, paths, routing, bank lock, native links.
+package memstore
 
 // The unified store tree (plan §1): ~/.claude/memory/ is one local Git repo holding the home bank under
 // home/, every repo's memory under <repo>/ (keyed by its origin remote), and the harness's own under
-// claude-code/. HomeBankDir, Dir and NativeDir (store.go, native.go) remain the live path resolvers.
+// claude-code/. HomeBankDir, Dir and NativeDir (below) are the live path resolvers.
 
 import (
 	"path/filepath"
@@ -23,7 +24,7 @@ var StoreReservedDirs = map[string]bool{
 func StoreDir() string { return filepath.Join(paths.ConfigDir(), "memory") }
 
 // HarnessStoreDir is the harness's own memory dir inside the store; keyed by the same rule as any repo.
-func HarnessStoreDir() string { return filepath.Join(StoreDir(), harnessStoreKey()) }
+func HarnessStoreDir() string { return filepath.Join(StoreDir(), HarnessStoreKey()) }
 
 // ArchiveDir is dir's cold tier for rotated entries and prior revisions.
 func ArchiveDir(dir string) string { return filepath.Join(dir, "archive") }
@@ -45,8 +46,8 @@ func AccessStateDir() string { return filepath.Join(StateDir(), "access") }
 
 // InsideStore reports whether p resolves under the store (and not under its .git); rel is slash-separated.
 func InsideStore(p string) (rel string, ok bool) {
-	store := resolvePath(StoreDir())
-	r, err := filepath.Rel(store, resolvePath(p))
+	store := ResolvePath(StoreDir())
+	r, err := filepath.Rel(store, ResolvePath(p))
 	if err != nil || r == ".." || strings.HasPrefix(r, ".."+string(filepath.Separator)) {
 		return "", false
 	}
@@ -57,8 +58,8 @@ func InsideStore(p string) (rel string, ok bool) {
 	return rel, true
 }
 
-// resolvePath is EvalSymlinks tolerant of an absent tail: the deepest existing ancestor resolves, the rest rejoins.
-func resolvePath(p string) string {
+// ResolvePath is EvalSymlinks tolerant of an absent tail: the deepest existing ancestor resolves, the rest rejoins.
+func ResolvePath(p string) string {
 	p = filepath.Clean(p)
 	if r, err := filepath.EvalSymlinks(p); err == nil {
 		return r
@@ -67,5 +68,41 @@ func resolvePath(p string) string {
 	if parent == p {
 		return p
 	}
-	return filepath.Join(resolvePath(parent), filepath.Base(p))
+	return filepath.Join(ResolvePath(parent), filepath.Base(p))
+}
+
+// StateDir holds update stamps, results, logs and the session chain.
+func StateDir() string { return filepath.Join(paths.StateDir(), "memory") }
+
+// HomeBankDir is the shared bank: store/home.
+func HomeBankDir() string { return homeStoreDir() }
+
+// homeStoreDir is the home dir inside the store.
+func homeStoreDir() string { return filepath.Join(StoreDir(), "home") }
+
+// Dir is root's local bank; a non-repo root collapses to the home one.
+func Dir(root string) string {
+	if d, err := RepoDir(root); err == nil { // one dir per repo shared with native memory; the harness is memory/claude-code
+		return d
+	}
+	return homeStoreDir()
+}
+
+// IsHomeBank reports whether root's local bank is the home bank (read it once, not twice).
+func IsHomeBank(root string) bool { return paths.SamePath(Dir(root), HomeBankDir()) }
+
+// NativeDir is root's own native auto-memory dir, the one `memory archive` acts on.
+func NativeDir(root string) string {
+	return Dir(root)
+}
+
+// ProjectSlug mirrors Claude Code's projects/<slug> naming: every non-alphanumeric byte becomes '-'.
+func ProjectSlug(root string) string {
+	b := []byte(filepath.Clean(root))
+	for i, c := range b {
+		if ('a' > c || c > 'z') && ('A' > c || c > 'Z') && ('0' > c || c > '9') {
+			b[i] = '-'
+		}
+	}
+	return string(b)
 }

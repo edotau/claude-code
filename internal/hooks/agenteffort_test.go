@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/memory"
+	"github.com/edotau/claude-code/internal/memstore"
 )
 
 // runAgentEffort runs the hook, returning the decoded updatedInput (nil when the hook emitted
@@ -255,7 +255,7 @@ func TestAgentEffortRefusesPathShapedSubagentType(t *testing.T) {
 // real hits to rank; each block repeats the query terms plus padding so BM25 scores them close.
 func seedHomeRecallBlock(t *testing.T, n int) {
 	t.Helper()
-	if err := os.MkdirAll(memory.HomeBankDir(), 0o755); err != nil {
+	if err := os.MkdirAll(memstore.HomeBankDir(), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	var b strings.Builder
@@ -263,7 +263,7 @@ func seedHomeRecallBlock(t *testing.T, n int) {
 	for i := range n {
 		fmt.Fprintf(&b, "- deploy pipeline staging signoff rule %d %s<!-- id:%08x -->\n", i, strings.Repeat("padding ", 40), i+1)
 	}
-	if err := os.WriteFile(filepath.Join(memory.HomeBankDir(), "conventions.md"), []byte(b.String()), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(memstore.HomeBankDir(), "conventions.md"), []byte(b.String()), 0o600); err != nil {
 		t.Fatal(err)
 	}
 }

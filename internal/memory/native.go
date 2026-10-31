@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/jeduden/mdsmith/pkg/markdown"
@@ -20,29 +21,11 @@ import (
 
 // NativeDirs lists Claude Code's auto-memory dirs recall searches: the harness's own (user-wide facts), then root's.
 func NativeDirs(root string) []string {
-	out := []string{homeStoreDir()} // native shares the repo's store dir; the home tier holds the user-wide notes
-	if d := Dir(root); !slices.Contains(out, d) {
+	out := []string{memstore.HomeBankDir()} // native shares the repo's store dir; the home tier holds the user-wide notes
+	if d := memstore.Dir(root); !slices.Contains(out, d) {
 		out = append(out, d)
 	}
 	return out
-}
-
-// NativeDir is root's own native auto-memory dir — the one `memory archive` acts on, as opposed to
-// NativeDirs' extra fallback entries (the harness's own notes, a non-toplevel subdir's parent) that
-// search reads but archive must not touch.
-func NativeDir(root string) string {
-	return Dir(root)
-}
-
-// ProjectSlug mirrors Claude Code's projects/<slug> naming: every non-alphanumeric byte becomes '-'.
-func ProjectSlug(root string) string {
-	b := []byte(filepath.Clean(root))
-	for i, c := range b {
-		if ('a' > c || c > 'z') && ('A' > c || c > 'Z') && ('0' > c || c > '9') {
-			b[i] = '-'
-		}
-	}
-	return string(b)
 }
 
 // Native auto-memory's MEMORY.md is injected EVERY session, so its size is a per-turn cost. SEARCHABLE.md
@@ -125,8 +108,8 @@ type nativeBatch struct {
 }
 
 func newNativeBatch(dir string) *nativeBatch {
-	if rel, ok := InsideStore(dir); ok {
-		return &nativeBatch{base: StoreDir(), prefix: filepath.FromSlash(rel), inStore: true}
+	if rel, ok := memstore.InsideStore(dir); ok {
+		return &nativeBatch{base: memstore.StoreDir(), prefix: filepath.FromSlash(rel), inStore: true}
 	}
 	return &nativeBatch{base: dir}
 }
@@ -309,7 +292,7 @@ func ArchiveNative(dir string, names []string, apply bool) (NativeResult, error)
 		res.Archived = todo
 		return res, nil
 	}
-	err := WithBankLock(BankLockWait, func() error { return archiveNativeLocked(dir, todo, &res) })
+	err := memstore.WithBankLock(memstore.BankLockWait, func() error { return archiveNativeLocked(dir, todo, &res) })
 	return res, err
 }
 
@@ -600,7 +583,7 @@ func RestoreNative(dir string, names []string, apply bool) (NativeResult, error)
 		res.Restored = todo
 		return res, nil
 	}
-	err := WithBankLock(BankLockWait, func() error { return restoreNativeLocked(dir, todo, &res) })
+	err := memstore.WithBankLock(memstore.BankLockWait, func() error { return restoreNativeLocked(dir, todo, &res) })
 	return res, err
 }
 
@@ -686,7 +669,7 @@ func liveCollision(dst string, archived []byte) (bool, error) {
 // Returns the number of lines moved. apply is the caller's job — this always writes when there is work.
 func SplitNativeIndex(dir string, keepLines int) (int, error) {
 	var moved int
-	err := WithBankLock(BankLockWait, func() (err error) {
+	err := memstore.WithBankLock(memstore.BankLockWait, func() (err error) {
 		moved, err = splitNativeIndexLocked(dir, keepLines)
 		return err
 	})

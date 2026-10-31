@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/memstore"
 )
 
 // decisionLogOver writes n decisionLog.md entries (newest-first), each carrying enough distinct
@@ -24,7 +26,7 @@ func decisionLogOver(t *testing.T, path string, n int) {
 func TestPromoteLocalToGlobalMovesOverflow(t *testing.T) {
 	tempConfig(t)
 	root := repoRoot(t, "proj")
-	local := Dir(root)
+	local := memstore.Dir(root)
 	decisionLogOver(t, filepath.Join(local, "decisionLog.md"), 80)
 
 	n, err := PromoteLocalToGlobal(root, time.Now())
@@ -35,7 +37,7 @@ func TestPromoteLocalToGlobalMovesOverflow(t *testing.T) {
 	if lineCount(string(kept)) > FileCaps["decisionLog.md"] {
 		t.Errorf("local decisionLog still over cap: %d lines", lineCount(string(kept)))
 	}
-	global, err := os.ReadFile(filepath.Join(HomeBankDir(), "decisionLog.md"))
+	global, err := os.ReadFile(filepath.Join(memstore.HomeBankDir(), "decisionLog.md"))
 	if err != nil || !strings.Contains(string(global), "decision 01") {
 		t.Errorf("oldest entry did not land in the global bank: %v %q", err, global)
 	}
@@ -48,7 +50,7 @@ func TestPromoteLocalToGlobalMovesOverflow(t *testing.T) {
 func TestPromoteRefusesCredentialShapedOverflow(t *testing.T) {
 	tempConfig(t)
 	root := repoRoot(t, "proj")
-	local := Dir(root)
+	local := memstore.Dir(root)
 	decisionLogOver(t, filepath.Join(local, "decisionLog.md"), 80)
 	// Plant a credential-shaped value in what will be the OLDEST (overflowing) block.
 	data, _ := os.ReadFile(filepath.Join(local, "decisionLog.md"))
@@ -58,19 +60,19 @@ func TestPromoteRefusesCredentialShapedOverflow(t *testing.T) {
 	if _, err := PromoteLocalToGlobal(root, time.Now()); err == nil || !strings.Contains(err.Error(), "credential") {
 		t.Fatalf("want a credential refusal, got %v", err)
 	}
-	if _, err := os.ReadFile(filepath.Join(HomeBankDir(), "decisionLog.md")); err == nil {
+	if _, err := os.ReadFile(filepath.Join(memstore.HomeBankDir(), "decisionLog.md")); err == nil {
 		t.Error("a refused promote must not have written anything to the global bank")
 	}
 }
 
 func TestDoctorFlagsOversizedAndStale(t *testing.T) {
 	tempConfig(t)
-	decisionLogOver(t, filepath.Join(HomeBankDir(), "decisionLog.md"), 80)
+	decisionLogOver(t, filepath.Join(memstore.HomeBankDir(), "decisionLog.md"), 80)
 	old := time.Now().AddDate(0, 0, -(DefaultStaleDays + 1))
-	if err := os.Chtimes(filepath.Join(HomeBankDir(), "decisionLog.md"), old, old); err != nil {
+	if err := os.Chtimes(filepath.Join(memstore.HomeBankDir(), "decisionLog.md"), old, old); err != nil {
 		t.Fatal(err)
 	}
-	problems := Doctor(HomeBankDir(), DefaultStaleDays, time.Now())
+	problems := Doctor(memstore.HomeBankDir(), DefaultStaleDays, time.Now())
 	joined := strings.Join(problems, "\n")
 	if !strings.Contains(joined, "decisionLog.md: over") {
 		t.Errorf("want an over-cap finding, got %v", problems)
@@ -82,8 +84,8 @@ func TestDoctorFlagsOversizedAndStale(t *testing.T) {
 
 func TestDoctorFlagsCredentialShapedValue(t *testing.T) {
 	tempConfig(t)
-	write(t, filepath.Join(HomeBankDir(), "conventions.md"), "# C\n\n- token AKIAABCDEFGHIJKLMNOP in here\n")
-	problems := Doctor(HomeBankDir(), DefaultStaleDays, time.Now())
+	write(t, filepath.Join(memstore.HomeBankDir(), "conventions.md"), "# C\n\n- token AKIAABCDEFGHIJKLMNOP in here\n")
+	problems := Doctor(memstore.HomeBankDir(), DefaultStaleDays, time.Now())
 	if !strings.Contains(strings.Join(problems, "\n"), "possible credential") {
 		t.Errorf("want a credential finding, got %v", problems)
 	}
@@ -91,20 +93,20 @@ func TestDoctorFlagsCredentialShapedValue(t *testing.T) {
 
 func TestWriteDoctorNoticeCachesFirstProblem(t *testing.T) {
 	tempConfig(t)
-	decisionLogOver(t, filepath.Join(HomeBankDir(), "decisionLog.md"), 80)
-	if err := WriteDoctorNotice(HomeBankDir(), DefaultStaleDays, time.Now()); err != nil {
+	decisionLogOver(t, filepath.Join(memstore.HomeBankDir(), "decisionLog.md"), 80)
+	if err := WriteDoctorNotice(memstore.HomeBankDir(), DefaultStaleDays, time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	notice := mustRead(t, DoctorNoticePath(HomeBankDir()))
+	notice := mustRead(t, DoctorNoticePath(memstore.HomeBankDir()))
 	if !strings.Contains(notice, "decisionLog.md: over") {
 		t.Errorf("notice %q", notice)
 	}
 	// A clean bank caches an EMPTY notice — distinct from no file at all.
-	write(t, filepath.Join(HomeBankDir(), "decisionLog.md"), "# D\n")
-	if err := WriteDoctorNotice(HomeBankDir(), DefaultStaleDays, time.Now()); err != nil {
+	write(t, filepath.Join(memstore.HomeBankDir(), "decisionLog.md"), "# D\n")
+	if err := WriteDoctorNotice(memstore.HomeBankDir(), DefaultStaleDays, time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	if notice := mustRead(t, DoctorNoticePath(HomeBankDir())); notice != "" {
+	if notice := mustRead(t, DoctorNoticePath(memstore.HomeBankDir())); notice != "" {
 		t.Errorf("want an empty cached notice, got %q", notice)
 	}
 }
@@ -144,7 +146,7 @@ func TestLogAccessRedactsCredentialShapedReason(t *testing.T) {
 func TestAccessNominationsHotAndCold(t *testing.T) {
 	tempConfig(t)
 	now := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
-	dir := HomeBankDir()
+	dir := memstore.HomeBankDir()
 	for d := range 5 {
 		LogAccess(dir, now.AddDate(0, 0, -d), "aa11bb22", AccessRecall)
 	}
@@ -166,7 +168,7 @@ func TestCollectBankStatsAndTimeline(t *testing.T) {
 	root := repoRoot(t, "proj")
 	_ = WriteUpdateResult("s1", UpdateResult{Status: UpdateOK, Time: time.Now(), BankUpdated: true})
 	_ = WriteUpdateResult("s2", UpdateResult{Status: UpdateFailed, Time: time.Now()})
-	write(t, filepath.Join(Dir(root), "sessionHistory.md"), "# H\n\n## 2026-01-02 — did work\n")
+	write(t, filepath.Join(memstore.Dir(root), "sessionHistory.md"), "# H\n\n## 2026-01-02 — did work\n")
 
 	s := CollectBankStats()
 	if s.Updates != 2 || s.OK != 1 || s.Failed != 1 || s.BankUpdated != 1 {
@@ -193,7 +195,7 @@ func TestDoctorFlagsLocalBankOverCap(t *testing.T) {
 	if _, err := Init(root); err != nil {
 		t.Fatal(err)
 	}
-	decisionLogOver(t, filepath.Join(Dir(root), "decisionLog.md"), 80)
+	decisionLogOver(t, filepath.Join(memstore.Dir(root), "decisionLog.md"), 80)
 	joined := strings.Join(Doctor(root, DefaultStaleDays, time.Now()), "\n")
 	if !strings.Contains(joined, "local decisionLog.md: over") {
 		t.Errorf("want a local over-cap finding, got %q", joined)

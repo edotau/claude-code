@@ -12,6 +12,7 @@ import (
 
 	"go.etcd.io/bbolt"
 
+	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
@@ -45,7 +46,7 @@ func backdate(t *testing.T, age time.Duration) embedCacheFile {
 func TestEmbedLeaseEndToEnd(t *testing.T) {
 	isolatedConfig1(t)
 	root := t.TempDir()
-	write(t, filepath.Join(HomeBankDir(), "decisionLog.md"),
+	write(t, filepath.Join(memstore.HomeBankDir(), "decisionLog.md"),
 		"# D\n\n## 2026-10-01 — gamma <!-- id:aaaa0001 -->\n\nb1\n\n## 2026-10-02 — delta <!-- id:aaaa0002 -->\n\nb2\n")
 	ctx := context.Background()
 	var calls int
@@ -72,7 +73,7 @@ func TestEmbedLeaseEndToEnd(t *testing.T) {
 		t.Fatalf("59m old record must be valid: %v", err)
 	}
 	old := backdate(t, embedValidity+time.Second)
-	write(t, filepath.Join(HomeBankDir(), "decisionLog.md"),
+	write(t, filepath.Join(memstore.HomeBankDir(), "decisionLog.md"),
 		"# D\n\n## 2026-10-01 — gamma <!-- id:aaaa0001 -->\n\nb1\n\n## 2026-10-02 — delta <!-- id:aaaa0002 -->\n\nb2\n\n## 2026-10-03 — eps <!-- id:aaaa0003 -->\n\nb3\n")
 	before := calls
 	if n, _, err = EmbedEntries(ctx, root, c); err != nil || n != 1 || calls != before+1 {
@@ -148,7 +149,7 @@ func TestEmbedLeaseEndToEnd(t *testing.T) {
 func leaseFixture(t *testing.T) string {
 	t.Helper()
 	isolatedConfig1(t)
-	write(t, filepath.Join(HomeBankDir(), "decisionLog.md"), "# D\n\n## 2026-10-01 — gamma <!-- id:aaaa0001 -->\n\nb1\n")
+	write(t, filepath.Join(memstore.HomeBankDir(), "decisionLog.md"), "# D\n\n## 2026-10-01 — gamma <!-- id:aaaa0001 -->\n\nb1\n")
 	return t.TempDir()
 }
 
@@ -355,7 +356,7 @@ func TestNewSemanticSuccessKeepsFreshBackoffMarker(t *testing.T) {
 	if err := saveEmbedCache("fake", f); err != nil {
 		t.Fatal(err)
 	}
-	marker := filepath.Join(StateDir(), embedCachePre+"fake.backoff")
+	marker := filepath.Join(memstore.StateDir(), embedCachePre+"fake.backoff")
 	write(t, marker, "")
 	stale := time.Now().Add(-2 * embedBackoff)
 	if err := os.Chtimes(marker, stale, stale); err != nil {

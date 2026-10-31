@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/memstore"
 )
 
 // TestBuildBankRegionCapsAndPresentPointersOnly: the region never exceeds its line/byte reserve, points
@@ -118,11 +120,11 @@ func TestBuildCatalogListsRepoRowsAndCapsGlobal(t *testing.T) {
 	isolatedConfig1(t)
 	a := gitRepo(t, t.TempDir(), "alpha")
 	b := gitRepo(t, t.TempDir(), "beta")
-	da, err := EnsureRepoDir(a)
+	da, err := memstore.EnsureRepoDir(a)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := EnsureRepoDir(b); err != nil {
+	if _, err := memstore.EnsureRepoDir(b); err != nil {
 		t.Fatal(err)
 	}
 	write(t, filepath.Join(da, "projectContext.md"), "# Project\n\nalpha project, routes ssh deploys\n")
@@ -132,7 +134,7 @@ func TestBuildCatalogListsRepoRowsAndCapsGlobal(t *testing.T) {
 	for i := 1; i <= 15; i++ {
 		fmt.Fprintf(&conv, "- rule %d\n", i)
 	}
-	write(t, filepath.Join(HomeBankDir(), "conventions.md"), conv.String())
+	write(t, filepath.Join(memstore.HomeBankDir(), "conventions.md"), conv.String())
 
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	catalog, err := BuildCatalog(now)

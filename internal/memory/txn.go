@@ -20,6 +20,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/schemas"
 )
@@ -104,7 +105,7 @@ func commitChangesLocked(subject string, changes []Change) (Receipt, error) {
 
 // recoverJournals finishes every unfinished journal, oldest first, each as its own commit.
 func recoverJournals() error {
-	files, _ := filepath.Glob(filepath.Join(JournalDir(), "*.json"))
+	files, _ := filepath.Glob(filepath.Join(memstore.JournalDir(), "*.json"))
 	sort.Strings(files)
 	for _, f := range files {
 		data, err := os.ReadFile(f)
@@ -160,7 +161,7 @@ func newJournal(repo Repo, subject string, changes []Change) (*journal, error) {
 	return j, nil
 }
 
-func (j *journal) path() string { return filepath.Join(JournalDir(), j.ID+".json") }
+func (j *journal) path() string { return filepath.Join(memstore.JournalDir(), j.ID+".json") }
 
 // save writes the journal atomically under state; it is never committed.
 func (j *journal) save() error {
@@ -168,7 +169,7 @@ func (j *journal) save() error {
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(JournalDir(), 0o700); err != nil {
+	if err := os.MkdirAll(memstore.JournalDir(), 0o700); err != nil {
 		return err
 	}
 	return paths.AtomicWrite(j.path(), data, 0o600)
@@ -393,7 +394,7 @@ const journalSchema = 1
 
 var journalFormat = schemas.Register(schemas.Format{
 	Name: "memory-journal", Owner: "internal/memory", Kind: schemas.Record, Version: journalSchema,
-	Glob:    func() string { return filepath.Join(JournalDir(), "*.json") },
+	Glob:    func() string { return filepath.Join(memstore.JournalDir(), "*.json") },
 	New:     func() any { return new(journal) },
 	Keep:    "a pending journal is replayed by the next commit; a newer one is never replayed",
 	Migrate: schemas.SameShape,

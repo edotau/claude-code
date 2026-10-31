@@ -1,4 +1,4 @@
-package memory
+package memstore
 
 import (
 	"crypto/sha256"
@@ -19,7 +19,7 @@ type Identity struct {
 	Origin   string // canonical main checkout ("" when HomeBank)
 	Base     string // filepath.Base(Origin)
 	HomeBank bool   // non-repo cwd → memory/home/ (home tier)
-	Harness  bool   // the config checkout itself → Key harnessStoreKey()
+	Harness  bool   // the config checkout itself → Key HarnessStoreKey()
 }
 
 // identities memoizes the git fork per cleaned root: a flip mid-process would split a store.
@@ -36,7 +36,7 @@ func Resolve(root string) Identity {
 	}
 	origin, ok := identities.Load(root)
 	if !ok {
-		origin = mainCheckout(root)
+		origin = MainCheckout(root)
 		if origin == "" {
 			origin = workspaceOrigin(root)
 		}
@@ -55,16 +55,16 @@ func Resolve(root string) Identity {
 // storeIdentity maps a cwd inside the store to the repo a store dir describes, the store top to HomeBank; else ok=false.
 // Without it the store's own git repo resolves as a project named "memory".
 func storeIdentity(root string) (Identity, bool) {
-	canon, store := resolvePath(root), resolvePath(StoreDir())
+	canon, store := ResolvePath(root), ResolvePath(StoreDir())
 	if !within(canon, store) {
 		return Identity{}, false
 	}
-	if within(canon, resolvePath(HarnessStoreDir())) {
+	if within(canon, ResolvePath(HarnessStoreDir())) {
 		return harnessIdentity(), true
 	}
 	entries, _ := RepoDirs()
 	for _, e := range entries {
-		if o := e.Origin.Origin; o != "" && within(canon, resolvePath(e.Dir)) {
+		if o := e.Origin.Origin; o != "" && within(canon, ResolvePath(e.Dir)) {
 			if paths.SamePath(o, paths.ConfigDir()) {
 				return harnessIdentity(), true
 			}
@@ -80,7 +80,7 @@ func within(p, dir string) bool {
 
 // workspaceOrigin is the pinned non-git workspace (a store whose origin names root or an ancestor of it), or "".
 func workspaceOrigin(root string) string {
-	canon := resolvePath(root)
+	canon := ResolvePath(root)
 	entries, err := RepoDirs()
 	if err != nil {
 		return ""
@@ -97,13 +97,13 @@ func workspaceOrigin(root string) string {
 }
 
 func harnessIdentity() Identity {
-	o := resolvePath(paths.ConfigDir())
+	o := ResolvePath(paths.ConfigDir())
 	return Identity{Origin: o, Base: filepath.Base(o), Harness: true}
 }
 
-// harnessStoreKey is the store key for paths.ConfigDir() itself: the same origin-remote rule as any
+// HarnessStoreKey is the store key for paths.ConfigDir() itself: the same origin-remote rule as any
 // other repo, else its basename — the harness is not special-cased for its key (spec §2).
-func harnessStoreKey() string {
+func HarnessStoreKey() string {
 	cfg := paths.ConfigDir()
 	if rb := repoKeyFromRemote(originRemoteURL(cfg)); rb != "" {
 		return rb
@@ -111,10 +111,10 @@ func harnessStoreKey() string {
 	return filepath.Base(cfg)
 }
 
-// mainCheckout is root's canonical main checkout via git (a linked worktree's common dir is <main>/.git),
+// MainCheckout is root's canonical main checkout via git (a linked worktree's common dir is <main>/.git),
 // or "" outside a work tree.
-func mainCheckout(root string) string {
-	out, err := gitOut(root, "rev-parse", "--path-format=absolute", "--show-toplevel", "--git-common-dir")
+func MainCheckout(root string) string {
+	out, err := GitOut(root, "rev-parse", "--path-format=absolute", "--show-toplevel", "--git-common-dir")
 	if err != nil {
 		return ""
 	}
@@ -124,9 +124,9 @@ func mainCheckout(root string) string {
 	}
 	top, common := filepath.Clean(lines[0]), filepath.Clean(lines[1])
 	if filepath.Base(common) == ".git" {
-		return resolvePath(filepath.Dir(common))
+		return ResolvePath(filepath.Dir(common))
 	}
-	return resolvePath(top)
+	return ResolvePath(top)
 }
 
 // RepoDir is root's store directory, read-only: it never creates anything (EnsureRepoDir does).
@@ -142,7 +142,7 @@ func RepoDir(root string) (string, error) {
 	case id.Harness:
 		return HarnessStoreDir(), nil
 	}
-	if e := findEntry(entries, id.Origin); e != nil {
+	if e := FindEntry(entries, id.Origin); e != nil {
 		return e.Dir, nil
 	}
 	base := id.Base
@@ -156,8 +156,8 @@ func RepoDir(root string) (string, error) {
 	return filepath.Join(StoreDir(), key), nil
 }
 
-// findEntry is the entry whose Origin or an explicit alias names origin, or nil.
-func findEntry(entries []RepoEntry, origin string) *RepoEntry {
+// FindEntry is the entry whose Origin or an explicit alias names origin, or nil.
+func FindEntry(entries []RepoEntry, origin string) *RepoEntry {
 	for i := range entries {
 		if entries[i].Origin.Accepts(origin) {
 			return &entries[i]
@@ -183,7 +183,7 @@ func (o Origin) Accepts(origin string) bool {
 // entry (a dir without a valid origin record is never claimed — extend the hash instead of clobbering).
 func takenKeys(entries []RepoEntry) func(string) (Origin, bool) {
 	return func(key string) (Origin, bool) {
-		if key == harnessStoreKey() || StoreReservedDirs[key] {
+		if key == HarnessStoreKey() || StoreReservedDirs[key] {
 			return Origin{}, true
 		}
 		for _, e := range entries {
@@ -206,7 +206,7 @@ func originRemoteURL(checkout string) string {
 	if v, ok := remoteCache.Load(checkout); ok {
 		return v.(string)
 	}
-	out, err := gitOut(checkout, "remote", "get-url", "origin")
+	out, err := GitOut(checkout, "remote", "get-url", "origin")
 	if err != nil {
 		out = ""
 	}
@@ -304,11 +304,11 @@ func AddOriginAlias(dir, origin string) error {
 		if err != nil {
 			return err
 		}
-		if e := findEntry(entries, origin); e != nil && !paths.SamePath(e.Dir, dir) {
+		if e := FindEntry(entries, origin); e != nil && !paths.SamePath(e.Dir, dir) {
 			return errors.Join(ErrOriginConflict, errors.New(origin+" already belongs to "+e.Dir))
 		}
 		cur.Aliases = append(slices.Clone(cur.Aliases), origin)
-		return foldOrigin(dir, cur, "")
+		return FoldOrigin(dir, cur, "")
 	})
 }
 

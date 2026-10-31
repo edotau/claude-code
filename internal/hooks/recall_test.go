@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/memory"
+	"github.com/edotau/claude-code/internal/memstore"
 )
 
 func recall(t *testing.T, prompt, cwd string) string {
@@ -42,10 +43,10 @@ func TestMemoryRecall(t *testing.T) {
 	cwd := t.TempDir()
 	long := strings.Repeat("alpha bravo charlie delta padding ", 40)
 	body := "# Conventions\n\n- alpha bravo charlie delta strong match " + long + "\n- alpha weak\n- unrelated rule entirely\n"
-	if err := os.MkdirAll(memory.HomeBankDir(), 0o755); err != nil {
+	if err := os.MkdirAll(memstore.HomeBankDir(), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(memory.HomeBankDir(), "conventions.md"), []byte(body), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(memstore.HomeBankDir(), "conventions.md"), []byte(body), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	for _, p := range []string{"", "/compact alpha bravo charlie delta", "alpha bravo charlie", "zzz yyy xxx www vvv"} {
@@ -74,10 +75,10 @@ func TestMemoryRecallSkipsWhatIsInContext(t *testing.T) {
 		"activeContext.md": "# Active\n\n## Current Focus\n\n- alpha bravo charlie delta already in context\n",
 		"conventions.md":   "# C\n\n- alpha bravo charlie delta echo fresh\n- echo only one shared term\n",
 	} {
-		if err := os.MkdirAll(memory.HomeBankDir(), 0o755); err != nil {
+		if err := os.MkdirAll(memstore.HomeBankDir(), 0o755); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(filepath.Join(memory.HomeBankDir(), name), []byte(body), 0o600); err != nil {
+		if err := os.WriteFile(filepath.Join(memstore.HomeBankDir(), name), []byte(body), 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -113,10 +114,10 @@ func TestMemoryRecallHandlesCwdGracefully(t *testing.T) {
 	for name, body := range map[string]string{
 		"conventions.md": "# C\n\n- alpha bravo charlie delta strong\n",
 	} {
-		if err := os.MkdirAll(memory.HomeBankDir(), 0o755); err != nil {
+		if err := os.MkdirAll(memstore.HomeBankDir(), 0o755); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(filepath.Join(memory.HomeBankDir(), name), []byte(body), 0o600); err != nil {
+		if err := os.WriteFile(filepath.Join(memstore.HomeBankDir(), name), []byte(body), 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}

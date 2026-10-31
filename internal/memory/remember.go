@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/paths"
 )
 
@@ -31,7 +32,7 @@ func Remember(root, kind, fact string, now time.Time) (string, error) {
 	if fact == "" {
 		return "", errors.New("empty fact")
 	}
-	dir := Dir(root)
+	dir := memstore.Dir(root)
 	path := filepath.Join(dir, file)
 	var line string
 	var writeErr error

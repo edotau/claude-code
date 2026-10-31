@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/memstore"
 )
 
 // TestRememberUnknownTypeErrors: an unmapped --type is refused, naming the valid set.
@@ -40,7 +42,7 @@ func TestRememberProjectTypeWritesDatedDecisionLogEntryAtTop(t *testing.T) {
 	if id == "" {
 		t.Fatal("Remember returned an empty id")
 	}
-	data, err := os.ReadFile(filepath.Join(Dir(root), "decisionLog.md"))
+	data, err := os.ReadFile(filepath.Join(memstore.Dir(root), "decisionLog.md"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,7 +58,7 @@ func TestRememberProjectTypeWritesDatedDecisionLogEntryAtTop(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	data, _ = os.ReadFile(filepath.Join(Dir(root), "decisionLog.md"))
+	data, _ = os.ReadFile(filepath.Join(memstore.Dir(root), "decisionLog.md"))
 	first := strings.Index(string(data), id2)
 	second := strings.Index(string(data), id)
 	if first == -1 || second == -1 || first > second {
@@ -75,7 +77,7 @@ func TestRememberNonProjectTypesWriteConventionsBullet(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Remember(%s): %v", kind, err)
 			}
-			data, err := os.ReadFile(filepath.Join(Dir(root), "conventions.md"))
+			data, err := os.ReadFile(filepath.Join(memstore.Dir(root), "conventions.md"))
 			if err != nil {
 				t.Fatal(err)
 			}

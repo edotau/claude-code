@@ -7,6 +7,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent/preflight"
 	"github.com/edotau/claude-code/internal/memory"
+	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 )
@@ -17,7 +18,7 @@ var spawnUpdate = func(transcriptPath, cwd, sessionID string) bool {
 	if err != nil {
 		return false
 	}
-	logPath := filepath.Join(memory.StateDir(), "update-"+time.Now().Format("20060102-150405")+".log")
+	logPath := filepath.Join(memstore.StateDir(), "update-"+time.Now().Format("20060102-150405")+".log")
 	if os.MkdirAll(filepath.Dir(logPath), 0o700) != nil {
 		return false
 	}
@@ -63,7 +64,7 @@ var spawnDream = func(cwd string) bool {
 	if err != nil {
 		return false
 	}
-	logPath := filepath.Join(memory.StateDir(), "dream-"+time.Now().Format("20060102-150405")+".log")
+	logPath := filepath.Join(memstore.StateDir(), "dream-"+time.Now().Format("20060102-150405")+".log")
 	if os.MkdirAll(filepath.Dir(logPath), 0o700) != nil {
 		return false
 	}

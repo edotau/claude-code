@@ -7,6 +7,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/paths"
 )
 
@@ -115,7 +116,7 @@ func writeRecallIndex(path string, stamp exeStamp, m map[fileKey]indexed) error 
 
 func loadSegments(files []corpusFile, persist bool) []segView {
 	stamp, ok := currentExeStamp()
-	path := filepath.Join(StateDir(), recallIndexFile)
+	path := filepath.Join(memstore.StateDir(), recallIndexFile)
 	var index map[fileKey]indexed
 	if ok {
 		index = readRecallIndex(path, stamp)

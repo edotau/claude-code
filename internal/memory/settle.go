@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/paths"
 )
 
@@ -63,7 +64,7 @@ func RotateSessionHistory(dir string, now time.Time) (int, error) {
 
 // lockPath serializes bank writers (the update worker's headless pass, then its settle); the
 // physical lock lives under state, namespaced per store key — never beside the committed bank.
-func lockPath(dir string) string { return filepath.Join(storeLockDir(dir), ".postupdate") }
+func lockPath(dir string) string { return filepath.Join(memstore.StoreLockDir(dir), ".postupdate") }
 
 // BankSettlement counts what one settle pass moved — rotation, promotion, archiving, and whether
 // the index was refreshed. A single "moved" number would hide rotation and index refreshes entirely.

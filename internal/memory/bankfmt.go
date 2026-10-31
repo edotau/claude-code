@@ -10,6 +10,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/paths"
 )
 
@@ -30,8 +31,8 @@ var bankFmtTargetDirs = []string{"archive", "handoffs", "reports"}
 
 // BankFmtTargets lists every markdown file FormatBank formats, across every repo store and home/.
 func BankFmtTargets() ([]string, error) {
-	dirs := []string{HomeBankDir()}
-	entries, err := RepoDirs()
+	dirs := []string{memstore.HomeBankDir()}
+	entries, err := memstore.RepoDirs()
 	if err != nil {
 		return nil, err
 	}

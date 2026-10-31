@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/memory"
+	"github.com/edotau/claude-code/internal/memstore"
 )
 
 func stubWatcher(t *testing.T, ok bool) *[][]string {
@@ -140,7 +141,7 @@ func TestSessionUpdateSpawnsOneIdleWatcherPerSession(t *testing.T) {
 	if got := strings.Join((*watches)[0], " "); !strings.HasPrefix(got, "--session s1 --transcript "+tr+" --cwd "+cwd+" --owner ") {
 		t.Errorf("watcher argv = %q", got)
 	}
-	if _, err := os.Stat(filepath.Join(memory.StateDir(), "watch-s1")); err != nil {
+	if _, err := os.Stat(filepath.Join(memstore.StateDir(), "watch-s1")); err != nil {
 		t.Error("the per-session claim file must exist after the spawn")
 	}
 
@@ -154,7 +155,7 @@ func TestSessionUpdateSpawnsOneIdleWatcherPerSession(t *testing.T) {
 	if len(*failed) != 2 {
 		t.Errorf("a failed watcher spawn must be retried on the next dispatch (got %d)", len(*failed))
 	}
-	if _, err := os.Stat(filepath.Join(memory.StateDir(), "watch-s1")); err == nil {
+	if _, err := os.Stat(filepath.Join(memstore.StateDir(), "watch-s1")); err == nil {
 		t.Error("a failed spawn must release its claim file")
 	}
 }

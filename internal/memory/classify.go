@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/edotau/claude-code/internal/memstore"
 )
 
 // FileKind classifies one entry of a memory dir; only KindTopic may be archived, restored or re-pointed.
@@ -49,7 +51,7 @@ func reservedNameKinds() map[string]FileKind {
 		NativeIndexFile:        KindNativeIndex,
 		NativeSearchableFile:   KindSearchable,
 		NativeArchiveIndexFile: KindArchiveIndex,
-		CatalogFile:            KindCatalog,
+		memstore.CatalogFile:   KindCatalog,
 	}
 	for _, name := range bankFiles {
 		out[name] = KindBank
