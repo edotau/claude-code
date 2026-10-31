@@ -51,6 +51,7 @@
   .bar { height: 6px; background: #40404055; border-radius: 3px; margin: 0.35rem 0 0.2rem; overflow: hidden; }
   .bar > span { display: block; height: 100%; background: #8ae234; }
   .plan-row { cursor: pointer; }
+  .plan-row + #planSection { margin: 0 0 0.6rem 0.4rem; padding-left: 0.6rem; border-left: 2px solid #E95420; }
   .task { margin: 0.25rem 0; }
   .task code { background: #371430; padding: 0 0.3rem; border-radius: 4px; cursor: pointer; }
   #planMd { white-space: pre-wrap; font-family: ui-monospace, monospace; font-size: 0.78rem; max-height: 50vh; overflow: auto; margin: 0.4rem 0 0; }
@@ -476,6 +477,7 @@ function el(tag, cls, text) {
 function renderPlans(list) {
   plansList = list || [];
   const box = document.getElementById('plansList');
+  document.getElementById('plansPane').appendChild(document.getElementById('planSection')); // keep it across the rebuild
   box.textContent = '';
   if (!plansList.length) { box.appendChild(el('p', 'muted', 'no plans')); return; }
   const byRepo = new Map();
@@ -484,6 +486,7 @@ function renderPlans(list) {
     box.appendChild(el('h2', null, repo));
     byRepo.get(repo).forEach(function (p) {
       const card = el('div', 'card plan-row');
+      card.dataset.path = p.path;
       const row = el('div', 'row');
       row.appendChild(el('strong', null, p.path.split('/').pop()));
       const note = p.ticked + '/' + p.total + (p.claims.length ? ' · ' + p.claims.length + ' claimed' : '');
@@ -494,7 +497,7 @@ function renderPlans(list) {
       fill.style.width = (p.total ? Math.round(100 * p.ticked / p.total) : 0) + '%';
       bar.appendChild(fill);
       card.appendChild(bar);
-      card.addEventListener('click', function () { showPlan(p.path); });
+      card.addEventListener('click', function () { if (openPlan === p.path) closePlan(); else showPlan(p.path); });
       box.appendChild(card);
     });
   });
@@ -521,8 +524,12 @@ function renderPlanDetail(d) {
 }
 
 function showPlan(path) {
+  if (openPlan !== path) document.getElementById('planDetail').textContent = '';
   openPlan = path;
-  document.getElementById('planSection').style.display = '';
+  const section = document.getElementById('planSection');
+  const card = Array.from(document.querySelectorAll('.plan-row')).find(function (c) { return c.dataset.path === path; });
+  if (card) card.after(section);
+  section.style.display = '';
   fetch('/api/plan?path=' + encodeURIComponent(path))
     .then(function (r) { if (!r.ok) return r.text().then(function (t) { throw new Error(t); }); return r.json(); })
     .then(function (d) { if (openPlan === path) renderPlanDetail(d); })
@@ -533,10 +540,11 @@ function showPlan(path) {
     });
 }
 
-document.getElementById('planCloseBtn').addEventListener('click', function () {
+function closePlan() {
   openPlan = null;
   document.getElementById('planSection').style.display = 'none';
-});
+}
+document.getElementById('planCloseBtn').addEventListener('click', closePlan);
 
 // Usage tab: the vscode extension's CommonJS modules (served from /assets/usage/) behind a minimal require shim.
 const USAGE_MODULES = ['format', 'pricing', 'usage-model', 'usage-view'];
