@@ -107,7 +107,7 @@ var rosterRows = []Schema{
 		ProfilePin: providers.PinCopilotProfile, ModelPin: providers.PinCopilotModel, ActivePin: providers.PinCopilotActive,
 		MinVersion: copilotsdk.MinMultiProviderCLI, MinReason: "named-provider model registry needs it",
 		Caps: Caps{Model: Native, Provider: Native, Effort: Native, WorkDir: Native, SessionID: Native,
-			Tools: Native, Autonomous: Native, Memory: Native, Direct: Native, Env: Native,
+			Tools: Native, ReadOnly: Native, Autonomous: Native, Memory: Native, Direct: Native, Env: Native,
 			SystemPrompt: Emulated, AppendSystemPrompt: Emulated, OutputSchema: Emulated, Persona: Emulated},
 		Events:       []string{EventStart, EventText, EventResult, EventError},
 		ResumeFormat: "copilot --resume %s", ModelsProvider: "github", ReadNeedsTools: true,

@@ -32,6 +32,7 @@ type RunOptions struct {
 	KeepEnv                                             []string // names the credential scrub must not drop, from --keep-env
 	Tools, Autonomous, EnableMemory, Direct             bool     // Direct: agent keeps the provider route, skips the router
 	NoTools                                             bool     // claude only: answer from the provider directly, no claude process
+	ReadOnly                                            bool     // tools may read but never write, run shell or commit
 	NoPersist                                           bool     // claude, codex: no session persistence
 	SafeMode                                            bool     // claude, codex, opencode: no hooks/plugins/customizations
 	DebugFile                                           string   // claude, gemini: debug log at <path>
@@ -117,6 +118,7 @@ type Transport struct {
 // (every agent has at least an inline-block fallback for Attach).
 type Caps struct {
 	Model, Provider, Effort, WorkDir, SessionID, Tools, NoTools, Autonomous, Memory, NoPersist, SafeMode, DebugFile, Direct Level
+	ReadOnly                                                                                                                Level
 	SystemPrompt, AppendSystemPrompt, Env, OutputSchema, Persona                                                            Level
 }
 
@@ -173,6 +175,7 @@ func applyCaps(c Caps, req RunOptions) (out RunOptions, dropped, emulated []stri
 	drop(c.Effort, req.Effort != "", "--effort="+req.Effort, func() { req.Effort = "" })
 	drop(c.WorkDir, req.WorkDir != "", "--workdir="+req.WorkDir, func() { req.WorkDir = "" })
 	drop(c.SessionID, req.SessionID != "", "--session="+req.SessionID, func() { req.SessionID = "" })
+	drop(c.ReadOnly, req.ReadOnly, "--read-only (tools off)", func() { req.ReadOnly, req.Tools = false, false }) // fail closed
 	drop(c.Tools, req.Tools, "--tools", func() { req.Tools = false })
 	drop(c.NoTools, req.NoTools, "--no-tools", func() { req.NoTools = false })
 	drop(c.Autonomous, req.Autonomous, "--autonomous", func() { req.Autonomous = false })
