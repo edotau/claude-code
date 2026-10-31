@@ -72,7 +72,7 @@ func ocDetail(c agent.OpencodeConn) string {
 func buildOpencodePage(d *dialog, ints []agent.OpencodeIntegration, major int) opencodePage {
 	var p opencodePage
 	for _, in := range ints {
-		routed := in.ID == agent.OpencodeCredID("opencode-go") && len(in.Conns) > 0 // the credential routed legs use
+		routed := in.ID == agent.OpencodeCredID("opencode-go") && len(in.Conns) > 0 // the credential routed dispatches use
 		for i := range in.Conns {
 			c := in.Conns[i]
 			var status []string

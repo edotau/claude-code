@@ -24,22 +24,22 @@ import (
 	"github.com/edotau/claude-code/internal/proc/inflight"
 )
 
-// DefaultPerKey caps concurrent legs on one billed account (one credential, one rate limit).
+// DefaultPerKey caps concurrent dispatches on one billed account (one credential, one rate limit).
 const DefaultPerKey = 4
 
 // sharedTryClaim is the machine-wide limiter seam; tests count or stub it.
 var sharedTryClaim = inflight.TryClaim
 
-// sharedPoll is how often a waiting leg re-checks the shared limiter; a var so tests can shorten it.
+// sharedPoll is how often a waiting dispatch re-checks the shared limiter; a var so tests can shorten it.
 var sharedPoll = 250 * time.Millisecond
 
-// legSeq makes each permit's shared marker id unique within the process.
-var legSeq atomic.Uint64
+// dispatchSeq makes each permit's shared marker id unique within the process.
+var dispatchSeq atomic.Uint64
 
 // DefaultJobs is the default pool size: min(4, GOMAXPROCS).
 func DefaultJobs() int { return min(4, runtime.GOMAXPROCS(0)) }
 
-// limiter is the one concurrency gate for legs: at most jobs run at once, and at most cap per billed account.
+// limiter is the one concurrency gate for dispatches: at most jobs run at once, and at most cap per billed account.
 // A waiting task holds nothing, so a full account never blocks another.
 type limiter struct {
 	mu        sync.Mutex
@@ -47,11 +47,11 @@ type limiter struct {
 	running   int
 	jobs, cap int
 	per       map[string]int
-	pending   int             // prepared tasks that have not yet reached their first leg: each still owes a slot
+	pending   int             // prepared tasks that have not yet reached their first dispatch: each still owes a slot
 	limits    inflight.Limits // shared-limiter caps, read once per batch; zero Total = no shared limiter
 }
 
-// slot is one prepared task's claim on a global slot until its first leg asks for a permit (or parks, or ends).
+// slot is one prepared task's claim on a global slot until its first dispatch asks for a permit (or parks, or ends).
 type slot struct{ settled bool }
 
 func newLimiter(jobs, cap int) *limiter {
@@ -110,10 +110,10 @@ func (l *limiter) acquire(ctx context.Context, account string) (func(), error) {
 	if l.limits.Total <= 0 {
 		return l.acquireLocal(ctx, account)
 	}
-	id := inflight.LegPrefix + strconv.FormatInt(time.Now().UnixNano(), 36) + "-" + strconv.FormatUint(legSeq.Add(1), 10)
+	id := inflight.DispatchPrefix + strconv.FormatInt(time.Now().UnixNano(), 36) + "-" + strconv.FormatUint(dispatchSeq.Add(1), 10)
 	c := inflight.Claim{Owner: os.Getpid(), ID: id, Account: account, N: 1}
 	for {
-		freeLocal, err := l.acquireLocal(ctx, account) // returns ctx.Err() first, so a cancelled leg claims nothing
+		freeLocal, err := l.acquireLocal(ctx, account) // returns ctx.Err() first, so a cancelled dispatch claims nothing
 		if err != nil {
 			return nil, err
 		}
@@ -157,18 +157,18 @@ func (l *limiter) acquireLocal(ctx context.Context, account string) (func(), err
 	}, nil
 }
 
-// permit is a leg's current permit; Do swaps it out around retry waits so a backing-off leg holds nothing.
+// permit is a dispatch's current permit; Do swaps it out around retry waits so a backing-off dispatch holds nothing.
 type permit struct {
 	account string
 	release func()
-	recheck func() *Error // a skip when the account became unusable since the leg started
+	recheck func() *Error // a skip when the account became unusable since the dispatch started
 }
 
-// idle runs wait with the permit released, then takes a permit again; the leg runs a child only while holding one.
+// idle runs wait with the permit released, then takes a permit again; the dispatch runs a child only while holding one.
 func (h *permit) idle(ctx context.Context, wait func()) error {
 	h.release()
 	wait()
-	r, err := acquireLeg(ctx, h.account)
+	r, err := acquireDispatch(ctx, h.account)
 	if err != nil {
 		h.release = func() {}
 		return err
@@ -188,8 +188,8 @@ func withLimiter(ctx context.Context, l *limiter) context.Context {
 	return context.WithValue(ctx, limiterKey{}, l)
 }
 
-// acquireLeg takes a leg permit under ctx's limiter; outside a batch there is no limit.
-func acquireLeg(ctx context.Context, account string) (release func(), err error) {
+// acquireDispatch takes a dispatch permit under ctx's limiter; outside a batch there is no limit.
+func acquireDispatch(ctx context.Context, account string) (release func(), err error) {
 	l, _ := ctx.Value(limiterKey{}).(*limiter)
 	if l == nil {
 		return func() {}, nil
@@ -197,13 +197,13 @@ func acquireLeg(ctx context.Context, account string) (release func(), err error)
 	return l.acquire(ctx, account)
 }
 
-// tripFailFast cancels the batch when err ends the task (no fallback follows), before the leg's permit is released.
+// tripFailFast cancels the batch when err ends the task (no fallback follows), before the dispatch's permit is released.
 func tripFailFast(ctx context.Context, c Chain, i int, req RunOptions, res Result, err error) {
 	trip, _ := ctx.Value(failFastKey{}).(func())
 	if trip == nil || err == nil || errors.Is(err, context.Canceled) {
 		return
 	}
-	if i+1 < len(c.Legs) && (i != 0 || !ExplicitBackend(req)) && legUnavailable(c.Legs[i].Agent, res, err) {
+	if i+1 < len(c.Dispatches) && (i != 0 || !ExplicitBackend(req)) && dispatchUnavailable(c.Dispatches[i].Agent, res, err) {
 		return
 	}
 	trip()
@@ -267,7 +267,7 @@ type BatchTask struct {
 // BatchOptions configures RunBatch; Out is read when RunBatch is called, so a swapped os.Stdout is honored.
 type BatchOptions struct {
 	ID       string    // stamped on every envelope as batch_id
-	Jobs     int       // legs run at once; <= 0 means DefaultJobs
+	Jobs     int       // dispatches run at once; <= 0 means DefaultJobs
 	FailFast bool      // the first failed task cancels every queued and running one
 	Out      io.Writer // one envelope JSON per line, in completion order
 	Log      io.Writer // per-task progress lines tagged with the task id; nil discards
@@ -298,7 +298,7 @@ type batchRun struct {
 }
 
 // RunBatch streams one envelope per task to o.Out as each finishes; true only if every task was ok.
-// Each task runs in its own goroutine and waits on the limiter per leg; the calling goroutine is the one writer.
+// Each task runs in its own goroutine and waits on the limiter per dispatch; the calling goroutine is the one writer.
 func RunBatch(ctx context.Context, tasks []BatchTask, o BatchOptions) bool {
 	jobs := max(cmp.Or(o.Jobs, DefaultJobs()), 1)
 	bctx, cancel := context.WithCancel(ctx)
@@ -425,7 +425,7 @@ func (b *batchRun) run(ctx context.Context, t BatchTask, p *Prepared) (env Envel
 	if p.Opts.Launcher != nil {
 		client.Launcher = p.Opts.Launcher
 	}
-	res, err := client.Exec(ctx, p, Discard, DispatchOpts{})
+	res, err := client.Exec(ctx, p, Discard, RunRecordedOpts{})
 	for _, d := range res.Dropped {
 		b.logf(t.ID, "%s has no channel on the %s agent — dropped", d, res.Agent)
 	}

@@ -154,7 +154,7 @@ func opencodeCand(t *testing.T, r PickResult) Candidate {
 func TestOpencodeSubPickFreeFirstOnPersonalRepo(t *testing.T) {
 	c := opencodeCand(t, pickRepo(testTable(t), "sonnet", State{}, false))
 	if c.Account != "opencode·zen-free" || c.Billing != BillFree {
-		t.Errorf("personal sonnet pick = %s (%s), want the free Zen leg", c.Account, c.Billing)
+		t.Errorf("personal sonnet pick = %s (%s), want the free Zen dispatch", c.Account, c.Billing)
 	}
 }
 
@@ -166,10 +166,10 @@ func TestOpencodeSubPickNeverFreeAtOpusOrOnWorkRepo(t *testing.T) {
 	} {
 		c := opencodeCand(t, r)
 		if c.Billing == BillFree {
-			t.Errorf("%s: picked free leg %s", name, c.Account)
+			t.Errorf("%s: picked free dispatch %s", name, c.Account)
 		}
 		if c.Account != "opencode·go" {
-			t.Errorf("%s: pick = %s, want the owner's first paid leg opencode·go", name, c.Account)
+			t.Errorf("%s: pick = %s, want the owner's first paid dispatch opencode·go", name, c.Account)
 		}
 	}
 }
@@ -272,8 +272,8 @@ func TestOpencodeSubPickNoLoginSkipsAndChainContinues(t *testing.T) {
 }
 
 // TestFreeTierOKGateBlocksSonnetAllowsHaiku checks the FreeTierOK gate directly: a registry that only
-// enables zen-free at haiku must block the free leg at sonnet (falling to the paid opencode·go leg) while
-// still serving the free leg at haiku.
+// enables zen-free at haiku must block the free dispatch at sonnet (falling to the paid opencode·go dispatch) while
+// still serving the free dispatch at haiku.
 func TestFreeTierOKGateBlocksSonnetAllowsHaiku(t *testing.T) {
 	reg := &providers.Registry{Routing: providers.Routing{Opencode: providers.OpencodeRouting{FreeTiers: &[]string{"haiku"}}}}
 	tb, err := LoadFrom(reg, "work-user")
@@ -282,16 +282,16 @@ func TestFreeTierOKGateBlocksSonnetAllowsHaiku(t *testing.T) {
 	}
 	sonnet := opencodeCand(t, pickRepo(tb, "sonnet", State{}, false))
 	if sonnet.Billing == BillFree {
-		t.Errorf("sonnet pick = %s (%s), want the free leg blocked (freeTiers = [haiku] only)", sonnet.Account, sonnet.Billing)
+		t.Errorf("sonnet pick = %s (%s), want the free dispatch blocked (freeTiers = [haiku] only)", sonnet.Account, sonnet.Billing)
 	}
 	haiku := opencodeCand(t, pickRepo(tb, "haiku", State{}, false))
 	if haiku.Account != "opencode·zen-free" || haiku.Billing != BillFree {
-		t.Errorf("haiku pick = %s (%s), want the free Zen leg (freeTiers includes haiku)", haiku.Account, haiku.Billing)
+		t.Errorf("haiku pick = %s (%s), want the free Zen dispatch (freeTiers includes haiku)", haiku.Account, haiku.Billing)
 	}
 }
 
 // TestOpencodeSubPickOverlayReorderRespected: an overlay that reorders opencodeLadder changes which paid
-// backend rides as the free winner's backup — the free leg itself still always leads.
+// backend rides as the free winner's backup — the free dispatch itself still always leads.
 func TestOpencodeSubPickOverlayReorderRespected(t *testing.T) {
 	tb := testTable(t)
 	tb.OpencodeLadder = []string{"github-copilot", "opencode-go", "openai"} // overlay: copilot ahead of Go
@@ -299,7 +299,7 @@ func TestOpencodeSubPickOverlayReorderRespected(t *testing.T) {
 		Now: func() time.Time { return now0 }, WorkRepo: func() bool { return false }})
 	oc := opencodeCands(r)
 	if len(oc) != 2 || oc[0].Account != "opencode·zen-free" {
-		t.Fatalf("opencode candidates = %+v, want the free leg still leading", oc)
+		t.Fatalf("opencode candidates = %+v, want the free dispatch still leading", oc)
 	}
 	if oc[1].Account != "opencode·github-copilot" {
 		t.Errorf("backup = %s, want the reordered ladder's new first paid entry (github-copilot)", oc[1].Account)

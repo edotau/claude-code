@@ -38,7 +38,7 @@ type Record struct {
 	DurationMs     int64      `json:"duration_ms,omitempty"`
 	Fallback       string     `json:"fallback,omitempty"` // the original runner's name, when it ran instead
 	FallbackReason string     `json:"fallback_reason,omitempty"`
-	RanAs          string     `json:"ran_as,omitempty"`          // the runner that answered, when a fallback leg did
+	RanAs          string     `json:"ran_as,omitempty"`          // the runner that answered, when a fallback dispatch did
 	Repo           string     `json:"repo,omitempty"`            // main checkout root the job belongs to
 	PID            int        `json:"pid,omitempty"`             // pid of the detached `claude-code ask --job` child
 	Log            string     `json:"log,omitempty"`             // absolute path of the job's combined stdout+stderr log
@@ -241,7 +241,7 @@ func RecentRecords(n int) []Record {
 const logLineCap = 256 << 10
 
 // LogSink tees a dispatch's child output, redacted line by line, into its log file (0600, append).
-// Safe for the stdout and stderr streams of every fallback leg to share; a write failure never reaches the run.
+// Safe for the stdout and stderr streams of every fallback dispatch to share; a write failure never reaches the run.
 type LogSink struct {
 	path    string
 	mu      sync.Mutex
@@ -415,15 +415,15 @@ func (w *logLineWriter) Write(p []byte) (int, error) {
 	return len(p), nil // never an error: a log failure must not abort the child's copy
 }
 
-// DispatchOpts tunes Dispatch for the caller's stdout contract.
-type DispatchOpts struct {
+// RunRecordedOpts tunes RunRecorded for the caller's stdout contract.
+type RunRecordedOpts struct {
 	Job      bool         // a --job child: stdout is the log, so out is dropped and the log keeps events + stderr only
 	AnswerTo io.Writer    // written the final answer once the log is flushed (a job's `<agent> result` reads it)
 	Notify   func(string) // receives non-fatal bookkeeping failures (the record not saving)
 }
 
-// Dispatch runs one recorded dispatch (log, event file, start, run, Finish/Save, result): one pair per id, not per leg.
-func Dispatch(ctx context.Context, rec *Record, agentName string, out Sink, o DispatchOpts,
+// RunRecorded runs one recorded dispatch (log, event file, start, run, Finish/Save, result): one pair per id, not per dispatch.
+func RunRecorded(ctx context.Context, rec *Record, agentName string, out Sink, o RunRecordedOpts,
 	run func(context.Context, Sink) (Result, error)) (Result, error) {
 	logSink := NewLogSink(rec.LogPath())
 	defer logSink.Close() // idempotent: covers a panic in Run

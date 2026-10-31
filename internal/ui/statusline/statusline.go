@@ -437,7 +437,7 @@ func shortenDir(p string) string {
 	return p
 }
 
-// totalSegment is "total:<n>": this session's payload tokens plus its finished dispatches', "+" while a leg runs.
+// totalSegment is "total:<n>": this session's payload tokens plus its finished dispatches', "+" while a dispatch runs.
 func totalSegment(in Input) string {
 	n := 0
 	if cw := in.ContextWindow; cw != nil {
@@ -449,7 +449,7 @@ func totalSegment(in Input) string {
 		return ""
 	}
 	out := "total:" + sigTokens(n)
-	if _, legs := runningCounts(in); legs > 0 {
+	if _, dispatches := runningCounts(in); dispatches > 0 {
 		out += "+"
 	}
 	return out

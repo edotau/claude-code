@@ -16,7 +16,7 @@ func TestDescribeCopilotRouteHonorsProfileAndModelPins(t *testing.T) {
 	setPin(t, providers.PinCopilotProfile, "qa")
 	setPin(t, providers.PinCopilotModel, "kimi-k3")
 	ri := describeCopilotRoute(reg)
-	if ri.Leg != LegDatabricks || ri.Provider != "qa" || ri.Model != "databricks-kimi-k3" || !ri.OK {
+	if ri.Route != RouteDatabricks || ri.Provider != "qa" || ri.Model != "databricks-kimi-k3" || !ri.OK {
 		t.Fatalf("describe = %+v, want databricks qa databricks-kimi-k3", ri)
 	}
 	if strings.Contains(ri.Reason, "no pinned GitHub account") {

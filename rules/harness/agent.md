@@ -15,7 +15,7 @@ paths:
   `internal/agent/template/`).
 - On a terminal, `configure --restore` prompts before overwriting hand-edited lines; non-interactive runs write and
   warn. Each overwrite keeps 5 timestamped backups; `configure --revert [--agent a]` steps back one version.
-- Codex preferences live in the vault (`codex-settings` overlay) and apply to `$CODEX_HOME/config.toml`; its snapshots
+- Codex pins live in the vault (`codex-settings` overlay) and apply to `$CODEX_HOME/config.toml`; its snapshots
   and baseline are vault-encrypted (`settings_backups`, rotated with the key, excluded from exports), last 5 kept.
   Provider config, hook trust and unknown native keys are preserved; an unavailable vault key aborts changed writes.
 - Hook commands rendered into `~/.codex` carry `HARNESS_HOOK_AGENT=codex`; any `HARNESS_HOOK_*` prefix counts as

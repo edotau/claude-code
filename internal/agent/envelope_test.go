@@ -246,7 +246,7 @@ func TestRanOnFromHops(t *testing.T) {
 	}
 }
 
-// A dispatch that never started a leg claims no run: no ran-on line, a did-not-run line with the reason.
+// A dispatch that never started a dispatch claims no run: no ran-on line, a did-not-run line with the reason.
 func TestRanOnClaimsOnlyARunThatHappened(t *testing.T) {
 	res := agent.Result{Agent: "codex", Status: agent.StatusError, FallbackReason: "codex: deactivated (CODEX_ACTIVE=off)"}
 	if got := agent.RanOn(res); got != "" {
@@ -260,6 +260,6 @@ func TestRanOnClaimsOnlyARunThatHappened(t *testing.T) {
 	}
 	ran := agent.Result{Agent: "codex", Status: agent.StatusError, Hops: []agent.Hop{{Agent: "codex"}}}
 	if agent.RanOn(ran) == "" || agent.DidNotRun(ran) != "" {
-		t.Error("a leg that started and failed did run")
+		t.Error("a dispatch that started and failed did run")
 	}
 }

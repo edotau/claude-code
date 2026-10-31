@@ -16,13 +16,13 @@ func TestRequestedAliasSurvivesSharedModel(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	effortAt := func(alias string) string {
 		c, _, err := RouteChainFor(context.Background(), "codex", alias, "sonnet", router.FallbackNone, false, astraOpts())
-		if err != nil || len(c.Legs) == 0 || c.Legs[0].Agent.Name() != "codex" {
+		if err != nil || len(c.Dispatches) == 0 || c.Dispatches[0].Agent.Name() != "codex" {
 			t.Fatalf("%s chain = %+v, err %v", alias, c, err)
 		}
-		if c.Legs[0].Model != "gpt-6.1-sol" {
-			t.Fatalf("%s leg model = %q, want the shared gpt-6.1-sol", alias, c.Legs[0].Model)
+		if c.Dispatches[0].Model != "gpt-6.1-sol" {
+			t.Fatalf("%s dispatch model = %q, want the shared gpt-6.1-sol", alias, c.Dispatches[0].Model)
 		}
-		return c.Legs[0].Effort
+		return c.Dispatches[0].Effort
 	}
 	if got := effortAt("opus"); got != "high" {
 		t.Fatalf("opus control effort = %q, want high", got)

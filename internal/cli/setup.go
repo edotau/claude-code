@@ -126,7 +126,7 @@ var setupWorkspaceOps = map[string]helptext.Page{
 		About: "Report what the project's .claude/ holds."},
 }
 
-// cmdSetupWorkspace is the `setup workspace` leg: a project .claude/ scaffold, link and status.
+// cmdSetupWorkspace is the `setup workspace` dispatch: a project .claude/ scaffold, link and status.
 func cmdSetupWorkspace(args []string) int {
 	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" || args[0] == "help" {
 		setupWorkspacePage.Fprint(os.Stderr)

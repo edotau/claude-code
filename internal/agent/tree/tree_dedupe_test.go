@@ -110,7 +110,7 @@ func hasSession(tree Tree, id string) bool {
 	return false
 }
 
-// A headless claude leg matched by cwd + time + prompt renders once, as its dispatch row (text and JSON);
+// A headless claude dispatch matched by cwd + time + prompt renders once, as its dispatch row (text and JSON);
 // an unrelated session in the same dir (different prompt) stays.
 func TestRunningDedupesHeadlessClaudeByPrompt(t *testing.T) {
 	e := newDedupeEnv(t)
@@ -131,7 +131,7 @@ func TestRunningDedupesHeadlessClaudeByPrompt(t *testing.T) {
 
 	text := e.render(t, "text")
 	if strings.Contains(text, "headless-aaaa") || strings.Count(text, id) != 1 {
-		t.Errorf("text should show the leg once (dispatch row only):\n%s", text)
+		t.Errorf("text should show the dispatch once (dispatch row only):\n%s", text)
 	}
 	if !strings.Contains(text, "Add a new feature") {
 		t.Errorf("text lost the unrelated session:\n%s", text)
@@ -185,7 +185,7 @@ func TestRunningKeepsSessionOlderThanDispatch(t *testing.T) {
 }
 
 // Known gap: WorkDir empty and the job ran in a linked worktree, so Repo (main checkout) != session cwd;
-// the leg fails safe and stays listed twice.
+// the dispatch fails safe and stays listed twice.
 func TestRunningWorktreeGapStaysListedTwice(t *testing.T) {
 	e := newDedupeEnv(t)
 	e.session(t, "headless-gggg", headlessPrmt, false)

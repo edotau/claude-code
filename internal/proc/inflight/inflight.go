@@ -44,7 +44,7 @@ func Owner(name string) (int, bool) {
 // a silent owner as dead, otherwise TTL is the sole backstop.
 func ProbeTrusted() bool { return proc.Alive(os.Getpid()) }
 
-// ownerLive is the owner-level rule: a provably dead owner never counts; a batch leg lives with its owner; anything
+// ownerLive is the owner-level rule: a provably dead owner never counts; a batch dispatch lives with its owner; anything
 // else (or any marker when the probe is untrusted) stops counting after TTL. Self's spawn rules live in scan.
 func ownerLive(name string, mod, now time.Time, trusted bool) bool {
 	owner, ok := Owner(name)
@@ -56,7 +56,7 @@ func ownerLive(name string, mod, now time.Time, trusted bool) bool {
 		return false
 	}
 	id := strings.TrimPrefix(name, Prefix+strconv.Itoa(owner)+"-")
-	if trusted && strings.HasPrefix(id, LegPrefix) {
+	if trusted && strings.HasPrefix(id, DispatchPrefix) {
 		return true
 	}
 	return now.Sub(mod) <= TTL

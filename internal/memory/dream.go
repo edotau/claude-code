@@ -179,7 +179,7 @@ func Dream(o DreamOptions) error {
 			} else {
 				ctx, cancel := context.WithTimeout(context.Background(), o.Timeout)
 				defer cancel()
-				_ = os.Setenv(UpdateChildEnv, "1") // a Claude fallback leg must not re-trigger hooks; cannot fail for a fixed key
+				_ = os.Setenv(UpdateChildEnv, "1") // a Claude fallback dispatch must not re-trigger hooks; cannot fail for a fixed key
 				_ = os.Setenv(DreamChildEnv, "1")  // lets this run's own `memory promote --to claude-md` through the gate
 				who, err := o.Run(ctx, prompt, o.CWD)
 				runErr = err

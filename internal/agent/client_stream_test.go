@@ -42,7 +42,7 @@ func streamPrepared(t *testing.T, r Runner) *Prepared {
 // streamPreparedRun streams p through c.Exec, as Stream does for a RunOptions.
 func streamPreparedRun(c *Client, p *Prepared) <-chan Event {
 	return c.streamWith(context.Background(), cmp.Or(p.Opts.Agent, "claude"), func(ctx context.Context, sink Sink) (Result, error) {
-		return c.Exec(ctx, p, sink, DispatchOpts{})
+		return c.Exec(ctx, p, sink, RunRecordedOpts{})
 	})
 }
 

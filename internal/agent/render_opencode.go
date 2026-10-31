@@ -125,7 +125,7 @@ func preserveAppliedTheme(path string, template []byte) []byte {
 }
 
 // opencodeModule is opencode's own sub-pick knobs: the paid-backend ladder, the work-repo markers that
-// block zen-free, which tiers zen-free may serve, and the free leg's stall deadline.
+// block zen-free, which tiers zen-free may serve, and the free dispatch's stall deadline.
 type opencodeModule struct{}
 
 func (opencodeModule) Name() string { return "opencode" }

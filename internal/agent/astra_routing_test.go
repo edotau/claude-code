@@ -18,12 +18,12 @@ func astraOpts() router.PickOpts {
 	return router.PickOpts{Configured: func(string, router.Cell) error { return nil }}
 }
 
-// stubLegs swaps every leg's runner for a capturing stub; stubs[i] backs c.Legs[i].
-func stubLegs(c *Chain) []*pinFallbackRunner {
-	stubs := make([]*pinFallbackRunner, len(c.Legs))
-	for i := range c.Legs {
-		f := &pinFallbackRunner{name: c.Legs[i].Agent.Name(), res: Result{Answer: "answer from " + c.Legs[i].Agent.Name()}}
-		stubs[i], c.Legs[i].Agent = f, f
+// stubDispatches swaps every dispatch's runner for a capturing stub; stubs[i] backs c.Dispatches[i].
+func stubDispatches(c *Chain) []*pinFallbackRunner {
+	stubs := make([]*pinFallbackRunner, len(c.Dispatches))
+	for i := range c.Dispatches {
+		f := &pinFallbackRunner{name: c.Dispatches[i].Agent.Name(), res: Result{Answer: "answer from " + c.Dispatches[i].Agent.Name()}}
+		stubs[i], c.Dispatches[i].Agent = f, f
 	}
 	return stubs
 }
@@ -39,10 +39,10 @@ func TestAstraModelIdentity(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if len(c.Legs) == 0 || c.Legs[0].Agent.Name() != "codex" {
-			t.Fatalf("first leg is not codex: %+v; skipped %v", c.Legs, c.Skipped)
+		if len(c.Dispatches) == 0 || c.Dispatches[0].Agent.Name() != "codex" {
+			t.Fatalf("first dispatch is not codex: %+v; skipped %v", c.Dispatches, c.Skipped)
 		}
-		stubs := stubLegs(&c)
+		stubs := stubDispatches(&c)
 		if _, err := RunWithFallback(ctx, c, RunOptions{Prompt: "x", Model: astra}, Discard, nil); err != nil {
 			t.Fatal(err)
 		}
@@ -53,8 +53,8 @@ func TestAstraModelIdentity(t *testing.T) {
 		if got != astra {
 			t.Errorf("codex runner model = %q, want %q", got, astra)
 		}
-		if c.Legs[0].Model != got {
-			t.Errorf("codex Leg.Model = %q but runner got %q: planned leg records the stale tier default, not the model run", c.Legs[0].Model, got)
+		if c.Dispatches[0].Model != got {
+			t.Errorf("codex Dispatch.Model = %q but runner got %q: planned dispatch records the stale tier default, not the model run", c.Dispatches[0].Model, got)
 		}
 	})
 
@@ -94,12 +94,12 @@ func astraProfile(t *testing.T, profile string, menu []providers.OpencodeModel) 
 	return p
 }
 
-// profileCodexLegs are the codex legs pinned to profile.
-func profileCodexLegs(c Chain, profile string) []Leg {
-	var out []Leg
-	for _, leg := range c.Legs {
-		if leg.Agent.Name() == "codex" && strings.HasPrefix(leg.Model, profile+":") {
-			out = append(out, leg)
+// profileCodexDispatches are the codex dispatches pinned to profile.
+func profileCodexDispatches(c Chain, profile string) []Dispatch {
+	var out []Dispatch
+	for _, disp := range c.Dispatches {
+		if disp.Agent.Name() == "codex" && strings.HasPrefix(disp.Model, profile+":") {
+			out = append(out, disp)
 		}
 	}
 	return out
@@ -119,9 +119,9 @@ func TestAstraProfileEligibility(t *testing.T) {
 			t.Fatal(err)
 		}
 		want := profile + ":" + p.WireModel(astra)
-		legs := profileCodexLegs(c, profile)
-		if len(legs) != 1 || legs[0].Model != want {
-			t.Errorf("profile codex legs = %+v, want one at %q; skipped %v", legs, want, c.Skipped)
+		dispatches := profileCodexDispatches(c, profile)
+		if len(dispatches) != 1 || dispatches[0].Model != want {
+			t.Errorf("profile codex dispatches = %+v, want one at %q; skipped %v", dispatches, want, c.Skipped)
 		}
 		for _, s := range c.Skipped {
 			if strings.HasPrefix(s, "codex: serves no "+astra) {
@@ -140,8 +140,8 @@ func TestAstraProfileEligibility(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if legs := profileCodexLegs(c, profile); len(legs) != 0 {
-			t.Errorf("profile without an astra Responses route kept codex legs: %+v", legs)
+		if dispatches := profileCodexDispatches(c, profile); len(dispatches) != 0 {
+			t.Errorf("profile without an astra Responses route kept codex dispatches: %+v", dispatches)
 		}
 		// RED if the skip text omits the profile: "codex: serves no gpt-6-astra" does not name the account.
 		named := false

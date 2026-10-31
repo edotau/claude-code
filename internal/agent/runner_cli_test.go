@@ -94,7 +94,7 @@ func TestVendorRunnerOversizedPromptRefusalScopedToArgv(t *testing.T) {
 }
 
 // geminiOwnLoginFixture isolates HOME/CLAUDE_CONFIG_DIR and writes agy's own login marker, so
-// vendorTarget's gemini fallback leg (fallbackTarget) applies without a real Google login.
+// vendorTarget's gemini fallback dispatch (fallbackTarget) applies without a real Google login.
 func geminiOwnLoginFixture(t *testing.T) {
 	t.Helper()
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())

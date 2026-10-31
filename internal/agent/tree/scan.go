@@ -438,11 +438,11 @@ func dispatchIDs(path string) []string {
 }
 
 // pendingAskMarker flags a Bash activity arg as "this relay just launched `ask` and hasn't seen its
-// exit line yet" — the signal for the heuristic running-leg match below.
+// exit line yet" — the signal for the heuristic running-dispatch match below.
 const pendingAskMarker = "ask --agent"
 
 // firstTimestamp reads a transcript's first record's own timestamp — a subagent's start time, used
-// to bound the heuristic leg match to dispatches that began no earlier than this subagent did.
+// to bound the heuristic dispatch match to dispatches that began no earlier than this subagent did.
 func firstTimestamp(path string) time.Time {
 	f, err := os.Open(path)
 	if err != nil {
@@ -463,45 +463,45 @@ func firstTimestamp(path string) time.Time {
 	return time.Time{}
 }
 
-// legFromRecord renders one dispatch record as a Leg; a still-running record has no final Duration
+// dispatchFromRecord renders one dispatch record as a Dispatch; a still-running record has no final Duration
 // yet, so this reports the elapsed time so far instead.
-func legFromRecord(rec agent.Record, matched string, now time.Time) Leg {
+func dispatchFromRecord(rec agent.Record, matched string, now time.Time) Dispatch {
 	duration := rec.Elapsed()
 	if duration == "" && rec.Status == "running" {
 		duration = now.Sub(rec.Time).Round(time.Second).String()
 	}
-	return Leg{
+	return Dispatch{
 		ID: rec.ID, Agent: rec.Agent, Provider: rec.Provider, Model: rec.Model,
 		Status: rec.Status, Duration: duration, Fallback: rec.Fallback,
 		FallbackReason: rec.FallbackReason, Matched: matched,
 	}
 }
 
-// buildLegs attaches one Leg per agent dispatch this subagent's transcript shows: every "ask:
+// buildDispatches attaches one Dispatch per agent dispatch this subagent's transcript shows: every "ask:
 // dispatch <id>" exit line it has already seen, plus (when its newest activity is a Bash call still
 // waiting on `ask`) a heuristic match against the dispatch log's own still-running records.
-func buildLegs(transcriptPath, cwd string, now time.Time, act Activity) []Leg {
-	var legs []Leg
+func buildDispatches(transcriptPath, cwd string, now time.Time, act Activity) []Dispatch {
+	var dispatches []Dispatch
 	matched := map[string]bool{}
 	for _, id := range dispatchIDs(transcriptPath) {
 		rec, err := agent.LoadRecord(id)
 		if err != nil {
 			continue
 		}
-		legs = append(legs, legFromRecord(rec, "", now))
+		dispatches = append(dispatches, dispatchFromRecord(rec, "", now))
 		matched[rec.ID] = true
 	}
 	if act.Tool == "Bash" && strings.Contains(act.Arg, pendingAskMarker) {
-		if leg := pendingLeg(transcriptPath, cwd, matched, now); leg != nil {
-			legs = append(legs, *leg)
+		if disp := pendingDispatch(transcriptPath, cwd, matched, now); disp != nil {
+			dispatches = append(dispatches, *disp)
 		}
 	}
-	return legs
+	return dispatches
 }
 
-// pendingLeg matches a leg with no exit line yet: the newest still-running dispatch for this
+// pendingDispatch matches a dispatch with no exit line yet: the newest still-running dispatch for this
 // subagent's own cwd that started no earlier than the subagent itself did.
-func pendingLeg(transcriptPath, cwd string, matched map[string]bool, now time.Time) *Leg {
+func pendingDispatch(transcriptPath, cwd string, matched map[string]bool, now time.Time) *Dispatch {
 	start := firstTimestamp(transcriptPath)
 	for _, rec := range agent.RecentRecords(50) {
 		if matched[rec.ID] || rec.Status != "running" || rec.Request.WorkDir != cwd {
@@ -510,8 +510,8 @@ func pendingLeg(transcriptPath, cwd string, matched map[string]bool, now time.Ti
 		if !start.IsZero() && rec.Time.Before(start) {
 			continue
 		}
-		leg := legFromRecord(rec, "heuristic", now)
-		return &leg
+		disp := dispatchFromRecord(rec, "heuristic", now)
+		return &disp
 	}
 	return nil
 }

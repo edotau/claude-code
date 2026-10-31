@@ -78,12 +78,12 @@ func RenderText(w io.Writer, tree *Tree, now time.Time) {
 }
 
 // renderDispatches prints the machine-wide running dispatch jobs, one row each, under a "dispatches" header.
-func renderDispatches(w io.Writer, legs []Leg, width int) {
-	if len(legs) == 0 {
+func renderDispatches(w io.Writer, dispatches []Dispatch, width int) {
+	if len(dispatches) == 0 {
 		return
 	}
 	fmt.Fprintln(w, "dispatches")
-	for _, l := range legs {
+	for _, l := range dispatches {
 		prefix := fmt.Sprintf("  %s  %-8s  %-6s", l.ID, l.Agent, l.Duration)
 		fmt.Fprintln(w, fitRow(prefix, l.Repo, "", width))
 	}
@@ -191,7 +191,7 @@ func idleSince(sub Subagent, now time.Time) string {
 }
 
 // renderSubagent prints one subagent line (status glyph, idle time), indented two columns per spawn
-// depth beyond the session, then one indented row per agent leg it launched. Description is
+// depth beyond the session, then one indented row per agent dispatch it launched. Description is
 // rendered before tool so, when the row still overflows after truncating the description, it's the
 // trailing tool field that gets dropped — the least important part.
 func renderSubagent(w io.Writer, sub Subagent, now time.Time, cols columnWidths, width int, home, cwd string) {
@@ -205,14 +205,14 @@ func renderSubagent(w io.Writer, sub Subagent, now time.Time, cols columnWidths,
 		tokenCompact(sub.Tokens), age(sub.Updated, now), idleSince(sub, now))
 	label := stripPaths(sub.Description, home, cwd)
 	fmt.Fprintln(w, fitRow(prefix, truncate(label, 60), tool, width))
-	for _, leg := range sub.Legs {
-		fmt.Fprintf(w, "%s  %s\n", indent, formatLeg(leg))
+	for _, disp := range sub.Dispatches {
+		fmt.Fprintf(w, "%s  %s\n", indent, formatDispatch(disp))
 	}
 }
 
-// formatLeg renders one agent dispatch: "↳ codex gpt-6-astra running 2m14s", or with a fallback,
+// formatDispatch renders one agent dispatch: "↳ codex gpt-6-astra running 2m14s", or with a fallback,
 // "↳ codex→claude ok 1m40s ⚠ fallback".
-func formatLeg(l Leg) string {
+func formatDispatch(l Dispatch) string {
 	name := l.Agent
 	if l.Fallback != "" {
 		name = l.Fallback + "→" + l.Agent

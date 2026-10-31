@@ -28,25 +28,25 @@ func authEnv(t *testing.T, row string) *[]markCall {
 
 const u2mNoToken = `{"protocol":"anthropic","base_url":"http://127.0.0.1:1","auth":{"type":"oauth"},"models":{"opus":"m"}}`
 
-func twoLegs(first, second *fakeRunner) Chain {
-	return Chain{Want: first.Name(), Legs: []Leg{{Agent: first, Account: first.Name() + ":agauth"}, {Agent: second}}}
+func twoDispatches(first, second *fakeRunner) Chain {
+	return Chain{Want: first.Name(), Dispatches: []Dispatch{{Agent: first, Account: first.Name() + ":agauth"}, {Agent: second}}}
 }
 
-// A4+B2: a sealed-auth provider gets a Recover; its login-required failure marks the leg's account and moves on.
-func TestSealedAuthLegRecoversOnceThenMovesOn(t *testing.T) {
+// A4+B2: a sealed-auth provider gets a Recover; its login-required failure marks the dispatch's account and moves on.
+func TestSealedAuthDispatchRecoversOnceThenMovesOn(t *testing.T) {
 	calls := authEnv(t, u2mNoToken)
 	first := &fakeRunner{name: "codex", errs: []error{errors.New("HTTP 401 unauthorized"), errors.New("HTTP 401 unauthorized")}, emptyAnswer: true}
 	second := &fakeRunner{name: "gemini", errs: []error{nil}}
 
-	res, err := RunWithFallback(context.Background(), twoLegs(first, second), RunOptions{Prompt: "p"}, Discard, nil)
+	res, err := RunWithFallback(context.Background(), twoDispatches(first, second), RunOptions{Prompt: "p"}, Discard, nil)
 	if err != nil || res.Answer != "a" {
-		t.Fatalf("res=%+v err=%v, want the second leg's answer", res, err)
+		t.Fatalf("res=%+v err=%v, want the second dispatch's answer", res, err)
 	}
 	if len(first.seen) != 1 {
-		t.Fatalf("first leg attempts = %d, want 1: a failed Recover must not retry", len(first.seen))
+		t.Fatalf("first dispatch attempts = %d, want 1: a failed Recover must not retry", len(first.seen))
 	}
 	if len(second.seen) != 1 {
-		t.Fatalf("second leg attempts = %d, want it to run in the same dispatch", len(second.seen))
+		t.Fatalf("second dispatch attempts = %d, want it to run in the same dispatch", len(second.seen))
 	}
 	if len(*calls) != 1 || (*calls)[0].account != "codex:agauth" || (*calls)[0].reason == "" {
 		t.Fatalf("markAuth calls = %+v, want one mark on codex:agauth", *calls)
@@ -61,7 +61,7 @@ func TestTransientRecoverFailureDoesNotMark(t *testing.T) {
 	calls := authEnv(t, `{"protocol":"anthropic","base_url":"http://127.0.0.1:1","auth":{"type":"key","command":"exit 1"},"models":{"opus":"m"}}`)
 	first := &fakeRunner{name: "codex", errs: []error{errors.New("HTTP 401 unauthorized")}, emptyAnswer: true}
 	second := &fakeRunner{name: "gemini", errs: []error{nil}}
-	_, _ = RunWithFallback(context.Background(), twoLegs(first, second), RunOptions{Prompt: "p"}, Discard, nil)
+	_, _ = RunWithFallback(context.Background(), twoDispatches(first, second), RunOptions{Prompt: "p"}, Discard, nil)
 	if len(*calls) != 0 {
 		t.Fatalf("a transient recover failure condemned an account: %+v", *calls)
 	}
@@ -72,9 +72,9 @@ func TestWrappedLoginRequiredOnFirstAttemptMarksAndMovesOn(t *testing.T) {
 	calls := authEnv(t, `{"protocol":"anthropic","base_url":"http://127.0.0.1:1","auth":{"type":"key","env":"AGAUTH_UNSET"},"models":{"opus":"m"}}`)
 	first := &fakeRunner{name: "claude", errs: []error{fmt.Errorf("agauth: %w", providers.ErrNeedsLogin)}, emptyAnswer: true}
 	second := &fakeRunner{name: "gemini", errs: []error{nil}}
-	res, err := RunWithFallback(context.Background(), twoLegs(first, second), RunOptions{Prompt: "p"}, Discard, nil)
+	res, err := RunWithFallback(context.Background(), twoDispatches(first, second), RunOptions{Prompt: "p"}, Discard, nil)
 	if err != nil || res.Answer != "a" || len(second.seen) != 1 {
-		t.Fatalf("res=%+v err=%v: expected a move-on to the second leg", res, err)
+		t.Fatalf("res=%+v err=%v: expected a move-on to the second dispatch", res, err)
 	}
 	if len(*calls) != 1 || (*calls)[0].account != "claude:agauth" {
 		t.Fatalf("markAuth calls = %+v", *calls)
@@ -107,13 +107,13 @@ func TestNoteAuthNeedsAccountAndReason(t *testing.T) {
 	prev := markAuth
 	markAuth = func(a, r string) error { calls = append(calls, markCall{a, r}); return nil }
 	t.Cleanup(func() { markAuth = prev })
-	noteAuth(Leg{Account: ""}, &Error{AuthReason: "r"})
-	noteAuth(Leg{Account: "codex:x"}, &Error{})
-	noteAuth(Leg{Account: "codex:x"}, errors.New("plain"))
+	noteAuth(Dispatch{Account: ""}, &Error{AuthReason: "r"})
+	noteAuth(Dispatch{Account: "codex:x"}, &Error{})
+	noteAuth(Dispatch{Account: "codex:x"}, errors.New("plain"))
 	if len(calls) != 0 {
 		t.Fatalf("noteAuth marked without an account or reason: %+v", calls)
 	}
-	noteAuth(Leg{Account: "codex:x"}, &Error{AuthReason: "r"})
+	noteAuth(Dispatch{Account: "codex:x"}, &Error{AuthReason: "r"})
 	if len(calls) != 1 || calls[0].account != "codex:x" {
 		t.Fatalf("calls = %+v", calls)
 	}

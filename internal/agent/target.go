@@ -69,10 +69,10 @@ func copilotFallback(reg *providers.Registry, detail string) (providers.Target, 
 }
 
 // copilotDatabricksFallback: this session's (else the vault-pinned) profile when it is a signed-in Databricks row,
-// else the first Databricks profile whose credential resolves, else LegNone. detail names why GitHub was refused.
+// else the first Databricks profile whose credential resolves, else RouteNone. detail names why GitHub was refused.
 func copilotDatabricksFallback(reg *providers.Registry, detail string) RouteInfo {
 	pick := func(p *providers.Provider) RouteInfo {
-		return RouteInfo{Agent: "copilot", Leg: LegDatabricks, Provider: p.Name, Model: p.Models[models.Opus],
+		return RouteInfo{Agent: "copilot", Route: RouteDatabricks, Provider: p.Name, Model: p.Models[models.Opus],
 			Reason: "copilot: " + detail + " — using databricks profile " + p.Name, OK: true}
 	}
 	pin := cmp.Or(providers.SessionProfile(), providers.Pin(providers.PinProfile))
@@ -81,7 +81,7 @@ func copilotDatabricksFallback(reg *providers.Registry, detail string) RouteInfo
 			return pick(p)
 		}
 	}
-	return RouteInfo{Agent: "copilot", Leg: LegNone,
+	return RouteInfo{Agent: "copilot", Route: RouteNone,
 		Reason: "copilot: " + detail + "; no credit-free route for copilot (no Databricks profile signed in)"}
 }
 

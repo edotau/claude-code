@@ -88,7 +88,7 @@ func TestClearAuthNoWriteWhenUnmarked(t *testing.T) {
 	}
 }
 
-func TestClearProviderAuthClearsRouterAndLegMarks(t *testing.T) {
+func TestClearProviderAuthClearsRouterAndDispatchMarks(t *testing.T) {
 	useConfigDir(t)
 	for _, a := range []string{ProviderAccount("dbx"), "anthropic·dbx", "openai·dbx", "anthropic·other", ProviderAccount("dbx2")} {
 		if err := MarkAuth(a, "r"); err != nil {
@@ -208,12 +208,12 @@ func TestAccountAuthMarkedFallsBackToTheProviderMark(t *testing.T) {
 		}
 	}
 	if _, ok := s.AccountAuthMarked("anthropic·dev", at.Add(AuthMarkTTL)); ok {
-		t.Error("an expired provider mark still gates the leg account")
+		t.Error("an expired provider mark still gates the dispatch account")
 	}
 }
 
 // A router mark on databricks·<p> gates a pick whose account is "<provider>·<p>".
-func TestPickGatesLegAccountOnRouterProviderMark(t *testing.T) {
+func TestPickGatesDispatchAccountOnRouterProviderMark(t *testing.T) {
 	tb := testTable(t)
 	st := State{ProviderAccount("chatgpt"): {AuthReason: "auth rejected: run `claude-code databricks login --profile chatgpt`", AuthAt: now0}}
 	r := pick(tb, "sonnet", "codex", st, FallbackAgents)

@@ -172,9 +172,11 @@ Process env read directly by the harness (not pins; set them in the shell or the
 | model | what `--model` takes | an alias (`opus`, follows the table), a version (`opus-5-5`, pinned) or a full wire id |
 | proxy · router | the loopback daemon · the agent + model pick | `gateway proxy` · `gateway router` |
 | wire | the protocol a model rides (`providers.WireFor`): Claude → `anthropic`, Responses-only → `responses`, else `openai` | `anthropic` `openai` `responses` |
+| default · pin | what the harness picks when nothing is set · the user's own choice, saved in the vault | flag beats pin beats default; an unset pin (or Go field) means default |
 
 Retired words: runner and vendor (→ agent), router for the daemon (→ proxy), slot and tier (→ model alias), leg
-(→ dispatch), family (→ provider). `gateway` names the verb namespace only; the Databricks wire is `ai-gateway`.
+(→ dispatch), family (→ provider), preference and saved override (→ pin). `gateway` names the verb namespace
+only; the Databricks wire is `ai-gateway`.
 
 | Surface | Form | Example |
 | --- | --- | --- |

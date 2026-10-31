@@ -41,9 +41,9 @@ func TestClientPrepareHubNativeFallback(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Prepare(%s) = %v", profile, err)
 		}
-		res, err := client.Exec(context.Background(), p, nil, agent.DispatchOpts{})
+		res, err := client.Exec(context.Background(), p, nil, agent.RunRecordedOpts{})
 		if len(res.Hops) != 1 {
-			t.Fatalf("%s: want one leg, got %+v, err %v", profile, res.Hops, err)
+			t.Fatalf("%s: want one dispatch, got %+v, err %v", profile, res.Hops, err)
 		}
 		if profile == "acme" && (err != nil || res.Answer != "ok") {
 			t.Fatalf("native profile did not run: %+v, %v", res, err)
@@ -82,18 +82,18 @@ func TestClientPrepareProfileTakesTierSlot(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		res, _ := client.Exec(context.Background(), p, nil, agent.DispatchOpts{})
+		res, _ := client.Exec(context.Background(), p, nil, agent.RunRecordedOpts{})
 		if len(res.Hops) != 1 {
-			t.Fatalf("%s: hops = %+v, want one unavailable leg", profile, res.Hops)
+			t.Fatalf("%s: hops = %+v, want one unavailable dispatch", profile, res.Hops)
 		}
 		if want := (router.RuleClassifier{}).Tier("pong"); res.Hops[0].Model != want {
-			t.Errorf("%s: leg model = %q, want tier %q", profile, res.Hops[0].Model, want)
+			t.Errorf("%s: dispatch model = %q, want tier %q", profile, res.Hops[0].Model, want)
 		}
 	}
 }
 
-// An explicit --profile is one leg for every agent even with --fallback all: nothing can silently take over.
-func TestClientPrepareProfileIsOneLegUnderFallbackAll(t *testing.T) {
+// An explicit --profile is one dispatch for every agent even with --fallback all: nothing can silently take over.
+func TestClientPrepareProfileIsOneDispatchUnderFallbackAll(t *testing.T) {
 	profileFixture(t, "")
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("PATH", t.TempDir())
@@ -104,15 +104,15 @@ func TestClientPrepareProfileIsOneLegUnderFallbackAll(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s: Prepare = %v", name, err)
 		}
-		res, err := client.Exec(context.Background(), p, nil, agent.DispatchOpts{})
+		res, err := client.Exec(context.Background(), p, nil, agent.RunRecordedOpts{})
 		if err == nil || len(res.Hops) != 1 {
-			t.Errorf("%s: %d hops, err %v; want one failed leg without fallback", name, len(res.Hops), err)
+			t.Errorf("%s: %d hops, err %v; want one failed dispatch without fallback", name, len(res.Hops), err)
 		}
 	}
 }
 
-// A batch task's own profile reaches the request and resolves to one leg, under the default --fallback all.
-func TestBatchTaskProfileIsOneLeg(t *testing.T) {
+// A batch task's own profile reaches the request and resolves to one dispatch, under the default --fallback all.
+func TestBatchTaskProfileIsOneDispatch(t *testing.T) {
 	profileFixture(t, "")
 	line := agent.ParsedLine{N: 1, Task: agent.TaskLine{Prompt: "p", Profile: "acme"}}
 	bt, err := batchTask(line, batchOpts{agent: "codex", fallback: router.FallbackAll}, agent.RunOptions{}, false, t.TempDir(), map[string]bool{})
@@ -128,9 +128,9 @@ func TestBatchTaskProfileIsOneLeg(t *testing.T) {
 	}
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("PATH", t.TempDir())
-	res, err := newClient().Exec(context.Background(), p, nil, agent.DispatchOpts{})
+	res, err := newClient().Exec(context.Background(), p, nil, agent.RunRecordedOpts{})
 	if err == nil || len(res.Hops) != 1 {
-		t.Fatalf("Exec: %d hops, err %v; want one unavailable leg", len(res.Hops), err)
+		t.Fatalf("Exec: %d hops, err %v; want one unavailable dispatch", len(res.Hops), err)
 	}
 	bad := agent.ParsedLine{N: 2, Task: agent.TaskLine{Prompt: "p", Profile: "no-such-profile"}}
 	bt, err = batchTask(bad, batchOpts{agent: "codex", fallback: router.FallbackAll}, agent.RunOptions{}, false, t.TempDir(), map[string]bool{})

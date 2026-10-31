@@ -18,7 +18,7 @@ const clearScreen = "\x1b[H\x1b[2J"
 // page is `agents tree -h`.
 var page = helptext.Page{
 	Usage: "claude-code agents tree [flags]",
-	About: "Live tree of running Claude sessions, their subagents and dispatched vendor legs, in every repo. " +
+	About: "Live tree of running Claude sessions, their subagents and agent dispatches, in every repo. " +
 		"--background adds idle and finished work.",
 }
 

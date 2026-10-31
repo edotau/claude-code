@@ -17,24 +17,24 @@ import (
 const runningTTL = 3 * time.Second
 
 // runningSegment is "N ◉": N = the main thread + this session's live subagent markers + this
-// session's live dispatch legs. Always shown while the "agents" segment is enabled.
+// session's live dispatch dispatches. Always shown while the "agents" segment is enabled.
 func runningSegment(in Input) string {
-	agents, legs := runningCounts(in)
-	return fmt.Sprintf("%d ◉", 1+agents+legs)
+	agents, dispatches := runningCounts(in)
+	return fmt.Sprintf("%d ◉", 1+agents+dispatches)
 }
 
-// runningCounts is the live subagent markers and live dispatch legs, cached for runningTTL.
-func runningCounts(in Input) (agents, legs int) {
+// runningCounts is the live subagent markers and live dispatch dispatches, cached for runningTTL.
+func runningCounts(in Input) (agents, dispatches int) {
 	stamp := stampFile("running", paths.StateDir()+"\x00"+in.TranscriptPath)
 	if f := freshStamp(stamp, runningTTL, 2); f != nil {
 		agents, _ = strconv.Atoi(f[0])
-		legs, _ = strconv.Atoi(f[1])
+		dispatches, _ = strconv.Atoi(f[1])
 	} else {
 		agents = inflight.CountOwned(inflight.SessionOwner(), time.Now())
-		legs = liveDispatches()
-		writeTimedStamp(stamp, strconv.Itoa(agents), strconv.Itoa(legs))
+		dispatches = liveDispatches()
+		writeTimedStamp(stamp, strconv.Itoa(agents), strconv.Itoa(dispatches))
 	}
-	return agents, legs
+	return agents, dispatches
 }
 
 // liveDispatches counts this session's dispatch records whose job is alive; agent's cone is too

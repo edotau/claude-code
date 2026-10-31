@@ -33,8 +33,8 @@ func opencodeRouteDetail(reg *providers.Registry, sel providers.Selection, selEr
 	own := OpencodeOwnLoginPresent()
 	opencodeLogin := own || OpencodeCopilotLoginPresent()
 	copilotCLILogin := CopilotLoginPresent()
-	if own { // opencode's own Go/Zen credential serves the routed opencode legs, whatever the session provider
-		return fmt.Sprintf("provider=opencode-go leg=%s opencode_login=true copilot_cli_login=%v", LegOwnLogin, copilotCLILogin)
+	if own { // opencode's own Go/Zen credential serves the routed opencode dispatches, whatever the session provider
+		return fmt.Sprintf("provider=opencode-go dispatch=%s opencode_login=true copilot_cli_login=%v", RouteOwnLogin, copilotCLILogin)
 	}
 	if selErr != nil {
 		return fmt.Sprintf("opencode_login=%v copilot_cli_login=%v (%v)", opencodeLogin, copilotCLILogin, selErr)
@@ -57,9 +57,9 @@ func opencodeRouteDetail(reg *providers.Registry, sel providers.Selection, selEr
 		target.Provider.Name, mainID, smallID, opusID, mainID, smallID, file, opencodeLogin, copilotCLILogin)
 }
 
-// copilotRouteDetail reports the copilot CLI's resolved leg (DescribeRoute): its own GitHub login,
-// BYOK with an anthropic or gemini key, or none — names/booleans/leg only, never a credential. On the
-// GitHub login leg it also names COPILOT_MODEL's source and the effort/context pins every launch reads.
+// copilotRouteDetail reports the copilot CLI's resolved dispatch (DescribeRoute): its own GitHub login,
+// BYOK with an anthropic or gemini key, or none — names/booleans/dispatch only, never a credential. On the
+// GitHub login dispatch it also names COPILOT_MODEL's source and the effort/context pins every launch reads.
 func copilotRouteDetail(reg *providers.Registry, selErr error) string {
 	if selErr != nil {
 		return fmt.Sprintf("(%v)", selErr)
@@ -68,8 +68,8 @@ func copilotRouteDetail(reg *providers.Registry, selErr error) string {
 	if !ri.OK {
 		return ri.Reason
 	}
-	detail := fmt.Sprintf("leg=%s provider=%s model=%s (%s)", ri.Leg, ri.Provider, ri.Model, ri.Reason)
-	if ri.Leg == LegCopilotLogin {
+	detail := fmt.Sprintf("dispatch=%s provider=%s model=%s (%s)", ri.Route, ri.Provider, ri.Model, ri.Reason)
+	if ri.Route == RouteCopilotLogin {
 		_, source := providers.CopilotModel(reg)
 		effort := cmp.Or(providers.Pin(providers.PinCopilotEffort), "default")
 		context := cmp.Or(providers.Pin(providers.PinCopilotContext), "default")

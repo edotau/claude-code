@@ -115,7 +115,7 @@ func TestResolveTargetProfileTierRewrite(t *testing.T) {
 	})
 }
 
-// handoffRunner returns a canned Result and error per call, so a leg can carry a hand-off path.
+// handoffRunner returns a canned Result and error per call, so a dispatch can carry a hand-off path.
 type handoffRunner struct {
 	name string
 	res  Result
@@ -129,7 +129,7 @@ func (h *handoffRunner) Run(context.Context, RunOptions, Sink) (Result, error) {
 	return h.res, h.err
 }
 
-// A hand-off written by leg 1 rides the final envelope whichever way the later legs end.
+// A hand-off written by dispatch 1 rides the final envelope whichever way the later dispatches end.
 func TestRunWithFallbackCarriesHandoff(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	quota := errors.New("402 Payment Required: You have exceeded your monthly quota")
@@ -137,28 +137,28 @@ func TestRunWithFallbackCarriesHandoff(t *testing.T) {
 		return &handoffRunner{name: "copilot", res: Result{Handoff: "/tmp/x.md"}, err: quota}
 	}
 
-	t.Run("leg 2 succeeds", func(t *testing.T) {
-		second := &handoffRunner{name: "claude", res: Result{Answer: "from leg 2"}}
+	t.Run("dispatch 2 succeeds", func(t *testing.T) {
+		second := &handoffRunner{name: "claude", res: Result{Answer: "from dispatch 2"}}
 		res, err := RunWithFallback(context.Background(), chainOf([]Runner{first(), second}, "", "sonnet"), RunOptions{Prompt: "p"}, Discard, nil)
-		if err != nil || res.Answer != "from leg 2" || res.Handoff != "/tmp/x.md" {
-			t.Fatalf("res=%+v err=%v; want leg 2's answer with handoff /tmp/x.md", res, err)
+		if err != nil || res.Answer != "from dispatch 2" || res.Handoff != "/tmp/x.md" {
+			t.Fatalf("res=%+v err=%v; want dispatch 2's answer with handoff /tmp/x.md", res, err)
 		}
 	})
 
-	t.Run("leg 2 fails with another error", func(t *testing.T) {
+	t.Run("dispatch 2 fails with another error", func(t *testing.T) {
 		boom := errors.New("boom: unrelated failure")
 		second := &handoffRunner{name: "claude", err: boom}
 		res, err := RunWithFallback(context.Background(), chainOf([]Runner{first(), second}, "", "sonnet"), RunOptions{Prompt: "p"}, Discard, nil)
 		if err == nil || !errors.Is(err, boom) || res.Handoff != "/tmp/x.md" {
-			t.Fatalf("res=%+v err=%v; want leg 2's error with handoff /tmp/x.md", res, err)
+			t.Fatalf("res=%+v err=%v; want dispatch 2's error with handoff /tmp/x.md", res, err)
 		}
 	})
 
-	t.Run("a later leg's own handoff wins", func(t *testing.T) {
+	t.Run("a later dispatch's own handoff wins", func(t *testing.T) {
 		second := &handoffRunner{name: "claude", res: Result{Answer: "ok", Handoff: "/tmp/y.md"}}
 		res, _ := RunWithFallback(context.Background(), chainOf([]Runner{first(), second}, "", "sonnet"), RunOptions{Prompt: "p"}, Discard, nil)
 		if res.Handoff != "/tmp/y.md" {
-			t.Errorf("handoff = %q, want the later leg's /tmp/y.md", res.Handoff)
+			t.Errorf("handoff = %q, want the later dispatch's /tmp/y.md", res.Handoff)
 		}
 	})
 }
@@ -196,7 +196,7 @@ func TestCopilotHandoffRedactsEveryToken(t *testing.T) {
 	}
 }
 
-// The runner writes redacted context and leaves resumption to the next fallback leg.
+// The runner writes redacted context and leaves resumption to the next fallback dispatch.
 func TestCopilotRunnerHandoffRedacted(t *testing.T) {
 	_, _ = stubHandoff(t)
 	ghLogin(t, "alice", 10)
@@ -234,7 +234,7 @@ func TestResumeSlot(t *testing.T) {
 	}
 }
 
-// The hand-off preserves the resolved model and any exposed session for the next leg.
+// The hand-off preserves the resolved model and any exposed session for the next dispatch.
 func TestCopilotHandoffKeepsModelAndSession(t *testing.T) {
 	_, _ = stubHandoff(t)
 	for name, session := range map[string]string{"with session": "0a1b2c3d-4e5f-6789-abcd-ef0123456789", "no session": ""} {
@@ -278,8 +278,8 @@ func TestVendorTargetNoteGatedKeepsSonnetTier(t *testing.T) {
 	}
 }
 
-// (4) A leg that wrote a hand-off hands the next leg the hand-off, not the bare task; an unreadable file changes nothing.
-func TestRunWithFallbackNextLegGetsHandoff(t *testing.T) {
+// (4) A dispatch that wrote a hand-off hands the next dispatch the hand-off, not the bare task; an unreadable file changes nothing.
+func TestRunWithFallbackNextDispatchGetsHandoff(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	quota := errors.New("402 Payment Required: You have exceeded your monthly quota")
 	file := filepath.Join(t.TempDir(), "h.md")
@@ -295,7 +295,7 @@ func TestRunWithFallbackNextLegGetsHandoff(t *testing.T) {
 			}
 			got := second.seen[0].Prompt
 			if name == "readable" && (!strings.Contains(got, "PARTIAL-PROGRESS-MARKER") || strings.Contains(got, "BARE-TASK")) {
-				t.Errorf("next leg prompt = %q, want the hand-off instead of the task", got)
+				t.Errorf("next dispatch prompt = %q, want the hand-off instead of the task", got)
 			}
 			if name == "unreadable" && got != "BARE-TASK" {
 				t.Errorf("unreadable hand-off must leave the prompt alone, got %q", got)

@@ -25,18 +25,18 @@ func envelopeMap(t *testing.T, res Result, err error) map[string]any {
 }
 
 // Guarantee 3: an auth failure on hop 1 moves to hop 2, and the envelope names every hop tried.
-func TestEnvelopeHopsNameEveryLegTried(t *testing.T) {
+func TestEnvelopeHopsNameEveryDispatchTried(t *testing.T) {
 	authEnv(t, `{"protocol":"anthropic","base_url":"http://127.0.0.1:1","auth":{"type":"key","env":"AGAUTH_UNSET"},"models":{"opus":"m"}}`)
 	first := &fakeRunner{name: "claude", errs: []error{fmt.Errorf("agauth: %w", providers.ErrNeedsLogin)}, emptyAnswer: true}
 	second := &fakeRunner{name: "gemini", errs: []error{nil}}
-	res, err := RunWithFallback(context.Background(), twoLegs(first, second), RunOptions{Prompt: "p"}, Discard, nil)
+	res, err := RunWithFallback(context.Background(), twoDispatches(first, second), RunOptions{Prompt: "p"}, Discard, nil)
 	if err != nil || res.Answer != "a" || len(second.seen) != 1 {
 		t.Fatalf("res=%+v err=%v: want the second hop to answer", res, err)
 	}
 	env := envelopeMap(t, res, err)
 	hops, _ := env["hops"].([]any)
 	if len(hops) != 2 {
-		t.Fatalf("hops = %v, want both legs", env["hops"])
+		t.Fatalf("hops = %v, want both dispatches", env["hops"])
 	}
 	h1, _ := hops[0].(map[string]any)
 	h2, _ := hops[1].(map[string]any)
@@ -51,8 +51,8 @@ func TestEnvelopeHopsNameEveryLegTried(t *testing.T) {
 	}
 }
 
-// A single successful leg keeps the envelope free of fallback and names exactly one hop.
-func TestEnvelopeHopsSingleLeg(t *testing.T) {
+// A single successful dispatch keeps the envelope free of fallback and names exactly one hop.
+func TestEnvelopeHopsSingleDispatch(t *testing.T) {
 	r := &fakeRunner{name: "claude", errs: []error{nil}}
 	res, err := RunWithFallback(context.Background(), Single(r), RunOptions{Prompt: "p"}, Discard, nil)
 	if err != nil {
@@ -67,8 +67,8 @@ func TestEnvelopeHopsSingleLeg(t *testing.T) {
 	}
 }
 
-// A cancelled context stops the leg loop before any leg runs.
-func TestRunWithFallbackCancelledBeforeLegNeverRuns(t *testing.T) {
+// A cancelled context stops the dispatch loop before any dispatch runs.
+func TestRunWithFallbackCancelledBeforeDispatchNeverRuns(t *testing.T) {
 	r := &fakeRunner{name: "claude", errs: []error{nil}}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()

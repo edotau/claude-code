@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-// Every --batch task goes through Dispatch: it leaves an <id>.events.jsonl running start to result.
+// Every --batch task goes through RunRecorded: it leaves an <id>.events.jsonl running start to result.
 func TestBatchTasksWriteEventFiles(t *testing.T) {
 	cliEnv(t)
 	cliFakes(t)

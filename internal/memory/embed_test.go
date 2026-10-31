@@ -392,7 +392,7 @@ func TestNewSemanticPerProfileCacheFallsBackToPin(t *testing.T) {
 	}
 }
 
-// A timed-out query pauses the semantic leg: the next prompt skips the endpoint instead of waiting again.
+// A timed-out query pauses the semantic dispatch: the next prompt skips the endpoint instead of waiting again.
 func TestNewSemanticBacksOffAfterTimeout(t *testing.T) {
 	isolatedConfig1(t)
 	t.Cleanup(SetEmbedRecallWait(50 * time.Millisecond))

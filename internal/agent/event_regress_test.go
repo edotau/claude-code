@@ -73,7 +73,7 @@ func TestRunWithFallbackEmitsOneRetryPerHop(t *testing.T) {
 	second := &fakeRunner{name: "gemini", errs: []error{nil}}
 	var evs []Event
 	sink := sinkFunc(func(ev Event) error { evs = append(evs, ev); return nil })
-	c := Chain{Want: "codex", Legs: []Leg{{Agent: first}, {Agent: second}}}
+	c := Chain{Want: "codex", Dispatches: []Dispatch{{Agent: first}, {Agent: second}}}
 	if _, err := RunWithFallback(context.Background(), c, RunOptions{Prompt: "p"}, sink, nil); err != nil {
 		t.Fatal(err)
 	}
@@ -168,7 +168,7 @@ func TestDispatchWritesResultBeforeFinishedRecord(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	rec := ClaimRecord("codex", RunOptions{}, time.Now())
 	probe := &resultProbe{id: rec.ID}
-	_, err := Dispatch(context.Background(), &rec, "codex", probe, DispatchOpts{},
+	_, err := RunRecorded(context.Background(), &rec, "codex", probe, RunRecordedOpts{},
 		func(context.Context, Sink) (Result, error) {
 			return Result{Agent: "codex", Status: StatusOK, Answer: "hi"}, nil
 		})

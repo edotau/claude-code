@@ -34,8 +34,8 @@ func hubRegistry() *providers.Registry {
 	return reg
 }
 
-// TestHubLegForOpencodeDefault: the opencode sonnet cell maps to the opencode-go hub leg, argv kimi-k3.1-pro at high.
-func TestHubLegForOpencodeDefault(t *testing.T) {
+// TestHubDispatchForOpencodeDefault: the opencode sonnet cell maps to the opencode-go hub dispatch, argv kimi-k3.1-pro at high.
+func TestHubDispatchForOpencodeDefault(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	reg := hubRegistry()
 	tb, err := router.Load()
@@ -43,17 +43,17 @@ func TestHubLegForOpencodeDefault(t *testing.T) {
 		t.Fatal(err)
 	}
 	cell := tb.Rows["opencode"]["sonnet"]
-	r, model, err := hubLegFor(reg, cell.Model)
+	r, model, err := hubDispatchFor(reg, cell.Model)
 	if err != nil {
 		t.Fatal(err)
 	}
-	l := r.(hubLeg)
+	l := r.(hubDispatch)
 	_, argv := opencodeRunArgv(l.provider.OpencodeID+"/"+l.resolveModel(model), Headless{Prompt: "p", Effort: cell.Effort})
 	got := strings.Join(argv, " ")
 	if !strings.Contains(got, "-m opencode-go/kimi-k3.1-pro") || !strings.Contains(got, "--variant high") {
 		t.Errorf("opencode default argv = %q, want -m opencode-go/kimi-k3.1-pro --variant high", got)
 	}
-	if _, _, err := hubLegFor(reg, "ghost/x"); err == nil {
+	if _, _, err := hubDispatchFor(reg, "ghost/x"); err == nil {
 		t.Error("an unknown opencodeID must fail")
 	}
 }
@@ -108,10 +108,10 @@ func TestHubStart(t *testing.T) {
 	}
 }
 
-func TestHubLegResolveModel(t *testing.T) {
+func TestHubDispatchResolveModel(t *testing.T) {
 	reg := hubRegistry()
 	chatgpt, _ := reg.Get("chatgpt")
-	l := hubLeg{agent: "codex", provider: chatgpt, reg: reg}
+	l := hubDispatch{agent: "codex", provider: chatgpt, reg: reg}
 
 	if got := l.resolveModel(""); got != "openai-opus" {
 		t.Errorf(`resolveModel("") = %q, want provider's opus slot`, got)
@@ -124,13 +124,13 @@ func TestHubLegResolveModel(t *testing.T) {
 	}
 }
 
-// hubLeg always execs opencode with the prompt in argv (OpencodeRunArgv), so its own
+// hubDispatch always execs opencode with the prompt in argv (OpencodeRunArgv), so its own
 // MaxPromptBytes check (hub.go, ahead of the binary lookup) stays unconditional, unlike vendorRunner's
 // opencode-only gate. This fails before touching paths.VendorBin, so no bin/opencode is needed.
-func TestHubLegRunOversizedPromptRefused(t *testing.T) {
+func TestHubDispatchRunOversizedPromptRefused(t *testing.T) {
 	reg := hubRegistry()
 	chatgpt, _ := reg.Get("chatgpt")
-	l := hubLeg{agent: "codex", provider: chatgpt, reg: reg}
+	l := hubDispatch{agent: "codex", provider: chatgpt, reg: reg}
 	big := strings.Repeat("x", MaxPromptBytes+10)
 
 	_, err := l.Run(context.Background(), RunOptions{Prompt: big}, Discard)
@@ -163,27 +163,27 @@ func TestFirstOutputDeadlineFollowsRegistryWhenNotOverridden(t *testing.T) {
 	}
 }
 
-func TestLegLabel(t *testing.T) {
+func TestDispatchLabel(t *testing.T) {
 	reg := hubRegistry()
 	chatgpt, _ := reg.Get("chatgpt")
-	l := hubLeg{agent: "codex", provider: chatgpt, reg: reg}
-	if got := legLabel(l); got != "chatgpt" {
-		t.Errorf("hubLeg label = %q, want the provider's name", got)
+	l := hubDispatch{agent: "codex", provider: chatgpt, reg: reg}
+	if got := dispatchLabel(l); got != "chatgpt" {
+		t.Errorf("hubDispatch label = %q, want the provider's name", got)
 	}
-	if got := legLabel(claudeAgent); got != "claude" {
-		t.Errorf("non-hub leg label = %q, want Name()", got)
+	if got := dispatchLabel(claudeAgent); got != "claude" {
+		t.Errorf("non-hub dispatch label = %q, want Name()", got)
 	}
 }
 
-// TestBuildLegPinnedRowWithoutOpencodeID: a pinned Databricks-style row (no opencode id) runs native, not a hub leg.
-func TestBuildLegPinnedRowWithoutOpencodeID(t *testing.T) {
+// TestBuildDispatchPinnedRowWithoutOpencodeID: a pinned Databricks-style row (no opencode id) runs native, not a hub dispatch.
+func TestBuildDispatchPinnedRowWithoutOpencodeID(t *testing.T) {
 	rc := routeCtx{reg: hubRegistry(), want: "opencode"}
 	cand := router.Candidate{Agent: "opencode", Profile: "nvidia"}
-	leg, skip, err := rc.buildLeg(cand, router.Cell{Model: "nv-opus"})
+	disp, skip, err := rc.buildDispatch(cand, router.Cell{Model: "nv-opus"})
 	if err != nil || skip != "" {
 		t.Fatalf("skip=%q err=%v", skip, err)
 	}
-	if _, hub := leg.Agent.(hubLeg); hub || leg.Model != "nvidia:nv-opus" {
-		t.Errorf("want native leg with model nvidia:nv-opus, got %T %q", leg.Agent, leg.Model)
+	if _, hub := disp.Agent.(hubDispatch); hub || disp.Model != "nvidia:nv-opus" {
+		t.Errorf("want native dispatch with model nvidia:nv-opus, got %T %q", disp.Agent, disp.Model)
 	}
 }

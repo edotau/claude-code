@@ -224,7 +224,7 @@ func TestRunQuotaAccountExhaustedDoesNotDemote(t *testing.T) {
 
 // TestCodexUnavailable tables the fallback classifier: only an unreachable codex (missing binary, no
 // serving provider, or an exec failure with no answer) should fall back; everything else must not.
-func TestLegUnavailable(t *testing.T) {
+func TestDispatchUnavailable(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	genericErr := errors.New(`exec: "codex": executable file not found in $PATH`)
 	deadline := &Error{Kind: KindFatal, Err: context.DeadlineExceeded}
@@ -242,7 +242,7 @@ func TestLegUnavailable(t *testing.T) {
 	}{
 		{"nil error", &fakeRunner{name: "codex"}, RunOptions{}, Result{}, nil, false},
 		{"claude ends the chain", &fakeRunner{name: "claude"}, RunOptions{}, Result{}, genericErr, false},
-		{"any vendor leg", &fakeRunner{name: "gemini"}, RunOptions{}, Result{}, genericErr, true},
+		{"any vendor dispatch", &fakeRunner{name: "gemini"}, RunOptions{}, Result{}, genericErr, true},
 		{"non-empty answer", &fakeRunner{name: "codex"}, RunOptions{}, Result{Answer: "partial"}, genericErr, false},
 		{"deadline exceeded", &fakeRunner{name: "codex"}, RunOptions{}, Result{}, deadline, false},
 		{"canceled", &fakeRunner{name: "codex"}, RunOptions{}, Result{}, canceled, false},
@@ -255,23 +255,23 @@ func TestLegUnavailable(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			if got := legUnavailable(c.r, c.res, c.err); got != c.want {
-				t.Errorf("legUnavailable() = %v, want %v", got, c.want)
+			if got := dispatchUnavailable(c.r, c.res, c.err); got != c.want {
+				t.Errorf("dispatchUnavailable() = %v, want %v", got, c.want)
 			}
 		})
 	}
 }
 
-// chainOf is a routed chain over rs: the first leg is the wanted runner keeping the caller's model, each later
-// leg runs models[i] (its cell).
+// chainOf is a routed chain over rs: the first dispatch is the wanted runner keeping the caller's model, each later
+// dispatch runs models[i] (its cell).
 func chainOf(rs []Runner, models ...string) Chain {
 	c := Chain{Want: rs[0].Name()}
 	for i, r := range rs {
-		leg := Leg{Agent: r, keepCaller: i == 0}
+		disp := Dispatch{Agent: r, keepCaller: i == 0}
 		if i < len(models) {
-			leg.Model = models[i]
+			disp.Model = models[i]
 		}
-		c.Legs = append(c.Legs, leg)
+		c.Dispatches = append(c.Dispatches, disp)
 	}
 	return c
 }
@@ -298,7 +298,7 @@ func TestRunWithFallback(t *testing.T) {
 		}
 	})
 
-	t.Run("each leg runs its own cell and the first answer wins", func(t *testing.T) {
+	t.Run("each dispatch runs its own cell and the first answer wins", func(t *testing.T) {
 		codex := &fakeRunner{name: "codex", caps: Caps{Model: Native}, errs: []error{unavailable}, emptyAnswer: true}
 		gemini := &fakeRunner{name: "gemini", caps: Caps{Model: Native}, errs: []error{unavailable}, emptyAnswer: true}
 		opencode := &fakeRunner{name: "opencode", caps: Caps{Model: Native}, errs: []error{nil}}
@@ -309,28 +309,28 @@ func TestRunWithFallback(t *testing.T) {
 			t.Fatalf("res=%+v err=%v claude.seen=%d", res, err, len(claude.seen))
 		}
 		if !strings.Contains(res.FallbackReason, "codex: ") || !strings.Contains(res.FallbackReason, "; gemini: ") {
-			t.Errorf("FallbackReason = %q, want one entry per failed leg", res.FallbackReason)
+			t.Errorf("FallbackReason = %q, want one entry per failed dispatch", res.FallbackReason)
 		}
 		if codex.seen[0].Model != "gpt-6.1-sol" || gemini.seen[0].Model != "gemini-4-argon" || opencode.seen[0].Model != "kimi-k3" {
 			t.Errorf("models = %q / %q / %q, want the caller's then each cell's", codex.seen[0].Model, gemini.seen[0].Model, opencode.seen[0].Model)
 		}
 	})
 
-	t.Run("the tier is kept on the claude leg", func(t *testing.T) {
+	t.Run("the tier is kept on the claude dispatch", func(t *testing.T) {
 		codex := &fakeRunner{name: "codex", caps: Caps{Model: Native}, errs: []error{unavailable}, emptyAnswer: true}
 		claude := &fakeRunner{name: "claude", caps: Caps{Model: Native}, errs: []error{nil}}
 		if _, err := RunWithFallback(context.Background(), chainOf([]Runner{codex, claude}, "", "opus"), RunOptions{Prompt: "p", Model: "claude-opus-5.5"}, Discard, nil); err != nil {
 			t.Fatal(err)
 		}
 		if claude.seen[0].Model != "opus" {
-			t.Errorf("claude leg ran %q, want the opus cell", claude.seen[0].Model)
+			t.Errorf("claude dispatch ran %q, want the opus cell", claude.seen[0].Model)
 		}
 	})
 
 	t.Run("gate skips make zero attempts and are reported", func(t *testing.T) {
 		claude := &fakeRunner{name: "claude", errs: []error{nil}}
 		c := Chain{Want: "copilot", Skipped: []string{"copilot: github·u exhausted until 2026-11-01"},
-			Legs: []Leg{{Agent: claude, Model: "sonnet"}}}
+			Dispatches: []Dispatch{{Agent: claude, Model: "sonnet"}}}
 		res, err := RunWithFallback(context.Background(), c, RunOptions{Prompt: "p"}, Discard, nil)
 		if err != nil || res.Fallback != "copilot" || !strings.Contains(res.FallbackReason, "exhausted until 2026-11-01") {
 			t.Fatalf("res=%+v err=%v", res, err)
@@ -345,7 +345,7 @@ func TestRunWithFallback(t *testing.T) {
 		copilot := &fakeRunner{name: "copilot", errs: []error{quota}, emptyAnswer: true}
 		claude := &fakeRunner{name: "claude", errs: []error{nil}}
 		c := chainOf([]Runner{copilot, claude}, "", "sonnet")
-		c.Legs[0].Account, c.Legs[0].Billing = "github·u", "credits"
+		c.Dispatches[0].Account, c.Dispatches[0].Billing = "github·u", "credits"
 		res, err := RunWithFallback(context.Background(), c, RunOptions{Prompt: "p"}, Discard, nil)
 		if err != nil || res.Agent != "claude" || len(copilot.seen) != 1 {
 			t.Fatalf("res=%+v err=%v copilot attempts=%d (quota is never retried)", res, err, len(copilot.seen))
@@ -392,7 +392,7 @@ func TestRunWithFallback(t *testing.T) {
 	})
 }
 
-// TestRouteChainSkipsExhaustedAndRetriesExpired: an exhausted pinned copilot gets no leg; once expired it leads again.
+// TestRouteChainSkipsExhaustedAndRetriesExpired: an exhausted pinned copilot gets no dispatch; once expired it leads again.
 func TestRouteChainSkipsExhaustedAndRetriesExpired(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	pinGitHubProfile(t, "work-user", "")
@@ -410,13 +410,13 @@ func TestRouteChainSkipsExhaustedAndRetriesExpired(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, l := range c.Legs {
+	for _, l := range c.Dispatches {
 		if l.Agent.Name() == "copilot" {
-			t.Fatalf("exhausted copilot got a leg: %+v", c.Legs)
+			t.Fatalf("exhausted copilot got a dispatch: %+v", c.Dispatches)
 		}
 	}
-	if last := c.Legs[len(c.Legs)-1]; last.Agent.Name() != "claude" || last.Model != "sonnet" {
-		t.Errorf("claude leg = %+v, want sonnet", last)
+	if last := c.Dispatches[len(c.Dispatches)-1]; last.Agent.Name() != "claude" || last.Model != "sonnet" {
+		t.Errorf("claude dispatch = %+v, want sonnet", last)
 	}
 	if len(c.Skipped) == 0 || !strings.Contains(c.Skipped[0], "exhausted") {
 		t.Errorf("skips = %v", c.Skipped)
@@ -425,8 +425,8 @@ func TestRouteChainSkipsExhaustedAndRetriesExpired(t *testing.T) {
 		t.Fatal(err)
 	}
 	c, _, _ = RouteChain(context.Background(), "copilot", "sonnet", router.FallbackAll, false, false, all)
-	if c.Legs[0].Agent.Name() != "copilot" || c.Legs[0].Account != "github·work-user" {
-		t.Errorf("expired entry must be retried on the pinned account: %+v", c.Legs[0])
+	if c.Dispatches[0].Agent.Name() != "copilot" || c.Dispatches[0].Account != "github·work-user" {
+		t.Errorf("expired entry must be retried on the pinned account: %+v", c.Dispatches[0])
 	}
 }
 
@@ -563,7 +563,7 @@ func TestRunWithFallbackSkippedRequestedRoute(t *testing.T) {
 	t.Run("own route skipped, same-agent databricks answers", func(t *testing.T) {
 		codex := &fakeRunner{name: "codex", errs: []error{nil}}
 		c := Chain{Want: "codex", Skipped: []string{"codex: chatgpt exhausted"},
-			Legs: []Leg{{Agent: codex, Account: "databricks·codex", keepCaller: true, otherRoute: true}}}
+			Dispatches: []Dispatch{{Agent: codex, Account: "databricks·codex", keepCaller: true, otherRoute: true}}}
 		res, err := RunWithFallback(context.Background(), c, RunOptions{Prompt: "p"}, Discard, nil)
 		if err != nil || res.Agent != "codex" || res.Fallback == "" ||
 			!strings.Contains(res.FallbackReason, "chatgpt exhausted") {

@@ -71,18 +71,18 @@ func TestProfileCellAcceptsStaticallyOnColdCache(t *testing.T) {
 func TestServedRepickOnEndpointNotFound(t *testing.T) {
 	quietStderr(t)
 	reg := servedEnv(t, "true", map[string]string{"m-a": "READY", "m-b": "READY"})
-	leg := Leg{servedRepick: routeCtx{reg: reg}.servedRepickFor(servedCand)}
-	if leg.servedRepick == nil {
+	disp := Dispatch{servedRepick: routeCtx{reg: reg}.servedRepickFor(servedCand)}
+	if disp.servedRepick == nil {
 		t.Fatal("codex on a Databricks profile with the switch on must get a repick")
 	}
 	err := errors.New("RESOURCE_DOES_NOT_EXIST: ENDPOINT_NOT_FOUND: no endpoint m-a")
-	if got := retryModel(leg, RunOptions{Model: "dev:m-a"}, err); got != "dev:m-b" {
+	if got := retryModel(disp, RunOptions{Model: "dev:m-a"}, err); got != "dev:m-b" {
 		t.Fatalf("repick = %q, want dev:m-b", got)
 	}
 	if at := router.LoadState()[router.ProviderAccount("dev")].Unserved["m-a"]; at.IsZero() {
 		t.Error("m-a was not marked unserved")
 	}
-	if got := retryModel(leg, RunOptions{Model: "dev:m-b"}, err); got != "" {
+	if got := retryModel(disp, RunOptions{Model: "dev:m-b"}, err); got != "" {
 		t.Errorf("second failure repicked %q, want none left", got)
 	}
 }
@@ -90,8 +90,8 @@ func TestServedRepickOnEndpointNotFound(t *testing.T) {
 // an error that is not an endpoint-gone answer neither repicks nor marks.
 func TestServedRepickIgnoresUnrelatedError(t *testing.T) {
 	reg := servedEnv(t, "true", map[string]string{"m-a": "READY", "m-b": "READY"})
-	leg := Leg{servedRepick: routeCtx{reg: reg}.servedRepickFor(servedCand)}
-	if got := retryModel(leg, RunOptions{Model: "dev:m-a"}, errors.New("connection reset")); got != "" {
+	disp := Dispatch{servedRepick: routeCtx{reg: reg}.servedRepickFor(servedCand)}
+	if got := retryModel(disp, RunOptions{Model: "dev:m-a"}, errors.New("connection reset")); got != "" {
 		t.Errorf("unrelated error repicked %q", got)
 	}
 	if at := router.LoadState()[router.ProviderAccount("dev")].Unserved["m-a"]; !at.IsZero() {
@@ -99,7 +99,7 @@ func TestServedRepickIgnoresUnrelatedError(t *testing.T) {
 	}
 }
 
-// an exact --model, a non-codex leg and a switch-off run get no served repick.
+// an exact --model, a non-codex dispatch and a switch-off run get no served repick.
 func TestServedRepickNotOfferedWhereItWouldMislead(t *testing.T) {
 	reg := servedEnv(t, "true", map[string]string{"m-a": "READY", "m-b": "READY"})
 	if (routeCtx{reg: reg, exact: "m-a"}.servedRepickFor(servedCand)) != nil {
@@ -108,7 +108,7 @@ func TestServedRepickNotOfferedWhereItWouldMislead(t *testing.T) {
 	copilot := servedCand
 	copilot.Agent = "copilot"
 	if (routeCtx{reg: reg}.servedRepickFor(copilot)) != nil {
-		t.Error("a non-codex leg must not get a served repick")
+		t.Error("a non-codex dispatch must not get a served repick")
 	}
 	off := servedEnv(t, "false", nil)
 	if (routeCtx{reg: off}.servedRepickFor(servedCand)) != nil {
@@ -118,11 +118,11 @@ func TestServedRepickNotOfferedWhereItWouldMislead(t *testing.T) {
 
 // with both repicks set, a capability error still takes the byok pool path.
 func TestByokRetryModelKeepsCapabilityPathWithServedRepick(t *testing.T) {
-	leg := Leg{
+	disp := Dispatch{
 		repick:       func(string) string { return "dev:pool-next" },
 		servedRepick: func(string) string { return "dev:served-next" },
 	}
-	if got := retryModel(leg, RunOptions{Model: "dev:m"}, errors.New("400: max_new_tokens too large")); got != "dev:pool-next" {
+	if got := retryModel(disp, RunOptions{Model: "dev:m"}, errors.New("400: max_new_tokens too large")); got != "dev:pool-next" {
 		t.Errorf("capability error = %q, want the byok pick", got)
 	}
 }

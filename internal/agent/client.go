@@ -151,7 +151,7 @@ func (c *Client) explicit(r Runner, o RunOptions) (Chain, error) {
 			if err != nil {
 				return Chain{}, err
 			}
-			r = NewHubLeg(o.Agent, start, reg)
+			r = NewHubDispatch(o.Agent, start, reg)
 		}
 	}
 	chain := ExplicitChain(r, o)
@@ -185,14 +185,14 @@ func (c *Client) record(ctx context.Context, o RunOptions, job *Record) Record {
 }
 
 // Exec runs a prepared dispatch, leaving initial record saving and background spawning to the caller.
-func (c *Client) Exec(ctx context.Context, p *Prepared, out Sink, d DispatchOpts) (Result, error) {
+func (c *Client) Exec(ctx context.Context, p *Prepared, out Sink, d RunRecordedOpts) (Result, error) {
 	if out == nil {
 		out = Discard
 	}
 	if d.Notify == nil {
 		d.Notify = c.Notify
 	}
-	res, err := Dispatch(ctx, &p.Record, p.chain.Want, out, d, func(ctx context.Context, sink Sink) (Result, error) {
+	res, err := RunRecorded(ctx, &p.Record, p.chain.Want, out, d, func(ctx context.Context, sink Sink) (Result, error) {
 		if p.remote != nil {
 			return p.remote.Run(ctx, p.Opts, sink)
 		}
@@ -209,5 +209,5 @@ func (c *Client) Run(ctx context.Context, o RunOptions, out Sink) (Result, error
 		return Result{Agent: cmp.Or(o.Agent, "claude"), Status: StatusError}, err
 	}
 	_ = p.Record.Save()
-	return c.Exec(ctx, p, out, DispatchOpts{})
+	return c.Exec(ctx, p, out, RunRecordedOpts{})
 }

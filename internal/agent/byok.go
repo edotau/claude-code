@@ -11,48 +11,48 @@ import (
 	"github.com/edotau/claude-code/internal/router"
 )
 
-func (rc routeCtx) byokCandidate(leg Leg, cand router.Candidate, tier string) Leg {
+func (rc routeCtx) byokCandidate(disp Dispatch, cand router.Candidate, tier string) Dispatch {
 	if cand.Agent != rc.want {
-		return leg
+		return disp
 	}
 	pin := rc.pins[rc.want]
 	if rc.callerModel != "" && rc.callerModel != router.BYOKModel {
-		return leg
+		return disp
 	}
 	if rc.callerModel == "" && pin.Model != router.BYOKModel {
-		return leg
+		return disp
 	}
 	picked := cand.Profile != "" && pin.Profile == cand.Profile && pin.Model == router.BYOKModel
-	return byokLeg(leg, tier, rc.reg, cand.Profile, picked)
+	return byokDispatch(disp, tier, rc.reg, cand.Profile, picked)
 }
 
-// byokLeg freezes a pool choice before a runner or agent resolver sees the request.
-func byokLeg(leg Leg, tier string, reg *providers.Registry, profile string, picked bool) Leg {
+// byokDispatch freezes a pool choice before a runner or agent resolver sees the request.
+func byokDispatch(disp Dispatch, tier string, reg *providers.Registry, profile string, picked bool) Dispatch {
 	tb, err := router.Load()
 	if err != nil {
-		leg.Model, leg.keepCaller, leg.unroutedLeg = tier, false, false
-		leg.note = "byok routing table unavailable; using tier slot"
-		return leg
+		disp.Model, disp.keepCaller, disp.unroutedDispatch = tier, false, false
+		disp.note = "byok routing table unavailable; using tier slot"
+		return disp
 	}
-	cell, _ := tb.Cell(leg.Agent.Name(), tier)
-	p, prefix := byokProvider(leg, reg, profile)
+	cell, _ := tb.Cell(disp.Agent.Name(), tier)
+	p, prefix := byokProvider(disp, reg, profile)
 	if p != nil && p.Preset == providers.PresetDatabricks {
-		leg.repick = byokRepick(leg.Agent.Name(), tier, cell, p, prefix)
+		disp.repick = byokRepick(disp.Agent.Name(), tier, cell, p, prefix)
 	}
-	if picked && byokPoolModel(leg.Model, p) {
-		return leg
+	if picked && byokPoolModel(disp.Model, p) {
+		return disp
 	}
-	model, note := router.PinnedModel(leg.Agent.Name(), tier, cell, p, router.BYOKModel)
-	leg.Model, leg.note, leg.keepCaller, leg.unroutedLeg = prefix+model, note, false, false
-	return leg
+	model, note := router.PinnedModel(disp.Agent.Name(), tier, cell, p, router.BYOKModel)
+	disp.Model, disp.note, disp.keepCaller, disp.unroutedDispatch = prefix+model, note, false, false
+	return disp
 }
 
-func byokProvider(leg Leg, reg *providers.Registry, profile string) (*providers.Provider, string) {
-	if hub, ok := leg.Agent.(hubLeg); ok {
+func byokProvider(disp Dispatch, reg *providers.Registry, profile string) (*providers.Provider, string) {
+	if hub, ok := disp.Agent.(hubDispatch); ok {
 		return hub.provider, ""
 	}
 	if profile == "" {
-		_, profile, _ = strings.Cut(leg.Account, "·")
+		_, profile, _ = strings.Cut(disp.Account, "·")
 	}
 	p := profileRow(reg, profile)
 	if p == nil {
@@ -87,7 +87,7 @@ var capabilityErr = regexp.MustCompile(`max_new_tokens|max_output_tokens|max_tok
 // endpointErr is a workspace's answer for a serving endpoint that does not exist (captured from codex on Databricks).
 var endpointErr = regexp.MustCompile(`ENDPOINT_NOT_FOUND`)
 
-// servedRepickFor is a codex Databricks leg's repick when the switch is on and the caller named no exact model.
+// servedRepickFor is a codex Databricks dispatch's repick when the switch is on and the caller named no exact model.
 func (rc routeCtx) servedRepickFor(cand router.Candidate) func(string) string {
 	p := rc.codexDatabricks(cand)
 	if p == nil || !providers.ServedRoutingOn() || rc.exact != "" || (rc.callerModel != "" && rc.row == "") {
@@ -96,7 +96,7 @@ func (rc routeCtx) servedRepickFor(cand router.Candidate) func(string) string {
 	return func(failed string) string { return servedRepick(p, failed) }
 }
 
-// codexDatabricks is cand's profile row when cand is a codex leg on a Databricks profile, else nil.
+// codexDatabricks is cand's profile row when cand is a codex dispatch on a Databricks profile, else nil.
 func (rc routeCtx) codexDatabricks(cand router.Candidate) *providers.Provider {
 	if cand.Agent != "codex" || cand.Profile == "" || rc.reg == nil {
 		return nil
@@ -123,22 +123,22 @@ func servedRepick(p *providers.Provider, failed string) string {
 }
 
 // retryModel is the next model after a model-capability (byok) or endpoint-gone (served) failure, else "".
-func retryModel(leg Leg, lreq RunOptions, err error) string {
+func retryModel(disp Dispatch, lreq RunOptions, err error) string {
 	if err == nil {
 		return ""
 	}
 	switch msg := err.Error(); {
-	case leg.repick != nil && capabilityErr.MatchString(msg):
-		return leg.repick(lreq.Model)
-	case leg.servedRepick != nil && endpointErr.MatchString(msg):
-		return leg.servedRepick(lreq.Model)
+	case disp.repick != nil && capabilityErr.MatchString(msg):
+		return disp.repick(lreq.Model)
+	case disp.servedRepick != nil && endpointErr.MatchString(msg):
+		return disp.servedRepick(lreq.Model)
 	}
 	return ""
 }
 
-func (leg Leg) byokNote() {
-	if leg.note == "" {
+func (disp Dispatch) byokNote() {
+	if disp.note == "" {
 		return
 	}
-	fmt.Fprintln(os.Stderr, leg.note)
+	fmt.Fprintln(os.Stderr, disp.note)
 }

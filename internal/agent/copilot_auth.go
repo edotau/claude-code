@@ -125,7 +125,7 @@ func copilotPinError() error {
 // CopilotUsedPct is copilot:<user>'s used credit share from route state; set by cli (usage and route import agents).
 var CopilotUsedPct func(ctx context.Context, user string) (pct float64, ok bool)
 
-// copilotWorkablePct is the used credit share at which a copilot GitHub-login leg is no longer started.
+// copilotWorkablePct is the used credit share at which a copilot GitHub-login dispatch is no longer started.
 const copilotWorkablePct = 95.0
 
 // copilotHeadroom reports whether user is a gh login whose credits are verified under copilotWorkablePct, plus the

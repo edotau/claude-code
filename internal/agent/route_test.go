@@ -39,14 +39,14 @@ func TestResolveAccountFollowsSessionProfile(t *testing.T) {
 	}
 }
 
-// An explicit backend stays one leg, records its own quota failure, and is skipped without an attempt after.
+// An explicit backend stays one dispatch, records its own quota failure, and is skipped without an attempt after.
 func TestExplicitChainRecordsAndGates(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	codex := &fakeRunner{name: "codex", errs: []error{errors.New("insufficient_quota: you exceeded your current quota")}, emptyAnswer: true}
 	req := RunOptions{Prompt: "p", Provider: "openai"}
 	c := ExplicitChain(codex, req)
-	if len(c.Legs) != 1 || c.Legs[0].Account != "openai·openai" {
-		t.Fatalf("chain = %+v, want one leg on openai·openai", c)
+	if len(c.Dispatches) != 1 || c.Dispatches[0].Account != "openai·openai" {
+		t.Fatalf("chain = %+v, want one dispatch on openai·openai", c)
 	}
 	if _, err := RunWithFallback(context.Background(), c, req, Discard, nil); err == nil {
 		t.Fatal("the quota failure must surface")
@@ -55,7 +55,7 @@ func TestExplicitChainRecordsAndGates(t *testing.T) {
 		t.Fatalf("openai·openai not marked: %+v", e)
 	}
 	again := ExplicitChain(codex, req)
-	if len(again.Legs) != 0 || len(again.Skipped) != 1 || !strings.Contains(again.Skipped[0], "openai·openai exhausted") {
+	if len(again.Dispatches) != 0 || len(again.Skipped) != 1 || !strings.Contains(again.Skipped[0], "openai·openai exhausted") {
 		t.Fatalf("second explicit chain = %+v, want a gate skip", again)
 	}
 	if len(codex.seen) != 1 {
@@ -71,26 +71,26 @@ func TestRouteChainNativeOpencodeLeads(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := c.Legs[0].Agent.(cliRunner); !ok || !c.Legs[0].unroutedLeg {
-		t.Fatalf("first leg = %+v, want the native opencode runner, unrouted", c.Legs[0])
+	if _, ok := c.Dispatches[0].Agent.(cliRunner); !ok || !c.Dispatches[0].unroutedDispatch {
+		t.Fatalf("first dispatch = %+v, want the native opencode runner, unrouted", c.Dispatches[0])
 	}
-	for _, l := range c.Legs[1:] {
+	for _, l := range c.Dispatches[1:] {
 		if l.Agent.Name() == "opencode" {
-			t.Errorf("the hub opencode cell must not also run: %+v", c.Legs)
+			t.Errorf("the hub opencode cell must not also run: %+v", c.Dispatches)
 		}
 	}
 	none, _, _ := RouteChain(context.Background(), "opencode", "sonnet", router.FallbackNone, false, true, all)
-	if len(none.Legs) != 1 {
-		t.Errorf("fallback none = %d legs, want the native leg only", len(none.Legs))
+	if len(none.Dispatches) != 1 {
+		t.Errorf("fallback none = %d dispatches, want the native dispatch only", len(none.Dispatches))
 	}
 }
 
-// A codex leg keyed on its ChatGPT login that really runs on the session's Databricks profile records and bills that profile.
-func TestOwnLoginLegRecordsTheProfileItRan(t *testing.T) {
+// A codex dispatch keyed on its ChatGPT login that really runs on the session's Databricks profile records and bills that profile.
+func TestOwnLoginDispatchRecordsTheProfileItRan(t *testing.T) {
 	gateFallbackEnv(t)
 	t.Setenv(providers.EnvSessionProfile, "dbx")
 	r := &fakeRunner{name: "codex", errs: []error{nil}}
-	c := Chain{Want: "codex", Legs: []Leg{{Agent: r, Account: "openai·chatgpt", Billing: router.BillSubscription}}}
+	c := Chain{Want: "codex", Dispatches: []Dispatch{{Agent: r, Account: "openai·chatgpt", Billing: router.BillSubscription}}}
 	res, err := RunWithFallback(context.Background(), c, RunOptions{Prompt: "p"}, Discard, nil)
 	if err != nil || len(res.Hops) != 1 {
 		t.Fatalf("res=%+v err=%v", res, err)

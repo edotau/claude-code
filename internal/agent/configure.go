@@ -35,8 +35,8 @@ func (s Schema) configureHeadless(ctx context.Context, target providers.Target, 
 }
 
 // configure resolves the route for the agent, then applies its spec launch env/args — on every
-// route (own login, BYOK, gateway, router) — so no path can skip it; h != nil (a headless leg) never
-// gets Launch.Args, tools-off must stay tools-off and a tools-on leg already carries its own flags.
+// route (own login, BYOK, gateway, router) — so no path can skip it; h != nil (a headless dispatch) never
+// gets Launch.Args, tools-off must stay tools-off and a tools-on dispatch already carries its own flags.
 func (s Schema) configure(ctx context.Context, t providers.Target, h *Headless) ([]string, []string, error) {
 	env, argv, err := s.configureRoute(ctx, t, h)
 	if err != nil {

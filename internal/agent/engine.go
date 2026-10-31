@@ -36,7 +36,7 @@ type engine interface {
 	wire(ctx context.Context, r wireRoute, h *Headless) (env, argv []string, err error)
 	// fallbackTarget is the CLI's own route to a working credential when the session provider has none.
 	fallbackTarget(reg *providers.Registry) (providers.Target, string, bool)
-	// describeRoute reports the fallback leg the CLI resolves to today.
+	// describeRoute reports the fallback dispatch the CLI resolves to today.
 	describeRoute(reg *providers.Registry) RouteInfo
 	// LoginStatus reports whether the CLI's own login is present and what it is.
 	LoginStatus() (present bool, source string)
@@ -167,7 +167,7 @@ func (baseEngine) ranModel(t providers.Target) string { return t.Model }
 func (b baseEngine) loginServes(p *providers.Provider) bool { return p.Auth.Login == b.name }
 
 func (b baseEngine) describeRoute(*providers.Registry) RouteInfo {
-	return RouteInfo{Agent: b.name, Leg: LegNone, Reason: "no fallback chain defined for " + b.name}
+	return RouteInfo{Agent: b.name, Route: RouteNone, Reason: "no fallback chain defined for " + b.name}
 }
 
 func (baseEngine) LoginStatus() (bool, string) { return false, "" }
