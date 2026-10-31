@@ -16,7 +16,6 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/edotau/claude-code/internal/hooks/hookspec"
 	"github.com/edotau/claude-code/internal/providers"
 )
 
@@ -96,7 +95,7 @@ func marshalIndentNoEscape(v any) ([]byte, error) {
 }
 
 // mergeCodexHooks keeps every foreign top-level key, event and hook already in a Codex hooks.json,
-// replacing only the harness's own groups (by command prefix, hookspec.IsHarness) with the freshly
+// replacing only the harness's own groups (by command prefix, IsHarness) with the freshly
 // rendered ones; mirrors internal/settings mergeHooks, adapted to the top-level {"hooks": {...}} file
 // Codex reads directly.
 func mergeCodexHooks(existingRaw, body []byte) ([]byte, error) {
@@ -173,7 +172,7 @@ func mergeHookEvents[T any](existing, rendered map[string][]T, classify func(T) 
 }
 
 // classifyCodexGroup reports a group's foreign remainder (nil if every hook in it was harness-owned, by
-// "command" prefix via hookspec.IsHarness) and whether it contained any harness-owned hook at all. A
+// "command" prefix via IsHarness) and whether it contained any harness-owned hook at all. A
 // group with no harness hook is returned byte-identical (unknown group-level keys included); only a
 // partially-harness group is rebuilt, which preserves every key but loses the original key order.
 func classifyCodexGroup(raw json.RawMessage) (*json.RawMessage, bool) {
@@ -189,7 +188,7 @@ func classifyCodexGroup(raw json.RawMessage) (*json.RawMessage, bool) {
 		var id struct {
 			Command string `json:"command"`
 		}
-		if err := json.Unmarshal(h, &id); err == nil && (hookspec.IsHarness(id.Command)) {
+		if err := json.Unmarshal(h, &id); err == nil && IsHarness(id.Command) {
 			harnessFound = true
 			continue
 		}
@@ -267,20 +266,20 @@ func mergeCopilotHooks(existingRaw, body []byte) ([]byte, error) {
 }
 
 // classifyCopilotEntry reports an entry's foreign remainder (nil when harness-owned, by its "bash"
-// command prefix via hookspec.IsHarness) and whether it was harness-owned; a foreign entry is returned
+// command prefix via IsHarness) and whether it was harness-owned; a foreign entry is returned
 // byte-identical so powershell/cwd/env and any other field survive untouched.
 func classifyCopilotEntry(e json.RawMessage) (*json.RawMessage, bool) {
 	var id struct {
 		Bash string `json:"bash"`
 	}
-	if err := json.Unmarshal(e, &id); err == nil && hookspec.IsHarness(id.Bash) {
+	if err := json.Unmarshal(e, &id); err == nil && IsHarness(id.Bash) {
 		return nil, true
 	}
 	return &e, false
 }
 
 func renderCodex(reg *providers.Registry, sel providers.Selection, o Options, out io.Writer) (bool, error) {
-	body, err := hookspec.CodexJSON()
+	body, err := CodexJSON()
 	if err != nil {
 		return false, err
 	}
@@ -344,20 +343,20 @@ func renderCodex(reg *providers.Registry, sel providers.Selection, o Options, ou
 // Codex hashes sorted compact JSON of event_name and a group containing one normalized handler (verified
 // on 0.163.0). codexTrustEntries reads mergedHooks — the real post-merge hooks.json, not the isolated
 // rendered body — so gi/hi land on the position Codex itself will read; it emits an entry only for a
-// harness-owned hook (hookspec.IsHarness), leaving whatever trust Codex/Orca already recorded for a
+// harness-owned hook (IsHarness), leaving whatever trust Codex/Orca already recorded for a
 // foreign hook (Orca, claude-dbx) alone. An event is checked against Codex's supported set only once it
 // is found to contain a harness hook, so a foreign-only event (Stop, SessionStart, ...) never errors.
 func codexTrustEntries(path string, mergedHooks []byte) (map[string]string, error) {
 	var config struct {
-		Hooks map[string][]hookspec.MatcherGroup `json:"hooks"`
+		Hooks map[string][]MatcherGroup `json:"hooks"`
 	}
 	if err := json.Unmarshal(mergedHooks, &config); err != nil {
 		return nil, err
 	}
 	events := map[string]string{
-		hookspec.EventPreToolUse: "pre_tool_use", hookspec.EventPostToolUse: "post_tool_use",
-		hookspec.EventUserPromptSubmit: "user_prompt_submit",
-		hookspec.EventSessionStart:     "session_start", hookspec.EventSubagentStart: "subagent_start",
+		EventPreToolUse: "pre_tool_use", EventPostToolUse: "post_tool_use",
+		EventUserPromptSubmit: "user_prompt_submit",
+		EventSessionStart:     "session_start", EventSubagentStart: "subagent_start",
 	}
 	path = codexHookSourcePath(path)
 	entries := map[string]string{}
@@ -377,10 +376,10 @@ func codexTrustEntries(path string, mergedHooks []byte) (map[string]string, erro
 }
 
 // anyHarnessHook reports whether groups contains at least one harness-owned hook.
-func anyHarnessHook(groups []hookspec.MatcherGroup) bool {
+func anyHarnessHook(groups []MatcherGroup) bool {
 	for _, group := range groups {
 		for _, hook := range group.Hooks {
-			if hookspec.IsHarness(hook.Command) {
+			if IsHarness(hook.Command) {
 				return true
 			}
 		}
@@ -389,10 +388,10 @@ func anyHarnessHook(groups []hookspec.MatcherGroup) bool {
 }
 
 // addCodexTrustEntries fills entries with one digest per harness-owned hook in groups.
-func addCodexTrustEntries(entries map[string]string, path, event, name string, groups []hookspec.MatcherGroup) error {
+func addCodexTrustEntries(entries map[string]string, path, event, name string, groups []MatcherGroup) error {
 	for gi, group := range groups {
 		for hi, hook := range group.Hooks {
-			if !hookspec.IsHarness(hook.Command) {
+			if !IsHarness(hook.Command) {
 				continue
 			}
 			digest, err := codexTrustDigest(event, name, group, hook)
@@ -406,7 +405,7 @@ func addCodexTrustEntries(entries map[string]string, path, event, name string, g
 }
 
 // codexTrustDigest computes Codex's trust digest for one harness hook identity.
-func codexTrustDigest(event, name string, group hookspec.MatcherGroup, hook hookspec.Hook) (string, error) {
+func codexTrustDigest(event, name string, group MatcherGroup, hook Hook) (string, error) {
 	handler := map[string]any{
 		"type": hook.Type, "command": hook.Command, "timeout": max(1, hook.Timeout), "async": hook.Async,
 	}
@@ -414,7 +413,7 @@ func codexTrustDigest(event, name string, group hookspec.MatcherGroup, hook hook
 		handler["statusMessage"] = hook.StatusMessage
 	}
 	identity := map[string]any{"event_name": name, "hooks": []any{handler}}
-	if event != hookspec.EventUserPromptSubmit && group.Matcher != "" {
+	if event != EventUserPromptSubmit && group.Matcher != "" {
 		identity["matcher"] = group.Matcher
 	}
 	var canonical bytes.Buffer

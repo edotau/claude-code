@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/edotau/claude-code/internal/hooks/hookspec"
 	"github.com/edotau/claude-code/internal/memory"
+	"github.com/edotau/claude-code/internal/settings"
 )
 
 // isolateCompletionEnv points every on-disk domain (providers, secrets, memory repos, dispatch
@@ -111,18 +111,18 @@ func TestSpecTreeSubwordsMatchDispatch(t *testing.T) {
 	}
 }
 
-// TestHookDomainMatchesRegistry: `hook ⇥` must offer every event hookspec.Registry declares, in
+// TestHookDomainMatchesRegistry: `hook ⇥` must offer every event settings.Registry declares, in
 // registry order — the stale-table bug Part 3 fixed (7 hard-coded names vs. 21 registered).
 func TestHookDomainMatchesRegistry(t *testing.T) {
 	var want []string
-	for _, s := range hookspec.Specs() {
+	for _, s := range settings.Specs() {
 		if !slices.Contains(want, s.Event) {
 			want = append(want, s.Event)
 		}
 	}
 	got := hookEvents()
 	if !slices.Equal(got, want) {
-		t.Errorf("hookEvents() = %v, want %v (hookspec.Registry)", got, want)
+		t.Errorf("hookEvents() = %v, want %v (settings.Registry)", got, want)
 	}
 	if got := completionCandidates([]string{"hook", ""}); !slices.Equal(got, want) {
 		t.Errorf("hook ⇥ = %v, want every registered event %v", got, want)

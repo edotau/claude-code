@@ -17,7 +17,7 @@ import (
 )
 
 // registryPkgs iterate the hook, setting, verb and schema registries, so any change can break them.
-var registryPkgs = []string{"internal/hooks", "internal/hooks/hookspec", "internal/settings", "internal/cli", "internal/schemas"}
+var registryPkgs = []string{"internal/hooks", "internal/settings", "internal/cli", "internal/schemas"}
 
 // goPkg is the slice of `go list -json` the gate reads.
 type goPkg struct {

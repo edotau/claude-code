@@ -10,8 +10,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"github.com/edotau/claude-code/internal/hooks/hookspec"
 )
 
 // orcaMarker is the literal foreign-hook command a third-party tool (Orca) installs into every
@@ -31,7 +29,7 @@ func readTestdata(t *testing.T, name string) []byte {
 // (testdata/codex-hooks-with-orca.json = ~/.codex/hooks.json.backup) across every event Orca occupies.
 func TestMergeCodexHooksKeepsForeignEntries(t *testing.T) {
 	existing := readTestdata(t, "codex-hooks-with-orca.json")
-	body, err := hookspec.CodexJSON()
+	body, err := settings.CodexJSON()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -69,7 +67,7 @@ func TestMergeCodexHooksAgainstBrokenRender(t *testing.T) {
 	if strings.Contains(string(broken), orcaMarker) {
 		t.Fatal("fixture precondition: the broken render must not itself contain Orca's marker")
 	}
-	body, err := hookspec.CodexJSON()
+	body, err := settings.CodexJSON()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -124,7 +122,7 @@ func TestMergeCopilotHooksKeepsForeignEntries(t *testing.T) {
     ]
   }
 }`)
-	body, err := hookspec.CopilotJSON()
+	body, err := settings.CopilotJSON()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -186,7 +184,7 @@ func findCodexHook(t *testing.T, merged []byte, want string) map[string]any {
 // an injected "timeout": 0 nor lose "customKey".
 func TestMergeCodexHooksPreservesUnknownFieldsAndNoTimeout(t *testing.T) {
 	existing := []byte(`{"hooks":{"PreToolUse":[{"hooks":[{"type":"command","command":"orca-stop","customKey":1}]}]}}`)
-	body, err := hookspec.CodexJSON()
+	body, err := settings.CodexJSON()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -209,7 +207,7 @@ func TestMergeCodexHooksPreservesUnknownFieldsAndNoTimeout(t *testing.T) {
 func TestMergeCodexHooksRoundTripsForeignGroupByteIdentical(t *testing.T) {
 	original := json.RawMessage(`{"matcher":"Bash","extra":{"b":2,"a":1},"hooks":[{"type":"command","command":"orca-stop","async":true,"nested":{"b":2,"a":1}}]}`)
 	existing := []byte(`{"hooks":{"PreToolUse":[` + string(original) + `]}}`)
-	body, err := hookspec.CodexJSON()
+	body, err := settings.CodexJSON()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -250,7 +248,7 @@ func compactJSON(t *testing.T, raw []byte) string {
 // hooks.json key outside "hooks" (e.g. a future Codex field) must survive the merge untouched.
 func TestMergeCodexHooksPreservesUnknownTopLevelKey(t *testing.T) {
 	existing := []byte(`{"hooks":{},"futureField":{"nested":true,"n":1}}`)
-	body, err := hookspec.CodexJSON()
+	body, err := settings.CodexJSON()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -270,7 +268,7 @@ func TestMergeCodexHooksPreservesUnknownTopLevelKey(t *testing.T) {
 // TestMergeCopilotHooksPreservesUnknownTopLevelKey mirrors the Codex case for Copilot's top-level shape.
 func TestMergeCopilotHooksPreservesUnknownTopLevelKey(t *testing.T) {
 	existing := []byte(`{"version":1,"hooks":{},"vendorExtra":"keep-me"}`)
-	body, err := hookspec.CopilotJSON()
+	body, err := settings.CopilotJSON()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -295,7 +293,7 @@ func TestMergeCodexHooksPreservesLessThanUnescaped(t *testing.T) {
 	escaped := string([]byte{0x5c, 'u', '0', '0', '3', 'c'}) // the escape sequence, spelled out so the source never contains a literal backslash-u003c
 	cmd := "test $a " + lt + " $b && echo orca-stop"
 	existing := []byte(`{"hooks":{"PreToolUse":[{"hooks":[{"type":"command","command":"` + cmd + `"}]}]}}`)
-	body, err := hookspec.CodexJSON()
+	body, err := settings.CodexJSON()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -363,7 +361,7 @@ func TestMergeCodexHooksForeignFirstStaysFirst(t *testing.T) {
 		{"hooks":[{"type":"command","command":"orca-stop"}]},
 		{"matcher":"Bash","hooks":[{"type":"command","command":"$HOME/.claude/bin/claude-code hook safety-scan-STALE"}]}
 	]}}`)
-	body, err := hookspec.CodexJSON()
+	body, err := settings.CodexJSON()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -393,7 +391,7 @@ func TestMergeCodexHooksHarnessFirstStaysFirst(t *testing.T) {
 		{"matcher":"Bash","hooks":[{"type":"command","command":"$HOME/.claude/bin/claude-code hook safety-scan-STALE"}]},
 		{"hooks":[{"type":"command","command":"orca-stop"}]}
 	]}}`)
-	body, err := hookspec.CodexJSON()
+	body, err := settings.CodexJSON()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -420,7 +418,7 @@ func TestMergeCodexHooksNoHarnessItemPrepends(t *testing.T) {
 	existing := []byte(`{"hooks":{"PostToolUse":[
 		{"hooks":[{"type":"command","command":"orca-start"}]}
 	]}}`)
-	body, err := hookspec.CodexJSON()
+	body, err := settings.CodexJSON()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -453,7 +451,7 @@ func TestMergeCodexHooksMixedGroupSplicesInPlace(t *testing.T) {
 		]},
 		{"hooks":[{"type":"command","command":"orca-C"}]}
 	]}}`)
-	body, err := hookspec.CodexJSON()
+	body, err := settings.CodexJSON()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -487,7 +485,7 @@ func TestMergeCodexHooksMixedGroupSplicesInPlace(t *testing.T) {
 // the untouched foreign ones, so nothing should move or change.
 func TestMergeCodexHooksIdempotent(t *testing.T) {
 	existing := readTestdata(t, "codex-hooks-with-orca.json")
-	body, err := hookspec.CodexJSON()
+	body, err := settings.CodexJSON()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -515,7 +513,7 @@ func TestMergeCopilotHooksIdempotent(t *testing.T) {
     ]
   }
 }`)
-	body, err := hookspec.CopilotJSON()
+	body, err := settings.CopilotJSON()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -545,7 +543,7 @@ func TestMergeCopilotHooksForeignFirstStaysFirst(t *testing.T) {
     ]
   }
 }`)
-	body, err := hookspec.CopilotJSON()
+	body, err := settings.CopilotJSON()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -591,7 +589,7 @@ func TestCodexTrustEntriesSurviveForeignFirstOrder(t *testing.T) {
 	if _, err := settings.Run(settings.Options{Router: agent.Router{}, Home: home, Vendors: true, Out: &out, Agents: []string{"codex"}}); err != nil {
 		t.Fatalf("Run: %v\n%s", err, out.String())
 	}
-	body, err := hookspec.CodexJSON()
+	body, err := settings.CodexJSON()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -633,7 +631,7 @@ func TestMergeCopilotHooksPreservesPowershellCwdEnv(t *testing.T) {
     ]
   }
 }`)
-	body, err := hookspec.CopilotJSON()
+	body, err := settings.CopilotJSON()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -669,7 +667,7 @@ func TestMergeCopilotHooksPreservesPowershellCwdEnv(t *testing.T) {
 func TestMergeCodexHooksDropsStaleHarnessNames(t *testing.T) {
 	stale := []byte(`{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"HARNESS_HOOK_AGENT=codex $HOME/.claude/bin/claude-code hook bash-guard"}]}],` +
 		`"PostToolUse":[{"matcher":"Read","hooks":[{"type":"command","command":"HARNESS_HOOK_AGENT=codex $HOME/.claude/bin/claude-code hook access-trace"}]}]}}`)
-	body, err := hookspec.CodexJSON()
+	body, err := settings.CodexJSON()
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -9,7 +9,7 @@ carries another session's half-done hunks.
 - List what else is live: `git status --short` (uncommitted files you didn't write), other sessions'
   `plans/*.md`, and `ListAgents` for peers in the same checkout.
 - Check each task's `owns:` files against that list. Registry-shaped files (`internal/schemas/writers_test.go`,
-  `internal/hooks/hookspec/hookspec.go`, `internal/providers/defaults.json`) are edited by every lane that adds an
+  `internal/settings/hookspec.go`, `internal/providers/defaults.json`) are edited by every lane that adds an
   entry; assume they overlap.
 - Name each overlap in the plan's Risks with the holder and who goes first, or message the peer to agree an
   order before either edits.

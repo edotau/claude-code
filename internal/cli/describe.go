@@ -9,9 +9,9 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/buildver"
-	"github.com/edotau/claude-code/internal/hooks/hookspec"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
@@ -130,7 +130,7 @@ func describe(reg *providers.Registry) (Describe, error) {
 		}
 		d.Agents = append(d.Agents, dr)
 	}
-	for _, s := range hookspec.Specs() {
+	for _, s := range settings.Specs() {
 		d.Hooks = append(d.Hooks, DescribeHook{Name: s.Name, Event: s.Event, Matcher: s.Matcher, Timeout: s.Seconds()})
 	}
 	return d, nil

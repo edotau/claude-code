@@ -10,7 +10,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/hooks/hookspec"
 	"github.com/edotau/claude-code/internal/paths"
 )
 
@@ -61,12 +60,12 @@ func TestMergePreservesForeign(t *testing.T) {
 		t.Fatal(err)
 	}
 	var doc struct {
-		Env         map[string]string                  `json:"env"`
-		Tips        *bool                              `json:"spinnerTipsEnabled"`
-		Permissions map[string]json.RawMessage         `json:"permissions"`
-		StatusLine  map[string]any                     `json:"statusLine"`
-		Hooks       map[string][]hookspec.MatcherGroup `json:"hooks"`
-		Output      string                             `json:"outputStyle"`
+		Env         map[string]string          `json:"env"`
+		Tips        *bool                      `json:"spinnerTipsEnabled"`
+		Permissions map[string]json.RawMessage `json:"permissions"`
+		StatusLine  map[string]any             `json:"statusLine"`
+		Hooks       map[string][]MatcherGroup  `json:"hooks"`
+		Output      string                     `json:"outputStyle"`
 	}
 	if err := json.Unmarshal(merged, &doc); err != nil {
 		t.Fatalf("%v\n%s", err, merged)
@@ -97,10 +96,10 @@ func TestMergePreservesForeign(t *testing.T) {
 	}
 	// PreToolUse carries the dispatcher entry plus the safety gate's own entry.
 	wantPre, claudeHooks := 0, 0
-	for ev, groups := range hookspec.Events() {
+	for ev, groups := range Events() {
 		for _, g := range groups {
 			claudeHooks += len(g.Hooks)
-			if ev == hookspec.EventPreToolUse {
+			if ev == EventPreToolUse {
 				wantPre += len(g.Hooks)
 			}
 		}

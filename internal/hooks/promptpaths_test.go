@@ -12,8 +12,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/hooks/hookspec"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
@@ -240,7 +240,7 @@ func TestPathResolverRunMatchesDispatcher(t *testing.T) {
 	for _, vendor := range []string{VendorClaude, VendorCopilot} {
 		t.Run(vendor, func(t *testing.T) {
 			vaulttest.Use(t) // hermetic CLAUDE_CONFIG_DIR + vault (harness hook switches)
-			t.Setenv(hookspec.AgentEnv, vendor)
+			t.Setenv(settings.AgentEnv, vendor)
 			t.Setenv("CLAUDE_RECALL_SEMANTIC", "0") // keep the co-dispatched memory-recall cheap
 			dir := t.TempDir()
 			f := filepath.Join(dir, "notes.md")

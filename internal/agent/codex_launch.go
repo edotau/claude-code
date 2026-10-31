@@ -15,7 +15,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/edotau/claude-code/internal/hooks/hookspec"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
@@ -63,7 +62,7 @@ func codex(p *providers.Provider, base, model, cred string, h *Headless) ([]stri
 	fields := [][2]string{{"name", tomlQuote(p.Name)}, {"base_url", tomlQuote(base)}, {"wire_api", tomlQuote("responses")}}
 	var env []string
 	if p.Preset == providers.PresetDatabricks {
-		env = append(env, hookspec.CodexProfileEnv+"="+p.Name, hookspec.CodexCatalogEnv+"=")
+		env = append(env, settings.CodexProfileEnv+"="+p.Name, settings.CodexCatalogEnv+"=")
 	}
 	if cred != "" {
 		env = append(env, CodexKeyEnv+"="+cred)
@@ -85,7 +84,7 @@ func codex(p *providers.Provider, base, model, cred string, h *Headless) ([]stri
 	catalog := codexCatalogArgs(p)
 	argv = append(argv, catalog...) // /model offers only ids this row serves
 	if len(catalog) == 2 {
-		env = append(env, hookspec.CodexCatalogEnv+"="+tomlString(strings.TrimPrefix(catalog[1], "model_catalog_json=")))
+		env = append(env, settings.CodexCatalogEnv+"="+tomlString(strings.TrimPrefix(catalog[1], "model_catalog_json=")))
 	}
 	return env, codexHeadless(argv, h), nil
 }

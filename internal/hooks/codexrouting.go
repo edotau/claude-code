@@ -5,9 +5,9 @@ import (
 	"os"
 	"strings"
 
-	"github.com/edotau/claude-code/internal/hooks/hookspec"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
+	"github.com/edotau/claude-code/internal/settings"
 )
 
 // nativeCodexAgentRoute fills a fresh, unpinned child's model; the builder renders the updated input as an allow.
@@ -69,7 +69,7 @@ func codexSpawnCell(in *Input, task string) (router.Cell, string, bool) {
 	if err != nil {
 		return router.Cell{}, "", false
 	}
-	p := reg.Providers[os.Getenv(hookspec.CodexProfileEnv)]
+	p := reg.Providers[os.Getenv(settings.CodexProfileEnv)]
 	if p == nil || p.Preset != providers.PresetDatabricks || !providers.ServesResponses(p, in.nested("model")) {
 		return router.Cell{}, "", false
 	}
@@ -87,7 +87,7 @@ func codexSpawnCell(in *Input, task string) (router.Cell, string, bool) {
 }
 
 func codexListedModel(model string) bool {
-	body, err := os.ReadFile(os.Getenv(hookspec.CodexCatalogEnv))
+	body, err := os.ReadFile(os.Getenv(settings.CodexCatalogEnv))
 	if err != nil {
 		return false
 	}

@@ -15,7 +15,7 @@ Files under `agents/`, `commands/`, `rules/`, `skills/` and this file go live th
 | Path | Holds |
 | --- | --- |
 | `cmd/claude-code/`, `internal/` | The binary, stdlib-first; external SDKs boxed one package each. `internal/cli` is the verb table only; each verb's engine is its own package |
-| `internal/hooks/hookspec/hookspec.go` · `internal/hooks/` | Hook declarations (the one authoring surface) · their handlers |
+| `internal/settings/hookspec.go` · `internal/hooks/` | Hook declarations (the one authoring surface) · their handlers |
 | `internal/providers/defaults.json` | Built-in providers; the vault's provider overlay replaces them by name |
 | `defaults/claude/settings.json` | Source of `settings.json` (generated — hard rule 1) |
 | `state/vault.db` | The vault (untracked): pins, custom env, provider/agent overlays (`vault list\|edit`), sealed secrets (`vault set\|get`) |
@@ -31,7 +31,7 @@ Files under `agents/`, `commands/`, `rules/`, `skills/` and this file go live th
 ## Hard rules (always on)
 
 1. **`settings.json` is generated — never hand-edit it.** Edit `defaults/claude/settings.json`
-   (hooks: `internal/hooks/hookspec/hookspec.go`), then `make install`. Only `settings.local.json` is hand-edited.
+   (hooks: `internal/settings/hookspec.go`), then `make install`. Only `settings.local.json` is hand-edited.
 2. **Secrets live only in the encrypted vault (`state/vault.db`; `claude-code vault set`) or a provider's
    `auth.command`** — never in a plain file, `settings.json`, a commit, or a log line. The vault's master key
    comes from the OS keyring, `HARNESS_VAULT_KEY`, or `key_command`.

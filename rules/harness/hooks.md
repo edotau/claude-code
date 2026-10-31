@@ -4,13 +4,13 @@ paths:
 ---
 # Hooks System
 
-Hooks run as `claude-code hook <Event> [--<module>|--all]`. **`internal/hooks/hookspec/hookspec.go` is the only place a
+Hooks run as `claude-code hook <Event> [--<module>|--all]`. **`internal/settings/hookspec.go` is the only place a
 hook is declared** (one `Spec` per invocation); the handler lives in `internal/hooks/`. Add, remove or retime: edit
 both, then `make install`. See `settings-management.md`.
 
 ## Groups and the dispatcher
 
-`hookspec.Registry` lists groups in execution order: `safety`, `rtk`, `docs`, `dispatch`, `paths`, `memory`,
+`settings.Registry` lists groups in execution order: `safety`, `rtk`, `docs`, `dispatch`, `paths`, `memory`,
 `format`, `review`, `worktree`, `codex` (codex-only, never rendered into Claude settings). Settings carry **one
 dispatcher entry per event** (`hook <Event>`) matching the union of its groups' matchers; it reads the payload once,
 runs each enabled group within its budget, recovers panics and merges results. `--<module>` runs one module; `--all`

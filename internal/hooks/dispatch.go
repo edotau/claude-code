@@ -10,7 +10,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/edotau/claude-code/internal/hooks/hookspec"
 	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/textutil"
 )
@@ -43,14 +42,14 @@ type Runner func(*Input) Result
 type Bound struct {
 	Group string
 	Gate  bool
-	Spec  hookspec.EventSpec
+	Spec  settings.EventSpec
 	Run   Runner
 }
 
 // Bind pairs every hookspec handler with its Native Runner.
 func Bind() []Bound {
 	var out []Bound
-	for _, g := range hookspec.Registry {
+	for _, g := range settings.Registry {
 		for _, s := range g.Events {
 			s.Group = g.Name
 			out = append(out, Bound{Group: g.Name, Gate: g.Gate, Spec: s, Run: Native[s.Name]})
@@ -188,7 +187,7 @@ func appendNonEmpty(list []string, s string) []string {
 
 // IsEvent reports whether name is a lifecycle event the dispatcher serves (`claude-code hook <Event>`).
 func IsEvent(name string) bool {
-	for _, g := range hookspec.Registry {
+	for _, g := range settings.Registry {
 		for _, s := range g.Events {
 			if s.Event == name {
 				return true
@@ -216,7 +215,7 @@ func RunEvent(event string, all bool, stdin io.Reader, stdout, stderr io.Writer)
 	enabled := enabledGroups()
 	var bound []Bound
 	for _, b := range Bind() {
-		g, _ := hookspec.GroupOf(b.Spec.Name)
+		g, _ := settings.GroupOf(b.Spec.Name)
 		switch {
 		case g.VendorOnly, !enabled(b.Group, b.Gate):
 		case !all && (b.Gate || b.Spec.Async):

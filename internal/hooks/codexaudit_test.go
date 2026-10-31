@@ -9,9 +9,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/hooks/hookspec"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -208,7 +208,7 @@ func TestCodexAuditMissingCausalFieldsRemainUnknown(t *testing.T) {
 func TestCodexAuditIgnoresOtherVendorsAndMissingSessions(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	for _, vendor := range []string{VendorClaude, VendorCopilot, VendorCodex} {
-		t.Setenv(hookspec.AgentEnv, vendor)
+		t.Setenv(settings.AgentEnv, vendor)
 		for _, name := range []string{"codex-routing-start", "codex-routing-result", "codex-subagent-start"} {
 			payload := map[string]any{"tool_name": "spawn_agent", "agent_id": "child", "model": codexRouteWireModel}
 			if vendor != VendorCodex {

@@ -10,13 +10,13 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/configure"
-	"github.com/edotau/claude-code/internal/hooks/hookspec"
 	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/schemas"
 	"github.com/edotau/claude-code/internal/secrets"
+	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 	"github.com/edotau/claude-code/internal/worktree"
 )
@@ -39,7 +39,7 @@ func configureAgentNames() []string { return append([]string{"claude"}, vendorNa
 // hookEvents derives from the hook chain the registry actually declares — never a hand copy of it.
 func hookEvents() []string {
 	var out []string
-	for _, s := range hookspec.Specs() {
+	for _, s := range settings.Specs() {
 		if !slices.Contains(out, s.Event) {
 			out = append(out, s.Event)
 		}

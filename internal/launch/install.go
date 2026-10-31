@@ -22,7 +22,6 @@ import (
 	"github.com/edotau/claude-code/internal/clean"
 	"github.com/edotau/claude-code/internal/clipboard"
 	"github.com/edotau/claude-code/internal/hooks"
-	"github.com/edotau/claude-code/internal/hooks/hookspec"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/network/browser"
 	"github.com/edotau/claude-code/internal/network/tailscale"
@@ -30,6 +29,7 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/preflight"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/setup"
 	"github.com/edotau/claude-code/internal/ui/ansi"
 )
@@ -501,7 +501,7 @@ func settingsHasHooks(file string) (bool, error) {
 		return false, err
 	}
 	var doc struct {
-		Hooks map[string][]hookspec.MatcherGroup `json:"hooks"`
+		Hooks map[string][]settings.MatcherGroup `json:"hooks"`
 	}
 	if err := json.Unmarshal(b, &doc); err != nil {
 		return false, err
@@ -509,7 +509,7 @@ func settingsHasHooks(file string) (bool, error) {
 	for _, groups := range doc.Hooks {
 		for _, g := range groups {
 			for _, h := range g.Hooks {
-				if hookspec.IsHarness(h.Command) {
+				if settings.IsHarness(h.Command) {
 					return true, nil
 				}
 			}

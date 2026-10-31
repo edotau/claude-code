@@ -11,7 +11,6 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/defaults"
-	"github.com/edotau/claude-code/internal/hooks/hookspec"
 	"github.com/edotau/claude-code/internal/paths"
 )
 
@@ -84,7 +83,7 @@ func Sections() ([]Section, error) {
 
 // loadDefaults parses the embedded defaults file, expanding ${HOOK_BIN}.
 func loadDefaults() (*object, error) {
-	expanded := strings.ReplaceAll(string(defaults.Claude), "${HOOK_BIN}", hookspec.HookBin)
+	expanded := strings.ReplaceAll(string(defaults.Claude), "${HOOK_BIN}", HookBin)
 	o, err := parseObject([]byte(expanded))
 	if err != nil {
 		return nil, fmt.Errorf("defaults/claude/settings.json: %w", err)
@@ -92,13 +91,13 @@ func loadDefaults() (*object, error) {
 	return o, nil
 }
 
-// Render loads the defaults file, expands ${HOOK_BIN}, and adds the hookspec hooks block.
+// Render loads the defaults file, expands ${HOOK_BIN}, and adds the hook registry block.
 func Render() ([]byte, error) {
 	o, err := loadDefaults()
 	if err != nil {
 		return nil, err
 	}
-	hooks, err := hookspec.SettingsJSON()
+	hooks, err := SettingsJSON()
 	if err != nil {
 		return nil, err
 	}
@@ -247,7 +246,7 @@ func mergeHooks(base, overlay json.RawMessage, sum *Summary) (json.RawMessage, e
 		}
 	}
 	for _, ev := range o.keys {
-		var groups []hookspec.MatcherGroup
+		var groups []MatcherGroup
 		if err := json.Unmarshal(o.vals[ev], &groups); err != nil {
 			return nil, err
 		}
@@ -295,7 +294,7 @@ func foreignHookGroups(event string, raw json.RawMessage, sum *Summary) ([]json.
 				Command string `json:"command"`
 			}
 			_ = json.Unmarshal(h, &cmd)
-			if !hookspec.IsHarness(cmd.Command) {
+			if !IsHarness(cmd.Command) {
 				keep = append(keep, h)
 			}
 		}

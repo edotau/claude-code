@@ -12,7 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/edotau/claude-code/internal/hooks/hookspec"
+	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
@@ -60,7 +60,7 @@ func ParseInput(r io.Reader) *Input {
 	if json.Unmarshal(raw, &in.doc) != nil {
 		return &Input{Raw: raw}
 	}
-	switch vendor := os.Getenv(hookspec.AgentEnv); vendor {
+	switch vendor := os.Getenv(settings.AgentEnv); vendor {
 	case VendorClaude, VendorCodex, VendorCopilot:
 		in.vendor = vendor
 	}
@@ -189,7 +189,7 @@ const contextCapChars = 9500
 
 // hookContext gives subprocesses the registered hook budget without changing process signal handling.
 func hookContext(name string) (context.Context, context.CancelFunc) {
-	for _, spec := range hookspec.Specs() {
+	for _, spec := range settings.Specs() {
 		if spec.Name == name {
 			return context.WithTimeout(context.Background(), spec.Budget)
 		}
@@ -197,7 +197,7 @@ func hookContext(name string) (context.Context, context.CancelFunc) {
 	panic("unknown hook: " + name)
 }
 
-// Native maps every hook module to its Runner; names must match hookspec.Registry.
+// Native maps every hook module to its Runner; names must match settings.Registry.
 var Native = map[string]Runner{
 	"safety-scan":               safetyScan,
 	"rtk-rewrite":               rtkRewrite,
@@ -242,7 +242,7 @@ func runDirect(name string, stdin io.Reader, stdout, stderr io.Writer) int {
 	res := run(in)
 	if res.Decision == Block && specOf(name).Blocks {
 		if name == "safety-scan" && in.Vendor() == VendorCopilot {
-			fmt.Fprintln(stdout, OutputCopilot(hookspec.EventPreToolUse, res))
+			fmt.Fprintln(stdout, OutputCopilot(settings.EventPreToolUse, res))
 		}
 		fmt.Fprintln(stderr, res.Reason)
 		return ExitBlock
@@ -264,13 +264,13 @@ var bareStdout = map[string]bool{
 }
 
 // specOf is the hookspec entry for a module; the zero spec when unknown.
-func specOf(name string) hookspec.EventSpec {
-	for _, s := range hookspec.Specs() {
+func specOf(name string) settings.EventSpec {
+	for _, s := range settings.Specs() {
 		if s.Name == name {
 			return s
 		}
 	}
-	return hookspec.EventSpec{}
+	return settings.EventSpec{}
 }
 
 // eventOf names the hookspec event a handler is declared on.
@@ -284,7 +284,7 @@ func RunArgs(event string, flags []string, stdin io.Reader, stdout, stderr io.Wr
 	switch {
 	case len(flags) == 0:
 		return RunEvent(event, false, stdin, stdout, stderr)
-	case len(flags) == 1 && flags[0] == hookspec.AllFlag:
+	case len(flags) == 1 && flags[0] == settings.AllFlag:
 		return RunEvent(event, true, stdin, stdout, stderr)
 	case len(flags) == 1 && strings.HasPrefix(flags[0], "--"):
 		return runModule(event, strings.TrimPrefix(flags[0], "--"), stdin, stdout, stderr)
@@ -298,7 +298,7 @@ func runModule(event, name string, stdin io.Reader, stdout, stderr io.Writer) in
 	if _, ok := Native[name]; !ok || eventOf(name) != event {
 		return unknownHook(name, "no module on "+event+" named", stderr)
 	}
-	if g, found := hookspec.GroupOf(name); found && !enabledGroups()(g.Name, g.Gate) {
+	if g, found := settings.GroupOf(name); found && !enabledGroups()(g.Name, g.Gate) {
 		return ExitProceed
 	}
 	return runDirect(name, stdin, stdout, stderr)
