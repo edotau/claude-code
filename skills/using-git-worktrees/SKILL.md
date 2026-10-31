@@ -23,6 +23,8 @@ reliable parallel sessions that never step on each other or pollute git status.
 | Reproducing a bug on another branch | Temporary worktree, clean up same day |
 | Quick local diff review only | Stay on current tree — no worktree |
 
+Staying put while other sessions edit the same tree: [references/shared-checkout.md](references/shared-checkout.md).
+
 ## In this harness: use `claude-code worktree` (the paved road)
 
 The verbs handle everything with the harness conventions baked in:
