@@ -14,7 +14,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/edotau/claude-code/internal/hooks"
 	"github.com/edotau/claude-code/internal/proc"
 )
 
@@ -65,7 +64,7 @@ var spawnClear = func(self string, args []string, stdin []byte) error {
 var selfPath = os.Executable
 
 // onWSL reports whether we are under WSL; a var so tests can force either branch.
-var onWSL = hooks.OnWSL
+var onWSL = proc.OnWSL
 
 type tool struct {
 	name        string

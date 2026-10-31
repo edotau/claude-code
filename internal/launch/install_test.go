@@ -19,8 +19,8 @@ import (
 
 	"github.com/edotau/claude-code/internal/clean"
 	"github.com/edotau/claude-code/internal/clipboard"
-	"github.com/edotau/claude-code/internal/hooks"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 )
 
@@ -361,7 +361,7 @@ func setupCompactFixture(t *testing.T, linked []string) (wantWindowsLine bool) {
 	// warning fires on every run here and this wouldn't be an all-ok fixture anymore.
 	dirs = append(dirs, filepath.Join(root, "localbin"))
 	t.Setenv("PATH", strings.Join(dirs, string(os.PathListSeparator)))
-	if hooks.OnWSL() {
+	if proc.OnWSL() {
 		t.Setenv(windowsProfileEnv, shortTempDir(t))
 		return true
 	}
