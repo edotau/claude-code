@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -53,7 +52,7 @@ func TestResolveTargetCanonicalIDTakesTheTierPin(t *testing.T) {
 // A non-Claude id keeps matching agents, with Claude last at the lowest tier serving the id.
 func TestRouteChainForNonClaudeIDIsExact(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	all := router.Opts{Configured: func(string, router.Cell) error { return nil }}
+	all := PickOpts{Configured: func(string, Cell) error { return nil }}
 	c, _, err := RouteChainFor(context.Background(), "codex", "gpt-6.1-sol", "sonnet", FallbackAll, false, all)
 	if err != nil {
 		t.Fatal(err)
@@ -74,7 +73,7 @@ func TestRouteChainForNonClaudeIDIsExact(t *testing.T) {
 // An alias-less older row runs its own cell on every agent, not the current tier's.
 func TestRouteChainForCanonicalRowUsesItsCell(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	all := router.Opts{Configured: func(string, router.Cell) error { return nil }}
+	all := PickOpts{Configured: func(string, Cell) error { return nil }}
 	c, _, err := RouteChainFor(context.Background(), "copilot", "claude-sonnet-5.5", "", FallbackAll, false, all)
 	if err != nil {
 		t.Fatal(err)

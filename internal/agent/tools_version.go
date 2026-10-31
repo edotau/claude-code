@@ -12,7 +12,6 @@ import (
 	"sync"
 
 	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/schemas"
 )
 
@@ -35,13 +34,13 @@ func ParseVersion(line string) string {
 
 // AgentVersion is the installed version of the named agent's CLI, resolved as a launch resolves it (bin/ link, then PATH).
 func AgentVersion(name string) (string, error) {
-	spec, ok := providers.LookupAgentSpec(name)
+	spec, ok := LookupSchema(name)
 	if !ok {
 		return "", fmt.Errorf("unknown agent %q", name)
 	}
 	path, err := paths.VendorBin(name)
 	if err != nil {
-		bin := spec.Binary
+		bin := spec.CLI.Binary
 		if bin == "" {
 			bin = name // claude has no Binary on its row
 		}
@@ -62,7 +61,7 @@ func AgentVersionAt(path string) (string, error) {
 }
 
 // VersionProblem is "" when version sits inside the row's bounds, else "below <min>: <reason>" or "above <max>: <reason>".
-func VersionProblem(spec providers.AgentSpec, version string) string {
+func VersionProblem(spec CLI, version string) string {
 	v := versionParts(version)
 	if v == nil {
 		return ""
@@ -78,7 +77,8 @@ func VersionProblem(spec providers.AgentSpec, version string) string {
 
 // VersionWarning is the one-line launch warning for the agent's binary at path, "" when in bounds or unknown.
 func VersionWarning(name, path string) string {
-	spec, ok := providers.LookupAgentSpec(name)
+	schema, ok := LookupSchema(name)
+	spec := schema.CLI
 	if !ok || (spec.MinVersion == "" && spec.MaxVersion == "") {
 		return "" // no bound: skip the probe entirely
 	}

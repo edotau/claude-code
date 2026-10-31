@@ -4,11 +4,11 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/agent"
 )
 
 // byokPoolSize is the curated BYOK pool's model count (a var so tests can pin it).
-var byokPoolSize = func() int { return len(providers.BYOKPool()) }
+var byokPoolSize = func() int { return len(agent.BYOKPool()) }
 
 // byokHint is the one-line `--model byok` reminder for a coworker spawn or a brief whose Agent: line names copilot or
 // opencode; "" when neither applies or the brief already passes --model.

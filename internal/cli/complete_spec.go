@@ -6,7 +6,6 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/network/tailscale"
-	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/ui/theme"
 )
 
@@ -35,8 +34,8 @@ func buildSpecTree() map[string]*compNode {
 	formatFlag := func() flagInfo { return valuedFlag("format", formatValues) }
 	// gateway router's flags, which bare `gateway` also takes.
 	gatewayRouteFlags := func() []flagInfo {
-		return []flagInfo{valuedFlag("model", func() []string { return router.Tiers }),
-			valuedFlag("agent", func() []string { return router.Runners }),
+		return []flagInfo{valuedFlag("model", func() []string { return agent.Tiers }),
+			valuedFlag("agent", func() []string { return agent.TableRunners }),
 			flag("task"), valuedFlag("fallback", func() []string { return agent.FallbackModes }), formatFlag()}
 	}
 	vaultSections := func() []string {

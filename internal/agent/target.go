@@ -25,7 +25,7 @@ func (s Schema) ResolveTarget(reg *providers.Registry, sel providers.Selection, 
 	if pt, pnote, ok, perr := e.preRoute(reg, explicit); ok {
 		return pt, pnote, perr
 	}
-	if explicit || (providers.CanServe(name, t.Provider) && e.followsPin(t.Provider)) {
+	if explicit || (CanServe(name, t.Provider) && e.followsPin(t.Provider)) {
 		return e.gate(reg, t)
 	}
 	if ft, fallbackNote, ok := e.fallbackTarget(reg); ok {

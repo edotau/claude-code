@@ -13,7 +13,6 @@ import (
 	"github.com/edotau/claude-code/internal/copilotsdk"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/preflight"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/proxy"
 	"github.com/edotau/claude-code/internal/secrets"
@@ -94,7 +93,7 @@ func printProviderTable(reg *providers.Registry) {
 	for _, v := range agent.Names() {
 		var names, vm []string
 		for _, p := range ready {
-			if providers.CanServe(v, p) {
+			if agent.CanServe(v, p) {
 				names, vm = append(names, p.Name), appendUnique(vm, providerMode(p))
 			}
 		}
@@ -595,7 +594,7 @@ func cmdSwitch(args []string) int {
 		return fail("%v", err)
 	}
 	fmt.Printf("profile pinned: %s (relaunch to apply)\n", args[0])
-	preflight.Warm(os.Stdout, reg, time.Now())
+	agent.PreflightWarm(os.Stdout, reg, time.Now())
 	return 0
 }
 

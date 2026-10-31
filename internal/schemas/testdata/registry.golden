@@ -17,6 +17,7 @@
 # legacy-layout: projections
 # legacy-layout: quota
 # legacy-layout: router-runtime
+# legacy-layout: served-models
 # legacy-layout: settings-overlay
 # legacy-layout: setup-state
 # legacy-layout: stop-format
@@ -44,13 +45,13 @@ memory-journal | record | 1 | state/harness/memory/journal/*.json | internal/mem
 migrations | log | 1 | state/harness/migrations.jsonl | schemas | keep
 oauth-usage-cache | cache | 1 | state/harness/cache/claude-oauth-usage.json | internal/usage | keep
 opencode-auth-cache | cache | 1 | state/harness/vendors/opencode-auth.json | internal/agent | keep
-opencode-models-check | cache | 1 | state/harness/opencode-models-check.json | internal/providers | keep
+opencode-models-check | cache | 1 | state/harness/opencode-models-check.json | internal/agent | keep
 opencode-overlay | derived | 1 | state/harness/opencode/*.json | internal/agent | keep
 projections | derived | 1 | state/projections/* | internal/agent | clean:projections
 quota | derived | 0 | state/harness/quota.json | internal/router | keep
 router-runtime | record | 1 | state/harness/router.json | internal/proxy | keep
 router-sessions | record | 1 | state/harness/proxy/sessions.json | internal/proxy | keep
-served-models | cache | 1 | state/harness/preflight/*.json | internal/preflight | keep
+served-models | cache | 1 | state/harness/preflight/*.json | internal/agent | keep
 settings-overlay | derived | 1 | state/harness/overlay-*.json | internal/agent | keep
 setup-state | record | 1 | state/harness/setup.json | internal/setup | keep
 stop-format | cache | 1 | state/harness/stop-format/*.json | internal/hooks | keep

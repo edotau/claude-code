@@ -8,27 +8,26 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/router"
 )
 
-func (rc routeCtx) byokCandidate(leg Leg, cand router.Candidate, tier string) Leg {
+func (rc routeCtx) byokCandidate(leg Leg, cand Candidate, tier string) Leg {
 	if cand.Agent != rc.want {
 		return leg
 	}
 	pin := rc.pins[rc.want]
-	if rc.callerModel != "" && rc.callerModel != router.BYOKModel {
+	if rc.callerModel != "" && rc.callerModel != BYOKModel {
 		return leg
 	}
-	if rc.callerModel == "" && pin.Model != router.BYOKModel {
+	if rc.callerModel == "" && pin.Model != BYOKModel {
 		return leg
 	}
-	picked := cand.Profile != "" && pin.Profile == cand.Profile && pin.Model == router.BYOKModel
+	picked := cand.Profile != "" && pin.Profile == cand.Profile && pin.Model == BYOKModel
 	return byokLeg(leg, tier, rc.reg, cand.Profile, picked)
 }
 
 // byokLeg freezes a pool choice before a runner or vendor resolver sees the request.
 func byokLeg(leg Leg, tier string, reg *providers.Registry, profile string, picked bool) Leg {
-	tb, err := router.Load()
+	tb, err := Load()
 	if err != nil {
 		leg.Model, leg.keepCaller, leg.unroutedLeg = tier, false, false
 		leg.note = "byok routing table unavailable; using tier slot"
@@ -42,7 +41,7 @@ func byokLeg(leg Leg, tier string, reg *providers.Registry, profile string, pick
 	if picked && byokPoolModel(leg.Model, p) {
 		return leg
 	}
-	model, note := router.PinnedModel(leg.Agent.Name(), tier, cell, p, router.BYOKModel)
+	model, note := PinnedModel(leg.Agent.Name(), tier, cell, p, BYOKModel)
 	leg.Model, leg.note, leg.keepCaller, leg.unroutedLeg = prefix+model, note, false, false
 	return leg
 }
@@ -62,17 +61,17 @@ func byokProvider(leg Leg, reg *providers.Registry, profile string) (*providers.
 }
 
 func byokPoolModel(model string, p *providers.Provider) bool {
-	return router.IsPoolModel(p, model)
+	return IsPoolModel(p, model)
 }
 
 // byokRepick skips the failed model for this agent, then returns the next pool pick ("" if unchanged).
-func byokRepick(agent, tier string, cell router.Cell, p *providers.Provider, prefix string) func(string) string {
+func byokRepick(agent, tier string, cell Cell, p *providers.Provider, prefix string) func(string) string {
 	return func(failed string) string {
 		wire := strings.TrimPrefix(failed, prefix)
-		if router.SkipBYOK(agent, p, wire) == "" {
+		if SkipBYOK(agent, p, wire) == "" {
 			return ""
 		}
-		next, _ := router.PinnedModel(agent, tier, cell, p, router.BYOKModel)
+		next, _ := PinnedModel(agent, tier, cell, p, BYOKModel)
 		if next == wire {
 			return ""
 		}
@@ -87,7 +86,7 @@ var capabilityErr = regexp.MustCompile(`max_new_tokens|max_output_tokens|max_tok
 var endpointErr = regexp.MustCompile(`ENDPOINT_NOT_FOUND`)
 
 // servedRepickFor is a codex Databricks leg's repick when the switch is on and the caller named no exact model.
-func (rc routeCtx) servedRepickFor(cand router.Candidate) func(string) string {
+func (rc routeCtx) servedRepickFor(cand Candidate) func(string) string {
 	p := rc.codexDatabricks(cand)
 	if p == nil || !providers.ServedRoutingOn() || rc.exact != "" || (rc.callerModel != "" && rc.row == "") {
 		return nil
@@ -96,7 +95,7 @@ func (rc routeCtx) servedRepickFor(cand router.Candidate) func(string) string {
 }
 
 // codexDatabricks is cand's profile row when cand is a codex leg on a Databricks profile, else nil.
-func (rc routeCtx) codexDatabricks(cand router.Candidate) *providers.Provider {
+func (rc routeCtx) codexDatabricks(cand Candidate) *providers.Provider {
 	if cand.Agent != "codex" || cand.Profile == "" || rc.reg == nil {
 		return nil
 	}
@@ -110,10 +109,10 @@ func (rc routeCtx) codexDatabricks(cand router.Candidate) *providers.Provider {
 func servedRepick(p *providers.Provider, failed string) string {
 	prefix := p.Name + ":"
 	wire := strings.TrimPrefix(failed, prefix)
-	if err := router.MarkUnserved(p, wire); err != nil {
+	if err := MarkUnserved(p, wire); err != nil {
 		fmt.Fprintf(os.Stderr, "served: could not mark %s unavailable: %v\n", wire, err)
 	}
-	next, _ := router.ServedFirst(p, true, time.Now())
+	next, _ := ServedFirst(p, true, time.Now())
 	if next == "" || next == wire {
 		return ""
 	}

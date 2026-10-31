@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/router"
 )
 
 type opencodeEngine struct{ baseEngine }
@@ -89,7 +88,7 @@ func (opencodeEngine) launchEnv() []string {
 	return nil
 }
 
-func (opencodeEngine) presence(c router.Cell) error {
+func (opencodeEngine) presence(c Cell) error {
 	if id, _, found := strings.Cut(c.Model, "/"); found {
 		_, err := opencodeCredential(id)
 		return err

@@ -1,3 +1,4 @@
+// Package router holds each account's remembered quota state (quota.json); the pick and the table live in agent.
 package router
 
 import (
@@ -20,6 +21,13 @@ const (
 	LowPct       = 90.0
 	ExhaustedPct = 100.0
 	StaleAfter   = 15 * time.Minute
+)
+
+// Billing types: a plan window already paid for, per-use credits, or a free third-party endpoint.
+const (
+	BillSubscription = "subscription"
+	BillCredits      = "credits"
+	BillFree         = "free"
 )
 
 // Account states a pick sorts by.
@@ -176,8 +184,8 @@ func ClearProviderAuth(provider string) error {
 	})
 }
 
-// accountAuthMarked checks the account's own mark, then the router's mark on its profile ("<provider>·<p>" → p).
-func (s State) accountAuthMarked(account string, now time.Time) (string, bool) {
+// AccountAuthMarked checks the account's own mark, then the router's mark on its profile ("<provider>·<p>" → p).
+func (s State) AccountAuthMarked(account string, now time.Time) (string, bool) {
 	if reason, ok := s.AuthMarked(account, now); ok {
 		return reason, ok
 	}
@@ -269,6 +277,14 @@ func ParseReset(text string, now time.Time) (time.Time, bool) {
 	return time.Time{}, false
 }
 
+// normalizeOffset turns "+0500" into "+05:00" for the Z07:00 layout; "z" passes through.
+func normalizeOffset(o string) string {
+	if len(o) == 5 {
+		return o[:3] + ":" + o[3:]
+	}
+	return o
+}
+
 // ResetFor is the failure's own reset, else the account's known window: credits reset monthly, a subscription
 // window at its stored reset, else in an hour (re-checked then, never forever).
 func ResetFor(text, billing string, e Entry, now time.Time) time.Time {
@@ -282,14 +298,6 @@ func ResetFor(text, billing string, e Entry, now time.Time) time.Time {
 		return firstOfNextMonth(now)
 	}
 	return now.Add(time.Hour)
-}
-
-// normalizeOffset turns "+0500" into "+05:00" for the Z07:00 layout; "z" passes through.
-func normalizeOffset(o string) string {
-	if len(o) == 5 {
-		return o[:3] + ":" + o[3:]
-	}
-	return o
 }
 
 func firstOfNextMonth(now time.Time) time.Time {

@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/hooks"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/vault"
 )
@@ -86,7 +85,7 @@ func TestClientPrepareProfileTakesTierSlot(t *testing.T) {
 		if len(res.Hops) != 1 {
 			t.Fatalf("%s: hops = %+v, want one unavailable leg", profile, res.Hops)
 		}
-		if want := (hooks.RuleClassifier{}).Tier("pong"); res.Hops[0].Model != want {
+		if want := (agent.RuleClassifier{}).Tier("pong"); res.Hops[0].Model != want {
 			t.Errorf("%s: leg model = %q, want tier %q", profile, res.Hops[0].Model, want)
 		}
 	}

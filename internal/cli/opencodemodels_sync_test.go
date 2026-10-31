@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -262,16 +263,16 @@ func TestOpencodeMenuSyncHistoricalFailuresOnlyBlockNewEntries(t *testing.T) {
 	if err := providers.SetOpencodeMenu(existing); err != nil {
 		t.Fatal(err)
 	}
-	s, err := providers.DiscoverServingModels(context.Background(), f.p, false)
+	s, err := agent.DiscoverServingModels(context.Background(), f.p, false)
 	if err != nil {
 		t.Fatal(err)
 	}
 	s.CheckedAt = time.Now().UTC()
-	s.Checks = []providers.CheckResult{
+	s.Checks = []agent.CheckResult{
 		{ID: "gpt-5-5", Status: "fail", HTTP: 400, Error: "private-upstream-body synthetic-sync-credential"},
 		{ID: "sync-alpha", Status: "fail", HTTP: 403, Error: "private-upstream-body"},
 	}
-	if err := providers.SaveServingDiscovery(f.p, s); err != nil {
+	if err := agent.SaveServingDiscovery(f.p, s); err != nil {
 		t.Fatal(err)
 	}
 	out := syncRun(t, "--apply")
@@ -283,7 +284,7 @@ func TestOpencodeMenuSyncHistoricalFailuresOnlyBlockNewEntries(t *testing.T) {
 	if f.me.Load() != 2 || f.list.Load() != 1 || strings.Contains(out, "private-upstream-body") {
 		t.Fatal("historical cache was not reused safely")
 	}
-	if _, err := os.Stat(providers.CheckCachePath()); !os.IsNotExist(err) {
+	if _, err := os.Stat(agent.CheckCachePath()); !os.IsNotExist(err) {
 		t.Fatalf("sync touched legacy plaintext check cache: %v", err)
 	}
 }
@@ -341,7 +342,7 @@ func TestOpencodeMenuSyncVerifySealsSafeChecksAndPreservesExisting(t *testing.T)
 	if f.me.Load() != 2 || f.list.Load() != 2 || chat.Load() != 8 || responses.Load() != 2 {
 		t.Fatalf("wrong verification requests: Me=%d listing=%d chat=%d responses=%d", f.me.Load(), f.list.Load(), chat.Load(), responses.Load())
 	}
-	snapshot, err := providers.DiscoverServingModels(context.Background(), f.p, false)
+	snapshot, err := agent.DiscoverServingModels(context.Background(), f.p, false)
 	if err != nil || !snapshot.CacheHit || snapshot.CheckedAt.IsZero() || len(snapshot.Checks) != 3 {
 		t.Fatalf("sealed verification snapshot missing: %+v err=%v", snapshot, err)
 	}
@@ -378,7 +379,7 @@ func TestOpencodeMenuSyncVerifySealsSafeChecksAndPreservesExisting(t *testing.T)
 			t.Error("verification persisted or printed private probe diagnostics")
 		}
 	}
-	if _, err := os.Stat(providers.CheckCachePath()); !os.IsNotExist(err) {
+	if _, err := os.Stat(agent.CheckCachePath()); !os.IsNotExist(err) {
 		t.Fatalf("verification touched legacy plaintext cache: %v", err)
 	}
 	sealed := syncVaultBytes(t)

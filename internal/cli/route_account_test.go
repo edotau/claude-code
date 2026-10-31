@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
@@ -14,7 +13,7 @@ import (
 func TestRouteEndsNamesResolvedClaudeAccount(t *testing.T) {
 	vaulttest.Use(t)
 	oldAcct, oldRefresh := agent.ResolveAccount, routeRefresh
-	agent.ResolveAccount = func(runner string, _ router.Cell) (string, string) {
+	agent.ResolveAccount = func(runner string, _ agent.Cell) (string, string) {
 		if runner == "claude" {
 			return "databricks·prod", ""
 		}

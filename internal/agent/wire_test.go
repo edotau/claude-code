@@ -36,19 +36,19 @@ func TestCanServeEqualsServesOK(t *testing.T) {
 		{Name: "gh", Protocol: providers.ProtocolOpenAI, BaseURL: "https://g", Auth: providers.Auth{Type: providers.AuthCLI, Login: "copilot"}},
 		{Name: "gem", Routes: map[string]string{providers.ProtocolGemini: "https://g"}},
 	}
-	for _, s := range providers.AgentSpecs() {
-		if s.Binary == "" {
+	for _, s := range Roster() {
+		if !s.External() {
 			continue
 		}
 		for _, p := range rows {
-			if s.Name == "gemini" && providers.GeminiGatewayRow(p) {
-				if !providers.CanServe(s.Name, p) {
+			if s.Name == "gemini" && GeminiGatewayRow(p) {
+				if !CanServe(s.Name, p) {
 					t.Errorf("CanServe(gemini,%s) = false on a Databricks row", p.Name)
 				}
 				continue
 			}
-			if ok, _ := providers.Serves(s.Name, p, ""); providers.CanServe(s.Name, p) != ok {
-				t.Errorf("CanServe(%s,%s) = %v, Serves = %v", s.Name, p.Name, providers.CanServe(s.Name, p), ok)
+			if ok, _ := Serves(s.Name, p, ""); CanServe(s.Name, p) != ok {
+				t.Errorf("CanServe(%s,%s) = %v, Serves = %v", s.Name, p.Name, CanServe(s.Name, p), ok)
 			}
 		}
 	}
@@ -66,7 +66,7 @@ func TestConfigureRouteUsesServesReason(t *testing.T) {
 		{"copilot", &providers.Provider{Name: "sub", Protocol: providers.ProtocolAnthropic, BaseURL: "https://s", Auth: providers.Auth{Type: providers.AuthCLI}}},
 	}
 	for _, c := range cases {
-		_, why := providers.Serves(c.agent, c.p, "")
+		_, why := Serves(c.agent, c.p, "")
 		if why == "" {
 			t.Fatalf("%s/%s: control: Serves has no reason", c.agent, c.p.Name)
 		}

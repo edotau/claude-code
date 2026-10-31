@@ -7,16 +7,6 @@ import (
 	"github.com/edotau/claude-code/internal/schemas"
 )
 
-// checkCacheSchema is the cache's current schema version; a mismatch is a cache miss, never migrated.
-const checkCacheSchema = 1
-
-var checkCacheFormat = schemas.Register(schemas.Format{
-	Name: "opencode-models-check", Owner: "internal/providers", Kind: schemas.Cache,
-	Glob:    func() string { return CheckCachePath() },
-	New:     func() any { return &CheckCache{} },
-	Version: checkCacheSchema, Keep: "rebuildable cache; a version mismatch is a miss",
-})
-
 // tokenExpirySchema is the token-expiry record's schema version; a mismatch is a cache miss.
 const tokenExpirySchema = 1
 

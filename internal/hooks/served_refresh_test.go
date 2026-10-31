@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/memory"
-	"github.com/edotau/claude-code/internal/preflight"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -27,7 +27,7 @@ func servedSession(t *testing.T, on bool, fetched time.Time, updateChild string)
 		t.Fatal(err)
 	}
 	if !fetched.IsZero() {
-		if err := preflight.SaveServed(preflight.Served{Profile: "dev", FetchedAt: fetched}); err != nil {
+		if err := agent.SaveServed(agent.Served{Profile: "dev", FetchedAt: fetched}); err != nil {
 			t.Fatal(err)
 		}
 	}

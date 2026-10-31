@@ -10,7 +10,6 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -74,7 +73,7 @@ func TestRouterPreviewMatchesDispatch(t *testing.T) {
 				t.Fatalf("not JSON: %v\n%s", err, out)
 			}
 			chain, _, err := agent.RouteChainFor(context.Background(), "codex", tc.model, "sonnet", agent.FallbackAgents, false,
-				router.Opts{Refresh: routeRefresh, WorkRepo: func() bool { return router.IsWorkRepo("") }})
+				agent.PickOpts{Refresh: routeRefresh, WorkRepo: func() bool { return agent.IsWorkRepo("") }})
 			if err != nil {
 				t.Fatal(err)
 			}

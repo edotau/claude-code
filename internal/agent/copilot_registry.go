@@ -128,7 +128,7 @@ type CopilotRegistry struct {
 // Ref is the CLI's selection string for m.
 func (m CopilotRegistryModel) Ref() string { return m.Provider + "/" + m.ID }
 
-// copilotWireRoute is the registry shape of one wire; its router path is copilot's AgentSpec.RouterSuffix.
+// copilotWireRoute is the registry shape of one wire; its router path is copilot's CLI.RouterSuffix.
 var copilotWireRoute = map[string]struct{ typ, wireAPI string }{
 	providers.ProtocolAnthropic: {"anthropic", ""},
 	providers.ProtocolOpenAI:    {"openai", "completions"},
@@ -173,8 +173,8 @@ func copilotBuildRegistry(profile string, p *providers.Provider, eps []CopilotEn
 
 func newCopilotRegistryProvider(name, wire, base string, p *providers.Provider) CopilotRegistryProvider {
 	rt := copilotWireRoute[wire]
-	spec, _ := providers.LookupAgentSpec("copilot")
-	return CopilotRegistryProvider{Name: name, Type: rt.typ, WireAPI: rt.wireAPI, BaseURL: base + spec.RouterSuffix[wire],
+	spec, _ := LookupSchema("copilot")
+	return CopilotRegistryProvider{Name: name, Type: rt.typ, WireAPI: rt.wireAPI, BaseURL: base + spec.CLI.RouterSuffix[wire],
 		Bearer: wire != providers.ProtocolAnthropic, Headers: p.Headers}
 }
 

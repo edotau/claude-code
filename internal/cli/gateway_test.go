@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/router"
+	"github.com/edotau/claude-code/internal/agent"
 )
 
 // TestGatewayProxyFlagValidation: lifecycle flags are mutually exclusive and --port belongs to --serve.
@@ -110,8 +110,8 @@ func TestGatewayUnknownWord(t *testing.T) {
 // TestPrintRouteWidthsComeFromData: a 40-char model id must not push the following columns out of line.
 func TestPrintRouteWidthsComeFromData(t *testing.T) {
 	long := strings.Repeat("m", 40)
-	res := router.Result{Tier: "sonnet", Weights: map[string]float64{},
-		Candidates: []router.Candidate{
+	res := agent.PickResult{Tier: "sonnet", Weights: map[string]float64{},
+		Candidates: []agent.Candidate{
 			{Agent: "claude", Model: "sonnet", Account: "a", State: "ok", Scores: map[string]float64{}},
 			{Agent: "opencode", Model: long, Account: "b", State: "ok", Scores: map[string]float64{}},
 		}}
@@ -138,14 +138,14 @@ func TestPrintRouteWidthsComeFromData(t *testing.T) {
 
 // TestPrintRouteSkipHeader: skipped runners get a SKIP GATE REASON header and aligned rows without a "skip" prefix.
 func TestPrintRouteSkipHeader(t *testing.T) {
-	res := router.Result{Tier: "sonnet", Weights: map[string]float64{},
-		Skipped: []router.Skip{{Agent: "copilot", Gate: "exhausted", Reason: "r1"}, {Agent: "x", Gate: "g", Reason: "r2"}}}
+	res := agent.PickResult{Tier: "sonnet", Weights: map[string]float64{},
+		Skipped: []agent.Skip{{Agent: "copilot", Gate: "exhausted", Reason: "r1"}, {Agent: "x", Gate: "g", Reason: "r2"}}}
 	_, out, _ := captureOutput(t, func() int { printRoute(res, routeSources{}); return 0 })
 	if !strings.Contains(out, "SKIP    GATE      REASON\n") ||
 		!strings.Contains(out, "copilot exhausted r1\n") || !strings.Contains(out, "x       g         r2\n") {
 		t.Errorf("skip block wrong:\n%s", out)
 	}
-	_, none, _ := captureOutput(t, func() int { printRoute(router.Result{Weights: map[string]float64{}}, routeSources{}); return 0 })
+	_, none, _ := captureOutput(t, func() int { printRoute(agent.PickResult{Weights: map[string]float64{}}, routeSources{}); return 0 })
 	if strings.Contains(none, "SKIP") {
 		t.Errorf("no skips must print no header:\n%s", none)
 	}

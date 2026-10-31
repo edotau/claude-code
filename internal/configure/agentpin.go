@@ -4,24 +4,25 @@ package configure
 import (
 	"slices"
 
+	agentpkg "github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/providers"
 )
 
 // agentPinRows is agent's Active row (not for claude, which is always on) and its Route row.
 func agentPinRows(d *dialog, agent string) []billingRow {
 	var rows []billingRow
-	if key := providers.AgentActivePin(agent); key != "" {
-		on := providers.AgentActive(agent)
+	if key := agentpkg.AgentActivePin(agent); key != "" {
+		on := agentpkg.AgentActive(agent)
 		rows = append(rows, billingRow{label: "Active", desc: "route work to " + agent + " " + bracket(on, "on", "off"),
 			run: func() bool {
-				next := providers.AgentOff
+				next := agentpkg.AgentOff
 				if !on {
-					next = providers.AgentOn
+					next = agentpkg.AgentOn
 				}
 				return setAgentPins(d, agent, map[string]string{key: next})
 			}})
 	}
-	key := providers.AgentProfilePin(agent)
+	key := agentpkg.AgentProfilePin(agent)
 	if key == "" {
 		return rows
 	}
@@ -43,7 +44,7 @@ func pickAgentRoute(d *dialog, agent, key, cur string) (bool, error) {
 	var names []string
 	if d.reg != nil {
 		for n, p := range d.reg.Providers {
-			if p != nil && providers.CanServe(agent, p) {
+			if p != nil && agentpkg.CanServe(agent, p) {
 				names = append(names, n)
 			}
 		}
@@ -74,8 +75,8 @@ func pickAgentRoute(d *dialog, agent, key, cur string) (bool, error) {
 
 // agentActiveOn switches agent back on after a successful sign-in, when its Active pin is off.
 func agentActiveOn(d *dialog, agent string) {
-	if key := providers.AgentActivePin(agent); key != "" && !providers.AgentActive(agent) {
-		setAgentPins(d, agent, map[string]string{key: providers.AgentOn})
+	if key := agentpkg.AgentActivePin(agent); key != "" && !agentpkg.AgentActive(agent) {
+		setAgentPins(d, agent, map[string]string{key: agentpkg.AgentOn})
 	}
 }
 

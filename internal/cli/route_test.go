@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/vault"
@@ -71,7 +72,7 @@ func TestRouteVerbJSON(t *testing.T) {
 			skip = &res.Skipped[i]
 		}
 	}
-	if skip == nil || skip.Gate != router.GateExhausted || !strings.Contains(skip.Reason, "github·work exhausted until") {
+	if skip == nil || skip.Gate != agent.GateExhausted || !strings.Contains(skip.Reason, "github·work exhausted until") {
 		t.Errorf("copilot skip = %+v in %+v", skip, res.Skipped)
 	}
 	if c := res.Candidates[len(res.Candidates)-1]; c.Agent != "claude" || c.Model != "claude-sonnet-5-5" || c.Scores == nil {

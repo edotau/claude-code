@@ -27,7 +27,6 @@ import (
 	"github.com/edotau/claude-code/internal/launch"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/preflight"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/proxy"
 	"github.com/edotau/claude-code/internal/secrets"
@@ -109,12 +108,12 @@ func (d *dialog) header(section string) {
 }
 
 // warmServedOnChange warms the served cache when a pin changed or the switch flipped on since the run's snapshot.
-func warmServedOnChange(out io.Writer, skip bool, pins map[string]providers.AgentPinSpec, wasOn bool) {
-	if skip || !providers.ServedRoutingOn() || (wasOn && maps.Equal(pins, providers.AgentPins())) {
+func warmServedOnChange(out io.Writer, skip bool, pins map[string]agent.PinSpec, wasOn bool) {
+	if skip || !providers.ServedRoutingOn() || (wasOn && maps.Equal(pins, agent.AgentPins())) {
 		return
 	}
 	if reg, err := providers.Load(); err == nil {
-		preflight.Warm(out, reg, time.Now())
+		agent.PreflightWarm(out, reg, time.Now())
 	}
 }
 
@@ -144,7 +143,7 @@ func Run(o Options, section string) int {
 	}
 	o.In = o.reader() // nil → os.Stdin, so the TTY pickers recognise the real terminal
 	d := &dialog{o: o, reg: reg, br: bufio.NewReader(o.In), out: out, color: ansi.Enabled(out)}
-	defer warmServedOnChange(out, o.Check || o.DryRun, providers.AgentPins(), providers.ServedRoutingOn())
+	defer warmServedOnChange(out, o.Check || o.DryRun, agent.AgentPins(), providers.ServedRoutingOn())
 	if len(o.Drop)+len(o.Keep) > 0 {
 		code := runDropKeep(d)
 		if d.changed && !o.Check && !o.DryRun && !rerenderConfigs(d) && code == 0 {

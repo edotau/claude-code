@@ -98,14 +98,14 @@ func TestAgentModelTargetPin(t *testing.T) {
 		t.Fatal(err)
 	}
 	dev := providers.Target{Provider: reg.Providers["dev"], Model: "base"}
-	if got, _ := providers.ResolveAgentModel(providers.ModelAsk{Agent: "codex", Target: dev}); got.Model != m {
+	if got, _ := ResolveAgentModel(ModelAsk{Agent: "codex", Target: dev}); got.Model != m {
 		t.Errorf("dev = %q, want %s kept", got.Model, m)
 	}
-	if got, _ := providers.ResolveAgentModel(providers.ModelAsk{Agent: "codex", Flag: "flag-m", Target: dev}); got.Model == m {
+	if got, _ := ResolveAgentModel(ModelAsk{Agent: "codex", Flag: "flag-m", Target: dev}); got.Model == m {
 		t.Errorf("explicit --model lost to the pin: %q", got.Model)
 	}
 	off := providers.Target{Provider: &providers.Provider{Name: "chatgpt"}, Model: "base"}
-	if got, _ := providers.ResolveAgentModel(providers.ModelAsk{Agent: "codex", Target: off}); got.Model != "base" {
+	if got, _ := ResolveAgentModel(ModelAsk{Agent: "codex", Target: off}); got.Model != "base" {
 		t.Errorf("chatgpt = %q, want the databricks id skipped", got.Model)
 	}
 }

@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -24,7 +23,7 @@ func TestOpencodeOverlayModelsFollowTable(t *testing.T) {
 		}
 		return doc
 	}
-	tb, err := router.Load()
+	tb, err := Load()
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -16,11 +16,11 @@ func TestResolveAccountNamesActualBackend(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	setPin(t, providers.PinProfile, "openai")
 	t.Setenv("OPENAI_API_KEY", "sk-test-not-real")
-	acct, billing := resolveAccount("codex", router.Cell{Model: "gpt-6.1-sol", Account: "codex:chatgpt"})
+	acct, billing := resolveAccount("codex", Cell{Model: "gpt-6.1-sol", Account: "codex:chatgpt"})
 	if acct != "openai·openai" || billing != router.BillCredits {
 		t.Fatalf("resolveAccount = (%q, %q), want openai·openai credits", acct, billing)
 	}
-	if a, _ := resolveAccount("opencode", router.Cell{Model: "opencode-go/kimi-k3.1-pro"}); a != "" {
+	if a, _ := resolveAccount("opencode", Cell{Model: "opencode-go/kimi-k3.1-pro"}); a != "" {
 		t.Errorf("opencode keeps its table account, got %q", a)
 	}
 }
@@ -31,10 +31,10 @@ func TestResolveAccountFollowsSessionProfile(t *testing.T) {
 	setPin(t, providers.PinProfile, "anthropic")
 	t.Setenv("OPENAI_API_KEY", "sk-test-not-real")
 	t.Setenv(providers.EnvSessionProfile, "openai")
-	if acct, _ := resolveAccount("claude", router.Cell{Model: "claude-sonnet-5-5"}); acct != "openai·openai" {
+	if acct, _ := resolveAccount("claude", Cell{Model: "claude-sonnet-5-5"}); acct != "openai·openai" {
 		t.Errorf("claude account = %q, want the session profile openai·openai", acct)
 	}
-	if acct, _ := resolveAccount("codex", router.Cell{Model: "gpt-6.1-sol", Account: "openai·chatgpt"}); acct != "" {
+	if acct, _ := resolveAccount("codex", Cell{Model: "gpt-6.1-sol", Account: "openai·chatgpt"}); acct != "" {
 		t.Errorf("codex login cell account = %q, want it kept (empty override)", acct)
 	}
 }
@@ -66,7 +66,7 @@ func TestExplicitChainRecordsAndGates(t *testing.T) {
 // --native opencode leads on opencode's own config, ahead of (and instead of) the hub cell.
 func TestRouteChainNativeOpencodeLeads(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	all := router.Opts{Configured: func(string, router.Cell) error { return nil }}
+	all := PickOpts{Configured: func(string, Cell) error { return nil }}
 	c, _, err := RouteChain(context.Background(), "opencode", "sonnet", FallbackAll, false, true, all)
 	if err != nil {
 		t.Fatal(err)

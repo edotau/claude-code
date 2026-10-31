@@ -8,7 +8,6 @@ import (
 
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/router"
 )
 
 // opencode: a generated provider block via OPENCODE_CONFIG_CONTENT; the key is an {env:} reference.
@@ -300,5 +299,5 @@ func opencodeOverlayModels() (mainModel, smallModel string, ok bool) {
 			return "github-copilot/" + m, "github-copilot/" + s, true
 		}
 	}
-	return router.OpencodeTableModels()
+	return OpencodeTableModels()
 }

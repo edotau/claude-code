@@ -36,7 +36,7 @@ func TestResolveAgentModel(t *testing.T) {
 						}
 					}
 					tg := specTarget(kind)
-					ask := providers.ModelAsk{Agent: agent, Target: tg}
+					ask := ModelAsk{Agent: agent, Target: tg}
 					want := tg.Model
 					switch mode {
 					case "flag":
@@ -46,7 +46,7 @@ func TestResolveAgentModel(t *testing.T) {
 							want = "pinned-model"
 						}
 					}
-					got, note := providers.ResolveAgentModel(ask)
+					got, note := ResolveAgentModel(ask)
 					if got.Model != want || note != "" || got.Provider != tg.Provider {
 						t.Errorf("got %q (note %q), want %q", got.Model, note, want)
 					}
@@ -62,11 +62,11 @@ func TestResolveAgentModelCodexPinOnDatabricks(t *testing.T) {
 	if err := providers.SetPins(map[string]string{providers.PinCodexModel: "databricks-gpt-6-1-sol"}); err != nil {
 		t.Fatal(err)
 	}
-	got, _ := providers.ResolveAgentModel(providers.ModelAsk{Agent: "codex", Target: specTarget("databricks")})
+	got, _ := ResolveAgentModel(ModelAsk{Agent: "codex", Target: specTarget("databricks")})
 	if got.Model != "databricks-gpt-6-1-sol" {
 		t.Errorf("model = %q, want the pin", got.Model)
 	}
-	if got, _ = providers.ResolveAgentModel(providers.ModelAsk{Agent: "codex", Flag: "gpt-5.5", Target: specTarget("databricks")}); got.Model != "databricks-gpt-5-5" {
+	if got, _ = ResolveAgentModel(ModelAsk{Agent: "codex", Flag: "gpt-5.5", Target: specTarget("databricks")}); got.Model != "databricks-gpt-5-5" {
 		t.Errorf("flag = %q, want it respelled for Databricks and beating the pin", got.Model)
 	}
 }
@@ -90,15 +90,15 @@ func TestCopilotChoicePin(t *testing.T) {
 func TestResolveAgentModelMissingAlias(t *testing.T) {
 	vaulttest.Use(t)
 	tg := specTarget("fallback")
-	got, note := providers.ResolveAgentModel(providers.ModelAsk{Agent: "copilot", Flag: "fable", Target: tg})
+	got, note := ResolveAgentModel(ModelAsk{Agent: "copilot", Flag: "fable", Target: tg})
 	if got.Model != "fallback-base" || note != "anthropic has no fable model; keeping fallback-base" {
 		t.Errorf("got %q / %q", got.Model, note)
 	}
-	got, note = providers.ResolveAgentModel(providers.ModelAsk{Agent: "copilot", Flag: "opus", Target: tg})
+	got, note = ResolveAgentModel(ModelAsk{Agent: "copilot", Flag: "opus", Target: tg})
 	if got.Model != "claude-opus-5-5" || note != "" {
 		t.Errorf("opus = %q / %q", got.Model, note)
 	}
-	if got, note = providers.ResolveAgentModel(providers.ModelAsk{Agent: "copilot", Flag: "fable", Target: tg, Applied: true}); got.Model != "fallback-base" || note != "" {
+	if got, note = ResolveAgentModel(ModelAsk{Agent: "copilot", Flag: "fable", Target: tg, Applied: true}); got.Model != "fallback-base" || note != "" {
 		t.Errorf("applied flag must be left alone: %q / %q", got.Model, note)
 	}
 }
@@ -106,17 +106,17 @@ func TestResolveAgentModelMissingAlias(t *testing.T) {
 // A databricks- pin is dropped off Databricks (the default stands) and kept on it.
 func TestSpellPinDropsDatabricksOffDatabricks(t *testing.T) {
 	const pin = "databricks-gpt-6-1-sol"
-	if got := providers.SpellPin(specTarget("fallback").Provider, pin); got != "" {
+	if got := SpellPin(specTarget("fallback").Provider, pin); got != "" {
 		t.Errorf("off-Databricks = %q, want dropped", got)
 	}
-	if got := providers.SpellPin(specTarget("databricks").Provider, pin); got != pin {
+	if got := SpellPin(specTarget("databricks").Provider, pin); got != pin {
 		t.Errorf("Databricks = %q, want kept", got)
 	}
 	vaulttest.Use(t)
 	if err := providers.SetPins(map[string]string{providers.PinCodexModel: pin}); err != nil {
 		t.Fatal(err)
 	}
-	if got, _ := providers.ResolveAgentModel(providers.ModelAsk{Agent: "codex", Target: specTarget("fallback")}); got.Model != "fallback-base" {
+	if got, _ := ResolveAgentModel(ModelAsk{Agent: "codex", Target: specTarget("fallback")}); got.Model != "fallback-base" {
 		t.Errorf("model = %q, want the default", got.Model)
 	}
 }
@@ -126,10 +126,10 @@ func TestGeminiRefusedOnRoutedRow(t *testing.T) {
 	vaulttest.Use(t)
 	p := &providers.Provider{Name: "gem-key", Models: map[string]string{"opus": "gemini-x"},
 		Routes: map[string]string{providers.ProtocolGemini: "https://g.example.com"}}
-	if providers.CanServe("gemini", p) {
+	if CanServe("gemini", p) {
 		t.Error("CanServe(gemini) = true on a keyed row with a gemini route")
 	}
-	if !providers.CanServe("opencode", p) {
+	if !CanServe("opencode", p) {
 		t.Error("control: opencode speaks gemini and should serve the row")
 	}
 	_, _, err := schemaFor("gemini").configureRoute(t.Context(), providers.Target{Provider: p, Model: "gemini-x"}, nil)

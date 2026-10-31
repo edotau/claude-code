@@ -6,7 +6,6 @@ import (
 
 	"github.com/edotau/claude-code/internal/network/tailscale"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/router"
 )
 
 // Client assembles and executes recorded agent dispatches.
@@ -136,7 +135,7 @@ func (c *Client) route(ctx context.Context, r Runner, o RunOptions) (Chain, erro
 		return Chain{}, err
 	}
 	chain, _, err := RouteChainFor(ctx, o.Agent, o.Model, c.tier(o.Prompt), o.Fallback, o.Native,
-		router.Opts{Refresh: c.Refresh, WorkRepo: func() bool { return router.IsWorkRepo(o.WorkDir) }})
+		PickOpts{Refresh: c.Refresh, WorkRepo: func() bool { return IsWorkRepo(o.WorkDir) }})
 	return chain, err
 }
 

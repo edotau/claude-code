@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/providers"
 )
 
@@ -15,7 +16,7 @@ func TestAgentProfileAndOnOffVerbs(t *testing.T) {
 	if code != 0 || !strings.Contains(out, providers.PinCopilotActive) {
 		t.Fatalf("copilot off: code=%d out=%q err=%q", code, out, errOut)
 	}
-	if got := providers.Pin(providers.PinCopilotActive); got != providers.AgentOff {
+	if got := providers.Pin(providers.PinCopilotActive); got != agent.AgentOff {
 		t.Fatalf("COPILOT_ACTIVE = %q, want off", got)
 	}
 
@@ -26,7 +27,7 @@ func TestAgentProfileAndOnOffVerbs(t *testing.T) {
 	}
 
 	code, _, errOut = captureOutput(t, func() int { return cmdAgentOnOff("copilot", true, nil) })
-	if code != 0 || providers.Pin(providers.PinCopilotActive) != providers.AgentOn {
+	if code != 0 || providers.Pin(providers.PinCopilotActive) != agent.AgentOn {
 		t.Fatalf("copilot on: code=%d pin=%q err=%q", code, providers.Pin(providers.PinCopilotActive), errOut)
 	}
 

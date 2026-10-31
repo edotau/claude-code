@@ -1,6 +1,9 @@
 package agent
 
 import (
+	"cmp"
+	"errors"
+	"fmt"
 	"maps"
 	"slices"
 	"strings"
@@ -11,11 +14,11 @@ import (
 // claudeTiers are claude's tier pins, folded into its MODEL cell as tier=id.
 var claudeTiers = []string{"OPUS", "SONNET", "HAIKU", "FABLE"}
 
-// VaultAgentNames is claude, then the other AgentSpecs agents alphabetically, then extra overlay agent names.
+// VaultAgentNames is claude, then the other roster agents alphabetically, then extra overlay agent names.
 func VaultAgentNames(vs map[string]any) []string {
 	var names, rest []string
-	for _, sp := range providers.AgentSpecs() {
-		if sp.Binary == "" {
+	for _, sp := range Roster() {
+		if !sp.External() {
 			names = append(names, sp.Name)
 		} else {
 			rest = append(rest, sp.Name)
@@ -62,5 +65,77 @@ func VaultAgentIsClaude(name string) bool {
 
 // VaultAgentOff reports an agent whose ACTIVE pin says off (claude is always on).
 func VaultAgentOff(name string, pins map[string]string) bool {
-	return !VaultAgentIsClaude(name) && strings.TrimSpace(pins[strings.ToUpper(name)+"_ACTIVE"]) == providers.AgentOff
+	return !VaultAgentIsClaude(name) && strings.TrimSpace(pins[strings.ToUpper(name)+"_ACTIVE"]) == AgentOff
+}
+
+// AgentOn and AgentOff are the <AGENT>_ACTIVE pin values; unset means on.
+const (
+	AgentOn  = "on"
+	AgentOff = "off"
+)
+
+// PinSpec is one agent's routing pins: its profile, its model pin, and whether it is switched off.
+type PinSpec struct {
+	Profile, Model string
+	Off            bool
+}
+
+// AgentProfilePin is the <AGENT>_PROFILE pin key for agent ("" for an unknown agent).
+func AgentProfilePin(agent string) string { s, _ := LookupSchema(agent); return s.CLI.ProfilePin }
+
+// AgentActivePin is the <AGENT>_ACTIVE pin key for agent ("" for claude or an unknown agent).
+func AgentActivePin(agent string) string { s, _ := LookupSchema(agent); return s.CLI.ActivePin }
+
+// ValidAgentActive rejects any value but on|off, and off for claude.
+func ValidAgentActive(agent, v string) error {
+	if _, ok := LookupSchema(agent); !ok {
+		return fmt.Errorf("unknown agent %q", agent)
+	}
+	switch v {
+	case AgentOn:
+		return nil
+	case AgentOff:
+		if AgentActivePin(agent) == "" {
+			return errors.New("claude is always on")
+		}
+		return nil
+	}
+	return fmt.Errorf("active must be %q or %q, got %q", AgentOn, AgentOff, v)
+}
+
+// AgentActive reports whether agent is on (unset = on; claude is always on).
+func AgentActive(agent string) bool {
+	k := AgentActivePin(agent)
+	return k == "" || providers.Pin(k) != AgentOff
+}
+
+// AgentPins reads the vault pins once and returns every agent's spec; claude's profile is the session's, else its pin.
+func AgentPins() map[string]PinSpec {
+	pin, _ := providers.PinLookup()
+	out := make(map[string]PinSpec, len(rosterRows))
+	for _, k := range rosterRows {
+		spec := PinSpec{Profile: pin(k.CLI.ProfilePin), Off: k.CLI.ActivePin != "" && pin(k.CLI.ActivePin) == AgentOff}
+		if k.CLI.ModelPin != "" {
+			spec.Model = pin(k.CLI.ModelPin)
+		}
+		if !k.External() {
+			spec.Profile = cmp.Or(providers.SessionProfile(), spec.Profile)
+		}
+		out[k.Name] = spec
+	}
+	return out
+}
+
+// ValidAgentPin checks v as agent's profile pin: a registry profile, or for opencode also a sub id.
+func ValidAgentPin(reg *providers.Registry, agent, v string) error {
+	if _, ok := LookupSchema(agent); !ok {
+		return fmt.Errorf("unknown agent %q", agent)
+	}
+	if agent == "opencode" && slices.Contains(providers.RouteOpencodeSubIDs, v) {
+		return nil
+	}
+	if reg == nil || reg.Providers[v] == nil {
+		return fmt.Errorf("%s: unknown profile %q", agent, strings.TrimSpace(v))
+	}
+	return nil
 }

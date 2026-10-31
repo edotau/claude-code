@@ -6,7 +6,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/edotau/claude-code/internal/preflight"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/vault"
@@ -28,13 +27,13 @@ func servedEnv(t *testing.T, on string, cache map[string]string) *providers.Regi
 		t.Fatal(err)
 	}
 	if cache != nil {
-		s := preflight.Served{Profile: "dev", FetchedAt: time.Now()}
+		s := Served{Profile: "dev", FetchedAt: time.Now()}
 		for _, id := range []string{"m-a", "m-b"} {
 			if r, ok := cache[id]; ok {
-				s.Models = append(s.Models, preflight.ServedModel{ID: id, Ready: r})
+				s.Models = append(s.Models, ServedModel{ID: id, Ready: r})
 			}
 		}
-		if err := preflight.SaveServed(s); err != nil {
+		if err := SaveServed(s); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -45,16 +44,16 @@ func servedEnv(t *testing.T, on string, cache map[string]string) *providers.Regi
 	return reg
 }
 
-var servedCand = router.Candidate{Agent: "codex", Profile: "dev", Account: "databricks·dev"}
+var servedCand = Candidate{Agent: "codex", Profile: "dev", Account: "databricks·dev"}
 
 // profileCell refuses an exact model the fresh listing has NOT_READY, with the new message.
 func TestProfileCellRejectsNotReadyExactModel(t *testing.T) {
 	reg := servedEnv(t, "true", map[string]string{"m-a": "NOT_READY", "m-b": "READY"})
-	_, why := routeCtx{reg: reg, exact: "m-a"}.profileCell(servedCand, router.Cell{})
+	_, why := routeCtx{reg: reg, exact: "m-a"}.profileCell(servedCand, Cell{})
 	if !strings.Contains(why, "m-a is not a READY endpoint on dev") {
 		t.Fatalf("skip reason = %q, want the not-READY message", why)
 	}
-	if cell, why := (routeCtx{reg: reg, exact: "m-b"}).profileCell(servedCand, router.Cell{}); why != "" || cell.Model != "m-b" {
+	if cell, why := (routeCtx{reg: reg, exact: "m-b"}).profileCell(servedCand, Cell{}); why != "" || cell.Model != "m-b" {
 		t.Errorf("READY m-b = %+v, %q, want accepted", cell, why)
 	}
 }
@@ -62,7 +61,7 @@ func TestProfileCellRejectsNotReadyExactModel(t *testing.T) {
 // a cold cache accepts the exact model on the static Responses check, even with the switch on.
 func TestProfileCellAcceptsStaticallyOnColdCache(t *testing.T) {
 	reg := servedEnv(t, "true", nil)
-	cell, why := routeCtx{reg: reg, exact: "m-a"}.profileCell(servedCand, router.Cell{})
+	cell, why := routeCtx{reg: reg, exact: "m-a"}.profileCell(servedCand, Cell{})
 	if why != "" || cell.Model != "m-a" {
 		t.Fatalf("cold cache = %+v, %q, want m-a accepted", cell, why)
 	}

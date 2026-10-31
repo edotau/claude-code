@@ -5,14 +5,14 @@ import (
 	"os"
 	"time"
 
-	"github.com/edotau/claude-code/internal/preflight"
+	agentpkg "github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
 // cmdAgentProfile is `<agent> profile [<profile>] [--clear]`: show, set or clear the agent's <AGENT>_PROFILE pin.
 func cmdAgentProfile(agent string, args []string) int {
-	pin := providers.AgentProfilePin(agent)
+	pin := agentpkg.AgentProfilePin(agent)
 	if pin == "" {
 		return fail("%s profile: no profile pin for this agent", agent)
 	}
@@ -37,10 +37,10 @@ func cmdAgentProfile(agent string, args []string) int {
 		if v := providers.Pin(pin); v != "" {
 			line = fmt.Sprintf("%s: profile %s (%s)", agent, v, pin)
 		}
-		if active := providers.AgentActivePin(agent); active != "" {
-			state := providers.AgentOn
-			if !providers.AgentActive(agent) {
-				state = providers.AgentOff
+		if active := agentpkg.AgentActivePin(agent); active != "" {
+			state := agentpkg.AgentOn
+			if !agentpkg.AgentActive(agent) {
+				state = agentpkg.AgentOff
 			}
 			line += fmt.Sprintf(" · %s (%s)", state, active)
 		}
@@ -51,17 +51,17 @@ func cmdAgentProfile(agent string, args []string) int {
 	if err != nil {
 		return fail("%s profile: %v", agent, err)
 	}
-	if err := providers.ValidAgentPin(reg, agent, pos[0]); err != nil {
+	if err := agentpkg.ValidAgentPin(reg, agent, pos[0]); err != nil {
 		return fail("%s profile: %v (see claude-code configure provider --list)", agent, err)
 	}
-	if row := reg.Providers[pos[0]]; row != nil && agent != "claude" && !providers.CanServe(agent, row) {
+	if row := reg.Providers[pos[0]]; row != nil && agent != "claude" && !agentpkg.CanServe(agent, row) {
 		return fail("%s profile: %s cannot serve profile %q", agent, agent, pos[0])
 	}
 	if err := providers.SetPins(map[string]string{pin: pos[0]}); err != nil {
 		return fail("%s profile: %v", agent, err)
 	}
 	fmt.Printf("%s: now on %s (%s); relaunch `claude-code %s` to apply\n", agent, pos[0], pin, agent)
-	preflight.Warm(os.Stdout, reg, time.Now())
+	agentpkg.PreflightWarm(os.Stdout, reg, time.Now())
 	if agent == "codex" {
 		fmt.Println("plain codex: run `claude-code configure --restore --agents` to re-render config.toml")
 	}
@@ -70,9 +70,9 @@ func cmdAgentProfile(agent string, args []string) int {
 
 // cmdAgentOnOff is `<agent> on|off`: set the agent's <AGENT>_ACTIVE pin; claude cannot be turned off.
 func cmdAgentOnOff(agent string, on bool, args []string) int {
-	verb, value := "off", providers.AgentOff
+	verb, value := "off", agentpkg.AgentOff
 	if on {
-		verb, value = "on", providers.AgentOn
+		verb, value = "on", agentpkg.AgentOn
 	}
 	fs := newVendorFlags(agent, verb)
 	if code, done := helptext.Parse(fs, args); done {
@@ -81,11 +81,11 @@ func cmdAgentOnOff(agent string, on bool, args []string) int {
 	if fs.NArg() > 0 {
 		return fail("%s %s: takes no arguments", agent, verb)
 	}
-	pin := providers.AgentActivePin(agent)
+	pin := agentpkg.AgentActivePin(agent)
 	if pin == "" {
 		return fail("%s %s: %s is always on", agent, verb, agent)
 	}
-	if err := providers.ValidAgentActive(agent, value); err != nil {
+	if err := agentpkg.ValidAgentActive(agent, value); err != nil {
 		return fail("%s %s: %v", agent, verb, err)
 	}
 	if err := providers.SetPins(map[string]string{pin: value}); err != nil {

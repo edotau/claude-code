@@ -9,7 +9,6 @@ import (
 	"slices"
 
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/router"
 )
 
 type copilotEngine struct{ baseEngine }
@@ -66,7 +65,7 @@ func (copilotEngine) fallbackNote(ft providers.Target, note string) (string, boo
 	return note, ft.Provider != nil && ft.Provider.Preset == providers.PresetDatabricks
 }
 
-func (copilotEngine) presence(router.Cell) error {
+func (copilotEngine) presence(Cell) error {
 	if u := copilotPinLogin(); u != "" && !slices.Contains(GHAccounts(), u) {
 		return fmt.Errorf("pinned gh user %s is not logged in (gh auth login); no other account is used", u)
 	}
