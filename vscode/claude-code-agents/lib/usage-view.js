@@ -1,7 +1,7 @@
 'use strict';
 // Webview HTML for the Usage popover — no vscode dependency, so node:test can exercise it directly.
 const { formatCount } = require('./format');
-const { formatResetCountdown, sessionsLabel } = require('./usage-model');
+const { formatResetCountdown, formatResetDuration, sessionsLabel } = require('./usage-model');
 
 function esc(s) {
   return String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -126,17 +126,39 @@ function renderCreditsNotes(windows, show) {
   return lines.map((l) => `<div class="credits-note muted">${esc(l)}</div>`).join('');
 }
 
+/** "$100.60 used this month": a pay-per-use window's total spend, no percent, bar or limit. */
+function spendLabel(w) {
+  const amount = w.unit === 'USD' ? `$${(w.usedCredits || 0).toFixed(2)}` : `${w.usedCredits || 0} ${w.unit || ''}`.trim();
+  return `${amount} used this ${w.window}`;
+}
+
+/** Neutral rows for API-rate billing, plus (Remaining only) the auth token's time left; no bar, no red. */
+function renderSpendRows(p, spend, show) {
+  const rows = spend.map((w) => `<div class="spend-row">${esc(spendLabel(w))}</div>`);
+  if (show === 'left' && p.tokenExpiresAtMs != null) {
+    const ms = p.tokenExpiresAtMs - Date.now();
+    const left = ms > 0 ? `${formatResetDuration(ms)} left` : 'expired';
+    rows.push(`<div class="spend-row token-row"><span class="muted">auth token</span>  ${esc(left)}</div>`);
+  }
+  return rows.join('');
+}
+
 function renderProvider(p, show, detailed) {
   const resets = p.resetsAtMs != null ? formatResetCountdown(p.resetsAtMs - Date.now()) : '';
+  const spend = p.windows.filter((w) => w.spend);
+  if (spend.length) p = { ...p, windows: p.windows.filter((w) => !w.spend) };
+  const spendBody = spend.length ? renderSpendRows(p, spend, show) : '';
   const body = p.windows.length
     ? detailed
       ? hasMultipleGroups(p.windows)
         ? renderGroupedGrid(p.windows, show)
         : renderUngroupedGrid(p.windows, show)
       : `<div class="windows windows-compact">${p.windows.map((w) => renderWindow(w, show, false)).join('')}</div>`
+    : spend.length
+    ? ''
     : `<div class="provider-note">${esc(p.note || 'no data')}</div>`;
   const credits = p.windows.length ? renderCreditsNotes(p.windows, show) : '';
-  const muted = p.windows.length ? '' : ' provider-card-muted';
+  const muted = p.windows.length || spend.length ? '' : ' provider-card-muted';
   const name = p.account ? `${esc(p.name)} <span class="provider-account muted">\u00B7 ${esc(p.account)}</span>` : esc(p.name);
   return `<div class="provider-card${muted}">
     <div class="provider-head card-head">
@@ -144,7 +166,7 @@ function renderProvider(p, show, detailed) {
       <span class="provider-name">${name}</span>
       <span class="provider-resets">${esc(resets)}</span>
     </div>
-    <div class="card-body">${body}${credits}</div>
+    <div class="card-body">${body}${credits}${spendBody}</div>
   </div>`;
 }
 

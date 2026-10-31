@@ -57,8 +57,10 @@ function buildProvider(id, account, rows) {
   const meta = PROVIDER_META[id] || { name: id, icon: 'circle-outline' };
   let plan = null;
   let note = null;
+  let tokenExpiresAtMs = null;
   const windows = [];
   for (const row of rows) {
+    if (tokenExpiresAtMs == null) tokenExpiresAtMs = toMs(row.token_expires_at);
     if (plan == null && row.plan) plan = row.plan;
     if (!row.window) {
       if (row.note) note = row.note;
@@ -76,6 +78,9 @@ function buildProvider(id, account, rows) {
       group: row.group || null,
       usedPct: typeof row.used_percent === 'number' ? row.used_percent : 0,
       leftPct: typeof row.left_percent === 'number' ? row.left_percent : 0,
+      spend: row.provider === 'databricks' && row.unit === 'USD',
+      unit: row.unit || null,
+      window: row.window,
       usedCredits: typeof row.used_credits === 'number' ? row.used_credits : null,
       limitCredits: typeof row.limit_credits === 'number' ? row.limit_credits : null,
       resetsAtMs: toMs(row.resets_at) != null ? toMs(row.resets_at) : toMs(row.resets),
@@ -87,7 +92,7 @@ function buildProvider(id, account, rows) {
     if (w.resetsAtMs != null && (resetsAtMs == null || w.resetsAtMs < resetsAtMs)) resetsAtMs = w.resetsAtMs;
   }
   const resetLabel = resetsAtMs != null ? formatResetCountdown(resetsAtMs - Date.now()) : null;
-  return { id, account: account || null, name: meta.name, icon: meta.icon, plan, resetsAtMs, resetLabel, note, windows };
+  return { id, account: account || null, name: meta.name, icon: meta.icon, plan, resetsAtMs, resetLabel, note, tokenExpiresAtMs, windows };
 }
 
 /** One `agents[]` model entry → {provider, model, turns, tokens, costUsd}. */
