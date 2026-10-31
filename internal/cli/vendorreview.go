@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/launch"
 )
 
 // reviewJobEnv names the parent job record a detached split review updates with progress and its outcome.
@@ -51,8 +50,13 @@ func runSplitReview(vendor string, args []string, parts []agent.Part, scope agen
 // spawnSplitReview detaches this same review (minus --background) as one job that runs the parts in order.
 func spawnSplitReview(vendor string, args []string, n int) int {
 	cwd, _ := os.Getwd()
-	req := agent.RunOptions{Prompt: fmt.Sprintf("%s review split into %d parts", vendor, n), WorkDir: cwd, Launcher: launch.Launcher{}}
-	rec := agent.BuildAskRecord(context.Background(), vendor, req, nil, cwd, true)
+	req := agent.RunOptions{Agent: vendor, Prompt: fmt.Sprintf("%s review split into %d parts", vendor, n),
+		WorkDir: cwd, Background: true}
+	prepared, err := newClient().Prepare(context.Background(), req, nil)
+	if err != nil {
+		return fail("%s review: %v", vendor, err)
+	}
+	rec := prepared.Record
 	rec.Progress = fmt.Sprintf("part 0/%d", n)
 	_ = rec.Save()
 	argv := append([]string{vendor, "review"}, slices.DeleteFunc(slices.Clone(args), func(a string) bool {

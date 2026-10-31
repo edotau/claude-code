@@ -261,7 +261,7 @@ type BatchTask struct {
 	ID      string
 	Agent   string // the agent asked for, named on a failure envelope
 	Req     RunOptions
-	Prepare func(ctx context.Context) (Chain, Record, error)
+	Prepare func(ctx context.Context) (*Prepared, error)
 	Err     error
 }
 
@@ -344,14 +344,13 @@ func (b *batchRun) feed(ctx context.Context, tasks []BatchTask, queue []int, don
 		t := tasks[i]
 		sl, err := b.lim.reserve(ctx)
 		sctx := context.WithValue(withLimiter(ctx, b.lim), slotKey{}, sl) // settle needs the limiter to free the slot
-		var chain Chain
-		var rec Record
+		var prepared *Prepared
 		if err == nil {
-			chain, rec, err = t.Prepare(ctx)
+			prepared, err = t.Prepare(ctx)
 		}
 		switch {
 		case err == nil:
-			go func() { defer settle(sctx); env, ok := b.run(sctx, t, chain, rec); done <- batchDone{i, env, ok} }()
+			go func() { defer settle(sctx); env, ok := b.run(sctx, t, prepared); done <- batchDone{i, env, ok} }()
 		case ctx.Err() != nil:
 			settle(sctx)
 			done <- batchDone{i, b.cancelled(t), false}
@@ -400,7 +399,8 @@ func (b *batchRun) logf(id, format string, a ...any) {
 }
 
 // run executes one task with its own stream, log sink and dispatch record; a panic becomes an error envelope.
-func (b *batchRun) run(ctx context.Context, t BatchTask, chain Chain, rec Record) (env Envelope, ok bool) {
+func (b *batchRun) run(ctx context.Context, t BatchTask, p *Prepared) (env Envelope, ok bool) {
+	rec := &p.Record
 	ctx = withLimiter(withIsolation(ctx), b.lim)
 	if b.o.FailFast {
 		ctx = context.WithValue(ctx, failFastKey{}, b.stop)
@@ -422,15 +422,13 @@ func (b *batchRun) run(ctx context.Context, t BatchTask, chain Chain, rec Record
 	}()
 	_ = rec.Save() // fail-open: the log is for replay and forensics, never a gate on the run
 	notify := func(s string) { b.logf(t.ID, "%s", s) }
-	res, err := Dispatch(ctx, &rec, t.Agent, Discard, DispatchOpts{Notify: notify},
-		func(ctx context.Context, sink Sink) (Result, error) {
-			return RunWithFallback(ctx, chain, t.Req, sink, notify)
-		})
+	client := NewClient(p.Opts.Launcher, nil, nil, notify)
+	res, err := client.Exec(ctx, p, Discard, DispatchOpts{})
 	for _, d := range res.Dropped {
 		b.logf(t.ID, "%s has no channel on the %s agent — dropped", d, res.Agent)
 	}
 	b.logf(t.ID, "dispatch %s", rec.ID)
-	env = NewEnvelope(res, err, rec.ID)
+	env = NewEnvelope(res, err, res.DispatchID)
 	env.TaskID = t.ID
 	return env, err == nil && env.Status == StatusOK
 }

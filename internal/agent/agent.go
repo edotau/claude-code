@@ -41,7 +41,15 @@ type RunOptions struct {
 	OutputSchema                                        string   // JSON Schema text the answer must satisfy
 	Persona                                             *Schema  `json:"persona,omitempty"` // claude: native agent definition; others: emulated
 	Timeout                                             time.Duration
-	Launcher                                            Launcher `json:"-"` // claude only: resolves the launch plan
+	Launcher                                            Launcher           `json:"-"` // claude only: resolves the launch plan
+	Agent                                               string             `json:"-"`
+	Agents                                              map[string]*Schema `json:"-"`
+	Fallback                                            string             `json:"-"`
+	Native                                              bool               `json:"-"`
+	Host                                                string             `json:"-"`
+	RemoteBin                                           string             `json:"-"`
+	Rubric                                              string             `json:"-"`
+	Background                                          bool               `json:"-"`
 }
 
 // Usage is token accounting where the agent reports it.
@@ -56,6 +64,7 @@ type Usage struct {
 
 // Result is the envelope `ask --format json` prints.
 type Result struct {
+	DispatchID      string          `json:"-"`
 	Agent           string          `json:"agent"`
 	Status          string          `json:"status"` // ok | error | partial | quota | stalled
 	Provider        string          `json:"provider,omitempty"`

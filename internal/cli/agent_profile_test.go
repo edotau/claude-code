@@ -4,10 +4,12 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
-	"github.com/edotau/claude-code/internal/hooks"
+	"strings"
 	"testing"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/hooks"
+	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/vault"
 )
 
@@ -28,35 +30,39 @@ func profileFixture(t *testing.T, active string) {
 	}
 }
 
-func TestResolveAskChainHubNativeFallback(t *testing.T) {
+func TestClientPrepareHubNativeFallback(t *testing.T) {
 	profileFixture(t, "")
-	// acme has no opencodeID: the native runner runs alone, never the hub leg.
-	r, chain, err := resolveAskChain(context.Background(), "opencode", "acme", "", "p", agent.FallbackAgents, false, "")
-	if err != nil {
-		t.Fatalf("resolveAskChain(acme) = %v", err)
-	}
-	if len(chain.Legs) != 1 || chain.Legs[0].Agent != r {
-		t.Fatalf("acme: want the native runner alone, got %+v", chain.Legs)
-	}
-	// chatgpt has opencodeID: it still goes through the hub leg.
-	r, chain, err = resolveAskChain(context.Background(), "opencode", "chatgpt", "", "p", agent.FallbackAgents, false, "")
-	if err != nil {
-		t.Fatalf("resolveAskChain(chatgpt) = %v", err)
-	}
-	if len(chain.Legs) != 1 || chain.Legs[0].Agent == r {
-		t.Fatalf("chatgpt: want the hub leg, got the native runner")
+	t.Setenv("HOME", t.TempDir())
+	pathstest.FakeVendor(t, "opencode", `printf '%s\n' '{"type":"text","part":{"text":"ok"}}'`)
+	client := newClient()
+	for _, profile := range []string{"acme", "chatgpt"} {
+		p, err := client.Prepare(context.Background(), agent.RunOptions{
+			Agent: "opencode", Provider: profile, Prompt: "p", Fallback: agent.FallbackAgents}, nil)
+		if err != nil {
+			t.Fatalf("Prepare(%s) = %v", profile, err)
+		}
+		res, err := client.Exec(context.Background(), p, nil, agent.DispatchOpts{})
+		if len(res.Hops) != 1 {
+			t.Fatalf("%s: want one leg, got %+v, err %v", profile, res.Hops, err)
+		}
+		if profile == "acme" && (err != nil || res.Answer != "ok") {
+			t.Fatalf("native profile did not run: %+v, %v", res, err)
+		}
+		if profile == "chatgpt" && (err == nil || !strings.Contains(err.Error(), "opencode has no openai login")) {
+			t.Fatalf("hub profile did not check its login: %+v, %v", res, err)
+		}
 	}
 }
 
-// A cancelled batch routes nothing: resolveAskChain returns the ctx error before any quota refresh.
-func TestResolveAskChainHonorsCancellation(t *testing.T) {
+// A cancelled batch prepares nothing and never refreshes quota.
+func TestClientPrepareHonorsCancellation(t *testing.T) {
 	refreshes := 0
 	prev := routeRefresh
 	routeRefresh = func(context.Context, string) bool { refreshes++; return false }
 	t.Cleanup(func() { routeRefresh = prev })
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if _, _, err := resolveAskChain(ctx, "opencode", "", "", "p", agent.FallbackAgents, false, ""); !errors.Is(err, context.Canceled) {
+	if _, err := newClient().Prepare(ctx, agent.RunOptions{Agent: "opencode", Prompt: "p", Fallback: agent.FallbackAgents}, nil); !errors.Is(err, context.Canceled) {
 		t.Errorf("err = %v, want context.Canceled", err)
 	}
 	if refreshes != 0 {
@@ -65,30 +71,42 @@ func TestResolveAskChainHonorsCancellation(t *testing.T) {
 }
 
 // An explicit --profile with no --model runs the classifier's tier slot, as the pinned route does.
-func TestResolveAskChainProfileTakesTierSlot(t *testing.T) {
+func TestClientPrepareProfileTakesTierSlot(t *testing.T) {
 	profileFixture(t, "")
-	for _, profile := range []string{"chatgpt", "acme"} { // hub leg and native (no opencodeID)
-		_, chain, err := resolveAskChain(context.Background(), "opencode", profile, "", "pong", agent.FallbackAgents, false, "")
-		if err != nil || len(chain.Legs) != 1 {
-			t.Fatalf("%s: chain = %+v, err %v", profile, chain, err)
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("PATH", t.TempDir())
+	client := newClient()
+	for _, profile := range []string{"chatgpt", "acme"} {
+		p, err := client.Prepare(context.Background(), agent.RunOptions{
+			Agent: "opencode", Provider: profile, Prompt: "pong", Fallback: agent.FallbackAgents}, nil)
+		if err != nil {
+			t.Fatal(err)
 		}
-		if want := (hooks.RuleClassifier{}).Tier("pong"); chain.Legs[0].Model != want {
-			t.Errorf("%s: leg model = %q, want tier %q", profile, chain.Legs[0].Model, want)
+		res, _ := client.Exec(context.Background(), p, nil, agent.DispatchOpts{})
+		if len(res.Hops) != 1 {
+			t.Fatalf("%s: hops = %+v, want one unavailable leg", profile, res.Hops)
+		}
+		if want := (hooks.RuleClassifier{}).Tier("pong"); res.Hops[0].Model != want {
+			t.Errorf("%s: leg model = %q, want tier %q", profile, res.Hops[0].Model, want)
 		}
 	}
 }
 
 // An explicit --profile is one leg for every agent even with --fallback all: nothing can silently take over.
-func TestResolveAskChainProfileIsOneLegUnderFallbackAll(t *testing.T) {
+func TestClientPrepareProfileIsOneLegUnderFallbackAll(t *testing.T) {
 	profileFixture(t, "")
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("PATH", t.TempDir())
+	client := newClient()
 	for _, name := range []string{"codex", "claude", "opencode", "copilot", "gemini"} {
-		_, chain, err := resolveAskChain(context.Background(), name, "acme", "", "p", agent.FallbackAll, false, "")
+		p, err := client.Prepare(context.Background(), agent.RunOptions{
+			Agent: name, Provider: "acme", Prompt: "p", Fallback: agent.FallbackAll}, nil)
 		if err != nil {
-			t.Errorf("%s: resolveAskChain = %v", name, err)
-			continue
+			t.Fatalf("%s: Prepare = %v", name, err)
 		}
-		if len(chain.Legs) != 1 {
-			t.Errorf("%s: %d legs with --profile acme and --fallback all, want exactly 1", name, len(chain.Legs))
+		res, err := client.Exec(context.Background(), p, nil, agent.DispatchOpts{})
+		if err == nil || len(res.Hops) != 1 {
+			t.Errorf("%s: %d hops, err %v; want one failed leg without fallback", name, len(res.Hops), err)
 		}
 	}
 }
@@ -104,16 +122,22 @@ func TestBatchTaskProfileIsOneLeg(t *testing.T) {
 	if bt.Req.Provider != "acme" {
 		t.Fatalf("task request provider = %q, want acme", bt.Req.Provider)
 	}
-	chain, _, err := bt.Prepare(context.Background())
-	if err != nil || len(chain.Legs) != 1 {
-		t.Fatalf("Prepare: %d legs, err %v; want exactly 1 leg", len(chain.Legs), err)
+	p, err := bt.Prepare(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("PATH", t.TempDir())
+	res, err := newClient().Exec(context.Background(), p, nil, agent.DispatchOpts{})
+	if err == nil || len(res.Hops) != 1 {
+		t.Fatalf("Exec: %d hops, err %v; want one unavailable leg", len(res.Hops), err)
 	}
 	bad := agent.ParsedLine{N: 2, Task: agent.TaskLine{Prompt: "p", Profile: "no-such-profile"}}
 	bt, err = batchTask(bad, batchOpts{agent: "codex", fallback: agent.FallbackAll}, agent.RunOptions{}, false, t.TempDir(), map[string]bool{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := bt.Prepare(context.Background()); err == nil {
+	if _, err := bt.Prepare(context.Background()); err == nil {
 		t.Error("unknown batch profile prepared a chain, want an error before any run")
 	}
 }

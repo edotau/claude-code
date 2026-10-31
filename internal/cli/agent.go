@@ -24,8 +24,6 @@ import (
 	"github.com/edotau/claude-code/internal/launch"
 	"github.com/edotau/claude-code/internal/network/tailscale"
 	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
@@ -120,7 +118,7 @@ func runAsk(args []string, resume bool) int {
 		base := agent.RunOptions{Model: *model, Provider: *provider, Effort: *effort, WorkDir: *workdir, Tools: *tools, NoTools: *noTools,
 			Timeout: *timeout, KeepEnv: []string(keepEnv), Autonomous: *autonomous, EnableMemory: *enableMemory, Direct: *direct,
 			NoPersist: *noPersist, SafeMode: *safeMode, SystemPrompt: *systemPrompt, AppendSystemPrompt: *appendSystemPrompt,
-			Env: []string(env), OutputSchema: schema, Persona: persona, Launcher: launch.Launcher{}}
+			Env: []string(env), OutputSchema: schema, Persona: persona}
 		return runAskBatch(fs, resume, *batch, batchOpts{jobs: *jobs, failFast: *failFast, agent: *name, fallback: *fallback, native: *native}, base)
 	}
 	if flagExplicit(fs, "jobs") || flagExplicit(fs, "fail-fast") {
@@ -181,32 +179,6 @@ func runAsk(args []string, resume bool) int {
 		printAskFailure(*format, *name, errors.New("no task: give a prompt, or \"-\" to read stdin"))
 		return 2
 	}
-	if *session != "" {
-		*fallback = agent.FallbackNone // a session id belongs to one agent; another agent cannot resume it
-	}
-	var r, remoteRunner agent.Runner
-	var chain agent.Chain
-	if *host != "" { // the remote resolves profiles, routing and caps; here only the agent name is checked
-		if _, err = agent.Lookup(*name); err == nil {
-			err = tailscale.ValidHost(*host)
-		}
-		r = agent.NewRemoteRunner(*name, *host, agent.RemoteBin(*remoteBin), *fallback)
-		chain = agent.Single(r)
-		remoteRunner = r
-	} else {
-		r, chain, err = resolveAskChain(context.Background(), *name, *provider, *model, prompt, *fallback, *native, *workdir)
-	}
-	if err != nil {
-		return failAsk(*format, *name, err)
-	}
-	if err = agent.RefusePersona(r.Caps(), r.Name(), persona); err != nil {
-		return failAskCode(*format, *name, err, 2)
-	}
-	if *rubric != "" {
-		if prompt, err = agent.RubricPrompt(*rubric, prompt); err != nil {
-			return failAsk(*format, *name, err)
-		}
-	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP) // a kill finalizes the record
 	defer stop()
 	if framed != nil { // the remote end of `ask --host`: stdin closing means the local side cancelled or vanished
@@ -215,7 +187,7 @@ func runAsk(args []string, resume bool) int {
 	if *retry == "" && *job == "" && *tools && !timeoutExplicit(fs) {
 		*timeout = 45 * time.Minute
 	}
-	if *enableMemory && *name != "copilot" {
+	if s, ok := agent.LookupSchema(*name); *enableMemory && ok && s.CLI.Caps.Memory == agent.None {
 		fmt.Fprintf(os.Stderr, "ask: --enable-memory has no effect on the %s agent (copilot only)\n", *name)
 	}
 	*debugFile = absDebugFile(*debugFile)
@@ -223,27 +195,29 @@ func runAsk(args []string, resume bool) int {
 		WorkDir: *workdir, SessionID: *session, Tools: *tools, NoTools: *noTools, Timeout: *timeout,
 		Attach: []string(attach), KeepEnv: []string(keepEnv), Autonomous: *autonomous, EnableMemory: *enableMemory, Direct: *direct,
 		NoPersist: *noPersist, SafeMode: *safeMode, DebugFile: *debugFile, SystemPrompt: *systemPrompt,
-		AppendSystemPrompt: *appendSystemPrompt, Env: []string(env), OutputSchema: schema, Persona: persona, Launcher: launch.Launcher{}}
-	recDir := *workdir
-	if *host != "" {
-		recDir = "" // --workdir is a remote path: it is no local repo to record
-	}
-	rec := agent.BuildAskRecord(ctx, r.Name(), req, jobRec, recDir, *background)
-	if jobRec == nil {
-		rec.FallbackPolicy = *fallback
-		if *host != "" {
-			rec.Host, rec.RemoteBin = *host, agent.RemoteBin(*remoteBin) // ask --retry replays it on the same host
+		AppendSystemPrompt: *appendSystemPrompt, Env: []string(env), OutputSchema: schema, Persona: persona,
+		Agent: *name, Fallback: *fallback, Native: *native, Host: *host, RemoteBin: *remoteBin, Rubric: *rubric, Background: *background}
+	client := newClient()
+	prepared, err := client.Prepare(ctx, req, jobRec)
+	if err != nil {
+		code := 1
+		if usage, ok := errors.AsType[interface {
+			error
+			ExitCode() int
+		}](err); ok {
+			code = usage.ExitCode()
 		}
+		return failAskCode(*format, *name, err, code)
 	}
-	_ = rec.Save() // fail-open: the log is for replay and forensics, never a gate on the run
+	_ = prepared.Record.Save()
 	if *background {
-		if err := agent.Spawn(&rec, backgroundExtraFlags(fs, *fallback, *native)); err != nil {
+		if err := agent.Spawn(&prepared.Record, backgroundExtraFlags(fs, prepared.Opts.Fallback, *native)); err != nil {
 			return failAsk(*format, *name, err)
 		}
-		reportBackgroundStart(*format, rec)
+		reportBackgroundStart(*format, prepared.Record)
 		return 0
 	}
-	return runAskAndReport(ctx, &rec, chain, remoteRunner, req, jobRec, *format)
+	return runAskAndReport(ctx, client, prepared, jobRec != nil, *format)
 }
 
 // askExclusive rejects flag pairs that cannot be combined.
@@ -268,28 +242,20 @@ func absDebugFile(p string) string {
 	return p
 }
 
-// runAskAndReport runs chain (or remote, when set) in the foreground as one recorded dispatch, then reports it.
-func runAskAndReport(ctx context.Context, rec *agent.Record, chain agent.Chain, remote agent.Runner, req agent.RunOptions,
-	jobRec *agent.Record, format string) int {
-	notify := func(s string) { fmt.Fprintln(os.Stderr, "ask:", s) }
-	opts := agent.DispatchOpts{Job: jobRec != nil, Notify: notify}
-	if jobRec != nil && format == formatText {
+// runAskAndReport executes one prepared foreground dispatch and reports its outcome.
+func runAskAndReport(ctx context.Context, client *agent.Client, p *agent.Prepared, job bool, format string) int {
+	opts := agent.DispatchOpts{Job: job}
+	if job && format == formatText {
 		opts.AnswerTo = os.Stdout // a --job child's stdout is the log: the full answer lands once at the end
 	}
-	res, err := agent.Dispatch(ctx, rec, chain.Want, askStdoutSink(format, rec.ID), opts,
-		func(ctx context.Context, sink agent.Sink) (agent.Result, error) {
-			if remote != nil { // a remote ask skips local routing, guards and retries: the far side does all three
-				return remote.Run(ctx, req, sink)
-			}
-			return agent.RunWithFallback(ctx, chain, req, sink, notify)
-		})
-	reportAskResult(format, res, err, rec.ID)
+	res, err := client.Exec(ctx, p, askStdoutSink(format, p.Record.ID), opts)
+	reportAskResult(format, res, err, res.DispatchID)
 	for _, line := range []string{agent.RanOn(res), agent.DidNotRun(res)} {
 		if line != "" {
 			fmt.Fprintln(os.Stderr, "ask:", line)
 		}
 	}
-	fmt.Fprintln(os.Stderr, "ask: dispatch", rec.ID, "(claude-code ask --retry <id> replays it)")
+	fmt.Fprintln(os.Stderr, "ask: dispatch", res.DispatchID, "(claude-code ask --retry <id> replays it)")
 	if err != nil {
 		return fail("ask: %v", err)
 	}
@@ -362,7 +328,6 @@ func loadAskJob(job, format string, s *askState, prompt *string) (rec *agent.Rec
 	}
 	s.applyRecord(r)
 	*prompt, *s.rubric = r.Request.Prompt, ""
-	r.Request.Launcher = launch.Launcher{} // the record JSON never carries it
 	r.PID = os.Getpid()
 	return &r, 0, false
 }
@@ -507,54 +472,9 @@ func resolveAskPrompt(prompt string) (string, error) {
 	return string(raw), nil
 }
 
-// resolveAskChain looks up the named agent and routes it: an explicit backend (--profile) runs alone; otherwise the
-// model alias comes from --model, else the task classifier, and the router picks the agents.
-// workDir is the request's own --workdir ("" means the process cwd), so the opencode free-Zen gate checks the
-// repo the leg will actually run in, not the harness's own cwd.
-func resolveAskChain(ctx context.Context, name, provider, model, prompt, fallback string, native bool, workDir string) (agent.Runner, agent.Chain, error) {
-	r, err := agent.Lookup(name)
-	if err != nil {
-		return nil, agent.Chain{}, err
-	}
-	if provider != "" { // an unknown --profile is a caller error for every agent, caught before any run
-		if reg, lerr := providers.Load(); lerr == nil {
-			if _, gerr := reg.Get(provider); gerr != nil {
-				return nil, agent.Chain{}, gerr
-			}
-		}
-	}
-	if agent.ExplicitBackend(agent.RunOptions{Provider: provider, Model: model}) {
-		req := agent.RunOptions{Provider: provider, Model: model, Launcher: launch.Launcher{}}
-		if provider == "" || native || !agent.IsHubAgent(name) {
-			return r, tierSlot(agent.ExplicitChain(r, req), name, model, prompt), nil
-		}
-		reg, err := providers.Load()
-		if err != nil {
-			return nil, agent.Chain{}, err
-		}
-		if p, perr := reg.Get(provider); perr == nil && p.OpencodeID == "" {
-			return r, tierSlot(agent.ExplicitChain(r, req), name, model, prompt), nil // no opencode id: run native
-		}
-		start, err := agent.HubStart(reg, name, provider)
-		if err != nil {
-			return nil, agent.Chain{}, err
-		}
-		return r, tierSlot(agent.ExplicitChain(agent.NewHubLeg(name, start, reg), req), name, model, prompt), nil
-	}
-	if err := ctx.Err(); err != nil { // a cancelled batch routes nothing and refreshes no quota
-		return nil, agent.Chain{}, err
-	}
-	chain, _, err := agent.RouteChainFor(ctx, name, model, hooks.RuleClassifier{}.Tier(prompt), fallback, native,
-		router.Opts{Refresh: routeRefresh, WorkRepo: func() bool { return router.IsWorkRepo(workDir) }})
-	return r, chain, err
-}
-
-// tierSlot gives an opencode --profile run with no --model the tier slot the pinned route picks for the task.
-func tierSlot(c agent.Chain, name, model, prompt string) agent.Chain {
-	if name != "opencode" || model != "" {
-		return c
-	}
-	return agent.WithTier(c, hooks.RuleClassifier{}.Tier(prompt))
+func newClient() *agent.Client {
+	return agent.NewClient(launch.Launcher{}, hooks.RuleClassifier{}.Tier, routeRefresh,
+		func(s string) { fmt.Fprintln(os.Stderr, "ask:", s) })
 }
 
 // backgroundExtraFlags carries explicitly-set --fallback/--native over to the spawned --job child;
@@ -906,12 +826,14 @@ func batchTask(l agent.ParsedLine, o batchOpts, base agent.RunOptions, timeoutSe
 		return t, err
 	}
 	req := t.Req
-	t.Prepare = func(ctx context.Context) (agent.Chain, agent.Record, error) {
-		r, chain, err := resolveAskChain(ctx, t.Agent, req.Provider, req.Model, req.Prompt, o.fallback, o.native, req.WorkDir)
+	req.Agent, req.Fallback, req.Native = t.Agent, o.fallback, o.native
+	client := newClient()
+	t.Prepare = func(ctx context.Context) (*agent.Prepared, error) {
+		p, err := client.Prepare(ctx, req, nil)
 		if err != nil {
-			return agent.Chain{}, agent.Record{}, fmt.Errorf("line %d: %w", l.N, err)
+			return nil, fmt.Errorf("line %d: %w", l.N, err)
 		}
-		return chain, agent.BuildAskRecord(ctx, r.Name(), req, nil, req.WorkDir, false), nil
+		return p, nil
 	}
 	return t, nil
 }
