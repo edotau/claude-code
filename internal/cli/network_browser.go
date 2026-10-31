@@ -44,8 +44,7 @@ func cmdNetworkBrowser(args []string) int {
 		return failUsage("network browser: --%s belongs to --extract", bad)
 	}
 	if err := helptext.CheckFormat(*format); err != nil {
-		fail("network browser: %v", err)
-		return 2
+		return badFormat("network browser", err)
 	}
 	if !*setup {
 		bad := ""

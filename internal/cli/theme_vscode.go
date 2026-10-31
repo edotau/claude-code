@@ -65,15 +65,14 @@ func cmdVSCode(args []string) int {
 		return fail("vscode: %v", err)
 	}
 
-	if *check {
-		return vscodeCheckReport(destPath, result, kbDestPath, skip, note, kbResult, extResult)
+	mode := "apply"
+	switch {
+	case *check:
+		mode = "check"
+	case *dryRun:
+		mode = "dry-run"
 	}
-	if *dryRun {
-		vscodeDryRunReport(destPath, result, kbDestPath, skip, note, kbResult, extResult)
-		return 0
-	}
-	vscodeApplyReport(destPath, result, kbDestPath, skip, note, kbResult, extResult)
-	return 0
+	return vscodeReport(mode, destPath, result, kbDestPath, skip, note, kbResult, extResult)
 }
 
 func resolveVSCodeDest(dest string) (string, error) {
@@ -104,43 +103,43 @@ func resolveExtensionsDir(dir string) (string, error) {
 	return vscode.DefaultExtensionsDir()
 }
 
-func vscodeCheckReport(destPath string, result vscode.Result, kbDestPath string, skip bool, note string, kbResult vscode.Result, extResult vscode.ExtensionResult) int {
-	drift := false
-	if result.Changed {
-		fmt.Fprintf(os.Stderr, "claude-code: vscode DRIFT %s\n", destPath)
-		drift = true
-	}
-	if !skip && kbResult.Changed {
-		fmt.Fprintf(os.Stderr, "claude-code: vscode DRIFT %s\n", kbDestPath)
-		drift = true
-	}
-	if extResult.Changed {
-		fmt.Fprintf(os.Stderr, "claude-code: vscode DRIFT %s\n", extResult.Target)
-		drift = true
-	}
-	if drift {
-		return 1
-	}
-	reportMerge("template", destPath, result)
-	reportKeybindings(skip, note, func() { reportMerge("keybindings template", kbDestPath, kbResult) })
-	fmt.Printf("claude-code: vscode extension in sync %s\n", extResult.Target)
-	return 0
-}
-
-func vscodeDryRunReport(destPath string, result vscode.Result, kbDestPath string, skip bool, note string, kbResult vscode.Result, extResult vscode.ExtensionResult) {
-	reportDryRun("template", destPath, result.Changed)
-	reportKeybindings(skip, note, func() { reportDryRun("keybindings template", kbDestPath, kbResult.Changed) })
-	reportDryRun("extension", extResult.Target, extResult.Changed)
-}
-
-func vscodeApplyReport(destPath string, result vscode.Result, kbDestPath string, skip bool, note string, kbResult vscode.Result, extResult vscode.ExtensionResult) {
-	reportMerge("template", destPath, result)
-	reportKeybindings(skip, note, func() { reportMerge("keybindings template", kbDestPath, kbResult) })
-	if extResult.Changed {
-		fmt.Printf("claude-code: vscode linked extension -> %s\n", extResult.Target)
-	} else {
+// vscodeReport prints the sync outcome for mode check (exit 1 on drift), dry-run or apply.
+func vscodeReport(mode, destPath string, result vscode.Result, kbDestPath string, skip bool, note string, kbResult vscode.Result, extResult vscode.ExtensionResult) int {
+	switch mode {
+	case "check":
+		drift := false
+		if result.Changed {
+			fmt.Fprintf(os.Stderr, "claude-code: vscode DRIFT %s\n", destPath)
+			drift = true
+		}
+		if !skip && kbResult.Changed {
+			fmt.Fprintf(os.Stderr, "claude-code: vscode DRIFT %s\n", kbDestPath)
+			drift = true
+		}
+		if extResult.Changed {
+			fmt.Fprintf(os.Stderr, "claude-code: vscode DRIFT %s\n", extResult.Target)
+			drift = true
+		}
+		if drift {
+			return 1
+		}
+		reportMerge("template", destPath, result)
+		reportKeybindings(skip, note, func() { reportMerge("keybindings template", kbDestPath, kbResult) })
 		fmt.Printf("claude-code: vscode extension in sync %s\n", extResult.Target)
+	case "dry-run":
+		reportDryRun("template", destPath, result.Changed)
+		reportKeybindings(skip, note, func() { reportDryRun("keybindings template", kbDestPath, kbResult.Changed) })
+		reportDryRun("extension", extResult.Target, extResult.Changed)
+	default:
+		reportMerge("template", destPath, result)
+		reportKeybindings(skip, note, func() { reportMerge("keybindings template", kbDestPath, kbResult) })
+		if extResult.Changed {
+			fmt.Printf("claude-code: vscode linked extension -> %s\n", extResult.Target)
+		} else {
+			fmt.Printf("claude-code: vscode extension in sync %s\n", extResult.Target)
+		}
 	}
+	return 0
 }
 
 // reportKeybindings prints the skip note, or calls report, depending on whether SyncKeybindings ran.

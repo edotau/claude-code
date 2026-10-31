@@ -51,8 +51,7 @@ func vaultList(args []string) int {
 		}
 	}
 	if err := helptext.CheckFormat(f); err != nil {
-		fmt.Fprintln(os.Stderr, "vault list:", err)
-		return 2
+		return badFormat("vault list", err)
 	}
 	var stored []secrets.Stored
 	if slices.Contains(sel, "secrets") {

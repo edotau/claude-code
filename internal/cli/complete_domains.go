@@ -13,7 +13,6 @@ import (
 	"github.com/edotau/claude-code/internal/hooks/hookspec"
 	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/models"
-	"github.com/edotau/claude-code/internal/network/tailscale"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/schemas"
@@ -194,9 +193,6 @@ func dispatchHostNames() []string {
 	return c.Names
 }
 
-// dispatchAgentNames is tailscale.RemoteAgents, named to match the other *Names domain functions.
-func dispatchAgentNames() []string { return tailscale.RemoteAgents }
-
 // webViewAgentIDs lists subagent ids from the current project's most recent sessions — a bounded
 // directory glob (no transcript parsing), current session first, fast enough for the Tab path.
 func webViewAgentIDs() []string {
@@ -248,3 +244,13 @@ func webViewAgentIDs() []string {
 	}
 	return ids
 }
+
+// dispatchCacheSchema is the cache's current schema version; a mismatch is a cache miss, never migrated.
+const dispatchCacheSchema = 1
+
+var dispatchCacheFormat = schemas.Register(schemas.Format{
+	Name: "tailscale-machines", Owner: "internal/cli", Kind: schemas.Cache,
+	Glob:    func() string { return dispatchCachePath() },
+	New:     func() any { return &dispatchMachineCache{} },
+	Version: dispatchCacheSchema, Keep: "rebuildable cache; a version mismatch is a miss",
+})

@@ -89,8 +89,7 @@ func historyLog(args []string) int {
 		return code
 	}
 	if err := helptext.CheckFormat(*format); err != nil {
-		fmt.Fprintln(os.Stderr, "history:", err)
-		return 2
+		return badFormat("history", err)
 	}
 	store := &history.Store{Dir: history.Dir()}
 	rc := 0

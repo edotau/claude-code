@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"time"
 
@@ -15,16 +16,16 @@ type opencodeSyncOptions struct {
 }
 
 // opencodeMenuSync only appends absent ids; existing order, labels and explicit Responses flags are untouched.
-func opencodeMenuSync(profile string, opts opencodeSyncOptions, fail func(string, ...any) int) int {
+func opencodeMenuSync(profile string, opts opencodeSyncOptions) error {
 	p, snapshot, err := agent.OpencodeSyncModels(profile, opts.Refresh)
 	if err != nil {
-		return fail("%v", err)
+		return err
 	}
 	ids := agent.OpencodeSyncIDs(snapshot.Models)
 	menu := providers.OpencodeMenu()
 	if opts.Verify {
 		if err := agent.OpencodeSyncVerify(p, &snapshot, ids, menu); err != nil {
-			return fail("%v", err)
+			return err
 		}
 	}
 	opencodeSyncSummary(snapshot, opts.Verify)
@@ -40,20 +41,22 @@ func opencodeMenuSync(profile string, opts opencodeSyncOptions, fail func(string
 	fmt.Printf("  claude-code opencode catalog check --all --profile %s\n", profile)
 	if !opts.Apply {
 		fmt.Println("opencode catalog: dry run; no discovery/menu writes; pass --apply to write")
-		return 0
+		return nil
 	}
 	if !snapshot.CacheHit || opts.Verify {
 		if err := providers.SaveServingDiscovery(p, snapshot); err != nil {
-			return fail("%v", err)
+			return err
 		}
 		fmt.Println("opencode catalog: discovery snapshot sealed in vault")
 	}
 	if len(changes) == 0 {
 		fmt.Println("opencode catalog: no menu change")
-		return 0
+		return nil
 	}
-	return opencodeMenuWrite(next, fmt.Sprintf("synced %d addition(s); relaunch Codex too if used", len(changes)),
-		func(string, ...any) int { return fail("cannot persist the shared model menu; check vault access") })
+	if opencodeMenuWrite(next, fmt.Sprintf("synced %d addition(s); relaunch Codex too if used", len(changes))) != nil {
+		return errors.New("cannot persist the shared model menu; check vault access")
+	}
+	return nil
 }
 
 func opencodeSyncSummary(snapshot providers.ServingDiscovery, verified bool) {

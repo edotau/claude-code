@@ -47,7 +47,7 @@ func cmdNetworkVSCode(args []string) int {
 
 func vscodeServeStart(ctx context.Context, opts vscode.Options, format string) int {
 	if err := helptext.CheckFormat(format); err != nil {
-		return fail("network vscode: %v", err)
+		return badFormat("network vscode", err)
 	}
 	res, err := vscode.Start(ctx, opts)
 	if err != nil {
@@ -70,7 +70,7 @@ func vscodeServeStart(ctx context.Context, opts vscode.Options, format string) i
 
 func vscodeServeStop(format string) int {
 	if err := helptext.CheckFormat(format); err != nil {
-		return fail("network vscode: %v", err)
+		return badFormat("network vscode", err)
 	}
 	st, wasRunning := vscode.Running()
 	err := vscode.Stop()
@@ -104,7 +104,7 @@ func vscodeServeStop(format string) int {
 // status --json` for the mapping — the source of truth, since the daemon may have started earlier.
 func vscodeServeStatus(ctx context.Context, format string) int {
 	if err := helptext.CheckFormat(format); err != nil {
-		return fail("network vscode: %v", err)
+		return badFormat("network vscode", err)
 	}
 	st, running := vscode.Running()
 	_, mapped := vscode.TailscaleMapping(ctx, st.Port)

@@ -74,7 +74,7 @@ func cmdWorktreeList(repo *worktree.Repo, args []string) int {
 		return code
 	}
 	if err := helptext.CheckFormat(*format); err != nil {
-		return fail("%v", err)
+		return badFormat("", err)
 	}
 	entries, err := worktree.List(repo)
 	if err != nil {

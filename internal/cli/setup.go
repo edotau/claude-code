@@ -96,7 +96,7 @@ func setupExit(err error, verb string) int {
 	switch {
 	case err == nil:
 		return 0
-	case errors.Is(err, setup.ErrAlreadyCheckout), errors.Is(err, setup.ErrNotAClone), errors.Is(err, setup.ErrConfirmMismatch), errors.Is(err, setup.ErrNotConfigDir):
+	case errors.Is(err, setup.ErrAlreadyCheckout), errors.Is(err, setup.ErrNotAClone), errors.Is(err, setup.ErrConfirmMismatch), errors.Is(err, setup.ErrNotConfigDir), errors.Is(err, setup.ErrWorkspaceUsage):
 		fmt.Fprintf(os.Stderr, "claude-code: %s: %v\n", verb, err)
 		return 2
 	default:

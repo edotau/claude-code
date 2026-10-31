@@ -51,7 +51,7 @@ func cmdPlanStatus(args []string) int {
 		return code
 	}
 	if err := helptext.CheckFormat(*format); err != nil {
-		return fail("%v", err)
+		return badFormat("", err)
 	}
 	summaries, err := plans.Status(planDirs(*all)...)
 	if err != nil {

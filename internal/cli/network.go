@@ -77,8 +77,7 @@ func cmdNetworkMCP(args []string) int {
 		return code
 	}
 	if err := helptext.CheckFormat(*format); err != nil {
-		fail("network mcp: %v", err)
-		return 2
+		return badFormat("network mcp", err)
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -149,7 +148,7 @@ func cmdRestart(args []string) int {
 		return code
 	}
 	if err := helptext.CheckFormat(*format); err != nil {
-		return fail("restart: %v", err)
+		return badFormat("restart", err)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
@@ -219,8 +218,7 @@ func cmdNetworkView(args []string) int {
 		return helptext.ExitCode(err)
 	}
 	if err := helptext.CheckFormat(*format); err != nil {
-		fail("network view: %v", err)
-		return 2
+		return badFormat("network view", err)
 	}
 	if len(rest) != 1 {
 		fs.Usage()

@@ -218,7 +218,7 @@ func cmdRestore(agents, out string, check, dryRun, vendors, noAgents bool) int {
 	if err != nil {
 		return fail("%v", err)
 	}
-	winDrift, err := writeWindowsSettingsOutput(out, check, dryRun)
+	winDrift, err := writeWindowsSettingsOutput(out, check)
 	if err != nil {
 		return fail("%v", err)
 	}
@@ -236,7 +236,7 @@ func cmdRestore(agents, out string, check, dryRun, vendors, noAgents bool) int {
 // writeWindowsSettingsOutput reports Windows settings.json drift under --check; the Windows file path
 // is fixed (not overridable via --out), and only `install` writes it, so bare/--dry-run generate stay
 // read-only here too, matching settings.json's own preview-only default.
-func writeWindowsSettingsOutput(out string, check, _ bool) (bool, error) {
+func writeWindowsSettingsOutput(out string, check bool) (bool, error) {
 	if out != "" || !check {
 		return false, nil
 	}
@@ -422,8 +422,7 @@ func cmdDoctor(args []string) int {
 		return code
 	}
 	if err := helptext.CheckFormat(*format); err != nil {
-		fail("doctor: %v", err)
-		return 2
+		return badFormat("doctor", err)
 	}
 	if len(fs.Args()) > 0 && !*scan {
 		fail("doctor: unexpected arguments %v (paths go after --scan)", fs.Args())

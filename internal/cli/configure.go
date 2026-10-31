@@ -129,7 +129,7 @@ func cmdConfigure(args []string) int {
 	}
 	return configure.Run(configure.Options{
 		Provider: *provider, Vendor: *agent, DryRun: *dryRun, Check: *check, All: *all, Profile: profile,
-		JSON: *format == helptext.JSON, Drop: drop, Keep: keep, Interactive: isTTY(os.Stdin) && isTTY(os.Stderr),
+		JSON: *format == helptext.JSON, Drop: drop, Keep: keep, Interactive: ansi.IsTerminal(os.Stdin) && ansi.IsTerminal(os.Stderr),
 	}, section)
 }
 
@@ -163,13 +163,10 @@ func configureRender(restore, revert bool, section, agents, out string, check, d
 	return cmdRestore(agents, out, check, dryRun, renderAgents, noAgents)
 }
 
-// isTTY reports whether f is a terminal (the interactive gate for prompts and login offers).
-func isTTY(f *os.File) bool { return ansi.IsTerminal(f) }
-
 func init() {
 	// An agent the harness cannot route gets one interactive setup offer before the plain-CLI passthrough.
 	launch.OfferConfigure = func(vendor string, reason error) bool {
-		if !isTTY(os.Stdin) || !isTTY(os.Stderr) {
+		if !ansi.IsTerminal(os.Stdin) || !ansi.IsTerminal(os.Stderr) {
 			return false
 		}
 		fmt.Fprintln(os.Stderr, reason)
