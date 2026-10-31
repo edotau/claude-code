@@ -386,15 +386,40 @@ function renderStatsSection(stats) {
   </div>`;
 }
 
+/** Grey placeholder block; the shimmer lives in the page CSS and stops under prefers-reduced-motion. */
+function skel(extra) {
+  return `<div class="skel" style="${extra || ''}"></div>`;
+}
+
+/** Placeholder provider cards, shaped like renderProvider's output, with no numbers. */
+function renderSkeletonProviders(n) {
+  const card = `<div class="provider-card"><div class="card-head">${skel('width:45%')}</div><div class="card-body">${skel()}${skel()}${skel('width:70%')}</div></div>`;
+  return card.repeat(n);
+}
+
+/** Placeholder OVERVIEW: four stat tiles plus the heatmap and token-mix blocks. */
+function renderSkeletonStats() {
+  const tile = `<div class="stat-tile">${skel('width:60%')}${skel('width:40%;height:18px')}</div>`;
+  const col = `<div class="stats-col">${skel('width:35%')}${skel('height:84px')}</div>`;
+  return `<div class="stats-section"><div class="stats-tiles">${tile.repeat(4)}</div><div class="stats-cols">${col}${col}</div></div>`;
+}
+
+/** Placeholder card grid (API keys, agents): n cards of a head and three lines. */
+function renderSkeletonCards(n) {
+  const card = `<div class="agent-card"><div class="card-head">${skel('width:50%')}</div><div class="card-body">${skel()}${skel('width:80%')}${skel('width:60%')}</div></div>`;
+  return `<div class="cards-grid">${card.repeat(n)}</div>`;
+}
+
 /** Full webview HTML string for the Usage view; `opts.detailed` picks Detailed vs Compact, `opts.show` used|left. */
 function renderUsageHtml(model, opts) {
-  const { detailed = true, show = 'used', nonce = '', cspSource = '', days = 1 } = opts || {};
-  const overviewBody = detailed ? renderStatsSection(model.stats) : '';
+  const { detailed = true, show = 'used', nonce = '', cspSource = '', days = 1, skeleton = false, quotasPending = false } = opts || {};
+  const overviewBody = skeleton ? renderSkeletonStats() : detailed ? renderStatsSection(model.stats) : '';
   // The CLI prints PROVIDER QUOTAS and API KEYS as two always-present sections — never either/or on billing mode.
-  const quotasBody = model.providers.map((p) => renderProvider(p, show, detailed)).join('');
-  const apiKeysBody = renderApiCards(model);
-  const modelsBody = renderProviderModels(model);
-  const agentsBody = renderAgentsBody(model, detailed);
+  const pending = skeleton || (quotasPending && !model.providers.length);
+  const quotasBody = pending ? renderSkeletonProviders(3) : model.providers.map((p) => renderProvider(p, show, detailed)).join('');
+  const apiKeysBody = skeleton ? renderSkeletonCards(1) : renderApiCards(model);
+  const modelsBody = skeleton ? '' : renderProviderModels(model);
+  const agentsBody = skeleton ? `<div class="agents-section">${renderSkeletonCards(3)}</div>` : renderAgentsBody(model, detailed);
   const agentsHeader = `AGENTS · ${agentsWindowLabel(model, days)}`;
   return `<!DOCTYPE html>
 <html lang="en">
@@ -498,6 +523,9 @@ function renderUsageHtml(model, opts) {
   .mix-legend { display: flex; flex-wrap: wrap; gap: 8px; font-size: 11px; }
   .mix-legend-item { display: inline-flex; align-items: center; gap: 4px; color: var(--vscode-descriptionForeground); }
   .mix-swatch { width: 8px; height: 8px; border-radius: 2px; display: inline-block; }
+  .skel { height: 12px; margin: 6px 0; border-radius: 4px; background: linear-gradient(90deg, var(--track) 25%, var(--card-head-tint) 50%, var(--track) 75%); background-size: 200% 100%; animation: skel-shimmer 1.4s linear infinite; }
+  @keyframes skel-shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+  @media (prefers-reduced-motion: reduce) { .skel { animation: none; } }
   @media (max-width: 480px) {
     .stats-cols { grid-template-columns: 1fr; }
   }

@@ -77,6 +77,37 @@ func TestUsageEndpointServesReportJSONAndCaches(t *testing.T) {
 	}
 }
 
+// quotas=0 builds without quotas and never satisfies a full request for the same window.
+func TestUsageQuotasOffHasItsOwnCacheEntry(t *testing.T) {
+	var gotQuotas []bool
+	orig := usageReport
+	usageReport = func(_, _ string, days int, quotas bool, _ io.Writer) (*usage.Document, error) {
+		gotQuotas = append(gotQuotas, quotas)
+		return &usage.Document{WindowDays: days}, nil
+	}
+	t.Cleanup(func() { usageReport = orig })
+	s := newTestServer(t, Options{}, nil)
+	now := time.Now()
+	s.now = func() time.Time { return now }
+
+	for i, c := range []struct {
+		target string
+		want   []bool
+	}{
+		{"/api/usage?days=7&quotas=0", []bool{false}},
+		{"/api/usage?days=7", []bool{false, true}},
+		{"/api/usage?days=7&quotas=0", []bool{false, true}},
+		{"/api/usage?days=7", []bool{false, true}},
+	} {
+		if w := do(s, newReq(t, "GET", c.target, "127.0.0.1:7777")); w.Code != http.StatusOK {
+			t.Fatalf("step %d GET %s = %d", i, c.target, w.Code)
+		}
+		if !reflect.DeepEqual(gotQuotas, c.want) {
+			t.Fatalf("step %d GET %s: builds withQuotas = %v, want %v", i, c.target, gotQuotas, c.want)
+		}
+	}
+}
+
 // The served body masks emails and token-shaped strings, and the cache holds the masked bytes.
 func TestUsageEndpointMasksEmailAndTokens(t *testing.T) {
 	const email, token = "eric@gmail.com", "sk-ant-oat01-abcdefghijklmnop"
