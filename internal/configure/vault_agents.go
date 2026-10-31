@@ -4,6 +4,7 @@ package configure
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"reflect"
@@ -66,7 +67,7 @@ func decodeAgentRecords(raw json.RawMessage) (map[string]vault.AgentRecord, erro
 		return nil, err
 	}
 	if err := dec.Decode(new(any)); err != io.EOF {
-		return nil, fmt.Errorf("trailing data")
+		return nil, errors.New("trailing data")
 	}
 	for name := range recs {
 		if _, ok := agent.LookupSchema(name); !ok {
