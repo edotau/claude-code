@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/edotau/claude-code/internal/ledger"
+	"github.com/edotau/claude-code/internal/tokenledger"
 	"github.com/edotau/claude-code/internal/translate"
 )
 
@@ -144,11 +144,11 @@ func TestPassthroughNonGeminiChatUntouched(t *testing.T) {
 	}
 }
 
-func ledgerSettled(t *testing.T, want int) []ledger.Entry {
+func ledgerSettled(t *testing.T, want int) []tokenledger.Entry {
 	t.Helper()
-	var got []ledger.Entry
+	var got []tokenledger.Entry
 	for i := range 100 {
-		got, _ = ledger.Read()
+		got, _ = tokenledger.Read()
 		if len(got) >= want && want > 0 {
 			return got
 		}

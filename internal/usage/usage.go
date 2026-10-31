@@ -15,8 +15,8 @@ import (
 	"slices"
 	"time"
 
-	"github.com/edotau/claude-code/internal/ledger"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/tokenledger"
 	"github.com/edotau/claude-code/internal/transcript"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
@@ -208,7 +208,7 @@ func startQuotaFetch(enabled bool) <-chan []quota {
 }
 
 // readLedger is the ledger read seam; a var so tests can stub it without touching the real ledger file.
-var readLedger = ledger.Read
+var readLedger = tokenledger.Read
 
 // usageFilesForSession globs every project dir for <id>/subagents/*.jsonl and the workflow agents at
 // <id>/subagents/workflows/*/agent-*.jsonl — a session id is unique but its parent project-dir

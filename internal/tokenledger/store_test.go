@@ -1,4 +1,4 @@
-package ledger
+package tokenledger
 
 import (
 	"encoding/json"
