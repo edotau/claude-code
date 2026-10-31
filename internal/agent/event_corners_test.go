@@ -25,7 +25,7 @@ func TestTextSinkMatchesPlainStreamBytes(t *testing.T) {
 		`{"type":"assistant","message":{"content":[{"type":"text","text":"two"}]}}` + "\n" +
 		`{"type":"result","subtype":"success","result":"one\ntwo"}` + "\n"
 	var out strings.Builder
-	if _, err := parseClaudeStream(strings.NewReader(stream), NewTextSink(&out)); err != nil {
+	if _, err := parseClaudeStream(newBR(stream), NewTextSink(&out)); err != nil {
 		t.Fatal(err)
 	}
 	if out.String() != "one\ntwo" {
@@ -39,7 +39,7 @@ func TestParseClaudeStreamSubagentTurnEmitsNoEvents(t *testing.T) {
 		`{"type":"assistant","message":{"content":[{"type":"text","text":"top"}]}}` + "\n" +
 		`{"type":"result","subtype":"success","result":"top"}` + "\n"
 	rs := &recSink{}
-	if _, err := parseClaudeStream(strings.NewReader(stream), rs); err != nil {
+	if _, err := parseClaudeStream(newBR(stream), rs); err != nil {
 		t.Fatal(err)
 	}
 	if len(rs.evs) != 1 || rs.evs[0].Type != EventText || rs.evs[0].Text != "top" {
@@ -48,18 +48,16 @@ func TestParseClaudeStreamSubagentTurnEmitsNoEvents(t *testing.T) {
 	}
 }
 
-// A stray non-JSON line ends the opencode stream with a decode error (json.Decoder cannot resync, same as before
-// events); text already streamed stays emitted and the partial answer is not lost.
+// A stray non-JSON line is logged and skipped: text before and after it both stream, with no error.
 func TestParseOpenCodeStreamStrayLineKeepsStreamedText(t *testing.T) {
 	stream := `{"type":"text","part":{"text":"before"}}` + "\n" +
 		"warning: not json at all\n" +
 		`{"type":"text","part":{"text":"after"}}` + "\n"
 	rs := &recSink{}
-	_, err := parseOpenCodeStream(strings.NewReader(stream), rs, nil)
-	if err == nil || !strings.Contains(err.Error(), "decode opencode json") {
-		t.Fatalf("err = %v, want a decode error", err)
+	if _, err := parseOpenCodeStream(newBR(stream), rs, nil); err != nil {
+		t.Fatalf("err = %v, want nil", err)
 	}
-	if rs.types() != "text" || rs.evs[0].Text != "before" {
-		t.Fatalf("events = %s, want the one streamed text before the stray line", rs.types())
+	if rs.types() != "text,text" || rs.evs[0].Text != "before" || rs.evs[1].Text != "after" {
+		t.Fatalf("events = %s, want before then after", rs.types())
 	}
 }

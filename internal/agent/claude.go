@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"bufio"
 	"cmp"
 	"context"
 	"encoding/json"
@@ -56,7 +57,7 @@ func (claudeRunner) Run(ctx context.Context, req RunOptions, sink Sink) (Result,
 	if err := cmd.Start(); err != nil {
 		return Result{}, err
 	}
-	res, perr := parseClaudeStream(stdout, sink, eventLogFor(ctx))
+	res, perr := parseClaudeStream(bufio.NewReader(stdout), sink, eventLogFor(ctx))
 	_, _ = io.Copy(io.Discard, stdout)
 	werr := cmd.Wait()
 	res.Provider = cl.Set[providers.PinProfile]
@@ -179,25 +180,20 @@ func (ev claudeEvent) text() string {
 }
 
 // parseClaudeStream emits top-level assistant text and tool calls to sink and returns the result event's envelope.
-// A json.Decoder, not a line scanner: the init event routinely exceeds a scanner's 64KB line cap.
-// An optional eventLog gets one formatted line per assistant text, tool call, result and error.
-func parseClaudeStream(r io.Reader, sink Sink, logs ...eventLog) (res Result, _ error) {
-	return parseClaudeEvents(json.NewDecoder(r), false, sink, logs...)
+func parseClaudeStream(br *bufio.Reader, sink Sink, logs ...eventLog) (res Result, _ error) {
+	return parseClaudeEvents(br, false, sink, logs...)
 }
 
-// parseClaudeEvents is parseClaudeStream over a caller-owned decoder; untilResult returns after the first result
-// event, leaving the decoder positioned for the next turn of a live session.
-func parseClaudeEvents(dec *json.Decoder, untilResult bool, sink Sink, logs ...eventLog) (res Result, _ error) {
+// parseClaudeEvents stops at the first result when untilResult is set, preserving buffered lines for the next turn.
+func parseClaudeEvents(br *bufio.Reader, untilResult bool, sink Sink, logs ...eventLog) (res Result, _ error) {
 	lg := pickLog(logs)
 	sawResult, wrote := false, false
 	ts := transportTracker{start: clock()}
 	defer func() { res.Transport = ts.result() }()
-	for {
+	err := decodeLines(br, lg, func(raw []byte) (bool, error) {
 		var ev claudeEvent
-		if err := dec.Decode(&ev); errors.Is(err, io.EOF) {
-			break
-		} else if err != nil {
-			return res, fmt.Errorf("decode stream-json: %w", err)
+		if err := json.Unmarshal(raw, &ev); err != nil {
+			return false, fmt.Errorf("decode stream-json: %w", err)
 		}
 		if ev.SessionID != "" {
 			res.SessionID = ev.SessionID
@@ -212,7 +208,7 @@ func parseClaudeEvents(dec *json.Decoder, untilResult bool, sink Sink, logs ...e
 					ev.Attempt, ev.MaxRetries, ts.lastStatus(), ev.RetryDelayMs))
 				if err := sink.Emit(Event{Type: EventRetry, Status: strconv.Itoa(ts.lastStatus()),
 					Text: fmt.Sprintf("attempt %d/%d retry_in=%dms", ev.Attempt, ev.MaxRetries, ev.RetryDelayMs)}); err != nil {
-					return res, err
+					return false, err
 				}
 			}
 			if ev.Model != "" {
@@ -220,7 +216,7 @@ func parseClaudeEvents(dec *json.Decoder, untilResult bool, sink Sink, logs ...e
 			}
 		case "assistant":
 			if ev.ParentToolUseID != "" {
-				continue // a subagent's turn, not the answer
+				return false, nil // a subagent's turn, not the answer
 			}
 			msg := ev.object()
 			if msg.Model != "" {
@@ -228,26 +224,30 @@ func parseClaudeEvents(dec *json.Decoder, untilResult bool, sink Sink, logs ...e
 			}
 			logClaudeAssistant(lg, msg)
 			if err := emitClaudeAssistant(sink, msg, &wrote); err != nil {
-				return res, err
+				return false, err
 			}
 		case "result":
 			sawResult = true
 			if err := applyClaudeResult(&res, ev); err != nil {
 				lg.emit("error", err.Error())
 				_ = sink.Emit(Event{Type: EventError, Text: err.Error()}) // the parse error below already aborts
-				return res, err
+				return false, err
 			}
 			lg.emit("result", ev.Result)
 			if untilResult {
-				return res, nil
+				return true, nil
 			}
 		case "error":
 			if t := ev.text(); t != "" {
 				lg.emit("error", t)
 				_ = sink.Emit(Event{Type: EventError, Text: t}) // the claude error below already aborts
-				return res, fmt.Errorf("claude: %s", t)
+				return false, fmt.Errorf("claude: %s", t)
 			}
 		}
+		return false, nil
+	})
+	if err != nil {
+		return res, err
 	}
 	if !sawResult {
 		return res, errNoResult

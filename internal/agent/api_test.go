@@ -207,9 +207,8 @@ func TestParseChatStream(t *testing.T) {
 	}{
 		{name: "done ignores trailing data", suffix: "data: [DONE]\ndata: invalid\n", output: "onetwo"},
 		{name: "EOF without DONE", output: "onetwo", err: "chat stream ended without [DONE]"},
-		{name: "malformed chunk", suffix: "data: invalid\n", output: "onetwo", err: "decode chat chunk:"},
+		{name: "undecodable chunk is skipped", suffix: "data: invalid\ndata: [DONE]\n", output: "onetwo"},
 		{name: "upstream error", suffix: "data: {\"error\":{\"message\":\"failed\"}}\n", output: "onetwo", err: `upstream error mid-stream: {"message":"failed"}`},
-		{name: "scanner error", suffix: strings.Repeat("x", 4<<20), output: "onetwo", err: "bufio.Scanner: token too long"},
 		{name: "writer error", writer: failingStreamWriter{}, err: io.ErrClosedPipe.Error()},
 	}
 	for _, tc := range cases {
@@ -228,5 +227,23 @@ func TestParseChatStream(t *testing.T) {
 				t.Fatalf("usage = %+v, model = %q, output = %q", usage, model, out.String())
 			}
 		})
+	}
+}
+
+// A 5 MiB content chunk streams through whole, and an undecodable data: line between chunks is skipped.
+func TestParseChatStreamLargeChunkAndGarbageLine(t *testing.T) {
+	const size = 5 << 20
+	big := strings.Repeat("b", size)
+	stream := `data: {"model":"m","choices":[{"delta":{"content":"` + big + `"}}]}` + "\n\n" +
+		"data: {not json\n" +
+		`data: {"choices":[{"delta":{"content":"end"}}],"usage":{"prompt_tokens":2,"completion_tokens":1}}` + "\n" +
+		"data: [DONE]\n"
+	var out strings.Builder
+	usage, model, err := parseChatStream(strings.NewReader(stream), &out)
+	if err != nil {
+		t.Fatalf("err = %v, want nil", err)
+	}
+	if out.String() != big+"end" || model != "m" || usage != (Usage{InputTokens: 2, OutputTokens: 1}) {
+		t.Fatalf("streamed %d bytes, model %q, usage %+v", out.Len(), model, usage)
 	}
 }

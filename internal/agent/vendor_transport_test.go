@@ -21,7 +21,7 @@ func TestAgyAndOpenCodeStreamTiming(t *testing.T) {
 		`{"type":"step_finish","sessionID":"s1","part":{"tokens":{"output":1}}}` + "\n" +
 		`{"type":"text","sessionID":"s1","part":{"text":"!"}}` + "\n"
 	tickClock(t, 0, 100, 150, 950) // start, then one tick per agy event
-	res, err := parseAgyStream(strings.NewReader(agy), NewTextSink(&strings.Builder{}), nil)
+	res, err := parseAgyStream(newBR(agy), NewTextSink(&strings.Builder{}), nil)
 	if err != nil || res.Answer != "hi" {
 		t.Fatalf("agy res=%+v err=%v", res, err)
 	}
@@ -29,7 +29,7 @@ func TestAgyAndOpenCodeStreamTiming(t *testing.T) {
 		t.Fatalf("agy transport = %+v", tr)
 	}
 	tickClock(t, 0, 200, 300, 400)
-	res, err = parseOpenCodeStream(strings.NewReader(oc), NewTextSink(&strings.Builder{}), nil)
+	res, err = parseOpenCodeStream(newBR(oc), NewTextSink(&strings.Builder{}), nil)
 	if err != nil || res.Answer != "hi\n!" {
 		t.Fatalf("opencode res=%+v err=%v", res, err)
 	}
@@ -38,7 +38,7 @@ func TestAgyAndOpenCodeStreamTiming(t *testing.T) {
 	}
 	tickClock(t, 0, 50, 70) // the error return path keeps timing
 	bad := `{"event":"init"}` + "\n" + `{"event":"result","result":{"status":"FAILED"}}` + "\n"
-	res, err = parseAgyStream(strings.NewReader(bad), NewTextSink(&strings.Builder{}), nil)
+	res, err = parseAgyStream(newBR(bad), NewTextSink(&strings.Builder{}), nil)
 	if err == nil || res.Transport == nil || res.Transport.FirstEventMs != 50 || res.Transport.MaxGapMs != 20 {
 		t.Fatalf("agy error transport = %+v err=%v", res.Transport, err)
 	}

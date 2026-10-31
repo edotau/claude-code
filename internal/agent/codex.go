@@ -1,11 +1,11 @@
 package agent
 
 import (
+	"bufio"
 	"cmp"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"sort"
@@ -115,20 +115,17 @@ type codexEvent struct {
 
 // parseCodexStream reads `codex exec --json`: agent messages become text events (the last is the answer),
 // command executions become tool events, turn.completed adds usage and turn.failed fails the run.
-func parseCodexStream(r io.Reader, sink Sink, onMeaningful func(), logs ...eventLog) (res Result, _ error) {
+func parseCodexStream(br *bufio.Reader, sink Sink, onMeaningful func(), logs ...eventLog) (res Result, _ error) {
 	ts := transportTracker{start: clock()}
 	defer func() { res.Transport = ts.timing() }()
 	lg := pickLog(logs)
 	var last string
 	var failure string
 	texts := 0
-	dec := json.NewDecoder(r)
-	for {
+	err := decodeLines(br, lg, func(raw []byte) (bool, error) {
 		var ev codexEvent
-		if err := dec.Decode(&ev); errors.Is(err, io.EOF) {
-			break
-		} else if err != nil {
-			return res, fmt.Errorf("decode codex json: %w", err)
+		if err := json.Unmarshal(raw, &ev); err != nil {
+			return false, fmt.Errorf("decode codex json: %w", err)
 		}
 		ts.event(clock())
 		it := ev.Item
@@ -140,7 +137,7 @@ func parseCodexStream(r io.Reader, sink Sink, onMeaningful func(), logs ...event
 				onMeaningful()
 			}
 			if err := sink.Emit(Event{Type: EventText, Text: it.Text, Sep: texts > 0}); err != nil {
-				return res, err
+				return false, err
 			}
 			texts++
 			last = it.Text
@@ -149,12 +146,12 @@ func parseCodexStream(r io.Reader, sink Sink, onMeaningful func(), logs ...event
 			tool := toolEvent("shell", it.ID)
 			tool.Text = it.Command
 			if err := sink.Emit(tool); err != nil {
-				return res, err
+				return false, err
 			}
 			lg.emit("tool", it.Command)
 		case ev.Type == "item.completed" && it.Type == "command_execution":
 			if err := sink.Emit(Event{Type: EventToolResult, Tool: &ToolRef{Name: "shell", ID: it.ID}, Status: it.Status}); err != nil {
-				return res, err
+				return false, err
 			}
 		case ev.Type == "turn.completed":
 			u := ev.Usage
@@ -166,9 +163,13 @@ func parseCodexStream(r io.Reader, sink Sink, onMeaningful func(), logs ...event
 			failure = cmp.Or(ev.Error.Message, "codex turn failed")
 			lg.emit("error", failure)
 			if err := sink.Emit(Event{Type: EventError, Text: failure}); err != nil {
-				return res, err
+				return false, err
 			}
 		}
+		return false, nil
+	})
+	if err != nil {
+		return res, err
 	}
 	res.Answer = strings.TrimSpace(last)
 	if failure != "" {

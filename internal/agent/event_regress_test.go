@@ -106,7 +106,7 @@ func TestClaudeStreamTurnSeparator(t *testing.T) {
 		}
 		return text.Emit(ev)
 	})
-	if _, err := parseClaudeStream(strings.NewReader(stream), sink); err != nil {
+	if _, err := parseClaudeStream(newBR(stream), sink); err != nil {
 		t.Fatal(err)
 	}
 	if len(seps) != 2 || seps[0] || !seps[1] {

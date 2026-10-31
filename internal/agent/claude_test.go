@@ -19,7 +19,7 @@ const claudeFixture = `{"type":"system","subtype":"init","session_id":"sess-1","
 
 func TestParseClaudeStream(t *testing.T) {
 	var out strings.Builder
-	res, err := parseClaudeStream(strings.NewReader(claudeFixture), NewTextSink(&out))
+	res, err := parseClaudeStream(newBR(claudeFixture), NewTextSink(&out))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -33,14 +33,14 @@ func TestParseClaudeStream(t *testing.T) {
 
 func TestParseClaudeStreamErrors(t *testing.T) {
 	isErr := `{"type":"result","subtype":"success","is_error":true,"result":"API Error: 429 rate_limit_error"}` + "\n"
-	_, err := parseClaudeStream(strings.NewReader(isErr), NewTextSink(&strings.Builder{}))
+	_, err := parseClaudeStream(newBR(isErr), NewTextSink(&strings.Builder{}))
 	if e := Classify("claude", err, false); e == nil || e.Kind != KindRateLimit {
 		t.Errorf("is_error result = %v", err)
 	}
-	if _, err := parseClaudeStream(strings.NewReader(`{"type":"system","subtype":"init"}`), NewTextSink(&strings.Builder{})); err == nil {
+	if _, err := parseClaudeStream(newBR(`{"type":"system","subtype":"init"}`), NewTextSink(&strings.Builder{})); err == nil {
 		t.Error("a stream without a result event must fail")
 	}
-	if _, err := parseClaudeStream(strings.NewReader(`{"type":`), NewTextSink(&strings.Builder{})); err == nil {
+	if _, err := parseClaudeStream(newBR(`{"type":`), NewTextSink(&strings.Builder{})); err == nil {
 		t.Error("truncated JSON must fail")
 	}
 }
@@ -51,7 +51,7 @@ func TestParseClaudeStreamResultApplication(t *testing.T) {
 	{"type":"assistant","parent_tool_use_id":"tool-1","message":{"model":"subagent-model","content":[{"type":"text","text":"hidden"}]}}
 	{"type":"result","session_id":"result-id","is_error":true,"subtype":"error_during_execution","result":"partial result","usage":{"input_tokens":7,"output_tokens":3,"cache_creation_input_tokens":2,"cache_read_input_tokens":4}}`
 	var out strings.Builder
-	res, err := parseClaudeStream(strings.NewReader(stream), NewTextSink(&out))
+	res, err := parseClaudeStream(newBR(stream), NewTextSink(&out))
 	if err == nil || err.Error() != "claude error_during_execution: partial result" {
 		t.Fatalf("err = %v", err)
 	}
@@ -64,7 +64,7 @@ func TestParseClaudeStreamResultApplication(t *testing.T) {
 }
 
 func TestParseClaudeStreamWriteError(t *testing.T) {
-	res, err := parseClaudeStream(strings.NewReader(claudeFixture), NewTextSink(failingStreamWriter{}))
+	res, err := parseClaudeStream(newBR(claudeFixture), NewTextSink(failingStreamWriter{}))
 	if !errors.Is(err, io.ErrClosedPipe) || res.SessionID != "sess-1" || res.Model != "claude-opus-5" || res.Answer != "" {
 		t.Fatalf("res = %+v, err = %v", res, err)
 	}
@@ -95,7 +95,7 @@ func TestParseClaudeStreamNewlineError(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			injected := errors.New("newline rejected")
 			w := &newlineRejectWriter{err: injected}
-			_, err := parseClaudeStream(strings.NewReader(stream), NewTextSink(w))
+			_, err := parseClaudeStream(newBR(stream), NewTextSink(w))
 			if !errors.Is(err, injected) {
 				t.Fatalf("err = %v, want injected newline error", err)
 			}

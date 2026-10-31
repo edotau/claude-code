@@ -94,7 +94,7 @@ func (c *collectSink) Emit(e Event) error { c.evs = append(c.evs, e); return nil
 
 func TestParseCodexStream(t *testing.T) {
 	var sink collectSink
-	res, err := parseCodexStream(strings.NewReader(codexFixture), &sink, nil)
+	res, err := parseCodexStream(newBR(codexFixture), &sink, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -125,7 +125,7 @@ func TestParseCodexStream(t *testing.T) {
 func TestParseCodexStreamTurnFailed(t *testing.T) {
 	in := `{"type":"thread.started","thread_id":"th-2"}` + "\n" + `{"type":"turn.failed","error":{"message":"boom"}}` + "\n"
 	var sink collectSink
-	res, err := parseCodexStream(strings.NewReader(in), &sink, nil)
+	res, err := parseCodexStream(newBR(in), &sink, nil)
 	if err == nil || err.Error() != "boom" {
 		t.Fatalf("err = %v, want boom", err)
 	}

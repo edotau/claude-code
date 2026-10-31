@@ -21,7 +21,7 @@ func TestParseClaudeStreamStringMessage(t *testing.T) {
 		`{"type":"assistant","session_id":"sess-2","message":{"model":"claude-opus-5","content":[{"type":"text","text":"done"}]}}` + "\n" +
 		`{"type":"result","subtype":"success","is_error":false,"result":"done","session_id":"sess-2"}` + "\n"
 	var out strings.Builder
-	res, err := parseClaudeStream(strings.NewReader(stream), NewTextSink(&out))
+	res, err := parseClaudeStream(newBR(stream), NewTextSink(&out))
 	if err != nil {
 		t.Fatalf("a string message event must not fail the leg: %v", err)
 	}
@@ -33,7 +33,7 @@ func TestParseClaudeStreamStringMessage(t *testing.T) {
 // TestParseClaudeStreamErrorEventText surfaces an "error"-type event's string message as the returned error.
 func TestParseClaudeStreamErrorEventText(t *testing.T) {
 	stream := `{"type":"error","message":"fatal: connection reset","session_id":"sess-3"}` + "\n"
-	_, err := parseClaudeStream(strings.NewReader(stream), NewTextSink(&strings.Builder{}))
+	_, err := parseClaudeStream(newBR(stream), NewTextSink(&strings.Builder{}))
 	if err == nil || !strings.Contains(err.Error(), "fatal: connection reset") {
 		t.Fatalf("err = %v, want the error event's message text", err)
 	}
@@ -55,7 +55,7 @@ func TestParseClaudeStreamTransport(t *testing.T) {
 	defer func() { clock = old }()
 	var out strings.Builder
 	var lines []string
-	res, err := parseClaudeStream(strings.NewReader(stream), NewTextSink(&out), func(k, x string) { lines = append(lines, k+": "+x) })
+	res, err := parseClaudeStream(newBR(stream), NewTextSink(&out), func(k, x string) { lines = append(lines, k+": "+x) })
 	if err != nil || res.Answer != "hi" || out.String() != "hi" {
 		t.Fatalf("res=%+v out=%q err=%v", res, out.String(), err)
 	}

@@ -125,13 +125,13 @@ func AcquireLiveSlot() (func(), error) {
 	return nil, fmt.Errorf("%d live sessions already running (max %d): agents cancel one first", MaxLiveSessions, MaxLiveSessions)
 }
 
-// liveSession is the holder's state: one agent child, its stdin, and one decoder over its stdout.
+// liveSession is the holder's state: one agent child, its stdin, and one buffered reader over its stdout.
 type liveSession struct {
 	rec     *Record
 	name    string
 	be      liveBackend
 	stdin   io.Writer
-	dec     *json.Decoder
+	dec     *bufio.Reader
 	events  *EventLog
 	idle    *time.Timer
 	idleFor time.Duration
@@ -192,7 +192,7 @@ func ServeLive(ctx context.Context, rec *Record, notify func(string)) (err error
 	go func() { exited <- cmd.Wait() }()
 	events := NewEventLog(rec.EventsPath(), rec.ID)
 	defer events.Close()
-	s := &liveSession{rec: rec, name: name, be: be, stdin: stdin, dec: json.NewDecoder(newPumpBuf(stdout)), events: events, idleFor: cmp.Or(req.Timeout, DefaultLiveIdle),
+	s := &liveSession{rec: rec, name: name, be: be, stdin: stdin, dec: bufio.NewReader(newPumpBuf(stdout)), events: events, idleFor: cmp.Or(req.Timeout, DefaultLiveIdle),
 		cancel: func(e error) { cancel(e) }, profile: profile}
 	s.idle = time.AfterFunc(s.idleFor, func() { cancel(errLiveIdle) })
 	_ = rec.Save() // the pid is on disk before the first send can find the record

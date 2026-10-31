@@ -1,12 +1,12 @@
 package agent
 
 import (
+	"bufio"
 	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"strings"
 
@@ -112,15 +112,12 @@ type agyEvent struct {
 }
 
 // parseAgyStream reads `agy --output-format stream-json`: agent_response deltas, then one result event.
-// An optional eventLog gets the deltas as one assistant line per run of text, then the result or error.
-// onMeaningful is unused here (agy carries no stall watchdog); it only matches runEventStream's parse type.
-func parseAgyStream(r io.Reader, sink Sink, onMeaningful func(), logs ...eventLog) (Result, error) {
-	return parseAgyEvents(json.NewDecoder(r), sink, false, pickLog(logs))
+func parseAgyStream(br *bufio.Reader, sink Sink, onMeaningful func(), logs ...eventLog) (Result, error) {
+	return parseAgyEvents(br, sink, false, pickLog(logs))
 }
 
-// parseAgyEvents is parseAgyStream over dec; once stops after the first result event, so a live session's
-// next turn reads from the same decoder.
-func parseAgyEvents(dec *json.Decoder, sink Sink, once bool, lg eventLog) (res Result, _ error) {
+// parseAgyEvents stops at the first result when once is set, preserving buffered lines for the next turn.
+func parseAgyEvents(br *bufio.Reader, sink Sink, once bool, lg eventLog) (res Result, _ error) {
 	ts := transportTracker{start: clock()}
 	defer func() { res.Transport = ts.timing() }()
 	var answer, pending strings.Builder
@@ -131,15 +128,13 @@ func parseAgyEvents(dec *json.Decoder, sink Sink, once bool, lg eventLog) (res R
 	var response string
 	var sawResult bool
 	var openStep string // the last non-response step still running (a backgrounded command), else ""
-	for {
+	err := decodeLines(br, lg, func(raw []byte) (bool, error) {
 		var ev agyEvent
-		if err := dec.Decode(&ev); errors.Is(err, io.EOF) {
-			break
-		} else if err != nil {
+		if err := json.Unmarshal(raw, &ev); err != nil {
 			flush()
 			lg.emit("error", "decode agy stream-json: "+err.Error())
 			_ = sink.Emit(Event{Type: EventError, Text: "decode agy stream-json: " + err.Error()}) // the decode error aborts
-			return res, fmt.Errorf("decode agy stream-json: %w", err)
+			return false, fmt.Errorf("decode agy stream-json: %w", err)
 		}
 		ts.event(clock())
 		switch ev.Event {
@@ -154,10 +149,10 @@ func parseAgyEvents(dec *json.Decoder, sink Sink, once bool, lg eventLog) (res R
 				}
 			}
 			if ev.StepUpdate.StepType != "agent_response" || ev.StepUpdate.TextDelta == "" {
-				continue
+				return false, nil
 			}
 			if err := sink.Emit(Event{Type: EventText, Text: ev.StepUpdate.TextDelta}); err != nil {
-				return res, err
+				return false, err
 			}
 			answer.WriteString(ev.StepUpdate.TextDelta)
 			pending.WriteString(ev.StepUpdate.TextDelta)
@@ -172,13 +167,17 @@ func parseAgyEvents(dec *json.Decoder, sink Sink, once bool, lg eventLog) (res R
 				if once {
 					err = resultError{err} // the result was consumed: the turn failed, the stream is at a boundary
 				}
-				return res, err
+				return false, err
 			}
 			lg.emit("result", cmp.Or(response, answer.String()))
 			if once {
-				return finishAgyTurn(res, sink, &answer, response, flush, openStep, once)
+				return true, nil
 			}
 		}
+		return false, nil
+	})
+	if err != nil {
+		return res, err
 	}
 	if !sawResult {
 		flush()

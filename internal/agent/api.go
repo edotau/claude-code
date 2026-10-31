@@ -133,56 +133,59 @@ func chatStream(ctx context.Context, base string, p *providers.Provider, model, 
 func parseChatStream(r io.Reader, w io.Writer) (Usage, string, error) {
 	var usage Usage
 	var served string
-	sawDone := false
-	sc := bufio.NewScanner(r)
-	sc.Buffer(make([]byte, 64<<10), 4<<20)
-	for sc.Scan() {
-		data, ok := bytes.CutPrefix(sc.Bytes(), []byte("data:"))
-		if data = bytes.TrimSpace(data); !ok || len(data) == 0 {
-			continue
-		}
-		if bytes.Equal(data, []byte("[DONE]")) {
-			sawDone = true
-			break
-		}
-		var chunk struct {
-			Model   string `json:"model"`
-			Choices []struct {
-				Delta struct {
-					Content string `json:"content"`
-				} `json:"delta"`
-			} `json:"choices"`
-			Usage *struct {
-				PromptTokens     int `json:"prompt_tokens"`
-				CompletionTokens int `json:"completion_tokens"`
-			} `json:"usage"`
-			Error *json.RawMessage `json:"error"`
-		}
-		if err := json.Unmarshal(data, &chunk); err != nil {
-			return usage, served, fmt.Errorf("decode chat chunk: %w", err)
-		}
-		if chunk.Error != nil {
-			return usage, served, fmt.Errorf("upstream error mid-stream: %s", *chunk.Error)
-		}
-		if chunk.Model != "" {
-			served = chunk.Model
-		}
-		if chunk.Usage != nil {
-			usage = Usage{InputTokens: chunk.Usage.PromptTokens, OutputTokens: chunk.Usage.CompletionTokens}
-		}
-		for _, c := range chunk.Choices {
-			if c.Delta.Content != "" {
-				if _, err := io.WriteString(w, c.Delta.Content); err != nil {
-					return usage, served, err
+	br := bufio.NewReader(r)
+	for {
+		line, err := br.ReadBytes('\n')
+		if len(line) > 0 {
+			line = bytes.TrimRight(line, "\r\n")
+			data, ok := bytes.CutPrefix(line, []byte("data:"))
+			if data = bytes.TrimSpace(data); ok && len(data) > 0 {
+				if bytes.Equal(data, []byte("[DONE]")) {
+					return usage, served, nil
+				}
+				var chunk struct {
+					Model   string `json:"model"`
+					Choices []struct {
+						Delta struct {
+							Content string `json:"content"`
+						} `json:"delta"`
+					} `json:"choices"`
+					Usage *struct {
+						PromptTokens     int `json:"prompt_tokens"`
+						CompletionTokens int `json:"completion_tokens"`
+					} `json:"usage"`
+					Error *json.RawMessage `json:"error"`
+				}
+				if jerr := json.Unmarshal(data, &chunk); jerr != nil {
+					if err != nil && err != io.EOF {
+						return usage, served, err
+					}
+					continue // skip an undecodable data: line
+				} else if chunk.Error != nil {
+					return usage, served, fmt.Errorf("upstream error mid-stream: %s", *chunk.Error)
+				} else {
+					if chunk.Model != "" {
+						served = chunk.Model
+					}
+					if chunk.Usage != nil {
+						usage = Usage{InputTokens: chunk.Usage.PromptTokens, OutputTokens: chunk.Usage.CompletionTokens}
+					}
+					for _, c := range chunk.Choices {
+						if c.Delta.Content != "" {
+							if _, werr := io.WriteString(w, c.Delta.Content); werr != nil {
+								return usage, served, werr
+							}
+						}
+					}
 				}
 			}
 		}
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return usage, served, err
+		}
 	}
-	if err := sc.Err(); err != nil {
-		return usage, served, err
-	}
-	if !sawDone {
-		return usage, served, fmt.Errorf("chat stream ended without [DONE]: %w", io.ErrUnexpectedEOF) // a dropped stream retries
-	}
-	return usage, served, nil
+	return usage, served, fmt.Errorf("chat stream ended without [DONE]: %w", io.ErrUnexpectedEOF) // a dropped stream retries
 }
