@@ -6,68 +6,62 @@
 <meta name="csrf-token" content="{{.CSRFToken}}">
 <title>claude-code web</title>
 <style>
-  :root { color-scheme: dark light; }
+  :root { color-scheme: dark; }
   * { box-sizing: border-box; }
   body {
     margin: 0; padding: 0.75rem; font: 15px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-    background: #0f1117; color: #e6e6e6;
+    background: #300a24; color: #c0c0c0;
   }
   h1 { font-size: 1.1rem; margin: 0.25rem 0 0.75rem; }
-  h2 { font-size: 0.95rem; color: #9aa0ac; margin: 1.25rem 0 0.4rem; text-transform: uppercase; letter-spacing: 0.04em; }
+  h2 { font-size: 0.95rem; color: #a89fa6; margin: 1.25rem 0 0.4rem; text-transform: uppercase; letter-spacing: 0.04em; }
   section { margin-bottom: 1rem; }
-  .card { background: #171a23; border: 1px solid #272b36; border-radius: 10px; padding: 0.6rem 0.75rem; margin-bottom: 0.5rem; }
+  .card { background: #3d1431; border: 1px solid #40404055; border-radius: 10px; padding: 0.6rem 0.75rem; margin-bottom: 0.5rem; }
   .row { display: flex; justify-content: space-between; align-items: baseline; gap: 0.5rem; }
-  .muted { color: #8a8f9c; font-size: 0.82rem; }
+  .muted { color: #8f8a8d; font-size: 0.82rem; }
   .chip { display: inline-block; padding: 0.1rem 0.5rem; border-radius: 999px; font-size: 0.72rem; font-weight: 600; }
-  .chip-running, .chip-active, .chip-working { background: #163; color: #8f8; }
-  .chip-finished, .chip-idle, .chip-ready { background: #333; color: #aaa; }
-  .chip-stale, .chip-error { background: #532; color: #f96; }
-  .chip-input-needed { background: #542; color: #fc8; }
-  .chip-unknown, .chip-gone { background: #2a2a2a; color: #999; }
-  .sub { margin-left: 0.9rem; border-left: 2px solid #272b36; padding-left: 0.6rem; margin-top: 0.35rem; }
+  .chip-running, .chip-active, .chip-working { background: #1d3a0a; color: #8ae234; }
+  .chip-finished, .chip-idle, .chip-ready { background: #46183a; color: #c0c0c0; }
+  .chip-stale, .chip-error { background: #4a1010; color: #ef2929; }
+  .chip-input-needed { background: #4a3d00; color: #fce94f; }
+  .chip-unknown, .chip-gone { background: #2a081f; color: #8f8a8d; }
+  .sub { margin-left: 0.9rem; border-left: 2px solid #40404055; padding-left: 0.6rem; margin-top: 0.35rem; }
   .agent-row { cursor: pointer; padding: 0.2rem 0; }
-  .agent-row:hover { background: #1b1e28; }
-  .activity { font-size: 0.78rem; color: #6fa8dc; margin-top: 0.1rem; }
-  .leg { font-size: 0.78rem; margin: 0.1rem 0 0 0.5rem; color: #9aa0ac; }
-  .linklike { background: none; border: none; color: #6fa8dc; width: auto; padding: 0; margin: 0; font-weight: 400; cursor: pointer; }
+  .agent-row:hover { background: #46183a; }
+  .activity { font-size: 0.78rem; color: #729fcf; margin-top: 0.1rem; }
+  .leg { font-size: 0.78rem; margin: 0.1rem 0 0 0.5rem; color: #a89fa6; }
+  .linklike { background: none; border: none; color: #729fcf; width: auto; padding: 0; margin: 0; font-weight: 400; cursor: pointer; }
   #detailEvents { white-space: pre-wrap; font-family: ui-monospace, monospace; font-size: 0.78rem; max-height: 40vh; overflow: auto; margin: 0.4rem 0 0; }
-  label { display: block; font-size: 0.82rem; color: #9aa0ac; margin: 0.5rem 0 0.2rem; }
+  label { display: block; font-size: 0.82rem; color: #a89fa6; margin: 0.5rem 0 0.2rem; }
   select, input, textarea, button {
-    width: 100%; padding: 0.5rem; border-radius: 8px; border: 1px solid #333848;
-    background: #11141c; color: #e6e6e6; font-size: 0.95rem;
+    width: 100%; padding: 0.5rem; border-radius: 8px; border: 1px solid #40404055;
+    background: #2a081f; color: #c0c0c0; font-size: 0.95rem;
   }
   textarea { min-height: 4.5rem; resize: vertical; }
-  button { margin-top: 0.75rem; background: #2d6cdf; border-color: #2d6cdf; color: #fff; font-weight: 600; cursor: pointer; }
+  button { margin-top: 0.75rem; background: #E95420; border-color: #E95420; color: #fff; font-weight: 600; cursor: pointer; }
   button:disabled { opacity: 0.6; }
   #dispatchResult { white-space: pre-wrap; font-family: ui-monospace, monospace; font-size: 0.8rem; margin-top: 0.5rem; }
   #hostTabs { display: flex; gap: 0.4rem; flex-wrap: wrap; margin-bottom: 0.4rem; }
-  #hostTabs button { width: auto; background: #1b1e28; border-color: #272b36; color: #ccc; font-weight: 400; margin-top: 0; padding: 0.3rem 0.6rem; }
-  #hostTabs button.active { background: #2d6cdf; border-color: #2d6cdf; color: #fff; }
+  #hostTabs button { width: auto; background: #46183a; border-color: #40404055; color: #c0c0c0; font-weight: 400; margin-top: 0; padding: 0.3rem 0.6rem; }
+  #hostTabs button.active { background: #E95420; border-color: #E95420; color: #fff; }
   #tabs { display: flex; gap: 0.4rem; margin-bottom: 0.5rem; }
-  #tabs button { width: auto; margin-top: 0; padding: 0.3rem 0.8rem; background: #1b1e28; border-color: #272b36; color: #ccc; font-weight: 400; }
-  #tabs button.active { background: #2d6cdf; border-color: #2d6cdf; color: #fff; }
-  .bar { height: 6px; background: #272b36; border-radius: 3px; margin: 0.35rem 0 0.2rem; overflow: hidden; }
-  .bar > span { display: block; height: 100%; background: #3fb950; }
+  #tabs button { width: auto; margin-top: 0; padding: 0.3rem 0.8rem; background: #46183a; border-color: #40404055; color: #c0c0c0; font-weight: 400; }
+  #tabs button.active { background: #E95420; border-color: #E95420; color: #fff; }
+  #usageDays button { width: auto; margin-top: 0; padding: 0.2rem 0.7rem; background: #46183a; border-color: #40404055; color: #c0c0c0; font-weight: 400; }
+  #usageDays button.active { background: #E95420; border-color: #E95420; color: #fff; }
+  .bar { height: 6px; background: #40404055; border-radius: 3px; margin: 0.35rem 0 0.2rem; overflow: hidden; }
+  .bar > span { display: block; height: 100%; background: #8ae234; }
   .plan-row { cursor: pointer; }
   .task { margin: 0.25rem 0; }
-  .task code { background: #11141c; padding: 0 0.3rem; border-radius: 4px; cursor: pointer; }
+  .task code { background: #2a081f; padding: 0 0.3rem; border-radius: 4px; cursor: pointer; }
   #planMd { white-space: pre-wrap; font-family: ui-monospace, monospace; font-size: 0.78rem; max-height: 50vh; overflow: auto; margin: 0.4rem 0 0; }
-  /* The --vscode-* variables the shared usage-view.js reads; copied into its iframe. Dark = this page's palette. */
+  /* The --vscode-* variables the shared usage-view.js reads; copied into its iframe. Ubuntu terminal palette, dark only. */
   :root {
-    --vscode-foreground: #e6e6e6; --vscode-sideBar-background: #0f1117; --vscode-descriptionForeground: #8a8f9c;
-    --vscode-widget-border: #272b36; --vscode-button-background: #2d6cdf; --vscode-button-foreground: #fff;
-    --vscode-badge-background: #272b36; --vscode-badge-foreground: #e6e6e6; --vscode-charts-blue: #6fa8dc;
-    --vscode-charts-green: #3fb950; --vscode-charts-orange: #f0883e; --vscode-charts-yellow: #d29922;
-    --vscode-editorWarning-foreground: #fc8; --vscode-editorError-foreground: #f96;
+    --vscode-foreground: #c0c0c0; --vscode-sideBar-background: #300a24; --vscode-descriptionForeground: #8f8a8d;
+    --vscode-widget-border: #40404055; --vscode-button-background: #E95420; --vscode-button-foreground: #ffffff;
+    --vscode-badge-background: #5f5961; --vscode-badge-foreground: #ffffff; --vscode-charts-blue: #729fcf;
+    --vscode-charts-green: #8ae234; --vscode-charts-orange: #E95420; --vscode-charts-yellow: #fce94f;
+    --vscode-editorWarning-foreground: #fce94f; --vscode-editorError-foreground: #ef2929;
     --vscode-font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  }
-  @media (prefers-color-scheme: light) {
-    :root {
-      --vscode-foreground: #1f2328; --vscode-sideBar-background: #fff; --vscode-descriptionForeground: #59636e;
-      --vscode-widget-border: #d0d7de; --vscode-badge-background: #eaeef2; --vscode-badge-foreground: #1f2328;
-      --vscode-charts-blue: #0969da; --vscode-charts-green: #1a7f37; --vscode-charts-orange: #bc4c00;
-      --vscode-charts-yellow: #9a6700; --vscode-editorWarning-foreground: #9a6700; --vscode-editorError-foreground: #cf222e;
-    }
   }
   #usageFrame { width: 100%; min-height: 320px; height: 70vh; border: 1px solid var(--vscode-widget-border); border-radius: 10px; }
 </style>
@@ -535,12 +529,20 @@ function loadUsage(fresh) {
     .catch(function (err) { status.textContent = 'usage unavailable: ' + err.message; });
 }
 
+function markUsageDays() {
+  document.querySelectorAll('#usageDays button').forEach(function (b) {
+    b.classList.toggle('active', Number(b.dataset.days) === usageState.days);
+  });
+}
+
 document.getElementById('usageDays').addEventListener('click', function (e) {
   const d = Number(e.target.dataset && e.target.dataset.days);
   if (!d || d === usageState.days) return;
   usageState.days = d;
+  markUsageDays();
   loadUsage(false);
 });
+markUsageDays();
 
 window.addEventListener('message', function (e) {
   const frame = document.getElementById('usageFrame');
