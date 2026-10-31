@@ -3,6 +3,7 @@
 package hosttest
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/base64"
 	"os"
@@ -101,7 +102,7 @@ func keepGo() {
 		_ = os.Setenv("GOCACHE", filepath.Join(cache, "go-build"))
 	}
 	if os.Getenv("GOROOT") == "" {
-		if out, err := exec.Command("go", "env", "GOROOT").Output(); err == nil {
+		if out, err := exec.CommandContext(context.Background(), "go", "env", "GOROOT").Output(); err == nil {
 			_ = os.Setenv("GOROOT", strings.TrimSpace(string(out)))
 		}
 	}
