@@ -157,10 +157,12 @@ audit: compile  ## CI gate: fmt, git secrets, vet, test, build, vuln, docs
 	@out="$$(gofmt -l $(GO_FMT_DIRS))"; if [ -n "$$out" ]; then echo "unformatted:"; echo "$$out"; exit 1; fi
 	@$(MAKE) --no-print-directory audit-git
 	$(GO) vet $(PKGS)
-	$(BIN) test ramdisk -- $(GO) test -timeout $(GO_TEST_TIMEOUT) $(PKGS)
-	@$(MAKE) --no-print-directory audit-nokeyring
+	@if [ "$(SKIP_TESTS)" = 1 ]; then echo -e "$(C_NOTE)tests skipped (SKIP_TESTS=1)"; else \
+		$(BIN) test ramdisk -- $(GO) test -timeout $(GO_TEST_TIMEOUT) $(PKGS) && \
+		$(MAKE) --no-print-directory audit-nokeyring; fi
 	$(GO) build $(PKGS)
-	@echo -e "$(C_OK)go check passed (gofmt + vet + test + build)"
+	@$(MAKE) --no-print-directory lint CHECK=1
+	@echo -e "$(C_OK)go check passed (gofmt + vet + lint + build$(if $(filter 1,$(SKIP_TESTS)),, + test))"
 	@if command -v govulncheck >/dev/null 2>&1; then govulncheck $(PKGS); \
 		else echo -e "$(C_NOTE)govulncheck not installed — skipped (make install)"; fi
 	@$(MAKE) --no-print-directory lint-yaml
