@@ -6,7 +6,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/hooks/hookspec"
 	"github.com/edotau/claude-code/internal/settings"
 )
 
@@ -22,9 +21,9 @@ func rtkHermetic(t *testing.T) {
 // The rtk hook lives in its own non-gate group on PreToolUse/Bash, and settings.json reaches it
 // only through the event dispatcher — never as its own `hook PreToolUse --rtk-rewrite` entry.
 func TestRtkGroupIsOwnNonGateGroup(t *testing.T) {
-	g, ok := hookspec.GroupOf("rtk-rewrite")
+	g, ok := settings.GroupOf("rtk-rewrite")
 	if !ok {
-		t.Fatal(`hookspec.GroupOf("rtk-rewrite") found no group`)
+		t.Fatal(`settings.GroupOf("rtk-rewrite") found no group`)
 	}
 	if g.Name != "rtk" {
 		t.Errorf("group name = %q, want rtk", g.Name)
@@ -35,20 +34,20 @@ func TestRtkGroupIsOwnNonGateGroup(t *testing.T) {
 	if g.VendorOnly {
 		t.Error("rtk group must not be vendor-only — it rewrites Claude's Bash commands")
 	}
-	if len(g.Events) != 1 || g.Events[0].Event != hookspec.EventPreToolUse || g.Events[0].Matcher != "Bash" {
+	if len(g.Events) != 1 || g.Events[0].Event != settings.EventPreToolUse || g.Events[0].Matcher != "Bash" {
 		t.Errorf("rtk group events = %+v, want exactly PreToolUse/Bash", g.Events)
 	}
 
-	want := hookspec.DispatcherCommand(hookspec.EventPreToolUse)
-	own := hookspec.EventSpec{Name: "rtk-rewrite", Event: hookspec.EventPreToolUse}.Command()
-	var disp *hookspec.MatcherGroup
-	for event, groups := range hookspec.Events() {
+	want := settings.DispatcherCommand(settings.EventPreToolUse)
+	own := settings.EventSpec{Name: "rtk-rewrite", Event: settings.EventPreToolUse}.Command()
+	var disp *settings.MatcherGroup
+	for event, groups := range settings.Events() {
 		for i := range groups {
 			for _, h := range groups[i].Hooks {
 				if h.Command == own {
 					t.Errorf("%s carries `hook PreToolUse --rtk-rewrite` as its own command; it must run inside the dispatcher", event)
 				}
-				if event == hookspec.EventPreToolUse && h.Command == want {
+				if event == settings.EventPreToolUse && h.Command == want {
 					disp = &groups[i]
 				}
 			}
@@ -98,7 +97,7 @@ func TestRtkDispatcherBareRunsRtk(t *testing.T) {
 	run := func(cmd string) map[string]json.RawMessage {
 		t.Helper()
 		var out, errb strings.Builder
-		if rc := RunEvent(hookspec.EventPreToolUse, false, strings.NewReader(rtkBashIn(cmd)), &out, &errb); rc != ExitProceed {
+		if rc := RunEvent(settings.EventPreToolUse, false, strings.NewReader(rtkBashIn(cmd)), &out, &errb); rc != ExitProceed {
 			t.Fatalf("%q: RunEvent rc = %d, want ExitProceed; stderr=%q", cmd, rc, errb.String())
 		}
 		var doc map[string]json.RawMessage
@@ -141,7 +140,7 @@ func TestRtkGroupToggle(t *testing.T) {
 		t.Fatalf("SaveHarnessHooks(rtk:false): %v", err)
 	}
 	var out, errb strings.Builder
-	if rc := RunEvent(hookspec.EventPreToolUse, false, strings.NewReader(rtkBashIn("git status")), &out, &errb); rc != ExitProceed {
+	if rc := RunEvent(settings.EventPreToolUse, false, strings.NewReader(rtkBashIn("git status")), &out, &errb); rc != ExitProceed {
 		t.Fatalf("RunEvent rc = %d, want ExitProceed; stderr=%q", rc, errb.String())
 	}
 	if strings.Contains(out.String(), "updatedInput") {

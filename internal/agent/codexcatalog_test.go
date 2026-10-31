@@ -11,9 +11,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/hooks/hookspec"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/settings"
 )
 
 func TestCodexCatalogArgsDatabricks(t *testing.T) {
@@ -203,10 +203,10 @@ esac
 			t.Fatal(err)
 		}
 		markers := envMap(env)
-		if markers[hookspec.CodexProfileEnv] != profile.Name {
-			t.Errorf("inherited profile = %q, want %q", markers[hookspec.CodexProfileEnv], profile.Name)
+		if markers[settings.CodexProfileEnv] != profile.Name {
+			t.Errorf("inherited profile = %q, want %q", markers[settings.CodexProfileEnv], profile.Name)
 		}
-		catalog, present := markers[hookspec.CodexCatalogEnv]
+		catalog, present := markers[settings.CodexCatalogEnv]
 		if !present || catalog != wantCatalog {
 			t.Errorf("inherited catalog = %q (present %v), want %q", catalog, present, wantCatalog)
 		}

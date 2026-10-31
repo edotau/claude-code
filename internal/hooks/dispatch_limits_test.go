@@ -7,11 +7,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/edotau/claude-code/internal/hooks/hookspec"
+	"github.com/edotau/claude-code/internal/settings"
 )
 
 func bindStub(group, name string, budget time.Duration, run Runner) Bound {
-	return Bound{Group: group, Spec: hookspec.EventSpec{Name: name, Event: "UserPromptSubmit", Budget: budget}, Run: run}
+	return Bound{Group: group, Spec: settings.EventSpec{Name: name, Event: "UserPromptSubmit", Budget: budget}, Run: run}
 }
 
 func TestDispatchCapsMergedContextLaterBlockFirst(t *testing.T) {

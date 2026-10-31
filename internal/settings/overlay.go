@@ -7,7 +7,6 @@ import (
 	"maps"
 	"slices"
 
-	"github.com/edotau/claude-code/internal/hooks/hookspec"
 	"github.com/edotau/claude-code/internal/vault"
 )
 
@@ -173,7 +172,7 @@ func applyOverlay(rendered []byte, ov map[string]json.RawMessage) ([]byte, error
 			return nil, fmt.Errorf("vault overlay/settings: %s: %w", k, err)
 		}
 	}
-	hooks, err := hookspec.SettingsJSON() // defence in depth: the generated hooks always win
+	hooks, err := SettingsJSON() // defence in depth: the generated hooks always win
 	if err != nil {
 		return nil, err
 	}
@@ -242,7 +241,7 @@ func LoadHarnessHooks() (map[string]bool, error) {
 func SaveHarnessHooks(m map[string]bool) error {
 	for name, on := range m {
 		var found, gate bool
-		for _, g := range hookspec.Registry {
+		for _, g := range Registry {
 			if g.Name == name {
 				found, gate = true, g.Gate
 			}

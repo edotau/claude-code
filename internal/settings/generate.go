@@ -14,7 +14,6 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/edotau/claude-code/internal/hooks/hookspec"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 )
@@ -495,7 +494,7 @@ func renderGeminiSettings(home string, o Options, out io.Writer) (bool, error) {
 // Copilot hooks load from the user directory; plugin preToolUse hooks do not fire.
 
 func renderCopilot(reg *providers.Registry, sel providers.Selection, home string, o Options, out io.Writer) (bool, error) {
-	body, err := hookspec.CopilotJSON()
+	body, err := CopilotJSON()
 	if err != nil {
 		return false, err
 	}

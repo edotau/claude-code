@@ -1,9 +1,8 @@
-// Package hookspec declares the harness hook chain and renders settings.json's "hooks" block.
-package hookspec
+// This file declares the harness hook chain and renders settings.json's "hooks" block.
+
+package settings
 
 import (
-	"bytes"
-	"encoding/json"
 	"regexp"
 	"slices"
 	"strings"
@@ -254,11 +253,4 @@ func Events() map[string][]MatcherGroup {
 }
 
 // SettingsJSON renders the object under settings.json's "hooks" key.
-func SettingsJSON() ([]byte, error) {
-	var buf bytes.Buffer
-	enc := json.NewEncoder(&buf)
-	enc.SetEscapeHTML(false)
-	enc.SetIndent("", "  ")
-	err := enc.Encode(Events())
-	return bytes.TrimSpace(buf.Bytes()), err
-}
+func SettingsJSON() ([]byte, error) { return marshalIndentNoEscape(Events()) }

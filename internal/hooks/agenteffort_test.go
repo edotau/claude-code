@@ -221,7 +221,7 @@ func TestAgentEffortIgnoresOtherTools(t *testing.T) {
 	}
 }
 
-// The matcher is "Agent|Task" (hookspec.Registry), and spawnTools (inflight.go) names both — Task
+// The matcher is "Agent|Task" (settings.Registry), and spawnTools (inflight.go) names both — Task
 // must be filled exactly like Agent, not treated as inert.
 func TestAgentEffortFillsUnsetModelOnTaskTool(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir()) // hermetic: no recall hit from an ambient real bank

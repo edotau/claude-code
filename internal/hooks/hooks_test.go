@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/hooks/hookspec"
+	"github.com/edotau/claude-code/internal/settings"
 )
 
 func bashPayload(cmd string) *strings.Reader {
@@ -206,7 +206,7 @@ func TestSafetyShellDashCNoArgDoesNotPanic(t *testing.T) {
 }
 
 func TestRegistryMatchesHookspec(t *testing.T) {
-	for _, s := range hookspec.Specs() {
+	for _, s := range settings.Specs() {
 		if _, ok := Native[s.Name]; !ok {
 			t.Errorf("hookspec %q has no handler", s.Name)
 		}
@@ -243,7 +243,7 @@ func TestContextCheckpoint(t *testing.T) {
 // Every command in the rendered codex/copilot hook files is `hook <Event> --<module>` for a module on that event.
 func TestVendorHookFilesCallOnlyResolvableHooks(t *testing.T) {
 	cmdRe := regexp.MustCompile(`claude-code hook (\S+)(?: --([a-z][a-z0-9-]*))?`)
-	for name, render := range map[string]func() ([]byte, error){"codex": hookspec.CodexJSON, "copilot": hookspec.CopilotJSON} {
+	for name, render := range map[string]func() ([]byte, error){"codex": settings.CodexJSON, "copilot": settings.CopilotJSON} {
 		body, err := render()
 		if err != nil {
 			t.Fatal(err)

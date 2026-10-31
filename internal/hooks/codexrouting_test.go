@@ -12,9 +12,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/hooks/hookspec"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -24,8 +24,8 @@ const codexRouteWireModel = "databricks-gpt-6-astra"
 func setupCodexRoute(t *testing.T) string {
 	t.Helper()
 	root := vaulttest.Use(t)
-	t.Setenv(hookspec.AgentEnv, VendorCodex)
-	t.Setenv(hookspec.CodexProfileEnv, "probe")
+	t.Setenv(settings.AgentEnv, VendorCodex)
+	t.Setenv(settings.CodexProfileEnv, "probe")
 	t.Setenv(providers.PinCodexModel, "")
 	t.Setenv(providers.PinCodexEffort, "")
 	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"databricks":{"probe":{"preset":"databricks","host":"https://example.invalid","auth":{"type":"none"}}}},"routing":{"cells":{"codex":{"sonnet":{"model":"gpt-6-astra","effort":"high"}}}}}`)
@@ -33,7 +33,7 @@ func setupCodexRoute(t *testing.T) string {
 	if err := os.WriteFile(catalog, []byte(`{"models":[{"slug":"`+codexRouteWireModel+`","visibility":"list"}]}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv(hookspec.CodexCatalogEnv, catalog)
+	t.Setenv(settings.CodexCatalogEnv, catalog)
 	return catalog
 }
 
@@ -108,9 +108,9 @@ func TestCodexAgentRouteSkipsIneligibleSpawns(t *testing.T) {
 		{"custom role", func(_ *testing.T, _, a map[string]any, _ string) { a["agent_type"] = "explorer" }},
 		{"blank task", func(_ *testing.T, _, a map[string]any, _ string) { a["message"] = "  " }},
 		{"wrong tool", func(_ *testing.T, p, _ map[string]any, _ string) { p["tool_name"] = "send_message" }},
-		{"wrong vendor", func(t *testing.T, _, _ map[string]any, _ string) { t.Setenv(hookspec.AgentEnv, VendorClaude) }},
-		{"unknown profile", func(t *testing.T, _, _ map[string]any, _ string) { t.Setenv(hookspec.CodexProfileEnv, "missing") }},
-		{"non Databricks profile", func(t *testing.T, _, _ map[string]any, _ string) { t.Setenv(hookspec.CodexProfileEnv, "openai") }},
+		{"wrong vendor", func(t *testing.T, _, _ map[string]any, _ string) { t.Setenv(settings.AgentEnv, VendorClaude) }},
+		{"unknown profile", func(t *testing.T, _, _ map[string]any, _ string) { t.Setenv(settings.CodexProfileEnv, "missing") }},
+		{"non Databricks profile", func(t *testing.T, _, _ map[string]any, _ string) { t.Setenv(settings.CodexProfileEnv, "openai") }},
 		{"unsupported parent", func(_ *testing.T, p, _ map[string]any, _ string) { p["model"] = "databricks-claude-sonnet-5-5" }},
 		{"vault model pin", func(t *testing.T, _, _ map[string]any, _ string) {
 			vaulttest.Put(t, vault.Pins, providers.PinCodexModel, "user-model")
@@ -118,7 +118,7 @@ func TestCodexAgentRouteSkipsIneligibleSpawns(t *testing.T) {
 		{"vault effort pin", func(t *testing.T, _, _ map[string]any, _ string) {
 			vaulttest.Put(t, vault.Pins, providers.PinCodexEffort, "low")
 		}},
-		{"missing catalog", func(t *testing.T, _, _ map[string]any, _ string) { t.Setenv(hookspec.CodexCatalogEnv, "") }},
+		{"missing catalog", func(t *testing.T, _, _ map[string]any, _ string) { t.Setenv(settings.CodexCatalogEnv, "") }},
 		{"hidden candidate", func(t *testing.T, _, _ map[string]any, path string) {
 			if err := os.WriteFile(path, []byte(`{"models":[{"slug":"`+codexRouteWireModel+`","visibility":"hide"}]}`), 0o600); err != nil {
 				t.Fatal(err)
@@ -169,7 +169,7 @@ func mustCodexJSON(t *testing.T, value any) []byte {
 // TestCodexRoutingSchemaStampsNewLinesAndSkipsNewer pins: unstamped lines read, new lines carry schema 1, schema-2 lines are skipped.
 func TestCodexRoutingSchemaStampsNewLinesAndSkipsNewer(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	t.Setenv(hookspec.AgentEnv, VendorCodex)
+	t.Setenv(settings.AgentEnv, VendorCodex)
 	path := filepath.Join(paths.StateDir(), "codex", fmt.Sprintf("routing-%x.jsonl", sha256.Sum256([]byte("native-session"))))
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		t.Fatal(err)

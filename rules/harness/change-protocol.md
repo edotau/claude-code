@@ -8,7 +8,7 @@ paths:
 ---
 # Harness Change Protocol
 
-**A change to `internal/hooks/`, `internal/hooks/hookspec/`, `internal/settings/`, `agents/`, `commands/`, `rules/` or
+**A change to `internal/hooks/`, `internal/settings/`, `agents/`, `commands/`, `rules/` or
 `skills/` is not done until every applicable box below is acted on.** The failure it prevents: an edit made in
 the generated `settings.json`, silently erased by the next `make install`.
 

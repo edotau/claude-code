@@ -38,7 +38,7 @@ chmod +x .git/hooks/pre-commit
 # or call it from an existing husky / pre-commit chain
 ```
 
-**Option B — Claude Code PreToolUse.** Add the hook to `internal/hooks/hookspec/hookspec.go`, then
+**Option B — Claude Code PreToolUse.** Add the hook to `internal/settings/hookspec.go`, then
 re-render `settings.json` with `claude-code install` (never hand-edit the generated file):
 
 ```json

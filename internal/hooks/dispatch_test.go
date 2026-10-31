@@ -6,12 +6,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/edotau/claude-code/internal/hooks/hookspec"
+	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/vault"
 )
 
 func bound(group, matcher string, budget time.Duration, run Runner) Bound {
-	return Bound{Group: group, Spec: hookspec.EventSpec{Name: group, Event: "PreToolUse", Matcher: matcher, Budget: budget}, Run: run}
+	return Bound{Group: group, Spec: settings.EventSpec{Name: group, Event: "PreToolUse", Matcher: matcher, Budget: budget}, Run: run}
 }
 
 func bashInput() *Input {
@@ -81,7 +81,7 @@ func TestDispatchSecondUpdatedInputAndRawStdout(t *testing.T) {
 // Every declared module resolves as `hook <Event> --<module>`.
 func TestContractModuleFlagsResolve(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	for _, s := range hookspec.Specs() {
+	for _, s := range settings.Specs() {
 		if _, ok := Native[s.Name]; !ok {
 			t.Errorf("no handler for %s", s.Name)
 			continue

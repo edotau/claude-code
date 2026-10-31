@@ -1,4 +1,4 @@
-package hookspec
+package settings
 
 import (
 	"encoding/json"
