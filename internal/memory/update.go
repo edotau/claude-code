@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 )
@@ -40,9 +41,6 @@ const updateGrace = 16 * time.Minute
 // UpdateTimeout bounds the headless claude run.
 const UpdateTimeout = 15 * time.Minute
 
-// StateDir holds update stamps, results, logs and the session chain.
-func StateDir() string { return filepath.Join(paths.StateDir(), "memory") }
-
 // UpdateResult is one session's update outcome (KEY=value lines on disk).
 type UpdateResult struct {
 	Status      string
@@ -52,7 +50,7 @@ type UpdateResult struct {
 }
 
 func resultPath(sessionID string) string {
-	return filepath.Join(StateDir(), "update-result-"+filepath.Base(sessionID))
+	return filepath.Join(memstore.StateDir(), "update-result-"+filepath.Base(sessionID))
 }
 
 // WriteUpdateResult persists r for sessionID; a blank id (manual run) records nothing.
@@ -140,9 +138,9 @@ func gitSinceBlock(transcript, cwd string) string {
 	if since.IsZero() || cwd == "" {
 		return ""
 	}
-	commits, _ := gitOut(cwd, "log", "--oneline", "--since="+since.Format(time.RFC3339))
-	touched, _ := gitOut(cwd, "log", "--since="+since.Format(time.RFC3339), "--name-only", "--format=")
-	status, _ := gitOut(cwd, "status", "--porcelain")
+	commits, _ := memstore.GitOut(cwd, "log", "--oneline", "--since="+since.Format(time.RFC3339))
+	touched, _ := memstore.GitOut(cwd, "log", "--since="+since.Format(time.RFC3339), "--name-only", "--format=")
+	status, _ := memstore.GitOut(cwd, "status", "--porcelain")
 	if commits == "" && touched == "" && status == "" {
 		return ""
 	}
@@ -230,11 +228,11 @@ func Update(o UpdateOptions) error {
 		record(UpdateFailed, false)
 		return errors.New("claude binary not found")
 	}
-	dir := Dir(o.CWD)
+	dir := memstore.Dir(o.CWD)
 	var before, beforeHome time.Time
 	var runErr error
 	lockErr := paths.WithFileLock(lockPath(dir), func() error {
-		before, beforeHome = NewestMtime(dir), NewestMtime(HomeBankDir())
+		before, beforeHome = NewestMtime(dir), NewestMtime(memstore.HomeBankDir())
 		ctx, cancel := context.WithTimeout(context.Background(), o.Timeout)
 		defer cancel()
 		if o.Run != nil {
@@ -263,7 +261,7 @@ func Update(o UpdateOptions) error {
 		return nil
 	})
 	// An update may legitimately write only the shared home bank (cross-repo facts), so watch both tiers.
-	updated := NewestMtime(dir).After(before) || NewestMtime(HomeBankDir()).After(beforeHome)
+	updated := NewestMtime(dir).After(before) || NewestMtime(memstore.HomeBankDir()).After(beforeHome)
 	if _, err := SettleBank(o.CWD, time.Now()); err != nil {
 		fmt.Fprintln(o.Out, "memory update: settle:", err)
 	}

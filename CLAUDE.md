@@ -25,7 +25,7 @@ Files under `agents/`, `commands/`, `rules/`, `skills/` and this file go live th
 | `rules/` | `standards/` (always-on) · `workflow/` · `harness/` · `software/<lang>/`; scoping contract → `rules/README.md` |
 | `skills/<name>/SKILL.md` | On-demand references. Untracked skill dirs are the user's own (symlinks into `~/.agents`) — leave them. `skills/synced/` = claude.ai account skills, re-downloaded each sync; edit them on claude.ai |
 | `plans/` | Implementation plans (native `plansDirectory`), gitignored: this repo's at the top, others' under `plans/<repo-slug>/` |
-| `memory/` | The one memory store, a local-only git repo. `memory/index.md` = generated catalog (never hand-edit); `memory/<repo>/` = native auto-memory + six typed bank files (harness = `memory/claude-code/`, home = `memory/home/`); `projects/<slug>/memory` symlinks into it. Engine `internal/memory` |
+| `memory/` | The one memory store, a local-only git repo. `memory/index.md` = generated catalog (never hand-edit); `memory/<repo>/` = native auto-memory + six typed bank files (harness = `memory/claude-code/`, home = `memory/home/`); `projects/<slug>/memory` symlinks into it. Engine `internal/memory`; locating and locking a store `internal/memstore` |
 | `~/worktrees/<repo>/<slug>` | Linked worktrees (shared with Orca) |
 
 ## Hard rules (always on)

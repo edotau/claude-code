@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/textutil"
 )
@@ -89,9 +90,9 @@ func SearchBanksTerms(root, query string, terms []string, k int) []SearchHit {
 // SearchAll ranks the home tier plus every repo store as one corpus (`memory search --all`).
 func SearchAll(query string, k int) []SearchHit {
 	files := corpusFiles(paths.ConfigDir())
-	if entries, err := RepoDirs(); err == nil {
+	if entries, err := memstore.RepoDirs(); err == nil {
 		for _, e := range entries {
-			if e.Key != harnessStoreKey() {
+			if e.Key != memstore.HarnessStoreKey() {
 				files = append(files, storeFiles(e)...)
 			}
 		}

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/jeduden/mdsmith/pkg/markdown"
@@ -84,7 +85,7 @@ func checkBankRegionMarkers(text string) error {
 
 // BuildCatalog renders the store-root router: every repo store with its hook and freshness, then home entries.
 func BuildCatalog(now time.Time) (string, error) {
-	entries, err := RepoDirs()
+	entries, err := memstore.RepoDirs()
 	if err != nil {
 		return "", err
 	}
@@ -97,12 +98,12 @@ func BuildCatalog(now time.Time) (string, error) {
 		if !last.IsZero() {
 			when = last.Format("2006-01-02")
 		}
-		fmt.Fprintf(&b, "- %s — %s · last %s → %s/MEMORY.md%s\n", e.Key, storeHook(e), when, e.Key, catalogOriginComment(e.Origin))
+		fmt.Fprintf(&b, "- %s — %s · last %s → %s/MEMORY.md%s\n", e.Key, storeHook(e), when, e.Key, memstore.CatalogOriginComment(e.Origin))
 	}
 	var rows []string
 	// collectKnowledge lists dir's own knowledge/*.md.
 	collectKnowledge := func(label, dir string) {
-		m, _ := filepath.Glob(filepath.Join(KnowledgeDir(dir), "*.md"))
+		m, _ := filepath.Glob(filepath.Join(memstore.KnowledgeDir(dir), "*.md"))
 		for _, f := range m {
 			if filepath.Base(f) == "README.md" {
 				continue
@@ -110,14 +111,14 @@ func BuildCatalog(now time.Time) (string, error) {
 			rows = append(rows, "- "+label+"/knowledge/"+filepath.Base(f)+" — "+storeHookFile(f))
 		}
 	}
-	collectKnowledge("home", HomeBankDir())
+	collectKnowledge("home", memstore.HomeBankDir())
 	for _, e := range entries {
 		collectKnowledge(e.Key, e.Dir)
 	}
 	if len(rows) > 0 {
 		b.WriteString("\n## Knowledge (local, memory/<bank>/knowledge/)\n\n" + strings.Join(rows, "\n") + "\n")
 	}
-	homeIdx := BuildBankIndex(HomeBankDir(), now)
+	homeIdx := BuildBankIndex(memstore.HomeBankDir(), now)
 	if homeIdx != "" {
 		lines := strings.Split(strings.TrimSpace(homeIdx), "\n")
 		var keep []string
@@ -139,7 +140,7 @@ func BuildCatalog(now time.Time) (string, error) {
 }
 
 // storeHook is a store's one-line routing description: projectContext's first prose line, else its origin.
-func storeHook(e RepoEntry) string {
+func storeHook(e memstore.RepoEntry) string {
 	if data, err := os.ReadFile(filepath.Join(e.Dir, "projectContext.md")); err == nil {
 		for l := range strings.SplitSeq(stripFrontmatter(string(data)), "\n") {
 			l = strings.TrimSpace(l)
@@ -165,13 +166,13 @@ func stripFrontmatter(s string) string {
 // settleUnified is SettleBank: rotate + archive in scope, regenerate region and catalog, commit.
 func settleUnified(root string, now time.Time) (BankSettlement, error) {
 	var s BankSettlement
-	err := WithBankLock(BankLockWait, func() error {
+	err := memstore.WithBankLock(memstore.BankLockWait, func() error {
 		var dirs []string
-		own := Dir(root)
+		own := memstore.Dir(root)
 		if _, err := os.Stat(own); err == nil { // an unscaffolded repo gets its store from Init (with its origin), never here
 			dirs = append(dirs, own)
 		}
-		if g := HomeBankDir(); len(dirs) == 0 || !paths.SamePath(dirs[0], g) {
+		if g := memstore.HomeBankDir(); len(dirs) == 0 || !paths.SamePath(dirs[0], g) {
 			dirs = append(dirs, g)
 		}
 		for _, d := range dirs {
@@ -210,7 +211,7 @@ func writeCatalog(now time.Time) error {
 	if err != nil {
 		return err
 	}
-	return paths.AtomicWrite(filepath.Join(StoreDir(), CatalogFile), []byte(c), 0o644)
+	return paths.AtomicWrite(filepath.Join(memstore.StoreDir(), memstore.CatalogFile), []byte(c), 0o644)
 }
 
 // commitStore commits every dirty path in the store (update writes + settle output) as one settle commit.
@@ -252,9 +253,9 @@ func newestMarkdown(dir string) time.Time {
 // knowledgeFiles are the home bank's knowledge/*.md (cross-repo) plus root's own bank knowledge/*.md
 // (repo-specific); README.md is the tier's own doc.
 func knowledgeFiles(root string) []string {
-	dirs := []string{KnowledgeDir(HomeBankDir())}
-	if !IsHomeBank(root) {
-		dirs = append(dirs, KnowledgeDir(Dir(root)))
+	dirs := []string{memstore.KnowledgeDir(memstore.HomeBankDir())}
+	if !memstore.IsHomeBank(root) {
+		dirs = append(dirs, memstore.KnowledgeDir(memstore.Dir(root)))
 	}
 	var out []string
 	for _, d := range dirs {

@@ -13,6 +13,7 @@ import (
 
 	"go.etcd.io/bbolt"
 
+	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/schemas"
 )
 
@@ -47,7 +48,7 @@ var (
 )
 
 // EmbedDBPath is the one bbolt file holding every profile's entry-vector record, scoped like StateDir.
-func EmbedDBPath() string { return filepath.Join(StateDir(), "embeddings.db") }
+func EmbedDBPath() string { return filepath.Join(memstore.StateDir(), "embeddings.db") }
 
 func safeEmbedProfile(profile string) bool { return safeProfile.MatchString(profile) }
 
@@ -113,7 +114,7 @@ func decodeEmbedRecord(tx *bbolt.Tx, profile string) embedCacheFile {
 
 // updateEmbedDB runs fn in one short read-write transaction on embeddings.db, creating the file and buckets.
 func updateEmbedDB(fn func(tx *bbolt.Tx) error) error {
-	if err := os.MkdirAll(StateDir(), 0o700); err != nil {
+	if err := os.MkdirAll(memstore.StateDir(), 0o700); err != nil {
 		return err
 	}
 	db, err := bbolt.Open(EmbedDBPath(), 0o600, &bbolt.Options{Timeout: embedWriteTimeout})

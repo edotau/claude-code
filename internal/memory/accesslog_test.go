@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/paths"
 )
 
@@ -17,7 +18,7 @@ import (
 func TestAccessRotationReturnCountsAndRepoNominations(t *testing.T) {
 	tempConfig(t)
 	now := time.Date(2026, 10, 29, 12, 0, 0, 0, time.UTC)
-	home := HomeBankDir()
+	home := memstore.HomeBankDir()
 
 	old := now.AddDate(0, 0, -(accessRotateDays + 1))
 	LogAccess(home, old, "aa000001", AccessRecall)
@@ -49,7 +50,7 @@ func TestAccessRotationReturnCountsAndRepoNominations(t *testing.T) {
 
 	// Nominations glob every repo's state log, prefixed with the repo's store key — not only home's.
 	root := repoRoot(t, "proj")
-	dir := Dir(root)
+	dir := memstore.Dir(root)
 	for d := range hotMinDays {
 		LogAccess(dir, now.AddDate(0, 0, -d), "dd000004", AccessRecall)
 	}
@@ -70,7 +71,7 @@ func TestAccessRotationReturnCountsAndRepoNominations(t *testing.T) {
 func TestAccessLogConcurrentRotationRotatesOnce(t *testing.T) {
 	tempConfig(t)
 	now := time.Date(2026, 10, 29, 12, 0, 0, 0, time.UTC)
-	home := HomeBankDir()
+	home := memstore.HomeBankDir()
 	LogAccess(home, now.AddDate(0, 0, -(accessRotateDays+1)), "aa000001", AccessRecall)
 	const writers = 16
 	var wg sync.WaitGroup
@@ -92,19 +93,19 @@ func TestLogHitsCreditsOwningStore(t *testing.T) {
 	isolatedConfig1(t)
 	initStore(t)
 	a := gitRepo(t, t.TempDir(), "proja")
-	da, err := EnsureRepoDir(a)
+	da, err := memstore.EnsureRepoDir(a)
 	if err != nil {
 		t.Fatal(err)
 	}
 	write(t, filepath.Join(da, "archive", "old.md"), "# A\n\n## 2026-01-01 — zebra archived quota <!-- id:bbbb0001 -->\n\nzebra quota\n")
 	write(t, filepath.Join(da, "notes.md"), "---\nname: n\n---\nzebra native quota <!-- id:bbbb0002 -->\n")
-	harness := Dir(paths.ConfigDir())
+	harness := memstore.Dir(paths.ConfigDir())
 	write(t, filepath.Join(harness, "decisionLog.md"), "# D\n\n## 2026-01-01 — zebra local quota <!-- id:bbbb0003 -->\n\nzebra quota\n")
 
 	now := time.Now()
 	LogHits(a, SearchBanks(a, "zebra quota", 0), AccessSearch, now)
 	got := ReturnCounts([]string{da}, now)
-	home := ReturnCounts([]string{HomeBankDir()}, now)
+	home := ReturnCounts([]string{memstore.HomeBankDir()}, now)
 	for _, id := range []string{"bbbb0001", "bbbb0002"} {
 		if got[id] == 0 || home[id] != 0 {
 			t.Errorf("%s must be credited to the repo store, not home: repo=%d home=%d", id, got[id], home[id])

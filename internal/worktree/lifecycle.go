@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/edotau/claude-code/internal/memory"
+	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/paths"
 )
 
@@ -71,7 +71,7 @@ func Create(repo *Repo, name string, opt CreateOptions) (string, error) {
 }
 
 func resumeLedger(repo *Repo, name, dest, session string) error {
-	path := filepath.Join(memory.Dir(repo.Main), "worktrees", name+".md")
+	path := filepath.Join(memstore.Dir(repo.Main), "worktrees", name+".md")
 	if data, err := os.ReadFile(path); err == nil {
 		if ledgerField(string(data), "Status") != "closed" {
 			return nil

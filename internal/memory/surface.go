@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/paths"
 	mdast "github.com/jeduden/mdsmith/pkg/goldmark/ast"
 	"github.com/jeduden/mdsmith/pkg/goldmark/parser"
@@ -51,10 +52,10 @@ const (
 // unifiedSurface is the session preload: root's focus sections plus the home bank's, and one pointer to the other
 // repos (no catalog rows); Claude Code loads the repo's MEMORY.md (with its generated bank region) itself.
 func unifiedSurface(root string) string {
-	dir := Dir(root)
+	dir := memstore.Dir(root)
 	var parts []string
-	if _, err := os.Stat(filepath.Join(StoreDir(), CatalogFile)); err == nil {
-		parts = append(parts, "<!-- other repos: `claude-code memory search --all <terms>`; catalog "+filepath.Join(StoreDir(), CatalogFile)+" -->")
+	if _, err := os.Stat(filepath.Join(memstore.StoreDir(), memstore.CatalogFile)); err == nil {
+		parts = append(parts, "<!-- other repos: `claude-code memory search --all <terms>`; catalog "+filepath.Join(memstore.StoreDir(), memstore.CatalogFile)+" -->")
 	}
 	if HasBank(root) { // the header alone still names the bank when there is no focus text yet
 		head := "<!-- THIS REPO (" + dir + ") — focus only; read the typed files on demand -->"
@@ -63,7 +64,7 @@ func unifiedSurface(root string) string {
 		}
 		parts = append(parts, CapChars(head, focusCapChars))
 	}
-	if home := HomeBankDir(); !IsHomeBank(root) {
+	if home := memstore.HomeBankDir(); !memstore.IsHomeBank(root) {
 		if focus := repoFocus(home); len(focus) > 0 {
 			parts = append(parts, CapChars("<!-- HOME BANK ("+home+") — essentials -->\n"+strings.Join(focus, "\n\n"), homeFocusCapChars))
 		}
@@ -97,10 +98,10 @@ func repoFocus(dir string) []string {
 // nativeLinked reports whether Claude Code's native memory dir for root is the symlink into dir.
 func nativeLinked(root, dir string) bool {
 	r := filepath.Clean(root)
-	if top := mainCheckout(r); top != "" {
+	if top := memstore.MainCheckout(r); top != "" {
 		r = top
 	}
-	cur, err := os.Readlink(projectsMemory(ProjectSlug(r)))
+	cur, err := os.Readlink(memstore.ProjectsMemory(memstore.ProjectSlug(r)))
 	return err == nil && paths.SamePath(cur, dir)
 }
 

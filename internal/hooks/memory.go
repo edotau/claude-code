@@ -12,6 +12,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent/preflight"
 	"github.com/edotau/claude-code/internal/memory"
+	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc/inflight"
 	"github.com/edotau/claude-code/internal/providers"
@@ -66,9 +67,9 @@ func preflightNotice(now time.Time) string {
 func memoryContext(cwd, sessionID, transcriptPath string, now time.Time) string {
 	prefix := maybeAutoInit(cwd) // a fresh-scaffold notice or ""
 	if !memory.IsUpdateChild() {
-		memory.LinkNativeFor(cwd) // after the scaffold, so the link targets the store Init named (origin record in the vault)
+		memstore.LinkNativeFor(cwd) // after the scaffold, so the link targets the store Init named (origin record in the vault)
 	}
-	chain := filepath.Join(memory.StateDir(), "last-session")
+	chain := filepath.Join(memstore.StateDir(), "last-session")
 	out := ""
 	drift := driftNotice()
 	if bank := memory.SessionSurface(cwd); bank != "" {
@@ -254,7 +255,7 @@ func scaffoldSafe(cwd string) bool {
 	if fi, err := os.Stat(filepath.Join(cwd, ".claude")); err == nil && fi.IsDir() {
 		return true
 	}
-	top := memory.GitToplevel(cwd)
+	top := memstore.GitToplevel(cwd)
 	return top != "" && paths.SamePath(top, cwd)
 }
 
@@ -315,7 +316,7 @@ func updateIfNew(in *Input, trigger string, now time.Time) (blocked bool, work i
 			}
 			return false, 0
 		}
-		if memory.NewestMtime(memory.Dir(in.CWD)).After(st.at) {
+		if memory.NewestMtime(memstore.Dir(in.CWD)).After(st.at) {
 			writeStamp(stamp, now, "bg", st.edits) // `claude-code memory update` ran by hand: released, re-arms
 			return false, 0
 		}
@@ -376,7 +377,7 @@ type updateStamp struct {
 }
 
 func stampPath(sessionID string) string {
-	return filepath.Join(memory.StateDir(), "stamp-"+filepath.Base(sessionID))
+	return filepath.Join(memstore.StateDir(), "stamp-"+filepath.Base(sessionID))
 }
 
 func readStamp(path string) (updateStamp, bool) {
@@ -419,7 +420,7 @@ type countState struct {
 }
 
 func countPath(sessionID string) string {
-	return filepath.Join(memory.StateDir(), "count-"+filepath.Base(sessionID))
+	return filepath.Join(memstore.StateDir(), "count-"+filepath.Base(sessionID))
 }
 
 func readCountState(path string) (countState, bool) {

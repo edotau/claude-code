@@ -1,9 +1,13 @@
 package memory
 
 import (
+	"github.com/edotau/claude-code/internal/hosttest"
+	"github.com/edotau/claude-code/internal/vault"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/edotau/claude-code/internal/proc"
@@ -48,4 +52,78 @@ func initStore(t *testing.T) {
 	if err := StoreRepo().Ensure(); err != nil {
 		t.Fatal(err)
 	}
+}
+
+// fixtureGit runs git on dir minus inherited GIT_* (GIT_DIR beats -C), user/system config, hooks and signing.
+func fixtureGit(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	full := append([]string{"-C", dir, "-c", "core.hooksPath=/dev/null", "-c", "commit.gpgsign=false",
+		"-c", "user.email=t@example.com", "-c", "user.name=t"}, args...)
+	cmd := exec.Command("git", full...)
+	cmd.Env = append(proc.GitEnv(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_SYSTEM=/dev/null")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git %v: %v %s", args, err, out)
+	}
+}
+
+// gitRepo makes a real disposable repository with one commit at <parent>/<name>, copied from a once-built template.
+func gitRepo(t *testing.T, parent, name string) string {
+	t.Helper()
+	root := filepath.Join(parent, name)
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	tmpl := gitRepoTemplate(t)
+	if out, err := exec.Command("cp", "-a", filepath.Join(tmpl, ".git"), root).CombinedOutput(); err != nil {
+		t.Fatalf("copy template repo: %v %s", err, out)
+	}
+	return root
+}
+
+var (
+	gitTmplOnce sync.Once
+	gitTmplDir  string
+)
+
+func gitRepoTemplate(t *testing.T) string {
+	t.Helper()
+	gitTmplOnce.Do(func() {
+		dir, err := os.MkdirTemp("", "memory-gittmpl-")
+		if err != nil {
+			t.Fatal(err)
+		}
+		gitTmplDir = dir
+		fixtureGit(t, dir, "init", "-q", "-b", "main")
+		fixtureGit(t, dir, "commit", "-q", "--allow-empty", "-m", "init")
+	})
+	if gitTmplDir == "" {
+		t.Fatal("git template repo unavailable")
+	}
+	return gitTmplDir
+}
+
+func TestMain(m *testing.M) {
+	cleanup := hosttest.Setup()
+	code := m.Run()
+	cleanup()
+	if gitTmplDir != "" {
+		os.RemoveAll(gitTmplDir)
+	}
+	os.Exit(code)
+}
+
+func vaultGet(t *testing.T, key string) (string, bool) {
+	t.Helper()
+	var raw string
+	var ok bool
+	if err := vault.View(func(tx *vault.Tx) error { raw, ok = tx.Get(vault.MemoryOrigins, key); return nil }); err != nil {
+		t.Fatal(err)
+	}
+	return raw, ok
+}
+
+// isolatedConfig1 is isolatedConfig for tests that never need the home path.
+func isolatedConfig1(t *testing.T) string {
+	cfg, _ := isolatedConfig(t)
+	return cfg
 }

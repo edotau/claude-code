@@ -1,4 +1,4 @@
-package memory
+package memstore
 
 import (
 	"errors"
@@ -16,8 +16,8 @@ type LinkResult struct {
 	Detail       string
 }
 
-// projectsMemory is Claude Code's native memory dir for a project slug.
-func projectsMemory(slug string) string {
+// ProjectsMemory is Claude Code's native memory dir for a project slug.
+func ProjectsMemory(slug string) string {
 	return filepath.Join(paths.ConfigDir(), "projects", slug, "memory")
 }
 
@@ -27,7 +27,7 @@ func LinkNativeFor(cwd string) (LinkResult, bool) {
 		return LinkResult{}, false
 	}
 	root := filepath.Clean(cwd)
-	if top := mainCheckout(root); top != "" {
+	if top := MainCheckout(root); top != "" {
 		root = top
 	}
 	target, err := RepoDir(cwd)
@@ -38,7 +38,7 @@ func LinkNativeFor(cwd string) (LinkResult, bool) {
 		return LinkResult{}, false // no store yet: never mint an origin-less dir that would squat the repo's key
 	}
 	repairNativeLinks(cwd)
-	return ensureLink(projectsMemory(ProjectSlug(root)), target), true
+	return ensureLink(ProjectsMemory(ProjectSlug(root)), target), true
 }
 
 // ensureLink makes link a symlink to target: absent or empty dir → linked, wrong link → relinked, content → blocked.

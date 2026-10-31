@@ -16,7 +16,7 @@ import (
 	"github.com/jeduden/mdsmith/pkg/markdown"
 
 	"github.com/edotau/claude-code/internal/audit"
-	"github.com/edotau/claude-code/internal/memory"
+	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/plans"
 )
@@ -152,7 +152,7 @@ func resolveCWDPath(path, cwd string) string {
 // planDestination picks <date>-<title>.md, then -2.md, … under the repo's plans dir; adopt reuses a
 // candidate already holding content (fresh=false) — save-plan adopts, a mirror never takes a file it did not create.
 func planDestination(cwd, title string, content []byte, adopt bool) (dest string, fresh bool) {
-	dir := plans.Home(cmp.Or(memory.GitToplevel(cwd), cwd))
+	dir := plans.Home(cmp.Or(memstore.GitToplevel(cwd), cwd))
 	base := time.Now().Format("2006-01-02") + "-" + title
 	for n := 1; ; n++ {
 		name := base + ".md"

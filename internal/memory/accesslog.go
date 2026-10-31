@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/paths"
 )
 
@@ -243,11 +244,11 @@ func LogHits(root string, hits []SearchHit, reason string, now time.Time) {
 		if dir == "" {
 			switch h.Bank {
 			case "local":
-				dir = Dir(root)
+				dir = memstore.Dir(root)
 			case "home", "native", "archive", "knowledge", "":
-				dir = HomeBankDir()
+				dir = memstore.HomeBankDir()
 			default:
-				dir = filepath.Join(StoreDir(), h.Bank)
+				dir = filepath.Join(memstore.StoreDir(), h.Bank)
 			}
 		}
 		grouped[dir] = append(grouped[dir], key)
@@ -262,10 +263,10 @@ func LogShown(path, id, reason string, now time.Time) {
 	if id == "" {
 		return
 	}
-	dir := HomeBankDir()
-	if rel, ok := InsideStore(path); ok {
+	dir := memstore.HomeBankDir()
+	if rel, ok := memstore.InsideStore(path); ok {
 		if first, _, _ := strings.Cut(rel, "/"); first != "" && first != "." {
-			dir = filepath.Join(StoreDir(), first)
+			dir = filepath.Join(memstore.StoreDir(), first)
 		}
 	}
 	LogAccess(dir, now, id, reason)
@@ -274,12 +275,12 @@ func LogShown(path, id, reason string, now time.Time) {
 // AccessLogPath is dir's recall trace: state/harness/memory/access/<key>.log for a store dir (state, never
 // memory history), else access.log beside the bank.
 func AccessLogPath(dir string) string {
-	if rel, ok := InsideStore(dir); ok {
+	if rel, ok := memstore.InsideStore(dir); ok {
 		key := strings.ReplaceAll(rel, string(filepath.Separator), "_")
 		if key == "" || key == "." {
 			key = "home"
 		}
-		return filepath.Join(AccessStateDir(), key+".log")
+		return filepath.Join(memstore.AccessStateDir(), key+".log")
 	}
 	return filepath.Join(dir, AccessLogFile)
 }

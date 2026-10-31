@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/paths"
 )
 
@@ -33,7 +34,7 @@ func seenPath(sessionID string) string {
 	if id == "" || id == "." || id == ".." || id == string(filepath.Separator) {
 		return ""
 	}
-	return filepath.Join(StateDir(), "recall-seen", id)
+	return filepath.Join(memstore.StateDir(), "recall-seen", id)
 }
 
 // ResetSeen restarts sessionID's seen set with every corpus block the SessionStart surface carried in full.

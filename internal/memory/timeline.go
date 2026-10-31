@@ -7,6 +7,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/edotau/claude-code/internal/memstore"
 )
 
 // TimelineEntry is one recall row from an update receipt.
@@ -19,7 +21,7 @@ type TimelineEntry struct {
 // Timeline returns the newest-first update-receipt trail (bounded by limit) plus the most recent
 // sessionHistory headings from the local then home bank (their files are newest-first already).
 func Timeline(root string, limit int) (entries []TimelineEntry, sessions []string) {
-	matches, _ := filepath.Glob(filepath.Join(StateDir(), "update-result-*"))
+	matches, _ := filepath.Glob(filepath.Join(memstore.StateDir(), "update-result-*"))
 	for _, p := range matches {
 		id := strings.TrimPrefix(filepath.Base(p), "update-result-")
 		r, ok := ReadUpdateResult(id)
@@ -38,9 +40,9 @@ func Timeline(root string, limit int) (entries []TimelineEntry, sessions []strin
 	}
 
 	seen := map[string]bool{}
-	dirs := []string{HomeBankDir()}
-	if !IsHomeBank(root) {
-		dirs = []string{Dir(root), HomeBankDir()}
+	dirs := []string{memstore.HomeBankDir()}
+	if !memstore.IsHomeBank(root) {
+		dirs = []string{memstore.Dir(root), memstore.HomeBankDir()}
 	}
 	for _, dir := range dirs {
 		for _, h := range entriesWithPrefix(filepath.Join(dir, "sessionHistory.md"), "## ") {

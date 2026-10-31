@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
@@ -29,13 +30,13 @@ func RefreshEmbeddings(root, profile string, now time.Time) bool {
 	if IsUpdateChild() || !safeEmbedProfile(profile) {
 		return false
 	}
-	if err := os.MkdirAll(StateDir(), 0o700); err != nil {
+	if err := os.MkdirAll(memstore.StateDir(), 0o700); err != nil {
 		return false
 	}
 	if embedBackedOff(profile, now) {
 		return false
 	}
-	stamp := filepath.Join(StateDir(), "embeddings-"+profile+".refresh")
+	stamp := filepath.Join(memstore.StateDir(), "embeddings-"+profile+".refresh")
 	spawned := false
 	_, _ = paths.TryFileLock(stamp+".lock", 0, func() error {
 		if st, err := os.Stat(stamp); err == nil && now.Sub(st.ModTime()) < embedClaimTTL {
@@ -58,7 +59,7 @@ func RefreshEmbeddings(root, profile string, now time.Time) bool {
 
 // embedBackedOff reports a recent endpoint timeout, when a mint would only fail and retry.
 func embedBackedOff(profile string, now time.Time) bool {
-	st, err := os.Stat(filepath.Join(StateDir(), embedCachePre+profile+".backoff"))
+	st, err := os.Stat(filepath.Join(memstore.StateDir(), embedCachePre+profile+".backoff"))
 	return err == nil && now.Sub(st.ModTime()) < embedBackoff
 }
 

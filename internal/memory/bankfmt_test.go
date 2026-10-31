@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/memstore"
 )
 
 // xword is a fixed-width filler token so first-line/continuation capacity is hand-computable.
@@ -223,11 +225,11 @@ func bankFmtRepoStore(t *testing.T) (globalDir, repoDir string) {
 	isolatedConfig1(t)
 	initStore(t)
 	repo := gitRepo(t, t.TempDir(), "proj")
-	dir, err := EnsureRepoDir(repo)
+	dir, err := memstore.EnsureRepoDir(repo)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return HomeBankDir(), dir
+	return memstore.HomeBankDir(), dir
 }
 
 // TestBankFmtTargetsCoversSixFilesPlusColdTiersNeverMemoryOrIndex: BankFmtTargets walks the six typed
@@ -241,7 +243,7 @@ func TestBankFmtTargetsCoversSixFilesPlusColdTiersNeverMemoryOrIndex(t *testing.
 	write(t, filepath.Join(repo, "handoffs", "2026-01-01-x.md"), "# handoff\nbody\n")
 	write(t, filepath.Join(repo, "reports", "review.md"), "# report\nbody\n")
 	write(t, filepath.Join(repo, NativeIndexFile), "native MEMORY.md\n")
-	write(t, filepath.Join(StoreDir(), CatalogFile), "catalog\n")
+	write(t, filepath.Join(memstore.StoreDir(), memstore.CatalogFile), "catalog\n")
 	write(t, filepath.Join(global, "decisionLog.md"), "# decisionLog\nbody\n")
 
 	files, err := BankFmtTargets()
@@ -269,7 +271,7 @@ func TestBankFmtTargetsCoversSixFilesPlusColdTiersNeverMemoryOrIndex(t *testing.
 			t.Errorf("BankFmtTargets missing %s", f)
 		}
 	}
-	for _, never := range []string{filepath.Join(repo, NativeIndexFile), filepath.Join(StoreDir(), CatalogFile)} {
+	for _, never := range []string{filepath.Join(repo, NativeIndexFile), filepath.Join(memstore.StoreDir(), memstore.CatalogFile)} {
 		if got[never] {
 			t.Errorf("BankFmtTargets included %s, want never", never)
 		}
@@ -366,7 +368,7 @@ func TestFormatBankNativeAndCatalogUntouched(t *testing.T) {
 	global, _ := bankFmtRepoStore(t)
 	longLine := strings.Join(repeatWords(15), " ")
 	nativePath := filepath.Join(global, NativeIndexFile)
-	catalogPath := filepath.Join(StoreDir(), CatalogFile)
+	catalogPath := filepath.Join(memstore.StoreDir(), memstore.CatalogFile)
 	write(t, nativePath, "native MEMORY.md\n"+longLine+"\n")
 	write(t, catalogPath, "catalog\n"+longLine+"\n")
 	nativeBefore, _ := os.ReadFile(nativePath)

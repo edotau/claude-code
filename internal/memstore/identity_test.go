@@ -1,4 +1,4 @@
-package memory
+package memstore
 
 import (
 	"github.com/edotau/claude-code/internal/hosttest"
@@ -84,7 +84,7 @@ func TestResolveSharesWorktreeAndSubdir(t *testing.T) {
 	wt := filepath.Join(t.TempDir(), "wt")
 	fixtureGit(t, repo, "worktree", "add", "-q", wt)
 	want := Resolve(repo)
-	if want.HomeBank || want.Harness || want.Base != "proj" || want.Origin != resolvePath(repo) {
+	if want.HomeBank || want.Harness || want.Base != "proj" || want.Origin != ResolvePath(repo) {
 		t.Fatalf("Resolve(repo) = %+v", want)
 	}
 	for _, root := range []string{sub, wt, filepath.Join(wt, "a")} {
@@ -98,39 +98,6 @@ func TestResolveSharesWorktreeAndSubdir(t *testing.T) {
 	}
 }
 
-// A cwd inside the store resolves to the repo its store dir describes, not to the store's own git repo ("memory").
-func TestResolveInsideStore(t *testing.T) {
-	cfg := gitRepo(t, t.TempDir(), ".claude")
-	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
-	proj := gitRepo(t, t.TempDir(), "proj")
-	if err := (Repo{Dir: StoreDir()}).Ensure(); err != nil {
-		t.Fatal(err)
-	}
-	harness, err := EnsureRepoDir(cfg)
-	if err != nil {
-		t.Fatal(err)
-	}
-	projStore, err := EnsureRepoDir(proj)
-	if err != nil {
-		t.Fatal(err)
-	}
-	archive := ArchiveDir(harness)
-	if err := os.MkdirAll(archive, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if id := Resolve(StoreDir()); !id.HomeBank {
-		t.Errorf("Resolve(store top) = %+v, want global", id)
-	}
-	for _, root := range []string{harness, archive} {
-		if id := Resolve(root); !id.Harness {
-			t.Errorf("Resolve(%s) = %+v, want harness", root, id)
-		}
-	}
-	if id := Resolve(projStore); id.Origin != resolvePath(proj) {
-		t.Errorf("Resolve(%s) = %+v, want origin %s", projStore, id, proj)
-	}
-}
-
 func TestResolveHarness(t *testing.T) {
 	cfg := gitRepo(t, t.TempDir(), ".claude")
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
@@ -140,7 +107,7 @@ func TestResolveHarness(t *testing.T) {
 	}
 	for _, root := range []string{cfg, sub} {
 		id := Resolve(root)
-		if !id.Harness || id.HomeBank || id.Origin != resolvePath(cfg) {
+		if !id.Harness || id.HomeBank || id.Origin != ResolvePath(cfg) {
 			t.Errorf("Resolve(%s) = %+v", root, id)
 		}
 		if dir, err := RepoDir(root); err != nil || dir != HarnessStoreDir() {
@@ -152,7 +119,7 @@ func TestResolveHarness(t *testing.T) {
 		t.Fatal(err)
 	}
 	o, err := ReadOrigin(dir)
-	if err != nil || o.Key != harnessStoreKey() || o.Origin != resolvePath(cfg) {
+	if err != nil || o.Key != HarnessStoreKey() || o.Origin != ResolvePath(cfg) {
 		t.Errorf("harness .origin = %+v, %v", o, err)
 	}
 }
@@ -203,7 +170,7 @@ func TestRepoDirReadOnlyAndEnsureIdempotent(t *testing.T) {
 		t.Fatalf("EnsureRepoDir = %s, %v", got, err)
 	}
 	o, err := ReadOrigin(dir)
-	if err != nil || o.Origin != resolvePath(repo) || o.Key != "my-repo.v2" {
+	if err != nil || o.Origin != ResolvePath(repo) || o.Key != "my-repo.v2" {
 		t.Fatalf("origin = %+v, %v", o, err)
 	}
 	if again, err := EnsureRepoDir(repo); err != nil || again != dir {
@@ -247,7 +214,7 @@ func TestSameBasenameCollisionExtendsHash(t *testing.T) {
 	if mustRepoDir(t, a) != da || mustRepoDir(t, b) != db {
 		t.Error("RepoDir must find both stores by origin")
 	}
-	if oa, _ := ReadOrigin(da); oa.Origin != resolvePath(a) {
+	if oa, _ := ReadOrigin(da); oa.Origin != ResolvePath(a) {
 		t.Errorf("first store's origin was clobbered: %+v", oa)
 	}
 	// A foreign dir without .origin, a reserved name and the harness key are never claimed.
@@ -304,7 +271,7 @@ func TestAliasRoutesAndConflicts(t *testing.T) {
 	if got := mustRepoDir(t, c); got != da {
 		t.Errorf("RepoDir(aliased) = %s want %s", got, da)
 	}
-	if o, _ := ReadOrigin(da); len(o.Aliases) != 1 || o.Aliases[0] != resolvePath(c) || o.Origin != resolvePath(a) {
+	if o, _ := ReadOrigin(da); len(o.Aliases) != 1 || o.Aliases[0] != ResolvePath(c) || o.Origin != ResolvePath(a) {
 		t.Errorf("origin after alias = %+v", o)
 	}
 	if err := AddOriginAlias(db, c); !errors.Is(err, ErrOriginConflict) {
@@ -356,7 +323,7 @@ func TestResolveIgnoresInheritedGitEnv(t *testing.T) {
 	decoy := gitRepo(t, t.TempDir(), "decoy")
 	t.Setenv("GIT_DIR", filepath.Join(decoy, ".git"))
 	t.Setenv("GIT_WORK_TREE", decoy)
-	if got := Resolve(a); got.Base != "proj" || got.Origin != resolvePath(a) {
+	if got := Resolve(a); got.Base != "proj" || got.Origin != ResolvePath(a) {
 		t.Errorf("Resolve under hostile GIT_DIR/GIT_WORK_TREE = %+v, want proj", got)
 	}
 }
@@ -371,7 +338,7 @@ func TestAliasToHarnessStore(t *testing.T) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	o := Origin{Version: OriginVersion, Key: harnessStoreKey(), Origin: resolvePath(cfg), Aliases: []string{resolvePath(orca)}}
+	o := Origin{Version: OriginVersion, Key: HarnessStoreKey(), Origin: ResolvePath(cfg), Aliases: []string{ResolvePath(orca)}}
 	if err := WriteOrigin(dir, o); err != nil {
 		t.Fatal(err)
 	}
@@ -399,7 +366,7 @@ func TestWorkspaceOriginResolvesNonGitDirAndSubdirs(t *testing.T) {
 	if err := os.MkdirAll(raw, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	workspace := resolvePath(raw)
+	workspace := ResolvePath(raw)
 	dir := filepath.Join(cfg, "memory", "ws")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
@@ -443,10 +410,10 @@ func TestRepoDirsSkipsJunk(t *testing.T) {
 	os.MkdirAll(filepath.Join(store, "noorigin"), 0o755)
 	write(t, filepath.Join(store, "file.md"), "x")
 	os.MkdirAll(filepath.Join(store, "mismatch"), 0o755)
-	write(t, filepath.Join(store, "mismatch", legacyOriginFile), `{"version":1,"key":"other","origin":"/src/other"}`)
+	write(t, filepath.Join(store, "mismatch", LegacyOriginFile), `{"version":1,"key":"other","origin":"/src/other"}`)
 	for r := range maps.Keys(StoreReservedDirs) {
 		os.MkdirAll(filepath.Join(store, r), 0o755)
-		write(t, filepath.Join(store, r, legacyOriginFile), `{"version":1,"key":"`+r+`","origin":"/r"}`)
+		write(t, filepath.Join(store, r, LegacyOriginFile), `{"version":1,"key":"`+r+`","origin":"/r"}`)
 	}
 	os.Symlink(filepath.Join(store, "alpha"), filepath.Join(store, "sym"))
 	got, err := RepoDirs()

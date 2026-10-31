@@ -7,7 +7,7 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/edotau/claude-code/internal/memory"
+	"github.com/edotau/claude-code/internal/memstore"
 )
 
 // openMemoryFiles lists state files held open by same-user processes, lock descriptors included.
@@ -43,7 +43,7 @@ func memoryProcessFiles(dir string, opened map[string]bool) bool {
 	if err != nil {
 		return true // an exited or unreadable process cannot be inspected; the session registry still guards
 	}
-	root := filepath.Clean(memory.StateDir()) + string(filepath.Separator)
+	root := filepath.Clean(memstore.StateDir()) + string(filepath.Separator)
 	for _, fd := range fds {
 		p, err := os.Readlink(filepath.Join(dir, "fd", fd.Name()))
 		if err != nil {

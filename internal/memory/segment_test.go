@@ -9,18 +9,19 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/paths"
 )
 
 func TestRankFilesMatchesOracle(t *testing.T) {
 	root := isolatedConfig1(t)
 	initStore(t)
-	local, err := EnsureRepoDir(root)
+	local, err := memstore.EnsureRepoDir(root)
 	if err != nil {
 		t.Fatal(err)
 	}
 	routedRoot := gitRepo(t, t.TempDir(), "saturn")
-	routed, err := EnsureRepoDir(routedRoot)
+	routed, err := memstore.EnsureRepoDir(routedRoot)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -33,7 +34,7 @@ func TestRankFilesMatchesOracle(t *testing.T) {
 	write(t, filepath.Join(local, "conventions.md"), "# Conventions\n\n"+
 		"- commit small\nreview focused changes\n\n"+
 		"- router retry\nidentical tie block\n")
-	write(t, filepath.Join(HomeBankDir(), "conventions.md"), "# Global\n\n"+
+	write(t, filepath.Join(memstore.HomeBankDir(), "conventions.md"), "# Global\n\n"+
 		"- router retry\nidentical tie block\n\n"+
 		"- commit small\nreview focused changes\n")
 	write(t, filepath.Join(local, "archive", "sessionHistory-old.md"),
@@ -42,9 +43,9 @@ func TestRankFilesMatchesOracle(t *testing.T) {
 		"---\nname: native recall\ndescription: router context\n---\nNative recall preserves retry details.\n")
 	write(t, filepath.Join(local, "bank-topic.md"),
 		"---\nname: excludedbanktoken\ndescription: excludedbanktoken\nharness_kind: bank\n---\nexcludedbanktoken\n")
-	write(t, filepath.Join(KnowledgeDir(HomeBankDir()), "invariant.md"),
+	write(t, filepath.Join(memstore.KnowledgeDir(memstore.HomeBankDir()), "invariant.md"),
 		"---\nname: strippedmetadata\n---\n# knowledge invariant\nRouter retry requires bounded latency.\n")
-	write(t, filepath.Join(KnowledgeDir(local), "repoinvariant.md"),
+	write(t, filepath.Join(memstore.KnowledgeDir(local), "repoinvariant.md"),
 		"---\nname: repoknowledge\n---\n# repo knowledge\nRepo-specific retry invariant.\n")
 	write(t, filepath.Join(routed, "decisionLog.md"),
 		"# Decisions\n\n## saturn deploy\nRetry deployment after rate limits.\n")
@@ -113,9 +114,9 @@ func oracleSearch(root, query string, k int) []SearchHit {
 // The oracle below is frozen from 5942e1e; only the copied symbols have been renamed.
 func oracleSearchAll(query string, k int) []SearchHit {
 	blocks := oracleCorpusBlocks(paths.ConfigDir())
-	if entries, err := RepoDirs(); err == nil {
+	if entries, err := memstore.RepoDirs(); err == nil {
 		for _, e := range entries {
-			if e.Key != harnessStoreKey() {
+			if e.Key != memstore.HarnessStoreKey() {
 				blocks = append(blocks, oracleStoreBlocks(e)...)
 			}
 		}
@@ -290,11 +291,11 @@ func oracleSearchSources(root string) []oracleSearchSource {
 		return fs
 	}
 	var out []oracleSearchSource
-	if !IsHomeBank(root) {
-		out = append(out, oracleSearchSource{bank: "local", files: bankPaths(Dir(root))})
+	if !memstore.IsHomeBank(root) {
+		out = append(out, oracleSearchSource{bank: "local", files: bankPaths(memstore.Dir(root))})
 	}
-	out = append(out, oracleSearchSource{bank: "home", files: bankPaths(HomeBankDir())})
-	if archived, _ := filepath.Glob(filepath.Join(Dir(root), "archive", "*.md")); len(archived) > 0 {
+	out = append(out, oracleSearchSource{bank: "home", files: bankPaths(memstore.HomeBankDir())})
+	if archived, _ := filepath.Glob(filepath.Join(memstore.Dir(root), "archive", "*.md")); len(archived) > 0 {
 		out = append(out, oracleSearchSource{bank: "archive", files: archived})
 	}
 	for _, dir := range NativeDirs(root) {
@@ -310,9 +311,9 @@ func oracleSearchSources(root string) []oracleSearchSource {
 }
 
 func oracleRoutedBlocks(root, query string) []SearchHit {
-	own := Dir(root)
+	own := memstore.Dir(root)
 	var out []SearchHit
-	for _, e := range RoutedRepos(query) {
+	for _, e := range memstore.RoutedRepos(query) {
 		if e.Dir != own {
 			out = append(out, oracleStoreBlocks(e)...)
 		}
@@ -320,7 +321,7 @@ func oracleRoutedBlocks(root, query string) []SearchHit {
 	return out
 }
 
-func oracleStoreBlocks(e RepoEntry) []SearchHit {
+func oracleStoreBlocks(e memstore.RepoEntry) []SearchHit {
 	var out []SearchHit
 	for _, name := range bankFiles {
 		data, err := os.ReadFile(filepath.Join(e.Dir, name))
@@ -374,10 +375,10 @@ func oracleTopicContents(dir string) ([]string, map[string][]byte) {
 func TestCorpusFilesIncludesGlobalNativeTopic(t *testing.T) {
 	root := isolatedConfig1(t)
 	initStore(t)
-	if _, err := EnsureRepoDir(root); err != nil {
+	if _, err := memstore.EnsureRepoDir(root); err != nil {
 		t.Fatal(err)
 	}
-	topic := filepath.Join(HomeBankDir(), "global-topic.md")
+	topic := filepath.Join(memstore.HomeBankDir(), "global-topic.md")
 	write(t, topic, "---\nname: global-topic\n---\n\nglobal fact\n")
 
 	var found bool

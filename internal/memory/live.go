@@ -4,6 +4,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/paths"
 )
 
@@ -21,7 +22,7 @@ func LiveTranscript(cwd, sessionID string) string {
 		id += ".jsonl"
 	}
 	projects := filepath.Join(paths.ConfigDir(), "projects")
-	if p := filepath.Join(projects, ProjectSlug(cwd), id); paths.IsFile(p) {
+	if p := filepath.Join(projects, memstore.ProjectSlug(cwd), id); paths.IsFile(p) {
 		return p
 	}
 	if m, _ := filepath.Glob(filepath.Join(projects, "*", id)); len(m) > 0 {

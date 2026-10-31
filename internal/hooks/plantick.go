@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/edotau/claude-code/internal/memory"
+	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/plans"
 	"github.com/edotau/claude-code/internal/proc/inflight"
@@ -60,7 +60,7 @@ func tickCommit(in *Input, cmd, sha string, stderr io.Writer) []string {
 	if dir == "" {
 		return nil
 	}
-	top := memory.GitToplevel(dir)
+	top := memstore.GitToplevel(dir)
 	worktree := "" // a linked worktree's name, matched against task claims
 	if main := paths.MainCheckout(top); main != top {
 		worktree = filepath.Base(top)
@@ -209,7 +209,7 @@ func clearPlanClaim(cwd, id string) {
 
 // activePlan is cwd's repo plan with an open owned task, plus the linked worktree's name ("" in the main checkout).
 func activePlan(cwd string) (plan, worktreeName string, ok bool) {
-	top := memory.GitToplevel(cwd)
+	top := memstore.GitToplevel(cwd)
 	if top == "" {
 		return "", "", false
 	}

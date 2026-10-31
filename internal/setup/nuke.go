@@ -16,7 +16,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/audit"
-	"github.com/edotau/claude-code/internal/memory"
+	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/vault"
 )
 
@@ -336,7 +336,7 @@ func tarPlan(tw *tar.Writer, plan NukePlan, keepMemory bool) error {
 		return nil
 	}
 	if keepMemory {
-		return memory.WithBankLock(0, write)
+		return memstore.WithBankLock(0, write)
 	}
 	return write()
 }

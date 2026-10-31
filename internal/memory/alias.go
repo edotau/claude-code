@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/paths"
 )
 
@@ -46,7 +47,7 @@ func AliasRepo(opt AliasOptions) (AliasResult, error) {
 	if err != nil {
 		return AliasResult{}, err
 	}
-	canon := mainCheckout(abs)
+	canon := memstore.MainCheckout(abs)
 	if canon == "" {
 		return AliasResult{}, fmt.Errorf("%s is not a git checkout", abs)
 	}
@@ -60,9 +61,9 @@ func AliasRepo(opt AliasOptions) (AliasResult, error) {
 	}
 	if p.source == "" { // origin-only: AddOriginAlias takes the lock itself
 		tgt, _ := findStore(opt.Into)
-		return res, AddOriginAlias(tgt.Dir, canon)
+		return res, memstore.AddOriginAlias(tgt.Dir, canon)
 	}
-	err = WithBankLock(BankLockWait, func() error {
+	err = memstore.WithBankLock(memstore.BankLockWait, func() error {
 		var perr error
 		if res, p, perr = planAlias(opt, canon); perr != nil { // replan: the store may have moved since the preview read
 			return perr
@@ -74,36 +75,36 @@ func AliasRepo(opt AliasOptions) (AliasResult, error) {
 
 // aliasPlan is everything apply needs: store changes, the source dir to remove and the symlinks to repoint.
 type aliasPlan struct {
-	target, source string // store dirs; source "" = origin-only alias
-	origin         Origin // the target's record after the fold
+	target, source string          // store dirs; source "" = origin-only alias
+	origin         memstore.Origin // the target's record after the fold
 	changes        []Change
 	links          []string // projects/*/memory symlinks that pointed at source
 }
 
-func findStore(key string) (RepoEntry, bool) {
-	entries, _ := RepoDirs()
+func findStore(key string) (memstore.RepoEntry, bool) {
+	entries, _ := memstore.RepoDirs()
 	for _, e := range entries {
 		if e.Key == key {
 			return e, true
 		}
 	}
-	return RepoEntry{}, false
+	return memstore.RepoEntry{}, false
 }
 
 // planAlias reads the store and builds the plan without writing; apply (under the lock) executes it.
 func planAlias(opt AliasOptions, canon string) (AliasResult, *aliasPlan, error) {
 	tgt, ok := findStore(opt.Into)
 	if !ok {
-		return AliasResult{}, nil, fmt.Errorf("unknown store key %q (see the catalog: %s)", opt.Into, filepath.Join(StoreDir(), CatalogFile))
+		return AliasResult{}, nil, fmt.Errorf("unknown store key %q (see the catalog: %s)", opt.Into, filepath.Join(memstore.StoreDir(), memstore.CatalogFile))
 	}
 	if tgt.Origin.Accepts(canon) {
 		return AliasResult{}, nil, fmt.Errorf("%s already resolves to store %q", canon, tgt.Key)
 	}
 	res := AliasResult{Key: tgt.Key}
 	p := &aliasPlan{target: tgt.Dir}
-	entries, _ := RepoDirs()
-	var src *RepoEntry
-	if e := findEntry(entries, canon); e != nil {
+	entries, _ := memstore.RepoDirs()
+	var src *memstore.RepoEntry
+	if e := memstore.FindEntry(entries, canon); e != nil {
 		src = e
 	}
 	res.Lines = append(res.Lines, fmt.Sprintf("alias %s -> %s", canon, tgt.Key))
@@ -130,7 +131,7 @@ func planAlias(opt AliasOptions, canon string) (AliasResult, *aliasPlan, error) 
 }
 
 func (p *aliasPlan) rel(dir, name string) string {
-	r, _ := filepath.Rel(StoreDir(), filepath.Join(dir, name))
+	r, _ := filepath.Rel(memstore.StoreDir(), filepath.Join(dir, name))
 	return r
 }
 
@@ -140,7 +141,7 @@ func (p *aliasPlan) addWrite(dir, name string, data []byte, res *AliasResult, li
 }
 
 // foldFiles plans every regular file of the source store; anything unsafe or colliding aborts the whole plan.
-func (p *aliasPlan) foldFiles(src, tgt RepoEntry, res *AliasResult) error {
+func (p *aliasPlan) foldFiles(src, tgt memstore.RepoEntry, res *AliasResult) error {
 	return filepath.WalkDir(src.Dir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -162,7 +163,7 @@ func (p *aliasPlan) foldFiles(src, tgt RepoEntry, res *AliasResult) error {
 		have := rerr == nil
 		switch {
 		// Migration: remove after 2026-11-17 once every machine has run a post-2026-10-20 build.
-		case rel == legacyOriginFile || rel == BankIndexFile || strings.HasSuffix(rel, ".lock") || filepath.Base(rel) == ".postupdate":
+		case rel == memstore.LegacyOriginFile || rel == BankIndexFile || strings.HasSuffix(rel, ".lock") || filepath.Base(rel) == ".postupdate":
 			return nil // identity, generated index and lock files do not travel
 		case rel == NativeIndexFile:
 			merged, n, err := mergeNativeIndex(string(cur), string(data))
@@ -182,11 +183,11 @@ func (p *aliasPlan) foldFiles(src, tgt RepoEntry, res *AliasResult) error {
 				return nil
 			}
 			name := "merged-" + src.Key + "-" + rel
-			arch := filepath.Join(ArchiveDir(tgt.Dir), name)
+			arch := filepath.Join(memstore.ArchiveDir(tgt.Dir), name)
 			if old, err := os.ReadFile(arch); err == nil && !bytes.Equal(old, data) {
 				return fmt.Errorf("%s exists with different bytes; refusing", arch)
 			}
-			p.addWrite(ArchiveDir(tgt.Dir), name, data, res, fmt.Sprintf("%s: target wins; source kept at archive/%s", rel, name))
+			p.addWrite(memstore.ArchiveDir(tgt.Dir), name, data, res, fmt.Sprintf("%s: target wins; source kept at archive/%s", rel, name))
 		case have && bytes.Equal(cur, data):
 			// identical: nothing to copy
 		case have:
@@ -283,14 +284,14 @@ func firstLine(s string) string {
 
 // projectLinksTo lists <cfg>/projects/*/memory symlinks that resolve to dir.
 func projectLinksTo(dir string) []string {
-	want := resolvePath(dir)
+	want := memstore.ResolvePath(dir)
 	m, _ := filepath.Glob(filepath.Join(paths.ConfigDir(), "projects", "*", "memory"))
 	var out []string
 	for _, l := range m {
 		if fi, err := os.Lstat(l); err != nil || fi.Mode()&os.ModeSymlink == 0 {
 			continue
 		}
-		if paths.SamePath(nativeLinkTarget(l), want) {
+		if paths.SamePath(memstore.NativeLinkTarget(l), want) {
 			out = append(out, l)
 		}
 	}
@@ -304,7 +305,7 @@ func (p *aliasPlan) apply(now time.Time) error {
 			return err
 		}
 	}
-	if err := foldOrigin(p.target, p.origin, filepath.Base(p.source)); err != nil {
+	if err := memstore.FoldOrigin(p.target, p.origin, filepath.Base(p.source)); err != nil {
 		return err
 	}
 	if err := removeEmptyTree(p.source); err != nil {

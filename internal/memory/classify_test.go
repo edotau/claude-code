@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/memstore"
 )
 
 // TestFrontmatterValueTolerantFencesAndRawValues: frontmatterValue's manual scan is whitespace-tolerant
@@ -41,10 +43,10 @@ func TestClassifyMemoryFile(t *testing.T) {
 	for _, n := range bankFiles {
 		write(t, filepath.Join(dir, n), "bank body\n")
 	}
-	for _, n := range []string{NativeIndexFile, NativeSearchableFile, NativeArchiveIndexFile, CatalogFile} {
+	for _, n := range []string{NativeIndexFile, NativeSearchableFile, NativeArchiveIndexFile, memstore.CatalogFile} {
 		write(t, filepath.Join(dir, n), "reserved body\n")
 	}
-	write(t, filepath.Join(dir, legacyOriginFile), "{}\n") // origin now lives in the vault; the on-disk file is an unknown dotfile
+	write(t, filepath.Join(dir, memstore.LegacyOriginFile), "{}\n") // origin now lives in the vault; the on-disk file is an unknown dotfile
 	write(t, filepath.Join(dir, "notes.md"), "---\nname: notes\nharness_kind: bank\n---\n\nbody\n")
 	write(t, filepath.Join(dir, "topic.md"), "---\nname: topic\n---\n\nbody\n")
 	write(t, filepath.Join(dir, "real.md"), "---\nname: real\n---\n\nbody\n")
@@ -56,18 +58,18 @@ func TestClassifyMemoryFile(t *testing.T) {
 	}
 
 	cases := map[string]FileKind{
-		NativeIndexFile:        KindNativeIndex,
-		NativeSearchableFile:   KindSearchable,
-		NativeArchiveIndexFile: KindArchiveIndex,
-		CatalogFile:            KindCatalog,
-		legacyOriginFile:       KindOther,
-		"notes.md":             KindBank,
-		"topic.md":             KindTopic,
-		"link.md":              KindOther,
-		"subtree.md":           KindOther,
-		"../x":                 KindOther,
-		"a/b.md":               KindOther,
-		"":                     KindOther,
+		NativeIndexFile:           KindNativeIndex,
+		NativeSearchableFile:      KindSearchable,
+		NativeArchiveIndexFile:    KindArchiveIndex,
+		memstore.CatalogFile:      KindCatalog,
+		memstore.LegacyOriginFile: KindOther,
+		"notes.md":                KindBank,
+		"topic.md":                KindTopic,
+		"link.md":                 KindOther,
+		"subtree.md":              KindOther,
+		"../x":                    KindOther,
+		"a/b.md":                  KindOther,
+		"":                        KindOther,
 	}
 	for _, n := range bankFiles {
 		cases[n] = KindBank

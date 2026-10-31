@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/memstore"
 )
 
 // storeFixture isolates the config dir and git's global config, and sets a HOSTILE inherited git env pointing at a
@@ -31,7 +33,7 @@ func storeFixture(t *testing.T) (store string, decoy Repo) {
 	t.Setenv("GIT_DIR", filepath.Join(decoy.Dir, ".git"))
 	t.Setenv("GIT_WORK_TREE", decoy.Dir)
 	t.Setenv("GIT_INDEX_FILE", filepath.Join(decoy.Dir, ".git", "index"))
-	return StoreDir(), decoy
+	return memstore.StoreDir(), decoy
 }
 
 // assertDecoyUntouched: the hostile GIT_* env must never retarget a store operation at the decoy.
@@ -256,14 +258,14 @@ func TestGitOutSanitizesEnv(t *testing.T) {
 	if err := (Repo{Dir: other}).Ensure(); err != nil {
 		t.Fatal(err)
 	}
-	top, err := gitOut(other, "rev-parse", "--show-toplevel")
+	top, err := memstore.GitOut(other, "rev-parse", "--show-toplevel")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got, _ := filepath.EvalSymlinks(top); got != mustEval(t, other) {
 		t.Fatalf("gitOut followed the inherited GIT_DIR: %q", top)
 	}
-	if _, err := gitOut(t.TempDir(), "rev-parse", "--show-toplevel"); err == nil {
+	if _, err := memstore.GitOut(t.TempDir(), "rev-parse", "--show-toplevel"); err == nil {
 		t.Fatal("gitOut outside a repo must fail, not fall through to GIT_DIR")
 	}
 	assertDecoyUntouched(t, decoy)
@@ -316,17 +318,17 @@ func TestStoreGitProbesBounded(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", bin)
-	oldTimeout := gitTimeout
-	gitTimeout = 50 * time.Millisecond
-	t.Cleanup(func() { gitTimeout = oldTimeout })
+	oldTimeout := memstore.GitTimeout
+	memstore.GitTimeout = 50 * time.Millisecond
+	t.Cleanup(func() { memstore.GitTimeout = oldTimeout })
 
 	t.Run("git toplevel", func(t *testing.T) {
 		started := time.Now()
-		if got := GitToplevel(t.TempDir()); got != "" {
+		if got := memstore.GitToplevel(t.TempDir()); got != "" {
 			t.Errorf("timed-out toplevel probe = %q, want empty", got)
 		}
 		if elapsed := time.Since(started); elapsed >= time.Second {
-			t.Errorf("toplevel probe took %v with timeout %v", elapsed, gitTimeout)
+			t.Errorf("toplevel probe took %v with timeout %v", elapsed, memstore.GitTimeout)
 		}
 	})
 }

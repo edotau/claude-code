@@ -9,12 +9,14 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/memstore"
 )
 
 // TestBankLockPathLocation pins the physical lock file and guards against an accidental ".lock.lock" variant.
 func TestBankLockPathLocation(t *testing.T) {
 	cfg := tempConfig(t)
-	p := BankLockPath()
+	p := memstore.BankLockPath()
 	want := filepath.Join(cfg, "state", "harness", "memory", "bank.lock")
 	if p != want {
 		t.Fatalf("BankLockPath() = %q, want %q", p, want)
@@ -22,7 +24,7 @@ func TestBankLockPathLocation(t *testing.T) {
 	if strings.HasSuffix(p, ".lock.lock") {
 		t.Fatalf("BankLockPath() produced a .lock.lock variant: %q", p)
 	}
-	if err := WithBankLock(10*time.Millisecond, func() error { return nil }); err != nil {
+	if err := memstore.WithBankLock(10*time.Millisecond, func() error { return nil }); err != nil {
 		t.Fatalf("WithBankLock: %v", err)
 	}
 	if _, err := os.Stat(p + ".lock"); err == nil {
@@ -34,7 +36,7 @@ func TestBankLockPathLocation(t *testing.T) {
 // block WithBankLock out with ErrBankBusy and never run fn, then let it through once released.
 func TestWithBankLockContention(t *testing.T) {
 	tempConfig(t)
-	path := BankLockPath()
+	path := memstore.BankLockPath()
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -47,8 +49,8 @@ func TestWithBankLockContention(t *testing.T) {
 	}
 
 	ran := false
-	err = WithBankLock(10*time.Millisecond, func() error { ran = true; return nil })
-	if err != ErrBankBusy {
+	err = memstore.WithBankLock(10*time.Millisecond, func() error { ran = true; return nil })
+	if err != memstore.ErrBankBusy {
 		t.Fatalf("WithBankLock while held = %v, want ErrBankBusy", err)
 	}
 	if ran {
@@ -59,7 +61,7 @@ func TestWithBankLockContention(t *testing.T) {
 	f.Close()
 
 	ran = false
-	if err := WithBankLock(10*time.Millisecond, func() error { ran = true; return nil }); err != nil {
+	if err := memstore.WithBankLock(10*time.Millisecond, func() error { ran = true; return nil }); err != nil {
 		t.Fatalf("WithBankLock after release: %v", err)
 	}
 	if !ran {
@@ -72,11 +74,11 @@ func TestWithBankLockContention(t *testing.T) {
 func TestSettleBankLockLivesUnderStateNotStore(t *testing.T) {
 	cfg := tempConfig(t)
 	root := repoRoot(t, "proj")
-	dir := Dir(root)
+	dir := memstore.Dir(root)
 	if _, err := SettleBank(root, time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	want := BankLockPath()
+	want := memstore.BankLockPath()
 	if !strings.HasPrefix(want, filepath.Join(cfg, "state")) {
 		t.Fatalf("bank lock %s is not under state", want)
 	}
@@ -99,7 +101,7 @@ func TestPromoteLockLivesUnderGlobalLocksDir(t *testing.T) {
 		t.Fatalf("homeBankLockPath() = %q, want %q", got, want)
 	}
 	root := repoRoot(t, "proj")
-	write(t, filepath.Join(Dir(root), "conventions.md"), strings.Repeat("- rule\n", 40))
+	write(t, filepath.Join(memstore.Dir(root), "conventions.md"), strings.Repeat("- rule\n", 40))
 	if _, err := PromoteLocalToGlobal(root, time.Now()); err != nil {
 		t.Fatal(err)
 	}
@@ -111,41 +113,41 @@ func TestPromoteLockLivesUnderGlobalLocksDir(t *testing.T) {
 func TestStorePathsAndInsideStore(t *testing.T) {
 	cfg := tempConfig(t)
 	// No origin remote here, so the harness key falls back to the config dir's own basename, not ".claude".
-	if StoreDir() != filepath.Join(cfg, "memory") || HarnessStoreDir() != filepath.Join(cfg, "memory", filepath.Base(cfg)) {
+	if memstore.StoreDir() != filepath.Join(cfg, "memory") || memstore.HarnessStoreDir() != filepath.Join(cfg, "memory", filepath.Base(cfg)) {
 		t.Fatal("store paths moved")
 	}
-	if JournalDir() != filepath.Join(StateDir(), "journal") || KnowledgeDir("/x") != "/x/knowledge" {
+	if memstore.JournalDir() != filepath.Join(memstore.StateDir(), "journal") || memstore.KnowledgeDir("/x") != "/x/knowledge" {
 		t.Fatal("journal/knowledge paths moved")
 	}
-	if ArchiveDir("/x") != "/x/archive" || HandoffsDir("/x") != "/x/handoffs" {
+	if memstore.ArchiveDir("/x") != "/x/archive" || memstore.HandoffsDir("/x") != "/x/handoffs" {
 		t.Fatal("archive/handoffs paths moved")
 	}
 	cases := map[string]struct {
 		rel string
 		ok  bool
 	}{
-		filepath.Join(StoreDir(), "repo", "MEMORY.md"): {"repo/MEMORY.md", true},
-		filepath.Join(StoreDir(), ".git", "config"):    {"", false},
-		filepath.Join(StoreDir(), ".gitx"):             {".gitx", true},
-		filepath.Join(cfg, "memory-other", "x.md"):     {"", false},
-		filepath.Join(cfg, "docs", "x.md"):             {"", false},
-		StoreDir():                                     {".", true},
+		filepath.Join(memstore.StoreDir(), "repo", "MEMORY.md"): {"repo/MEMORY.md", true},
+		filepath.Join(memstore.StoreDir(), ".git", "config"):    {"", false},
+		filepath.Join(memstore.StoreDir(), ".gitx"):             {".gitx", true},
+		filepath.Join(cfg, "memory-other", "x.md"):              {"", false},
+		filepath.Join(cfg, "docs", "x.md"):                      {"", false},
+		memstore.StoreDir():                                     {".", true},
 	}
 	for p, want := range cases {
-		if rel, ok := InsideStore(p); rel != want.rel || ok != want.ok {
+		if rel, ok := memstore.InsideStore(p); rel != want.rel || ok != want.ok {
 			t.Errorf("InsideStore(%q) = %q, %v; want %q, %v", p, rel, ok, want.rel, want.ok)
 		}
 	}
 	// A symlink escaping the store is outside it even though its lexical path is inside.
-	if err := os.MkdirAll(StoreDir(), 0o755); err != nil {
+	if err := os.MkdirAll(memstore.StoreDir(), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	outside := filepath.Join(t.TempDir(), "outside.md")
 	os.WriteFile(outside, []byte("x"), 0o600)
-	if err := os.Symlink(outside, filepath.Join(StoreDir(), "escape.md")); err != nil {
+	if err := os.Symlink(outside, filepath.Join(memstore.StoreDir(), "escape.md")); err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := InsideStore(filepath.Join(StoreDir(), "escape.md")); ok {
+	if _, ok := memstore.InsideStore(filepath.Join(memstore.StoreDir(), "escape.md")); ok {
 		t.Error("InsideStore accepted a symlink escaping the store")
 	}
 }
@@ -153,7 +155,7 @@ func TestStorePathsAndInsideStore(t *testing.T) {
 // shortBankWait shrinks BankLockWait so a contended-lock test fails fast instead of waiting the 5s default.
 func shortBankWait(t *testing.T) {
 	t.Helper()
-	old := BankLockWait
-	BankLockWait = 100 * time.Millisecond
-	t.Cleanup(func() { BankLockWait = old })
+	old := memstore.BankLockWait
+	memstore.BankLockWait = 100 * time.Millisecond
+	t.Cleanup(func() { memstore.BankLockWait = old })
 }

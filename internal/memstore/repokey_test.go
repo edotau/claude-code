@@ -1,4 +1,4 @@
-package memory
+package memstore
 
 import (
 	"crypto/sha256"
@@ -87,7 +87,7 @@ func TestSameRemoteDifferentCheckoutsDoNotShareAStore(t *testing.T) {
 	if db == da {
 		t.Fatal("second clone silently wrote into the first clone's store")
 	}
-	sum := sha256.Sum256([]byte(resolvePath(b)))
+	sum := sha256.Sum256([]byte(ResolvePath(b)))
 	wantKey := "collide--" + hex.EncodeToString(sum[:])[:8]
 	if got := filepath.Base(db); got != wantKey {
 		t.Fatalf("second clone's key = %q, want %q (exact key the collision logic produced)", got, wantKey)
@@ -101,11 +101,11 @@ func TestSameRemoteDifferentCheckoutsDoNotShareAStore(t *testing.T) {
 		t.Error("RepoDir must find both stores by their own checkout path")
 	}
 	oa, err := ReadOrigin(da)
-	if err != nil || oa.Origin != resolvePath(a) {
+	if err != nil || oa.Origin != ResolvePath(a) {
 		t.Fatalf("first store's origin was clobbered: %+v, %v", oa, err)
 	}
 	ob, err := ReadOrigin(db)
-	if err != nil || ob.Origin != resolvePath(b) {
-		t.Fatalf("second store's origin = %+v, %v, want %s", ob, err, resolvePath(b))
+	if err != nil || ob.Origin != ResolvePath(b) {
+		t.Fatalf("second store's origin = %+v, %v, want %s", ob, err, ResolvePath(b))
 	}
 }

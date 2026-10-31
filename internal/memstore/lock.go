@@ -1,4 +1,4 @@
-package memory
+package memstore
 
 import (
 	"errors"
@@ -30,8 +30,8 @@ func storeLockKey(dir string) string {
 	return filepath.Base(dir)
 }
 
-// storeLockDir is state's per-key lock directory for dir's bank, created 0700 on first use.
-func storeLockDir(dir string) string {
+// StoreLockDir is state's per-key lock directory for dir's bank, created 0700 on first use.
+func StoreLockDir(dir string) string {
 	d := filepath.Join(StateDir(), "locks", storeLockKey(dir))
 	_ = os.MkdirAll(d, 0o700)
 	return d

@@ -7,11 +7,12 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/memory"
+	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/paths"
 )
 
 func sessionRootPath(sessionID string) string {
-	return filepath.Join(memory.StateDir(), "root-"+filepath.Base(sessionID))
+	return filepath.Join(memstore.StateDir(), "root-"+filepath.Base(sessionID))
 }
 
 // sessionRoot uses the launch repository when available, otherwise the hook payload cwd.
@@ -32,9 +33,9 @@ func recordSessionRoot(sessionID, cwd string) {
 	if !memory.LooksLikeSessionID(sessionID) || memory.IsUpdateChild() || sessionRoot(sessionID, "") != "" {
 		return
 	}
-	root := memory.GitToplevel(cwd)
-	if root == "" || paths.SamePath(root, memory.StoreDir()) {
-		root = memory.Resolve(cwd).Origin
+	root := memstore.GitToplevel(cwd)
+	if root == "" || paths.SamePath(root, memstore.StoreDir()) {
+		root = memstore.Resolve(cwd).Origin
 	}
 	if root == "" {
 		root, _ = filepath.Abs(cwd)

@@ -12,7 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/edotau/claude-code/internal/memory"
+	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/paths"
 )
 
@@ -128,7 +128,7 @@ func docsPlacementPath(ctx context.Context, in *Input, path string, stderr io.Wr
 func blockPlacement(stderr io.Writer, base, where, root string) int {
 	slug := paths.RepoSlug(root)
 	plans := filepath.Join(paths.ConfigDir(), "plans")
-	store := memory.Dir(root)
+	store := memstore.Dir(root)
 	fmt.Fprintf(stderr, "docs-placement: BLOCKED — %s would land in %s.\n"+
 		"Harness-authored markdown belongs under %s (plans) or the memory store (session artifacts):\n"+
 		"  plan             -> %s/YYYY-MM-DD-<slug>.md\n"+
@@ -141,8 +141,8 @@ func blockPlacement(stderr io.Writer, base, where, root string) int {
 		"-> rules/harness/docs-placement.md\n",
 		base, where, plans,
 		filepath.Join(plans, slug),
-		memory.ReportsDir(store), base,
-		memory.HandoffsDir(store),
+		memstore.ReportsDir(store), base,
+		memstore.HandoffsDir(store),
 		store,
 		docsPlacementDisableEnv)
 	return ExitBlock

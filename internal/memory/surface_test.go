@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/memstore"
 )
 
 // The catalog leaves the surface (one pointer stays); the Parked section leaves the injected surface (with a count), the other sections stay, and recall can still find it.
@@ -12,11 +14,11 @@ func TestUnifiedSurfaceFocusOnly(t *testing.T) {
 	isolatedConfig1(t)
 	initStore(t)
 	repo := gitRepo(t, t.TempDir(), "proj")
-	dir, err := EnsureRepoDir(repo)
+	dir, err := memstore.EnsureRepoDir(repo)
 	if err != nil {
 		t.Fatal(err)
 	}
-	write(t, filepath.Join(StoreDir(), CatalogFile), "# Memory catalog\n\n- proj — hook · last never -> proj/MEMORY.md\n")
+	write(t, filepath.Join(memstore.StoreDir(), memstore.CatalogFile), "# Memory catalog\n\n- proj — hook · last never -> proj/MEMORY.md\n")
 	write(t, filepath.Join(dir, "activeContext.md"), "# Active Context\n\n"+
 		"## Current Focus\n\n- shipping the router\n\n"+
 		"## Open Questions\n\n- should not appear\n\n"+
@@ -51,7 +53,7 @@ func TestUnifiedSurfaceCarriesNoCatalogRows(t *testing.T) {
 	isolatedConfig1(t)
 	initStore(t)
 	repo := gitRepo(t, t.TempDir(), "proj")
-	dir, err := EnsureRepoDir(repo)
+	dir, err := memstore.EnsureRepoDir(repo)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -60,9 +62,9 @@ func TestUnifiedSurfaceCarriesNoCatalogRows(t *testing.T) {
 	for i := range 200 {
 		fmt.Fprintf(&cat, "- repo-%03d — hook · last never -> repo-%03d/MEMORY.md\n", i, i)
 	}
-	write(t, filepath.Join(StoreDir(), CatalogFile), cat.String())
+	write(t, filepath.Join(memstore.StoreDir(), memstore.CatalogFile), cat.String())
 	write(t, filepath.Join(dir, "activeContext.md"), "# Active Context\n\n## Current Focus\n\n- local focus\n")
-	write(t, filepath.Join(HomeBankDir(), "activeContext.md"), "# Active Context\n\n## Current Focus\n\n- home essential\n")
+	write(t, filepath.Join(memstore.HomeBankDir(), "activeContext.md"), "# Active Context\n\n## Current Focus\n\n- home essential\n")
 
 	s := unifiedSurface(repo)
 	if strings.Contains(s, "repo-000") || strings.Contains(s, "repo-199") || strings.Contains(s, "MEMORY CATALOG") {

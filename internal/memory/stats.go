@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/edotau/claude-code/internal/memstore"
 )
 
 // BankStats aggregates every update receipt under StateDir().
@@ -23,7 +25,7 @@ type BankStats struct {
 // CollectBankStats scans StateDir()/update-result-*. Unreadable or statusless receipts are skipped.
 func CollectBankStats() BankStats {
 	var s BankStats
-	matches, _ := filepath.Glob(filepath.Join(StateDir(), "update-result-*"))
+	matches, _ := filepath.Glob(filepath.Join(memstore.StateDir(), "update-result-*"))
 	for _, p := range matches {
 		id := strings.TrimPrefix(filepath.Base(p), "update-result-")
 		r, ok := ReadUpdateResult(id)

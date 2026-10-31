@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/memstore"
 )
 
 type aliasEnv struct {
@@ -27,10 +29,10 @@ func newAliasEnv(t *testing.T) aliasEnv {
 	parent := canonTemp(t, t.TempDir())
 	e := aliasEnv{cfg: cfg, a: gitRepo(t, parent, "alpha"), b: gitRepo(t, parent, "beta")}
 	var err error
-	if e.da, err = EnsureRepoDir(e.a); err != nil {
+	if e.da, err = memstore.EnsureRepoDir(e.a); err != nil {
 		t.Fatal(err)
 	}
-	if e.db, err = EnsureRepoDir(e.b); err != nil {
+	if e.db, err = memstore.EnsureRepoDir(e.b); err != nil {
 		t.Fatal(err)
 	}
 	e.ka, e.kb = filepath.Base(e.da), filepath.Base(e.db)
@@ -129,16 +131,16 @@ func TestAliasFoldsSeparateStore(t *testing.T) {
 	if pathExists(e.db) {
 		t.Errorf("source store %s not removed", e.db)
 	}
-	cat := aliasRead(t, filepath.Join(StoreDir(), CatalogFile))
+	cat := aliasRead(t, filepath.Join(memstore.StoreDir(), memstore.CatalogFile))
 	if strings.Contains(cat, "- "+e.kb+" ") || !strings.Contains(cat, "- "+e.ka+" ") {
 		t.Errorf("catalog rows wrong:\n%s", cat)
 	}
 	// origin alias recorded and resolves
-	o, err := ReadOrigin(e.da)
+	o, err := memstore.ReadOrigin(e.da)
 	if err != nil || !o.Accepts(e.b) {
 		t.Fatalf("origin after alias = %+v err=%v, want alias %s", o, err, e.b)
 	}
-	if got, _ := RepoDir(e.b); got != e.da {
+	if got, _ := memstore.RepoDir(e.b); got != e.da {
 		t.Errorf("RepoDir(beta) = %s, want %s", got, e.da)
 	}
 	// append-only merge, no duplicates
@@ -282,7 +284,7 @@ func TestAliasWithoutSeparateStoreRecordsAliasOnly(t *testing.T) {
 	if res.Source != "" {
 		t.Errorf("Source = %q, want empty", res.Source)
 	}
-	o, err := ReadOrigin(e.da)
+	o, err := memstore.ReadOrigin(e.da)
 	if err != nil || !o.Accepts(e.b) {
 		t.Errorf("alias not recorded in .origin (origin-only path): %+v err=%v", o, err)
 	}

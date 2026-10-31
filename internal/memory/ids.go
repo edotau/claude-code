@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/paths"
 )
 
@@ -178,7 +179,7 @@ var ErrNoBlock = errors.New("no memory block with that id")
 func ShowBlock(ref string) (string, string, error) {
 	contentRef := strings.HasPrefix(ref, contentRefPrefix) && isHex(strings.TrimPrefix(ref, contentRefPrefix))
 	var foundPath, foundBlock string
-	_ = filepath.WalkDir(StoreDir(), func(p string, d fs.DirEntry, err error) error {
+	_ = filepath.WalkDir(memstore.StoreDir(), func(p string, d fs.DirEntry, err error) error {
 		if err != nil || foundPath != "" {
 			return nil
 		}

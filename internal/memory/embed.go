@@ -20,6 +20,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/proxy"
@@ -345,7 +346,7 @@ func NewSemantic(query string) (*Semantic, error) {
 		return nil, errors.New("no embedding cache")
 	}
 	attempt := time.Now()
-	backoff := filepath.Join(StateDir(), embedCachePre+profile+".backoff")
+	backoff := filepath.Join(memstore.StateDir(), embedCachePre+profile+".backoff")
 	if st, err := os.Stat(backoff); err == nil && time.Since(st.ModTime()) < embedBackoff {
 		return nil, fmt.Errorf("endpoint timed out recently; semantic paused until %s", st.ModTime().Add(embedBackoff).Format("15:04"))
 	}

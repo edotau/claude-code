@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/memstore"
 )
 
 // update rewrites the docs/templates/examples/memory/* golden files this test guards (same convention
@@ -57,11 +59,11 @@ func TestDocsTemplateExamplesCatalog(t *testing.T) {
 		{"alpha-example", "/home/user/code/alpha-example", "alpha-example: a sample API service, routes deploys over ssh\n"},
 		{"beta-example", "/home/user/code/beta-example", "beta-example: a sample CLI tool, ships as a single binary\n"},
 	} {
-		dir := filepath.Join(StoreDir(), r.key)
+		dir := filepath.Join(memstore.StoreDir(), r.key)
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			t.Fatal(err)
 		}
-		if err := WriteOrigin(dir, Origin{Version: OriginVersion, Key: r.key, Origin: r.origin}); err != nil {
+		if err := memstore.WriteOrigin(dir, memstore.Origin{Version: memstore.OriginVersion, Key: r.key, Origin: r.origin}); err != nil {
 			t.Fatal(err)
 		}
 		pc := filepath.Join(dir, "projectContext.md")
@@ -70,7 +72,7 @@ func TestDocsTemplateExamplesCatalog(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	write(t, filepath.Join(HomeBankDir(), "conventions.md"),
+	write(t, filepath.Join(memstore.HomeBankDir(), "conventions.md"),
 		"# Conventions\n\n- commit messages follow Conventional Commits\n- never hand-edit settings.json\n")
 
 	catalog, err := BuildCatalog(now)

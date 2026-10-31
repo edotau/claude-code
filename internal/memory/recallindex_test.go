@@ -8,6 +8,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/memstore"
 )
 
 type recallIndexFixture struct {
@@ -31,21 +33,21 @@ func newRecallIndexFixture(t testing.TB) recallIndexFixture {
 	}
 	f := recallIndexFixture{
 		root:    root,
-		source:  filepath.Join(Dir(root), "decisionLog.md"),
-		archive: filepath.Join(Dir(root), "archive", "sessionHistory-old.md"),
+		source:  filepath.Join(memstore.Dir(root), "decisionLog.md"),
+		archive: filepath.Join(memstore.Dir(root), "archive", "sessionHistory-old.md"),
 		stamp:   stamp,
 	}
 	files := map[string]string{
 		f.source: "# Decisions\n\n## router retry\nrouter retry latency\n" +
 			"```\n## fenced marker\n- fenced marker\n```\n\n## the and of\nwith the and\n",
-		filepath.Join(Dir(root), "conventions.md"):     "# Conventions\n\n- commit small\nreview focused changes\n",
-		filepath.Join(HomeBankDir(), "conventions.md"): "# Global\n\n- router retry\nbounded latency\n",
+		filepath.Join(memstore.Dir(root), "conventions.md"):     "# Conventions\n\n- commit small\nreview focused changes\n",
+		filepath.Join(memstore.HomeBankDir(), "conventions.md"): "# Global\n\n- router retry\nbounded latency\n",
 		f.archive: "# Archive\n\n## archive storm\nrouter retry during outage\n",
-		filepath.Join(Dir(root), "recall.md"): "---\nname: native recall\n" +
+		filepath.Join(memstore.Dir(root), "recall.md"): "---\nname: native recall\n" +
 			"description: router context\n---\nNative recall preserves retry details.\n",
-		filepath.Join(Dir(root), "bank-topic.md"): "---\nname: excludedbanktoken\n" +
+		filepath.Join(memstore.Dir(root), "bank-topic.md"): "---\nname: excludedbanktoken\n" +
 			"description: excludedbanktoken\nharness_kind: bank\n---\nexcludedbanktoken\n",
-		filepath.Join(KnowledgeDir(HomeBankDir()), "invariant.md"): "---\nname: strippedmetadata\n---\n" +
+		filepath.Join(memstore.KnowledgeDir(memstore.HomeBankDir()), "invariant.md"): "---\nname: strippedmetadata\n---\n" +
 			"# knowledge invariant\nRouter retry requires bounded latency.\n",
 	}
 	for path, body := range files {
@@ -78,7 +80,7 @@ func (f recallIndexFixture) search(t testing.TB, query string) []SearchHit {
 
 func (f recallIndexFixture) index(t testing.TB) map[fileKey]indexed {
 	t.Helper()
-	index := readRecallIndex(filepath.Join(StateDir(), recallIndexFile), f.stamp)
+	index := readRecallIndex(filepath.Join(memstore.StateDir(), recallIndexFile), f.stamp)
 	if len(index) == 0 {
 		t.Fatal("no persisted index entries for the current executable stamp")
 	}
@@ -109,7 +111,7 @@ func (f recallIndexFixture) persisted(t testing.TB) map[fileKey]indexed {
 
 func TestRecallIndexWarmEqualsCold(t *testing.T) {
 	f := newRecallIndexFixture(t)
-	path := filepath.Join(StateDir(), recallIndexFile)
+	path := filepath.Join(memstore.StateDir(), recallIndexFile)
 	queries := []string{"router", "router router retry", "commit small", "fenced marker",
 		"native recall", "knowledge invariant", "archive storm", "the and of", "excludedbanktoken"}
 	for _, query := range queries {
@@ -189,7 +191,7 @@ func TestRecallIndexStampMismatchIgnored(t *testing.T) {
 		index[key] = entry
 	}
 	wrong := exeStamp{f.stamp.size + 1, f.stamp.mtimeNs + 1}
-	path := filepath.Join(StateDir(), recallIndexFile)
+	path := filepath.Join(memstore.StateDir(), recallIndexFile)
 	if err := writeRecallIndex(path, wrong, index); err != nil {
 		t.Fatal(err)
 	}
@@ -210,7 +212,7 @@ func TestRecallIndexCorruptFailsOpen(t *testing.T) {
 	f := newRecallIndexFixture(t)
 	f.search(t, "router retry")
 	f.persisted(t)
-	path := filepath.Join(StateDir(), recallIndexFile)
+	path := filepath.Join(memstore.StateDir(), recallIndexFile)
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
@@ -285,7 +287,7 @@ func TestRecallIndexConcurrentWriters(t *testing.T) {
 	wg.Wait()
 	f.search(t, query)
 	f.persisted(t)
-	entries, err := os.ReadDir(StateDir())
+	entries, err := os.ReadDir(memstore.StateDir())
 	if err != nil {
 		t.Fatal(err)
 	}

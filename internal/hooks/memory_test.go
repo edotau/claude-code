@@ -20,6 +20,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/edotau/claude-code/internal/memory"
+	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/paths"
 )
 
@@ -209,7 +210,7 @@ func TestSessionStartAutoInitAndNotice(t *testing.T) {
 		t.Errorf("a repo subdir must not be scaffolded: %q", got)
 	}
 	// the unified surface is catalog + focus only; seed a catalog so the scaffold notice has a surface to ride on
-	if err := os.WriteFile(filepath.Join(memory.StoreDir(), memory.CatalogFile), []byte("# Memory catalog\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(memstore.StoreDir(), memstore.CatalogFile), []byte("# Memory catalog\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	got := start(s1, repo)
@@ -223,7 +224,7 @@ func TestSessionStartAutoInitAndNotice(t *testing.T) {
 	}
 	t.Setenv(memory.UpdateChildEnv, "1")
 	start("child", repo) // a non-UUID update-child id: excluded by IsUpdateChild regardless of shape
-	if e, ok := readChain(filepath.Join(memory.StateDir(), "last-session")); !ok || e.sessionID != s2 {
+	if e, ok := readChain(filepath.Join(memstore.StateDir(), "last-session")); !ok || e.sessionID != s2 {
 		t.Errorf("an update child advanced the session chain: %+v ok=%v", e, ok)
 	}
 }
@@ -242,7 +243,7 @@ func TestSessionStartProbeIDDoesNotClobberLastSession(t *testing.T) {
 	}
 	const real = "33333333-3333-4333-8333-333333333333"
 	memoryContext(repo, real, "", time.Now())
-	chain := filepath.Join(memory.StateDir(), "last-session")
+	chain := filepath.Join(memstore.StateDir(), "last-session")
 	if e, ok := readChain(chain); !ok || e.sessionID != real {
 		t.Fatalf("a UUID session id must advance last-session: %+v ok=%v", e, ok)
 	}
@@ -278,13 +279,13 @@ func TestSessionStartLinksNativeMemoryAfterCutover(t *testing.T) {
 	// Pre-scaffold the store (the steady-state case: this repo already has a .origin from an
 	// earlier Init/EnsureRepoDir). A repo whose FIRST-EVER SessionStart runs under cutover hits a
 	// separate ordering bug — see the note below — so this test isolates the link-repair contract.
-	if _, err := memory.EnsureRepoDir(repo); err != nil {
+	if _, err := memstore.EnsureRepoDir(repo); err != nil {
 		t.Fatal(err)
 	}
 
 	memoryContext(repo, "s1", "", time.Now())
 
-	res, ok := memory.LinkNativeFor(repo)
+	res, ok := memstore.LinkNativeFor(repo)
 	if !ok {
 		t.Fatal("LinkNativeFor ok=false after cutover")
 	}
@@ -318,14 +319,14 @@ func TestSessionStartFirstSessionLinksScaffoldedStore(t *testing.T) {
 
 	memoryContext(repo, "first", "", time.Now())
 
-	dir := memory.Dir(repo)
-	if _, err := memory.ReadOrigin(dir); err != nil {
+	dir := memstore.Dir(repo)
+	if _, err := memstore.ReadOrigin(dir); err != nil {
 		t.Fatalf("store %s has no .origin after the first SessionStart: %v", dir, err)
 	}
 	if strings.Contains(filepath.Base(dir), "--") {
 		t.Errorf("store key got a collision suffix on a fresh repo: %s", dir)
 	}
-	res, ok := memory.LinkNativeFor(repo)
+	res, ok := memstore.LinkNativeFor(repo)
 	if !ok || res.Action != "ok" || res.Target != dir {
 		t.Errorf("native link after first SessionStart = %+v ok=%v, want ok -> %s", res, ok, dir)
 	}
@@ -572,7 +573,7 @@ func TestSessionStartCatchUpUpdateChildNeverSpawns(t *testing.T) {
 	tr := filepath.Join(t.TempDir(), "t.jsonl")
 	writeEdits(t, tr, 5)
 	idle(t, tr, 20*time.Minute)
-	chain := filepath.Join(memory.StateDir(), "last-session")
+	chain := filepath.Join(memstore.StateDir(), "last-session")
 	writeChain(chain, chainEntry{sessionID: "prev3", transcriptPath: tr, cwd: repo})
 	calls := stubSpawn(t, true)
 
@@ -598,7 +599,7 @@ func TestSessionStartChainRewrittenWithTranscriptAndCWD(t *testing.T) {
 
 	memoryContext(cwd, sid, tr, time.Now())
 
-	chain := filepath.Join(memory.StateDir(), "last-session")
+	chain := filepath.Join(memstore.StateDir(), "last-session")
 	e, ok := readChain(chain)
 	if !ok || e.sessionID != sid || e.transcriptPath != tr || e.cwd != cwd {
 		t.Errorf("chain = %+v ok=%v, want {%s %s %s}", e, ok, sid, tr, cwd)
@@ -1112,7 +1113,7 @@ func TestCountSubagentEditsHandlesGlobError(t *testing.T) {
 // defect where truncation at notice[:200] could produce invalid UTF-8.
 func TestDoctorNoticeTruncationPreservesUTF8(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	stateDir := memory.StateDir()
+	stateDir := memstore.StateDir()
 	if err := os.MkdirAll(stateDir, 0o755); err != nil {
 		t.Fatal(err)
 	}

@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/paths"
 )
 
@@ -58,14 +59,14 @@ func (p DreamPreview) Report() string {
 // PreviewDream computes DreamPreview for root without writing anything — the preview a live model
 // never needs to run itself.
 func PreviewDream(root string, now time.Time) DreamPreview {
-	dir := Dir(root)
+	dir := memstore.Dir(root)
 	p := DreamPreview{Dir: dir, Oversized: Stat(root).Oversized}
-	if !IsHomeBank(root) {
+	if !memstore.IsHomeBank(root) {
 		p.HomeOversized = HomeBankStat().Oversized
 	}
 	for name, capLines := range promoteCaps {
 		n, _ := previewOverflowCount(filepath.Join(dir, name), capLines)
-		if IsHomeBank(root) {
+		if memstore.IsHomeBank(root) {
 			p.Archivable += n
 		} else {
 			p.Promotable += n
@@ -118,7 +119,7 @@ func IsDreamChild() bool {
 
 // DreamStampPath records the last consolidation time.
 func DreamStampPath(root string) string {
-	return filepath.Join(StateDir(), "last-dream-"+filepath.Base(Dir(root)))
+	return filepath.Join(memstore.StateDir(), "last-dream-"+filepath.Base(memstore.Dir(root)))
 }
 
 func dreamStamp(root string) (time.Time, bool) {
@@ -136,7 +137,7 @@ func DreamDue(cwd string, now time.Time) bool {
 	if ok && now.Sub(stamp) < dreamInterval {
 		return false
 	}
-	return NewestMtime(Dir(cwd)).After(stamp) || NewestMtime(HomeBankDir()).After(stamp)
+	return NewestMtime(memstore.Dir(cwd)).After(stamp) || NewestMtime(memstore.HomeBankDir()).After(stamp)
 }
 
 // DreamOptions drive one consolidation.
@@ -167,7 +168,7 @@ func Dream(o DreamOptions) error {
 		o.Timeout = UpdateTimeout
 	}
 	var runErr error
-	lockErr := paths.WithFileLock(lockPath(Dir(o.CWD)), func() error {
+	lockErr := paths.WithFileLock(lockPath(memstore.Dir(o.CWD)), func() error {
 		now := time.Now()
 		n, err := PromoteLocalToGlobal(o.CWD, now)
 		if err != nil {

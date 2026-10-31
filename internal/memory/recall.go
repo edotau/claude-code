@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/textutil"
 )
@@ -39,7 +40,7 @@ func RecallPicks(root, session, query string, semantic, explain bool) ([]RecallP
 	if len(ranked) == 0 {
 		return nil, trace
 	}
-	counts := ReturnCounts([]string{Dir(root), HomeBankDir()}, time.Now())
+	counts := ReturnCounts([]string{memstore.Dir(root), memstore.HomeBankDir()}, time.Now())
 	picks := selectRecall(session, terms, ranked, sem, semSeen, counts, tr)
 	trace.Silent = len(picks) == 0
 	return picks, trace

@@ -14,6 +14,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/memstore"
 )
 
 // e2eEnv is one isolated world: the built binary, a temp config/home, and a temp git repo as project and cwd.
@@ -172,8 +174,8 @@ func TestE2EMemoryLifecycle(t *testing.T) {
 			t.Errorf("init output names no bank:\n%s", out)
 		}
 		bankDir = strings.TrimSpace(e.mustRun(t, "", "memory", "path"))
-		if rel, err := filepath.Rel(StoreDir(), bankDir); err != nil || strings.HasPrefix(rel, "..") {
-			t.Fatalf("bank dir %s is not under the store %s", bankDir, StoreDir())
+		if rel, err := filepath.Rel(memstore.StoreDir(), bankDir); err != nil || strings.HasPrefix(rel, "..") {
+			t.Fatalf("bank dir %s is not under the store %s", bankDir, memstore.StoreDir())
 		}
 		for _, name := range BankFiles() {
 			if _, err := os.Stat(filepath.Join(bankDir, name)); err != nil {
@@ -193,7 +195,7 @@ func TestE2EMemoryLifecycle(t *testing.T) {
 		if !strings.Contains(ctx, "Session memory bank") || !strings.Contains(ctx, filepath.Base(bankDir)) {
 			t.Errorf("additionalContext does not name the bank %s:\n%s", filepath.Base(bankDir), ctx)
 		}
-		link := filepath.Join(cfg, "projects", ProjectSlug(repo), "memory")
+		link := filepath.Join(cfg, "projects", memstore.ProjectSlug(repo), "memory")
 		if fi, err := os.Lstat(link); err != nil || fi.Mode()&fs.ModeSymlink == 0 {
 			t.Fatalf("native link %s: %v (mode %v)", link, err, fi)
 		}
@@ -249,7 +251,7 @@ func TestE2EMemoryLifecycle(t *testing.T) {
 	})
 
 	t.Run("promote", func(t *testing.T) {
-		homeBank := HomeBankDir()
+		homeBank := memstore.HomeBankDir()
 		beforeLocal, beforeHome := dirHashes(t, bankDir), dirHashes(t, homeBank)
 		e.mustRun(t, "", "memory", "promote", factID, "--to", "home", "--dry-run")
 		if got := dirHashes(t, bankDir); !equalSnap(got, beforeLocal) {

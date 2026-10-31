@@ -1,6 +1,7 @@
 ---
 paths:
   - "internal/memory/**"
+  - "internal/memstore/**"
   - "skills/reflection/**"
 ---
 # Memory Bank — Session-to-Session Store (`~/.claude/memory/<repo>/`)

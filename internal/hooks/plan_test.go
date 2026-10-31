@@ -3,7 +3,6 @@ package hooks
 import (
 	"bytes"
 	"encoding/json"
-	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/plans"
 	"io"
 	"os"
@@ -15,6 +14,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/audit"
+	"github.com/edotau/claude-code/internal/memstore"
 )
 
 // planPayload is the real PostToolUse shape: ExitPlanMode's tool_input carries plan + planFilePath.
@@ -295,7 +295,7 @@ func planRepo(t *testing.T) (repo, plan string) {
 	if out, err := exec.Command("git", "init", "-q", repo).CombinedOutput(); err != nil {
 		t.Fatalf("git init: %v %s", err, out)
 	}
-	dir := plans.Home(memory.GitToplevel(repo))
+	dir := plans.Home(memstore.GitToplevel(repo))
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)
 	}

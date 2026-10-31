@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/edotau/claude-code/internal/memstore"
 )
 
 type segMode uint8
@@ -31,11 +33,11 @@ func corpusFiles(root string) []corpusFile {
 			out = append(out, corpusFile{bank, filepath.Join(dir, name), segEntries})
 		}
 	}
-	if !IsHomeBank(root) {
-		banks("local", Dir(root))
+	if !memstore.IsHomeBank(root) {
+		banks("local", memstore.Dir(root))
 	}
-	banks("home", HomeBankDir())
-	archived, _ := filepath.Glob(filepath.Join(Dir(root), "archive", "*.md"))
+	banks("home", memstore.HomeBankDir())
+	archived, _ := filepath.Glob(filepath.Join(memstore.Dir(root), "archive", "*.md"))
 	for _, path := range archived {
 		out = append(out, corpusFile{"archive", path, segEntries})
 	}
