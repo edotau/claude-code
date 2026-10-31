@@ -27,6 +27,7 @@ type Task struct {
 	Sha        string
 	Claim      string // inner text of a working:/finished: comment
 	Partial    []string
+	UserMark   string // "ticked <RFC3339>" or "unticked <RFC3339>" from a <!-- user: ... --> comment
 }
 
 // Plan is one markdown file's parsed checklist.
@@ -55,6 +56,7 @@ var (
 	datedName  = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}-.*\.md$`)
 	claimRe    = regexp.MustCompile(`(?i)<!--\s*(?:working|finished):.*?-->`)
 	partialRe  = regexp.MustCompile(`(?i)<!--\s*partly landed:\s*(.*?)\s*-->`)
+	userRe     = regexp.MustCompile(`(?i)<!--\s*user:\s*((?:un)?ticked\s+\S+)\s*-->`)
 	claimWord  = regexp.MustCompile(`(?i)^(?:working|finished):`)
 	partialKey = regexp.MustCompile(`(?i)^partly landed:\s*(.*)$`)
 	ownNote    = regexp.MustCompile(`\s*\([^)]*\)\s*$`) // "cli.go (verb row only)" owns cli.go
@@ -104,8 +106,12 @@ func ParseBytes(path string, b []byte) Plan {
 			end = j
 		}
 		text += textSb92.String()
+		um := userRe.FindStringSubmatch(text)
 		t := Task{Start: i, End: end, Done: m[2] == "x" || m[2] == "X"}
 		t.ID, t.Title, t.Owns, t.Sha, t.Claim, t.Partial = parseTaskText(text)
+		if um != nil {
+			t.UserMark = um[1]
+		}
 		p.Tasks = append(p.Tasks, t)
 		i = end
 	}

@@ -64,6 +64,11 @@ func TestArchitectureEndToEnd(t *testing.T) {
 	writeArchFile(t, root, "skills/synced/child/f.txt", "x")
 	writeArchFile(t, root, "skills/other/child/f.txt", "x")
 
+	orig := gitListFiles
+	gitListFiles = func(string) ([]string, error) {
+		return []string{"internal/a/a.go", "internal/c/c.go", "README.md"}, nil
+	}
+	t.Cleanup(func() { gitListFiles = orig })
 	s := newTestServer(t, Options{ClaudeDir: root, Verbs: func() any { return []any{"v"} }}, nil)
 	r, body := getArch(t, s) // a<->b cycle must not hang the layer pass
 
@@ -76,7 +81,7 @@ func TestArchitectureEndToEnd(t *testing.T) {
 	if len(r.Verbs) != 1 {
 		t.Errorf("verbs = %v, want the injected tree", r.Verbs)
 	}
-	for _, p := range []string{"internal/empty", "internal/bad", "internal/c"} {
+	for _, p := range []string{"internal/bad", "internal/c"} {
 		if _, ok := archDirByPath(r.Scan, p); !ok {
 			t.Errorf("dirs missing %s", p)
 		}
@@ -98,15 +103,11 @@ func TestArchitectureEndToEnd(t *testing.T) {
 	if strings.Join(a.ImportedBy, ",") != "internal/b" || len(b.External) != 1 || b.External[0] != "github.com/x/y" {
 		t.Errorf("a.importedBy=%v b.external=%v", a.ImportedBy, b.External)
 	}
-	if len(a.GoFiles) != 1 || a.GoFiles[0] != (archFile{Name: "a.go", Lines: 4}) {
-		t.Errorf("a.goFiles = %+v, want only non-test a.go with 4 lines", a.GoFiles)
+	if _, ok := archDirByPath(r.Scan, "internal/empty"); ok {
+		t.Errorf("dirs must hold only directories with Go files")
 	}
-	if !strings.Contains(body, `"path":"internal/empty"`) || strings.Contains(body, `"goFiles":null`) {
-		t.Errorf("goFiles must be [] not null: %s", body)
-	}
-	tree := strings.Join(r.Scan.Tree, ",")
-	if !strings.Contains(tree, "skills/synced") || strings.Contains(tree, "skills/synced/child") || !strings.Contains(tree, "skills/other/child") {
-		t.Errorf("tree = %s, want synced listed without children, other expanded", tree)
+	if len(r.Scan.Files) != 3 || r.Scan.Files[0] != (archFile{Path: "README.md"}) || r.Scan.Files[1] != (archFile{Path: "internal/a/a.go", Lines: 4}) {
+		t.Errorf("files = %+v, want sorted list with lines on .go only", r.Scan.Files)
 	}
 }
 
