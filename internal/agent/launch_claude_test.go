@@ -378,3 +378,43 @@ func TestClaudeShellEndpointBeatsVault(t *testing.T) {
 		t.Error("credential survived the scrub")
 	}
 }
+
+func TestClaudeShellEndpointGetsNoProfileCredential(t *testing.T) {
+	hermetic(t, `{"fallback": [], "providers": {"anthropic": {"gw": {"protocol": "anthropic", "base_url": "https://gw.example/anthropic",
+		"auth": {"type":"key", "env": "TEST_GW_KEY"}, "models": {"opus": "claude-opus-4-6"}}}}}`)
+	t.Setenv("TEST_GW_KEY", "k")
+	t.Setenv("ANTHROPIC_BASE_URL", "https://shell.example")
+	p, err := Claude(context.Background(), LaunchOptions{Provider: "gw"}, []string{"-p", "hi"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(p.Overlay) != 0 || slices.Contains(p.Argv, "--settings") {
+		t.Errorf("foreign ANTHROPIC_BASE_URL still gets the profile apiKeyHelper: argv %q overlay %s", p.Argv, p.Overlay)
+	}
+	if _, ok := p.Set["ANTHROPIC_CUSTOM_HEADERS"]; ok {
+		t.Error("foreign ANTHROPIC_BASE_URL still gets the harness headers")
+	}
+	if !sameEndpoint("https://GW.example/anthropic/", "https://gw.example/anthropic") || sameEndpoint("https://gw.example:8443", "https://gw.example") {
+		t.Error("sameEndpoint must ignore host case and a trailing slash, but not a port")
+	}
+}
+
+// TestAnthropicOAuthWithheldFromShellEndpoint: --oauth must not inject the vault token for a foreign shell base URL.
+func TestAnthropicOAuthWithheldFromShellEndpoint(t *testing.T) {
+	hermetic(t, `{"fallback": [], "providers": {"anthropic": {"max": {"protocol": "anthropic", "provider": "anthropic",
+		"base_url": "https://api.anthropic.com", "auth": {"type":"cli"}, "models": {"opus": "claude-opus-4-6"}}}}}`)
+	t.Setenv("ANTHROPIC_BASE_URL", "https://shell.example")
+	o, rest, err := ParseAnthropicArgs([]string{"--oauth", "-p", "hi"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := Anthropic(context.Background(), o, rest, "vault-oauth-token")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for k, v := range p.Set {
+		if v == "vault-oauth-token" {
+			t.Fatalf("vault OAuth token sent to a foreign shell endpoint under %s", k)
+		}
+	}
+}

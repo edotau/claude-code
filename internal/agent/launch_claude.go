@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
@@ -164,6 +165,10 @@ func keepShellEndpoint(plan *Plan, o LaunchOptions) {
 	if o.Model == "" {
 		keep = append(keep, "ANTHROPIC_MODEL")
 	}
+	if base := strings.TrimSpace(os.Getenv("ANTHROPIC_BASE_URL")); base != "" && !sameEndpoint(base, plan.Set["ANTHROPIC_BASE_URL"]) {
+		plan.ForeignBase = true
+		dropHarnessCredential(plan)
+	}
 	for _, k := range keep {
 		if strings.TrimSpace(os.Getenv(k)) == "" {
 			continue
@@ -172,6 +177,29 @@ func keepShellEndpoint(plan *Plan, o LaunchOptions) {
 		plan.Unset = slices.DeleteFunc(plan.Unset, func(u string) bool { return u == k })
 		plan.Keep = append(slices.Clone(plan.Keep), k)
 	}
+}
+
+// sameEndpoint compares two base URLs by scheme, host and path, ignoring case in the host and a trailing slash.
+func sameEndpoint(a, b string) bool {
+	ua, errA := url.Parse(a)
+	ub, errB := url.Parse(b)
+	if errA != nil || errB != nil {
+		return a == b
+	}
+	return strings.EqualFold(ua.Scheme, ub.Scheme) && strings.EqualFold(ua.Host, ub.Host) &&
+		strings.TrimRight(ua.Path, "/") == strings.TrimRight(ub.Path, "/")
+}
+
+// dropHarnessCredential strips the apiKeyHelper, headers and setup-token so a foreign endpoint never gets them.
+func dropHarnessCredential(plan *Plan) {
+	if len(plan.Argv) >= 2 && plan.Argv[0] == "--settings" && plan.Argv[1] == plan.OverlayPath {
+		plan.Argv = slices.Clone(plan.Argv[2:])
+	}
+	plan.Overlay, plan.OverlayPath = nil, ""
+	for _, k := range []string{"ANTHROPIC_CUSTOM_HEADERS", "CLAUDE_CODE_API_KEY_HELPER_TTL_MS", oauthKey} {
+		delete(plan.Set, k)
+	}
+	plan.Warnings = append(plan.Warnings, "shell ANTHROPIC_BASE_URL kept: the profile credential is withheld; pass your own with --keep-env")
 }
 
 // configDirEnvIsDefault: an explicit CLAUDE_CONFIG_DIR=~/.claude makes claude write a stray ~/.claude/.claude.json.
