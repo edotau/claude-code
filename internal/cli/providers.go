@@ -12,6 +12,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/preflight"
+	"github.com/edotau/claude-code/internal/configure"
 	"github.com/edotau/claude-code/internal/copilotsdk"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
@@ -614,7 +615,8 @@ func cmdSwitch(args []string) int {
 	if dryRun {
 		return printRecordDiff(apply, keptOff(reg, agent.AgentRecords(), args[0]))
 	}
-	if err := agent.UpdateAgentRecords(apply); err != nil {
+	move, _ := switchTargets(reg, agent.AgentRecords(), args[0])
+	if _, err := configure.ApplyProfile(move, args[0]); err != nil {
 		return fail("%v", err)
 	}
 	providers.AuditSwitch(args[0])

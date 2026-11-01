@@ -190,7 +190,7 @@ func TestDbxPageRowsAndDispatch(t *testing.T) {
 	for _, r := range f.rows[1] {
 		labels = append(labels, r[0])
 	}
-	if strings.Join(labels, "|") != "Set up|Login|Paste PAT|Mint now|Copy token|Apply to agents" {
+	if strings.Join(labels, "|") != "Set up|Login|Paste PAT|Mint now|Copy token|Apply to agents|Identity" {
 		t.Errorf("actions = %v", labels)
 	}
 	out := dbxOut(d)
@@ -520,5 +520,35 @@ func TestDbxEnvPageFirstRowIsSetUp(t *testing.T) {
 	}
 	if strings.Join(f.calls, ",") != "login:dev,mint:dev" {
 		t.Errorf("calls = %v", f.calls)
+	}
+}
+
+// Given the Identity action with sp, a client id and a secret, one save writes the row and seals the M2M secret
+// without printing it.
+func TestDbxIdentitySavesRowAndSealedSecret(t *testing.T) {
+	d := dbxEnv(t)
+	f := &dbxFake{secret: "sp-secret-VALUE"}
+	installDbxFake(t, f)
+	dbxSecret = func(prompt string, _ func(string) string) (string, error) {
+		if strings.Contains(prompt, "client id") {
+			return "sp-client-1", nil
+		}
+		return f.secret, nil
+	}
+	f.picks = []int{6, 2, -1} // Identity -> sp
+	runDatabricksEnv(d, "dev")
+	p := d.reg.Providers["dev"]
+	if p.Identity != providers.IdentitySP || p.Auth.SPClientID != "sp-client-1" {
+		t.Errorf("row identity=%q spClientId=%q out=%q", p.Identity, p.Auth.SPClientID, dbxOut(d))
+	}
+	got, ok, _ := vault.ReadSecret(providers.SecretName(providers.GroupDatabricks, "dev", providers.AuthM2M))
+	if !ok || got == "" {
+		t.Error("M2M secret not stored")
+	}
+	if strings.Contains(dbxOut(d), "sp-secret-VALUE") {
+		t.Errorf("secret printed: %q", dbxOut(d))
+	}
+	if err := dbxSaveIdentity(d, "dev", providers.IdentitySP, "", ""); err == nil {
+		t.Error("sp without a client id was accepted")
 	}
 }

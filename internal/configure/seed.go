@@ -108,16 +108,11 @@ func runSeed(d *dialog) bool {
 
 // saveSeed stores choice's profiles in one update, leaving every other record field as it was.
 func saveSeed(d *dialog, choice map[string]string) bool {
-	err := agentpkg.UpdateAgentRecords(func(m map[string]agentpkg.AgentRecord) {
-		for a, p := range choice {
-			r := m[a]
-			r.Profile = p
-			m[a] = r
+	for a, p := range choice {
+		if _, err := ApplyProfile([]string{a}, p); err != nil {
+			d.printf("seed: %v\n", err)
+			return false
 		}
-	})
-	if err != nil {
-		d.printf("seed: %v\n", err)
-		return false
 	}
 	d.println("agent profiles saved")
 	return true
@@ -152,16 +147,7 @@ func seedRow() homeRow {
 
 // seedFromSignIn records profile as agent's Profile after a successful sign-in, changing no other field.
 func seedFromSignIn(d *dialog, agent, profile string) {
-	err := agentpkg.UpdateAgentRecords(func(m map[string]agentpkg.AgentRecord) {
-		r := m[agent]
-		r.Profile = profile
-		m[agent] = r
-	})
-	if err != nil {
-		d.printf("%s: %v\n", agent, err)
-		return
-	}
-	if err := agentpkg.ClearLastProfilesFor(agent); err != nil {
+	if _, err := ApplyProfile([]string{agent}, profile); err != nil {
 		d.printf("%s: %v\n", agent, err)
 		return
 	}

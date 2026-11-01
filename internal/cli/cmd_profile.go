@@ -7,6 +7,7 @@ import (
 
 	agentpkg "github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/preflight"
+	"github.com/edotau/claude-code/internal/configure"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 	"github.com/edotau/claude-code/internal/vault"
@@ -29,10 +30,7 @@ func cmdAgentProfile(agent string, args []string) int {
 	switch {
 	case *unpin:
 		own := vault.OwnLoginProfiles[agent] // an external agent's cleared profile is its own login, not off
-		if err := setAgentProfile(agent, own); err != nil {
-			return fail("%s profile: %v", agent, err)
-		}
-		if err := agentpkg.ClearLastProfilesFor(agent); err != nil {
+		if _, err := configure.ApplyProfile([]string{agent}, own); err != nil {
 			return fail("%s profile: %v", agent, err)
 		}
 		fmt.Printf("%s: profile cleared (own login)\n", agent)
@@ -64,10 +62,7 @@ func cmdAgentProfile(agent string, args []string) int {
 	if row := reg.Providers[pos[0]]; row != nil && agent != "claude" && !agentpkg.CanServe(agent, row) {
 		return fail("%s profile: %s cannot serve profile %q", agent, agent, pos[0])
 	}
-	if err := setAgentProfile(agent, pos[0]); err != nil {
-		return fail("%s profile: %v", agent, err)
-	}
-	if err := agentpkg.ClearLastProfilesFor(agent); err != nil {
+	if _, err := configure.ApplyProfile([]string{agent}, pos[0]); err != nil {
 		return fail("%s profile: %v", agent, err)
 	}
 	fmt.Printf("%s: now on %s; relaunch `claude-code %s` to apply\n", agent, pos[0], agent)
@@ -95,15 +90,6 @@ func identityNote(profile string) string {
 	return " · identity " + mode
 }
 
-// setAgentProfile writes profile into agent's record, leaving its other fields.
-func setAgentProfile(agent, profile string) error {
-	return agentpkg.UpdateAgentRecords(func(m map[string]agentpkg.AgentRecord) {
-		r := m[agent]
-		r.Profile = profile
-		m[agent] = r
-	})
-}
-
 // cmdAgentOnOff is `<agent> on|off`: off clears the record's profile, on sets the own login; claude is always on.
 func cmdAgentOnOff(agent string, on bool, args []string) int {
 	verb, value := "off", agentpkg.AgentOff
@@ -127,7 +113,7 @@ func cmdAgentOnOff(agent string, on bool, args []string) int {
 	if on {
 		profile = vault.OwnLoginProfiles[agent]
 	}
-	if err := setAgentProfile(agent, profile); err != nil {
+	if _, err := configure.ApplyProfile([]string{agent}, profile); err != nil {
 		return fail("%s %s: %v", agent, verb, err)
 	}
 	if on {

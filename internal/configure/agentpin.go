@@ -86,13 +86,13 @@ func writeAgentField(d *dialog, agent, field, val string) (bool, error) {
 	if reflect.DeepEqual(rec, next) {
 		return false, nil
 	}
-	if err := agentpkg.SetAgentRecord(agent, next); err != nil {
-		return false, err
-	}
 	if field == "PROFILE" {
-		if err := agentpkg.ClearLastProfilesFor(agent); err != nil {
+		_, err := ApplyProfile([]string{agent}, val)
+		if err != nil {
 			return false, err
 		}
+	} else if err := agentpkg.SetAgentRecord(agent, next); err != nil {
+		return false, err
 	}
 	d.printf("  %s %s: %s\n", agent, strings.ToLower(field), cmp.Or(val, "unset"))
 	d.changed = true
