@@ -168,7 +168,7 @@ func pickCopilotModel(d *dialog) {
 			d.printf("copilot: %s lists no usable models\n", cmp.Or(cat.Source, "SDK catalog"))
 			return
 		}
-		j, err := pick(d, title, rows, start)
+		j, err := d.shell().Pick(title, rows, start)
 		if err != nil || j < 0 {
 			return
 		}
@@ -240,7 +240,7 @@ func pickCopilotModelFallback(d *dialog, cur string) {
 	for i, id := range ids {
 		choice[i] = [2]string{id, map[bool]string{true: "current", false: ""}[id == cur]}
 	}
-	j, err := pick(d, "copilot — model (opencode catalog)", choice)
+	j, err := d.shell().Pick("copilot — model (opencode catalog)", choice)
 	if err != nil || j < 0 {
 		return
 	}
@@ -267,7 +267,7 @@ func pickModel(d *dialog, name string, p *providers.Provider, claude bool) {
 		for i, s := range aliases {
 			rows[i] = [2]string{s, padTo(aliasUse[s], 42) + currentModel(d, p, claude, s)}
 		}
-		idx, err := pick(d, name+" — model per alias ("+p.Name+")", rows)
+		idx, err := d.shell().Pick(name+" — model per alias ("+p.Name+")", rows)
 		if err != nil || idx < 0 {
 			return
 		}
@@ -281,7 +281,7 @@ func pickModel(d *dialog, name string, p *providers.Provider, claude bool) {
 		for i, id := range ids {
 			choice[i] = [2]string{id, map[bool]string{true: "current", false: ""}[id == cur]}
 		}
-		j, err := pick(d, name+" — "+aliases[idx]+" model alias", choice)
+		j, err := d.shell().Pick(name+" — "+aliases[idx]+" model alias", choice)
 		if err != nil || j < 0 {
 			continue
 		}
