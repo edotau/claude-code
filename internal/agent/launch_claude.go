@@ -153,7 +153,25 @@ func Claude(ctx context.Context, o LaunchOptions, args []string) (Plan, error) {
 	}
 	plan.Argv = append(plan.Argv, args...)
 	plan.Keep = o.KeepEnv
+	keepShellEndpoint(&plan, o)
 	return plan, nil
+}
+
+// keepShellEndpoint lets a shell ANTHROPIC_MODEL (no --model flag) or ANTHROPIC_BASE_URL win over the vault resolution;
+// credentials stay scrubbed.
+func keepShellEndpoint(plan *Plan, o LaunchOptions) {
+	keep := []string{"ANTHROPIC_BASE_URL"}
+	if o.Model == "" {
+		keep = append(keep, "ANTHROPIC_MODEL")
+	}
+	for _, k := range keep {
+		if strings.TrimSpace(os.Getenv(k)) == "" {
+			continue
+		}
+		delete(plan.Set, k)
+		plan.Unset = slices.DeleteFunc(plan.Unset, func(u string) bool { return u == k })
+		plan.Keep = append(slices.Clone(plan.Keep), k)
+	}
 }
 
 // configDirEnvIsDefault: an explicit CLAUDE_CONFIG_DIR=~/.claude makes claude write a stray ~/.claude/.claude.json.

@@ -2,6 +2,7 @@ package agent
 
 import (
 	"fmt"
+	"os"
 	"slices"
 	"strings"
 
@@ -20,10 +21,20 @@ type ModelAsk struct {
 	Applied bool
 }
 
-// AgentModelPin is the agent's own model (its vault record's model), or "" when none is set.
-func AgentModelPin(agent string) string { return GetAgentRecord(agent).Model }
+// agentModelEnv is each CLI agent's own model knob; claude's ANTHROPIC_MODEL is handled in Claude().
+var agentModelEnv = map[string]string{
+	"codex": "CODEX_MODEL", "copilot": "COPILOT_MODEL", "gemini": "GEMINI_MODEL", "opencode": "OPENCODE_MODEL",
+}
 
-// ResolveAgentModel is the one rule for the model an agent runs: flag > the agent's model pin > Target.Model,
+// AgentModelPin is the agent's own model: its shell model env (local config) over the vault record's model, or "".
+func AgentModelPin(agent string) string {
+	if v := strings.TrimSpace(os.Getenv(agentModelEnv[agent])); v != "" && agentModelEnv[agent] != "" {
+		return v
+	}
+	return GetAgentRecord(agent).Model
+}
+
+// ResolveAgentModel is the one rule for the model an agent runs: flag > the agent's shell model env > its vault pin > Target.Model,
 // spelled for Target.Provider. A model alias the provider lacks keeps Target.Model and says so in the note.
 func ResolveAgentModel(a ModelAsk) (providers.Target, string) {
 	t, p := a.Target, a.Target.Provider
