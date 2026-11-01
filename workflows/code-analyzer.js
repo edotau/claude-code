@@ -2,7 +2,7 @@ export const meta = {
   name: 'code-analyzer',
   description: 'Audit a change set: parallel scoped auditors → refute each finding → per-package implementer, then test agent → gate loop',
   whenToUse:
-    'Post-refactor or pre-merge audits over a commit range (diff lenses) or a whole path set (code lenses: correctness, failure-modes, contracts). ADK shape: Parallel[auditors] → Sequential[refute pipeline, Parallel[per package: fix → test], Loop gate], looped in-script over rounds. args: {range: "main..HEAD" | paths: [...] | findings (none of the three = the working-tree diff), cwd, packages: ["internal/x", …], dimensions?: [{key, prompt, effort?}], chunkChars?: 50000, gate? (auto-detected), maxIterations?, fix: true, minFix: "medium", rounds?: 2 (re-audits the files each round fixed until dry/stalled/capped), refuters?: ["codex"] (second-agent refuter via code-agent, smoke-tested, dropped when unhealthy), refuteBatch?: 6}. findings skips straight to Fix; noTest on every finding in a package skips its test agent; tests?: true (false skips the test agent for every package). fix:false stops after Refute (a review-only run; pass dimensions with a security lens for a security pass); lows below minFix are returned as deferred. Returns exit: dry|no-fix|stalled|nothing-changed|blocked|capped|error, round, rounds: [...] (one entry per round), agents, unverified.',
+    'Post-refactor or pre-merge audits over a commit range (diff lenses) or a whole path set (code lenses: correctness, failure-modes, contracts). ADK shape: Parallel[auditors] → Sequential[refute pipeline, Parallel[per package: fix → test], Loop gate], looped in-script over rounds. args: {range: "main..HEAD" | paths: [...] | findings (none of the three = the working-tree diff), cwd, packages: ["internal/x", …], dimensions?: [{key, prompt, effort?}], chunkChars?: 50000, gate? (auto-detected), maxIterations?, fix: true, minFix: "medium", rounds?: 2 (re-audits the files each round fixed until dry/stalled/capped), refuters?: ["codex"] (second-agent refuter via code-agent, smoke-tested, dropped when unhealthy), profiles?: ["name"] (vault profiles the refuters rotate across by batch; each smoke-tested, a failing one is dropped), auditModel?/refuteModel?: haiku|sonnet|opus (Find auditors / in-workflow refuters, default sonnet), refuteBatch?: 6}. findings skips straight to Fix; noTest on every finding in a package skips its test agent; tests?: true (false skips the test agent for every package). fix:false stops after Refute (a review-only run; pass dimensions with a security lens for a security pass); lows below minFix are returned as deferred. Returns exit: dry|no-fix|stalled|nothing-changed|blocked|capped|error, round, rounds: [...] (one entry per round), agents, unverified.',
   phases: [
     { title: 'Scope', detail: 'one cheap agent per package group returns per-file sizes; the script packs them into ≤50 KB chunks' },
     { title: 'Find', detail: 'one auditor per (dimension × chunk) reading its chunk in-context — agent count scales with diff size' },
@@ -32,6 +32,17 @@ const MAX_ITER = Number.isInteger(a.maxIterations) && a.maxIterations > 0 ? a.ma
 const ROUNDS = Number.isInteger(a.rounds) && a.rounds > 0 ? a.rounds : 2
 let PRIOR = new Set(Array.isArray(a.prior) ? a.prior : [])
 const REFUTERS = (Array.isArray(a.refuters) ? a.refuters : []).filter(l => ['codex', 'gemini', 'opencode', 'copilot'].includes(l))
+// auditModel/refuteModel pick the Find auditors' and in-workflow refuters' model; routeModel() still steps down on pressure.
+for (const k of ['auditModel', 'refuteModel']) {
+  if (a[k] !== undefined && !['haiku', 'sonnet', 'opus'].includes(a[k])) return { exit: 'error', error: `code-analyzer: args.${k} must be haiku|sonnet|opus`, rounds: [] }
+}
+const AUDIT = a.auditModel === 'haiku' ? 'haiku' : a.auditModel === 'opus' ? 'opus' : 'sonnet'
+const REFUTE = a.refuteModel === 'haiku' ? 'haiku' : a.refuteModel === 'opus' ? 'opus' : 'sonnet'
+// profiles: vault profile names the second-agent refuters rotate across, round-robin by refute batch.
+if (a.profiles !== undefined && (!Array.isArray(a.profiles) || a.profiles.some(p => typeof p !== 'string' || !/^[A-Za-z0-9._-]+$/.test(p)))) {
+  return { exit: 'error', error: 'code-analyzer: args.profiles must be an array of profile names ([A-Za-z0-9._-]+)', rounds: [] }
+}
+const PROFILES = [...new Set(a.profiles || [])]
 const TEST_GLOBS = '*_test.go, testdata/, test_*.py, *_test.py, tests/, conftest.py, *.test.*, *.spec.*, __tests__/, fixtures/'
 const SRC_RE = /\.(go|py|ts|tsx|js|jsx|mjs|rs|java)$/
 const TEST_RE = /(_test\.(go|py)$|\.(test|spec)\.[a-z]+$|(^|\/)test_[^/]*\.py$|(^|\/)(tests?|__tests__|testdata|fixtures)\/)/
@@ -162,16 +173,22 @@ const norm = f => ({
 const key = f => relPath(f.file) + ':' + f.title
 const REFUTE_BATCH = a.refuteBatch || 6
 
-// ── Agent smoke: each refuter agent proves it is alive ONCE for the whole run, not per round ──
+// ── Agent smoke: each refuter agent (per profile when profiles is set) proves it is alive ONCE for the whole run, not per round ──
 const agentStatus = []
 const AGENTS_OK = []
+const PROFILES_OK = {} // agent → healthy profiles ([''] = the default route when no profiles are given)
 // An unregistered or crashing agent is a dropped agent, never a dead audit (workflow() throws on an unknown name).
 const askAgent = opts => workflow('code-agent', opts).catch(e => ({ ok: false, error: String((e && e.message) || e) }))
 for (const ag of REFUTERS) {
-  const s = await askAgent({ agent: ag, cwd: CWD || undefined, task: 'Reply READY only.', smoke: false, fallback: false, timeoutMin: 2 })
-  const ok = !!(s && s.ok && /READY/i.test(s.answer || ''))
-  agentStatus.push({ agent: ag, ok, reason: ok ? '' : (s && (s.error || s.reason)) || 'no result' })
-  if (ok) AGENTS_OK.push(ag)
+  PROFILES_OK[ag] = []
+  for (const pr of PROFILES.length ? PROFILES : ['']) {
+    const s = await askAgent({ agent: ag, profile: pr || undefined, cwd: CWD || undefined, task: 'Reply READY only.', smoke: false, fallback: false, timeoutMin: 2 })
+    const ok = !!(s && s.ok && /READY/i.test(s.answer || ''))
+    agentStatus.push({ agent: ag, ...(pr ? { profile: pr } : {}), ok, reason: ok ? '' : (s && (s.error || s.reason)) || 'no result' })
+    if (ok) PROFILES_OK[ag].push(pr)
+    else if (pr) log(`profile ${pr} dropped from ${ag} rotation: smoke failed`)
+  }
+  if (PROFILES_OK[ag].length) AGENTS_OK.push(ag)
 }
 if (REFUTERS.length) log(`agents: ${JSON.stringify(agentStatus)}`)
 
@@ -236,7 +253,7 @@ for (let round = 1; round <= ROUNDS; round++) {
       (u.chunk.files.length
         ? `Files: ${u.chunk.files.map(f => f.path).join(' ')}\n\n`
         : `(the scope agent returned nothing — ${FILES_MODE ? 'read the files under ' + u.group.join(' ') : 'run git diff --stat ' + (RANGE || 'HEAD~1..HEAD') + ' -- ' + (u.group.join(' ') || '.')} yourself)`),
-      { label: `find:${round}:${u.key}`, phase: 'Find', schema: FINDINGS_SCHEMA, model: routeModel('sonnet'), effort: u.dim.effort || 'low' }
+      { label: `find:${round}:${u.key}`, phase: 'Find', schema: FINDINGS_SCHEMA, model: routeModel(AUDIT), effort: u.dim.effort || 'low' }
     )
   }
   const refuteStage = (found, u) => {
@@ -255,7 +272,7 @@ for (let round = 1; round <= ROUNDS; round++) {
     const batches = []
     for (const [pkg, all] of byPkg) for (let i = 0; i < all.length; i += REFUTE_BATCH) batches.push([pkg, all.slice(i, i + REFUTE_BATCH), i / REFUTE_BATCH])
     return Promise.all(batches.map(([pkg, fs, bi]) => {
-      refuteCalls++
+      const bn = refuteCalls++ // global batch index: the profile rotation key
       const list = fs.map((f, i) => `${i}. ${f.title}\n   At: ${f.file}:${f.line}\n   Scenario: ${f.scenario}\n   Evidence: ${f.evidence}`).join('\n')
       const brief = `Try to REFUTE each of these ${fs.length} audit finding(s) in ${pkg} against the real tree${IN} (read-only); one verdict per index.\n${list}\n\n` +
         `Refuted means: the code path does not do what is claimed, the scenario cannot occur, or it is already handled; quote the line that decides it. ` +
@@ -263,9 +280,9 @@ for (let round = 1; round <= ROUNDS; round++) {
         // A "no such verb" finding once survived and its fixer rewrote a correct doc; the verb was an alias spelling.
         `A claim that a verb, flag, symbol or file does NOT exist is refuted unless a tree-wide grep (alias, registration and config tables included) AND the repo's own test or CLI output both come back empty.`
       return Promise.all([
-        agent(brief, { label: `refute:${round}:${pkg.split('/').pop()}:${bi}`, phase: 'Refute', schema: VERDICTS_SCHEMA, model: routeModel('sonnet'), effort: 'medium' }),
+        agent(brief, { label: `refute:${round}:${pkg.split('/').pop()}:${bi}`, phase: 'Refute', schema: VERDICTS_SCHEMA, model: routeModel(REFUTE), effort: 'medium' }),
         ...AGENTS_OK.map(ag => askAgent({
-          agent: ag, cwd: CWD || undefined, smoke: false, fallback: false,
+          agent: ag, profile: PROFILES_OK[ag][bn % PROFILES_OK[ag].length] || undefined, cwd: CWD || undefined, smoke: false, fallback: false,
           task: brief + '\nAnswer with ONLY one JSON object {"verdicts":[{"index":0,"refuted":true,"reason":"<quoted line>"}]} and nothing else.',
         }).then(r => {
           try {
