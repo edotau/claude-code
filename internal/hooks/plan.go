@@ -235,14 +235,14 @@ func isUndatedDraft(abs string) bool {
 	return !undatedNameRe().MatchString(filepath.Base(abs))
 }
 
-// templateHeading is one section agents/Plan.md's template requires, matched by level + a text prefix.
+// templateHeading is one section the plan template's requires, matched by level + a text prefix.
 type templateHeading struct {
 	level  int
 	prefix string
 	label  string // original "#"-prefixed spelling, for the denial message
 }
 
-// planTemplateHeadings are the sections agents/Plan.md's template requires before a draft is treated as a plan.
+// planTemplateHeadings are the sections the plan template's requires before a draft is treated as a plan.
 var planTemplateHeadings = []templateHeading{
 	{1, "Plan:", "# Plan:"},
 	{2, "Context", "## Context"},
@@ -286,13 +286,13 @@ func checkPlanTemplate(in *Input, stderr io.Writer) int {
 		}
 		fmt.Fprintf(stderr, "plan-template: BLOCKED — %s is missing %q from the plan template.\n"+
 			"Write the full template from %s before filing a draft:\n%s",
-			filepath.Base(path), want.label, filepath.Join(paths.ConfigDir(), "agents", "Plan.md"), skeletonOrHeadings())
+			filepath.Base(path), want.label, plans.TemplatePath(paths.ConfigDir()), skeletonOrHeadings())
 		return ExitBlock
 	}
 	return ExitProceed
 }
 
-// skeletonOrHeadings is the Plan.md skeleton, or the required-heading list when Plan.md is unreadable.
+// skeletonOrHeadings is the plan template, or the required-heading list when it is unreadable.
 func skeletonOrHeadings() string {
 	if sk, err := plans.Skeleton(paths.ConfigDir()); err == nil {
 		return sk
@@ -386,7 +386,7 @@ func partialFile(session string) string {
 	return filepath.Join(plansScratchDir(), paths.Slug(session, "", 80, "session")+".partial")
 }
 
-// planSkeleton injects the Plan.md skeleton on EnterPlanMode and, once per plan, on a plan-mode prompt.
+// planSkeleton injects the plan template on EnterPlanMode and, once per plan, on a plan-mode prompt.
 func planSkeleton(in *Input) Result {
 	var stderr bytes.Buffer
 	event := in.HookEventName
@@ -406,7 +406,7 @@ func planSkeleton(in *Input) Result {
 	}
 	sk, err := plans.Skeleton(paths.ConfigDir())
 	if err != nil {
-		return exitResult(ExitProceed, stderr.String()) // no Plan.md: fail open
+		return exitResult(ExitProceed, stderr.String()) // no template: fail open
 	}
 	err = os.MkdirAll(plansScratchDir(), 0o700)
 	if err == nil {
@@ -416,7 +416,7 @@ func planSkeleton(in *Input) Result {
 		fmt.Fprintf(&stderr, "plan-skeleton: %v\n", err)
 	}
 	res := exitResult(ExitProceed, stderr.String())
-	res.Context = "Plan format (agents/Plan.md) — this format replaces plan mode's suggested headings:\n" + sk
+	res.Context = "Plan format (docs/templates/plan.md) — this format replaces plan mode's suggested headings:\n" + sk
 	return res
 }
 

@@ -19,8 +19,8 @@ returns a plan in this file's template; it never edits files, commits, or runs a
 
 ## Owns
 
-- **Design and the plan template** — this file is the only place the plan template, phase rules, and the
-  `## Tasks` checklist convention are defined; every other agent that emits a plan points here instead of
+- **Design and the plan template** — the template is `docs/templates/plan.md`; this file defines the phase rules
+  and the `## Tasks` checklist convention; every other agent that emits a plan points here instead of
   restating it.
 - **Steps 0–3 of `problem-solving`** applied to planning specifically — classify the deliverable, define
   done with its verification, gather evidence from the real code, commit to one recommendation. See
@@ -70,57 +70,11 @@ pass on the drafted text (stdin; full CLI: `~/.claude/skills/evaluate-code/refer
 
 Return exactly this shape:
 
-```markdown
-# Plan: <title>
+Read [`docs/templates/plan.md`](../docs/templates/plan.md) and return a plan in exactly that shape — it is the one
+copy of the template (the plan hooks paste the same file).
 
-## Context
-
-Why this change, what it must achieve, what is out of scope.
-
-## Phases
-
-### Phase 1 — <verb> <object>
-
-**Files:** `path/to/file.go:120-145` (modify), `path/to/new.go` (create)
-**Change:** the exact edit — functions, signatures, data flow; code for anything non-obvious.
-**Verify:** live check `<command>` → expected output; then `go test ./internal/<pkg> -run '<Name>'`.
-**Agent / parallel:** `leaf: <code-worker|claude|…>, Agent: <requested agent or in-context>` (or
-`Workflow <name>`); parallel-safe with Phase N, or depends on Phase M.
-A phase that is itself a pipeline (implement+verify, audit a range, loop a gate) names the saved Workflow as its agent
-(`skills/subagent-workflows/references/saved-workflows.md`); the manager runs it only with the user's opt-in.
-
-### Phase 2 — <verb> <object>
-
-…
-
-## Risks / decisions for the user
-
-- …
-
-## Tasks
-
-A phase is a group of tasks, not a unit of work: each `### Phase` section lists its task ids. Every task is
-leaf-sized — one package (or ≤3 tightly coupled files), ≤10 findings or edits, fits one 45-minute leaf — and
-names its `leaf:` (a `subagent_type`, `code-worker` for MEDIUM+ changes), `Agent:` (requested agent or in-context)
-and `owns:` files (`skills/subagent-workflows/SKILL.md` -> Leaf types), e.g.:
-`- [ ] Phase 2.1 — Add --attach to the copilot agent — leaf: code-worker, Agent: opencode — owns: internal/agent/engine_cli.go`
-
-Tick `[x]` with the commit id as each item lands (`- [x] Phase 2.1 — … (abc1234)`); this list is the recovery
-point if a session, agent or worktree is lost. Mark an item **you** when only the user can do it. For a
-multi-lane split, see `skills/subagent-workflows/references/lane-orchestrator.md`.
-
-- [ ] Phase 1.1 — <name> — leaf: <subagent_type>, Agent: <agent> — owns: <files>
-- [ ] Phase 2.1 — <name> — leaf: <subagent_type>, Agent: <agent> — owns: <files>
-- [ ] Live check on the real surface
-- [ ] Scoped tests for the touched packages
-- [ ] Review (`claude-code codex review --adversarial --base <branch>`)
-- [ ] Full suite once
-- [ ] Commit (local; no push)
-- [ ] Handoff / `claude-code memory update`
-```
-
-Write a `Suggested slug:` line right under the H1 (e.g. `Suggested slug: problem-solving-evaluate-code-split`):
-the mirror names the file `YYYY-MM-DD-<slug>.md` from it (the H1 is only the fallback).
+Fill the template's `Suggested slug:` line (e.g. `problem-solving-evaluate-code-split`): the mirror names the file
+`YYYY-MM-DD-<slug>.md` from it (the H1 is only the fallback).
 
 ### Phase rules
 

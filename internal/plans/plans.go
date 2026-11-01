@@ -434,39 +434,22 @@ func summarize(plan Plan) Summary {
 	return s
 }
 
-// Skeleton reads the plan template from <configDir>/agents/Plan.md's first ```markdown block holding "# Plan:".
+// TemplatePath is the plan template every plan starts from, under the harness config dir.
+func TemplatePath(configDir string) string {
+	return filepath.Join(configDir, "docs", "templates", "plan.md")
+}
+
+// Skeleton reads the plan template; a file without its "# Plan:" heading is an error, not a template.
 func Skeleton(configDir string) (string, error) {
-	src := filepath.Join(configDir, "agents", "Plan.md")
+	src := TemplatePath(configDir)
 	b, err := os.ReadFile(src)
 	if err != nil {
 		return "", err
 	}
-	lines := strings.Split(string(b), "\n")
-	for i := 0; i < len(lines); i++ {
-		line := strings.TrimSpace(lines[i])
-		if !strings.HasPrefix(line, "```") || !strings.EqualFold(strings.TrimSpace(strings.TrimPrefix(line, "```")), "markdown") {
-			continue
-		}
-		var body []string
-		closed := false
-		for j := i + 1; j < len(lines); j++ {
-			if strings.HasPrefix(strings.TrimSpace(lines[j]), "```") {
-				i = j
-				closed = true
-				break
-			}
-			body = append(body, lines[j])
-		}
-		if !closed {
-			return "", fmt.Errorf("plans: %s: unterminated markdown fence", src)
-		}
-		for _, l := range body {
-			if strings.HasPrefix(l, "# Plan:") {
-				return strings.Join(body, "\n") + "\n", nil
-			}
-		}
+	if !strings.Contains(string(b), "# Plan:") {
+		return "", fmt.Errorf("plans: %s: no # Plan: heading", src)
 	}
-	return "", fmt.Errorf("plans: %s: no ```markdown block with a # Plan: heading", src)
+	return string(b), nil
 }
 
 // CommitFiles lists the files sha changed in the repo at dir.

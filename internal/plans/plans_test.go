@@ -286,61 +286,24 @@ func TestActive(t *testing.T) {
 	}
 }
 
-// TestSkeleton pulls the plan template from a config dir's agents/Plan.md, skipping a
-// decoy markdown fence that lacks "# Plan:".
+// TestSkeleton reads docs/templates/plan.md whole and refuses a file that lost its "# Plan:" heading.
 func TestSkeleton(t *testing.T) {
-	const agent = `# Plan agent
-
-Prose.
-
-` + "```markdown" + `
-# Not the template
-decoy body
-` + "```" + `
-
-More prose.
-
-` + "```markdown" + `
-# Plan: <title>
-
-## Tasks
-
-- [ ] 1.1 Do it — owns: x/y.go
-` + "```" + `
-
-Trailer.
-`
-	const want = "# Plan: <title>\n\n## Tasks\n\n- [ ] 1.1 Do it — owns: x/y.go\n"
-
-	t.Run("decoy skipped", func(t *testing.T) {
-		dir := t.TempDir()
-		writeFile(t, filepath.Join(dir, "agents", "Plan.md"), agent)
-		got, err := Skeleton(dir)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if got != want {
-			t.Fatalf("skeleton:\n%q", got)
-		}
-	})
-
-	t.Run("absent", func(t *testing.T) {
-		dir := t.TempDir()
-		writeFile(t, filepath.Join(dir, "agents", "Plan.md"), "# Agent\n\n```markdown\n# Not it\n```\n")
-		if _, err := Skeleton(dir); err == nil || !strings.Contains(err.Error(), "no ```markdown block") {
-			t.Fatalf("err=%v", err)
-		}
-	})
-
-	t.Run("missing file", func(t *testing.T) {
-		if _, err := Skeleton(t.TempDir()); err == nil {
-			t.Fatal("want error for missing agents/Plan.md")
-		}
-	})
+	const tmpl = "# Plan: <title>\n\n## Tasks\n\n- [ ] 1.1 Do it — owns: x/y.go\n"
+	dir := t.TempDir()
+	writeFile(t, TemplatePath(dir), tmpl)
+	if got, err := Skeleton(dir); err != nil || got != tmpl {
+		t.Fatalf("skeleton = %q, %v", got, err)
+	}
+	writeFile(t, TemplatePath(dir), "# Notes\n")
+	if _, err := Skeleton(dir); err == nil || !strings.Contains(err.Error(), "no # Plan: heading") {
+		t.Fatalf("err = %v, want the missing-heading error", err)
+	}
+	if _, err := Skeleton(t.TempDir()); err == nil {
+		t.Fatal("want an error for a missing template")
+	}
 }
 
-// TestRepoPlanTemplate guards the real agents/Plan.md: its markdown block must stay
-// parseable and keep the "# Plan:" heading and "## Tasks" checklist section.
+// TestRepoPlanTemplate guards the real docs/templates/plan.md: it must keep the "# Plan:" heading and "## Tasks" checklist section.
 func TestRepoPlanTemplate(t *testing.T) {
 	body, err := Skeleton(filepath.Join("..", ".."))
 	if err != nil {
