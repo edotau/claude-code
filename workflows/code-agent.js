@@ -64,7 +64,7 @@ else if (!routed && !routeState) log(a0.agent && !FALLBACK_ENABLED ? 'pressure: 
 if (!AGENTS.includes(a.agent)) return { error: 'code-agent needs args.agent in ' + AGENTS.join('|') + (routed ? ' (route picked none)' : '') }
 if (a.task.length > 90 * 1024) return { error: 'code-agent: task over 90 KiB (ask rejects prompts over 96 KiB); pass excerpts, not whole diffs' }
 const CWD = a.cwd || '.'
-const SMOKE = a.agent === 'gemini' ? a.smoke === true : a.smoke !== false
+const SMOKE = a.agent === 'gemini' || a.agent === 'codex' ? a.smoke === true : a.smoke !== false
 // gemini's opt-in smoke halves its per-call cap, so smoke + task stay within 8 minutes
 const CAP = a.agent === 'gemini' ? (SMOKE ? 4 : 8) : 3
 const MIN = Number.isInteger(a.timeoutMin) && a.timeoutMin > 0 && a.timeoutMin <= CAP ? a.timeoutMin : CAP
@@ -92,7 +92,7 @@ const run = (task, label) =>
     `Agent: ${a.agent}\n` +
       `Relay one external-model call; do NOT answer the task yourself. Write the TASK below verbatim to a scratch file with a quoted heredoc (<<'EOF'), ` +
       `${AGENTS_STEP}Then run exactly: cd ${CWD} && claude-code ask --agent ${a.agent} --format json${PROFILE ? ' --profile ' + PROFILE : ''}${VMODEL_FLAG} --workdir ${CWD} --timeout ${MIN}m${TOOLS ? ' --tools' : ''}${AGENTS_FLAG} --background - < <that file>. ` +
-      `It prints "job <id> started"; loop claude-code ${a.agent} status <id> with sleep 20 until done, then claude-code ${a.agent} result <id> (agent-verbs.md step 3). ` +
+      `It prints "job <id> started"; loop claude-code ${a.agent} status <id> with sleep 5 until done, then claude-code ${a.agent} result <id> (agent-verbs.md step 3). ` +
       `The result is ONE JSON line {agent, status, provider, model, answer, error, transport, …}. ok = exit 0 AND error empty AND answer non-empty. ` +
       `Copy status and transport verbatim. Copy answer verbatim, never summarise. error = the envelope error, or the stderr tail on a non-JSON exit. Never retry.\n\nTASK:\n${task}${AGENTS_TAIL}`,
     { label, phase: 'Agent', schema: ENVELOPE, agentType: 'code-worker', model: 'haiku', effort: 'low' }
