@@ -177,6 +177,12 @@ func (rc routeCtx) candidateCell(cand router.Candidate) (cell router.Cell, skip 
 	return cell, ""
 }
 
+// speaksResponses reports an agent whose schema lists the Responses dialect (codex): it needs a Responses route.
+func speaksResponses(agentName string) bool {
+	s, ok := LookupSchema(agentName)
+	return ok && slices.Contains(s.CLI.Dialects, providers.ProtocolResponses)
+}
+
 // profileCell validates a profile-backed candidate against the exact model: codex needs a Responses route for it,
 // any other agent a cell that already serves it; the accepted cell runs the model as the profile spells it.
 func (rc routeCtx) profileCell(cand router.Candidate, cell router.Cell) (router.Cell, string) {
@@ -185,7 +191,7 @@ func (rc routeCtx) profileCell(cand router.Candidate, cell router.Cell) (router.
 	if rc.reg != nil {
 		p = rc.reg.Providers[cand.Profile]
 	}
-	if cand.Agent == "codex" && p != nil {
+	if speaksResponses(cand.Agent) && p != nil {
 		wire := p.WireModel(rc.exact)
 		if !providers.ServesResponses(p, wire) {
 			return cell, who + ": serves no " + rc.exact + " over Responses"

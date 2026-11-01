@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	agentpkg "github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/opencode"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -45,11 +45,11 @@ func TestProfileRowOpencodeListsZenFree(t *testing.T) {
 	reg := menuTestEnv(t)
 	vaulttest.SetRecord(t, "claude", "profile", "") // menuTestEnv's legacy pin would keep re-seeding own logins
 	out := runProfile(t, reg, "opencode", "2\n")
-	if !strings.Contains(out, "2) "+agentpkg.OpencodeOwnLogin) {
+	if !strings.Contains(out, "2) "+opencode.OwnLogin) {
 		t.Errorf("picker = %q, want zen-free as row 2", out)
 	}
-	if got := vault.GetAgentRecord("opencode").Profile; got != agentpkg.OpencodeOwnLogin {
-		t.Errorf("profile = %q, want %q", got, agentpkg.OpencodeOwnLogin)
+	if got := vault.GetAgentRecord("opencode").Profile; got != opencode.OwnLogin {
+		t.Errorf("profile = %q, want %q", got, opencode.OwnLogin)
 	}
 }
 

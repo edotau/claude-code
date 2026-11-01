@@ -9,7 +9,7 @@ func init() {
 			Tools: agent.Native, Autonomous: agent.Native, DebugFile: agent.Native, Direct: agent.Native, Env: agent.Native,
 			SystemPrompt: agent.Emulated, AppendSystemPrompt: agent.Emulated, OutputSchema: agent.Native, Persona: agent.Emulated},
 		Events: []string{agent.EventStart, agent.EventText, agent.EventResult, agent.EventError}, Cost: true,
-		ResumeFormat: "agy --conversation %s", ModelsArgv: []string{"models"}, ReadNeedsTools: true,
+		ResumeFormat: "agy --conversation %s", ModelsArgv: []string{"models"}, ReadNeedsTools: true, RefusesReadOnly: true,
 		ConfigureHint: "sign in with `agy` (Google login)", DisplayName: "antigravity", LoginArgv: []string{"agy"},
 		ExtraUsage: [][2]string{{"bridge", "ingest files for a large-context task"}},
 	}})

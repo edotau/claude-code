@@ -16,7 +16,7 @@ func init() {
 			SystemPrompt: agent.Native, AppendSystemPrompt: agent.Emulated, OutputSchema: agent.Emulated, Persona: agent.Emulated},
 		Events:       []string{agent.EventStart, agent.EventText, agent.EventToolUse, agent.EventToolResult, agent.EventRetry, agent.EventResult, agent.EventError},
 		ResumeFormat: "opencode run --session %s", ModelsArgv: []string{"models"}, ReadNeedsTools: true,
-		PromptInArgv: true, DirFlag: true, Hub: true, LoginArgv: []string{"opencode", "auth", "login"},
+		PromptInArgv: true, OwnLoginProfile: OwnLogin, PinIDs: providers.RouteOpencodeSubIDs, DirFlag: true, Hub: true, LoginArgv: []string{"opencode", "auth", "login"},
 		ConfigureHint: "run `opencode auth login` (opencode Go) or `claude-code configure github` (Copilot)",
 		CatalogUsage:  "model menu: list|add|remove|import|reset|check|sync",
 		CatalogHint:   "Serving-only discovery: claude-code opencode catalog sync --profile P",

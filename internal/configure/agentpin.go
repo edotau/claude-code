@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	agentpkg "github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/opencode"
 	"github.com/edotau/claude-code/internal/providers"
 	uidialog "github.com/edotau/claude-code/internal/ui/dialog"
 	"github.com/edotau/claude-code/internal/ui/menu"
@@ -35,8 +36,8 @@ func agentPinRows(d *dialog, agent string) []billingRow {
 func agentProfileChoices(d *dialog, agent string) []string {
 	names := seedProfiles(d, agent)
 	if agent == "opencode" {
-		names = slices.DeleteFunc(names, func(n string) bool { return n == agentpkg.OpencodeOwnLogin })
-		names = slices.Insert(names, 0, agentpkg.OpencodeOwnLogin)
+		names = slices.DeleteFunc(names, func(n string) bool { return n == opencode.OwnLogin })
+		names = slices.Insert(names, 0, opencode.OwnLogin)
 		for _, id := range providers.RouteOpencodeSubIDs {
 			if !slices.Contains(names, id) {
 				names = append(names, id)
@@ -74,7 +75,7 @@ func agentActiveOn(d *dialog, agent string) {
 // signInProfile is the profile a sign-in to agent means: its own login's profile, "" when none is registered.
 func signInProfile(d *dialog, agent string) string {
 	if agent == "opencode" {
-		return agentpkg.OpencodeOwnLogin
+		return opencode.OwnLogin
 	}
 	if names := seedProfiles(d, agent); len(names) > 0 && d.reg != nil && d.reg.Providers[names[0]].Auth.Login == agent {
 		return names[0]

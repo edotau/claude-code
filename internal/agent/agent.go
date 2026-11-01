@@ -221,12 +221,13 @@ func Preamble(text string) string {
 	return "System instructions (follow them for this whole task):\n" + text + "\n\nTask:\n"
 }
 
-// RefuseReadOnly fails closed for gemini: agy has no read-only mode and reads need --tools, so tools-off is no answer.
+// RefuseReadOnly fails closed for an agent whose schema sets RefusesReadOnly: tools-off is no answer for it.
 func RefuseReadOnly(c Caps, agentName string, readOnly bool) error {
-	if !readOnly || c.ReadOnly != None || agentName != "gemini" {
+	s, ok := LookupSchema(agentName)
+	if !readOnly || c.ReadOnly != None || !ok || !s.CLI.RefusesReadOnly {
 		return nil
 	}
-	return errors.New("gemini has no read-only mode (agy cannot restrict tools); use --tools or another agent")
+	return errors.New(agentName + " has no read-only mode (" + s.CLI.Binary + " cannot restrict tools); use --tools or another agent")
 }
 
 // Run drops unsupported fields loudly, then runs r under DefaultPolicy with req.Timeout per attempt.

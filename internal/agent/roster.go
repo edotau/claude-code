@@ -59,6 +59,9 @@ type CLI struct {
 	ExtraUsage            [][2]string // extra help rows
 	CatalogUsage          string      // override for the catalog help row
 	CatalogHint           string      // extra hint on the catalog page
+	RefusesReadOnly       bool        // no read-only mode and no tools-off substitute: --read-only is refused
+	OwnLoginProfile       string      // the pin naming the agent's own sign-in when no registry row does; "" = none
+	PinIDs                []string    // extra ids accepted as this agent's profile pin besides registry rows
 }
 
 // rosterEntry is a registered row with its roster position.
@@ -384,16 +387,13 @@ func AgentPins() map[string]router.PinSpec {
 	return out
 }
 
-// OpencodeOwnLogin is opencode's own-login profile: the free Zen catalog then the paid ladder, as the old unset pin.
-const OpencodeOwnLogin = "zen-free"
-
-// ownLogin reports a profile that is agent's own sign-in: a registry row with Auth.Login == agent, or opencode's Zen id.
+// ownLogin reports a profile that is agent's own sign-in: its schema's OwnLoginProfile, else a row with Auth.Login == agent.
 func ownLogin(reg *providers.Registry, agent, profile string) bool {
 	if profile == "" {
 		return false
 	}
-	if agent == "opencode" {
-		return profile == OpencodeOwnLogin
+	if s, ok := LookupSchema(agent); ok && s.CLI.OwnLoginProfile != "" {
+		return profile == s.CLI.OwnLoginProfile
 	}
 	if reg == nil {
 		return false
@@ -402,12 +402,13 @@ func ownLogin(reg *providers.Registry, agent, profile string) bool {
 	return p != nil && p.Auth.Login == agent
 }
 
-// ValidAgentPin checks v as agent's profile pin: a registry profile, or for opencode also a sub id.
+// ValidAgentPin checks v as agent's profile pin: a registry profile, or its schema's own-login id or extra pin ids.
 func ValidAgentPin(reg *providers.Registry, agent, v string) error {
-	if _, ok := LookupSchema(agent); !ok {
+	s, ok := LookupSchema(agent)
+	if !ok {
 		return errUnknownAgent(agent)
 	}
-	if agent == "opencode" && (v == OpencodeOwnLogin || slices.Contains(providers.RouteOpencodeSubIDs, v)) {
+	if v != "" && v == s.CLI.OwnLoginProfile || slices.Contains(s.CLI.PinIDs, v) {
 		return nil
 	}
 	if reg == nil || reg.Providers[v] == nil {
