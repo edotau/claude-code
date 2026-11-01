@@ -61,7 +61,7 @@ budget.
 
 ## Phase 4: Plan (MEDIUM+)
 
-Feed both briefs to plan mode or `Plan`; the template is `agents/Plan.md`. Break down tasks, mark dependencies and
+Feed both briefs to plan mode or `Plan`; the template is `docs/templates/plan.md`, the rules `agents/Plan.md`. Break down tasks, mark dependencies and
 `parallel-safe: true/false`, flag migrations, breaking changes and security surface. **Gate: user approval.**
 
 ## Phase 5: Refine (opt-in, `--refine`)
