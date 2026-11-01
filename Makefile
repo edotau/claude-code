@@ -307,8 +307,8 @@ verify: audit  ## audit + doctor + proxy status
 doctor: compile  ## Harness health checks
 	$(BIN) doctor
 
-.PHONY: router
-router: compile  ## Router daemon status (UP=1 starts it)
+.PHONY: proxy
+proxy: compile  ## Proxy daemon status (UP=1 starts it)
 	@if [ -n "$(UP)" ]; then $(BIN) gateway proxy --start; fi
 	$(BIN) gateway proxy --status
 

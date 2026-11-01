@@ -28,7 +28,7 @@ const (
 // ShutdownDrain bounds a SIGTERM's wait on in-flight streams; a var so a test can shorten it.
 var ShutdownDrain = 30 * time.Second
 
-// ErrNotRunning means no healthy router answers for router.json.
+// ErrNotRunning means no healthy proxy answers for proxy.json.
 var ErrNotRunning = errors.New("proxy is not running")
 
 var ErrKeptHolder = errors.New("proxy: keeping running holder with live work")
@@ -38,7 +38,7 @@ var ErrForeignHolder = errors.New("proxy: holder is not this config dir's proxy"
 
 var terminateHolder = terminate
 
-// State is router.json: written by a serving daemon, removed when it exits.
+// State is proxy.json: written by a serving daemon, removed when it exits.
 type State struct {
 	Schema  int       `json:"schema"`
 	PID     int       `json:"pid"`
@@ -46,26 +46,35 @@ type State struct {
 	Started time.Time `json:"started"`
 }
 
-func stateFile() string { return filepath.Join(paths.StateDir(), "router.json") }
+func stateFile() string { return filepath.Join(paths.StateDir(), "proxy.json") }
+
+// legacyStateFile is the pre-rename state file a daemon from an older build still writes; read until 2026-11-14.
+func legacyStateFile() string { return filepath.Join(paths.StateDir(), "router.json") }
 
 func secretFile() string { return filepath.Join(paths.StateDir(), "router.secret") }
 
 // LogFile receives a spawned daemon's stdio.
-func LogFile() string { return filepath.Join(paths.StateDir(), "router.log") }
+func LogFile() string { return filepath.Join(paths.StateDir(), "proxy.log") }
 
-// Base is the router URL for port.
+// Base is the proxy URL for port.
 func Base(port int) string { return fmt.Sprintf("http://127.0.0.1:%d", port) }
 
 // SessionBase is the ANTHROPIC_BASE_URL for a session whose default provider is provider.
 func SessionBase(base, provider string) string { return base + "/p/" + provider }
 
-// ClientHeader carries the router secret when Authorization holds the client's own login (subscription OAuth).
-const ClientHeader = "X-Claude-Code-Router"
+// ClientHeader carries the proxy secret when Authorization holds the client's own login (subscription OAuth).
+const ClientHeader = "X-Claude-Code-Proxy"
 
-// ReadState reads router.json.
+// LegacyClientHeader is the pre-rename secret header live sessions launched by an older build still send.
+const LegacyClientHeader = "X-Claude-Code-Router"
+
+// ReadState reads proxy.json, else the legacy router.json.
 func ReadState() (State, error) {
 	var st State
 	b, err := os.ReadFile(stateFile())
+	if errors.Is(err, os.ErrNotExist) {
+		b, err = os.ReadFile(legacyStateFile())
+	}
 	if err != nil {
 		return st, err
 	}
@@ -188,12 +197,13 @@ func ownedElsewhere(st State) bool {
 	return err == nil && cur.PID != 0 && cur.PID != st.PID && cur.Port != st.Port && alive(cur.PID)
 }
 
-// Stop SIGTERMs a healthy router and waits briefly for it to exit; a stale router.json is removed.
+// Stop SIGTERMs a healthy proxy and waits briefly for it to exit; a stale state file is removed.
 func Stop(ctx context.Context) (State, error) {
 	st, ok := Running(ctx)
 	if !ok {
 		if st.PID != 0 && !alive(st.PID) {
 			_ = os.Remove(stateFile())
+			_ = os.Remove(legacyStateFile())
 		}
 		return st, ErrNotRunning
 	}
@@ -228,15 +238,15 @@ func Restart(ctx context.Context) (old, cur State, restarted bool, err error) {
 	return old, cur, true, nil
 }
 
-// PIDHeader is the /healthz response header carrying the router's pid.
-const PIDHeader = "X-Claude-Code-Router-Pid"
+// PIDHeader is the /healthz response header carrying the proxy's pid.
+const PIDHeader = "X-Claude-Code-Proxy-Pid"
 
 // Health headers identify the build and work that would be interrupted by a takeover.
 const (
-	HeaderBuild    = "X-Claude-Code-Router-Build"
-	HeaderSessions = "X-Claude-Code-Router-Sessions"
-	HeaderInflight = "X-Claude-Code-Router-Inflight"
-	HeaderConfig   = "X-Claude-Code-Router-Config"
+	HeaderBuild    = "X-Claude-Code-Proxy-Build"
+	HeaderSessions = "X-Claude-Code-Proxy-Sessions"
+	HeaderInflight = "X-Claude-Code-Proxy-Inflight"
+	HeaderConfig   = "X-Claude-Code-Proxy-Config"
 )
 
 // ConfigID names this process's config dir without exposing the path.
@@ -334,6 +344,7 @@ func WriteState(st State) (func(), error) {
 	if err := paths.AtomicWrite(stateFile(), data, 0o600); err != nil {
 		return nil, err
 	}
+	_ = os.Remove(legacyStateFile()) // this daemon now owns proxy.json
 	return func() {
 		if cur, err := ReadState(); err == nil && cur.PID == st.PID && cur.Port == st.Port {
 			_ = os.Remove(stateFile())

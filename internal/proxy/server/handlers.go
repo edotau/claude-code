@@ -140,6 +140,9 @@ func (r *Router) registry() (*providers.Registry, error) {
 func presentedSecret(req *http.Request) string {
 	got := req.Header.Get(proxy.ClientHeader)
 	if got == "" {
+		got = req.Header.Get(proxy.LegacyClientHeader)
+	}
+	if got == "" {
 		got = req.Header.Get("X-Api-Key")
 	}
 	if got == "" {

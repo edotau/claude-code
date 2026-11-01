@@ -107,11 +107,12 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		req = req.WithContext(context.WithValue(req.Context(), scopeKey{}, profileOfPath(req.URL.Path)))
 	}
 	// Past auth, Authorization survives only as the client's own credential (secret sent in proxy.ClientHeader).
-	if req.Header.Get(proxy.ClientHeader) == "" {
+	if req.Header.Get(proxy.ClientHeader) == "" && req.Header.Get(proxy.LegacyClientHeader) == "" {
 		req.Header.Del("Authorization")
 		req.Header.Del("X-Api-Key")
 	}
 	req.Header.Del(proxy.ClientHeader)
+	req.Header.Del(proxy.LegacyClientHeader)
 	if prov, dialect, rest, ok := parsePassthrough(req.URL.Path); ok {
 		r.passthrough(w, req, prov, dialect, rest)
 		return
