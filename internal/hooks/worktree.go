@@ -94,9 +94,9 @@ func worktreeModeOff() bool {
 	return false
 }
 
-// worktreeMode runs on SessionStart: the ask line once, unless the mode is off.
+// worktreeMode runs on SessionStart: the ask line on a fresh start only (not resume/clear/compact), unless the mode is off.
 func worktreeMode(in *Input) Result {
-	if worktreeModeOff() {
+	if worktreeModeOff() || (in.Source != "" && in.Source != "startup") {
 		return Result{}
 	}
 	return Result{Context: worktreeAskLine}

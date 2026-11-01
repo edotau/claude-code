@@ -51,6 +51,9 @@ func stopFormat(in *Input) int {
 	}
 	allow := map[string]bool{}
 	for _, f := range transcript.EditedFiles(in.TranscriptPath, stopFormatMaxFiles) {
+		if !filepath.IsAbs(f) {
+			f = filepath.Join(cwd, f)
+		}
 		if abs, err := filepath.Abs(f); err == nil {
 			allow[abs] = true
 		}

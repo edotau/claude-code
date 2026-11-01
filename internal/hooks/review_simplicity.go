@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/edotau/claude-code/internal/review/source"
 )
@@ -41,6 +42,9 @@ func reviewSimplicity(in *Input) Result {
 // editContents is the edited file's path and its content before and after this Write or Edit.
 func editContents(in *Input) (path, before, after string, ok bool) {
 	path = in.nested("tool_input", "file_path")
+	if path != "" && !filepath.IsAbs(path) && in.CWD != "" {
+		path = filepath.Join(in.CWD, path)
+	}
 	if path == "" || (in.ToolName != "Write" && in.ToolName != "Edit") {
 		return "", "", "", false
 	}
@@ -55,8 +59,12 @@ func editContents(in *Input) (path, before, after string, ok bool) {
 	if in.ToolName == "Write" {
 		return path, gitHeadContent(path), after, true
 	}
-	before = undoEdit(after, in.nested("tool_input", "old_string"), in.nested("tool_input", "new_string"),
-		in.ToolInput()["replace_all"] == true)
+	oldStr, newStr, all := in.nested("tool_input", "old_string"), in.nested("tool_input", "new_string"),
+		in.ToolInput()["replace_all"] == true
+	if !all && newStr != "" && strings.Count(after, newStr) > 1 {
+		return "", "", "", false // ambiguous: cannot tell which occurrence the edit wrote
+	}
+	before = undoEdit(after, oldStr, newStr, all)
 	return path, before, after, true
 }
 
@@ -74,7 +82,9 @@ func undoEdit(after, oldStr, newStr string, all bool) string {
 
 // gitHeadContent is the file at HEAD, or "" when untracked or outside a repo.
 func gitHeadContent(path string) string {
-	cmd := exec.CommandContext(context.Background(), "git", "show", "HEAD:./"+filepath.Base(path))
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "git", "show", "HEAD:./"+filepath.Base(path))
 	cmd.Dir = filepath.Dir(path)
 	out, err := cmd.Output()
 	if err != nil {

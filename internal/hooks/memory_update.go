@@ -38,6 +38,12 @@ const (
 	triggerSessionEnd = "session-end"
 )
 
+// updateNotSaved is the visible line when the Stop gate fails open without an update.
+const updateNotSaved = "memory update NOT saved; run `claude-code memory update`"
+
+// failedOpen is set when a Stop gate released without an update; memoryUpdateStop turns it into a SystemMessage.
+var failedOpen bool
+
 // sidecarLockWait bounds how long countSubagentEdits waits for the sidecar lock; a var so tests can shorten it.
 var sidecarLockWait = 2 * time.Second
 
@@ -84,27 +90,7 @@ func updateIfNew(in *Input, trigger string, now time.Time) (blocked bool, work i
 		covered = st.edits
 	}
 	if trigger == triggerStop && ok {
-		if st.bg || st.state == "catchup" {
-			if now.Sub(st.at) < updateRearmCooldown {
-				return false, 0 // cheap gate before the whole-transcript count
-			}
-			work = countEdits(in.TranscriptPath, countPath(in.SessionID))
-			if work >= covered+updateRearmEdits {
-				dispatchUpdate(in, trigger, work, now)
-			}
-			return false, 0
-		}
-		if bank.NewestMtime(memstore.Dir(in.CWD)).After(st.at) {
-			_ = writeStamp(stamp, now, "bg", st.edits) // ran by hand: released, re-arms; a lost stamp re-dispatches
-			return false, 0
-		}
-		if st.blocks >= updateMaxBlocks {
-			return false, 0 // fail open
-		}
-		if writeStamp(stamp, st.at, strconv.Itoa(st.blocks+1), st.edits) != nil {
-			return false, 0 // fail open: the block count cannot persist
-		}
-		return true, st.edits
+		return stampedStop(in, st, stamp, now)
 	}
 	floor := updateMinEdits
 	if trigger == triggerPreCompact {
@@ -123,6 +109,35 @@ func updateIfNew(in *Input, trigger string, now time.Time) (blocked bool, work i
 		}
 	}
 	return false, 0
+}
+
+// stampedStop is the Stop gate for a session that already has a stamp: re-arm, release, or block up to the cap.
+func stampedStop(in *Input, st updateStamp, stamp string, now time.Time) (blocked bool, work int) {
+	if st.bg || st.state == "catchup" {
+		if now.Sub(st.at) < updateRearmCooldown {
+			return false, 0 // cheap gate before the whole-transcript count
+		}
+		work = countEdits(in.TranscriptPath, countPath(in.SessionID))
+		if work >= st.edits+updateRearmEdits {
+			dispatchUpdate(in, triggerStop, work, now)
+		}
+		return false, 0
+	}
+	if bank.NewestMtime(memstore.Dir(in.CWD)).After(st.at) {
+		_ = writeStamp(stamp, now, "bg", st.edits) // ran by hand: released, re-arms; a lost stamp re-dispatches
+		return false, 0
+	}
+	if st.blocks >= updateMaxBlocks {
+		if st.blocks == updateMaxBlocks { // say so once, at the cap; later Stops stay quiet
+			failedOpen = writeStamp(stamp, st.at, strconv.Itoa(st.blocks+1), st.edits) == nil
+		}
+		return false, 0 // fail open
+	}
+	if writeStamp(stamp, st.at, strconv.Itoa(st.blocks+1), st.edits) != nil {
+		failedOpen = true
+		return false, 0 // fail open: the block count cannot persist
+	}
+	return true, st.edits
 }
 
 // logUpdateToLedger notes an update in the session's linked-worktree ledger; best effort, never fatal.

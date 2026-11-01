@@ -88,7 +88,7 @@ func applyPressure(in *Input, updated map[string]any, promptField, base string) 
 		alias = "sonnet"
 	}
 	agent, model := routeHint(alias)
-	hint := "no agent passes the route gates"
+	hint := ""
 	if agent != "" {
 		hint = fmt.Sprintf("`claude-code ask --agent %s --model %s --tools`", agent, alias)
 	}
@@ -109,8 +109,12 @@ func applyPressure(in *Input, updated map[string]any, promptField, base string) 
 	if down != "" && down != base {
 		updated["model"] = down
 	}
-	return fmt.Sprintf("agent-effort: Claude %s window at %.0f%% — model %s→%s; offload agent work with %s.",
-			window, pct, cmpOr(base, "inherit"), cmpOr(down, base, "inherit"), hint),
+	offload := ""
+	if hint != "" {
+		offload = "; offload agent work with " + hint
+	}
+	return fmt.Sprintf("agent-effort: Claude %s window at %.0f%% — model %s→%s%s.",
+			window, pct, cmpOr(base, "inherit"), cmpOr(down, base, "inherit"), offload),
 		fmt.Sprintf("agent-effort: %.0f%% %s → %s", pct, window, cmpOr(down, base, "inherit"))
 }
 

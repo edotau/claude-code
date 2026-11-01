@@ -61,6 +61,7 @@ func savePlan(in *Input, stderr io.Writer) int {
 		dest, fresh = planDestination(in.CWD, title, plan, true)
 	}
 	if !fresh {
+		retireDraft(draftPath, approvedText, stderr) // the dated file already holds this plan
 		return ExitProceed
 	}
 	if err := os.MkdirAll(filepath.Dir(dest), 0o700); err != nil {
@@ -77,27 +78,37 @@ func savePlan(in *Input, stderr io.Writer) int {
 		return ExitProceed
 	}
 	audit.Log(audit.PlanSaved, "save-plan", dest)
-	if draftPath != "" && isUndatedDraft(draftPath) {
-		// Only delete the draft when its current bytes still match what was approved — an edit made to the
-		// draft after approval (e.g. by a concurrent agent) must be kept, not silently discarded.
-		switch current, err := os.ReadFile(draftPath); {
-		case os.IsNotExist(err):
-			// already gone; nothing to clean up
-		case err != nil:
+	retireDraft(draftPath, approvedText, stderr)
+	return ExitProceed
+}
+
+// retireDraft removes the mirrored draft and its .dest record once the approved plan is filed. A draft edited after
+// approval is kept, and its record is dropped so planMirror cannot later overwrite the approved dated plan.
+func retireDraft(draftPath string, approvedText []byte, stderr io.Writer) {
+	if draftPath == "" || !isUndatedDraft(draftPath) {
+		return
+	}
+	record := destRecordPath(filepath.Base(draftPath))
+	removeRecord := func() {
+		if err := os.Remove(record); err != nil && !os.IsNotExist(err) {
 			fmt.Fprintf(stderr, "save-plan: %v\n", err)
-		case !bytes.Equal(current, approvedText):
-			fmt.Fprintf(stderr, "save-plan: draft %s was edited after approval; keeping it\n", draftPath)
-		default:
-			if err := os.Remove(draftPath); err != nil && !os.IsNotExist(err) {
-				fmt.Fprintf(stderr, "save-plan: %v\n", err)
-				return ExitProceed
-			}
-			if err := os.Remove(destRecordPath(filepath.Base(draftPath))); err != nil && !os.IsNotExist(err) {
-				fmt.Fprintf(stderr, "save-plan: %v\n", err)
-			}
 		}
 	}
-	return ExitProceed
+	switch current, err := os.ReadFile(draftPath); {
+	case os.IsNotExist(err):
+		removeRecord()
+	case err != nil:
+		fmt.Fprintf(stderr, "save-plan: %v\n", err)
+	case !bytes.Equal(current, approvedText):
+		fmt.Fprintf(stderr, "save-plan: draft %s was edited after approval; keeping it\n", draftPath)
+		removeRecord()
+	default:
+		if err := os.Remove(draftPath); err != nil && !os.IsNotExist(err) {
+			fmt.Fprintf(stderr, "save-plan: %v\n", err)
+			return
+		}
+		removeRecord()
+	}
 }
 
 // planHeading is one heading's level and display text, as parsed from a plan's AST — a "#" inside a
@@ -181,7 +192,7 @@ var planCloseout = []string{
 	"Scoped tests for the touched packages",
 	"Review (`claude-code codex review --adversarial --base <branch>`)",
 	"Full suite once",
-	"Commit + push",
+	"Commit, `make install`, push per task (named files only)",
 	"Handoff / `claude-code memory update`",
 }
 

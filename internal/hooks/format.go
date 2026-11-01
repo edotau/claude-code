@@ -5,6 +5,7 @@ package hooks
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -32,6 +33,9 @@ func formatFile(path string) bool {
 	case "py":
 		return formatPython(path)
 	case "js", "jsx", "mjs", "cjs", "ts", "tsx", "json", "css", "scss", "html", "md", "yaml", "yml":
+		if !hasPrettierConfig(path) {
+			return false
+		}
 		return run("", "prettier", "--write", "--log-level", "warn", path)
 	case "sh", "bash":
 		return run("", "shfmt", "-w", path)
@@ -261,4 +265,39 @@ func nearestDirWith(path, name string) string {
 		dir = parent
 	}
 	return ""
+}
+
+// prettierConfigs are the file names that declare a prettier setup for a project.
+var prettierConfigs = []string{
+	".prettierrc", ".prettierrc.json", ".prettierrc.yaml", ".prettierrc.yml", ".prettierrc.json5", ".prettierrc.js",
+	".prettierrc.cjs", ".prettierrc.mjs", ".prettierrc.toml", "prettier.config.js", "prettier.config.cjs",
+	"prettier.config.mjs", "prettier.config.ts",
+}
+
+// hasPrettierConfig reports whether path's project configures prettier: a config file or a package.json entry.
+func hasPrettierConfig(path string) bool {
+	for _, name := range prettierConfigs {
+		if nearestDirWith(path, name) != "" {
+			return true
+		}
+	}
+	root := nearestDirWith(path, "package.json")
+	if root == "" {
+		return false
+	}
+	body, err := os.ReadFile(filepath.Join(root, "package.json"))
+	if err != nil {
+		return false
+	}
+	var pkg struct {
+		Prettier        json.RawMessage   `json:"prettier"`
+		Dependencies    map[string]string `json:"dependencies"`
+		DevDependencies map[string]string `json:"devDependencies"`
+	}
+	if json.Unmarshal(body, &pkg) != nil {
+		return false
+	}
+	_, dep := pkg.Dependencies["prettier"]
+	_, devDep := pkg.DevDependencies["prettier"]
+	return len(pkg.Prettier) > 0 || dep || devDep
 }

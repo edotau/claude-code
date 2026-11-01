@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/paths"
@@ -39,6 +40,11 @@ func docsPlacement(in *Input, stderr io.Writer) int {
 	}
 	ctx, cancel := hookContext("docs-placement")
 	defer cancel()
+	// Expire ~1s before the dispatcher's budget timer so the handler fails open instead of the overrun blocking.
+	if dl, ok := ctx.Deadline(); ok {
+		ctx, cancel = context.WithDeadline(ctx, dl.Add(-time.Second))
+		defer cancel()
+	}
 	if tool == "apply_patch" {
 		var patch string
 		for _, key := range []string{"patch", "input", "command"} {
