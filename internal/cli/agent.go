@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agent/batch"
 	"github.com/edotau/claude-code/internal/agent/project"
 	"github.com/edotau/claude-code/internal/agent/tree"
 	"github.com/edotau/claude-code/internal/network/tailscale"
@@ -96,8 +97,8 @@ func runAsk(args []string, resume bool) int {
 	showLog := fs.Bool("log", false, "list the 20 most recent dispatches and exit")
 	background := fs.Bool("background", false, "detach: log a job, print its id, exit")
 	job := fs.String("job", "", "internal: run saved dispatch <id> in place")
-	batch := fs.String("batch", "", "run JSONL tasks from <file> or - on a pool; one envelope per line")
-	jobs := fs.Int("jobs", agent.DefaultJobs(), "batch: tasks run at once")
+	batchSrc := fs.String("batch", "", "run JSONL tasks from <file> or - on a pool; one envelope per line")
+	jobs := fs.Int("jobs", batch.DefaultJobs(), "batch: tasks run at once")
 	failFast := fs.Bool("fail-fast", false, "batch: the first failed task cancels the rest")
 	if code, done := helptext.Parse(fs, args); done {
 		return code
@@ -142,18 +143,18 @@ func runAsk(args []string, resume bool) int {
 			return failAskCode(*format, *name, err, 2)
 		}
 	}
-	if *host != "" && (*background || *job != "" || *batch != "") {
+	if *host != "" && (*background || *job != "" || *batchSrc != "") {
 		return failAskCode(*format, *name, errors.New("--host cannot be combined with --background, --job or --batch"), 2)
 	}
 	if len(env) > 0 && *background {
 		return failAskCode(*format, *name, errors.New("--env cannot be combined with --background: env values are never stored in the dispatch record"), 2)
 	}
-	if *batch != "" {
+	if *batchSrc != "" {
 		base := agent.RunOptions{Model: *model, Provider: *provider, Effort: *effort, WorkDir: *workdir, Tools: *tools, ReadOnly: *readOnly, NoTools: *noTools,
 			Timeout: *timeout, KeepEnv: []string(keepEnv), Autonomous: *autonomous, EnableMemory: *enableMemory, Direct: *direct,
 			NoPersist: *noPersist, SafeMode: *safeMode, SystemPrompt: *systemPrompt, AppendSystemPrompt: *appendSystemPrompt,
 			Env: []string(env), OutputSchema: schema, Agents: defs}
-		return runAskBatch(fs, resume, *batch, batchOpts{jobs: *jobs, failFast: *failFast, agent: ref, fallback: *fallback, native: *native}, base)
+		return runAskBatch(fs, resume, *batchSrc, batchOpts{jobs: *jobs, failFast: *failFast, agent: ref, fallback: *fallback, native: *native}, base)
 	}
 	if flagExplicit(fs, "jobs") || flagExplicit(fs, "fail-fast") {
 		return failAskCode(*format, *name, errors.New("--jobs and --fail-fast need --batch"), 2)
@@ -842,7 +843,7 @@ func runAskBatch(fs *flag.FlagSet, resume bool, src string, o batchOpts, base ag
 		defer f.Close()
 		in = f
 	}
-	lines, err := agent.ReadTaskLines(in)
+	lines, err := batch.ReadTaskLines(in)
 	if err != nil {
 		return failAskCode("text", o.agent, fmt.Errorf("--batch: %w", err), 2)
 	}
@@ -854,7 +855,7 @@ func runAskBatch(fs *flag.FlagSet, resume bool, src string, o batchOpts, base ag
 	cwd, _ := os.Getwd() // resolved once here: a pool goroutine must never fall back to the process cwd
 	timeoutSet := flagExplicit(fs, "timeout")
 	seen := map[string]bool{}
-	tasks := make([]agent.BatchTask, 0, len(lines))
+	tasks := make([]batch.BatchTask, 0, len(lines))
 	for _, l := range lines {
 		t, err := batchTask(l, o, base, timeoutSet, cwd, seen)
 		if err != nil {
@@ -863,8 +864,8 @@ func runAskBatch(fs *flag.FlagSet, resume bool, src string, o batchOpts, base ag
 		}
 		tasks = append(tasks, t)
 	}
-	id := agent.NewBatchID()
-	ok := agent.RunBatch(ctx, tasks, agent.BatchOptions{ID: id, Jobs: o.jobs, FailFast: o.failFast, Out: os.Stdout, Log: os.Stderr})
+	id := batch.NewBatchID()
+	ok := batch.RunBatch(ctx, tasks, batch.BatchOptions{ID: id, Jobs: o.jobs, FailFast: o.failFast, Out: os.Stdout, Log: os.Stderr})
 	if !ok {
 		fmt.Fprintf(os.Stderr, "ask: %s: not every task was ok\n", id)
 		return 1
@@ -873,9 +874,9 @@ func runAskBatch(fs *flag.FlagSet, resume bool, src string, o batchOpts, base ag
 }
 
 // batchTask validates one line like the ask flags and attaches the routing step; routing waits for Prepare.
-func batchTask(l agent.ParsedLine, o batchOpts, base agent.RunOptions, timeoutSet bool, cwd string,
-	seen map[string]bool) (agent.BatchTask, error) {
-	t, err := agent.ParseBatchTask(l, o.agent, base, timeoutSet, cwd, seen)
+func batchTask(l batch.ParsedLine, o batchOpts, base agent.RunOptions, timeoutSet bool, cwd string,
+	seen map[string]bool) (batch.BatchTask, error) {
+	t, err := batch.ParseBatchTask(l, o.agent, base, timeoutSet, cwd, seen)
 	if err != nil {
 		return t, err
 	}

@@ -132,37 +132,6 @@ func TestBatchAndSpawnsShareTheAccountCap(t *testing.T) {
 	}
 }
 
-// RunBatch writes one shared marker per running dispatch and removes every marker when the batch is done.
-func TestRunBatchMarkersAppearAndClear(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	const account = "shared·acct"
-	var cur, runPeak atomic.Int32
-	var tasks []BatchTask
-	for _, name := range []string{"a", "b", "c"} {
-		r := gaugeRunner{name: name, cur: &cur, max: &runPeak}
-		tasks = append(tasks, BatchTask{ID: name, Agent: name, Req: RunOptions{Prompt: "p"},
-			Prepare: func(context.Context) (*Prepared, error) {
-				return &Prepared{Opts: RunOptions{Prompt: "p"},
-					chain:  Chain{Want: name, Dispatches: []Dispatch{{Agent: r, Account: account, keepCaller: true}}},
-					Record: Record{ID: "id-" + name, Agent: name, Log: filepath.Join(t.TempDir(), "l.log")}}, nil
-			}})
-	}
-	stop := make(chan struct{})
-	var peak atomic.Int32
-	go samplePeak(inflight.Dir(), account, 2*time.Millisecond, stop, &peak)
-
-	if !RunBatch(context.Background(), tasks, BatchOptions{Jobs: 3}) {
-		t.Fatal("batch failed")
-	}
-	close(stop)
-	if got := peak.Load(); got == 0 {
-		t.Error("no inflight markers observed while the batch ran")
-	}
-	if n := countAccountMarkers(inflight.Dir(), account); n != 0 {
-		t.Errorf("%d markers remain after RunBatch returned, want 0", n)
-	}
-}
-
 // A dispatch waiting on a full shared account holds no local worker: with Jobs=1 a dispatch on a free account still runs,
 // and a cancelled wait (or a dispatch cancelled while capacity is free) leaves no marker behind.
 func TestSharedWaitHoldsNoLocalWorker(t *testing.T) {

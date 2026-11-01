@@ -211,3 +211,8 @@ func (c *Client) Run(ctx context.Context, o RunOptions, out Sink) (Result, error
 	_ = p.Record.Save()
 	return c.Exec(ctx, p, out, RunRecordedOpts{})
 }
+
+// SelectAndOverlay is selectAndOverlay for the batch runner.
+func SelectAndOverlay(ref string, agents map[string]*Schema, o *RunOptions) (string, error) {
+	return selectAndOverlay(ref, agents, o)
+}

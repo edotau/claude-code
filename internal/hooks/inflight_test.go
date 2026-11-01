@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/proc/inflight"
+	"github.com/edotau/claude-code/internal/router"
 )
 
 // spawnPayload is an Agent PreToolUse payload with an explicit tool_use_id and pinned model.
@@ -38,8 +39,8 @@ func dispatchEnv(t *testing.T) int {
 	if inflight.SessionOwner() == 0 {
 		t.Skip("session owner unavailable")
 	}
-	lim := inflight.CurrentLimits()
-	return min(lim.For(inflight.SessionAccount()), lim.Total)
+	lim := router.CurrentLimits()
+	return min(lim.For(router.SessionAccount()), lim.Total)
 }
 
 func pre(payload string) Result { return dispatchPre(ParseInput(strings.NewReader(payload))) }

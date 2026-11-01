@@ -38,7 +38,7 @@ func strayClaudeJSON() (ok bool, detail string) {
 
 // inflightDoctorDetail is the live agent count against the machine cap, then each busy account against its own.
 func inflightDoctorDetail() string {
-	lim := inflight.CurrentLimits()
+	lim := router.CurrentLimits()
 	snap := inflight.Count()
 	var parts []string
 	for _, acct := range slices.Sorted(func(yield func(string) bool) {

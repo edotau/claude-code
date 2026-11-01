@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/proc/inflight"
+	"github.com/edotau/claude-code/internal/router"
 )
 
 // writeMeta lays down <transcript dir>/<session>/subagents/agent-<agent>.meta.json mapping agent → toolUseId.
@@ -47,7 +48,7 @@ func seedForeign(t *testing.T, n int) {
 	}
 	for i := range n {
 		name := inflight.Prefix + strconv.Itoa(os.Getpid()) + "-seed" + strconv.Itoa(i)
-		if err := os.WriteFile(filepath.Join(dir, name), []byte(inflight.SessionAccount()), 0o600); err != nil {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(router.SessionAccount()), 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}
