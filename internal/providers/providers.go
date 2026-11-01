@@ -266,10 +266,15 @@ type Plan struct {
 	Provider string `json:"provider,omitempty"`
 }
 
-// Get returns the named profile or an error naming the known ones.
+// Get returns the named profile, also by the provider·profile label `ask` prints, or an error naming the known ones.
 func (r *Registry) Get(name string) (*Provider, error) {
 	if p, ok := r.Providers[name]; ok {
 		return p, nil
+	}
+	if provider, profile, ok := strings.Cut(name, "·"); ok {
+		if p, ok := r.Providers[profile]; ok && p.Provider == provider {
+			return p, nil
+		}
 	}
 	return nil, fmt.Errorf("unknown provider %q (known: %s)", name, strings.Join(r.Names(), ", "))
 }
