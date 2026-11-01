@@ -1,6 +1,6 @@
 //go:build !linux && !darwin
 
-package agent
+package live
 
 import "net"
 

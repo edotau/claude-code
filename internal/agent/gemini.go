@@ -112,7 +112,7 @@ func (geminiEngine) configPaths(home string) ([]labelPath, error) {
 
 func (geminiEngine) routeDetail() (string, bool) { return geminiRouteDetail(), true }
 
-func (geminiEngine) newLive() liveBackend { return &agyLive{} }
+func (geminiEngine) NewLive() LiveBackend { return &agyLive{} }
 
 // googleHost is Gemini's own API host; a gemini-dialect route anywhere else is a gateway.
 const googleHost = "generativelanguage.googleapis.com"

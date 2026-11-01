@@ -13,6 +13,7 @@ import (
 	"syscall"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agent/live"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
@@ -42,7 +43,7 @@ func startLive(s *askState, name, format string) int {
 		err = r.Available()
 	}
 	if err == nil {
-		err = agent.CheckLiveCap("")
+		err = live.CheckLiveCap("")
 	}
 	if err != nil {
 		return failAsk(format, name, err)
@@ -62,7 +63,7 @@ func startLive(s *askState, name, format string) int {
 	if err := agent.Spawn(&rec, nil); err != nil {
 		return failAsk(format, name, err)
 	}
-	if err := agent.WaitLiveReady(rec.ID, rec.PID); err != nil {
+	if err := live.WaitLiveReady(rec.ID, rec.PID); err != nil {
 		return failAsk(format, name, fmt.Errorf("live session %s did not start: %w (log: %s)", rec.ID, err, rec.Log))
 	}
 	if format == formatJSON {
@@ -70,15 +71,15 @@ func startLive(s *askState, name, format string) int {
 			ID     string `json:"id"`
 			Socket string `json:"socket"`
 			Log    string `json:"log"`
-		}{rec.ID, agent.LiveSocket(rec.ID), rec.Log})
+		}{rec.ID, live.LiveSocket(rec.ID), rec.Log})
 		fmt.Println(string(body))
 		return 0
 	}
-	fmt.Printf("live session %s — claude-code agents send %s \"<task>\" · agents cancel %s · idle limit %s\n", rec.ID, rec.ID, rec.ID, agent.IdleOf(req))
+	fmt.Printf("live session %s — claude-code agents send %s \"<task>\" · agents cancel %s · idle limit %s\n", rec.ID, rec.ID, rec.ID, live.IdleOf(req))
 	return 0
 }
 
-var serveLive = agent.ServeLive
+var serveLive = live.ServeLive
 
 // runLiveHolder is the --job child of `ask --live`: it serves rec's session until idle, cancel or the agent's exit.
 func runLiveHolder(rec *agent.Record) int {
@@ -123,7 +124,7 @@ func cmdAgentsSend(args []string) int {
 	if rec, ferr := agent.Find(id); ferr == nil {
 		id = rec.ID
 	}
-	env, err := agent.SendLive(ctx, id, prompt, askStdoutSink(*format, id))
+	env, err := live.SendLive(ctx, id, prompt, askStdoutSink(*format, id))
 	if err != nil {
 		return fail("agents send: %v", err)
 	}

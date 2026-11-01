@@ -2,7 +2,10 @@
 
 package agent
 
-import "fmt"
+import (
+	"fmt"
+	"os/exec"
+)
 
 // interrupt is unsupported on this platform.
 func interrupt(pid int) error {
@@ -13,3 +16,5 @@ func interrupt(pid int) error {
 func kill(pid int) error {
 	return fmt.Errorf("killing a job by pid is unsupported on this platform")
 }
+
+func ownGroup(cmd *exec.Cmd) {}

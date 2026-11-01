@@ -1,4 +1,4 @@
-package agent
+package live
 
 import (
 	"bufio"
@@ -15,12 +15,12 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/edotau/claude-code/internal/agent"
 )
 
 // Live-session limits and wire constants.
 const (
-	LiveSchema      = 1
-	LiveSockSuffix  = ".sock"
 	MaxLiveSessions = 4 // each idle claude node process holds roughly 200-400 MB RSS
 	DefaultLiveIdle = 10 * time.Minute
 	liveIOTimeout   = 5 * time.Second
@@ -34,19 +34,13 @@ var ErrLiveBusy = errors.New("a turn is already in flight on this live session")
 // errPeerUnsupported marks a platform with no socket peer-credential call.
 var errPeerUnsupported = errors.New("peer credentials unsupported on this platform")
 
-// LiveRequest is the one line a client sends on the session socket: a single user turn.
-type LiveRequest struct {
-	Schema int    `json:"schema"`
-	Prompt string `json:"prompt"`
-}
-
 // LiveSocket is the unix socket path of live session id.
-func LiveSocket(id string) string { return filepath.Join(DispatchDir(), id+LiveSockSuffix) }
+func LiveSocket(id string) string { return filepath.Join(agent.DispatchDir(), id+agent.LiveSockSuffix) }
 
 // LiveCount counts live sessions still running, other than skip.
 func LiveCount(skip string) int {
 	n := 0
-	for _, r := range RecentRecords(1 << 20) {
+	for _, r := range agent.RecentRecords(1 << 20) {
 		if r.Live && r.ID != skip && r.Alive() {
 			n++
 		}
@@ -109,11 +103,11 @@ func (b *pumpBuf) Read(p []byte) (int, error) {
 // AcquireLiveSlot takes one of MaxLiveSessions flock'd slot files; the kernel frees it when the holder dies, and two
 // contenders for the last slot cannot both win. The returned func releases it.
 func AcquireLiveSlot() (func(), error) {
-	if err := os.MkdirAll(DispatchDir(), 0o700); err != nil {
+	if err := os.MkdirAll(agent.DispatchDir(), 0o700); err != nil {
 		return nil, err
 	}
 	for i := range MaxLiveSessions {
-		f, err := os.OpenFile(filepath.Join(DispatchDir(), fmt.Sprintf("live-slot-%d", i)), os.O_CREATE|os.O_RDWR, 0o600)
+		f, err := os.OpenFile(filepath.Join(agent.DispatchDir(), fmt.Sprintf("live-slot-%d", i)), os.O_CREATE|os.O_RDWR, 0o600)
 		if err != nil {
 			return nil, err
 		}
@@ -127,12 +121,12 @@ func AcquireLiveSlot() (func(), error) {
 
 // liveSession is the holder's state: one agent child, its stdin, and one buffered reader over its stdout.
 type liveSession struct {
-	rec     *Record
+	rec     *agent.Record
 	name    string
-	be      liveBackend
+	be      agent.LiveBackend
 	stdin   io.Writer
 	dec     *bufio.Reader
-	events  *EventLog
+	events  *agent.EventLog
 	idle    *time.Timer
 	idleFor time.Duration
 	busy    atomic.Bool
@@ -144,31 +138,32 @@ type liveSession struct {
 
 // ServeLive holds rec.Agent's stream-json child open behind rec's socket until idle, cancel or the child exits.
 // rec.Request.Timeout is the idle limit; the record is finalized on the way out.
-func ServeLive(ctx context.Context, rec *Record, notify func(string)) (err error) {
+func ServeLive(ctx context.Context, rec *agent.Record, notify func(string)) (err error) {
 	req, name := rec.Request, rec.Agent
-	lc, ok := schemaFor(name).Live()
+	row, _ := agent.LookupSchema(name)
+	lc, ok := row.Live()
 	if !ok {
 		return fmt.Errorf("%s has no live mode (claude|gemini)", name)
 	}
-	be := lc.newLive()
+	be := lc.NewLive()
 	release, err := AcquireLiveSlot()
 	if err != nil {
 		return err
 	}
 	defer release()
-	agent, err := Lookup(name)
+	ag, err := agent.Lookup(name)
 	if err == nil {
-		err = agent.Available()
+		err = ag.Available()
 	}
 	if err != nil {
 		return err
 	}
 	ctx, cancel := context.WithCancelCause(ctx)
 	defer cancel(nil)
-	logSink := NewLogSink(rec.LogPath())
+	logSink := agent.NewLogSink(rec.LogPath())
 	defer logSink.Close()
-	ctx = WithLogEvents(WithLog(ctx, logSink), logSink)
-	cmd, tail, profile, err := be.build(ctx, req)
+	ctx = agent.WithLogEvents(agent.WithLog(ctx, logSink), logSink)
+	cmd, tail, profile, err := be.Build(ctx, req)
 	if err != nil {
 		return err
 	}
@@ -191,13 +186,13 @@ func ServeLive(ctx context.Context, rec *Record, notify func(string)) (err error
 	}
 	exited := make(chan error, 1) // buffered: the waiter never blocks on a gone reader
 	go func() { exited <- cmd.Wait() }()
-	events := NewEventLog(rec.EventsPath(), rec.ID)
+	events := agent.NewEventLog(rec.EventsPath(), rec.ID)
 	defer events.Close()
 	s := &liveSession{rec: rec, name: name, be: be, stdin: stdin, dec: bufio.NewReader(newPumpBuf(stdout)), events: events, idleFor: cmp.Or(req.Timeout, DefaultLiveIdle),
 		cancel: func(e error) { cancel(e) }, profile: profile}
 	s.idle = time.AfterFunc(s.idleFor, func() { cancel(errLiveIdle) })
 	_ = rec.Save() // the pid is on disk before the first send can find the record
-	_ = events.Emit(Event{Type: EventStart, Agent: name, DispatchID: rec.ID, Status: "running"})
+	_ = events.Emit(agent.Event{Type: agent.EventStart, Agent: name, DispatchID: rec.ID, Status: "running"})
 
 	var wg sync.WaitGroup
 	go s.accept(ctx, ln, &wg)
@@ -207,7 +202,7 @@ func ServeLive(ctx context.Context, rec *Record, notify func(string)) (err error
 		cause = context.Cause(ctx)
 	case werr := <-exited:
 		exited <- werr
-		cause = fmt.Errorf("%s exited: %w", name, childErr(context.Background(), name, werr, tail))
+		cause = fmt.Errorf("%s exited: %w", name, agent.ChildErr(context.Background(), name, werr, tail))
 	}
 	s.idle.Stop()
 	_ = ln.Close()
@@ -224,7 +219,7 @@ var errLiveIdle = errors.New("idle timeout")
 // finish records the outcome: an idle end is a normal ok, anything else an error.
 func (s *liveSession) finish(cause error) error {
 	s.mu.Lock()
-	res := Result{Agent: s.name, Provider: s.profile, SessionID: s.session, Status: StatusOK}
+	res := agent.Result{Agent: s.name, Provider: s.profile, SessionID: s.session, Status: agent.StatusOK}
 	s.mu.Unlock()
 	var err error
 	if !errors.Is(cause, errLiveIdle) {
@@ -232,7 +227,7 @@ func (s *liveSession) finish(cause error) error {
 		if errors.Is(cause, context.Canceled) {
 			err = errors.New("cancelled")
 		}
-		res.Status = StatusError
+		res.Status = agent.StatusError
 	}
 	s.rec.Finish(res, err, time.Since(s.rec.Time))
 	return s.rec.Save()
@@ -243,10 +238,10 @@ const maxSockPath = 103
 
 // listenLive binds the 0600 socket for id in the 0700 dispatch dir, replacing a stale socket file.
 func listenLive(id string) (net.Listener, error) {
-	if err := os.MkdirAll(DispatchDir(), 0o700); err != nil {
+	if err := os.MkdirAll(agent.DispatchDir(), 0o700); err != nil {
 		return nil, err
 	}
-	if err := os.Chmod(DispatchDir(), 0o700); err != nil {
+	if err := os.Chmod(agent.DispatchDir(), 0o700); err != nil {
 		return nil, err
 	}
 	sock := LiveSocket(id)
@@ -283,11 +278,11 @@ func (s *liveSession) accept(ctx context.Context, ln net.Listener, wg *sync.Wait
 // connSink streams events to one client; a failed write is remembered and never reaches the parser.
 type connSink struct {
 	c    net.Conn
-	out  *JSONLSink
+	out  *agent.JSONLSink
 	dead bool
 }
 
-func (k *connSink) Emit(ev Event) error {
+func (k *connSink) Emit(ev agent.Event) error {
 	if k.dead {
 		return nil
 	}
@@ -298,19 +293,19 @@ func (k *connSink) Emit(ev Event) error {
 	return nil
 }
 
-// serveConn reads one LiveRequest and runs it as the session's single in-flight turn.
+// serveConn reads one agent.LiveRequest and runs it as the session's single in-flight turn.
 func (s *liveSession) serveConn(ctx context.Context, c net.Conn) {
 	if uc, ok := c.(*net.UnixConn); ok { // defense in depth beside the 0600 socket: a peer of another uid is dropped
 		if uid, err := peerUID(uc); !errors.Is(err, errPeerUnsupported) && (err != nil || uid != uint32(os.Getuid())) {
 			return
 		}
 	}
-	out := &connSink{c: c, out: NewJSONLSink(c, s.rec.ID)}
+	out := &connSink{c: c, out: agent.NewJSONLSink(c, s.rec.ID)}
 	refuse := func(status, text string) {
-		_ = out.Emit(Event{Type: EventError, Agent: s.name, Status: status, Text: text})
+		_ = out.Emit(agent.Event{Type: agent.EventError, Agent: s.name, Status: status, Text: text})
 	}
 	_ = c.SetReadDeadline(time.Now().Add(liveIOTimeout))
-	var rq LiveRequest
+	var rq agent.LiveRequest
 	if err := json.NewDecoder(bufio.NewReader(c)).Decode(&rq); err != nil || strings.TrimSpace(rq.Prompt) == "" {
 		refuse(statusRefused, "send one JSON line {\"schema\":1,\"prompt\":\"...\"}")
 		return
@@ -324,31 +319,31 @@ func (s *liveSession) serveConn(ctx context.Context, c net.Conn) {
 		refuse(statusRefused, "the session is ending")
 		return
 	}
-	s.runTurn(ctx, rq.Prompt, Multi(out, s.events))
+	s.runTurn(ctx, rq.Prompt, agent.Multi(out, s.events))
 }
 
 // runTurn writes one user message to the agent and relays its events up to the turn's result.
-func (s *liveSession) runTurn(ctx context.Context, prompt string, sink Sink) {
+func (s *liveSession) runTurn(ctx context.Context, prompt string, sink agent.Sink) {
 	begin := time.Now()
-	sink = &runSink{Sink: sink, agent: s.name}
-	_ = sink.Emit(Event{Type: EventStart, DispatchID: s.rec.ID, Status: "running"})
-	var res Result
-	err := s.be.writeTurn(s.stdin, prompt) // the idle timer keeps running until the write lands
+	sink = agent.NewRunSink(sink, s.name)
+	_ = sink.Emit(agent.Event{Type: agent.EventStart, DispatchID: s.rec.ID, Status: "running"})
+	var res agent.Result
+	err := s.be.WriteTurn(s.stdin, prompt) // the idle timer keeps running until the write lands
 	s.idle.Stop()
 	if err == nil {
-		res, err = s.be.parse(s.dec, sink, eventLogFor(ctx))
+		res, err = s.be.Parse(s.dec, sink, agent.EventLogFor(ctx))
 	}
 	res.Agent, res.Provider, res.DurationMs = s.name, s.profile, time.Since(begin).Milliseconds()
-	res.Status = statusOf(Classify(s.name, err, false))
+	res.Status = agent.StatusOf(agent.Classify(s.name, err, false))
 	s.mu.Lock()
 	s.session = cmp.Or(res.SessionID, s.session)
 	s.mu.Unlock()
 	// A lost turn result ends the session before it is freed, so a next send can't read that turn's late answer.
-	if _, atBoundary := errors.AsType[resultError](err); err != nil && !atBoundary {
+	if err != nil && !agent.IsResultError(err) {
 		s.cancel(fmt.Errorf("session stream broke: %w", err))
 	}
 	s.release() // before the result goes out: a client's next send must find the session free
-	_ = sink.Emit(ResultEvent(NewEnvelope(res, err, s.rec.ID)))
+	_ = sink.Emit(agent.ResultEvent(agent.NewEnvelope(res, err, s.rec.ID)))
 }
 
 // release ends the in-flight turn and restarts the idle clock.
@@ -358,49 +353,49 @@ func (s *liveSession) release() {
 }
 
 // SendLive sends one turn to live session id and streams that turn's events to sink until its result.
-func SendLive(ctx context.Context, id, prompt string, sink Sink) (Envelope, error) {
-	rec, err := LoadRecord(id)
+func SendLive(ctx context.Context, id, prompt string, sink agent.Sink) (agent.Envelope, error) {
+	rec, err := agent.LoadRecord(id)
 	if err != nil {
-		return Envelope{}, err
+		return agent.Envelope{}, err
 	}
 	if !rec.Live {
-		return Envelope{}, fmt.Errorf("dispatch %s is not a live session (start one: ask --agent claude|gemini --live)", rec.ID)
+		return agent.Envelope{}, fmt.Errorf("dispatch %s is not a live session (start one: ask --agent claude|gemini --live)", rec.ID)
 	}
 	if !rec.Alive() {
-		return Envelope{}, fmt.Errorf("live session %s has ended (%s); start a new one", rec.ID, rec.Status)
+		return agent.Envelope{}, fmt.Errorf("live session %s has ended (%s); start a new one", rec.ID, rec.Status)
 	}
 	conn, err := (&net.Dialer{Timeout: liveIOTimeout}).DialContext(ctx, "unix", LiveSocket(rec.ID))
 	if err != nil {
-		return Envelope{}, fmt.Errorf("live session %s: %w (claude-code agents reap clears dead sessions)", rec.ID, err)
+		return agent.Envelope{}, fmt.Errorf("live session %s: %w (claude-code agents reap clears dead sessions)", rec.ID, err)
 	}
 	defer conn.Close()
 	stop := context.AfterFunc(ctx, func() { _ = conn.Close() })
 	defer stop()
 	_ = conn.SetWriteDeadline(time.Now().Add(liveIOTimeout))
-	if err := json.NewEncoder(conn).Encode(LiveRequest{Schema: LiveSchema, Prompt: prompt}); err != nil {
-		return Envelope{}, err
+	if err := json.NewEncoder(conn).Encode(agent.LiveRequest{Schema: agent.LiveSchema, Prompt: prompt}); err != nil {
+		return agent.Envelope{}, err
 	}
 	dec := json.NewDecoder(conn)
 	for {
-		var ev Event
+		var ev agent.Event
 		if err := dec.Decode(&ev); err != nil {
 			if ctx.Err() != nil {
-				return Envelope{}, ctx.Err()
+				return agent.Envelope{}, ctx.Err()
 			}
-			return Envelope{}, fmt.Errorf("live session %s closed before the turn's result: %w", rec.ID, err)
+			return agent.Envelope{}, fmt.Errorf("live session %s closed before the turn's result: %w", rec.ID, err)
 		}
-		if ev.Type == EventError && ev.Status == statusBusy {
-			return Envelope{}, ErrLiveBusy
+		if ev.Type == agent.EventError && ev.Status == statusBusy {
+			return agent.Envelope{}, ErrLiveBusy
 		}
-		if ev.Type == EventError && ev.Status == statusRefused {
-			return Envelope{}, errors.New(ev.Text)
+		if ev.Type == agent.EventError && ev.Status == statusRefused {
+			return agent.Envelope{}, errors.New(ev.Text)
 		}
 		if err := sink.Emit(ev); err != nil {
-			return Envelope{}, err
+			return agent.Envelope{}, err
 		}
-		if ev.Type == EventResult {
+		if ev.Type == agent.EventResult {
 			if ev.Envelope == nil {
-				return Envelope{}, errors.New("result event without an envelope")
+				return agent.Envelope{}, errors.New("result event without an envelope")
 			}
 			return *ev.Envelope, nil
 		}
@@ -411,7 +406,7 @@ func SendLive(ctx context.Context, id, prompt string, sink Sink) (Envelope, erro
 const liveReadyWait = 20 * time.Second
 
 // IdleOf is the idle limit a live session runs under: the request's timeout, else the default.
-func IdleOf(req RunOptions) time.Duration {
+func IdleOf(req agent.RunOptions) time.Duration {
 	if req.Timeout > 0 {
 		return req.Timeout
 	}
@@ -425,7 +420,7 @@ func WaitLiveReady(id string, pid int) error {
 		if _, err := os.Stat(LiveSocket(id)); err == nil {
 			return nil
 		}
-		if rec, err := LoadRecord(id); err == nil && rec.Status != "running" {
+		if rec, err := agent.LoadRecord(id); err == nil && rec.Status != "running" {
 			return errors.New(rec.Error)
 		}
 		time.Sleep(50 * time.Millisecond)
