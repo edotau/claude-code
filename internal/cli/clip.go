@@ -60,7 +60,9 @@ func cmdClipClear(args []string) int {
 		return fail("clip-clear: no digest on stdin")
 	}
 	time.Sleep(*after)
-	if _, err := clipboard.ClearIfMatch(context.Background(), string(b)); err != nil {
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second) // a hung clipboard tool must not block the clear
+	defer cancel()
+	if _, err := clipboard.ClearIfMatch(ctx, string(b)); err != nil {
 		return fail("clip-clear: %v", err)
 	}
 	return 0

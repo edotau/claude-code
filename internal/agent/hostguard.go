@@ -149,11 +149,11 @@ func guardAttempt(ctx context.Context, r Engine, req RunOptions) (context.Contex
 	if err != nil {
 		return ctx, Classify(r.Name(), err, false)
 	}
+	if err := checkIsolation(ctx); err != nil { // before the own-login return: that hop is scrubbed too
+		return ctx, &Error{Kind: KindFatal, Agent: r.Name(), Err: err}
+	}
 	if gp == nil {
 		return ctx, nil
-	}
-	if err := checkIsolation(ctx); err != nil {
-		return ctx, &Error{Kind: KindFatal, Agent: r.Name(), Err: err}
 	}
 	if _, isHub := r.(HubEngine); isHub { // a hub dispatch sends the opencode login's credential, not the registry's
 		return withOwnProvider(ctx, gp), nil

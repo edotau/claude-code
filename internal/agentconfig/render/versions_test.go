@@ -154,3 +154,19 @@ func TestVersionFilesCappedAtFive(t *testing.T) {
 		t.Errorf("oldest kept mirror = %q, want v2", got)
 	}
 }
+
+// TestLostLinesForSurfacesUnreadableBaseline: a baseline that exists but cannot be read (here a directory)
+// is an error, not "no baseline"; only a missing one skips hand-edit protection.
+func TestLostLinesForSurfacesUnreadableBaseline(t *testing.T) {
+	path, _ := backupEnv(t)
+	const label = "unit-no-ops"
+	if got, err := lostLinesFor(label, path, []byte("a\n"), []byte("b\n")); got != nil || err != nil {
+		t.Fatalf("missing baseline = %v, %v; want nil, nil", got, err)
+	}
+	if err := os.MkdirAll(baselinePath(label, path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := lostLinesFor(label, path, []byte("a\n"), []byte("b\n")); err == nil {
+		t.Fatal("unreadable baseline returned nil error, want the read error")
+	}
+}

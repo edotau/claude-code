@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"time"
 )
 
 type SessionRequest struct {
@@ -58,6 +59,8 @@ func postSession(ctx context.Context, start bool, path string, body SessionReque
 		return err
 	}
 	raw, _ := json.Marshal(body)
+	ctx, cancel := context.WithTimeout(ctx, sessionTimeout)
+	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, base+path, bytes.NewReader(raw))
 	if err != nil {
 		return err
@@ -77,6 +80,9 @@ func postSession(ctx context.Context, start bool, path string, body SessionReque
 	}
 	return json.NewDecoder(resp.Body).Decode(out)
 }
+
+// sessionTimeout bounds the POST so a wedged daemon cannot hang the caller.
+const sessionTimeout = 5 * time.Second
 
 // SessionPath and SessionRevokePath are POST endpoints requiring the router secret.
 const (

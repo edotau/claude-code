@@ -10,8 +10,10 @@ import (
 	render "github.com/edotau/claude-code/internal/agentconfig/render"
 	"github.com/edotau/claude-code/internal/vault"
 	"io"
+	"os"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/models"
@@ -54,11 +56,7 @@ func opencode(p *providers.Provider, dialect, base, model, cred string, routed b
 		options["headers"] = headers
 	}
 	if p.Preset == providers.PresetDatabricks {
-		denv, _, err := opencodeDatabricks(p, id, dialect, base, model, cred, routed, env)
-		if err != nil || h == nil {
-			return denv, nil, err
-		}
-		return opencodeHeadlessRun(denv, h, opencodeDatabricksModel(denv))
+		return opencodeDatabricksLaunch(p, id, dialect, base, model, cred, routed, env, h)
 	}
 	menu := opencodeModels(p, model, h)
 	if routed && dialect == providers.ProtocolAnthropic {
@@ -73,22 +71,49 @@ func opencode(p *providers.Provider, dialect, base, model, cred string, routed b
 		"$schema": "https://opencode.ai/config.json",
 		"model":   id + "/" + model,
 		"provider": map[string]any{id: map[string]any{
-			"npm": npm, "name": p.Name + " (claude-code)", "options": options,
+			"npm": npm, "name": "claude-code", "options": options,
 			"models": menu,
 		}},
 	}
-	if h != nil && !h.Tools {
-		cfg["permission"] = "deny" // every tool, incl. task subagents and websearch — parity with claude --tools ""
-	}
+	opencodeHarnessConfig(h)(cfg)
 	body, err := json.Marshal(cfg)
 	if err != nil {
 		return nil, nil, err
 	}
-	env = append(env, opencodeConfigEnv+"="+string(body))
+	env = append(modelsDefined(env), opencodeConfigEnv+"="+string(body))
 	if h == nil {
 		return env, nil, nil
 	}
-	return opencodeHeadlessRun(env, h, id+"/"+model)
+	return env, opencodeArgv(id+"/"+model, *h), nil
+}
+
+// opencodeDatabricksLaunch is the databricks split's env, plus the harness config and (headless) the run argv.
+func opencodeDatabricksLaunch(p *providers.Provider, id, dialect, base, model, cred string, routed bool, env []string, h *agent.Headless) ([]string, []string, error) {
+	denv, _, err := opencodeDatabricks(p, id, dialect, base, model, cred, routed, env)
+	if err != nil {
+		return denv, nil, err
+	}
+	if denv, err = mutateOpencodeConfigEnv(denv, false, opencodeHarnessConfig(h)); err != nil {
+		return nil, nil, err
+	}
+	if h == nil {
+		return denv, nil, nil
+	}
+	return denv, opencodeArgv(opencodeDatabricksModel(denv), *h), nil
+}
+
+// opencodeHarnessConfig is the per-launch config: an interactive launch (h nil) gets the always-on rules as
+// instructions and the projected commands; a headless one is tools-off when asked, and no rules (+4.7k tokens per call).
+func opencodeHarnessConfig(h *agent.Headless) func(map[string]any) {
+	return func(cfg map[string]any) {
+		switch {
+		case h == nil:
+			opencodeRulesOn(cfg)
+			opencodeCommandsOn(cfg)
+		case !h.Tools:
+			opencodeToolsOff(cfg)
+		}
+	}
 }
 
 // opencodeDatabricksModel is the default "model" the databricks split rendered into OPENCODE_CONFIG_CONTENT.
@@ -102,40 +127,6 @@ func opencodeDatabricksModel(env []string) string {
 		}
 	}
 	return cfg.Model
-}
-
-// opencodeHeadlessRun finishes a headless launch: tools-off permission merged into the config env, then the run argv.
-func opencodeHeadlessRun(env []string, h *agent.Headless, fullModel string) ([]string, []string, error) {
-	if !h.Tools {
-		var err error
-		if env, err = mutateOpencodeConfigEnv(env, false, func(cfg map[string]any) { cfg["permission"] = "deny" }); err != nil {
-			return nil, nil, err
-		}
-	}
-	argv := []string{"run", "--format", "json", "-m", fullModel}
-	if h.WorkDir != "" {
-		argv = append(argv, "--dir", h.WorkDir)
-	}
-	if h.SessionID != "" {
-		argv = append(argv, "--session", h.SessionID)
-	}
-	if h.Effort != "" {
-		argv = append(argv, "--variant", h.Effort)
-	}
-	if h.Autonomous {
-		argv = append(argv, "--auto")
-	}
-	if h.SafeMode {
-		argv = append(argv, "--pure")
-	}
-	for _, p := range h.Attach {
-		argv = append(argv, "-f", p)
-	}
-	if len(h.Attach) > 0 {
-		// -f is variadic: without "--", opencode reads the prompt as another file path.
-		return env, append(append(argv, "--"), h.Prompt), nil
-	}
-	return env, append(argv, agent.Positional(h.Prompt)...), nil
 }
 
 // opencodeModels is the model menu: the requested model, plus every alias for an interactive launch.
@@ -158,12 +149,44 @@ func opencodeRunArgv(model string, h agent.Headless) (env, argv []string) {
 	return agent.HeadlessLaunch("opencode", env, argv)
 }
 
+// opencodeToolsOff is the tools-off config: every tool denied and every MCP server the overlay configures disabled.
+func opencodeToolsOff(cfg map[string]any) {
+	cfg["permission"] = "deny" // every tool, incl. task subagents and websearch — parity with claude --tools ""
+	if mcp := opencodeMCPOff(); len(mcp) > 0 {
+		cfg["mcp"] = mcp // opencode starts every MCP server even when no tool can run (~9 s for chrome-devtools)
+	}
+}
+
+// opencodeMCPOff disables each MCP server named in the rendered overlay; nil when it cannot be rendered.
+func opencodeMCPOff() map[string]any {
+	_, body, _, _, err := agentconfig.OpencodeOverlayRendered()
+	if err != nil {
+		return nil
+	}
+	var doc struct {
+		MCP map[string]json.RawMessage `json:"mcp"`
+	}
+	if json.Unmarshal(body, &doc) != nil {
+		return nil
+	}
+	off := make(map[string]any, len(doc.MCP))
+	for name := range doc.MCP {
+		off[name] = map[string]any{"enabled": false}
+	}
+	return off
+}
+
 // opencodeRun is `opencode run --format json` for h; a non-empty model adds -m (opencode's provider/model form).
 func opencodeRun(model string, h agent.Headless) (env, argv []string) {
 	if !h.Tools {
-		env = append(env, opencodeConfigEnv+`={"permission":"deny"}`)
+		env, _ = mutateOpencodeConfigEnv(nil, true, opencodeToolsOff)
 	}
-	argv = []string{"run", "--format", "json"}
+	return env, opencodeArgv(model, h)
+}
+
+// opencodeArgv is the `opencode run` argv for h; model "" leaves -m to opencode's own config.
+func opencodeArgv(model string, h agent.Headless) []string {
+	argv := []string{"run", "--format", "json"}
 	if model != "" {
 		argv = append(argv, "-m", model)
 	}
@@ -172,6 +195,8 @@ func opencodeRun(model string, h agent.Headless) (env, argv []string) {
 	}
 	if h.SessionID != "" {
 		argv = append(argv, "--session", h.SessionID)
+	} else {
+		argv = append(argv, "--title", opencodeTitle(h.Prompt)) // an explicit title skips opencode's extra title-model call
 	}
 	if h.Effort != "" {
 		argv = append(argv, "--variant", h.Effort)
@@ -187,9 +212,18 @@ func opencodeRun(model string, h agent.Headless) (env, argv []string) {
 	}
 	if len(h.Attach) > 0 {
 		// -f is variadic: without "--", opencode reads the prompt as another file path.
-		return env, append(append(argv, "--"), h.Prompt)
+		return append(append(argv, "--"), h.Prompt)
 	}
-	return env, append(argv, agent.Positional(h.Prompt)...)
+	return append(argv, agent.Positional(h.Prompt)...)
+}
+
+// opencodeTitle is the session title: "opencode: " plus the prompt's first 40 runes on one line.
+func opencodeTitle(prompt string) string {
+	line := strings.Join(strings.Fields(prompt), " ")
+	if r := []rune(line); len(r) > 40 {
+		line = strings.TrimSpace(string(r[:40]))
+	}
+	return strings.TrimSpace("opencode: " + line)
 }
 
 // opencodeCopilotTarget is opencode's own GitHub Copilot login (`opencode auth login` -> a "github-copilot"
@@ -261,6 +295,17 @@ func aliasModelID(reg *providers.Registry, p *providers.Provider, alias string) 
 // opencodeConfigEnv is the env var carrying opencode's inline JSON config.
 const opencodeConfigEnv = "OPENCODE_CONFIG_CONTENT"
 
+// opencodeNoModelsFetch skips opencode's startup models.dev fetch; set only when the inline config defines the models.
+const opencodeNoModelsFetch = "OPENCODE_DISABLE_MODELS_FETCH"
+
+// modelsDefined adds opencodeNoModelsFetch=1 unless the user's shell already sets it (their value wins).
+func modelsDefined(env []string) []string {
+	if _, set := os.LookupEnv(opencodeNoModelsFetch); set {
+		return env
+	}
+	return append(env, opencodeNoModelsFetch+"=1")
+}
+
 // mutateOpencodeConfigEnv applies fn to the JSON in each OpencodeConfigEnv entry of env (appending one when absent).
 // An unreadable block is an error, or with lenient replaced by an empty config.
 func mutateOpencodeConfigEnv(env []string, lenient bool, fn func(map[string]any)) ([]string, error) {
@@ -301,9 +346,10 @@ func mutateOpencodeConfigEnv(env []string, lenient bool, fn func(map[string]any)
 // opencode-go login, so the table's opencode-go cells would be unservable), else the table's opencode cells.
 func opencodeOverlayModels() (mainModel, smallModel string, ok bool) {
 	if !OpencodeOwnLoginPresent() && OpencodeCopilotLoginPresent() {
-		reg, _ := providers.Load()
-		if m, s, found := OpencodeCopilotModelIDs(reg); found {
-			return "github-copilot/" + m, "github-copilot/" + s, true
+		if reg, err := providers.Load(); err == nil && reg != nil {
+			if m, s, found := OpencodeCopilotModelIDs(reg); found {
+				return "github-copilot/" + m, "github-copilot/" + s, true
+			}
 		}
 	}
 	return router.OpencodeTableModels()
@@ -326,8 +372,12 @@ func (e opencodeEngine) Exec(ctx context.Context, p agent.CLIPrep, req agent.Run
 	if err != nil {
 		return p.Result, err
 	}
-	cmd, tail := agent.ChildCmd(ctx, bin, p.Argv, p.Env, req.WorkDir, "", req.KeepEnv, true)
-	return agent.RunStream(ctx, e.Name(), cmd, tail, p.Result, sink, parseOpenCodeStream)
+	host := newHookHost(req)
+	argv := host.before(p.Argv, p.Prompt)
+	cmd, tail := agent.ChildCmd(ctx, bin, argv, p.Env, req.WorkDir, "", req.KeepEnv, true)
+	res, err := agent.RunStream(ctx, e.Name(), cmd, tail, p.Result, sink, host.parser())
+	host.after(res)
+	return res, err
 }
 
 // LoginServes adds github: that profile's Auth.Login names copilot, yet opencode has its own GitHub Copilot login.
@@ -471,8 +521,33 @@ func opencodeCredential(prefix string) (env []string, err error) {
 	return nil, fmt.Errorf("opencode has no %s login (opencode auth login)", id)
 }
 
+// ownLoginTTL bounds how long OpencodeOwnLoginPresent reuses an answer: one launch's route calls, not a later vault edit.
+const ownLoginTTL = 2 * time.Second
+
+// ownLoginMemo is the last OpencodeOwnLoginPresent answer, valid for the auth state and key env it was computed under.
+type ownLoginMemo struct {
+	key, env string
+	at       time.Time
+	val      bool
+}
+
+var ownLogin ownLoginMemo // guarded by opencodeMu
+
 // OpencodeOwnLoginPresent reports a usable `opencode` credential (Go/Zen plans): a stored login or the vault key.
+// The answer is reused for ownLoginTTL, so a launch's route calls read the vault once.
 func OpencodeOwnLoginPresent() bool {
+	_, _, key := opencodeAuthKeys()
+	env := os.Getenv(OpencodeAPIKeyEnv)
+	opencodeMu.Lock()
+	m := ownLogin
+	opencodeMu.Unlock()
+	if !m.at.IsZero() && m.key == key && m.env == env && time.Since(m.at) < ownLoginTTL {
+		return m.val
+	}
 	_, err := opencodeCredential("opencode-go")
-	return err == nil
+	m = ownLoginMemo{key: key, env: env, at: time.Now(), val: err == nil}
+	opencodeMu.Lock()
+	ownLogin = m
+	opencodeMu.Unlock()
+	return m.val
 }

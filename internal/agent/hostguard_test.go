@@ -29,3 +29,17 @@ func TestCheckIsolationFailsWhenRegistryUnreadable(t *testing.T) {
 		t.Fatalf("non-isolated ctx: err = %v, want nil", err)
 	}
 }
+
+// An isolated own-login hop (no provider) must also fail up front on an unreadable registry, not run unscrubbed.
+func TestGuardAttemptOwnLoginIsolatedFailsWhenRegistryUnreadable(t *testing.T) {
+	vaulttest.UseKeyring(t)
+	vaulttest.Put(t, vault.Overlay, "providers", `{not json`)
+	r := &fakeRunner{}
+	_, gerr := guardAttempt(withIsolation(context.Background()), r, RunOptions{})
+	if gerr == nil || gerr.Kind != KindFatal {
+		t.Fatalf("isolated guardAttempt = %v, want KindFatal", gerr)
+	}
+	if _, gerr := guardAttempt(context.Background(), r, RunOptions{}); gerr != nil {
+		t.Fatalf("non-isolated guardAttempt = %v, want nil", gerr)
+	}
+}

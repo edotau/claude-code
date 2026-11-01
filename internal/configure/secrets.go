@@ -62,7 +62,12 @@ func trackedSecrets(reg *providers.Registry) []trackedSecret {
 		if metaErr == nil {
 			src, shadowed = secretstore.Locate(name, meta)
 		} else {
-			_, src, shadowed, _ = secretstore.Effective(name)
+			var err error
+			if _, src, err = secretstore.EffectiveSecret(name); err != nil {
+				src = "unreadable"
+			} else if src == "env" {
+				_, _, shadowed, _ = secretstore.Effective(name)
+			}
 		}
 		out = append(out, trackedSecret{name: name, source: src, shadowed: shadowed, users: strings.Join(u, ", ")})
 	}
@@ -75,6 +80,8 @@ func sourceLabel(src, shadowed string) string {
 	switch {
 	case src == "":
 		return "missing"
+	case src == "unreadable":
+		return "vault unreadable"
 	case src == "env" && shadowed == "vault":
 		return "env over vault"
 	}

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -35,13 +36,18 @@ func Clashes(repo, dir string) ([]Clash, error) {
 	var out []Clash
 	for _, rel := range tracked {
 		target := filepath.Join(dir, rel)
-		fi, err := os.Stat(target)
-		if err != nil {
+		fi, err := os.Lstat(target)
+		if errors.Is(err, fs.ErrNotExist) {
 			continue // not present at dir: no clash
 		}
-		differs, err := filesDiffer(filepath.Join(repo, rel), target)
 		if err != nil {
 			return nil, err
+		}
+		differs := true // a dangling symlink has no content to hash: it always differs
+		if _, statErr := os.Stat(target); statErr == nil || fi.Mode()&os.ModeSymlink == 0 {
+			if differs, err = filesDiffer(filepath.Join(repo, rel), target); err != nil {
+				return nil, err
+			}
 		}
 		out = append(out, Clash{Path: rel, Size: fi.Size(), Mode: fi.Mode(), Differs: differs})
 	}
@@ -144,11 +150,8 @@ func Adopt(opts AdoptOpts) error {
 	if err := os.MkdirAll(opts.Into, 0o755); err != nil {
 		return err
 	}
-	if err := os.Rename(filepath.Join(opts.From, ".git"), filepath.Join(opts.Into, ".git")); err != nil {
+	if err := moveGitAndCheckout(opts.From, opts.Into); err != nil {
 		return err
-	}
-	if out, err := exec.Command("git", "-C", opts.Into, "checkout", "--", ".").CombinedOutput(); err != nil { //nolint:noctx // one-shot local git call; no caller ctx
-		return fmt.Errorf("git checkout: %w: %s", err, strings.TrimSpace(string(out)))
 	}
 	if err := os.RemoveAll(opts.From); err != nil {
 		return err
@@ -169,4 +172,20 @@ func commitHash(dir string) string {
 		return ""
 	}
 	return strings.TrimSpace(string(out))
+}
+
+// moveGitAndCheckout moves from/.git into into and checks out; on failure .git moves back so a retry works.
+func moveGitAndCheckout(from, into string) error {
+	if err := os.Rename(filepath.Join(from, ".git"), filepath.Join(into, ".git")); err != nil {
+		return err
+	}
+	out, err := exec.Command("git", "-C", into, "checkout", "--", ".").CombinedOutput() //nolint:noctx // one-shot local git call; no caller ctx
+	if err == nil {
+		return nil
+	}
+	err = fmt.Errorf("git checkout: %w: %s", err, strings.TrimSpace(string(out)))
+	if rbErr := os.Rename(filepath.Join(into, ".git"), filepath.Join(from, ".git")); rbErr != nil {
+		err = errors.Join(err, rbErr)
+	}
+	return err
 }

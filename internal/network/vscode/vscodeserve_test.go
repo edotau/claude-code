@@ -2,6 +2,7 @@ package vscode
 
 import (
 	"encoding/json"
+	"errors"
 	"net"
 	"os"
 	"path/filepath"
@@ -272,14 +273,12 @@ func TestRunningFalseOnStalePID(t *testing.T) {
 	}
 }
 
-func TestStopRemovesStateFile(t *testing.T) {
+func TestStopDeadPIDRemovesStateFile(t *testing.T) {
 	setup(t)
-	// An unhealthy port (nothing answers) takes Stop's early-return path without touching
-	// terminate(), so this stays deterministic regardless of what else is bound on this host.
-	writeStateFixture(t, State{PID: os.Getpid(), Port: unusedPort(t)})
+	writeStateFixture(t, State{PID: 999999999, Port: unusedPort(t)})
 
-	if err := Stop(); err != nil {
-		t.Fatalf("Stop: %v", err)
+	if err := Stop(); !errors.Is(err, ErrNotRunning) {
+		t.Fatalf("Stop: err = %v, want ErrNotRunning", err)
 	}
 	if _, err := os.Stat(stateFile()); !os.IsNotExist(err) {
 		t.Fatalf("Stop: vscode-serve.json still present (err=%v)", err)

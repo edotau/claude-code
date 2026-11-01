@@ -1381,3 +1381,37 @@ func TestMain(m *testing.M) {
 	detectBrowsers = func() browser.Report { return browser.Report{} }
 	os.Exit(hosttest.Main(m))
 }
+
+func TestTmuxConfPathsEmptyWithoutHomeAndSeedSkips(t *testing.T) {
+	t.Setenv("HOME", "")
+	if runtime.GOOS == "windows" {
+		t.Skip("UserHomeDir reads USERPROFILE")
+	}
+	if got := tmuxConfPaths(); len(got) != 0 {
+		t.Fatalf("tmuxConfPaths() = %v, want none when HOME is unresolved", got)
+	}
+	cwd := t.TempDir()
+	t.Chdir(cwd)
+	var out bytes.Buffer
+	seedTmuxConf(&out, false)
+	if !strings.Contains(out.String(), "skip") {
+		t.Errorf("seedTmuxConf output = %q, want a skip line", out.String())
+	}
+	if _, err := os.Stat(filepath.Join(cwd, ".tmux.conf")); err == nil {
+		t.Error("seedTmuxConf wrote .tmux.conf into the working directory")
+	}
+}
+
+func TestFormatsCheckFailsOnUnreadableStore(t *testing.T) {
+	hermetic(t, "")
+	if err := os.MkdirAll(filepath.Dir(vault.Path()), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(vault.Path(), bytes.Repeat([]byte("not a bolt db"), 400), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	c := formatsCheck()
+	if c.OK || !strings.Contains(c.Detail, "unreadable") {
+		t.Fatalf("formats row = %+v, want failing with 'unreadable'", c)
+	}
+}

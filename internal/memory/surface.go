@@ -124,6 +124,9 @@ func level2Headings(body []byte) []headingSpan {
 		if !ok || hn.Level != 2 {
 			return mdast.WalkContinue, nil
 		}
+		if hn.Lines().Len() == 0 { // a bare "## " has no title and no segment to locate it by
+			return mdast.WalkContinue, nil
+		}
 		seg := hn.Lines().At(0)
 		lineStart := seg.Start
 		for lineStart > 0 && body[lineStart-1] != '\n' {

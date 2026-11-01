@@ -62,7 +62,7 @@ func (t *Terminal) Keys() <-chan Key { return t.keys }
 
 // Size returns the terminal's current width and height (80x24 when the query fails).
 func (t *Terminal) Size() (w, h int) {
-	w, h, err := getSize(t.fd)
+	w, h, err := Size(t.fd)
 	if err != nil || w <= 0 || h <= 0 {
 		return 80, 24
 	}

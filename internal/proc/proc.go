@@ -24,7 +24,9 @@ func SpawnDetached(bin string, args []string, dir string, out *os.File, extraEnv
 	if len(extraEnv) > 0 {
 		cmd.Env = append(os.Environ(), extraEnv...)
 	}
-	cmd.Stdout, cmd.Stderr = out, out
+	if out != nil { // a typed-nil *os.File would defeat exec's /dev/null default
+		cmd.Stdout, cmd.Stderr = out, out
+	}
 	Detach(cmd)
 	if cmd.Start() != nil {
 		return false

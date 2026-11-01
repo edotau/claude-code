@@ -171,7 +171,7 @@ func mergeFileLists(nameOnly, porcelain string) []string {
 		add(strings.TrimSpace(ln))
 	}
 	for ln := range strings.SplitSeq(porcelain, "\n") {
-		ln = strings.TrimSpace(ln)
+		ln = strings.TrimRight(ln, "\r") // the leading space is part of the "XY " code, so never trim it
 		if len(ln) > 3 {
 			add(strings.TrimSpace(ln[3:]))
 		}
@@ -232,7 +232,9 @@ func Update(o UpdateOptions) error {
 	dir := memstore.Dir(o.CWD)
 	var before, beforeHome time.Time
 	var runErr error
+	ran := false
 	lockErr := paths.WithFileLock(bank.LockPath(dir), func() error {
+		ran = true
 		before, beforeHome = bank.NewestMtime(dir), bank.NewestMtime(memstore.HomeBankDir())
 		ctx, cancel := context.WithTimeout(context.Background(), o.Timeout)
 		defer cancel()
@@ -261,6 +263,10 @@ func Update(o UpdateOptions) error {
 		runErr = cmd.Run()
 		return nil
 	})
+	if !ran { // lock never taken: nothing ran, and settling unlocked would race the holder
+		record(UpdateFailed, false)
+		return fmt.Errorf("headless update: %w", lockErr)
+	}
 	// An update may legitimately write only the shared home bank (cross-repo facts), so watch both tiers.
 	updated := bank.NewestMtime(dir).After(before) || bank.NewestMtime(memstore.HomeBankDir()).After(beforeHome)
 	if _, err := bank.SettleBank(o.CWD, time.Now()); err != nil {

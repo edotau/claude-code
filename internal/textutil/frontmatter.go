@@ -21,7 +21,8 @@ var fmRes = sync.OnceValue(func() (r struct {
 func ParseFrontmatter(content string) (map[string]any, string) {
 	// BOM/CRLF-normalize first: StripFrontMatter anchors on \n, so a CRLF file would silently drop the frontmatter.
 	content = strings.ReplaceAll(strings.TrimPrefix(content, "\ufeff"), "\r\n", "\n")
-	prefix, rest := stripFrontMatter([]byte(content))
+	// A closing --- that ends the file has no trailing newline; add one so the delimiter matches.
+	prefix, rest := stripFrontMatter([]byte(strings.TrimSuffix(content, "\n") + "\n"))
 	if prefix == nil {
 		return map[string]any{}, content
 	}

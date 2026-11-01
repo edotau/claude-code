@@ -480,6 +480,33 @@ func TestClaudeQuotasCache429NoCacheReportsHTTPStatus(t *testing.T) {
 	}
 }
 
+// TestClaudeQuotasCache429NoCacheStillBacksOff: a 429 with no prior cache writes not_before, so the next call
+// makes no network request.
+func TestClaudeQuotasCache429NoCacheStillBacksOff(t *testing.T) {
+	validClaudeCreds(t)
+	dir := setClaudeCacheDir(t)
+	hits := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits++
+		w.Header().Set("Retry-After", "141")
+		w.WriteHeader(http.StatusTooManyRequests)
+	}))
+	defer srv.Close()
+	stubClaudeOAuthURL(t, srv.URL)
+
+	claudeQuotas(context.Background())
+	if nb, _ := readClaudeCache(t, dir)["not_before"].(string); nb == "" {
+		t.Fatalf("not_before not written after 429 with no cache")
+	}
+	got := claudeQuotas(context.Background())
+	if hits != 1 {
+		t.Fatalf("network hits = %d, want 1 (backed off)", hits)
+	}
+	if len(got) != 1 || !strings.Contains(got[0].Note, "rate limited until") {
+		t.Errorf("second call = %+v, want one rate-limited note", got)
+	}
+}
+
 // TestClaudeQuotasCacheCorruptTreatedAsAbsent: a cache file that isn't valid JSON is treated exactly
 // like no cache — claudeQuotas still fetches and returns rows, not an error row.
 func TestClaudeQuotasCacheCorruptTreatedAsAbsent(t *testing.T) {

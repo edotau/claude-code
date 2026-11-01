@@ -225,8 +225,14 @@ func TestCollectContextGitFailureFallback(t *testing.T) {
 			}
 			t.Setenv("PATH", bin)
 			got, err := CollectContext(t.Context(), dir, []string{"."}, nil, 40, 100)
+			if stage == "ls-files" {
+				if err == nil || !strings.Contains(err.Error(), "git ls-files") {
+					t.Fatalf("CollectContext = %+v, %v, want fail-closed ls-files error", got, err)
+				}
+				return
+			}
 			if err != nil || len(got.Included) != 1 || got.Included[0].Path != "a.go" {
-				t.Fatalf("CollectContext = %+v, %v, want ordinary git failure fallback", got, err)
+				t.Fatalf("CollectContext = %+v, %v, want rev-parse failure fallback", got, err)
 			}
 		})
 	}

@@ -143,3 +143,12 @@ func TestDispatchWaitsForOverrunHandler(t *testing.T) {
 		t.Fatal("Dispatch returned while an overrun handler was still running")
 	}
 }
+
+func TestDispatchBlockingGateFailsClosedOnPanic(t *testing.T) {
+	gate := bound("gate", "Bash", time.Second, func(*Input) Result { panic("scan blew up") })
+	gate.Spec.Blocks = true
+	res, _ := Dispatch([]Bound{gate}, "PreToolUse", bashInput(), &bytes.Buffer{})
+	if res.Decision != Block || !strings.Contains(res.Reason, "gate") {
+		t.Errorf("panicking Blocks:true handler must block, got %+v", res)
+	}
+}

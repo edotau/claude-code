@@ -140,6 +140,14 @@ func TestToChatRequest(t *testing.T) {
 	}
 }
 
+func TestToChatRequestMalformedToolResult(t *testing.T) {
+	in := `{"messages":[{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":{"x":1}}]}]}`
+	_, _, err := ToChatRequest([]byte(in), "m")
+	if err == nil || !strings.Contains(err.Error(), "tool_result t1") {
+		t.Fatalf("err = %v, want error naming tool_result t1", err)
+	}
+}
+
 func TestFromChatResponse(t *testing.T) {
 	tests := []struct{ name, in, want string }{
 		{

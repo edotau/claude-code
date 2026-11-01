@@ -130,3 +130,18 @@ func TestAppendBlocksPreservesBytes(t *testing.T) {
 		})
 	}
 }
+
+// TestAppendBlocksUnreadableArchiveIsNotOverwritten: a read error other than not-exist aborts before any write.
+func TestAppendBlocksUnreadableArchiveIsNotOverwritten(t *testing.T) {
+	t.Parallel()
+	dir := filepath.Join(t.TempDir(), "sessionHistory-2026-11.md") // a directory: ReadFile fails with EISDIR
+	if err := os.Mkdir(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := AppendBlocks(dir, []string{"## new\nbody"}); err == nil {
+		t.Fatal("AppendBlocks on an unreadable archive = nil error, want the read error")
+	}
+	if fi, err := os.Stat(dir); err != nil || !fi.IsDir() {
+		t.Fatalf("unreadable archive was replaced: %v", err)
+	}
+}

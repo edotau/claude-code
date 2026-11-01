@@ -63,7 +63,7 @@ func SaveCheckCache(c CheckCache) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
-	return os.WriteFile(path, append(b, '\n'), 0o600)
+	return paths.AtomicWrite(path, append(b, '\n'), 0o600)
 }
 
 // LoadCheckCache returns the cached results by id when the cache exists and belongs to provider.

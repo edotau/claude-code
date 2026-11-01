@@ -253,6 +253,29 @@ func TestCollectContextHonoursGitIgnore(t *testing.T) {
 	}
 }
 
+// TestCollectContextFailsClosedOnLsFilesError: a corrupt index must error, not walk gitignored files.
+func TestCollectContextFailsClosedOnLsFilesError(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not on PATH")
+	}
+	dir := t.TempDir()
+	write(t, filepath.Join(dir, ".gitignore"), ".env\n")
+	write(t, filepath.Join(dir, ".env"), "SECRET=1")
+	write(t, filepath.Join(dir, "a.go"), "package a")
+	if out, err := exec.Command("git", "-C", dir, "init").CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v\n%s", err, out)
+	}
+	write(t, filepath.Join(dir, ".git", "index"), "not a valid index")
+
+	ctx, err := CollectContext(t.Context(), dir, []string{"."}, nil, 40, 100)
+	if err == nil {
+		t.Fatalf("err = nil, want ls-files error; Included = %v", ctx.Included)
+	}
+	if !strings.Contains(err.Error(), "git ls-files") {
+		t.Errorf("err = %v, want it to name git ls-files", err)
+	}
+}
+
 // TestCollectContextAbsDir: an absolute --dirs entry resolves independent of cwd.
 func TestCollectContextAbsDir(t *testing.T) {
 	target := t.TempDir()

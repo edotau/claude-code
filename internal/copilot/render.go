@@ -3,8 +3,10 @@ package copilot
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 
@@ -62,6 +64,10 @@ func renderCopilotSettings(home string, o render.RenderOptions, out io.Writer) (
 	}
 	path := filepath.Join(home, ".copilot", "settings.json")
 	raw, readErr := os.ReadFile(path)
+	if readErr != nil && !errors.Is(readErr, fs.ErrNotExist) {
+		fmt.Fprintf(out, "copilot-settings: skipped: cannot read %s: %v\n", path, readErr)
+		return false, nil
+	}
 	existed := readErr == nil
 	next := map[string]any{}
 	if existed {

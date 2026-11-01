@@ -122,9 +122,12 @@ func ValidateIdentity(ctx context.Context, p *providers.Provider) (string, error
 	return identity.ID, nil
 }
 
+// DiscoveryKeyPrefix starts every sealed model-discovery secret name.
+const DiscoveryKeyPrefix = "model-discovery/v1/"
+
 func servingDiscoveryKey(scope Scope) string {
 	data, _ := json.Marshal(scope) // only string fields
-	return fmt.Sprintf("model-discovery/v1/%x", sha256.Sum256(data))
+	return fmt.Sprintf(DiscoveryKeyPrefix+"%x", sha256.Sum256(data))
 }
 
 func Read(scope Scope, refresh bool) (Snapshot, bool, error) {
@@ -191,7 +194,7 @@ func SanitizeChecks(checks []CheckResult) []CheckResult {
 	return out
 }
 
-// Save seals the snapshot with empty plaintext Prefix metadata; it does not change the menu overlay.
+// Save seals the snapshot; only a provider/profile label and length stay plaintext, and the menu overlay is unchanged.
 func Save(p *providers.Provider, snapshot Snapshot) error {
 	scope, err := NewScope(p, snapshot.Scope.SubjectID)
 	if err != nil {
@@ -208,7 +211,8 @@ func Save(p *providers.Provider, snapshot Snapshot) error {
 	}
 	name := servingDiscoveryKey(scope)
 	if err := vault.UpdateSealed(func(tx *vault.Tx, key *vault.Key) error {
-		return tx.PutRecord(name, vault.Record{Sealed: key.Seal(name, string(data)), Kid: key.Kid, SetAt: time.Now().UTC()})
+		return tx.PutRecord(name, vault.Record{Sealed: key.Seal(name, string(data)), Kid: key.Kid, Len: len(data),
+			Label: "databricks/" + scope.Profile, SetAt: time.Now().UTC()})
 	}); err != nil {
 		return errors.New("cannot seal discovery cache; check vault access")
 	}

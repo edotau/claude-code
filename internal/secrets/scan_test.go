@@ -159,3 +159,15 @@ func TestCrossCallerAgreeEnvWinsButGetPrefersVault(t *testing.T) {
 		t.Fatalf("Get = (%q, %q, %v), want (vault-value, vault, true)", v, src, ok)
 	}
 }
+
+func TestScanConfigsMissingExplicitTargetIsFinding(t *testing.T) {
+	missing := filepath.Join(t.TempDir(), "typo.json")
+	var out bytes.Buffer
+	scanner := &Scanner{Out: &out}
+	if code := scanner.ScanConfigs([]string{missing}); code != ExitFindings {
+		t.Fatalf("missing explicit target = %d, want findings: %s", code, out.String())
+	}
+	if len(scanner.Findings) != 1 || !strings.Contains(scanner.Findings[0], missing+" — could not read") {
+		t.Fatalf("findings = %v", scanner.Findings)
+	}
+}

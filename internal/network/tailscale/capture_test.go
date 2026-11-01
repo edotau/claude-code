@@ -89,37 +89,46 @@ func TestCapturePanes_MalformedRecordIsSkipped(t *testing.T) {
 	}
 }
 
-func TestCapturePanes_CapsPaneCount(t *testing.T) {
+func TestCapturePanes_TooManyPanesIsError(t *testing.T) {
 	var blob strings.Builder
 	for range maxPanes + 10 {
 		blob.WriteString(frame("cc-claude-x", "%1", "claude", "claude", "line"))
 	}
 	run, _ := fakeRunner([]byte(blob.String()), nil)
 	caps, err := CapturePanes(context.Background(), "myhost", true, run)
-	if err != nil {
-		t.Fatalf("CapturePanes: %v", err)
-	}
-	if len(caps) != maxPanes {
-		t.Errorf("got %d captures, want capped at %d", len(caps), maxPanes)
+	if err == nil {
+		t.Fatalf("want error over %d panes, got %d captures", maxPanes, len(caps))
 	}
 }
 
-func TestCapturePanes_CapsBytes(t *testing.T) {
+func TestCapturePanes_ExactlyMaxPanesIsOK(t *testing.T) {
+	var blob strings.Builder
+	for range maxPanes {
+		blob.WriteString(frame("cc-claude-x", "%1", "claude", "claude", "line"))
+	}
+	run, _ := fakeRunner([]byte(blob.String()), nil)
+	caps, err := CapturePanes(context.Background(), "myhost", true, run)
+	if err != nil || len(caps) != maxPanes {
+		t.Fatalf("got %d captures, err %v; want %d, nil", len(caps), err, maxPanes)
+	}
+}
+
+func TestCapturePanes_OversizeBlobIsError(t *testing.T) {
 	huge := strings.Repeat("x", maxCaptureBytes*2)
 	blob := frame("cc-claude-a", "%1", "claude", "claude", huge)
 	run, _ := fakeRunner([]byte(blob), nil)
 	caps, err := CapturePanes(context.Background(), "myhost", true, run)
-	if err != nil {
-		t.Fatalf("CapturePanes: %v", err)
+	if err == nil {
+		t.Fatalf("want error over %d bytes, got %d captures", maxCaptureBytes, len(caps))
 	}
-	// The whole blob (not just one pane's text) is truncated to maxCaptureBytes before parsing, so
-	// the result must never exceed that regardless of how many/few records survive truncation.
-	total := 0
-	for _, c := range caps {
-		total += len(c.Text)
-	}
-	if total > maxCaptureBytes {
-		t.Errorf("total captured text = %d bytes, want <= %d (maxCaptureBytes)", total, maxCaptureBytes)
+}
+
+func TestParseCaptureBlob_RecordWithoutEndMarkerIsSkipped(t *testing.T) {
+	blob := frame("cc-claude-a", "%1", "claude", "claude", "ok") +
+		paneRecordStart + "cc-codex-b" + fieldSep + "%2" + fieldSep + "codex" + fieldSep + "codex\ncut mid-te"
+	caps := parseCaptureBlob("myhost", blob)
+	if len(caps) != 1 || caps[0].PaneID != "%1" {
+		t.Fatalf("caps = %+v, want only the terminated %%1 record", caps)
 	}
 }
 

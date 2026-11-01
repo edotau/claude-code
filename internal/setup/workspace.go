@@ -300,8 +300,8 @@ func workspaceStatusKind(dot, kind string, out io.Writer) error {
 		rel, _ := filepath.Rel(dir, p)
 		state, target := workspaceEntryState(kind, rel, p)
 		fmt.Fprintf(out, "%-9s %-16s %s%s\n", kind, state, rel, target)
-		if state == "linked" || (kind == "skills" && d.IsDir()) {
-			return fs.SkipDir
+		if d.IsDir() && kind == "skills" {
+			return fs.SkipDir // SkipDir on a file would skip its siblings; WalkDir never descends symlinks
 		}
 		return nil
 	})

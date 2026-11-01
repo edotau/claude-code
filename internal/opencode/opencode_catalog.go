@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/edotau/claude-code/internal/vault"
+	"maps"
 	"slices"
 	"strings"
 	"time"
@@ -62,7 +63,8 @@ func ServedInfo(served map[string]providers.ModelInfo, p *providers.Provider, id
 func OpencodeCheckTargets(ids []string, all bool, served map[string]providers.ModelInfo, p *providers.Provider) []serving.CheckTarget {
 	var out []serving.CheckTarget
 	if all {
-		for name, info := range served {
+		for _, name := range slices.Sorted(maps.Keys(served)) {
+			info := served[name]
 			if info.Task != "llm/v1/chat" {
 				continue
 			}

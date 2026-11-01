@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
@@ -55,5 +56,19 @@ func TestClientSecretLockedVaultErrorsWithoutWritingAFile(t *testing.T) {
 	}
 	if _, serr := os.Stat(secretFile()); !os.IsNotExist(serr) {
 		t.Fatalf("a secret file was written: %v", serr)
+	}
+}
+
+func TestClientSecretUnreadableLegacyFileErrorsWithoutMinting(t *testing.T) {
+	vaulttest.Use(t)
+	if err := os.MkdirAll(secretFile(), 0o700); err != nil { // a directory: ReadFile fails with EISDIR, not ENOENT
+		t.Fatal(err)
+	}
+	_, err := ClientSecret()
+	if err == nil || !strings.Contains(err.Error(), "proxy: read") {
+		t.Fatalf("err = %v, want a read error", err)
+	}
+	if s, found, _ := vault.ReadSecret(secretName); found || s != "" {
+		t.Fatalf("a secret was minted into the vault: %q", s)
 	}
 }

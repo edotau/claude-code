@@ -168,7 +168,7 @@ type claudeUsageCache struct {
 	FetchedAt        time.Time       `json:"fetched_at"`
 	NotBefore        *time.Time      `json:"not_before,omitempty"`
 	SubscriptionType string          `json:"subscription_type"`
-	Body             json.RawMessage `json:"body"`
+	Body             json.RawMessage `json:"body,omitempty"`
 }
 
 // claudeCacheDir overrides the usage cache dir (tests); empty resolves state/harness/cache at call time.
@@ -200,7 +200,7 @@ func readClaudeUsageCache(path string) *claudeUsageCache {
 		return nil
 	}
 	var c claudeUsageCache
-	if !schemas.DecodeOK(usageCacheFormat, raw, &c) || len(c.Body) == 0 {
+	if !schemas.DecodeOK(usageCacheFormat, raw, &c) || (len(c.Body) == 0 && c.NotBefore == nil) {
 		return nil
 	}
 	return &c
@@ -264,7 +264,8 @@ func claudeQuotas(ctx context.Context) []quota {
 		return parseClaudeUsage(cache.Body, cache.SubscriptionType)
 	}
 	if cache != nil && cache.NotBefore != nil && now.Before(*cache.NotBefore) {
-		return claudeCachedOrNote(cache, "rate limited until "+cache.NotBefore.Local().Format("15:04"), "")
+		return claudeCachedOrNote(cache, "rate limited until "+cache.NotBefore.Local().Format("15:04"),
+			"usage unavailable: rate limited until "+cache.NotBefore.Local().Format("15:04"))
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, claudeOAuthURL, nil)
@@ -291,7 +292,7 @@ func claudeQuotas(ctx context.Context) []quota {
 		notBefore := now.Add(claudeRetryAfter(resp.Header.Get("Retry-After"), now))
 		note := fmt.Sprintf("usage unavailable: HTTP %d", resp.StatusCode)
 		if cache == nil {
-			return []quota{{Provider: "anthropic", Note: note}}
+			cache = &claudeUsageCache{SubscriptionType: creds.ClaudeAiOauth.SubscriptionType}
 		}
 		cache.NotBefore = &notBefore
 		writeClaudeUsageCache(path, *cache)

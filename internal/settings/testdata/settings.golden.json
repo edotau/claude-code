@@ -19,6 +19,7 @@
   "disableClaudeAiConnectors": true,
   "useAutoModeDuringPlan": true,
   "skipWorkflowUsageWarning": true,
+  "idleCompaction": false,
   "worktree": {
     "baseRef": "head"
   },

@@ -43,6 +43,14 @@ func TestParseCopilot(t *testing.T) {
 	}
 }
 
+// TestParseCopilotNoPremiumIsNotExhausted: a body without premium_interactions yields a Note row, never 100% used.
+func TestParseCopilotNoPremiumIsNotExhausted(t *testing.T) {
+	got := parseCopilot("seat", []byte(`{"copilot_plan":"business","quota_snapshots":{}}`))
+	if got.Note != "no premium quota reported" || got.Limit != 0 || got.UsedPct != 0 {
+		t.Errorf("absent premium = %+v, want Note and no numbers", got)
+	}
+}
+
 func TestParseWham(t *testing.T) {
 	body := `{"email":"a@b.c","plan_type":"plus","rate_limit":{
 		"primary_window":{"used_percent":13,"limit_window_seconds":18000,"reset_at":1792462523},

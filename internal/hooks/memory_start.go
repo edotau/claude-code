@@ -205,7 +205,7 @@ func catchUpPrevious(prev chainEntry, sessionID string, now time.Time) string {
 	if !spawnUpdate(prev.transcriptPath, prev.cwd, prev.sessionID) {
 		return ""
 	}
-	writeStamp(stamp, now, "catchup", edits)
+	_ = writeStamp(stamp, now, "catchup", edits) // best effort: a lost stamp only re-dispatches later
 	return "Catching up the previous session's memory update in the background."
 }
 

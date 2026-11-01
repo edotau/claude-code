@@ -9,6 +9,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 )
 
 // fakeBin writes an executable shell script named name into dir and returns its path.
@@ -281,5 +282,30 @@ func TestStatusSubnetRoutes(t *testing.T) {
 	}
 	if !st.ExitNodeApproved {
 		t.Error("ExitNodeApproved = false with both default routes present")
+	}
+}
+
+// `tailscale up` registers a node and needs longer than the quick-call defaultExecTimeout.
+func TestConnectUpOutlivesDefaultExecTimeout(t *testing.T) {
+	dir := t.TempDir()
+	bin := fakeBin(t, dir, "tailscale", catScript(t, "status_stopped.json"))
+	prevLook, prevExec := lookPathReal, execCommandContext
+	lookPathReal = func(string) (string, error) { return bin, nil }
+	var upBudget time.Duration
+	execCommandContext = func(ctx context.Context, name string, args ...string) *exec.Cmd {
+		if len(args) > 0 && args[0] == "up" {
+			if dl, ok := ctx.Deadline(); ok {
+				upBudget = time.Until(dl)
+			}
+		}
+		return exec.CommandContext(ctx, name, args...)
+	}
+	t.Cleanup(func() { lookPathReal, execCommandContext = prevLook, prevExec })
+
+	if err := Connect(context.Background(), "tskey-auth-x", false); err != nil {
+		t.Fatalf("Connect() err = %v", err)
+	}
+	if upBudget <= defaultExecTimeout {
+		t.Errorf("`up` deadline budget = %v, want > %v", upBudget, defaultExecTimeout)
 	}
 }

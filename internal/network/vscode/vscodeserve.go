@@ -273,6 +273,7 @@ func Start(ctx context.Context, opts Options) (ServeResult, error) {
 			return ServeResult{}, err
 		}
 		if err := waitHealthy(ctx, port); err != nil {
+			_ = terminate(pid) // don't leave an unrecorded orphan holding the port
 			return ServeResult{}, err
 		}
 		st = State{PID: pid, Port: port, Started: time.Now().UTC()}
@@ -365,19 +366,16 @@ func openLogFile() (*os.File, error) {
 	return os.OpenFile(LogFile(), flags, 0o600)
 }
 
-// Stop tears down any tailscale mapping this package set, then SIGTERMs a healthy daemon. A state
-// file whose daemon no longer answers is stale: cleaned up silently, not escalated to an error.
+// Stop tears down any tailscale mapping this package set, then SIGTERMs the daemon whether or not it answers.
+// The state file is removed only once the daemon is gone, so a failed or slow stop stays reachable.
 func Stop() error {
 	st, err := readState()
 	if err != nil {
 		return ErrNotRunning
 	}
-	defer removeState()
 	if !proc.Alive(st.PID) {
+		removeState()
 		return ErrNotRunning
-	}
-	if !healthy(context.Background(), st.Port) {
-		return nil
 	}
 	if st.Tailscale {
 		stopTailscaleMapping(st.Funnel)
@@ -389,6 +387,10 @@ func Stop() error {
 	for time.Now().Before(deadline) && proc.Alive(st.PID) {
 		time.Sleep(100 * time.Millisecond)
 	}
+	if proc.Alive(st.PID) {
+		return fmt.Errorf("vscode serve: pid %d still running after SIGTERM; state kept", st.PID)
+	}
+	removeState()
 	return nil
 }
 

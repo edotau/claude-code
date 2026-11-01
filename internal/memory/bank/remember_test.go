@@ -92,3 +92,38 @@ func TestRememberNonProjectTypesWriteConventionsBullet(t *testing.T) {
 		})
 	}
 }
+
+// TestPrependBlockUnreadableLogIsNotRewritten: a read error other than not-exist leaves decisionLog.md alone.
+func TestPrependBlockUnreadableLogIsNotRewritten(t *testing.T) {
+	t.Parallel()
+	p := filepath.Join(t.TempDir(), "decisionLog.md") // a directory: ReadFile fails with EISDIR
+	if err := os.Mkdir(p, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := prependBlock(p, "decisionLog", "## 2026-11-01 — x"); err == nil {
+		t.Fatal("prependBlock on an unreadable log = nil error, want the read error")
+	}
+	if fi, err := os.Stat(p); err != nil || !fi.IsDir() {
+		t.Fatalf("unreadable log was replaced: %v", err)
+	}
+}
+
+// TestLastStampedIDExactMatchAndDirection: a longer older bullet sharing the prefix is skipped, a multi-line
+// fact matches on its first line, and an appended file resolves to the last match.
+func TestLastStampedIDExactMatchAndDirection(t *testing.T) {
+	t.Parallel()
+	p := filepath.Join(t.TempDir(), "conventions.md")
+	body := "# c\n\n- User: foo bar <!-- id:aaaa1111 -->\n- User: foo <!-- id:bbbb2222 -->\n- User: foo <!-- id:cccc3333 -->\n"
+	if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := lastStampedID(p, "- User: foo", false); err != nil || got != "cccc3333" {
+		t.Fatalf("appended file: got %q, %v, want cccc3333", got, err)
+	}
+	if got, err := lastStampedID(p, "- User: foo", true); err != nil || got != "bbbb2222" {
+		t.Fatalf("newest-first file: got %q, %v, want bbbb2222", got, err)
+	}
+	if got, err := lastStampedID(p, "- User: foo bar\ncontinued", false); err != nil || got != "aaaa1111" {
+		t.Fatalf("multi-line fact: got %q, %v, want aaaa1111", got, err)
+	}
+}

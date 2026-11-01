@@ -55,3 +55,12 @@ func TestLoginLine(t *testing.T) {
 		}
 	}
 }
+
+// Given the Max-plan login (AuthCLI probes as "login"), the row reads subscription (tier) and verified.
+func TestKeyColsMaxPlanLoginIsVerified(t *testing.T) {
+	kt := keyTarget{label: "claude", present: true, envVar: "X", source: "claude.ai login (max)",
+		provider: &providers.Provider{Auth: providers.Auth{Type: providers.AuthCLI}}}
+	if got := keyCols(kt); got != [2]string{"subscription (max)", "verified"} {
+		t.Errorf("keyCols = %v, want subscription (max) / verified", got)
+	}
+}

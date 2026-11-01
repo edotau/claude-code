@@ -137,3 +137,14 @@ func TestParseFrontmatterNoTrailingNewline(t *testing.T) {
 		t.Errorf("body = %q, want %q", body, "Body text, no trailing newline")
 	}
 }
+
+// A closing fence that is the last bytes of the file (no trailing newline) still ends the frontmatter.
+func TestParseFrontmatterClosingFenceAtEOF(t *testing.T) {
+	fm, body := ParseFrontmatter("---\nname: x\n---")
+	if fm["name"] != "x" {
+		t.Errorf("fm = %v, want name=x", fm)
+	}
+	if body != "" {
+		t.Errorf("body = %q, want empty", body)
+	}
+}

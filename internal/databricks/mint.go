@@ -79,7 +79,10 @@ func SetPAT(ctx context.Context, name, value string) (string, error) {
 		}
 	}
 	secret := providers.AuthSecretName(p)
-	old, had, _ := vault.ReadSecret(secret)
+	old, had, err := vault.ReadSecret(secret)
+	if err != nil {
+		return "", fmt.Errorf("%s: read the previous personal access token: %w", p.Name, err)
+	}
 	if err := secretstore.Store(secret, value); err != nil {
 		return "", err
 	}

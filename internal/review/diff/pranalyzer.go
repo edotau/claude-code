@@ -121,29 +121,41 @@ type PRReport struct {
 }
 
 func runGit(repo string, args ...string) (string, bool) {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	// None of this file's git output starts a line with whitespace, so TrimRight (proc.RunGit trim) reads
-	// identically to the TrimSpace this replaced.
-	out, err := proc.RunGitInherit(ctx, repo, args...)
-	if err != nil {
-		return "", false
-	}
-	return out, true
+	out, err := runGitErr(repo, args...)
+	return out, err == nil
 }
 
-func changedFiles(repo, base, head string) []PRFileAnalysis {
-	statusMap := map[string]string{"A": "added", "M": "modified", "D": "deleted", "R": "renamed", "C": "copied"}
-	out, ok := runGit(repo, "diff", "--name-status", base+"..."+head)
-	if !ok || out == "" {
-		out, ok = runGit(repo, "diff", "--name-status", base, head)
+func runGitErr(repo string, args ...string) (string, error) {
+	// None of this file's git output starts a line with whitespace, so proc's TrimRight equals the old TrimSpace.
+	out, _, err := gitInherit(repo, args...)
+	if err != nil {
+		return "", err
 	}
-	if !ok || out == "" {
-		out, ok = runGit(repo, "diff", "--name-status", "--cached")
+	return out, nil
+}
+
+// gitInherit runs git in repo under a 30s timeout; timedOut reports that the deadline, not git, ended the run.
+func gitInherit(repo string, args ...string) (out string, timedOut bool, err error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	out, err = proc.RunGitInherit(ctx, repo, args...)
+	return out, ctx.Err() != nil, err
+}
+
+// changedFiles lists the base...head changes; an error means every ref-based git diff failed and nothing was staged.
+func changedFiles(repo, base, head string) ([]PRFileAnalysis, error) {
+	statusMap := map[string]string{"A": "added", "M": "modified", "D": "deleted", "R": "renamed", "C": "copied"}
+	out, err := runGitErr(repo, "diff", "--name-status", base+"..."+head)
+	if err != nil || out == "" {
+		out, err = runGitErr(repo, "diff", "--name-status", base, head)
+	}
+	refErr := err
+	if err != nil || out == "" {
+		out, err = runGitErr(repo, "diff", "--name-status", "--cached")
 	}
 	var files []PRFileAnalysis
-	if !ok {
-		return files
+	if err != nil {
+		return files, err
 	}
 	for line := range strings.SplitSeq(out, "\n") {
 		if strings.TrimSpace(line) == "" {
@@ -159,7 +171,10 @@ func changedFiles(repo, base, head string) []PRFileAnalysis {
 		}
 		files = append(files, PRFileAnalysis{Path: parts[len(parts)-1], Status: status})
 	}
-	return files
+	if len(files) == 0 && refErr != nil {
+		return nil, refErr
+	}
+	return files, nil
 }
 
 func fileDiff(repo, filepath, base, head string) string {
@@ -297,7 +312,10 @@ func complexityLabel(score int) string {
 
 // AnalyzePR ports pr_analyzer.py's analyze_pr: full complexity/risk analysis for base...head.
 func AnalyzePR(repo, base, head string) (PRReport, error) {
-	files := changedFiles(repo, base, head)
+	files, err := changedFiles(repo, base, head)
+	if err != nil {
+		return PRReport{}, fmt.Errorf("git diff %s...%s: %w", base, head, err)
+	}
 	if len(files) == 0 {
 		return PRReport{Status: "no_changes", Message: "No changes detected between branches"}, nil
 	}
@@ -454,7 +472,11 @@ func RunPR(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 
-	report, _ := AnalyzePR(repoPath, *base, *head)
+	report, err := AnalyzePR(repoPath, *base, *head)
+	if err != nil {
+		fmt.Fprintf(stderr, "Error: %v\n", err)
+		return 1
+	}
 
 	if *jsonOut {
 		out := mustIndentJSON(report)

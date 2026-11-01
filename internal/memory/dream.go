@@ -196,6 +196,8 @@ func Dream(o DreamOptions) error {
 	if _, err := bank.SettleBank(o.CWD, time.Now()); err != nil {
 		fmt.Fprintln(o.Out, "memory dream: settle:", err)
 	}
-	stampErr := paths.AtomicWrite(DreamStampPath(o.CWD), []byte(time.Now().Format(time.RFC3339)+"\n"), 0o600)
-	return errors.Join(lockErr, runErr, stampErr)
+	if err := errors.Join(lockErr, runErr); err != nil {
+		return err // no stamp, so DreamDue retries the failed consolidation instead of waiting a day
+	}
+	return paths.AtomicWrite(DreamStampPath(o.CWD), []byte(time.Now().Format(time.RFC3339)+"\n"), 0o600)
 }

@@ -101,15 +101,23 @@ func Log(a Action, resource, detail string) {
 	if os.MkdirAll(filepath.Dir(file), 0o700) != nil {
 		return
 	}
-	if fi, err := os.Stat(file); err == nil && fi.Size() > maxBytes {
-		_ = os.Rename(file, file+".1")
-	}
+	rotate(file)
 	f, err := os.OpenFile(file, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
 		return
 	}
 	defer func() { _ = f.Close() }()
 	_, _ = f.Write(append(line, '\n'))
+}
+
+// rotate moves a full log to .1 under a lock, re-checking the size so racing writers rotate once.
+func rotate(file string) {
+	_ = paths.WithFileLock(file, func() error {
+		if fi, err := os.Stat(file); err == nil && fi.Size() > maxBytes {
+			return os.Rename(file, file+".1")
+		}
+		return nil
+	})
 }
 
 // scrub replaces every credential-shaped field so the log can never become a secret store.

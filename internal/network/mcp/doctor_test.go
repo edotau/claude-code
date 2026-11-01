@@ -291,3 +291,14 @@ func TestServerDefMarshalRedactsAtTheType(t *testing.T) {
 		t.Errorf("clean def must not carry has_secrets: %s", b)
 	}
 }
+
+// TestExitCodeFailsOnListErrorWithNoFailedServers: a crashed or timed-out `claude mcp list` is not a clean run.
+func TestExitCodeFailsOnListErrorWithNoFailedServers(t *testing.T) {
+	rep := Report{Health: HealthResult{Error: "timed out after 30s"}}
+	if got := rep.ExitCode(); got != 1 {
+		t.Errorf("ExitCode = %d, want 1 (health Error with Failed=0)", got)
+	}
+	if got := (Report{Health: HealthResult{Skipped: "claude not on PATH"}}).ExitCode(); got != 0 {
+		t.Errorf("ExitCode = %d, want 0 (fail-open skip)", got)
+	}
+}

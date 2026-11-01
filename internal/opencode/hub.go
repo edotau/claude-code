@@ -147,8 +147,11 @@ func (l hubDispatch) Run(ctx context.Context, req agent.RunOptions, sink agent.S
 		defer timer.Stop()
 		defer cancel()
 	}
+	host := newHookHost(req)
+	argv = host.before(argv, h.Prompt)
 	cmd, tail := agent.ChildCmd(cctx, bin, argv, env, req.WorkDir, "", req.KeepEnv, true)
-	out, runErr := agent.RunEventStream(cctx, l.agent, cmd, tail, sink, parseOpenCodeStream, onFirstByte)
+	out, runErr := agent.RunEventStream(cctx, l.agent, cmd, tail, sink, host.parser(), onFirstByte)
+	defer func() { host.after(res) }()
 	res.Answer, res.Usage, res.Transport = out.Answer, out.Usage, out.Transport
 	if out.SessionID != "" {
 		res.SessionID = out.SessionID

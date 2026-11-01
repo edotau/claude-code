@@ -144,6 +144,6 @@ func idleUpdateOnce(tr, cwd, session string, note io.Writer) bool {
 		fmt.Fprintf(note, "memory watch: worker not spawned for %s (%d uncovered edits)\n", session, edits-covered)
 		return false
 	}
-	writeStamp(stamp, time.Now(), "bg", edits)
+	_ = writeStamp(stamp, time.Now(), "bg", edits) // best effort: a lost stamp only re-dispatches later
 	return true
 }

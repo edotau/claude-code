@@ -16,7 +16,7 @@ var verdictRank = map[string]int{"SHIP IT": 1, "NEEDS WORK": 2, "FIX REQUIRED": 
 func MergeReports(adversarial bool, parts []Part, answers []string) string {
 	seen := map[string]bool{}
 	var body strings.Builder
-	worst, best := "", 0
+	worst, best, unjudged := "", 0, false
 	for i, ans := range answers {
 		lines := strings.Split(strings.TrimSpace(ans), "\n")
 		if !adversarial && len(lines) > 0 {
@@ -26,6 +26,8 @@ func MergeReports(adversarial bool, parts []Part, answers []string) string {
 					worst, best = v, r
 				}
 				lines = lines[1:]
+			} else {
+				unjudged = true
 			}
 		}
 		fmt.Fprintf(&body, "\n## %s\n", parts[i].Header(i+1, len(parts)))
@@ -50,8 +52,8 @@ func MergeReports(adversarial bool, parts []Part, answers []string) string {
 		if hasFindings(body.String()) {
 			head = "VERDICT: findings across " + strconv.Itoa(len(parts)) + " parts"
 		}
-	} else if head == "" {
-		head = "NEEDS WORK" // no part gave a parseable verdict: do not report SHIP IT by default
+	} else if head == "" || (unjudged && best < verdictRank["NEEDS WORK"]) {
+		head = "NEEDS WORK" // a part without a parseable verdict is never judged SHIP IT
 	}
 	return head + "\n" + body.String()
 }

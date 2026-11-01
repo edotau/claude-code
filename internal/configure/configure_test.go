@@ -707,7 +707,7 @@ func TestTierRowsFitEightyColumns(t *testing.T) {
 // TestDatabricksRowsFitEightyColumns: the home row at its worst state text and every page/env/apply row stay <=80 cols.
 func TestDatabricksRowsFitEightyColumns(t *testing.T) {
 	menuTestEnv(t)
-	rows := []homeRow{{Name: "databricks", State: "prod · oauth-m2m", Check: "token expires in 119m", Run: nil}, {Name: "databricks", State: "prod · oauth-m2m", Check: "token expires in 23h59m", Run: nil}}
+	rows := []homeRow{{Name: "databricks", State: "prod · oauth-m2m", Check: "expires in 119m", Run: nil}, {Name: "databricks", State: "prod · oauth-m2m", Check: "expires in 23h59m", Run: nil}}
 	rows = append(rows, settingsRows(&dialog{})...)
 	laid, _ := menu.RowsOf(rows)
 	for _, r := range laid {

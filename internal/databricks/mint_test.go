@@ -1,7 +1,9 @@
 package databricks
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -274,5 +276,23 @@ func TestLoginRowSuccessLineNoRollback(t *testing.T) {
 	}
 	if strings.Contains(stderr, "providers.prev") {
 		t.Errorf("rollback hint on success: %q", stderr)
+	}
+}
+
+// TestSetPATReadFailureKeepsOldValue pins that an unreadable previous PAT aborts before anything is stored or deleted.
+func TestSetPATReadFailureKeepsOldValue(t *testing.T) {
+	mintRow(t, 401)
+	name := providers.SecretName(providers.GroupDatabricks, "mrow", providers.AuthPAT)
+	if err := secretstore.Store(name, "dapi-OLD"); err != nil {
+		t.Fatal(err)
+	}
+	goodKey := os.Getenv("HARNESS_VAULT_KEY")
+	t.Setenv("HARNESS_VAULT_KEY", base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{7}, 32)))
+	if _, err := SetPAT(context.Background(), "mrow", "dapi-BAD"); err == nil || !strings.Contains(err.Error(), "read the previous") {
+		t.Fatalf("err = %v; want a read-previous error", err)
+	}
+	t.Setenv("HARNESS_VAULT_KEY", goodKey)
+	if v, ok, _ := vault.ReadSecret(name); !ok || v != "dapi-OLD" {
+		t.Errorf("old PAT lost: %q ok=%v", v, ok)
 	}
 }

@@ -73,6 +73,9 @@ func ScopedGoGate(ctx context.Context, dir, base string) (cmd string, pkgs []str
 	for i, p := range pkgs {
 		args[i] = "./" + p
 	}
+	if len(args) == 0 { // a bare `go test` runs the root dir and fails when it has no Go files
+		return "go build ./... && go vet ./...", nil, false, nil
+	}
 	return "go build ./... && go vet ./... && go test " + strings.Join(args, " "), pkgs, false, nil
 }
 

@@ -3,8 +3,10 @@ package bank
 import (
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -52,7 +54,7 @@ func Remember(root, kind, fact string, now time.Time) (string, error) {
 	if _, err := assignIDs(dir, now); err != nil {
 		return "", err
 	}
-	id, err := lastStampedID(path, line)
+	id, err := lastStampedID(path, line, file == "decisionLog.md")
 	if err != nil {
 		return "", err
 	}
@@ -64,23 +66,30 @@ func Remember(root, kind, fact string, now time.Time) (string, error) {
 
 // prependBlock inserts block at the top of path's entries — decisionLog.md is newest-first.
 func prependBlock(path, base, block string) error {
-	data, _ := os.ReadFile(path)
+	data, err := os.ReadFile(path)
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return err // never rewrite the log from an unread file
+	}
 	header, blocks := EntryBlocks(base, string(data))
 	blocks = append([]string{block}, blocks...)
 	return paths.AtomicWrite(path, []byte(Rejoin(header, blocks)), 0o600)
 }
 
-// lastStampedID finds the id settle just stamped onto the line it wrote (matched by exact prefix).
-func lastStampedID(path, line string) (string, error) {
+// lastStampedID finds the id stamped on line's first line: the first exact match in a newest-first file, else the last.
+func lastStampedID(path, line string, newestFirst bool) (string, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return "", err
 	}
-	for ln := range strings.SplitSeq(string(data), "\n") {
-		if strings.HasPrefix(ln, line) {
-			if id := BlockID(ln); id != "" {
-				return id, nil
-			}
+	want, _, _ := strings.Cut(line, "\n")
+	want = strings.TrimRight(want, " \t")
+	lines := strings.Split(string(data), "\n")
+	if !newestFirst {
+		slices.Reverse(lines)
+	}
+	for _, ln := range lines {
+		if id := BlockID(ln); id != "" && strings.TrimRight(StripID(ln), " \t") == want {
+			return id, nil
 		}
 	}
 	return "", errors.New("id not found after settle")

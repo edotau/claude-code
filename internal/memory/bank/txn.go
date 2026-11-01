@@ -253,8 +253,12 @@ func (j *journal) plan(dir string, present []string, rec *Receipt) (outcomes []o
 func (j *journal) captureNative(repo Repo, rec *Receipt, capture, missing []string) error {
 	stage := append([]string{}, capture...)
 	for _, p := range missing {
-		// Not at HEAD (an add that never committed) leaves nothing to copy; the tombstone still records the loss.
-		if data, err := headBytes(repo, p); err == nil {
+		// Not at HEAD (git exits 128: an add that never committed) leaves nothing to copy; any other failure aborts.
+		data, err := headBytes(repo, p)
+		if err != nil && exitCode(err) != 128 {
+			return fmt.Errorf("recovery copy of %s: %w", p, err)
+		}
+		if err == nil {
 			copyRel := path.Join(tombstoneDir, j.ID, p)
 			if err := repo.validateRel(copyRel); err != nil {
 				return err

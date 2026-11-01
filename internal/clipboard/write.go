@@ -17,6 +17,9 @@ import (
 	"github.com/edotau/claude-code/internal/proc"
 )
 
+// clearTimeout bounds ClearIfMatch so a hung clipboard tool cannot leave the secret uncleared forever.
+const clearTimeout = 30 * time.Second
+
 // DefaultClearAfter is how long a copied secret stays on the clipboard before the timed clear.
 const DefaultClearAfter = 30 * time.Second
 
@@ -150,6 +153,8 @@ func ScheduleClear(after time.Duration, value string) error {
 
 // ClearIfMatch clears the clipboard only when its text hashes to digest; it reports whether it cleared.
 func ClearIfMatch(ctx context.Context, digest string) (bool, error) {
+	ctx, cancel := context.WithTimeout(ctx, clearTimeout)
+	defer cancel()
 	t, err := pick()
 	if err != nil {
 		return false, err

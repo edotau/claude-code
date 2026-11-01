@@ -21,7 +21,7 @@ that catches how LLM-written code characteristically fails. Read-only: findings 
 - **Scan tech debt** → `references/techdebt.md`.
 - **Review a skill or plugin** → `references/codex-skill-plugin-review.md` (the SKILL/PLUGIN
   checklists `agents/codex.md` runs via `claude-code codex ask`).
-- **A/B-eval a skill rule change** → `references/eval.md` (trap suite; `scripts/code-evaluator.js`).
+- **A/B-eval a skill rule change** → `references/eval.md` (trap suite; `workflows/code-evaluator.js`).
 - **Vet a task brief before implementation** → `references/task-review.md` (verdict `READY | NEEDS
   CLARIFICATION`; on another agent via `claude-code codex ask`).
 

@@ -109,3 +109,55 @@ func TestRunGateAlwaysExitsZeroOnBadArgs(t *testing.T) {
 		t.Fatalf("exit code = %d, want 0 — RunGate must never block on bad input", code)
 	}
 }
+
+// RunGate --repo must inspect that repo, not the cwd: a staged file in dir shows up when run from elsewhere.
+func TestRunGateRepoFlagFromOtherCwd(t *testing.T) {
+	dir := newGateRepo(t)
+	if err := os.WriteFile(filepath.Join(dir, "app.js"), []byte("function run() {\n  console.log('hi')\n}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	mustRun(t, dir, "git", "add", "app.js")
+	t.Chdir(t.TempDir())
+
+	var stdout, stderr bytes.Buffer
+	if code := RunGate([]string{"--repo", dir}, &stdout, &stderr); code != 0 {
+		t.Fatalf("exit code = %d, want 0", code)
+	}
+	if out := stdout.String(); strings.Contains(out, "detector failed") || !strings.Contains(out, "[surgical]") {
+		t.Errorf("gate --repo from another cwd misreported:\n%s", out)
+	}
+}
+
+// From a repo subdirectory git prints root-relative names; --relative keeps repo+"/"+line resolvable.
+func TestGetChangedSourceFilesFromSubdir(t *testing.T) {
+	root := newGateRepo(t)
+	sub := filepath.Join(root, "sub")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	mustRun(t, root, "git", "commit", "-q", "--allow-empty", "-m", "init")
+	mustRun(t, root, "git", "checkout", "-q", "-b", "feature")
+	if err := os.WriteFile(filepath.Join(sub, "a.go"), []byte("package a\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	mustRun(t, root, "git", "add", "sub/a.go")
+	mustRun(t, root, "git", "commit", "-q", "-m", "add")
+
+	got := getChangedSourceFiles(sub, "main", "feature")
+	if len(got) != 1 || got[0] != sub+"/a.go" {
+		t.Errorf("getChangedSourceFiles(sub) = %v, want [%s/a.go]", got, sub)
+	}
+}
+
+// A bad base ref with nothing staged must be an error, not a clean "no_changes".
+func TestAnalyzePRBadRefIsError(t *testing.T) {
+	dir := newGateRepo(t)
+	mustRun(t, dir, "git", "commit", "-q", "--allow-empty", "-m", "init")
+	if _, err := AnalyzePR(dir, "nosuchref", "HEAD"); err == nil {
+		t.Fatal("AnalyzePR with a bad base ref returned nil error")
+	}
+	var stdout, stderr bytes.Buffer
+	if code := RunPR([]string{dir, "--base", "nosuchref", "--head", "HEAD"}, &stdout, &stderr); code == 0 {
+		t.Errorf("RunPR exit = 0 on bad ref; stderr=%q", stderr.String())
+	}
+}

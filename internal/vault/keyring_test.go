@@ -246,3 +246,34 @@ func TestLookupNoToolIsUnavailable(t *testing.T) {
 		t.Fatalf("Lookup without tool = (%q, %t, %v), want empty, false, ErrKeyringUnavailable", value, found, err)
 	}
 }
+
+// A clear that exits 1 because the keyring is failing (lookup errors too) must not read as "already absent".
+func TestDeleteFailingKeyringIsNotAbsent(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("stub only implements the linux secret-tool CLI")
+	}
+	for _, tc := range []struct {
+		name, lookup string
+		wantErr      bool
+	}{
+		{"lookup_fails", "echo 'locked keyring' >&2\nexit 1", true},
+		{"lookup_absent", "exit 1", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			hermetic(t)
+			dir := t.TempDir()
+			script := "#!/bin/sh\nif [ \"$1\" = clear ]; then exit 1; fi\n" + tc.lookup + "\n"
+			if err := os.WriteFile(filepath.Join(dir, "secret-tool"), []byte(script), 0700); err != nil {
+				t.Fatal(err)
+			}
+			t.Setenv("PATH", dir)
+			err := KeyringDelete("PHASE1B")
+			if tc.wantErr && !errors.Is(err, ErrKeyringUnavailable) {
+				t.Fatalf("Delete = %v, want ErrKeyringUnavailable", err)
+			}
+			if !tc.wantErr && err != nil {
+				t.Fatalf("Delete of an absent item = %v, want nil", err)
+			}
+		})
+	}
+}

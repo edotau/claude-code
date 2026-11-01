@@ -94,13 +94,15 @@ func updateIfNew(in *Input, trigger string, now time.Time) (blocked bool, work i
 			return false, 0
 		}
 		if bank.NewestMtime(memstore.Dir(in.CWD)).After(st.at) {
-			writeStamp(stamp, now, "bg", st.edits) // `claude-code memory update` ran by hand: released, re-arms
+			_ = writeStamp(stamp, now, "bg", st.edits) // ran by hand: released, re-arms; a lost stamp re-dispatches
 			return false, 0
 		}
 		if st.blocks >= updateMaxBlocks {
 			return false, 0 // fail open
 		}
-		writeStamp(stamp, st.at, strconv.Itoa(st.blocks+1), st.edits)
+		if writeStamp(stamp, st.at, strconv.Itoa(st.blocks+1), st.edits) != nil {
+			return false, 0 // fail open: the block count cannot persist
+		}
 		return true, st.edits
 	}
 	floor := updateMinEdits
@@ -113,7 +115,9 @@ func updateIfNew(in *Input, trigger string, now time.Time) (blocked bool, work i
 			return false, 0
 		}
 		if trigger == triggerStop {
-			writeStamp(stamp, now, "1", work)
+			if writeStamp(stamp, now, "1", work) != nil {
+				return false, 0 // fail open: the block count cannot persist
+			}
 			return true, work
 		}
 	}
@@ -174,10 +178,12 @@ func readStamp(path string) (updateStamp, bool) {
 	return st, true
 }
 
-func writeStamp(path string, at time.Time, state string, edits int) {
-	if err := paths.AtomicWrite(path, []byte(at.Format(time.RFC3339)+"|"+state+"|"+strconv.Itoa(edits)), 0o600); err != nil {
+func writeStamp(path string, at time.Time, state string, edits int) error {
+	err := paths.AtomicWrite(path, []byte(at.Format(time.RFC3339)+"|"+state+"|"+strconv.Itoa(edits)), 0o600)
+	if err != nil {
 		fmt.Fprintf(os.Stderr, "session-update: write stamp %s: %v\n", path, err)
 	}
+	return err
 }
 
 // countState tracks complete transcript lines separately from edits already covered by an update; subEdits/subBytes cache dispatched subagents' edit count against their summed file size.
@@ -390,7 +396,7 @@ func dispatchUpdate(in *Input, trigger string, work int, now time.Time) bool {
 		return false
 	}
 	logUpdateToLedger(in, trigger, work, now)
-	writeStamp(stampPath(in.SessionID), now, "bg", work)
+	_ = writeStamp(stampPath(in.SessionID), now, "bg", work) // best effort: a lost stamp only re-dispatches later
 	if trigger == triggerStop {
 		spawnIdleWatcher(in)
 	}

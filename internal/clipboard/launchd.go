@@ -12,12 +12,16 @@ import (
 	"runtime"
 	"strconv"
 	"text/template"
+	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
 )
 
 // launchLabel names the macOS launchd agent that serves the clipboard bridge on demand.
 const launchLabel = "com.edotau.claude-code.clip"
+
+// launchctlTimeout bounds each launchctl call so a wedged launchd cannot hang install.
+const launchctlTimeout = 30 * time.Second
 
 // plistTmpl is the socket-activated agent: launchd accepts each connection and hands it over as stdin/stdout.
 var plistTmpl = template.Must(template.New("plist").Funcs(template.FuncMap{"xml": xmlText}).Parse(`<?xml version="1.0" encoding="UTF-8"?>
@@ -136,7 +140,9 @@ func bootstrapAgent(w io.Writer, home, domain, plist string, dryRun bool) error 
 
 // launchctl runs launchctl with args, folding its output into the error.
 func launchctl(args ...string) error {
-	out, err := exec.CommandContext(context.Background(), "launchctl", args...).CombinedOutput()
+	ctx, cancel := context.WithTimeout(context.Background(), launchctlTimeout)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "launchctl", args...).CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("%w: %s", err, bytes.TrimSpace(out))
 	}

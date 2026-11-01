@@ -292,7 +292,7 @@ func resultExit(rec agent.Record) int {
 	if rec.Status != "error" {
 		return 0
 	}
-	fmt.Fprintf(os.Stderr, "error: %s\n", rec.Error)
+	fmt.Fprintf(os.Stderr, "error: %s\n", shapes.Redact(rec.Error)) // the stderr tail in it may carry a key
 	return 1
 }
 

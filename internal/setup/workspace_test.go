@@ -188,3 +188,26 @@ func TestWorkspaceStatusClassifies(t *testing.T) {
 		}
 	}
 }
+
+func TestWorkspaceStatusLinkedFileKeepsSiblings(t *testing.T) {
+	wsGlobal(t)
+	root := wsRepo(t)
+	var out bytes.Buffer
+	if err := WorkspaceInit(WorkspaceInitOpts{Root: root, Out: &out}); err != nil {
+		t.Fatal(err)
+	}
+	if err := WorkspaceLink(root, "agents", "a", &out); err != nil {
+		t.Fatal(err)
+	}
+	wsWrite(t, filepath.Join(root, ".claude", "agents", "b.md"), "b\n")
+	wsWrite(t, filepath.Join(root, ".claude", "agents", "c.md"), "c\n")
+	out.Reset()
+	if err := WorkspaceStatus(root, &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"a.md", "b.md", "c.md"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("status missing sibling %q:\n%s", want, out.String())
+		}
+	}
+}

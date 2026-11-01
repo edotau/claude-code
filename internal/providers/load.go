@@ -122,10 +122,9 @@ func Parse(base, overlay []byte) (*Registry, error) {
 	legacyErr := checkLegacyRoutingKeys(overlay)
 	if len(overlay) > 0 {
 		o, err := decodeRegistry(overlay, known)
-		if err != nil {
-			return reg, fmt.Errorf("vault overlay/providers: %w", err)
-		}
-		if err := applyOverlay(reg, o); err != nil {
+		if err != nil { // keep the base: still name, order, expand and decorate it below
+			legacyErr = cmp.Or(legacyErr, fmt.Errorf("vault overlay/providers: %w", err))
+		} else if err := applyOverlay(reg, o); err != nil {
 			legacyErr = cmp.Or(legacyErr, fmt.Errorf("vault overlay/providers: %w", err))
 		}
 	}

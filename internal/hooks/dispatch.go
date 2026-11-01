@@ -120,8 +120,11 @@ func runBudgeted(b Bound, in *Input, wg *sync.WaitGroup) (Result, error) {
 	}
 }
 
+// skipOrBlock names what a failed handler's log line reports, keyed by Spec.Blocks.
+var skipOrBlock = map[bool]string{false: "skipped", true: "blocked"}
+
 // Dispatch runs, in order, every bound handler on event whose matcher hits and merges the results. A handler
-// that panics or overruns is logged and skipped; a second updatedInput or a non-worktree raw stdout is an error.
+// that panics or overruns is logged and skipped (a Blocks gate blocks); a second updatedInput or raw stdout errors.
 func Dispatch(bound []Bound, event string, in *Input, log io.Writer) (Result, error) {
 	var merged Result
 	var ctx, sys, errs []string
@@ -141,7 +144,10 @@ func Dispatch(bound []Bound, event string, in *Input, log io.Writer) (Result, er
 		longest = max(longest, b.Spec.Budget)
 		r, err := runBudgeted(b, in, &wg)
 		if err != nil {
-			fmt.Fprintf(log, "hook dispatch: %s/%s %v (skipped)\n", b.Group, b.Spec.Name, err)
+			fmt.Fprintf(log, "hook dispatch: %s/%s %v (%s)\n", b.Group, b.Spec.Name, err, skipOrBlock[b.Spec.Blocks])
+			if b.Spec.Blocks { // a gate that could not run fails closed
+				merged.Decision, merged.Reason = Block, fmt.Sprintf("%s did not complete (%v); blocked", b.Spec.Name, err)
+			}
 			continue
 		}
 		if r.Decision > merged.Decision {

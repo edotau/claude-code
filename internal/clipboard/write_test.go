@@ -250,3 +250,29 @@ func TestRealRunErrorOmitsValue(t *testing.T) {
 		t.Errorf("err = %v", err)
 	}
 }
+
+// A caller with no deadline (the detached clip-clear child) still gets a bounded read and clear.
+func TestClearIfMatchBoundsContext(t *testing.T) {
+	env(t, false, "", ":0", "xclip")
+	var deadlines []time.Time
+	run = func(ctx context.Context, _ []byte, _ string, _ ...string) ([]byte, error) {
+		d, ok := ctx.Deadline()
+		if !ok {
+			t.Error("run called with no deadline")
+		}
+		deadlines = append(deadlines, d)
+		return []byte(secret), nil
+	}
+	start := time.Now()
+	if ok, err := ClearIfMatch(context.Background(), Digest(secret)); err != nil || !ok {
+		t.Fatalf("cleared=%v err=%v", ok, err)
+	}
+	if len(deadlines) != 2 {
+		t.Fatalf("want read+clear, got %d runs", len(deadlines))
+	}
+	for _, d := range deadlines {
+		if d.After(start.Add(clearTimeout + time.Second)) {
+			t.Errorf("deadline %v exceeds clearTimeout %v", d.Sub(start), clearTimeout)
+		}
+	}
+}

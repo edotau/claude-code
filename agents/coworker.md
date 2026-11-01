@@ -55,7 +55,7 @@ a leaf).
 2. **Check you are in Claude Code.** If you are running inside a projected vendor CLI session (another agent's
    copy of this file), do the task in-context and say so — never dispatch an agent from inside one.
 3. **Run each dispatch** with the handoff verbatim plus `never git stash/checkout/reset/restore`; edits only
-   with `--tools --workdir <worktree or isolate.sh copy>` (opencode has ignored `--workdir` before —
+   with `--tools --workdir <worktree, only with the user's yes>` (opencode has ignored `--workdir` before —
    confirm with `git diff --stat` where the diff landed). A read-only scan uses `--read-only`, never `--tools`: copilot
    approves only file reads and URL fetches; agents that can't enforce it run with no tools, so a gemini read-only
    sweep goes through `gemini bridge`. Any ask that may pass 150s runs with

@@ -43,6 +43,8 @@ func initSecret() (string, error) {
 	val, fromFile := "", false
 	if b, err := os.ReadFile(secretFile()); err == nil {
 		val, fromFile = strings.TrimSpace(string(b)), true
+	} else if !os.IsNotExist(err) {
+		return "", fmt.Errorf("proxy: read %s: %w", secretFile(), err)
 	}
 	if val == "" {
 		b := make([]byte, 32)

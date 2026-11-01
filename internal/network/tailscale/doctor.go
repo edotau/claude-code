@@ -15,12 +15,14 @@ import (
 
 // Doctor is one launch-style check line: CLI found/missing, backend state + node, exit-node state,
 // and whether an admin API credential is present (name only, never its value). Never blocks on the
-// network for more than 4s.
+// network for more than 4s per step (credential mint, status).
 func Doctor(ctx context.Context) (ok bool, detail string) {
-	ctx, cancel := context.WithTimeout(ctx, 4*time.Second)
+	credCtx, cancelCred := context.WithTimeout(ctx, 4*time.Second)
+	note, credOK := credentialNote(credCtx)
+	cancelCred()
+	statusCtx, cancel := context.WithTimeout(ctx, 4*time.Second)
 	defer cancel()
-	note, credOK := credentialNote(ctx)
-	st, err := Status(ctx)
+	st, err := Status(statusCtx)
 	switch {
 	case errors.Is(err, ErrNoCLI):
 		return false, "cli not found on PATH" + note

@@ -1,27 +1,6 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
-  "model": "opus",
-  "outputStyle": "Concise",
-  "switchModelsOnFlag": true,
-  "theme": "auto",
-  "tui": "fullscreen",
-  "prefersReducedMotion": true,
-  "spinnerTipsEnabled": false,
-  "agentPushNotifEnabled": false,
-  "inputNeededNotifEnabled": true,
-  "preferredNotifChannel": "auto",
-  "awaySummaryEnabled": false,
-  "feedbackDrafts": "off",
-  "feedbackSurveyRate": 0,
-  "askUserQuestionTimeout": "10m",
   "cleanupPeriodDays": 30,
-  "autoConnectIde": false,
-  "disableClaudeAiConnectors": true,
-  "useAutoModeDuringPlan": true,
-  "skipWorkflowUsageWarning": true,
-  "worktree": {
-    "baseRef": "head"
-  },
   "env": {
     "CLAUDE_CODE_SCROLL_SPEED": "1",
     "CLAUDE_CODE_DISABLE_TERMINAL_TITLE": "1",
@@ -29,7 +8,6 @@
     "ENABLE_TOOL_SEARCH": "1"
   },
   "permissions": {
-    "defaultMode": "auto",
     "allow": [
       "Edit(*)",
       "Read(*)",
@@ -45,6 +23,14 @@
       "Bash(go test *)",
       "Bash(make lint)",
       "Bash(make fmt)"
+    ],
+    "deny": [
+      "Bash(rm -rf /)",
+      "Bash(rm -rf /*)",
+      "Bash(rm -rf ~)",
+      "Read(~/.ssh/**)",
+      "Read(**/state/vault.db)",
+      "Read(**/.credentials.json)"
     ],
     "ask": [
       "Bash(git push --force:*)",
@@ -68,20 +54,10 @@
       "Bash(claude-code vault *)",
       "Bash(go test * ./...*)"
     ],
-    "deny": [
-      "Bash(rm -rf /)",
-      "Bash(rm -rf /*)",
-      "Bash(rm -rf ~)",
-      "Read(~/.ssh/**)",
-      "Read(**/state/vault.db)",
-      "Read(**/.credentials.json)"
-    ]
+    "defaultMode": "auto"
   },
-  "statusLine": {
-    "type": "command",
-    "command": "$HOME/.claude/bin/claude-code theme statusline",
-    "padding": 0
-  },
+  "model": "opus",
+  "disableClaudeAiConnectors": true,
   "hooks": {
     "PostToolUse": [
       {
@@ -219,5 +195,30 @@
         ]
       }
     ]
-  }
+  },
+  "worktree": {
+    "baseRef": "head"
+  },
+  "statusLine": {
+    "type": "command",
+    "command": "$HOME/.claude/bin/claude-code theme statusline",
+    "padding": 0
+  },
+  "outputStyle": "Concise",
+  "feedbackSurveyRate": 0,
+  "feedbackDrafts": "off",
+  "spinnerTipsEnabled": false,
+  "awaySummaryEnabled": false,
+  "askUserQuestionTimeout": "10m",
+  "tui": "fullscreen",
+  "prefersReducedMotion": true,
+  "skipWorkflowUsageWarning": true,
+  "theme": "auto",
+  "preferredNotifChannel": "auto",
+  "switchModelsOnFlag": true,
+  "inputNeededNotifEnabled": true,
+  "agentPushNotifEnabled": false,
+  "useAutoModeDuringPlan": true,
+  "autoConnectIde": false,
+  "idleCompaction": false
 }

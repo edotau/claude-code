@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/edotau/claude-code/internal/opencode"
+	"github.com/edotau/claude-code/internal/vault"
 	"os/exec"
 	"slices"
 	"strings"
@@ -127,6 +128,11 @@ func copilotModelDesc(m copilot.SDKModel, cur string) string {
 	return desc
 }
 
+// modelTitle is a model picker's title: "<what> (<provider> · <profile>)".
+func modelTitle(what, provider, profile string) string {
+	return what + " (" + provider + " · " + profile + ")"
+}
+
 // copilotSourceFn is the injectable seam over copilot.CopilotModelSource; tests fake the Databricks rows.
 var copilotSourceFn = copilot.CopilotModelSource
 
@@ -138,7 +144,7 @@ var copilotSourceFn = copilot.CopilotModelSource
 // Effort/Context re-shows this same picker with the cursor back on that row; picking a model saves it.
 func pickCopilotModel(d *dialog) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	cat, serr := copilotSourceFn(ctx, d.reg, "") // once: Effort/Context re-show the picker without refetching
+	cat, serr := copilotSourceFn(ctx, d.reg, vault.GetAgentRecord("copilot").Profile) // once: Effort/Context re-show the picker without refetching
 	cancel()
 	if serr != nil {
 		d.printf("copilot: model source unavailable (%v); using the GitHub catalog\n", serr)
@@ -146,7 +152,7 @@ func pickCopilotModel(d *dialog) {
 	start := 0
 	for {
 		cur, _ := providers.CopilotModel(d.reg)
-		title, ids := "copilot — model (SDK catalog)", []string(nil)
+		title, ids := modelTitle("copilot — model", "github", "copilot catalog"), []string(nil)
 		var list []copilot.SDKModel
 		if !cat.Databricks {
 			var err error
@@ -159,7 +165,7 @@ func pickCopilotModel(d *dialog) {
 		rows, extraRuns := copilotExtraRows(d, cur)
 		nExtra := len(extraRuns)
 		if cat.Databricks {
-			title = "copilot — model (" + cat.Source + ")"
+			title = modelTitle("copilot — model", "databricks", cat.Profile)
 			ids, rows = appendDatabricksCopilotRows(cat, cur, rows)
 		} else {
 			for _, m := range list {
@@ -245,7 +251,7 @@ func pickCopilotModelFallback(d *dialog, cur string) {
 	for i, id := range ids {
 		choice[i] = [2]string{id, map[bool]string{true: "current", false: ""}[id == cur]}
 	}
-	j, err := d.shell().Pick("copilot — model (opencode catalog)", choice)
+	j, err := d.shell().Pick(modelTitle("copilot — model", "github", p.Name), choice)
 	if err != nil || j < 0 {
 		return
 	}
@@ -272,7 +278,7 @@ func pickModel(d *dialog, name string, p *providers.Provider, claude bool) {
 		for i, s := range aliases {
 			rows[i] = [2]string{s, menu.PadTo(aliasUse[s], 42) + currentModel(d, p, claude, s)}
 		}
-		idx, err := d.shell().Pick(name+" — model per alias ("+p.Name+")", rows)
+		idx, err := d.shell().Pick(modelTitle(name+" — model per alias", p.Provider, p.Name), rows)
 		if err != nil || idx < 0 {
 			return
 		}
@@ -286,7 +292,7 @@ func pickModel(d *dialog, name string, p *providers.Provider, claude bool) {
 		for i, id := range ids {
 			choice[i] = [2]string{id, map[bool]string{true: "current", false: ""}[id == cur]}
 		}
-		j, err := d.shell().Pick(name+" — "+aliases[idx]+" model alias", choice)
+		j, err := d.shell().Pick(modelTitle(name+" — "+aliases[idx]+" model alias", p.Provider, p.Name), choice)
 		if err != nil || j < 0 {
 			continue
 		}

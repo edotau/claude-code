@@ -72,3 +72,15 @@ func TestMergeReportsWorstVerdictAndDedup(t *testing.T) {
 		t.Fatalf("clean adversarial parts keep the clean verdict:\n%s", adv)
 	}
 }
+
+func TestMergeReportsUnjudgedPartIsNotShipIt(t *testing.T) {
+	parts := []Part{{Files: []string{"a"}}, {Files: []string{"b"}}}
+	out := MergeReports(false, parts, []string{"SHIP IT\n[LOW] a:1 — x — y", ""})
+	if !strings.HasPrefix(out, "NEEDS WORK\n") {
+		t.Fatalf("an unjudged part must not merge to SHIP IT:\n%s", out)
+	}
+	out = MergeReports(false, parts, []string{"BLOCK\n[HIGH] a:1 — x — y", "no verdict here"})
+	if !strings.HasPrefix(out, "BLOCK\n") {
+		t.Fatalf("a worse verdict from another part still wins:\n%s", out)
+	}
+}

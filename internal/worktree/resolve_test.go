@@ -299,6 +299,37 @@ func TestResolveWithAgentEditsUnrelatedFileRefused(t *testing.T) {
 	mergeFixtureAssertMainUntouched(t, main, mainBefore)
 }
 
+// TestResolveWithAgentAutoMergedFileAllowed is the regression test: a target branch that also adds a clean new file
+// stages it during the merge, and finalizeAgentResolution must not count it as an agent edit outside the conflict.
+func TestResolveWithAgentAutoMergedFileAllowed(t *testing.T) {
+	repo, main, wt := mergeFixtureSetup(t)
+	mergeFixtureWrite(t, wt, "f.txt", "feature line\n", "feature edits f")
+	mergeFixtureWrite(t, main, "f.txt", "main line\n", "main edits f")
+	mergeFixtureWrite(t, main, "n.txt", "new on main\n", "main adds n")
+	plan, err := Preflight(context.Background(), repo, "feature", "")
+	if err != nil {
+		t.Fatalf("Preflight: %v", err)
+	}
+	resolveFixtureFakeClock(t, time.Second)
+	resolveFixtureFakeAgent(t, func(ctx context.Context, agentName, prompt, workDir string, timeout time.Duration) (resolveAgentResult, error) {
+		if err := os.WriteFile(filepath.Join(workDir, "f.txt"), []byte("resolved\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return resolveAgentResult{}, nil
+	})
+
+	op, result, err := ResolveWithAgent(context.Background(), repo, plan, "claude", nil)
+	if err != nil {
+		t.Fatalf("ResolveWithAgent: %v", err)
+	}
+	if result == nil || op.Phase != "resolved" {
+		t.Fatalf("result=%+v phase=%q, want a resolved merge", result, op.Phase)
+	}
+	if got, readErr := os.ReadFile(filepath.Join(wt, "n.txt")); readErr != nil || string(got) != "new on main\n" {
+		t.Fatalf("n.txt = %q, %v, want the auto-merged file", got, readErr)
+	}
+}
+
 // TestResolveWithAgentCleanAbortNeverCommittedByController covers the agent running `git merge
 // --abort` despite the prompt telling it not to run any git command: the worktree reverts to a clean,
 // unmerged state, so finalizeAgentResolution's own commit has nothing staged to commit and fails —

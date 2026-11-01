@@ -1221,3 +1221,18 @@ func TestWriteCountStateErrorHandling(t *testing.T) {
 		t.Errorf("writeCountState should not create a file in a read-only directory: err=%v", err)
 	}
 }
+
+func TestSessionUpdateUnwritableStampFailsOpen(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv(bank.UpdateChildEnv, "")
+	tr := filepath.Join(t.TempDir(), "t.jsonl")
+	cwd := filepath.Join(t.TempDir(), "proj")
+	writeEdits(t, tr, 5)
+	stubSpawn(t, false)
+	if err := os.MkdirAll(filepath.Join(stampPath("s1"), "x"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if got := sessionUpdate(ParseInput(strings.NewReader(updatePayload(tr, cwd))), &bytes.Buffer{}); got != ExitProceed {
+		t.Errorf("an unwritable stamp cannot count blocks, so Stop must fail open; got %d", got)
+	}
+}

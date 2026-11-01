@@ -33,8 +33,8 @@ follow `internal/router/table.json` as the single source.
 3. Size the model alias (`opus`, `sonnet`, `haiku`): `internal/router/table.json` is the single source for
    agent × model, effort, account and price. Each dispatch runs the requested alias's cell, including Claude.
 4. Use `--fallback none` so a failed dispatch exits non-zero instead of silently running on Claude — see Fallback below.
-5. An agent in a shared tree runs in its own clean copy: `skills/subagent-workflows/scripts/isolate.sh <copy>`,
-   `--workdir <copy>`, then apply and verify its diff (opencode has ignored `--workdir` and written the live tree).
+5. An agent runs in the shared tree on new files it owns; with the user's yes, `claude-code worktree create <name>`,
+   `--workdir <worktree>`, then apply and verify its diff (opencode has ignored `--workdir` and written the live tree).
 
 ## Ask flags and lifecycle
 

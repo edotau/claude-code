@@ -171,7 +171,10 @@ func sealImported(path string, rows []Row) int {
 		if r.Auth == providers.AuthPAT {
 			val = s.Token
 		}
-		if err == nil && val != "" {
+		if err == nil && val == "" {
+			err = errors.New("no secret in the source section")
+		}
+		if err == nil {
 			err = secretstore.Store(name, val)
 		}
 		if err != nil {

@@ -15,8 +15,12 @@ import (
 func guardedClient() *http.Client {
 	t := http.DefaultTransport.(*http.Transport).Clone()
 	t.DialContext = guardedDial
+	t.ResponseHeaderTimeout = responseHeaderTimeout
 	return &http.Client{Transport: t}
 }
+
+// responseHeaderTimeout bounds the wait for upstream response headers so a wedged upstream fails over.
+const responseHeaderTimeout = 120 * time.Second
 
 var (
 	plainDialer   = &net.Dialer{Timeout: 30 * time.Second, KeepAlive: 30 * time.Second}

@@ -2,7 +2,7 @@ export const meta = {
   name: 'code-engineer',
   description: 'The house dispatch: parallel Explore intel → implementer → copilot test repair (after impl lands) → scoped gate loop',
   whenToUse:
-    'Any MEDIUM+ code change (CLAUDE.md guideline 5 + rules/standards/quality.md). ADK shape: Sequential[Parallel intel, impl → test repair, Loop gate]. args: {task, cwd, scope: [dirs], packages?, gate? (auto-detected from Makefile/go.mod/pyproject/package.json/Cargo.toml), maxIterations?, implModel?: "opus" only after a sonnet attempt failed}. Works in any repo via cwd. The test agent only repairs existing tests the change broke; the main session owns the live check, then writes new tests. Does not chain into code-analyzer (workflow() nests one level); run code-analyzer as the next top-level call before merge.',
+    'Any MEDIUM+ code change (CLAUDE.md guideline 3 + rules/standards/quality.md). ADK shape: Sequential[Parallel intel, impl → test repair, Loop gate]. args: {task, cwd, scope: [dirs], packages?, gate? (auto-detected from Makefile/go.mod/pyproject/package.json/Cargo.toml), maxIterations?, tests? (default true; false skips the copilot test-repair stage, e.g. in reorg mode), implModel?: "opus" only after a sonnet attempt failed}. Returns status: "blocked" (impl blocked or needs context) | "error" (no gate result) | the gate exit. Works in any repo via cwd. The test agent only repairs existing tests the change broke; the main session owns the live check, then writes new tests. Does not chain into code-analyzer (workflow() nests one level); run code-analyzer as the next top-level call before merge.',
   phases: [
     { title: 'Intel', detail: 'two Explore readers with different lenses: seams/callers vs tests/guards' },
     { title: 'Build', detail: 'implementer (non-test files), then copilot test repair (existing test files only) with the impl result' },
@@ -18,6 +18,8 @@ const TASK = a.task
 const CWD = a.cwd || ''
 const SCOPE = Array.isArray(a.scope) && a.scope.length ? a.scope : []
 const PKGS = Array.isArray(a.packages) && a.packages.length ? a.packages : SCOPE
+if (a.tests !== undefined && typeof a.tests !== 'boolean') return { error: 'code-engineer args.tests must be a boolean' }
+const RUN_TESTS = a.tests !== false
 const GATE = a.gate // undefined → green-keeper-loop detects it from the repo
 const MAX_ITER = Number.isInteger(a.maxIterations) && a.maxIterations > 0 ? a.maxIterations : 3
 const TEST_GLOBS = '*_test.go, testdata/, test_*.py, *_test.py, tests/, conftest.py, *.test.*, *.spec.*, __tests__/, fixtures/'
@@ -93,7 +95,7 @@ const impl = await agent(
   { label: 'build:impl', phase: 'Build', schema: RESULT_SCHEMA, agentType: 'code-worker', model: routeModel(a.implModel || 'sonnet'), effort: 'high' }
 )
 const implBlocked = !impl || impl.status === 'BLOCKED' || impl.status === 'NEEDS_CONTEXT'
-const tests = implBlocked ? null : await agent(
+const tests = (implBlocked || !RUN_TESTS) ? null : await agent(
   `${context}\nImplementer result (already landed on disk): status ${impl.status}; files changed: ${(impl.filesChanged || []).join(', ') || 'none'}; summary: ${impl.summary}\n` +
   `You are the TEST agent (copilot), REPAIR only: fix existing tests and fixtures (` + TEST_GLOBS + `) the implementation broke; write NO new tests (the main thread adds them after its live check). Never edit non-test files (the implementer owns them and has finished). ` +
   `Follow ~/.claude/agents/copilot.md → TEST (make the test-wrong vs code-wrong call; never edit non-test files). Status DONE | DONE_WITH_CONCERNS | NEEDS_CONTEXT | BLOCKED; include Ran on: in the summary. ` +
@@ -101,11 +103,12 @@ const tests = implBlocked ? null : await agent(
   { label: 'build:tests', phase: 'Build', schema: RESULT_SCHEMA, agentType: 'code-worker', model: routeModel('sonnet'), effort: 'medium' }
 )
 if (implBlocked) log('build: impl blocked or empty — test agent skipped')
+else if (!RUN_TESTS) log('build: args.tests=false — test agent skipped')
 log(`build: impl=${impl ? impl.status : 'none'} tests=${tests ? tests.status : 'none'}`)
 
 // ── Phase 3: Gate (ADK LoopAgent via the saved green-keeper-loop workflow) ─────────────────────────
 phase('Gate')
 if (implBlocked) return { brief, impl, tests, gate: null, status: 'blocked' }
-const gate = await workflow('green-keeper-loop', { gate: GATE, cwd: CWD || undefined, scope: SCOPE.length ? SCOPE : brief.files, maxIterations: MAX_ITER })
+const gate = await workflow('green-keeper-loop', { gate: GATE, cwd: CWD || undefined, scope: SCOPE.length ? SCOPE : [...new Set(brief.files.map(f => f.includes('/') ? f.slice(0, f.lastIndexOf('/')) : '.'))], maxIterations: MAX_ITER })
 
 return { brief, impl, tests, gate, status: gate ? gate.exit : 'error' }

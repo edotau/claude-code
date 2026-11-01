@@ -227,3 +227,45 @@ func TestClashesUntrackedNeverClash(t *testing.T) {
 		t.Fatalf("want 0 clashes, got %+v", clashes)
 	}
 }
+
+func TestClashesDanglingSymlinkIsAClash(t *testing.T) {
+	repo := t.TempDir()
+	gitInit(t, repo, map[string]string{"CLAUDE.md": "repo claude\n"})
+	dir := t.TempDir()
+	if err := os.Symlink(filepath.Join(dir, "nowhere"), filepath.Join(dir, "CLAUDE.md")); err != nil {
+		t.Fatal(err)
+	}
+	clashes, err := Clashes(repo, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(clashes) != 1 || clashes[0].Path != "CLAUDE.md" {
+		t.Fatalf("dangling symlink must be a clash, got %+v", clashes)
+	}
+}
+
+func TestClashesStatErrorIsReturned(t *testing.T) {
+	repo := t.TempDir()
+	gitInit(t, repo, map[string]string{"agents/a.md": "a\n"})
+	dir := t.TempDir()
+	mustWrite(t, filepath.Join(dir, "agents"), "a file, not a dir\n") // Lstat agents/a.md -> ENOTDIR
+	if _, err := Clashes(repo, dir); err == nil {
+		t.Fatal("non-NotExist stat error was swallowed")
+	}
+}
+
+func TestMoveGitAndCheckoutRollsBackGit(t *testing.T) {
+	from := t.TempDir()
+	gitInit(t, from, map[string]string{"agents/a.md": "a\n"})
+	into := t.TempDir()
+	mustWrite(t, filepath.Join(from, ".git", "index"), "corrupt\n") // makes git checkout fail
+	if err := moveGitAndCheckout(from, into); err == nil {
+		t.Fatal("checkout should have failed")
+	}
+	if _, err := os.Stat(filepath.Join(into, ".git")); err == nil {
+		t.Error(".git left in Into after failed checkout")
+	}
+	if _, err := os.Stat(filepath.Join(from, ".git")); err != nil {
+		t.Errorf(".git not restored to From: %v", err)
+	}
+}

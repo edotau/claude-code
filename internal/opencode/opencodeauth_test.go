@@ -426,3 +426,15 @@ func TestOpencodeDiskCacheV1VersionOnly(t *testing.T) {
 		t.Fatalf("1.x cache = %+v, want version only", c)
 	}
 }
+
+// TestOpencodeMajorFailedProbeNotCached: a failed --version probe returns 0 once, and the next call re-probes.
+func TestOpencodeMajorFailedProbeNotCached(t *testing.T) {
+	fakeOpencode(t, "", "[]", nil)
+	if got := OpencodeMajor(); got != 0 {
+		t.Fatalf("failed probe major = %d, want 0", got)
+	}
+	opencodeOutput = func(_ context.Context, args ...string) ([]byte, error) { return []byte("2.0.32\n"), nil }
+	if got := OpencodeMajor(); got != 2 {
+		t.Errorf("major after recovery = %d, want 2 (the failure was cached)", got)
+	}
+}

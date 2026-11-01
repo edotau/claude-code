@@ -2,7 +2,7 @@ export const meta = {
   name: 'code-analyzer',
   description: 'Audit a change set: parallel scoped auditors → refute each finding → per-package implementer, then test agent → gate loop',
   whenToUse:
-    'Post-refactor or pre-merge audits over a commit range (diff lenses) or a whole path set (code lenses: correctness, failure-modes, contracts). ADK shape: Parallel[auditors] → Sequential[refute pipeline, Parallel[per package: fix → test], Loop gate], looped in-script over rounds. args: {range: "main..HEAD" | paths: [...] | findings (none of the three = the working-tree diff), cwd, packages: ["internal/x", …], dimensions?: [{key, prompt, effort?}], chunkChars?: 50000, gate? (auto-detected), maxIterations?, fix: true, minFix: "medium", rounds?: 2 (re-audits the files each round fixed until dry/stalled/capped), refuters?: ["codex"] (second-agent refuter via code-agent, smoke-tested, dropped when unhealthy), refuteBatch?: 6}. findings skips straight to Fix; noTest on every finding in a package skips its test agent. fix:false stops after Refute (a review-only run; pass dimensions with a security lens for a security pass); lows below minFix are returned as deferred. Returns exit: dry|no-fix|stalled|nothing-changed|blocked|capped|error, round, rounds: [...] (one entry per round), agents, unverified.',
+    'Post-refactor or pre-merge audits over a commit range (diff lenses) or a whole path set (code lenses: correctness, failure-modes, contracts). ADK shape: Parallel[auditors] → Sequential[refute pipeline, Parallel[per package: fix → test], Loop gate], looped in-script over rounds. args: {range: "main..HEAD" | paths: [...] | findings (none of the three = the working-tree diff), cwd, packages: ["internal/x", …], dimensions?: [{key, prompt, effort?}], chunkChars?: 50000, gate? (auto-detected), maxIterations?, fix: true, minFix: "medium", rounds?: 2 (re-audits the files each round fixed until dry/stalled/capped), refuters?: ["codex"] (second-agent refuter via code-agent, smoke-tested, dropped when unhealthy), refuteBatch?: 6}. findings skips straight to Fix; noTest on every finding in a package skips its test agent; tests?: true (false skips the test agent for every package). fix:false stops after Refute (a review-only run; pass dimensions with a security lens for a security pass); lows below minFix are returned as deferred. Returns exit: dry|no-fix|stalled|nothing-changed|blocked|capped|error, round, rounds: [...] (one entry per round), agents, unverified.',
   phases: [
     { title: 'Scope', detail: 'one cheap agent per package group returns per-file sizes; the script packs them into ≤50 KB chunks' },
     { title: 'Find', detail: 'one auditor per (dimension × chunk) reading its chunk in-context — agent count scales with diff size' },
@@ -24,6 +24,9 @@ let PRE = Array.isArray(a.findings) && a.findings.length ? a.findings : null
 // No range, paths or findings → audit the uncommitted working tree (git diff HEAD).
 const RANGE = a.range || (PATHS.length || PRE ? '' : 'HEAD')
 const FIX = a.fix !== false
+// tests:false skips the per-package test agent for every package (reorg mode: no test agent).
+if (a.tests !== undefined && typeof a.tests !== 'boolean') return { exit: 'error', error: 'code-analyzer: args.tests must be a boolean', rounds: [] }
+const TESTS = a.tests !== false
 const MAX_ITER = Number.isInteger(a.maxIterations) && a.maxIterations > 0 ? a.maxIterations : 3
 // Rounds re-audit exactly the non-test source the previous round's fix touched, until dry/stalled/capped (D2: in-script loop, not self-recursion).
 const ROUNDS = Number.isInteger(a.rounds) && a.rounds > 0 ? a.rounds : 2
@@ -312,7 +315,7 @@ for (let round = 1; round <= ROUNDS; round++) {
     const ctx = `Confirmed defects in ${pkg}${IN}:\n${list}\n${SHARED_TREE}`
     // Opus only where a high/critical sits; the evidence rides in the prompt and the files are read in ONE call.
     const hot = fs.some(f => ORDER[f.severity] <= ORDER.high)
-    const testsNeeded = fs.some(f => !f.noTest && SRC_RE.test(relPath(f.file))) // docs-only or all-noTest: no test agent
+    const testsNeeded = TESTS && fs.some(f => !f.noTest && SRC_RE.test(relPath(f.file))) // docs-only or all-noTest: no test agent
     // Test agent runs after the implementer and gets its result, so it asserts against code that has landed.
     return (async () => {
       const impl = await agent(`${ctx}\nYou are the IMPLEMENTER: fix every listed defect in non-test files of ${pkg} only; never test files or fixtures (${TEST_GLOBS}). ` +
@@ -331,7 +334,7 @@ for (let round = 1; round <= ROUNDS; round++) {
         { label: `test:${round}:${pkg}`, phase: 'Fix', schema: RESULT_SCHEMA, agentType: 'code-worker', model: routeModel('sonnet'), effort: 'medium' }) : null
       return { package: pkg, impl, tests, blocked: implBlocked }
     })()
-  }))
+  })).then(rs => rs.map((r, i) => r || { package: [...byPkg.keys()][i], blocked: true, error: 'fix stage failed' }))
 
   // ── Gate (ADK LoopAgent via the saved green-keeper-loop workflow; a.gate passes through — green-keeper-loop auto-detects) ──
   phase('Gate')
@@ -339,7 +342,7 @@ for (let round = 1; round <= ROUNDS; round++) {
   const gate = await workflow('green-keeper-loop', { gate: a.gate, cwd: CWD || undefined, scope: pkgs, maxIterations: MAX_ITER })
 
   const metricsOut = { ...metrics, fixPairs: byPkg.size, gateIterations: gate ? gate.iterations : 0 }
-  const out = { ...base, fixed: fixed.filter(Boolean), gate, metrics: metricsOut }
+  const out = { ...base, fixed, gate, metrics: metricsOut }
   if (!gate || gate.status !== 'green' || out.fixed.some(x => x.blocked)) { rounds.push({ ...out, exit: 'blocked' }); break }
   const touched = [...new Set([
     ...out.fixed.flatMap(x => [...((x.impl && x.impl.filesChanged) || []), ...((x.tests && x.tests.filesChanged) || [])]),

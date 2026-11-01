@@ -228,3 +228,9 @@ func TestUnifiedSurfaceFallsBackWhenNativeUnlinked(t *testing.T) {
 		t.Errorf("linked surface still carries the fallback:\n%s", s)
 	}
 }
+
+func TestSectionBodyBareHeadingDoesNotPanic(t *testing.T) {
+	if got := sectionBody("## \nfoo\n## Current Focus\nbar\n", "Current Focus"); got != "bar" {
+		t.Errorf("sectionBody = %q, want %q", got, "bar")
+	}
+}

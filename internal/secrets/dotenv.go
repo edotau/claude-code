@@ -137,7 +137,7 @@ func AppendDotenv(path string, pairs []Pair) (added int, skipped []string, err e
 		b.WriteString(p.Name + "=" + quoteDotenvValue(p.Value) + "\n")
 		added++
 	}
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o600)
+	f, err := openAppendNoFollow(path)
 	if err != nil {
 		return 0, nil, err
 	}
@@ -148,9 +148,6 @@ func AppendDotenv(path string, pairs []Pair) (added int, skipped []string, err e
 		return 0, nil, errors.Join(err, f.Close())
 	}
 	if err := f.Close(); err != nil {
-		return 0, nil, err
-	}
-	if err := os.Chmod(path, 0o600); err != nil {
 		return 0, nil, err
 	}
 	warnIfUntrackedDefault(path)

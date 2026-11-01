@@ -286,3 +286,33 @@ func TestDialNoBrowser(t *testing.T) {
 		t.Fatalf("err = %v, want errNoCDP", err)
 	}
 }
+
+func TestCallAfterConnectionClosedDoesNotHang(t *testing.T) {
+	f := newFakeBrowser(t, func(f *fakeBrowser, _ int, _ string, _ json.RawMessage) {
+		_ = f.conn.(io.Closer).Close()
+	})
+	c, err := dialCDP(ctx5(t), f.srv.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = c.Close() }()
+	if err := c.Eval(ctx5(t), "1", nil); err == nil || !strings.Contains(err.Error(), "connection closed") {
+		t.Fatalf("in-flight err = %v, want connection closed", err)
+	}
+	<-c.done
+	res := make(chan error, 1)
+	go func() { _, err := c.call(context.Background(), "Runtime.evaluate", nil); res <- err }()
+	select {
+	case err := <-res:
+		if err == nil || !strings.Contains(err.Error(), "connection closed") {
+			t.Fatalf("late call err = %v, want connection closed", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("call on a closed connection hung with a no-deadline ctx")
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if len(c.pending) != 0 {
+		t.Fatalf("pending = %d, want 0", len(c.pending))
+	}
+}
