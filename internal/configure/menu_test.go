@@ -22,7 +22,7 @@ func menuTestEnv(t *testing.T) *providers.Registry {
 	extraSections = func(*dialog) ([]tui.Section, []func(*dialog)) { return nil, nil }
 	vaulttest.UseKeyring(t)
 	t.Setenv("HOME", t.TempDir())
-	t.Setenv("CODEX_HOME", t.TempDir()) // Orca exports its own codex account home; codex must read unconfigured
+	t.Setenv("CODEX_HOME", t.TempDir()) // a foreign tool may export its own codex account home; codex must read unconfigured
 	t.Setenv("PATH", t.TempDir())
 	vaulttest.SetRecord(t, "claude", "profile", "max") // seed_test clears this pin to start first-run
 	t.Setenv("CLAUDE_CODE_OAUTH_TOKEN", "")

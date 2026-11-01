@@ -37,7 +37,7 @@ func TestInstallMergesIntoConfigDir(t *testing.T) {
 	}
 	selfBinary = func() (string, error) { return self, nil }
 	file := SettingsFile()
-	orig := `{"spinnerTipsEnabled": false, "hooks": {"Stop": [{"hooks": [{"type": "command", "command": "orca stop"}]}]}}`
+	orig := `{"spinnerTipsEnabled": false, "hooks": {"Stop": [{"hooks": [{"type": "command", "command": "foreign stop"}]}]}}`
 	if err := os.WriteFile(file, []byte(orig), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -55,7 +55,7 @@ func TestInstallMergesIntoConfigDir(t *testing.T) {
 		t.Fatal(err)
 	}
 	b, _ := os.ReadFile(file)
-	for _, want := range []string{`"spinnerTipsEnabled": false`, `"orca stop"`, "hook Stop", "hook PreToolUse --safety-scan"} {
+	for _, want := range []string{`"spinnerTipsEnabled": false`, `"foreign stop"`, "hook Stop", "hook PreToolUse --safety-scan"} {
 		if !strings.Contains(string(b), want) {
 			t.Errorf("merged settings missing %s:\n%s", want, b)
 		}

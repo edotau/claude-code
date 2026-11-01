@@ -1,5 +1,5 @@
 'use strict';
-// Task query language, ported 1:1 from claude-orcastra's src/shared/task-query.ts. Pure; node:test exercises it.
+// Task query language (ported from a TypeScript original). Pure; node:test exercises it.
 
 /** Splits on whitespace outside quotes; `value` has quotes stripped, `raw` keeps them. */
 function tokenizeWithRaw(rawQuery) {

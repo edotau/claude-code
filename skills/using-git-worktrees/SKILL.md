@@ -53,7 +53,7 @@ Inside a session prefer the native `EnterWorktree`/`ExitWorktree` for create/ent
 here is `merge` and `clean-all`.
 
 `create` makes the worktree under `~/worktrees/<repo>/<slug>` (outside the repo, shared with native
-Claude Code and Orca) via `git worktree add`; the `.venv` symlink and `.env` copy are manual follow-up
+Claude Code) via `git worktree add`; the `.venv` symlink and `.env` copy are manual follow-up
 lines, not something `create` does itself. The full procedure, those follow-up lines, the
 fast-forward-only merge rule and conflict handling:
 [references/manual-worktrees.md](references/manual-worktrees.md) Part 1.

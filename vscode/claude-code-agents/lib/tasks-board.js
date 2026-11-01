@@ -1,5 +1,5 @@
 'use strict';
-// Board projection of the list rows (Orca's task-page-jira-board-sections / project-board-columns): pure grouping.
+// Board projection of the list rows (board sections / project columns): pure grouping.
 // The board is a view over the same page of rows, never a second query.
 
 const JIRA_CATEGORY_ORDER = ['new', 'indeterminate', 'done'];

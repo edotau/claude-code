@@ -3,7 +3,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { detectJiraIssueKey } = require('../lib/tasks-model');
 
-// -- detectJiraIssueKey: ported cases from claude-orcastra's jira-issue-key-detection.test.ts --
+// -- detectJiraIssueKey: ported cases --
 
 test('detectJiraIssueKey: branch wins over title', () => {
   assert.equal(

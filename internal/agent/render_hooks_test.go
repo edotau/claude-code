@@ -10,9 +10,9 @@ import (
 	"testing"
 )
 
-// orcaMarker is the literal foreign-hook command a third-party tool (Orca) installs into every
-// lifecycle event; real bytes captured in testdata/codex-hooks-with-orca.json (= ~/.codex/hooks.json.backup).
-const orcaMarker = "orca-agent-hook-form=1"
+// foreignMarker is the literal foreign-hook command a third-party tool (e.g. an agent dashboard) installs into every
+// lifecycle event; real bytes captured in testdata/codex-hooks-with-foreign.json (= ~/.codex/hooks.json.backup).
+const foreignMarker = "foreign-agent-hook-form=1"
 
 func readTestdata(t *testing.T, name string) []byte {
 	t.Helper()
@@ -23,15 +23,15 @@ func readTestdata(t *testing.T, name string) []byte {
 	return b
 }
 
-// TestRenderCodexHooksFilePreservesOrcaOnDisk is the end-to-end RED/GREEN: seed a scratch ~/.codex/hooks.json
-// with the real pre-render bytes, run the full Codex render, and show Orca survives on disk.
-func TestRenderCodexHooksFilePreservesOrcaOnDisk(t *testing.T) {
+// TestRenderCodexHooksFilePreservesForeignOnDisk is the end-to-end RED/GREEN: seed a scratch ~/.codex/hooks.json
+// with the real pre-render bytes, run the full Codex render, and show the foreign hooks survive on disk.
+func TestRenderCodexHooksFilePreservesForeignOnDisk(t *testing.T) {
 	home := scratch(t)
 	hooksPath := filepath.Join(home, ".codex", "hooks.json")
 	if err := os.MkdirAll(filepath.Dir(hooksPath), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(hooksPath, readTestdata(t, "codex-hooks-with-orca.json"), 0o644); err != nil {
+	if err := os.WriteFile(hooksPath, readTestdata(t, "codex-hooks-with-foreign.json"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	var out bytes.Buffer
@@ -42,8 +42,8 @@ func TestRenderCodexHooksFilePreservesOrcaOnDisk(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if n := strings.Count(string(got), orcaMarker); n != 9 {
-		t.Fatalf("expected all 9 Orca groups to survive the render, found %d:\n%s", n, got)
+	if n := strings.Count(string(got), foreignMarker); n != 9 {
+		t.Fatalf("expected all 9 foreign groups to survive the render, found %d:\n%s", n, got)
 	}
 	if !strings.Contains(string(got), "claude-code hook PreToolUse --safety-scan") {
 		t.Errorf("rendered codex hooks missing the current harness hook:\n%s", got)

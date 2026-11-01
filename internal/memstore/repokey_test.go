@@ -14,7 +14,7 @@ func TestRepoKeyFromRemote(t *testing.T) {
 	cases := []struct{ url, want string }{
 		{"ssh://git@ssh.github.com:443/edotau/claude-code.git", "claude-code"},
 		{"git@github.com:edotau/claude-dbx.git", "claude-dbx"},
-		{"https://github.com/edotau/claude-orcastra.git", "claude-orcastra"},
+		{"https://github.com/edotau/claude-other.git", "claude-other"},
 		{"https://github.com/edotau/edotau.github.io.git", "edotau.github.io"},
 		{"https://github.com/edotau/claude-code", "claude-code"},      // no .git suffix
 		{"https://github.com/edotau/claude-code.git/", "claude-code"}, // trailing slash

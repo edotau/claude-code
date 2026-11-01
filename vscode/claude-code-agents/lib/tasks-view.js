@@ -1,5 +1,5 @@
 'use strict';
-// Webview HTML for the Tasks page (Orca's Task page, GitHub + Bitbucket DC) — no vscode dependency, so node:test
+// Webview HTML for the Tasks page (GitHub + Bitbucket DC) — no vscode dependency, so node:test
 // can render it. Same nonce/CSP shape as usage-view.js; the page re-renders whole on every model change.
 const { ICONS } = require('../media/icons');
 const { getPageNumbers, formatRelativeTime } = require('./tasks-state');
@@ -178,7 +178,7 @@ function updatedCell(item, now) {
 }
 
 /** PR: `Start` + chevron menu (Start, Open in browser). Issue: `Start | Open` + ⋮ menu. */
-/** Orca's Start/Resume: solid "Resume" when a worktree is attached to the item, outline "Start" otherwise. */
+/** Start/Resume: solid "Resume" when a worktree is attached to the item, outline "Start" otherwise. */
 function startButton(item) {
   const id = esc(item.id);
   if (item.readOnly) return `<span class="pill pill-muted" title="${esc(require('./tasks-ownership').readOnlyReason(item))}">${ICONS.lock}Read-only</span>`;
@@ -246,7 +246,7 @@ function headerRow(kind, model) {
     .join('')}</div>`;
 }
 
-/** Status group header row (Orca's collapsible sections): pill, count, chevron. */
+/** Status group header row (collapsible sections): pill, count, chevron. */
 function groupRow(group) {
   return `<div class="row group" data-group="${esc(group.key)}"><div class="cell c-id group-cell"><button class="icon-btn" data-collapse-group="${esc(group.key)}" aria-label="Collapse">${ICONS.chevronDown}</button>${pill(jiraStatusTone(group.category), group.label)}<span class="count">${group.rows.length}</span></div></div>`;
 }
@@ -352,7 +352,7 @@ function settingsSection(model) {
   return `<details class="settings" id="settings"${s.expanded ? ' open' : ''}><summary class="section-header">TASK SOURCES</summary><div class="cards">${card('jira', s.jira)}${card('github', s.github)}${card('bitbucket', s.bitbucket)}${netCard}</div><div class="card-row"><button class="btn btn-outline" data-act="openSettings">${ICONS.settings}Edit repos and defaults in Settings</button><button class="btn btn-outline" data-act="doctor">${ICONS.refreshCw}Re-check connections</button></div></details>`;
 }
 
-// --- board view (Orca ProjectBoard / task-page-jira-board): columns of cards over the same rows ---
+// --- board view : columns of cards over the same rows ---
 function boardCard(item, model) {
   const rowError = model.rowErrors && model.rowErrors[item.id];
   const errorLine = rowError ? `<div class="row-error">${ICONS.alertCircle}<span class="truncate" title="${esc(rowError)}">${esc(rowError)}</span><button class="btn btn-outline" data-act="retry" data-id="${esc(item.id)}">Retry</button><button class="icon-btn" data-act="clearError" data-id="${esc(item.id)}" aria-label="Dismiss">${ICONS.x}</button></div>` : '';
@@ -379,7 +379,7 @@ function boardView(model) {
     .join('')}</div>`;
 }
 
-// --- inline detail view (Orca swaps the list for the item; Back returns) ---
+// --- inline detail view (the list swaps for the item; Back returns) ---
 function jiraStatusTone(category) {
   return category === 'done' ? 'emerald' : category === 'indeterminate' ? 'sky' : 'muted';
 }
@@ -441,7 +441,7 @@ function checksTab(d) {
   return `<section class="card"><div class="card-head"><span class="card-title">Checks</span><span class="count">${c.total || 0}</span></div>${rows.join('') || '<div class="muted">No checks</div>'}</section>`;
 }
 
-/** GitHub detail (Orca github-item-dialog): header, status/assignee controls, PR tabs, body, activity, composer, rail. */
+/** GitHub detail: header, status/assignee controls, PR tabs, body, activity, composer, rail. */
 function threadCard(t, now, readOnly) {
   const label = `${t.path}${t.line != null ? `:${t.line}` : ''}`;
   const first = t.comments[0] || {};
@@ -452,7 +452,7 @@ function threadCard(t, now, readOnly) {
   return `<section class="thread card" data-thread="${esc(t.id)}">${body}</section>`;
 }
 
-/** PR header actions (Orca github-item-dialog-pr-header): ready/draft, rerun, and the ⋯ menu. */
+/** PR header actions : ready/draft, rerun, and the ⋯ menu. */
 function githubHeaderActions(data) {
   const id = esc(data.id);
   const terminal = data.state === 'merged' || data.state === 'closed';

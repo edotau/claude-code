@@ -76,7 +76,7 @@ is `true` (default); the same button sits in the Agents Dashboard view's own tit
 
 ## Tasks
 
-The Tasks page is one webview (rendered by `lib/tasks-view.js`) that reproduces Orca's Task page for three sources:
+The Tasks page is one webview (rendered by `lib/tasks-view.js`) that reproduces a task page for three sources:
 **Jira Data Center** (the default — "Assigned to me"), **GitHub** and **Bitbucket Data Center**. It is contributed in
 two places backed by the same provider: a bottom **Panel** tab "Tasks" (`claudeCodeTasks.panel`, next to
 Terminal/Problems) and an activity-bar container "Tasks" (`claudeCodeTasks.page`); hide whichever you don't use
@@ -111,7 +111,7 @@ Checks cell, the Merge pill or a Jira chip opens the URL in the browser; "Start"
 `Work on PR #N "title" (url)` to the clipboard and opens the shared terminal running `<binary> claude`.
 Mutations (merge, assign, review) stay in the GitHub Pull Requests extension / the browser.
 
-The query language is Orca's (`lib/task-query.js`): `is:issue` / `is:pr`, `is:open|closed|merged`,
+The query language (`lib/task-query.js`): `is:issue` / `is:pr`, `is:open|closed|merged`,
 `state:…`, `is:draft`, `assignee:`, `author:`, `review-requested:`, `reviewed-by:`, `label:` (repeatable),
 quoted phrases and unknown tokens pass through as free text.
 
@@ -148,7 +148,7 @@ quoted phrases and unknown tokens pass through as free text.
   survives re-renders), and a rail: Open in Jira, Copy URL / key / branch name / prompt. Every write is optimistic
   through `lib/tasks-mutations.js` (patch now, writes serialised per issue, refetch after, rollback + an inline
   Retry banner on failure). Bitbucket rows open a header-only detail with "Open in Bitbucket" for now.
-- **GitHub detail** (Orca's github-item-dialog): the row click swaps in the conversation — header, the same Status /
+- **GitHub detail** (GitHub detail): the row click swaps in the conversation — header, the same Status /
   Assignees (issues) or Reviewers / Checks / Merge (PRs) controls as the list, labels, base ← head and `+N −M`; PRs add
   a Conversation · Checks · Files tab strip (Files opens `<pr>/files` in the browser). The body and every comment come
   from GitHub already rendered (`Accept: application/vnd.github.html+json`, then sanitised — no markdown library);
@@ -170,7 +170,7 @@ quoted phrases and unknown tokens pass through as free text.
   review replies, board moves and Start. Everything else renders with a lock marker, plain pills instead of menus, no
   composer, and the extension refuses the write even if the webview posts it (`claudeCodeAgents.tasksWriteScope`,
   `mine` by default; `all` lifts the gate). Writes also log to the "Claude Code Tasks" Output channel when they fail.
-- **Start / Resume** (Orca's workspace composer as QuickPicks): Start asks "Open Claude here" or "Create worktree
+- **Start / Resume** (workspace composer as QuickPicks): Start asks "Open Claude here" or "Create worktree
   `<key-slug>`" (`claude-code worktree create`, `claudeCodeAgents.tasksStartDefault` skips the question), then a
   prompt template (Start implementation · Investigate bug · Write test plan · Draft PR summary · Plain; the last
   choice is remembered). The prompt is written to a file under the extension's storage and Claude opens in a

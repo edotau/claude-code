@@ -27,7 +27,7 @@ function presetsFor(source) {
   return PRESETS[source] || [];
 }
 
-/** Orca's page strip: all pages up to 9, else first/last + a ±2 window around `current` with ellipses (0-based). */
+/** The page strip: all pages up to 9, else first/last + a ±2 window around `current` with ellipses (0-based). */
 function getPageNumbers(current, total) {
   if (total <= 9) return Array.from({ length: total }, (_, i) => i);
   const pages = new Set([0, total - 1]);

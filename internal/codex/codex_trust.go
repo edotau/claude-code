@@ -20,8 +20,8 @@ import (
 // Codex hashes sorted compact JSON of event_name and a group containing one normalized handler (verified
 // on 0.163.0). CodexTrustEntries reads mergedHooks — the real post-merge hooks.json, not the isolated
 // rendered body — so gi/hi land on the position Codex itself will read; it emits an entry only for a
-// harness-owned hook (IsHarness), leaving whatever trust Codex/Orca already recorded for a
-// foreign hook (Orca, claude-dbx) alone. An event is checked against Codex's supported set only once it
+// harness-owned hook (IsHarness), leaving whatever trust Codex already recorded for a
+// foreign hook (claude-dbx, ...) alone. An event is checked against Codex's supported set only once it
 // is found to contain a harness hook, so a foreign-only event (Stop, SessionStart, ...) never errors.
 func CodexTrustEntries(path string, mergedHooks []byte) (map[string]string, error) {
 	var config struct {

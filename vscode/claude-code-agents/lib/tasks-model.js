@@ -2,7 +2,7 @@
 // Jira issue-key detection for the Tasks page (branch, then title). No vscode dependency.
 
 // Jira-shaped tokens that are standards or encodings, never issue keys (ported from
-// claude-orcastra's src/shared/jira-issue-key-detection.ts).
+// a TypeScript original).
 const NON_ISSUE_PROJECTS = new Set(['UTF', 'ISO', 'ES', 'SHA', 'MD', 'RFC', 'CVE', 'HTTP', 'TLS', 'SSL', 'IPV', 'X', 'V']);
 
 // Key-shaped tokens bounded by start/end or a separator; the project must start with a letter.

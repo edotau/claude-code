@@ -1,6 +1,6 @@
 'use strict';
 // Unit tests for the task query language in lib/task-query.js (ported from
-// claude-orcastra's src/shared/task-query.ts): tokenizer, scope detection, parser,
+// a TypeScript original): tokenizer, scope detection, parser,
 // serializer, withQualifier and stripRepoQualifiers.
 const test = require('node:test');
 const assert = require('node:assert/strict');

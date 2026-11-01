@@ -1,5 +1,5 @@
 'use strict';
-// Per-item mutation queue (Orca's jira-issue-mutation-queue shape): optimistic patch now, writes serialised per item,
+// Per-item mutation queue (queue shape): optimistic patch now, writes serialised per item,
 // refetch after success, rollback + inline error on failure. Pure: the host supplies get/set/refetch/onChange.
 
 class MutationQueue {
