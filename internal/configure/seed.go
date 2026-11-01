@@ -161,5 +161,9 @@ func seedFromSignIn(d *dialog, agent, profile string) {
 		d.printf("%s: %v\n", agent, err)
 		return
 	}
+	if err := agentpkg.ClearLastProfilesFor(agent); err != nil {
+		d.printf("%s: %v\n", agent, err)
+		return
+	}
 	d.changed = true
 }

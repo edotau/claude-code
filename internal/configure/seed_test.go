@@ -3,11 +3,14 @@ package configure
 import (
 	"bufio"
 	"bytes"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
 
 	agentpkg "github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
@@ -94,5 +97,23 @@ func TestSeedRowFitsEightyColumns(t *testing.T) {
 		if w := 2 + len([]rune("environment")) + 2 + len([]rune(r[1])); w > 80 {
 			t.Errorf("%s row is %d columns: %q", r[0], w, r[1])
 		}
+	}
+}
+
+// Given a remembered last-used profile for the agent, a sign-in seed forgets it so the new profile wins.
+func TestSeedFromSignInClearsLastProfile(t *testing.T) {
+	d, _ := seedDialog(t, "")
+	t.Chdir(t.TempDir())
+	agentpkg.RecordLastProfile("copilot", "stale-profile", nil)
+	if raw, _ := os.ReadFile(filepath.Join(paths.StateDir(), "last-profile.json")); !bytes.Contains(raw, []byte("stale-profile")) {
+		t.Fatalf("setup: last-profile.json lacks the entry: %s", raw)
+	}
+	seedFromSignIn(d, "copilot", "fresh")
+	raw, _ := os.ReadFile(filepath.Join(paths.StateDir(), "last-profile.json"))
+	if bytes.Contains(raw, []byte("stale-profile")) {
+		t.Errorf("last-used profile survived sign-in: %s", raw)
+	}
+	if got := agentpkg.AgentRecords()["copilot"].Profile; got != "fresh" {
+		t.Errorf("copilot profile = %q, want fresh", got)
 	}
 }
