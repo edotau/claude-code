@@ -3,10 +3,10 @@ package configure
 import (
 	"bufio"
 	"bytes"
+	"github.com/edotau/claude-code/internal/vault"
 	"strings"
 	"testing"
 
-	agentpkg "github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/copilotsdk"
 	"github.com/edotau/claude-code/internal/providers"
 )
@@ -141,7 +141,7 @@ func TestPickCopilotModelEffortSubPickSetsPinAndRerendersDesc(t *testing.T) {
 	stubCatalog(t, effortStub, nil)
 
 	shown := runCopilotPicker(t, reg, "stub-model-1", "1\n3\n\n")
-	if got := agentpkg.GetAgentRecord("copilot").Effort; got != "high" {
+	if got := vault.GetAgentRecord("copilot").Effort; got != "high" {
 		t.Errorf("effort pin = %q, want high", got)
 	}
 	renders := strings.Split(shown, copilotPickerTitle)
@@ -165,7 +165,7 @@ func TestPickCopilotModelEffortSubPickDefaultClearsPin(t *testing.T) {
 	putRec(t, "copilot", "EFFORT", "high")
 
 	runCopilotPicker(t, reg, "stub-model-1", "1\n1\n\n")
-	if got := agentpkg.GetAgentRecord("copilot").Effort; got != "" {
+	if got := vault.GetAgentRecord("copilot").Effort; got != "" {
 		t.Errorf("effort pin = %q, want cleared", got)
 	}
 }
@@ -184,7 +184,7 @@ func TestPickCopilotModelSavesModelAfterSettingEffort(t *testing.T) {
 	if got, _ := providers.CopilotModel(reg); got != "stub-model-1" {
 		t.Errorf("COPILOT_MODEL resolver = %q, want stub-model-1", got)
 	}
-	if got := agentpkg.GetAgentRecord("copilot").Effort; got != "high" {
+	if got := vault.GetAgentRecord("copilot").Effort; got != "high" {
 		t.Errorf("effort pin = %q, want high (stub-model-1 supports it)", got)
 	}
 }

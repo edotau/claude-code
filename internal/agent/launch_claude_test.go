@@ -359,7 +359,7 @@ func TestClaudeShellEndpointBeatsVault(t *testing.T) {
 	hermetic(t, `{"fallback": [], "providers": {"anthropic": {"gw": {"protocol": "anthropic", "base_url": "https://gw.example/anthropic",
 		"auth": {"type":"key", "env": "TEST_GW_KEY"}, "models": {"opus": "claude-opus-4-6"}}}}}`)
 	t.Setenv("TEST_GW_KEY", "k")
-	if err := SetAgentRecord("claude", AgentRecord{Model: "opus"}); err != nil {
+	if err := vault.SetAgentRecord("claude", vault.AgentRecord{Model: "opus"}); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("ANTHROPIC_MODEL", "shell-model")

@@ -9,7 +9,6 @@ import (
 	"strings"
 	"testing"
 
-	agentpkg "github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
@@ -138,7 +137,7 @@ func TestWriteGithubCopilotModelsLeavesCopilotModelPinUntouched(t *testing.T) {
 	if err := WriteGithubCopilotModels(picks, ""); err != nil {
 		t.Fatalf("WriteGithubCopilotModels: %v", err)
 	}
-	if got := agentpkg.GetAgentRecord("copilot").Model; got != "claude-opus-5.5" {
+	if got := vault.GetAgentRecord("copilot").Model; got != "claude-opus-5.5" {
 		t.Errorf("COPILOT_MODEL pin = %q, want unchanged claude-opus-5.5: the fallback section must not touch it", got)
 	}
 }

@@ -3,6 +3,7 @@ package configure
 
 import (
 	"fmt"
+	"github.com/edotau/claude-code/internal/vault"
 	"slices"
 
 	agentpkg "github.com/edotau/claude-code/internal/agent"
@@ -57,7 +58,7 @@ func seedOwnLogin(d *dialog, agent, profile string) bool {
 
 // seedDefaults is each agent's current choice; an agent with no profile set gets its own login pre-selected.
 func seedDefaults(d *dialog) map[string]string {
-	recs := agentpkg.AgentRecords()
+	recs := vault.AgentRecords(agentpkg.RosterNames())
 	out := map[string]string{}
 	for _, a := range seedAgents() {
 		out[a] = recs[a].Profile
@@ -122,7 +123,7 @@ func seedOnFirstRun(d *dialog, section string) {
 	if section != "" || d.o.Check || d.o.DryRun || d.o.JSON || d.o.Agent != "" {
 		return
 	}
-	for _, r := range agentpkg.AgentRecords() {
+	for _, r := range vault.AgentRecords(agentpkg.RosterNames()) {
 		if r.Profile != "" {
 			return
 		}
@@ -136,7 +137,7 @@ func seedOnFirstRun(d *dialog, section string) {
 
 func seedRow() homeRow {
 	n := 0
-	for _, r := range agentpkg.AgentRecords() {
+	for _, r := range vault.AgentRecords(agentpkg.RosterNames()) {
 		if r.Profile != "" {
 			n++
 		}

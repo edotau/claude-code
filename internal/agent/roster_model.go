@@ -2,6 +2,7 @@ package agent
 
 import (
 	"fmt"
+	"github.com/edotau/claude-code/internal/vault"
 	"net/url"
 	"os"
 	"slices"
@@ -32,7 +33,7 @@ func AgentModelPin(agent string) string {
 	if v := strings.TrimSpace(os.Getenv(agentModelEnv[agent])); v != "" && agentModelEnv[agent] != "" {
 		return v
 	}
-	return GetAgentRecord(agent).Model
+	return vault.GetAgentRecord(agent).Model
 }
 
 // ResolveAgentModel is the one rule for the model an agent runs: flag > the agent's shell model env > its vault pin > Target.Model,

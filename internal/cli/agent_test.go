@@ -416,7 +416,7 @@ func TestCmdAskJobLogEachLineOnce(t *testing.T) {
 	if err := os.WriteFile(marker, []byte("token"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := agent.SetAgentRecord("gemini", agent.AgentRecord{Profile: "antigravity"}); err != nil { // no profile = off
+	if err := vault.SetAgentRecord("gemini", vault.AgentRecord{Profile: "antigravity"}); err != nil { // no profile = off
 		t.Fatal(err)
 	}
 	script := "cat > /dev/null\n" +

@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"errors"
+	"github.com/edotau/claude-code/internal/vault"
 	"io"
 	"os"
 	"testing"
@@ -52,7 +53,7 @@ func (testLauncher) Claude(_ context.Context, o ClaudeOptions, args []string) (C
 func activateAgents(t *testing.T, agents ...string) {
 	t.Helper()
 	profiles := map[string]string{"codex": "chatgpt", "gemini": "antigravity", "copilot": "personal", "opencode": "nvidia"}
-	if err := UpdateAgentRecords(func(m map[string]AgentRecord) {
+	if err := vault.UpdateAgentRecords(func(m map[string]vault.AgentRecord) {
 		for _, a := range agents {
 			r := m[a]
 			r.Profile = profiles[a]

@@ -3,6 +3,7 @@ package configure
 import (
 	"bufio"
 	"bytes"
+	"github.com/edotau/claude-code/internal/vault"
 	"strings"
 	"testing"
 
@@ -30,11 +31,11 @@ func TestProfileRowPicksOffAndOwnLogin(t *testing.T) {
 	if !strings.Contains(out, "1) off") || !strings.Contains(out, "2) chatgpt") {
 		t.Errorf("picker = %q, want off then the own login chatgpt", out)
 	}
-	if r := agentpkg.GetAgentRecord("codex"); r.Profile != "chatgpt" || r.Model != "keep-me" {
+	if r := vault.GetAgentRecord("codex"); r.Profile != "chatgpt" || r.Model != "keep-me" {
 		t.Errorf("record after own-login pick = %+v, want profile chatgpt, model kept", r)
 	}
 	runProfile(t, reg, "codex", "1\n")
-	if r := agentpkg.GetAgentRecord("codex"); r.Profile != "" || r.Model != "keep-me" {
+	if r := vault.GetAgentRecord("codex"); r.Profile != "" || r.Model != "keep-me" {
 		t.Errorf("record after off = %+v, want profile off, model kept", r)
 	}
 }
@@ -47,7 +48,7 @@ func TestProfileRowOpencodeListsZenFree(t *testing.T) {
 	if !strings.Contains(out, "2) "+agentpkg.OpencodeOwnLogin) {
 		t.Errorf("picker = %q, want zen-free as row 2", out)
 	}
-	if got := agentpkg.GetAgentRecord("opencode").Profile; got != agentpkg.OpencodeOwnLogin {
+	if got := vault.GetAgentRecord("opencode").Profile; got != agentpkg.OpencodeOwnLogin {
 		t.Errorf("profile = %q, want %q", got, agentpkg.OpencodeOwnLogin)
 	}
 }
@@ -74,14 +75,14 @@ func TestAgentActiveOnSeedsOnlyEmptyProfile(t *testing.T) {
 	vaulttest.SetRecord(t, "claude", "profile", "")
 	d := &dialog{reg: reg, out: &bytes.Buffer{}}
 	agentActiveOn(d, "codex")
-	if got := agentpkg.GetAgentRecord("codex").Profile; got != "chatgpt" {
+	if got := vault.GetAgentRecord("codex").Profile; got != "chatgpt" {
 		t.Fatalf("off codex after sign-in = %q, want chatgpt", got)
 	}
-	if err := agentpkg.SetAgentRecord("codex", agentpkg.AgentRecord{Profile: "openai"}); err != nil {
+	if err := vault.SetAgentRecord("codex", vault.AgentRecord{Profile: "openai"}); err != nil {
 		t.Fatal(err)
 	}
 	agentActiveOn(d, "codex")
-	if got := agentpkg.GetAgentRecord("codex").Profile; got != "openai" {
+	if got := vault.GetAgentRecord("codex").Profile; got != "openai" {
 		t.Errorf("chosen profile overridden: %q, want openai", got)
 	}
 }

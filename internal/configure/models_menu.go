@@ -5,10 +5,10 @@ package configure
 import (
 	"cmp"
 	"context"
+	"github.com/edotau/claude-code/internal/vault"
 	"strings"
 	"time"
 
-	agentpkg "github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
 	uidialog "github.com/edotau/claude-code/internal/ui/dialog"
@@ -154,7 +154,7 @@ func QualifyPinSpec(reg *providers.Registry, providerFlag, spec string) string {
 
 // unpinAllModels clears every model pin, same call cmdModels' --unpin flag makes, and audits each.
 func unpinAllModels(d *dialog) {
-	err := agentpkg.UpdateAgentRecords(func(m map[string]agentpkg.AgentRecord) {
+	err := vault.UpdateAgentRecords(func(m map[string]vault.AgentRecord) {
 		r := m["claude"]
 		r.Model, r.Aliases = "", nil
 		m["claude"] = r

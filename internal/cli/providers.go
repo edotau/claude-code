@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"fmt"
+	"github.com/edotau/claude-code/internal/vault"
 	"maps"
 	"os"
 	"slices"
@@ -304,11 +305,11 @@ func applyModelPins(reg *providers.Registry, provider string, unpin, dryRun bool
 	if warn != "" {
 		fmt.Fprintln(os.Stderr, "claude-code: models:", warn)
 	}
-	apply := func(m map[string]agent.AgentRecord) { m["claude"] = withClaudeModels(m["claude"], set) }
+	apply := func(m map[string]vault.AgentRecord) { m["claude"] = withClaudeModels(m["claude"], set) }
 	if dryRun {
 		return printRecordDiff(apply, nil), true
 	}
-	if err := agent.UpdateAgentRecords(apply); err != nil {
+	if err := vault.UpdateAgentRecords(apply); err != nil {
 		return fail("%v", err), true
 	}
 	for _, alias := range slices.Sorted(maps.Keys(set)) {
@@ -318,7 +319,7 @@ func applyModelPins(reg *providers.Registry, provider string, unpin, dryRun bool
 }
 
 // withClaudeModels is r with the model pins in set applied: alias "" is every alias, "" spec clears.
-func withClaudeModels(r agent.AgentRecord, set map[string]string) agent.AgentRecord {
+func withClaudeModels(r vault.AgentRecord, set map[string]string) vault.AgentRecord {
 	r.Aliases = maps.Clone(r.Aliases)
 	if r.Aliases == nil {
 		r.Aliases = map[string]string{}
@@ -587,11 +588,11 @@ func cmdSwitch(args []string) int {
 	if _, err := reg.Get(args[0]); err != nil {
 		return fail("%v", err)
 	}
-	apply := func(m map[string]agent.AgentRecord) { switchAgents(reg, m, args[0]) }
+	apply := func(m map[string]vault.AgentRecord) { switchAgents(reg, m, args[0]) }
 	if dryRun {
-		return printRecordDiff(apply, keptOff(reg, agent.AgentRecords(), args[0]))
+		return printRecordDiff(apply, keptOff(reg, vault.AgentRecords(agent.RosterNames()), args[0]))
 	}
-	move, _ := switchTargets(reg, agent.AgentRecords(), args[0])
+	move, _ := switchTargets(reg, vault.AgentRecords(agent.RosterNames()), args[0])
 	if _, err := configure.ApplyProfile(move, args[0]); err != nil {
 		return fail("%v", err)
 	}
@@ -651,7 +652,7 @@ func cmdResolve(args []string) int {
 
 // switchTargets are the agents a switch to profile moves: claude, and each external agent that is on and serves it.
 // Serves, not CanServe: a gemini gateway row is reachable only by an explicit `gemini profile`.
-func switchTargets(reg *providers.Registry, recs map[string]agent.AgentRecord, profile string) (move, off []string) {
+func switchTargets(reg *providers.Registry, recs map[string]vault.AgentRecord, profile string) (move, off []string) {
 	for _, spec := range agent.Roster() {
 		ok, _ := agent.Serves(spec.Name, reg.Providers[profile], "")
 		switch {
@@ -667,7 +668,7 @@ func switchTargets(reg *providers.Registry, recs map[string]agent.AgentRecord, p
 }
 
 // switchAgents sets profile on claude and on every external agent that is on and can serve it (edited in m).
-func switchAgents(reg *providers.Registry, m map[string]agent.AgentRecord, profile string) {
+func switchAgents(reg *providers.Registry, m map[string]vault.AgentRecord, profile string) {
 	move, _ := switchTargets(reg, m, profile)
 	for _, name := range move {
 		r := m[name]
@@ -677,7 +678,7 @@ func switchAgents(reg *providers.Registry, m map[string]agent.AgentRecord, profi
 }
 
 // keptOff lists "agent: off (kept)" for each off agent that could serve profile and a switch leaves off.
-func keptOff(reg *providers.Registry, recs map[string]agent.AgentRecord, profile string) []string {
+func keptOff(reg *providers.Registry, recs map[string]vault.AgentRecord, profile string) []string {
 	_, off := switchTargets(reg, recs, profile)
 	lines := make([]string, len(off))
 	for i, n := range off {
@@ -687,8 +688,8 @@ func keptOff(reg *providers.Registry, recs map[string]agent.AgentRecord, profile
 }
 
 // printRecordDiff is the shared --dry-run body for switch and models: the record change plus notes, or that there is none.
-func printRecordDiff(apply func(map[string]agent.AgentRecord), notes []string) int {
-	before := agent.AgentRecords()
+func printRecordDiff(apply func(map[string]vault.AgentRecord), notes []string) int {
+	before := vault.AgentRecords(agent.RosterNames())
 	after := maps.Clone(before)
 	apply(after)
 	diff := append(providers.RecordDiff(before, after), notes...)

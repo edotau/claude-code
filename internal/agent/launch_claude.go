@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/edotau/claude-code/internal/vault"
 	"maps"
 	"net/url"
 	"os"
@@ -139,7 +140,7 @@ func Claude(ctx context.Context, o LaunchOptions, args []string) (Plan, error) {
 		plan.Unset = append(plan.Unset, "CLAUDE_CONFIG_DIR")
 	}
 	setModelAliasEnv(&plan, sel)
-	if err := setMainModel(&plan, sel, p, MainAlias(o), o.Model != "" || GetAgentRecord("claude").Model != ""); err != nil {
+	if err := setMainModel(&plan, sel, p, MainAlias(o), o.Model != "" || vault.GetAgentRecord("claude").Model != ""); err != nil {
 		return Plan{}, err
 	}
 	set1MOff(&plan, sel, p)

@@ -5,6 +5,7 @@ package configure
 import (
 	"cmp"
 	"github.com/edotau/claude-code/internal/codex"
+	"github.com/edotau/claude-code/internal/vault"
 	"os"
 	"os/exec"
 	"slices"
@@ -14,7 +15,7 @@ import (
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/secrets"
+	"github.com/edotau/claude-code/internal/secretstore"
 	uidialog "github.com/edotau/claude-code/internal/ui/dialog"
 )
 
@@ -249,7 +250,7 @@ var codexKeyLogin = func(key string) error {
 
 // codexUseKey points codex's own auth at the stored OPENAI_API_KEY.
 func codexUseKey(d *dialog) bool {
-	key, _, ok := secrets.Get("OPENAI_API_KEY")
+	key, _, ok := secretstore.Get("OPENAI_API_KEY")
 	if !ok || key == "" {
 		d.printf("codex: OPENAI_API_KEY not found in the vault\n")
 		return false
@@ -272,7 +273,7 @@ func copilotMenu(d *dialog) agentMenu {
 	if auth.Source == agent.SrcStoredToken {
 		st = agentState{mode: modeAPIKey, verified: auth.Account != ""}
 	}
-	pinned := agent.GetAgentRecord("copilot").Profile
+	pinned := vault.GetAgentRecord("copilot").Profile
 	rows := []billingRow{
 		{"Subscription", "GitHub Copilot · " + bracket(loggedIn, withTier(auth.Label(), tier), "not logged in"), modeSubscription, func() bool {
 			if loggedIn {
@@ -314,7 +315,7 @@ const copilotContextBaseline = 200_000
 // all. Lists only modelID's own SupportedReasoningEfforts when the SDK catalog resolves it, else falls
 // back to the fixed list (today's behavior) since there is nothing to check eligibility against.
 func copilotEffortRow(d *dialog, modelID string) *billingRow {
-	cur := agent.GetAgentRecord("copilot").Effort
+	cur := vault.GetAgentRecord("copilot").Effort
 	m, ok := copilotCatalogModel(d, modelID)
 	if !ok {
 		desc := "reasoning effort on every launch " + bracket(cur != "", cur, "unset")
@@ -360,7 +361,7 @@ func copilotContextRow(d *dialog, modelID string) *billingRow {
 	if !copilotContextEligible(d, modelID) {
 		return nil
 	}
-	cur := agent.GetAgentRecord("copilot").Context
+	cur := vault.GetAgentRecord("copilot").Context
 	desc := "context window on every launch " + bracket(cur != "", copilotContextLabel(cur), "auto")
 	r := billingRow{"Context", desc, "", func() bool {
 		return pickCopilotPin(d, "context", "CONTEXT", copilotContextChoices, cur)
@@ -381,12 +382,12 @@ func copilotContextLabel(val string) string {
 // clearIneligibleCopilotPins drops the effort/context pins a newly chosen model can't honor, after a
 // copilot model switch; each cleared pin prints the reason on one line.
 func clearIneligibleCopilotPins(d *dialog, modelID string) {
-	if cur := agent.GetAgentRecord("copilot").Effort; cur != "" {
+	if cur := vault.GetAgentRecord("copilot").Effort; cur != "" {
 		if m, ok := copilotCatalogModel(d, modelID); ok && !slices.Contains(m.Efforts, cur) {
 			clearCopilotPin(d, "EFFORT", cur, modelID, "doesn't support that effort")
 		}
 	}
-	if cur := agent.GetAgentRecord("copilot").Context; cur != "" && !copilotContextEligible(d, modelID) {
+	if cur := vault.GetAgentRecord("copilot").Context; cur != "" && !copilotContextEligible(d, modelID) {
 		clearCopilotPin(d, "CONTEXT", cur, modelID, "has no long-context tier")
 	}
 }
@@ -439,7 +440,7 @@ func curMark(current bool) string {
 // copilotKeyRow pastes (or rotates) a GitHub token into COPILOT_GITHUB_TOKEN; it outranks gh's active account.
 func copilotKeyRow(d *dialog) billingRow {
 	env := agent.CopilotTokenEnv
-	_, src, ok := secrets.Get(env)
+	_, src, ok := secretstore.Get(env)
 	stored := ok && src != "env"
 	return billingRow{modeAPIKey, "paste a GitHub token → " + env + " " + bracket(stored, "token set", "no token"), modeAPIKey, func() bool {
 		kt := keyTarget{label: "copilot", envVar: env, fixCmd: "claude-code vault set " + env}

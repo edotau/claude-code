@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"errors"
 	"fmt"
+	"github.com/edotau/claude-code/internal/vault"
 	"maps"
 	"slices"
 	"strings"
@@ -87,12 +88,12 @@ func AgentActive(agent string) bool {
 	if _, ok := LookupSchema(agent); !ok {
 		return true
 	}
-	return GetAgentRecord(agent).Profile != ""
+	return vault.GetAgentRecord(agent).Profile != ""
 }
 
 // AgentPins reads the records once and returns every agent's spec; claude's profile is the session's, else its record's.
 func AgentPins() map[string]router.PinSpec {
-	recs := AgentRecords()
+	recs := vault.AgentRecords(RosterNames())
 	reg, _ := providers.Load()
 	out := make(map[string]router.PinSpec, len(rows()))
 	for _, k := range rows() {

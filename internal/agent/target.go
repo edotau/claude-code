@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/edotau/claude-code/internal/vault"
 
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
@@ -75,7 +76,7 @@ func copilotDatabricksFallback(reg *providers.Registry, detail string) RouteInfo
 		return RouteInfo{Agent: "copilot", Route: RouteDatabricks, Provider: p.Name, Model: p.Models[models.Opus],
 			Reason: "copilot: " + detail + " — using databricks profile " + p.Name, OK: true}
 	}
-	pin := cmp.Or(providers.SessionProfile(), GetAgentRecord("claude").Profile)
+	pin := cmp.Or(providers.SessionProfile(), vault.GetAgentRecord("claude").Profile)
 	for _, name := range append([]string{pin}, providers.DatabricksProfiles(reg)...) {
 		if p := reg.Providers[name]; databricksUsable(p) {
 			return pick(p)

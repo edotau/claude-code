@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/edotau/claude-code/internal/vault"
 	"slices"
 	"strings"
 	"time"
@@ -22,7 +23,7 @@ func opencodeProvider(name string) (*providers.Registry, *providers.Provider, er
 		return nil, nil, err
 	}
 	if name == "" {
-		if name = GetAgentRecord("opencode").Profile; name == "" {
+		if name = vault.GetAgentRecord("opencode").Profile; name == "" {
 			return nil, nil, errors.New("no profile pinned for opencode; pass --profile")
 		}
 	}

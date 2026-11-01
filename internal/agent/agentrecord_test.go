@@ -34,10 +34,10 @@ func TestLegacyPinsDriveAgentActiveAndRecords(t *testing.T) {
 			t.Errorf("AgentActive(%s) = %v, want %v", agent, got, want)
 		}
 	}
-	if r := GetAgentRecord("copilot"); r.Account != "alice" || r.Profile != "" {
+	if r := vault.GetAgentRecord("copilot"); r.Account != "alice" || r.Profile != "" {
 		t.Errorf("copilot record = %+v, want account alice and no profile", r)
 	}
-	if r := GetAgentRecord("opencode"); r.Model != "m" {
+	if r := vault.GetAgentRecord("opencode"); r.Model != "m" {
 		t.Errorf("opencode record = %+v, want the model kept while off", r)
 	}
 }
@@ -46,7 +46,7 @@ func TestLegacyPinsDriveAgentActiveAndRecords(t *testing.T) {
 func TestUnmigratedRawPinIsNotReadAsOff(t *testing.T) {
 	vaulttest.Use(t)
 	putRawPins(t, map[string]string{"COPILOT_PROFILE": "dev"})
-	if got := GetAgentRecord("copilot").Profile; got != "dev" {
+	if got := vault.GetAgentRecord("copilot").Profile; got != "dev" {
 		t.Fatalf("copilot profile = %q, want dev", got)
 	}
 }
@@ -54,17 +54,17 @@ func TestUnmigratedRawPinIsNotReadAsOff(t *testing.T) {
 // SetAgentRecord round-trips, and an empty profile turns an external agent off.
 func TestSetAgentRecordRoundTripAndOff(t *testing.T) {
 	vaulttest.Use(t)
-	if err := SetAgentRecord("gemini", AgentRecord{Profile: "antigravity", Model: "g"}); err != nil {
+	if err := vault.SetAgentRecord("gemini", vault.AgentRecord{Profile: "antigravity", Model: "g"}); err != nil {
 		t.Fatal(err)
 	}
-	if r := GetAgentRecord("gemini"); r.Profile != "antigravity" || r.Model != "g" || !AgentActive("gemini") {
+	if r := vault.GetAgentRecord("gemini"); r.Profile != "antigravity" || r.Model != "g" || !AgentActive("gemini") {
 		t.Fatalf("gemini = %+v active=%v", r, AgentActive("gemini"))
 	}
-	if err := SetAgentRecord("gemini", AgentRecord{Model: "g"}); err != nil {
+	if err := vault.SetAgentRecord("gemini", vault.AgentRecord{Model: "g"}); err != nil {
 		t.Fatal(err)
 	}
-	if AgentActive("gemini") || GetAgentRecord("gemini").Model != "g" {
-		t.Fatalf("gemini with no profile must be off keeping its model: %+v", GetAgentRecord("gemini"))
+	if AgentActive("gemini") || vault.GetAgentRecord("gemini").Model != "g" {
+		t.Fatalf("gemini with no profile must be off keeping its model: %+v", vault.GetAgentRecord("gemini"))
 	}
 }
 

@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agentconfig"
+	"github.com/edotau/claude-code/internal/vault"
 	"io"
 	"maps"
 	"os"
@@ -462,7 +463,7 @@ func codexHeadless(argv []string, h *agent.Headless) []string {
 	if h != nil {
 		effort = h.Effort
 	}
-	if effort = cmp.Or(effort, agent.GetAgentRecord("codex").Effort); effort != "" {
+	if effort = cmp.Or(effort, vault.GetAgentRecord("codex").Effort); effort != "" {
 		argv = append(argv, "-c", "model_reasoning_effort="+agentconfig.TOMLQuote(effort))
 	}
 	if h == nil {

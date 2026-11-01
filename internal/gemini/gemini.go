@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agentconfig"
+	"github.com/edotau/claude-code/internal/vault"
 	"io"
 	"os"
 	"os/exec"
@@ -77,7 +78,7 @@ func (geminiEngine) LoginStatus() (bool, string) {
 
 // FollowsPin keeps agy on its Google login unless GEMINI_PROFILE names the session's Databricks row.
 func (geminiEngine) FollowsPin(p *providers.Provider) bool {
-	return !agent.GeminiGatewayRow(p) || agent.GetAgentRecord("gemini").Profile == p.Name
+	return !agent.GeminiGatewayRow(p) || vault.GetAgentRecord("gemini").Profile == p.Name
 }
 
 // NoRoute refuses a Databricks gateway row that no GEMINI_PROFILE pin selected: never silently.
@@ -166,7 +167,7 @@ var agyEfforts = []string{"low", "medium", "high", "xhigh", "max"}
 func agyGatewayArg(model string) (base, arg string) {
 	base, effort, ok := agyGatewayBase(model)
 	if !ok {
-		base, effort, _ = agyGatewayBase(cmp.Or(agent.GetAgentRecord("gemini").Model, AgyDefaultModel))
+		base, effort, _ = agyGatewayBase(cmp.Or(vault.GetAgentRecord("gemini").Model, AgyDefaultModel))
 	}
 	if effort == "" {
 		return base, base
