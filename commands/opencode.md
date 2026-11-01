@@ -1,8 +1,8 @@
 ---
 description: >-
   OpenCode via `claude-code opencode <verb>`: a bare task runs `claude-code ask --agent opencode --tools`
-  (routed); `ask|resume|review|explore|transfer|status|tail|result|cancel|setup|catalog|env` pass straight through.
-argument-hint: "[ask|resume|review|explore|transfer|status|tail|result|cancel|setup|catalog|env] [args…] | <task>"
+  (routed); `ask|resume|review|explore|transfer|status|tail|result|cancel|setup|catalog|profile|on|off` pass straight through.
+argument-hint: "[ask|resume|review|explore|transfer|status|tail|result|cancel|setup|catalog|profile|on|off] [args…] | <task>"
 allowed-tools: Bash
 ---
 

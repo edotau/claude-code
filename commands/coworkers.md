@@ -14,9 +14,10 @@ on `|` into the task list.
 Dispatch each task as one `coworker` leaf (`subagent_type: "coworker"`), all in ONE message in the background,
 with a brief per the Handoff contract that names `Agent:` (one line), `Mode:` (`single|compare|relay`;
 absent with several names = relay), `Owns:` and `Verify:`. A feature or
-bug-fix task also gets a `copilot` test agent in the SAME message and runs its
-edits in a worktree. Relay one consolidated report: per task, the agent rows (agent · model · job · fallback ·
-verified), the verified answer or change, and for `compare` where the agents agreed and differed.
+bug-fix task also gets a `copilot` test agent in the SAME message. Edits follow
+`rules/standards/worktree-git.md` (shared tree; a worktree only with the user's yes). Relay one consolidated report: per
+task, the agent rows (agent · model · job · fallback · verified), the verified answer or change, and for `compare`
+where the agents agreed and differed.
 
 A `profile=<name>` argument adds `Profile: <name>` to each brief: the leaf runs `ask --profile`,
 host and auth from the vault.
