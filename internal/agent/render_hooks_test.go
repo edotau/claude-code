@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agentconfig"
 	"os"
 	"path/filepath"
 	"strings"
@@ -592,7 +593,7 @@ func TestCodexTrustEntriesSurviveForeignFirstOrder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rendered, err := agent.CodexTrustEntries(hooksPath, body)
+	rendered, err := agentconfig.CodexTrustEntries(hooksPath, body)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -600,7 +601,7 @@ func TestCodexTrustEntriesSurviveForeignFirstOrder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	src := agent.CodexHookSourcePath(hooksPath)
+	src := agentconfig.CodexHookSourcePath(hooksPath)
 	// Rendered alone, safety-scan sits at 0:0; behind Orca's group it is 1:0, and Orca's slot gets no entry.
 	safetyScan := rendered[src+":pre_tool_use:0:0"]
 	want := fmt.Sprintf("[hooks.state.%q]\ntrusted_hash = %q", src+":pre_tool_use:1:0", safetyScan)

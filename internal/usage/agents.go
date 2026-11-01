@@ -9,6 +9,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/edotau/claude-code/internal/agentconfig"
 	"io"
 	"io/fs"
 	"os"
@@ -275,7 +276,7 @@ func parseCodexSession(path string) codexSessionSummary {
 
 // codexUsage walks ~/.codex/sessions for *.jsonl files modified within the window, one session per file.
 func codexUsage(cutoff time.Time) agentUsage {
-	home, err := agent.CodexHome()
+	home, err := agentconfig.CodexHome()
 	if err != nil {
 		return agentUsage{Agent: "codex", Note: "store not found: " + err.Error()}
 	}

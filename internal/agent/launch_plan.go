@@ -2,6 +2,7 @@ package agent
 
 import (
 	"fmt"
+	"github.com/edotau/claude-code/internal/agentconfig"
 	"io"
 	"maps"
 	"os"
@@ -138,7 +139,7 @@ func moduleEnv(base []string) ([]string, map[string]bool) {
 		return base, locked
 	}
 	out := base
-	for _, m := range Modules() {
+	for _, m := range agentconfig.Modules() {
 		for k, v := range m.Env(reg.Routing) {
 			if present[k] {
 				locked[k] = true // process env already set this module-owned key: protect it from custom env too

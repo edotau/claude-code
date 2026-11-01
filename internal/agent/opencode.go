@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
@@ -306,6 +307,8 @@ func opencodeOverlayModels() (mainModel, smallModel string, ok bool) {
 	return router.OpencodeTableModels()
 }
 
+func init() { agentconfig.OverlayModels = opencodeOverlayModels }
+
 type opencodeEngine struct{ baseEngine }
 
 var _ headlessEngine = opencodeEngine{}
@@ -379,7 +382,7 @@ func (e opencodeEngine) noRoute(reg *providers.Registry, _ providers.Target) err
 
 // launchEnv points every opencode launch at the tracked overlay; a failed write is best-effort, opencode runs without it.
 func (opencodeEngine) launchEnv() []string {
-	if cfg, tui, err := WriteOpencodeOverlay(); err == nil {
+	if cfg, tui, err := agentconfig.WriteOpencodeOverlay(); err == nil {
 		return []string{"OPENCODE_CONFIG=" + cfg, "OPENCODE_TUI_CONFIG=" + tui}
 	}
 	return nil

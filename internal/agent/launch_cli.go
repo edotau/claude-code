@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/edotau/claude-code/internal/agentconfig"
 	"os"
 	"path/filepath"
 	"slices"
@@ -28,7 +29,7 @@ func codexProfileHint(o LaunchOptions) error {
 	if o.Provider == "" || strings.ContainsAny(o.Provider, `/\`) {
 		return nil
 	}
-	home, err := CodexHome()
+	home, err := agentconfig.CodexHome()
 	if err != nil {
 		return nil
 	}

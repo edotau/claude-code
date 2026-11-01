@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/edotau/claude-code/internal/agentconfig"
 	"io/fs"
 	"maps"
 	"os"
@@ -109,7 +110,7 @@ type mcpClient struct {
 }
 
 func webSearchClients() []mcpClient {
-	codexCfg, cfgErr := agent.CodexConfigPath("")
+	codexCfg, cfgErr := agentconfig.CodexConfigPath("")
 	return []mcpClient{
 		{"claude", func() bool { return claudeJSONWired(paths.ClaudeJSON()) }, registerClaudeMCP},
 		{"codex", func() bool { return codexWired(codexCfg) }, func(bin string) error {
@@ -194,7 +195,7 @@ func registerCodexMCP(path, bin string) error {
 		next = append(append(raw, '\n'), block...)
 	}
 	if len(raw) > 0 {
-		if err := agent.CodexBackup(path, raw, true); err != nil {
+		if err := agentconfig.CodexBackup(path, raw, true); err != nil {
 			return err
 		}
 	}

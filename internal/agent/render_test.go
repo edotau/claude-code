@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"github.com/edotau/claude-code/internal/agentconfig"
 	"os"
 	"path/filepath"
 	"strings"
@@ -222,7 +223,7 @@ func TestForeignKeysSurviveAndBackupIsWritten(t *testing.T) {
 	if _, err := os.Stat(codexPath + ".backup"); !os.IsNotExist(err) {
 		t.Fatalf("plaintext backup must not be written: %v", err)
 	}
-	backup, found, err := agent.LatestCodexBackup(codexPath)
+	backup, found, err := agentconfig.LatestCodexBackup(codexPath)
 	if err != nil || !found {
 		t.Fatalf("encrypted backup missing: found=%v err=%v", found, err)
 	}
@@ -285,7 +286,7 @@ func TestVendorBaselineSeededOnFirstWrite(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	base, err := agent.LoadCodexBaseline(codexPath)
+	base, err := agentconfig.LoadCodexBaseline(codexPath)
 	if err != nil {
 		t.Fatalf("no baseline seeded: %v", err)
 	}
@@ -321,7 +322,7 @@ func TestVendorBaselineSeededWhenUnchanged(t *testing.T) {
 		t.Fatal(err)
 	}
 	raw, _ := os.ReadFile(codexPath)
-	base, err := agent.LoadCodexBaseline(codexPath)
+	base, err := agentconfig.LoadCodexBaseline(codexPath)
 	if err != nil {
 		t.Fatalf("unchanged render seeded no baseline: %v", err)
 	}
@@ -503,13 +504,13 @@ func TestRevertRestoresNewestThenStepsBack(t *testing.T) {
 	if err := os.WriteFile(codexPath, []byte(current), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := agent.CodexBackup(codexPath, []byte(older), true); err != nil {
+	if err := agentconfig.CodexBackup(codexPath, []byte(older), true); err != nil {
 		t.Fatal(err)
 	}
-	if err := agent.CodexBackup(codexPath, []byte(newer), true); err != nil {
+	if err := agentconfig.CodexBackup(codexPath, []byte(newer), true); err != nil {
 		t.Fatal(err)
 	}
-	newest, found, err := agent.LatestCodexBackup(codexPath)
+	newest, found, err := agentconfig.LatestCodexBackup(codexPath)
 	if err != nil || !found {
 		t.Fatalf("backup missing: %v", err)
 	}

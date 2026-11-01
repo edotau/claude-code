@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/edotau/claude-code/internal/agentconfig"
 	"io"
 	"maps"
 	"os"
@@ -53,10 +54,10 @@ func (e codexEngine) exec(ctx context.Context, p cliPrep, req RunOptions, sink S
 	}
 	var extra []string
 	if req.SystemPrompt != "" {
-		extra = append(extra, "-c", "instructions="+tomlQuote(req.SystemPrompt))
+		extra = append(extra, "-c", "instructions="+agentconfig.TOMLQuote(req.SystemPrompt))
 	}
 	if req.AppendSystemPrompt != "" {
-		extra = append(extra, "-c", "developer_instructions="+tomlQuote(req.AppendSystemPrompt))
+		extra = append(extra, "-c", "developer_instructions="+agentconfig.TOMLQuote(req.AppendSystemPrompt))
 	}
 	if req.OutputSchema != "" {
 		file, err := codexSchemaFile(req.OutputSchema)
@@ -143,7 +144,7 @@ func (codexEngine) render(reg *providers.Registry, sel providers.Selection, _ st
 }
 
 func (codexEngine) configPaths(home string) ([]labelPath, error) {
-	path, err := CodexConfigPath(home)
+	path, err := agentconfig.CodexConfigPath(home)
 	if err != nil {
 		return nil, err
 	}
@@ -366,7 +367,7 @@ func codex(p *providers.Provider, base, model, cred string, h *Headless) ([]stri
 	if err != nil {
 		return nil, nil, err
 	}
-	fields := [][2]string{{"name", tomlQuote(p.Name)}, {"base_url", tomlQuote(base)}, {"wire_api", tomlQuote("responses")}}
+	fields := [][2]string{{"name", agentconfig.TOMLQuote(p.Name)}, {"base_url", agentconfig.TOMLQuote(base)}, {"wire_api", agentconfig.TOMLQuote("responses")}}
 	var env []string
 	if p.Preset == providers.PresetDatabricks {
 		env = append(env, settings.CodexProfileEnv+"="+p.Name, settings.CodexCatalogEnv+"=")
@@ -374,24 +375,24 @@ func codex(p *providers.Provider, base, model, cred string, h *Headless) ([]stri
 	if cred != "" {
 		env = append(env, CodexKeyEnv+"="+cred)
 		if p.Auth.HeaderStyle() == providers.HeaderXAPIKey {
-			fields = append(fields, [2]string{"env_http_headers", tomlInline([][2]string{{tomlQuote("x-api-key"), tomlQuote(CodexKeyEnv)}})})
+			fields = append(fields, [2]string{"env_http_headers", agentconfig.TOMLInline([][2]string{{agentconfig.TOMLQuote("x-api-key"), agentconfig.TOMLQuote(CodexKeyEnv)}})})
 		} else {
-			fields = append(fields, [2]string{"env_key", tomlQuote(CodexKeyEnv)})
+			fields = append(fields, [2]string{"env_key", agentconfig.TOMLQuote(CodexKeyEnv)})
 		}
 	}
 	if len(p.Headers) > 0 {
 		var hs [][2]string
 		for _, k := range slices.Sorted(maps.Keys(p.Headers)) {
-			hs = append(hs, [2]string{tomlQuote(k), tomlQuote(p.Headers[k])})
+			hs = append(hs, [2]string{agentconfig.TOMLQuote(k), agentconfig.TOMLQuote(p.Headers[k])})
 		}
-		fields = append(fields, [2]string{"http_headers", tomlInline(hs)})
+		fields = append(fields, [2]string{"http_headers", agentconfig.TOMLInline(hs)})
 	}
-	argv := []string{"-c", "model_provider=" + tomlQuote(id), "-c", "model=" + tomlQuote(model),
-		"-c", "model_providers." + id + "=" + tomlInline(fields)}
+	argv := []string{"-c", "model_provider=" + agentconfig.TOMLQuote(id), "-c", "model=" + agentconfig.TOMLQuote(model),
+		"-c", "model_providers." + id + "=" + agentconfig.TOMLInline(fields)}
 	catalog := codexCatalogArgs(p)
 	argv = append(argv, catalog...) // /model offers only ids this row serves
 	if len(catalog) == 2 {
-		env = append(env, settings.CodexCatalogEnv+"="+tomlString(strings.TrimPrefix(catalog[1], "model_catalog_json=")))
+		env = append(env, settings.CodexCatalogEnv+"="+agentconfig.TOMLString(strings.TrimPrefix(catalog[1], "model_catalog_json=")))
 	}
 	return env, codexHeadless(argv, h), nil
 }
@@ -401,13 +402,13 @@ func codexLogin(model string, h *Headless) ([]string, []string, error) {
 	if err := codexChatGPTLogin(); err != nil {
 		return nil, nil, err
 	}
-	argv := []string{"-c", "model_provider=" + tomlQuote("openai"), "-c", "model=" + tomlQuote(model)}
+	argv := []string{"-c", "model_provider=" + agentconfig.TOMLQuote("openai"), "-c", "model=" + agentconfig.TOMLQuote(model)}
 	return nil, codexHeadless(argv, h), nil
 }
 
 // codexHome is $CODEX_HOME or ~/.codex, where codex keeps auth.json and config.toml.
 func codexHome() string {
-	home, err := CodexHome()
+	home, err := agentconfig.CodexHome()
 	if err != nil {
 		return filepath.Join(".codex") // no resolvable home: a relative path simply misses
 	}
@@ -426,7 +427,7 @@ func codexOwnModel() string {
 			return "" // top-level keys end at the first table header
 		}
 		if k, v, ok := strings.Cut(line, "="); ok && strings.Trim(strings.TrimSpace(k), `"'`) == "model" {
-			return tomlString(v)
+			return agentconfig.TOMLString(v)
 		}
 	}
 	return ""
@@ -472,7 +473,7 @@ func codexHeadless(argv []string, h *Headless) []string {
 		effort = h.Effort
 	}
 	if effort = cmp.Or(effort, GetAgentRecord("codex").Effort); effort != "" {
-		argv = append(argv, "-c", "model_reasoning_effort="+tomlQuote(effort))
+		argv = append(argv, "-c", "model_reasoning_effort="+agentconfig.TOMLQuote(effort))
 	}
 	if h == nil {
 		return argv
