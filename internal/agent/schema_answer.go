@@ -113,26 +113,32 @@ func checkSchema(path string, v, sch any) error {
 	}
 	switch x := v.(type) {
 	case map[string]any:
-		if req, ok := m["required"].([]any); ok {
-			for _, k := range req {
-				if name, _ := k.(string); name != "" {
-					if _, ok := x[name]; !ok {
-						return fmt.Errorf("%s: missing required key %q", path, name)
-					}
-				}
-			}
-		}
-		props, _ := m["properties"].(map[string]any)
-		for _, k := range slices.Sorted(maps.Keys(props)) {
-			if val, ok := x[k]; ok {
-				if err := checkSchema(path+"."+k, val, props[k]); err != nil {
-					return err
-				}
-			}
-		}
+		return checkSchemaObject(path, x, m)
 	case []any:
 		for i, el := range x {
 			if err := checkSchema(fmt.Sprintf("%s[%d]", path, i), el, m["items"]); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// checkSchemaObject enforces required, then each declared property in key order.
+func checkSchemaObject(path string, x, m map[string]any) error {
+	if req, ok := m["required"].([]any); ok {
+		for _, k := range req {
+			if name, _ := k.(string); name != "" {
+				if _, ok := x[name]; !ok {
+					return fmt.Errorf("%s: missing required key %q", path, name)
+				}
+			}
+		}
+	}
+	props, _ := m["properties"].(map[string]any)
+	for _, k := range slices.Sorted(maps.Keys(props)) {
+		if val, ok := x[k]; ok {
+			if err := checkSchema(path+"."+k, val, props[k]); err != nil {
 				return err
 			}
 		}

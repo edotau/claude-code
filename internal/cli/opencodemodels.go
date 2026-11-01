@@ -47,6 +47,20 @@ func opencodeMenuFlags(verb string) *flag.FlagSet {
 	return helptext.NewFlagSet("opencode catalog "+verb, opencodeMenuPage(verb))
 }
 
+// opencodeSyncArgs validates `opencode catalog sync`'s arguments.
+func opencodeSyncArgs(pos []string, apply, dryRun bool, provider string) error {
+	if len(pos) != 0 {
+		return errors.New("takes no positional arguments")
+	}
+	if apply && dryRun {
+		return errors.New("--apply and --dry-run are mutually exclusive")
+	}
+	if strings.TrimSpace(provider) == "" {
+		return errors.New("--profile is required")
+	}
+	return nil
+}
+
 // cmdOpencodeMenu is `claude-code opencode catalog list|add|remove|import|reset|check|sync`.
 func cmdOpencodeMenu(args []string) int {
 	verb, rest := args[0], args[1:]
@@ -101,14 +115,8 @@ func cmdOpencodeMenu(args []string) int {
 	}
 	switch verb {
 	case "sync":
-		if len(pos) != 0 {
-			return fail("takes no positional arguments")
-		}
-		if apply && dryRun {
-			return fail("--apply and --dry-run are mutually exclusive")
-		}
-		if strings.TrimSpace(provider) == "" {
-			return fail("--profile is required")
+		if err := opencodeSyncArgs(pos, apply, dryRun, provider); err != nil {
+			return done(err)
 		}
 		return done(opencodeMenuSync(provider, opencodeSyncOptions{Apply: apply, Refresh: refresh, Verify: verify}))
 	case "list":

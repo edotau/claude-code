@@ -194,23 +194,7 @@ func Existing(top map[string]json.RawMessage) map[string]json.RawMessage {
 
 // pairRows consumes explicit choices before same-host inference; any existing user pairing decision is final.
 func pairRows(rows []Row, choices map[string]string, names map[string]string) []Row {
-	order := make([]int, len(rows))
-	for i := range rows {
-		order[i] = i
-	}
-	slices.SortStableFunc(order, func(i, j int) int {
-		_, a := choices[rows[i].Name]
-		_, b := choices[rows[j].Name]
-		a, b = a || rows[i].PairSet, b || rows[j].PairSet
-		if a == b {
-			return 0
-		}
-		if a {
-			return -1
-		}
-		return 1
-	})
-	for _, i := range order {
+	for _, i := range pairOrder(rows, choices) {
 		sp := &rows[i]
 		if sp.Auth != providers.AuthM2M || sp.Skip != "" {
 			continue
@@ -229,6 +213,33 @@ func pairRows(rows []Row, choices map[string]string, names map[string]string) []
 		}
 	}
 
+	markDeclinedPairings(rows, choices)
+	return rows
+}
+
+// pairOrder is rows' indexes with explicit choices and saved pairings first, otherwise stable.
+func pairOrder(rows []Row, choices map[string]string) []int {
+	order := make([]int, len(rows))
+	for i := range rows {
+		order[i] = i
+	}
+	slices.SortStableFunc(order, func(i, j int) int {
+		_, a := choices[rows[i].Name]
+		_, b := choices[rows[j].Name]
+		a, b = a || rows[i].PairSet, b || rows[j].PairSet
+		if a == b {
+			return 0
+		}
+		if a {
+			return -1
+		}
+		return 1
+	})
+	return order
+}
+
+// markDeclinedPairings records an explicit "no pairing" on the same-host users still without a service principal.
+func markDeclinedPairings(rows []Row, choices map[string]string) {
 	for _, sp := range rows {
 		target, explicit := choices[sp.Name]
 		if !explicit {
@@ -244,7 +255,6 @@ func pairRows(rows []Row, choices map[string]string, names map[string]string) []
 			}
 		}
 	}
-	return rows
 }
 
 // pairingEnv sorts ambiguous choices by environment without using a name to override host safety.

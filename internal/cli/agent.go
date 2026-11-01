@@ -103,31 +103,17 @@ func runAsk(args []string, resume bool) int {
 	if code, done := helptext.Parse(fs, args); done {
 		return code
 	}
-	if err := agent.ValidateEnv(env); err != nil { // names only: the error never carries a value
-		return failAskCode(*format, *name, err, 2)
-	}
-	if err := validateAskFlags(*format, *fallback); err != nil {
-		return failAsk(*format, *name, err)
-	}
-	if err := askAs(*as, *name); err != nil {
-		return failAskCode(*format, *name, err, 2)
-	}
 	*tools = *tools || *readOnly // read-only tools are still tools
-	if err := askExclusive(*background, *job, *tools, *noTools); err != nil {
-		return failAsk(*format, *name, err)
+	if code, err := askCheckFlags(env, *format, *fallback, *as, *name, *background, *job, *tools, *noTools); err != nil {
+		return failAskCode(*format, *name, err, code)
 	}
 	schema, err := agent.ResolveOutputSchema(*outputSchema)
 	if err != nil {
 		return failAskCode(*format, *name, err, 2)
 	}
-	var defs map[string]*agent.Schema
-	if agents != "" {
-		if defs, err = agent.ParseAgents(string(agents)); err != nil {
-			return failAskCode(*format, *name, err, 2)
-		}
-	}
-	if *host != "" && agents != "" {
-		return failAskCode(*format, *name, errors.New("--host cannot be combined with --agents: the remote cannot see an inline definition"), 2)
+	defs, err := askDefs(agents, *host)
+	if err != nil {
+		return failAskCode(*format, *name, err, 2)
 	}
 	ref := *name // the raw selector Prepare resolves; *name becomes the agent so envelopes publish it
 	ag, persona, err := agent.SelectAgent(ref, defs)
@@ -135,19 +121,8 @@ func runAsk(args []string, resume bool) int {
 		return failAskCode(*format, *name, err, 2)
 	}
 	*name = ag
-	if *live {
-		if persona != nil {
-			return failAskCode(*format, *name, errors.New("--live cannot run a persona (agents/<name>.md or an --agents key): use a plain vendor"), 2)
-		}
-		if err := askLiveCheck(fs, *name); err != nil {
-			return failAskCode(*format, *name, err, 2)
-		}
-	}
-	if *host != "" && (*background || *job != "" || *batchSrc != "") {
-		return failAskCode(*format, *name, errors.New("--host cannot be combined with --background, --job or --batch"), 2)
-	}
-	if len(env) > 0 && *background {
-		return failAskCode(*format, *name, errors.New("--env cannot be combined with --background: env values are never stored in the dispatch record"), 2)
+	if err := askCheckCombos(fs, *name, *live, persona != nil, *host, *background, *job, *batchSrc, len(env) > 0); err != nil {
+		return failAskCode(*format, *name, err, 2)
 	}
 	if *batchSrc != "" {
 		base := agent.RunOptions{Model: *model, Provider: *provider, Effort: *effort, WorkDir: *workdir, Tools: *tools, ReadOnly: *readOnly, NoTools: *noTools,
@@ -162,12 +137,9 @@ func runAsk(args []string, resume bool) int {
 	if *showLog {
 		return printDispatchLog(*format)
 	}
-	positional := fs.Args()
-	if resume {
-		if len(positional) < 1 {
-			return failAsk(*format, *name, errors.New("resume needs a session id: <agent> resume [flags] <id> <task>"))
-		}
-		*session, positional = positional[0], positional[1:]
+	positional, err := askPositional(fs.Args(), resume, session)
+	if err != nil {
+		return failAsk(*format, *name, err)
 	}
 	prompt := strings.Join(positional, " ")
 	state := &askState{name: name, provider: provider, model: model, effort: effort, workdir: workdir,
@@ -184,16 +156,8 @@ func runAsk(args []string, resume bool) int {
 			return rc
 		}
 	}
-	if *name != ag { // --job/--retry replaced the agent: resolve the record's (or re-typed) value instead
-		ref = *name
-	}
-	if rest, p, rerr := agent.SelectAgent(ref, defs); rerr != nil { // a --retry re-parse puts the raw --agent value back
-		return failAskCode(*format, *name, rerr, 2)
-	} else {
-		ag, *name = rest, rest
-		if p != nil { // an explicit persona beats the record's
-			persona = p
-		}
+	if ref, ag, err = askReselect(ref, ag, name, &persona, defs); err != nil {
+		return failAskCode(*format, *name, err, 2)
 	}
 	if *outputSchema != "" { // a --retry/--job record may carry an already-resolved schema
 		if schema, err = agent.ResolveOutputSchema(*outputSchema); err != nil {
@@ -206,12 +170,7 @@ func runAsk(args []string, resume bool) int {
 	if jobRec != nil && jobRec.Live {
 		return runLiveHolder(jobRec)
 	}
-	var framed *bufio.Reader
-	if *stdinFramed {
-		framed, prompt, err = readFramedPrompt(os.Stdin)
-	} else {
-		prompt, err = resolveAskPrompt(prompt)
-	}
+	framed, prompt, err := askReadPrompt(*stdinFramed, prompt)
 	if err != nil {
 		return failAsk(*format, *name, err)
 	}
@@ -225,12 +184,8 @@ func runAsk(args []string, resume bool) int {
 	if framed != nil { // the remote end of `ask --host`: stdin closing means the local side cancelled or vanished
 		go func() { _, _ = io.Copy(io.Discard, framed); stop() }()
 	}
-	if *retry == "" && *job == "" && *tools && !timeoutExplicit(fs) {
-		*timeout = 45 * time.Minute
-	}
-	if s, ok := agent.LookupSchema(ag); *enableMemory && ok && s.CLI.Caps.Memory == agent.None {
-		fmt.Fprintf(os.Stderr, "ask: --enable-memory has no effect on the %s agent (copilot only)\n", ag)
-	}
+	*timeout = askTimeout(fs, *timeout, *retry, *job, *tools)
+	warnAskMemory(ag, *enableMemory)
 	*debugFile = absDebugFile(*debugFile)
 	req := agent.RunOptions{Prompt: prompt, Model: *model, Provider: *provider, Effort: *effort,
 		WorkDir: *workdir, SessionID: *session, Tools: *tools, ReadOnly: *readOnly, NoTools: *noTools, Timeout: *timeout,
@@ -242,24 +197,132 @@ func runAsk(args []string, resume bool) int {
 	ctx = providers.WithIdentity(ctx, *as)
 	prepared, err := client.Prepare(ctx, req, jobRec)
 	if err != nil {
-		code := 1
-		if usage, ok := errors.AsType[interface {
-			error
-			ExitCode() int
-		}](err); ok {
-			code = usage.ExitCode()
-		}
-		return failAskCode(*format, *name, err, code)
+		return failAskCode(*format, *name, err, prepareExitCode(err))
 	}
 	_ = prepared.Record.Save()
 	if *background {
-		if err := agent.Spawn(&prepared.Record, backgroundExtraFlags(fs, prepared.Opts.Fallback, *native)); err != nil {
-			return failAsk(*format, *name, err)
-		}
-		reportBackgroundStart(*format, prepared.Record)
-		return 0
+		return askSpawn(fs, prepared, *native, *format, *name)
 	}
 	return runAskAndReport(ctx, client, prepared, jobRec != nil, *format)
+}
+
+// askCheckFlags runs the flag checks needing no resolved agent; it returns the exit code with the error.
+func askCheckFlags(env envFlag, format, fallback, as, name string, background bool, job string, tools, noTools bool) (int, error) {
+	if err := agent.ValidateEnv(env); err != nil { // names only: the error never carries a value
+		return 2, err
+	}
+	if err := validateAskFlags(format, fallback); err != nil {
+		return 1, err
+	}
+	if err := askAs(as, name); err != nil {
+		return 2, err
+	}
+	return 1, askExclusive(background, job, tools, noTools)
+}
+
+// askDefs parses --agents; --host cannot carry an inline definition.
+func askDefs(agents agentsFlag, host string) (map[string]*agent.Schema, error) {
+	var defs map[string]*agent.Schema
+	if agents != "" {
+		var err error
+		if defs, err = agent.ParseAgents(string(agents)); err != nil {
+			return nil, err
+		}
+	}
+	if host != "" && agents != "" {
+		return nil, errors.New("--host cannot be combined with --agents: the remote cannot see an inline definition")
+	}
+	return defs, nil
+}
+
+// askCheckCombos rejects the flag combinations that need the resolved agent.
+func askCheckCombos(fs *flag.FlagSet, name string, live, hasPersona bool, host string, background bool, job, batchSrc string, hasEnv bool) error {
+	if live {
+		if hasPersona {
+			return errors.New("--live cannot run a persona (agents/<name>.md or an --agents key): use a plain vendor")
+		}
+		if err := askLiveCheck(fs, name); err != nil {
+			return err
+		}
+	}
+	if host != "" && (background || job != "" || batchSrc != "") {
+		return errors.New("--host cannot be combined with --background, --job or --batch")
+	}
+	if hasEnv && background {
+		return errors.New("--env cannot be combined with --background: env values are never stored in the dispatch record")
+	}
+	return nil
+}
+
+// askPositional is the task words; on resume the first positional sets session.
+func askPositional(positional []string, resume bool, session *string) ([]string, error) {
+	if !resume {
+		return positional, nil
+	}
+	if len(positional) < 1 {
+		return nil, errors.New("resume needs a session id: <agent> resume [flags] <id> <task>")
+	}
+	*session = positional[0]
+	return positional[1:], nil
+}
+
+// askReselect re-resolves the agent after --job/--retry; it returns the new selector and agent.
+func askReselect(ref, ag string, name *string, persona **agent.Schema, defs map[string]*agent.Schema) (string, string, error) {
+	if *name != ag { // --job/--retry replaced the agent: resolve the record's (or re-typed) value instead
+		ref = *name
+	}
+	rest, p, err := agent.SelectAgent(ref, defs) // a --retry re-parse puts the raw --agent value back
+	if err != nil {
+		return ref, ag, err
+	}
+	*name = rest
+	if p != nil { // an explicit persona beats the record's
+		*persona = p
+	}
+	return ref, rest, nil
+}
+
+// askReadPrompt reads the framed stdin prompt, or resolves prompt; framed reader is nil when not framed.
+func askReadPrompt(framed bool, prompt string) (*bufio.Reader, string, error) {
+	if framed {
+		return readFramedPrompt(os.Stdin)
+	}
+	p, err := resolveAskPrompt(prompt)
+	return nil, p, err
+}
+
+// askTimeout is the deadline: a fresh --tools run without an explicit --timeout gets 45m.
+func askTimeout(fs *flag.FlagSet, timeout time.Duration, retry, job string, tools bool) time.Duration {
+	if retry == "" && job == "" && tools && !timeoutExplicit(fs) {
+		return 45 * time.Minute
+	}
+	return timeout
+}
+
+func warnAskMemory(ag string, enableMemory bool) {
+	if s, ok := agent.LookupSchema(ag); enableMemory && ok && s.CLI.Caps.Memory == agent.None {
+		fmt.Fprintf(os.Stderr, "ask: --enable-memory has no effect on the %s agent (copilot only)\n", ag)
+	}
+}
+
+// prepareExitCode is the code a Prepare error names, else 1.
+func prepareExitCode(err error) int {
+	if usage, ok := errors.AsType[interface {
+		error
+		ExitCode() int
+	}](err); ok {
+		return usage.ExitCode()
+	}
+	return 1
+}
+
+// askSpawn detaches a prepared dispatch as a background job.
+func askSpawn(fs *flag.FlagSet, prepared *agent.Prepared, native bool, format, name string) int {
+	if err := agent.Spawn(&prepared.Record, backgroundExtraFlags(fs, prepared.Opts.Fallback, native)); err != nil {
+		return failAsk(format, name, err)
+	}
+	reportBackgroundStart(format, prepared.Record)
+	return 0
 }
 
 // askExclusive rejects flag pairs that cannot be combined.

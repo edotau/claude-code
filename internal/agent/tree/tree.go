@@ -50,8 +50,8 @@ type Subagent struct {
 	Tokens      Tokens     `json:"tokens"`
 	LastTool    string     `json:"lastTool"`
 	Updated     time.Time  `json:"updated"`
-	Activity    *Activity  `json:"activity,omitempty"` // newest tool/text signal; nil when none seen yet
-	Dispatches  []Dispatch `json:"dispatches,omitempty"`     // agent dispatches this relay agent launched via `ask`
+	Activity    *Activity  `json:"activity,omitempty"`   // newest tool/text signal; nil when none seen yet
+	Dispatches  []Dispatch `json:"dispatches,omitempty"` // agent dispatches this relay agent launched via `ask`
 }
 
 // Activity is the newest tool_use and newest assistant text seen in a subagent transcript's tail —

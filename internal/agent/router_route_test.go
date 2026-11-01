@@ -34,18 +34,6 @@ func cfgFor(t *testing.T, ctx context.Context, vendor, provider, model string) (
 	return env, argv
 }
 
-func assertNoSecret(t *testing.T, env, argv []string) {
-	t.Helper()
-	if s := strings.Join(argv, "\x00"); strings.Contains(s, secret) {
-		t.Fatalf("secret in argv: %q", argv)
-	}
-	for _, kv := range env {
-		if strings.Contains(kv, secret) {
-			t.Fatalf("secret in env: %s", kv)
-		}
-	}
-}
-
 func TestRoutedStrips1MSuffix(t *testing.T) {
 	stubRouter(t, nil)
 	env, _ := cfgFor(t, context.Background(), "copilot", "anthropic", "claude-opus-5[1m]")
@@ -115,7 +103,6 @@ func withHeaders(tg providers.Target, h map[string]string) providers.Target {
 	tg.Provider = &p
 	return tg
 }
-
 
 // A direct dispatch never passes routerRoute, so it carries the provider's own headers and no agent tag.
 func TestDirectDispatchesHaveNoAgentTag(t *testing.T) {

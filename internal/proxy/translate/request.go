@@ -218,7 +218,17 @@ func ToChatRequest(body []byte, wireModel string) (out []byte, stream bool, err 
 		}
 	}
 
-	for _, t := range in.Tools {
+	req.Tools = chatTools(in.Tools, wireModel)
+	applyToolChoice(&req, in)
+
+	out, err = json.Marshal(req)
+	return out, in.Stream, err
+}
+
+// chatTools converts tools to function tools for wireModel.
+func chatTools(tools []inTool, wireModel string) []chatTool {
+	var out []chatTool
+	for _, t := range tools {
 		if len(t.InputSchema) == 0 && t.Type != "" && t.Type != "custom" {
 			continue // Anthropic server tools (web_search, …) have no function equivalent
 		}
@@ -229,8 +239,13 @@ func ToChatRequest(body []byte, wireModel string) (out []byte, stream bool, err 
 		if IsGeminiModel(wireModel) {
 			params, _ = GeminiSchema(params)
 		}
-		req.Tools = append(req.Tools, chatTool{Type: "function", Function: toolDef{Name: t.Name, Description: t.Description, Parameters: params}})
+		out = append(out, chatTool{Type: "function", Function: toolDef{Name: t.Name, Description: t.Description, Parameters: params}})
 	}
+	return out
+}
+
+// applyToolChoice maps in's tool_choice onto req; it applies only when req has tools.
+func applyToolChoice(req *chatRequest, in messagesRequest) {
 	if tc := in.ToolChoice; tc != nil && len(req.Tools) > 0 {
 		switch tc.Type {
 		case "auto":
@@ -247,9 +262,6 @@ func ToChatRequest(body []byte, wireModel string) (out []byte, stream bool, err 
 			req.ParallelToolCalls = &f
 		}
 	}
-
-	out, err = json.Marshal(req)
-	return out, in.Stream, err
 }
 
 // appendUser emits tool results first (they must directly follow the assistant tool_calls), then the user turn.

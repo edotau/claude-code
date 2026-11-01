@@ -204,30 +204,9 @@ func parseClaudeEvents(br *bufio.Reader, untilResult bool, sink agent.Sink, logs
 		case "stream_event":
 			ts.Event(agent.Clock())
 		case "system":
-			if ev.Subtype == "api_retry" {
-				ts.Retry(ev.ErrorStatus)
-				lg.Emit("retry", fmt.Sprintf("attempt %d/%d status=%d retry_in=%dms",
-					ev.Attempt, ev.MaxRetries, ts.LastStatus(), ev.RetryDelayMs))
-				if err := sink.Emit(agent.Event{Type: agent.EventRetry, Status: strconv.Itoa(ts.LastStatus()),
-					Text: fmt.Sprintf("attempt %d/%d retry_in=%dms", ev.Attempt, ev.MaxRetries, ev.RetryDelayMs)}); err != nil {
-					return false, err
-				}
-			}
-			if ev.Model != "" {
-				res.Model = ev.Model
-			}
+			return false, applyClaudeSystem(ev, &res, &ts, lg, sink)
 		case "assistant":
-			if ev.ParentToolUseID != "" {
-				return false, nil
-			}
-			msg := ev.object()
-			if msg.Model != "" {
-				res.Model = msg.Model
-			}
-			logClaudeAssistant(lg, msg)
-			if err := emitClaudeAssistant(sink, msg, &wrote); err != nil {
-				return false, err
-			}
+			return false, applyClaudeAssistantEvent(ev, &res, lg, sink, &wrote)
 		case "result":
 			sawResult = true
 			if err := applyClaudeResult(&res, ev); err != nil {
@@ -256,6 +235,36 @@ func parseClaudeEvents(br *bufio.Reader, untilResult bool, sink agent.Sink, logs
 }
 
 var errNoResult = errors.New("claude: stream ended without a result event")
+
+// applyClaudeSystem records an api_retry and the session model from a system event.
+func applyClaudeSystem(ev claudeEvent, res *agent.Result, ts *agent.TransportTracker, lg agent.StreamLog, sink agent.Sink) error {
+	if ev.Subtype == "api_retry" {
+		ts.Retry(ev.ErrorStatus)
+		lg.Emit("retry", fmt.Sprintf("attempt %d/%d status=%d retry_in=%dms",
+			ev.Attempt, ev.MaxRetries, ts.LastStatus(), ev.RetryDelayMs))
+		if err := sink.Emit(agent.Event{Type: agent.EventRetry, Status: strconv.Itoa(ts.LastStatus()),
+			Text: fmt.Sprintf("attempt %d/%d retry_in=%dms", ev.Attempt, ev.MaxRetries, ev.RetryDelayMs)}); err != nil {
+			return err
+		}
+	}
+	if ev.Model != "" {
+		res.Model = ev.Model
+	}
+	return nil
+}
+
+// applyClaudeAssistantEvent logs and emits a top-level assistant message; a subagent's is ignored.
+func applyClaudeAssistantEvent(ev claudeEvent, res *agent.Result, lg agent.StreamLog, sink agent.Sink, wrote *bool) error {
+	if ev.ParentToolUseID != "" {
+		return nil
+	}
+	msg := ev.object()
+	if msg.Model != "" {
+		res.Model = msg.Model
+	}
+	logClaudeAssistant(lg, msg)
+	return emitClaudeAssistant(sink, msg, wrote)
+}
 
 func logClaudeAssistant(lg agent.StreamLog, msg claudeMessage) {
 	for _, b := range msg.Content {

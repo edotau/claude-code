@@ -406,27 +406,32 @@ func Status(dirs ...string) ([]Summary, error) {
 			if len(plan.Tasks) == 0 {
 				continue
 			}
-			s := Summary{Path: plan.Path, Total: len(plan.Tasks)}
-			for _, t := range plan.Tasks {
-				if t.Done {
-					s.Ticked++
-				}
-				if len(t.Partial) > 0 {
-					s.Partial++
-				}
-				if t.Claim != "" {
-					label := t.ID
-					if label == "" {
-						label = t.Title
-					}
-					s.Claims = append(s.Claims, label+": "+t.Claim)
-				}
-			}
-			out = append(out, s)
+			out = append(out, summarize(plan))
 		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Path < out[j].Path })
 	return out, nil
+}
+
+// summarize counts plan's task states and lists its claims.
+func summarize(plan Plan) Summary {
+	s := Summary{Path: plan.Path, Total: len(plan.Tasks)}
+	for _, t := range plan.Tasks {
+		if t.Done {
+			s.Ticked++
+		}
+		if len(t.Partial) > 0 {
+			s.Partial++
+		}
+		if t.Claim != "" {
+			label := t.ID
+			if label == "" {
+				label = t.Title
+			}
+			s.Claims = append(s.Claims, label+": "+t.Claim)
+		}
+	}
+	return s
 }
 
 // Skeleton reads the plan template from <configDir>/agents/Plan.md's first ```markdown block holding "# Plan:".

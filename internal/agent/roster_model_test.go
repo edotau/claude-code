@@ -3,11 +3,7 @@ package agent
 import (
 	"github.com/edotau/claude-code/internal/vault"
 	"testing"
-
 )
-
-
-
 
 // A shell model env beats the vault model pin for a CLI agent.
 func TestAgentModelPinShellEnvBeatsVault(t *testing.T) {

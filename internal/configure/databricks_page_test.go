@@ -56,7 +56,7 @@ func (s *dbxScreen) Write(p []byte) (int, error) { return s.buf.Write(p) }
 func (s *dbxScreen) Read(p []byte) (int, error) {
 	var rows [][2]string
 	title := ""
-	for _, ln := range strings.Split(s.buf.String(), "\n") {
+	for ln := range strings.SplitSeq(s.buf.String(), "\n") {
 		switch {
 		case strings.HasPrefix(ln, "  ") && len(ln) > 25:
 			rows = append(rows, [2]string{strings.TrimSpace(ln[5:27]), ln[28:]})

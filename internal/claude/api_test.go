@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/edotau/claude-code/internal/agent"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -14,11 +13,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agent"
+
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
-
-func writeFile(path, body string) error { return os.WriteFile(path, []byte(body), 0o600) }
 
 // registry points two test providers (one per dialect) at srv.
 func registry(t *testing.T, srv *httptest.Server) {

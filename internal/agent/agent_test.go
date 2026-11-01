@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"reflect"
 	"slices"
 	"strings"
@@ -525,15 +524,4 @@ func TestRunWithFallbackSkippedRequestedRoute(t *testing.T) {
 			t.Fatalf("res=%+v err=%v, want no fallback", res, err)
 		}
 	})
-}
-
-// ghHosts makes user the only gh login: a scratch hosts.yml under GH_CONFIG_DIR.
-func ghHosts(t *testing.T, user string) {
-	t.Helper()
-	dir := t.TempDir()
-	hosts := "github.com:\n    user: " + user + "\n    users:\n        " + user + ":\n            oauth_token: tok\n"
-	if err := os.WriteFile(filepath.Join(dir, "hosts.yml"), []byte(hosts), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("GH_CONFIG_DIR", dir)
 }

@@ -38,32 +38,6 @@ func loggedRun(t *testing.T, jobMode bool, fn func(ctx context.Context)) string 
 	return readLog(t, path)
 }
 
-// wantLines asserts the log holds exactly the given lines: formatted, redacted, and no raw NDJSON.
-func wantLines(t *testing.T, log string, want ...string) {
-	t.Helper()
-	if strings.Contains(log, evSecret) {
-		t.Errorf("log leaks the secret:\n%s", log)
-	}
-	if strings.Contains(log, `{"`) {
-		t.Errorf("log still holds raw JSON events:\n%s", log)
-	}
-	if got := strings.Split(strings.TrimRight(log, "\n"), "\n"); !equalLines(got, want) {
-		t.Errorf("log lines = %q, want %q", got, want)
-	}
-}
-
-func equalLines(a, b []string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
-}
-
 func TestLogEventOpenCodeFormatted(t *testing.T) {
 	r, err := Lookup("opencode")
 	if err != nil {
