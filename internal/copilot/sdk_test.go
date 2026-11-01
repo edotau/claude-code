@@ -1,4 +1,4 @@
-package sdk
+package copilot
 
 import (
 	"context"
@@ -21,7 +21,7 @@ func funcName(f any) string {
 // EnableMemory turns into SessionConfig.Memory only when set, and permissionHandler follows AllowAllTools
 // alone — a session (new or resumed) must carry both consistently.
 func TestBuildSessionConfigMemoryAndPermission(t *testing.T) {
-	cfg := BuildSessionConfig(Options{EnableMemory: true, AllowAllTools: true})
+	cfg := BuildSessionConfig(SDKOptions{EnableMemory: true, AllowAllTools: true})
 	if cfg.Memory == nil || !cfg.Memory.Enabled {
 		t.Errorf("Memory = %+v, want enabled", cfg.Memory)
 	}
@@ -29,7 +29,7 @@ func TestBuildSessionConfigMemoryAndPermission(t *testing.T) {
 		t.Errorf("OnPermissionRequest = %s, want approveToolOnce (AllowAllTools=true)", funcName(cfg.OnPermissionRequest))
 	}
 
-	off := BuildSessionConfig(Options{})
+	off := BuildSessionConfig(SDKOptions{})
 	if off.Memory != nil {
 		t.Errorf("Memory = %+v, want nil (EnableMemory=false)", off.Memory)
 	}
@@ -37,7 +37,7 @@ func TestBuildSessionConfigMemoryAndPermission(t *testing.T) {
 		t.Errorf("OnPermissionRequest = %s, want denyAllTools (AllowAllTools=false)", funcName(off.OnPermissionRequest))
 	}
 
-	resumed := buildResumeSessionConfig(Options{EnableMemory: true})
+	resumed := buildResumeSessionConfig(SDKOptions{EnableMemory: true})
 	if resumed.Memory == nil || !resumed.Memory.Enabled {
 		t.Errorf("resumed Memory = %+v, want enabled (mirrors BuildSessionConfig)", resumed.Memory)
 	}
@@ -81,11 +81,11 @@ func TestProviderFromEnvResponsesWire(t *testing.T) {
 }
 
 // ListModels maps the SDK's raw catalog into the harness's own Model shape, field for field.
-func TestListModelsMapsFields(t *testing.T) {
+func TestSDKListModelsMapsFields(t *testing.T) {
 	mult := 2.5
 	old := listModelsFn
 	defer func() { listModelsFn = old }()
-	listModelsFn = func(ctx context.Context, o Options) ([]copilot.ModelInfo, error) {
+	listModelsFn = func(ctx context.Context, o SDKOptions) ([]copilot.ModelInfo, error) {
 		return []copilot.ModelInfo{
 			{
 				ID:   "claude-sonnet-5",
@@ -104,9 +104,9 @@ func TestListModelsMapsFields(t *testing.T) {
 			},
 		}, nil
 	}
-	got, err := ListModels(context.Background(), Options{CLIPath: "/fake/copilot"})
+	got, err := SDKListModels(context.Background(), SDKOptions{CLIPath: "/fake/copilot"})
 	if err != nil {
-		t.Fatalf("ListModels: %v", err)
+		t.Fatalf("SDKListModels: %v", err)
 	}
 	if len(got) != 2 {
 		t.Fatalf("got %d models, want 2", len(got))
@@ -125,13 +125,13 @@ func TestListModelsMapsFields(t *testing.T) {
 	}
 }
 
-// ListModels also maps SupportedReasoningEfforts/DefaultReasoningEffort, MaxContextWindowTokens, and the
+// SDKListModels also maps SupportedReasoningEfforts/DefaultReasoningEffort, MaxContextWindowTokens, and the
 // Policy.State enabled gate — Policy nil and Policy.State=="enabled" both count as enabled.
-func TestListModelsMapsEffortsContextAndEnabled(t *testing.T) {
+func TestSDKListModelsMapsEffortsContextAndEnabled(t *testing.T) {
 	old := listModelsFn
 	defer func() { listModelsFn = old }()
 	ctxTokens := 1_000_000
-	listModelsFn = func(ctx context.Context, o Options) ([]copilot.ModelInfo, error) {
+	listModelsFn = func(ctx context.Context, o SDKOptions) ([]copilot.ModelInfo, error) {
 		return []copilot.ModelInfo{
 			{ // no Policy at all: enabled by default
 				ID: "claude-sonnet-5",
@@ -154,9 +154,9 @@ func TestListModelsMapsEffortsContextAndEnabled(t *testing.T) {
 			},
 		}, nil
 	}
-	got, err := ListModels(context.Background(), Options{CLIPath: "/fake/copilot"})
+	got, err := SDKListModels(context.Background(), SDKOptions{CLIPath: "/fake/copilot"})
 	if err != nil {
-		t.Fatalf("ListModels: %v", err)
+		t.Fatalf("SDKListModels: %v", err)
 	}
 	if len(got) != 4 {
 		t.Fatalf("got %d models, want 4", len(got))
@@ -205,16 +205,16 @@ func TestCatalogOptionsPrefersToken(t *testing.T) {
 }
 
 // A lister failure (no login, CLI missing, RPC error) surfaces as a wrapped error naming the fix.
-func TestListModelsWrapsListerError(t *testing.T) {
+func TestSDKListModelsWrapsListerError(t *testing.T) {
 	old := listModelsFn
 	defer func() { listModelsFn = old }()
 	wantErr := errors.New("rpc: not authenticated")
-	listModelsFn = func(ctx context.Context, o Options) ([]copilot.ModelInfo, error) {
+	listModelsFn = func(ctx context.Context, o SDKOptions) ([]copilot.ModelInfo, error) {
 		return nil, wantErr
 	}
-	_, err := ListModels(context.Background(), Options{CLIPath: "/fake/copilot"})
+	_, err := SDKListModels(context.Background(), SDKOptions{CLIPath: "/fake/copilot"})
 	if err == nil {
-		t.Fatal("ListModels: want error, got nil")
+		t.Fatal("SDKListModels: want error, got nil")
 	}
 	if !strings.Contains(err.Error(), "sign in with `copilot`") {
 		t.Errorf("error %q does not name the fix", err.Error())
@@ -224,16 +224,16 @@ func TestListModelsWrapsListerError(t *testing.T) {
 	}
 }
 
-// An empty catalog is not an error: ListModels returns an empty, non-nil slice.
-func TestListModelsEmptyCatalog(t *testing.T) {
+// An empty catalog is not an error: SDKListModels returns an empty, non-nil slice.
+func TestSDKListModelsEmptyCatalog(t *testing.T) {
 	old := listModelsFn
 	defer func() { listModelsFn = old }()
-	listModelsFn = func(ctx context.Context, o Options) ([]copilot.ModelInfo, error) {
+	listModelsFn = func(ctx context.Context, o SDKOptions) ([]copilot.ModelInfo, error) {
 		return []copilot.ModelInfo{}, nil
 	}
-	got, err := ListModels(context.Background(), Options{CLIPath: "/fake/copilot"})
+	got, err := SDKListModels(context.Background(), SDKOptions{CLIPath: "/fake/copilot"})
 	if err != nil {
-		t.Fatalf("ListModels: %v", err)
+		t.Fatalf("SDKListModels: %v", err)
 	}
 	if len(got) != 0 {
 		t.Errorf("got %d models, want 0", len(got))
@@ -242,7 +242,7 @@ func TestListModelsEmptyCatalog(t *testing.T) {
 
 // A read-only run approves reads and URL fetches through BuildSessionConfig's handler and rejects writes and shell.
 func TestReadOnlyToolsApproveOnlyReads(t *testing.T) {
-	h := BuildSessionConfig(Options{AllowAllTools: true, ReadOnlyTools: true}).OnPermissionRequest
+	h := BuildSessionConfig(SDKOptions{AllowAllTools: true, ReadOnlyTools: true}).OnPermissionRequest
 	for _, tc := range []struct {
 		req  copilot.PermissionRequest
 		want bool
@@ -262,7 +262,7 @@ func TestReadOnlyToolsApproveOnlyReads(t *testing.T) {
 
 // A read-only run approves allowlisted read-only git and rejects every chained, redirected, config or write form.
 func TestReadOnlyGitShell(t *testing.T) {
-	h := BuildSessionConfig(Options{AllowAllTools: true, ReadOnlyTools: true}).OnPermissionRequest
+	h := BuildSessionConfig(SDKOptions{AllowAllTools: true, ReadOnlyTools: true}).OnPermissionRequest
 	for cmd, want := range map[string]bool{
 		"git status": true, "git log --no-ext-diff --no-textconv -3 --oneline": true,
 		"git diff --no-ext-diff --no-textconv HEAD~1 -- internal/x.go": true,

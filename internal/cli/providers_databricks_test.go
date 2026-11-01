@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/copilot"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
@@ -117,7 +118,7 @@ func TestValidateCopilotPinsChecksPinsAfterUnverifiableOne(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	_, err := validateCopilotPins("", []string{"opus=dbx-down:chat-a", "sonnet=dbx-up:bogus-id"})
+	_, err := copilot.ValidateCopilotPins("", []string{"opus=dbx-down:chat-a", "sonnet=dbx-up:bogus-id"})
 	if err == nil || !strings.Contains(err.Error(), "bogus-id") {
 		t.Fatalf("err = %v, want the bogus-id pin rejected after the unreachable one", err)
 	}

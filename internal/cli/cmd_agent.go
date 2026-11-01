@@ -494,24 +494,8 @@ func agentModels(name string, args []string) int {
 
 // printCopilotCatalog prints a Databricks row's chat endpoints as a NAME / TESTED table, or JSON.
 func printCopilotCatalog(name string, cat copilot.CopilotCatalog, format string) int {
-	if format == helptext.JSON {
-		if err := helptext.WriteJSON(os.Stdout, cat); err != nil {
-			return fail("%s catalog: %v", name, err)
-		}
-		return 0
-	}
-	fmt.Println(cat.Source)
-	w := len("NAME")
-	for _, r := range cat.Rows {
-		w = max(w, len(r.ID))
-	}
-	fmt.Printf("%-*s  %s\n", w, "NAME", "TESTED")
-	for _, r := range cat.Rows {
-		mark := ""
-		if r.Tested {
-			mark = "tested"
-		}
-		fmt.Println(strings.TrimRight(fmt.Sprintf("%-*s  %s", w, r.ID, mark), " "))
+	if err := cat.Write(os.Stdout, format); err != nil {
+		return fail("%s catalog: %v", name, err)
 	}
 	return 0
 }

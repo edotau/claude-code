@@ -1,5 +1,6 @@
-// Package sdk boxes github.com/github/copilot-sdk/go: one headless Copilot turn over the real CLI.
-package sdk
+// The SDK box: one headless Copilot turn over the real CLI. In sdk*.go, `copilot.` is the SDK import.
+
+package copilot
 
 import (
 	"context"
@@ -26,8 +27,8 @@ const DefaultClientName = "claude-code"
 // denyFeedback tells the model to re-plan in prose instead of retrying a refused tool call.
 const denyFeedback = "Tool use is disabled for this headless run. Answer from the prompt alone."
 
-// Options configures one headless run. Env carries the COPILOT_PROVIDER_* BYOK block from agent.Configure.
-type Options struct {
+// SDKOptions configures one headless run. Env carries the COPILOT_PROVIDER_* BYOK block from agent.Configure.
+type SDKOptions struct {
 	CLIPath          string   // resolved copilot binary; empty is an error (never the SDK's bundled runtime)
 	Env              []string // KEY=VALUE BYOK block
 	KeepEnv          []string // names the credential scrub must not drop, from --keep-env
@@ -52,8 +53,8 @@ type Options struct {
 	ChildUnsetPrefix     string
 }
 
-// Result is one completed turn; Model is what the runtime reports actually served it.
-type Result struct {
+// SDKResult is one completed turn; Model is what the runtime reports actually served it.
+type SDKResult struct {
 	Text      string
 	SessionID string
 	Model     string
@@ -61,7 +62,7 @@ type Result struct {
 }
 
 // BuildClientOptions pins stdio at an explicit CLI path; Env on the connection is the child's complete env.
-func BuildClientOptions(o Options) (*copilot.ClientOptions, error) {
+func BuildClientOptions(o SDKOptions) (*copilot.ClientOptions, error) {
 	if strings.TrimSpace(o.CLIPath) == "" {
 		return nil, errors.New("copilot CLI path is empty (the SDK would run its bundled runtime instead)")
 	}
@@ -86,7 +87,7 @@ func BuildClientOptions(o Options) (*copilot.ClientOptions, error) {
 }
 
 // BuildSessionConfig denies tool calls unless AllowAllTools is set.
-func BuildSessionConfig(o Options) *copilot.SessionConfig {
+func BuildSessionConfig(o SDKOptions) *copilot.SessionConfig {
 	cfg := &copilot.SessionConfig{
 		ClientName:          DefaultClientName,
 		Model:               o.Model,
@@ -107,7 +108,7 @@ func BuildSessionConfig(o Options) *copilot.SessionConfig {
 }
 
 // buildResumeSessionConfig mirrors BuildSessionConfig for client.ResumeSessionWithOptions.
-func buildResumeSessionConfig(o Options) *copilot.ResumeSessionConfig {
+func buildResumeSessionConfig(o SDKOptions) *copilot.ResumeSessionConfig {
 	cfg := &copilot.ResumeSessionConfig{
 		ClientName:          DefaultClientName,
 		Model:               o.Model,
@@ -127,7 +128,7 @@ func buildResumeSessionConfig(o Options) *copilot.ResumeSessionConfig {
 	return cfg
 }
 
-func permissionHandler(o Options) copilot.PermissionHandlerFunc {
+func permissionHandler(o SDKOptions) copilot.PermissionHandlerFunc {
 	if o.AllowAllTools && o.ReadOnlyTools {
 		return approveReadOnly
 	}
@@ -302,8 +303,8 @@ func approveToolOnce(_ copilot.PermissionRequest, inv copilot.PermissionInvocati
 	return &rpc.PermissionDecisionApproveOnce{}, nil
 }
 
-// Model is the catalog entry the harness prints and validates pins against.
-type Model struct {
+// SDKModel is the catalog entry the harness prints and validates pins against.
+type SDKModel struct {
 	ID              string
 	Name            string
 	Vision          bool
@@ -316,16 +317,16 @@ type Model struct {
 }
 
 // CatalogOptions is the auth shape every catalog listing needs: a resolved launch-account token
-// (copilot.CopilotToken), or "" to fall back to the copilot CLI's own stored login.
-func CatalogOptions(cliPath, token string) Options {
+// (CopilotToken), or "" to fall back to the copilot CLI's own stored login.
+func CatalogOptions(cliPath, token string) SDKOptions {
 	if token != "" {
-		return Options{CLIPath: cliPath, GitHubToken: token}
+		return SDKOptions{CLIPath: cliPath, GitHubToken: token}
 	}
-	return Options{CLIPath: cliPath, UseLoggedInUser: true}
+	return SDKOptions{CLIPath: cliPath, UseLoggedInUser: true}
 }
 
 // listModelsFn is the injectable seam: tests fake the copilot CLI's catalog without a real GitHub login.
-var listModelsFn = func(ctx context.Context, o Options) (models []copilot.ModelInfo, err error) {
+var listModelsFn = func(ctx context.Context, o SDKOptions) (models []copilot.ModelInfo, err error) {
 	clientOpts, err := BuildClientOptions(o)
 	if err != nil {
 		return nil, err
@@ -342,15 +343,15 @@ var listModelsFn = func(ctx context.Context, o Options) (models []copilot.ModelI
 	return client.ListModels(ctx)
 }
 
-// ListModels returns the copilot CLI's own model catalog via its logged-in GitHub session (never BYOK).
-func ListModels(ctx context.Context, o Options) ([]Model, error) {
+// SDKListModels returns the copilot CLI's own model catalog via its logged-in GitHub session (never BYOK).
+func SDKListModels(ctx context.Context, o SDKOptions) ([]SDKModel, error) {
 	raw, err := listModelsFn(ctx, o)
 	if err != nil {
 		return nil, fmt.Errorf("list copilot models (sign in with `copilot` first, then retry): %w", err)
 	}
-	out := make([]Model, len(raw))
+	out := make([]SDKModel, len(raw))
 	for i, m := range raw {
-		out[i] = Model{
+		out[i] = SDKModel{
 			ID: m.ID, Name: m.Name, Vision: m.Capabilities.Supports.Vision,
 			ReasoningEffort: m.Capabilities.Supports.ReasoningEffort,
 			Efforts:         m.SupportedReasoningEfforts, DefaultEffort: m.DefaultReasoningEffort,
@@ -367,7 +368,7 @@ func ListModels(ctx context.Context, o Options) ([]Model, error) {
 }
 
 // newOrResumedSession resumes o.SessionID when set, else creates a fresh session.
-func newOrResumedSession(ctx context.Context, client *copilot.Client, o Options) (*copilot.Session, error) {
+func newOrResumedSession(ctx context.Context, client *copilot.Client, o SDKOptions) (*copilot.Session, error) {
 	if o.multiProvider() {
 		if err := probeMultiProvider(ctx, client); err != nil {
 			return nil, err
@@ -390,18 +391,18 @@ func newOrResumedSession(ctx context.Context, client *copilot.Client, o Options)
 	return session, nil
 }
 
-// Ask runs one prompt to completion; assistant events arrive on the SDK goroutine, hence the mutex.
-func Ask(ctx context.Context, o Options, prompt string, images []string) (result Result, err error) {
+// SDKAsk runs one prompt to completion; assistant events arrive on the SDK goroutine, hence the mutex.
+func SDKAsk(ctx context.Context, o SDKOptions, prompt string, images []string) (result SDKResult, err error) {
 	if strings.TrimSpace(prompt) == "" {
-		return Result{}, errors.New("empty prompt")
+		return SDKResult{}, errors.New("empty prompt")
 	}
 	clientOpts, err := BuildClientOptions(o)
 	if err != nil {
-		return Result{}, err
+		return SDKResult{}, err
 	}
 	client := copilot.NewClient(clientOpts)
 	if err := client.Start(ctx); err != nil {
-		return Result{}, fmt.Errorf("start copilot runtime: %w", err)
+		return SDKResult{}, fmt.Errorf("start copilot runtime: %w", err)
 	}
 	// SDK starts the CLI outside childCmd: ForceStop on ctx cancel kills it (direct child only, no process group)
 	stop := context.AfterFunc(ctx, client.ForceStop)
@@ -414,7 +415,7 @@ func Ask(ctx context.Context, o Options, prompt string, images []string) (result
 
 	session, err := newOrResumedSession(ctx, client, o)
 	if err != nil {
-		return Result{}, err
+		return SDKResult{}, err
 	}
 	defer func() {
 		if disconnectErr := session.Disconnect(); disconnectErr != nil {
@@ -449,7 +450,7 @@ func Ask(ctx context.Context, o Options, prompt string, images []string) (result
 	_, sendErr := session.SendAndWait(ctx, msgOpts)
 	mu.Lock()
 	defer mu.Unlock()
-	res := Result{Text: strings.TrimSpace(text.String()), SessionID: session.SessionID, Model: model, Duration: time.Since(start)}
+	res := SDKResult{Text: strings.TrimSpace(text.String()), SessionID: session.SessionID, Model: model, Duration: time.Since(start)}
 	if sendErr != nil { // the partial text and session id still ride back, so a caller can hand the task off
 		return res, fmt.Errorf("send prompt: %w", sendErr)
 	}

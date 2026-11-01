@@ -4,13 +4,11 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/edotau/claude-code/internal/configure"
-	"github.com/edotau/claude-code/internal/paths/pathstest"
+	"github.com/edotau/claude-code/internal/copilot"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 	"github.com/edotau/claude-code/internal/vault"
@@ -89,7 +87,7 @@ func TestCmdModelsRejectsPositionalArguments(t *testing.T) {
 // A pin naming a provider other than github-copilot is never checked against the copilot catalog.
 func TestValidateCopilotPinsSkipsOtherProviders(t *testing.T) {
 	cliScratch(t)
-	warn, err := validateCopilotPins("", []string{"opus=openai:gpt-5"})
+	warn, err := copilot.ValidateCopilotPins("", []string{"opus=openai:gpt-5"})
 	if err != nil || warn != "" {
 		t.Fatalf("warn=%q err=%v, want no-op for a non-copilot pin", warn, err)
 	}
@@ -99,7 +97,7 @@ func TestValidateCopilotPinsSkipsOtherProviders(t *testing.T) {
 // is still written by the caller, not blocked, since this is an availability signal, not validation.
 func TestValidateCopilotPinsWarnsWhenCatalogUnreachable(t *testing.T) {
 	cliScratch(t)
-	warn, err := validateCopilotPins("", []string{"opus=personal:claude-opus-5.5"})
+	warn, err := copilot.ValidateCopilotPins("", []string{"opus=personal:claude-opus-5.5"})
 	if err != nil {
 		t.Fatalf("validateCopilotPins: %v, want a warning not an error", err)
 	}
@@ -112,7 +110,7 @@ func TestValidateCopilotPinsWarnsWhenCatalogUnreachable(t *testing.T) {
 // both key off githubCopilotProvider the same way.
 func TestValidateCopilotPinsProviderFlagFallback(t *testing.T) {
 	cliScratch(t)
-	warn, err := validateCopilotPins("personal", []string{"opus=claude-opus-5.5"})
+	warn, err := copilot.ValidateCopilotPins("personal", []string{"opus=claude-opus-5.5"})
 	if err != nil {
 		t.Fatalf("validateCopilotPins: %v", err)
 	}
@@ -133,23 +131,6 @@ func TestListLiveCopilotReportsMissingCLI(t *testing.T) {
 	}
 	if !strings.Contains(stderr, "copilot CLI not found") {
 		t.Errorf("stderr = %q, want it to name the missing CLI", stderr)
-	}
-}
-
-func TestCopilotModelIDsReportsMissingAgentBin(t *testing.T) {
-	cliScratch(t)
-	bin := pathstest.FakeVendor(t, "copilot", "exit 99")
-	t.Setenv("PATH", filepath.Dir(bin))
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	ids, err := copilotModelIDs()
-	if ids != nil {
-		t.Errorf("ids = %v, want nil when bin/copilot is missing", ids)
-	}
-	want := "copilot CLI not found: copilot: not installed at " +
-		filepath.Join(os.Getenv("CLAUDE_CONFIG_DIR"), "bin", "copilot") +
-		" (claude-code install --tools=copilot)"
-	if err == nil || err.Error() != want {
-		t.Fatalf("error = %v, want %q", err, want)
 	}
 }
 
@@ -312,7 +293,7 @@ func TestApplyModelPinsAllSlotQualifies(t *testing.T) {
 func TestValidateCopilotPinsOutputNamesNoSecret(t *testing.T) {
 	cliScratch(t)
 	t.Setenv("GH_TOKEN", "super-secret-token-value")
-	warn, _ := validateCopilotPins("", []string{"opus=personal:claude-opus-5.5"})
+	warn, _ := copilot.ValidateCopilotPins("", []string{"opus=personal:claude-opus-5.5"})
 	if strings.Contains(warn, "super-secret-token-value") {
 		t.Errorf("warn leaked a credential: %q", warn)
 	}

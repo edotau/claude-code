@@ -12,7 +12,6 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/copilot"
-	"github.com/edotau/claude-code/internal/copilot/sdk"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
@@ -76,21 +75,21 @@ func modelRow(d *dialog, name string) *billingRow {
 	return &billingRow{label: "Model", desc: desc, run: func() bool { pickModel(d, name, p, claude); return true }}
 }
 
-// copilotListModelsFn is the injectable seam over sdk.ListModels; tests fake the SDK catalog.
-var copilotListModelsFn = sdk.ListModels
+// copilotListModelsFn is the injectable seam over copilot.SDKListModels; tests fake the SDK catalog.
+var copilotListModelsFn = copilot.SDKListModels
 
 // CopilotModels lists the copilot CLI's live catalog as the profile copilot runs as (its record profile).
-func CopilotModels(ctx context.Context) ([]sdk.Model, error) {
+func CopilotModels(ctx context.Context) ([]copilot.SDKModel, error) {
 	bin, err := paths.AgentBin("copilot")
 	if err != nil {
 		return nil, fmt.Errorf("copilot CLI not found: %w", err)
 	}
-	return copilotListModelsFn(ctx, sdk.CatalogOptions(bin, copilot.CopilotToken()))
+	return copilotListModelsFn(ctx, copilot.CatalogOptions(bin, copilot.CopilotToken()))
 }
 
 // copilotCatalog fetches the copilot SDK model catalog once per dialog and caches it; err is cached too,
 // so a prior failure doesn't retry (and re-spawn the runtime) on every row of the same dialog.
-func copilotCatalog(d *dialog) ([]sdk.Model, error) {
+func copilotCatalog(d *dialog) ([]copilot.SDKModel, error) {
 	if d.copilotCatalogLoaded {
 		return d.copilotCatalog, d.copilotCatalogErr
 	}
@@ -102,21 +101,21 @@ func copilotCatalog(d *dialog) ([]sdk.Model, error) {
 }
 
 // copilotCatalogModel finds id in the cached catalog; ok is false when the catalog is unavailable or lacks it.
-func copilotCatalogModel(d *dialog, id string) (sdk.Model, bool) {
+func copilotCatalogModel(d *dialog, id string) (copilot.SDKModel, bool) {
 	list, err := copilotCatalog(d)
 	if err != nil {
-		return sdk.Model{}, false
+		return copilot.SDKModel{}, false
 	}
 	for _, m := range list {
 		if m.ID == id {
 			return m, true
 		}
 	}
-	return sdk.Model{}, false
+	return copilot.SDKModel{}, false
 }
 
 // copilotModelDesc is a catalog row's description: name, premium multiplier, and the current-pick marker.
-func copilotModelDesc(m sdk.Model, cur string) string {
+func copilotModelDesc(m copilot.SDKModel, cur string) string {
 	desc := m.Name
 	if m.Multiplier != nil {
 		desc += fmt.Sprintf(" · %gx", *m.Multiplier)
@@ -147,7 +146,7 @@ func pickCopilotModel(d *dialog) {
 	for {
 		cur, _ := providers.CopilotModel(d.reg)
 		title, ids := "copilot — model (SDK catalog)", []string(nil)
-		var list []sdk.Model
+		var list []copilot.SDKModel
 		if !cat.Databricks {
 			var err error
 			if list, err = copilotCatalog(d); err != nil {

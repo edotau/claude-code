@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/copilot/sdk"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
@@ -29,8 +28,8 @@ var (
 
 // copilotRegistryRoute is the multi-provider SDK wiring for one run: in-memory providers, a session token, no file.
 type copilotRegistryRoute struct {
-	providers []sdk.NamedProvider
-	models    []sdk.RegistryModel
+	providers []NamedProvider
+	models    []RegistryModel
 	ref       string // the selected provider/id
 	token     string
 	home      copilotPrivateHome
@@ -69,11 +68,11 @@ func prepareCopilotRegistry(ctx context.Context, t providers.Target) (*copilotRe
 	}
 	rt := &copilotRegistryRoute{ref: ref, token: tok, home: home}
 	for _, p := range cr.Providers {
-		rt.providers = append(rt.providers, sdk.NamedProvider{Name: p.Name, Type: p.Type, WireAPI: p.WireAPI,
+		rt.providers = append(rt.providers, NamedProvider{Name: p.Name, Type: p.Type, WireAPI: p.WireAPI,
 			BaseURL: p.BaseURL, Headers: p.Headers})
 	}
 	for _, m := range cr.Models {
-		rt.models = append(rt.models, sdk.RegistryModel{ID: m.ID, Provider: m.Provider, WireModel: m.WireModel,
+		rt.models = append(rt.models, RegistryModel{ID: m.ID, Provider: m.Provider, WireModel: m.WireModel,
 			ModelID: m.ModelID, Name: m.Name, MaxPromptTokens: m.MaxPromptTokens,
 			MaxContextWindowTokens: m.MaxContextWindowTokens, MaxOutputTokens: m.MaxOutputTokens})
 	}
@@ -81,7 +80,7 @@ func prepareCopilotRegistry(ctx context.Context, t providers.Target) (*copilotRe
 }
 
 // apply puts the route on opts; the token reaches the SDK only as a callback result.
-func (rt *copilotRegistryRoute) apply(o *sdk.Options) {
+func (rt *copilotRegistryRoute) apply(o *SDKOptions) {
 	o.Providers, o.Models, o.Model = rt.providers, rt.models, rt.ref
 	o.Token = func() (string, error) { return rt.token, nil }
 	o.GitHubToken, o.UseLoggedInUser, o.Env = "", false, nil
@@ -160,7 +159,7 @@ func copilotBuildRegistry(profile string, p *providers.Provider, eps []CopilotEn
 		}
 		window, output := copilotCaps(providers.ContextWindow(p, ep.ID), ep.ID)
 		r.Models = append(r.Models, CopilotRegistryModel{
-			ID: canonical, Provider: name, WireModel: ep.ID, ModelID: sdk.WellKnownModel(canonical), Name: ep.Name,
+			ID: canonical, Provider: name, WireModel: ep.ID, ModelID: WellKnownModel(canonical), Name: ep.Name,
 			Tested: ep.Tested, MaxPromptTokens: copilotPromptTokens(window, output), MaxContextWindowTokens: window,
 			MaxOutputTokens: output,
 		})

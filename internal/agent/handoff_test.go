@@ -8,18 +8,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/copilot/sdk"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
 var errQuotaMidTask = errors.New("send prompt: session error: 402 You have exceeded your monthly quota of premium requests")
-
-func quotaReq() (RunOptions, Result, sdk.Result) {
-	req := RunOptions{Prompt: "Refactor foo; token ghp_" + strings.Repeat("a", 36), Model: "opus", WorkDir: "/tmp/repo"}
-	res := Result{Agent: "copilot", Provider: "personal", Model: "claude-opus-4.5"}
-	return req, res, sdk.Result{Text: "Step 1 done.", SessionID: "0a1b2c3d-4e5f-6789-abcd-ef0123456789"}
-}
 
 // "<profile>:<alias>" resolves like --provider <profile> --model <alias>; anything else is left alone.
 func TestResolveTargetProfileTierRewrite(t *testing.T) {

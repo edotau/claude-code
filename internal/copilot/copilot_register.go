@@ -2,7 +2,6 @@ package copilot
 
 import (
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/copilot/sdk"
 	"github.com/edotau/claude-code/internal/providers"
 )
 
@@ -11,7 +10,7 @@ func init() {
 		Binary: "copilot", Dialects: []string{providers.ProtocolAnthropic, providers.ProtocolOpenAI},
 		RouterSuffix: map[string]string{providers.ProtocolAnthropic: "", providers.ProtocolOpenAI: "/" + providers.ProtocolOpenAI,
 			providers.ProtocolResponses: "/" + providers.ProtocolResponses},
-		MinVersion: sdk.MinMultiProviderCLI, MinReason: "named-provider model registry needs it",
+		MinVersion: MinMultiProviderCLI, MinReason: "named-provider model registry needs it",
 		Caps: agent.Caps{Model: agent.Native, Provider: agent.Native, Effort: agent.Native, WorkDir: agent.Native, SessionID: agent.Native,
 			Tools: agent.Native, ReadOnly: agent.Native, Autonomous: agent.Native, Memory: agent.Native, Direct: agent.Native, Env: agent.Native,
 			SystemPrompt: agent.Emulated, AppendSystemPrompt: agent.Emulated, OutputSchema: agent.Emulated, Persona: agent.Emulated},

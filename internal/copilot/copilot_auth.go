@@ -19,7 +19,9 @@ import (
 	"github.com/edotau/claude-code/internal/audit"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/secretstore"
+	"github.com/edotau/claude-code/internal/usage"
 )
 
 // copilotTokenEnvs is copilot's documented env precedence (`copilot help environment`).
@@ -104,8 +106,28 @@ func copilotPinError() error {
 		"(no other account is used)", pin)
 }
 
-// CopilotUsedPct is copilot:<user>'s used credit share from route state; set by cli (usage and route import agents).
-var CopilotUsedPct func(ctx context.Context, user string) (pct float64, ok bool)
+// RefreshAccount re-fetches a stale account for copilotUsedPct; a var so tests stay offline.
+var RefreshAccount = usage.RefreshAccount
+
+// CopilotUsedPct is a var so a test can pin a login's credit share.
+var CopilotUsedPct = copilotUsedPct
+
+// copilotUsedPct is github·<profile>'s used share from route state, refreshed through RefreshAccount past its TTL.
+func copilotUsedPct(ctx context.Context, login string) (float64, bool) {
+	reg, _ := providers.Load()
+	key, now := "github·"+providers.GithubAccountName(reg, login), time.Now()
+	e := router.LoadState()[key]
+	if e.ExhaustedUntil.After(now) {
+		return router.ExhaustedPct, true
+	}
+	if now.Sub(e.Seen) > router.StaleAfter {
+		if !RefreshAccount(ctx, key) {
+			return 0, false
+		}
+		e = router.LoadState()[key]
+	}
+	return e.UsedPct, !e.Seen.IsZero()
+}
 
 // copilotWorkablePct is the used credit share at which a copilot GitHub-login dispatch is no longer started.
 const copilotWorkablePct = 95.0
@@ -118,8 +140,6 @@ func copilotHeadroom(ctx context.Context, user string) (detail string, ok bool) 
 		return "no pinned GitHub account", false
 	case !slices.Contains(GHAccounts(), user):
 		return user + " not logged in to gh", false
-	case CopilotUsedPct == nil:
-		return user + " unverified", false
 	}
 	pct, ok := CopilotUsedPct(ctx, user)
 	if !ok {
@@ -316,17 +336,4 @@ func copilotToken(a CopilotAuth) (tok, how string) {
 		}
 	}
 	return tok, how
-}
-
-// copilotPlans maps GitHub's copilot_plan values to the plan names GitHub sells.
-var copilotPlans = map[string]string{
-	"free": "Free", "individual": "Pro", "individual_pro": "Pro+", "business": "Business", "enterprise": "Enterprise",
-}
-
-// CopilotPlanName is the sold name of a copilot_plan value ("individual_pro" → "Pro+"); the raw value when unknown.
-func CopilotPlanName(raw string) string {
-	if name, ok := copilotPlans[raw]; ok {
-		return name
-	}
-	return raw
 }

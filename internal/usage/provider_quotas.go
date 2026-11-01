@@ -22,8 +22,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/edotau/claude-code/internal/copilot"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/table"
 )
@@ -158,7 +158,7 @@ func parseCopilot(login string, body []byte) quota {
 		return q
 	}
 	p := u.Snaps.Premium
-	q.Plan, q.Resets = copilot.CopilotPlanName(u.Plan), u.Reset
+	q.Plan, q.Resets = providers.CopilotPlanName(u.Plan), u.Reset
 	if p.Unlimited {
 		q.Note = "unlimited"
 		return q

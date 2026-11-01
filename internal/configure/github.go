@@ -11,7 +11,6 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/copilot"
-	"github.com/edotau/claude-code/internal/copilot/sdk"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
@@ -151,7 +150,7 @@ func pickCopilotModels(d *dialog) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	opts := sdk.CatalogOptions(bin, copilot.CopilotToken())
+	opts := copilot.CatalogOptions(bin, copilot.CopilotToken())
 	tok, err := copilot.CopilotLaunchToken()
 	if err != nil {
 		d.printf("copilot models: %v\n", err)
@@ -160,7 +159,7 @@ func pickCopilotModels(d *dialog) {
 	if tok != "" {
 		opts.GitHubToken, opts.UseLoggedInUser = tok, false
 	}
-	list, err := sdk.ListModels(ctx, opts)
+	list, err := copilot.SDKListModels(ctx, opts)
 	if err != nil {
 		d.printf("copilot models: %v\n", err)
 		return
