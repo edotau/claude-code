@@ -153,8 +153,8 @@ func RegisterFileOps(label string, ops FileOps) { fileOps[label] = ops }
 // LabelPath is one file this tool can write, named by its CommitFile label.
 type LabelPath struct{ Label, Path string }
 
-// homeOr is home, else the user's home directory.
-func homeOr(home string) (string, error) {
+// HomeOr is home, else the user's home directory.
+func HomeOr(home string) (string, error) {
 	if home != "" {
 		return home, nil
 	}

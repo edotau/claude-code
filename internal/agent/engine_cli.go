@@ -142,29 +142,8 @@ func (v cliEngine) prepare(ctx context.Context, req RunOptions) (CLIPrep, error)
 	return p, nil
 }
 
-// agyModel is the --model agy runs for req on t; a Databricks row gets the id its gateway mode lists.
-func agyModel(req RunOptions, t providers.Target) string {
-	if req.Model == "" || t.Model == "" { // the slot table's opus id isn't agy's own: GEMINI_MODEL pin, else flash-high
-		t.Model = AgyDefaultModel
-	}
-	gt, _ := ResolveAgentModel(ModelAsk{Agent: "gemini", Flag: req.Model, Target: t, Applied: true})
-	if GeminiGatewayRow(t.Provider) {
-		_, arg := agyGatewayArg(gt.Model)
-		return arg
-	}
-	return gt.Model
-}
-
-// agyRequest is the agy run for req: only the resolved credential env carries over, agy builds its own argv.
-func (p CLIPrep) agyRequest(req RunOptions) agyRequest {
-	return agyRequest{
-		Prompt: p.Prompt, Model: agyModel(req, p.Target), Effort: req.Effort, Cwd: req.WorkDir, Tools: req.Tools, Autonomous: req.Autonomous,
-		DebugFile: req.DebugFile, Env: p.Env, KeepEnv: req.KeepEnv, SessionID: req.SessionID, OutputSchema: req.OutputSchema,
-	}
-}
-
 func (v cliEngine) Run(ctx context.Context, req RunOptions, sink Sink) (Result, error) {
-	ctx = directCtx(ctx, req)
+	ctx = DirectCtx(ctx, req)
 	p, err := v.prepare(ctx, req)
 	if err != nil {
 		return p.Result, err
@@ -181,7 +160,7 @@ func EmptyAnswer(name string) error {
 // RunStream reads a CLI's JSON event stream: the answer, session id, usage and errors ride in it.
 func RunStream(ctx context.Context, name string, cmd *exec.Cmd, tail *TailBuffer, res Result, sink Sink,
 	parse func(*bufio.Reader, Sink, func(), ...StreamLog) (Result, error)) (Result, error) {
-	out, err := runEventStream(ctx, name, cmd, tail, sink, parse, nil)
+	out, err := RunEventStream(ctx, name, cmd, tail, sink, parse, nil)
 	res.Answer, res.Usage, res.Transport = out.Answer, out.Usage, out.Transport
 	if out.SessionID != "" {
 		res.SessionID = out.SessionID
@@ -189,8 +168,8 @@ func RunStream(ctx context.Context, name string, cmd *exec.Cmd, tail *TailBuffer
 	return res, err
 }
 
-// runEventStream runs cmd, decoding stdout via parse while streaming live; onMeaningful fires on the first model event.
-func runEventStream(ctx context.Context, name string, cmd *exec.Cmd, tail *TailBuffer, sink Sink,
+// RunEventStream runs cmd, decoding stdout via parse while streaming live; onMeaningful fires on the first model event.
+func RunEventStream(ctx context.Context, name string, cmd *exec.Cmd, tail *TailBuffer, sink Sink,
 	parse func(*bufio.Reader, Sink, func(), ...StreamLog) (Result, error), onMeaningful func()) (Result, error) {
 	var res Result
 	stdout, err := cmd.StdoutPipe()
@@ -386,10 +365,26 @@ func (h *HeadBuffer) Write(p []byte) (int, error) {
 
 func (h *HeadBuffer) String() string { return string(h.buf) }
 
-// directCtx carries req.Direct to Configure (skip the router).
-func directCtx(ctx context.Context, req RunOptions) context.Context {
+// DirectCtx carries req.Direct to Configure (skip the router).
+func DirectCtx(ctx context.Context, req RunOptions) context.Context {
 	if req.Direct {
 		return WithDirect(ctx)
 	}
 	return ctx
 }
+
+// EnsureRouter starts or finds the loopback router and returns its base URL.
+func EnsureRouter(ctx context.Context) (string, error) { return ensureRouter(ctx) }
+
+// MintSession mints a router session token for profile and pid.
+func MintSession(ctx context.Context, profile string, pid int) (string, error) {
+	return mintSession(ctx, profile, pid)
+}
+
+// PrepareCLI resolves req's route and headless argv for the named roster CLI.
+func PrepareCLI(ctx context.Context, name string, req RunOptions) (CLIPrep, error) {
+	return newCLIEngine(name).prepare(ctx, req)
+}
+
+// NewClaudeLauncher is the default Claude launcher.
+func NewClaudeLauncher() Launcher { return claudeLauncher{} }

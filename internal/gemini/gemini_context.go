@@ -1,6 +1,6 @@
 // gemini_context.go assembles workspace file context into one structured prompt for the gemini bridge.
 
-package agent
+package gemini
 
 import (
 	"bytes"

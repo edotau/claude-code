@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"github.com/edotau/claude-code/internal/gemini"
 	"context"
 	"encoding/json"
 	"flag"
@@ -400,7 +401,7 @@ func TestCmdAskJobLogEachLineOnce(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	marker := agent.AgyLoginMarker(home)
+	marker := gemini.AgyLoginMarker(home)
 	if err := os.MkdirAll(filepath.Dir(marker), 0o755); err != nil {
 		t.Fatal(err)
 	}

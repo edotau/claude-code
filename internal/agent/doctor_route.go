@@ -78,13 +78,6 @@ func copilotRouteDetail(reg *providers.Registry, selErr error) string {
 	return detail
 }
 
-// geminiRouteDetail reports agy's own GEMINI_MODEL pin (effort rides the id's own suffix) — unset
-// means agy's own default (AgyDefaultModel).
-func geminiRouteDetail() string {
-	model, source := providers.GeminiModel()
-	return fmt.Sprintf("model=%s source=%s", cmp.Or(model, "(default)"), source)
-}
-
 // errText is err's message, or "" for nil.
 func errText(err error) string {
 	if err != nil {

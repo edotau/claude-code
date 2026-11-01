@@ -201,11 +201,11 @@ func applyCaps(c Caps, req RunOptions) (out RunOptions, dropped, emulated []stri
 		emulated = append(emulated, "persona")
 	}
 	if req.SystemPrompt != "" && c.SystemPrompt == Emulated {
-		req.Prompt, req.SystemPrompt = preamble(req.SystemPrompt)+req.Prompt, ""
+		req.Prompt, req.SystemPrompt = Preamble(req.SystemPrompt)+req.Prompt, ""
 		emulated = append(emulated, "--system-prompt")
 	}
 	if req.AppendSystemPrompt != "" && c.AppendSystemPrompt == Emulated {
-		req.Prompt, req.AppendSystemPrompt = preamble(req.AppendSystemPrompt)+req.Prompt, ""
+		req.Prompt, req.AppendSystemPrompt = Preamble(req.AppendSystemPrompt)+req.Prompt, ""
 		emulated = append(emulated, "--append-system-prompt")
 	}
 	drop(c.SystemPrompt, req.SystemPrompt != "", "--system-prompt", func() { req.SystemPrompt = "" })
@@ -217,8 +217,8 @@ func applyCaps(c Caps, req RunOptions) (out RunOptions, dropped, emulated []stri
 	return req, dropped, emulated
 }
 
-// preamble frames system text as instructions ahead of the task, for an agent with no system-prompt channel.
-func preamble(text string) string {
+// Preamble frames system text as instructions ahead of the task, for an agent with no system-prompt channel.
+func Preamble(text string) string {
 	return "System instructions (follow them for this whole task):\n" + text + "\n\nTask:\n"
 }
 
@@ -420,9 +420,9 @@ func RubricPrompt(file, task string) (string, error) {
 	return prompt, nil
 }
 
-// attachSuffix appends each path as "@<path>" after prompt: copilot and agy resolve it live, at turn
+// AttachSuffix appends each path as "@<path>" after prompt: copilot and agy resolve it live, at turn
 // time, from the real file — task text first, since agy truncates the tail.
-func attachSuffix(prompt string, paths []string) string {
+func AttachSuffix(prompt string, paths []string) string {
 	var b strings.Builder
 	b.WriteString(prompt)
 	for _, p := range paths {

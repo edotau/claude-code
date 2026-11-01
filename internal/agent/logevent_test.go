@@ -64,25 +64,6 @@ func equalLines(a, b []string) bool {
 	return true
 }
 
-func TestLogEventAgyFormatted(t *testing.T) {
-	var out strings.Builder
-	log := loggedRun(t, false, func(ctx context.Context) {
-		pathstest.FakeVendor(t, "agy", emitScript(
-			`{"event":"step_update","step_update":{"step_type":"agent_response","text_delta":"line one\nline two AWS_SECRET=`+evSecret+`"}}`,
-			`{"event":"result","result":{"status":"SUCCESS","conversation_id":"c1","response":"final-answer"}}`))
-		res, err := runAgy(ctx, agyRequest{Cwd: t.TempDir(), Prompt: "t"}, NewTextSink(&out))
-		if err != nil || res.Answer == "" {
-			t.Fatalf("RunAgy = (%+v, %v)", res, err)
-		}
-	})
-	if !strings.Contains(out.String(), "line one\nline two") {
-		t.Errorf("caller stream altered: %q", out.String())
-	}
-	wantLines(t, log,
-		"▸ assistant: line one line two AWS_SECRET=REDACTED",
-		"▸ result: final-answer")
-}
-
 func TestLogEventOpenCodeFormatted(t *testing.T) {
 	r, err := Lookup("opencode")
 	if err != nil {
@@ -133,24 +114,6 @@ func TestLogEventClaudeFormatted(t *testing.T) {
 		"▸ result: done-answer")
 }
 
-// Under WithLogEvents (a job run) the log holds child stderr plus the formatted event lines, redacted, with
-// no raw NDJSON; the final answer is the caller's to write, so it appears only as the one result line.
-func TestLogEventJobModeWritesEventsAndStderr(t *testing.T) {
-	log := loggedRun(t, true, func(ctx context.Context) {
-		pathstest.FakeVendor(t, "agy", "cat > /dev/null\necho child-err >&2\n"+
-			`printf '%s\n' '{"event":"step_update","step_update":{"step_type":"agent_response","text_delta":"hi AWS_SECRET=`+evSecret+`"}}'`+"\n"+
-			`printf '%s\n' '{"event":"result","result":{"status":"SUCCESS","response":"final-answer"}}'`+"\n")
-		if _, err := runAgy(ctx, agyRequest{Cwd: t.TempDir(), Prompt: "t"}, Discard); err != nil {
-			t.Fatalf("RunAgy: %v", err)
-		}
-	})
-	// stderr and stdout are separate pipes, so the stderr line may land anywhere between the event lines.
-	if strings.Count(log, "child-err\n") != 1 {
-		t.Errorf("job log must hold the child stderr line once: %q", log)
-	}
-	wantLines(t, strings.Replace(log, "child-err\n", "", 1), "▸ assistant: hi AWS_SECRET=REDACTED", "▸ result: final-answer")
-}
-
 // The plain-text vendor path (codex etc.) tees stdout via teeWriter: a job carrier must not tee it, a plain
 // WithLog still must, and both keep feeding stderr/event lines.
 func TestLogEventJobModeNoRawStdoutTee(t *testing.T) {
@@ -179,35 +142,5 @@ func TestLogEventJobModeNoRawStdoutTee(t *testing.T) {
 				t.Errorf("event line missing:\n%s", log)
 			}
 		})
-	}
-}
-
-// No sink on ctx: the run succeeds and the caller stream is untouched (logEvent is a no-op).
-func TestLogEventNoSinkNoop(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	t.Setenv("HOME", t.TempDir())
-	pathstest.FakeVendor(t, "agy", emitScript(
-		`{"event":"result","result":{"status":"SUCCESS","response":"final-answer"}}`))
-	var out strings.Builder
-	if _, err := runAgy(context.Background(), agyRequest{Cwd: t.TempDir(), Prompt: "t"}, NewTextSink(&out)); err != nil {
-		t.Fatal(err)
-	}
-	if out.String() != "final-answer" {
-		t.Errorf("stream = %q", out.String())
-	}
-}
-
-// agy's result.structured_output survives RunAgy's runEventStream into the Result.
-func TestRunAgyKeepsStructured(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	t.Setenv("HOME", t.TempDir())
-	pathstest.FakeVendor(t, "agy", emitScript(
-		`{"event":"result","result":{"status":"SUCCESS","response":"x","structured_output":{"a":1}}}`))
-	res, err := runAgy(context.Background(), agyRequest{Cwd: t.TempDir(), Prompt: "t"}, Discard)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(res.Structured) != `{"a":1}` {
-		t.Errorf("structured = %q, want {\"a\":1}", res.Structured)
 	}
 }

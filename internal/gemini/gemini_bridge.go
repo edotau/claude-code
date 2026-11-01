@@ -1,4 +1,4 @@
-package agent
+package gemini
 
 import (
 	"cmp"
@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/edotau/claude-code/internal/agent"
 	"io"
 	"os/exec"
 	"sort"
@@ -30,27 +31,27 @@ type GeminiOptions struct {
 	MaxFiles, MaxFileBytes                     int // <=0 → package defaults
 	Timeout                                    time.Duration
 	Index, Diff, PrintCommand, IndexOnly       bool // IndexOnly inlines no bodies (the index still lists every path)
-	Launcher                                   Launcher
+	Launcher                                   agent.Launcher
 }
 
 // RunGemini resolves the provider/model, collects workspace context into one prompt, and dispatches the
 // chat call through the shared api agent — no HTTP code lives here.
-func RunGemini(ctx context.Context, o GeminiOptions, stream, log io.Writer) (Result, error) {
+func RunGemini(ctx context.Context, o GeminiOptions, stream, log io.Writer) (agent.Result, error) {
 	reg, sel, p, model, err := resolveProvider(o)
 	if err != nil {
-		return Result{}, err
+		return agent.Result{}, err
 	}
 
 	files, err := diffFiles(ctx, o)
 	if err != nil {
-		return Result{}, err
+		return agent.Result{}, err
 	}
 
 	task := o.Task
 	if o.Rubric != "" {
-		task, err = RubricPrompt(o.Rubric, task)
+		task, err = agent.RubricPrompt(o.Rubric, task)
 		if err != nil {
-			return Result{}, err
+			return agent.Result{}, err
 		}
 	}
 
@@ -62,7 +63,7 @@ func RunGemini(ctx context.Context, o GeminiOptions, stream, log io.Writer) (Res
 	}
 	ctxFiles, err := CollectContext(ctx, o.Cwd, o.Dirs, files, maxFiles, o.MaxFileBytes)
 	if err != nil {
-		return Result{}, err
+		return agent.Result{}, err
 	}
 	prompt, ctxFiles, dropped, err := FitPrompt(func(c Context) string {
 		if o.Index {
@@ -71,7 +72,7 @@ func RunGemini(ctx context.Context, o GeminiOptions, stream, log io.Writer) (Res
 		return task
 	}, ctxFiles, PromptCap)
 	if err != nil {
-		return Result{}, err
+		return agent.Result{}, err
 	}
 	logContextStats(log, ctxFiles)
 	if w := CoverageWarning(ctxFiles); w != "" {
@@ -84,10 +85,10 @@ func RunGemini(ctx context.Context, o GeminiOptions, stream, log io.Writer) (Res
 	useAgy := o.Provider == "" // the default runs on agy's Google sign-in; --provider picks an API-key provider
 	if useAgy && !o.PrintCommand {
 		if _, lookErr := paths.AgentBin("agy"); lookErr != nil {
-			return Result{}, fmt.Errorf("gemini bridge: %w", lookErr)
+			return agent.Result{}, fmt.Errorf("gemini bridge: %w", lookErr)
 		}
 		if !GeminiLoginPresent() {
-			return Result{}, errors.New("gemini bridge: agy is not signed in; run `agy`, or pass --provider")
+			return agent.Result{}, errors.New("gemini bridge: agy is not signed in; run `agy`, or pass --provider")
 		}
 	}
 
@@ -106,14 +107,14 @@ func RunGemini(ctx context.Context, o GeminiOptions, stream, log io.Writer) (Res
 		// (MaxPromptBytes) and provider-fallback resolution are both wrong for a multi-MB inlined
 		// sweep over agy's own Google login. Do + Classify reuse the same retry/backoff shape ask gets;
 		// the context byte budget (DefaultTotalBytes), not a quota step-down, bounds this prompt's size.
-		policy := DefaultPolicy()
+		policy := agent.DefaultPolicy()
 		if o.Timeout > 0 {
 			policy.AttemptTimeout = o.Timeout
 		}
 		policy.Notify = func(s string) { fmt.Fprintln(log, s) }
 
 		// The Record never carries the full inlined prompt (MiBs of source): a compact summary instead.
-		rec := ClaimRecord(bridgeDispatchLabel, RunOptions{
+		rec := agent.ClaimRecord(bridgeDispatchLabel, agent.RunOptions{
 			Prompt: compactRecordPrompt(o.Task, ctxFiles), Model: model, Effort: o.Effort, WorkDir: o.Cwd, Timeout: o.Timeout,
 		}, time.Now())
 		rec.Owner = inflight.SessionOwner()
@@ -121,15 +122,15 @@ func RunGemini(ctx context.Context, o GeminiOptions, stream, log io.Writer) (Res
 		_ = rec.Save() // fail-open: the log is for replay and forensics, never a gate on the run
 
 		cw := &countingWriter{w: stream}
-		return RunRecorded(ctx, &rec, bridgeDispatchLabel, NewTextSink(cw),
-			RunRecordedOpts{Notify: func(s string) { fmt.Fprintln(log, s) }},
-			func(ctx context.Context, sink Sink) (Result, error) {
-				var res Result
-				aerr := Do(ctx, policy, func(actx context.Context, _ int) *Error {
+		return agent.RunRecorded(ctx, &rec, bridgeDispatchLabel, agent.NewTextSink(cw),
+			agent.RunRecordedOpts{Notify: func(s string) { fmt.Fprintln(log, s) }},
+			func(ctx context.Context, sink agent.Sink) (agent.Result, error) {
+				var res agent.Result
+				aerr := agent.Do(ctx, policy, func(actx context.Context, _ int) *agent.Error {
 					cw.n = 0
 					out, err := runAgy(actx, agyReq, sink)
 					res = out
-					return Classify("gemini", err, cw.n > 0)
+					return agent.Classify("gemini", err, cw.n > 0)
 				})
 				res.Provider, res.Model = cmp.Or(res.Provider, "agy"), cmp.Or(res.Model, model)
 				if aerr != nil {
@@ -139,16 +140,16 @@ func RunGemini(ctx context.Context, o GeminiOptions, stream, log io.Writer) (Res
 			})
 	}
 
-	r, err := Lookup("claude")
+	r, err := agent.Lookup("claude")
 	if err != nil {
-		return Result{}, err
+		return agent.Result{}, err
 	}
 	if o.Launcher == nil {
-		o.Launcher = claudeLauncher{}
+		o.Launcher = agent.NewClaudeLauncher()
 	}
-	return Run(ctx, r, RunOptions{
+	return agent.Run(ctx, r, agent.RunOptions{
 		Prompt: prompt, Model: model, Provider: p.Name, Effort: o.Effort, Timeout: o.Timeout, NoTools: true, Launcher: o.Launcher,
-	}, NewTextSink(stream), func(s string) { fmt.Fprintln(log, s) })
+	}, agent.NewTextSink(stream), func(s string) { fmt.Fprintln(log, s) })
 }
 
 // resolvedModelID resolves an alias name or provider:model to the concrete model id agy expects.
@@ -214,7 +215,7 @@ func logContextStats(log io.Writer, ctxFiles Context) {
 
 // printCommand logs the resolved request line for --print-command and returns the Result it would send.
 func printCommand(reg *providers.Registry, sel providers.Selection, p *providers.Provider, model string,
-	ctxFiles Context, prompt string, log io.Writer) Result {
+	ctxFiles Context, prompt string, log io.Writer) agent.Result {
 	route, ok := p.Route(providers.ProtocolAnthropic)
 	suffix := "/v1/messages"
 	if !ok {
@@ -224,12 +225,12 @@ func printCommand(reg *providers.Registry, sel providers.Selection, p *providers
 	shown := geminiAgyModel(reg, sel, p, model) // an alias name or provider:id resolves the way Run will
 	fmt.Fprintf(log, "POST %s%s model=%s provider=%s files=%d prompt_bytes=%d\n",
 		route, suffix, shown, p.Name, len(ctxFiles.Included), len(prompt))
-	return Result{Provider: p.Name, Model: shown}
+	return agent.Result{Provider: p.Name, Model: shown}
 }
 
 // printAgyCommand logs the resolved agy argv for --print-command on the agy backend and returns its Result.
 func printAgyCommand(reg *providers.Registry, sel providers.Selection, p *providers.Provider, model string,
-	o GeminiOptions, ctxFiles Context, prompt string, log io.Writer) Result {
+	o GeminiOptions, ctxFiles Context, prompt string, log io.Writer) agent.Result {
 	shown := geminiAgyModel(reg, sel, p, o.Model)
 	argv := []string{"agy", "--model", shown}
 	if o.Effort != "" {
@@ -238,7 +239,7 @@ func printAgyCommand(reg *providers.Registry, sel providers.Selection, p *provid
 	argv = append(argv, "--input-format", "stream-json", "--output-format", "stream-json", "-p=")
 	fmt.Fprintf(log, "%s (stdin stream-json) files=%d prompt_bytes=%d\n",
 		strings.Join(argv, " "), len(ctxFiles.Included), len(prompt))
-	return Result{Provider: "agy", Model: shown}
+	return agent.Result{Provider: "agy", Model: shown}
 }
 
 // countingWriter tracks whether any bytes reached stream this attempt, so a retry never repeats output
@@ -277,7 +278,7 @@ func geminiAgyModel(reg *providers.Registry, sel providers.Selection, p *provide
 	if model := ResolveModel(named, modelEnvKeys, ""); model != "" {
 		return resolvedModelID(reg, sel, p, model)
 	}
-	t, _ := ResolveAgentModel(ModelAsk{Agent: "gemini", Target: providers.Target{Provider: p, Model: AgyDefaultModel}})
+	t, _ := agent.ResolveAgentModel(agent.ModelAsk{Agent: "gemini", Target: providers.Target{Provider: p, Model: AgyDefaultModel}})
 	return t.Model
 }
 

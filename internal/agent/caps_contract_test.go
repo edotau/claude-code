@@ -38,11 +38,11 @@ func TestCapabilityMatrixApplyCaps(t *testing.T) {
 			wantPrompt := "TASK"
 			if w.sys == Emulated {
 				wantEm = append(wantEm, "--system-prompt")
-				wantPrompt = preamble("SYS") + wantPrompt
+				wantPrompt = Preamble("SYS") + wantPrompt
 			}
 			if w.app == Emulated {
 				wantEm = append(wantEm, "--append-system-prompt")
-				wantPrompt = preamble("APP") + wantPrompt
+				wantPrompt = Preamble("APP") + wantPrompt
 			}
 			if w.schema != Native {
 				wantEm = append(wantEm, "--output-schema")

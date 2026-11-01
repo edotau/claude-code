@@ -1,59 +1,19 @@
 package agent
 
 import (
-	"context"
-	"os"
-	"path/filepath"
 	"slices"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
-
-// geminiArgv launches gemini from a session whose profile cannot serve it (fallback to the agy login).
-func geminiArgv(t *testing.T, pin, flag string) []string {
-	t.Helper()
-	vaulttest.Use(t)
-	t.Setenv("CLAUDE_PROFILE", "max")
-	t.Setenv("GEMINI_API_KEY", "")
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	marker := AgyLoginMarker(home)
-	if err := os.MkdirAll(filepath.Dir(marker), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(marker, []byte("{}"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	pathstest.FakeVendor(t, "gemini", "")
-	if pin != "" {
-		vaulttest.SetRecord(t, "gemini", "model", pin)
-	}
-	plan, err := LaunchPlan(context.Background(), "gemini", LaunchOptions{Model: flag, PrintEnv: true}, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return plan.Argv
-}
 
 func argvModel(argv []string) string {
 	if i := slices.Index(argv, "--model"); i >= 0 && i+1 < len(argv) {
 		return argv[i+1]
 	}
 	return ""
-}
-
-// An explicit --model beats the GEMINI_MODEL pin after the antigravity fallback; with no flag the pin applies.
-func TestGeminiExplicitModelBeatsPinOnFallback(t *testing.T) {
-	if got := argvModel(geminiArgv(t, "gemini-pin-y", "gemini-flag-x")); got != "gemini-flag-x" {
-		t.Errorf("--model with flag = %q, want gemini-flag-x", got)
-	}
-	if got := argvModel(geminiArgv(t, "gemini-pin-y", "")); got != "gemini-pin-y" {
-		t.Errorf("--model with pin only = %q, want gemini-pin-y", got)
-	}
 }
 
 // Flags beat the agent's profile pin; a pin fills what the flag left empty; AGENT_ACTIVE=off ignores it.

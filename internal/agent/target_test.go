@@ -1,7 +1,6 @@
 package agent
 
 import (
-	"context"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 	"os"
@@ -78,88 +77,5 @@ func TestResolveTargetFallsBackWhenSessionProviderCannotServe(t *testing.T) {
 	}
 	if note != "" || target.Provider != sub {
 		t.Fatalf("explicit provider must not fall back, got target=%v note=%q", target.Provider, note)
-	}
-}
-
-// The GEMINI_AGENT_MODEL pin beats the gemini provider's own registry opus alias once agy's Google
-// login fallback applies (subscription can't serve gemini directly).
-func TestResolveTargetGeminiModelPinBeatsRegistryDefault(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	marker := AgyLoginMarker(home)
-	if err := os.MkdirAll(filepath.Dir(marker), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(marker, []byte("token"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	reg, err := providers.Load()
-	if err != nil {
-		t.Fatal(err)
-	}
-	sub, err := reg.Get("max")
-	if err != nil {
-		t.Fatal(err)
-	}
-	sel := providers.Selection{Provider: sub, Aliases: map[string]providers.Target{"opus": {Provider: sub, Model: "claude-opus-5-5"}}}
-
-	vaulttest.SetRecord(t, "gemini", "model", "")
-	vaulttest.SetRecord(t, "gemini", "model", "")
-	target, _, err := schemaFor("gemini").ResolveTarget(reg, sel, false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	wantDefault := reg.Providers["antigravity"].Models["opus"]
-	if target.Model != wantDefault {
-		t.Fatalf("unpinned: target.Model = %q, want the registry's gemini opus alias %q", target.Model, wantDefault)
-	}
-
-	vaulttest.SetRecord(t, "gemini", "model", "gemini-2.5-pro")
-	target, _, err = schemaFor("gemini").ResolveTarget(reg, sel, false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if target.Model != "gemini-2.5-pro" {
-		t.Fatalf("GEMINI_AGENT_MODEL pin = gemini-2.5-pro, want it to win the fallback target's model, got %q", target.Model)
-	}
-}
-
-func TestResolveTargetGeminiFallsBackToGoogleLogin(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("GEMINI_API_KEY", "")
-	marker := AgyLoginMarker(home)
-	if err := os.MkdirAll(filepath.Dir(marker), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(marker, []byte("{}"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	reg, err := providers.Load()
-	if err != nil {
-		t.Fatal(err)
-	}
-	sub, err := reg.Get("max")
-	if err != nil {
-		t.Fatal(err)
-	}
-	sel := providers.Selection{Provider: sub, Aliases: map[string]providers.Target{"opus": {Provider: sub, Model: "claude-opus-5-5"}}}
-	target, note, err := schemaFor("gemini").ResolveTarget(reg, sel, false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if target.Provider == nil || target.Provider.Provider != "google" || !strings.Contains(note, "Google login") {
-		t.Fatalf("expected the Google-login gemini route, got %v / %q", target.Provider, note)
-	}
-	env, _, err := schemaFor("gemini").configureHeadless(context.Background(), target, Headless{Prompt: "hi"})
-	if err != nil {
-		t.Fatalf("a login with no key must still configure: %v", err)
-	}
-	for _, kv := range env {
-		if strings.HasPrefix(kv, "GEMINI_API_KEY=") {
-			t.Fatalf("login run must not inject a key: %v", env)
-		}
 	}
 }

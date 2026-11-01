@@ -79,3 +79,6 @@ func (t *TransportTracker) Result() *Transport {
 type resultError struct{ error }
 
 func (e resultError) Unwrap() error { return e.error }
+
+// NewResultError marks err as a failed turn whose result event was consumed.
+func NewResultError(err error) error { return resultError{err} }

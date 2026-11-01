@@ -42,7 +42,6 @@ var (
 	storeSecret        = secrets.Store
 	claudeStatus       = providers.ClaudeLoginProbe
 	signinCopilotLogin = CopilotStoredLogin
-	geminiPresent      = GeminiLoginPresent
 	runLogin           = runLoginCLI
 	ProbeTimeout       = 8 * time.Second
 )
