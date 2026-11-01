@@ -54,7 +54,7 @@ difference, and re-capture when a peer's commit changes the output.
 **Files:** `path/to/file.go:120-145` (modify), `path/to/new.go` (create)
 **Change:** the exact edit, with the code — functions, signatures, data flow.
 **Verify:** live check `<command>` → expected output; then `go test ./internal/<pkg> -run '<Name>'`.
-**Agent / parallel:** `leaf: <code-worker|claude|…>, Agent: <requested agent or in-context>` (or `Workflow <name>`);
+**Agent / parallel:** `leaf: <code-worker|coworker|claude|…>, Agent: <requested agent or in-context>` (or `Workflow <name>`);
 parallel-safe with Phase N, or depends on Phase M.
 
 ### Phase 2 — <verb> <object>
