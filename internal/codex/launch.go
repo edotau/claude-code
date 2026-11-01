@@ -51,8 +51,8 @@ func codexProfileHint(o agent.LaunchOptions) error {
 	if _, err := os.Stat(filepath.Join(home, o.Provider+".config.toml")); err != nil {
 		return nil
 	}
-	return agent.UsageError(fmt.Sprintf("claude-code codex: --profile %q is not a harness profile; "+
-		"for codex's own config profile ($CODEX_HOME/%s.config.toml) use -p %s", o.Provider, o.Provider, o.Provider))
+	return &agent.UsageError{Msg: fmt.Sprintf("claude-code codex: --profile %q is not a harness profile; "+
+		"for codex's own config profile ($CODEX_HOME/%s.config.toml) use -p %s", o.Provider, o.Provider, o.Provider)}
 }
 
 // codexFileOverrides flattens a config.toml (top-level keys and [a.b] tables, one-line values) into

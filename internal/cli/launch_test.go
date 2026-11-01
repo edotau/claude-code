@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -440,5 +441,13 @@ func TestDoctorAuditJSONWriteError(t *testing.T) {
 	code := cmdDoctor([]string{"--audit", "--format", "json"})
 	if code == 0 {
 		t.Errorf("doctor --audit --format json on closed stdout: exit %d, want non-zero", code)
+	}
+}
+
+// A launch refusal (*agent.UsageError, even wrapped) prints its message and exits 2, not the generic 1.
+func TestRunPlanUsageErrorExitsTwo(t *testing.T) {
+	err := fmt.Errorf("launch: %w", &agent.UsageError{Msg: "not a harness profile"})
+	if code := runPlan(agent.Plan{}, agent.LaunchOptions{}, err); code != 2 {
+		t.Fatalf("runPlan(UsageError) = %d, want 2", code)
 	}
 }
