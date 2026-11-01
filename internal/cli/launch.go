@@ -23,6 +23,7 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/secrets"
 	"github.com/edotau/claude-code/internal/secretstore"
+	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/ui/ansi"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 	"github.com/edotau/claude-code/internal/ui/tui"
@@ -243,16 +244,25 @@ func runPlan(plan agent.Plan, opts agent.LaunchOptions, err error) int {
 	return fail("exec %s: %v", plan.Binary, plan.Exec())
 }
 
+// hookModules wraps the module names from settings.Specs into help lines under 80 columns.
+func hookModules() string {
+	var lines []string
+	line := "modules: "
+	for _, sp := range settings.Specs() {
+		if len(line)+len(sp.Name)+1 > 79 {
+			lines = append(lines, line)
+			line = "         "
+		}
+		line += sp.Name + "|"
+	}
+	return strings.Join(append(lines, strings.TrimSuffix(line, "|")), "\n")
+}
+
 // hookPage lists modules in Hint, not Commands: a COMMANDS row would invite `hook <name> -h`, which runs the hook.
 var hookPage = helptext.Page{
 	Usage: "claude-code hook <Event> [--<module>|--all] < payload.json",
 	About: "Run one lifecycle hook on the event JSON on stdin; settings.json and the agent hook files invoke it.",
-	Hint: "modules: safety-scan|rtk-rewrite|docs-placement|dispatch-effort|\n" +
-		"         dispatch-failure|dispatch-workflow|dispatch-stop|\n" +
-		"         docs-plan-mirror|docs-plan-save|memory-update|format-stop|\n" +
-		"         memory-start|paths-resolve|memory-recall|review-simplicity|\n" +
-		"         memory-end|memory-compact|worktree-create|worktree-remove\n" +
-		"events: <Event> runs the dispatcher, --<module> one module, --all every module",
+	Hint:  hookModules() + "\nevents: <Event> runs the dispatcher, --<module> one module, --all every module",
 }
 
 func cmdHook(args []string) int {
