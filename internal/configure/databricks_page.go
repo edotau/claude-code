@@ -22,7 +22,6 @@ var (
 	dbxLogin    = databricks.LoginRow
 	dbxMint     = databricks.Mint
 	dbxSetPAT   = databricks.SetPAT
-	dbxPick     = tui.PickBack // still used by the opencode page's profile picker
 	dbxShell    = func(d *dialog) *uidialog.Shell { return d.shell() }
 	dbxSecret   = tui.Secret
 	dbxCopy     = clipboard.WriteSecret
@@ -79,7 +78,7 @@ func databricksRow(d *dialog) homeRow {
 			env, state, check = e, e+" · "+at, text
 		}
 	}
-	return homeRow{"databricks", state, check, runDatabricksPage}
+	return homeRow{Name: "databricks", State: state, Check: check, Run: runDatabricksPage}
 }
 
 // runDatabricks is the configure section: the page on a terminal, else the token-free report.

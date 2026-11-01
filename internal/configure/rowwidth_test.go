@@ -8,6 +8,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/settings"
+	"github.com/edotau/claude-code/internal/ui/menu"
 )
 
 // maxRuneLen is the widest label (rune count) among rows a picker renders together.
@@ -65,12 +66,12 @@ func TestMenuRowWidthsFitEightyColumns(t *testing.T) {
 func TestHomeExtraRowsFitEightyColumns(t *testing.T) {
 	menuTestEnv(t)
 	rows := []homeRow{
-		{"tailscale", "not connected", "a-long-hostname-01 · no admin key", nil},
-		{"web search", "no key", "mcp: claude,codex", nil},
-		{"browsers", "default chrome", "12 installed", nil},
+		{Name: "tailscale", State: "not connected", Check: "a-long-hostname-01 · no admin key", Run: nil},
+		{Name: "web search", State: "no key", Check: "mcp: claude,codex", Run: nil},
+		{Name: "browsers", State: "default chrome", Check: "12 installed", Run: nil},
 	}
 	rows = append(rows, settingsRows(&dialog{})...)
-	laid, _ := rowsOf(rows)
+	laid, _ := menu.RowsOf(rows)
 	for _, r := range laid {
 		if w := 2 + len([]rune("environment")) + 2 + len([]rune(r[1])); w > 80 {
 			t.Errorf("%s row is %d columns: %q", r[0], w, r[1])
@@ -133,7 +134,7 @@ func TestRoutingRowFitsEightyColumns(t *testing.T) {
 // TestTierRowsFitEightyColumns: alias · use · a long model id stays within 80 columns.
 func TestTierRowsFitEightyColumns(t *testing.T) {
 	for alias, use := range aliasUse {
-		row := fmt.Sprintf("  %-6s  %s", alias, padTo(use, 42)+"anthropic/claude-sonnet-5-5") // as tui.layoutRows lays it
+		row := fmt.Sprintf("  %-6s  %s", alias, menu.PadTo(use, 42)+"anthropic/claude-sonnet-5-5") // as tui.layoutRows lays it
 		if w := len([]rune(row)); w > 80 {
 			t.Errorf("%s alias row is %d columns: %q", alias, w, row)
 		}
@@ -143,16 +144,16 @@ func TestTierRowsFitEightyColumns(t *testing.T) {
 // TestDatabricksRowsFitEightyColumns: the home row at its worst state text and every page/env/apply row stay <=80 cols.
 func TestDatabricksRowsFitEightyColumns(t *testing.T) {
 	menuTestEnv(t)
-	rows := []homeRow{{"databricks", "prod · oauth-m2m", "token expires in 119m", nil}, {"databricks", "prod · oauth-m2m", "token expires in 23h59m", nil}}
+	rows := []homeRow{{Name: "databricks", State: "prod · oauth-m2m", Check: "token expires in 119m", Run: nil}, {Name: "databricks", State: "prod · oauth-m2m", Check: "token expires in 23h59m", Run: nil}}
 	rows = append(rows, settingsRows(&dialog{})...)
-	laid, _ := rowsOf(rows)
+	laid, _ := menu.RowsOf(rows)
 	for _, r := range laid {
 		if w := 2 + len([]rune("environment")) + 2 + len([]rune(r[1])); w > 80 {
 			t.Errorf("%s row is %d columns: %q", r[0], w, r[1])
 		}
 	}
 	d := dbxEnv(t)
-	if row := databricksRow(d); 2+len([]rune("environment"))+2+len([]rune(row.state))+2+len([]rune(row.check)) > 80 {
+	if row := databricksRow(d); 2+len([]rune("environment"))+2+len([]rune(row.State))+2+len([]rune(row.Check)) > 80 {
 		t.Errorf("live databricks row too wide: %+v", row)
 	}
 	f := &dbxFake{}

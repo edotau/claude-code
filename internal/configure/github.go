@@ -190,18 +190,12 @@ func pickCopilotModels(d *dialog) {
 		}
 	}
 	if needsFallback {
-		fbIDs := make([]string, 0, len(list))
-		fbRows := make([][2]string, 0, len(list))
-		for _, m := range list {
-			fbIDs = append(fbIDs, m.ID)
-			fbRows = append(fbRows, [2]string{m.ID, m.Name})
-		}
-		idx, err := d.shell().Pick("github fallback — opencode_fallback (auto needs a concrete id)", fbRows)
+		idx, err := d.shell().Pick("github fallback — opencode_fallback (auto needs a concrete id)", rows[1:])
 		if err != nil || idx < 0 {
 			d.printf("github fallback: cancelled at opencode_fallback; nothing written\n")
 			return
 		}
-		fallback = fbIDs[idx]
+		fallback = ids[idx+1]
 	}
 
 	if err := WriteGithubCopilotModels(picks, fallback); err != nil {

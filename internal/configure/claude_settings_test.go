@@ -17,7 +17,7 @@ import (
 )
 
 // newClaudeSettingsDialog isolates the vault (fresh CLAUDE_CONFIG_DIR) and feeds in as the piped input a
-// non-tty dialogue reads from (pick/textLine fall back to the numbered/dialogue path since d.o.In != os.Stdin).
+// non-tty dialogue reads from (the shell's Pick and Line fall back to the numbered/dialogue path since d.o.In != os.Stdin).
 func newClaudeSettingsDialog(t *testing.T, in string) (*dialog, *bytes.Buffer) {
 	t.Helper()
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
@@ -87,9 +87,9 @@ func TestClaudeCodeRowInSettingsRows(t *testing.T) {
 	rows := settingsRows(&dialog{out: discardWriter{}})
 	found := false
 	for _, r := range rows {
-		if r.name == "claude code" {
+		if r.Name == "claude code" {
 			found = true
-			if r.run == nil {
+			if r.Run == nil {
 				t.Error("claude code row has no run action")
 			}
 		}

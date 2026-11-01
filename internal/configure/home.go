@@ -28,13 +28,11 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/secretstore"
+	"github.com/edotau/claude-code/internal/ui/menu"
 )
 
 // homeRow is one selectable home-page row: name, state, check, and what picking it does.
-type homeRow struct {
-	name, state, check string
-	run                func(*dialog)
-}
+type homeRow = menu.Row[*dialog]
 
 func toolsRows(d *dialog) []homeRow {
 	return []homeRow{tailscaleRow(), webSearchRow()}
@@ -43,24 +41,13 @@ func toolsRows(d *dialog) []homeRow {
 func settingsRows(d *dialog) []homeRow {
 	n := len(providers.CustomEnv())
 	return []homeRow{
-		{"secrets", "vault", "API keys & tokens", func(d *dialog) { secretsLoop(d) }},
+		{Name: "secrets", State: "vault", Check: "API keys & tokens", Run: func(d *dialog) { secretsLoop(d) }},
 		claudeSettingsRow(d),
 		routingRow(d),
-		{"environment", fmt.Sprintf("%d vars", n), "injected into every launch", runCustomEnv},
+		{Name: "environment", State: fmt.Sprintf("%d vars", n), Check: "injected into every launch", Run: runCustomEnv},
 		databricksRow(d),
 		seedRow(),
 	}
-}
-
-// rowsOf lays homeRows out like the agent rows (name · state · check).
-func rowsOf(rs []homeRow) ([][2]string, []func(*dialog)) {
-	names := make([]string, len(rs))
-	cols := make([][2]string, len(rs))
-	acts := make([]func(*dialog), len(rs))
-	for i, r := range rs {
-		names[i], cols[i], acts[i] = r.name, [2]string{r.state, r.check}, r.run
-	}
-	return withChecks(names, cols), acts
 }
 
 func tailscaleRow() homeRow {
@@ -78,7 +65,7 @@ func tailscaleRow() homeRow {
 	if host != "" {
 		check = host + " · " + check
 	}
-	return homeRow{"tailscale", state, check, func(d *dialog) { runRemote(d) }}
+	return homeRow{Name: "tailscale", State: state, Check: check, Run: func(d *dialog) { runRemote(d) }}
 }
 
 // webSearchArgs is the claude-code argv every client registers for the web_search MCP server.
@@ -99,7 +86,7 @@ func webSearchRow() homeRow {
 		}
 	}
 	check := "mcp: " + cmp.Or(strings.Join(wired, ","), "none")
-	return homeRow{"web search", state, check, runWebSearch}
+	return homeRow{Name: "web search", State: state, Check: check, Run: runWebSearch}
 }
 
 // mcpClient is one agent config that can register the web_search MCP server.
@@ -258,7 +245,7 @@ func runCustomEnv(d *dialog) {
 			}
 			rows = append(rows, [2]string{n, strings.TrimSpace(kind + "  " + shown)})
 		}
-		rows = append(rows, [2]string{"+ New", "NAME, then value, then plain or secret"}, enterRow("save and go back"))
+		rows = append(rows, [2]string{"+ New", "NAME, then value, then plain or secret"}, menu.EnterRow("save and go back"))
 		idx, err := d.shell().PickPlain("environment — injected into every launch", rows)
 		if err != nil || idx < 0 || idx == len(rows)-1 {
 			return
@@ -283,7 +270,7 @@ func runCustomEnv(d *dialog) {
 func editCustomEnv(d *dialog, name string) (string, envEdit, bool) {
 	isNew := name == ""
 	if isNew {
-		name = strings.TrimSpace(textLine(d, "NAME: "))
+		name = strings.TrimSpace(d.shell().Line("NAME: "))
 		if name == "" {
 			return "", envEdit{}, false
 		}
@@ -298,7 +285,7 @@ func editCustomEnv(d *dialog, name string) (string, envEdit, bool) {
 		return "", envEdit{}, false
 	}
 	if val = strings.TrimSpace(val); val == "" {
-		del := wasSecret && confirm(d, "also delete the sealed secret "+name+"?")
+		del := wasSecret && d.shell().Confirm("also delete the sealed secret "+name+"?")
 		return name, envEdit{deleteSecret: del}, true
 	}
 	where, err := d.shell().PickPlain("store "+name+" as", [][2]string{
@@ -309,7 +296,7 @@ func editCustomEnv(d *dialog, name string) (string, envEdit, bool) {
 	if where == 1 {
 		return name, envEdit{raw: providers.SecretRef, secret: val}, true
 	}
-	del := wasSecret && confirm(d, "switching "+name+" to plain; also delete the old sealed secret?")
+	del := wasSecret && d.shell().Confirm("switching "+name+" to plain; also delete the old sealed secret?")
 	return name, envEdit{raw: val, deleteSecret: del}, true
 }
 
@@ -357,11 +344,6 @@ func saveEnvEdits(d *dialog, edits map[string]envEdit) {
 		}
 	}
 	d.changed = true
-}
-
-// pickPlain is the ui/dialog shell's PickPlain (no Back row on a terminal), for callers outside home.go.
-func pickPlain(d *dialog, title string, rows [][2]string) (int, error) {
-	return d.shell().PickPlain(title, rows)
 }
 
 // rerenderConfigs re-renders settings.json (merge: foreign keys/hooks kept, backup first) and the agent configs;

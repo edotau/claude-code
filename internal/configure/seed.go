@@ -76,9 +76,9 @@ func seedPick(d *dialog, agent, cur string) (profile string, ok bool) {
 	names := append(seedProfiles(d, agent), "")
 	rows := make([][2]string, len(names))
 	for i, n := range names {
-		rows[i] = [2]string{seedLabel(agent, n), curMark(n == cur)}
+		rows[i] = [2]string{seedLabel(agent, n), uidialog.Mark(n == cur)}
 	}
-	idx, err := pick(d, displayLabel(agent)+" — profile", rows, max(slices.Index(names, cur), 0))
+	idx, err := d.shell().Pick(displayLabel(agent)+" — profile", rows, max(slices.Index(names, cur), 0))
 	if err != nil || idx < 0 || idx >= len(names) {
 		return "", false
 	}
@@ -142,7 +142,7 @@ func seedRow() homeRow {
 			n++
 		}
 	}
-	return homeRow{"seed agents", fmt.Sprintf("%d set", n), "profile each agent runs on", func(d *dialog) { runSeed(d) }}
+	return homeRow{Name: "seed agents", State: fmt.Sprintf("%d set", n), Check: "profile each agent runs on", Run: func(d *dialog) { runSeed(d) }}
 }
 
 // seedFromSignIn records profile as agent's Profile after a successful sign-in, changing no other field.

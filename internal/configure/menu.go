@@ -8,6 +8,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/secretstore"
+	"github.com/edotau/claude-code/internal/ui/menu"
 	"github.com/edotau/claude-code/internal/ui/tui"
 )
 
@@ -15,7 +16,7 @@ import (
 var pickMenu = tui.PickSections
 
 // submitRow ends the menu: y saves the keys entered in it to the secrets manager, n discards them like Esc.
-var submitRow = enterRow("save keys to the secrets manager and exit")
+var submitRow = menu.EnterRow("save keys to the secrets manager and exit")
 
 // runMenu is `configure`'s interactive entry with no section named: the agents, tools and settings sections;
 // picking a row runs it, then the page re-renders with fresh status, cursor kept, until Submit or Esc. --agent
@@ -30,7 +31,7 @@ func runMenu(d *dialog) int {
 	start := 0
 	for {
 		sections, actions := homeSections(d)
-		idx, err := pickMenu("== agents ==", sections, submitRow, start)
+		idx, err := pickMenu(menu.Heading("agents"), sections, submitRow, start)
 		if err != nil || idx < 0 || idx == len(actions) { // Enter, Esc and Left all leave through the one prompt
 			if confirmLeave(len(d.pending), "key(s) to the secrets manager") {
 				ok := saveKeys(d)
@@ -51,7 +52,7 @@ func runMenu(d *dialog) int {
 // homeSections is the agents block, then tools and settings (both hidden under --agent).
 func homeSections(d *dialog) ([]tui.Section, []func(*dialog)) {
 	rows, actions := menuRows(d)
-	sections := []tui.Section{{Title: "== agents ==", Rows: rows}}
+	sections := []tui.Section{{Title: menu.Heading("agents"), Rows: rows}}
 	if d.o.Agent != "" {
 		return sections, actions
 	}
@@ -61,24 +62,12 @@ func homeSections(d *dialog) ([]tui.Section, []func(*dialog)) {
 
 // extraSections is the tools and settings blocks; a seam so menu tests stay free of live probes.
 var extraSections = func(d *dialog) ([]tui.Section, []func(*dialog)) {
-	var sections []tui.Section
-	var actions []func(*dialog)
-	for _, sec := range []struct {
-		title string
-		rows  []homeRow
-	}{{"== tools ==", toolsRows(d)}, {"== settings ==", settingsRows(d)}} {
-		r, a := rowsOf(sec.rows)
-		sections = append(sections, tui.Section{Title: sec.title, Rows: r})
-		actions = append(actions, a...)
-	}
-	return sections, actions
+	return menu.Sections([]menu.Block[*dialog]{{Title: "tools", Rows: toolsRows(d)}, {Title: "settings", Rows: settingsRows(d)}})
 }
 
 // menuRows builds one row per agent (name · mode · check) and the submenu each opens, scoped to d.o.Agent when set.
 func menuRows(d *dialog) ([][2]string, []func(*dialog)) {
-	var names []string
-	var cols [][2]string
-	var actions []func(*dialog)
+	var rows []homeRow
 	for _, name := range append([]string{"claude"}, agent.Names()...) {
 		build, ok := agentMenus[name]
 		if !ok || (d.o.Agent != "" && d.o.Agent != name) {
@@ -86,16 +75,15 @@ func menuRows(d *dialog) ([][2]string, []func(*dialog)) {
 		}
 		st := build(d).state
 		n := name
-		names, cols = append(names, displayLabel(n)), append(cols, [2]string{modeLabel(d, n, st), st.check()})
-		actions = append(actions, func(d *dialog) {
+		rows = append(rows, homeRow{Name: displayLabel(n), State: modeLabel(d, n, st), Check: st.check(), Run: func(d *dialog) {
 			if page, ok := agentPages[n]; ok {
 				page(d)
 				return
 			}
 			runAgentMenu(d, displayLabel(n), agentMenus[n](d))
-		})
+		}})
 	}
-	return withChecks(names, cols), actions
+	return menu.RowsOf(rows)
 }
 
 // agentPages are the agents whose row opens a tui.List page instead of runAgentMenu (opencode first).

@@ -9,6 +9,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // labelMax is the mode column's room in an 80-column row (name 11 · label · check 12, plus gaps).
@@ -45,10 +46,7 @@ func modeLabel(d *dialog, name string, st agentState) string {
 	if lower {
 		out = strings.ToLower(out)
 	}
-	if r := []rune(out); len(r) > labelMax {
-		out = string(r[:labelMax-1]) + "…"
-	}
-	return out
+	return textutil.Truncate(out, labelMax)
 }
 
 // matchPlan picks the plan whose id equals the raw id, else the longest matching * glob.

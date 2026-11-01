@@ -37,6 +37,7 @@ import (
 	"github.com/edotau/claude-code/internal/secretstore"
 	"github.com/edotau/claude-code/internal/ui/ansi"
 	uidialog "github.com/edotau/claude-code/internal/ui/dialog"
+	"github.com/edotau/claude-code/internal/ui/menu"
 	"github.com/edotau/claude-code/internal/ui/tui"
 )
 
@@ -109,7 +110,7 @@ func (d *dialog) shell() *uidialog.Shell {
 func (d *dialog) println(args ...any) { d.printf("%s\n", fmt.Sprint(args...)) }
 
 func (d *dialog) header(section string) {
-	d.println(tui.Accent(d.color, "== "+section+" =="))
+	d.println(tui.Accent(d.color, menu.Heading(section)))
 }
 
 // warmServedOnChange warms the served cache when a pin changed or the switch flipped on since the run's snapshot.
@@ -221,22 +222,6 @@ func Agent(name string, interactive bool, out io.Writer) (changed bool, err erro
 	return changed, nil
 }
 
-func readLine(br *bufio.Reader) string {
-	line, _ := br.ReadString('\n')
-	return strings.TrimRight(line, "\r\n")
-}
-
-// yes defaults to true (the prompts are always "[Y/n]"): blank or anything starting with 'y'/'Y'. End of input
-// is a decline, never a default yes — a piped dialogue that runs dry must not start a login or a paste.
-func yes(br *bufio.Reader) bool {
-	raw, err := br.ReadString('\n')
-	if err != nil && raw == "" {
-		return false
-	}
-	line := strings.ToLower(strings.TrimSpace(raw))
-	return line == "" || strings.HasPrefix(line, "y")
-}
-
 // --- provider ---
 
 // currentProvider is the configured profile (vault pin), falling back to the registry default when unpinned.
@@ -287,7 +272,7 @@ func runProvider(d *dialog) bool {
 		return true
 	}
 	fmt.Fprint(d.out, "pick a profile by number or name (blank = keep current): ")
-	line := strings.TrimSpace(readLine(d.br))
+	line := strings.TrimSpace(uidialog.ReadLine(d.br))
 	if line == "" {
 		return true
 	}
@@ -498,7 +483,7 @@ func runPresentKey(d *dialog, kt keyTarget) (ok, changed bool) {
 		d.printf("%-10s present (%s)\n", kt.label, kt.source)
 	}
 	if len(kt.mintArgv) > 0 && !kt.headless && d.o.Interactive && !d.o.Check &&
-		confirm(d, "Mint a long-lived token so unattended runs (update, ask, cron) survive /login expiry?") {
+		d.shell().Confirm("Mint a long-lived token so unattended runs (update, ask, cron) survive /login expiry?") {
 		return true, runAuthOption(d, kt, authOption{mint: kt.mintArgv, env: kt.envVar})
 	}
 	return true, false
@@ -618,7 +603,7 @@ func resolveKey(d *dialog, kt keyTarget) bool {
 	}
 	if chosen < 0 {
 		for i, o := range opts {
-			if confirm(d, o.label()+"?") {
+			if d.shell().Confirm(o.label() + "?") {
 				chosen = i
 				break
 			}
@@ -651,7 +636,7 @@ func runAuthOption(d *dialog, kt keyTarget, o authOption) bool {
 		}
 		d.printf("%s: no token found in the output; paste it instead\n", o.env)
 	}
-	if u := consoleURLs[o.env]; u != "" && confirm(d, "Open "+u+" in your browser to create the key?") {
+	if u := consoleURLs[o.env]; u != "" && d.shell().Confirm("Open "+u+" in your browser to create the key?") {
 		openBrowser(u)
 	}
 	val, err := secretLine(d, "Paste a value for "+o.env+" (input hidden, Enter when done): ")
@@ -727,29 +712,16 @@ func openBrowser(url string) {
 // actionConfirmed asks [y/N] (Esc cancels) before a terminal run launches a mint CLI; a stray Enter must
 // never start a run that rewrites an agent's own auth settings. Non-terminal runs proceed. Sign-in itself
 // needs no second confirm — picking its menu row already was the confirmation.
-var actionConfirmed = func(question string) bool {
-	if !isStdinTTY() {
-		return true
-	}
-	return tui.ConfirmKey(question+"?", false)
-}
+var actionConfirmed = func(question string) bool { return uidialog.ConfirmTerminal(question, false) }
 
 // saveConfirmed is the one save prompt every configure page ends with: [Y/n], Enter or blank = yes, Esc = no.
 // Non-terminal runs save.
-var saveConfirmed = func(question string) bool {
-	if !isStdinTTY() {
-		return true
-	}
-	return tui.ConfirmKey(question+"?", true)
-}
+var saveConfirmed = func(question string) bool { return uidialog.ConfirmTerminal(question, true) }
 
 // confirmLeave asks to save n staged change(s) of what; false (nothing to save, or n/Esc) means discard them.
 func confirmLeave(n int, what string) bool {
 	return n > 0 && saveConfirmed(fmt.Sprintf("Save %d %s", n, what))
 }
-
-// enterRow is every configure page's last row: Enter leaves the page, asking first when it has unsaved changes.
-func enterRow(detail string) [2]string { return [2]string{"Enter", detail} }
 
 // runLogin execs an agent's own login CLI attached to the real terminal: picking the row that leads here
 // already was the confirmation, so it runs directly rather than asking [y/N] a second time.
@@ -863,15 +835,6 @@ func runAgents(d *dialog) bool {
 	return ok
 }
 
-// confirm asks a [Y/n] question: tui.Confirm on the controlling terminal, the dialogue reader otherwise (tests).
-func confirm(d *dialog, question string) bool {
-	if isStdinTTY() && d.o.In == os.Stdin {
-		return tui.Confirm(question, true)
-	}
-	fmt.Fprintf(d.out, "%s [Y/n] ", question)
-	return yes(d.br)
-}
-
 // secretLine reads a hidden value: tui.Secret (echo off) on the terminal, the dialogue reader otherwise.
 // Every paste shows as a masked preview (live on the terminal), so a wrong or doubled paste shows before it is saved.
 func secretLine(d *dialog, prompt string) (string, error) {
@@ -879,7 +842,7 @@ func secretLine(d *dialog, prompt string) (string, error) {
 		return tui.Secret(prompt, pastePreview)
 	}
 	fmt.Fprint(d.out, prompt)
-	val := readLine(d.br)
+	val := uidialog.ReadLine(d.br)
 	fmt.Fprintln(d.out)
 	if _, v := ParseAssignment(val); v != "" {
 		d.printf("  pasted  %s\n", pastePreview(val))

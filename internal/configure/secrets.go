@@ -17,6 +17,7 @@ import (
 	"github.com/edotau/claude-code/internal/shapes"
 	"github.com/edotau/claude-code/internal/ui/ansi"
 	uidialog "github.com/edotau/claude-code/internal/ui/dialog"
+	"github.com/edotau/claude-code/internal/ui/menu"
 )
 
 // envName is a valid secret name: an env var identifier.
@@ -108,12 +109,12 @@ func secretsLoop(d *dialog) int {
 		for _, s := range list {
 			rows = append(rows, [2]string{s.name, fmt.Sprintf("%-16s %s", sourceLabel(s.source, s.shadowed), s.users)})
 		}
-		rows = append(rows, [2]string{"+ New", "custom NAME, then paste"}, enterRow("save and go back"))
+		rows = append(rows, [2]string{"+ New", "custom NAME, then paste"}, menu.EnterRow("save and go back"))
 		title := "secrets — pick one to set (stores in " + store + ")"
 		if d.pending != nil {
 			title = "secrets — pick one to set (Submit saves to " + store + ")"
 		}
-		idx, err := pickPlain(d, title, rows)
+		idx, err := d.shell().PickPlain(title, rows)
 		if err != nil {
 			fmt.Fprintf(d.out, "secrets: %v\n", err)
 			return 1
@@ -129,11 +130,6 @@ func secretsLoop(d *dialog) int {
 	}
 }
 
-// pick is the ui/dialog shell's Pick: the terminal panel on a TTY, a numbered prompt otherwise (tests, pipes).
-func pick(d *dialog, title string, rows [][2]string, start ...int) (int, error) {
-	return d.shell().Pick(title, rows, start...)
-}
-
 // editSecret offers mint, login, paste, and vault deletion actions for one tracked secret.
 func editSecret(d *dialog, s trackedSecret) {
 	var acts []uidialog.Row
@@ -146,7 +142,7 @@ func editSecret(d *dialog, s trackedSecret) {
 	}
 	if s.source == "vault" {
 		acts = append(acts, uidialog.Row{Name: "Delete", Detail: "remove from the vault", Run: func() bool {
-			if !confirm(d, "Delete "+s.name+"?") {
+			if !d.shell().Confirm("Delete " + s.name + "?") {
 				return false
 			}
 			if d.pending != nil {
@@ -169,7 +165,7 @@ func editSecret(d *dialog, s trackedSecret) {
 			return true
 		}})
 	}
-	idx, err := pick(d, s.name+" ("+sourceLabel(s.source, s.shadowed)+")", uidialog.Pairs(acts))
+	idx, err := d.shell().Pick(s.name+" ("+sourceLabel(s.source, s.shadowed)+")", uidialog.Pairs(acts))
 	if err != nil || idx < 0 || idx >= len(acts) {
 		return
 	}
@@ -179,7 +175,7 @@ func editSecret(d *dialog, s trackedSecret) {
 // addCustom reads a NAME (visible) and its value (hidden); a pasted NAME=value or `export NAME="value"` line is
 // parsed, so either half may carry the name.
 func addCustom(d *dialog) {
-	name := strings.TrimSpace(textLine(d, "Secret name (e.g. NEW_SECRET; blank to take it from the pasted line): "))
+	name := strings.TrimSpace(d.shell().Line("Secret name (e.g. NEW_SECRET; blank to take it from the pasted line): "))
 	raw, err := secretLine(d, "Paste the value or a NAME=value line (input hidden, Enter when done): ")
 	if err != nil {
 		d.printf("secrets: %v\n", err)
@@ -237,16 +233,6 @@ func storeValue(d *dialog, name, val string) bool {
 	}
 	d.printf("wrote %s to the vault (%s)\n", name, secretstore.Redact(val))
 	return true
-}
-
-// textLine reads one visible line: straight from the terminal like tui.Confirm, the dialogue reader otherwise.
-func textLine(d *dialog, prompt string) string {
-	fmt.Fprint(d.out, prompt)
-	if isStdinTTY() && d.o.In == os.Stdin {
-		line, _ := bufio.NewReader(os.Stdin).ReadString('\n')
-		return strings.TrimRight(line, "\r\n")
-	}
-	return readLine(d.br)
 }
 
 // confirmPageKeys asks, on leaving the secrets page inside configure, whether to save what the page staged

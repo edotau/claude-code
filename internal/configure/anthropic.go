@@ -6,6 +6,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/copilot"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/ui/menu"
 	"github.com/edotau/claude-code/internal/ui/tui"
 )
 
@@ -56,9 +57,9 @@ func claudeMenu(d *dialog) agentMenu {
 		tier = claudeTier(plan)
 	}
 	return agentMenu{claudeState(d, fp, cur, tier), []billingRow{
-		{"Subscription", "OAuth · plan limits · Remote Control " + bracket(loggedIn, withTier("logged in", tier), "not logged in"), modeSubscription, func() bool {
+		{"Subscription", "OAuth · plan limits · Remote Control " + menu.Bracket(loggedIn, withTier("logged in", tier), "not logged in"), modeSubscription, func() bool {
 			if !loggedIn {
-				if !confirm(d, "Not logged in to claude.ai — run `claude auth login` now?") {
+				if !d.shell().Confirm("Not logged in to claude.ai — run `claude auth login` now?") {
 					return false
 				}
 				if err := runLogin([]string{"claude", "auth", "login"}); err != nil {
@@ -68,7 +69,7 @@ func claudeMenu(d *dialog) agentMenu {
 			}
 			return keepOrPin(d, cur, profileName(profileBy(d.reg, anthropicProvider, providers.AuthCLI)))
 		}},
-		{"API key", "pay per token · paste to set or rotate · no RC " + bracket(keyOK, "key set", "no key"), modeAPIKey, func() bool {
+		{"API key", "pay per token · paste to set or rotate · no RC " + menu.Bracket(keyOK, "key set", "no key"), modeAPIKey, func() bool {
 			kt := keyTarget{label: anthropicRow, envVar: anthropicKeyEnv, fixCmd: "claude-code vault set " + anthropicKeyEnv,
 				provider: profileBy(fp.reg, anthropicProvider, providers.AuthKey)}
 			if !ensureKey(d, kt, keyOK) {
