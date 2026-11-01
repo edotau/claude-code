@@ -10,13 +10,14 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agent/review"
 )
 
 // reviewJobEnv names the parent job record a detached split review updates with progress and its outcome.
 const reviewJobEnv = "CLAUDE_REVIEW_JOB"
 
 // runSplitReview runs a multi-part review: detached as one job when background, else sequentially in place.
-func runSplitReview(name string, args []string, parts []agent.Part, scope agent.Scope,
+func runSplitReview(name string, args []string, parts []review.Part, scope review.Scope,
 	adversarial, background bool, focus, rubric string) int {
 	if background && os.Getenv(reviewJobEnv) == "" {
 		return spawnSplitReview(name, args, len(parts))
@@ -29,8 +30,8 @@ func runSplitReview(name string, args []string, parts []agent.Part, scope agent.
 	}
 	answers := make([]string, 0, len(parts))
 	for i, p := range parts {
-		agent.SetReviewProgress(job, fmt.Sprintf("part %d/%d", i+1, len(parts)))
-		askArgs, cleanup, err := agent.ReviewArgs(name, scope, p.Diff, adversarial, false,
+		review.SetReviewProgress(job, fmt.Sprintf("part %d/%d", i+1, len(parts)))
+		askArgs, cleanup, err := review.ReviewArgs(name, scope, p.Diff, adversarial, false,
 			strings.TrimSpace(focus+"\n"+p.Header(i+1, len(parts))), rubric)
 		if err != nil {
 			return finishSplitReview(job, fmt.Errorf("part %d/%d: %w", i+1, len(parts), err))
@@ -38,12 +39,12 @@ func runSplitReview(name string, args []string, parts []agent.Part, scope agent.
 		ans, rc := captureAnswer(func() int { return cmdAsk(askArgs) })
 		cleanup()
 		if rc != 0 {
-			fmt.Print(agent.MergeReports(adversarial, parts[:len(answers)], answers))
-			return finishSplitReview(job, fmt.Errorf("part %d/%d failed: %s", i+1, len(parts), agent.LastDispatchError(name)))
+			fmt.Print(review.MergeReports(adversarial, parts[:len(answers)], answers))
+			return finishSplitReview(job, fmt.Errorf("part %d/%d failed: %s", i+1, len(parts), review.LastDispatchError(name)))
 		}
 		answers = append(answers, ans)
 	}
-	fmt.Print(agent.MergeReports(adversarial, parts, answers))
+	fmt.Print(review.MergeReports(adversarial, parts, answers))
 	return finishSplitReview(job, nil)
 }
 

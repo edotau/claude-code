@@ -1,4 +1,4 @@
-package agent
+package transfer
 
 import (
 	"encoding/json"
