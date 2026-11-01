@@ -66,7 +66,7 @@ type Snapshot struct {
 	Updated     time.Time  `json:"updated"`
 	Tokens      Tokens     `json:"tokens"`
 	FilesEdited []string   `json:"filesEdited,omitempty"`
-	Dispatches  []Dispatch `json:"legs,omitempty"`
+	Dispatches  []Dispatch `json:"dispatches,omitempty"`
 	Activity    *Activity  `json:"activity,omitempty"`
 	Result      string     `json:"result,omitempty"`
 	Events      []Event    `json:"events,omitempty"`
