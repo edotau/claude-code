@@ -1,19 +1,10 @@
 # Task-brief review — vet a request before implementation
 
-A skeptical staff engineer pass on a task request **before implementation begins**. The job is
-NOT to implement — it is to **refine the request** so the implementing agent has crystal-clear
-marching orders. Read-only intent: refine and judge, don't implement.
+A skeptical, read-only pass that refines a request so the implementer has clear orders; it never implements. Any
+reviewer runs it (the main session, `Plan`, or `claude-code codex ask`): `rules/workflows/master-workflow.md` Phase 1
+for a request, Phase 4 for a plan (below). Verdict **READY | NEEDS CLARIFICATION** (`../SKILL.md` → Verdicts).
 
-Any reviewer runs this — the main session, a Plan subagent, or a second agent via
-`claude-code codex ask "<this file's checklist + the request>"`. It is the plan-vetting step of
-`rules/workflows/master-workflow.md` Phase 1.
-
-Verdict: **READY | NEEDS CLARIFICATION**. Verdict discipline: `../SKILL.md` → Verdicts.
-
-## Input
-
-The user's raw task request + the project's CLAUDE.md constraints; capture context with
-`git status --short` and `git diff --stat` before judging scope.
+Input: the request and CLAUDE.md, with `git status --short` and `git diff --stat` for scope.
 
 ## Evaluation checklist
 
@@ -56,18 +47,12 @@ The user's raw task request + the project's CLAUDE.md constraints; capture conte
 1. [specific question]   (at most 3)
 ```
 
-## Guidelines
-
-- Be concise. No filler. If well-scoped, mark READY immediately — don't invent problems.
-- For TRIVIAL tasks (typos, one-liners), return a one-line brief and mark READY.
-- Always check CLAUDE.md constraints — the most common source of implementation mistakes.
+A well-scoped request is READY at once (don't invent problems); a TRIVIAL one gets a one-line brief.
 
 ## Plan review
 
-After a plan is written, before executing it.
-
-Check it against `agents/Plan.md` → Plan rules and Phase rules (the one home; don't restate them here). The checks
-only a reviewer can make:
+Before a written plan runs, check it against `agents/Plan.md` → Plan rules and Phase rules, plus what only a reviewer
+can:
 
 1. **Evidence holds** — rerun two or three Target-shape rows' commands; a row that no longer reproduces, or a
    `Snapshot:` far behind HEAD in the files the plan touches, is an issue.
@@ -79,9 +64,7 @@ only a reviewer can make:
 5. **A cold start works** — could an engineer follow it without getting stuck: spec covered without scope creep,
    placeholder-free, each code change carries its code.
 
-Flag only what would cause real problems during implementation; wording and nice-to-haves are not issues. A section the
-plan added beyond the template is fine (the template is a floor).
-
-Output: verdict READY | NEEDS CLARIFICATION; issues as `[Task X, Step Y]: issue — why it matters`.
+Flag only what would break implementation; wording, nice-to-haves and extra sections are not issues. Output the
+verdict, then issues as `[Phase X.Y]: issue — why it matters`.
 
 Related, don't duplicate: `judge.md` → Protocol.
