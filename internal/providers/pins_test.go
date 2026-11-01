@@ -1,11 +1,18 @@
 package providers
 
 import (
-	"github.com/edotau/claude-code/internal/secretstore"
+	"bytes"
+	"errors"
+	"io/fs"
+	"os"
+	"reflect"
+	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/edotau/claude-code/internal/models"
+	"github.com/edotau/claude-code/internal/secretstore"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -298,5 +305,378 @@ func TestSelectDoesNotTranslateLegacyDatabricksPin(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), pin) {
 			t.Errorf("Select with pin %q = %+v, %v; want an unknown-provider error naming the pin", pin, sel.Provider, err)
 		}
+	}
+}
+
+const ghRow = `"protocol":"openai","base_url":"https://api.githubcopilot.com","auth":{"type":"cli","login":"copilot"},` +
+	`"models":{"opus":"gpt-6.1-sol","sonnet":"claude-sonnet-5.5","haiku":"auto"}`
+
+// copilotLoginReg is a hermetic vault with github profiles personal (login=edotau) and bare (no login).
+func copilotLoginReg(t *testing.T, pin string) *Registry {
+	t.Helper()
+	vaulttest.Use(t)
+	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"github":{`+
+		`"personal":{`+ghRow+`,"login":"edotau"},"bare":{`+ghRow+`}}}}`)
+	if pin != "" {
+		vaulttest.SetRecord(t, "copilot", "profile", pin)
+	}
+	reg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return reg
+}
+
+func TestCopilotLogin(t *testing.T) {
+	for _, tc := range []struct{ name, pin, login, profile string }{
+		{"profile pin resolves to its login", "personal", "edotau", "personal"},
+		{"unset pin is gh's active account", "", "", ""},
+		{"a pin naming no github profile is gh's active account", "octocat", "", ""},
+		{"profile without a login passes none", "bare", "", "bare"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			login, profile := CopilotLogin(copilotLoginReg(t, tc.pin))
+			if login != tc.login || profile != tc.profile {
+				t.Errorf("CopilotLogin = (%q, %q), want (%q, %q)", login, profile, tc.login, tc.profile)
+			}
+		})
+	}
+}
+
+func TestGithubAccountNameAndLoginRoundTrip(t *testing.T) {
+	reg := copilotLoginReg(t, "")
+	for _, tc := range []struct{ in, name string }{
+		{"edotau", "personal"}, // login -> profile
+		{"octocat", "octocat"}, // unmigrated login stays raw
+		{"", ""},
+	} {
+		if got := GithubAccountName(reg, tc.in); got != tc.name {
+			t.Errorf("GithubAccountName(%q) = %q, want %q", tc.in, got, tc.name)
+		}
+	}
+	for _, tc := range []struct{ in, login string }{
+		{"personal", "edotau"}, {"bare", ""}, {"octocat", "octocat"},
+	} {
+		if got := GithubAccountLogin(reg, tc.in); got != tc.login {
+			t.Errorf("GithubAccountLogin(%q) = %q, want %q", tc.in, got, tc.login)
+		}
+	}
+	if got := GithubAccountLogin(reg, GithubAccountName(reg, "edotau")); got != "edotau" {
+		t.Errorf("round trip = %q, want edotau", got)
+	}
+	if GithubAccountName(nil, "edotau") != "edotau" || GithubAccountLogin(nil, "x") != "x" {
+		t.Error("nil registry must pass the value through")
+	}
+}
+
+// AgentRecord(s) read what a vault write stored; an unset agent is the zero record.
+func TestAgentRecordsReadStoredRecords(t *testing.T) {
+	vaulttest.Use(t)
+	if err := vault.Update(func(tx *vault.Tx) error {
+		return tx.PutAgentRecords(map[string]vault.AgentRecord{"codex": {Profile: "chatgpt", Model: "m1"}})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if got := AgentRecord("codex"); got.Profile != "chatgpt" || got.Model != "m1" {
+		t.Errorf("AgentRecord(codex) = %+v", got)
+	}
+	if got := AgentRecord("gemini"); !reflect.DeepEqual(got, vault.AgentRecord{}) {
+		t.Errorf("AgentRecord(gemini) = %+v, want zero", got)
+	}
+	if recs := AgentRecords(); len(recs) != 1 || recs["codex"].Profile != "chatgpt" {
+		t.Errorf("AgentRecords = %+v, want only codex", recs)
+	}
+}
+
+func orderDoc(names ...string) []byte {
+	var rows strings.Builder
+	for i, n := range names {
+		if i > 0 {
+			rows.WriteString(",")
+		}
+		rows.WriteString(`"` + n + `":{"preset":"databricks","host":"https://` + n + `.cloud.databricks.com"}`)
+	}
+	return []byte(`{"providers":{"databricks":{` + rows.String() + `}}}`)
+}
+
+func TestProfilesOfReorderedDocReordersOutput(t *testing.T) {
+	vaulttest.UseKeyring(t)
+	reg, err := Parse(orderDoc("dev", "qa", "prod"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := reg.ProfilesOf("databricks"), []string{"dev", "qa", "prod"}; !slices.Equal(got, want) {
+		t.Errorf("ProfilesOf = %v, want %v", got, want)
+	}
+	if got, want := DatabricksProfiles(reg), []string{"dev", "qa", "prod"}; !slices.Equal(got, want) {
+		t.Errorf("DatabricksProfiles = %v, want %v", got, want)
+	}
+	// negative control: the same rows declared in another order come out in that order, not sorted
+	re, err := Parse(orderDoc("prod", "dev", "qa"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := re.ProfilesOf("databricks"), []string{"prod", "dev", "qa"}; !slices.Equal(got, want) {
+		t.Errorf("reordered ProfilesOf = %v, want %v", got, want)
+	}
+}
+
+func TestProfilesOfOverlayRowsFollowDefaults(t *testing.T) {
+	vaulttest.UseKeyring(t)
+	reg, err := Parse(orderDoc("qa", "dev"), orderDoc("zeta", "alpha"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := reg.ProfilesOf("databricks"), []string{"qa", "dev", "zeta", "alpha"}; !slices.Equal(got, want) {
+		t.Errorf("ProfilesOf = %v, want defaults then overlay rows in declared order %v", got, want)
+	}
+}
+
+func TestPinIgnoresProcessEnv(t *testing.T) {
+	vaulttest.UseKeyring(t)
+	if got := AgentRecord("copilot").Model; got != "" {
+		t.Errorf("Pin(env only) = %q, want empty: pins are vault-only", got)
+	}
+	vaulttest.SetRecord(t, "copilot", "model", "from-vault")
+	if got := AgentRecord("copilot").Model; got != "from-vault" {
+		t.Errorf("Pin(vault+env) = %q, want from-vault", got)
+	}
+}
+
+func TestPinProfileIsNotTheSessionMarker(t *testing.T) {
+	vaulttest.UseKeyring(t)
+	t.Setenv(EnvSessionProfile, "qa")
+	if got := AgentRecord("claude").Profile; got != "" {
+		t.Errorf("claude record profile = %q, want empty: the session marker is read by SessionProfile only", got)
+	}
+	if got := SessionProfile(); got != "qa" {
+		t.Errorf("SessionProfile = %q, want qa", got)
+	}
+}
+
+func TestValidRouteAccountKey(t *testing.T) {
+	for key, want := range map[string]bool{
+		"anthropic·max": true, "github·copilot": true, "github·someuser": true, "opencode·go": true,
+		"copilot:x": false, "copilot": false, "anthropic:max": false, "": false,
+	} {
+		if got := validRouteAccountKey(key); got != want {
+			t.Errorf("validRouteAccountKey(%q) = %v, want %v", key, got, want)
+		}
+	}
+}
+
+func TestRenderPinsSorted(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	vaulttest.Put(t, vault.Pins, "B", "2")
+	vaulttest.Put(t, vault.Pins, "A", "1")
+	got, err := RenderPins()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []byte("# Managed by `claude-code switch` / `claude-code models --pin`.\nA=1\nB=2\n")
+	if !bytes.Equal(got, want) {
+		t.Fatalf("RenderPins() = %q, want %q", got, want)
+	}
+}
+
+func TestRenderPinsAbsent(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	for _, existing := range []bool{false, true} {
+		if existing {
+			vaulttest.Put(t, vault.Env, "PLAIN", "value")
+		}
+		if _, err := RenderPins(); !errors.Is(err, fs.ErrNotExist) {
+			t.Errorf("RenderPins (existing vault %v) error = %v, want fs.ErrNotExist", existing, err)
+		}
+	}
+}
+
+func TestSelectSurfacesUnreadableVault(t *testing.T) {
+	reg := selectTestRegistry(t)
+	vaulttest.Put(t, vault.Meta, "schema", "999")
+	for _, env := range []string{"", "openai"} {
+		t.Setenv(EnvSessionProfile, env)
+		if _, err := Select(reg, ""); err == nil || !strings.Contains(err.Error(), "vault: pins unreadable") {
+			t.Errorf("Select (env %q) error = %v, want vault: pins unreadable", env, err)
+		}
+	}
+	if got := SessionProfile(); got != "openai" {
+		t.Errorf("SessionProfile() = %q, want env value openai despite unreadable vault", got)
+	}
+	if _, err := PinDiff(map[string]string{"K": "gemini"}); err == nil {
+		t.Error("PinDiff must return the vault read error")
+	}
+}
+
+func TestSetProviderModelConcurrentSlots(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	start := make(chan struct{})
+	results := make(chan error, 2)
+	for alias, model := range map[string]string{"opus": "a", "haiku": "b"} {
+		go func() {
+			<-start
+			results <- SetProviderModel("openai", alias, model)
+		}()
+	}
+	close(start)
+	for range 2 {
+		if err := <-results; err != nil {
+			t.Errorf("SetProviderModel: %v", err)
+		}
+	}
+	reg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := reg.Providers["openai"]
+	if p.Models["opus"] != "a" || p.Models["haiku"] != "b" {
+		t.Fatalf("concurrent model edits lost an alias: %v, want opus=a and haiku=b", p.Models)
+	}
+}
+
+func TestSetProviderFieldsPreservesPreviousDoc(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	if err := SetProviderFields("openai", map[string]any{"base_url": "https://first.example/v1"}); err != nil {
+		t.Fatal(err)
+	}
+	first, err := OverlayDoc()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := SetProviderFields("openai", map[string]any{"base_url": "https://second.example/v1"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := vault.View(func(tx *vault.Tx) error {
+		prev, ok := tx.Get(vault.Overlay, "providers.prev")
+		if !ok || !bytes.Equal([]byte(prev), first) {
+			t.Errorf("providers.prev = %q, present %v; want %q", prev, ok, first)
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	current, err := OverlayDoc()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Equal(current, first) {
+		t.Error("second write did not update overlay/providers")
+	}
+	reg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := reg.Providers["openai"].BaseURL; got != "https://second.example/v1" {
+		t.Errorf("second base_url = %q", got)
+	}
+}
+
+func TestSetProviderFieldsRefusesInvalidOverlay(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	const prior = `{"providers":{"openai":{"openai":{"protocol":"openai","base_url":"https://example.com/v1","auth":{"type":"none"}}}}}`
+	vaulttest.Put(t, vault.Overlay, "providers", prior)
+	vaulttest.Put(t, vault.Overlay, "providers.prev", "{}")
+	if err := Validate([]byte(prior)); err != nil {
+		t.Fatalf("valid initial overlay: %v", err)
+	}
+	if err := SetProviderFields("openai", map[string]any{"base_url": ""}); err == nil {
+		t.Fatal("empty base_url with no routes must fail validation")
+	}
+	if err := vault.View(func(tx *vault.Tx) error {
+		for key, want := range map[string]string{"providers": prior, "providers.prev": "{}"} {
+			if got, ok := tx.Get(vault.Overlay, key); !ok || got != want {
+				t.Errorf("refused edit changed %s: %q, present %v; want %q", key, got, ok, want)
+			}
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestSetPinsEmptyDeletesKey(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	vaulttest.Put(t, vault.Pins, "K", "openai")
+	vaulttest.Put(t, vault.Pins, "J", "keep")
+	diff, err := PinDiff(map[string]string{"K": ""})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"K: openai \u2192 (unset)"}; !reflect.DeepEqual(diff, want) {
+		t.Fatalf("deletion diff = %q, want %q", diff, want)
+	}
+	if err := SetPins(map[string]string{"K": ""}); err != nil {
+		t.Fatal(err)
+	}
+	if err := vault.View(func(tx *vault.Tx) error {
+		if got, ok := tx.Get(vault.Pins, "K"); ok {
+			t.Errorf("deleted pin still present: %q", got)
+		}
+		if got := Pin("J"); got != "keep" {
+			t.Errorf("unrelated pin = %q; want keep", got)
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if got := Pin("K"); got != "" {
+		t.Errorf("deleted Pin() = %q, want empty", got)
+	}
+	diff, err = PinDiff(map[string]string{"K": "openai"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"K: (unset) \u2192 openai"}; !reflect.DeepEqual(diff, want) {
+		t.Fatalf("diff after deletion = %q, want %q", diff, want)
+	}
+}
+
+func TestPinDiffNeverWritesVault(t *testing.T) {
+	for _, existing := range []bool{false, true} {
+		t.Run(map[bool]string{false: "absent", true: "existing"}[existing], func(t *testing.T) {
+			t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+			var before fs.FileInfo
+			if existing {
+				vaulttest.Put(t, vault.Pins, "A", "1")
+				past := time.Unix(1, 0)
+				if err := os.Chtimes(vault.Path(), past, past); err != nil {
+					t.Fatal(err)
+				}
+				var err error
+				before, err = os.Stat(vault.Path())
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			diff, err := PinDiff(map[string]string{"B": "2"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if want := []string{"B: (unset) \u2192 2"}; !reflect.DeepEqual(diff, want) {
+				t.Fatalf("PinDiff = %q, want %q", diff, want)
+			}
+			after, err := os.Stat(vault.Path())
+			if !existing {
+				if !errors.Is(err, fs.ErrNotExist) {
+					t.Fatalf("PinDiff created a vault: stat error = %v", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !after.ModTime().Equal(before.ModTime()) || after.Size() != before.Size() {
+				t.Fatalf("PinDiff changed vault mtime/size: %v/%d -> %v/%d",
+					before.ModTime(), before.Size(), after.ModTime(), after.Size())
+			}
+		})
+	}
+}
+
+func TestLoadMalformedVaultOverlay(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	vaulttest.Put(t, vault.Overlay, "providers", "{not json")
+	if _, err := Load(); err == nil || !strings.Contains(err.Error(), "vault overlay/providers") {
+		t.Fatalf("Load() error = %v, want vault overlay/providers", err)
 	}
 }
