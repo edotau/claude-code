@@ -245,20 +245,29 @@ func writeCountState(path string, cs countState) {
 
 // countEdits returns work units (edits + user turns/2), resuming after the last complete line; dispatched subagents' files (edits only) are re-scanned only when their summed size moved, never on every Stop.
 func countEdits(transcriptPath, countFile string) int {
+	return countWork(transcriptPath, countFile, true)
+}
+
+// countWork is countEdits; write=false counts the same units but persists no cache (the --dry-run view).
+func countWork(transcriptPath, countFile string, write bool) int {
 	fi, err := os.Stat(transcriptPath)
 	if err != nil || fi.IsDir() {
 		return 0
 	}
 	cs, _ := readCountState(countFile)
 	if fi.Size() < cs.offset {
-		_ = os.Remove(countFile)
+		if write {
+			_ = os.Remove(countFile)
+		}
 		cs = countState{}
 	}
 	mainProgressed := false
 	if fi.Size() != cs.offset {
 		deltaEdits, deltaTurns, next := transcript.CountWorkFrom(transcriptPath, cs.offset)
 		if next < cs.offset {
-			_ = os.Remove(countFile)
+			if write {
+				_ = os.Remove(countFile)
+			}
 			cs = countState{}
 		}
 		cs.edits += deltaEdits
@@ -268,12 +277,12 @@ func countEdits(transcriptPath, countFile string) int {
 			mainProgressed = true
 		}
 	}
-	subEdits, subBytes := countSubagentEdits(transcriptPath, cs.subBytes, cs.subEdits)
-	if mainProgressed || subEdits != cs.subEdits || subBytes != cs.subBytes {
+	subEdits, subBytes := subagentEdits(transcriptPath, cs.subBytes, cs.subEdits, write)
+	if write && (mainProgressed || subEdits != cs.subEdits || subBytes != cs.subBytes) {
 		cs.subEdits, cs.subBytes = subEdits, subBytes
 		writeCountState(countFile, cs)
 	}
-	return cs.edits + cs.subEdits + cs.turns/userTurnsPerEdit
+	return cs.edits + subEdits + cs.turns/userTurnsPerEdit
 }
 
 // subFileState is one subagent file's offset + edits already counted past that offset, cached in the count file's sidecar so a size bump only rescans the bytes appended since the last Stop.
@@ -304,6 +313,11 @@ func writeSidecar(path string, m map[string]subFileState) {
 
 // countSubagentEdits sums agent-*.jsonl sizes under the session's subagents dir and only recounts their edits when that sum moved since the cached value — then only the per-file bytes appended since each file's own cached offset (sidecar ".offsets.json" inside the subagents dir), never the whole file from byte 0.
 func countSubagentEdits(transcriptPath string, cachedBytes int64, cachedEdits int) (edits int, totalBytes int64) {
+	return subagentEdits(transcriptPath, cachedBytes, cachedEdits, true)
+}
+
+// subagentEdits is countSubagentEdits; write=false recounts without the lock or sidecar write.
+func subagentEdits(transcriptPath string, cachedBytes int64, cachedEdits int, write bool) (edits int, totalBytes int64) {
 	dir := inflight.SubagentDir(transcriptPath)
 	if dir == "" {
 		return 0, 0
@@ -345,6 +359,9 @@ func countSubagentEdits(transcriptPath string, cachedBytes int64, cachedEdits in
 			writeSidecar(sidecar, next)
 		}
 		return sum
+	}
+	if !write {
+		return recount(false), totalBytes
 	}
 	// Stop and SessionEnd can both call in for the same session: serialize the read-compute-write so neither writer regresses the other's offsets; a lock timeout keeps hooks fast by skipping the write.
 	ran, lockErr := paths.TryFileLock(sidecar+".lock", sidecarLockWait, func() error {

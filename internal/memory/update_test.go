@@ -1,9 +1,11 @@
 package memory
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -71,7 +73,7 @@ func TestAgentUpdatePrompt_WithCWDAppendsGitActivity(t *testing.T) {
 
 	ts := time.Now().Add(-time.Hour).UTC().Format(time.RFC3339)
 	path := writeTranscript(t, `{"timestamp":"`+ts+`"}`)
-	got, err := agentUpdatePrompt(path, cwd)
+	got, err := agentUpdatePrompt(path, cwd, false)
 	if err != nil {
 		t.Fatalf("agentUpdatePrompt: %v", err)
 	}
@@ -518,5 +520,37 @@ func TestDreamFailedRunRetriesAfterBackoff(t *testing.T) {
 	}
 	if !DreamDue(root, now.Add(dreamRetry+time.Minute)) {
 		t.Error("a failed dream is not due after its backoff")
+	}
+}
+
+// TestHistoricalUpdatePromptAndReport: an older session's prompt forbids current state, and an edit to it is reported.
+func TestHistoricalUpdatePromptAndReport(t *testing.T) {
+	tempConfig(t)
+	root := repoRoot(t, "proj")
+	dir := memstore.Dir(root)
+	write(t, filepath.Join(dir, "activeContext.md"), "live focus\n")
+	var prompt string
+	run := func(_ context.Context, p, _ string) (string, error) {
+		prompt = p
+		write(t, filepath.Join(dir, "activeContext.md"), "(NOW, newest) stale\n")
+		return "fake", nil
+	}
+	var out bytes.Buffer
+	tr := filepath.Join(t.TempDir(), "s.jsonl")
+	write(t, tr, "{}\n")
+	if err := Update(UpdateOptions{Run: run, Transcript: tr, CWD: root, Session: "h1", Historical: true, Out: &out}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(prompt, "OLDER session") || !strings.Contains(prompt, "never write NOW") {
+		t.Errorf("historical prompt lacks the rule:\n%s", prompt)
+	}
+	if !strings.Contains(out.String(), "changed activeContext.md") {
+		t.Errorf("edit to activeContext.md not reported: %q", out.String())
+	}
+	if err := Update(UpdateOptions{Run: run, Transcript: tr, CWD: root, Session: "h2", Out: io.Discard}); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(prompt, "OLDER session") {
+		t.Error("a normal update must not carry the historical rule")
 	}
 }

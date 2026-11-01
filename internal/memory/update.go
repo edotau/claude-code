@@ -2,6 +2,7 @@ package memory
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -29,6 +30,32 @@ const UpdatePrompt = "Background update of a finished session (transcript: %s). 
 	"COMPLETE, every step, not the abbreviated one. " +
 	"Do it in this order so a truncated run still leaves the bank coherent: sessionHistory first, then " +
 	"activeContext, then progress, decisionLog, and conventions. Be surgical; touch nothing else."
+
+// historicalRule is appended to the worker prompt of a swept (older, finished) session.
+const historicalRule = "\n\nThis is an OLDER session, not the current one: write sessionHistory.md and dated decisionLog.md " +
+	"entries only, labelled with the session's real date. Do NOT edit activeContext.md, progress.md, conventions.md " +
+	"or projectContext.md, and never write NOW or newest."
+
+// currentStateFiles are the bank files an older session must never touch.
+var currentStateFiles = []string{"activeContext.md", "progress.md", "conventions.md", "projectContext.md"}
+
+// snapshotFiles reads each of names under dir; a missing file maps to nil.
+func snapshotFiles(dir string, names []string) map[string][]byte {
+	snap := make(map[string][]byte, len(names))
+	for _, n := range names {
+		snap[n], _ = os.ReadFile(filepath.Join(dir, n))
+	}
+	return snap
+}
+
+// warnChanged names every file whose bytes differ from snap; it never restores (a live session may own the write).
+func warnChanged(out io.Writer, dir string, snap map[string][]byte) {
+	for n, was := range snap {
+		if now, _ := os.ReadFile(filepath.Join(dir, n)); !bytes.Equal(now, was) {
+			fmt.Fprintf(out, "memory update: WARNING: historical run changed %s (not restored)\n", n)
+		}
+	}
+}
 
 // Update statuses: pending = dispatched, not yet reported.
 const (
@@ -92,7 +119,7 @@ type AgentFunc func(ctx context.Context, prompt, workdir string) (who string, er
 
 // agentUpdatePrompt frames `claude-code memory update`'s procedure for an agent that has no slash
 // commands; the procedure itself is one copy, embedded at prompts/update.md.
-func agentUpdatePrompt(transcript, cwd string) (string, error) {
+func agentUpdatePrompt(transcript, cwd string, historical bool) (string, error) {
 	ref, err := bank.Reference("update")
 	if err != nil {
 		return "", err
@@ -104,7 +131,14 @@ func agentUpdatePrompt(transcript, cwd string) (string, error) {
 		"Write in this order so a truncated run leaves the bank coherent: sessionHistory first, then " +
 		"activeContext, progress, decisionLog, conventions. Be surgical; touch nothing else." +
 		gitSinceBlock(transcript, cwd) +
-		tagBlock(transcript), nil
+		tagBlock(transcript) + historicalBlock(historical), nil
+}
+
+func historicalBlock(historical bool) string {
+	if historical {
+		return historicalRule
+	}
+	return ""
 }
 
 // firstTranscriptTimestamp reads only the first JSONL line's "timestamp" field — the session's
@@ -218,6 +252,7 @@ type UpdateOptions struct {
 	Transcript string
 	CWD        string
 	Session    string
+	Historical bool          // an older session: the prompt forbids current-state files and a changed one is reported
 	Timeout    time.Duration // 0 = UpdateTimeout
 	Out        io.Writer
 }
@@ -244,11 +279,15 @@ func Update(o UpdateOptions) error {
 	ran := false
 	lockErr := paths.WithFileLock(bank.LockPath(dir), func() error {
 		ran = true
+		if o.Historical {
+			snap := snapshotFiles(dir, currentStateFiles)
+			defer warnChanged(o.Out, dir, snap)
+		}
 		before, beforeHome = bank.NewestMtime(dir), bank.NewestMtime(memstore.HomeBankDir())
 		ctx, cancel := context.WithTimeout(context.Background(), o.Timeout)
 		defer cancel()
 		if o.Run != nil {
-			prompt, perr := agentUpdatePrompt(o.Transcript, o.CWD)
+			prompt, perr := agentUpdatePrompt(o.Transcript, o.CWD, o.Historical)
 			if perr != nil {
 				runErr = perr
 				return nil
@@ -259,7 +298,7 @@ func Update(o UpdateOptions) error {
 			fmt.Fprintln(o.Out, "memory update: ran on", who)
 			return nil
 		}
-		cmd := exec.CommandContext(ctx, o.Claude, "-p", fmt.Sprintf(UpdatePrompt, o.Transcript)+tagBlock(o.Transcript), "--max-turns", "40")
+		cmd := exec.CommandContext(ctx, o.Claude, "-p", fmt.Sprintf(UpdatePrompt, o.Transcript)+tagBlock(o.Transcript)+historicalBlock(o.Historical), "--max-turns", "40")
 		cmd.Dir = o.CWD
 		cmd.Env = append(os.Environ(), bank.UpdateChildEnv+"=1")
 		// A stored setup-token keeps the unattended update working after the interactive /login session expires.
