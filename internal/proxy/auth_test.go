@@ -37,13 +37,6 @@ func (g *routeState) premark(provider string) {
 	}
 }
 
-func (g *routeState) unmark(provider string) {
-	g.t.Helper()
-	if err := router.ClearAuth(router.ProviderAccount(provider)); err != nil {
-		g.t.Fatal(err)
-	}
-}
-
 func (g *routeState) count() int { return len(router.LoadState()) }
 
 // setupRouter is setup with a keyring-backed vault (sealed secrets work) and a hook to tweak the router.
