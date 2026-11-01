@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/edotau/claude-code/internal/vault"
 
@@ -157,6 +158,7 @@ func vaultSectionMax(heading string, rows [][2]string, width, keyMax, valueMax i
 		}
 		rows[i] = r
 	}
+	rows = clipValues(rows, width)
 	var b strings.Builder
 	b.WriteString(heading)
 	b.WriteByte('\n')
@@ -170,6 +172,22 @@ func vaultSectionMax(heading string, rows [][2]string, width, keyMax, valueMax i
 	}
 	b.WriteString(table.Indented(cells, width, nil))
 	return b.String()
+}
+
+// clipValues clips values to the room left after the widest key, so a narrow terminal clips the value, not the key.
+func clipValues(rows [][2]string, width int) [][2]string {
+	keyW := 0
+	for _, r := range rows {
+		keyW = max(keyW, utf8.RuneCountInString(r[0]))
+	}
+	room := width - 2 - keyW - 2 // indent and the minimum column gap
+	if width <= 0 || room < 1 {
+		return rows
+	}
+	for i, r := range rows {
+		rows[i][1] = table.Truncate(r[1], room)
+	}
+	return rows
 }
 
 // vaultProvidersText renders the providers overlay as a provider table (PLANS stays JSON-only) and one-line lists.
