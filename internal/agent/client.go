@@ -4,7 +4,7 @@ import (
 	"cmp"
 	"context"
 
-	"github.com/edotau/claude-code/internal/network/tailscale"
+	"github.com/edotau/claude-code/internal/network/remote"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 )
@@ -42,7 +42,7 @@ func (c *Client) Prepare(ctx context.Context, o RunOptions, job *Record) (*Prepa
 	}
 	p := &Prepared{}
 	if o.Host != "" {
-		if err := tailscale.ValidHost(o.Host); err != nil {
+		if err := remote.ValidHost(o.Host); err != nil {
 			return nil, err
 		}
 		r = NewRemoteEngine(o.Agent, o.Host, RemoteBin(o.RemoteBin), o.Fallback)

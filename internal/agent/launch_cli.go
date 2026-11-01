@@ -13,7 +13,6 @@ import (
 
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/ui/ansi"
 )
 
 // LaunchPlan resolves `claude-code run <agent>`: the opus target via Configure, else the agent's own login.
@@ -88,7 +87,7 @@ func cliPlan(ctx context.Context, name string, o LaunchOptions, args []string) (
 		}
 	}
 	// An own-login note is only worth a line on an interactive launch (or --print-env): `opencode --version` stays quiet.
-	showOwnLoginNote := o.PrintEnv || (ansi.IsTerminal(os.Stderr) && interactiveArgs(args))
+	showOwnLoginNote := o.PrintEnv || (IsTerminal(os.Stderr) && interactiveArgs(args))
 	if errors.Is(err, ErrOwnLogin) {
 		if showOwnLoginNote {
 			fmt.Fprintln(NoticeOut, note)

@@ -22,6 +22,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent/batch"
 	"github.com/edotau/claude-code/internal/agent/project"
 	"github.com/edotau/claude-code/internal/agent/tree"
+	"github.com/edotau/claude-code/internal/network/remote"
 	"github.com/edotau/claude-code/internal/network/tailscale"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
@@ -711,7 +712,7 @@ func listRemoteAgents(host, bin, format string) int {
 	if strings.TrimSpace(bin) == "" || strings.ContainsAny(bin, "\r\n\x00") {
 		return fail("agents: invalid remote binary %q", bin)
 	}
-	argv, err := tailscale.StreamArgs(host, "exec "+tailscale.QuotePath(bin)+" agents --format "+tailscale.QuoteSH(format))
+	argv, err := remote.StreamArgs(host, "exec "+tailscale.QuotePath(bin)+" agents --format "+tailscale.QuoteSH(format))
 	if err != nil {
 		return fail("agents: %v", err)
 	}

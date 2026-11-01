@@ -1,4 +1,4 @@
-package tailscale
+package shapes
 
 import (
 	"strings"
