@@ -14,7 +14,7 @@ func TestParseAgentsRejections(t *testing.T) {
 		"roster key":    `{"codex":{"prompt":"p"}}`,
 		"bad key":       `{"bad name":{"prompt":"p"}}`,
 		"no prompt":     `{"sec":{"prompt":"  "}}`,
-		"bad runner":    `{"sec":{"prompt":"p","runner":"nope"}}`,
+		"bad agent":     `{"sec":{"prompt":"p","agent":"nope"}}`,
 		"unknown field": `{"sec":{"prompt":"p","modle":"x"}}`,
 		"trailing data": `{"sec":{"prompt":"p"}} {}`,
 		"missing file":  filepath.Join(t.TempDir(), "absent.json"),
@@ -27,9 +27,17 @@ func TestParseAgentsRejections(t *testing.T) {
 	}
 }
 
+// The retired "runner" key yields the one-line rename hint, not the raw decoder error.
+func TestParseAgentsOldRunnerKeyHint(t *testing.T) {
+	_, err := ParseAgents(`{"sec":{"prompt":"p","runner":"codex"}}`)
+	if want := `--agents: key "runner" is now "agent"`; err == nil || err.Error() != want {
+		t.Fatalf("err = %v, want %q", err, want)
+	}
+}
+
 // Inline JSON and a file of the same shape parse to the same stamped definition; "tools":[] stays non-nil.
 func TestParseAgentsInlineAndFile(t *testing.T) {
-	body := `{"sec":{"prompt":"Be strict.","runner":"codex","model":"m","profile":"p","effort":"high","max_turns":4,"tools":[]}}`
+	body := `{"sec":{"prompt":"Be strict.","agent":"codex","model":"m","profile":"p","effort":"high","max_turns":4,"tools":[]}}`
 	file := filepath.Join(t.TempDir(), "agents.json")
 	if err := os.WriteFile(file, []byte(body+"\n"), 0o600); err != nil {
 		t.Fatal(err)
@@ -93,7 +101,7 @@ func TestOverlayInheritModelIsNone(t *testing.T) {
 // Record resolves the selector to its agent but, unlike Prepare, never routes or applies the rubric.
 func TestClientRecordSkipsRouting(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	defs, err := ParseAgents(`{"sec":{"prompt":"p","runner":"codex"}}`)
+	defs, err := ParseAgents(`{"sec":{"prompt":"p","agent":"codex"}}`)
 	if err != nil {
 		t.Fatal(err)
 	}

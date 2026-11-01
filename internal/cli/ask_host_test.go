@@ -283,7 +283,7 @@ func TestAskFailureEnvelopeCarriesResolvedRunner(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", dir)
 	t.Setenv("HOME", dir)
-	defs := `{"sec":{"prompt":"Be strict.","runner":"codex"}}`
+	defs := `{"sec":{"prompt":"Be strict.","agent":"codex"}}`
 	args := []string{"--agents", defs, "--agent", "sec", "--format", "json", "--background", "--env", "A=b", "x"}
 	code, stdout, stderr := captureOutput(t, func() int { return cmdAsk(args) })
 	var env struct{ Agent string }

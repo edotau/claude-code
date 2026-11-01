@@ -42,7 +42,10 @@ func LoadSchema(ref string) (*Schema, error) {
 	fm, body := textutil.ParseFrontmatter(string(raw))
 	str := func(k string) string { s, _ := fm[k].(string); return strings.TrimSpace(s) }
 	p := &Schema{Name: str("name"), Description: str("description"), Prompt: body, Model: str("model"),
-		Agent: str("runner"), Profile: str("profile"), Effort: str("effort")}
+		Agent: str("agent"), Profile: str("profile"), Effort: str("effort")}
+	if _, old := fm["runner"]; old {
+		return nil, fmt.Errorf("persona %q: frontmatter key runner is now agent", ref)
+	}
 	if p.Name == "" {
 		p.Name = strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
 	}
@@ -76,7 +79,7 @@ type agentsDef struct {
 	Tools       []string `json:"tools"` // nil = inherit, empty = no tools
 	Model       string   `json:"model"`
 	MaxTurns    int      `json:"max_turns"`
-	Agent       string   `json:"runner"`
+	Agent       string   `json:"agent"`
 	Profile     string   `json:"profile"`
 	Effort      string   `json:"effort"`
 }
@@ -98,6 +101,9 @@ func ParseAgents(arg string) (map[string]*Schema, error) {
 	dec.DisallowUnknownFields()
 	var wire map[string]agentsDef
 	if err := dec.Decode(&wire); err != nil {
+		if strings.Contains(err.Error(), `unknown field "runner"`) {
+			return nil, errors.New(`--agents: key "runner" is now "agent"`)
+		}
 		return nil, fmt.Errorf("--agents: %w", err)
 	}
 	if extra := (json.RawMessage)(nil); !errors.Is(dec.Decode(&extra), io.EOF) {
