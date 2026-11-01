@@ -1,161 +1,124 @@
-package vault_test
+package vault
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
-	"reflect"
-	"strings"
 	"testing"
-
-	"github.com/edotau/claude-code/internal/vault"
-	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
-func TestRetiredAfterTwoRotations(t *testing.T) {
-	vaulttest.UseKeyring(t)
-	k, err := vault.EnsureKey()
-	if err != nil {
-		t.Fatal(err)
+func TestEnsureKeyNoAnswerDoesNotGenerate(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("HARNESS_VAULT_KEY", "")
+	ring := &specKeyring{
+		values: make(map[string]string),
+		err:    ErrKeyringNoAnswer,
 	}
-	old, next, err := vault.RotateKey()
-	if err != nil {
-		t.Fatal(err)
+	useSpecKeyring(t, ring)
+
+	key, err := EnsureKey()
+	if err == nil {
+		t.Fatal("EnsureKey succeeded after ErrKeyringNoAnswer")
 	}
-	if old != k.Kid {
-		t.Fatalf("old = %s, want %s", old, k.Kid)
+	if key != nil {
+		t.Fatal("EnsureKey returned a key after ErrKeyringNoAnswer")
 	}
-	second, _, err := vault.RotateKey()
-	if err != nil {
-		t.Fatal(err)
+	ring.mu.Lock()
+	defer ring.mu.Unlock()
+	if len(ring.lookups) == 0 {
+		t.Error("EnsureKey did not consult the unavailable keyring")
 	}
-	if second != next {
-		t.Fatalf("second old = %s, want %s", second, next)
+	if ring.sets != 0 || ring.deletes != 0 || len(ring.values) != 0 {
+		t.Errorf("EnsureKey mutated keyring after ErrNoAnswer: sets=%d deletes=%d entries=%d",
+			ring.sets, ring.deletes, len(ring.values))
 	}
-	if err := vault.View(func(tx *vault.Tx) error {
-		if got, want := vault.Retired(tx), []string{k.Kid, next}; !reflect.DeepEqual(got, want) {
-			t.Errorf("Retired = %v, want %v", got, want)
+	if err := View(func(tx *Tx) error {
+		if kid, ok := tx.Get(Meta, "kid"); ok {
+			t.Errorf("EnsureKey persisted kid %q after ErrNoAnswer", kid)
 		}
+		return nil
+	}); err != nil {
+		t.Fatalf("read metadata after failed EnsureKey: %v", err)
+	}
+}
+
+// TestMasterKeyResolvesViaPerKidAccountOnPointerMismatch covers R1/R2's replacement for the
+// retired ".next" pending-key scheme: when the convenience current-key pointer disagrees with the
+// db's recorded kid (a crashed or cross-root rotation), MasterKey must still resolve the exact key
+// via its own immutable per-kid account — durable storage, not a disposable pending slot.
+func TestMasterKeyResolvesViaPerKidAccountOnPointerMismatch(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	oldBytes := bytes.Repeat([]byte{0x31}, 32)
+	newBytes := bytes.Repeat([]byte{0x72}, 32)
+	newHash := sha256.Sum256(newBytes)
+	newKid := hex.EncodeToString(newHash[:])[:16]
+	ring := &specKeyring{values: make(map[string]string)}
+	useSpecKeyring(t, ring)
+
+	// Materialize the vault (and its real vault_id) before deriving the fixture key: the HKDF
+	// subkey is salted by vault_id, so deriving one against a not-yet-created vault would mismatch.
+	if err := Update(func(tx *Tx) error { return nil }); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HARNESS_VAULT_KEY", base64.StdEncoding.EncodeToString(newBytes))
+	nextKey, source, err := MasterKey()
+	if err != nil {
+		t.Fatalf("load next key from env for crash fixture: %v", err)
+	}
+	if nextKey == nil {
+		t.Fatal("MasterKey returned nil for the fixture key")
+	}
+	if source != "env" || nextKey.Kid != newKid {
+		t.Fatalf("fixture key: source=%q kid=%q, want env and %q", source, nextKey.Kid, newKid)
+	}
+	record := Record{Sealed: nextKey.Seal("ROTATED_TOKEN", "rotation-resume-value"), Kid: newKid}
+	// Crash after the re-seal transaction commits, before the convenience pointer is advanced.
+	if err := Update(func(tx *Tx) error {
+		if err := tx.Put(Meta, "kid", newKid); err != nil {
+			return err
+		}
+		return tx.PutRecord("ROTATED_TOKEN", record)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var id string
+	if err := View(func(tx *Tx) error {
+		id, _ = tx.Get(Meta, "vault_id")
 		return nil
 	}); err != nil {
 		t.Fatal(err)
 	}
-}
-
-// mismatchedEnvForKeyring returns a HARNESS_VAULT_KEY value whose kid (sha256(root)[:16] hex,
-// matching parseKey's scheme) differs from k's, so a RotateKey call still resolves the master key
-// via the keyring fallback (source == "keyring") even though the env var is set — the scenario
-// the --force guard actually has to catch.
-func mismatchedEnvForKeyring(t *testing.T, k *vault.Key) string {
-	t.Helper()
-	for b := range byte(255) {
-		raw := make([]byte, 32)
-		for i := range raw {
-			raw[i] = b
-		}
-		sum := sha256.Sum256(raw)
-		if hex.EncodeToString(sum[:])[:16] != k.Kid {
-			return base64.StdEncoding.EncodeToString(raw)
-		}
+	if id == "" {
+		t.Fatal("new vault has no vault_id")
 	}
-	t.Fatal("could not find a mismatched fixture key")
-	return ""
-}
+	acct := "vault-key/" + id
+	ring.values[acct] = base64.StdEncoding.EncodeToString(oldBytes)            // stale pointer
+	ring.values[acct+"."+newKid] = base64.StdEncoding.EncodeToString(newBytes) // durable, per-kid
+	t.Setenv("HARNESS_VAULT_KEY", "")
 
-// TestRotateKeyRefusesWithEnvSetWithoutForce: RotateKey must refuse, not silently rotate out from
-// under HARNESS_VAULT_KEY, when the env var is set and --force (vault.ForceRotate) was not passed.
-func TestRotateKeyRefusesWithEnvSetWithoutForce(t *testing.T) {
-	vaulttest.UseKeyring(t)
-	k, err := vault.EnsureKey()
+	key, source, err := MasterKey()
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("MasterKey did not resolve the new kid via its immutable account: %v", err)
 	}
-	t.Setenv("HARNESS_VAULT_KEY", mismatchedEnvForKeyring(t, k))
-
-	// Sanity: MasterKey still resolves via the keyring fallback despite the mismatched env var.
-	_, source, err := vault.MasterKey()
-	if err != nil || source != "keyring" {
-		t.Fatalf("fixture setup: MasterKey = source %q err %v, want keyring/nil", source, err)
+	if key == nil {
+		t.Fatal("MasterKey returned nil without an error")
 	}
-
-	_, _, err = vault.RotateKey()
-	if err == nil {
-		t.Fatal("RotateKey succeeded with HARNESS_VAULT_KEY set and no --force")
+	if source != "keyring" || key.Kid != newKid {
+		t.Errorf("resumed key: source=%q kid=%q, want keyring and %q", source, key.Kid, newKid)
 	}
-	if !strings.Contains(err.Error(), "HARNESS_VAULT_KEY") {
-		t.Errorf("RotateKey error = %q, want it to name HARNESS_VAULT_KEY", err.Error())
+	got, err := key.Open("ROTATED_TOKEN", record)
+	if err != nil || got != "rotation-resume-value" {
+		t.Errorf("resumed key cannot decrypt committed record: got=%q err=%v", got, err)
 	}
-}
-
-// TestRotateKeyRefusesWithKeyCommandSetWithoutForce mirrors the env case for meta/key_command.
-func TestRotateKeyRefusesWithKeyCommandSetWithoutForce(t *testing.T) {
-	vaulttest.UseKeyring(t)
-	if _, err := vault.EnsureKey(); err != nil {
-		t.Fatal(err)
+	ring.mu.Lock()
+	defer ring.mu.Unlock()
+	seenCurrent, seenPerKid := false, false
+	for _, name := range ring.lookups {
+		seenCurrent = seenCurrent || name == acct
+		seenPerKid = seenPerKid || name == acct+"."+newKid
 	}
-	vaulttest.Put(t, vault.Meta, "key_command", `["/bin/true"]`)
-
-	_, _, err := vault.RotateKey()
-	if err == nil {
-		t.Fatal("RotateKey succeeded with meta/key_command set and no --force")
-	}
-	if !strings.Contains(err.Error(), "key_command") {
-		t.Errorf("RotateKey error = %q, want it to name key_command", err.Error())
-	}
-}
-
-// TestRotateKeyRefusesWhenRetiredUnparsable: an unparsable meta/retired must refuse the rotation
-// outright rather than silently overwriting it with a fresh one-entry history — the whole point
-// of retaining every retired kid is that an old archive/reader can still find its key.
-func TestRotateKeyRefusesWhenRetiredUnparsable(t *testing.T) {
-	vaulttest.UseKeyring(t)
-	k, err := vault.EnsureKey()
-	if err != nil {
-		t.Fatal(err)
-	}
-	vaulttest.Put(t, vault.Meta, "retired", "not valid json")
-
-	_, _, err = vault.RotateKey()
-	if err == nil {
-		t.Fatal("RotateKey succeeded with an unparsable meta/retired")
-	}
-	if !strings.Contains(err.Error(), "retired") {
-		t.Errorf("RotateKey error = %q, want it to name meta/retired", err.Error())
-	}
-
-	if err := vault.View(func(tx *vault.Tx) error {
-		raw, _ := tx.Get(vault.Meta, "retired")
-		if raw != "not valid json" {
-			t.Errorf("meta/retired = %q, want it left untouched by the refused rotation", raw)
-		}
-		kid, _ := tx.Get(vault.Meta, "kid")
-		if kid != k.Kid {
-			t.Errorf("meta/kid = %q, want it still %q (rotation must not have committed)", kid, k.Kid)
-		}
-		return nil
-	}); err != nil {
-		t.Fatal(err)
-	}
-}
-
-// TestRotateKeyForceBypassesKeyCommandGuard: vault.ForceRotate lets rotation proceed, and the new
-// key is the one subsequent reads resolve.
-func TestRotateKeyForceBypassesKeyCommandGuard(t *testing.T) {
-	vaulttest.UseKeyring(t)
-	k, err := vault.EnsureKey()
-	if err != nil {
-		t.Fatal(err)
-	}
-	vaulttest.Put(t, vault.Meta, "key_command", `["/bin/true"]`)
-
-	oldKid, newKid, err := vault.RotateKey(vault.ForceRotate())
-	if err != nil {
-		t.Fatalf("RotateKey(ForceRotate()) = %v, want success", err)
-	}
-	if oldKid != k.Kid {
-		t.Errorf("oldKid = %q, want %q", oldKid, k.Kid)
-	}
-	if newKid == "" || newKid == oldKid {
-		t.Errorf("newKid = %q, want a fresh non-empty kid", newKid)
+	if !seenCurrent || !seenPerKid {
+		t.Errorf("MasterKey must try the pointer then the per-kid account on kid mismatch; lookups=%v", ring.lookups)
 	}
 }
