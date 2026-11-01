@@ -10,10 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"go.etcd.io/bbolt"
-
 	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
+	"go.etcd.io/bbolt"
 )
 
 // leaseClient embeds each text as a 3-dim vector and counts the texts sent.
