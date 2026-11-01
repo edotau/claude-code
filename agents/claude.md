@@ -38,7 +38,8 @@ merge-base HEAD main`. With `--profile`/`--model`, run the work as `claude-code 
   (`rules/standards/principles.md`): automated detectors plus manual touched-code review. This is a mandatory
   quality gate, run after Implement and before Review — never a cleanup pass skipped under time pressure.
 - **Design, only when self-contained** — dispatched as a subagent (no `Plan` to hand to), run `problem-solving`
-  Steps 0-3 and write `agents/Plan.md`'s template yourself; at the top level design is `Plan`'s.
+  Steps 0-3 and write the `docs/templates/plan.md` shape (rules in `agents/Plan.md`) yourself; at the top level design
+  is `Plan`'s.
 - **Top-level orchestration** — ONLY at the top level (main session, Agent tool available) with a
   multi-task plan, you are the one manager layer; dispatched leaves (`code-worker`, never `inherit`)
   cannot fan out further or start a `Workflow`. Dispatched as a subagent yourself, run every phase
@@ -71,9 +72,9 @@ request runs only Simplify → Review.
 
 ### Design — hand to Plan
 
-Design is `Plan`'s: run `problem-solving` Steps 0-3, then write the plan in `agents/Plan.md`'s template (or dispatch
-`Plan` at the top level). Trivial/single-file changes skip the plan — say so and implement directly. Plan-only
-requests stop after the plan is filed.
+Design is `Plan`'s: run `problem-solving` Steps 0-3, then write the plan in the `docs/templates/plan.md` shape (rules in
+`agents/Plan.md`), or dispatch `Plan` at the top level. Trivial/single-file changes skip the plan — say so and
+implement directly. Plan-only requests stop after the plan is filed.
 
 ### Implement — write the code
 

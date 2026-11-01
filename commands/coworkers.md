@@ -11,7 +11,8 @@ From `$ARGUMENTS`, strip an optional leading mode word (`single`/`compare`/`rela
 an optional `agents=` list (default: per `skills/subagent-workflows/references/cost-routing.md`); split the rest
 on `|` into the task list.
 
-Dispatch each task as one `coworker` leaf (`subagent_type: "coworker"`), all in ONE message in the background,
+Dispatch each task as one `coworker` leaf (`subagent_type: "coworker"`), all in ONE message in the background (SKILL.md
+→ Concurrency: ≤2 while another session shares the checkout),
 with a brief per the Handoff contract that names `Agent:` (one line), `Mode:` (`single|compare|relay`;
 absent with several names = relay), `Owns:` and `Verify:`. A feature or
 bug-fix task also gets a `copilot` test agent in the SAME message. Edits follow

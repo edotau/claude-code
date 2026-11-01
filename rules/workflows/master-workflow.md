@@ -24,7 +24,7 @@ CLASSIFY → REVIEW → CODEBASE INTEL → RESEARCH → PLAN → [REFINE: opt-in
 | 6. Dispatch | `skills/subagent-workflows/SKILL.md` | Completed sub-tasks | Each passes its own check |
 | 7. Merge | `claude-code worktree merge` (if a worktree was used) | Merged diff | Clean merge, no leaf still running |
 | 8. Verify | `rules/standards/quality.md` → Verification Order (simplify is step 5) | Simplified, verified diff | Verification Order green |
-| 9. Commit | `@agent-copilot commit` (or plain git) | Commit on branch | Clean tree |
+| 9. Commit | `@agent-copilot commit` (or plain git) | Commit pushed on branch | Clean tree, pushed |
 
 ## Phase 0: Classify
 
@@ -91,6 +91,7 @@ and stale tests the change left behind; fold near-duplicate tests. Net test coun
 ## Phase 9: Commit
 
 Per `rules/standards/worktree-git.md`; `@agent-copilot commit` executes, `@agent-copilot pr` when a PR is requested.
+Then push the current branch (CLAUDE.md hard rule 5) — `commit` does not push.
 
 ## Quick reference
 

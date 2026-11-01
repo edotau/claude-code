@@ -49,7 +49,8 @@ A finding outside the leaf's files becomes a new line in this lane (same package
 
 1. Default: the shared tree, the leaf owning its new files. With the user's yes, `claude-code worktree create <name>`
    (a worktree at HEAD: commit or copy the leaf's owned files into it first).
-2. In that tree: `go build ./... && go vet <pkgs> && go test <pkgs>`; gate on the exit code, never a piped `| tail`.
+2. In that tree: `go build ./... && go vet <pkgs> && go test <pkgs>` (reorg mode, CLAUDE.md: drop `go test`); gate on
+   the exit code, never a piped `| tail`.
 3. The leaf's live check on real input.
 4. A changed seam (signature, argv/env builder, flag, file format): read producer and every consumer and run each
    consumer's tests — `go build ./...` alone has missed a broken consumer package.
