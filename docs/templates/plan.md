@@ -2,32 +2,70 @@
 
 Suggested slug: <slug>
 
+Date: YYYY-MM-DD. Snapshot: `<sha>` (line numbers are as of that commit and drift; function names are the contract).
+
 ## Context
 
-Why this change, what it must achieve, what is out of scope.
+**Goal.** What the owner asked for, in their words, and the rulings it rests on (decision ids).
 
-DECISION: <what was chosen> — rejected <alternative> — <why>
+**Out of scope.** What this plan does not change, and where that work goes instead.
+
+**Target shape, checked against the code.** Every assumption the design rests on, proven or refuted:
+
+| Assumption | Verdict | Evidence |
+| --- | --- | --- |
+| <what the design needs to be true> | Holds / **Wrong** / Partly | `<grep, go list or file:line that shows it>` |
+
+**Approaches.**
+
+- DECISION: <chosen approach> — <why it wins: smallest change, safe to stop after any commit>
+- Rejected: <alternative> — <the one reason it loses>
+
+## File map (when the plan moves or splits files)
+
+| File | Lines | Verdict | Stays | Goes to `<new home>` |
+| --- | --- | --- | --- | --- |
+| `path/to/file.go` | 120 | stays / moves / splits | <functions> | <functions> |
+
+## Interface (when the plan adds or changes exports)
+
+| Action | Replaces |
+| --- | --- |
+| `NewFunc(arg T) error` | the direct call at `path/to/file.go:42` |
 
 ## Phases
+
+Every commit runs this gate:
+
+```bash
+set -o pipefail
+go build ./... && go vet ./internal/<pkg>/...
+```
 
 ### Phase 1 — <verb> <object>
 
 **Files:** `path/to/file.go:120-145` (modify), `path/to/new.go` (create)
 **Change:** the exact edit, with the code — functions, signatures, data flow.
 **Verify:** live check `<command>` → expected output; then `go test ./internal/<pkg> -run '<Name>'`.
-**Agent / parallel:** `leaf: <code-worker|claude|…>, Agent: <requested agent or in-context>` (or
-`Workflow <name>`); parallel-safe with Phase N, or depends on Phase M.
-A phase that is itself a pipeline (implement+verify, audit a range, loop a gate) names the saved Workflow as its agent
-(`skills/subagent-workflows/references/saved-workflows.md`); the manager runs it only with the user's opt-in.
+**Agent / parallel:** `leaf: <code-worker|claude|…>, Agent: <requested agent or in-context>` (or `Workflow <name>`);
+parallel-safe with Phase N, or depends on Phase M.
 
 ### Phase 2 — <verb> <object>
 
 …
 
+## Tests (when the plan moves, deletes or breaks tests)
+
+| Test file | Lands in | Action |
+| --- | --- | --- |
+| `path/to/file_test.go` | `<pkg>` | none / simple fix / move / **delete** (listed in the debt report) |
+
 ## Risks / decisions for the user
 
-- <open question the user decides>
+- **D1 (before Phase N): <question>.** Options, the cost of each, and the recommendation.
+- **Risk: <what can go wrong>.** What catches it.
 - NEXT: <follow-up left out of this plan>
+- **Unverified.** What no check in this plan covers.
 
 ## Tasks
 
@@ -43,9 +81,10 @@ multi-lane split, see `skills/subagent-workflows/references/lane-orchestrator.md
 
 - [ ] Phase 1.1 — <name> — leaf: <subagent_type>, Agent: <agent> — owns: <files>
 - [ ] Phase 2.1 — <name> — leaf: <subagent_type>, Agent: <agent> — owns: <files>
+- [ ] **you** — Decide D1 before Phase N
 - [ ] Live check on the real surface
 - [ ] Scoped tests for the touched packages
 - [ ] Review (`claude-code codex review --adversarial --base <branch>`)
 - [ ] Full suite once
-- [ ] Commit (local; no push)
+- [ ] Commit, `make install`, push per task (named files only)
 - [ ] Handoff / `claude-code memory update`
