@@ -6,6 +6,8 @@ Suggested slug: <slug>
 
 Why this change, what it must achieve, what is out of scope.
 
+DECISION: <what was chosen> — rejected <alternative> — <why>
+
 ## Phases
 
 ### Phase 1 — <verb> <object>
@@ -24,7 +26,8 @@ A phase that is itself a pipeline (implement+verify, audit a range, loop a gate)
 
 ## Risks / decisions for the user
 
-…
+- <open question the user decides>
+- NEXT: <follow-up left out of this plan>
 
 ## Tasks
 

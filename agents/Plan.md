@@ -88,6 +88,9 @@ Every phase is:
   cases", "write tests for the above" without the test, or "similar to Phase N" (repeat it: tasks get read out of
   order); no type or function that no phase defines.
 - **Exact** — file paths with line ranges, the code for every code change, each command with its expected output.
+- **Tagged** — CLAUDE.md guideline 4's tags, one per line: `DECISION:` (what, the rejected alternative, why) for
+  each design choice, `NEXT:` for deferred work, `BUG:` for a defect found while reading, `NOTE:` for a fact to keep;
+  `memory update` files them.
 - **Explicit on dependencies** — parallel-safe phases are marked; disjoint packages run in parallel.
 - **Leaf-sized tasks** — see `## Tasks` leaf-size definition above.
 
