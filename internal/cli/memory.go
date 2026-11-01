@@ -25,6 +25,7 @@ var memorySubs = []memorySub{
 	{"remember", "<fact>", "append a fact to the bank (--type picks the file)"},
 	{"init", "", "create the repo's bank"},
 	{"review", "", "doctor + stats for the banks; --candidates ranks promotions"},
+	{"verify", "", "check bank claims against local evidence; never write or fetch"},
 	{"promote", "<id> --to <target>", "move or surface one block (home|rules|skill|claude-md)"},
 	{"update", "", "save the live session or --transcript; else print the procedure"},
 	{"dream", "", "consolidate the bank when due (--force, --dry-run)"},
@@ -235,6 +236,41 @@ func cmdMemoryUpdate(args []string) int {
 	return 0
 }
 
+func cmdMemoryVerify(args []string) int {
+	fs := memoryFlagSet("verify")
+	cwd := fs.String("cwd", "", "project root whose bank to verify (default: cwd)")
+	archives := fs.Bool("archives", false, "include archived bank blocks and native files")
+	all := fs.Bool("all-stores", false, "verify every store, including home")
+	if code, done := helptext.Parse(fs, args); done {
+		return code
+	}
+	if fs.NArg() > 0 {
+		return failUsage("memory verify: unexpected argument %q", fs.Arg(0))
+	}
+	if err := memory.Verify(os.Stdout, memory.VerifyOptions{CWD: *cwd, Archives: *archives,
+		AllStores: *all, HelpVerb: memoryVerifyHelpVerb}); err != nil {
+		return fail("memory verify: %v", err)
+	}
+	return 0
+}
+
+var memoryVerifyHelpVerbs = map[string]bool{}
+
+func init() {
+	for _, command := range commands() {
+		memoryVerifyHelpVerbs[command.name] = true
+	}
+}
+
+// memoryVerifyHelpVerb excludes launchers that forward -h after credential resolution or other side effects.
+func memoryVerifyHelpVerb(verb string) bool {
+	switch verb {
+	case "claude", "opus", "sonnet", "haiku", "fable", "science", "wl-paste":
+		return false
+	}
+	return memoryVerifyHelpVerbs[verb]
+}
+
 func cmdMemoryDream(args []string) int {
 	fs := memoryFlagSet("dream")
 	cwd := fs.String("cwd", "", "project root whose bank to consolidate (default: cwd)")
@@ -342,6 +378,7 @@ var memorySubcommands = map[string]func([]string) int{
 	"remember": cmdMemoryRemember,
 	"init":     cmdMemoryInit,
 	"review":   cmdMemoryReview,
+	"verify":   cmdMemoryVerify,
 	"promote":  cmdMemoryPromote,
 	"update":   cmdMemoryUpdate,
 	"dream":    cmdMemoryDream,
