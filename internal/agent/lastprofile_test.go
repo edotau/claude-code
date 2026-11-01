@@ -7,6 +7,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/schemas"
+	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
@@ -116,5 +117,25 @@ func TestCodexReusesLastProfileButOffStaysOff(t *testing.T) {
 	}
 	if got := launchProfile("codex", LaunchOptions{}).Provider; got != "" {
 		t.Errorf("off codex: got %q, the cache must never turn it on", got)
+	}
+}
+
+// Given a gemini last-used gateway row over a different vault pin, a gemini launch resolves flag > last-used > pin.
+func TestGeminiReusesLastProfile(t *testing.T) {
+	hermetic(t, "")
+	vaulttest.UseKeyring(t)
+	row := func(n string) string {
+		return `"` + n + `":{"preset":"databricks","host":"https://adb-1.azuredatabricks.net",` +
+			`"auth":{"type":"key","command":"echo tok"},"models":{"opus":"databricks-claude-opus-5-5"}}`
+	}
+	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"databricks":{`+row("gem-a")+`,`+row("gem-b")+`}}}`)
+	t.Chdir(t.TempDir())
+	vaulttest.SetRecord(t, "gemini", "profile", "gem-a")
+	RecordLastProfile("gemini", "gem-b", nil)
+	if got := launchProfile("gemini", LaunchOptions{}).Provider; got != "gem-b" {
+		t.Errorf("gemini last-used: got %q, want gem-b over the gem-a pin", got)
+	}
+	if got := launchProfile("gemini", LaunchOptions{Provider: "gem-a"}).Provider; got != "gem-a" {
+		t.Errorf("flag: got %q, want gem-a", got)
 	}
 }
