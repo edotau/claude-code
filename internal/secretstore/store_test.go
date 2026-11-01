@@ -2,18 +2,145 @@ package secretstore
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"errors"
+	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
+
+// The subprocess inherits the parent's t.TempDir-backed vault and master key.
+func TestConcurrentStoreHelperStoreOneValue(t *testing.T) {
+	name := os.Getenv("CONCURRENCY_HELPER_NAME")
+	if name == "" {
+		t.Skip("not invoked as the concurrency helper")
+	}
+	if err := Store(name, "v-"+name); err != nil {
+		t.Fatalf("Store(%s): %v", name, err)
+	}
+}
+
+func TestConcurrentStoreAllLand(t *testing.T) {
+	vaulttest.Use(t)
+	const processes = 8
+	names := make([]string, processes)
+	for i := range names {
+		names[i] = fmt.Sprintf("CONC_%02d", i)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	var wg sync.WaitGroup
+	start := make(chan struct{})
+	errs := make([]error, len(names))
+	for i, n := range names {
+		wg.Add(1)
+		go func(i int, n string) {
+			defer wg.Done()
+			<-start
+			cmd := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestConcurrentStoreHelperStoreOneValue$", "-test.v")
+			cmd.Env = append(os.Environ(),
+				"CONCURRENCY_HELPER_NAME="+n,
+			)
+			out, err := cmd.CombinedOutput()
+			if err != nil {
+				errs[i] = err
+				t.Logf("helper %s output:\n%s", n, out)
+			}
+		}(i, n)
+	}
+	close(start)
+	wg.Wait()
+	for i, err := range errs {
+		if err != nil {
+			t.Fatalf("helper %s failed: %v", names[i], err)
+		}
+	}
+
+	if got := Names(); !slices.Equal(got, names) {
+		t.Fatalf("Names = %v, want %v", got, names)
+	}
+	for _, n := range names {
+		if value, source, err := Lookup(n); err != nil || value != "v-"+n || source != "vault" {
+			t.Errorf("Lookup(%s) = (%q, %q, %v), want (%q, vault, nil)", n, value, source, err, "v-"+n)
+		}
+	}
+
+	m, err := LoadMeta()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, n := range names {
+		if _, ok := m[n]; !ok {
+			t.Errorf("vault metadata missing a row for %s", n)
+		}
+	}
+}
+
+func TestEffectiveVaultOnly(t *testing.T) {
+	vaulttest.Use(t)
+	t.Setenv("VAULT_ONLY", "")
+	vaulttest.Secret(t, "VAULT_ONLY", "vault-value")
+	v, src, shadowed, ok := Effective("VAULT_ONLY")
+	if !ok || v != "vault-value" || src != "vault" || shadowed != "" {
+		t.Fatalf("Effective = (%q, %q, %q, %v), want (vault-value, vault, \"\", true)", v, src, shadowed, ok)
+	}
+}
+
+func TestEffectiveEnvOverVault(t *testing.T) {
+	vaulttest.Use(t)
+	vaulttest.Secret(t, "ENV_OVER_VAULT", "vault-value")
+	t.Setenv("ENV_OVER_VAULT", "  env-value \n")
+	v, src, shadowed, ok := Effective("ENV_OVER_VAULT")
+	if !ok || v != "env-value" || src != "env" || shadowed != "vault" {
+		t.Fatalf("Effective = (%q, %q, %q, %v), want (env-value, env, vault, true)", v, src, shadowed, ok)
+	}
+	if gv, gsrc, gok := Get("ENV_OVER_VAULT"); !gok || gv != "vault-value" || gsrc != "vault" {
+		t.Fatalf("Get = (%q, %q, %v), want (vault-value, vault, true)", gv, gsrc, gok)
+	}
+	t.Setenv("HARNESS_VAULT_KEY", "invalid-key")
+	if v, src, sh, ok := Effective("ENV_OVER_VAULT"); !ok || v != "env-value" || src != "env" || sh != "vault" {
+		t.Fatalf("Effective must detect shadowed vault without a key: (%q, %q, %q, %v)", v, src, sh, ok)
+	}
+}
+
+func TestEffectiveEnvOnly(t *testing.T) {
+	vaulttest.Use(t)
+	t.Setenv("ONLY_IN_ENV", "env-value")
+	if v, src, sh, ok := Effective("ONLY_IN_ENV"); !ok || v != "env-value" || src != "env" || sh != "" {
+		t.Fatalf("Effective = (%q, %q, %q, %v), want (env-value, env, \"\", true)", v, src, sh, ok)
+	}
+}
+
+func TestEffectiveMiss(t *testing.T) {
+	vaulttest.Use(t)
+	t.Setenv("NEVER_SET_XYZ", "")
+	v, src, shadowed, ok := Effective("NEVER_SET_XYZ")
+	if ok || v != "" || src != "" || shadowed != "" {
+		t.Fatalf("Effective(miss) = (%q, %q, %q, %v), want all empty, ok=false", v, src, shadowed, ok)
+	}
+}
+
+func TestEffectiveLockedVault(t *testing.T) {
+	vaulttest.Use(t)
+	vaulttest.Secret(t, "LOCKED", "vault-value")
+	t.Setenv("LOCKED", "")
+	t.Setenv("HARNESS_VAULT_KEY", "invalid-key")
+	if v, src, sh, ok := Effective("LOCKED"); ok || v != "" || src != "" || sh != "" {
+		t.Fatalf("Effective(locked) = (%q, %q, %q, %v), want empty, false", v, src, sh, ok)
+	}
+}
 
 func wrongVaultKey(t *testing.T) {
 	t.Helper()
@@ -302,5 +429,22 @@ func TestLookupVaultErrorFallsBackToEnvOnlyWhenSet(t *testing.T) {
 	t.Setenv("LOCKED_FALLBACK", "")
 	if value, source, err := Lookup("LOCKED_FALLBACK"); err == nil || value != "" || source != "" {
 		t.Fatalf("Lookup(env unset) = (%q, %q, %v), want empty, empty, a read error", value, source, err)
+	}
+}
+
+// Paste debris at either end is trimmed on every write path; a newline inside the value is still refused.
+func TestStoreTrimsPasteDebris(t *testing.T) {
+	vaulttest.Use(t)
+	for _, raw := range []string{"tok-123\n", "tok-123\r\n", "  tok-123 \t\n\n", "\ntok-123"} {
+		if err := Store("PROVIDER_X_REFRESH_TOKEN", raw); err != nil {
+			t.Fatalf("Store(%q) = %v, want the debris trimmed", raw, err)
+		}
+		got, _, err := Lookup("PROVIDER_X_REFRESH_TOKEN")
+		if err != nil || got != "tok-123" {
+			t.Fatalf("Store(%q) then Lookup = %q, %v; want %q", raw, got, err, "tok-123")
+		}
+	}
+	if err := Store("PROVIDER_X_REFRESH_TOKEN", "tok\n123"); err == nil || !strings.Contains(err.Error(), "one line") {
+		t.Fatalf("Store with an inner newline = %v, want the one-line refusal", err)
 	}
 }
