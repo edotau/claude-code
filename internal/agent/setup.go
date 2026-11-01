@@ -46,7 +46,7 @@ func binaryCheck(s Schema) Check {
 
 // loginCheck runs the CLI's own login probe.
 func loginCheck(s Schema) Check {
-	if !s.loginPresent() {
+	if !s.LoginPresent() {
 		return Check{Name: "login", State: "fail", Detail: "no " + s.Name + " login found (claude-code vault set / agent's own login)"}
 	}
 	return Check{Name: "login", State: "ok", Detail: s.Name + " login present"}

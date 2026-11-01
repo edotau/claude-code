@@ -6,4 +6,5 @@ import (
 	_ "github.com/edotau/claude-code/internal/codex"
 	_ "github.com/edotau/claude-code/internal/copilot"
 	_ "github.com/edotau/claude-code/internal/gemini"
+	_ "github.com/edotau/claude-code/internal/opencode"
 )

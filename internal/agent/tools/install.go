@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/edotau/claude-code/internal/opencode"
 	"io"
 	"net/http"
 	"os"
@@ -18,7 +19,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/paths"
 )
 
@@ -172,7 +172,7 @@ func refuseOpencodeMajor(ctx context.Context, w io.Writer, bin string) error {
 		return nil
 	}
 	version := strings.TrimSpace(string(out))
-	major := agent.ParseOpencodeMajor(version)
+	major := opencode.ParseOpencodeMajor(version)
 	if major <= opencodeMaxMajor {
 		return nil
 	}

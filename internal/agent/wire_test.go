@@ -22,33 +22,6 @@ func gwRow(name string) *providers.Provider {
 	}
 }
 
-// CanServe is Serves without the reason, over every roster agent and a spread of rows; gemini on Databricks
-// is the one exception (the router's gemini route, not a row dialect).
-func TestCanServeEqualsServesOK(t *testing.T) {
-	rows := []*providers.Provider{
-		dbxRow("qa", "databricks-"), gwRow("gw"),
-		{Name: "ant", Protocol: providers.ProtocolAnthropic, BaseURL: "https://a", Auth: providers.Auth{Type: providers.AuthKey}},
-		{Name: "sub", Protocol: providers.ProtocolAnthropic, BaseURL: "https://s", Auth: providers.Auth{Type: providers.AuthCLI}},
-		{Name: "gh", Protocol: providers.ProtocolOpenAI, BaseURL: "https://g", Auth: providers.Auth{Type: providers.AuthCLI, Login: "copilot"}},
-		{Name: "gem", Routes: map[string]string{providers.ProtocolGemini: "https://g"}},
-	}
-	for _, s := range Roster() {
-		if !s.External() {
-			continue
-		}
-		for _, p := range rows {
-			if s.Name == "gemini" && GeminiGatewayRow(p) {
-				if !CanServe(s.Name, p) {
-					t.Errorf("CanServe(gemini,%s) = false on a Databricks row", p.Name)
-				}
-				continue
-			}
-			if ok, _ := Serves(s.Name, p, ""); CanServe(s.Name, p) != ok {
-				t.Errorf("CanServe(%s,%s) = %v, Serves = %v", s.Name, p.Name, CanServe(s.Name, p), ok)
-			}
-		}
-	}
-}
 
 // configureRoute surfaces Serves' reason verbatim, prefixed by the agent.
 func TestConfigureRouteUsesServesReason(t *testing.T) {
@@ -82,56 +55,9 @@ func captureCatalogWarn(t *testing.T) *strings.Builder {
 	return &warn
 }
 
-// D5: an ai-gateway row has no openai route, so the opencode menu has no chat provider; Claude and GPT stay.
-func TestOpencodeDatabricksGatewayDropsChatProvider(t *testing.T) {
-	warn := captureCatalogWarn(t)
-	p := gwRow("gw")
-	c := renderOpencode(t, p, providers.ProtocolAnthropic, p.BaseURL, "system.ai.claude-opus-5-5", false)
-	if _, ok := c.Provider["harness-gw"]; ok {
-		t.Error("chat provider emitted on a row without an openai route")
-	}
-	if gpt := c.Provider["harness-gw-gpt"]; len(gpt.Models) != 3 || gpt.NPM != "@ai-sdk/openai" {
-		t.Errorf("gpt provider = %+v", gpt)
-	}
-	cl := c.Provider["harness-gw-claude"]
-	if _, ok := cl.Models["system.ai.claude-opus-5-5"]; !ok || cl.NPM != "@ai-sdk/anthropic" || c.Model != "harness-gw-claude/system.ai.claude-opus-5-5" {
-		t.Errorf("claude provider = %+v model %q", cl, c.Model)
-	}
-	if !strings.Contains(warn.String(), "gw has no openai route") || !strings.Contains(warn.String(), "Kimi K3") {
-		t.Errorf("warn = %q", warn.String())
-	}
-}
 
-// A chat model on an ai-gateway row is refused: there is no openai route to send it to.
-func TestOpencodeDatabricksGatewayRefusesChatModel(t *testing.T) {
-	captureCatalogWarn(t)
-	p := gwRow("gw")
-	_, _, err := opencode(p, providers.ProtocolAnthropic, p.BaseURL, "system.ai.kimi-k3", "tok", false, nil)
-	if err == nil || !strings.Contains(err.Error(), "no openai route") {
-		t.Errorf("chat model on a gateway row: err = %v", err)
-	}
-}
 
-// A serving row keeps its chat provider and warns of nothing.
-func TestOpencodeDatabricksServingKeepsChatProvider(t *testing.T) {
-	warn := captureCatalogWarn(t)
-	p := dbxRow("qa", "databricks-")
-	c := renderOpencode(t, p, providers.ProtocolOpenAI, p.Routes[providers.ProtocolOpenAI], "databricks-claude-opus-5-5", false)
-	if len(c.Provider["harness-qa"].Models) == 0 || warn.Len() != 0 {
-		t.Errorf("chat models %d, warn %q", len(c.Provider["harness-qa"].Models), warn.String())
-	}
-}
 
-// A row with no responses route cannot render the menu.
-func TestOpencodeDatabricksNoResponsesRouteRefused(t *testing.T) {
-	vaulttest.Use(t)
-	p := dbxRow("qa", "databricks-")
-	delete(p.Routes, providers.ProtocolResponses)
-	_, _, err := opencode(p, providers.ProtocolOpenAI, p.Routes[providers.ProtocolOpenAI], "databricks-kimi-k3", "tok", false, nil)
-	if err == nil || !strings.Contains(err.Error(), "lacks a responses route") {
-		t.Errorf("err = %v", err)
-	}
-}
 
 // The copilot fallback keeps the registry's declared Databricks profile order.
 func TestOrderedDatabricksKeepsRegistryOrder(t *testing.T) {

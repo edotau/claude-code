@@ -99,52 +99,8 @@ const openCodeOK = `{"type":"step_start","timestamp":1,"sessionID":"ses_A","part
 {"type":"step_finish","timestamp":3,"sessionID":"ses_A","part":{"id":"p3","reason":"stop","sessionID":"ses_A","type":"step-finish","tokens":{"total":20009,"input":19880,"output":9,"reasoning":120,"cache":{"write":0,"read":0}},"cost":0}}
 `
 
-func TestParseOpenCodeStream(t *testing.T) {
-	var out strings.Builder
-	res, err := parseOpenCodeStream(newBR(openCodeOK), NewTextSink(&out), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if res.SessionID != "ses_A" || res.Answer != "Hi! How can I help you today?" || out.String() != res.Answer {
-		t.Errorf("res = %+v, streamed %q", res, out.String())
-	}
-	if res.Usage != (Usage{InputTokens: 19880, OutputTokens: 129}) {
-		t.Errorf("usage = %+v", res.Usage)
-	}
-}
 
-func TestParseOpenCodeStreamError(t *testing.T) {
-	stream := `{"type":"error","timestamp":1,"sessionID":"ses_B","error":{"name":"APIError","data":{"message":"models/x is not found"}}}` + "\n"
-	res, err := parseOpenCodeStream(newBR(stream), NewTextSink(&strings.Builder{}), nil)
-	if err == nil || !strings.Contains(err.Error(), "models/x is not found") || res.SessionID != "ses_B" {
-		t.Fatalf("err = %v, res = %+v", err, res)
-	}
-}
 
-func TestParseOpenCodeStreamMultipleTexts(t *testing.T) {
-	stream := `{"type":"text","sessionID":"ses_A","part":{"text":"one"}}
-	{"type":"text","sessionID":"ses_A","part":{"text":""}}
-	{"type":"text","sessionID":"ses_A","part":{"text":"two"}}
-	{"type":"text","sessionID":"ses_A","part":{"text":"three"}}`
-	t.Run("success", func(t *testing.T) {
-		var out strings.Builder
-		res, err := parseOpenCodeStream(newBR(stream), NewTextSink(&out), nil)
-		if err != nil || res.Answer != "one\ntwo\nthree" || out.String() != res.Answer {
-			t.Fatalf("res = %+v, output = %q, err = %v", res, out.String(), err)
-		}
-	})
-	t.Run("newline error", func(t *testing.T) {
-		injected := errors.New("newline rejected")
-		w := &newlineRejectWriter{err: injected}
-		_, err := parseOpenCodeStream(newBR(stream), NewTextSink(w), nil)
-		if !errors.Is(err, injected) {
-			t.Fatalf("err = %v, want injected newline error", err)
-		}
-		if len(w.writes) != 2 || w.writes[0] != "one" || w.writes[1] != "\n" {
-			t.Fatalf("writes = %q, want only first text and rejected newline", w.writes)
-		}
-	})
-}
 
 // Captured live from `agy --output-format stream-json` 1.4.2 on this box.
 const agyOK = `{"event":"init","conversation_id":"415ed744","init":{"model":"gemini-3.8-flash-low","cwd":"/tmp","tools":["ask_permission"]}}

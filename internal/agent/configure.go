@@ -28,7 +28,7 @@ func (s Schema) Configure(ctx context.Context, target providers.Target, headless
 
 // configureHeadless is Configure's agent form with the per-run options each CLI can carry.
 func (s Schema) configureHeadless(ctx context.Context, target providers.Target, h Headless) (env, argv []string, err error) {
-	if err := checkPrompt(h); err != nil {
+	if err := CheckPrompt(h); err != nil {
 		return nil, nil, err
 	}
 	return s.configure(ctx, target, &h)
@@ -163,8 +163,8 @@ func routerRoute(ctx context.Context, s Schema, p *providers.Provider, dialect s
 	return &rp, base, secret, nil
 }
 
-// positional guards a dash-led prompt from flag parsing.
-func positional(prompt string) []string {
+// Positional guards a dash-led prompt from flag parsing.
+func Positional(prompt string) []string {
 	if strings.HasPrefix(prompt, "-") {
 		return []string{"--", prompt}
 	}
@@ -177,4 +177,10 @@ func login(e Driver, p *providers.Provider, model string, h *Headless) ([]string
 		return nil, nil, fmt.Errorf("%s: provider %s is the %s sign-in; use claude-code run %s --provider %s", e.Name(), p.Name, p.Auth.Login, p.Auth.Login, p.Name)
 	}
 	return e.Login(p, model, h)
+}
+
+// HeadlessLaunch applies name's spec Launch.Env (never Launch.Args) to argv, with the route env going last.
+func HeadlessLaunch(name string, env, argv []string) (launchedEnv, launchedArgv []string) {
+	launchEnv, argv := schemaFor(name).applyLaunch(nil, argv, false)
+	return routeEnvLast(launchEnv, env), argv
 }

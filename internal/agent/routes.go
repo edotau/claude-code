@@ -1,6 +1,8 @@
 package agent
 
 import (
+	"errors"
+
 	"github.com/edotau/claude-code/internal/providers"
 )
 
@@ -26,26 +28,6 @@ type RouteInfo struct {
 // order. Every other agent reports RouteNone with a plain explanation — they have no fallback chain.
 func (s Schema) DescribeRoute(reg *providers.Registry) RouteInfo { return s.eng().DescribeRoute(reg) }
 
-// describeOpenCodeRoute: 1) opencode's own login (Go plan); 2) opencode's GitHub Copilot login; 3) none.
-func describeOpenCodeRoute(reg *providers.Registry) RouteInfo {
-	if OpencodeOwnLoginPresent() {
-		return RouteInfo{Agent: "opencode", Route: RouteOwnLogin, Provider: "opencode-go",
-			Reason: "opencode's own opencode login (Go plan; OPENCODE_API_KEY from the vault when no stored login)", OK: true}
-	}
-	if OpencodeCopilotLoginPresent() {
-		if p, ok := LoginProvider(reg, "github", "copilot"); ok {
-			if main, small, mok := OpencodeCopilotModelIDs(reg); mok {
-				return RouteInfo{Agent: "opencode", Route: RouteCopilotLogin, Provider: p.Name, Model: main, SmallModel: small,
-					Reason: "opencode's own GitHub Copilot login (opencode auth login)", OK: true}
-			}
-			return RouteInfo{Agent: "opencode", Route: RouteCopilotLogin, Provider: p.Name,
-				Reason: "opencode's own GitHub Copilot login, but no sonnet/haiku model configured for github-copilot"}
-		}
-	}
-	s, _ := LookupSchema("opencode")
-	return RouteInfo{Agent: "opencode", Route: RouteNone, Reason: "no route for opencode: " + s.CLI.ConfigureHint}
-}
-
 // RouteTarget converts a resolved RouteInfo (OK and naming a registered provider) into a Target;
 // ok is false for RouteNone or a provider DescribeRoute named that the registry no longer has.
 func RouteTarget(reg *providers.Registry, ri RouteInfo) (providers.Target, bool) {
@@ -57,4 +39,12 @@ func RouteTarget(reg *providers.Registry, ri RouteInfo) (providers.Target, bool)
 		return providers.Target{}, false
 	}
 	return providers.Target{Provider: p, Model: ri.Model}, true
+}
+
+// RouteErr is ri's reason as an error when ri resolved no route, else nil.
+func RouteErr(ri RouteInfo) error {
+	if !ri.OK {
+		return errors.New(ri.Reason)
+	}
+	return nil
 }

@@ -5,6 +5,7 @@ package configure
 import (
 	"cmp"
 	"github.com/edotau/claude-code/internal/codex"
+	"github.com/edotau/claude-code/internal/opencode"
 	"github.com/edotau/claude-code/internal/vault"
 	"os"
 	"os/exec"
@@ -532,7 +533,7 @@ func pinCopilotProfile(d *dialog, user string) bool {
 
 // opencodeMenu is the home row's state only; its page is runOpencodePage (opencode_page.go).
 func opencodeMenu(d *dialog) agentMenu {
-	if agent.OpencodeOwnLoginPresent() || agent.OpencodeCopilotLoginPresent() {
+	if opencode.OpencodeOwnLoginPresent() || opencode.OpencodeCopilotLoginPresent() {
 		return agentMenu{state: agentState{modeSubscription, "", true}}
 	}
 	return agentMenu{state: agentState{mode: modeNone}}

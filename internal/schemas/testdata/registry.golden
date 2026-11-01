@@ -46,8 +46,8 @@ memory-embeddings | store | 2 | state/harness/memory/embeddings.db | internal/me
 memory-journal | record | 1 | state/harness/memory/journal/*.json | internal/memory | keep
 migrations | log | 1 | state/harness/migrations.jsonl | schemas | keep
 oauth-usage-cache | cache | 1 | state/harness/cache/claude-oauth-usage.json | internal/usage | keep
-opencode-auth-cache | cache | 1 | state/harness/vendors/opencode-auth.json | internal/agent | keep
-opencode-models-check | cache | 1 | state/harness/opencode-models-check.json | internal/agent | keep
+opencode-auth-cache | cache | 1 | state/harness/vendors/opencode-auth.json | internal/opencode | keep
+opencode-models-check | cache | 1 | state/harness/opencode-models-check.json | internal/opencode | keep
 opencode-overlay | derived | 1 | state/harness/opencode/*.json | internal/agentconfig | keep
 projections | derived | 1 | state/projections/* | internal/agent/project | clean:projections
 quota | derived | 0 | state/harness/quota.json | internal/router | keep

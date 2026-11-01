@@ -107,8 +107,8 @@ func guardRouteHost(ctx context.Context, p *providers.Provider) error {
 
 // guardProvider is the provider whose credential the hop sends; nil for an unpinned agent dispatch (own login).
 func guardProvider(r Engine, req RunOptions) (*providers.Provider, error) {
-	if l, ok := r.(hubDispatch); ok {
-		return l.provider, nil
+	if l, ok := r.(HubEngine); ok {
+		return l.HubProvider(), nil
 	}
 	s, known := LookupSchema(r.Name())
 	if known && s.External() {
@@ -155,7 +155,7 @@ func guardAttempt(ctx context.Context, r Engine, req RunOptions) (context.Contex
 	if err := checkIsolation(ctx); err != nil {
 		return ctx, &Error{Kind: KindFatal, Agent: r.Name(), Err: err}
 	}
-	if _, hub := r.(hubDispatch); hub { // a hub dispatch sends the opencode login's credential, not the registry's
+	if _, isHub := r.(HubEngine); isHub { // a hub dispatch sends the opencode login's credential, not the registry's
 		return withOwnProvider(ctx, gp), nil
 	}
 	if err := guardRouteHost(ctx, gp); err != nil {

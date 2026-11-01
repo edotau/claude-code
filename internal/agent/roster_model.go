@@ -122,7 +122,7 @@ func Serves(agent string, p *providers.Provider, model string) (ok bool, why str
 // googleHost is Gemini's own API host; a gemini-dialect route anywhere else is a gateway.
 const googleHost = "generativelanguage.googleapis.com"
 
-func isGateway(base string) bool {
+func IsGateway(base string) bool {
 	u, err := url.Parse(base)
 	return err == nil && u.Host != googleHost
 }
