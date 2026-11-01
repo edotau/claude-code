@@ -54,19 +54,3 @@ func TestPresetEnvsFailuresFirstWithLeadingMarks(t *testing.T) {
 		t.Errorf("presetEnvs = %q, want %q", got, want)
 	}
 }
-
-func TestVaultTableCapsColumnsWithEllipsis(t *testing.T) {
-	out := vaultTable([]string{"NAME", "KIND"}, []int{6, 0}, [][]string{
-		{"abcdefghijkl", "a-very-long-uncapped-kind"},
-		{"abc", "x"},
-	}, 200)
-	if !strings.Contains(out, "abcde…") || strings.Contains(out, "abcdef") {
-		t.Errorf("capped column not clipped to 6 runes with …:\n%s", out)
-	}
-	if !strings.Contains(out, "a-very-long-uncapped-kind") {
-		t.Errorf("uncapped column was clipped:\n%s", out)
-	}
-	if !strings.Contains(out, "abc ") {
-		t.Errorf("short cell altered:\n%s", out)
-	}
-}

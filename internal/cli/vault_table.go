@@ -18,6 +18,7 @@ import (
 	"github.com/edotau/claude-code/internal/secrets"
 	"github.com/edotau/claude-code/internal/ui/ansi"
 	"github.com/edotau/claude-code/internal/ui/helptext"
+	"github.com/edotau/claude-code/internal/ui/table"
 )
 
 // vaultTableWidth is $COLUMNS when set, else 120 (no live TTY-size query exists in this repo).
@@ -155,7 +156,7 @@ func vaultSectionMax(heading string, rows [][2]string, width, keyMax, valueMax i
 			r[0] = vaultTruncateMiddle(r[0], keyMax) // keys differ at the end ("…Markers[0]" vs "…Markers[1]")
 		}
 		if valueMax > 0 {
-			r[1] = vaultTruncate(r[1], valueMax)
+			r[1] = table.Truncate(r[1], valueMax)
 		}
 		rows[i] = r
 	}
@@ -174,7 +175,7 @@ func vaultSectionMax(heading string, rows [][2]string, width, keyMax, valueMax i
 	}
 	for _, r := range rows {
 		line := fmt.Sprintf("  %-*s  %s", keyW, r[0], r[1])
-		b.WriteString(vaultTruncate(line, width))
+		b.WriteString(table.Truncate(line, width))
 		b.WriteString("\n")
 	}
 	return b.String()
@@ -184,22 +185,10 @@ func vaultSectionMax(heading string, rows [][2]string, width, keyMax, valueMax i
 func vaultTruncateMiddle(s string, width int) string {
 	r := []rune(s)
 	if width <= 2 || len(r) <= width {
-		return vaultTruncate(s, width)
+		return table.Truncate(s, width)
 	}
 	tail := (width - 1) / 2
 	return string(r[:width-1-tail]) + "…" + string(r[len(r)-tail:])
-}
-
-// vaultTruncate clips a plain (unpainted) line to width runes, ending in "…".
-func vaultTruncate(s string, width int) string {
-	r := []rune(s)
-	if width <= 0 || len(r) <= width {
-		return s
-	}
-	if width <= 1 {
-		return string(r[:width])
-	}
-	return string(r[:width-1]) + "…"
 }
 
 // vaultProvidersText renders the providers overlay as a provider table (PLANS stays JSON-only) and one-line lists.
@@ -212,7 +201,7 @@ func vaultProvidersText(raw json.RawMessage, width int) string {
 	}
 	var reg providers.Registry
 	if err := json.Unmarshal(raw, &reg); err != nil {
-		b.WriteString(vaultTruncate("  error  "+err.Error(), width))
+		b.WriteString(table.Truncate("  error  "+err.Error(), width))
 		b.WriteByte('\n')
 		return b.String()
 	}
@@ -224,8 +213,8 @@ func vaultProvidersText(raw json.RawMessage, width int) string {
 	var blocks []string
 	if rows := vaultProviderRows(nested); len(rows) > 0 {
 		head := []string{"NAME", "PROVIDER", "AUTH", "OPUS", "SONNET", "HAIKU", "OPENCODE", "FALLBACK"}
-		head, cols, rows := vaultDropEmptyCols(head, providerColMax, rows)
-		blocks = append(blocks, vaultTable(head, cols, rows, width))
+		head, cols, rows := table.DropEmptyCols(head, providerColMax, rows)
+		blocks = append(blocks, table.Render(head, cols, rows, width))
 	}
 	if lines := vaultProviderLines(reg); len(lines) > 0 {
 		blocks = append(blocks, strings.TrimPrefix(vaultSection("", lines, width), "\n"))
@@ -307,32 +296,6 @@ func vaultShownRows(rows [][]string) [][]string {
 	return out
 }
 
-// vaultDropEmptyCols removes every column past NAME that is empty in all rows, trimming head and colMax with it.
-func vaultDropEmptyCols(head []string, colMax []int, rows [][]string) ([]string, []int, [][]string) {
-	var keep []int
-	for c := range head {
-		if c == 0 || slices.ContainsFunc(rows, func(r []string) bool { return r[c] != "" }) {
-			keep = append(keep, c)
-		}
-	}
-	pick := func(r []string) []string {
-		out := make([]string, len(keep))
-		for i, c := range keep {
-			out[i] = r[c]
-		}
-		return out
-	}
-	cols := make([]int, len(keep))
-	outRows := make([][]string, len(rows))
-	for i, c := range keep {
-		cols[i] = colMax[c]
-	}
-	for i, r := range rows {
-		outRows[i] = pick(r)
-	}
-	return pick(head), cols, outRows
-}
-
 // vaultCredOK reports whether provider name's credential resolves in the merged registry (a seam for tests).
 var vaultCredOK = func(name string) bool {
 	reg, err := providers.Load()
@@ -394,13 +357,13 @@ func vaultRoutingText(raw json.RawMessage, width int) string {
 	}
 	var reg providers.Registry
 	if err := json.Unmarshal(raw, &reg); err != nil {
-		b.WriteString(vaultTruncate("  error  "+err.Error(), width))
+		b.WriteString(table.Truncate("  error  "+err.Error(), width))
 		b.WriteByte('\n')
 		return b.String()
 	}
 	rb, err := json.Marshal(reg.Routing)
 	if err != nil {
-		b.WriteString(vaultTruncate("  error  "+err.Error(), width))
+		b.WriteString(table.Truncate("  error  "+err.Error(), width))
 		b.WriteByte('\n')
 		return b.String()
 	}
@@ -430,55 +393,6 @@ func vaultRoutingJSON(providersRaw json.RawMessage) (json.RawMessage, error) {
 var (
 	providerColMax = []int{20, 10, 20, 14, 14, 16, 16, 18}
 )
-
-// vaultTable renders a header plus rows as two-space-indented, column-aligned, width-truncated lines.
-func vaultTable(head []string, colMax []int, rows [][]string, width int) string {
-	rows = slices.Clone(rows)
-	for i, r := range rows {
-		r = slices.Clone(r)
-		for c := range r {
-			if c < len(colMax) && colMax[c] > 0 {
-				r[c] = vaultTruncate(r[c], colMax[c])
-			}
-		}
-		rows[i] = r
-	}
-	ws := make([]int, len(head))
-	for _, r := range append([][]string{head}, rows...) {
-		for i, c := range r {
-			ws[i] = max(ws[i], utf8.RuneCountInString(c))
-		}
-	}
-	var b strings.Builder
-	for _, r := range append([][]string{head}, rows...) {
-		line := " "
-		var lineSb242 strings.Builder
-		for i, c := range r {
-			lineSb242.WriteByte(' ')
-			lineSb242.WriteString(c)
-			if i < len(r)-1 {
-				lineSb242.WriteString(strings.Repeat(" ", ws[i]-utf8.RuneCountInString(c)+1))
-			}
-		}
-		line += lineSb242.String()
-		b.WriteString(vaultTruncate(strings.TrimRight(line, " "), width))
-		b.WriteByte('\n')
-	}
-	return b.String()
-}
-
-// vaultTableStyled is vaultTable with a style code per row (painted after alignment, so padding sees plain text).
-func vaultTableStyled(head []string, colMax []int, rows [][]string, width int, codes []string, color bool) string {
-	lines := strings.Split(strings.TrimRight(vaultTable(head, colMax, rows, width), "\n"), "\n")
-	for i, l := range lines {
-		code := ansi.Dim
-		if i > 0 {
-			code = codes[i-1]
-		}
-		lines[i] = ansi.Style(color && code != "", code, l)
-	}
-	return strings.Join(lines, "\n") + "\n"
-}
 
 // vaultAgentCols are the leading agent-table columns; other pin suffixes follow alphabetically.
 var vaultAgentCols = []string{"PROFILE", "MODEL", "EFFORT", "CONTEXT"}
@@ -546,8 +460,8 @@ func vaultAgentTable(names []string, width int, color bool) string {
 		}
 		rows[i] = row
 	}
-	head, colMax, rows = vaultDropEmptyCols(head, colMax, rows)
-	return vaultTableStyled(head, colMax, rows, width, codes, color)
+	head, colMax, rows = table.DropEmptyCols(head, colMax, rows)
+	return table.Styled(head, colMax, rows, width, codes, color)
 }
 
 // vaultAgentsText renders the agent table, then the per-agent overlay rows (and other top-level keys) below it.
@@ -585,13 +499,13 @@ func vaultOverlayLines(rows [][3]string, width int) string {
 	clipped := make([][3]string, len(rows))
 	aw, pw := 0, 0
 	for i, r := range rows {
-		clipped[i] = [3]string{r[0], vaultTruncateMiddle(r[1], kvKeyMax+8), vaultTruncate(r[2], kvValueMax)}
+		clipped[i] = [3]string{r[0], vaultTruncateMiddle(r[1], kvKeyMax+8), table.Truncate(r[2], kvValueMax)}
 		aw, pw = max(aw, utf8.RuneCountInString(r[0])), max(pw, utf8.RuneCountInString(clipped[i][1]))
 	}
 	var b strings.Builder
 	for _, r := range clipped {
 		line := fmt.Sprintf("  %-*s  %-*s  %s", aw, r[0], pw, r[1], r[2])
-		b.WriteString(vaultTruncate(line, width))
+		b.WriteString(table.Truncate(line, width))
 		b.WriteString("\n")
 	}
 	return b.String()
