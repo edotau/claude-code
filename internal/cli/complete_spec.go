@@ -72,7 +72,7 @@ func buildSpecTree() map[string]*compNode {
 			valuedFlag("profile", providerNames), valuedFlag("agent", configureAgentNames), boolFlag("dry-run"), boolFlag("check"),
 			boolFlag("restore"), boolFlag("revert"), flag("out"), boolFlag("agents"), boolFlag("list"), formatFlag()}},
 		"network": {sub: map[string]*compNode{
-			"restart": {flags: []flagInfo{boolFlag("dry-run"), formatFlag()}},
+			"restart": {flags: []flagInfo{boolFlag("dry-run"), boolFlag("force"), formatFlag()}},
 			"tailscale": {flags: []flagInfo{formatFlag(), boolFlag("machines"), boolFlag("connect"), boolFlag("key"),
 				valuedFlag("exit-node", exitNodeActions), valuedFlag("subnet", subnetActions), valuedFlag("route", routeTargets), flag("auth-key"),
 				flag("key-env"), boolFlag("advertise-exit"),
