@@ -56,14 +56,8 @@ func cmdAgentProfile(agent string, args []string) int {
 	if err != nil {
 		return fail("%s profile: %v", agent, err)
 	}
-	if err := agentpkg.ValidAgentPin(reg, agent, pos[0]); err != nil {
-		return fail("%s profile: %v (see claude-code configure provider --list)", agent, err)
-	}
-	if row := reg.Providers[pos[0]]; row != nil && agent != "claude" && !agentpkg.CanServe(agent, row) {
-		return fail("%s profile: %s cannot serve profile %q", agent, agent, pos[0])
-	}
 	if _, err := configure.ApplyProfile([]string{agent}, pos[0]); err != nil {
-		return fail("%s profile: %v", agent, err)
+		return fail("%s profile: %v (see claude-code configure provider --list)", agent, err)
 	}
 	fmt.Printf("%s: now on %s; relaunch `claude-code %s` to apply\n", agent, pos[0], agent)
 	preflight.Warm(os.Stdout, reg, time.Now())
