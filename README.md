@@ -249,9 +249,12 @@ lives at this root (Claude Code would load it as a second CLAUDE.md). Envelope f
 
 ### Sync the Databricks model menu
 
-Discovery is explicit and repeatable, never a launch-time network call. Select a **serving** profile; sync uses
+Menu sync is explicit and repeatable, never a launch-time network call. Select a **serving** profile; sync uses
 its existing authentication and **Serving Endpoints only**, rejecting AI Gateway and non-Databricks profiles
 before requests. `--profile` is required (no pin fallback), and positional arguments are not accepted.
+
+A copilot registry launch does touch the network: it validates identity on every launch, then uses the sealed
+snapshot for 24h. It lists live on a miss, a stale snapshot, or a model the snapshot doesn't have.
 
 ```bash
 claude-code opencode catalog sync --profile dev             # authenticated cache reuse, or discover on miss
