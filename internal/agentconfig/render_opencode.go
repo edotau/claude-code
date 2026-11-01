@@ -14,6 +14,7 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/schemas"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 //go:embed template/opencode.json template/opencode-tui.json
@@ -146,13 +147,7 @@ func splitList(input string) []string {
 	if strings.TrimSpace(input) == "" {
 		return []string{}
 	}
-	var out []string
-	for part := range strings.SplitSeq(input, ",") {
-		if p := strings.TrimSpace(part); p != "" {
-			out = append(out, p)
-		}
-	}
-	return out
+	return textutil.SplitCSV(input)
 }
 
 func ladderField() Field {
