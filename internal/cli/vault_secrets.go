@@ -9,7 +9,6 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/audit"
-	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/secrets"
 	"github.com/edotau/claude-code/internal/secretstore"
@@ -32,7 +31,7 @@ func vaultSetSecret(name string, dryRun bool) int {
 	}
 	if dryRun {
 		verb := "add"
-		if slices.Contains(secretstore.Names(), name) {
+		if secretstore.Has(name) {
 			verb = "replace"
 		}
 		fmt.Printf("would %s %s in the vault (%d chars); nothing written\n", verb, name, len(value))
@@ -41,22 +40,9 @@ func vaultSetSecret(name string, dryRun bool) int {
 	if err := secretstore.Store(name, value); err != nil {
 		return fail("vault set: %v", err)
 	}
-	clearProviderAuth(name)
+	router.ClearSecretAuth(name)
 	fmt.Fprintf(os.Stderr, "wrote %s to the vault (%s); `claude-code vault get %s` prints it\n", name, secretstore.Redact(value), name)
 	return 0
-}
-
-// clearProviderAuth drops the auth marks of every provider whose sealed secret or auth.env is name; best-effort.
-func clearProviderAuth(name string) {
-	reg, err := providers.Load()
-	if err != nil {
-		return
-	}
-	for _, p := range reg.Providers {
-		if providers.AuthSecretName(p) == name || (p.Auth.Env != "" && p.Auth.Env == name) {
-			_ = router.ClearProviderAuth(p.Name)
-		}
-	}
 }
 
 // readSecretValue prompts with hidden input on a terminal; a pipe still supplies the value on stdin.
@@ -95,19 +81,16 @@ func cmdVaultGet(args []string) int {
 		fs.Usage()
 		return 2
 	}
-	values := make([]string, len(names))
-	for i, name := range names {
-		if name == "HARNESS_VAULT_KEY" {
-			return fail("vault get: HARNESS_VAULT_KEY is the master key; use vault get --key (refused on a terminal)")
-		}
-		value, _, err := secretstore.Lookup(name)
-		if err != nil {
-			return fail("vault get: %s: %v", name, err)
-		}
-		if value == "" {
-			return fail("vault get: %s not set (checked the vault and the process env)", name)
-		}
-		values[i] = value
+	lookup, masterKey := names, slices.Contains(names, "HARNESS_VAULT_KEY")
+	if masterKey {
+		lookup = names[:slices.Index(names, "HARNESS_VAULT_KEY")]
+	}
+	values, err := secretstore.LookupAll(lookup)
+	if err != nil {
+		return fail("vault get: %v", err)
+	}
+	if masterKey {
+		return fail("vault get: HARNESS_VAULT_KEY is the master key; use vault get --key (refused on a terminal)")
 	}
 	for i, name := range names {
 		if *export {
@@ -155,13 +138,9 @@ func cmdVaultDelete(args []string) int {
 		return 2
 	}
 	name := names[0]
-	if !slices.Contains(secretstore.Names(), name) {
-		return fail("vault delete: %s not set", name)
-	}
-	if err := secretstore.Delete(name); err != nil {
+	if err := secretstore.Remove(name); err != nil {
 		return fail("vault delete: %v", err)
 	}
-	audit.Log(audit.SecretDelete, name, "")
 	fmt.Fprintf(os.Stderr, "deleted %s\n", name)
 	return 0
 }

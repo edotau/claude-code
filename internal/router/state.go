@@ -352,3 +352,16 @@ func decodeState(raw []byte) (State, error) {
 	}
 	return s, nil
 }
+
+// ClearSecretAuth drops the auth marks of every provider whose sealed secret or auth.env is name; best-effort.
+func ClearSecretAuth(name string) {
+	reg, err := providers.Load()
+	if err != nil {
+		return
+	}
+	for _, p := range reg.Providers {
+		if providers.AuthSecretName(p) == name || (p.Auth.Env != "" && p.Auth.Env == name) {
+			_ = ClearProviderAuth(p.Name)
+		}
+	}
+}

@@ -3,10 +3,8 @@ package cli
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 
 	"github.com/edotau/claude-code/internal/network/vscode"
-	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
@@ -18,11 +16,12 @@ func cmdVSCode(args []string) int {
 			"Machine settings are per-box and excluded from Settings Sync.\n" +
 			"Skip keybindings on headless boxes with only ~/.vscode-server.\n" +
 			"Link the Claude Code Agents extension into the detected extensions directory."})
-	template := fs.String("template", "", "settings template to merge (default: the one embedded in the binary)")
-	dest := fs.String("dest", "", "VS Code Machine settings.json (default: platform-detected)")
-	extensionsDir := fs.String("extensions-dir", "", "link the Agents extension here (default: platform-detected)")
-	keybindingsTemplate := fs.String("keybindings-template", "", "keybindings template to merge (default: the one embedded in the binary)")
-	keybindingsDest := fs.String("keybindings-dest", "", "VS Code User keybindings.json (default: platform-detected)")
+	var o vscode.SyncOptions
+	fs.StringVar(&o.Template, "template", "", "settings template to merge (default: the one embedded in the binary)")
+	fs.StringVar(&o.Dest, "dest", "", "VS Code Machine settings.json (default: platform-detected)")
+	fs.StringVar(&o.ExtensionsDir, "extensions-dir", "", "link the Agents extension here (default: platform-detected)")
+	fs.StringVar(&o.KeybindingsTemplate, "keybindings-template", "", "keybindings template to merge (default: the one embedded in the binary)")
+	fs.StringVar(&o.KeybindingsDest, "keybindings-dest", "", "VS Code User keybindings.json (default: platform-detected)")
 	check := fs.Bool("check", false, "report drift without writing; exit 1 on drift")
 	dryRun := fs.Bool("dry-run", false, "preview the merge; write nothing")
 	if code, done := helptext.Parse(fs, args); done {
@@ -35,128 +34,67 @@ func cmdVSCode(args []string) int {
 		fmt.Fprintln(os.Stderr, "claude-code: theme vscode --check and --dry-run are mutually exclusive")
 		return 2
 	}
-	destPath, err := resolveVSCodeDest(*dest)
+	o.Check = *check || *dryRun
+	out, err := vscode.SyncAll(o)
 	if err != nil {
 		return fail("vscode: %v", err)
 	}
-	result, err := vscode.Sync(*template, destPath, paths.ConfigDir(), paths.BinDir(), *check || *dryRun)
-	if err != nil {
-		return fail("vscode: %v", err)
-	}
-
-	kbDestPath, skip, note, err := resolveKeybindingsDest(*keybindingsDest, *dest, destPath)
-	if err != nil {
-		return fail("vscode: %v", err)
-	}
-	var kbResult vscode.Result
-	if !skip {
-		kbResult, err = vscode.SyncKeybindings(*keybindingsTemplate, kbDestPath, *check || *dryRun)
-		if err != nil {
-			return fail("vscode: %v", err)
-		}
-	}
-
-	extDirPath, err := resolveExtensionsDir(*extensionsDir)
-	if err != nil {
-		return fail("vscode: %v", err)
-	}
-	extResult, err := vscode.LinkExtension(paths.ConfigDir(), extDirPath, *check || *dryRun)
-	if err != nil {
-		return fail("vscode: %v", err)
-	}
-
-	o := vscodeOutcome{destPath, result, kbDestPath, skip, note, kbResult, extResult}
+	r := vscodeReport{out}
 	switch {
 	case *check:
-		return o.check()
+		return r.check()
 	case *dryRun:
-		o.dryRun()
+		r.dryRun()
 	default:
-		o.apply()
+		r.apply()
 	}
 	return 0
 }
 
-func resolveVSCodeDest(dest string) (string, error) {
-	if dest != "" {
-		return dest, nil
-	}
-	return paths.VSCodeSettings()
-}
-
-// resolveKeybindingsDest: explicit --keybindings-dest wins outright; explicit --dest with no
-// --keybindings-dest uses the same directory as the settings file, never the platform's
-// vscode-server Machine guess for an unrelated dest.
-func resolveKeybindingsDest(kbDest, dest, destPath string) (path string, skip bool, note string, err error) {
-	switch {
-	case kbDest != "":
-		return kbDest, false, "", nil
-	case dest != "":
-		return filepath.Join(filepath.Dir(destPath), "keybindings.json"), false, "", nil
-	default:
-		return vscode.DefaultKeybindingsDest()
-	}
-}
-
-func resolveExtensionsDir(dir string) (string, error) {
-	if dir != "" {
-		return dir, nil
-	}
-	return vscode.DefaultExtensionsDir()
-}
-
-// vscodeOutcome is one sync run's results: settings template, keybindings and extension link.
-type vscodeOutcome struct {
-	destPath   string
-	result     vscode.Result
-	kbDestPath string
-	skip       bool
-	note       string
-	kbResult   vscode.Result
-	extResult  vscode.ExtensionResult
-}
+// vscodeReport formats one sync run's outcome.
+type vscodeReport struct{ vscode.Outcome }
 
 // check prints DRIFT lines and returns 1 when anything would change, else reports in-sync and returns 0.
-func (o vscodeOutcome) check() int {
+func (o vscodeReport) check() int {
 	drift := false
-	if o.result.Changed {
-		fmt.Fprintf(os.Stderr, "claude-code: vscode DRIFT %s\n", o.destPath)
+	if o.Result.Changed {
+		fmt.Fprintf(os.Stderr, "claude-code: vscode DRIFT %s\n", o.DestPath)
 		drift = true
 	}
-	if !o.skip && o.kbResult.Changed {
-		fmt.Fprintf(os.Stderr, "claude-code: vscode DRIFT %s\n", o.kbDestPath)
+	if !o.Skip && o.KbResult.Changed {
+		fmt.Fprintf(os.Stderr, "claude-code: vscode DRIFT %s\n", o.KbDestPath)
 		drift = true
 	}
-	if o.extResult.Changed {
-		fmt.Fprintf(os.Stderr, "claude-code: vscode DRIFT %s\n", o.extResult.Target)
+	if o.ExtResult.Changed {
+		fmt.Fprintf(os.Stderr, "claude-code: vscode DRIFT %s\n", o.ExtResult.Target)
 		drift = true
 	}
 	if drift {
 		return 1
 	}
 	o.reportMerges()
-	fmt.Printf("claude-code: vscode extension in sync %s\n", o.extResult.Target)
+	fmt.Printf("claude-code: vscode extension in sync %s\n", o.ExtResult.Target)
 	return 0
 }
 
-func (o vscodeOutcome) dryRun() {
-	reportDryRun("template", o.destPath, o.result.Changed)
-	reportKeybindings(o.skip, o.note, func() { reportDryRun("keybindings template", o.kbDestPath, o.kbResult.Changed) })
-	reportDryRun("extension", o.extResult.Target, o.extResult.Changed)
+func (o vscodeReport) dryRun() {
+	reportDryRun("template", o.DestPath, o.Result.Changed)
+	reportKeybindings(o.Skip, o.Note, func() { reportDryRun("keybindings template", o.KbDestPath, o.KbResult.Changed) })
+	reportDryRun("extension", o.ExtResult.Target, o.ExtResult.Changed)
 }
 
-func (o vscodeOutcome) apply() {
+func (o vscodeReport) apply() {
 	o.reportMerges()
-	if o.extResult.Changed {
-		fmt.Printf("claude-code: vscode linked extension -> %s\n", o.extResult.Target)
+	if o.ExtResult.Changed {
+		fmt.Printf("claude-code: vscode linked extension -> %s\n", o.ExtResult.Target)
 	} else {
-		fmt.Printf("claude-code: vscode extension in sync %s\n", o.extResult.Target)
+		fmt.Printf("claude-code: vscode extension in sync %s\n", o.ExtResult.Target)
 	}
 }
 
-func (o vscodeOutcome) reportMerges() {
-	reportMerge("template", o.destPath, o.result)
-	reportKeybindings(o.skip, o.note, func() { reportMerge("keybindings template", o.kbDestPath, o.kbResult) })
+func (o vscodeReport) reportMerges() {
+	reportMerge("template", o.DestPath, o.Result)
+	reportKeybindings(o.Skip, o.Note, func() { reportMerge("keybindings template", o.KbDestPath, o.KbResult) })
 }
 
 // reportKeybindings prints the skip note, or calls report, depending on whether SyncKeybindings ran.

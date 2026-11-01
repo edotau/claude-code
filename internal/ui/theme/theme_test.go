@@ -121,3 +121,29 @@ func TestApplyReportsMergeErrorForEachFormat(t *testing.T) {
 		})
 	}
 }
+
+// TestSetGradientRejectsNullConfigWithoutPanicking: json.Unmarshal("null", &m) succeeds but leaves m
+// nil — a bare `if err != nil` check would miss it and panic on the m["gradient"] = assignment.
+// SetGradient must error out instead, and must not touch the file.
+func TestSetGradientRejectsNullConfigWithoutPanicking(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", dir)
+	path := filepath.Join(dir, "state", "statusline", "config.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("null"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	err := SetGradient("ocean")
+	if err == nil {
+		t.Fatal("SetGradient on a null config: err = nil, want an error")
+	}
+	raw, readErr := os.ReadFile(path)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if string(raw) != "null" {
+		t.Errorf("SetGradient on a null config changed the file: %q", raw)
+	}
+}
