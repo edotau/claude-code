@@ -282,13 +282,8 @@ func refreshLink(src, dst string) error {
 		}
 		return nil
 	}
-	tmp := fmt.Sprintf("%s.tmp%d", dst, os.Getpid()) // temp link + rename: dst is never absent or half-made
-	_ = os.Remove(tmp)
-	if err := os.Symlink(src, tmp); err != nil {
+	if err := paths.SwapSymlink(src, dst); err != nil {
 		return fmt.Errorf("copilot: link %s: %w", dst, err)
-	}
-	if err := os.Rename(tmp, dst); err != nil {
-		return errors.Join(fmt.Errorf("copilot: link %s: %w", dst, err), os.Remove(tmp))
 	}
 	return nil
 }
