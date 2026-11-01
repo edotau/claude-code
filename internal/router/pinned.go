@@ -4,9 +4,11 @@ import (
 	"cmp"
 	"context"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // gatePinned gates a non-claude agent pinned to pin: exactly one candidate on that profile, or a Skip.
@@ -47,7 +49,7 @@ func (t *RouteTable) gateProfile(
 		res.Skipped = append(res.Skipped, Skip{agent, GateAvailable, "pinned model " + sp + " is not READY on " + pin + "; using " + c.Model})
 	}
 	if err := configured(agent, c); err != nil {
-		res.Skipped = append(res.Skipped, Skip{agent, GateAvailable, "not configured: " + firstLine(err.Error())})
+		res.Skipped = append(res.Skipped, Skip{agent, GateAvailable, "not configured: " + textutil.FirstLine(strings.TrimSpace(err.Error()))})
 		return nil, false
 	}
 	billing := t.Billing[c.Account]

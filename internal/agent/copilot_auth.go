@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/audit"
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/secrets"
 )
@@ -168,10 +169,9 @@ var commentRE = regexp.MustCompile(`(?m)^[ \t]*//.*$`)
 
 // CopilotStoredLogin is lastLoggedInUser.login from copilot's config ($COPILOT_HOME or ~/.copilot), or "".
 func CopilotStoredLogin() string {
-	dir := os.Getenv("COPILOT_HOME")
-	if dir == "" {
-		home, _ := os.UserHomeDir()
-		dir = filepath.Join(home, ".copilot")
+	dir, err := paths.CopilotHome()
+	if err != nil {
+		dir = ".copilot"
 	}
 	raw, err := os.ReadFile(filepath.Join(dir, "config.json"))
 	if err != nil {

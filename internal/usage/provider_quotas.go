@@ -23,6 +23,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/table"
 )
 
@@ -374,13 +375,13 @@ func antigravityQuotas(ctx context.Context) []quota {
 		if _, lookErr := paths.VendorBin("agy"); lookErr != nil {
 			return agyNote("agy not installed")
 		}
-		return agyNote("agy usage failed: " + firstLine(out, err))
+		return agyNote("agy usage failed: " + commandErrorLine(out, err))
 	}
 	if strings.Contains(string(out), "not logged in") || strings.Contains(string(out), "run agy login") {
 		return agyNote("agy not logged in (run agy login)")
 	}
 	if i := strings.Index(string(out), "AGY_ERROR:"); i >= 0 {
-		return agyNote("agy usage failed: " + firstLine(out[i:], err))
+		return agyNote("agy usage failed: " + commandErrorLine(out[i:], err))
 	}
 	res, findErr := findAgyUsageResult(out)
 	if findErr != nil {
@@ -438,15 +439,13 @@ func findAgyUsageResult(out []byte) (agyUsageResult, error) {
 	return agyUsageResult{}, errors.New("no successful usage result in agy output")
 }
 
-// firstLine trims a command's combined error to one line, capped at 80 chars, never the whole stream.
-func firstLine(out []byte, err error) string {
+// commandErrorLine trims a command's combined error to one line, capped at 80 chars, never the whole stream.
+func commandErrorLine(out []byte, err error) string {
 	s := strings.TrimSpace(string(out))
 	if s == "" {
 		s = err.Error()
 	}
-	if i := strings.IndexAny(s, "\r\n"); i >= 0 {
-		s = s[:i]
-	}
+	s, _, _ = strings.Cut(textutil.FirstLine(s), "\r")
 	if len(s) > 80 {
 		s = s[:80]
 	}

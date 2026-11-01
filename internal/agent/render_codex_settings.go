@@ -79,7 +79,7 @@ func patchCodexSettings(raw string, overlay map[string]string) (string, error) {
 
 // ReadCodexSettings returns only explicit, supported native preferences; no credentials or unknown keys.
 func ReadCodexSettings(home string) (map[string]string, error) {
-	path, err := agentconfig.CodexConfigPath(home)
+	path, err := paths.CodexConfigPath(home)
 	if err != nil {
 		return nil, err
 	}
@@ -195,7 +195,7 @@ func codexSettingString(value string) (string, error) {
 
 // CodexSettingsDrift includes stale managed keys whose override was removed from the vault.
 func CodexSettingsDrift(home string) (bool, error) {
-	path, err := agentconfig.CodexConfigPath(home)
+	path, err := paths.CodexConfigPath(home)
 	if err != nil {
 		return false, err
 	}
@@ -213,7 +213,7 @@ func CodexSettingsDrift(home string) (bool, error) {
 
 // ApplyCodexSettings applies only saved preferences, leaving provider generation and other agents alone.
 func ApplyCodexSettings(home string) error {
-	path, err := agentconfig.CodexConfigPath(home)
+	path, err := paths.CodexConfigPath(home)
 	if err != nil {
 		return err
 	}
@@ -395,7 +395,7 @@ func CodexConfigChecks() []Check {
 	for _, path := range codexManagedPaths() {
 		checks = append(checks, codexConfigCheck("codex machine config", path, true))
 	}
-	cfg, err := agentconfig.CodexConfigPath("")
+	cfg, err := paths.CodexConfigPath("")
 	if err != nil {
 		return append(checks, Check{Name: "codex user config", State: "warn", Detail: "home unavailable; effective route unknown"})
 	}

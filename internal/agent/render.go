@@ -82,7 +82,7 @@ func PrepareConfigs(o RenderOptions) (*RenderPlan, bool, error) {
 			return nil, false, fmt.Errorf("generate: %w", err)
 		}
 	}
-	if !o.ForceHomes && !configDirIsDefault() {
+	if !o.ForceHomes && !paths.ConfigDirIsDefault() {
 		fmt.Fprintf(out, "generate: skipping agent configs (CLAUDE_CONFIG_DIR=%s is not the default ~/.claude); pass --agents to include them\n", paths.ConfigDir())
 		return p, false, nil
 	}
@@ -109,17 +109,6 @@ func PrepareConfigs(o RenderOptions) (*RenderPlan, bool, error) {
 		drift = drift || d
 	}
 	return p, drift, nil
-}
-
-// configDirIsDefault reports whether CLAUDE_CONFIG_DIR resolves to the default ~/.claude for the
-// process's real HOME: a worktree or test run that points CLAUDE_CONFIG_DIR elsewhere (while agent
-// configs stay $HOME-rooted) must not write into the real agent homes without --agents.
-func configDirIsDefault() bool {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return false
-	}
-	return paths.ConfigDir() == filepath.Join(home, ".claude")
 }
 
 // --- codex: ~/.codex/config.toml, a banner-marked [model_providers.claude-code] block ---

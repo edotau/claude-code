@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"github.com/edotau/claude-code/internal/agentconfig"
+	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/textutil"
 	"io"
 	"maps"
 	"os"
@@ -157,7 +159,7 @@ func mergeCodexHooks(existingRaw, body []byte) ([]byte, error) {
 		return nil, err
 	}
 	merged := mergeHookEvents(existingHooks, renderedHooks, classifyCodexGroup)
-	hooksRaw, err := settings.MarshalNoEscape(merged)
+	hooksRaw, err := textutil.MarshalNoEscape(merged)
 	if err != nil {
 		return nil, err
 	}
@@ -166,7 +168,7 @@ func mergeCodexHooks(existingRaw, body []byte) ([]byte, error) {
 		next = map[string]json.RawMessage{}
 	}
 	next["hooks"] = hooksRaw
-	return settings.MarshalIndentNoEscape(next)
+	return textutil.MarshalIndentNoEscape(next)
 }
 
 // mergeHookEvents keeps every existing item of each event in its original relative position, dropping
@@ -255,12 +257,12 @@ func rebuildCodexGroup(raw json.RawMessage, foreign []json.RawMessage) (json.Raw
 	if err != nil {
 		return nil, err
 	}
-	hooksRaw, err := settings.MarshalNoEscape(foreign)
+	hooksRaw, err := textutil.MarshalNoEscape(foreign)
 	if err != nil {
 		return nil, err
 	}
 	obj["hooks"] = hooksRaw
-	return settings.MarshalNoEscape(obj)
+	return textutil.MarshalNoEscape(obj)
 }
 
 // mergeCopilotHooks is mergeCodexHooks for Copilot's flat (non-grouped) hook entries and its top-level
@@ -284,7 +286,7 @@ func mergeCopilotHooks(existingRaw, body []byte) ([]byte, error) {
 		return nil, err
 	}
 	merged := mergeHookEvents(existingHooks, renderedHooks, classifyCopilotEntry)
-	hooksRaw, err := settings.MarshalNoEscape(merged)
+	hooksRaw, err := textutil.MarshalNoEscape(merged)
 	if err != nil {
 		return nil, err
 	}
@@ -293,7 +295,7 @@ func mergeCopilotHooks(existingRaw, body []byte) ([]byte, error) {
 	if version == 0 {
 		version = 1
 	}
-	versionRaw, err := settings.MarshalNoEscape(version)
+	versionRaw, err := textutil.MarshalNoEscape(version)
 	if err != nil {
 		return nil, err
 	}
@@ -303,7 +305,7 @@ func mergeCopilotHooks(existingRaw, body []byte) ([]byte, error) {
 	}
 	next["hooks"] = hooksRaw
 	next["version"] = versionRaw
-	return settings.MarshalIndentNoEscape(next)
+	return textutil.MarshalIndentNoEscape(next)
 }
 
 // classifyCopilotEntry reports an entry's foreign remainder (nil when harness-owned, by its "bash"
@@ -324,7 +326,7 @@ func renderCodex(reg *providers.Registry, sel providers.Selection, o RenderOptio
 	if err != nil {
 		return false, err
 	}
-	path, err := agentconfig.CodexConfigPath(o.Home)
+	path, err := paths.CodexConfigPath(o.Home)
 	if err != nil {
 		return false, err
 	}

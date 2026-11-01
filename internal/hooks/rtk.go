@@ -171,13 +171,12 @@ func rtkGitInLinkedWorktree(cmd, cwd string) bool {
 			dirs = append(dirs, strings.Trim(m[1], `"'`))
 		}
 	}
-	home, _ := os.UserHomeDir()
 	for _, d := range dirs {
 		if d == "" {
 			continue
 		}
 		if d == "~" || strings.HasPrefix(d, "~/") {
-			d = filepath.Join(home, d[1:])
+			d = paths.ExpandHome(d)
 		} else if !filepath.IsAbs(d) {
 			if cwd == "" {
 				continue

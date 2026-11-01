@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"errors"
+	"github.com/edotau/claude-code/internal/paths"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -207,10 +208,10 @@ func TestWriteRegistryModeAndKeep(t *testing.T) {
 	if err := os.WriteFile(dead, []byte("{}"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if CopilotRegistryKeep(dead) {
+	if paths.CopilotRegistryKeep(dead) {
 		t.Errorf("dead pid file %s kept", dead)
 	}
-	if !CopilotRegistryKeep(live) {
+	if !paths.CopilotRegistryKeep(live) {
 		t.Errorf("live pid file %s swept", live)
 	}
 }

@@ -2,9 +2,9 @@
 package hooks
 
 import (
-	"bufio"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -13,6 +13,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // leafStopMaxWait bounds the wait from the dispatch's start, so a hung job cannot trap a leaf.
@@ -59,12 +60,11 @@ func leafJobIDs(transcript string) ([]string, error) {
 	defer f.Close()
 	var ids []string
 	seen := map[string]bool{}
-	sc := bufio.NewScanner(f)
-	sc.Buffer(make([]byte, 0, 1<<16), 64<<20)
-	for sc.Scan() {
-		line := sc.Text()
+	r := &leafTranscriptReader{Reader: f}
+	textutil.EachLine(r, func(b []byte) {
+		line := string(b)
 		if !strings.Contains(line, `"tool_result"`) {
-			continue
+			return
 		}
 		for _, m := range jobIDPattern.FindAllStringSubmatch(line, -1) {
 			if id := m[1] + m[2]; !seen[id] {
@@ -72,8 +72,21 @@ func leafJobIDs(transcript string) ([]string, error) {
 				ids = append(ids, id)
 			}
 		}
+	})
+	return ids, r.err
+}
+
+type leafTranscriptReader struct {
+	io.Reader
+	err error
+}
+
+func (r *leafTranscriptReader) Read(p []byte) (int, error) {
+	n, err := r.Reader.Read(p)
+	if err != nil && err != io.EOF {
+		r.err = err
 	}
-	return ids, sc.Err()
+	return n, err
 }
 
 // leafStopBlock returns a Block while a dispatch the stopping leaf started is alive; any error fails open.

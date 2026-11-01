@@ -6,6 +6,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // paginate loads the start page and collects rows by the chosen mode; rows gathered so far return with any error.
@@ -159,6 +161,6 @@ if(!b||b.disabled||b.offsetParent===null)return false;b.click();return true})()`
 
 // jsString renders s as a JS string literal via JSON.
 func jsString(s string) string {
-	out, _ := marshalPlain(s)
-	return out
+	out, _ := textutil.MarshalNoEscape(s)
+	return string(out)
 }

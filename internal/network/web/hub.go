@@ -13,8 +13,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/tree"
+	"github.com/edotau/claude-code/internal/paths"
 )
 
 // Hub timings and the Build seam are vars so tests can shorten the intervals and count builds.
@@ -186,7 +186,7 @@ func (s *Server) treeFingerprint() uint64 {
 	for _, f := range regs {
 		add(f)
 	}
-	recs, _ := filepath.Glob(filepath.Join(agent.DispatchDir(), "*.json")) // buildDispatches reads these records
+	recs, _ := filepath.Glob(filepath.Join(paths.DispatchDir(), "*.json")) // buildDispatches reads these records
 	for _, f := range recs {
 		add(f)
 	}

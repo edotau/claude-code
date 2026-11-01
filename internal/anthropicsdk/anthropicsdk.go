@@ -7,11 +7,12 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strconv"
+	"strings"
 	"time"
 
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/option"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // Request is one single-turn ask. Authorize sets auth headers per request; the SDK's env credential chain is off.
@@ -97,8 +98,10 @@ func boxError(err error) error {
 	}
 	out := &APIError{Status: apiErr.StatusCode, msg: fmt.Sprintf("HTTP %d: %s", apiErr.StatusCode, apiErr.RawJSON())}
 	if apiErr.Response != nil {
-		if s, perr := strconv.Atoi(apiErr.Response.Header.Get("Retry-After")); perr == nil {
-			out.After = time.Duration(s) * time.Second
+		// Keep the SDK caller's integer-only header policy.
+		v := apiErr.Response.Header.Get("Retry-After")
+		if v == strings.TrimSpace(v) && !strings.Contains(v, ":") {
+			out.After, _ = textutil.ParseRetryAfter(v, time.Now())
 		}
 	}
 	return out

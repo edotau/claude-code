@@ -13,7 +13,7 @@ const DispatchSchema = 1
 var (
 	dispatchFormat = schemas.Register(schemas.Format{
 		Name: "dispatch-record", Owner: "internal/agent", Kind: schemas.Record, Version: DispatchSchema,
-		Glob:    func() string { return filepath.Join(DispatchDir(), "*.json") },
+		Glob:    func() string { return filepath.Join(paths.DispatchDir(), "*.json") },
 		New:     func() any { return new(Record) },
 		Clean:   "dispatch-log",
 		Migrate: schemas.SameShape,
@@ -21,7 +21,7 @@ var (
 
 	_ = schemas.Register(schemas.Format{
 		Name: "dispatch-events", Owner: "internal/agent", Kind: schemas.Log, Version: EventSchema,
-		Glob:  func() string { return filepath.Join(DispatchDir(), "*"+paths.DispatchEventsSuffix) },
+		Glob:  func() string { return filepath.Join(paths.DispatchDir(), "*"+paths.DispatchEventsSuffix) },
 		New:   func() any { return new(Event) },
 		Clean: "dispatch-log",
 	})

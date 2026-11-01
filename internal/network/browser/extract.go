@@ -11,6 +11,8 @@ import (
 	"strings"
 	"time"
 	"unicode"
+
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // Field is one extracted column: Selector inside the container, Attr "" for text content.
@@ -246,26 +248,15 @@ func writeRows(w io.Writer, o ExtractOptions, rows []Row) error {
 func rowJSON(fields []Field, r Row) (string, error) {
 	parts := make([]string, len(fields))
 	for i, f := range fields {
-		k, err := marshalPlain(f.Name)
+		k, err := textutil.MarshalNoEscape(f.Name)
 		if err != nil {
 			return "", err
 		}
-		v, err := marshalPlain(r[i])
+		v, err := textutil.MarshalNoEscape(r[i])
 		if err != nil {
 			return "", err
 		}
-		parts[i] = k + ":" + v
+		parts[i] = string(k) + ":" + string(v)
 	}
 	return "{" + strings.Join(parts, ",") + "}", nil
-}
-
-// marshalPlain is json.Marshal without HTML escaping, so URLs keep their & characters.
-func marshalPlain(v any) (string, error) {
-	var sb strings.Builder
-	enc := json.NewEncoder(&sb)
-	enc.SetEscapeHTML(false)
-	if err := enc.Encode(v); err != nil {
-		return "", err
-	}
-	return strings.TrimSuffix(sb.String(), "\n"), nil
 }

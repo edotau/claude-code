@@ -22,6 +22,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/schemas"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // claudeNow is the wall-clock seam; tests point it at a fixed instant.
@@ -222,11 +223,10 @@ func writeClaudeUsageCache(path string, c claudeUsageCache) {
 func claudeRetryAfter(v string, now time.Time) time.Duration {
 	const defaultCooldown = 120 * time.Second
 	v = strings.TrimSpace(v)
-	if secs, err := strconv.Atoi(v); err == nil && secs > 0 {
-		return time.Duration(secs) * time.Second
-	}
-	if at, err := http.ParseTime(v); err == nil && at.After(now) {
-		return at.Sub(now)
+	after, ok := textutil.ParseRetryAfter(v, now)
+	seconds, err := strconv.Atoi(v)
+	if ok && ((err == nil && seconds > 0) || (err != nil && after > 0)) {
+		return after
 	}
 	return defaultCooldown
 }
@@ -269,14 +269,14 @@ func claudeQuotas(ctx context.Context) []quota {
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, claudeOAuthURL, nil)
 	if err != nil {
-		return claudeCachedOrNote(cache, firstLine(nil, err), "usage unavailable: "+firstLine(nil, err))
+		return claudeCachedOrNote(cache, commandErrorLine(nil, err), "usage unavailable: "+commandErrorLine(nil, err))
 	}
 	req.Header.Set("Authorization", "Bearer "+creds.ClaudeAiOauth.AccessToken)
 	req.Header.Set("anthropic-beta", "oauth-2025-04-20")
 	req.Header.Set("User-Agent", "claude-code/2.1.0")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return claudeCachedOrNote(cache, firstLine(nil, err), "usage unavailable: "+firstLine(nil, err))
+		return claudeCachedOrNote(cache, commandErrorLine(nil, err), "usage unavailable: "+commandErrorLine(nil, err))
 	}
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))

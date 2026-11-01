@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -49,7 +48,7 @@ func Credential(ctx context.Context, p *Provider) (string, error) {
 		}
 	}
 	if p.Auth.File != "" {
-		if b, err := os.ReadFile(expandHome(p.Auth.File)); err == nil {
+		if b, err := os.ReadFile(paths.ExpandHome(p.Auth.File)); err == nil {
 			if v := strings.TrimSpace(string(b)); v != "" {
 				return v, nil
 			}
@@ -289,19 +288,10 @@ func CredentialPresent(p *Provider) bool {
 		return true
 	}
 	if p.Auth.File != "" {
-		b, err := os.ReadFile(expandHome(p.Auth.File))
+		b, err := os.ReadFile(paths.ExpandHome(p.Auth.File))
 		return err == nil && strings.TrimSpace(string(b)) != ""
 	}
 	return false
-}
-
-func expandHome(p string) string {
-	if strings.HasPrefix(p, "~/") {
-		if h, err := os.UserHomeDir(); err == nil {
-			return filepath.Join(h, p[2:])
-		}
-	}
-	return p
 }
 
 func orDash(s string) string {

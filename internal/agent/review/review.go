@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/edotau/claude-code/internal/paths"
 	"io"
 	"os"
 	"path/filepath"
@@ -184,7 +185,7 @@ func ReviewPrompt(adversarial bool, focus string) string {
 // via --attach. cleanup removes it in foreground mode; in background mode the detached child reads it and
 // `claude-code clean` (dispatch-log target) sweeps it. rubric, when set, emits --rubric <f> before the prompt.
 func ReviewArgs(agentName string, s Scope, diff []byte, adversarial, background bool, focus, rubric string) ([]string, func(), error) {
-	dir := agent.DispatchDir()
+	dir := paths.DispatchDir()
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, nil, err
 	}

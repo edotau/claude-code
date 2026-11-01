@@ -54,18 +54,17 @@ type Record struct {
 func (r Record) Alive() bool { return inflight.DispatchAlive(r.Status, r.PID, r.Time) }
 
 // LogPath is the dispatch's log file: Log when set, else <id>.log beside the record.
-func (r Record) LogPath() string { return cmp.Or(r.Log, filepath.Join(DispatchDir(), r.ID+".log")) }
+func (r Record) LogPath() string {
+	return cmp.Or(r.Log, filepath.Join(paths.DispatchDir(), r.ID+".log"))
+}
 
 // EventsPath is the dispatch's NDJSON event file, <id>.events.jsonl beside the record.
 func (r Record) EventsPath() string {
-	return filepath.Join(DispatchDir(), r.ID+paths.DispatchEventsSuffix)
+	return filepath.Join(paths.DispatchDir(), r.ID+paths.DispatchEventsSuffix)
 }
 
 // dispatchKeep bounds the log; the oldest records beyond it are pruned on every write.
 var dispatchKeep = 200
-
-// DispatchDir is the directory holding dispatch records and job logs.
-func DispatchDir() string { return filepath.Join(paths.StateDir(), "dispatch") }
 
 // NewRecord stamps an id that sorts by time and names the agent: 20261016T210512.123-codex.
 func NewRecord(agent string, req RunOptions, now time.Time) Record {
@@ -82,7 +81,7 @@ func ClaimRecord(agent string, req RunOptions, now time.Time) Record {
 // <id>.json (atomic, EEXIST if taken), bumping the millisecond stamp on a clash, so a claim is never an empty file.
 // Failures leave rec unclaimed (fail-open, like Save): the log is for replay, never a gate on the run.
 func claimRecord(rec Record) Record {
-	dir := DispatchDir()
+	dir := paths.DispatchDir()
 	if os.MkdirAll(dir, 0o700) != nil {
 		return rec
 	}
@@ -123,7 +122,7 @@ func (r Record) encode() ([]byte, error) {
 
 // Save writes the record (0600) and prunes past dispatchKeep. The prompt is kept verbatim so a retry is exact.
 func (r Record) Save() error {
-	dir := DispatchDir()
+	dir := paths.DispatchDir()
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
@@ -213,7 +212,7 @@ func recordNames(dir string) []string {
 // LoadRecord reads one record by id; a unique id prefix is accepted.
 func LoadRecord(id string) (Record, error) {
 	var match []string
-	for _, n := range recordNames(DispatchDir()) {
+	for _, n := range recordNames(paths.DispatchDir()) {
 		if strings.HasPrefix(n, id) {
 			match = append(match, n)
 		}
@@ -221,12 +220,12 @@ func LoadRecord(id string) (Record, error) {
 	if len(match) != 1 {
 		return Record{}, fmt.Errorf("dispatch %q: %d matches (see claude-code ask --log)", id, len(match))
 	}
-	return readRecord(filepath.Join(DispatchDir(), match[0]))
+	return readRecord(filepath.Join(paths.DispatchDir(), match[0]))
 }
 
 // RecentRecords returns up to n records, newest first.
 func RecentRecords(n int) []Record {
-	dir := DispatchDir()
+	dir := paths.DispatchDir()
 	names := recordNames(dir)
 	var out []Record
 	for i := len(names) - 1; i >= 0 && len(out) < n; i-- {

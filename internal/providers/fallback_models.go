@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/models"
+	"github.com/edotau/claude-code/internal/paths"
 )
 
 // FallbackModels covers the two providers whose live catalog can fail for a known reason: subscription
@@ -42,13 +43,9 @@ func RegistryModels(p *Provider) []ModelInfo {
 
 // CodexCachedModels reads codex's models_cache.json under $CODEX_HOME (default ~/.codex); never a network call.
 func CodexCachedModels() ([]ModelInfo, error) {
-	dir := os.Getenv("CODEX_HOME")
-	if dir == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return nil, err
-		}
-		dir = filepath.Join(home, ".codex")
+	dir, err := paths.CodexHome()
+	if err != nil {
+		return nil, err
 	}
 	b, err := os.ReadFile(filepath.Join(dir, "models_cache.json"))
 	if err != nil {

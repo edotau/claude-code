@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/edotau/claude-code/internal/paths"
 	"io"
 	"os"
 	"os/exec"
@@ -31,7 +32,7 @@ func TestDispatchRecordLifecycleAndPrune(t *testing.T) {
 	if got, _ := LoadRecord(r.ID); got.Status != "ok" || got.Provider != "chatgpt" {
 		t.Fatalf("finished record = %+v", got)
 	}
-	if fi, _ := os.Stat(filepath.Join(DispatchDir(), r.ID+".json")); fi.Mode().Perm() != 0o600 {
+	if fi, _ := os.Stat(filepath.Join(paths.DispatchDir(), r.ID+".json")); fi.Mode().Perm() != 0o600 {
 		t.Errorf("mode %v, want 0600", fi.Mode().Perm())
 	}
 	old := dispatchKeep
@@ -88,7 +89,7 @@ func TestPruneDispatchesRemovesLog(t *testing.T) {
 	if err := first.Save(); err != nil {
 		t.Fatal(err)
 	}
-	logPath := filepath.Join(DispatchDir(), first.ID+".log")
+	logPath := filepath.Join(paths.DispatchDir(), first.ID+".log")
 	if err := os.WriteFile(logPath, []byte("job output"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -132,7 +133,7 @@ func TestPruneDispatchesSkipsActiveBackgroundRecord(t *testing.T) {
 	}
 
 	active := NewRecord("codex", RunOptions{Prompt: "bg"}, base.Add(time.Minute))
-	active.Log = filepath.Join(DispatchDir(), active.ID+".log")
+	active.Log = filepath.Join(paths.DispatchDir(), active.ID+".log")
 	active.PID = cmd.Process.Pid
 	if err := active.Save(); err != nil {
 		t.Fatal(err)
@@ -152,16 +153,16 @@ func TestPruneDispatchesSkipsActiveBackgroundRecord(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := os.Stat(filepath.Join(DispatchDir(), finished.ID+".json")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(paths.DispatchDir(), finished.ID+".json")); !os.IsNotExist(err) {
 		t.Fatalf("finished record must be pruned, stat err = %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(DispatchDir(), active.ID+".json")); err != nil {
+	if _, err := os.Stat(filepath.Join(paths.DispatchDir(), active.ID+".json")); err != nil {
 		t.Fatalf("active background record must survive the prune: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(DispatchDir(), trigger1.ID+".json")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(paths.DispatchDir(), trigger1.ID+".json")); !os.IsNotExist(err) {
 		t.Fatalf("trigger1 must be pruned in active's place, stat err = %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(DispatchDir(), trigger2.ID+".json")); err != nil {
+	if _, err := os.Stat(filepath.Join(paths.DispatchDir(), trigger2.ID+".json")); err != nil {
 		t.Fatalf("newest record must survive the prune: %v", err)
 	}
 }
@@ -180,7 +181,7 @@ func TestPruneDispatchesPrunesDeadPIDBackgroundRecord(t *testing.T) {
 	}
 
 	dead := NewRecord("codex", RunOptions{Prompt: "bg"}, base)
-	dead.Log = filepath.Join(DispatchDir(), dead.ID+".log")
+	dead.Log = filepath.Join(paths.DispatchDir(), dead.ID+".log")
 	dead.PID = cmd.Process.Pid // reaped, no longer alive
 	if err := dead.Save(); err != nil {
 		t.Fatal(err)
@@ -190,7 +191,7 @@ func TestPruneDispatchesPrunesDeadPIDBackgroundRecord(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := os.Stat(filepath.Join(DispatchDir(), dead.ID+".json")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(paths.DispatchDir(), dead.ID+".json")); !os.IsNotExist(err) {
 		t.Fatalf("background record with a dead PID must be pruned, stat err = %v", err)
 	}
 }
@@ -213,7 +214,7 @@ func TestPruneDispatchesPrunesForegroundRunningRecord(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := os.Stat(filepath.Join(DispatchDir(), fg.ID+".json")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(paths.DispatchDir(), fg.ID+".json")); !os.IsNotExist(err) {
 		t.Fatalf("foreground running record (no Log) must be pruned, stat err = %v", err)
 	}
 }
@@ -284,16 +285,16 @@ func TestPruneDispatchesKeepsAlivePID0RecordDropsStalePID0Record(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := os.Stat(filepath.Join(DispatchDir(), stale.ID+".json")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(paths.DispatchDir(), stale.ID+".json")); !os.IsNotExist(err) {
 		t.Fatalf("stale PID==0 record must be pruned, stat err = %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(DispatchDir(), alive.ID+".json")); err != nil {
+	if _, err := os.Stat(filepath.Join(paths.DispatchDir(), alive.ID+".json")); err != nil {
 		t.Fatalf("recent PID==0 record must survive the prune: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(DispatchDir(), trigger1.ID+".json")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(paths.DispatchDir(), trigger1.ID+".json")); !os.IsNotExist(err) {
 		t.Fatalf("trigger1 must be pruned in alive's place, stat err = %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(DispatchDir(), trigger2.ID+".json")); err != nil {
+	if _, err := os.Stat(filepath.Join(paths.DispatchDir(), trigger2.ID+".json")); err != nil {
 		t.Fatalf("newest record must survive the prune: %v", err)
 	}
 }
@@ -353,10 +354,10 @@ func TestRecordKeepsRequestAndInvokedModel(t *testing.T) {
 
 func writeRawDispatch(t *testing.T, id, body string) {
 	t.Helper()
-	if err := os.MkdirAll(DispatchDir(), 0o700); err != nil {
+	if err := os.MkdirAll(paths.DispatchDir(), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(DispatchDir(), id+".json"), []byte(body), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(paths.DispatchDir(), id+".json"), []byte(body), 0o600); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -375,7 +376,7 @@ func TestDispatchRecordSchemaStampsNewAndRejectsNewer(t *testing.T) {
 	if err := rec.Save(); err != nil {
 		t.Fatal(err)
 	}
-	b, err := os.ReadFile(filepath.Join(DispatchDir(), rec.ID+".json"))
+	b, err := os.ReadFile(filepath.Join(paths.DispatchDir(), rec.ID+".json"))
 	if err != nil {
 		t.Fatal(err)
 	}

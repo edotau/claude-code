@@ -7,13 +7,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"net/http/httptrace"
 	"net/url"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // ClientID is the public OAuth client id of the Databricks CLI (an identifier, not a secret).
@@ -77,15 +78,10 @@ func normHost(host string) (string, error) {
 	if err != nil || u.Host == "" || (u.Scheme != "https" && u.Scheme != "http") {
 		return "", errors.New(hostHint)
 	}
-	if u.Scheme == "http" && !isLoopbackHost(u.Hostname()) {
+	if u.Scheme == "http" && !textutil.IsLoopbackHost(u.Hostname()) {
 		return "", fmt.Errorf("oauth: host %s uses scheme http; credentials need https (loopback excepted)", u.Hostname())
 	}
 	return host, nil
-}
-
-func isLoopbackHost(h string) bool {
-	ip := net.ParseIP(h)
-	return h == "localhost" || (ip != nil && ip.IsLoopback())
 }
 
 // tokenReply is the success body of the token endpoint.

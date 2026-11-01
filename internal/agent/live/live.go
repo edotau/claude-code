@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/edotau/claude-code/internal/paths"
 	"io"
 	"net"
 	"os"
@@ -35,7 +36,7 @@ var ErrLiveBusy = errors.New("a turn is already in flight on this live session")
 var errPeerUnsupported = errors.New("peer credentials unsupported on this platform")
 
 // LiveSocket is the unix socket path of live session id.
-func LiveSocket(id string) string { return filepath.Join(agent.DispatchDir(), id+agent.LiveSockSuffix) }
+func LiveSocket(id string) string { return filepath.Join(paths.DispatchDir(), id+agent.LiveSockSuffix) }
 
 // LiveCount counts live sessions still running, other than skip.
 func LiveCount(skip string) int {
@@ -103,15 +104,15 @@ func (b *pumpBuf) Read(p []byte) (int, error) {
 // AcquireLiveSlot takes one of MaxLiveSessions flock'd slot files; the kernel frees it when the holder dies, and two
 // contenders for the last slot cannot both win. The returned func releases it.
 func AcquireLiveSlot() (func(), error) {
-	if err := os.MkdirAll(agent.DispatchDir(), 0o700); err != nil {
+	if err := os.MkdirAll(paths.DispatchDir(), 0o700); err != nil {
 		return nil, err
 	}
 	for i := range MaxLiveSessions {
-		f, err := os.OpenFile(filepath.Join(agent.DispatchDir(), fmt.Sprintf("live-slot-%d", i)), os.O_CREATE|os.O_RDWR, 0o600)
+		f, err := os.OpenFile(filepath.Join(paths.DispatchDir(), fmt.Sprintf("live-slot-%d", i)), os.O_CREATE|os.O_RDWR, 0o600)
 		if err != nil {
 			return nil, err
 		}
-		if tryLockFile(f) {
+		if paths.TryLock(f) {
 			return func() { _ = f.Close() }, nil
 		}
 		_ = f.Close()
@@ -238,10 +239,10 @@ const maxSockPath = 103
 
 // listenLive binds the 0600 socket for id in the 0700 dispatch dir, replacing a stale socket file.
 func listenLive(id string) (net.Listener, error) {
-	if err := os.MkdirAll(agent.DispatchDir(), 0o700); err != nil {
+	if err := os.MkdirAll(paths.DispatchDir(), 0o700); err != nil {
 		return nil, err
 	}
-	if err := os.Chmod(agent.DispatchDir(), 0o700); err != nil {
+	if err := os.Chmod(paths.DispatchDir(), 0o700); err != nil {
 		return nil, err
 	}
 	sock := LiveSocket(id)

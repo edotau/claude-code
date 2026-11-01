@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -15,10 +14,8 @@ import (
 	"github.com/edotau/claude-code/internal/copilotsdk"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/proxy"
-	copilot "github.com/github/copilot-sdk/go"
 )
 
 // Seams for the registry route: tests stub the router, the session mint and endpoint discovery.
@@ -31,8 +28,8 @@ var (
 
 // copilotRegistryRoute is the multi-provider SDK wiring for one run: in-memory providers, a session token, no file.
 type copilotRegistryRoute struct {
-	providers []copilot.NamedProviderConfig
-	models    []copilot.ProviderModelConfig
+	providers []copilotsdk.NamedProvider
+	models    []copilotsdk.RegistryModel
 	ref       string // the selected provider/id
 	token     string
 	home      copilotPrivateHome
@@ -71,11 +68,11 @@ func prepareCopilotRegistry(ctx context.Context, t providers.Target) (*copilotRe
 	}
 	rt := &copilotRegistryRoute{ref: ref, token: tok, home: home}
 	for _, p := range cr.Providers {
-		rt.providers = append(rt.providers, copilot.NamedProviderConfig{Name: p.Name, Type: p.Type, WireAPI: p.WireAPI,
+		rt.providers = append(rt.providers, copilotsdk.NamedProvider{Name: p.Name, Type: p.Type, WireAPI: p.WireAPI,
 			BaseURL: p.BaseURL, Headers: p.Headers})
 	}
 	for _, m := range cr.Models {
-		rt.models = append(rt.models, copilot.ProviderModelConfig{ID: m.ID, Provider: m.Provider, WireModel: m.WireModel,
+		rt.models = append(rt.models, copilotsdk.RegistryModel{ID: m.ID, Provider: m.Provider, WireModel: m.WireModel,
 			ModelID: m.ModelID, Name: m.Name, MaxPromptTokens: m.MaxPromptTokens,
 			MaxContextWindowTokens: m.MaxContextWindowTokens, MaxOutputTokens: m.MaxOutputTokens})
 	}
@@ -406,7 +403,7 @@ func WriteCopilotRegistry(pid int, data []byte) (string, error) {
 // CopilotRuntimeDir creates (0700) and verifies the registry directory: a real dir, owned by this uid, mode 0700,
 // and memory-backed where the platform allows (see backingCheck).
 func CopilotRuntimeDir() (string, error) {
-	dir, err := runtimeDirPath()
+	dir, err := paths.CopilotRuntimeDirPath()
 	if err != nil {
 		return "", err
 	}
@@ -441,28 +438,3 @@ func checkDir(dir string) error {
 }
 
 var errNoRuntimeDir = errors.New("copilot registry: no private runtime directory on this platform")
-
-// pidOf parses "<pid>.json"; ok is false for any other name.
-func pidOf(path string) (int, bool) {
-	name, ok := strings.CutSuffix(filepath.Base(path), ".json")
-	if !ok {
-		return 0, false
-	}
-	pid, err := strconv.Atoi(name)
-	return pid, err == nil && pid > 0
-}
-
-// CopilotRegistryKeep reports whether the registry file at path must survive a sweep: its pid is alive, or it is not ours.
-func CopilotRegistryKeep(path string) bool {
-	pid, ok := pidOf(path)
-	return !ok || proc.Alive(pid) || runtime.GOOS == "windows"
-}
-
-// CopilotRegistryGlob is the pattern matching registry files under the runtime dir; "" when no dir path exists. It creates nothing.
-func CopilotRegistryGlob() string {
-	dir, err := runtimeDirPath()
-	if err != nil {
-		return ""
-	}
-	return filepath.Join(dir, "*.json")
-}

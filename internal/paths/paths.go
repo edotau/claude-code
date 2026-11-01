@@ -64,7 +64,7 @@ const DispatchEventsSuffix = ".events.jsonl"
 func ClaudeJSON() string {
 	home, err := os.UserHomeDir()
 	// A CLAUDE_CONFIG_DIR equal to the default ~/.claude still means the real ~/.claude.json.
-	if strings.TrimSpace(os.Getenv("CLAUDE_CONFIG_DIR")) != "" && (err != nil || ConfigDir() != filepath.Join(home, ".claude")) {
+	if strings.TrimSpace(os.Getenv("CLAUDE_CONFIG_DIR")) != "" && !ConfigDirIsDefault() {
 		return filepath.Join(ConfigDir(), ".claude.json")
 	}
 	if err != nil {
@@ -139,7 +139,7 @@ func TryFileLock(path string, wait time.Duration, fn func() error) (ran bool, er
 		return false, err
 	}
 	defer f.Close()
-	for deadline := time.Now().Add(wait); !tryLock(f); time.Sleep(lockPoll()) {
+	for deadline := time.Now().Add(wait); !TryLock(f); time.Sleep(lockPoll()) {
 		if time.Now().After(deadline) {
 			return false, nil
 		}

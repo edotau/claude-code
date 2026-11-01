@@ -119,7 +119,7 @@ func PreflightStep(w io.Writer, bin string) {
 // installLine renders the "install" summary line: the installed binary path and, when the pre-install
 // history snapshot produced a commit, its short hash.
 func installLine(target, commit string) string {
-	line := "install  " + shortenHome(target)
+	line := "install  " + paths.ShortHome(target)
 	if commit != "" {
 		line += fmt.Sprintf(" (%s snapshot)", commit)
 	}
@@ -423,18 +423,6 @@ func extrasCompact(w io.Writer) string {
 		return ""
 	}
 	return "extras   " + strings.Join(tokens, " · ")
-}
-
-// shortenHome replaces the user's home directory prefix with "~", for compact path display.
-func shortenHome(p string) string {
-	home, err := os.UserHomeDir()
-	if err != nil || home == "" {
-		return p
-	}
-	if rel, ok := strings.CutPrefix(p, home); ok {
-		return "~" + rel
-	}
-	return p
 }
 
 // splitNonEmpty splits s on newlines, dropping the trailing blank line and any other empty lines.

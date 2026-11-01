@@ -20,6 +20,7 @@ import (
 	"github.com/edotau/claude-code/internal/audit"
 	"github.com/edotau/claude-code/internal/databricks/oauth"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/vault"
 )
 
@@ -116,7 +117,7 @@ func sealedAuth(t string) bool { return slices.Contains(supportedAuthTypes, t) }
 // AuthHost is the https://host a row talks to: the preset host, else BaseURL's origin; "" when neither parses.
 func AuthHost(p *Provider) string {
 	h := rawAuthHost(p)
-	if u, err := url.Parse(h); err == nil && u.Scheme == "http" && !loopbackHost(u.Host) {
+	if u, err := url.Parse(h); err == nil && u.Scheme == "http" && !textutil.IsLoopbackHost(u.Hostname()) {
 		return ""
 	}
 	return h
@@ -134,19 +135,10 @@ func rawAuthHost(p *Provider) string {
 	return u.Scheme + "://" + u.Host
 }
 
-// loopbackHost reports whether h (host or host:port) is a loopback name, the only plain-http exception.
-func loopbackHost(h string) bool {
-	name := h
-	if u, err := url.Parse("//" + h); err == nil {
-		name = u.Hostname()
-	}
-	return name == "localhost" || name == "127.0.0.1" || name == "::1"
-}
-
 // checkAuthScheme refuses a sealed auth type whose host is plain http outside loopback; the error carries no credential.
 func checkAuthScheme(p *Provider) error {
 	u, err := url.Parse(rawAuthHost(p))
-	if err != nil || u.Scheme != "http" || loopbackHost(u.Host) {
+	if err != nil || u.Scheme != "http" || textutil.IsLoopbackHost(u.Hostname()) {
 		return nil
 	}
 	return fmt.Errorf("%s: auth.type %s needs an https host, got scheme %q", p.Name, p.Auth.Type, u.Scheme)

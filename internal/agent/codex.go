@@ -144,7 +144,7 @@ func (codexEngine) render(reg *providers.Registry, sel providers.Selection, _ st
 }
 
 func (codexEngine) configPaths(home string) ([]labelPath, error) {
-	path, err := agentconfig.CodexConfigPath(home)
+	path, err := paths.CodexConfigPath(home)
 	if err != nil {
 		return nil, err
 	}
@@ -408,7 +408,7 @@ func codexLogin(model string, h *Headless) ([]string, []string, error) {
 
 // codexHome is $CODEX_HOME or ~/.codex, where codex keeps auth.json and config.toml.
 func codexHome() string {
-	home, err := agentconfig.CodexHome()
+	home, err := paths.CodexHome()
 	if err != nil {
 		return filepath.Join(".codex") // no resolvable home: a relative path simply misses
 	}

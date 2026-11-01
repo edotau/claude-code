@@ -12,6 +12,8 @@ import (
 	"runtime"
 	"strconv"
 	"text/template"
+
+	"github.com/edotau/claude-code/internal/paths"
 )
 
 // launchLabel names the macOS launchd agent that serves the clipboard bridge on demand.
@@ -105,10 +107,7 @@ func installLaunchAgentAt(w io.Writer, home, bin string, uid int, dryRun bool) e
 	if err := os.MkdirAll(filepath.Dir(launchSocket(home)), 0o755); err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(plist), 0o755); err != nil {
-		return err
-	}
-	if err := os.WriteFile(plist, want, 0o644); err != nil {
+	if err := paths.AtomicWrite(plist, want, 0o644); err != nil {
 		return err
 	}
 	_ = launchctl("bootout", domain+"/"+launchLabel) // not loaded yet is fine

@@ -1,7 +1,6 @@
 package databricks
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -11,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/secrets/shapes"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // redacted masks a credential value in a diff; redactedChanged marks one whose value differs across the two docs.
@@ -133,12 +133,8 @@ func normalize(v any) []string {
 	if v == nil {
 		return nil
 	}
-	var buf bytes.Buffer
-	enc := json.NewEncoder(&buf)
-	enc.SetEscapeHTML(false)
-	enc.SetIndent("", "  ")
-	_ = enc.Encode(v) // v came from json.Unmarshal, so it always encodes
-	return strings.Split(strings.TrimRight(buf.String(), "\n"), "\n")
+	raw, _ := textutil.MarshalIndentNoEscape(v)
+	return strings.Split(string(raw), "\n")
 }
 
 // parseDoc decodes an overlay document; ok is false for empty or non-JSON input.

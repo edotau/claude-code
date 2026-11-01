@@ -5,10 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"slices"
-	"strconv"
 	"strings"
 
 	copilot "github.com/github/copilot-sdk/go"
+
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // MinMultiProviderCLI is the oldest copilot CLI proven to serve SDK named providers (probed 2026-10-28).
@@ -58,15 +59,33 @@ func validateRegistryOptions(o Options) error {
 
 func (o Options) multiProvider() bool { return len(o.Providers) > 0 || len(o.Models) > 0 }
 
-// namedProviders copies the credential-free providers and routes every one's auth through the token callback.
+// NamedProvider is one credential-free upstream of the multi-provider route.
+type NamedProvider struct {
+	Name, Type, WireAPI, BaseURL string
+	Headers                      map[string]string
+}
+
+// RegistryModel is one model served by a NamedProvider.
+type RegistryModel struct {
+	ID, Provider, WireModel, ModelID, Name                   string
+	MaxPromptTokens, MaxContextWindowTokens, MaxOutputTokens int
+}
+
+// namedProviders builds the SDK providers with credentials cleared; every one's auth goes through the token callback.
 func namedProviders(o Options) ([]copilot.NamedProviderConfig, []copilot.ProviderModelConfig) {
 	cb := func(copilot.ProviderTokenArgs) (string, error) { return o.Token() }
 	ps := make([]copilot.NamedProviderConfig, len(o.Providers))
 	for i, p := range o.Providers {
-		p.APIKey, p.BearerToken, p.BearerTokenProvider = "", "", cb
-		ps[i] = p
+		ps[i] = copilot.NamedProviderConfig{Name: p.Name, Type: p.Type, WireAPI: p.WireAPI, BaseURL: p.BaseURL,
+			Headers: p.Headers, APIKey: "", BearerToken: "", BearerTokenProvider: cb}
 	}
-	return ps, append([]copilot.ProviderModelConfig(nil), o.Models...)
+	ms := make([]copilot.ProviderModelConfig, len(o.Models))
+	for i, m := range o.Models {
+		ms[i] = copilot.ProviderModelConfig{ID: m.ID, Provider: m.Provider, WireModel: m.WireModel, ModelID: m.ModelID,
+			Name: m.Name, MaxPromptTokens: m.MaxPromptTokens, MaxContextWindowTokens: m.MaxContextWindowTokens,
+			MaxOutputTokens: m.MaxOutputTokens}
+	}
+	return ps, ms
 }
 
 // probeMultiProvider gates the route on the running CLI's version: older runtimes ignore named providers.
@@ -75,41 +94,11 @@ func probeMultiProvider(ctx context.Context, client *copilot.Client) error {
 	if err != nil {
 		return fmt.Errorf("%w: cannot read CLI version: %v", ErrNoMultiProvider, err)
 	}
-	if !versionAtLeast(st.Version, MinMultiProviderCLI) {
+	if order, ok := textutil.CompareVersions(st.Version, MinMultiProviderCLI); !ok || order < 0 {
 		return fmt.Errorf("%w: CLI %q is older than %s (run `copilot update`)",
 			ErrNoMultiProvider, st.Version, MinMultiProviderCLI)
 	}
 	return nil
-}
-
-// versionAtLeast compares dotted numeric versions; an unparsable v is never enough.
-func versionAtLeast(v, min string) bool {
-	a, b := versionParts(v), versionParts(min)
-	if a == nil {
-		return false
-	}
-	for i := range b {
-		var x int
-		if i < len(a) {
-			x = a[i]
-		}
-		if x != b[i] {
-			return x > b[i]
-		}
-	}
-	return true
-}
-
-func versionParts(v string) []int {
-	var out []int
-	for s := range strings.SplitSeq(strings.TrimPrefix(strings.TrimSpace(v), "v"), ".") {
-		n, err := strconv.Atoi(strings.SplitN(s, "-", 2)[0])
-		if err != nil {
-			return nil
-		}
-		out = append(out, n)
-	}
-	return out
 }
 
 // selectRegistered pins the session to o.Model; an unknown id errors, so a pick never falls through to GitHub.
@@ -122,4 +111,13 @@ func selectRegistered(ctx context.Context, session *copilot.Session, o Options) 
 		return fmt.Errorf("%w: select %s: %v", ErrUnregisteredPick, o.Model, err)
 	}
 	return nil
+}
+
+// ClientEnv is the child process env the SDK client would start the CLI with.
+func ClientEnv(o Options) ([]string, error) {
+	co, err := BuildClientOptions(o)
+	if err != nil {
+		return nil, err
+	}
+	return co.Connection.(copilot.StdioConnection).Env, nil
 }

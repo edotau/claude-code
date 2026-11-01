@@ -111,7 +111,7 @@ func Reap(dryRun bool, out, errw io.Writer) int {
 
 // reapSockets removes live-session sockets whose holder is gone (no record, or not alive); a live holder keeps its own.
 func reapSockets(dryRun bool, verb string, out io.Writer) int {
-	socks, _ := filepath.Glob(filepath.Join(agent.DispatchDir(), "*"+agent.LiveSockSuffix))
+	socks, _ := filepath.Glob(filepath.Join(paths.DispatchDir(), "*"+agent.LiveSockSuffix))
 	n := 0
 	for _, sock := range socks {
 		id := strings.TrimSuffix(filepath.Base(sock), agent.LiveSockSuffix)

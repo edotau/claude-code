@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"github.com/edotau/claude-code/internal/paths"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -178,7 +179,7 @@ func TestReserveIsExclusiveAcrossBatches(t *testing.T) {
 			t.Fatalf("record id %s handed out twice: %v", id, ids)
 		}
 		seen[id] = true
-		if _, err := os.Stat(filepath.Join(DispatchDir(), id+".json")); err != nil {
+		if _, err := os.Stat(filepath.Join(paths.DispatchDir(), id+".json")); err != nil {
 			t.Errorf("record %s has no claimed file: %v", id, err)
 		}
 	}
@@ -210,7 +211,7 @@ func TestReservedRecordSurvivesPrune(t *testing.T) {
 	old := dispatchKeep
 	dispatchKeep = 1
 	t.Cleanup(func() { dispatchKeep = old })
-	dir := DispatchDir()
+	dir := paths.DispatchDir()
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)
 	}
