@@ -531,12 +531,12 @@ func TestSelectPicksOwningPlan(t *testing.T) {
 	if filepath.Base(plan) != "2026-10-01-roles.md" || tied != nil {
 		t.Fatalf("plan=%q tied=%v", plan, tied)
 	}
-	writeFile(t, filepath.Join(home, "2026-10-03-dup.md"), "- [ ] 3.1 Roles owns: internal/roles/r.go\n")
+	writeFile(t, filepath.Join(home, "2026-10-01-dup.md"), "- [ ] 3.1 Roles owns: internal/roles/r.go\n")
 	if plan, tied = Select(home, "", nil, commits); plan != "" || len(tied) != 2 {
 		t.Fatalf("equal match must annotate nothing: plan=%q tied=%v", plan, tied)
 	}
-	writeFile(t, filepath.Join(home, "2026-10-03-dup.md"), "- [ ] 3.1 Roles owns: internal/roles/r.go <!-- working: x · worktree wt -->\n")
-	if plan, _ = Select(home, "wt", nil, commits); filepath.Base(plan) != "2026-10-03-dup.md" {
+	writeFile(t, filepath.Join(home, "2026-10-01-dup.md"), "- [ ] 3.1 Roles owns: internal/roles/r.go <!-- working: x · worktree wt -->\n")
+	if plan, _ = Select(home, "wt", nil, commits); filepath.Base(plan) != "2026-10-01-dup.md" {
 		t.Fatalf("worktree claim should break the tie, got %q", plan)
 	}
 }
