@@ -6,7 +6,7 @@ marching orders. Read-only intent: refine and judge, don't implement.
 
 Any reviewer runs this — the main session, a Plan subagent, or a second agent via
 `claude-code codex ask "<this file's checklist + the request>"`. It is the plan-vetting step of
-`rules/workflow/master-workflow.md` Phase 1.
+`rules/workflows/master-workflow.md` Phase 1.
 
 Verdict: **READY | NEEDS CLARIFICATION**. Verdict discipline: `../SKILL.md` → Verdicts.
 

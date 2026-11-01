@@ -89,7 +89,7 @@ Total changes: N files modified, N files unchanged
   forward; a dropped id breaks every cross-reference to it.
 - **Archive superseded decisions, never delete them** — strike the title line, point at the
   replacement, move the body to `archive/` only once the active file is over cap.
-- **Respect the caps** — `rules/workflow/memory-bank.md`; Go enforces them on settle, but a
+- **Respect the caps** — `rules/workflows/memory-bank.md`; Go enforces them on settle, but a
   judgment edit must not write past one either.
 - **The RULES region is untouchable** — `<!-- RULES:BEGIN -->`…`<!-- RULES:END -->` in any native
   `MEMORY.md`, unattended or not.

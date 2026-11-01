@@ -14,7 +14,7 @@ Read in order:
    auto-load, including its generated `<!-- bank:begin -->`…`<!-- bank:end -->` region)
 3. **Typed bank files** — the six files beside `MEMORY.md` in the same dir; `claude-code memory
    review` surfaces caps/staleness/cross-tier-duplication across both native and typed
-4. **Rules tiers** — `rules/standards/*.md`, `rules/workflow/*.md`
+4. **Rules tiers** — `rules/standards/*.md`, `rules/workflows/*.md`
 5. **Always-on tier** — the global `~/.claude/CLAUDE.md` and the project `./CLAUDE.md`
 
 Use `Glob`/`Read`/`Grep` to inventory and cross-reference, `Bash` for `claude-code memory review`

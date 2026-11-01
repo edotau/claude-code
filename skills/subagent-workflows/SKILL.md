@@ -20,12 +20,12 @@ Use the smallest shape that fits; add orchestration only when the dependency sha
 | Cheaper or second-agent dispatch (Copilot, Codex, Gemini, OpenCode) | any | `claude-code ask --agent <agent>` | [cost-routing.md](references/cost-routing.md) |
 | Repeatable pipeline, evaluator or bounded loop | any | A saved `Workflow` (`workflows/*.js`) — **only when the user asks for one** | [saved-workflows.md](references/saved-workflows.md) |
 
-Tier is `rules/workflow/master-workflow.md` → Phase 0. Each leaf runs one method skill, named in the brief's `Method:`
+Tier is `rules/workflows/master-workflow.md` → Phase 0. Each leaf runs one method skill, named in the brief's `Method:`
 field: `problem-solving` (`code-worker`, lane leaf), `evaluate-code` (spec, quality and plan reviewers;
 codex review, vet and judge), `simplify` (simplifier).
 Brief templates for implementer, spec, quality and plan reviewers: [prompts.md](references/prompts.md).
 Shared discipline and per-agent memory-proposal candidates: [memory-updates.md](references/memory-updates.md).
-Concurrency caps: `rules/workflow/agents.md` → Parallel dispatch. Scoping a leaf below the repo root hides
+Concurrency caps: `rules/workflows/agents.md` → Parallel dispatch. Scoping a leaf below the repo root hides
 `.git`/`.venv` (`not a git repository`, mass `ModuleNotFoundError` that isn't a regression): scope to the root;
 check with `git rev-parse --show-toplevel` from the granted path.
 

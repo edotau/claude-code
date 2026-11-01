@@ -149,7 +149,7 @@ Every phase is:
 
 - **Rules:** `CLAUDE.md` hard rules apply (generated `settings.json`, secrets only in the vault/`auth.command`, propose
   look/behavior changes first); the repo is public — nothing company-specific; CLI/TUI text <=80 columns.
-- **Dispatch shape:** `~/.claude/rules/workflow/agents.md` (caps, fan-out) — disjoint-package code steps run in
+- **Dispatch shape:** `~/.claude/rules/workflows/agents.md` (caps, fan-out) — disjoint-package code steps run in
   parallel; every code step names a `leaf:` and `Agent:` and pairs a `copilot` test agent only for a
   feature or bug fix (`rules/standards/testing-guidelines.md` → Test agent).
 - **Cost routing:** spread steps across agents per `~/.claude/skills/subagent-workflows/references/cost-routing.md`;

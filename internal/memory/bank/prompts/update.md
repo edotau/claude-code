@@ -44,7 +44,7 @@ brief did not say what changed," never an invented summary padding a file inject
 future session.
 
 Hand-edit `activeContext.md` / `progress.md` / `sessionHistory.md` for this session's narrative —
-the one thing a verb cannot produce. Contracts: `rules/workflow/memory-bank.md`.
+the one thing a verb cannot produce. Contracts: `rules/workflows/memory-bank.md`.
 
 **What the gate needs back**: it releases on **memory-bank mtimes**, not your say-so. Write
 something real, or — when the session genuinely has nothing worth persisting — say that plainly

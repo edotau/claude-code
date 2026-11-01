@@ -1,7 +1,7 @@
 # Saved Workflows (`workflows/*.js`)
 
 Run one only when the user asks for it; the default dispatch is `/code-workers` ‖ `copilot`
-(`rules/workflow/master-workflow.md` → Phase 6). Deterministic templates of the master-workflow phases, runnable by
+(`rules/workflows/master-workflow.md` → Phase 6). Deterministic templates of the master-workflow phases, runnable by
 name (`Workflow({name, args})`) or inline from another script via `workflow(name, args)`. Sequential = awaited stages,
 Parallel = `parallel()`/`pipeline()`, Loop = a bounded `while` — control flow is code, never a model decision. Agents
 work in the shared tree.

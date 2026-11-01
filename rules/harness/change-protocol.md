@@ -20,7 +20,7 @@ the generated `settings.json`, silently erased by the next `make install`.
 2. **Agent or command renamed/moved** — agents are flat `agents/<name>.md` with `name:` equal to the stem (a mismatch
    silently breaks memory resolution); commands are flat `commands/<command>.md`. Grep the old name and fix every
    caller in the same commit.
-3. **Rule added or moved** — a new `workflow/` or `harness/` rule needs `paths:` or it loads into every prompt
+3. **Rule added or moved** — a new `workflows/` or `harness/` rule needs `paths:` or it loads into every prompt
    (`rules/README.md`); grep and fix references to a moved rule's old path.
 4. **`CLAUDE.md` or the agent roster changed** — `claude-code agents sync` (check: `agents sync --check`).
 5. **New file writer or on-disk format** — register or classify it in `internal/schemas` (writers map, registry

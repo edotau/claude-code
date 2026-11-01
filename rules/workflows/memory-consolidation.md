@@ -22,7 +22,7 @@ step up costs more context, and `--to claude-md` only prints the block for revie
 
 ## Writer limits
 
-- `memory promote --to rules` targets only `rules/standards/` or `rules/software/` — **never** `rules/workflow/` or
+- `memory promote --to rules` targets only `rules/standards/` or `rules/software/` — **never** `rules/workflows/` or
   `CLAUDE.md`.
 - `memory dream` never edits `rules/**`; its only `CLAUDE.md` write is the gated promotion.
 - Native memory edits never touch the `<!-- RULES:BEGIN -->`…`<!-- RULES:END -->` region without human approval.

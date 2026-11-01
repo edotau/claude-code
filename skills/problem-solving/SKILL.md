@@ -25,7 +25,7 @@ The report states each as a plain sentence, never the raw tag (`references/notes
 | Done criteria, gate chain, claim discipline | `references/verify.md` |
 | Acting on review feedback | `references/feedback.md` |
 | Plan artifact, task breakdown | `Plan` agent (`agents/Plan.md`) |
-| Scope tiering (TRIVIAL→EPIC) | `rules/workflow/master-workflow.md` |
+| Scope tiering (TRIVIAL→EPIC) | `rules/workflows/master-workflow.md` |
 | A recurring missing procedure | `claude-code memory promote --to skill` |
 | Assumption/goal detectors over a plan | `claude-code review goals\|assumptions` |
 
@@ -64,7 +64,7 @@ Any route other than "run the loop" is named in the report; a silent detour read
 
 ## Step 0 — Classify the deliverable shape
 
-Orthogonal to the complexity tiers in `rules/workflow/master-workflow.md`: that sizes the work, this
+Orthogonal to the complexity tiers in `rules/workflows/master-workflow.md`: that sizes the work, this
 decides what you hand back.
 
 | Shape | Signal | Deliverable |
