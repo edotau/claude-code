@@ -35,10 +35,6 @@ Read each when the step needs it, not upfront. Memory pointers arrive in the bri
 `claude-code memory search <id>`.
 
 - `docs/templates/plan.md` — the shape you return.
-- `skills/problem-solving/SKILL.md` Steps 0–3 — before drafting.
-- `rules/standards/testing-guidelines.md` — when writing a phase's Verify line.
-- `skills/subagent-workflows/references/cost-routing.md` — when assigning `leaf:` and `Agent:`.
-- `skills/evaluate-code/references/detectors.md` — for the optional pre-return check.
 - `rules/harness/docs-placement.md` — when a phase writes documentation.
 
 ## Hands off to
