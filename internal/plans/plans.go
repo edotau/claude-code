@@ -244,10 +244,17 @@ func hasOpenOwnedTask(plan Plan) bool {
 	return false
 }
 
-// spliceOwn expands an entry abbreviated against the previous one; an entry a file already matches stays as is.
+// spliceOwn expands an entry abbreviated against the previous one (a bare name takes its directory); an entry a
+// committed file already matches stays as is.
 func spliceOwn(prev, entry string, files []string) string {
 	first, _, ok := strings.Cut(entry, "/")
-	if !ok || prev == "" || first == "" {
+	if !ok { // a bare file name lives beside the previous entry, unless a committed file is literally that name
+		if prev == "" || entry == "" || slices.Contains(files, entry) || !strings.Contains(prev, "/") {
+			return entry
+		}
+		return path.Dir(prev) + "/" + entry
+	}
+	if prev == "" || first == "" {
 		return entry
 	}
 	for _, f := range files {
