@@ -95,6 +95,7 @@ type Plan struct {
 	OverlayPath string
 	Overlay     []byte
 	Warnings    []string
+	ForeignBase bool   // the shell's ANTHROPIC_BASE_URL differs from the profile's: no harness credential may go there
 	Profile     string // the profile an agent CLI launch resolved, for RecordLastProfile
 	OnExecFail  func() // runs when Exec returns (the exec failed): drops state minted for the launch
 }

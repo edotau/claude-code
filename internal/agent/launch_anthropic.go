@@ -102,7 +102,7 @@ func Anthropic(ctx context.Context, o AnthropicOptions, args []string, secret st
 		return Plan{}, fmt.Errorf("no anthropic profile with %s auth in the registry", method)
 	}
 	plan, err := Claude(ctx, opts, args)
-	if err != nil {
+	if err != nil || plan.ForeignBase { // a foreign shell endpoint never receives the vault secret
 		return plan, err
 	}
 	switch o.Mode {
