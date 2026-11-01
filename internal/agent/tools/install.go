@@ -164,8 +164,12 @@ func refuseOpencodeMajor(ctx context.Context, w io.Writer, bin string) error {
 	if os.Getenv(opencodeAllowMajorEnv) != "" {
 		return nil
 	}
-	version := firstVersionLine(bin)
+	version := firstVersionLineCtx(ctx, bin)
 	major := opencode.ParseOpencodeMajor(version)
+	if major == 0 {
+		fmt.Fprintf(w, "  refuse   opencode %q (version unknown)\n", version)
+		return fmt.Errorf("opencode version probe of %s failed or unparsable; refusing (set %s=1 to accept)", bin, opencodeAllowMajorEnv)
+	}
 	if major <= opencodeMaxMajor {
 		return nil
 	}

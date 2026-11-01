@@ -319,8 +319,11 @@ func statusOne(t Tool) Status {
 }
 
 // firstVersionLine runs `path --version` with a short timeout; errors are silently "" (best-effort).
-func firstVersionLine(path string) string {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+func firstVersionLine(path string) string { return firstVersionLineCtx(context.Background(), path) }
+
+// firstVersionLineCtx is firstVersionLine bounded by ctx as well as the 5s probe timeout.
+func firstVersionLineCtx(ctx context.Context, path string) string {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	out, err := exec.CommandContext(ctx, path, "--version").Output()
 	if err != nil {
