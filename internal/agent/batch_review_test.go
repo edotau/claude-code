@@ -247,4 +247,3 @@ func TestHopKeepsRecoveredGuardFailure(t *testing.T) {
 		t.Errorf("hop = %v, want the recovered credential failure in errors", h)
 	}
 }
-

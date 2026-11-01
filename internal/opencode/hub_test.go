@@ -33,7 +33,6 @@ func hubRegistry() *providers.Registry {
 	return reg
 }
 
-
 // TestHubStart covers HubStart's login-aware ladder walk through the opencodeLogins seam: an explicit
 // provider is forced regardless of login or quota; with no explicit provider, the first opencodeLadder
 // entry carrying a login wins, else the ladder's first entry at all (including opencode's own synthetic
@@ -115,5 +114,3 @@ func TestHubDispatchRunOversizedPromptRefused(t *testing.T) {
 		t.Fatalf("err = %v, want *Error wrapping ErrPromptTooLarge", err)
 	}
 }
-
-

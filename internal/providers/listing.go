@@ -217,8 +217,7 @@ func LoadCatalog(reg *Registry, p *Provider, listOwn func(context.Context) ([]Mo
 func (c Catalog) Rows() []LiveModel {
 	rows := make([]LiveModel, 0, len(c.Infos)+len(c.Gateway))
 	for _, m := range append(slices.Clone(c.Infos), c.Gateway...) {
-		rows = append(rows, LiveModel{ID: m.ID, Name: m.Name, UseCase: m.UseCase, Capabilities: m.Capabilities,
-			Task: m.Task, Ready: m.Ready, Gateway: m.Gateway})
+		rows = append(rows, LiveModel(m))
 	}
 	return rows
 }

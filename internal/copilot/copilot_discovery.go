@@ -64,7 +64,7 @@ func copilotSelect(ctx context.Context, reg *providers.Registry, p, routed *prov
 	r := copilotBuildRegistry(p.Name, routed, eps, base)
 	ref, err := r.Select(c)
 	fromSnapshot := slices.ContainsFunc(eps, func(ep CopilotEndpoint) bool { return ep.Snapshot })
-	if !(errors.Is(err, ErrUnknownModel) || errors.Is(err, ErrSavedModelGone)) || !fromSnapshot {
+	if (!errors.Is(err, ErrUnknownModel) && !errors.Is(err, ErrSavedModelGone)) || !fromSnapshot {
 		return r, ref, err
 	}
 	fresh, listErr := copilotRelist(ctx, reg, p)

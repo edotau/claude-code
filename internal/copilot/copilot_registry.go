@@ -437,8 +437,6 @@ func checkDir(dir string) error {
 	return nil
 }
 
-var errNoRuntimeDir = errors.New("copilot registry: no private runtime directory on this platform")
-
 // copilotChoice is the copilot registry's model choice: the requested models, else the agent's model pin.
 func copilotChoice(requested []string) CopilotChoice {
 	return CopilotChoice{Requested: requested, Pin: agent.AgentModelPin("copilot")}

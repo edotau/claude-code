@@ -131,55 +131,61 @@ func chatStream(ctx context.Context, base string, p *providers.Provider, model, 
 	return parseChatStream(resp.Body, w)
 }
 
+// chatChunk is one data: payload of a chat-completions stream.
+type chatChunk struct {
+	Model   string `json:"model"`
+	Choices []struct {
+		Delta struct {
+			Content string `json:"content"`
+		} `json:"delta"`
+	} `json:"choices"`
+	Usage *struct {
+		PromptTokens     int `json:"prompt_tokens"`
+		CompletionTokens int `json:"completion_tokens"`
+	} `json:"usage"`
+	Error *json.RawMessage `json:"error"`
+}
+
+// applyChatLine folds one stream line into usage, served and w; done reports the [DONE] marker.
+func applyChatLine(line []byte, w io.Writer, usage *agent.Usage, served *string) (done bool, _ error) {
+	data, ok := bytes.CutPrefix(bytes.TrimRight(line, "\r\n"), []byte("data:"))
+	if data = bytes.TrimSpace(data); !ok || len(data) == 0 {
+		return false, nil
+	}
+	if bytes.Equal(data, []byte("[DONE]")) {
+		return true, nil
+	}
+	var chunk chatChunk
+	if json.Unmarshal(data, &chunk) != nil {
+		return false, nil // skip an undecodable data: line
+	}
+	if chunk.Error != nil {
+		return false, fmt.Errorf("upstream error mid-stream: %s", *chunk.Error)
+	}
+	if chunk.Model != "" {
+		*served = chunk.Model
+	}
+	if chunk.Usage != nil {
+		*usage = agent.Usage{InputTokens: chunk.Usage.PromptTokens, OutputTokens: chunk.Usage.CompletionTokens}
+	}
+	for _, c := range chunk.Choices {
+		if c.Delta.Content != "" {
+			if _, werr := io.WriteString(w, c.Delta.Content); werr != nil {
+				return false, werr
+			}
+		}
+	}
+	return false, nil
+}
+
 func parseChatStream(r io.Reader, w io.Writer) (agent.Usage, string, error) {
 	var usage agent.Usage
 	var served string
 	br := bufio.NewReader(r)
 	for {
 		line, err := br.ReadBytes('\n')
-		if len(line) > 0 {
-			line = bytes.TrimRight(line, "\r\n")
-			data, ok := bytes.CutPrefix(line, []byte("data:"))
-			if data = bytes.TrimSpace(data); ok && len(data) > 0 {
-				if bytes.Equal(data, []byte("[DONE]")) {
-					return usage, served, nil
-				}
-				var chunk struct {
-					Model   string `json:"model"`
-					Choices []struct {
-						Delta struct {
-							Content string `json:"content"`
-						} `json:"delta"`
-					} `json:"choices"`
-					Usage *struct {
-						PromptTokens     int `json:"prompt_tokens"`
-						CompletionTokens int `json:"completion_tokens"`
-					} `json:"usage"`
-					Error *json.RawMessage `json:"error"`
-				}
-				if jerr := json.Unmarshal(data, &chunk); jerr != nil {
-					if err != nil && err != io.EOF {
-						return usage, served, err
-					}
-					continue // skip an undecodable data: line
-				} else if chunk.Error != nil {
-					return usage, served, fmt.Errorf("upstream error mid-stream: %s", *chunk.Error)
-				} else {
-					if chunk.Model != "" {
-						served = chunk.Model
-					}
-					if chunk.Usage != nil {
-						usage = agent.Usage{InputTokens: chunk.Usage.PromptTokens, OutputTokens: chunk.Usage.CompletionTokens}
-					}
-					for _, c := range chunk.Choices {
-						if c.Delta.Content != "" {
-							if _, werr := io.WriteString(w, c.Delta.Content); werr != nil {
-								return usage, served, werr
-							}
-						}
-					}
-				}
-			}
+		if done, lerr := applyChatLine(line, w, &usage, &served); done || lerr != nil {
+			return usage, served, lerr
 		}
 		if err == io.EOF {
 			break

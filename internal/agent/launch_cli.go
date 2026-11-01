@@ -59,13 +59,7 @@ func cliPlan(ctx context.Context, name string, o LaunchOptions, args []string) (
 	}
 	// --profile or the agent's own profile pin is explicit: the session pin is Claude Code's default, not a per-agent choice.
 	explicit := o.Provider != ""
-	target, note, err := spec.ResolveTarget(reg, sel, explicit)
-	if err == nil {
-		var modelNote string
-		if target, modelNote = agentModelTarget(name, target, sel, flagModel); modelNote != "" {
-			note = strings.Join(slices.DeleteFunc([]string{note, modelNote}, func(s string) bool { return s == "" }), "; ")
-		}
-	}
+	target, note, err := cliTarget(spec, name, reg, sel, explicit, flagModel)
 	// An own-login note is only worth a line on an interactive launch (or --print-env): `opencode --version` stays quiet.
 	showOwnLoginNote := o.PrintEnv || (IsTerminal(os.Stderr) && interactiveArgs(args))
 	if errors.Is(err, ErrOwnLogin) {
@@ -112,6 +106,18 @@ func cliPlan(ctx context.Context, name string, o LaunchOptions, args []string) (
 	}
 	set := envMap(env)
 	return Plan{Binary: bin, Set: set, Argv: append(prefix, args...), Profile: o.Provider}, nil
+}
+
+// cliTarget resolves spec's target, then applies the model flag and pin to it.
+func cliTarget(spec Schema, name string, reg *providers.Registry, sel providers.Selection, explicit bool, flagModel string) (providers.Target, string, error) {
+	target, note, err := spec.ResolveTarget(reg, sel, explicit)
+	if err == nil {
+		var modelNote string
+		if target, modelNote = agentModelTarget(name, target, sel, flagModel); modelNote != "" {
+			note = strings.Join(slices.DeleteFunc([]string{note, modelNote}, func(s string) bool { return s == "" }), "; ")
+		}
+	}
+	return target, note, err
 }
 
 // launchProfile resolves an agent CLI launch's profile: --profile > this workspace's last-used > the agent pin.

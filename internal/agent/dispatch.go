@@ -256,84 +256,115 @@ func Do(ctx context.Context, p Policy, fn func(ctx context.Context, attempt int)
 		last.Earlier = earlier
 		return last
 	}
-	var attempt int
-	// abandoned is the error of a wait that could not take its permit back: the cancellation, earlier failures kept
-	abandoned := func(err error, pending bool) *Error { // pending: last is not yet in earlier
-		e := &Error{Kind: KindFatal, Err: err, Attempts: attempt, Earlier: earlier}
+	for attempt := 1; attempt <= p.MaxAttempts; attempt++ {
 		if last != nil {
-			e.Agent = last.Agent
-			if pending {
-				snap := *last
-				snap.Earlier = nil
-				e.Earlier = append(slices.Clone(earlier), &snap)
-			}
-		}
-		return e
-	}
-	for attempt = 1; attempt <= p.MaxAttempts; attempt++ {
-		if last != nil {
-			snap := *last
-			snap.Earlier = nil
-			earlier = append(earlier, &snap)
+			earlier = append(earlier, withoutEarlier(last))
 		}
 		if cooling(p.Key) { // before the attempt's own timeout; the wait holds no permit, first attempt included
 			if err := p.idle(ctx, func() { waitCooldown(ctx, p.Key, p.MaxDelay) }); err != nil {
-				return abandoned(err, false)
+				return abandoned(err, attempt, last, earlier, false)
 			}
 		}
-		actx, cancel := ctx, context.CancelFunc(func() {})
-		if p.AttemptTimeout > 0 {
-			actx, cancel = context.WithTimeout(ctx, p.AttemptTimeout)
-		}
-		last = fn(actx, attempt)
-		attemptErr := actx.Err()
-		cancel()
+		var attemptErr error
+		last, attemptErr = p.runAttempt(ctx, attempt, fn)
 		if last == nil {
 			return nil
 		}
 		last.Attempts = attempt
-		if ctx.Err() != nil {
-			last.Kind = KindFatal // the caller cancelled: never retry
-			return fail()
-		}
-		// The attempt ran out its own AttemptTimeout (not the parent ctx): retrying would just
-		// burn another full timeout for the same stuck call, so make it terminal and say so.
-		if p.AttemptTimeout > 0 && errors.Is(attemptErr, context.DeadlineExceeded) {
-			last.Kind = KindFatal
-			last.Err = fmt.Errorf("timed out after %s: %w", p.AttemptTimeout, last.Err)
+		if p.terminal(ctx, last, attemptErr) {
 			return fail()
 		}
 		wait := p.Delay(last.RetryAfter, attempt, rand.Float64())
 		if p.Key != "" && (last.Kind == KindRateLimit || last.Kind == KindTransient) {
 			coolDown(p.Key, wait) // the other loops on this account back off too, even when this one gives up
 		}
-		if !last.Retryable() || attempt == p.MaxAttempts {
+		if !p.mayRetry(ctx, last, attempt) {
 			return fail()
-		}
-		if last.Kind == KindAuth {
-			if p.Recover == nil || p.Recover(ctx) != nil {
-				return fail()
-			}
 		}
 		if p.Notify != nil {
 			p.Notify(fmt.Sprintf("%s: %s (attempt %d/%d), retrying in %s", last.Agent, last.Kind, attempt, p.MaxAttempts, wait.Round(100*time.Millisecond)))
 		}
-		t := time.NewTimer(wait)
-		ierr := p.idle(ctx, func() {
-			select {
-			case <-ctx.Done():
-			case <-t.C:
-			}
-		})
-		t.Stop()
-		if ierr != nil {
-			return abandoned(ierr, true)
+		if ierr := p.backoffWait(ctx, wait); ierr != nil {
+			return abandoned(ierr, attempt, last, earlier, true)
 		}
 		if ctx.Err() != nil {
 			return fail()
 		}
 	}
 	return fail()
+}
+
+// withoutEarlier is a copy of e with its own Earlier chain cut.
+func withoutEarlier(e *Error) *Error {
+	snap := *e
+	snap.Earlier = nil
+	return &snap
+}
+
+// abandoned is the error of a wait that could not take its permit back: the cancellation, earlier failures kept.
+func abandoned(err error, attempt int, last *Error, earlier []*Error, pending bool) *Error { // pending: last is not yet in earlier
+	e := &Error{Kind: KindFatal, Err: err, Attempts: attempt, Earlier: earlier}
+	if last != nil {
+		e.Agent = last.Agent
+		if pending {
+			e.Earlier = append(slices.Clone(earlier), withoutEarlier(last))
+		}
+	}
+	return e
+}
+
+// runAttempt runs fn once under AttemptTimeout and returns its error plus the attempt context's own.
+func (p Policy) runAttempt(ctx context.Context, attempt int, fn func(ctx context.Context, attempt int) *Error) (*Error, error) {
+	actx, cancel := ctx, context.CancelFunc(func() {})
+	if p.AttemptTimeout > 0 {
+		actx, cancel = context.WithTimeout(ctx, p.AttemptTimeout)
+	}
+	e := fn(actx, attempt)
+	attemptErr := actx.Err()
+	cancel()
+	return e, attemptErr
+}
+
+// terminal makes last fatal when the caller cancelled or the attempt ran out its own timeout.
+func (p Policy) terminal(ctx context.Context, last *Error, attemptErr error) bool {
+	if ctx.Err() != nil {
+		last.Kind = KindFatal // the caller cancelled: never retry
+		return true
+	}
+	// The attempt ran out its own AttemptTimeout (not the parent ctx): retrying would just
+	// burn another full timeout for the same stuck call, so make it terminal and say so.
+	if p.AttemptTimeout > 0 && errors.Is(attemptErr, context.DeadlineExceeded) {
+		last.Kind = KindFatal
+		last.Err = fmt.Errorf("timed out after %s: %w", p.AttemptTimeout, last.Err)
+		return true
+	}
+	return false
+}
+
+// mayRetry reports whether last can be retried; an auth failure must first recover.
+func (p Policy) mayRetry(ctx context.Context, last *Error, attempt int) bool {
+	if !last.Retryable() || attempt == p.MaxAttempts {
+		return false
+	}
+	if last.Kind == KindAuth {
+		if p.Recover == nil || p.Recover(ctx) != nil {
+			return false
+		}
+	}
+	return true
+}
+
+// backoffWait idles through wait, or until ctx ends.
+func (p Policy) backoffWait(ctx context.Context, wait time.Duration) error {
+	t := time.NewTimer(wait)
+	ierr := p.idle(ctx, func() {
+		select {
+		case <-ctx.Done():
+		case <-t.C:
+		}
+	})
+	t.Stop()
+	return ierr
 }
 
 // TailBuffer keeps the last tailCap bytes of a child's stderr; the cause is at the end.

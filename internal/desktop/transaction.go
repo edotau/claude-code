@@ -51,49 +51,53 @@ func transact(changes []change, before map[string]snapshot, ops fileOps, library
 		return err
 	}
 	touched := []string{}
-	rollback := func(cause error) error {
-		for _, p := range slices.Backward(touched) {
-
-			s := before[p]
-			var err error
-			if s.exists {
-				err = paths.AtomicWrite(p, s.data, s.mode)
-			} else {
-				err = os.Remove(p)
-				if errors.Is(err, os.ErrNotExist) {
-					err = nil
-				}
-			}
-			if err != nil {
-				cause = errors.Join(cause, fmt.Errorf("rollback %s: %w", p, err))
-			}
-		}
-		if created {
-			if err := os.Remove(library); err != nil {
-				cause = errors.Join(cause, fmt.Errorf("rollback directory: %w", err))
-			}
-		}
-		return cause
-	}
 	for _, c := range changes {
 		s := before[c.path]
 		if (c.remove && !s.exists) || (!c.remove && s.exists && bytes.Equal(s.data, c.data)) {
 			continue
 		}
 		touched = append(touched, c.path)
-		var err error
-		if c.remove {
-			err = ops.remove(c.path)
-		} else {
-			mode := os.FileMode(0o600)
-			if s.exists {
-				mode = s.mode
-			}
-			err = ops.write(c.path, c.data, mode)
+		if err := applyChange(c, s, ops); err != nil {
+			return rollback(fmt.Errorf("desktop transaction %s: %w", c.path, err), touched, before, created, library)
 		}
-		if err != nil {
-			return rollback(fmt.Errorf("desktop transaction %s: %w", c.path, err))
+	}
+	return nil
+}
+
+// applyChange writes or removes c's file; a new file is 0600, an existing one keeps its mode.
+func applyChange(c change, s snapshot, ops fileOps) error {
+	if c.remove {
+		return ops.remove(c.path)
+	}
+	mode := os.FileMode(0o600)
+	if s.exists {
+		mode = s.mode
+	}
+	return ops.write(c.path, c.data, mode)
+}
+
+// rollback restores touched in reverse, removes library when this run created it, and joins failures to cause.
+func rollback(cause error, touched []string, before map[string]snapshot, created bool, library string) error {
+	for _, p := range slices.Backward(touched) {
+		if err := restoreFile(p, before[p]); err != nil {
+			cause = errors.Join(cause, fmt.Errorf("rollback %s: %w", p, err))
 		}
+	}
+	if created {
+		if err := os.Remove(library); err != nil {
+			cause = errors.Join(cause, fmt.Errorf("rollback directory: %w", err))
+		}
+	}
+	return cause
+}
+
+// restoreFile puts p back to s; a file that did not exist is removed.
+func restoreFile(p string, s snapshot) error {
+	if s.exists {
+		return paths.AtomicWrite(p, s.data, s.mode)
+	}
+	if err := os.Remove(p); !errors.Is(err, os.ErrNotExist) {
+		return err
 	}
 	return nil
 }

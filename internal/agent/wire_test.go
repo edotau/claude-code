@@ -1,27 +1,12 @@
 package agent
 
 import (
-	"fmt"
-	"net/http/httptest"
 	"slices"
-	"strings"
 	"testing"
 
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
-
-// gwRow is a Databricks ai-gateway row: anthropic + responses routes, no openai route.
-func gwRow(name string) *providers.Provider {
-	h := "https://h.example.com"
-	return &providers.Provider{
-		Name: name, Preset: providers.PresetDatabricks, ModelPrefix: "system.ai.",
-		Protocol: providers.ProtocolAnthropic, BaseURL: h + "/ai-gateway/anthropic",
-		Routes: map[string]string{providers.ProtocolResponses: h + "/ai-gateway/codex/v1"},
-	}
-}
-
 
 // configureRoute surfaces Serves' reason verbatim, prefixed by the agent.
 func TestConfigureRouteUsesServesReason(t *testing.T) {
@@ -46,19 +31,6 @@ func TestConfigureRouteUsesServesReason(t *testing.T) {
 	}
 }
 
-func captureCatalogWarn(t *testing.T) *strings.Builder {
-	t.Helper()
-	var warn strings.Builder
-	old := CatalogWarn
-	CatalogWarn = &warn
-	t.Cleanup(func() { CatalogWarn = old })
-	return &warn
-}
-
-
-
-
-
 // The copilot fallback keeps the registry's declared Databricks profile order.
 func TestOrderedDatabricksKeepsRegistryOrder(t *testing.T) {
 	reg, err := providers.Parse([]byte(`{"providers":{"databricks":{
@@ -75,15 +47,4 @@ func TestOrderedDatabricksKeepsRegistryOrder(t *testing.T) {
 	if got := providers.DatabricksProfiles(reg); !slices.Equal(got, want) {
 		t.Errorf("DatabricksProfiles = %v, want %v", got, want)
 	}
-}
-
-// dbxServing points a Databricks serving row's routes at srv (anthropic at /anthropic, openai/responses at /v1).
-func dbxServing(t *testing.T, srv *httptest.Server) {
-	t.Helper()
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	t.Setenv("TEST_DBX_KEY", "dbx-key")
-	body := fmt.Sprintf(`{"providers":{"databricks":{"dbx":{"preset":"databricks","host":"https://h.cloud.databricks.com",
-	  "base_url":%q,"routes":{"openai":%q,"responses":%q},"auth":{"type":"key","env":"TEST_DBX_KEY"}}}}}`,
-		srv.URL+"/anthropic", srv.URL+"/v1", srv.URL+"/v1")
-	vaulttest.Put(t, vault.Overlay, "providers", body)
 }

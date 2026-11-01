@@ -99,12 +99,8 @@ func cmdConfigure(args []string) int {
 	}
 	if *all && len(pos) > 0 {
 		profile = pos[0]
-		reg, err := providers.Load()
-		if err != nil {
-			return fail("configure: load providers: %v", err)
-		}
-		if reg.Providers[profile] == nil {
-			return fail("configure: unknown profile %s (see configure provider --list)", profile)
+		if err := knownProfile(profile); err != nil {
+			return fail("configure: %v", err)
 		}
 	}
 	if *list || *format != helptext.Text && !*all {
@@ -127,6 +123,18 @@ func cmdConfigure(args []string) int {
 		Provider: *provider, Agent: *agent, DryRun: *dryRun, Check: *check, All: *all, Profile: profile,
 		JSON: *format == helptext.JSON, Drop: drop, Keep: keep, Interactive: ansi.IsTerminal(os.Stdin) && ansi.IsTerminal(os.Stderr),
 	}, section)
+}
+
+// knownProfile errors unless profile is in the provider registry.
+func knownProfile(profile string) error {
+	reg, err := providers.Load()
+	if err != nil {
+		return fmt.Errorf("load providers: %w", err)
+	}
+	if reg.Providers[profile] == nil {
+		return fmt.Errorf("unknown profile %s (see configure provider --list)", profile)
+	}
+	return nil
 }
 
 // configureRender runs --restore / --revert; the agent flag is a comma list there.

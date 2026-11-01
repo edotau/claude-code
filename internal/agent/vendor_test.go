@@ -2,18 +2,10 @@ package agent
 
 import (
 	"testing"
-	"time"
 
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
-
-func tickClock(t *testing.T, ms ...int) {
-	t.Helper()
-	base, i, old := time.Unix(1000, 0), 0, Clock
-	Clock = func() time.Time { d := time.Duration(ms[i]) * time.Millisecond; i++; return base.Add(d) }
-	t.Cleanup(func() { Clock = old })
-}
 
 func TestVendorIsolationCaps(t *testing.T) {
 	for name, want := range map[string][3]Level{

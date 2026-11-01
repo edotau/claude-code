@@ -237,7 +237,7 @@ func actionLabels(t *testing.T, major int, ints []opencode.OpencodeIntegration, 
 	d, out := ocDialog("\n")
 	runOpencodePage(d)
 	var labels []string
-	for _, l := range strings.Split(out.String(), "\n") {
+	for l := range strings.SplitSeq(out.String(), "\n") {
 		if _, rest, ok := strings.Cut(l, ") "); ok && strings.HasPrefix(strings.TrimSpace(l), strconv.Itoa(len(labels)+1)+")") {
 			labels = append(labels, strings.TrimSpace(rest))
 		}

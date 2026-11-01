@@ -347,17 +347,7 @@ func parseAgyEvents(br *bufio.Reader, sink agent.Sink, once bool, lg agent.Strea
 		case "init":
 			res.SessionID = ev.ConvID
 		case "step_update":
-			if t, st := ev.StepUpdate.StepType, ev.StepUpdate.State; t != "agent_response" && t != "user_input" && st != "" {
-				if st != "DONE" {
-					openStep = t
-				} else if openStep == t {
-					openStep = ""
-				}
-				if key := t + "/" + st; key != lastStep {
-					lastStep = key
-					lg.Emit("step", t+" "+strings.ToLower(st))
-				}
-			}
+			noteAgyStep(ev, &lastStep, &openStep, lg)
 			if ev.StepUpdate.StepType != "agent_response" || ev.StepUpdate.TextDelta == "" {
 				return false, nil
 			}
@@ -394,6 +384,21 @@ func parseAgyEvents(br *bufio.Reader, sink agent.Sink, once bool, lg agent.Strea
 		return res, errors.New("agy: stream ended without a result event")
 	}
 	return finishAgyTurn(res, sink, &answer, response, flush, openStep, once)
+}
+
+// noteAgyStep tracks the unfinished non-response step and logs each new step type/state once.
+func noteAgyStep(ev agyEvent, lastStep, openStep *string, lg agent.StreamLog) {
+	if t, st := ev.StepUpdate.StepType, ev.StepUpdate.State; t != "agent_response" && t != "user_input" && st != "" {
+		if st != "DONE" {
+			*openStep = t
+		} else if *openStep == t {
+			*openStep = ""
+		}
+		if key := t + "/" + st; key != *lastStep {
+			*lastStep = key
+			lg.Emit("step", t+" "+strings.ToLower(st))
+		}
+	}
 }
 
 // finishAgyTurn flushes the pending log line and sets the answer; a run whose text arrived only in

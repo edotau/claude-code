@@ -14,12 +14,6 @@ import (
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
-
-
-
-
-
-
 func TestMutateOpencodeConfigEnvPolicies(t *testing.T) {
 	set := func(c map[string]any) { c["k"] = "v" }
 	bad := []string{"A=1", opencodeConfigEnv + "={nope"}
@@ -94,7 +88,6 @@ func TestOpencodeOverlayModelComesFromTable(t *testing.T) {
 		t.Errorf("model=%v small_model=%v, want the table's %s and %s", doc["model"], doc["small_model"], wantMain, wantSmall)
 	}
 }
-
 
 // A copilot-only opencode launch renders github-copilot/<id> models, never an opencode-go id.
 func TestOpencodeCopilotOnlyOverlayModels(t *testing.T) {

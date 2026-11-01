@@ -1,6 +1,7 @@
 package paths
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -43,7 +44,7 @@ func CopilotRuntimeDirPath() (string, error) {
 		if base == "" {
 			base = filepath.Join("/run/user", strconv.Itoa(os.Getuid()))
 			if _, err := os.Stat(base); err != nil {
-				return "", fmt.Errorf("copilot registry: no private runtime directory on this platform: XDG_RUNTIME_DIR is unset")
+				return "", errors.New("copilot registry: no private runtime directory on this platform: XDG_RUNTIME_DIR is unset")
 			}
 		}
 		if !filepath.IsAbs(base) {
@@ -52,11 +53,11 @@ func CopilotRuntimeDirPath() (string, error) {
 		return filepath.Join(base, "claude-code", "copilot"), nil
 	}
 	if runtime.GOOS != "darwin" {
-		return "", fmt.Errorf("copilot registry: no private runtime directory on this platform")
+		return "", errors.New("copilot registry: no private runtime directory on this platform")
 	}
 	base := os.Getenv("TMPDIR")
 	if !filepath.IsAbs(base) {
-		return "", fmt.Errorf("copilot registry: no private runtime directory on this platform: TMPDIR is unset")
+		return "", errors.New("copilot registry: no private runtime directory on this platform: TMPDIR is unset")
 	}
 	return filepath.Join(base, "claude-code-"+strconv.Itoa(os.Getuid()), "copilot"), nil
 }

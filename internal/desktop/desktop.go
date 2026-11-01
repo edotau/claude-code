@@ -100,11 +100,7 @@ func configure(opts Options, w io.Writer, ops fileOps, display func(string) (str
 
 func configureLocked(opts Options, w io.Writer, ops fileOps, display func(string) (string, error)) error {
 	library := filepath.Join(opts.Root, "configLibrary")
-	if fi, err := os.Lstat(library); err == nil {
-		if !fi.IsDir() || fi.Mode()&os.ModeSymlink != 0 {
-			return errors.New("configLibrary is not a regular directory")
-		}
-	} else if !errors.Is(err, os.ErrNotExist) {
+	if err := checkLibrary(library); err != nil {
 		return err
 	}
 	profilePath := filepath.Join(library, ProfileID+".json")
@@ -128,33 +124,83 @@ func configureLocked(opts Options, w io.Writer, ops fileOps, display func(string
 	if err != nil {
 		return err
 	}
-	var state savedState
-	hasState := snapshots[statePath].exists
-	if hasState {
-		raw := snapshots[statePath].data
-		var fields map[string]json.RawMessage
-		if err := decodeObject(raw, &fields); err != nil {
-			return fmt.Errorf("invalid Desktop state: %w", err)
-		}
-		dec := json.NewDecoder(bytes.NewReader(raw))
-		dec.DisallowUnknownFields()
-		if err := dec.Decode(&state); err != nil {
-			return fmt.Errorf("invalid Desktop state: %w", err)
-		}
-		presence, present := fields["previousPresent"]
-		validPresence := bytes.Equal(presence, []byte("true")) || bytes.Equal(presence, []byte("false"))
-		if state.Schema != 1 || state.ProfileID != ProfileID || !present || !validPresence || state.PreviousAppliedID == nil ||
-			!validAppliedID(state.PreviousAppliedID) ||
-			(!state.PreviousPresent && !bytes.Equal(bytes.TrimSpace(state.PreviousAppliedID), []byte("null"))) {
-			return errors.New("invalid Desktop state fields")
-		}
+	state, err := loadSavedState(snapshots[statePath])
+	if err != nil {
+		return err
 	}
+	hasState := snapshots[statePath].exists
 	if !hasState {
 		var currentID string
 		if json.Unmarshal(meta["appliedId"], &currentID) == nil && currentID == ProfileID {
 			return errors.New("desktop profile is already applied without saved revert state")
 		}
 	}
+	filtered := withoutOurProfile(entries)
+	var changes []change
+	if opts.Revert {
+		if !hasState {
+			if snapshots[profilePath].exists || len(filtered) != len(entries) {
+				return errors.New("cannot revert Desktop profile without saved state")
+			}
+			_, err := fmt.Fprintln(w, "Desktop profile is not configured; nothing to revert")
+			return err
+		}
+		changes = revertChanges(meta, state, filtered, snapshots[metaPath], profilePath, metaPath, statePath)
+	} else {
+		if err := validateOptions(&opts); err != nil {
+			return err
+		}
+		changes = applyChanges(opts, meta, hasState, filtered, snapshots, profilePath, metaPath, statePath)
+	}
+	if err := previewChanges(w, changes, opts.Headers, display); err != nil {
+		return err
+	}
+	if opts.DryRun {
+		return nil
+	}
+	return transact(changes, snapshots, ops, library)
+}
+
+// checkLibrary refuses a configLibrary that exists as anything but a real directory.
+func checkLibrary(library string) error {
+	if fi, err := os.Lstat(library); err == nil {
+		if !fi.IsDir() || fi.Mode()&os.ModeSymlink != 0 {
+			return errors.New("configLibrary is not a regular directory")
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	return nil
+}
+
+// loadSavedState decodes and validates the revert state; a missing file is the zero state.
+func loadSavedState(snap snapshot) (savedState, error) {
+	var state savedState
+	if !snap.exists {
+		return state, nil
+	}
+	raw := snap.data
+	var fields map[string]json.RawMessage
+	if err := decodeObject(raw, &fields); err != nil {
+		return state, fmt.Errorf("invalid Desktop state: %w", err)
+	}
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&state); err != nil {
+		return state, fmt.Errorf("invalid Desktop state: %w", err)
+	}
+	presence, present := fields["previousPresent"]
+	validPresence := bytes.Equal(presence, []byte("true")) || bytes.Equal(presence, []byte("false"))
+	if state.Schema != 1 || state.ProfileID != ProfileID || !present || !validPresence || state.PreviousAppliedID == nil ||
+		!validAppliedID(state.PreviousAppliedID) ||
+		(!state.PreviousPresent && !bytes.Equal(bytes.TrimSpace(state.PreviousAppliedID), []byte("null"))) {
+		return state, errors.New("invalid Desktop state fields")
+	}
+	return state, nil
+}
+
+// withoutOurProfile drops this harness's row; capacity leaves room to re-add it.
+func withoutOurProfile(entries []json.RawMessage) []json.RawMessage {
 	filtered := make([]json.RawMessage, 0, len(entries)+1)
 	for _, entry := range entries {
 		var row map[string]json.RawMessage
@@ -165,56 +211,58 @@ func configureLocked(opts Options, w io.Writer, ops fileOps, display func(string
 			filtered = append(filtered, entry)
 		}
 	}
+	return filtered
+}
+
+// revertChanges restores the previous applied id in meta and lists the revert's file changes.
+func revertChanges(meta map[string]json.RawMessage, state savedState, filtered []json.RawMessage, metaSnap snapshot, profilePath, metaPath, statePath string) []change {
 	changes := []change{}
-	if opts.Revert {
-		if !hasState {
-			if snapshots[profilePath].exists || len(filtered) != len(entries) {
-				return errors.New("cannot revert Desktop profile without saved state")
-			}
-			_, err := fmt.Fprintln(w, "Desktop profile is not configured; nothing to revert")
-			return err
-		}
-		if appliedIsOurs(meta["appliedId"]) {
-			if state.PreviousPresent {
-				meta["appliedId"] = state.PreviousAppliedID
-			} else {
-				delete(meta, "appliedId")
-			}
-		}
-		meta["profiles"] = marshal(filtered)
-		if m := snapshots[metaPath]; m.exists {
-			changes = append(changes, change{path: metaPath + ".revert.bak", data: m.data})
-		}
-		changes = append(changes, change{path: metaPath, data: marshal(meta)}, change{path: profilePath, remove: true}, change{path: statePath, remove: true})
-	} else {
-		if err := validateOptions(&opts); err != nil {
-			return err
-		}
-		if !hasState {
-			previous, present := meta["appliedId"]
-			if !present {
-				previous = json.RawMessage("null")
-			}
-			state = savedState{Schema: 1, ProfileID: ProfileID, PreviousPresent: present, PreviousAppliedID: previous}
-			changes = append(changes, change{path: statePath, data: marshal(state)})
-		}
-		if m := snapshots[metaPath]; m.exists && !snapshots[metaPath+".bak"].exists {
-			changes = append(changes, change{path: metaPath + ".bak", data: m.data})
-		}
-		filtered = append(filtered, marshal(map[string]string{"id": ProfileID, "name": opts.Profile}))
-		meta["profiles"] = marshal(filtered)
-		meta["appliedId"] = marshal(ProfileID)
-		p := profile{InferenceProvider: "gateway", InferenceGatewayBaseURL: opts.BaseURL,
-			InferenceGatewayAuthScheme: "bearer", InferenceCredentialKind: "helper-script",
-			InferenceCredentialHelperArgs: opts.HelperArgs, InferenceCredentialHelperTTL: 900, InferenceCredentialHelperSilent: true,
-			InferenceModels: opts.Models, InferenceCustomHeaders: opts.Headers}
-		if opts.HelperWindows {
-			p.InferenceCredentialHelperWin = opts.HelperPath
+	if appliedIsOurs(meta["appliedId"]) {
+		if state.PreviousPresent {
+			meta["appliedId"] = state.PreviousAppliedID
 		} else {
-			p.InferenceCredentialHelper = opts.HelperPath
+			delete(meta, "appliedId")
 		}
-		changes = append(changes, change{path: profilePath, data: marshal(p)}, change{path: metaPath, data: marshal(meta)})
 	}
+	meta["profiles"] = marshal(filtered)
+	if metaSnap.exists {
+		changes = append(changes, change{path: metaPath + ".revert.bak", data: metaSnap.data})
+	}
+	return append(changes, change{path: metaPath, data: marshal(meta)}, change{path: profilePath, remove: true}, change{path: statePath, remove: true})
+}
+
+// applyChanges points meta at our profile and lists the apply's file changes.
+func applyChanges(opts Options, meta map[string]json.RawMessage, hasState bool, filtered []json.RawMessage,
+	snapshots map[string]snapshot, profilePath, metaPath, statePath string) []change {
+	changes := []change{}
+	if !hasState {
+		previous, present := meta["appliedId"]
+		if !present {
+			previous = json.RawMessage("null")
+		}
+		state := savedState{Schema: 1, ProfileID: ProfileID, PreviousPresent: present, PreviousAppliedID: previous}
+		changes = append(changes, change{path: statePath, data: marshal(state)})
+	}
+	if m := snapshots[metaPath]; m.exists && !snapshots[metaPath+".bak"].exists {
+		changes = append(changes, change{path: metaPath + ".bak", data: m.data})
+	}
+	filtered = append(filtered, marshal(map[string]string{"id": ProfileID, "name": opts.Profile}))
+	meta["profiles"] = marshal(filtered)
+	meta["appliedId"] = marshal(ProfileID)
+	p := profile{InferenceProvider: "gateway", InferenceGatewayBaseURL: opts.BaseURL,
+		InferenceGatewayAuthScheme: "bearer", InferenceCredentialKind: "helper-script",
+		InferenceCredentialHelperArgs: opts.HelperArgs, InferenceCredentialHelperTTL: 900, InferenceCredentialHelperSilent: true,
+		InferenceModels: opts.Models, InferenceCustomHeaders: opts.Headers}
+	if opts.HelperWindows {
+		p.InferenceCredentialHelperWin = opts.HelperPath
+	} else {
+		p.InferenceCredentialHelper = opts.HelperPath
+	}
+	return append(changes, change{path: profilePath, data: marshal(p)}, change{path: metaPath, data: marshal(meta)})
+}
+
+// previewChanges prints the notes, then every planned change with its contents redacted.
+func previewChanges(w io.Writer, changes []change, headers map[string]string, display func(string) (string, error)) error {
 	if _, err := fmt.Fprintln(w, "NOTE: configLibrary layout and _meta.json are inferred, not documented;\n"+
 		"  managed (MDM/registry) config overrides them. Quit and reopen Desktop to apply."); err != nil {
 		return err
@@ -234,15 +282,12 @@ func configureLocked(opts Options, w io.Writer, ops fileOps, display func(string
 				return err
 			}
 		} else {
-			if _, err := fmt.Fprintf(w, "write %s\n%s", target, redact(c.data, opts.Headers)); err != nil {
+			if _, err := fmt.Fprintf(w, "write %s\n%s", target, redact(c.data, headers)); err != nil {
 				return err
 			}
 		}
 	}
-	if opts.DryRun {
-		return nil
-	}
-	return transact(changes, snapshots, ops, library)
+	return nil
 }
 
 func validateOptions(opts *Options) error {
@@ -324,35 +369,40 @@ func redact(raw []byte, headers map[string]string) []byte {
 	if json.Unmarshal(raw, &v) != nil {
 		return []byte("[redacted]\n")
 	}
-	var walk func(any) any
-	walk = func(node any) any {
-		switch n := node.(type) {
-		case map[string]any:
-			for k, v := range n {
-				if strings.EqualFold(k, "inferenceCustomHeaders") {
-					if h, ok := v.(map[string]any); ok {
-						for key := range h {
-							h[key] = "[REDACTED]"
-						}
-					}
-				} else {
-					n[k] = walk(v)
-				}
-			}
-		case []any:
-			for i, v := range n {
-				n[i] = walk(v)
-			}
-		case string:
-			for _, value := range headers {
-				if value != "" && n == value {
-					return "[REDACTED]"
-				}
+	return marshal(redactNode(v, headers))
+}
+
+// redactNode blanks custom-header values and any string equal to one, in place.
+func redactNode(node any, headers map[string]string) any {
+	switch n := node.(type) {
+	case map[string]any:
+		for k, v := range n {
+			if strings.EqualFold(k, "inferenceCustomHeaders") {
+				redactHeaders(v)
+			} else {
+				n[k] = redactNode(v, headers)
 			}
 		}
-		return node
+	case []any:
+		for i, v := range n {
+			n[i] = redactNode(v, headers)
+		}
+	case string:
+		for _, value := range headers {
+			if value != "" && n == value {
+				return "[REDACTED]"
+			}
+		}
 	}
-	return marshal(walk(v))
+	return node
+}
+
+func redactHeaders(v any) {
+	if h, ok := v.(map[string]any); ok {
+		for key := range h {
+			h[key] = "[REDACTED]"
+		}
+	}
 }
 
 func decodeObject(raw []byte, dst *map[string]json.RawMessage) error {

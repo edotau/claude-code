@@ -238,7 +238,7 @@ func gitConfigEnv(pairs ...string) []string {
 // readOnlyGitCommand reports whether cmd is a single allowlisted read-only git invocation (fail closed).
 func readOnlyGitCommand(cmd string) bool {
 	for _, r := range cmd {
-		if !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || strings.ContainsRune(" _./:=@%+,^-~", r)) {
+		if (r < 'a' || r > 'z') && (r < 'A' || r > 'Z') && (r < '0' || r > '9') && !strings.ContainsRune(" _./:=@%+,^-~", r) {
 			return false
 		}
 	}
@@ -288,7 +288,7 @@ func shellCommand(req copilot.PermissionRequest) (string, bool) {
 
 func approveReadOnly(req copilot.PermissionRequest, inv copilot.PermissionInvocation) (rpc.PermissionDecision, error) {
 	cmd, ok := shellCommand(req)
-	if !readOnlyKinds[req.Kind()] && !(ok && readOnlyGitCommand(cmd)) {
+	if !readOnlyKinds[req.Kind()] && (!ok || !readOnlyGitCommand(cmd)) {
 		feedback := readOnlyFeedback
 		return &rpc.PermissionDecisionReject{Feedback: &feedback}, nil
 	}

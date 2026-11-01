@@ -8,11 +8,6 @@ import (
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
-
-
-
-
-
 // D4: gemini (no Dialects) is refused on any non-login row, even one with a gemini route.
 func TestGeminiRefusedOnRoutedRow(t *testing.T) {
 	vaulttest.Use(t)

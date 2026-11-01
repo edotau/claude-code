@@ -1,7 +1,6 @@
 package agent
 
 import (
-
 	"github.com/edotau/claude-code/internal/providers"
 )
 

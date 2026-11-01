@@ -62,16 +62,3 @@ func registry(t *testing.T, srv *httptest.Server) {
 	  "openai":{"toai":{"protocol":"openai","base_url":%q,"auth":{"type":"key","env":"TEST_OAI_KEY"},"models":{"opus":"gpt-x"}}}}}`, srv.URL, srv.URL+"/v1")
 	vaulttest.Put(t, vault.Overlay, "providers", body)
 }
-
-type newlineRejectWriter struct {
-	writes []string
-	err    error
-}
-
-func (w *newlineRejectWriter) Write(p []byte) (int, error) {
-	w.writes = append(w.writes, string(p))
-	if string(p) == "\n" {
-		return 0, w.err
-	}
-	return len(p), nil
-}

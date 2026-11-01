@@ -1,8 +1,8 @@
 package configure
 
 import (
-	"github.com/edotau/claude-code/internal/gemini"
 	"bytes"
+	"github.com/edotau/claude-code/internal/gemini"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -11,7 +11,6 @@ import (
 	"syscall"
 	"testing"
 	"time"
-
 )
 
 func TestAgyCommandMissingVendorStartFails(t *testing.T) {

@@ -2,7 +2,6 @@ package agent
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -50,26 +49,6 @@ func followedBy(args []string, flag, val string) bool {
 	return false
 }
 
-const claudeStructured = `{"type":"result","subtype":"success","is_error":false,"result":"{\"a\":1}","session_id":"s","total_cost_usd":0.25,` +
-	`"structured_output":{"a":1},"usage":{"input_tokens":3,"output_tokens":2}}`
-
-type failSink struct{}
-
-func (failSink) Emit(Event) error { return errors.New("consumer gone") }
-
-const codexFixture = `{"type":"thread.started","thread_id":"th-1"}
-{"type":"turn.started"}
-{"type":"item.started","item":{"id":"i1","type":"command_execution","command":"ls","status":"in_progress"}}
-{"type":"item.completed","item":{"id":"i1","type":"command_execution","command":"ls","status":"completed"}}
-{"type":"item.completed","item":{"id":"i2","type":"agent_message","text":"first"}}
-{"type":"item.completed","item":{"id":"i3","type":"agent_message","text":"final answer"}}
-{"type":"turn.completed","usage":{"input_tokens":100,"cached_input_tokens":60,"output_tokens":7}}
-`
-
-type collectSink struct{ evs []Event }
-
-func (c *collectSink) Emit(e Event) error { c.evs = append(c.evs, e); return nil }
-
 // codex gets -c instructions / developer_instructions and a strict --output-schema file that is gone after the run.
 func TestCodexRunFlagsAndSchemaFileCleanup(t *testing.T) {
 	srv := httptest.NewServer(http.NotFoundHandler())
@@ -114,4 +93,3 @@ echo '{"type":"item.completed","item":{"id":"i","type":"agent_message","text":"o
 		t.Errorf("schema temp file %s survived the run (err=%v)", path, err)
 	}
 }
-

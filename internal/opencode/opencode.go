@@ -20,7 +20,6 @@ import (
 	"github.com/edotau/claude-code/internal/secretstore"
 )
 
-
 // opencode: a generated provider block via OPENCODE_CONFIG_CONTENT; the key is an {env:} reference.
 // Interactive runs also list every alias model and import the caller's Claude permissions + MCP servers.
 func opencode(p *providers.Provider, dialect, base, model, cred string, routed bool, h *agent.Headless) ([]string, []string, error) {

@@ -93,26 +93,6 @@ func TestVendorEngineOversizedPromptRefusalScopedToArgv(t *testing.T) {
 	})
 }
 
-// Sampled from `opencode run --format json` 1.18.31 (ids shortened).
-const openCodeOK = `{"type":"step_start","timestamp":1,"sessionID":"ses_A","part":{"id":"p1","sessionID":"ses_A","type":"step-start"}}
-{"type":"text","timestamp":2,"sessionID":"ses_A","part":{"id":"p2","sessionID":"ses_A","type":"text","text":"Hi! How can I help you today?"}}
-{"type":"step_finish","timestamp":3,"sessionID":"ses_A","part":{"id":"p3","reason":"stop","sessionID":"ses_A","type":"step-finish","tokens":{"total":20009,"input":19880,"output":9,"reasoning":120,"cache":{"write":0,"read":0}},"cost":0}}
-`
-
-
-
-
-// Captured live from `agy --output-format stream-json` 1.4.2 on this box.
-const agyOK = `{"event":"init","conversation_id":"415ed744","init":{"model":"gemini-3.8-flash-low","cwd":"/tmp","tools":["ask_permission"]}}
-{"event":"step_update","step_update":{"conversation_id":"415ed744","step_index":0,"state":"DONE","step_type":"user_input"}}
-{"event":"step_update","step_update":{"conversation_id":"415ed744","step_index":1,"state":"ACTIVE","step_type":"agent_response","text_delta":"pong"}}
-{"event":"result","result":{"conversation_id":"415ed744","status":"SUCCESS","response":"pong\n","duration_seconds":1.57,"num_turns":1,"usage":{"input_tokens":18621,"output_tokens":1,"thinking_tokens":0,"cache_read_tokens":0,"total_tokens":18622}}}
-`
-
-// Captured live: a tool call is soft-denied headless (exit 0, no step_update text, status still SUCCESS).
-const agySoftDeny = `{"event":"result","result":{"conversation_id":"d1","status":"SUCCESS","response":"","num_turns":1,"usage":{"input_tokens":71644,"output_tokens":346},"denied_actions":[{"action":"command","display_name":"RunCommand"}]}}
-`
-
 // TestVendorEngineNilProviderDefense tests that vendorRunner.Run safely handles
 // the edge case where vendorTarget returns own=false with nil Provider.
 // Line 104 (res.Provider = t.Provider.Name) must not panic when t.Provider is nil.

@@ -25,29 +25,6 @@ func isolateOpencodeRouteEnv(t *testing.T) (dataHome, cfgHome string) {
 	return dataHome, cfgHome
 }
 
-// pinCopilotLogin overlays the built-in github·personal profile with login and pins COPILOT_PROFILE=personal.
-func pinCopilotLogin(t *testing.T, login string) {
-	t.Helper()
-	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"github":{"personal":{"protocol":"openai",`+
-		`"base_url":"https://api.githubcopilot.com","auth":{"type":"cli","login":"copilot"},"login":"`+login+`",`+
-		`"models":{"opus":"auto","sonnet":"auto","haiku":"auto"},"opencode_fallback":"claude-opus-5.5",`+
-		`"opencode_variant":"medium","opencodeID":"github-copilot"}}}}`)
-	vaulttest.SetRecord(t, "copilot", "profile", "personal")
-}
-
-func subscriptionSelection(t *testing.T, reg *providers.Registry) providers.Selection {
-	t.Helper()
-	sub, err := reg.Get("max")
-	if err != nil {
-		t.Fatal(err)
-	}
-	return providers.Selection{Provider: sub, Aliases: map[string]providers.Target{"opus": {Provider: sub, Model: "claude-opus-5-5"}}}
-}
-
-
-
-
-
 // OpencodeCopilotModelIDs swaps the registry's "auto" haiku default for the provider's OpencodeFallback,
 // while the sonnet alias's own (non-"auto") id passes through unchanged. The production registry's
 // github-copilot entry no longer defaults haiku to "auto" (it now pins a concrete id), so this overlays
@@ -96,6 +73,3 @@ func TestOpencodeCopilotModelIDsLeavesNonAutoPinUnchanged(t *testing.T) {
 		t.Errorf("small = %q, want the pinned id unchanged (not swapped for OpencodeFallback)", small)
 	}
 }
-
-
-

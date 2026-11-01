@@ -274,42 +274,56 @@ func pickPairings(cands []Candidate, existing map[string]json.RawMessage, option
 			continue
 		}
 		seen[sp.Host] = true
-		var pairs [][2]Candidate
-		for _, principal := range plan {
-			if principal.Host != sp.Host || principal.Auth != providers.AuthM2M || principal.Action == "skip" || principal.PairSet {
-				continue
-			}
-			for _, u := range plan {
-				if u.Auth == providers.AuthOAuth && u.Action != "skip" && !u.PairingSet && u.Host == sp.Host {
-					pairs = append(pairs, [2]Candidate{principal.Candidate, u.Candidate})
-				}
-			}
-		}
+		pairs := hostPairs(plan, sp.Host)
 		if len(pairs) == 0 {
 			continue
 		}
-		match := func(p [2]Candidate) bool { return pairingEnv(p[0]) != "" && pairingEnv(p[0]) == pairingEnv(p[1]) }
-		sort.SliceStable(pairs, func(i, j int) bool { return match(pairs[i]) && !match(pairs[j]) })
-		labels := [][2]string{{"none", "leave these service principals unpaired"}}
-		for _, p := range pairs {
-			labels = append(labels, [2]string{p[1].Name + " <= SP " + p[0].Name, sp.Host})
-		}
-		at, err := Pick("Pair a service principal", labels, 0)
-		if err != nil {
+		if err := pickHostPair(pairs, sp.Host, choices); err != nil {
 			return nil, err
-		}
-		if at < 0 {
-			return nil, errors.New("cancelled")
-		}
-		for _, p := range pairs {
-			choices[p[0].Name] = ""
-		}
-		if at > 0 {
-			p := pairs[at-1]
-			choices[p[0].Name] = p[1].Name
 		}
 	}
 	return choices, nil
+}
+
+// hostPairs is every unresolved service principal × user pair on host.
+func hostPairs(plan []Row, host string) [][2]Candidate {
+	var pairs [][2]Candidate
+	for _, principal := range plan {
+		if principal.Host != host || principal.Auth != providers.AuthM2M || principal.Action == "skip" || principal.PairSet {
+			continue
+		}
+		for _, u := range plan {
+			if u.Auth == providers.AuthOAuth && u.Action != "skip" && !u.PairingSet && u.Host == host {
+				pairs = append(pairs, [2]Candidate{principal.Candidate, u.Candidate})
+			}
+		}
+	}
+	return pairs
+}
+
+// pickHostPair asks about one host's pairs, matching environments first, and records the answer in choices.
+func pickHostPair(pairs [][2]Candidate, host string, choices map[string]string) error {
+	match := func(p [2]Candidate) bool { return pairingEnv(p[0]) != "" && pairingEnv(p[0]) == pairingEnv(p[1]) }
+	sort.SliceStable(pairs, func(i, j int) bool { return match(pairs[i]) && !match(pairs[j]) })
+	labels := [][2]string{{"none", "leave these service principals unpaired"}}
+	for _, p := range pairs {
+		labels = append(labels, [2]string{p[1].Name + " <= SP " + p[0].Name, host})
+	}
+	at, err := Pick("Pair a service principal", labels, 0)
+	if err != nil {
+		return err
+	}
+	if at < 0 {
+		return errors.New("cancelled")
+	}
+	for _, p := range pairs {
+		choices[p[0].Name] = ""
+	}
+	if at > 0 {
+		p := pairs[at-1]
+		choices[p[0].Name] = p[1].Name
+	}
+	return nil
 }
 
 const legacyUserPrefix = "digitalbtd-digitalbtd-user-"
@@ -446,48 +460,62 @@ func legacyReferences(top map[string]json.RawMessage, tx *vault.Tx) (map[string]
 	}
 	dirs := []string{filepath.Join(paths.ConfigDir(), "plans")}
 	for _, name := range []string{"settings.json", "settings.local.json"} {
-		b, err := os.ReadFile(filepath.Join(paths.ConfigDir(), name))
-		if errors.Is(err, os.ErrNotExist) {
-			continue
-		}
+		dir, err := scanSettingsFile(name, scan)
 		if err != nil {
 			return nil, err
 		}
-		scan(string(b))
-		var settings struct {
-			PlansDirectory string `json:"plansDirectory"`
-		}
-		if err := json.Unmarshal(b, &settings); err != nil {
-			return nil, err
-		}
-		if dir := settings.PlansDirectory; dir != "" {
-			if !filepath.IsAbs(dir) {
-				dir = filepath.Join(paths.ConfigDir(), dir)
-			}
+		if dir != "" {
 			dirs = append(dirs, dir)
 		}
 	}
 	for _, dir := range dirs {
-		err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
-			if errors.Is(err, os.ErrNotExist) && path == dir {
-				return nil
-			}
-			if err != nil {
-				return err
-			}
-			if d.IsDir() {
-				return nil
-			}
-			b, err := os.ReadFile(path)
-			if err != nil {
-				return err
-			}
-			scan(string(b))
-			return nil
-		})
-		if err != nil {
+		if err := scanPlanDir(dir, scan); err != nil {
 			return nil, err
 		}
 	}
 	return refs, nil
+}
+
+// scanSettingsFile scans one settings file and returns its plansDirectory, "" when absent.
+func scanSettingsFile(name string, scan func(string)) (string, error) {
+	b, err := os.ReadFile(filepath.Join(paths.ConfigDir(), name))
+	if errors.Is(err, os.ErrNotExist) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	scan(string(b))
+	var settings struct {
+		PlansDirectory string `json:"plansDirectory"`
+	}
+	if err := json.Unmarshal(b, &settings); err != nil {
+		return "", err
+	}
+	dir := settings.PlansDirectory
+	if dir != "" && !filepath.IsAbs(dir) {
+		dir = filepath.Join(paths.ConfigDir(), dir)
+	}
+	return dir, nil
+}
+
+// scanPlanDir scans every file under dir; a missing dir is empty.
+func scanPlanDir(dir string, scan func(string)) error {
+	return filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+		if errors.Is(err, os.ErrNotExist) && path == dir {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			return nil
+		}
+		b, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		scan(string(b))
+		return nil
+	})
 }

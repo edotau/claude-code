@@ -277,73 +277,95 @@ func (k Key) Validate(raw json.RawMessage) error {
 			return fmt.Errorf("%s: want a boolean", k.Name)
 		}
 	case KindInt, KindNumber:
-		var n float64
-		if json.Unmarshal(raw, &n) != nil {
-			return fmt.Errorf("%s: want a number", k.Name)
-		}
-		if k.Kind == KindInt && n != float64(int64(n)) {
-			return fmt.Errorf("%s: want an integer, got %v", k.Name, n)
-		}
-		if err := k.checkRange(n); err != nil {
-			return err
-		}
+		return k.validateNumber(raw)
 	case KindEnum:
-		var s string
-		if json.Unmarshal(raw, &s) != nil {
-			return fmt.Errorf("%s: want a string", k.Name)
-		}
-		if k.pattern != nil && k.pattern.MatchString(s) {
-			return nil
-		}
-		if !slices.Contains(k.Enum, s) {
-			return fmt.Errorf("%s: want one of %v, got %q", k.Name, k.Enum, s)
-		}
+		return k.validateEnum(raw)
 	case KindString:
-		var s string
-		if json.Unmarshal(raw, &s) != nil {
-			return fmt.Errorf("%s: want a string", k.Name)
-		}
-		if k.pattern != nil && !k.pattern.MatchString(s) {
-			return fmt.Errorf("%s: %q does not match %s", k.Name, s, k.pattern)
-		}
+		return k.validateString(raw)
 	case KindObject:
-		var m map[string]json.RawMessage
-		if json.Unmarshal(raw, &m) != nil {
-			return fmt.Errorf("%s: want a JSON object", k.Name)
-		}
-		for _, r := range k.required {
-			if _, ok := m[r]; !ok {
-				return fmt.Errorf("%s: missing required %q", k.Name, r)
-			}
-		}
-		for pn, pv := range m {
-			if _, ok := k.props[pn]; !ok && k.noExtra {
-				return fmt.Errorf("%s: unknown property %q", k.Name, pn)
-			}
-			sub, ok := k.props[pn]
-			if !ok && k.addl != nil && !k.addl.ref {
-				sub, ok = *k.addl, true
-			}
-			if ok {
-				if err := sub.Validate(pv); err != nil {
-					return err
-				}
-			}
-		}
+		return k.validateObject(raw)
 	case KindArray:
-		var a []json.RawMessage
-		if json.Unmarshal(raw, &a) != nil {
-			return fmt.Errorf("%s: want a JSON array", k.Name)
-		}
-		if k.items != nil {
-			for _, it := range a {
-				if err := k.items.Validate(it); err != nil {
-					return err
-				}
-			}
-		}
+		return k.validateArray(raw)
 	default:
 		return fmt.Errorf("%s: unknown kind", k.Name)
+	}
+	return nil
+}
+
+func (k Key) validateNumber(raw json.RawMessage) error {
+	var n float64
+	if json.Unmarshal(raw, &n) != nil {
+		return fmt.Errorf("%s: want a number", k.Name)
+	}
+	if k.Kind == KindInt && n != float64(int64(n)) {
+		return fmt.Errorf("%s: want an integer, got %v", k.Name, n)
+	}
+	return k.checkRange(n)
+}
+
+func (k Key) validateEnum(raw json.RawMessage) error {
+	var s string
+	if json.Unmarshal(raw, &s) != nil {
+		return fmt.Errorf("%s: want a string", k.Name)
+	}
+	if k.pattern != nil && k.pattern.MatchString(s) {
+		return nil
+	}
+	if !slices.Contains(k.Enum, s) {
+		return fmt.Errorf("%s: want one of %v, got %q", k.Name, k.Enum, s)
+	}
+	return nil
+}
+
+func (k Key) validateString(raw json.RawMessage) error {
+	var s string
+	if json.Unmarshal(raw, &s) != nil {
+		return fmt.Errorf("%s: want a string", k.Name)
+	}
+	if k.pattern != nil && !k.pattern.MatchString(s) {
+		return fmt.Errorf("%s: %q does not match %s", k.Name, s, k.pattern)
+	}
+	return nil
+}
+
+func (k Key) validateObject(raw json.RawMessage) error {
+	var m map[string]json.RawMessage
+	if json.Unmarshal(raw, &m) != nil {
+		return fmt.Errorf("%s: want a JSON object", k.Name)
+	}
+	for _, r := range k.required {
+		if _, ok := m[r]; !ok {
+			return fmt.Errorf("%s: missing required %q", k.Name, r)
+		}
+	}
+	for pn, pv := range m {
+		if _, ok := k.props[pn]; !ok && k.noExtra {
+			return fmt.Errorf("%s: unknown property %q", k.Name, pn)
+		}
+		sub, ok := k.props[pn]
+		if !ok && k.addl != nil && !k.addl.ref {
+			sub, ok = *k.addl, true
+		}
+		if ok {
+			if err := sub.Validate(pv); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func (k Key) validateArray(raw json.RawMessage) error {
+	var a []json.RawMessage
+	if json.Unmarshal(raw, &a) != nil {
+		return fmt.Errorf("%s: want a JSON array", k.Name)
+	}
+	if k.items != nil {
+		for _, it := range a {
+			if err := k.items.Validate(it); err != nil {
+				return err
+			}
+		}
 	}
 	return nil
 }

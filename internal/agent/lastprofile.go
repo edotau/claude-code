@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"encoding/json"
 	"maps"
 	"os"
@@ -61,7 +62,7 @@ func workspaceKey() string {
 	if err != nil {
 		return ""
 	}
-	if out, err := exec.Command("git", "-C", cwd, "rev-parse", "--show-toplevel").Output(); err == nil {
+	if out, err := exec.CommandContext(context.Background(), "git", "-C", cwd, "rev-parse", "--show-toplevel").Output(); err == nil {
 		if top := strings.TrimSpace(string(out)); top != "" {
 			return top
 		}

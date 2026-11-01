@@ -12,8 +12,6 @@ import (
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
-var errQuotaMidTask = errors.New("send prompt: session error: 402 You have exceeded your monthly quota of premium requests")
-
 // "<profile>:<alias>" resolves like --provider <profile> --model <alias>; anything else is left alone.
 func TestResolveTargetProfileTierRewrite(t *testing.T) {
 	vaulttest.UseKeyring(t)
@@ -106,9 +104,6 @@ func TestRunWithFallbackCarriesHandoff(t *testing.T) {
 		}
 	})
 }
-
-// tok builds a GitHub-shaped token for prefix, so no real secret sits in the source.
-func tok(prefix string) string { return prefix + strings.Repeat("a1", 18) }
 
 func TestResumeSlot(t *testing.T) {
 	for in, want := range map[string]string{"sonnet": "sonnet", "dev:haiku": "haiku", "claude-sonnet-5-5": "sonnet", "gpt-5": ""} {

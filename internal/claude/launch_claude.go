@@ -4,13 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/edotau/claude-code/internal/agent"
 	"maps"
 	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
+
+	"github.com/edotau/claude-code/internal/agent"
 
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
@@ -22,7 +23,6 @@ import (
 // Seams for tests.
 var (
 	findClaude = ClaudeBinary
-	lookPath   = paths.AgentBin
 	selfBinary = agent.SelfBinary
 )
 

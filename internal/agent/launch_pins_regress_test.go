@@ -1,20 +1,12 @@
 package agent
 
 import (
-	"slices"
 	"testing"
 
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
-
-func argvModel(argv []string) string {
-	if i := slices.Index(argv, "--model"); i >= 0 && i+1 < len(argv) {
-		return argv[i+1]
-	}
-	return ""
-}
 
 // Flags beat the agent's profile pin; a pin fills what the flag left empty; AGENT_ACTIVE=off ignores it.
 func TestWithAgentPinsPrecedence(t *testing.T) {

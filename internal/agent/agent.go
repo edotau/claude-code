@@ -247,15 +247,7 @@ func Run(ctx context.Context, r Engine, req RunOptions, sink Sink, notify func(s
 			return res, &Error{Kind: KindFatal, Agent: r.Name(), Err: err}
 		}
 	}
-	p := DefaultPolicy()
-	if req.Timeout > 0 {
-		p.AttemptTimeout = req.Timeout
-	}
-	p.Notify = notify
-	p.Key, _ = ctx.Value(coolKey{}).(string)
-	if h, _ := ctx.Value(permitKey{}).(*permit); h != nil {
-		p.Idle = h.idle
-	}
+	p := runPolicy(ctx, req, notify)
 	var recoverErr error
 	if _, t, err := resolveTarget(req); err == nil && (t.Provider.Auth.Command != "" || t.Provider.Auth.Sealed()) {
 		p.Recover = func(ctx context.Context) error {
@@ -292,17 +284,7 @@ func Run(ctx context.Context, r Engine, req RunOptions, sink Sink, notify func(s
 		out.Agent, out.Dropped, out.Emulated = cmp.Or(out.Agent, res.Agent), append(slices.Clone(dropped), out.Dropped...), emulated
 		res = out
 		e := Classify(r.Name(), err, cw.n > 0)
-		// A hard-quota 429 means this key can never use that model: fall to the next alias instead of waiting it out.
-		if e != nil && (e.Kind == KindRateLimit || e.Kind == KindQuota) && providers.ModelDenied(e.Err.Error()) &&
-			r.Caps().Model != None && (req.Model == "" || slices.Contains(models.AliasNames, req.Model)) {
-			cur := cmp.Or(req.Model, models.Opus)
-			if next := models.NextAlias(cur); next != "" {
-				if notify != nil {
-					notify(fmt.Sprintf("%s: the %s model is quota-dead on this key; retrying on %s", r.Name(), cur, next))
-				}
-				req.Model, e.RetryAfter, e.Kind = next, 0, KindRateLimit
-			}
-		}
+		fallToNextAlias(r, &req, e, notify)
 		if e != nil {
 			_ = note(e)
 		}
@@ -317,11 +299,7 @@ func Run(ctx context.Context, r Engine, req RunOptions, sink Sink, notify func(s
 	if e == nil {
 		res.recovered = failed
 		if req.OutputSchema != "" { // every agent's answer is checked, native or emulated, so structured behaves alike
-			var verr error
-			if res.Structured, res.SchemaUnchecked, verr = structuredAnswer(cmp.Or(string(res.Structured), res.Answer), req.OutputSchema); verr != nil {
-				e = &Error{Kind: KindFatal, Agent: r.Name(), Err: verr}
-				res.Status = statusOf(e)
-			}
+			e = checkStructured(&res, req.OutputSchema, r.Name())
 		}
 	}
 	if e != nil {
@@ -330,6 +308,45 @@ func Run(ctx context.Context, r Engine, req RunOptions, sink Sink, notify func(s
 		return res, e
 	}
 	return res, nil
+}
+
+// runPolicy is DefaultPolicy under req's timeout, ctx's cooldown key and ctx's permit.
+func runPolicy(ctx context.Context, req RunOptions, notify func(string)) Policy {
+	p := DefaultPolicy()
+	if req.Timeout > 0 {
+		p.AttemptTimeout = req.Timeout
+	}
+	p.Notify = notify
+	p.Key, _ = ctx.Value(coolKey{}).(string)
+	if h, _ := ctx.Value(permitKey{}).(*permit); h != nil {
+		p.Idle = h.idle
+	}
+	return p
+}
+
+// fallToNextAlias: a hard-quota 429 means this key can never use that model, so try the next alias, not a wait.
+func fallToNextAlias(r Engine, req *RunOptions, e *Error, notify func(string)) {
+	if e != nil && (e.Kind == KindRateLimit || e.Kind == KindQuota) && providers.ModelDenied(e.Err.Error()) &&
+		r.Caps().Model != None && (req.Model == "" || slices.Contains(models.AliasNames, req.Model)) {
+		cur := cmp.Or(req.Model, models.Opus)
+		if next := models.NextAlias(cur); next != "" {
+			if notify != nil {
+				notify(fmt.Sprintf("%s: the %s model is quota-dead on this key; retrying on %s", r.Name(), cur, next))
+			}
+			req.Model, e.RetryAfter, e.Kind = next, 0, KindRateLimit
+		}
+	}
+}
+
+// checkStructured fills res's structured answer; a schema failure also sets res.Status.
+func checkStructured(res *Result, schema, agentName string) *Error {
+	var verr error
+	if res.Structured, res.SchemaUnchecked, verr = structuredAnswer(cmp.Or(string(res.Structured), res.Answer), schema); verr != nil {
+		e := &Error{Kind: KindFatal, Agent: agentName, Err: verr}
+		res.Status = statusOf(e)
+		return e
+	}
+	return nil
 }
 
 // Result.Status values.
