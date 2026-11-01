@@ -66,9 +66,21 @@ The user's raw task request + the project's CLAUDE.md constraints; capture conte
 
 After a plan is written, before executing it.
 
-Check: completeness (no TODOs, placeholders, missing steps); spec coverage without scope creep; clear task boundaries
-and actionable steps; could an engineer follow it without getting stuck?
-Flag only what would cause real problems during implementation; wording and nice-to-haves are not issues.
+Check it against `agents/Plan.md` → Plan rules and Phase rules (the one home; don't restate them here). The checks
+only a reviewer can make:
+
+1. **Evidence holds** — rerun two or three Target-shape rows' commands; a row that no longer reproduces, or a
+   `Snapshot:` far behind HEAD in the files the plan touches, is an issue.
+2. **The decision is real** — the `DECISION:` line names a rejected alternative that was viable; a straw man is an
+   issue.
+3. **Phase 0 can catch a regression** — its baseline covers the commands the later phases change.
+4. **Tasks tick** — every task's `owns:` names real paths the phase edits, so `docs-plan-tick` can close it; a
+   `coworker` task names a `code-worker` fallback.
+5. **A cold start works** — could an engineer follow it without getting stuck: spec covered without scope creep,
+   placeholder-free, each code change carries its code.
+
+Flag only what would cause real problems during implementation; wording and nice-to-haves are not issues. A section the
+plan added beyond the template is fine (the template is a floor).
 
 Output: verdict READY | NEEDS CLARIFICATION; issues as `[Task X, Step Y]: issue — why it matters`.
 
