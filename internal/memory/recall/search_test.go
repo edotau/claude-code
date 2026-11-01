@@ -1,10 +1,10 @@
 package recall
 
 import (
-	"github.com/edotau/claude-code/internal/memory/bank"
 	"path/filepath"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/memory/bank"
 	"github.com/edotau/claude-code/internal/memstore"
 )
 
