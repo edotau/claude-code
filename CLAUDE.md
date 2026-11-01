@@ -48,7 +48,7 @@ Files under `agents/`, `commands/`, `rules/`, `skills/` and this file go live th
 Until the owner ends it, this overrides guideline 3, the test agent and the Verification Order, for every leaf,
 workflow and gate:
 
-- **One lane at a time.** One package moved or rewritten per commit; no parallel reorg lanes.
+- **Lanes run in parallel on disjoint files** (owner, 2026-10-31); one package moved or rewritten per commit.
 - **The gate is `go build ./...` + `go vet`**, so `make install` works. No `go test`, no copilot test agent.
 - **A test that won't compile** gets a simple fix, or is deleted and listed in the lane's test-debt report under
   `memory/claude-code/reports/`. Never investigate a failing test; the full pass comes at the end.
