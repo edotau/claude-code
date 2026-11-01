@@ -23,13 +23,15 @@ var agentSubverbs = map[string]bool{
 
 // agentAbout expands each agent's one-line menu summary for its help page.
 var agentAbout = map[string]string{
-	"copilot": "GitHub's Copilot CLI, billed to your Copilot plan. Bare launches it with args " +
+	"copilot": "GitHub's Copilot CLI on its own login, or the selected Databricks profile. Bare " +
+		"launches it with args " +
 		"forwarded; the commands below run it headless, in the background or as a reviewer.",
 	"codex": "OpenAI's Codex CLI on your ChatGPT login, the second-opinion reviewer. Bare " +
 		"launches it with args forwarded; the commands below run it headless.",
 	"gemini": "Gemini through agy (the Antigravity CLI) on your Google sign-in. Bare launches it " +
 		"with args forwarded; bridge inlines whole directories into one 1M-context call.",
-	"opencode": "The OpenCode CLI on your Copilot plan, for docs and drafting. Bare launches it " +
+	"opencode": "The OpenCode CLI for docs and drafting, on its own login or the selected Databricks " +
+		"profile. Bare launches it " +
 		"with args forwarded; the commands below run it headless.",
 }
 
