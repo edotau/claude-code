@@ -196,3 +196,64 @@ func TestLeafJobIDs(t *testing.T) {
 		t.Fatalf("leafJobIDs = %v, want %v", got, want)
 	}
 }
+
+// coworkerTx writes a coworker leaf transcript (the brief, then the given tool results) with its meta.json beside it.
+func coworkerTx(t *testing.T, brief string, toolResults ...string) *Input {
+	t.Helper()
+	dir := t.TempDir()
+	first, _ := json.Marshal(map[string]any{"type": "user", "message": map[string]any{"role": "user", "content": brief}})
+	body := string(first) + "\n"
+	var bodySb206 strings.Builder
+	for _, r := range toolResults {
+		line, _ := json.Marshal(map[string]any{"type": "user", "message": map[string]any{"content": []map[string]any{
+			{"type": "tool_result", "content": r}}}})
+		bodySb206.WriteString(string(line) + "\n")
+	}
+	body += bodySb206.String()
+	tx := filepath.Join(dir, "agent-a1.jsonl")
+	if err := os.WriteFile(tx, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "agent-a1.meta.json"), []byte(`{"agentType":"coworker"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return leafInput(tx)
+}
+
+// A coworker whose brief requests an agent but whose tool results show no ran-on line is blocked, naming the line; prose does not count.
+func TestCoworkerNoRanOnBlocks(t *testing.T) {
+	in := coworkerTx(t, "Objective: x\nAgent: codex\n", "ls output")
+	r, blocked := leafStopBlock(in, "a1")
+	if !blocked || r.Decision != Block || !strings.Contains(r.Reason, "ran on") {
+		t.Fatalf("got %+v blocked=%v, want a Block naming the ran-on line", r, blocked)
+	}
+	var out, errb bytes.Buffer
+	if code := Emit(AgentClaude, "SubagentStop", r, &out, &errb); code != ExitBlock {
+		t.Fatalf("Emit = %d, want ExitBlock", code)
+	}
+	for _, brief := range []string{"Objective: x\nAgent: in-context\n", "Objective: x\nOwns: a file\n"} {
+		if _, blocked := leafStopBlock(coworkerTx(t, brief, "ls"), "a1"); blocked {
+			t.Fatalf("exempt brief %q was blocked", brief)
+		}
+	}
+}
+
+// A tool result carrying the ask line or the json ran_on field releases the stop.
+func TestCoworkerRanOnReleases(t *testing.T) {
+	for _, evidence := range []string{"ask: ran on codex · acct · gpt · fallback none", `{"ran_on":"ran on codex","fallback":false}`} {
+		in := coworkerTx(t, "Objective: x\nProfile: dev\n", evidence)
+		if r, blocked := leafStopBlock(in, "a1"); blocked || r.SystemMessage != "" {
+			t.Fatalf("evidence %q: got %+v blocked=%v, want a silent release", evidence, r, blocked)
+		}
+	}
+}
+
+// The repeat stop (stop_hook_active) passes with a visible message, so a leaf is never trapped.
+func TestCoworkerRanOnFailOpenCap(t *testing.T) {
+	in := coworkerTx(t, "Objective: x\nAgent: codex\n", "ls")
+	in.StopHookActive = true
+	r, blocked := leafStopBlock(in, "a1")
+	if blocked || r.Decision == Block || !strings.Contains(r.SystemMessage, "a1: finished with no ran-on line") {
+		t.Fatalf("got %+v blocked=%v, want an allow with the ran-on message", r, blocked)
+	}
+}
