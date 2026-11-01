@@ -2,6 +2,7 @@ package memory
 
 import (
 	"fmt"
+	"github.com/edotau/claude-code/internal/memory/bank"
 	"strings"
 	"time"
 
@@ -126,7 +127,7 @@ func (t *RecallTrace) selected(picks []RecallPick) {
 	}
 }
 
-func (t *RecallTrace) candidates(ranked []SearchHit, need int, sem *Semantic) {
+func (t *RecallTrace) candidates(ranked []bank.SearchHit, need int, sem *Semantic) {
 	for _, archived := range []bool{false, true} {
 		_, top := recallTier(ranked, archived, need)
 		tierSem := sem
@@ -134,7 +135,7 @@ func (t *RecallTrace) candidates(ranked []SearchHit, need int, sem *Semantic) {
 			tierSem = nil
 		}
 		for _, h := range ranked {
-			c := RecallPick{Entry: EntryFromHit(h), Hit: h}
+			c := RecallPick{Entry: bank.EntryFromHit(h), Hit: h}
 			if c.Entry.Archived != archived {
 				continue
 			}

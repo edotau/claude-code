@@ -2,6 +2,7 @@ package memory
 
 import (
 	"github.com/edotau/claude-code/internal/hosttest"
+	"github.com/edotau/claude-code/internal/memory/bank"
 	"github.com/edotau/claude-code/internal/vault"
 	"os"
 	"os/exec"
@@ -49,7 +50,7 @@ func isolatedConfig(t *testing.T) (cfg, home string) {
 // initStore creates the unified store's git repo; callers must already hold an isolated CLAUDE_CONFIG_DIR.
 func initStore(t *testing.T) {
 	t.Helper()
-	if err := StoreRepo().Ensure(); err != nil {
+	if err := bank.StoreRepo().Ensure(); err != nil {
 		t.Fatal(err)
 	}
 }

@@ -20,6 +20,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/edotau/claude-code/internal/memory"
+	"github.com/edotau/claude-code/internal/memory/bank"
 	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/paths"
 )
@@ -256,7 +257,7 @@ func TestSessionStartProbeIDDoesNotClobberLastSession(t *testing.T) {
 // cutoverStore creates the unified store's git repo, the state memoryContext needs before repairing a native link.
 func cutoverStore(t *testing.T) {
 	t.Helper()
-	if err := memory.StoreRepo().Ensure(); err != nil {
+	if err := bank.StoreRepo().Ensure(); err != nil {
 		t.Fatal(err)
 	}
 }

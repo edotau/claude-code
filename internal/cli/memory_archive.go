@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/memory"
+	"github.com/edotau/claude-code/internal/memory/bank"
 	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/helptext"
@@ -132,11 +133,11 @@ func runSplitNative(dir string, keepLines int, apply bool) int {
 		}
 		if st.IndexEntries <= keepLines {
 			fmt.Printf("dry-run: %s already has %d pointer line%s (cap %d) — nothing to split\n",
-				memory.NativeIndexFile, st.IndexEntries, textutil.Plural(st.IndexEntries), keepLines)
+				bank.NativeIndexFile, st.IndexEntries, textutil.Plural(st.IndexEntries), keepLines)
 			return 0
 		}
 		fmt.Printf("dry-run: would move %d of %d pointer lines to %s\n",
-			st.IndexEntries-keepLines, st.IndexEntries, memory.NativeSearchableFile)
+			st.IndexEntries-keepLines, st.IndexEntries, bank.NativeSearchableFile)
 		fmt.Println("re-run with --apply to move them")
 		return 0
 	}
@@ -149,7 +150,7 @@ func runSplitNative(dir string, keepLines int, apply bool) int {
 		fmt.Println("nothing to split")
 		return 0
 	}
-	fmt.Printf("moved %d pointer line%s from %s to %s\n", moved, textutil.Plural(moved), memory.NativeIndexFile, memory.NativeSearchableFile)
+	fmt.Printf("moved %d pointer line%s from %s to %s\n", moved, textutil.Plural(moved), bank.NativeIndexFile, bank.NativeSearchableFile)
 	return 0
 }
 
@@ -161,13 +162,13 @@ func reportNativeStats(dir string) int {
 		return 1
 	}
 	fmt.Printf("store:     %s\n", dir)
-	fmt.Printf("index:     %s — %d entr%s, %s (injected EVERY session)\n", memory.NativeIndexFile,
+	fmt.Printf("index:     %s — %d entr%s, %s (injected EVERY session)\n", bank.NativeIndexFile,
 		st.IndexEntries, entrySuffix(st.IndexEntries), byteSize(st.IndexBytes))
 	fmt.Printf("topics:    %d file%s, %s (read only on recall)\n", st.TopicFiles, textutil.Plural(st.TopicFiles), byteSize(st.TopicBytes))
-	if st.IndexEntries > memory.NativeCoreCap {
+	if st.IndexEntries > bank.NativeCoreCap {
 		fmt.Printf("over cap:  %d pointer line%s over the %d-line injected core — `--split %d --apply` moves the rest to %s\n",
-			st.IndexEntries-memory.NativeCoreCap, textutil.Plural(st.IndexEntries-memory.NativeCoreCap), memory.NativeCoreCap,
-			memory.NativeCoreCap, memory.NativeSearchableFile)
+			st.IndexEntries-bank.NativeCoreCap, textutil.Plural(st.IndexEntries-bank.NativeCoreCap), bank.NativeCoreCap,
+			bank.NativeCoreCap, bank.NativeSearchableFile)
 	}
 	if len(st.Dangling) > 0 {
 		fmt.Printf("dangling:  %d pointer%s with no topic file: %s\n", len(st.Dangling), textutil.Plural(len(st.Dangling)),

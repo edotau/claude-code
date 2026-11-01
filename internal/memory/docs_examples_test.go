@@ -2,6 +2,7 @@ package memory
 
 import (
 	"flag"
+	"github.com/edotau/claude-code/internal/memory/bank"
 	"os"
 	"path/filepath"
 	"testing"
@@ -75,7 +76,7 @@ func TestDocsTemplateExamplesCatalog(t *testing.T) {
 	write(t, filepath.Join(memstore.HomeBankDir(), "conventions.md"),
 		"# Conventions\n\n- commit messages follow Conventional Commits\n- never hand-edit settings.json\n")
 
-	catalog, err := BuildCatalog(now)
+	catalog, err := bank.BuildCatalog(now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -96,7 +97,7 @@ func TestDocsTemplateExamplesBankRegion(t *testing.T) {
 	write(t, filepath.Join(dir, "decisionLog.md"), decisionLogExample)
 	write(t, filepath.Join(dir, "sessionHistory.md"), sessionHistoryExample)
 
-	checkExample(t, "MEMORY.md", buildBankRegion(dir, now))
+	checkExample(t, "MEMORY.md", bank.BuildBankRegion(dir, now))
 }
 
 // TestDocsTemplateExamplesSessionHistory and TestDocsTemplateExamplesDecisionLog and

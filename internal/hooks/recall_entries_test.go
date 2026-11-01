@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/memory"
+	"github.com/edotau/claude-code/internal/memory/bank"
 	"github.com/edotau/claude-code/internal/memstore"
 )
 
@@ -79,7 +80,7 @@ func TestRecallEntriesFilterOrderAndExpand(t *testing.T) {
 		if m == nil {
 			t.Fatalf("not an `id · date · title` pointer: %q", l)
 		}
-		if _, _, err := memory.ShowBlock(m[1]); err != nil {
+		if _, _, err := bank.ShowBlock(m[1]); err != nil {
 			t.Errorf("pointer id %s does not expand: %v", m[1], err)
 		}
 	}
@@ -273,7 +274,7 @@ func TestRecallSemanticSkipsSeenBeforeTopK(t *testing.T) {
 	if _, _, err := memory.EmbedEntries(context.Background(), cwd, c); err != nil {
 		t.Fatal(err)
 	}
-	var seen []memory.SearchHit
+	var seen []bank.SearchHit
 	for _, h := range memory.SearchBanks(cwd, "quokka burrow", 0) {
 		if !strings.Contains(h.Block, "dddd0006") {
 			seen = append(seen, h)

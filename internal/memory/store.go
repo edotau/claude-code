@@ -4,6 +4,7 @@ package memory
 
 import (
 	"embed"
+	"github.com/edotau/claude-code/internal/memory/bank"
 	"os"
 	"path/filepath"
 	"sync"
@@ -14,19 +15,6 @@ import (
 
 //go:embed templates/*.md
 var templatesFS embed.FS
-
-// bankFiles are the six typed files a bank carries (order = injection order).
-var bankFiles = []string{
-	"projectContext.md", "activeContext.md", "progress.md",
-	"decisionLog.md", "conventions.md", "sessionHistory.md",
-}
-
-// BankFiles exports the six typed filenames for callers outside this package (e.g. internal/history)
-// that must watch them without duplicating the list.
-func BankFiles() []string { return bankFiles }
-
-// SessionHistoryMaxEntries rotates the oldest sessionHistory entries to <bank>/archive/.
-const SessionHistoryMaxEntries = 30
 
 // FileCaps are the per-file line caps `claude-code memory update` holds; sessionHistory rotates by entry count instead.
 var FileCaps = map[string]int{
@@ -48,7 +36,7 @@ func IsUpdateChild() bool {
 
 // HasBank reports whether any typed file exists in root's local bank.
 func HasBank(root string) bool {
-	for _, name := range bankFiles {
+	for _, name := range bank.BankFiles() {
 		if _, err := os.Stat(filepath.Join(memstore.Dir(root), name)); err == nil {
 			return true
 		}
@@ -86,8 +74,8 @@ func IsProjectContextTemplate(root string) bool {
 
 // templates seed a fresh bank's six files; `claude-code memory update` fills them from real session work.
 var templates = sync.OnceValue(func() map[string]string {
-	m := make(map[string]string, len(bankFiles))
-	for _, name := range bankFiles {
+	m := make(map[string]string, len(bank.BankFiles()))
+	for _, name := range bank.BankFiles() {
 		body, err := templatesFS.ReadFile("templates/" + name)
 		if err != nil {
 			panic(err) // embedded alongside bankFiles; a mismatch is a build-time bug, not a runtime one

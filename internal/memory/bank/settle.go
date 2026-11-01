@@ -1,4 +1,4 @@
-package memory
+package bank
 
 import (
 	"fmt"
@@ -19,7 +19,7 @@ func BuildBankIndex(dir string, now time.Time) string {
 	var b strings.Builder
 	total := 0
 	section := func(name, prefix, unit string) {
-		entries := entriesWithPrefix(filepath.Join(dir, name), prefix)
+		entries := EntriesWithPrefix(filepath.Join(dir, name), prefix)
 		if len(entries) == 0 {
 			return
 		}
@@ -47,24 +47,24 @@ func RotateSessionHistory(dir string, now time.Time) (int, error) {
 	if err != nil {
 		return 0, nil
 	}
-	header, entries := splitHeadingBlocks(string(data))
+	header, entries := SplitHeadingBlocks(string(data))
 	if len(entries) <= SessionHistoryMaxEntries {
 		return 0, nil
 	}
 	keep, overflow := entries[:SessionHistoryMaxEntries], entries[SessionHistoryMaxEntries:]
 	archive := filepath.Join(dir, "archive", "sessionHistory-"+now.Format("2006-01")+".md")
-	if err := appendBlocks(archive, overflow); err != nil {
+	if err := AppendBlocks(archive, overflow); err != nil {
 		return 0, err // never truncate unarchived entries
 	}
-	if err := paths.AtomicWrite(path, []byte(rejoin(header, keep)), 0o600); err != nil {
+	if err := paths.AtomicWrite(path, []byte(Rejoin(header, keep)), 0o600); err != nil {
 		return 0, err
 	}
 	return len(overflow), nil
 }
 
-// lockPath serializes bank writers (the update worker's headless pass, then its settle); the
+// LockPath serializes bank writers (the update worker's headless pass, then its settle); the
 // physical lock lives under state, namespaced per store key — never beside the committed bank.
-func lockPath(dir string) string { return filepath.Join(memstore.StoreLockDir(dir), ".postupdate") }
+func LockPath(dir string) string { return filepath.Join(memstore.StoreLockDir(dir), ".postupdate") }
 
 // BankSettlement counts what one settle pass moved — rotation, promotion, archiving, and whether
 // the index was refreshed. A single "moved" number would hide rotation and index refreshes entirely.

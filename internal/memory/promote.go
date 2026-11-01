@@ -3,6 +3,7 @@ package memory
 import (
 	"errors"
 	"fmt"
+	"github.com/edotau/claude-code/internal/memory/bank"
 	"os"
 	"path/filepath"
 	"slices"
@@ -91,11 +92,11 @@ func promoteFile(localPath, homePath string, capLines int, now time.Time) (int, 
 	if err != nil {
 		return 0, nil // absent local file — nothing to promote
 	}
-	if LogicalLineCount(string(data)) <= capLines {
+	if bank.LogicalLineCount(string(data)) <= capLines {
 		return 0, nil
 	}
 	base := filepath.Base(localPath)
-	header, blocks := entryBlocks(base, string(data))
+	header, blocks := bank.EntryBlocks(base, string(data))
 
 	keep, overflow := settledSplit(base, header, blocks, capLines)
 	if len(overflow) == 0 {
@@ -110,7 +111,7 @@ func promoteFile(localPath, homePath string, capLines int, now time.Time) (int, 
 
 	// Dedup overflow against what's already in the home-bank file.
 	hData, _ := os.ReadFile(homePath)
-	_, hBlocks := entryBlocks(filepath.Base(homePath), string(hData))
+	_, hBlocks := bank.EntryBlocks(filepath.Base(homePath), string(hData))
 	hSets := make([]map[string]bool, 0, len(hBlocks))
 	for _, b := range hBlocks {
 		hSets = append(hSets, blockTokens(b))
@@ -131,17 +132,17 @@ func promoteFile(localPath, homePath string, capLines int, now time.Time) (int, 
 
 	if len(dropped) > 0 {
 		archive := archivePath(filepath.Dir(localPath), base, now)
-		if err := appendBlocks(archive, dropped); err != nil {
+		if err := bank.AppendBlocks(archive, dropped); err != nil {
 			return 0, err // archive failed — leave the source intact (never truncate unarchived content)
 		}
 	}
 	if len(toAppend) > 0 {
-		if err := appendBlocks(homePath, toAppend); err != nil {
+		if err := bank.AppendBlocks(homePath, toAppend); err != nil {
 			return 0, err
 		}
 	}
 	// Rewrite local with header + kept blocks (every overflow block is promoted, a home-bank dup, or archived).
-	if err := paths.AtomicWrite(localPath, []byte(rejoin(header, keep)), 0o600); err != nil {
+	if err := paths.AtomicWrite(localPath, []byte(bank.Rejoin(header, keep)), 0o600); err != nil {
 		return 0, err
 	}
 	return len(toAppend), nil
@@ -185,13 +186,13 @@ func promoteBlockToHome(root, id string, dryRun bool, now time.Time) (string, er
 	if dryRun {
 		return fmt.Sprintf("would move [%s] %s -> %s\n\n%s\n", id, filepath.Join(dir, file), homePath, block), nil
 	}
-	if err := appendBlocks(homePath, []string{block}); err != nil {
+	if err := bank.AppendBlocks(homePath, []string{block}); err != nil {
 		return "", err
 	}
 	if err := removeBlock(dir, file, id); err != nil {
 		return "", err
 	}
-	if _, err := SettleBank(root, now); err != nil {
+	if _, err := bank.SettleBank(root, now); err != nil {
 		return "", err
 	}
 	return fmt.Sprintf("promoted [%s] local -> home (%s)\n", id, homePath), nil
@@ -216,7 +217,7 @@ func promoteJudgment(root, id, to, target string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	ref, err := Reference("promote")
+	ref, err := bank.Reference("promote")
 	if err != nil {
 		return "", err
 	}
@@ -226,19 +227,19 @@ func promoteJudgment(root, id, to, target string) (string, error) {
 // extractBlock finds the id-marked block in dir's typed files, returning its filename and text.
 func extractBlock(dir, id string) (string, string, error) {
 	marker := "<!-- id:" + id + " -->"
-	for name := range idFiles {
+	for name := range bank.IdFiles {
 		data, err := os.ReadFile(filepath.Join(dir, name))
 		if err != nil || !strings.Contains(string(data), marker) {
 			continue
 		}
-		_, blocks := entryBlocks(name, string(data))
+		_, blocks := bank.EntryBlocks(name, string(data))
 		for _, b := range blocks {
 			if strings.Contains(b, marker) {
 				return name, b, nil
 			}
 		}
 	}
-	return "", "", ErrNoBlock
+	return "", "", bank.ErrNoBlock
 }
 
 // removeBlock drops the id-marked block from dir/name, rewriting the file without it.
@@ -249,14 +250,14 @@ func removeBlock(dir, name, id string) error {
 	if err != nil {
 		return err
 	}
-	header, blocks := entryBlocks(name, string(data))
+	header, blocks := bank.EntryBlocks(name, string(data))
 	var kept []string
 	for _, b := range blocks {
 		if !strings.Contains(b, marker) {
 			kept = append(kept, b)
 		}
 	}
-	return paths.AtomicWrite(path, []byte(rejoin(header, kept)), 0o600)
+	return paths.AtomicWrite(path, []byte(bank.Rejoin(header, kept)), 0o600)
 }
 
 // blockTokens is a block's lowercase token set — the signal for near-dup matching.
@@ -300,7 +301,7 @@ func jaccard(a, b map[string]bool) float64 {
 // budgetSplit keeps blocks from the top while header+kept stays within capLines; the rest overflow.
 // blocks arrives newest-first, so walking forward keeps the newest and settles the oldest end.
 func budgetSplit(header string, blocks []string, capLines int) (keep, overflow []string) {
-	used := LogicalLineCount(header)
+	used := bank.LogicalLineCount(header)
 	full := false
 	for i, b := range blocks {
 		cost := blockCost(b, i, used)
@@ -319,7 +320,7 @@ func budgetSplit(header string, blocks []string, capLines int) (keep, overflow [
 // blockCost is a block's line cost including the blank separator rejoin inserts — absent only before
 // block 0 of a header-less file.
 func blockCost(block string, i, used int) int {
-	n := LogicalLineCount(block)
+	n := bank.LogicalLineCount(block)
 	if used > 0 || i > 0 {
 		n++
 	}

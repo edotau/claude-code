@@ -2,6 +2,7 @@ package memory
 
 import (
 	"fmt"
+	"github.com/edotau/claude-code/internal/memory/bank"
 	"os"
 	"path/filepath"
 	"strings"
@@ -34,8 +35,8 @@ func TestPromoteLocalToGlobalMovesOverflow(t *testing.T) {
 		t.Fatalf("promoted %d err %v", n, err)
 	}
 	kept, _ := os.ReadFile(filepath.Join(local, "decisionLog.md"))
-	if lineCount(string(kept)) > FileCaps["decisionLog.md"] {
-		t.Errorf("local decisionLog still over cap: %d lines", lineCount(string(kept)))
+	if bank.LineCount(string(kept)) > FileCaps["decisionLog.md"] {
+		t.Errorf("local decisionLog still over cap: %d lines", bank.LineCount(string(kept)))
 	}
 	global, err := os.ReadFile(filepath.Join(memstore.HomeBankDir(), "decisionLog.md"))
 	if err != nil || !strings.Contains(string(global), "decision 01") {

@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/edotau/claude-code/internal/memory/bank"
 	"io"
 	"math"
 	"net/http"
@@ -97,7 +98,7 @@ var routerLink = func(ctx context.Context) (base, secret string, ok bool) {
 }
 
 // entryEmbedText is what an entry is embedded as: its type and body, capped.
-func entryEmbedText(e Entry) string {
+func entryEmbedText(e bank.Entry) string {
 	r := []rune(e.Type + ": " + e.Body)
 	if len(r) > embedTextRunes {
 		r = r[:embedTextRunes]
@@ -118,8 +119,8 @@ func freshEmbedCache(c *EmbedClient) embedCacheFile {
 // currentEntryHashes is the content hash of each embeddable entry in root's corpus right now.
 func currentEntryHashes(root string) map[string]string {
 	out := map[string]string{}
-	for _, h := range corpusBlocks(root) {
-		e := EntryFromHit(h)
+	for _, h := range bank.CorpusBlocks(root) {
+		e := bank.EntryFromHit(h)
 		if e.Archived || e.Superseded {
 			continue
 		}
@@ -224,8 +225,8 @@ func embedEntries(ctx context.Context, root string, c *EmbedClient, force bool) 
 func pendingEmbeds(root string, cache embedCacheFile) (ids, texts, hashes []string, total int) {
 	live := map[string]bool{}
 	cacheDim := cacheDimOf(cache)
-	for _, h := range corpusBlocks(root) {
-		e := EntryFromHit(h)
+	for _, h := range bank.CorpusBlocks(root) {
+		e := bank.EntryFromHit(h)
 		if e.Archived || e.Superseded || live[e.ID] { // the first of a duplicated id wins
 			continue
 		}
@@ -397,7 +398,7 @@ func NewSemantic(query string) (*Semantic, error) {
 }
 
 // Cosine is e's similarity to the query; false when e has no vector for its current content.
-func (s *Semantic) Cosine(e Entry) (float64, bool) {
+func (s *Semantic) Cosine(e bank.Entry) (float64, bool) {
 	row, ok := s.rows[e.ID]
 	if !ok || row.Hash != textHash(entryEmbedText(e)) {
 		return 0, false

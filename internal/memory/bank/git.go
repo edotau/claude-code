@@ -1,4 +1,4 @@
-package memory
+package bank
 
 // Bounded, sanitized git for the nested local memory repo at StoreDir() (plan C.3). Explicit --git-dir and
 // --work-tree are what keep an inherited GIT_DIR or a missing .git from retargeting the OUTER ~/.claude checkout;

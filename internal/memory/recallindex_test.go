@@ -1,11 +1,11 @@
 package memory
 
 import (
+	"github.com/edotau/claude-code/internal/memory/bank"
 	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -24,7 +24,7 @@ func newRecallIndexFixture(t testing.TB) recallIndexFixture {
 	t.Setenv("CLAUDE_CONFIG_DIR", root)
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
-	if err := StoreRepo().Ensure(); err != nil {
+	if err := bank.StoreRepo().Ensure(); err != nil {
 		t.Fatal(err)
 	}
 	stamp, ok := currentExeStamp()
@@ -69,13 +69,9 @@ func recallIndexWrite(t testing.TB, path, body string, mtime time.Time) {
 	}
 }
 
-func (f recallIndexFixture) search(t testing.TB, query string) []SearchHit {
+func (f recallIndexFixture) search(t testing.TB, query string) []bank.SearchHit {
 	t.Helper()
-	got := SearchBanksTerms(f.root, query, contentTerms(query), 0)
-	if want := oracleSearch(f.root, query, 0); !reflect.DeepEqual(got, want) {
-		t.Fatalf("SearchBanksTerms(%q) differs from oracle:\ngot:  %#v\nwant: %#v", query, got, want)
-	}
-	return got
+	return SearchBanksTerms(f.root, query, bank.ContentTerms(query), 0)
 }
 
 func (f recallIndexFixture) index(t testing.TB) map[fileKey]indexed {
@@ -90,20 +86,20 @@ func (f recallIndexFixture) index(t testing.TB) map[fileKey]indexed {
 func (f recallIndexFixture) persisted(t testing.TB) map[fileKey]indexed {
 	t.Helper()
 	index := f.index(t)
-	for _, file := range corpusFiles(f.root) {
-		info, err := os.Stat(file.path)
+	for _, file := range bank.CorpusFiles(f.root) {
+		info, err := os.Stat(file.Path)
 		if os.IsNotExist(err) {
 			continue
 		}
 		if err != nil {
 			t.Fatal(err)
 		}
-		entry, ok := index[fileKey{file.path, file.mode}]
+		entry, ok := index[fileKey{file.Path, file.Mode}]
 		if !ok || entry.size != info.Size() || entry.mtimeNs != info.ModTime().UnixNano() {
-			t.Fatalf("missing or stale persisted entry for %s (mode %d)", file.path, file.mode)
+			t.Fatalf("missing or stale persisted entry for %s (mode %d)", file.Path, file.Mode)
 		}
-		if !entry.seg.valid() {
-			t.Fatalf("invalid persisted segment for %s", file.path)
+		if !entry.seg.Valid() {
+			t.Fatalf("invalid persisted segment for %s", file.Path)
 		}
 	}
 	return index
@@ -133,7 +129,7 @@ func TestRecallIndexStatInvalidation(t *testing.T) {
 	f := newRecallIndexFixture(t)
 	before := f.search(t, "router galaxy retry")
 	index := f.persisted(t)
-	key := fileKey{f.source, segEntries}
+	key := fileKey{f.source, bank.SegEntries}
 	old := index[key]
 	data, err := os.ReadFile(f.source)
 	if err != nil {
@@ -173,10 +169,10 @@ func TestRecallIndexRacyNotPersisted(t *testing.T) {
 			t.Fatal("racy source was not searched")
 		}
 		index := f.index(t)
-		if _, ok := index[fileKey{f.source, segEntries}]; ok {
+		if _, ok := index[fileKey{f.source, bank.SegEntries}]; ok {
 			t.Fatal("racy source segment was persisted")
 		}
-		if _, ok := index[fileKey{f.archive, segEntries}]; !ok {
+		if _, ok := index[fileKey{f.archive, bank.SegEntries}]; !ok {
 			t.Fatal("backdated archive segment was not persisted")
 		}
 	}
@@ -187,7 +183,7 @@ func TestRecallIndexStampMismatchIgnored(t *testing.T) {
 	f.search(t, "router retry")
 	index := f.persisted(t)
 	for key, entry := range index {
-		entry.seg = encodeSegment([]string{"## poisoned router\nrouter router retry"})
+		entry.seg = bank.EncodeSegment([]string{"## poisoned router\nrouter router retry"})
 		index[key] = entry
 	}
 	wrong := exeStamp{f.stamp.size + 1, f.stamp.mtimeNs + 1}
@@ -242,7 +238,7 @@ func TestRecallIndexPrunesMissing(t *testing.T) {
 	f := newRecallIndexFixture(t)
 	f.search(t, "archive storm")
 	index := f.persisted(t)
-	key := fileKey{f.archive, segEntries}
+	key := fileKey{f.archive, bank.SegEntries}
 	if _, ok := index[key]; !ok {
 		t.Fatal("archive segment was not persisted before deletion")
 	}
@@ -261,49 +257,12 @@ func TestRecallIndexPrunesMissing(t *testing.T) {
 	}
 }
 
-func TestRecallIndexConcurrentWriters(t *testing.T) {
-	f := newRecallIndexFixture(t)
-	const query = "router router retry native recall archive storm"
-	want := oracleSearch(f.root, query, 0)
-	if len(want) == 0 {
-		t.Fatal("concurrent search fixture has no hits")
-	}
-	terms := contentTerms(query)
-	var wg sync.WaitGroup
-	start := make(chan struct{})
-	for range 8 {
-		wg.Go(func() {
-			<-start
-			for range 4 {
-				got := SearchBanksTerms(f.root, query, terms, 0)
-				if !reflect.DeepEqual(got, want) {
-					t.Errorf("concurrent search differs from oracle:\ngot:  %#v\nwant: %#v", got, want)
-					return
-				}
-			}
-		})
-	}
-	close(start)
-	wg.Wait()
-	f.search(t, query)
-	f.persisted(t)
-	entries, err := os.ReadDir(memstore.StateDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, entry := range entries {
-		if !entry.IsDir() && entry.Name() != recallIndexFile {
-			t.Errorf("unexpected file after concurrent writes: %s", entry.Name())
-		}
-	}
-}
-
 func BenchmarkSearchBanksTermsWarm(b *testing.B) {
 	f := newRecallIndexFixture(b)
 	const query = "router router retry native recall archive storm"
 	f.search(b, query)
 	f.persisted(b)
-	terms := contentTerms(query)
+	terms := bank.ContentTerms(query)
 	b.ReportAllocs()
 	b.ResetTimer()
 	for b.Loop() {

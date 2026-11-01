@@ -1,6 +1,7 @@
 package memory
 
 import (
+	"github.com/edotau/claude-code/internal/memory/bank"
 	"sort"
 	"strings"
 )
@@ -28,7 +29,7 @@ const (
 )
 
 // withSemanticCandidates appends cosine-only candidates (zero keyword overlap) the keyword search did not return.
-func withSemanticCandidates(ranked, extra []SearchHit) []SearchHit {
+func withSemanticCandidates(ranked, extra []bank.SearchHit) []bank.SearchHit {
 	have := map[string]bool{}
 	for _, h := range ranked {
 		have[BlockKey(h.Block)] = true
@@ -43,13 +44,13 @@ func withSemanticCandidates(ranked, extra []SearchHit) []SearchHit {
 
 // RecallPick is one surviving entry with its search hit and final score.
 type RecallPick struct {
-	Entry Entry
-	Hit   SearchHit
+	Entry bank.Entry
+	Hit   bank.SearchHit
 	Score float64
 }
 
 // recallFlat is an entry's id and whole body on one line, heading and bullet marks stripped.
-func recallFlat(e Entry) string {
+func recallFlat(e bank.Entry) string {
 	return e.ID + " · " + strings.TrimLeft(strings.Join(strings.Fields(e.Body), " "), "#- ")
 }
 
@@ -99,7 +100,7 @@ func recallCut(s string, limit int) string {
 }
 
 // selectRecall consults archives only when no current entry passes the relevance gates.
-func selectRecall(sessionID string, terms []string, ranked []SearchHit, sem *Semantic, semSeen bool, counts map[string]int, trace *RecallTrace) []RecallPick {
+func selectRecall(sessionID string, terms []string, ranked []bank.SearchHit, sem *Semantic, semSeen bool, counts map[string]int, trace *RecallTrace) []RecallPick {
 	need := recallNeed(terms)
 	seen := SeenBlocks(sessionID)
 	if trace != nil {
@@ -124,7 +125,7 @@ func selectRecall(sessionID string, terms []string, ranked []SearchHit, sem *Sem
 }
 
 // pickTier applies the gates before access boosts, then chooses the best final scores.
-func pickTier(ranked []SearchHit, archived bool, need int, seen map[string]bool, sem *Semantic, counts map[string]int, trace *RecallTrace) ([]RecallPick, bool) {
+func pickTier(ranked []bank.SearchHit, archived bool, need int, seen map[string]bool, sem *Semantic, counts map[string]int, trace *RecallTrace) ([]RecallPick, bool) {
 	cands, top := recallTier(ranked, archived, need)
 	pool := recallPool(cands, top, need, sem, trace)
 	orderRecall(pool)
@@ -154,11 +155,11 @@ func pickTier(ranked []SearchHit, archived bool, need int, seen map[string]bool,
 	return out, passed
 }
 
-func recallTier(ranked []SearchHit, archived bool, need int) ([]RecallPick, float64) {
+func recallTier(ranked []bank.SearchHit, archived bool, need int) ([]RecallPick, float64) {
 	var cands []RecallPick
 	top, topAny := 0.0, 0.0
 	for _, h := range ranked {
-		e := EntryFromHit(h)
+		e := bank.EntryFromHit(h)
 		if e.Archived != archived || e.Superseded {
 			continue
 		}

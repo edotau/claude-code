@@ -4,10 +4,10 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"github.com/edotau/claude-code/internal/memory/bank"
 	"maps"
 	"os"
 	"path/filepath"
-	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -16,25 +16,6 @@ import (
 	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/textutil"
-	"github.com/jeduden/mdsmith/pkg/markdown"
-)
-
-// NativeDirs lists Claude Code's auto-memory dirs recall searches: the harness's own (user-wide facts), then root's.
-func NativeDirs(root string) []string {
-	out := []string{memstore.HomeBankDir()} // native shares the repo's store dir; the home tier holds the user-wide notes
-	if d := memstore.Dir(root); !slices.Contains(out, d) {
-		out = append(out, d)
-	}
-	return out
-}
-
-// Native auto-memory's MEMORY.md is injected EVERY session, so its size is a per-turn cost. SEARCHABLE.md
-// holds pointer lines moved out of that injected core — recall finds them by content, never injected.
-const (
-	NativeIndexFile        = "MEMORY.md"     // the injected index of `- [Title](topic.md) — hook` lines
-	NativeSearchableFile   = "SEARCHABLE.md" // pointer lines kept OUT of the injected index; recall finds the topics
-	NativeArchiveIndexFile = "INDEX.md"      // struck pointer lines, recorded verbatim so restore is exact
-	NativeCoreCap          = 20              // max pointer lines SplitNativeIndex leaves injected in MEMORY.md
 )
 
 // topicPaths lists dir's KindTopic files; indexes, the catalog and typed bank files are not topics.
@@ -42,7 +23,7 @@ func topicPaths(dir string) []string {
 	ents, _ := os.ReadDir(dir)
 	var out []string
 	for _, e := range ents {
-		if classifyMemoryFile(dir, e.Name()) == KindTopic {
+		if bank.ClassifyMemoryFile(dir, e.Name()) == bank.KindTopic {
 			out = append(out, filepath.Join(dir, e.Name()))
 		}
 	}
@@ -54,13 +35,13 @@ func topicPaths(dir string) []string {
 // not an archivable topic is refused, since callers pass the result straight to a move.
 func topicName(dir, arg string) (string, error) {
 	name := strings.TrimSpace(arg)
-	if err := validBareName(name); err != nil {
+	if err := bank.ValidBareName(name); err != nil {
 		return "", err
 	}
-	k, reserved := reservedNames[name]
+	k, reserved := bank.ReservedNames[name]
 	if !reserved && !strings.HasSuffix(name, ".md") {
 		name += ".md"
-		k, reserved = reservedNames[name]
+		k, reserved = bank.ReservedNames[name]
 	}
 	if reserved {
 		return "", fmt.Errorf("%q: %s, not an archivable topic", arg, k)
@@ -68,7 +49,7 @@ func topicName(dir, arg string) (string, error) {
 	if _, err := os.Lstat(filepath.Join(dir, name)); err != nil {
 		return name, nil
 	}
-	if k := classifyMemoryFile(dir, name); !k.Archivable() {
+	if k := bank.ClassifyMemoryFile(dir, name); !k.Archivable() {
 		return "", fmt.Errorf("%q: %s, not an archivable topic", arg, k)
 	}
 	return name, nil
@@ -104,7 +85,7 @@ type NativeResult struct {
 type nativeBatch struct {
 	base, prefix string // base is the store (prefix = dir's path inside it) or dir itself for a dir outside the store
 	inStore      bool
-	changes      []Change
+	changes      []bank.Change
 }
 
 func newNativeBatch(dir string) *nativeBatch {
@@ -117,7 +98,7 @@ func newNativeBatch(dir string) *nativeBatch {
 // put plans writing data at rel on condition of preimage (nil = must not exist); equal bytes plan nothing.
 func (b *nativeBatch) put(rel string, data, preimage []byte) {
 	if !bytes.Equal(data, preimage) {
-		b.changes = append(b.changes, Change{Rel: filepath.Join(b.prefix, rel), Data: data, Preimage: preimage, Checked: true})
+		b.changes = append(b.changes, bank.Change{Rel: filepath.Join(b.prefix, rel), Data: data, Preimage: preimage, Checked: true})
 	}
 }
 
@@ -133,7 +114,7 @@ func (b *nativeBatch) putWithout(rel, text string, names []string, preimage []by
 
 // del plans removing rel on condition of its current bytes.
 func (b *nativeBatch) del(rel string, preimage []byte) {
-	b.changes = append(b.changes, Change{Rel: filepath.Join(b.prefix, rel), Delete: true, Preimage: preimage, Checked: true})
+	b.changes = append(b.changes, bank.Change{Rel: filepath.Join(b.prefix, rel), Delete: true, Preimage: preimage, Checked: true})
 }
 
 // commit lands the batch in order and returns the memory-Git commit it settled into ("" when nothing changed or
@@ -143,8 +124,8 @@ func (b *nativeBatch) commit(subject string) (string, error) {
 		return "", nil
 	}
 	if b.inStore {
-		rec, err := commitChangesLocked(subject, b.changes)
-		if errors.Is(err, ErrDivergent) {
+		rec, err := bank.CommitChangesLocked(subject, b.changes)
+		if errors.Is(err, bank.ErrDivergent) {
 			err = fmt.Errorf("%w: %s", err, strings.Join(rec.Divergent, ", "))
 		}
 		return rec.Commit, err
@@ -159,7 +140,7 @@ func (b *nativeBatch) commit(subject string) (string, error) {
 
 // applyChecked lands one change with the transaction's preimage rules: already at Data (or deleted and absent) is a
 // replayed step, any other mismatch is divergence, and a creation is exclusive so no concurrent write is replaced.
-func applyChecked(base string, c Change) error {
+func applyChecked(base string, c bank.Change) error {
 	abs := filepath.Join(base, c.Rel)
 	cur, err := os.ReadFile(abs)
 	absent := os.IsNotExist(err)
@@ -170,7 +151,7 @@ func applyChecked(base string, c Change) error {
 	case c.Delete && absent, !c.Delete && !absent && bytes.Equal(cur, c.Data):
 		return nil
 	case absent != (c.Preimage == nil), !absent && !bytes.Equal(cur, c.Preimage):
-		return fmt.Errorf("%w: %s", ErrDivergent, c.Rel)
+		return fmt.Errorf("%w: %s", bank.ErrDivergent, c.Rel)
 	case c.Delete:
 		return os.Remove(abs)
 	case absent:
@@ -183,7 +164,7 @@ func applyChecked(base string, c Change) error {
 // region is not parsed, so its pointers are never counted, struck, moved or recorded.
 func indexLinks(index string) map[string]string {
 	out := map[string]string{}
-	for line := range strings.SplitSeq(outsideBankRegion(index), "\n") {
+	for line := range strings.SplitSeq(bank.OutsideBankRegion(index), "\n") {
 		if target, ok := linkTarget(line); ok {
 			out[target] = line
 		}
@@ -194,7 +175,7 @@ func indexLinks(index string) map[string]string {
 // indexedLinks is every pointer dir's store holds: the injected MEMORY.md plus the recall-only SEARCHABLE.md.
 func indexedLinks(dir, index string) map[string]string {
 	out := indexLinks(index)
-	if raw, err := os.ReadFile(filepath.Join(dir, NativeSearchableFile)); err == nil {
+	if raw, err := os.ReadFile(filepath.Join(dir, bank.NativeSearchableFile)); err == nil {
 		for t, line := range indexLinks(string(raw)) {
 			if _, ok := out[t]; !ok {
 				out[t] = line
@@ -236,12 +217,12 @@ func NativeStats(dir string) (NativeStoreStats, error) {
 	}
 	// A pointer to a typed bank file is valid (not dangling), though the file is never an orphan candidate.
 	linkable := maps.Clone(present)
-	for _, name := range bankFiles {
+	for _, name := range bank.BankFiles() {
 		if fi, err := os.Lstat(filepath.Join(dir, name)); err == nil && fi.Mode().IsRegular() {
 			linkable[name] = true
 		}
 	}
-	indexPath := filepath.Join(dir, NativeIndexFile)
+	indexPath := filepath.Join(dir, bank.NativeIndexFile)
 	raw, err := os.ReadFile(indexPath)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -249,8 +230,8 @@ func NativeStats(dir string) (NativeStoreStats, error) {
 		}
 		return st, err
 	}
-	if err := checkBankRegion(string(raw)); err != nil {
-		return st, fmt.Errorf("%s: %w", NativeIndexFile, err)
+	if err := bank.CheckBankRegion(string(raw)); err != nil {
+		return st, fmt.Errorf("%s: %w", bank.NativeIndexFile, err)
 	}
 	st.IndexBytes = int64(len(raw))
 	st.IndexEntries = len(indexLinks(string(raw)))
@@ -307,13 +288,13 @@ func archiveNativeLocked(dir string, todo []string, res *NativeResult) error {
 	if err != nil {
 		return err
 	}
-	searchable, _ := os.ReadFile(filepath.Join(dir, NativeSearchableFile))
+	searchable, _ := os.ReadFile(filepath.Join(dir, bank.NativeSearchableFile))
 	moves, recorded, err := planArchive(dir, todo, indexedLinks(dir, healed))
 	if err != nil {
 		return err
 	}
 	b := newNativeBatch(dir)
-	recRel := filepath.Join(nativeArchiveRel, NativeArchiveIndexFile)
+	recRel := filepath.Join(nativeArchiveRel, bank.NativeArchiveIndexFile)
 	rec, _ := os.ReadFile(filepath.Join(dir, recRel))
 	if len(recorded) > 0 {
 		b.put(recRel, []byte(archiveIndexWith(rec, recorded)), rec)
@@ -321,12 +302,12 @@ func archiveNativeLocked(dir string, todo []string, res *NativeResult) error {
 	var final string
 	if index != nil {
 		if final, err = indexWithout(healed, todo); err != nil {
-			return fmt.Errorf("%s: %w", NativeIndexFile, err)
+			return fmt.Errorf("%s: %w", bank.NativeIndexFile, err)
 		}
-		b.put(NativeIndexFile, []byte(final), index)
+		b.put(bank.NativeIndexFile, []byte(final), index)
 	}
 	if searchable != nil {
-		if err := b.putWithout(NativeSearchableFile, string(searchable), todo, searchable); err != nil {
+		if err := b.putWithout(bank.NativeSearchableFile, string(searchable), todo, searchable); err != nil {
 			return err
 		}
 	}
@@ -353,7 +334,7 @@ func archiveNativeLocked(dir string, todo []string, res *NativeResult) error {
 
 // landedIndexOverLimit is the loader-limit diagnostic after a batch has landed: the write stays, the caller reports it.
 func landedIndexOverLimit(verb string, todo []string, final string) error {
-	if err := checkNativeIndexLimits(final); err != nil {
+	if err := bank.CheckNativeIndexLimits(final); err != nil {
 		return fmt.Errorf("%s %s, but the index busts the limit — %w", verb, strings.Join(todo, ", "), err)
 	}
 	return nil
@@ -456,7 +437,7 @@ func retargetLine(line, to string) string {
 // the verbatim archived line if recorded, else one built from the topic's own frontmatter.
 func reconcileLines(dir, index string) []string {
 	links := indexedLinks(dir, index)
-	rec, _ := os.ReadFile(filepath.Join(NativeArchiveDir(dir), NativeArchiveIndexFile))
+	rec, _ := os.ReadFile(filepath.Join(NativeArchiveDir(dir), bank.NativeArchiveIndexFile))
 	recorded := indexLinks(string(rec))
 	var missing []string
 	for _, p := range topicPaths(dir) {
@@ -476,12 +457,12 @@ func reconcileLines(dir, index string) []string {
 // healedIndex is MEMORY.md's bytes (nil when absent) and its text with reconcileLines appended in memory;
 // a malformed or over-reserve bank region is the error that stops the caller's rewrite.
 func healedIndex(dir string) (raw []byte, healed string, err error) {
-	raw, err = os.ReadFile(filepath.Join(dir, NativeIndexFile))
+	raw, err = os.ReadFile(filepath.Join(dir, bank.NativeIndexFile))
 	if err != nil {
 		return nil, "", nil
 	}
-	if err := checkBankRegion(string(raw)); err != nil {
-		return nil, "", fmt.Errorf("%s: %w", NativeIndexFile, err)
+	if err := bank.CheckBankRegion(string(raw)); err != nil {
+		return nil, "", fmt.Errorf("%s: %w", bank.NativeIndexFile, err)
 	}
 	return raw, indexWithLines(string(raw), reconcileLines(dir, string(raw))), nil
 }
@@ -492,7 +473,7 @@ func frontmatterPointer(dir, file string) (string, bool) {
 	if err != nil {
 		return "", false
 	}
-	name, desc, _, ok := topicFrontmatter(string(raw))
+	name, desc, _, ok := bank.TopicFrontmatter(string(raw))
 	if !ok {
 		return "", false
 	}
@@ -546,7 +527,7 @@ func indexWithout(index string, names []string) (string, error) {
 	for _, n := range names {
 		drop[n] = true
 	}
-	region, err := bankRegionLines(index)
+	region, err := bank.BankRegionLines(index)
 	if err != nil {
 		return "", err
 	}
@@ -595,7 +576,7 @@ func restoreNativeLocked(dir string, todo []string, res *NativeResult) error {
 	if err != nil {
 		return err
 	}
-	recRel := filepath.Join(nativeArchiveRel, NativeArchiveIndexFile)
+	recRel := filepath.Join(nativeArchiveRel, bank.NativeArchiveIndexFile)
 	rec, _ := os.ReadFile(filepath.Join(dir, recRel))
 	b := newNativeBatch(dir)
 	archived := map[string][]byte{}
@@ -616,14 +597,14 @@ func restoreNativeLocked(dir string, todo []string, res *NativeResult) error {
 		archived[name] = data
 	}
 	lines := linesFor(indexLinks(string(rec)), moved)
-	if len(indexLinks(healed)) >= NativeCoreCap {
+	if len(indexLinks(healed)) >= bank.NativeCoreCap {
 		// The injected core is full: the restored pointers stay recall-only, and the core takes only its repair.
-		searchable, _ := os.ReadFile(filepath.Join(dir, NativeSearchableFile))
-		b.put(NativeSearchableFile, []byte(indexWithLines(string(searchable), lines)), searchable)
+		searchable, _ := os.ReadFile(filepath.Join(dir, bank.NativeSearchableFile))
+		b.put(bank.NativeSearchableFile, []byte(indexWithLines(string(searchable), lines)), searchable)
 		lines = nil
 	}
 	final := indexWithLines(healed, lines)
-	b.put(NativeIndexFile, []byte(final), index)
+	b.put(bank.NativeIndexFile, []byte(final), index)
 	for _, name := range todo {
 		b.del(filepath.Join(nativeArchiveRel, name), archived[name])
 	}
@@ -680,7 +661,7 @@ func SplitNativeIndex(dir string, keepLines int) (int, error) {
 // the generated bank region are neither pointers nor candidates and are rewritten byte-for-byte; a malformed
 // region refuses the split. Pointers move even when native prose alone busts the loader limit — that is reported.
 func splitNativeIndexLocked(dir string, keepLines int) (int, error) {
-	indexPath := filepath.Join(dir, NativeIndexFile)
+	indexPath := filepath.Join(dir, bank.NativeIndexFile)
 	raw, err := os.ReadFile(indexPath)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -688,11 +669,11 @@ func splitNativeIndexLocked(dir string, keepLines int) (int, error) {
 		}
 		return 0, err
 	}
-	if err := checkBankRegion(string(raw)); err != nil {
-		return 0, fmt.Errorf("%s: %w", NativeIndexFile, err)
+	if err := bank.CheckBankRegion(string(raw)); err != nil {
+		return 0, fmt.Errorf("%s: %w", bank.NativeIndexFile, err)
 	}
 	lines := strings.Split(string(raw), "\n")
-	region, _ := bankRegionLines(string(raw)) // same scan checkBankRegion just passed
+	region, _ := bank.BankRegionLines(string(raw)) // same scan checkBankRegion just passed
 	var pinnedCount int
 	var unpinnedIdx []int
 	for i, line := range lines {
@@ -707,7 +688,7 @@ func splitNativeIndexLocked(dir string, keepLines int) (int, error) {
 	}
 	budget := max(keepLines-pinnedCount, 0)
 	if len(unpinnedIdx) <= budget {
-		return 0, checkNativeIndexLimits(string(raw))
+		return 0, bank.CheckNativeIndexLimits(string(raw))
 	}
 	drop := unpinnedIdx[:len(unpinnedIdx)-budget] // oldest unpinned pointer lines, file order preserved
 	dropSet := map[int]bool{}
@@ -724,14 +705,14 @@ func splitNativeIndexLocked(dir string, keepLines int) (int, error) {
 	}
 	// One batch, SEARCHABLE.md first: a crash between the two leaves a duplicated pointer, never a lost one.
 	b := newNativeBatch(dir)
-	searchable, _ := os.ReadFile(filepath.Join(dir, NativeSearchableFile))
-	b.put(NativeSearchableFile, []byte(indexWithLines(string(searchable), overflow)), searchable)
+	searchable, _ := os.ReadFile(filepath.Join(dir, bank.NativeSearchableFile))
+	b.put(bank.NativeSearchableFile, []byte(indexWithLines(string(searchable), overflow)), searchable)
 	trimmed := strings.Join(kept, "\n")
-	b.put(NativeIndexFile, []byte(trimmed), raw)
-	if _, err := b.commit(fmt.Sprintf("split index: %d pointer(s) to %s", len(overflow), NativeSearchableFile)); err != nil {
+	b.put(bank.NativeIndexFile, []byte(trimmed), raw)
+	if _, err := b.commit(fmt.Sprintf("split index: %d pointer(s) to %s", len(overflow), bank.NativeSearchableFile)); err != nil {
 		return 0, err
 	}
-	if err := checkNativeIndexLimits(trimmed); err != nil {
+	if err := bank.CheckNativeIndexLimits(trimmed); err != nil {
 		return len(overflow), fmt.Errorf("moved %d pointer line(s), but the native prose that stays still busts the limit — %w", len(overflow), err)
 	}
 	return len(overflow), nil
@@ -806,25 +787,4 @@ func without(names []string, drop string) []string {
 		}
 	}
 	return out
-}
-
-// topicFrontmatter splits a topic file into its name, description and body; false without a closed block and a name.
-// The closing fence must start its own line (markdown.StripFrontMatter), so a name/description value that merely
-// contains the literal bytes "---" can't be mistaken for it.
-func topicFrontmatter(raw string) (name, desc, body string, ok bool) {
-	prefix, content := markdown.StripFrontMatter([]byte(raw))
-	if prefix == nil {
-		return "", "", "", false // an absent or unclosed block is body text, not frontmatter
-	}
-	for line := range strings.SplitSeq(string(prefix), "\n") {
-		if v, found := strings.CutPrefix(line, "name:"); found {
-			name = strings.Trim(strings.TrimSpace(v), `"'`)
-		} else if v, found := strings.CutPrefix(line, "description:"); found {
-			desc = strings.Trim(strings.TrimSpace(v), `"'`)
-		}
-	}
-	if name == "" {
-		return "", "", "", false
-	}
-	return name, desc, strings.TrimSpace(string(content)), true
 }

@@ -3,6 +3,7 @@ package memory
 import (
 	"bufio"
 	"fmt"
+	"github.com/edotau/claude-code/internal/memory/bank"
 	"os"
 	"path/filepath"
 	"strings"
@@ -230,13 +231,13 @@ func ReturnCounts(dirs []string, now time.Time) map[string]int {
 }
 
 // LogHits logs access for matching search hits grouped by each hit's owning bank directory.
-func LogHits(root string, hits []SearchHit, reason string, now time.Time) {
+func LogHits(root string, hits []bank.SearchHit, reason string, now time.Time) {
 	if len(hits) == 0 {
 		return
 	}
 	grouped := map[string][]string{}
 	for _, h := range hits {
-		key := EntryFromHit(h).ID
+		key := bank.EntryFromHit(h).ID
 		if key == "" {
 			continue
 		}

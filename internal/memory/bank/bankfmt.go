@@ -1,4 +1,4 @@
-package memory
+package bank
 
 // Wraps long lines in the bank markdown the harness writes (never index.md, never MEMORY.md): the six
 // typed files, archive/*.md, handoffs/*.md and reports/*.md, across every repo store and home/.
@@ -63,7 +63,7 @@ func dirFmtTargets(dir string) []string {
 }
 
 // FormatBank wraps every target file; check=true writes nothing and only reports. changed lists what
-// would (or did) change; commitStore settles the result the same way `memory index` does.
+// would (or did) change; CommitStore settles the result the same way `memory index` does.
 func FormatBank(check bool) (changed []string, err error) {
 	files, err := BankFmtTargets()
 	if err != nil {
@@ -74,7 +74,7 @@ func FormatBank(check bool) (changed []string, err error) {
 		return changed, err
 	}
 	if !check && len(changed) > 0 {
-		if err := commitStore("fmt: wrap bank lines"); err != nil {
+		if err := CommitStore("fmt: wrap bank lines"); err != nil {
 			return changed, err
 		}
 	}

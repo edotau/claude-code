@@ -1,4 +1,4 @@
-package memory
+package bank
 
 import (
 	"os"
@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-// splitHeadingBlocks edge cases: a "## " line fenced in ``` is never a heading boundary; a ~~~ line
+// SplitHeadingBlocks edge cases: a "## " line fenced in ``` is never a heading boundary; a ~~~ line
 // nested inside an open ``` fence closes it early (today's hand-rolled fenceToggle shares one bit across
 // both fence chars — this pins that quirk; true nested-fence tracking would be a named correctness fix);
 // an unclosed fence runs to EOF; CRLF line endings keep their "\r"; a missing trailing newline still
@@ -59,7 +59,7 @@ func TestSplitHeadingBlocksEdgeCases(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			header, blocks := splitHeadingBlocks(tt.in)
+			header, blocks := SplitHeadingBlocks(tt.in)
 			if header != tt.wantHeader {
 				t.Errorf("header = %q, want %q", header, tt.wantHeader)
 			}
@@ -70,13 +70,13 @@ func TestSplitHeadingBlocksEdgeCases(t *testing.T) {
 	}
 }
 
-// rejoin(splitOn(x)) == x for a well-formed, trailing-newline-terminated file (fences included).
+// Rejoin(splitOn(x)) == x for a well-formed, trailing-newline-terminated file (fences included).
 func TestRejoinSplitHeadingBlocksRoundTrip(t *testing.T) {
 	t.Parallel()
 	in := "header\n\n## real\nbody\n```\n## fake\n```\nmore\n\n## real2\nbody2\n"
-	header, blocks := splitHeadingBlocks(in)
-	if got := rejoin(header, blocks); got != in {
-		t.Errorf("rejoin(splitHeadingBlocks(x)) = %q, want %q", got, in)
+	header, blocks := SplitHeadingBlocks(in)
+	if got := Rejoin(header, blocks); got != in {
+		t.Errorf("rejoin(SplitHeadingBlocks(x)) = %q, want %q", got, in)
 	}
 }
 
@@ -117,7 +117,7 @@ func TestAppendBlocksPreservesBytes(t *testing.T) {
 			if tt.create {
 				write(t, path, tt.existing)
 			}
-			if err := appendBlocks(path, tt.blocks); err != nil {
+			if err := AppendBlocks(path, tt.blocks); err != nil {
 				t.Fatal(err)
 			}
 			got, err := os.ReadFile(path)

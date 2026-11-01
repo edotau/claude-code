@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/memory"
+	"github.com/edotau/claude-code/internal/memory/bank"
 )
 
 // reflectionRepoRoot resolves this repo's toplevel from internal/cli's own working directory.
@@ -20,7 +20,7 @@ func reflectionRepoRoot(t *testing.T) string {
 	return filepath.Join(wd, "..", "..")
 }
 
-// TestGoReferenceCallsResolveToEmbeddedPrompts: every verb Go's memory.Reference(verb) is actually
+// TestGoReferenceCallsResolveToEmbeddedPrompts: every verb Go's bank.Reference(verb) is actually
 // called with (grepped from internal/memory source, not hardcoded) resolves to a non-empty
 // embedded prompt — commands/reflection and skills/reflection/references are gone, so this is the
 // drift check that used to compare against on-disk files.
@@ -46,10 +46,10 @@ func TestGoReferenceCallsResolveToEmbeddedPrompts(t *testing.T) {
 		}
 	}
 	if len(seen) == 0 {
-		t.Fatal("no memory.Reference(\"<verb>\") calls found in internal/memory — regex drifted or the API moved")
+		t.Fatal("no bank.Reference(\"<verb>\") calls found in internal/memory — regex drifted or the API moved")
 	}
 	for verb := range seen {
-		got, err := memory.Reference(verb)
+		got, err := bank.Reference(verb)
 		if err != nil {
 			t.Errorf("Reference(%q) is called from Go but errors: %v", verb, err)
 			continue

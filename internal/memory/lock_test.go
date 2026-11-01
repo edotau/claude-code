@@ -3,6 +3,7 @@
 package memory
 
 import (
+	"github.com/edotau/claude-code/internal/memory/bank"
 	"os"
 	"path/filepath"
 	"strings"
@@ -75,7 +76,7 @@ func TestSettleBankLockLivesUnderStateNotStore(t *testing.T) {
 	cfg := tempConfig(t)
 	root := repoRoot(t, "proj")
 	dir := memstore.Dir(root)
-	if _, err := SettleBank(root, time.Now()); err != nil {
+	if _, err := bank.SettleBank(root, time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	want := memstore.BankLockPath()

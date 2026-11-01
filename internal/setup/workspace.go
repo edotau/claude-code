@@ -12,6 +12,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/audit"
 	"github.com/edotau/claude-code/internal/memory"
+	"github.com/edotau/claude-code/internal/memory/bank"
 	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/paths"
 )
@@ -199,7 +200,7 @@ func workspaceHasIgnore(path string) (bool, error) {
 // workspaceMemoryAction seeds root's memory bank (~/.claude/memory/<repo>), or reports it kept.
 func workspaceMemoryAction(root string) workspaceAction {
 	dir := memstore.Dir(root)
-	if _, err := os.Stat(filepath.Join(dir, memory.BankFiles()[0])); err == nil {
+	if _, err := os.Stat(filepath.Join(dir, bank.BankFiles()[0])); err == nil {
 		return workspaceAction{verb: "keep", path: dir}
 	}
 	return workspaceAction{verb: "create", path: dir, apply: func() error {
@@ -273,7 +274,7 @@ func WorkspaceStatus(root string, out io.Writer) error {
 		}
 	}
 	fmt.Fprintf(out, "settings  %s\n", workspacePresent(filepath.Join(dot, "settings.json")))
-	fmt.Fprintf(out, "memory    %s  %s\n", workspacePresent(filepath.Join(memstore.Dir(root), memory.BankFiles()[0])), memstore.Dir(root))
+	fmt.Fprintf(out, "memory    %s  %s\n", workspacePresent(filepath.Join(memstore.Dir(root), bank.BankFiles()[0])), memstore.Dir(root))
 	has, err := workspaceHasIgnore(filepath.Join(root, ".gitignore"))
 	if err != nil {
 		return err

@@ -1,4 +1,4 @@
-package memory
+package bank
 
 import (
 	"encoding/json"
@@ -39,7 +39,7 @@ func commitLocked(t *testing.T, subject string, changes []Change) (Receipt, erro
 	var rec Receipt
 	err := memstore.WithBankLock(memstore.BankLockWait, func() error {
 		var err error
-		rec, err = commitChangesLocked(subject, changes)
+		rec, err = CommitChangesLocked(subject, changes)
 		return err
 	})
 	return rec, err
@@ -204,7 +204,7 @@ func TestCommitChangesLockedRecoversAfterCommitFailure(t *testing.T) {
 	var rec Receipt
 	err := memstore.WithBankLock(memstore.BankLockWait, func() error {
 		var err error
-		rec, err = commitChangesLocked("batch", []Change{{Rel: "r/x.md", Data: []byte("x\n"), Checked: true}})
+		rec, err = CommitChangesLocked("batch", []Change{{Rel: "r/x.md", Data: []byte("x\n"), Checked: true}})
 		return err
 	})
 	if err == nil || errors.Is(err, ErrDivergent) {
@@ -234,7 +234,7 @@ func TestCommitChangesLockedRecoversAfterCommitFailure(t *testing.T) {
 	// The next batch recovers the old journal as its own commit, without a duplicate receipt.
 	err = memstore.WithBankLock(memstore.BankLockWait, func() error {
 		var err error
-		rec, err = commitChangesLocked("next", []Change{{Rel: "r/y.md", Data: []byte("y\n")}})
+		rec, err = CommitChangesLocked("next", []Change{{Rel: "r/y.md", Data: []byte("y\n")}})
 		return err
 	})
 	if err != nil {
@@ -268,7 +268,7 @@ func TestCommitChangesLockedRecoversAfterCommitFailure(t *testing.T) {
 func TestApplyRechecksLiveBytesBeforeWrite(t *testing.T) {
 	store, _ := storeFixture(t)
 	if err := memstore.WithBankLock(memstore.BankLockWait, func() error {
-		_, err := commitChangesLocked("seed", []Change{{Rel: "r/a.md", Data: []byte("v1\n")}})
+		_, err := CommitChangesLocked("seed", []Change{{Rel: "r/a.md", Data: []byte("v1\n")}})
 		return err
 	}); err != nil {
 		t.Fatal(err)

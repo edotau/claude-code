@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/memory"
+	"github.com/edotau/claude-code/internal/memory/bank"
 	"github.com/edotau/claude-code/internal/memstore"
 )
 
@@ -41,7 +41,7 @@ func aliasFixture(t *testing.T) (a, b, ka, kb string) {
 	if err := os.WriteFile(j, []byte(`{"phase":"complete","manifest":"/m/done.json"}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := memory.StoreRepo().Ensure(); err != nil {
+	if err := bank.StoreRepo().Ensure(); err != nil {
 		t.Fatal(err)
 	}
 	parent, _ := filepath.EvalSymlinks(t.TempDir())

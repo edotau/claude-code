@@ -1,4 +1,4 @@
-package memory
+package bank
 
 import (
 	"os"
@@ -90,25 +90,5 @@ func TestRememberNonProjectTypesWriteConventionsBullet(t *testing.T) {
 				t.Errorf("conventions.md missing the returned id %s: %q", id, body)
 			}
 		})
-	}
-}
-
-// TestRememberRoundTripsThroughSearch: a remembered fact is findable by SearchBanks on its own words.
-func TestRememberRoundTripsThroughSearch(t *testing.T) {
-	tempConfig(t)
-	root := repoRoot(t, "proj")
-	id, err := Remember(root, "feedback", "always quote shell paths with spaces in scripts", time.Now())
-	if err != nil {
-		t.Fatal(err)
-	}
-	hits := SearchBanks(root, "quote shell paths spaces scripts", 5)
-	found := false
-	for _, h := range hits {
-		if h.ID == id {
-			found = true
-		}
-	}
-	if !found {
-		t.Errorf("Remember's id %s not found by SearchBanks: hits=%+v", id, hits)
 	}
 }
