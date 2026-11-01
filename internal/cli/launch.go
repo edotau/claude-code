@@ -402,13 +402,7 @@ func cmdDoctor(args []string) int {
 
 // refreshServed re-lists every pinned Databricks profile's endpoints into the served-models cache.
 func refreshServed() {
-	reg, err := providers.Load()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "doctor --refresh: %v\n", err)
-		return
-	}
-	ps := preflight.Check(reg, time.Now())
-	for _, err := range preflight.RefreshStale(context.Background(), reg, ps, time.Now(), true) {
+	for _, err := range preflight.RefreshPinned(context.Background()) {
 		fmt.Fprintf(os.Stderr, "doctor --refresh: %v\n", err)
 	}
 }

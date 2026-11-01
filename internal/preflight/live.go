@@ -195,6 +195,16 @@ func Warm(w io.Writer, reg *providers.Registry, now time.Time) {
 	printFixRows(w, Check(reg, now))
 }
 
+// RefreshPinned force re-lists every pinned Databricks profile's endpoints; a registry load failure is the only error.
+func RefreshPinned(ctx context.Context) []error {
+	reg, err := providers.Load()
+	if err != nil {
+		return []error{err}
+	}
+	now := time.Now()
+	return RefreshStale(ctx, reg, Check(reg, now), now, true)
+}
+
 // printFixRows prints one line per pin that is not OK, with its fix or detail.
 func printFixRows(w io.Writer, ps []Pin) {
 	for _, p := range notOK(ps) {

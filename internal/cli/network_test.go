@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/proxy"
 )
 
 func TestNetworkBareAndHelpPrintUsageExitZero(t *testing.T) {
@@ -112,10 +113,10 @@ func isolateRouterState(t *testing.T) {
 	}
 }
 
-func decodeRestart(t *testing.T, out string) restartRow {
+func decodeRestart(t *testing.T, out string) proxy.RestartRow {
 	t.Helper()
 	var doc struct {
-		Daemons []restartRow `json:"daemons"`
+		Daemons []proxy.RestartRow `json:"daemons"`
 	}
 	if err := json.Unmarshal([]byte(out), &doc); err != nil || len(doc.Daemons) != 1 {
 		t.Fatalf("json = %q (%v)", out, err)

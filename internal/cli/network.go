@@ -136,15 +136,6 @@ var restartPage = helptext.Page{
 		"open sessions alone do not block a restart.",
 }
 
-// restartRow is one daemon's outcome in `restart`.
-type restartRow struct {
-	Daemon string `json:"daemon"`
-	Status string `json:"status"` // restarted | would restart | skipped | failed
-	OldPID int    `json:"old_pid,omitempty"`
-	NewPID int    `json:"new_pid,omitempty"`
-	Note   string `json:"note,omitempty"`
-}
-
 func cmdRestart(args []string) int {
 	fs := helptext.NewFlagSet("network restart", restartPage)
 	dry := fs.Bool("dry-run", false, "report what would restart; change nothing")
@@ -158,9 +149,9 @@ func cmdRestart(args []string) int {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
-	row := restartRouter(ctx, *dry, *force)
+	row := proxy.RestartReport(ctx, *dry, *force)
 	if *format == helptext.JSON {
-		if err := helptext.WriteJSON(os.Stdout, map[string]any{"daemons": []restartRow{row}}); err != nil {
+		if err := helptext.WriteJSON(os.Stdout, map[string]any{"daemons": []proxy.RestartRow{row}}); err != nil {
 			return fail("restart: %v", err)
 		}
 	} else {
@@ -172,37 +163,7 @@ func cmdRestart(args []string) int {
 	return 0
 }
 
-func restartRouter(ctx context.Context, dry, force bool) restartRow {
-	row := restartRow{Daemon: "proxy"}
-	st, ok := proxy.Running(ctx)
-	if !ok {
-		row.Status, row.Note = "skipped", "not running"
-		return row
-	}
-	if !force {
-		if n := proxy.Inflight(ctx, st.Port); n > 0 {
-			row.Status, row.OldPID = "skipped", st.PID
-			row.Note = fmt.Sprintf("requests in flight: %d; --force restarts anyway", n)
-			return row
-		}
-	}
-	if dry {
-		row.Status, row.OldPID = "would restart", st.PID
-		return row
-	}
-	old, cur, restarted, err := proxy.Restart(ctx)
-	switch {
-	case err != nil:
-		row.Status, row.OldPID, row.Note = "failed", old.PID, err.Error()
-	case !restarted:
-		row.Status, row.Note = "skipped", "not running"
-	default:
-		row.Status, row.OldPID, row.NewPID = "restarted", old.PID, cur.PID
-	}
-	return row
-}
-
-func printRestartRow(r restartRow) {
+func printRestartRow(r proxy.RestartRow) {
 	switch r.Status {
 	case "restarted":
 		fmt.Printf("%-8s restarted  pid %d → %d\n", r.Daemon, r.OldPID, r.NewPID)
