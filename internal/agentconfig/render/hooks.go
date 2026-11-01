@@ -6,7 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"os"
+
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // RenderHooksFile writes body to path, merging it over whatever is already there when merge is
@@ -99,4 +102,34 @@ func MergeHookEvents[T any](existing, rendered map[string][]T, classify func(T) 
 		}
 	}
 	return merged
+}
+
+// MergeHooksTop merges body's "hooks" over existingRaw's per classify; next is the existing top level, updated.
+func MergeHooksTop(existingRaw, body []byte, classify func(json.RawMessage) (*json.RawMessage, bool)) (next, renderedTop map[string]json.RawMessage, err error) {
+	existingTop, err := DecodeRawObject(existingRaw)
+	if err != nil {
+		return nil, nil, fmt.Errorf("existing file: %w", err)
+	}
+	renderedTop, err = DecodeRawObject(body)
+	if err != nil {
+		return nil, nil, err
+	}
+	existingHooks, err := DecodeRawEvents(existingTop["hooks"])
+	if err != nil {
+		return nil, nil, fmt.Errorf("existing file: %w", err)
+	}
+	renderedHooks, err := DecodeRawEvents(renderedTop["hooks"])
+	if err != nil {
+		return nil, nil, err
+	}
+	hooksRaw, err := textutil.MarshalNoEscape(MergeHookEvents(existingHooks, renderedHooks, classify))
+	if err != nil {
+		return nil, nil, err
+	}
+	next = maps.Clone(existingTop)
+	if next == nil {
+		next = map[string]json.RawMessage{}
+	}
+	next["hooks"] = hooksRaw
+	return next, renderedTop, nil
 }
