@@ -3,7 +3,6 @@
 package memory
 
 import (
-	"github.com/edotau/claude-code/internal/memory/bank"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/memory/bank"
 	"github.com/edotau/claude-code/internal/memstore"
 )
 

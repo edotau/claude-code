@@ -3,7 +3,6 @@ package memory
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"github.com/edotau/claude-code/internal/memory/bank"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -12,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/memory/bank"
 	"github.com/edotau/claude-code/internal/memstore"
 )
 
@@ -298,5 +298,22 @@ func TestAliasSecondRunAfterOriginOnlyIsError(t *testing.T) {
 	}
 	if _, err := alias(t, e, false); err == nil {
 		t.Errorf("repeat origin-only alias: expected error, got nil")
+	}
+}
+
+// TestAliasFoldDeletesSourceVaultRow: AddOriginAlias-style folding (FoldOrigin's drop path) must
+// delete the source store's own vault row in the same transaction that gives the target the alias —
+// never leave a stale row behind for a dir that no longer exists.
+func TestAliasFoldDeletesSourceVaultRow(t *testing.T) {
+	e := newAliasEnv(t)
+	if _, err := alias(t, e, false); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := vaultGet(t, e.kb); ok {
+		t.Errorf("source key %q still has a vault row after folding into %q", e.kb, e.ka)
+	}
+	got, err := memstore.ReadOrigin(e.da)
+	if err != nil || !got.Accepts(e.b) {
+		t.Errorf("target row missing the folded alias: %+v, %v", got, err)
 	}
 }
