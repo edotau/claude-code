@@ -6,7 +6,7 @@ import (
 )
 
 // ApplyProfile sets profile as the Profile of each agent whose record differs, in one vault update that leaves every
-// other field alone, then clears the changed agents' last-used profile. It returns the agents it changed.
+// other field alone, then clears all targeted agents' last-used profiles. It returns the agents whose records changed.
 func ApplyProfile(agents []string, profile string) (changed []string, err error) {
 	err = agentpkg.UpdateAgentRecords(func(m map[string]agentpkg.AgentRecord) {
 		changed = nil
@@ -21,5 +21,5 @@ func ApplyProfile(agents []string, profile string) (changed []string, err error)
 	if err != nil {
 		return nil, err
 	}
-	return changed, agentpkg.ClearLastProfilesFor(changed...)
+	return changed, agentpkg.ClearLastProfilesFor(agents...)
 }
