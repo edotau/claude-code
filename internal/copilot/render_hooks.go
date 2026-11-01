@@ -2,8 +2,6 @@ package copilot
 
 import (
 	"encoding/json"
-	"fmt"
-	"maps"
 	"slices"
 	"strings"
 
@@ -68,24 +66,7 @@ func copilotMatcher(m string) string {
 // {"version", "hooks"} shape: each entry is either kept whole, byte-identical (foreign) or dropped whole
 // (harness-owned, by its "bash" command prefix); every other top-level key survives untouched.
 func mergeCopilotHooks(existingRaw, body []byte) ([]byte, error) {
-	existingTop, err := render.DecodeRawObject(existingRaw)
-	if err != nil {
-		return nil, fmt.Errorf("existing file: %w", err)
-	}
-	renderedTop, err := render.DecodeRawObject(body)
-	if err != nil {
-		return nil, err
-	}
-	existingHooks, err := render.DecodeRawEvents(existingTop["hooks"])
-	if err != nil {
-		return nil, fmt.Errorf("existing file: %w", err)
-	}
-	renderedHooks, err := render.DecodeRawEvents(renderedTop["hooks"])
-	if err != nil {
-		return nil, err
-	}
-	merged := render.MergeHookEvents(existingHooks, renderedHooks, classifyCopilotEntry)
-	hooksRaw, err := textutil.MarshalNoEscape(merged)
+	next, renderedTop, err := render.MergeHooksTop(existingRaw, body, classifyCopilotEntry)
 	if err != nil {
 		return nil, err
 	}
@@ -98,11 +79,6 @@ func mergeCopilotHooks(existingRaw, body []byte) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	next := maps.Clone(existingTop)
-	if next == nil {
-		next = map[string]json.RawMessage{}
-	}
-	next["hooks"] = hooksRaw
 	next["version"] = versionRaw
 	return textutil.MarshalIndentNoEscape(next)
 }
