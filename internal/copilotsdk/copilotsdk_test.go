@@ -264,9 +264,11 @@ func TestReadOnlyToolsApproveOnlyReads(t *testing.T) {
 func TestReadOnlyGitShell(t *testing.T) {
 	h := BuildSessionConfig(Options{AllowAllTools: true, ReadOnlyTools: true}).OnPermissionRequest
 	for cmd, want := range map[string]bool{
-		"git status": true, "git log -3 --oneline": true, "git diff HEAD~1 -- internal/x.go": true,
-		"git show --stat HEAD": true, "git blame -L 1,5 f.go": true, "git rev-parse HEAD": true,
-		"git branch --list": true, "git log --format=%h": true,
+		"git status": true, "git log --no-ext-diff --no-textconv -3 --oneline": true,
+		"git diff --no-ext-diff --no-textconv HEAD~1 -- internal/x.go": true,
+		"git show --no-ext-diff --no-textconv --stat HEAD":             true, "git blame --no-textconv -L 1,5 f.go": true,
+		"git rev-parse HEAD": true, "git branch --list": true, "git log --no-ext-diff --no-textconv --format=%h": true,
+		"git log -3 --oneline": false, "git diff HEAD~1": false, "git blame f.go": false, "git status -v": false,
 		"git status; rm -rf x": false, "git diff ~root": false, "git log > f": false, "git -c core.pager=sh log": false,
 		"git log --output=x": false, "git log --out=x": false, "git commit": false, "git branch -D x": false,
 		"git branch new": false, "git log && rm x": false, "git log | sh": false, "git log `id`": false,
