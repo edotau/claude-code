@@ -26,8 +26,8 @@ hides `.git`/`.venv` (`not a git repository`, mass `ModuleNotFoundError`): scope
 
 ## Leaf types
 
-A leaf either does the work itself or requests one vendor through `claude-code ask --agent <x>` (a `coworker` leaf
-always requests). Pass the task alone as `description`: the `dispatch-effort` hook prefixes the vendors the brief's
+A leaf either does the work itself on your pin or requests another agent or account you are signed in to, through
+`claude-code ask --agent <x> [--profile <p>]` (a `coworker` leaf always requests). Pass the task alone as `description`: the `dispatch-effort` hook prefixes the vendors the brief's
 `Agent:` line names (minus the leaf's own type; `a → b` relay, `a, b` for `Mode: compare`) plus `·<profile>`, and
 `code-worker` with none reads `claude`. Rows: `code-worker  claude: <task>`, `copilot  gemini: scanning repo`,
 `coworker  claude·dev: <task>`. Never type the vendor name yourself.
@@ -40,7 +40,9 @@ as `code-worker` (`model: sonnet`).
 
 At most 2 live leaves while other sessions share the checkout; otherwise the account cap in
 `rules/harness/hooks.md` → dispatch cap (test agents count). Independent work goes out in one message; sequential only
-when one output feeds the next or they share state, or on sustained provider errors (`claude-code doctor`).
+when one output feeds the next or they share state, or on sustained provider errors (`claude-code doctor`). Each
+leaf replays its context and tool schemas, so a wide fan-out of deep-context leaves spends a provider's
+tokens-per-minute quota (Databricks: `429 REQUEST_LIMIT_EXCEEDED`); batch those, fresh leaves are cheap.
 
 ## Handoff contract
 

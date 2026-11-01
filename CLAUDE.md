@@ -61,10 +61,13 @@ workflow and gate:
    into checks and loop until they pass: `rules/standards/principles.md`.
 2. **Propose look/behavior changes before applying them.** Name an unrequested side effect with
    numbers, prefer the narrowly scoped mechanism over a global knob, and let the user pick.
-3. **Parallel by default; keep the main thread free.** Plan and brief, then dispatch `code-worker` ‖ `copilot`
-   in one message in the background (`copilot` only when the change needs a test agent); inline only for a
-   one-line edit; never re-steer a running agent. A leaf does the work or requests one agent via `Agent:` →
-   `skills/subagent-workflows/SKILL.md` → Leaf types; many leaves → one lane orchestrator per lane.
+3. **Dispatch, then verify what comes back.** Anything bigger than a one-line edit goes to a leaf whose brief names
+   the files it owns: `code-worker` runs on your pin, `coworker` on another agent or account you are signed in to
+   (`Agent:`, `Profile:`). Non-trivial work starts with `Explore` legs; an unrelated mid-task request goes to a
+   background leaf. Run leaves in parallel only on disjoint files, at most 2 at once while other sessions share the
+   checkout, and check every leaf's claims (diff, gate, deletions) before committing. Pipeline:
+   `rules/workflows/master-workflow.md`; shapes, briefs, test agent and recovery:
+   `skills/subagent-workflows/SKILL.md`.
 4. **Tag notable moments** in replies, one per line: `DECISION:` (what, rejected alt, why) · `BUG:` · `NEXT:` ·
    `NOTE:` — the memory update files them.
 
