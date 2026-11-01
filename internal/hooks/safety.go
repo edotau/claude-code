@@ -165,7 +165,7 @@ func safetyAskVerdict(in *Input) (Decision, string, string) {
 	}
 	if attributionFooterBlocked(cmd) {
 		what := "AI-attribution footer in a commit message (CLAUDE.md hard rule 3)"
-		hint := "Drop the Co-Authored-By / Generated-with lines; the committer identity covers it."
+		hint := "Rerun this commit without the Co-Authored-By / Generated-with lines; that needs no approval."
 		return Ask, safetyMessage(in, Ask, what, "", hint), "attribution footer"
 	}
 	if sqlDestructive().MatchString(strings.ToLower(inertStripped(cmd))) {
