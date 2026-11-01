@@ -8,6 +8,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -89,15 +90,13 @@ func claudeKeychainToken(ctx context.Context) string {
 	return ""
 }
 
-// claudeCredentialsPath is the file fallback: CLAUDE_CONFIG_DIR/.credentials.json, else ~/.claude/.credentials.json.
+// claudeCredentialsPath is the file fallback: CLAUDE_CONFIG_DIR/.credentials.json, else the harness config dir.
 func claudeCredentialsPath() (string, error) {
 	dir := os.Getenv("CLAUDE_CONFIG_DIR")
 	if dir == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return "", err
+		if dir = paths.ConfigDir(); dir == "" {
+			return "", errors.New("no home directory")
 		}
-		dir = filepath.Join(home, ".claude")
 	}
 	return filepath.Join(dir, ".credentials.json"), nil
 }

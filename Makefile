@@ -108,7 +108,7 @@ INTO ?= $(HOME)/.claude
 adopt:  ## Stage clone: adopt INTO (~/.claude), then bootstrap
 	@if [ -e "$(INTO)/.git" ]; then echo "$(INTO) is already a checkout"; exit 0; fi; \
 	$(MAKE) go-toolchain compile && \
-	$(BIN) install --setup adopt --from "$(CURDIR)" --into "$(INTO)" $(ADOPT_ARGS) && \
+	CLAUDE_CONFIG_DIR="$(INTO)" $(BIN) install --setup adopt --from "$(CURDIR)" --into "$(INTO)" $(ADOPT_ARGS) && \
 	$(if $(findstring --dry-run,$(ADOPT_ARGS)),true,$(MAKE) -C "$(INTO)" bootstrap)
 
 .PHONY: tailscale-cli
@@ -137,14 +137,15 @@ go-toolchain:  ## Install go.mod's Go to ~/.local/go if missing
 
 .PHONY: setup-env
 setup-env:  ## Print the PATH line (APPLY=1 writes shell rc)
-	@line='export PATH="$$HOME/.claude/bin:$$HOME/.local/bin:$$HOME/.local/go/bin:$$HOME/go/bin:$$PATH"'; \
+	@d="$(CURDIR)"; [ "$$d" = "$$HOME/.claude" ] && d='$$HOME/.claude'; \
+	line="export PATH=\"$$d/bin:\$$HOME/.local/bin:\$$HOME/.local/go/bin:\$$HOME/go/bin:\$$PATH\""; \
 	echo "$$line"; \
 	if [ -n "$(APPLY)" ]; then \
 		rc="$$HOME/.bashrc"; case "$${SHELL:-}" in */zsh) rc="$$HOME/.zshrc";; esac; \
 		if grep -qxF "$$line" "$$rc" 2>/dev/null; then \
 			echo -e "$(C_NOTE)already present in $$rc"; \
 		else \
-			printf '\n# claude-code: ~/.claude/bin, ~/.local/bin, ~/.local/go/bin, ~/go/bin on PATH\n%s\n' "$$line" >> "$$rc"; \
+			printf '\n# claude-code: %s/bin, ~/.local/bin, ~/.local/go/bin, ~/go/bin on PATH\n%s\n' "$$d" "$$line" >> "$$rc"; \
 			echo -e "$(C_OK)appended to $$rc"; \
 		fi; \
 	fi
