@@ -541,7 +541,7 @@ func TestReasoningFamilyBody(t *testing.T) {
 }
 
 // BenchmarkStream drives StreamChat over a real NVIDIA (OpenAI-compatible) chat-completions SSE
-// capture (internal/translate/testdata/stream_openai.sse): text deltas, tool-call deltas, [DONE].
+// capture (internal/proxy/translate/testdata/stream_openai.sse): text deltas, tool-call deltas, [DONE].
 func BenchmarkStream(b *testing.B) {
 	raw, err := os.ReadFile("testdata/stream_openai.sse")
 	if err != nil {

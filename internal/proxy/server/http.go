@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/translate"
+	"github.com/edotau/claude-code/internal/proxy/translate"
 )
 
 // idleTimeout cuts a wedged upstream stream; a var so tests need not wait 10 minutes.

@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/proxy/translate"
 	"github.com/edotau/claude-code/internal/tokenledger"
-	"github.com/edotau/claude-code/internal/translate"
 )
 
 // dbxGeminiSetup is a Databricks serving row whose derived gemini route lands on a recording upstream.

@@ -17,7 +17,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/translate"
+	"github.com/edotau/claude-code/internal/proxy/translate"
 )
 
 // noForward are inbound credentials and transport headers; egress auth is re-added by send.
