@@ -15,7 +15,7 @@ func TestRosterMatchesSpecs(t *testing.T) {
 	for _, s := range Roster() {
 		names = append(names, s.Name)
 	}
-	if !slices.Equal(names, []string{"claude", "codex", "gemini", "opencode", "copilot"}) {
+	if !slices.Equal(names, []string{"claude", "codex", "copilot", "gemini", "opencode"}) {
 		t.Fatalf("roster order = %v", names)
 	}
 	for _, r := range Engines() {

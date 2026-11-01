@@ -13,10 +13,10 @@ import (
 
 // The vendor drivers register their roster rows from their own init, and importing them here would cycle through hooks.
 func init() {
-	agent.RegisterRow(0, agent.Schema{Name: "claude"})
-	agent.RegisterRow(1, agent.Schema{Name: "codex", CLI: agent.CLI{Binary: "codex"}})
-	agent.RegisterRow(3, agent.Schema{Name: "opencode", CLI: agent.CLI{Binary: "opencode", OwnLoginProfile: "zen-free"}})
-	agent.RegisterRow(4, agent.Schema{Name: "copilot", CLI: agent.CLI{Binary: "copilot"}})
+	agent.RegisterRowForTest(agent.Schema{Name: "claude"})
+	agent.RegisterRowForTest(agent.Schema{Name: "codex", CLI: agent.CLI{Binary: "codex"}})
+	agent.RegisterRowForTest(agent.Schema{Name: "opencode", CLI: agent.CLI{Binary: "opencode", OwnLoginProfile: "zen-free"}})
+	agent.RegisterRowForTest(agent.Schema{Name: "copilot", CLI: agent.CLI{Binary: "copilot"}})
 }
 
 // hermeticVault gives the test its own empty vault and no session profile, so no pin from another test leaks in.

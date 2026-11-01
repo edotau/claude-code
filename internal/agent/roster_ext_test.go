@@ -13,8 +13,8 @@ import (
 )
 
 func TestRoster(t *testing.T) {
-	if got := agent.Names(); !slices.Equal(got, []string{"codex", "gemini", "opencode", "copilot"}) {
-		t.Errorf("external roster = %v, want [codex gemini opencode copilot]", got)
+	if got := agent.Names(); !slices.Equal(got, []string{"codex", "copilot", "gemini", "opencode"}) {
+		t.Errorf("external roster = %v, want [codex copilot gemini opencode]", got)
 	}
 }
 

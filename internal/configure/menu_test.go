@@ -56,7 +56,7 @@ func TestMenuRowsOrderNoSeparateProviderRow(t *testing.T) {
 	for _, r := range rows {
 		labels = append(labels, r[0])
 	}
-	want := []string{"claude", "codex", "antigravity", "opencode", "copilot"}
+	want := []string{"claude", "codex", "copilot", "antigravity", "opencode"}
 	if strings.Join(labels, ",") != strings.Join(want, ",") {
 		t.Fatalf("menu rows = %v, want %v", labels, want)
 	}

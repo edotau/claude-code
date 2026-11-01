@@ -29,8 +29,5 @@ type Launcher interface {
 
 var defaultLauncher Launcher
 
-// RegisterLauncher sets the Launcher a Client and the bridge use by default; the claude package registers its own.
-func RegisterLauncher(l Launcher) { defaultLauncher = l }
-
 // DefaultLauncher is the registered default Launcher.
 func DefaultLauncher() Launcher { return defaultLauncher }

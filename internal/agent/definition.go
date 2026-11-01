@@ -134,7 +134,7 @@ func buildAgents(wire map[string]agentsDef) (map[string]*Schema, error) {
 	return agents, nil
 }
 
-// rosterNames lists the roster agents' names, claude first.
+// rosterNames lists the roster agents' names in roster order.
 func rosterNames() []string {
 	var names []string
 	for _, s := range Roster() {

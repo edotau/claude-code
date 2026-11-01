@@ -221,11 +221,8 @@ func (p Plan) plainEnv(base []string) []string {
 	return out
 }
 
-// envRedactors blank the secrets inside a structured env value (key -> redactor), registered by the agent owning the key.
+// envRedactors blank the secrets inside a structured env value (key -> redactor), filled by Register from the agent owning the key.
 var envRedactors = map[string]func(string) string{}
-
-// RegisterEnvRedactor installs fn as the redactor of the launch env value under key.
-func RegisterEnvRedactor(key string, fn func(string) string) { envRedactors[key] = fn }
 
 // Print writes the resolved launch; header values are masked since static headers may carry secrets.
 func (p Plan) Print(w io.Writer) {
