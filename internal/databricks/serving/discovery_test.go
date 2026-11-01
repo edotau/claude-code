@@ -1,4 +1,4 @@
-package agent
+package serving
 
 import (
 	"bytes"
@@ -75,9 +75,9 @@ func discoveryEnv(t *testing.T) (*providers.Provider, *discoveryFake) {
 		Auth: providers.Auth{Type: providers.AuthKey, Env: "DISCOVERY_TEST_TOKEN"}}, f
 }
 
-func discoverForTest(t *testing.T, p *providers.Provider, refresh bool) ServingDiscovery {
+func discoverForTest(t *testing.T, p *providers.Provider, refresh bool) Snapshot {
 	t.Helper()
-	s, err := DiscoverServingModels(context.Background(), p, refresh)
+	s, err := Discover(context.Background(), p, refresh)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,7 +93,7 @@ func TestServingDiscoveryAuthenticatedHitAndRefresh(t *testing.T) {
 	if _, found, err := vault.ReadSecret(servingDiscoveryKey(s.Scope)); err != nil || found {
 		t.Fatalf("discovery alone persisted cache: found=%v err=%v", found, err)
 	}
-	if err := SaveServingDiscovery(p, s); err != nil {
+	if err := Save(p, s); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("DISCOVERY_TEST_TOKEN", "rotated-synthetic-token")
@@ -110,7 +110,7 @@ func TestServingDiscoveryAuthenticatedHitAndRefresh(t *testing.T) {
 		t.Fatal(err)
 	}
 	f.listCode.Store(503)
-	if _, err := DiscoverServingModels(context.Background(), p, true); err == nil || strings.Contains(err.Error(), "encrypted-sentinel") {
+	if _, err := Discover(context.Background(), p, true); err == nil || strings.Contains(err.Error(), "encrypted-sentinel") {
 		t.Fatalf("failed refresh must fail without leaking body: %v", err)
 	}
 	after, _, err := vault.ReadSecret(servingDiscoveryKey(s.Scope))
@@ -122,7 +122,7 @@ func TestServingDiscoveryAuthenticatedHitAndRefresh(t *testing.T) {
 func TestServingDiscoveryRejectsInvalidIdentityDespiteCache(t *testing.T) {
 	p, f := discoveryEnv(t)
 	s := discoverForTest(t, p, false)
-	if err := SaveServingDiscovery(p, s); err != nil {
+	if err := Save(p, s); err != nil {
 		t.Fatal(err)
 	}
 	for _, tc := range []struct {
@@ -139,7 +139,7 @@ func TestServingDiscoveryRejectsInvalidIdentityDespiteCache(t *testing.T) {
 			f.status.Store(tc.code)
 			f.identity.Store(tc.body)
 			before := f.me.Load()
-			_, err := DiscoverServingModels(context.Background(), p, false)
+			_, err := Discover(context.Background(), p, false)
 			if err == nil || f.me.Load() != before+1 || f.list.Load() != 1 {
 				t.Fatalf("invalid identity accepted or listed: err=%v Me=%d listing=%d", err, f.me.Load(), f.list.Load())
 			}
@@ -160,7 +160,7 @@ func TestServingDiscoveryRejectsInvalidIdentityDespiteCache(t *testing.T) {
 func TestServingDiscoveryScopeIsolation(t *testing.T) {
 	p, f := discoveryEnv(t)
 	s := discoverForTest(t, p, false)
-	if err := SaveServingDiscovery(p, s); err != nil {
+	if err := Save(p, s); err != nil {
 		t.Fatal(err)
 	}
 	for _, tc := range []struct {
@@ -177,7 +177,7 @@ func TestServingDiscoveryScopeIsolation(t *testing.T) {
 			if got := discoverForTest(t, &other, false); got.CacheHit || f.list.Load() != before+1 {
 				t.Fatal("changed scope reused another cache")
 			}
-			if err := SaveServingDiscovery(&other, s); err == nil {
+			if err := Save(&other, s); err == nil {
 				t.Fatal("accepted snapshot belonging to another scope")
 			}
 		})
@@ -194,18 +194,18 @@ func TestServingDiscoveryScopeIsolation(t *testing.T) {
 	// Scope construction must distinguish hosts without making a request to another workspace.
 	other := *p
 	other.Host = "https://other-workspace.invalid"
-	if err := SaveServingDiscovery(&other, s); err == nil {
+	if err := Save(&other, s); err == nil {
 		t.Fatal("accepted snapshot belonging to another host")
 	}
 	other = *p
 	other.Options.Wire = providers.WireAIGateway
 	before := f.me.Load()
-	if _, err := DiscoverServingModels(context.Background(), &other, false); err == nil || f.me.Load() != before {
+	if _, err := Discover(context.Background(), &other, false); err == nil || f.me.Load() != before {
 		t.Fatal("gateway must be rejected before HTTP/cache access")
 	}
 	other = *p
 	other.Preset = ""
-	if _, err := DiscoverServingModels(context.Background(), &other, false); err == nil || f.me.Load() != before {
+	if _, err := Discover(context.Background(), &other, false); err == nil || f.me.Load() != before {
 		t.Fatal("non-Databricks profile must be rejected before HTTP/cache access")
 	}
 }
@@ -219,7 +219,7 @@ func TestServingDiscoverySealsAndSanitizesSnapshot(t *testing.T) {
 		{ID: "accepted", Status: "ok", HTTP: 200, Tools: "yes"},
 		{ID: "drop", Status: "raw-status-body"},
 	}
-	if err := SaveServingDiscovery(p, s); err != nil {
+	if err := Save(p, s); err != nil {
 		t.Fatal(err)
 	}
 	name := servingDiscoveryKey(s.Scope)
@@ -239,7 +239,7 @@ func TestServingDiscoverySealsAndSanitizesSnapshot(t *testing.T) {
 	if err != nil || !found {
 		t.Fatalf("ReadSecret: found=%v err=%v", found, err)
 	}
-	var saved ServingDiscovery
+	var saved Snapshot
 	if err := json.Unmarshal([]byte(raw), &saved); err != nil {
 		t.Fatal(err)
 	}
@@ -276,7 +276,7 @@ func TestServingDiscoveryResolvedRoutesSeparateHistoricalChecks(t *testing.T) {
 	s := discoverForTest(t, p, false)
 	s.CheckedAt = time.Now().UTC()
 	s.Checks = []CheckResult{{ID: "encrypted-sentinel", Status: "fail", HTTP: 400}}
-	if err := SaveServingDiscovery(p, s); err != nil {
+	if err := Save(p, s); err != nil {
 		t.Fatal(err)
 	}
 	for _, dialect := range []string{providers.ProtocolAnthropic, providers.ProtocolOpenAI, providers.ProtocolResponses} {
@@ -302,7 +302,7 @@ func TestServingDiscoveryRefreshCannotBypassUnreadableVault(t *testing.T) {
 			p, f := discoveryEnv(t)
 			ring := vaulttest.Keyring(t)
 			s := discoverForTest(t, p, false)
-			if err := SaveServingDiscovery(p, s); err != nil {
+			if err := Save(p, s); err != nil {
 				t.Fatal(err)
 			}
 			key := servingDiscoveryKey(s.Scope)
@@ -331,7 +331,7 @@ func TestServingDiscoveryRefreshCannotBypassUnreadableVault(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if _, err := DiscoverServingModels(context.Background(), p, true); err == nil || f.me.Load() != 2 || f.list.Load() != 1 {
+			if _, err := Discover(context.Background(), p, true); err == nil || f.me.Load() != 2 || f.list.Load() != 1 {
 				t.Fatalf("refresh bypassed unreadable vault: err=%v Me=%d listing=%d", err, f.me.Load(), f.list.Load())
 			}
 			after, err := os.ReadFile(vault.Path())

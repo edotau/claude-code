@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/databricks/serving"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -224,7 +225,7 @@ func TestOpencodeCheckExplicitIDsAndAll(t *testing.T) {
 }
 
 func TestOpencodeCheckSortOrder(t *testing.T) {
-	rs := []agent.CheckResult{
+	rs := []serving.CheckResult{
 		{ID: "kimi-k3", Status: "ok", LatencyMS: 5}, {ID: "glm-5-2", Status: "fail", LatencyMS: 1},
 		{ID: "glm-5-3", Status: "ok", LatencyMS: 900}, {ID: "glm-5-1", Status: "ok", LatencyMS: 100},
 		{ID: "claude-x", Status: "ok", LatencyMS: 50},
@@ -315,7 +316,7 @@ func TestOpencodeListLiveCheckColumn(t *testing.T) {
 	}
 	// a cache for another provider must not show
 	if err := agent.SaveCheckCache(agent.CheckCache{Provider: "other",
-		Results: []agent.CheckResult{{ID: "glm-5-2", Status: "ok", Tools: "yes"}}}); err != nil {
+		Results: []serving.CheckResult{{ID: "glm-5-2", Status: "ok", Tools: "yes"}}}); err != nil {
 		t.Fatal(err)
 	}
 	if c := listJSON()["glm-5-2"]; c != "-" {

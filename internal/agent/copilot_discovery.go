@@ -8,6 +8,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/edotau/claude-code/internal/databricks/serving"
 	"github.com/edotau/claude-code/internal/providers"
 )
 
@@ -39,7 +40,7 @@ func copilotModelInfos(ctx context.Context, reg *providers.Registry, p *provider
 		return infos, false, err
 	}
 	fmt.Fprintf(os.Stderr, "copilot: %s live listing failed, using the %s-old snapshot: %s\n", p.Name,
-		time.Since(old.DiscoveredAt).Round(time.Minute), truncateMsg([]byte(err.Error())))
+		time.Since(old.DiscoveredAt).Round(time.Minute), serving.TruncateMsg([]byte(err.Error())))
 	return old.Models, true, nil
 }
 
@@ -68,7 +69,7 @@ func copilotSelect(ctx context.Context, reg *providers.Registry, p, routed *prov
 	}
 	fresh, listErr := copilotRelist(ctx, reg, p)
 	if listErr != nil {
-		fmt.Fprintf(os.Stderr, "copilot: %s relist failed: %s\n", p.Name, truncateMsg([]byte(listErr.Error())))
+		fmt.Fprintf(os.Stderr, "copilot: %s relist failed: %s\n", p.Name, serving.TruncateMsg([]byte(listErr.Error())))
 		return r, "", err
 	}
 	r = copilotBuildRegistry(p.Name, routed, fresh, base)
@@ -77,36 +78,36 @@ func copilotSelect(ctx context.Context, reg *providers.Registry, p, routed *prov
 }
 
 // copilotRefresh lists live and seals, keeping old's Checks; a failed seal only costs the next launch a listing.
-func copilotRefresh(ctx context.Context, reg *providers.Registry, p *providers.Provider, scope ServingDiscoveryScope,
-	old ServingDiscovery,
+func copilotRefresh(ctx context.Context, reg *providers.Registry, p *providers.Provider, scope serving.Scope,
+	old serving.Snapshot,
 ) ([]providers.ModelInfo, error) {
 	infos, err := providers.ListModels(ctx, reg, p)
 	if err != nil {
 		return nil, err
 	}
-	snapshot := ServingDiscovery{Schema: 1, Scope: scope, DiscoveredAt: time.Now().UTC(), Models: infos,
+	snapshot := serving.Snapshot{Schema: 1, Scope: scope, DiscoveredAt: time.Now().UTC(), Models: infos,
 		CheckedAt: old.CheckedAt, Checks: old.Checks}
-	if err := SaveServingDiscovery(p, snapshot); err != nil {
+	if err := serving.Save(p, snapshot); err != nil {
 		fmt.Fprintf(os.Stderr, "copilot: %s discovery snapshot not saved: %v\n", p.Name, err)
 	}
 	return infos, nil
 }
 
 // copilotSnapshot validates the subject, then reads its snapshot; found is false when it holds no chat endpoint.
-func copilotSnapshot(ctx context.Context, p *providers.Provider) (ServingDiscoveryScope, ServingDiscovery, bool, error) {
+func copilotSnapshot(ctx context.Context, p *providers.Provider) (serving.Scope, serving.Snapshot, bool, error) {
 	idCtx, cancel := halfRemaining(ctx)
 	defer cancel()
-	subject, err := ValidateDatabricksIdentity(idCtx, p)
+	subject, err := serving.ValidateIdentity(idCtx, p)
 	if err != nil {
-		return ServingDiscoveryScope{}, ServingDiscovery{}, false, err
+		return serving.Scope{}, serving.Snapshot{}, false, err
 	}
-	scope, err := servingDiscoveryScope(p, subject)
+	scope, err := serving.NewScope(p, subject)
 	if err != nil {
-		return ServingDiscoveryScope{}, ServingDiscovery{}, false, err
+		return serving.Scope{}, serving.Snapshot{}, false, err
 	}
-	old, found, err := readServingDiscovery(scope, true) // true: an invalid payload reads as a miss, so a seal replaces it
+	old, found, err := serving.Read(scope, true) // true: an invalid payload reads as a miss, so a seal replaces it
 	if err != nil {
-		return ServingDiscoveryScope{}, ServingDiscovery{}, false, err
+		return serving.Scope{}, serving.Snapshot{}, false, err
 	}
 	return scope, old, found && len(copilotServingChatRows(old.Models, nil)) > 0, nil
 }

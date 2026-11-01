@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/databricks/serving"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
 )
@@ -57,15 +58,15 @@ func ServedInfo(served map[string]providers.ModelInfo, p *providers.Provider, id
 }
 
 // OpencodeCheckTargets resolves the probe set: explicit ids, every served chat endpoint, or the menu.
-func OpencodeCheckTargets(ids []string, all bool, served map[string]providers.ModelInfo, p *providers.Provider) []CheckTarget {
-	var out []CheckTarget
+func OpencodeCheckTargets(ids []string, all bool, served map[string]providers.ModelInfo, p *providers.Provider) []serving.CheckTarget {
+	var out []serving.CheckTarget
 	if all {
 		for name, info := range served {
 			if info.Task != "llm/v1/chat" {
 				continue
 			}
 			id := MenuID(name)
-			out = append(out, CheckTarget{ID: id, Wire: name, Responses: providers.ResponsesID(id)})
+			out = append(out, serving.CheckTarget{ID: id, Wire: name, Responses: providers.ResponsesID(id)})
 		}
 		return out
 	}
@@ -76,7 +77,7 @@ func OpencodeCheckTargets(ids []string, all bool, served map[string]providers.Mo
 	}
 	for _, raw := range ids {
 		id := MenuID(raw)
-		t := CheckTarget{ID: id, Responses: providers.ResponsesID(id)}
+		t := serving.CheckTarget{ID: id, Responses: providers.ResponsesID(id)}
 		if _, ok := served[p.ModelPrefix+id]; ok {
 			t.Wire = p.ModelPrefix + id
 		} else if _, ok := served[id]; ok {
@@ -90,12 +91,12 @@ func OpencodeCheckTargets(ids []string, all bool, served map[string]providers.Mo
 }
 
 // OpencodeSyncModels resolves the profile; discovery validates identity before reading the sealed cache.
-func OpencodeSyncModels(profile string, refresh bool) (*providers.Provider, ServingDiscovery, error) {
+func OpencodeSyncModels(profile string, refresh bool) (*providers.Provider, serving.Snapshot, error) {
 	_, p, err := opencodeProvider(profile)
 	if err != nil {
-		return nil, ServingDiscovery{}, errors.New("cannot resolve profile; check the provider configuration")
+		return nil, serving.Snapshot{}, errors.New("cannot resolve profile; check the provider configuration")
 	}
-	snapshot, err := DiscoverServingModels(context.Background(), p, refresh)
+	snapshot, err := serving.Discover(context.Background(), p, refresh)
 	return p, snapshot, err
 }
 
@@ -116,7 +117,7 @@ func OpencodeSyncIDs(infos []providers.ModelInfo) []string {
 	return slices.Compact(ids)
 }
 
-func OpencodeSyncMerge(menu []providers.OpencodeModel, ids []string, checks []CheckResult) ([]providers.OpencodeModel, int) {
+func OpencodeSyncMerge(menu []providers.OpencodeModel, ids []string, checks []serving.CheckResult) ([]providers.OpencodeModel, int) {
 	failed := make(map[string]bool)
 	for _, c := range checks {
 		failed[c.ID] = c.Status == "fail" || c.Status == "missing"
@@ -136,27 +137,27 @@ func OpencodeSyncMerge(menu []providers.OpencodeModel, ids []string, checks []Ch
 	return next, skipped
 }
 
-func OpencodeSyncVerify(p *providers.Provider, snapshot *ServingDiscovery, ids []string, menu []providers.OpencodeModel) error {
+func OpencodeSyncVerify(p *providers.Provider, snapshot *serving.Snapshot, ids []string, menu []providers.OpencodeModel) error {
 	responses := make(map[string]bool, len(menu))
 	for _, m := range menu {
 		responses[m.ID] = m.Responses
 	}
-	targets := make([]CheckTarget, 0, len(ids))
+	targets := make([]serving.CheckTarget, 0, len(ids))
 	for _, id := range ids {
 		r, exists := responses[id]
 		if !exists {
 			r = models.ResponsesOnly(id)
 		}
-		targets = append(targets, CheckTarget{ID: id, Wire: models.Wire("databricks-serving", id), Responses: r})
+		targets = append(targets, serving.CheckTarget{ID: id, Wire: models.Wire("databricks-serving", id), Responses: r})
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
-	checks, err := ProbeEndpoints(ctx, p, targets,
-		CheckOptions{ClientRoutes: true, Concurrency: 4, Timeout: 30 * time.Second})
+	checks, err := serving.Probe(ctx, p, targets,
+		serving.CheckOptions{ClientRoutes: true, Concurrency: 4, Timeout: 30 * time.Second})
 	if err != nil {
 		return errors.New("serving verification did not complete; no discovery/menu writes")
 	}
-	snapshot.Checks = SanitizeServingChecks(checks)
+	snapshot.Checks = serving.SanitizeChecks(checks)
 	snapshot.CheckedAt = time.Now().UTC()
 	return nil
 }
