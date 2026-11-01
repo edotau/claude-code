@@ -116,3 +116,55 @@ func TestLoginShorthandT(t *testing.T) {
 		t.Fatalf("stderr %q, want -t m2m refused like --auth-type m2m", stderr)
 	}
 }
+
+func seedOAuthRow(t *testing.T) {
+	t.Helper()
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	err := providers.SetProviderFields("dbx-oauth", map[string]any{
+		"protocol": "anthropic", "preset": "databricks", "host": "https://example.cloud.databricks.com",
+		"auth": map[string]any{"type": "oauth"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func stubValid(t *testing.T, ok bool) {
+	t.Helper()
+	old := validU2M
+	validU2M = func(context.Context, *providers.Provider) (time.Duration, bool) { return 40 * time.Minute, ok }
+	t.Cleanup(func() { validU2M = old })
+}
+
+func TestLoginReusesValidCachedToken(t *testing.T) {
+	seedOAuthRow(t)
+	stubValid(t, true)
+	calls := 0
+	fakeLogin(t, func(*providers.Provider) (time.Duration, error) { calls++; return time.Minute, nil })
+	code, stdout, stderr := captureOutput(t, func() int { return login([]string{"--profile", "dbx-oauth"}) })
+	if code != 0 || calls != 0 || !strings.Contains(stdout, "already logged in · expires in 40m") {
+		t.Fatalf("exit %d calls %d stdout %q stderr %q", code, calls, stdout, stderr)
+	}
+}
+
+func TestLoginExpiredTokenOpensLogin(t *testing.T) {
+	seedOAuthRow(t)
+	stubValid(t, false)
+	calls := 0
+	fakeLogin(t, func(*providers.Provider) (time.Duration, error) { calls++; return 30 * time.Minute, nil })
+	code, stdout, _ := captureOutput(t, func() int { return login([]string{"--profile", "dbx-oauth"}) })
+	if code != 0 || calls != 1 || !strings.Contains(stdout, "logged in · token expires in 30m") {
+		t.Fatalf("exit %d calls %d stdout %q", code, calls, stdout)
+	}
+}
+
+func TestLoginForceSkipsReuse(t *testing.T) {
+	seedOAuthRow(t)
+	stubValid(t, true)
+	calls := 0
+	fakeLogin(t, func(*providers.Provider) (time.Duration, error) { calls++; return 30 * time.Minute, nil })
+	code, stdout, _ := captureOutput(t, func() int { return login([]string{"--profile", "dbx-oauth", "--force"}) })
+	if code != 0 || calls != 1 || strings.Contains(stdout, "already") {
+		t.Fatalf("exit %d calls %d stdout %q", code, calls, stdout)
+	}
+}

@@ -21,6 +21,9 @@ import (
 // loginU2M is the browser login, a var so tests never open a browser.
 var loginU2M = providers.LoginU2M
 
+// validU2M is the cached-login check, a var so tests need no sealed token.
+var validU2M = providers.ValidU2M
+
 // fail prints one error line for the verb and returns exit code 1.
 func fail(format string, a ...any) int {
 	fmt.Fprintf(os.Stderr, "claude-code databricks "+format+"\n", a...)
@@ -37,6 +40,7 @@ var loginPage = helptext.Page{
 func login(args []string) int {
 	fs := helptext.NewFlagSet("databricks login", loginPage)
 	dryRun := fs.Bool("dry-run", false, "report what would happen; open no browser, write nothing")
+	force := fs.Bool("force", false, "log in again even when the cached token is still valid")
 	authType := fs.String("auth-type", "", "auth type to switch the profile to: oauth, m2m or pat (needed to change a non-oauth profile)")
 	fs.StringVar(authType, "t", "", "shorthand for --auth-type")
 	profileName := profileFlag(fs)
@@ -70,7 +74,14 @@ func login(args []string) int {
 	if t := p.Auth.Method(); t != "" && t != providers.AuthOAuth && !explicit {
 		return fail("login: %s has auth type %q; pass --auth-type oauth to switch it to a browser login", p.Name, t)
 	}
+	reuse := !*force && p.Auth.Method() == providers.AuthOAuth
 	if *dryRun {
+		if reuse {
+			if exp, ok := providers.TokenExpiry(p.Name); ok && time.Until(exp) > 0 {
+				fmt.Printf("would reuse the cached token for %s; no browser\n", p.Name)
+				return 0
+			}
+		}
 		if p.Auth.Method() != providers.AuthOAuth {
 			if err := switchAuthType(p, providers.AuthOAuth, true); err != nil {
 				return fail("login: %v", err)
@@ -84,6 +95,12 @@ func login(args []string) int {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Minute)
 	defer cancel()
+	if reuse {
+		if left, ok := validU2M(ctx, p); ok {
+			fmt.Printf("already logged in · expires in %dm\n", int(left.Minutes()))
+			return 0
+		}
+	}
 	if err := LoginRow(ctx, p.Name, os.Stdout); err != nil {
 		return fail("login: %v", err)
 	}
