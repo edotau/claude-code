@@ -306,6 +306,9 @@ func applyProvider(d *dialog, name string) bool {
 		return false
 	}
 	d.printf("profile pinned: %s\n", name)
+	if d.o.Interactive && isStdinTTY() {
+		offerModels(d, name)
+	}
 	return true
 }
 
@@ -600,7 +603,7 @@ func resolveKey(d *dialog, kt keyTarget) bool {
 		if kt.envVar != "" {
 			title = kt.label + " — no " + kt.envVar + "; how do you want to set it?"
 		}
-		idx, err := tui.PickBack(title, rows, 0)
+		idx, err := d.shell().Pick(title, rows)
 		if err == nil {
 			if idx < 0 || idx >= len(opts) {
 				return false

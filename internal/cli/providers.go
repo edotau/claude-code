@@ -297,7 +297,7 @@ func applyModelPins(reg *providers.Registry, provider string, unpin, dryRun bool
 		} else if !slices.Contains(models.AliasNames, alias) {
 			return fail("unknown alias %q (opus|sonnet|haiku|fable|all)", alias), true
 		}
-		set[alias] = qualifyPinSpec(reg, provider, spec)
+		set[alias] = configure.QualifyPinSpec(reg, provider, spec)
 	}
 	warn, err := validateCopilotPins(provider, pins)
 	if err != nil {
@@ -336,24 +336,6 @@ func withClaudeModels(r agent.AgentRecord, set map[string]string) agent.AgentRec
 		}
 	}
 	return r
-}
-
-// qualifyPinSpec stores a cross-profile "profile:model" pin when --profile names a profile other than the
-// session's own, so the pin later resolves against the profile it was validated for. Qualified specs pass through.
-func qualifyPinSpec(reg *providers.Registry, providerFlag, spec string) string {
-	if providerFlag == "" {
-		return spec
-	}
-	if name, model, ok := strings.Cut(spec, ":"); ok {
-		if _, found := reg.Providers[name]; found && model != "" {
-			return spec
-		}
-	}
-	session := cmp.Or(providers.SessionProfile(), providers.AgentRecord("claude").Profile, reg.Default)
-	if providerFlag == session {
-		return spec
-	}
-	return providerFlag + ":" + spec
 }
 
 func renderModelSelection(reg *providers.Registry, sel providers.Selection, format string, live bool) int {

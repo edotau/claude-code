@@ -172,5 +172,12 @@ func allLoginRow(d *dialog, s AllRowStatus) AllRowStatus {
 	if cur == nil {
 		return s
 	}
-	return allCheckOne(ctx, namedProvider(s.Row, cur))
+	st := allCheckOne(ctx, namedProvider(s.Row, cur))
+	if st.Status == allOK {
+		fmt.Fprintf(os.Stderr, "%s: pick models now? [Y/n] ", s.Row)
+		if yes(d.br) {
+			offerModels(d, s.Row)
+		}
+	}
+	return st
 }

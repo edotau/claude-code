@@ -1,51 +1,66 @@
-// models_menu.go — the `configure models` / "Models" row menu: one row per alias showing its current
-// pin and use case, plus Unpin all; picking an alias opens the provider's live catalog and pins the choice.
+// models_menu.go — model discovery + selection: one row per alias (current pin, use case), picking one lists the
+// profile's served models and pins the choice; reached from `configure models` and the profile/login flow.
 package configure
 
 import (
+	"cmp"
 	"context"
-	"fmt"
 	"strings"
 	"time"
 
 	agentpkg "github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/ui/tui"
+	uidialog "github.com/edotau/claude-code/internal/ui/dialog"
 )
 
-// pickModels is the models menu's picker seam; tests replace it.
-var pickModels = tui.PickTable // the model table under one alias
+// catalogFn is the discovery seam over catalogForAlias; tests stub the served-model listing.
+var catalogFn = catalogForAlias
 
-// pickAliases is the alias menu seam; tests replace it.
-var pickAliases = tui.PickBack
-
-// modelsMenu loops the alias list + Unpin all until Back/Esc; each action re-resolves the selection
-// before the next render, so a pin that just changed shows up immediately.
+// modelsMenu is the session profile's alias page (aliases + Unpin all) until Back/Esc.
 func modelsMenu(d *dialog) bool {
-	start := 0
-	for {
-		sel, err := providers.Select(d.reg, "")
-		if err != nil {
-			d.println(err)
-			return false
-		}
-		rows := make([][2]string, 0, len(models.AliasNames)+1)
-		for _, s := range models.AliasNames {
-			rows = append(rows, [2]string{s, aliasRowDetail(sel, s)})
-		}
-		rows = append(rows, [2]string{"Unpin all", "clear every model pin"})
-		idx, err := pickAliases("models — pick a model alias to change, or Back to leave", rows, start)
-		if err != nil || idx < 0 {
-			return true
-		}
-		start = idx
-		if idx == len(models.AliasNames) {
-			unpinAllModels(d)
-			continue
-		}
-		pickModelForAlias(d, sel, models.AliasNames[idx])
+	sel, err := providers.Select(d.reg, "")
+	if err != nil {
+		d.println(err)
+		return false
 	}
+	modelsPage(d, sel, true)
+	return true
+}
+
+// offerModels is the profile/login flow's discovery step: the profile's served models, picked per alias.
+func offerModels(d *dialog, profile string) {
+	sel, err := providers.Select(d.reg, profile)
+	if err != nil {
+		d.println(err)
+		return
+	}
+	modelsPage(d, sel, false)
+}
+
+// modelsPage loops the alias rows (plus Unpin all when withUnpin); each pass re-resolves the selection so a
+// fresh pin shows at once.
+func modelsPage(d *dialog, sel providers.Selection, withUnpin bool) {
+	profile := sel.Provider.Name
+	d.shell().Run("models ("+profile+") — pick an alias, or Back to leave", func() []uidialog.Row {
+		if cur, err := providers.Select(d.reg, profile); err == nil {
+			sel = cur
+		}
+		var rows []uidialog.Row
+		for _, s := range models.AliasNames {
+			rows = append(rows, uidialog.Row{Name: s, Detail: aliasRowDetail(sel, s), Run: func() bool {
+				pickModelForAlias(d, sel, s)
+				return false
+			}})
+		}
+		if withUnpin {
+			rows = append(rows, uidialog.Row{Name: "Unpin all", Detail: "clear every model pin", Run: func() bool {
+				unpinAllModels(d)
+				return false
+			}})
+		}
+		return rows
+	})
 }
 
 // aliasRowDetail is one alias row's detail: its resolved wire model and that alias's use case (the alias
@@ -55,13 +70,27 @@ func aliasRowDetail(sel providers.Selection, alias string) string {
 	return id + " · " + models.UseCase(id, alias)
 }
 
-// pickModelForAlias lists the provider's live catalog (providers.ListModels; FallbackModels covers the
-// providers whose live listing is known to fail), with a header row naming the columns, and pins the
-// chosen id exactly like `claude-code models --pin <alias>=<id>`.
+// modelRowDetail is a catalog row's one-line detail: name, use case, capabilities, cut to fit 80 columns.
+func modelRowDetail(m providers.ModelInfo) string {
+	var parts []string
+	for _, p := range []string{m.Name, m.UseCase, m.Capabilities} {
+		if p != "" {
+			parts = append(parts, p)
+		}
+	}
+	r := []rune(strings.Join(parts, " · "))
+	if len(r) > 52 {
+		r = append(r[:51], '…')
+	}
+	return string(r)
+}
+
+// pickModelForAlias lists the profile's served models (providers.ListModels; FallbackModels covers the
+// providers whose live listing is known to fail) and pins the choice like `claude-code models --pin <alias>=<id>`.
 func pickModelForAlias(d *dialog, sel providers.Selection, alias string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	infos, note := catalogForAlias(ctx, d.reg, sel.Provider, alias)
+	infos, note := catalogFn(ctx, d.reg, sel.Provider, alias)
 	if len(infos) == 0 {
 		d.printf("%s: %s\n", alias, note)
 		return
@@ -69,23 +98,15 @@ func pickModelForAlias(d *dialog, sel providers.Selection, alias string) {
 	if note != "" {
 		d.println(note)
 	}
-	nameW, useW := 0, 0
-	for _, m := range infos {
-		nameW, useW = max(nameW, len(m.Name)), max(useW, len(m.UseCase))
-	}
-	row := func(name, use, caps string) string {
-		return strings.TrimRight(fmt.Sprintf("%-*s  %-*s  %s", nameW, name, useW, use, caps), " ")
-	}
-	nameW, useW = max(nameW, len("Model")), max(useW, len("Use case"))
-	pickRows := make([][2]string, len(infos))
+	rows := make([][2]string, len(infos))
 	for i, m := range infos {
-		pickRows[i] = [2]string{m.ID, row(m.Name, m.UseCase, m.Capabilities)}
+		rows[i] = [2]string{m.ID, modelRowDetail(m)}
 	}
-	idx, err := pickModels(alias+" — pick a model to pin", [2]string{"ID", row("Model", "Use case", "Capabilities")}, pickRows, 0)
+	idx, err := d.shell().Pick(alias+" — pick a model to pin", rows)
 	if err != nil || idx < 0 {
 		return
 	}
-	pinModel(d, alias, infos[idx].ID)
+	pinModel(d, sel.Provider.Name, alias, infos[idx].ID)
 }
 
 // catalogForAlias is alias's pickable catalog: the provider's live models, or — when that listing fails
@@ -102,16 +123,36 @@ func catalogForAlias(ctx context.Context, reg *providers.Registry, p *providers.
 	return infos, note
 }
 
-// pinModel writes alias's pin, same call cmdModels' --pin flag makes.
-func pinModel(d *dialog, alias, id string) {
-	if _, err := writeAgentField(d, "claude", strings.ToUpper(alias)+"_MODEL", id); err != nil {
+// pinModel writes alias's audited pin, qualified to profile when it is not the session's own (as --pin does).
+func pinModel(d *dialog, profile, alias, id string) {
+	spec := QualifyPinSpec(d.reg, profile, id)
+	if _, err := writeAgentField(d, "claude", strings.ToUpper(alias)+"_MODEL", spec); err != nil {
 		d.println(err)
 		return
 	}
-	d.printf("%-7s pinned %s\n", alias, id)
+	providers.AuditModelPin(alias, spec)
+	d.printf("%-7s pinned %s\n", alias, spec)
 }
 
-// unpinAllModels clears every model pin, same call cmdModels' --unpin flag makes.
+// QualifyPinSpec stores a cross-profile "profile:model" pin when providerFlag names a profile other than the
+// session's own, so the pin later resolves against the profile it was validated for. Qualified specs pass through.
+func QualifyPinSpec(reg *providers.Registry, providerFlag, spec string) string {
+	if providerFlag == "" {
+		return spec
+	}
+	if name, model, ok := strings.Cut(spec, ":"); ok {
+		if _, found := reg.Providers[name]; found && model != "" {
+			return spec
+		}
+	}
+	session := cmp.Or(providers.SessionProfile(), providers.AgentRecord("claude").Profile, reg.Default)
+	if providerFlag == session {
+		return spec
+	}
+	return providerFlag + ":" + spec
+}
+
+// unpinAllModels clears every model pin, same call cmdModels' --unpin flag makes, and audits each.
 func unpinAllModels(d *dialog) {
 	err := agentpkg.UpdateAgentRecords(func(m map[string]agentpkg.AgentRecord) {
 		r := m["claude"]
@@ -121,6 +162,10 @@ func unpinAllModels(d *dialog) {
 	if err != nil {
 		d.println(err)
 		return
+	}
+	providers.AuditModelPin("", "")
+	for _, s := range models.AliasNames {
+		providers.AuditModelPin(s, "")
 	}
 	d.println("every model pin cleared")
 }

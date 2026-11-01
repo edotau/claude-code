@@ -1,11 +1,15 @@
 package configure
 
 import (
+	"bufio"
+	"context"
+	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	agentpkg "github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/models"
+	"github.com/edotau/claude-code/internal/audit"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -31,62 +35,45 @@ func subscriptionSelection(t *testing.T) (*providers.Registry, providers.Selecti
 	return reg, sel
 }
 
-// TestPickModelForSlotHeaderNeverAppearsInRows: pickModelForAlias's header argument names the columns;
-// it must never also appear as a pickable row.
-func TestPickModelForSlotHeaderNeverAppearsInRows(t *testing.T) {
-	reg, sel := subscriptionSelection(t)
-	origPick, origSlots := pickModels, pickAliases
-	t.Cleanup(func() { pickModels, pickAliases = origPick, origSlots })
-	var gotHeader [2]string
-	var gotRows [][2]string
-	pickModels = func(title string, header [2]string, rows [][2]string, start int) (int, error) {
-		gotHeader, gotRows = header, rows
-		return -1, nil
+// stubCatalogFn swaps catalogFn for a fixed served-model list.
+func stubCatalogFn(t *testing.T, infos []providers.ModelInfo) {
+	t.Helper()
+	orig := catalogFn
+	t.Cleanup(func() { catalogFn = orig })
+	catalogFn = func(context.Context, *providers.Registry, *providers.Provider, string) ([]providers.ModelInfo, string) {
+		return infos, ""
 	}
-	alias := models.AliasNames[0]
-	pickModelForAlias(&dialog{reg: reg, out: discardWriter{}}, sel, alias)
-	if gotHeader[0] != "ID" {
-		t.Fatalf("header = %v, want the ID/Model/Use case/Capabilities header", gotHeader)
-	}
-	for _, r := range gotRows {
-		if r == gotHeader {
-			t.Fatalf("header row %v leaked into the pickable rows %v", gotHeader, gotRows)
+}
+
+// TestOfferModelsPinsServedModelAudited: after a profile is chosen, its served models are listed per alias and the
+// pick lands as the claude alias pin (unqualified for the session profile, "profile:id" for another).
+func TestOfferModelsPinsServedModelAudited(t *testing.T) {
+	reg, _ := subscriptionSelection(t)
+	stubCatalogFn(t, []providers.ModelInfo{{ID: "m-one", Name: "One"}, {ID: "m-two", Name: "Two", UseCase: "chat"}})
+	other := ""
+	for _, n := range reg.Names() {
+		if n != "max" {
+			other = n
+			break
 		}
 	}
-	if len(gotRows) == 0 {
-		t.Fatal("rows empty: subscription's registry-models fallback should have produced at least one row")
+	offer := func(profile, answers string) {
+		in := strings.NewReader(answers) // alias 1 (opus) → model 2 → blank leaves the page
+		d := &dialog{reg: reg, o: Options{In: in}, br: bufio.NewReader(in), out: discardWriter{}}
+		offerModels(d, profile)
 	}
-}
-
-// TestPickModelForSlotPicksFirstPinsIt: idx 0 from the picker pins rows[0]'s id — no -1 offset, since
-// the header is no longer a pickable row (tui.PickTable strips it before the index reaches here).
-func TestPickModelForSlotPicksFirstPinsIt(t *testing.T) {
-	reg, sel := subscriptionSelection(t)
-	origPick, origSlots := pickModels, pickAliases
-	t.Cleanup(func() { pickModels, pickAliases = origPick, origSlots })
-	alias := models.AliasNames[0]
-	pickModels = func(title string, header [2]string, rows [][2]string, start int) (int, error) {
-		return 0, nil
+	offer("max", "1\n2\n\n")
+	if got := agentpkg.GetAgentRecord("claude").Aliases["opus"]; got != "m-two" {
+		t.Fatalf("session-profile opus pin = %q, want m-two", got)
 	}
-	pickModelForAlias(&dialog{reg: reg, out: discardWriter{}}, sel, alias)
-	want := reg.Providers["max"].Models[alias]
-	if got := agentpkg.GetAgentRecord("claude").Aliases[strings.ToLower(alias)]; got != want {
-		t.Errorf("alias %s = %q, want %q (rows[0]'s id)", alias, got, want)
+	if ev, _ := audit.Read(time.Time{}); !slices.ContainsFunc(ev, func(e audit.Event) bool {
+		return e.Action == audit.ModelPin && e.Resource == "claude.aliases.opus"
+	}) {
+		t.Fatal("no model-pin audit event for the opus pick")
 	}
-}
-
-// TestPickModelForSlotMinusOnePinsNothing: Back/Esc from the picker must leave every pin untouched.
-func TestPickModelForSlotMinusOnePinsNothing(t *testing.T) {
-	reg, sel := subscriptionSelection(t)
-	origPick, origSlots := pickModels, pickAliases
-	t.Cleanup(func() { pickModels, pickAliases = origPick, origSlots })
-	alias := models.AliasNames[0]
-	pickModels = func(title string, header [2]string, rows [][2]string, start int) (int, error) {
-		return -1, nil
-	}
-	pickModelForAlias(&dialog{reg: reg, out: discardWriter{}}, sel, alias)
-	if got := agentpkg.GetAgentRecord("claude").Aliases[strings.ToLower(alias)]; got != "" {
-		t.Errorf("alias %s = %q, want unset after Back/Esc", alias, got)
+	offer(other, "1\n1\n\n")
+	if got := agentpkg.GetAgentRecord("claude").Aliases["opus"]; got != other+":m-one" {
+		t.Fatalf("cross-profile opus pin = %q, want %s:m-one", got, other)
 	}
 }
 
