@@ -61,7 +61,7 @@ func (s *boltVectorStore) Put(write VectorWrite) (stored bool, err error) {
 }
 
 func (s *boltVectorStore) Delete(profile string) error {
-	return updateEmbedDB(func(tx *bbolt.Tx) error { return tx.Bucket(embedCacheBucket).Delete([]byte(profile)) })
+	return updateEmbedDB(func(tx *bbolt.Tx) error { return deleteEmbedRecord(tx.Bucket(embedCacheBucket), profile) })
 }
 
 const (
@@ -71,10 +71,12 @@ const (
 	embedClaimSlack = 30 * time.Second // added to the caller's ctx deadline when sizing a claim
 )
 
-// Buckets of embeddings.db: cache holds profile -> VectorRecord JSON, claims holds profile -> expiry+owner.
+// Cache profiles hold JSON metadata and binary vector rows; claims hold profile -> expiry+owner.
 var (
 	embedCacheBucket = []byte("cache")
 	embedClaimBucket = []byte("claims")
+	embedRowsBucket  = []byte("rows")
+	embedMetadataKey = []byte("metadata")
 )
 
 // Timeouts for the bbolt file lock; a var so tests can shorten them.
@@ -152,15 +154,35 @@ func (s *boltVectorStore) Vectors(filter VectorFilter) (VectorRecord, error) {
 	return f, err
 }
 
-func decodeEmbedRecord(tx *bbolt.Tx, profile string) VectorRecord {
+func decodeEmbedMetadata(tx *bbolt.Tx, profile string) VectorRecord {
 	b := tx.Bucket(embedCacheBucket)
-	if b == nil {
+	if b == nil || b.Bucket([]byte(profile)) == nil {
 		return VectorRecord{}
 	}
-	raw := b.Get([]byte(profile))
 	var f VectorRecord
-	if raw == nil || !schemas.DecodeOK(embedFormat, raw, &f) {
+	if !schemas.DecodeOK(embedFormat, b.Bucket([]byte(profile)).Get(embedMetadataKey), &f) {
 		return VectorRecord{}
+	}
+	return f
+}
+
+func decodeEmbedRecord(tx *bbolt.Tx, profile string) VectorRecord {
+	f := decodeEmbedMetadata(tx, profile)
+	if f.Rows == nil {
+		return f
+	}
+	rows := tx.Bucket(embedCacheBucket).Bucket([]byte(profile)).Bucket(embedRowsBucket)
+	if rows == nil {
+		return VectorRecord{}
+	}
+	for id, row := range f.Rows {
+		raw := rows.Get([]byte(id))
+		if raw == nil || len(raw)%4 != 0 {
+			delete(f.Rows, id)
+			continue
+		}
+		row.Vec = string(raw)
+		f.Rows[id] = row
 	}
 	return f
 }
@@ -185,13 +207,41 @@ func updateEmbedDB(fn func(tx *bbolt.Tx) error) error {
 	})
 }
 
+func deleteEmbedRecord(cache *bbolt.Bucket, profile string) error {
+	key := []byte(profile)
+	if cache.Bucket(key) != nil {
+		return cache.DeleteBucket(key)
+	}
+	return cache.Delete(key)
+}
+
 func putEmbedRecord(tx *bbolt.Tx, profile string, f VectorRecord) error {
 	f.Schema = embedCacheSchema
 	raw, err := json.Marshal(f)
 	if err != nil {
 		return err
 	}
-	return tx.Bucket(embedCacheBucket).Put([]byte(profile), raw)
+	cache := tx.Bucket(embedCacheBucket)
+	if err := deleteEmbedRecord(cache, profile); err != nil {
+		return err
+	}
+	b, err := cache.CreateBucket([]byte(profile))
+	if err != nil {
+		return err
+	}
+	if err := b.Put(embedMetadataKey, raw); err != nil {
+		return err
+	}
+	rows, err := b.CreateBucket(embedRowsBucket)
+	if err != nil {
+		return err
+	}
+	for id, row := range f.Rows {
+		if err := rows.Put([]byte(id), []byte(row.Vec)); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // newEmbedOwner is a random claim token, distinct from the mint's start time.
@@ -258,14 +308,8 @@ func (s *boltVectorStore) RefreshDue(profile string, now time.Time) bool {
 	defer db.Close()
 	due := false
 	err = db.View(func(tx *bbolt.Tx) error {
-		if b := tx.Bucket(embedCacheBucket); b != nil {
-			var lease struct {
-				Schema   int   `json:"schema"`
-				MintedAt int64 `json:"minted_at"`
-			}
-			if schemas.DecodeOK(embedFormat, b.Get([]byte(profile)), &lease) && embedValid(VectorRecord{MintedAt: lease.MintedAt}, now) {
-				return nil
-			}
+		if embedValid(decodeEmbedMetadata(tx, profile), now) {
+			return nil
 		}
 		if b := tx.Bucket(embedClaimBucket); b != nil {
 			if v := b.Get([]byte(profile)); len(v) == 16 && time.Unix(0, int64(binary.BigEndian.Uint64(v))).After(now) {

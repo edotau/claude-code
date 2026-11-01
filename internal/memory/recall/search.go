@@ -13,8 +13,15 @@ func SearchBanks(root, query string, k int) []bank.SearchHit {
 
 // SearchBanksTerms ranks banks using the caller's pretokenized content terms.
 func SearchBanksTerms(root, query string, terms []string, k int) []bank.SearchHit {
-	files := append(bank.CorpusFiles(root), bank.RoutedFiles(root, query)...)
-	return bank.RankFiles(terms, k, files, loadSegments(files, true))
+	ranked, _, _ := searchBanksTerms(root, query, terms, k)
+	return ranked
+}
+
+func searchBanksTerms(root, query string, terms []string, k int) ([]bank.SearchHit, []bank.CorpusFile, []bank.SegView) {
+	corpus := bank.CorpusFiles(root)
+	files := append(corpus, bank.RoutedFiles(root, query)...)
+	segs := loadSegments(files, true)
+	return bank.RankFiles(terms, k, files, segs), files[:len(corpus)], segs[:len(corpus)]
 }
 
 // SearchAll ranks the home tier plus every repo store as one corpus (`memory search --all`).

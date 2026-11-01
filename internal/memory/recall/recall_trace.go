@@ -62,7 +62,7 @@ func (t *RecallTrace) candidate(c RecallPick, need int, sem *embed.Semantic) {
 		r.Outcome = "superseded"
 	}
 	if sem != nil {
-		if cos, ok := sem.Cosine(c.Entry); ok {
+		if cos, ok := sem.CosineHit(c.Hit); ok {
 			r.Cosine = &cos
 		}
 	}
@@ -136,7 +136,7 @@ func (t *RecallTrace) candidates(ranked []bank.SearchHit, need int, sem *embed.S
 			tierSem = nil
 		}
 		for _, h := range ranked {
-			c := RecallPick{Entry: bank.EntryFromHit(h), Hit: h}
+			c := recallTracePick(h)
 			if c.Entry.Archived != archived {
 				continue
 			}
@@ -144,4 +144,11 @@ func (t *RecallTrace) candidates(ranked []bank.SearchHit, need int, sem *embed.S
 			t.candidate(c, need, tierSem)
 		}
 	}
+}
+
+func recallTracePick(h bank.SearchHit) RecallPick {
+	first, _, _ := strings.Cut(h.Block, "\n")
+	entry := bank.Entry{ID: h.ID, Bank: h.Bank, File: h.File, Archived: h.Bank == "archive",
+		Superseded: strings.Contains(first, "~~") || strings.Contains(first, "SUPERSEDED")}
+	return RecallPick{Entry: entry, Hit: h}
 }

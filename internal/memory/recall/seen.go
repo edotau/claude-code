@@ -91,11 +91,30 @@ func MarkSeen(sessionID string, hits []bank.SearchHit) {
 }
 
 func pruneSeen(dir string) {
-	ents, _ := os.ReadDir(dir)
 	cutoff := time.Now().Add(-seenMaxAge)
-	for _, e := range ents {
-		if fi, err := e.Info(); err == nil && fi.ModTime().Before(cutoff) {
-			_ = os.Remove(filepath.Join(dir, e.Name()))
+	for _, path := range []string{dir, memstore.StateDir()} {
+		ents, _ := os.ReadDir(path)
+		for _, e := range ents {
+			if !e.Type().IsRegular() || path != dir && !prunableSessionState(e.Name()) {
+				continue
+			}
+			if fi, err := e.Info(); err == nil && fi.ModTime().Before(cutoff) {
+				_ = os.Remove(filepath.Join(path, e.Name()))
+			}
 		}
 	}
+}
+
+func prunableSessionState(name string) bool {
+	for _, prefix := range []string{"count-", "stamp-", "watch-"} {
+		if strings.HasPrefix(name, prefix) {
+			return true
+		}
+	}
+	for _, prefix := range []string{"update-", "harvest-", "dream-"} {
+		if strings.HasPrefix(name, prefix) && strings.HasSuffix(name, ".log") {
+			return true
+		}
+	}
+	return false
 }
