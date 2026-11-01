@@ -66,9 +66,7 @@ func rtkRewrite(in *Input) Result {
 	}
 	updated["command"] = rtkAbsolute(rewritten, bin)
 
-	note := fmt.Sprintf(
-		"rtk: routed through the rtk output compressor (%[1]s). Output is summarized, not literal — "+
-			"for exact bytes run `%[1]s bypass <cmd>`; elided output names its own `%[1]s recall <hash>`.", bin)
+	note := fmt.Sprintf("rtk: output summarized; exact bytes: %s bypass <cmd>", bin)
 	return Result{Context: note, UpdatedInput: updated}
 }
 

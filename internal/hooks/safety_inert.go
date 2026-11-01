@@ -177,3 +177,26 @@ func shellTokens(seg string) []string {
 	}
 	return out
 }
+
+// hardBlockVerdict blocks a hard shape outside inert text; inside a message or argument it asks, never in a heredoc.
+func hardBlockVerdict(in *Input, cmd, scan string) (Decision, string, string, bool) {
+	if strings.Contains(cmd, "<<") {
+		scan = cmd
+	}
+	for _, seg := range shellSegments(scan) {
+		for _, re := range hardBlocks() {
+			if re.MatchString(seg) {
+				return Block, safetyMessage(in, Block, "destructive command", re.String(), terminalHint), re.String(), true
+			}
+		}
+	}
+	for _, seg := range shellSegments(cmd) {
+		for _, re := range hardBlocks() {
+			if re.MatchString(seg) {
+				what := "destructive command (matched only inside quoted/inert text)"
+				return Ask, safetyMessage(in, Ask, what, re.String(), terminalHint), re.String(), true
+			}
+		}
+	}
+	return Allow, "", "", false
+}

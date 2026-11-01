@@ -31,6 +31,7 @@ type Input struct {
 	HookEventName       string `json:"hook_event_name"`
 	StopHookActive      bool   `json:"stop_hook_active"`
 	Prompt              string `json:"prompt"`
+	Source              string `json:"source"`
 	AgentID             string `json:"agent_id"`
 	AgentTranscriptPath string `json:"agent_transcript_path"`
 
@@ -72,6 +73,7 @@ func ParseInput(r io.Reader) *Input {
 	in.StopHookActive, _ = in.doc["stop_hook_active"].(bool)
 	in.Prompt = in.nested("prompt")
 	in.AgentID = in.nested("agent_id")
+	in.Source = in.nested("source")
 	in.AgentTranscriptPath = in.nested("agent_transcript_path")
 	if _, ok := in.doc["sessionId"].(string); ok && in.HookEventName == "" {
 		in.agent = AgentCopilot

@@ -47,11 +47,11 @@ var askRules = []askRule{
 	{"sudo command", "Approve only if you asked for it; otherwise install to a user prefix (~/.local, pipx, a venv) instead.",
 		lazyCompile(`(^|[^[:alnum:]_])sudo(\s|$)`)},
 	{"force push to main/master", "Push a branch and open a PR instead: git push origin HEAD:<branch>.", lazyCompile(
-		gitPushPrefix+`.*(--force|-f)(\s|$).*(main|master)(\s|$)`,
-		gitPushPrefix+`.*(main|master)(\s|$).*(--force|-f)(\s|$)`,
-		gitPushPrefix+`.*--force-with-lease(=[^[:space:]]*)?(\s|$).*(main|master)(\s|$)`,
-		gitPushPrefix+`.*(main|master)(\s|$).*--force-with-lease(=[^[:space:]]*)?(\s|$)`,
-		gitPushPrefix+`.*\+([^[:space:]]+:)?(refs/heads/)?(main|master)(\s|$)`,
+		gitPushPrefix+`.*(--force|-f)(\s|$).*\b(main|master)(\s|$)`,
+		gitPushPrefix+`.*\b(main|master)(\s|$).*(--force|-f)(\s|$)`,
+		gitPushPrefix+`.*--force-with-lease(=[^[:space:]]*)?(\s|$).*\b(main|master)(\s|$)`,
+		gitPushPrefix+`.*\b(main|master)(\s|$).*--force-with-lease(=[^[:space:]]*)?(\s|$)`,
+		gitPushPrefix+`.*\+([^[:space:]]+:)?(refs/heads/)?\b(main|master)(\s|$)`,
 	)},
 	{"recursive removal of a .git directory",
 		"That deletes the repository history; to start clean use a fresh worktree: claude-code worktree create <name>.",
@@ -130,12 +130,8 @@ func safetyVerdict(in *Input) (Decision, string, string) {
 			return Block, safetyMessage(in, Block, "destructive command", re.String(), terminalHint), re.String()
 		}
 	}
-	for _, seg := range shellSegments(cmd) {
-		for _, re := range hardBlocks() {
-			if re.MatchString(seg) {
-				return Block, safetyMessage(in, Block, "destructive command", re.String(), terminalHint), re.String()
-			}
-		}
+	if d, msg, detail, ok := hardBlockVerdict(in, cmd, scan); ok {
+		return d, msg, detail
 	}
 	for _, re := range exfilPatterns() {
 		if re.MatchString(scan) {
@@ -193,7 +189,7 @@ func safetyMessage(in *Input, decision Decision, what, pattern, hint string) str
 }
 
 // bannedGitVerbs are the tree-writing verbs hard rule 4 bans inside the shared config checkout.
-var bannedGitVerbs = map[string]bool{"stash": true, "checkout": true, "reset": true, "restore": true, "clean": true}
+var bannedGitVerbs = map[string]bool{"stash": true, "checkout": true, "reset": true, "restore": true, "clean": true, "switch": true}
 
 // gitValueOpts are git GLOBAL options whose value is the next token when not spelled with `=`.
 var gitValueOpts = map[string]bool{"-C": true, "-c": true, "--git-dir": true, "--work-tree": true,
