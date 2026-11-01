@@ -53,7 +53,8 @@ workflow and gate:
 - **A test that won't compile** gets a simple fix, or is deleted and listed in the lane's test-debt report under
   `memory/claude-code/reports/`. Never investigate a failing test; the full pass comes at the end.
 - **A security fix** keeps its one reproduction run, not a suite.
-- The pre-push gate and GitHub Actions are off (`9e5be258`): run the gate yourself before pushing.
+- The pre-push gate is off (`9e5be258`); GitHub Actions is back on (`f2c9adf9`) but has fired no run yet: run the gate
+  yourself before pushing.
 
 ## Behavioral guidelines
 
