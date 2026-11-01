@@ -17,6 +17,7 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proxy"
 	"github.com/edotau/claude-code/internal/ui/helptext"
+	uitree "github.com/edotau/claude-code/internal/ui/tree"
 )
 
 var networkPage = helptext.Page{
@@ -245,14 +246,14 @@ func cmdNetworkView(args []string) int {
 			return fail("network view: %v", err)
 		}
 	} else {
-		tree.RenderSnapshot(os.Stdout, snap)
+		uitree.RenderSnapshot(os.Stdout, snap)
 	}
 	if !*follow {
 		return 0
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	if err := tree.Follow(ctx, opts, os.Stdout); err != nil && ctx.Err() == nil {
+	if err := uitree.Follow(ctx, opts, os.Stdout); err != nil && ctx.Err() == nil {
 		return fail("network view: %v", err)
 	}
 	return 0

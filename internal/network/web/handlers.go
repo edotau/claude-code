@@ -300,7 +300,8 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
 		fl.Flush() // headers reach the client before the first event; a quiet agent would otherwise hang the fetch
 	}
 	fw := flushWriter{w}
-	if err := tree.Follow(r.Context(), opts, fw); err != nil && r.Context().Err() == nil {
+	emit := func(e tree.Event) { fmt.Fprintln(fw, tree.FormatEvent(e)) }
+	if err := tree.Follow(r.Context(), opts, emit); err != nil && r.Context().Err() == nil {
 		fmt.Fprintf(fw, "error: %v\n", err)
 	}
 }

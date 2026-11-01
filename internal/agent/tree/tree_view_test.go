@@ -3,6 +3,7 @@ package tree
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -79,7 +80,7 @@ func TestFollowResetsSeenWhenEventCountShrinks(t *testing.T) {
 				panicked <- nil
 			}
 		}()
-		_ = Follow(ctx, opts, &buf) // blocks until ctx's deadline (followDone is pinned false)
+		_ = Follow(ctx, opts, func(e Event) { fmt.Fprintln(&buf, FormatEvent(e)) }) // blocks until ctx's deadline (followDone is pinned false)
 	}()
 	<-shrunk
 

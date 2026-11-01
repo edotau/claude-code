@@ -156,8 +156,8 @@ func TestBuildFoldsWorkflowRunIntoPhases(t *testing.T) {
 		t.Errorf("run = %+v, want name=gate-loop status=green", run)
 	}
 	killed := workflowByID(t, s.Workflows, "wf_fake0005-killed")
-	if killed.Name != "killed-run" || killed.Status != statusError {
-		t.Errorf("killed run = %+v, want name=killed-run status=%s", killed, statusError)
+	if killed.Name != "killed-run" || killed.Status != StatusError {
+		t.Errorf("killed run = %+v, want name=killed-run status=%s", killed, StatusError)
 	}
 	phases := map[string][]string{}
 	for _, p := range run.Phases {
@@ -194,10 +194,10 @@ func TestStatusClassificationUsesPinnedClock(t *testing.T) {
 	for _, sub := range finishedSession.Subagents {
 		byID[sub.ID] = sub
 	}
-	if got := byID["fakeagentid001"].Status; got != statusFinished {
+	if got := byID["fakeagentid001"].Status; got != StatusFinished {
 		t.Errorf("agent001 (finished:true) status = %q, want finished", got)
 	}
-	if got := byID["fakeagentid002"].Status; got != statusRunning {
+	if got := byID["fakeagentid002"].Status; got != StatusRunning {
 		t.Errorf("agent002 (finished:false, fresh mtime) status = %q, want running", got)
 	}
 }
@@ -218,7 +218,7 @@ func TestSubagentGoesStaleOutsideActiveWindow(t *testing.T) {
 	}
 	s := sessionByID(t, tree, "finished-session-aaaa1111")
 	for _, sub := range s.Subagents {
-		if sub.ID == "fakeagentid002" && sub.Status != statusStale {
+		if sub.ID == "fakeagentid002" && sub.Status != StatusStale {
 			t.Errorf("agent002 status = %q, want stale", sub.Status)
 		}
 	}
@@ -363,28 +363,6 @@ func TestBuildJSONSchema(t *testing.T) {
 	}
 }
 
-// (g) RenderText never produces a line over 100 columns, even for a subagent with a long description.
-func TestRenderTextLineWidth(t *testing.T) {
-	claudeDir, now := copyTestdataTree(t)
-	tree, err := Build(claudeDir, Options{Days: 60, Now: pinNow(now)})
-	if err != nil {
-		t.Fatal(err)
-	}
-	var buf strings.Builder
-	RenderText(&buf, tree, now)
-	// max is terminalWidth()'s own fallback, not a hardcoded guess: the render change added a status
-	// glyph + idle column and widened defaultWidth (100 -> 120) to fit them.
-	max := terminalWidth()
-	for i, line := range strings.Split(buf.String(), "\n") {
-		if n := len([]rune(line)); n > max {
-			t.Errorf("line %d is %d columns (max %d): %q", i, n, max, line)
-		}
-	}
-	if !strings.Contains(buf.String(), "/Users/fake/demo-repo") {
-		t.Error("expected the repo's cwd to head its group")
-	}
-}
-
 // (h) A session whose last transcript line is truncated/malformed still renders without panicking;
 // the earlier valid lines still populate cwd/branch/title.
 func TestMalformedLastLineDoesNotPanic(t *testing.T) {
@@ -401,11 +379,6 @@ func TestMalformedLastLineDoesNotPanic(t *testing.T) {
 	s := sessionByID(t, tree, "malformed-session-dddd4444")
 	if s.Cwd != "/Users/fake/demo-repo" || s.Branch != "main" {
 		t.Errorf("session from earlier valid lines = %+v", s)
-	}
-	var buf strings.Builder
-	RenderText(&buf, tree, now)
-	if !strings.Contains(buf.String(), "malformed-session-dddd4444"[:8]) {
-		t.Error("expected the malformed session's short id in the rendered text")
 	}
 }
 
@@ -563,7 +536,7 @@ func TestBuildRunningPrunesFinishedChildren(t *testing.T) {
 	for _, r := range s.Workflows {
 		for _, p := range r.Phases {
 			for _, a := range p.Agents {
-				if a.Status == statusFinished || a.Status == statusError {
+				if a.Status == StatusFinished || a.Status == StatusError {
 					t.Errorf("--running kept %s workflow agent %s", a.Status, a.ID)
 				}
 			}
@@ -608,7 +581,7 @@ func TestBuildRunningKeepsStaleSubagent(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := sessionByID(t, tree, "finished-session-aaaa1111")
-	if len(s.Subagents) != 1 || s.Subagents[0].ID != "fakeagentid002" || s.Subagents[0].Status != statusStale {
+	if len(s.Subagents) != 1 || s.Subagents[0].ID != "fakeagentid002" || s.Subagents[0].Status != StatusStale {
 		t.Errorf("subagents = %+v, want the stale fakeagentid002 kept", s.Subagents)
 	}
 }
@@ -641,7 +614,7 @@ func TestBuildRunningJSONMatchesPrunedTree(t *testing.T) {
 	}
 	for _, s := range decoded.Sessions {
 		for _, sub := range s.Subagents {
-			if sub.Status == statusFinished || sub.Status == statusError {
+			if sub.Status == StatusFinished || sub.Status == StatusError {
 				t.Errorf("json kept %s subagent %s in %s", sub.Status, sub.ID, s.ID)
 			}
 		}

@@ -157,7 +157,7 @@ func snapshotFrom(loc agentLocation, now time.Time, n int) Snapshot {
 	switch {
 	case found && j.Resulted:
 		result = j.Result
-	case sub.Status == statusFinished && sub.Activity != nil:
+	case sub.Status == StatusFinished && sub.Activity != nil:
 		result = sub.Activity.Text
 	}
 
@@ -266,18 +266,16 @@ func eventsFromLine(raw []byte, home, cwd string) []Event {
 	for _, c := range rec.Message.Content {
 		switch {
 		case c.Type == "tool_use" && c.Name != "":
-			out = append(out, Event{At: at, Kind: "tool", Tool: c.Name, Arg: stripPaths(toolArg(c.Input), home, cwd)})
+			out = append(out, Event{At: at, Kind: "tool", Tool: c.Name, Arg: StripPaths(toolArg(c.Input), home, cwd)})
 		case c.Type == "text" && c.Text != "":
-			out = append(out, Event{At: at, Kind: "text", Text: truncate(c.Text, 80)})
+			out = append(out, Event{At: at, Kind: "text", Text: Truncate(c.Text, 80)})
 		}
 	}
 	return out
 }
 
-// Follow resolves opts.Agent once, then polls its transcript every 500ms, writing one formatted line
-// per new event to w, until the agent's result appears (its journal result line inside a workflow
-// run, or its sidecar meta's "finished" flag otherwise) or ctx is cancelled.
-func Follow(ctx context.Context, opts ViewOptions, w io.Writer) error {
+// Follow resolves opts.Agent once, then polls its transcript, passing each new event to emit until the agent ends.
+func Follow(ctx context.Context, opts ViewOptions, emit func(Event)) error {
 	now := opts.now()
 	loc, err := resolveAgent(opts.ClaudeDir, opts, now)
 	if err != nil {
@@ -292,12 +290,12 @@ func Follow(ctx context.Context, opts ViewOptions, w io.Writer) error {
 			seen = 0
 		}
 		for _, e := range all[seen:] {
-			fmt.Fprintln(w, formatEvent(e))
+			emit(e)
 		}
 		seen = len(all)
 		if done, result := followDone(loc); done {
 			if result != nil {
-				fmt.Fprintln(w, formatEvent(*result))
+				emit(*result)
 			}
 			return nil
 		}
@@ -324,9 +322,9 @@ func followDone(loc agentLocation) (bool, *Event) {
 	return readSubagentMeta(loc.TranscriptPath).Finished, nil
 }
 
-// formatEvent renders one Event as "HH:MM:SS tool Read path…" / "HH:MM:SS text "…"" / "HH:MM:SS
+// FormatEvent renders one Event as "HH:MM:SS tool Read path…" / "HH:MM:SS text "…"" / "HH:MM:SS
 // result 12.3 KB".
-func formatEvent(e Event) string {
+func FormatEvent(e Event) string {
 	ts := e.At.Format("15:04:05")
 	switch e.Kind {
 	case "tool":
@@ -349,33 +347,5 @@ func compactBytes(n int) string {
 		return fmt.Sprintf("%.1f KB", float64(n)/(1<<10))
 	default:
 		return fmt.Sprintf("%d B", n)
-	}
-}
-
-// RenderSnapshot writes a Snapshot as the `--format text` drill-down view.
-func RenderSnapshot(w io.Writer, snap Snapshot) {
-	fmt.Fprintf(w, "%s  %s\n", snap.ID, snap.Label)
-	if snap.Workflow != "" {
-		fmt.Fprintf(w, "workflow %s  phase %s\n", snap.Workflow, snap.Phase)
-	}
-	model := snap.Model
-	if snap.Effort != "" {
-		model += " effort=" + snap.Effort
-	}
-	fmt.Fprintf(w, "status %s %s  model %s  tokens %s\n", statusGlyph(snap.Status), snap.Status, model, tokenCompact(snap.Tokens))
-	if snap.Activity != nil {
-		fmt.Fprintf(w, "last activity: %s %s (%s)\n", snap.Activity.Tool, snap.Activity.Arg, snap.Activity.At.Format(time.RFC3339))
-	}
-	for _, f := range snap.FilesEdited {
-		fmt.Fprintf(w, "  edited %s\n", f)
-	}
-	for _, disp := range snap.Dispatches {
-		fmt.Fprintf(w, "  %s\n", formatDispatch(disp))
-	}
-	for _, e := range snap.Events {
-		fmt.Fprintln(w, formatEvent(e))
-	}
-	if snap.Result != "" {
-		fmt.Fprintf(w, "result: %s\n", snap.Result)
 	}
 }

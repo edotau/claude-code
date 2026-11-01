@@ -24,7 +24,6 @@ import (
 	"github.com/edotau/claude-code/internal/agent/tree"
 	"github.com/edotau/claude-code/internal/network/remote"
 	"github.com/edotau/claude-code/internal/network/tailscale"
-	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/shapes"
@@ -643,7 +642,7 @@ func cmdAgents(args []string) int {
 	case "sync":
 		return cmdAgentsSync(args[1:])
 	case "tree":
-		return tree.Run(args[1:], paths.ConfigDir(), os.Stdout, os.Stderr)
+		return cmdAgentsTree(args[1:])
 	case "reap":
 		return cmdAgentsReap(args[1:])
 	case "status", "result", "tail", "cancel":

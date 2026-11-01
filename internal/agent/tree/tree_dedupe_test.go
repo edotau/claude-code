@@ -1,11 +1,9 @@
 package tree
 
 import (
-	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -82,23 +80,13 @@ func (e dedupeEnv) dispatch(t *testing.T, name, prompt, workDir, repo, sessionID
 	return rec.ID
 }
 
-func (e dedupeEnv) render(t *testing.T, format string) string {
-	t.Helper()
-	var out, errw bytes.Buffer
-	opts := Options{Days: 60, Running: true, Now: pinNow(e.now)}
-	if code := renderOnce(e.cfg, opts, format, true, &out, &errw); code != 0 {
-		t.Fatalf("renderOnce exit %d: %s", code, errw.String())
-	}
-	return out.String()
-}
-
 func (e dedupeEnv) tree(t *testing.T) Tree {
 	t.Helper()
-	var tree Tree
-	if err := json.Unmarshal([]byte(e.render(t, "json")), &tree); err != nil {
+	tree, err := Listing(e.cfg, Options{Days: 60, Running: true, Now: pinNow(e.now)}, true)
+	if err != nil {
 		t.Fatal(err)
 	}
-	return tree
+	return *tree
 }
 
 func hasSession(tree Tree, id string) bool {
@@ -110,7 +98,7 @@ func hasSession(tree Tree, id string) bool {
 	return false
 }
 
-// A headless claude dispatch matched by cwd + time + prompt renders once, as its dispatch row (text and JSON);
+// A headless claude dispatch matched by cwd + time + prompt renders once, as its dispatch row;
 // an unrelated session in the same dir (different prompt) stays.
 func TestRunningDedupesHeadlessClaudeByPrompt(t *testing.T) {
 	e := newDedupeEnv(t)
@@ -127,14 +115,6 @@ func TestRunningDedupesHeadlessClaudeByPrompt(t *testing.T) {
 	}
 	if len(tree.Dispatches) != 1 || tree.Dispatches[0].ID != id {
 		t.Errorf("dispatches = %+v, want only %s", tree.Dispatches, id)
-	}
-
-	text := e.render(t, "text")
-	if strings.Contains(text, "headless-aaaa") || strings.Count(text, id) != 1 {
-		t.Errorf("text should show the dispatch once (dispatch row only):\n%s", text)
-	}
-	if !strings.Contains(text, "Add a new feature") {
-		t.Errorf("text lost the unrelated session:\n%s", text)
 	}
 }
 
