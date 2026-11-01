@@ -11,9 +11,11 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/translate"
 )
@@ -109,6 +111,9 @@ func (r *Router) passthrough(w http.ResponseWriter, in *http.Request, provider, 
 			body = fixGeminiChat(body)
 			geminiChat = true
 		}
+		if dialect != providers.ProtocolGemini {
+			body = clampOutputTokens(body, model)
+		}
 	}
 	target := route + "/" + rest
 	if query != "" {
@@ -152,7 +157,7 @@ func (r *Router) passthrough(w http.ResponseWriter, in *http.Request, provider, 
 // flattenGeminiResponse buffers a non-stream Gemini chat reply and joins its content parts into one string.
 func flattenGeminiResponse(resp *http.Response) *http.Response {
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, maxBody))
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	out := translate.FlattenChatContent(raw)
 	resp.Body, resp.ContentLength = io.NopCloser(bytes.NewReader(out)), int64(len(out))
 	resp.Header.Del("Content-Length")
@@ -233,6 +238,37 @@ func fixGeminiChat(body []byte) []byte {
 		if changed {
 			top["messages"], _ = json.Marshal(msgs)
 		}
+	}
+	if !changed {
+		return body
+	}
+	out, err := json.Marshal(top)
+	if err != nil {
+		return body
+	}
+	return out
+}
+
+// outputTokenKeys are the top-level request keys that set an output cap on the OpenAI chat and Responses wires.
+var outputTokenKeys = [...]string{"max_tokens", "max_completion_tokens", "max_output_tokens"}
+
+// clampOutputTokens lowers any output cap above model's catalog limit, so the endpoint can't 400; else body as is.
+func clampOutputTokens(body []byte, model string) []byte {
+	limits, ok := models.Limits(model)
+	if !ok || limits.Output <= 0 {
+		return body
+	}
+	var top map[string]json.RawMessage
+	if json.Unmarshal(body, &top) != nil {
+		return body
+	}
+	changed := false
+	for _, key := range outputTokenKeys {
+		var asked float64
+		if json.Unmarshal(top[key], &asked) != nil || asked <= float64(limits.Output) {
+			continue
+		}
+		top[key], changed = json.RawMessage(strconv.Itoa(limits.Output)), true
 	}
 	if !changed {
 		return body
