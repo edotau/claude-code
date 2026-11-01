@@ -88,6 +88,10 @@ func importCfg(args []string) int {
 		return fail("import: %v", err)
 	}
 	options := ImportOptions{Rename: rename, Replace: *replace, Pair: choices}
+	return runImport(path, cands, options, *apply && !*dryRun, *fold, *seal)
+}
+
+func runImport(path string, cands []Candidate, options ImportOptions, apply, fold, seal bool) int {
 	var rows []Row
 	var folded []string
 	oldDoc, newDoc, err := providers.UpdateOverlayDoc(false, func(top map[string]json.RawMessage, tx *vault.Tx) error {
@@ -95,8 +99,9 @@ func importCfg(args []string) int {
 		if err := Apply(top, rows); err != nil {
 			return err
 		}
-		if *fold {
-			folded, err = foldLegacy(top, tx)
+		if fold {
+			var err error
+			folded, err = foldLegacy(top, tx, nil, false)
 			return err
 		}
 		return nil
@@ -115,28 +120,38 @@ func importCfg(args []string) int {
 		fmt.Println("nothing to import")
 		return 0
 	}
-	if !*apply || *dryRun {
+	if !apply {
 		fmt.Println("dry-run: pass --apply to write")
 		return 0
 	}
-	if _, _, err := providers.UpdateOverlayDoc(true, func(top map[string]json.RawMessage, tx *vault.Tx) error {
+	key, err := legacyFoldKey(folded)
+	if err != nil {
+		return fail("import: %v", err)
+	}
+	if rows, err = commitImport(cands, options, fold, key); err != nil {
+		return fail("import: %v", err)
+	}
+	fmt.Println("wrote profiles")
+	if seal {
+		return sealImported(path, rows)
+	}
+	return 0
+}
+
+func commitImport(cands []Candidate, options ImportOptions, fold bool, key *vault.Key) ([]Row, error) {
+	var rows []Row
+	_, _, err := providers.UpdateOverlayDoc(true, func(top map[string]json.RawMessage, tx *vault.Tx) error {
 		rows = ImportPlan(cands, Existing(top), options)
 		if err := Apply(top, rows); err != nil {
 			return err
 		}
-		if *fold {
-			_, err := foldLegacy(top, tx)
+		if fold {
+			_, err := foldLegacy(top, tx, key, true)
 			return err
 		}
 		return nil
-	}); err != nil {
-		return fail("import: %v", err)
-	}
-	fmt.Println("wrote profiles")
-	if *seal {
-		return sealImported(path, rows)
-	}
-	return 0
+	})
+	return rows, err
 }
 
 // sealImported stores each written row's client secret / PAT; the only place secrets are read.
@@ -299,8 +314,30 @@ func pickPairings(cands []Candidate, existing map[string]json.RawMessage, option
 
 const legacyUserPrefix = "digitalbtd-digitalbtd-user-"
 
+func legacyFoldKey(ids []string) (*vault.Key, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	needed := false
+	err := vault.View(func(tx *vault.Tx) error {
+		for _, id := range ids {
+			for _, method := range []string{providers.AuthOAuth, providers.AuthM2M, providers.AuthPAT} {
+				if _, ok := tx.Get(vault.Secrets, secretName(id, method)); ok {
+					needed = true
+				}
+			}
+		}
+		return nil
+	})
+	if err != nil || !needed {
+		return nil, err
+	}
+	key, _, err := vault.MasterKey()
+	return key, err
+}
+
 // foldLegacy is explicit import work, never a registry-load migration; references always veto deletion.
-func foldLegacy(top map[string]json.RawMessage, tx *vault.Tx) ([]string, error) {
+func foldLegacy(top map[string]json.RawMessage, tx *vault.Tx, key *vault.Key, apply bool) ([]string, error) {
 	refs, err := legacyReferences(top, tx)
 	if err != nil {
 		return nil, err
@@ -324,6 +361,11 @@ func foldLegacy(top map[string]json.RawMessage, tx *vault.Tx) ([]string, error) 
 		if from.Auth.Type != to.Auth.Type || from.Auth.SPClientID != to.Auth.SPClientID || from.Identity != to.Identity {
 			continue
 		}
+		if ok, err := foldLegacySecrets(tx, old, id, key, apply); err != nil {
+			return nil, err
+		} else if !ok {
+			continue
+		}
 		delete(provs, old)
 		folded = append(folded, old)
 	}
@@ -331,6 +373,47 @@ func foldLegacy(top map[string]json.RawMessage, tx *vault.Tx) ([]string, error) 
 	keys = slices.DeleteFunc(keys, func(k string) bool { _, ok := provs[k]; return !ok })
 	top["providers"], err = providers.MarshalOrdered(keys, provs)
 	return folded, err
+}
+
+func foldLegacySecrets(tx *vault.Tx, old, id string, key *vault.Key, apply bool) (bool, error) {
+	var methods []string
+	for _, method := range []string{providers.AuthOAuth, providers.AuthM2M, providers.AuthPAT} {
+		if _, found := tx.Get(vault.Secrets, secretName(old, method)); !found {
+			continue
+		}
+		if _, found := tx.Get(vault.Secrets, secretName(id, method)); found {
+			return false, nil
+		}
+		methods = append(methods, method)
+	}
+	if !apply || len(methods) == 0 {
+		return true, nil
+	}
+	if key == nil {
+		return false, vault.ErrLocked
+	}
+	if kid, _ := tx.Get(vault.Meta, "kid"); kid != key.Kid {
+		return false, vault.ErrWrongKey
+	}
+	for _, method := range methods {
+		src, dst := secretName(old, method), secretName(id, method)
+		record, _, err := tx.Record(src)
+		if err != nil {
+			return false, err
+		}
+		value, err := key.Open(src, record)
+		if err != nil {
+			return false, err
+		}
+		record.Sealed = key.Seal(dst, value)
+		if err := tx.PutRecord(dst, record); err != nil {
+			return false, err
+		}
+		if err := tx.Put(vault.Secrets, src, ""); err != nil {
+			return false, err
+		}
+	}
+	return true, nil
 }
 
 // legacyReferences searches active vault configuration and plans; snapshots and a row's own key are not references.

@@ -3,6 +3,7 @@ package databricks
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -213,5 +214,107 @@ func TestImportFoldFailsClosedOnUnreadablePlans(t *testing.T) {
 	reg, _ := providers.Load()
 	if reg.Providers[legacyUserPrefix+"dev"] == nil {
 		t.Fatal("fold deleted a row despite an incomplete reference scan")
+	}
+}
+
+func TestImportFoldSealedCredentials(t *testing.T) {
+	for _, collision := range []string{"", providers.AuthOAuth, providers.AuthM2M, providers.AuthPAT} {
+		t.Run("collision="+collision, func(t *testing.T) {
+			useVaultTest(t)
+			seedLegacyRows(t)
+			old := legacyUserPrefix + "dev"
+			for _, method := range []string{providers.AuthOAuth, providers.AuthM2M, providers.AuthPAT} {
+				if err := secrets.Store(secretName(old, method), "test-only-legacy-"+method); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if collision != "" {
+				if err := secrets.Store(secretName("dev", collision), "test-only-destination"); err != nil {
+					t.Fatal(err)
+				}
+			}
+			before := foldSecretSnapshot(t)
+			cfg := writeCfg(t, "[dev]\nhost = https://dev.example.cloud.databricks.com\n")
+			args := []string{"--dbxcfg", cfg, "--fold-legacy", "--apply"}
+			key := os.Getenv("HARNESS_VAULT_KEY")
+			t.Setenv("HARNESS_VAULT_KEY", "invalid-key-must-not-be-read")
+			runFoldSecretImport(t, append(slices.Clone(args), "--dry-run"))
+			t.Setenv("HARNESS_VAULT_KEY", key)
+			assertFoldSecretRow(t, old, true)
+			if !reflect.DeepEqual(before, foldSecretSnapshot(t)) {
+				t.Fatal("preview changed sealed records")
+			}
+			runFoldSecretImport(t, args)
+			assertFoldSecretRow(t, old, collision != "")
+			if collision != "" {
+				if !reflect.DeepEqual(before, foldSecretSnapshot(t)) {
+					t.Fatal("collision changed sealed records")
+				}
+				return
+			}
+			assertFoldSecretMigration(t, old, before)
+		})
+	}
+	t.Run("no credentials needs no key", func(t *testing.T) {
+		useVaultTest(t)
+		seedLegacyRows(t)
+		t.Setenv("HARNESS_VAULT_KEY", "invalid-key-must-not-be-read")
+		cfg := writeCfg(t, "[dev]\nhost = https://dev.example.cloud.databricks.com\n")
+		runFoldSecretImport(t, []string{"--dbxcfg", cfg, "--fold-legacy", "--apply"})
+		assertFoldSecretRow(t, legacyUserPrefix+"dev", false)
+	})
+}
+
+func foldSecretSnapshot(t *testing.T) map[string]vault.Record {
+	t.Helper()
+	var records map[string]vault.Record
+	if err := vault.View(func(tx *vault.Tx) (err error) {
+		records, err = tx.Records()
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	return records
+}
+
+func runFoldSecretImport(t *testing.T, args []string) {
+	t.Helper()
+	code, out, errs := captureOutput(t, func() int { return importCfg(args) })
+	if strings.Contains(out+errs, "test-only-") {
+		t.Fatal("fold exposed a credential")
+	}
+	if code != 0 {
+		t.Fatalf("fold exit code = %d", code)
+	}
+}
+
+func assertFoldSecretRow(t *testing.T, old string, present bool) {
+	t.Helper()
+	reg, err := providers.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if (reg.Providers[old] != nil) != present || reg.Providers["dev"] == nil {
+		t.Fatalf("legacy row present = %t, want %t; destination present = %t", reg.Providers[old] != nil, present, reg.Providers["dev"] != nil)
+	}
+}
+
+func assertFoldSecretMigration(t *testing.T, old string, before map[string]vault.Record) {
+	t.Helper()
+	after := foldSecretSnapshot(t)
+	for _, method := range []string{providers.AuthOAuth, providers.AuthM2M, providers.AuthPAT} {
+		src, dst := secretName(old, method), secretName("dev", method)
+		value, found, err := vault.ReadSecret(dst)
+		if err != nil || !found || value != "test-only-legacy-"+method {
+			t.Errorf("%s destination credential missing or undecryptable", method)
+		}
+		if _, found := after[src]; found {
+			t.Errorf("%s legacy sealed record remains", method)
+		}
+		from, to := before[src], after[dst]
+		from.Sealed, to.Sealed = nil, nil
+		if !reflect.DeepEqual(from, to) {
+			t.Errorf("%s record metadata changed", method)
+		}
 	}
 }
