@@ -356,6 +356,7 @@ func Select(home, worktree string, skip []string, commits []Commit) (plan string
 		files = append(files, c.Files...)
 	}
 	var best planScore
+	var bestDate string
 	var cands []string
 	claimed := map[string]bool{}
 	for _, e := range entries {
@@ -368,7 +369,13 @@ func Select(home, worktree string, skip []string, commits []Commit) (plan string
 			continue
 		}
 		s := scorePlan(parsed, files)
-		if s == (planScore{}) || s.exact < best.exact || s.exact == best.exact && s.touched < best.touched {
+		if s == (planScore{}) || e.Name()[:10] < bestDate {
+			continue
+		}
+		if e.Name()[:10] > bestDate { // the newest touched plan wins; scores compare only within one date
+			bestDate, best, cands, claimed = e.Name()[:10], planScore{}, nil, map[string]bool{}
+		}
+		if s.exact < best.exact || s.exact == best.exact && s.touched < best.touched {
 			continue
 		}
 		if s != best {
