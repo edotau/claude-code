@@ -19,6 +19,7 @@ import (
 	"github.com/edotau/claude-code/internal/tokenledger"
 	"github.com/edotau/claude-code/internal/transcript"
 	"github.com/edotau/claude-code/internal/ui/helptext"
+	"github.com/edotau/claude-code/internal/ui/table"
 )
 
 // billing names the session provider's pricing: a Claude.ai plan quota, or per-token API billing.
@@ -290,12 +291,15 @@ func dedupeFiles(files []string) []string {
 func printUsageTable(out io.Writer, agg *transcript.UsageAggregate, fileCount int) {
 	models := slices.Sorted(maps.Keys(agg.Models))
 
-	fmt.Fprintf(out, "%-24s %12s %12s %12s %12s %12s\n", "MODEL", "INPUT", "OUTPUT", "CACHE-READ", "CACHE-CREATE", "TOTAL")
+	n := func(v int64) string { return fmt.Sprintf("%12d", v) }
+	head := []string{"MODEL", fmt.Sprintf("%12s", "INPUT"), fmt.Sprintf("%12s", "OUTPUT"),
+		fmt.Sprintf("%12s", "CACHE-READ"), fmt.Sprintf("%12s", "CACHE-CREATE"), fmt.Sprintf("%12s", "TOTAL")}
+	rows := make([][]string, 0, len(models))
 	for _, m := range models {
 		u := agg.Models[m]
-		fmt.Fprintf(out, "%-24s %12d %12d %12d %12d %12d\n",
-			m, u.InputTokens, u.OutputTokens, u.CacheReadTokens, u.CacheCreationTokens, u.Total())
+		rows = append(rows, []string{m, n(u.InputTokens), n(u.OutputTokens), n(u.CacheReadTokens), n(u.CacheCreationTokens), n(u.Total())})
 	}
+	fmt.Fprint(out, table.Render(head, nil, rows, 0))
 	fmt.Fprintf(out, "\nfiles scanned:              %d\n", fileCount)
 	fmt.Fprintf(out, "peak input tokens/min:      %d  (uncached input + cache writes; the ITPM 429-risk proxy)\n", agg.PeakInputTokensPerMin)
 }

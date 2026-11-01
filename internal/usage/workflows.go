@@ -9,10 +9,13 @@ import (
 	"regexp"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/edotau/claude-code/internal/transcript"
+	"github.com/edotau/claude-code/internal/ui/table"
 )
 
 // workflowPhaseRow is one phase's agents folded together inside a single run.
@@ -247,13 +250,28 @@ func printModelRollup(out io.Writer, models map[string]*modelStats) {
 	if len(models) == 0 {
 		return
 	}
-	fmt.Fprintf(out, "%-16s %7s %7s %12s %12s %12s %12s\n",
-		"MODEL", "AGENTS", "TURNS", "INPUT", "CACHE-READ", "CACHE-CREATE", "OUTPUT")
+	head := []string{"MODEL", "AGENTS", "TURNS", "INPUT", "CACHE-READ", "CACHE-CREATE", "OUTPUT"}
+	var rows [][]string
 	for _, ms := range sortedModelStats(models) {
-		fmt.Fprintf(out, "%-16s %7d %7d %12d %12d %12d %12d\n",
-			ms.model, ms.agents, ms.turns, ms.tokens.InputTokens, ms.tokens.CacheReadTokens,
-			ms.tokens.CacheCreationTokens, ms.tokens.OutputTokens)
+		rows = append(rows, []string{ms.model, strconv.Itoa(ms.agents), strconv.Itoa(ms.turns),
+			strconv.FormatInt(ms.tokens.InputTokens, 10), strconv.FormatInt(ms.tokens.CacheReadTokens, 10),
+			strconv.FormatInt(ms.tokens.CacheCreationTokens, 10), strconv.FormatInt(ms.tokens.OutputTokens, 10)})
 	}
+	fmt.Fprint(out, table.Render(head, nil, rightAlign(head, rows, 1, 6), 0))
+}
+
+// rightAlign pads the head and row cells of columns from..to to a common width so numbers stay right-aligned.
+func rightAlign(head []string, rows [][]string, from, to int) [][]string {
+	for c := from; c <= to; c++ {
+		w := utf8.RuneCountInString(head[c])
+		for _, r := range rows {
+			w = max(w, utf8.RuneCountInString(r[c]))
+		}
+		for _, r := range append([][]string{head}, rows...) {
+			r[c] = strings.Repeat(" ", w-utf8.RuneCountInString(r[c])) + r[c]
+		}
+	}
+	return rows
 }
 
 // printAllRunsByModel folds every listed run's total.models together and prints one rollup block,
