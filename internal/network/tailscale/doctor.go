@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/secrets"
+	"github.com/edotau/claude-code/internal/shapes"
 )
 
 // Doctor is one launch-style check line: CLI found/missing, backend state + node, exit-node state,
@@ -66,10 +67,10 @@ func credentialNote(ctx context.Context) (note string, ok bool) {
 	case id && sec:
 		idVal, _, _ := secrets.Get("TAILSCALE_OAUTH_CLIENT_ID")
 		secVal, _, _ := secrets.Get("TAILSCALE_OAUTH_CLIENT_SECRET")
-		if err := ValidCredential("TAILSCALE_OAUTH_CLIENT_ID", idVal); err != nil {
+		if err := shapes.ValidCredential("TAILSCALE_OAUTH_CLIENT_ID", idVal); err != nil {
 			return fmt.Sprintf("; TAILSCALE_OAUTH_CLIENT_ID malformed: %v", err), false
 		}
-		if err := ValidCredential("TAILSCALE_OAUTH_CLIENT_SECRET", secVal); err != nil {
+		if err := shapes.ValidCredential("TAILSCALE_OAUTH_CLIENT_SECRET", secVal); err != nil {
 			return fmt.Sprintf("; TAILSCALE_OAUTH_CLIENT_SECRET malformed: %v", err), false
 		}
 		if _, err := oauthToken(apiBaseURL, idVal, secVal, http.DefaultClient)(ctx); err != nil {
@@ -82,7 +83,7 @@ func credentialNote(ctx context.Context) (note string, ok bool) {
 	}
 	if api {
 		keyVal, _, _ := secrets.Get("TAILSCALE_API_KEY")
-		if err := ValidCredential("TAILSCALE_API_KEY", keyVal); err != nil {
+		if err := shapes.ValidCredential("TAILSCALE_API_KEY", keyVal); err != nil {
 			return fmt.Sprintf("; TAILSCALE_API_KEY malformed: %v", err), false
 		}
 		return "; api credential TAILSCALE_API_KEY", true

@@ -12,14 +12,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/edotau/claude-code/internal/databricks"
 	"github.com/edotau/claude-code/internal/databricks/oauth"
-	"github.com/edotau/claude-code/internal/network/tailscale"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/secrets"
-	"github.com/edotau/claude-code/internal/ui/tui"
+	"github.com/edotau/claude-code/internal/shapes"
 )
 
 // Signin checks one provider's credential and, when it is missing or refused, signs in again.
@@ -30,12 +28,17 @@ type Signin interface {
 	Login(ctx context.Context, in io.Reader, out io.Writer) error
 }
 
-// Test seams: the credential mint, the u2m login, the secret prompt and store, the agent probes.
+// Terminal and sign-in UI seams internal/cli wires at startup; the zero values refuse (no terminal, no login, no prompt).
+var (
+	IsTerminal      = func(*os.File) bool { return false }
+	StdinIsTerminal = func() bool { return false }
+	LoginRow        = func(context.Context, string, io.Writer) error { return errors.New("databricks sign-in is not wired") }
+	PromptSecret    = func(string) (string, error) { return "", errors.New("secret prompt is not wired") }
+)
+
+// Test seams: the credential mint, the secret store, the agent probes.
 var (
 	credential         = providers.Credential
-	loginRow           = databricks.LoginRow
-	stdinTTY           = tui.StdinIsTerminal
-	promptSecret       = hiddenPrompt
 	storeSecret        = secrets.Store
 	claudeStatus       = providers.ClaudeLoginProbe
 	signinCopilotLogin = CopilotStoredLogin
@@ -46,11 +49,6 @@ var (
 	}
 	probeTimeout = 8 * time.Second
 )
-
-// hiddenPrompt reads one secret with local echo off (the `vault set` prompt).
-func hiddenPrompt(name string) (string, error) {
-	return tui.Secret("Paste the value for "+name+" (input hidden, Enter when done): ", secrets.Preview)
-}
 
 // SigninFor returns the sign-in for p's kind.
 func SigninFor(p *providers.Provider) Signin {
@@ -73,7 +71,7 @@ func ValidateSecret(name, value string) error {
 	if isGitHubToken(name) && !ValidCopilotToken(value) {
 		return fmt.Errorf("%s not a GitHub token (want gho_/ghp_/ghu_/github_pat_, >=20 chars)", name)
 	}
-	return tailscale.ValidCredential(name, value)
+	return shapes.ValidCredential(name, value)
 }
 
 // isGitHubToken: the transitional env name, or a vault name GITHUB_[<PROFILE>_]PAT (providers.SecretName).
@@ -105,7 +103,7 @@ func (s u2mSignin) Login(ctx context.Context, _ io.Reader, out io.Writer) error 
 	if !s.p.Auth.Sealed() { // cliProfile row: LoginRow would switch it to u2m in the vault
 		return fmt.Errorf("%s uses the databricks CLI profile; run `databricks auth login -p %s`", s.p.Name, s.p.CLIProfile)
 	}
-	return loginRow(ctx, s.p.Name, out)
+	return LoginRow(ctx, s.p.Name, out)
 }
 
 // secretSignin covers sealed (pat, oauth-m2m) and env/file/command credentials.
@@ -146,10 +144,10 @@ func (s secretSignin) Login(_ context.Context, _ io.Reader, _ io.Writer) error {
 	if name == "" {
 		return fmt.Errorf("%s: no vault secret to set; edit its auth.command or auth.file", s.p.Name)
 	}
-	if !stdinTTY() {
+	if !StdinIsTerminal() {
 		return fmt.Errorf("not a terminal; run `claude-code vault set %s`", name)
 	}
-	v, err := promptSecret(name)
+	v, err := PromptSecret(name)
 	if err != nil {
 		return err
 	}

@@ -81,9 +81,6 @@ func TestParseArgs(t *testing.T) {
 	if !slices.Equal(rest, []string{"-p", "hi", "--model", "x"}) {
 		t.Errorf("rest %q", rest)
 	}
-	if _, _, err := ParseArgs([]string{"--router"}, true); err == nil || !strings.Contains(err.Error(), "removed") {
-		t.Errorf("--router must fail with the removed hint: %v", err)
-	}
 	if _, _, err := ParseArgs([]string{"--profile"}, true); err == nil {
 		t.Error("missing value accepted")
 	}
@@ -354,23 +351,6 @@ func TestParseModelFlagRouting(t *testing.T) {
 		if alias != tc.alias || bare != tc.bare {
 			t.Errorf("parseModelFlag(%q) = (%q, %q, %v); want alias %q bare %v", tc.in, alias, canonical, bare, tc.alias, tc.bare)
 		}
-	}
-}
-
-// Every removed flag is a parse error carrying its hint; --profile stays valid.
-func TestParseArgsRemovedFlags(t *testing.T) {
-	for flag, want := range map[string]string{
-		"--provider": "--profile", "--env": "--profile", "--tier": "--model", "--router": "removed",
-	} {
-		for _, claude := range []bool{true, false} {
-			if _, _, err := ParseArgs([]string{flag, "x"}, claude); err == nil || !strings.Contains(err.Error(), want) {
-				t.Errorf("ParseArgs(%s, claude=%v) = %v, want hint %q", flag, claude, err, want)
-			}
-		}
-	}
-	o, rest, err := ParseArgs([]string{"--profile", "openai", "-p", "hi"}, true)
-	if err != nil || o.Provider != "openai" || !slices.Equal(rest, []string{"-p", "hi"}) {
-		t.Errorf("--profile control: %+v %q %v", o, rest, err)
 	}
 }
 

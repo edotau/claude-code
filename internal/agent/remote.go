@@ -15,8 +15,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/edotau/claude-code/internal/network/tailscale"
+	"github.com/edotau/claude-code/internal/network/remote"
 	"github.com/edotau/claude-code/internal/router"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // RemoteBinEnv names the remote claude-code binary when --remote-bin is absent; the fallback is "claude-code" on the remote PATH.
@@ -110,11 +111,11 @@ func remoteScript(bin, agentName, fallback string, req RunOptions) (string, erro
 	if strings.TrimSpace(bin) == "" || strings.ContainsAny(bin, "\r\n") {
 		return "", fmt.Errorf("remote ask: invalid remote binary %q", bin)
 	}
-	w := []string{remotePath, "exec", tailscale.QuotePath(remoteHomePath(bin)), "ask", "--format", "stream-json", "--fallback", tailscale.QuoteSH(cmp.Or(fallback, router.FallbackNone)),
-		"--stdin-framed", "--agent", tailscale.QuoteSH(remoteTarget(agentName, req))}
+	w := []string{remotePath, "exec", textutil.QuotePath(remoteHomePath(bin)), "ask", "--format", "stream-json", "--fallback", textutil.ShellQuote(cmp.Or(fallback, router.FallbackNone)),
+		"--stdin-framed", "--agent", textutil.ShellQuote(remoteTarget(agentName, req))}
 	opt := func(flag, v string) {
 		if v != "" {
-			w = append(w, flag, tailscale.QuoteSH(v))
+			w = append(w, flag, textutil.ShellQuote(v))
 		}
 	}
 	opt("--model", req.Model)
@@ -125,7 +126,7 @@ func remoteScript(bin, agentName, fallback string, req RunOptions) (string, erro
 	opt("--append-system-prompt", req.AppendSystemPrompt)
 	opt("--output-schema", req.OutputSchema)
 	if req.WorkDir != "" {
-		w = append(w, "--workdir", tailscale.QuotePath(remoteHomePath(req.WorkDir)))
+		w = append(w, "--workdir", textutil.QuotePath(remoteHomePath(req.WorkDir)))
 	}
 	if req.Timeout > 0 {
 		opt("--timeout", req.Timeout.String())
@@ -151,7 +152,7 @@ func RemoteArgv(host, bin, agentName, fallback string, req RunOptions) ([]string
 	if err != nil {
 		return nil, err
 	}
-	return tailscale.StreamArgs(host, script)
+	return remote.StreamArgs(host, script)
 }
 
 // remoteError is a failure the remote reported in its envelope; kind is the remote's envelope token, kept verbatim.

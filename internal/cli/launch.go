@@ -15,6 +15,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent/preflight"
 	"github.com/edotau/claude-code/internal/agent/tools"
 	"github.com/edotau/claude-code/internal/audit"
+	"github.com/edotau/claude-code/internal/databricks"
 	"github.com/edotau/claude-code/internal/hooks"
 	"github.com/edotau/claude-code/internal/launch"
 	"github.com/edotau/claude-code/internal/paths"
@@ -34,7 +35,7 @@ func launchClaude(alias string, args []string) int {
 	if err != nil {
 		return fail("%v", err)
 	}
-	opts, rest, err := agent.ParseArgs(args, true)
+	opts, rest, err := parseLaunchArgs(args, true)
 	if err != nil {
 		return fail("%v", err)
 	}
@@ -108,6 +109,9 @@ func cmdAnthropic(args []string) int {
 	if len(args) == 1 && args[0] == helptext.DocsFlag {
 		return helptext.WrappedDocs("claude")
 	}
+	if err := databricks.RemovedFlagHint(args); err != nil {
+		return fail("%v", err)
+	}
 	o, rest, err := agent.ParseAnthropicArgs(args)
 	if err != nil {
 		return fail("%v", err)
@@ -171,8 +175,16 @@ func runSetupToken() {
 	}
 }
 
+// parseLaunchArgs refuses a removed flag (with its hint) before agent.ParseArgs strips the harness flags.
+func parseLaunchArgs(args []string, claude bool) (agent.LaunchOptions, []string, error) {
+	if err := databricks.RemovedFlagHint(args); err != nil {
+		return agent.LaunchOptions{}, nil, err
+	}
+	return agent.ParseArgs(args, claude)
+}
+
 func launchAgent(name string, args []string) int {
-	opts, rest, err := agent.ParseArgs(args, false)
+	opts, rest, err := parseLaunchArgs(args, false)
 	if err != nil {
 		return fail("%v", err)
 	}

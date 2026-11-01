@@ -11,13 +11,12 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/ui/ansi"
 )
 
 // Test seams: the sign-in factory, the TTY gate, and the prompt's input and output.
 var (
 	signinFor           = SigninFor
-	canPrompt           = func() bool { return ansi.IsTerminal(os.Stdin) && ansi.IsTerminal(os.Stderr) }
+	canPrompt           = func() bool { return IsTerminal(os.Stdin) && IsTerminal(os.Stderr) }
 	loginIn   io.Reader = os.Stdin
 	loginOut  io.Writer = os.Stderr
 	// credCheckTimeout bounds the pre-launch sign-in check; a var so tests stay fast.

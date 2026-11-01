@@ -12,9 +12,9 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/audit"
-	"github.com/edotau/claude-code/internal/network/tailscale"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/secrets"
+	"github.com/edotau/claude-code/internal/shapes"
 	"github.com/edotau/claude-code/internal/ui/ansi"
 	uidialog "github.com/edotau/claude-code/internal/ui/dialog"
 )
@@ -219,7 +219,7 @@ func storeValue(d *dialog, name, val string) bool {
 		d.printf("%s: not a GitHub token (want gho_/ghp_/ghu_/github_pat_, >=20 chars)\n", name)
 		return false
 	}
-	if err := tailscale.ValidCredential(name, val); err != nil {
+	if err := shapes.ValidCredential(name, val); err != nil {
 		d.printf("%v\n", err)
 		return false
 	}

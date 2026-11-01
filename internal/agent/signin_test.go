@@ -201,20 +201,20 @@ func TestSecretLogin(t *testing.T) {
 	env(t)
 	p := row("pat-row", providers.Auth{Type: providers.AuthPAT})
 	name := providers.AuthSecretName(p)
-	otty, opr, ost := stdinTTY, promptSecret, storeSecret
-	t.Cleanup(func() { stdinTTY, promptSecret, storeSecret = otty, opr, ost })
+	otty, opr, ost := StdinIsTerminal, PromptSecret, storeSecret
+	t.Cleanup(func() { StdinIsTerminal, PromptSecret, storeSecret = otty, opr, ost })
 	var stored = map[string]string{}
 	storeSecret = func(n, v string) error { stored[n] = v; return nil }
 	prompts := 0
-	promptSecret = func(string) (string, error) { prompts++; return " dapi-new-value ", nil }
+	PromptSecret = func(string) (string, error) { prompts++; return " dapi-new-value ", nil }
 
-	stdinTTY = func() bool { return false }
+	StdinIsTerminal = func() bool { return false }
 	err := SigninFor(p).Login(context.Background(), nil, io.Discard)
 	if err == nil || !strings.Contains(err.Error(), "claude-code vault set "+name) || prompts != 0 || len(stored) != 0 {
 		t.Fatalf("non-TTY: err=%v prompts=%d stored=%v", err, prompts, stored)
 	}
 
-	stdinTTY = func() bool { return true }
+	StdinIsTerminal = func() bool { return true }
 	if err := SigninFor(p).Login(context.Background(), nil, io.Discard); err != nil {
 		t.Fatal(err)
 	}
@@ -222,7 +222,7 @@ func TestSecretLogin(t *testing.T) {
 		t.Errorf("stored %v, want trimmed value under %s", stored, name)
 	}
 
-	promptSecret = func(string) (string, error) { return "   ", nil }
+	PromptSecret = func(string) (string, error) { return "   ", nil }
 	stored = map[string]string{}
 	if err := SigninFor(p).Login(context.Background(), nil, io.Discard); err == nil || len(stored) != 0 {
 		t.Errorf("empty value must fail without storing: %v %v", err, stored)
@@ -255,10 +255,10 @@ func TestVendorLogin(t *testing.T) {
 }
 
 func TestU2MLoginUsesLoginRow(t *testing.T) {
-	orw := loginRow
-	t.Cleanup(func() { loginRow = orw })
+	orw := LoginRow
+	t.Cleanup(func() { LoginRow = orw })
 	var got string
-	loginRow = func(_ context.Context, name string, _ io.Writer) error { got = name; return nil }
+	LoginRow = func(_ context.Context, name string, _ io.Writer) error { got = name; return nil }
 	var buf bytes.Buffer
 	if err := SigninFor(row("qa", providers.Auth{Type: providers.AuthOAuth})).Login(context.Background(), nil, &buf); err != nil || got != "qa" {
 		t.Fatalf("err=%v got=%q", err, got)
@@ -294,8 +294,8 @@ func TestClaudeProbeFailureIsTransient(t *testing.T) {
 
 func TestU2MCliProfileCommandFailure(t *testing.T) {
 	env(t)
-	ocred, orow := credential, loginRow
-	t.Cleanup(func() { credential, loginRow = ocred, orow })
+	ocred, orow := credential, LoginRow
+	t.Cleanup(func() { credential, LoginRow = ocred, orow })
 	cli := &providers.Provider{Name: "cli-row", Preset: providers.PresetDatabricks, CLIProfile: "qa-prof"}
 	sealed := row("u-row", providers.Auth{Type: providers.AuthOAuth})
 	for _, c := range []struct {
@@ -321,14 +321,14 @@ func TestU2MCliProfileCommandFailure(t *testing.T) {
 }
 
 func TestU2MLoginCliProfileNeverCallsLoginRow(t *testing.T) {
-	orw := loginRow
-	t.Cleanup(func() { loginRow = orw })
+	orw := LoginRow
+	t.Cleanup(func() { LoginRow = orw })
 	var calls []string
-	loginRow = func(_ context.Context, n string, _ io.Writer) error { calls = append(calls, n); return nil }
+	LoginRow = func(_ context.Context, n string, _ io.Writer) error { calls = append(calls, n); return nil }
 	cli := &providers.Provider{Name: "cli-row", Preset: providers.PresetDatabricks, CLIProfile: "qa-prof"}
 	err := SigninFor(cli).Login(context.Background(), nil, io.Discard)
 	if err == nil || !strings.Contains(err.Error(), "databricks auth login -p qa-prof") || len(calls) != 0 {
-		t.Fatalf("cliProfile Login: err=%v loginRow calls=%v", err, calls)
+		t.Fatalf("cliProfile Login: err=%v LoginRow calls=%v", err, calls)
 	}
 	sealed := row("u-row", providers.Auth{Type: providers.AuthOAuth})
 	if err := SigninFor(sealed).Login(context.Background(), nil, io.Discard); err != nil || len(calls) != 1 || calls[0] != "u-row" {

@@ -11,7 +11,6 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/edotau/claude-code/internal/databricks"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
@@ -46,9 +45,6 @@ func flagValue(args []string, i int, name, val string, hasVal bool) (string, int
 func ParseArgs(args []string, claude bool) (LaunchOptions, []string, error) {
 	var o LaunchOptions
 	var rest []string
-	if err := databricks.RemovedFlagHint(args); err != nil {
-		return o, nil, err
-	}
 	for i := 0; i < len(args); i++ {
 		a := args[i]
 		name, val, hasVal := strings.Cut(a, "=")
