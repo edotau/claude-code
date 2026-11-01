@@ -167,7 +167,10 @@ func generateReport(repoPath, base, head string, prAnalysisOverride, qualityAnal
 	if prAnalysisOverride != nil {
 		prMap = prAnalysisOverride
 	} else {
-		r, _ := AnalyzePR(repoPath, base, head)
+		r, err := AnalyzePR(repoPath, base, head)
+		if err != nil {
+			return Report{}, err
+		}
 		prReport = &r
 		prMap = toGenericMap(r)
 	}

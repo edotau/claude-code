@@ -15,6 +15,7 @@ import (
 	"github.com/edotau/claude-code/internal/secretstore"
 	uidialog "github.com/edotau/claude-code/internal/ui/dialog"
 	"github.com/edotau/claude-code/internal/ui/tui"
+	"github.com/edotau/claude-code/internal/vault"
 )
 
 // Seams for the databricks page; tests replace them so no network, vault or clipboard is touched.
@@ -26,6 +27,7 @@ var (
 	dbxSecret   = tui.Secret
 	dbxCopy     = clipboard.WriteSecret
 	dbxSchedule = clipboard.ScheduleClear
+	dbxSetRow   = providers.SetProviderFields
 )
 
 // dbxAgents are the agents "Apply to agents" can repoint.
@@ -266,7 +268,7 @@ func dbxApplyPins(d *dialog, env string) (cancelled bool, err error) {
 }
 
 // dbxSaveIdentity writes env's identity mode and paired client id to its provider row, then seals secret (when given)
-// as DATABRICKS_<ENV>_M2M; the secret is never echoed. Mode sp needs a paired client id.
+// as DATABRICKS_<ENV>_M2M, restoring the old one if the row write fails; never echoed. Mode sp needs a client id.
 func dbxSaveIdentity(d *dialog, env, mode, spID, secret string) error {
 	p := d.reg.Providers[env]
 	if p == nil {
@@ -278,18 +280,36 @@ func dbxSaveIdentity(d *dialog, env, mode, spID, secret string) error {
 	if mode == providers.IdentitySP && spID == "" {
 		return fmt.Errorf("%s: identity sp needs a service principal client id", env)
 	}
-	if secret != "" { // sealed first: a Store failure leaves the provider row untouched
-		if err := secretstore.Store(providers.SecretName(providers.GroupDatabricks, env, providers.AuthM2M), secret); err != nil {
+	name := providers.SecretName(providers.GroupDatabricks, env, providers.AuthM2M)
+	var prev string
+	var hadPrev bool
+	if secret != "" {
+		var err error
+		if prev, hadPrev, err = vault.ReadSecret(name); err != nil {
+			return err
+		}
+		if err := secretstore.Store(name, secret); err != nil {
 			return err
 		}
 	}
 	auth := p.Auth
 	auth.SPClientID = spID
-	if err := providers.SetProviderFields(env, map[string]any{"identity": mode, "auth": auth}); err != nil {
-		return err
+	if err := dbxSetRow(env, map[string]any{"identity": mode, "auth": auth}); err != nil {
+		if secret == "" {
+			return err
+		}
+		return errors.Join(err, dbxRestoreSecret(name, prev, hadPrev))
 	}
 	d.changed = true
 	return nil
+}
+
+// dbxRestoreSecret puts the vault record name back to prev, or deletes it when there was none; it never prints a value.
+func dbxRestoreSecret(name, prev string, hadPrev bool) error {
+	if hadPrev {
+		return secretstore.Store(name, prev)
+	}
+	return secretstore.Delete(name)
 }
 
 // dbxIdentity picks env's identity mode, then asks for the SP client id and secret when the mode can use one.

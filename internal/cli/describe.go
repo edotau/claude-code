@@ -8,10 +8,10 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/buildver"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/settings"
+	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
@@ -99,7 +99,7 @@ func cmdDescribe(args []string) int {
 // describe builds the describe view from an already-loaded registry, so a caller that loaded one
 // itself (e.g. configureProviderList) never pays for a second load.
 func describe(reg *providers.Registry) (Describe, error) {
-	d := Describe{Version: buildver.Version(), Models: models.AliasNames}
+	d := Describe{Version: textutil.BuildVersion(), Models: models.AliasNames}
 	tree := specTree()
 	for _, c := range commands() {
 		if strings.HasPrefix(c.name, "__") {
@@ -122,13 +122,8 @@ func describe(reg *providers.Registry) (Describe, error) {
 			Credential: providers.CredentialPresent(p), Models: p.Models,
 		})
 	}
-	for _, r := range agent.Engines() {
-		s, _ := agent.LookupSchema(r.Name())
-		dr := DescribeAgent{Name: s.Name, Available: true, Caps: s.CLI.Caps}
-		if err := r.Available(); err != nil {
-			dr.Available, dr.Reason = false, err.Error()
-		}
-		d.Agents = append(d.Agents, dr)
+	for _, r := range agent.RosterRows() {
+		d.Agents = append(d.Agents, DescribeAgent{Name: r.Name, Available: r.Available, Reason: r.Reason, Caps: r.Levels})
 	}
 	for _, s := range settings.Specs() {
 		d.Hooks = append(d.Hooks, DescribeHook{Name: s.Name, Event: s.Event, Matcher: s.Matcher, Timeout: s.Seconds()})

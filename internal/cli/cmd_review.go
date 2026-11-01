@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agent/job"
 	"github.com/edotau/claude-code/internal/agent/review"
 )
 
@@ -62,7 +63,7 @@ func spawnSplitReview(name string, args []string, n int) int {
 	argv := append([]string{name, "review"}, slices.DeleteFunc(slices.Clone(args), func(a string) bool {
 		return a == "--background" || a == "-background" || a == "--background=true"
 	})...)
-	if err := agent.SpawnArgv(&rec, argv, []string{reviewJobEnv + "=" + rec.ID}); err != nil {
+	if err := job.SpawnArgv(&rec, argv, []string{reviewJobEnv + "=" + rec.ID}); err != nil {
 		return fail("%s review: %v", name, err)
 	}
 	_ = rec.Save() // record the child's pid so status can tell running from lost

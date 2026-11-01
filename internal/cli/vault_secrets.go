@@ -7,11 +7,12 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/audit"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/secrets"
 	"github.com/edotau/claude-code/internal/secretstore"
+	"github.com/edotau/claude-code/internal/signin"
+	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 	"github.com/edotau/claude-code/internal/ui/tui"
 	"github.com/edotau/claude-code/internal/vault"
@@ -26,7 +27,7 @@ func vaultSetSecret(name string, dryRun bool) int {
 	if value == "" {
 		return fail("vault set: empty value")
 	}
-	if err := agent.ValidateSecret(name, value); err != nil {
+	if err := signin.ValidateSecret(name, value); err != nil {
 		return fail("vault set: %v", err)
 	}
 	if dryRun {
@@ -94,7 +95,7 @@ func cmdVaultGet(args []string) int {
 	}
 	for i, name := range names {
 		if *export {
-			fmt.Printf("export %s=%s\n", name, shellQuote(values[i]))
+			fmt.Printf("export %s=%s\n", name, textutil.ShellQuote(values[i]))
 		} else {
 			fmt.Printf("%s=%s\n", name, values[i])
 		}
@@ -116,11 +117,6 @@ func vaultGetKey() int {
 	fmt.Println(k.Raw())
 	audit.Log(audit.KeyReveal, k.Kid, "")
 	return 0
-}
-
-// shellQuote wraps v in single quotes for an `export` line, escaping any embedded single quote.
-func shellQuote(v string) string {
-	return "'" + strings.ReplaceAll(v, "'", `'"'"'`) + "'"
 }
 
 // cmdVaultDelete removes NAME from the vault.
@@ -187,7 +183,7 @@ func cmdVaultImport(args []string) int {
 		return fail("vault import: %s has no NAME=value lines", name)
 	}
 	for _, p := range pairs {
-		if err := agent.ValidateSecret(p.Name, p.Value); err != nil {
+		if err := signin.ValidateSecret(p.Name, p.Value); err != nil {
 			return fail("vault import: %s: %v", name, err)
 		}
 	}

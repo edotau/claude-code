@@ -14,10 +14,10 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/edotau/claude-code/internal/buildver"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/schemas"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 const (
@@ -306,9 +306,9 @@ func Reclaim(ctx context.Context, port int, force bool) error {
 		return fmt.Errorf("%w (127.0.0.1:%d answers as a proxy of another config dir or host, left alone); pass --port",
 			ErrForeignHolder, port)
 	}
-	if !force && st.Build != buildver.Version() && (st.Inflight > 0 || st.Sessions > 0) {
+	if !force && st.Build != textutil.BuildVersion() && (st.Inflight > 0 || st.Sessions > 0) {
 		fmt.Fprintf(os.Stderr, "proxy: keeping running proxy pid %d (build %s) with live work; this build %s not taking over\n",
-			pid, st.Build, buildver.Version())
+			pid, st.Build, textutil.BuildVersion())
 		return ErrKeptHolder
 	}
 	if err := terminateHolder(pid); err != nil {

@@ -18,6 +18,7 @@ import (
 	"github.com/edotau/claude-code/internal/databricks"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/secretstore"
 	uidialog "github.com/edotau/claude-code/internal/ui/dialog"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -579,5 +580,43 @@ func TestDbxIdentitySavesRowAndSealedSecret(t *testing.T) {
 	}
 	if err := dbxSaveIdentity(d, "dev", providers.IdentitySP, "", ""); err == nil {
 		t.Error("sp without a client id was accepted")
+	}
+}
+
+// A failed row write must not leave the new secret paired with the old client id: the previous secret is restored.
+func TestDbxSaveIdentityRollsBackSecretOnRowFailure(t *testing.T) {
+	name := providers.SecretName(providers.GroupDatabricks, "dev", providers.AuthM2M)
+	for _, tc := range []struct {
+		label, prev string
+	}{{"previous secret restored", "sp-secret-OLD"}, {"no previous secret removed", ""}} {
+		t.Run(tc.label, func(t *testing.T) {
+			d := dbxEnv(t)
+			if tc.prev != "" {
+				if err := secretstore.Store(name, tc.prev); err != nil {
+					t.Fatal(err)
+				}
+			}
+			orig := dbxSetRow
+			dbxSetRow = func(string, map[string]any) error { return errors.New("overlay write failed") }
+			t.Cleanup(func() { dbxSetRow = orig })
+
+			err := dbxSaveIdentity(d, "dev", providers.IdentitySP, "sp-client-2", "sp-secret-NEW")
+			if err == nil || !strings.Contains(err.Error(), "overlay write failed") {
+				t.Fatalf("err = %v, want the row-write error", err)
+			}
+			if strings.Contains(err.Error(), "sp-secret") || strings.Contains(dbxOut(d), "sp-secret") {
+				t.Errorf("secret leaked: err=%v out=%q", err, dbxOut(d))
+			}
+			got, found, rerr := vault.ReadSecret(name)
+			if rerr != nil {
+				t.Fatal(rerr)
+			}
+			if found != (tc.prev != "") || got != tc.prev {
+				t.Errorf("stored secret found=%v value=%q, want %q", found, got, tc.prev)
+			}
+			if d.changed {
+				t.Error("dialog marked changed after a failed save")
+			}
+		})
 	}
 }

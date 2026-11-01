@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/ui/helptext"
@@ -50,7 +49,7 @@ func gatewayRoute(args []string, withProxy bool) int {
 	if *want != "" && !slices.Contains(router.TableAgents, *want) {
 		return fail(name+": --agent %q unknown (%s)", *want, strings.Join(router.TableAgents, "|"))
 	}
-	res, err := previewRoute(*model, *task, *want, *fallback)
+	res, err := agent.PreviewRoute(*model, *task, *want, *fallback, routeRefresh)
 	if err != nil {
 		return fail(name+": %v", err)
 	}
@@ -81,52 +80,6 @@ func gatewayRoute(args []string, withProxy bool) int {
 		printProxyState(ps)
 	}
 	return 0
-}
-
-// previewRoute resolves the pick through the chain `ask` runs, so each candidate carries the model it would execute;
-// a dispatch dropped after the pick (model or profile gate) moves to Skipped. It starts no agent.
-func previewRoute(model, task, want, fallback string) (router.PickResult, error) {
-	tb, err := router.Load()
-	if err != nil {
-		return router.PickResult{}, err
-	}
-	id, _, ok := models.Resolve(model)
-	if exact := ok && models.FamilyKind(id) != models.FamilyClaude; model != "" && model != router.BYOKModel && !exact && tb.AliasOf(model) == "" {
-		return router.PickResult{}, fmt.Errorf("--model %q names no alias or version the table routes", model)
-	}
-	hint := tb.AliasOf(model)
-	if hint == "" && task != "" {
-		hint = router.RuleClassifier{}.Alias(task)
-	}
-	if hint == "" {
-		hint = router.Aliases[1]
-	}
-	chain, pick, err := agent.RouteChainFor(context.Background(), want, model, hint, fallback, false,
-		router.PickOpts{Refresh: routeRefresh, WorkRepo: func() bool { return router.IsWorkRepo("") }})
-	if err != nil {
-		return router.PickResult{}, err
-	}
-	res := pick
-	res.Candidates = nil
-	dispatches := chain.Dispatches
-	for _, c := range pick.Candidates {
-		if len(dispatches) == 0 || dispatches[0].Agent.Name() != c.Agent || dispatches[0].Account != c.Account {
-			continue
-		}
-		if c.Agent != "claude" { // the terminal claude hop keeps its cell id; dispatch passes the same row's alias
-			c.Model, c.Effort = dispatches[0].Model, dispatches[0].Effort
-		}
-		res.Candidates, dispatches = append(res.Candidates, c), dispatches[1:]
-	}
-	res.Skipped = slices.Clone(pick.Skipped)
-	for _, s := range chain.Skipped {
-		if slices.ContainsFunc(pick.Skipped, func(k router.Skip) bool { return s == k.Agent+": "+k.Reason }) {
-			continue
-		}
-		who, why, _ := strings.Cut(s, ": ")
-		res.Skipped = append(res.Skipped, router.Skip{Agent: who, Gate: "model", Reason: why})
-	}
-	return res, nil
 }
 
 // routeSources names where each routing knob printed by `gateway router` came from.

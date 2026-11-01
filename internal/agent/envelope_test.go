@@ -270,3 +270,37 @@ func TestRanOnClaimsOnlyARunThatHappened(t *testing.T) {
 		t.Error("a dispatch that started and failed did run")
 	}
 }
+
+// The envelope's new fields are omitted, not null or empty, when unset.
+func TestEnvelopeNewFieldsOmitEmpty(t *testing.T) {
+	keys := func(env agent.Envelope) map[string]json.RawMessage {
+		b, err := json.Marshal(env)
+		if err != nil {
+			t.Fatal(err)
+		}
+		m := map[string]json.RawMessage{}
+		if err := json.Unmarshal(b, &m); err != nil {
+			t.Fatal(err)
+		}
+		return m
+	}
+	empty := keys(agent.NewEnvelope(agent.Result{Agent: "claude", Status: agent.StatusOK, Usage: agent.Usage{InputTokens: 1}}, nil, "d"))
+	for _, k := range []string{"emulated", "structured", "schema_unchecked"} {
+		if _, ok := empty[k]; ok {
+			t.Errorf("%s present on an empty result", k)
+		}
+	}
+	if strings.Contains(string(empty["usage"]), "cost_usd") {
+		t.Errorf("usage = %s, cost_usd must be absent when zero", empty["usage"])
+	}
+	full := keys(agent.NewEnvelope(agent.Result{Agent: "claude", Status: agent.StatusOK, Emulated: []string{"--output-schema"},
+		Structured: json.RawMessage(`{"a":1}`), SchemaUnchecked: []string{"pattern"}, Usage: agent.Usage{CostUSD: 0.5}}, nil, "d"))
+	for k, v := range map[string]string{"emulated": `["--output-schema"]`, "structured": `{"a":1}`, "schema_unchecked": `["pattern"]`} {
+		if string(full[k]) != v {
+			t.Errorf("%s = %s, want %s", k, full[k], v)
+		}
+	}
+	if !strings.Contains(string(full["usage"]), `"cost_usd":0.5`) {
+		t.Errorf("usage = %s, want cost_usd", full["usage"])
+	}
+}

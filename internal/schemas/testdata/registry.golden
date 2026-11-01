@@ -49,7 +49,7 @@ oauth-usage-cache | cache | 1 | state/harness/cache/claude-oauth-usage.json | in
 opencode-auth-cache | cache | 1 | state/harness/vendors/opencode-auth.json | internal/opencode | keep
 opencode-models-check | cache | 1 | state/harness/opencode-models-check.json | internal/opencode | keep
 opencode-overlay | derived | 1 | state/harness/opencode/*.json | internal/agentconfig | keep
-projections | derived | 1 | state/projections/* | internal/agent/project | clean:projections
+projections | derived | 1 | state/projections/* | internal/agentconfig/project | clean:projections
 quota | derived | 0 | state/harness/quota.json | internal/router | keep
 router-runtime | record | 1 | state/harness/proxy.json | internal/proxy | keep
 router-sessions | record | 1 | state/harness/proxy/sessions.json | internal/proxy | keep
@@ -57,7 +57,7 @@ served-models | cache | 1 | state/harness/preflight/*.json | internal/router | k
 settings-overlay | derived | 1 | state/harness/overlay-*.json | internal/agent | keep
 setup-state | record | 1 | state/harness/setup.json | internal/setup | keep
 stop-format | cache | 1 | state/harness/stop-format/*.json | internal/hooks | keep
-tailscale-machines | cache | 1 | state/harness/tailscale-machines.json | internal/cli | keep
+tailscale-machines | cache | 1 | state/harness/tailscale-machines.json | internal/network/tailscale | keep
 token-expiry | cache | 1 | state/harness/cache/token-expiry/*.json | internal/providers | keep
 transcript-summary | cache | 1 | state/harness/transcript/summary.json | internal/transcript | keep
 usage-ledger | log | 1 | state/usage/ledger.jsonl | internal/tokenledger | keep

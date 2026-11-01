@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"slices"
@@ -15,7 +14,6 @@ import (
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/schemas"
 	"github.com/edotau/claude-code/internal/secretstore"
 	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/ui/helptext"
@@ -153,54 +151,6 @@ func worktreeNames() []string {
 		}
 	}
 	return out
-}
-
-// dispatchCacheSchema is the cache's current schema version; a mismatch is a cache miss, never migrated.
-const dispatchCacheSchema = 1
-
-var dispatchCacheFormat = schemas.Register(schemas.Format{
-	Name: "tailscale-machines", Owner: "internal/cli", Kind: schemas.Cache,
-	Glob:    func() string { return dispatchCachePath() },
-	New:     func() any { return &dispatchMachineCache{} },
-	Version: dispatchCacheSchema, Keep: "rebuildable cache; a version mismatch is a miss",
-})
-
-// dispatchCachePath is where `network tailscale --machines` leaves its last successful listing for completion
-// to read; completion never calls the network itself.
-func dispatchCachePath() string { return filepath.Join(paths.StateDir(), "tailscale-machines.json") }
-
-// dispatchCacheTTL bounds how stale the cached machine list may be before completion ignores it.
-const dispatchCacheTTL = 10 * time.Minute
-
-type dispatchMachineCache struct {
-	Schema int       `json:"schema"`
-	At     time.Time `json:"at"`
-	Names  []string  `json:"names"`
-}
-
-// writeDispatchCache is called by `network tailscale --machines` on a successful listing; best-effort, never
-// surfaced as an error to the caller.
-func writeDispatchCache(names []string) {
-	data, err := json.Marshal(dispatchMachineCache{Schema: dispatchCacheSchema, At: time.Now(), Names: names})
-	if err != nil {
-		return
-	}
-	_ = os.MkdirAll(paths.StateDir(), 0o700)
-	_ = os.WriteFile(dispatchCachePath(), data, 0o600)
-}
-
-// dispatchHostNames reads the cache `network tailscale --machines` last wrote, when it's fresh enough; nil
-// (never an error, never a network call) otherwise — the Tab path has no time budget for ssh/API calls.
-func dispatchHostNames() []string {
-	data, err := os.ReadFile(dispatchCachePath())
-	if err != nil {
-		return nil
-	}
-	var c dispatchMachineCache
-	if !schemas.DecodeOK(dispatchCacheFormat, data, &c) || time.Since(c.At) > dispatchCacheTTL {
-		return nil
-	}
-	return c.Names
 }
 
 // webViewAgentIDs lists subagent ids from the current project's most recent sessions — a bounded

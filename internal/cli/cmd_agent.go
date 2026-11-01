@@ -10,19 +10,24 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agent/explore"
+	"github.com/edotau/claude-code/internal/agent/job"
 	"github.com/edotau/claude-code/internal/agent/review"
-	"github.com/edotau/claude-code/internal/agent/transfer"
 	"github.com/edotau/claude-code/internal/copilot"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/shapes"
+	"github.com/edotau/claude-code/internal/transcript"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
-// agentSubverbs are the words AgentVerb routes to agentSub.
-var agentSubverbs = map[string]bool{
-	"resume": true, "status": true, "tail": true, "result": true, "cancel": true, "setup": true, "catalog": true,
-	"review": true, "transfer": true, "explore": true, "profile": true, "on": true, "off": true,
-}
+// agentSubverbs are the words AgentVerb routes to agentSub: the keys of agentSubPages.
+var agentSubverbs = func() map[string]bool {
+	m := make(map[string]bool, len(agentSubPages))
+	for verb := range agentSubPages {
+		m[verb] = true
+	}
+	return m
+}()
 
 // agentAbout expands each agent's one-line menu summary for its help page.
 var agentAbout = map[string]string{
@@ -93,14 +98,18 @@ var agentSubPages = map[string][2]string{
 	"transfer": {"transfer [flags] [note…]", "Hand this Claude session's transcript to %s, detached unless --wait."},
 }
 
+// firstPositional is pos[0], or "" when there is none.
+func firstPositional(pos []string) string {
+	if len(pos) == 0 {
+		return ""
+	}
+	return pos[0]
+}
+
 // agentSubPage is the help page for `<agent> <verb>`.
 func agentSubPage(name, verb string) helptext.Page {
 	sp := agentSubPages[verb]
-	about := sp[1]
-	if strings.Contains(about, "%") {
-		about = fmt.Sprintf(about, name)
-	}
-	page := helptext.Page{Usage: "claude-code " + name + " " + sp[0], About: about}
+	page := helptext.Page{Usage: "claude-code " + name + " " + sp[0], About: fmt.Sprintf(sp[1], name)}
 	if s, _ := agent.LookupSchema(name); verb == "catalog" {
 		page.Hint = s.CLI.CatalogHint
 	}
@@ -184,20 +193,14 @@ func agentStatus(name string, args []string) int {
 	if err := helptext.CheckFormat(*format); err != nil {
 		return badFormat(name+" status", err)
 	}
-	ref := ""
-	if len(pos) > 0 {
-		ref = pos[0]
-	}
+	ref := firstPositional(pos)
 	cwd, _ := os.Getwd()
-	rows, err := agent.Status(context.Background(), name, cwd, ref, *all)
+	rows, err := job.Status(context.Background(), name, cwd, ref, *all)
 	if err != nil {
 		return fail("%s status: %v", name, err)
 	}
 	if *format == helptext.JSON {
-		if err := helptext.WriteJSON(os.Stdout, rows); err != nil {
-			return fail("%s status: %v", name, err)
-		}
-		return 0
+		return writeJSONOrFail(name+" status", rows)
 	}
 	if len(rows) == 0 {
 		fmt.Printf("no %s dispatches logged yet\n", name)
@@ -217,14 +220,11 @@ func agentTail(name string, args []string) int {
 	if err != nil {
 		return helptext.ExitCode(err)
 	}
-	ref := ""
-	if len(pos) > 0 {
-		ref = pos[0]
-	}
+	ref := firstPositional(pos)
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 	cwd, _ := os.Getwd()
-	rec, err := agent.Tail(ctx, name, cwd, ref, *follow, os.Stdout)
+	rec, err := job.Tail(ctx, name, cwd, ref, *follow, os.Stdout)
 	if err != nil {
 		return fail("%s tail: %v", name, err)
 	}
@@ -233,15 +233,11 @@ func agentTail(name string, args []string) int {
 
 // tailExit is a tail's exit code: 1 for an errored job, or for a followed job that is still "running" (lost).
 func tailExit(rec agent.Record, follow bool) int {
-	switch {
-	case rec.Status == "error":
-		fmt.Fprintf(os.Stderr, "error: %s\n", shapes.Redact(rec.Error)) // the stderr tail in it may carry a key
-		return 1
-	case rec.Status == "running" && follow:
+	if rec.Status == "running" && follow {
 		fmt.Fprintf(os.Stderr, "error: job %s is lost (process gone)\n", rec.ID)
 		return 1
 	}
-	return 0
+	return resultExit(rec)
 }
 
 // agentResult is `claude-code <v> result [id] [--format text|json]`.
@@ -255,12 +251,9 @@ func agentResult(name string, args []string) int {
 	if err := helptext.CheckFormat(*format); err != nil {
 		return badFormat(name+" result", err)
 	}
-	ref := ""
-	if len(pos) > 0 {
-		ref = pos[0]
-	}
+	ref := firstPositional(pos)
 	cwd, _ := os.Getwd()
-	rec, log, err := agent.JobResult(context.Background(), name, cwd, ref)
+	rec, log, err := job.JobResult(context.Background(), name, cwd, ref)
 	if err != nil {
 		return fail("%s result: %v", name, err)
 	}
@@ -282,9 +275,16 @@ func agentResult(name string, args []string) int {
 	}
 	if rec.SessionID != "" {
 		fmt.Printf("session: %s\n", rec.SessionID)
-		fmt.Printf("resume: %s\n", s.ResumeHint(rec.SessionID))
+		printResumeHint(s, rec.SessionID)
 	}
 	return resultExit(rec)
+}
+
+// printResumeHint prints the agent's resume command for a session; nothing when it has none (ResumeHint("") is "").
+func printResumeHint(s agent.Schema, sessionID string) {
+	if hint := s.ResumeHint(sessionID); hint != "" {
+		fmt.Printf("resume: %s\n", hint)
+	}
 }
 
 // resultExit reports a failed job's error on stderr and returns 1; a finished ok job returns 0.
@@ -304,7 +304,7 @@ func agentCancel(name string, args []string) int {
 	}
 	ref := fs.Arg(0)
 	cwd, _ := os.Getwd()
-	rec, err := agent.CancelJob(context.Background(), name, cwd, ref)
+	rec, err := job.CancelJob(context.Background(), name, cwd, ref)
 	if err != nil {
 		return fail("%s cancel: %v", name, err)
 	}
@@ -390,7 +390,7 @@ func agentExplore(name string, args []string) int {
 		return fail("%s explore: usage: claude-code %s explore [--no-web] [--background] <question>", name, name)
 	}
 	cwd, _ := os.Getwd()
-	askArgs := ExploreArgs(name, cwd, question, !*noWeb, *background)
+	askArgs := explore.Args(name, cwd, question, !*noWeb, *background)
 	if *format != "text" {
 		task := askArgs[len(askArgs)-1]
 		askArgs = append(askArgs[:len(askArgs)-1], "--format", *format, task)
@@ -409,29 +409,27 @@ func agentTransfer(name string, args []string) int {
 	cwd, _ := os.Getwd()
 	src := *source
 	if src != "" {
-		if err := transfer.ValidateSource(src); err != nil {
+		if err := transcript.ValidateSource(src); err != nil {
 			return fail("%s transfer: %v", name, err)
 		}
 	} else {
 		var err error
-		src, err = transfer.DefaultSource(cwd)
+		src, err = transcript.DefaultSource(cwd)
 		if err != nil {
 			return fail("%s transfer: %v", name, err)
 		}
 	}
 	fmt.Fprintf(os.Stderr, "transfer: source %s\n", src)
 	note := strings.Join(fs.Args(), " ")
-	prompt, err := transfer.Handoff(src, cwd, note)
+	prompt, err := transcript.Handoff(src, cwd, note)
 	if err != nil {
 		return fail("%s transfer: %v", name, err)
 	}
-	code := cmdAsk(transfer.TransferArgs(name, cwd, prompt, *wait))
+	code := cmdAsk(transcript.TransferArgs(name, cwd, prompt, *wait))
 	if code == 0 && *wait {
-		if rec, _, err := agent.JobResult(context.Background(), name, cwd, ""); err == nil {
+		if rec, _, err := job.JobResult(context.Background(), name, cwd, ""); err == nil {
 			s, _ := agent.LookupSchema(name)
-			if hint := s.ResumeHint(rec.SessionID); hint != "" {
-				fmt.Printf("resume: %s\n", hint)
-			}
+			printResumeHint(s, rec.SessionID)
 		}
 	}
 	return code
@@ -464,7 +462,10 @@ func agentModels(name string, args []string) int {
 			return fail("%s catalog: %v", name, err)
 		}
 		if cat.Databricks {
-			return printCopilotCatalog(name, cat, format)
+			if err := cat.Write(os.Stdout, format); err != nil {
+				return fail("%s catalog: %v", name, err)
+			}
+			return 0
 		}
 		if format == helptext.Text {
 			fmt.Println(cat.Source)
@@ -492,14 +493,6 @@ func agentModels(name string, args []string) int {
 	}
 }
 
-// printCopilotCatalog prints a Databricks row's chat endpoints as a NAME / TESTED table, or JSON.
-func printCopilotCatalog(name string, cat copilot.CopilotCatalog, format string) int {
-	if err := cat.Write(os.Stdout, format); err != nil {
-		return fail("%s catalog: %v", name, err)
-	}
-	return 0
-}
-
 // launchFlags lists the harness flags a bare launch consumes (agent.ParseArgs) for the help page.
 func launchFlags(name string) *flag.FlagSet {
 	fs := helptext.NewFlagSet(name, helptext.Page{Usage: "claude-code " + name}) // display only; ParseArgs parses
@@ -518,7 +511,7 @@ func launchFlags(name string) *flag.FlagSet {
 }
 
 // statusDetail is a status row's tail: progress and preview, or the preview plus the one-line error text.
-func statusDetail(r agent.Row) string {
+func statusDetail(r job.Row) string {
 	d := r.Preview
 	if r.Progress != "" {
 		d = "[" + r.Progress + "] " + d

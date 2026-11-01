@@ -65,11 +65,14 @@ func cmdNetwork(args []string) int {
 	case "vscode":
 		return cmdNetworkVSCode(rest)
 	}
-	return fail("network: unknown subcommand %q (tailscale|browser|websearch|mcp|page|view|vscode|restart|remote)", args[0])
+	names := make([]string, len(networkPage.Commands))
+	for i, c := range networkPage.Commands {
+		names[i] = c[0]
+	}
+	return fail("network: unknown subcommand %q (%s)", args[0], strings.Join(names, "|"))
 }
 
-// cmdNetworkMCP reads every MCP scope Claude Code uses, runs live connect health, and flags
-// cross-scope drift and inline plaintext secrets. Read-only; exit 1 on any Failed server or secret.
+// cmdNetworkMCP reads every MCP scope, runs live health, and flags drift and plaintext secrets; exit 1 on any.
 func cmdNetworkMCP(args []string) int {
 	fs := helptext.NewFlagSet("network mcp", helptext.Page{Usage: "claude-code network mcp [flags]",
 		About: "Live health of every MCP server, plus cross-scope drift and inline plaintext secrets.\n" +
@@ -91,7 +94,7 @@ func cmdNetworkMCP(args []string) int {
 		filepath.Join(paths.ConfigDir(), "settings.json"),
 		filepath.Join(paths.ConfigDir(), "settings.local.json"),
 	}
-	code := mcp.Doctor(os.Stdout, mcp.Options{
+	return mcp.Doctor(os.Stdout, mcp.Options{
 		UserPath:      paths.ClaudeJSON(),
 		ProjectFiles:  []string{filepath.Join(cwd, ".mcp.json")},
 		SettingsFiles: settingsFiles,
@@ -99,11 +102,9 @@ func cmdNetworkMCP(args []string) int {
 		Home:          home,
 		JSON:          *format == helptext.JSON,
 	})
-	return code
 }
 
-// cmdNetworkWebsearch: bare `network websearch` runs the stdio MCP server (Claude Code invokes this); `network websearch <query>`
-// or --query is a one-shot Tavily print for Bash/skill use. Both Tavily-backed (internal/network/mcp).
+// cmdNetworkWebsearch runs the stdio MCP server when bare, or a one-shot Tavily print for a query or --query.
 func cmdNetworkWebsearch(args []string) int {
 	fs := helptext.NewFlagSet("network websearch", helptext.Page{Usage: "claude-code network websearch [flags] [<query>]",
 		About: "Bare: the stdio MCP web-search server Claude Code runs. A query (or --query)\n" +
@@ -241,7 +242,7 @@ func cmdNetworkView(args []string) int {
 	if err != nil {
 		return fail("network view: %v", err)
 	}
-	if *format == "json" {
+	if *format == helptext.JSON {
 		if err := helptext.WriteJSON(os.Stdout, snap); err != nil {
 			return fail("network view: %v", err)
 		}

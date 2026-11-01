@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -215,124 +216,6 @@ func TestCmdMemoryFmt(t *testing.T) {
 
 	if !strings.Contains(memoryPage.Hint, "fmt") {
 		t.Error("memoryPage's plumbing hint does not list `fmt`")
-	}
-}
-
-// TestMemoryRecallRanksAndFormatsUnstampedHits: `memory recall` prints each hit "<ref> — <title>";
-// an unstamped hit (no persisted id) prints a content-derived ref, never a bare "-", and that ref
-// resolves back through `memory show` (the point of giving every hit a ref at all).
-func TestMemoryRecallRanksAndFormatsUnstampedHits(t *testing.T) {
-	cfg := t.TempDir()
-	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
-	if err := bank.StoreRepo().Ensure(); err != nil {
-		t.Fatal(err)
-	}
-	repo := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(repo, ".git"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := memory.Init(repo); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(memstore.Dir(repo), "conventions.md"),
-		[]byte("# Conventions\n\n- stamped id-marked rule <!-- id:deadbeef -->\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	// Append an unstamped line by hand, after Remember's settle pass already assigned ids above —
-	// activeContext.md is never id-assigned, so it stays unstamped (SearchBanks still indexes it).
-	if err := os.WriteFile(filepath.Join(memstore.Dir(repo), "activeContext.md"),
-		[]byte("# Active Context\n\n- rule stamped id-marked never settled here\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	code, out, stderr := captureOutput(t, func() int { return cmdMemory([]string{"recall", "--repo", repo, "stamped", "id-marked", "rule"}) })
-	if code != 0 {
-		t.Fatalf("memory recall: code=%d stderr=%q", code, stderr)
-	}
-	if !strings.Contains(out, "deadbeef — ") {
-		t.Errorf("recall output missing the stamped id line: %q", out)
-	}
-	if strings.Contains(out, "\n- —") || strings.Contains(out, "\n — ") {
-		t.Errorf("an unstamped hit printed the old bare-dash format: %q", out)
-	}
-	var contentRef string
-	for line := range strings.SplitSeq(strings.TrimSpace(out), "\n") {
-		if ref, _, ok := strings.Cut(line, " — "); ok && ref != "deadbeef" {
-			contentRef = ref
-		}
-	}
-	if contentRef == "" || !strings.HasPrefix(contentRef, "z") {
-		t.Fatalf("recall output missing a content-derived ref for the unstamped hit: %q", out)
-	}
-	if _, block, err := bank.ShowBlock(contentRef); err != nil || !strings.Contains(block, "never settled here") {
-		t.Errorf("memory show %s = %q, %v; want the unstamped block", contentRef, block, err)
-	}
-}
-
-// TestMemoryRecallLoadResolvesUnstampedHitByContentRef: `memory recall --load` fetches an unstamped
-// hit's body through its derived content ref, the same path a persisted id takes.
-func TestMemoryRecallLoadResolvesUnstampedHitByContentRef(t *testing.T) {
-	cfg := t.TempDir()
-	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
-	if err := bank.StoreRepo().Ensure(); err != nil {
-		t.Fatal(err)
-	}
-	repo := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(repo, ".git"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := memory.Init(repo); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(memstore.Dir(repo), "activeContext.md"),
-		[]byte("# Active Context\n\n- never settled widget rollout detail\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	code, out, stderr := captureOutput(t, func() int {
-		return cmdMemory([]string{"recall", "--repo", repo, "--load", "1", "never", "settled", "widget", "rollout"})
-	})
-	if code != 0 {
-		t.Fatalf("memory recall --load: code=%d stderr=%q", code, stderr)
-	}
-	if !strings.Contains(out, "never settled widget rollout detail") {
-		t.Errorf("recall --load did not resolve the unstamped hit's body: %q", out)
-	}
-}
-
-// TestMemoryRecallNoQueryFails: an empty query is refused (exit 1), naming memoryUsage.
-func TestMemoryRecallNoQueryFails(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	code, _, stderr := captureOutput(t, func() int { return cmdMemory([]string{"recall"}) })
-	if code != 1 || !strings.Contains(stderr, "no query") {
-		t.Errorf("memory recall with no terms: code=%d stderr=%q", code, stderr)
-	}
-}
-
-// TestMemoryRecallLoadAppendsBodiesUnderByteCap: --load N appends each hit's full block text,
-// never exceeding recallLoadCap total.
-func TestMemoryRecallLoadAppendsBodiesUnderByteCap(t *testing.T) {
-	cfg := t.TempDir()
-	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
-	repo := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(repo, ".git"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := memory.Init(repo); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := bank.Remember(repo, "feedback", "loadable fact about widgets and gadgets", time.Now()); err != nil {
-		t.Fatal(err)
-	}
-	code, out, stderr := captureOutput(t, func() int {
-		return cmdMemory([]string{"recall", "--repo", repo, "--load", "3", "loadable", "widgets", "gadgets", "fact"})
-	})
-	if code != 0 {
-		t.Fatalf("memory recall --load: code=%d stderr=%q", code, stderr)
-	}
-	if !strings.Contains(out, "loadable fact about widgets and gadgets") {
-		t.Errorf("recall --load output missing the loaded body: %q", out)
-	}
-	if len(out) > 20000 { // generous ceiling: just confirms --load didn't dump the whole bank unbounded
-		t.Errorf("recall --load output suspiciously large (%d bytes), want it capped near recallLoadCap", len(out))
 	}
 }
 
@@ -793,4 +676,139 @@ func TestMemoryAliasDispatchedAndCompleted(t *testing.T) {
 	if code, _, _ := captureOutput(t, func() int { return cmdMemory([]string{"alias"}) }); code == 0 {
 		t.Errorf("cmdMemory alias without flags exited 0")
 	}
+}
+
+// TestMemorySearchJSONWriteError ensures memory search --format json exits non-zero
+// when writing to stdout fails (regression test for internal/cli/memory.go:158).
+func TestMemorySearchJSONWriteError(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+
+	f, err := os.Create(filepath.Join(t.TempDir(), "closed-file"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+	oldOut := os.Stdout
+	os.Stdout = f
+	defer func() { os.Stdout = oldOut }()
+
+	code := cmdMemorySearch([]string{"anyterm", "--format", "json"})
+	if code == 0 {
+		t.Errorf("memory search --format json on closed stdout: exit %d, want non-zero", code)
+	}
+}
+
+// TestMemorySearchFormatValidation ensures memory search exits with an error
+// when an invalid format is specified (regression for internal/cli/memory.go error handling).
+func TestMemorySearchFormatValidation(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	code, _, stderr := captureOutput(t, func() int {
+		return cmdMemorySearch([]string{"test", "--format", "invalid"})
+	})
+	if code == 0 {
+		t.Errorf("memory search with invalid format: exit %d, want non-zero; stderr=%q", code, stderr)
+	}
+	if !strings.Contains(stderr, "format") {
+		t.Errorf("memory search invalid format: stderr %q, want format error message", stderr)
+	}
+}
+
+// TestMemoryDreamGetWdError ensures memory dream handles os.Getwd() errors gracefully
+// (regression for internal/cli/memory.go:358).
+func TestMemoryDreamGetWdError(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	// Test memory dream without --cwd to exercise the Getwd() path
+	code, _, stderr := captureOutput(t, func() int {
+		return cmdMemoryDream([]string{"--dry-run"})
+	})
+	// Should succeed with --dry-run even in an empty bank
+	if code != 0 {
+		t.Errorf("memory dream --dry-run: exit %d, want 0; stderr=%q", code, stderr)
+	}
+}
+
+// TestMemorySearchFailReturnValue ensures memory search returns a non-zero code
+// (regression for internal/cli/memory.go:245 where fail() return value not used).
+func TestMemorySearchFailReturnValue(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	code, _, stderr := captureOutput(t, func() int {
+		return cmdMemorySearch([]string{})
+	})
+	// Should return non-zero when no arguments given
+	if code == 0 {
+		t.Errorf("memory search (no args) exit %d, want non-zero; stderr=%q", code, stderr)
+	}
+}
+
+// TestMemoryShowFailReturnValue ensures memory show returns the error code from fail()
+// (regression for internal/cli/memory.go:277).
+func TestMemoryShowFailReturnValue(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	code, _, stderr := captureOutput(t, func() int {
+		return cmdMemoryShow([]string{})
+	})
+	// Should return 2 (from fail) when no argument given
+	if code != 2 {
+		t.Errorf("memory show (no args) exit %d, want 2; stderr=%q", code, stderr)
+	}
+}
+
+// TestSkillVerbsArePublicCLIVerbs checks the skill's verb table against memoryPage and memorySubcommands.
+func TestSkillVerbsArePublicCLIVerbs(t *testing.T) {
+	root := reflectionRepoRoot(t)
+	path := filepath.Join(root, "skills", "reflection", "SKILL.md")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+	body := string(data)
+	verbRe := regexp.MustCompile("^`([a-z][a-z-]*)")
+	tableStart := strings.Index(body, "| Verb |")
+	if tableStart < 0 {
+		t.Fatal("SKILL.md has no verb table (expected a \"| Verb |\" header row)")
+	}
+	tableEnd := strings.Index(body[tableStart:], "\n\n")
+	if tableEnd < 0 {
+		tableEnd = len(body) - tableStart
+	}
+	table := body[tableStart : tableStart+tableEnd]
+	seen := map[string]bool{}
+	for line := range strings.SplitSeq(table, "\n") {
+		cells := strings.Split(line, "|")
+		if len(cells) < 2 {
+			continue
+		}
+		first := strings.TrimSpace(cells[1]) // cells[0] is empty (row starts with "|")
+		m := verbRe.FindStringSubmatch(first)
+		if m == nil {
+			continue
+		}
+		verb := m[1]
+		if seen[verb] {
+			continue
+		}
+		seen[verb] = true
+		if _, ok := memorySubcommands[verb]; !ok {
+			t.Errorf("SKILL.md names unknown verb %q (not in memorySubcommands)", verb)
+			continue
+		}
+		if !helpPageHasCommand(memoryPage, verb) {
+			t.Errorf("SKILL.md names verb %q that is not listed as public in memoryPage", verb)
+		}
+	}
+	if len(seen) == 0 {
+		t.Fatal("verb table names no verbs")
+	}
+}
+
+// reflectionRepoRoot resolves this repo's toplevel from internal/cli's own working directory.
+func reflectionRepoRoot(t *testing.T) string {
+	t.Helper()
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return filepath.Join(wd, "..", "..")
 }

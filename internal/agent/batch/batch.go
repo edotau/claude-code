@@ -25,6 +25,9 @@ import (
 // DefaultJobs is the default pool size: min(4, GOMAXPROCS).
 func DefaultJobs() int { return min(4, runtime.GOMAXPROCS(0)) }
 
+// DefaultToolsTimeout is the deadline of a fresh --tools run without an explicit timeout.
+const DefaultToolsTimeout = 45 * time.Minute
+
 // TaskLine is one `ask --batch` JSONL task; Tools stays nil when absent so the flag default applies.
 type TaskLine struct {
 	ID      string `json:"id"`
@@ -70,8 +73,7 @@ func ReadTaskLines(r io.Reader) ([]ParsedLine, error) {
 	}
 }
 
-// BatchTask is one scheduled task. Prepare routes it and builds its dispatch record when it is about to start, so a
-// cancelled queued task costs nothing; Err fails it before any run.
+// BatchTask is one scheduled task; Prepare routes it when it is about to start, and Err fails it before any run.
 type BatchTask struct {
 	ID      string
 	Agent   string // the agent asked for, named on a failure envelope
@@ -105,7 +107,7 @@ type batchDone struct {
 	ok  bool
 }
 
-// batchRun is the state shared by a batch's workers: the claimed record ids, the serialized log writer, the limiter.
+// batchRun is the state shared by a batch's workers: the serialized log writer, the limiter.
 type batchRun struct {
 	o    BatchOptions
 	logM sync.Mutex
@@ -114,7 +116,6 @@ type batchRun struct {
 }
 
 // RunBatch streams one envelope per task to o.Out as each finishes; true only if every task was ok.
-// Each task runs in its own goroutine and waits on the limiter per dispatch; the calling goroutine is the one writer.
 func RunBatch(ctx context.Context, tasks []BatchTask, o BatchOptions) bool {
 	jobs := max(cmp.Or(o.Jobs, DefaultJobs()), 1)
 	bctx, cancel := context.WithCancel(ctx)
@@ -129,7 +130,7 @@ func RunBatch(ctx context.Context, tasks []BatchTask, o BatchOptions) bool {
 		}
 		if !ok {
 			allOK = false
-			if o.FailFast && (env.Error == nil || env.Error.Kind != "canceled") {
+			if o.FailFast && cancelsBatch(env) {
 				cancel()
 			}
 		}
@@ -151,8 +152,7 @@ func RunBatch(ctx context.Context, tasks []BatchTask, o BatchOptions) bool {
 	return allOK
 }
 
-// feed prepares the queued tasks one at a time, in input order, each only once a global slot is free, and starts
-// them; a cancelled batch prepares and starts nothing more.
+// feed prepares queued tasks in input order, each once a slot is free; a cancelled batch starts nothing more.
 func (b *batchRun) feed(ctx context.Context, tasks []BatchTask, queue []int, done chan<- batchDone) {
 	for _, i := range queue {
 		t := tasks[i]
@@ -162,15 +162,16 @@ func (b *batchRun) feed(ctx context.Context, tasks []BatchTask, queue []int, don
 		if err == nil {
 			prepared, err = t.Prepare(ctx)
 		}
-		switch {
-		case err == nil:
+		switch err {
+		case nil:
 			go func() { defer agent.Settle(sctx); env, ok := b.run(sctx, t, prepared); done <- batchDone{i, env, ok} }()
-		case ctx.Err() != nil:
-			agent.Settle(sctx)
-			done <- batchDone{i, b.cancelled(t), false}
 		default:
+			cancelled := ctx.Err() != nil
+			if cancelled {
+				err = fmt.Errorf("cancelled before start: %w", context.Canceled)
+			}
 			agent.Settle(sctx)
-			if b.o.FailFast {
+			if b.o.FailFast && !cancelled {
 				b.stop() // before the next task is considered, so it never starts
 			}
 			done <- batchDone{i, taskFailure(t, err), false}
@@ -195,12 +196,8 @@ func taskFailure(t BatchTask, err error) agent.Envelope {
 	return env
 }
 
-// cancelled is the envelope of a queued task the batch cancelled before it started.
-func (b *batchRun) cancelled(t BatchTask) agent.Envelope {
-	env := agent.FailureEnvelope(t.Agent, fmt.Errorf("cancelled before start: %w", context.Canceled))
-	env.TaskID = t.ID
-	return env
-}
+// cancelsBatch reports whether a failed envelope should cancel a fail-fast batch: a cancellation itself does not.
+func cancelsBatch(env agent.Envelope) bool { return env.Error == nil || env.Error.Kind != "canceled" }
 
 // logf writes one progress line tagged with the task id.
 func (b *batchRun) logf(id, format string, a ...any) {
@@ -221,7 +218,7 @@ func (b *batchRun) run(ctx context.Context, t BatchTask, p *agent.Prepared) (env
 	}
 	start := time.Now()
 	defer func() { // runs after the recover below has set env: any failed task cancels before its slot is settled
-		if !ok && b.o.FailFast && (env.Error == nil || env.Error.Kind != "canceled") {
+		if !ok && b.o.FailFast && cancelsBatch(env) {
 			b.stop()
 		}
 	}()
@@ -252,7 +249,7 @@ func (b *batchRun) run(ctx context.Context, t BatchTask, p *agent.Prepared) (env
 
 var batchIDRE = regexp.MustCompile(`^[A-Za-z0-9._-]{1,64}$`)
 
-// ParseBatchTask validates one line like the ask flags; routing waits for Prepare. On error the task keeps its id and agent.
+// ParseBatchTask validates one line like the ask flags; on error the task keeps its id and agent.
 func ParseBatchTask(l ParsedLine, agentName string, base agent.RunOptions, timeoutSet bool, cwd string,
 	seen map[string]bool) (BatchTask, error) {
 	t := BatchTask{ID: cmp.Or(l.Task.ID, "t"+strconv.Itoa(l.N)), Agent: cmp.Or(l.Task.Agent, agentName)}
@@ -291,7 +288,7 @@ func ParseBatchTask(l ParsedLine, agentName string, base agent.RunOptions, timeo
 		}
 		req.Timeout = d
 	case req.Tools && !timeoutSet:
-		req.Timeout = 45 * time.Minute
+		req.Timeout = DefaultToolsTimeout
 	}
 	req.WorkDir = cmp.Or(tl.Workdir, base.WorkDir, cwd)
 	abs, err := filepath.Abs(req.WorkDir)

@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"os"
 	"os/exec"
@@ -36,11 +35,11 @@ func codexCatalogArgs(p *providers.Provider) []string {
 	}
 	path, missing, err := codexCatalogPath(p)
 	if err != nil {
-		fmt.Fprintln(agent.CatalogWarn, "codex catalog:", err)
+		fmt.Fprintln(agentconfig.CatalogWarn, "codex catalog:", err)
 		return nil
 	}
 	if missing != "" {
-		fmt.Fprintln(agent.CatalogWarn, "codex is missing metadata for "+missing+"; update codex")
+		fmt.Fprintln(agentconfig.CatalogWarn, "codex is missing metadata for "+missing+"; update codex")
 	}
 	if path == "" {
 		return nil
@@ -65,7 +64,7 @@ func codexCatalogPath(p *providers.Provider) (string, string, error) {
 	menu := providers.OpencodeMenu()
 	parts := []string{string(version), p.Name}
 	for _, m := range menu {
-		parts = append(parts, agent.MenuWire(p, m.ID), m.Label, strconv.FormatBool(m.Responses))
+		parts = append(parts, agentconfig.MenuWire(p, m.ID), m.Label, strconv.FormatBool(m.Responses))
 	}
 	rawKey, err := json.Marshal(parts)
 	if err != nil {
@@ -188,7 +187,7 @@ func buildCodexCatalog(p *providers.Provider, menu []providers.OpencodeModel, ra
 			continue
 		}
 		entry := cloneCodexMetadata(base).(map[string]any)
-		slug, label := agent.MenuWire(p, m.ID), m.Label+" · "+p.Name
+		slug, label := agentconfig.MenuWire(p, m.ID), m.Label+" · "+p.Name
 		entry["slug"], entry["display_name"] = slug, label
 		entry["visibility"], entry["supported_in_api"], entry["priority"] = "list", true, len(out)
 		entry["service_tiers"], entry["additional_speed_tiers"] = []any{}, []any{}

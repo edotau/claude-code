@@ -7,6 +7,7 @@ package usage
 import (
 	"context"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -87,26 +88,41 @@ func writeCopilotStore(t *testing.T) {
 
 // --- codex: parseCodexSession + codexUsage ---
 
-// TestParseCodexSessionFixture: the last token_count wins (cumulative, not summed), turns counts the
-// token_count lines (2), the model comes from turn_context, and the malformed line is skipped silently.
+// TestParseCodexSessionFixture: token_count lines are cumulative, so each line adds only its growth (850 then
+// 1350); turns counts the lines, the model comes from turn_context, the malformed line is skipped silently, and
+// the mix splits input_tokens (which already contains cached_input_tokens) into disjoint kinds.
 func TestParseCodexSessionFixture(t *testing.T) {
 	path := filepath.Join("testdata", "codex-session-fixture.jsonl")
-	got := parseCodexSession(path)
+	got := parseCodexSession(path, time.Time{}, "")
 	if got.Model != "gpt-6-astra" {
 		t.Errorf("model = %q, want gpt-6-astra", got.Model)
 	}
-	if got.Tokens != 2500 {
-		t.Errorf("tokens = %d, want 2500 (the LAST token_count, not the sum of 1000+2500)", got.Tokens)
+	if got.Tokens != 2200 || got.Turns != 2 {
+		t.Errorf("tokens/turns = %d/%d, want 2200/2 (growth summed, not the last total twice)", got.Tokens, got.Turns)
 	}
-	if got.Turns != 2 {
-		t.Errorf("turns = %d, want 2", got.Turns)
-	}
-	wantMix := tokenMix{Input: 2000, Output: 200, CacheRead: 300}
+	wantMix := tokenMix{Input: 1700, Output: 200, CacheRead: 300}
 	if got.Mix != wantMix {
-		t.Errorf("mix = %+v, want %+v (the LAST token_count's breakdown)", got.Mix, wantMix)
+		t.Errorf("mix = %+v, want %+v (cached tokens are not input as well)", got.Mix, wantMix)
 	}
-	if got.Day != "2026-10-23" {
-		t.Errorf("day = %q, want 2026-10-23 (the LAST token_count's timestamp, local)", got.Day)
+	dayTokens := 0
+	for _, d := range got.Days {
+		dayTokens += d.tokens
+	}
+	if len(got.Days) < 1 || dayTokens != 2200 {
+		t.Errorf("days = %+v, want the same 2200 tokens spread over the lines' own days", got.Days)
+	}
+}
+
+// TestParseCodexSessionCountsOnlyGrowthInsideWindow: with a cutoff between the two token_count lines only the
+// second line's growth (1350 = 2200-850) counts, and its mix is the delta, still summing to its tokens.
+func TestParseCodexSessionCountsOnlyGrowthInsideWindow(t *testing.T) {
+	cutoff := time.Date(2026, 10, 23, 0, 0, 0, 0, time.UTC)
+	got := parseCodexSession(filepath.Join("testdata", "codex-session-fixture.jsonl"), cutoff, "")
+	if got.Tokens != 1350 || got.Turns != 1 {
+		t.Fatalf("tokens/turns = %d/%d, want 1350/1 (the earlier 850 predates the window)", got.Tokens, got.Turns)
+	}
+	if want := (tokenMix{Input: 1050, Output: 150, CacheRead: 150}); got.Mix != want {
+		t.Errorf("mix = %+v, want %+v", got.Mix, want)
 	}
 }
 
@@ -124,7 +140,7 @@ func TestCodexUsageParsesFixture(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got := codexUsage(time.Now().Add(-24 * time.Hour))
+	got := codexUsage(time.Date(2026, 10, 21, 0, 0, 0, 0, time.UTC))
 	if got.Agent != "codex" {
 		t.Fatalf("agent = %q, want codex", got.Agent)
 	}
@@ -134,8 +150,8 @@ func TestCodexUsageParsesFixture(t *testing.T) {
 	if got.Turns != 2 {
 		t.Errorf("turns = %d, want 2", got.Turns)
 	}
-	if got.Tokens != 2500 {
-		t.Errorf("tokens = %d, want 2500 (last total, not summed)", got.Tokens)
+	if got.Tokens != 2200 {
+		t.Errorf("tokens = %d, want 2200", got.Tokens)
 	}
 	if len(got.Models) != 1 || got.Models[0].Provider != "openai" || got.Models[0].Model != "gpt-6-astra" {
 		t.Errorf("models = %+v, want one openai/gpt-6-astra row", got.Models)
@@ -334,7 +350,7 @@ func TestClaudeAgentUsageFoldsAggregate(t *testing.T) {
 	agg.Models["sonnet"] = &transcript.ModelUsage{InputTokens: 100}
 	agg.Models["haiku"] = &transcript.ModelUsage{InputTokens: 900}
 
-	got := claudeAgentUsage(agg, 3, nil)
+	got := claudeAgentUsage(&transcriptScan{agg: agg}, 3)
 	if got.Agent != "claude" {
 		t.Fatalf("agent = %q, want claude", got.Agent)
 	}
@@ -351,11 +367,11 @@ func TestClaudeAgentUsageFoldsAggregate(t *testing.T) {
 
 // TestClaudeAgentUsageEmptyAggregate: nil or model-less aggregate reports "no sessions in window".
 func TestClaudeAgentUsageEmptyAggregate(t *testing.T) {
-	got := claudeAgentUsage(nil, 0, nil)
+	got := claudeAgentUsage(nil, 0)
 	if got.Note != "no sessions in window" {
 		t.Errorf("nil aggregate note = %q, want %q", got.Note, "no sessions in window")
 	}
-	got = claudeAgentUsage(transcript.NewUsageAggregate(), 0, nil)
+	got = claudeAgentUsage(&transcriptScan{agg: transcript.NewUsageAggregate()}, 0)
 	if got.Note != "no sessions in window" {
 		t.Errorf("empty aggregate note = %q, want %q", got.Note, "no sessions in window")
 	}
@@ -371,7 +387,7 @@ func TestBuildAgentsUsageAlwaysReturnsFour(t *testing.T) {
 	t.Setenv("COPILOT_HOME", t.TempDir())
 	stubLookPathSqlite3(t, func() error { return nil })
 
-	got := buildAgentsUsage(transcript.NewUsageAggregate(), 0, 1, nil)
+	got := buildAgentsUsage(&transcriptScan{agg: transcript.NewUsageAggregate()}, "", 1)
 	if len(got) != 4 {
 		t.Fatalf("len = %d, want 4", len(got))
 	}
@@ -388,26 +404,25 @@ func TestBuildAgentsUsageAlwaysReturnsFour(t *testing.T) {
 // TestClaudeSessionCountExplicitSession: an explicit --session with files found counts as 1 session,
 // 0 when no files were found for it.
 func TestClaudeSessionCountExplicitSession(t *testing.T) {
-	if n := claudeSessionCount("", "sess-1", 1, 3); n != 1 {
+	if n := claudeSessionCount("sess-1", []string{"a.jsonl", "b.jsonl"}); n != 1 {
 		t.Errorf("explicit session with files = %d, want 1", n)
 	}
-	if n := claudeSessionCount("", "sess-1", 1, 0); n != 0 {
+	if n := claudeSessionCount("sess-1", nil); n != 0 {
 		t.Errorf("explicit session with no files = %d, want 0", n)
 	}
 }
 
-// TestClaudeSessionCountDaysWindow: with no --session, the count is the number of session dirs
-// modified within the window.
+// TestClaudeSessionCountDaysWindow: with no --session, the count is the distinct session dirs the in-window
+// files live under (workflow agents share their session's dir).
 func TestClaudeSessionCountDaysWindow(t *testing.T) {
-	claudeDir := t.TempDir()
-	for _, name := range []string{"proj-a", "proj-b"} {
-		dir := filepath.Join(claudeDir, "projects", name, "sess-1")
-		if err := os.MkdirAll(dir, 0o755); err != nil {
-			t.Fatal(err)
-		}
+	sep := string(filepath.Separator)
+	p := func(parts ...string) string { return strings.Join(parts, sep) }
+	files := []string{
+		p("c", "projects", "proj-a", "sess-1", "subagents", "agent-a.jsonl"),
+		p("c", "projects", "proj-a", "sess-1", "subagents", "workflows", "wf_1", "agent-b.jsonl"),
+		p("c", "projects", "proj-b", "sess-1", "subagents", "agent-a.jsonl"),
 	}
-	n := claudeSessionCount(claudeDir, "", 1, 0)
-	if n != 2 {
+	if n := claudeSessionCount("", files); n != 2 {
 		t.Errorf("session dirs = %d, want 2", n)
 	}
 }
@@ -453,5 +468,79 @@ func TestCopilotUsageLabelsBYOKRows(t *testing.T) {
 		if rowLabel(m.Provider, m.Profile) != want[m.Model] {
 			t.Errorf("%s labelled %q, want %q", m.Model, rowLabel(m.Provider, m.Profile), want[m.Model])
 		}
+	}
+}
+
+// mixSum is the four token kinds of a mix added up.
+func mixSum(m *tokenMix) int {
+	if m == nil {
+		return 0
+	}
+	return m.Input + m.Output + m.CacheRead + m.CacheWrite
+}
+
+// TestAgentMixSumsToTokens: for every agent the four mix kinds add up to the agent's tokens, i.e. no kind is
+// counted twice (codex input contains its cached tokens) or dropped (opencode's reasoning tokens).
+func TestAgentMixSumsToTokens(t *testing.T) {
+	claudeDir := t.TempDir()
+	writeUsageFixture(t, claudeDir, "-p", "s", time.Hour, usageRecordLine("claude-sonnet-5", 100, 10, recentTS(time.Hour)))
+	scan, err := scanUsage(claudeDir, "", 1, io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	home := t.TempDir()
+	t.Setenv("CODEX_HOME", home)
+	if err := os.MkdirAll(filepath.Join(home, "sessions"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, "sessions", "r.jsonl"), readFixture(t, "codex-session-fixture.jsonl"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	writeOpencodeStore(t)
+	writeCopilotStore(t)
+	stubLookPathSqlite3(t, func() error { return nil })
+	stubCopilotSqlite(t, readFixture(t, "copilot-totals-fixture.json"), readFixture(t, "copilot-models-fixture.json"))
+	stubOpencodeSqlite(t, readFixture(t, "opencode-totals-fixture.json"), readFixture(t, "opencode-models-fixture.json"))
+
+	agents := map[string]agentUsage{
+		"claude":   claudeAgentUsage(scan, 1),
+		"codex":    codexUsage(time.Date(2026, 10, 21, 0, 0, 0, 0, time.UTC)),
+		"opencode": opencodeUsage(context.Background(), time.Now().Add(-24*time.Hour)),
+		"copilot":  copilotUsage(context.Background(), time.Now().Add(-24*time.Hour)),
+	}
+	wantTokens := map[string]int{"claude": 110, "codex": 2200, "opencode": 320866, "copilot": 1701190}
+	for name, a := range agents {
+		if a.Tokens != wantTokens[name] {
+			t.Errorf("%s: tokens = %d, want %d (note %q)", name, a.Tokens, wantTokens[name], a.Note)
+		}
+		if got := mixSum(a.Mix); got != a.Tokens {
+			t.Errorf("%s: sum(mix) = %d, tokens = %d (mix %+v)", name, got, a.Tokens, a.Mix)
+		}
+		for _, m := range a.Models {
+			if m.Mix != nil && mixSum(m.Mix) != m.Tokens {
+				t.Errorf("%s/%s: sum(mix) = %d, tokens = %d", name, m.Model, mixSum(m.Mix), m.Tokens)
+			}
+		}
+	}
+}
+
+// TestOpencodeTotalsQueryFoldsReasoningIntoOutput: opencode's tokens.total includes reasoning tokens, so the mix
+// query must add them to output or sum(mix) falls short of tokens (the real sqlite3 is not on the test PATH).
+func TestOpencodeTotalsQueryFoldsReasoningIntoOutput(t *testing.T) {
+	writeOpencodeStore(t)
+	stubLookPathSqlite3(t, func() error { return nil })
+	var totalsQuery string
+	orig := opencodeSqliteCmd
+	opencodeSqliteCmd = func(_ context.Context, _, query string) ([]byte, error) {
+		if !strings.Contains(query, "GROUP BY") && totalsQuery == "" {
+			totalsQuery = query
+		}
+		return []byte(`[]`), nil
+	}
+	t.Cleanup(func() { opencodeSqliteCmd = orig })
+	opencodeUsage(context.Background(), time.Now().Add(-24*time.Hour))
+	if !strings.Contains(totalsQuery, "$.tokens.reasoning") {
+		t.Errorf("totals query does not sum tokens.reasoning into output:\n%s", totalsQuery)
 	}
 }

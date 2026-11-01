@@ -62,7 +62,7 @@ func (e copilotEngine) Run(ctx context.Context, req agent.RunOptions, sink agent
 	if err != nil {
 		lg.Emit("error", err.Error())
 		if (own || t.Provider.Auth.Login == "copilot") && agent.Classify("copilot", err, false).Kind == agent.KindQuota {
-			return agent.CopilotQuotaHandoff(req, res, out.SessionID, out.Text, err, agent.CredentialValues(env, opts.GitHubToken))
+			return CopilotQuotaHandoff(req, res, out.SessionID, out.Text, err, CredentialValues(env, opts.GitHubToken))
 		}
 		return copilotPartial(res, out, err, sink)
 	}
@@ -160,7 +160,7 @@ func applyCopilotToken(opts *SDKOptions, own bool, env []string) error {
 		}
 	}
 	for _, kv := range env { // the harness's chosen account rides the SDK's own token field, not the stored login
-		if tok, ok := strings.CutPrefix(kv, agent.CopilotTokenEnv+"="); ok && tok != "" {
+		if tok, ok := strings.CutPrefix(kv, CopilotTokenEnv+"="); ok && tok != "" {
 			opts.GitHubToken, opts.UseLoggedInUser = tok, false
 		}
 	}
@@ -224,7 +224,7 @@ func (e copilotEngine) GateExplicit(req agent.RunOptions, reg *providers.Registr
 	if err == nil && t.Provider != from && req.Provider != "" && req.Provider == vault.GetAgentRecord("copilot").Profile {
 		return t, note, &agent.Error{Kind: agent.KindQuota, Agent: e.Name(), Err: errors.New(note)}
 	}
-	if tier := agent.ResumeAlias(req.Model); err == nil && t.Provider != from && t.Provider.Models[tier] != "" {
+	if tier := ResumeAlias(req.Model); err == nil && t.Provider != from && t.Provider.Models[tier] != "" {
 		t.Model = t.Provider.Models[tier] // the fallback serves the requested tier, not its default opus
 	}
 	return t, note, err
@@ -305,7 +305,7 @@ func copilotLogin(model string, h *agent.Headless) ([]string, []string, error) {
 		return nil, nil, err
 	}
 	if tok != "" { // the harness's chosen account beats any inherited token
-		env = append(env, agent.CopilotTokenEnv+"="+tok)
+		env = append(env, CopilotTokenEnv+"="+tok)
 	}
 	return env, copilotArgv(h), nil
 }

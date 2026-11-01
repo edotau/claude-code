@@ -221,3 +221,32 @@ func TestNewClientFallsBackToAPIKey(t *testing.T) {
 		t.Errorf("token = (%q, %v), want (tskey-api-abc, nil)", tok, err)
 	}
 }
+
+func TestParseKeyExpiry(t *testing.T) {
+	for in, want := range map[string]time.Duration{"90d": 90 * 24 * time.Hour, "36h": 36 * time.Hour} {
+		if got, err := ParseKeyExpiry(in); err != nil || got != want {
+			t.Errorf("ParseKeyExpiry(%q) = (%v, %v), want %v", in, got, err, want)
+		}
+	}
+	for _, bad := range []string{"xd", "soon", ""} {
+		if _, err := ParseKeyExpiry(bad); err == nil {
+			t.Errorf("ParseKeyExpiry(%q) accepted", bad)
+		}
+	}
+}
+
+func TestSelfDeviceNoCredential(t *testing.T) {
+	hermeticSecrets(t)
+	if _, _, _, err := SelfDevice(context.Background()); !errors.Is(err, ErrNoCredential) {
+		t.Errorf("SelfDevice err = %v, want ErrNoCredential", err)
+	}
+}
+
+func TestSetNames(t *testing.T) {
+	if got := SetNames(true); len(got) != 1 || got[0] != "TAILSCALE_API_KEY" {
+		t.Errorf("SetNames(true) = %v", got)
+	}
+	if got := SetNames(false); len(got) != 2 || got[0] != "TAILSCALE_OAUTH_CLIENT_ID" || got[1] != "TAILSCALE_OAUTH_CLIENT_SECRET" {
+		t.Errorf("SetNames(false) = %v", got)
+	}
+}

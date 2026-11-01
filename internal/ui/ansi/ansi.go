@@ -154,6 +154,17 @@ func Paint(mode string, rgb RGB, s string, bold bool) string {
 	return FgSeq(mode, rgb, bold) + s + Reset
 }
 
+// Sweep paints s rune by rune across the gradient, bold, like the status line's path segment.
+func Sweep(mode string, stops []RGB, s string) string {
+	runes := []rune(s)
+	var b strings.Builder
+	for i, r := range runes {
+		b.WriteString(FgSeq(mode, GradAt(stops, float64(i)/float64(max(len(runes)-1, 1))), true))
+		b.WriteRune(r)
+	}
+	return b.String() + Reset
+}
+
 func abs(x int) int {
 	if x < 0 {
 		return -x

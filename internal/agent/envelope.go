@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/edotau/claude-code/internal/agent/answer"
 	"github.com/edotau/claude-code/internal/shapes"
 )
 
@@ -91,7 +92,7 @@ func errorKind(err error) string {
 		return re.kind
 	}
 	switch {
-	case errors.Is(err, ErrSchema):
+	case errors.Is(err, answer.ErrSchema):
 		return "schema"
 	case errors.Is(err, context.DeadlineExceeded):
 		return "timeout"

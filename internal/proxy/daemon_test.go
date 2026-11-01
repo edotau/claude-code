@@ -10,7 +10,7 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/buildver"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // TestDaemonCommandArgs checks the detached daemon re-enters gateway proxy --serve.
@@ -68,7 +68,7 @@ func TestReclaimKeepsDifferentBuildWithLiveWork(t *testing.T) {
 					t.Errorf("unexpected holder probe path %q", req.URL.Path)
 				}
 				w.Header().Set(PIDHeader, strconv.Itoa(1<<30))
-				w.Header().Set(HeaderBuild, buildver.Version()+"-other")
+				w.Header().Set(HeaderBuild, textutil.BuildVersion()+"-other")
 				w.Header().Set(HeaderSessions, live.sessions)
 				w.Header().Set(HeaderInflight, live.inflight)
 				_, _ = w.Write([]byte("ok\n"))

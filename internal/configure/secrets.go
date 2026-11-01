@@ -10,11 +10,12 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/audit"
+	"github.com/edotau/claude-code/internal/copilot"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/secretstore"
 	"github.com/edotau/claude-code/internal/shapes"
+	"github.com/edotau/claude-code/internal/signin"
 	"github.com/edotau/claude-code/internal/ui/ansi"
 	uidialog "github.com/edotau/claude-code/internal/ui/dialog"
 	"github.com/edotau/claude-code/internal/ui/menu"
@@ -218,7 +219,7 @@ func ParseAssignment(raw string) (name, value string) {
 
 // storeValue writes one secret to the vault and reports it redacted; inside the menu it stages.
 func storeValue(d *dialog, name, val string) bool {
-	if name == agent.CopilotTokenEnv && !agent.ValidCopilotToken(val) {
+	if name == copilot.CopilotTokenEnv && !signin.ValidCopilotToken(val) {
 		d.printf("%s: not a GitHub token (want gho_/ghp_/ghu_/github_pat_, >=20 chars)\n", name)
 		return false
 	}

@@ -23,18 +23,18 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/textutil"
-	"github.com/edotau/claude-code/internal/transcript"
 	"github.com/edotau/claude-code/internal/ui/table"
 )
 
 // agentModel is one provider+profile+model row under an agentUsage.
 type agentModel struct {
-	Provider string  `json:"provider"`
-	Profile  string  `json:"profile,omitempty"`
-	Model    string  `json:"model"`
-	Turns    int     `json:"turns"`
-	Tokens   int     `json:"tokens"`
-	CostUSD  float64 `json:"cost_usd,omitempty"`
+	Provider string    `json:"provider"`
+	Profile  string    `json:"profile,omitempty"`
+	Model    string    `json:"model"`
+	Turns    int       `json:"turns"`
+	Tokens   int       `json:"tokens"`
+	CostUSD  float64   `json:"cost_usd,omitempty"`
+	Mix      *tokenMix `json:"mix,omitempty"`
 }
 
 // agentUsage is one agent CLI's rollup for the usage window.
@@ -100,27 +100,30 @@ func dailyFromCounts(counts map[string]*dayCount) []dailyBucket {
 	return out
 }
 
-// claudeSessionCount is the number of session dirs the verb's own file scan matched: one for an explicit
-// --session with any files, else the count usageFilesWithinDays already walked for the --days window.
-func claudeSessionCount(claudeDir, session string, days, filesFound int) int {
+// claudeSessionCount is the number of sessions the scan covered: one for an explicit --session with any files,
+// else the distinct session dirs the in-window transcript files live under.
+func claudeSessionCount(session string, files []string) int {
 	if session != "" {
-		if filesFound > 0 {
+		if len(files) > 0 {
 			return 1
 		}
 		return 0
 	}
-	dirs, err := usageSessionDirsWithinDays(claudeDir, days)
-	if err != nil {
-		return 0
+	dirs := map[string]bool{}
+	sep := string(filepath.Separator)
+	for _, f := range files {
+		dir, _, found := strings.Cut(f, sep+"subagents"+sep)
+		if !found {
+			dir = filepath.Dir(f)
+		}
+		dirs[dir] = true
 	}
 	return len(dirs)
 }
 
 // buildAgentsUsage runs the codex/opencode/copilot store reads concurrently (10s budget) and folds the
-// already-computed claude transcript aggregate in; always returns all four agents, in this order.
-// claudeFiles is the same file list the caller already fed into claudeAgg, re-walked here (reusing
-// transcript.SummarizeFile, not a second parser) to bucket claude's totals per day.
-func buildAgentsUsage(claudeAgg *transcript.UsageAggregate, claudeSessions, days int, claudeFiles []string) []agentUsage {
+// already-computed claude transcript scan in; always returns all four agents, in this order.
+func buildAgentsUsage(scan *transcriptScan, session string, days int) []agentUsage {
 	cutoff := time.Now().Add(-time.Duration(days) * 24 * time.Hour)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -133,7 +136,7 @@ func buildAgentsUsage(claudeAgg *transcript.UsageAggregate, claudeSessions, days
 	go func() { defer wg.Done(); copilotU = copilotUsage(ctx, cutoff) }()
 	wg.Wait()
 
-	return []agentUsage{claudeAgentUsage(claudeAgg, claudeSessions, claudeFiles), codexU, opencodeU, copilotU}
+	return []agentUsage{claudeAgentUsage(scan, claudeSessionCount(session, scan.files)), codexU, opencodeU, copilotU}
 }
 
 // sortModelsByTokens orders a model slice by tokens descending, in place.
@@ -141,55 +144,26 @@ func sortModelsByTokens(models []agentModel) {
 	slices.SortFunc(models, func(a, b agentModel) int { return cmp.Compare(b.Tokens, a.Tokens) })
 }
 
-// claudeAgentUsage folds the verb's own transcript aggregate (already scoped to the window) into an
-// agentUsage row; per-model turn counts aren't tracked at the aggregate level, so Turns stays 0.
-func claudeAgentUsage(agg *transcript.UsageAggregate, sessions int, files []string) agentUsage {
-	if agg == nil || len(agg.Models) == 0 {
+// claudeAgentUsage folds the verb's own transcript scan (already scoped to the window) into an agentUsage
+// row; per-model turn counts aren't tracked at the aggregate level, so Turns stays 0.
+func claudeAgentUsage(scan *transcriptScan, sessions int) agentUsage {
+	if scan == nil || scan.agg == nil || len(scan.agg.Models) == 0 {
 		return agentUsage{Agent: "claude", Note: "no sessions in window"}
 	}
 	var total int
 	var mix tokenMix
-	models := make([]agentModel, 0, len(agg.Models))
-	for name, u := range agg.Models {
+	models := make([]agentModel, 0, len(scan.agg.Models))
+	for name, u := range scan.agg.Models {
 		tok := int(u.Total())
 		total += tok
-		models = append(models, agentModel{Provider: "anthropic", Model: name, Tokens: tok})
-		mix.add(tokenMix{Input: int(u.InputTokens), Output: int(u.OutputTokens),
-			CacheRead: int(u.CacheReadTokens), CacheWrite: int(u.CacheCreationTokens)})
+		um := tokenMix{Input: int(u.InputTokens), Output: int(u.OutputTokens),
+			CacheRead: int(u.CacheReadTokens), CacheWrite: int(u.CacheCreationTokens)}
+		models = append(models, agentModel{Provider: "anthropic", Model: name, Tokens: tok, Mix: mixPtr(um)})
+		mix.add(um)
 	}
 	sortModelsByTokens(models)
-	daily := claudeDailyFromFiles(files)
 	return agentUsage{Agent: "claude", Sessions: sessions, Tokens: total, Models: models,
-		Mix: mixPtr(mix), Daily: daily, ActiveDays: len(daily)}
-}
-
-// claudeDailyFromFiles re-summarizes each matched transcript file — reusing transcript.SummarizeFile,
-// never a second parser — and buckets its totals on the file's mtime day, local time.
-func claudeDailyFromFiles(files []string) []dailyBucket {
-	counts := map[string]*dayCount{}
-	for _, f := range files {
-		info, statErr := os.Stat(f)
-		if statErr != nil {
-			continue
-		}
-		s, sumErr := transcript.SummarizeFile(f)
-		if sumErr != nil {
-			continue
-		}
-		tot := s.Totals()
-		if tot.Total() == 0 && s.Turns == 0 {
-			continue
-		}
-		day := info.ModTime().Local().Format("2006-01-02")
-		c := counts[day]
-		if c == nil {
-			c = &dayCount{}
-			counts[day] = c
-		}
-		c.tokens += int(tot.Total())
-		c.turns += s.Turns
-	}
-	return dailyFromCounts(counts)
+		Mix: mixPtr(mix), Daily: scan.daily, ActiveDays: len(scan.daily)}
 }
 
 // codexEventPayload mirrors a codex session line's payload: turn_context carries the model, event_msg
@@ -217,28 +191,53 @@ type codexEventMsg struct {
 	} `json:"info"`
 }
 
-// codexSessionSummary is one parsed rollout file: model/tokens/turns as before, plus the token-kind
-// Mix and the local calendar Day of the last token_count line (empty when no line parsed as RFC3339).
+// codexSessionSummary is one rollout file's in-window share: its model, the token_count lines inside the window,
+// the tokens/mix they added, and the same split per local day.
 type codexSessionSummary struct {
 	Model  string
 	Tokens int
 	Turns  int
 	Mix    tokenMix
-	Day    string
+	Days   map[string]*dayCount
 }
 
-// parseCodexSession streams one session jsonl: model is the last turn_context seen, tokens/mix come from
-// the last token_count's cumulative totals (not summed — each line already totals the whole session),
-// turns counts the token_count lines, Day is that last line's timestamp. Malformed lines are skipped
-// rather than aborting the scan.
-func parseCodexSession(path string) codexSessionSummary {
+// codexCumulative is one token_count line's session-to-date totals, with Mix in disjoint kinds so it sums to Tokens.
+type codexCumulative struct {
+	Tokens int
+	Mix    tokenMix
+}
+
+// cumulativeOf maps codex's usage to disjoint kinds: OpenAI's input_tokens already contains cached_input_tokens
+// and cache_write_input_tokens, so Input is what remains; any total the parts don't explain stays in Input.
+func cumulativeOf(u codexTokenUsage) codexCumulative {
+	in := max(u.InputTokens-u.CachedInputTokens-u.CacheWriteInputTokens, 0)
+	mix := tokenMix{Input: in, Output: u.OutputTokens, CacheRead: u.CachedInputTokens, CacheWrite: u.CacheWriteInputTokens}
+	mix.Input += max(u.TotalTokens-(mix.Input+mix.Output+mix.CacheRead+mix.CacheWrite), 0)
+	return codexCumulative{Tokens: mix.Input + mix.Output + mix.CacheRead + mix.CacheWrite, Mix: mix}
+}
+
+// minus is the growth from prev to c; a counter that went backwards (a reset) restarts from zero.
+func (c codexCumulative) minus(prev codexCumulative) codexCumulative {
+	if c.Tokens < prev.Tokens {
+		return c
+	}
+	return codexCumulative{Tokens: c.Tokens - prev.Tokens, Mix: tokenMix{Input: c.Mix.Input - prev.Mix.Input,
+		Output: c.Mix.Output - prev.Mix.Output, CacheRead: c.Mix.CacheRead - prev.Mix.CacheRead,
+		CacheWrite: c.Mix.CacheWrite - prev.Mix.CacheWrite}}
+}
+
+// parseCodexSession streams one session jsonl. Every token_count line carries the session's cumulative totals,
+// so a line's own usage is its growth over the previous line; only lines stamped at or after cutoff count (a zero
+// cutoff counts all), each dated to its own local day. A line with no RFC3339 stamp counts on fallbackDay. The
+// model is the last turn_context seen. Malformed lines are skipped rather than aborting the scan.
+func parseCodexSession(path string, cutoff time.Time, fallbackDay string) codexSessionSummary {
 	f, err := os.Open(path)
 	if err != nil {
 		return codexSessionSummary{}
 	}
 	defer f.Close()
-	var s codexSessionSummary
-	var lastTS string
+	s := codexSessionSummary{Days: map[string]*dayCount{}}
+	var prev codexCumulative
 	textutil.EachLine(f, func(line []byte) {
 		var l codexLine
 		if json.Unmarshal(line, &l) != nil {
@@ -255,23 +254,39 @@ func parseCodexSession(path string) codexSessionSummary {
 			if json.Unmarshal(l.Payload, &p) != nil || p.Type != "token_count" {
 				return
 			}
+			cur := cumulativeOf(p.Info.TotalTokenUsage)
+			if cur.Tokens == 0 { // info:null lines carry no totals; they must not reset the baseline
+				cur = prev
+			}
+			delta := cur.minus(prev)
+			prev = cur
+			day := fallbackDay
+			if ts, parseErr := time.Parse(time.RFC3339, l.Timestamp); parseErr == nil {
+				if ts.Before(cutoff) {
+					return
+				}
+				day = ts.Local().Format("2006-01-02")
+			}
 			s.Turns++
-			u := p.Info.TotalTokenUsage
-			s.Tokens = u.TotalTokens
-			s.Mix = tokenMix{Input: u.InputTokens, Output: u.OutputTokens,
-				CacheRead: u.CachedInputTokens, CacheWrite: u.CacheWriteInputTokens}
-			lastTS = l.Timestamp
+			s.Tokens += delta.Tokens
+			s.Mix.add(delta.Mix)
+			if day == "" {
+				return
+			}
+			c := s.Days[day]
+			if c == nil {
+				c = &dayCount{}
+				s.Days[day] = c
+			}
+			c.tokens += delta.Tokens
+			c.turns++
 		}
 	})
-	if lastTS != "" {
-		if ts, parseErr := time.Parse(time.RFC3339, lastTS); parseErr == nil {
-			s.Day = ts.Local().Format("2006-01-02")
-		}
-	}
 	return s
 }
 
-// codexUsage walks ~/.codex/sessions for *.jsonl files modified within the window, one session per file.
+// codexUsage walks ~/.codex/sessions for *.jsonl files modified within the window, one session per file;
+// only the token_count growth stamped inside the window is counted, and a session with none is not listed.
 func codexUsage(cutoff time.Time) agentUsage {
 	home, err := paths.CodexHome()
 	if err != nil {
@@ -283,6 +298,7 @@ func codexUsage(cutoff time.Time) agentUsage {
 	}
 
 	var files []string
+	mtimeDay := map[string]string{} // fallback day for a token_count line with no usable timestamp
 	_ = filepath.WalkDir(dir, func(path string, d fs.DirEntry, walkErr error) error {
 		if walkErr != nil || d.IsDir() || !strings.HasSuffix(path, ".jsonl") {
 			return nil
@@ -292,6 +308,7 @@ func codexUsage(cutoff time.Time) agentUsage {
 			return nil
 		}
 		files = append(files, path)
+		mtimeDay[path] = info.ModTime().Local().Format("2006-01-02")
 		return nil
 	})
 	if len(files) == 0 {
@@ -300,11 +317,11 @@ func codexUsage(cutoff time.Time) agentUsage {
 
 	byModel := map[string]*agentModel{}
 	dayCounts := map[string]*dayCount{}
-	var total, totalTurns int
+	var total, totalTurns, sessions int
 	var mix tokenMix
 	for _, f := range files {
-		s := parseCodexSession(f)
-		if s.Model == "" {
+		s := parseCodexSession(f, cutoff, mtimeDay[f])
+		if s.Model == "" || s.Turns == 0 {
 			continue
 		}
 		m := byModel[s.Model]
@@ -314,18 +331,26 @@ func codexUsage(cutoff time.Time) agentUsage {
 		}
 		m.Turns += s.Turns
 		m.Tokens += s.Tokens
+		if m.Mix == nil {
+			m.Mix = &tokenMix{}
+		}
+		m.Mix.add(s.Mix)
 		total += s.Tokens
 		totalTurns += s.Turns
 		mix.add(s.Mix)
-		if s.Day != "" {
-			c := dayCounts[s.Day]
+		sessions++
+		for day, d := range s.Days {
+			c := dayCounts[day]
 			if c == nil {
 				c = &dayCount{}
-				dayCounts[s.Day] = c
+				dayCounts[day] = c
 			}
-			c.tokens += s.Tokens
-			c.turns += s.Turns
+			c.tokens += d.tokens
+			c.turns += d.turns
 		}
+	}
+	if sessions == 0 {
+		return agentUsage{Agent: "codex", Note: "no sessions in window"}
 	}
 	models := make([]agentModel, 0, len(byModel))
 	for _, m := range byModel {
@@ -333,7 +358,7 @@ func codexUsage(cutoff time.Time) agentUsage {
 	}
 	sortModelsByTokens(models)
 	daily := dailyFromCounts(dayCounts)
-	return agentUsage{Agent: "codex", Sessions: len(files), Turns: totalTurns, Tokens: total, Models: models,
+	return agentUsage{Agent: "codex", Sessions: sessions, Turns: totalTurns, Tokens: total, Models: models,
 		Mix: mixPtr(mix), Daily: daily, ActiveDays: len(daily)}
 }
 
@@ -371,7 +396,8 @@ type opencodeModelRow struct {
 	CostUSD  float64 `json:"cost_usd"`
 }
 
-// opencodeUsage reads opencode's local sqlite store: assistant messages since cutoff, grouped overall
+// opencodeUsage reads opencode's local sqlite store (tokens.total includes reasoning, so the mix's output does too):
+// assistant messages since cutoff, grouped overall
 // for Sessions/Turns/Tokens/Cost and separately by providerID/modelID for the Models breakdown.
 func opencodeUsage(ctx context.Context, cutoff time.Time) agentUsage {
 	dbPath := paths.OpencodeDBPath() // honors OPENCODE_DB like opencode's own login probe
@@ -391,7 +417,7 @@ func opencodeUsage(ctx context.Context, cutoff time.Time) agentUsage {
 	totalsQ := fmt.Sprintf(`SELECT COUNT(*) AS turns, COALESCE(SUM(json_extract(data,'$.tokens.total')),0) AS tokens,
 		COALESCE(SUM(json_extract(data,'$.cost')),0) AS cost_usd, COUNT(DISTINCT session_id) AS sessions,
 		COALESCE(SUM(json_extract(data,'$.tokens.input')),0) AS input,
-		COALESCE(SUM(json_extract(data,'$.tokens.output')),0) AS output,
+		COALESCE(SUM(json_extract(data,'$.tokens.output')),0) + COALESCE(SUM(json_extract(data,'$.tokens.reasoning')),0) AS output,
 		COALESCE(SUM(json_extract(data,'$.tokens.cache.read')),0) AS cache_read,
 		COALESCE(SUM(json_extract(data,'$.tokens.cache.write')),0) AS cache_write
 		FROM message WHERE %s;`, where)

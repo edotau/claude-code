@@ -145,6 +145,23 @@ func (r Record) Elapsed() string {
 	return (time.Duration(r.DurationMs) * time.Millisecond).String()
 }
 
+// LogLine renders r as one `ask --log` row, plus a fallback line; the prompt preview is scrubbed of credential shapes.
+func (r Record) LogLine() string {
+	tools := ""
+	if r.Request.Tools {
+		tools = " tools"
+	}
+	agentCol := r.Agent
+	if r.Fallback != "" {
+		agentCol = r.Fallback + "→" + cmp.Or(r.RanAs, "?")
+	}
+	line := fmt.Sprintf("%-28s %-7s %-8s %-9s%s  %s\n", r.ID, r.Status, agentCol, r.Elapsed(), tools, shapes.Preview(r.Request.Prompt, 60))
+	if r.FallbackReason != "" {
+		line += fmt.Sprintf("%-28s   fallback: %s\n", "", r.FallbackReason)
+	}
+	return line
+}
+
 // Finish records the outcome of the run.
 func (r *Record) Finish(res Result, err error, took time.Duration) {
 	r.Status, r.Provider, r.Model, r.SessionID = "ok", res.Provider, res.Model, res.SessionID

@@ -366,14 +366,15 @@ func openLogFile() (*os.File, error) {
 	return os.OpenFile(LogFile(), flags, 0o600)
 }
 
-// Stop tears down any tailscale mapping this package set, then SIGTERMs the daemon whether or not it answers.
+// Stop tears down any tailscale mapping this package set, then SIGTERMs the daemon whether or not it answers,
+// but only when the pid's command line is our `code serve-web` (a recycled pid is left alone, its state dropped).
 // The state file is removed only once the daemon is gone, so a failed or slow stop stays reachable.
 func Stop() error {
 	st, err := readState()
 	if err != nil {
 		return ErrNotRunning
 	}
-	if !proc.Alive(st.PID) {
+	if !proc.Alive(st.PID) || !isOurDaemon(st) {
 		removeState()
 		return ErrNotRunning
 	}
@@ -392,6 +393,18 @@ func Stop() error {
 	}
 	removeState()
 	return nil
+}
+
+// procCmdline reads a pid's command line; a seam so tests can fake a daemon's argv.
+var procCmdline = func(pid int) (string, error) {
+	argv, err := proc.Argv(pid)
+	return strings.Join(argv, " "), err
+}
+
+// isOurDaemon is true when pid's command line is a `serve-web` on this state's port; unreadable counts as no.
+func isOurDaemon(st State) bool {
+	line, err := procCmdline(st.PID)
+	return err == nil && strings.Contains(line, " serve-web ") && strings.Contains(line, " --port "+strconv.Itoa(st.Port)+" ")
 }
 
 // tailscaleCmd builds a bounded exec.Cmd for the `tailscale` CLI. `tailscale` is a thin shell

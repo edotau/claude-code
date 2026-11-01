@@ -1,0 +1,382 @@
+package cli
+
+import (
+	"encoding/base64"
+	"encoding/json"
+	"io"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/edotau/claude-code/internal/gemini"
+	"github.com/edotau/claude-code/internal/paths/pathstest"
+	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/vault"
+	"github.com/edotau/claude-code/internal/vault/vaulttest"
+)
+
+// runCLI runs `claude-code <argv>` in-process and returns exit code, stdout and stderr.
+func runCLI(t *testing.T, argv ...string) (int, string, string) {
+	t.Helper()
+	outR, outW, _ := os.Pipe()
+	errR, errW, _ := os.Pipe()
+	oldOut, oldErr := os.Stdout, os.Stderr
+	os.Stdout, os.Stderr = outW, errW
+	code := Run(append([]string{"claude-code"}, argv...))
+	os.Stdout, os.Stderr = oldOut, oldErr
+	outW.Close()
+	errW.Close()
+	o, _ := io.ReadAll(outR)
+	e, _ := io.ReadAll(errR)
+	return code, string(o), string(e)
+}
+
+// cliEnv is a hermetic config dir + HOME with the agy login marker, so every fake CLI looks logged in.
+func cliEnv(t *testing.T) {
+	t.Helper()
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
+	t.Setenv("OPENCODE_API_KEY", "test-key") // an own-login route for opencode
+	for name, profile := range map[string]string{"codex": "chatgpt", "gemini": "antigravity", "opencode": "nvidia"} {
+		if err := vault.SetAgentRecord(name, vault.AgentRecord{Profile: profile}); err != nil { // an external agent with no profile is off
+			t.Fatal(err)
+		}
+	}
+	marker := gemini.AgyLoginMarker(home)
+	if err := os.MkdirAll(filepath.Dir(marker), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(marker, []byte("token"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// cliFakes installs a stand-in child per CLI agent (copilot rides the SDK and is covered in copilot_gate_test.go).
+func cliFakes(t *testing.T) {
+	t.Helper()
+	pathstest.FakeVendor(t, "claude", "cat > /dev/null; sleep 0.05\n"+
+		`printf '%s\n' '{"type":"system","subtype":"init","session_id":"sc","model":"fake-claude"}'`+"\n"+
+		`printf '%s\n' '{"type":"assistant","message":{"model":"fake-claude","content":[{"type":"text","text":"hello"}]}}'`+"\n"+
+		`printf '%s\n' '{"type":"result","result":"hello","usage":{"input_tokens":3,"output_tokens":2}}'`)
+	pathstest.FakeVendor(t, "codex", `[ "$1" = login ] && { echo "Logged in using ChatGPT"; exit 0; }`+"\n"+"cat > /dev/null; sleep 0.05; echo hello")
+	pathstest.FakeVendor(t, "agy", "cat > /dev/null; sleep 0.05\n"+
+		`printf '%s\n' '{"event":"step_update","step_update":{"step_type":"agent_response","text_delta":"hello"}}'`+"\n"+
+		`printf '%s\n' '{"event":"result","result":{"conversation_id":"c1","status":"SUCCESS","response":"hello","num_turns":1,"usage":{"input_tokens":3,"output_tokens":2}}}'`)
+	pathstest.FakeVendor(t, "opencode", "sleep 0.05\n"+
+		`printf '%s\n' '{"type":"text","sessionID":"so","part":{"text":"hello"}}'`+"\n"+
+		`printf '%s\n' '{"type":"step_finish","sessionID":"so","part":{"tokens":{"Input":3,"Output":2}}}'`)
+}
+
+// cliMarker is a fake child that records its invocation (never a `login` probe) by touching a file.
+func cliMarker(t *testing.T, vendor, body string) string {
+	t.Helper()
+	marker := filepath.Join(t.TempDir(), vendor+".ran")
+	pathstest.FakeVendor(t, vendor, `[ "$1" = login ] && { echo "Logged in using ChatGPT"; exit 0; }`+"\n"+
+		"touch "+marker+"\n"+body)
+	return marker
+}
+
+// batchFile writes one JSONL task per line and returns the path.
+func batchFile(t *testing.T, lines ...string) string {
+	t.Helper()
+	p := filepath.Join(t.TempDir(), "tasks.jsonl")
+	if err := os.WriteFile(p, []byte(strings.Join(lines, "\n")+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
+// envelopes decodes one envelope per non-empty stdout line.
+func envelopes(t *testing.T, out string) []map[string]any {
+	t.Helper()
+	var all []map[string]any
+	for ln := range strings.SplitSeq(strings.TrimSpace(out), "\n") {
+		if ln == "" {
+			continue
+		}
+		var e map[string]any
+		if err := json.Unmarshal([]byte(ln), &e); err != nil {
+			t.Fatalf("stdout line is not an envelope: %v\n%s", err, ln)
+		}
+		all = append(all, e)
+	}
+	return all
+}
+
+func taskLine(t *testing.T, m map[string]any) string {
+	t.Helper()
+	b, err := json.Marshal(m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
+}
+
+func errKind(e map[string]any) string {
+	if x, ok := e["error"].(map[string]any); ok {
+		s, _ := x["kind"].(string)
+		return s
+	}
+	return ""
+}
+
+// Spanning: mixed ok/error tasks stream one envelope each in completion order, tagged, with a non-zero exit.
+func TestBatchMixedStreamsEnvelopesAndExitsNonZero(t *testing.T) {
+	cliEnv(t)
+	cliFakes(t)
+	pathstest.FakeVendor(t, "claude", `p=$(cat); case "$p" in *SLOW*) sleep 0.3;; esac`+"\n"+
+		`printf '%s\n' '{"type":"system","subtype":"init","session_id":"sc","model":"fake-claude"}'`+"\n"+
+		`printf '%s\n' '{"type":"result","result":"hello","usage":{"input_tokens":3,"output_tokens":2}}'`)
+	file := batchFile(t,
+		taskLine(t, map[string]any{"id": "slow", "agent": "claude", "prompt": "SLOW task", "workdir": t.TempDir(), "tools": true}),
+		taskLine(t, map[string]any{"id": "fast", "agent": "claude", "prompt": "quick task", "workdir": t.TempDir(), "tools": true}),
+		taskLine(t, map[string]any{"id": "bad", "agent": "no-such-agent", "prompt": "x", "workdir": t.TempDir()}),
+		`{not json`,
+	)
+	code, out, stderr := runCLI(t, "ask", "--batch", file, "--jobs", "2")
+	if code == 0 {
+		t.Fatalf("exit 0 with failing tasks\nstdout: %s\nstderr: %s", out, stderr)
+	}
+	envs := envelopes(t, out)
+	if len(envs) != 4 {
+		t.Fatalf("got %d envelopes, want 4 (one per input line, bad lines included)\n%s", len(envs), out)
+	}
+	byID := map[string]map[string]any{}
+	batchIDs := map[string]bool{}
+	dispatchIDs := map[string]bool{}
+	for _, e := range envs {
+		if e["schema"] != float64(1) {
+			t.Errorf("schema = %v, want 1", e["schema"])
+		}
+		if b, _ := e["batch_id"].(string); b != "" {
+			batchIDs[b] = true
+		} else {
+			t.Errorf("envelope without batch_id: %v", e)
+		}
+		if id, _ := e["task_id"].(string); id != "" {
+			byID[id] = e
+		}
+		if d, _ := e["dispatch_id"].(string); d != "" {
+			if dispatchIDs[d] {
+				t.Errorf("dispatch_id %q repeated across tasks", d)
+			}
+			dispatchIDs[d] = true
+		}
+	}
+	if len(batchIDs) != 1 {
+		t.Errorf("batch_ids = %v, want exactly one shared id", batchIDs)
+	}
+	for _, id := range []string{"slow", "fast", "bad"} {
+		if byID[id] == nil {
+			t.Fatalf("no envelope tagged task_id %q\n%s", id, out)
+		}
+	}
+	for _, id := range []string{"slow", "fast"} {
+		if byID[id]["status"] != "ok" || byID[id]["answer"] != "hello" {
+			t.Errorf("task %s = %v, want status ok / answer hello", id, byID[id])
+		}
+	}
+	if byID["bad"]["status"] == "ok" || errKind(byID["bad"]) != "usage" {
+		t.Errorf("bad agent = %v, want a non-ok usage-kind envelope", byID["bad"])
+	}
+	// completion order: the SLOW task finishes after the fast one
+	pos := map[string]int{}
+	for i, e := range envs {
+		id, _ := e["task_id"].(string)
+		pos[id] = i
+	}
+	if pos["fast"] > pos["slow"] {
+		t.Errorf("fast task printed after the slow one: streaming must be completion order\n%s", out)
+	}
+}
+
+// All-ok batch exits 0.
+func TestBatchAllOkExitsZero(t *testing.T) {
+	cliEnv(t)
+	cliFakes(t)
+	file := batchFile(t,
+		taskLine(t, map[string]any{"id": "a", "agent": "claude", "prompt": "one", "workdir": t.TempDir(), "tools": true}),
+		taskLine(t, map[string]any{"id": "b", "agent": "claude", "prompt": "two", "workdir": t.TempDir(), "tools": true}),
+	)
+	code, out, stderr := runCLI(t, "ask", "--batch", file)
+	if code != 0 {
+		t.Fatalf("exit %d\nstdout: %s\nstderr: %s", code, out, stderr)
+	}
+	for _, e := range envelopes(t, out) {
+		if e["status"] != "ok" {
+			t.Errorf("envelope %v, want ok", e)
+		}
+	}
+}
+
+// --fail-fast: the first fatal failure cancels the batch; a queued task reports cancelled and never spawns.
+func TestBatchFailFastNeverSpawnsQueuedTask(t *testing.T) {
+	cliEnv(t)
+	cliFakes(t)
+	pathstest.FakeVendor(t, "claude", "cat > /dev/null; echo boom >&2; exit 1")
+	marker := cliMarker(t, "opencode", `printf '%s\n' '{"type":"text","sessionID":"so","part":{"text":"hello"}}'`)
+	file := batchFile(t,
+		taskLine(t, map[string]any{"id": "first", "agent": "claude", "prompt": "fail", "workdir": t.TempDir(), "tools": true}),
+		taskLine(t, map[string]any{"id": "queued", "agent": "opencode", "prompt": "never", "workdir": t.TempDir(), "tools": true}),
+	)
+	code, out, stderr := runCLI(t, "ask", "--batch", file, "--jobs", "1", "--fail-fast")
+	if code == 0 {
+		t.Fatalf("exit 0 after a fatal failure\nstdout: %s\nstderr: %s", out, stderr)
+	}
+	if _, err := os.Stat(marker); err == nil {
+		t.Error("queued task spawned its child after --fail-fast cancelled the batch")
+	}
+	var queued map[string]any
+	for _, e := range envelopes(t, out) {
+		if e["task_id"] == "queued" {
+			queued = e
+		}
+	}
+	if queued == nil {
+		t.Fatalf("queued task got no envelope\n%s", out)
+	}
+	msg, _ := queued["error"].(map[string]any)["message"].(string)
+	if queued["status"] != "error" || !strings.Contains(strings.ToLower(msg), "cancel") {
+		t.Errorf("queued = %v, want status error with a cancelled message", queued)
+	}
+}
+
+func fakeJWT(iss string) string {
+	enc := base64.RawURLEncoding.EncodeToString
+	return enc([]byte(`{"alg":"none"}`)) + "." + enc([]byte(`{"iss":"https://`+iss+`"}`)) + ".sig"
+}
+
+// Guarantee 1: concurrent tasks on two profiles; each child's env holds only its own route and token.
+func TestBatchConcurrentProfilesKeepEnvsApart(t *testing.T) {
+	cliEnv(t)
+	vaulttest.Use(t)
+	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
+	t.Setenv("PA_BATCH_KEY", "TOKEN-AAAA-1111")
+	t.Setenv("PB_BATCH_KEY", "TOKEN-BBBB-2222")
+	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"anthropic":{`+
+		`"pa":{"protocol":"anthropic","base_url":"http://127.0.0.1:11111","auth":{"type":"key","env":"PA_BATCH_KEY"},"models":{"opus":"m-a","sonnet":"m-a","haiku":"m-a"}},`+
+		`"pb":{"protocol":"anthropic","base_url":"http://127.0.0.1:22222","auth":{"type":"key","env":"PB_BATCH_KEY"},"models":{"opus":"m-b","sonnet":"m-b","haiku":"m-b"}}}}}`)
+	dump := t.TempDir()
+	// each child announces itself, then waits until both are running: proof the two really overlap
+	pathstest.FakeVendor(t, "claude", "cat > /dev/null\n"+
+		"env > "+dump+"/$$.env\ntouch "+dump+"/$$.up\n"+
+		"for i in $(seq 1 100); do [ $(ls "+dump+"/*.up 2>/dev/null | wc -l) -ge 2 ] && break; sleep 0.05; done\n"+
+		`printf '%s\n' '{"type":"result","result":"hello"}'`)
+	file := batchFile(t,
+		taskLine(t, map[string]any{"id": "a", "agent": "claude", "profile": "pa", "prompt": "x", "workdir": t.TempDir(), "tools": true}),
+		taskLine(t, map[string]any{"id": "b", "agent": "claude", "profile": "pb", "prompt": "y", "workdir": t.TempDir(), "tools": true}),
+	)
+	code, out, stderr := runCLI(t, "ask", "--batch", file, "--jobs", "2")
+	if code != 0 {
+		t.Fatalf("exit %d\nstdout: %s\nstderr: %s", code, out, stderr)
+	}
+	dumps, _ := filepath.Glob(filepath.Join(dump, "*.env"))
+	if len(dumps) != 2 {
+		t.Fatalf("got %d child env dumps, want 2 (the children never overlapped?)", len(dumps))
+	}
+	seen := map[string]bool{}
+	for _, f := range dumps {
+		raw, _ := os.ReadFile(f)
+		env := string(raw)
+		a, b := strings.Contains(env, "TOKEN-AAAA-1111"), strings.Contains(env, "TOKEN-BBBB-2222")
+		ra, rb := strings.Contains(env, "127.0.0.1:11111"), strings.Contains(env, "127.0.0.1:22222")
+		switch {
+		case a && !b && ra && !rb:
+			seen["a"] = true
+		case b && !a && rb && !ra:
+			seen["b"] = true
+		default:
+			t.Errorf("child env mixes profiles (token a=%v b=%v, route a=%v b=%v)", a, b, ra, rb)
+		}
+	}
+	if !seen["a"] || !seen["b"] {
+		t.Errorf("children seen = %v, want one per profile", seen)
+	}
+}
+
+// Guarantee 2: a credential issued for another host than the route's fails as auth before the child starts.
+func TestBatchHostMismatchFailsAuthBeforeExec(t *testing.T) {
+	cliEnv(t)
+	vaulttest.Use(t)
+	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
+	t.Setenv("HM_BATCH_KEY", fakeJWT("adb-2.azuredatabricks.net"))
+	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"databricks":{"hm":{"preset":"databricks","host":"https://adb-1.azuredatabricks.net",`+
+		`"auth":{"type":"key","env":"HM_BATCH_KEY"},"models":{"opus":"databricks-claude-opus-5-5","sonnet":"databricks-claude-sonnet-5-5","haiku":"databricks-claude-haiku-4-5"}}}}}`)
+	marker := cliMarker(t, "claude", `printf '%s\n' '{"type":"result","result":"hello"}'`)
+	file := batchFile(t, taskLine(t, map[string]any{"id": "m", "agent": "claude", "profile": "hm", "prompt": "x", "workdir": t.TempDir(), "tools": true}))
+	code, out, stderr := runCLI(t, "ask", "--batch", file)
+	if code == 0 {
+		t.Fatalf("exit 0 on a host mismatch\nstdout: %s\nstderr: %s", out, stderr)
+	}
+	envs := envelopes(t, out)
+	if len(envs) != 1 || envs[0]["status"] == "ok" || errKind(envs[0]) != "auth" {
+		t.Fatalf("envelopes = %v, want one non-ok envelope of kind auth", envs)
+	}
+	if _, err := os.Stat(marker); err == nil {
+		t.Error("the child started although the credential's host does not match the route")
+	}
+	if strings.Contains(out+stderr, "adb-2") && strings.Contains(out+stderr, ".sig") {
+		t.Error("output carries the raw credential")
+	}
+}
+
+// Every --batch task goes through RunRecorded: it leaves an <id>.events.jsonl running start to result.
+func TestBatchTasksWriteEventFiles(t *testing.T) {
+	cliEnv(t)
+	cliFakes(t)
+	file := batchFile(t,
+		taskLine(t, map[string]any{"id": "one", "agent": "claude", "prompt": "p1", "workdir": t.TempDir(), "tools": true}),
+		taskLine(t, map[string]any{"id": "two", "agent": "claude", "prompt": "p2", "workdir": t.TempDir(), "tools": true}),
+	)
+	if code, out, stderr := runCLI(t, "ask", "--batch", file, "--jobs", "2"); code != 0 {
+		t.Fatalf("exit %d\nstdout: %s\nstderr: %s", code, out, stderr)
+	}
+	files, _ := filepath.Glob(filepath.Join(os.Getenv("CLAUDE_CONFIG_DIR"), "state", "harness", "dispatch", "*.events.jsonl"))
+	if len(files) != 2 {
+		t.Fatalf("event files = %v, want 2 (one per task)", files)
+	}
+	for _, f := range files {
+		b, _ := os.ReadFile(f)
+		lines := strings.Split(strings.TrimSpace(string(b)), "\n")
+		if len(lines) < 2 || !strings.Contains(lines[0], `"type":"start"`) || !strings.Contains(lines[len(lines)-1], `"type":"result"`) {
+			t.Errorf("%s: want start...result, got\n%s", f, b)
+		}
+	}
+}
+
+// The vault's custom env holds every profile's vars; a batch child on pa gets pa's and never pb's credential var.
+func TestBatchChildDropsOtherProfilesCustomCredentialVar(t *testing.T) {
+	cliEnv(t)
+	vaulttest.Use(t)
+	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
+	t.Setenv("PA_BATCH_KEY", "TOKEN-AAAA-1111")
+	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"anthropic":{`+
+		`"pa":{"protocol":"anthropic","base_url":"http://127.0.0.1:11111","auth":{"type":"key","env":"PA_BATCH_KEY"},"models":{"opus":"m-a","sonnet":"m-a","haiku":"m-a"}},`+
+		`"pb":{"protocol":"anthropic","base_url":"http://127.0.0.1:22222","auth":{"type":"key","env":"PB_BATCH_KEY"},"models":{"opus":"m-b","sonnet":"m-b","haiku":"m-b"}}}}}`)
+	if err := providers.SetCustomEnv("PB_BATCH_KEY", "PB-CUSTOM-SECRET"); err != nil {
+		t.Fatal(err)
+	}
+	if err := providers.SetCustomEnv("PA_CUSTOM_NOTE", "pa-note"); err != nil {
+		t.Fatal(err)
+	}
+	dump := filepath.Join(t.TempDir(), "child.env")
+	pathstest.FakeVendor(t, "claude", "cat > /dev/null\nenv > "+dump+"\n"+`printf '%s\n' '{"type":"result","result":"hello"}'`)
+	file := batchFile(t, taskLine(t, map[string]any{"id": "a", "agent": "claude", "profile": "pa", "prompt": "x", "workdir": t.TempDir(), "tools": true}))
+	if code, out, stderr := runCLI(t, "ask", "--batch", file); code != 0 {
+		t.Fatalf("exit %d\nstdout: %s\nstderr: %s", code, out, stderr)
+	}
+	raw, err := os.ReadFile(dump)
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := string(raw)
+	if strings.Contains(env, "PB-CUSTOM-SECRET") {
+		t.Error("pa's child holds pb's custom credential var")
+	}
+	if !strings.Contains(env, "TOKEN-AAAA-1111") || !strings.Contains(env, "pa-note") {
+		t.Errorf("pa's child lost its own token or an unrelated custom var:\n%s", env)
+	}
+}

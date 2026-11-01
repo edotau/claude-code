@@ -65,29 +65,31 @@ type usageLine struct {
 	} `json:"message"`
 }
 
-type response struct {
-	model string
-	usage ModelUsage
-	ts    string
+// Response is one API response, counted once; At is zero when the record carried no RFC3339 timestamp.
+type Response struct {
+	Model string
+	Usage ModelUsage
+	At    time.Time
 }
 
-// SummarizeFile counts each API response once: Claude Code writes one line per content block, each repeating
+// ReadResponses lists each API response once: Claude Code writes one line per content block, each repeating
 // the response's usage under one message.id, so the last line per id wins (output grows while streaming).
-func SummarizeFile(path string) (*FileSummary, error) {
+func ReadResponses(path string) ([]Response, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, err
 	}
 	defer f.Close()
 	byID := map[string]int{}
-	var resps []response
+	var resps []Response
 	EachLine(f, func(line []byte) {
 		var rec usageLine
 		if json.Unmarshal(line, &rec) != nil || rec.Type != "assistant" || rec.Message.Usage == nil {
 			return
 		}
 		u := rec.Message.Usage
-		r := response{rec.Message.Model, ModelUsage{u.InputTokens, u.OutputTokens, u.CacheReadInput, u.CacheCreationInput}, rec.Timestamp}
+		r := Response{Model: rec.Message.Model, Usage: ModelUsage{u.InputTokens, u.OutputTokens, u.CacheReadInput, u.CacheCreationInput}}
+		r.At, _ = time.Parse(time.RFC3339, rec.Timestamp)
 		if i, seen := byID[rec.Message.ID]; seen && rec.Message.ID != "" {
 			resps[i] = r
 			return
@@ -95,32 +97,45 @@ func SummarizeFile(path string) (*FileSummary, error) {
 		byID[rec.Message.ID] = len(resps)
 		resps = append(resps, r)
 	})
+	return resps, nil
+}
+
+// SummarizeFile totals every response in one transcript file (see ReadResponses).
+func SummarizeFile(path string) (*FileSummary, error) {
+	resps, err := ReadResponses(path)
+	if err != nil {
+		return nil, err
+	}
+	return SummarizeResponses(resps), nil
+}
+
+// SummarizeResponses totals a set of responses, e.g. the in-window subset of one file.
+func SummarizeResponses(resps []Response) *FileSummary {
 	s := &FileSummary{Models: map[string]*ModelUsage{}, Turns: len(resps), ModelTurns: map[string]int{}, perMin: map[int64]int64{}}
 	for _, r := range resps {
 		s.count(r)
 	}
-	return s, nil
+	return s
 }
 
-func (s *FileSummary) count(r response) {
-	m := s.Models[r.model]
+func (s *FileSummary) count(r Response) {
+	m := s.Models[r.Model]
 	if m == nil {
 		m = &ModelUsage{}
-		s.Models[r.model] = m
+		s.Models[r.Model] = m
 	}
-	m.add(r.usage)
-	s.ModelTurns[r.model]++
-	ts, err := time.Parse(time.RFC3339, r.ts)
-	if err != nil {
+	m.add(r.Usage)
+	s.ModelTurns[r.Model]++
+	if r.At.IsZero() {
 		return
 	}
 	// ITPM counts uncached input: fresh input plus cache writes; cache reads don't count on current models.
-	s.perMin[ts.Truncate(time.Minute).Unix()] += r.usage.InputTokens + r.usage.CacheCreationTokens
-	if s.First.IsZero() || ts.Before(s.First) {
-		s.First = ts
+	s.perMin[r.At.Truncate(time.Minute).Unix()] += r.Usage.InputTokens + r.Usage.CacheCreationTokens
+	if s.First.IsZero() || r.At.Before(s.First) {
+		s.First = r.At
 	}
-	if ts.After(s.Last) {
-		s.Last = ts
+	if r.At.After(s.Last) {
+		s.Last = r.At
 	}
 }
 

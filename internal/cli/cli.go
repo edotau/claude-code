@@ -8,13 +8,13 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/buildver"
 	"github.com/edotau/claude-code/internal/clean"
 	"github.com/edotau/claude-code/internal/databricks"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/testtool/mutate"
 	"github.com/edotau/claude-code/internal/testtool/ramdisk"
+	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/ansi"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 	"github.com/edotau/claude-code/internal/ui/theme"
@@ -223,7 +223,7 @@ func usage(w *os.File) {
 	}
 	paintHead := func(s string) string { return s }
 	paintName := func(s string, frac float64) string { return s }
-	if colorOK(w) {
+	if ansi.Enabled(w) {
 		mode, stops, dim := theme.Theme()
 		// ANTHROPIC is first-party, so its head opens the gradient; the other heads stay dim.
 		paintHead = func(s string) string {
@@ -251,27 +251,8 @@ func usage(w *os.File) {
 	fmt.Fprintln(w) // Why: a blank line between the menu and the next shell prompt
 }
 
-// colorOK is true when w is a terminal and NO_COLOR is unset (https://no-color.org).
-func colorOK(w *os.File) bool {
-	if os.Getenv("NO_COLOR") != "" {
-		return false
-	}
-	return ansi.IsTerminal(w)
-}
-
-// sweep paints s rune by rune across the gradient, bold, like the status line's path segment.
-func sweep(mode string, stops []ansi.RGB, s string) string {
-	runes := []rune(s)
-	var b strings.Builder
-	for i, r := range runes {
-		b.WriteString(ansi.FgSeq(mode, ansi.GradAt(stops, float64(i)/float64(max(len(runes)-1, 1))), true))
-		b.WriteRune(r)
-	}
-	return b.String() + ansi.Reset
-}
-
 func cmdVersion([]string) int {
-	fmt.Println("claude-code", buildver.Version())
+	fmt.Println("claude-code", textutil.BuildVersion())
 	return 0
 }
 
@@ -279,6 +260,14 @@ func cmdVersion([]string) int {
 func fail(format string, a ...any) int {
 	fmt.Fprintf(os.Stderr, "claude-code: "+format+"\n", a...)
 	return 1
+}
+
+// writeJSONOrFail writes v as indented JSON to stdout; a write error is reported under label and returns 1.
+func writeJSONOrFail(label string, v any) int {
+	if err := helptext.WriteJSON(os.Stdout, v); err != nil {
+		return fail("%s: %v", label, err)
+	}
+	return 0
 }
 
 // badFormat reports an invalid --format value as a usage error (exit 2).

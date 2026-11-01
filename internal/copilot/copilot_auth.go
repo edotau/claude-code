@@ -15,7 +15,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/audit"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
@@ -24,8 +23,11 @@ import (
 	"github.com/edotau/claude-code/internal/usage"
 )
 
+// CopilotTokenEnv is copilot's highest-precedence token var; the harness sets it at launch from `gh auth token`.
+const CopilotTokenEnv = "COPILOT_GITHUB_TOKEN"
+
 // copilotTokenEnvs is copilot's documented env precedence (`copilot help environment`).
-var copilotTokenEnvs = []string{agent.CopilotTokenEnv, "GH_TOKEN", "GITHUB_TOKEN"}
+var copilotTokenEnvs = []string{CopilotTokenEnv, "GH_TOKEN", "GITHUB_TOKEN"}
 
 // CopilotAuth is the GitHub identity copilot authenticates as and where its credential comes from.
 type CopilotAuth struct {
@@ -40,7 +42,7 @@ const (
 	srcActive  = "gh (active)"
 	srcCopilot = "copilot login"
 	// SrcStoredToken is a COPILOT_GITHUB_TOKEN pasted via configure (sealed in the vault).
-	SrcStoredToken = agent.CopilotTokenEnv + " (stored)"
+	SrcStoredToken = CopilotTokenEnv + " (stored)"
 )
 
 // copilotPinLogin is the pinned copilot profile's GitHub login ("" = unpinned: gh's active account).
@@ -59,7 +61,7 @@ func copilotAuthSource() (CopilotAuth, bool) {
 		}
 		return CopilotAuth{}, false // a pinned account that can't be used never falls back to another one
 	}
-	if tok, src, ok := secretstore.Get(agent.CopilotTokenEnv); ok && src != "env" {
+	if tok, src, ok := secretstore.Get(CopilotTokenEnv); ok && src != "env" {
 		return CopilotAuth{Source: SrcStoredToken, token: strings.TrimSpace(tok)}, true
 	}
 	if login, tok := ghActiveAccountToken(); login != "" {

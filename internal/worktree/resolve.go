@@ -258,7 +258,6 @@ func conflictMarkersClear(ctx context.Context, worktreePath string, paths []stri
 	return true, "", nil
 }
 
-// changedPaths reads every path `git status --porcelain` reports as touched (staged or not).
 // changedPaths lists TRACKED changes only: untracked files an agent's own tooling drops (plugin caches) are never
 // staged, and Clean still refuses the worktree while they exist, so they cannot ride into the commit or be lost.
 func changedPaths(ctx context.Context, worktreePath string) ([]string, error) {

@@ -11,6 +11,7 @@ import (
 	"io"
 	"net/http"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -26,6 +27,51 @@ var apiBaseURL = DefaultBaseURL
 
 // ErrNoCredential: neither an OAuth client nor an API key resolves via the secrets ladder.
 var ErrNoCredential = errors.New("tailscale: no credential (set TAILSCALE_OAUTH_CLIENT_ID/_SECRET or TAILSCALE_API_KEY)")
+
+// ErrNoDevice: no admin-API device carries any of this node's tailnet addresses.
+var ErrNoDevice = errors.New("could not match this node's address to a device (is it connected?)")
+
+// SetNames is what `vault set --tailscale` writes: the API key alone, or the OAuth id then secret.
+func SetNames(apiKey bool) []string {
+	if apiKey {
+		return []string{"TAILSCALE_API_KEY"}
+	}
+	return []string{"TAILSCALE_OAUTH_CLIENT_ID", "TAILSCALE_OAUTH_CLIENT_SECRET"}
+}
+
+// ParseKeyExpiry accepts a Go duration or a bare "<N>d" day count.
+func ParseKeyExpiry(s string) (time.Duration, error) {
+	if n, ok := strings.CutSuffix(s, "d"); ok {
+		days, err := strconv.Atoi(n)
+		if err != nil {
+			return 0, err
+		}
+		return time.Duration(days) * 24 * time.Hour, nil
+	}
+	return time.ParseDuration(s)
+}
+
+// SelfDevice resolves this box to its admin-API device; ErrNoCredential means no client could be built.
+func SelfDevice(ctx context.Context) (*Client, Local, string, error) {
+	client, err := NewClient()
+	if err != nil {
+		return nil, Local{}, "", err
+	}
+	st, err := Status(ctx)
+	if err != nil { // ErrNotRunning included: st.IPs would be stale and never match a device
+		return nil, Local{}, "", err
+	}
+	devices, err := client.Devices(ctx)
+	if err != nil {
+		return nil, Local{}, "", err
+	}
+	for _, d := range devices {
+		if slices.ContainsFunc(d.Addresses, func(a string) bool { return slices.Contains(st.IPs, a) }) {
+			return client, st, d.ID, nil
+		}
+	}
+	return nil, Local{}, "", ErrNoDevice
+}
 
 // Client talks to the admin API; token mints (and caches) the bearer, re-minted once on a 401.
 type Client struct {

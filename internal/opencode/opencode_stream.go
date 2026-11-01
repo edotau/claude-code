@@ -37,16 +37,16 @@ type openCodeEvent struct {
 	} `json:"error"`
 }
 
-// isMeaningfulOpenCodeEvent reports whether ev shows the run is alive: model output or step_start (a slow model sends no text until done).
+// isMeaningfulOpenCodeEvent reports whether ev is real model output; step_start is not (it only renews the watchdog).
 func isMeaningfulOpenCodeEvent(ev openCodeEvent) bool {
 	switch ev.Type {
-	case "step_start":
+	case "step_finish":
 		return true
 	case "text", "reasoning":
 		if strings.TrimSpace(ev.Part.Text) != "" {
 			return true
 		}
-	case "tool":
+	case "tool", "tool_use":
 		if ev.Part.Tool != "" || ev.Part.State.Status != "" {
 			return true
 		}
@@ -54,13 +54,9 @@ func isMeaningfulOpenCodeEvent(ev openCodeEvent) bool {
 	return ev.Part.Tokens.Output > 0
 }
 
-// parseOpenCodeStream streams the root session's text parts; onMeaningful fires once on the first meaningful event.
-func parseOpenCodeStream(br *bufio.Reader, sink agent.Sink, onMeaningful func(), logs ...agent.StreamLog) (agent.Result, error) {
-	return parseOpenCodeEvents(br, sink, onMeaningful, nil, logs...)
-}
-
-// parseOpenCodeEvents is parseOpenCodeStream plus onTool, called once per finished tool call with its event.
-func parseOpenCodeEvents(br *bufio.Reader, sink agent.Sink, onMeaningful func(), onTool func(openCodeEvent), logs ...agent.StreamLog) (res agent.Result, _ error) {
+// parseOpenCodeEvents streams the root session's text parts; onMeaningful fires once on the first meaningful event,
+// onTool once per finished tool call, onStep on every step_start before that first meaningful event.
+func parseOpenCodeEvents(br *bufio.Reader, sink agent.Sink, onMeaningful func(), onTool func(openCodeEvent), onStep func(), logs ...agent.StreamLog) (res agent.Result, _ error) {
 	ts := agent.TransportTracker{Start: agent.Clock()}
 	defer func() { res.Transport = ts.Result() }()
 	lg := agent.PickLog(logs)
@@ -79,6 +75,9 @@ func parseOpenCodeEvents(br *bufio.Reader, sink agent.Sink, onMeaningful func(),
 		if !fired && onMeaningful != nil && isMeaningfulOpenCodeEvent(ev) {
 			fired = true
 			onMeaningful()
+		}
+		if !fired && onStep != nil && ev.Type == "step_start" {
+			onStep()
 		}
 		switch ev.Type {
 		case "text":

@@ -3,9 +3,10 @@ package opencode
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/edotau/claude-code/internal/agent"
 	"strings"
 
+	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
 )
@@ -48,7 +49,7 @@ func opencodeDatabricks(p *providers.Provider, id, dialect, base, model, cred st
 	}
 	chat, resp, claude, allowed, dropped := splitMenu(p, claudeBase != "")
 	if len(dropped) > 0 {
-		fmt.Fprintf(agent.CatalogWarn, "opencode: %s has no openai route; left out of the menu: %s\n", p.Name, strings.Join(dropped, ", "))
+		fmt.Fprintf(agentconfig.CatalogWarn, "opencode: %s has no openai route; left out of the menu: %s\n", p.Name, strings.Join(dropped, ", "))
 	}
 	for _, alias := range models.AliasNames {
 		if s := models.Strip1M(p.Models[alias]); s != "" {
@@ -94,7 +95,7 @@ func opencodeDatabricks(p *providers.Provider, id, dialect, base, model, cred st
 func splitMenu(p *providers.Provider, claudeRoute bool) (chat, resp, claude map[string]any, allowed map[string]bool, dropped []string) {
 	chat, resp, claude, allowed = map[string]any{}, map[string]any{}, map[string]any{}, map[string]bool{}
 	for _, m := range providers.OpencodeMenu() {
-		wire := agent.MenuWire(p, m.ID) // the catalog spells the id the way this row serves it
+		wire := agentconfig.MenuWire(p, m.ID) // the catalog spells the id the way this row serves it
 		allowed[wire] = true
 		entry := map[string]any{"name": m.Label + " · " + p.Name}
 		switch {

@@ -25,7 +25,7 @@ import (
 // opencode: a generated provider block via OPENCODE_CONFIG_CONTENT; the key is an {env:} reference.
 // Interactive runs also list every alias model and import the caller's Claude permissions + MCP servers.
 func opencode(p *providers.Provider, dialect, base, model, cred string, routed bool, h *agent.Headless) ([]string, []string, error) {
-	id, err := agent.OwnedID(p)
+	id, err := agentconfig.OwnedID(p)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -373,9 +373,12 @@ func (e opencodeEngine) Exec(ctx context.Context, p agent.CLIPrep, req agent.Run
 		return p.Result, err
 	}
 	host := newHookHost(req)
-	argv := host.before(p.Argv, p.Prompt)
+	argv, err := host.before(p.Argv, p.Prompt)
+	if err != nil {
+		return p.Result, &agent.Error{Kind: agent.KindFatal, Agent: e.Name(), Err: err}
+	}
 	cmd, tail := agent.ChildCmd(ctx, bin, argv, p.Env, req.WorkDir, "", req.KeepEnv, true)
-	res, err := agent.RunStream(ctx, e.Name(), cmd, tail, p.Result, sink, host.parser())
+	res, err := agent.RunStream(ctx, e.Name(), cmd, tail, p.Result, sink, host.parser(nil))
 	host.after(res)
 	return res, err
 }

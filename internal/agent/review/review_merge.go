@@ -11,15 +11,14 @@ const cleanVerdict = "VERDICT: no actionable findings"
 // verdictRank orders the neutral review verdicts, worst highest.
 var verdictRank = map[string]int{"SHIP IT": 1, "NEEDS WORK": 2, "FIX REQUIRED": 2, "BLOCK": 3}
 
-// MergeReports folds per-part answers into one report: a worst-of verdict first, then each part's findings
-// (identical lines kept once). Neutral parts lead with a verdict line; adversarial parts are findings only.
+// MergeReports folds per-part answers into one report: worst verdict first, then deduped findings per part.
 func MergeReports(adversarial bool, parts []Part, answers []string) string {
 	seen := map[string]bool{}
 	var body strings.Builder
-	worst, best, unjudged := "", 0, false
+	worst, best, unjudged, total := "", 0, false, 0
 	for i, ans := range answers {
 		lines := strings.Split(strings.TrimSpace(ans), "\n")
-		if !adversarial && len(lines) > 0 {
+		if !adversarial {
 			v := strings.ToUpper(strings.Trim(strings.TrimSpace(lines[0]), "*#: ."))
 			if r, ok := verdictRank[v]; ok {
 				if r > best {
@@ -42,6 +41,7 @@ func MergeReports(adversarial bool, parts []Part, answers []string) string {
 			body.WriteString("\n")
 			n++
 		}
+		total += n
 		if n == 0 {
 			body.WriteString("(no findings)\n")
 		}
@@ -49,21 +49,11 @@ func MergeReports(adversarial bool, parts []Part, answers []string) string {
 	head := worst
 	if adversarial {
 		head = cleanVerdict
-		if hasFindings(body.String()) {
+		if total > 0 {
 			head = "VERDICT: findings across " + strconv.Itoa(len(parts)) + " parts"
 		}
 	} else if head == "" || (unjudged && best < verdictRank["NEEDS WORK"]) {
 		head = "NEEDS WORK" // a part without a parseable verdict is never judged SHIP IT
 	}
 	return head + "\n" + body.String()
-}
-
-// hasFindings reports whether any part contributed a line beyond its header and "(no findings)" marker.
-func hasFindings(body string) bool {
-	for l := range strings.SplitSeq(body, "\n") {
-		if l != "" && !strings.HasPrefix(l, "## ") && l != "(no findings)" {
-			return true
-		}
-	}
-	return false
 }

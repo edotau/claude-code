@@ -3,6 +3,7 @@ package providers
 import (
 	"encoding/json"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/edotau/claude-code/internal/vault"
@@ -202,5 +203,20 @@ func TestNestRowsOrderAndLeftovers(t *testing.T) {
 	_ = json.Unmarshal(b, &top)
 	if got, want := ObjectKeys(top["databricks"]), []string{"prod", "dev", "aa", "zz"}; !slices.Equal(got, want) {
 		t.Errorf("nestRows order = %v, want %v (listed order, then sorted leftovers)", got, want)
+	}
+}
+
+func TestUnsupportedAuthTypeWriteRefused(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	err := SetProviderFields("dbx-bad", map[string]any{
+		"protocol": "anthropic", "base_url": "https://example.cloud.databricks.com/serving-endpoints/anthropic",
+		"auth": map[string]any{"type": "external-browser"},
+	})
+	if err == nil || !strings.Contains(err.Error(), `auth.type "external-browser" unknown`) {
+		t.Fatalf("write err = %v", err)
+	}
+	reg, err := Load()
+	if err != nil || reg.Providers["dbx-bad"] != nil {
+		t.Errorf("rejected row landed: err=%v", err)
 	}
 }

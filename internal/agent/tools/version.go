@@ -7,13 +7,13 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"strconv"
 	"strings"
 	"sync"
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/schemas"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // Named failures of Version; callers match with errors.Is.
@@ -25,7 +25,7 @@ var (
 // versionRe picks the first dotted version in a --version line, never digits glued to a name ("gpt-5.1" stays a name).
 var versionRe = regexp.MustCompile(`(?:^|[^0-9A-Za-z.\-])v?(\d+(?:\.\d+)+)`)
 
-// ParseVersion returns the first dotted version in a CLI's --version output ("codex-cli 0.155.0" -> "0.155.0"), else "".
+// ParseVersion returns the first dotted version in --version output ("codex-cli 0.155.0" -> "0.155.0"), else "".
 func ParseVersion(line string) string {
 	if m := versionRe.FindStringSubmatch(line); m != nil {
 		return m[1]
@@ -61,16 +61,18 @@ func VersionAt(path string) (string, error) {
 	return "", fmt.Errorf("%w: %q", ErrVersionUnknown, line)
 }
 
-// VersionProblem is "" when version sits inside the row's bounds, else "below <min>: <reason>" or "above <max>: <reason>".
+// VersionProblem is "" when version is in the row's bounds, else "below <min>: <reason>" or "above <max>: <reason>".
 func VersionProblem(spec agent.CLI, version string) string {
-	v := versionParts(version)
-	if v == nil {
-		return ""
-	}
-	if lo := versionParts(spec.MinVersion); lo != nil && compareParts(v, lo, false) < 0 {
+	if c, ok := textutil.CompareVersions(version, spec.MinVersion); ok && c < 0 {
 		return "below " + spec.MinVersion + ": " + spec.MinReason
 	}
-	if hi, wild := boundParts(spec.MaxVersion); hi != nil && compareParts(v, hi, wild) > 0 {
+	hi, wild := boundParts(spec.MaxVersion)
+	v := version
+	if wild { // ".x" fixes only the bound's leading parts
+		parts := strings.Split(strings.TrimPrefix(strings.TrimSpace(version), "v"), ".")
+		v = strings.Join(parts[:min(len(parts), len(strings.Split(hi, ".")))], ".")
+	}
+	if c, ok := textutil.CompareVersions(v, hi); ok && c > 0 {
 		return "above " + spec.MaxVersion + ": " + spec.MaxReason
 	}
 	return ""
@@ -93,52 +95,14 @@ func VersionWarning(name, path string) string {
 	return ""
 }
 
-// versionParts splits "1.0.104" into ints; nil when s is empty or not dotted numbers.
-func versionParts(s string) []int {
-	s = strings.TrimPrefix(strings.TrimSpace(s), "v")
-	if s == "" {
-		return nil
-	}
-	var out []int
-	for p := range strings.SplitSeq(s, ".") {
-		n, err := strconv.Atoi(p)
-		if err != nil || n < 0 {
-			return nil
-		}
-		out = append(out, n)
-	}
-	return out
-}
-
-// boundParts parses a bound, where a trailing ".x" or ".*" ("1.x") fixes only the leading parts; wild reports it.
-func boundParts(s string) (parts []int, wild bool) {
+// boundParts strips a trailing ".x" or ".*" ("1.x") from a bound; wild reports it.
+func boundParts(s string) (bound string, wild bool) {
 	for _, suffix := range []string{".x", ".*"} {
 		if t, ok := strings.CutSuffix(s, suffix); ok {
-			return versionParts(t), true
+			return t, true
 		}
 	}
-	return versionParts(s), false
-}
-
-// compareParts orders a against b (<0, 0, >0), zero-padding the shorter; wild compares only b's leading parts.
-func compareParts(a, b []int, wild bool) int {
-	n := max(len(a), len(b))
-	if wild {
-		n = len(b)
-	}
-	for i := 0; i < n; i++ {
-		var x, y int
-		if i < len(a) {
-			x = a[i]
-		}
-		if i < len(b) {
-			y = b[i]
-		}
-		if x != y {
-			return x - y
-		}
-	}
-	return 0
+	return s, false
 }
 
 var (
@@ -159,7 +123,7 @@ func versionKey(path string) (key string, ok bool) {
 	return fmt.Sprintf("%s|%d|%d", path, fi.Size(), fi.ModTime().UnixNano()), true
 }
 
-// versionLine is firstVersionLine cached in-process and in the state dir, keyed by path+size+mtime; failures are not cached.
+// versionLine is firstVersionLine cached in-process and in the state dir, keyed by path+size+mtime; failures uncached.
 func versionLine(path string) string { return ProbedVersionLine(path, firstVersionLine) }
 
 // ProbedVersionLine is versionLine with the caller's own probe (its timeout and parsing), sharing the same cache.
@@ -214,18 +178,7 @@ func writeVersionCache(path, key, line string) {
 	if err != nil {
 		return
 	}
-	file := versionCacheFile()
-	if os.MkdirAll(filepath.Dir(file), 0o755) != nil {
-		return
-	}
-	tmp, err := os.CreateTemp(filepath.Dir(file), ".agentversion-*")
-	if err != nil {
-		return
-	}
-	_, werr := tmp.Write(data)
-	if cerr := tmp.Close(); werr != nil || cerr != nil || os.Rename(tmp.Name(), file) != nil {
-		_ = os.Remove(tmp.Name())
-	}
+	_ = paths.AtomicWrite(versionCacheFile(), data, 0o600)
 }
 
 // schemaVersion is the agentversion cache's current schema version.

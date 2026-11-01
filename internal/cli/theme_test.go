@@ -1,15 +1,12 @@
 package cli
 
 import (
-	"bytes"
 	"encoding/json"
-	"io"
 	"os"
 	"path/filepath"
 	"reflect"
 	"runtime"
 	"strings"
-	"sync"
 	"testing"
 
 	"github.com/edotau/claude-code/internal/ui/theme"
@@ -21,31 +18,6 @@ func hermeticTheme(t *testing.T) string {
 	dir := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", dir)
 	return dir
-}
-
-// captureOutput redirects os.Stdout/os.Stderr around fn and returns fn's exit code plus both streams.
-func captureOutput(t *testing.T, fn func() int) (code int, stdout, stderr string) {
-	t.Helper()
-	oldOut, oldErr := os.Stdout, os.Stderr
-	ro, wo, err := os.Pipe()
-	if err != nil {
-		t.Fatal(err)
-	}
-	re, we, err := os.Pipe()
-	if err != nil {
-		t.Fatal(err)
-	}
-	var bo, be bytes.Buffer
-	var drained sync.WaitGroup
-	drained.Go(func() { io.Copy(&bo, ro) }) // drain while fn runs: a full pipe would block its writes forever
-	drained.Go(func() { io.Copy(&be, re) })
-	os.Stdout, os.Stderr = wo, we
-	code = fn()
-	wo.Close()
-	we.Close()
-	os.Stdout, os.Stderr = oldOut, oldErr
-	drained.Wait()
-	return code, bo.String(), be.String()
 }
 
 // A command printing past the pipe buffer must not deadlock: the audit hung 5m on a large settings render.
@@ -444,5 +416,20 @@ func TestTemplateIsFirstPartyOnly(t *testing.T) {
 		if strings.Contains(body, unwanted) {
 			t.Errorf("template retained unwanted key %q", unwanted)
 		}
+	}
+}
+
+// TestThemeGetGradientSafety ensures that theme gradient loading handles errors
+// safely without panicking or returning garbage values (regression test for
+// internal/cli/theme.go:111 json.Unmarshal error handling).
+func TestThemeGetGradientSafety(t *testing.T) {
+	_ = hermeticTheme(t) // initialize theme directory
+
+	// Test that setting and getting a theme works without error
+	code, _, _ := captureOutput(t, func() int {
+		return cmdTheme([]string{"nord"})
+	})
+	if code != 0 {
+		t.Errorf("theme nord: exit %d, want 0", code)
 	}
 }

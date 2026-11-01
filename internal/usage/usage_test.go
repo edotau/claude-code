@@ -42,6 +42,11 @@ func writeUsageFixture(t *testing.T, claudeDir, project, session string, age tim
 	return p
 }
 
+// recentTS is an RFC3339 timestamp age before now, so a --days window keeps the record.
+func recentTS(age time.Duration) string {
+	return time.Now().Add(-age).UTC().Format("2006-01-02T15:04:05.000Z")
+}
+
 func usageRecordLine(model string, input, output int, ts string) string {
 	return `{"type":"assistant","timestamp":"` + ts + `","message":{"model":"` + model +
 		`","usage":{"input_tokens":` + strconv.Itoa(input) + `,"cache_read_input_tokens":0,"cache_creation_input_tokens":0,"output_tokens":` + strconv.Itoa(output) + `}}}`
@@ -111,7 +116,7 @@ func writeMainTranscript(t *testing.T, claudeDir, project, session, content stri
 func TestUsageCmdDaysScope(t *testing.T) {
 	claudeDir := t.TempDir()
 	writeUsageFixture(t, claudeDir, "-home-edotau-repoA", "session-recent", time.Hour,
-		usageRecordLine("claude-sonnet-5", 100, 10, "2026-07-19T06:36:00.000Z"))
+		usageRecordLine("claude-sonnet-5", 100, 10, recentTS(time.Hour)))
 	writeUsageFixture(t, claudeDir, "-home-edotau-repoB", "session-old", 30*24*time.Hour,
 		usageRecordLine("claude-opus-4-8", 9000, 900, "2026-06-01T00:00:00.000Z"))
 
@@ -194,7 +199,7 @@ func TestUsageCmdIncludesWorkflowAgents(t *testing.T) {
 func TestUsageCmdIncludesWorkflowAgentsWithinDays(t *testing.T) {
 	claudeDir := t.TempDir()
 	writeWorkflowAgentFixture(t, claudeDir, "-home-edotau-repoA", "session-1", "wf_run1", "a", "Find", time.Hour,
-		usageRecordLine("claude-opus-4-8", 400, 40, "2026-07-19T06:37:00.000Z"))
+		usageRecordLine("claude-opus-4-8", 400, 40, recentTS(time.Hour)))
 
 	var out, errw bytes.Buffer
 	if code := Run([]string{"--days", "1"}, claudeDir, &out, &errw); code != 0 {
@@ -668,5 +673,37 @@ func TestAggregateLedgerByProfile(t *testing.T) {
 	}
 	if l := rowLabel(got[2].Provider, got[2].Profile); l != "openai" {
 		t.Errorf("label = %q", l)
+	}
+}
+
+// TestScanUsageCountsOnlyTurnsInsideWindow: a session dir touched today still contributes only its fresh
+// transcripts, and from those only the turns stamped inside the window; the daily buckets use the same set.
+func TestScanUsageCountsOnlyTurnsInsideWindow(t *testing.T) {
+	claudeDir := t.TempDir()
+	fresh := writeUsageFixture(t, claudeDir, "-p", "s", time.Hour,
+		usageRecordLine("claude-sonnet-5", 5000, 0, recentTS(10*24*time.Hour)), // old turn in a freshly appended file
+		usageRecordLine("claude-sonnet-5", 100, 10, recentTS(time.Hour)))
+	stale := filepath.Join(filepath.Dir(fresh), "agent-old.jsonl") // old file inside the same, freshly touched, session
+	writeFile(t, stale, usageRecordLine("claude-opus-4-8", 7000, 0, recentTS(10*24*time.Hour)))
+	old := time.Now().Add(-10 * 24 * time.Hour)
+	if err := os.Chtimes(stale, old, old); err != nil {
+		t.Fatal(err)
+	}
+
+	scan, err := scanUsage(claudeDir, "", 7, io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(scan.files) != 1 {
+		t.Errorf("files = %v, want only the fresh transcript", scan.files)
+	}
+	if got := scan.agg.Models["claude-sonnet-5"]; got == nil || got.Total() != 110 {
+		t.Errorf("sonnet = %+v, want 110 tokens (the 10-day-old turn is outside the window)", got)
+	}
+	if _, ok := scan.agg.Models["claude-opus-4-8"]; ok {
+		t.Error("opus from the stale file leaked into the window")
+	}
+	if len(scan.daily) != 1 || scan.daily[0].Tokens != 110 || scan.daily[0].Turns != 1 {
+		t.Errorf("daily = %+v, want one bucket of 110 tokens, 1 turn (same set as the aggregate)", scan.daily)
 	}
 }

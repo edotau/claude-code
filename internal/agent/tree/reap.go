@@ -70,8 +70,7 @@ func matchesClaudeDispatch(s Session, dispatches []Dispatch) bool {
 	return false
 }
 
-// Reap marks dispatch records that say running but whose job is gone as error, and removes dead or stale
-// agent-inflight markers; dryRun only prints. It returns 1 when the marker lock could not be taken or a save failed.
+// Reap errors out lost running dispatches and removes dead inflight markers; dryRun only prints. Returns 1 on failure.
 func Reap(dryRun bool, out, errw io.Writer) int {
 	verb := "reaped"
 	if dryRun {
@@ -127,8 +126,7 @@ func reapSockets(dryRun bool, verb string, out io.Writer) int {
 	return n
 }
 
-// reapMarkers removes the markers the limiter's own liveness rule would prune (inflight.Liveness).
-// Non-marker entries (the lock file) are never touched.
+// reapMarkers removes the markers inflight.Liveness would prune; non-marker entries (the lock file) stay.
 func reapMarkers(dryRun bool, verb string, out io.Writer) (int, error) {
 	dir := inflight.Dir()
 	if _, err := os.Stat(dir); err != nil {

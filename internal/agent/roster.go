@@ -1,13 +1,21 @@
 package agent
 
 import (
+	"cmp"
+	"errors"
 	"fmt"
 	"maps"
+	"net/url"
+	"os"
 	"slices"
 	"sort"
+	"strings"
 	"sync"
 
+	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/router"
+	"github.com/edotau/claude-code/internal/vault"
 )
 
 // Schema is one agent definition: a roster CLI, or a prompt-bearing definition that runs on one.
@@ -165,4 +173,245 @@ func (s Schema) ModelsProfile(reg *providers.Registry) (string, error) {
 		}
 	}
 	return "", fmt.Errorf("%s: no %s profile with a %s login", s.Name, s.CLI.ModelsProvider, s.Name)
+}
+
+// ModelAsk is one agent-model decision, shared by the interactive launch and the headless dispatch.
+type ModelAsk struct {
+	Agent string
+	// Flag is --model as typed: a model alias (opus) or a model id; "" = none.
+	Flag string
+	// Target is the provider and the model the agent runs with no flag and no pin.
+	Target providers.Target
+	// Applied means Target.Model already carries Flag (the session selection spelled it for Target.Provider).
+	Applied bool
+}
+
+// agentModelEnv is each CLI agent's own model knob; claude's ANTHROPIC_MODEL is handled in Claude().
+var agentModelEnv = map[string]string{
+	"codex": "CODEX_MODEL", "copilot": "COPILOT_MODEL", "gemini": "GEMINI_MODEL", "opencode": "OPENCODE_MODEL",
+}
+
+// AgentModelPin is the agent's own model: its shell model env (local config) over the vault record's model, or "".
+func AgentModelPin(agent string) string {
+	if v := strings.TrimSpace(os.Getenv(agentModelEnv[agent])); v != "" && agentModelEnv[agent] != "" {
+		return v
+	}
+	return vault.GetAgentRecord(agent).Model
+}
+
+// ResolveAgentModel is the one rule for the model an agent runs: flag > the agent's shell model env > its vault pin > Target.Model,
+// spelled for Target.Provider. A model alias the provider lacks keeps Target.Model and says so in the note.
+func ResolveAgentModel(a ModelAsk) (providers.Target, string) {
+	t, p := a.Target, a.Target.Provider
+	if a.Flag == "" {
+		if pin := AgentModelPin(a.Agent); pin != "" {
+			if m := providers.SpellPin(p, pin); m != "" {
+				t.Model = m
+			}
+		}
+		return t, ""
+	}
+	if a.Applied {
+		return t, ""
+	}
+	alias := slices.Contains(models.AliasNames, a.Flag)
+	switch {
+	case p == nil && !alias:
+		t.Model = a.Flag
+	case p == nil:
+	case alias && p.Models[a.Flag] != "":
+		t.Model = p.Models[a.Flag]
+	case alias:
+		return t, fmt.Sprintf("%s has no %s model; keeping %s", p.Name, a.Flag, t.Model)
+	default:
+		t.Model = p.WireModel(models.Strip1M(a.Flag))
+	}
+	return t, ""
+}
+
+// GeminiGatewayRow is a keyed Databricks row agy can reach through the router's native Gemini route.
+func GeminiGatewayRow(p *providers.Provider) bool {
+	return p != nil && p.Preset == providers.PresetDatabricks && p.Auth.Login == "" &&
+		p.Auth.Method() != providers.AuthNone && p.Auth.Method() != providers.AuthCLI
+}
+
+// CanServe reports whether p is usable by agent name (Serves without the reason).
+func CanServe(name string, p *providers.Provider) bool {
+	if name == "gemini" && GeminiGatewayRow(p) {
+		return true
+	}
+	ok, _ := Serves(name, p, "")
+	return ok
+}
+
+// Serves reports whether p is usable by agent: a login provider naming it, or a route on one of the dialects it speaks.
+// A non-empty model adds that the model's wire (WireFor) is one the agent speaks. why names the first thing missing.
+func Serves(agent string, p *providers.Provider, model string) (ok bool, why string) {
+	spec, known := LookupSchema(agent)
+	if !known || !spec.External() {
+		return false, fmt.Sprintf("unknown agent %q", agent)
+	}
+	// A cli-auth provider carries a login only its own agent can forward; a dialect match is not enough.
+	if p.Auth.Login != "" {
+		if p.Auth.Login == agent {
+			return true, ""
+		}
+		return false, fmt.Sprintf("provider %s carries a %s login, which %s cannot use", p.Name, p.Auth.Login, agent)
+	}
+	if len(spec.CLI.Dialects) == 0 {
+		return false, fmt.Sprintf("%s has no custom base URL; it runs only on its Google sign-in, not provider %s", spec.CLI.Binary, p.Name)
+	}
+	if !slices.ContainsFunc(spec.CLI.Dialects, func(d string) bool { _, ok := p.Route(d); return ok }) {
+		return false, fmt.Sprintf("provider %s serves no %s route (it has %s)", p.Name,
+			strings.Join(spec.CLI.Dialects, "/"), strings.Join(p.Dialects(), ","))
+	}
+	if p.Auth.Method() == providers.AuthCLI {
+		return false, fmt.Sprintf("provider %s uses cli (subscription) auth, which %s cannot use; pick a keyed provider", p.Name, agent)
+	}
+	if model == "" {
+		return true, ""
+	}
+	wire, ok, why := providers.WireFor(p, model)
+	if !ok {
+		return false, why
+	}
+	_, routed := spec.CLI.RouterSuffix[wire]
+	if !routed && !slices.Contains(spec.CLI.Dialects, wire) {
+		return false, fmt.Sprintf("%s does not speak the %s wire that provider %s uses for %s", agent, wire, p.Name, model)
+	}
+	return true, ""
+}
+
+// googleHost is Gemini's own API host; a gemini-dialect route anywhere else is a gateway.
+const googleHost = "generativelanguage.googleapis.com"
+
+func IsGateway(base string) bool {
+	u, err := url.Parse(base)
+	return err == nil && u.Host != googleHost
+}
+
+// VaultAgentNames is claude, then the other roster agents alphabetically, then extra overlay agent names.
+func VaultAgentNames(vs map[string]any) []string {
+	var names, rest []string
+	for _, sp := range Roster() {
+		if !sp.External() {
+			names = append(names, sp.Name)
+		} else {
+			rest = append(rest, sp.Name)
+		}
+	}
+	names = append(names, slices.Sorted(slices.Values(rest))...)
+	for _, name := range slices.Sorted(maps.Keys(vs)) {
+		if !slices.Contains(names, name) {
+			names = append(names, name)
+		}
+	}
+	return names
+}
+
+// VaultAgentIsClaude reports the roster row the harness launches itself (no external binary).
+func VaultAgentIsClaude(name string) bool {
+	s, ok := LookupSchema(name)
+	return ok && !s.External()
+}
+
+// AgentOn and AgentOff are the values `<agent> on|off` and ValidAgentActive accept.
+const (
+	AgentOn  = "on"
+	AgentOff = "off"
+)
+
+// ValidAgentActive rejects any value but on|off, and off for claude.
+func ValidAgentActive(agent, v string) error {
+	if _, ok := LookupSchema(agent); !ok {
+		return errUnknownAgent(agent)
+	}
+	switch v {
+	case AgentOn:
+		return nil
+	case AgentOff:
+		if VaultAgentIsClaude(agent) {
+			return errors.New("claude is always on")
+		}
+		return nil
+	}
+	return fmt.Errorf("active must be %q or %q, got %q", AgentOn, AgentOff, v)
+}
+
+// AgentUnbillable is why copilot has no account to bill (no GitHub login under 95%, Databricks profile or key); "" else.
+func AgentUnbillable(agent string) string {
+	if agent != "copilot" {
+		return ""
+	}
+	reg, err := providers.Load()
+	if err != nil {
+		return ""
+	}
+	if schemaFor("copilot").eng().DescribeRoute(reg).OK {
+		return ""
+	}
+	return "no account to bill"
+}
+
+// AgentActive reports whether agent is on: claude always, else a profile is set (copilot's no-bill-off stays derived).
+func AgentActive(agent string) bool {
+	if agent == "claude" {
+		return true
+	}
+	if _, ok := LookupSchema(agent); !ok {
+		return true
+	}
+	return vault.GetAgentRecord(agent).Profile != ""
+}
+
+// AgentPins reads the records once and returns every agent's spec; claude's profile is the session's, else its record's.
+func AgentPins() map[string]router.PinSpec {
+	recs := vault.AgentRecords(RosterNames())
+	reg, _ := providers.Load()
+	out := make(map[string]router.PinSpec, len(rows()))
+	for _, k := range rows() {
+		r := recs[k.Name]
+		spec := router.PinSpec{Profile: r.Profile, Off: k.External() && r.Profile == ""}
+		if ownLogin(reg, k.Name, r.Profile) {
+			spec.Profile = "" // the agent's own login profile routes as the old unset pin did
+		}
+		spec.Model = r.Model
+		if !k.External() {
+			spec.Profile = cmp.Or(providers.SessionProfile(), spec.Profile)
+		}
+		out[k.Name] = spec
+	}
+	return out
+}
+
+// OpencodeOwnLogin is opencode's own-login profile: the free Zen catalog then the paid ladder, as the old unset pin.
+const OpencodeOwnLogin = "zen-free"
+
+// ownLogin reports a profile that is agent's own sign-in: a registry row with Auth.Login == agent, or opencode's Zen id.
+func ownLogin(reg *providers.Registry, agent, profile string) bool {
+	if profile == "" {
+		return false
+	}
+	if agent == "opencode" {
+		return profile == OpencodeOwnLogin
+	}
+	if reg == nil {
+		return false
+	}
+	p := reg.Providers[profile]
+	return p != nil && p.Auth.Login == agent
+}
+
+// ValidAgentPin checks v as agent's profile pin: a registry profile, or for opencode also a sub id.
+func ValidAgentPin(reg *providers.Registry, agent, v string) error {
+	if _, ok := LookupSchema(agent); !ok {
+		return errUnknownAgent(agent)
+	}
+	if agent == "opencode" && (v == OpencodeOwnLogin || slices.Contains(providers.RouteOpencodeSubIDs, v)) {
+		return nil
+	}
+	if reg == nil || reg.Providers[v] == nil {
+		return fmt.Errorf("%s: unknown profile %q", agent, strings.TrimSpace(v))
+	}
+	return nil
 }

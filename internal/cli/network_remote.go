@@ -16,8 +16,7 @@ import (
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
-// remotePage documents the three modes: start, --list, --attach; each has its own usage line
-// since their flags and positionals are not interchangeable (--attach takes exactly one session).
+// remotePage documents the three modes (start, --list, --attach), each with its own usage line.
 var remotePage = helptext.Page{
 	Usage: "claude-code network remote --host <name> [flags] \"<task>\"\n" +
 		"claude-code network remote --host <name> --list [flags]\n" +
@@ -36,10 +35,11 @@ var dispatchFlagMode = map[string]string{
 const sshTimeout = 20 * time.Second
 
 func cmdNetworkRemote(args []string) int {
+	remoteAgents := strings.Join(tailscale.RemoteAgents, "|")
 	fs := helptext.NewFlagSet("network remote", remotePage)
 	host := fs.String("host", "", "ssh host: alias, MagicDNS/tailnet name, or IP")
 	dir := fs.String("dir", "", "remote working directory (default ~)")
-	agentName := fs.String("agent", "claude", "agent CLI: "+strings.Join(tailscale.RemoteAgents, "|"))
+	agentName := fs.String("agent", "claude", "agent CLI: "+remoteAgents)
 	name := fs.String("name", "", "tmux session name (default cc-<agent>-<id>)")
 	dryRun := fs.Bool("dry-run", false, "print the ssh argv instead of running it")
 	list := fs.Bool("list", false, "list cc-* tmux sessions on --host")
@@ -90,10 +90,16 @@ func cmdNetworkRemote(args []string) int {
 		return dispatchAttach(resolved, rest[0])
 	default:
 		if !tailscale.ValidAgent(*agentName) {
-			return fail("network remote: --agent %q must be one of %s", *agentName, strings.Join(tailscale.RemoteAgents, "|"))
+			return fail("network remote: --agent %q must be one of %s", *agentName, remoteAgents)
 		}
 		return dispatchStart(ctx, resolved, *dir, *agentName, *name, strings.Join(rest, " "), *dryRun)
 	}
+}
+
+// sshCommand builds argv as a command bounded by sshTimeout; the caller picks the output mode.
+func sshCommand(ctx context.Context, argv []string) (*exec.Cmd, context.CancelFunc) {
+	cctx, cancel := context.WithTimeout(ctx, sshTimeout)
+	return exec.CommandContext(cctx, argv[0], argv[1:]...), cancel
 }
 
 func dispatchStart(ctx context.Context, host, dir, agentName, name, task string, dryRun bool) int {
@@ -112,13 +118,10 @@ func dispatchStart(ctx context.Context, host, dir, agentName, name, task string,
 		fmt.Println("attach:", tailscale.AttachCommand(host, session))
 		return 0
 	}
-	cctx, cancel := context.WithTimeout(ctx, sshTimeout)
+	cmd, cancel := sshCommand(ctx, argv)
 	defer cancel()
-	out, err := exec.CommandContext(cctx, argv[0], argv[1:]...).CombinedOutput()
-	n, writeErr := os.Stdout.Write(out)
-	if writeErr == nil && n < len(out) {
-		writeErr = fmt.Errorf("short write to stdout: wrote %d of %d bytes", n, len(out))
-	}
+	out, err := cmd.CombinedOutput()
+	_, writeErr := os.Stdout.Write(out)
 	if err := errors.Join(err, writeErr); err != nil {
 		return fail("network remote: %v", err)
 	}
@@ -139,19 +142,15 @@ func dispatchList(ctx context.Context, host, format string, withStatus bool, int
 }
 
 func dispatchListPlain(ctx context.Context, host, format string) int {
-	cctx, cancel := context.WithTimeout(ctx, sshTimeout)
+	cmd, cancel := sshCommand(ctx, tailscale.ExecArgs(ctx, host, tailscale.ListCommand(), false))
 	defer cancel()
-	argv := tailscale.ExecArgs(ctx, host, tailscale.ListCommand(), false)
-	out, err := exec.CommandContext(cctx, argv[0], argv[1:]...).Output()
+	out, err := cmd.Output()
 	if err != nil {
 		return fail("network remote --list: %v", err)
 	}
 	sessions := tailscale.ParseSessions(string(out))
 	if format == helptext.JSON {
-		if err := helptext.WriteJSON(os.Stdout, sessions); err != nil {
-			return fail("network remote --list: %v", err)
-		}
-		return 0
+		return writeJSONOrFail("network remote --list", sessions)
 	}
 	for _, s := range sessions {
 		fmt.Printf("%-24s created=%-12s attached=%-5v cmd=%s\n", s.Name, s.Created, s.Attached, s.CurrentCmd)

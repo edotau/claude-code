@@ -41,3 +41,13 @@ func TestSetupKnownVendorChecks(t *testing.T) {
 		}
 	}
 }
+
+func TestSetupRejectsNonExternal(t *testing.T) {
+	for _, name := range []string{"claude", "nonexistent-vendor"} {
+		rep := schemaFor(name).Setup()
+		if rep.OK || len(rep.Checks) != 1 || rep.Checks[0].State != "fail" ||
+			rep.Checks[0].Detail != errUnknownAgent(name).Error() {
+			t.Errorf("Setup(%q) = %+v", name, rep)
+		}
+	}
+}

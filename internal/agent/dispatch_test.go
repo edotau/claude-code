@@ -4,6 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -92,6 +96,7 @@ func TestDoKeepsEveryAttemptError(t *testing.T) {
 	}
 }
 
+// statusErr implements the StatusCode() seam Classify checks before falling back to text matching.
 type statusErr struct{ code int }
 
 func (e statusErr) Error() string   { return fmt.Sprintf("HTTP %d", e.code) }
@@ -228,18 +233,12 @@ func TestDoAttemptTimeoutFastTransientStillRetried(t *testing.T) {
 	calls := 0
 	e := Do(context.Background(), p, func(context.Context, int) *Error {
 		calls++
-		return Classify("x", &httpishError{status: 429}, false)
+		return Classify("x", statusErr{429}, false)
 	})
 	if calls != 3 || e.Kind != KindRateLimit {
 		t.Fatalf("fast 429 must still retry up to MaxAttempts: calls=%d err=%v", calls, e)
 	}
 }
-
-// httpishError implements the StatusCode() seam Classify checks before falling back to text matching.
-type httpishError struct{ status int }
-
-func (e *httpishError) Error() string   { return fmt.Sprintf("HTTP %d", e.status) }
-func (e *httpishError) StatusCode() int { return e.status }
 
 // fastDefaultBackoff shrinks DefaultPolicy's backoff for the test and restores it on cleanup.
 func fastDefaultBackoff(t *testing.T) {
@@ -262,5 +261,66 @@ func TestDoCancelledReacquireReturnsCancellation(t *testing.T) {
 	}
 	if len(e.Earlier) != 1 || e.Earlier[0].Kind != KindRateLimit {
 		t.Errorf("earlier = %v, want the one rate-limit attempt kept", e.Earlier)
+	}
+}
+
+// A waiter whose cooldown is extended by another task while it sleeps must keep waiting for the new deadline.
+func TestWaitCooldownHonorsExtendedDeadline(t *testing.T) {
+	key := "cool-extend-" + t.Name()
+	coolDown(key, 100*time.Millisecond)
+	start := time.Now()
+	done := make(chan time.Duration)
+	go func() { waitCooldown(context.Background(), key, 5*time.Second); done <- time.Since(start) }()
+	time.Sleep(40 * time.Millisecond)
+	coolDown(key, 300*time.Millisecond)
+	if got := <-done; got < 300*time.Millisecond {
+		t.Errorf("waiter resumed after %v, want it to wait out the extended ~340ms hold", got)
+	}
+	cooldowns.Lock()
+	delete(cooldowns.until, key)
+	cooldowns.Unlock()
+}
+
+// The final attempt's 429 still publishes its cooldown: a second Do on the same key waits for it.
+func TestDoPublishesCooldownOnFinalAttempt(t *testing.T) {
+	key := "final-" + t.Name()
+	p := Policy{MaxAttempts: 1, BaseDelay: time.Millisecond, MaxDelay: time.Second, Key: key}
+	Do(context.Background(), p, func(context.Context, int) *Error {
+		return &Error{Kind: KindRateLimit, Agent: "a", RetryAfter: 300 * time.Millisecond, Err: errors.New("429")}
+	})
+	start := time.Now()
+	Do(context.Background(), p, func(context.Context, int) *Error { return nil })
+	if got := time.Since(start); got < 200*time.Millisecond {
+		t.Errorf("second Do started after %v, want it held for the published ~300ms cooldown", got)
+	}
+}
+
+// Guarantee 4: the dispatch path never mutates process-global env or cwd (concurrent tasks would race on it).
+func TestNoSetenvOrChdirInDispatchPath(t *testing.T) {
+	banned := map[string]bool{"os.Setenv": true, "os.Unsetenv": true, "os.Clearenv": true, "os.Chdir": true}
+	files, err := filepath.Glob("*.go")
+	if err != nil || len(files) == 0 {
+		t.Fatalf("no sources found: %v", err)
+	}
+	for _, p := range files {
+		if strings.HasSuffix(p, "_test.go") {
+			continue
+		}
+		f, perr := parser.ParseFile(token.NewFileSet(), p, nil, 0)
+		if perr != nil {
+			t.Fatal(perr)
+		}
+		ast.Inspect(f, func(n ast.Node) bool {
+			c, ok := n.(*ast.CallExpr)
+			if !ok {
+				return true
+			}
+			if sel, ok := c.Fun.(*ast.SelectorExpr); ok {
+				if id, ok := sel.X.(*ast.Ident); ok && banned[id.Name+"."+sel.Sel.Name] {
+					t.Errorf("%s: %s.%s in the dispatch path: pass env/dir through childCmd instead", p, id.Name, sel.Sel.Name)
+				}
+			}
+			return true
+		})
 	}
 }

@@ -3,6 +3,7 @@ package tree
 import (
 	"bufio"
 	"bytes"
+	"cmp"
 	"encoding/json"
 	"io"
 	"os"
@@ -19,21 +20,18 @@ import (
 // updateTitlePrefix is the background-update system prompt, never a real user ask.
 const updateTitlePrefix = "Background update of a finished session"
 
-// isSkippableTitle rejects a candidate title that isn't a real user prompt: a tag-wrapped harness
-// directive (<local-command-caveat>, <command-name>, ...) or the SessionEnd update's own prompt.
+// isSkippableTitle rejects a tag-wrapped harness directive or the SessionEnd update prompt as a title.
 func isSkippableTitle(text string) bool {
 	return strings.HasPrefix(text, "<") || strings.HasPrefix(text, updateTitlePrefix)
 }
 
-// headScanBytes bounds the main-transcript head read: cwd/branch/title all appear in the first
-// handful of records, long before a transcript's bulk (tool output, hook attachments) accumulates.
+// headScanBytes bounds the main-transcript head read: cwd/branch/title appear in the first few records.
 const headScanBytes = 64 << 10
 
 // activityScanBytes bounds the subagent tail read for the newest tool/text activity signal.
 const activityScanBytes = 64 << 10
 
-// grepScanMaxLine bounds a single scanned line for the full-file greps below (dispatch ids, edited
-// files): generous enough for a large tool_result without unbounded memory on a pathological line.
+// grepScanMaxLine bounds one scanned line of the full-file greps (dispatch ids, edited files, events, journal).
 const grepScanMaxLine = 10 << 20
 
 // subagentMeta is the subset of agent-<id>.meta.json this view renders.
@@ -45,10 +43,9 @@ type subagentMeta struct {
 	Model       string `json:"model"`
 }
 
-// readSubagentMeta reads the sidecar .meta.json beside transcriptPath; a missing or unparsable
-// sidecar degrades to a zero-value meta rather than failing the whole scan.
+// readSubagentMeta reads the sidecar .meta.json beside transcriptPath; a missing or bad one yields a zero meta.
 func readSubagentMeta(transcriptPath string) subagentMeta {
-	raw, err := os.ReadFile(trimJSONLSuffix(transcriptPath) + ".meta.json")
+	raw, err := os.ReadFile(strings.TrimSuffix(transcriptPath, ".jsonl") + ".meta.json")
 	if err != nil {
 		return subagentMeta{}
 	}
@@ -57,18 +54,7 @@ func readSubagentMeta(transcriptPath string) subagentMeta {
 	return m
 }
 
-func trimJSONLSuffix(s string) string {
-	const suffix = ".jsonl"
-	if len(s) >= len(suffix) && s[len(s)-len(suffix):] == suffix {
-		return s[:len(s)-len(suffix)]
-	}
-	return s
-}
-
-// workflowManifest is a workflows/wf_<id>.json run record — the Workflow tool's own summary,
-// distinct from (but runId-linked to) the subagents/workflows/<runId>/agent-*.jsonl transcripts.
-// Result is whatever the script's own `return` statement produced: a string, an object, or null
-// (a killed run) — RawMessage so none of those shapes ever fails the manifest's own decode.
+// workflowManifest is a workflows/wf_<id>.json run record; Result stays RawMessage (string, object or null).
 type workflowManifest struct {
 	RunID     string          `json:"runId"`
 	Timestamp string          `json:"timestamp"`
@@ -77,9 +63,7 @@ type workflowManifest struct {
 	Status    string          `json:"status"` // the run's own completed|killed, present on every manifest
 }
 
-// resultStatus reads result.status when the script's return value was an object carrying one (the
-// convention green-keeper-loop-style workflows use for their own green/red outcome), falling back to the
-// manifest's own top-level status (completed -> finished, killed -> error); "" otherwise.
+// resultStatus reads result.status, else the manifest status (completed -> finished, killed -> error); "" otherwise.
 func (m *workflowManifest) resultStatus() string {
 	var r struct {
 		Status string `json:"status"`
@@ -105,15 +89,6 @@ func (m *workflowManifest) name() string {
 		return match[1]
 	}
 	return ""
-}
-
-// timestamp parses the manifest's own RFC3339 timestamp, zero on failure.
-func (m *workflowManifest) timestamp() time.Time {
-	t, err := time.Parse(time.RFC3339, m.Timestamp)
-	if err != nil {
-		return time.Time{}
-	}
-	return t
 }
 
 // workflowManifests reads every <sessionDir>/workflows/wf_*.json manifest, keyed by runId.
@@ -147,8 +122,7 @@ type journalEntry struct {
 	ResultBytes int
 }
 
-// journalLine is one journal.jsonl record; Result stays RawMessage so a JSON null is distinguishable
-// from an absent field and a string/object result never fails this line's own decode.
+// journalLine is one journal.jsonl record; Result stays RawMessage so a JSON null differs from an absent field.
 type journalLine struct {
 	Type    string          `json:"type"`
 	AgentID string          `json:"agentId"`
@@ -156,21 +130,13 @@ type journalLine struct {
 	Result  json.RawMessage `json:"result"`
 }
 
-// readJournal reads one workflow run's journal.jsonl into one entry per agentId; a missing or
-// unparsable journal (an older run, or one still only at "launched") degrades to an empty map.
+// readJournal reads a run's journal.jsonl into one entry per agentId; a missing or bad journal gives an empty map.
 func readJournal(runDir string) map[string]journalEntry {
 	out := map[string]journalEntry{}
-	f, err := os.Open(filepath.Join(runDir, "journal.jsonl"))
-	if err != nil {
-		return out
-	}
-	defer f.Close()
-	sc := bufio.NewScanner(f)
-	sc.Buffer(make([]byte, 64<<10), grepScanMaxLine)
-	for sc.Scan() {
+	eachLine(filepath.Join(runDir, "journal.jsonl"), func(raw []byte) {
 		var line journalLine
-		if json.Unmarshal(sc.Bytes(), &line) != nil || line.AgentID == "" {
-			continue
+		if json.Unmarshal(raw, &line) != nil || line.AgentID == "" {
+			return
 		}
 		e := out[line.AgentID]
 		switch line.Type {
@@ -186,9 +152,22 @@ func readJournal(runDir string) map[string]journalEntry {
 			e.ResultBytes = len(bytes.TrimSpace(line.Result))
 		}
 		out[line.AgentID] = e
-	}
-	_ = sc.Err() // a too-long/truncated line mid-scan degrades to the entries already collected
+	})
 	return out
+}
+
+// eachLine calls fn on every line of path; an open failure or a too-long/truncated line ends the scan quietly.
+func eachLine(path string, fn func(line []byte)) {
+	f, err := os.Open(path)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 64<<10), grepScanMaxLine)
+	for sc.Scan() {
+		fn(sc.Bytes())
+	}
 }
 
 // isJSONNull reports whether raw is the literal JSON null (vs. absent/empty, which is "").
@@ -210,9 +189,7 @@ type sessionHead struct {
 	cwd, branch, title string
 }
 
-// sessionHeadLine is the subset of fields a head record may carry; cwd/gitBranch ride on hook
-// attachment/sidecar lines too (a session's first lines are "last-prompt"/"mode" markers with
-// neither field), so the first line to carry either wins regardless of its own "type".
+// sessionHeadLine is the head-record subset; cwd/gitBranch may ride on any line type, so the first carrier wins.
 type sessionHeadLine struct {
 	Type        string          `json:"type"`
 	Cwd         string          `json:"cwd"`
@@ -221,8 +198,14 @@ type sessionHeadLine struct {
 	Message     json.RawMessage `json:"message"`
 }
 
-// scanSessionHead streams the first headScanBytes of path, collecting cwd/branch from the first
-// record that carries them and a title from the first non-sidechain human "user" turn.
+// newLineScanner scans r by line with a 64KB initial and 1MB max buffer.
+func newLineScanner(r io.Reader) *bufio.Scanner {
+	sc := bufio.NewScanner(r)
+	sc.Buffer(make([]byte, 64<<10), 1<<20)
+	return sc
+}
+
+// scanSessionHead streams the first headScanBytes of path for cwd, branch and the first human user turn as title.
 func scanSessionHead(path string) sessionHead {
 	var head sessionHead
 	f, err := os.Open(path)
@@ -231,29 +214,34 @@ func scanSessionHead(path string) sessionHead {
 	}
 	defer f.Close()
 
-	sc := bufio.NewScanner(io.LimitReader(f, headScanBytes))
-	sc.Buffer(make([]byte, 64<<10), 1<<20)
+	sc := newLineScanner(io.LimitReader(f, headScanBytes))
 	for sc.Scan() {
 		var rec sessionHeadLine
 		if json.Unmarshal(sc.Bytes(), &rec) != nil {
 			continue
 		}
-		if head.cwd == "" && rec.Cwd != "" {
-			head.cwd = rec.Cwd
-		}
-		if head.branch == "" && rec.GitBranch != "" {
-			head.branch = rec.GitBranch
-		}
-		if head.title == "" && rec.Type == "user" && !rec.IsSidechain {
-			if text := strings.TrimSpace(userTurnText(rec.Message)); text != "" && !isSkippableTitle(text) {
-				head.title = Truncate(text, 60)
-			}
+		head.cwd = cmp.Or(head.cwd, rec.Cwd)
+		head.branch = cmp.Or(head.branch, rec.GitBranch)
+		if head.title == "" {
+			head.title = titleFromRecord(rec)
 		}
 		if head.cwd != "" && head.branch != "" && head.title != "" {
 			break
 		}
 	}
 	return head
+}
+
+// titleFromRecord returns the truncated human user-turn text of rec, "" when rec is not a usable title source.
+func titleFromRecord(rec sessionHeadLine) string {
+	if rec.Type != "user" || rec.IsSidechain {
+		return ""
+	}
+	text := strings.TrimSpace(userTurnText(rec.Message))
+	if text == "" || isSkippableTitle(text) {
+		return ""
+	}
+	return Truncate(text, 60)
 }
 
 // userTurnText reads a user record's message.content: a plain string or an array of blocks (text parts concatenated).
@@ -269,11 +257,7 @@ func userTurnText(raw json.RawMessage) string {
 
 // Truncate renders s on one line, cut to n runes with an ellipsis when longer.
 func Truncate(s string, n int) string {
-	s = oneLine(s)
-	if len([]rune(s)) <= n {
-		return s
-	}
-	return textutil.TruncateRunes(s, n) + "…"
+	return textutil.CapRunes(oneLine(s), n, "…")
 }
 
 // oneLine collapses embedded newlines/tabs and repeated spaces so a multi-line prompt renders as
@@ -296,8 +280,7 @@ func oneLine(s string) string {
 
 var toolUseMarker = []byte(`"tool_use"`)
 
-// assistantContentLine is the subset of one assistant transcript record this file reads repeatedly:
-// its tool_use/text content blocks plus the record's own timestamp.
+// assistantContentLine is the assistant record subset this file reads: tool_use/text blocks plus the timestamp.
 type assistantContentLine struct {
 	Type      string `json:"type"`
 	Timestamp string `json:"timestamp"`
@@ -320,7 +303,7 @@ func parseRFC3339(s string) time.Time {
 	return t
 }
 
-// tailBuf reads path's last n bytes (the whole file when smaller), "" on any read failure.
+// tailBuf reads path's last n bytes (the whole file when smaller), nil on any read failure.
 func tailBuf(path string, n int64) []byte {
 	f, err := os.Open(path)
 	if err != nil {
@@ -331,10 +314,7 @@ func tailBuf(path string, n int64) []byte {
 	if err != nil {
 		return nil
 	}
-	off := int64(0)
-	if fi.Size() > n {
-		off = fi.Size() - n
-	}
+	off := max(fi.Size()-n, 0)
 	buf := make([]byte, fi.Size()-off)
 	if _, err := f.ReadAt(buf, off); err != nil && err != io.EOF {
 		return nil
@@ -342,8 +322,7 @@ func tailBuf(path string, n int64) []byte {
 	return buf
 }
 
-// lastActivity tail-scans path's last ~64KB for the newest assistant tool_use (Tool+Arg+At) and the
-// newest assistant text block (Text); Arg has $HOME and cwd stripped so a path reads short.
+// lastActivity tail-scans path for the newest assistant tool_use (Tool+Arg) and text block, paths shortened.
 func lastActivity(path, cwd string) Activity {
 	buf := tailBuf(path, activityScanBytes)
 	if buf == nil {
@@ -352,20 +331,11 @@ func lastActivity(path, cwd string) Activity {
 	home, _ := os.UserHomeDir()
 	var act Activity
 	for raw := range bytes.SplitSeq(buf, []byte("\n")) {
-		if !bytes.Contains(raw, toolUseMarker) && !bytes.Contains(raw, []byte(`"text"`)) {
-			continue
-		}
-		var rec assistantContentLine
-		if json.Unmarshal(raw, &rec) != nil || rec.Type != "assistant" {
-			continue
-		}
-		at := parseRFC3339(rec.Timestamp)
-		for _, c := range rec.Message.Content {
-			switch {
-			case c.Type == "tool_use" && c.Name != "":
-				act.Tool, act.Arg, act.At = c.Name, StripPaths(toolArg(c.Input), home, cwd), at
-			case c.Type == "text" && c.Text != "":
-				act.Text, act.At = Truncate(c.Text, 80), at
+		for _, e := range eventsFromLine(raw, home, cwd) {
+			if e.Kind == "tool" {
+				act.Tool, act.Arg, act.At = e.Tool, e.Arg, e.At
+			} else {
+				act.Text, act.At = e.Text, e.At
 			}
 		}
 	}
@@ -396,9 +366,7 @@ func toolArg(input json.RawMessage) string {
 	}
 }
 
-// StripPaths removes the session cwd (the more specific, usually longer prefix) and collapses $HOME
-// to "~" wherever either appears in s — a label or tool arg is often a path, but can also be prose
-// mentioning one mid-sentence.
+// StripPaths removes the session cwd and collapses $HOME to "~" wherever either appears in s.
 func StripPaths(s, home, cwd string) string {
 	if cwd != "" {
 		s = strings.ReplaceAll(s, cwd+"/", "")
@@ -410,47 +378,35 @@ func StripPaths(s, home, cwd string) string {
 	return s
 }
 
-// dispatchIDPattern matches the `ask` CLI's own exit line, "ask: dispatch <id> (...)", wherever it
-// shows up inside a relay subagent's tool_result content.
+// dispatchIDPattern matches the `ask` CLI exit line "ask: dispatch <id> (...)" inside tool_result content.
 var dispatchIDPattern = regexp.MustCompile(`ask: dispatch (\S+)`)
 
 // dispatchIDs greps path for every "ask: dispatch <id>" line, deduped, in first-seen order.
 func dispatchIDs(path string) []string {
-	f, err := os.Open(path)
-	if err != nil {
-		return nil
-	}
-	defer f.Close()
-	sc := bufio.NewScanner(f)
-	sc.Buffer(make([]byte, 64<<10), grepScanMaxLine)
 	seen := map[string]bool{}
 	var ids []string
-	for sc.Scan() {
-		for _, m := range dispatchIDPattern.FindAllStringSubmatch(sc.Text(), -1) {
+	eachLine(path, func(line []byte) {
+		for _, m := range dispatchIDPattern.FindAllStringSubmatch(string(line), -1) {
 			if id := m[1]; !seen[id] {
 				seen[id] = true
 				ids = append(ids, id)
 			}
 		}
-	}
-	_ = sc.Err() // a too-long/truncated line mid-scan degrades to the ids already collected
+	})
 	return ids
 }
 
-// pendingAskMarker flags a Bash activity arg as "this relay just launched `ask` and hasn't seen its
-// exit line yet" — the signal for the heuristic running-dispatch match below.
+// pendingAskMarker flags a Bash arg as a relay that launched `ask` and has not seen its exit line yet.
 const pendingAskMarker = "ask --agent"
 
-// firstTimestamp reads a transcript's first record's own timestamp — a subagent's start time, used
-// to bound the heuristic dispatch match to dispatches that began no earlier than this subagent did.
+// firstTimestamp reads a transcript first record timestamp: the subagent start time, zero on failure.
 func firstTimestamp(path string) time.Time {
 	f, err := os.Open(path)
 	if err != nil {
 		return time.Time{}
 	}
 	defer f.Close()
-	sc := bufio.NewScanner(f)
-	sc.Buffer(make([]byte, 64<<10), 1<<20)
+	sc := newLineScanner(f)
 	if sc.Scan() {
 		var rec struct {
 			Timestamp string `json:"timestamp"`
@@ -459,12 +415,10 @@ func firstTimestamp(path string) time.Time {
 			return parseRFC3339(rec.Timestamp)
 		}
 	}
-	_ = sc.Err() // no first line (empty/unreadable file) degrades to the zero time
 	return time.Time{}
 }
 
-// dispatchFromRecord renders one dispatch record as a Dispatch; a still-running record has no final Duration
-// yet, so this reports the elapsed time so far instead.
+// dispatchFromRecord renders a dispatch record; a still-running record reports its elapsed time so far.
 func dispatchFromRecord(rec agent.Record, matched string, now time.Time) Dispatch {
 	duration := rec.Elapsed()
 	if duration == "" && rec.Status == "running" {
@@ -477,9 +431,7 @@ func dispatchFromRecord(rec agent.Record, matched string, now time.Time) Dispatc
 	}
 }
 
-// buildDispatches attaches one Dispatch per agent dispatch this subagent's transcript shows: every "ask:
-// dispatch <id>" exit line it has already seen, plus (when its newest activity is a Bash call still
-// waiting on `ask`) a heuristic match against the dispatch log's own still-running records.
+// buildDispatches returns each "ask: dispatch <id>" the transcript shows, plus a heuristic match when `ask` is pending.
 func buildDispatches(transcriptPath, cwd string, now time.Time, act Activity) []Dispatch {
 	var dispatches []Dispatch
 	matched := map[string]bool{}
@@ -499,8 +451,7 @@ func buildDispatches(transcriptPath, cwd string, now time.Time, act Activity) []
 	return dispatches
 }
 
-// pendingDispatch matches a dispatch with no exit line yet: the newest still-running dispatch for this
-// subagent's own cwd that started no earlier than the subagent itself did.
+// pendingDispatch matches the newest running dispatch for this cwd that started no earlier than the subagent.
 func pendingDispatch(transcriptPath, cwd string, matched map[string]bool, now time.Time) *Dispatch {
 	start := firstTimestamp(transcriptPath)
 	for _, rec := range agent.RecentRecords(50) {

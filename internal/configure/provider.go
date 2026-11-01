@@ -4,21 +4,22 @@ package configure
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"slices"
 	"sync"
 	"time"
 
-	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/signin"
 	"github.com/edotau/claude-code/internal/ui/ansi"
 	uidialog "github.com/edotau/claude-code/internal/ui/dialog"
 )
 
 // Seams for --all; tests replace the sign-in factory, its cap and the TTY gates.
 var (
-	allSigninFor    = agent.SigninFor
+	allSigninFor    = signin.SigninFor
 	allCheckTimeout = 12 * time.Second
 	allStdinTTY     = isStdinTTY
 	allStderrTTY    = func() bool { return ansi.IsTerminal(os.Stderr) }
@@ -80,17 +81,19 @@ func allCheckOne(ctx context.Context, p *providers.Provider) AllRowStatus {
 	select {
 	case r := <-done:
 		st.Detail = r.detail
-		switch r.v {
-		case providers.VerdictOK:
+		switch {
+		case errors.Is(ctx.Err(), context.DeadlineExceeded): // the cap fired while the check was returning
+			st.Status, st.Detail = allTimedOut, ""
+		case r.v == providers.VerdictOK:
 			st.Status = allOK
-		case providers.VerdictNeedsLogin:
+		case r.v == providers.VerdictNeedsLogin:
 			st.Status = allNeedsLogin
-		case providers.VerdictRejected:
+		case r.v == providers.VerdictRejected:
 			st.Status = allRejected
 		default:
 			st.Status = allError
 		}
-	case <-time.After(allCheckTimeout):
+	case <-ctx.Done():
 		st.Status = allTimedOut
 	}
 	return st
