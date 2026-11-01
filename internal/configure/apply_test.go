@@ -12,7 +12,7 @@ import (
 )
 
 // Given codex already on qa and a stale last-used entry for both agents, ApplyProfile moves only claude, keeps the
-// model pin, and forgets last-used for the changed agent alone.
+// model pin, and forgets last-used for all targeted agents.
 func TestApplyProfileChangesOnlyDifferingAgents(t *testing.T) {
 	d := dbxEnv(t)
 	t.Chdir(t.TempDir())
@@ -37,7 +37,7 @@ func TestApplyProfileChangesOnlyDifferingAgents(t *testing.T) {
 		t.Errorf("records = %+v", recs)
 	}
 	raw, _ := os.ReadFile(filepath.Join(paths.StateDir(), "last-profile.json"))
-	if bytes.Contains(raw, []byte("stale-claude")) || !bytes.Contains(raw, []byte("stale-codex")) {
+	if bytes.Contains(raw, []byte("stale-claude")) || bytes.Contains(raw, []byte("stale-codex")) {
 		t.Errorf("last-used = %s", raw)
 	}
 }
