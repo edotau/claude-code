@@ -154,22 +154,6 @@ func cmdMemoryRemember(args []string) int {
 	return 0
 }
 
-// searchHits ranks blocks for q: every store with all, else the named store or checkout (default: cwd's).
-func searchHits(repo string, all bool, q string, k int) ([]bank.SearchHit, string) {
-	root := memstore.Root(repo)
-	switch {
-	case all:
-		return recall.SearchAll(q, k), root
-	case repo != "": // a store name from the catalog, else a checkout path
-		if e, ok := memstore.RepoByName(repo); ok && e.Origin.Origin != "" {
-			root = e.Origin.Origin
-		}
-		return recall.SearchBanks(root, q, k), root
-	default:
-		return recall.SearchBanks(root, q, k), root
-	}
-}
-
 func cmdMemorySearch(args []string) int {
 	fs, repo := memoryRepoFlagSet("search")
 	k := fs.Int("k", 8, "maximum hits")
@@ -193,7 +177,7 @@ func cmdMemorySearch(args []string) int {
 			return 0
 		}
 	}
-	hits, root := searchHits(*repo, *all, strings.Join(terms, " "), *k)
+	hits, root := recall.SearchRepo(*repo, *all, strings.Join(terms, " "), *k)
 	recall.LogHits(root, hits, recall.AccessSearch, now)
 	if *format == helptext.JSON {
 		if err := helptext.WriteJSON(os.Stdout, hits); err != nil {

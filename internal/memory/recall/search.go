@@ -36,3 +36,19 @@ func SearchAll(query string, k int) []bank.SearchHit {
 	}
 	return bank.RankFiles(bank.ContentTerms(query), k, files, loadSegments(files, false))
 }
+
+// SearchRepo ranks blocks for q: every store with all, else the named store or checkout (default: cwd's).
+func SearchRepo(repo string, all bool, q string, k int) ([]bank.SearchHit, string) {
+	root := memstore.Root(repo)
+	switch {
+	case all:
+		return SearchAll(q, k), root
+	case repo != "": // a store name from the catalog, else a checkout path
+		if e, ok := memstore.RepoByName(repo); ok && e.Origin.Origin != "" {
+			root = e.Origin.Origin
+		}
+		return SearchBanks(root, q, k), root
+	default:
+		return SearchBanks(root, q, k), root
+	}
+}
