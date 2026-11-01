@@ -73,7 +73,7 @@ func TestRouteVerbJSON(t *testing.T) {
 	if res.Model != "sonnet" || res.Weights["price"] == 0 || len(res.Candidates) == 0 {
 		t.Fatalf("res = %+v", res)
 	}
-	var skip *skipJSON
+	var skip *router.Skip
 	for i := range res.Skipped {
 		if res.Skipped[i].Agent == "copilot" {
 			skip = &res.Skipped[i]
@@ -298,8 +298,8 @@ func TestRouterPreviewMatchesDispatch(t *testing.T) {
 			}
 			for i, disp := range chain.Dispatches {
 				c := got.Candidates[i]
-				if c.Agent != disp.Agent.Name() || c.AccountKey != disp.Account || (c.Model != disp.Model && c.Agent != "claude") {
-					t.Errorf("#%d preview %s/%s/%s, dispatch %s/%s/%s", i+1, c.Agent, c.AccountKey, c.Model,
+				if c.Agent != disp.Agent.Name() || c.Account != disp.Account || (c.Model != disp.Model && c.Agent != "claude") {
+					t.Errorf("#%d preview %s/%s/%s, dispatch %s/%s/%s", i+1, c.Agent, c.Account, c.Model,
 						disp.Agent.Name(), disp.Account, disp.Model)
 				}
 			}

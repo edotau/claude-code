@@ -96,8 +96,8 @@ type routeJSON struct {
 	Model      string             `json:"model"`
 	Want       string             `json:"want,omitempty"`
 	Weights    map[string]float64 `json:"weights"`
-	Candidates []candidateJSON    `json:"candidates"`
-	Skipped    []skipJSON         `json:"skipped,omitempty"`
+	Candidates []router.Candidate `json:"candidates"`
+	Skipped    []router.Skip      `json:"skipped,omitempty"`
 	Sources    routeSources       `json:"sources"`
 	Pins       map[string]pinJSON `json:"pins"`
 	Ends       string             `json:"ends"` // the claude candidate's account; "" when no claude hop
@@ -122,41 +122,15 @@ func routePins() map[string]pinJSON {
 	return out
 }
 
-// candidateJSON is one runnable agent; account_key is <provider>·<profile>.
-type candidateJSON struct {
-	Agent      string             `json:"agent"`
-	Model      string             `json:"model"`
-	Effort     string             `json:"effort,omitempty"`
-	AccountKey string             `json:"account_key"`
-	Price      router.Price       `json:"price"`
-	State      string             `json:"state"`
-	Billing    string             `json:"billing"`
-	Scores     map[string]float64 `json:"scores,omitempty"`
-	Total      float64            `json:"total"`
-	Profile    string             `json:"profile,omitempty"`
-}
-
-// skipJSON is an agent dropped by a gate, with why.
-type skipJSON struct {
-	Agent  string `json:"agent"`
-	Gate   string `json:"gate"`
-	Reason string `json:"reason"`
-}
-
 // newRouteJSON maps a pick onto the emitted shape (agent for agent, <provider>·<profile> account keys).
 func newRouteJSON(res router.PickResult, src routeSources) routeJSON {
 	out := routeJSON{Model: res.Alias, Want: res.Want, Weights: res.Weights, Sources: src,
-		Candidates: make([]candidateJSON, 0, len(res.Candidates)), Pins: routePins()}
+		Candidates: make([]router.Candidate, 0, len(res.Candidates)), Skipped: res.Skipped, Pins: routePins()}
 	for _, c := range res.Candidates {
-		out.Candidates = append(out.Candidates, candidateJSON{Agent: c.Agent, Model: c.Model, Effort: c.Effort,
-			AccountKey: c.Account, Price: c.Price, State: c.State, Billing: c.Billing, Scores: c.Scores, Total: c.Total,
-			Profile: c.Profile})
+		out.Candidates = append(out.Candidates, c)
 		if c.Agent == "claude" {
 			out.Ends = c.Account
 		}
-	}
-	for _, s := range res.Skipped {
-		out.Skipped = append(out.Skipped, skipJSON{Agent: s.Agent, Gate: s.Gate, Reason: s.Reason})
 	}
 	return out
 }
