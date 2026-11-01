@@ -15,6 +15,7 @@ import (
 	"github.com/edotau/claude-code/internal/network/tailscale"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/secrets"
+	"github.com/edotau/claude-code/internal/secretstore"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -129,7 +130,7 @@ func TestCmdVaultListTailscalePresenceOnly(t *testing.T) {
 		t.Setenv(name, "")
 	}
 	const value = "known-tailscale-api-key-value"
-	if err := secrets.Store("TAILSCALE_API_KEY", value); err != nil {
+	if err := secretstore.Store("TAILSCALE_API_KEY", value); err != nil {
 		t.Fatal(err)
 	}
 	code, stdout, stderr := captureOutput(t, func() int {
@@ -170,8 +171,8 @@ func TestCmdVaultSetTailscalePipedTwoLines(t *testing.T) {
 		"TAILSCALE_OAUTH_CLIENT_ID":     "id-value",
 		"TAILSCALE_OAUTH_CLIENT_SECRET": "secret-value",
 	} {
-		value, source, ok := secrets.Get(name)
-		if !ok || secrets.Redact(value) != secrets.Redact(want) || source != "vault" {
+		value, source, ok := secretstore.Get(name)
+		if !ok || secretstore.Redact(value) != secretstore.Redact(want) || source != "vault" {
 			t.Errorf("%s was not stored correctly in the vault", name)
 		}
 	}
@@ -186,8 +187,8 @@ func TestCmdVaultSetTailscaleApiKeyOneLine(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("vault set --tailscale --api-key = %d, stderr = %q", code, stderr)
 	}
-	value, source, ok := secrets.Get("TAILSCALE_API_KEY")
-	if !ok || secrets.Redact(value) != secrets.Redact("apikeyvalue") || source != "vault" {
+	value, source, ok := secretstore.Get("TAILSCALE_API_KEY")
+	if !ok || secretstore.Redact(value) != secretstore.Redact("apikeyvalue") || source != "vault" {
 		t.Error("TAILSCALE_API_KEY was not stored correctly in the vault")
 	}
 }
@@ -211,7 +212,7 @@ func TestCmdVaultSetTailscaleEmptyValueFails(t *testing.T) {
 			if code != 1 {
 				t.Fatalf("vault set --tailscale = %d, want 1; stderr = %q", code, stderr)
 			}
-			names := secrets.Names()
+			names := secretstore.Names()
 			for _, name := range []string{"TAILSCALE_OAUTH_CLIENT_ID", "TAILSCALE_OAUTH_CLIENT_SECRET"} {
 				if slices.Contains(names, name) {
 					t.Errorf("empty value stored %s", name)
@@ -238,7 +239,7 @@ func TestCmdVaultSetTailscaleDryRunStoresNothing(t *testing.T) {
 			t.Errorf("stdout = %q, want %q", stdout, want)
 		}
 	}
-	names := secrets.Names()
+	names := secretstore.Names()
 	for _, name := range []string{"TAILSCALE_OAUTH_CLIENT_ID", "TAILSCALE_OAUTH_CLIENT_SECRET"} {
 		if slices.Contains(names, name) {
 			t.Errorf("dry-run stored %s", name)
@@ -261,7 +262,7 @@ func TestCmdVaultSetBareExitsTwo(t *testing.T) {
 }
 
 // A value spanning lines (embedded \r or \n) must be refused before any write, even when it is
-// the second of a pair — secrets.Store would reject it anyway, but half a pair must never land.
+// the second of a pair — secretstore.Store would reject it anyway, but half a pair must never land.
 func TestVaultStoreTailscaleRefusesEmbeddedNewline(t *testing.T) {
 	for _, tc := range []struct {
 		name  string
@@ -287,7 +288,7 @@ func TestVaultStoreTailscaleRefusesEmbeddedNewline(t *testing.T) {
 			if !strings.Contains(stderr, "spans lines; nothing written") {
 				t.Errorf("stderr = %q, want the spans-lines refusal", stderr)
 			}
-			names := secrets.Names()
+			names := secretstore.Names()
 			for _, p := range tc.pairs {
 				if slices.Contains(names, p.Name) {
 					t.Errorf("a value spanning lines stored %s even though it was refused", p.Name)

@@ -7,6 +7,7 @@ paths:
   - "internal/router/**"
   - "internal/agent/route*.go"
   - "internal/secrets/**"
+  - "internal/secretstore/**"
 ---
 # Providers, Models, Credentials
 

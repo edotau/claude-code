@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"github.com/edotau/claude-code/internal/secretstore"
 	"os"
 	"path/filepath"
 	"strings"
@@ -60,12 +61,12 @@ func lockVault(t *testing.T, name, value string) {
 	vaulttest.Use(t)
 	vaulttest.Keyring(t)
 	vaulttest.Secret(t, name, value)
-	if v, _, err := EffectiveSecret(name); err != nil || v != value {
-		t.Fatalf("precondition: EffectiveSecret(%s) = %q, %v; want %q", name, v, err, value)
+	if v, _, err := secretstore.EffectiveSecret(name); err != nil || v != value {
+		t.Fatalf("precondition: secretstore.EffectiveSecret(%s) = %q, %v; want %q", name, v, err, value)
 	}
 	t.Setenv("HARNESS_VAULT_KEY", base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{1}, 32)))
-	if _, _, err := EffectiveSecret(name); err == nil {
-		t.Fatalf("precondition: EffectiveSecret(%s) under the wrong key must error", name)
+	if _, _, err := secretstore.EffectiveSecret(name); err == nil {
+		t.Fatalf("precondition: secretstore.EffectiveSecret(%s) under the wrong key must error", name)
 	}
 }
 

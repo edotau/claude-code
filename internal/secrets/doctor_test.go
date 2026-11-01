@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/secretstore"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -91,7 +92,7 @@ func TestMasterKeyStatus(t *testing.T) {
 	})
 	t.Run("secrets and good key", func(t *testing.T) {
 		doctorTestVault(t)
-		if err := Store("STATUS_KEY", "sk-test-abcdefghijklmnopqrstuvwxyz"); err != nil {
+		if err := secretstore.Store("STATUS_KEY", "sk-test-abcdefghijklmnopqrstuvwxyz"); err != nil {
 			t.Fatal(err)
 		}
 		count, source, err := MasterKeyStatus()
@@ -101,7 +102,7 @@ func TestMasterKeyStatus(t *testing.T) {
 	})
 	t.Run("secrets and bad key", func(t *testing.T) {
 		doctorTestVault(t)
-		if err := Store("STATUS_KEY", "sk-test-abcdefghijklmnopqrstuvwxyz"); err != nil {
+		if err := secretstore.Store("STATUS_KEY", "sk-test-abcdefghijklmnopqrstuvwxyz"); err != nil {
 			t.Fatal(err)
 		}
 		wrongVaultKey(t)
@@ -121,7 +122,7 @@ func TestDoctorMasterKeySources(t *testing.T) {
 				doctorTestVault(t)
 			}
 			const value = "sk-test-abcdefghijklmnopqrstuvwxyz"
-			if err := Store("DOCTOR_KEY", value); err != nil {
+			if err := secretstore.Store("DOCTOR_KEY", value); err != nil {
 				t.Fatal(err)
 			}
 			rc, out := doctorTestResult(&providers.Registry{})
@@ -144,7 +145,7 @@ func TestDoctorLockedVault(t *testing.T) {
 		t.Run(mode, func(t *testing.T) {
 			doctorTestVault(t)
 			const value = "sk-test-abcdefghijklmnopqrstuvwxyz"
-			if err := Store("LOCKED", value); err != nil {
+			if err := secretstore.Store("LOCKED", value); err != nil {
 				t.Fatal(err)
 			}
 			want := "master key does not match"

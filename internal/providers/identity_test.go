@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"github.com/edotau/claude-code/internal/secretstore"
 	"net/http"
 	"net/url"
 	"strings"
@@ -24,7 +25,7 @@ func spHarness(t *testing.T, identity string) (p *Provider, m2mCalls, refreshCal
 	if err := writeOAuth(p, oauthValue{Refresh: "user-refresh"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := SealSecret(SecretName(GroupDatabricks, p.Name, AuthM2M), "sp-secret"); err != nil {
+	if err := secretstore.Store(SecretName(GroupDatabricks, p.Name, AuthM2M), "sp-secret"); err != nil {
 		t.Fatal(err)
 	}
 	m2mCalls, refreshCalls, note = new(int), new(int), &bytes.Buffer{}

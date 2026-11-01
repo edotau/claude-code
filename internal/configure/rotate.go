@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/secrets"
+	"github.com/edotau/claude-code/internal/secretstore"
 	uidialog "github.com/edotau/claude-code/internal/ui/dialog"
 )
 
@@ -41,7 +41,7 @@ func replaceKey(d *dialog, kt keyTarget) bool {
 	if kt.envVar == "" {
 		return false
 	}
-	if _, src, _ := secrets.Get(kt.envVar); src == "env" {
+	if _, src, _ := secretstore.Get(kt.envVar); src == "env" {
 		d.printf("%s: env-only, not in the vault; edit where exported\n", kt.envVar)
 		return false
 	}
@@ -90,7 +90,7 @@ func regenerate(d *dialog, kt keyTarget, argv []string, mint bool) bool {
 		d.printf("%s: no token found in the output; try again or paste one\n", kt.envVar)
 		return false
 	}
-	if _, src, _ := secrets.Get(kt.envVar); src == "env" {
+	if _, src, _ := secretstore.Get(kt.envVar); src == "env" {
 		d.printf("%s: minted a new token\n%s: env-only; update where exported\n", kt.label, kt.envVar)
 		return false
 	}

@@ -2,6 +2,7 @@ package providers
 
 import (
 	"context"
+	"github.com/edotau/claude-code/internal/secretstore"
 	"net"
 	"net/http"
 	"net/url"
@@ -99,7 +100,7 @@ func TestOAuthM2MNeverWritesAccessToken(t *testing.T) {
 		return 200, map[string]any{"access_token": jwtExpIn(time.Hour, "https://x"), "expires_in": 3600}
 	})
 	p := mintRow(t, "ac-m2m", AuthM2M, "sp-client", srv.URL)
-	if err := SealSecret(AuthSecretName(p), "sp-secret"); err != nil {
+	if err := secretstore.Store(AuthSecretName(p), "sp-secret"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := Credential(context.Background(), p); err != nil {
@@ -110,25 +111,6 @@ func TestOAuthM2MNeverWritesAccessToken(t *testing.T) {
 	}
 	if v := sealedAccessValue(p); v != "" {
 		t.Errorf("m2m wrote %s = %q", AuthSecretName(p), v)
-	}
-}
-
-func TestU2MSealFailureStillReturnsMintedToken(t *testing.T) {
-	p, hits, minted := u2mMint(t, "ac-sealfail")
-	prev := sealer
-	t.Cleanup(func() { sealer = prev })
-	RegisterSealer(func(name, value string) error {
-		if name == AuthSecretName(p) {
-			return context.DeadlineExceeded
-		}
-		return prev(name, value)
-	})
-	got, err := Credential(context.Background(), p)
-	if err != nil || got != minted || hits.Load() != 1 {
-		t.Fatalf("Credential = %q, %v, hits=%d; want the minted token despite seal failure", got, err, hits.Load())
-	}
-	if v := sealedAccessValue(p); v != "" {
-		t.Errorf("sealed access = %q, want none", v)
 	}
 }
 
@@ -170,7 +152,7 @@ func sealFor(t *testing.T, p *Provider, secret string) {
 		putOAuth(t, p, oauthValue{Refresh: secret})
 		return
 	}
-	if err := SealSecret(AuthSecretName(p), secret); err != nil {
+	if err := secretstore.Store(AuthSecretName(p), secret); err != nil {
 		t.Fatal(err)
 	}
 }

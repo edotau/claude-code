@@ -13,7 +13,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/secrets"
+	"github.com/edotau/claude-code/internal/secretstore"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -221,18 +221,18 @@ func copilotAuthEnv(t *testing.T) {
 // A stored COPILOT_GITHUB_TOKEN (vault) outranks gh's active account.
 func TestCopilotAuthSourceStoredTokenOutranksActiveAccount(t *testing.T) {
 	copilotAuthEnv(t)
-	if _, _, ok := secrets.Get(CopilotTokenEnv); ok {
+	if _, _, ok := secretstore.Get(CopilotTokenEnv); ok {
 		t.Fatal("precondition: no stored token yet")
 	}
 	a, ok := copilotAuthSource()
 	if !ok || a.Source != srcActive || a.Account != "alice" {
 		t.Fatalf("with no stored token: got %+v, want gh's active account alice", a)
 	}
-	if err := secrets.Store(CopilotTokenEnv, "stored-tok"); err != nil {
+	if err := secretstore.Store(CopilotTokenEnv, "stored-tok"); err != nil {
 		t.Fatal(err)
 	}
-	if v, src, ok := secrets.Get(CopilotTokenEnv); !ok || src != "vault" || v != "stored-tok" {
-		t.Fatalf("secrets.Get(%s) = (%q, %q, %v), want (stored-tok, vault, true)", CopilotTokenEnv, v, src, ok)
+	if v, src, ok := secretstore.Get(CopilotTokenEnv); !ok || src != "vault" || v != "stored-tok" {
+		t.Fatalf("secretstore.Get(%s) = (%q, %q, %v), want (stored-tok, vault, true)", CopilotTokenEnv, v, src, ok)
 	}
 	a, ok = copilotAuthSource()
 	if !ok || a.Source != SrcStoredToken || a.token != "stored-tok" {
@@ -243,7 +243,7 @@ func TestCopilotAuthSourceStoredTokenOutranksActiveAccount(t *testing.T) {
 // A pinned gh user (COPILOT_PROFILE's login) still outranks a stored token.
 func TestCopilotAuthSourcePinOutranksStoredToken(t *testing.T) {
 	copilotAuthEnv(t)
-	if err := secrets.Store(CopilotTokenEnv, "stored-tok"); err != nil {
+	if err := secretstore.Store(CopilotTokenEnv, "stored-tok"); err != nil {
 		t.Fatal(err)
 	}
 	pinCopilotLogin(t, "alice")
@@ -258,8 +258,8 @@ func TestCopilotAuthSourcePinOutranksStoredToken(t *testing.T) {
 func TestCopilotAuthSourceEnvOnlyTokenIsNotStored(t *testing.T) {
 	copilotAuthEnv(t)
 	t.Setenv(CopilotTokenEnv, "env-tok")
-	if _, src, ok := secrets.Get(CopilotTokenEnv); !ok || src != "env" {
-		t.Fatalf("secrets.Get(%s) = (_, %q, %v), want source env", CopilotTokenEnv, src, ok)
+	if _, src, ok := secretstore.Get(CopilotTokenEnv); !ok || src != "env" {
+		t.Fatalf("secretstore.Get(%s) = (_, %q, %v), want source env", CopilotTokenEnv, src, ok)
 	}
 	a, ok := copilotAuthSource()
 	if !ok || a.Source == SrcStoredToken {
@@ -292,7 +292,7 @@ func TestCapsLowerOnly(t *testing.T) {
 // A pinned gh user that is not logged in fails closed: no stored token, no active account, a named fix.
 func TestCopilotPinMissingFailsClosed(t *testing.T) {
 	copilotAuthEnv(t)
-	if err := secrets.Store(CopilotTokenEnv, "stored-tok"); err != nil {
+	if err := secretstore.Store(CopilotTokenEnv, "stored-tok"); err != nil {
 		t.Fatal(err)
 	}
 	pinCopilotLogin(t, "ghost")

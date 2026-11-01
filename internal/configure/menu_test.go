@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/secrets"
+	"github.com/edotau/claude-code/internal/secretstore"
 	"github.com/edotau/claude-code/internal/ui/tui"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -148,13 +148,13 @@ func TestKeepOrPinWritesTheProviderPinOnlyOnAnExplicitDifferentPick(t *testing.T
 }
 
 // TestSaveKeysPartialFailureKeepsFailedStagedOthersDiscarded: a Store failure (here, a multi-line
-// value secrets.Store genuinely refuses — no mock) must leave only the failed name staged, with its
+// value secretstore.Store genuinely refuses — no mock) must leave only the failed name staged, with its
 // shadowing env still set, while every name that did save is dropped from pending and its env restored.
 // Teeth: fixing the bad value and rerunning saveKeys flips it to true with pending left empty.
 func TestSaveKeysPartialFailureKeepsFailedStagedOthersDiscarded(t *testing.T) {
 	vaulttest.Use(t)
 	const bad, good = "CONFIGURE_SAVEKEYS_BAD", "CONFIGURE_SAVEKEYS_GOOD"
-	badVal := "line one\nline two" // secrets.Store rejects a multi-line value: a real failure, not a mock
+	badVal := "line one\nline two" // secretstore.Store rejects a multi-line value: a real failure, not a mock
 	t.Setenv(bad, "prior-bad")
 	t.Setenv(good, "prior-good")
 	d := &dialog{out: discardWriter{}, pending: map[string]stagedKey{
@@ -173,7 +173,7 @@ func TestSaveKeysPartialFailureKeepsFailedStagedOthersDiscarded(t *testing.T) {
 	if _, staged := d.pending[good]; staged {
 		t.Error("the succeeded key must be dropped from pending")
 	}
-	if v, _, ok := secrets.Get(good); !ok || v != "good-value" {
+	if v, _, ok := secretstore.Get(good); !ok || v != "good-value" {
 		t.Errorf("good key not stored: %q, ok=%v", v, ok)
 	}
 	if err := vault.View(func(tx *vault.Tx) error {
@@ -245,7 +245,7 @@ func TestRunMenuKeepsFailedKeyStagedAfterReturn(t *testing.T) {
 	_ = os.Unsetenv(name)
 	var d *dialog
 	pickMenu = flatPick(func(title string, rows [][2]string, start int) (int, error) {
-		d.stage(name, "two\nlines") // secrets.Store genuinely rejects a multi-line value
+		d.stage(name, "two\nlines") // secretstore.Store genuinely rejects a multi-line value
 		return -1, nil
 	})
 	d = &dialog{reg: reg, out: discardWriter{}}

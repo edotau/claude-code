@@ -12,6 +12,7 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/secrets"
+	"github.com/edotau/claude-code/internal/secretstore"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 	"github.com/edotau/claude-code/internal/ui/tui"
 	"github.com/edotau/claude-code/internal/vault"
@@ -31,17 +32,17 @@ func vaultSetSecret(name string, dryRun bool) int {
 	}
 	if dryRun {
 		verb := "add"
-		if slices.Contains(secrets.Names(), name) {
+		if slices.Contains(secretstore.Names(), name) {
 			verb = "replace"
 		}
 		fmt.Printf("would %s %s in the vault (%d chars); nothing written\n", verb, name, len(value))
 		return 0
 	}
-	if err := secrets.Store(name, value); err != nil {
+	if err := secretstore.Store(name, value); err != nil {
 		return fail("vault set: %v", err)
 	}
 	clearProviderAuth(name)
-	fmt.Fprintf(os.Stderr, "wrote %s to the vault (%s); `claude-code vault get %s` prints it\n", name, secrets.Redact(value), name)
+	fmt.Fprintf(os.Stderr, "wrote %s to the vault (%s); `claude-code vault get %s` prints it\n", name, secretstore.Redact(value), name)
 	return 0
 }
 
@@ -61,7 +62,7 @@ func clearProviderAuth(name string) {
 // readSecretValue prompts with hidden input on a terminal; a pipe still supplies the value on stdin.
 func readSecretValue(name string) (string, error) {
 	if tui.StdinIsTerminal() {
-		v, err := tui.Secret("Paste the value for "+name+" (input hidden, Enter when done): ", secrets.Preview)
+		v, err := tui.Secret("Paste the value for "+name+" (input hidden, Enter when done): ", secretstore.Preview)
 		return strings.TrimSpace(v), err
 	}
 	raw, err := io.ReadAll(os.Stdin)
@@ -99,7 +100,7 @@ func cmdVaultGet(args []string) int {
 		if name == "HARNESS_VAULT_KEY" {
 			return fail("vault get: HARNESS_VAULT_KEY is the master key; use vault get --key (refused on a terminal)")
 		}
-		value, _, err := secrets.Lookup(name)
+		value, _, err := secretstore.Lookup(name)
 		if err != nil {
 			return fail("vault get: %s: %v", name, err)
 		}
@@ -154,10 +155,10 @@ func cmdVaultDelete(args []string) int {
 		return 2
 	}
 	name := names[0]
-	if !slices.Contains(secrets.Names(), name) {
+	if !slices.Contains(secretstore.Names(), name) {
 		return fail("vault delete: %s not set", name)
 	}
-	if err := secrets.Delete(name); err != nil {
+	if err := secretstore.Delete(name); err != nil {
 		return fail("vault delete: %v", err)
 	}
 	audit.Log(audit.SecretDelete, name, "")
@@ -212,14 +213,14 @@ func cmdVaultImport(args []string) int {
 		}
 	}
 	for _, p := range pairs {
-		fmt.Fprintf(os.Stderr, "  %-28s %s\n", p.Name, secrets.Preview(p.Value))
+		fmt.Fprintf(os.Stderr, "  %-28s %s\n", p.Name, secretstore.Preview(p.Value))
 	}
 	if tui.StdinIsTerminal() && !tui.ConfirmKey(fmt.Sprintf("Store %d secret(s)?", len(pairs)), true) {
 		fmt.Fprintln(os.Stderr, "vault import: nothing written")
 		return 1
 	}
 	for _, p := range pairs {
-		if err := secrets.Store(p.Name, p.Value); err != nil {
+		if err := secretstore.Store(p.Name, p.Value); err != nil {
 			return fail("vault import: %s: %v", p.Name, err)
 		}
 		fmt.Fprintf(os.Stderr, "stored %s in the vault\n", p.Name)

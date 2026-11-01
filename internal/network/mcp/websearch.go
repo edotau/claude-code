@@ -17,7 +17,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/edotau/claude-code/internal/secrets"
+	"github.com/edotau/claude-code/internal/secretstore"
 )
 
 const (
@@ -44,7 +44,7 @@ func keyHint() string {
 
 // resolveKey returns the Tavily API key through the managed ladder (vault -> env). "" when unset.
 func resolveKey() string {
-	v, _, ok := secrets.Get(KeyName)
+	v, _, ok := secretstore.Get(KeyName)
 	if !ok {
 		return ""
 	}

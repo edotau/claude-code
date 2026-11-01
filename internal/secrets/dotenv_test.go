@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/secretstore"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -59,7 +60,7 @@ func TestExportPairsStoredOnlyAndRestricted(t *testing.T) {
 	vaulttest.Use(t)
 	t.Setenv("ONLY_IN_ENV", "from-env")
 	for _, kv := range [][2]string{{"A_KEY", "a"}, {"B_KEY", "b"}} {
-		if err := Store(kv[0], kv[1]); err != nil {
+		if err := secretstore.Store(kv[0], kv[1]); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -76,7 +77,7 @@ func TestListStoredMasksWithoutDecrypting(t *testing.T) {
 	vaulttest.Use(t)
 	const secret = "sk-test-abcdefghijklmnopqrstuvwxyz0123456789"
 	for name, value := range map[string]string{"Z_KEY": "short", "A_KEY": secret} {
-		if err := Store(name, value); err != nil {
+		if err := secretstore.Store(name, value); err != nil {
 			t.Fatal(err)
 		}
 	}

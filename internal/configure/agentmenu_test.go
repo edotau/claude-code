@@ -3,7 +3,7 @@ package configure
 import (
 	"bufio"
 	"bytes"
-	"github.com/edotau/claude-code/internal/secrets"
+	"github.com/edotau/claude-code/internal/secretstore"
 	"github.com/edotau/claude-code/internal/ui/tui"
 	"github.com/edotau/claude-code/internal/vault"
 	"strings"
@@ -17,7 +17,7 @@ func TestCopilotKeyRowLabelShowsTokenState(t *testing.T) {
 	if got := copilotKeyRow(d).desc; !strings.Contains(got, "[no token]") {
 		t.Errorf("absent: desc = %q, want [no token]", got)
 	}
-	if err := secrets.Store("COPILOT_GITHUB_TOKEN", "tok"); err != nil {
+	if err := secretstore.Store("COPILOT_GITHUB_TOKEN", "tok"); err != nil {
 		t.Fatal(err)
 	}
 	if got := copilotKeyRow(d).desc; !strings.Contains(got, "[token set]") {
@@ -36,7 +36,7 @@ func TestCopilotKeyRowAbsentPastesDirectlyNoAnthropicConsole(t *testing.T) {
 	if !copilotKeyRow(d).run() {
 		t.Fatalf("copilotKeyRow(d).run() = false:\n%s", out.String())
 	}
-	v, src, ok := secrets.Get("COPILOT_GITHUB_TOKEN")
+	v, src, ok := secretstore.Get("COPILOT_GITHUB_TOKEN")
 	if !ok || v != pasted {
 		t.Fatalf("COPILOT_GITHUB_TOKEN = (%q, %q, %v), want %s stored", v, src, ok, pasted)
 	}
@@ -55,7 +55,7 @@ func TestCopilotKeyRowAbsentPasteRefusesShortToken(t *testing.T) {
 	if copilotKeyRow(d).run() {
 		t.Fatalf("copilotKeyRow(d).run() = true for a short paste, want refused:\n%s", out.String())
 	}
-	if _, _, ok := secrets.Get("COPILOT_GITHUB_TOKEN"); ok {
+	if _, _, ok := secretstore.Get("COPILOT_GITHUB_TOKEN"); ok {
 		t.Fatal("a refused paste must not store anything")
 	}
 	if !strings.Contains(out.String(), "not a GitHub token") {
@@ -179,7 +179,7 @@ func TestRunMenuSubmitStoresStagedKeys(t *testing.T) {
 		if len(asked) != 1 || asked[0] != "Save 1 key(s) to the secrets manager" {
 			t.Errorf("yes=%v: asked = %v", yes, asked)
 		}
-		v, src, _ := secrets.Get("GEMINI_API_KEY")
+		v, src, _ := secretstore.Get("GEMINI_API_KEY")
 		if yes && (src != "vault" || v != "AIzaTestKey-0123456789") {
 			t.Errorf("Submit y: GEMINI_API_KEY = %q from %q, want the staged value stored\n%s", v, src, out.String())
 		}

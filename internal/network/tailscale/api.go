@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/edotau/claude-code/internal/secrets"
+	"github.com/edotau/claude-code/internal/secretstore"
 )
 
 // DefaultBaseURL is the Tailscale admin API.
@@ -35,17 +35,17 @@ type Client struct {
 	token   func(ctx context.Context) (string, error)
 }
 
-// NewClient resolves credentials via secrets.Get (the vault, then env):
+// NewClient resolves credentials via secretstore.Get (the vault, then env):
 // TAILSCALE_OAUTH_CLIENT_ID/_SECRET preferred, else TAILSCALE_API_KEY as a bearer directly.
 func NewClient() (*Client, error) {
 	c := &Client{BaseURL: apiBaseURL, Tailnet: "-", HTTP: http.DefaultClient}
-	if id, _, ok := secrets.Get("TAILSCALE_OAUTH_CLIENT_ID"); ok {
-		if secret, _, ok2 := secrets.Get("TAILSCALE_OAUTH_CLIENT_SECRET"); ok2 {
+	if id, _, ok := secretstore.Get("TAILSCALE_OAUTH_CLIENT_ID"); ok {
+		if secret, _, ok2 := secretstore.Get("TAILSCALE_OAUTH_CLIENT_SECRET"); ok2 {
 			c.token = oauthToken(c.BaseURL, id, secret, c.HTTP)
 			return c, nil
 		}
 	}
-	if key, _, ok := secrets.Get("TAILSCALE_API_KEY"); ok {
+	if key, _, ok := secretstore.Get("TAILSCALE_API_KEY"); ok {
 		c.token = func(context.Context) (string, error) { return key, nil }
 		return c, nil
 	}

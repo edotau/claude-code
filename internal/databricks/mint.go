@@ -10,7 +10,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/clipboard"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/secrets"
+	"github.com/edotau/claude-code/internal/secretstore"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 	"github.com/edotau/claude-code/internal/vault"
 )
@@ -80,7 +80,7 @@ func SetPAT(ctx context.Context, name, value string) (string, error) {
 	}
 	secret := providers.AuthSecretName(p)
 	old, had, _ := vault.ReadSecret(secret)
-	if err := secrets.Store(secret, value); err != nil {
+	if err := secretstore.Store(secret, value); err != nil {
 		return "", err
 	}
 	status, detail := "unverified", ""
@@ -93,9 +93,9 @@ func SetPAT(ctx context.Context, name, value string) (string, error) {
 		return status, nil
 	}
 	if had {
-		_ = secrets.Store(secret, old)
+		_ = secretstore.Store(secret, old)
 	} else {
-		_ = secrets.Delete(secret)
+		_ = secretstore.Delete(secret)
 	}
 	return status, fmt.Errorf("%s: personal access token rejected (%s); kept the previous value", p.Name, detail)
 }

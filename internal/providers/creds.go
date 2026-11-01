@@ -15,6 +15,7 @@ import (
 	"unicode"
 
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/secretstore"
 	"github.com/edotau/claude-code/internal/shapes"
 )
 
@@ -41,7 +42,7 @@ func Credential(ctx context.Context, p *Provider) (string, error) {
 	}
 	var vaultErr error
 	for _, n := range keyNames(p) {
-		v, _, err := EffectiveSecret(n)
+		v, _, err := secretstore.EffectiveSecret(n)
 		vaultErr = cmp.Or(vaultErr, err)
 		if err == nil && v != "" {
 			return v, nil

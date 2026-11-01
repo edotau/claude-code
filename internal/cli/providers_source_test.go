@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/secrets"
+	"github.com/edotau/claude-code/internal/secretstore"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -22,7 +22,7 @@ func TestProviderCredentialSources(t *testing.T) {
 	t.Setenv("SOURCE_ENV_KEY", value)
 	t.Setenv("SOURCE_VAULT_KEY", "")
 	t.Setenv("SOURCE_MISSING_KEY", "")
-	if err := secrets.Store("SOURCE_VAULT_KEY", value); err != nil {
+	if err := secretstore.Store("SOURCE_VAULT_KEY", value); err != nil {
 		t.Fatal(err)
 	}
 	file := filepath.Join(t.TempDir(), "fake-token")

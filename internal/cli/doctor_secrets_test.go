@@ -12,7 +12,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/audit"
 	"github.com/edotau/claude-code/internal/network/browser"
-	"github.com/edotau/claude-code/internal/secrets"
+	"github.com/edotau/claude-code/internal/secretstore"
 )
 
 func doctorGitFixture(t *testing.T, dirty bool) string {
@@ -101,7 +101,7 @@ func TestDoctorSecretsWorstExitWins(t *testing.T) {
 				t.Fatal(err)
 			}
 			if finding == "vault" {
-				if err := secrets.Store("AUDIT_FAKE_KEY", value); err != nil {
+				if err := secretstore.Store("AUDIT_FAKE_KEY", value); err != nil {
 					t.Fatal(err)
 				}
 				if err := os.Chmod(filepath.Join(cfg, "state", "vault.db"), 0o644); err != nil {
@@ -140,7 +140,7 @@ func TestDoctorPlainIncludesVaultRows(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("PATH", t.TempDir()) // no real tool --version probes
 	t.Cleanup(browser.SetCommandTimeout(50 * time.Millisecond))
-	if err := secrets.Store("PLAIN_DOCTOR_FAKE_KEY", "obviously-fake-doctor-value"); err != nil {
+	if err := secretstore.Store("PLAIN_DOCTOR_FAKE_KEY", "obviously-fake-doctor-value"); err != nil {
 		t.Fatal(err)
 	}
 	for _, format := range []string{"text", "json"} {

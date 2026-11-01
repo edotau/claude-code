@@ -10,6 +10,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/secretstore"
 	"github.com/edotau/claude-code/internal/vault"
 )
 
@@ -102,7 +103,7 @@ func manifestBackups() []string {
 // nil when the vault holds no secrets (no master key needed); count > 0 and err non-nil when the
 // resolved master key cannot open the vault.
 func MasterKeyStatus() (count int, source string, err error) {
-	names, err := NamesErr()
+	names, err := secretstore.NamesErr()
 	if err != nil {
 		return 0, "", err
 	}
@@ -181,7 +182,7 @@ func checkKeyNames(reg *providers.Registry) []Check {
 			known[p.Auth.Env] = true
 		}
 	}
-	names := Names()
+	names := secretstore.Names()
 	var typos []string
 	for _, k := range names {
 		if known[k] {

@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/secrets"
+	"github.com/edotau/claude-code/internal/secretstore"
 )
 
 const gapCfg = `[DEFAULT]
@@ -59,7 +59,7 @@ func TestVaultImportDryRunWithSealFlagWritesNothing(t *testing.T) {
 	if after := gapProviderNames(t); len(after) != len(before) || slices.Contains(after, "svc-m2m") {
 		t.Errorf("dry-run created rows: %v", after)
 	}
-	for _, n := range secrets.Names() {
+	for _, n := range secretstore.Names() {
 		if strings.HasPrefix(n, "DATABRICKS_") {
 			t.Errorf("dry-run sealed %s", n)
 		}
@@ -79,7 +79,7 @@ func TestVaultImportApplyWithoutSealStoresNoSecrets(t *testing.T) {
 	if !slices.Contains(gapProviderNames(t), "svc-m2m") {
 		t.Fatal("row not written")
 	}
-	for _, n := range secrets.Names() {
+	for _, n := range secretstore.Names() {
 		if strings.HasPrefix(n, "DATABRICKS_") {
 			t.Errorf("sealed %s without --seal-secrets", n)
 		}
@@ -95,12 +95,12 @@ func TestVaultImportSealStoresReadableValuesAndNoDefaultLeak(t *testing.T) {
 		"DATABRICKS_SVC_M2M_M2M": "secret-value-1",
 		"DATABRICKS_PAT_ONE_PAT": "dapi-token-value",
 	} {
-		if got, src, err := secrets.Lookup(name); err != nil || got != want || src != "vault" {
+		if got, src, err := secretstore.Lookup(name); err != nil || got != want || src != "vault" {
 			t.Errorf("%s = %q (%s) %v", name, got, src, err)
 		}
 	}
-	for _, n := range secrets.Names() {
-		if v, _, _ := secrets.Lookup(n); v == "dapi-DEFAULT-LEAK" {
+	for _, n := range secretstore.Names() {
+		if v, _, _ := secretstore.Lookup(n); v == "dapi-DEFAULT-LEAK" {
 			t.Errorf("[DEFAULT] token sealed as %s", n)
 		}
 	}

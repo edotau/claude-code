@@ -13,7 +13,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/clipboard"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/secrets"
+	"github.com/edotau/claude-code/internal/secretstore"
 	"github.com/edotau/claude-code/internal/vault"
 )
 
@@ -176,7 +176,7 @@ func TestSetPATStoresAndVerifies(t *testing.T) {
 func TestSetPATRejectedKeepsOldValue(t *testing.T) {
 	mintRow(t, 401)
 	name := providers.SecretName(providers.GroupDatabricks, "mrow", providers.AuthPAT)
-	if err := secrets.Store(name, "dapi-OLD"); err != nil {
+	if err := secretstore.Store(name, "dapi-OLD"); err != nil {
 		t.Fatal(err)
 	}
 	status, err := SetPAT(context.Background(), "mrow", "dapi-BAD")

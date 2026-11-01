@@ -10,7 +10,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/configure"
 	"github.com/edotau/claude-code/internal/network/tailscale"
-	"github.com/edotau/claude-code/internal/secrets"
+	"github.com/edotau/claude-code/internal/secretstore"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 	"github.com/edotau/claude-code/internal/ui/tui"
 	"github.com/edotau/claude-code/internal/vault"
@@ -187,7 +187,7 @@ func vaultStoreTailscale(dryRun bool, pairs []vaultPair) int {
 			fmt.Fprintf(os.Stderr, "vault set: empty value for %s; nothing written\n", p.Name)
 			return 1
 		}
-		if strings.ContainsAny(p.Value, "\r\n") { // secrets.Store rejects these; refuse before a half-written pair
+		if strings.ContainsAny(p.Value, "\r\n") { // secretstore.Store rejects these; refuse before a half-written pair
 			fmt.Fprintf(os.Stderr, "vault set: %s spans lines; nothing written\n", p.Name)
 			return 1
 		}
@@ -195,16 +195,16 @@ func vaultStoreTailscale(dryRun bool, pairs []vaultPair) int {
 	for _, p := range pairs {
 		if dryRun {
 			verb := "add"
-			if slices.Contains(secrets.Names(), p.Name) {
+			if slices.Contains(secretstore.Names(), p.Name) {
 				verb = "replace"
 			}
 			fmt.Printf("would %s %s (%d chars); nothing written\n", verb, p.Name, len(p.Value))
 			continue
 		}
-		if err := secrets.Store(p.Name, p.Value); err != nil {
+		if err := secretstore.Store(p.Name, p.Value); err != nil {
 			return fail("vault set: %v", err)
 		}
-		fmt.Fprintf(os.Stderr, "wrote %s to the vault (%s)\n", p.Name, secrets.Redact(p.Value))
+		fmt.Fprintf(os.Stderr, "wrote %s to the vault (%s)\n", p.Name, secretstore.Redact(p.Value))
 	}
 	return 0
 }
