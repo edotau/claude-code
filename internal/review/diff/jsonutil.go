@@ -4,10 +4,11 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"github.com/edotau/claude-code/internal/review/source"
 	"math"
 	"strconv"
 	"strings"
+
+	"github.com/edotau/claude-code/internal/review/source"
 )
 
 // pyFloat marshals like Python's json.dumps: shortest round-trip decimal, ".0" for integral values.

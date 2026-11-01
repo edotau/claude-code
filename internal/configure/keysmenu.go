@@ -1,9 +1,10 @@
 package configure
 
 import (
+	"regexp"
+
 	"github.com/edotau/claude-code/internal/ui/menu"
 	"github.com/edotau/claude-code/internal/ui/tui"
-	"regexp"
 )
 
 // pickKey is the terminal picker seam; tests replace it.

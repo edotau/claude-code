@@ -3,11 +3,12 @@ package configure
 import (
 	"bufio"
 	"bytes"
+	"strings"
+	"testing"
+
 	"github.com/edotau/claude-code/internal/secretstore"
 	"github.com/edotau/claude-code/internal/ui/tui"
 	"github.com/edotau/claude-code/internal/vault"
-	"strings"
-	"testing"
 )
 
 // copilotKeyRow's desc flips between [no token] and [token set] as COPILOT_GITHUB_TOKEN is stored.

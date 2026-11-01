@@ -5,12 +5,13 @@ import (
 	"cmp"
 	"context"
 	"fmt"
-	"github.com/edotau/claude-code/internal/opencode"
-	"github.com/edotau/claude-code/internal/vault"
 	"os/exec"
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/edotau/claude-code/internal/opencode"
+	"github.com/edotau/claude-code/internal/vault"
 
 	"github.com/edotau/claude-code/internal/copilot"
 	"github.com/edotau/claude-code/internal/models"

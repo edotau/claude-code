@@ -3,8 +3,9 @@ package configure
 
 import (
 	"fmt"
-	"github.com/edotau/claude-code/internal/vault"
 	"slices"
+
+	"github.com/edotau/claude-code/internal/vault"
 
 	agentpkg "github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/opencode"

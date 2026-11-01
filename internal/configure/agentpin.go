@@ -3,10 +3,11 @@ package configure
 
 import (
 	"cmp"
-	"github.com/edotau/claude-code/internal/vault"
 	"reflect"
 	"slices"
 	"strings"
+
+	"github.com/edotau/claude-code/internal/vault"
 
 	agentpkg "github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/opencode"

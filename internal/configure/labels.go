@@ -3,9 +3,10 @@ package configure
 
 import (
 	"cmp"
-	"github.com/edotau/claude-code/internal/codex"
 	"regexp"
 	"strings"
+
+	"github.com/edotau/claude-code/internal/codex"
 
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"

@@ -3,11 +3,12 @@ package cli
 import (
 	"bufio"
 	"fmt"
-	"github.com/edotau/claude-code/internal/network/tailscale"
 	"io"
 	"os"
 	"slices"
 	"strings"
+
+	"github.com/edotau/claude-code/internal/network/tailscale"
 
 	"github.com/edotau/claude-code/internal/configure"
 	"github.com/edotau/claude-code/internal/secretstore"

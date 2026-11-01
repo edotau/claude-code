@@ -1,8 +1,9 @@
 package configure
 
 import (
-	"github.com/edotau/claude-code/internal/codex"
 	"os"
+
+	"github.com/edotau/claude-code/internal/codex"
 
 	"github.com/edotau/claude-code/internal/copilot"
 	"github.com/edotau/claude-code/internal/providers"

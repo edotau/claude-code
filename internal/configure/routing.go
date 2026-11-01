@@ -5,8 +5,9 @@ package configure
 
 import (
 	"fmt"
-	"github.com/edotau/claude-code/internal/agentconfig"
 	"strings"
+
+	"github.com/edotau/claude-code/internal/agentconfig"
 
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/ui/menu"

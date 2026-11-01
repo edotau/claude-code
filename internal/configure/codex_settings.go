@@ -1,9 +1,10 @@
 package configure
 
 import (
+	"maps"
+
 	"github.com/edotau/claude-code/internal/codex"
 	"github.com/edotau/claude-code/internal/paths"
-	"maps"
 )
 
 func codexPreferenceValue(key string, overlay, live map[string]string) (value, source string) {

@@ -5,12 +5,13 @@ import (
 	"cmp"
 	"encoding/json"
 	"fmt"
-	"github.com/edotau/claude-code/internal/vault"
 	"maps"
 	"os"
 	"slices"
 	"strconv"
 	"strings"
+
+	"github.com/edotau/claude-code/internal/vault"
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/configure"

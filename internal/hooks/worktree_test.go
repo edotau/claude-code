@@ -3,13 +3,14 @@ package hooks
 import (
 	"bytes"
 	"encoding/json"
-	"github.com/edotau/claude-code/internal/memory/bank"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/memory/bank"
 
 	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/paths"

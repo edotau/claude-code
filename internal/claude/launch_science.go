@@ -5,13 +5,14 @@ import (
 	_ "embed"
 	"errors"
 	"fmt"
-	"github.com/edotau/claude-code/internal/agent"
 	"net"
 	"os"
 	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
+
+	"github.com/edotau/claude-code/internal/agent"
 
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"

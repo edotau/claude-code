@@ -2,12 +2,14 @@ package memory
 
 import (
 	"errors"
-	"github.com/edotau/claude-code/internal/memory/bank"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/memory/bank"
 
 	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/paths"
@@ -343,7 +345,7 @@ func TestSplitNativeIndexMovesOldestUnpinnedOverflow(t *testing.T) {
 	b.WriteString("# Memory Index\n\n")
 	for i := 1; i <= 5; i++ {
 		n := strconv.Itoa(i)
-		b.WriteString("- [Rule " + n + "](rule-" + n + ".md) — hook\n")
+		fmt.Fprintf(&b, "- [Rule %s](rule-%s.md) — hook\n", n, n)
 	}
 	write(t, filepath.Join(dir, bank.NativeIndexFile), b.String())
 

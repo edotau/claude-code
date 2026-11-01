@@ -3,12 +3,13 @@ package configure
 
 import (
 	"bytes"
-	"github.com/edotau/claude-code/internal/gemini"
 	"os"
 	"os/exec"
 	"slices"
 	"syscall"
 	"time"
+
+	"github.com/edotau/claude-code/internal/gemini"
 
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"

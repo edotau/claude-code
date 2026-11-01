@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/edotau/claude-code/internal/memory/bank"
 	"io"
 	"os"
 	"os/exec"
@@ -14,6 +13,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/edotau/claude-code/internal/memory/bank"
 
 	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/paths"
@@ -148,10 +149,14 @@ func gitSinceBlock(transcript, cwd string) string {
 	var b strings.Builder
 	b.WriteString("\n\nThis session's git activity (for the summary; verify before quoting):\n")
 	if commits != "" {
-		b.WriteString("Commits:\n" + commits + "\n")
+		b.WriteString("Commits:\n")
+		b.WriteString(commits)
+		b.WriteString("\n")
 	}
 	if files := mergeFileLists(touched, status); len(files) > 0 {
-		b.WriteString("Touched files:\n" + strings.Join(files, "\n") + "\n")
+		b.WriteString("Touched files:\n")
+		b.WriteString(strings.Join(files, "\n"))
+		b.WriteString("\n")
 	}
 	return b.String()
 }
@@ -197,7 +202,11 @@ func tagBlock(transcript string) string {
 		"BUG → progress known issues, NEXT → activeContext next steps, NOTE → conventions or progress; " +
 		"skip any already filed.\n")
 	for _, t := range tags {
-		b.WriteString("- " + t.Kind + ": " + t.Text + "\n")
+		b.WriteString("- ")
+		b.WriteString(t.Kind)
+		b.WriteString(": ")
+		b.WriteString(t.Text)
+		b.WriteString("\n")
 	}
 	return b.String()
 }

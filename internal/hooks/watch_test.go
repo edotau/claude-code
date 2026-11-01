@@ -2,7 +2,6 @@ package hooks
 
 import (
 	"bytes"
-	"github.com/edotau/claude-code/internal/memory/bank"
 	"io"
 	"os"
 	"os/exec"
@@ -11,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/memory/bank"
 
 	"github.com/edotau/claude-code/internal/memstore"
 )

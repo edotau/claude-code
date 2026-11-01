@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"runtime/debug"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -44,39 +45,62 @@ type verifyClaim struct {
 type verifyResult struct{ status, evidence string }
 
 type claimVerifier struct {
-	store    verifyStore
-	objects  map[string]map[string]string
-	cache    map[string]verifyResult
-	helpVerb func(string) bool
+	store         verifyStore
+	repos         []string
+	objects       map[string]map[string]string
+	sessions      []string
+	branches      map[string]string
+	pushedResults map[string]verifyResult
+	symbols       map[string]verifyResult
+	sourceFiles   []string
+	cache         map[string]verifyResult
+	helpVerb      func(string) bool
 }
 
 var (
 	verifyCodeRE       = regexp.MustCompile("`([^`\n]+)`")
 	verifyHexRE        = regexp.MustCompile(`^[0-9a-fA-F]{7,40}$`)
 	verifySymbolRE     = regexp.MustCompile(`\b([A-Za-z_][A-Za-z0-9_]*)\(`)
+	verifyWordRE       = regexp.MustCompile(`[\pL\pN_]+`)
 	verifyFileSymbolRE = regexp.MustCompile(`(?:~?/|[A-Za-z0-9_.-]+/)*[A-Za-z0-9_.-]+\.go:([A-Za-z_][A-Za-z0-9_]*)`)
 	verifyCommandRE    = regexp.MustCompile(`\bclaude-code ((?:[a-z][a-z0-9-]*[ \t]+)+)--[a-z][a-z0-9-]*`)
 	verifyFlagRE       = regexp.MustCompile(`--[a-z][a-z0-9-]*`)
-	verifyForwardRE    = regexp.MustCompile("(?i)\\b(pushed|installed)\\s+(?:(?:through|at|via|as|commit)\\s+)?`?([0-9a-f]{7,40})`?\\b")
-	verifyBackwardRE   = regexp.MustCompile("(?i)\\b([0-9a-f]{7,40})`?(?:[ ,]+(?:is|was|now|currently|committed|installed|and|has|been))*[ ,]+(pushed|installed)\\b")
+	verifyForwardRE    = regexp.MustCompile("(?i)\\b(pushed|installed)\\s+(?:(?:through|at|via|as|commit)\\s+)?`?([0-9a-f]{7,40})\\b`?")
+	verifyBackwardRE   = regexp.MustCompile("(?i)`?\\b([0-9a-f]{7,40})`?(?:[ ,]+(?:is|was|now|currently|committed|installed|and|has|been))*[ ,]+(pushed|installed)\\b")
 	verifySentenceRE   = regexp.MustCompile(`[.!?;](?:\s|$)`)
+	verifyNotStateRE   = regexp.MustCompile(`\b(not|not yet|never|wasn't|isn't|hasn't been|will be|to be)\s+$`)
 )
 
 // Verify prints mechanical evidence only; stale findings are data, not command failures.
 func Verify(w io.Writer, o VerifyOptions) error {
-	stores, err := verifyStores(o)
+	known, err := verifyStores(VerifyOptions{AllStores: true})
 	if err != nil {
 		return err
 	}
-	counts := map[string]int{}
-	for _, store := range stores {
-		claims, err := verifyClaims(store, o.Archives)
+	stores := known
+	if !o.AllStores {
+		stores, err = verifySelectStore(known, o.CWD)
 		if err != nil {
 			return err
 		}
-		v := claimVerifier{store: store, cache: map[string]verifyResult{}, helpVerb: o.HelpVerb}
-		v.loadObjects(claims)
-		for _, c := range claims {
+	}
+	claims := make([][]verifyClaim, len(stores))
+	var allClaims []verifyClaim
+	for i, store := range stores {
+		claims[i], err = verifyClaims(store, o.Archives)
+		if err != nil {
+			return err
+		}
+		allClaims = append(allClaims, claims[i]...)
+	}
+	v := claimVerifier{helpVerb: o.HelpVerb, branches: map[string]string{}, pushedResults: map[string]verifyResult{}}
+	v.loadObjects(known, allClaims)
+	v.sessions, _ = filepath.Glob(filepath.Join(paths.ConfigDir(), "projects", "*", "*.jsonl"))
+	counts := map[string]int{}
+	for i, store := range stores {
+		v.store, v.cache = store, map[string]verifyResult{}
+		v.loadSymbols(claims[i])
+		for _, c := range claims[i] {
 			r := v.check(c)
 			if r.status == "stale" && !c.active {
 				r = verifyResult{"unverifiable", r.evidence + "; historical or non-current file"}
@@ -169,12 +193,17 @@ func verifySelectStore(stores []verifyStore, cwd string) ([]verifyStore, error) 
 	}
 	cwd = memstore.ResolvePath(cwd)
 	root := memstore.MainCheckout(cwd)
+	inStore := verifyWithin(memstore.ResolvePath(memstore.StoreDir()), cwd)
 	best, length, home := -1, 0, -1
 	for i, s := range stores {
 		if filepath.Base(s.dir) == "home" {
 			home = i
 		}
-		for _, candidate := range append([]string{s.dir, s.repo}, s.aliases...) {
+		candidates := append([]string{s.dir, s.repo}, s.aliases...)
+		if inStore {
+			candidates = []string{s.dir}
+		}
+		for _, candidate := range candidates {
 			if candidate == "" {
 				continue
 			}
@@ -184,7 +213,7 @@ func verifySelectStore(stores []verifyStore, cwd string) ([]verifyStore, error) 
 			}
 		}
 	}
-	if best < 0 && root == "" {
+	if best < 0 && (root == "" || inStore) {
 		best = home
 	}
 	if best < 0 {
@@ -241,14 +270,14 @@ func verifyActive(name string) bool {
 }
 
 func verifyBlocks(name, body string, kind bank.FileKind) []string {
-	if kind == bank.KindTopic {
-		return []string{body}
-	}
 	for _, base := range bank.BankFiles() {
-		if strings.HasPrefix(name, strings.TrimSuffix(base, ".md")+"-") {
-			name = base
+		if strings.HasPrefix(name, strings.TrimSuffix(base, ".md")+"-") || strings.HasSuffix(name, "-"+base) {
+			name, kind = base, bank.KindBank
 			break
 		}
+	}
+	if kind == bank.KindTopic {
+		return []string{body}
 	}
 	header, blocks := bank.EntryBlocks(name, body)
 	if strings.TrimSpace(header) != "" {
@@ -271,7 +300,7 @@ func verifyExtract(file, id, block string, active bool) []verifyClaim {
 		if verifyHexRE.MatchString(m[1]) {
 			add("hash", m[0], strings.ToLower(m[1]), "", false)
 		} else if verifyPathToken(m[1]) && !verifyFileSymbolRE.MatchString(m[1]) {
-			path := strings.SplitN(m[1], ":", 2)[0]
+			path, _, _ := strings.Cut(m[1], ":")
 			add("path", m[0], path, "", false)
 		}
 	}
@@ -310,7 +339,7 @@ func verifyStateClaims(sentence string, add func(string, string, string, string,
 				kind, sha = sha, kind
 			}
 			prefix := strings.ToLower(sentence[:loc[0]])
-			if strings.HasSuffix(prefix, "not ") || strings.HasSuffix(prefix, "never ") || strings.HasSuffix(prefix, "will be ") {
+			if verifyNotStateRE.MatchString(prefix) {
 				continue
 			}
 			add(strings.ToLower(kind), text, strings.ToLower(sha), "", strings.Contains(strings.ToLower(sentence), "currently"))
@@ -318,7 +347,7 @@ func verifyStateClaims(sentence string, add func(string, string, string, string,
 	}
 }
 
-func (v *claimVerifier) loadObjects(claims []verifyClaim) {
+func (v *claimVerifier) loadObjects(stores []verifyStore, claims []verifyClaim) {
 	var tokens []string
 	for _, c := range claims {
 		if c.kind == "hash" || c.kind == "pushed" || c.kind == "installed" {
@@ -328,9 +357,64 @@ func (v *claimVerifier) loadObjects(claims []verifyClaim) {
 	slices.Sort(tokens)
 	tokens = slices.Compact(tokens)
 	v.objects = map[string]map[string]string{}
-	for _, repo := range []string{v.store.repo, memstore.StoreDir()} {
-		if repo != "" {
-			v.objects[repo] = verifyBatch(repo, tokens)
+	for _, store := range stores {
+		if store.repo != "" && v.objects[store.repo] == nil {
+			v.repos = append(v.repos, store.repo)
+			v.objects[store.repo] = verifyBatch(store.repo, tokens)
+		}
+	}
+	if v.objects[memstore.StoreDir()] == nil {
+		v.objects[memstore.StoreDir()] = verifyBatch(memstore.StoreDir(), tokens)
+	}
+}
+
+func (v *claimVerifier) loadSymbols(claims []verifyClaim) {
+	v.symbols, v.sourceFiles = map[string]verifyResult{}, nil
+	if v.store.repo == "" {
+		return
+	}
+	var tokens []string
+	needFiles := false
+	for _, c := range claims {
+		if c.kind != "symbol" {
+			continue
+		}
+		if c.scope == "" {
+			if _, ok := v.symbols[c.value]; !ok {
+				tokens = append(tokens, c.value)
+				v.symbols[c.value] = verifyResult{"unverifiable", "bare symbol has no file scope: " + c.value}
+			}
+		} else if !strings.Contains(c.scope, "/") {
+			needFiles = true
+		}
+	}
+	if needFiles {
+		if out, err := verifyGit(v.store.repo, "", "ls-files", "-z", "--cached", "--others", "--exclude-standard", "--", "*.go"); err == nil {
+			v.sourceFiles = strings.Split(strings.TrimSuffix(out, "\x00"), "\x00")
+		}
+	}
+	if len(tokens) == 0 {
+		return
+	}
+	// Listing matches short-circuits each file; grep -o repeats every pattern at every matching position.
+	out, err := verifyGit(v.store.repo, strings.Join(tokens, "\n")+"\n", "grep", "--threads=4",
+		"--no-color", "--full-name", "-I", "-w", "-l", "-z", "-F", "-f", "-", "--")
+	if err != nil {
+		return
+	}
+	for file := range strings.SplitSeq(strings.TrimSuffix(out, "\x00"), "\x00") {
+		path, ok := v.scopedPath(file)
+		if !ok {
+			continue
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		for _, word := range verifyWordRE.FindAll(data, -1) {
+			if result, ok := v.symbols[string(word)]; ok && result.status != "ok" {
+				v.symbols[string(word)] = verifyResult{"ok", "git grep -w: " + file}
+			}
 		}
 	}
 }
@@ -369,7 +453,7 @@ func verifyBatch(repo string, tokens []string) map[string]string {
 }
 
 func (v *claimVerifier) check(c verifyClaim) verifyResult {
-	key := c.kind + "\x00" + c.value + "\x00" + c.scope + fmt.Sprint(c.current)
+	key := c.kind + "\x00" + c.value + "\x00" + c.scope + strconv.FormatBool(c.current)
 	if result, ok := v.cache[key]; ok {
 		return result
 	}
@@ -406,9 +490,8 @@ func (v *claimVerifier) hash(token string) verifyResult {
 			return verifyResult{"ok", repo + " object " + sha}
 		}
 	}
-	files, err := filepath.Glob(filepath.Join(paths.ConfigDir(), "projects", "*", token+"*.jsonl"))
-	if err == nil {
-		for _, path := range files {
+	for _, path := range v.sessions {
+		if strings.HasPrefix(filepath.Base(path), token) {
 			if fi, err := os.Stat(path); err == nil && fi.Mode().IsRegular() {
 				return verifyResult{"ok", "session " + path}
 			}
@@ -429,6 +512,13 @@ func (v *claimVerifier) scopedPath(token string) (string, bool) {
 	if !filepath.IsAbs(path) {
 		path = filepath.Join(v.store.repo, path)
 	}
+	for p := path; p != filepath.Dir(p); p = filepath.Dir(p) {
+		if fi, err := os.Lstat(p); err == nil && fi.Mode()&os.ModeSymlink != 0 {
+			if _, err := os.Stat(p); err != nil {
+				return "", false
+			}
+		}
+	}
 	path = memstore.ResolvePath(path)
 	return path, verifyWithin(memstore.ResolvePath(v.store.repo), path)
 }
@@ -446,6 +536,14 @@ func (v *claimVerifier) path(token string) verifyResult {
 	case err == nil:
 		return verifyResult{"ok", "exists " + path}
 	case errors.Is(err, fs.ErrNotExist):
+		rel, err := filepath.Rel(memstore.ResolvePath(v.store.repo), path)
+		if err != nil {
+			return verifyResult{"unverifiable", "cannot locate path in store repository"}
+		}
+		top, _, _ := strings.Cut(rel, string(filepath.Separator))
+		if fi, err := os.Stat(filepath.Join(v.store.repo, top)); err != nil || !fi.IsDir() {
+			return verifyResult{"unverifiable", "top-level directory is absent from store repository: " + top}
+		}
 		return verifyResult{"stale", "missing " + path}
 	default:
 		return verifyResult{"unverifiable", "cannot stat " + path}
@@ -453,50 +551,99 @@ func (v *claimVerifier) path(token string) verifyResult {
 }
 
 func (v *claimVerifier) symbol(c verifyClaim) verifyResult {
-	args := []string{"grep", "-l", "-w", "-F", "-e", c.value, "--"}
 	if c.scope == "" {
-		args = append(args, "*.go")
-	} else if strings.Contains(c.scope, "/") {
-		path, ok := v.scopedPath(c.scope)
-		if !ok {
-			return verifyResult{"unverifiable", "symbol path is outside store repository"}
+		return v.symbols[c.value]
+	}
+	files := []string{c.scope}
+	if !strings.Contains(c.scope, "/") {
+		for _, file := range v.sourceFiles {
+			if file != c.scope && filepath.Base(file) == c.scope {
+				files = append(files, file)
+			}
 		}
-		rel, _ := filepath.Rel(v.store.repo, path)
-		args = append(args, ":(literal)"+filepath.ToSlash(rel))
-	} else {
-		args = append(args, ":(glob)**/"+c.scope)
 	}
-	out, err := verifyGit(v.store.repo, "", args...)
-	if err == nil {
-		return verifyResult{"ok", "git grep -w: " + firstLine(out)}
+	word := regexp.MustCompile(`\b` + regexp.QuoteMeta(c.value) + `\b`)
+	checked, uncertain := "", false
+	for _, file := range files {
+		path, ok := v.scopedPath(file)
+		if !ok {
+			uncertain = true
+			continue
+		}
+		fi, err := os.Stat(path)
+		if errors.Is(err, fs.ErrNotExist) {
+			continue
+		}
+		if err != nil || !fi.Mode().IsRegular() {
+			uncertain = true
+			continue
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			uncertain = true
+			continue
+		}
+		if word.Match(data) {
+			return verifyResult{"ok", "symbol " + c.value + " in " + path}
+		}
+		checked = path
 	}
-	var exit *exec.ExitError
-	if errors.As(err, &exit) && exit.ExitCode() == 1 {
-		return verifyResult{"stale", "git grep -w: no " + c.value + " in " + v.store.repo}
+	if checked != "" && !uncertain {
+		return verifyResult{"stale", "no " + c.value + " in existing file scope " + c.scope + " in " + v.store.repo}
 	}
-	return verifyResult{"unverifiable", "git grep unavailable in " + v.store.repo}
+	return verifyResult{"unverifiable", "symbol file is missing, outside the repository, or unreadable: " + c.scope}
+}
+
+func (v *claimVerifier) defaultBranch(repo string) string {
+	if branch, ok := v.branches[repo]; ok {
+		return branch
+	}
+	branch, _ := verifyGit(repo, "", "symbolic-ref", "refs/remotes/origin/HEAD")
+	for _, candidate := range []string{branch, "origin/main"} {
+		if candidate == "" {
+			continue
+		}
+		if _, err := verifyGit(repo, "", "rev-parse", "--verify", candidate+"^{commit}"); err == nil {
+			v.branches[repo] = candidate
+			return candidate
+		}
+	}
+	v.branches[repo] = ""
+	return ""
 }
 
 func (v *claimVerifier) pushed(token string) verifyResult {
-	sha := v.objects[v.store.repo][token]
-	if sha == "" {
-		if _, err := verifyGit(v.store.repo, "", "rev-parse", "--git-dir"); err != nil {
-			return verifyResult{"unverifiable", "repository unavailable"}
+	if result, ok := v.pushedResults[token]; ok {
+		return result
+	}
+	result := verifyResult{"unverifiable", "pushed claim: sha does not resolve in any known store repository"}
+	for _, repo := range v.repos {
+		sha := v.objects[repo][token]
+		if sha == "" {
+			continue
 		}
-		return verifyResult{"stale", "pushed claim: sha does not resolve in " + v.store.repo}
+		branch := v.defaultBranch(repo)
+		if branch == "" {
+			if result.status != "stale" {
+				result = verifyResult{"unverifiable", "origin/HEAD and origin/main unavailable locally in " + repo + "; no fetch attempted"}
+			}
+			continue
+		}
+		_, err := verifyGit(repo, "", "merge-base", "--is-ancestor", sha, branch)
+		evidence := sha + " is an ancestor of local " + strings.TrimPrefix(branch, "refs/remotes/") + " in " + repo
+		if err == nil {
+			result = verifyResult{"ok", evidence}
+			break
+		}
+		var exit *exec.ExitError
+		if errors.As(err, &exit) && exit.ExitCode() == 1 {
+			result = verifyResult{"stale", "pushed claim: " + sha + " is not an ancestor of local " + strings.TrimPrefix(branch, "refs/remotes/") + " in " + repo}
+		} else if result.status != "stale" {
+			result = verifyResult{"unverifiable", "cannot check pushed ancestry in " + repo}
+		}
 	}
-	if _, err := verifyGit(v.store.repo, "", "rev-parse", "--verify", "origin/main^{commit}"); err != nil {
-		return verifyResult{"unverifiable", "origin/main unavailable locally; no fetch attempted"}
-	}
-	_, err := verifyGit(v.store.repo, "", "merge-base", "--is-ancestor", sha, "origin/main")
-	if err == nil {
-		return verifyResult{"ok", sha + " is an ancestor of local origin/main"}
-	}
-	var exit *exec.ExitError
-	if errors.As(err, &exit) && exit.ExitCode() == 1 {
-		return verifyResult{"stale", "pushed claim: " + sha + " is not an ancestor of local origin/main"}
-	}
-	return verifyResult{"unverifiable", "cannot check pushed ancestry"}
+	v.pushedResults[token] = result
+	return result
 }
 
 func verifyInstalled(c verifyClaim) verifyResult {

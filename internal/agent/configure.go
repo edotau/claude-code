@@ -4,10 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/edotau/claude-code/internal/agentconfig"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/agentconfig"
 
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"

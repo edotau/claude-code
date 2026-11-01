@@ -3,11 +3,12 @@
 package memory
 
 import (
-	"github.com/edotau/claude-code/internal/memory/bank"
 	"path/filepath"
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/edotau/claude-code/internal/memory/bank"
 
 	"github.com/edotau/claude-code/internal/memstore"
 )

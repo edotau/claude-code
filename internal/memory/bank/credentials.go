@@ -1,8 +1,9 @@
 package bank
 
 import (
-	"github.com/edotau/claude-code/internal/shapes"
 	"regexp"
+
+	"github.com/edotau/claude-code/internal/shapes"
 )
 
 // CredentialPattern is a coarse credential-shaped tripwire, not a full secrets scanner.

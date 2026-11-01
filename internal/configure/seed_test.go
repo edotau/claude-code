@@ -3,12 +3,13 @@ package configure
 import (
 	"bufio"
 	"bytes"
-	"github.com/edotau/claude-code/internal/vault"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/vault"
 
 	agentpkg "github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/paths"

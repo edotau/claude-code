@@ -2,9 +2,10 @@ package hooks
 
 import (
 	"fmt"
-	memrecall "github.com/edotau/claude-code/internal/memory/recall"
 	"os"
 	"strings"
+
+	memrecall "github.com/edotau/claude-code/internal/memory/recall"
 )
 
 func memoryRecall(in *Input) Result {

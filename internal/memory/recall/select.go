@@ -1,10 +1,11 @@
 package recall
 
 import (
-	"github.com/edotau/claude-code/internal/memory/bank"
-	"github.com/edotau/claude-code/internal/memory/recall/embed"
 	"sort"
 	"strings"
+
+	"github.com/edotau/claude-code/internal/memory/bank"
+	"github.com/edotau/claude-code/internal/memory/recall/embed"
 )
 
 // Recall caps: under 4 distinct terms BM25 ranks noise; the total bounds the per-turn context cost.

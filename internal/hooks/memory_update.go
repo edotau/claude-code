@@ -3,13 +3,14 @@ package hooks
 import (
 	"encoding/json"
 	"fmt"
-	memrecall "github.com/edotau/claude-code/internal/memory/recall"
 	"io"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
+
+	memrecall "github.com/edotau/claude-code/internal/memory/recall"
 
 	"github.com/edotau/claude-code/internal/inflight"
 	"github.com/edotau/claude-code/internal/memory"

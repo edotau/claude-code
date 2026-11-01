@@ -5,11 +5,12 @@ import (
 	"cmp"
 	"context"
 	"fmt"
-	"github.com/edotau/claude-code/internal/agent"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/edotau/claude-code/internal/agent"
 
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"

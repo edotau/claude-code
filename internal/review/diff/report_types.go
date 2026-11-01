@@ -1,7 +1,5 @@
 package diff
 
-import ()
-
 var severityWeights = map[string]int{"critical": 100, "high": 75, "medium": 50, "low": 25, "info": 10}
 
 type verdictThreshold struct {

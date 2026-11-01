@@ -2,11 +2,12 @@ package claude
 
 import (
 	"errors"
-	"github.com/edotau/claude-code/internal/agent"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	"github.com/edotau/claude-code/internal/agent"
 
 	"github.com/edotau/claude-code/internal/paths"
 )

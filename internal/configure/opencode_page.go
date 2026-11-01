@@ -5,8 +5,9 @@ package configure
 
 import (
 	"fmt"
-	"github.com/edotau/claude-code/internal/opencode"
 	"strings"
+
+	"github.com/edotau/claude-code/internal/opencode"
 
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/textutil"

@@ -2,13 +2,14 @@ package statusline
 
 import (
 	"encoding/json"
-	"github.com/edotau/claude-code/internal/ui/theme"
 	"maps"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/ui/theme"
 
 	"github.com/edotau/claude-code/internal/inflight"
 	"github.com/edotau/claude-code/internal/paths"
