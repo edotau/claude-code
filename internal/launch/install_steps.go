@@ -218,8 +218,8 @@ func linkOnPathCompact(w io.Writer, target string) error {
 	return nil
 }
 
-// settingsMergeApply is the read/render/merge/write logic shared by installSettings and settingsCompactLine.
-func settingsMergeApply(dryRun bool) (file string, existing, merged []byte, sum settings.Summary, backup string, err error) {
+// ApplySettings is the read/render/merge/write of settings.json shared by install and configure's exit re-render.
+func ApplySettings(dryRun bool) (file string, existing, merged []byte, sum settings.Summary, backup string, err error) {
 	file = SettingsFile()
 	existing, err = os.ReadFile(file)
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
@@ -254,7 +254,7 @@ func settingsMergeApply(dryRun bool) (file string, existing, merged []byte, sum 
 
 // installSettings merges the rendered harness settings into settings.json, backing up on a real write.
 func installSettings(w io.Writer, dryRun bool) error {
-	file, existing, merged, sum, backup, err := settingsMergeApply(dryRun)
+	file, existing, merged, sum, backup, err := ApplySettings(dryRun)
 	if err != nil {
 		if backup != "" {
 			fmt.Fprintf(w, "settings %s\n  backup %s\n", file, backup)
@@ -283,7 +283,7 @@ func installSettings(w io.Writer, dryRun bool) error {
 // settingsCompactLine is installSettings without the printing: it renders and writes the harness
 // settings the same way, returning the one-line summary (or "" on error, which the caller reports).
 func settingsCompactLine() (line string, err error) {
-	_, existing, merged, sum, backup, err := settingsMergeApply(false)
+	_, existing, merged, sum, backup, err := ApplySettings(false)
 	if err != nil {
 		if backup != "" {
 			return "settings error · backup …" + filepath.Base(backup), err

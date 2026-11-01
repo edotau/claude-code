@@ -26,7 +26,6 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/secrets"
-	"github.com/edotau/claude-code/internal/settings"
 )
 
 // homeRow is one selectable home-page row: name, state, check, and what picking it does.
@@ -366,34 +365,14 @@ func pickPlain(d *dialog, title string, rows [][2]string) (int, error) {
 // rerenderConfigs re-renders settings.json (merge: foreign keys/hooks kept, backup first) and the agent configs;
 // false when settings.json could not be brought current.
 func rerenderConfigs(d *dialog) bool {
-	file := launch.SettingsFile()
-	existing, err := os.ReadFile(file)
-	if err != nil && !errors.Is(err, fs.ErrNotExist) {
-		d.printf("settings.json: %v\n", err)
-		return false
-	}
-	rendered, err := settings.RenderLive()
-	if err != nil {
-		d.printf("settings.json: %v\n", err)
-		return false
-	}
-	dropped, derr := settings.LoadDropped() // the vault drop list; unavailable → merge as if empty
-	if derr != nil {
-		d.printf("settings: drop list unavailable: %v\n", derr)
-	}
-	merged, _, err := settings.Merge(existing, rendered, dropped)
+	_, existing, merged, _, backup, err := launch.ApplySettings(false)
 	switch {
 	case err != nil:
 		d.printf("settings.json: %v\n", err)
 		return false
-	case string(merged) == string(existing):
+	case backup == "" && string(merged) == string(existing):
 		d.println("settings.json unchanged")
 	default:
-		backup, err := settings.WriteWithBackup(file, merged)
-		if err != nil {
-			d.printf("settings.json: %v\n", err)
-			return false
-		}
 		d.printf("settings.json updated (backup %s)\n", backup)
 	}
 	if _, err := agent.RenderConfigs(agent.RenderOptions{Out: d.out}); err != nil {
