@@ -325,9 +325,8 @@ func watchFreeDispatch(r Engine, billing string) Engine {
 	if billing != router.BillFree {
 		return r
 	}
-	if hl, ok := r.(hubDispatch); ok {
-		hl.firstOutput = firstOutputDeadline()
-		return hl
+	if hl, ok := r.(HubEngine); ok {
+		return hl.WithFirstOutput(firstOutputDeadline())
 	}
 	return r
 }
@@ -436,11 +435,12 @@ func WithAlias(c Chain, alias string) Chain {
 
 // explicitAccount is the <provider>·<profile> key of the named backend; a hub dispatch names its own profile.
 func explicitAccount(r Engine, req RunOptions) (string, string) {
-	if l, ok := r.(hubDispatch); ok {
-		if OpencodeCredID(l.provider.OpencodeID) == "opencode" {
+	if l, ok := r.(HubEngine); ok {
+		p := l.HubProvider()
+		if hub.OwnPlan(p.OpencodeID) {
 			return "opencode·go", router.BillSubscription
 		}
-		return profileAccount(l.provider), billingOf(l.provider)
+		return profileAccount(p), billingOf(p)
 	}
 	reg, err := providers.Load()
 	if err != nil {
@@ -481,18 +481,18 @@ func hubDispatchFor(reg *providers.Registry, cell string) (Engine, string, error
 			continue
 		}
 		if providers.CredentialPresent(p) { // rows can share an opencodeID (chatgpt, openai): the signed-in one serves it
-			return hubDispatch{agent: "opencode", provider: p, reg: reg}, model, nil
+			return hub.Dispatch("opencode", p, reg), model, nil
 		}
 		if first == nil {
 			first = p
 		}
 	}
 	if first != nil {
-		return hubDispatch{agent: "opencode", provider: first, reg: reg}, model, nil
+		return hub.Dispatch("opencode", first, reg), model, nil
 	}
 	// opencode's own plans (opencode-go, opencode) have no registry provider: opencode resolves them itself.
-	if OpencodeCredID(id) == "opencode" {
-		return hubDispatch{agent: "opencode", provider: &providers.Provider{Name: id, OpencodeID: id}, reg: reg}, model, nil
+	if hub.OwnPlan(id) {
+		return hub.Dispatch("opencode", &providers.Provider{Name: id, OpencodeID: id}, reg), model, nil
 	}
 	return nil, "", fmt.Errorf("no provider has opencodeID %q", id)
 }
@@ -555,7 +555,7 @@ func noteQuota(disp Dispatch, err error) {
 
 // noteStall remembers a stalled free dispatch for 15 minutes, so the sub-pick skips it instead of hanging again.
 func noteStall(disp Dispatch, err error) {
-	if disp.Account == "" || !errors.Is(err, errStalled) {
+	if disp.Account == "" || !errors.Is(err, ErrStalled) {
 		return
 	}
 	now := time.Now()

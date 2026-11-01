@@ -5,12 +5,12 @@ import (
 	"cmp"
 	"context"
 	"fmt"
+	"github.com/edotau/claude-code/internal/opencode"
 	"os/exec"
 	"slices"
 	"strings"
 	"time"
 
-	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/copilot"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
@@ -34,7 +34,7 @@ func modelTarget(d *dialog, name string) (p *providers.Provider, claude bool) {
 		}
 		return sel.Provider, true
 	}
-	p, err := agent.HubStart(d.reg, name, "")
+	p, err := opencode.HubStart(d.reg, name, "")
 	if err != nil {
 		return nil, false
 	}

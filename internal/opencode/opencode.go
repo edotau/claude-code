@@ -1,4 +1,4 @@
-package agent
+package opencode
 
 import (
 	"cmp"
@@ -6,13 +6,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/edotau/claude-code/internal/agent"
+	render "github.com/edotau/claude-code/internal/agentconfig/render"
+	"github.com/edotau/claude-code/internal/vault"
 	"io"
-	"regexp"
 	"slices"
 	"strings"
-
-	agentrender "github.com/edotau/claude-code/internal/agentconfig/render"
-	"github.com/edotau/claude-code/internal/vault"
 
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/models"
@@ -21,20 +20,11 @@ import (
 	"github.com/edotau/claude-code/internal/secretstore"
 )
 
-var idRE = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
-
-// OwnedID namespaces the provider entry so it never overwrites a user's own block of the same name.
-func OwnedID(p *providers.Provider) (string, error) {
-	if !idRE.MatchString(p.Name) {
-		return "", fmt.Errorf("provider name %q must match %s to be passed to an agent config", p.Name, idRE)
-	}
-	return "harness-" + p.Name, nil
-}
 
 // opencode: a generated provider block via OPENCODE_CONFIG_CONTENT; the key is an {env:} reference.
 // Interactive runs also list every alias model and import the caller's Claude permissions + MCP servers.
-func opencode(p *providers.Provider, dialect, base, model, cred string, routed bool, h *Headless) ([]string, []string, error) {
-	id, err := OwnedID(p)
+func opencode(p *providers.Provider, dialect, base, model, cred string, routed bool, h *agent.Headless) ([]string, []string, error) {
+	id, err := agent.OwnedID(p)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -44,7 +34,7 @@ func opencode(p *providers.Provider, dialect, base, model, cred string, routed b
 	for k, v := range p.Headers {
 		headers[k] = v
 	}
-	ref := "{env:" + OpenCodeKeyEnv + "}"
+	ref := "{env:" + agent.OpenCodeKeyEnv + "}"
 	// Native SDKs keep provider-specific state (Gemini 3 thought signatures) the openai-compatible shim drops.
 	switch dialect {
 	case providers.ProtocolAnthropic:
@@ -54,9 +44,9 @@ func opencode(p *providers.Provider, dialect, base, model, cred string, routed b
 	}
 	var env []string
 	if cred != "" {
-		env = append(env, OpenCodeKeyEnv+"="+cred)
+		env = append(env, agent.OpenCodeKeyEnv+"="+cred)
 		options["apiKey"] = ref
-		native := dialect == providers.ProtocolAnthropic || (dialect == providers.ProtocolGemini && isGateway(base))
+		native := dialect == providers.ProtocolAnthropic || (dialect == providers.ProtocolGemini && agent.IsGateway(base))
 		if native && p.Auth.HeaderStyle() == providers.HeaderBearer {
 			headers["Authorization"] = "Bearer " + ref
 		}
@@ -116,7 +106,7 @@ func opencodeDatabricksModel(env []string) string {
 }
 
 // opencodeHeadlessRun finishes a headless launch: tools-off permission merged into the config env, then the run argv.
-func opencodeHeadlessRun(env []string, h *Headless, fullModel string) ([]string, []string, error) {
+func opencodeHeadlessRun(env []string, h *agent.Headless, fullModel string) ([]string, []string, error) {
 	if !h.Tools {
 		var err error
 		if env, err = mutateOpencodeConfigEnv(env, false, func(cfg map[string]any) { cfg["permission"] = "deny" }); err != nil {
@@ -146,11 +136,11 @@ func opencodeHeadlessRun(env []string, h *Headless, fullModel string) ([]string,
 		// -f is variadic: without "--", opencode reads the prompt as another file path.
 		return env, append(append(argv, "--"), h.Prompt), nil
 	}
-	return env, append(argv, positional(h.Prompt)...), nil
+	return env, append(argv, agent.Positional(h.Prompt)...), nil
 }
 
 // opencodeModels is the model menu: the requested model, plus every alias for an interactive launch.
-func opencodeModels(p *providers.Provider, model string, h *Headless) map[string]any {
+func opencodeModels(p *providers.Provider, model string, h *agent.Headless) map[string]any {
 	menu := map[string]any{model: map[string]any{"name": model}}
 	if h == nil {
 		for _, alias := range models.AliasNames {
@@ -164,14 +154,13 @@ func opencodeModels(p *providers.Provider, model string, h *Headless) map[string
 
 // opencodeRunArgv is opencodeRun exported for the hub agent (internal/agent): one ladder dispatch execs
 // `opencode run` directly on an opencode-native "provider/model" id, bypassing the harness-route config.
-func opencodeRunArgv(model string, h Headless) (env, argv []string) {
+func opencodeRunArgv(model string, h agent.Headless) (env, argv []string) {
 	env, argv = opencodeRun(model, h)
-	launchEnv, argv := schemaFor("opencode").applyLaunch(nil, argv, false) // headless: never Launch.Args
-	return routeEnvLast(launchEnv, env), argv
+	return agent.HeadlessLaunch("opencode", env, argv)
 }
 
 // opencodeRun is `opencode run --format json` for h; a non-empty model adds -m (opencode's provider/model form).
-func opencodeRun(model string, h Headless) (env, argv []string) {
+func opencodeRun(model string, h agent.Headless) (env, argv []string) {
 	if !h.Tools {
 		env = append(env, opencodeConfigEnv+`={"permission":"deny"}`)
 	}
@@ -201,7 +190,7 @@ func opencodeRun(model string, h Headless) (env, argv []string) {
 		// -f is variadic: without "--", opencode reads the prompt as another file path.
 		return env, append(append(argv, "--"), h.Prompt)
 	}
-	return env, append(argv, positional(h.Prompt)...)
+	return env, append(argv, agent.Positional(h.Prompt)...)
 }
 
 // opencodeCopilotTarget is opencode's own GitHub Copilot login (`opencode auth login` -> a "github-copilot"
@@ -210,7 +199,7 @@ func opencodeCopilotTarget(reg *providers.Registry) (providers.Target, string, b
 	if !OpencodeCopilotLoginPresent() {
 		return providers.Target{}, "", false
 	}
-	p, ok := LoginProvider(reg, "github", "copilot")
+	p, ok := agent.LoginProvider(reg, "github", "copilot")
 	if !ok {
 		return providers.Target{}, "", false
 	}
@@ -224,12 +213,12 @@ func OpencodeCopilotLoginPresent() bool {
 }
 
 // opencodeCopilotLogin runs opencode on its own Copilot sign-in: interactive is plain (ErrOwnLogin), headless pins -m.
-func opencodeCopilotLogin(model string, h *Headless) ([]string, []string, error) {
+func opencodeCopilotLogin(model string, h *agent.Headless) ([]string, []string, error) {
 	if !OpencodeCopilotLoginPresent() {
 		return nil, nil, errors.New("opencode: no GitHub Copilot login in opencode's stored logins; run `opencode auth login` and choose GitHub Copilot")
 	}
 	if h == nil {
-		return nil, nil, ErrOwnLogin
+		return nil, nil, agent.ErrOwnLogin
 	}
 	env, argv := opencodeRun("github-copilot/"+model, *h)
 	return env, argv, nil
@@ -241,7 +230,7 @@ func opencodeCopilotLogin(model string, h *Headless) ([]string, []string, error)
 // session alias, rooted at the github-copilot provider instead of the session's. ok is false without a
 // registered github-copilot provider or either alias.
 func OpencodeCopilotModelIDs(reg *providers.Registry) (main, small string, ok bool) {
-	p, found := LoginProvider(reg, "github", "copilot")
+	p, found := agent.LoginProvider(reg, "github", "copilot")
 	if !found {
 		return "", "", false
 	}
@@ -323,23 +312,23 @@ func opencodeOverlayModels() (mainModel, smallModel string, ok bool) {
 
 func init() { agentconfig.OverlayModels = opencodeOverlayModels }
 
-type opencodeEngine struct{ BaseEngine }
+type opencodeEngine struct{ agent.BaseEngine }
 
-var _ HeadlessDriver = opencodeEngine{}
+var _ agent.HeadlessDriver = opencodeEngine{}
 
-func (opencodeEngine) After(p *CLIPrep, req RunOptions) {
+func (opencodeEngine) After(p *agent.CLIPrep, req agent.RunOptions) {
 	if req.SystemPrompt != "" {
 		p.Env, p.Argv = opencodeSystemPrompt(p.Env, p.Argv, req.SystemPrompt)
 	}
 }
 
-func (e opencodeEngine) Exec(ctx context.Context, p CLIPrep, req RunOptions, sink Sink) (Result, error) {
+func (e opencodeEngine) Exec(ctx context.Context, p agent.CLIPrep, req agent.RunOptions, sink agent.Sink) (agent.Result, error) {
 	bin, err := e.Bin()
 	if err != nil {
 		return p.Result, err
 	}
-	cmd, tail := ChildCmd(ctx, bin, p.Argv, p.Env, req.WorkDir, "", req.KeepEnv, true)
-	return RunStream(ctx, e.name, cmd, tail, p.Result, sink, parseOpenCodeStream)
+	cmd, tail := agent.ChildCmd(ctx, bin, p.Argv, p.Env, req.WorkDir, "", req.KeepEnv, true)
+	return agent.RunStream(ctx, e.Name(), cmd, tail, p.Result, sink, parseOpenCodeStream)
 }
 
 // LoginServes adds github: that profile's Auth.Login names copilot, yet opencode has its own GitHub Copilot login.
@@ -347,7 +336,7 @@ func (e opencodeEngine) LoginServes(p *providers.Provider) bool {
 	return p.Provider == "github" || e.BaseEngine.LoginServes(p)
 }
 
-func (opencodeEngine) Login(p *providers.Provider, model string, h *Headless) (env, argv []string, err error) {
+func (opencodeEngine) Login(p *providers.Provider, model string, h *agent.Headless) (env, argv []string, err error) {
 	if p.Provider != "github" {
 		return nil, nil, errors.New("opencode: no subscription sign-in support")
 	}
@@ -357,15 +346,15 @@ func (opencodeEngine) Login(p *providers.Provider, model string, h *Headless) (e
 	return opencodeCopilotLogin(model, h)
 }
 
-func (opencodeEngine) Wire(ctx context.Context, r WireRoute, h *Headless) (env, argv []string, err error) {
+func (opencodeEngine) Wire(ctx context.Context, r agent.WireRoute, h *agent.Headless) (env, argv []string, err error) {
 	return opencode(r.Provider, r.Dialect, r.Base, r.Model, r.Cred, r.Routed, h)
 }
 
 func (e opencodeEngine) FallbackTarget(reg *providers.Registry) (providers.Target, string, bool) {
-	return RouteFallback(reg, e.DescribeRoute(reg))
+	return agent.RouteFallback(reg, e.DescribeRoute(reg))
 }
 
-func (opencodeEngine) DescribeRoute(reg *providers.Registry) RouteInfo {
+func (opencodeEngine) DescribeRoute(reg *providers.Registry) agent.RouteInfo {
 	return describeOpenCodeRoute(reg)
 }
 
@@ -382,7 +371,7 @@ func (opencodeEngine) PreRoute(reg *providers.Registry, explicit bool) (provider
 		return providers.Target{}, "", false, nil
 	}
 	if OpencodeOwnLoginPresent() { // opencode's own Go/Zen credential: launch plain on its own config
-		return providers.Target{}, "", true, ErrOwnLogin
+		return providers.Target{}, "", true, agent.ErrOwnLogin
 	}
 	if gt, gnote, ok := opencodeCopilotTarget(reg); ok {
 		return gt, gnote, true, nil
@@ -391,7 +380,7 @@ func (opencodeEngine) PreRoute(reg *providers.Registry, explicit bool) (provider
 }
 
 func (e opencodeEngine) NoRoute(reg *providers.Registry, _ providers.Target) error {
-	return RouteErr(e.DescribeRoute(reg))
+	return agent.RouteErr(e.DescribeRoute(reg))
 }
 
 // LaunchEnv points every opencode launch at the tracked overlay; a failed write is best-effort, opencode runs without it.
@@ -412,36 +401,28 @@ func (opencodeEngine) Presence(c router.Cell) error {
 
 // OwnLogin is opencode on its own stored login/config: argv only, no harness route injected.
 // Tools off still rides OPENCODE_CONFIG_CONTENT, which opencode merges over its config.
-func (e opencodeEngine) OwnLogin(h Headless) (env, argv []string, err error) {
-	if err := checkPrompt(h); err != nil {
+func (e opencodeEngine) OwnLogin(h agent.Headless) (env, argv []string, err error) {
+	if err := agent.CheckPrompt(h); err != nil {
 		return nil, nil, err
 	}
 	env, argv = opencodeRun("", h)
 	if cred, err := opencodeCredential("opencode"); err == nil {
 		env = append(env, cred...) // the vault key when opencode stores no login of its own
 	}
-	launchEnv, argv := schemaFor(e.name).applyLaunch(nil, argv, false) // headless: never Launch.Args
-	return routeEnvLast(launchEnv, env), argv, nil
+	env, argv = agent.HeadlessLaunch(e.Name(), env, argv)
+	return env, argv, nil
 }
 
-func (opencodeEngine) Render(_ *providers.Registry, _ providers.Selection, _ string, o agentrender.RenderOptions, out io.Writer) (bool, error) {
+func (opencodeEngine) Render(_ *providers.Registry, _ providers.Selection, _ string, o render.RenderOptions, out io.Writer) (bool, error) {
 	return renderOpenCodeOverlay(o, out)
 }
 
 func (opencodeEngine) RouteDetail() (string, bool) {
-	reg, sel, selErr, ok := LoadSelection()
+	reg, sel, selErr, ok := agent.LoadSelection()
 	if !ok {
 		return "", false
 	}
 	return opencodeRouteDetail(reg, sel, selErr), true
-}
-
-// RouteErr is ri's reason as an error when ri resolved no route, else nil.
-func RouteErr(ri RouteInfo) error {
-	if !ri.OK {
-		return errors.New(ri.Reason)
-	}
-	return nil
 }
 
 // opencodeSystemAgent is the custom agent whose prompt carries --system-prompt for opencode.

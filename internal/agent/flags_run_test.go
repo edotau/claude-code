@@ -2,7 +2,6 @@ package agent
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -116,33 +115,3 @@ echo '{"type":"item.completed","item":{"id":"i","type":"agent_message","text":"o
 	}
 }
 
-// opencode's system prompt becomes a merged harness-system agent selected with --agent; other config keys survive.
-func TestOpencodeSystemPromptMergesConfig(t *testing.T) {
-	env := []string{"A=1", `OPENCODE_CONFIG_CONTENT={"model":"m","agent":{"mine":{"prompt":"keep"}}}`}
-	env, argv := opencodeSystemPrompt(env, []string{"run", "hello"}, "SYS")
-	if !slices.Equal(argv, []string{"run", "--agent", "harness-system", "hello"}) {
-		t.Errorf("argv = %q", argv)
-	}
-	var cfg struct {
-		Model string
-		Agent map[string]struct{ Mode, Prompt string }
-	}
-	var n int
-	for _, kv := range env {
-		if body, ok := strings.CutPrefix(kv, "OPENCODE_CONFIG_CONTENT="); ok {
-			n++
-			if err := json.Unmarshal([]byte(body), &cfg); err != nil {
-				t.Fatal(err)
-			}
-		}
-	}
-	if n != 1 || cfg.Model != "m" || cfg.Agent["mine"].Prompt != "keep" ||
-		cfg.Agent["harness-system"].Prompt != "SYS" || cfg.Agent["harness-system"].Mode != "primary" || env[0] != "A=1" {
-		t.Errorf("env = %q", env)
-	}
-	// no pre-existing config: the variable is added
-	env, _ = opencodeSystemPrompt(nil, []string{"run"}, "S2")
-	if len(env) != 1 || !strings.Contains(env[0], `"harness-system"`) {
-		t.Errorf("fresh env = %q", env)
-	}
-}

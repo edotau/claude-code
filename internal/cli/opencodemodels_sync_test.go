@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/edotau/claude-code/internal/opencode"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -15,7 +16,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/databricks/serving"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault"
@@ -283,7 +283,7 @@ func TestOpencodeMenuSyncHistoricalFailuresOnlyBlockNewEntries(t *testing.T) {
 	if f.me.Load() != 2 || f.list.Load() != 1 || strings.Contains(out, "private-upstream-body") {
 		t.Fatal("historical cache was not reused safely")
 	}
-	if _, err := os.Stat(agent.CheckCachePath()); !os.IsNotExist(err) {
+	if _, err := os.Stat(opencode.CheckCachePath()); !os.IsNotExist(err) {
 		t.Fatalf("sync touched legacy plaintext check cache: %v", err)
 	}
 }
@@ -378,7 +378,7 @@ func TestOpencodeMenuSyncVerifySealsSafeChecksAndPreservesExisting(t *testing.T)
 			t.Error("verification persisted or printed private probe diagnostics")
 		}
 	}
-	if _, err := os.Stat(agent.CheckCachePath()); !os.IsNotExist(err) {
+	if _, err := os.Stat(opencode.CheckCachePath()); !os.IsNotExist(err) {
 		t.Fatalf("verification touched legacy plaintext cache: %v", err)
 	}
 	sealed := syncVaultBytes(t)

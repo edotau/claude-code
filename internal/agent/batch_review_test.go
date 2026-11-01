@@ -248,12 +248,3 @@ func TestHopKeepsRecoveredGuardFailure(t *testing.T) {
 	}
 }
 
-// A hub dispatch authenticates with the stored opencode login, so an absent registry credential must not fail its guard.
-func TestHubDispatchGuardIgnoresAbsentRegistryCredential(t *testing.T) {
-	vaulttest.UseKeyring(t)
-	p := &providers.Provider{Name: "ocgo", Preset: providers.PresetDatabricks, Auth: providers.Auth{Type: "key", Command: "false"}}
-	disp := hubDispatch{agent: "opencode", provider: p}
-	if _, gerr := guardAttempt(withIsolation(context.Background()), disp, RunOptions{}); gerr != nil {
-		t.Errorf("guardAttempt = %v, want the hub dispatch to pass: its credential is the opencode login", gerr)
-	}
-}

@@ -220,6 +220,12 @@ func (p Plan) plainEnv(base []string) []string {
 	return out
 }
 
+// envRedactors blank the secrets inside a structured env value (key -> redactor), registered by the agent owning the key.
+var envRedactors = map[string]func(string) string{}
+
+// RegisterEnvRedactor installs fn as the redactor of the launch env value under key.
+func RegisterEnvRedactor(key string, fn func(string) string) { envRedactors[key] = fn }
+
 // Print writes the resolved launch; header values are masked since static headers may carry secrets.
 func (p Plan) Print(w io.Writer) {
 	fmt.Fprintf(w, "binary   %s\nargv     %s\n", p.Binary, redactQuoted(strings.Join(p.Argv, " ")))
@@ -231,8 +237,8 @@ func (p Plan) Print(w io.Writer) {
 		switch {
 		case secretKey(k):
 			v = "<redacted>"
-		case k == "OPENCODE_CONFIG_CONTENT":
-			v = redactQuoted(RedactConfig(v))
+		case envRedactors[k] != nil:
+			v = redactQuoted(envRedactors[k](v))
 		}
 		fmt.Fprintf(w, "set      %s=%s\n", k, v)
 	}

@@ -111,8 +111,11 @@ type RegistryLaunch struct {
 	Banner                           string
 }
 
-// loginPresent is LoginStatus's presence bit; an engine whose label is costly (copilot) answers it with LoginPresent.
-func (s Schema) loginPresent() bool {
+// SchemaFor is schemaFor for the vendor packages.
+func SchemaFor(name string) Schema { return schemaFor(name) }
+
+// LoginPresent is LoginStatus's presence bit; an engine whose label is costly (copilot) answers it with LoginPresent.
+func (s Schema) LoginPresent() bool {
 	e := s.eng()
 	if lp, ok := e.(interface{ LoginPresent() bool }); ok {
 		return lp.LoginPresent()
@@ -201,14 +204,14 @@ func (BaseEngine) LaunchEnv() []string { return nil }
 func (BaseEngine) Presence(router.Cell) error { return nil }
 
 func (b BaseEngine) OwnLogin(h Headless) ([]string, []string, error) {
-	if err := checkPrompt(h); err != nil {
+	if err := CheckPrompt(h); err != nil {
 		return nil, nil, err
 	}
 	return nil, nil, fmt.Errorf("%s: no headless form on its own login; pass --provider", b.name)
 }
 
-// checkPrompt rejects a headless run with no prompt.
-func checkPrompt(h Headless) error {
+// CheckPrompt rejects a headless run with no prompt.
+func CheckPrompt(h Headless) error {
 	if strings.TrimSpace(h.Prompt) == "" {
 		return errors.New("agents: empty prompt")
 	}

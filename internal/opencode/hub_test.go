@@ -1,15 +1,14 @@
-package agent
+package opencode
 
 import (
 	"context"
 	"errors"
+	"github.com/edotau/claude-code/internal/agent"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/router"
 )
 
 // hubRegistry builds a minimal registry for hub tests: a ladder of four providers, one without an
@@ -34,29 +33,6 @@ func hubRegistry() *providers.Registry {
 	return reg
 }
 
-// TestHubDispatchForOpencodeDefault: the opencode sonnet cell maps to the opencode-go hub dispatch, argv kimi-k3.1-pro at high.
-func TestHubDispatchForOpencodeDefault(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	reg := hubRegistry()
-	tb, err := router.Load()
-	if err != nil {
-		t.Fatal(err)
-	}
-	cell := tb.Rows["opencode"]["sonnet"]
-	r, model, err := hubDispatchFor(reg, cell.Model)
-	if err != nil {
-		t.Fatal(err)
-	}
-	l := r.(hubDispatch)
-	_, argv := opencodeRunArgv(l.provider.OpencodeID+"/"+l.resolveModel(model), Headless{Prompt: "p", Effort: cell.Effort})
-	got := strings.Join(argv, " ")
-	if !strings.Contains(got, "-m opencode-go/kimi-k3.1-pro") || !strings.Contains(got, "--variant high") {
-		t.Errorf("opencode default argv = %q, want -m opencode-go/kimi-k3.1-pro --variant high", got)
-	}
-	if _, _, err := hubDispatchFor(reg, "ghost/x"); err == nil {
-		t.Error("an unknown opencodeID must fail")
-	}
-}
 
 // TestHubStart covers HubStart's login-aware ladder walk through the opencodeLogins seam: an explicit
 // provider is forced regardless of login or quota; with no explicit provider, the first opencodeLadder
@@ -131,47 +107,13 @@ func TestHubDispatchRunOversizedPromptRefused(t *testing.T) {
 	reg := hubRegistry()
 	chatgpt, _ := reg.Get("chatgpt")
 	l := hubDispatch{agent: "codex", provider: chatgpt, reg: reg}
-	big := strings.Repeat("x", MaxPromptBytes+10)
+	big := strings.Repeat("x", agent.MaxPromptBytes+10)
 
-	_, err := l.Run(context.Background(), RunOptions{Prompt: big}, Discard)
-	var e *Error
-	if !errors.As(err, &e) || !errors.Is(e, ErrPromptTooLarge) {
+	_, err := l.Run(context.Background(), agent.RunOptions{Prompt: big}, agent.Discard)
+	var e *agent.Error
+	if !errors.As(err, &e) || !errors.Is(e, agent.ErrPromptTooLarge) {
 		t.Fatalf("err = %v, want *Error wrapping ErrPromptTooLarge", err)
 	}
 }
 
-// TestFirstOutputDeadlineFollowsRegistryWhenNotOverridden checks firstOutputDeadline reads the registry's
-// routing.opencode.freeFirstOutput value when the package-level freeFirstOutput override is zero (unset),
-// and that the override still wins when a test sets one.
-func TestFirstOutputDeadlineFollowsRegistryWhenNotOverridden(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	if err := providers.UpdateRouting(func(r *providers.Routing) error {
-		r.Opencode.FreeFirstOutput = "45s"
-		return nil
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if got := firstOutputDeadline(); got != 45*time.Second {
-		t.Errorf("firstOutputDeadline() = %v, want the registry's 45s", got)
-	}
 
-	orig := freeFirstOutput
-	freeFirstOutput = 10 * time.Second
-	t.Cleanup(func() { freeFirstOutput = orig })
-	if got := firstOutputDeadline(); got != 10*time.Second {
-		t.Errorf("firstOutputDeadline() = %v, want the override (10s) to win over the registry", got)
-	}
-}
-
-// TestBuildDispatchPinnedRowWithoutOpencodeID: a pinned Databricks-style row (no opencode id) runs native, not a hub dispatch.
-func TestBuildDispatchPinnedRowWithoutOpencodeID(t *testing.T) {
-	rc := routeCtx{reg: hubRegistry(), want: "opencode"}
-	cand := router.Candidate{Agent: "opencode", Profile: "nvidia"}
-	disp, skip, err := rc.buildDispatch(cand, router.Cell{Model: "nv-opus"})
-	if err != nil || skip != "" {
-		t.Fatalf("skip=%q err=%v", skip, err)
-	}
-	if _, hub := disp.Agent.(hubDispatch); hub || disp.Model != "nvidia:nv-opus" {
-		t.Errorf("want native dispatch with model nvidia:nv-opus, got %T %q", disp.Agent, disp.Model)
-	}
-}

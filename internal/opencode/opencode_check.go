@@ -1,4 +1,4 @@
-package agent
+package opencode
 
 import (
 	"cmp"
@@ -87,7 +87,7 @@ func LoadCheckCache(provider string) (map[string]serving.CheckResult, bool) {
 const checkCacheSchema = 1
 
 var checkCacheFormat = schemas.Register(schemas.Format{
-	Name: "opencode-models-check", Owner: "internal/agent", Kind: schemas.Cache,
+	Name: "opencode-models-check", Owner: "internal/opencode", Kind: schemas.Cache,
 	Glob:    func() string { return CheckCachePath() },
 	New:     func() any { return &CheckCache{} },
 	Version: checkCacheSchema, Keep: "rebuildable cache; a version mismatch is a miss",

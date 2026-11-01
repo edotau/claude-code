@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/edotau/claude-code/internal/codex"
+	"github.com/edotau/claude-code/internal/opencode"
 	"io"
 	"net/http"
 	"os"
@@ -336,7 +337,7 @@ func setupDoctorDetail() string {
 // opencodeStaticKeysDetail flags an opencode auth.json static key for a provider the harness vault
 // already supplies via the {env:} indirection — names only, never a credential value.
 func opencodeStaticKeysDetail(reg *providers.Registry) (bool, string) {
-	ints, err := agent.OpencodeAuth()
+	ints, err := opencode.OpencodeAuth()
 	if err != nil {
 		return true, "skipped: " + err.Error()
 	}

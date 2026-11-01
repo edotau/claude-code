@@ -48,8 +48,8 @@ func byokDispatch(disp Dispatch, alias string, reg *providers.Registry, profile 
 }
 
 func byokProvider(disp Dispatch, reg *providers.Registry, profile string) (*providers.Provider, string) {
-	if hub, ok := disp.Agent.(hubDispatch); ok {
-		return hub.provider, ""
+	if h, ok := disp.Agent.(HubEngine); ok {
+		return h.HubProvider(), ""
 	}
 	if profile == "" {
 		_, profile, _ = strings.Cut(disp.Account, "·")

@@ -2,7 +2,6 @@ package agent
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -117,67 +116,6 @@ func withHeaders(tg providers.Target, h map[string]string) providers.Target {
 	return tg
 }
 
-func TestRoutedDispatchesCarryAgentTag(t *testing.T) {
-	stubRouter(t, nil)
-	vaulttest.Use(t)
-	ctx := context.Background()
-	own := map[string]string{"X-Tenant": "t1"}
-
-	t.Run("codex", func(t *testing.T) {
-		_, argv, err := schemaFor("codex").Configure(ctx, withHeaders(target(t, "openai", "gpt-5"), own), "")
-		if err != nil {
-			t.Fatal(err)
-		}
-		j := strings.Join(argv, "\x00")
-		if !strings.Contains(j, `http_headers = {"`+agentHdr+`" = "codex"}`) && !strings.Contains(j, `"`+agentHdr+`" = "codex"`) {
-			t.Errorf("codex http_headers missing tag: %q", argv)
-		}
-		if strings.Contains(j, "X-Tenant") {
-			t.Errorf("routed codex leaks the provider's own headers client-side: %q", argv)
-		}
-	})
-	t.Run("opencode", func(t *testing.T) {
-		env, _, err := schemaFor("opencode").Configure(ctx, withHeaders(target(t, "openai", "gpt-5"), own), "")
-		if err != nil {
-			t.Fatal(err)
-		}
-		var c ocCfg
-		if err := json.Unmarshal([]byte(envMap(env)["OPENCODE_CONFIG_CONTENT"]), &c); err != nil {
-			t.Fatal(err)
-		}
-		if got := c.Provider["harness-openai"].Options.Headers[agentHdr]; got != "opencode" {
-			t.Errorf("options.headers[%s] = %q", agentHdr, got)
-		}
-	})
-	t.Run("opencode databricks", func(t *testing.T) {
-		tg := target(t, "openai", "databricks-claude-opus-5-5")
-		p := dbxRow("qa", "databricks-")
-		p.Auth = tg.Provider.Auth
-		tg.Provider = p
-		env, _, err := schemaFor("opencode").Configure(ctx, tg, "")
-		if err != nil {
-			t.Fatal(err)
-		}
-		var c ocCfg
-		if err := json.Unmarshal([]byte(envMap(env)["OPENCODE_CONFIG_CONTENT"]), &c); err != nil {
-			t.Fatal(err)
-		}
-		for _, id := range []string{"harness-qa", "harness-qa-gpt"} {
-			if got := c.Provider[id].Options.Headers[agentHdr]; got != "opencode" {
-				t.Errorf("%s options.headers[%s] = %q", id, agentHdr, got)
-			}
-		}
-	})
-	t.Run("copilot", func(t *testing.T) {
-		env, _, err := schemaFor("copilot").Configure(ctx, withHeaders(target(t, "openai", "gpt-5"), own), "")
-		if err != nil {
-			t.Fatal(err)
-		}
-		if got := envMap(env)["COPILOT_PROVIDER_HEADERS"]; got != agentHdr+": copilot" {
-			t.Errorf("COPILOT_PROVIDER_HEADERS = %q", got)
-		}
-	})
-}
 
 // A direct dispatch never passes routerRoute, so it carries the provider's own headers and no agent tag.
 func TestDirectDispatchesHaveNoAgentTag(t *testing.T) {

@@ -543,10 +543,10 @@ func childErr(ctx context.Context, name string, err error, tail *TailBuffer) err
 	return fmt.Errorf("%s: %w", name, err)
 }
 
-// ErrPromptTooLarge is the sentinel behind errPromptTooLarge, so callers can exclude it with errors.Is.
+// ErrPromptTooLarge is the sentinel behind PromptTooLarge, so callers can exclude it with errors.Is.
 var ErrPromptTooLarge = errors.New("prompt too large")
 
-func errPromptTooLarge(n int) error {
+func PromptTooLarge(n int) error {
 	return fmt.Errorf("%w: %d bytes, over the %d limit for one argv element", ErrPromptTooLarge, n, MaxPromptBytes)
 }
 
@@ -772,8 +772,8 @@ func switchHint(reasons []string) string {
 
 // dispatchLabel names a dispatch in fallback reasons: a hub dispatch by its account, since every hub dispatch shares the agent name.
 func dispatchLabel(r Engine) string {
-	if l, ok := r.(hubDispatch); ok {
-		return l.provider.Name
+	if l, ok := r.(HubEngine); ok {
+		return l.HubProvider().Name
 	}
 	return r.Name()
 }

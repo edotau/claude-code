@@ -5,6 +5,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"github.com/edotau/claude-code/internal/opencode"
 	"os"
 	"os/signal"
 	"slices"
@@ -12,7 +13,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/databricks/serving"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/ui/helptext"
@@ -129,11 +129,11 @@ func cmdOpencodeMenu(args []string) int {
 		if len(pos) != 1 {
 			return fail("usage: claude-code opencode catalog remove <id>")
 		}
-		next, ok := agent.MenuRemove(providers.OpencodeMenu(), pos[0])
+		next, ok := opencode.MenuRemove(providers.OpencodeMenu(), pos[0])
 		if !ok {
-			return fail("%s is not in the menu", agent.MenuID(pos[0]))
+			return fail("%s is not in the menu", opencode.MenuID(pos[0]))
 		}
-		return done(opencodeMenuWrite(next, "removed "+agent.MenuID(pos[0])))
+		return done(opencodeMenuWrite(next, "removed "+opencode.MenuID(pos[0])))
 	case "import":
 		if len(pos) != 1 {
 			return fail("usage: claude-code opencode catalog import <file> [--apply]")
@@ -175,20 +175,20 @@ func opencodeMenuList(live bool, provider, format string) error {
 	var p *providers.Provider
 	if live {
 		var err error
-		if served, p, err = agent.OpencodeServed(provider); err != nil {
+		if served, p, err = opencode.OpencodeServed(provider); err != nil {
 			return err
 		}
 	}
 	var cache map[string]serving.CheckResult
 	if live {
-		cache, _ = agent.LoadCheckCache(p.Name)
+		cache, _ = opencode.LoadCheckCache(p.Name)
 	}
 	var rows []ocMenuRow
 	for _, m := range providers.OpencodeMenu() {
 		r := ocMenuRow{ID: m.ID, Label: m.Label, Responses: m.Responses, Source: src}
 		if live {
 			r.Live = "missing"
-			if info, ok := agent.ServedInfo(served, p, m.ID); ok {
+			if info, ok := opencode.ServedInfo(served, p, m.ID); ok {
 				r.Live, r.Ready = "served", info.Ready
 			}
 			r.Check = checkCell(cache, m.ID)
@@ -220,16 +220,16 @@ func opencodeMenuList(live bool, provider, format string) error {
 
 func opencodeMenuAdd(arg string, responses, responsesSet, force bool, provider string) error {
 	id, label, _ := strings.Cut(arg, "=")
-	id = agent.MenuID(id)
+	id = opencode.MenuID(id)
 	if id == "" {
 		return errors.New("empty model id")
 	}
 	if !force {
-		served, p, err := agent.OpencodeServed(provider)
+		served, p, err := opencode.OpencodeServed(provider)
 		if err != nil {
 			return fmt.Errorf("cannot check %s against the workspace (--force skips): %v", id, err)
 		}
-		if _, ok := agent.ServedInfo(served, p, id); !ok {
+		if _, ok := opencode.ServedInfo(served, p, id); !ok {
 			return fmt.Errorf("%s%s is not served by %s (--force skips the check)", p.ModelPrefix, id, p.Name)
 		}
 	}
@@ -237,7 +237,7 @@ func opencodeMenuAdd(arg string, responses, responsesSet, force bool, provider s
 	if responsesSet {
 		r = &responses
 	}
-	return opencodeMenuWrite(agent.MenuAdd(providers.OpencodeMenu(), id, strings.TrimSpace(label), r),
+	return opencodeMenuWrite(opencode.MenuAdd(providers.OpencodeMenu(), id, strings.TrimSpace(label), r),
 		"added "+id)
 }
 
@@ -246,11 +246,11 @@ func opencodeMenuImport(file string, apply bool) error {
 	if err != nil {
 		return err
 	}
-	next, err := agent.ParseMenuImport(data)
+	next, err := opencode.ParseMenuImport(data)
 	if err != nil {
 		return fmt.Errorf("%s: %v", file, err)
 	}
-	changes := agent.DiffMenu(providers.OpencodeMenu(), next)
+	changes := opencode.DiffMenu(providers.OpencodeMenu(), next)
 	for _, c := range changes {
 		line := fmt.Sprintf("%s %s  %s", c.Op, c.Model.ID, c.Model.Label)
 		if c.Op == "~" {
@@ -286,19 +286,19 @@ func checkCell(cache map[string]serving.CheckResult, id string) string {
 }
 
 func opencodeMenuCheck(ids []string, all bool, provider string, timeout time.Duration, format string) error {
-	served, p, err := agent.OpencodeServed(provider)
+	served, p, err := opencode.OpencodeServed(provider)
 	if err != nil {
 		return err
 	}
-	targets := agent.OpencodeCheckTargets(ids, all, served, p)
+	targets := opencode.OpencodeCheckTargets(ids, all, served, p)
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 	results, err := serving.Probe(ctx, p, targets, serving.CheckOptions{Concurrency: 4, Timeout: timeout})
 	if err != nil && results == nil {
 		return err
 	}
-	agent.SortCheckResults(results)
-	if err := agent.SaveCheckCache(agent.CheckCache{CheckedAt: time.Now().UTC(), Provider: p.Name, Results: results}); err != nil {
+	opencode.SortCheckResults(results)
+	if err := opencode.SaveCheckCache(opencode.CheckCache{CheckedAt: time.Now().UTC(), Provider: p.Name, Results: results}); err != nil {
 		fmt.Fprintf(os.Stderr, "opencode catalog check: cache not written: %v\n", err)
 	}
 	if format == helptext.JSON {
@@ -338,20 +338,20 @@ type opencodeSyncOptions struct {
 
 // opencodeMenuSync only appends absent ids; existing order, labels and explicit Responses flags are untouched.
 func opencodeMenuSync(profile string, opts opencodeSyncOptions) error {
-	p, snapshot, err := agent.OpencodeSyncModels(profile, opts.Refresh)
+	p, snapshot, err := opencode.OpencodeSyncModels(profile, opts.Refresh)
 	if err != nil {
 		return err
 	}
-	ids := agent.OpencodeSyncIDs(snapshot.Models)
+	ids := opencode.OpencodeSyncIDs(snapshot.Models)
 	menu := providers.OpencodeMenu()
 	if opts.Verify {
-		if err := agent.OpencodeSyncVerify(p, &snapshot, ids, menu); err != nil {
+		if err := opencode.OpencodeSyncVerify(p, &snapshot, ids, menu); err != nil {
 			return err
 		}
 	}
 	opencodeSyncSummary(snapshot, opts.Verify)
-	next, skipped := agent.OpencodeSyncMerge(menu, ids, snapshot.Checks)
-	changes := agent.DiffMenu(menu, next)
+	next, skipped := opencode.OpencodeSyncMerge(menu, ids, snapshot.Checks)
+	changes := opencode.DiffMenu(menu, next)
 	fmt.Printf("opencode catalog sync: %d listed, %d eligible, %d additions, %d failed additions skipped, %d retained, %d total\n",
 		len(snapshot.Models), len(ids), len(changes), skipped, len(menu), len(next))
 	for _, c := range changes {
