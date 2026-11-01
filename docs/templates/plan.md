@@ -11,7 +11,7 @@ Why this change, what it must achieve, what is out of scope.
 ### Phase 1 — <verb> <object>
 
 **Files:** `path/to/file.go:120-145` (modify), `path/to/new.go` (create)
-**Change:** the exact edit — functions, signatures, data flow; code for anything non-obvious.
+**Change:** the exact edit, with the code — functions, signatures, data flow.
 **Verify:** live check `<command>` → expected output; then `go test ./internal/<pkg> -run '<Name>'`.
 **Agent / parallel:** `leaf: <code-worker|claude|…>, Agent: <requested agent or in-context>` (or
 `Workflow <name>`); parallel-safe with Phase N, or depends on Phase M.
@@ -24,7 +24,7 @@ A phase that is itself a pipeline (implement+verify, audit a range, loop a gate)
 
 ## Risks / decisions for the user
 
-- …
+…
 
 ## Tasks
 
