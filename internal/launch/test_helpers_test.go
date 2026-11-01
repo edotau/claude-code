@@ -8,6 +8,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/hosttest"
+	"github.com/edotau/claude-code/internal/network/browser"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault"
@@ -68,5 +69,6 @@ func vendorPATHFixture(t *testing.T, name, body string) string {
 // TestMain runs in the hermetic host (hosttest), so no test touches the live vault or sees a vendor CLI.
 func TestMain(m *testing.M) {
 	agent.NoticeOut = io.Discard
+	detectBrowsers = func() browser.Report { return browser.Report{} }
 	os.Exit(hosttest.Main(m))
 }

@@ -252,10 +252,11 @@ func TestHandoffKeepsLast40InOrderSkippingToolResults(t *testing.T) {
 }
 
 func TestReadTurnsAcceptsLineOver4MiB(t *testing.T) {
-	// Given one JSONL line above 4 MiB (the old scanner cap); When read; Then it is read without error and clipped
-	big := strings.Repeat("y", 5<<20)
+	// Given one JSONL line above 4 MiB (the old scanner cap, padded so Redact skips it); When read; Then it is clipped
+	big := `{"type":"user","padding":"` + strings.Repeat("y", 4<<20) + `","message":{"content":"` +
+		strings.Repeat("y", handoffCap+1) + `"}}`
 	source := filepath.Join(t.TempDir(), "s.jsonl")
-	writeJSONL(t, source, userLine("first")+"\n"+userLine(big)+"\n"+userLine("last")+"\n")
+	writeJSONL(t, source, userLine("first")+"\n"+big+"\n"+userLine("last")+"\n")
 	turns, err := readTurns(source)
 	if err != nil {
 		t.Fatalf("readTurns: %v", err)

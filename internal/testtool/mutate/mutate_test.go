@@ -145,20 +145,23 @@ func TestCheck(t *testing.T) {
 		{"compile error", "a + b", "a + undefinedSym", "", Invalid},
 	}
 	for _, c := range cases {
-		r, err := Check(Options{File: file, Old: c.old, New: c.new, Run: c.run, Dir: dir, Pkgs: []string{"./..."}})
-		if err != nil {
-			t.Fatalf("%s: %v", c.name, err)
-		}
-		if r.Verdict != c.want {
-			t.Errorf("%s: verdict %v, want %v\n%s", c.name, r.Verdict, c.want, r.Output)
-		}
-		if c.want == Teeth && r.Pkg != "example.com/m" {
-			t.Errorf("%s: pkg %q", c.name, r.Pkg)
-		}
-		now, _ := os.ReadFile(file)
-		if !bytes.Equal(now, orig) {
-			t.Fatalf("%s: source file changed", c.name)
-		}
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel() // Check only reads the shared module; each nested go test gets its own overlay dir
+			r, err := Check(Options{File: file, Old: c.old, New: c.new, Run: c.run, Dir: dir, Pkgs: []string{"./..."}})
+			if err != nil {
+				t.Fatalf("%s: %v", c.name, err)
+			}
+			if r.Verdict != c.want {
+				t.Errorf("%s: verdict %v, want %v\n%s", c.name, r.Verdict, c.want, r.Output)
+			}
+			if c.want == Teeth && r.Pkg != "example.com/m" {
+				t.Errorf("%s: pkg %q", c.name, r.Pkg)
+			}
+			now, _ := os.ReadFile(file)
+			if !bytes.Equal(now, orig) {
+				t.Fatalf("%s: source file changed", c.name)
+			}
+		})
 	}
 	// Apply errors surface as (Invalid, err).
 	for _, old := range []string{"nope-absent", "int"} {
@@ -173,18 +176,25 @@ func TestRunExitCodes(t *testing.T) {
 	dir, file := sharedModule(t)
 	t.Chdir(dir)
 	quiet(t)
-	if got := Run([]string{file, "a + b", "a - b", "--run", "TestAdd", "./..."}); got != ExitTeeth {
-		t.Errorf("teeth exit %d", got)
+	cases := []struct {
+		name string
+		args []string
+		want int
+	}{
+		{"teeth", []string{file, "a + b", "a - b", "--run", "TestAdd", "./..."}, ExitTeeth},
+		{"vacuous", []string{file, "return 1", "return 2", "--run", "TestUnused", "./..."}, ExitVacuous},
+		{"compile error", []string{file, "a + b", "a + undefinedSym", "./..."}, ExitUsage},
+		{"absent", []string{file, "absent-text", "x", "./..."}, ExitUsage},
 	}
-	if got := Run([]string{file, "return 1", "return 2", "--run", "TestUnused", "./..."}); got != ExitVacuous {
-		t.Errorf("vacuous exit %d", got)
+	var wg sync.WaitGroup
+	for _, c := range cases {
+		wg.Go(func() {
+			if got := Run(c.args); got != c.want {
+				t.Errorf("%s exit %d", c.name, got)
+			}
+		})
 	}
-	if got := Run([]string{file, "a + b", "a + undefinedSym", "./..."}); got != ExitUsage {
-		t.Errorf("compile error exit %d", got)
-	}
-	if got := Run([]string{file, "absent-text", "x", "./..."}); got != ExitUsage {
-		t.Errorf("absent exit %d", got)
-	}
+	wg.Wait()
 }
 
 // quiet sends stdout/stderr to /dev/null so nested "[build failed]" text cannot leak into an outer mutate run.
