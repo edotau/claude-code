@@ -180,10 +180,14 @@ func ToChatRequest(body []byte, wireModel string) (out []byte, stream bool, err 
 		return nil, false, fmt.Errorf("translate: request: %w", err)
 	}
 	req := chatRequest{Model: wireModel, Stop: in.StopSequences, Temperature: in.Temperature, TopP: in.TopP}
+	maxTokens := in.MaxTokens
+	if l, ok := models.Limits(wireModel); ok && l.Output > 0 { // an output cap above the model's limit is a 400
+		maxTokens = min(maxTokens, l.Output)
+	}
 	if models.IsOpenAIReasoning(wireModel) { // reasoning models reject max_tokens, temperature and top_p
-		req.MaxCompletionTokens, req.Temperature, req.TopP = in.MaxTokens, nil, nil
+		req.MaxCompletionTokens, req.Temperature, req.TopP = maxTokens, nil, nil
 	} else {
-		req.MaxTokens = in.MaxTokens
+		req.MaxTokens = maxTokens
 	}
 	if in.Metadata != nil {
 		req.User = in.Metadata.UserID
