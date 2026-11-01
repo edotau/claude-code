@@ -18,7 +18,7 @@ import (
 )
 
 // runBridge runs RunGemini on provider "tgem" against a fresh upstream (status 0 = healthy).
-func runBridge(t *testing.T, status int, o GeminiOptions) (agent.Result, []gotRequest, error, string) {
+func runBridge(t *testing.T, status int, o GeminiOptions) (agent.Result, []gotRequest, string, error) {
 	t.Helper()
 	var hits []gotRequest
 	srv := newServer(&hits, status)
@@ -27,7 +27,7 @@ func runBridge(t *testing.T, status int, o GeminiOptions) (agent.Result, []gotRe
 	var log strings.Builder
 	o.Provider = "tgem"
 	res, err := RunGemini(context.Background(), o, io.Discard, &log)
-	return res, hits, err, log.String()
+	return res, hits, log.String(), err
 }
 
 // TestBridgeRequestContract: one --provider call sends the table model, bearer auth, the inlined file, the rubric-framed
@@ -39,7 +39,7 @@ func TestBridgeRequestContract(t *testing.T) {
 	rubric := filepath.Join(t.TempDir(), "rubric.md")
 	write(t, rubric, "no bare excepts")
 
-	res, hits, err, log := runBridge(t, 0, GeminiOptions{
+	res, hits, log, err := runBridge(t, 0, GeminiOptions{
 		Cwd: dir, Dirs: []string{"."}, Task: "TASKMARKER987", Rubric: rubric, Index: true, MaxFiles: 1,
 	})
 	if err != nil || len(hits) != 1 {
@@ -70,7 +70,7 @@ func TestBridgeIndexOnlyInlinesNoBodies(t *testing.T) {
 	dir := t.TempDir()
 	write(t, filepath.Join(dir, "a.go"), "package a")
 	write(t, filepath.Join(dir, "b.go"), "package b")
-	_, hits, err, _ := runBridge(t, 0, GeminiOptions{Cwd: dir, Dirs: []string{"."}, Task: "t", Index: true, IndexOnly: true})
+	_, hits, _, err := runBridge(t, 0, GeminiOptions{Cwd: dir, Dirs: []string{"."}, Task: "t", Index: true, IndexOnly: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -100,7 +100,7 @@ func TestBridgeDiffInlinesOnlyChanged(t *testing.T) {
 	git("commit", "-m", "base")
 	write(t, filepath.Join(repo, "new.txt"), "untracked content")
 
-	_, hits, err, _ := runBridge(t, 0, GeminiOptions{Cwd: repo, Task: "t", Diff: true, MaxFiles: -1})
+	_, hits, _, err := runBridge(t, 0, GeminiOptions{Cwd: repo, Task: "t", Diff: true, MaxFiles: -1})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -109,7 +109,7 @@ func TestBridgeDiffInlinesOnlyChanged(t *testing.T) {
 	}
 	git("add", ".")
 	git("commit", "-m", "new")
-	if _, _, err, _ = runBridge(t, 0, GeminiOptions{Cwd: repo, Task: "t", Diff: true}); err == nil || !strings.Contains(err.Error(), "nothing changed") {
+	if _, _, _, err = runBridge(t, 0, GeminiOptions{Cwd: repo, Task: "t", Diff: true}); err == nil || !strings.Contains(err.Error(), "nothing changed") {
 		t.Errorf("err = %v, want 'nothing changed'", err)
 	}
 }
@@ -138,7 +138,7 @@ const bigFile = 200 << 10
 func TestBridgeLargeFileAccepted(t *testing.T) {
 	dir := t.TempDir()
 	write(t, filepath.Join(dir, "big.txt"), strings.Repeat("x", bigFile))
-	res, hits, err, _ := runBridge(t, 0, GeminiOptions{Cwd: dir, Dirs: []string{"."}, Task: "t", MaxFiles: -1, MaxFileBytes: 2 * bigFile})
+	res, hits, _, err := runBridge(t, 0, GeminiOptions{Cwd: dir, Dirs: []string{"."}, Task: "t", MaxFiles: -1, MaxFileBytes: 2 * bigFile})
 	if err != nil || res.Answer != "hello" {
 		t.Fatalf("Run = (%q, %v), want (hello, nil)", res.Answer, err)
 	}
@@ -150,7 +150,7 @@ func TestBridgeLargeFileAccepted(t *testing.T) {
 // TestBridgeUpstream502IsTransient: an upstream 502 is retried and surfaces as a KindTransient *agent.Error.
 func TestBridgeUpstream502IsTransient(t *testing.T) {
 	fastBackoff(t)
-	_, hits, err, _ := runBridge(t, http.StatusBadGateway, GeminiOptions{Cwd: t.TempDir(), Task: "t", Timeout: 2 * time.Second})
+	_, hits, _, err := runBridge(t, http.StatusBadGateway, GeminiOptions{Cwd: t.TempDir(), Task: "t", Timeout: 2 * time.Second})
 	var ae *agent.Error
 	if !errors.As(err, &ae) || ae.Kind != agent.KindTransient {
 		t.Fatalf("err = %v, want a transient *agent.Error", err)

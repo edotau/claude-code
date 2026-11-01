@@ -198,8 +198,9 @@ func (h *hookHost) during(ev openCodeEvent) {
 		return
 	}
 	h.seen[ev.Part.CallID] = true
-	h.fire("during", settings.EventPreToolUse, tool, map[string]any{"tool_input": input})
-	h.fire("during", settings.EventPostToolUse, tool, map[string]any{"tool_input": input, "tool_response": ev.Part.State.Output})
+	// Blocks are detect-only here: fire has logged them and the tool call already ran.
+	_, _ = h.fire("during", settings.EventPreToolUse, tool, map[string]any{"tool_input": input})
+	_, _ = h.fire("during", settings.EventPostToolUse, tool, map[string]any{"tool_input": input, "tool_response": ev.Part.State.Output})
 }
 
 // after runs Stop then SessionEnd once the child has exited; res carries the session id opencode minted.
@@ -211,8 +212,9 @@ func (h *hookHost) after(res agent.Result) {
 	if res.SessionID != "" {
 		h.session = res.SessionID
 	}
-	h.fire("after", settings.EventStop, "", map[string]any{"stop_hook_active": false})
-	h.fire("after", settings.EventSessionEnd, "", map[string]any{"reason": "other"})
+	// The child has exited, so a Block has nothing left to stop; fire has logged it.
+	_, _ = h.fire("after", settings.EventStop, "", map[string]any{"stop_hook_active": false})
+	_, _ = h.fire("after", settings.EventSessionEnd, "", map[string]any{"reason": "other"})
 }
 
 // claudeTool maps an opencode tool call to the Claude tool name and input the hooks read; ok is false if none watches it.
