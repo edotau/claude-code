@@ -38,7 +38,7 @@ func cmdMemoryRecall(args []string) int {
 		}
 		return recallExplain(*repo, strings.Join(terms, " "))
 	}
-	hits, _ := searchHits(*repo, *all, strings.Join(terms, " "), *k)
+	hits, _ := recall.SearchRepo(*repo, *all, strings.Join(terms, " "), *k)
 	if *format == helptext.JSON {
 		if err := helptext.WriteJSON(os.Stdout, hits); err != nil {
 			return fail("memory recall: %v", err)

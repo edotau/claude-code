@@ -27,7 +27,7 @@ func sessionStart(in *Input) Result {
 	if cwd == "" {
 		cwd, _ = os.Getwd()
 	}
-	recordSessionRoot(in.SessionID, cwd)
+	memrecall.RecordSessionRoot(in.SessionID, cwd)
 	ctx := memoryContext(cwd, in.SessionID, in.TranscriptPath, time.Now())
 	return Result{Context: joinContext(ctx, preflightNotice(time.Now()))}
 }
@@ -231,43 +231,6 @@ func scaffoldSafe(cwd string) bool {
 	}
 	top := memstore.GitToplevel(cwd)
 	return top != "" && paths.SamePath(top, cwd)
-}
-
-func sessionRootPath(sessionID string) string {
-	return filepath.Join(memstore.StateDir(), "root-"+filepath.Base(sessionID))
-}
-
-// sessionRoot uses the launch repository when available, otherwise the hook payload cwd.
-func sessionRoot(sessionID, cwd string) string {
-	if !memrecall.LooksLikeSessionID(sessionID) || bank.IsUpdateChild() {
-		return cwd
-	}
-	data, err := os.ReadFile(sessionRootPath(sessionID))
-	root := strings.TrimSpace(string(data))
-	if err != nil || !filepath.IsAbs(root) {
-		return cwd
-	}
-	return filepath.Clean(root)
-}
-
-// recordSessionRoot preserves the first SessionStart root across resume and compaction.
-func recordSessionRoot(sessionID, cwd string) {
-	if !memrecall.LooksLikeSessionID(sessionID) || bank.IsUpdateChild() || sessionRoot(sessionID, "") != "" {
-		return
-	}
-	root := memstore.GitToplevel(cwd)
-	if root == "" || paths.SamePath(root, memstore.StoreDir()) {
-		root = memstore.Resolve(cwd).Origin
-	}
-	if root == "" {
-		root, _ = filepath.Abs(cwd)
-	}
-	if root == "" {
-		return
-	}
-	if err := paths.AtomicWrite(sessionRootPath(sessionID), []byte(root+"\n"), 0o600); err != nil {
-		fmt.Fprintf(os.Stderr, "memory-start: record session root: %v\n", err)
-	}
 }
 
 // servedRefreshDue reports whether served routing is on and an in-use Databricks profile has no fresh listing.

@@ -3,6 +3,7 @@ package hooks
 import (
 	"encoding/json"
 	"fmt"
+	memrecall "github.com/edotau/claude-code/internal/memory/recall"
 	"io"
 	"os"
 	"path/filepath"
@@ -356,7 +357,7 @@ func countSubagentEdits(transcriptPath string, cachedBytes int64, cachedEdits in
 
 func sessionRootInput(in *Input) *Input {
 	copy := *in
-	copy.CWD = sessionRoot(in.SessionID, in.CWD)
+	copy.CWD = memrecall.SessionRoot(in.SessionID, in.CWD)
 	return &copy
 }
 

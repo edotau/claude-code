@@ -67,7 +67,7 @@ var writers = map[string]string{
 	"internal/hooks/codexaudit.go:appendCodexRoute":                    "codex-routing",
 	"internal/inflight/limiter.go:writeMarker":                         unversioned("marker: in-flight dispatch marker (account key)"),
 	"internal/hooks/worktree.go:busyLine":                              unversioned("marker: per-session worktree-busy dedupe stamp"),
-	"internal/hooks/memory_start.go:recordSessionRoot":                 unversioned("text: per-session launch repository root"),
+	"internal/memory/recall/sessionroot.go:RecordSessionRoot":          unversioned("text: per-session launch repository root"),
 	"internal/hooks/memory_start.go:writeChain":                        unversioned("text: last-session chain stamp"),
 	"internal/hooks/memory_update.go:writeCountState":                  unversioned("text: edit count stamp"),
 	"internal/hooks/memory_update.go:writeSidecar":                     unversioned("text: update sidecar text"),

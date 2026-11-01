@@ -7,6 +7,7 @@ package hooks
 
 import (
 	"fmt"
+	memrecall "github.com/edotau/claude-code/internal/memory/recall"
 	"io"
 	"os"
 	"path/filepath"
@@ -129,7 +130,7 @@ func newestActivity(tr string, mainMtime time.Time) time.Time {
 // idleUpdateOnce dispatches the final update when the transcript holds substantive work no dispatch
 // covered; the stamp then carries the count so the next idle check (and any late Stop) stays quiet.
 func idleUpdateOnce(tr, cwd, session string, note io.Writer) bool {
-	cwd = sessionRoot(session, cwd)
+	cwd = memrecall.SessionRoot(session, cwd)
 	stamp := stampPath(session)
 	covered := 0
 	if st, ok := readStamp(stamp); ok {
