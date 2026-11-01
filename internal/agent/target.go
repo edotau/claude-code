@@ -20,7 +20,7 @@ func (s Schema) ResolveTarget(reg *providers.Registry, sel providers.Selection, 
 	if !ok {
 		return providers.Target{}, "", fmt.Errorf("%s: no opus target resolved", name)
 	}
-	// "OpenCode defaults to the Copilot plan": a CLI's own login (unrelated to the session provider) is preferred
+	// A CLI's own login (unrelated to the session provider) is preferred
 	// whenever it is present, ahead of a session provider that could serve it; an explicit --provider still wins.
 	if pt, pnote, ok, perr := e.preRoute(reg, explicit); ok {
 		return pt, pnote, perr

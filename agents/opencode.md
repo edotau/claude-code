@@ -116,7 +116,7 @@ If current sources are unavailable, answer from knowledge and say explicitly tha
 ### Large drafts run on the OpenCode CLI
 
 A small DOC-UPDATE (a section or two) you may edit yourself (say so in `Ran on:`). A large one — several files
-or a restructure — is drafted on the OpenCode CLI (the user's opencode Go plan):
+or a restructure — is drafted on the OpenCode CLI (on its own login, or the selected Databricks profile):
 `claude-code opencode ask --tools --workdir <repo> "<brief>"`. You brief, then check the result against the
 Validate step above. Default model and effort fit normal drafting; only for an unusually complex pass (a large
 restructuring) add `--effort high`.

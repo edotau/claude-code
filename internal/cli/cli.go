@@ -58,10 +58,10 @@ func commands() []command {
 		{name: "fable", group: groupAnthropic, summary: "separate frontier family; main-session default · $$$$", run: tierVerb(models.Fable)},
 		{name: "anthropic", group: groupAnthropic, hidden: true, summary: "first-party Claude: login, --oauth token or --x-api-key", run: cmdAnthropic},
 		{name: "science", group: groupAnthropic, summary: "Claude for Life Sciences, own login (--print-env)", run: cmdScience},
-		{name: "copilot", group: groupAgents, summary: "Copilot CLI on your Copilot plan", run: func(a []string) int { return AgentVerb("copilot", a) }},
+		{name: "copilot", group: groupAgents, summary: "Copilot CLI on its own login, or your Databricks profile", run: func(a []string) int { return AgentVerb("copilot", a) }},
 		{name: "codex", group: groupAgents, summary: "Codex on your ChatGPT login; reviews", run: func(a []string) int { return AgentVerb("codex", a) }},
 		{name: "gemini", group: groupAgents, summary: "Gemini CLI; 1M-context sweeps (bridge)", run: cmdGemini},
-		{name: "opencode", group: groupAgents, summary: "OpenCode on your opencode Go plan; docs and drafting", run: func(a []string) int { return AgentVerb("opencode", a) }},
+		{name: "opencode", group: groupAgents, summary: "OpenCode on its own login, or your Databricks profile; docs", run: func(a []string) int { return AgentVerb("opencode", a) }},
 		{name: "databricks", group: groupAgents, summary: "Claude Code on Databricks; login, import/export, check --all", run: databricks.Run},
 		// AUTH
 		{name: "resolve", group: groupAuth, hidden: true, summary: "resolve + print a profile's credential (apiKeyHelper)", run: cmdResolve},
