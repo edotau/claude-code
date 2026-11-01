@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"encoding/base64"
+	"github.com/edotau/claude-code/internal/vault"
 	"os/exec"
 	"strings"
 	"testing"
@@ -38,7 +39,7 @@ func setupWorkdirFixture(t *testing.T) {
 	pathstest.FakeVendor(t, "opencode", `printf '%s\n' '{"type":"text","part":{"text":"ok"}}'`)
 	t.Setenv(agent.OpencodeAPIKeyEnv, "test-key")
 	t.Setenv("HARNESS_VAULT_KEY", base64.StdEncoding.EncodeToString(make([]byte, 32)))
-	if err := agent.SetAgentRecord("opencode", agent.AgentRecord{Profile: agent.OpencodeOwnLogin}); err != nil { // no profile = off
+	if err := vault.SetAgentRecord("opencode", vault.AgentRecord{Profile: agent.OpencodeOwnLogin}); err != nil { // no profile = off
 		t.Fatal(err)
 	}
 }

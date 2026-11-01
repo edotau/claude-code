@@ -3,12 +3,12 @@ package configure
 import (
 	"bufio"
 	"context"
+	"github.com/edotau/claude-code/internal/vault"
 	"slices"
 	"strings"
 	"testing"
 	"time"
 
-	agentpkg "github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/audit"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -63,7 +63,7 @@ func TestOfferModelsPinsServedModelAudited(t *testing.T) {
 		offerModels(d, profile)
 	}
 	offer("max", "1\n2\n\n")
-	if got := agentpkg.GetAgentRecord("claude").Aliases["opus"]; got != "m-two" {
+	if got := vault.GetAgentRecord("claude").Aliases["opus"]; got != "m-two" {
 		t.Fatalf("session-profile opus pin = %q, want m-two", got)
 	}
 	if ev, _ := audit.Read(time.Time{}); !slices.ContainsFunc(ev, func(e audit.Event) bool {
@@ -72,7 +72,7 @@ func TestOfferModelsPinsServedModelAudited(t *testing.T) {
 		t.Fatal("no model-pin audit event for the opus pick")
 	}
 	offer(other, "1\n1\n\n")
-	if got := agentpkg.GetAgentRecord("claude").Aliases["opus"]; got != other+":m-one" {
+	if got := vault.GetAgentRecord("claude").Aliases["opus"]; got != other+":m-one" {
 		t.Fatalf("cross-profile opus pin = %q, want %s:m-one", got, other)
 	}
 }

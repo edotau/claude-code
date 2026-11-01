@@ -2,6 +2,7 @@ package configure
 
 import (
 	"bytes"
+	"github.com/edotau/claude-code/internal/vault"
 	"os"
 	"path/filepath"
 	"slices"
@@ -16,10 +17,10 @@ import (
 func TestApplyProfileChangesOnlyDifferingAgents(t *testing.T) {
 	d := dbxEnv(t)
 	t.Chdir(t.TempDir())
-	if err := agentpkg.SetAgentRecord("codex", agentpkg.AgentRecord{Profile: "qa"}); err != nil {
+	if err := vault.SetAgentRecord("codex", vault.AgentRecord{Profile: "qa"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := agentpkg.SetAgentRecord("claude", agentpkg.AgentRecord{Profile: "dev", Model: "pinned"}); err != nil {
+	if err := vault.SetAgentRecord("claude", vault.AgentRecord{Profile: "dev", Model: "pinned"}); err != nil {
 		t.Fatal(err)
 	}
 	agentpkg.RecordLastProfile("claude", "stale-claude", nil)
@@ -32,7 +33,7 @@ func TestApplyProfileChangesOnlyDifferingAgents(t *testing.T) {
 	if !slices.Equal(changed, []string{"claude"}) {
 		t.Errorf("changed = %v, want [claude]", changed)
 	}
-	recs := agentpkg.AgentRecords()
+	recs := vault.AgentRecords(agentpkg.RosterNames())
 	if recs["claude"].Profile != "qa" || recs["claude"].Model != "pinned" || recs["codex"].Profile != "qa" {
 		t.Errorf("records = %+v", recs)
 	}

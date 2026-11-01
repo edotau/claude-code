@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/edotau/claude-code/internal/vault"
 	"io"
 	"regexp"
 	"slices"
@@ -15,7 +16,7 @@ import (
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
-	"github.com/edotau/claude-code/internal/secrets"
+	"github.com/edotau/claude-code/internal/secretstore"
 )
 
 var idRE = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
@@ -252,7 +253,7 @@ func OpencodeCopilotModelIDs(reg *providers.Registry) (main, small string, ok bo
 // resolved id of "auto" (a router alias opencode's own provider catalog does not list) is swapped for
 // p.OpencodeFallback when the registry sets one — config-driven, no model id hardcoded here.
 func aliasModelID(reg *providers.Registry, p *providers.Provider, alias string) string {
-	rec := GetAgentRecord("claude")
+	rec := vault.GetAgentRecord("claude")
 	spec := cmp.Or(rec.Aliases[strings.ToLower(alias)], rec.Model)
 	if spec == "" {
 		spec = p.Models[alias]
@@ -480,7 +481,7 @@ func opencodeCredential(prefix string) (env []string, err error) {
 		return nil, nil
 	}
 	if id == "opencode" {
-		if v, _, ok := secrets.Get(OpencodeAPIKeyEnv); ok && strings.TrimSpace(v) != "" {
+		if v, _, ok := secretstore.Get(OpencodeAPIKeyEnv); ok && strings.TrimSpace(v) != "" {
 			return []string{OpencodeAPIKeyEnv + "=" + strings.TrimSpace(v)}, nil
 		}
 		return nil, fmt.Errorf("opencode has no opencode login (opencode auth login) and no %s in the vault", OpencodeAPIKeyEnv)

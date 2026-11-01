@@ -6,7 +6,6 @@ import (
 	"strings"
 	"testing"
 
-	agentpkg "github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/secrets"
 	"github.com/edotau/claude-code/internal/ui/tui"
@@ -84,12 +83,12 @@ func TestRunMenuDoneLeavesImmediatelyAndChangesNothing(t *testing.T) {
 		calls++
 		return -1, nil // Esc
 	})
-	cur := agentpkg.GetAgentRecord("claude").Profile
+	cur := vault.GetAgentRecord("claude").Profile
 	rc := runMenu(&dialog{reg: reg, out: discardWriter{}})
 	if rc != 0 || calls != 1 {
 		t.Fatalf("rc=%d calls=%d, want rc=0 after exactly one picker call", rc, calls)
 	}
-	if got := agentpkg.GetAgentRecord("claude").Profile; got != cur {
+	if got := vault.GetAgentRecord("claude").Profile; got != cur {
 		t.Errorf("provider pin changed: %q -> %q", cur, got)
 	}
 }
@@ -137,13 +136,13 @@ func TestKeepOrPinWritesTheProviderPinOnlyOnAnExplicitDifferentPick(t *testing.T
 	if !keepOrPin(d, "subscription", "subscription") {
 		t.Fatal("keepOrPin(same) = false")
 	}
-	if got := agentpkg.GetAgentRecord("claude").Profile; got != "" {
+	if got := vault.GetAgentRecord("claude").Profile; got != "" {
 		t.Errorf("vault pin written on a same-as-current pick: %q", got)
 	}
 	if !keepOrPin(d, "subscription", "anthropic") {
 		t.Fatal("keepOrPin(different) = false")
 	}
-	if got := agentpkg.GetAgentRecord("claude").Profile; got != "anthropic" {
+	if got := vault.GetAgentRecord("claude").Profile; got != "anthropic" {
 		t.Errorf("claude profile = %q, want %q after an explicit different pick", got, "anthropic")
 	}
 }

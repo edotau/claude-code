@@ -101,7 +101,7 @@ func TestSwitchWithSwitchOffMakesNoRequests(t *testing.T) {
 func TestSwitchKeepsOffAgentsOff(t *testing.T) {
 	srv, _ := dbxCLIServer(t)
 	qaProfile(t, srv.URL, false)
-	if err := agent.SetAgentRecord("codex", agent.AgentRecord{Profile: "chatgpt"}); err != nil {
+	if err := vault.SetAgentRecord("codex", vault.AgentRecord{Profile: "chatgpt"}); err != nil {
 		t.Fatal(err)
 	}
 	_, out, _ := captureOutput(t, func() int { return cmdSwitch([]string{"qa", "--dry-run"}) })
@@ -111,7 +111,7 @@ func TestSwitchKeepsOffAgentsOff(t *testing.T) {
 	if code, _, stderr := captureOutput(t, func() int { return cmdSwitch([]string{"qa"}) }); code != 0 {
 		t.Fatalf("exit %d stderr=%q", code, stderr)
 	}
-	recs := agent.AgentRecords()
+	recs := vault.AgentRecords(agent.RosterNames())
 	if recs["claude"].Profile != "qa" || recs["codex"].Profile != "qa" || recs["copilot"].Profile != "" {
 		t.Fatalf("profiles claude=%q codex=%q copilot=%q, want qa qa and copilot off",
 			recs["claude"].Profile, recs["codex"].Profile, recs["copilot"].Profile)
@@ -124,7 +124,7 @@ func TestSwitchSkipsUnservableAndClearsRepoCache(t *testing.T) {
 	qaProfile(t, srv.URL, false)
 	t.Chdir(t.TempDir())
 	for name, p := range map[string]string{"codex": "chatgpt", "gemini": "antigravity"} {
-		if err := agent.SetAgentRecord(name, agent.AgentRecord{Profile: p}); err != nil {
+		if err := vault.SetAgentRecord(name, vault.AgentRecord{Profile: p}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -139,13 +139,13 @@ func TestSwitchSkipsUnservableAndClearsRepoCache(t *testing.T) {
 	if code, _, stderr := captureOutput(t, func() int { return cmdSwitch([]string{"qa", "--dry-run"}) }); code != 0 || !cached() {
 		t.Fatalf("dry-run exit %d stderr=%q cache kept=%v", code, stderr, cached())
 	}
-	if recs := agent.AgentRecords(); recs["codex"].Profile != "chatgpt" || recs["claude"].Profile == "qa" {
+	if recs := vault.AgentRecords(agent.RosterNames()); recs["codex"].Profile != "chatgpt" || recs["claude"].Profile == "qa" {
 		t.Fatalf("dry-run wrote records: %+v", recs)
 	}
 	if code, _, stderr := captureOutput(t, func() int { return cmdSwitch([]string{"qa"}) }); code != 0 {
 		t.Fatalf("exit %d stderr=%q", code, stderr)
 	}
-	recs := agent.AgentRecords()
+	recs := vault.AgentRecords(agent.RosterNames())
 	if recs["codex"].Profile != "qa" || recs["gemini"].Profile != "antigravity" {
 		t.Errorf("codex=%q gemini=%q, want qa and gemini untouched", recs["codex"].Profile, recs["gemini"].Profile)
 	}

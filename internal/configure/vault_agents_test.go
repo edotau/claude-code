@@ -7,7 +7,6 @@ import (
 	"strings"
 	"testing"
 
-	agentpkg "github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -38,7 +37,7 @@ func editRecords(t *testing.T, raw []byte, edit func(map[string]any)) []byte {
 func TestExportImportAgentRecords(t *testing.T) {
 	vaulttest.Use(t)
 	vaulttest.Put(t, vault.Overlay, "agents", `{"agents":{"opencode":{"launch":{"env":["X=1"]}}}}`)
-	if err := agentpkg.SetAgentRecord("codex", agentpkg.AgentRecord{Profile: "chatgpt", Model: "m1"}); err != nil {
+	if err := vault.SetAgentRecord("codex", vault.AgentRecord{Profile: "chatgpt", Model: "m1"}); err != nil {
 		t.Fatal(err)
 	}
 	orig := exportTestDoc(t)
@@ -60,10 +59,10 @@ func TestExportImportAgentRecords(t *testing.T) {
 	if err := Import(orig, edited); err != nil {
 		t.Fatal(err)
 	}
-	if got := agentpkg.GetAgentRecord("codex"); got.Profile != "openai" || got.Model != "m1" {
+	if got := vault.GetAgentRecord("codex"); got.Profile != "openai" || got.Model != "m1" {
 		t.Errorf("codex record = %+v, want profile openai", got)
 	}
-	if got := agentpkg.GetAgentRecord("copilot"); got.Profile != "personal" || got.Effort != "high" {
+	if got := vault.GetAgentRecord("copilot"); got.Profile != "personal" || got.Effort != "high" {
 		t.Errorf("copilot record = %+v, want the added record", got)
 	}
 	if raw := vaultTestState(t)[vault.Overlay]["agents"]; !bytes.Contains([]byte(raw), []byte(`"launch"`)) || strings.Contains(raw, "records") {

@@ -3,6 +3,7 @@ package agent
 import (
 	"cmp"
 	"fmt"
+	"github.com/edotau/claude-code/internal/vault"
 	"path/filepath"
 
 	"github.com/edotau/claude-code/internal/models"
@@ -71,7 +72,7 @@ func copilotRouteDetail(reg *providers.Registry, selErr error) string {
 	detail := fmt.Sprintf("dispatch=%s provider=%s model=%s (%s)", ri.Route, ri.Provider, ri.Model, ri.Reason)
 	if ri.Route == RouteCopilotLogin {
 		_, source := providers.CopilotModel(reg)
-		rec := GetAgentRecord("copilot")
+		rec := vault.GetAgentRecord("copilot")
 		effort, context := cmp.Or(rec.Effort, "default"), cmp.Or(rec.Context, "default")
 		detail += fmt.Sprintf(" source=%s effort=%s context=%s", source, effort, context)
 	}

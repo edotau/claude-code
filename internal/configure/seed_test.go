@@ -3,6 +3,7 @@ package configure
 import (
 	"bufio"
 	"bytes"
+	"github.com/edotau/claude-code/internal/vault"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -18,7 +19,7 @@ func seedDialog(t *testing.T, script string) (*dialog, *bytes.Buffer) {
 	t.Helper()
 	reg := menuTestEnv(t)
 	vaulttest.SetRecord(t, "claude", "profile", "") // menuTestEnv's claude pin folds into a record
-	if got := agentpkg.AgentRecords()["claude"].Profile; got != "" {
+	if got := vault.AgentRecords(agentpkg.RosterNames())["claude"].Profile; got != "" {
 		t.Fatalf("claude record = %q, want a first-run start", got)
 	}
 	out := &bytes.Buffer{}
@@ -40,7 +41,7 @@ func TestSeedDismissWritesNothing(t *testing.T) {
 	if runSeed(d) {
 		t.Fatal("dismissed dialog reported a write")
 	}
-	for a, r := range agentpkg.AgentRecords() {
+	for a, r := range vault.AgentRecords(agentpkg.RosterNames()) {
 		if r.Profile != "" {
 			t.Errorf("%s wrote profile %q on dismiss", a, r.Profile)
 		}
@@ -65,7 +66,7 @@ func TestSeedPickWritesProfilesOnly(t *testing.T) {
 	if !runSeed(d) {
 		t.Fatalf("save reported no write:\n%s", out)
 	}
-	recs := agentpkg.AgentRecords()
+	recs := vault.AgentRecords(agentpkg.RosterNames())
 	if recs["copilot"].Profile != want || recs["codex"].Profile != "" {
 		t.Errorf("records = copilot %q codex %q, want %q and off", recs["copilot"].Profile, recs["codex"].Profile, want)
 	}
@@ -83,7 +84,7 @@ func TestSeedFirstRunNonInteractivePointsAtRow(t *testing.T) {
 	if !strings.Contains(out.String(), "seed agents") {
 		t.Errorf("no pointer line: %q", out)
 	}
-	for _, r := range agentpkg.AgentRecords() {
+	for _, r := range vault.AgentRecords(agentpkg.RosterNames()) {
 		if r.Profile != "" {
 			t.Fatalf("non-interactive first run wrote %+v", r)
 		}
@@ -113,7 +114,7 @@ func TestSeedFromSignInClearsLastProfile(t *testing.T) {
 	if bytes.Contains(raw, []byte("stale-profile")) {
 		t.Errorf("last-used profile survived sign-in: %s", raw)
 	}
-	if got := agentpkg.AgentRecords()["copilot"].Profile; got != "fresh" {
+	if got := vault.AgentRecords(agentpkg.RosterNames())["copilot"].Profile; got != "fresh" {
 		t.Errorf("copilot profile = %q, want fresh", got)
 	}
 }

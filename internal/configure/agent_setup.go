@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/edotau/claude-code/internal/vault"
 	"strings"
 	"time"
 
@@ -114,5 +115,5 @@ func verifyAgent(ctx context.Context, agent string) error {
 
 // routeAgent runs the agent's profile picker; changed is false (err nil) when it was dismissed or left the profile as is.
 func routeAgent(d *dialog, agent string) (changed bool, err error) {
-	return pickAgentProfile(d, agent, agentpkg.GetAgentRecord(agent).Profile)
+	return pickAgentProfile(d, agent, vault.GetAgentRecord(agent).Profile)
 }

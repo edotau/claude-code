@@ -3,6 +3,7 @@ package configure
 
 import (
 	"cmp"
+	"github.com/edotau/claude-code/internal/vault"
 	"reflect"
 	"slices"
 	"strings"
@@ -13,7 +14,7 @@ import (
 
 // agentPinRows is agent's one Profile row.
 func agentPinRows(d *dialog, agent string) []billingRow {
-	cur := agentpkg.GetAgentRecord(agent).Profile
+	cur := vault.GetAgentRecord(agent).Profile
 	state := bracket(true, seedLabel(agent, cur), "")
 	if why := agentpkg.AgentUnbillable(agent); cur != "" && why != "" {
 		state = "[off, " + why + "]"
@@ -60,7 +61,7 @@ func pickAgentProfile(d *dialog, agent, cur string) (bool, error) {
 
 // agentActiveOn turns an off agent on after a successful sign-in, by seeding its own login's profile.
 func agentActiveOn(d *dialog, agent string) {
-	if agent == "claude" || agentpkg.GetAgentRecord(agent).Profile != "" {
+	if agent == "claude" || vault.GetAgentRecord(agent).Profile != "" {
 		return
 	}
 	if profile := signInProfile(d, agent); profile != "" {
@@ -81,7 +82,7 @@ func signInProfile(d *dialog, agent string) string {
 
 // writeAgentField sets one record field (a vault.AgentRecord.WithPin name) and prints it; (false, nil) if unchanged.
 func writeAgentField(d *dialog, agent, field, val string) (bool, error) {
-	rec := agentpkg.GetAgentRecord(agent)
+	rec := vault.GetAgentRecord(agent)
 	next := rec.WithPin(field, val)
 	if reflect.DeepEqual(rec, next) {
 		return false, nil
@@ -91,7 +92,7 @@ func writeAgentField(d *dialog, agent, field, val string) (bool, error) {
 		if err != nil {
 			return false, err
 		}
-	} else if err := agentpkg.SetAgentRecord(agent, next); err != nil {
+	} else if err := vault.SetAgentRecord(agent, next); err != nil {
 		return false, err
 	}
 	d.printf("  %s %s: %s\n", agent, strings.ToLower(field), cmp.Or(val, "unset"))

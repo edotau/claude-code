@@ -5,12 +5,12 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"github.com/edotau/claude-code/internal/vault"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
-	agentpkg "github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/copilotsdk"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
@@ -188,10 +188,10 @@ func TestClearIneligibleCopilotPinsOnModelSwitch(t *testing.T) {
 	d := &dialog{out: &out}
 	clearIneligibleCopilotPins(d, "new-model")
 
-	if got := agentpkg.GetAgentRecord("copilot").Effort; got != "" {
+	if got := vault.GetAgentRecord("copilot").Effort; got != "" {
 		t.Errorf("effort pin = %q, want cleared (new-model doesn't support high)", got)
 	}
-	if got := agentpkg.GetAgentRecord("copilot").Context; got != "" {
+	if got := vault.GetAgentRecord("copilot").Context; got != "" {
 		t.Errorf("context pin = %q, want cleared (new-model has no long-context tier)", got)
 	}
 	if !strings.Contains(out.String(), "doesn't support that effort") || !strings.Contains(out.String(), "has no long-context tier") {
@@ -213,10 +213,10 @@ func TestClearIneligibleCopilotPinsKeepsCompatiblePins(t *testing.T) {
 	d := &dialog{out: discardWriter{}}
 	clearIneligibleCopilotPins(d, "still-fits")
 
-	if got := agentpkg.GetAgentRecord("copilot").Effort; got != "high" {
+	if got := vault.GetAgentRecord("copilot").Effort; got != "high" {
 		t.Errorf("effort pin = %q, want unchanged high", got)
 	}
-	if got := agentpkg.GetAgentRecord("copilot").Context; got != "long_context" {
+	if got := vault.GetAgentRecord("copilot").Context; got != "long_context" {
 		t.Errorf("context pin = %q, want unchanged long_context", got)
 	}
 }

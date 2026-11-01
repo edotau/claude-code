@@ -108,6 +108,16 @@ func rows() []Schema {
 	return out
 }
 
+// RosterNames is every roster agent's name, claude first, in roster order.
+func RosterNames() []string {
+	rs := rows()
+	out := make([]string, len(rs))
+	for i, r := range rs {
+		out[i] = r.Name
+	}
+	return out
+}
+
 // Roster returns independent copies of the roster rows, claude first, with external wire facts filled in.
 func Roster() []Schema {
 	rs := rows()

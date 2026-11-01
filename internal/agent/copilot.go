@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/edotau/claude-code/internal/vault"
 	"io"
 	"maps"
 	"path/filepath"
@@ -96,7 +97,7 @@ func (e copilotEngine) options(ctx context.Context, cs Schema, req RunOptions, t
 		model = copilotModelID(t.Model) // no BYOK block, so the session takes the catalog id itself ([1m] is ours)
 	}
 	// An explicit --effort overrides the pin; there is no per-call --context, so the pin alone decides it.
-	rec := GetAgentRecord("copilot")
+	rec := vault.GetAgentRecord("copilot")
 	opts = copilotsdk.Options{
 		CLIPath: bin, Env: env, KeepEnv: req.KeepEnv, Model: model,
 		ReasoningEffort: cmp.Or(req.Effort, rec.Effort),
@@ -214,7 +215,7 @@ func (copilotEngine) Gate(reg *providers.Registry, t providers.Target) (provider
 func (e copilotEngine) GateExplicit(req RunOptions, reg *providers.Registry, t providers.Target) (providers.Target, string, error) {
 	from := t.Provider
 	t, note, err := copilotGate(reg, t)
-	if err == nil && t.Provider != from && req.Provider != "" && req.Provider == GetAgentRecord("copilot").Profile {
+	if err == nil && t.Provider != from && req.Provider != "" && req.Provider == vault.GetAgentRecord("copilot").Profile {
 		return t, note, &Error{Kind: KindQuota, Agent: e.name, Err: errors.New(note)}
 	}
 	if tier := resumeAlias(req.Model); err == nil && t.Provider != from && t.Provider.Models[tier] != "" {
@@ -303,7 +304,7 @@ func copilotArgv(h *Headless) []string {
 // copilotPinArgv is --reasoning-effort/--context from the configure page's pins, on every interactive launch.
 func copilotPinArgv() []string {
 	var argv []string
-	rec := GetAgentRecord("copilot")
+	rec := vault.GetAgentRecord("copilot")
 	if e := rec.Effort; e != "" {
 		argv = append(argv, "--reasoning-effort", e)
 	}

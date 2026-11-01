@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"encoding/json"
 	"fmt"
+	"github.com/edotau/claude-code/internal/vault"
 	"maps"
 	"slices"
 	"strconv"
@@ -409,7 +410,7 @@ func vaultOverlayAgents(raw json.RawMessage) (top, vs map[string]any, err error)
 }
 
 // vaultRecordCells is one agent record as table cells; claude's aliases fold into MODEL as alias=id.
-func vaultRecordCells(name string, r agent.AgentRecord) map[string]string {
+func vaultRecordCells(name string, r vault.AgentRecord) map[string]string {
 	cells := map[string]string{"PROFILE": r.Profile, "MODEL": r.Model, "EFFORT": r.Effort, "CONTEXT": r.Context, "ACCOUNT": r.Account}
 	for _, alias := range models.AliasNames {
 		if v := r.Aliases[alias]; v != "" {
@@ -426,7 +427,7 @@ func vaultRecordCells(name string, r agent.AgentRecord) map[string]string {
 
 // vaultAgentTable is the AGENT/PROFILE/MODEL/... table, one row per agent; empty columns drop.
 func vaultAgentTable(names []string, width int, color bool) string {
-	recs := agent.AgentRecords()
+	recs := vault.AgentRecords(agent.RosterNames())
 	per := make([]map[string]string, len(names))
 	extra := map[string]bool{}
 	for i, n := range names {

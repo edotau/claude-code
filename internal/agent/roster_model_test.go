@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"github.com/edotau/claude-code/internal/vault"
 	"strings"
 	"testing"
 
@@ -60,7 +61,7 @@ func TestServesRefusesWireOutsideAgentSuffix(t *testing.T) {
 // A shell model env beats the vault model pin for a CLI agent.
 func TestAgentModelPinShellEnvBeatsVault(t *testing.T) {
 	hermetic(t, `{"fallback": [], "providers": {}}`)
-	if err := SetAgentRecord("codex", AgentRecord{Model: "vault-model"}); err != nil {
+	if err := vault.SetAgentRecord("codex", vault.AgentRecord{Model: "vault-model"}); err != nil {
 		t.Fatal(err)
 	}
 	if got := AgentModelPin("codex"); got != "vault-model" {

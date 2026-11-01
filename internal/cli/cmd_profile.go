@@ -37,7 +37,7 @@ func cmdAgentProfile(agent string, args []string) int {
 		return 0
 	case len(pos) == 0:
 		line := agent + ": no profile set (launches use today's selection)"
-		if v := agentpkg.GetAgentRecord(agent).Profile; v != "" {
+		if v := vault.GetAgentRecord(agent).Profile; v != "" {
 			line = fmt.Sprintf("%s: profile %s", agent, v) + identityNote(v)
 		}
 		if !agentpkg.VaultAgentIsClaude(agent) {

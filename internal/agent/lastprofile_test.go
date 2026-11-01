@@ -105,14 +105,14 @@ func TestLastProfileMigratesV1ToClaude(t *testing.T) {
 func TestCodexReusesLastProfileButOffStaysOff(t *testing.T) {
 	hermetic(t, "")
 	t.Chdir(t.TempDir())
-	if err := SetAgentRecord("codex", AgentRecord{Profile: "openai"}); err != nil {
+	if err := vault.SetAgentRecord("codex", vault.AgentRecord{Profile: "openai"}); err != nil {
 		t.Fatal(err)
 	}
 	RecordLastProfile("codex", "chatgpt", nil)
 	if got := launchProfile("codex", LaunchOptions{}).Provider; got != "chatgpt" {
 		t.Errorf("on codex: got %q, want the repo's last-used chatgpt over its record", got)
 	}
-	if err := SetAgentRecord("codex", AgentRecord{}); err != nil {
+	if err := vault.SetAgentRecord("codex", vault.AgentRecord{}); err != nil {
 		t.Fatal(err)
 	}
 	if got := launchProfile("codex", LaunchOptions{}).Provider; got != "" {

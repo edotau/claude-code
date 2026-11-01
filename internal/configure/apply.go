@@ -3,6 +3,7 @@ package configure
 
 import (
 	"fmt"
+	"github.com/edotau/claude-code/internal/vault"
 
 	agentpkg "github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/providers"
@@ -15,7 +16,7 @@ func ApplyProfile(agents []string, profile string) (changed []string, err error)
 	if err := validProfile(agents, profile); err != nil {
 		return nil, err
 	}
-	err = agentpkg.UpdateAgentRecords(func(m map[string]agentpkg.AgentRecord) {
+	err = vault.UpdateAgentRecords(func(m map[string]vault.AgentRecord) {
 		changed = nil
 		for _, a := range agents {
 			if r := m[a]; r.Profile != profile {

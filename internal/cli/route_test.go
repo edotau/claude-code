@@ -249,7 +249,7 @@ func parityEnv(t *testing.T, profile string, responses bool) (marker string) {
 		t.Fatalf("profile absent: %v", err)
 	}
 	vaulttest.Secret(t, providers.AuthSecretName(reg.Providers[profile]), "profile-auth")
-	if err := agent.SetAgentRecord("codex", agent.AgentRecord{Profile: "chatgpt"}); err != nil { // own login = on
+	if err := vault.SetAgentRecord("codex", vault.AgentRecord{Profile: "chatgpt"}); err != nil { // own login = on
 		t.Fatal(err)
 	}
 	old := routeRefresh

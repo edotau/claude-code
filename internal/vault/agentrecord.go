@@ -221,3 +221,35 @@ func migrateAgentPins(t *Tx) (off []string, err error) {
 	}
 	return off, nil
 }
+
+// AgentRecords reads the vault once; every name is present (zero value when unset), a read error is empty.
+func AgentRecords(names []string) map[string]AgentRecord {
+	var recs map[string]AgentRecord
+	_ = View(func(tx *Tx) (err error) { recs, err = tx.AgentRecords(); return err })
+	out := make(map[string]AgentRecord, len(names))
+	for _, n := range names {
+		out[n] = recs[n]
+	}
+	return out
+}
+
+// GetAgentRecord is agent's record (zero value when unset or unreadable).
+func GetAgentRecord(agent string) AgentRecord { return AgentRecords([]string{agent})[agent] }
+
+// SetAgentRecord replaces agent's whole record in one vault transaction.
+func SetAgentRecord(agent string, r AgentRecord) error {
+	return UpdateAgentRecords(func(m map[string]AgentRecord) { m[agent] = r })
+}
+
+// UpdateAgentRecords applies fn to the stored records and writes them back in one vault transaction.
+func UpdateAgentRecords(fn func(map[string]AgentRecord)) error {
+	return Update(func(tx *Tx) error {
+		recs, err := tx.AgentRecords()
+		if err != nil {
+			return err
+		}
+		next := maps.Clone(recs)
+		fn(next)
+		return tx.PutAgentRecords(next)
+	})
+}
