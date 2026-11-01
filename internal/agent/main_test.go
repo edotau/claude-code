@@ -1,9 +1,7 @@
 package agent
 
 import (
-	"context"
 	"encoding/base64"
-	"errors"
 	"fmt"
 	"io"
 	"net/http/httptest"
@@ -23,11 +21,8 @@ import (
 // TestMain runs in the hermetic host (hosttest): no live provider pins, vault or vendor CLIs are reachable.
 func TestMain(m *testing.M) {
 	NoticeOut = io.Discard
-	sharedPoll = 25 * time.Millisecond
 	agentconfig.SetCatalogWarn(io.Discard)
-	mintSession = func(context.Context, string, int) (string, error) { return "", errors.New("session mint is stubbed") }
-	ensureRouter = func(context.Context) (string, error) { return testRouterBase, nil }
-	routerSecret = func() (string, error) { return testRouterSecret, nil }
+	StubProxyForTest(testRouterBase, testRouterSecret)
 	os.Exit(hosttest.Main(m))
 }
 
