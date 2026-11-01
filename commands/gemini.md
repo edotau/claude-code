@@ -14,8 +14,8 @@ Parse the first token of `$ARGUMENTS`:
 - `review` — whole-module second opinion pinned to the opus model (unchanged): run the bridge
   directly per `agents/gemini.md` → Review mode. Diff review on the gemini model family instead is
   `claude-code gemini review` run directly — say so in one line if that's what's meant.
-- `ask|resume|explore|transfer|status|tail|result|cancel|setup|catalog|profile|on|off` — run `claude-code gemini <verb> <rest>`
-  straight through.
+- `ask|resume|explore|transfer|status|tail|result|cancel|setup|catalog|profile|on|off` — run
+  `claude-code gemini <verb> <rest>` straight through.
 - anything else — run the bridge as today: `claude-code gemini bridge [flags parsed from
   $ARGUMENTS] -- "<task>"`.
 

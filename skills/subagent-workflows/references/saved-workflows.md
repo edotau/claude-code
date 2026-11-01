@@ -19,11 +19,12 @@ effort; a call that deliberately omits `effort:` carries `// lint:opus-ok` on it
 and nothing throws at top level, or the registry skips the script silently. Scripts are plain JavaScript (the Workflow
 tool runs no TypeScript); `claude-code workflow lint` checks all of the above and `make test` gates the shipped scripts.
 
-`green-keeper-loop`, `code-engineer`, `code-analyzer` and `code-agent` read the Claude account's own router state once at start (`claude-code gateway router --format json
---agent claude --fallback none --model sonnet`, a haiku leaf; they parse `candidates[0].state`, else the `skipped[]`
-entry whose `agent` is `claude`; `code-agent` skips the read when a `profile` is named or `fallback` is off); `low`/`exhausted` steps every Claude-stage `model:` pin down one model through an
-inline `routeModel()` helper (opus→sonnet, sonnet→haiku, haiku stays haiku), fail-open with a `log()` line on a failed
-or null read — pins stay explicit literals so the `dispatch-effort` pin step still passes.
+`green-keeper-loop`, `code-engineer`, `code-analyzer` and `code-agent` read the Claude account's own router state
+once at start (`claude-code gateway router --format json --agent claude --fallback none --model sonnet`, a haiku
+leaf; they parse `candidates[0].state`, else the `skipped[]` entry whose `agent` is `claude`; `code-agent` skips the
+read when a `profile` is named or `fallback` is off); `low`/`exhausted` steps every Claude-stage `model:` pin down one
+model through an inline `routeModel()` helper (opus→sonnet, sonnet→haiku, haiku stays haiku), fail-open with a
+`log()` line on a failed or null read — pins stay explicit literals so the `dispatch-effort` pin step still passes.
 
 Reorg mode (CLAUDE.md): pass `tests: false` and an explicit build+vet `gate`.
 
