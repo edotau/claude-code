@@ -122,7 +122,7 @@ func (l hubDispatch) Caps() Caps {
 // Available requires the opencode binary and an opencode login for this dispatch's provider; a login-less
 // ladder step reports why here instead of failing mid-exec.
 func (l hubDispatch) Available() error {
-	if _, err := paths.VendorBin("opencode"); err != nil {
+	if _, err := paths.AgentBin("opencode"); err != nil {
 		return err
 	}
 	_, err := opencodeCredential(l.provider.OpencodeID)
@@ -138,7 +138,7 @@ func (l hubDispatch) Run(ctx context.Context, req RunOptions, sink Sink) (Result
 	if len(req.Prompt) > MaxPromptBytes {
 		return res, &Error{Kind: KindFatal, Agent: l.agent, Err: errPromptTooLarge(len(req.Prompt))}
 	}
-	bin, err := paths.VendorBin("opencode")
+	bin, err := paths.AgentBin("opencode")
 	if err != nil {
 		return res, &Error{Kind: KindFatal, Agent: l.agent, Err: err}
 	}

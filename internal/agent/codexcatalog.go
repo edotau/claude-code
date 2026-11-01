@@ -67,7 +67,7 @@ func codexCatalogArgs(p *providers.Provider) []string {
 }
 
 func codexCatalogPath(p *providers.Provider) (string, string, error) {
-	bin, err := paths.VendorBin("codex")
+	bin, err := paths.AgentBin("codex")
 	if err != nil {
 		return "", "", fmt.Errorf("binary lookup failed: %w", err)
 	}

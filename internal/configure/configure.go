@@ -755,11 +755,11 @@ func runLogin(argv []string) error {
 }
 
 func cliArgv(argv []string) ([]string, error) {
-	name, ok := paths.VendorName(argv[0])
+	name, ok := paths.AgentName(argv[0])
 	if !ok {
 		return argv, nil
 	}
-	bin, err := paths.VendorBin(name)
+	bin, err := paths.AgentBin(name)
 	if err != nil {
 		return nil, err
 	}

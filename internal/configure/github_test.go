@@ -34,7 +34,7 @@ func githubScratch(t *testing.T) {
 
 func TestRunGithubLoginPrintsVendorBinError(t *testing.T) {
 	githubScratch(t)
-	_, err := paths.VendorBin("copilot")
+	_, err := paths.AgentBin("copilot")
 	if err == nil {
 		t.Fatal("expected missing vendor")
 	}

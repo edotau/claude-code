@@ -164,7 +164,7 @@ func registerClaudeMCPContext(ctx context.Context, bin string) error {
 	if err := ctxErr(ctx, "claude mcp"); err != nil {
 		return err
 	}
-	claude, err := paths.VendorBin("claude")
+	claude, err := paths.AgentBin("claude")
 	if err != nil {
 		return err
 	}

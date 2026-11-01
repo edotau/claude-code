@@ -136,7 +136,7 @@ func TestInstallBinaryAndLinksReplacesRetiredShims(t *testing.T) {
 		if err != nil || link != source {
 			t.Errorf("%s -> %q, %v; want %q", name, link, err, source)
 		}
-		if _, err := paths.VendorBin(name); err != nil {
+		if _, err := paths.AgentBin(name); err != nil {
 			t.Errorf("installed vendor %s: %v", name, err)
 		}
 		want := "link     " + dst + " → " + source

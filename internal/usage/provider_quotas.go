@@ -336,7 +336,7 @@ func dash(s string) string {
 
 // agyUsageCmd is the agy exec seam; tests replace it with a fake binary so none of this reaches agy.
 var agyUsageCmd = func(ctx context.Context) ([]byte, error) {
-	bin, err := paths.VendorBin("agy")
+	bin, err := paths.AgentBin("agy")
 	if err != nil {
 		return nil, err
 	}
@@ -372,7 +372,7 @@ type agyUsageResult struct {
 func antigravityQuotas(ctx context.Context) []quota {
 	out, err := agyUsageCmd(ctx)
 	if err != nil && len(out) == 0 {
-		if _, lookErr := paths.VendorBin("agy"); lookErr != nil {
+		if _, lookErr := paths.AgentBin("agy"); lookErr != nil {
 			return agyNote("agy not installed")
 		}
 		return agyNote("agy usage failed: " + commandErrorLine(out, err))

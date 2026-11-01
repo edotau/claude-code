@@ -120,7 +120,7 @@ func (codexEngine) LoginStatus() (bool, string) {
 }
 
 func (codexEngine) checkLogin(ctx context.Context) (providers.AuthVerdict, string) {
-	bin, err := paths.VendorBin("codex")
+	bin, err := paths.AgentBin("codex")
 	if err != nil {
 		return providers.VerdictTransient, err.Error()
 	}
@@ -169,7 +169,7 @@ func (codexEngine) routeDetail() (string, bool) { return codexRouteDetail(), tru
 
 // codexHasJSON is true when the installed codex has `exec --json`; checked once per process.
 var codexHasJSON = sync.OnceValue(func() bool {
-	bin, err := paths.VendorBin("codex")
+	bin, err := paths.AgentBin("codex")
 	if err != nil {
 		return false
 	}
@@ -435,7 +435,7 @@ func codexOwnModel() string {
 
 // codexChatGPTLogin checks the installed CLI's login status, falling back to $CODEX_HOME/auth.json if unavailable.
 func codexChatGPTLogin() error {
-	if bin, err := paths.VendorBin("codex"); err == nil {
+	if bin, err := paths.AgentBin("codex"); err == nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		defer cancel()
 		out, err := exec.CommandContext(ctx, bin, "login", "status").CombinedOutput()

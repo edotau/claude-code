@@ -24,7 +24,7 @@ var (
 	opencodeList           = tui.List
 	runAttached            = tui.RunAttached
 	confirmKey             = tui.ConfirmKey
-	lookOpencode           = paths.VendorBin
+	lookOpencode           = paths.AgentBin
 )
 
 // opencodeNames maps well-known opencode integration IDs to display names; others use the integration's Name.

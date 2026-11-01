@@ -16,7 +16,7 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 )
 
-// fakeCopilotBin makes paths.VendorBin("copilot") resolve, so copilotCatalog gets past that check and
+// fakeCopilotBin makes paths.AgentBin("copilot") resolve, so copilotCatalog gets past that check and
 // reaches the stubbed copilotListModelsFn seam instead of erroring out before ever calling it. It never
 // runs: every test here replaces copilotListModelsFn, so nothing execs the real CLI or touches gh/GitHub.
 // Must run after menuTestEnv (it writes under paths.BinDir(), which menuTestEnv's HOME already pins) so

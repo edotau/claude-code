@@ -85,7 +85,7 @@ func copilotCatalog(d *dialog) ([]copilotsdk.Model, error) {
 		return d.copilotCatalog, d.copilotCatalogErr
 	}
 	d.copilotCatalogLoaded = true
-	bin, err := paths.VendorBin("copilot")
+	bin, err := paths.AgentBin("copilot")
 	if err != nil {
 		d.copilotCatalogErr = err
 		return nil, err
@@ -343,7 +343,7 @@ var modelChoices = func(p *providers.Provider, claude bool) []string {
 
 // opencodeModels is `opencode models <id>` with the prefix cut; 45s because a cold catalog fetch takes 15–23s.
 func opencodeModels(opencodeID string) []string {
-	bin, err := paths.VendorBin("opencode")
+	bin, err := paths.AgentBin("opencode")
 	if err != nil {
 		return nil
 	}

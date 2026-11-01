@@ -16,7 +16,7 @@ func Configured(agent string, c router.Cell) error {
 	if !s.External() {
 		return nil
 	}
-	if _, err := paths.VendorBin(s.CLI.Binary); err != nil {
+	if _, err := paths.AgentBin(s.CLI.Binary); err != nil {
 		return err
 	}
 	return s.eng().presence(c)

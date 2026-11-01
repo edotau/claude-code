@@ -13,7 +13,7 @@ import (
 // FakeVendor writes a shell executable into the test config's bin directory.
 func FakeVendor(t testing.TB, name, body string) string {
 	t.Helper()
-	bin, ok := paths.VendorName(name)
+	bin, ok := paths.AgentName(name)
 	if !ok {
 		t.Fatalf("unknown vendor %q", name)
 	}

@@ -197,16 +197,16 @@ func TestOpencodeArgvPerVersion(t *testing.T) {
 }
 
 // TestOpencodeArgvErrorsWithoutFallingBackToBarePATHLookup: a missing bin/opencode must surface
-// VendorBin's "not installed" error, never the bare "opencode" string this used to fall back to.
+// AgentBin's "not installed" error, never the bare "opencode" string this used to fall back to.
 func TestOpencodeArgvErrorsWithoutFallingBackToBarePATHLookup(t *testing.T) {
 	fakeOpencode(t, "2.0.32", "[]", nil) // CLAUDE_CONFIG_DIR is fresh here: bin/opencode was never written
 	if got, err := OpencodeLogoutArgv("openai", "cred_2"); err == nil || got != nil {
-		t.Errorf("logout = %v, err = %v, want (nil, VendorBin error)", got, err)
+		t.Errorf("logout = %v, err = %v, want (nil, AgentBin error)", got, err)
 	} else if strings.Contains(err.Error(), `"opencode"`) || err.Error() == "opencode" {
 		t.Errorf("err = %v, must not be the bare PATH fallback", err)
 	}
 	if got, err := OpencodeSwitchArgv("openai", "cred_2"); err == nil || got != nil {
-		t.Errorf("switch = %v, err = %v, want (nil, VendorBin error)", got, err)
+		t.Errorf("switch = %v, err = %v, want (nil, AgentBin error)", got, err)
 	}
 }
 

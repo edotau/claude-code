@@ -126,7 +126,7 @@ func TestHubDispatchResolveModel(t *testing.T) {
 
 // hubDispatch always execs opencode with the prompt in argv (OpencodeRunArgv), so its own
 // MaxPromptBytes check (hub.go, ahead of the binary lookup) stays unconditional, unlike vendorRunner's
-// opencode-only gate. This fails before touching paths.VendorBin, so no bin/opencode is needed.
+// opencode-only gate. This fails before touching paths.AgentBin, so no bin/opencode is needed.
 func TestHubDispatchRunOversizedPromptRefused(t *testing.T) {
 	reg := hubRegistry()
 	chatgpt, _ := reg.Get("chatgpt")

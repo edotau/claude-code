@@ -132,7 +132,7 @@ func installDir(t Tool, oldPath string) string {
 	if t.UserLocal {
 		return localBinDir()
 	}
-	_, linked := paths.VendorName(t.Name)
+	_, linked := paths.AgentName(t.Name)
 	switch {
 	case directInstall(t) != "":
 		return paths.BinDir()
@@ -146,7 +146,7 @@ func installDir(t Tool, oldPath string) string {
 
 // directInstall is BinDir/<bin> when an agent's CLI is a regular file there (a direct install), else "".
 func directInstall(t Tool) string {
-	bin, ok := paths.VendorName(t.Name)
+	bin, ok := paths.AgentName(t.Name)
 	if !ok {
 		return ""
 	}
@@ -316,7 +316,7 @@ func StatusAll() []Status {
 
 func statusOne(t Tool) Status {
 	s := Status{Name: t.Name, Hint: t.Hint}
-	if bin, ok := paths.VendorName(t.Name); ok {
+	if bin, ok := paths.AgentName(t.Name); ok {
 		s.Target = readlink(filepath.Join(paths.BinDir(), bin))
 	}
 	path, err := paths.LookPathReal(t.Binary)

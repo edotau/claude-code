@@ -17,7 +17,7 @@ import (
 
 // agyCommand builds the agy process a sign-in launches; tests replace it with a fake binary.
 var agyCommand = func() *exec.Cmd {
-	bin, err := paths.VendorBin("agy")
+	bin, err := paths.AgentBin("agy")
 	if err != nil {
 		return &exec.Cmd{Err: err}
 	}

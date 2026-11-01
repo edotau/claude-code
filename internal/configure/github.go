@@ -143,7 +143,7 @@ func runGithubLogin(d *dialog, argv []string, label string) {
 // alias resolved to "auto", a concrete opencode_fallback (opencode's own catalog has no "auto"), then
 // writes the github-copilot overlay.
 func pickCopilotModels(d *dialog) {
-	bin, err := paths.VendorBin("copilot")
+	bin, err := paths.AgentBin("copilot")
 	if err != nil {
 		d.printf("copilot models: copilot CLI not found: %v\n", err)
 		return

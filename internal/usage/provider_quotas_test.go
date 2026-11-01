@@ -501,9 +501,9 @@ func TestAntigravityQuotasAgyErrorLine(t *testing.T) {
 }
 
 // TestAntigravityQuotasMissingBinary: no output and an exec error with agy absent from the vendor bin dir
-// (true of this checkout: no internal/paths.VendorBin("agy") target) reports "agy not installed", not a crash.
+// (true of this checkout: no internal/paths.AgentBin("agy") target) reports "agy not installed", not a crash.
 func TestAntigravityQuotasMissingBinary(t *testing.T) {
-	if _, err := paths.VendorBin("agy"); err == nil {
+	if _, err := paths.AgentBin("agy"); err == nil {
 		t.Skip("agy is installed in this checkout; the not-installed branch can't be exercised here")
 	}
 	stubAgy(t, func(context.Context) ([]byte, error) {

@@ -24,7 +24,7 @@ func SelfBinary() (string, error) {
 
 // ClaudeBinary finds the real claude: BinDir/claude, else the native installer's newest version.
 func ClaudeBinary() (string, error) {
-	if bin, err := paths.VendorBin("claude"); err == nil {
+	if bin, err := paths.AgentBin("claude"); err == nil {
 		return bin, nil
 	}
 	if bin := newestInstalledClaude(); bin != "" {

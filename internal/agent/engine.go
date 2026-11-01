@@ -142,14 +142,14 @@ func (b baseEngine) Name() string { return b.name }
 func (b baseEngine) Caps() Caps { return schemaFor(b.name).CLI.Caps }
 
 func (b baseEngine) Available() error {
-	_, err := paths.VendorBin(schemaFor(b.name).CLI.Binary)
+	_, err := paths.AgentBin(schemaFor(b.name).CLI.Binary)
 	return err
 }
 
 // bin is the CLI's executable, as a fatal Error when it is not installed.
 func (b baseEngine) bin() (string, error) {
 	s, _ := LookupSchema(b.name)
-	bin, err := paths.VendorBin(s.CLI.Binary)
+	bin, err := paths.AgentBin(s.CLI.Binary)
 	if err != nil {
 		return "", &Error{Kind: KindFatal, Agent: b.name, Err: err}
 	}

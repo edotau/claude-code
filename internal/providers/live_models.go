@@ -61,7 +61,7 @@ func endpointCapabilities(e liveModelEntry) string {
 var CopilotTokenFn func() string
 
 func liveCopilotModelInfos(ctx context.Context) ([]ModelInfo, error) {
-	bin, err := paths.VendorBin("copilot")
+	bin, err := paths.AgentBin("copilot")
 	if err != nil {
 		return nil, fmt.Errorf("copilot CLI not found: %w", err)
 	}

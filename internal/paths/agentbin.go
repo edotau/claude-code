@@ -12,8 +12,8 @@ var Vendors = map[string]string{
 	"claude": "claude", "codex": "codex", "copilot": "copilot", "opencode": "opencode", "gemini": "agy",
 }
 
-// VendorName maps a bin name or a shipped binary ("agy") to its bin name.
-func VendorName(name string) (string, bool) {
+// AgentName maps a bin name or a shipped binary ("agy") to its bin name.
+func AgentName(name string) (string, bool) {
 	if _, ok := Vendors[name]; ok {
 		return name, true
 	}
@@ -25,9 +25,9 @@ func VendorName(name string) (string, bool) {
 	return "", false
 }
 
-// VendorBin returns BinDir()/<bin> when it is a usable vendor executable, never its resolved target.
-func VendorBin(name string) (string, error) {
-	bin, ok := VendorName(name)
+// AgentBin returns BinDir()/<bin> when it is a usable vendor executable, never its resolved target.
+func AgentBin(name string) (string, error) {
+	bin, ok := AgentName(name)
 	if !ok {
 		return "", fmt.Errorf("unknown vendor %q", name)
 	}

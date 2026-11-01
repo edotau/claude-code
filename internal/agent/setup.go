@@ -35,9 +35,9 @@ func (s Schema) Setup() Report {
 	return rep
 }
 
-// binaryCheck looks up the agent executable via paths.VendorBin.
+// binaryCheck looks up the agent executable via paths.AgentBin.
 func binaryCheck(s Schema) Check {
-	p, err := paths.VendorBin(s.Name)
+	p, err := paths.AgentBin(s.Name)
 	if err != nil {
 		return Check{Name: "binary", State: "fail", Detail: err.Error()}
 	}

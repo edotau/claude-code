@@ -435,14 +435,14 @@ func settingsHasHooks(file string) (bool, error) {
 
 // toolDoctorOK is false only for a bin/<agent> entry that exists but cannot run (broken link, retired shim).
 func toolDoctorOK(s tools.Status) bool {
-	bin, ok := paths.VendorName(s.Name)
+	bin, ok := paths.AgentName(s.Name)
 	if !ok {
 		return true
 	}
 	if _, err := os.Lstat(filepath.Join(paths.BinDir(), bin)); err != nil {
 		return true
 	}
-	_, err := paths.VendorBin(bin)
+	_, err := paths.AgentBin(bin)
 	return err == nil
 }
 
@@ -463,7 +463,7 @@ func agentVersionDetail(spec agent.Schema) (pass bool, detail string) {
 
 // toolDoctorDetail renders one tool's doctor line: an agent's bin/ entry, else path + version, then extra PATH copies.
 func toolDoctorDetail(s tools.Status) string {
-	if bin, ok := paths.VendorName(s.Name); ok {
+	if bin, ok := paths.AgentName(s.Name); ok {
 		return agentDoctorDetail(s, bin)
 	}
 	if s.Path == "" {
@@ -490,7 +490,7 @@ func toolDoctorDetail(s tools.Status) string {
 // agentDoctorDetail renders BinDir/<bin>: `<dst> → <Target> <version>`, a direct install, or why it is unusable.
 func agentDoctorDetail(s tools.Status, bin string) string {
 	dst := filepath.Join(paths.BinDir(), bin)
-	if _, err := paths.VendorBin(bin); err != nil {
+	if _, err := paths.AgentBin(bin); err != nil {
 		if s.Path != "" {
 			return err.Error() + " · on PATH: " + s.Path
 		}

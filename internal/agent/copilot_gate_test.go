@@ -126,7 +126,7 @@ func TestVendorTargetNoteExplicitCopilotGated(t *testing.T) {
 	}
 }
 
-// fakeCopilotBin installs an executable stand-in at BinDir()/copilot so paths.VendorBin resolves.
+// fakeCopilotBin installs an executable stand-in at BinDir()/copilot so paths.AgentBin resolves.
 func fakeCopilotBin(t *testing.T) {
 	t.Helper()
 	dir := paths.BinDir()
