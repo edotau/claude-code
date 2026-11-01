@@ -7,8 +7,10 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/audit"
 	"github.com/edotau/claude-code/internal/clipboard"
 	"github.com/edotau/claude-code/internal/databricks"
 	"github.com/edotau/claude-code/internal/providers"
@@ -298,18 +300,40 @@ func dbxSaveIdentity(d *dialog, env, mode, spID, secret string) error {
 		if secret == "" {
 			return err
 		}
-		return errors.Join(err, dbxRestoreSecret(name, prev, hadPrev))
+		return errors.Join(err, dbxRestoreSecret(name, secret, prev, hadPrev))
 	}
 	d.changed = true
 	return nil
 }
 
-// dbxRestoreSecret puts the vault record name back to prev, or deletes it when there was none; it never prints a value.
-func dbxRestoreSecret(name, prev string, hadPrev bool) error {
-	if hadPrev {
-		return secretstore.Store(name, prev)
+// dbxRestoreSecret puts record name back to prev (or deletes it) only while it still holds wrote; a newer value stays.
+func dbxRestoreSecret(name, wrote, prev string, hadPrev bool) error {
+	wrote = strings.TrimSpace(wrote)
+	restored := false
+	err := vault.UpdateSealed(func(tx *vault.Tx, key *vault.Key) error {
+		rec, ok, err := tx.Record(name)
+		if err != nil || !ok {
+			return err
+		}
+		cur, err := key.Open(name, rec)
+		if err != nil {
+			return err
+		}
+		if cur != wrote {
+			return nil
+		}
+		if !hadPrev {
+			return tx.Put(vault.Secrets, name, "")
+		}
+		restored = true
+		return tx.PutRecord(name, vault.Record{
+			Sealed: key.Seal(name, prev), Kid: key.Kid, Prefix: secretstore.MetaPrefix(prev), Len: len(prev), SetAt: time.Now(),
+		})
+	})
+	if err == nil && restored {
+		audit.Log(audit.SecretSet, name, "vault") // secretstore.Store's audit line, which this write bypasses
 	}
-	return secretstore.Delete(name)
+	return err
 }
 
 // dbxIdentity picks env's identity mode, then asks for the SP client id and secret when the mode can use one.
