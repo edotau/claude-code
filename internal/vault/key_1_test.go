@@ -1,8 +1,6 @@
 package vault
 
 import (
-	"github.com/edotau/claude-code/internal/hosttest"
-
 	"bytes"
 	"crypto/sha256"
 	"encoding/base64"
@@ -10,6 +8,8 @@ import (
 	"os"
 	"sync"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/hosttest"
 )
 
 type specKeyring struct {
