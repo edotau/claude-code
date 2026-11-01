@@ -122,22 +122,31 @@ var e2eBuild struct {
 	err  error
 }
 
-// e2eBinary builds the claude-code binary once per test process.
+// e2eCachedBinary asks go run for its cached link; the first run after a change prints a temp path go then deletes.
+func e2eCachedBinary(root string) (string, error) {
+	var stderr bytes.Buffer
+	for range 2 {
+		stderr.Reset()
+		run := exec.Command("go", "run", "-exec", "echo", "./cmd/claude-code")
+		run.Dir, run.Stderr = root, &stderr
+		out, err := run.Output()
+		if err != nil {
+			return "", fmt.Errorf("go run: %v\n%s", err, stderr.String())
+		}
+		bin := strings.TrimSpace(string(out))
+		if _, err := os.Stat(bin); err == nil {
+			return bin, nil
+		}
+	}
+	return "", fmt.Errorf("go run left no cached claude-code binary\n%s", stderr.String())
+}
+
+// e2eBinary resolves the claude-code binary once per test process.
 func e2eBinary(t *testing.T) string {
 	t.Helper()
 	root := e2eModuleRoot(t)
 	e2eBuild.once.Do(func() {
-		dir, err := os.MkdirTemp("", "memory-e2e-bin")
-		if err != nil {
-			e2eBuild.err = err
-			return
-		}
-		e2eBuild.bin = filepath.Join(dir, "claude-code")
-		build := exec.Command("go", "build", "-o", e2eBuild.bin, "./cmd/claude-code")
-		build.Dir = root
-		if out, err := build.CombinedOutput(); err != nil {
-			e2eBuild.err = fmt.Errorf("go build: %v\n%s", err, out)
-		}
+		e2eBuild.bin, e2eBuild.err = e2eCachedBinary(root)
 	})
 	if e2eBuild.err != nil {
 		t.Fatal(e2eBuild.err)

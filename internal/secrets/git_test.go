@@ -148,7 +148,7 @@ func TestScanGitLongLine(t *testing.T) {
 			run("init", "-q")
 			run("config", "user.email", "test@example.com")
 			run("config", "user.name", "test")
-			long := strings.Repeat("x", 2<<20) // 2 MiB, one line
+			long := strings.Repeat("x", 1<<20+1) // one line, just past scanGitLogOutput's 1 MiB reader
 			leak := "k=ghp_abcdefghij1234567890ABCD\n"
 
 			writeCommit := func(name, content string) {

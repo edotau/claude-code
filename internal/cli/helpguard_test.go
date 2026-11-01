@@ -195,24 +195,26 @@ var flagDefMethods = map[string]int{ // method -> index of the usage argument
 	"BoolVar": 3, "StringVar": 3, "IntVar": 3, "Int64Var": 3, "UintVar": 3, "Uint64Var": 3, "DurationVar": 3, "Float64Var": 3,
 }
 
-// scanHelpGuard checks every non-test .go file under root and returns the violations.
+// scanHelpGuard checks every non-test .go file in root's source dirs (never ~/.claude's session state) for violations.
 func scanHelpGuard(t *testing.T, root string) []guardFinding {
 	t.Helper()
 	fset := token.NewFileSet()
 	byDir := map[string][]*ast.File{}
-	err := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() || !strings.HasSuffix(p, ".go") || strings.HasSuffix(p, "_test.go") {
-			return err
+	for _, src := range []string{"cmd", "defaults", "internal"} {
+		err := filepath.WalkDir(filepath.Join(root, src), func(p string, d fs.DirEntry, err error) error {
+			if err != nil || d.IsDir() || !strings.HasSuffix(p, ".go") || strings.HasSuffix(p, "_test.go") {
+				return err
+			}
+			f, perr := parser.ParseFile(fset, p, nil, 0)
+			if perr != nil {
+				return perr
+			}
+			byDir[filepath.Dir(p)] = append(byDir[filepath.Dir(p)], f)
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
 		}
-		f, perr := parser.ParseFile(fset, p, nil, 0)
-		if perr != nil {
-			return perr
-		}
-		byDir[filepath.Dir(p)] = append(byDir[filepath.Dir(p)], f)
-		return nil
-	})
-	if err != nil {
-		t.Fatal(err)
 	}
 	var out []guardFinding
 	for _, files := range byDir {

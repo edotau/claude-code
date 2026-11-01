@@ -3,7 +3,6 @@ package configure
 import (
 	"context"
 	"errors"
-	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -19,48 +18,23 @@ import (
 
 const configureTestToken = "sk-ant-oat01-abcDEF_ghi-JKLmno_pqrSTUvwx-YZ0123456789"
 
-func TestConfigureCommandHelper(t *testing.T) {
-	if os.Getenv("CONFIGURE_COMMAND_HELPER") != "1" {
-		return
-	}
-	idx := slices.Index(os.Args, "--")
-	if idx < 0 || idx+1 == len(os.Args) {
-		os.Exit(90)
-	}
-	args := os.Args[idx+1:]
-	f, err := os.OpenFile(os.Getenv("CONFIGURE_COMMAND_LOG"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
-	if err != nil {
-		os.Exit(91)
-	}
-	_, writeErr := fmt.Fprintln(f, strings.Join(args, "\n")+"\n")
-	closeErr := f.Close()
-	if writeErr != nil || closeErr != nil {
-		os.Exit(92)
-	}
-	action := args[0]
-	if action == "mcp" && len(args) > 1 {
-		action = args[1]
-	}
-	mode := os.Getenv("CONFIGURE_COMMAND_MODE")
-	if mode == "cancel" || mode == "cancel-"+action {
-		if err := os.WriteFile(os.Getenv("CONFIGURE_COMMAND_READY"), []byte("ready"), 0o600); err != nil {
-			os.Exit(93)
-		}
-		time.Sleep(30 * time.Second)
-		os.Exit(94)
-	}
-	switch action {
-	case "login":
-		fmt.Print("login complete\n")
-	case "mint":
-		fmt.Print("minting token\n" + configureTestToken + "\nfinished\n")
-	}
-	if mode == "fail" || mode == action+"-fail" {
-		fmt.Print("command failed\n")
-		os.Exit(7)
-	}
-	os.Exit(0)
-}
+// configureFakeClaude logs argv, then acts on CONFIGURE_COMMAND_MODE; `exec sleep` leaves SIGINT nothing to defer.
+const configureFakeClaude = `printf '%s\n' "$@" '' >>"$CONFIGURE_COMMAND_LOG"
+action=$1
+if [ "$1" = mcp ] && [ $# -gt 1 ]; then action=$2; fi
+mode=$CONFIGURE_COMMAND_MODE
+if [ "$mode" = cancel ] || [ "$mode" = "cancel-$action" ]; then
+	: >"$CONFIGURE_COMMAND_READY"
+	exec "$CONFIGURE_SLEEP" 30
+fi
+case $action in
+login) echo 'login complete' ;;
+mint) printf 'minting token\n` + configureTestToken + `\nfinished\n' ;;
+esac
+if [ "$mode" = fail ] || [ "$mode" = "$action-fail" ]; then
+	echo 'command failed'
+	exit 7
+fi`
 
 func configureCommandEnv(t *testing.T, mode string) (bin, log, ready string) {
 	t.Helper()
@@ -68,16 +42,14 @@ func configureCommandEnv(t *testing.T, mode string) (bin, log, ready string) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	dir := t.TempDir()
-	bin = pathstest.FakeVendor(t, "claude",
-		`exec "$CONFIGURE_HELPER_EXE" -test.run='^TestConfigureCommandHelper$' -- "$@"`)
-	exe, err := os.Executable()
+	bin = pathstest.FakeVendor(t, "claude", configureFakeClaude)
+	sleep, err := exec.LookPath("sleep")
 	if err != nil {
 		t.Fatal(err)
 	}
 	log, ready = filepath.Join(dir, "argv"), filepath.Join(dir, "ready")
 	t.Setenv("PATH", t.TempDir())
-	t.Setenv("CONFIGURE_COMMAND_HELPER", "1")
-	t.Setenv("CONFIGURE_HELPER_EXE", exe)
+	t.Setenv("CONFIGURE_SLEEP", sleep)
 	t.Setenv("CONFIGURE_COMMAND_MODE", mode)
 	t.Setenv("CONFIGURE_COMMAND_LOG", log)
 	t.Setenv("CONFIGURE_COMMAND_READY", ready)

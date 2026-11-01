@@ -23,7 +23,6 @@ import (
 	"github.com/edotau/claude-code/internal/clean"
 	"github.com/edotau/claude-code/internal/clipboard"
 	"github.com/edotau/claude-code/internal/hooks"
-	"github.com/edotau/claude-code/internal/network/browser"
 	"github.com/edotau/claude-code/internal/network/tailscale"
 	"github.com/edotau/claude-code/internal/network/vscode"
 	"github.com/edotau/claude-code/internal/paths"
@@ -305,7 +304,7 @@ func auditSummary() string {
 
 // browserDoctorDetail names the default browser and its extension state; advisory, never a failing check.
 func browserDoctorDetail() string {
-	rep := browser.Detect(browser.NewEnv())
+	rep := detectBrowsers()
 	for _, b := range rep.Browsers {
 		if b.Default {
 			return b.Name + " default, extension=" + b.Paths.Extension + " cdp=" + b.Paths.CDP + " (claude-code network browser)"

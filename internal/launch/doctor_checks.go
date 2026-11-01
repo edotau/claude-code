@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/network/browser"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc/inflight"
 	"github.com/edotau/claude-code/internal/providers"
@@ -22,6 +23,9 @@ import (
 	"github.com/edotau/claude-code/internal/secrets"
 	"github.com/edotau/claude-code/internal/vault"
 )
+
+// detectBrowsers reads the host's browsers; a var so tests never wait on the real powershell.exe under WSL.
+var detectBrowsers = func() browser.Report { return browser.Detect(browser.NewEnv()) }
 
 // strayClaudeJSON flags ~/.claude/.claude.json: claude reads it instead of ~/.claude.json under CLAUDE_CONFIG_DIR=~/.claude.
 func strayClaudeJSON() (ok bool, detail string) {

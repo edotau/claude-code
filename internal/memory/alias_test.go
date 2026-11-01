@@ -24,8 +24,7 @@ type aliasEnv struct {
 func newAliasEnv(t *testing.T) aliasEnv {
 	t.Helper()
 	cfg, _ := isolatedConfig(t)
-	fixtureGit(t, cfg, "init", "-q", "-b", "main")
-	fixtureGit(t, cfg, "commit", "-q", "--allow-empty", "-m", "decoy")
+	gitRepo(t, filepath.Dir(cfg), filepath.Base(cfg))
 	initStore(t)
 	parent := canonTemp(t, t.TempDir())
 	e := aliasEnv{cfg: cfg, a: gitRepo(t, parent, "alpha"), b: gitRepo(t, parent, "beta")}
