@@ -11,6 +11,8 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/memstore"
+	"github.com/edotau/claude-code/internal/vault"
+	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
 // runAgentEffort runs the hook, returning the decoded updatedInput (nil when the hook emitted
@@ -447,4 +449,17 @@ func renderEffort(res Result, stdout, errw io.Writer) int {
 	}
 	fmt.Fprintln(stdout, string(out))
 	return ExitProceed
+}
+
+// A pinned agent's label names the pinned model, not the route table's cell (real labelCell, hermetic vault).
+func TestLabelCellPinnedModelBeatsRouteCell(t *testing.T) {
+	vaulttest.Use(t)
+	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"databricks":{"probe":{"preset":"databricks","host":"https://example.invalid","auth":{"type":"none"}}}}}`)
+	cell := labelCell("codex", "sonnet")
+	vaulttest.SetRecord(t, "codex", "profile", "probe")
+	vaulttest.SetRecord(t, "codex", "model", "databricks-gpt-pin")
+	got := labelCell("codex", "sonnet")
+	if got != "databricks-gpt-pin" {
+		t.Errorf("labelCell(codex) = %q with the pin set (unpinned cell %q), want the pinned model", got, cell)
+	}
 }

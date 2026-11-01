@@ -540,3 +540,16 @@ func TestSelectPicksOwningPlan(t *testing.T) {
 		t.Fatalf("worktree claim should break the tie, got %q", plan)
 	}
 }
+
+// TestSelectNewerPartialBeatsOlderExact: the newest touched plan wins even when an older plan matches exactly.
+func TestSelectNewerPartialBeatsOlderExact(t *testing.T) {
+	hermetic(t)
+	home := t.TempDir()
+	writeFile(t, filepath.Join(home, "2026-10-01-old.md"), "- [ ] 1.1 Old owns: internal/a/a.go\n")
+	writeFile(t, filepath.Join(home, "2026-10-09-new.md"), "- [ ] 2.1 New owns: internal/a/a.go, internal/b/b.go\n")
+	commits := []Commit{{Sha: "abc1234", Files: []string{"internal/a/a.go"}}}
+	plan, tied := Select(home, "", nil, commits)
+	if filepath.Base(plan) != "2026-10-09-new.md" || tied != nil {
+		t.Fatalf("plan=%q tied=%v, want the newer partial-coverage plan over the older exact match", plan, tied)
+	}
+}
