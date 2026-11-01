@@ -2,6 +2,7 @@ package databricks
 
 import (
 	"bytes"
+	"crypto/rand"
 	"encoding/base64"
 	"flag"
 	"io"
@@ -525,4 +526,22 @@ func TestLaunchBetaInjectionFollowsProvider(t *testing.T) {
 	if slices.Contains(f.calls[0].env, betaOff) {
 		t.Error("preset provider owns the opt-out: launch must not inject it")
 	}
+}
+
+// useVaultTest isolates the vault in a temp config dir with a fresh master key.
+func useVaultTest(t *testing.T) string {
+	t.Helper()
+	dir := vaulttest.Use(t)
+	key := make([]byte, 32)
+	if _, err := rand.Read(key); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HARNESS_VAULT_KEY", base64.StdEncoding.EncodeToString(key))
+	return dir
+}
+
+// captureOutput runs fn with stdout/stderr captured.
+func captureOutput(t *testing.T, fn func() int) (code int, stdout, stderr string) {
+	t.Helper()
+	return runCaptured(t, fn)
 }
