@@ -26,6 +26,7 @@ follow `internal/router/table.json` as the single source.
 
 1. `claude-code agents` lists available agents (✓ = binary + credential). Availability is not a working
    credential: smoke-test once with `claude-code ask --agent <a> "Reply READY only."`.
+   Run it directly (codex answers in ~4s); the `code-agent` workflow skips it for codex (~90s of relay overhead).
 2. Assign agents round-robin across implementation steps and name it in the brief as `Agent: <name>`; keep the
    split even across the session. Assign `Agent: claude` when the brief would cost more than the work, the step
    needs context only this session holds, or the agent failed its smoke test.

@@ -35,7 +35,7 @@ only its own deltas (agent-specific rows, flags, and sections).
    — report it, never fall through to doing the work yourself silently.
 2. **Pick the verb** the request needs (each agent file's own selection rules).
 3. **Run it.** Any `ask` that may pass 150s uses `--background` (a foreground Bash call is moved
-   to the background at 180s and the leaf idles). Then loop `status <id>` with `sleep 20` until
+   to the background at 180s and the leaf idles). Then loop `status <id>` with `sleep 5` until
    done, and read `result <id>`; `cancel` on a stall.
 4. **Verify the result as a claim** — re-run what it claims where you can, spot-check at least one
    cited `file:line` per answer.
