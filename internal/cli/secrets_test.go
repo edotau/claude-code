@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/secrets"
+	"github.com/edotau/claude-code/internal/secretstore"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
@@ -32,7 +32,7 @@ func TestVaultSetCopilotTokenRefusesShortValue(t *testing.T) {
 	if !strings.Contains(stderr, "not a GitHub token") {
 		t.Fatalf("stderr = %q, want the not-a-GitHub-token refusal", stderr)
 	}
-	if _, _, ok := secrets.Get("COPILOT_GITHUB_TOKEN"); ok {
+	if _, _, ok := secretstore.Get("COPILOT_GITHUB_TOKEN"); ok {
 		t.Fatal("a refused value must not be stored")
 	}
 }
@@ -48,7 +48,7 @@ func TestVaultSetTailscaleCredentialRefusesMalformedShape(t *testing.T) {
 	if !strings.Contains(stderr, "want a client ID") {
 		t.Fatalf("stderr = %q, want the client-ID shape refusal", stderr)
 	}
-	if _, _, ok := secrets.Get("TAILSCALE_OAUTH_CLIENT_ID"); ok {
+	if _, _, ok := secretstore.Get("TAILSCALE_OAUTH_CLIENT_ID"); ok {
 		t.Fatal("a refused value must not be stored")
 	}
 }
@@ -63,13 +63,13 @@ func TestVaultSetCopilotTokenAcceptsValidShape(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("set COPILOT_GITHUB_TOKEN exit = %d", code)
 	}
-	if v, _, ok := secrets.Get("COPILOT_GITHUB_TOKEN"); !ok || secrets.Redact(v) != secrets.Redact(tok) {
+	if v, _, ok := secretstore.Get("COPILOT_GITHUB_TOKEN"); !ok || secretstore.Redact(v) != secretstore.Redact(tok) {
 		t.Fatal("COPILOT_GITHUB_TOKEN was not stored correctly")
 	}
 	if strings.Contains(stdout+stderr, tok) {
 		t.Fatal("set leaked the raw value")
 	}
-	if !strings.Contains(stderr, secrets.Redact(tok)) {
+	if !strings.Contains(stderr, secretstore.Redact(tok)) {
 		t.Fatal("set did not report the masked value")
 	}
 }
@@ -88,7 +88,7 @@ func TestVaultSetNameDryRunStoresNothing(t *testing.T) {
 	if strings.Contains(stdout+stderr, value) {
 		t.Fatal("dry run leaked the raw value")
 	}
-	if len(secrets.Names()) != 0 {
+	if len(secretstore.Names()) != 0 {
 		t.Fatal("dry run stored a secret")
 	}
 }
@@ -99,22 +99,22 @@ func TestVaultSetNameAndTailscaleRefused(t *testing.T) {
 	code, _, _ := captureOutput(t, func() int {
 		return cmdVault([]string{"set", "VAULT_TEST_DUMMY", "--tailscale"})
 	})
-	if code != 2 || len(secrets.Names()) != 0 {
-		t.Fatalf("set NAME --tailscale: exit %d, stored names=%v", code, secrets.Names())
+	if code != 2 || len(secretstore.Names()) != 0 {
+		t.Fatalf("set NAME --tailscale: exit %d, stored names=%v", code, secretstore.Names())
 	}
 }
 
 func TestVaultDeleteStoredSecret(t *testing.T) {
 	useVaultTest(t)
 	const value = "obviously-fake-delete"
-	if err := secrets.Store("VAULT_TEST_DUMMY", value); err != nil {
+	if err := secretstore.Store("VAULT_TEST_DUMMY", value); err != nil {
 		t.Fatal(err)
 	}
 	code, stdout, stderr := captureOutput(t, func() int {
 		return cmdVault([]string{"delete", "VAULT_TEST_DUMMY"})
 	})
-	if code != 0 || len(secrets.Names()) != 0 {
-		t.Fatalf("delete: exit %d, stored names=%v", code, secrets.Names())
+	if code != 0 || len(secretstore.Names()) != 0 {
+		t.Fatalf("delete: exit %d, stored names=%v", code, secretstore.Names())
 	}
 	if strings.Contains(stdout+stderr, value) {
 		t.Fatal("delete leaked the raw value")

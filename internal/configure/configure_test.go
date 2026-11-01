@@ -10,7 +10,7 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/secrets"
+	"github.com/edotau/claude-code/internal/secretstore"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -132,7 +132,7 @@ func TestResolveKeyOffersLoginAndKeyThenStoresPastedKey(t *testing.T) {
 	if !resolveKey(d, kt) {
 		t.Fatalf("resolveKey = false\n%s", out.String())
 	}
-	got, src, ok := secrets.Get("OPENAI_API_KEY")
+	got, src, ok := secretstore.Get("OPENAI_API_KEY")
 	if !ok || src != "vault" || got != "sk-test-value" {
 		t.Errorf("stored key = (%q, %q, %v)", got, src, ok)
 	}

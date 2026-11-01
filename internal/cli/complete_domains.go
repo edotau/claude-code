@@ -16,7 +16,7 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/schemas"
-	"github.com/edotau/claude-code/internal/secrets"
+	"github.com/edotau/claude-code/internal/secretstore"
 	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 	"github.com/edotau/claude-code/internal/worktree"
@@ -113,7 +113,7 @@ func secretNames() []string {
 		}
 	}
 	out = append(out, providers.OAuthTokenEnv)
-	out = append(out, secrets.Names()...)
+	out = append(out, secretstore.Names()...)
 	slices.Sort(out)
 	return slices.Compact(out)
 }

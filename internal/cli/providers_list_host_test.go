@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/secretstore"
 )
 
 func TestProviderListJSONCarriesHostNoSecret(t *testing.T) {
@@ -18,7 +19,7 @@ func TestProviderListJSONCarriesHostNoSecret(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := providers.SealSecret("DATABRICKS_DBX_HOST_PAT", secret); err != nil {
+	if err := secretstore.Store("DATABRICKS_DBX_HOST_PAT", secret); err != nil {
 		t.Fatal(err)
 	}
 	code, out, stderr := captureOutput(t, func() int { return configureProviderList("dbx-host", "json") })

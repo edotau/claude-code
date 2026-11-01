@@ -12,6 +12,7 @@ import (
 	"github.com/edotau/claude-code/internal/clipboard"
 	"github.com/edotau/claude-code/internal/databricks"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/secretstore"
 	uidialog "github.com/edotau/claude-code/internal/ui/dialog"
 	"github.com/edotau/claude-code/internal/ui/tui"
 )
@@ -281,7 +282,7 @@ func dbxSaveIdentity(d *dialog, env, mode, spID, secret string) error {
 		return err
 	}
 	if secret != "" {
-		if err := providers.SealSecret(providers.SecretName(providers.GroupDatabricks, env, providers.AuthM2M), secret); err != nil {
+		if err := secretstore.Store(providers.SecretName(providers.GroupDatabricks, env, providers.AuthM2M), secret); err != nil {
 			return err
 		}
 	}

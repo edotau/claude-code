@@ -31,6 +31,7 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/secrets"
+	"github.com/edotau/claude-code/internal/secretstore"
 	"github.com/edotau/claude-code/internal/ui/ansi"
 	uidialog "github.com/edotau/claude-code/internal/ui/dialog"
 	"github.com/edotau/claude-code/internal/ui/tui"
@@ -544,25 +545,25 @@ func probeCached(kt keyTarget) (status, detail string, age time.Duration) {
 		status, detail = probe(kt)
 		return status, detail, 0
 	}
-	if cached, cachedAge, ok := secrets.CachedProbe(meta[env], probeTTL, time.Now()); ok {
+	if cached, cachedAge, ok := secretstore.CachedProbe(meta[env], probeTTL, time.Now()); ok {
 		return cached, "", cachedAge
 	}
 	setAt := meta[env].SetAt
 	status, detail = probe(kt)
 	if status == "verified" || status == "rejected" {
-		_ = secrets.RecordProbe(env, status, time.Now(), setAt) // a failed cache write leaves the live result intact
+		_ = secretstore.RecordProbe(env, status, time.Now(), setAt) // a failed cache write leaves the live result intact
 	}
 	return status, detail, 0
 }
 
 // probeSource resolves env's launch source; unreadable vault metadata yields nil, forcing a live probe.
-func probeSource(env string) (meta map[string]secrets.Meta, src string) {
-	meta, err := secrets.LoadMeta()
+func probeSource(env string) (meta map[string]secretstore.Meta, src string) {
+	meta, err := secretstore.LoadMeta()
 	if err != nil {
-		_, src, _, _ = secrets.Effective(env) // meta unreadable: fall back to the live-lookup ladder
+		_, src, _, _ = secretstore.Effective(env) // meta unreadable: fall back to the live-lookup ladder
 		return nil, src
 	}
-	src, _ = secrets.Locate(env, meta)
+	src, _ = secretstore.Locate(env, meta)
 	return meta, src
 }
 
@@ -886,5 +887,5 @@ func secretLine(d *dialog, prompt string) (string, error) {
 // pastePreview masks a value for display; a NAME=value paste previews only its value.
 func pastePreview(raw string) string {
 	_, v := ParseAssignment(raw)
-	return secrets.Preview(v)
+	return secretstore.Preview(v)
 }

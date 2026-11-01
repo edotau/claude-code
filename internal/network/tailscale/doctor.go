@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/secrets"
+	"github.com/edotau/claude-code/internal/secretstore"
 	"github.com/edotau/claude-code/internal/shapes"
 )
 
@@ -52,7 +53,7 @@ var credentialNames = secrets.TailscaleNames
 func Credentials() []CredState {
 	out := make([]CredState, len(credentialNames))
 	for i, name := range credentialNames {
-		_, source, ok := secrets.Get(name)
+		_, source, ok := secretstore.Get(name)
 		out[i] = CredState{Name: name, Source: source, Present: ok}
 	}
 	return out
@@ -65,8 +66,8 @@ func credentialNote(ctx context.Context) (note string, ok bool) {
 	id, sec, api := cs[0].Present, cs[1].Present, cs[2].Present
 	switch {
 	case id && sec:
-		idVal, _, _ := secrets.Get("TAILSCALE_OAUTH_CLIENT_ID")
-		secVal, _, _ := secrets.Get("TAILSCALE_OAUTH_CLIENT_SECRET")
+		idVal, _, _ := secretstore.Get("TAILSCALE_OAUTH_CLIENT_ID")
+		secVal, _, _ := secretstore.Get("TAILSCALE_OAUTH_CLIENT_SECRET")
 		if err := shapes.ValidCredential("TAILSCALE_OAUTH_CLIENT_ID", idVal); err != nil {
 			return fmt.Sprintf("; TAILSCALE_OAUTH_CLIENT_ID malformed: %v", err), false
 		}
@@ -82,7 +83,7 @@ func credentialNote(ctx context.Context) (note string, ok bool) {
 		return "; api credential incomplete: need both TAILSCALE_OAUTH_CLIENT_ID and _SECRET", false
 	}
 	if api {
-		keyVal, _, _ := secrets.Get("TAILSCALE_API_KEY")
+		keyVal, _, _ := secretstore.Get("TAILSCALE_API_KEY")
 		if err := shapes.ValidCredential("TAILSCALE_API_KEY", keyVal); err != nil {
 			return fmt.Sprintf("; TAILSCALE_API_KEY malformed: %v", err), false
 		}

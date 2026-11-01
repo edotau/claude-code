@@ -12,6 +12,7 @@ import (
 	"github.com/edotau/claude-code/internal/audit"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/proc"
+	"github.com/edotau/claude-code/internal/secretstore"
 	"github.com/edotau/claude-code/internal/vault"
 )
 
@@ -288,45 +289,10 @@ func StoredSecret(name string) string {
 	return v
 }
 
-// EffectiveSecret reads the process env, then the vault, preserving vault read errors.
-func EffectiveSecret(name string) (value, source string, err error) {
-	if v := strings.TrimSpace(os.Getenv(name)); v != "" {
-		return v, "env", nil
-	}
-	v, found, err := vault.ReadSecret(name)
-	if err != nil {
-		return "", "", err
-	}
-	if found {
-		return v, "vault", nil
-	}
-	return "", "", nil
-}
-
 // HasSecret reports env or vault presence without resolving a master key; a vault read error reads as absent.
 func HasSecret(name string) string {
-	source, _ := HasSecretErr(name)
+	source, _ := secretstore.HasSecretErr(name)
 	return source
-}
-
-// HasSecretErr is HasSecret with the vault read error surfaced, for callers (configure provider --list) that must
-// not mistake an unreadable vault for "no credential".
-func HasSecretErr(name string) (source string, err error) {
-	if strings.TrimSpace(os.Getenv(name)) != "" {
-		return "env", nil
-	}
-	found := false
-	err = vault.View(func(tx *vault.Tx) error {
-		_, found = tx.Get(vault.Secrets, name)
-		return nil
-	})
-	if err != nil {
-		return "", err
-	}
-	if found {
-		return "vault", nil
-	}
-	return "", nil
 }
 
 // pinCaller names who wrote a pin — the verb and the parent process — so an unexpected switch can be traced.

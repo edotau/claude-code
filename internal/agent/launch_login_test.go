@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/secretstore"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
@@ -72,7 +73,7 @@ func loginSetup(t *testing.T, tty bool, input string, loginErr error) loginHarne
 		if loginErr != nil {
 			return loginErr
 		}
-		return providers.SealSecret(providers.AuthSecretName(&providers.Provider{Name: name, Provider: "databricks", Auth: providers.Auth{Type: providers.AuthOAuth}}), `{"refresh":"rt"}`) // oauth = one JSON value
+		return secretstore.Store(providers.AuthSecretName(&providers.Provider{Name: name, Provider: "databricks", Auth: providers.Auth{Type: providers.AuthOAuth}}), `{"refresh":"rt"}`) // oauth = one JSON value
 	}
 	return h
 }
@@ -200,7 +201,7 @@ func TestOfferLoginHungTokenCheckLaunchesWithoutPrompt(t *testing.T) {
 	t.Cleanup(srv.Close)
 	t.Cleanup(func() { close(release) }) // runs before srv.Close so the abandoned mint returns promptly
 	p := u2mRow("hung", srv.URL)
-	if err := providers.SealSecret(providers.AuthSecretName(p), `{"refresh":"rt"}`); err != nil {
+	if err := secretstore.Store(providers.AuthSecretName(p), `{"refresh":"rt"}`); err != nil {
 		t.Fatal(err)
 	}
 	oldTimeout := credCheckTimeout

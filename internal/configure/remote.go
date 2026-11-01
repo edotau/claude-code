@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/network/tailscale"
-	"github.com/edotau/claude-code/internal/secrets"
+	"github.com/edotau/claude-code/internal/secretstore"
 )
 
 // cgnatRemote is the 100.64.0.0/10 block tailscale assigns IPv4 node addresses from.
@@ -53,13 +53,13 @@ func runRemote(d *dialog) bool {
 
 // hasAdminCredential reports, by name only, whether a tailscale admin API credential is set.
 func hasAdminCredential() bool {
-	if _, _, ok := secrets.Get("TAILSCALE_OAUTH_CLIENT_ID"); ok {
+	if _, _, ok := secretstore.Get("TAILSCALE_OAUTH_CLIENT_ID"); ok {
 		return true
 	}
-	if _, _, ok := secrets.Get("TAILSCALE_OAUTH_CLIENT_SECRET"); ok {
+	if _, _, ok := secretstore.Get("TAILSCALE_OAUTH_CLIENT_SECRET"); ok {
 		return true
 	}
-	_, _, ok := secrets.Get("TAILSCALE_API_KEY")
+	_, _, ok := secretstore.Get("TAILSCALE_API_KEY")
 	return ok
 }
 

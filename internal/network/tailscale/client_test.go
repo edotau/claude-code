@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-// hermeticSecrets blocks the keyring and file plane so secrets.Get resolves from the process env only.
+// hermeticSecrets blocks the keyring and file plane so secretstore.Get resolves from the process env only.
 func hermeticSecrets(t *testing.T) {
 	t.Helper()
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())

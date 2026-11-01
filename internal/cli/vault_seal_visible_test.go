@@ -11,22 +11,23 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/secrets"
+	"github.com/edotau/claude-code/internal/secretstore"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
-// SealSecret (used by login/mint) and `vault set` (secrets.Store) must land the same visible record.
+// SealSecret (used by login/mint) and `vault set` (secretstore.Store) must land the same visible record.
 func TestSealSecretVisibleLikeVaultSet(t *testing.T) {
 	useVaultTest(t)
 	const val = "abcdefghijklmnopqrstuvwxyz0123"
-	if err := secrets.Store("ZZ_STORE_SECRET", val); err != nil {
+	if err := secretstore.Store("ZZ_STORE_SECRET", val); err != nil {
 		t.Fatal(err)
 	}
-	if err := providers.SealSecret("ZZ_SEALED_SECRET", val); err != nil {
+	if err := secretstore.Store("ZZ_SEALED_SECRET", val); err != nil {
 		t.Fatal(err)
 	}
 	for _, n := range []string{"ZZ_STORE_SECRET", "ZZ_SEALED_SECRET"} {
-		if got, src, err := secrets.Lookup(n); err != nil || got != val || src != "vault" {
+		if got, src, err := secretstore.Lookup(n); err != nil || got != val || src != "vault" {
 			t.Errorf("Lookup(%s) = %q (%s) %v", n, got, src, err)
 		}
 	}
@@ -88,14 +89,14 @@ func TestClearProviderAuthMatchesSealedSecretAndEnv(t *testing.T) {
 	}
 }
 
-// A SealSecret write must carry the same metadata prefix, length and audit entry as `vault set` (secrets.Store).
+// A SealSecret write must carry the same metadata prefix, length and audit entry as `vault set` (secretstore.Store).
 func TestSealSecretMetadataAndAuditMatchStore(t *testing.T) {
 	useVaultTest(t)
 	const val = "dapi-abcdefghijklmnopqrstuvwxyz0123"
-	if err := secrets.Store("ZZ_VIA_STORE", val); err != nil {
+	if err := secretstore.Store("ZZ_VIA_STORE", val); err != nil {
 		t.Fatal(err)
 	}
-	if err := providers.SealSecret("ZZ_VIA_SEAL", val); err != nil {
+	if err := secretstore.Store("ZZ_VIA_SEAL", val); err != nil {
 		t.Fatal(err)
 	}
 	stored, err := secrets.ListStored([]string{"ZZ_VIA_STORE", "ZZ_VIA_SEAL"})

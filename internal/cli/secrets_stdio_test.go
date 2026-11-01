@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/secrets"
+	"github.com/edotau/claude-code/internal/secretstore"
 )
 
 func withStdin(t *testing.T, content string) {
@@ -29,7 +30,7 @@ func withStdin(t *testing.T, content string) {
 
 func TestVaultExportRejectsStdout(t *testing.T) {
 	useVaultTest(t)
-	if err := secrets.Store("ALPHA", "obviously-fake-alpha"); err != nil {
+	if err := secretstore.Store("ALPHA", "obviously-fake-alpha"); err != nil {
 		t.Fatal(err)
 	}
 	code, stdout, stderr := captureOutput(t, func() int { return cmdVault([]string{"export", "--out", "-"}) })
@@ -46,7 +47,7 @@ func TestVaultExportFileOnly(t *testing.T) {
 			dir := t.TempDir()
 			t.Chdir(dir)
 			const value = "obviously-fake-alpha"
-			if err := secrets.Store("ALPHA", value); err != nil {
+			if err := secretstore.Store("ALPHA", value); err != nil {
 				t.Fatal(err)
 			}
 			path := filepath.Join(dir, ".env")
@@ -77,7 +78,7 @@ func TestVaultExportFileOnly(t *testing.T) {
 			if len(problems) != 0 || len(pairs) != 1 || pairs[0].Name != "ALPHA" {
 				t.Fatal("export did not preserve exactly one masked NAME=value row")
 			}
-			if secrets.Redact(pairs[0].Value) != secrets.Redact(value) {
+			if secretstore.Redact(pairs[0].Value) != secretstore.Redact(value) {
 				t.Fatal("export changed the masked value")
 			}
 		})
@@ -92,7 +93,7 @@ func TestVaultImportDashFromPipeRequiresYes(t *testing.T) {
 		t.Fatalf("import - without --yes: exit %d, missing confirmation hint=%v",
 			code, !strings.Contains(stderr, "--yes"))
 	}
-	if v, _, _ := secrets.Lookup("GAMMA"); v != "" {
+	if v, _, _ := secretstore.Lookup("GAMMA"); v != "" {
 		t.Fatal("GAMMA stored despite missing --yes")
 	}
 }
@@ -106,8 +107,8 @@ func TestVaultImportDashFromPipeWithYesStores(t *testing.T) {
 		t.Fatalf("import - --yes exit = %d", code)
 	}
 	for name, value := range values {
-		got, source, err := secrets.Lookup(name)
-		if err != nil || source != "vault" || secrets.Redact(got) != secrets.Redact(value) {
+		got, source, err := secretstore.Lookup(name)
+		if err != nil || source != "vault" || secretstore.Redact(got) != secretstore.Redact(value) {
 			t.Errorf("%s was not imported into the vault correctly", name)
 		}
 		if strings.Contains(stdout+stderr, value) {
@@ -124,7 +125,7 @@ func TestVaultImportDashMalformedWritesNothing(t *testing.T) {
 		t.Fatalf("malformed import: exit %d, nothing-written hint=%v",
 			code, strings.Contains(stderr, "nothing written"))
 	}
-	if v, _, _ := secrets.Lookup("GAMMA"); v != "" {
+	if v, _, _ := secretstore.Lookup("GAMMA"); v != "" {
 		t.Fatal("GAMMA stored despite a malformed sibling line")
 	}
 }
@@ -135,7 +136,7 @@ func TestVaultGetMultipleNames(t *testing.T) {
 			useVaultTest(t)
 			values := []string{"obviously-fake-alpha", "obviously-fake-beta's-value"}
 			for i, name := range []string{"ALPHA", "BETA"} {
-				if err := secrets.Store(name, values[i]); err != nil {
+				if err := secretstore.Store(name, values[i]); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -154,7 +155,7 @@ func TestVaultGetMultipleNames(t *testing.T) {
 				if export {
 					value = "'" + strings.ReplaceAll(value, "'", `'"'"'`) + "'"
 				}
-				stdout = strings.ReplaceAll(stdout, value, secrets.Redact(values[i]))
+				stdout = strings.ReplaceAll(stdout, value, secretstore.Redact(values[i]))
 				prefix := ""
 				if export {
 					prefix = "export "
@@ -162,7 +163,7 @@ func TestVaultGetMultipleNames(t *testing.T) {
 				wantSb151.WriteString(prefix)
 				wantSb151.WriteString(name)
 				wantSb151.WriteByte('=')
-				wantSb151.WriteString(secrets.Redact(values[i]))
+				wantSb151.WriteString(secretstore.Redact(values[i]))
 				wantSb151.WriteByte('\n')
 			}
 			want += wantSb151.String()
@@ -176,7 +177,7 @@ func TestVaultGetMultipleNames(t *testing.T) {
 func TestVaultGetMissingNamePrintsNothing(t *testing.T) {
 	useVaultTest(t)
 	t.Setenv("ABSENT_VAULT_TEST_KEY", "")
-	if err := secrets.Store("ALPHA", "obviously-fake-alpha"); err != nil {
+	if err := secretstore.Store("ALPHA", "obviously-fake-alpha"); err != nil {
 		t.Fatal(err)
 	}
 	code, stdout, _ := captureOutput(t, func() int {
@@ -207,7 +208,7 @@ func TestVaultImportRejectsBadGitHubToken(t *testing.T) {
 	if code == 0 || !strings.Contains(stderr, "not a GitHub token") {
 		t.Fatalf("exit %d, stderr=%q, want a GitHub-token rejection", code, stderr)
 	}
-	if v, _, _ := secrets.Lookup("GITHUB_WORK_PAT"); v != "" {
+	if v, _, _ := secretstore.Lookup("GITHUB_WORK_PAT"); v != "" {
 		t.Fatal("bad GitHub token stored by import")
 	}
 }

@@ -14,6 +14,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/edotau/claude-code/internal/secretstore"
 	"github.com/edotau/claude-code/internal/vault"
 )
 
@@ -88,7 +89,7 @@ func ExportPairs(only []string) ([]Pair, error) {
 
 // ListStored lists only vault records, filtered and sorted, without decrypting or including process env values.
 func ListStored(only []string) ([]Stored, error) {
-	meta, err := LoadMeta()
+	meta, err := secretstore.LoadMeta()
 	if err != nil {
 		return nil, err
 	}

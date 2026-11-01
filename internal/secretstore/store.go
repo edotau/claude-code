@@ -1,4 +1,6 @@
-package secrets
+// Package secretstore is the vault-backed secret store core: sealed writes, lookups and display metadata.
+// It imports only vault, audit and shapes so providers can depend on it; the credential audits live in secrets.
+package secretstore
 
 import (
 	"fmt"
@@ -7,12 +9,8 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/audit"
-	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault"
 )
-
-// init routes providers.SealSecret through Store so login-sealed secrets match `vault set` (prefix + audit).
-func init() { providers.RegisterSealer(Store) }
 
 // Names returns sorted vault secret names without resolving a key; an unreadable vault yields nil.
 func Names() []string {
@@ -140,7 +138,7 @@ func Get(name string) (value, source string, ok bool) {
 
 // Effective reads env before vault; shadowed reports a vault record hidden by the env value, without a key.
 func Effective(name string) (value, source, shadowed string, ok bool) {
-	value, source, err := providers.EffectiveSecret(name)
+	value, source, err := EffectiveSecret(name)
 	if err != nil || value == "" {
 		return "", "", "", false
 	}
@@ -169,4 +167,39 @@ func Locate(name string, meta map[string]Meta) (source, shadowed string) {
 		return "vault", ""
 	}
 	return "", ""
+}
+
+// EffectiveSecret reads the process env, then the vault, preserving vault read errors.
+func EffectiveSecret(name string) (value, source string, err error) {
+	if v := strings.TrimSpace(os.Getenv(name)); v != "" {
+		return v, "env", nil
+	}
+	v, found, err := vault.ReadSecret(name)
+	if err != nil {
+		return "", "", err
+	}
+	if found {
+		return v, "vault", nil
+	}
+	return "", "", nil
+}
+
+// HasSecretErr reports env or vault presence without resolving a master key, surfacing the vault read error for
+// callers (configure provider --list) that must not mistake an unreadable vault for "no credential".
+func HasSecretErr(name string) (source string, err error) {
+	if strings.TrimSpace(os.Getenv(name)) != "" {
+		return "env", nil
+	}
+	found := false
+	err = vault.View(func(tx *vault.Tx) error {
+		_, found = tx.Get(vault.Secrets, name)
+		return nil
+	})
+	if err != nil {
+		return "", err
+	}
+	if found {
+		return "vault", nil
+	}
+	return "", nil
 }

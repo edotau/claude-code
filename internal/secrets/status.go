@@ -6,6 +6,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/secretstore"
 )
 
 // ProviderStatus is one provider's credential state: which source would serve it today, never the
@@ -33,7 +34,7 @@ func Resolve(p *providers.Provider) ProviderStatus {
 		return st
 	}
 	if p.Auth.Env != "" {
-		source, err := providers.HasSecretErr(p.Auth.Env)
+		source, err := secretstore.HasSecretErr(p.Auth.Env)
 		st.Source = source
 		if err != nil {
 			st.Note = "vault unreadable: " + err.Error()

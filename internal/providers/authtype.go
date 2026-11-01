@@ -18,9 +18,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/edotau/claude-code/internal/audit"
 	"github.com/edotau/claude-code/internal/databricks/oauth"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/secretstore"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/vault"
 )
@@ -109,7 +109,7 @@ func writeOAuth(p *Provider, ov oauthValue) error {
 	if err != nil {
 		return err
 	}
-	return SealSecret(AuthSecretName(p), string(b))
+	return secretstore.Store(AuthSecretName(p), string(b))
 }
 
 // sealedAuth reports whether the auth type keeps its credential in the vault.
@@ -333,7 +333,7 @@ func mintSP(ctx context.Context, p *Provider) (string, error) {
 		return "", fmt.Errorf("%s: identity sp needs a paired service principal (auth.spClientId)", p.Name)
 	}
 	name := SecretName(p.provider(), p.Name, AuthM2M)
-	secret, _, err := EffectiveSecret(name)
+	secret, _, err := secretstore.EffectiveSecret(name)
 	if err != nil {
 		return "", fmt.Errorf("%s: vault: %w", p.Name, err)
 	}
@@ -455,7 +455,7 @@ func mintSecret(p *Provider) (string, error) {
 		ov, err := readOAuth(p)
 		return strings.TrimSpace(ov.Refresh), err
 	}
-	v, _, err := EffectiveSecret(AuthSecretName(p))
+	v, _, err := secretstore.EffectiveSecret(AuthSecretName(p))
 	return v, err
 }
 
@@ -464,33 +464,6 @@ func authHint(p *Provider, name string) string {
 		return "run `claude-code databricks login --profile " + p.Name + "`, or `claude-code configure` and pick Set up"
 	}
 	return "set " + name + " with `claude-code vault set`"
-}
-
-// sealer is the registered one-line sealer; internal/secrets installs Store (metadata prefix + audit) at init.
-var sealer = sealDirect
-
-// RegisterSealer routes SealSecret through fn so every sealed write lands the same record and audit entry.
-func RegisterSealer(fn func(name, value string) error) { sealer = fn }
-
-// SealSecret stores a one-line value sealed in the vault under name.
-func SealSecret(name, value string) error {
-	if strings.ContainsAny(value, "\r\n") {
-		return fmt.Errorf("%s: a secret must be one line", name)
-	}
-	return sealer(name, value)
-}
-
-// sealDirect is the fallback when internal/secrets is not linked (providers cannot import it): no metadata prefix.
-func sealDirect(name, value string) error {
-	if err := vault.UpdateSealed(func(tx *vault.Tx, key *vault.Key) error {
-		return tx.PutRecord(name, vault.Record{
-			Sealed: key.Seal(name, value), Kid: key.Kid, Len: len(value), SetAt: time.Now(),
-		})
-	}); err != nil {
-		return err
-	}
-	audit.Log(audit.SecretSet, name, "vault")
-	return nil
 }
 
 // LoginU2M runs the browser login for a u2m row, seals the refresh token, mints once and returns the token's lifetime.

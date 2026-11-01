@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/secrets"
+	"github.com/edotau/claude-code/internal/secretstore"
 	"github.com/edotau/claude-code/internal/vault"
 )
 
@@ -51,7 +51,7 @@ func initSecret() (string, error) {
 		}
 		val = hex.EncodeToString(b)
 	}
-	if err := secrets.Store(secretName, val); err != nil {
+	if err := secretstore.Store(secretName, val); err != nil {
 		return "", secretErr(err)
 	}
 	if got, found, err := vault.ReadSecret(secretName); err != nil || !found || got != val {

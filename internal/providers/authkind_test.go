@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/edotau/claude-code/internal/secretstore"
 	"net/http"
 	"net/url"
 	"slices"
@@ -60,7 +61,7 @@ func TestPATCredentialAndPresence(t *testing.T) {
 	if CredentialPresent(p) {
 		t.Fatal("present before sealing")
 	}
-	if err := SealSecret(AuthSecretName(p), "dapi-test-value"); err != nil {
+	if err := secretstore.Store(AuthSecretName(p), "dapi-test-value"); err != nil {
 		t.Fatal(err)
 	}
 	if !CredentialPresent(p) {

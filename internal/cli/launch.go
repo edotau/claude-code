@@ -20,6 +20,7 @@ import (
 	"github.com/edotau/claude-code/internal/launch"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/secretstore"
 	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/ui/ansi"
 	"github.com/edotau/claude-code/internal/ui/helptext"
@@ -132,7 +133,7 @@ func anthropicSecret(o agent.AnthropicOptions) (string, error) {
 		if o.Mode == agent.AuthOAuth {
 			return providers.StoredSecret(o.Name), nil
 		}
-		v, _, err := providers.EffectiveSecret(o.Name)
+		v, _, err := secretstore.EffectiveSecret(o.Name)
 		return v, err
 	}
 	if v, err := read(); err != nil {

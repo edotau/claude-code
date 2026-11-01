@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/edotau/claude-code/internal/secretstore"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -48,7 +49,7 @@ func TestAuthOAuthM2MMintsViaOIDC(t *testing.T) {
 		return 200, map[string]any{"access_token": "m2m-minted", "expires_in": 3600}
 	})
 	p := mintRow(t, "kind-m2m-ok", AuthM2M, "sp-client", srv.URL)
-	if err := SealSecret(AuthSecretName(p), "sp-secret-xyz"); err != nil {
+	if err := secretstore.Store(AuthSecretName(p), "sp-secret-xyz"); err != nil {
 		t.Fatal(err)
 	}
 	got, err := Credential(context.Background(), p)
@@ -71,7 +72,7 @@ func TestAuthOAuthM2MRejectedHidesSecret(t *testing.T) {
 		return 401, map[string]any{"error": "invalid_client", "error_description": "Client authentication failed"}
 	})
 	p := mintRow(t, "kind-m2m-bad", AuthM2M, "sp-client", srv.URL)
-	if err := SealSecret(AuthSecretName(p), "sp-secret-xyz"); err != nil {
+	if err := secretstore.Store(AuthSecretName(p), "sp-secret-xyz"); err != nil {
 		t.Fatal(err)
 	}
 	_, err := Credential(context.Background(), p)

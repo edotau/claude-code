@@ -15,7 +15,7 @@ import (
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/schemas"
-	"github.com/edotau/claude-code/internal/secrets"
+	"github.com/edotau/claude-code/internal/secretstore"
 	"github.com/edotau/claude-code/internal/shapes"
 )
 
@@ -149,12 +149,12 @@ func moduleEnv(base []string) ([]string, map[string]bool) {
 	return out, locked
 }
 
-// customEnv is the vault env bucket resolved (@secret refs via secrets.Lookup); an unresolved ref is warned, not
+// customEnv is the vault env bucket resolved (@secret refs via secretstore.Lookup); an unresolved ref is warned, not
 // set — a Lookup error (e.g. a locked vault) also leaves the key out of vals, so a base env value survives.
 var customEnv = func() map[string]string {
 	errored := map[string]bool{}
 	vals, missing, err := providers.ResolveCustomEnv(func(k string) (string, bool) {
-		v, _, err := secrets.Lookup(k)
+		v, _, err := secretstore.Lookup(k)
 		if err != nil {
 			fmt.Fprintf(NoticeOut, "claude-code: custom env %s: %v; not set\n", k, err)
 			errored[k] = true

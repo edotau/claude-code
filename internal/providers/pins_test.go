@@ -1,6 +1,7 @@
 package providers
 
 import (
+	"github.com/edotau/claude-code/internal/secretstore"
 	"strings"
 	"testing"
 
@@ -144,12 +145,12 @@ func TestEffectiveSecretOrder(t *testing.T) {
 	t.Setenv("ORDER_NAME", "")
 	vaulttest.Secret(t, "ORDER_NAME", "from-vault")
 
-	if v, src, err := EffectiveSecret("ORDER_NAME"); err != nil || v != "from-vault" || src != "vault" {
+	if v, src, err := secretstore.EffectiveSecret("ORDER_NAME"); err != nil || v != "from-vault" || src != "vault" {
 		t.Errorf("EffectiveSecret (vault) = (%q, %q, %v), want (from-vault, vault, nil)", v, src, err)
 	}
 
 	t.Setenv("ORDER_NAME", "  from-env\n")
-	if v, src, err := EffectiveSecret("ORDER_NAME"); err != nil || v != "from-env" || src != "env" {
+	if v, src, err := secretstore.EffectiveSecret("ORDER_NAME"); err != nil || v != "from-env" || src != "env" {
 		t.Errorf("EffectiveSecret (env beats vault) = (%q, %q, %v), want (from-env, env, nil)", v, src, err)
 	}
 }
@@ -160,7 +161,7 @@ func TestEffectiveSecretIgnoresWhitespaceOnlyEnv(t *testing.T) {
 	vaulttest.Secret(t, "WS_NAME", "from-vault")
 	t.Setenv("WS_NAME", "   ")
 
-	if v, src, err := EffectiveSecret("WS_NAME"); err != nil || v != "from-vault" || src != "vault" {
+	if v, src, err := secretstore.EffectiveSecret("WS_NAME"); err != nil || v != "from-vault" || src != "vault" {
 		t.Errorf("EffectiveSecret with whitespace-only env = (%q, %q, %v), want (from-vault, vault, nil)", v, src, err)
 	}
 	if got := HasSecret("WS_NAME"); got != "vault" {
@@ -173,7 +174,7 @@ func TestEffectiveSecretMiss(t *testing.T) {
 	vaulttest.UseKeyring(t)
 	t.Setenv("NEVER_SET_ANYWHERE", "")
 
-	if v, src, err := EffectiveSecret("NEVER_SET_ANYWHERE"); v != "" || src != "" || err != nil {
+	if v, src, err := secretstore.EffectiveSecret("NEVER_SET_ANYWHERE"); v != "" || src != "" || err != nil {
 		t.Errorf("EffectiveSecret(miss) = (%q, %q, %v), want (\"\", \"\", nil)", v, src, err)
 	}
 	if got := HasSecret("NEVER_SET_ANYWHERE"); got != "" {
@@ -185,7 +186,7 @@ func TestEffectiveSecretMiss(t *testing.T) {
 func TestEffectiveSecretLockedVaultErrors(t *testing.T) {
 	lockVault(t, "LOCKED_NAME", "sealed")
 	t.Setenv("LOCKED_NAME", "")
-	if v, src, err := EffectiveSecret("LOCKED_NAME"); err == nil || v != "" || src != "" {
+	if v, src, err := secretstore.EffectiveSecret("LOCKED_NAME"); err == nil || v != "" || src != "" {
 		t.Errorf("EffectiveSecret(locked) = (%q, %q, %v), want an error and no value", v, src, err)
 	}
 	if got := StoredSecret("LOCKED_NAME"); got != "" {

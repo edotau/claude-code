@@ -7,7 +7,7 @@ import (
 	"slices"
 
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/secrets"
+	"github.com/edotau/claude-code/internal/secretstore"
 	"github.com/edotau/claude-code/internal/ui/tui"
 )
 
@@ -134,12 +134,12 @@ func saveKeys(d *dialog) bool {
 	stored := make([]string, 0, len(d.pending))
 	for _, name := range slices.Sorted(maps.Keys(d.pending)) {
 		k := d.pending[name]
-		if err := secrets.Store(name, k.val); err != nil {
+		if err := secretstore.Store(name, k.val); err != nil {
 			d.printf("%s: not saved: %v\n", name, err)
 			ok = false
 			continue
 		}
-		d.printf("saved %s to the vault (%s)\n", name, secrets.Redact(k.val))
+		d.printf("saved %s to the vault (%s)\n", name, secretstore.Redact(k.val))
 		stored = append(stored, name)
 	}
 	for _, name := range stored {

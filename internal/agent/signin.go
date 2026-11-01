@@ -16,7 +16,7 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
-	"github.com/edotau/claude-code/internal/secrets"
+	"github.com/edotau/claude-code/internal/secretstore"
 	"github.com/edotau/claude-code/internal/shapes"
 )
 
@@ -39,7 +39,7 @@ var (
 // Test seams: the credential mint, the secret store, the agent probes.
 var (
 	credential         = providers.Credential
-	storeSecret        = secrets.Store
+	storeSecret        = secretstore.Store
 	claudeStatus       = providers.ClaudeLoginProbe
 	signinCopilotLogin = CopilotStoredLogin
 	runLogin           = runLoginCLI
@@ -107,7 +107,7 @@ type secretSignin struct{ p *providers.Provider }
 
 func (s secretSignin) Check(ctx context.Context) (providers.AuthVerdict, string) {
 	if s.p.Auth.Sealed() {
-		if _, err := providers.HasSecretErr(providers.AuthSecretName(s.p)); err != nil { // a locked vault is not "absent"
+		if _, err := secretstore.HasSecretErr(providers.AuthSecretName(s.p)); err != nil { // a locked vault is not "absent"
 			return providers.VerdictTransient, "vault: " + err.Error()
 		}
 	}

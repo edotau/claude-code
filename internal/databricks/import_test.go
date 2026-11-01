@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/secrets"
+	"github.com/edotau/claude-code/internal/secretstore"
 	"github.com/edotau/claude-code/internal/vault"
 )
 
@@ -66,7 +66,7 @@ func TestVaultImportDatabrickscfg(t *testing.T) {
 	if reg.Providers["DEFAULT"] != nil || reg.Providers["__settings__"] != nil {
 		t.Error("DEFAULT/__settings__ imported")
 	}
-	names := secrets.Names()
+	names := secretstore.Names()
 	for _, n := range []string{"DATABRICKS_SVC_M2M_M2M", "DATABRICKS_PAT_RENAMED_PAT"} {
 		if !slices.Contains(names, n) {
 			t.Errorf("secret %s not sealed (have %v)", n, names)

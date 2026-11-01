@@ -15,7 +15,7 @@ import (
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/secrets"
+	"github.com/edotau/claude-code/internal/secretstore"
 	uidialog "github.com/edotau/claude-code/internal/ui/dialog"
 )
 
@@ -250,7 +250,7 @@ var codexKeyLogin = func(key string) error {
 
 // codexUseKey points codex's own auth at the stored OPENAI_API_KEY.
 func codexUseKey(d *dialog) bool {
-	key, _, ok := secrets.Get("OPENAI_API_KEY")
+	key, _, ok := secretstore.Get("OPENAI_API_KEY")
 	if !ok || key == "" {
 		d.printf("codex: OPENAI_API_KEY not found in the vault\n")
 		return false
@@ -440,7 +440,7 @@ func curMark(current bool) string {
 // copilotKeyRow pastes (or rotates) a GitHub token into COPILOT_GITHUB_TOKEN; it outranks gh's active account.
 func copilotKeyRow(d *dialog) billingRow {
 	env := agent.CopilotTokenEnv
-	_, src, ok := secrets.Get(env)
+	_, src, ok := secretstore.Get(env)
 	stored := ok && src != "env"
 	return billingRow{modeAPIKey, "paste a GitHub token → " + env + " " + bracket(stored, "token set", "no token"), modeAPIKey, func() bool {
 		kt := keyTarget{label: "copilot", envVar: env, fixCmd: "claude-code vault set " + env}

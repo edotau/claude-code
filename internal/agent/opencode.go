@@ -16,7 +16,7 @@ import (
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
-	"github.com/edotau/claude-code/internal/secrets"
+	"github.com/edotau/claude-code/internal/secretstore"
 )
 
 var idRE = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
@@ -481,7 +481,7 @@ func opencodeCredential(prefix string) (env []string, err error) {
 		return nil, nil
 	}
 	if id == "opencode" {
-		if v, _, ok := secrets.Get(OpencodeAPIKeyEnv); ok && strings.TrimSpace(v) != "" {
+		if v, _, ok := secretstore.Get(OpencodeAPIKeyEnv); ok && strings.TrimSpace(v) != "" {
 			return []string{OpencodeAPIKeyEnv + "=" + strings.TrimSpace(v)}, nil
 		}
 		return nil, fmt.Errorf("opencode has no opencode login (opencode auth login) and no %s in the vault", OpencodeAPIKeyEnv)

@@ -13,7 +13,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/audit"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/secrets"
+	"github.com/edotau/claude-code/internal/secretstore"
 	"github.com/edotau/claude-code/internal/shapes"
 	"github.com/edotau/claude-code/internal/ui/ansi"
 	uidialog "github.com/edotau/claude-code/internal/ui/dialog"
@@ -40,10 +40,10 @@ func trackedSecrets(reg *providers.Registry) []trackedSecret {
 			users[env] = append(users[env], n)
 		}
 	}
-	meta, metaErr := secrets.LoadMeta()
+	meta, metaErr := secretstore.LoadMeta()
 	if metaErr != nil {
 		// Names reads vault names without decoding records, which may still work when metadata is unreadable.
-		for _, env := range secrets.Names() {
+		for _, env := range secretstore.Names() {
 			if _, ok := users[env]; !ok {
 				users[env] = []string{"custom"}
 			}
@@ -59,9 +59,9 @@ func trackedSecrets(reg *providers.Registry) []trackedSecret {
 	for name, u := range users {
 		var src, shadowed string
 		if metaErr == nil {
-			src, shadowed = secrets.Locate(name, meta)
+			src, shadowed = secretstore.Locate(name, meta)
 		} else {
-			_, src, shadowed, _ = secrets.Effective(name)
+			_, src, shadowed, _ = secretstore.Effective(name)
 		}
 		out = append(out, trackedSecret{name: name, source: src, shadowed: shadowed, users: strings.Join(u, ", ")})
 	}
@@ -160,7 +160,7 @@ func editSecret(d *dialog, s trackedSecret) {
 				d.printf("staged delete of %s · Submit removes it from the vault\n", s.name)
 				return true
 			}
-			if err := secrets.Delete(s.name); err != nil {
+			if err := secretstore.Delete(s.name); err != nil {
 				d.printf("%s: %v\n", s.name, err)
 				return false
 			}
@@ -228,14 +228,14 @@ func storeValue(d *dialog, name, val string) bool {
 			return false
 		}
 		delete(d.pendingDeletes, name) // re-picking a staged delete to paste a new value must cancel the delete
-		d.printf("staged %s (%s) · Submit saves it to the secrets manager\n", name, secrets.Redact(val))
+		d.printf("staged %s (%s) · Submit saves it to the secrets manager\n", name, secretstore.Redact(val))
 		return true
 	}
-	if err := secrets.Store(name, val); err != nil {
+	if err := secretstore.Store(name, val); err != nil {
 		d.printf("%s: %v\n", name, err)
 		return false
 	}
-	d.printf("wrote %s to the vault (%s)\n", name, secrets.Redact(val))
+	d.printf("wrote %s to the vault (%s)\n", name, secretstore.Redact(val))
 	return true
 }
 
@@ -258,7 +258,7 @@ func confirmPageKeys(d *dialog, before map[string]stagedKey) {
 		if prev, ok := before[name]; ok && prev.val == k.val {
 			continue
 		}
-		if v, _, ok := secrets.Get(name); ok && v == k.val && k.had && k.prev == v {
+		if v, _, ok := secretstore.Get(name); ok && v == k.val && k.had && k.prev == v {
 			continue // re-entered the value already stored: not a change
 		}
 		page = append(page, name)
@@ -278,15 +278,15 @@ func confirmPageKeys(d *dialog, before map[string]stagedKey) {
 	}
 	for _, name := range page {
 		k := d.pending[name]
-		if err := secrets.Store(name, k.val); err != nil {
+		if err := secretstore.Store(name, k.val); err != nil {
 			d.printf("%s: not saved: %v\n", name, err)
 			continue
 		}
-		d.printf("saved %s to the vault (%s)\n", name, secrets.Redact(k.val))
+		d.printf("saved %s to the vault (%s)\n", name, secretstore.Redact(k.val))
 		delete(d.pending, name) // stored: the env it exported stays, Submit has nothing left to do for it
 	}
 	for _, name := range deletes {
-		if err := secrets.Delete(name); err != nil {
+		if err := secretstore.Delete(name); err != nil {
 			d.printf("%s: not deleted: %v\n", name, err)
 			continue
 		}

@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/secrets"
+	"github.com/edotau/claude-code/internal/secretstore"
 	"github.com/edotau/claude-code/internal/vault"
 )
 
@@ -39,7 +39,7 @@ func TestImportPairedCredential(t *testing.T) {
 			if reg, _ := providers.Load(); reg.Providers["dev"] != nil {
 				t.Fatal("dry-run wrote a profile")
 			}
-			if len(secrets.Names()) != 0 {
+			if len(secretstore.Names()) != 0 {
 				t.Fatal("dry-run sealed credentials")
 			}
 			code, out, errs := captureOutput(t, func() int { return importCfg(args) })
@@ -57,14 +57,14 @@ func TestImportPairedCredential(t *testing.T) {
 				t.Fatal("paired SP became a separate row")
 			}
 			if seal {
-				val, source, err := secrets.Lookup("DATABRICKS_DEV_M2M")
+				val, source, err := secretstore.Lookup("DATABRICKS_DEV_M2M")
 				if err != nil || val != "test-only-sp-value" || source != "vault" {
 					t.Fatalf("paired credential: %s %v", source, err)
 				}
-				if got := secrets.Names(); !slices.Equal(got, []string{"DATABRICKS_DEV_M2M"}) {
+				if got := secretstore.Names(); !slices.Equal(got, []string{"DATABRICKS_DEV_M2M"}) {
 					t.Fatalf("sealed names = %v", got)
 				}
-			} else if len(secrets.Names()) != 0 {
+			} else if len(secretstore.Names()) != 0 {
 				t.Fatal("sealed without --seal-secrets")
 			}
 			if code, _, _ := captureOutput(t, func() int { return importCfg(args) }); code != 0 {
@@ -224,12 +224,12 @@ func TestImportFoldSealedCredentials(t *testing.T) {
 			seedLegacyRows(t)
 			old := legacyUserPrefix + "dev"
 			for _, method := range []string{providers.AuthOAuth, providers.AuthM2M, providers.AuthPAT} {
-				if err := secrets.Store(secretName(old, method), "test-only-legacy-"+method); err != nil {
+				if err := secretstore.Store(secretName(old, method), "test-only-legacy-"+method); err != nil {
 					t.Fatal(err)
 				}
 			}
 			if collision != "" {
-				if err := secrets.Store(secretName("dev", collision), "test-only-destination"); err != nil {
+				if err := secretstore.Store(secretName("dev", collision), "test-only-destination"); err != nil {
 					t.Fatal(err)
 				}
 			}

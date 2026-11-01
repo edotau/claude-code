@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/secrets"
+	"github.com/edotau/claude-code/internal/secretstore"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
@@ -82,7 +82,7 @@ func TestRunMenuReturnKeyState(t *testing.T) {
 					t.Error("previously absent environment variable was not removed")
 				}
 			}
-			names, err := secrets.NamesErr()
+			names, err := secretstore.NamesErr()
 			if err != nil {
 				t.Fatal("could not inspect isolated vault names")
 			}
