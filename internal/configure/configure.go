@@ -1,5 +1,5 @@
-// Package configure is the `claude-code configure` dialogue: provider, keys, models, agents, proxy,
-// and doctor sections over the existing provider/secrets/agents/launch verbs, piped or interactive.
+// Package configure is the `claude-code configure` dialogue: provider, keys, models, agents
+// and more sections over the existing provider/secrets/agents verbs, piped or interactive.
 // It is also agent.LaunchPlan's auto-configure callback, scoped to one agent via Agent.
 package configure
 
@@ -25,11 +25,9 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/preflight"
 	"github.com/edotau/claude-code/internal/copilotsdk"
-	"github.com/edotau/claude-code/internal/launch"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/proxy"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/secrets"
 	"github.com/edotau/claude-code/internal/ui/ansi"
@@ -37,11 +35,11 @@ import (
 )
 
 // Sections runs in this order when no section is named.
-var Sections = []string{"provider", "models", "agents", "proxy", "github", "remote", "browser", "claude", "codex", "routing", "databricks", "doctor"}
+var Sections = []string{"provider", "models", "agents", "github", "remote", "claude", "codex", "routing", "databricks"}
 
 // Options controls one configure pass; In/Out let tests fully control the dialogue.
 type Options struct {
-	Provider    string    // --provider: pick this one non-interactively (provider section)
+	Provider    string    // --profile: pick this one non-interactively (provider section)
 	Agent       string    // --agent: scope keys/agents to one agent CLI
 	DryRun      bool      // print what would change; write nothing
 	Check       bool      // report only; never writes; Run exits 1 if anything is unset
@@ -128,7 +126,7 @@ func Run(o Options, section string) int {
 		return 2
 	}
 	if len(o.Drop)+len(o.Keep) > 0 && (section != "" || o.Provider != "") {
-		fmt.Fprintln(out, "configure: --drop/--keep take no section or --provider")
+		fmt.Fprintln(out, "configure: --drop/--keep take no section or --profile")
 		return 2
 	}
 	reg, err := providers.Load()
@@ -163,14 +161,10 @@ func Run(o Options, section string) int {
 			ok = runModels(d)
 		case "agents":
 			ok = runAgents(d)
-		case "proxy":
-			ok = runProxy(d)
 		case "github":
 			ok = runGithub(d)
 		case "remote":
 			ok = runRemote(d)
-		case "browser":
-			ok = runBrowser(d)
 		case "claude":
 			ok = runClaudeSettings(d)
 		case "codex":
@@ -182,8 +176,6 @@ func Run(o Options, section string) int {
 			ok = runRouting(d)
 		case "databricks":
 			ok = runDatabricks(d)
-		case "doctor":
-			ok = launch.Doctor(out)
 		}
 		if !ok {
 			allOK = false
@@ -526,8 +518,7 @@ func probe(kt keyTarget) (status, detail string) {
 	return providers.ProbeCredential(ctx, kt.provider)
 }
 
-// probeTTL is how long a verified/rejected probe result is trusted before re-probing; "unreachable"
-// is never cached — a transient network blip shouldn't stick for 6 hours.
+// probeTTL is how long a verified/rejected probe result is trusted before re-probing; "unreachable" is never cached.
 const probeTTL = 6 * time.Hour
 
 // probeCached reuses fresh vault probe results; env overrides and uncached values always probe live.
@@ -547,7 +538,7 @@ func probeCached(kt keyTarget) (status, detail string, age time.Duration) {
 	}
 	setAt := meta[env].SetAt
 	status, detail = probe(kt)
-	if status == "verified" || status == "rejected" || status == "unreachable" {
+	if status == "verified" || status == "rejected" {
 		_ = secrets.RecordProbe(env, status, time.Now(), setAt) // a failed cache write leaves the live result intact
 	}
 	return status, detail, 0
@@ -855,37 +846,6 @@ func runAgents(d *dialog) bool {
 		d.printf("%-10s routes to %s (%s)\n", name, target.Provider.Name, target.Model)
 	}
 	return ok
-}
-
-// --- proxy ---
-
-func runProxy(d *dialog) bool {
-	sel, err := providers.Select(d.reg, "")
-	if err != nil {
-		d.println(err)
-		return false
-	}
-	if !sel.NeedsRouter(d.reg) {
-		d.println("not needed: the session provider serves every model alias directly")
-		return true
-	}
-	if d.o.Check || d.o.DryRun {
-		d.println("needed: a cross-provider model alias or fallback ladder is configured; would start it")
-		return true
-	}
-	if !d.o.Interactive {
-		d.println("needed: run `claude-code gateway proxy --start`, or relaunch")
-		return false
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-	defer cancel()
-	base, err := proxy.Ensure(ctx)
-	if err != nil {
-		d.println(err)
-		return false
-	}
-	d.printf("proxy running: %s\n", base)
-	return true
 }
 
 // confirm asks a [Y/n] question: tui.Confirm on the controlling terminal, the dialogue reader otherwise (tests).
