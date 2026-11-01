@@ -345,7 +345,7 @@ func absDebugFile(p string) string {
 // runAskAndReport executes one prepared foreground dispatch and reports its outcome.
 func runAskAndReport(ctx context.Context, client *agent.Client, p *agent.Prepared, job bool, format string) int {
 	opts := agent.RunRecordedOpts{Job: job}
-	if job && format == formatText {
+	if job && format == helptext.Text {
 		opts.AnswerTo = os.Stdout // a --job child's stdout is the log: the full answer lands once at the end
 	}
 	res, err := client.Exec(ctx, p, askStdoutSink(format, p.Record.ID), opts)
@@ -363,16 +363,12 @@ func runAskAndReport(ctx context.Context, client *agent.Client, p *agent.Prepare
 }
 
 // The ask --format values.
-const (
-	formatText       = "text"
-	formatJSON       = "json"
-	formatStreamJSON = "stream-json"
-)
+const formatStreamJSON = "stream-json"
 
 // askStdoutSink is the sink behind stdout for format: streamed text, nothing (json prints one envelope), or NDJSON.
 func askStdoutSink(format, dispatchID string) agent.Sink {
 	switch format {
-	case formatJSON:
+	case helptext.JSON:
 		return agent.Discard
 	case formatStreamJSON:
 		return agent.NewJSONLSink(os.Stdout, dispatchID)
@@ -462,7 +458,7 @@ func loadAskRetry(fs *flag.FlagSet, args []string, retry, format string, s *askS
 // printDispatchLog lists recent dispatches; the prompt preview is scrubbed of credential shapes.
 func printDispatchLog(format string) int {
 	recs := agent.RecentRecords(20)
-	if format == formatJSON {
+	if format == helptext.JSON {
 		_ = helptext.WriteJSON(os.Stdout, recs)
 		return 0
 	}

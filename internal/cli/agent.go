@@ -114,7 +114,7 @@ func timeoutExplicit(fs *flag.FlagSet) bool {
 }
 
 func validateAskFlags(format, fallback string) error {
-	if !slices.Contains([]string{formatText, formatJSON, formatStreamJSON}, format) {
+	if !slices.Contains([]string{helptext.Text, helptext.JSON, formatStreamJSON}, format) {
 		return fmt.Errorf("--format %q unknown (text|json|stream-json)", format)
 	}
 	if !slices.Contains(router.FallbackModes, fallback) {
@@ -170,7 +170,7 @@ func backgroundExtraFlags(fs *flag.FlagSet, fallback string, native bool) []stri
 
 // reportBackgroundStart tells the caller how to track a detached job.
 func reportBackgroundStart(format string, rec agent.Record) {
-	if format == formatJSON {
+	if format == helptext.JSON {
 		body, _ := json.Marshal(struct {
 			ID  string `json:"id"`
 			Log string `json:"log"`
@@ -194,7 +194,7 @@ func failAskCode(format, agentName string, err error, code int) int {
 // printAskFailure prints the typed failure envelope on stdout when format is json.
 func printAskFailure(format, agentName string, err error) {
 	switch format {
-	case formatJSON:
+	case helptext.JSON:
 		body, _ := json.Marshal(agent.FailureEnvelope(agentName, err))
 		fmt.Println(string(body))
 	case formatStreamJSON:
@@ -210,7 +210,7 @@ func reportAskResult(format string, res agent.Result, err error, dispatchID stri
 		}
 		fmt.Fprintf(os.Stderr, "ask: %s has no channel on the %s agent — dropped\n", d, res.Agent)
 	}
-	if format == formatJSON {
+	if format == helptext.JSON {
 		body, _ := json.Marshal(agent.NewEnvelope(res, err, dispatchID))
 		fmt.Println(string(body))
 		return
@@ -319,7 +319,7 @@ func cmdAgentsList(args []string) int {
 	if code, done := helptext.Parse(fs, args); done {
 		return code
 	}
-	if fs.NArg() > 0 || !slices.Contains([]string{formatText, formatJSON}, *format) {
+	if fs.NArg() > 0 || !slices.Contains([]string{helptext.Text, helptext.JSON}, *format) {
 		fs.Usage()
 		return 2
 	}
@@ -335,7 +335,7 @@ func cmdAgentsList(args []string) int {
 // listAgents prints the roster as text, or as the JSON array of rows.
 func listAgents(format string) int {
 	rows := agent.RosterRows()
-	if format == formatJSON {
+	if format == helptext.JSON {
 		_ = helptext.WriteJSON(os.Stdout, rows)
 		return 0
 	}
