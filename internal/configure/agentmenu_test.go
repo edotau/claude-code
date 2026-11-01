@@ -209,7 +209,7 @@ func fakePickAgent(t *testing.T, ans int) (title *string, start *int, rows *[][2
 	orig := pickAgent
 	t.Cleanup(func() { pickAgent = orig })
 	title, start, rows = new(string), new(int), new([][2]string)
-	pickAgent = func(ti string, r [][2]string, s int) (int, error) {
+	pickAgent = func(_ *dialog, ti string, r [][2]string, s int) (int, error) {
 		*title, *rows, *start = ti, r, s
 		return ans, nil
 	}

@@ -140,7 +140,7 @@ func editChoice(d *dialog, f settings.Field, tmplVal json.RawMessage) (json.RawM
 	}
 	resetIdx := len(rows)
 	rows = append(rows, [2]string{removeLabel(tmplVal), ""})
-	idx, err := pickPlain(d, f.Key, rows)
+	idx, err := d.shell().PickPlain(f.Key, rows)
 	if err != nil || idx < 0 {
 		return nil, false
 	}
