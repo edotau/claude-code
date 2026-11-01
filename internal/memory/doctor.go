@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/edotau/claude-code/internal/memstore"
@@ -86,19 +85,13 @@ func Doctor(root string, staleDays int, now time.Time) []string {
 // grace window (the worker died before reporting) — otherwise `memory stats` counts them forever.
 func updateProblems(now time.Time) []string {
 	var problems []string
-	matches, _ := filepath.Glob(filepath.Join(memstore.StateDir(), "update-result-*"))
-	for _, p := range matches {
-		id := strings.TrimPrefix(filepath.Base(p), "update-result-")
-		r, ok := ReadUpdateResult(id)
+	for _, rc := range readReceipts() {
+		id, r := rc.id, rc.r
 		// A lost "pending" receipt is a bug to chase whenever it happened; a plain failure ages out after a week.
-		if !ok || !r.NeedsAttention(now) || (r.Status == UpdateFailed && now.Sub(r.Time) > 7*24*time.Hour) {
+		if !r.NeedsAttention(now) || (r.Status == UpdateFailed && now.Sub(r.Time) > 7*24*time.Hour) {
 			continue
 		}
-		short := id
-		if len(short) > 8 {
-			short = short[:8]
-		}
-		problems = append(problems, "update "+short+" "+r.Status+" since "+r.Time.Format("2006-01-02")+
+		problems = append(problems, "update "+headID(id)+" "+r.Status+" since "+r.Time.Format("2006-01-02")+
 			" — see "+r.Log+" (claude-code memory stats)")
 	}
 	return problems

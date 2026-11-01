@@ -183,8 +183,7 @@ func embedEntries(ctx context.Context, root string, c *EmbedClient, force bool) 
 	run := &embedRun{c: c, root: root, force: force, fresh: map[string]VectorRow{}, started: started}
 	embedded, embedErr := run.embed(ctx, c, ids, texts, hashes, blocks)
 	run.current = currentEntryHashes(root)
-	var store VectorStore = vectorStore
-	stored, cerr := store.Put(VectorWrite{Profile: c.Profile, Owner: owner, Started: started, Merge: func(cur VectorRecord) VectorRecord {
+	stored, cerr := vectorStore.Put(VectorWrite{Profile: c.Profile, Owner: owner, Started: started, Merge: func(cur VectorRecord) VectorRecord {
 		out := run.merge(cur)
 		if embedErr == nil { // a partial run keeps its paid-for rows but does not start the lease
 			out.MintedAt = time.Now().UnixNano()
@@ -541,7 +540,7 @@ func querySemantic(ctx context.Context, profile, query string, cache VectorRecor
 	if cache.Namespace == "" || c.Namespace != cache.Namespace { // checked first: no prompt text leaves on a mismatch
 		return semanticResult{err: errors.New("embedding cache belongs to another workspace or model")}
 	}
-	vecs, err := embedQuery(ctx, c, query)
+	vecs, err := c.Embed(ctx, []string{query})
 	if err == nil && len(vecs) != 1 {
 		err = errors.New("embedding endpoint returned no query vector")
 	}
@@ -552,8 +551,4 @@ func querySemantic(ctx context.Context, profile, query string, cache VectorRecor
 		return semanticResult{err: errors.New("embedding dimension differs from the cache")}
 	}
 	return semanticResult{vec: normalize(vecs[0])}
-}
-
-func embedQuery(ctx context.Context, client Embedder, query string) ([][]float32, error) {
-	return client.Embed(ctx, []string{query})
 }

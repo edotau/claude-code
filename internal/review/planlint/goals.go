@@ -262,10 +262,7 @@ func analyze(text, source string) analysis {
 	}
 
 	maxScore := len(steps) * 3
-	pct := 0.0
-	if maxScore > 0 {
-		pct = pyRound1(float64(total) / float64(maxScore) * 100)
-	}
+	pct := pyRound1(float64(total) / float64(maxScore) * 100)
 	hasFinal := finalRe().MatchString(steps[len(steps)-1])
 	verdict := "MISSING"
 	if pct >= 70 {

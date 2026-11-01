@@ -17,20 +17,9 @@ import (
 	"github.com/edotau/claude-code/internal/schemas"
 )
 
-// VectorFilter selects a profile's embedding record.
-type VectorFilter struct{ Profile string }
-
-// VectorStore persists profile embedding records without exposing database transactions.
-type VectorStore interface {
-	Put(VectorWrite) (bool, error)
-	Delete(string) error
-	Vectors(VectorFilter) (VectorRecord, error)
-}
-
 type boltVectorStore struct{}
 
 var vectorStore = &boltVectorStore{}
-var _ VectorStore = vectorStore
 
 // VectorWrite replaces a record or atomically merges a mint while releasing its claim.
 type VectorWrite struct {
@@ -132,12 +121,10 @@ func ReembedWindow(profile string, now time.Time) (opensAt time.Time, open bool,
 
 // readEmbedCache reads profile's record without blocking long; a missing file or record is empty.
 func readEmbedCache(profile string) (VectorRecord, error) {
-	var store VectorStore = vectorStore
-	return store.Vectors(VectorFilter{Profile: profile})
+	return vectorStore.Vectors(profile)
 }
 
-func (s *boltVectorStore) Vectors(filter VectorFilter) (VectorRecord, error) {
-	profile := filter.Profile
+func (s *boltVectorStore) Vectors(profile string) (VectorRecord, error) {
 	db, err := bbolt.Open(EmbedDBPath(), 0o600, &bbolt.Options{ReadOnly: true, Timeout: embedReadTimeout})
 	if errors.Is(err, os.ErrNotExist) {
 		return VectorRecord{}, nil

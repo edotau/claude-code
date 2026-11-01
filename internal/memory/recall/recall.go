@@ -38,7 +38,7 @@ func RecallPicks(root, session, query string, semantic, explain bool) ([]RecallP
 	var sem *embed.Semantic
 	semSeen := false
 	if semantic {
-		ranked, sem, semSeen, trace.Embeddings = recallSemantic(<-ready, files, segs, session, q, ranked, tr)
+		ranked, sem, semSeen, trace.Embeddings = recallSemantic(<-ready, files, segs, session, recallNeed(terms), ranked, tr)
 	}
 	if len(ranked) == 0 {
 		return nil, trace
@@ -75,7 +75,7 @@ func startSemantic(query string, enabled bool) <-chan semanticReady {
 	return ready
 }
 
-func recallSemantic(result semanticReady, files []bank.CorpusFile, segs []bank.SegView, session, q string, ranked []bank.SearchHit, trace *RecallTrace) ([]bank.SearchHit, *embed.Semantic, bool, string) {
+func recallSemantic(result semanticReady, files []bank.CorpusFile, segs []bank.SegView, session string, need int, ranked []bank.SearchHit, trace *RecallTrace) ([]bank.SearchHit, *embed.Semantic, bool, string) {
 	if result.err != nil {
 		return ranked, nil, false, "keyword-only: " + result.err.Error()
 	}
@@ -103,7 +103,7 @@ func recallSemantic(result semanticReady, files []bank.CorpusFile, segs []bank.S
 			}
 			c := recallTracePick(h)
 			c.Score, _ = scoreRecall(c, 0, false, sem)
-			trace.candidate(c, recallNeed(bank.ContentQueryTerms(textutil.Tokenize(q))), sem)
+			trace.candidate(c, need, sem)
 			trace.outcome(BlockKey(h.Block), "seen")
 		}
 	}

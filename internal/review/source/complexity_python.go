@@ -1,7 +1,6 @@
 package source
 
 import (
-	"fmt"
 	"strings"
 )
 
@@ -204,20 +203,7 @@ func pyOpensNesting(trimmed string) bool {
 
 // pyFunctionFindings is check_function's estimate: length, cyclomatic complexity, nesting depth.
 func pyFunctionFindings(f pyFuncSpan, th ComplexityThresholds) []Finding {
-	var out []Finding
-	if length := f.endLine - f.startLine + 1; length > th.MaxFunctionLines {
-		out = append(out, Finding{Rule: "function-length", Severity: "warn", Line: f.startLine,
-			Message: fmt.Sprintf("'%s' is %d lines (max %d). Split it.", f.name, length, th.MaxFunctionLines)})
-	}
-	if cyclo := pyFuncCyclomatic(f.bodyLines); cyclo > th.MaxCyclomatic {
-		out = append(out, Finding{Rule: "cyclomatic-complexity", Severity: "warn", Line: f.startLine,
-			Message: fmt.Sprintf("'%s' has cyclomatic complexity %d (max %d). Flatten branching.", f.name, cyclo, th.MaxCyclomatic)})
-	}
-	if nest := pyFuncNesting(f.bodyLines); nest > th.MaxNesting {
-		out = append(out, Finding{Rule: "nesting-depth", Severity: "warn", Line: f.startLine,
-			Message: fmt.Sprintf("'%s' nests %d levels deep (max %d). Use early returns.", f.name, nest, th.MaxNesting)})
-	}
-	return out
+	return functionFindings(f.name, f.startLine, f.endLine-f.startLine+1, pyFuncCyclomatic(f.bodyLines), pyFuncNesting(f.bodyLines), th)
 }
 
 // pyModuleFindings is check_file_shape's estimate: import count, class density, premature abstraction.
@@ -235,17 +221,8 @@ func pyModuleFindings(lines []pyLine, rawText string, th ComplexityThresholds, l
 			classes++
 		}
 	}
-	var out []Finding
-	if imports > th.MaxImports {
-		out = append(out, Finding{Rule: "import-count", Severity: "warn",
-			Message: fmt.Sprintf("%d imports (max %d). High coupling?", imports, th.MaxImports)})
-	}
-	if lineCount > 0 {
-		if density := float64(classes) / (float64(lineCount) / 100); density > th.MaxClassesPer100Lines {
-			out = append(out, Finding{Rule: "class-density", Severity: "warn",
-				Message: fmt.Sprintf("%d classes in %d lines (%.1f/100). Premature abstraction?", classes, lineCount, density)})
-		}
-	}
+	out := importCountFinding(imports, th)
+	out = append(out, classDensityFinding(classes, lineCount, th)...)
 	if classes > 0 && lineCount < 200 && pyHasABCMarker(rawText) {
 		out = append(out, Finding{Rule: "premature-abstraction", Severity: "info",
 			Message: "Abstract base / Protocol in a file under 200 lines. Needed yet?"})

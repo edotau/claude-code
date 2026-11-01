@@ -75,10 +75,31 @@ type BankSettlement struct {
 	Indexed  bool // the routing index was rewritten
 }
 
-// SettleBank rotates root's sessionHistory, promotes/archives settled overflow, and refreshes the
-// local (and home) index — all under the bank lock. Deletes nothing.
+// SettleBank rotates root's sessionHistory, archives settled overflow in scope (no auto-promotion to home), regenerates
+// the region and catalog, and commits — all under the bank lock. Deletes nothing.
 func SettleBank(root string, now time.Time) (BankSettlement, error) {
-	return settleUnified(root, now) // overflow archives in scope; no auto-promotion to home
+	var s BankSettlement
+	err := memstore.WithBankLock(memstore.BankLockWait, func() error {
+		var dirs []string
+		own := memstore.Dir(root)
+		if _, err := os.Stat(own); err == nil { // an unscaffolded repo gets its store from Init (with its origin), never here
+			dirs = append(dirs, own)
+		}
+		if g := memstore.HomeBankDir(); len(dirs) == 0 || !paths.SamePath(dirs[0], g) {
+			dirs = append(dirs, g)
+		}
+		for _, d := range dirs {
+			if err := SettleDir(d, now, &s); err != nil {
+				return err
+			}
+		}
+		if err := WriteCatalog(now); err != nil {
+			return err
+		}
+		s.Indexed = true
+		return CommitStore("settle: " + filepath.Base(dirs[0]))
+	})
+	return s, err
 }
 
 // NewestMtime is the newest mtime across dir's six typed files — the "did the update write?" probe.

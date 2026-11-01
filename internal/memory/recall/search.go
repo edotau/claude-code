@@ -47,8 +47,6 @@ func SearchRepo(repo string, all bool, q string, k int) ([]bank.SearchHit, strin
 		if e, ok := memstore.RepoByName(repo); ok && e.Origin.Origin != "" {
 			root = e.Origin.Origin
 		}
-		return SearchBanks(root, q, k), root
-	default:
-		return SearchBanks(root, q, k), root
 	}
+	return SearchBanks(root, q, k), root
 }

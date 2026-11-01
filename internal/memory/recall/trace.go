@@ -57,7 +57,7 @@ func (t *RecallTrace) candidate(c RecallPick, need int, sem *embed.Semantic) {
 	}
 	r := RecallCandidate{ID: c.Entry.ID, File: c.Entry.Bank + "/" + c.Entry.File, Tier: tier,
 		BM25: c.Hit.Score, Matched: c.Hit.Matched, Needed: need, Blended: c.Score,
-		Final: c.Score, Outcome: "over cap", key: BlockKey(c.Hit.Block)}
+		Final: c.Score, Outcome: "over cap", key: key}
 	if c.Entry.Superseded {
 		r.Outcome = "superseded"
 	}

@@ -22,11 +22,9 @@ type TimelineEntry struct {
 // Timeline returns the newest-first update-receipt trail (bounded by limit) plus the most recent
 // sessionHistory headings from the local then home bank (their files are newest-first already).
 func Timeline(root string, limit int) (entries []TimelineEntry, sessions []string) {
-	matches, _ := filepath.Glob(filepath.Join(memstore.StateDir(), "update-result-*"))
-	for _, p := range matches {
-		id := strings.TrimPrefix(filepath.Base(p), "update-result-")
-		r, ok := ReadUpdateResult(id)
-		if !ok || r.Time.IsZero() {
+	for _, rc := range readReceipts() {
+		id, r := rc.id, rc.r
+		if r.Time.IsZero() {
 			continue
 		}
 		line := r.Status
@@ -66,4 +64,23 @@ func headID(id string) string {
 		return id[:8]
 	}
 	return id
+}
+
+// receipt is one readable update-result file: its session id and parsed result.
+type receipt struct {
+	id string
+	r  UpdateResult
+}
+
+// readReceipts returns every parseable StateDir()/update-result-* receipt, skipping unreadable ones.
+func readReceipts() []receipt {
+	var out []receipt
+	matches, _ := filepath.Glob(filepath.Join(memstore.StateDir(), "update-result-*"))
+	for _, p := range matches {
+		id := strings.TrimPrefix(filepath.Base(p), "update-result-")
+		if r, ok := ReadUpdateResult(id); ok {
+			out = append(out, receipt{id, r})
+		}
+	}
+	return out
 }

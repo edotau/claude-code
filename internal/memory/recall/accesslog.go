@@ -91,9 +91,6 @@ func maybeRotateAccessLog(path string, now time.Time) {
 		return
 	}
 	parts := strings.SplitN(scanner.Text(), " -- ", 2)
-	if len(parts) == 0 {
-		return
-	}
 	ts, err := time.Parse(time.RFC3339, parts[0])
 	if err != nil || !ts.Before(now.AddDate(0, 0, -accessRotateDays)) {
 		return

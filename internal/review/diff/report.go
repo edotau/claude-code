@@ -231,12 +231,9 @@ func generateReport(repoPath, base, head string, prAnalysisOverride, qualityAnal
 		}
 	}
 
-	if _, hasFiles := qualityMap["files"]; hasFiles {
-		report.QualitySummary = &QualitySummary{
-			FilesAnalyzed: mInt(qualityMap, "files_analyzed"), AverageScore: pyFloat(mFloat(qualityMap, "average_score")),
-			TotalCodeSmells: mInt(qualityMap, "total_code_smells"), TotalSolidViolations: mInt(qualityMap, "total_solid_violations"),
-		}
-	} else if _, hasFile := qualityMap["file"]; hasFile {
+	_, hasFiles := qualityMap["files"]
+	_, hasFile := qualityMap["file"]
+	if hasFiles || hasFile {
 		report.QualitySummary = &QualitySummary{
 			FilesAnalyzed: mInt(qualityMap, "files_analyzed"), AverageScore: pyFloat(mFloat(qualityMap, "average_score")),
 			TotalCodeSmells: mInt(qualityMap, "total_code_smells"), TotalSolidViolations: mInt(qualityMap, "total_solid_violations"),

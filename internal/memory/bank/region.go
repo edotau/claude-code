@@ -61,7 +61,7 @@ func writeBankRegion(dir string, now time.Time) (bool, error) {
 		return false, err
 	}
 	text := string(raw)
-	if err := checkBankRegionMarkers(text); err != nil {
+	if _, _, err := ScanBankRegion(text); err != nil { // a malformed region is a diagnostic, never a guess
 		return false, fmt.Errorf("%s: %w", path, err)
 	}
 	region := BuildBankRegion(dir, now)
@@ -75,12 +75,6 @@ func writeBankRegion(dir string, now time.Time) (bool, error) {
 		return false, nil
 	}
 	return true, paths.AtomicWrite(path, []byte(next), 0o644)
-}
-
-// checkBankRegionMarkers rejects a malformed region (a diagnostic, never a guess); size is ours to regenerate.
-func checkBankRegionMarkers(text string) error {
-	_, _, err := ScanBankRegion(text)
-	return err
 }
 
 // BuildCatalog renders the store-root router: every repo store with its hook and freshness, then home entries.
@@ -103,11 +97,7 @@ func BuildCatalog(now time.Time) (string, error) {
 	var rows []string
 	// collectKnowledge lists dir's own knowledge/*.md.
 	collectKnowledge := func(label, dir string) {
-		m, _ := filepath.Glob(filepath.Join(memstore.KnowledgeDir(dir), "*.md"))
-		for _, f := range m {
-			if filepath.Base(f) == "README.md" {
-				continue
-			}
+		for _, f := range knowledgeNotes(dir) {
 			rows = append(rows, "- "+label+"/knowledge/"+filepath.Base(f)+" — "+storeHookFile(f))
 		}
 	}
@@ -142,12 +132,11 @@ func BuildCatalog(now time.Time) (string, error) {
 // storeHook is a store's one-line routing description: projectContext's first prose line, else its origin.
 func storeHook(e memstore.RepoEntry) string {
 	if data, err := os.ReadFile(filepath.Join(e.Dir, "projectContext.md")); err == nil {
-		for l := range strings.SplitSeq(stripFrontmatter(string(data)), "\n") {
-			l = strings.TrimSpace(l)
-			if l == "" || strings.HasPrefix(l, "#") || strings.HasPrefix(l, ">") || strings.HasPrefix(l, "(") {
-				continue
-			}
-			return textutil.Truncate(l, 100)
+		hook, ok := firstProseLine(stripFrontmatter(string(data)), func(l string) bool {
+			return strings.HasPrefix(l, "#") || strings.HasPrefix(l, ">") || strings.HasPrefix(l, "(")
+		})
+		if ok {
+			return hook
 		}
 	}
 	if e.Origin.Origin != "" {
@@ -161,32 +150,6 @@ func storeHook(e memstore.RepoEntry) string {
 func stripFrontmatter(s string) string {
 	_, content := markdown.StripFrontMatter([]byte(s))
 	return string(content)
-}
-
-// settleUnified is SettleBank: rotate + archive in scope, regenerate region and catalog, commit.
-func settleUnified(root string, now time.Time) (BankSettlement, error) {
-	var s BankSettlement
-	err := memstore.WithBankLock(memstore.BankLockWait, func() error {
-		var dirs []string
-		own := memstore.Dir(root)
-		if _, err := os.Stat(own); err == nil { // an unscaffolded repo gets its store from Init (with its origin), never here
-			dirs = append(dirs, own)
-		}
-		if g := memstore.HomeBankDir(); len(dirs) == 0 || !paths.SamePath(dirs[0], g) {
-			dirs = append(dirs, g)
-		}
-		for _, d := range dirs {
-			if err := SettleDir(d, now, &s); err != nil {
-				return err
-			}
-		}
-		if err := WriteCatalog(now); err != nil {
-			return err
-		}
-		s.Indexed = true
-		return CommitStore("settle: " + filepath.Base(dirs[0]))
-	})
-	return s, err
 }
 
 // SettleDir stamps block IDs, rotates sessionHistory, regenerates dir's MEMORY.md region and wraps its files.
@@ -253,20 +216,37 @@ func newestMarkdown(dir string) time.Time {
 // knowledgeFiles are the home bank's knowledge/*.md (cross-repo) plus root's own bank knowledge/*.md
 // (repo-specific); README.md is the tier's own doc.
 func knowledgeFiles(root string) []string {
-	dirs := []string{memstore.KnowledgeDir(memstore.HomeBankDir())}
+	dirs := []string{memstore.HomeBankDir()}
 	if !memstore.IsHomeBank(root) {
-		dirs = append(dirs, memstore.KnowledgeDir(memstore.Dir(root)))
+		dirs = append(dirs, memstore.Dir(root))
 	}
 	var out []string
 	for _, d := range dirs {
-		m, _ := filepath.Glob(filepath.Join(d, "*.md"))
-		for _, f := range m {
-			if filepath.Base(f) != "README.md" {
-				out = append(out, f)
-			}
+		out = append(out, knowledgeNotes(d)...)
+	}
+	return out
+}
+
+// knowledgeNotes lists bank dir's knowledge/*.md, minus the tier's own README.md.
+func knowledgeNotes(dir string) []string {
+	m, _ := filepath.Glob(filepath.Join(memstore.KnowledgeDir(dir), "*.md"))
+	var out []string
+	for _, f := range m {
+		if filepath.Base(f) != "README.md" {
+			out = append(out, f)
 		}
 	}
 	return out
+}
+
+// firstProseLine is body's first trimmed line that is non-empty and not skipped, truncated to 100.
+func firstProseLine(body string, skip func(string) bool) (string, bool) {
+	for l := range strings.SplitSeq(body, "\n") {
+		if l = strings.TrimSpace(l); l != "" && !skip(l) {
+			return textutil.Truncate(l, 100), true
+		}
+	}
+	return "", false
 }
 
 // storeHookFile is a knowledge note's first prose line (its routing hook).
@@ -275,10 +255,8 @@ func storeHookFile(path string) string {
 	if err != nil {
 		return filepath.Base(path)
 	}
-	for l := range strings.SplitSeq(stripFrontmatter(string(data)), "\n") {
-		if l = strings.TrimSpace(l); l != "" && !strings.HasPrefix(l, "#") {
-			return textutil.Truncate(l, 100)
-		}
+	if hook, ok := firstProseLine(stripFrontmatter(string(data)), func(l string) bool { return strings.HasPrefix(l, "#") }); ok {
+		return hook
 	}
 	return filepath.Base(path)
 }

@@ -83,19 +83,8 @@ var tsImportPattern = sync.OnceValue(func() *regexp.Regexp {
 // analyzeTypescript ports complexity_checker.analyze_typescript exactly (only file-wide checks; no per-function ones).
 func analyzeTypescript(text string, lineCount int, th ComplexityThresholds) []Finding {
 	var findings []Finding
-	imports := len(tsImportPattern().FindAllString(text, -1))
-	if imports > th.MaxImports {
-		findings = append(findings, Finding{Rule: "import-count", Severity: "warn",
-			Message: fmt.Sprintf("%d imports (max %d). High coupling?", imports, th.MaxImports)})
-	}
-	classes := len(tsClassPattern().FindAllString(text, -1))
-	if lineCount > 0 {
-		density := float64(classes) / (float64(lineCount) / 100)
-		if density > th.MaxClassesPer100Lines {
-			findings = append(findings, Finding{Rule: "class-density", Severity: "warn",
-				Message: fmt.Sprintf("%d classes in %d lines (%.1f/100). Premature abstraction?", classes, lineCount, density)})
-		}
-	}
+	findings = append(findings, importCountFinding(len(tsImportPattern().FindAllString(text, -1)), th)...)
+	findings = append(findings, classDensityFinding(len(tsClassPattern().FindAllString(text, -1)), lineCount, th)...)
 	deepest := deepestIndentUnits(text)
 	if deepest > th.MaxNesting {
 		findings = append(findings, Finding{Rule: "nesting-depth", Severity: "warn",
@@ -171,14 +160,47 @@ func complexityContent(path, text, lang string, th ComplexityThresholds) *FileRe
 	if score < 0 {
 		score = 0
 	}
-	return &FileResult{File: path, Language: lang, Lines: lineCount, Score: score, Findings: nonNilFindings(findings)}
+	return &FileResult{File: path, Language: lang, Lines: lineCount, Score: score, Findings: nonNil(findings)}
 }
 
-func nonNilFindings(f []Finding) []Finding {
-	if f == nil {
-		return []Finding{}
+// importCountFinding is the shared import-coupling check.
+func importCountFinding(imports int, th ComplexityThresholds) []Finding {
+	if imports <= th.MaxImports {
+		return nil
 	}
-	return f
+	return []Finding{{Rule: "import-count", Severity: "warn",
+		Message: fmt.Sprintf("%d imports (max %d). High coupling?", imports, th.MaxImports)}}
+}
+
+// classDensityFinding is the shared classes-per-100-lines check.
+func classDensityFinding(classes, lineCount int, th ComplexityThresholds) []Finding {
+	if lineCount <= 0 {
+		return nil
+	}
+	density := float64(classes) / (float64(lineCount) / 100)
+	if density <= th.MaxClassesPer100Lines {
+		return nil
+	}
+	return []Finding{{Rule: "class-density", Severity: "warn",
+		Message: fmt.Sprintf("%d classes in %d lines (%.1f/100). Premature abstraction?", classes, lineCount, density)}}
+}
+
+// functionFindings is the shared length, cyclomatic and nesting check for one function.
+func functionFindings(name string, line, length, cyclo, nest int, th ComplexityThresholds) []Finding {
+	var out []Finding
+	if length > th.MaxFunctionLines {
+		out = append(out, Finding{Rule: "function-length", Severity: "warn", Line: line,
+			Message: fmt.Sprintf("'%s' is %d lines (max %d). Split it.", name, length, th.MaxFunctionLines)})
+	}
+	if cyclo > th.MaxCyclomatic {
+		out = append(out, Finding{Rule: "cyclomatic-complexity", Severity: "warn", Line: line,
+			Message: fmt.Sprintf("'%s' has cyclomatic complexity %d (max %d). Flatten branching.", name, cyclo, th.MaxCyclomatic)})
+	}
+	if nest > th.MaxNesting {
+		out = append(out, Finding{Rule: "nesting-depth", Severity: "warn", Line: line,
+			Message: fmt.Sprintf("'%s' nests %d levels deep (max %d). Use early returns.", name, nest, th.MaxNesting)})
+	}
+	return out
 }
 
 // collectComplexityFiles ports complexity_checker.collect_files (a target may be a file or a directory).
@@ -221,14 +243,7 @@ func buildComplexitySummary(results []FileResult, threshold string) ComplexitySu
 		}
 	}
 	return ComplexitySummary{Status: "ok", Threshold: threshold, FilesAnalyzed: len(results),
-		TotalFindings: total, AverageScore: PyFloat(avg), Verdict: verdict, Results: nonNilResults(results)}
-}
-
-func nonNilResults(r []FileResult) []FileResult {
-	if r == nil {
-		return []FileResult{}
-	}
-	return r
+		TotalFindings: total, AverageScore: PyFloat(avg), Verdict: verdict, Results: nonNil(results)}
 }
 
 func printComplexityReport(w io.Writer, s ComplexitySummary) {

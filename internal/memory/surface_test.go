@@ -35,7 +35,7 @@ func TestUnifiedSurfaceFocusOnly(t *testing.T) {
 		"## In Progress\n\n- the router\n\n"+
 		"## What's Next\n\n- should not appear\n")
 
-	s := unifiedSurface(repo)
+	s := SessionSurface(repo)
 	for _, want := range []string{"other repos:", "## Current Focus", "shipping the router",
 		"## Blockers", "## Next Steps", "ship it", "## In Progress", "the router"} {
 		if !strings.Contains(s, want) {
@@ -71,7 +71,7 @@ func TestUnifiedSurfaceCarriesNoCatalogRows(t *testing.T) {
 	write(t, filepath.Join(dir, "activeContext.md"), "# Active Context\n\n## Current Focus\n\n- local focus\n")
 	write(t, filepath.Join(memstore.HomeBankDir(), "activeContext.md"), "# Active Context\n\n## Current Focus\n\n- home essential\n")
 
-	s := unifiedSurface(repo)
+	s := SessionSurface(repo)
 	if strings.Contains(s, "repo-000") || strings.Contains(s, "repo-199") || strings.Contains(s, "MEMORY CATALOG") {
 		t.Errorf("catalog rows leaked into the surface:\n%s", s)
 	}
@@ -218,13 +218,13 @@ func TestUnifiedSurfaceFallsBackWhenNativeUnlinked(t *testing.T) {
 		t.Fatal(err)
 	}
 	write(t, filepath.Join(dir, bank.NativeIndexFile), "- [Topic](topic.md) — fallback marker\n")
-	if s := unifiedSurface(repo); !strings.Contains(s, "native link missing") || !strings.Contains(s, "fallback marker") {
+	if s := SessionSurface(repo); !strings.Contains(s, "native link missing") || !strings.Contains(s, "fallback marker") {
 		t.Fatalf("unlinked surface lacks the MEMORY.md fallback:\n%s", s)
 	}
 	if _, ok := memstore.LinkNativeFor(repo); !ok {
 		t.Fatal("LinkNativeFor failed")
 	}
-	if s := unifiedSurface(repo); strings.Contains(s, "native link missing") {
+	if s := SessionSurface(repo); strings.Contains(s, "native link missing") {
 		t.Errorf("linked surface still carries the fallback:\n%s", s)
 	}
 }

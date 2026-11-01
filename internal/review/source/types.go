@@ -18,7 +18,7 @@ func (v PyFloat) MarshalJSON() ([]byte, error) {
 	return []byte(s), nil
 }
 
-// Extensions mirrors quality_core.LANGUAGE_EXTENSIONS; order here has no meaning (Go maps are unordered).
+// Extensions mirrors quality_core.LANGUAGE_EXTENSIONS; map order is random, so iterate languageOrder.
 var Extensions = map[string][]string{
 	"python":     {".py"},
 	"typescript": {".ts", ".tsx"},
