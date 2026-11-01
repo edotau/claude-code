@@ -162,6 +162,31 @@ func flattenGeminiResponse(resp *http.Response) *http.Response {
 	return resp
 }
 
+// geminiTools strips the schema keys Google rejects from every tool's parameters; false when none changed.
+func geminiTools(raw json.RawMessage) (json.RawMessage, bool) {
+	var tools []map[string]json.RawMessage
+	if json.Unmarshal(raw, &tools) != nil {
+		return raw, false
+	}
+	changed := false
+	for _, t := range tools {
+		var fn map[string]json.RawMessage
+		if json.Unmarshal(t["function"], &fn) != nil {
+			continue
+		}
+		if params, ok := translate.GeminiSchema(fn["parameters"]); ok {
+			fn["parameters"] = params
+			t["function"], _ = json.Marshal(fn)
+			changed = true
+		}
+	}
+	if !changed {
+		return raw, false
+	}
+	out, err := json.Marshal(tools)
+	return out, err == nil
+}
+
 // fixGeminiChat drops stream_options, maps an Anthropic-style tool_choice object and fills a missing thoughtSignature on assistant tool_calls; else body as is.
 func fixGeminiChat(body []byte) []byte {
 	var top map[string]json.RawMessage
@@ -177,6 +202,9 @@ func fixGeminiChat(body []byte) []byte {
 		if fixed, ok := translate.ChatToolChoice(tc); ok {
 			top["tool_choice"], changed = fixed, true
 		}
+	}
+	if fixed, ok := geminiTools(top["tools"]); ok {
+		top["tools"], changed = fixed, true
 	}
 	var msgs []map[string]json.RawMessage
 	if json.Unmarshal(top["messages"], &msgs) == nil {

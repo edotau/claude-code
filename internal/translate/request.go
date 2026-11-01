@@ -222,6 +222,9 @@ func ToChatRequest(body []byte, wireModel string) (out []byte, stream bool, err 
 		if len(params) == 0 || string(params) == "null" {
 			params = json.RawMessage(`{"type":"object","properties":{}}`)
 		}
+		if IsGeminiModel(wireModel) {
+			params, _ = GeminiSchema(params)
+		}
 		req.Tools = append(req.Tools, chatTool{Type: "function", Function: toolDef{Name: t.Name, Description: t.Description, Parameters: params}})
 	}
 	if tc := in.ToolChoice; tc != nil && len(req.Tools) > 0 {
@@ -341,4 +344,66 @@ func imageDataURL(s *source) string {
 		return s.URL
 	}
 	return ""
+}
+
+// geminiSchemaKeys are the JSON-schema keys Google's function declarations accept; others 400 with "Unknown name".
+var geminiSchemaKeys = map[string]bool{"type": true, "format": true, "description": true, "nullable": true, "enum": true,
+	"items": true, "properties": true, "required": true, "minItems": true, "maxItems": true, "minimum": true, "maximum": true,
+	"minLength": true, "maxLength": true, "pattern": true, "title": true, "default": true, "anyOf": true,
+	"additionalProperties": true, "example": true, "propertyOrdering": true, "minProperties": true, "maxProperties": true}
+
+// GeminiSchema strips keys Google rejects from a tool parameter schema (const becomes enum, oneOf anyOf).
+// It returns the input untouched, with false, when nothing needed to change.
+func GeminiSchema(raw json.RawMessage) (json.RawMessage, bool) {
+	var v any
+	if json.Unmarshal(raw, &v) != nil {
+		return raw, false
+	}
+	changed := cleanSchema(v)
+	if !changed {
+		return raw, false
+	}
+	out, err := json.Marshal(v)
+	return out, err == nil
+}
+
+// cleanSchema edits one schema node and its sub-schemas in place, reporting whether anything changed.
+func cleanSchema(v any) bool {
+	m, ok := v.(map[string]any)
+	if !ok {
+		return false
+	}
+	changed := false
+	if c, ok := m["const"]; ok {
+		m["enum"] = []any{c}
+		changed = true
+	}
+	if c, ok := m["oneOf"]; ok {
+		if _, has := m["anyOf"]; !has {
+			m["anyOf"] = c
+		}
+		changed = true
+	}
+	for k, sub := range m {
+		if !geminiSchemaKeys[k] {
+			delete(m, k)
+			changed = true
+			continue
+		}
+		switch k {
+		case "properties":
+			props, _ := sub.(map[string]any)
+			for _, p := range props {
+				changed = cleanSchema(p) || changed
+			}
+		case "items", "additionalProperties":
+			changed = cleanSchema(sub) || changed
+		case "anyOf":
+			subs, _ := sub.([]any)
+			for _, s := range subs {
+				changed = cleanSchema(s) || changed
+			}
+		}
+	}
+	return changed
 }
