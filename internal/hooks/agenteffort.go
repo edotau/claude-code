@@ -12,6 +12,7 @@ import (
 	"strings"
 	"unicode"
 
+	agentpkg "github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
@@ -269,6 +270,15 @@ var (
 			return ""
 		}
 		c, _ := t.Cell(agent, alias)
-		return c.Model
+		pin := agentpkg.AgentPins()[agent]
+		if pin.Profile == "" && pin.Model == "" {
+			return c.Model
+		}
+		reg, err := providers.Load()
+		if err != nil {
+			return c.Model
+		}
+		m, _ := router.PinnedModel(agent, alias, c, reg.Providers[pin.Profile], pin.Model)
+		return m
 	}
 )
