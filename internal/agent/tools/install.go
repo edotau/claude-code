@@ -18,9 +18,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/edotau/claude-code/internal/opencode"
-
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // Install script URLs, verified by downloading and reading each one (callers below pass the env/args each needs).
@@ -166,7 +165,7 @@ func refuseOpencodeMajor(ctx context.Context, w io.Writer, bin string) error {
 		return nil
 	}
 	version := firstVersionLineCtx(ctx, bin)
-	major := opencode.ParseOpencodeMajor(version)
+	major := textutil.VersionMajor(version)
 	if major == 0 {
 		fmt.Fprintf(w, "  refuse   opencode %q (version unknown)\n", version)
 		return fmt.Errorf("opencode version probe of %s failed or unparsable; refusing (set %s=1 to accept)", bin, opencodeAllowMajorEnv)
