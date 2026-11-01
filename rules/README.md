@@ -35,8 +35,8 @@ Where idioms conflict, **the language rule wins**.
 - `claude-code memory remember` then `memory promote <id> --to rules` routes a session correction into the matching
   `standards/` or `software/` file — thin entries, imperative voice. `memory dream` promotes only gated hard rules
   to `CLAUDE.md` (ladder: `skills/reflection/SKILL.md` → Promotion ladder).
-- Other agent CLIs see rules only through `CLAUDE.md` prose (`claude-code agents sync`); `workflows/` and `harness/`
-  are not bridged.
+- Other agent CLIs get `CLAUDE.md` and the always-on `standards/` text (`claude-code agents sync`);
+  `workflows/` and `harness/` stay pointers.
 
 ## Moving a rule
 

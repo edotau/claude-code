@@ -5,7 +5,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
+
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // docsBannerPrefix opens the banner of every generated file; prune/KEEP logic keys on it.
@@ -21,7 +24,49 @@ var instructionFiles = map[string]string{
 	"gemini":  filepath.Join(".gemini", "GEMINI.md"),
 }
 
-// renderDocs renders banner + CLAUDE.md verbatim + a sorted `## Agents` index for the harness at root.
+// docsPathsNote tells a vendor CLI how to resolve the relative paths CLAUDE.md names.
+const docsPathsNote = "Paths in this file are relative to `~/.claude`."
+
+// standardsSection renders rules/standards/*.md without `paths:` frontmatter (the always-on set), H1s demoted.
+func standardsSection(root string) (string, error) {
+	files, err := filepath.Glob(filepath.Join(root, "rules", "standards", "*.md"))
+	if err != nil {
+		return "", err
+	}
+	slices.Sort(files)
+	var b strings.Builder
+	for _, f := range files {
+		raw, err := os.ReadFile(f)
+		if err != nil {
+			return "", fmt.Errorf("read standards: %w", err)
+		}
+		fm, body := textutil.ParseFrontmatter(string(raw))
+		if fm["paths"] != nil {
+			continue
+		}
+		b.WriteString("\n" + demoteH1(strings.Trim(body, "\n")) + "\n")
+	}
+	if b.Len() == 0 {
+		return "", nil
+	}
+	return "\n## Standards\n" + b.String(), nil
+}
+
+// demoteH1 turns each `# ` heading outside a code fence into `## `.
+func demoteH1(body string) string {
+	lines := strings.Split(body, "\n")
+	fenced := false
+	for i, l := range lines {
+		if strings.HasPrefix(l, "```") || strings.HasPrefix(l, "~~~") {
+			fenced = !fenced
+		} else if !fenced && strings.HasPrefix(l, "# ") {
+			lines[i] = "#" + l
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
+// renderDocs renders banner + CLAUDE.md verbatim + the always-on standards + a sorted `## Agents` index at root.
 func renderDocs(root string, agents []Source) (content string, ok bool, err error) {
 	conventions, err := os.ReadFile(filepath.Join(root, "CLAUDE.md"))
 	if os.IsNotExist(err) {
@@ -30,10 +75,15 @@ func renderDocs(root string, agents []Source) (content string, ok bool, err erro
 	if err != nil {
 		return "", false, fmt.Errorf("read CLAUDE.md: %w", err)
 	}
+	standards, err := standardsSection(root)
+	if err != nil {
+		return "", false, err
+	}
 	var b strings.Builder
-	b.WriteString(DocsBanner + "\n\n")
+	b.WriteString(DocsBanner + "\n\n" + docsPathsNote + "\n\n")
 	b.WriteString(strings.TrimRight(string(conventions), "\n"))
-	b.WriteString("\n\n## Agents\n\n")
+	b.WriteString("\n" + standards)
+	b.WriteString("\n## Agents\n\n")
 	for _, a := range agents {
 		fmt.Fprintf(&b, "- **%s** (`%s`)", a.Name(), cmp.Or(toString(a.frontmatter["model"]), "inherit"))
 		if desc := firstSentence(cleanDescription(toString(a.frontmatter["description"]))); desc != "" {
