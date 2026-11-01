@@ -61,9 +61,19 @@ budget.
 
 ## Phase 4: Plan (MEDIUM+)
 
-Feed both briefs to plan mode or `Plan`; the template is `docs/templates/plan.md`, the rules `agents/Plan.md`.
-Break down tasks, mark dependencies and `parallel-safe: true/false`, flag migrations, breaking changes and security
-surface. **Gate: user approval.**
+Feed both briefs to plan mode or `Plan` (rules `agents/Plan.md`, shape `docs/templates/plan.md`), then review the draft
+before asking for approval: in-context for MEDIUM, `claude-code codex ask` (or a `coworker`) for HIGH+. The reviewer
+checks it against Plan's rules plus what only a fresh reader can:
+
+1. **Evidence holds** — rerun two or three Target-shape rows; one that no longer reproduces, or a `Snapshot:` far
+   behind HEAD in the touched files, is an issue.
+2. **The decision is real** — the rejected alternative was viable, not a straw man.
+3. **Phase 0 catches regressions** — its baseline covers the commands later phases change.
+4. **Tasks tick** — every `owns:` names real paths the phase edits; a `coworker` task names a `code-worker` fallback.
+5. **A cold start works** — spec covered without scope creep, no placeholders, each code change carries its code.
+
+Flag only what would break implementation; an extra section is fine (the template is a floor). Verdict READY | NEEDS
+CLARIFICATION, issues as `[Phase X.Y]: issue — why it matters`. **Gate: user approval.**
 
 ## Phase 5: Refine (opt-in, `--refine`)
 
