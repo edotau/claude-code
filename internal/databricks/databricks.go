@@ -109,11 +109,14 @@ func plan(args []string) (Plan, error) {
 			p.Rest = append(p.Rest, arg)
 		}
 	}
-	reg, _ := providers.Load() // a load error leaves reg nil: the name is taken as given and the beta opt-out injected
+	reg, err := providers.Load()
+	if err != nil {
+		return Plan{}, fmt.Errorf("load providers: %w", err)
+	}
 	if p.Provider = resolveProfile(reg, name); p.Provider == "" {
 		return Plan{}, errors.New("no Databricks profile; add one with `databricks import` or pass --profile")
 	}
-	if reg != nil && !slices.Contains(providers.DatabricksProfiles(reg), p.Provider) {
+	if !slices.Contains(providers.DatabricksProfiles(reg), p.Provider) {
 		return Plan{}, fmt.Errorf("--profile %q is not a Databricks profile", p.Provider)
 	}
 	if p.Model == "" {

@@ -12,11 +12,14 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 )
 
+// rmRecursive matches `rm` with any recursive flag spelling (-r, -Rf, -r -f, --recursive) and trailing flags.
+const rmRecursive = `rm\s+(-\S+\s+)*(-[a-zA-Z]*[rR][a-zA-Z]*|--recursive)\s+(-\S+\s+)*`
+
 // hardBlocks are command shapes that are almost never intentional.
 var hardBlocks = lazyCompile(
-	`rm\s+-(rf|fr|r)\s+/(\*|\s|$|[)\x60"'])`,
-	`rm\s+-(rf|fr|r)\s+/(etc|usr|var|bin|sbin|lib|System|Users|home)(/?\s|/?$|/?[)\x60"'])`,
-	`rm\s+-(rf|fr|r)\s+(\$HOME|\$\{HOME\}|~)/?(\*|\s|$|[)\x60"'])`,
+	rmRecursive+`/(\*|\s|$|[)\x60"'])`,
+	rmRecursive+`/(etc|usr|var|bin|sbin|lib|System|Users|home)(/?\s|/?$|/?[)\x60"'])`,
+	rmRecursive+`(\$HOME|\$\{HOME\}|~)/?(\*|\s|$|[)\x60"'])`,
 	`mkfs\.`,
 	`dd\s+.*\sof=/dev/(sd|disk|nvme|hd)`,
 	`chmod\s+-R\s+777\s+/(\s|$)`,

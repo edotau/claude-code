@@ -1,7 +1,10 @@
 package router
 
 import (
+	"bytes"
 	"context"
+	"errors"
+	"os"
 	"os/exec"
 	"strings"
 
@@ -39,6 +42,23 @@ var gitRemoteURLs = func(dir string) ([]string, error) {
 	return urls, nil
 }
 
+// gitInRepo runs `git rev-parse --git-dir`: only git's "not a git repository" verdict is false; other failures error.
+func gitInRepo(dir string) (bool, error) {
+	cmd := exec.CommandContext(context.Background(), "git", "-C", dir, "rev-parse", "--git-dir")
+	cmd.Env = append(os.Environ(), "LC_ALL=C") // pin git's message language for the stderr match
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	err := cmd.Run()
+	if err == nil {
+		return true, nil
+	}
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) && strings.Contains(stderr.String(), "not a git repository") {
+		return false, nil
+	}
+	return false, err
+}
+
 // IsWorkRepo reports whether any of dir's git remotes (fetch or push URL) name a configured work host or
 // org (workRepoMarkers); "" checks the current working directory. No markers configured (and no load
 // error) is personal, with no git call at all. Not a git repo, or no remotes, is personal. A markers
@@ -54,8 +74,12 @@ func IsWorkRepo(dir string) bool {
 	if dir == "" {
 		dir = "."
 	}
-	if err := exec.CommandContext(context.Background(), "git", "-C", dir, "rev-parse", "--git-dir").Run(); err != nil {
-		return false // not a git repo
+	inRepo, err := gitInRepo(dir)
+	if err != nil {
+		return true // git missing or errored (e.g. corrupt config): fail closed
+	}
+	if !inRepo {
+		return false
 	}
 	urls, err := gitRemoteURLs(dir)
 	if err != nil {

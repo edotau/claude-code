@@ -170,3 +170,24 @@ func TestChooseVerifyGatePrecedence(t *testing.T) {
 		t.Fatalf("Makefile = (%q, %q)", g, s)
 	}
 }
+
+// TestScopedGoGateNoPackagesOmitsGoTest is the regression test: a markdown-only change selects no packages and must
+// not emit a bare `go test`, which fails in a root dir with no Go files.
+func TestScopedGoGateNoPackagesOmitsGoTest(t *testing.T) {
+	dir, run, write := gateRepo(t)
+	write("a/a.go", "package a\n")
+	run("add", "-A")
+	run("commit", "-q", "-m", "base")
+	base := run("rev-parse", "HEAD")
+	write("docs/readme.md", "x\n")
+	run("add", "-A")
+	run("commit", "-q", "-m", "docs")
+
+	cmd, pkgs, full, err := ScopedGoGate(context.Background(), dir, base)
+	if err != nil || full || len(pkgs) != 0 {
+		t.Fatalf("err=%v full=%v pkgs=%v", err, full, pkgs)
+	}
+	if cmd != "go build ./... && go vet ./..." {
+		t.Errorf("cmd=%q, want build and vet only", cmd)
+	}
+}

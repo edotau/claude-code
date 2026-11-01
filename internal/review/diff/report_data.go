@@ -91,7 +91,7 @@ func getChangedSourceFiles(repo, base, head string) []string {
 	tryArgs := [][]string{{base + "..." + head}, {base, head}}
 	for _, extra := range tryArgs {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		full := append([]string{"diff", "--name-only"}, extra...)
+		full := append([]string{"diff", "--name-only", "--relative"}, extra...)
 		out, err := proc.RunGitInherit(ctx, repo, full...)
 		cancel()
 		if err != nil {

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"github.com/edotau/claude-code/internal/vault"
 	"maps"
+	"os"
 	"slices"
 	"strconv"
 	"strings"
@@ -21,16 +22,25 @@ import (
 	"github.com/edotau/claude-code/internal/ui/ansi"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 	"github.com/edotau/claude-code/internal/ui/table"
+	"github.com/edotau/claude-code/internal/ui/tui"
 )
 
-// Width is $COLUMNS when set, else 120 (no live TTY-size query exists in this repo).
-func Width() int { return ansi.Columns(120) }
+// Width is $COLUMNS when set, else the stdout terminal's width, else 80 when stdout is not a terminal.
+func Width() int {
+	if n := ansi.Columns(0); n > 0 {
+		return n
+	}
+	if n, _, err := tui.Size(int(os.Stdout.Fd())); err == nil && n > 0 {
+		return n
+	}
+	return 80
+}
 
 // Text lays out each selected section (uppercase heading + aligned rows, in
 // Sections order), painting every section when color is on (agents paints its own rows).
 func Text(doc configure.Doc, stored []secrets.Stored, sel []string, width int, color bool) string {
 	render := map[string]func() string{
-		"secrets":   func() string { return vaultSectionMax("SECRETS", vaultSecretRows(stored), width, 0, 0) },
+		"secrets":   func() string { return vaultSecretsText(stored, width) },
 		"pins":      func() string { return vaultSection("PINS", vaultMapRows(doc.Pins), width) },
 		"env":       func() string { return vaultSection("ENV", vaultMapRows(doc.Env), width) },
 		"providers": func() string { return vaultProvidersText(doc.Providers, width) },
@@ -63,20 +73,6 @@ func Text(doc configure.Doc, stored []secrets.Stored, sel []string, width int, c
 func emptySection(out string) bool {
 	_, body, _ := strings.Cut(out, "\n")
 	return body == "  (none)\n"
-}
-
-// vaultSecretRows is one name/"<prefix>***  N chars" row per secret; preview and right-aligned length are columns.
-func vaultSecretRows(stored []secrets.Stored) [][2]string {
-	prefixW, lenW := 0, 0
-	for _, s := range stored {
-		prefixW = max(prefixW, len(s.Prefix)+3)
-		lenW = max(lenW, len(strconv.Itoa(s.Len)))
-	}
-	rows := make([][2]string, len(stored))
-	for i, s := range stored {
-		rows[i] = [2]string{s.Name, fmt.Sprintf("%-*s  %*d chars", prefixW, s.Prefix+"***", lenW, s.Len)}
-	}
-	return rows
 }
 
 // vaultMapRows sorts a pins/env map into rows by key.

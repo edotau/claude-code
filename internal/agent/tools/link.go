@@ -103,7 +103,11 @@ func linkCandidate(t Tool) string {
 	if c, err := paths.LookPathReal(t.Binary); err == nil {
 		return c
 	}
-	c := filepath.Join(localBinDir(), t.Binary)
+	local := localBinDir()
+	if local == "" {
+		return ""
+	}
+	c := filepath.Join(local, t.Binary)
 	if fi, err := os.Stat(c); err == nil && !fi.IsDir() && fi.Mode()&0o111 != 0 {
 		return c
 	}

@@ -26,8 +26,11 @@ var (
 	execCommandContext = exec.CommandContext
 )
 
-// defaultExecTimeout bounds every exec of the installed CLI.
-const defaultExecTimeout = 5 * time.Second
+// defaultExecTimeout bounds every quick exec of the installed CLI; connectTimeout bounds `tailscale up`.
+const (
+	defaultExecTimeout = 5 * time.Second
+	connectTimeout     = 60 * time.Second
+)
 
 // Peer is one other tailnet node from `tailscale status --json`.
 type Peer struct {
@@ -190,7 +193,7 @@ func Connect(ctx context.Context, authKey string, exitNode bool) error {
 	if exitNode {
 		args = append(args, "--advertise-exit-node")
 	}
-	ctx, cancel := context.WithTimeout(ctx, defaultExecTimeout)
+	ctx, cancel := context.WithTimeout(ctx, connectTimeout)
 	defer cancel()
 	cmd := execCommandContext(ctx, bin, args...)
 	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr

@@ -176,7 +176,9 @@ var codexHasJSON = sync.OnceValue(func() bool {
 	if err != nil {
 		return false
 	}
-	out, _ := exec.Command(bin, "exec", "--help").CombinedOutput()
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	out, _ := exec.CommandContext(ctx, bin, "exec", "--help").CombinedOutput()
 	return strings.Contains(string(out), "--json")
 })
 

@@ -2,7 +2,7 @@ export const meta = {
   name: 'code-agent',
   description: 'One non-Claude agent (codex|gemini|opencode|copilot) as a workflow stage, optionally on a named profile: smoke ask, JSON envelope relay, sonnet fallback (off when a profile is named)',
   whenToUse:
-    'Inline from another script: workflow("code-agent", {agent?, model?, vendorModel?, profile?, cwd, task, smoke?: true, fallback?: true, tools?: false, timeoutMin?: 3, agents?: string}). No agent: claude-code gateway router --format json picks it at the model (default sonnet). model is the relay/fallback Claude model; vendorModel is passed to ask as --model (e.g. byok for the curated Databricks pool). profile names a vault profile: both asks get --profile <p> (ask resolves host, provider and auth) and the sonnet fallback is off, since it would run on the session route. Returns {ok, agent, profile?, answer, provider, model, error, status?, transport?, skipped?, fallback?} — status is the envelope\'s ok|error|partial|quota|stalled; fallback is the original agent\'s name when the in-workflow sonnet fallback ran as agent claude. Budget: smoke ask of at most timeoutMin plus task ask of at most timeoutMin (timeoutMin capped at 3 for codex/opencode/copilot, 8 for gemini) totals at most 6 minutes, inside the Bash tools 10-minute ceiling — the relay leaf never retries either call. gemini: tools default true (agy needs --tools to read files or search), the smoke ask is skipped so only the task ask runs (at most 8 min), keeping smoke+task inside the ceiling — an explicit smoke:true runs it and caps each call at 4 min; at most one call per loop round; no measured 429s on agy — prefer flash-high. copilot: pass tools:true for a commit dispatch (never falls back — a commit cannot be redone by a different model). opencode: budget 1.5-3 min per call. agents is the text of an agents file (JSON), written through the same heredoc hop as the task and passed to ask as --agents <file> on both asks.',
+    'Inline from another script: workflow("code-agent", {agent?, model?, vendorModel?, profile?, cwd, task, smoke?: true, fallback?: true, tools?: false, timeoutMin?: 8, agents?: string}). No agent: claude-code gateway router --format json picks it at the model (default sonnet). model is the relay/fallback Claude model; vendorModel is passed to ask as --model (e.g. byok for the curated Databricks pool). profile names a vault profile: both asks get --profile <p> (ask resolves host, provider and auth) and the sonnet fallback is off, since it would run on the session route. Returns {ok, agent, profile?, answer, provider, model, error, status?, transport?, skipped?, fallback?} — status is the envelope\'s ok|error|partial|quota|stalled; fallback is the original agent\'s name when the in-workflow sonnet fallback ran as agent claude. Budget: smoke ask of at most timeoutMin plus task ask of at most timeoutMin (timeoutMin capped at 8 for every agent, or 4 per call when the smoke ask runs, so smoke+task total at most 8 minutes; a larger request is clamped and log()ged). The relay leaf starts each ask with --background and polls short status calls, so no single Bash call nears the 10-minute ceiling; it never retries either call. gemini: tools default true (agy needs --tools to read files or search); smoke defaults off for gemini and codex (only the task ask runs), on for opencode and copilot (smoke:false skips it); at most one call per loop round; no measured 429s on agy — prefer flash-high. copilot: pass tools:true for a commit dispatch (never falls back — a commit cannot be redone by a different model). opencode: budget 1.5-3 min per call. agents is the text of an agents file (JSON), written through the same heredoc hop as the task and passed to ask as --agents <file> on both asks.',
   phases: [{ title: 'Agent', detail: 'haiku leaf runs claude-code ask --format json and relays the envelope; sonnet fallback on failure' }],
 }
 
@@ -65,9 +65,10 @@ if (!AGENTS.includes(a.agent)) return { error: 'code-agent needs args.agent in '
 if (a.task.length > 90 * 1024) return { error: 'code-agent: task over 90 KiB (ask rejects prompts over 96 KiB); pass excerpts, not whole diffs' }
 const CWD = a.cwd || '.'
 const SMOKE = a.agent === 'gemini' || a.agent === 'codex' ? a.smoke === true : a.smoke !== false
-// gemini's opt-in smoke halves its per-call cap, so smoke + task stay within 8 minutes
-const CAP = a.agent === 'gemini' ? (SMOKE ? 4 : 8) : 3
+// A smoke ask halves the per-call cap, so smoke + task stay within 8 minutes; the leaf polls short status calls, not one long Bash
+const CAP = SMOKE ? 4 : 8
 const MIN = Number.isInteger(a.timeoutMin) && a.timeoutMin > 0 && a.timeoutMin <= CAP ? a.timeoutMin : CAP
+if (a.timeoutMin !== undefined && a.timeoutMin !== MIN) log(`timeoutMin ${a.timeoutMin} clamped to ${MIN} (cap ${CAP}${SMOKE ? ' with the smoke ask' : ''})`)
 const AGENTS_FLAG = a.agents ? ' --agents <agents file>' : ''
 const AGENTS_STEP = a.agents ? `Also write the AGENTS text below verbatim to a second scratch file with a quoted heredoc (<<'EOF'), and substitute that file for <agents file>. ` : ''
 const AGENTS_TAIL = a.agents ? `\n\nAGENTS:\n${a.agents}` : ''
@@ -87,23 +88,27 @@ const ENVELOPE = {
   },
 }
 // One `claude-code ask` relay per call; the heredoc-to-file hop keeps shell quoting away from the task text.
-const run = (task, label) =>
-  agent(
+// A thrown or null relay (schema death included) maps to {ok:false}, never a throw.
+const run = async (task, label) =>
+  (await agent(
     `Agent: ${a.agent}\n` +
       `Relay one external-model call; do NOT answer the task yourself. Write the TASK below verbatim to a scratch file with a quoted heredoc (<<'EOF'), ` +
       `${AGENTS_STEP}Then run exactly: cd ${CWD} && claude-code ask --agent ${a.agent} --format json${PROFILE ? ' --profile ' + PROFILE : ''}${VMODEL_FLAG} --workdir ${CWD} --timeout ${MIN}m${TOOLS ? ' --tools' : ''}${AGENTS_FLAG} --background - < <that file>. ` +
       `It prints ONE JSON line {"id":…,"log":…}; id = the job id. Loop claude-code ${a.agent} status <id> with sleep 5 until done, then claude-code agents result <id> --format json. ` +
       `The result is ONE indented JSON object {agent, status, provider, model, answer, error:{kind,message}|null, transport, …}. ok = exit 0 AND error null AND answer non-empty. ` +
-      `Copy status and transport verbatim. Copy answer verbatim, never summarise. error = the envelope error's message, or the stderr tail on a non-JSON exit. Never retry.\n\nTASK:\n${task}${AGENTS_TAIL}`,
+      `Copy status and transport verbatim. Copy answer verbatim, never summarise. error = the envelope error's message, or the stderr tail on a non-JSON exit. Never retry.\n` +
+      `Your reply MUST contain ok, answer and error every time, even on failure or timeout. On a failed or timed-out ask reply ` +
+      `{"ok":false,"answer":"","error":"<the failure message>"}: the message goes in error, never in answer, and answer stays "". ` +
+      `On success error is "".\n\nTASK:\n${task}${AGENTS_TAIL}`,
     { label, phase: 'Agent', schema: ENVELOPE, agentType: 'code-worker', model: 'haiku', effort: 'low' }
-  )
+  ).catch(() => null)) || { ok: false, answer: '', error: 'relay leaf failed' }
 
 phase('Agent')
 const smoke = !SMOKE ? { ok: true, answer: 'READY', error: '' } : await run('Reply READY only.', 'smoke:' + a.agent)
 const res =
-  smoke && smoke.ok && /READY/i.test(smoke.answer || '')
-    ? (await run(a.task, 'ask:' + a.agent)) || { ok: false, answer: '', error: 'relay leaf returned no result' }
-    : { ok: false, answer: '', error: (smoke && smoke.error) || 'smoke ask failed' }
+  smoke.ok && /READY/i.test(smoke.answer || '')
+    ? await run(a.task, 'ask:' + a.agent)
+    : { ok: false, answer: '', error: smoke.error || 'smoke ask failed' }
 const withProfile = o => (PROFILE ? { ...o, profile: PROFILE } : o)
 if (res.ok) return withProfile({ ...res, agent: a.agent })
 log(`${a.agent} dispatch failed: ${res.error}`)
@@ -112,7 +117,7 @@ const fb = await agent(`${a.task}\n\n(Work in ${CWD}; prefix every shell command
   label: 'fallback:' + a.agent,
   phase: 'Agent',
   agentType: 'code-worker',
-  model: routeModel('sonnet'),
+  model: routeModel(a.model || 'sonnet'),
   effort: 'medium',
 })
 return { ok: !!fb, agent: 'claude', status: fb ? 'ok' : 'error', answer: typeof fb === 'string' ? fb : JSON.stringify(fb || ''), error: res.error, fallback: a.agent }

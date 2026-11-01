@@ -39,6 +39,8 @@ var wipeKeys = []string{
 	"CLAUDE_OPUS_MODEL", "CLAUDE_SONNET_MODEL", "CLAUDE_HAIKU_MODEL", "CLAUDE_FABLE_MODEL",
 }
 
+const defaultAnthropicBase = "https://api.anthropic.com"
+
 // oauthKey survives the wipe only for cli-auth (subscription login) profiles.
 const oauthKey = "CLAUDE_CODE_OAUTH_TOKEN"
 
@@ -95,7 +97,11 @@ func keepShellEndpoint(plan *agent.Plan, o agent.LaunchOptions) {
 	if o.Model == "" {
 		keep = append(keep, "ANTHROPIC_MODEL")
 	}
-	if base := strings.TrimSpace(os.Getenv("ANTHROPIC_BASE_URL")); base != "" && !sameEndpoint(base, plan.Set["ANTHROPIC_BASE_URL"]) {
+	own := plan.Set["ANTHROPIC_BASE_URL"]
+	if own == "" {
+		own = defaultAnthropicBase // an unset plan base means the default route
+	}
+	if base := strings.TrimSpace(os.Getenv("ANTHROPIC_BASE_URL")); base != "" && !sameEndpoint(base, own) {
 		plan.ForeignBase = true
 		dropHarnessCredential(plan)
 	}
@@ -220,7 +226,7 @@ func configureRouting(ctx context.Context, o agent.LaunchOptions, reg *providers
 		plan.OverlayPath = filepath.Join(paths.StateDir(), "overlay-"+p.Name+"-proxy.json")
 		return shellQuote(helperBin(self)) + " resolve --proxy", nil
 	}
-	if route, ok := p.Route(providers.ProtocolAnthropic); ok && route != "https://api.anthropic.com" {
+	if route, ok := p.Route(providers.ProtocolAnthropic); ok && route != defaultAnthropicBase {
 		plan.Set["ANTHROPIC_BASE_URL"] = route
 	}
 	if h := customHeaders(p.Headers); h != "" {

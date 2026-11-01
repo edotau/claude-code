@@ -71,8 +71,8 @@ func Preserve() (restore func()) {
 	}
 }
 
-// getSize is the terminal's (columns, rows) from TIOCGWINSZ.
-func getSize(fd int) (int, int, error) {
+// Size is the terminal's (columns, rows) from TIOCGWINSZ.
+func Size(fd int) (int, int, error) {
 	var ws struct{ Row, Col, X, Y uint16 }
 	if _, _, e := syscall.Syscall(syscall.SYS_IOCTL, uintptr(fd), uintptr(syscall.TIOCGWINSZ), uintptr(unsafe.Pointer(&ws))); e != 0 {
 		return 0, 0, e

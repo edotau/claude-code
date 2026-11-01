@@ -5,6 +5,7 @@ package gemini
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"io/fs"
 	"os"
@@ -249,7 +250,10 @@ func gitTrackedFiles(ctx context.Context, cwd string) (tracked map[string]bool, 
 	}
 	out, err := exec.CommandContext(ctx, "git", "-C", cwd, "ls-files", "--cached", "--others", "--exclude-standard", "-z").Output()
 	if err != nil {
-		return nil, false, ctx.Err()
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return nil, false, ctxErr // cancellation stays context.Canceled, not a ls-files failure
+		}
+		return nil, false, fmt.Errorf("git ls-files in %s: %w", cwd, err) // fail closed: never walk gitignored files
 	}
 	tracked = map[string]bool{}
 	for p := range strings.SplitSeq(strings.Trim(string(out), "\x00"), "\x00") {

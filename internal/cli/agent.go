@@ -143,7 +143,7 @@ func runAsk(args []string, resume bool) int {
 	}
 	prompt := strings.Join(positional, " ")
 	state := &askState{name: name, provider: provider, model: model, effort: effort, workdir: workdir,
-		session: session, tools: tools, noTools: noTools, timeout: timeout, attach: &attach, keepEnv: &keepEnv,
+		session: session, tools: tools, readOnly: readOnly, noTools: noTools, timeout: timeout, attach: &attach, keepEnv: &keepEnv,
 		autonomous: autonomous, enableMemory: enableMemory, rubric: rubric, direct: direct,
 		noPersist: noPersist, safeMode: safeMode, debugFile: debugFile, systemPrompt: systemPrompt,
 		appendSystemPrompt: appendSystemPrompt, outputSchema: outputSchema, persona: &persona, host: host, remoteBin: remoteBin, fallback: fallback}
@@ -199,8 +199,11 @@ func runAsk(args []string, resume bool) int {
 	if err != nil {
 		return failAskCode(*format, *name, err, prepareExitCode(err))
 	}
-	_ = prepared.Record.Save()
+	saveErr := prepared.Record.Save()
 	if *background {
+		if saveErr != nil { // the --job child loads this record: without it the job could never start
+			return failAsk(*format, *name, fmt.Errorf("save dispatch record: %w", saveErr))
+		}
 		return askSpawn(fs, prepared, *native, *format, *name)
 	}
 	return runAskAndReport(ctx, client, prepared, jobRec != nil, *format)
@@ -387,15 +390,15 @@ func askStdoutSink(format, dispatchID string) agent.Sink {
 
 // askState bundles the ask flag pointers that --job/--retry overwrite from a logged dispatch's request.
 type askState struct {
-	name, provider, model, effort, workdir, session, rubric   *string
-	tools, noTools, autonomous, enableMemory, direct          *bool
-	noPersist, safeMode                                       *bool
-	debugFile, systemPrompt, appendSystemPrompt, outputSchema *string
-	host, remoteBin, fallback                                 *string
-	timeout                                                   *time.Duration
-	persona                                                   **agent.Schema
-	attach                                                    *attachFlag
-	keepEnv                                                   *keepEnvFlag
+	name, provider, model, effort, workdir, session, rubric    *string
+	tools, readOnly, noTools, autonomous, enableMemory, direct *bool
+	noPersist, safeMode                                        *bool
+	debugFile, systemPrompt, appendSystemPrompt, outputSchema  *string
+	host, remoteBin, fallback                                  *string
+	timeout                                                    *time.Duration
+	persona                                                    **agent.Schema
+	attach                                                     *attachFlag
+	keepEnv                                                    *keepEnvFlag
 }
 
 // applyRecord copies a logged dispatch's request onto this ask invocation's flags.
@@ -403,7 +406,7 @@ func (s *askState) applyRecord(rec agent.Record) {
 	*s.name, *s.provider, *s.model, *s.effort = rec.Agent, rec.Request.Provider, rec.Request.Model, rec.Request.Effort
 	*s.workdir, *s.session, *s.tools, *s.timeout = rec.Request.WorkDir, rec.Request.SessionID, rec.Request.Tools, rec.Request.Timeout
 	*s.attach, *s.autonomous, *s.enableMemory = attachFlag(rec.Request.Attach), rec.Request.Autonomous, rec.Request.EnableMemory
-	*s.keepEnv, *s.direct, *s.noTools = keepEnvFlag(rec.Request.KeepEnv), rec.Request.Direct, rec.Request.NoTools
+	*s.keepEnv, *s.direct, *s.noTools, *s.readOnly = keepEnvFlag(rec.Request.KeepEnv), rec.Request.Direct, rec.Request.NoTools, rec.Request.ReadOnly
 	*s.noPersist, *s.safeMode, *s.debugFile = rec.Request.NoPersist, rec.Request.SafeMode, rec.Request.DebugFile
 	*s.systemPrompt, *s.appendSystemPrompt, *s.outputSchema = rec.Request.SystemPrompt, rec.Request.AppendSystemPrompt, rec.Request.OutputSchema
 	*s.host, *s.remoteBin = rec.Host, rec.RemoteBin

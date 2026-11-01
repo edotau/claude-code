@@ -5,9 +5,17 @@ import (
 	"path/filepath"
 	"slices"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/vault"
+	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
-func TestScienceStripsHarnessEnvOnly(t *testing.T) {
+// Science unsets the harness's own session/routing env (shell and vault custom env), keeps claude-science's own
+// CLAUDE_SCIENCE_* and ANTHROPIC_* knobs, and passes argv through untouched.
+func TestScienceLaunchPlanStripsHarnessEnvOnly(t *testing.T) {
+	vaulttest.Use(t)
+	vaulttest.Put(t, vault.Env, "HARNESS_WORKTREE", "off")
+	vaulttest.Put(t, vault.Env, "MY_OWN_VAR", "1")
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "claude-science"), []byte("#!/bin/sh\n"), 0o755); err != nil {
 		t.Fatal(err)
@@ -21,7 +29,7 @@ func TestScienceStripsHarnessEnvOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []string{"ANTHROPIC_BASE_URL", "ANTHROPIC_CUSTOM_HEADERS", "CLAUDE_CODE_SSE_PORT", "CLAUDECODE",
-		"HARNESS_PROVIDER", "GEMINI_CLI_IDE_AUTH_TOKEN"}
+		"HARNESS_PROVIDER", "GEMINI_CLI_IDE_AUTH_TOKEN", "HARNESS_WORKTREE"}
 	if !slices.Equal(p.Unset, want) || !slices.Equal(p.Argv, []string{"serve", "--model", "x"}) {
 		t.Errorf("unset %q argv %q, want unset %q and argv passed through", p.Unset, p.Argv, want)
 	}

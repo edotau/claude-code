@@ -258,8 +258,7 @@ func conflictMarkersClear(ctx context.Context, worktreePath string, paths []stri
 	return true, "", nil
 }
 
-// changedPaths reads every path `git status --porcelain` reports as touched (staged or not), tracked
-// or untracked — the universe finalizeAgentResolution checks against op.ConflictPaths.
+// changedPaths reads every path `git status --porcelain` reports as touched (staged or not).
 // changedPaths lists TRACKED changes only: untracked files an agent's own tooling drops (plugin caches) are never
 // staged, and Clean still refuses the worktree while they exist, so they cannot ride into the commit or be lost.
 func changedPaths(ctx context.Context, worktreePath string) ([]string, error) {
@@ -273,6 +272,33 @@ func changedPaths(ctx context.Context, worktreePath string) ([]string, error) {
 			continue
 		}
 		result = append(result, strings.TrimSpace(line[3:]))
+	}
+	return result, nil
+}
+
+// agentChangedPaths lists tracked paths that differ from the clean merge of the pinned OIDs (index or worktree), so
+// files the merge itself auto-merged and staged never read as agent edits.
+func agentChangedPaths(ctx context.Context, op *Operation, worktreePath string) ([]string, error) {
+	out, err := runGit(ctx, worktreePath, nil, "merge-tree", "--write-tree", "--name-only", "--no-messages", "-z",
+		op.OriginalSourceOID, op.TargetOID)
+	if code, isExit := asExitErr(err); err != nil && (!isExit || code != 1) {
+		return nil, fmt.Errorf("git merge-tree in %s: %w (%s)", worktreePath, err, gitErrorDetail(err))
+	}
+	tree, _, _ := strings.Cut(string(out), "\x00")
+	seen := map[string]bool{}
+	var result []string
+	for _, args := range [][]string{{"--cached", tree}, nil} { // index vs clean merge, then worktree vs index
+		diffArgs := append([]string{"diff", "--name-only", "--no-renames", "--ignore-submodules=none", "-z"}, args...)
+		diff, err := runGit(ctx, worktreePath, nil, diffArgs...)
+		if err != nil {
+			return nil, fmt.Errorf("git diff in %s: %w (%s)", worktreePath, err, gitErrorDetail(err))
+		}
+		for f := range strings.SplitSeq(string(diff), "\x00") {
+			if f != "" && !seen[f] {
+				seen[f] = true
+				result = append(result, f)
+			}
+		}
 	}
 	return result, nil
 }
@@ -306,7 +332,7 @@ func finalizeAgentResolution(ctx context.Context, op *Operation, worktreePath st
 	if !clean {
 		return failOperation(op, fmt.Errorf("resolve: conflict markers remain in %q after the agent exited — refusing to stage or commit", badPath))
 	}
-	changed, err := changedPaths(ctx, worktreePath)
+	changed, err := agentChangedPaths(ctx, op, worktreePath)
 	if err != nil {
 		return failOperation(op, err)
 	}

@@ -4,6 +4,7 @@ package configure
 
 import (
 	"cmp"
+	"fmt"
 	"github.com/edotau/claude-code/internal/codex"
 	"github.com/edotau/claude-code/internal/opencode"
 	"github.com/edotau/claude-code/internal/vault"
@@ -216,6 +217,7 @@ func codexMenu(d *dialog) agentMenu {
 		}
 		return true
 	}
+	pinned := vault.GetAgentRecord("codex").Profile
 	return agentMenu{st, []billingRow{
 		{"Subscription", "ChatGPT login · plan limits " + menu.Bracket(loggedIn, withTier("logged in", tier), "not logged in"), modeSubscription, func() bool {
 			if loggedIn {
@@ -229,7 +231,47 @@ func codexMenu(d *dialog) agentMenu {
 			return signIn(d, "codex", []string{"codex", "login"})
 		}},
 		{"Settings", "reasoning effort and verbosity · vault preferences", "", func() bool { return runCodexSettings(d) }},
+		{"Models", "discover what " + cmp.Or(pinned, "the pinned profile") + " serves", "", func() bool { return codexModels(d, pinned) }},
 	}}
+}
+
+// codexModels previews the menu shared by opencode, copilot and codex merged with what profile serves, writes it only
+// after a confirm, then lists the ids codex can use over Responses.
+func codexModels(d *dialog, profile string) bool {
+	if profile == "" {
+		d.printf("codex: no profile pinned; set one on the Profile row\n")
+		return false
+	}
+	pl, err := opencode.MenuSync(profile, opencode.SyncOptions{})
+	if err != nil {
+		d.printf("codex: %v\n", err)
+		return false
+	}
+	d.printf("codex: %s serves %d chat models, %d not in the shared menu\n", profile, len(pl.IDs), len(pl.Changes))
+	for _, c := range pl.Changes {
+		d.printf("+ %s  responses=%v\n", c.Model.ID, c.Model.Responses)
+	}
+	menuNow, applied := pl.Menu, false
+	if len(pl.Changes) > 0 && actionConfirmed(fmt.Sprintf("Add %d model(s) to the menu shared with opencode and copilot", len(pl.Changes))) {
+		_, err := pl.Seal()
+		if err == nil {
+			err = providers.SetOpencodeMenu(pl.Next)
+		}
+		if err != nil {
+			d.printf("codex: %v\n", err)
+			return false
+		}
+		menuNow, applied = pl.Next, true
+		d.printf("codex: menu updated; relaunch codex to pick it up\n")
+	}
+	var usable []string
+	for _, m := range menuNow {
+		if m.Responses && slices.Contains(pl.IDs, m.ID) {
+			usable = append(usable, m.ID)
+		}
+	}
+	d.printf("codex: usable over Responses on %s: %s\n", profile, cmp.Or(strings.Join(usable, ", "), "none"))
+	return applied
 }
 
 // codexKeyLogin feeds key to `codex login --with-api-key` on stdin; tests replace it.

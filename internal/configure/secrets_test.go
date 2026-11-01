@@ -353,3 +353,10 @@ func TestEditCustomEnvDeletingSecretVarDeletesSealedSecretAfterConfirm(t *testin
 		})
 	}
 }
+
+// Given an unreadable vault, the source label says so instead of "missing".
+func TestSourceLabelUnreadableVault(t *testing.T) {
+	if got := sourceLabel("unreadable", ""); got != "vault unreadable" {
+		t.Errorf("sourceLabel = %q, want vault unreadable", got)
+	}
+}

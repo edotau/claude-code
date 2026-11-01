@@ -75,19 +75,19 @@ func opencodeDatabricks(p *providers.Provider, id, dialect, base, model, cred st
 		}
 	}
 	prov := map[string]any{
-		id + "-gpt": map[string]any{"npm": "@ai-sdk/openai", "name": p.Name + " GPT (claude-code)", "options": opts(respBase, false), "models": resp},
+		id + "-gpt": map[string]any{"npm": "@ai-sdk/openai", "name": "GPT (claude-code)", "options": opts(respBase, false), "models": resp},
 	}
 	if len(chat) > 0 {
-		prov[id] = map[string]any{"npm": "@ai-sdk/openai-compatible", "name": p.Name + " (claude-code)", "options": opts(chatBase, false), "models": chat}
+		prov[id] = map[string]any{"npm": "@ai-sdk/openai-compatible", "name": "Databricks (claude-code)", "options": opts(chatBase, false), "models": chat}
 	}
 	if claudeBase != "" {
-		prov[id+"-claude"] = map[string]any{"npm": "@ai-sdk/anthropic", "name": p.Name + " Claude (claude-code)", "options": opts(claudeBase, true), "models": claude}
+		prov[id+"-claude"] = map[string]any{"npm": "@ai-sdk/anthropic", "name": "Claude (claude-code)", "options": opts(claudeBase, true), "models": claude}
 	}
 	body, err := json.Marshal(map[string]any{"$schema": "https://opencode.ai/config.json", "model": defID + "/" + model, "provider": prov})
 	if err != nil {
 		return nil, nil, err
 	}
-	return append(env, opencodeConfigEnv+"="+string(body)), nil, nil
+	return append(modelsDefined(env), opencodeConfigEnv+"="+string(body)), nil, nil
 }
 
 // splitMenu sorts the menu over the chat, Responses and Claude providers by wire; dropped are labels p has no route for.

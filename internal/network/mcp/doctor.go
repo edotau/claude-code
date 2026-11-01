@@ -305,10 +305,10 @@ type Report struct {
 	Secrets   []SecretFinding `json:"secrets"`
 }
 
-// ExitCode is 1 when any server failed to connect or any secret was found, else 0. A fail-open
+// ExitCode is 1 when a server failed, `claude mcp list` errored, or a secret was found, else 0. A fail-open
 // health skip (claude not on PATH) never contributes to the exit code on its own.
 func (r Report) ExitCode() int {
-	if r.Health.Failed > 0 || len(r.Secrets) > 0 {
+	if r.Health.Failed > 0 || r.Health.Error != "" || len(r.Secrets) > 0 {
 		return 1
 	}
 	return 0

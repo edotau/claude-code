@@ -1,6 +1,8 @@
 package bank
 
 import (
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -78,7 +80,10 @@ func Rejoin(header string, blocks []string) string {
 
 // AppendBlocks appends blocks to path, creating it with a minimal header when absent.
 func AppendBlocks(path string, blocks []string) error {
-	existing, _ := os.ReadFile(path)
+	existing, err := os.ReadFile(path)
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return err // never overwrite an archive we could not read
+	}
 	body := string(existing)
 	if strings.TrimSpace(body) == "" {
 		body = "# " + strings.TrimSuffix(filepath.Base(path), ".md") + " (archived)\n"

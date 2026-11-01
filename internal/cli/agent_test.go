@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"flag"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -353,7 +354,7 @@ func newAskState() *askState {
 	s := func() *string { return new(string) }
 	b := func() *bool { return new(bool) }
 	return &askState{name: s(), provider: s(), model: s(), effort: s(), workdir: s(), session: s(), rubric: s(),
-		tools: b(), noTools: b(), autonomous: b(), enableMemory: b(), direct: b(),
+		tools: b(), readOnly: b(), noTools: b(), autonomous: b(), enableMemory: b(), direct: b(),
 		noPersist: b(), safeMode: b(), debugFile: s(), systemPrompt: s(), appendSystemPrompt: s(), outputSchema: s(), host: s(), remoteBin: s(), fallback: s(),
 		timeout: new(time.Duration), attach: new(attachFlag), keepEnv: new(keepEnvFlag)}
 }
@@ -370,6 +371,37 @@ func TestApplyRecordRoundTripsNoTools(t *testing.T) {
 	s.applyRecord(agent.Record{Agent: "claude", Request: agent.RunOptions{Tools: true}})
 	if *s.noTools || !*s.tools {
 		t.Errorf("noTools=%v tools=%v; want tools on, noTools off", *s.noTools, *s.tools)
+	}
+}
+
+// A replayed read-only dispatch must stay read-only; the flag default would hand it write tools.
+func TestApplyRecordRoundTripsReadOnly(t *testing.T) {
+	s := newAskState()
+	s.applyRecord(agent.Record{Agent: "claude", Request: agent.RunOptions{ReadOnly: true, Tools: true}})
+	if !*s.readOnly || !*s.tools {
+		t.Errorf("readOnly=%v tools=%v; want both on", *s.readOnly, *s.tools)
+	}
+	s.applyRecord(agent.Record{Agent: "claude", Request: agent.RunOptions{Tools: true}})
+	if *s.readOnly {
+		t.Error("readOnly stayed on for a record without it")
+	}
+}
+
+// A failed job's stderr tail may carry a key; result must not echo it raw.
+func TestResultExitRedactsError(t *testing.T) {
+	const key = "sk-ant-api03-abcdefghijklmnopqrstuvwxyz0123456789ABCDEF"
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	orig := os.Stderr
+	os.Stderr = w
+	rc := resultExit(agent.Record{Status: "error", Error: "401 bad key " + key})
+	os.Stderr = orig
+	w.Close()
+	out, _ := io.ReadAll(r)
+	if rc != 1 || strings.Contains(string(out), key) {
+		t.Errorf("rc=%d stderr=%q; want 1 and no raw key", rc, out)
 	}
 }
 

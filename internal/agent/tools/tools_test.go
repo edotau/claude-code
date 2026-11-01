@@ -334,3 +334,18 @@ func mustEvalSymlinks(t *testing.T, p string) string {
 	}
 	return r
 }
+
+func TestLocalBinDirUnsetHomeIsNotCwdRelative(t *testing.T) {
+	t.Setenv("HOME", "")
+	if got := localBinDir(); got != "" {
+		t.Fatalf("localBinDir() = %q, want empty when HOME is unset", got)
+	}
+	cwd := t.TempDir()
+	t.Chdir(cwd)
+	if err := installBinary(io.Discard, localBinDir(), "x", []byte("x")); err == nil {
+		t.Fatal("installBinary with empty dir succeeded, want error")
+	}
+	if _, err := os.Stat(filepath.Join(cwd, ".local")); !os.IsNotExist(err) {
+		t.Fatalf("cwd-relative .local was created: %v", err)
+	}
+}

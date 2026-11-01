@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -105,102 +106,85 @@ func TestAnthropicLoginPlan(t *testing.T) {
 	}
 }
 
-func TestAnthropicOAuthPlanSetsTokenAndNeverPrintsIt(t *testing.T) {
-	vaulttest.Use(t)
-	hermetic(t, "")
-	vaulttest.Secret(t, DefaultOAuthName, fakeToken)
-	o, rest, err := ParseAnthropicArgs([]string{"--oauth", "--print-env"})
+// planFor parses args as the anthropic verb does and resolves the plan with secret.
+func planFor(t *testing.T, secret string, args ...string) agent.Plan {
+	t.Helper()
+	o, rest, err := ParseAnthropicArgs(args)
 	if err != nil {
 		t.Fatal(err)
-	}
-	secret := providers.StoredSecret(o.Name)
-	if secret != fakeToken {
-		t.Fatalf("vault read %q", secret)
 	}
 	p, err := Anthropic(context.Background(), o, rest, secret)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if p.Set[oauthKey] != fakeToken {
-		t.Errorf("%s not set from the vault value", oauthKey)
-	}
-	if slices.ContainsFunc(p.Argv, func(a string) bool { return strings.Contains(a, "FAKEFAKE") }) {
-		t.Errorf("token in argv: %q", p.Argv)
-	}
+	return p
+}
+
+// printed is Plan.Print plus argv and overlay: every place a secret could surface.
+func printed(p agent.Plan) string {
 	var buf bytes.Buffer
 	p.Print(&buf)
-	if strings.Contains(buf.String(), "FAKEFAKE") {
-		t.Errorf("Plan.Print leaked the token:\n%s", buf.String())
+	return buf.String() + string(p.Overlay) + strings.Join(p.Argv, " ")
+}
+
+// --oauth: the vault token rides CLAUDE_CODE_OAUTH_TOKEN, no apiKeyHelper, and Print masks it.
+func TestAnthropicOAuthLaunchPlan(t *testing.T) {
+	hermetic(t, "")
+	vaulttest.Secret(t, DefaultOAuthName, fakeToken)
+	if got := providers.StoredSecret(DefaultOAuthName); got != fakeToken {
+		t.Fatalf("vault read %q", got)
 	}
-	if !strings.Contains(buf.String(), oauthKey+"=<redacted>") {
-		t.Errorf("expected a redacted %s line:\n%s", oauthKey, buf.String())
+	p := planFor(t, fakeToken, "--oauth", "--print-env")
+	if p.Set[oauthKey] != fakeToken || p.Set[providers.EnvSessionProfile] != "max" {
+		t.Errorf("set %v", p.Set)
+	}
+	if len(p.Overlay) != 0 || slices.Contains(p.Argv, "--settings") {
+		t.Errorf("a login profile must not set an apiKeyHelper: %q", p.Argv)
+	}
+	out := printed(p)
+	if strings.Contains(out, "FAKEFAKE") || !strings.Contains(out, oauthKey+"=<redacted>") {
+		t.Errorf("token not masked:\n%s", out)
 	}
 }
 
-func TestAnthropicAPIKeyNamedCarriesKeyDirectlyWithoutMutatingRegistry(t *testing.T) {
-	vaulttest.Use(t)
+// --x-api-key=NAME: the named key is carried directly as ANTHROPIC_API_KEY; the registry entry stays untouched.
+func TestAnthropicNamedAPIKeyLaunchPlan(t *testing.T) {
 	hermetic(t, "")
 	before, err := providers.Load()
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantEnv := before.Providers["anthropic"].Auth.Env
-	o, rest, err := ParseAnthropicArgs([]string{"--x-api-key=WORK_KEY"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	p, err := Anthropic(context.Background(), o, rest, fakeToken)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if p.Set["CLAUDE_PROFILE"] != "anthropic" {
-		t.Errorf("CLAUDE_PROFILE = %q", p.Set["CLAUDE_PROFILE"])
-	}
-	if p.Set["ANTHROPIC_API_KEY"] != fakeToken {
-		t.Error("ANTHROPIC_API_KEY not carried from NAME's value")
+	p := planFor(t, fakeToken, "--x-api-key=WORK_KEY")
+	if p.Set["ANTHROPIC_API_KEY"] != fakeToken || p.Set[providers.EnvSessionProfile] != "anthropic" {
+		t.Errorf("set %v", p.Set)
 	}
 	if len(p.Overlay) != 0 || p.OverlayPath != "" || slices.Contains(p.Argv, "--settings") {
-		t.Errorf("named key must drop the apiKeyHelper overlay: %q %s", p.Argv, p.Overlay)
+		t.Errorf("a named key drops the apiKeyHelper overlay: %q %s", p.Argv, p.Overlay)
 	}
 	if _, ok := p.Set["CLAUDE_CODE_API_KEY_HELPER_TTL_MS"]; ok {
-		t.Error("helper TTL must be dropped")
+		t.Error("helper TTL must be dropped with the helper")
 	}
-	if slices.ContainsFunc(p.Argv, func(a string) bool { return strings.Contains(a, "FAKEFAKE") }) {
-		t.Errorf("key in argv: %q", p.Argv)
-	}
-	var buf bytes.Buffer
-	p.Print(&buf)
-	if strings.Contains(buf.String(), "FAKEFAKE") {
-		t.Errorf("Plan.Print leaked the key:\n%s", buf.String())
+	if out := printed(p); strings.Contains(out, "FAKEFAKE") {
+		t.Errorf("Print leaked the key:\n%s", out)
 	}
 	after, err := providers.Load()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := after.Providers["anthropic"].Auth.Env; got != wantEnv {
-		t.Errorf("registry anthropic auth env mutated: %q -> %q", wantEnv, got)
+	if err != nil || after.Providers["anthropic"].Auth.Env != before.Providers["anthropic"].Auth.Env {
+		t.Errorf("registry anthropic auth env mutated: %v", err)
 	}
 }
 
-func TestAnthropicAPIKeyDefaultUsesHelper(t *testing.T) {
-	vaulttest.Use(t)
+// Bare --x-api-key keeps the registry's ANTHROPIC_API_KEY apiKeyHelper overlay and never embeds the key in it.
+func TestAnthropicDefaultAPIKeyLaunchPlan(t *testing.T) {
 	hermetic(t, "")
-	o, rest, err := ParseAnthropicArgs([]string{"--x-api-key"})
-	if err != nil {
-		t.Fatal(err)
+	p := planFor(t, fakeToken, "--x-api-key")
+	if p.Set[providers.EnvSessionProfile] != "anthropic" || p.Set["ANTHROPIC_API_KEY"] != "" {
+		t.Errorf("set %v", p.Set)
 	}
-	p, err := Anthropic(context.Background(), o, rest, fakeToken)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if p.Set["CLAUDE_PROFILE"] != "anthropic" {
-		t.Errorf("CLAUDE_PROFILE = %q", p.Set["CLAUDE_PROFILE"])
-	}
-	if !slices.Contains(p.Argv, "--settings") || len(p.Overlay) == 0 {
+	if !slices.Contains(p.Argv, "--settings") || !strings.Contains(string(p.Overlay), "apiKeyHelper") {
 		t.Errorf("bare --x-api-key should use the apiKeyHelper overlay: %q", p.Argv)
 	}
-	if strings.Contains(string(p.Overlay), "FAKEFAKE") {
-		t.Error("overlay must not embed the key")
+	if out := printed(p); strings.Contains(out, "FAKEFAKE") {
+		t.Errorf("overlay or Print embeds the key:\n%s", out)
 	}
 }
 

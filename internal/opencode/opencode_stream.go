@@ -18,8 +18,12 @@ type openCodeEvent struct {
 		Tool   string `json:"tool"`
 		CallID string `json:"callID"`
 		State  struct {
-			Status string `json:"status"`
+			Status string         `json:"status"`
+			Input  map[string]any `json:"input"`  // the call's arguments, sent once the tool has run
+			Output any            `json:"output"` // its result (a string for the built-in tools)
 		} `json:"state"`
+		Reason string  `json:"reason"` // step_finish: stop, length, tool-calls, ...
+		Cost   float64 `json:"cost"`   // step_finish: USD
 		Tokens struct {
 			Input, Output, Reasoning int
 			Cache                    struct{ Read, Write int }
@@ -33,9 +37,11 @@ type openCodeEvent struct {
 	} `json:"error"`
 }
 
-// isMeaningfulOpenCodeEvent reports whether ev is real model output, not bookkeeping (step_start) or an empty part.
+// isMeaningfulOpenCodeEvent reports whether ev shows the run is alive: model output or step_start (a slow model sends no text until done).
 func isMeaningfulOpenCodeEvent(ev openCodeEvent) bool {
 	switch ev.Type {
+	case "step_start":
+		return true
 	case "text", "reasoning":
 		if strings.TrimSpace(ev.Part.Text) != "" {
 			return true
@@ -49,7 +55,12 @@ func isMeaningfulOpenCodeEvent(ev openCodeEvent) bool {
 }
 
 // parseOpenCodeStream streams the root session's text parts; onMeaningful fires once on the first meaningful event.
-func parseOpenCodeStream(br *bufio.Reader, sink agent.Sink, onMeaningful func(), logs ...agent.StreamLog) (res agent.Result, _ error) {
+func parseOpenCodeStream(br *bufio.Reader, sink agent.Sink, onMeaningful func(), logs ...agent.StreamLog) (agent.Result, error) {
+	return parseOpenCodeEvents(br, sink, onMeaningful, nil, logs...)
+}
+
+// parseOpenCodeEvents is parseOpenCodeStream plus onTool, called once per finished tool call with its event.
+func parseOpenCodeEvents(br *bufio.Reader, sink agent.Sink, onMeaningful func(), onTool func(openCodeEvent), logs ...agent.StreamLog) (res agent.Result, _ error) {
 	ts := agent.TransportTracker{Start: agent.Clock()}
 	defer func() { res.Transport = ts.Result() }()
 	lg := agent.PickLog(logs)
@@ -83,13 +94,17 @@ func parseOpenCodeStream(br *bufio.Reader, sink agent.Sink, onMeaningful func(),
 			if err := emitOpenCodeTool(sink, ev, seenTools); err != nil {
 				return false, err
 			}
+			if onTool != nil && ev.Part.State.Status == "completed" {
+				onTool(ev)
+			}
 		case "step_finish":
 			t := ev.Part.Tokens
 			res.Usage.InputTokens += t.Input
 			res.Usage.CacheReadTokens += t.Cache.Read
 			res.Usage.CacheCreationTokens += t.Cache.Write
 			res.Usage.OutputTokens += t.Output + t.Reasoning
-			lg.Emit("result", fmt.Sprintf("step finished, tokens in=%d out=%d", t.Input, t.Output+t.Reasoning))
+			res.Usage.CostUSD += ev.Part.Cost
+			lg.Emit("result", fmt.Sprintf("step finished (%s), tokens in=%d out=%d", cmp.Or(ev.Part.Reason, "unknown"), t.Input, t.Output+t.Reasoning))
 		case "error":
 			msg := cmp.Or(ev.Error.Data.Message, ev.Error.Name, "unknown error")
 			errs = append(errs, msg)

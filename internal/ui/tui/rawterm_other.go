@@ -18,5 +18,5 @@ func Preserve() func() { return func() {} }
 func isTerminal(int) bool                            { return false }
 func makeRaw(int) (*termState, error)                { return nil, errNoTTY }
 func restore(int, *termState) error                  { return nil }
-func getSize(int) (int, int, error)                  { return 0, 0, errNoTTY }
+func Size(int) (int, int, error)                     { return 0, 0, errNoTTY }
 func readPassword(int, func([]byte)) ([]byte, error) { return nil, errNoTTY }

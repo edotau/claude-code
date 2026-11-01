@@ -57,7 +57,9 @@ func List(repo *Repo) ([]Entry, error) {
 // listPorcelain parses `git worktree list --porcelain -z`, scoped to records under repo.Root; the
 // main checkout's own record and any worktree registered outside repo.Root are not this lifecycle's.
 func listPorcelain(repo *Repo) ([]Entry, error) {
-	out, err := gitCmd(context.Background(), "-C", repo.Main, "worktree", "list", "--porcelain", "-z").Output()
+	ctx, cancel := context.WithTimeout(context.Background(), probeTimeout)
+	defer cancel()
+	out, err := gitCmd(ctx, "-C", repo.Main, "worktree", "list", "--porcelain", "-z").Output()
 	if err != nil {
 		return nil, err
 	}
@@ -156,7 +158,9 @@ func Classify(e *Entry) {
 // Dirty=true (never silently "clean"), Merged=false (never silently eligible for removal).
 func Inspect(repo *Repo, e *Entry, target string, targetErr error, now time.Time) {
 	e.Dirty = true
-	out, err := gitCmd(context.Background(), "-C", e.Path, "status", "--porcelain", "--ignore-submodules=none", "--untracked-files=all").Output()
+	ctx, cancel := context.WithTimeout(context.Background(), probeTimeout)
+	defer cancel()
+	out, err := gitCmd(ctx, "-C", e.Path, "status", "--porcelain", "--ignore-submodules=none", "--untracked-files=all").Output()
 	switch {
 	case err != nil:
 		e.Problems = append(e.Problems, "dirty check failed: "+err.Error())
@@ -170,7 +174,7 @@ func Inspect(repo *Repo, e *Entry, target string, targetErr error, now time.Time
 	case e.Head == "":
 		e.Problems = append(e.Problems, "worktree HEAD unknown")
 	default:
-		cmd := gitCmd(context.Background(), "-C", repo.Main, "merge-base", "--is-ancestor", e.Head, target)
+		cmd := gitCmd(ctx, "-C", repo.Main, "merge-base", "--is-ancestor", e.Head, target)
 		if runErr := cmd.Run(); runErr == nil {
 			e.Merged = true
 		} else if exitErr, ok := asExitErr(runErr); !ok || exitErr != 1 {
@@ -178,7 +182,7 @@ func Inspect(repo *Repo, e *Entry, target string, targetErr error, now time.Time
 		} // exit status 1 from --is-ancestor is a clean "no", not a failure
 	}
 
-	gitDir, gdErr := gitCmd(context.Background(), "-C", e.Path, "rev-parse", "--path-format=absolute", "--git-dir").Output()
+	gitDir, gdErr := gitCmd(ctx, "-C", e.Path, "rev-parse", "--path-format=absolute", "--git-dir").Output()
 	if gdErr != nil {
 		e.Problems = append(e.Problems, "git-dir lookup failed: "+gdErr.Error())
 	} else {
@@ -202,12 +206,17 @@ func activity(gitDir, worktreePath string) (time.Time, string) {
 	return time.Time{}, ""
 }
 
+// probeTimeout bounds each read-only git/lsof/ps probe so a hung filesystem cannot block List, Inspect or Clean.
+const probeTimeout = 30 * time.Second
+
 // currentBranch is main's checked-out branch (the merge target); detached HEAD uses the OID.
 func currentBranch(main string) (string, error) {
-	if out, err := gitCmd(context.Background(), "-C", main, "symbolic-ref", "--short", "-q", "HEAD").Output(); err == nil {
+	ctx, cancel := context.WithTimeout(context.Background(), probeTimeout)
+	defer cancel()
+	if out, err := gitCmd(ctx, "-C", main, "symbolic-ref", "--short", "-q", "HEAD").Output(); err == nil {
 		return strings.TrimSpace(string(out)), nil
 	}
-	out, err := gitCmd(context.Background(), "-C", main, "rev-parse", "HEAD").Output()
+	out, err := gitCmd(ctx, "-C", main, "rev-parse", "HEAD").Output()
 	if err != nil {
 		return "", err
 	}

@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"strings"
 	"testing"
+	"time"
 )
 
 // rejectLocal must stop every non-public resolved address and pass a public one.
@@ -108,5 +109,27 @@ func TestGuardedDialProxyHostVsBaseURL(t *testing.T) {
 	_, err = guardedDialer.DialContext(context.Background(), "tcp", "127.0.0.1:"+port)
 	if err == nil || !strings.Contains(err.Error(), "resolves into the local network") {
 		t.Errorf("non-proxy host resolving to loopback must still be refused: %v", err)
+	}
+}
+
+// A header-stalled upstream must fail the attempt (so failover can proceed) instead of hanging.
+func TestGuardedClientHeaderStallTimesOut(t *testing.T) {
+	release := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { <-release }))
+	defer srv.Close()
+	defer close(release)
+	c := guardedClient()
+	tr := c.Transport.(*http.Transport)
+	if tr.ResponseHeaderTimeout != responseHeaderTimeout || responseHeaderTimeout <= 0 {
+		t.Fatalf("ResponseHeaderTimeout=%v, want %v", tr.ResponseHeaderTimeout, responseHeaderTimeout)
+	}
+	tr.ResponseHeaderTimeout = 100 * time.Millisecond
+	resp, err := c.Do(testRequest(t, http.MethodGet, srv.URL, nil))
+	if err == nil {
+		_ = resp.Body.Close()
+		t.Fatal("stalled upstream returned a response, want a header timeout error")
+	}
+	if !strings.Contains(err.Error(), "timeout awaiting response headers") {
+		t.Errorf("err=%v, want header timeout", err)
 	}
 }

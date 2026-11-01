@@ -133,6 +133,11 @@ func (c *cdpConn) waitEvent(method string) chan json.RawMessage {
 func (c *cdpConn) call(ctx context.Context, method string, params any) (json.RawMessage, error) {
 	ch := make(chan response, 1)
 	c.mu.Lock()
+	if c.err != nil {
+		err := c.err
+		c.mu.Unlock()
+		return nil, fmt.Errorf("cdp: connection closed: %v", err)
+	}
 	c.next++
 	id := c.next
 	c.pending[id] = ch
@@ -142,20 +147,38 @@ func (c *cdpConn) call(ctx context.Context, method string, params any) (json.Raw
 		err = c.sock.writeFrame(opText, b)
 	}
 	if err != nil {
+		c.dropPending(id)
 		return nil, err
 	}
 	select {
 	case r, ok := <-ch:
 		if !ok {
-			return nil, fmt.Errorf("cdp: connection closed: %v", c.err)
+			return nil, fmt.Errorf("cdp: connection closed: %v", c.closeErr())
 		}
 		if r.Error != nil {
 			return nil, fmt.Errorf("cdp %s: %s", method, r.Error.Message)
 		}
 		return r.Result, nil
+	case <-c.done:
+		return nil, fmt.Errorf("cdp: connection closed: %v", c.closeErr())
 	case <-ctx.Done():
+		c.dropPending(id)
 		return nil, ctx.Err()
 	}
+}
+
+// dropPending forgets a call whose response will no longer be read.
+func (c *cdpConn) dropPending(id int) {
+	c.mu.Lock()
+	delete(c.pending, id)
+	c.mu.Unlock()
+}
+
+// closeErr returns the read-loop error under the lock.
+func (c *cdpConn) closeErr() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.err
 }
 
 // Navigate loads url and waits for Page.loadEventFired.
@@ -178,7 +201,7 @@ func (c *cdpConn) Navigate(ctx context.Context, target string) error {
 	case <-loaded:
 		return nil
 	case <-c.done:
-		return fmt.Errorf("cdp: connection closed: %v", c.err)
+		return fmt.Errorf("cdp: connection closed: %v", c.closeErr())
 	case <-ctx.Done():
 		return ctx.Err()
 	}

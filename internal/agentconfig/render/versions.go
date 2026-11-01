@@ -88,9 +88,6 @@ func lostLinesFor(label, path string, theirs, next []byte) ([]string, error) {
 		base, err = ops.LoadBaseline(path)
 	} else {
 		base, err = os.ReadFile(baselinePath(label, path))
-		if err != nil {
-			return nil, nil
-		}
 	}
 	if err != nil {
 		if os.IsNotExist(err) {

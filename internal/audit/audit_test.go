@@ -103,3 +103,28 @@ func TestAuditLogSchemaStampsNewLinesAndSkipsNewer(t *testing.T) {
 		t.Errorf("new line lacks schema 1: %s", last)
 	}
 }
+
+// TestRotateTwiceKeepsRotatedHistory pins: a second writer that saw the full log rotates once, not over .1.
+func TestRotateTwiceKeepsRotatedHistory(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	old := maxBytes
+	maxBytes = 50
+	defer func() { maxBytes = old }()
+	file := File()
+	if err := os.MkdirAll(filepath.Dir(file), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	full := strings.Repeat("x", 100)
+	if err := os.WriteFile(file, []byte(full), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	rotate(file)
+	if err := os.WriteFile(file, []byte("new\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	rotate(file)
+	got, err := os.ReadFile(file + ".1")
+	if err != nil || string(got) != full {
+		t.Errorf(".1 = %q, %v; want the original full log", got, err)
+	}
+}

@@ -2,7 +2,6 @@ package secrets
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -151,12 +150,9 @@ func marketplaceRepoPath(path []string) bool {
 	return len(path) == 4 && path[0] == "extraKnownMarketplaces" && path[2] == "source" && path[3] == "repo"
 }
 
-// ScanFile inspects JSON leaves or KEY=value lines in an explicitly supplied file; missing files are silently fine.
+// ScanFile inspects JSON leaves or KEY=value lines in an explicitly supplied file; a missing file is a finding.
 func (s *Scanner) ScanFile(path string) {
 	raw, err := os.ReadFile(path)
-	if errors.Is(err, os.ErrNotExist) {
-		return
-	}
 	if err != nil {
 		s.flag(fmt.Sprintf("%s — could not read: %v", path, err))
 		return

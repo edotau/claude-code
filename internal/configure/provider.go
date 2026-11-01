@@ -72,6 +72,8 @@ func allCheckOne(ctx context.Context, p *providers.Provider) AllRowStatus {
 		v      providers.AuthVerdict
 		detail string
 	}
+	ctx, cancel := context.WithTimeout(ctx, allCheckTimeout)
+	defer cancel() // a timed-out probe is cancelled, not abandoned
 	done := make(chan res, 1)
 	si := allSigninFor(p) // resolved before the goroutine: a timed-out check must not read the seam later
 	go func() { v, d := si.Check(ctx); done <- res{v, d} }()

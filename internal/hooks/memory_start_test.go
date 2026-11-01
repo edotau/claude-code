@@ -7,12 +7,13 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/memory/bank"
+	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
-// servedSession seeds a hermetic vault whose pinned profile is a Databricks row "dev" (switch on or off), optionally
+// servedSession seeds a hermetic vault and a CLAUDE_PROFILE session whose profile is a Databricks row "dev" (switch on or off), optionally
 // with a listing fetched at fetched, and returns the count of detached refresh spawns a SessionStart makes.
 func servedSession(t *testing.T, on bool, fetched time.Time, updateChild string) *atomic.Int64 {
 	t.Helper()
@@ -22,7 +23,7 @@ func servedSession(t *testing.T, on bool, fetched time.Time, updateChild string)
 		`"host":"https://dev.cloud.databricks.com","auth":{"type":"pat"}}}}}`
 	vaulttest.Put(t, vault.Overlay, "providers", fmt.Sprintf(row, on))
 	vaulttest.Secret(t, "DATABRICKS_DEV_PAT", "dapi-test")
-	vaulttest.SetRecord(t, "claude", "profile", "dev")
+	t.Setenv(providers.EnvSessionProfile, "dev")
 	if !fetched.IsZero() {
 		if err := router.SaveServed(router.Served{Profile: "dev", FetchedAt: fetched}); err != nil {
 			t.Fatal(err)
@@ -37,7 +38,7 @@ func servedSession(t *testing.T, on bool, fetched time.Time, updateChild string)
 
 // SessionStart re-lists detached only when the switch is on, a pinned Databricks profile's cache is stale, and the
 // session is not a memory update child.
-func TestSessionStartSpawnsServedRefreshOnlyWhenStale(t *testing.T) {
+func TestSessionStartRelistsServedOnlyForStaleSessionProfile(t *testing.T) {
 	now := time.Now()
 	cases := []struct {
 		name        string
@@ -64,7 +65,7 @@ func TestSessionStartSpawnsServedRefreshOnlyWhenStale(t *testing.T) {
 }
 
 // A failing refresh leaves the cache stale; the next SessionStart inside the retry window must not spawn again.
-func TestSessionStartSpacesServedRefreshAttempts(t *testing.T) {
+func TestSessionStartClaimsServedRefreshOncePerRetryWindow(t *testing.T) {
 	now := time.Now()
 	calls := servedSession(t, true, time.Time{}, "")
 	memoryContext(t.TempDir(), "s1", "", now)

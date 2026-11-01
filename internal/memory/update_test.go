@@ -2,6 +2,7 @@ package memory
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -490,5 +491,25 @@ func TestDreamFreshStoreRunsWithoutDeadlock(t *testing.T) {
 		}
 	case <-time.After(20 * time.Second):
 		t.Fatal("Dream deadlocked on a fresh store")
+	}
+}
+
+func TestMergeFileListsKeepsUnstagedPaths(t *testing.T) {
+	got := mergeFileLists("", " M internal/foo.go\n D bar.go\n?? new.go\nM  staged.go\n")
+	want := []string{"internal/foo.go", "bar.go", "new.go", "staged.go"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Errorf("mergeFileLists = %v, want %v", got, want)
+	}
+}
+
+func TestDreamFailedRunLeavesNoStamp(t *testing.T) {
+	tempConfig(t)
+	root := repoRoot(t, "proj")
+	fail := func(context.Context, string, string) (string, error) { return "x", errors.New("boom") }
+	if err := Dream(DreamOptions{CWD: root, Run: fail}); err == nil {
+		t.Fatal("failed agent run must return an error")
+	}
+	if _, err := os.Stat(DreamStampPath(root)); err == nil {
+		t.Error("failed dream wrote a stamp, which would suppress the retry")
 	}
 }

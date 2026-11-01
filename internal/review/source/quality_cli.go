@@ -59,7 +59,7 @@ func resolvePath(p string) string {
 	return abs
 }
 
-// RunQuality is the code_quality_checker.py CLI: same flags, exit 1 on a missing path or output write error.
+// RunQuality is the code_quality_checker.py CLI: same flags, exit 1 on a bad path, analysis or write error.
 func RunQuality(args []string, stdout, stderr io.Writer) int {
 	parsed, code, done := parseQualityArgs(args, stdout, stderr)
 	if done {
@@ -94,6 +94,9 @@ func RunQuality(args []string, stdout, stderr io.Writer) int {
 		}
 	} else {
 		printQualityReport(report, stdout)
+	}
+	if _, failed := report.(errorResult); failed {
+		return 1
 	}
 	return 0
 }

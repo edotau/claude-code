@@ -202,14 +202,23 @@ func KeyringDelete(name string) error {
 		return nil
 	}
 	if runtime.GOOS == "linux" && errors.As(err, &exit) && exit.ExitCode() == 1 && ctx.Err() == nil {
-		if _, found := keyringGet(name); !found { // secret-tool clear exits 1 for an absent item too: nothing to delete
-			return nil
+		if absent, lerr := absentAfterClear(name); absent || lerr != nil {
+			return lerr
 		}
 	}
 	if ctx.Err() != nil {
 		down.Store(true)
 	}
 	return fmt.Errorf("keyring: delete %s: %w", name, err)
+}
+
+// absentAfterClear tells an absent item (clear exits 1) from a failing keyring, whose lookup error is returned.
+func absentAfterClear(name string) (bool, error) {
+	_, found, err := KeyringLookup(name)
+	if err != nil {
+		return false, fmt.Errorf("keyring: delete %s: %w", name, err)
+	}
+	return !found, nil
 }
 
 // quote wraps s for the `security -i` tokenizer: double quotes, with backslash and quote escaped.

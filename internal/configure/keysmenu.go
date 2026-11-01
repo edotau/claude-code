@@ -58,6 +58,9 @@ func keyCols(kt keyTarget) [2]string {
 		if status == "verified" {
 			return [2]string{modeAPIKey, "verified"}
 		}
+		if status == "login" {
+			return [2]string{loginLine(kt), "verified"}
+		}
 		return [2]string{modeAPIKey, "not verified"}
 	}
 	return [2]string{loginLine(kt), "verified"}

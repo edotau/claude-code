@@ -3,6 +3,7 @@ package providers
 import (
 	"bufio"
 	"cmp"
+	"fmt"
 	"io/fs"
 	"maps"
 	"os"
@@ -31,8 +32,16 @@ func agentRecords() (recs map[string]vault.AgentRecord, err error) {
 
 // AgentRecords is every stored agent record from one vault read (for packages that cannot import internal/agent).
 func AgentRecords() map[string]vault.AgentRecord {
-	recs, _ := agentRecords()
+	recs, err := agentRecords()
+	warnVault("agent records", err)
 	return recs
+}
+
+// warnVault tells the user a vault read failed, so an empty result is not mistaken for "unset".
+func warnVault(what string, err error) {
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "warning: vault %s unreadable, using defaults: %v\n", what, err)
+	}
 }
 
 // AgentRecord is agent's vault record (zero value when unset or unreadable).
@@ -145,7 +154,8 @@ func ReadEnvFile(path string) map[string]string {
 
 // Pin reads key from the vault pins; it never reads the process env.
 func Pin(key string) string {
-	pin, _ := PinLookup()
+	pin, err := PinLookup()
+	warnVault("pins", err)
 	return pin(key)
 }
 

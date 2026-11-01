@@ -1,19 +1,16 @@
 package cli
 
 import (
-	"context"
 	"errors"
 	"flag"
 	"fmt"
 	"github.com/edotau/claude-code/internal/opencode"
 	"os"
-	"os/signal"
 	"slices"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/edotau/claude-code/internal/databricks/serving"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
@@ -118,7 +115,7 @@ func cmdOpencodeMenu(args []string) int {
 		if err := opencodeSyncArgs(pos, apply, dryRun, provider); err != nil {
 			return done(err)
 		}
-		return done(opencodeMenuSync(provider, opencodeSyncOptions{Apply: apply, Refresh: refresh, Verify: verify}))
+		return done(opencodeMenuSync(provider, opencode.SyncOptions{Apply: apply, Refresh: refresh, Verify: verify}))
 	case "list":
 		return done(opencodeMenuList(live, provider, *format))
 	case "check":
@@ -164,44 +161,10 @@ func opencodeMenuWrite(next []providers.OpencodeModel, msg string) error {
 	return nil
 }
 
-type ocMenuRow struct {
-	ID        string `json:"id"`
-	Label     string `json:"label"`
-	Responses bool   `json:"responses"`
-	Source    string `json:"source"`
-	Live      string `json:"live,omitempty"`
-	Ready     string `json:"ready,omitempty"`
-	Check     string `json:"check,omitempty"`
-}
-
 func opencodeMenuList(live bool, provider, format string) error {
-	src := "default"
-	if providers.OpencodeMenuFromVault() {
-		src = "vault"
-	}
-	var served map[string]providers.ModelInfo
-	var p *providers.Provider
-	if live {
-		var err error
-		if served, p, err = opencode.OpencodeServed(provider); err != nil {
-			return err
-		}
-	}
-	var cache map[string]serving.CheckResult
-	if live {
-		cache, _ = opencode.LoadCheckCache(p.Name)
-	}
-	var rows []ocMenuRow
-	for _, m := range providers.OpencodeMenu() {
-		r := ocMenuRow{ID: m.ID, Label: m.Label, Responses: m.Responses, Source: src}
-		if live {
-			r.Live = "missing"
-			if info, ok := opencode.ServedInfo(served, p, m.ID); ok {
-				r.Live, r.Ready = "served", info.Ready
-			}
-			r.Check = checkCell(cache, m.ID)
-		}
-		rows = append(rows, r)
+	rows, err := opencode.MenuRows(live, provider)
+	if err != nil {
+		return err
 	}
 	if format == helptext.JSON {
 		_ = helptext.WriteJSON(os.Stdout, rows)
@@ -227,38 +190,18 @@ func opencodeMenuList(live bool, provider, format string) error {
 }
 
 func opencodeMenuAdd(arg string, responses, responsesSet, force bool, provider string) error {
-	id, label, _ := strings.Cut(arg, "=")
-	id = opencode.MenuID(id)
-	if id == "" {
-		return errors.New("empty model id")
-	}
-	if !force {
-		served, p, err := opencode.OpencodeServed(provider)
-		if err != nil {
-			return fmt.Errorf("cannot check %s against the workspace (--force skips): %v", id, err)
-		}
-		if _, ok := opencode.ServedInfo(served, p, id); !ok {
-			return fmt.Errorf("%s%s is not served by %s (--force skips the check)", p.ModelPrefix, id, p.Name)
-		}
-	}
-	var r *bool
-	if responsesSet {
-		r = &responses
-	}
-	return opencodeMenuWrite(opencode.MenuAdd(providers.OpencodeMenu(), id, strings.TrimSpace(label), r),
-		"added "+id)
-}
-
-func opencodeMenuImport(file string, apply bool) error {
-	data, err := os.ReadFile(file)
+	id, next, err := opencode.MenuAddServed(arg, responses, responsesSet, force, provider)
 	if err != nil {
 		return err
 	}
-	next, err := opencode.ParseMenuImport(data)
+	return opencodeMenuWrite(next, "added "+id)
+}
+
+func opencodeMenuImport(file string, apply bool) error {
+	next, changes, err := opencode.MenuImportDiff(file)
 	if err != nil {
-		return fmt.Errorf("%s: %v", file, err)
+		return err
 	}
-	changes := opencode.DiffMenu(providers.OpencodeMenu(), next)
 	for _, c := range changes {
 		line := fmt.Sprintf("%s %s  %s", c.Op, c.Model.ID, c.Model.Label)
 		if c.Op == "~" {
@@ -277,37 +220,13 @@ func opencodeMenuImport(file string, apply bool) error {
 	return opencodeMenuWrite(next, fmt.Sprintf("imported %d model(s)", len(next)))
 }
 
-// checkCell renders a cached probe as "ok tools", "ok no-tools", "fail 400", "missing" or "-".
-func checkCell(cache map[string]serving.CheckResult, id string) string {
-	r, ok := cache[id]
-	switch {
-	case !ok:
-		return "-"
-	case r.Status == "ok" && r.Tools == "no":
-		return "ok no-tools"
-	case r.Status == "ok":
-		return "ok tools"
-	case r.Status == "fail" && r.HTTP > 0:
-		return fmt.Sprintf("fail %d", r.HTTP)
-	}
-	return r.Status
-}
-
 func opencodeMenuCheck(ids []string, all bool, provider string, timeout time.Duration, format string) error {
-	served, p, err := opencode.OpencodeServed(provider)
+	results, cacheErr, err := opencode.MenuCheck(ids, all, provider, timeout)
 	if err != nil {
 		return err
 	}
-	targets := opencode.OpencodeCheckTargets(ids, all, served, p)
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
-	defer stop()
-	results, err := serving.Probe(ctx, p, targets, serving.CheckOptions{Concurrency: 4, Timeout: timeout})
-	if err != nil && results == nil {
-		return err
-	}
-	opencode.SortCheckResults(results)
-	if err := opencode.SaveCheckCache(opencode.CheckCache{CheckedAt: time.Now().UTC(), Provider: p.Name, Results: results}); err != nil {
-		fmt.Fprintf(os.Stderr, "opencode catalog check: cache not written: %v\n", err)
+	if cacheErr != nil {
+		fmt.Fprintf(os.Stderr, "opencode catalog check: cache not written: %v\n", cacheErr)
 	}
 	if format == helptext.JSON {
 		_ = helptext.WriteJSON(os.Stdout, results)
@@ -338,31 +257,17 @@ func opencodeMenuCheck(ids []string, all bool, provider string, timeout time.Dur
 	return nil
 }
 
-type opencodeSyncOptions struct {
-	Apply   bool
-	Refresh bool
-	Verify  bool
-}
-
-// opencodeMenuSync only appends absent ids; existing order, labels and explicit Responses flags are untouched.
-func opencodeMenuSync(profile string, opts opencodeSyncOptions) error {
-	p, snapshot, err := opencode.OpencodeSyncModels(profile, opts.Refresh)
+func opencodeMenuSync(profile string, opts opencode.SyncOptions) error {
+	pl, err := opencode.MenuSync(profile, opts)
 	if err != nil {
 		return err
 	}
-	ids := opencode.OpencodeSyncIDs(snapshot.Models)
-	menu := providers.OpencodeMenu()
-	if opts.Verify {
-		if err := opencode.OpencodeSyncVerify(p, &snapshot, ids, menu); err != nil {
-			return err
-		}
+	for _, line := range opencode.SyncSummaryLines(pl.Snapshot, opts.Verify) {
+		fmt.Println(line)
 	}
-	opencodeSyncSummary(snapshot, opts.Verify)
-	next, skipped := opencode.OpencodeSyncMerge(menu, ids, snapshot.Checks)
-	changes := opencode.DiffMenu(menu, next)
 	fmt.Printf("opencode catalog sync: %d listed, %d eligible, %d additions, %d failed additions skipped, %d retained, %d total\n",
-		len(snapshot.Models), len(ids), len(changes), skipped, len(menu), len(next))
-	for _, c := range changes {
+		len(pl.Snapshot.Models), len(pl.IDs), len(pl.Changes), pl.Skipped, len(pl.Menu), len(pl.Next))
+	for _, c := range pl.Changes {
 		fmt.Printf("%s %s  %s  responses=%v\n", c.Op, c.Model.ID, c.Model.Label, c.Model.Responses)
 	}
 	fmt.Println("Shared menu: OpenCode uses all entries; Codex needs Responses + bundled metadata.")
@@ -372,48 +277,19 @@ func opencodeMenuSync(profile string, opts opencodeSyncOptions) error {
 		fmt.Println("opencode catalog: dry run; no discovery/menu writes; pass --apply to write")
 		return nil
 	}
-	if !snapshot.CacheHit || opts.Verify {
-		if err := serving.Save(p, snapshot); err != nil {
-			return err
-		}
+	sealed, err := pl.Seal()
+	if err != nil {
+		return err
+	}
+	if sealed {
 		fmt.Println("opencode catalog: discovery snapshot sealed in vault")
 	}
-	if len(changes) == 0 {
+	if len(pl.Changes) == 0 {
 		fmt.Println("opencode catalog: no menu change")
 		return nil
 	}
-	if opencodeMenuWrite(next, fmt.Sprintf("synced %d addition(s); relaunch Codex too if used", len(changes))) != nil {
+	if opencodeMenuWrite(pl.Next, fmt.Sprintf("synced %d addition(s); relaunch Codex too if used", len(pl.Changes))) != nil {
 		return errors.New("cannot persist the shared model menu; check vault access")
 	}
 	return nil
-}
-
-func opencodeSyncSummary(snapshot serving.Snapshot, verified bool) {
-	source := "live discovery"
-	if snapshot.CacheHit {
-		source = "encrypted cache hit"
-	}
-	fmt.Printf("Valid identity (not endpoint permissions); %s, discovered %s\n", source, snapshot.DiscoveredAt.Format(time.RFC3339))
-	label := "historical probes"
-	if verified {
-		label = "fresh probes"
-	}
-	ok, failed, tools := 0, 0, 0
-	for _, c := range snapshot.Checks {
-		if c.Status == "ok" {
-			ok++
-		} else {
-			failed++
-		}
-		if c.Tools == "yes" {
-			tools++
-		}
-	}
-	if snapshot.CheckedAt.IsZero() {
-		fmt.Println("Verification: listing only; models are discovered/unverified")
-		return
-	}
-	fmt.Printf("Verification (%s, %s): %d HTTP accepted, %d failed, %d tool definitions accepted\n",
-		label, snapshot.CheckedAt.Format(time.RFC3339), ok, failed, tools)
-	fmt.Println("Probes test HTTP acceptance, not generated answers or actual tool calls; untested models remain unverified.")
 }

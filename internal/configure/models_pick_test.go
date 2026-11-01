@@ -20,7 +20,7 @@ import (
 // copilot's Model row saves to the COPILOT_MODEL pin (pickCopilotModel): one model list, no alias step,
 // and the github-copilot provider's own models table is left untouched (opencode's fallback ladder reads it).
 // copilotPickerTitle is pickCopilotModel's numbered-prompt title, used to split repeated renders.
-const copilotPickerTitle = "copilot — model (SDK catalog)"
+const copilotPickerTitle = "copilot — model (github · copilot catalog)"
 
 func TestModelRowCopilotSkipsTierPicker(t *testing.T) {
 	reg := menuTestEnv(t)

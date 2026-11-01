@@ -163,6 +163,10 @@ func parseCopilot(login string, body []byte) quota {
 		q.Note = "unlimited"
 		return q
 	}
+	if p.Entitlement == 0 {
+		q.Note = "no premium quota reported"
+		return q
+	}
 	q.UsedPct, q.Used, q.Limit = math.Round((100-p.PctLeft)*10)/10, p.Used, p.Entitlement
 	return q
 }

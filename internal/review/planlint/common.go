@@ -24,7 +24,11 @@ func splitLines(text string) []string {
 // readInput mirrors the shared "-" (stdin) or path.exists() gate in both scripts, exit 0 on miss.
 func readInput(input string, stdin io.Reader, stderr io.Writer) (text, source string, ok bool) {
 	if input == "-" {
-		b, _ := io.ReadAll(stdin)
+		b, err := io.ReadAll(stdin)
+		if err != nil {
+			fmt.Fprintf(stderr, "[error] reading stdin: %v\n", err)
+			return "", "", false
+		}
 		return string(b), "stdin", true
 	}
 	b, err := os.ReadFile(input)

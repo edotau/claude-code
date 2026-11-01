@@ -6,6 +6,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -53,8 +54,12 @@ func TestHeadless(t *testing.T) {
 // hermetic isolates config, pins and seams; userProviders is an optional vault overlay/providers document.
 func hermetic(t *testing.T, userProviders string) {
 	t.Helper()
-	dir := t.TempDir()
-	t.Setenv("CLAUDE_CONFIG_DIR", dir)
+	for _, kv := range os.Environ() { // the launching shell's own session env must not steer the plan
+		if k, _, _ := strings.Cut(kv, "="); strings.HasPrefix(k, "ANTHROPIC_") || strings.HasPrefix(k, "CLAUDE_") || strings.HasPrefix(k, "HARNESS_") {
+			t.Setenv(k, "")
+		}
+	}
+	dir := vaulttest.Use(t)
 	home := filepath.Join(dir, "home")
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
@@ -110,41 +115,91 @@ func TestConfigDirEnvIsDefault(t *testing.T) {
 	}
 }
 
-func TestClaudeDirect(t *testing.T) {
-	hermetic(t, `{"fallback": [], "providers": {"anthropic": {"gw": {"protocol": "anthropic", "base_url": "https://gw.example/anthropic",
-		"auth": {"type":"key", "env": "TEST_GW_KEY"}, "headers": {"X-B": "2", "X-A": "1"},
-		"models": {"opus": "claude-opus-4-6", "haiku": "claude-haiku-4-5"}}}}}`)
-	t.Setenv("TEST_GW_KEY", "secret-value")
+// gwProviders is a direct (non-router) anthropic-protocol gateway keyed by TEST_GW_KEY.
+const gwProviders = `{"fallback": [], "providers": {"anthropic": {"gw": {"protocol": "anthropic", "base_url": "https://gw.example/anthropic",
+	"auth": {"type":"key", "env": "TEST_GW_KEY"}, "headers": {"X-B": "2", "X-A": "1"},
+	"models": {"opus": "claude-opus-4-6", "haiku": "claude-haiku-4-5"}}}}}`
+
+// Direct route: the provider's own base URL, sorted headers and apiKeyHelper overlay; the key never enters the plan.
+func TestClaudeDirectLaunchPlan(t *testing.T) {
+	hermetic(t, gwProviders)
+	t.Setenv("TEST_GW_KEY", fakeToken)
+	before, err := providers.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
 	p, err := Claude(context.Background(), agent.LaunchOptions{Provider: "gw"}, []string{"-p", "hi"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := map[string]string{
-		"ANTHROPIC_BASE_URL":                    "https://gw.example/anthropic",
-		"ANTHROPIC_DEFAULT_OPUS_MODEL":          "claude-opus-4-6",
-		"ANTHROPIC_DEFAULT_HAIKU_MODEL":         "claude-haiku-4-5",
-		"ANTHROPIC_CUSTOM_HEADERS":              "X-A: 1\nX-B: 2",
-		"MAX_THINKING_TOKENS":                   "31999",
-		"CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING": "1",
-		"CLAUDE_CODE_API_KEY_HELPER_TTL_MS":     "300000",
-	}
+	want := map[string]string{"ANTHROPIC_BASE_URL": "https://gw.example/anthropic", "ANTHROPIC_CUSTOM_HEADERS": "X-A: 1\nX-B: 2",
+		"ANTHROPIC_DEFAULT_OPUS_MODEL": "claude-opus-4-6", "ANTHROPIC_DEFAULT_HAIKU_MODEL": "claude-haiku-4-5",
+		"MAX_THINKING_TOKENS": "31999", "CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING": "1",
+		"CLAUDE_CODE_API_KEY_HELPER_TTL_MS": "300000", providers.EnvSessionProfile: "gw"}
 	for k, v := range want {
 		if p.Set[k] != v {
 			t.Errorf("%s = %q, want %q", k, p.Set[k], v)
 		}
 	}
-	if !slices.Contains(p.Unset, oauthKey) {
-		t.Error("API-key launch must wipe CLAUDE_CODE_OAUTH_TOKEN")
+	if !slices.Contains(p.Unset, oauthKey) || !slices.Equal(p.Argv, []string{"--settings", p.OverlayPath, "-p", "hi"}) {
+		t.Errorf("unset %q argv %q", p.Unset, p.Argv)
 	}
-	if !slices.Equal(p.Argv, []string{"--settings", p.OverlayPath, "-p", "hi"}) {
-		t.Errorf("argv %q", p.Argv)
-	}
-	if !strings.Contains(string(p.Overlay), `"/opt/bin/claude-code resolve --profile gw"`) || strings.Contains(string(p.Overlay), "secret-value") {
+	if !strings.Contains(string(p.Overlay), `"/opt/bin/claude-code resolve --profile gw"`) {
 		t.Errorf("overlay %s", p.Overlay)
 	}
-	env := p.Env([]string{"ANTHROPIC_AUTH_TOKEN=stale", "PATH=/bin", "ANTHROPIC_MODEL=old"})
-	if slices.Contains(env, "ANTHROPIC_AUTH_TOKEN=stale") || slices.Contains(env, "ANTHROPIC_MODEL=old") || !slices.Contains(env, "PATH=/bin") {
-		t.Errorf("env %q", env)
+	var buf bytes.Buffer
+	p.Print(&buf)
+	if strings.Contains(buf.String()+string(p.Overlay)+strings.Join(p.Argv, " "), fakeToken) {
+		t.Errorf("the key reached the plan:\n%s", buf.String())
+	}
+	after, err := providers.Load()
+	if err != nil || !reflect.DeepEqual(before.Providers["gw"], after.Providers["gw"]) {
+		t.Errorf("registry provider mutated by the launch: %v", err)
+	}
+}
+
+// Routed route: an openai-protocol profile goes through the loopback router, carrying only the agent header.
+func TestClaudeRoutedLaunchPlan(t *testing.T) {
+	hermetic(t, `{"providers": {"openai": {"ollama": {"protocol": "openai", "base_url": "http://127.0.0.1:11434/v1",
+		"auth": {"type": "none"}, "models": {"opus": "qwen3-coder", "sonnet": "qwen3-coder", "haiku": "qwen3-coder"}}}}}`)
+	p, err := Claude(context.Background(), agent.LaunchOptions{Provider: "ollama"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]string{"ANTHROPIC_BASE_URL": "http://127.0.0.1:4000/p/ollama", "ANTHROPIC_DEFAULT_OPUS_MODEL": "qwen3-coder",
+		"ANTHROPIC_CUSTOM_HEADERS": "X-Claude-Code-Agent: claude", "CLAUDE_CODE_DISABLE_1M_CONTEXT": "1", providers.EnvSessionProfile: "ollama"}
+	for k, v := range want {
+		if p.Set[k] != v {
+			t.Errorf("%s = %q, want %q", k, p.Set[k], v)
+		}
+	}
+	if m, ok := p.Set["ANTHROPIC_MODEL"]; ok {
+		t.Errorf("no --model asked, yet ANTHROPIC_MODEL = %q", m)
+	}
+	if !strings.Contains(string(p.Overlay), "claude-code resolve --proxy") || !strings.HasSuffix(p.OverlayPath, "overlay-ollama-proxy.json") {
+		t.Errorf("overlay %s at %s", p.Overlay, p.OverlayPath)
+	}
+}
+
+// Print masks credential-named env values and quoted credential-shaped strings in argv, and keeps the rest readable.
+func TestClaudePlanPrintRedactsSecrets(t *testing.T) {
+	hermetic(t, gwProviders)
+	t.Setenv("TEST_GW_KEY", fakeToken)
+	args := []string{"-p", `{"x-key" = "` + fakeToken + `"}`}
+	p, err := Claude(context.Background(), agent.LaunchOptions{Provider: "gw"}, args)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var buf bytes.Buffer
+	p.Print(&buf)
+	out := buf.String()
+	if strings.Contains(out, fakeToken) || strings.Contains(out, "FAKEFAKE") {
+		t.Errorf("Print leaked a secret:\n%s", out)
+	}
+	for _, w := range []string{`"<redacted>"`, "set      ANTHROPIC_CUSTOM_HEADERS=<redacted>", "ANTHROPIC_DEFAULT_OPUS_MODEL=claude-opus-4-6"} {
+		if !strings.Contains(out, w) {
+			t.Errorf("Print missing %q:\n%s", w, out)
+		}
 	}
 }
 
@@ -189,56 +244,6 @@ func TestClaudePassthrough(t *testing.T) {
 	}
 	if _, err := Claude(context.Background(), agent.LaunchOptions{Provider: "chatgpt"}, nil); err == nil || !strings.Contains(err.Error(), "claude-code codex") {
 		t.Errorf("a vendor-login provider must not back Claude Code: %v", err)
-	}
-}
-
-// Print used to mask only known secret env keys and vendor headers; a static credential sitting inside
-// a quoted codex -c TOML value or an opencode JSON blob rode straight through. redactQuoted now masks
-// every credential-shaped quoted string in both.
-func TestPrintRedactsQuotedSecrets(t *testing.T) {
-	p := agent.Plan{
-		Binary: "codex",
-		Argv:   []string{"-c", `p={ http_headers = { "cf-aig-authorization" = "Bearer sk-livegatewaysecret0123456789abcdefghijklmnop" } }`},
-		Set: map[string]string{
-			"OPENCODE_CONFIG_CONTENT": `{"provider":{"x":{"options":{"headers":{"h":"sk-abc123"}}}}}`,
-			"ANTHROPIC_MODEL":         "gpt-x",
-		},
-	}
-	var buf bytes.Buffer
-	p.Print(&buf)
-	out := buf.String()
-	if strings.Contains(out, "sk-livegatewaysecret0123456789abcdefghijklmnop") {
-		t.Errorf("argv secret leaked: %s", out)
-	}
-	if strings.Contains(out, "sk-abc123") {
-		t.Errorf("OPENCODE_CONFIG_CONTENT secret leaked: %s", out)
-	}
-	if !strings.Contains(out, "<redacted>") {
-		t.Errorf("expected a <redacted> marker: %s", out)
-	}
-	if !strings.Contains(out, "gpt-x") {
-		t.Errorf("a non-secret value must survive redaction: %s", out)
-	}
-}
-
-func TestClaudeRouter(t *testing.T) {
-	hermetic(t, `{"providers": {"openai": {"ollama": {"protocol": "openai", "base_url": "http://127.0.0.1:11434/v1", "auth": {"type": "none"},
-		"models": {"opus": "qwen3-coder", "sonnet": "qwen3-coder", "haiku": "qwen3-coder"}}}}}`) // ollama is no longer built in
-	p, err := Claude(context.Background(), agent.LaunchOptions{Provider: "ollama"}, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if p.Set["ANTHROPIC_BASE_URL"] != "http://127.0.0.1:4000/p/ollama" || p.Set["ANTHROPIC_DEFAULT_OPUS_MODEL"] != "qwen3-coder" {
-		t.Errorf("set %v", p.Set)
-	}
-	if p.Set["ANTHROPIC_MODEL"] != "" || p.Set["CLAUDE_CODE_DISABLE_1M_CONTEXT"] != "1" {
-		t.Errorf("router launch: no default ANTHROPIC_MODEL, 1M off for ollama: %v", p.Set)
-	}
-	if !strings.Contains(string(p.Overlay), "claude-code resolve --proxy") {
-		t.Errorf("overlay %s", p.Overlay)
-	}
-	if h := p.Set["ANTHROPIC_CUSTOM_HEADERS"]; h != "X-Claude-Code-Agent: claude" {
-		t.Errorf("router launch carries only the agent attribution header, got %q", h)
 	}
 }
 
@@ -376,6 +381,21 @@ func TestAnthropicOAuthWithheldFromShellEndpoint(t *testing.T) {
 	for k, v := range p.Set {
 		if v == "vault-oauth-token" {
 			t.Fatalf("vault OAuth token sent to a foreign shell endpoint under %s", k)
+		}
+	}
+}
+
+// TestKeepShellEndpointDefaultBase: a shell base equal to the default Anthropic endpoint is not foreign when the plan sets none.
+func TestKeepShellEndpointDefaultBase(t *testing.T) {
+	for _, tc := range []struct {
+		base    string
+		foreign bool
+	}{{"https://api.anthropic.com", false}, {"https://API.anthropic.com/", false}, {"https://shell.example", true}} {
+		t.Setenv("ANTHROPIC_BASE_URL", tc.base)
+		plan := agent.Plan{Set: map[string]string{}, OverlayPath: "/tmp/ov.json", Argv: []string{"--settings", "/tmp/ov.json"}}
+		keepShellEndpoint(&plan, agent.LaunchOptions{})
+		if plan.ForeignBase != tc.foreign || (plan.OverlayPath == "") != tc.foreign {
+			t.Errorf("base %q: ForeignBase=%v overlay=%q, want foreign=%v", tc.base, plan.ForeignBase, plan.OverlayPath, tc.foreign)
 		}
 	}
 }

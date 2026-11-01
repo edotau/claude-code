@@ -596,3 +596,21 @@ func assertFoldSecretMigration(t *testing.T, old string, before map[string]vault
 		}
 	}
 }
+
+// TestSealImportedEmptySecretIsNotSealed pins that a row with no readable secret fails and is not reported sealed.
+func TestSealImportedEmptySecretIsNotSealed(t *testing.T) {
+	useVaultTest(t)
+	cfg := writeCfg(t, "[pat-empty]\nhost = https://pat.example.cloud.databricks.com\ntoken = \n")
+	row := Row{ID: "pat-empty", Name: "pat-empty", Auth: providers.AuthPAT, HasSecret: true, Action: "add"}
+	name := SecretNameOf(row)
+	if name == "" {
+		t.Fatal("row has no secret name")
+	}
+	code, stdout, stderr := captureOutput(t, func() int { return sealImported(cfg, []Row{row}) })
+	if code != 1 || strings.Contains(stdout, "sealed") || !strings.Contains(stderr, "no secret in the source section") {
+		t.Fatalf("code %d stdout %q stderr %q", code, stdout, stderr)
+	}
+	if _, src, _ := secretstore.Lookup(name); src == "vault" {
+		t.Errorf("%s stored in the vault", name)
+	}
+}

@@ -157,14 +157,20 @@ func directInstall(t Tool) string {
 	return ""
 }
 
-// localBinDir is the fallback install target for non-agent tools.
+// localBinDir is the fallback install target for non-agent tools; "" when the home dir is unknown.
 func localBinDir() string {
-	home, _ := os.UserHomeDir()
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return ""
+	}
 	return filepath.Join(home, ".local", "bin")
 }
 
 // installBinary atomically writes data as an executable at dir/name.
 func installBinary(w io.Writer, dir, name string, data []byte) error {
+	if !filepath.IsAbs(dir) {
+		return fmt.Errorf("install dir %q is not absolute (HOME unset?)", dir)
+	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
@@ -324,7 +330,8 @@ func statusOne(t Tool) Status {
 		return s
 	}
 	s.Path = path
-	s.LocalBin = strings.HasPrefix(path, localBinDir()+string(filepath.Separator))
+	local := localBinDir()
+	s.LocalBin = local != "" && strings.HasPrefix(path, local+string(filepath.Separator))
 	s.NPMGlobal = npmPrefixFromBinary(path) != ""
 	s.Version = versionLine(path)
 	return s

@@ -2,7 +2,7 @@
 
 Many leaf-sized tasks across disjoint packages: the manager splits them into lanes; one Claude subagent per lane
 fans out agent leaves through `claude-code ask` (not counted by the dispatch cap:
-`rules/workflows/agents.md` → Parallel dispatch), verifies each leaf in an isolated copy, and commits it.
+`rules/workflows/agents.md` → Parallel dispatch), verifies each leaf in the shared tree, and commits it.
 Leaf types and the `Agent:` request:
 [SKILL.md → Leaf types](../SKILL.md#leaf-types).
 
@@ -30,7 +30,6 @@ Bug fixes: reproduce on the real surface first (the live before/after run is the
 background:
 
 ```bash
-iso="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/skills/subagent-workflows/scripts/isolate.sh"
 mkdir -p /tmp/claude-1000/<lane>; s=$(date +%s)
 claude-code ask --agent <agent> --fallback none --tools --autonomous --attach <lane.md> --timeout 45m \
   --workdir <worktree> "<brief>" > /tmp/claude-1000/<lane>/<leaf>.out 2>&1
@@ -48,15 +47,16 @@ A finding outside the leaf's files becomes a new line in this lane (same package
 
 ## Verify each leaf
 
-1. `"$iso" /tmp/claude-1000/<leaf>/copy <owned paths>` — a worktree at HEAD plus only this leaf's changes.
-2. In the copy: `go build ./... && go vet <pkgs> && go test <pkgs>`; gate on the exit code, never a piped `| tail`.
+1. Default: the shared tree, the leaf owning its new files. With the user's yes, `claude-code worktree create <name>`
+   (a worktree at HEAD: commit or copy the leaf's owned files into it first).
+2. In that tree: `go build ./... && go vet <pkgs> && go test <pkgs>`; gate on the exit code, never a piped `| tail`.
 3. The leaf's live check on real input.
 4. A changed seam (signature, argv/env builder, flag, file format): read producer and every consumer and run each
    consumer's tests — `go build ./...` alone has missed a broken consumer package.
 5. Read the diff: assertions intact (`testing-guidelines.md` → When a test fails), nothing outside `owns:`, no
    leftover old names.
 6. `git add <new files>; git commit -m "<msg>" -- <files>` (a pathspec commit, so other lanes' staged files never ride
-   along); tick the box with the short id; `"$iso" --remove <copy>`; delete the leaf scratch.
+   along); tick the box with the short id; `claude-code worktree clean <name>` if one was made; delete the leaf scratch.
 
 Red at any step: re-dispatch once with the failure output, or fix a small gap in-lane; still red → report it unticked.
 

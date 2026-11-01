@@ -160,3 +160,27 @@ func TestOpencodeOverlayModelsFollowTable(t *testing.T) {
 		t.Errorf("overridden overlay = %v/%v, want github-copilot/overridden-model and unchanged %q", doc["model"], doc["small_model"], haiku.Model)
 	}
 }
+
+// TestOpencodeOverlayModelsCorruptProviderOverlay: a provider overlay providers.Load rejects falls back to the table.
+func TestOpencodeOverlayModelsCorruptProviderOverlay(t *testing.T) {
+	data, _ := isolateOpencodeRouteEnv(t)
+	vaulttest.Use(t)
+	if err := os.MkdirAll(filepath.Join(data, "opencode"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(data, "opencode", "auth.json"), []byte(`{"github-copilot":{"type":"oauth"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	vaulttest.Put(t, vault.Overlay, "providers", `{not json`)
+	if _, err := providers.Load(); err == nil {
+		t.Fatal("fixture must make providers.Load fail")
+	}
+	if OpencodeOwnLoginPresent() || !OpencodeCopilotLoginPresent() {
+		t.Fatal("fixture must be copilot-only")
+	}
+	wantMain, wantSmall, wantOK := router.OpencodeTableModels()
+	main, small, ok := opencodeOverlayModels()
+	if main != wantMain || small != wantSmall || ok != wantOK {
+		t.Errorf("got %q %q %v, want table %q %q %v", main, small, ok, wantMain, wantSmall, wantOK)
+	}
+}

@@ -189,18 +189,11 @@ func collectComplexityFiles(target string, extensions []string) []string {
 	}
 	extensionSet := complexityExtensionSet(extensions)
 	var files []string
-	_ = filepath.WalkDir(target, func(p string, d os.DirEntry, err error) error {
-		if err != nil || d.IsDir() {
-			return nil
-		}
-		if pathHasSkippedPart(p) {
-			return nil
-		}
+	walkSourceFiles(target, func(p string) {
 		// Keep suffix matching: callers may request multi-part or overlapping extensions.
 		if hasComplexityExtension(p, extensionSet) {
 			files = append(files, p)
 		}
-		return nil
 	})
 	return files
 }

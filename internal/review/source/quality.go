@@ -476,6 +476,24 @@ func pathHasSkippedPart(path string) bool {
 	return false
 }
 
+// walkSourceFiles calls fn for each non-skipped file under root; skip parts are tested below root only.
+func walkSourceFiles(root string, fn func(p string)) {
+	_ = filepath.WalkDir(root, func(p string, d os.DirEntry, err error) error {
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "warning: skipping unreadable path %s: %v\n", p, err)
+			return nil
+		}
+		if d.IsDir() {
+			return nil
+		}
+		if rel, rerr := filepath.Rel(root, p); rerr != nil || pathHasSkippedPart(rel) {
+			return nil
+		}
+		fn(p)
+		return nil
+	})
+}
+
 // analyzeDirectory ports code_quality_checker.analyze_directory.
 func analyzeDirectory(dir, language string) (directoryReport, error) {
 	var extensions []string
@@ -516,16 +534,12 @@ func walkExtensions(dir string, extensions []string) []QualityReport {
 	for _, ext := range extensions {
 		byExtension[ext] = nil
 	}
-	_ = filepath.WalkDir(dir, func(p string, d os.DirEntry, err error) error {
-		if err != nil || d.IsDir() || pathHasSkippedPart(p) {
-			return nil
-		}
+	walkSourceFiles(dir, func(p string) {
 		for ext := range byExtension {
 			if strings.HasSuffix(p, ext) {
 				byExtension[ext] = append(byExtension[ext], p)
 			}
 		}
-		return nil
 	})
 	var out []QualityReport
 	for _, ext := range extensions {

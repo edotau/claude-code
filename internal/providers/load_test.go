@@ -221,3 +221,22 @@ func TestProfilesOfFollowsDeclaredOrder(t *testing.T) {
 		t.Errorf("DatabricksProfiles = %s, want dev,qa,prod", got)
 	}
 }
+
+// A malformed overlay still yields the base registry named, ordered and preset-expanded, alongside the error.
+func TestParseBadOverlayKeepsBuiltBase(t *testing.T) {
+	reg, err := Parse(defaultsJSON, []byte(`{"providers": `))
+	if err == nil {
+		t.Fatal("want an error for a malformed overlay")
+	}
+	if reg == nil || len(reg.Providers) == 0 {
+		t.Fatalf("registry = %+v, want the built base", reg)
+	}
+	for n, p := range reg.Providers {
+		if p.Name != n {
+			t.Fatalf("provider %q has Name %q", n, p.Name)
+		}
+	}
+	if len(reg.order) == 0 {
+		t.Error("declared order is empty")
+	}
+}

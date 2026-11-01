@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
@@ -38,7 +39,7 @@ func gateStagedFiles(repo string) []string {
 func gateComplexityFiles(repo string) []string {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	out, err := proc.RunGitInherit(ctx, repo, "diff", "--cached", "--name-only", "--diff-filter=ACMR")
+	out, err := proc.RunGitInherit(ctx, repo, "diff", "--cached", "--name-only", "--relative", "--diff-filter=ACMR")
 	if err != nil {
 		return nil
 	}
@@ -46,7 +47,7 @@ func gateComplexityFiles(repo string) []string {
 	for line := range strings.SplitSeq(out, "\n") {
 		line = strings.TrimSpace(line)
 		if line != "" && gateFileRe().MatchString(line) {
-			files = append(files, line)
+			files = append(files, filepath.Join(repo, line))
 		}
 	}
 	return files
@@ -96,7 +97,7 @@ func RunGate(args []string, stdout, stderr io.Writer) int {
 
 	fmt.Fprintln(stdout, "[surgical] diff_surgeon (staged):")
 	var out2 bytes.Buffer
-	rc2 := RunDiff(nil, &out2, &out2)
+	rc2 := runDiffIn(repo, nil, &out2, &out2)
 	if rc2 != 0 {
 		fmt.Fprintf(stdout, "  detector failed (exit %d):\n", rc2)
 		indentLines(stdout, out2.String())

@@ -214,7 +214,9 @@ func ToChatRequest(body []byte, wireModel string) (out []byte, stream bool, err 
 		if m.Role == "assistant" {
 			req.Messages = appendAssistant(req.Messages, blocks, wireModel)
 		} else {
-			req.Messages = appendUser(req.Messages, blocks)
+			if req.Messages, err = appendUser(req.Messages, blocks); err != nil {
+				return nil, false, fmt.Errorf("translate: messages[%d]: %w", i, err)
+			}
 		}
 	}
 
@@ -265,7 +267,7 @@ func applyToolChoice(req *chatRequest, in messagesRequest) {
 }
 
 // appendUser emits tool results first (they must directly follow the assistant tool_calls), then the user turn.
-func appendUser(msgs []chatMessage, blocks []block) []chatMessage {
+func appendUser(msgs []chatMessage, blocks []block) ([]chatMessage, error) {
 	var parts []chatPart
 	hasImage := false
 	addImage := func(s *source) {
@@ -287,7 +289,10 @@ func appendUser(msgs []chatMessage, blocks []block) []chatMessage {
 				parts = append(parts, chatPart{Type: "text", Text: b.Source.Data})
 			}
 		case "tool_result":
-			inner, _ := parseBlocks(b.Content)
+			inner, err := parseBlocks(b.Content)
+			if err != nil {
+				return nil, fmt.Errorf("tool_result %s: %w", b.ToolUseID, err)
+			}
 			text := joinText(inner, "\n")
 			for _, ib := range inner {
 				if ib.Type == "image" {
@@ -298,16 +303,16 @@ func appendUser(msgs []chatMessage, blocks []block) []chatMessage {
 		}
 	}
 	if len(parts) == 0 {
-		return msgs
+		return msgs, nil
 	}
 	if !hasImage {
 		texts := make([]string, len(parts))
 		for i, p := range parts {
 			texts[i] = p.Text
 		}
-		return append(msgs, chatMessage{Role: "user", Content: strings.Join(texts, "\n\n")})
+		return append(msgs, chatMessage{Role: "user", Content: strings.Join(texts, "\n\n")}), nil
 	}
-	return append(msgs, chatMessage{Role: "user", Content: parts})
+	return append(msgs, chatMessage{Role: "user", Content: parts}), nil
 }
 
 func appendAssistant(msgs []chatMessage, blocks []block, wireModel string) []chatMessage {

@@ -1,0 +1,213 @@
+package opencode
+
+import (
+	"bufio"
+	"encoding/json"
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/hooks"
+	"github.com/edotau/claude-code/internal/memory/bank"
+	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/settings"
+	"github.com/edotau/claude-code/internal/textutil"
+)
+
+// hostedHooks are the hook modules run around a headless `opencode run`; PreToolUse ones only detect (the tool already ran).
+var hostedHooks = map[string]bool{
+	"memory-start": true, "worktree-mode": true, // before: SessionStart
+	"memory-recall": true, "paths-resolve": true, "docs-plan-skeleton-prompt": true, "worktree-busy": true, // before: prompt
+	"safety-scan": true, "docs-placement": true, "docs-plan-gate": true, // during: PreToolUse
+	"docs-plan-mirror": true, "review-simplicity": true, "docs-plan-tick": true, // during: PostToolUse
+	"memory-update": true, "format-stop": true, "docs-plan-reminder": true, "memory-end": true, // after
+}
+
+// reasonLogRunes caps a hook's reason in the log line.
+const reasonLogRunes = 300
+
+// hookHost runs the hook phases around one headless opencode run; every method is a no-op on a nil host.
+type hookHost struct {
+	bound   []hooks.Bound
+	cwd     string
+	session string
+	log     io.Writer
+	mu      sync.Mutex
+	seen    map[string]bool
+}
+
+// newHookHost is the host for req, or nil when hooks do not apply (a memory-update child, or nothing bound).
+func newHookHost(req agent.RunOptions) *hookHost {
+	if bank.IsUpdateChild() {
+		return nil
+	}
+	bound := hostedBound(req.SafeMode)
+	if len(bound) == 0 {
+		return nil
+	}
+	cwd := req.WorkDir
+	if cwd == "" {
+		cwd, _ = os.Getwd()
+	}
+	h := &hookHost{bound: bound, cwd: cwd, session: req.SessionID, seen: map[string]bool{}, log: openHookLog()}
+	if h.session == "" {
+		h.session = "oc-" + time.Now().UTC().Format("20060102T150405")
+	}
+	return h
+}
+
+// hostedBound is the hosted hooks the vault's harnessHooks switches leave on; safeMode (--pure) keeps only the safety gate.
+func hostedBound(safeMode bool) []hooks.Bound {
+	switches, _ := settings.LoadHarnessHooks()
+	var bound []hooks.Bound
+	for _, b := range hooks.Bind() {
+		if on, set := switches[b.Group]; hostedHooks[b.Spec.Name] && (b.Gate || (!safeMode && (!set || on))) {
+			bound = append(bound, b)
+		}
+	}
+	return bound
+}
+
+// openHookLog appends to state/harness/opencode/hooks.log (0600); io.Discard when it cannot be opened.
+func openHookLog() io.Writer {
+	dir := filepath.Join(paths.StateDir(), "opencode")
+	if os.MkdirAll(dir, 0o700) != nil {
+		return io.Discard
+	}
+	f, err := os.OpenFile(filepath.Join(dir, "hooks.log"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		return io.Discard
+	}
+	return f
+}
+
+// close releases the log file.
+func (h *hookHost) close() {
+	if c, ok := h.log.(io.Closer); ok {
+		_ = c.Close()
+	}
+}
+
+// note appends one line to the hook log: time, session, phase and the finding; never a prompt or command text.
+func (h *hookHost) note(phase, format string, args ...any) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	fmt.Fprintf(h.log, "%s %s phase=%s %s\n", time.Now().UTC().Format(time.RFC3339), h.session, phase, fmt.Sprintf(format, args...))
+}
+
+// fire runs each bound hook on event whose matcher hits tool, one Dispatch each so the log names the hook.
+func (h *hookHost) fire(phase, event, tool string, payload map[string]any) (ctx []string) {
+	payload["session_id"], payload["cwd"], payload["hook_event_name"] = h.session, h.cwd, event
+	if tool != "" {
+		payload["tool_name"] = tool
+	}
+	raw, _ := json.Marshal(payload)
+	for _, b := range h.bound {
+		if b.Spec.Event != event {
+			continue
+		}
+		res, err := hooks.Dispatch([]hooks.Bound{b}, event, hooks.ParseInput(strings.NewReader(string(raw))), h.log)
+		if err != nil {
+			h.note(phase, "event=%s hook=%s error=%v", event, b.Spec.Name, err)
+			continue
+		}
+		if res.Decision != hooks.Allow || res.Context != "" || res.Stderr != "" {
+			h.note(phase, "event=%s tool=%s hook=%s decision=%s context_chars=%d reason=%q", event, tool, b.Spec.Name,
+				[]string{"allow", "ask", "block"}[res.Decision], len(res.Context), textutil.CapRunes(firstNonEmpty(res.Reason, res.Stderr), reasonLogRunes, "…"))
+		} else {
+			h.note(phase, "event=%s tool=%s hook=%s decision=allow", event, tool, b.Spec.Name)
+		}
+		if res.Context != "" {
+			ctx = append(ctx, res.Context)
+		}
+	}
+	return ctx
+}
+
+func firstNonEmpty(a, b string) string {
+	if a != "" {
+		return a
+	}
+	return b
+}
+
+// before runs SessionStart then UserPromptSubmit and returns argv with their context folded ahead of the prompt.
+func (h *hookHost) before(argv []string, prompt string) []string {
+	if h == nil {
+		return argv
+	}
+	ctx := h.fire("before", settings.EventSessionStart, "", map[string]any{})
+	ctx = append(ctx, h.fire("before", settings.EventUserPromptSubmit, "", map[string]any{"prompt": prompt})...)
+	if len(ctx) == 0 || len(argv) == 0 || argv[len(argv)-1] != prompt {
+		return argv
+	}
+	out := append([]string(nil), argv...)
+	out[len(out)-1] = strings.Join(ctx, "\n\n") + "\n\n" + prompt
+	return out
+}
+
+// parser is the stream parser that hands each finished tool call to the during-run phase.
+func (h *hookHost) parser() func(*bufio.Reader, agent.Sink, func(), ...agent.StreamLog) (agent.Result, error) {
+	if h == nil {
+		return parseOpenCodeStream
+	}
+	return func(br *bufio.Reader, sink agent.Sink, onMeaningful func(), logs ...agent.StreamLog) (agent.Result, error) {
+		return parseOpenCodeEvents(br, sink, onMeaningful, h.during, logs...)
+	}
+}
+
+// during is PreToolUse (detect-only) then PostToolUse for one finished tool call; its context is logged, not injected.
+func (h *hookHost) during(ev openCodeEvent) {
+	if ev.SessionID != "" {
+		h.session = ev.SessionID
+	}
+	tool, input, ok := claudeTool(ev.Part.Tool, ev.Part.State.Input)
+	if !ok || h.seen[ev.Part.CallID] {
+		return
+	}
+	h.seen[ev.Part.CallID] = true
+	h.fire("during", settings.EventPreToolUse, tool, map[string]any{"tool_input": input})
+	h.fire("during", settings.EventPostToolUse, tool, map[string]any{"tool_input": input, "tool_response": ev.Part.State.Output})
+}
+
+// after runs Stop then SessionEnd once the child has exited; res carries the session id opencode minted.
+func (h *hookHost) after(res agent.Result) {
+	if h == nil {
+		return
+	}
+	defer h.close()
+	if res.SessionID != "" {
+		h.session = res.SessionID
+	}
+	h.fire("after", settings.EventStop, "", map[string]any{"stop_hook_active": false})
+	h.fire("after", settings.EventSessionEnd, "", map[string]any{"reason": "other"})
+}
+
+// claudeTool maps an opencode tool call to the Claude tool name and input the hooks read; ok is false if none watches it.
+func claudeTool(tool string, in map[string]any) (string, map[string]any, bool) {
+	rename := func(name string, keys map[string]string) (string, map[string]any, bool) {
+		out := map[string]any{}
+		for from, to := range keys {
+			if v, found := in[from]; found {
+				out[to] = v
+			}
+		}
+		return name, out, true
+	}
+	switch tool {
+	case "bash":
+		return rename("Bash", map[string]string{"command": "command", "description": "description", "timeout": "timeout"})
+	case "write":
+		return rename("Write", map[string]string{"filePath": "file_path", "content": "content"})
+	case "edit":
+		return rename("Edit", map[string]string{"filePath": "file_path", "oldString": "old_string", "newString": "new_string", "replaceAll": "replace_all"})
+	case "task":
+		return rename("Task", map[string]string{"prompt": "prompt", "description": "description", "subagent_type": "subagent_type"})
+	}
+	return "", nil, false
+}

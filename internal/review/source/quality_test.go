@@ -167,3 +167,71 @@ var testdataDir = func() string {
 
 // expandGolden swaps the @TESTDATA@ placeholder in a golden for this checkout's testdata path.
 func expandGolden(s string) string { return strings.ReplaceAll(s, "@TESTDATA@", testdataDir) }
+
+func TestWalkSourceFilesSkipPartsBelowRootOnly(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "build", "proj")
+	for _, rel := range []string{"a.py", "dist/skip.py", "sub/b.py"} {
+		p := filepath.Join(root, rel)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte("x = 1\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var got []string
+	walkSourceFiles(root, func(p string) { got = append(got, filepath.Base(p)) })
+	if strings.Join(got, ",") != "a.py,b.py" {
+		t.Fatalf("got %v, want [a.py b.py]: target under build/ must be walked, dist/ below it skipped", got)
+	}
+}
+
+func TestWalkSourceFilesWarnsOnUnreadableDir(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root reads everything")
+	}
+	root := t.TempDir()
+	locked := filepath.Join(root, "locked")
+	if err := os.Mkdir(locked, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "ok.py"), []byte("x = 1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(locked, 0); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(locked, 0o755) })
+
+	r, w, _ := os.Pipe()
+	orig := os.Stderr
+	os.Stderr = w
+	var got []string
+	walkSourceFiles(root, func(p string) { got = append(got, filepath.Base(p)) })
+	os.Stderr = orig
+	_ = w.Close()
+	var buf bytes.Buffer
+	_, _ = buf.ReadFrom(r)
+	if len(got) != 1 || got[0] != "ok.py" {
+		t.Fatalf("got %v, want [ok.py]", got)
+	}
+	if !strings.Contains(buf.String(), "skipping unreadable path") {
+		t.Fatalf("stderr %q lacks the unreadable-path warning", buf.String())
+	}
+}
+
+func TestRunQualityAnalysisErrorExitsNonZero(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "notes.txt")
+	if err := os.WriteFile(file, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for name, path := range map[string]string{"empty dir": t.TempDir(), "unsupported file": file} {
+		var stdout, stderr bytes.Buffer
+		if code := RunQuality([]string{path, "--json"}, &stdout, &stderr); code != 1 {
+			t.Errorf("%s: exit code = %d, want 1", name, code)
+		}
+		if !strings.Contains(stdout.String(), `"error"`) {
+			t.Errorf("%s: stdout lacks error report: %q", name, stdout.String())
+		}
+	}
+}

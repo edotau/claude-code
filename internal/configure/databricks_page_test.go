@@ -168,16 +168,16 @@ func TestDbxStateAndHomeRow(t *testing.T) {
 		t.Errorf("qa no expiry = %q %q", at, text)
 	}
 	dbxExpiry(t, "qa", time.Now().Add(59*time.Minute+30*time.Second))
-	if _, text, _ := dbxState(d.reg, "qa"); text != "token expires in 59m" {
+	if _, text, _ := dbxState(d.reg, "qa"); text != "expires in 59m" {
 		t.Errorf("qa = %q", text)
 	}
 	dbxExpiry(t, "qa", time.Now().Add(-time.Minute))
-	if _, text, _ := dbxState(d.reg, "qa"); text != "token expired" {
+	if _, text, _ := dbxState(d.reg, "qa"); text != "expired" {
 		t.Errorf("expired = %q", text)
 	}
 	dbxExpiry(t, "qa", time.Now().Add(59*time.Minute+30*time.Second))
 	row := databricksRow(d)
-	if row.Name != "databricks" || row.State != "qa · command" || row.Check != "token expires in 59m" {
+	if row.Name != "databricks" || row.State != "qa · command" || row.Check != "expires in 59m" {
 		t.Errorf("home row = %+v", row)
 	}
 	if at, text, ok := dbxState(nil, "qa"); at != "" || text != "no login" || ok {
@@ -209,8 +209,8 @@ func TestDbxPageRowsAndDispatch(t *testing.T) {
 	if len(envRows) != 3 || envRows[0][0] != "dev" || envRows[1][0] != "qa" || envRows[2][0] != "prod" {
 		t.Fatalf("env rows = %v", envRows)
 	}
-	if envRows[1][1] != "command  token expires in 59m" || envRows[0][1] != "oauth  no login" {
-		t.Errorf("env row text = %q / %q", envRows[2][1], envRows[0][1])
+	if envRows[1][1] != "command  expires in 59m" || envRows[0][1] != "oauth    no login" {
+		t.Errorf("env row text = %q / %q", envRows[1][1], envRows[0][1])
 	}
 	if f.titles[1] != "databricks · qa" {
 		t.Errorf("env title = %q", f.titles[1])
@@ -427,7 +427,7 @@ func TestDbxReportNoTokenAndShape(t *testing.T) {
 	if len(lines) != 3 {
 		t.Fatalf("report lines = %q", lines)
 	}
-	want := map[string]string{"dev": "dev oauth no login", "prod": "prod command logged in", "qa": "qa command token expires in 59m"}
+	want := map[string]string{"dev": "dev oauth no login", "prod": "prod command logged in", "qa": "qa command expires in 59m"}
 	for _, l := range lines {
 		got := strings.Join(strings.Fields(l), " ")
 		f0 := strings.Fields(l)[0]

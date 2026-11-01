@@ -119,3 +119,16 @@ func TestSeedFromSignInClearsLastProfile(t *testing.T) {
 		t.Errorf("copilot profile = %q, want fresh", got)
 	}
 }
+
+// Given one invalid profile among the choices, saveSeed writes no agent's profile.
+func TestSaveSeedInvalidProfileWritesNothing(t *testing.T) {
+	d, _ := seedDialog(t, "")
+	if saveSeed(d, map[string]string{"claude": "", "codex": "no-such-profile"}) {
+		t.Fatal("saveSeed reported success for an unknown profile")
+	}
+	for a, r := range vault.AgentRecords(agentpkg.RosterNames()) {
+		if r.Profile != "" {
+			t.Errorf("%s persisted profile %q after a failed save", a, r.Profile)
+		}
+	}
+}

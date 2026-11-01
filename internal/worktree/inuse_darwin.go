@@ -5,6 +5,7 @@ package worktree
 import (
 	"bufio"
 	"context"
+	"fmt"
 	"os/exec"
 	"path/filepath"
 	"strconv"
@@ -19,12 +20,18 @@ func init() {
 }
 
 // scanProcsDarwin shells out to lsof once (stdlib os/exec only, no cgo) since macOS has no /proc. The -F fields
-// are p(id), c(omm), n(ame); lsof exits non-zero when nothing matches -d cwd, so only an exec failure is an error.
+// are p(id), c(omm), n(ame); -w mutes warnings, so only exit 1 with empty stderr means "nothing matched".
 func scanProcsDarwin() ([]procCwd, error) {
-	out, err := exec.CommandContext(context.Background(), "lsof", "-a", "-d", "cwd", "-Fpcn").Output()
+	ctx, cancel := context.WithTimeout(context.Background(), probeTimeout)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "lsof", "-w", "-a", "-d", "cwd", "-Fpcn").Output()
 	if err != nil {
-		if _, ok := err.(*exec.ExitError); !ok {
+		exitErr, ok := err.(*exec.ExitError)
+		if !ok {
 			return nil, err
+		}
+		if stderr := strings.TrimSpace(string(exitErr.Stderr)); exitErr.ExitCode() != 1 || stderr != "" {
+			return nil, fmt.Errorf("lsof -d cwd: %w (%s)", err, stderr) // fail closed: no proc list means in use
 		}
 	}
 	var procs []procCwd
@@ -50,7 +57,9 @@ func scanProcsDarwin() ([]procCwd, error) {
 }
 
 func parentOfDarwin(pid int) (int, error) {
-	out, err := exec.CommandContext(context.Background(), "ps", "-o", "ppid=", "-p", strconv.Itoa(pid)).Output()
+	ctx, cancel := context.WithTimeout(context.Background(), probeTimeout)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "ps", "-o", "ppid=", "-p", strconv.Itoa(pid)).Output()
 	if err != nil {
 		return 0, err
 	}
@@ -58,7 +67,9 @@ func parentOfDarwin(pid int) (int, error) {
 }
 
 func commOfDarwin(pid int) string {
-	out, err := exec.CommandContext(context.Background(), "ps", "-o", "comm=", "-p", strconv.Itoa(pid)).Output()
+	ctx, cancel := context.WithTimeout(context.Background(), probeTimeout)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "ps", "-o", "comm=", "-p", strconv.Itoa(pid)).Output()
 	if err != nil {
 		return "?"
 	}

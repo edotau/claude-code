@@ -31,7 +31,7 @@ var (
 // dbxAgents are the agents "Apply to agents" can repoint.
 var dbxAgents = []string{"claude", "codex", "opencode", "copilot"}
 
-// dbxState is one env's authType and its no-network expiry text ("token expires in 52m", "no login").
+// dbxState is one env's authType and its no-network expiry text ("expires in 52m", "no login").
 func dbxState(reg *providers.Registry, env string) (authType, text string, ok bool) {
 	if reg == nil {
 		return "", "no login", false
@@ -52,9 +52,9 @@ func dbxState(reg *providers.Registry, env string) (authType, text string, ok bo
 	case !has:
 		return authType, "logged in", true
 	case time.Until(exp) <= 0:
-		return authType, "token expired", true
+		return authType, "expired", true
 	}
-	return authType, "token expires in " + dbxDur(time.Until(exp)), true
+	return authType, "expires in " + dbxDur(time.Until(exp)), true
 }
 
 // dbxDur renders a remaining lifetime as Nm, or NhMMm from two hours up.
@@ -101,12 +101,15 @@ func runDatabricks(d *dialog) bool {
 func runDatabricksPage(d *dialog) {
 	dbxShell(d).Run("databricks", func() []uidialog.Row {
 		var rows []uidialog.Row
-		for _, e := range dbxProfileNames(d.reg) {
+		names := dbxProfileNames(d.reg)
+		atW := 0
+		for _, e := range names {
+			at, _, _ := dbxState(d.reg, e)
+			atW = max(atW, len(cmp.Or(at, "-")))
+		}
+		for _, e := range names {
 			at, text, _ := dbxState(d.reg, e)
-			if at == "" {
-				at = "-"
-			}
-			rows = append(rows, uidialog.Row{Name: e, Detail: at + "  " + text, Run: func() bool {
+			rows = append(rows, uidialog.Row{Name: e, Detail: fmt.Sprintf("%-*s  %s", atW, cmp.Or(at, "-"), text), Run: func() bool {
 				runDatabricksEnv(d, e)
 				return false
 			}})
@@ -148,7 +151,7 @@ func dbxDo(d *dialog, env, what string, fn func(context.Context) error) {
 }
 
 func dbxPaste(d *dialog, env string) {
-	v, err := dbxSecret("Personal access token: ", nil)
+	v, err := dbxSecret("Personal access token: ", secretstore.Preview)
 	if err != nil || v == "" {
 		return
 	}
@@ -275,15 +278,15 @@ func dbxSaveIdentity(d *dialog, env, mode, spID, secret string) error {
 	if mode == providers.IdentitySP && spID == "" {
 		return fmt.Errorf("%s: identity sp needs a service principal client id", env)
 	}
+	if secret != "" { // sealed first: a Store failure leaves the provider row untouched
+		if err := secretstore.Store(providers.SecretName(providers.GroupDatabricks, env, providers.AuthM2M), secret); err != nil {
+			return err
+		}
+	}
 	auth := p.Auth
 	auth.SPClientID = spID
 	if err := providers.SetProviderFields(env, map[string]any{"identity": mode, "auth": auth}); err != nil {
 		return err
-	}
-	if secret != "" {
-		if err := secretstore.Store(providers.SecretName(providers.GroupDatabricks, env, providers.AuthM2M), secret); err != nil {
-			return err
-		}
 	}
 	d.changed = true
 	return nil
@@ -313,7 +316,7 @@ func dbxIdentity(d *dialog, env string) {
 	spID = cmp.Or(id, spID)
 	secret := ""
 	if spID != "" {
-		if secret, err = dbxSecret("Service principal secret (empty keeps the stored one): ", nil); err != nil {
+		if secret, err = dbxSecret("Service principal secret (empty keeps the stored one): ", secretstore.Preview); err != nil {
 			return
 		}
 	}

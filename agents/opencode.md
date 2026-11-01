@@ -122,8 +122,8 @@ Validate step above. Default model and effort fit normal drafting; only for an u
 restructuring) add `--effort high`.
 Only if `ask` fails or the draft doesn't hold up, draft it yourself and say why. DOC-LOOKUP and
 ANALYZE/EXTRACT/PERSIST stay with you. `--workdir` has been known to be ignored, writing the live tree instead —
-brief the drafting run on a copy
-(`skills/subagent-workflows/scripts/isolate.sh`) and verify with `git diff --stat` that the diff lands where
+brief the drafting run in the shared tree on new files you own (a linked worktree only with the user's yes:
+`claude-code worktree create <name>`) and verify with `git diff --stat` that the diff lands where
 intended before applying it.
 
 ### Reflection modes

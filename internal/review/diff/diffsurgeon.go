@@ -2,7 +2,6 @@
 package diff
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -12,9 +11,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
-	"time"
 
-	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
@@ -60,16 +57,14 @@ type diffFileEntry struct {
 	changes []string
 }
 
-func runGitDiff(diffRange string, stderr io.Writer) (string, bool) {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
+func runGitDiff(repo, diffRange string, stderr io.Writer) (string, bool) {
 	args := []string{"diff", "--cached"}
 	if diffRange != "" {
 		args = []string{"diff", diffRange}
 	}
-	out, err := proc.RunGitInherit(ctx, "", args...)
+	out, timedOut, err := gitInherit(repo, args...)
 	// Like Python's check=False: git's own non-zero exit (not a repo, bad range) is silent; only a missing git or timeout errors.
-	if err != nil && (ctx.Err() != nil || !errors.As(err, new(*exec.ExitError))) {
+	if err != nil && (timedOut || !errors.As(err, new(*exec.ExitError))) {
 		fmt.Fprintf(stderr, "[error] git diff failed: %v\n", err)
 		return "", false
 	}
@@ -78,7 +73,7 @@ func runGitDiff(diffRange string, stderr io.Writer) (string, bool) {
 
 // getDiff returns (text, exitCode); exitCode is 0 on success, 1 if --file doesn't exist (a real
 // usage error, unlike a git-diff failure which stays advisory-0 per the Python script).
-func getDiff(diffRange, file string, stderr io.Writer) (string, int) {
+func getDiff(repo, diffRange, file string, stderr io.Writer) (string, int) {
 	if file != "" {
 		b, err := os.ReadFile(file)
 		if err != nil {
@@ -87,7 +82,7 @@ func getDiff(diffRange, file string, stderr io.Writer) (string, int) {
 		}
 		return string(b), 0
 	}
-	text, ok := runGitDiff(diffRange, stderr)
+	text, ok := runGitDiff(repo, diffRange, stderr)
 	if !ok {
 		return "", 0
 	}
@@ -241,6 +236,11 @@ func printDiffReport(w io.Writer, result diffSurgeonResult) {
 // RunDiff ports diff_surgeon.py's CLI. Findings are advisory (exit 0); a bad flag or a missing
 // --file is a real usage error (exit 2 / 1 respectively).
 func RunDiff(args []string, stdout, stderr io.Writer) int {
+	return runDiffIn("", args, stdout, stderr)
+}
+
+// runDiffIn is RunDiff with git run in repo ("" = the cwd).
+func runDiffIn(repo string, args []string, stdout, stderr io.Writer) int {
 	fs := helptext.NewFlagSet("diff", helptext.Page{
 		Usage: "claude-code review diff [flags]",
 		About: "Flag diff lines that don't trace to the task (noise, drive-by edits). Findings are advisory.",
@@ -253,7 +253,7 @@ func RunDiff(args []string, stdout, stderr io.Writer) int {
 		return code
 	}
 
-	diffText, exitCode := getDiff(*diffRange, *file, stderr)
+	diffText, exitCode := getDiff(repo, *diffRange, *file, stderr)
 	if exitCode != 0 {
 		return exitCode
 	}

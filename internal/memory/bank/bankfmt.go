@@ -65,6 +65,18 @@ func dirFmtTargets(dir string) []string {
 // FormatBank wraps every target file; check=true writes nothing and only reports. changed lists what
 // would (or did) change; CommitStore settles the result the same way `memory index` does.
 func FormatBank(check bool) (changed []string, err error) {
+	if check {
+		return formatBankLocked(true)
+	}
+	err = memstore.WithBankLock(memstore.BankLockWait, func() error {
+		changed, err = formatBankLocked(false)
+		return err
+	})
+	return changed, err
+}
+
+// formatBankLocked is FormatBank's body; a writing caller holds the bank lock.
+func formatBankLocked(check bool) (changed []string, err error) {
 	files, err := BankFmtTargets()
 	if err != nil {
 		return nil, err

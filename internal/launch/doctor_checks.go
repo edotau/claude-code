@@ -120,7 +120,12 @@ func formatsCheck() Check {
 		if f.Kind != schemas.Store || f.Probe == nil {
 			continue
 		}
-		if v, err := f.Probe(); err == nil && v != f.Version && v != 0 {
+		v, err := f.Probe()
+		if err != nil {
+			stale = append(stale, fmt.Sprintf("%s: unreadable (%v)", f.Name, err))
+			continue
+		}
+		if v != f.Version && v != 0 {
 			stale = append(stale, fmt.Sprintf("%s: schema %d (want %d)", f.Name, v, f.Version))
 		}
 	}

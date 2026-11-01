@@ -139,6 +139,30 @@ func TestIsWorkRepoRealGitRemotes(t *testing.T) {
 	})
 }
 
+// TestIsWorkRepoCorruptConfigFailsClosed pins that a git error inside a real repo reports work, not personal.
+func TestIsWorkRepoCorruptConfigFailsClosed(t *testing.T) {
+	orig := workRepoMarkers
+	workRepoMarkers = func() ([]string, error) { return []string{"corp-widgets"}, nil }
+	t.Cleanup(func() { workRepoMarkers = orig })
+	dir := t.TempDir()
+	routeRunGit(t, dir, "init", "-q")
+	routeRunGit(t, dir, "remote", "add", "origin", "https://github.com/edotau/claude-code.git")
+	cfg := filepath.Join(dir, ".git", "config")
+	f, err := os.OpenFile(cfg, os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.WriteString("[broken\n"); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if !IsWorkRepo(dir) {
+		t.Error("want work: rev-parse fails on a bad config, which is not 'not a git repository'")
+	}
+}
+
 // opencodeCand returns the opencode candidate a pick chose, or fails.
 func opencodeCand(t *testing.T, r PickResult) Candidate {
 	t.Helper()

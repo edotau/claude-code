@@ -294,6 +294,7 @@ type Record struct {
 	Kid          string    `json:"kid"`
 	Prefix       string    `json:"prefix,omitempty"`
 	Len          int       `json:"len,omitempty"`
+	Label        string    `json:"label,omitempty"` // plaintext display label, never secret
 	SetAt        time.Time `json:"set_at,omitzero"`
 	VerifiedAt   time.Time `json:"verified_at,omitzero"`
 	VerifyStatus string    `json:"verify_status,omitempty"`
@@ -339,7 +340,7 @@ func (t *Tx) PutRecord(name string, r Record) error {
 
 // PutRecordIn stores a record in its collection; a zero record removes it.
 func (t *Tx) PutRecordIn(bucket, name string, r Record) error {
-	if len(r.Sealed) == 0 && r.Kid == "" && r.Prefix == "" && r.Len == 0 && r.SetAt.IsZero() && r.VerifiedAt.IsZero() && r.VerifyStatus == "" {
+	if len(r.Sealed) == 0 && r.Kid == "" && r.Prefix == "" && r.Len == 0 && r.Label == "" && r.SetAt.IsZero() && r.VerifiedAt.IsZero() && r.VerifyStatus == "" {
 		return t.Put(bucket, name, "")
 	}
 	v, err := json.Marshal(r)

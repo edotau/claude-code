@@ -332,3 +332,18 @@ func TestStoreGitProbesBounded(t *testing.T) {
 		}
 	})
 }
+
+// TestHeadDistinguishesUnbornFromFailure: an unborn HEAD is ("", nil); any other git failure is returned.
+func TestHeadDistinguishesUnbornFromFailure(t *testing.T) {
+	storeFixture(t)
+	r := Repo{Dir: filepath.Join(t.TempDir(), "repo")}
+	if err := r.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	if head, err := r.Head(); err != nil || head != "" {
+		t.Fatalf("unborn Head = %q, %v, want \"\", nil", head, err)
+	}
+	if _, err := (Repo{Dir: filepath.Join(t.TempDir(), "missing")}).Head(); err == nil {
+		t.Fatal("Head on a non-repo = nil error, want the git failure")
+	}
+}

@@ -61,7 +61,7 @@ func ExecRunner(ctx context.Context, argv []string) ([]byte, error) {
 }
 
 // CapturePanes lists and captures every cc-* tmux pane on host via run, bounding the round trip to
-// captureTimeout and the parsed result to maxCaptureBytes/maxPanes; batch forbids ssh password prompts.
+// captureTimeout and the result to maxCaptureBytes/maxPanes (over either is an error, never a silent cut); batch forbids ssh password prompts.
 func CapturePanes(ctx context.Context, host string, batch bool, run RemoteRunner) ([]PaneCapture, error) {
 	cctx, cancel := context.WithTimeout(ctx, captureTimeout)
 	defer cancel()
@@ -71,9 +71,13 @@ func CapturePanes(ctx context.Context, host string, batch bool, run RemoteRunner
 		return nil, fmt.Errorf("dispatch: capture panes on %s: %w", host, err)
 	}
 	if len(out) > maxCaptureBytes {
-		out = out[:maxCaptureBytes]
+		return nil, fmt.Errorf("dispatch: capture panes on %s: output over %d bytes", host, maxCaptureBytes)
 	}
-	return parseCaptureBlob(host, string(out)), nil
+	caps := parseCaptureBlob(host, string(out))
+	if len(caps) > maxPanes {
+		return nil, fmt.Errorf("dispatch: capture panes on %s: more than %d panes", host, maxPanes)
+	}
+	return caps, nil
 }
 
 // parseCaptureBlob splits captureCommand's framed output into PaneCapture records, best-effort: a
@@ -85,14 +89,17 @@ func parseCaptureBlob(host, blob string) []PaneCapture {
 		if rec == "" {
 			continue
 		}
-		if len(caps) >= maxPanes {
+		if len(caps) > maxPanes {
 			break
 		}
 		header, text, ok := strings.Cut(rec, "\n")
 		if !ok {
 			continue
 		}
-		text, _, _ = strings.Cut(text, paneRecordEnd)
+		text, _, ok = strings.Cut(text, paneRecordEnd)
+		if !ok {
+			continue
+		}
 		cols := strings.Split(header, fieldSep)
 		if len(cols) < 4 {
 			continue

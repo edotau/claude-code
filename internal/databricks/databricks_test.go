@@ -545,3 +545,12 @@ func captureOutput(t *testing.T, fn func() int) (code int, stdout, stderr string
 	t.Helper()
 	return runCaptured(t, fn)
 }
+
+// TestPlanFailsClosedOnProviderLoadError pins that an unreadable registry is an error, not a skipped profile check.
+func TestPlanFailsClosedOnProviderLoadError(t *testing.T) {
+	seedOverlay(t, "{not json")
+	t.Setenv(providers.EnvSessionProfile, "")
+	if p, err := plan([]string{"--profile", "anything"}); err == nil || !strings.Contains(err.Error(), "load providers") {
+		t.Fatalf("plan = %+v, %v; want a load providers error", p, err)
+	}
+}

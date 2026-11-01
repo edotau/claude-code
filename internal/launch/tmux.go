@@ -13,7 +13,10 @@ var tmuxConf []byte
 
 // tmuxConfPaths are the files tmux reads at startup; the first is where a missing config is seeded.
 var tmuxConfPaths = func() []string {
-	home, _ := os.UserHomeDir()
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return nil
+	}
 	xdg := os.Getenv("XDG_CONFIG_HOME")
 	if xdg == "" {
 		xdg = filepath.Join(home, ".config")
@@ -24,6 +27,10 @@ var tmuxConfPaths = func() []string {
 // seedTmuxConf writes the harness tmux.conf only when no tmux config exists; a present one is never touched.
 func seedTmuxConf(w io.Writer, dryRun bool) {
 	paths := tmuxConfPaths()
+	if len(paths) == 0 {
+		fmt.Fprintln(w, "tmux     skip  home directory unresolved")
+		return
+	}
 	for _, p := range paths {
 		if _, err := os.Stat(p); err == nil {
 			fmt.Fprintf(w, "tmux     %s exists (kept)\n", p)

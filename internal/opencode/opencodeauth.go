@@ -95,12 +95,12 @@ func opencodeMajorLocked(key string) int {
 	ctx, cancel := context.WithTimeout(context.Background(), opencodeAuthTimeout)
 	defer cancel()
 	out, err := opencodeOutput(ctx, "--version")
-	v := 0
-	if err == nil {
-		v = ParseOpencodeMajor(string(out))
+	if err != nil { // a failed probe is not cached: the next call retries rather than pinning 2.x to 1.x
+		return 0
 	}
+	v := ParseOpencodeMajor(string(out))
 	opencodeMajorKey, opencodeMajorVal, opencodeMajorSet = key, v, true
-	if err == nil && v > 0 && strings.Contains(key, "|") {
+	if v > 0 && strings.Contains(key, "|") {
 		updateOpencodeDiskCache(func(c *opencodeDiskCache) { c.Version = &opencodeDiskVersion{Bin: key, Major: v} })
 	}
 	return v
@@ -123,9 +123,7 @@ func ParseOpencodeMajor(s string) int {
 // json --standalone`, 1.x (or unknown version) via auth.json. A failed 2.x call still returns the auth.json data,
 // plus an error describing the failure. Cached per process (and per binary/auth.json state); see InvalidateOpencodeAuth.
 func OpencodeAuth() ([]OpencodeIntegration, error) {
-	bin := opencodeBinKey()
-	file := opencodeAuthFile()
-	key := bin + "\x00" + file + "\x00" + fileStamp(file)
+	bin, file, key := opencodeAuthKeys()
 	opencodeMu.Lock()
 	defer opencodeMu.Unlock()
 	if opencodeAuthIsSet && opencodeAuthKey == key {
@@ -152,10 +150,17 @@ func OpencodeAuth() ([]OpencodeIntegration, error) {
 	return ints, err
 }
 
+// opencodeAuthKeys is the binary key, the auth.json path and the cache key spanning both plus auth.json's stamp.
+func opencodeAuthKeys() (bin, file, key string) {
+	bin, file = opencodeBinKey(), opencodeAuthFile()
+	return bin, file, bin + "\x00" + file + "\x00" + fileStamp(file)
+}
+
 // InvalidateOpencodeAuth drops the cached logins; call after a login, logout or switch.
 func InvalidateOpencodeAuth() {
 	opencodeMu.Lock()
 	opencodeAuthIsSet, opencodeAuthVal, opencodeAuthErr = false, nil, nil
+	ownLogin = ownLoginMemo{}
 	if _, err := os.Stat(opencodeCacheFile()); err == nil {
 		updateOpencodeDiskCache(func(c *opencodeDiskCache) { c.Auth = nil })
 	}

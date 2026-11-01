@@ -15,7 +15,7 @@ func OpencodeDataDir() string {
 	return filepath.Join(base, "opencode")
 }
 
-// OpencodeDBPath is opencode's 2.x database; "" for an in-memory DB; OPENCODE_DB overrides the stable channel default.
+// OpencodeDBPath is opencode's SQLite database (written since 1.x); "" for an in-memory DB; OPENCODE_DB overrides the stable channel default.
 func OpencodeDBPath() string {
 	db := os.Getenv("OPENCODE_DB")
 	switch {
