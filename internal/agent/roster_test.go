@@ -226,8 +226,8 @@ func TestOwnLoginProfilesMatchBuiltInDefaults(t *testing.T) {
 	for _, a := range vault.LegacyAgents[1:] {
 		want := vault.OwnLoginProfiles[a]
 		if a == "opencode" {
-			if want != OpencodeOwnLogin {
-				t.Errorf("opencode own login = %q, want %q", want, OpencodeOwnLogin)
+			if want != "zen-free" {
+				t.Errorf("opencode own login = %q, want %q", want, "zen-free")
 			}
 			continue
 		}

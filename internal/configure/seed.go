@@ -7,6 +7,7 @@ import (
 	"slices"
 
 	agentpkg "github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/opencode"
 	uidialog "github.com/edotau/claude-code/internal/ui/dialog"
 )
 
@@ -35,7 +36,7 @@ func seedProfiles(d *dialog, agent string) []string {
 	slices.Sort(own)
 	slices.Sort(rest)
 	if agent == "opencode" {
-		own = append([]string{agentpkg.OpencodeOwnLogin}, own...)
+		own = append([]string{opencode.OwnLogin}, own...)
 	}
 	return append(own, rest...)
 }
@@ -53,7 +54,7 @@ func seedLabel(agent, profile string) string {
 
 // seedOwnLogin reports whether profile is agent's own sign-in (opencode's Zen id has no registry row).
 func seedOwnLogin(d *dialog, agent, profile string) bool {
-	return profile == agentpkg.OpencodeOwnLogin || d.reg.Providers[profile].Auth.Login == agent
+	return profile == opencode.OwnLogin || d.reg.Providers[profile].Auth.Login == agent
 }
 
 // seedDefaults is each agent's current choice; an agent with no profile set gets its own login pre-selected.

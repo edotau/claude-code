@@ -15,7 +15,7 @@ import (
 func init() {
 	agent.RegisterRow(0, agent.Schema{Name: "claude"})
 	agent.RegisterRow(1, agent.Schema{Name: "codex", CLI: agent.CLI{Binary: "codex"}})
-	agent.RegisterRow(3, agent.Schema{Name: "opencode", CLI: agent.CLI{Binary: "opencode"}})
+	agent.RegisterRow(3, agent.Schema{Name: "opencode", CLI: agent.CLI{Binary: "opencode", OwnLoginProfile: "zen-free"}})
 	agent.RegisterRow(4, agent.Schema{Name: "copilot", CLI: agent.CLI{Binary: "copilot"}})
 }
 
@@ -55,7 +55,7 @@ func TestCheckSkipsAgentsWithoutProfile(t *testing.T) {
 // An agent on its own sign-in (codex on chatgpt, opencode on zen-free) is checked but unpinned: no Databricks pin.
 func TestCheckOwnLoginIsUnpinned(t *testing.T) {
 	hermeticVault(t)
-	setPins(t, map[string]string{"CODEX_PROFILE": "chatgpt", "OPENCODE_PROFILE": agent.OpencodeOwnLogin})
+	setPins(t, map[string]string{"CODEX_PROFILE": "chatgpt", "OPENCODE_PROFILE": "zen-free"})
 	got := byAgent(Check(preflightRegistry(true), time.Now()))
 	if len(got) != 2 {
 		t.Fatalf("want codex and opencode checked, copilot off: %+v", got)

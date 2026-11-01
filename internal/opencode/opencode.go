@@ -293,6 +293,9 @@ func aliasModelID(reg *providers.Registry, p *providers.Provider, alias string) 
 }
 
 // opencodeConfigEnv is the env var carrying opencode's inline JSON config.
+// OwnLogin is opencode's own-login profile: the free Zen catalog then the paid ladder, as the old unset pin.
+const OwnLogin = "zen-free"
+
 const opencodeConfigEnv = "OPENCODE_CONFIG_CONTENT"
 
 // opencodeNoModelsFetch skips opencode's startup models.dev fetch; set only when the inline config defines the models.

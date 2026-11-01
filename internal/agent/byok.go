@@ -96,9 +96,9 @@ func (rc routeCtx) servedRepickFor(cand router.Candidate) func(string) string {
 	return func(failed string) string { return servedRepick(p, failed) }
 }
 
-// codexDatabricks is cand's profile row when cand is a codex dispatch on a Databricks profile, else nil.
+// codexDatabricks is cand's profile row when a Responses-wire agent dispatches on a Databricks profile, else nil.
 func (rc routeCtx) codexDatabricks(cand router.Candidate) *providers.Provider {
-	if cand.Agent != "codex" || cand.Profile == "" || rc.reg == nil {
+	if !speaksResponses(cand.Agent) || cand.Profile == "" || rc.reg == nil {
 		return nil
 	}
 	if p := rc.reg.Providers[cand.Profile]; p != nil && p.Preset == providers.PresetDatabricks {
