@@ -15,6 +15,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -23,6 +24,7 @@ import (
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/transcript"
+	"github.com/edotau/claude-code/internal/ui/table"
 )
 
 // agentModel is one provider+profile+model row under an agentUsage.
@@ -550,19 +552,22 @@ func copilotUsage(ctx context.Context, cutoff time.Time) agentUsage {
 // printAgentsSection renders one total row per agent plus an indented row per model it used.
 func printAgentsSection(out io.Writer, agents []agentUsage, days int) {
 	fmt.Fprintf(out, "\nAGENTS (last %d days)\n", days)
-	fmt.Fprintf(out, "%-10s %-40s %12s %8s %8s %10s\n", "AGENT", "PROVIDER/MODEL", "TOKENS", "TURNS", "SESSIONS", "COST")
+	r := func(w int, s string) string { return fmt.Sprintf("%*s", w, s) }
+	head := []string{"AGENT", "PROVIDER/MODEL", r(12, "TOKENS"), r(8, "TURNS"), r(8, "SESSIONS"), r(10, "COST")}
+	var rows [][]string
 	for _, a := range agents {
 		if a.Note != "" && len(a.Models) == 0 {
-			fmt.Fprintf(out, "%-10s %-40s %s\n", a.Agent, "-", a.Note)
+			rows = append(rows, []string{a.Agent, "-", a.Note})
 			continue
 		}
-		fmt.Fprintf(out, "%-10s %-40s %12s %8d %8d %10s\n",
-			a.Agent, "(total)", humanTokens(a.Tokens), a.Turns, a.Sessions, costStr(a.CostUSD))
+		rows = append(rows, []string{a.Agent, "(total)", r(12, humanTokens(a.Tokens)), r(8, strconv.Itoa(a.Turns)),
+			r(8, strconv.Itoa(a.Sessions)), r(10, costStr(a.CostUSD))})
 		for _, m := range a.Models {
-			fmt.Fprintf(out, "%-10s %-40s %12s %8d %8s %10s\n",
-				"", rowLabel(m.Provider, m.Profile)+"/"+m.Model, humanTokens(m.Tokens), m.Turns, "-", costStr(m.CostUSD))
+			rows = append(rows, []string{"", rowLabel(m.Provider, m.Profile) + "/" + m.Model, r(12, humanTokens(m.Tokens)),
+				r(8, strconv.Itoa(m.Turns)), r(8, "-"), r(10, costStr(m.CostUSD))})
 		}
 	}
+	fmt.Fprint(out, table.Render(head, nil, rows, 0))
 }
 
 // costStr renders a dollar amount, "-" when there's nothing to bill (no cost column, or zero).

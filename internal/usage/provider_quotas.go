@@ -23,6 +23,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/ui/table"
 )
 
 // quota is one provider-account-window row; Note replaces the numbers on failure, Group labels a valid row.
@@ -275,7 +276,8 @@ func printSubscriptionQuotas(out io.Writer, qs []quota, show string) {
 		col = "USAGE"
 	}
 	fmt.Fprintf(out, "\nPROVIDER QUOTAS (live, account-wide)\n")
-	fmt.Fprintf(out, "%-9s %-22s %-12s %-8s %-15s %8s  %-16s  %s\n", "PROVIDER", "ACCOUNT", "PLAN", "WINDOW", col, "STATE", "RESETS", "DETAIL")
+	head := []string{"PROVIDER", "ACCOUNT", "PLAN", "WINDOW", col, "STATE", "RESETS", "DETAIL"}
+	var rows [][]string
 	for _, q := range qs {
 		pct, detail := q.UsedPct, q.Note
 		if q.Group != "" {
@@ -300,9 +302,9 @@ func printSubscriptionQuotas(out io.Writer, qs []quota, show string) {
 				detail = fmt.Sprintf("%.0f of %.0f credits left", q.Limit-q.Used, q.Limit)
 			}
 		}
-		fmt.Fprintf(out, "%-9s %-22s %-12s %-8s %-15s %8s  %-16s  %s\n",
-			q.Provider, dash(q.Account), dash(q.Plan), dash(q.Window), val, state, dash(q.Resets), detail)
+		rows = append(rows, []string{q.Provider, dash(q.Account), dash(q.Plan), dash(q.Window), val, state, dash(q.Resets), detail})
 	}
+	fmt.Fprint(out, table.Render(head, nil, rightAlign(head, rows, 5, 5), 0))
 }
 
 // printLedgerSection renders the local per-token ledger rollup; an empty ledger prints one line instead.
@@ -316,11 +318,12 @@ func printLedgerSection(out io.Writer, aggs []ledgerAgg, since time.Time) {
 		fmt.Fprintf(out, "no per-token calls recorded yet (ledger started %s)\n", when)
 		return
 	}
-	fmt.Fprintf(out, "%-22s %-24s %10s %10s %10s\n", "PROVIDER", "MODEL", "TODAY", "30D", "ALL-TIME")
+	head := []string{"PROVIDER", "MODEL", "TODAY", "30D", "ALL-TIME"}
+	var rows [][]string
 	for _, a := range aggs {
-		fmt.Fprintf(out, "%-22s %-24s %10s %10s %10s\n",
-			rowLabel(a.Provider, a.Profile), a.Model, humanTokens(a.Today), humanTokens(a.Last30d), humanTokens(a.AllTime))
+		rows = append(rows, []string{rowLabel(a.Provider, a.Profile), a.Model, humanTokens(a.Today), humanTokens(a.Last30d), humanTokens(a.AllTime)})
 	}
+	fmt.Fprint(out, table.Render(head, nil, rightAlign(head, rows, 2, 4), 0))
 }
 
 func dash(s string) string {
