@@ -49,7 +49,7 @@ func codexSettingsSection(raw string) (start, end int, err error) {
 }
 
 func patchCodexSettings(raw string, overlay map[string]string) (string, error) {
-	if err := agentconfig.ValidateCodexOverlay(overlay); err != nil {
+	if err := ValidateCodexOverlay(overlay); err != nil {
 		return "", err
 	}
 	start, end, err := codexSettingsSection(raw)
@@ -69,7 +69,7 @@ func patchCodexSettings(raw string, overlay map[string]string) (string, error) {
 	}
 	var section strings.Builder
 	section.WriteString("# >>> claude-code:codex-settings:begin >>>\n")
-	for _, field := range agentconfig.CodexFields() {
+	for _, field := range CodexFields() {
 		if value, ok := overlay[field.Key]; ok {
 			fmt.Fprintf(&section, "%s = %q\n", field.Key, value)
 		}
@@ -136,7 +136,7 @@ func codexFieldLine(line string) (key, value string, ok bool) {
 		return "", "", false
 	}
 	key = agentconfig.TOMLKeyName(key)
-	for _, field := range agentconfig.CodexFields() {
+	for _, field := range CodexFields() {
 		if field.Key == key {
 			return key, strings.TrimSpace(value), true
 		}
@@ -204,7 +204,7 @@ func CodexSettingsDrift(home string) (bool, error) {
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return false, err
 	}
-	overlay, err := agentconfig.LoadCodexOverlay()
+	overlay, err := LoadCodexOverlay()
 	if err != nil {
 		return false, err
 	}
@@ -223,7 +223,7 @@ func ApplyCodexSettings(home string) error {
 		return err
 	}
 	existed := err == nil
-	overlay, err := agentconfig.LoadCodexOverlay()
+	overlay, err := LoadCodexOverlay()
 	if err != nil {
 		return err
 	}
@@ -237,7 +237,7 @@ func ApplyCodexSettings(home string) error {
 	if err := writeCodexConfig(path, old, []byte(next), existed); err != nil {
 		return err
 	}
-	return agentconfig.SaveCodexBaseline(path, []byte(next))
+	return SaveCodexBaseline(path, []byte(next))
 }
 
 func codexWriteTarget(path string) (string, error) {
@@ -297,7 +297,7 @@ func writeCodexConfig(path string, old, next []byte, existed bool) error {
 		if err := check(); err != nil {
 			return err
 		}
-		if err := agentconfig.CodexBackup(path, old, existed); err != nil {
+		if err := CodexBackup(path, old, existed); err != nil {
 			return fmt.Errorf("codex: encrypted backup failed: %w", err)
 		}
 		if err := check(); err != nil {
@@ -315,7 +315,7 @@ func restoreCodexConfig(path string, dryRun bool, out io.Writer) error {
 }
 
 func restoreCodexConfigLocked(path string, dryRun bool, out io.Writer) error {
-	backup, found, err := agentconfig.LatestCodexBackup(path)
+	backup, found, err := LatestCodexBackup(path)
 	if err != nil {
 		return err
 	}
@@ -332,7 +332,7 @@ func restoreCodexConfigLocked(path string, dryRun bool, out io.Writer) error {
 			if err != nil {
 				return err
 			}
-			backup = agentconfig.CodexConfigBackup{Data: data, Existed: true}
+			backup = CodexConfigBackup{Data: data, Existed: true}
 		}
 	}
 	if dryRun {
@@ -350,7 +350,7 @@ func restoreCodexConfigLocked(path string, dryRun bool, out io.Writer) error {
 			return err
 		}
 	}
-	if err := agentconfig.ValidateCodexOverlay(overlay); err != nil {
+	if err := ValidateCodexOverlay(overlay); err != nil {
 		return err
 	}
 	target, err := codexWriteTarget(path)
@@ -364,14 +364,14 @@ func restoreCodexConfigLocked(path string, dryRun bool, out io.Writer) error {
 	} else if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
-	if err := agentconfig.SaveCodexOverlay(overlay); err != nil {
+	if err := SaveCodexOverlay(overlay); err != nil {
 		return fmt.Errorf("codex: file restored but preferences could not be synchronized: %w", err)
 	}
-	if err := agentconfig.SaveCodexBaseline(path, backup.Data); err != nil {
+	if err := SaveCodexBaseline(path, backup.Data); err != nil {
 		return err
 	}
 	if backup.Name != "" { // legacy files are left in place
-		if err := agentconfig.ConsumeCodexBackup(backup.Name); err != nil {
+		if err := ConsumeCodexBackup(backup.Name); err != nil {
 			return err
 		}
 	}

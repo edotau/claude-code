@@ -1,7 +1,6 @@
 package configure
 
 import (
-	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/codex"
 	"github.com/edotau/claude-code/internal/paths"
 	"maps"
@@ -18,7 +17,7 @@ func codexPreferenceValue(key string, overlay, live map[string]string) (value, s
 }
 
 func runCodexSettings(d *dialog) bool {
-	ov, err := agentconfig.LoadCodexOverlay()
+	ov, err := codex.LoadCodexOverlay()
 	if err != nil {
 		d.printf("codex: %v\n", err)
 		return false
@@ -42,7 +41,7 @@ func runCodexSettings(d *dialog) bool {
 		d.printf("codex: %v\n", err)
 		return false
 	}
-	for _, field := range agentconfig.CodexFields() {
+	for _, field := range codex.CodexFields() {
 		value, source := codexPreferenceValue(field.Key, ov, live)
 		if saved, exists := ov[field.Key]; exists {
 			value, source = saved, "vault"
@@ -61,7 +60,7 @@ func runCodexSettings(d *dialog) bool {
 // runCodexSettingsMenu stages choices; only the explicit Save row writes or applies them.
 func runCodexSettingsMenu(d *dialog, ov, live map[string]string) bool {
 	next := maps.Clone(ov)
-	fields := agentconfig.CodexFields()
+	fields := codex.CodexFields()
 	for {
 		rows := make([][2]string, 0, len(fields)+1)
 		for _, f := range fields {
@@ -108,8 +107,8 @@ func runCodexSettingsMenu(d *dialog, ov, live map[string]string) bool {
 }
 
 func saveCodexSettings(d *dialog, old, next map[string]string) bool {
-	err := agentconfig.UpdateCodexOverlay(func(current map[string]string) map[string]string {
-		for _, f := range agentconfig.CodexFields() {
+	err := codex.UpdateCodexOverlay(func(current map[string]string) map[string]string {
+		for _, f := range codex.CodexFields() {
 			before, hadBefore := old[f.Key]
 			after, hasAfter := next[f.Key]
 			if hadBefore == hasAfter && before == after {

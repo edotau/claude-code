@@ -34,7 +34,7 @@ func TOMLInline(pairs [][2]string) string {
 	return "{ " + strings.Join(parts, ", ") + " }"
 }
 
-func appendTOML(raw, section string) string {
+func AppendTOML(raw, section string) string {
 	if raw == "" {
 		return section
 	}
@@ -46,13 +46,13 @@ func appendTOML(raw, section string) string {
 
 // InsertTopLevelTOML puts section before the first real top-level table header (outside multiline
 // strings and open arrays), dropping any pre-existing top-level assignment section itself also sets,
-// so TOML never ends up with duplicate keys; with no such header in raw, it falls back to appendTOML.
+// so TOML never ends up with duplicate keys; with no such header in raw, it falls back to AppendTOML.
 func InsertTopLevelTOML(raw, section string) string {
 	keys := topLevelKeysOf(section)
 	lines := strings.SplitAfter(raw, "\n")
 	idx := FirstTopLevelHeaderIndex(lines)
 	if idx == -1 {
-		return appendTOML(dropTopLevelKeys(raw, keys), section)
+		return AppendTOML(dropTopLevelKeys(raw, keys), section)
 	}
 	before := dropTopLevelKeys(strings.Join(lines[:idx], ""), keys)
 	before = strings.TrimRight(before, "\n")
