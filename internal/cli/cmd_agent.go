@@ -10,6 +10,8 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agent/review"
+	"github.com/edotau/claude-code/internal/agent/transfer"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/secrets/shapes"
 	"github.com/edotau/claude-code/internal/ui/helptext"
@@ -352,20 +354,20 @@ func agentReview(name string, args []string) int {
 	if code, done := helptext.Parse(fs, args); done {
 		return code
 	}
-	scope, err := agent.ParseScope(*uncommitted, *base, *commit, *pr)
+	scope, err := review.ParseScope(*uncommitted, *base, *commit, *pr)
 	if err != nil {
 		return fail("%s review: %v", name, err)
 	}
 	cwd, _ := os.Getwd()
-	diff, err := agent.Diff(context.Background(), cwd, scope)
+	diff, err := review.Diff(context.Background(), cwd, scope)
 	if err != nil {
 		return fail("%s review: %v", name, err)
 	}
 	focus := strings.Join(fs.Args(), " ")
-	if parts := agent.ReviewParts(diff, *adversarial, focus, *rubric); len(parts) > 1 {
+	if parts := review.ReviewParts(diff, *adversarial, focus, *rubric); len(parts) > 1 {
 		return runSplitReview(name, args, parts, scope, *adversarial, *background, focus, *rubric)
 	}
-	askArgs, cleanup, err := agent.ReviewArgs(name, scope, diff, *adversarial, *background, focus, *rubric)
+	askArgs, cleanup, err := review.ReviewArgs(name, scope, diff, *adversarial, *background, focus, *rubric)
 	if err != nil {
 		return fail("%s review: %v", name, err)
 	}
@@ -406,23 +408,23 @@ func agentTransfer(name string, args []string) int {
 	cwd, _ := os.Getwd()
 	src := *source
 	if src != "" {
-		if err := agent.ValidateSource(src); err != nil {
+		if err := transfer.ValidateSource(src); err != nil {
 			return fail("%s transfer: %v", name, err)
 		}
 	} else {
 		var err error
-		src, err = agent.DefaultSource(cwd)
+		src, err = transfer.DefaultSource(cwd)
 		if err != nil {
 			return fail("%s transfer: %v", name, err)
 		}
 	}
 	fmt.Fprintf(os.Stderr, "transfer: source %s\n", src)
 	note := strings.Join(fs.Args(), " ")
-	prompt, err := agent.Handoff(src, cwd, note)
+	prompt, err := transfer.Handoff(src, cwd, note)
 	if err != nil {
 		return fail("%s transfer: %v", name, err)
 	}
-	code := cmdAsk(agent.TransferArgs(name, cwd, prompt, *wait))
+	code := cmdAsk(transfer.TransferArgs(name, cwd, prompt, *wait))
 	if code == 0 && *wait {
 		if rec, _, err := agent.JobResult(context.Background(), name, cwd, ""); err == nil {
 			s, _ := agent.LookupSchema(name)

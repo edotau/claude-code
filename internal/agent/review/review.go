@@ -1,4 +1,4 @@
-package agent
+package review
 
 import (
 	"bytes"
@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/secrets/shapes"
@@ -183,7 +184,7 @@ func ReviewPrompt(adversarial bool, focus string) string {
 // via --attach. cleanup removes it in foreground mode; in background mode the detached child reads it and
 // `claude-code clean` (dispatch-log target) sweeps it. rubric, when set, emits --rubric <f> before the prompt.
 func ReviewArgs(agentName string, s Scope, diff []byte, adversarial, background bool, focus, rubric string) ([]string, func(), error) {
-	dir := DispatchDir()
+	dir := agent.DispatchDir()
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, nil, err
 	}
@@ -225,7 +226,7 @@ func ReviewParts(diff []byte, adversarial bool, focus, rubric string) []Part {
 }
 
 // SetReviewProgress stores p on the job record, when there is one.
-func SetReviewProgress(job *Record, p string) {
+func SetReviewProgress(job *agent.Record, p string) {
 	if job == nil {
 		return
 	}
@@ -235,7 +236,7 @@ func SetReviewProgress(job *Record, p string) {
 
 // LastDispatchError is the newest failed dispatch's error text for agent, so a split report names the real cause.
 func LastDispatchError(name string) string {
-	for _, r := range RecentRecords(5) {
+	for _, r := range agent.RecentRecords(5) {
 		if r.Agent == name && r.Status == "error" {
 			return shapes.Preview(r.Error, 400)
 		}
