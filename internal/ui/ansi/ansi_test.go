@@ -158,3 +158,14 @@ func TestStatusPaintsTokensOnlyWhenEnabled(t *testing.T) {
 		t.Error("Style wraps only when on")
 	}
 }
+
+func TestSweepColorsEachRuneAcrossTheGradient(t *testing.T) {
+	stops := []RGB{{0, 0, 0}, {200, 100, 50}}
+	want := FgSeq(TrueColor, stops[0], true) + "a" + FgSeq(TrueColor, stops[1], true) + "b" + Reset
+	if got := Sweep(TrueColor, stops, "ab"); got != want {
+		t.Errorf("Sweep = %q, want %q", got, want)
+	}
+	if got, want := Sweep(TrueColor, stops, "é"), FgSeq(TrueColor, stops[0], true)+"é"+Reset; got != want {
+		t.Errorf("single rune Sweep = %q, want %q", got, want)
+	}
+}

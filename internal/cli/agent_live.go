@@ -13,6 +13,7 @@ import (
 	"syscall"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agent/job"
 	"github.com/edotau/claude-code/internal/agent/live"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
@@ -60,7 +61,7 @@ func startLive(s *askState, name, format string) int {
 	if err := rec.Save(); err != nil {
 		return failAsk(format, name, err)
 	}
-	if err := agent.Spawn(&rec, nil); err != nil {
+	if err := job.Spawn(&rec, nil); err != nil {
 		return failAsk(format, name, err)
 	}
 	if err := live.WaitLiveReady(rec.ID, rec.PID); err != nil {
@@ -121,7 +122,7 @@ func cmdAgentsSend(args []string) int {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
 	defer stop()
 	id := pos[0]
-	if rec, ferr := agent.Find(id); ferr == nil {
+	if rec, ferr := job.Find(id); ferr == nil {
 		id = rec.ID
 	}
 	env, err := live.SendLive(ctx, id, prompt, askStdoutSink(*format, id))

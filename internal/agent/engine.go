@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"time"
 
 	agentrender "github.com/edotau/claude-code/internal/agentconfig/render"
 
@@ -100,6 +101,14 @@ func schemaFor(name string) Schema {
 	}
 	return Schema{Name: name}
 }
+
+// CheckLogin probes name's own CLI sign-in for the provider sign-in rows.
+func CheckLogin(ctx context.Context, name string) (providers.AuthVerdict, string) {
+	return schemaFor(name).eng().CheckLogin(ctx)
+}
+
+// ProbeTimeout bounds a vendor CLI's login probe; a var so tests stay fast.
+var ProbeTimeout = 8 * time.Second
 
 // LoginStatus reports whether the agent's own login is present and what it is; a row with no engine has none.
 func (s Schema) LoginStatus() (present bool, source string) { return s.eng().LoginStatus() }

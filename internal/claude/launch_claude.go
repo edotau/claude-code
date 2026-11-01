@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/signin"
 
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
@@ -76,7 +77,7 @@ func Claude(ctx context.Context, o agent.LaunchOptions, args []string) (agent.Pl
 	}
 	set1MOff(&plan, sel, p)
 	plan.Set[providers.EnvSessionProfile] = p.Name
-	agent.OfferLogin(ctx, o, args, sessionProviders(sel), &plan)
+	signin.OfferLogin(ctx, o, args, sessionProviders(sel), &plan)
 	helper, err := configureRouting(ctx, o, reg, sel, p, passthrough, self, &plan)
 	if err != nil {
 		return agent.Plan{}, err
@@ -101,18 +102,30 @@ func keepShellEndpoint(plan *agent.Plan, o agent.LaunchOptions) {
 	if own == "" {
 		own = defaultAnthropicBase // an unset plan base means the default route
 	}
-	if base := strings.TrimSpace(os.Getenv("ANTHROPIC_BASE_URL")); base != "" && !sameEndpoint(base, own) {
+	base := strings.TrimSpace(os.Getenv("ANTHROPIC_BASE_URL"))
+	inherited := isProxySessionBase(base) && isProxySessionBase(own) // an enclosing harness session's own base
+	if base != "" && !inherited && !sameEndpoint(base, own) {
 		plan.ForeignBase = true
 		dropHarnessCredential(plan)
 	}
 	for _, k := range keep {
-		if strings.TrimSpace(os.Getenv(k)) == "" {
+		if strings.TrimSpace(os.Getenv(k)) == "" || (k == "ANTHROPIC_BASE_URL" && inherited) {
 			continue
 		}
 		delete(plan.Set, k)
 		plan.Unset = slices.DeleteFunc(plan.Unset, func(u string) bool { return u == k })
 		plan.Keep = append(slices.Clone(plan.Keep), k)
 	}
+}
+
+// isProxySessionBase reports whether raw is a loopback proxy session base (http://127.0.0.1:<port>/p/<profile>).
+func isProxySessionBase(raw string) bool {
+	u, err := url.Parse(raw)
+	if err != nil || !strings.HasPrefix(u.Path, "/p/") {
+		return false
+	}
+	h := u.Hostname()
+	return h == "127.0.0.1" || h == "::1" || strings.EqualFold(h, "localhost")
 }
 
 // sameEndpoint compares two base URLs by scheme, host and path, ignoring case in the host and a trailing slash.

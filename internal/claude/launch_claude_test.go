@@ -399,3 +399,17 @@ func TestKeepShellEndpointDefaultBase(t *testing.T) {
 		}
 	}
 }
+
+// TestKeepShellEndpointInheritedProxyBase: an enclosing session's /p/<other> base must not displace this launch's own proxy base.
+func TestKeepShellEndpointInheritedProxyBase(t *testing.T) {
+	t.Setenv("ANTHROPIC_BASE_URL", "http://127.0.0.1:18765/p/prod")
+	plan := agent.Plan{Set: map[string]string{"ANTHROPIC_BASE_URL": "http://127.0.0.1:18765/p/dev"}, OverlayPath: "/tmp/ov.json",
+		Argv: []string{"--settings", "/tmp/ov.json"}}
+	keepShellEndpoint(&plan, agent.LaunchOptions{})
+	if plan.ForeignBase || plan.OverlayPath == "" || plan.Set["ANTHROPIC_BASE_URL"] != "http://127.0.0.1:18765/p/dev" {
+		t.Errorf("inherited proxy base won: foreign=%v overlay=%q set=%q", plan.ForeignBase, plan.OverlayPath, plan.Set["ANTHROPIC_BASE_URL"])
+	}
+	if slices.Contains(plan.Keep, "ANTHROPIC_BASE_URL") {
+		t.Error("inherited proxy base kept through the scrub")
+	}
+}

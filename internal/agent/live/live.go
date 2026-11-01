@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/proc"
 	"io"
 	"net"
 	"os"
@@ -32,8 +33,8 @@ const (
 // ErrLiveBusy is the refusal of a second turn while one is in flight.
 var ErrLiveBusy = errors.New("a turn is already in flight on this live session")
 
-// errPeerUnsupported marks a platform with no socket peer-credential call.
-var errPeerUnsupported = errors.New("peer credentials unsupported on this platform")
+// errLiveCap is the refusal when every live slot is taken.
+var errLiveCap = fmt.Errorf("%d live sessions already running (max %d): agents cancel one first", MaxLiveSessions, MaxLiveSessions)
 
 // LiveSocket is the unix socket path of live session id.
 func LiveSocket(id string) string { return filepath.Join(paths.DispatchDir(), id+agent.LiveSockSuffix) }
@@ -52,13 +53,12 @@ func LiveCount(skip string) int {
 // CheckLiveCap errors when starting another session (besides skip) would pass MaxLiveSessions.
 func CheckLiveCap(skip string) error {
 	if LiveCount(skip) >= MaxLiveSessions {
-		return fmt.Errorf("%d live sessions already running (max %d): agents cancel one first", MaxLiveSessions, MaxLiveSessions)
+		return errLiveCap
 	}
 	return nil
 }
 
-// pumpBuf is an unbounded in-memory pipe: a goroutine drains claude's stdout into it for the session's life, so a
-// stdin write can never block behind output nobody has read yet.
+// pumpBuf is an unbounded in-memory pipe draining claude stdout, so a stdin write never blocks behind unread output.
 type pumpBuf struct {
 	mu     sync.Mutex
 	cond   *sync.Cond
@@ -101,10 +101,12 @@ func (b *pumpBuf) Read(p []byte) (int, error) {
 	return n, nil
 }
 
-// AcquireLiveSlot takes one of MaxLiveSessions flock'd slot files; the kernel frees it when the holder dies, and two
-// contenders for the last slot cannot both win. The returned func releases it.
+// ensureDispatchDir creates the 0700 dispatch dir.
+func ensureDispatchDir() error { return os.MkdirAll(paths.DispatchDir(), 0o700) }
+
+// AcquireLiveSlot takes one of MaxLiveSessions flock'd slot files (freed when the holder dies); the func releases it.
 func AcquireLiveSlot() (func(), error) {
-	if err := os.MkdirAll(paths.DispatchDir(), 0o700); err != nil {
+	if err := ensureDispatchDir(); err != nil {
 		return nil, err
 	}
 	for i := range MaxLiveSessions {
@@ -117,7 +119,7 @@ func AcquireLiveSlot() (func(), error) {
 		}
 		_ = f.Close()
 	}
-	return nil, fmt.Errorf("%d live sessions already running (max %d): agents cancel one first", MaxLiveSessions, MaxLiveSessions)
+	return nil, errLiveCap
 }
 
 // liveSession is the holder's state: one agent child, its stdin, and one buffered reader over its stdout.
@@ -137,8 +139,7 @@ type liveSession struct {
 	session string
 }
 
-// ServeLive holds rec.Agent's stream-json child open behind rec's socket until idle, cancel or the child exits.
-// rec.Request.Timeout is the idle limit; the record is finalized on the way out.
+// ServeLive holds rec.Agent's stream-json child open behind rec's socket until idle, cancel or exit; Timeout is idle.
 func ServeLive(ctx context.Context, rec *agent.Record, notify func(string)) (err error) {
 	req, name := rec.Request, rec.Agent
 	row, _ := agent.LookupSchema(name)
@@ -189,8 +190,8 @@ func ServeLive(ctx context.Context, rec *agent.Record, notify func(string)) (err
 	go func() { exited <- cmd.Wait() }()
 	events := agent.NewEventLog(rec.EventsPath(), rec.ID)
 	defer events.Close()
-	s := &liveSession{rec: rec, name: name, be: be, stdin: stdin, dec: bufio.NewReader(newPumpBuf(stdout)), events: events, idleFor: cmp.Or(req.Timeout, DefaultLiveIdle),
-		cancel: func(e error) { cancel(e) }, profile: profile}
+	s := &liveSession{rec: rec, name: name, be: be, stdin: stdin, dec: bufio.NewReader(newPumpBuf(stdout)), events: events, idleFor: IdleOf(req),
+		cancel: cancel, profile: profile}
 	s.idle = time.AfterFunc(s.idleFor, func() { cancel(errLiveIdle) })
 	_ = rec.Save() // the pid is on disk before the first send can find the record
 	_ = events.Emit(agent.Event{Type: agent.EventStart, Agent: name, DispatchID: rec.ID, Status: "running"})
@@ -239,7 +240,7 @@ const maxSockPath = 103
 
 // listenLive binds the 0600 socket for id in the 0700 dispatch dir, replacing a stale socket file.
 func listenLive(id string) (net.Listener, error) {
-	if err := os.MkdirAll(paths.DispatchDir(), 0o700); err != nil {
+	if err := ensureDispatchDir(); err != nil {
 		return nil, err
 	}
 	if err := os.Chmod(paths.DispatchDir(), 0o700); err != nil {
@@ -297,7 +298,7 @@ func (k *connSink) Emit(ev agent.Event) error {
 // serveConn reads one agent.LiveRequest and runs it as the session's single in-flight turn.
 func (s *liveSession) serveConn(ctx context.Context, c net.Conn) {
 	if uc, ok := c.(*net.UnixConn); ok { // defense in depth beside the 0600 socket: a peer of another uid is dropped
-		if uid, err := peerUID(uc); !errors.Is(err, errPeerUnsupported) && (err != nil || uid != uint32(os.Getuid())) {
+		if uid, err := proc.PeerUID(uc); !errors.Is(err, proc.ErrPeerUnsupported) && (err != nil || uid != uint32(os.Getuid())) {
 			return
 		}
 	}

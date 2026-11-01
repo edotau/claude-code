@@ -12,6 +12,9 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 )
 
+// IsTerminal is the TTY check internal/cli wires at startup; the zero value says no terminal.
+var IsTerminal = func(*os.File) bool { return false }
+
 // LaunchPlan resolves `claude-code run <agent>`: the opus target via Configure, else the agent's own login.
 func LaunchPlan(ctx context.Context, name string, o LaunchOptions, args []string) (Plan, error) {
 	plan, err := cliPlan(ctx, name, o, args)

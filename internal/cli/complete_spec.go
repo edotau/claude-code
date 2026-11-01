@@ -86,7 +86,7 @@ func buildSpecTree() map[string]*compNode {
 			"page":      {flags: []flagInfo{flag("addr"), flag("hosts"), flag("days"), boolFlag("dry-run-dispatch")}},
 			"view": {args: []func() []string{webViewAgentIDs}, flags: []flagInfo{flag("session"), flag("days"),
 				flag("n"), boolFlag("follow"), formatFlag()}},
-			"remote": {flags: []flagInfo{valuedFlag("host", dispatchHostNames), flag("dir"), valuedFlag("agent", func() []string { return tailscale.RemoteAgents }),
+			"remote": {flags: []flagInfo{valuedFlag("host", tailscale.CachedMachineNames), flag("dir"), valuedFlag("agent", func() []string { return tailscale.RemoteAgents }),
 				flag("name"), boolFlag("dry-run"), boolFlag("list"), boolFlag("attach"), boolFlag("status"), flag("interval"), formatFlag()}},
 			"vscode": {flags: []flagInfo{flag("port"), boolFlag("stop"), boolFlag("status"), boolFlag("no-tailscale"),
 				boolFlag("funnel"), flag("folder"), formatFlag()}},
@@ -265,7 +265,7 @@ func exitNodeActions() []string { return []string{"on", "off", "approve"} }
 func subnetActions() []string { return []string{"approve", "off"} }
 
 // routeTargets are the `network tailscale --route` values: dispatch hosts or "off" to clear.
-func routeTargets() []string { return append(dispatchHostNames(), "off") }
+func routeTargets() []string { return append(tailscale.CachedMachineNames(), "off") }
 
 // statuslineStyles are the `theme statusline --style` values.
 func statuslineStyles() []string {

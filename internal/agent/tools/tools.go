@@ -1,4 +1,4 @@
-// Package tools installs and updates agent agent CLIs (into ~/.claude/bin or their existing dir) and reports the rest.
+// Package tools installs and updates agent CLIs (into ~/.claude/bin or their existing dir) and reports the rest.
 package tools
 
 import (
@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -21,8 +22,7 @@ import (
 // action installs or updates one tool; w gets progress lines, dryRun prints without changing anything.
 type action func(ctx context.Context, w io.Writer, dir string, dryRun bool) error
 
-// Tool is one row of the install table: Install is nil when there is no known fresh-install path
-// (agy, tailscale); Update is nil when Install also serves as the update (rerunning it is idempotent).
+// Tool is one install-table row; nil Install = no fresh-install path, nil Update = Install is idempotent.
 type Tool struct {
 	Name    string
 	Binary  string // executable name, resolved via paths.LookPathReal (skips our own shims)
@@ -33,8 +33,7 @@ type Tool struct {
 	UserLocal bool
 }
 
-// Tools is the install table in roster order; npmPackages below must cover any entry that also
-// ships via npm, so a fresh install can retire the old global copy.
+// Tools is the install table in roster order; npmPackages must cover entries that also ship via npm.
 var Tools = []Tool{
 	{Name: "claude", Binary: "claude", Install: installClaude, UserLocal: true},
 	{Name: "copilot", Binary: "copilot", Install: installCopilot},
@@ -58,10 +57,8 @@ func Names() []string {
 
 // Lookup returns the tool by name.
 func Lookup(name string) (Tool, bool) {
-	for _, t := range Tools {
-		if t.Name == name {
-			return t, true
-		}
+	if i := slices.IndexFunc(Tools, func(t Tool) bool { return t.Name == name }); i >= 0 {
+		return Tools[i], true
 	}
 	return Tool{}, false
 }
@@ -171,9 +168,6 @@ func installBinary(w io.Writer, dir, name string, data []byte) error {
 	if !filepath.IsAbs(dir) {
 		return fmt.Errorf("install dir %q is not absolute (HOME unset?)", dir)
 	}
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return err
-	}
 	dest := filepath.Join(dir, name)
 	fmt.Fprintf(w, "  install  %s (%d bytes)\n", dest, len(data))
 	return paths.AtomicWrite(dest, data, 0o755)
@@ -203,7 +197,7 @@ func npmCleanupFor(ctx context.Context, w io.Writer, name, dir string, dryRun bo
 		if err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0o111 == 0 {
 			continue
 		}
-		if sameExecutablePath(bin, localPath) {
+		if paths.SamePath(bin, localPath) {
 			continue
 		}
 		prefix := npmPrefixFromBinary(bin)
@@ -215,17 +209,7 @@ func npmCleanupFor(ctx context.Context, w io.Writer, name, dir string, dryRun bo
 	}
 }
 
-func sameExecutablePath(a, b string) bool {
-	if filepath.Clean(a) == filepath.Clean(b) {
-		return true
-	}
-	realA, errA := filepath.EvalSymlinks(a)
-	realB, errB := filepath.EvalSymlinks(b)
-	return errA == nil && errB == nil && realA == realB
-}
-
-// cleanupGeminiCLI uninstalls the deprecated @google/gemini-cli whenever Install runs, independent
-// of which tools were named: the binary is "gemini", so paths.LookPathReal also skips our own shim dir.
+// cleanupGeminiCLI uninstalls the deprecated @google/gemini-cli on every Install, whichever tools were named.
 func cleanupGeminiCLI(ctx context.Context, w io.Writer, dryRun bool) {
 	bin, err := paths.LookPathReal("gemini")
 	if err != nil {
@@ -239,8 +223,7 @@ func cleanupGeminiCLI(ctx context.Context, w io.Writer, dryRun bool) {
 	runNpmUninstall(ctx, w, dryRun, prefix, "@google/gemini-cli")
 }
 
-// npmPrefixFromBinary resolves bin's npm --prefix when it is an npm-global install (its real path
-// runs through a lib/node_modules segment), or "" when it is not.
+// npmPrefixFromBinary returns bin's npm --prefix when it lives under lib/node_modules, else "".
 func npmPrefixFromBinary(bin string) string {
 	real, err := filepath.EvalSymlinks(bin)
 	if err != nil {
@@ -266,9 +249,7 @@ func runNpmUninstall(ctx context.Context, w io.Writer, dryRun bool, prefix, pkg 
 	}
 }
 
-// installBrowser: on WSL it runs `network browser --setup` (start the Windows browser with CDP, register
-// chrome-devtools-mcp); elsewhere it only reports — the Claude in Chrome page opens on an explicit
-// `network browser --setup`, never on install.
+// installBrowser runs `network browser --setup` on WSL; elsewhere it only reports, never opening a page.
 func installBrowser(_ context.Context, w io.Writer, dir string, dryRun bool) error {
 	env := browser.NewEnv()
 	env.DryRun = dryRun

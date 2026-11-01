@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -11,10 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/edotau/claude-code/internal/agentconfig/render"
-
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/agent/preflight"
 	"github.com/edotau/claude-code/internal/agent/tools"
 	"github.com/edotau/claude-code/internal/audit"
 	"github.com/edotau/claude-code/internal/claude"
@@ -22,10 +18,10 @@ import (
 	"github.com/edotau/claude-code/internal/hooks"
 	"github.com/edotau/claude-code/internal/launch"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/preflight"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/secrets"
 	"github.com/edotau/claude-code/internal/secretstore"
-	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/ui/ansi"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 	"github.com/edotau/claude-code/internal/ui/tui"
@@ -266,150 +262,21 @@ func cmdHook(args []string) int {
 	return hooks.RunArgs(args[0], args[1:], os.Stdin, os.Stdout, os.Stderr)
 }
 
-// cmdRestore is `configure --restore`: write settings.json whole from the defaults, then render the agent configs.
+// cmdRestore is `configure --restore`; the work lives in launch.Restore.
 func cmdRestore(agents, out string, check, dryRun, forceHomes, noAgents bool) int {
-	if out == "" && !check && !dryRun { // bare --restore writes the live settings.json
-		out = launch.SettingsFile()
-	}
-	data, err := settings.RenderLive()
+	drift, err := launch.Restore(os.Stdout, agents, out, check, dryRun, forceHomes, noAgents)
 	if err != nil {
 		return fail("%v", err)
 	}
-	var prepared *render.RenderPlan
-	var drift bool
-	if !noAgents { // --no-agents: lint checks the repo's settings, not this machine's agent configs
-		if prepared, drift, err = renderAgentConfigs(agents, out, check, dryRun, forceHomes); err != nil {
-			return fail("%v", err)
-		}
-	}
-	var outDrift bool
-	if out != "" && !check && !dryRun {
-		err = restoreSettingsFile(out)
-	} else {
-		outDrift, err = writeSettingsOutput(out, check, dryRun, data)
-	}
-	if err != nil {
-		return fail("%v", err)
-	}
-	winDrift, err := writeWindowsSettingsOutput(out, check)
-	if err != nil {
-		return fail("%v", err)
-	}
-	if prepared != nil {
-		if err := prepared.Apply(); err != nil {
-			return fail("%v", err)
-		}
-	}
-	if check && (drift || outDrift || winDrift) {
+	if drift {
 		return 1
 	}
 	return 0
 }
 
-// writeWindowsSettingsOutput reports Windows settings.json drift under --check; the Windows file path
-// is fixed (not overridable via --out), and only `install` writes it, so bare/--dry-run generate stay
-// read-only here too, matching settings.json's own preview-only default.
-func writeWindowsSettingsOutput(out string, check bool) (bool, error) {
-	if out != "" || !check {
-		return false, nil
-	}
-	return checkLiveWindowsSettings()
-}
-
-// checkLiveWindowsSettings prints the Windows drift findings and reports whether it has drifted;
-// ok=false (no Windows profile resolved) prints nothing and is not drift.
-func checkLiveWindowsSettings() (bool, error) {
-	drift, ok, err := launch.CheckWindowsSettingsDrift()
-	if err != nil || !ok {
-		return false, err
-	}
-	for _, l := range drift.LinesLabeled("settings (windows)") {
-		fmt.Println(l)
-	}
-	return drift.Drifted(), nil
-}
-
-// restoreSettingsFile snapshots history, then writes the whole render to file and reports both.
-func restoreSettingsFile(file string) error {
-	r, err := launch.RestoreSettings(file)
-	if r.Commit != "" {
-		fmt.Printf("history %s (before restore snapshot)\n", r.Commit)
-	}
-	if err != nil {
-		return err
-	}
-	fmt.Printf("restored %s", file)
-	if r.Backup != "" {
-		fmt.Printf(" (backup %s)", r.Backup)
-	}
-	fmt.Println()
-	return nil
-}
-
-// writeSettingsOutput writes the rendered settings per --out/--check/--dry-run and reports drift.
-func writeSettingsOutput(out string, check, dryRun bool, data []byte) (bool, error) {
-	switch {
-	case out != "" && check: // drift report only: the rendered settings against the --out file
-		if cur, err := os.ReadFile(out); err != nil || !bytes.Equal(cur, data) {
-			fmt.Printf("settings: %s has drifted from the render\n", out)
-			return true, nil
-		}
-		return false, nil
-	case out == "" && check: // no --out: check the live settings.json, settings.local.json and nested config
-		return checkLiveSettings(data)
-	case out == "" || dryRun: // a preview: --out names where it WOULD go, never a write
-		_, err := os.Stdout.Write(data)
-		return false, err
-	default:
-		backup, err := settings.WriteWithBackup(out, data)
-		if err != nil {
-			return false, err
-		}
-		fmt.Printf("wrote %s", out)
-		if backup != "" {
-			fmt.Printf(" (backup %s)", backup)
-		}
-		fmt.Println()
-		return false, nil
-	}
-}
-
-// checkLiveSettings prints the drift findings for settings.json and reports whether it has drifted.
-func checkLiveSettings(rendered []byte) (bool, error) {
-	drift, err := launch.CheckSettingsDriftWith(rendered)
-	if err != nil {
-		return false, err
-	}
-	for _, l := range drift.Lines() {
-		fmt.Println(l)
-	}
-	return drift.Drifted(), nil
-}
-
-// renderAgentConfigs prepares the agent configs; they preview whenever the settings render does.
-func renderAgentConfigs(agents, out string, check, dryRun, forceHomes bool) (*render.RenderPlan, bool, error) {
-	var agentList []string
-	if agents != "" {
-		agentList = strings.Split(agents, ",")
-	}
-	preview := dryRun || (out == "" && !check)
-	opts := render.RenderOptions{Agents: agentList, DryRun: preview, Check: check, Out: os.Stdout, ForceHomes: forceHomes}
-	// Interactive only on a real terminal write: launch/configure callers never reach this function.
-	if !preview && !check && tui.StdinIsTerminal() && tui.StdoutIsTerminal() {
-		opts.Confirm = func(path string, lost []string) bool {
-			return tui.ConfirmKey(fmt.Sprintf("overwrite %s?", path), true)
-		}
-	}
-	return agent.PrepareConfigs(opts)
-}
-
 // cmdRevert handles `configure --revert [--agent a,b] [--dry-run]`.
 func cmdRevert(agents string, dryRun bool) int {
-	var agentList []string
-	if agents != "" {
-		agentList = strings.Split(agents, ",")
-	}
-	if err := agent.RevertConfigs(render.RenderOptions{Agents: agentList, DryRun: dryRun, Out: os.Stdout}); err != nil {
+	if err := launch.Revert(os.Stdout, agents, dryRun); err != nil {
 		return fail("configure --revert: %v", err)
 	}
 	return 0

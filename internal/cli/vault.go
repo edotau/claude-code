@@ -3,6 +3,7 @@ package cli
 import (
 	"bufio"
 	"fmt"
+	"github.com/edotau/claude-code/internal/network/tailscale"
 	"io"
 	"os"
 	"slices"
@@ -108,7 +109,7 @@ type vaultPair struct{ Name, Value string }
 func vaultSetTailscaleInteractive(dryRun bool) int {
 	fmt.Fprint(os.Stdout, "OAuth client (o) or API key (a)? ")
 	line, _ := bufio.NewReader(os.Stdin).ReadString('\n')
-	names := tailscaleSetNames(strings.HasPrefix(strings.ToLower(strings.TrimSpace(line)), "a"))
+	names := tailscale.SetNames(strings.HasPrefix(strings.ToLower(strings.TrimSpace(line)), "a"))
 	pairs := make([]vaultPair, len(names))
 	for i, name := range names {
 		v, err := readSecretValue(name)
@@ -130,7 +131,7 @@ func vaultSetTailscalePiped(apiKeyOnly, dryRun bool) int {
 		}
 		return strings.TrimSpace(line), nil
 	}
-	names := tailscaleSetNames(apiKeyOnly)
+	names := tailscale.SetNames(apiKeyOnly)
 	pairs := make([]vaultPair, len(names))
 	for i, name := range names {
 		v, err := readLine()
@@ -140,14 +141,6 @@ func vaultSetTailscalePiped(apiKeyOnly, dryRun bool) int {
 		pairs[i] = vaultPair{Name: name, Value: v}
 	}
 	return vaultStoreTailscale(dryRun, pairs)
-}
-
-// tailscaleSetNames is what `vault set --tailscale` writes: the API key alone, or the OAuth id then secret.
-func tailscaleSetNames(apiKey bool) []string {
-	if apiKey {
-		return []string{"TAILSCALE_API_KEY"}
-	}
-	return []string{"TAILSCALE_OAUTH_CLIENT_ID", "TAILSCALE_OAUTH_CLIENT_SECRET"}
 }
 
 // vaultStoreTailscale validates every value before writing any of them, then stores (or dry-run reports) each.

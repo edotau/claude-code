@@ -58,11 +58,12 @@ type Document struct {
 // Report builds the JSON document for one window (session scopes to one id, else the last days days).
 func Report(claudeDir, session string, days int, withQuotas bool, errw io.Writer) (*Document, error) {
 	quotasCh := startQuotaFetch(withQuotas) // overlaps the local scan below
-	agg, files, err := scanUsage(claudeDir, session, days, errw)
+	scan, err := scanUsage(claudeDir, session, days, errw)
 	if err != nil {
 		return nil, err
 	}
-	agents := buildAgentsUsage(agg, claudeSessionCount(claudeDir, session, days, len(files)), days, files)
+	agg := scan.agg
+	agents := buildAgentsUsage(scan, session, days)
 	quotas := <-quotasCh
 	ledgerEntries, ledgerErr := readLedger()
 	if ledgerErr != nil {
@@ -72,32 +73,82 @@ func Report(claudeDir, session string, days int, withQuotas bool, errw io.Writer
 	return &Document{agg, quotas, aggs, resolveBilling(), agents, days}, nil
 }
 
-// scanUsage aggregates the transcripts selected by session or days, dropping zero-token model rows.
-func scanUsage(claudeDir, session string, days int, errw io.Writer) (*transcript.UsageAggregate, []string, error) {
+// transcriptScan is claude's share of the window: the aggregate and the daily buckets are built from the same
+// in-window responses, so they always agree.
+type transcriptScan struct {
+	agg   *transcript.UsageAggregate
+	files []string
+	daily []dailyBucket
+}
+
+// scanUsage aggregates the transcripts selected by session or days, dropping zero-token model rows. With --days
+// only responses stamped inside the window count (a long-lived file is cut per turn); --session counts them all.
+func scanUsage(claudeDir, session string, days int, errw io.Writer) (*transcriptScan, error) {
 	var files []string
 	var err error
+	var cutoff time.Time
 	if session != "" {
 		files, err = usageFilesForSession(claudeDir, session)
 	} else {
 		if days <= 0 {
 			days = 1
 		}
+		cutoff = time.Now().Add(-time.Duration(days) * 24 * time.Hour)
 		files, err = usageFilesWithinDays(claudeDir, days)
 	}
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	agg := transcript.NewUsageAggregate()
-	summaries := transcript.OpenSummaryCache(transcript.SummaryCachePath())
+	counts := map[string]*dayCount{}
 	for _, f := range files {
-		if addErr := agg.AddFileCached(summaries, f); addErr != nil {
-			fmt.Fprintf(errw, "usage: warning: skipping %s: %v\n", f, addErr)
+		resps, readErr := transcript.ReadResponses(f)
+		if readErr != nil {
+			fmt.Fprintf(errw, "usage: warning: skipping %s: %v\n", f, readErr)
+			continue
 		}
+		kept := foldResponses(f, resps, cutoff, counts)
+		agg.Add(transcript.SummarizeResponses(kept))
 	}
-	_ = summaries.Save() // a cache write failure never fails the verb
 	// zero-token rows (Claude Code's "<synthetic>" placeholder messages) are noise
 	maps.DeleteFunc(agg.Models, func(_ string, u *transcript.ModelUsage) bool { return u.Total() == 0 })
-	return agg, files, nil
+	return &transcriptScan{agg: agg, files: files, daily: dailyFromCounts(counts)}, nil
+}
+
+// foldResponses keeps the responses stamped at or after cutoff (a zero cutoff keeps all; an unstamped response
+// is dated by its file's mtime) and adds each token-bearing one to its local day in counts.
+func foldResponses(path string, resps []transcript.Response, cutoff time.Time, counts map[string]*dayCount) []transcript.Response {
+	var mtimeDay string
+	kept := make([]transcript.Response, 0, len(resps))
+	for _, r := range resps {
+		if !r.At.IsZero() && r.At.Before(cutoff) {
+			continue
+		}
+		kept = append(kept, r)
+		if r.Usage.Total() == 0 {
+			continue
+		}
+		day := r.At.Local().Format("2006-01-02")
+		if r.At.IsZero() {
+			if mtimeDay == "" {
+				if info, err := os.Stat(path); err == nil {
+					mtimeDay = info.ModTime().Local().Format("2006-01-02")
+				}
+			}
+			day = mtimeDay
+		}
+		if day == "" {
+			continue
+		}
+		c := counts[day]
+		if c == nil {
+			c = &dayCount{}
+			counts[day] = c
+		}
+		c.tokens += int(r.Usage.Total())
+		c.turns++
+	}
+	return kept
 }
 
 // Run is `claude-code usage`; claudeDir is injectable so tests never touch the real ~/.claude/projects tree.
@@ -151,11 +202,12 @@ func Run(args []string, claudeDir string, out, errw io.Writer) int {
 	// following them; startQuotaFetch yields an empty result immediately when quotas aren't wanted.
 	quotasCh := startQuotaFetch(*providersFlag && show != "total")
 
-	agg, files, err := scanUsage(claudeDir, session, days, errw)
+	scan, err := scanUsage(claudeDir, session, days, errw)
 	if err != nil {
 		fmt.Fprintln(errw, "usage:", err)
 		return 1
 	}
+	agg, files := scan.agg, scan.files
 
 	// Section 1 (MODEL table) prints the moment the local scan is done, even while quotas are in flight.
 	if len(files) == 0 {
@@ -167,7 +219,7 @@ func Run(args []string, claudeDir string, out, errw io.Writer) int {
 	// Agents aggregation depends on agg/files above, so it starts here, overlapping the quota fetch too.
 	agentsCh := make(chan []agentUsage, 1)
 	go func() {
-		agentsCh <- buildAgentsUsage(agg, claudeSessionCount(claudeDir, session, days, len(files)), days, files)
+		agentsCh <- buildAgentsUsage(scan, session, days)
 	}()
 
 	// Section 2 (PROVIDER QUOTAS) + section 3 (API KEYS): wait for the quota fetch, then print both.
@@ -229,9 +281,8 @@ func usageFilesForSession(claudeDir, id string) ([]string, error) {
 }
 
 // usageFilesWithinDays walks every session dir's subagents/*.jsonl plus its workflow agents, keeping
-// only sessions whose own modtime falls within the last N days — bounds the walk instead of scanning
-// everything. The gate is the SESSION dir's mtime, so a workflow run under an untouched session dir
-// is excluded even when the run itself is fresh.
+// only files modified within the last N days: a session dir that was merely touched recently contributes
+// just its fresh transcripts, not its whole history. The dir gate (newest mtime under it) bounds the walk.
 func usageFilesWithinDays(claudeDir string, days int) ([]string, error) {
 	sessionDirs, err := usageSessionDirsWithinDays(claudeDir, days)
 	if err != nil {
@@ -248,6 +299,11 @@ func usageFilesWithinDays(claudeDir string, days int) ([]string, error) {
 			files = append(files, transcript.WorkflowAgentFiles(run)...)
 		}
 	}
+	cutoff := time.Now().Add(-time.Duration(days) * 24 * time.Hour)
+	files = slices.DeleteFunc(files, func(f string) bool {
+		info, statErr := os.Stat(f)
+		return statErr != nil || info.ModTime().Before(cutoff)
+	})
 	return dedupeFiles(files), nil
 }
 

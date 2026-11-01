@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
@@ -30,6 +31,17 @@ var hostedHooks = map[string]bool{
 
 // reasonLogRunes caps a hook's reason in the log line.
 const reasonLogRunes = 300
+
+// bindHooks is the hook set hostedBound filters; a seam so tests can bind a fake.
+var bindHooks = hooks.Bind
+
+// hostSeq makes each provisional session id unique within the process.
+var hostSeq atomic.Uint64
+
+// provisionalSession is the hook session id used until opencode mints one; unique per dispatch (time, pid, counter).
+func provisionalSession() string {
+	return fmt.Sprintf("oc-%s-%d-%d", time.Now().UTC().Format("20060102T150405"), os.Getpid(), hostSeq.Add(1))
+}
 
 // hookHost runs the hook phases around one headless opencode run; every method is a no-op on a nil host.
 type hookHost struct {
@@ -56,7 +68,7 @@ func newHookHost(req agent.RunOptions) *hookHost {
 	}
 	h := &hookHost{bound: bound, cwd: cwd, session: req.SessionID, seen: map[string]bool{}, log: openHookLog()}
 	if h.session == "" {
-		h.session = "oc-" + time.Now().UTC().Format("20060102T150405")
+		h.session = provisionalSession()
 	}
 	return h
 }
@@ -65,7 +77,7 @@ func newHookHost(req agent.RunOptions) *hookHost {
 func hostedBound(safeMode bool) []hooks.Bound {
 	switches, _ := settings.LoadHarnessHooks()
 	var bound []hooks.Bound
-	for _, b := range hooks.Bind() {
+	for _, b := range bindHooks() {
 		if on, set := switches[b.Group]; hostedHooks[b.Spec.Name] && (b.Gate || (!safeMode && (!set || on))) {
 			bound = append(bound, b)
 		}
@@ -100,8 +112,9 @@ func (h *hookHost) note(phase, format string, args ...any) {
 	fmt.Fprintf(h.log, "%s %s phase=%s %s\n", time.Now().UTC().Format(time.RFC3339), h.session, phase, fmt.Sprintf(format, args...))
 }
 
-// fire runs each bound hook on event whose matcher hits tool, one Dispatch each so the log names the hook.
-func (h *hookHost) fire(phase, event, tool string, payload map[string]any) (ctx []string) {
+// fire runs each bound hook on event whose matcher hits tool, one Dispatch each so the log names the hook;
+// it stops at the first Block and returns it as err (only the before phase acts on it).
+func (h *hookHost) fire(phase, event, tool string, payload map[string]any) (ctx []string, err error) {
 	payload["session_id"], payload["cwd"], payload["hook_event_name"] = h.session, h.cwd, event
 	if tool != "" {
 		payload["tool_name"] = tool
@@ -122,11 +135,14 @@ func (h *hookHost) fire(phase, event, tool string, payload map[string]any) (ctx 
 		} else {
 			h.note(phase, "event=%s tool=%s hook=%s decision=allow", event, tool, b.Spec.Name)
 		}
+		if res.Decision == hooks.Block {
+			return ctx, fmt.Errorf("hook %s blocked the dispatch: %s", b.Spec.Name, firstNonEmpty(firstNonEmpty(res.Reason, res.Stderr), "no reason given"))
+		}
 		if res.Context != "" {
 			ctx = append(ctx, res.Context)
 		}
 	}
-	return ctx
+	return ctx, nil
 }
 
 func firstNonEmpty(a, b string) string {
@@ -136,28 +152,39 @@ func firstNonEmpty(a, b string) string {
 	return b
 }
 
-// before runs SessionStart then UserPromptSubmit and returns argv with their context folded ahead of the prompt.
-func (h *hookHost) before(argv []string, prompt string) []string {
+// before runs SessionStart then UserPromptSubmit and returns argv with their context folded ahead of the prompt;
+// a Block from either is the error, and the caller must not start the child.
+func (h *hookHost) before(argv []string, prompt string) ([]string, error) {
 	if h == nil {
-		return argv
+		return argv, nil
 	}
-	ctx := h.fire("before", settings.EventSessionStart, "", map[string]any{})
-	ctx = append(ctx, h.fire("before", settings.EventUserPromptSubmit, "", map[string]any{"prompt": prompt})...)
+	ctx, err := h.fire("before", settings.EventSessionStart, "", map[string]any{})
+	if err == nil {
+		var more []string
+		more, err = h.fire("before", settings.EventUserPromptSubmit, "", map[string]any{"prompt": prompt})
+		ctx = append(ctx, more...)
+	}
+	if err != nil {
+		h.close()
+		return argv, err
+	}
 	if len(ctx) == 0 || len(argv) == 0 || argv[len(argv)-1] != prompt {
-		return argv
+		return argv, nil
 	}
 	out := append([]string(nil), argv...)
 	out[len(out)-1] = strings.Join(ctx, "\n\n") + "\n\n" + prompt
-	return out
+	return out, nil
 }
 
-// parser is the stream parser that hands each finished tool call to the during-run phase.
-func (h *hookHost) parser() func(*bufio.Reader, agent.Sink, func(), ...agent.StreamLog) (agent.Result, error) {
-	if h == nil {
-		return parseOpenCodeStream
+// parser is the stream parser that hands each finished tool call to the during-run phase; onStep (may be nil)
+// fires on every step_start.
+func (h *hookHost) parser(onStep func()) func(*bufio.Reader, agent.Sink, func(), ...agent.StreamLog) (agent.Result, error) {
+	var onTool func(openCodeEvent)
+	if h != nil {
+		onTool = h.during
 	}
 	return func(br *bufio.Reader, sink agent.Sink, onMeaningful func(), logs ...agent.StreamLog) (agent.Result, error) {
-		return parseOpenCodeEvents(br, sink, onMeaningful, h.during, logs...)
+		return parseOpenCodeEvents(br, sink, onMeaningful, onTool, onStep, logs...)
 	}
 }
 

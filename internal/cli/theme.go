@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/statusline"
+	"github.com/edotau/claude-code/internal/ui/ansi"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 	"github.com/edotau/claude-code/internal/ui/theme"
 )
@@ -48,7 +49,7 @@ func cmdTheme(args []string) int {
 		p.Flags = fs
 		p.Fprint(os.Stderr)
 		fmt.Fprintln(os.Stderr)
-		printPalettes(os.Stderr, colorOK(os.Stderr))
+		printPalettes(os.Stderr, ansi.Enabled(os.Stderr))
 	}
 	preview := fs.Bool("preview", false, "print every palette and change nothing")
 	if code, done := helptext.Parse(fs, args); done {
@@ -59,7 +60,7 @@ func cmdTheme(args []string) int {
 		return 0
 	}
 	if *preview {
-		printPalettes(os.Stdout, colorOK(os.Stdout))
+		printPalettes(os.Stdout, ansi.Enabled(os.Stdout))
 		return 0
 	}
 	if fs.Args()[0] == "apply" {
@@ -89,7 +90,7 @@ func printPalettes(w io.Writer, colored bool) {
 			mark = "●"
 		}
 		if colored {
-			fmt.Fprintf(w, "  %s %s\n", mark, sweep(mode, theme.GradientStops(name), name))
+			fmt.Fprintf(w, "  %s %s\n", mark, ansi.Sweep(mode, theme.GradientStops(name), name))
 			continue
 		}
 		fmt.Fprintf(w, "  %s %s\n", mark, name)

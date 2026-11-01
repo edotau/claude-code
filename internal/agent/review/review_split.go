@@ -6,8 +6,8 @@ import (
 	"strings"
 )
 
-// ReviewBudget is the most chars (prompt + diff) one review call carries; codex rejects input over 1,048,576.
-const ReviewBudget = 900_000
+// reviewBudget is the most chars (prompt + diff) one review call carries; codex rejects input over 1,048,576.
+const reviewBudget = 900_000
 
 // partOverhead reserves room for the part header and the attachment framing around each chunk.
 const partOverhead = 4000
@@ -154,10 +154,8 @@ func splitUnit(u unit, limit int) []unit {
 	var out []unit
 	var b strings.Builder
 	flush := func() {
-		if b.Len() > 0 {
-			out = append(out, unit{u.group, u.file, head + b.String()})
-			b.Reset()
-		}
+		out = append(out, unit{u.group, u.file, head + b.String()})
+		b.Reset()
 	}
 	for _, hk := range hunks {
 		if b.Len()+len(hk) > room {

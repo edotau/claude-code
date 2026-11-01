@@ -1,0 +1,139 @@
+package agent
+
+import (
+	"context"
+	"encoding/base64"
+	"os/exec"
+	"strings"
+	"testing"
+
+	"github.com/edotau/claude-code/internal/paths/pathstest"
+	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/router"
+	"github.com/edotau/claude-code/internal/vault"
+)
+
+// Explicit Model/Provider/Effort beat the definition's.
+func TestResolveOverlayAndAgentsPrecedence(t *testing.T) {
+	c := &Client{}
+	defs := map[string]*Schema{"sec": {Name: "sec", Prompt: "client", Model: "cm", Profile: "cp", Effort: "low"}}
+	o := RunOptions{Agent: "sec", Agents: defs, Model: "mine", Provider: "myprov", Effort: "max"}
+	if err := c.resolve(&o); err != nil || o.Model != "mine" || o.Provider != "myprov" || o.Effort != "max" || o.Agent != "claude" {
+		t.Fatalf("explicit options lost: %+v, %v", o, err)
+	}
+	o = RunOptions{Agent: "sec", Agents: defs}
+	if err := c.resolve(&o); err != nil || o.Model != "cm" || o.Provider != "cp" || o.Effort != "low" || o.Persona.Prompt != "client" {
+		t.Fatalf("definition not overlaid: %+v, %v", o, err)
+	}
+	if o = (RunOptions{Agent: "ghost"}); c.resolve(&o) == nil {
+		t.Error("an unknown ref must fail resolve")
+	}
+}
+
+// A definition with `model: inherit` carries no model of its own, so nothing reaches routing.
+func TestOverlayInheritModelIsNone(t *testing.T) {
+	c := &Client{}
+	o := RunOptions{Agent: "plan", Agents: map[string]*Schema{"plan": {Name: "plan", Prompt: "p", Model: "inherit"}}}
+	if err := c.resolve(&o); err != nil || o.Model != "" || o.Persona.Model != "inherit" {
+		t.Fatalf("inherit leaked into the request model: %+v, %v", o, err)
+	}
+}
+
+// Record resolves the selector to its agent but, unlike Prepare, never routes or applies the rubric.
+func TestClientRecordSkipsRouting(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	defs, err := ParseAgents(`{"sec":{"prompt":"p","agent":"codex"}}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := NewClient(nil, nil, nil)
+	o := RunOptions{Agent: "sec", Agents: defs, Prompt: "x", Provider: "no-such-provider", Rubric: "/nonexistent/rubric.md"}
+	if _, err := c.Prepare(t.Context(), o, nil); err == nil {
+		t.Fatal("control: Prepare should fail on the unknown provider")
+	}
+	rec, err := c.Record(t.Context(), o, nil)
+	if err != nil || rec.Agent != "codex" {
+		t.Fatalf("Record = agent %q, err %v; want codex and no error", rec.Agent, err)
+	}
+}
+
+// scratchRepo makes a throwaway git repo (no commits needed — router.IsWorkRepo only reads the origin
+// remote) with origin set to url, so a test controls exactly what "the repo this dispatch runs in" looks like.
+func scratchRepo(t *testing.T, origin string) string {
+	t.Helper()
+	dir := t.TempDir()
+	run := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	run("init", "-q")
+	run("remote", "add", "origin", origin)
+	return dir
+}
+
+// setupWorkdirFixture isolates config state and makes opencode "configured" without a real login, so the
+// sub-pick's gates turn on the work-repo rule alone, not on missing credentials.
+func setupWorkdirFixture(t *testing.T) {
+	t.Helper()
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	pathstest.FakeVendor(t, "opencode", `printf '%s\n' '{"type":"text","part":{"text":"ok"}}'`)
+	t.Setenv("OPENCODE_API_KEY", "test-key")
+	t.Setenv("HARNESS_VAULT_KEY", base64.StdEncoding.EncodeToString(make([]byte, 32)))
+	if err := vault.SetAgentRecord("opencode", vault.AgentRecord{Profile: OpencodeOwnLogin}); err != nil { // no profile = off
+		t.Fatal(err)
+	}
+}
+
+// A work --workdir must skip free Zen even when the process cwd is a personal repo.
+func TestClientPrepareWorkRepoFromWorkdirNotCwd(t *testing.T) {
+	setupWorkdirFixture(t)
+	t.Setenv("HARNESS_VAULT_KEY", base64.StdEncoding.EncodeToString(make([]byte, 32)))
+	if err := providers.UpdateRouting(func(r *providers.Routing) error {
+		r.Opencode.WorkRepoMarkers = &[]string{"git.corp.example"}
+		return nil
+	}); err != nil {
+		t.Fatalf("UpdateRouting() = %v", err)
+	}
+	personal := scratchRepo(t, "https://github.com/edotau/claude-code.git")
+	work := scratchRepo(t, "https://git.corp.example/scm/x/y.git")
+	t.Chdir(personal)
+
+	res := runPreparedWorkdir(t, work)
+	if res.Hops[0].Account != "opencode·go" {
+		t.Errorf("dispatch.Account = %q, want opencode·go (free blocked on the work repo)", res.Hops[0].Account)
+	}
+}
+
+// Without --workdir, a personal process cwd still gets the free Zen dispatch.
+func TestClientPrepareWorkRepoDefaultsToCwdWhenWorkdirEmpty(t *testing.T) {
+	setupWorkdirFixture(t)
+	personal := scratchRepo(t, "https://github.com/edotau/claude-code.git")
+	t.Chdir(personal)
+
+	res := runPreparedWorkdir(t, "")
+	if !strings.Contains(res.Hops[0].Account, "zen-free") {
+		t.Errorf("dispatch = %+v, want free Zen on a personal cwd with no --workdir override", res.Hops[0])
+	}
+}
+
+func runPreparedWorkdir(t *testing.T, workdir string) Result {
+	t.Helper()
+	client := NewClient(router.RuleClassifier{}.Alias, nil, nil)
+	p, err := client.Prepare(context.Background(), RunOptions{Agent: "opencode", Prompt: "test prompt",
+		Fallback: router.FallbackAgents, WorkDir: workdir}, nil)
+	if err != nil {
+		t.Fatalf("Prepare() = %v", err)
+	}
+	res, err := client.Exec(context.Background(), p, nil, RunRecordedOpts{})
+	if err != nil || len(res.Hops) != 1 || res.Answer != "ok" {
+		t.Fatalf("Exec() = %+v, %v; want one successful dispatch", res, err)
+	}
+	if res.DispatchID != p.Record.ID || res.DispatchID == "" {
+		t.Fatalf("dispatch id = %q, want %q", res.DispatchID, p.Record.ID)
+	}
+	return res
+}

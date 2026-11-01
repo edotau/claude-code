@@ -15,19 +15,13 @@ import (
 	"github.com/edotau/claude-code/internal/transcript"
 )
 
-// subagentActiveWindow is how recently a subagent transcript must have been written to count as
-// "running"; past it but unfinished is "stale". Subagents go quiet between tool calls for longer
-// than a few seconds, so this window is generous.
+// subagentActiveWindow is how recently a subagent transcript must be written to count as running, else stale.
 const subagentActiveWindow = 10 * time.Minute
 
-// sessionActiveWindow is the much tighter window for a main session's own "active" status: Claude
-// Code appends to that transcript continuously while a turn is in flight, so anything but "just
-// happened" means the session has gone idle, regardless of how long a dispatched subagent keeps running.
+// sessionActiveWindow is the tighter window for a main session to count as active; past it the session is idle.
 const sessionActiveWindow = 2 * time.Minute
 
-// Tokens is a compact token summary, used for both a session and a subagent. In is input +
-// cache-creation (the tokens actually billed fresh); CacheRead is split out separately since a
-// cache hit is nearly free and folding it into In makes the number meaningless to a reader.
+// Tokens summarizes a session or subagent: In is input + cache-creation, CacheRead is split out.
 type Tokens struct {
 	In        int64 `json:"in"`
 	Out       int64 `json:"out"`
@@ -54,10 +48,7 @@ type Subagent struct {
 	Dispatches  []Dispatch `json:"dispatches,omitempty"` // agent dispatches this relay agent launched via `ask`
 }
 
-// Activity is the newest tool_use and newest assistant text seen in a subagent transcript's tail —
-// the "what is it doing right now" signal. At is the timestamp of whichever record set it last;
-// Subagent carries Activity behind a pointer (omitempty there), so At needs no zero-value tag of its
-// own — "activity,omitempty" on encoding/json's struct-typed omitempty is a no-op (never omits).
+// Activity is the newest tool_use and assistant text in a subagent transcript tail; At stamps whichever set last.
 type Activity struct {
 	Tool string    `json:"tool,omitempty"`
 	Arg  string    `json:"arg,omitempty"`
@@ -65,8 +56,7 @@ type Activity struct {
 	Text string    `json:"text,omitempty"`
 }
 
-// Dispatch is one agent dispatch (`claude-code ask`) a relay subagent launched, read from
-// state/harness/dispatch/<id>.json via internal/agent.
+// Dispatch is one `claude-code ask` a relay subagent launched, read from state/harness/dispatch/<id>.json.
 type Dispatch struct {
 	ID             string `json:"id"`
 	Agent          string `json:"agent"`
@@ -91,8 +81,7 @@ type WorkflowPhase struct {
 	Agents []Subagent `json:"agents"`
 }
 
-// WorkflowRun is one workflows/wf_<id>.json manifest plus the matching
-// subagents/workflows/<runId>/agent-*.jsonl transcripts folded into phases.
+// WorkflowRun is one workflows/wf_<id>.json manifest plus its subagents/workflows/<runId>/agent-*.jsonl phases.
 type WorkflowRun struct {
 	ID      string          `json:"id"`
 	Name    string          `json:"name"`
@@ -101,8 +90,7 @@ type WorkflowRun struct {
 	Phases  []WorkflowPhase `json:"phases"`
 }
 
-// Session is one projects/<slug>/<session>.jsonl plus everything nested under
-// projects/<slug>/<session>/.
+// Session is one projects/<slug>/<session>.jsonl plus everything nested under projects/<slug>/<session>/.
 type Session struct {
 	ID        string        `json:"id"`
 	Project   string        `json:"project"` // the on-disk project slug (sanitized cwd)
@@ -121,19 +109,13 @@ type Session struct {
 	Mode      string        `json:"mode,omitempty"`      // launch mode: interactive|bg
 }
 
-// Tree is the stable `agents tree --format json` schema: {sessions:[{id, project, cwd, branch,
-// title, updated, status, tokens, subagents:[{id, type, description, status, depth, tokens,
-// lastTool, updated}], workflows:[{id, name, status, updated, phases:[{name, agents:[...]}]}]}]};
-// a live session also carries name, pid, live, cliStatus, mode from ~/.claude/sessions/<pid>.json.
+// Tree is the stable `agents tree --format json` schema; live sessions also carry registry fields.
 type Tree struct {
 	Sessions   []Session  `json:"sessions"`
 	Dispatches []Dispatch `json:"dispatches,omitempty"` // unscoped views: live dispatch jobs machine-wide
 }
 
-// Options scopes a Build: Days bounds by session-dir mtime (ignored when Session is set), Session
-// narrows to one session id across every project dir, Running keeps only sessions/subagents not
-// finished. Now defaults to time.Now when nil — tests pin it so running/stale classification never
-// depends on wall-clock time.
+// Options scopes a Build by Days (ignored with Session), one Session id, or Running only; Now defaults to time.Now.
 type Options struct {
 	Days    int
 	Session string
@@ -141,9 +123,12 @@ type Options struct {
 	Now     func() time.Time
 }
 
-func (o Options) now() time.Time {
-	if o.Now != nil {
-		return o.Now()
+func (o Options) now() time.Time { return nowOr(o.Now) }
+
+// nowOr returns f() when f is set, else time.Now().
+func nowOr(f func() time.Time) time.Time {
+	if f != nil {
+		return f()
 	}
 	return time.Now()
 }
@@ -175,7 +160,7 @@ func Build(claudeDir string, opts Options) (*Tree, error) {
 	if opts.Running && opts.Session == "" {
 		have := map[string]bool{}
 		for _, f := range sessionFiles {
-			have[strings.TrimSuffix(filepath.Base(f), ".jsonl")] = true
+			have[sessionIDFromPath(f)] = true
 		}
 		sessionFiles = append(sessionFiles, liveTranscripts(claudeDir, reg, have)...)
 	}
@@ -197,8 +182,7 @@ func Build(claudeDir string, opts Options) (*Tree, error) {
 	return tree, nil
 }
 
-// sessionHasActivity reports whether --running should keep this session: its own status is active,
-// or at least one subagent (direct or inside a workflow run) is still running.
+// sessionHasActivity reports whether --running keeps s: it is active or any subagent (direct or in a run) runs.
 func sessionHasActivity(s Session) bool {
 	if s.Status == statusActive {
 		return true
@@ -208,20 +192,23 @@ func sessionHasActivity(s Session) bool {
 			return true
 		}
 	}
+	running := false
 	for _, run := range s.Workflows {
-		for _, phase := range run.Phases {
-			for _, sub := range phase.Agents {
-				if sub.Status == StatusRunning {
-					return true
-				}
-			}
-		}
+		forEachRunAgent(run, func(sub Subagent) { running = running || sub.Status == StatusRunning })
 	}
-	return false
+	return running
 }
 
-// pruneToRunning drops finished/error subagents (with their dispatches) and workflow runs left with none;
-// stale ones stay, since an unfinished agent past the window may be stuck. Returns a copy.
+// forEachRunAgent calls fn on every agent of every phase of run.
+func forEachRunAgent(run WorkflowRun, fn func(Subagent)) {
+	for _, phase := range run.Phases {
+		for _, sub := range phase.Agents {
+			fn(sub)
+		}
+	}
+}
+
+// pruneToRunning returns a copy without finished/error subagents and emptied runs; stale ones stay.
 func pruneToRunning(s Session) Session {
 	done := func(sub Subagent) bool { return sub.Status == StatusFinished || sub.Status == StatusError }
 	s.Subagents = slices.DeleteFunc(slices.Clone(s.Subagents), done)
@@ -252,17 +239,12 @@ const (
 	StatusStale    = "stale"
 )
 
-// sessionTranscriptsInScope lists the projects/*/<session>.jsonl files in scope: every project dir
-// for --session, else every one modified within --days.
+// sessionTranscriptsInScope lists the projects/*/<session>.jsonl files for --session, else those within --days.
 func sessionTranscriptsInScope(claudeDir string, opts Options, now time.Time) ([]string, error) {
 	if opts.Session != "" {
-		if opts.Session != filepath.Base(opts.Session) || opts.Session == ".." {
+		matches, ok := plainSessionGlob(claudeDir, opts.Session)
+		if !ok {
 			return nil, fmt.Errorf("agents tree: --session %q is not a plain session id", opts.Session)
-		}
-		pattern := filepath.Join(claudeDir, "projects", "*", opts.Session+".jsonl")
-		matches, err := filepath.Glob(pattern)
-		if err != nil {
-			return nil, err
 		}
 		return matches, nil
 	}
@@ -290,8 +272,8 @@ func sessionTranscriptsInScope(claudeDir string, opts Options, now time.Time) ([
 
 // buildSession reads one session's main transcript, its subagents dir and its workflow runs.
 func buildSession(transcriptPath string, now time.Time) Session {
-	id := strings.TrimSuffix(filepath.Base(transcriptPath), ".jsonl")
-	sessionDir := strings.TrimSuffix(transcriptPath, ".jsonl")
+	id := sessionIDFromPath(transcriptPath)
+	sessionDir := sessionDirFromPath(transcriptPath)
 	project := filepath.Base(filepath.Dir(transcriptPath))
 
 	info, _ := os.Stat(transcriptPath)
@@ -311,7 +293,7 @@ func buildSession(transcriptPath string, now time.Time) Session {
 		Status:  sessionStatus(updated, now),
 	}
 
-	for _, agentFile := range subagentFiles(sessionDir) {
+	for _, agentFile := range transcript.WorkflowAgentFiles(filepath.Join(sessionDir, "subagents")) {
 		sub := buildSubagent(agentFile, now, s.Cwd)
 		s.Tokens.add(sub.Tokens)
 		s.Subagents = append(s.Subagents, sub)
@@ -319,11 +301,7 @@ func buildSession(transcriptPath string, now time.Time) Session {
 	slices.SortStableFunc(s.Subagents, func(a, b Subagent) int { return b.Updated.Compare(a.Updated) })
 
 	for _, run := range buildWorkflowRuns(sessionDir, now, s.Cwd) {
-		for _, phase := range run.Phases {
-			for _, sub := range phase.Agents {
-				s.Tokens.add(sub.Tokens)
-			}
-		}
+		forEachRunAgent(run, func(sub Subagent) { s.Tokens.add(sub.Tokens) })
 		s.Workflows = append(s.Workflows, run)
 	}
 	return s
@@ -337,23 +315,16 @@ func sessionStatus(updated, now time.Time) string {
 	return statusIdle
 }
 
-// subagentFiles lists <sessionDir>/subagents/agent-*.jsonl, excluding the workflows/ subtree (those
-// are folded into Workflows instead).
-func subagentFiles(sessionDir string) []string {
-	matches, err := filepath.Glob(filepath.Join(sessionDir, "subagents", "agent-*.jsonl"))
-	if err != nil {
-		return nil
+// plainSessionGlob globs projects/*/<id>.jsonl; ok is false when id is not a plain name (path traversal guard).
+func plainSessionGlob(claudeDir, id string) (matches []string, ok bool) {
+	if id != filepath.Base(id) || id == ".." {
+		return nil, false
 	}
-	slices.Sort(matches)
-	return matches
+	matches, _ = filepath.Glob(filepath.Join(claudeDir, "projects", "*", id+".jsonl"))
+	return matches, true
 }
 
-// buildSubagent reads one agent transcript's sidecar meta + its own tail for tokens/activity/mtime.
-// Token totals come from this file alone: transcript.LastUsage/usageFromLine skip isSidechain
-// records, and every subagent transcript line IS a sidechain, so the per-model aggregate the main
-// session reads would silently see zero — transcript.SummarizeFile has no such filter. cwd is the
-// owning session's cwd, used to strip the repo root from Activity.Arg and to match an agent dispatch's
-// own WorkDir.
+// buildSubagent reads an agent transcript's sidecar meta, tail and mtime; tokens come from SummarizeFile.
 func buildSubagent(transcriptPath string, now time.Time, cwd string) Subagent {
 	meta := readSubagentMeta(transcriptPath)
 	id := subagentIDFromPath(transcriptPath)
@@ -388,8 +359,17 @@ func buildSubagent(transcriptPath string, now time.Time, cwd string) Subagent {
 	return sub
 }
 
-// subagentIDFromPath extracts the bare id from agent-<id>.jsonl, shared by buildSubagent and the
-// journal/agent-dispatch lookups that key on the same id.
+// sessionIDFromPath extracts the session id from <session>.jsonl.
+func sessionIDFromPath(transcriptPath string) string {
+	return strings.TrimSuffix(filepath.Base(transcriptPath), ".jsonl")
+}
+
+// sessionDirFromPath is the <session>/ dir that sits beside <session>.jsonl.
+func sessionDirFromPath(transcriptPath string) string {
+	return strings.TrimSuffix(transcriptPath, ".jsonl")
+}
+
+// subagentIDFromPath extracts the bare id from agent-<id>.jsonl, shared by buildSubagent and journal lookups.
 func subagentIDFromPath(transcriptPath string) string {
 	return strings.TrimSuffix(strings.TrimPrefix(filepath.Base(transcriptPath), "agent-"), ".jsonl")
 }
@@ -405,9 +385,7 @@ func subagentStatus(finished bool, updated, now time.Time) string {
 	return StatusStale
 }
 
-// buildWorkflowRuns reads one session's workflows/wf_*.json manifests (run id, name, result status)
-// and folds in the matching subagents/workflows/<runId>/agent-*.jsonl transcripts by workflowPhase,
-// via internal/transcript's exported helpers — one run id links both halves.
+// buildWorkflowRuns folds wf_*.json manifests and their subagents/workflows/<runId> transcripts by workflowPhase.
 func buildWorkflowRuns(sessionDir string, now time.Time, cwd string) []WorkflowRun {
 	manifests := workflowManifests(sessionDir)
 	runDirs := transcript.WorkflowRunDirs(sessionDir)
@@ -436,14 +414,12 @@ func buildWorkflowRuns(sessionDir string, now time.Time, cwd string) []WorkflowR
 	return runs
 }
 
-// buildOneWorkflowRun folds one run's manifest (possibly absent, for a run still writing) with its
-// agent-*.jsonl transcripts grouped by workflowPhase; journal.jsonl in the run dir overrides each
-// agent's status (finished/error once it has a result line) and backfills a missing description.
+// buildOneWorkflowRun folds a run manifest (maybe absent) with its transcripts by phase; the journal sets status.
 func buildOneWorkflowRun(sessionDir, runID string, m *workflowManifest, now time.Time, cwd string) WorkflowRun {
 	run := WorkflowRun{ID: runID, Name: runID}
 	if m != nil {
 		run.Name = cmp.Or(m.name(), runID)
-		run.Updated = m.timestamp()
+		run.Updated = parseRFC3339(m.Timestamp)
 	}
 
 	runDir := filepath.Join(sessionDir, "subagents", "workflows", runID)
@@ -473,9 +449,7 @@ func buildOneWorkflowRun(sessionDir, runID string, m *workflowManifest, now time
 	return run
 }
 
-// applyJournalEntry overrides a workflow subagent's status/description from its journal entry: a
-// result line wins outright (finished, or error when that result was JSON null); started-only
-// leaves today's mtime-driven running/stale read in place. A zero-value entry (not found) is a no-op.
+// applyJournalEntry overrides status/description from the journal: a result wins (error if null); zero is a no-op.
 func applyJournalEntry(sub Subagent, j journalEntry) Subagent {
 	if sub.Description == "" && j.Label != "" {
 		sub.Description = j.Label
@@ -489,9 +463,7 @@ func applyJournalEntry(sub Subagent, j journalEntry) Subagent {
 	return sub
 }
 
-// workflowRunStatus prefers the manifest's own result status (e.g. a green-keeper-loop's "green"/"red" when
-// its script returned an object carrying one); otherwise it's journal-derived: finished once every
-// started agent has a result and nothing has touched the run dir for subagentActiveWindow, else running.
+// workflowRunStatus prefers the manifest result status, else finished once every started agent has a result, quiet.
 func workflowRunStatus(m *workflowManifest, journal map[string]journalEntry, updated, now time.Time) string {
 	if m != nil {
 		if s := m.resultStatus(); s != "" {
@@ -513,13 +485,10 @@ func workflowRunStatus(m *workflowManifest, journal map[string]journalEntry, upd
 	return StatusRunning
 }
 
-// FilterIdleSessions is filterIdleSessions, exported for callers outside this package (e.g. the
-// `web` dashboard) that want the CLI's default idle filtering applied to a Build result.
+// FilterIdleSessions is filterIdleSessions, exported for callers outside this package.
 func FilterIdleSessions(sessions []Session) []Session { return filterIdleSessions(sessions) }
 
-// filterIdleSessions drops an idle session with no subagents and no workflow runs — a session
-// opened and never dispatched anything is noise in the view, not state worth paging through.
-// Callers that want every session regardless (--all) skip calling this.
+// filterIdleSessions drops idle sessions that never dispatched a subagent or workflow run.
 func filterIdleSessions(sessions []Session) []Session {
 	var kept []Session
 	for _, s := range sessions {

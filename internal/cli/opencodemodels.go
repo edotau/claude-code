@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"cmp"
 	"errors"
 	"flag"
 	"fmt"
@@ -70,18 +71,18 @@ func cmdOpencodeMenu(args []string) int {
 	if verb == "list" || verb == "check" {
 		format = helptext.FormatFlag(fs)
 	}
+	if verb == "list" || verb == "check" || verb == "add" {
+		fs.StringVar(&provider, "profile", "", "workspace profile (default: opencode's record profile)")
+	}
 	switch verb {
 	case "list":
 		fs.BoolVar(&live, "live", false, "mark each entry served or missing on the workspace")
-		fs.StringVar(&provider, "profile", "", "workspace profile (default: opencode's record profile)")
 	case "check":
 		fs.BoolVar(&all, "all", false, "probe every chat endpoint, not just the menu")
-		fs.StringVar(&provider, "profile", "", "workspace profile (default: opencode's record profile)")
 		fs.DurationVar(&timeout, "timeout", timeout, "per-request timeout")
 	case "add":
 		fs.BoolVar(&responses, "responses", false, "serve through the Responses API")
 		fs.BoolVar(&force, "force", false, "skip the workspace check")
-		fs.StringVar(&provider, "profile", "", "workspace profile (default: opencode's record profile)")
 	case "import":
 		fs.BoolVar(&apply, "apply", false, "write the change (default: print the diff)")
 	case "sync":
@@ -93,10 +94,7 @@ func cmdOpencodeMenu(args []string) int {
 	}
 	pos, err := helptext.ParseArgs(fs, rest)
 	if err != nil {
-		if err == flag.ErrHelp {
-			return 0
-		}
-		return 2
+		return helptext.ExitCode(err)
 	}
 	if verb == "list" || verb == "check" {
 		if err := helptext.CheckFormat(*format); err != nil {
@@ -151,8 +149,7 @@ func cmdOpencodeMenu(args []string) int {
 	return done(opencodeMenuWrite(nil, "reset to the built-in menu"))
 }
 
-// opencodeMenuWrite stores next. opencode's databricks config is built from the menu at every launch (and
-// codex's catalog likewise), so there is no rendered file to refresh; the next launch picks the change up.
+// opencodeMenuWrite stores next; launches rebuild their config from the menu, so nothing else is refreshed.
 func opencodeMenuWrite(next []providers.OpencodeModel, msg string) error {
 	if err := providers.SetOpencodeMenu(next); err != nil {
 		return err
@@ -170,10 +167,11 @@ func opencodeMenuList(live bool, provider, format string) error {
 		_ = helptext.WriteJSON(os.Stdout, rows)
 		return nil
 	}
-	idW, labW := len("ID"), len("LABEL")
+	labW := len("LABEL")
 	for _, r := range rows {
-		idW, labW = max(idW, len(r.ID)), max(labW, len(r.Label))
+		labW = max(labW, len(r.Label))
 	}
+	idW := idWidth(len(rows), func(i int) string { return rows[i].ID })
 	head := fmt.Sprintf("%-*s  %-*s  %-9s  %s", idW, "ID", labW, "LABEL", "RESPONSES", "SOURCE")
 	if live {
 		head += "  LIVE                  CHECK"
@@ -187,6 +185,15 @@ func opencodeMenuList(live bool, provider, format string) error {
 		fmt.Println(line)
 	}
 	return nil
+}
+
+// idWidth is the widest of the "ID" header and the n ids.
+func idWidth(n int, id func(int) string) int {
+	w := len("ID")
+	for i := range n {
+		w = max(w, len(id(i)))
+	}
+	return w
 }
 
 func opencodeMenuAdd(arg string, responses, responsesSet, force bool, provider string) error {
@@ -232,22 +239,17 @@ func opencodeMenuCheck(ids []string, all bool, provider string, timeout time.Dur
 		_ = helptext.WriteJSON(os.Stdout, results)
 		return nil
 	}
-	idW := len("ID")
-	for _, r := range results {
-		idW = max(idW, len(r.ID))
-	}
+	idW := idWidth(len(results), func(i int) string { return results[i].ID })
 	fmt.Printf("%-*s  %-7s  %-4s  %-10s  %s\n", idW, "ID", "STATUS", "HTTP", "LATENCY", "TOOLS")
 	for _, r := range results {
-		code, lat, tools := "-", "-", "-"
+		code, lat := "-", "-"
 		if r.HTTP > 0 {
 			code = strconv.Itoa(r.HTTP)
 		}
 		if r.Status != "missing" {
 			lat = fmt.Sprintf("%dms", r.LatencyMS)
 		}
-		if r.Tools != "" {
-			tools = r.Tools
-		}
+		tools := cmp.Or(r.Tools, "-")
 		fmt.Printf("%-*s  %-7s  %-4s  %-10s  %s", idW, r.ID, r.Status, code, lat, tools)
 		if r.Status == "fail" && r.Error != "" {
 			fmt.Print("  " + r.Error)
@@ -288,8 +290,8 @@ func opencodeMenuSync(profile string, opts opencode.SyncOptions) error {
 		fmt.Println("opencode catalog: no menu change")
 		return nil
 	}
-	if opencodeMenuWrite(pl.Next, fmt.Sprintf("synced %d addition(s); relaunch Codex too if used", len(pl.Changes))) != nil {
-		return errors.New("cannot persist the shared model menu; check vault access")
+	if err := opencodeMenuWrite(pl.Next, fmt.Sprintf("synced %d addition(s); relaunch Codex too if used", len(pl.Changes))); err != nil {
+		return fmt.Errorf("cannot persist the shared model menu (check vault access): %w", err)
 	}
 	return nil
 }

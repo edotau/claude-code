@@ -19,6 +19,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/edotau/claude-code/internal/agent/answer"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
@@ -114,8 +115,7 @@ type Transport struct {
 	MaxGapMs      int64 `json:"max_gap_ms,omitempty"`     // longest silence between stream_events
 }
 
-// Caps declares which RunOptions fields an agent honors; Prompt, Timeout and Attach are always honored
-// (every agent has at least an inline-block fallback for Attach).
+// Caps declares which RunOptions fields an agent honors; Prompt, Timeout and Attach are always honored.
 type Caps struct {
 	Model, Provider, Effort, WorkDir, SessionID, Tools, NoTools, Autonomous, Memory, NoPersist, SafeMode, DebugFile, Direct Level
 	ReadOnly                                                                                                                Level
@@ -169,8 +169,7 @@ func Lookup(name string) (Engine, error) {
 	return nil, fmt.Errorf("unknown agent %q (%s)", name, strings.Join(names, "|"))
 }
 
-// applyCaps clears fields the agent cannot honor and names each one, so a drop is never silent. An Emulated flag
-// runs its harness shim here and is named in emulated; a Native one passes through to the adapter's own flag.
+// applyCaps clears fields the agent cannot honor and names each drop; Emulated flags run a harness shim here.
 func applyCaps(c Caps, req RunOptions) (out RunOptions, dropped, emulated []string) {
 	drop := func(l Level, set bool, flag string, clear func()) {
 		if set && l == None {
@@ -198,18 +197,20 @@ func applyCaps(c Caps, req RunOptions) (out RunOptions, dropped, emulated []stri
 		req, dropped = emulatePersona(c, req, dropped)
 		emulated = append(emulated, "persona")
 	}
-	if req.SystemPrompt != "" && c.SystemPrompt == Emulated {
-		req.Prompt, req.SystemPrompt = Preamble(req.SystemPrompt)+req.Prompt, ""
-		emulated = append(emulated, "--system-prompt")
-	}
-	if req.AppendSystemPrompt != "" && c.AppendSystemPrompt == Emulated {
-		req.Prompt, req.AppendSystemPrompt = Preamble(req.AppendSystemPrompt)+req.Prompt, ""
-		emulated = append(emulated, "--append-system-prompt")
+	for _, sp := range []struct {
+		field *string
+		level Level
+		flag  string
+	}{{&req.SystemPrompt, c.SystemPrompt, "--system-prompt"}, {&req.AppendSystemPrompt, c.AppendSystemPrompt, "--append-system-prompt"}} {
+		if *sp.field != "" && sp.level == Emulated {
+			req.Prompt, *sp.field = Preamble(*sp.field)+req.Prompt, ""
+			emulated = append(emulated, sp.flag)
+		}
 	}
 	drop(c.SystemPrompt, req.SystemPrompt != "", "--system-prompt", func() { req.SystemPrompt = "" })
 	drop(c.AppendSystemPrompt, req.AppendSystemPrompt != "", "--append-system-prompt", func() { req.AppendSystemPrompt = "" })
 	if req.OutputSchema != "" && c.OutputSchema != Native { // the answer is validated either way; only the instruction differs
-		req.Prompt += schemaInstruction(req.OutputSchema)
+		req.Prompt += answer.Instruction(req.OutputSchema)
 		emulated = append(emulated, "--output-schema")
 	}
 	return req, dropped, emulated
@@ -233,10 +234,11 @@ func Run(ctx context.Context, r Engine, req RunOptions, sink Sink, notify func(s
 	if sink == nil {
 		sink = Discard
 	}
-	if err := RefusePersona(r.Caps(), r.Name(), req.Persona); err != nil {
-		return Result{Agent: r.Name(), Status: StatusError}, &Error{Kind: KindFatal, Agent: r.Name(), Err: err}
+	err := RefusePersona(r.Caps(), r.Name(), req.Persona)
+	if err == nil {
+		err = RefuseReadOnly(r.Caps(), r.Name(), req.ReadOnly)
 	}
-	if err := RefuseReadOnly(r.Caps(), r.Name(), req.ReadOnly); err != nil {
+	if err != nil {
 		return Result{Agent: r.Name(), Status: StatusError}, &Error{Kind: KindFatal, Agent: r.Name(), Err: err}
 	}
 	req, dropped, emulated := applyCaps(r.Caps(), req)
@@ -341,7 +343,7 @@ func fallToNextAlias(r Engine, req *RunOptions, e *Error, notify func(string)) {
 // checkStructured fills res's structured answer; a schema failure also sets res.Status.
 func checkStructured(res *Result, schema, agentName string) *Error {
 	var verr error
-	if res.Structured, res.SchemaUnchecked, verr = structuredAnswer(cmp.Or(string(res.Structured), res.Answer), schema); verr != nil {
+	if res.Structured, res.SchemaUnchecked, verr = answer.Structured(cmp.Or(string(res.Structured), res.Answer), schema); verr != nil {
 		e := &Error{Kind: KindFatal, Agent: agentName, Err: verr}
 		res.Status = statusOf(e)
 		return e
@@ -435,8 +437,7 @@ func RubricPrompt(file, task string) (string, error) {
 	return prompt, nil
 }
 
-// AttachSuffix appends each path as "@<path>" after prompt: copilot and agy resolve it live, at turn
-// time, from the real file — task text first, since agy truncates the tail.
+// AttachSuffix appends each path as "@<path>" after prompt, which copilot and agy resolve live from the file.
 func AttachSuffix(prompt string, paths []string) string {
 	var b strings.Builder
 	b.WriteString(prompt)
@@ -449,8 +450,7 @@ func AttachSuffix(prompt string, paths []string) string {
 // ErrBadAttach marks an unreadable or binary --attach file: a request fault no other agent can fix.
 var ErrBadAttach = errors.New("attach")
 
-// AttachInline embeds each path as a literal <file path="…">content</file> block after prompt: the
-// fallback for an agent with no live-read channel (codex's prompt rides stdin blind).
+// AttachInline embeds each path as a <file path="…">content</file> block: the fallback with no live-read channel.
 func AttachInline(prompt string, paths []string) (string, error) {
 	if len(paths) == 0 {
 		return prompt, nil
@@ -482,8 +482,7 @@ func IsImage(data []byte) bool {
 	return false
 }
 
-// SplitImages separates the image paths (by content sniff) from the rest; an unreadable path stays in rest so
-// attachInline reports it.
+// SplitImages separates image paths (by content sniff) from the rest; an unreadable path stays in rest.
 func SplitImages(paths []string) (images, rest []string) {
 	for _, p := range paths {
 		head := make([]byte, 512)
@@ -515,12 +514,10 @@ func envNames(env []string) []string {
 	return out
 }
 
-// ChildCmd builds an exec.Cmd in its own process group; a deadline kills the whole tree. The parent env
-// is scrubbed of inherited credentials before env (the launch's own additions) is layered on. agent
-// also scrubs HARNESS_VAULT_KEY: true for every agent CLI child, false for the claude agent's own child.
+// ChildCmd builds an exec.Cmd in its own process group with inherited credentials scrubbed; agent also scrubs the vault key.
 func ChildCmd(ctx context.Context, bin string, argv, env []string, dir, stdin string, keepEnv []string, cli bool) (*exec.Cmd, *TailBuffer) {
 	cmd := exec.CommandContext(ctx, bin, argv...)
-	ownGroup(cmd)
+	proc.OwnGroup(cmd)
 	cmd.WaitDelay = 5 * time.Second
 	scrub := proc.Scrub
 	if cli {
@@ -570,8 +567,7 @@ func PromptTooLarge(n int) error {
 var contentPolicyRE = regexp.MustCompile(`(?i)content[ _-]?(?:policy|filter)|safety (?:system|filter|polic)|` +
 	`responsible ai|violates (?:our|the) (?:usage|content) polic|request entity too large|payload too large`)
 
-// requestFault is true when the request itself is at fault (bad attach, HTTP 413, oversized prompt, content-policy
-// refusal): another agent would fail the same way, so the loop stops.
+// requestFault is true when the request itself is at fault (bad attach, 413, oversized prompt, policy refusal).
 func requestFault(err error) bool {
 	if err == nil {
 		return false
@@ -592,11 +588,7 @@ func askedSkips(reasons []string, want string) []string {
 	})
 }
 
-// RunWithFallback runs c's dispatches in turn while the previous one turned out unavailable — binary missing, no provider
-// can serve it, a login/quota failure, or an exit with no answer. It never moves on after a timeout, cancellation,
-// an oversized prompt or a partial answer, nor when the caller pinned an explicit non-Claude --provider/--model.
-// A KindQuota failure marks the dispatch's account until its reset. The result names the wanted agent in Fallback and
-// every gate skip and failed dispatch in FallbackReason.
+// RunWithFallback runs c's dispatches in turn while the previous one was unavailable; see dispatchUnavailable.
 func RunWithFallback(ctx context.Context, c Chain, req RunOptions, sink Sink, notify func(string)) (Result, error) {
 	if sink == nil {
 		sink = Discard
@@ -631,12 +623,12 @@ func RunWithFallback(ctx context.Context, c Chain, req RunOptions, sink Sink, no
 			break
 		}
 		if i > 0 {
-			reasons = append(reasons, hopLabel(prevDispatch)+": "+fallbackReason(err))
+			reasons = append(reasons, hopLabel(prevDispatch)+": "+FallbackReason(err))
 			if notify != nil {
-				notify(fmt.Sprintf("%s unavailable (%s) — falling back to %s%s", dispatchLabel(prev), fallbackReason(err), dispatchLabel(disp.Agent), dispatchCell(disp)))
+				notify(fmt.Sprintf("%s unavailable (%s) — falling back to %s%s", dispatchLabel(prev), FallbackReason(err), dispatchLabel(disp.Agent), dispatchCell(disp)))
 			}
 			hop := Event{Type: EventRetry, Agent: disp.Agent.Name(),
-				Text: fmt.Sprintf("fallback %s → %s: %s", dispatchLabel(prev), dispatchLabel(disp.Agent), fallbackReason(err))}
+				Text: fmt.Sprintf("fallback %s → %s: %s", dispatchLabel(prev), dispatchLabel(disp.Agent), FallbackReason(err))}
 			if serr := sink.Emit(hop); serr != nil {
 				return res, &Error{Kind: KindFatal, Agent: disp.Agent.Name(), Err: serr}
 			}
@@ -709,7 +701,7 @@ func RunWithFallback(ctx context.Context, c Chain, req RunOptions, sink Sink, no
 		}
 	}
 	if err != nil && !stopped && len(reasons) > 0 && hopFailed(res, err) {
-		err = everyHopFailed(append(reasons, hopLabel(prevDispatch)+": "+fallbackReason(err)), err)
+		err = everyHopFailed(append(reasons, hopLabel(prevDispatch)+": "+FallbackReason(err)), err)
 	}
 	if ran > 0 || c.Dispatches[ran].otherRoute || c.Dispatches[ran].Agent.Name() != c.Want { // a different agent or route is a fallback
 		res.Fallback, res.FallbackReason = c.Want, strings.Join(reasons, "; ")
@@ -736,15 +728,20 @@ func hopOf(disp Dispatch, req RunOptions, res Result, err error) Hop {
 	if err != nil {
 		h.ErrorKind = errorKind(err)
 		if e, ok := errors.AsType[*Error](err); ok && len(e.Earlier) > 0 {
-			for _, a := range append(slices.Clone(e.Earlier), e) {
-				h.Errors = append(h.Errors, EnvelopeError{Kind: errorKind(a), Message: shapes.Redact(a.attemptMessage())})
-			}
+			h.Errors = append(h.Errors, envelopeErrors(append(slices.Clone(e.Earlier), e)...)...)
 		}
 	}
-	for _, a := range res.recovered { // a dispatch that answered after retries still lists what it recovered from
-		h.Errors = append(h.Errors, EnvelopeError{Kind: errorKind(a), Message: shapes.Redact(a.attemptMessage())})
-	}
+	h.Errors = append(h.Errors, envelopeErrors(res.recovered...)...) // a dispatch that answered after retries lists them too
 	return h
+}
+
+// envelopeErrors is the redacted envelope entry for each attempt, in order.
+func envelopeErrors(attempts ...*Error) []EnvelopeError {
+	var out []EnvelopeError
+	for _, a := range attempts {
+		out = append(out, EnvelopeError{Kind: errorKind(a), Message: shapes.Redact(a.attemptMessage())})
+	}
+	return out
 }
 
 // dispatchCell is " (model, effort)" for a routed dispatch, "" for an unrouted one.
@@ -795,8 +792,8 @@ func dispatchLabel(r Engine) string {
 	return r.Name()
 }
 
-// fallbackReason keeps the last line of the failure (an agent CLI prints its own ERROR line last), capped at 200 bytes.
-func fallbackReason(err error) string {
+// FallbackReason keeps the last line of the failure (an agent CLI prints its own ERROR line last), capped at 200 bytes.
+func FallbackReason(err error) string {
 	lines := strings.Split(strings.TrimSpace(err.Error()), "\n")
 	s := strings.TrimSpace(lines[len(lines)-1])
 	if len(s) > 200 {
@@ -805,9 +802,7 @@ func fallbackReason(err error) string {
 	return s
 }
 
-// dispatchUnavailable narrows "the dispatch failed" to "the dispatch itself is unreachable": the binary, the resolved target,
-// or the exec failed before producing an answer — excluding timeouts, cancellation, an oversized prompt and a
-// partial answer. claude/api are the end of every chain and never count as unavailable here.
+// dispatchUnavailable is true when the binary, target or exec failed before any answer; claude/api never count.
 func dispatchUnavailable(r Engine, res Result, err error) bool {
 	if requestFault(err) {
 		return false
@@ -832,8 +827,7 @@ func hopFailed(res Result, err error) bool {
 	return !errors.As(err, &e) || !e.Progressed
 }
 
-// ExplicitBackend is true when --provider, or a "provider:model" --model, names a provider outright;
-// the fallback must never override a caller's explicit choice of backend.
+// ExplicitBackend is true when --provider, or a "provider:model" --model, names a provider outright.
 func ExplicitBackend(req RunOptions) bool {
 	if req.Provider != "" {
 		return true

@@ -54,8 +54,7 @@ func httpGet(ctx context.Context, url string) ([]byte, error) {
 	return io.ReadAll(resp.Body)
 }
 
-// runInstallScript downloads url to a temp file and runs `bash <file> [args...]` under env added to
-// the current environment — never `curl | sh`, so the script is on disk and readable before it runs.
+// runInstallScript downloads url to a temp file and runs `bash <file> [args...]` with env added, never piped to sh.
 func runInstallScript(ctx context.Context, w io.Writer, dryRun bool, url string, args, env []string) error {
 	fmt.Fprintf(w, "  script   %s %v\n", url, args)
 	if dryRun {
@@ -89,15 +88,17 @@ func installClaude(ctx context.Context, w io.Writer, _ string, dryRun bool) erro
 	return runInstallScript(ctx, w, dryRun, claudeInstallScriptURL, nil, nil)
 }
 
-// installCopilot forces PREFIX so the installer (which writes $PREFIX/bin) lands in dir. dir is
-// usually bin/ already, so PREFIX=filepath.Dir(dir); when installDir handed back some other
-// directory (e.g. an existing install's own non-bin/ tree), filepath.Dir(dir) would be the wrong
-// PREFIX, so this installs into paths.BinDir() instead and reports the corrected target.
+// redirectToBinDir logs why the install moves to paths.BinDir() and returns it.
+func redirectToBinDir(w io.Writer, reason string) string {
+	corrected := paths.BinDir()
+	fmt.Fprintf(w, "  into     %s (%s; installing into BinDir instead)\n", corrected, reason)
+	return corrected
+}
+
+// installCopilot sets PREFIX=filepath.Dir(dir) so it lands in dir; a non-bin/ dir installs to paths.BinDir().
 func installCopilot(ctx context.Context, w io.Writer, dir string, dryRun bool) error {
 	if filepath.Base(dir) != "bin" {
-		corrected := paths.BinDir()
-		fmt.Fprintf(w, "  into     %s (not a bin/ dir; installing into BinDir instead)\n", corrected)
-		dir = corrected
+		dir = redirectToBinDir(w, "not a bin/ dir")
 	}
 	return runInstallScript(ctx, w, dryRun, copilotInstallScriptURL, nil, []string{"PREFIX=" + filepath.Dir(dir)})
 }
@@ -110,9 +111,7 @@ const opencodeMaxMajor = 1
 // opencodeAllowMajorEnv, set non-empty, lifts the opencodeMaxMajor refusal for one install.
 const opencodeAllowMajorEnv = "HARNESS_ALLOW_OPENCODE_2X"
 
-// installOpencode runs upstream's installer (INSTALL_DIR is fixed at ~/.opencode/bin), refuses a
-// major version above opencodeMaxMajor, then copies into dir. The prior binary at src is moved
-// aside first so a refusal/failure can restore it instead of leaving the rejected 2.x in place.
+// installOpencode runs upstream's installer, refuses a major above opencodeMaxMajor, then copies into dir.
 func installOpencode(ctx context.Context, w io.Writer, dir string, dryRun bool) error {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -148,8 +147,7 @@ func installOpencode(ctx context.Context, w io.Writer, dir string, dryRun bool) 
 	return installBinary(w, dir, "opencode", data)
 }
 
-// restoreOpencodeAside undoes a refused/failed install (deletes the new binary, restores the aside one) and
-// returns cause, joined with any restore failure so a lost prior binary is never just a warning.
+// restoreOpencodeAside undoes a refused/failed install and returns cause, joined with any restore failure.
 func restoreOpencodeAside(src, aside string, cause error) error {
 	_ = os.Remove(src)
 	if _, err := os.Stat(aside); err != nil {
@@ -161,17 +159,12 @@ func restoreOpencodeAside(src, aside string, cause error) error {
 	return cause
 }
 
-// refuseOpencodeMajor blocks linking bin when its major version exceeds opencodeMaxMajor; a probe
-// failure (bin missing, --version errors) is left to the caller's own read/exec, not blocked here.
+// refuseOpencodeMajor blocks linking bin when its major exceeds opencodeMaxMajor; a probe failure is not blocked.
 func refuseOpencodeMajor(ctx context.Context, w io.Writer, bin string) error {
 	if os.Getenv(opencodeAllowMajorEnv) != "" {
 		return nil
 	}
-	out, err := exec.CommandContext(ctx, bin, "--version").Output()
-	if err != nil {
-		return nil
-	}
-	version := strings.TrimSpace(string(out))
+	version := firstVersionLine(bin)
 	major := opencode.ParseOpencodeMajor(version)
 	if major <= opencodeMaxMajor {
 		return nil
@@ -193,8 +186,7 @@ type ghAsset struct {
 	URL  string `json:"browser_download_url"`
 }
 
-// codexAssetName is the exact codex release asset for goos/goarch (musl on Linux: no glibc version
-// dependency), or "" when this package has no mapping for that platform.
+// codexAssetName is the codex release asset for goos/goarch (musl on Linux), or "" when unmapped.
 func codexAssetName(goos, goarch string) string {
 	arch := map[string]string{"amd64": "x86_64", "arm64": "aarch64"}[goarch]
 	if arch == "" {
@@ -216,16 +208,13 @@ func selectCodexAsset(release ghRelease, goos, goarch string) (url, name string,
 	if name == "" {
 		return "", "", fmt.Errorf("codex: no release asset mapped for %s/%s", goos, goarch)
 	}
-	for _, a := range release.Assets {
-		if a.Name == name {
-			return a.URL, name, nil
-		}
+	if i := slices.IndexFunc(release.Assets, func(a ghAsset) bool { return a.Name == name }); i >= 0 {
+		return release.Assets[i].URL, name, nil
 	}
 	return "", "", fmt.Errorf("codex: asset %s not found in release %s", name, release.TagName)
 }
 
-// extractTarGzSingleFile reads a .tar.gz holding exactly one regular file and returns its bytes —
-// the shape every codex release asset uses (no directory, no second entry).
+// extractTarGzSingleFile returns the bytes of the one regular file in a .tar.gz, the shape of every codex asset.
 func extractTarGzSingleFile(data []byte) ([]byte, error) {
 	gz, err := gzip.NewReader(bytes.NewReader(data))
 	if err != nil {
@@ -246,15 +235,10 @@ func extractTarGzSingleFile(data []byte) ([]byte, error) {
 // codexCompanions ship as their own release assets beside codex; 0.163+ refuses tool calls without its host.
 var codexCompanions = []string{"codex-code-mode-host"}
 
-// installCodex extracts the latest platform release and its companion binaries into BinDir(); dir
-// is overridden like installCopilot's bad-dir fallback, since a release binary (unlike a PREFIX/bin
-// installer) always belongs in BinDir() even when it currently resolves elsewhere on PATH (e.g. a
-// Homebrew cask symlink dir) — overwriting that dir would conflict with `brew upgrade`.
+// installCodex extracts the latest release and its companions into BinDir(), never another dir.
 func installCodex(ctx context.Context, w io.Writer, dir string, dryRun bool) error {
 	if dir != paths.BinDir() {
-		corrected := paths.BinDir()
-		fmt.Fprintf(w, "  into     %s (codex ships real release binaries; installing into BinDir instead)\n", corrected)
-		dir = corrected
+		dir = redirectToBinDir(w, "codex ships real release binaries")
 	}
 	fmt.Fprintf(w, "  github   %s\n", codexReleaseURL)
 	data, err := httpGet(ctx, codexReleaseURL)
@@ -303,8 +287,7 @@ func installReleaseBinary(ctx context.Context, w io.Writer, dir, name, url strin
 	return installBinary(w, dir, name, bin)
 }
 
-// claudeScienceAssetName mirrors claude.ai/install.sh's own os/arch naming (x64/arm64), verified by
-// downloading https://downloads.claude.ai/claude-science/latest/linux-x64 (150MB ELF binary).
+// claudeScienceAssetName mirrors claude.ai/install.sh's os/arch naming (x64/arm64).
 func claudeScienceAssetName(goos, goarch string) string {
 	arch := map[string]string{"amd64": "x64", "arm64": "arm64"}[goarch]
 	if arch == "" {
@@ -337,12 +320,8 @@ func installClaudeScience(ctx context.Context, w io.Writer, dir string, dryRun b
 	return installBinary(w, dir, "claude-science", data)
 }
 
-// updateClaudeScience runs the installed binary's own updater; a missing binary falls back to a fresh install.
-func updateClaudeScience(ctx context.Context, w io.Writer, dir string, dryRun bool) error {
-	bin, err := paths.LookPathReal("claude-science")
-	if err != nil {
-		return installClaudeScience(ctx, w, dir, dryRun)
-	}
+// runSelfUpdate prints and runs `<bin> update`, skipping the exec on dry-run.
+func runSelfUpdate(ctx context.Context, w io.Writer, bin string, dryRun bool) error {
 	fmt.Fprintf(w, "  exec     %s update\n", bin)
 	if dryRun {
 		return nil
@@ -350,6 +329,15 @@ func updateClaudeScience(ctx context.Context, w io.Writer, dir string, dryRun bo
 	cmd := exec.CommandContext(ctx, bin, "update")
 	cmd.Stdout, cmd.Stderr = w, w
 	return cmd.Run()
+}
+
+// updateClaudeScience runs the installed binary's own updater; a missing binary falls back to a fresh install.
+func updateClaudeScience(ctx context.Context, w io.Writer, dir string, dryRun bool) error {
+	bin, err := paths.LookPathReal("claude-science")
+	if err != nil {
+		return installClaudeScience(ctx, w, dir, dryRun)
+	}
+	return runSelfUpdate(ctx, w, bin, dryRun)
 }
 
 // updateAgy runs the installed binary's own updater; agy has no known fresh-install path (Hint covers that).
@@ -361,11 +349,5 @@ func updateAgy(ctx context.Context, w io.Writer, dir string, dryRun bool) error 
 	if err != nil {
 		return errors.New("agy: not on PATH; no known install URL (claude-code configure signs it in)")
 	}
-	fmt.Fprintf(w, "  exec     %s update\n", bin)
-	if dryRun {
-		return nil
-	}
-	cmd := exec.CommandContext(ctx, bin, "update")
-	cmd.Stdout, cmd.Stderr = w, w
-	return cmd.Run()
+	return runSelfUpdate(ctx, w, bin, dryRun)
 }

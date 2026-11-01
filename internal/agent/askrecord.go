@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/inflight"
+	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/proc"
 )
 
 // BuildAskRecord constructs the dispatch record for req, reusing jobRec's identity when resuming a job.
@@ -30,6 +32,15 @@ func BuildAskRecord(ctx context.Context, name string, req RunOptions, jobRec *Re
 		rec.PID = os.Getpid() // foreground run: alive while this process runs, lost only if it dies
 	}
 	return rec
+}
+
+// RepoRoot is the main checkout root for cwd, falling back to cwd when git fails.
+func RepoRoot(ctx context.Context, cwd string) string {
+	out, err := proc.RunGit(ctx, cwd, "rev-parse", "--show-toplevel")
+	if err != nil || out == "" {
+		return cwd
+	}
+	return paths.MainCheckout(strings.TrimSpace(out))
 }
 
 // ResolveOutputSchema reads --output-schema as inline JSON when it starts with "{", else as a file, and checks it parses.

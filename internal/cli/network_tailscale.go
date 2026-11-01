@@ -9,9 +9,7 @@ import (
 	"net/netip"
 	"os"
 	"slices"
-	"strconv"
 	"strings"
-	"time"
 
 	"github.com/edotau/claude-code/internal/audit"
 	"github.com/edotau/claude-code/internal/network/tailscale"
@@ -185,7 +183,7 @@ func tailscaleMachines(ctx context.Context, format string) int {
 	for _, m := range machines {
 		names = append(names, m.Name)
 	}
-	writeDispatchCache(names) // `dispatch --host` completion reads this cache; never calls the network itself
+	tailscale.WriteMachinesCache(names) // `dispatch --host` completion reads this cache; never calls the network itself
 	if format == helptext.JSON {
 		if err := helptext.WriteJSON(os.Stdout, machines); err != nil {
 			return fail("network tailscale machines: %v", err)
@@ -238,7 +236,7 @@ func tailscaleConnect(ctx context.Context, o tsOpts) int {
 }
 
 func tailscaleKey(ctx context.Context, o tsOpts) int {
-	exp, err := parseKeyExpiry(o.expiry)
+	exp, err := tailscale.ParseKeyExpiry(o.expiry)
 	if err != nil {
 		return fail("network tailscale key: --expiry: %v", err)
 	}
@@ -274,18 +272,6 @@ func tailscaleKey(ctx context.Context, o tsOpts) int {
 	return 0
 }
 
-// parseKeyExpiry accepts a Go duration or a bare "<N>d" day count.
-func parseKeyExpiry(s string) (time.Duration, error) {
-	if n, ok := strings.CutSuffix(s, "d"); ok {
-		days, err := strconv.Atoi(n)
-		if err != nil {
-			return 0, err
-		}
-		return time.Duration(days) * 24 * time.Hour, nil
-	}
-	return time.ParseDuration(s)
-}
-
 func tailscaleExitNode(ctx context.Context, action string) int {
 	switch action {
 	case "on":
@@ -319,27 +305,17 @@ func tailscaleApproveExitNode(ctx context.Context) int {
 	return 0
 }
 
-// tailscaleSelfDevice resolves this box to its admin-API device; a non-zero code means the failure was already reported.
+// tailscaleSelfDevice wraps tailscale.SelfDevice; a non-zero code means the failure was already reported.
 func tailscaleSelfDevice(ctx context.Context, mode string) (*tailscale.Client, tailscale.Local, string, int) {
-	client, err := tailscale.NewClient()
-	if err != nil {
+	client, st, id, err := tailscale.SelfDevice(ctx)
+	if errors.Is(err, tailscale.ErrNoCredential) {
 		fmt.Println("tailscale: no admin credential; approve at https://login.tailscale.com/admin/machines")
 		return nil, tailscale.Local{}, "", 2
 	}
-	st, err := tailscale.Status(ctx)
-	if err != nil { // ErrNotRunning included: st.IPs would be stale and never match a device
-		return nil, tailscale.Local{}, "", fail("network tailscale %s: %v", mode, err)
-	}
-	devices, err := client.Devices(ctx)
 	if err != nil {
 		return nil, tailscale.Local{}, "", fail("network tailscale %s: %v", mode, err)
 	}
-	for _, d := range devices {
-		if slices.ContainsFunc(d.Addresses, func(a string) bool { return slices.Contains(st.IPs, a) }) {
-			return client, st, d.ID, 0
-		}
-	}
-	return nil, tailscale.Local{}, "", fail("network tailscale %s: could not match this node's address to a device (is it connected?)", mode)
+	return client, st, id, 0
 }
 
 // tailscaleSubnet dispatches --subnet: "off" withdraws, "approve" approves in the tailnet, anything else is a CIDR list.

@@ -314,3 +314,23 @@ func (t touchWriter) Write(p []byte) (int, error) {
 	t()
 	return len(p), nil
 }
+
+// ListRemote runs `<bin> agents --format <format>` on host and copies its stdout to out; a failure carries ssh's stderr.
+func ListRemote(host, bin, format string, out io.Writer) error {
+	if strings.TrimSpace(bin) == "" || strings.ContainsAny(bin, "\r\n\x00") {
+		return fmt.Errorf("agents: invalid remote binary %q", bin)
+	}
+	argv, err := remote.StreamArgs(host, "exec "+textutil.QuotePath(bin)+" agents --format "+textutil.ShellQuote(format))
+	if err != nil {
+		return fmt.Errorf("agents: %v", err)
+	}
+	ctx, stop := context.WithTimeout(context.Background(), 60*time.Second)
+	defer stop()
+	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
+	var stderr strings.Builder
+	cmd.Stdout, cmd.Stderr = out, &stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("agents: %s: %v: %s", host, err, strings.TrimSpace(stderr.String()))
+	}
+	return nil
+}

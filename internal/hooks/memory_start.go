@@ -7,12 +7,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/edotau/claude-code/internal/agent/preflight"
 	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/memory/bank"
 	memrecall "github.com/edotau/claude-code/internal/memory/recall"
 	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/preflight"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/settings"

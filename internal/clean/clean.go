@@ -27,6 +27,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 	"github.com/edotau/claude-code/internal/ui/tui"
@@ -294,6 +295,10 @@ var (
 	stdinIsTTY           = tui.StdinIsTerminal
 	promptIn   io.Reader = os.Stdin
 )
+
+// pidAlive is a var so tests can stub the liveness probe.
+// pidAlive keeps a pid when the probe can't answer (off unix proc.Alive is always false), so pruning no-ops there.
+var pidAlive = func(pid int) bool { return pid > 0 && (!proc.Alive(os.Getpid()) || proc.Alive(pid)) }
 
 // keepLiveSession protects a sessions/<pid>.json|.key registry entry whose process is still running;
 // an unparsable pid prefix is kept too, since it is never pruned by Claude Code's own registry writer.

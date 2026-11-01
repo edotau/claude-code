@@ -3,11 +3,8 @@ package cli
 import (
 	"context"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
-	"slices"
-	"strings"
 
 	"github.com/edotau/claude-code/internal/hooks"
 	"github.com/edotau/claude-code/internal/paths"
@@ -108,59 +105,8 @@ func cmdPlanTick(args []string) int {
 	if main := paths.MainCheckout(top); main != top {
 		worktree = filepath.Base(top)
 	}
-	if err := tickRange(context.Background(), top, worktree, *rng, *plan, *dryRun, os.Stdout); err != nil {
+	if err := plans.TickRange(context.Background(), top, worktree, *rng, *plan, hooks.MirrorDests(), *dryRun, os.Stdout); err != nil {
 		return fail("plan tick: %v", err)
 	}
 	return 0
-}
-
-// tickRange ticks plan (default: the one plan the range's files match, see plans.Select) for each commit in rng.
-func tickRange(ctx context.Context, dir, worktree, rng, plan string, dryRun bool, w io.Writer) error {
-	drafts := hooks.MirrorDests()
-	commits, err := plans.RangeCommits(ctx, dir, rng)
-	if err != nil {
-		return err
-	}
-	if plan == "" {
-		var tied []string
-		if plan, tied = plans.Select(plans.Home(paths.MainCheckout(dir)), worktree, drafts, commits); plan == "" {
-			if len(tied) > 0 {
-				fmt.Fprintf(w, "plans: ambiguous, %d plans match equally (%s); nothing annotated\n", len(tied), baseNames(tied))
-			} else {
-				fmt.Fprintln(w, "plans: no plan owns these files; nothing to tick")
-			}
-			return nil
-		}
-	} else if abs, err := filepath.Abs(plan); err == nil && slices.Contains(drafts, abs) {
-		return fmt.Errorf("%s mirrors an unapproved draft; approve it before ticking", plan)
-	}
-	results, err := plans.TickCommits(plan, commits, dryRun)
-	if err != nil {
-		return err
-	}
-	verb, base := "ticked", strings.TrimSuffix(filepath.Base(plan), ".md")
-	if dryRun {
-		verb = "would tick"
-	}
-	for _, r := range results {
-		if len(r.Ticked) > 0 {
-			fmt.Fprintf(w, "plans: %s %s (%s) in %s\n", verb, strings.Join(r.Ticked, "; "), r.Sha, base)
-		}
-		if len(r.Partial) > 0 {
-			fmt.Fprintf(w, "plans: partly landed %s (%s) in %s\n", strings.Join(r.Partial, "; "), r.Sha, base)
-		}
-	}
-	if len(results) == 0 {
-		fmt.Fprintf(w, "plans: %d commits, nothing to tick in %s\n", len(commits), base)
-	}
-	return nil
-}
-
-// baseNames joins the plan file names without their extension.
-func baseNames(ps []string) string {
-	names := make([]string, len(ps))
-	for i, p := range ps {
-		names[i] = strings.TrimSuffix(filepath.Base(p), ".md")
-	}
-	return strings.Join(names, ", ")
 }

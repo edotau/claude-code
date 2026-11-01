@@ -1,7 +1,6 @@
 package tree
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -20,12 +19,10 @@ import (
 // defaultEventCount is --n's default: how many trailing events a Snapshot carries.
 const defaultEventCount = 40
 
-// followPollInterval is how often Follow re-reads the transcript and the journal/meta looking for
-// new events and the terminal result.
+// followPollInterval is how often Follow re-reads the transcript, journal and meta.
 var followPollInterval = 500 * time.Millisecond
 
-// ViewOptions scopes View/Follow: ClaudeDir + the same Session/Days scoping as Options, narrowed to
-// one Agent (its full id, or a prefix unique across the sessions in scope).
+// ViewOptions scopes View/Follow like Options, narrowed to one Agent (full id or unique prefix).
 type ViewOptions struct {
 	ClaudeDir string
 	Session   string
@@ -35,15 +32,9 @@ type ViewOptions struct {
 	Now       func() time.Time
 }
 
-func (o ViewOptions) now() time.Time {
-	if o.Now != nil {
-		return o.Now()
-	}
-	return time.Now()
-}
+func (o ViewOptions) now() time.Time { return nowOr(o.Now) }
 
-// Event is one line in a subagent's event stream: a tool call, an assistant text blurb, or the
-// terminal journal result.
+// Event is one line of a subagent event stream: a tool call, an assistant text blurb, or the journal result.
 type Event struct {
 	At   time.Time `json:"at"`
 	Kind string    `json:"kind"` // tool|text|result
@@ -72,8 +63,7 @@ type Snapshot struct {
 	Events      []Event    `json:"events,omitempty"`
 }
 
-// agentLocation is where one resolved agent's transcript lives: its session, and the workflow run
-// dir when it's inside one ("" for a plain dispatched subagent).
+// agentLocation is where a resolved agent's transcript lives: its session and workflow run dir ("" if plain).
 type agentLocation struct {
 	SessionID      string
 	TranscriptPath string
@@ -97,8 +87,7 @@ func View(opts ViewOptions) (Snapshot, error) {
 	return snapshotFrom(loc, now, n), nil
 }
 
-// resolveAgent searches every session in scope — its own subagents/ and every subagents/workflows/*/
-// — for exactly one agent id matching opts.Agent exactly or as a unique prefix.
+// resolveAgent finds the one agent in scope whose id matches opts.Agent exactly or as a unique prefix.
 func resolveAgent(claudeDir string, opts ViewOptions, now time.Time) (agentLocation, error) {
 	if opts.Agent == "" {
 		return agentLocation{}, errors.New("view: no agent id given")
@@ -109,20 +98,22 @@ func resolveAgent(claudeDir string, opts ViewOptions, now time.Time) (agentLocat
 	}
 	var matches []agentLocation
 	for _, transcriptPath := range sessionFiles {
-		sessionDir := strings.TrimSuffix(transcriptPath, ".jsonl")
+		sessionDir := sessionDirFromPath(transcriptPath)
 		head := scanSessionHead(transcriptPath)
 		sessionID := filepath.Base(sessionDir)
-		for _, f := range subagentFiles(sessionDir) {
-			if matchID(subagentIDFromPath(f), opts.Agent) {
-				matches = append(matches, agentLocation{SessionID: sessionID, TranscriptPath: f, SessionDir: sessionDir, Cwd: head.cwd})
+		runDirs := append([]string{""}, transcript.WorkflowRunDirs(sessionDir)...)
+		for _, runDir := range runDirs {
+			dir, runID := runDir, ""
+			if runDir == "" {
+				dir = filepath.Join(sessionDir, "subagents")
+			} else {
+				runID = filepath.Base(runDir)
 			}
-		}
-		for _, runDir := range transcript.WorkflowRunDirs(sessionDir) {
-			for _, f := range transcript.WorkflowAgentFiles(runDir) {
+			for _, f := range transcript.WorkflowAgentFiles(dir) {
 				if matchID(subagentIDFromPath(f), opts.Agent) {
 					matches = append(matches, agentLocation{
 						SessionID: sessionID, TranscriptPath: f, SessionDir: sessionDir,
-						RunDir: runDir, RunID: filepath.Base(runDir), Cwd: head.cwd,
+						RunDir: runDir, RunID: runID, Cwd: head.cwd,
 					})
 				}
 			}
@@ -139,8 +130,7 @@ func matchID(id, want string) bool {
 	return id == want || (want != "" && strings.HasPrefix(id, want))
 }
 
-// snapshotFrom builds one Snapshot from a resolved location, applying the same journal override
-// buildOneWorkflowRun does for a workflow agent.
+// snapshotFrom builds one Snapshot from a resolved location, with the journal override for workflow agents.
 func snapshotFrom(loc agentLocation, now time.Time, n int) Snapshot {
 	meta := readSubagentMeta(loc.TranscriptPath)
 	sub := buildSubagent(loc.TranscriptPath, now, loc.Cwd)
@@ -198,22 +188,14 @@ func effortForLabel(loc agentLocation, label string) string {
 	return ""
 }
 
-// editedFiles lists the file_path arguments of every Edit/Write/MultiEdit tool_use in path, deduped
-// in first-seen order.
+// editedFiles lists the deduped file_path of every Edit/Write/MultiEdit tool_use in path, first-seen order.
 func editedFiles(path string) []string {
-	f, err := os.Open(path)
-	if err != nil {
-		return nil
-	}
-	defer f.Close()
-	sc := bufio.NewScanner(f)
-	sc.Buffer(make([]byte, 64<<10), grepScanMaxLine)
 	seen := map[string]bool{}
 	var files []string
-	for sc.Scan() {
+	eachLine(path, func(raw []byte) {
 		var rec assistantContentLine
-		if json.Unmarshal(sc.Bytes(), &rec) != nil || rec.Type != "assistant" {
-			continue
+		if json.Unmarshal(raw, &rec) != nil || rec.Type != "assistant" {
+			return
 		}
 		for _, c := range rec.Message.Content {
 			if c.Type != "tool_use" || (c.Name != "Edit" && c.Name != "Write" && c.Name != "MultiEdit") {
@@ -225,27 +207,15 @@ func editedFiles(path string) []string {
 				files = append(files, fp)
 			}
 		}
-	}
-	_ = sc.Err() // a too-long/truncated line mid-scan degrades to the files already collected
+	})
 	return files
 }
 
-// events reads every tool_use/text event out of path, oldest first, trimmed to the last n (n<=0
-// keeps all of them — Follow's baseline count needs the full list).
+// events reads every tool_use/text event of path, oldest first, trimmed to the last n (n<=0 keeps all).
 func events(path, cwd string, n int) []Event {
-	f, err := os.Open(path)
-	if err != nil {
-		return nil
-	}
-	defer f.Close()
 	home, _ := os.UserHomeDir()
-	sc := bufio.NewScanner(f)
-	sc.Buffer(make([]byte, 64<<10), grepScanMaxLine)
 	var all []Event
-	for sc.Scan() {
-		all = append(all, eventsFromLine(sc.Bytes(), home, cwd)...)
-	}
-	_ = sc.Err() // a too-long/truncated line mid-scan degrades to the events already collected
+	eachLine(path, func(raw []byte) { all = append(all, eventsFromLine(raw, home, cwd)...) })
 	if n > 0 && len(all) > n {
 		all = all[len(all)-n:]
 	}
@@ -307,9 +277,7 @@ func Follow(ctx context.Context, opts ViewOptions, emit func(Event)) error {
 	}
 }
 
-// followDone reports whether the resolved agent has reached a terminal state: a workflow agent once
-// its journal carries a result line (the result Event to emit, if any); a plain subagent once its
-// sidecar meta reports "finished".
+// followDone reports a terminal state: a journal result line (workflow agent) or a finished meta (plain subagent).
 func followDone(loc agentLocation) (bool, *Event) {
 	if loc.RunDir != "" {
 		id := subagentIDFromPath(loc.TranscriptPath)
@@ -322,8 +290,7 @@ func followDone(loc agentLocation) (bool, *Event) {
 	return readSubagentMeta(loc.TranscriptPath).Finished, nil
 }
 
-// FormatEvent renders one Event as "HH:MM:SS tool Read path…" / "HH:MM:SS text "…"" / "HH:MM:SS
-// result 12.3 KB".
+// FormatEvent renders one Event as an "HH:MM:SS <kind> ..." line.
 func FormatEvent(e Event) string {
 	ts := e.At.Format("15:04:05")
 	switch e.Kind {

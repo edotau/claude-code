@@ -462,7 +462,7 @@ func pickCopilotPin(d *dialog, title, key string, choices [][2]string, cur strin
 
 // copilotKeyRow pastes (or rotates) a GitHub token into COPILOT_GITHUB_TOKEN; it outranks gh's active account.
 func copilotKeyRow(d *dialog) billingRow {
-	env := agent.CopilotTokenEnv
+	env := copilot.CopilotTokenEnv
 	_, src, ok := secretstore.Get(env)
 	stored := ok && src != "env"
 	return billingRow{modeAPIKey, "paste a GitHub token → " + env + " " + menu.Bracket(stored, "token set", "no token"), modeAPIKey, func() bool {

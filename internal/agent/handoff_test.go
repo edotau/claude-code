@@ -105,14 +105,6 @@ func TestRunWithFallbackCarriesHandoff(t *testing.T) {
 	})
 }
 
-func TestResumeSlot(t *testing.T) {
-	for in, want := range map[string]string{"sonnet": "sonnet", "dev:haiku": "haiku", "claude-sonnet-5-5": "sonnet", "gpt-5": ""} {
-		if got := ResumeAlias(in); got != want {
-			t.Errorf("ResumeAlias(%q) = %q, want %q", in, got, want)
-		}
-	}
-}
-
 // (4) A dispatch that wrote a hand-off hands the next dispatch the hand-off, not the bare task; an unreadable file changes nothing.
 func TestRunWithFallbackNextDispatchGetsHandoff(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())

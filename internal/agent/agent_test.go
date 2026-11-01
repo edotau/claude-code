@@ -2,10 +2,13 @@ package agent
 
 import (
 	"context"
+	"encoding/binary"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"reflect"
 	"slices"
 	"strings"
@@ -13,6 +16,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/proc"
+	"github.com/edotau/claude-code/internal/providers"
 )
 
 func TestApplyCaps(t *testing.T) {
@@ -383,7 +387,7 @@ func TestRunWithFallback_TimeoutAndCancelNotRetried(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	claude := &fakeRunner{name: "claude", errs: []error{nil}}
 
-	codex := &codexHang{}
+	codex := newCodexHang()
 	_, err := RunWithFallback(context.Background(), chainOf([]Engine{codex, claude}),
 		RunOptions{Prompt: "p", Tools: true, Timeout: 20 * time.Millisecond}, NewTextSink(io.Discard), nil)
 	if err == nil || len(claude.seen) != 0 {
@@ -392,7 +396,7 @@ func TestRunWithFallback_TimeoutAndCancelNotRetried(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	codex = &codexHang{}
+	codex = newCodexHang()
 	_, err = RunWithFallback(ctx, chainOf([]Engine{codex, claude}), RunOptions{Prompt: "p"}, Discard, nil)
 	if err == nil || len(claude.seen) != 0 {
 		t.Fatalf("a canceled caller context must not fall back: err=%v claude.seen=%+v", err, claude.seen)
@@ -406,22 +410,26 @@ func TestRunTimeoutEndsKindFatalRegardlessOfTools(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	for _, tools := range []bool{true, false} {
 		t.Run(fmt.Sprintf("Tools=%v", tools), func(t *testing.T) {
-			hang := &codexHang{}
+			hang := newCodexHang()
 			_, err := Run(context.Background(), hang, RunOptions{Prompt: "p", Tools: tools, Timeout: 20 * time.Millisecond}, Discard, nil)
 			var e *Error
-			if !errors.As(err, &e) || e.Kind != KindFatal || !errors.Is(err, context.DeadlineExceeded) {
-				t.Fatalf("Tools=%v: err=%v, want KindFatal wrapping DeadlineExceeded", tools, err)
+			if !errors.As(err, &e) || e.Kind != KindFatal || !errors.Is(err, context.DeadlineExceeded) || hang.calls != 1 {
+				t.Fatalf("Tools=%v: calls=%d err=%v, want KindFatal wrapping DeadlineExceeded after one call", tools, hang.calls, err)
 			}
 		})
 	}
 }
 
 // codexHang blocks until its context is done, named "codex" so RunWithFallback's class check applies.
-type codexHang struct{ calls int }
+type codexHang struct {
+	stubEngine
+	calls int
+}
 
-func (h *codexHang) Name() string     { return "codex" }
-func (h *codexHang) Caps() Caps       { return Caps{Tools: Native} }
-func (h *codexHang) Available() error { return nil }
+func newCodexHang() *codexHang {
+	return &codexHang{name: "codex", caps: Caps{Tools: Native}}
+}
+
 func (h *codexHang) Run(ctx context.Context, _ RunOptions, _ Sink) (Result, error) {
 	h.calls++
 	<-ctx.Done()
@@ -524,4 +532,241 @@ func TestRunWithFallbackSkippedRequestedRoute(t *testing.T) {
 			t.Fatalf("res=%+v err=%v, want no fallback", res, err)
 		}
 	})
+}
+
+func TestIsImage(t *testing.T) {
+	riff := make([]byte, 16)
+	copy(riff, "RIFF")
+	binary.LittleEndian.PutUint32(riff[4:], 8)
+	copy(riff[8:], "WEBPVP8 ")
+	for _, tc := range []struct {
+		name string
+		data []byte
+		want bool
+	}{
+		{"png", []byte("\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR"), true},
+		{"webp", riff, true},
+		{"gif", []byte("GIF89a\x01\x00\x01\x00"), true},
+		{"text", []byte("just words"), false},
+		{"truncated png header", []byte("\x89PN"), false},
+		{"empty", nil, false},
+	} {
+		if got := IsImage(tc.data); got != tc.want {
+			t.Errorf("%s: IsImage = %v", tc.name, got)
+		}
+	}
+}
+
+// The capability matrix end to end: each agent's real Caps through applyCaps, per level.
+func TestCapabilityMatrixApplyCaps(t *testing.T) {
+	const schema = `{"type": "object"}`
+	want := map[string]struct {
+		sys, app, schema Level
+	}{
+		"claude":   {Native, Native, Native},
+		"codex":    {Native, Native, Native},
+		"gemini":   {Emulated, Emulated, Native},
+		"opencode": {Native, Emulated, Emulated},
+		"copilot":  {Emulated, Emulated, Emulated},
+	}
+	for _, r := range Engines() {
+		w, ok := want[r.Name()]
+		if !ok {
+			t.Fatalf("unexpected agent %q", r.Name())
+		}
+		t.Run(r.Name(), func(t *testing.T) {
+			c := r.Caps()
+			if c.SystemPrompt != w.sys || c.AppendSystemPrompt != w.app || c.OutputSchema != w.schema || c.Env != Native {
+				t.Fatalf("caps sys=%v append=%v schema=%v env=%v, want %v/%v/%v/native", c.SystemPrompt, c.AppendSystemPrompt, c.OutputSchema, c.Env, w.sys, w.app, w.schema)
+			}
+			in := RunOptions{Prompt: "TASK", SystemPrompt: "SYS", AppendSystemPrompt: "APP", OutputSchema: schema, Env: []string{"A=1"}}
+			out, dropped, emulated := applyCaps(c, in)
+			if len(dropped) != 0 || !slices.Equal(out.Env, in.Env) {
+				t.Errorf("dropped = %v, env = %v; env is native everywhere", dropped, out.Env)
+			}
+			var wantEm []string
+			wantPrompt := "TASK"
+			if w.sys == Emulated {
+				wantEm = append(wantEm, "--system-prompt")
+				wantPrompt = Preamble("SYS") + wantPrompt
+			}
+			if w.app == Emulated {
+				wantEm = append(wantEm, "--append-system-prompt")
+				wantPrompt = Preamble("APP") + wantPrompt
+			}
+			if w.schema != Native {
+				wantEm = append(wantEm, "--output-schema")
+				wantPrompt += "\n\nAnswer with only a JSON value matching this JSON Schema, no prose or code fence: " + `{"type":"object"}`
+			}
+			if !slices.Equal(emulated, wantEm) {
+				t.Errorf("emulated = %v, want %v", emulated, wantEm)
+			}
+			if out.Prompt != wantPrompt {
+				t.Errorf("prompt = %q, want %q", out.Prompt, wantPrompt)
+			}
+			// a Native flag stays on the request for the adapter's own flag; an Emulated one is consumed
+			if (out.SystemPrompt != "") != (w.sys == Native) || (out.AppendSystemPrompt != "") != (w.app == Native) {
+				t.Errorf("request sys=%q append=%q after applyCaps", out.SystemPrompt, out.AppendSystemPrompt)
+			}
+			if out.OutputSchema != schema {
+				t.Errorf("OutputSchema must survive for the validator, got %q", out.OutputSchema)
+			}
+		})
+	}
+}
+
+// Level None drops and names the flag; it is neither emulated nor passed on.
+func TestApplyCapsNoneDropsSystemPrompt(t *testing.T) {
+	out, dropped, emulated := applyCaps(Caps{}, RunOptions{Prompt: "T", SystemPrompt: "S", AppendSystemPrompt: "A"})
+	if !slices.Equal(dropped, []string{"--system-prompt", "--append-system-prompt"}) || len(emulated) != 0 || out.Prompt != "T" ||
+		out.SystemPrompt != "" || out.AppendSystemPrompt != "" {
+		t.Errorf("out=%+v dropped=%v emulated=%v", out, dropped, emulated)
+	}
+}
+
+// gemini has no read-only mode: --read-only is refused with a one-line error, not run tool-less.
+func TestRefuseReadOnlyGemini(t *testing.T) {
+	g, err := Lookup("gemini")
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = RefuseReadOnly(g.Caps(), "gemini", true)
+	if err == nil || !strings.Contains(err.Error(), "use --tools or another agent") || strings.Contains(err.Error(), "\n") {
+		t.Fatalf("err = %v, want one line naming --tools", err)
+	}
+	if RefuseReadOnly(g.Caps(), "gemini", false) != nil || RefuseReadOnly(Caps{}, "codex", true) != nil {
+		t.Error("only gemini with --read-only is refused")
+	}
+}
+
+// An explicit --profile dispatch that fails with the default --fallback all never starts the next dispatch; the same failure
+// without a profile does, so the chain is built to advance.
+func TestExplicitDispatchFailureDoesNotAdvance(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	run := func(provider string) (first, next *fakeRunner, err error) {
+		first = &fakeRunner{name: "codex", errs: []error{errors.New("exit status 1")}, emptyAnswer: true}
+		next = &fakeRunner{name: "opencode", errs: []error{nil}}
+		c := Chain{Want: "codex", Dispatches: []Dispatch{{Agent: first}, {Agent: next}}}
+		_, err = RunWithFallback(context.Background(), c, RunOptions{Prompt: "p", Provider: provider}, Discard, nil)
+		return first, next, err
+	}
+	if _, next, err := run(""); err != nil || len(next.seen) != 1 {
+		t.Fatalf("control (no profile): err=%v, next dispatch ran %d times, want 1", err, len(next.seen))
+	}
+	first, next, err := run("openai")
+	if err == nil {
+		t.Fatal("explicit dispatch failed but RunWithFallback returned nil")
+	}
+	if len(first.seen) != 1 || len(next.seen) != 0 {
+		t.Fatalf("explicit profile: first ran %d, next ran %d; want 1 and 0 (no silent fallback)", len(first.seen), len(next.seen))
+	}
+}
+
+// envelopeMap round-trips the envelope NewEnvelope builds, so the test pins wire names, not Go types.
+func envelopeMap(t *testing.T, res Result, err error) map[string]any {
+	t.Helper()
+	b, merr := json.Marshal(NewEnvelope(res, err, "d1"))
+	if merr != nil {
+		t.Fatal(merr)
+	}
+	var m map[string]any
+	if uerr := json.Unmarshal(b, &m); uerr != nil {
+		t.Fatal(uerr)
+	}
+	return m
+}
+
+// Guarantee 3: an auth failure on hop 1 moves to hop 2, and the envelope names every hop tried.
+func TestEnvelopeHopsNameEveryDispatchTried(t *testing.T) {
+	authEnv(t, `{"protocol":"anthropic","base_url":"http://127.0.0.1:1","auth":{"type":"key","env":"AGAUTH_UNSET"},"models":{"opus":"m"}}`)
+	first := &fakeRunner{name: "claude", errs: []error{fmt.Errorf("agauth: %w", providers.ErrNeedsLogin)}, emptyAnswer: true}
+	second := &fakeRunner{name: "gemini", errs: []error{nil}}
+	res, err := RunWithFallback(context.Background(), twoDispatches(first, second), RunOptions{Prompt: "p"}, Discard, nil)
+	if err != nil || res.Answer != "a" || len(second.seen) != 1 {
+		t.Fatalf("res=%+v err=%v: want the second hop to answer", res, err)
+	}
+	env := envelopeMap(t, res, err)
+	hops, _ := env["hops"].([]any)
+	if len(hops) != 2 {
+		t.Fatalf("hops = %v, want both dispatches", env["hops"])
+	}
+	h1, _ := hops[0].(map[string]any)
+	h2, _ := hops[1].(map[string]any)
+	if h1["agent"] != "claude" || h1["error_kind"] != "auth" {
+		t.Errorf("hop 1 = %v, want agent claude / error_kind auth", h1)
+	}
+	if h2["agent"] != "gemini" || (h2["error_kind"] != nil && h2["error_kind"] != "") {
+		t.Errorf("hop 2 = %v, want agent gemini with no error_kind", h2)
+	}
+	if fr, _ := env["fallback_reason"].(string); fr == "" || env["fallback"] != "claude" {
+		t.Errorf("fallback = %v reason = %q: hops must not replace the existing fallback fields", env["fallback"], fr)
+	}
+}
+
+// A single successful dispatch keeps the envelope free of fallback and names exactly one hop.
+func TestEnvelopeHopsSingleDispatch(t *testing.T) {
+	r := &fakeRunner{name: "claude", errs: []error{nil}}
+	res, err := RunWithFallback(context.Background(), Single(r), RunOptions{Prompt: "p"}, Discard, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := envelopeMap(t, res, err)
+	if hops, _ := env["hops"].([]any); len(hops) != 1 {
+		t.Errorf("hops = %v, want one", env["hops"])
+	}
+	if env["fallback"] != nil {
+		t.Errorf("fallback = %v, want null", env["fallback"])
+	}
+}
+
+// A cancelled context stops the dispatch loop before any dispatch runs.
+func TestRunWithFallbackCancelledBeforeDispatchNeverRuns(t *testing.T) {
+	r := &fakeRunner{name: "claude", errs: []error{nil}}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err := RunWithFallback(ctx, Single(r), RunOptions{Prompt: "p"}, Discard, nil)
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("err = %v, want context.Canceled", err)
+	}
+	if len(r.seen) != 0 {
+		t.Errorf("agent ran %d times under a cancelled context", len(r.seen))
+	}
+}
+
+// A 429 followed by success is one hop, no error_kind, whose errors list the recovered rate_limit attempt.
+func TestHopKeepsRecoveredAttemptErrors(t *testing.T) {
+	fastDefaultBackoff(t)
+	r := &fakeRunner{name: "claude", errs: []error{&Error{Kind: KindRateLimit, Agent: "claude", Err: errors.New("HTTP 429")}, nil}}
+	res, err := RunWithFallback(context.Background(), Single(r), RunOptions{Prompt: "p"}, Discard, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := envelopeMap(t, res, err)
+	hops, _ := env["hops"].([]any)
+	if len(hops) != 1 {
+		t.Fatalf("hops = %v, want one", env["hops"])
+	}
+	h, _ := hops[0].(map[string]any)
+	errs, _ := h["errors"].([]any)
+	if h["error_kind"] != nil || len(errs) != 1 || errs[0].(map[string]any)["kind"] != "rate_limit" {
+		t.Errorf("hop = %v, want no error_kind and one rate_limit error", h)
+	}
+}
+
+// A transient credential failure that a retry recovers from is listed in the answering hop's errors.
+func TestHopKeepsRecoveredGuardFailure(t *testing.T) {
+	fastDefaultBackoff(t)
+	flag := filepath.Join(t.TempDir(), "seen")
+	name := fmt.Sprintf("hmg%d", time.Now().UnixNano())
+	hmNamed(t, name, fmt.Sprintf("if [ -f %[1]s ]; then echo %[2]s; else touch %[1]s; echo 'connection reset' >&2; exit 1; fi", flag, fakeJWT("adb-1.azuredatabricks.net")))
+	r := &fakeRunner{name: "claude", caps: Caps{Provider: Native}, errs: []error{nil}}
+	res, err := RunWithFallback(context.Background(), Single(r), RunOptions{Prompt: "p", Provider: name}, Discard, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hops, _ := envelopeMap(t, res, err)["hops"].([]any)
+	h, _ := hops[0].(map[string]any)
+	if errs, _ := h["errors"].([]any); len(errs) != 1 {
+		t.Errorf("hop = %v, want the recovered credential failure in errors", h)
+	}
 }

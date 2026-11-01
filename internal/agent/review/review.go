@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"github.com/edotau/claude-code/internal/paths"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -49,6 +50,11 @@ func ParseScope(uncommitted bool, base, commit string, pr bool) (Scope, error) {
 	}
 }
 
+// rangeDiff is `git diff <ref>...HEAD`.
+func rangeDiff(ctx context.Context, cwd, ref string) (string, error) {
+	return proc.RunGit(ctx, cwd, "diff", "--end-of-options", ref+"...HEAD")
+}
+
 // untrackedCap caps how much of one untracked file's content Diff inlines.
 const untrackedCap = 64 * 1024
 
@@ -64,7 +70,7 @@ func Diff(ctx context.Context, cwd string, s Scope) ([]byte, error) {
 	var err error
 	switch s.Kind {
 	case "base":
-		out, err = proc.RunGit(ctx, cwd, "diff", "--end-of-options", s.Ref+"...HEAD")
+		out, err = rangeDiff(ctx, cwd, s.Ref)
 	case "commit":
 		out, err = proc.RunGit(ctx, cwd, "show", "--no-color", "--format=", "--end-of-options", s.Ref)
 	case "pr":
@@ -73,7 +79,7 @@ func Diff(ctx context.Context, cwd string, s Scope) ([]byte, error) {
 		if err != nil {
 			return nil, err
 		}
-		out, err = proc.RunGit(ctx, cwd, "diff", "--end-of-options", strings.TrimSpace(base)+"...HEAD") // origin/<default>, not local
+		out, err = rangeDiff(ctx, cwd, strings.TrimSpace(base)) // origin/<default>, not local
 	default: // uncommitted
 		out, err = proc.RunGit(ctx, cwd, "diff", "HEAD")
 		if err == nil {
@@ -93,8 +99,7 @@ func Diff(ctx context.Context, cwd string, s Scope) ([]byte, error) {
 	return []byte(out), nil
 }
 
-// untrackedBlock renders every untracked regular text file as a "new file: <path>" header plus content,
-// capped at untrackedCap per file and untrackedTotalCap overall; non-regular and binary files get a marker.
+// untrackedBlock renders untracked text files as "new file: <path>" plus content, capped per file and overall.
 func untrackedBlock(ctx context.Context, cwd string) (string, error) {
 	listing, err := proc.RunGit(ctx, cwd, "ls-files", "--others", "--exclude-standard")
 	if err != nil {
@@ -116,11 +121,7 @@ func untrackedBlock(ctx context.Context, cwd string) (string, error) {
 			continue // vanished between listing and read
 		}
 		if !info.Mode().IsRegular() {
-			kind := "special file"
-			if info.Mode()&os.ModeSymlink != 0 {
-				kind = "symlink"
-			}
-			fmt.Fprintf(&b, "new file: %s (%s, skipped)\n", rel, kind)
+			b.WriteString(skippedSpecialNote(rel, info))
 			continue
 		}
 		data, rerr := readCapped(path)
@@ -138,6 +139,15 @@ func untrackedBlock(ctx context.Context, cwd string) (string, error) {
 		fmt.Fprintf(&b, "… %d more untracked files not inlined\n", skipped)
 	}
 	return b.String(), nil
+}
+
+// skippedSpecialNote is the "new file" line for a symlink or other non-regular untracked file.
+func skippedSpecialNote(rel string, info fs.FileInfo) string {
+	kind := "special file"
+	if info.Mode()&os.ModeSymlink != 0 {
+		kind = "symlink"
+	}
+	return fmt.Sprintf("new file: %s (%s, skipped)\n", rel, kind)
 }
 
 // readCapped reads at most untrackedCap bytes of path without loading a larger file whole.
@@ -167,7 +177,7 @@ const reviewPromptAdversarial = `You are an adversarial reviewer: find what the 
 priority order — CRITICAL security, data loss, races, leaks; HIGH bugs, broken error handling, API misuse;
 MEDIUM missing tests for new behavior, brittle assumptions, unhandled edge cases; LOW maintainability.
 Skepticism ON: name the hidden assumption each change depends on. No praise, no summary — findings only, one
-per line: <severity> <file:line> <issue> <fix>. If the diff is clean, say exactly: VERDICT: no actionable findings.`
+per line: <severity> <file:line> <issue> <fix>. If the diff is clean, say exactly: ` + cleanVerdict + `.`
 
 // ReviewPrompt returns the base review prompt, with a "Focus: " line appended when focus is set.
 func ReviewPrompt(adversarial bool, focus string) string {
@@ -181,12 +191,10 @@ func ReviewPrompt(adversarial bool, focus string) string {
 	return p
 }
 
-// ReviewArgs builds the `ask` argv for a review: the diff lands in state/harness/dispatch/review-*.diff attached
-// via --attach. cleanup removes it in foreground mode; in background mode the detached child reads it and
-// `claude-code clean` (dispatch-log target) sweeps it. rubric, when set, emits --rubric <f> before the prompt.
+// ReviewArgs builds the `ask` argv for a review, attaching the diff as a temp file; cleanup removes it in foreground.
 func ReviewArgs(agentName string, s Scope, diff []byte, adversarial, background bool, focus, rubric string) ([]string, func(), error) {
-	dir := paths.DispatchDir()
-	if err := os.MkdirAll(dir, 0o700); err != nil {
+	dir, err := paths.EnsureDispatchDir()
+	if err != nil {
 		return nil, nil, err
 	}
 	f, err := os.CreateTemp(dir, "review-*.diff")
@@ -223,7 +231,7 @@ func ReviewParts(diff []byte, adversarial bool, focus, rubric string) []Part {
 	if fi, err := os.Stat(rubric); rubric != "" && err == nil {
 		promptLen += int(fi.Size())
 	}
-	return SplitDiff(diff, promptLen, ReviewBudget)
+	return SplitDiff(diff, promptLen, reviewBudget)
 }
 
 // SetReviewProgress stores p on the job record, when there is one.

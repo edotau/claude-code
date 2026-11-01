@@ -550,7 +550,14 @@ func noteQuota(disp Dispatch, err error) {
 	}
 	now := time.Now()
 	until := router.ResetFor(err.Error(), disp.Billing, loadState()[disp.Account], now)
-	_ = markExhausted(disp.Account, until, now, fallbackReason(err)) // best-effort: the run's own error still reports it
+	_ = markExhausted(disp.Account, until, now, FallbackReason(err)) // best-effort: the run's own error still reports it
+}
+
+// NoteCopilotQuota marks the pinned copilot account exhausted by cause and returns that account's route-state key.
+func NoteCopilotQuota(cause error) string {
+	acct := copilotLoginAccount()
+	noteQuota(Dispatch{Account: acct, Billing: router.BillSubscription}, Classify("copilot", cause, false))
+	return acct
 }
 
 // noteStall remembers a stalled free dispatch for 15 minutes, so the sub-pick skips it instead of hanging again.
@@ -568,9 +575,9 @@ func noteStall(disp Dispatch, err error) {
 func condemnAuth(e *Error, recoverErr error) {
 	switch {
 	case e.Kind == KindAuth && providers.Verdict(recoverErr).Condemns():
-		e.AuthReason = fallbackReason(recoverErr)
+		e.AuthReason = FallbackReason(recoverErr)
 	case e.Err != nil && providers.Verdict(e.Err).Condemns():
-		e.AuthReason = fallbackReason(e.Err)
+		e.AuthReason = FallbackReason(e.Err)
 	}
 }
 
@@ -601,4 +608,50 @@ func RosterPick(o router.PickOpts) router.PickOpts {
 		}
 	}
 	return o
+}
+
+// PreviewRoute resolves the pick through the chain `ask` runs, so each candidate carries the model it would execute;
+// a dispatch dropped after the pick (model or profile gate) moves to Skipped. It starts no agent.
+func PreviewRoute(model, task, want, fallback string, refresh func(context.Context, string) bool) (router.PickResult, error) {
+	tb, err := router.Load()
+	if err != nil {
+		return router.PickResult{}, err
+	}
+	id, _, ok := models.Resolve(model)
+	if exact := ok && models.FamilyKind(id) != models.FamilyClaude; model != "" && model != router.BYOKModel && !exact && tb.AliasOf(model) == "" {
+		return router.PickResult{}, fmt.Errorf("--model %q names no alias or version the table routes", model)
+	}
+	hint := tb.AliasOf(model)
+	if hint == "" && task != "" {
+		hint = router.RuleClassifier{}.Alias(task)
+	}
+	if hint == "" {
+		hint = router.Aliases[1]
+	}
+	chain, pick, err := RouteChainFor(context.Background(), want, model, hint, fallback, false,
+		router.PickOpts{Refresh: refresh, WorkRepo: func() bool { return router.IsWorkRepo("") }})
+	if err != nil {
+		return router.PickResult{}, err
+	}
+	res := pick
+	res.Candidates = nil
+	dispatches := chain.Dispatches
+	for _, c := range pick.Candidates {
+		if len(dispatches) == 0 || dispatches[0].Agent.Name() != c.Agent || dispatches[0].Account != c.Account {
+			continue
+		}
+		if c.Agent != "claude" { // the terminal claude hop keeps its cell id; dispatch passes the same row's alias
+			c.Model, c.Effort = dispatches[0].Model, dispatches[0].Effort
+		}
+		res.Candidates, dispatches = append(res.Candidates, c), dispatches[1:]
+	}
+	res.Skipped = slices.Clone(pick.Skipped)
+	for _, s := range chain.Skipped {
+		if slices.ContainsFunc(pick.Skipped, func(k router.Skip) bool { return s == k.Agent+": "+k.Reason }) {
+			continue
+		}
+		who, why, _ := strings.Cut(s, ": ")
+		res.Skipped = append(res.Skipped, router.Skip{Agent: who, Gate: "model", Reason: why})
+	}
+	return res, nil
 }

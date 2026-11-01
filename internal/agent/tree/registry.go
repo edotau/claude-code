@@ -56,10 +56,10 @@ func applyRegistry(s Session, e regEntry) Session {
 func liveTranscripts(claudeDir string, reg map[string]regEntry, have map[string]bool) []string {
 	var files []string
 	for id := range reg {
-		if have[id] || id != filepath.Base(id) || id == ".." {
+		if have[id] {
 			continue
 		}
-		matches, _ := filepath.Glob(filepath.Join(claudeDir, "projects", "*", id+".jsonl"))
+		matches, _ := plainSessionGlob(claudeDir, id)
 		files = append(files, matches...)
 	}
 	return files

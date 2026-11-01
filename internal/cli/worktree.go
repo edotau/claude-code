@@ -9,6 +9,9 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/edotau/claude-code/internal/hooks"
+	"github.com/edotau/claude-code/internal/plans"
+	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 	"github.com/edotau/claude-code/internal/worktree"
 )
@@ -128,9 +131,9 @@ func printEntry(e worktree.Entry) {
 	for _, p := range e.Problems {
 		fmt.Printf("  ! %s\n", p)
 	}
-	fmt.Printf("  reopen:  cd %s\n", shellQuote(e.Path))
+	fmt.Printf("  reopen:  cd %s\n", textutil.ShellQuote(e.Path))
 	if e.EligibleForClean() {
-		fmt.Printf("  cleanup: claude-code worktree clean %s\n", shellQuote(name))
+		fmt.Printf("  cleanup: claude-code worktree clean %s\n", textutil.ShellQuote(name))
 	}
 }
 
@@ -186,7 +189,7 @@ func cmdWorktreeMerge(repo *worktree.Repo, args []string) int {
 		Resume: *resume, NoClean: *noClean, FullVerify: *fullVerify, NoVerify: *noVerify,
 		Out: os.Stdout, Err: os.Stderr, ShowPlan: printMergePlan, ShowResolved: printResolved,
 		AfterPromote: func(ctx context.Context, rng string) error {
-			return tickRange(ctx, repo.Main, name, rng, "", false, os.Stdout)
+			return plans.TickRange(ctx, repo.Main, name, rng, "", hooks.MirrorDests(), false, os.Stdout)
 		},
 	}
 	if *dryRun {
@@ -225,7 +228,7 @@ func mergeLocked(ctx context.Context, repo *worktree.Repo, req worktree.MergeReq
 	case out.Blocked:
 		return 1 // blocked, and not eligible for --resolve-agent: already printed
 	case out.Clean == nil:
-		fmt.Printf("worktree left on disk; clean up with: claude-code worktree clean %s\n", shellQuote(req.Name))
+		fmt.Printf("worktree left on disk; clean up with: claude-code worktree clean %s\n", textutil.ShellQuote(req.Name))
 	default:
 		printCleanResult(*out.Clean, false)
 	}

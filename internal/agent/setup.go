@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/edotau/claude-code/internal/agent/project"
+	"github.com/edotau/claude-code/internal/agentconfig/project"
 	"github.com/edotau/claude-code/internal/paths"
 )
 

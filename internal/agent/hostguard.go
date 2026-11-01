@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"slices"
 	"strings"
@@ -38,7 +39,7 @@ func ownProviderFrom(ctx context.Context) *providers.Provider {
 
 type frozenKey struct{}
 
-// frozenTarget is the copilot target a dispatch resolved once, before its permit: the gate may move it off the GitHub login.
+// frozenTarget is the copilot target resolved once, before the permit; the gate may move it off the GitHub login.
 type frozenTarget struct {
 	t    providers.Target
 	own  bool
@@ -56,12 +57,12 @@ func freezeCopilot(ctx context.Context, disp Dispatch, req RunOptions) (context.
 		return ctx, disp // the agent reports its own resolution failure
 	}
 	if !own && t.Provider != nil && t.Provider.Auth.Login != "copilot" {
-		disp.Account, disp.Billing = profileAccount(t.Provider), billingOf(t.Provider)
+		disp = withBilling(disp, t.Provider)
 	}
 	return context.WithValue(ctx, frozenKey{}, frozenTarget{t, own, note}), disp
 }
 
-// ownLoginActual re-keys a dispatch the table put on the agent's own login when the agent really resolves another profile.
+// ownLoginActual re-keys a dispatch put on the agent's own login when the agent really resolves another profile.
 func ownLoginActual(disp Dispatch, req RunOptions) Dispatch {
 	name := disp.Agent.Name()
 	if name == "copilot" || name == "claude" || name == "opencode" || !ownLoginAccount(name, disp.Account) {
@@ -71,7 +72,7 @@ func ownLoginActual(disp Dispatch, req RunOptions) Dispatch {
 	if err != nil || own || t.Provider == nil || t.Provider.Auth.Login == name {
 		return disp
 	}
-	disp.Account, disp.Billing = profileAccount(t.Provider), billingOf(t.Provider)
+	disp = withBilling(disp, t.Provider)
 	return disp
 }
 
@@ -125,7 +126,7 @@ func guardProvider(r Engine, req RunOptions) (*providers.Provider, error) {
 		}
 		return t.Provider, nil
 	}
-	if req.Provider == "" && (!known || s.External()) {
+	if req.Provider == "" && !known {
 		return nil, nil
 	}
 	_, t, err := resolveTarget(req)
@@ -160,7 +161,7 @@ func guardAttempt(ctx context.Context, r Engine, req RunOptions) (context.Contex
 	}
 	if err := guardRouteHost(ctx, gp); err != nil {
 		if _, ok := errors.AsType[*providers.HostMismatchError](err); ok {
-			return ctx, &Error{Kind: KindAuth, Agent: r.Name(), Err: err, AuthReason: fallbackReason(err)} // misconfigured: move on
+			return ctx, &Error{Kind: KindAuth, Agent: r.Name(), Err: err, AuthReason: FallbackReason(err)} // misconfigured: move on
 		}
 		return ctx, Classify(r.Name(), err, false) // a transient auth.command/OAuth failure stays retryable
 	}
@@ -207,9 +208,6 @@ func scrubIsolated(ctx context.Context, inherited, keepEnv []string) []string {
 
 // scrubForeignCredentials drops every other profile's credential env name from env, so a hop holds only its own.
 func scrubForeignCredentials(env []string, own *providers.Provider, keepEnv []string) []string {
-	if own == nil {
-		return env
-	}
 	return scrubExcept(env, own.Name, append(providers.CredentialNames(own), keepEnv...), keepEnv)
 }
 
@@ -231,8 +229,11 @@ func scrubExcept(env []string, ownName string, mine, keepEnv []string) []string 
 		}
 	}
 	keep := proc.EnvKeepSet(keepEnv)
-	return slices.DeleteFunc(slices.Clone(env), func(kv string) bool {
-		name, _, _ := strings.Cut(kv, "=")
-		return foreign[name] && !keep[name]
-	})
+	return proc.Drop(env, keep, slices.Collect(maps.Keys(foreign)))
+}
+
+// withBilling re-keys disp to p's account and billing.
+func withBilling(disp Dispatch, p *providers.Provider) Dispatch {
+	disp.Account, disp.Billing = profileAccount(p), billingOf(p)
+	return disp
 }

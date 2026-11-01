@@ -1,11 +1,14 @@
 package plans
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -275,4 +278,54 @@ func taskAtLine(p Plan, start int, title string) (Task, bool) {
 		}
 	}
 	return Task{}, false
+}
+
+// TickRange ticks plan (default: the one plan the range's files match) for each commit in rng; drafts are never ticked.
+func TickRange(ctx context.Context, dir, worktree, rng, plan string, drafts []string, dryRun bool, w io.Writer) error {
+	commits, err := RangeCommits(ctx, dir, rng)
+	if err != nil {
+		return err
+	}
+	if plan == "" {
+		var tied []string
+		if plan, tied = Select(Home(paths.MainCheckout(dir)), worktree, drafts, commits); plan == "" {
+			if len(tied) > 0 {
+				fmt.Fprintf(w, "plans: ambiguous, %d plans match equally (%s); nothing annotated\n", len(tied), baseNames(tied))
+			} else {
+				fmt.Fprintln(w, "plans: no plan owns these files; nothing to tick")
+			}
+			return nil
+		}
+	} else if abs, err := filepath.Abs(plan); err == nil && slices.Contains(drafts, abs) {
+		return fmt.Errorf("%s mirrors an unapproved draft; approve it before ticking", plan)
+	}
+	results, err := TickCommits(plan, commits, dryRun)
+	if err != nil {
+		return err
+	}
+	verb, base := "ticked", strings.TrimSuffix(filepath.Base(plan), ".md")
+	if dryRun {
+		verb = "would tick"
+	}
+	for _, r := range results {
+		if len(r.Ticked) > 0 {
+			fmt.Fprintf(w, "plans: %s %s (%s) in %s\n", verb, strings.Join(r.Ticked, "; "), r.Sha, base)
+		}
+		if len(r.Partial) > 0 {
+			fmt.Fprintf(w, "plans: partly landed %s (%s) in %s\n", strings.Join(r.Partial, "; "), r.Sha, base)
+		}
+	}
+	if len(results) == 0 {
+		fmt.Fprintf(w, "plans: %d commits, nothing to tick in %s\n", len(commits), base)
+	}
+	return nil
+}
+
+// baseNames joins the plan file names without their extension.
+func baseNames(ps []string) string {
+	names := make([]string, len(ps))
+	for i, p := range ps {
+		names[i] = strings.TrimSuffix(filepath.Base(p), ".md")
+	}
+	return strings.Join(names, ", ")
 }

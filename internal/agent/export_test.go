@@ -1,15 +1,7 @@
 package agent
 
 import (
-	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
-)
-
-var (
-	// VendorTargetNote exposes Schema.targetNote to the external parity test (which imports launch).
-	VendorTargetNote = func(req RunOptions, name string) (providers.Target, bool, string, error) {
-		return schemaFor(name).targetNote(req)
-	}
 )
 
 // SetChain and KeepCaller let the agent_test batch tests build a Prepared with a routed chain.

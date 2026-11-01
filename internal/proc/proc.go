@@ -4,16 +4,19 @@ package proc
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"syscall"
 	"testing"
 )
 
-// SpawnDetached starts bin+args in its own session, output on out (nil = discarded), never waited on.
+// SpawnDetached starts bin+args in its own session, output on out (nil = discarded), reaped in a goroutine.
 // Background(): the spawned process outlives this call by design, so there is nothing to cancel.
 func SpawnDetached(bin string, args []string, dir string, out *os.File, extraEnv ...string) bool {
 	if IsSelfUnderTest(bin) {
@@ -75,4 +78,16 @@ func RunForwarding(bin string, argv, env []string, stdin io.Reader, stdout, stde
 		return ee.ExitCode(), nil
 	}
 	return 0, err
+}
+
+// Argv returns pid's argv via /proc on Linux (NUL-split), falling back to `ps -o command=` split on spaces.
+func Argv(pid int) ([]string, error) {
+	if raw, err := os.ReadFile(fmt.Sprintf("/proc/%d/cmdline", pid)); err == nil {
+		return strings.Split(strings.TrimRight(string(raw), "\x00"), "\x00"), nil
+	}
+	out, err := exec.CommandContext(context.Background(), "ps", "-o", "command=", "-p", strconv.Itoa(pid)).Output()
+	if err != nil {
+		return nil, err
+	}
+	return strings.Fields(string(out)), nil
 }

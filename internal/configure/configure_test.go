@@ -322,7 +322,8 @@ func assertConfigureArgv(t *testing.T, log string, commands ...[]string) {
 	}
 	var want strings.Builder
 	for _, args := range commands {
-		want.WriteString(strings.Join(args, "\n") + "\n\n")
+		want.WriteString(strings.Join(args, "\n"))
+		want.WriteString("\n\n")
 	}
 	if string(raw) != want.String() {
 		t.Errorf("command argv = %q, want %q", raw, want.String())

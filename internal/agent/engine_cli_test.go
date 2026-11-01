@@ -3,12 +3,21 @@ package agent
 import (
 	"context"
 	"errors"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/paths/pathstest"
+	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/vault"
+	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
 // attach per engine: codex folds the file inline (stdin has no live-read channel). gemini (agy)
@@ -136,5 +145,104 @@ func TestHeartbeatLogsWhenQuiet(t *testing.T) {
 	defer mu.Unlock()
 	if len(got) == 0 || got[0] != "heartbeat" {
 		t.Errorf("log kinds = %v, want a heartbeat", got)
+	}
+}
+
+func TestVendorIsolationCaps(t *testing.T) {
+	for name, want := range map[string][3]Level{
+		"codex": {Native, Native, None}, "opencode": {None, Native, None}, "gemini": {None, None, Native}} {
+		c := newCLIEngine(name).Caps()
+		if got := [3]Level{c.NoPersist, c.SafeMode, c.DebugFile}; got != want {
+			t.Errorf("%s caps = %v, want %v", name, got, want)
+		}
+	}
+}
+
+// vendorTargetBase honors the request's model alias; ResolveVendorTarget always returns the session's opus alias.
+func TestVendorTargetBaseDiffersFromResolveTargetOnTier(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	vaulttest.Use(t)
+	reg, err := providers.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	sel, err := providers.Select(reg, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rt, _, err := schemaFor("codex").ResolveTarget(reg, sel, false)
+	if err != nil {
+		t.Fatalf("ResolveTarget: %v", err)
+	}
+	bt, _, _, _, err := schemaFor("codex").targetBase(RunOptions{Prompt: "p", Model: "haiku"})
+	if err != nil {
+		t.Fatalf("vendorTargetBase: %v", err)
+	}
+	if rt.Model == bt.Model {
+		t.Errorf("expected the alias to differ, both %q", rt.Model)
+	}
+	if want := bt.Provider.Models["haiku"]; bt.Model != want {
+		t.Errorf("base model = %q, want the haiku alias %q", bt.Model, want)
+	}
+}
+
+// followedBy reports whether args holds flag immediately followed by val.
+func followedBy(args []string, flag, val string) bool {
+	for i := 0; i+1 < len(args); i++ {
+		if args[i] == flag && args[i+1] == val {
+			return true
+		}
+	}
+	return false
+}
+
+// codex gets -c instructions / developer_instructions and a strict --output-schema file that is gone after the run.
+func TestCodexRunFlagsAndSchemaFileCleanup(t *testing.T) {
+	srv := httptest.NewServer(http.NotFoundHandler())
+	defer srv.Close()
+	registry(t, srv)
+	vaulttest.Put(t, vault.Overlay, "providers", fmt.Sprintf(`{"providers":{"openai":{"toai":{"protocol":"responses","base_url":%q,"auth":{"type":"none"},"models":{"opus":"gpt-x"}}}}}`, srv.URL+"/v1"))
+	dir := t.TempDir()
+	argvFile, capture := filepath.Join(dir, "codex.argv"), filepath.Join(dir, "schema.cap")
+	// help prints no --json: codexHasJSON is cached per process and must not flip for other tests
+	body := `cat >/dev/null
+if [ "$1" = exec ] && [ "$2" = --help ]; then exit 0; fi
+printf '%s\n' "$@" > '` + argvFile + `'
+prev=
+for a in "$@"; do
+  if [ "$prev" = --output-schema ]; then cp "$a" '` + capture + `'; printf '%s\n' "$a" > '` + capture + `.path'; ls -l "$a" | cut -c1-10 > '` + capture + `.mode'; fi
+  prev=$a
+done
+echo '{"type":"item.completed","item":{"id":"i","type":"agent_message","text":"ok"}}'`
+	pathstest.FakeVendor(t, "codex", body)
+	_, err := newCLIEngine("codex").Run(context.Background(), RunOptions{Prompt: "task", Provider: "toai", Tools: true,
+		SystemPrompt: `be "terse"`, AppendSystemPrompt: "APP", OutputSchema: `{"type":"object","properties":{"a":{"type":"string"}}}`}, Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(argvFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	args := strings.Split(strings.TrimSuffix(string(raw), "\n"), "\n")
+	if !followedBy(args, "-c", `instructions="be \"terse\""`) || !followedBy(args, "-c", `developer_instructions="APP"`) {
+		t.Errorf("argv %q lacks the -c instructions overrides", args)
+	}
+	if args[0] != "exec" || !slices.Contains(args, "--output-schema") {
+		t.Errorf("argv %q: want exec first and --output-schema", args)
+	}
+	schema, err := os.ReadFile(capture)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(schema), `"additionalProperties":false`) || !strings.Contains(string(schema), `"required":["a"]`) {
+		t.Errorf("schema handed to codex = %s", schema)
+	}
+	if mode, _ := os.ReadFile(capture + ".mode"); strings.TrimSpace(string(mode)) != "-rw-------" {
+		t.Errorf("schema file mode = %q, want -rw-------", mode)
+	}
+	path, _ := os.ReadFile(capture + ".path")
+	if _, err := os.Stat(strings.TrimSpace(string(path))); !os.IsNotExist(err) {
+		t.Errorf("schema temp file %s survived the run (err=%v)", path, err)
 	}
 }

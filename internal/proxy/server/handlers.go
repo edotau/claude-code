@@ -14,9 +14,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/edotau/claude-code/internal/buildver"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/proxy"
+	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/vault"
 )
 
@@ -206,7 +206,7 @@ func authHint(p *providers.Provider) string {
 
 func (r *Router) health(w http.ResponseWriter) {
 	w.Header().Set(proxy.PIDHeader, strconv.Itoa(os.Getpid())) // lets a new router identify and replace this one
-	w.Header().Set(proxy.HeaderBuild, buildver.Version())
+	w.Header().Set(proxy.HeaderBuild, textutil.BuildVersion())
 	w.Header().Set(proxy.HeaderConfig, proxy.ConfigID())
 	w.Header().Set(proxy.HeaderSessions, strconv.Itoa(r.sessions.count()))
 	w.Header().Set(proxy.HeaderInflight, strconv.FormatInt(r.inflight.Load(), 10))

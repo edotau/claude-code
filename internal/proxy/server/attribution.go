@@ -7,9 +7,9 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/edotau/claude-code/internal/buildver"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/proxy"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 const (
@@ -31,7 +31,7 @@ func (r *Router) attribute(h http.Header, in *http.Request, p *providers.Provide
 
 // userAgent is "claude-code/<version>" plus the sanitized agent name when the client sent one.
 func userAgent(agent string) string {
-	v := buildver.Version()
+	v := textutil.BuildVersion()
 	if v == "(devel)" {
 		v = "devel"
 	}

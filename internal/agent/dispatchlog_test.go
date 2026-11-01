@@ -1,19 +1,25 @@
 package agent
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"github.com/edotau/claude-code/internal/paths"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
+	"unicode/utf8"
 
+	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/schemas"
+	"github.com/edotau/claude-code/internal/shapes"
 )
 
 // A record saves as running, finishes with its outcome, loads by prefix, and the log prunes the oldest.
@@ -399,5 +405,310 @@ func TestDispatchRecordSchemaStampsNewAndRejectsNewer(t *testing.T) {
 	}
 	if n := len(RecentRecords(10)); n != 2 {
 		t.Errorf("RecentRecords = %d, want 2 (old + new)", n)
+	}
+}
+
+func TestPrintDispatchLogPreviewCutsOnRuneBoundary(t *testing.T) {
+	// Given a prompt of 4-byte runes longer than the preview; When the log prints; Then the cut line is valid UTF-8
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	rec := NewRecord("codex", RunOptions{Prompt: strings.Repeat("😀", 100)}, time.Now())
+	rec.Status = "ok"
+	if err := rec.Save(); err != nil {
+		t.Fatal(err)
+	}
+	var out string
+	var outSb420 strings.Builder
+	for _, r := range RecentRecords(20) {
+		outSb420.WriteString(r.LogLine())
+	}
+	out += outSb420.String()
+	if !utf8.ValidString(out) {
+		t.Fatalf("output is not valid UTF-8: %q", out)
+	}
+	if !strings.Contains(out, "😀…") {
+		t.Errorf("output lacks a truncated preview ending in …:\n%s", out)
+	}
+}
+
+// Two batches (separate processes in effect) stamping the same millisecond never share a record id or file.
+func TestReserveIsExclusiveAcrossBatches(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	now := time.Now()
+	const n = 8
+	ids := make([]string, n)
+	var wg sync.WaitGroup
+	for i := range n {
+		wg.Go(func() {
+			ids[i] = ClaimRecord("codex", RunOptions{Prompt: "p"}, now).ID // the one allocator every dispatch path uses
+		})
+	}
+	wg.Wait()
+	seen := map[string]bool{}
+	for _, id := range ids {
+		if seen[id] {
+			t.Fatalf("record id %s handed out twice: %v", id, ids)
+		}
+		seen[id] = true
+		if _, err := os.Stat(filepath.Join(paths.DispatchDir(), id+".json")); err != nil {
+			t.Errorf("record %s has no claimed file: %v", id, err)
+		}
+	}
+}
+
+// A reserved record is a complete running record from its first byte, so a concurrent prune keeps it.
+func TestReservedRecordSurvivesPrune(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	old := dispatchKeep
+	dispatchKeep = 1
+	t.Cleanup(func() { dispatchKeep = old })
+	dir := paths.DispatchDir()
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	done := Record{Schema: DispatchSchema, ID: "99991231T000000.000-zz", Agent: "zz", Status: "ok"}
+	if err := done.Save(); err != nil {
+		t.Fatal(err)
+	}
+	rec := ClaimRecord("aa", RunOptions{Prompt: "p"}, time.Now())
+	pruneDispatches(dir) // lands between reserve and Save
+	if _, err := os.Stat(filepath.Join(dir, rec.ID+".json")); err != nil {
+		t.Errorf("the reserved record was pruned before Save: %v", err)
+	}
+}
+
+const evSecret = "AKIAIOSFODNN7EXAMPLE"
+
+// emitScript is a fake vendor body that drains stdin then prints each NDJSON line on stdout.
+func emitScript(lines ...string) string {
+	var b strings.Builder
+	b.WriteString("cat > /dev/null\n")
+	for _, l := range lines {
+		b.WriteString("printf '%s\\n' '" + l + "'\n")
+	}
+	return b.String()
+}
+
+// loggedRun runs fn under a WithLog (or, for a job run, WithLogEvents) ctx and returns the closed log's content.
+func loggedRun(t *testing.T, jobMode bool, fn func(ctx context.Context)) string {
+	t.Helper()
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("HOME", t.TempDir())
+	path := filepath.Join(t.TempDir(), "d.log")
+	sink := NewLogSink(path)
+	ctx := WithLog(context.Background(), sink)
+	if jobMode {
+		ctx = WithLogEvents(context.Background(), sink)
+	}
+	fn(ctx)
+	sink.Close()
+	return readLog(t, path)
+}
+
+func TestLogEventOpenCodeFormatted(t *testing.T) {
+	r, err := Lookup("opencode")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("OPENCODE_API_KEY", "test-key")
+	var out strings.Builder
+	log := loggedRun(t, false, func(ctx context.Context) {
+		pathstest.FakeVendor(t, "opencode", emitScript(
+			`{"type":"text","sessionID":"ses_A","part":{"text":"hello AWS_SECRET=`+evSecret+`"}}`,
+			`{"type":"step_finish","sessionID":"ses_A","part":{"tokens":{"input":3,"output":2}}}`))
+		if _, err := r.Run(ctx, RunOptions{Prompt: "p", WorkDir: t.TempDir()}, NewTextSink(&out)); err != nil {
+			t.Fatalf("Run: %v", err)
+		}
+	})
+	if out.String() != "hello AWS_SECRET="+evSecret {
+		t.Errorf("caller stream = %q", out.String())
+	}
+	// step_finish may or may not log a result line; the assistant line is exact and any extra line is formatted.
+	lines := strings.Split(strings.TrimRight(log, "\n"), "\n")
+	if lines[0] != "▸ assistant: hello AWS_SECRET=REDACTED" || len(lines) > 2 {
+		t.Errorf("log lines = %q, want the assistant line first", lines)
+	}
+	if len(lines) == 2 && !strings.HasPrefix(lines[1], "▸ result:") {
+		t.Errorf("second log line = %q, want a '▸ result:' line", lines[1])
+	}
+	if strings.Contains(log, evSecret) || strings.Contains(log, `{"`) {
+		t.Errorf("log leaks the secret or raw JSON:\n%s", log)
+	}
+}
+
+// The plain-text vendor path (codex etc.) tees stdout via teeWriter: a job carrier must not tee it, a plain
+// WithLog still must, and both keep feeding stderr/event lines.
+func TestLogEventJobModeNoRawStdoutTee(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		job     bool
+		wantRaw bool
+	}{{"job carrier", true, false}, {"plain WithLog", false, true}} {
+		t.Run(tc.name, func(t *testing.T) {
+			var caller strings.Builder
+			log := loggedRun(t, tc.job, func(ctx context.Context) {
+				if stderrLogFrom(ctx) == nil {
+					t.Fatal("stderrLogFrom lost the sink")
+				}
+				w := TeeWriter(ctx, &caller)
+				_, _ = io.WriteString(w, "raw-stdout-answer\n")
+				logEvent(ctx, "result", "ev-line")
+			})
+			if caller.String() != "raw-stdout-answer\n" {
+				t.Errorf("caller stream = %q", caller.String())
+			}
+			if got := strings.Contains(log, "raw-stdout-answer"); got != tc.wantRaw {
+				t.Errorf("raw stdout in log = %v, want %v:\n%s", got, tc.wantRaw, log)
+			}
+			if !strings.Contains(log, "▸ result: ev-line") {
+				t.Errorf("event line missing:\n%s", log)
+			}
+		})
+	}
+}
+
+// readLog reads path, failing the test on error.
+func readLog(t *testing.T, path string) string {
+	t.Helper()
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile(%s): %v", path, err)
+	}
+	return string(b)
+}
+
+// TestLogSinkModeAppendRedact: the log is 0600, a second sink appends, and a secret split across Writes is redacted.
+func TestLogSinkModeAppendRedact(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "job.log")
+	s1 := NewLogSink(path)
+	_, _ = s1.Stream().Write([]byte("first\n"))
+	s1.Close()
+
+	fi, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("Stat: %v", err)
+	}
+	if mode := fi.Mode().Perm(); mode != 0o600 {
+		t.Errorf("log mode = %o, want 600", mode)
+	}
+
+	token := "ant-api03-abcdefghijklmnopqrstuvwxyz0123456789"
+	line := "key=sk-" + token + "\n"
+	if shapes.Redact(line) == line {
+		t.Fatalf("shapes.Redact(%q) left it unchanged; test has no teeth", line)
+	}
+	s2 := NewLogSink(path)
+	w := s2.Stream()
+	_, _ = w.Write([]byte("key=sk-"))
+	_, _ = w.Write([]byte(token))
+	_, _ = w.Write([]byte("\n"))
+	s2.Close()
+
+	got := readLog(t, path)
+	if strings.Contains(got, token) {
+		t.Errorf("log leaks the raw token: %q", got)
+	}
+	if want := "first\n" + shapes.Redact(line); got != want {
+		t.Errorf("log = %q, want %q", got, want)
+	}
+}
+
+// TestLogSinkStdoutByteIdentical: a sink must not change what the caller's stdout receives.
+func TestLogSinkStdoutByteIdentical(t *testing.T) {
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "fake")
+	script := "#!/bin/sh\nprintf 'alpha\\nbeta\\n'\necho oops >&2\nprintf 'gamma\\nno-newline'\n"
+	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	run := func(ctx context.Context) []byte {
+		t.Helper()
+		var buf bytes.Buffer
+		cmd, _ := ChildCmd(ctx, bin, nil, nil, "", "", nil, true)
+		cmd.Stdout = TeeWriter(ctx, &buf)
+		if err := cmd.Run(); err != nil {
+			t.Fatalf("run fake: %v", err)
+		}
+		return buf.Bytes()
+	}
+	plain := run(context.Background())
+	logPath := filepath.Join(dir, "job.log")
+	sink := NewLogSink(logPath)
+	teed := run(WithLog(context.Background(), sink))
+	sink.Close()
+
+	if !bytes.Equal(plain, teed) {
+		t.Errorf("stdout differs with a sink:\nplain %q\nteed  %q", plain, teed)
+	}
+	if want := "alpha\nbeta\ngamma\nno-newline"; string(plain) != want {
+		t.Errorf("stdout = %q, want %q", plain, want)
+	}
+	log := readLog(t, logPath)
+	for _, l := range []string{"alpha\n", "beta\n", "gamma\n", "no-newline\n", "oops\n"} {
+		if !strings.Contains(log, l) {
+			t.Errorf("log %q missing %q", log, l)
+		}
+	}
+}
+
+// TestLogSinkPartialLineFlushedOnClose: an unterminated last line waits for Close, which adds the newline.
+func TestLogSinkPartialLineFlushedOnClose(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "job.log")
+	s := NewLogSink(path)
+	_, _ = s.Stream().Write([]byte("whole\npartial"))
+	if got := readLog(t, path); got != "whole\n" {
+		t.Errorf("log before Close = %q, want %q", got, "whole\n")
+	}
+	s.Close()
+	if got := readLog(t, path); got != "whole\npartial\n" {
+		t.Errorf("log after Close = %q, want %q", got, "whole\npartial\n")
+	}
+}
+
+// TestLogSinkLazyCreate: NewLogSink alone creates no file; the first Stream does.
+func TestLogSinkLazyCreate(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "job.log")
+	s := NewLogSink(path)
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("Stat before Stream err = %v, want not-exist", err)
+	}
+	s.Stream()
+	if _, err := os.Stat(path); err != nil {
+		t.Errorf("Stat after Stream: %v", err)
+	}
+	s.Close()
+}
+
+// TestLogSinkConcurrentStreamsNoInterleave: two streams written concurrently keep every log line whole.
+func TestLogSinkConcurrentStreamsNoInterleave(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "job.log")
+	s := NewLogSink(path)
+	const n = 500
+	want := map[string]bool{}
+	var wg sync.WaitGroup
+	for _, name := range []string{"stdout", "stderr"} {
+		w := s.Stream()
+		for i := range n {
+			want[fmt.Sprintf("%s line %d %s", name, i, strings.Repeat(name[3:], 20))] = true
+		}
+		wg.Go(func() {
+			for i := range n {
+				l := fmt.Sprintf("%s line %d %s\n", name, i, strings.Repeat(name[3:], 20))
+				_, _ = w.Write([]byte(l[:len(l)/2])) // split each line across two Writes
+				_, _ = w.Write([]byte(l[len(l)/2:]))
+			}
+		})
+	}
+	wg.Wait()
+	s.Close()
+
+	lines := strings.Split(strings.TrimSuffix(readLog(t, path), "\n"), "\n")
+	if len(lines) != 2*n {
+		t.Fatalf("log has %d lines, want %d", len(lines), 2*n)
+	}
+	for _, l := range lines {
+		if !want[l] {
+			t.Fatalf("log line %q is not a whole expected line", l)
+		}
+		delete(want, l)
 	}
 }

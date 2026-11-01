@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agent/job"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
@@ -41,7 +42,7 @@ func cmdAgentsJob(verb string, args []string) int {
 		fs.Usage()
 		return 2
 	}
-	rec, err := agent.Find(pos[0])
+	rec, err := job.Find(pos[0])
 	if err != nil {
 		return fail("agents %s: %v", verb, err)
 	}
@@ -54,7 +55,7 @@ func cmdAgentsJob(verb string, args []string) int {
 	case "tail":
 		return agentsTail(rec, *format, *follow, cwd)
 	}
-	rec, err = agent.CancelJob(context.Background(), rec.Agent, cwd, rec.ID)
+	rec, err = job.CancelJob(context.Background(), rec.Agent, cwd, rec.ID)
 	if err != nil {
 		return fail("agents cancel: %v", err)
 	}
@@ -73,7 +74,7 @@ func cmdAgentsJob(verb string, args []string) int {
 }
 
 func agentsStatus(rec agent.Record, format, cwd string) int {
-	rows, err := agent.Status(context.Background(), rec.Agent, cwd, rec.ID, true)
+	rows, err := job.Status(context.Background(), rec.Agent, cwd, rec.ID, true)
 	if err != nil {
 		return fail("agents status: %v", err)
 	}
@@ -94,9 +95,9 @@ func agentsTail(rec agent.Record, format string, follow bool, cwd string) int {
 	defer stop()
 	var err error
 	if format == helptext.JSON {
-		rec, err = agent.TailEvents(ctx, rec, follow, os.Stdout)
+		rec, err = job.TailEvents(ctx, rec, follow, os.Stdout)
 	} else {
-		rec, err = agent.Tail(ctx, rec.Agent, cwd, rec.ID, follow, os.Stdout)
+		rec, err = job.Tail(ctx, rec.Agent, cwd, rec.ID, follow, os.Stdout)
 	}
 	if err != nil {
 		return fail("agents tail: %v", err)
@@ -105,7 +106,7 @@ func agentsTail(rec agent.Record, format string, follow bool, cwd string) int {
 }
 
 func agentsResult(rec agent.Record, format, cwd string) int {
-	rec, log, err := agent.JobResult(context.Background(), rec.Agent, cwd, rec.ID)
+	rec, log, err := job.JobResult(context.Background(), rec.Agent, cwd, rec.ID)
 	if err != nil {
 		return fail("agents result: %v", err)
 	}

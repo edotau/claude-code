@@ -7,6 +7,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/edotau/claude-code/internal/models"
@@ -136,21 +137,19 @@ func (l hubDispatch) Run(ctx context.Context, req agent.RunOptions, sink agent.S
 	}
 	env = append(env, req.Env...) // --env goes last so it wins
 	cctx := ctx
-	var onFirstByte func()
-	var cancel context.CancelFunc
+	var onFirstByte, onStep func()
 	if l.firstOutput > 0 {
-		var cc context.CancelCauseFunc
-		cctx, cc = context.WithCancelCause(ctx)
-		cancel = func() { cc(nil) }
-		timer := time.AfterFunc(l.firstOutput, func() { cc(agent.ErrStalled) })
-		onFirstByte = func() { timer.Stop() }
-		defer timer.Stop()
-		defer cancel()
+		var stop func()
+		cctx, onFirstByte, onStep, stop = armFirstOutput(ctx, l.firstOutput)
+		defer stop()
 	}
 	host := newHookHost(req)
-	argv = host.before(argv, h.Prompt)
+	argv, err = host.before(argv, h.Prompt)
+	if err != nil {
+		return res, &agent.Error{Kind: agent.KindFatal, Agent: l.agent, Err: err}
+	}
 	cmd, tail := agent.ChildCmd(cctx, bin, argv, env, req.WorkDir, "", req.KeepEnv, true)
-	out, runErr := agent.RunEventStream(cctx, l.agent, cmd, tail, sink, host.parser(), onFirstByte)
+	out, runErr := agent.RunEventStream(cctx, l.agent, cmd, tail, sink, host.parser(onStep), onFirstByte)
 	defer func() { host.after(res) }()
 	res.Answer, res.Usage, res.Transport = out.Answer, out.Usage, out.Transport
 	if out.SessionID != "" {
@@ -160,6 +159,22 @@ func (l hubDispatch) Run(ctx context.Context, req agent.RunOptions, sink agent.S
 		return res, &agent.Error{Kind: agent.KindFatal, Agent: l.agent, Err: agent.ErrStalled}
 	}
 	return res, runErr
+}
+
+// armFirstOutput is the stall watchdog: cctx is cancelled with agent.ErrStalled if nothing real streams within d.
+// firstByte disarms it for good; renew restarts the window (a step_start shows the model is working) until then.
+func armFirstOutput(ctx context.Context, d time.Duration) (cctx context.Context, firstByte, renew, stop func()) {
+	cctx, cc := context.WithCancelCause(ctx)
+	timer := time.AfterFunc(d, func() { cc(agent.ErrStalled) })
+	var disarmed atomic.Bool
+	firstByte = func() { disarmed.Store(true); timer.Stop() }
+	renew = func() {
+		if !disarmed.Load() {
+			timer.Reset(d)
+		}
+	}
+	stop = func() { timer.Stop(); cc(nil) }
+	return cctx, firstByte, renew, stop
 }
 
 // resolveModel: "" takes provider's opus alias; an alias name maps through provider's table; anything else (a routed

@@ -13,47 +13,6 @@ import (
 	"github.com/edotau/claude-code/internal/worktree"
 )
 
-func scrubGitEnv(t *testing.T) {
-	t.Helper()
-	for _, key := range []string{
-		"GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE",
-		"GIT_OBJECT_DIRECTORY", "GIT_PREFIX", "GIT_CEILING_DIRECTORIES",
-	} {
-		value, ok := os.LookupEnv(key)
-		if !ok {
-			continue
-		}
-		if err := os.Unsetenv(key); err != nil {
-			t.Fatalf("unset %s: %v", key, err)
-		}
-		t.Cleanup(func() {
-			if err := os.Setenv(key, value); err != nil {
-				t.Errorf("restore %s: %v", key, err)
-			}
-		})
-	}
-}
-
-// gitRepoCLI makes a fresh git repo with one commit, env wired so every git invocation has an identity.
-func gitRepoCLI(t *testing.T) string {
-	t.Helper()
-	scrubGitEnv(t)
-	dir := t.TempDir()
-	run := func(args ...string) {
-		cmd := exec.Command("git", args...)
-		cmd.Dir = dir
-		cmd.Env = append(os.Environ(),
-			"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t.com",
-			"GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t.com")
-		if out, err := cmd.CombinedOutput(); err != nil {
-			t.Fatalf("git %v: %v: %s", args, err, out)
-		}
-	}
-	run("init", "-q", "-b", "main")
-	run("commit", "--allow-empty", "-q", "-m", "init")
-	return dir
-}
-
 func TestCmdWorktreeNoArgsAndUnknownSub(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	repo := gitRepoCLI(t)
@@ -1035,5 +994,47 @@ func TestCmdWorktreeMergeVerifyPipelineFailureFailsGate(t *testing.T) {
 	}
 	if _, err := os.Stat(wt); err != nil {
 		t.Fatalf("worktree must survive a failed pipeline verify: %v", err)
+	}
+}
+
+// TestWorktreeListJSONWriteError: a failed JSON write on stdout must exit non-zero, not succeed with partial output.
+func TestWorktreeListJSONWriteError(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Chdir(gitRepoCLI(t))
+
+	code, _, _ := captureOutput(t, func() int {
+		return cmdWorktree([]string{"create", "test-wt"})
+	})
+	if code != 0 {
+		t.Fatalf("create worktree failed: code=%d", code)
+	}
+
+	closedStdout(t)
+	code = cmdWorktree([]string{"list", "--format", "json"})
+	if code == 0 {
+		t.Errorf("worktree list --format json on closed stdout: exit %d, want non-zero", code)
+	}
+}
+
+// TestWorktreeListEmptyJSONIsArray: an empty worktree list prints [] rather than null so consumers can iterate.
+func TestWorktreeListEmptyJSONIsArray(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Chdir(gitRepoCLI(t))
+
+	code, out, _ := captureOutput(t, func() int {
+		return cmdWorktree([]string{"list", "--format", "json"})
+	})
+	if code != 0 {
+		t.Fatalf("list empty: code=%d", code)
+	}
+	if strings.TrimSpace(out) == "null" {
+		t.Errorf("empty list produced null, want []")
+	}
+	var entries []map[string]any
+	if err := json.Unmarshal([]byte(out), &entries); err != nil {
+		t.Errorf("invalid JSON: %v, output=%q", err, out)
+	}
+	if entries == nil {
+		t.Errorf("JSON unmarshaled to nil, want empty slice []")
 	}
 }
