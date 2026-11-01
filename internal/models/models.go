@@ -285,7 +285,7 @@ func containsAny(s string, subs ...string) bool {
 
 func inCatalog(canonical string) bool { _, ok := Lookup(canonical); return ok }
 
-// Effort tiers; the strings equal the hooks package's TierLow/Medium/High.
+// Effort tiers; router.EffortTierSignal returns them.
 const (
 	EffortLow    = "low"
 	EffortMedium = "medium"
