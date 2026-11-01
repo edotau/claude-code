@@ -3,71 +3,48 @@ package proxy
 import (
 	"fmt"
 	"io"
-	"maps"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"slices"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
-// fakeGate is an in-memory route store behind agent.Gate; the real quota.json is never touched.
-type fakeGate struct {
-	mu      sync.Mutex
-	marks   map[string]string
-	cleared []string
-}
+// routeState is the real router auth-mark store under a scratch CLAUDE_CONFIG_DIR; the real quota.json is never touched.
+type routeState struct{ t *testing.T }
 
-func useGate(t *testing.T) *fakeGate {
+func useGate(t *testing.T) *routeState {
 	t.Helper()
-	g := &fakeGate{marks: map[string]string{}}
-	prev := Gate
-	Gate = AuthGate{
-		Account: func(p string) string { return "provider:" + p },
-		Mark: func(a, reason string) error {
-			g.mu.Lock()
-			defer g.mu.Unlock()
-			g.marks[a] = reason
-			return nil
-		},
-		Clear: func(a string) error {
-			g.mu.Lock()
-			defer g.mu.Unlock()
-			delete(g.marks, a)
-			g.cleared = append(g.cleared, a)
-			return nil
-		},
-		Marked: func() func(string, time.Time) (string, bool) {
-			g.mu.Lock()
-			snap := map[string]string{}
-			maps.Copy(snap, g.marks)
-			g.mu.Unlock()
-			return func(a string, _ time.Time) (string, bool) { r, ok := snap[a]; return r, ok }
-		},
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	return &routeState{t}
+}
+
+func (g *routeState) marked(provider string) (string, bool) {
+	return router.LoadState().AuthMarked(router.ProviderAccount(provider), time.Now())
+}
+
+func (g *routeState) premark(provider string) {
+	g.t.Helper()
+	if err := router.MarkAuth(router.ProviderAccount(provider), "auth rejected"); err != nil {
+		g.t.Fatal(err)
 	}
-	t.Cleanup(func() { Gate = prev })
-	return g
 }
 
-func (g *fakeGate) marked(provider string) (string, bool) {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	r, ok := g.marks["provider:"+provider]
-	return r, ok
+func (g *routeState) unmark(provider string) {
+	g.t.Helper()
+	if err := router.ClearAuth(router.ProviderAccount(provider)); err != nil {
+		g.t.Fatal(err)
+	}
 }
 
-func (g *fakeGate) premark(provider string) {
-	g.mu.Lock()
-	g.marks["provider:"+provider] = "auth rejected"
-	g.mu.Unlock()
-}
+func (g *routeState) count() int { return len(router.LoadState()) }
 
 // setupRouter is setup with a keyring-backed vault (sealed secrets work) and a hook to tweak the router.
 func setupRouter(t *testing.T, overlay string, tweak func(*Router)) *httptest.Server {
@@ -132,8 +109,8 @@ func TestTransientRefreshFailureMovesOnWithoutMarking(t *testing.T) {
 	if resp.StatusCode != 200 || up2.hits.Load() != 1 {
 		t.Fatalf("status %d up2 hits %d, want a plain failover", resp.StatusCode, up2.hits.Load())
 	}
-	if len(g.marks) != 0 {
-		t.Fatalf("a transient failure condemned an account: %v", g.marks)
+	if g.count() != 0 {
+		t.Fatalf("a transient failure condemned an account: %d", g.count())
 	}
 }
 
@@ -170,10 +147,8 @@ func TestAllTargetsMarkedKeepsTheLadder(t *testing.T) {
 		t.Fatalf("status %d up1 hits %d, want the first target tried even though every target is marked", resp.StatusCode, up1.hits.Load())
 	}
 	// With only the first marked, the router skips it and uses the unmarked fallback.
-	g.mu.Lock()
-	delete(g.marks, "provider:up2")
-	g.mu.Unlock()
-	srv2 := setupRouter(t, failoverOverlay(up1.URL, up2.URL), nil)
+	srv2 := setupRouter(t, failoverOverlay(up1.URL, up2.URL), nil) // a fresh config dir: re-mark there
+	g.premark("up1")
 	if resp := post(t, srv2.URL+"/p/up1/v1/messages", `{"model":"m1-opus"}`, nil); resp.StatusCode != 200 || up1.hits.Load() != 1 || up2.hits.Load() != 1 {
 		t.Fatalf("status %d hits up1=%d up2=%d, want the marked up1 skipped", resp.StatusCode, up1.hits.Load(), up2.hits.Load())
 	}
@@ -213,14 +188,11 @@ func TestClearOnSuccessLiftsOwnMark(t *testing.T) {
 	deadline := time.Now().Add(2 * time.Second)
 	for {
 		_, ok := g.marked("up1")
-		g.mu.Lock()
-		cleared := slices.Clone(g.cleared)
-		g.mu.Unlock()
-		if !ok && len(cleared) == 1 && cleared[0] == "provider:up1" {
+		if !ok {
 			break
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("mark not cleared on success: cleared=%v", cleared)
+			t.Fatal("mark not cleared on success")
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
@@ -235,8 +207,8 @@ func TestSuccessNeverClearsAMarkThisProcessDidNotSet(t *testing.T) {
 	if resp := post(t, srv.URL+"/p/up1/v1/messages", `{"model":"m1"}`, nil); resp.StatusCode != 200 {
 		t.Fatalf("status %d", resp.StatusCode)
 	}
-	if _, ok := g.marked("up1"); !ok || len(g.cleared) != 0 {
-		t.Fatalf("a foreign mark was cleared: marks=%v cleared=%v", g.marks, g.cleared)
+	if _, ok := g.marked("up1"); !ok {
+		t.Fatal("a foreign mark was cleared")
 	}
 }
 
@@ -286,8 +258,8 @@ func TestInvalidToken400OnOtherProviderIsRelayedAsIs(t *testing.T) {
 	if resp.StatusCode != 400 || !strings.Contains(body(t, resp), "Invalid Token") {
 		t.Fatalf("status %d, want the upstream 400 relayed", resp.StatusCode)
 	}
-	if up.hits.Load() != 1 || len(g.marks) != 0 {
-		t.Fatalf("hits %d marks %v: a non-Databricks 400 must not remint or condemn", up.hits.Load(), g.marks)
+	if up.hits.Load() != 1 || g.count() != 0 {
+		t.Fatalf("hits %d marks %d: a non-Databricks 400 must not remint or condemn", up.hits.Load(), g.count())
 	}
 }
 

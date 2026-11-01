@@ -27,6 +27,7 @@ import (
 	"github.com/edotau/claude-code/internal/buildver"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/tokenledger"
 	"github.com/edotau/claude-code/internal/translate"
 	"github.com/edotau/claude-code/internal/vault"
@@ -40,17 +41,6 @@ const (
 	authStateTTL    = 5 * time.Second    // router.LoadState cache: quota.json is read at most once per TTL, not per request
 	oauthBeta       = "oauth-2025-04-20" // the anthropic-beta Claude Code sends with a subscription bearer token
 )
-
-// AuthGate is the router package's auth marks, injected by the CLI so proxy does not import router; zero is disabled.
-type AuthGate struct {
-	Account func(provider string) string                              // router.ProviderAccount
-	Mark    func(account, reason string) error                        // router.MarkAuth
-	Clear   func(account string) error                                // router.ClearAuth
-	Marked  func() func(account string, now time.Time) (string, bool) // router.LoadState().AuthMarked, freshly loaded
-}
-
-// Gate is wired once by the serve path (internal/cli/gateway.go proxyServe).
-var Gate AuthGate
 
 // idleTimeout cuts a wedged upstream stream; a var so tests need not wait 10 minutes.
 var idleTimeout = 10 * time.Minute
@@ -76,7 +66,7 @@ type Router struct {
 	cred     map[string]credResult // provider name → cached providers.CredentialPresent, TTL credTTL
 	credGen  map[string]int        // provider name → generation, bumped on invalidate so a stale in-flight probe never resurrects it
 
-	authState func(account string, now time.Time) (string, bool) // cached Gate.Marked() lookup for attempts
+	authState func(account string, now time.Time) (string, bool) // cached router.LoadState().AuthMarked lookup for attempts
 	authAt    time.Time                                          // when authState was loaded
 	marked    map[string]bool                                    // provider names this process marked auth-dead: cleared on their next success
 	oauthTok  string                                             // cached vault CLAUDE_CODE_OAUTH_TOKEN (present results only), for the passthrough fallback
@@ -334,13 +324,10 @@ func (r *Router) attempts(reg *providers.Registry, target providers.Target, clie
 
 // withoutAuthMarked drops targets whose provider has a live auth mark; when that empties the ladder it is kept whole.
 func (r *Router) withoutAuthMarked(out []providers.Target) []providers.Target {
-	if Gate.Marked == nil {
-		return out
-	}
 	marked, now := r.authMarks(), r.now()
 	kept := make([]providers.Target, 0, len(out))
 	for _, t := range out {
-		if _, ok := marked(Gate.Account(t.Provider.Name), now); !ok {
+		if _, ok := marked(router.ProviderAccount(t.Provider.Name), now); !ok {
 			kept = append(kept, t)
 		}
 	}
@@ -355,17 +342,14 @@ func (r *Router) authMarks() func(string, time.Time) (string, bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if now := r.now(); r.authState == nil || now.Sub(r.authAt) >= authStateTTL {
-		r.authState, r.authAt = Gate.Marked(), now
+		r.authState, r.authAt = router.LoadState().AuthMarked, now
 	}
 	return r.authState
 }
 
 // condemn records a provider as auth-dead in the route state; best-effort, the caller moves on regardless.
 func (r *Router) condemn(p *providers.Provider, v providers.AuthVerdict) {
-	if Gate.Mark == nil {
-		return
-	}
-	if err := Gate.Mark(Gate.Account(p.Name), "auth "+string(v)+": "+authHint(p)); err != nil {
+	if err := router.MarkAuth(router.ProviderAccount(p.Name), "auth "+string(v)+": "+authHint(p)); err != nil {
 		fmt.Fprintf(r.log, "proxy: mark %s auth-dead: %v\n", p.Name, err)
 		return
 	}
@@ -384,8 +368,8 @@ func (r *Router) clearOnSuccess(name string, status int) {
 	was := r.marked[name]
 	delete(r.marked, name)
 	r.mu.Unlock()
-	if was && Gate.Clear != nil {
-		_ = Gate.Clear(Gate.Account(name)) // best-effort: the TTL backstop expires a missed clear
+	if was {
+		_ = router.ClearAuth(router.ProviderAccount(name)) // best-effort: the TTL backstop expires a missed clear
 	}
 }
 
