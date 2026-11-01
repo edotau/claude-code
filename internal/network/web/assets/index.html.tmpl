@@ -31,11 +31,11 @@
   @media (max-width: 600px) { .agent-row > .row > .muted { display: none; } }
   .col-status { width: 4.8rem; }
   .id-tag { background: #441d3d; padding: 0 0.3rem; border-radius: 4px; font-size: 0.72rem; cursor: copy; }
-  .col-leg { width: min(22rem, 58vw); }
+  .col-dispatch { width: min(22rem, 58vw); }
   .glyph { display: inline-block; width: 1.1em; }
   .agent-row:hover { background: #734469; }
   .activity { font-size: 0.78rem; color: #729fcf; margin-top: 0.1rem; }
-  .leg { font-size: 0.78rem; margin: 0.1rem 0 0 0.5rem; color: #cfc6cd; }
+  .dispatch { font-size: 0.78rem; margin: 0.1rem 0 0 0.5rem; color: #cfc6cd; }
   .linklike { background: none; border: none; color: #729fcf; width: auto; padding: 0; margin: 0; font-weight: 400; cursor: pointer; }
   #detailEvents { white-space: pre-wrap; font-family: ui-monospace, monospace; font-size: 0.78rem; max-height: 40vh; overflow: auto; margin: 0.4rem 0 0; }
   label { display: block; font-size: 0.82rem; color: #cfc6cd; margin: 0.5rem 0 0.2rem; }
@@ -223,12 +223,12 @@ function renderActivity(a) {
   return '<div class="activity">' + escapeHTML(text) + '</div>';
 }
 
-// renderLeg mirrors internal/agenttree/render.go's formatLeg: "↳ codex gpt-6-astra running 2m14s".
-function renderLeg(l) {
+// renderDispatch mirrors internal/agenttree/render.go's formatDispatch: "↳ codex gpt-6-astra running 2m14s".
+function renderDispatch(l) {
   const name = l.fallback ? escapeHTML(l.fallback) + '→' + escapeHTML(l.agent) : escapeHTML(l.agent);
-  let line = '<span class="col col-leg">↳ ' + name + ' ' + escapeHTML(l.model || '') + '</span>' + statusCol(l.status) + idTag(l.id) + ' ' + escapeHTML(l.duration || '');
+  let line = '<span class="col col-dispatch">↳ ' + name + ' ' + escapeHTML(l.model || '') + '</span>' + statusCol(l.status) + idTag(l.id) + ' ' + escapeHTML(l.duration || '');
   if (l.fallback) line += ' ⚠ fallback';
-  return '<div class="leg">' + line + '</div>';
+  return '<div class="dispatch">' + line + '</div>';
 }
 
 function renderSubagents(subs, sessionId) {
@@ -238,7 +238,7 @@ function renderSubagents(subs, sessionId) {
       '<div class="row"><span><span class="col col-agent"><span class="glyph">' + statusGlyph(s.status) + '</span>' + escapeHTML(s.type || s.id) + '</span>' + statusCol(s.status) + idTag(s.id) + '</span>' +
       '<span class="muted">' + escapeHTML(s.lastTool || '') + '</span></div>' +
       renderActivity(s.activity) +
-      (s.legs || []).map(renderLeg).join('') +
+      (s.dispatches || []).map(renderDispatch).join('') +
       '</div>';
   }).join('') + '</div>';
 }
@@ -300,7 +300,7 @@ function renderSnapshot(snap) {
   html += '<div class="muted">' + escapeHTML(snap.model || '') + (snap.effort ? ' effort=' + escapeHTML(snap.effort) : '') + '</div>';
   html += renderActivity(snap.activity);
   (snap.filesEdited || []).forEach(function (f) { html += '<div class="muted">edited ' + escapeHTML(f) + '</div>'; });
-  (snap.legs || []).forEach(function (l) { html += renderLeg(l); });
+  (snap.dispatches || []).forEach(function (l) { html += renderDispatch(l); });
   if (snap.result) html += '<div class="muted">result: ' + escapeHTML(snap.result) + '</div>';
   const lines = (snap.events || []).map(eventLine).join('\n');
   html += '<pre id="detailEvents">' + escapeHTML(lines) + '</pre>';

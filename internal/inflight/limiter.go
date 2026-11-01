@@ -18,7 +18,7 @@ import (
 var lockWait = 2 * time.Second
 
 // DispatchPrefix starts the id of an `ask --batch` dispatch marker; its owner is the batch process.
-const DispatchPrefix = "leg."
+const DispatchPrefix = "dispatch."
 
 // Claim asks for N slots (default 1) on Account for one id owned by Owner; Transcript feeds the prune.
 type Claim struct {

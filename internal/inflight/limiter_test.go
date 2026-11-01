@@ -52,7 +52,7 @@ func TestTryClaimBurst(t *testing.T) {
 	var wg sync.WaitGroup
 	for i := range 30 {
 		wg.Go(func() {
-			if ok, _ := TryClaim(Claim{Owner: owner, ID: "leg." + strconv.Itoa(i), Account: "acct-a"}, lim); ok {
+			if ok, _ := TryClaim(Claim{Owner: owner, ID: "dispatch." + strconv.Itoa(i), Account: "acct-a"}, lim); ok {
 				wins.Add(1)
 			}
 		})
@@ -76,13 +76,13 @@ func TestTryClaimBurst(t *testing.T) {
 	}
 
 	// Per-account isolation: a second account has its own headroom.
-	ok, _ := TryClaim(Claim{Owner: owner, ID: "leg.b1", Account: "acct-b"}, lim)
+	ok, _ := TryClaim(Claim{Owner: owner, ID: "dispatch.b1", Account: "acct-b"}, lim)
 	if !ok {
 		t.Fatal("second account refused despite a full first account")
 	}
 	// Total binds across accounts: 12 + 1 live, Total 13 leaves no room.
 	tight := Limits{Base: Base, Total: 13}
-	if ok, _ := TryClaim(Claim{Owner: owner, ID: "leg.b2", Account: "acct-b"}, tight); ok {
+	if ok, _ := TryClaim(Claim{Owner: owner, ID: "dispatch.b2", Account: "acct-b"}, tight); ok {
 		t.Fatal("claim admitted past Total even though the per-account cap had room")
 	}
 }
@@ -151,7 +151,7 @@ func TestDispatchOwnerLiveness(t *testing.T) {
 		t.Skipf("cannot spawn a probe process: %v", err)
 	}
 	dead := cmd.Process.Pid
-	deadName := markerName(dead, "leg.x")
+	deadName := markerName(dead, "dispatch.x")
 	if err := os.WriteFile(filepath.Join(Dir(), deadName), []byte("a"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -166,7 +166,7 @@ func TestDispatchOwnerLiveness(t *testing.T) {
 		t.Error("dead owner's dispatch marker survived a TryClaim prune")
 	}
 
-	oldName := markerName(owner, "leg.old")
+	oldName := markerName(owner, "dispatch.old")
 	if err := os.WriteFile(filepath.Join(Dir(), oldName), []byte("a"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -175,7 +175,7 @@ func TestDispatchOwnerLiveness(t *testing.T) {
 		t.Fatal(err)
 	}
 	if got := Count().Per["a"]; got != 2 {
-		t.Fatalf("live owner's dispatch marker past TTL not counted: Per[a] = %d, want 2 (probe + leg.old)", got)
+		t.Fatalf("live owner's dispatch marker past TTL not counted: Per[a] = %d, want 2 (probe + dispatch.old)", got)
 	}
 }
 

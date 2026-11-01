@@ -592,10 +592,10 @@ func TestRenderActivityEscapesToolAndText(t *testing.T) {
 }
 
 func TestRenderLegEscapesVendorFields(t *testing.T) {
-	fn := extractJSFunc(t, templateSource(t), "renderLeg")
+	fn := extractJSFunc(t, templateSource(t), "renderDispatch")
 	for _, field := range []string{"l.fallback", "l.agent", "l.model", "l.duration"} {
 		if !strings.Contains(fn, "escapeHTML("+field) {
-			t.Errorf("renderLeg interpolates %s without escapeHTML(...): regression risk for vendor-reported agent/model/fallback text\n%s", field, fn)
+			t.Errorf("renderDispatch interpolates %s without escapeHTML(...): regression risk for vendor-reported agent/model/fallback text\n%s", field, fn)
 		}
 	}
 }
