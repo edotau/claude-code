@@ -54,11 +54,10 @@ func prepareCopilotRegistry(ctx context.Context, t providers.Target) (*copilotRe
 	}
 	rp := *t.Provider
 	rp.Headers = map[string]string{proxy.AgentHeader: "copilot"} // the router adds the provider's own headers upstream
-	cr := copilotBuildRegistry(t.Provider.Name, &rp, eps, base)
+	cr, ref, err := copilotSelect(ctx, reg, t.Provider, &rp, eps, base, copilotChoice([]string{models.Strip1M(t.Model)}))
 	if cr.Note != "" {
 		eventLogFor(ctx).emit("note", cr.Note)
 	}
-	ref, err := cr.Select(copilotChoice([]string{models.Strip1M(t.Model)}))
 	if err != nil {
 		return nil, fmt.Errorf("copilot: %w", err)
 	}
@@ -313,16 +312,21 @@ func (r CopilotRegistry) find(s string, miss error) (string, error) {
 // CopilotEndpoint is one serving endpoint copilot can reach; Tested marks endpoints on the curated menu.
 type CopilotEndpoint struct {
 	providers.ModelInfo
-	Tested bool
+	Tested   bool
+	Snapshot bool // read from a sealed snapshot, so it can lag the workspace
 }
 
-// discoverCopilotEndpoints lists the resolved Databricks profile p's READY chat endpoints, marking the curated-menu ones.
+// discoverCopilotEndpoints reads the resolved Databricks profile p's READY chat endpoints, marking the curated-menu ones.
 func discoverCopilotEndpoints(ctx context.Context, reg *providers.Registry, p *providers.Provider) ([]CopilotEndpoint, error) {
-	infos, err := providers.ListModels(ctx, reg, p)
+	infos, snapshot, err := copilotModelInfos(ctx, reg, p)
 	if err != nil {
 		return nil, err
 	}
-	return copilotServingChatRows(infos, providers.OpencodeMenu()), nil
+	rows := copilotServingChatRows(infos, providers.OpencodeMenu())
+	for i := range rows {
+		rows[i].Snapshot = snapshot
+	}
+	return rows, nil
 }
 
 // copilotServingChatRows keeps READY llm/v1/chat endpoints in order, marking those on menu (with or without "databricks-").
