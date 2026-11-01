@@ -78,6 +78,15 @@ func modelRow(d *dialog, name string) *billingRow {
 // copilotListModelsFn is the injectable seam over copilotsdk.ListModels; tests fake the SDK catalog.
 var copilotListModelsFn = copilotsdk.ListModels
 
+// CopilotModels lists the copilot CLI's live catalog as the profile copilot runs as (its record profile).
+func CopilotModels(ctx context.Context) ([]copilotsdk.Model, error) {
+	bin, err := paths.AgentBin("copilot")
+	if err != nil {
+		return nil, fmt.Errorf("copilot CLI not found: %w", err)
+	}
+	return copilotListModelsFn(ctx, copilotsdk.CatalogOptions(bin, agent.CopilotToken()))
+}
+
 // copilotCatalog fetches the copilot SDK model catalog once per dialog and caches it; err is cached too,
 // so a prior failure doesn't retry (and re-spawn the runtime) on every row of the same dialog.
 func copilotCatalog(d *dialog) ([]copilotsdk.Model, error) {
@@ -85,14 +94,9 @@ func copilotCatalog(d *dialog) ([]copilotsdk.Model, error) {
 		return d.copilotCatalog, d.copilotCatalogErr
 	}
 	d.copilotCatalogLoaded = true
-	bin, err := paths.AgentBin("copilot")
-	if err != nil {
-		d.copilotCatalogErr = err
-		return nil, err
-	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	d.copilotCatalog, d.copilotCatalogErr = copilotListModelsFn(ctx, copilotsdk.CatalogOptions(bin, agent.CopilotToken()))
+	d.copilotCatalog, d.copilotCatalogErr = CopilotModels(ctx)
 	return d.copilotCatalog, d.copilotCatalogErr
 }
 
