@@ -9,9 +9,7 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/memory"
-	"github.com/edotau/claude-code/internal/memory/bank"
 	"github.com/edotau/claude-code/internal/memstore"
-	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
@@ -20,9 +18,6 @@ var memoryArchivePage = helptext.Page{
 	About: "Audit the native MEMORY.md store's injected cost (no writes); --apply moves named\n" +
 		"topics to or from the archive, or --split N trims MEMORY.md to N pointer lines.",
 }
-
-// dupeThreshold is the Jaccard overlap at which two topic files are reported as near-duplicates.
-const dupeThreshold = 0.45
 
 // archiveBoolFlags/archiveValueFlags are this verb's flags, for hoistArchiveFlags to recognize.
 var (
@@ -76,147 +71,11 @@ func cmdMemoryArchive(args []string) int {
 	if code, done := helptext.Parse(fs, args); done {
 		return code
 	}
-	dir := memstore.NativeDir(memstore.Root(*repo))
-	names := fs.Args()
-
-	switch {
-	case *dupes:
-		return reportNativeDupes(dir)
-	case *split >= 0:
-		return runSplitNative(dir, *split, *apply)
-	case len(names) == 0:
-		return reportNativeStats(dir)
-	}
-
-	verb, run := "archive", memory.ArchiveNative
-	if *restore {
-		verb, run = "restore", memory.RestoreNative
-	}
-	res, err := run(dir, names, *apply)
+	err = memory.ArchiveReport(os.Stdout, os.Stderr, memory.ArchiveReportOptions{Dir: memstore.NativeDir(memstore.Root(*repo)),
+		Names: fs.Args(), Apply: *apply, Restore: *restore, Dupes: *dupes, Split: *split})
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "memory archive:", err)
 		return 1
 	}
-	moved := res.Archived
-	if *restore {
-		moved = res.Restored
-	}
-	for _, s := range res.Skipped {
-		fmt.Fprintln(os.Stderr, "skipped:  ", s)
-	}
-	if len(moved) == 0 {
-		fmt.Println("nothing to " + verb)
-		return 0
-	}
-	if !*apply {
-		fmt.Printf("dry-run: would %s %d entr%s: %s\n", verb, len(moved), entrySuffix(len(moved)), strings.Join(moved, ", "))
-		fmt.Println("re-run with --apply to move them")
-		return 0
-	}
-	fmt.Printf("%sd %d entr%s -> %s\n", verb, len(moved), entrySuffix(len(moved)), memory.NativeArchiveDir(dir))
-	for _, n := range moved {
-		fmt.Println("  ", n)
-	}
-	if !*restore {
-		fmt.Println("pointer lines recorded verbatim; `memory archive --restore <name> --apply` puts one back")
-	}
 	return 0
-}
-
-// runSplitNative trims MEMORY.md to keepLines pointer lines; dry run reports the count only.
-func runSplitNative(dir string, keepLines int, apply bool) int {
-	if !apply {
-		st, err := memory.NativeStats(dir)
-		if err != nil {
-			fmt.Fprintln(os.Stderr, "memory archive:", err)
-			return 1
-		}
-		if st.IndexEntries <= keepLines {
-			fmt.Printf("dry-run: %s already has %d pointer line%s (cap %d) — nothing to split\n",
-				bank.NativeIndexFile, st.IndexEntries, textutil.Plural(st.IndexEntries), keepLines)
-			return 0
-		}
-		fmt.Printf("dry-run: would move %d of %d pointer lines to %s\n",
-			st.IndexEntries-keepLines, st.IndexEntries, bank.NativeSearchableFile)
-		fmt.Println("re-run with --apply to move them")
-		return 0
-	}
-	moved, err := memory.SplitNativeIndex(dir, keepLines)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "memory archive:", err)
-		return 1
-	}
-	if moved == 0 {
-		fmt.Println("nothing to split")
-		return 0
-	}
-	fmt.Printf("moved %d pointer line%s from %s to %s\n", moved, textutil.Plural(moved), bank.NativeIndexFile, bank.NativeSearchableFile)
-	return 0
-}
-
-// reportNativeStats prints what the native store costs every session, plus its integrity faults.
-func reportNativeStats(dir string) int {
-	st, err := memory.NativeStats(dir)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "memory archive:", err)
-		return 1
-	}
-	fmt.Printf("store:     %s\n", dir)
-	fmt.Printf("index:     %s — %d entr%s, %s (injected EVERY session)\n", bank.NativeIndexFile,
-		st.IndexEntries, entrySuffix(st.IndexEntries), byteSize(st.IndexBytes))
-	fmt.Printf("topics:    %d file%s, %s (read only on recall)\n", st.TopicFiles, textutil.Plural(st.TopicFiles), byteSize(st.TopicBytes))
-	if st.IndexEntries > bank.NativeCoreCap {
-		fmt.Printf("over cap:  %d pointer line%s over the %d-line injected core — `--split %d --apply` moves the rest to %s\n",
-			st.IndexEntries-bank.NativeCoreCap, textutil.Plural(st.IndexEntries-bank.NativeCoreCap), bank.NativeCoreCap,
-			bank.NativeCoreCap, bank.NativeSearchableFile)
-	}
-	if len(st.Dangling) > 0 {
-		fmt.Printf("dangling:  %d pointer%s with no topic file: %s\n", len(st.Dangling), textutil.Plural(len(st.Dangling)),
-			strings.Join(st.Dangling, ", "))
-	}
-	if len(st.Orphans) > 0 {
-		fmt.Printf("orphans:   %d topic file%s no pointer reaches: %s\n", len(st.Orphans), textutil.Plural(len(st.Orphans)),
-			strings.Join(st.Orphans, ", "))
-	}
-	fmt.Println("archive one: claude-code memory archive <name>... [--apply]   dupes: --dupes   trim: --split N --apply")
-	return 0
-}
-
-// reportNativeDupes prints near-duplicate clusters and the survivor each collapses into.
-func reportNativeDupes(dir string) int {
-	clusters, err := memory.NativeDupes(dir, dupeThreshold)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "memory archive:", err)
-		return 1
-	}
-	if len(clusters) == 0 {
-		fmt.Printf("no topic files overlap at or above %.0f%%\n", dupeThreshold*100)
-		return 0
-	}
-	fmt.Printf("%d near-duplicate cluster%s (Jaccard >= %.0f%%); the survivor is the longest body:\n",
-		len(clusters), textutil.Plural(len(clusters)), dupeThreshold*100)
-	for _, c := range clusters {
-		fmt.Printf("  keep %s  (%.0f%%)\n", c.Keep, c.Score*100)
-		for _, l := range c.Losers {
-			fmt.Printf("       archive %s\n", l)
-		}
-	}
-	fmt.Println("fold any detail the survivor lacks into it FIRST, then archive the rest")
-	return 0
-}
-
-// entrySuffix/plural keep the output grammatical without a pluralization dependency.
-func entrySuffix(n int) string {
-	if n == 1 {
-		return "y"
-	}
-	return "ies"
-}
-
-// byteSize renders a size in the units the rest of the audit output uses.
-func byteSize(n int64) string {
-	if n < 1024 {
-		return fmt.Sprintf("%d B", n)
-	}
-	return fmt.Sprintf("%.1f KiB", float64(n)/1024)
 }
