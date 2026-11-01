@@ -231,7 +231,7 @@ func (s cliSignin) Login(ctx context.Context, in io.Reader, out io.Writer) error
 
 // runLoginCLI runs the agent CLI's own login on the caller's terminal (list args, no shell).
 func runLoginCLI(ctx context.Context, name string, args []string, in io.Reader, out io.Writer) error {
-	bin, err := paths.VendorBin(name)
+	bin, err := paths.AgentBin(name)
 	if err != nil {
 		return err
 	}

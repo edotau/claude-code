@@ -234,7 +234,7 @@ func TestVendorArgvMissingVendor(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	argv := []string{"copilot", "login"}
 	original := slices.Clone(argv)
-	_, wantErr := paths.VendorBin("copilot")
+	_, wantErr := paths.AgentBin("copilot")
 	if wantErr == nil {
 		t.Fatal("expected missing vendor")
 	}

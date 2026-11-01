@@ -40,7 +40,7 @@ type OpencodeIntegration struct {
 
 // opencodeOutput is the exec seam for the installed opencode CLI (stdout only); tests replace it.
 var opencodeOutput = func(ctx context.Context, args ...string) ([]byte, error) {
-	bin, err := paths.VendorBin("opencode")
+	bin, err := paths.AgentBin("opencode")
 	if err != nil {
 		return nil, err
 	}
@@ -64,7 +64,7 @@ var opencodeVersionRe = regexp.MustCompile(`(\d+)\.\d+`)
 
 // opencodeBinKey identifies the installed opencode binary (path+size+mtime), so a change or upgrade re-probes.
 func opencodeBinKey() string {
-	p, err := paths.VendorBin("opencode")
+	p, err := paths.AgentBin("opencode")
 	if err != nil {
 		return ""
 	}
@@ -297,7 +297,7 @@ func OpencodeLogins() []string {
 // integration. An unresolved bin/opencode (missing or a broken link) is an error, never a bare "opencode"
 // PATH guess, so callers report the same "not installed / broken link" message as everywhere else.
 func OpencodeLogoutArgv(id, credID string) ([]string, error) {
-	bin, err := paths.VendorBin("opencode")
+	bin, err := paths.AgentBin("opencode")
 	if err != nil {
 		return nil, err
 	}
@@ -312,7 +312,7 @@ func OpencodeSwitchArgv(id, credID string) ([]string, error) {
 	if OpencodeMajor() < 2 {
 		return nil, nil
 	}
-	bin, err := paths.VendorBin("opencode")
+	bin, err := paths.AgentBin("opencode")
 	if err != nil {
 		return nil, err
 	}

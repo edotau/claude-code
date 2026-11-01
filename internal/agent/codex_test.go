@@ -301,8 +301,8 @@ func codexAccountJSON(accessToken string) string {
 // chatgptAccessToken is an unsigned JWT carrying a chatgpt_account_id claim, matching the plans_test fixtures.
 var chatgptAccessToken = unsignedJWT(`{"https://api.openai.com/auth":{"chatgpt_account_id":"acc_1"}}`)
 
-// noVendorBin points BinDir() (paths.VendorBin reads $CLAUDE_CONFIG_DIR/bin, not $PATH) at an empty dir so
-// paths.VendorBin("codex") never finds a real CLI to shell out to.
+// noVendorBin points BinDir() (paths.AgentBin reads $CLAUDE_CONFIG_DIR/bin, not $PATH) at an empty dir so
+// paths.AgentBin("codex") never finds a real CLI to shell out to.
 func noVendorBin(t *testing.T) {
 	t.Helper()
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())

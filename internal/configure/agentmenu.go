@@ -237,7 +237,7 @@ func codexMenu(d *dialog) agentMenu {
 
 // codexKeyLogin feeds key to `codex login --with-api-key` on stdin; tests replace it.
 var codexKeyLogin = func(key string) error {
-	bin, err := paths.VendorBin("codex")
+	bin, err := paths.AgentBin("codex")
 	if err != nil {
 		return err
 	}

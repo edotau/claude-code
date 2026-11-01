@@ -23,25 +23,25 @@ func TestVendorBinCases(t *testing.T) {
 		{
 			name: "unknown name",
 			run: func(t *testing.T) {
-				_, err := paths.VendorBin("unknown")
+				_, err := paths.AgentBin("unknown")
 				if err == nil || !strings.Contains(err.Error(), `unknown vendor "unknown"`) {
-					t.Fatalf("VendorBin(unknown) error = %v, want unknown vendor message", err)
+					t.Fatalf("AgentBin(unknown) error = %v, want unknown vendor message", err)
 				}
 			},
 		},
 		{
 			name: "missing gemini names path and install tool",
 			run: func(t *testing.T) {
-				_, err := paths.VendorBin("gemini")
+				_, err := paths.AgentBin("gemini")
 				if err == nil {
-					t.Fatal("VendorBin(gemini) succeeded for missing binary")
+					t.Fatal("AgentBin(gemini) succeeded for missing binary")
 				}
 				for _, fragment := range []string{
 					filepath.Join(paths.BinDir(), "gemini"),
 					"--tools=agy",
 				} {
 					if !strings.Contains(err.Error(), fragment) {
-						t.Errorf("VendorBin(gemini) error %q does not contain %q", err, fragment)
+						t.Errorf("AgentBin(gemini) error %q does not contain %q", err, fragment)
 					}
 				}
 			},
@@ -57,10 +57,10 @@ func TestVendorBinCases(t *testing.T) {
 				if err := os.Symlink(filepath.Join(t.TempDir(), "missing"), link); err != nil {
 					t.Fatal(err)
 				}
-				_, err := paths.VendorBin("codex")
+				_, err := paths.AgentBin("codex")
 				for _, fragment := range []string{"broken link", link} {
 					if err == nil || !strings.Contains(err.Error(), fragment) {
-						t.Errorf("VendorBin(codex) error = %v, want substring %q", err, fragment)
+						t.Errorf("AgentBin(codex) error = %v, want substring %q", err, fragment)
 					}
 				}
 			},
@@ -80,10 +80,10 @@ func TestVendorBinCases(t *testing.T) {
 				if err := os.Symlink(self, link); err != nil {
 					t.Fatal(err)
 				}
-				_, err = paths.VendorBin("codex")
+				_, err = paths.AgentBin("codex")
 				for _, fragment := range []string{"retired claude-code shim", link} {
 					if err == nil || !strings.Contains(err.Error(), fragment) {
-						t.Errorf("VendorBin(codex) error = %v, want substring %q", err, fragment)
+						t.Errorf("AgentBin(codex) error = %v, want substring %q", err, fragment)
 					}
 				}
 			},
@@ -103,10 +103,10 @@ func TestVendorBinCases(t *testing.T) {
 				if err := os.Symlink(target, link); err != nil {
 					t.Fatal(err)
 				}
-				_, err := paths.VendorBin("codex")
+				_, err := paths.AgentBin("codex")
 				for _, fragment := range []string{"retired claude-code shim", link} {
 					if err == nil || !strings.Contains(err.Error(), fragment) {
-						t.Errorf("VendorBin(codex) error = %v, want substring %q", err, fragment)
+						t.Errorf("AgentBin(codex) error = %v, want substring %q", err, fragment)
 					}
 				}
 			},
@@ -124,10 +124,10 @@ func TestVendorBinCases(t *testing.T) {
 				if err := os.Chmod(link, 0o644); err != nil {
 					t.Fatal(err)
 				}
-				_, err := paths.VendorBin("codex")
+				_, err := paths.AgentBin("codex")
 				for _, fragment := range []string{"not executable", link} {
 					if err == nil || !strings.Contains(err.Error(), fragment) {
-						t.Errorf("VendorBin(codex) error = %v, want substring %q", err, fragment)
+						t.Errorf("AgentBin(codex) error = %v, want substring %q", err, fragment)
 					}
 				}
 			},
@@ -139,10 +139,10 @@ func TestVendorBinCases(t *testing.T) {
 				if err := os.MkdirAll(link, 0o755); err != nil {
 					t.Fatal(err)
 				}
-				_, err := paths.VendorBin("codex")
+				_, err := paths.AgentBin("codex")
 				for _, fragment := range []string{"not executable", link} {
 					if err == nil || !strings.Contains(err.Error(), fragment) {
-						t.Errorf("VendorBin(codex) error = %v, want substring %q", err, fragment)
+						t.Errorf("AgentBin(codex) error = %v, want substring %q", err, fragment)
 					}
 				}
 			},
@@ -155,8 +155,8 @@ func TestVendorBinCases(t *testing.T) {
 				if got != want {
 					t.Fatalf("FakeVendor path = %q, want %q", got, want)
 				}
-				if resolved, err := paths.VendorBin("codex"); err != nil || resolved != want {
-					t.Fatalf("VendorBin(codex) = %q, %v; want %q, nil", resolved, err, want)
+				if resolved, err := paths.AgentBin("codex"); err != nil || resolved != want {
+					t.Fatalf("AgentBin(codex) = %q, %v; want %q, nil", resolved, err, want)
 				}
 			},
 		},
@@ -166,9 +166,9 @@ func TestVendorBinCases(t *testing.T) {
 				pathstest.FakeVendor(t, "agy", "exit 0")
 				want := filepath.Join(paths.BinDir(), "gemini")
 				for _, name := range []string{"agy", "gemini"} {
-					got, err := paths.VendorBin(name)
+					got, err := paths.AgentBin(name)
 					if err != nil || got != want {
-						t.Errorf("VendorBin(%q) = %q, %v; want %q, nil", name, got, err, want)
+						t.Errorf("AgentBin(%q) = %q, %v; want %q, nil", name, got, err, want)
 					}
 				}
 			},
@@ -191,12 +191,12 @@ func TestVendorBinCases(t *testing.T) {
 				if err := os.Symlink(target, link); err != nil {
 					t.Fatal(err)
 				}
-				got, err := paths.VendorBin("codex")
+				got, err := paths.AgentBin("codex")
 				if err != nil || got != link {
-					t.Fatalf("VendorBin(codex) = %q, %v; want link path %q", got, err, link)
+					t.Fatalf("AgentBin(codex) = %q, %v; want link path %q", got, err, link)
 				}
 				if got == target {
-					t.Fatalf("VendorBin(codex) returned target %q instead of link %q", got, link)
+					t.Fatalf("AgentBin(codex) returned target %q instead of link %q", got, link)
 				}
 			},
 		},
@@ -213,8 +213,8 @@ func TestVendorBinCases(t *testing.T) {
 func TestVendorName(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 
-	if got, ok := paths.VendorName("agy"); !ok || got != "gemini" {
-		t.Fatalf("VendorName(agy) = %q, %t; want gemini, true", got, ok)
+	if got, ok := paths.AgentName("agy"); !ok || got != "gemini" {
+		t.Fatalf("AgentName(agy) = %q, %t; want gemini, true", got, ok)
 	}
 }
 

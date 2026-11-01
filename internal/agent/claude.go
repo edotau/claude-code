@@ -25,7 +25,7 @@ var claudeAgent = claudeEngine{baseEngine{"claude"}}
 
 var _ Engine = claudeAgent
 
-// Available also finds the native installer's versions dir (ClaudeBinary), which the base's VendorBin lookup does not.
+// Available also finds the native installer's versions dir (ClaudeBinary), which the base's AgentBin lookup does not.
 func (claudeEngine) Available() error { _, err := ClaudeBinary(); return err }
 
 func (claudeEngine) Run(ctx context.Context, req RunOptions, sink Sink) (Result, error) {

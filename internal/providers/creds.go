@@ -316,7 +316,7 @@ func ClaudeLoginStatus() (loggedIn bool, plan string) {
 
 // ClaudeLoginProbe is ClaudeLoginStatus with the probe error: err != nil means unknown, not logged out.
 func ClaudeLoginProbe() (loggedIn bool, plan string, err error) {
-	bin, err := paths.VendorBin("claude")
+	bin, err := paths.AgentBin("claude")
 	if err != nil {
 		return false, "", err
 	}

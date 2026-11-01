@@ -39,7 +39,7 @@ func Version(name string) (string, error) {
 	if !ok {
 		return "", fmt.Errorf("unknown agent %q", name)
 	}
-	path, err := paths.VendorBin(name)
+	path, err := paths.AgentBin(name)
 	if err != nil {
 		bin := spec.CLI.Binary
 		if bin == "" {

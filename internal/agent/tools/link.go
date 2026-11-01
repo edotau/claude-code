@@ -28,7 +28,7 @@ type LinkResult struct {
 func LinkResults(names []string, dryRun bool) []LinkResult {
 	var out []LinkResult
 	for _, t := range Tools {
-		bin, ok := paths.VendorName(t.Name)
+		bin, ok := paths.AgentName(t.Name)
 		if !ok || (len(names) > 0 && !slices.Contains(names, t.Name)) {
 			continue
 		}
@@ -80,7 +80,7 @@ func linkOne(t Tool, bin string, dryRun bool) (status, detail string) {
 	case isLink:
 		// no PATH/local-bin candidate: a symlink to a real, executable, non-shim target is the
 		// user's own working link — keep it; only a dangling or shim-pointing link is removed.
-		if _, err := paths.VendorBin(t.Name); err == nil {
+		if _, err := paths.AgentBin(t.Name); err == nil {
 			return "keep", dst + " → " + readlink(dst) + " (existing link)"
 		}
 		if !dryRun {

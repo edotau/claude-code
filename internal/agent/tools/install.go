@@ -354,7 +354,7 @@ func updateClaudeScience(ctx context.Context, w io.Writer, dir string, dryRun bo
 
 // updateAgy runs the installed binary's own updater; agy has no known fresh-install path (Hint covers that).
 func updateAgy(ctx context.Context, w io.Writer, dir string, dryRun bool) error {
-	bin, err := paths.VendorBin("agy")
+	bin, err := paths.AgentBin("agy")
 	if err != nil {
 		bin, err = paths.LookPathReal("agy")
 	}

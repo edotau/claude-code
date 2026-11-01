@@ -20,7 +20,7 @@ import (
 // Seams for tests.
 var (
 	findClaude = ClaudeBinary
-	lookPath   = paths.VendorBin
+	lookPath   = paths.AgentBin
 	selfBinary = SelfBinary
 )
 

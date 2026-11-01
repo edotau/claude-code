@@ -98,7 +98,7 @@ func (b *agyLive) Build(ctx context.Context, req RunOptions) (*exec.Cmd, *TailBu
 		return nil, nil, "", err
 	}
 	areq := p.agyRequest(req)
-	bin, err := paths.VendorBin("agy")
+	bin, err := paths.AgentBin("agy")
 	if err != nil {
 		return nil, nil, "", fmt.Errorf("gemini: %w", err)
 	}

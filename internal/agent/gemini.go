@@ -279,7 +279,7 @@ func agyStdin(r agyRequest) (string, error) {
 // runAgy drives `agy` headless over stream-json: agent_response text deltas stream live, and the
 // result event carries the final answer, usage, conversation id and status.
 func runAgy(ctx context.Context, r agyRequest, sink Sink) (Result, error) {
-	bin, err := paths.VendorBin("agy")
+	bin, err := paths.AgentBin("agy")
 	if err != nil {
 		return Result{}, fmt.Errorf("gemini: %w", err)
 	}
