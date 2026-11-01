@@ -43,6 +43,17 @@ func claudeSettingsRow(d *dialog) homeRow {
 	return homeRow{Name: "claude code", State: detail, Check: "every claude launch", Run: func(d *dialog) { runClaudeSettings(d) }}
 }
 
+// configDirKey is the env section's read-only row: writing it would make claude split off a stray .claude.json.
+const configDirKey = "CLAUDE_CONFIG_DIR"
+
+// withInstallRow appends the install path to the env section's rows; other sections pass through.
+func withInstallRow(section string, rows [][2]string, fields []settings.Field) ([][2]string, []settings.Field) {
+	if section != "env" {
+		return rows, fields
+	}
+	return append(rows, [2]string{configDirKey, paths.ConfigDir() + "  install"}), append(fields, settings.Field{Key: configDirKey})
+}
+
 // settingRow renders one catalog field as a page row: key, then its effective value and source
 // (default|mine), flagging when the live settings.json holds something else. tmpl/ov/live are
 // parsed top-level settings objects; a missing live map (no file yet) never raises the flag.
@@ -116,6 +127,9 @@ func jsonEqual(a, b json.RawMessage) bool {
 // A nil json.RawMessage means remove it from my defaults (drop the overlay key); ok is false on cancel or
 // a parse error (already reported), meaning no change at all.
 func editSetting(d *dialog, f settings.Field, tmplVal json.RawMessage) (json.RawMessage, bool) {
+	if f.Key == configDirKey {
+		return nil, false
+	}
 	if f.Kind == settings.KindBool || f.Kind == settings.KindEnum {
 		return editChoice(d, f, tmplVal)
 	}
@@ -406,6 +420,7 @@ func pageSections(sections []settings.Section, tmpl, cur, live map[string]json.R
 			r, fs := fieldRows(f, tmpl, cur, live)
 			rows, fields = append(rows, r...), append(fields, fs...)
 		}
+		rows, fields = withInstallRow(sec.Name, rows, fields)
 		if len(rows) > 0 {
 			out = append(out, tui.Section{Title: menu.Heading(sec.Name), Rows: rows})
 		}
