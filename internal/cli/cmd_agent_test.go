@@ -285,3 +285,12 @@ func TestVendorTailUnknownIDFails(t *testing.T) {
 		t.Errorf("tail unknown id = exit %d stderr %q, want exit 1 and the \"codex tail:\" prefix", code, stderr)
 	}
 }
+
+// A blurb without a conversion must render verbatim, not with a %!(EXTRA ...) tail.
+func TestAgentSubPageHasNoFormatDebris(t *testing.T) {
+	for verb := range agentSubPages {
+		if about := agentSubPage("codex", verb).About; strings.Contains(about, "%!") || strings.Contains(about, "%s") {
+			t.Errorf("%s about = %q", verb, about)
+		}
+	}
+}

@@ -109,7 +109,11 @@ func firstPositional(pos []string) string {
 // agentSubPage is the help page for `<agent> <verb>`.
 func agentSubPage(name, verb string) helptext.Page {
 	sp := agentSubPages[verb]
-	page := helptext.Page{Usage: "claude-code " + name + " " + sp[0], About: fmt.Sprintf(sp[1], name)}
+	about := sp[1]
+	if strings.Contains(about, "%") {
+		about = fmt.Sprintf(about, name)
+	}
+	page := helptext.Page{Usage: "claude-code " + name + " " + sp[0], About: about}
 	if s, _ := agent.LookupSchema(name); verb == "catalog" {
 		page.Hint = s.CLI.CatalogHint
 	}

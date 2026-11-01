@@ -246,7 +246,7 @@ func TestOpencodeMenuListLive(t *testing.T) {
 	if len(rows) != 2 || rows[0]["live"] != "served" || rows[1]["live"] != "missing" || rows[0]["source"] != "vault" {
 		t.Errorf("rows = %v", rows)
 	}
-	if strings.Contains(stdout+stderr, "ocCheckToken") {
+	if strings.Contains(stdout+stderr, ocCheckToken) {
 		t.Error("token leaked")
 	}
 	_, text, _ := ocMenu(t, "list", "--live", "--profile", "ocfake")
