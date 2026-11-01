@@ -10,16 +10,15 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"sort"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/schemas"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // OpencodeConn is one stored or environment-backed opencode connection; it never carries a credential value.
@@ -60,8 +59,6 @@ var (
 	opencodeAuthIsSet bool
 )
 
-var opencodeVersionRe = regexp.MustCompile(`(\d+)\.\d+`)
-
 // opencodeBinKey identifies the installed opencode binary (path+size+mtime), so a change or upgrade re-probes.
 func opencodeBinKey() string {
 	p, err := paths.AgentBin("opencode")
@@ -98,25 +95,12 @@ func opencodeMajorLocked(key string) int {
 	if err != nil { // a failed probe is not cached: the next call retries rather than pinning 2.x to 1.x
 		return 0
 	}
-	v := ParseOpencodeMajor(string(out))
+	v := textutil.VersionMajor(string(out))
 	opencodeMajorKey, opencodeMajorVal, opencodeMajorSet = key, v, true
 	if v > 0 && strings.Contains(key, "|") {
 		updateOpencodeDiskCache(func(c *opencodeDiskCache) { c.Version = &opencodeDiskVersion{Bin: key, Major: v} })
 	}
 	return v
-}
-
-// ParseOpencodeMajor reads the major from "1.19.3", "v2.0.32" or "opencode 2.0.32"; 0 when none.
-func ParseOpencodeMajor(s string) int {
-	m := opencodeVersionRe.FindStringSubmatch(s)
-	if m == nil {
-		return 0
-	}
-	n, err := strconv.Atoi(m[1])
-	if err != nil {
-		return 0
-	}
-	return n
 }
 
 // OpencodeAuth lists opencode's stored logins, sorted by integration ID: 2.x via `opencode auth list --format

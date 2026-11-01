@@ -11,6 +11,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/textutil"
+
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 )
 
@@ -74,12 +76,12 @@ const v2List = `[
     {"type":"env","name":"GITHUB_TOKEN"}]}
 ]`
 
-func TestParseOpencodeMajor(t *testing.T) {
+func TestVersionMajorOpencode(t *testing.T) {
 	for in, want := range map[string]int{
 		"1.19.3": 1, "2.0.32": 2, "v2.0.32": 2, "opencode 2.1.0\n": 2, "garbage": 0, "": 0,
 	} {
-		if got := ParseOpencodeMajor(in); got != want {
-			t.Errorf("ParseOpencodeMajor(%q) = %d, want %d", in, got, want)
+		if got := textutil.VersionMajor(in); got != want {
+			t.Errorf("VersionMajor(%q) = %d, want %d", in, got, want)
 		}
 	}
 }
