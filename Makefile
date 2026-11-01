@@ -186,7 +186,7 @@ audit-nokeyring:  # (folded into `audit`) re-test vault importers with no keyrin
 	@pkgs=$$($(GO) list -f '{{.ImportPath}} {{join .Imports " "}} {{join .TestImports " "}} {{join .XTestImports " "}}' $(PKGS) \
 		| awk '/internal\/vault( |$$)/ {print $$1}'); \
 		env -u HARNESS_VAULT_KEY -u DBUS_SESSION_BUS_ADDRESS HARNESS_KEYRING=off \
-		$(GO) test -count=1 -timeout $(GO_TEST_TIMEOUT) $$pkgs
+		$(GO) test -timeout $(GO_TEST_TIMEOUT) $$pkgs
 
 .PHONY: fmt
 fmt:  ## gofmt -w every Go file
