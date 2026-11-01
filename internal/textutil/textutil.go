@@ -116,3 +116,14 @@ func Jaccard(a, b map[string]bool) float64 {
 	}
 	return float64(inter) / float64(len(a)+len(b)-inter)
 }
+
+// SplitCSV splits a comma-separated list, trimming blanks and dropping empty entries; nil when none remain.
+func SplitCSV(s string) []string {
+	var out []string
+	for part := range strings.SplitSeq(s, ",") {
+		if part = strings.TrimSpace(part); part != "" {
+			out = append(out, part)
+		}
+	}
+	return out
+}
