@@ -68,7 +68,7 @@ func Sections() ([]Section, error) {
 		}
 		add(name, k)
 	}
-	for _, f := range Catalog {
+	for _, f := range Catalog() {
 		if f.Section != "" {
 			add(f.Section, f.Key)
 		}
