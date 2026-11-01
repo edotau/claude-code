@@ -115,7 +115,7 @@ After a plan is written, before executing it.
 ```markdown
 Agent: <in-context | agent this leaf requests>
 Review plan <PLAN_PATH> against spec <SPEC_PATH> by
-`~/.claude/rules/workflows/master-workflow.md` → Phase 4. Return its verdict first.
+`~/.claude/skills/evaluate-code/references/task-review.md` → Plan review. Return its verdict first.
 You are a read-only terminal reviewer: apply only that procedure and skip any dispatch or mechanical-gate
 steps (the manager ran them); never edit files or dispatch agents (subagents; the `Agent:` request is allowed).
 ```

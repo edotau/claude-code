@@ -45,7 +45,7 @@ Read each when the step needs it, not upfront. Memory pointers arrive in the bri
   `Profile:`), e.g. to spread quota or get another model family; name a `code-worker` fallback in the same phase,
   since an external account can fail to connect back.
 - **`codex`** — review of the drafted plan, dispatched by the caller, not Plan: the checklist is
-  `rules/workflows/master-workflow.md` → Phase 4; the brief is
+  `skills/evaluate-code/references/task-review.md#plan-review`; the brief is
   `~/.claude/skills/subagent-workflows/references/prompts.md#plan-reviewer`.
 - **`Explore` / `gemini`** — wide research before drafting (codebase structure, conventions, a 1M-context
   sweep) when the area is large or unfamiliar.
