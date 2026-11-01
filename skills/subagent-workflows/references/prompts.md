@@ -9,24 +9,24 @@ label rule are in [SKILL.md → Leaf types](../SKILL.md#leaf-types).
 ## Implementer
 
 ```markdown
-Objective: implement Task <N>: <name>.
+Objective: implement <name>: <complete requirements>.
 Agent: <in-context | agent this leaf requests via `claude-code ask --agent <x>`>
-Task: <complete requirements>
+Task: <plan task id; omit with no plan>
 Context: <working directory, files, dependencies, prior decisions>
 Owns: <files>. Do NOT edit others — agents are in this package concurrently.
 Acceptance: <testable outcomes>
 Verify: `<scoped command>`
+Constraints: Tests: a test agent per `rules/standards/testing-guidelines.md` (feature or bug fix only).
+Shared tree: never git stash/checkout/reset/restore; confirm each write with `git diff --stat -- <file>`.
 
 Report NEEDS_CONTEXT before editing if anything is unclear. Implement only this task, minimally, following existing
-patterns; stop rather than guess at a new design decision or scope growth. Tests: a test agent per
-`rules/standards/testing-guidelines.md` (feature or bug fix only). Shared tree: never git stash/checkout/reset/restore; confirm each write with
-`git diff --stat -- <file>`.
+patterns; stop rather than guess at a new design decision or scope growth.
 
 Before a behavior change write TASK: code does X; check expects Y; spec says Z (Y vs Z disagree = stop, report).
 After a defect fix write ISSUE: searched P, found N.
 
 Method: ~/.claude/skills/problem-solving/SKILL.md (Steps 4-6)
-Return: status DONE | DONE_WITH_CONCERNS | NEEDS_CONTEXT | BLOCKED; Ran on: <agent (model) · fallback none|who>; files
+Return: status DONE | DONE_WITH_CONCERNS | NEEDS_CONTEXT | BLOCKED; Ran on: <the quoted `ask: ran on …` line, or `self — <why>`>; files
 changed; verification output; the TASK/ISSUE facts as plain sentences; concerns.
 ```
 
@@ -43,7 +43,7 @@ Links: fetch the ones supplied; after a 404, find the real link by search or sit
 
 Method: ~/.claude/skills/problem-solving/SKILL.md (Steps 0-2)
 Return: each requirement → its evidence (URL or file:line, quoted where load-bearing) or the gap; unresolved items;
-Ran on: <agent (model) · fallback none|who>. Edit nothing.
+Ran on: <the quoted `ask: ran on …` line, or `self — <why>`>. Edit nothing.
 ```
 
 ## Spec Reviewer
@@ -86,7 +86,7 @@ Return:
 - One report block per applied change, in the skill's [File]/[Lines]/[Type]/[Scope]/[Impact]/[Description] format
 - Flagged-not-cut items, each with the assumption you could not finish
 - Behavior gate output, before and after
-- Ran on: <agent (model) · fallback none|who>
+- Ran on: <the quoted `ask: ran on …` line, or `self — <why>`>
 - Status: DONE (applied N, flagged M — N may be 0) | BLOCKED (gate red before you started)
 ```
 
@@ -100,7 +100,7 @@ Load evaluate-code (Skill tool, or read ~/.claude/skills/evaluate-code/SKILL.md)
 performance lens on any hot path touched.
 You are a read-only terminal reviewer: apply only its Lenses and Verdicts — skip its Review a diff scope and
 mechanical-gate steps (the manager ran them); never edit files or dispatch agents (subagents; the `Agent:` request is allowed).
-Task: <summary>
+Objective: review <summary>
 Scope: base <rev>, head <rev>, files <list>
 Simplify report (if one ran; flagged items left on purpose): <report>
 
@@ -129,7 +129,8 @@ context.
 You are a terminal leaf: never dispatch (subagents; the `Agent:` request is allowed), commit, or git
 stash/checkout/reset/restore.
 Agent: <in-context | agent this leaf requests>
-Task: <checklist line, verbatim>. Edit only: <owned files>. Scratch: /tmp/claude-1000/<leaf>; delete it when done.
+Task: <plan task id>
+Objective: <checklist line, verbatim>. Edit only: <owned files>. Scratch: /tmp/claude-1000/<leaf>; delete it when done.
 Done when: <scoped test> exits 0 and <live check> shows <expected>.
 Before a behavior change write TASK: code does X; check expects Y; spec says Z (Y vs Z disagree = stop, report).
 After a defect fix write ISSUE: searched P, found N.

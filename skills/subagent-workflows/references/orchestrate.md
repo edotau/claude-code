@@ -33,7 +33,7 @@ and stop. Skip for one-line fixes or when a scan is already warm this session.
    Omit `## Refined Briefs` without `--refine`.
 2. Run the stages in order. Each agent's prompt: "Read `<stage doc>` and complete the `<section>` section", plus
    that stage's instructions. The stage document is the only context passed between stages. Agents per
-   `rules/workflows/master-workflow.md` → Pipeline Overview.
+   `rules/workflows/master-workflow.md` → the phase table.
 
    | Stage | Writes |
    |---|---|

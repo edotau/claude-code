@@ -21,7 +21,8 @@ paths:
 ## Agent and command files
 
 - `agents/<name>.md` is the single definition, flat, `name:` equal to the stem. Skeleton:
-  `Role · Owns · Knows · Verbs · Hands off to · Procedure · Report contract · Don't` (`##` sections); `description:`
+  `Role · Invocation (agents with a slash entry) · Owns · Knows (when it has on-demand references) · Verbs (when it
+  drives a CLI) · Hands off to · Procedure · Report contract · Don't` (`##` sections); `description:`
   says when to use it. `Knows` lists the references the agent reads and when: make knowledge available, not
   mandatory; nothing loads upfront. Memory needs no entry: the dispatch hook appends recall pointers to every brief.
 - `commands/<name>.md` is a ~10-line launcher: read `$ARGUMENTS`, run the agent/script, relay the report, point at the
