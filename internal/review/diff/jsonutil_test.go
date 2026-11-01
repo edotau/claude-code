@@ -1,6 +1,8 @@
 package diff
 
-import "testing"
+import (
+	"testing"
+)
 
 // Pins Python json.dumps(indent=2) bytes: ensure_ascii (incl. surrogate pairs), no HTML escaping.
 func TestMustIndentJSONEnsureASCII(t *testing.T) {
