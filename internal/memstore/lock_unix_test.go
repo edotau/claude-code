@@ -9,6 +9,13 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/vault"
+)
+
+const (
+	lockedReadTimeout = 100 * time.Millisecond  // shrinks vault.View's lock wait for the test
+	lockedReadBound   = 2500 * time.Millisecond // the ~2s vault.View timeout plus scheduling slack
 )
 
 // TestBankLockPathLocation pins the physical lock file and guards against an accidental ".lock.lock" variant.
@@ -64,5 +71,70 @@ func TestWithBankLockContention(t *testing.T) {
 	}
 	if !ran {
 		t.Fatal("fn must run once the bank lock is released")
+	}
+}
+
+// seedLockedCatalog writes an index.md row whose origin only the catalog can supply.
+func seedLockedCatalog(t *testing.T) Origin {
+	t.Helper()
+	cfg := tempConfig(t)
+	if err := os.MkdirAll(filepath.Join(cfg, "memory", "locked"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	want := Origin{Version: OriginVersion, Key: "locked", Origin: "/src/locked"}
+	row := "- locked — hook · last 2024-01-01 → locked/MEMORY.md" + CatalogOriginComment(want) + "\n"
+	write(t, filepath.Join(cfg, "memory", CatalogFile), "# Memory catalog\n\n## Repos\n\n"+row)
+	return want
+}
+
+// holdVaultFlock takes a real OS LOCK_EX on vault.db, creating the file first, and returns its release.
+func holdVaultFlock(t *testing.T) (release func()) {
+	t.Helper()
+	if err := vault.Update(func(*vault.Tx) error { return nil }); err != nil {
+		t.Fatal(err)
+	}
+	fd, err := syscall.Open(vault.Path(), syscall.O_RDWR, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = syscall.Close(fd) })
+	if err := syscall.Flock(fd, syscall.LOCK_EX); err != nil {
+		t.Fatal(err)
+	}
+	return func() {
+		if err := syscall.Flock(fd, syscall.LOCK_UN); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// TestVaultLockedFallsBackToCatalogThenSkipsRetryFor30s: under a real OS lock, RepoDirs reads index.md, then backs off.
+func TestVaultLockedFallsBackToCatalogThenSkipsRetryFor30s(t *testing.T) {
+	resetVaultRetry(t)
+	t.Cleanup(vault.SetReadLockTimeoutForTest(lockedReadTimeout))
+	want := seedLockedCatalog(t)
+	release := holdVaultFlock(t)
+
+	start := time.Now()
+	entries, err := RepoDirs()
+	elapsed := time.Since(start)
+	if err != nil || len(entries) != 1 || entries[0].Origin.Origin != want.Origin {
+		t.Fatalf("RepoDirs under an external lock = %+v, %v, want the locked entry", entries, err)
+	}
+	if elapsed > lockedReadBound {
+		t.Errorf("RepoDirs under lock took %v, want bounded by the ~2s vault.View timeout", elapsed)
+	}
+
+	start = time.Now()
+	if _, err := RepoDirs(); err != nil {
+		t.Fatal(err)
+	}
+	if again := time.Since(start); again > time.Second {
+		t.Errorf("second call within the 30s backoff took %v, want near-instant (no repeat wait)", again)
+	}
+
+	release() // vault.View would block while locked, so the no-write check has to follow this
+	if _, ok := vaultGet(t, "locked"); ok {
+		t.Error("a locked vault.View must never be followed by a write attempt")
 	}
 }
