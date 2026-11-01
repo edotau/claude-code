@@ -27,7 +27,6 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/secrets"
 	"github.com/edotau/claude-code/internal/settings"
-	"github.com/edotau/claude-code/internal/ui/tui"
 )
 
 // homeRow is one selectable home-page row: name, state, check, and what picking it does.
@@ -259,7 +258,7 @@ func runCustomEnv(d *dialog) {
 			rows = append(rows, [2]string{n, strings.TrimSpace(kind + "  " + shown)})
 		}
 		rows = append(rows, [2]string{"+ New", "NAME, then value, then plain or secret"}, enterRow("save and go back"))
-		idx, err := pickPlain(d, "environment — injected into every launch", rows)
+		idx, err := d.shell().PickPlain("environment — injected into every launch", rows)
 		if err != nil || idx < 0 || idx == len(rows)-1 {
 			return
 		}
@@ -301,7 +300,7 @@ func editCustomEnv(d *dialog, name string) (string, envEdit, bool) {
 		del := wasSecret && confirm(d, "also delete the sealed secret "+name+"?")
 		return name, envEdit{deleteSecret: del}, true
 	}
-	where, err := pickPlain(d, "store "+name+" as", [][2]string{
+	where, err := d.shell().PickPlain("store "+name+" as", [][2]string{
 		{"plain", "value in the vault env"}, {"secret", "value sealed in vault; vault env name = @secret"}})
 	if err != nil || where < 0 {
 		return "", envEdit{}, false
@@ -359,12 +358,9 @@ func saveEnvEdits(d *dialog, edits map[string]envEdit) {
 	d.changed = true
 }
 
-// pickPlain is tui.Pick on the terminal (the list's own Done is its exit, so no Back row), else the numbered prompt.
+// pickPlain is the ui/dialog shell's PickPlain (no Back row on a terminal), for callers outside home.go.
 func pickPlain(d *dialog, title string, rows [][2]string) (int, error) {
-	if isStdinTTY() && d.o.In == os.Stdin {
-		return tui.Pick(title, rows, 0)
-	}
-	return pick(d, title, rows)
+	return d.shell().PickPlain(title, rows)
 }
 
 // rerenderConfigs re-renders settings.json (merge: foreign keys/hooks kept, backup first) and the agent configs;

@@ -51,7 +51,7 @@ func pickAgentProfile(d *dialog, agent, cur string) (bool, error) {
 	for i, n := range names {
 		rows[i] = [2]string{seedLabel(agent, n), curMark(n == cur)}
 	}
-	idx, err := pick(d, displayLabel(agent)+" — profile", rows, max(slices.Index(names, cur), 0))
+	idx, err := d.shell().Pick(displayLabel(agent)+" — profile", rows, max(slices.Index(names, cur), 0))
 	if err != nil || idx < 0 || idx >= len(names) {
 		return false, nil
 	}

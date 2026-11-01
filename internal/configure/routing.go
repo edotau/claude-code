@@ -155,7 +155,7 @@ func editRoutingChoice(d *dialog, f agentconfig.Field, values []string) (string,
 	}
 	resetIdx := len(rows)
 	rows = append(rows, [2]string{"reset to default (" + f.Get(providers.DefaultRouting()) + ")", ""})
-	idx, err := pickPlain(d, f.Key, rows)
+	idx, err := d.shell().PickPlain(f.Key, rows)
 	if err != nil || idx < 0 {
 		return "", false
 	}

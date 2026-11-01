@@ -14,7 +14,7 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/secrets"
-	"github.com/edotau/claude-code/internal/ui/tui"
+	uidialog "github.com/edotau/claude-code/internal/ui/dialog"
 )
 
 const (
@@ -62,7 +62,9 @@ var agentMenus = map[string]func(d *dialog) agentMenu{
 }
 
 // pickAgent is the submenu picker seam; tests replace it.
-var pickAgent = tui.PickBack
+var pickAgent = func(d *dialog, title string, rows [][2]string, start int) (int, error) {
+	return d.shell().Pick(title, rows, start)
+}
 
 // displayLabel is the user-facing name for an agent row: its roster DisplayName, else its own name.
 func displayLabel(name string) string {
@@ -111,7 +113,7 @@ func runAgentMenu(d *dialog, name string, m agentMenu) bool {
 			start = i
 		}
 	}
-	idx, err := pickAgent(title, rows, start)
+	idx, err := pickAgent(d, title, rows, start)
 	if err != nil || idx < 0 {
 		return false
 	}
@@ -406,11 +408,11 @@ func pickCopilotPin(d *dialog, title, key string, choices [][2]string, cur strin
 // prefix); copilot, codex and gemini's Effort rows all share it.
 func pickAgentPin(d *dialog, name, title, key string, choices [][2]string, cur string) bool {
 	rows := make([][2]string, 0, len(choices)+1)
-	rows = append(rows, [2]string{"unset", name + "'s own default" + curMark(cur == "")})
+	rows = append(rows, [2]string{"unset", name + "'s own default" + uidialog.Mark(cur == "")})
 	for _, c := range choices {
-		rows = append(rows, [2]string{c[0], c[1] + curMark(c[1] == cur)})
+		rows = append(rows, [2]string{c[0], c[1] + uidialog.Mark(c[1] == cur)})
 	}
-	idx, err := pick(d, name+" — "+title, rows)
+	idx, err := d.shell().Pick(name+" — "+title, rows)
 	if err != nil || idx < 0 {
 		return false
 	}
@@ -472,7 +474,7 @@ func pickGitHubUser(d *dialog, cur agent.CopilotAuth) bool {
 	}
 	rows = append(rows, [2]string{"gh active", "unpin; follow gh's active account " + bracket(active != "", active, "none")},
 		[2]string{"New sign-in", "gh auth login · adds another account to this list"})
-	idx, err := tui.PickBack("copilot — which GitHub user? (now: "+cur.Label()+")", rows, 0)
+	idx, err := d.shell().Pick("copilot — which GitHub user? (now: "+cur.Label()+")", rows, 0)
 	if err != nil || idx < 0 {
 		return false
 	}
