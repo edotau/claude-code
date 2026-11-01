@@ -7,7 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/edotau/claude-code/internal/agentconfig"
+	"github.com/edotau/claude-code/internal/codex"
 	"io/fs"
 	"maps"
 	"os"
@@ -193,7 +193,7 @@ func registerCodexMCP(path, bin string) error {
 		next = append(append(raw, '\n'), block...)
 	}
 	if len(raw) > 0 {
-		if err := agentconfig.CodexBackup(path, raw, true); err != nil {
+		if err := codex.CodexBackup(path, raw, true); err != nil {
 			return err
 		}
 	}

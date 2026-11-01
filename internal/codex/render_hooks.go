@@ -161,12 +161,12 @@ func renderCodex(reg *providers.Registry, sel providers.Selection, o agent.Rende
 		return false, fmt.Errorf("codex-hooks: %w", err)
 	}
 
-	entries, err := agentconfig.CodexTrustEntries(hooksPath, mergedHooks)
+	entries, err := CodexTrustEntries(hooksPath, mergedHooks)
 	if err != nil {
 		return false, err
 	}
-	next = agentconfig.MergeCodexTrust(next, entries)
-	overlay, err := agentconfig.LoadCodexOverlay()
+	next = MergeCodexTrust(next, entries)
+	overlay, err := LoadCodexOverlay()
 	if err != nil {
 		return false, err
 	}

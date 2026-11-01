@@ -1,10 +1,11 @@
-package agentconfig
+package codex
 
 import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"github.com/edotau/claude-code/internal/agentconfig"
 	"maps"
 	"path/filepath"
 	"regexp"
@@ -157,7 +158,7 @@ func MergeCodexTrust(raw string, entries map[string]string) string {
 			}
 		}
 		out.WriteString(line)
-		state, depth = TOMLLineState(line, state, depth)
+		state, depth = agentconfig.TOMLLineState(line, state, depth)
 	}
 	flush()
 	keys := make([]string, 0, len(remaining))
@@ -168,7 +169,7 @@ func MergeCodexTrust(raw string, entries map[string]string) string {
 	next := out.String()
 	for _, key := range keys {
 		section := fmt.Sprintf("[hooks.state.%q]\ntrusted_hash = %q\n", key, remaining[key])
-		next = appendTOML(next, section)
+		next = agentconfig.AppendTOML(next, section)
 	}
 	return next
 }

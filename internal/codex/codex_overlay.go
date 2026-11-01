@@ -1,4 +1,4 @@
-package agentconfig
+package codex
 
 import (
 	"crypto/rand"

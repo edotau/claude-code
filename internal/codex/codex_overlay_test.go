@@ -1,10 +1,11 @@
-package agentconfig_test
+package codex_test
 
 import (
 	"bytes"
 	"encoding/base64"
 	"fmt"
 	"github.com/edotau/claude-code/internal/agentconfig"
+	"github.com/edotau/claude-code/internal/codex"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -22,15 +23,15 @@ func TestConfigHistoryIsEncryptedBoundedAndSurvivesRotation(t *testing.T) {
 	path := filepath.Join(dir, "native", "config.toml")
 	other := filepath.Join(dir, "other", "config.toml")
 	fixture := []byte("private-config-fixture-68b19d\nforeign = 'preserve exactly'\n")
-	if err := agentconfig.SaveCodexBaseline(path, fixture); err != nil {
+	if err := codex.SaveCodexBaseline(path, fixture); err != nil {
 		t.Fatal(err)
 	}
 	for i := range 7 {
-		if err := agentconfig.CodexBackup(path, fmt.Appendf(nil, "version %d", i), true); err != nil {
+		if err := codex.CodexBackup(path, fmt.Appendf(nil, "version %d", i), true); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if err := agentconfig.CodexBackup(other, fixture, false); err != nil {
+	if err := codex.CodexBackup(other, fixture, false); err != nil {
 		t.Fatal(err)
 	}
 	vaulttest.Secret(t, "API_KEY", "credential-fixture")
@@ -51,7 +52,7 @@ func TestConfigHistoryIsEncryptedBoundedAndSurvivesRotation(t *testing.T) {
 	if err != nil || oldKid == newKid {
 		t.Fatalf("rotation did not change the key: %v", err)
 	}
-	baseline, err := agentconfig.LoadCodexBaseline(path)
+	baseline, err := codex.LoadCodexBaseline(path)
 	if err != nil || !bytes.Equal(baseline, fixture) {
 		t.Fatalf("baseline did not survive rotation: %v", err)
 	}
@@ -71,22 +72,22 @@ func TestConfigHistoryIsEncryptedBoundedAndSurvivesRotation(t *testing.T) {
 		t.Fatal(err)
 	}
 	for i := 6; i >= 2; i-- {
-		b, found, err := agentconfig.LatestCodexBackup(path)
+		b, found, err := codex.LatestCodexBackup(path)
 		if err != nil || !found || string(b.Data) != fmt.Sprintf("version %d", i) || !b.Existed || b.Path != path {
 			t.Fatalf("latest backup %d: found=%v, data=%q, err=%v", i, found, b.Data, err)
 		}
-		if err := agentconfig.ConsumeCodexBackup(b.Name); err != nil {
+		if err := codex.ConsumeCodexBackup(b.Name); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if _, found, err := agentconfig.LatestCodexBackup(path); err != nil || found {
+	if _, found, err := codex.LatestCodexBackup(path); err != nil || found {
 		t.Fatalf("more than five snapshots retained: found=%v, err=%v", found, err)
 	}
-	b, found, err := agentconfig.LatestCodexBackup(other)
+	b, found, err := codex.LatestCodexBackup(other)
 	if err != nil || !found || !bytes.Equal(b.Data, fixture) || b.Existed || b.Path != other {
 		t.Fatalf("other path snapshot changed: found=%v, err=%v", found, err)
 	}
-	baseline, err = agentconfig.LoadCodexBaseline(path)
+	baseline, err = codex.LoadCodexBaseline(path)
 	if err != nil || !bytes.Equal(baseline, fixture) {
 		t.Fatalf("snapshot consumption changed baseline: %v", err)
 	}
@@ -95,10 +96,10 @@ func TestConfigHistoryIsEncryptedBoundedAndSurvivesRotation(t *testing.T) {
 func TestCredentialAndConfigCiphertextCannotBeExchanged(t *testing.T) {
 	vaulttest.UseKeyring(t)
 	path := filepath.Join(t.TempDir(), "config.toml")
-	if err := agentconfig.CodexBackup(path, []byte("original native config"), true); err != nil {
+	if err := codex.CodexBackup(path, []byte("original native config"), true); err != nil {
 		t.Fatal(err)
 	}
-	b, found, err := agentconfig.LatestCodexBackup(path)
+	b, found, err := codex.LatestCodexBackup(path)
 	if err != nil || !found {
 		t.Fatalf("backup missing: %v", err)
 	}
@@ -130,7 +131,7 @@ func TestCredentialAndConfigCiphertextCannotBeExchanged(t *testing.T) {
 func TestPreferencesRejectInvalidEditsWithoutOverwritingSavedValues(t *testing.T) {
 	vaulttest.Use(t)
 	want := map[string]string{"model_reasoning_effort": "high", "model_verbosity": "low"}
-	if err := agentconfig.SaveCodexOverlay(want); err != nil {
+	if err := codex.SaveCodexOverlay(want); err != nil {
 		t.Fatal(err)
 	}
 	for _, invalid := range []map[string]string{
@@ -138,22 +139,22 @@ func TestPreferencesRejectInvalidEditsWithoutOverwritingSavedValues(t *testing.T
 		{"model_verbosity": "verbose"},
 		{"max_output_tokens": "256"},
 	} {
-		if err := agentconfig.SaveCodexOverlay(invalid); err == nil {
+		if err := codex.SaveCodexOverlay(invalid); err == nil {
 			t.Fatalf("accepted invalid preferences: %v", invalid)
 		}
-		got, err := agentconfig.LoadCodexOverlay()
+		got, err := codex.LoadCodexOverlay()
 		if err != nil || !reflect.DeepEqual(got, want) {
 			t.Fatalf("invalid edit overwrote saved preferences: %v, %v", got, err)
 		}
 	}
-	if err := agentconfig.UpdateCodexOverlay(func(current map[string]string) map[string]string {
+	if err := codex.UpdateCodexOverlay(func(current map[string]string) map[string]string {
 		current["model_verbosity"] = "medium"
 		return current
 	}); err != nil {
 		t.Fatal(err)
 	}
 	want["model_verbosity"] = "medium"
-	got, err := agentconfig.LoadCodexOverlay()
+	got, err := codex.LoadCodexOverlay()
 	if err != nil || !reflect.DeepEqual(got, want) {
 		t.Fatalf("staged preference merge lost an untouched preference: %v, %v", got, err)
 	}
@@ -181,16 +182,16 @@ func TestConfigPathPrecedence(t *testing.T) {
 	}
 }
 
-// agentconfig.MergeCodexTrust must not mistake a "["-led line inside an open array for a table header: an
+// codex.MergeCodexTrust must not mistake a "["-led line inside an open array for a table header: an
 // existing trusted_hash AFTER the array, still inside the same table, is replaced in place —
 // not left stale with a duplicate appended at EOF because the array wrongly reset the active table.
 func TestMergeCodexTrustBracketInArrayNotHeader(t *testing.T) {
 	raw := "[hooks.state.\"K\"]\nextra = [\n  [1, 2],\n]\ntrusted_hash = \"old\"\n"
 	entries := map[string]string{"K": "abc123"}
-	got := agentconfig.MergeCodexTrust(raw, entries)
+	got := codex.MergeCodexTrust(raw, entries)
 	want := "[hooks.state.\"K\"]\nextra = [\n  [1, 2],\n]\ntrusted_hash = \"abc123\"\n"
 	if got != want {
-		t.Fatalf("MergeCodexTrust:\n%q\nwant:\n%q", got, want)
+		t.Fatalf("codex.MergeCodexTrust:\n%q\nwant:\n%q", got, want)
 	}
 	if strings.Count(got, "trusted_hash") != 1 {
 		t.Errorf("want exactly one trusted_hash line, got:\n%q", got)
@@ -202,10 +203,10 @@ func TestMergeCodexTrustBracketInArrayNotHeader(t *testing.T) {
 func TestMergeCodexTrustHeaderAfterArrayStillMatches(t *testing.T) {
 	raw := "extra = [\n  [1, 2],\n]\n[hooks.state.\"K2\"]\nother = 1\n"
 	entries := map[string]string{"K2": "def456"}
-	got := agentconfig.MergeCodexTrust(raw, entries)
+	got := codex.MergeCodexTrust(raw, entries)
 	want := "extra = [\n  [1, 2],\n]\n[hooks.state.\"K2\"]\nother = 1\ntrusted_hash = \"def456\"\n"
 	if got != want {
-		t.Fatalf("MergeCodexTrust:\n%q\nwant:\n%q", got, want)
+		t.Fatalf("codex.MergeCodexTrust:\n%q\nwant:\n%q", got, want)
 	}
 }
 
@@ -241,11 +242,11 @@ trusted_hash = "first"
 trusted_hash = "last"
 `
 	entries := map[string]string{"active": "new", "missing": "added", "z": "last", "a": "first"}
-	got := agentconfig.MergeCodexTrust(raw, entries)
+	got := codex.MergeCodexTrust(raw, entries)
 	if got != want {
-		t.Fatalf("MergeCodexTrust:\n%s\nwant:\n%s", got, want)
+		t.Fatalf("codex.MergeCodexTrust:\n%s\nwant:\n%s", got, want)
 	}
-	if again := agentconfig.MergeCodexTrust(got, entries); again != got {
+	if again := codex.MergeCodexTrust(got, entries); again != got {
 		t.Fatalf("merge is not idempotent:\n%s", again)
 	}
 	if len(entries) != 4 {
