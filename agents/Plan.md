@@ -68,8 +68,14 @@ pass on the drafted text (stdin; full CLI: `~/.claude/skills/evaluate-code/refer
 
 ## Report contract
 
-Read [`docs/templates/plan.md`](../docs/templates/plan.md) and return a plan in exactly that shape — it is the one
-copy of the template (the plan hooks paste the same file).
+Read [`docs/templates/plan.md`](../docs/templates/plan.md) and return a plan in that shape — it is the one copy of
+the template (the plan hooks paste the same file).
+
+**The template is a floor, not a form.** Fixed: the four headings the hooks check (`# Plan:`, `## Context`,
+`## Phases`, `## Tasks`), the tags, and the `owns:` task lines. Free: add a section the work needs (a trim table, a
+migration note, a diagram), drop an optional one that doesn't apply, and choose how to explain the design. When you
+see a better idea than the one asked for, offer it under "Risks / decisions for the user" as an option with its cost;
+never swap it in silently.
 
 Fill the template's `Suggested slug:` line (e.g. `problem-solving-evaluate-code-split`): the mirror names the file
 `YYYY-MM-DD-<slug>.md` from it (the H1 is only the fallback).
