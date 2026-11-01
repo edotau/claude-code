@@ -3,6 +3,7 @@ package hooks
 import (
 	"encoding/json"
 	"fmt"
+	memrecall "github.com/edotau/claude-code/internal/memory/recall"
 	"io"
 	"os"
 	"path/filepath"
@@ -67,7 +68,7 @@ func preflightNotice(now time.Time) string {
 // memoryContext renders the note line + bank surface and advances the session chain.
 func memoryContext(cwd, sessionID, transcriptPath string, now time.Time) string {
 	prefix := maybeAutoInit(cwd) // a fresh-scaffold notice or ""
-	if !memory.IsUpdateChild() {
+	if !bank.IsUpdateChild() {
 		memstore.LinkNativeFor(cwd) // after the scaffold, so the link targets the store Init named (origin record in the vault)
 	}
 	chain := filepath.Join(memstore.StateDir(), "last-session")
@@ -83,20 +84,20 @@ func memoryContext(cwd, sessionID, transcriptPath string, now time.Time) string 
 		out = strings.TrimSpace(out + "\n" + drift)
 	}
 	// The daily dream (promote + consolidate) runs detached on the Copilot CLI; never blocks launch.
-	if !memory.IsUpdateChild() && memory.HasBank(cwd) && memory.DreamDue(cwd, now) {
+	if !bank.IsUpdateChild() && memory.HasBank(cwd) && memory.DreamDue(cwd, now) {
 		spawnDream(cwd)
 	}
 	// A stale served-endpoint cache is re-listed detached; needs no memory bank.
-	if !memory.IsUpdateChild() && servedRefreshDue(now) {
+	if !bank.IsUpdateChild() && servedRefreshDue(now) {
 		spawnServed(cwd)
 	}
 	// Every SessionStart (startup, resume, clear, compact) restarts what recall treats as already in context.
-	if !memory.IsUpdateChild() {
-		memory.ResetSeen(sessionID, cwd, out)
+	if !bank.IsUpdateChild() {
+		memrecall.ResetSeen(sessionID, cwd, out)
 	}
 	// An update worker is a session too; it must not become the "previous session" of the user's next one.
 	// Non-UUID ids (probe/test payloads) must not clobber the real previous-session pointer.
-	if memory.LooksLikeSessionID(sessionID) && !memory.IsUpdateChild() {
+	if memrecall.LooksLikeSessionID(sessionID) && !bank.IsUpdateChild() {
 		writeChain(chain, chainEntry{sessionID: sessionID, transcriptPath: transcriptPath, cwd: cwd})
 	}
 	return out
@@ -123,7 +124,7 @@ func chainNote(chain, sessionID string, now time.Time) string {
 		note = " Previous session id: " + prevID + " (reference for the prior session's transcript / claude --resume)."
 	}
 	caughtUp := ""
-	if !memory.IsUpdateChild() {
+	if !bank.IsUpdateChild() {
 		caughtUp = catchUpPrevious(entry, sessionID, now)
 	}
 	if caughtUp != "" {
@@ -158,7 +159,7 @@ func doctorNotice(root string) string {
 
 // driftNotice returns a one-line settings drift notice vs defaults, or "" when clean or on error.
 func driftNotice() string {
-	if memory.IsUpdateChild() {
+	if bank.IsUpdateChild() {
 		return ""
 	}
 	keys, err := defaultsDrift()
@@ -348,7 +349,7 @@ func logUpdateToLedger(in *Input, trigger string, work int, now time.Time) {
 }
 
 func updatable(in *Input) bool {
-	if in.SessionID == "" || in.TranscriptPath == "" || memory.IsUpdateChild() {
+	if in.SessionID == "" || in.TranscriptPath == "" || bank.IsUpdateChild() {
 		return false
 	}
 	fi, err := os.Stat(in.TranscriptPath)

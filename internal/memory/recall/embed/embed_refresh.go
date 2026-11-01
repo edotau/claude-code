@@ -1,6 +1,7 @@
-package memory
+package embed
 
 import (
+	"github.com/edotau/claude-code/internal/memory/bank"
 	"os"
 	"path/filepath"
 	"time"
@@ -27,7 +28,7 @@ func EmbedProfile() string {
 
 // RefreshEmbeddings starts a detached mint at most once per claim TTL; failed launches release the slot.
 func RefreshEmbeddings(root, profile string, now time.Time) bool {
-	if IsUpdateChild() || !safeEmbedProfile(profile) {
+	if bank.IsUpdateChild() || !SafeProfile(profile) {
 		return false
 	}
 	if err := os.MkdirAll(memstore.StateDir(), 0o700); err != nil {
@@ -42,7 +43,7 @@ func RefreshEmbeddings(root, profile string, now time.Time) bool {
 		if st, err := os.Stat(stamp); err == nil && now.Sub(st.ModTime()) < embedClaimTTL {
 			return nil
 		}
-		if !embedRefreshDue(profile, now) {
+		if !vectorStore.RefreshDue(profile, now) {
 			return nil
 		}
 		if err := paths.AtomicWrite(stamp, nil, 0o600); err != nil {
@@ -70,5 +71,5 @@ func spawnEmbedRefresh(root, profile string) bool {
 		return false
 	}
 	args := []string{"memory", "index", "--mint-only", "--repo", root}
-	return proc.SpawnDetached(self, args, root, nil, providers.EnvSessionProfile+"="+profile, UpdateChildEnv+"=1")
+	return proc.SpawnDetached(self, args, root, nil, providers.EnvSessionProfile+"="+profile, bank.UpdateChildEnv+"=1")
 }

@@ -1,4 +1,4 @@
-package memory
+package embed
 
 import (
 	"context"
@@ -17,6 +17,53 @@ import (
 	"github.com/edotau/claude-code/internal/schemas"
 )
 
+// VectorFilter selects a profile's embedding record.
+type VectorFilter struct{ Profile string }
+
+// VectorStore persists profile embedding records without exposing database transactions.
+type VectorStore interface {
+	Put(VectorWrite) (bool, error)
+	Delete(string) error
+	Vectors(VectorFilter) (VectorRecord, error)
+}
+
+type boltVectorStore struct{}
+
+var vectorStore = &boltVectorStore{}
+var _ VectorStore = vectorStore
+
+// VectorWrite replaces a record or atomically merges a mint while releasing its claim.
+type VectorWrite struct {
+	Profile string
+	Record  VectorRecord
+	Owner   int64
+	Started int64
+	Merge   func(VectorRecord) VectorRecord
+}
+
+func (s *boltVectorStore) Put(write VectorWrite) (stored bool, err error) {
+	err = updateEmbedDB(func(tx *bbolt.Tx) error {
+		record := write.Record
+		if write.Merge != nil {
+			if err := dropClaim(tx, write.Profile, write.Owner); err != nil {
+				return err
+			}
+			current := decodeEmbedRecord(tx, write.Profile)
+			if current.MintedAt >= write.Started && current.MintedAt <= time.Now().UnixNano() {
+				return nil
+			}
+			record = write.Merge(current)
+		}
+		stored = true
+		return putEmbedRecord(tx, write.Profile, record)
+	})
+	return stored, err
+}
+
+func (s *boltVectorStore) Delete(profile string) error {
+	return updateEmbedDB(func(tx *bbolt.Tx) error { return tx.Bucket(embedCacheBucket).Delete([]byte(profile)) })
+}
+
 const (
 	embedValidity   = time.Hour        // a minted record is left alone for this long
 	embedOverrideAt = 8 * time.Minute  // --reembed opens in the record's final stretch of the lease
@@ -24,7 +71,7 @@ const (
 	embedClaimSlack = 30 * time.Second // added to the caller's ctx deadline when sizing a claim
 )
 
-// Buckets of embeddings.db: cache holds profile -> embedCacheFile JSON, claims holds profile -> expiry+owner.
+// Buckets of embeddings.db: cache holds profile -> VectorRecord JSON, claims holds profile -> expiry+owner.
 var (
 	embedCacheBucket = []byte("cache")
 	embedClaimBucket = []byte("claims")
@@ -50,27 +97,27 @@ var (
 // EmbedDBPath is the one bbolt file holding every profile's entry-vector record, scoped like StateDir.
 func EmbedDBPath() string { return filepath.Join(memstore.StateDir(), "embeddings.db") }
 
-func safeEmbedProfile(profile string) bool { return safeProfile.MatchString(profile) }
+func SafeProfile(profile string) bool { return safeProfile.MatchString(profile) }
 
-func mintedTime(f embedCacheFile) time.Time { return time.Unix(0, f.MintedAt) }
+func MintedTime(f VectorRecord) time.Time { return time.Unix(0, f.MintedAt) }
 
 // embedValid reports whether f was minted less than embedValidity before now; a future MintedAt is not valid.
-func embedValid(f embedCacheFile, now time.Time) bool {
-	return f.MintedAt > 0 && !mintedTime(f).After(now) && now.Sub(mintedTime(f)) < embedValidity
+func embedValid(f VectorRecord, now time.Time) bool {
+	return f.MintedAt > 0 && !MintedTime(f).After(now) && now.Sub(MintedTime(f)) < embedValidity
 }
 
-// reembedOpensAt is when --reembed becomes allowed for f (the zero time if it already is) and whether it is allowed now.
-func reembedOpensAt(f embedCacheFile, now time.Time) (time.Time, bool) {
+// reembedOpensAt reports the override opening time and whether it is open now.
+func reembedOpensAt(f VectorRecord, now time.Time) (time.Time, bool) {
 	if !embedValid(f, now) {
 		return time.Time{}, true
 	}
-	at := mintedTime(f).Add(embedValidity - embedOverrideAt)
+	at := MintedTime(f).Add(embedValidity - embedOverrideAt)
 	return at, !now.Before(at)
 }
 
 // ReembedWindow reads profile's record and reports when --reembed opens and whether it is open now.
 func ReembedWindow(profile string, now time.Time) (opensAt time.Time, open bool, err error) {
-	if !safeEmbedProfile(profile) {
+	if !SafeProfile(profile) {
 		return time.Time{}, false, fmt.Errorf("embeddings: unsafe profile name %q", profile)
 	}
 	f, err := readEmbedCache(profile)
@@ -82,16 +129,22 @@ func ReembedWindow(profile string, now time.Time) (opensAt time.Time, open bool,
 }
 
 // readEmbedCache reads profile's record without blocking long; a missing file or record is empty.
-func readEmbedCache(profile string) (embedCacheFile, error) {
+func readEmbedCache(profile string) (VectorRecord, error) {
+	var store VectorStore = vectorStore
+	return store.Vectors(VectorFilter{Profile: profile})
+}
+
+func (s *boltVectorStore) Vectors(filter VectorFilter) (VectorRecord, error) {
+	profile := filter.Profile
 	db, err := bbolt.Open(EmbedDBPath(), 0o600, &bbolt.Options{ReadOnly: true, Timeout: embedReadTimeout})
 	if errors.Is(err, os.ErrNotExist) {
-		return embedCacheFile{}, nil
+		return VectorRecord{}, nil
 	}
 	if err != nil {
-		return embedCacheFile{}, err
+		return VectorRecord{}, err
 	}
 	defer db.Close()
-	var f embedCacheFile
+	var f VectorRecord
 	err = db.View(func(tx *bbolt.Tx) error {
 		f = decodeEmbedRecord(tx, profile)
 		return nil
@@ -99,15 +152,15 @@ func readEmbedCache(profile string) (embedCacheFile, error) {
 	return f, err
 }
 
-func decodeEmbedRecord(tx *bbolt.Tx, profile string) embedCacheFile {
+func decodeEmbedRecord(tx *bbolt.Tx, profile string) VectorRecord {
 	b := tx.Bucket(embedCacheBucket)
 	if b == nil {
-		return embedCacheFile{}
+		return VectorRecord{}
 	}
 	raw := b.Get([]byte(profile))
-	var f embedCacheFile
+	var f VectorRecord
 	if raw == nil || !schemas.DecodeOK(embedFormat, raw, &f) {
-		return embedCacheFile{}
+		return VectorRecord{}
 	}
 	return f
 }
@@ -132,7 +185,7 @@ func updateEmbedDB(fn func(tx *bbolt.Tx) error) error {
 	})
 }
 
-func putEmbedRecord(tx *bbolt.Tx, profile string, f embedCacheFile) error {
+func putEmbedRecord(tx *bbolt.Tx, profile string, f VectorRecord) error {
 	f.Schema = embedCacheSchema
 	raw, err := json.Marshal(f)
 	if err != nil {
@@ -159,7 +212,7 @@ func embedClaimExpiry(ctx context.Context, now time.Time) time.Time {
 }
 
 // claimEmbedMint takes profile's claim for owner until expiry; held is the live claim's expiry when another has it.
-func claimEmbedMint(profile string, owner int64, now, expiry time.Time) (held time.Time, ok bool, err error) {
+func (s *boltVectorStore) Claim(profile string, owner int64, now, expiry time.Time) (held time.Time, ok bool, err error) {
 	err = updateEmbedDB(func(tx *bbolt.Tx) error {
 		b := tx.Bucket(embedClaimBucket)
 		if v := b.Get([]byte(profile)); len(v) == 16 {
@@ -186,30 +239,13 @@ func dropClaim(tx *bbolt.Tx, profile string, owner int64) error {
 }
 
 // releaseEmbedMint drops owner's claim on profile; a claim another owner took over is left alone.
-func releaseEmbedMint(profile string, owner int64) {
+func (s *boltVectorStore) Release(profile string, owner int64) {
 	_ = updateEmbedDB(func(tx *bbolt.Tx) error { return dropClaim(tx, profile, owner) })
 }
 
-// commitEmbedMint stores build(current) as profile's record in one transaction and drops owner's claim. It discards
-// the result (false) when a record was minted at or after started, so a mint that began earlier never overwrites it.
-func commitEmbedMint(profile string, owner, started int64, build func(cur embedCacheFile) embedCacheFile) (stored bool, err error) {
-	err = updateEmbedDB(func(tx *bbolt.Tx) error {
-		if err := dropClaim(tx, profile, owner); err != nil {
-			return err
-		}
-		cur := decodeEmbedRecord(tx, profile)
-		if cur.MintedAt >= started && cur.MintedAt <= time.Now().UnixNano() { // a future stamp (skew) never blocks
-			return nil
-		}
-		stored = true
-		return putEmbedRecord(tx, profile, build(cur))
-	})
-	return stored, err
-}
-
 // embedRefreshDue reads the mint lease and claim without taking a write lock or opening an endpoint.
-func embedRefreshDue(profile string, now time.Time) bool {
-	if !safeEmbedProfile(profile) {
+func (s *boltVectorStore) RefreshDue(profile string, now time.Time) bool {
+	if !SafeProfile(profile) {
 		return false
 	}
 	db, err := bbolt.Open(EmbedDBPath(), 0o600, &bbolt.Options{ReadOnly: true, Timeout: time.Nanosecond})
@@ -227,7 +263,7 @@ func embedRefreshDue(profile string, now time.Time) bool {
 				Schema   int   `json:"schema"`
 				MintedAt int64 `json:"minted_at"`
 			}
-			if schemas.DecodeOK(embedFormat, b.Get([]byte(profile)), &lease) && embedValid(embedCacheFile{MintedAt: lease.MintedAt}, now) {
+			if schemas.DecodeOK(embedFormat, b.Get([]byte(profile)), &lease) && embedValid(VectorRecord{MintedAt: lease.MintedAt}, now) {
 				return nil
 			}
 		}

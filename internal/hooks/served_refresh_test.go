@@ -2,11 +2,11 @@ package hooks
 
 import (
 	"fmt"
+	"github.com/edotau/claude-code/internal/memory/bank"
 	"sync/atomic"
 	"testing"
 	"time"
 
-	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -17,7 +17,7 @@ import (
 func servedSession(t *testing.T, on bool, fetched time.Time, updateChild string) *atomic.Int64 {
 	t.Helper()
 	vaulttest.Use(t)
-	t.Setenv(memory.UpdateChildEnv, updateChild)
+	t.Setenv(bank.UpdateChildEnv, updateChild)
 	row := `{"routing":{"servedAware":%t},"providers":{"databricks":{"dev":{"preset":"databricks",` +
 		`"host":"https://dev.cloud.databricks.com","auth":{"type":"pat"}}}}}`
 	vaulttest.Put(t, vault.Overlay, "providers", fmt.Sprintf(row, on))

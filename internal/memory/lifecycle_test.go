@@ -3,6 +3,7 @@ package memory
 import (
 	"fmt"
 	"github.com/edotau/claude-code/internal/memory/bank"
+	"github.com/edotau/claude-code/internal/memory/recall"
 	"os"
 	"path/filepath"
 	"strings"
@@ -112,55 +113,15 @@ func TestWriteDoctorNoticeCachesFirstProblem(t *testing.T) {
 	}
 }
 
-func TestLogAccessAndAccessStatsAt(t *testing.T) {
-	dir := t.TempDir()
-	day1 := time.Date(2026, 1, 1, 10, 0, 0, 0, time.UTC)
-	LogAccess(dir, day1, "aa11bb22", AccessRecall)
-	LogAccess(dir, day1.AddDate(0, 0, 1), "aa11bb22", AccessRecall)
-	LogAccess(dir, day1.AddDate(0, 0, 2), "aa11bb22", AccessRecall)
-	LogAccess(dir, day1, "cc33dd44", AccessRecall)
-
-	stats, oldest := accessStatsAt(AccessLogPath(dir), day1.AddDate(0, 0, 2), 30)
-	if oldest.IsZero() || !oldest.Equal(day1) {
-		t.Errorf("oldest = %v want %v", oldest, day1)
-	}
-	if s := stats["aa11bb22"]; s.Count != 3 || s.Days != 3 {
-		t.Errorf("decisionLog stat %+v", s)
-	}
-	if s := stats["cc33dd44"]; s.Count != 1 || s.Days != 1 {
-		t.Errorf("conventions stat %+v", s)
-	}
-}
-
 func TestLogAccessRedactsCredentialShapedReason(t *testing.T) {
 	dir := t.TempDir()
-	LogAccess(dir, time.Now(), "aa11bb22", "leaked sk-abcdefghijklmnop in reason")
-	data := mustRead(t, filepath.Join(dir, AccessLogFile))
+	recall.LogAccess(dir, time.Now(), "aa11bb22", "leaked sk-abcdefghijklmnop in reason")
+	data := mustRead(t, filepath.Join(dir, recall.AccessLogFile))
 	if strings.Contains(data, "sk-abcdefghijklmnop") {
 		t.Error("a credential-shaped reason must be redacted, not logged verbatim")
 	}
 	if !strings.Contains(data, "redacted") {
 		t.Errorf("log %q", data)
-	}
-}
-
-func TestAccessNominationsHotAndCold(t *testing.T) {
-	tempConfig(t)
-	now := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
-	dir := memstore.HomeBankDir()
-	for d := range 5 {
-		LogAccess(dir, now.AddDate(0, 0, -d), "aa11bb22", AccessRecall)
-	}
-	// Log must cover > coldDays for a cold nomination to fire at all.
-	LogAccess(dir, now.AddDate(0, 0, -(coldDays+5)), "ee55ff66", AccessRecall)
-
-	noms := AccessNominations(now)
-	joined := strings.Join(noms, "\n")
-	if !strings.Contains(joined, "home/aa11bb22: hot") {
-		t.Errorf("want a hot nomination, got %v", noms)
-	}
-	if !strings.Contains(joined, "home/ee55ff66: not recalled") {
-		t.Errorf("want a cold nomination, got %v", noms)
 	}
 }
 

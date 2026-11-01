@@ -1,4 +1,4 @@
-package memory
+package recall
 
 import (
 	"github.com/edotau/claude-code/internal/memory/bank"

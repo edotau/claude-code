@@ -1,4 +1,4 @@
-package memory
+package recall
 
 import (
 	"fmt"
@@ -118,5 +118,45 @@ func TestLogHitsCreditsOwningStore(t *testing.T) {
 	}
 	if c := ReturnCounts([]string{da}, now); c["bbbb0003"] != 0 {
 		t.Errorf("--all's local hit was credited to the caller's repo: %v", c)
+	}
+}
+
+func TestLogAccessAndAccessStatsAt(t *testing.T) {
+	dir := t.TempDir()
+	day1 := time.Date(2026, 1, 1, 10, 0, 0, 0, time.UTC)
+	LogAccess(dir, day1, "aa11bb22", AccessRecall)
+	LogAccess(dir, day1.AddDate(0, 0, 1), "aa11bb22", AccessRecall)
+	LogAccess(dir, day1.AddDate(0, 0, 2), "aa11bb22", AccessRecall)
+	LogAccess(dir, day1, "cc33dd44", AccessRecall)
+
+	stats, oldest := accessStatsAt(AccessLogPath(dir), day1.AddDate(0, 0, 2), 30)
+	if oldest.IsZero() || !oldest.Equal(day1) {
+		t.Errorf("oldest = %v want %v", oldest, day1)
+	}
+	if s := stats["aa11bb22"]; s.Count != 3 || s.Days != 3 {
+		t.Errorf("decisionLog stat %+v", s)
+	}
+	if s := stats["cc33dd44"]; s.Count != 1 || s.Days != 1 {
+		t.Errorf("conventions stat %+v", s)
+	}
+}
+
+func TestAccessNominationsHotAndCold(t *testing.T) {
+	tempConfig(t)
+	now := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
+	dir := memstore.HomeBankDir()
+	for d := range 5 {
+		LogAccess(dir, now.AddDate(0, 0, -d), "aa11bb22", AccessRecall)
+	}
+	// Log must cover > coldDays for a cold nomination to fire at all.
+	LogAccess(dir, now.AddDate(0, 0, -(coldDays+5)), "ee55ff66", AccessRecall)
+
+	noms := AccessNominations(now)
+	joined := strings.Join(noms, "\n")
+	if !strings.Contains(joined, "home/aa11bb22: hot") {
+		t.Errorf("want a hot nomination, got %v", noms)
+	}
+	if !strings.Contains(joined, "home/ee55ff66: not recalled") {
+		t.Errorf("want a cold nomination, got %v", noms)
 	}
 }

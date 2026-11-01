@@ -3,6 +3,7 @@ package hooks
 import (
 	"bytes"
 	"encoding/json"
+	"github.com/edotau/claude-code/internal/memory/bank"
 	"io"
 	"os"
 	"os/exec"
@@ -10,7 +11,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/worktree"
@@ -311,7 +311,7 @@ func TestUpdateAppendsWorktreeLedger(t *testing.T) {
 	home, _ := filepath.EvalSymlinks(t.TempDir())
 	t.Setenv("HOME", home)
 	t.Setenv("CLAUDE_CONFIG_DIR", home+"/.claude")
-	t.Setenv(memory.UpdateChildEnv, "")
+	t.Setenv(bank.UpdateChildEnv, "")
 	main := filepath.Join(home, "repo")
 	for _, a := range [][]string{{"init", "-q", "-b", "main", main}, {"-C", main, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "--allow-empty", "-q", "-m", "i"}} {
 		if out, err := exec.Command("git", a...).CombinedOutput(); err != nil {

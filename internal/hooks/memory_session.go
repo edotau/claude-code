@@ -2,11 +2,12 @@ package hooks
 
 import (
 	"fmt"
+	"github.com/edotau/claude-code/internal/memory/bank"
+	memrecall "github.com/edotau/claude-code/internal/memory/recall"
 	"os"
 	"path/filepath"
 	"strings"
 
-	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/paths"
 )
@@ -17,7 +18,7 @@ func sessionRootPath(sessionID string) string {
 
 // sessionRoot uses the launch repository when available, otherwise the hook payload cwd.
 func sessionRoot(sessionID, cwd string) string {
-	if !memory.LooksLikeSessionID(sessionID) || memory.IsUpdateChild() {
+	if !memrecall.LooksLikeSessionID(sessionID) || bank.IsUpdateChild() {
 		return cwd
 	}
 	data, err := os.ReadFile(sessionRootPath(sessionID))
@@ -30,7 +31,7 @@ func sessionRoot(sessionID, cwd string) string {
 
 // recordSessionRoot preserves the first SessionStart root across resume and compaction.
 func recordSessionRoot(sessionID, cwd string) {
-	if !memory.LooksLikeSessionID(sessionID) || memory.IsUpdateChild() || sessionRoot(sessionID, "") != "" {
+	if !memrecall.LooksLikeSessionID(sessionID) || bank.IsUpdateChild() || sessionRoot(sessionID, "") != "" {
 		return
 	}
 	root := memstore.GitToplevel(cwd)

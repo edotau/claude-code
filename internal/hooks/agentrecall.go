@@ -4,9 +4,8 @@ package hooks
 
 import (
 	"fmt"
+	memrecall "github.com/edotau/claude-code/internal/memory/recall"
 	"strings"
-
-	"github.com/edotau/claude-code/internal/memory"
 )
 
 // Same relevance floor as recall.go's recallMinTerms; a one-line preview stays short, the whole
@@ -28,10 +27,10 @@ func agentRecall(sessionID, cwd, task string) (block string, ids []string) {
 	if q == "" || strings.Contains(q, agentRecallMarker) {
 		return "", nil
 	}
-	picks, _ := memory.RecallPicks(cwd, sessionID, q, false, false)
+	picks, _ := memrecall.RecallPicks(cwd, sessionID, q, false, false)
 
 	var lines []string
-	for _, e := range memory.RecallPointers(picks) {
+	for _, e := range memrecall.RecallPointers(picks) {
 		lines = append(lines, "\n- "+recallCut(e.Pointer(), agentRecallPreviewRunes))
 		ids = append(ids, e.ID)
 	}

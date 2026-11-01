@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	memrecall "github.com/edotau/claude-code/internal/memory/recall"
+	"github.com/edotau/claude-code/internal/memory/recall/embed"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -15,7 +17,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/memory/bank"
 	"github.com/edotau/claude-code/internal/memstore"
 )
@@ -34,7 +35,7 @@ func writeBank(t *testing.T, rel, body string) {
 func recallEnv(t *testing.T) {
 	t.Helper()
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	t.Setenv(memory.UpdateChildEnv, "")
+	t.Setenv(bank.UpdateChildEnv, "")
 	t.Setenv("CLAUDE_RECALL_SEMANTIC", "")
 }
 
@@ -121,15 +122,15 @@ func vecServer(t *testing.T, slow time.Duration) *httptest.Server {
 	return srv
 }
 
-func useEmbedServer(t *testing.T, srv *httptest.Server) *memory.EmbedClient {
+func useEmbedServer(t *testing.T, srv *httptest.Server) *embed.EmbedClient {
 	t.Helper()
 	t.Setenv("CLAUDE_PROFILE", "fake") // NewSemantic reads the session profile's cache
-	c := &memory.EmbedClient{Profile: "fake", Model: "fake-gte", Namespace: "fake|h|fake-gte", Embed: func(ctx context.Context, texts []string) ([][]float32, error) {
-		return memory.PostEmbeddings(ctx, srv.URL, texts, func(http.Header) error { return nil })
+	c := &embed.EmbedClient{Profile: "fake", Model: "fake-gte", Namespace: "fake|h|fake-gte", EmbedFunc: func(ctx context.Context, texts []string) ([][]float32, error) {
+		return embed.PostEmbeddings(ctx, srv.URL, texts, func(http.Header) error { return nil })
 	}}
-	prev := memory.OpenEmbedClient
-	memory.OpenEmbedClient = func(context.Context, string, string) (*memory.EmbedClient, error) { return c, nil }
-	t.Cleanup(func() { memory.OpenEmbedClient = prev })
+	prev := embed.OpenEmbedClient
+	embed.OpenEmbedClient = func(context.Context, string, string) (*embed.EmbedClient, error) { return c, nil }
+	t.Cleanup(func() { embed.OpenEmbedClient = prev })
 	return c
 }
 
@@ -158,7 +159,7 @@ func TestRecallBlendsCosineWithKeyword(t *testing.T) {
 		t.Fatalf("fixture invalid: keyword-only already surfaces the gamma entries:\n%s", base)
 	}
 	c := useEmbedServer(t, vecServer(t, 0))
-	if _, _, err := memory.EmbedEntries(context.Background(), cwd, c); err != nil {
+	if _, _, err := embed.EmbedEntries(context.Background(), cwd, c); err != nil {
 		t.Fatal(err)
 	}
 	blended := recallAs(t, "b", prompt, cwd)
@@ -176,7 +177,7 @@ func TestRecallFallsBackToKeywordOnTimeout(t *testing.T) {
 	seedBlendBank(t)
 	cwd := t.TempDir()
 	const prompt = "walrus harbour tide ledger zeta"
-	if _, _, err := memory.EmbedEntries(context.Background(), cwd, useEmbedServer(t, vecServer(t, 0))); err != nil {
+	if _, _, err := embed.EmbedEntries(context.Background(), cwd, useEmbedServer(t, vecServer(t, 0))); err != nil {
 		t.Fatal(err)
 	}
 	want := recallAs(t, "kw", prompt, cwd) // semantic on, fast endpoint
@@ -187,7 +188,7 @@ func TestRecallFallsBackToKeywordOnTimeout(t *testing.T) {
 		t.Fatalf("fixture invalid: blend and keyword results are identical:\n%s", keyword)
 	}
 
-	t.Cleanup(memory.SetEmbedRecallWait(100 * time.Millisecond))
+	t.Cleanup(embed.SetEmbedRecallWait(100 * time.Millisecond))
 	useEmbedServer(t, vecServer(t, 10*time.Second))
 	start := time.Now()
 	got := recallAs(t, "slow", prompt, cwd)
@@ -251,7 +252,7 @@ func TestRecallSemanticReachesZeroOverlapEntry(t *testing.T) {
 		t.Fatalf("fixture invalid: keyword-only already answers: %q", got)
 	}
 	c := useEmbedServer(t, vecServer(t, 0))
-	if _, _, err := memory.EmbedEntries(context.Background(), cwd, c); err != nil {
+	if _, _, err := embed.EmbedEntries(context.Background(), cwd, c); err != nil {
 		t.Fatal(err)
 	}
 	got := recallAs(t, "s", prompt, cwd)
@@ -271,16 +272,16 @@ func TestRecallSemanticSkipsSeenBeforeTopK(t *testing.T) {
 	writeBank(t, "decisionLog.md", b.String())
 	cwd := t.TempDir()
 	c := useEmbedServer(t, vecServer(t, 0))
-	if _, _, err := memory.EmbedEntries(context.Background(), cwd, c); err != nil {
+	if _, _, err := embed.EmbedEntries(context.Background(), cwd, c); err != nil {
 		t.Fatal(err)
 	}
 	var seen []bank.SearchHit
-	for _, h := range memory.SearchBanks(cwd, "quokka burrow", 0) {
+	for _, h := range memrecall.SearchBanks(cwd, "quokka burrow", 0) {
 		if !strings.Contains(h.Block, "dddd0006") {
 			seen = append(seen, h)
 		}
 	}
-	memory.MarkSeen("sess", seen) // the five closest are already in context
+	memrecall.MarkSeen("sess", seen) // the five closest are already in context
 	got := recallAs(t, "sess", "hello world foo bar zeta", cwd)
 	if !strings.Contains(got, "dddd0006") {
 		t.Errorf("the sixth entry never surfaced:\n%s", got)
@@ -294,7 +295,7 @@ func TestRecallNoArchiveFallbackWhenSemanticMatchSeen(t *testing.T) {
 	writeBank(t, "archive/decisionLog-2026-09.md", "# D\n\n## 2026-09-01 — Hello world outdated <!-- id:eeee0009 -->\n\nhello world foo bar older\n")
 	cwd := t.TempDir()
 	c := useEmbedServer(t, vecServer(t, 0))
-	if _, _, err := memory.EmbedEntries(context.Background(), cwd, c); err != nil {
+	if _, _, err := embed.EmbedEntries(context.Background(), cwd, c); err != nil {
 		t.Fatal(err)
 	}
 	const prompt = "hello world foo bar zeta"
@@ -316,7 +317,7 @@ func TestRecallUncachedEntryKeepsFullKeywordScore(t *testing.T) {
 	writeBank(t, "decisionLog.md", plain("original"))
 	cwd := t.TempDir()
 	c := useEmbedServer(t, vecServer(t, 0))
-	if _, _, err := memory.EmbedEntries(context.Background(), cwd, c); err != nil {
+	if _, _, err := embed.EmbedEntries(context.Background(), cwd, c); err != nil {
 		t.Fatal(err)
 	}
 	writeBank(t, "decisionLog.md", plain("edited after the index")) // ffff0001 now has no valid vector

@@ -1,8 +1,9 @@
-package memory
+package recall
 
 import (
 	"fmt"
 	"github.com/edotau/claude-code/internal/memory/bank"
+	"github.com/edotau/claude-code/internal/memory/recall/embed"
 	"os"
 	"strings"
 	"time"
@@ -27,13 +28,13 @@ func RecallPicks(root, session, query string, semantic, explain bool) ([]RecallP
 		trace.Terms = terms
 		recallCacheInfo(tr)
 	}
-	if q == "" || (semantic && (strings.HasPrefix(q, "/") || IsUpdateChild())) || distinctTokenCount(tokens) < recallMinTerms {
+	if q == "" || (semantic && (strings.HasPrefix(q, "/") || bank.IsUpdateChild())) || distinctTokenCount(tokens) < recallMinTerms {
 		trace.Embeddings = "skipped: empty, command, update child or fewer than four distinct terms"
 		return nil, trace
 	}
 	root = recallRoot(root)
 	ranked := SearchBanksTerms(root, q, terms, 0)
-	var sem *Semantic
+	var sem *embed.Semantic
 	semSeen := false
 	if semantic {
 		ranked, sem, semSeen, trace.Embeddings = recallSemantic(root, session, q, ranked, tr)
@@ -57,8 +58,8 @@ func recallRoot(root string) string {
 	return paths.ConfigDir()
 }
 
-func recallSemantic(root, session, q string, ranked []bank.SearchHit, trace *RecallTrace) ([]bank.SearchHit, *Semantic, bool, string) {
-	sem, err := NewSemantic(q)
+func recallSemantic(root, session, q string, ranked []bank.SearchHit, trace *RecallTrace) ([]bank.SearchHit, *embed.Semantic, bool, string) {
+	sem, err := embed.NewSemantic(q)
 	if err != nil {
 		return ranked, nil, false, "keyword-only: " + err.Error()
 	}
@@ -109,7 +110,7 @@ func RecallContext(picks []RecallPick) (string, []bank.SearchHit, []bank.SearchH
 		}
 		hits = append(hits, p.Hit)
 	}
-	return CapChars(b.String(), recallTotalCapChars), bodies, hits
+	return bank.CapChars(b.String(), recallTotalCapChars), bodies, hits
 }
 
 // RecallPointers supplies the agent adapter's limited pointer list.

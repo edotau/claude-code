@@ -3,16 +3,15 @@ package memory
 
 import (
 	"github.com/edotau/claude-code/internal/memory/bank"
+	"github.com/edotau/claude-code/internal/memory/recall"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/secrets/shapes"
 )
 
 // BankStat is one bank's roll-up: file count, total lines, newest mtime, per-file cap offenders.
@@ -70,10 +69,6 @@ func WriteDoctorNotice(root string, staleDays int, now time.Time) error {
 	return paths.AtomicWrite(DoctorNoticePath(root), []byte(line), 0o600)
 }
 
-// credentialPattern is a coarse credential-shaped tripwire, not a full secrets scanner.
-var credentialPattern = regexp.MustCompile(
-	`sk-[A-Za-z0-9]{10,}|` + shapes.GitHubPattern(10) + `|dapi[0-9a-f]{10,}|AKIA[A-Z0-9]{10,}|-----BEGIN`)
-
 // Doctor returns advisory problems for root's local bank and the shared home bank: cap offenders,
 // staleness, credential-shaped lines, and access-log nominations. Never fatal — advisory only.
 func Doctor(root string, staleDays int, now time.Time) []string {
@@ -84,7 +79,7 @@ func Doctor(root string, staleDays int, now time.Time) []string {
 	problems = append(problems, bankProblems("home", HomeBankStat(), staleDays, now)...)
 	problems = append(problems, updateProblems(now)...)
 	problems = append(problems, memstore.NativeLinkProblems(root)...)
-	return append(problems, AccessNominations(now)...)
+	return append(problems, recall.AccessNominations(now)...)
 }
 
 // updateProblems surfaces receipts that need a human: a failed update, or one still "pending" past the
@@ -134,7 +129,7 @@ func bankCredentialFindings(dir string) []string {
 		if err != nil {
 			continue
 		}
-		if credentialPattern.MatchString(string(data)) {
+		if bank.CredentialPattern.MatchString(string(data)) {
 			problems = append(problems, name+": possible credential-shaped value — scrub before promoting")
 		}
 	}

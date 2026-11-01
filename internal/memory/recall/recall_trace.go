@@ -1,8 +1,9 @@
-package memory
+package recall
 
 import (
 	"fmt"
 	"github.com/edotau/claude-code/internal/memory/bank"
+	"github.com/edotau/claude-code/internal/memory/recall/embed"
 	"strings"
 	"time"
 
@@ -40,7 +41,7 @@ func (t *RecallTrace) outcome(key, outcome string) {
 	}
 }
 
-func (t *RecallTrace) candidate(c RecallPick, need int, sem *Semantic) {
+func (t *RecallTrace) candidate(c RecallPick, need int, sem *embed.Semantic) {
 	if t == nil {
 		return
 	}
@@ -85,10 +86,10 @@ func (t *RecallTrace) scores(c RecallPick, boost float64) {
 func recallCacheInfo(t *RecallTrace) {
 	t.CacheAge = "missing"
 	for _, name := range []string{providers.SessionProfile(), providers.AgentRecord("claude").Profile} {
-		if name == "" || !safeEmbedProfile(name) {
+		if name == "" || !embed.SafeProfile(name) {
 			continue
 		}
-		cache, err := readProfileCache(name)
+		cache, err := embed.ReadProfileCache(name)
 		if err != nil {
 			t.CacheAge = "unreadable"
 			continue
@@ -98,7 +99,7 @@ func recallCacheInfo(t *RecallTrace) {
 		}
 		t.CacheRows = len(cache.Rows)
 		if cache.MintedAt > 0 {
-			t.CacheAge = fmt.Sprint(time.Since(mintedTime(cache)).Round(time.Second))
+			t.CacheAge = fmt.Sprint(time.Since(embed.MintedTime(cache)).Round(time.Second))
 		} else {
 			t.CacheAge = "unminted"
 		}
@@ -127,7 +128,7 @@ func (t *RecallTrace) selected(picks []RecallPick) {
 	}
 }
 
-func (t *RecallTrace) candidates(ranked []bank.SearchHit, need int, sem *Semantic) {
+func (t *RecallTrace) candidates(ranked []bank.SearchHit, need int, sem *embed.Semantic) {
 	for _, archived := range []bool{false, true} {
 		_, top := recallTier(ranked, archived, need)
 		tierSem := sem

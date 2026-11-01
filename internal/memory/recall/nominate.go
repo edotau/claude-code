@@ -1,4 +1,4 @@
-package memory
+package recall
 
 import (
 	"fmt"
@@ -17,9 +17,7 @@ const (
 	coldDays      = 90 // no recall for this long → archive candidate (log-age gated)
 )
 
-// AccessNominations turns access logs across every repo into doctor advisories: hot entries
-// (recalled often — want a pointer in the injected bank) and cold ones (archive candidates, gated
-// on log age — a young log proves nothing).
+// AccessNominations suggests pointers for hot entries and archives for cold entries with enough log history.
 func AccessNominations(now time.Time) []string {
 	files, err := filepath.Glob(filepath.Join(memstore.AccessStateDir(), "*.log"))
 	if err != nil || len(files) == 0 {

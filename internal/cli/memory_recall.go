@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"github.com/edotau/claude-code/internal/memory/recall"
 	"os"
 	"strings"
 
@@ -90,7 +91,7 @@ func recallExplain(repo, query string) int {
 	if e, ok := memstore.RepoByName(repo); repo != "" && ok && e.Origin.Origin != "" {
 		root = e.Origin.Origin
 	}
-	_, trace := memory.RecallPicks(root, os.Getenv(memory.SessionIDEnv), query, true, true)
+	_, trace := recall.RecallPicks(root, os.Getenv(memory.SessionIDEnv), query, true, true)
 	fmt.Printf("query terms: %s\nembeddings: %s\ncache age: %s; rows: %d\nwould stay silent: %t\n",
 		strings.Join(trace.Terms, " "), trace.Embeddings, trace.CacheAge, trace.CacheRows, trace.Silent)
 	files := recallExplainFiles(trace.Rows)
@@ -105,7 +106,7 @@ func recallExplain(repo, query string) int {
 	return 0
 }
 
-func recallExplainFiles(rows []memory.RecallCandidate) map[string]int {
+func recallExplainFiles(rows []recall.RecallCandidate) map[string]int {
 	files := make(map[string]int)
 	for _, row := range rows {
 		if _, ok := files[row.File]; !ok {
@@ -117,7 +118,7 @@ func recallExplainFiles(rows []memory.RecallCandidate) map[string]int {
 	return files
 }
 
-func recallExplainRow(row memory.RecallCandidate, file int) {
+func recallExplainRow(row recall.RecallCandidate, file int) {
 	cosine := "no vector"
 	if row.Cosine != nil {
 		cosine = recallExplainNumber(*row.Cosine)
