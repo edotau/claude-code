@@ -525,7 +525,7 @@ func TestSelectPicksOwningPlan(t *testing.T) {
 	hermetic(t)
 	home := t.TempDir()
 	writeFile(t, filepath.Join(home, "2026-10-01-roles.md"), "- [ ] 1.1 Roles owns: internal/roles/r.go\n")
-	writeFile(t, filepath.Join(home, "2026-10-02-gateway.md"), "- [ ] 2.1 Proxy owns: internal/proxy\n- [ ] 2.2 Other owns: internal/gw/g.go\n")
+	writeFile(t, filepath.Join(home, "2026-10-01-gateway.md"), "- [ ] 2.1 Proxy owns: internal/proxy\n- [ ] 2.2 Other owns: internal/gw/g.go\n")
 	commits := []Commit{{Sha: "abc1234", Files: []string{"internal/roles/r.go", "internal/proxy/h.go"}}}
 	plan, tied := Select(home, "", nil, commits)
 	if filepath.Base(plan) != "2026-10-01-roles.md" || tied != nil {
@@ -551,5 +551,21 @@ func TestSelectNewerPartialBeatsOlderExact(t *testing.T) {
 	plan, tied := Select(home, "", nil, commits)
 	if filepath.Base(plan) != "2026-10-09-new.md" || tied != nil {
 		t.Fatalf("plan=%q tied=%v, want the newer partial-coverage plan over the older exact match", plan, tied)
+	}
+}
+
+// TestSelectIgnoresStalePlan: an older exact match is left alone while a newer open plan exists, unless it holds a claim.
+func TestSelectIgnoresStalePlan(t *testing.T) {
+	hermetic(t)
+	home := t.TempDir()
+	writeFile(t, filepath.Join(home, "2026-10-01-old.md"), "- [ ] 1.1 Old owns: internal/a/a.go\n")
+	writeFile(t, filepath.Join(home, "2026-10-09-new.md"), "- [ ] 2.1 New owns: internal/b/b.go\n")
+	commits := []Commit{{Sha: "abc1234", Files: []string{"internal/a/a.go"}}}
+	if plan, tied := Select(home, "", nil, commits); plan != "" || tied != nil {
+		t.Fatalf("stale plan selected: plan=%q tied=%v", plan, tied)
+	}
+	writeFile(t, filepath.Join(home, "2026-10-01-old.md"), "- [ ] 1.1 Old owns: internal/a/a.go <!-- working: x -->\n")
+	if plan, _ := Select(home, "", nil, commits); filepath.Base(plan) != "2026-10-01-old.md" {
+		t.Fatalf("claimed plan should be selected, got %q", plan)
 	}
 }

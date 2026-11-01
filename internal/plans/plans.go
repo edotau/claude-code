@@ -235,6 +235,16 @@ func claimsWorktree(plan Plan, worktree string) bool {
 	return false
 }
 
+// hasLiveClaim reports whether an open task carries a claim.
+func hasLiveClaim(plan Plan) bool {
+	for _, t := range plan.Tasks {
+		if !t.Done && t.Claim != "" {
+			return true
+		}
+	}
+	return false
+}
+
 // hasOpenOwnedTask reports whether plan still has a task to land.
 func hasOpenOwnedTask(plan Plan) bool {
 	for _, t := range plan.Tasks {
@@ -355,10 +365,12 @@ func Select(home, worktree string, skip []string, commits []Commit) (plan string
 	for _, c := range commits {
 		files = append(files, c.Files...)
 	}
-	var best planScore
-	var bestDate string
-	var cands []string
-	claimed := map[string]bool{}
+	type dated struct {
+		path string
+		plan Plan
+	}
+	var all []dated
+	newestOpen := ""
 	for _, e := range entries {
 		p := filepath.Join(home, e.Name())
 		if !e.Type().IsRegular() || !datedName.MatchString(e.Name()) || slices.Contains(skip, p) {
@@ -368,12 +380,26 @@ func Select(home, worktree string, skip []string, commits []Commit) (plan string
 		if err != nil {
 			continue
 		}
-		s := scorePlan(parsed, files)
-		if s == (planScore{}) || e.Name()[:10] < bestDate {
+		all = append(all, dated{p, parsed})
+		if hasOpenOwnedTask(parsed) && e.Name()[:10] > newestOpen {
+			newestOpen = e.Name()[:10]
+		}
+	}
+	var best planScore
+	var bestDate string
+	var cands []string
+	claimed := map[string]bool{}
+	for _, d := range all {
+		name := filepath.Base(d.path)
+		if name[:10] != newestOpen && !hasLiveClaim(d.plan) { // a stale plan sharing a file is never ticked
 			continue
 		}
-		if e.Name()[:10] > bestDate { // the newest touched plan wins; scores compare only within one date
-			bestDate, best, cands, claimed = e.Name()[:10], planScore{}, nil, map[string]bool{}
+		s := scorePlan(d.plan, files)
+		if s == (planScore{}) || name[:10] < bestDate {
+			continue
+		}
+		if name[:10] > bestDate { // the newest touched plan wins; scores compare only within one date
+			bestDate, best, cands, claimed = name[:10], planScore{}, nil, map[string]bool{}
 		}
 		if s.exact < best.exact || s.exact == best.exact && s.touched < best.touched {
 			continue
@@ -381,8 +407,8 @@ func Select(home, worktree string, skip []string, commits []Commit) (plan string
 		if s != best {
 			best, cands, claimed = s, nil, map[string]bool{}
 		}
-		cands = append(cands, p)
-		claimed[p] = worktree != "" && claimsWorktree(parsed, worktree)
+		cands = append(cands, d.path)
+		claimed[d.path] = worktree != "" && claimsWorktree(d.plan, worktree)
 	}
 	if len(cands) == 1 {
 		return cands[0], nil
