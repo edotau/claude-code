@@ -24,7 +24,7 @@ internal/providers          registry (embedded defaults.json + ~/.claude/provide
                             Credential ladder, Authorize, pins (env.d/provider.env), Select/ClientModel,
                             NeedsRouter, FailoverTarget                                        [done]
 internal/cli                verb table + argv0 shims; per-area verb files                     [skeleton]
-internal/translate          Anthropic Messages ⇄ OpenAI chat-completions (req, resp, SSE)     [workstream A]
+internal/proxy/translate          Anthropic Messages ⇄ OpenAI chat-completions (req, resp, SSE)     [workstream A]
 internal/router             loopback proxy: target, auth inject, retry-on-401, 429/5xx failover [workstream B]
 internal/launch             claude binary discovery, launch env, --settings overlay, vendor launch [C]
 internal/hooks/hookspec, hooks    safety, stop-format, context-checkpoint                           [C]

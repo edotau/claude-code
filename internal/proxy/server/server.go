@@ -20,8 +20,8 @@ import (
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/proxy"
+	"github.com/edotau/claude-code/internal/proxy/translate"
 	"github.com/edotau/claude-code/internal/router"
-	"github.com/edotau/claude-code/internal/translate"
 )
 
 const (
