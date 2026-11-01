@@ -84,8 +84,10 @@ Every phase is:
 - **Verifiable** — has a live check with expected output, then a scoped test command.
 - **Self-contained** — a fresh agent with zero context can execute it: paths, exact commands, what "done" is
   (the cold-start test: `skills/subagent-workflows/SKILL.md` → Handoff contract).
-- **Placeholder-free** — never "TBD", "implement as needed", "add appropriate error handling", "handle edge
-  cases", "similar to Phase N", or a reference to a type/function no phase defines.
+- **Placeholder-free** — no "TBD", "TODO", "implement later", "add error handling / validation", "handle edge
+  cases", "write tests for the above" without the test, or "similar to Phase N" (repeat it: tasks get read out of
+  order); no type or function that no phase defines.
+- **Exact** — file paths with line ranges, the code for every code change, each command with its expected output.
 - **Explicit on dependencies** — parallel-safe phases are marked; disjoint packages run in parallel.
 - **Leaf-sized tasks** — see `## Tasks` leaf-size definition above.
 
