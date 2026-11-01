@@ -22,7 +22,7 @@ CLASSIFY → REVIEW → CODEBASE INTEL → RESEARCH → PLAN → [REFINE: opt-in
 | 3. Research | `gh search`, WebFetch, WebSearch, `gemini explore` | Prior art + library refs | ≥1 reference, or "nothing found" stated |
 | 4. Plan | plan mode or `Plan` (plan-only) | Plan with task breakdown | User approval |
 | 5. Refine *(opt-in)* | `general-purpose` | Self-contained brief per sub-task | Cold-start test; only with `--refine` |
-| 6. Dispatch | orchestrate / `/code-workers`, `code-worker` per disjoint file set | Completed sub-tasks | Each passes its own check |
+| 6. Dispatch | `skills/subagent-workflows/SKILL.md` | Completed sub-tasks | Each passes its own check |
 | 7. Merge | `claude-code worktree merge` (if a worktree was used) | Merged diff | Clean merge, no leaf still running |
 | 8. Verify | `rules/standards/quality.md` → Verification Order (simplify is step 5) | Simplified, verified diff | Verification Order green |
 | 9. Commit | `/copilot commit` (or plain git) | Commit on branch | Clean tree |
@@ -68,14 +68,11 @@ Feed both briefs to plan mode or `Plan`; the template is `agents/Plan.md`. Break
 
 For sub-tasks going to fresh agents. Each brief: Objective, Context (paths + lines), Constraints, Steps, Acceptance
 Criteria, Do NOTs, Verification Command. Test: a fresh agent can act from the brief alone
-(`skills/subagent-workflows/SKILL.md`).
+(`skills/subagent-workflows/SKILL.md` → Handoff contract).
 
 ## Phase 6: Dispatch (2+ parallel-safe sub-tasks)
 
-Each sub-task is a `code-worker` owning disjoint (ideally new) files in the shared tree, with `copilot` in the SAME
-message when a test agent is needed (`standards/testing-guidelines.md`). Another model family for one lane:
-`Agent: <x>` in the brief ([Leaf types](../../skills/subagent-workflows/SKILL.md#leaf-types)).
-Cap: `agents.md` → Parallel dispatch.
+Shape, leaf types, test agent and concurrency: `skills/subagent-workflows/SKILL.md`.
 
 ## Phase 7: Merge
 
