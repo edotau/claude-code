@@ -182,20 +182,80 @@ func denyAllTools(_ copilot.PermissionRequest, _ copilot.PermissionInvocation) (
 	return &rpc.PermissionDecisionReject{Feedback: &feedback}, nil
 }
 
-// approveToolOnce is the explicit opt-in; managed org settings still win.
-// readOnlyKinds are the requests a read-only run approves: file reads and URL fetches, never write, shell or memory.
+// readOnlyKinds are the requests a read-only run approves: file reads and URL fetches, never write or memory.
 var readOnlyKinds = map[rpc.PermissionRequestKind]bool{rpc.PermissionRequestKindRead: true, rpc.PermissionRequestKindURL: true}
 
-const readOnlyFeedback = "This run is read-only: only file reads and URL fetches are allowed. Report instead of changing anything."
+const readOnlyFeedback = "This run is read-only: only file reads, URL fetches and read-only git (status, diff, log, show, blame, rev-parse, branch --list) are allowed. Report instead of changing anything."
+
+// readOnlyGit are the git subcommands a read-only run may shell out to.
+var readOnlyGit = map[string]bool{"status": true, "diff": true, "log": true, "show": true, "blame": true, "rev-parse": true, "branch": true}
+
+// gitBannedFlags also match any abbreviation git would accept (--out=x is --output=x).
+var gitBannedFlags = []string{"--output", "--exec", "--ext-diff", "--config", "--open-files-in-pager"}
+
+// gitBranchListFlags are the only dash args `git branch` may carry, and it must include --list or -l.
+var gitBranchListFlags = map[string]bool{"--list": true, "-l": true, "-a": true, "--all": true, "-r": true, "--remotes": true, "-v": true, "-vv": true}
+
+// readOnlyGitCommand reports whether cmd is a single allowlisted read-only git invocation (fail closed).
+func readOnlyGitCommand(cmd string) bool {
+	for _, r := range cmd {
+		if !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || strings.ContainsRune(" _./:=@%+,^-~", r)) {
+			return false
+		}
+	}
+	f := strings.Fields(cmd)
+	if len(f) < 2 || f[0] != "git" || !readOnlyGit[f[1]] {
+		return false
+	}
+	list := false
+	for _, a := range f[2:] {
+		if a == "-c" || strings.HasPrefix(a, "~") || bannedGitFlag(a) {
+			return false
+		}
+		if f[1] != "branch" {
+			continue
+		}
+		list = list || a == "--list" || a == "-l"
+		if strings.HasPrefix(a, "-") && !gitBranchListFlags[a] {
+			return false
+		}
+	}
+	return f[1] != "branch" || list
+}
+
+func bannedGitFlag(arg string) bool {
+	name, _, _ := strings.Cut(arg, "=")
+	if !strings.HasPrefix(name, "--") || len(name) < 3 {
+		return false
+	}
+	for _, b := range gitBannedFlags {
+		if strings.HasPrefix(b, name) {
+			return true
+		}
+	}
+	return false
+}
+
+func shellCommand(req copilot.PermissionRequest) (string, bool) {
+	switch r := req.(type) {
+	case rpc.PermissionRequestShell:
+		return r.FullCommandText, !r.HasWriteFileRedirection
+	case *rpc.PermissionRequestShell:
+		return r.FullCommandText, !r.HasWriteFileRedirection
+	}
+	return "", false
+}
 
 func approveReadOnly(req copilot.PermissionRequest, inv copilot.PermissionInvocation) (rpc.PermissionDecision, error) {
-	if !readOnlyKinds[req.Kind()] {
+	cmd, ok := shellCommand(req)
+	if !readOnlyKinds[req.Kind()] && !(ok && readOnlyGitCommand(cmd)) {
 		feedback := readOnlyFeedback
 		return &rpc.PermissionDecisionReject{Feedback: &feedback}, nil
 	}
 	return approveToolOnce(req, inv)
 }
 
+// approveToolOnce is the explicit opt-in; managed org settings still win.
 func approveToolOnce(_ copilot.PermissionRequest, inv copilot.PermissionInvocation) (rpc.PermissionDecision, error) {
 	if inv.ManagedSettingsEnabled {
 		return &rpc.PermissionDecisionNoResult{}, nil

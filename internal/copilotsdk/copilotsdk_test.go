@@ -259,3 +259,30 @@ func TestReadOnlyToolsApproveOnlyReads(t *testing.T) {
 		}
 	}
 }
+
+// A read-only run approves allowlisted read-only git and rejects every chained, redirected, config or write form.
+func TestReadOnlyGitShell(t *testing.T) {
+	h := BuildSessionConfig(Options{AllowAllTools: true, ReadOnlyTools: true}).OnPermissionRequest
+	for cmd, want := range map[string]bool{
+		"git status": true, "git log -3 --oneline": true, "git diff HEAD~1 -- internal/x.go": true,
+		"git show --stat HEAD": true, "git blame -L 1,5 f.go": true, "git rev-parse HEAD": true,
+		"git branch --list": true, "git log --format=%h": true,
+		"git status; rm -rf x": false, "git diff ~root": false, "git log > f": false, "git -c core.pager=sh log": false,
+		"git log --output=x": false, "git log --out=x": false, "git commit": false, "git branch -D x": false,
+		"git branch new": false, "git log && rm x": false, "git log | sh": false, "git log `id`": false,
+		"git log $(id)": false, "GIT_PAGER=sh git log": false, "git diff --ext-diff": false,
+		"git log --exec=x": false, "git log -c": false, "git push": false, "sh status": false, "ls": false, "": false,
+	} {
+		d, err := h(rpc.PermissionRequestShell{FullCommandText: cmd}, copilot.PermissionInvocation{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, approved := d.(*rpc.PermissionDecisionApproveOnce); approved != want {
+			t.Errorf("%q: approved = %v, want %v", cmd, approved, want)
+		}
+	}
+	d, _ := h(rpc.PermissionRequestShell{FullCommandText: "git log", HasWriteFileRedirection: true}, copilot.PermissionInvocation{})
+	if _, approved := d.(*rpc.PermissionDecisionApproveOnce); approved {
+		t.Error("a write redirection must be rejected")
+	}
+}
