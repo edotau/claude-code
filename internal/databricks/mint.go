@@ -107,12 +107,16 @@ func mint(args []string) int {
 	doCopy := fs.Bool("copy", false, "put the token on the clipboard, then clear it")
 	clearAfter := fs.Duration("clear-after", clipboard.DefaultClearAfter, "with --copy: clear the clipboard after this long")
 	profileName := profileFlag(fs)
+	as := fs.String("as", "", "identity to mint as: user|sp (default: the profile's identity setting)")
 	names, err := helptext.ParseArgs(fs, args)
 	if err != nil {
 		return helptext.ExitCode(err)
 	}
 	if len(names) > 0 {
 		return usageProfile("mint", names[0])
+	}
+	if _, err := providers.ResolveIdentity("", *as); err != nil || *as == providers.IdentityAuto {
+		return fail("mint: --as must be user or sp")
 	}
 	reg, err := providers.Load()
 	if err != nil {
@@ -129,7 +133,7 @@ func mint(args []string) int {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
-	res, tok, err := Mint(ctx, name)
+	res, tok, err := Mint(providers.WithIdentity(ctx, *as), name)
 	if err != nil {
 		return fail("mint: %v", err)
 	}

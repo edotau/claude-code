@@ -23,6 +23,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent/tree"
 	"github.com/edotau/claude-code/internal/network/tailscale"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/secrets/shapes"
 	"github.com/edotau/claude-code/internal/ui/helptext"
@@ -36,6 +37,20 @@ var askPage = helptext.Page{
 	Hint: "Every dispatch is logged: --log lists them, --retry <id> replays one.",
 }
 
+// askAs validates --as; it applies to claude only, other agents follow the profile's identity setting.
+func askAs(as, ag string) error {
+	if as == "" {
+		return nil
+	}
+	if as != providers.IdentityUser && as != providers.IdentitySP {
+		return fmt.Errorf("--as %q must be user or sp", as)
+	}
+	if ag != "claude" {
+		return fmt.Errorf("--as applies to claude only; %s follows the profile's identity setting", ag)
+	}
+	return nil
+}
+
 func cmdAsk(args []string) int { return runAsk(args, false) }
 
 // runAsk is cmdAsk; resume makes the first positional the session id (`<agent> resume [flags] <id> <task>`).
@@ -47,6 +62,7 @@ func runAsk(args []string, resume bool) int {
 	fallback := fs.String("fallback", router.FallbackAll, "fallback: all (agents, then claude)|agents|none")
 	native := fs.Bool("native", false, "opencode: skip the hub ladder; run on its default login")
 	provider := fs.String("profile", "", "profile or hub start (default: pin, then registry)")
+	as := fs.String("as", "", "claude on a paired Databricks profile: user|sp, over the profile's identity")
 	model := fs.String("model", "", "alias (opus), version (opus-5-5) or wire id")
 	effort := fs.String("effort", "", "reasoning effort: low|medium|high|xhigh|max")
 	workdir := fs.String("workdir", "", "working directory for the agent")
@@ -91,6 +107,9 @@ func runAsk(args []string, resume bool) int {
 	}
 	if err := validateAskFlags(*format, *fallback); err != nil {
 		return failAsk(*format, *name, err)
+	}
+	if err := askAs(*as, *name); err != nil {
+		return failAskCode(*format, *name, err, 2)
 	}
 	*tools = *tools || *readOnly // read-only tools are still tools
 	if err := askExclusive(*background, *job, *tools, *noTools); err != nil {
@@ -219,7 +238,7 @@ func runAsk(args []string, resume bool) int {
 		AppendSystemPrompt: *appendSystemPrompt, Env: []string(env), OutputSchema: schema, Persona: persona,
 		Agent: ref, Agents: defs, Fallback: *fallback, Native: *native, Host: *host, RemoteBin: *remoteBin, Rubric: *rubric, Background: *background}
 	client := newClient()
-	prepared, err := client.Prepare(ctx, req, jobRec)
+	prepared, err := client.Prepare(providers.WithIdentity(ctx, *as), req, jobRec)
 	if err != nil {
 		code := 1
 		if usage, ok := errors.AsType[interface {

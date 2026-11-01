@@ -44,12 +44,20 @@ func login(args []string) int {
 	authType := fs.String("auth-type", "", "auth type to switch the profile to: oauth, m2m or pat (needed to change a non-oauth profile)")
 	fs.StringVar(authType, "t", "", "shorthand for --auth-type")
 	profileName := profileFlag(fs)
+	as := fs.String("as", "", "identity: user (browser login, no SP fallback); sp is refused, it needs no login")
 	names, err := helptext.ParseArgs(fs, args)
 	if err != nil {
 		return helptext.ExitCode(err)
 	}
 	if len(names) > 0 {
 		return usageProfile("login", names[0])
+	}
+	switch *as {
+	case "", providers.IdentityUser:
+	case providers.IdentitySP:
+		return fail("login: --as sp needs no browser login; the paired service principal mints on its own")
+	default:
+		return fail("login: --as must be user or sp")
 	}
 	switch *authType {
 	case "", providers.AuthOAuth:
