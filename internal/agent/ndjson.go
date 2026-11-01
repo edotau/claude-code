@@ -16,7 +16,7 @@ func DecodeLines(br *bufio.Reader, lg StreamLog, fn func(raw []byte) (stop bool,
 		raw = bytes.TrimSpace(raw)
 		if len(raw) > 0 {
 			if !json.Valid(raw) {
-				lg.emit("raw", string(raw))
+				lg.Emit("raw", string(raw))
 			} else {
 				stop, err := fn(raw)
 				if err != nil {

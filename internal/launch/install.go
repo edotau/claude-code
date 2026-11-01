@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/edotau/claude-code/internal/codex"
 	"io"
 	"net/http"
 	"os"
@@ -66,7 +67,7 @@ func DoctorChecks() (checks []Check, ok bool) {
 	}
 	bin, err := agent.ClaudeBinary()
 	check(err == nil, true, "claude binary", orErr(bin, err))
-	for _, c := range agent.CodexConfigChecks() {
+	for _, c := range codex.CodexConfigChecks() {
 		check(c.State == "ok", false, c.Name, c.Detail)
 	}
 	reg, err := providers.Load()

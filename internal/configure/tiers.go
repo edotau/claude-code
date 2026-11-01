@@ -5,6 +5,7 @@ import (
 	"cmp"
 	"context"
 	"encoding/json"
+	"github.com/edotau/claude-code/internal/codex"
 	"os"
 	"os/exec"
 	"regexp"
@@ -44,7 +45,7 @@ func claudeRateTier() string {
 }
 
 // codexTier is codex's ChatGPT plan ("Plus", "Pro"), read offline.
-func codexTier() string { return title(agent.CodexPlan()) }
+func codexTier() string { return title(codex.CodexPlan()) }
 
 // copilotTierCmd is the plan lookup seam; tests replace it.
 var copilotTierCmd = func(ctx context.Context) ([]byte, error) {

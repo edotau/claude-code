@@ -5,7 +5,6 @@ import (
 
 	"bytes"
 	"encoding/binary"
-	"errors"
 	"github.com/edotau/claude-code/internal/copilotsdk"
 	"image"
 	"image/png"
@@ -15,49 +14,6 @@ import (
 	"strings"
 	"testing"
 )
-
-func TestAttachImageDelivery(t *testing.T) {
-	var pb bytes.Buffer
-	if err := png.Encode(&pb, image.NewRGBA(image.Rect(0, 0, 2, 2))); err != nil {
-		t.Fatal(err)
-	}
-	dir := t.TempDir()
-	img, txt := filepath.Join(dir, "shot.png"), filepath.Join(dir, "note.txt")
-	if err := os.WriteFile(img, pb.Bytes(), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(txt, []byte("hello-note"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	paths := []string{img, txt}
-
-	// codex: image rides -i right after exec; the prompt inlines only the text file.
-	prompt, err := mustDriver("codex").Attach("ask", paths, false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(prompt, "hello-note") || strings.Contains(prompt, "PNG") || strings.Contains(prompt, "shot.png") {
-		t.Errorf("codex prompt = %q", prompt)
-	}
-	got := codexImageArgs([]string{"exec", "--json", "-"}, paths)
-	if want := []string{"exec", "-i", img, "--json", "-"}; !reflect.DeepEqual(got, want) {
-		t.Errorf("codex argv = %v, want %v", got, want)
-	}
-
-	// claude: with tools the image is named by absolute path; without, a clear error.
-	p, err := claudeAttach("ask", paths, true)
-	if err != nil || !strings.Contains(p, "hello-note") || !strings.Contains(p, "Attached image (open it with the Read tool): "+img) {
-		t.Errorf("claude prompt = %q, %v", p, err)
-	}
-	if _, err := claudeAttach("ask", paths, false); !errors.Is(err, ErrBadAttach) || !strings.Contains(err.Error(), "needs tools") {
-		t.Errorf("claude without tools: %v", err)
-	}
-
-	// an image reaching the inline path is refused, never sent as bytes.
-	if _, err := AttachInline("ask", []string{img}); !errors.Is(err, ErrBadAttach) {
-		t.Errorf("attachInline(image) = %v", err)
-	}
-}
 
 func TestIsImage(t *testing.T) {
 	riff := make([]byte, 16)

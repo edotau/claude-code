@@ -13,7 +13,6 @@ var (
 
 	BackupAndWrite    = backupAndWrite
 	LostLines         = lostLines
-	MergeCodexHooks   = mergeCodexHooks
 	MergeCopilotHooks = mergeCopilotHooks
 	MirrorsOf         = mirrorsOf
 )

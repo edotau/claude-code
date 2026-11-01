@@ -1,11 +1,10 @@
-// Agent-file versions, baselines and lost-line detection behind commitFile, plus `configure --revert`.
+// Agent-file versions, baselines and lost-line detection behind CommitFile, plus `configure --revert`.
 package agent
 
 import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"github.com/edotau/claude-code/internal/agentconfig"
 	"io"
 	"os"
 	"path/filepath"
@@ -71,10 +70,10 @@ func baselinePath(label, path string) string {
 	return filepath.Join(paths.StateDir(), "vendor-baseline", label+"-"+hex.EncodeToString(sum[:4]))
 }
 
-// writeBaseline caches next as the baseline for path's next commitFile call.
+// writeBaseline caches next as the baseline for path's next CommitFile call.
 func writeBaseline(label, path string, next []byte) error {
-	if label == "codex" {
-		return agentconfig.SaveCodexBaseline(path, next)
+	if ops := fileOps[label]; ops.SaveBaseline != nil {
+		return ops.SaveBaseline(path, next)
 	}
 	return paths.AtomicWrite(baselinePath(label, path), next, 0o600)
 }
@@ -85,8 +84,8 @@ func writeBaseline(label, path string, next []byte) error {
 func lostLinesFor(label, path string, theirs, next []byte) ([]string, error) {
 	var base []byte
 	var err error
-	if label == "codex" {
-		base, err = agentconfig.LoadCodexBaseline(path)
+	if ops := fileOps[label]; ops.LoadBaseline != nil {
+		base, err = ops.LoadBaseline(path)
 	} else {
 		base, err = os.ReadFile(baselinePath(label, path))
 		if err != nil {
@@ -138,7 +137,20 @@ func printLostLines(out io.Writer, lines []string) {
 
 // --- revert: step each agent file back to its newest backup version ---
 
-// LabelPath is one file this tool can write, named by its commitFile label.
+// FileOps are a vendor file's deviations from CommitFile's default flow, registered per label from an init.
+type FileOps struct {
+	Write        func(path string, oldRaw, newRaw []byte, existed bool) error // default backupAndWrite
+	LoadBaseline func(path string) ([]byte, error)                            // default: the cached bytes
+	SaveBaseline func(path string, next []byte) error
+	Revert       func(path string, dryRun bool, out io.Writer) error
+}
+
+var fileOps = map[string]FileOps{}
+
+// RegisterFileOps sets label's FileOps; it runs from an init, never at call time.
+func RegisterFileOps(label string, ops FileOps) { fileOps[label] = ops }
+
+// LabelPath is one file this tool can write, named by its CommitFile label.
 type LabelPath struct{ Label, Path string }
 
 // homeOr is home, else the user's home directory.
@@ -173,9 +185,9 @@ func RevertConfigs(o RenderOptions) error {
 	return nil
 }
 
-// legacyBackupSource picks the newest pre-mirror "<path>.backup.<stamp>" file, else the plain ".backup"; codex restore only.
+// LegacyBackupSource picks the newest pre-mirror "<path>.backup.<stamp>" file, else the plain ".backup"; codex restore only.
 // Migration: remove after 2026-11-13 once every machine has run a post-2026-10-28 build.
-func legacyBackupSource(path string) (src string, stepBack, ok bool) {
+func LegacyBackupSource(path string) (src string, stepBack, ok bool) {
 	if versions, err := filepath.Glob(path + ".backup.*"); err == nil && len(versions) > 0 {
 		sort.Strings(versions)
 		return versions[len(versions)-1], true, true
@@ -187,14 +199,14 @@ func legacyBackupSource(path string) (src string, stepBack, ok bool) {
 
 // revertOne restores path from its newest cache-mirrored backup and removes it so the next revert goes further back.
 func revertOne(label, path string, dryRun bool, out io.Writer) error {
-	if label == "codex" {
-		return restoreCodexConfig(path, dryRun, out)
+	if ops := fileOps[label]; ops.Revert != nil {
+		return ops.Revert(path, dryRun, out)
 	}
 	src, ok := newestMirror(path)
 	consumed := true
 	if !ok {
 		var legacyOK bool
-		src, _, legacyOK = legacyBackupSource(path)
+		src, _, legacyOK = LegacyBackupSource(path)
 		if !legacyOK {
 			fmt.Fprintf(out, "%s: no backup to revert for %s\n", label, path)
 			return nil

@@ -4,12 +4,12 @@ import (
 	"bufio"
 	"bytes"
 	"github.com/edotau/claude-code/internal/agentconfig"
+	"github.com/edotau/claude-code/internal/codex"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -167,7 +167,7 @@ func TestCodexSettingsCheckDetectsUnappliedReset(t *testing.T) {
 	if err := agentconfig.SaveCodexOverlay(map[string]string{"model_verbosity": "low"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := agent.ApplyCodexSettings(home); err != nil {
+	if err := codex.ApplyCodexSettings(home); err != nil {
 		t.Fatal(err)
 	}
 	// A failed native reset leaves the new empty overlay saved and the old owned preference on disk.
@@ -198,7 +198,7 @@ func TestCodexSettingsCheckDetectsUnappliedReset(t *testing.T) {
 	if !bytes.Equal(nativeBefore, nativeAfter) || !bytes.Equal(vaultBefore, vaultAfter) {
 		t.Fatal("check of unapplied reset changed native config or vault")
 	}
-	if err := agent.ApplyCodexSettings(home); err != nil {
+	if err := codex.ApplyCodexSettings(home); err != nil {
 		t.Fatal(err)
 	}
 	out.Reset()

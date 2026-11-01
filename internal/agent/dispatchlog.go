@@ -307,7 +307,7 @@ func eventLogFor(ctx context.Context) StreamLog {
 	return func(kind, text string) { logEvent(ctx, kind, text) }
 }
 
-func (l StreamLog) emit(kind, text string) {
+func (l StreamLog) Emit(kind, text string) {
 	if l != nil {
 		l(kind, text)
 	}

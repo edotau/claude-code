@@ -1,4 +1,4 @@
-package agent
+package codex
 
 import (
 	"bufio"
@@ -8,13 +8,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"io"
 	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"runtime"
 	"slices"
 	"sort"
@@ -28,16 +28,16 @@ import (
 	"github.com/edotau/claude-code/internal/settings"
 )
 
-type codexEngine struct{ BaseEngine }
+type codexEngine struct{ agent.BaseEngine }
 
-var _ HeadlessDriver = codexEngine{}
+var _ agent.HeadlessDriver = codexEngine{}
 
 func (codexEngine) Attach(prompt string, paths []string, _ bool) (string, error) {
-	_, rest := SplitImages(paths)
-	return AttachInline(prompt, rest)
+	_, rest := agent.SplitImages(paths)
+	return agent.AttachInline(prompt, rest)
 }
 
-func (codexEngine) Before(req RunOptions, t providers.Target) providers.Target {
+func (codexEngine) Before(req agent.RunOptions, t providers.Target) providers.Target {
 	if req.Autonomous {
 		fmt.Fprintln(os.Stderr, "ask: codex exec has no ask-step to disable; --tools already grants workspace-write")
 	}
@@ -46,7 +46,7 @@ func (codexEngine) Before(req RunOptions, t providers.Target) providers.Target {
 
 func (codexEngine) RanModel(t providers.Target) string { return codexRanModel(t) }
 
-func (e codexEngine) Exec(ctx context.Context, p CLIPrep, req RunOptions, sink Sink) (Result, error) {
+func (e codexEngine) Exec(ctx context.Context, p agent.CLIPrep, req agent.RunOptions, sink agent.Sink) (agent.Result, error) {
 	res, prompt, env, argv := p.Result, p.Prompt, p.Env, p.Argv
 	bin, err := e.Bin()
 	if err != nil {
@@ -62,7 +62,7 @@ func (e codexEngine) Exec(ctx context.Context, p CLIPrep, req RunOptions, sink S
 	if req.OutputSchema != "" {
 		file, err := codexSchemaFile(req.OutputSchema)
 		if err != nil {
-			return res, &Error{Kind: KindFatal, Agent: e.name, Err: err}
+			return res, &agent.Error{Kind: agent.KindFatal, Agent: e.Name(), Err: err}
 		}
 		defer func() { _ = os.Remove(file) }()
 		extra = append(extra, "--output-schema", file)
@@ -73,40 +73,40 @@ func (e codexEngine) Exec(ctx context.Context, p CLIPrep, req RunOptions, sink S
 	}
 	argv = codexExecArgs(codexImageArgs(argv, req.Attach), extra...)
 	var answer strings.Builder
-	var banner HeadBuffer
-	cmd, tail := ChildCmd(ctx, bin, argv, env, req.WorkDir, prompt, req.KeepEnv, true)
+	var banner agent.HeadBuffer
+	cmd, tail := agent.ChildCmd(ctx, bin, argv, env, req.WorkDir, prompt, req.KeepEnv, true)
 	cmd.Stderr = io.MultiWriter(cmd.Stderr, &banner)
 	if codexJSON {
-		return RunStream(ctx, e.name, cmd, tail, res, sink, parseCodexStream)
+		return agent.RunStream(ctx, e.Name(), cmd, tail, res, sink, parseCodexStream)
 	}
-	cmd.Stdout = TeeWriter(ctx, io.MultiWriter(SinkWriter(sink), &answer))
+	cmd.Stdout = agent.TeeWriter(ctx, io.MultiWriter(agent.SinkWriter(sink), &answer))
 	err = cmd.Run()
 	res.Answer = strings.TrimSpace(answer.String())
 	if id := sessionFromBanner(banner.String()); id != "" {
 		res.SessionID = id
 	}
 	if err == nil && res.Answer == "" {
-		return res, EmptyAnswer(e.name)
+		return res, agent.EmptyAnswer(e.Name())
 	}
-	return res, childErr(ctx, e.name, err, tail)
+	return res, agent.ChildErr(ctx, e.Name(), err, tail)
 }
 
-func (codexEngine) Login(_ *providers.Provider, model string, h *Headless) ([]string, []string, error) {
+func (codexEngine) Login(_ *providers.Provider, model string, h *agent.Headless) ([]string, []string, error) {
 	return codexLogin(model, h)
 }
 
-func (codexEngine) Wire(_ context.Context, r WireRoute, h *Headless) ([]string, []string, error) {
+func (codexEngine) Wire(_ context.Context, r agent.WireRoute, h *agent.Headless) ([]string, []string, error) {
 	return codex(r.Provider, r.Base, r.Model, r.Cred, h)
 }
 
 func (e codexEngine) FallbackTarget(reg *providers.Registry) (providers.Target, string, bool) {
-	if p, ok := LoginProvider(reg, "openai", "codex"); ok && codexChatGPTLogin() == nil {
+	if p, ok := agent.LoginProvider(reg, "openai", "codex"); ok && codexChatGPTLogin() == nil {
 		// Codex's own config.toml model beats the catalog; the model pin beats both.
 		model := p.Models[models.Opus]
 		if own := codexOwnModel(); own != "" {
 			model = own
 		}
-		t, _ := ResolveAgentModel(ModelAsk{Agent: e.name, Target: providers.Target{Provider: p, Model: model}})
+		t, _ := agent.ResolveAgentModel(agent.ModelAsk{Agent: e.Name(), Target: providers.Target{Provider: p, Model: model}})
 		return t, "chatgpt (codex login)", true
 	}
 	return providers.Target{}, "", false
@@ -124,9 +124,9 @@ func (codexEngine) CheckLogin(ctx context.Context) (providers.AuthVerdict, strin
 	if err != nil {
 		return providers.VerdictTransient, err.Error()
 	}
-	ctx, cancel := context.WithTimeout(ctx, ProbeTimeout)
+	ctx, cancel := context.WithTimeout(ctx, agent.ProbeTimeout)
 	defer cancel()
-	out, err := CodexStatus(ctx, bin)
+	out, err := codexStatus(ctx, bin)
 	var ee *exec.ExitError
 	switch {
 	case err == nil:
@@ -139,16 +139,16 @@ func (codexEngine) CheckLogin(ctx context.Context) (providers.AuthVerdict, strin
 	return providers.VerdictTransient, err.Error()
 }
 
-func (codexEngine) Render(reg *providers.Registry, sel providers.Selection, _ string, o RenderOptions, out io.Writer) (bool, error) {
+func (codexEngine) Render(reg *providers.Registry, sel providers.Selection, _ string, o agent.RenderOptions, out io.Writer) (bool, error) {
 	return renderCodex(reg, sel, o, out)
 }
 
-func (codexEngine) ConfigPaths(home string) ([]LabelPath, error) {
+func (codexEngine) ConfigPaths(home string) ([]agent.LabelPath, error) {
 	path, err := paths.CodexConfigPath(home)
 	if err != nil {
 		return nil, err
 	}
-	return []LabelPath{{"codex", path}}, nil
+	return []agent.LabelPath{{Label: "codex", Path: path}}, nil
 }
 
 // LaunchArgs prepends the -f file's codex overrides (after the harness prefix, so the file's keys win).
@@ -163,7 +163,7 @@ func (codexEngine) LaunchArgs(file string, args []string) ([]string, error) {
 	return append(overrides, args...), nil
 }
 
-func (codexEngine) ProfileHint(o LaunchOptions) error { return codexProfileHint(o) }
+func (codexEngine) ProfileHint(o agent.LaunchOptions) error { return codexProfileHint(o) }
 
 func (codexEngine) RouteDetail() (string, bool) { return codexRouteDetail(), true }
 
@@ -267,19 +267,19 @@ type codexEvent struct {
 
 // parseCodexStream reads `codex exec --json`: agent messages become text events (the last is the answer),
 // command executions become tool events, turn.completed adds usage and turn.failed fails the run.
-func parseCodexStream(br *bufio.Reader, sink Sink, onMeaningful func(), logs ...StreamLog) (res Result, _ error) {
-	ts := TransportTracker{Start: Clock()}
+func parseCodexStream(br *bufio.Reader, sink agent.Sink, onMeaningful func(), logs ...agent.StreamLog) (res agent.Result, _ error) {
+	ts := agent.TransportTracker{Start: agent.Clock()}
 	defer func() { res.Transport = ts.Result() }()
-	lg := PickLog(logs)
+	lg := agent.PickLog(logs)
 	var last string
 	var failure string
 	texts := 0
-	err := DecodeLines(br, lg, func(raw []byte) (bool, error) {
+	err := agent.DecodeLines(br, lg, func(raw []byte) (bool, error) {
 		var ev codexEvent
 		if err := json.Unmarshal(raw, &ev); err != nil {
 			return false, fmt.Errorf("decode codex json: %w", err)
 		}
-		ts.Event(Clock())
+		ts.Event(agent.Clock())
 		it := ev.Item
 		switch {
 		case ev.Type == "thread.started":
@@ -288,21 +288,21 @@ func parseCodexStream(br *bufio.Reader, sink Sink, onMeaningful func(), logs ...
 			if onMeaningful != nil {
 				onMeaningful()
 			}
-			if err := sink.Emit(Event{Type: EventText, Text: it.Text, Sep: texts > 0}); err != nil {
+			if err := sink.Emit(agent.Event{Type: agent.EventText, Text: it.Text, Sep: texts > 0}); err != nil {
 				return false, err
 			}
 			texts++
 			last = it.Text
-			lg.emit("assistant", it.Text)
+			lg.Emit("assistant", it.Text)
 		case ev.Type == "item.started" && it.Type == "command_execution":
-			tool := ToolEvent("shell", it.ID)
+			tool := agent.ToolEvent("shell", it.ID)
 			tool.Text = it.Command
 			if err := sink.Emit(tool); err != nil {
 				return false, err
 			}
-			lg.emit("tool", it.Command)
+			lg.Emit("tool", it.Command)
 		case ev.Type == "item.completed" && it.Type == "command_execution":
-			if err := sink.Emit(Event{Type: EventToolResult, Tool: &ToolRef{Name: "shell", ID: it.ID}, Status: it.Status}); err != nil {
+			if err := sink.Emit(agent.Event{Type: agent.EventToolResult, Tool: &agent.ToolRef{Name: "shell", ID: it.ID}, Status: it.Status}); err != nil {
 				return false, err
 			}
 		case ev.Type == "turn.completed":
@@ -310,10 +310,10 @@ func parseCodexStream(br *bufio.Reader, sink Sink, onMeaningful func(), logs ...
 			res.Usage.InputTokens += u.InputTokens - u.CachedInputTokens
 			res.Usage.CacheReadTokens += u.CachedInputTokens
 			res.Usage.OutputTokens += u.OutputTokens
-			lg.emit("result", fmt.Sprintf("turn finished, tokens in=%d out=%d", u.InputTokens, u.OutputTokens))
+			lg.Emit("result", fmt.Sprintf("turn finished, tokens in=%d out=%d", u.InputTokens, u.OutputTokens))
 		case ev.Type == "turn.failed":
 			failure = cmp.Or(ev.Error.Message, "codex turn failed")
-			if err := EmitError(lg, sink, failure); err != nil {
+			if err := agent.EmitError(lg, sink, failure); err != nil {
 				return false, err
 			}
 		}
@@ -327,16 +327,6 @@ func parseCodexStream(br *bufio.Reader, sink Sink, onMeaningful func(), logs ...
 		return res, errors.New(failure)
 	}
 	return res, nil
-}
-
-var idRE = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
-
-// ownedID namespaces the provider entry so it never overwrites a user's own block of the same name.
-func ownedID(p *providers.Provider) (string, error) {
-	if !idRE.MatchString(p.Name) {
-		return "", fmt.Errorf("provider name %q must match %s to be passed to an agent config", p.Name, idRE)
-	}
-	return "harness-" + p.Name, nil
 }
 
 // codexResponsesModel swaps a model Responses cannot serve (the row's opus alias, gpt-oss) for the menu's first Responses model.
@@ -361,9 +351,9 @@ func codexRanModel(t providers.Target) string {
 }
 
 // codex speaks only the Responses API (`wire_api = "chat"` is rejected by current builds).
-func codex(p *providers.Provider, base, model, cred string, h *Headless) ([]string, []string, error) {
+func codex(p *providers.Provider, base, model, cred string, h *agent.Headless) ([]string, []string, error) {
 	model = codexResponsesModel(p, model)
-	id, err := ownedID(p)
+	id, err := agent.OwnedID(p)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -398,7 +388,7 @@ func codex(p *providers.Provider, base, model, cred string, h *Headless) ([]stri
 }
 
 // codexLogin runs codex on its own ChatGPT sign-in: the built-in openai provider, no key injected.
-func codexLogin(model string, h *Headless) ([]string, []string, error) {
+func codexLogin(model string, h *agent.Headless) ([]string, []string, error) {
 	if err := codexChatGPTLogin(); err != nil {
 		return nil, nil, err
 	}
@@ -467,12 +457,12 @@ func codexChatGPTLogin() error {
 }
 
 // codexHeadless appends the `codex exec` form when h is set; nil h is the interactive launch.
-func codexHeadless(argv []string, h *Headless) []string {
+func codexHeadless(argv []string, h *agent.Headless) []string {
 	var effort string
 	if h != nil {
 		effort = h.Effort
 	}
-	if effort = cmp.Or(effort, GetAgentRecord("codex").Effort); effort != "" {
+	if effort = cmp.Or(effort, agent.GetAgentRecord("codex").Effort); effort != "" {
 		argv = append(argv, "-c", "model_reasoning_effort="+agentconfig.TOMLQuote(effort))
 	}
 	if h == nil {
@@ -626,3 +616,12 @@ func CodexAccessToken() (token, accountID, keyringNote string) {
 	}
 	return auth.Tokens.Access, auth.Tokens.Account, ""
 }
+
+// codexSchema is the registered codex roster row.
+func codexSchema() agent.Schema {
+	s, _ := agent.LookupSchema("codex")
+	return s
+}
+
+// CodexKeyEnv carries the credential codex's config names (the config text names the variable, not the secret).
+const CodexKeyEnv = "HARNESS_CODEX_API_KEY"

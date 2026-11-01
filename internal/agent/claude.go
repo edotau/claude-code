@@ -205,7 +205,7 @@ func parseClaudeEvents(br *bufio.Reader, untilResult bool, sink Sink, logs ...St
 		case "system":
 			if ev.Subtype == "api_retry" {
 				ts.retry(ev.ErrorStatus)
-				lg.emit("retry", fmt.Sprintf("attempt %d/%d status=%d retry_in=%dms",
+				lg.Emit("retry", fmt.Sprintf("attempt %d/%d status=%d retry_in=%dms",
 					ev.Attempt, ev.MaxRetries, ts.lastStatus(), ev.RetryDelayMs))
 				if err := sink.Emit(Event{Type: EventRetry, Status: strconv.Itoa(ts.lastStatus()),
 					Text: fmt.Sprintf("attempt %d/%d retry_in=%dms", ev.Attempt, ev.MaxRetries, ev.RetryDelayMs)}); err != nil {
@@ -233,7 +233,7 @@ func parseClaudeEvents(br *bufio.Reader, untilResult bool, sink Sink, logs ...St
 				_ = EmitError(lg, sink, err.Error())
 				return false, err
 			}
-			lg.emit("result", ev.Result)
+			lg.Emit("result", ev.Result)
 			if untilResult {
 				return true, nil
 			}
@@ -260,9 +260,9 @@ func logClaudeAssistant(lg StreamLog, msg claudeMessage) {
 	for _, b := range msg.Content {
 		switch b.Type {
 		case "text":
-			lg.emit("assistant", b.Text)
+			lg.Emit("assistant", b.Text)
 		case "tool_use":
-			lg.emit("tool", b.Name)
+			lg.Emit("tool", b.Name)
 		}
 	}
 }

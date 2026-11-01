@@ -4,6 +4,7 @@ package configure
 
 import (
 	"cmp"
+	"github.com/edotau/claude-code/internal/codex"
 	"os"
 	"os/exec"
 	"slices"
@@ -197,7 +198,7 @@ func loginOrKey(d *dialog, loggedIn bool, tier string) agentState {
 }
 
 func codexMenu(d *dialog) agentMenu {
-	loggedIn := agent.CodexChatGPTLoginPresent()
+	loggedIn := codex.CodexChatGPTLoginPresent()
 	tier := ""
 	if loggedIn {
 		tier = codexTier()

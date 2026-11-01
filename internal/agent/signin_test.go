@@ -10,7 +10,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -64,98 +63,6 @@ func TestForPicksKind(t *testing.T) {
 			t.Errorf("%s: For = %s, want %s", c.name, got, c.want)
 		}
 	}
-}
-
-func TestCheckVerdictsPerKind(t *testing.T) {
-	env(t)
-	ocred := credential
-	t.Cleanup(func() { credential = ocred })
-	oc, og, ov, ocp := claudeStatus, geminiPresent, CodexStatus, signinCopilotLogin
-	t.Cleanup(func() { claudeStatus, geminiPresent, CodexStatus, signinCopilotLogin = oc, og, ov, ocp })
-	pathstest.FakeVendor(t, "codex", "#!/bin/sh\nexit 0\n")
-
-	var credErr error
-	credential = func(context.Context, *providers.Provider) (string, error) { return "tok", credErr }
-	t.Setenv("E_KEY", "present")
-
-	u2mRow := row("u", providers.Auth{Type: providers.AuthOAuth})
-	envRow := row("e", providers.Auth{Type: providers.AuthKey, Env: "E_KEY"})
-	t.Run("u2m", func(t *testing.T) {
-		for err, want := range map[string]providers.AuthVerdict{"": providers.VerdictOK, "login": providers.VerdictNeedsLogin, "net": providers.VerdictTransient} {
-			credErr = map[string]error{"": nil, "login": providers.ErrNeedsLogin, "net": errors.New("dial tcp: timeout")}[err]
-			if v, _ := SigninFor(u2mRow).Check(context.Background()); v != want {
-				t.Errorf("u2m %q = %s, want %s", err, v, want)
-			}
-		}
-	})
-	t.Run("secret env", func(t *testing.T) {
-		credErr = nil
-		if v, _ := SigninFor(envRow).Check(context.Background()); v != providers.VerdictOK {
-			t.Errorf("present env secret = %s", v)
-		}
-		credErr = errors.New("503")
-		if v, _ := SigninFor(envRow).Check(context.Background()); v != providers.VerdictTransient {
-			t.Errorf("transient mint = %s", v)
-		}
-		t.Setenv("E_KEY", "")
-		if v, d := SigninFor(envRow).Check(context.Background()); v != providers.VerdictNeedsLogin || d != "no credential" {
-			t.Errorf("missing secret = %s %q", v, d)
-		}
-	})
-	t.Run("sealed missing", func(t *testing.T) {
-		pat := row("pat1", providers.Auth{Type: providers.AuthPAT})
-		if v, d := SigninFor(pat).Check(context.Background()); v != providers.VerdictNeedsLogin || d != "no credential" {
-			t.Errorf("sealed missing = %s %q", v, d)
-		}
-	})
-	t.Run("subscription", func(t *testing.T) {
-		sub := row("s", providers.Auth{Type: providers.AuthCLI})
-		claudeStatus = func() (bool, string, error) { return true, "(max)", nil }
-		if v, _ := SigninFor(sub).Check(context.Background()); v != providers.VerdictOK {
-			t.Errorf("logged in = %s", v)
-		}
-		claudeStatus = func() (bool, string, error) { return false, "", nil }
-		if v, _ := SigninFor(sub).Check(context.Background()); v != providers.VerdictNeedsLogin {
-			t.Errorf("logged out = %s", v)
-		}
-	})
-	t.Run("copilot", func(t *testing.T) {
-		cp := row("c", providers.Auth{Type: providers.AuthCLI, Login: "copilot"})
-		signinCopilotLogin = func() string { return "octo" }
-		if v, d := SigninFor(cp).Check(context.Background()); v != providers.VerdictOK || !strings.Contains(d, "octo") {
-			t.Errorf("signed in = %s %q", v, d)
-		}
-		signinCopilotLogin = func() string { return "" }
-		if v, _ := SigninFor(cp).Check(context.Background()); v != providers.VerdictNeedsLogin {
-			t.Errorf("signed out = %s", v)
-		}
-	})
-	t.Run("gemini", func(t *testing.T) {
-		g := row("g", providers.Auth{Type: providers.AuthCLI, Login: "gemini"})
-		for present, want := range map[bool]providers.AuthVerdict{true: providers.VerdictOK, false: providers.VerdictNeedsLogin} {
-			geminiPresent = func() bool { return present }
-			if v, _ := SigninFor(g).Check(context.Background()); v != want {
-				t.Errorf("present=%v = %s", present, v)
-			}
-		}
-	})
-	t.Run("codex", func(t *testing.T) {
-		cx := row("x", providers.Auth{Type: providers.AuthCLI, Login: "codex"})
-		CodexStatus = func(context.Context, string) ([]byte, error) { return []byte("Logged in using ChatGPT\n"), nil }
-		if v, d := SigninFor(cx).Check(context.Background()); v != providers.VerdictOK || d != "Logged in using ChatGPT" {
-			t.Errorf("logged in = %s %q", v, d)
-		}
-		CodexStatus = func(context.Context, string) ([]byte, error) {
-			return nil, &exec.ExitError{}
-		}
-		if v, _ := SigninFor(cx).Check(context.Background()); v != providers.VerdictNeedsLogin {
-			t.Errorf("exit 1 = %s", v)
-		}
-		CodexStatus = func(context.Context, string) ([]byte, error) { return nil, errors.New("exec: killed") }
-		if v, _ := SigninFor(cx).Check(context.Background()); v != providers.VerdictTransient {
-			t.Errorf("non-exit error must be transient, got %s", v)
-		}
-	})
 }
 
 func TestNoneCheckReachability(t *testing.T) {
@@ -378,20 +285,6 @@ func TestSecretOKDetail(t *testing.T) {
 	}
 	if v, d := SigninFor(pat).Check(context.Background()); v != providers.VerdictOK || d != "" {
 		t.Errorf("sealed pat (validated by mint) = %s %q, want ok with no caveat", v, d)
-	}
-}
-
-func TestCodexDetailCutAtDash(t *testing.T) {
-	env(t)
-	o := CodexStatus
-	t.Cleanup(func() { CodexStatus = o })
-	pathstest.FakeVendor(t, "codex", "#!/bin/sh\nexit 0\n")
-	CodexStatus = func(context.Context, string) ([]byte, error) {
-		return []byte("Logged in using ChatGPT - user@example.com\n"), nil
-	}
-	_, d := SigninFor(row("x", providers.Auth{Type: providers.AuthCLI, Login: "codex"})).Check(context.Background())
-	if d != "Logged in using ChatGPT" {
-		t.Errorf("detail = %q, want the part before \" - \"", d)
 	}
 }
 

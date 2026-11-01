@@ -3,10 +3,10 @@ package configure
 
 import (
 	"cmp"
+	"github.com/edotau/claude-code/internal/codex"
 	"regexp"
 	"strings"
 
-	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
 )
@@ -89,7 +89,7 @@ func rawPlanID(d *dialog, name string, st agentState) string {
 	case "claude":
 		return claudeRateTier()
 	case "codex":
-		return agent.CodexPlan()
+		return codex.CodexPlan()
 	case "copilot":
 		return copilotRawPlan()
 	}

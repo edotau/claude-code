@@ -44,10 +44,7 @@ var (
 	signinCopilotLogin = CopilotStoredLogin
 	geminiPresent      = GeminiLoginPresent
 	runLogin           = runLoginCLI
-	CodexStatus        = func(ctx context.Context, bin string) ([]byte, error) {
-		return exec.CommandContext(ctx, bin, "login", "status").CombinedOutput()
-	}
-	ProbeTimeout = 8 * time.Second
+	ProbeTimeout       = 8 * time.Second
 )
 
 // SigninFor returns the sign-in for p's kind.

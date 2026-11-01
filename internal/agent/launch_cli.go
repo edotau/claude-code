@@ -1,13 +1,10 @@
 package agent
 
 import (
-	"bufio"
 	"context"
 	"errors"
 	"fmt"
-	"github.com/edotau/claude-code/internal/paths"
 	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 
@@ -20,23 +17,6 @@ func LaunchPlan(ctx context.Context, name string, o LaunchOptions, args []string
 	plan, err := cliPlan(ctx, name, o, args)
 	plan.Keep, plan.CLI = o.KeepEnv, true
 	return plan, err
-}
-
-// codexProfileHint is the usage error for `codex --profile X` when X is no harness profile but codex's own
-// $CODEX_HOME/X.config.toml exists; nil otherwise.
-func codexProfileHint(o LaunchOptions) error {
-	if o.Provider == "" || strings.ContainsAny(o.Provider, `/\`) {
-		return nil
-	}
-	home, err := paths.CodexHome()
-	if err != nil {
-		return nil
-	}
-	if _, err := os.Stat(filepath.Join(home, o.Provider+".config.toml")); err != nil {
-		return nil
-	}
-	return UsageError(fmt.Sprintf("claude-code codex: --profile %q is not a harness profile; "+
-		"for codex's own config profile ($CODEX_HOME/%s.config.toml) use -p %s", o.Provider, o.Provider, o.Provider))
 }
 
 // withFlagModel re-adds the --model ParseArgs consumed, so the registry selects flag > pin > default.
@@ -242,38 +222,4 @@ func plainPlan(spec Schema, args []string) (Plan, error) {
 	}
 	env, prefix := spec.LaunchSpec()
 	return Plan{Binary: bin, Set: envMap(env), Argv: append(prefix, args...)}, nil
-}
-
-// codexFileOverrides flattens a config.toml (top-level keys and [a.b] tables, one-line values) into
-// codex `-c key=value` pairs; values pass through as TOML, which codex parses itself.
-func codexFileOverrides(path string) ([]string, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return nil, fmt.Errorf("-f: %w", err)
-	}
-	defer f.Close()
-	var out []string
-	table := ""
-	sc := bufio.NewScanner(f)
-	for n := 1; sc.Scan(); n++ {
-		line := strings.TrimSpace(sc.Text())
-		switch {
-		case line == "" || strings.HasPrefix(line, "#"):
-		case strings.HasPrefix(line, "[["):
-			return nil, fmt.Errorf("-f %s:%d: arrays of tables are not supported", path, n)
-		case strings.HasPrefix(line, "[") && strings.HasSuffix(line, "]"):
-			table = strings.TrimSpace(line[1:len(line)-1]) + "."
-		default:
-			k, v, ok := strings.Cut(line, "=")
-			v = strings.TrimSpace(v)
-			if !ok || v == "" || strings.HasSuffix(v, "[") || strings.HasSuffix(v, "{") || strings.HasPrefix(v, `"""`) {
-				return nil, fmt.Errorf("-f %s:%d: want one-line `key = value`", path, n)
-			}
-			out = append(out, "-c", table+strings.TrimSpace(k)+"="+v)
-		}
-	}
-	if err := sc.Err(); err != nil {
-		return nil, fmt.Errorf("-f: %w", err)
-	}
-	return out, nil
 }

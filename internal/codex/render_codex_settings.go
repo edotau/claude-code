@@ -1,9 +1,10 @@
-package agent
+package codex
 
 import (
 	"bytes"
 	"errors"
 	"fmt"
+	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"io"
 	"os"
@@ -320,7 +321,7 @@ func restoreCodexConfigLocked(path string, dryRun bool, out io.Writer) error {
 	}
 	source := "encrypted vault backup"
 	if !found {
-		src, _, ok := legacyBackupSource(path)
+		src, _, ok := agent.LegacyBackupSource(path)
 		if !ok {
 			fmt.Fprintf(out, "codex: no vault backup to restore for %s\n", path)
 			return nil
@@ -390,20 +391,20 @@ var codexManagedPaths = func() []string {
 }
 
 // CodexConfigChecks reports configuration sources without reading or printing their contents.
-func CodexConfigChecks() []Check {
-	var checks []Check
+func CodexConfigChecks() []agent.Check {
+	var checks []agent.Check
 	for _, path := range codexManagedPaths() {
 		checks = append(checks, codexConfigCheck("codex machine config", path, true))
 	}
 	cfg, err := paths.CodexConfigPath("")
 	if err != nil {
-		return append(checks, Check{Name: "codex user config", State: "warn", Detail: "home unavailable; effective route unknown"})
+		return append(checks, agent.Check{Name: "codex user config", State: "warn", Detail: "home unavailable; effective route unknown"})
 	}
 	return append(checks, codexConfigCheck("codex user config", cfg, false))
 }
 
-func codexConfigCheck(name, path string, managed bool) Check {
-	row := Check{Name: name, State: "ok", Detail: path + ": absent"}
+func codexConfigCheck(name, path string, managed bool) agent.Check {
+	row := agent.Check{Name: name, State: "ok", Detail: path + ": absent"}
 	info, err := os.Stat(path)
 	if os.IsNotExist(err) {
 		return row

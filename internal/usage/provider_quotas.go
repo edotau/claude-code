@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/edotau/claude-code/internal/codex"
 	"io"
 	"math"
 	"net/http"
@@ -171,7 +172,7 @@ var whamURL = "https://chatgpt.com/backend-api/wham/usage"
 
 // openaiQuotas reads codex's ChatGPT rate-limit windows (5h + weekly).
 func openaiQuotas(ctx context.Context) []quota {
-	tok, acct, keyringNote := agent.CodexAccessToken()
+	tok, acct, keyringNote := codex.CodexAccessToken()
 	if tok == "" {
 		note := "unavailable: codex not signed in to ChatGPT"
 		if keyringNote != "" {

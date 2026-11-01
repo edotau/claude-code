@@ -14,7 +14,6 @@ import (
 
 // Credentials ride these env vars (never argv); the config text names the variable, not the secret.
 const (
-	CodexKeyEnv    = "HARNESS_CODEX_API_KEY"
 	OpenCodeKeyEnv = "HARNESS_OPENCODE_API_KEY"
 )
 

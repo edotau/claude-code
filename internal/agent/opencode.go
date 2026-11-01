@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"regexp"
 	"slices"
 	"strings"
 
@@ -17,10 +18,20 @@ import (
 	"github.com/edotau/claude-code/internal/secrets"
 )
 
+var idRE = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
+
+// OwnedID namespaces the provider entry so it never overwrites a user's own block of the same name.
+func OwnedID(p *providers.Provider) (string, error) {
+	if !idRE.MatchString(p.Name) {
+		return "", fmt.Errorf("provider name %q must match %s to be passed to an agent config", p.Name, idRE)
+	}
+	return "harness-" + p.Name, nil
+}
+
 // opencode: a generated provider block via OPENCODE_CONFIG_CONTENT; the key is an {env:} reference.
 // Interactive runs also list every alias model and import the caller's Claude permissions + MCP servers.
 func opencode(p *providers.Provider, dialect, base, model, cred string, routed bool, h *Headless) ([]string, []string, error) {
-	id, err := ownedID(p)
+	id, err := OwnedID(p)
 	if err != nil {
 		return nil, nil, err
 	}

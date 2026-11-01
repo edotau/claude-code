@@ -1,6 +1,7 @@
 package configure
 
 import (
+	"github.com/edotau/claude-code/internal/codex"
 	"os"
 
 	"github.com/edotau/claude-code/internal/agent"
@@ -99,7 +100,7 @@ func claudeState(d *dialog, fp *firstParty, cur, tier string) agentState {
 	case p.Provider == anthropicProvider:
 		return agentState{mode: modeAPIKey, verified: fp.key() && keyVerified(p)}
 	case p.Auth.Login == "codex":
-		return agentState{mode: billingLabel(d.reg, cur), verified: agent.CodexChatGPTLoginPresent()}
+		return agentState{mode: billingLabel(d.reg, cur), verified: codex.CodexChatGPTLoginPresent()}
 	case p.Auth.Login == "copilot":
 		return agentState{mode: billingLabel(d.reg, cur), verified: agent.CopilotLoginPresent()}
 	}

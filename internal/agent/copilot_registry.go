@@ -53,7 +53,7 @@ func prepareCopilotRegistry(ctx context.Context, t providers.Target) (*copilotRe
 	rp.Headers = map[string]string{proxy.AgentHeader: "copilot"} // the router adds the provider's own headers upstream
 	cr, ref, err := copilotSelect(ctx, reg, t.Provider, &rp, eps, base, copilotChoice([]string{models.Strip1M(t.Model)}))
 	if cr.Note != "" {
-		eventLogFor(ctx).emit("note", cr.Note)
+		eventLogFor(ctx).Emit("note", cr.Note)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("copilot: %w", err)

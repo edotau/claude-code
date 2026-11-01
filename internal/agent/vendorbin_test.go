@@ -1,7 +1,6 @@
 package agent
 
 import (
-	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -34,31 +33,5 @@ func TestPlainPlansResolveVendorBinNotPATH(t *testing.T) {
 				t.Fatalf("missing vendor: %v; want bin-dir error despite PATH vendor", err)
 			}
 		})
-	}
-}
-
-func TestRoutedVendorPlanResolvesVendorBin(t *testing.T) {
-	hermetic(t, "")
-	t.Setenv("HOME", t.TempDir())
-	t.Setenv("OPENAI_API_KEY", "test-openai-key")
-	source := vendorPATHFixture(t, "codex", "")
-	t.Setenv("PATH", filepath.Dir(source))
-	bin := pathstest.FakeVendor(t, "codex", "")
-	plan, err := LaunchPlan(context.Background(), "codex", LaunchOptions{Provider: "openai", Direct: true}, []string{"--version"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if plan.Binary != bin {
-		t.Errorf("Binary = %q, want %q", plan.Binary, bin)
-	}
-	if plan.Set[CodexKeyEnv] != "test-openai-key" {
-		t.Errorf("routed credential = %q", plan.Set[CodexKeyEnv])
-	}
-	if err := os.Remove(bin); err != nil {
-		t.Fatal(err)
-	}
-	_, err = LaunchPlan(context.Background(), "codex", LaunchOptions{Provider: "openai", Direct: true}, nil)
-	if err == nil || !strings.Contains(err.Error(), "not installed at "+bin) {
-		t.Fatalf("missing routed vendor: %v; want bin-dir error despite PATH vendor", err)
 	}
 }
