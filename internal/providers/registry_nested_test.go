@@ -118,11 +118,11 @@ func TestDuplicateOpencodeIDRejected(t *testing.T) {
 
 func TestSameModelIgnoresOneMAndSpelling(t *testing.T) {
 	p := Provider{Models: map[string]string{"opus": "claude-opus-5-5[1m]", "sonnet": "databricks-claude-sonnet-5-5"}}
-	if got := p.SlotOf("claude-opus-5-5"); got != "opus" {
-		t.Errorf("SlotOf(plain) with a [1m] table = %q", got)
+	if got := p.AliasOf("claude-opus-5-5"); got != "opus" {
+		t.Errorf("AliasOf(plain) with a [1m] table = %q", got)
 	}
-	if got := p.SlotOf("claude-sonnet-5.5"); got != "sonnet" {
-		t.Errorf("SlotOf(dotted) = %q", got)
+	if got := p.AliasOf("claude-sonnet-5.5"); got != "sonnet" {
+		t.Errorf("AliasOf(dotted) = %q", got)
 	}
 	if tgt, ok := Demote(&p, "claude-opus-5-5"); !ok || tgt.Model != "databricks-claude-sonnet-5-5" {
 		t.Errorf("Demote = %+v, %v", tgt, ok)

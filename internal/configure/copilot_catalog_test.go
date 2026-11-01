@@ -143,7 +143,7 @@ func TestPickCopilotModelFallsBackToOpencodeOnSDKError(t *testing.T) {
 		t.Errorf("COPILOT_MODEL resolver = %q, want claude-opus-5.5 (saved from the fallback list)", got)
 	}
 	if got := gp.Models["opus"]; got != wantOpus {
-		t.Errorf("github-copilot opus slot = %q, want unchanged %q: the pick must not write the provider overlay", got, wantOpus)
+		t.Errorf("github-copilot opus alias = %q, want unchanged %q: the pick must not write the provider overlay", got, wantOpus)
 	}
 }
 

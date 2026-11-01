@@ -72,7 +72,7 @@ func TestDottedOneM(t *testing.T) {
 }
 
 func TestAliasAndLookup(t *testing.T) {
-	for _, a := range Slots {
+	for _, a := range AliasNames {
 		id, ok := Alias(a)
 		_, found := Lookup(id)
 		if !ok || !found || AliasOf(id) != a || FamilyOf(id) != a {

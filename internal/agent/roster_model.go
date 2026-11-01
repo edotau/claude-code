@@ -38,7 +38,7 @@ func ResolveAgentModel(a ModelAsk) (providers.Target, string) {
 	if a.Applied {
 		return t, ""
 	}
-	alias := slices.Contains(models.Slots, a.Flag)
+	alias := slices.Contains(models.AliasNames, a.Flag)
 	switch {
 	case p == nil && !alias:
 		t.Model = a.Flag

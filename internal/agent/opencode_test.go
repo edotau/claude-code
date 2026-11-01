@@ -158,7 +158,7 @@ func opencodeMenu(t *testing.T, env []string, id string) (map[string]any, string
 }
 
 func TestOpenCodeModelMenu(t *testing.T) {
-	t.Run("known tier id", func(t *testing.T) {
+	t.Run("known alias id", func(t *testing.T) {
 		tg := target(t, "anthropic", "claude-sonnet-5-5")
 		env, _, err := schemaFor("opencode").Configure(context.Background(), tg, "")
 		if err != nil {
@@ -167,11 +167,11 @@ func TestOpenCodeModelMenu(t *testing.T) {
 		menu, _ := opencodeMenu(t, env, "harness-anthropic")
 		want := map[string]bool{"claude-opus-5-5": true, "claude-sonnet-5-5": true, "claude-haiku-5-5": true, "claude-fable-5-1": true}
 		if len(menu) != len(want) {
-			t.Fatalf("menu = %v, want exactly the 4 tier ids", menu)
+			t.Fatalf("menu = %v, want exactly the 4 alias ids", menu)
 		}
 		for id := range want {
 			if _, ok := menu[id]; !ok {
-				t.Errorf("menu missing tier id %q: %v", id, menu)
+				t.Errorf("menu missing alias id %q: %v", id, menu)
 			}
 		}
 	})
@@ -184,7 +184,7 @@ func TestOpenCodeModelMenu(t *testing.T) {
 		}
 		menu, model := opencodeMenu(t, env, "harness-anthropic")
 		if len(menu) != 5 {
-			t.Errorf("menu = %v, want 5 keys (4 tiers + the requested model)", menu)
+			t.Errorf("menu = %v, want 5 keys (4 aliases + the requested model)", menu)
 		}
 		if model != "harness-anthropic/claude-custom" {
 			t.Errorf("model = %q, want harness-anthropic/claude-custom", model)

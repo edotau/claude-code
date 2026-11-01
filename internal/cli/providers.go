@@ -55,7 +55,7 @@ func configureProviderList(name, format string) int {
 		fmt.Printf("  %-10s %s\n", d, r)
 	}
 	fmt.Println("models:")
-	for _, s := range models.Slots {
+	for _, s := range models.AliasNames {
 		if id := p.Models[s]; id != "" {
 			fmt.Printf("  %-10s %s\n", s, id)
 		}
@@ -279,24 +279,24 @@ func applyModelPins(reg *providers.Registry, provider string, unpin, dryRun bool
 	if !unpin && len(pins) == 0 {
 		return 0, false
 	}
-	set := map[string]string{} // slot ("" = every slot) -> spec; "" spec unpins
+	set := map[string]string{} // alias ("" = every alias) -> spec; "" spec unpins
 	if unpin {
 		set[""] = ""
-		for _, s := range models.Slots {
+		for _, s := range models.AliasNames {
 			set[s] = ""
 		}
 	}
 	for _, p := range pins {
-		slot, spec, ok := strings.Cut(p, "=")
+		alias, spec, ok := strings.Cut(p, "=")
 		if !ok {
 			return fail("--pin wants alias=model, got %q", p), true
 		}
-		if slot == "all" {
-			slot = ""
-		} else if !slices.Contains(models.Slots, slot) {
-			return fail("unknown alias %q (opus|sonnet|haiku|fable|all)", slot), true
+		if alias == "all" {
+			alias = ""
+		} else if !slices.Contains(models.AliasNames, alias) {
+			return fail("unknown alias %q (opus|sonnet|haiku|fable|all)", alias), true
 		}
-		set[slot] = qualifyPinSpec(reg, provider, spec)
+		set[alias] = qualifyPinSpec(reg, provider, spec)
 	}
 	warn, err := validateCopilotPins(provider, pins)
 	if err != nil {
@@ -312,26 +312,26 @@ func applyModelPins(reg *providers.Registry, provider string, unpin, dryRun bool
 	if err := agent.UpdateAgentRecords(apply); err != nil {
 		return fail("%v", err), true
 	}
-	for _, slot := range slices.Sorted(maps.Keys(set)) {
-		providers.AuditModelPin(slot, set[slot])
+	for _, alias := range slices.Sorted(maps.Keys(set)) {
+		providers.AuditModelPin(alias, set[alias])
 	}
 	return 0, false
 }
 
-// withClaudeModels is r with the model pins in set applied: slot "" is every slot, "" spec clears.
+// withClaudeModels is r with the model pins in set applied: alias "" is every alias, "" spec clears.
 func withClaudeModels(r agent.AgentRecord, set map[string]string) agent.AgentRecord {
-	r.Slots = maps.Clone(r.Slots)
-	if r.Slots == nil {
-		r.Slots = map[string]string{}
+	r.Aliases = maps.Clone(r.Aliases)
+	if r.Aliases == nil {
+		r.Aliases = map[string]string{}
 	}
-	for slot, spec := range set {
+	for alias, spec := range set {
 		switch {
-		case slot == "":
+		case alias == "":
 			r.Model = spec
 		case spec == "":
-			delete(r.Slots, slot)
+			delete(r.Aliases, alias)
 		default:
-			r.Slots[slot] = spec
+			r.Aliases[alias] = spec
 		}
 	}
 	return r
@@ -361,8 +361,8 @@ func renderModelSelection(reg *providers.Registry, sel providers.Selection, form
 	}
 	if format == "json" {
 		byAlias := map[string]string{}
-		for _, s := range models.Slots {
-			if t, ok := sel.Slots[s]; ok {
+		for _, s := range models.AliasNames {
+			if t, ok := sel.Aliases[s]; ok {
 				byAlias[s] = t.Spec()
 			}
 		}
@@ -372,8 +372,8 @@ func renderModelSelection(reg *providers.Registry, sel providers.Selection, form
 		return 0
 	}
 	fmt.Printf("profile  %s   proxy:%v\n", sel.Provider.Name, sel.NeedsRouter(reg))
-	for _, s := range models.Slots {
-		if t, ok := sel.Slots[s]; ok {
+	for _, s := range models.AliasNames {
+		if t, ok := sel.Aliases[s]; ok {
 			fmt.Printf("  %-7s %-40s → %s\n", s, sel.ClientModel(s), t.Spec())
 		}
 	}

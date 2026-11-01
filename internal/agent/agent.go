@@ -212,12 +212,23 @@ func preamble(text string) string {
 	return "System instructions (follow them for this whole task):\n" + text + "\n\nTask:\n"
 }
 
+// RefuseReadOnly fails closed for gemini: agy has no read-only mode and reads need --tools, so tools-off is no answer.
+func RefuseReadOnly(c Caps, agentName string, readOnly bool) error {
+	if !readOnly || c.ReadOnly != None || agentName != "gemini" {
+		return nil
+	}
+	return errors.New("gemini has no read-only mode (agy cannot restrict tools); use --tools or another agent")
+}
+
 // Run drops unsupported fields loudly, then runs r under DefaultPolicy with req.Timeout per attempt.
 func Run(ctx context.Context, r Engine, req RunOptions, sink Sink, notify func(string)) (Result, error) {
 	if sink == nil {
 		sink = Discard
 	}
 	if err := RefusePersona(r.Caps(), r.Name(), req.Persona); err != nil {
+		return Result{Agent: r.Name(), Status: StatusError}, &Error{Kind: KindFatal, Agent: r.Name(), Err: err}
+	}
+	if err := RefuseReadOnly(r.Caps(), r.Name(), req.ReadOnly); err != nil {
 		return Result{Agent: r.Name(), Status: StatusError}, &Error{Kind: KindFatal, Agent: r.Name(), Err: err}
 	}
 	req, dropped, emulated := applyCaps(r.Caps(), req)
@@ -273,11 +284,11 @@ func Run(ctx context.Context, r Engine, req RunOptions, sink Sink, notify func(s
 		out.Agent, out.Dropped, out.Emulated = cmp.Or(out.Agent, res.Agent), append(slices.Clone(dropped), out.Dropped...), emulated
 		res = out
 		e := Classify(r.Name(), err, cw.n > 0)
-		// A hard-quota 429 means this key can never use that model: fall to the next tier instead of waiting it out.
+		// A hard-quota 429 means this key can never use that model: fall to the next alias instead of waiting it out.
 		if e != nil && (e.Kind == KindRateLimit || e.Kind == KindQuota) && providers.ModelDenied(e.Err.Error()) &&
-			r.Caps().Model != None && (req.Model == "" || slices.Contains(models.Slots, req.Model)) {
+			r.Caps().Model != None && (req.Model == "" || slices.Contains(models.AliasNames, req.Model)) {
 			cur := cmp.Or(req.Model, models.Opus)
-			if next := models.NextSlot(cur); next != "" {
+			if next := models.NextAlias(cur); next != "" {
 				if notify != nil {
 					notify(fmt.Sprintf("%s: the %s model is quota-dead on this key; retrying on %s", r.Name(), cur, next))
 				}
@@ -344,18 +355,18 @@ func resolveTarget(req RunOptions) (*providers.Registry, providers.Target, error
 	if err != nil {
 		return nil, providers.Target{}, err
 	}
-	// "<profile>:<tier>" resolves like --provider <profile> --model <tier>
-	if name, slot, ok := strings.Cut(req.Model, ":"); ok && slices.Contains(models.Slots, slot) && reg.Providers[name] != nil {
-		req.Provider, req.Model = name, slot
+	// "<profile>:<alias>" resolves like --provider <profile> --model <alias>
+	if name, alias, ok := strings.Cut(req.Model, ":"); ok && slices.Contains(models.AliasNames, alias) && reg.Providers[name] != nil {
+		req.Provider, req.Model = name, alias
 	}
 	sel, err := providers.Select(reg, cmp.Or(req.Provider, registeredSession(reg)))
 	if sel.Provider == nil || (err != nil && req.Model == "") {
 		return nil, providers.Target{}, err
 	}
 	if req.Model == "" {
-		return reg, sel.Slots[models.Opus], nil
+		return reg, sel.Aliases[models.Opus], nil
 	}
-	if t, ok := sel.Slots[req.Model]; ok {
+	if t, ok := sel.Aliases[req.Model]; ok {
 		return reg, t, nil
 	}
 	if t, ok := aliasTarget(sel, req.Model); ok && !namesProvider(reg, req.Model) {
@@ -370,7 +381,7 @@ func aliasTarget(sel providers.Selection, model string) (providers.Target, bool)
 	if !ok {
 		return providers.Target{}, false
 	}
-	t, ok := sel.Slots[models.AliasOf(canonical)]
+	t, ok := sel.Aliases[models.AliasOf(canonical)]
 	if ok && oneM {
 		t.OneM = true
 	}

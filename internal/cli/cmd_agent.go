@@ -387,7 +387,7 @@ func agentExplore(name string, args []string) int {
 		return fail("%s explore: usage: claude-code %s explore [--no-web] [--background] <question>", name, name)
 	}
 	cwd, _ := os.Getwd()
-	askArgs := agent.ExploreArgs(name, cwd, question, !*noWeb, *background)
+	askArgs := ExploreArgs(name, cwd, question, !*noWeb, *background)
 	if *format != "text" {
 		task := askArgs[len(askArgs)-1]
 		askArgs = append(askArgs[:len(askArgs)-1], "--format", *format, task)
@@ -537,7 +537,7 @@ func statusDetail(r agent.Row) string {
 		d = "[" + r.Progress + "] " + d
 	}
 	if r.Error != "" {
-		d += " -- " + agent.Preview(r.Error, 300)
+		d += " -- " + shapes.Preview(r.Error, 300)
 	}
 	return d
 }

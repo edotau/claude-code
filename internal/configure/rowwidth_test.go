@@ -130,12 +130,12 @@ func TestRoutingRowFitsEightyColumns(t *testing.T) {
 	}
 }
 
-// TestTierRowsFitEightyColumns: tier · use · a long model id stays within 80 columns.
+// TestTierRowsFitEightyColumns: alias · use · a long model id stays within 80 columns.
 func TestTierRowsFitEightyColumns(t *testing.T) {
-	for slot, use := range tierUse {
-		row := fmt.Sprintf("  %-6s  %s", slot, padTo(use, 42)+"anthropic/claude-sonnet-5-5") // as tui.layoutRows lays it
+	for alias, use := range aliasUse {
+		row := fmt.Sprintf("  %-6s  %s", alias, padTo(use, 42)+"anthropic/claude-sonnet-5-5") // as tui.layoutRows lays it
 		if w := len([]rune(row)); w > 80 {
-			t.Errorf("%s tier row is %d columns: %q", slot, w, row)
+			t.Errorf("%s alias row is %d columns: %q", alias, w, row)
 		}
 	}
 }

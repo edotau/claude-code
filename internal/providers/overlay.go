@@ -197,8 +197,8 @@ func updateProviderFields(name string, update func(map[string]json.RawMessage) e
 	return err
 }
 
-// SetProviderModel sets one slot's model id for name, keeping its other slots.
-func SetProviderModel(name, slot, id string) error {
+// SetProviderModel sets one alias's model id for name, keeping its other aliases.
+func SetProviderModel(name, alias, id string) error {
 	return updateProviderFields(name, func(entry map[string]json.RawMessage) error {
 		var m map[string]string
 		if raw, ok := entry["models"]; ok {
@@ -209,7 +209,7 @@ func SetProviderModel(name, slot, id string) error {
 		if m == nil {
 			m = map[string]string{}
 		}
-		m[slot] = id
+		m[alias] = id
 		raw, err := json.Marshal(m)
 		if err != nil {
 			return err

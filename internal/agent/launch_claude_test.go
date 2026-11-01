@@ -266,8 +266,8 @@ func TestClaudeRouter(t *testing.T) {
 	}
 }
 
-// --model takes an alias (the tier's own resolution, so pins apply), a version or a wire id; the provider:model
-// form is gone, and the verb's tier stays the main model unless --model names another family.
+// --model takes an alias (the alias's own resolution, so pins apply), a version or a wire id; the provider:model
+// form is gone, and the verb's alias stays the main model unless --model names another family.
 func TestClaudeModelFlag(t *testing.T) {
 	hermetic(t, `{"providers": {"openai": {"ollama": {"protocol": "openai", "base_url": "http://127.0.0.1:11434/v1", "auth": {"type": "none"},
 		"models": {"opus": "qwen3-coder", "sonnet": "qwen3-sonnet", "haiku": "qwen3-haiku"}}}}}`)
@@ -276,13 +276,13 @@ func TestClaudeModelFlag(t *testing.T) {
 		o    LaunchOptions
 		want map[string]string
 	}{
-		{"alias keeps the tier's own model", LaunchOptions{Provider: "ollama", Model: "sonnet"},
+		{"alias keeps the alias's own model", LaunchOptions{Provider: "ollama", Model: "sonnet"},
 			map[string]string{"ANTHROPIC_MODEL": "qwen3-sonnet", "ANTHROPIC_DEFAULT_OPUS_MODEL": "qwen3-coder"}},
-		{"verb tier with a wire id fills that tier", LaunchOptions{Provider: "ollama", Tier: "sonnet", Model: "qwen3:30b"},
+		{"verb alias with a wire id fills that alias", LaunchOptions{Provider: "ollama", Alias: "sonnet", Model: "qwen3:30b"},
 			map[string]string{"ANTHROPIC_MODEL": "qwen3:30b", "ANTHROPIC_DEFAULT_SONNET_MODEL": "qwen3:30b", "ANTHROPIC_DEFAULT_OPUS_MODEL": "qwen3-coder"}},
 		{"bare wire id fills opus", LaunchOptions{Provider: "ollama", Model: "qwen3-x"},
 			map[string]string{"ANTHROPIC_MODEL": "qwen3-x", "ANTHROPIC_DEFAULT_OPUS_MODEL": "qwen3-x"}},
-		{"a family overrides the verb tier", LaunchOptions{Provider: "ollama", Tier: "haiku", Model: "claude-sonnet-5-5"},
+		{"a family overrides the verb alias", LaunchOptions{Provider: "ollama", Alias: "haiku", Model: "claude-sonnet-5-5"},
 			map[string]string{"ANTHROPIC_MODEL": "claude-sonnet-5-5", "ANTHROPIC_DEFAULT_HAIKU_MODEL": "qwen3-haiku"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -339,20 +339,20 @@ func TestLaunchExportsHarnessProvider(t *testing.T) {
 	}
 }
 
-// --model routing: a Claude id or alias names its tier, a non-Claude wire id names none, [1m] marks an alias as pinned.
+// --model routing: a Claude id or alias names its alias, a non-Claude wire id names none, [1m] marks an alias as pinned.
 func TestParseModelFlagRouting(t *testing.T) {
 	for _, tc := range []struct {
-		in, tier string
-		alias    bool
+		in, alias string
+		bare      bool
 	}{
 		{"opus", "opus", true},
 		{"opus[1m]", "opus", false},
 		{"claude-sonnet-5-5", "sonnet", false},
 		{"qwen3-coder", "", false},
 	} {
-		tier, canonical, alias := parseModelFlag(tc.in)
-		if tier != tc.tier || alias != tc.alias {
-			t.Errorf("parseModelFlag(%q) = (%q, %q, %v); want tier %q alias %v", tc.in, tier, canonical, alias, tc.tier, tc.alias)
+		alias, canonical, bare := parseModelFlag(tc.in)
+		if alias != tc.alias || bare != tc.bare {
+			t.Errorf("parseModelFlag(%q) = (%q, %q, %v); want alias %q bare %v", tc.in, alias, canonical, bare, tc.alias, tc.bare)
 		}
 	}
 }

@@ -30,22 +30,22 @@ var now0 = time.Date(2026, 10, 25, 2, 6, 0, 0, time.Local)
 func TestEveryCellResolvesAndTierOfRoundTrips(t *testing.T) {
 	tb := testTable(t)
 	for _, r := range TableAgents {
-		for _, tier := range Tiers {
-			c, ok := tb.Cell(r, tier)
+		for _, alias := range Aliases {
+			c, ok := tb.Cell(r, alias)
 			if !ok || c.Model == "" || c.Account == "" || tb.Billing[c.Account] == "" {
-				t.Fatalf("%s/%s: cell %+v ok=%v billing=%q", r, tier, c, ok, tb.Billing[c.Account])
+				t.Fatalf("%s/%s: cell %+v ok=%v billing=%q", r, alias, c, ok, tb.Billing[c.Account])
 			}
-			// codex and opencode serve one id at both opus and sonnet: the strongest tier claims a shared id
-			if got := tb.TierOf(c.Model); got != tier && ((r != "codex" && r != "opencode") || tier != "sonnet" || got != "opus") {
-				t.Errorf("TierOf(%s) = %q, want %q", c.Model, got, tier)
+			// codex and opencode serve one id at both opus and sonnet: the strongest alias claims a shared id
+			if got := tb.AliasOf(c.Model); got != alias && ((r != "codex" && r != "opencode") || alias != "sonnet" || got != "opus") {
+				t.Errorf("AliasOf(%s) = %q, want %q", c.Model, got, alias)
 			}
 		}
 	}
 	if a := tb.Rows["copilot"]["sonnet"].Account; a != "github·work-user" {
 		t.Errorf("copilot account = %q, want the pinned user only", a)
 	}
-	if got := tb.TierOf("claude-opus-5-5[1m]"); got != "opus" {
-		t.Errorf("TierOf(claude id) = %q", got)
+	if got := tb.AliasOf("claude-opus-5-5[1m]"); got != "opus" {
+		t.Errorf("AliasOf(claude id) = %q", got)
 	}
 }
 
@@ -144,16 +144,16 @@ func TestStatusThresholds(t *testing.T) {
 	}
 }
 
-func pick(tb *RouteTable, tier, want string, st State, mode string) PickResult {
-	return tb.Pick(context.Background(), tier, want, st, PickOpts{Fallback: mode, Configured: allConfigured, Now: func() time.Time { return now0 }})
+func pick(tb *RouteTable, alias, want string, st State, mode string) PickResult {
+	return tb.Pick(context.Background(), alias, want, st, PickOpts{Fallback: mode, Configured: allConfigured, Now: func() time.Time { return now0 }})
 }
 
 // pickRepo is pick with the work-repo answer pinned, so the opencode sub-pick's free gate is deterministic.
-func pickRepo(tb *RouteTable, tier string, st State, work bool) PickResult {
+func pickRepo(tb *RouteTable, alias string, st State, work bool) PickResult {
 	if len(tb.OpencodeLadder) == 0 {
 		tb.OpencodeLadder = []string{"opencode-go", "github-copilot", "openai"} // defaults.json order; LoadFrom(nil) has none
 	}
-	return tb.Pick(context.Background(), tier, "", st, PickOpts{Fallback: FallbackAgents, Configured: allConfigured,
+	return tb.Pick(context.Background(), alias, "", st, PickOpts{Fallback: FallbackAgents, Configured: allConfigured,
 		Now: func() time.Time { return now0 }, WorkRepo: func() bool { return work }})
 }
 
@@ -176,7 +176,7 @@ func TestPickGatesBeatScore(t *testing.T) {
 		t.Errorf("skips = %+v", r.Skipped)
 	}
 	if last := r.Candidates[len(r.Candidates)-1]; last.Agent != "claude" || last.Model != "claude-sonnet-5-5" {
-		t.Errorf("claude dispatch = %+v, want sonnet tier kept", last)
+		t.Errorf("claude dispatch = %+v, want sonnet alias kept", last)
 	}
 	unpinned, _ := LoadFrom(nil, "")
 	r = pick(unpinned, "opus", "copilot", State{}, FallbackAgents)

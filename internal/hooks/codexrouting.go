@@ -73,7 +73,7 @@ func codexSpawnCell(in *Input, task string) (router.Cell, string, bool) {
 	if err != nil {
 		return router.Cell{}, "", false
 	}
-	cell := table.Rows["codex"][router.RuleClassifier{}.Tier(task)]
+	cell := table.Rows["codex"][router.RuleClassifier{}.Alias(task)]
 	cell.Model = p.WireModel(cell.Model)
 	if !providers.ServesResponses(p, cell.Model) || !codexListedModel(cell.Model) {
 		return router.Cell{}, "", false

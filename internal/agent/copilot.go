@@ -217,7 +217,7 @@ func (e copilotEngine) gateExplicit(req RunOptions, reg *providers.Registry, t p
 	if err == nil && t.Provider != from && req.Provider != "" && req.Provider == GetAgentRecord("copilot").Profile {
 		return t, note, &Error{Kind: KindQuota, Agent: e.name, Err: errors.New(note)}
 	}
-	if tier := resumeSlot(req.Model); err == nil && t.Provider != from && t.Provider.Models[tier] != "" {
+	if tier := resumeAlias(req.Model); err == nil && t.Provider != from && t.Provider.Models[tier] != "" {
 		t.Model = t.Provider.Models[tier] // the fallback serves the requested tier, not its default opus
 	}
 	return t, note, err

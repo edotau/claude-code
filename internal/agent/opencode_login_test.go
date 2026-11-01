@@ -60,7 +60,7 @@ func subscriptionSelection(t *testing.T, reg *providers.Registry) providers.Sele
 	if err != nil {
 		t.Fatal(err)
 	}
-	return providers.Selection{Provider: sub, Slots: map[string]providers.Target{"opus": {Provider: sub, Model: "claude-opus-5-5"}}}
+	return providers.Selection{Provider: sub, Aliases: map[string]providers.Target{"opus": {Provider: sub, Model: "claude-opus-5-5"}}}
 }
 
 // opencode's own `auth login` store for a NON-copilot provider (e.g. "anthropic") is no longer a
@@ -191,7 +191,7 @@ func TestDescribeCopilotRouteChainOrder(t *testing.T) {
 }
 
 // On the copilot-login dispatch, DescribeRoute's Model comes from the shared resolver (providers.CopilotModel):
-// the COPILOT_MODEL pin when set, else github-copilot's own opus slot — never the registry's stale value.
+// the COPILOT_MODEL pin when set, else github-copilot's own opus alias — never the registry's stale value.
 func TestDescribeCopilotRouteModelFollowsPin(t *testing.T) {
 	isolateOpencodeRouteEnv(t)
 	workableCopilotPin(t, "alice")
@@ -202,7 +202,7 @@ func TestDescribeCopilotRouteModelFollowsPin(t *testing.T) {
 
 	wantDefault := reg.Providers["personal"].Models["opus"]
 	if ri := schemaFor("copilot").DescribeRoute(reg); ri.Model != wantDefault {
-		t.Fatalf("Model (unpinned) = %q, want github-copilot's own opus slot %q", ri.Model, wantDefault)
+		t.Fatalf("Model (unpinned) = %q, want github-copilot's own opus alias %q", ri.Model, wantDefault)
 	}
 
 	vaulttest.SetRecord(t, "copilot", "model", "claude-opus-5.5")
@@ -212,7 +212,7 @@ func TestDescribeCopilotRouteModelFollowsPin(t *testing.T) {
 }
 
 // --model (explicit=true) bypasses the fallback chain entirely: ResolveVendorTarget returns the session
-// slot's model unchanged, even when a COPILOT_MODEL pin names something else.
+// alias's model unchanged, even when a COPILOT_MODEL pin names something else.
 func TestResolveTargetCopilotExplicitModelBeatsPin(t *testing.T) {
 	isolateOpencodeRouteEnv(t)
 	t.Setenv("GH_TOKEN", secret)
@@ -222,7 +222,7 @@ func TestResolveTargetCopilotExplicitModelBeatsPin(t *testing.T) {
 	}
 	vaulttest.SetRecord(t, "copilot", "model", "claude-opus-5.5")
 	sub := subscriptionSelection(t, reg)
-	sub.Slots["opus"] = providers.Target{Provider: sub.Provider, Model: "explicit-model"}
+	sub.Aliases["opus"] = providers.Target{Provider: sub.Provider, Model: "explicit-model"}
 
 	target, note, err := schemaFor("copilot").ResolveTarget(reg, sub, true)
 	if err != nil {
@@ -285,7 +285,7 @@ func TestOpencodeCopilotLoginTakesPrecedence(t *testing.T) {
 }
 
 // OpencodeCopilotModelIDs swaps the registry's "auto" haiku default for the provider's OpencodeFallback,
-// while the sonnet slot's own (non-"auto") id passes through unchanged. The production registry's
+// while the sonnet alias's own (non-"auto") id passes through unchanged. The production registry's
 // github-copilot entry no longer defaults haiku to "auto" (it now pins a concrete id), so this overlays
 // a synthetic one to keep exercising the swap itself, independent of that literal.
 func TestOpencodeCopilotModelIDsSwapsAutoForFallback(t *testing.T) {
@@ -311,15 +311,15 @@ func TestOpencodeCopilotModelIDsSwapsAutoForFallback(t *testing.T) {
 		t.Errorf("main = %q, want the registry's own sonnet id unchanged", main)
 	}
 	if small != "mai-code-1.1-flash" {
-		t.Errorf("small = %q, want the haiku slot's \"auto\" swapped for OpencodeFallback", small)
+		t.Errorf("small = %q, want the haiku alias's \"auto\" swapped for OpencodeFallback", small)
 	}
 }
 
-// A pin that resolves the haiku slot to a real (non-"auto") id passes through untouched, even though
+// A pin that resolves the haiku alias to a real (non-"auto") id passes through untouched, even though
 // the registry's own haiku default is "auto".
 func TestOpencodeCopilotModelIDsLeavesNonAutoPinUnchanged(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	vaulttest.SetRecord(t, "claude", "slots.haiku", "claude-haiku-4.5")
+	vaulttest.SetRecord(t, "claude", "aliases.haiku", "claude-haiku-4.5")
 	reg, err := providers.Load()
 	if err != nil {
 		t.Fatal(err)

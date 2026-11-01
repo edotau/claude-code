@@ -89,7 +89,7 @@ func githubStatusRows(d *dialog) (ghOK, copilotOK bool) {
 // runGithub is the `configure github` / `configure` "github" section: opencode's GitHub Copilot
 // fallback ladder (not the copilot agent's own model, pinned on its own page via COPILOT_MODEL) —
 // gh/copilot/opencode login state, the opencode and copilot routes, and — on a terminal — a menu to
-// fix any of it or pick the github-copilot provider's opus/sonnet/haiku slots.
+// fix any of it or pick the github-copilot provider's opus/sonnet/haiku aliases.
 func runGithub(d *dialog) bool {
 	if d.o.Interactive && !d.o.Check && !d.o.DryRun && isStdinTTY() {
 		return githubMenu(d)
@@ -147,9 +147,9 @@ func runGithubLogin(d *dialog, argv []string, label string) {
 }
 
 // pickCopilotModels lists the live copilot catalog (plus the synthetic "auto" router alias), asks for an
-// id per opus/sonnet/haiku slot — the github-copilot provider's table opencode's fallback ladder reads,
+// id per opus/sonnet/haiku alias — the github-copilot provider's table opencode's fallback ladder reads,
 // not the copilot agent's own model (COPILOT_MODEL, picked on the copilot agent page) — and, only if a
-// slot resolved to "auto", a concrete opencode_fallback (opencode's own catalog has no "auto"), then
+// alias resolved to "auto", a concrete opencode_fallback (opencode's own catalog has no "auto"), then
 // writes the github-copilot overlay.
 func pickCopilotModels(d *dialog) {
 	bin, err := paths.VendorBin("copilot")
@@ -182,13 +182,13 @@ func pickCopilotModels(d *dialog) {
 	}
 
 	picks := map[string]string{}
-	for _, slot := range []string{models.Opus, models.Sonnet, models.Haiku} {
-		idx, err := tui.PickBack("github fallback — "+slot+" model", rows, 0)
+	for _, alias := range []string{models.Opus, models.Sonnet, models.Haiku} {
+		idx, err := tui.PickBack("github fallback — "+alias+" model", rows, 0)
 		if err != nil || idx < 0 {
-			d.printf("github fallback: cancelled at the %s model; nothing written\n", slot)
+			d.printf("github fallback: cancelled at the %s model; nothing written\n", alias)
 			return
 		}
-		picks[slot] = ids[idx]
+		picks[alias] = ids[idx]
 	}
 
 	fallback := ""
@@ -227,9 +227,9 @@ func pickCopilotModels(d *dialog) {
 
 // WriteGithubCopilotModels validates and merges picks and fallback into vault overlay/providers.
 func WriteGithubCopilotModels(picks map[string]string, fallback string) error {
-	for _, slot := range []string{models.Opus, models.Sonnet, models.Haiku} {
-		if strings.TrimSpace(picks[slot]) == "" {
-			return fmt.Errorf("github-copilot models: %s model is empty", slot)
+	for _, alias := range []string{models.Opus, models.Sonnet, models.Haiku} {
+		if strings.TrimSpace(picks[alias]) == "" {
+			return fmt.Errorf("github-copilot models: %s model is empty", alias)
 		}
 	}
 	if fallback == "auto" {

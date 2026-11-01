@@ -17,11 +17,11 @@ func TestByokRetryModelSkipsFailedAndStaysOnPool(t *testing.T) {
 	}
 	p := &providers.Provider{Name: "dbx", Provider: providers.GroupDatabricks, Preset: providers.PresetDatabricks,
 		Auth: providers.Auth{Type: providers.AuthKey, Env: "X"}}
-	first, note := router.PinnedModel("opencode", router.Tiers[1], router.Cell{}, p, router.BYOKModel)
+	first, note := router.PinnedModel("opencode", router.Aliases[1], router.Cell{}, p, router.BYOKModel)
 	if first != "m-a" || note != "" {
 		t.Fatalf("first pick = %q (%q), want m-a", first, note)
 	}
-	disp := Dispatch{repick: byokRepick("opencode", router.Tiers[1], router.Cell{}, p, "dbx:")}
+	disp := Dispatch{repick: byokRepick("opencode", router.Aliases[1], router.Cell{}, p, "dbx:")}
 	capErr := errors.New("400: max_new_tokens exceeds the model limit")
 	if got := retryModel(disp, RunOptions{Model: "dbx:m-a"}, errors.New("connection reset")); got != "" {
 		t.Errorf("non-capability error retried on %q", got)

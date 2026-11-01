@@ -24,13 +24,13 @@ func TestDescribeCopilotRouteHonorsProfileAndModelPins(t *testing.T) {
 	}
 }
 
-// Without a model pin the pinned profile's opus slot is the model.
+// Without a model pin the pinned profile's opus alias is the model.
 func TestDescribeCopilotRoutePinnedProfileDefaultsToOpusSlot(t *testing.T) {
 	reg := gateReg(t, map[string]bool{"dev": true, "qa": true})
 	gateSetup(t, 99, true, reg)
 	vaulttest.SetRecord(t, "copilot", "profile", "qa")
 	if ri := describeCopilotRoute(reg); ri.Provider != "qa" || ri.Model != "databricks-claude-opus-5-5" {
-		t.Fatalf("describe = %+v, want qa with its opus slot", ri)
+		t.Fatalf("describe = %+v, want qa with its opus alias", ri)
 	}
 }
 

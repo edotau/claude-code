@@ -173,7 +173,7 @@ func pinModel(in *Input, updated map[string]any, task string) (note, systemMessa
 		return "", ""
 	}
 	tier, signal := router.EffortTierSignal(task)
-	model := models.TierModel(tier)
+	model := models.AliasModel(tier)
 	if model == "" { // a tier with no row: never emit an empty pin
 		return "", ""
 	}

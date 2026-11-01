@@ -111,15 +111,15 @@ func previewRoute(model, task, want, fallback string) (router.PickResult, error)
 		return router.PickResult{}, err
 	}
 	id, _, ok := models.Resolve(model)
-	if exact := ok && models.FamilyKind(id) != models.FamilyClaude; model != "" && model != router.BYOKModel && !exact && tb.TierOf(model) == "" {
+	if exact := ok && models.FamilyKind(id) != models.FamilyClaude; model != "" && model != router.BYOKModel && !exact && tb.AliasOf(model) == "" {
 		return router.PickResult{}, fmt.Errorf("--model %q names no alias or version the table routes", model)
 	}
-	hint := tb.TierOf(model)
+	hint := tb.AliasOf(model)
 	if hint == "" && task != "" {
-		hint = router.RuleClassifier{}.Tier(task)
+		hint = router.RuleClassifier{}.Alias(task)
 	}
 	if hint == "" {
-		hint = router.Tiers[1]
+		hint = router.Aliases[1]
 	}
 	chain, pick, err := agent.RouteChainFor(context.Background(), want, model, hint, fallback, false,
 		router.PickOpts{Refresh: routeRefresh, WorkRepo: func() bool { return router.IsWorkRepo("") }})
@@ -212,7 +212,7 @@ type skipJSON struct {
 
 // newRouteJSON maps a pick onto the emitted shape (agent for agent, <provider>·<profile> account keys).
 func newRouteJSON(res router.PickResult, src routeSources) routeJSON {
-	out := routeJSON{Model: res.Tier, Want: res.Want, Weights: res.Weights, Sources: src,
+	out := routeJSON{Model: res.Alias, Want: res.Want, Weights: res.Weights, Sources: src,
 		Candidates: make([]candidateJSON, 0, len(res.Candidates)), Pins: routePins()}
 	for _, c := range res.Candidates {
 		out.Candidates = append(out.Candidates, candidateJSON{Agent: c.Agent, Model: c.Model, Effort: c.Effort,
@@ -246,7 +246,7 @@ func printRoute(res router.PickResult, src routeSources) {
 	for _, d := range router.Dimensions {
 		ws = append(ws, fmt.Sprintf("%s=%.2f", d.Name(), res.Weights[d.Name()]))
 	}
-	fmt.Printf("model %s  weights %s (%s)\n", res.Tier, strings.Join(ws, " "), src.Weights)
+	fmt.Printf("model %s  weights %s (%s)\n", res.Alias, strings.Join(ws, " "), src.Weights)
 	onOff := map[bool]string{true: "on", false: "off"}[src.Subagents.On]
 	fmt.Printf("subagents %s (%s)\n", onOff, src.Subagents.Source)
 	printPins(routePins())

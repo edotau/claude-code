@@ -61,10 +61,10 @@ func TestSetProviderModelConcurrentSlots(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	start := make(chan struct{})
 	results := make(chan error, 2)
-	for slot, model := range map[string]string{"opus": "a", "haiku": "b"} {
+	for alias, model := range map[string]string{"opus": "a", "haiku": "b"} {
 		go func() {
 			<-start
-			results <- SetProviderModel("openai", slot, model)
+			results <- SetProviderModel("openai", alias, model)
 		}()
 	}
 	close(start)
@@ -79,7 +79,7 @@ func TestSetProviderModelConcurrentSlots(t *testing.T) {
 	}
 	p := reg.Providers["openai"]
 	if p.Models["opus"] != "a" || p.Models["haiku"] != "b" {
-		t.Fatalf("concurrent model edits lost a slot: %v, want opus=a and haiku=b", p.Models)
+		t.Fatalf("concurrent model edits lost an alias: %v, want opus=a and haiku=b", p.Models)
 	}
 }
 

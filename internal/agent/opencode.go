@@ -17,7 +17,7 @@ import (
 )
 
 // opencode: a generated provider block via OPENCODE_CONFIG_CONTENT; the key is an {env:} reference.
-// Interactive runs also list every tier model and import the caller's Claude permissions + MCP servers.
+// Interactive runs also list every alias model and import the caller's Claude permissions + MCP servers.
 func opencode(p *providers.Provider, dialect, base, model, cred string, routed bool, h *Headless) ([]string, []string, error) {
 	id, err := ownedID(p)
 	if err != nil {
@@ -134,12 +134,12 @@ func opencodeHeadlessRun(env []string, h *Headless, fullModel string) ([]string,
 	return env, append(argv, positional(h.Prompt)...), nil
 }
 
-// opencodeModels is the model menu: the requested model, plus every tier slot for an interactive launch.
+// opencodeModels is the model menu: the requested model, plus every alias for an interactive launch.
 func opencodeModels(p *providers.Provider, model string, h *Headless) map[string]any {
 	menu := map[string]any{model: map[string]any{"name": model}}
 	if h == nil {
-		for _, slot := range models.Slots {
-			if id := models.Strip1M(p.Models[slot]); id != "" {
+		for _, alias := range models.AliasNames {
+			if id := models.Strip1M(p.Models[alias]); id != "" {
 				menu[id] = map[string]any{"name": id}
 			}
 		}
@@ -190,7 +190,7 @@ func opencodeRun(model string, h Headless) (env, argv []string) {
 }
 
 // opencodeCopilotTarget is opencode's own GitHub Copilot login (`opencode auth login` -> a "github-copilot"
-// connection in its stored logins): opus slot, pin-aware. ok is false without that login or a matching registry provider.
+// connection in its stored logins): opus alias, pin-aware. ok is false without that login or a matching registry provider.
 func opencodeCopilotTarget(reg *providers.Registry) (providers.Target, string, bool) {
 	if !OpencodeCopilotLoginPresent() {
 		return providers.Target{}, "", false
@@ -221,29 +221,29 @@ func opencodeCopilotLogin(model string, h *Headless) ([]string, []string, error)
 }
 
 // OpencodeCopilotModelIDs resolves opencode's github-copilot route's sonnet ("model") and haiku
-// ("small_model") wire ids: sonnet carries the everyday coding load, haiku is the cheap tier for
+// ("small_model") wire ids: sonnet carries the everyday coding load, haiku is the cheap alias for
 // sub-tasks; each honors CLAUDE_<SLOT>_MODEL then CLAUDE_MODEL the way providers.Select resolves a
-// session slot, rooted at the github-copilot provider instead of the session's. ok is false without a
-// registered github-copilot provider or either slot.
+// session alias, rooted at the github-copilot provider instead of the session's. ok is false without a
+// registered github-copilot provider or either alias.
 func OpencodeCopilotModelIDs(reg *providers.Registry) (main, small string, ok bool) {
 	p, found := loginProvider(reg, "github", "copilot")
 	if !found {
 		return "", "", false
 	}
-	main = slotModelID(reg, p, models.Sonnet)
-	small = slotModelID(reg, p, models.Haiku)
+	main = aliasModelID(reg, p, models.Sonnet)
+	small = aliasModelID(reg, p, models.Haiku)
 	return main, small, main != "" && small != ""
 }
 
-// slotModelID is slot's pin-resolved wire model id for p: CLAUDE_<SLOT>_MODEL, else CLAUDE_MODEL, else
+// aliasModelID is alias's pin-resolved wire model id for p: CLAUDE_<SLOT>_MODEL, else CLAUDE_MODEL, else
 // p's own table. A pin naming a different provider ("other:model") is respelled the way p serves it. A
 // resolved id of "auto" (a router alias opencode's own provider catalog does not list) is swapped for
 // p.OpencodeFallback when the registry sets one — config-driven, no model id hardcoded here.
-func slotModelID(reg *providers.Registry, p *providers.Provider, slot string) string {
+func aliasModelID(reg *providers.Registry, p *providers.Provider, alias string) string {
 	rec := GetAgentRecord("claude")
-	spec := cmp.Or(rec.Slots[strings.ToLower(slot)], rec.Model)
+	spec := cmp.Or(rec.Aliases[strings.ToLower(alias)], rec.Model)
 	if spec == "" {
-		spec = p.Models[slot]
+		spec = p.Models[alias]
 	}
 	if spec == "" {
 		return ""

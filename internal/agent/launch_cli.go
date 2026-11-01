@@ -49,7 +49,7 @@ func withFlagModel(args []string, model string) []string {
 
 // agentModelTarget applies flag > the agent's model pin > default to t; a fallback provider respells the flag itself.
 func agentModelTarget(name string, t providers.Target, sel providers.Selection, flagModel string) (providers.Target, string) {
-	applied := t.Provider == nil || t.Provider == sel.Slots[models.Opus].Provider
+	applied := t.Provider == nil || t.Provider == sel.Aliases[models.Opus].Provider
 	return ResolveAgentModel(ModelAsk{Agent: name, Flag: flagModel, Target: t, Applied: applied})
 }
 

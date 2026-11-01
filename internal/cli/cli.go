@@ -52,10 +52,10 @@ const (
 func commands() []command {
 	return []command{
 		// AGENTS — launch an agent CLI; `ask` runs one task headlessly.
-		{name: "opus", group: groupAnthropic, summary: "high reasoning: deep architecture · $$$", run: tierVerb(models.Opus)},
-		{name: "sonnet", group: groupAnthropic, summary: "everyday coding, reviews, subagents · $$", run: tierVerb(models.Sonnet)},
-		{name: "haiku", group: groupAnthropic, summary: "quick lookups, mechanical edits · $ fastest", run: tierVerb(models.Haiku)},
-		{name: "fable", group: groupAnthropic, summary: "separate frontier family; main-session default · $$$$", run: tierVerb(models.Fable)},
+		{name: "opus", group: groupAnthropic, summary: "high reasoning: deep architecture · $$$", run: aliasVerb(models.Opus)},
+		{name: "sonnet", group: groupAnthropic, summary: "everyday coding, reviews, subagents · $$", run: aliasVerb(models.Sonnet)},
+		{name: "haiku", group: groupAnthropic, summary: "quick lookups, mechanical edits · $ fastest", run: aliasVerb(models.Haiku)},
+		{name: "fable", group: groupAnthropic, summary: "separate frontier family; main-session default · $$$$", run: aliasVerb(models.Fable)},
 		{name: "anthropic", group: groupAnthropic, hidden: true, summary: "first-party Claude: login, --oauth token or --x-api-key", run: cmdAnthropic},
 		{name: "science", group: groupAnthropic, summary: "Claude for Life Sciences, own login (--print-env)", run: cmdScience},
 		{name: "copilot", group: groupAgents, summary: "Copilot CLI on its own login, or your Databricks profile", run: func(a []string) int { return AgentVerb("copilot", a) }},

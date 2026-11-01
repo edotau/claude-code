@@ -57,7 +57,7 @@ func TestVendorIsolationCaps(t *testing.T) {
 	}
 }
 
-// vendorTargetBase honors the request's model tier; ResolveVendorTarget always returns the session's opus slot.
+// vendorTargetBase honors the request's model alias; ResolveVendorTarget always returns the session's opus alias.
 func TestVendorTargetBaseDiffersFromResolveTargetOnTier(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	vaulttest.Use(t)
@@ -78,9 +78,9 @@ func TestVendorTargetBaseDiffersFromResolveTargetOnTier(t *testing.T) {
 		t.Fatalf("vendorTargetBase: %v", err)
 	}
 	if rt.Model == bt.Model {
-		t.Errorf("expected the tier to differ, both %q", rt.Model)
+		t.Errorf("expected the alias to differ, both %q", rt.Model)
 	}
 	if want := bt.Provider.Models["haiku"]; bt.Model != want {
-		t.Errorf("base model = %q, want the haiku slot %q", bt.Model, want)
+		t.Errorf("base model = %q, want the haiku alias %q", bt.Model, want)
 	}
 }

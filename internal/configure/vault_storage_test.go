@@ -317,9 +317,9 @@ func TestImportAudit(t *testing.T) {
 		name, key, value, resource string
 		action                     audit.Action
 	}{
-		{"opus", "OPUS_MODEL", "new-model", "claude.slots.opus", audit.ModelPin},
-		{"sonnet", "SONNET_MODEL", "new-model", "claude.slots.sonnet", audit.ModelPin},
-		{"haiku", "HAIKU_MODEL", "new-model", "claude.slots.haiku", audit.ModelPin},
+		{"opus", "OPUS_MODEL", "new-model", "claude.aliases.opus", audit.ModelPin},
+		{"sonnet", "SONNET_MODEL", "new-model", "claude.aliases.sonnet", audit.ModelPin},
+		{"haiku", "HAIKU_MODEL", "new-model", "claude.aliases.haiku", audit.ModelPin},
 		{"provider", "PROFILE", "openai", "openai", audit.ProviderSwitch},
 		{"unchanged", "", "", "", ""},
 	}

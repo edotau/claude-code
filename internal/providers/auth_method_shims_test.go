@@ -75,9 +75,9 @@ func TestLegacyPinNamesAreNotRead(t *testing.T) {
 	if sel.Provider.Name == "dev" {
 		t.Error("legacy HARNESS_PROVIDER pin selected a profile")
 	}
-	for slot, tg := range sel.Slots {
+	for alias, tg := range sel.Aliases {
 		if tg.Model == "legacy-model" {
-			t.Errorf("slot %s took the legacy HARNESS_MODEL pin", slot)
+			t.Errorf("alias %s took the legacy HARNESS_MODEL pin", alias)
 		}
 	}
 	if got, _ := CopilotLogin(reg); got == "someone" {

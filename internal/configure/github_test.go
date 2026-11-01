@@ -160,7 +160,7 @@ func TestWriteGithubCopilotModelsRejectsAutoFallback(t *testing.T) {
 	}
 }
 
-// fallback="" (no slot resolved to "auto") leaves any opencode_fallback the overlay already set alone.
+// fallback="" (no alias resolved to "auto") leaves any opencode_fallback the overlay already set alone.
 func TestWriteGithubCopilotModelsEmptyFallbackLeavesExistingUnchanged(t *testing.T) {
 	githubScratch(t)
 	original := `{"providers":{"github":{"personal":{"protocol":"openai","base_url":"https://api.githubcopilot.com","auth":{"type":"cli","login":"copilot"},"opencode_fallback":"mai-code-1.1-flash","models":{"opus":"old-opus"}}}}}`
@@ -182,12 +182,12 @@ func TestWriteGithubCopilotModelsEmptyFallbackLeavesExistingUnchanged(t *testing
 	}
 }
 
-// Every opus/sonnet/haiku slot must be a non-empty id; a missing one is rejected before anything is written.
+// Every opus/sonnet/haiku alias must be a non-empty id; a missing one is rejected before anything is written.
 func TestWriteGithubCopilotModelsRejectsEmptySlot(t *testing.T) {
 	githubScratch(t)
 	picks := map[string]string{models.Opus: "gpt-6.1-sol", models.Sonnet: "", models.Haiku: "claude-haiku-4.5"}
 	if err := WriteGithubCopilotModels(picks, ""); err == nil {
-		t.Fatal("WriteGithubCopilotModels: want an error for an empty sonnet slot")
+		t.Fatal("WriteGithubCopilotModels: want an error for an empty sonnet alias")
 	}
 	if _, err := providers.OverlayDoc(); !errors.Is(err, fs.ErrNotExist) {
 		t.Errorf("a rejected pick set must not write the overlay at all: got %v, want fs.ErrNotExist", err)

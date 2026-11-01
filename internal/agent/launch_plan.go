@@ -23,7 +23,7 @@ import (
 type LaunchOptions struct {
 	Provider string // the profile name from --profile (field name kept until the agent lane moves off it)
 	Model    string // alias, canonical version or wire id, this launch only
-	Tier     string // opus|sonnet|haiku|fable: the main-loop model; the other slots keep their own pins
+	Alias    string // opus|sonnet|haiku|fable: the main-loop model; the other slots keep their own pins
 	PrintEnv bool
 	Direct   bool     // agents only: skip the proxy, hand the CLI the profile route
 	KeepEnv  []string // names the credential scrub must not drop, from --keep-env

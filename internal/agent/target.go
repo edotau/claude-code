@@ -16,7 +16,7 @@ import (
 // provider with a resolvable credential. note is a one-line explanation to print on fallback.
 func (s Schema) ResolveTarget(reg *providers.Registry, sel providers.Selection, explicit bool) (target providers.Target, note string, err error) {
 	name, e := s.Name, s.eng()
-	t, ok := sel.Slots[models.Opus]
+	t, ok := sel.Aliases[models.Opus]
 	if !ok {
 		return providers.Target{}, "", fmt.Errorf("%s: no opus target resolved", name)
 	}

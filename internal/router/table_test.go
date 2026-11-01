@@ -11,8 +11,8 @@ import (
 )
 
 // TestLoadEveryCellResolves exercises Load() directly (no registry overlay, an isolated empty vault):
-// every agent × tier cell has a model, account and billing, and TierOf round-trips each cell's own
-// model back to its tier.
+// every agent × alias cell has a model, account and billing, and AliasOf round-trips each cell's own
+// model back to its alias.
 func TestLoadEveryCellResolves(t *testing.T) {
 	vaulttest.Use(t)
 	tb, err := Load()
@@ -20,21 +20,21 @@ func TestLoadEveryCellResolves(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, r := range TableAgents {
-		for _, tier := range Tiers {
-			c, ok := tb.Cell(r, tier)
+		for _, alias := range Aliases {
+			c, ok := tb.Cell(r, alias)
 			if !ok || c.Model == "" || c.Account == "" || tb.Billing[c.Account] == "" {
-				t.Fatalf("%s/%s: cell %+v ok=%v billing=%q", r, tier, c, ok, tb.Billing[c.Account])
+				t.Fatalf("%s/%s: cell %+v ok=%v billing=%q", r, alias, c, ok, tb.Billing[c.Account])
 			}
-			// codex and opencode serve one id at both opus and sonnet: the strongest tier claims a shared id.
-			if got := tb.TierOf(c.Model); got != tier && ((r != "codex" && r != "opencode") || tier != "sonnet" || got != "opus") {
-				t.Errorf("TierOf(%s) = %q, want %q", c.Model, got, tier)
+			// codex and opencode serve one id at both opus and sonnet: the strongest alias claims a shared id.
+			if got := tb.AliasOf(c.Model); got != alias && ((r != "codex" && r != "opencode") || alias != "sonnet" || got != "opus") {
+				t.Errorf("AliasOf(%s) = %q, want %q", c.Model, got, alias)
 			}
 		}
 	}
 }
 
 // TestLoadFromOverlayCellAndWeights checks LoadFrom applies a registry's per-cell Route override and
-// replaces Weights whole, and rejects an overlay cell naming an unknown agent/tier.
+// replaces Weights whole, and rejects an overlay cell naming an unknown agent/alias.
 func TestLoadFromOverlayCellAndWeights(t *testing.T) {
 	reg := &providers.Registry{
 		// opencode-go/y keeps the opencode cell's own backend prefix, so the override only replaces the model.
@@ -141,45 +141,45 @@ func TestLoadFromCopilotAccountKey(t *testing.T) {
 	}
 }
 
-// TestTierOfSlotNamesAndFamilies checks TierOf's other paths: a bare slot name, a provider:model id, and an
-// unknown model (none of the table's cells, no slot name, no family match).
+// TestTierOfSlotNamesAndFamilies checks AliasOf's other paths: a bare alias name, a provider:model id, and an
+// unknown model (none of the table's cells, no alias name, no family match).
 func TestTierOfSlotNamesAndFamilies(t *testing.T) {
 	vaulttest.Use(t)
 	tb, err := Load()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := tb.TierOf("opus"); got != "opus" {
-		t.Errorf("TierOf(opus) = %q", got)
+	if got := tb.AliasOf("opus"); got != "opus" {
+		t.Errorf("AliasOf(opus) = %q", got)
 	}
-	if got := tb.TierOf("claude-opus-5-5[1m]"); got != "opus" {
-		t.Errorf("TierOf(claude id) = %q", got)
+	if got := tb.AliasOf("claude-opus-5-5[1m]"); got != "opus" {
+		t.Errorf("AliasOf(claude id) = %q", got)
 	}
-	if got := tb.TierOf(""); got != "" {
-		t.Errorf("TierOf(empty) = %q, want empty", got)
+	if got := tb.AliasOf(""); got != "" {
+		t.Errorf("AliasOf(empty) = %q, want empty", got)
 	}
-	if got := tb.TierOf("no-such-model-anywhere"); got != "" {
-		t.Errorf("TierOf(unknown) = %q, want empty", got)
+	if got := tb.AliasOf("no-such-model-anywhere"); got != "" {
+		t.Errorf("AliasOf(unknown) = %q, want empty", got)
 	}
 }
 
 // TestRowsKeyedByClaudeID checks rows are keyed by canonical Claude id, aliases and spellings reach the same row,
-// and the tier view agrees with it.
+// and the alias view agrees with it.
 func TestRowsKeyedByClaudeID(t *testing.T) {
 	vaulttest.Use(t)
 	tb, err := Load()
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, tier := range Tiers {
-		id, _ := models.Alias(tier)
-		for _, key := range []string{tier, id, strings.TrimPrefix(id, "claude-")} {
+	for _, alias := range Aliases {
+		id, _ := models.Alias(alias)
+		for _, key := range []string{alias, id, strings.TrimPrefix(id, "claude-")} {
 			row, ok := tb.Row(key)
 			if !ok || len(row) != len(TableAgents) {
 				t.Fatalf("Row(%q) ok=%v runners=%d", key, ok, len(row))
 			}
-			if row["claude"].Model != id || row["claude"] != tb.Rows["claude"][tier] {
-				t.Errorf("Row(%q) claude = %+v, want model %s == tier view", key, row["claude"], id)
+			if row["claude"].Model != id || row["claude"] != tb.Rows["claude"][alias] {
+				t.Errorf("Row(%q) claude = %+v, want model %s == alias view", key, row["claude"], id)
 			}
 		}
 	}
@@ -188,7 +188,7 @@ func TestRowsKeyedByClaudeID(t *testing.T) {
 	}
 }
 
-// TestOverlayAcceptsCanonicalAndTierKeys checks routing.cells keyed by canonical id and by the deprecated tier hit
+// TestOverlayAcceptsCanonicalAndTierKeys checks routing.cells keyed by canonical id and by the deprecated alias hit
 // the same cell.
 func TestOverlayAcceptsCanonicalAndTierKeys(t *testing.T) {
 	for _, key := range []string{"sonnet", "claude-sonnet-5-5"} {

@@ -119,8 +119,8 @@ func isLongSpec(p string) bool {
 // RuleClassifier is route.Classifier over the prompt rules: low → haiku, medium/high → sonnet.
 type RuleClassifier struct{}
 
-// Tier maps task through EffortTierSignal and models.TierModel.
-func (RuleClassifier) Tier(task string) string {
+// Alias maps task through EffortTierSignal and models.AliasModel.
+func (RuleClassifier) Alias(task string) string {
 	t, _ := EffortTierSignal(task)
-	return models.TierModel(t)
+	return models.AliasModel(t)
 }

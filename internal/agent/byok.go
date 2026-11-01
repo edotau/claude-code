@@ -11,7 +11,7 @@ import (
 	"github.com/edotau/claude-code/internal/router"
 )
 
-func (rc routeCtx) byokCandidate(disp Dispatch, cand router.Candidate, tier string) Dispatch {
+func (rc routeCtx) byokCandidate(disp Dispatch, cand router.Candidate, alias string) Dispatch {
 	if cand.Agent != rc.want {
 		return disp
 	}
@@ -23,26 +23,26 @@ func (rc routeCtx) byokCandidate(disp Dispatch, cand router.Candidate, tier stri
 		return disp
 	}
 	picked := cand.Profile != "" && pin.Profile == cand.Profile && pin.Model == router.BYOKModel
-	return byokDispatch(disp, tier, rc.reg, cand.Profile, picked)
+	return byokDispatch(disp, alias, rc.reg, cand.Profile, picked)
 }
 
 // byokDispatch freezes a pool choice before an agent or agent resolver sees the request.
-func byokDispatch(disp Dispatch, tier string, reg *providers.Registry, profile string, picked bool) Dispatch {
+func byokDispatch(disp Dispatch, alias string, reg *providers.Registry, profile string, picked bool) Dispatch {
 	tb, err := router.Load()
 	if err != nil {
-		disp.Model, disp.keepCaller, disp.unroutedDispatch = tier, false, false
-		disp.note = "byok routing table unavailable; using tier slot"
+		disp.Model, disp.keepCaller, disp.unroutedDispatch = alias, false, false
+		disp.note = "byok routing table unavailable; using alias"
 		return disp
 	}
-	cell, _ := tb.Cell(disp.Agent.Name(), tier)
+	cell, _ := tb.Cell(disp.Agent.Name(), alias)
 	p, prefix := byokProvider(disp, reg, profile)
 	if p != nil && p.Preset == providers.PresetDatabricks {
-		disp.repick = byokRepick(disp.Agent.Name(), tier, cell, p, prefix)
+		disp.repick = byokRepick(disp.Agent.Name(), alias, cell, p, prefix)
 	}
 	if picked && byokPoolModel(disp.Model, p) {
 		return disp
 	}
-	model, note := router.PinnedModel(disp.Agent.Name(), tier, cell, p, router.BYOKModel)
+	model, note := router.PinnedModel(disp.Agent.Name(), alias, cell, p, router.BYOKModel)
 	disp.Model, disp.note, disp.keepCaller, disp.unroutedDispatch = prefix+model, note, false, false
 	return disp
 }
@@ -66,13 +66,13 @@ func byokPoolModel(model string, p *providers.Provider) bool {
 }
 
 // byokRepick skips the failed model for this agent, then returns the next pool pick ("" if unchanged).
-func byokRepick(agent, tier string, cell router.Cell, p *providers.Provider, prefix string) func(string) string {
+func byokRepick(agent, alias string, cell router.Cell, p *providers.Provider, prefix string) func(string) string {
 	return func(failed string) string {
 		wire := strings.TrimPrefix(failed, prefix)
 		if router.SkipBYOK(agent, p, wire) == "" {
 			return ""
 		}
-		next, _ := router.PinnedModel(agent, tier, cell, p, router.BYOKModel)
+		next, _ := router.PinnedModel(agent, alias, cell, p, router.BYOKModel)
 		if next == "" || next == wire {
 			return ""
 		}

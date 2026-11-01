@@ -79,14 +79,14 @@ func TestDoctorOpenCodeRouteWithoutCopilotLogin(t *testing.T) {
 }
 
 // With opencode's own github-copilot login present, the doctor row names provider=personal and
-// both model/small_model: the registry now pins both slots to concrete ids (no "auto" default to
+// both model/small_model: the registry now pins both aliases to concrete ids (no "auto" default to
 // swap for OpencodeFallback any more — that swap path is covered directly in internal/agent).
 func TestDoctorOpenCodeRouteWithCopilotLogin(t *testing.T) {
 	xdgData := doctorScratch(t)
 	// github-copilot's registry defaults are "auto" (Copilot's own router); pin real ids here so this
-	// test still proves slot ids pass through unchanged, distinct from the auto -> OpencodeFallback swap.
-	vaulttest.SetRecord(t, "claude", "slots.sonnet", "gpt-5.3-codex")
-	vaulttest.SetRecord(t, "claude", "slots.haiku", "gpt-5.4-mini")
+	// test still proves alias ids pass through unchanged, distinct from the auto -> OpencodeFallback swap.
+	vaulttest.SetRecord(t, "claude", "aliases.sonnet", "gpt-5.3-codex")
+	vaulttest.SetRecord(t, "claude", "aliases.haiku", "gpt-5.4-mini")
 	authDir := filepath.Join(xdgData, "opencode")
 	if err := os.MkdirAll(authDir, 0o755); err != nil {
 		t.Fatal(err)
@@ -106,10 +106,10 @@ func TestDoctorOpenCodeRouteWithCopilotLogin(t *testing.T) {
 		t.Errorf("detail = %q, want opencode_login=true", c.Detail)
 	}
 	if !strings.Contains(c.Detail, "model=github-copilot/gpt-5.3-codex") {
-		t.Errorf("detail = %q, want the sonnet slot's own id, unchanged", c.Detail)
+		t.Errorf("detail = %q, want the sonnet alias's own id, unchanged", c.Detail)
 	}
 	if !strings.Contains(c.Detail, "small_model=github-copilot/gpt-5.4-mini") {
-		t.Errorf("detail = %q, want the haiku slot's own id, unchanged", c.Detail)
+		t.Errorf("detail = %q, want the haiku alias's own id, unchanged", c.Detail)
 	}
 }
 
@@ -310,7 +310,7 @@ func TestAltAuthUnknownProvider(t *testing.T) {
 func TestRouteDetailMatchesDoctorChecks(t *testing.T) {
 	doctorScratch(t)
 	t.Setenv("GH_TOKEN", "ghp_doctorFAKEtoken1234567890")
-	vaulttest.SetRecord(t, "claude", "slots.sonnet", "gpt-5.3-codex")
+	vaulttest.SetRecord(t, "claude", "aliases.sonnet", "gpt-5.3-codex")
 
 	checks, _ := DoctorChecks()
 	for _, vendor := range []string{"codex", "gemini", "opencode", "copilot"} {

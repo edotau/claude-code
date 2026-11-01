@@ -361,7 +361,7 @@ func TestResolveTargetExplicitCopilotGated(t *testing.T) {
 		t.Run(strconv.FormatFloat(tt.pct, 'f', -1, 64), func(t *testing.T) {
 			reg := gateReg(t, map[string]bool{"dev": true})
 			gh := gateSetup(t, tt.pct, true, reg)
-			sel := providers.Selection{Provider: gh.Provider, Slots: map[string]providers.Target{"opus": gh}}
+			sel := providers.Selection{Provider: gh.Provider, Aliases: map[string]providers.Target{"opus": gh}}
 			got, _, err := schemaFor("copilot").ResolveTarget(reg, sel, true)
 			if err != nil || got.Provider.Name != tt.wantName {
 				t.Errorf("explicit resolve = %v %v, want %s", got.Provider, err, tt.wantName)

@@ -99,7 +99,7 @@ func cmdDescribe(args []string) int {
 // describe builds the describe view from an already-loaded registry, so a caller that loaded one
 // itself (e.g. configureProviderList) never pays for a second load.
 func describe(reg *providers.Registry) (Describe, error) {
-	d := Describe{Version: buildver.Version(), Models: models.Slots}
+	d := Describe{Version: buildver.Version(), Models: models.AliasNames}
 	tree := specTree()
 	for _, c := range commands() {
 		if strings.HasPrefix(c.name, "__") {

@@ -52,7 +52,7 @@ func TestUpdateOverlayDocDryRunWritesNothing(t *testing.T) {
 }
 
 // TestSetProviderModelSeedsBuiltinEntry: a provider absent from the overlay keeps its built-in auth/route/opencodeID
-// when one slot is changed (an overlay entry replaces the built-in whole, so a models-only entry would break it).
+// when one alias is changed (an overlay entry replaces the built-in whole, so a models-only entry would break it).
 func TestSetProviderModelSeedsBuiltinEntry(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	if err := SetProviderModel("personal", "haiku", "gpt-x-mini"); err != nil {
