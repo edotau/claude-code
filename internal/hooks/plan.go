@@ -299,7 +299,8 @@ func skeletonOrHeadings() string {
 	}
 	var b strings.Builder
 	for _, h := range planTemplateHeadings {
-		b.WriteString(h.label + "\n")
+		b.WriteString(h.label)
+		b.WriteString("\n")
 	}
 	return b.String()
 }

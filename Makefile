@@ -65,8 +65,21 @@ install: compile mdsmith rtk  ## Build + install + lint/vuln tools (DEV_TOOLS=0:
 	@if [ "$(DEV_TOOLS)" = 1 ]; then \
 		$(GO) install golang.org/x/vuln/cmd/govulncheck@$(GOVULN_VERSION) && \
 		$(GO) install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_VERSION) && \
-		$(GO) install github.com/google/yamlfmt/cmd/yamlfmt@$(YAMLFMT_VERSION); fi
+		$(GO) install github.com/google/yamlfmt/cmd/yamlfmt@$(YAMLFMT_VERSION) && \
+		$(MAKE) --no-print-directory tools-sync; fi
 	@$(BIN) network restart || echo -e "$(C_NOTE)daemon restart failed (install itself succeeded)"
+
+# A stale copy earlier on PATH (e.g. ~/.local/bin) shadows the fresh GOBIN build; after a toolchain bump it
+# fails typecheck with "export data version N is greater than maximum supported" — overwrite it in place.
+.PHONY: tools-sync
+tools-sync:  ## Refresh stale PATH copies of the pinned tools from GOBIN
+	@gobin="$$($(GO) env GOBIN)"; [ -n "$$gobin" ] || gobin="$$($(GO) env GOPATH)/bin"; \
+	for t in govulncheck golangci-lint yamlfmt; do \
+		found="$$(command -v "$$t" 2>/dev/null)" || continue; \
+		{ [ -x "$$gobin/$$t" ] && [ "$$found" != "$$gobin/$$t" ]; } || continue; \
+		cmp -s "$$found" "$$gobin/$$t" && continue; \
+		cp -f "$$gobin/$$t" "$$found" && echo -e "$(C_OK)tools-sync: refreshed stale $$found from $$gobin/$$t"; \
+	done
 
 .PHONY: clean
 clean:  ## Remove bin/claude-code
@@ -203,7 +216,7 @@ MAX     ?= 3
 LINT_AGENT := $(patsubst on,claude,$(filter-out off,$(AGENT)))
 LINT_KINDS := $(if $(filter go,$(WHAT)),go,$(if $(filter md,$(WHAT)),docs,$(LINT_WHAT)))
 .PHONY: lint
-lint:  ## Lint and auto-fix (CHECK=1 reports; AGENT=a fixes the rest; WHAT=go|md)
+lint:  ## Lint and auto-fix (CHECK=1 reports; AGENT=on fixes the rest; WHAT=go|md)
 	@case "$(WHAT)" in go|md|all) ;; *) echo "WHAT must be go|md|all"; exit 1 ;; esac
 	@$(MAKE) --no-print-directory $(if $(LINT_AGENT),-k) $(addprefix lint-,$(LINT_KINDS)) \
 		$(if $(filter 1,$(CHECK)),,$(if $(LINT_AGENT),|| $(MAKE) --no-print-directory lint-agent))

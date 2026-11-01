@@ -603,7 +603,7 @@ func TestCountEditsThreeFieldCountFileRescansTurns(t *testing.T) {
 	}
 	countFile := filepath.Join(t.TempDir(), "count-3field")
 	// Pre-upgrade "edits|offset|subEdits:subBytes": offset past every (uncounted) user turn.
-	if err := os.WriteFile(countFile, []byte(fmt.Sprintf("0|%d|0:0", fi.Size())), 0o600); err != nil {
+	if err := os.WriteFile(countFile, fmt.Appendf(nil, "0|%d|0:0", fi.Size()), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if got := countEdits(tr, countFile); got != 2 { // 4 turns / 2 per work unit
