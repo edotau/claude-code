@@ -233,14 +233,7 @@ func altAuth(reg *providers.Registry, name string) string {
 	return ""
 }
 
-// Doctor prints DoctorChecks as ✓/✗ lines and reports whether every hard check passed.
-func Doctor(w io.Writer) bool {
-	checks, ok := DoctorChecks()
-	PrintChecks(w, checks)
-	return ok
-}
-
-// PrintChecks writes checks as ✓/✗ lines, shared by Doctor and VaultDoctor so both print one format.
+// PrintChecks writes checks as ✓/✗ lines, shared by the doctor checks so all print one format.
 func PrintChecks(w io.Writer, checks []Check) {
 	color := ansi.Enabled(w)
 	for _, c := range checks {

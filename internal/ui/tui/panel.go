@@ -16,10 +16,9 @@ const (
 
 // pickState is the panel's pure state, separated from I/O so key handling tests without a TTY.
 type pickState struct {
-	rows   []string     // "name  detail" rows, already column-aligned
-	header string       // optional column header, drawn in place of the blank line under the title; never selectable
-	heads  map[int]bool // rows that are section titles: drawn after a blank line, never selectable
-	sel    int
+	rows  []string     // "name  detail" rows, already column-aligned
+	heads map[int]bool // rows that are section titles: drawn after a blank line, never selectable
+	sel   int
 }
 
 // step moves the cursor by dir past any section-title rows; it stays put when nothing selectable lies that way.
@@ -79,18 +78,13 @@ func wrappedLines(n, cols int) int {
 	return (n + cols - 1) / cols
 }
 
-// panelLines is how many terminal lines render emits at cols columns: title, blank/header, one per row
+// panelLines is how many terminal lines render emits at cols columns: title, blank, one per row
 // (each 2 cols wider for its marker/space prefix), blank, hint - each counted by its wrapped height, not
 // 1, so a row too long for a narrow terminal doesn't make rewind undercount and leave stale frames behind.
 func panelLines(title string, s pickState, cols int) int {
 	lines := 0
 	if title != "" { // a title-less (sectioned) panel opens straight on its first section title
-		lines += wrappedLines(len([]rune(title)), cols)
-		if s.header != "" {
-			lines += wrappedLines(2+len([]rune(s.header)), cols)
-		} else {
-			lines++
-		}
+		lines += wrappedLines(len([]rune(title)), cols) + 1
 	}
 	for i, row := range s.rows {
 		lines += wrappedLines(2+len([]rune(row)), cols)
@@ -113,11 +107,7 @@ func panelLines(title string, s pickState, cols int) int {
 func render(title string, s pickState, color bool) string {
 	var b strings.Builder
 	if title != "" {
-		b.WriteString(Accent(color, title) + "\x1b[K\r\n")
-		if s.header != "" {
-			b.WriteString("  " + ansi.Style(color, ansi.Dim, s.header))
-		}
-		b.WriteString("\x1b[K\r\n")
+		b.WriteString(Accent(color, title) + "\x1b[K\r\n\x1b[K\r\n")
 	}
 	for i, row := range s.rows {
 		if i == len(s.rows)-1 && len(s.rows) > 1 {
@@ -142,22 +132,17 @@ func render(title string, s pickState, color bool) string {
 // start (clamped). Returns the chosen row index, or -1 on Esc/q/Ctrl-C. A non-error, non-nil err
 // means stdin is not a terminal; the caller should fall back to a line prompt.
 func Pick(title string, rows [][2]string, start int) (int, error) {
-	return pickLaid(title, "", layoutRows(rows), start)
+	return pickHeads(title, layoutRows(rows), nil, start)
 }
 
-// pickLaid runs the picker over already-aligned rows, with an optional non-selectable header line.
-func pickLaid(title, header string, rows []string, start int) (int, error) {
-	return pickHeads(title, header, rows, nil, start)
-}
-
-// pickHeads is pickLaid with section-title rows (heads); the cursor never lands on one.
-func pickHeads(title, header string, rows []string, heads map[int]bool, start int) (int, error) {
+// pickHeads runs the picker over already-aligned rows; the cursor never lands on a section-title row (heads).
+func pickHeads(title string, rows []string, heads map[int]bool, start int) (int, error) {
 	t, err := Open()
 	if err != nil {
 		return -1, err
 	}
 	defer t.Close()
-	s := pickState{rows: rows, header: header, heads: heads}
+	s := pickState{rows: rows, heads: heads}
 	if start >= 0 && start < len(s.rows) {
 		s.sel = start
 	}
@@ -198,7 +183,7 @@ func fit(title string, s pickState, cols, h int) pickState {
 		return s
 	}
 	win := func(lo, hi int) pickState {
-		w := pickState{rows: s.rows[lo:hi], header: s.header, sel: s.sel - lo, heads: map[int]bool{}}
+		w := pickState{rows: s.rows[lo:hi], sel: s.sel - lo, heads: map[int]bool{}}
 		for i := lo; i < hi; i++ {
 			if s.heads[i] {
 				w.heads[i-lo] = true
@@ -217,18 +202,6 @@ func fit(title string, s pickState, cols, h int) pickState {
 		}
 	}
 	return win(lo, hi)
-}
-
-// PickTable is PickBack with a column header: header[0] heads the name column, header[1] the detail column,
-// aligned with the rows and never selectable.
-func PickTable(title string, header [2]string, rows [][2]string, start int) (int, error) {
-	withBack := append(append([][2]string{}, rows...), [2]string{"Back", "return to the previous menu"})
-	laid := layoutRows(append([][2]string{header}, withBack...))
-	idx, err := pickLaid(title, laid[0], laid[1:], start)
-	if err != nil || idx == len(rows) {
-		return -1, err
-	}
-	return idx, nil
 }
 
 // PickBack is Pick with a trailing "Back" row appended; picking it (or Esc/q/Ctrl-C) both return -1, so a
@@ -279,7 +252,7 @@ func PickSections(title string, sections []Section, trailing [2]string, start in
 	if start >= 0 && start < len(pos) {
 		at = pos[start]
 	}
-	idx, err := pickHeads("", "", rows, heads, at)
+	idx, err := pickHeads("", rows, heads, at)
 	if err != nil || idx < 0 {
 		return -1, err
 	}
