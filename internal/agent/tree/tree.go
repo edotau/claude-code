@@ -148,6 +148,22 @@ func (o Options) now() time.Time {
 	return time.Now()
 }
 
+// Listing is the tree the `agents tree` verb shows: Build, the idle filter unless showAll, and running dispatches.
+func Listing(claudeDir string, opts Options, showAll bool) (*Tree, error) {
+	tree, err := Build(claudeDir, opts)
+	if err != nil {
+		return nil, err
+	}
+	if !showAll {
+		tree.Sessions = filterIdleSessions(tree.Sessions)
+	}
+	if opts.Session == "" { // every view lists them, so --background stays a superset of the default
+		tree.Dispatches = RunningDispatches(opts.now())
+		tree.Sessions = dropDispatchSessions(tree.Sessions, tree.Dispatches)
+	}
+	return tree, nil
+}
+
 // Build scans claudeDir/projects for every session in scope, newest first.
 func Build(claudeDir string, opts Options) (*Tree, error) {
 	now := opts.now()
@@ -188,14 +204,14 @@ func sessionHasActivity(s Session) bool {
 		return true
 	}
 	for _, sub := range s.Subagents {
-		if sub.Status == statusRunning {
+		if sub.Status == StatusRunning {
 			return true
 		}
 	}
 	for _, run := range s.Workflows {
 		for _, phase := range run.Phases {
 			for _, sub := range phase.Agents {
-				if sub.Status == statusRunning {
+				if sub.Status == StatusRunning {
 					return true
 				}
 			}
@@ -207,7 +223,7 @@ func sessionHasActivity(s Session) bool {
 // pruneToRunning drops finished/error subagents (with their dispatches) and workflow runs left with none;
 // stale ones stay, since an unfinished agent past the window may be stuck. Returns a copy.
 func pruneToRunning(s Session) Session {
-	done := func(sub Subagent) bool { return sub.Status == statusFinished || sub.Status == statusError }
+	done := func(sub Subagent) bool { return sub.Status == StatusFinished || sub.Status == StatusError }
 	s.Subagents = slices.DeleteFunc(slices.Clone(s.Subagents), done)
 	var runs []WorkflowRun
 	for _, run := range s.Workflows {
@@ -219,7 +235,7 @@ func pruneToRunning(s Session) Session {
 			}
 		}
 		run.Phases = phases
-		if len(phases) > 0 || run.Status == statusRunning {
+		if len(phases) > 0 || run.Status == StatusRunning {
 			runs = append(runs, run)
 		}
 	}
@@ -230,10 +246,10 @@ func pruneToRunning(s Session) Session {
 const (
 	statusActive   = "active"
 	statusIdle     = "idle"
-	statusRunning  = "running"
-	statusFinished = "finished"
-	statusError    = "error"
-	statusStale    = "stale"
+	StatusRunning  = "running"
+	StatusFinished = "finished"
+	StatusError    = "error"
+	StatusStale    = "stale"
 )
 
 // sessionTranscriptsInScope lists the projects/*/<session>.jsonl files in scope: every project dir
@@ -381,12 +397,12 @@ func subagentIDFromPath(transcriptPath string) string {
 // subagentStatus: finished wins outright; otherwise running within subagentActiveWindow of now, else stale.
 func subagentStatus(finished bool, updated, now time.Time) string {
 	if finished {
-		return statusFinished
+		return StatusFinished
 	}
 	if !updated.IsZero() && now.Sub(updated) <= subagentActiveWindow {
-		return statusRunning
+		return StatusRunning
 	}
-	return statusStale
+	return StatusStale
 }
 
 // buildWorkflowRuns reads one session's workflows/wf_*.json manifests (run id, name, result status)
@@ -465,9 +481,9 @@ func applyJournalEntry(sub Subagent, j journalEntry) Subagent {
 		sub.Description = j.Label
 	}
 	if j.Resulted {
-		sub.Status = statusFinished
+		sub.Status = StatusFinished
 		if j.Errored {
-			sub.Status = statusError
+			sub.Status = StatusError
 		}
 	}
 	return sub
@@ -492,9 +508,9 @@ func workflowRunStatus(m *workflowManifest, journal map[string]journalEntry, upd
 		}
 	}
 	if started > 0 && started == resulted && now.Sub(updated) > subagentActiveWindow {
-		return statusFinished
+		return StatusFinished
 	}
-	return statusRunning
+	return StatusRunning
 }
 
 // FilterIdleSessions is filterIdleSessions, exported for callers outside this package (e.g. the

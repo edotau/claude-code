@@ -1,6 +1,8 @@
+// Package tree renders agent/tree data for the terminal; the data and its scanning stay in agent/tree.
 package tree
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -8,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	agenttree "github.com/edotau/claude-code/internal/agent/tree"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/ansi"
 )
@@ -30,9 +33,9 @@ type columnWidths struct {
 }
 
 // computeColumnWidths walks every subagent in the tree (direct and nested inside workflow runs).
-func computeColumnWidths(tree *Tree) columnWidths {
+func computeColumnWidths(tree *agenttree.Tree) columnWidths {
 	c := columnWidths{subType: 4, subStatus: 6, sessStatus: 6} // "type"/"status"-ish floors
-	grow := func(sub Subagent) {
+	grow := func(sub agenttree.Subagent) {
 		c.subType = max(c.subType, len(sub.Type))
 		c.subStatus = max(c.subStatus, len(sub.Status))
 	}
@@ -59,7 +62,7 @@ func computeColumnWidths(tree *Tree) columnWidths {
 // each session's subagents indented by spawnDepth, with Workflow runs shown as phases -> agents.
 // Every row is fit to terminalWidth() by truncating its description (then its tool, as a last
 // resort) rather than wrapping.
-func RenderText(w io.Writer, tree *Tree, now time.Time) {
+func RenderText(w io.Writer, tree *agenttree.Tree, now time.Time) {
 	if len(tree.Sessions) == 0 && len(tree.Dispatches) == 0 {
 		fmt.Fprintln(w, "agents tree: no sessions in scope")
 		return
@@ -78,7 +81,7 @@ func RenderText(w io.Writer, tree *Tree, now time.Time) {
 }
 
 // renderDispatches prints the machine-wide running dispatch jobs, one row each, under a "dispatches" header.
-func renderDispatches(w io.Writer, dispatches []Dispatch, width int) {
+func renderDispatches(w io.Writer, dispatches []agenttree.Dispatch, width int) {
 	if len(dispatches) == 0 {
 		return
 	}
@@ -92,15 +95,15 @@ func renderDispatches(w io.Writer, dispatches []Dispatch, width int) {
 // repoGroup is one cwd's sessions, newest first.
 type repoGroup struct {
 	cwd      string
-	sessions []Session
+	sessions []agenttree.Session
 }
 
 // groupByRepo buckets sessions by cwd ("(unknown)" when the transcript never recorded one),
 // preserving the overall newest-first order within each bucket and ordering buckets by their
 // newest session.
-func groupByRepo(sessions []Session) []repoGroup {
+func groupByRepo(sessions []agenttree.Session) []repoGroup {
 	order := []string{}
-	byCwd := map[string][]Session{}
+	byCwd := map[string][]agenttree.Session{}
 	for _, s := range sessions {
 		cwd := s.Cwd
 		if cwd == "" {
@@ -119,7 +122,7 @@ func groupByRepo(sessions []Session) []repoGroup {
 }
 
 // renderSession prints one session line plus its branch/age, then its subagents and workflow runs.
-func renderSession(w io.Writer, s Session, now time.Time, cols columnWidths, width int, home string) {
+func renderSession(w io.Writer, s agenttree.Session, now time.Time, cols columnWidths, width int, home string) {
 	title := s.Title
 	if title == "" {
 		title = "(no prompt yet)"
@@ -139,7 +142,7 @@ func renderSession(w io.Writer, s Session, now time.Time, cols columnWidths, wid
 const maxSessionLabel = 24
 
 // sessionLabel is the row's lead column: the registry name when set, else treeShortID, padded to width runes.
-func sessionLabel(s Session, width int) string {
+func sessionLabel(s agenttree.Session, width int) string {
 	label := treeShortID(s.ID)
 	if width == 0 {
 		return label
@@ -154,7 +157,7 @@ func sessionLabel(s Session, width int) string {
 }
 
 // sessionStatusText shows the CLI's own idle|busy|waiting for a live session, else the transcript status.
-func sessionStatusText(s Session) string {
+func sessionStatusText(s agenttree.Session) string {
 	if s.Live && s.CLIStatus != "" {
 		return s.CLIStatus
 	}
@@ -164,13 +167,13 @@ func sessionStatusText(s Session) string {
 // statusGlyph renders a Subagent.Status as a single-character marker for a --watch-sized glance.
 func statusGlyph(status string) string {
 	switch status {
-	case statusRunning:
+	case agenttree.StatusRunning:
 		return "●"
-	case statusFinished:
+	case agenttree.StatusFinished:
 		return "✓"
-	case statusError:
+	case agenttree.StatusError:
 		return "✗"
-	case statusStale:
+	case agenttree.StatusStale:
 		return "·"
 	default:
 		return " "
@@ -179,7 +182,7 @@ func statusGlyph(status string) string {
 
 // idleSince renders how long since a subagent last did anything: its newest activity timestamp when
 // known, else its transcript's own mtime; "-" when neither is available.
-func idleSince(sub Subagent, now time.Time) string {
+func idleSince(sub agenttree.Subagent, now time.Time) string {
 	t := sub.Updated
 	if sub.Activity != nil && !sub.Activity.At.IsZero() {
 		t = sub.Activity.At
@@ -194,7 +197,7 @@ func idleSince(sub Subagent, now time.Time) string {
 // depth beyond the session, then one indented row per agent dispatch it launched. Description is
 // rendered before tool so, when the row still overflows after truncating the description, it's the
 // trailing tool field that gets dropped — the least important part.
-func renderSubagent(w io.Writer, sub Subagent, now time.Time, cols columnWidths, width int, home, cwd string) {
+func renderSubagent(w io.Writer, sub agenttree.Subagent, now time.Time, cols columnWidths, width int, home, cwd string) {
 	indent := strings.Repeat("  ", max(sub.Depth, 1)+1)
 	tool := sub.LastTool
 	if tool == "" {
@@ -203,8 +206,8 @@ func renderSubagent(w io.Writer, sub Subagent, now time.Time, cols columnWidths,
 	prefix := fmt.Sprintf("%s%s %-*s %-*s depth=%d  %s  %s  idle=%s",
 		indent, statusGlyph(sub.Status), cols.subType, sub.Type, cols.subStatus, sub.Status, sub.Depth,
 		tokenCompact(sub.Tokens), age(sub.Updated, now), idleSince(sub, now))
-	label := stripPaths(sub.Description, home, cwd)
-	fmt.Fprintln(w, fitRow(prefix, truncate(label, 60), tool, width))
+	label := agenttree.StripPaths(sub.Description, home, cwd)
+	fmt.Fprintln(w, fitRow(prefix, agenttree.Truncate(label, 60), tool, width))
 	for _, disp := range sub.Dispatches {
 		fmt.Fprintf(w, "%s  %s\n", indent, formatDispatch(disp))
 	}
@@ -212,7 +215,7 @@ func renderSubagent(w io.Writer, sub Subagent, now time.Time, cols columnWidths,
 
 // formatDispatch renders one agent dispatch: "↳ codex gpt-6-astra running 2m14s", or with a fallback,
 // "↳ codex→claude ok 1m40s ⚠ fallback".
-func formatDispatch(l Dispatch) string {
+func formatDispatch(l agenttree.Dispatch) string {
 	name := l.Agent
 	if l.Fallback != "" {
 		name = l.Fallback + "→" + l.Agent
@@ -225,10 +228,10 @@ func formatDispatch(l Dispatch) string {
 }
 
 // phaseDone counts a phase's agents that have a journal/meta result in, against its total.
-func phaseDone(agents []Subagent) (done, total int) {
+func phaseDone(agents []agenttree.Subagent) (done, total int) {
 	for _, a := range agents {
 		total++
-		if a.Status == statusFinished || a.Status == statusError {
+		if a.Status == agenttree.StatusFinished || a.Status == agenttree.StatusError {
 			done++
 		}
 	}
@@ -236,7 +239,7 @@ func phaseDone(agents []Subagent) (done, total int) {
 }
 
 // renderWorkflowRun prints a run header then its phases -> agents, each phase showing done/total.
-func renderWorkflowRun(w io.Writer, run WorkflowRun, now time.Time, cols columnWidths, width int, home, cwd string) {
+func renderWorkflowRun(w io.Writer, run agenttree.WorkflowRun, now time.Time, cols columnWidths, width int, home, cwd string) {
 	indent := strings.Repeat("  ", 2)
 	prefix := fmt.Sprintf("%sworkflow %s  %-9s %-6s", indent, run.Name, run.Status, age(run.Updated, now))
 	fmt.Fprintln(w, fitRow(prefix, run.ID, "", width))
@@ -292,7 +295,7 @@ func shrink(s string, n int) string {
 func clip(s string, width int) string { return textutil.TruncateRunes(s, width) }
 
 // tokenCompact renders in/out tokens as "12.3k/4.1k" style, zero-padded short form.
-func tokenCompact(t Tokens) string {
+func tokenCompact(t agenttree.Tokens) string {
 	return fmt.Sprintf("in=%s out=%s", compactNumber(t.In), compactNumber(t.Out))
 }
 
@@ -334,4 +337,37 @@ func treeShortID(id string) string {
 		return id
 	}
 	return string(r[:8])
+}
+
+// RenderSnapshot writes a Snapshot as the `--format text` drill-down view.
+func RenderSnapshot(w io.Writer, snap agenttree.Snapshot) {
+	fmt.Fprintf(w, "%s  %s\n", snap.ID, snap.Label)
+	if snap.Workflow != "" {
+		fmt.Fprintf(w, "workflow %s  phase %s\n", snap.Workflow, snap.Phase)
+	}
+	model := snap.Model
+	if snap.Effort != "" {
+		model += " effort=" + snap.Effort
+	}
+	fmt.Fprintf(w, "status %s %s  model %s  tokens %s\n", statusGlyph(snap.Status), snap.Status, model, tokenCompact(snap.Tokens))
+	if snap.Activity != nil {
+		fmt.Fprintf(w, "last activity: %s %s (%s)\n", snap.Activity.Tool, snap.Activity.Arg, snap.Activity.At.Format(time.RFC3339))
+	}
+	for _, f := range snap.FilesEdited {
+		fmt.Fprintf(w, "  edited %s\n", f)
+	}
+	for _, disp := range snap.Dispatches {
+		fmt.Fprintf(w, "  %s\n", formatDispatch(disp))
+	}
+	for _, e := range snap.Events {
+		fmt.Fprintln(w, agenttree.FormatEvent(e))
+	}
+	if snap.Result != "" {
+		fmt.Fprintf(w, "result: %s\n", snap.Result)
+	}
+}
+
+// Follow writes one formatted line per new event of opts.Agent to w, until it ends or ctx is cancelled.
+func Follow(ctx context.Context, opts agenttree.ViewOptions, w io.Writer) error {
+	return agenttree.Follow(ctx, opts, func(e agenttree.Event) { fmt.Fprintln(w, agenttree.FormatEvent(e)) })
 }

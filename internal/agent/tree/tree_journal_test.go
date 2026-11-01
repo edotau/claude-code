@@ -3,6 +3,7 @@ package tree
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -47,7 +48,7 @@ func TestJournalDrivesFinishedAndErrorStatus(t *testing.T) {
 	if !ok {
 		t.Fatal("fakewfagent002 not found")
 	}
-	if gate.Status != statusFinished {
+	if gate.Status != StatusFinished {
 		t.Errorf("fakewfagent002 status = %q, want finished (journal result line, meta has no finished:true)", gate.Status)
 	}
 
@@ -55,7 +56,7 @@ func TestJournalDrivesFinishedAndErrorStatus(t *testing.T) {
 	if !ok {
 		t.Fatal("fakewfagent030 not found")
 	}
-	if doomed.Status != statusError {
+	if doomed.Status != StatusError {
 		t.Errorf("fakewfagent030 status = %q, want error (journal result:null)", doomed.Status)
 	}
 }
@@ -72,11 +73,11 @@ func TestJournalStartedWithoutResultStillRunning(t *testing.T) {
 	if !ok {
 		t.Fatal("fakewfagent020 not found")
 	}
-	if busy.Status != statusRunning {
+	if busy.Status != StatusRunning {
 		t.Errorf("fakewfagent020 status = %q, want running (started, no result, fresh mtime)", busy.Status)
 	}
 	run := workflowByID(t, s.Workflows, "wf_fake0003-running")
-	if run.Status != statusRunning {
+	if run.Status != StatusRunning {
 		t.Errorf("wf_fake0003-running run status = %q, want running", run.Status)
 	}
 }
@@ -102,7 +103,7 @@ func TestManifestLessWorkflowRunFinishesFromJournal(t *testing.T) {
 	if run.Name != "wf_fake0002-nomanifest" {
 		t.Errorf("run.Name = %q, want the run id (no manifest to name it)", run.Name)
 	}
-	if run.Status != statusFinished {
+	if run.Status != StatusFinished {
 		t.Errorf("wf_fake0002-nomanifest status = %q, want finished (journal started==resulted, quiet past activeWindow)", run.Status)
 	}
 }
@@ -227,9 +228,6 @@ func TestVendorDispatchesDirectMatch(t *testing.T) {
 	if fb.Fallback != "claude" || fb.FallbackReason == "" {
 		t.Errorf("fallback dispatch = %+v, want Fallback=claude with a reason", fb)
 	}
-	if !strings.Contains(formatDispatch(fb), "⚠ fallback") {
-		t.Errorf("formatDispatch(fallback) = %q, want it to flag the fallback", formatDispatch(fb))
-	}
 }
 
 // (7) A relay whose own transcript hasn't logged its `ask` exit line yet (still mid-dispatch) is
@@ -273,7 +271,7 @@ func TestViewSnapshotFields(t *testing.T) {
 	if snap.ID != "fakewfagent002" || snap.Workflow != "wf_fake0001-abc" || snap.Phase != "Gate" {
 		t.Errorf("snapshot id/workflow/phase = %q/%q/%q", snap.ID, snap.Workflow, snap.Phase)
 	}
-	if snap.Status != statusFinished {
+	if snap.Status != StatusFinished {
 		t.Errorf("snapshot status = %q, want finished", snap.Status)
 	}
 	wantEdited := []string{"/Users/fake/demo-repo/internal/agenttree/scan.go"}
@@ -333,7 +331,7 @@ func TestFollowStopsOnJournalResult(t *testing.T) {
 	var buf strings.Builder
 	done := make(chan error, 1)
 	go func() {
-		done <- Follow(context.Background(), ViewOptions{ClaudeDir: claudeDir, Session: "finished-session-aaaa1111", Agent: "fakewfagent002", Now: pinNow(now)}, &buf)
+		done <- Follow(context.Background(), ViewOptions{ClaudeDir: claudeDir, Session: "finished-session-aaaa1111", Agent: "fakewfagent002", Now: pinNow(now)}, func(e Event) { fmt.Fprintln(&buf, FormatEvent(e)) })
 	}()
 	select {
 	case err := <-done:

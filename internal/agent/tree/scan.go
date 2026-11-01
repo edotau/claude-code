@@ -89,9 +89,9 @@ func (m *workflowManifest) resultStatus() string {
 	}
 	switch m.Status {
 	case "killed":
-		return statusError
+		return StatusError
 	case "completed":
-		return statusFinished
+		return StatusFinished
 	}
 	return ""
 }
@@ -200,9 +200,9 @@ func isJSONNull(raw json.RawMessage) bool {
 func resultPreview(raw json.RawMessage) string {
 	var s string
 	if json.Unmarshal(raw, &s) == nil {
-		return truncate(s, 200)
+		return Truncate(s, 200)
 	}
-	return truncate(string(raw), 200)
+	return Truncate(string(raw), 200)
 }
 
 // sessionHead is what the first ~64KB of a main transcript carries about the session itself.
@@ -246,7 +246,7 @@ func scanSessionHead(path string) sessionHead {
 		}
 		if head.title == "" && rec.Type == "user" && !rec.IsSidechain {
 			if text := strings.TrimSpace(userTurnText(rec.Message)); text != "" && !isSkippableTitle(text) {
-				head.title = truncate(text, 60)
+				head.title = Truncate(text, 60)
 			}
 		}
 		if head.cwd != "" && head.branch != "" && head.title != "" {
@@ -267,8 +267,8 @@ func userTurnText(raw json.RawMessage) string {
 	return transcript.ContentText(msg.Content)
 }
 
-// truncate renders s on one line, cut to n runes with an ellipsis when longer.
-func truncate(s string, n int) string {
+// Truncate renders s on one line, cut to n runes with an ellipsis when longer.
+func Truncate(s string, n int) string {
 	s = oneLine(s)
 	if len([]rune(s)) <= n {
 		return s
@@ -363,9 +363,9 @@ func lastActivity(path, cwd string) Activity {
 		for _, c := range rec.Message.Content {
 			switch {
 			case c.Type == "tool_use" && c.Name != "":
-				act.Tool, act.Arg, act.At = c.Name, stripPaths(toolArg(c.Input), home, cwd), at
+				act.Tool, act.Arg, act.At = c.Name, StripPaths(toolArg(c.Input), home, cwd), at
 			case c.Type == "text" && c.Text != "":
-				act.Text, act.At = truncate(c.Text, 80), at
+				act.Text, act.At = Truncate(c.Text, 80), at
 			}
 		}
 	}
@@ -390,16 +390,16 @@ func toolArg(input json.RawMessage) string {
 	case in.Path != "":
 		return in.Path
 	case in.Command != "":
-		return truncate(in.Command, 60)
+		return Truncate(in.Command, 60)
 	default:
 		return in.Pattern
 	}
 }
 
-// stripPaths removes the session cwd (the more specific, usually longer prefix) and collapses $HOME
+// StripPaths removes the session cwd (the more specific, usually longer prefix) and collapses $HOME
 // to "~" wherever either appears in s — a label or tool arg is often a path, but can also be prose
 // mentioning one mid-sentence.
-func stripPaths(s, home, cwd string) string {
+func StripPaths(s, home, cwd string) string {
 	if cwd != "" {
 		s = strings.ReplaceAll(s, cwd+"/", "")
 		s = strings.ReplaceAll(s, cwd, "")
