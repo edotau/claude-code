@@ -2,7 +2,7 @@
 
 Many leaf-sized tasks across disjoint packages: the manager splits them into lanes; one Claude subagent per lane
 fans out agent leaves through `claude-code ask` (not counted by the dispatch cap:
-`rules/workflows/agents.md` → Parallel dispatch), verifies each leaf in the shared tree, and commits it.
+[SKILL.md → Concurrency](../SKILL.md#concurrency)), verifies each leaf in the shared tree, and commits it.
 Leaf types and the `Agent:` request:
 [SKILL.md → Leaf types](../SKILL.md#leaf-types).
 

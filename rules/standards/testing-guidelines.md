@@ -55,12 +55,6 @@ The test is guilty until its expectation traces to the spec, the request or obse
 red seen under parallel load solo before calling it a regression. Never weaken an assertion, skip a test or edit a
 migration to go green; after 3 fix attempts on one test, report it.
 
-## Test agent — only when the change needs one
+## Test agent
 
-A feature or bug fix gets a test agent (`copilot`, or `code-worker` for a scoped suite) dispatched in the SAME
-message as the implementer — dispatched afterwards, the concurrency is lost. Renames, moves, deletions and
-refactors get none; the implementer keeps the build green. The main thread owns the live check; the test agent
-repairs broken tests at once and writes new ones after the live check. It ends its turn after taking the
-baseline; the manager's "landed" `SendMessage` (files + signatures) resumes it — no polling. Roughly one per
-suite under change; they count toward the dispatch cap. Not for exploration, docs or review-only work; a target
-with no suite is reported, not given a new framework, and planned-but-unwritten tests are listed, never silent.
+Who writes tests, when, and the "landed" handoff: `skills/subagent-workflows/SKILL.md` → Test agent.

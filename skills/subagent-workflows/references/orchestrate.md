@@ -9,8 +9,8 @@ Before you start: `git branch --show-current`, `git worktree list`, and `ls <pla
 
 ## `--scan`
 
-The Codebase Intelligence Protocol only (`rules/workflows/agents.md`): 2–3 parallel `Explore`/`gemini` agents scoped
-to the area, merged into a Codebase Context Brief. With a task, chain the brief into plan mode; without one, print it
+The Codebase Intelligence Protocol only (master-workflow Phase 2): 2–3 parallel `Explore`/`gemini` agents scoped to the
+area, merged into a Codebase Context Brief. With a task, chain the brief into plan mode; without one, print it
 and stop. Skip for one-line fixes or when a scan is already warm this session.
 
 ## Default run
