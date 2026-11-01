@@ -67,7 +67,7 @@ func startLive(s *askState, name, format string) int {
 	if err := live.WaitLiveReady(rec.ID, rec.PID); err != nil {
 		return failAsk(format, name, fmt.Errorf("live session %s did not start: %w (log: %s)", rec.ID, err, rec.Log))
 	}
-	if format == formatJSON {
+	if format == helptext.JSON {
 		body, _ := json.Marshal(struct {
 			ID     string `json:"id"`
 			Socket string `json:"socket"`
@@ -106,12 +106,12 @@ var agentsSendPage = helptext.Page{
 // cmdAgentsSend is `claude-code agents send <id> <task>`.
 func cmdAgentsSend(args []string) int {
 	fs := helptext.NewFlagSet("agents send", agentsSendPage)
-	format := fs.String("format", formatText, "stream text, print the JSON envelope, or stream-json NDJSON events")
+	format := fs.String("format", helptext.Text, "stream text, print the JSON envelope, or stream-json NDJSON events")
 	pos, err := helptext.ParseArgs(fs, args)
 	if err != nil {
 		return helptext.ExitCode(err)
 	}
-	if len(pos) < 2 || !slices.Contains([]string{formatText, formatJSON, formatStreamJSON}, *format) {
+	if len(pos) < 2 || !slices.Contains([]string{helptext.Text, helptext.JSON, formatStreamJSON}, *format) {
 		fs.Usage()
 		return 2
 	}
@@ -129,10 +129,10 @@ func cmdAgentsSend(args []string) int {
 	if err != nil {
 		return fail("agents send: %v", err)
 	}
-	if *format == formatJSON {
+	if *format == helptext.JSON {
 		body, _ := json.Marshal(env)
 		fmt.Println(string(body))
-	} else if *format == formatText && env.Answer != "" && !strings.HasSuffix(env.Answer, "\n") {
+	} else if *format == helptext.Text && env.Answer != "" && !strings.HasSuffix(env.Answer, "\n") {
 		fmt.Println()
 	}
 	if env.Status != agent.StatusOK {

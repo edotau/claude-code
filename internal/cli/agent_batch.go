@@ -13,6 +13,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/batch"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
 // batchOpts are the ask flags that apply to a whole --batch run.
@@ -37,7 +38,7 @@ func runAskBatch(fs *flag.FlagSet, resume bool, src string, o batchOpts, base ag
 			bad = fmt.Errorf("--batch cannot be combined with --%s", f)
 		}
 	}
-	if flagExplicit(fs, "format") && fs.Lookup("format").Value.String() != formatJSON {
+	if flagExplicit(fs, "format") && fs.Lookup("format").Value.String() != helptext.JSON {
 		bad = errors.New("--batch always prints JSON envelopes; drop --format or pass --format json")
 	}
 	if bad == nil && o.jobs < 1 {
