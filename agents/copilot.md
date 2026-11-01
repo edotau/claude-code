@@ -43,6 +43,8 @@ Label rule: `skills/subagent-workflows/SKILL.md#leaf-types`.
 - Continuing a Copilot session (`copilot resume <id>`).
 - Any delegated mechanical task (`copilot ask --tools [--background]`) — the `mechanical` task class in
   `skills/subagent-workflows/references/cost-routing.md`.
+- `ask --read-only` approves file reads, URL fetches and read-only git (status, diff, log, show, blame, rev-parse,
+  branch --list); any chained, redirected or other shell command is rejected.
 
 ## Account and model
 

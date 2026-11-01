@@ -26,8 +26,8 @@ paths:
 - `ask --format json` envelope: `agent`, `status` (`ok|error|partial|quota|stalled`), `model`, `answer`, `usage`,
   `duration_ms`, `fallback*`, `handoff`, `transport`. Isolation flags: `--no-persist` (claude, codex), `--safe-mode`
   (claude, codex, opencode), `--debug-file <path>` (claude, gemini). Without `--tools`, agents are read-only.
-  `--read-only` (implies `--tools`): copilot approves only file reads and URL fetches; any other agent drops its
-  tools (fail closed).
+  `--read-only` (implies `--tools`): copilot approves file reads, URL fetches and read-only git; gemini refuses (agy has no read-only
+  mode: use `--tools` or another agent); any other agent drops its tools (fail closed).
 - `ask --agents <json|file>` defines agents inline: `name`, `description`, `prompt`, `tools`, `model`, `max_turns`,
   `runner`, `profile`, `effort`. `--agent` also takes an `--agents` key, and a definition's `model` applies on every
   agent. With `--batch`, `--agents` covers the whole file and a line's `agent` takes the same selector; the
