@@ -119,7 +119,8 @@ Every phase is:
   `memory update` files them.
 - **Explicit on dependencies** — parallel-safe phases are marked; disjoint packages run in parallel.
 - **Leaf-sized tasks** — see the template's `## Tasks` leaf-size definition.
-- **Tickable** — every task line carries `owns:` paths: a commit touching all of them ticks it (`docs-plan-tick`).
+- **Tickable** — every task line carries `owns:` repo paths (never a bare file name): a commit touching all of them
+  ticks it (`docs-plan-tick`).
 
 ### Self-review before returning
 
