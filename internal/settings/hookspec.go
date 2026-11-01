@@ -146,7 +146,7 @@ var Registry = []Group{
 		{Name: "review-simplicity", Event: EventPostToolUse, Matcher: "Write|Edit", Budget: 5 * sec},
 	}},
 	{Name: "worktree", Events: []EventSpec{
-		// Native worktrees live at ~/worktrees/<repo>/<name>, the same root Orca uses; these replace Claude's git logic.
+		// Native worktrees live at ~/worktrees/<repo>/<name>; these replace Claude's git logic.
 		{Name: "worktree-create", Event: EventWorktreeCreate, Budget: 60 * sec},
 		{Name: "worktree-remove", Event: EventWorktreeRemove, Budget: 30 * sec},
 		// Ask-about-a-worktree notes (silent when HARNESS_WORKTREE=off); the busy check runs every prompt, so it stays cheap.

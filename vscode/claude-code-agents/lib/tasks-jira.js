@@ -58,7 +58,7 @@ function extraClauses(opts) {
   return out;
 }
 
-/** Orca's mayBeJql: `jql:` prefix or operator shapes mean the text is JQL, not words to match. */
+/** mayBeJql: `jql:` prefix or operator shapes mean the text is JQL, not words to match. */
 function isRawJql(text) {
   const t = String(text || '').trim();
   if (!t) return false;
@@ -102,7 +102,7 @@ function toJql(parsedQuery, opts) {
 
 const CATEGORY_RANK = { new: 0, indeterminate: 1, done: 2 };
 
-/** Statuses present in the loaded rows (Orca's "statuses come from loaded issues"), category order then name. */
+/** Statuses present in the loaded rows ("statuses come from loaded issues"), category order then name. */
 function statusCatalog(rows) {
   const seen = new Map();
   for (const r of rows || []) {
@@ -176,14 +176,14 @@ async function list({ client, query, projects, page = 1, limit = 36, baseUrl, so
   };
 }
 
-// --- detail view (Orca JiraIssueWorkspace) ---
+// --- detail view (Jira issue workspace) ---
 const { sanitizeHtml, textOf } = require('./sanitize-html');
 
 function escapeText(text) {
   return String(text == null ? '' : text).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
-/** DC transition `fields` is an object keyed by field key; normalise to Orca's `JiraCreateField[]` shape. */
+/** DC transition `fields` is an object keyed by field key; normalise to a `JiraCreateField[]` shape. */
 function transitionFields(transition) {
   const raw = transition.fields || {};
   if (Array.isArray(raw)) return raw;
@@ -200,7 +200,7 @@ function allowedValueKey(v) {
   return (v.id && String(v.id).trim()) || (v.value && String(v.value).trim()) || (v.name && String(v.name).trim()) || '';
 }
 
-/** Orca's classifyTransitionRequirements: none · form (resolution select / required comment) · unsupported fields. */
+/** classifyTransitionRequirements: none · form (resolution select / required comment) · unsupported fields. */
 function classifyTransition(transition) {
   const required = transitionFields(transition).filter((f) => f.required);
   if (!required.length) return { kind: 'none' };
@@ -254,13 +254,13 @@ function mapDetail({ issue, comments, transitions }, opts) {
   };
 }
 
-/** Orca's buildJiraBranchName: lower-case key + slug of the title (≤ 52 chars). */
+/** buildJiraBranchName: lower-case key + slug of the title (≤ 52 chars). */
 function branchName(row) {
   const slug = String(row.title || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 52);
   return `${String(row.key).toLowerCase()}${slug ? `-${slug}` : ''}`;
 }
 
-/** Orca's buildJiraIssuePrompt. */
+/** buildJiraIssuePrompt. */
 function prompt(row) {
   const desc = String(row.descriptionText || '').trim();
   return `Complete Jira issue ${row.key}: ${row.title}\n\n${row.url}${desc ? `\n\n${desc}` : ''}`;

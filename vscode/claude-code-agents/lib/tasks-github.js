@@ -1,8 +1,8 @@
 'use strict';
-// GitHub read path for the Tasks page over the `gh` CLI (execFile, no shell) — ported from claude-orcastra's
+// GitHub read path for the Tasks page over the `gh` CLI (execFile, no shell) —
 // src/main/github/client/list. Pure argv builders + mappers; `execFileImpl` is the injectable seam for tests.
 
-// Why: the list asks only for cheap fields (Orca's WORK_ITEM_PR_LIST_JSON_FIELDS); checks/mergeability hydrate lazily per row.
+// Why: the list asks only for cheap fields; checks/mergeability hydrate lazily per row.
 const PR_LIST_FIELDS = 'number,title,state,url,labels,updatedAt,author,isDraft,headRefName,baseRefName,headRefOid,headRepositoryOwner,reviewRequests,assignees';
 const PR_DETAIL_FIELDS = `${PR_LIST_FIELDS},additions,deletions,changedFiles,reviewDecision,latestReviews,statusCheckRollup,mergeable,mergeStateStatus,autoMergeRequest`;
 const ISSUE_DETAIL_FIELDS = 'number,title,state,stateReason,url,labels,updatedAt,author,assignees';
@@ -235,7 +235,7 @@ function classifyGhError(err) {
   return text.split('\n')[0] || 'GitHub request failed';
 }
 
-// --- gh hygiene (Orca's gh-retry-policy + gh-rate-limit-breaker, reduced) ---
+// --- gh hygiene (retry policy + rate-limit breaker, reduced) ---
 const GH_TIMEOUT_MS = 30000;
 let retryDelaysMs = [250, 1000];
 const blockedUntil = { search: 0, core: 0 };
@@ -362,7 +362,7 @@ async function listWorkItems({ repos, query, page = 1, limit = PER_REPO_FETCH_LI
   };
 }
 
-// --- per-row detail + mutations (argv mirrors Orca's src/main/github/client/{fetch,update,merge}) ---
+// --- per-row detail + mutations ---
 function slug(repo) {
   return `${repo.owner}/${repo.name}`;
 }
@@ -464,7 +464,7 @@ async function mergeMethods({ repo, execFileImpl }) {
   return { merge: !!parsed.merge, squash: !!parsed.squash, rebase: !!parsed.rebase };
 }
 
-// --- conversation (Orca github-item-dialog): GitHub renders the markdown via the html media type; we only sanitise ---
+// --- conversation: GitHub renders the markdown via the html media type; we only sanitise ---
 const { sanitizeHtml } = require('./sanitize-html');
 const HTML_ACCEPT = 'Accept: application/vnd.github.html+json';
 
@@ -578,7 +578,7 @@ function mapCheckRuns(json) {
   return { total: typeof data.total_count === 'number' ? data.total_count : runs.length, runs };
 }
 
-// --- review threads + PR header actions (Orca github-pr-review-handlers / pr-mutation-handlers) ---
+// --- review threads + PR header actions ---
 const REVIEW_THREADS_QUERY = 'query($owner:String!,$repo:String!,$pr:Int!){ repository(owner:$owner,name:$repo){ pullRequest(number:$pr){ reviewThreads(first:50){ nodes{ id isResolved isOutdated path line comments(first:20){ nodes{ id databaseId author{login} bodyHTML createdAt url } } } } } } }';
 
 function reviewThreadsArgs({ repo, number }) {

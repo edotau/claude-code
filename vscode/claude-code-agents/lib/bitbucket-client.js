@@ -1,5 +1,5 @@
 'use strict';
-// Bitbucket Data Center client, read-only. Ported from claude-orcastra's src/main/bitbucket
+// Bitbucket Data Center client, read-only. Ported from a TypeScript original
 // (datacenter-repository-ref.ts, datacenter-client.ts, datacenter-pull-request-mappers.ts), plain JS,
 // no dependencies — fetchImpl/execFileImpl are injectable seams for tests.
 

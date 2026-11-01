@@ -47,7 +47,7 @@ const existing = `{
   "statusLine": {"type": "command", "command": "mine"},
   "hooks": {
     "Stop": [{"hooks": [
-      {"type": "command", "command": "orca-hook && echo '<done>'", "timeout": 10},
+      {"type": "command", "command": "foreign-hook && echo '<done>'", "timeout": 10},
       {"type": "command", "command": "$HOME/.claude/bin/claude-code hook retired-hook", "timeout": 5}
     ]}],
     "SessionEnd": [{"hooks": [{"type": "command", "command": "foreign-end"}]}]
@@ -93,7 +93,7 @@ func TestMergePreservesForeign(t *testing.T) {
 		}
 	}
 	stop := strings.Join(cmds["Stop"], "\n")
-	if !strings.Contains(stop, "orca-hook && echo '<done>'") || strings.Contains(stop, "retired-hook") || !strings.Contains(stop, "hook Stop") {
+	if !strings.Contains(stop, "foreign-hook && echo '<done>'") || strings.Contains(stop, "retired-hook") || !strings.Contains(stop, "hook Stop") {
 		t.Errorf("Stop hooks wrong: %q", cmds["Stop"])
 	}
 	// PreToolUse carries the dispatcher entry plus the safety gate's own entry.

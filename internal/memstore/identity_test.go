@@ -329,21 +329,21 @@ func TestResolveIgnoresInheritedGitEnv(t *testing.T) {
 }
 
 // TestAliasToHarnessStore matches the plan's required case: a hand-written .claude/.origin aliasing
-// an external checkout (~/orca/claude-code) must route that checkout's RepoDir to the harness store.
+// an external checkout (~/other/claude-code) must route that checkout's RepoDir to the harness store.
 func TestAliasToHarnessStore(t *testing.T) {
 	cfg := gitRepo(t, t.TempDir(), ".claude")
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
-	orca := gitRepo(t, filepath.Join(t.TempDir(), "orca"), "claude-code")
+	ext := gitRepo(t, filepath.Join(t.TempDir(), "ext"), "claude-code")
 	dir := HarnessStoreDir()
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	o := Origin{Version: OriginVersion, Key: HarnessStoreKey(), Origin: ResolvePath(cfg), Aliases: []string{ResolvePath(orca)}}
+	o := Origin{Version: OriginVersion, Key: HarnessStoreKey(), Origin: ResolvePath(cfg), Aliases: []string{ResolvePath(ext)}}
 	if err := WriteOrigin(dir, o); err != nil {
 		t.Fatal(err)
 	}
-	if got := mustRepoDir(t, orca); got != dir {
-		t.Errorf("RepoDir(orca alias) = %s want %s", got, dir)
+	if got := mustRepoDir(t, ext); got != dir {
+		t.Errorf("RepoDir(ext alias) = %s want %s", got, dir)
 	}
 	// AddOriginAlias must refuse to hand that same origin to a different store.
 	other := gitRepo(t, t.TempDir(), "other")
@@ -351,7 +351,7 @@ func TestAliasToHarnessStore(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := AddOriginAlias(odir, orca); !errors.Is(err, ErrOriginConflict) {
+	if err := AddOriginAlias(odir, ext); !errors.Is(err, ErrOriginConflict) {
 		t.Errorf("claiming the harness's alias from another store must conflict, got %v", err)
 	}
 }

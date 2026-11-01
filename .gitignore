@@ -37,7 +37,6 @@
 /.last-*
 /.claude/
 /state/
-/.orca/
 /memory/
 # Memory markdown never rides a harness commit, wherever a legacy or native tool drops it.
 /agent-memory/

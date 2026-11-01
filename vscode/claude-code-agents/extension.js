@@ -579,7 +579,7 @@ class TasksViewProvider {
     return this.runMutation(id, { state: 'closed', stateReason: duplicateOf ? 'duplicate' : reason }, () => tasksGithub.closeIssue({ repo: item.repo, number: item.number, reason, duplicateOf }));
   }
 
-  /** Orca's MergeCell confirm: "<Method> PR #N?" / "This will update the pull request on GitHub." */
+  /** Merge confirm: "<Method> PR #N?" / "This will update the pull request on GitHub." */
   async mergePullRequest(id, method) {
     const item = this.findItem(id);
     if (!item || item.source !== 'github' || item.type !== 'pr') return;
@@ -676,7 +676,7 @@ class TasksViewProvider {
     this.render();
   }
 
-  /** A board drop = the matching in-panel action; unmapped drops are refused with an inline note (Orca's rule). */
+  /** A board drop = the matching in-panel action; unmapped drops are refused with an inline note (the rule). */
   async moveRow(id, toKey) {
     const item = this.findItem(id);
     if (item && !this.canWrite(item)) return this.rowError(id, ownership.readOnlyReason(item));
@@ -773,7 +773,7 @@ class TasksViewProvider {
     return this.worktrees;
   }
 
-  /** Start/Resume (Orca's composer as QuickPicks): where (here / new worktree / attached), then a prompt template. */
+  /** Start/Resume (composer as QuickPicks): where (here / new worktree / attached), then a prompt template. */
   async start(id, opts) {
     const { fresh = false } = opts || {};
     const item = this.findItem(id);

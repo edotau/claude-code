@@ -1,5 +1,5 @@
 'use strict';
-// Start / Resume for a task row (Orca's new-workspace composer + jira-prompt-templates): prompt templates, branch and
+// Start / Resume for a task row (new-workspace composer + jira prompt templates): prompt templates, branch and
 // worktree names, attached-worktree matching, and a shell-safe launch line. Pure; the extension owns the I/O.
 
 const PROMPT_TEMPLATES = [

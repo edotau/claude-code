@@ -19,7 +19,7 @@ func TestSettingsJSON(t *testing.T) {
 	if len(block[EventStop]) != 1 || len(block[EventStop][0].Hooks) != 1 || len(block[EventSessionStart]) != 1 || len(block[EventSessionEnd]) != 1 || len(block[EventUserPromptSubmit]) != 1 || block[EventPreToolUse][0].Matcher != "Bash" {
 		t.Errorf("block %s", b)
 	}
-	if !IsHarness("$HOME/.claude/bin/claude-code hook PreToolUse --safety-scan") || IsHarness("$HOME/.claude/bin/claude-code-other x") || IsHarness("orca hook") {
+	if !IsHarness("$HOME/.claude/bin/claude-code hook PreToolUse --safety-scan") || IsHarness("$HOME/.claude/bin/claude-code-other x") || IsHarness("foreign hook") {
 		t.Error("IsHarness")
 	}
 }
@@ -37,7 +37,7 @@ func TestIsHarness(t *testing.T) {
 		{"HARNESS_HOOK_AGENT=vendor_2 " + HookBin + " hook x", true},
 		{"HARNESS_HOOK_VENDOR=codex " + HookBin + " hook x", true}, // the pre-rename marker
 		{"FOO=1 " + HookBin + " hook x", false},
-		{"HARNESS_HOOK_AGENT=codex orca hook", false},
+		{"HARNESS_HOOK_AGENT=codex foreign hook", false},
 		{HookBin + "-other hook x", false},
 		{"HARNESS_HOOK_AGENT=codex " + HookBin + "-other hook x", false},
 		{"HARNESS_HOOK_AGENT= " + HookBin + " hook x", false},

@@ -2,7 +2,7 @@
 
 Part 1 is the procedure behind `claude-code worktree` and the `worktree-create`/`worktree-remove` hooks
 (`internal/worktree`); every verb resolves the root and each worktree's real branch from git — never assume a
-naming convention. Root: `~/worktrees/<repo>/<slug>`, shared with native Claude Code and Orca. Part 2 is the manual
+naming convention. Root: `~/worktrees/<repo>/<slug>`, shared with native Claude Code. Part 2 is the manual
 mechanics for non-harness repos.
 
 ## Part 1 — Harness verbs

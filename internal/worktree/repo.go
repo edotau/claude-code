@@ -19,7 +19,7 @@ type Repo struct {
 	Root string // Root(Main): ~/worktrees/<basename(Main)>
 }
 
-// WorktreeRoot is the one worktree home shared with Orca and native Claude Code: ~/worktrees, under the
+// WorktreeRoot is the one worktree home shared with native Claude Code: ~/worktrees, under the
 // canonical home so it compares equal to the resolved paths git reports (a symlinked $HOME would otherwise
 // disown every registered worktree).
 func WorktreeRoot() string {

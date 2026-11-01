@@ -89,7 +89,7 @@ function createClient(opts) {
     return request('/rest/api/2/priority');
   }
 
-  /** Column order of the project's board (Orca's jira:getProjectStatusOrder); null unless exactly one board matches. */
+  /** Column order of the project's board (jira:getProjectStatusOrder); null unless exactly one board matches. */
   async function boardStatusOrder(projectKey) {
     const boards = await request(`/rest/agile/1.0/board?projectKeyOrId=${encodeURIComponent(projectKey)}&maxResults=2`);
     const values = (boards && boards.values) || [];

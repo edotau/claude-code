@@ -123,7 +123,7 @@ func InstallWindowsSettings(w io.Writer, dryRun bool) error {
 		fmt.Fprintf(w, "  would write %d bytes (was %d); --dry-run wrote nothing\n", len(out), len(existing))
 		return nil
 	}
-	// A Windows-side writer (Orca, Claude Desktop) may have saved since the read; never overwrite its edit.
+	// A Windows-side writer (Claude Desktop) may have saved since the read; never overwrite its edit.
 	if now, nowBOM, rerr := readStrippingBOM(file); (rerr == nil || !errors.Is(rerr, fs.ErrNotExist)) &&
 		(rerr != nil || nowBOM != bom || !bytes.Equal(now, existing)) {
 		return fmt.Errorf("%s changed during install; re-run claude-code install", file)
@@ -171,7 +171,7 @@ func CheckWindowsSettingsDrift() (d SettingsDrift, ok bool, err error) {
 	} else {
 		d.applyDropped(dropped, winRendered) // a listed key still present is drift here too; install removes it
 	}
-	// Windows-side writers (Orca hooks, remote, a bash statusLine) own their keys; install keeps them, so not drift.
+	// Windows-side writers (foreign hooks, remote, a bash statusLine) own their keys; install keeps them, so not drift.
 	d.Kept, d.Foreign = d.Foreign, nil
 	return d, true, err
 }

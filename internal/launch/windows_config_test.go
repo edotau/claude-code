@@ -46,7 +46,7 @@ func TestStripWindowsOnly(t *testing.T) {
 	in := []byte(`{
 		"theme": "auto",
 		"statusLine": {"type": "command", "command": "status-script"},
-		"hooks": {"Stop": [{"hooks": [{"type": "command", "command": "orca stop"}]}]},
+		"hooks": {"Stop": [{"hooks": [{"type": "command", "command": "foreign stop"}]}]},
 		"permissions": {"allow": ["Bash(ls:*)"]},
 		"SOME_PATH_KEY": "/home/edotau/.claude/skills",
 		"env": {
@@ -381,7 +381,7 @@ func TestInstallWindowsSettings_NonWSLNoop(t *testing.T) {
 	}
 }
 
-// TestCheckWindowsSettingsDrift_ForeignKeptNotDrift: a Windows-only key (Orca's hooks, remote) is reported as
+// TestCheckWindowsSettingsDrift_ForeignKeptNotDrift: a Windows-only key (foreign hooks, remote) is reported as
 // kept, never as drift, so `generate --check` stays green while install preserves it.
 func TestCheckWindowsSettingsDrift_ForeignKeptNotDrift(t *testing.T) {
 	profile := winHermetic(t)

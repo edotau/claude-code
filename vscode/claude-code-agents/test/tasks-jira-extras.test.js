@@ -200,7 +200,7 @@ for (const text of [
   'project = ACME order by updated desc',
   'ORDER BY updated DESC',
 ]) {
-  test(`isRawJql: Orca's heuristic matches ${JSON.stringify(text)}`, () => {
+  test(`isRawJql: the heuristic matches ${JSON.stringify(text)}`, () => {
     assert.equal(isRawJql(text), true);
   });
 }

@@ -82,7 +82,7 @@ test('renderTasksHtml: the empty state replaces the grid and hides pagination', 
   assert.ok(!html.includes('class="pagination"'));
 });
 
-test('renderTasksHtml: pagination shows Orca\'s page strip only when totalPages > 1, with the loading target spinning', () => {
+test('renderTasksHtml: pagination shows the page strip only when totalPages > 1, with the loading target spinning', () => {
   const none = renderTasksHtml(model({ totalPages: 1 }), opts);
   assert.ok(!none.includes('class="pagination"'));
   const html = renderTasksHtml(model({ page: 4, totalPages: 20, loadingPage: 6 }), opts);
