@@ -1,15 +1,18 @@
 package memory
 
 import (
-	"github.com/edotau/claude-code/internal/hosttest"
-	"github.com/edotau/claude-code/internal/memory/bank"
-	"github.com/edotau/claude-code/internal/vault"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
+	"time"
+
+	"github.com/edotau/claude-code/internal/hosttest"
+	"github.com/edotau/claude-code/internal/memory/bank"
+	"github.com/edotau/claude-code/internal/memstore"
+	"github.com/edotau/claude-code/internal/vault"
 
 	"github.com/edotau/claude-code/internal/proc"
 )
@@ -127,4 +130,12 @@ func vaultGet(t *testing.T, key string) (string, bool) {
 func isolatedConfig1(t *testing.T) string {
 	cfg, _ := isolatedConfig(t)
 	return cfg
+}
+
+// shortBankWait shrinks BankLockWait so a contended-lock test fails fast instead of waiting the 5s default.
+func shortBankWait(t *testing.T) {
+	t.Helper()
+	old := memstore.BankLockWait
+	memstore.BankLockWait = 100 * time.Millisecond
+	t.Cleanup(func() { memstore.BankLockWait = old })
 }
