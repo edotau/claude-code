@@ -5,8 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/edotau/claude-code/internal/codex"
-	"github.com/edotau/claude-code/internal/memory/bank"
 	"io"
 	"os"
 	"path/filepath"
@@ -15,7 +13,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/codex"
 	"github.com/edotau/claude-code/internal/copilot"
+	"github.com/edotau/claude-code/internal/memory/bank"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/settings"
 )
