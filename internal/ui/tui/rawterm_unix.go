@@ -4,6 +4,7 @@ package tui
 
 import (
 	"errors"
+	"io"
 	"os"
 	"syscall"
 	"unsafe"
@@ -79,11 +80,11 @@ func getSize(fd int) (int, int, error) {
 	return int(ws.Col), int(ws.Row), nil
 }
 
-// ErrCanceled is what readPassword returns when Ctrl-C or Ctrl-D ends the read before Enter.
+// ErrCanceled is what readPassword returns when Esc, Ctrl-C or Ctrl-D ends the read before Enter.
 var ErrCanceled = errors.New("tui: input canceled")
 
 // readPassword reads one line from fd with echo off, calling onChange (if set) after every read so a paste shows
-// as it lands; Backspace and Ctrl-U edit, Ctrl-C/Ctrl-D cancel. The terminal is restored before returning.
+// as it lands; Backspace and Ctrl-U edit, Esc/Ctrl-C/Ctrl-D cancel. The terminal is restored before returning.
 func readPassword(fd int, onChange func([]byte)) ([]byte, error) {
 	var t syscall.Termios
 	if err := ioctlTermios(fd, ioctlGet, &t); err != nil {
@@ -97,24 +98,22 @@ func readPassword(fd int, onChange func([]byte)) ([]byte, error) {
 		return nil, err
 	}
 	defer func() { _ = ioctlTermios(fd, ioctlSet, &prev) }()
-	f := os.NewFile(uintptr(fd), "stdin")
 	var line []byte
+	var esc escState
 	buf := make([]byte, 4096)
 	for {
-		n, err := f.Read(buf)
+		n, err := readFD(fd, buf)
 		for _, c := range buf[:n] {
-			switch {
-			case c == '\n' || c == '\r':
-				return line, nil
-			case c == 0x03 || c == 0x04:
-				return nil, ErrCanceled
-			case c == 0x7f || c == 0x08:
-				line = line[:max(0, len(line)-1)]
-			case c == 0x15:
-				line = line[:0]
-			case c >= 0x20:
-				line = append(line, c)
+			if esc.skip(c) {
+				continue
 			}
+			l, done, kerr := editLine(line, c)
+			if line = l; done {
+				return line, kerr
+			}
+		}
+		if esc == escSeen && !waitReadable(fd, pollTick) {
+			return nil, ErrCanceled // a lone Esc, not the start of a sequence split across reads
 		}
 		if onChange != nil && n > 0 {
 			onChange(line)
@@ -123,4 +122,70 @@ func readPassword(fd int, onChange func([]byte)) ([]byte, error) {
 			return line, err
 		}
 	}
+}
+
+// editLine applies one typed byte to line; done is true on Enter (err nil) or Ctrl-C/Ctrl-D (ErrCanceled).
+func editLine(line []byte, c byte) (_ []byte, done bool, err error) {
+	switch {
+	case c == '\n' || c == '\r':
+		return line, true, nil
+	case c == 0x03 || c == 0x04:
+		return nil, true, ErrCanceled
+	case c == 0x7f || c == 0x08:
+		return line[:max(0, len(line)-1)], false, nil
+	case c == 0x15:
+		return line[:0], false, nil
+	case c >= 0x20:
+		return append(line, c), false, nil
+	}
+	return line, false, nil
+}
+
+// readFD reads fd with read(2) directly: an os.NewFile wrapper is closed by its finalizer, which would close stdin.
+func readFD(fd int, buf []byte) (int, error) {
+	for {
+		n, err := syscall.Read(fd, buf)
+		switch {
+		case err == syscall.EINTR:
+			continue
+		case err != nil:
+			return 0, err
+		case n == 0:
+			return 0, io.EOF
+		}
+		return n, nil
+	}
+}
+
+// escState tracks an ANSI escape sequence across reads so a bracketed-paste marker (ESC[200~, ESC[201~) or an
+// arrow key is dropped instead of leaking "[200~" into the secret.
+type escState int
+
+const (
+	escNone escState = iota
+	escSeen
+	escCSI
+)
+
+// skip reports whether c belongs to an escape sequence and is to be ignored.
+func (s *escState) skip(c byte) bool {
+	switch *s {
+	case escSeen:
+		*s = escNone
+		if c == '[' {
+			*s = escCSI
+			return true
+		}
+	case escCSI:
+		if c >= 0x40 && c <= 0x7e {
+			*s = escNone
+		}
+		return true
+	default:
+		if c == 0x1b {
+			*s = escSeen
+			return true
+		}
+	}
+	return false
 }
