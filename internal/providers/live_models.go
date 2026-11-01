@@ -12,9 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/edotau/claude-code/internal/copilotsdk"
 	"github.com/edotau/claude-code/internal/models"
-	"github.com/edotau/claude-code/internal/paths"
 )
 
 // ModelInfo is one live catalog entry: ID is always set, UseCase always filled (models.UseCase never
@@ -30,13 +28,9 @@ type ModelInfo struct {
 }
 
 // ListModels lists p's live catalog with names/use-case/capabilities when the backend reports them.
-// github-copilot goes through its own SDK (its own GitHub login, never BYOK) and is the only source of
-// capability flags; every other provider keeps the plain /models GET, which has no such fields. reg is
-// accepted for callers that already have it in hand; this lister itself does not need it.
+// The github row is listed by copilot.ListModels, not here. reg is accepted for callers that already have it in
+// hand; this lister itself does not need it.
 func ListModels(ctx context.Context, reg *Registry, p *Provider) ([]ModelInfo, error) {
-	if p.provider() == "github" {
-		return liveCopilotModelInfos(ctx)
-	}
 	entries, err := liveModelEntries(ctx, p)
 	if err != nil {
 		return nil, err
@@ -53,47 +47,6 @@ func ListModels(ctx context.Context, reg *Registry, p *Provider) ([]ModelInfo, e
 // endpointCapabilities joins a Databricks endpoint's task and ready state, e.g. "llm/v1/chat · READY"; "" otherwise.
 func endpointCapabilities(e liveModelEntry) string {
 	return strings.Join(slices.DeleteFunc([]string{e.task, e.ready}, func(s string) bool { return s == "" }), " · ")
-}
-
-// CopilotTokenFn resolves the launch-account token (agent.CopilotToken) for copilot catalog calls.
-// providers cannot import internal/agent directly (agent already imports providers); agent sets
-// this at init time instead. nil or "" falls back to the copilot CLI's own stored login.
-var CopilotTokenFn func() string
-
-func liveCopilotModelInfos(ctx context.Context) ([]ModelInfo, error) {
-	bin, err := paths.AgentBin("copilot")
-	if err != nil {
-		return nil, fmt.Errorf("copilot CLI not found: %w", err)
-	}
-	var tok string
-	if CopilotTokenFn != nil {
-		tok = CopilotTokenFn()
-	}
-	list, err := copilotsdk.ListModels(ctx, copilotsdk.CatalogOptions(bin, tok))
-	if err != nil {
-		return nil, err
-	}
-	out := make([]ModelInfo, len(list))
-	for i, m := range list {
-		out[i] = ModelInfo{ID: m.ID, Name: m.Name, UseCase: models.UseCase(m.ID, m.Name), Capabilities: copilotCapabilities(m)}
-	}
-	return out, nil
-}
-
-// copilotCapabilities joins copilot's capability flags and premium-billing multiplier into one
-// "vision · reasoning · x2" string; "" when the model carries none of them.
-func copilotCapabilities(m copilotsdk.Model) string {
-	var parts []string
-	if m.Vision {
-		parts = append(parts, "vision")
-	}
-	if m.ReasoningEffort {
-		parts = append(parts, "reasoning")
-	}
-	if m.Multiplier != nil {
-		parts = append(parts, fmt.Sprintf("x%g", *m.Multiplier))
-	}
-	return strings.Join(parts, " · ")
 }
 
 // displayName derives a readable name from an id when the catalog sends none: models/gemini-2.5-flash → Gemini 2.5 Flash.

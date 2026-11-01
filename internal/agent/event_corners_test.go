@@ -1,7 +1,6 @@
 package agent
 
 import (
-	"encoding/json"
 	"strings"
 	"testing"
 )
@@ -17,35 +16,6 @@ func (r *recSink) types() string {
 		ts = append(ts, e.Type)
 	}
 	return strings.Join(ts, ",")
-}
-
-// TextSink over a multi-turn stream writes exactly the plain bytes the pre-event streaming wrote.
-func TestTextSinkMatchesPlainStreamBytes(t *testing.T) {
-	stream := `{"type":"assistant","message":{"content":[{"type":"text","text":"one"},{"type":"tool_use","id":"t","name":"Bash"}]}}` + "\n" +
-		`{"type":"assistant","message":{"content":[{"type":"text","text":"two"}]}}` + "\n" +
-		`{"type":"result","subtype":"success","result":"one\ntwo"}` + "\n"
-	var out strings.Builder
-	if _, err := parseClaudeStream(newBR(stream), NewTextSink(&out)); err != nil {
-		t.Fatal(err)
-	}
-	if out.String() != "one\ntwo" {
-		t.Fatalf("plain output = %q, want %q", out.String(), "one\ntwo")
-	}
-}
-
-// A subagent turn (parent_tool_use_id) emits no text event and no tool event; only the top-level turn does.
-func TestParseClaudeStreamSubagentTurnEmitsNoEvents(t *testing.T) {
-	stream := `{"type":"assistant","parent_tool_use_id":"tu1","message":{"content":[{"type":"text","text":"SUB"},{"type":"tool_use","id":"x","name":"Bash"}]}}` + "\n" +
-		`{"type":"assistant","message":{"content":[{"type":"text","text":"top"}]}}` + "\n" +
-		`{"type":"result","subtype":"success","result":"top"}` + "\n"
-	rs := &recSink{}
-	if _, err := parseClaudeStream(newBR(stream), rs); err != nil {
-		t.Fatal(err)
-	}
-	if len(rs.evs) != 1 || rs.evs[0].Type != EventText || rs.evs[0].Text != "top" {
-		b, _ := json.Marshal(rs.evs)
-		t.Fatalf("events = %s, want one text event \"top\"", b)
-	}
 }
 
 // A stray non-JSON line is logged and skipped: text before and after it both stream, with no error.

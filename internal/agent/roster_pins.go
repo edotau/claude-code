@@ -70,11 +70,7 @@ func AgentUnbillable(agent string) string {
 	if err != nil {
 		return ""
 	}
-	return copilotUnbillable(reg)
-}
-
-func copilotUnbillable(reg *providers.Registry) string {
-	if describeCopilotRoute(reg).OK {
+	if schemaFor("copilot").eng().DescribeRoute(reg).OK {
 		return ""
 	}
 	return "no account to bill"

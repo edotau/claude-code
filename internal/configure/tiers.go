@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/copilot"
 	"github.com/edotau/claude-code/internal/paths"
 )
 
@@ -53,7 +53,7 @@ var copilotTierCmd = func(ctx context.Context) ([]byte, error) {
 }
 
 // copilotTier is the Copilot plan's sold name ("Pro+"); the raw copilot_plan when GitHub adds an unknown one.
-func copilotTier() string { return agent.CopilotPlanName(copilotRawPlan()) }
+func copilotTier() string { return copilot.CopilotPlanName(copilotRawPlan()) }
 
 // copilotPlanCache holds the one gh lookup per run; the plan does not change while configure is open.
 var copilotPlanCache = map[string]string{}

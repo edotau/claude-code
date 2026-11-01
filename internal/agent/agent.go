@@ -148,9 +148,7 @@ type Engine interface {
 func Engines() []Engine {
 	var out []Engine
 	for _, s := range rows() {
-		if s.Name == "claude" {
-			out = append(out, claudeAgent)
-		} else if e, ok := mustDriver(s.Name).(Engine); ok {
+		if e, ok := mustDriver(s.Name).(Engine); ok {
 			out = append(out, e)
 		} else {
 			out = append(out, newCLIEngine(s.Name))

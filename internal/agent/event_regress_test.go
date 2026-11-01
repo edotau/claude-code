@@ -92,31 +92,6 @@ type sinkFunc func(Event) error
 
 func (f sinkFunc) Emit(ev Event) error { return f(ev) }
 
-// Two assistant turns: the second text event carries Sep, and the plain text sink puts a newline between.
-func TestClaudeStreamTurnSeparator(t *testing.T) {
-	stream := `{"type":"assistant","message":{"model":"m","content":[{"type":"text","text":"a"}]}}` + "\n" +
-		`{"type":"assistant","message":{"model":"m","content":[{"type":"text","text":"b"}]}}` + "\n" +
-		`{"type":"result","subtype":"success","result":"b"}` + "\n"
-	var seps []bool
-	var out strings.Builder
-	text := NewTextSink(&out)
-	sink := sinkFunc(func(ev Event) error {
-		if ev.Type == EventText {
-			seps = append(seps, ev.Sep)
-		}
-		return text.Emit(ev)
-	})
-	if _, err := parseClaudeStream(newBR(stream), sink); err != nil {
-		t.Fatal(err)
-	}
-	if len(seps) != 2 || seps[0] || !seps[1] {
-		t.Fatalf("Sep flags = %v, want [false true]", seps)
-	}
-	if out.String() != "a\nb" {
-		t.Fatalf("text sink = %q, want %q", out.String(), "a\nb")
-	}
-}
-
 func TestEventLogFlushesEachEventBeforeClose(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "x.events.jsonl")
 	l := NewEventLog(path, "d1")

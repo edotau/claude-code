@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/claude"
 	"github.com/edotau/claude-code/internal/hooks"
 	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/memory/bank"
@@ -348,7 +349,7 @@ func cmdMemoryUpdate(args []string) int {
 		fmt.Printf("memory update (dry run): session %s, transcript %s, bank %s\n", *session, *transcript, memstore.Dir(root))
 		return 0
 	}
-	claude, err := agent.ClaudeBinary() // "" is fine here: Run (memoryAgent) handles the update, Claude is only its fallback
+	claude, err := claude.ClaudeBinary() // "" is fine here: Run (memoryAgent) handles the update, Claude is only its fallback
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "claude-code: memory update:", err)
 	}
@@ -392,7 +393,7 @@ func cmdMemoryDigest(args []string) int {
 	if code, done := helptext.Parse(fs, args); done {
 		return code
 	}
-	claude, _ := agent.ClaudeBinary()
+	claude, _ := claude.ClaudeBinary()
 	path, err := memory.Digest(memstore.Dir(memstore.Root(*repo)), claude)
 	if err != nil {
 		return fail("memory digest: %v", err)

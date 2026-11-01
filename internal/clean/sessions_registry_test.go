@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/copilot"
 )
 
 // seedRegistryEntry lays down a sessions/<pid>.json + sessions/<pid>.<hex>.key pair (or any name,
@@ -187,12 +187,12 @@ func TestCleanCopilotRegistryTargetKeepsLivePid(t *testing.T) {
 		t.Skip("no tmpfs /run/user/<uid>")
 	}
 	t.Setenv("XDG_RUNTIME_DIR", base)
-	live, err := agent.WriteCopilotRegistry(os.Getpid(), []byte("{}"))
+	live, err := copilot.WriteCopilotRegistry(os.Getpid(), []byte("{}"))
 	if err != nil {
 		t.Skipf("runtime dir unusable here: %v", err)
 	}
 	t.Cleanup(func() { os.Remove(live) })
-	dead := agent.CopilotRegistryFile(filepath.Dir(live), 1<<22+12346)
+	dead := copilot.CopilotRegistryFile(filepath.Dir(live), 1<<22+12346)
 	write(t, dead, "{}")
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	var out, errw bytes.Buffer

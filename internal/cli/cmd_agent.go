@@ -12,6 +12,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/review"
 	"github.com/edotau/claude-code/internal/agent/transfer"
+	"github.com/edotau/claude-code/internal/copilot"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/shapes"
 	"github.com/edotau/claude-code/internal/ui/helptext"
@@ -458,7 +459,7 @@ func agentModels(name string, args []string) int {
 		if err != nil {
 			return fail("%v", err)
 		}
-		cat, err := agent.CopilotModelSource(context.Background(), reg, *profile)
+		cat, err := copilot.CopilotModelSource(context.Background(), reg, *profile)
 		if err != nil {
 			return fail("%s catalog: %v", name, err)
 		}
@@ -492,7 +493,7 @@ func agentModels(name string, args []string) int {
 }
 
 // printCopilotCatalog prints a Databricks row's chat endpoints as a NAME / TESTED table, or JSON.
-func printCopilotCatalog(name string, cat agent.CopilotCatalog, format string) int {
+func printCopilotCatalog(name string, cat copilot.CopilotCatalog, format string) int {
 	if format == helptext.JSON {
 		if err := helptext.WriteJSON(os.Stdout, cat); err != nil {
 			return fail("%s catalog: %v", name, err)

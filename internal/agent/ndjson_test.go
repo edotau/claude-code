@@ -17,13 +17,6 @@ type nonJSONCase struct {
 
 func ndjsonCases() []nonJSONCase {
 	return []nonJSONCase{
-		{"claude", claudeFixture, func(s string) string {
-			return `{"type":"assistant","session_id":"s","message":{"content":[{"type":"text","text":"` + s + `"}]}}` + "\n"
-		}, func(in string, lg StreamLog) (Result, string, error) {
-			var out strings.Builder
-			res, err := parseClaudeStream(newBR(in), NewTextSink(&out), lg)
-			return res, out.String(), err
-		}},
 		{"vendor", openCodeOK, func(s string) string {
 			return `{"type":"text","timestamp":2,"sessionID":"ses_A","part":{"id":"p2","sessionID":"ses_A","type":"text","text":"` + s + `"}}` + "\n"
 		}, func(in string, lg StreamLog) (Result, string, error) {

@@ -145,7 +145,7 @@ func RunGemini(ctx context.Context, o GeminiOptions, stream, log io.Writer) (age
 		return agent.Result{}, err
 	}
 	if o.Launcher == nil {
-		o.Launcher = agent.NewClaudeLauncher()
+		o.Launcher = agent.DefaultLauncher()
 	}
 	return agent.Run(ctx, r, agent.RunOptions{
 		Prompt: prompt, Model: model, Provider: p.Name, Effort: o.Effort, Timeout: o.Timeout, NoTools: true, Launcher: o.Launcher,

@@ -17,8 +17,8 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 )
 
-// ownProfile is the profile a run on the agent's own login bills: the registry row naming that login, else the agent.
-func (s Schema) ownProfile() string {
+// OwnProfile is the profile a run on the agent's own login bills: the registry row naming that login, else the agent.
+func (s Schema) OwnProfile() string {
 	if reg, err := providers.Load(); err == nil {
 		for _, n := range reg.Names() {
 			if reg.Providers[n].Auth.Login == s.Name {
@@ -108,7 +108,7 @@ func (v cliEngine) prepare(ctx context.Context, req RunOptions) (CLIPrep, error)
 	if err != nil {
 		return CLIPrep{}, err
 	}
-	p := CLIPrep{Target: t, Result: Result{Provider: s.ownProfile(), Model: t.Model, SessionID: req.SessionID}}
+	p := CLIPrep{Target: t, Result: Result{Provider: s.OwnProfile(), Model: t.Model, SessionID: req.SessionID}}
 	if !own {
 		if t.Provider == nil { // agentTargetNote can report a non-own target with no provider resolved
 			return p, &Error{Kind: KindFatal, Agent: name, Err: errors.New("agent target resolved to no provider")}
@@ -385,6 +385,3 @@ func MintSession(ctx context.Context, profile string, pid int) (string, error) {
 func PrepareCLI(ctx context.Context, name string, req RunOptions) (CLIPrep, error) {
 	return newCLIEngine(name).prepare(ctx, req)
 }
-
-// NewClaudeLauncher is the default Claude launcher.
-func NewClaudeLauncher() Launcher { return claudeLauncher{} }

@@ -128,6 +128,7 @@ func (s Schema) configureRoute(ctx context.Context, t providers.Target, h *Headl
 var (
 	ensureRouter = proxy.Ensure
 	routerSecret = proxy.ClientSecret
+	mintSession  = proxy.MintSessionToken
 )
 
 // StubRouterForTest points configure at base for t: an unstubbed Ensure would relaunch the test binary as the daemon.

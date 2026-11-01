@@ -23,9 +23,9 @@ var (
 	credCheckTimeout = 12 * time.Second
 )
 
-// offerLogin offers a sign-in for each provider whose check says it needs one; failures warn.
-func offerLogin(ctx context.Context, o LaunchOptions, args []string, ps []*providers.Provider, plan *Plan) {
-	if o.PrintEnv || headless(args) || !canPrompt() {
+// OfferLogin offers a sign-in for each provider whose check says it needs one; failures warn.
+func OfferLogin(ctx context.Context, o LaunchOptions, args []string, ps []*providers.Provider, plan *Plan) {
+	if o.PrintEnv || IsHeadless(args) || !canPrompt() {
 		return
 	}
 	seen := map[string]bool{}
@@ -66,7 +66,7 @@ type checkResult struct {
 	ok     bool
 }
 
-// offerLoginOne prompts and signs in when p's check says it must, then rechecks once.
+// OfferLoginOne prompts and signs in when p's check says it must, then rechecks once.
 func offerLoginOne(ctx context.Context, p *providers.Provider, in *bufio.Reader, c checkResult) error {
 	s, v, ok := c.s, c.v, c.ok
 	if !ok {

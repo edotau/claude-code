@@ -1,10 +1,6 @@
 package agent
 
 import (
-	"context"
-	"github.com/edotau/claude-code/internal/vault"
-
-	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
 )
 
@@ -50,37 +46,9 @@ func describeOpenCodeRoute(reg *providers.Registry) RouteInfo {
 	return RouteInfo{Agent: "opencode", Route: RouteNone, Reason: "no route for opencode: " + s.CLI.ConfigureHint}
 }
 
-// describeCopilotRoute: 1) copilot's GitHub login on a workable pin; 2) the Databricks fallback; 3) BYOK with the
-// registry anthropic provider's key; 4) none.
-func describeCopilotRoute(reg *providers.Registry) RouteInfo {
-	if pin := vault.GetAgentRecord("copilot").Profile; reg != nil && databricksUsable(reg.Providers[pin]) { // a pinned Databricks profile is the route
-		p := reg.Providers[pin]
-		t, _ := ResolveAgentModel(ModelAsk{Agent: "copilot", Target: providers.Target{Provider: p, Model: p.Models[models.Opus]}})
-		return RouteInfo{Agent: "copilot", Route: RouteDatabricks, Provider: p.Name, Model: t.Model,
-			Reason: "copilot: pinned databricks profile " + p.Name, OK: true}
-	}
-	detail, workable := copilotHeadroom(context.Background(), copilotPinLogin())
-	if a, ok := copilotAuthSource(); ok && workable {
-		if p, ok := LoginProvider(reg, "github", "copilot"); ok {
-			model, _ := providers.CopilotModel(reg)
-			return RouteInfo{Agent: "copilot", Route: RouteCopilotLogin, Provider: p.Name, Model: model,
-				Reason: "github-copilot (" + a.Label() + ")", OK: true}
-		}
-	}
-	if ri := copilotDatabricksFallback(reg, detail); ri.OK {
-		return ri
-	}
-	if p, ok := keyProvider(reg, "anthropic"); ok && providers.CredentialPresent(p) {
-		return RouteInfo{Agent: "copilot", Route: RouteByokAnthropic, Provider: p.Name, Model: p.Models[models.Opus],
-			Reason: "BYOK via ANTHROPIC_API_KEY", OK: true}
-	}
-	s, _ := LookupSchema("copilot")
-	return RouteInfo{Agent: "copilot", Route: RouteNone, Reason: "no route for copilot: " + s.CLI.ConfigureHint}
-}
-
-// routeTarget converts a resolved RouteInfo (OK and naming a registered provider) into a Target;
+// RouteTarget converts a resolved RouteInfo (OK and naming a registered provider) into a Target;
 // ok is false for RouteNone or a provider DescribeRoute named that the registry no longer has.
-func routeTarget(reg *providers.Registry, ri RouteInfo) (providers.Target, bool) {
+func RouteTarget(reg *providers.Registry, ri RouteInfo) (providers.Target, bool) {
 	if !ri.OK || ri.Provider == "" {
 		return providers.Target{}, false
 	}

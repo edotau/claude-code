@@ -65,19 +65,6 @@ func TestResolveAgentModelCodexPinOnDatabricks(t *testing.T) {
 	}
 }
 
-// D7: both copilot registry paths take the model pin through CopilotChoice; a requested model rides alongside it.
-func TestCopilotChoicePin(t *testing.T) {
-	vaulttest.Use(t)
-	if c := copilotChoice(nil); c.Pin != "" {
-		t.Fatalf("no pin set: %+v", c)
-	}
-	vaulttest.SetRecord(t, "copilot", "model", "kimi-k3")
-	c := copilotChoice([]string{"a", "b"})
-	if c.Pin != "kimi-k3" || strings.Join(c.Requested, ",") != "a,b" {
-		t.Errorf("choice = %+v", c)
-	}
-}
-
 // D10: an alias the provider lacks keeps the default model and says so; one it has maps through.
 func TestResolveAgentModelMissingAlias(t *testing.T) {
 	vaulttest.Use(t)

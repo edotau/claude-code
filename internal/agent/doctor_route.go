@@ -1,9 +1,7 @@
 package agent
 
 import (
-	"cmp"
 	"fmt"
-	"github.com/edotau/claude-code/internal/vault"
 	"path/filepath"
 
 	"github.com/edotau/claude-code/internal/models"
@@ -17,8 +15,8 @@ func RouteDetail(name string) (detail string, ok bool) {
 	return schemaFor(name).eng().RouteDetail()
 }
 
-// loadSelection is the registry and its unpinned selection; ok is false when the registry does not load.
-func loadSelection() (reg *providers.Registry, sel providers.Selection, selErr error, ok bool) {
+// LoadSelection is the registry and its unpinned selection; ok is false when the registry does not load.
+func LoadSelection() (reg *providers.Registry, sel providers.Selection, selErr error, ok bool) {
 	reg, err := providers.Load()
 	if err != nil || reg == nil {
 		return nil, providers.Selection{}, nil, false
@@ -33,7 +31,7 @@ func loadSelection() (reg *providers.Registry, sel providers.Selection, selErr e
 func opencodeRouteDetail(reg *providers.Registry, sel providers.Selection, selErr error) string {
 	own := OpencodeOwnLoginPresent()
 	opencodeLogin := own || OpencodeCopilotLoginPresent()
-	copilotCLILogin := CopilotLoginPresent()
+	copilotCLILogin := schemaFor("copilot").loginPresent()
 	if own { // opencode's own Go/Zen credential serves the routed opencode dispatches, whatever the session provider
 		return fmt.Sprintf("provider=opencode-go dispatch=%s opencode_login=true copilot_cli_login=%v", RouteOwnLogin, copilotCLILogin)
 	}
@@ -56,27 +54,6 @@ func opencodeRouteDetail(reg *providers.Registry, sel providers.Selection, selEr
 	opusID := target.Provider.Models[models.Opus]
 	return fmt.Sprintf("provider=%s model=github-copilot/%s small_model=github-copilot/%s opus/sonnet/haiku=%s/%s/%s file=%s opencode_login=%v copilot_cli_login=%v",
 		target.Provider.Name, mainID, smallID, opusID, mainID, smallID, file, opencodeLogin, copilotCLILogin)
-}
-
-// copilotRouteDetail reports the copilot CLI's resolved dispatch (DescribeRoute): its own GitHub login,
-// BYOK with an anthropic or gemini key, or none — names/booleans/dispatch only, never a credential. On the
-// GitHub login dispatch it also names COPILOT_MODEL's source and the effort/context pins every launch reads.
-func copilotRouteDetail(reg *providers.Registry, selErr error) string {
-	if selErr != nil {
-		return fmt.Sprintf("(%v)", selErr)
-	}
-	ri := schemaFor("copilot").DescribeRoute(reg)
-	if !ri.OK {
-		return ri.Reason
-	}
-	detail := fmt.Sprintf("dispatch=%s provider=%s model=%s (%s)", ri.Route, ri.Provider, ri.Model, ri.Reason)
-	if ri.Route == RouteCopilotLogin {
-		_, source := providers.CopilotModel(reg)
-		rec := vault.GetAgentRecord("copilot")
-		effort, context := cmp.Or(rec.Effort, "default"), cmp.Or(rec.Context, "default")
-		detail += fmt.Sprintf(" source=%s effort=%s context=%s", source, effort, context)
-	}
-	return detail
 }
 
 // errText is err's message, or "" for nil.

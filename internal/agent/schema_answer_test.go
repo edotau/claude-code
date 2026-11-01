@@ -1,10 +1,6 @@
 package agent
 
 import (
-	"context"
-	"io"
-	"net/http"
-	"net/http/httptest"
 	"slices"
 	"strings"
 	"testing"
@@ -43,24 +39,6 @@ func TestStructuredAnswerNested(t *testing.T) {
 	_, unchecked, _ := structuredAnswer(`{"a":{"b":"x"}}`, `{"type":"object","properties":{"n":{"minimum":1,"pattern":"x"}},"title":"t"}`)
 	if !slices.Equal(unchecked, []string{"minimum", "pattern"}) {
 		t.Errorf("unchecked = %v, want [minimum pattern]", unchecked)
-	}
-}
-
-// The --no-tools HTTP one-shot spawns no process, so --env must be reported as dropped.
-func TestNoToolsOneShotReportsEnvDropped(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = io.Copy(io.Discard, r.Body)
-		w.Header().Set("Content-Type", "text/event-stream")
-		io.WriteString(w, anthropicSSE)
-	}))
-	defer srv.Close()
-	registry(t, srv)
-	res, err := Run(context.Background(), claudeAgent, RunOptions{Prompt: "x", Provider: "tanth", Model: "haiku", NoTools: true, Env: []string{"FOO=1"}}, Discard, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !slices.Equal(res.Dropped, []string{"--env"}) {
-		t.Errorf("dropped = %v, want [--env]", res.Dropped)
 	}
 }
 

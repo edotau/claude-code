@@ -17,8 +17,6 @@ import (
 	"github.com/edotau/claude-code/internal/inflight"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
-	"github.com/edotau/claude-code/internal/vault"
-	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
 // A line with trailing junk after its object is that line's error; Decoder.More alone accepts a stray '}'.
@@ -452,34 +450,6 @@ func (c cancelAfterRun) Available() error { return nil }
 func (c cancelAfterRun) Run(context.Context, agent.RunOptions, agent.Sink) (agent.Result, error) {
 	c.cancel() // the parent ctx dies at the moment the dispatch succeeds
 	return agent.Result{Answer: "a"}, nil
-}
-
-// A copilot dispatch whose gate falls back to Databricks bills (and is capped on) that Databricks account, however the
-// router keyed the dispatch.
-func TestCopilotGateFallbackIsCappedOnTheDatabricksAccount(t *testing.T) {
-	agent.GhLogin(t, "alice", 99)
-	t.Setenv("DBX_GATE_KEY", "dbx-secret")
-	t.Cleanup(func() { vaulttest.Put(t, vault.Overlay, "providers", `{}`) }) // the default must not leak to later tests
-	vaulttest.Put(t, vault.Overlay, "providers", `{"default":"alice","providers":{`+agent.GhProfiles("alice")+`,"databricks":{"dbx":{"preset":"databricks",`+
-		`"host":"https://adb-1.azuredatabricks.net","auth":{"type":"key","env":"DBX_GATE_KEY"},"models":{"opus":"m"}}}}}`)
-	var cur, peak atomic.Int32
-	var tasks []batch.BatchTask
-	for i := range agent.DefaultPerKey + 2 {
-		name := fmt.Sprintf("g%d", i)
-		r := gaugeRunner{name: "copilot", cur: &cur, max: &peak}
-		tasks = append(tasks, batch.BatchTask{ID: name, Agent: "copilot", Req: agent.RunOptions{Prompt: "p", Model: "alice:opus"},
-			Prepare: func(context.Context) (*agent.Prepared, error) {
-				rec := agent.Record{ID: "id-" + name, Agent: "copilot", Log: filepath.Join(t.TempDir(), "l.log")}
-				return agent.SetChain(&agent.Prepared{Opts: agent.RunOptions{Prompt: "p", Model: "alice:opus"}, Record: rec}, agent.Chain{Want: "copilot", Dispatches: []agent.Dispatch{agent.KeepCaller(agent.Dispatch{Agent: r, Account: "github·" + name})}}), nil
-			}})
-	}
-	var out strings.Builder
-	if !batch.RunBatch(context.Background(), tasks, batch.BatchOptions{Jobs: len(tasks), Out: &out}) {
-		t.Fatalf("batch failed: %s", out.String())
-	}
-	if got := int(peak.Load()); got > agent.DefaultPerKey || got < 2 {
-		t.Errorf("peak concurrent copilot dispatches = %d, want 2..%d: they all bill the one Databricks account", got, agent.DefaultPerKey)
-	}
 }
 
 // A cooldown that idles the dispatch before attempt 1 is followed by a recheck: an account marked auth-dead meanwhile

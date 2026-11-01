@@ -56,7 +56,7 @@ func (t *TransportTracker) Event(now time.Time) {
 	t.last = now
 }
 
-func (t *TransportTracker) retry(status *int) {
+func (t *TransportTracker) Retry(status *int) {
 	s := 0
 	if status != nil {
 		s = *status
@@ -64,7 +64,7 @@ func (t *TransportTracker) retry(status *int) {
 	t.statuses = append(t.statuses, s)
 }
 
-func (t *TransportTracker) lastStatus() int { return t.statuses[len(t.statuses)-1] }
+func (t *TransportTracker) LastStatus() int { return t.statuses[len(t.statuses)-1] }
 
 // Result is nil when the stream showed neither a stream_event nor a retry.
 func (t *TransportTracker) Result() *Transport {

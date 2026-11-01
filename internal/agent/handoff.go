@@ -13,7 +13,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/edotau/claude-code/internal/copilotsdk"
 	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/router"
@@ -23,12 +22,13 @@ import (
 // Seams for the mid-dispatch quota hand-off; tests replace them.
 var handoffDir = func(root string) string { return memstore.HandoffsDir(memstore.Dir(root)) }
 
-// copilotQuotaHandoff marks the exhausted account and returns a redacted handoff for the next fallback dispatch.
-func copilotQuotaHandoff(req RunOptions, res Result, partial copilotsdk.Result, cause error, creds []string) (Result, error) {
+// CopilotQuotaHandoff marks the exhausted account and returns a redacted handoff for the next fallback dispatch;
+// partialSession and partialText are what the failed run got out.
+func CopilotQuotaHandoff(req RunOptions, res Result, partialSession, partialText string, cause error, creds []string) (Result, error) {
 	acct := copilotLoginAccount()
 	noteQuota(Dispatch{Account: acct, Billing: router.BillSubscription}, Classify("copilot", cause, false))
-	res.SessionID = cmp.Or(partial.SessionID, res.SessionID)
-	path, _, werr := writeCopilotHandoff(req, res, partial.Text, acct, cause, creds)
+	res.SessionID = cmp.Or(partialSession, res.SessionID)
+	path, _, werr := writeCopilotHandoff(req, res, partialText, acct, cause, creds)
 	if werr != nil {
 		fmt.Fprintf(os.Stderr, "copilot: quota exhausted mid-task; handoff not written: %v\n", werr)
 		return res, cause
@@ -44,8 +44,8 @@ func handoffPrompt(doc string) string {
 		"\nHANDOFF>>>\n\nFinish the task from where the partial answer stops."
 }
 
-// resumeAlias is model's alias (bare, "<profile>:<alias>" or a Claude id's family) for the fallback; else "" (its opus).
-func resumeAlias(model string) string {
+// ResumeAlias is model's alias (bare, "<profile>:<alias>" or a Claude id's family) for the fallback; else "" (its opus).
+func ResumeAlias(model string) string {
 	if _, alias, ok := strings.Cut(model, ":"); ok {
 		model = alias
 	}
@@ -96,8 +96,8 @@ func redactValues(s string, creds []string) string {
 	return s
 }
 
-// credentialValues are the dispatch's resolved secrets: the SDK token plus every *_TOKEN/*_KEY/*_SECRET env value.
-func credentialValues(env []string, token string) []string {
+// CredentialValues are the dispatch's resolved secrets: the SDK token plus every *_TOKEN/*_KEY/*_SECRET env value.
+func CredentialValues(env []string, token string) []string {
 	vals := []string{token}
 	for _, kv := range env {
 		k, v, _ := strings.Cut(kv, "=")

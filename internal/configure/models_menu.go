@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/copilot"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
 	uidialog "github.com/edotau/claude-code/internal/ui/dialog"
@@ -112,7 +113,13 @@ func pickModelForAlias(d *dialog, sel providers.Selection, alias string) {
 // catalogForAlias is alias's pickable catalog: the provider's live models, or — when that listing fails
 // in a known way (FallbackModels) — a known offline list, with a note explaining the substitution.
 func catalogForAlias(ctx context.Context, reg *providers.Registry, p *providers.Provider, alias string) ([]providers.ModelInfo, string) {
-	infos, err := providers.ListModels(ctx, reg, p)
+	var infos []providers.ModelInfo
+	var err error
+	if p.Provider == "github" {
+		infos, err = copilot.ListModels(ctx)
+	} else {
+		infos, err = providers.ListModels(ctx, reg, p)
+	}
 	if err == nil {
 		return infos, ""
 	}

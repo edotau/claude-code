@@ -78,7 +78,7 @@ func cliPlan(ctx context.Context, name string, o LaunchOptions, args []string) (
 		return Plan{}, err
 	}
 	if spec.eng().NativeRegistry(ctx, target) {
-		plan, err := copilotRegistryPlan(ctx, spec, reg, target, note, withFlagModel(args, flagModel), o.PrintEnv)
+		plan, err := registryPlan(ctx, spec, reg, target, note, withFlagModel(args, flagModel), o.PrintEnv)
 		plan.Profile = o.Provider
 		return plan, err
 	}
@@ -134,16 +134,16 @@ func withAgentPins(name string, o LaunchOptions) LaunchOptions {
 	return o
 }
 
-// copilotRegistryPlan is the interactive Databricks copilot launch on a native model registry. It fails closed:
-// no error here reaches passthrough or the plain CLI, which would run on copilot's own GitHub login.
-func copilotRegistryPlan(
+// registryPlan is the interactive launch on a CLI's native model registry (copilot on Databricks). It fails closed:
+// no error here reaches passthrough or the plain CLI, which would run on the CLI's own GitHub login.
+func registryPlan(
 	ctx context.Context, spec Schema, reg *providers.Registry, t providers.Target, note string, args []string,
 	dry bool,
 ) (Plan, error) {
 	if note != "" {
 		fmt.Fprintln(NoticeOut, note)
 	}
-	cr, err := ConfigureCopilotRegistry(ctx, reg, t, args, dry)
+	cr, err := spec.eng().RegistryLaunch(ctx, reg, t, args, dry)
 	if err != nil {
 		return Plan{}, err
 	}
@@ -153,7 +153,7 @@ func copilotRegistryPlan(
 		return Plan{}, err
 	}
 	lenv, lprefix := spec.LaunchSpec()
-	fmt.Fprintln(NoticeOut, CopilotRegistryBanner)
+	fmt.Fprintln(NoticeOut, cr.Banner)
 	return Plan{
 		Binary: bin, Set: envMap(append(lenv, cr.Env...)), Unset: cr.Unset, Warnings: cr.Warnings,
 		Argv:       append(append(lprefix, cr.Argv...), cr.Args...),

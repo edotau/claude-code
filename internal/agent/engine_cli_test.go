@@ -93,20 +93,6 @@ func TestVendorEngineOversizedPromptRefusalScopedToArgv(t *testing.T) {
 	})
 }
 
-// vendorRunner.Caps advertises Autonomous for all three hub-backed CLIs (opencode, gemini, codex); copilot's
-// own Caps additionally carries SessionID and Memory, which only its own agent needs.
-func TestVendorCapsAutonomous(t *testing.T) {
-	for _, name := range []string{"codex", "gemini", "opencode"} {
-		if c := newCLIEngine(name).Caps(); c.Autonomous != Native {
-			t.Errorf("vendorRunner{%s}.Caps().Autonomous = false, want true", name)
-		}
-	}
-	c := copilotAgent.Caps()
-	if c.SessionID != Native || c.Autonomous != Native || c.Memory != Native {
-		t.Errorf("copilotEngine.Caps() = %+v, want SessionID, Autonomous and Memory all true", c)
-	}
-}
-
 // Sampled from `opencode run --format json` 1.18.31 (ids shortened).
 const openCodeOK = `{"type":"step_start","timestamp":1,"sessionID":"ses_A","part":{"id":"p1","sessionID":"ses_A","type":"step-start"}}
 {"type":"text","timestamp":2,"sessionID":"ses_A","part":{"id":"p2","sessionID":"ses_A","type":"text","text":"Hi! How can I help you today?"}}

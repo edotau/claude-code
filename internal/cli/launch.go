@@ -15,6 +15,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent/preflight"
 	"github.com/edotau/claude-code/internal/agent/tools"
 	"github.com/edotau/claude-code/internal/audit"
+	"github.com/edotau/claude-code/internal/claude"
 	"github.com/edotau/claude-code/internal/databricks"
 	"github.com/edotau/claude-code/internal/hooks"
 	"github.com/edotau/claude-code/internal/launch"
@@ -41,7 +42,7 @@ func launchClaude(alias string, args []string) int {
 		return fail("%v", err)
 	}
 	opts.Alias = alias
-	plan, err := agent.Claude(providers.WithIdentity(context.Background(), as), opts, rest)
+	plan, err := claude.Claude(providers.WithIdentity(context.Background(), as), opts, rest)
 	if err == nil && !opts.PrintEnv {
 		agent.RecordLastProfile("claude", plan.Set[providers.EnvSessionProfile], rest)
 	}
@@ -88,7 +89,7 @@ var anthropicPage = helptext.Page{
 	Hint: "claude-code anthropic " + helptext.DocsFlag + " prints claude's own help.",
 }
 
-// anthropicHelp renders the page with its flag rows; the flags are parsed by agent.ParseAnthropicArgs.
+// anthropicHelp renders the page with its flag rows; the flags are parsed by claude.ParseAnthropicArgs.
 func anthropicHelp(w io.Writer) {
 	fs := helptext.NewFlagSet("anthropic", anthropicPage)
 	fs.Bool("oauth", false, "setup-token login; =NAME picks the vault key")
@@ -113,24 +114,24 @@ func cmdAnthropic(args []string) int {
 	if err := databricks.RemovedFlagHint(args); err != nil {
 		return fail("%v", err)
 	}
-	o, rest, err := agent.ParseAnthropicArgs(args)
+	o, rest, err := claude.ParseAnthropicArgs(args)
 	if err != nil {
 		return fail("%v", err)
 	}
 	secret := ""
-	if o.Mode != agent.AuthLogin {
+	if o.Mode != claude.AuthLogin {
 		if secret, err = anthropicSecret(o); err != nil {
 			return fail("%v", err)
 		}
 	}
-	plan, err := agent.Anthropic(context.Background(), o, rest, secret)
+	plan, err := claude.Anthropic(context.Background(), o, rest, secret)
 	return runPlan(plan, o.LaunchOptions, err)
 }
 
 // anthropicSecret reads the mode's vault key; when it is missing and a terminal is attached, offers to store it.
-func anthropicSecret(o agent.AnthropicOptions) (string, error) {
+func anthropicSecret(o claude.AnthropicOptions) (string, error) {
 	read := func() (string, error) {
-		if o.Mode == agent.AuthOAuth {
+		if o.Mode == claude.AuthOAuth {
 			return providers.StoredSecret(o.Name), nil
 		}
 		v, _, err := secretstore.EffectiveSecret(o.Name)
@@ -148,7 +149,7 @@ func anthropicSecret(o agent.AnthropicOptions) (string, error) {
 	if !tui.Confirm(o.Name+" is not in the vault — set it now?", true) {
 		return "", missing
 	}
-	if o.Mode == agent.AuthOAuth && tui.Confirm("Run `claude setup-token` first to mint one?", true) {
+	if o.Mode == claude.AuthOAuth && tui.Confirm("Run `claude setup-token` first to mint one?", true) {
 		runSetupToken()
 	}
 	if code := vaultSetSecret(o.Name, false); code != 0 {
@@ -164,7 +165,7 @@ func anthropicSecret(o agent.AnthropicOptions) (string, error) {
 
 // runSetupToken runs `claude setup-token` on the inherited terminal; a failure only means the user pastes a token.
 func runSetupToken() {
-	bin, err := agent.ClaudeBinary()
+	bin, err := claude.ClaudeBinary()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "claude-code:", err)
 		return
@@ -223,7 +224,7 @@ func cmdScience(args []string) int {
 	if len(args) > 0 && args[0] == "--print-env" {
 		opts.PrintEnv, args = true, args[1:]
 	}
-	plan, err := agent.ScienceEnv(args)
+	plan, err := claude.ScienceEnv(args)
 	return runPlan(plan, opts, err)
 }
 

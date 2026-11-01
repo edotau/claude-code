@@ -6,9 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"github.com/edotau/claude-code/internal/paths"
-	"io"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"slices"
@@ -17,9 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/edotau/claude-code/internal/copilotsdk"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -91,31 +86,6 @@ func TestRunTransientCredentialFailureIsRetried(t *testing.T) {
 	res, err := Run(context.Background(), r, RunOptions{Prompt: "p", Provider: name}, Discard, nil)
 	if err != nil || res.Answer != "a" || res.Transport.Attempts != 2 {
 		t.Fatalf("res=%+v err=%v; want an answer on attempt 2", res, err)
-	}
-}
-
-// An isolated copilot SDK run blanks other profiles' credential env, since the SDK merges os.Environ itself.
-func TestCopilotSDKEnvBlanksForeignCredentials(t *testing.T) {
-	ghLogin(t, "alice", 10)
-	fakeCopilotBin(t)
-	pinGitHubProfile(t, "alice", `"anthropic":{"other":{"protocol":"anthropic","base_url":"http://127.0.0.1:1",`+
-		`"auth":{"type":"key","env":"HM_OTHER_KEY"},"models":{"opus":"m"}}}`)
-	t.Setenv("HM_OTHER_KEY", "foreign-secret")
-	var mu sync.Mutex
-	var seen []string
-	prev := copilotAsk
-	copilotAsk = func(_ context.Context, o copilotsdk.Options, _ string, _ []string) (copilotsdk.Result, error) {
-		mu.Lock()
-		seen = slices.Clone(o.Env)
-		mu.Unlock()
-		return copilotsdk.Result{Text: "hi", SessionID: "s"}, nil
-	}
-	t.Cleanup(func() { copilotAsk = prev })
-	if _, err := Run(withIsolation(context.Background()), copilotAgent, RunOptions{Prompt: "p", Provider: "alice", Direct: true}, Discard, nil); err != nil {
-		t.Fatal(err)
-	}
-	if !slices.Contains(seen, "HM_OTHER_KEY=") || slices.Contains(seen, "HM_OTHER_KEY=foreign-secret") {
-		t.Errorf("sdk env = %v, want HM_OTHER_KEY blanked", seen)
 	}
 }
 
@@ -226,29 +196,6 @@ func TestReservedRecordSurvivesPrune(t *testing.T) {
 	}
 }
 
-// A chat stream that ends without [DONE] is a dropped connection: it retries, and the second attempt answers.
-func TestChatStreamWithoutDoneIsRetried(t *testing.T) {
-	fastDefaultBackoff(t)
-	calls := 0
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = io.ReadAll(r.Body)
-		calls++
-		w.Header().Set("Content-Type", "text/event-stream")
-		if calls == 1 {
-			return // an empty 200: the connection just ends
-		}
-		for _, chunk := range []string{`{"model":"gpt-x","choices":[{"delta":{"content":"hi"}}]}`, `[DONE]`} {
-			fmt.Fprintf(w, "data: %s\n\n", chunk)
-		}
-	}))
-	defer srv.Close()
-	registry(t, srv)
-	res, err := Run(context.Background(), claudeAgent, RunOptions{Prompt: "hi", Provider: "toai", NoTools: true}, Discard, nil)
-	if err != nil || res.Answer != "hi" || res.Transport == nil || res.Transport.Attempts != 2 {
-		t.Fatalf("res=%+v err=%v calls=%d; want an answer on attempt 2", res, err, calls)
-	}
-}
-
 // A 429 followed by success is one hop, no error_kind, whose errors list the recovered rate_limit attempt.
 func TestHopKeepsRecoveredAttemptErrors(t *testing.T) {
 	fastDefaultBackoff(t)
@@ -308,59 +255,5 @@ func TestHubDispatchGuardIgnoresAbsentRegistryCredential(t *testing.T) {
 	disp := hubDispatch{agent: "opencode", provider: p}
 	if _, gerr := guardAttempt(withIsolation(context.Background()), disp, RunOptions{}); gerr != nil {
 		t.Errorf("guardAttempt = %v, want the hub dispatch to pass: its credential is the opencode login", gerr)
-	}
-}
-
-// gateFallbackEnv: the copilot GitHub login is past its gate and one Databricks profile (opus/sonnet ids) takes over.
-func gateFallbackEnv(t *testing.T) {
-	t.Helper()
-	ghLogin(t, "alice", 99)
-	t.Setenv("DBX_GATE_KEY", "dbx-secret")
-	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{`+ghProfiles("alice")+`,"databricks":{"dbx":{"preset":"databricks",`+
-		`"host":"https://adb-1.azuredatabricks.net","auth":{"type":"key","env":"DBX_GATE_KEY"},"models":{"opus":"dbx-opus","sonnet":"dbx-sonnet"}}}}}`)
-}
-
-// A frozen copilot target keeps its provider but follows the attempt's model: after a model-denied opus attempt the
-// retry runs on sonnet.
-func TestFrozenCopilotTargetFollowsTheDowngradedModel(t *testing.T) {
-	fastDefaultBackoff(t)
-	gateFallbackEnv(t)
-	fakeCopilotBin(t)
-	var envs [][]string
-	prev := copilotAsk
-	copilotAsk = func(_ context.Context, o copilotsdk.Options, _ string, _ []string) (copilotsdk.Result, error) {
-		envs = append(envs, slices.Clone(o.Env))
-		if len(envs) == 1 {
-			return copilotsdk.Result{}, errors.New("HTTP 429: insufficient_quota, limit: 0")
-		}
-		return copilotsdk.Result{Text: "hi", SessionID: "s"}, nil
-	}
-	t.Cleanup(func() { copilotAsk = prev })
-	res, err := RunWithFallback(context.Background(), Single(copilotAgent), RunOptions{Prompt: "p", Model: "opus", Direct: true}, Discard, nil)
-	if err != nil || res.Answer != "hi" || len(envs) != 2 {
-		t.Fatalf("res=%+v err=%v calls=%d; want the retry to answer", res, err, len(envs))
-	}
-	has := func(env []string, kv string) bool { return slices.Contains(env, kv) }
-	if !has(envs[0], "COPILOT_MODEL=dbx-opus") || !has(envs[1], "COPILOT_MODEL=dbx-sonnet") {
-		t.Errorf("models by attempt = %v / %v, want dbx-opus then the downgraded dbx-sonnet", envs[0], envs[1])
-	}
-}
-
-// A quota failure on a gate-fallback dispatch is remembered with the Databricks account's credits window, not the
-// subscription window of the GitHub login the router keyed it under.
-func TestGateFallbackDispatchBillsCreditsWindow(t *testing.T) {
-	gateFallbackEnv(t)
-	var account string
-	var until, at time.Time
-	prev := markExhausted
-	markExhausted = func(a string, u, now time.Time, _ string) error { account, until, at = a, u, now; return nil }
-	t.Cleanup(func() { markExhausted = prev })
-	quota := errors.New("402 Payment Required")
-	r := &fakeRunner{name: "copilot", errs: []error{quota}, emptyAnswer: true}
-	c := Chain{Want: "copilot", Dispatches: []Dispatch{{Agent: r, Account: "github·alice", Billing: router.BillSubscription, keepCaller: true}}}
-	_, _ = RunWithFallback(context.Background(), c, RunOptions{Prompt: "p", Model: "alice:opus"}, Discard, nil)
-	want := router.ResetFor(quota.Error(), router.BillCredits, router.Entry{}, at)
-	if account != "databricks·dbx" || !until.Equal(want) {
-		t.Errorf("marked %q until %v, want databricks·dbx until the credits reset %v", account, until, want)
 	}
 }

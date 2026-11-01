@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/proc"
-	"github.com/edotau/claude-code/internal/router"
 )
 
 func TestApplyCaps(t *testing.T) {
@@ -377,44 +376,6 @@ func TestRunWithFallback(t *testing.T) {
 			t.Fatalf("res=%+v err=%v claude.seen=%+v", res, err, claude.seen)
 		}
 	})
-}
-
-// TestRouteChainSkipsExhaustedAndRetriesExpired: an exhausted pinned copilot gets no dispatch; once expired it leads again.
-func TestRouteChainSkipsExhaustedAndRetriesExpired(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	pinGitHubProfile(t, "work-user", "")
-	ghHosts(t, "work-user")
-	all := router.PickOpts{Configured: func(string, router.Cell) error { return nil }}
-	tb, err := router.Load()
-	if err != nil {
-		t.Fatal(err)
-	}
-	acct := tb.Rows["copilot"]["sonnet"].Account
-	if err := router.MarkExhausted(acct, time.Now().Add(time.Hour), time.Now(), "402"); err != nil {
-		t.Fatal(err)
-	}
-	c, _, err := RouteChain(context.Background(), "copilot", "sonnet", router.FallbackAll, false, false, all)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, l := range c.Dispatches {
-		if l.Agent.Name() == "copilot" {
-			t.Fatalf("exhausted copilot got a dispatch: %+v", c.Dispatches)
-		}
-	}
-	if last := c.Dispatches[len(c.Dispatches)-1]; last.Agent.Name() != "claude" || last.Model != "sonnet" {
-		t.Errorf("claude dispatch = %+v, want sonnet", last)
-	}
-	if len(c.Skipped) == 0 || !strings.Contains(c.Skipped[0], "exhausted") {
-		t.Errorf("skips = %v", c.Skipped)
-	}
-	if err := router.Update(func(s router.State) { e := s[acct]; e.ExhaustedUntil = time.Now().Add(-time.Minute); s[acct] = e }); err != nil {
-		t.Fatal(err)
-	}
-	c, _, _ = RouteChain(context.Background(), "copilot", "sonnet", router.FallbackAll, false, false, all)
-	if c.Dispatches[0].Agent.Name() != "copilot" || c.Dispatches[0].Account != "github·work-user" {
-		t.Errorf("expired entry must be retried on the pinned account: %+v", c.Dispatches[0])
-	}
 }
 
 // TestRunWithFallback_TimeoutAndCancelNotRetried proves the two context-based exclusions against a real
