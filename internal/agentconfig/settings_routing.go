@@ -54,50 +54,34 @@ func weightsPriceField() Field {
 }
 
 func subagentsField() Field {
-	return Field{
-		Key:   "subagents",
-		Label: "subagents",
-		Help:  "offload pressure to subagents; off pins HARNESS_ROUTE_SUBAGENTS=0 at launch",
-		Kind:  KindBool,
-		Get: func(r providers.Routing) string {
-			return strconv.FormatBool(r.SubagentsOn())
-		},
-		IsSet: func(r providers.Routing) bool { return r.Subagents != nil },
-		Set: func(r *providers.Routing, input string) error {
-			if input == "" {
-				r.Subagents = nil
-				return nil
-			}
-			b, err := strconv.ParseBool(input)
-			if err != nil {
-				return fmt.Errorf("subagents: %w", err)
-			}
-			r.Subagents = &b
-			return nil
-		},
-	}
+	return boolField("subagents", "subagents", "offload pressure to subagents; off pins HARNESS_ROUTE_SUBAGENTS=0 at launch",
+		providers.Routing.SubagentsOn, func(r *providers.Routing) **bool { return &r.Subagents })
 }
 
 func servedAwareField() Field {
+	return boolField("servedAware", "served-aware", "pick Databricks models the workspace lists READY; off = static menu",
+		providers.Routing.ServedAwareOn, func(r *providers.Routing) **bool { return &r.ServedAware })
+}
+
+// boolField is a tri-state setting: on resolves the default, an empty input clears the override slot.
+func boolField(key, label, help string, on func(providers.Routing) bool, slot func(*providers.Routing) **bool) Field {
 	return Field{
-		Key:   "servedAware",
-		Label: "served-aware",
-		Help:  "pick Databricks models the workspace lists READY; off = static menu",
+		Key:   key,
+		Label: label,
+		Help:  help,
 		Kind:  KindBool,
-		Get: func(r providers.Routing) string {
-			return strconv.FormatBool(r.ServedAwareOn())
-		},
-		IsSet: func(r providers.Routing) bool { return r.ServedAware != nil },
+		Get:   func(r providers.Routing) string { return strconv.FormatBool(on(r)) },
+		IsSet: func(r providers.Routing) bool { return *slot(&r) != nil },
 		Set: func(r *providers.Routing, input string) error {
 			if input == "" {
-				r.ServedAware = nil
+				*slot(r) = nil
 				return nil
 			}
 			b, err := strconv.ParseBool(input)
 			if err != nil {
-				return fmt.Errorf("servedAware: %w", err)
+				return fmt.Errorf("%s: %w", key, err)
 			}
-			r.ServedAware = &b
+			*slot(r) = &b
 			return nil
 		},
 	}
