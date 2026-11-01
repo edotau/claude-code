@@ -80,8 +80,9 @@ A phase is a group of tasks, not a unit of work: each `### Phase` section lists 
 leaf-sized — one package (or ≤3 tightly coupled files), ≤10 findings or edits, fits one 45-minute leaf — and
 names its `leaf:` (a `subagent_type`, `code-worker` for MEDIUM+ changes), `Agent:` (requested agent or in-context)
 and `owns:` files (`skills/subagent-workflows/SKILL.md` -> Leaf types). A commit that touches every `owns:` file ticks
-the task (`docs-plan-tick`); after the first full path, a bare name resolves in the previous entry's directory, e.g.:
-`- [ ] Phase 2.1 — Add --attach to copilot — leaf: code-worker, Agent: opencode — owns: agent/engine_cli.go`
+the task (`docs-plan-tick`). Write repo paths; after the first, `<dir>/<file>` may drop the leading part it shares with
+the previous entry (`internal/configure/a.go, configure/b.go`), but a bare file name never matches. E.g.:
+`- [ ] Phase 2.1 — Add --attach — leaf: code-worker, Agent: opencode — owns: internal/agent/engine_cli.go`
 
 Tick `[x]` with the commit id as each item lands (`- [x] Phase 2.1 — … (abc1234)`); this list is the recovery
 point if a session, agent or worktree is lost. Mark an item **you** when only the user can do it. For a
