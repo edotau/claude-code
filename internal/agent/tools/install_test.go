@@ -296,13 +296,13 @@ func TestInstallCopilotUsesDirDirectlyWhenNamedBin(t *testing.T) {
 
 func TestInstallOpencodeCopiesFromHomeInstallDir(t *testing.T) {
 	setupToolsTestEnv(t)
-	const installed = "#!/bin/sh\nprintf 'fake opencode\\n'\n"
+	const installed = "#!/bin/sh\nprintf 'opencode 1.0.0\\n'\n"
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`#!/bin/sh
 mkdir -p "$HOME/.opencode/bin"
 cat > "$HOME/.opencode/bin/opencode" <<'EOF'
 #!/bin/sh
-printf 'fake opencode\n'
+printf 'opencode 1.0.0\n'
 EOF
 chmod 755 "$HOME/.opencode/bin/opencode"
 `))
@@ -503,5 +503,23 @@ func TestInstallOpencodeAllowMajorEnvOverride(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(dir, "opencode")); err != nil {
 		t.Errorf("override must still link opencode into %s: %v", dir, err)
+	}
+}
+
+// TestInstallOpencodeRefusesUnknownVersion: an unparsable probe (as a timeout yields) is refused and the prior binary kept.
+func TestInstallOpencodeRefusesUnknownVersion(t *testing.T) {
+	env := setupToolsTestEnv(t)
+	priorContent := "#!/bin/sh\nprintf 'prior opencode 1.x\\n'\n"
+	priorPath := filepath.Join(env.home, ".opencode", "bin", "opencode")
+	writeToolsFixture(t, priorPath, priorContent, 0o755)
+	dir := t.TempDir()
+	if err := installOpencodeFromFakeServer(t, "", dir); err == nil {
+		t.Fatal("installOpencode: want refusal for an unknown version, got nil error")
+	}
+	if got, _ := os.ReadFile(priorPath); string(got) != priorContent {
+		t.Errorf("prior binary = %q, want restored %q", got, priorContent)
+	}
+	if _, statErr := os.Stat(filepath.Join(dir, "opencode")); !os.IsNotExist(statErr) {
+		t.Errorf("unknown-version opencode must not be linked into %s", dir)
 	}
 }
