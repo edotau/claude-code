@@ -493,6 +493,18 @@ func TestCoversSplicesAbbreviatedOwns(t *testing.T) {
 	if all, _ := Covers([]string{"a/b.go", "references/x.md"}, []string{"a/b.go", "references/x.md"}); !all {
 		t.Fatal("repo-root entry must stay as is")
 	}
+	// A bare name sits beside the previous entry; a root-level file of that exact name still matches as written.
+	if all, _ := Covers([]string{"internal/configure/configure.go", "keysmenu.go"},
+		[]string{"internal/configure/configure.go", "internal/configure/keysmenu.go"}); !all {
+		t.Fatal("bare name not resolved against the previous entry's directory")
+	}
+	if all, _ := Covers([]string{"internal/configure/configure.go", "keysmenu.go"},
+		[]string{"internal/configure/configure.go", "internal/other/keysmenu.go"}); all {
+		t.Fatal("bare name matched a file in another directory")
+	}
+	if all, _ := Covers([]string{"a/b.go", "Makefile"}, []string{"a/b.go", "Makefile"}); !all {
+		t.Fatal("a root file named literally must stay as is")
+	}
 }
 
 // TestDirOwnsNeverComplete is the regression for a directory owns entry ticking a task on one stray file.
