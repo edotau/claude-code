@@ -1,4 +1,4 @@
-// gemini_context.go assembles workspace file context into one structured prompt for the gemini bridge.
+// context.go assembles workspace file context into one structured prompt for the gemini bridge.
 
 package gemini
 
