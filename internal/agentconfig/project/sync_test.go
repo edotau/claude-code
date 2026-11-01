@@ -95,7 +95,7 @@ func TestSyncRendersVendorInstructionFilesNotRootCopies(t *testing.T) {
 	if code := Sync(Options{Out: io.Discard}); code != 0 {
 		t.Fatalf("Sync exit = %d, want 0", code)
 	}
-	want := DocsBanner + "\n\n# CLAUDE.md\n\nBody.\n\n## Agents\n\n- **demo-agent** (`sonnet`) — demo agent for the docs test.\n"
+	want := DocsBanner + "\n\n" + docsPathsNote + "\n\n# CLAUDE.md\n\nBody.\n\n## Agents\n\n- **demo-agent** (`sonnet`) — demo agent for the docs test.\n"
 	for vendor, rel := range instructionFiles {
 		dist := filepath.Join(Dir(claude, vendor), "..", filepath.Base(rel))
 		for _, p := range []string{filepath.Join(home, rel), dist} {
@@ -552,5 +552,31 @@ func TestCheckWritesNothing(t *testing.T) {
 		if after[p] != v {
 			t.Errorf("changed: %s", p)
 		}
+	}
+}
+
+// Always-on standards (no `paths:`) are appended under `## Standards` with H1s demoted; scoped ones stay out.
+func TestSyncRendersAlwaysOnStandardsOnly(t *testing.T) {
+	home, claude := newDocsHarness(t)
+	projectWriteFile(t, filepath.Join(claude, "rules", "standards", "b.md"), "# Bee\n\nbee rule\n\n```\n# keep\n```\n")
+	projectWriteFile(t, filepath.Join(claude, "rules", "standards", "a.md"), "---\nname: x\n---\n\n# Ay\n\nay rule\n")
+	projectWriteFile(t, filepath.Join(claude, "rules", "standards", "scoped.md"), "---\npaths:\n  - \"**/*.md\"\n---\n\n# Scoped\n\nscoped rule\n")
+	if code := Sync(Options{Out: io.Discard}); code != 0 {
+		t.Fatalf("Sync exit = %d, want 0", code)
+	}
+	raw, err := os.ReadFile(filepath.Join(home, instructionFiles["codex"]))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := string(raw)
+	if !strings.Contains(got, "\n## Standards\n\n## Ay\n\nay rule\n\n## Bee\n\nbee rule\n\n```\n# keep\n```\n\n## Agents") {
+		t.Errorf("standards section wrong:\n%s", got)
+	}
+	if strings.Contains(got, "scoped rule") {
+		t.Error("paths-scoped standard was rendered")
+	}
+	projectWriteFile(t, filepath.Join(claude, "rules", "standards", "a.md"), "# Ay\n\nchanged\n")
+	if code := Sync(Options{Check: true, Out: io.Discard}); code == 0 {
+		t.Error("--check after a standards edit = 0, want drift")
 	}
 }
