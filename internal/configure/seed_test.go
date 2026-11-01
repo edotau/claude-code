@@ -102,21 +102,27 @@ func TestSeedRowFitsEightyColumns(t *testing.T) {
 	}
 }
 
-// Given a remembered last-used profile for the agent, a sign-in seed forgets it so the new profile wins.
-func TestSeedFromSignInClearsLastProfile(t *testing.T) {
-	d, _ := seedDialog(t, "")
-	t.Chdir(t.TempDir())
+// Given a remembered last-used profile, seeding a registered profile after sign-in forgets it and sets the record.
+func TestSeedFromSignInForgetsLastProfileAndSetsRecord(t *testing.T) {
+	d, out := seedDialog(t, "")
+	profiles := seedProfiles(d, "copilot")
+	if len(profiles) == 0 {
+		t.Skip("registry serves copilot with no profile")
+	}
 	agentpkg.RecordLastProfile("copilot", "stale-profile", nil)
-	if raw, _ := os.ReadFile(filepath.Join(paths.StateDir(), "last-profile.json")); !bytes.Contains(raw, []byte("stale-profile")) {
-		t.Fatalf("setup: last-profile.json lacks the entry: %s", raw)
+	lastProfile := func() string {
+		raw, _ := os.ReadFile(filepath.Join(paths.StateDir(), "last-profile.json"))
+		return string(raw)
 	}
-	seedFromSignIn(d, "copilot", "fresh")
-	raw, _ := os.ReadFile(filepath.Join(paths.StateDir(), "last-profile.json"))
-	if bytes.Contains(raw, []byte("stale-profile")) {
-		t.Errorf("last-used profile survived sign-in: %s", raw)
+	if !strings.Contains(lastProfile(), "stale-profile") {
+		t.Fatalf("setup: last-profile.json lacks the entry: %s", lastProfile())
 	}
-	if got := vault.AgentRecords(agentpkg.RosterNames())["copilot"].Profile; got != "fresh" {
-		t.Errorf("copilot profile = %q, want fresh", got)
+	seedFromSignIn(d, "copilot", profiles[0])
+	if strings.Contains(lastProfile(), "stale-profile") {
+		t.Errorf("last-used profile survived sign-in: %s", lastProfile())
+	}
+	if got := vault.AgentRecords(agentpkg.RosterNames())["copilot"].Profile; got != profiles[0] || !d.changed {
+		t.Errorf("copilot profile = %q (changed=%v), want %q; dialog said %q", got, d.changed, profiles[0], out)
 	}
 }
 

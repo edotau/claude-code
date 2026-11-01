@@ -716,36 +716,6 @@ func hasSession(tree Tree, id string) bool {
 	return false
 }
 
-// A headless claude dispatch matched by cwd + time + prompt renders once, as its dispatch row;
-// an unrelated session in the same dir (different prompt) stays.
-func TestRunningDedupesHeadlessClaudeByPrompt(t *testing.T) {
-	e := newDedupeEnv(t)
-	e.session(t, "headless-aaaa", headlessPrmt, false)
-	e.session(t, "human-bbbb", "Add a new feature to the statusline", false)
-	id := e.dispatch(t, "claude", headlessPrmt, dedupeCwd, dedupeCwd, "")
-
-	tree := e.tree(t)
-	if hasSession(tree, "headless-aaaa") {
-		t.Error("matched headless session should be dropped from sessions")
-	}
-	if !hasSession(tree, "human-bbbb") {
-		t.Error("unrelated session in the same dir must not be dropped")
-	}
-	if len(tree.Dispatches) != 1 || tree.Dispatches[0].ID != id {
-		t.Errorf("dispatches = %+v, want only %s", tree.Dispatches, id)
-	}
-}
-
-// The record's SessionID alone matches, even when the prompt differs.
-func TestRunningDedupesBySessionID(t *testing.T) {
-	e := newDedupeEnv(t)
-	e.session(t, "headless-cccc", "something else entirely", false)
-	e.dispatch(t, "claude", headlessPrmt, "", "/elsewhere", "headless-cccc")
-	if hasSession(e.tree(t), "headless-cccc") {
-		t.Error("session whose id equals the dispatch SessionID should be dropped")
-	}
-}
-
 // A matching session that has subagents is real work and is never dropped.
 func TestRunningKeepsMatchedSessionWithSubagents(t *testing.T) {
 	e := newDedupeEnv(t)

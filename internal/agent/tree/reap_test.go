@@ -11,6 +11,26 @@ import (
 	"github.com/edotau/claude-code/internal/agent/live"
 )
 
+// A running claude dispatch hides the session it spawned, by its session id or by cwd + start + opening prompt;
+// an unrelated session in the same dir stays.
+func TestDropDispatchSessions(t *testing.T) {
+	start := time.Date(2026, 10, 18, 3, 9, 0, 0, time.UTC)
+	byPrompt := Dispatch{Agent: "claude", cwd: "/repo", started: start, prompt: "Summarize the retry logic"}
+	byID := Dispatch{Agent: "claude", sessionID: "sess-id", cwd: "/elsewhere", started: start}
+	sessions := []Session{
+		{ID: "headless", Cwd: "/repo", Title: "Summarize the retry logic", Updated: start.Add(time.Minute)},
+		{ID: "human", Cwd: "/repo", Title: "Add a new feature", Updated: start.Add(time.Minute)},
+		{ID: "sess-id", Cwd: "/repo", Title: "other words", Updated: start.Add(time.Minute)},
+	}
+	var got []string
+	for _, s := range dropDispatchSessions(sessions, []Dispatch{byPrompt, byID}) {
+		got = append(got, s.ID)
+	}
+	if len(got) != 1 || got[0] != "human" {
+		t.Fatalf("sessions after the dispatch rows took over = %v, want only [human]", got)
+	}
+}
+
 // A live session whose holder died is marked error and its socket removed; a live holder's socket stays.
 func TestReapDeadLiveHolder(t *testing.T) {
 	dir, err := os.MkdirTemp("/tmp", "rp") // short root: a macOS unix socket path caps at 104 bytes

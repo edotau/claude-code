@@ -4,12 +4,15 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/agent"
+	_ "github.com/edotau/claude-code/internal/codex" // register the rows whose suffixes are checked
+	_ "github.com/edotau/claude-code/internal/copilot"
+	_ "github.com/edotau/claude-code/internal/opencode"
 	"github.com/edotau/claude-code/internal/proxy"
 	"github.com/edotau/claude-code/internal/proxy/server"
 )
 
-// Declared router suffixes parse on their wire; the empty Anthropic suffix does not.
-func TestRosterRouterSuffixesParse(t *testing.T) {
+// Every registered agent row's router suffix parses back to its provider and wire; an empty suffix is not a passthrough.
+func TestRegisteredRowRouterSuffixesRoundTrip(t *testing.T) {
 	seen := 0
 	for _, spec := range agent.Roster() {
 		for wire, suffix := range spec.CLI.RouterSuffix {

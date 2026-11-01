@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	_ "github.com/edotau/claude-code/internal/claude" // registers the claude row
 	"github.com/edotau/claude-code/internal/memory/bank"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
@@ -13,8 +14,8 @@ import (
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
-// servedSession seeds a hermetic vault and a CLAUDE_PROFILE session whose profile is a Databricks row "dev" (switch on or off), optionally
-// with a listing fetched at fetched, and returns the count of detached refresh spawns a SessionStart makes.
+// servedSession seeds a hermetic vault and a CLAUDE_PROFILE=dev Databricks session (switch on or off), optionally with
+// a listing fetched at fetched, and returns the count of detached refresh spawns a SessionStart makes.
 func servedSession(t *testing.T, on bool, fetched time.Time, updateChild string) *atomic.Int64 {
 	t.Helper()
 	vaulttest.Use(t)

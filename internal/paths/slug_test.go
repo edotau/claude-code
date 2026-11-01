@@ -105,6 +105,23 @@ func TestCheckoutOf(t *testing.T) {
 	}
 }
 
+// An empty .git directory is not a repo, so a stray one in an ancestor (/tmp/.git) cannot capture a plain directory.
+func TestCheckoutOfSkipsEmptyGitDir(t *testing.T) {
+	base := t.TempDir()
+	lone := filepath.Join(base, "lone")
+	if err := os.MkdirAll(filepath.Join(lone, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(lone, "sub"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, dir := range []string{lone, filepath.Join(lone, "sub")} {
+		if top, m := CheckoutOf(dir); top == lone || m == lone {
+			t.Errorf("CheckoutOf(%q) = %q, %q; an empty .git must not count", dir, top, m)
+		}
+	}
+}
+
 // ancestorHasGit reports whether dir or any parent holds a .git entry (a stray /tmp/.git included).
 func ancestorHasGit(dir string) bool {
 	for d := dir; ; d = filepath.Dir(d) {
