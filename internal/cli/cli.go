@@ -11,6 +11,7 @@ import (
 	"github.com/edotau/claude-code/internal/clean"
 	"github.com/edotau/claude-code/internal/databricks"
 	"github.com/edotau/claude-code/internal/models"
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/testtool/mutate"
 	"github.com/edotau/claude-code/internal/testtool/ramdisk"
@@ -138,6 +139,7 @@ func lookup(name string) *command {
 
 // Run dispatches argv and returns the exit code.
 func Run(argv []string) int {
+	paths.ExportConfigDir()
 	if len(argv) < 2 {
 		usage(os.Stdout)
 		return 0

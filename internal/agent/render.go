@@ -45,8 +45,8 @@ func PrepareConfigs(o agentrender.RenderOptions) (*agentrender.RenderPlan, bool,
 			return nil, false, fmt.Errorf("generate: %w", err)
 		}
 	}
-	if !o.ForceHomes && !paths.ConfigDirIsDefault() {
-		fmt.Fprintf(out, "generate: skipping agent configs (CLAUDE_CONFIG_DIR=%s is not the default ~/.claude); pass --agents to include them\n", paths.ConfigDir())
+	if !o.ForceHomes && !paths.ConfigDirIsDefault() && !paths.ConfigDirIsInstall() {
+		fmt.Fprintf(out, "generate: skipping agent configs (CLAUDE_CONFIG_DIR=%s is neither ~/.claude nor an install clone); pass --agents to include them\n", paths.ConfigDir())
 		return p, false, nil
 	}
 	reg, err := providers.Load()

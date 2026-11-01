@@ -12,19 +12,64 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 )
 
-// ConfigDir is CLAUDE_CONFIG_DIR, else ~/.claude — the harness repo is the config dir.
+// ConfigDir is CLAUDE_CONFIG_DIR, else the git clone holding the running binary in its bin/, else ~/.claude.
 func ConfigDir() string {
 	if d := strings.TrimSpace(os.Getenv("CLAUDE_CONFIG_DIR")); d != "" {
 		return d
+	}
+	if r := installRoot(); r != "" {
+		return r
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return ""
 	}
 	return filepath.Join(home, ".claude")
+}
+
+// installRoot is the clone whose bin/ holds the running binary; "" for non-clones, linked worktrees and ~/.claude.
+var installRoot = sync.OnceValue(func() string {
+	exe, err := os.Executable()
+	if err != nil {
+		return ""
+	}
+	if exe, err = filepath.EvalSymlinks(exe); err != nil {
+		return ""
+	}
+	bin := filepath.Dir(exe)
+	if filepath.Base(bin) != "bin" {
+		return ""
+	}
+	root := filepath.Dir(bin)
+	if !IsDir(filepath.Join(root, ".git")) || !IsDir(filepath.Join(root, "cmd", "claude-code")) {
+		return ""
+	}
+	if home, err := os.UserHomeDir(); err == nil {
+		if def, err := filepath.EvalSymlinks(filepath.Join(home, ".claude")); err == nil && def == root {
+			return ""
+		}
+	}
+	return root
+})
+
+// ConfigDirIsInstall reports whether the config directory is the clone the running binary was installed from.
+func ConfigDirIsInstall() bool {
+	r := installRoot()
+	return r != "" && filepath.Clean(ConfigDir()) == r
+}
+
+// ExportConfigDir sets CLAUDE_CONFIG_DIR to the install clone when unset, so Claude Code and children share it.
+func ExportConfigDir() {
+	if strings.TrimSpace(os.Getenv("CLAUDE_CONFIG_DIR")) != "" {
+		return
+	}
+	if r := installRoot(); r != "" {
+		_ = os.Setenv("CLAUDE_CONFIG_DIR", r)
+	}
 }
 
 // BinDir is the install target for the claude-code binary and its bare-name shims.
