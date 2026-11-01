@@ -109,6 +109,37 @@ func TestRefreshRotationConcurrentNoReuse(t *testing.T) {
 	}
 }
 
+func TestValidU2MCannotReplayInflightRefresh(t *testing.T) {
+	entered, release := make(chan struct{}), make(chan struct{})
+	var posts atomic.Int32
+	idp := &rotatingIdP{}
+	access := jwtExpIn(time.Hour, "https://x")
+	srv := oidcServer(t, func(r *http.Request, f url.Values) (int, map[string]any) {
+		if posts.Add(1) == 1 {
+			close(entered)
+			<-release
+		}
+		status, body := idp.handle(r, f)
+		if status == 200 {
+			body["access_token"] = access
+		}
+		return status, body
+	})
+	p := mintRow(t, "valid-inflight", AuthOAuth, "", srv.URL)
+	putOAuth(t, p, oauthValue{Refresh: idp.rotate()})
+	done, valid := make(chan error, 1), make(chan bool, 1)
+	go func() { _, err := Credential(context.Background(), p); done <- err }()
+	<-entered
+	go func() { _, ok := ValidU2M(context.Background(), p); valid <- ok }()
+	time.AfterFunc(100*time.Millisecond, func() { close(release) })
+	err, ok := <-done, <-valid
+	idp.mu.Lock()
+	defer idp.mu.Unlock()
+	if err != nil || !ok || idp.reused != 0 || posts.Load() != 1 {
+		t.Fatalf("refresh error=%v valid=%v replays=%d posts=%d; want one successful refresh", err, ok, idp.reused, posts.Load())
+	}
+}
+
 func TestRefreshRereadsTokenRotatedByAnotherProcess(t *testing.T) {
 	idp := &rotatingIdP{}
 	srv := oidcServer(t, idp.handle)

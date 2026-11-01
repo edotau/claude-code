@@ -240,7 +240,8 @@ func runAsk(args []string, resume bool) int {
 		AppendSystemPrompt: *appendSystemPrompt, Env: []string(env), OutputSchema: schema, Persona: persona,
 		Agent: ref, Agents: defs, Fallback: *fallback, Native: *native, Host: *host, RemoteBin: *remoteBin, Rubric: *rubric, Background: *background}
 	client := newClient()
-	prepared, err := client.Prepare(providers.WithIdentity(ctx, *as), req, jobRec)
+	ctx = providers.WithIdentity(ctx, *as)
+	prepared, err := client.Prepare(ctx, req, jobRec)
 	if err != nil {
 		code := 1
 		if usage, ok := errors.AsType[interface {
@@ -533,12 +534,13 @@ func newClient() *agent.Client {
 		func(s string) { fmt.Fprintln(os.Stderr, "ask:", s) })
 }
 
-// backgroundExtraFlags carries explicitly-set --fallback/--native over to the spawned --job child;
-// unset flags fall back to the child's own defaults instead of being re-pinned.
+// backgroundExtraFlags carries explicit routing and identity flags over to the spawned --job child.
 func backgroundExtraFlags(fs *flag.FlagSet, fallback string, native bool) []string {
 	var extra []string
 	fs.Visit(func(f *flag.Flag) {
 		switch f.Name {
+		case "as":
+			extra = append(extra, "--as", f.Value.String())
 		case "fallback":
 			extra = append(extra, "--fallback", fallback)
 		case "native":
@@ -853,6 +855,9 @@ func runAskBatch(fs *flag.FlagSet, resume bool, src string, o batchOpts, base ag
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGPIPE) // a closed stdout cancels
 	defer stop()
+	if as := fs.Lookup("as"); as != nil {
+		ctx = providers.WithIdentity(ctx, as.Value.String())
+	}
 	cwd, _ := os.Getwd() // resolved once here: a pool goroutine must never fall back to the process cwd
 	timeoutSet := flagExplicit(fs, "timeout")
 	seen := map[string]bool{}

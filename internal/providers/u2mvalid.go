@@ -13,10 +13,7 @@ func ValidU2M(ctx context.Context, p *Provider) (time.Duration, bool) {
 	if secret, err := mintSecret(p); err != nil || secret == "" {
 		return 0, false
 	}
-	if exp, ok := TokenExpiry(p.Name); ok && time.Until(exp) > 0 {
-		return time.Until(exp), true
-	}
-	if _, err := mintAndCache(ctx, p); err != nil {
+	if _, err := userCredential(ctx, p, false); err != nil {
 		return 0, false
 	}
 	exp, ok := TokenExpiry(p.Name)
