@@ -636,6 +636,10 @@ func (v *claimVerifier) pushed(token string) verifyResult {
 			break
 		}
 		var exit *exec.ExitError
+		if remotes, _ := verifyGit(repo, "", "branch", "-r", "--contains", sha); strings.TrimSpace(remotes) != "" {
+			result = verifyResult{"ok", sha + " is on remote branch " + strings.Fields(remotes)[0] + " in " + repo}
+			break
+		}
 		if errors.As(err, &exit) && exit.ExitCode() == 1 {
 			result = verifyResult{"stale", "pushed claim: " + sha + " is not an ancestor of local " + strings.TrimPrefix(branch, "refs/remotes/") + " in " + repo}
 		} else if result.status != "stale" {
