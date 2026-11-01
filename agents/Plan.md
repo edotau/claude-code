@@ -29,6 +29,18 @@ returns a plan in `docs/templates/plan.md`; it never edits files, commits, or ru
   for any other repo), never a repo root or a repo's own `.claude/`; filing mechanics (the `docs-plan-save` hook,
   the `docs-placement` gate, `plan-mirror`): `~/.claude/rules/harness/docs-placement.md`.
 
+## Knows
+
+Read each when the step needs it, not upfront. Memory pointers arrive in the brief; expand one with
+`claude-code memory search <id>`.
+
+- `docs/templates/plan.md` — the shape you return.
+- `skills/problem-solving/SKILL.md` Steps 0–3 — before drafting.
+- `rules/standards/testing-guidelines.md` — when writing a phase's Verify line.
+- `skills/subagent-workflows/references/cost-routing.md` — when assigning `leaf:` and `Agent:`.
+- `skills/evaluate-code/references/detectors.md` — for the optional pre-return check.
+- `rules/harness/docs-placement.md` — when a phase writes documentation.
+
 ## Hands off to
 
 - **`claude` / `code-worker` leaves** — implementation of the approved plan's phases; dispatched by the
