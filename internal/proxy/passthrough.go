@@ -90,6 +90,7 @@ func (r *Router) passthrough(w http.ResponseWriter, in *http.Request, provider, 
 		}
 	}
 	var body []byte
+	geminiChat := false
 	if in.Method == http.MethodPost {
 		body, err = io.ReadAll(io.LimitReader(in.Body, maxBody+1))
 		if err != nil {
@@ -106,6 +107,7 @@ func (r *Router) passthrough(w http.ResponseWriter, in *http.Request, provider, 
 		}
 		if dialect == providers.ProtocolOpenAI && strings.HasSuffix(rest, "chat/completions") && translate.IsGeminiModel(model) {
 			body = fixGeminiChat(body)
+			geminiChat = true
 		}
 	}
 	target := route + "/" + rest
@@ -130,6 +132,9 @@ func (r *Router) passthrough(w http.ResponseWriter, in *http.Request, provider, 
 		return
 	}
 	extra = passthroughDiag(resp)
+	if geminiChat && resp.StatusCode == http.StatusOK && !strings.Contains(resp.Header.Get("Content-Type"), "event-stream") {
+		resp = flattenGeminiResponse(resp)
+	}
 	var tail *tailBuffer
 	if metered(p) && in.Method == http.MethodPost && resp.StatusCode == http.StatusOK && dialect != providers.ProtocolGemini {
 		tail = &tailBuffer{}
@@ -144,7 +149,20 @@ func (r *Router) passthrough(w http.ResponseWriter, in *http.Request, provider, 
 	}
 }
 
-// fixGeminiChat drops stream_options and fills a missing thoughtSignature on assistant tool_calls; else body as is.
+// flattenGeminiResponse buffers a non-stream Gemini chat reply and joins its content parts into one string.
+func flattenGeminiResponse(resp *http.Response) *http.Response {
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, maxBody))
+	resp.Body.Close()
+	out := translate.FlattenChatContent(raw)
+	resp.Body, resp.ContentLength = io.NopCloser(bytes.NewReader(out)), int64(len(out))
+	resp.Header.Del("Content-Length")
+	if err != nil {
+		resp.Header.Set("Connection", "close")
+	}
+	return resp
+}
+
+// fixGeminiChat drops stream_options, maps an Anthropic-style tool_choice object and fills a missing thoughtSignature on assistant tool_calls; else body as is.
 func fixGeminiChat(body []byte) []byte {
 	var top map[string]json.RawMessage
 	if json.Unmarshal(body, &top) != nil {
@@ -154,6 +172,11 @@ func fixGeminiChat(body []byte) []byte {
 	if _, ok := top["stream_options"]; ok {
 		delete(top, "stream_options")
 		changed = true
+	}
+	if tc, ok := top["tool_choice"]; ok {
+		if fixed, ok := translate.ChatToolChoice(tc); ok {
+			top["tool_choice"], changed = fixed, true
+		}
 	}
 	var msgs []map[string]json.RawMessage
 	if json.Unmarshal(top["messages"], &msgs) == nil {

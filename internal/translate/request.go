@@ -89,6 +89,69 @@ type chatToolCall struct {
 // SkipThoughtSignature is Gemini's documented validator bypass for tool calls replayed without their signature.
 const SkipThoughtSignature = "skip_thought_signature_validator"
 
+// ChatToolChoice rewrites a tool_choice Databricks Gemini rejects (Anthropic object, Copilot's "validated") into the chat form.
+func ChatToolChoice(raw json.RawMessage) (json.RawMessage, bool) {
+	var str string
+	if json.Unmarshal(raw, &str) == nil {
+		switch str {
+		case "auto", "required", "none":
+			return raw, false
+		}
+		return json.RawMessage(`"auto"`), true
+	}
+	var tc struct{ Type, Name string }
+	if json.Unmarshal(raw, &tc) != nil {
+		return raw, false
+	}
+	var out any
+	switch tc.Type {
+	case "auto", "none":
+		out = tc.Type
+	case "any":
+		out = "required"
+	case "tool":
+		out = map[string]any{"type": "function", "function": map[string]string{"name": tc.Name}}
+	default:
+		return raw, false
+	}
+	enc, err := json.Marshal(out)
+	return enc, err == nil
+}
+
+// FlattenChatContent joins a non-stream chat response's content-part arrays (Databricks Gemini) into strings.
+func FlattenChatContent(body []byte) []byte {
+	var top map[string]json.RawMessage
+	var choices []map[string]json.RawMessage
+	if json.Unmarshal(body, &top) != nil || json.Unmarshal(top["choices"], &choices) != nil {
+		return body
+	}
+	changed := false
+	for _, c := range choices {
+		var msg map[string]json.RawMessage
+		var parts []struct{ Type, Text string }
+		if json.Unmarshal(c["message"], &msg) != nil || json.Unmarshal(msg["content"], &parts) != nil {
+			continue
+		}
+		var sb strings.Builder
+		for _, pt := range parts {
+			if pt.Type == "text" {
+				sb.WriteString(pt.Text)
+			}
+		}
+		msg["content"], _ = json.Marshal(sb.String())
+		c["message"], _ = json.Marshal(msg)
+		changed = true
+	}
+	if !changed {
+		return body
+	}
+	top["choices"], _ = json.Marshal(choices)
+	if out, err := json.Marshal(top); err == nil {
+		return out
+	}
+	return body
+}
+
 // IsGeminiModel reports whether a wire model is a Gemini model (case-insensitive).
 func IsGeminiModel(model string) bool {
 	return strings.Contains(strings.ToLower(model), "gemini")
