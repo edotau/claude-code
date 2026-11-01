@@ -86,24 +86,17 @@ func classifyPromptSignal(prompt string) (complexity, string) {
 	return complexityNeutral, "neutral"
 }
 
-// Effort tiers EffortTierSignal returns; they match the Claude Code effort vocabulary (low|medium|high).
-const (
-	TierLow    = "low"
-	TierMedium = "medium"
-	TierHigh   = "high"
-)
-
 // EffortTierSignal is the exported seam onto classifyPromptSignal plus the short rule name that fired (e.g. "keyword:refactor",
 // "paths>=2", "open-search"), for a hook that wants to say WHY it picked a tier.
 func EffortTierSignal(prompt string) (tier, signal string) {
 	c, signal := classifyPromptSignal(prompt)
 	switch c {
 	case complexityLow:
-		return TierLow, signal
+		return models.EffortLow, signal
 	case complexityHigh:
-		return TierHigh, signal
+		return models.EffortHigh, signal
 	default:
-		return TierMedium, signal
+		return models.EffortMedium, signal
 	}
 }
 
