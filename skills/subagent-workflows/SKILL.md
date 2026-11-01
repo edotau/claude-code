@@ -25,7 +25,8 @@ Also: review a diff (`/code-review`) · [lane orchestrator](references/lane-orch
 A leaf does the work itself on your pin (`code-worker`), or requests another agent or account you are signed in to
 through `claude-code ask --agent <x> [--profile <p>]` (`coworker`, which always requests). A `coworker` is
 **experimental**: an external account depends on its prompt and config being right and often cannot connect back, so
-trust it only on the `ran on` line its `ask` prints and keep a `code-worker` fallback for work that must land.
+trust it only on the `ran on` line its `ask` prints (`dispatch-stop` blocks a stop with none, once)
+and keep a `code-worker` fallback for work that must land.
 
 Pass the task alone as `description`; the `dispatch-effort` hook prefixes the model id the leaf is planned to run
 (`code-worker sonnet: <task>`, `coworker gpt-6.1-sol: <task>`) and appends memory-recall pointers to every brief. A
