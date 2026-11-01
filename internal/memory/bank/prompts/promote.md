@@ -26,7 +26,7 @@ bank entry ──promote --to home──▶ home bank (~/.claude/memory/home/)
 
 **`--to claude-md` is dream-gated.** Outside `memory dream`'s cross-pollination step, route a
 CLAUDE.md-worthy entry to `rules/standards/` instead and note that the dream gate will consider it
-later — that is the only path. `promote` also never edits `rules/workflow/` (human-authored
+later — that is the only path. `promote` also never edits `rules/workflows/` (human-authored
 process).
 
 ## `--to home`: durable + cross-project
@@ -62,7 +62,7 @@ promote. (Run `claude-code memory review` first if you need candidates.)
 
 Pick the writable target by signal type with the table below. Replace `<lang>` with the project's
 primary language dir (`python`, `go`, …). Honor an explicit `--target <path>` only if it points at
-a writable tier (never `CLAUDE.md`, `rules/workflow/`).
+a writable tier (never `CLAUDE.md`, `rules/workflows/`).
 
 | Signal Type | Target File | Section |
 |-------------|-------------|---------|
@@ -81,7 +81,7 @@ a writable tier (never `CLAUDE.md`, `rules/workflow/`).
 
 **Routing priority**: Rules files > memory bank > `CLAUDE.md` (last resort, promotion-gated). This
 path writes only to the **writable** tiers — `rules/standards/` and `rules/software/<lang>/`. It
-never edits `rules/workflow/` (human-authored process), and never writes to `CLAUDE.md` directly —
+never edits `rules/workflows/` (human-authored process), and never writes to `CLAUDE.md` directly —
 only `memory dream` promotes learnings there after the recurrence + hard-prohibition test passes.
 
 ### Step 3: Distill into a rule

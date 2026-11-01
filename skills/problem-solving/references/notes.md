@@ -38,7 +38,7 @@ intended behavior. It does not promote the tests above the spec.
 
 In the report this reads as a plain sentence, never the tag:
 
-> The code changed one line; the task wanted a typo fixed, and `rules/workflow/master-workflow.md`
+> The code changed one line; the task wanted a typo fixed, and `rules/workflows/master-workflow.md`
 > defines TRIVIAL as exactly a single-line fix, typo, or rename — so the two agreed and I made the
 > edit.
 

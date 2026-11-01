@@ -106,7 +106,7 @@
     "workflows": {"kind": "content", "purpose": "Saved Workflow tool scripts: code-agent, code-analyzer, code-engineer, green-keeper-loop.", "addHere": "A reusable orchestration."},
     "rules": {"kind": "content", "purpose": "Rule files loaded by scope; contract in rules/README.md.", "addHere": "A corrected behaviour or gotcha."},
     "rules/standards": {"kind": "content", "purpose": "Always-on rules. Every line costs every session.", "notHere": "Anything scoped to an area."},
-    "rules/workflow": {"kind": "content", "purpose": "Agent and memory workflow rules; needs paths: scoping."},
+    "rules/workflows": {"kind": "content", "purpose": "Agent and memory workflow rules; needs paths: scoping."},
     "rules/harness": {"kind": "content", "purpose": "Rules for working on the harness itself; needs paths: scoping."},
     "rules/software": {"kind": "content", "purpose": "Per-language rules."},
     "rules/software/go": {"kind": "content", "purpose": "Go rules."},

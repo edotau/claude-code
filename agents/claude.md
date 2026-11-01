@@ -51,7 +51,7 @@ A live session (`ask --agent claude --live`, `agents send <id>`) and `--host`:
 | New test coverage | `copilot` TEST mode, feature or bug fix only (`rules/standards/testing-guidelines.md` → Test agent) |
 | One well-scoped fan-out task | `code-worker` (leaf types: `skills/subagent-workflows/SKILL.md` → Leaf types) |
 | Wide codebase sweep | `gemini` (`claude-code gemini bridge --dirs <d> "<task>"`, 1M-context pass) |
-| A whole pipeline — implement+verify, audit a range, loop a gate, a dispatch to another agent as a stage | a saved `Workflow` (`code-engineer`, `code-analyzer`, `green-keeper-loop`, `code-agent`; `rules/workflow/master-workflow.md` → Saved Workflows). Weigh it against a hand fan-out every time; run it only when the user opted in, otherwise name it as the option in one line |
+| A whole pipeline — implement+verify, audit a range, loop a gate, a dispatch to another agent as a stage | a saved `Workflow` (`code-engineer`, `code-analyzer`, `green-keeper-loop`, `code-agent`; `rules/workflows/master-workflow.md` → Saved Workflows). Weigh it against a hand fan-out every time; run it only when the user opted in, otherwise name it as the option in one line |
 
 **Search before you build** — before writing a new utility/abstraction or adding a dependency, look
 for an existing library, MCP server, skill, or maintained OSS to adopt/extend. Reinventing a
@@ -107,7 +107,7 @@ Dispatch mechanics, concurrency, pattern choice, and per-leaf skill naming are
 `skills/subagent-workflows/SKILL.md` (pick the shape),
 `skills/subagent-workflows/references/lane-orchestrator.md` (handed a lane plan). Saved Workflows
 (`code-engineer`, `code-analyzer`, `green-keeper-loop`) run only when the user asks. Concurrency
-caps and effort/model escalation: `rules/workflow/agents.md`.
+caps and effort/model escalation: `rules/workflows/agents.md`.
 
 ## Report contract
 

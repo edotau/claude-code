@@ -14,7 +14,7 @@ What it adds to a stock install:
 - **Hooks, memory, status line** — a Bash safety gate, a per-repo memory bank, format-on-stop, context checkpoint.
 
 Every verb takes `--help`; `claude-code describe` maps the whole harness. Agent-facing commands and gotchas live
-per area under `rules/harness/` and `rules/workflow/` (index: `CLAUDE.md` → How-to).
+per area under `rules/harness/` and `rules/workflows/` (index: `CLAUDE.md` → How-to).
 
 ## Install
 
@@ -245,7 +245,7 @@ claude-code usage --days 7                             # subagent token usage
 Without `--tools`, agents are read-only. `agents sync` renders under `state/projections/<agent>/`, installs into
 `~/.codex`, `~/.copilot`, `~/.gemini`, `~/.config/opencode`, and links `skills/` into `~/.agents/skills`; no AGENTS.md
 lives at this root (Claude Code would load it as a second CLAUDE.md). Envelope fields and per-agent behavior:
-`rules/harness/agent.md`; in-session fan-out: `rules/workflow/master-workflow.md`.
+`rules/harness/agent.md`; in-session fan-out: `rules/workflows/master-workflow.md`.
 
 ### Sync the Databricks model menu
 
@@ -362,7 +362,7 @@ repo keyed by origin remote basename. Each bank dir holds Claude Code's native m
 typed files (`projectContext`, `activeContext`, `progress`, `decisionLog`, `conventions`, `sessionHistory`);
 `~/.claude/projects/<slug>/memory` symlinks into it. A session gets the catalog plus this repo's active context; the
 rest loads on demand. `memory dream` consolidates daily in the background.
-File contracts: `rules/workflow/memory-bank.md`; verbs and the promotion ladder: `skills/reflection/SKILL.md`.
+File contracts: `rules/workflows/memory-bank.md`; verbs and the promotion ladder: `skills/reflection/SKILL.md`.
 
 ## Status line
 
