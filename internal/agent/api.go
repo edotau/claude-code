@@ -72,13 +72,13 @@ func claudeOneShot(ctx context.Context, req RunOptions, sink Sink) (res Result, 
 func logAPIRun(ctx context.Context, res Result, err error) {
 	lg := eventLogFor(ctx)
 	if res.Answer != "" {
-		lg.emit("assistant", res.Answer)
+		lg.Emit("assistant", res.Answer)
 	}
 	if err != nil {
-		lg.emit("error", err.Error())
+		lg.Emit("error", err.Error())
 		return
 	}
-	lg.emit("result", fmt.Sprintf("tokens in=%d out=%d", res.Usage.InputTokens, res.Usage.OutputTokens))
+	lg.Emit("result", fmt.Sprintf("tokens in=%d out=%d", res.Usage.InputTokens, res.Usage.OutputTokens))
 }
 
 // httpError carries an upstream status and Retry-After into Classify.

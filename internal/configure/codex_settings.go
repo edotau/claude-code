@@ -2,10 +2,9 @@ package configure
 
 import (
 	"github.com/edotau/claude-code/internal/agentconfig"
+	"github.com/edotau/claude-code/internal/codex"
 	"github.com/edotau/claude-code/internal/paths"
 	"maps"
-
-	"github.com/edotau/claude-code/internal/agent"
 )
 
 func codexPreferenceValue(key string, overlay, live map[string]string) (value, source string) {
@@ -24,7 +23,7 @@ func runCodexSettings(d *dialog) bool {
 		d.printf("codex: %v\n", err)
 		return false
 	}
-	live, err := agent.ReadCodexSettings(d.o.Home)
+	live, err := codex.ReadCodexSettings(d.o.Home)
 	if err != nil {
 		d.printf("codex: %v\n", err)
 		return false
@@ -38,7 +37,7 @@ func runCodexSettings(d *dialog) bool {
 	if d.o.Interactive && !d.o.Check && !d.o.DryRun && isStdinTTY() {
 		return runCodexSettingsMenu(d, ov, live)
 	}
-	drift, err := agent.CodexSettingsDrift(d.o.Home)
+	drift, err := codex.CodexSettingsDrift(d.o.Home)
 	if err != nil {
 		d.printf("codex: %v\n", err)
 		return false
@@ -128,7 +127,7 @@ func saveCodexSettings(d *dialog, old, next map[string]string) bool {
 		d.printf("codex: %v\n", err)
 		return false
 	}
-	if err := agent.ApplyCodexSettings(d.o.Home); err != nil {
+	if err := codex.ApplyCodexSettings(d.o.Home); err != nil {
 		d.printf("codex: preferences saved; native apply failed: %v\n", err)
 		return false
 	}

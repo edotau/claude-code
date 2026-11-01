@@ -1,4 +1,4 @@
-package agent
+package codex
 
 import (
 	"context"
@@ -6,8 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agentconfig"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -20,24 +20,6 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/schemas"
 )
-
-var catalogWarn io.Writer = os.Stderr
-
-// SetCatalogWarn redirects catalog warnings and returns the previous writer; tests use it to keep stderr quiet.
-func SetCatalogWarn(w io.Writer) io.Writer { old := catalogWarn; catalogWarn = w; return old }
-
-// menuWire spells a bare menu id the way p serves it; an id outside the catalog still takes the row's prefix once.
-func menuWire(p *providers.Provider, id string) string {
-	if w := p.WireModel(id); w != id {
-		return w
-	}
-	rule := p.SpellingRule()
-	if _, _, known := models.Resolve(id); known || rule == "" ||
-		strings.HasPrefix(id, models.DatabricksPrefix) || strings.HasPrefix(id, "system.ai.") {
-		return id
-	}
-	return models.Wire(rule, id)
-}
 
 // codexSlug is codex's own built-in slug for a menu id: the dotted spelling (gpt-6.1-sol); an unknown id stays as typed.
 func codexSlug(id string) string {
@@ -54,11 +36,11 @@ func codexCatalogArgs(p *providers.Provider) []string {
 	}
 	path, missing, err := codexCatalogPath(p)
 	if err != nil {
-		fmt.Fprintln(catalogWarn, "codex catalog:", err)
+		fmt.Fprintln(agent.CatalogWarn, "codex catalog:", err)
 		return nil
 	}
 	if missing != "" {
-		fmt.Fprintln(catalogWarn, "codex is missing metadata for "+missing+"; update codex")
+		fmt.Fprintln(agent.CatalogWarn, "codex is missing metadata for "+missing+"; update codex")
 	}
 	if path == "" {
 		return nil
@@ -83,7 +65,7 @@ func codexCatalogPath(p *providers.Provider) (string, string, error) {
 	menu := providers.OpencodeMenu()
 	parts := []string{string(version), p.Name}
 	for _, m := range menu {
-		parts = append(parts, menuWire(p, m.ID), m.Label, strconv.FormatBool(m.Responses))
+		parts = append(parts, agent.MenuWire(p, m.ID), m.Label, strconv.FormatBool(m.Responses))
 	}
 	rawKey, err := json.Marshal(parts)
 	if err != nil {
@@ -161,7 +143,7 @@ func writeCodexCatalog(path string, body []byte) error {
 
 var (
 	_ = schemas.Register(schemas.Format{
-		Name: "codex-catalog", Owner: "internal/agent", Kind: schemas.Derived,
+		Name: "codex-catalog", Owner: "internal/codex", Kind: schemas.Derived,
 		Glob:    func() string { return filepath.Join(paths.StateDir(), "codex", "catalog-*.json") },
 		Version: 1, Keep: "rebuilt from the provider catalog; codex reads it, so no schema field",
 	})
@@ -206,7 +188,7 @@ func buildCodexCatalog(p *providers.Provider, menu []providers.OpencodeModel, ra
 			continue
 		}
 		entry := cloneCodexMetadata(base).(map[string]any)
-		slug, label := menuWire(p, m.ID), m.Label+" · "+p.Name
+		slug, label := agent.MenuWire(p, m.ID), m.Label+" · "+p.Name
 		entry["slug"], entry["display_name"] = slug, label
 		entry["visibility"], entry["supported_in_api"], entry["priority"] = "list", true, len(out)
 		entry["service_tiers"], entry["additional_speed_tiers"] = []any{}, []any{}

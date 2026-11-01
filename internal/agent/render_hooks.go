@@ -5,17 +5,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/edotau/claude-code/internal/agentconfig"
-	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/textutil"
 	"io"
 	"maps"
 	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 
-	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/settings"
 )
 
@@ -23,24 +19,6 @@ var agentEvents = map[string]string{
 	settings.EventPreToolUse:       "preToolUse",
 	settings.EventPostToolUse:      "postToolUse",
 	settings.EventUserPromptSubmit: "userPromptSubmitted",
-}
-
-// CodexJSON renders only explicitly allowed hooks in Codex's Claude-compatible schema.
-func CodexJSON() ([]byte, error) {
-	events := map[string][]settings.MatcherGroup{}
-	for _, s := range settings.Specs() {
-		if !slices.Contains(s.Agents, "codex") {
-			continue
-		}
-		h := settings.Hook{Type: "command", Command: settings.AgentEnv + "=codex " + s.Command(), Timeout: s.Seconds(), Async: s.Async, StatusMessage: s.StatusMessage}
-		groups := events[s.Event]
-		if n := len(groups); n > 0 && groups[n-1].Matcher == s.Matcher {
-			groups[n-1].Hooks = append(groups[n-1].Hooks, h)
-		} else {
-			events[s.Event] = append(groups, settings.MatcherGroup{Matcher: s.Matcher, Hooks: []settings.Hook{h}})
-		}
-	}
-	return json.MarshalIndent(map[string]any{"hooks": events}, "", "  ")
 }
 
 // CopilotJSON renders user-level hooks; advisory failures must never deny a tool.
@@ -102,12 +80,12 @@ func renderHooksFile(path string, body []byte, merge func(existing, body []byte)
 			return false, fmt.Errorf("%s: %w", label, err)
 		}
 	}
-	return commitFile(path, raw, append(next, '\n'), existed, o, out, label)
+	return CommitFile(path, raw, append(next, '\n'), existed, o, out, label)
 }
 
-// decodeRawObject decodes raw as a JSON object into map[string]json.RawMessage, preserving every key
+// DecodeRawObject decodes raw as a JSON object into map[string]json.RawMessage, preserving every key
 // (known or not) as raw bytes; blank/absent raw decodes to an empty map rather than an error.
-func decodeRawObject(raw []byte) (map[string]json.RawMessage, error) {
+func DecodeRawObject(raw []byte) (map[string]json.RawMessage, error) {
 	if len(bytes.TrimSpace(raw)) == 0 {
 		return map[string]json.RawMessage{}, nil
 	}
@@ -121,9 +99,9 @@ func decodeRawObject(raw []byte) (map[string]json.RawMessage, error) {
 	return m, nil
 }
 
-// decodeRawEvents decodes a "hooks" field (event name -> array of raw group/entry objects); a nil or
+// DecodeRawEvents decodes a "hooks" field (event name -> array of raw group/entry objects); a nil or
 // absent field decodes to an empty map.
-func decodeRawEvents(raw json.RawMessage) (map[string][]json.RawMessage, error) {
+func DecodeRawEvents(raw json.RawMessage) (map[string][]json.RawMessage, error) {
 	if len(bytes.TrimSpace(raw)) == 0 {
 		return map[string][]json.RawMessage{}, nil
 	}
@@ -137,47 +115,13 @@ func decodeRawEvents(raw json.RawMessage) (map[string][]json.RawMessage, error) 
 	return m, nil
 }
 
-// mergeCodexHooks keeps every foreign top-level key, event and hook already in a Codex hooks.json,
-// replacing only the harness's own groups (by command prefix, IsHarness) with the freshly
-// rendered ones; mirrors internal/settings mergeHooks, adapted to the top-level {"hooks": {...}} file
-// Codex reads directly.
-func mergeCodexHooks(existingRaw, body []byte) ([]byte, error) {
-	existingTop, err := decodeRawObject(existingRaw)
-	if err != nil {
-		return nil, fmt.Errorf("existing file: %w", err)
-	}
-	renderedTop, err := decodeRawObject(body)
-	if err != nil {
-		return nil, err
-	}
-	existingHooks, err := decodeRawEvents(existingTop["hooks"])
-	if err != nil {
-		return nil, fmt.Errorf("existing file: %w", err)
-	}
-	renderedHooks, err := decodeRawEvents(renderedTop["hooks"])
-	if err != nil {
-		return nil, err
-	}
-	merged := mergeHookEvents(existingHooks, renderedHooks, classifyCodexGroup)
-	hooksRaw, err := textutil.MarshalNoEscape(merged)
-	if err != nil {
-		return nil, err
-	}
-	next := maps.Clone(existingTop)
-	if next == nil {
-		next = map[string]json.RawMessage{}
-	}
-	next["hooks"] = hooksRaw
-	return textutil.MarshalIndentNoEscape(next)
-}
-
-// mergeHookEvents keeps every existing item of each event in its original relative position, dropping
+// MergeHookEvents keeps every existing item of each event in its original relative position, dropping
 // an item's harness-owned part per classify; the freshly rendered block is spliced in as a whole at the
 // position of the FIRST existing item classify found harness-owned (prepended when none was); an event
 // left with nothing is dropped. Idempotent: merging an already-merged event over the same rendered
 // content reproduces it byte-for-byte, since the rendered block is itself wholly harness-owned next time
 // round. Shared by mergeCodexHooks/mergeCopilotHooks.
-func mergeHookEvents[T any](existing, rendered map[string][]T, classify func(T) (*T, bool)) map[string][]T {
+func MergeHookEvents[T any](existing, rendered map[string][]T, classify func(T) (*T, bool)) map[string][]T {
 	merged := map[string][]T{}
 	for event, items := range existing {
 		var out []T
@@ -214,78 +158,27 @@ func mergeHookEvents[T any](existing, rendered map[string][]T, classify func(T) 
 	return merged
 }
 
-// classifyCodexGroup reports a group's foreign remainder (nil if every hook in it was harness-owned, by
-// "command" prefix via IsHarness) and whether it contained any harness-owned hook at all. A
-// group with no harness hook is returned byte-identical (unknown group-level keys included); only a
-// partially-harness group is rebuilt, which preserves every key but loses the original key order.
-func classifyCodexGroup(raw json.RawMessage) (*json.RawMessage, bool) {
-	var shape struct {
-		Hooks []json.RawMessage `json:"hooks"`
-	}
-	if err := json.Unmarshal(raw, &shape); err != nil {
-		return &raw, false // not a hook-group object: leave it untouched rather than drop it silently
-	}
-	var foreign []json.RawMessage
-	harnessFound := false
-	for _, h := range shape.Hooks {
-		var id struct {
-			Command string `json:"command"`
-		}
-		if err := json.Unmarshal(h, &id); err == nil && settings.IsHarness(id.Command) {
-			harnessFound = true
-			continue
-		}
-		foreign = append(foreign, h)
-	}
-	if !harnessFound {
-		return &raw, false // no harness hook: keep the group byte-identical
-	}
-	if len(foreign) == 0 {
-		return nil, true // every hook in the group was harness-owned: drop the whole group
-	}
-	rebuilt, err := rebuildCodexGroup(raw, foreign)
-	if err != nil {
-		return &raw, true
-	}
-	return &rebuilt, true
-}
-
-// rebuildCodexGroup replaces a partially-filtered group's "hooks" array, preserving every other key
-// (matcher, or anything unknown) as raw bytes.
-func rebuildCodexGroup(raw json.RawMessage, foreign []json.RawMessage) (json.RawMessage, error) {
-	obj, err := decodeRawObject(raw)
-	if err != nil {
-		return nil, err
-	}
-	hooksRaw, err := textutil.MarshalNoEscape(foreign)
-	if err != nil {
-		return nil, err
-	}
-	obj["hooks"] = hooksRaw
-	return textutil.MarshalNoEscape(obj)
-}
-
 // mergeCopilotHooks is mergeCodexHooks for Copilot's flat (non-grouped) hook entries and its top-level
 // {"version", "hooks"} shape: each entry is either kept whole, byte-identical (foreign) or dropped whole
 // (harness-owned, by its "bash" command prefix); every other top-level key survives untouched.
 func mergeCopilotHooks(existingRaw, body []byte) ([]byte, error) {
-	existingTop, err := decodeRawObject(existingRaw)
+	existingTop, err := DecodeRawObject(existingRaw)
 	if err != nil {
 		return nil, fmt.Errorf("existing file: %w", err)
 	}
-	renderedTop, err := decodeRawObject(body)
+	renderedTop, err := DecodeRawObject(body)
 	if err != nil {
 		return nil, err
 	}
-	existingHooks, err := decodeRawEvents(existingTop["hooks"])
+	existingHooks, err := DecodeRawEvents(existingTop["hooks"])
 	if err != nil {
 		return nil, fmt.Errorf("existing file: %w", err)
 	}
-	renderedHooks, err := decodeRawEvents(renderedTop["hooks"])
+	renderedHooks, err := DecodeRawEvents(renderedTop["hooks"])
 	if err != nil {
 		return nil, err
 	}
-	merged := mergeHookEvents(existingHooks, renderedHooks, classifyCopilotEntry)
+	merged := MergeHookEvents(existingHooks, renderedHooks, classifyCopilotEntry)
 	hooksRaw, err := textutil.MarshalNoEscape(merged)
 	if err != nil {
 		return nil, err
@@ -319,66 +212,4 @@ func classifyCopilotEntry(e json.RawMessage) (*json.RawMessage, bool) {
 		return nil, true
 	}
 	return &e, false
-}
-
-func renderCodex(reg *providers.Registry, sel providers.Selection, o RenderOptions, out io.Writer) (bool, error) {
-	body, err := CodexJSON()
-	if err != nil {
-		return false, err
-	}
-	path, err := paths.CodexConfigPath(o.Home)
-	if err != nil {
-		return false, err
-	}
-	raw, err := os.ReadFile(path)
-	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return false, fmt.Errorf("codex: %w", err)
-	}
-	existed := err == nil
-	stripped := codexBannerRE().ReplaceAllString(string(raw), "") // sans any prior banner, for the user-value check
-	section, err := codexProviderSection(reg, sel, stripped, out)
-	if err != nil {
-		return false, err
-	}
-	next := string(raw)
-	if section != "" {
-		next = codexBannerRE().ReplaceAllString(next, "") // strip any prior banner, then reinsert at the top-level spot
-		next = agentconfig.InsertTopLevelTOML(next, section)
-	}
-
-	// Compute the hooks merge (and read the existing hooks.json) before computing trust entries or
-	// committing config.toml: trust keys must come from the real post-merge positions, and a malformed
-	// existing hooks.json must fail the whole render, not leave new trust hashes written against a
-	// hooks.json that never got merged.
-	hooksPath := filepath.Join(filepath.Dir(path), "hooks.json")
-	hooksRaw, err := os.ReadFile(hooksPath)
-	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return false, fmt.Errorf("codex-hooks: %w", err)
-	}
-	hooksExisted := err == nil
-	mergedHooks, err := mergeCodexHooks(hooksRaw, body)
-	if err != nil {
-		return false, fmt.Errorf("codex-hooks: %w", err)
-	}
-
-	entries, err := agentconfig.CodexTrustEntries(hooksPath, mergedHooks)
-	if err != nil {
-		return false, err
-	}
-	next = agentconfig.MergeCodexTrust(next, entries)
-	overlay, err := agentconfig.LoadCodexOverlay()
-	if err != nil {
-		return false, err
-	}
-	next, err = patchCodexSettings(next, overlay)
-	if err != nil {
-		return false, err
-	}
-
-	drift, err := commitFile(path, raw, []byte(next), existed, o, out, "codex")
-	if err != nil {
-		return drift, err
-	}
-	d, err := commitFile(hooksPath, hooksRaw, append(mergedHooks, '\n'), hooksExisted, o, out, "codex-hooks")
-	return drift || d, err
 }

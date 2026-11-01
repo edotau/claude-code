@@ -5,89 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"strings"
 	"testing"
 )
-
-func TestConfigure(t *testing.T) {
-	ctx := WithDirect(context.Background()) // these rows pin the direct hand-off; routing is covered in router_route_test.go
-	cases := []struct {
-		vendor, provider, model string
-		h                       *Headless
-		wantArgv                []string // substrings, in order
-		wantEnv                 map[string]string
-		wantErr                 string
-	}{
-		{vendor: "codex", provider: "openai", model: "gpt-5",
-			wantArgv: []string{`model_provider="harness-openai"`, `model="gpt-5"`, `base_url = "https://api.openai.com/v1"`, `wire_api = "responses"`, `env_key = "HARNESS_CODEX_API_KEY"`},
-			wantEnv:  map[string]string{CodexKeyEnv: secret}},
-		{vendor: "codex", provider: "openai", model: "gpt-5", h: &Headless{Prompt: "-hi", Effort: "high", SessionID: "s1"},
-			wantArgv: []string{"exec", `model_reasoning_effort="high"`, "--skip-git-repo-check", "--sandbox", "read-only", "resume", "s1", "-"}},
-		{vendor: "codex", provider: "gateway", model: "x", wantErr: "no responses route"},
-		// gemini runs only on agy's own Google login (no GEMINI_API_KEY fallback); target() isolates
-		// HOME with no agy login marker, so both headless and interactive configure must refuse.
-		// Success-with-login-marker is covered by TestGeminiLoginPrecedence.
-		{vendor: "gemini", provider: "antigravity", model: "gemini-2.5-pro", h: &Headless{Prompt: "hi"},
-			wantErr: "agy is not signed in"},
-		{vendor: "gemini", provider: "antigravity", model: "gemini-2.5-pro",
-			wantErr: "agy is not signed in"},
-		{vendor: "gemini", provider: "openai", model: "gpt-5", wantErr: "runs only on its Google sign-in"},
-		{vendor: "opencode", provider: "openai", model: "gpt-5", h: &Headless{Prompt: "hi", SessionID: "ses", Effort: "max", Tools: true},
-			wantArgv: []string{"run", "-m", "harness-openai/gpt-5", "--session", "ses", "--variant", "max", "hi"},
-			wantEnv:  map[string]string{OpenCodeKeyEnv: secret}},
-		// --auto and each -f ride before the "--" that stops -f from swallowing the prompt as another path.
-		{vendor: "opencode", provider: "openai", model: "gpt-5",
-			h:        &Headless{Prompt: "hi", Autonomous: true, Attach: []string{"/tmp/a.txt", "/tmp/b.txt"}},
-			wantArgv: []string{"run", "-m", "harness-openai/gpt-5", "--auto", "-f", "/tmp/a.txt", "-f", "/tmp/b.txt", "--", "hi"},
-			wantEnv:  map[string]string{OpenCodeKeyEnv: secret}},
-		{vendor: "copilot", provider: "anthropic", model: "claude-opus-5",
-			wantEnv: map[string]string{"COPILOT_PROVIDER_TYPE": "anthropic", "COPILOT_PROVIDER_API_KEY": secret, "COPILOT_PROVIDER_BEARER_TOKEN": "", "COPILOT_MODEL": "claude-opus-5"}},
-		{vendor: "copilot", provider: "openai", model: "gpt-5",
-			wantEnv: map[string]string{"COPILOT_PROVIDER_TYPE": "openai", "COPILOT_PROVIDER_BEARER_TOKEN": secret, "COPILOT_PROVIDER_BASE_URL": "https://api.openai.com/v1"}},
-		{vendor: "opencode", provider: "max", model: "claude-opus-5", wantErr: "cli (subscription)"},
-		{vendor: "nope", provider: "openai", model: "gpt-5", wantErr: "unknown agent"},
-	}
-	for _, c := range cases {
-		t.Run(c.vendor+"/"+c.provider, func(t *testing.T) {
-			tg := target(t, c.provider, c.model)
-			var env, argv []string
-			var err error
-			if c.h != nil {
-				env, argv, err = schemaFor(c.vendor).configureHeadless(ctx, tg, *c.h)
-			} else {
-				env, argv, err = schemaFor(c.vendor).Configure(ctx, tg, "")
-			}
-			if c.wantErr != "" {
-				if err == nil || !strings.Contains(err.Error(), c.wantErr) {
-					t.Fatalf("err = %v, want %q", err, c.wantErr)
-				}
-				return
-			}
-			if err != nil {
-				t.Fatal(err)
-			}
-			t.Logf("env:  %q\nargv: %q", env, argv)
-			joined := strings.Join(argv, "\x00")
-			if strings.Contains(joined, secret) {
-				t.Fatalf("secret leaked into argv: %q", argv)
-			}
-			pos := 0
-			for _, want := range c.wantArgv {
-				i := strings.Index(joined[pos:], want)
-				if i < 0 {
-					t.Fatalf("argv %q missing %q (in order)", argv, want)
-				}
-				pos += i + len(want)
-			}
-			got := envMap(env)
-			for k, v := range c.wantEnv {
-				if got[k] != v {
-					t.Errorf("env %s = %q, want %q", k, got[k], v)
-				}
-			}
-		})
-	}
-}
 
 // TestLaunchSpecAppliedOnEveryRoute: applyLaunch runs after every interactive route Configure can
 // reach (own/github-copilot login, a keyed gateway provider), so no route can land without the

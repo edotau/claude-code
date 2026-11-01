@@ -55,13 +55,13 @@ func (e copilotEngine) Run(ctx context.Context, req RunOptions, sink Sink) (Resu
 	out, err := copilotAsk(ctx, opts, prompt, images)
 	lg := eventLogFor(ctx)
 	if err != nil {
-		lg.emit("error", err.Error())
+		lg.Emit("error", err.Error())
 		if (own || t.Provider.Auth.Login == "copilot") && Classify("copilot", err, false).Kind == KindQuota {
 			return copilotQuotaHandoff(req, res, out, err, credentialValues(env, opts.GitHubToken))
 		}
 		return copilotPartial(res, out, err, sink)
 	}
-	lg.emit("assistant", out.Text) // the SDK returns the whole text, so one line per run
+	lg.Emit("assistant", out.Text) // the SDK returns the whole text, so one line per run
 	res.Model = cmp.Or(out.Model, res.Model)
 	res.SessionID, res.Answer = out.SessionID, out.Text
 	if strings.TrimSpace(out.Text) == "" {

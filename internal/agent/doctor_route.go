@@ -78,14 +78,6 @@ func copilotRouteDetail(reg *providers.Registry, selErr error) string {
 	return detail
 }
 
-// codexRouteDetail reports codex's own CODEX_MODEL/CODEX_REASONING_EFFORT pins — names/booleans only,
-// never a credential; unset means codex's own default (config.toml, then its ChatGPT-login catalog).
-func codexRouteDetail() string {
-	model, source := providers.CodexModel()
-	effort, _ := providers.CodexEffort()
-	return fmt.Sprintf("model=%s source=%s effort=%s", cmp.Or(model, "(default)"), source, cmp.Or(effort, "default"))
-}
-
 // geminiRouteDetail reports agy's own GEMINI_MODEL pin (effort rides the id's own suffix) — unset
 // means agy's own default (AgyDefaultModel).
 func geminiRouteDetail() string {

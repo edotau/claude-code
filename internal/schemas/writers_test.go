@@ -31,7 +31,7 @@ import (
 func unversioned(reason string) string { return "unversioned: " + reason }
 
 var writers = map[string]string{
-	"internal/agent/codex.go:codexSchemaFile":                          unversioned("foreign: codex --output-schema temp file"),
+	"internal/codex/codex.go:codexSchemaFile":                          unversioned("foreign: codex --output-schema temp file"),
 	"internal/agent/dispatchlog.go:Save":                               "dispatch-record",
 	"internal/agent/lastprofile.go:writeLastProfiles":                  "last-profile",
 	"internal/agent/dispatchlog.go:claimRecord":                        unversioned("claim: the running record, linked in whole"),
@@ -56,8 +56,8 @@ var writers = map[string]string{
 	"internal/databricks/config.go:writeScratch":                       unversioned("foreign: temp rescue config"),
 	"internal/databricks/export.go:writeFile0600":                      unversioned("foreign: -o export output"),
 	"internal/desktop/transaction.go:transact":                         "desktop-state",
-	"internal/agent/render_codex_settings.go:restoreCodexConfigLocked": unversioned("foreign: codex config.toml revert in the vendor home"),
-	"internal/agent/render_codex_settings.go:writeCodexConfig":         unversioned("foreign: codex config.toml in the vendor home"),
+	"internal/codex/render_codex_settings.go:restoreCodexConfigLocked": unversioned("foreign: codex config.toml revert in the vendor home"),
+	"internal/codex/render_codex_settings.go:writeCodexConfig":         unversioned("foreign: codex config.toml in the vendor home"),
 	"internal/agent/render.go:commitOverlayFile":                       unversioned("foreign: generated vendor overlay, vendor-owned shape"),
 	"internal/agent/render_versions.go:backupAndWrite":                 unversioned("foreign: vendor config plus its backup"),
 	"internal/agent/render_versions.go:revertOne":                      unversioned("foreign: vendor config revert"),
@@ -147,8 +147,8 @@ var writers = map[string]string{
 	"internal/vault/vault.go:create":                                   "vault",
 	"internal/agent/job.go:SpawnArgv":                                  unversioned("log: vendor job log, humans only"),
 	"internal/agent/review/review.go:ReviewArgs":                       unversioned("foreign: temp diff handed to a vendor CLI"),
-	"internal/agent/codexcatalog.go:codexCatalogPath":                  "codex-catalog",
-	"internal/agent/codexcatalog.go:writeCodexCatalog":                 "codex-catalog",
+	"internal/codex/codexcatalog.go:codexCatalogPath":                  "codex-catalog",
+	"internal/codex/codexcatalog.go:writeCodexCatalog":                 "codex-catalog",
 	"internal/agent/copilot_home.go:copySettings":                      unversioned("foreign: copilot private home settings copy"),
 	"internal/agentconfig/render_opencode.go:WriteOpencodeOverlay":     "opencode-overlay",
 	"internal/agent/opencodeauth.go:updateOpencodeDiskCache":           "opencode-auth-cache",

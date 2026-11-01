@@ -3,11 +3,32 @@ package agent
 import (
 	"encoding/json"
 	"fmt"
+	"io"
+	"os"
 	"strings"
 
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
 )
+
+// CatalogWarn receives catalog warnings (codex and opencode menus).
+var CatalogWarn io.Writer = os.Stderr
+
+// SetCatalogWarn redirects catalog warnings and returns the previous writer; tests use it to keep stderr quiet.
+func SetCatalogWarn(w io.Writer) io.Writer { old := CatalogWarn; CatalogWarn = w; return old }
+
+// MenuWire spells a bare menu id the way p serves it; an id outside the catalog still takes the row's prefix once.
+func MenuWire(p *providers.Provider, id string) string {
+	if w := p.WireModel(id); w != id {
+		return w
+	}
+	rule := p.SpellingRule()
+	if _, _, known := models.Resolve(id); known || rule == "" ||
+		strings.HasPrefix(id, models.DatabricksPrefix) || strings.HasPrefix(id, "system.ai.") {
+		return id
+	}
+	return models.Wire(rule, id)
+}
 
 // opencodeDatabricks is the interactive databricks launch: the curated menu split over a chat provider
 // (openai-compatible), a Responses provider (<id>-gpt, GPT-6 rejects chat tool calls) and a native Anthropic one (<id>-claude).
@@ -47,7 +68,7 @@ func opencodeDatabricks(p *providers.Provider, id, dialect, base, model, cred st
 	}
 	chat, resp, claude, allowed, dropped := splitMenu(p, claudeBase != "")
 	if len(dropped) > 0 {
-		fmt.Fprintf(catalogWarn, "opencode: %s has no openai route; left out of the menu: %s\n", p.Name, strings.Join(dropped, ", "))
+		fmt.Fprintf(CatalogWarn, "opencode: %s has no openai route; left out of the menu: %s\n", p.Name, strings.Join(dropped, ", "))
 	}
 	for _, alias := range models.AliasNames {
 		if s := models.Strip1M(p.Models[alias]); s != "" {
@@ -93,7 +114,7 @@ func opencodeDatabricks(p *providers.Provider, id, dialect, base, model, cred st
 func splitMenu(p *providers.Provider, claudeRoute bool) (chat, resp, claude map[string]any, allowed map[string]bool, dropped []string) {
 	chat, resp, claude, allowed = map[string]any{}, map[string]any{}, map[string]any{}, map[string]bool{}
 	for _, m := range providers.OpencodeMenu() {
-		wire := menuWire(p, m.ID) // the catalog spells the id the way this row serves it
+		wire := MenuWire(p, m.ID) // the catalog spells the id the way this row serves it
 		allowed[wire] = true
 		entry := map[string]any{"name": m.Label + " · " + p.Name}
 		switch {

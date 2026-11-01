@@ -172,19 +172,6 @@ func (v cliEngine) Run(ctx context.Context, req RunOptions, sink Sink) (Result, 
 	return v.Exec(ctx, p, req, sink)
 }
 
-// codexImageArgs adds `-i <img>` after the exec subcommand; -i is variadic, so the next token must be a flag.
-func codexImageArgs(argv, attach []string) []string {
-	images, _ := SplitImages(attach)
-	if len(images) == 0 || len(argv) == 0 || argv[0] != "exec" {
-		return argv
-	}
-	out := []string{"exec"}
-	for _, p := range images {
-		out = append(out, "-i", p)
-	}
-	return append(out, argv[1:]...)
-}
-
 // EmptyAnswer: a clean exit with no text is a failure the caller must see, not a blank success.
 func EmptyAnswer(name string) error {
 	return &Error{Kind: KindFatal, Agent: name,
@@ -262,7 +249,7 @@ func heartbeat(lg StreamLog, i *idleReader, name string) (stop func()) {
 			case <-t.C:
 				quiet := time.Since(time.Unix(0, atomic.LoadInt64(&i.last))).Round(time.Second)
 				if quiet >= heartbeatEvery {
-					lg.emit("heartbeat", fmt.Sprintf("%s still running, no output for %s", name, quiet))
+					lg.Emit("heartbeat", fmt.Sprintf("%s still running, no output for %s", name, quiet))
 				}
 			}
 		}
@@ -338,7 +325,7 @@ func parseOpenCodeStream(br *bufio.Reader, sink Sink, onMeaningful func(), logs 
 				return false, err
 			}
 			texts = append(texts, ev.Part.Text)
-			lg.emit("assistant", ev.Part.Text)
+			lg.Emit("assistant", ev.Part.Text)
 		case "tool", "tool_use":
 			if err := emitOpenCodeTool(sink, ev, seenTools); err != nil {
 				return false, err
@@ -349,7 +336,7 @@ func parseOpenCodeStream(br *bufio.Reader, sink Sink, onMeaningful func(), logs 
 			res.Usage.CacheReadTokens += t.Cache.Read
 			res.Usage.CacheCreationTokens += t.Cache.Write
 			res.Usage.OutputTokens += t.Output + t.Reasoning
-			lg.emit("result", fmt.Sprintf("step finished, tokens in=%d out=%d", t.Input, t.Output+t.Reasoning))
+			lg.Emit("result", fmt.Sprintf("step finished, tokens in=%d out=%d", t.Input, t.Output+t.Reasoning))
 		case "error":
 			msg := cmp.Or(ev.Error.Data.Message, ev.Error.Name, "unknown error")
 			errs = append(errs, msg)
@@ -398,16 +385,6 @@ func (h *HeadBuffer) Write(p []byte) (int, error) {
 }
 
 func (h *HeadBuffer) String() string { return string(h.buf) }
-
-// sessionFromBanner reads codex exec's `session id: <id>` line, so a new run's envelope can be resumed.
-func sessionFromBanner(banner string) string {
-	for line := range strings.SplitSeq(banner, "\n") {
-		if v, ok := strings.CutPrefix(strings.TrimSpace(line), "session id:"); ok {
-			return strings.TrimSpace(v)
-		}
-	}
-	return ""
-}
 
 // directCtx carries req.Direct to Configure (skip the router).
 func directCtx(ctx context.Context, req RunOptions) context.Context {

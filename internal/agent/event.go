@@ -186,7 +186,7 @@ func (r *runSink) Emit(ev Event) error {
 // toolEvent is a tool_use event for the named tool.
 // EmitError logs msg as an error line and emits it as an EventError, returning the sink's error.
 func EmitError(lg StreamLog, sink Sink, msg string) error {
-	lg.emit("error", msg)
+	lg.Emit("error", msg)
 	return sink.Emit(Event{Type: EventError, Text: msg})
 }
 

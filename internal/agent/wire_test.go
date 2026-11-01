@@ -80,9 +80,9 @@ func TestConfigureRouteUsesServesReason(t *testing.T) {
 func captureCatalogWarn(t *testing.T) *strings.Builder {
 	t.Helper()
 	var warn strings.Builder
-	old := catalogWarn
-	catalogWarn = &warn
-	t.Cleanup(func() { catalogWarn = old })
+	old := CatalogWarn
+	CatalogWarn = &warn
+	t.Cleanup(func() { CatalogWarn = old })
 	return &warn
 }
 
@@ -169,29 +169,6 @@ func TestCopilotRegistryEligible(t *testing.T) {
 	ctx := WithDirect(t.Context())
 	if UsesCopilotRegistry(ctx, row(nil)) || !UsesCopilotRegistry(t.Context(), row(nil)) {
 		t.Error("UsesCopilotRegistry must follow CopilotRegistryEligible")
-	}
-}
-
-func TestMenuWire(t *testing.T) {
-	p := dbxRow("qa", "databricks-")
-	cases := []struct{ id, want string }{
-		{"gpt-6-1-sol", "databricks-gpt-6-1-sol"},
-		{"glm-5-3", "databricks-glm-5-3"},                         // a version-looking id is never rewritten
-		{"databricks-glm-5-3", "databricks-glm-5-3"},              // already wire: no double prefix
-		{"new-live-only-model", "databricks-new-live-only-model"}, // outside the catalog still takes the row's prefix
-	}
-	for _, c := range cases {
-		if got := menuWire(p, c.id); got != c.want {
-			t.Errorf("menuWire(%q) = %q, want %q", c.id, got, c.want)
-		}
-	}
-}
-
-func TestCodexSlug(t *testing.T) {
-	for id, want := range map[string]string{"gpt-6-1-sol": "gpt-6.1-sol", "gpt-6-luna": "gpt-6-luna", "glm-5-3": "glm-5.3", "unknown-9-9": "unknown-9-9"} {
-		if got := codexSlug(id); got != want {
-			t.Errorf("codexSlug(%q) = %q, want %q", id, got, want)
-		}
 	}
 }
 

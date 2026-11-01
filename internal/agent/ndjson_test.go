@@ -24,13 +24,6 @@ func ndjsonCases() []nonJSONCase {
 			res, err := parseClaudeStream(newBR(in), NewTextSink(&out), lg)
 			return res, out.String(), err
 		}},
-		{"codex", codexFixture, func(s string) string {
-			return `{"type":"item.completed","item":{"id":"i9","type":"agent_message","text":"` + s + `"}}` + "\n"
-		}, func(in string, lg StreamLog) (Result, string, error) {
-			var out strings.Builder
-			res, err := parseCodexStream(newBR(in), NewTextSink(&out), nil, lg)
-			return res, out.String(), err
-		}},
 		{"agy", agyOK, func(s string) string {
 			return `{"event":"step_update","step_update":{"conversation_id":"415ed744","step_index":1,"state":"ACTIVE","step_type":"agent_response","text_delta":"` + s + `"}}` + "\n"
 		}, func(in string, lg StreamLog) (Result, string, error) {

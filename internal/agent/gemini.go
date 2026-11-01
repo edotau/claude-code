@@ -331,7 +331,7 @@ func parseAgyEvents(br *bufio.Reader, sink Sink, once bool, lg StreamLog) (res R
 	defer func() { res.Transport = ts.Result() }()
 	var answer, pending strings.Builder
 	flush := func() {
-		lg.emit("assistant", pending.String())
+		lg.Emit("assistant", pending.String())
 		pending.Reset()
 	}
 	var response string
@@ -358,7 +358,7 @@ func parseAgyEvents(br *bufio.Reader, sink Sink, once bool, lg StreamLog) (res R
 				}
 				if key := t + "/" + st; key != lastStep {
 					lastStep = key
-					lg.emit("step", t+" "+strings.ToLower(st))
+					lg.Emit("step", t+" "+strings.ToLower(st))
 				}
 			}
 			if ev.StepUpdate.StepType != "agent_response" || ev.StepUpdate.TextDelta == "" {
@@ -381,7 +381,7 @@ func parseAgyEvents(br *bufio.Reader, sink Sink, once bool, lg StreamLog) (res R
 				}
 				return false, err
 			}
-			lg.emit("result", cmp.Or(response, answer.String()))
+			lg.Emit("result", cmp.Or(response, answer.String()))
 			if once {
 				return true, nil
 			}

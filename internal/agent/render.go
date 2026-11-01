@@ -5,15 +5,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"io"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
-	"sync"
 
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
@@ -32,7 +29,7 @@ type RenderOptions struct {
 	ForceHomes bool      // force agent-config renders even when CLAUDE_CONFIG_DIR is not the default ~/.claude
 	// Confirm asks whether to overwrite path given its lost hand-edited lines; nil means write and warn.
 	Confirm func(path string, lost []string) bool
-	// PrepareConfigs' write queue: commitFile and the JSONC retire append to it, Apply runs it.
+	// PrepareConfigs' write queue: CommitFile and the JSONC retire append to it, Apply runs it.
 	staged *[]func() error
 }
 
@@ -111,153 +108,8 @@ func PrepareConfigs(o RenderOptions) (*RenderPlan, bool, error) {
 	return p, drift, nil
 }
 
-// --- codex: ~/.codex/config.toml, a banner-marked [model_providers.claude-code] block ---
-
-// codexBannerRE is compiled lazily: a package-level MustCompile runs at every process start (hooks, statusline).
-var codexBannerRE = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(?s)# >>> claude-code:managed:begin >>>\n.*?\n# <<< claude-code:managed:end <<<\n?`)
-})
-
-func codexBannerSection(block string) string {
-	return "# >>> claude-code:managed:begin >>>\n" + block + "\n# <<< claude-code:managed:end <<<\n"
-}
-
-func codexProviderSection(reg *providers.Registry, sel providers.Selection, existing string, out io.Writer) (string, error) {
-	ctx := context.Background()
-	target, note, err := schemaFor("codex").ResolveTarget(reg, sel, false)
-	if err != nil {
-		fmt.Fprintf(out, "codex: skipped: %v\n", err)
-		return "", nil
-	}
-	if note != "" {
-		fmt.Fprintln(out, note)
-	}
-	if target.Provider != nil && target.Provider.Auth.Method() == providers.AuthCLI {
-		keys := codexPermissionKeys(existing, out)
-		if keys == "" {
-			fmt.Fprintf(out, "codex: skipped: %s runs on codex's own login; no config.toml block\n", target.Provider.Name)
-			return "", nil
-		}
-		fmt.Fprintf(out, "codex: %s runs on codex's own login; writing approval/sandbox keys only\n", target.Provider.Name)
-		return codexBannerSection(strings.TrimRight(keys, "\n")), nil
-	}
-	_, argv, err := schemaFor("codex").Configure(ctx, target, "")
-	if err != nil {
-		fmt.Fprintf(out, "codex: skipped: %v\n", err)
-		return "", nil
-	}
-	block, err := codexBlockFromArgv(argv)
-	if err != nil {
-		return "", fmt.Errorf("codex: %w", err)
-	}
-	if keys := codexPermissionKeys(existing, out); keys != "" {
-		block = keys + "\n" + block
-	}
-	return codexBannerSection(block), nil
-}
-
-// codexCredentialStoreRE matches a top-level cli_auth_credentials_store key already set by the user.
-var codexCredentialStoreRE = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(?m)^cli_auth_credentials_store\s*=`)
-})
-
-// codexCredStoreKey keeps ~/.codex/auth.json out of plaintext by pointing codex at the OS keyring;
-// it never overwrites a value the user already set outside the managed banner.
-func codexCredStoreKey(existing string, out io.Writer) string {
-	if codexCredentialStoreRE().MatchString(existing) {
-		fmt.Fprintln(out, "codex: cli_auth_credentials_store already set by the user; leaving it")
-		return ""
-	}
-	return `cli_auth_credentials_store = "keyring"` + "\n"
-}
-
-// codexPermissionKeys renders approval_policy/sandbox_mode/cli_auth_credentials_store as top-level
-// TOML keys; approval/sandbox skip when unset, an agent config load error is treated as unset.
-func codexPermissionKeys(existing string, out io.Writer) string {
-	cfg, err := agentconfig.LoadConfig()
-	if err != nil {
-		fmt.Fprintf(out, "codex: vendorconfig: %v\n", err)
-		return ""
-	}
-	perm := cfg.Agent("codex").Permission
-	var b strings.Builder
-	if perm.ApprovalPolicy != "" {
-		fmt.Fprintf(&b, "approval_policy = %q\n", perm.ApprovalPolicy)
-	}
-	if perm.SandboxMode != "" {
-		fmt.Fprintf(&b, "sandbox_mode = %q\n", perm.SandboxMode)
-	}
-	b.WriteString(codexCredStoreKey(existing, out))
-	return b.String()
-}
-
-// codexBlockFromArgv rebuilds a `[model_providers.claude-code]` TOML block from the `-c key=value`
-// pairs the Configure(codex) result returns, renaming the provider id to the fixed "claude-code".
-func codexBlockFromArgv(argv []string) (string, error) {
-	var model, tableVal, catalog string
-	for i := 0; i+1 < len(argv); i++ {
-		if argv[i] != "-c" {
-			continue
-		}
-		k, v, ok := strings.Cut(argv[i+1], "=")
-		if !ok {
-			continue
-		}
-		switch {
-		case k == "model":
-			model = v
-		case k == "model_catalog_json":
-			catalog = v
-		case strings.HasPrefix(k, "model_providers."):
-			tableVal = v
-		}
-	}
-	if tableVal == "" {
-		return "", errors.New("no model_providers table in codex argv")
-	}
-	var b strings.Builder
-	fmt.Fprintf(&b, "model_provider = %q\n", "claude-code")
-	fmt.Fprintf(&b, "model = %s\n", model)
-	if catalog != "" {
-		fmt.Fprintf(&b, "model_catalog_json = %s\n", catalog)
-	}
-	b.WriteString("\n")
-	b.WriteString("[model_providers.claude-code]\n")
-	for _, f := range splitTopLevelInline(tableVal) {
-		b.WriteString(f + "\n")
-	}
-	return strings.TrimRight(b.String(), "\n"), nil
-}
-
-// splitTopLevelInline splits a TOML inline table "{ k = v, k2 = { ... } }" on its top-level commas.
-func splitTopLevelInline(s string) []string {
-	s = strings.TrimSpace(s)
-	s = strings.TrimPrefix(s, "{")
-	s = strings.TrimSuffix(s, "}")
-	s = strings.TrimSpace(s)
-	if s == "" {
-		return nil
-	}
-	var parts []string
-	depth, start := 0, 0
-	for i, r := range s {
-		switch r {
-		case '{':
-			depth++
-		case '}':
-			depth--
-		case ',':
-			if depth == 0 {
-				parts = append(parts, strings.TrimSpace(s[start:i]))
-				start = i + 1
-			}
-		}
-	}
-	return append(parts, strings.TrimSpace(s[start:]))
-}
-
-// commitFile is the shared dry-run/check/write decision once a renderer has the next byte slice.
-func commitFile(path string, raw, next []byte, existed bool, o RenderOptions, out io.Writer, label string) (bool, error) {
+// CommitFile is the shared dry-run/check/write decision once a renderer has the next byte slice.
+func CommitFile(path string, raw, next []byte, existed bool, o RenderOptions, out io.Writer, label string) (bool, error) {
 	changed := !bytes.Equal(next, raw)
 	switch {
 	case o.DryRun:
@@ -277,13 +129,13 @@ func commitFile(path string, raw, next []byte, existed bool, o RenderOptions, ou
 		}
 		return changed, nil
 	case !changed:
-		if label == "codex" {
-			base, err := agentconfig.LoadCodexBaseline(path)
+		if ops := fileOps[label]; ops.LoadBaseline != nil {
+			base, err := ops.LoadBaseline(path)
 			if err != nil {
 				return false, err
 			}
 			if base == nil && existed {
-				*o.staged = append(*o.staged, func() error { return agentconfig.SaveCodexBaseline(path, next) })
+				*o.staged = append(*o.staged, func() error { return ops.SaveBaseline(path, next) })
 			}
 			fmt.Fprintf(out, "%s: %s unchanged\n", label, path)
 			return false, nil
@@ -300,7 +152,7 @@ func commitFile(path string, raw, next []byte, existed bool, o RenderOptions, ou
 }
 
 // commitWrite runs the lost-lines check (prompting or warning), writes path, and refreshes its
-// baseline; it is the body of every commitFile staged write.
+// baseline; it is the body of every CommitFile staged write.
 func commitWrite(path string, raw, next []byte, existed bool, o RenderOptions, out io.Writer, label string) error {
 	lost, err := lostLinesFor(label, path, raw, next)
 	if err != nil {
@@ -321,8 +173,8 @@ func commitWrite(path string, raw, next []byte, existed bool, o RenderOptions, o
 		}
 	}
 	write := backupAndWrite
-	if label == "codex" {
-		write = writeCodexConfig
+	if ops := fileOps[label]; ops.Write != nil {
+		write = ops.Write
 	}
 	if err := write(path, raw, next, existed); err != nil {
 		return fmt.Errorf("%s: %w", label, err)
@@ -356,7 +208,7 @@ func renderOpenCodeOverlay(o RenderOptions, out io.Writer) (bool, error) {
 	return cfgChanged || tuiChanged, nil
 }
 
-// commitOverlayFile is commitFile's dry-run/check/write decision, minus the lost-hand-edited-lines
+// commitOverlayFile is CommitFile's dry-run/check/write decision, minus the lost-hand-edited-lines
 // check and baseline tracking: the overlay is never hand-edited, so there is nothing to lose.
 func commitOverlayFile(path string, raw, next []byte, o RenderOptions, out io.Writer, label string) (bool, error) {
 	changed := !bytes.Equal(raw, next)
@@ -459,7 +311,7 @@ func renderGeminiSettings(home string, o RenderOptions, out io.Writer) (bool, er
 	if err != nil {
 		return false, fmt.Errorf("gemini-settings: %w", err)
 	}
-	return commitFile(path, raw, append(body, '\n'), existed, o, out, "gemini-settings")
+	return CommitFile(path, raw, append(body, '\n'), existed, o, out, "gemini-settings")
 }
 
 // Copilot hooks load from the user directory; plugin preToolUse hooks do not fire.
@@ -527,5 +379,5 @@ func renderCopilotSettings(home string, o RenderOptions, out io.Writer) (bool, e
 	if err != nil {
 		return false, fmt.Errorf("copilot-settings: %w", err)
 	}
-	return commitFile(path, raw, append(body, '\n'), existed, o, out, "copilot-settings")
+	return CommitFile(path, raw, append(body, '\n'), existed, o, out, "copilot-settings")
 }
