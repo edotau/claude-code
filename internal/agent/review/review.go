@@ -173,7 +173,7 @@ const reviewPromptNeutral = `Review the attached diff for correctness, regressio
 Findings as one per line: [SEVERITY] file:line — issue — fix, ordered CRITICAL to LOW.
 The first line of your answer is the verdict alone: SHIP IT, NEEDS WORK or BLOCK.`
 
-// reviewPromptAdversarial is agents/codex.md's "Adversarial diff review (`/codex`)" prompt, verbatim.
+// reviewPromptAdversarial is agents/codex.md's "Adversarial diff review (`@agent-codex`)" prompt, verbatim.
 const reviewPromptAdversarial = `You are an adversarial reviewer: find what the author missed, not what is correct. Review the attached diff in
 priority order — CRITICAL security, data loss, races, leaks; HIGH bugs, broken error handling, API misuse;
 MEDIUM missing tests for new behavior, brittle assumptions, unhandled edge cases; LOW maintainability.

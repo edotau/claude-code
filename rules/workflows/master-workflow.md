@@ -1,7 +1,6 @@
 ---
 paths:
   - "skills/subagent-workflows/**"
-  - "commands/copilot.md"
   - "commands/code-workers.md"
   - "agents/*.md"
   - "workflows/*.js"
@@ -25,7 +24,7 @@ CLASSIFY → REVIEW → CODEBASE INTEL → RESEARCH → PLAN → [REFINE: opt-in
 | 6. Dispatch | `skills/subagent-workflows/SKILL.md` | Completed sub-tasks | Each passes its own check |
 | 7. Merge | `claude-code worktree merge` (if a worktree was used) | Merged diff | Clean merge, no leaf still running |
 | 8. Verify | `rules/standards/quality.md` → Verification Order (simplify is step 5) | Simplified, verified diff | Verification Order green |
-| 9. Commit | `/copilot commit` (or plain git) | Commit on branch | Clean tree |
+| 9. Commit | `@agent-copilot commit` (or plain git) | Commit on branch | Clean tree |
 
 ## Phase 0: Classify
 
@@ -91,18 +90,18 @@ and stale tests the change left behind; fold near-duplicate tests. Net test coun
 
 ## Phase 9: Commit
 
-Per `rules/standards/worktree-git.md`; `/copilot commit` executes, `/copilot pr` when a PR is requested.
+Per `rules/standards/worktree-git.md`; `@agent-copilot commit` executes, `@agent-copilot pr` when a PR is requested.
 
 ## Quick reference
 
 | Scenario | Path |
 |----------|------|
-| Bug fix (LOW) | fix → live re-run → regression test → `/copilot commit` |
+| Bug fix (LOW) | fix → live re-run → regression test → `@agent-copilot commit` |
 | One-module feature (MEDIUM) | review → plan → implement → verify (simplify is its step 5) → commit |
 | Cross-module feature (HIGH) | review → orchestrate `[--refine]` → verify → commit |
 | Tech debt | `skills/evaluate-code/references/techdebt.md` |
 | Review current changes | `/code-review` (security is an `evaluate-code` lens, not an agent) |
-| Second opinion | `/codex` |
+| Second opinion | `@agent-codex` |
 
 Saved workflows (`workflows/*.js`) run only when the user asks:
 `skills/subagent-workflows/references/saved-workflows.md`.

@@ -1,7 +1,7 @@
 ---
 name: claude
 description: |
-  Full-lifecycle coding near the main thread (/claude); does its own work - not the fan-out implementation leaf (that is code-worker). Explores, designs, implements, simplifies, and reviews before handing off: "how should we build this" through "ready to verify", and "review my diff". Operationalizes CLAUDE.md discipline (Clarify Assumptions, Simplicity First, Surgical Changes, Goal-Driven Execution).
+  Full-lifecycle coding near the main thread (@agent-claude); does its own work - not the fan-out implementation leaf (that is code-worker). Explores, designs, implements, simplifies, and reviews before handing off: "how should we build this" through "ready to verify", and "review my diff". Operationalizes CLAUDE.md discipline (Clarify Assumptions, Simplicity First, Surgical Changes, Goal-Driven Execution).
 
   <example>
   Context: Cross-module change with real design choices to make.
