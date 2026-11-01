@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/edotau/claude-code/internal/agentconfig"
 	"io"
 	"os"
 	"path/filepath"
@@ -184,7 +185,7 @@ func codexCredStoreKey(existing string, out io.Writer) string {
 // codexPermissionKeys renders approval_policy/sandbox_mode/cli_auth_credentials_store as top-level
 // TOML keys; approval/sandbox skip when unset, an agent config load error is treated as unset.
 func codexPermissionKeys(existing string, out io.Writer) string {
-	cfg, err := LoadConfig()
+	cfg, err := agentconfig.LoadConfig()
 	if err != nil {
 		fmt.Fprintf(out, "codex: vendorconfig: %v\n", err)
 		return ""
@@ -288,12 +289,12 @@ func commitFile(path string, raw, next []byte, existed bool, o RenderOptions, ou
 		return changed, nil
 	case !changed:
 		if label == "codex" {
-			base, err := LoadCodexBaseline(path)
+			base, err := agentconfig.LoadCodexBaseline(path)
 			if err != nil {
 				return false, err
 			}
 			if base == nil && existed {
-				*o.staged = append(*o.staged, func() error { return SaveCodexBaseline(path, next) })
+				*o.staged = append(*o.staged, func() error { return agentconfig.SaveCodexBaseline(path, next) })
 			}
 			fmt.Fprintf(out, "%s: %s unchanged\n", label, path)
 			return false, nil
@@ -349,7 +350,7 @@ func commitWrite(path string, raw, next []byte, existed bool, o RenderOptions, o
 
 // renderOpenCodeOverlay writes the tracked opencode.json/tui.json overlay templates.
 func renderOpenCodeOverlay(o RenderOptions, out io.Writer) (bool, error) {
-	cfgPath, cfgBody, tuiPath, tuiBody, err := OpencodeOverlayRendered()
+	cfgPath, cfgBody, tuiPath, tuiBody, err := agentconfig.OpencodeOverlayRendered()
 	if err != nil {
 		return false, fmt.Errorf("opencode: %w", err)
 	}
@@ -409,7 +410,7 @@ func reportGemini(sel providers.Selection, out io.Writer) (bool, error) {
 // renderGeminiSettings merges the spec's exact-match guard denies into agy's
 // ~/.gemini/antigravity-cli/settings.json permissions.deny, preserving every other key.
 func renderGeminiSettings(home string, o RenderOptions, out io.Writer) (bool, error) {
-	cfg, err := LoadConfig()
+	cfg, err := agentconfig.LoadConfig()
 	if err != nil {
 		fmt.Fprintf(out, "gemini-settings: skipped: %v\n", err)
 		return false, nil
@@ -509,7 +510,7 @@ func renderCopilot(reg *providers.Registry, sel providers.Selection, home string
 // renderCopilotSettings merges defaultPermissionMode from the agent spec into ~/.copilot/settings.json,
 // keeping every other key untouched; a non-JSON existing file is skipped, never clobbered.
 func renderCopilotSettings(home string, o RenderOptions, out io.Writer) (bool, error) {
-	cfg, err := LoadConfig()
+	cfg, err := agentconfig.LoadConfig()
 	if err != nil {
 		fmt.Fprintf(out, "copilot-settings: skipped: %v\n", err)
 		return false, nil

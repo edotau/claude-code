@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"fmt"
+	"github.com/edotau/claude-code/internal/agentconfig"
 	"strings"
 	"testing"
 
@@ -67,7 +68,7 @@ func routeEnvLast(launchEnv, env []string) []string {
 // an already-built launch; a broken overlay is best-effort and must not break the launch.
 func (s Schema) applyLaunch(env, argv []string, args bool) ([]string, []string) {
 	env = append(env, s.eng().launchEnv()...)
-	vc, err := LoadConfig()
+	vc, err := agentconfig.LoadConfig()
 	if err != nil {
 		return env, argv
 	}

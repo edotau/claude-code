@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"github.com/edotau/claude-code/internal/agentconfig"
 	"io"
 	"os"
 	"path/filepath"
@@ -73,7 +74,7 @@ func baselinePath(label, path string) string {
 // writeBaseline caches next as the baseline for path's next commitFile call.
 func writeBaseline(label, path string, next []byte) error {
 	if label == "codex" {
-		return SaveCodexBaseline(path, next)
+		return agentconfig.SaveCodexBaseline(path, next)
 	}
 	return paths.AtomicWrite(baselinePath(label, path), next, 0o600)
 }
@@ -85,7 +86,7 @@ func lostLinesFor(label, path string, theirs, next []byte) ([]string, error) {
 	var base []byte
 	var err error
 	if label == "codex" {
-		base, err = LoadCodexBaseline(path)
+		base, err = agentconfig.LoadCodexBaseline(path)
 	} else {
 		base, err = os.ReadFile(baselinePath(label, path))
 		if err != nil {

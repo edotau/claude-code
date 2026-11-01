@@ -13,6 +13,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/edotau/claude-code/internal/agentconfig"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -21,7 +22,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
@@ -78,7 +78,7 @@ func agentConfigs() []HistoryFile {
 	if err != nil {
 		return out
 	}
-	if codexCfg, err := agent.CodexConfigPath(""); err == nil {
+	if codexCfg, err := agentconfig.CodexConfigPath(""); err == nil {
 		out = append(out, HistoryFile{Label: "codex-config.toml", Path: codexCfg})
 	}
 	if cfgHome, err := os.UserConfigDir(); err == nil {

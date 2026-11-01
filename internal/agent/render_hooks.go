@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/edotau/claude-code/internal/agentconfig"
 	"io"
 	"maps"
 	"os"
@@ -323,7 +324,7 @@ func renderCodex(reg *providers.Registry, sel providers.Selection, o RenderOptio
 	if err != nil {
 		return false, err
 	}
-	path, err := CodexConfigPath(o.Home)
+	path, err := agentconfig.CodexConfigPath(o.Home)
 	if err != nil {
 		return false, err
 	}
@@ -340,7 +341,7 @@ func renderCodex(reg *providers.Registry, sel providers.Selection, o RenderOptio
 	next := string(raw)
 	if section != "" {
 		next = codexBannerRE().ReplaceAllString(next, "") // strip any prior banner, then reinsert at the top-level spot
-		next = insertTopLevelTOML(next, section)
+		next = agentconfig.InsertTopLevelTOML(next, section)
 	}
 
 	// Compute the hooks merge (and read the existing hooks.json) before computing trust entries or
@@ -358,12 +359,12 @@ func renderCodex(reg *providers.Registry, sel providers.Selection, o RenderOptio
 		return false, fmt.Errorf("codex-hooks: %w", err)
 	}
 
-	entries, err := codexTrustEntries(hooksPath, mergedHooks)
+	entries, err := agentconfig.CodexTrustEntries(hooksPath, mergedHooks)
 	if err != nil {
 		return false, err
 	}
-	next = mergeCodexTrust(next, entries)
-	overlay, err := LoadCodexOverlay()
+	next = agentconfig.MergeCodexTrust(next, entries)
+	overlay, err := agentconfig.LoadCodexOverlay()
 	if err != nil {
 		return false, err
 	}

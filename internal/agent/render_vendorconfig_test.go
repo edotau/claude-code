@@ -69,7 +69,7 @@ func TestCodexApprovalKeysPrecedeExistingTables(t *testing.T) {
 
 // topLevelKeyCount counts "key = " assignments in content that land before the first top-level
 // [table] header (TOML has no way for such a key to belong to any table), skipping bracket-nested
-// and multiline-string content the same way agent.InsertTopLevelTOML does.
+// and multiline-string content the same way agentconfig.InsertTopLevelTOML does.
 func topLevelKeyCount(content, key string) int {
 	count := 0
 	for _, line := range strings.SplitAfter(content, "\n") {

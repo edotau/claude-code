@@ -3,6 +3,7 @@ package configure
 import (
 	"bufio"
 	"bytes"
+	"github.com/edotau/claude-code/internal/agentconfig"
 	"os"
 	"path/filepath"
 	"strings"
@@ -62,7 +63,7 @@ func TestCodexSettingsMenuStagesUntilSave(t *testing.T) {
 			if !runCodexSettingsMenu(d, map[string]string{}, map[string]string{"model_verbosity": "high"}) {
 				t.Fatalf("menu failed: %s", out.String())
 			}
-			ov, err := agent.LoadCodexOverlay()
+			ov, err := agentconfig.LoadCodexOverlay()
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -74,7 +75,7 @@ func TestCodexSettingsMenuStagesUntilSave(t *testing.T) {
 				if ov["model_verbosity"] != "low" || !strings.Contains(string(after), `model_verbosity = "low"`) {
 					t.Fatalf("saved preference missing: overlay=%v native=%s", ov, after)
 				}
-				backup, found, err := agent.LatestCodexBackup(path)
+				backup, found, err := agentconfig.LatestCodexBackup(path)
 				if err != nil || !found || !bytes.Equal(backup.Data, before) {
 					t.Fatalf("original native settings not backed up: found=%v err=%v", found, err)
 				}
@@ -98,7 +99,7 @@ func TestCodexSettingsReportsNeverWrite(t *testing.T) {
 	for _, mode := range []string{"report", "check", "dry-run", "piped"} {
 		t.Run(mode, func(t *testing.T) {
 			home, path := codexSettingsFixture(t)
-			if err := agent.SaveCodexOverlay(map[string]string{"model_verbosity": "low"}); err != nil {
+			if err := agentconfig.SaveCodexOverlay(map[string]string{"model_verbosity": "low"}); err != nil {
 				t.Fatal(err)
 			}
 			nativeBefore, err := os.ReadFile(path)
@@ -151,7 +152,7 @@ func TestCodexSettingsApplyFailureIsReported(t *testing.T) {
 	if !strings.Contains(out.String(), "preferences saved; native apply failed") {
 		t.Fatalf("missing partial-save explanation: %s", out.String())
 	}
-	ov, err := agent.LoadCodexOverlay()
+	ov, err := agentconfig.LoadCodexOverlay()
 	if err != nil || ov["model_verbosity"] != "low" {
 		t.Fatalf("saved preference unavailable after apply failure: %v, %v", ov, err)
 	}
@@ -163,14 +164,14 @@ func TestCodexSettingsApplyFailureIsReported(t *testing.T) {
 
 func TestCodexSettingsCheckDetectsUnappliedReset(t *testing.T) {
 	home, path := codexSettingsFixture(t)
-	if err := agent.SaveCodexOverlay(map[string]string{"model_verbosity": "low"}); err != nil {
+	if err := agentconfig.SaveCodexOverlay(map[string]string{"model_verbosity": "low"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := agent.ApplyCodexSettings(home); err != nil {
 		t.Fatal(err)
 	}
 	// A failed native reset leaves the new empty overlay saved and the old owned preference on disk.
-	if err := agent.SaveCodexOverlay(map[string]string{}); err != nil {
+	if err := agentconfig.SaveCodexOverlay(map[string]string{}); err != nil {
 		t.Fatal(err)
 	}
 	nativeBefore, err := os.ReadFile(path)

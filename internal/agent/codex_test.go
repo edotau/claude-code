@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"github.com/edotau/claude-code/internal/agentconfig"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -56,15 +57,15 @@ func TestCodexKeepsExplicitGPTModel(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s: %v", c.name, err)
 		}
-		if want := "model=" + tomlQuote(c.model); !slices.Contains(argv, want) {
+		if want := "model=" + agentconfig.TOMLQuote(c.model); !slices.Contains(argv, want) {
 			t.Errorf("%s: argv %q lacks %s", c.name, argv, want)
 		}
 		for _, sol := range []string{"gpt-6-1-sol", "databricks-gpt-6-1-sol"} {
-			if slices.Contains(argv, "model="+tomlQuote(sol)) {
+			if slices.Contains(argv, "model="+agentconfig.TOMLQuote(sol)) {
 				t.Errorf("%s: argv %q routed to %s", c.name, argv, sol)
 			}
 		}
-		if want := "model_reasoning_effort=" + tomlQuote("high"); !slices.Contains(argv, want) {
+		if want := "model_reasoning_effort=" + agentconfig.TOMLQuote("high"); !slices.Contains(argv, want) {
 			t.Errorf("%s: argv %q lacks %s", c.name, argv, want)
 		}
 	}
@@ -85,7 +86,7 @@ func TestCodexChatOnlyGPTSwapped(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if w := "model=" + tomlQuote(want); !slices.Contains(argv, w) {
+		if w := "model=" + agentconfig.TOMLQuote(want); !slices.Contains(argv, w) {
 			t.Errorf("%s: argv %q lacks %s", model, argv, w)
 		}
 	}
@@ -134,7 +135,7 @@ func TestCodexResponsesModel(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s: %v", c.name, err)
 		}
-		if want := "model=" + tomlQuote(c.want); !slices.Contains(argv, want) {
+		if want := "model=" + agentconfig.TOMLQuote(c.want); !slices.Contains(argv, want) {
 			t.Errorf("%s: argv %q lacks %s", c.name, argv, want)
 		}
 	}
