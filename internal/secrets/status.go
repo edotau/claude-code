@@ -4,6 +4,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 )
 
@@ -39,7 +40,7 @@ func Resolve(p *providers.Provider) ProviderStatus {
 		}
 	}
 	if st.Source == "" && p.Auth.File != "" {
-		if b, err := os.ReadFile(expandHome(p.Auth.File)); err == nil && strings.TrimSpace(string(b)) != "" {
+		if b, err := os.ReadFile(paths.ExpandHome(p.Auth.File)); err == nil && strings.TrimSpace(string(b)) != "" {
 			st.Source = "auth.file"
 		}
 	}
@@ -53,13 +54,4 @@ func Resolve(p *providers.Provider) ProviderStatus {
 		}
 	}
 	return st
-}
-
-func expandHome(p string) string {
-	if strings.HasPrefix(p, "~/") {
-		if h, err := os.UserHomeDir(); err == nil {
-			return h + p[1:]
-		}
-	}
-	return p
 }

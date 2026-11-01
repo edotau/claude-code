@@ -9,6 +9,8 @@ import (
 	"net"
 	"net/http"
 	"strings"
+
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // Authorize sets the provider's auth header and static headers on h. Passthrough leaves client auth untouched.
@@ -151,25 +153,23 @@ func ProbeCredential(ctx context.Context, p *Provider) (status, detail string) {
 		return "login", ""
 	}
 	_, err := LiveModels(ctx, p)
+	if err != nil {
+		detail = textutil.FirstLine(err.Error())
+		if len(detail) > 160 {
+			detail = detail[:160] + "…"
+		}
+	}
 	switch {
 	case err == nil:
 		return "verified", ""
 	case strings.Contains(err.Error(), " 401 ") || strings.Contains(err.Error(), " 403 ") ||
 		strings.Contains(err.Error(), ": 401") || strings.Contains(err.Error(), ": 403"):
-		return "rejected", firstLine(err.Error())
+		return "rejected", detail
 	default:
 		var ne net.Error
 		if errors.As(err, &ne) || strings.Contains(err.Error(), "connection refused") || strings.Contains(err.Error(), "no such host") {
-			return "unreachable", firstLine(err.Error())
+			return "unreachable", detail
 		}
-		return "unverified", firstLine(err.Error())
+		return "unverified", detail
 	}
-}
-
-func firstLine(s string) string {
-	s, _, _ = strings.Cut(s, "\n")
-	if len(s) > 160 {
-		s = s[:160] + "…"
-	}
-	return s
 }

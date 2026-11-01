@@ -2,6 +2,7 @@ package configure
 
 import (
 	"github.com/edotau/claude-code/internal/agentconfig"
+	"github.com/edotau/claude-code/internal/paths"
 	"maps"
 
 	"github.com/edotau/claude-code/internal/agent"
@@ -28,7 +29,7 @@ func runCodexSettings(d *dialog) bool {
 		d.printf("codex: %v\n", err)
 		return false
 	}
-	path, err := agentconfig.CodexConfigPath(d.o.Home)
+	path, err := paths.CodexConfigPath(d.o.Home)
 	if err != nil {
 		d.printf("codex: %v\n", err)
 		return false

@@ -224,13 +224,6 @@ func scoreStep(step string) (int, string) {
 	return 0, "none"
 }
 
-func firstLine(s string) string {
-	if before, _, ok := strings.Cut(s, "\n"); ok {
-		return before
-	}
-	return s
-}
-
 // analysis holds every field either JSON shape needs; RunGoals picks the shape at marshal time.
 type analysis struct {
 	source               string
@@ -265,7 +258,7 @@ func analyze(text, source string) analysis {
 	for _, step := range steps {
 		pts, level := scoreStep(step)
 		total += pts
-		results = append(results, StepResult{Title: textutil.TruncateRunes(firstLine(step), 120), Score: pts, Level: level})
+		results = append(results, StepResult{Title: textutil.TruncateRunes(textutil.FirstLine(step), 120), Score: pts, Level: level})
 	}
 
 	maxScore := len(steps) * 3

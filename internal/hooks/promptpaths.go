@@ -14,6 +14,7 @@ import (
 	"sync"
 
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // posixPathRE matches an absolute POSIX path token. Deliberately greedy-but-bounded: every hit is
@@ -83,9 +84,13 @@ func describe(p string) (detail string, isImage bool, ok bool) {
 	if err != nil || fi.IsDir() {
 		return "", false, false
 	}
+	size := strings.ReplaceAll(textutil.HumanBytes(fi.Size()), "iB", "B")
+	if fi.Size() >= 1<<50 {
+		size = fmt.Sprintf("%.1f TB", float64(fi.Size())/(1<<40))
+	}
 	kind, isImg := imageExts[strings.ToLower(filepath.Ext(p))]
 	if !isImg {
-		return humanBytes(fi.Size()), false, true
+		return size, false, true
 	}
 	if f, err := os.Open(p); err == nil {
 		cfg, _, derr := image.DecodeConfig(f)
@@ -93,10 +98,10 @@ func describe(p string) (detail string, isImage bool, ok bool) {
 			fmt.Fprintf(os.Stderr, "path-resolver: close %s: %v\n", p, cerr)
 		}
 		if derr == nil {
-			return fmt.Sprintf("%s %d×%d, %s", kind, cfg.Width, cfg.Height, humanBytes(fi.Size())), true, true
+			return fmt.Sprintf("%s %d×%d, %s", kind, cfg.Width, cfg.Height, size), true, true
 		}
 	}
-	return fmt.Sprintf("%s, %s", kind, humanBytes(fi.Size())), true, true
+	return fmt.Sprintf("%s, %s", kind, size), true, true
 }
 
 // collectReports resolves every path token to a report through the mount-table resolver. Ordered
@@ -218,19 +223,4 @@ const winTrim = ".,;:!?)]}'\""
 
 func scanWinTokens(text string) []pathToken {
 	return scanTokens(text, quotedWinPathRE(), winPathRE(), winTrim)
-}
-
-// humanBytes renders n as B/KB/MB/GB with one decimal above bytes.
-func humanBytes(n int64) string {
-	const unit = 1024
-	if n < unit {
-		return fmt.Sprintf("%d B", n)
-	}
-	f, suffix := float64(n), []string{"KB", "MB", "GB", "TB"}
-	i := -1
-	for f >= unit && i < len(suffix)-1 {
-		f /= unit
-		i++
-	}
-	return fmt.Sprintf("%.1f %s", f, suffix[i])
 }

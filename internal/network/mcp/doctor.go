@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/secrets/shapes"
 )
 
@@ -201,7 +202,7 @@ type Conflict struct {
 }
 
 // FindConflicts groups defs by server name and flags the ones with disagreeing resolved commands.
-// home expands ${HOME} / ~/ so equivalent targets compare equal across scopes.
+// home expands ${HOME}; a leading ~/ expands to the real home, so equivalent targets compare equal.
 func FindConflicts(defs []Def, home string) []Conflict {
 	byName := map[string][]Def{}
 	var names []string
@@ -221,12 +222,21 @@ func FindConflicts(defs []Def, home string) []Conflict {
 		resolved := map[string]bool{}
 		for _, r := range rows {
 			cmd := strings.ReplaceAll(r.D.display(), "${HOME}", home)
-			cmd = strings.ReplaceAll(cmd, "~/", home+"/")
+			cmd = expandArgsHome(cmd)
 			resolved[cmd] = true
 		}
 		out = append(out, Conflict{Server: name, Rows: rows, Real: len(resolved) > 1})
 	}
 	return out
+}
+
+// expandArgsHome expands a leading ~ or ~/ in each whitespace-separated argument of cmd.
+func expandArgsHome(cmd string) string {
+	args := strings.Fields(cmd)
+	for i, a := range args {
+		args[i] = paths.ExpandHome(a)
+	}
+	return strings.Join(args, " ")
 }
 
 // SecretFinding is one inline plaintext credential flagged in a server definition.

@@ -115,11 +115,10 @@ func commitRepoDir(ctx context.Context, cwd, cmd, sha string) string {
 		cands = append(cands, strings.Trim(m[1], `"'`))
 	}
 	cands = append(cands, cwd)
-	home, _ := os.UserHomeDir()
 	var holders []string
 	for _, d := range cands {
-		if rest, ok := strings.CutPrefix(d, "~/"); ok && home != "" {
-			d = filepath.Join(home, rest) // the shell expands ~ before git sees it
+		if strings.HasPrefix(d, "~/") {
+			d = paths.ExpandHome(d)
 		}
 		if d = resolveCWDPath(d, cwd); d == "" {
 			continue

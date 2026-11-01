@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"github.com/edotau/claude-code/internal/paths"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -159,7 +160,7 @@ func TestSpawnDoesNotSaveAfterFastChildFinishes(t *testing.T) {
 	if err := rec.Save(); err != nil {
 		t.Fatal(err)
 	}
-	recordPath := filepath.Join(DispatchDir(), rec.ID+".json")
+	recordPath := filepath.Join(paths.DispatchDir(), rec.ID+".json")
 
 	// the fast child stands in for `claude-code ask --job <id>`: it saves its own finished record
 	// (by writing the record file directly) and exits almost immediately.
@@ -302,12 +303,12 @@ func TestCancelForegroundRunErrorsWithoutWriting(t *testing.T) {
 	if err := rec.Save(); err != nil {
 		t.Fatal(err)
 	}
-	before, _ := os.ReadFile(filepath.Join(DispatchDir(), rec.ID+".json"))
+	before, _ := os.ReadFile(filepath.Join(paths.DispatchDir(), rec.ID+".json"))
 	err := Cancel(&rec)
 	if err == nil || !strings.Contains(err.Error(), "foreground run") {
 		t.Fatalf("Cancel() = %v, want the foreground-run error", err)
 	}
-	after, _ := os.ReadFile(filepath.Join(DispatchDir(), rec.ID+".json"))
+	after, _ := os.ReadFile(filepath.Join(paths.DispatchDir(), rec.ID+".json"))
 	if string(before) != string(after) {
 		t.Errorf("record rewritten:\n%s\n->\n%s", before, after)
 	}

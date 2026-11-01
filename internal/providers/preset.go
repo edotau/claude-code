@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/models"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // PresetDatabricks derives every route, the auth commands and the launch env from one host + one CLI profile.
@@ -201,7 +202,7 @@ func jwtIssuerHost(v string) (string, bool) {
 	var claims struct {
 		Iss string `json:"iss"`
 	}
-	if !jwtClaims(v, &claims) || claims.Iss == "" {
+	if !textutil.JWTClaims(v, &claims) || claims.Iss == "" {
 		return "", false
 	}
 	u, err := url.Parse(claims.Iss)

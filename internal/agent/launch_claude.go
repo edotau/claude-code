@@ -176,9 +176,7 @@ func keepShellEndpoint(plan *Plan, o LaunchOptions) {
 
 // configDirEnvIsDefault: an explicit CLAUDE_CONFIG_DIR=~/.claude makes claude write a stray ~/.claude/.claude.json.
 func configDirEnvIsDefault() bool {
-	home, err := os.UserHomeDir()
-	d := strings.TrimSpace(os.Getenv("CLAUDE_CONFIG_DIR"))
-	return err == nil && d != "" && filepath.Clean(d) == filepath.Join(home, ".claude")
+	return strings.TrimSpace(os.Getenv("CLAUDE_CONFIG_DIR")) != "" && paths.ConfigDirIsDefault()
 }
 
 // setModelAliasEnv stamps ANTHROPIC_DEFAULT_<SLOT>_MODEL for every alias the selection resolved.

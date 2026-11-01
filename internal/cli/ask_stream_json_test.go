@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 )
 
@@ -90,7 +91,7 @@ func TestAskStreamJSONSpansEventsAndLog(t *testing.T) {
 		t.Errorf("dispatch ids: result %q, envelope %+v", res.DispatchID, res.Envelope)
 	}
 
-	logb, err := os.ReadFile(filepath.Join(agent.DispatchDir(), res.DispatchID+".events.jsonl"))
+	logb, err := os.ReadFile(filepath.Join(paths.DispatchDir(), res.DispatchID+".events.jsonl"))
 	if err != nil {
 		t.Fatalf("events log missing: %v", err)
 	}

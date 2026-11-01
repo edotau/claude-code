@@ -25,7 +25,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/textutil"
@@ -98,13 +97,13 @@ func targets() []target {
 			// <pid>.json registries in the runtime dir carry a session token; a dead pid's file is garbage at any age.
 			name: "copilot-registry", doc: "copilot BYOK registry files of dead pids in the runtime dir (live pids kept)",
 			globs: func() []string {
-				if g := agent.CopilotRegistryGlob(); g != "" {
+				if g := paths.CopilotRegistryGlob(); g != "" {
 					return []string{g}
 				}
 				return nil
 			},
 			ageless: true,
-			keep:    agent.CopilotRegistryKeep,
+			keep:    paths.CopilotRegistryKeep,
 		},
 		{
 			name: "settings-backups", doc: "state/harness/backups/setup/* + backups/.claude.json.backup.* (CLI), aged; the revert mirror is never swept",

@@ -8,6 +8,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/edotau/claude-code/internal/paths"
 )
 
 const (
@@ -30,10 +32,8 @@ func DefaultPath() string {
 	switch {
 	case p == "":
 		return filepath.Join(home, ".databrickscfg")
-	case p == "~":
-		return home
-	case strings.HasPrefix(p, "~/"):
-		return filepath.Join(home, p[2:])
+	case p == "~", strings.HasPrefix(p, "~/"):
+		return paths.ExpandHome(p)
 	}
 	return p
 }

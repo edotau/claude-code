@@ -44,8 +44,8 @@ type Options struct {
 	SessionID        string // non-empty resumes this session instead of creating a new one
 	// Providers+Models switch to the multi-provider route: Model is a provider/id of Models, Token feeds every
 	// provider's BearerTokenProvider (set by the SDK layer), and the child runs in a private login-free home.
-	Providers []copilot.NamedProviderConfig
-	Models    []copilot.ProviderModelConfig
+	Providers []NamedProvider
+	Models    []RegistryModel
 	Token     func() (string, error)
 	// ChildEnv is set on, and ChildUnset (exact names) plus ChildUnsetPrefix stripped from, the registry child's env.
 	ChildEnv, ChildUnset []string

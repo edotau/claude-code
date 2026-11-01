@@ -127,7 +127,7 @@ func TestAskHostRelaysRemoteStream(t *testing.T) {
 			t.Errorf("dropped %v lacks %s", got.Dropped, d)
 		}
 	}
-	logb, err := os.ReadFile(filepath.Join(agent.DispatchDir(), local+".log"))
+	logb, err := os.ReadFile(filepath.Join(paths.DispatchDir(), local+".log"))
 	if err != nil || !strings.Contains(string(logb), "Welcome to fakehost banner") {
 		t.Fatalf("banner not in dispatch log (err %v):\n%s", err, logb)
 	}
@@ -326,7 +326,7 @@ func TestAskSIGTERMFinalizesRecord(t *testing.T) {
 	}
 	_ = cmd.Process.Signal(syscall.SIGTERM)
 	_ = cmd.Wait()
-	files, _ := filepath.Glob(filepath.Join(agent.DispatchDir(), "*.json"))
+	files, _ := filepath.Glob(filepath.Join(paths.DispatchDir(), "*.json"))
 	if len(files) != 1 {
 		t.Fatalf("want one dispatch record, got %q", files)
 	}

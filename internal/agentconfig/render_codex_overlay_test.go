@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/secrets"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -165,7 +166,7 @@ func TestConfigPathPrecedence(t *testing.T) {
 		{home, filepath.Join(home, ".codex", "config.toml")},
 		{"", filepath.Join(native, "config.toml")},
 	} {
-		got, err := agentconfig.CodexConfigPath(tc.home)
+		got, err := paths.CodexConfigPath(tc.home)
 		if err != nil || got != tc.want {
 			t.Fatalf("ConfigPath(%q) = %q, %v; want %q", tc.home, got, err, tc.want)
 		}
@@ -175,7 +176,7 @@ func TestConfigPathPrecedence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, err := agentconfig.CodexConfigPath(""); err != nil || got != filepath.Join(defaultHome, ".codex", "config.toml") {
+	if got, err := paths.CodexConfigPath(""); err != nil || got != filepath.Join(defaultHome, ".codex", "config.toml") {
 		t.Fatalf("default ConfigPath = %q, %v", got, err)
 	}
 }

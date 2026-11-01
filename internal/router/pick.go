@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // Gates a candidate must pass before it is scored; a Skip names the one that dropped it.
@@ -177,7 +178,7 @@ func (t *RouteTable) gateAgent(
 		return nil, false
 	}
 	if err := configured(agent, c); err != nil {
-		res.Skipped = append(res.Skipped, Skip{agent, GateAvailable, "not configured: " + firstLine(err.Error())})
+		res.Skipped = append(res.Skipped, Skip{agent, GateAvailable, "not configured: " + textutil.FirstLine(strings.TrimSpace(err.Error()))})
 		return nil, false
 	}
 	billing := t.Billing[c.Account]
@@ -276,7 +277,7 @@ func (t *RouteTable) gateOpencodeCandidate(
 			continue
 		}
 		if err := configured("opencode", c); err != nil {
-			res.Skipped = append(res.Skipped, Skip{name, GateAvailable, "not configured: " + firstLine(err.Error())})
+			res.Skipped = append(res.Skipped, Skip{name, GateAvailable, "not configured: " + textutil.FirstLine(strings.TrimSpace(err.Error()))})
 			continue
 		}
 		cand, pass := t.gateAccount(ctx, name, c, billing, st, o, now, res)
@@ -419,11 +420,6 @@ func ExhaustedReason(account string, e Entry, now time.Time) string {
 	if e.Reason != "" {
 		s += " (" + e.Reason + ")"
 	}
-	return s
-}
-
-func firstLine(s string) string {
-	s, _, _ = strings.Cut(strings.TrimSpace(s), "\n")
 	return s
 }
 

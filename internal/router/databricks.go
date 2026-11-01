@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // DatabricksResponses: the session/pinned profile is a signed-in Databricks row with a Responses route + catalog model.
@@ -68,7 +69,7 @@ func (t *RouteTable) gateDatabricksCodex(
 	c := Cell{Model: model, Effort: effort, Account: ProviderAccount(profile)}
 	name := "codex·" + c.Account
 	if err := configured("codex", c); err != nil {
-		res.Skipped = append(res.Skipped, Skip{name, GateAvailable, "not configured: " + firstLine(err.Error())})
+		res.Skipped = append(res.Skipped, Skip{name, GateAvailable, "not configured: " + textutil.FirstLine(strings.TrimSpace(err.Error()))})
 		return Candidate{}, false
 	}
 	if reason, marked := st.AccountAuthMarked(c.Account, now); marked {

@@ -320,32 +320,7 @@ func OpencodeSwitchArgv(id, credID string) ([]string, error) {
 }
 
 // opencodeAuthFile is $XDG_DATA_HOME/opencode/auth.json (default ~/.local/share), opencode 1.x's login store.
-func opencodeAuthFile() string { return filepath.Join(opencodeDataDir(), "auth.json") }
-
-// opencodeDataDir is $XDG_DATA_HOME/opencode (default ~/.local/share/opencode).
-func opencodeDataDir() string {
-	base := os.Getenv("XDG_DATA_HOME")
-	if base == "" {
-		home, _ := os.UserHomeDir()
-		base = filepath.Join(home, ".local", "share")
-	}
-	return filepath.Join(base, "opencode")
-}
-
-// OpencodeDBPath is opencode's 2.x database; "" for an in-memory DB (never cached).
-// Non-stable channels use opencode-<channel>.db, which we can't detect cheaply; OPENCODE_DB overrides.
-func OpencodeDBPath() string {
-	db := os.Getenv("OPENCODE_DB")
-	switch {
-	case db == ":memory:":
-		return ""
-	case filepath.IsAbs(db):
-		return db
-	case db == "":
-		db = "opencode.db"
-	}
-	return filepath.Join(opencodeDataDir(), db)
-}
+func opencodeAuthFile() string { return filepath.Join(paths.OpencodeDataDir(), "auth.json") }
 
 // opencodeCacheFile persists probe results across processes (no credential values ever land here).
 func opencodeCacheFile() string {
@@ -397,7 +372,7 @@ func updateOpencodeDiskCache(fn func(*opencodeDiskCache)) {
 
 // opencodeDBKey is the DB path plus size+mtime of it and its -wal; "" when the DB can't be cached.
 func opencodeDBKey() string {
-	db := OpencodeDBPath()
+	db := paths.OpencodeDBPath()
 	if db == "" {
 		return ""
 	}

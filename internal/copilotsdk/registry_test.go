@@ -104,8 +104,8 @@ func registryOpts(t *testing.T, version, log string, known ...string) Options {
 	}
 	return Options{
 		CLIPath: exe, Model: registryPick,
-		Providers: []copilot.NamedProviderConfig{{Name: "dbx-openai", Type: "openai"}},
-		Models:    []copilot.ProviderModelConfig{{ID: "gpt-5-5", Provider: "dbx-openai"}},
+		Providers: []NamedProvider{{Name: "dbx-openai", Type: "openai"}},
+		Models:    []RegistryModel{{ID: "gpt-5-5", Provider: "dbx-openai"}},
 		Token:     func() (string, error) { return "tok", nil },
 		ChildEnv: []string{"FAKE_COPILOT_CLI=1", "FAKE_COPILOT_VERSION=" + version, "FAKE_COPILOT_LOG=" + log,
 			"FAKE_COPILOT_MODELS=" + strings.Join(known, ",")},

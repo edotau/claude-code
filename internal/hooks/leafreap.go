@@ -4,7 +4,6 @@
 package hooks
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"fmt"
@@ -19,6 +18,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/proc"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // bgOutputPattern matches the Bash run_in_background result; Monitor results name no output path, so they are not reaped.
@@ -45,12 +45,10 @@ func leafOutputFiles(transcript string) []string {
 	defer f.Close()
 	var files []string
 	seen := map[string]bool{}
-	sc := bufio.NewScanner(f)
-	sc.Buffer(make([]byte, 0, 1<<16), 64<<20)
-	for sc.Scan() {
-		line := sc.Text()
+	textutil.EachLine(f, func(b []byte) {
+		line := string(b)
 		if !strings.Contains(line, `"tool_result"`) {
-			continue
+			return
 		}
 		for _, m := range bgOutputPattern.FindAllStringSubmatch(line, -1) {
 			if !seen[m[1]] {
@@ -58,7 +56,7 @@ func leafOutputFiles(transcript string) []string {
 				files = append(files, m[1])
 			}
 		}
-	}
+	})
 	return files
 }
 

@@ -109,7 +109,7 @@ type mcpClient struct {
 }
 
 func webSearchClients() []mcpClient {
-	codexCfg, cfgErr := agentconfig.CodexConfigPath("")
+	codexCfg, cfgErr := paths.CodexConfigPath("")
 	return []mcpClient{
 		{"claude", func() bool { return claudeJSONWired(paths.ClaudeJSON()) }, registerClaudeMCP},
 		{"codex", func() bool { return codexWired(codexCfg) }, func(bin string) error {

@@ -4,12 +4,10 @@
 package usage
 
 import (
-	"bufio"
 	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/edotau/claude-code/internal/agentconfig"
 	"io"
 	"io/fs"
 	"os"
@@ -21,9 +19,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/models"
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/transcript"
 	"github.com/edotau/claude-code/internal/ui/table"
 )
@@ -238,14 +237,12 @@ func parseCodexSession(path string) codexSessionSummary {
 		return codexSessionSummary{}
 	}
 	defer f.Close()
-	scanner := bufio.NewScanner(f)
-	scanner.Buffer(make([]byte, 0, 64*1024), 1<<20)
 	var s codexSessionSummary
 	var lastTS string
-	for scanner.Scan() {
+	textutil.EachLine(f, func(line []byte) {
 		var l codexLine
-		if json.Unmarshal(scanner.Bytes(), &l) != nil {
-			continue
+		if json.Unmarshal(line, &l) != nil {
+			return
 		}
 		switch l.Type {
 		case "turn_context":
@@ -256,7 +253,7 @@ func parseCodexSession(path string) codexSessionSummary {
 		case "event_msg":
 			var p codexEventMsg
 			if json.Unmarshal(l.Payload, &p) != nil || p.Type != "token_count" {
-				continue
+				return
 			}
 			s.Turns++
 			u := p.Info.TotalTokenUsage
@@ -265,7 +262,7 @@ func parseCodexSession(path string) codexSessionSummary {
 				CacheRead: u.CachedInputTokens, CacheWrite: u.CacheWriteInputTokens}
 			lastTS = l.Timestamp
 		}
-	}
+	})
 	if lastTS != "" {
 		if ts, parseErr := time.Parse(time.RFC3339, lastTS); parseErr == nil {
 			s.Day = ts.Local().Format("2006-01-02")
@@ -276,7 +273,7 @@ func parseCodexSession(path string) codexSessionSummary {
 
 // codexUsage walks ~/.codex/sessions for *.jsonl files modified within the window, one session per file.
 func codexUsage(cutoff time.Time) agentUsage {
-	home, err := agentconfig.CodexHome()
+	home, err := paths.CodexHome()
 	if err != nil {
 		return agentUsage{Agent: "codex", Note: "store not found: " + err.Error()}
 	}
@@ -377,7 +374,7 @@ type opencodeModelRow struct {
 // opencodeUsage reads opencode's local sqlite store: assistant messages since cutoff, grouped overall
 // for Sessions/Turns/Tokens/Cost and separately by providerID/modelID for the Models breakdown.
 func opencodeUsage(ctx context.Context, cutoff time.Time) agentUsage {
-	dbPath := agent.OpencodeDBPath() // honors OPENCODE_DB like opencode's own login probe
+	dbPath := paths.OpencodeDBPath() // honors OPENCODE_DB like opencode's own login probe
 	if dbPath == "" {
 		return agentUsage{Agent: "opencode", Note: "store not found: OPENCODE_DB is :memory:"}
 	}
@@ -408,7 +405,7 @@ func opencodeUsage(ctx context.Context, cutoff time.Time) agentUsage {
 
 	totalsOut, totalsErr := opencodeSqliteCmd(ctx, dbPath, totalsQ)
 	if totalsErr != nil {
-		return agentUsage{Agent: "opencode", Note: "sqlite3 query failed: " + firstLine(totalsOut, totalsErr)}
+		return agentUsage{Agent: "opencode", Note: "sqlite3 query failed: " + commandErrorLine(totalsOut, totalsErr)}
 	}
 	var totals []opencodeTotalsRow
 	if jsonErr := json.Unmarshal(totalsOut, &totals); jsonErr != nil || len(totals) == 0 || totals[0].Turns == 0 {
@@ -417,7 +414,7 @@ func opencodeUsage(ctx context.Context, cutoff time.Time) agentUsage {
 
 	modelsOut, modelsErr := opencodeSqliteCmd(ctx, dbPath, modelsQ)
 	if modelsErr != nil {
-		return agentUsage{Agent: "opencode", Note: "sqlite3 query failed: " + firstLine(modelsOut, modelsErr)}
+		return agentUsage{Agent: "opencode", Note: "sqlite3 query failed: " + commandErrorLine(modelsOut, modelsErr)}
 	}
 	var rows []opencodeModelRow
 	_ = json.Unmarshal(modelsOut, &rows)
@@ -453,13 +450,9 @@ func fetchDailyBuckets(ctx context.Context, dbPath, query string, run func(conte
 
 // copilotDBPath honors COPILOT_HOME, else ~/.copilot/session-store.db.
 func copilotDBPath() (string, error) {
-	base := os.Getenv("COPILOT_HOME")
-	if base == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return "", err
-		}
-		base = filepath.Join(home, ".copilot")
+	base, err := paths.CopilotHome()
+	if err != nil {
+		return "", err
 	}
 	return filepath.Join(base, "session-store.db"), nil
 }
@@ -522,7 +515,7 @@ func copilotUsage(ctx context.Context, cutoff time.Time) agentUsage {
 
 	totalsOut, totalsErr := copilotSqliteCmd(ctx, dbPath, totalsQ)
 	if totalsErr != nil {
-		return agentUsage{Agent: "copilot", Note: "sqlite3 query failed: " + firstLine(totalsOut, totalsErr)}
+		return agentUsage{Agent: "copilot", Note: "sqlite3 query failed: " + commandErrorLine(totalsOut, totalsErr)}
 	}
 	var totals []copilotTotalsRow
 	if jsonErr := json.Unmarshal(totalsOut, &totals); jsonErr != nil || len(totals) == 0 || totals[0].Turns == 0 {
@@ -531,7 +524,7 @@ func copilotUsage(ctx context.Context, cutoff time.Time) agentUsage {
 
 	modelsOut, modelsErr := copilotSqliteCmd(ctx, dbPath, modelsQ)
 	if modelsErr != nil {
-		return agentUsage{Agent: "copilot", Note: "sqlite3 query failed: " + firstLine(modelsOut, modelsErr)}
+		return agentUsage{Agent: "copilot", Note: "sqlite3 query failed: " + commandErrorLine(modelsOut, modelsErr)}
 	}
 	var rows []copilotModelRow
 	_ = json.Unmarshal(modelsOut, &rows)

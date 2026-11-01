@@ -37,6 +37,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 )
 
@@ -296,26 +297,7 @@ func installProxyAt(w io.Writer, dest string, dryRun bool) error {
 		fmt.Fprintf(w, "  %-17s %s\n", "would write", dest)
 		return nil
 	}
-	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
-		return err
-	}
-	tmp, err := os.CreateTemp(filepath.Dir(dest), ".wl-paste-*")
-	if err != nil {
-		return err
-	}
-	defer func() { _ = os.Remove(tmp.Name()) }()
-	if _, err := tmp.Write(ProxyScript); err != nil {
-		_ = tmp.Close()
-		return err
-	}
-	if err := tmp.Chmod(0o755); err != nil {
-		_ = tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	if err := os.Rename(tmp.Name(), dest); err != nil {
+	if err := paths.AtomicWrite(dest, ProxyScript, 0o755); err != nil {
 		return err
 	}
 	fmt.Fprintf(w, "  %-17s %s\n", "wrote", dest)

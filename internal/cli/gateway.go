@@ -13,6 +13,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/proxy"
+	"github.com/edotau/claude-code/internal/proxy/server"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
@@ -156,7 +157,7 @@ func cmdGatewayProxy(args []string) int {
 func proxyServe(ctx context.Context, port int) int {
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	if err := proxy.Serve(ctx, port); err != nil {
+	if err := server.Serve(ctx, port); err != nil {
 		return fail("proxy: %v", err)
 	}
 	return 0

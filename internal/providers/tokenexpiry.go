@@ -1,16 +1,15 @@
 package providers
 
 import (
-	"encoding/base64"
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"regexp"
-	"strings"
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/schemas"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // tokenNameRE admits only a provider name that is a safe single path segment.
@@ -29,20 +28,10 @@ func jwtExp(v string) (int64, bool) {
 	var claims struct {
 		Exp *float64 `json:"exp"`
 	}
-	if !jwtClaims(v, &claims) || claims.Exp == nil {
+	if !textutil.JWTClaims(v, &claims) || claims.Exp == nil {
 		return 0, false
 	}
 	return int64(*claims.Exp), true
-}
-
-// jwtClaims decodes the payload of a three-part JWT-shaped string into into; false for anything else.
-func jwtClaims(v string, into any) bool {
-	parts := strings.Split(v, ".")
-	if len(parts) != 3 {
-		return false
-	}
-	payload, err := base64.RawURLEncoding.DecodeString(strings.TrimRight(parts[1], "="))
-	return err == nil && json.Unmarshal(payload, into) == nil
 }
 
 // tokenExpiryRecord is the on-disk expiry record; Exp is a pointer so an absent claim stays distinguishable.

@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
@@ -112,27 +112,10 @@ func pickExport(rows []ExportRow) ([]ExportRow, error) {
 	return out, nil
 }
 
-// writeFile0600 writes text to path through a 0600 temp file and a rename; an existing path needs force.
+// writeFile0600 writes text to path atomically with mode 0600; an existing path needs force.
 func writeFile0600(path, text string, force bool) error {
 	if _, err := os.Lstat(path); err == nil && !force {
 		return fmt.Errorf("%s exists; pass --force to overwrite", path)
 	}
-	tmp, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".*.tmp")
-	if err != nil {
-		return err
-	}
-	name := tmp.Name()
-	defer func() { _ = os.Remove(name) }() // no-op after a successful rename
-	if err := tmp.Chmod(0o600); err != nil {
-		_ = tmp.Close()
-		return err
-	}
-	if _, err := io.WriteString(tmp, text); err != nil {
-		_ = tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	return os.Rename(name, path)
+	return paths.AtomicWrite(path, []byte(text), 0o600)
 }

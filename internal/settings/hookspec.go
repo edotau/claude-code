@@ -7,6 +7,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // HookBin is the literal binary reference in harness commands; $HOME expands under `sh -c`.
@@ -253,4 +255,4 @@ func Events() map[string][]MatcherGroup {
 }
 
 // SettingsJSON renders the object under settings.json's "hooks" key.
-func SettingsJSON() ([]byte, error) { return MarshalIndentNoEscape(Events()) }
+func SettingsJSON() ([]byte, error) { return textutil.MarshalIndentNoEscape(Events()) }

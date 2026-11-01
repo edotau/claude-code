@@ -17,7 +17,6 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/proxy"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
-	copilot "github.com/github/copilot-sdk/go"
 )
 
 // --model in both spellings is lifted out in order; every other arg (including -m and a trailing bare --model) stays.
@@ -372,11 +371,11 @@ func TestCopilotRegistryRouteFailsClosedAndScrubs(t *testing.T) {
 	if o.GitHubToken != "" || o.UseLoggedInUser {
 		t.Fatalf("registry route kept a GitHub login: %+v", o)
 	}
-	co, err := copilotsdk.BuildClientOptions(o)
+	env, err := copilotsdk.ClientEnv(o)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, kv := range co.Connection.(copilot.StdioConnection).Env {
+	for _, kv := range env {
 		if strings.HasPrefix(kv, "COPILOT_PROVIDERS_CONFIG=") || strings.HasPrefix(kv, "COPILOT_PROVIDER_") ||
 			strings.HasPrefix(kv, "GITHUB_TOKEN=") || strings.HasPrefix(kv, "GH_TOKEN=") || strings.Contains(kv, "gh-secret") {
 			t.Errorf("child env kept %q", kv)

@@ -11,6 +11,7 @@ import (
 	"slices"
 
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // ErrInvalidJSON wraps a settings file that failed to parse.
@@ -125,13 +126,11 @@ func compactStr(raw json.RawMessage) (string, error) {
 	if err := dec.Decode(&v); err != nil {
 		return "", err
 	}
-	var buf bytes.Buffer
-	enc := json.NewEncoder(&buf)
-	enc.SetEscapeHTML(false)
-	if err := enc.Encode(v); err != nil {
+	raw, err := textutil.MarshalNoEscape(v)
+	if err != nil {
 		return "", err
 	}
-	return buf.String(), nil
+	return string(raw) + "\n", nil
 }
 
 // DefaultsDrift lists top-level keys and "env.X" keys whose live value differs from RenderLive, sorted.

@@ -208,7 +208,7 @@ func registryFile(
 	if !dry {
 		return prepareRegistry(ctx, r, profile, pid)
 	}
-	glob := CopilotRegistryGlob()
+	glob := paths.CopilotRegistryGlob()
 	if glob == "" {
 		return "", "", errors.New("copilot: no registry runtime directory")
 	}

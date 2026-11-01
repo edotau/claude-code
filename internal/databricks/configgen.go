@@ -13,6 +13,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 //go:embed templates/*
@@ -81,16 +82,7 @@ func Render(o Options) (Result, error) {
 var (
 	hostRe   = regexp.MustCompile(`^https://[A-Za-z0-9.-]+(:\d+)?$`)
 	setKeyRE = regexp.MustCompile(`^[A-Za-z0-9_.-]+$`)
-	shellOK  = regexp.MustCompile(`^[A-Za-z0-9_./:@%+=,-]+$`)
 )
-
-// shellQuote single-quotes s for sh unless it is made only of shell-safe characters.
-func shellQuote(s string) string {
-	if shellOK.MatchString(s) {
-		return s
-	}
-	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
-}
 
 func (o Options) validate() error {
 	if o.Target != TargetClaude && o.Target != TargetCodex {
@@ -210,7 +202,7 @@ func renderClaude(o Options) (Result, error) {
 	env["CLAUDE_CODE_API_KEY_HELPER_TTL_MS"] = helperTTL
 	doc["apiKeyHelper"] = cliTokenCmd(o.Host)
 	if o.Auth == AuthHarness {
-		doc["apiKeyHelper"] = shellQuote(o.Self) + " resolve --profile " + shellQuote(p.Name)
+		doc["apiKeyHelper"] = textutil.QuoteSH(o.Self) + " resolve --profile " + textutil.QuoteSH(p.Name)
 	}
 	for _, kv := range o.Set {
 		k, v, _ := strings.Cut(kv, "=")
