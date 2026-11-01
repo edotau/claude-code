@@ -413,3 +413,14 @@ func TestKeepShellEndpointInheritedProxyBase(t *testing.T) {
 		t.Error("inherited proxy base kept through the scrub")
 	}
 }
+
+// TestKeepShellEndpointOtherPortProxyBase: a loopback /p/ base on another port is the user's override, not inherited.
+func TestKeepShellEndpointOtherPortProxyBase(t *testing.T) {
+	t.Setenv("ANTHROPIC_BASE_URL", "http://127.0.0.1:9999/p/prod")
+	plan := agent.Plan{Set: map[string]string{"ANTHROPIC_BASE_URL": "http://127.0.0.1:18765/p/dev"}, OverlayPath: "/tmp/ov.json",
+		Argv: []string{"--settings", "/tmp/ov.json"}}
+	keepShellEndpoint(&plan, agent.LaunchOptions{})
+	if !plan.ForeignBase || plan.OverlayPath != "" || !slices.Contains(plan.Keep, "ANTHROPIC_BASE_URL") {
+		t.Errorf("other-port base overridden: foreign=%v overlay=%q keep=%v", plan.ForeignBase, plan.OverlayPath, plan.Keep)
+	}
+}

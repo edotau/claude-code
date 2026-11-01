@@ -103,7 +103,7 @@ func keepShellEndpoint(plan *agent.Plan, o agent.LaunchOptions) {
 		own = defaultAnthropicBase // an unset plan base means the default route
 	}
 	base := strings.TrimSpace(os.Getenv("ANTHROPIC_BASE_URL"))
-	inherited := isProxySessionBase(base) && isProxySessionBase(own) // an enclosing harness session's own base
+	inherited := isProxySessionBase(base) && isProxySessionBase(own) && sameHostPort(base, own) // the live proxy's own base
 	if base != "" && !inherited && !sameEndpoint(base, own) {
 		plan.ForeignBase = true
 		dropHarnessCredential(plan)
@@ -126,6 +126,13 @@ func isProxySessionBase(raw string) bool {
 	}
 	h := u.Hostname()
 	return h == "127.0.0.1" || h == "::1" || strings.EqualFold(h, "localhost")
+}
+
+// sameHostPort reports whether a and b name the same host:port, so a loopback proxy on another port is not ours.
+func sameHostPort(a, b string) bool {
+	ua, errA := url.Parse(a)
+	ub, errB := url.Parse(b)
+	return errA == nil && errB == nil && strings.EqualFold(ua.Host, ub.Host)
 }
 
 // sameEndpoint compares two base URLs by scheme, host and path, ignoring case in the host and a trailing slash.
