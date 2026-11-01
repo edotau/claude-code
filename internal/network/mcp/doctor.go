@@ -17,7 +17,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/secrets/shapes"
+	"github.com/edotau/claude-code/internal/shapes"
 )
 
 // listTimeout bounds `claude mcp list`; without it a cold-starting npx server hangs Run() forever.

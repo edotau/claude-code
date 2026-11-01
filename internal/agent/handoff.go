@@ -17,7 +17,7 @@ import (
 	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/router"
-	"github.com/edotau/claude-code/internal/secrets/shapes"
+	"github.com/edotau/claude-code/internal/shapes"
 )
 
 // Seams for the mid-dispatch quota hand-off; tests replace them.

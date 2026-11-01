@@ -9,7 +9,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/edotau/claude-code/internal/secrets/shapes"
+	"github.com/edotau/claude-code/internal/shapes"
 	"github.com/edotau/claude-code/internal/textutil"
 )
 

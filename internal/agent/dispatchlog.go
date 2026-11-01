@@ -18,7 +18,7 @@ import (
 	"github.com/edotau/claude-code/internal/inflight"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/schemas"
-	"github.com/edotau/claude-code/internal/secrets/shapes"
+	"github.com/edotau/claude-code/internal/shapes"
 	"github.com/edotau/claude-code/internal/textutil"
 )
 

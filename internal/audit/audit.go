@@ -12,7 +12,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/schemas"
-	"github.com/edotau/claude-code/internal/secrets/shapes"
+	"github.com/edotau/claude-code/internal/shapes"
 )
 
 // Action is the closed set of audited events; Log drops anything else.

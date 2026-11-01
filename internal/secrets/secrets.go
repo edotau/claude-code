@@ -8,7 +8,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/edotau/claude-code/internal/secrets/shapes"
+	"github.com/edotau/claude-code/internal/shapes"
 )
 
 // Exit codes shared by every audit (scan/git/doctor/all): 0 clean, 1 finding(s), 2 usage error.

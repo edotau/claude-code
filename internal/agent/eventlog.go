@@ -8,7 +8,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/edotau/claude-code/internal/secrets/shapes"
+	"github.com/edotau/claude-code/internal/shapes"
 )
 
 // eventsTextCap bounds the text bytes one dispatch's event file keeps; later text events are dropped, the rest stay.

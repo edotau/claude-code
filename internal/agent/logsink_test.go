@@ -10,7 +10,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/secrets/shapes"
+	"github.com/edotau/claude-code/internal/shapes"
 )
 
 // readLog reads path, failing the test on error.

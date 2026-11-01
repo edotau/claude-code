@@ -10,7 +10,7 @@ import (
 
 	agentpkg "github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/preflight"
-	"github.com/edotau/claude-code/internal/secrets/shapes"
+	"github.com/edotau/claude-code/internal/shapes"
 )
 
 // setupVerifyTimeout caps the one small real request the verify step sends.
