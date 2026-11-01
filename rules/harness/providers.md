@@ -5,7 +5,7 @@ paths:
   - "internal/models/**"
   - "internal/proxy/**"
   - "internal/router/**"
-  - "internal/agent/route_*.go"
+  - "internal/agent/route*.go"
   - "internal/secrets/**"
 ---
 # Providers, Models, Credentials
