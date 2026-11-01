@@ -206,3 +206,34 @@ func TestFixGeminiChatNullToolCall(t *testing.T) {
 		t.Fatalf("null entry or signature lost: %s", out)
 	}
 }
+
+// An Anthropic-style tool_choice object becomes the chat string Databricks Gemini accepts; other forms stay.
+func TestFixGeminiChatToolChoice(t *testing.T) {
+	for in, want := range map[string]string{
+		`{"type":"auto"}`: `"auto"`, `{"type":"any"}`: `"required"`, `"auto"`: `"auto"`, `"validated"`: `"auto"`,
+		`{"type":"function","function":{"name":"p"}}`: `{"type":"function","function":{"name":"p"}}`,
+	} {
+		out := string(fixGeminiChat([]byte(`{"model":"databricks-gemini-3-8-flash","tool_choice":` + in + `}`)))
+		if !strings.Contains(out, `"tool_choice":`+want) {
+			t.Errorf("tool_choice %s -> %s, want %s", in, out, want)
+		}
+	}
+}
+
+// A Gemini chat reply whose content is an array of parts reaches the client as one string; other models' replies stay.
+func TestPassthroughGeminiChatReplyFlattened(t *testing.T) {
+	parts := func(w http.ResponseWriter, _ *http.Request, _ int) {
+		w.Header().Set("Content-Type", "application/json")
+		io.WriteString(w, `{"choices":[{"message":{"role":"assistant","content":[{"type":"text","text":"O","thoughtSignature":"s"},{"type":"text","text":"K"}]}}]}`)
+	}
+	_, resp := sendChat(t, geminiChat, parts)
+	b, _ := io.ReadAll(resp.Body)
+	if !strings.Contains(string(b), `"content":"OK"`) {
+		t.Errorf("gemini reply = %s, want content OK string", b)
+	}
+	_, resp = sendChat(t, strings.Replace(geminiChat, "databricks-gemini-3-8-flash", "databricks-llama", 1), parts)
+	b, _ = io.ReadAll(resp.Body)
+	if !strings.Contains(string(b), `"thoughtSignature"`) {
+		t.Errorf("non-gemini reply rewritten: %s", b)
+	}
+}
