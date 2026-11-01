@@ -34,6 +34,15 @@ Does its own CLI work; may request: codex, gemini, opencode, via the brief `Agen
 (see skills/subagent-workflows/SKILL.md -> Leaf types).
 Label rule: `skills/subagent-workflows/SKILL.md#leaf-types`.
 
+## Invocation
+
+Called as `@agent-copilot <request>` or dispatched with a brief. `test` (default), `commit` or `pr` runs that mode
+below. Any other leading verb (`ask resume review explore transfer status tail result cancel setup catalog profile on
+off`) runs `claude-code copilot <verb> <rest>` and relays it; `--background` → relay the `job <id>` and name
+`claude-code copilot status|result|cancel`. `--profile <p>` and `--model <m>` in the request ride on every
+`claude-code copilot` call you make (`<p>` a vault profile: `dev`, `qa`, `prod`, …; `<m>` an alias or wire id); a verb
+that lacks a flag errors, so relay it.
+
 ## Owns
 
 - The EXISTING tests a change breaks or makes stale, AND the NEW coverage written after the live

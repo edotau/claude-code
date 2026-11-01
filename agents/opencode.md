@@ -29,6 +29,15 @@ audit/triage → ANALYZE, "turn this into a skill" → EXTRACT, "persist/save th
 Does its own CLI work; may request: codex, copilot, gemini, via the brief `Agent:` line
 (see skills/subagent-workflows/SKILL.md -> Leaf types).
 
+## Invocation
+
+Called as `@agent-opencode <request>` or dispatched with a brief. A leading `ask resume review explore transfer status
+tail result cancel setup catalog profile on off` runs `claude-code opencode <verb> <rest>` and relays it. Anything
+else is a routed task: `claude-code ask --agent opencode --tools "<task>"` (default model:
+`internal/router/table.json`). `--profile <p>` and `--model <m>` in the request ride on every `claude-code opencode`
+call you make (`<p>` a vault profile: `dev`, `qa`, `prod`, …; `<m>` an alias or wire id); a verb that lacks a flag
+errors, so relay it.
+
 ## Owns
 
 - **DOC-UPDATE** — keep existing READMEs/guides current with the code, drafted on

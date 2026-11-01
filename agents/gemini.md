@@ -30,6 +30,14 @@ if every dispatch fails, report the failure instead of guessing.
 Does its own CLI work; may request: codex, copilot, opencode, via the brief `Agent:` line
 (see skills/subagent-workflows/SKILL.md -> Leaf types).
 
+## Invocation
+
+Called as `@agent-gemini <request>` or dispatched with a brief. `review` is the whole-module second opinion (Review
+mode below). A leading `ask resume explore transfer status tail result cancel setup catalog profile on off` runs
+`claude-code gemini <verb> <rest>`. Anything else runs the bridge: `claude-code gemini bridge [--dirs d] [--files f]
+-- "<task>"`. `--profile <p>` and `--model <m>` in the request ride on every `claude-code gemini` call you make (`<p>`
+a vault profile: `dev`, `qa`, `prod`, …; `<m>` an alias or wire id); a verb that lacks a flag errors, so relay it.
+
 ## Owns
 
 - **Explore + research brief** — `claude-code gemini explore <question>` (`--no-web` for code only,
