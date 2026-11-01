@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 // Kind is the shape a Field's value takes in settings.json.
@@ -36,7 +37,7 @@ type Field struct {
 // Catalog lists every plain-value default key except "model" and "$schema". Source "schema"
 // means the schemastore copy in claude-code-settings.schema.json documents it; "docs"
 // means code.claude.com documents it but schemastore is behind; "template" means neither does.
-var Catalog = resolveSchema(catalogSpec)
+var Catalog = sync.OnceValue(func() []Field { return resolveSchema(catalogSpec) })
 
 // catalogSpec carries Key, Section and Source; docs-only entries also carry their hand-written Kind and Values.
 var catalogSpec = []Field{
@@ -82,11 +83,11 @@ func resolveSchema(spec []Field) []Field {
 	return out
 }
 
-var catalogIndex = buildCatalogIndex()
+var catalogIndex = sync.OnceValue(buildCatalogIndex)
 
 func buildCatalogIndex() map[string]Field {
-	m := make(map[string]Field, len(Catalog))
-	for _, f := range Catalog {
+	m := make(map[string]Field, len(Catalog()))
+	for _, f := range Catalog() {
 		m[f.Key] = f
 	}
 	return m
@@ -94,7 +95,7 @@ func buildCatalogIndex() map[string]Field {
 
 // Lookup returns key's catalog entry.
 func Lookup(key string) (Field, bool) {
-	f, ok := catalogIndex[key]
+	f, ok := catalogIndex()[key]
 	return f, ok
 }
 

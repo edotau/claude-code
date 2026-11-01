@@ -50,7 +50,7 @@ func SetEmbedRecallWait(d time.Duration) (restore func()) {
 }
 
 var embedFormat = schemas.Register(schemas.Format{
-	Name: "memory-embeddings", Owner: "internal/memory/recall/embed", Kind: schemas.Store, Version: embedCacheSchema,
+	Name: "memory-embeddings", Owner: "internal/memory", Kind: schemas.Store, Version: embedCacheSchema,
 	Glob: EmbedDBPath,
 	Keep: "bbolt cache, one JSON record per profile; a version mismatch is a miss",
 })

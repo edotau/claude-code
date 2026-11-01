@@ -546,7 +546,7 @@ func TestSectionsKeepCatalogKeysMissingFromDefaults(t *testing.T) {
 			have[k] = true
 		}
 	}
-	for _, f := range Catalog {
+	for _, f := range Catalog() {
 		if f.Section != "" && !have[f.Key] {
 			t.Errorf("catalog key %q has no page row", f.Key)
 		}

@@ -82,10 +82,10 @@ func TestHomeExtraRowsFitEightyColumns(t *testing.T) {
 // longest enum value or "false", plus the worst-case source suffix " · live differs" — stays <=80 cols.
 func TestSettingRowFitsEightyColumns(t *testing.T) {
 	var labels []string
-	for _, f := range settings.Catalog {
+	for _, f := range settings.Catalog() {
 		labels = append(labels, f.Key)
 	}
-	for _, f := range settings.Catalog {
+	for _, f := range settings.Catalog() {
 		longest := "false"
 		for _, v := range f.Values {
 			if len(v) > len(longest) {

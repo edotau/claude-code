@@ -42,7 +42,7 @@ func (e schemaEntry) kindAndEnum() (string, []string) {
 // schema copy on JSON type and, where the schema declares one, the enum of allowed values.
 func TestCatalogSchemaEntriesMatch(t *testing.T) {
 	props := schemaProps(t)
-	for _, f := range Catalog {
+	for _, f := range Catalog() {
 		if f.Source != "schema" {
 			continue
 		}
@@ -109,7 +109,7 @@ func checkEnumMatchesCatalogValues(t *testing.T, f Field, enum []string) {
 // failing and flags that the entry's Source should move to "schema".
 func TestCatalogDocsAndTemplateEntriesAbsentFromSchema(t *testing.T) {
 	props := schemaProps(t)
-	for _, f := range Catalog {
+	for _, f := range Catalog() {
 		if f.Source != "docs" && f.Source != "template" {
 			continue
 		}
@@ -151,7 +151,7 @@ func TestEveryScalarTemplateKeyIsCataloged(t *testing.T) {
 		t.Fatal(err)
 	}
 	cataloged := map[string]bool{}
-	for _, f := range Catalog {
+	for _, f := range Catalog() {
 		cataloged[f.Key] = true
 	}
 	for k, raw := range obj {
@@ -185,7 +185,7 @@ func TestCatalogSectionsMatchSections(t *testing.T) {
 			owner[k] = s.Name
 		}
 	}
-	for _, f := range Catalog {
+	for _, f := range Catalog() {
 		if f.Section == "" {
 			if f.Kind != KindObject {
 				t.Errorf("catalog entry %q: Section=\"\" but Kind=%v, want KindObject (overlay-only)", f.Key, f.Kind)
