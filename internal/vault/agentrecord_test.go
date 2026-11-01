@@ -140,7 +140,11 @@ func TestMigrationRenamesSlotsToAliases(t *testing.T) {
 		t.Fatalf("records = %+v, want %+v", got, want)
 	}
 	var raw, schema string
-	_ = View(func(tx *Tx) error { raw, _ = tx.Get(Overlay, AgentRecordsKey); schema, _ = tx.Get(Meta, "schema"); return nil })
+	_ = View(func(tx *Tx) error {
+		raw, _ = tx.Get(Overlay, AgentRecordsKey)
+		schema, _ = tx.Get(Meta, "schema")
+		return nil
+	})
 	if raw != `{"claude":{"aliases":{"opus":"x"}}}` || schema != "5" {
 		t.Errorf("stored = %s schema %s, want aliases key at schema 5", raw, schema)
 	}
