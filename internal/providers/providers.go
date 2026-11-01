@@ -12,7 +12,7 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/models"
-	"github.com/edotau/claude-code/internal/secrets/shapes"
+	"github.com/edotau/claude-code/internal/shapes"
 )
 
 // Wire protocols a provider route can speak.

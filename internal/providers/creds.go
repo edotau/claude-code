@@ -15,7 +15,7 @@ import (
 	"unicode"
 
 	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/secrets/shapes"
+	"github.com/edotau/claude-code/internal/shapes"
 )
 
 // ErrPassthrough means the provider forwards the client's own auth; there is no credential to mint.

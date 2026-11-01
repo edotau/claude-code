@@ -14,7 +14,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/router"
-	"github.com/edotau/claude-code/internal/secrets/shapes"
+	"github.com/edotau/claude-code/internal/shapes"
 )
 
 // Scope is the diff range `<v> review` acts on. Kind: uncommitted|base|commit|pr; Ref holds the

@@ -1,7 +1,7 @@
 package bank
 
 import (
-	"github.com/edotau/claude-code/internal/secrets/shapes"
+	"github.com/edotau/claude-code/internal/shapes"
 	"regexp"
 )
 

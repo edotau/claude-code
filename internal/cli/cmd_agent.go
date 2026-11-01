@@ -13,7 +13,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent/review"
 	"github.com/edotau/claude-code/internal/agent/transfer"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/secrets/shapes"
+	"github.com/edotau/claude-code/internal/shapes"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 

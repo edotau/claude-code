@@ -10,7 +10,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/edotau/claude-code/internal/secrets/shapes"
+	"github.com/edotau/claude-code/internal/shapes"
 )
 
 // Find resolves ref (exact id or unique prefix) across every agent's records, so the caller learns the agent.

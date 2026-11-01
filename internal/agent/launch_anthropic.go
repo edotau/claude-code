@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/secrets/shapes"
+	"github.com/edotau/claude-code/internal/shapes"
 )
 
 // Anthropic auth modes for the `anthropic` verb.
