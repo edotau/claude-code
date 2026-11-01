@@ -28,13 +28,13 @@ import (
 
 func cmdClaude(args []string) int { return launchClaude("", args) }
 
-// launchClaude launches Claude Code with tier as the main-loop model ("" = opus).
-func launchClaude(tier string, args []string) int {
+// launchClaude launches Claude Code with alias as the main-loop model ("" = opus).
+func launchClaude(alias string, args []string) int {
 	opts, rest, err := agent.ParseArgs(args, true)
 	if err != nil {
 		return fail("%v", err)
 	}
-	opts.Tier = tier
+	opts.Alias = alias
 	plan, err := agent.Claude(context.Background(), opts, rest)
 	if err == nil && !opts.PrintEnv {
 		agent.RecordLastProfile("claude", plan.Set[providers.EnvSessionProfile], rest)
@@ -42,9 +42,9 @@ func launchClaude(tier string, args []string) int {
 	return runPlan(plan, opts, err)
 }
 
-// tierVerb is `claude-code <alias>`: Claude Code on the session profile with that alias as the main model.
-func tierVerb(tier string) func([]string) int {
-	return func(a []string) int { return launchClaude(tier, a) }
+// aliasVerb is `claude-code <alias>`: Claude Code on the session profile with that alias as the main model.
+func aliasVerb(alias string) func([]string) int {
+	return func(a []string) int { return launchClaude(alias, a) }
 }
 
 var anthropicPage = helptext.Page{

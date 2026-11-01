@@ -107,7 +107,7 @@ func TestValidateCopilotPinsWarnsWhenCatalogUnreachable(t *testing.T) {
 	}
 }
 
-// The provider prefix form (slot=provider:model) and the --provider flag fallback form (slot=model)
+// The provider prefix form (alias=provider:model) and the --provider flag fallback form (alias=model)
 // both key off githubCopilotProvider the same way.
 func TestValidateCopilotPinsProviderFlagFallback(t *testing.T) {
 	cliScratch(t)
@@ -255,7 +255,7 @@ func TestApplyModelPinsQualifiesAcrossSessionProvider(t *testing.T) {
 	if code, handled := applyModelPins(reg, "personal", false, false, []string{"opus=claude-opus-5.5"}); handled || code != 0 {
 		t.Fatalf("applyModelPins: code=%d handled=%v, want 0, false", code, handled)
 	}
-	if got := providers.AgentRecord("claude").Slots["opus"]; got != "personal:claude-opus-5.5" {
+	if got := providers.AgentRecord("claude").Aliases["opus"]; got != "personal:claude-opus-5.5" {
 		t.Errorf("CLAUDE_OPUS_MODEL = %q, want %q", got, "personal:claude-opus-5.5")
 	}
 }
@@ -271,7 +271,7 @@ func TestApplyModelPinsBareWhenProviderMatchesSession(t *testing.T) {
 	if code, handled := applyModelPins(reg, "personal", false, false, []string{"opus=claude-opus-5.5"}); handled || code != 0 {
 		t.Fatalf("applyModelPins: code=%d handled=%v, want 0, false", code, handled)
 	}
-	if got := providers.AgentRecord("claude").Slots["opus"]; got != "claude-opus-5.5" {
+	if got := providers.AgentRecord("claude").Aliases["opus"]; got != "claude-opus-5.5" {
 		t.Errorf("CLAUDE_OPUS_MODEL = %q, want the bare spec %q", got, "claude-opus-5.5")
 	}
 }
@@ -290,7 +290,7 @@ func TestQualifyPinSpecPassesThroughAlreadyQualified(t *testing.T) {
 	}
 }
 
-// --pin all=... qualifies CLAUDE_MODEL the same way a per-slot pin does.
+// --pin all=... qualifies CLAUDE_MODEL the same way a per-alias pin does.
 func TestApplyModelPinsAllSlotQualifies(t *testing.T) {
 	cliScratch(t)
 	reg, err := providers.Load()

@@ -70,7 +70,7 @@ func TestClientPrepareHonorsCancellation(t *testing.T) {
 	}
 }
 
-// An explicit --profile with no --model runs the classifier's tier slot, as the pinned route does.
+// An explicit --profile with no --model runs the classifier's alias, as the pinned route does.
 func TestClientPrepareProfileTakesTierSlot(t *testing.T) {
 	profileFixture(t, "")
 	t.Setenv("HOME", t.TempDir())
@@ -86,8 +86,8 @@ func TestClientPrepareProfileTakesTierSlot(t *testing.T) {
 		if len(res.Hops) != 1 {
 			t.Fatalf("%s: hops = %+v, want one unavailable dispatch", profile, res.Hops)
 		}
-		if want := (router.RuleClassifier{}).Tier("pong"); res.Hops[0].Model != want {
-			t.Errorf("%s: dispatch model = %q, want tier %q", profile, res.Hops[0].Model, want)
+		if want := (router.RuleClassifier{}).Alias("pong"); res.Hops[0].Model != want {
+			t.Errorf("%s: dispatch model = %q, want alias %q", profile, res.Hops[0].Model, want)
 		}
 	}
 }

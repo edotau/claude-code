@@ -28,7 +28,7 @@ func Put(t testing.TB, bucket, key, val string) {
 	}
 }
 
-// SetRecord sets one field of agent's record (profile, model, effort, context, account or slots.<tier>); "" clears it.
+// SetRecord sets one field of agent's record (profile, model, effort, context, account or aliases.<alias>); "" clears it.
 func SetRecord(t testing.TB, agent, field, val string) {
 	t.Helper()
 	err := vault.Update(func(tx *vault.Tx) error {
@@ -37,16 +37,16 @@ func SetRecord(t testing.TB, agent, field, val string) {
 			return err
 		}
 		r := recs[agent]
-		switch tier, isSlot := strings.CutPrefix(field, "slots."); {
-		case isSlot:
-			slots := maps.Clone(r.Slots)
-			if slots == nil {
-				slots = map[string]string{}
+		switch alias, isAlias := strings.CutPrefix(field, "aliases."); {
+		case isAlias:
+			aliases := maps.Clone(r.Aliases)
+			if aliases == nil {
+				aliases = map[string]string{}
 			}
-			if slots[tier] = val; val == "" {
-				delete(slots, tier)
+			if aliases[alias] = val; val == "" {
+				delete(aliases, alias)
 			}
-			r.Slots = slots
+			r.Aliases = aliases
 		case field == "profile":
 			r.Profile = val
 		case field == "model":

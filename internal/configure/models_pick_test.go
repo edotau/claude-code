@@ -11,7 +11,7 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 )
 
-// copilot's Model row saves to the COPILOT_MODEL pin (pickCopilotModel): one model list, no tier step,
+// copilot's Model row saves to the COPILOT_MODEL pin (pickCopilotModel): one model list, no alias step,
 // and the github-copilot provider's own models table is left untouched (opencode's fallback ladder reads it).
 // copilotPickerTitle is pickCopilotModel's numbered-prompt title, used to split repeated renders.
 const copilotPickerTitle = "copilot — model (SDK catalog)"
@@ -35,19 +35,19 @@ func TestModelRowCopilotSkipsTierPicker(t *testing.T) {
 	if r == nil {
 		t.Fatal("modelRow(copilot) = nil, want the Model row")
 	}
-	in := strings.NewReader("1\n") // numbered pick, non-TTY: row 1 = the first model id, no tier prompt first
+	in := strings.NewReader("1\n") // numbered pick, non-TTY: row 1 = the first model id, no alias prompt first
 	d2.o, d2.br = Options{In: in}, bufio.NewReader(in)
 	if !r.run() {
 		t.Fatal("copilot Model row run() = false")
 	}
 	if got, _ := providers.CopilotModel(reg); got != "claude-opus-5.5" {
-		t.Errorf("COPILOT_MODEL resolver = %q, want claude-opus-5.5 (one pick, no tier step)", got)
+		t.Errorf("COPILOT_MODEL resolver = %q, want claude-opus-5.5 (one pick, no alias step)", got)
 	}
 	if got := gp.Models["opus"]; got != wantOpus {
-		t.Errorf("github-copilot opus slot = %q, want unchanged %q: copilot's Model row must not write the provider", got, wantOpus)
+		t.Errorf("github-copilot opus alias = %q, want unchanged %q: copilot's Model row must not write the provider", got, wantOpus)
 	}
 	if got := gp.Models["sonnet"]; got != wantSonnet {
-		t.Errorf("github-copilot sonnet slot = %q, want unchanged %q: copilot's Model row must not write other slots", got, wantSonnet)
+		t.Errorf("github-copilot sonnet alias = %q, want unchanged %q: copilot's Model row must not write other aliases", got, wantSonnet)
 	}
 }
 

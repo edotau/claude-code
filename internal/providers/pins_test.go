@@ -39,8 +39,8 @@ func TestSelectReadsVaultPinsWithSlotPrecedence(t *testing.T) {
 	reg := selectTestRegistry(t)
 	vaulttest.SetRecord(t, "claude", "profile", "gateway")
 	vaulttest.SetRecord(t, "claude", "model", "all-from-vault")
-	vaulttest.SetRecord(t, "claude", "slots.opus", "openai:gpt-5-nano")
-	vaulttest.SetRecord(t, "claude", "slots.haiku", "haiku-from-vault")
+	vaulttest.SetRecord(t, "claude", "aliases.opus", "openai:gpt-5-nano")
+	vaulttest.SetRecord(t, "claude", "aliases.haiku", "haiku-from-vault")
 
 	sel, err := Select(reg, "")
 	if err != nil {
@@ -49,17 +49,17 @@ func TestSelectReadsVaultPinsWithSlotPrecedence(t *testing.T) {
 	if sel.Provider.Name != "gateway" {
 		t.Fatalf("provider = %q, want gateway from vault pins", sel.Provider.Name)
 	}
-	for _, slot := range models.Slots {
+	for _, alias := range models.AliasNames {
 		want := Target{Provider: sel.Provider, Model: "all-from-vault"}
-		switch slot {
+		switch alias {
 		case models.Opus:
 			want = Target{Provider: reg.Providers["openai"], Model: "gpt-5-nano"}
 		case models.Haiku:
 			want.Model = "haiku-from-vault"
 		}
-		got, ok := sel.Slots[slot]
+		got, ok := sel.Aliases[alias]
 		if !ok || got.Provider != want.Provider || got.Model != want.Model {
-			t.Errorf("slot %s = %+v, present %v; want %+v", slot, got, ok, want)
+			t.Errorf("alias %s = %+v, present %v; want %+v", alias, got, ok, want)
 		}
 	}
 }
@@ -68,7 +68,7 @@ func TestSelectIgnoresEnvAndFlagBeatsPin(t *testing.T) {
 	reg := selectTestRegistry(t)
 	vaulttest.SetRecord(t, "claude", "profile", "gateway")
 	vaulttest.SetRecord(t, "claude", "model", "all-from-vault")
-	vaulttest.SetRecord(t, "claude", "slots.opus", "opus-from-vault")
+	vaulttest.SetRecord(t, "claude", "aliases.opus", "opus-from-vault")
 	t.Setenv(EnvSessionProfile, "  gw  ")
 	t.Setenv("CLAUDE_MODEL", "  all-from-env  ")
 	t.Setenv("CLAUDE_OPUS_MODEL", "env-opus")
@@ -80,17 +80,17 @@ func TestSelectIgnoresEnvAndFlagBeatsPin(t *testing.T) {
 	if sel.Provider.Name != "gateway" {
 		t.Fatalf("provider = %q, want the vault pin gateway (pins are vault-only)", sel.Provider.Name)
 	}
-	if got := sel.Slots[models.Opus]; got.Provider != sel.Provider || got.Model != "opus-from-vault" {
+	if got := sel.Aliases[models.Opus]; got.Provider != sel.Provider || got.Model != "opus-from-vault" {
 		t.Errorf("opus = %+v, want the vault value, not the env", got)
 	}
-	if got := sel.Slots[models.Sonnet]; got.Provider != sel.Provider || got.Model != "all-from-vault" {
+	if got := sel.Aliases[models.Sonnet]; got.Provider != sel.Provider || got.Model != "all-from-vault" {
 		t.Errorf("sonnet = %+v, want the vault all-model pin, not the env", got)
 	}
 
 	t.Setenv(EnvSessionProfile, "")
 	vaulttest.SetRecord(t, "claude", "profile", "gw")
 	vaulttest.SetRecord(t, "claude", "model", "")
-	vaulttest.SetRecord(t, "claude", "slots.opus", "opus-from-vault")
+	vaulttest.SetRecord(t, "claude", "aliases.opus", "opus-from-vault")
 	flagSel, err := Select(reg, "gateway")
 	if err != nil {
 		t.Fatal(err)
@@ -98,7 +98,7 @@ func TestSelectIgnoresEnvAndFlagBeatsPin(t *testing.T) {
 	if flagSel.Provider.Name != "gateway" {
 		t.Errorf("provider flag selected %q, want gateway over vault pin gw", flagSel.Provider.Name)
 	}
-	if got := flagSel.Slots[models.Opus]; got.Provider != flagSel.Provider || got.Model != "opus-from-vault" {
+	if got := flagSel.Aliases[models.Opus]; got.Provider != flagSel.Provider || got.Model != "opus-from-vault" {
 		t.Errorf("flag-selected opus = %+v, want vault value on gateway", got)
 	}
 }
@@ -112,9 +112,9 @@ func TestSelectAllModelPinBeatsProviderDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, slot := range models.Slots {
-		if got := sel.Slots[slot]; got.Provider != sel.Provider || got.Model != "all-from-vault" {
-			t.Errorf("slot %s = %+v, want all-model pin", slot, got)
+	for _, alias := range models.AliasNames {
+		if got := sel.Aliases[alias]; got.Provider != sel.Provider || got.Model != "all-from-vault" {
+			t.Errorf("alias %s = %+v, want all-model pin", alias, got)
 		}
 	}
 
@@ -123,17 +123,17 @@ func TestSelectAllModelPinBeatsProviderDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, slot := range models.Slots {
-		want := sel.Provider.Models[slot]
-		got, ok := sel.Slots[slot]
+	for _, alias := range models.AliasNames {
+		want := sel.Provider.Models[alias]
+		got, ok := sel.Aliases[alias]
 		if want == "" {
 			if ok {
-				t.Errorf("slot %s = %+v, want no provider default", slot, got)
+				t.Errorf("alias %s = %+v, want no provider default", alias, got)
 			}
 			continue
 		}
 		if !ok || got.Provider != sel.Provider || got.Model != want {
-			t.Errorf("slot %s = %+v, want provider default %q", slot, got, want)
+			t.Errorf("alias %s = %+v, want provider default %q", alias, got, want)
 		}
 	}
 }
@@ -218,7 +218,7 @@ func TestHasSecretNeverResolvesAKey(t *testing.T) {
 }
 
 // CopilotModel resolves the COPILOT_MODEL pin first; with no pin, it falls back to the
-// github-copilot provider's own opus slot — and names which source won in both cases.
+// github-copilot provider's own opus alias — and names which source won in both cases.
 func TestCopilotModelPinBeatsFallback(t *testing.T) {
 	reg := load(t)
 	vaulttest.SetRecord(t, "copilot", "model", "")

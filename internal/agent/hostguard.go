@@ -82,7 +82,7 @@ func (s Schema) targetCtx(ctx context.Context, req RunOptions) (providers.Target
 			fmt.Fprintln(os.Stderr, f.note)
 		}
 		t := f.t // the provider and account are frozen; the model follows this attempt's request (a quota downgrade)
-		if m := t.Provider; m != nil && slices.Contains(models.Slots, req.Model) && m.Models[req.Model] != "" {
+		if m := t.Provider; m != nil && slices.Contains(models.AliasNames, req.Model) && m.Models[req.Model] != "" {
 			t.Model = m.Models[req.Model]
 		}
 		return t, f.own, nil

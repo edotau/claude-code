@@ -27,7 +27,7 @@ func TestResolveTargetFallsBackWhenSessionProviderCannotServe(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	sel := providers.Selection{Provider: sub, Slots: map[string]providers.Target{"opus": {Provider: sub, Model: "claude-opus-5-5"}}}
+	sel := providers.Selection{Provider: sub, Aliases: map[string]providers.Target{"opus": {Provider: sub, Model: "claude-opus-5-5"}}}
 
 	// codex: subscription can't serve it, no ChatGPT login present -> target unchanged, no note.
 	target, note, err := schemaFor("codex").ResolveTarget(reg, sel, false)
@@ -59,7 +59,7 @@ func TestResolveTargetFallsBackWhenSessionProviderCannotServe(t *testing.T) {
 		t.Fatalf("expected a note naming chatgpt, got %q", note)
 	}
 
-	// The CODEX_MODEL pin beats both the chatgpt provider's own opus slot and codexOwnModel's
+	// The CODEX_MODEL pin beats both the chatgpt provider's own opus alias and codexOwnModel's
 	// config.toml (unset here), once the ChatGPT login fallback applies.
 	vaulttest.SetRecord(t, "codex", "model", "")
 	vaulttest.SetRecord(t, "codex", "model", "gpt-6.1-sol")
@@ -81,7 +81,7 @@ func TestResolveTargetFallsBackWhenSessionProviderCannotServe(t *testing.T) {
 	}
 }
 
-// The GEMINI_AGENT_MODEL pin beats the gemini provider's own registry opus slot once agy's Google
+// The GEMINI_AGENT_MODEL pin beats the gemini provider's own registry opus alias once agy's Google
 // login fallback applies (subscription can't serve gemini directly).
 func TestResolveTargetGeminiModelPinBeatsRegistryDefault(t *testing.T) {
 	home := t.TempDir()
@@ -102,7 +102,7 @@ func TestResolveTargetGeminiModelPinBeatsRegistryDefault(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	sel := providers.Selection{Provider: sub, Slots: map[string]providers.Target{"opus": {Provider: sub, Model: "claude-opus-5-5"}}}
+	sel := providers.Selection{Provider: sub, Aliases: map[string]providers.Target{"opus": {Provider: sub, Model: "claude-opus-5-5"}}}
 
 	vaulttest.SetRecord(t, "gemini", "model", "")
 	vaulttest.SetRecord(t, "gemini", "model", "")
@@ -112,7 +112,7 @@ func TestResolveTargetGeminiModelPinBeatsRegistryDefault(t *testing.T) {
 	}
 	wantDefault := reg.Providers["antigravity"].Models["opus"]
 	if target.Model != wantDefault {
-		t.Fatalf("unpinned: target.Model = %q, want the registry's gemini opus slot %q", target.Model, wantDefault)
+		t.Fatalf("unpinned: target.Model = %q, want the registry's gemini opus alias %q", target.Model, wantDefault)
 	}
 
 	vaulttest.SetRecord(t, "gemini", "model", "gemini-2.5-pro")
@@ -145,7 +145,7 @@ func TestResolveTargetGeminiFallsBackToGoogleLogin(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	sel := providers.Selection{Provider: sub, Slots: map[string]providers.Target{"opus": {Provider: sub, Model: "claude-opus-5-5"}}}
+	sel := providers.Selection{Provider: sub, Aliases: map[string]providers.Target{"opus": {Provider: sub, Model: "claude-opus-5-5"}}}
 	target, note, err := schemaFor("gemini").ResolveTarget(reg, sel, false)
 	if err != nil {
 		t.Fatal(err)

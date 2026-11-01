@@ -10,7 +10,7 @@ import (
 )
 
 func TestModelRow(t *testing.T) {
-	cases := []struct{ in, tier, row, exact string }{
+	cases := []struct{ in, alias, row, exact string }{
 		{"opus", "opus", "claude-opus-5-5", ""},
 		{"claude-sonnet-5.5", "sonnet", "claude-sonnet-5-5", ""},
 		{"databricks-claude-haiku-5-5", "haiku", "claude-haiku-5-5", ""},
@@ -19,9 +19,9 @@ func TestModelRow(t *testing.T) {
 		{"no-such-model", "", "", ""},
 	}
 	for _, c := range cases {
-		tier, row, exact := modelRow(c.in)
-		if tier != c.tier || row != c.row || exact != c.exact {
-			t.Errorf("modelRow(%q) = (%q, %q, %q), want (%q, %q, %q)", c.in, tier, row, exact, c.tier, c.row, c.exact)
+		alias, row, exact := modelRow(c.in)
+		if alias != c.alias || row != c.row || exact != c.exact {
+			t.Errorf("modelRow(%q) = (%q, %q, %q), want (%q, %q, %q)", c.in, alias, row, exact, c.alias, c.row, c.exact)
 		}
 	}
 }
@@ -40,14 +40,14 @@ func TestResolveTargetCanonicalIDTakesTheTierPin(t *testing.T) {
 	vaulttest.UseKeyring(t)
 	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"databricks":{"dev":{"protocol":"anthropic","base_url":"http://127.0.0.1:1",`+
 		`"auth":{"type":"key","env":"DEV_TEST_KEY"},"models":{"opus":"claude-opus-5-5","sonnet":"claude-sonnet-5-5"}}}}}`)
-	vaulttest.SetRecord(t, "claude", "slots.sonnet", "claude-sonnet-5")
+	vaulttest.SetRecord(t, "claude", "aliases.sonnet", "claude-sonnet-5")
 	_, got, err := resolveTarget(RunOptions{Provider: "dev", Model: "claude-sonnet-5-5"})
 	if err != nil || got.Model != "claude-sonnet-5" {
 		t.Errorf("claude-sonnet-5-5 = %+v (%v), want the pinned claude-sonnet-5", got, err)
 	}
 }
 
-// A non-Claude id keeps matching agents, with Claude last at the lowest tier serving the id.
+// A non-Claude id keeps matching agents, with Claude last at the lowest alias serving the id.
 func TestRouteChainForNonClaudeIDIsExact(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	all := router.PickOpts{Configured: func(string, router.Cell) error { return nil }}
@@ -66,11 +66,11 @@ func TestRouteChainForNonClaudeIDIsExact(t *testing.T) {
 		}
 	}
 	if last := c.Dispatches[len(c.Dispatches)-1]; last.Agent.Name() != "claude" || last.Model != "sonnet" {
-		t.Errorf("last dispatch = %+v, want claude at sonnet (the lowest codex tier serving gpt-6.1-sol)", last)
+		t.Errorf("last dispatch = %+v, want claude at sonnet (the lowest codex alias serving gpt-6.1-sol)", last)
 	}
 }
 
-// An alias-less older row runs its own cell on every agent, not the current tier's.
+// An alias-less older row runs its own cell on every agent, not the current alias's.
 func TestRouteChainForCanonicalRowUsesItsCell(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	all := router.PickOpts{Configured: func(string, router.Cell) error { return nil }}

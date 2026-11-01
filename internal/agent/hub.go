@@ -48,8 +48,8 @@ func IsHubAgent(name string) bool {
 // HubStart resolves the provider a hub agent's first dispatch targets: explicitProvider when the caller set
 // one (forced, regardless of login or quota), else the first opencodeLadder entry that has a login,
 // falling back to the ladder's first entry at all so the page stays editable with no login anywhere.
-// The ladder orders opencode's own paid backends only — the free Zen catalog (opus excluded, tier- and
-// work-repo-gated) is the per-tier sub-pick's concern (route.Table.Pick), not this cross-tier provider page.
+// The ladder orders opencode's own paid backends only — the free Zen catalog (opus excluded, alias- and
+// work-repo-gated) is the per-alias sub-pick's concern (route.Table.Pick), not this cross-alias provider page.
 func HubStart(reg *providers.Registry, agentName, explicitProvider string) (*providers.Provider, error) {
 	if explicitProvider != "" {
 		p, err := reg.Get(explicitProvider)
@@ -178,7 +178,7 @@ func (l hubDispatch) Run(ctx context.Context, req RunOptions, sink Sink) (Result
 	return res, runErr
 }
 
-// resolveModel: "" takes provider's opus slot; a slot name maps through provider's table; anything else (a routed
+// resolveModel: "" takes provider's opus alias; an alias name maps through provider's table; anything else (a routed
 // cell's bare model, a raw id or "provider:model") is parsed against it directly.
 func (l hubDispatch) resolveModel(reqModel string) string {
 	reqModel = strings.TrimPrefix(reqModel, l.provider.OpencodeID+"/")
@@ -186,7 +186,7 @@ func (l hubDispatch) resolveModel(reqModel string) string {
 	switch {
 	case reqModel == "":
 		id = l.provider.Models[models.Opus]
-	case slices.Contains(models.Slots, reqModel):
+	case slices.Contains(models.AliasNames, reqModel):
 		id = l.provider.Models[reqModel]
 	default:
 		id = providers.ParseTarget(l.reg, reqModel, l.provider).Model

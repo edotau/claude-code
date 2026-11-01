@@ -80,7 +80,7 @@ func TestRouteVerbJSON(t *testing.T) {
 		t.Errorf("last candidate = %+v, want claude at sonnet with scores", c)
 	}
 	if code := cmdGatewayRouter([]string{"--model", "fable"}); code == 0 {
-		t.Error("an unrouted tier must fail")
+		t.Error("an unrouted alias must fail")
 	}
 }
 

@@ -26,7 +26,7 @@ const firstOutputFloor = 90 * time.Second
 type Routing struct {
 	// Weights replaces internal/route's composite-score weights whole (was top-level routeWeights).
 	Weights map[string]float64 `json:"weights,omitempty"`
-	// Cells overrides internal/router's table cells, keyed agent → tier (was top-level route).
+	// Cells overrides internal/router's table cells, keyed agent → alias (was top-level route).
 	Cells map[string]map[string]RouteCell `json:"cells,omitempty"`
 	// Subagents toggles the agent-effort pressure hook's coworker offload; nil = on.
 	Subagents *bool `json:"subagents,omitempty"`
@@ -36,7 +36,7 @@ type Routing struct {
 }
 
 // OpencodeRouting is opencode's own sub-pick knobs: the paid-backend ladder order, the work-repo markers
-// that block zen-free, which tiers zen-free may serve, and the free dispatch's stall deadline. Ladder,
+// that block zen-free, which aliases zen-free may serve, and the free dispatch's stall deadline. Ladder,
 // WorkRepoMarkers and FreeTiers are pointers: nil means unset (inherit the default), a pointer to an
 // empty slice means explicitly empty — the distinction `omitempty` on a plain slice cannot survive a
 // marshal round-trip (an empty slice and an absent field both omit).
@@ -47,7 +47,7 @@ type OpencodeRouting struct {
 	// WorkRepoMarkers are the remote-URL substrings marking a repo as work (zen-free never serves one);
 	// defaults.json seeds an empty list — no repo is a work repo until the user sets markers.
 	WorkRepoMarkers *[]string `json:"workRepoMarkers,omitempty"`
-	// FreeTiers are the tiers zen-free may serve; defaults.json seeds sonnet+haiku. "opus" is rejected by Validate.
+	// FreeTiers are the aliases zen-free may serve; defaults.json seeds sonnet+haiku. "opus" is rejected by Validate.
 	FreeTiers *[]string `json:"freeTiers,omitempty"`
 	// FreeFirstOutput is the free dispatch's stall deadline, a Go duration string; defaults.json seeds "90s".
 	FreeFirstOutput string `json:"freeFirstOutput,omitempty"`
@@ -70,12 +70,12 @@ func (o OpencodeRouting) Markers() []string {
 	return *o.WorkRepoMarkers
 }
 
-// FreeTierOK reports whether zen-free may serve tier (merged registry field; defaults.json seeds it).
-func (o OpencodeRouting) FreeTierOK(tier string) bool {
+// FreeTierOK reports whether zen-free may serve alias (merged registry field; defaults.json seeds it).
+func (o OpencodeRouting) FreeTierOK(alias string) bool {
 	if o.FreeTiers == nil {
 		return false
 	}
-	return slices.Contains(*o.FreeTiers, tier)
+	return slices.Contains(*o.FreeTiers, alias)
 }
 
 // FirstOutput is the free dispatch's stall deadline: the merged registry field when it parses to a positive
@@ -130,25 +130,25 @@ func RouteSubagentsOn() (on bool, source string) {
 	return reg.Routing.SubagentsOn(), "default"
 }
 
-// validateRouting checks a routing object's shape: weight names/sum, cell agent/tier/account names, and
+// validateRouting checks a routing object's shape: weight names/sum, cell agent/alias/account names, and
 // opencode's own freeTiers/freeFirstOutput.
 func validateRouting(r Routing) []string {
 	var errs []string
-	for agent, tiers := range r.Cells {
+	for agent, aliases := range r.Cells {
 		if !slices.Contains(RouteAgents, agent) {
 			errs = append(errs, fmt.Sprintf("routing.cells names unknown agent %q", agent))
 			continue
 		}
-		for tier, cell := range tiers {
-			if !validRouteRow(tier) {
-				errs = append(errs, fmt.Sprintf("routing.cells %s/%s names unknown tier, alias or Claude id", agent, tier))
+		for alias, cell := range aliases {
+			if !validRouteRow(alias) {
+				errs = append(errs, fmt.Sprintf("routing.cells %s/%s names unknown alias or Claude id", agent, alias))
 			}
 			switch {
 			case cell.Account != "" && !validRouteAccountKey(cell.Account):
-				errs = append(errs, fmt.Sprintf("routing.cells %s/%s names account_key %q with no known billing entry", agent, tier, cell.Account))
+				errs = append(errs, fmt.Sprintf("routing.cells %s/%s names account_key %q with no known billing entry", agent, alias, cell.Account))
 			case cell.Account == "" && agent == "opencode" && cell.Model != "" &&
 				!slices.Contains(RouteOpencodeModelPrefixes, routeModelPrefix(cell.Model)):
-				errs = append(errs, fmt.Sprintf("routing.cells opencode/%s model %q prefix has no known billing account; set account_key explicitly", tier, cell.Model))
+				errs = append(errs, fmt.Sprintf("routing.cells opencode/%s model %q prefix has no known billing account; set account_key explicitly", alias, cell.Model))
 			}
 		}
 	}
@@ -171,13 +171,13 @@ func validateRouting(r Routing) []string {
 	return errs
 }
 
-// validRouteRow reports whether key names a routed row: a tier, an alias, or a canonical Claude id of a routed tier.
+// validRouteRow reports whether key names a routed row: an alias, or a canonical Claude id of a routed alias.
 func validRouteRow(key string) bool {
-	if slices.Contains(RouteTiers, key) {
+	if slices.Contains(RouteAliases, key) {
 		return true
 	}
 	canonical, _, ok := models.Resolve(key)
-	return ok && slices.Contains(RouteTiers, models.FamilyOf(canonical))
+	return ok && slices.Contains(RouteAliases, models.FamilyOf(canonical))
 }
 
 // NormalizeOpencodeLadder maps each routing.opencode.ladder entry that names a registry provider (e.g. a

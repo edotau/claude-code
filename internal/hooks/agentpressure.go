@@ -37,13 +37,13 @@ var claudePressure = func() (float64, string, bool) {
 	return usage.ClaudePressure(time.Now())
 }
 
-// routeHint names the agent pick for model slot ("codex gpt-6.1-sol"); "" when no agent passes the gates.
-var routeHint = func(tier string) (agent, model string) {
+// routeHint names the agent pick for model alias ("codex gpt-6.1-sol"); "" when no agent passes the gates.
+var routeHint = func(alias string) (agent, model string) {
 	tb, err := router.Load()
 	if err != nil {
 		return "", ""
 	}
-	res := tb.Pick(context.Background(), tier, "", router.LoadState(), agentpkg.RosterPick(router.PickOpts{Fallback: router.FallbackAgents}))
+	res := tb.Pick(context.Background(), alias, "", router.LoadState(), agentpkg.RosterPick(router.PickOpts{Fallback: router.FallbackAgents}))
 	if len(res.Candidates) == 0 {
 		return "", ""
 	}
@@ -83,14 +83,14 @@ func applyPressure(in *Input, updated map[string]any, promptField, base string) 
 	if !ok || pct < router.LowPct {
 		return "", ""
 	}
-	tier := base
-	if tier != models.Opus && tier != models.Sonnet && tier != models.Haiku {
-		tier = "sonnet"
+	alias := base
+	if alias != models.Opus && alias != models.Sonnet && alias != models.Haiku {
+		alias = "sonnet"
 	}
-	agent, model := routeHint(tier)
+	agent, model := routeHint(alias)
 	hint := "no agent passes the route gates"
 	if agent != "" {
-		hint = fmt.Sprintf("`claude-code ask --agent %s --model %s --tools`", agent, tier)
+		hint = fmt.Sprintf("`claude-code ask --agent %s --model %s --tools`", agent, alias)
 	}
 	kind := in.nested("tool_input", "subagent_type")
 	if pct >= OffloadPct && offloadTypes[kind] && agent != "" {
@@ -100,9 +100,9 @@ func applyPressure(in *Input, updated map[string]any, promptField, base string) 
 			"then verify and report.\n\n%s", window, pct, hint, prompt)
 		return fmt.Sprintf("agent-effort: Claude %s window at %.0f%% — %s dispatch moved to coworker (haiku) via %s.",
 				window, pct, kind, hint),
-			fmt.Sprintf("agent-effort: %.0f%% %s → coworker via %s %s (%s)", pct, window, agent, model, tier)
+			fmt.Sprintf("agent-effort: %.0f%% %s → coworker via %s %s (%s)", pct, window, agent, model, alias)
 	}
-	down := models.NextSlot(base)
+	down := models.NextAlias(base)
 	if down == "" && base == models.Haiku {
 		down = base
 	}

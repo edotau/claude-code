@@ -1,5 +1,5 @@
 // Package providers is the model-routing registry: named upstreams, their gateway routes per wire
-// dialect, credential sources, and the tier→model pins a launch or routed request resolves against.
+// dialect, credential sources, and the alias→model pins a launch or routed request resolves against.
 package providers
 
 import (
@@ -46,9 +46,9 @@ type Provider struct {
 	BaseURL  string            `json:"base_url"`
 	Routes   map[string]string `json:"routes,omitempty"` // dialect → path suffix or absolute URL
 	Auth     Auth              `json:"auth"`
-	Models   map[string]string `json:"models,omitempty"` // slot (opus/sonnet/haiku/fable) → model id
+	Models   map[string]string `json:"models,omitempty"` // alias (opus/sonnet/haiku/fable) → model id
 	Headers  map[string]string `json:"headers,omitempty"`
-	// OpencodeFallback is the model id opencode's own render substitutes whenever a slot resolves to
+	// OpencodeFallback is the model id opencode's own render substitutes whenever an alias resolves to
 	// "auto" (a router alias some CLIs serve but opencode's provider catalog does not list).
 	OpencodeFallback string `json:"opencode_fallback,omitempty"`
 	// OpencodeVariant, if set, is appended as "#<variant>" to the rendered opencode.json default model.
@@ -153,11 +153,11 @@ func (p Provider) Dialects() []string {
 	return out
 }
 
-// SlotOf reverse-maps a model id to the slot it occupies in this provider, for cross-provider failover.
-func (p Provider) SlotOf(model string) string {
-	for _, slot := range models.Slots {
-		if id, ok := p.Models[slot]; ok && SameModel(id, model) {
-			return slot
+// AliasOf reverse-maps a model id to the alias it occupies in this provider, for cross-provider failover.
+func (p Provider) AliasOf(model string) string {
+	for _, alias := range models.AliasNames {
+		if id, ok := p.Models[alias]; ok && SameModel(id, model) {
+			return alias
 		}
 	}
 	return ""
@@ -204,8 +204,8 @@ type RouteCell struct {
 // RouteAgents are the routing table's columns, in roster order; internal/router embeds the same list.
 var RouteAgents = []string{"claude", "copilot", "codex", "opencode", "gemini"}
 
-// RouteTiers are the routed tiers, strongest first; fable stays Claude Code's own slot.
-var RouteTiers = []string{models.Opus, models.Sonnet, models.Haiku}
+// RouteAliases are the routed aliases, strongest first; fable stays Claude Code's own alias.
+var RouteAliases = []string{models.Opus, models.Sonnet, models.Haiku}
 
 // RouteWeightNames are the dimension names a route weights map must sum to 1 over (internal/route's
 // Dimension.Name(); today "price", "headroom"); this package only validates shape, route owns the scoring.

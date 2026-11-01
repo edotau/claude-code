@@ -44,12 +44,12 @@ func handoffPrompt(doc string) string {
 		"\nHANDOFF>>>\n\nFinish the task from where the partial answer stops."
 }
 
-// resumeSlot is model's tier (bare, "<profile>:<tier>" or a Claude id's family) for the fallback; else "" (its opus).
-func resumeSlot(model string) string {
-	if _, slot, ok := strings.Cut(model, ":"); ok {
-		model = slot
+// resumeAlias is model's alias (bare, "<profile>:<alias>" or a Claude id's family) for the fallback; else "" (its opus).
+func resumeAlias(model string) string {
+	if _, alias, ok := strings.Cut(model, ":"); ok {
+		model = alias
 	}
-	if slices.Contains(models.Slots, model) {
+	if slices.Contains(models.AliasNames, model) {
 		return model
 	}
 	canon, _ := models.Canonical(model)

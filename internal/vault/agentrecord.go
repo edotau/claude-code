@@ -14,6 +14,9 @@ const AgentRecordsKey = "agent-records"
 // agentRecordSchema is the vault layout that folded the <AGENT>_<FIELD> pins into records.
 const agentRecordSchema = 4
 
+// aliasRecordSchema is the layout that renamed a record's "aliases" key to "aliases".
+const aliasRecordSchema = 5
+
 // AgentRecord is one agent's vault record; every field is optional and a zero record is not stored.
 type AgentRecord struct {
 	Profile string `json:"profile,omitempty"` // "" = off (claude: "" = automatic pick, always on)
@@ -21,19 +24,19 @@ type AgentRecord struct {
 	Effort  string `json:"effort,omitempty"`
 	Context string `json:"context,omitempty"` // copilot only today
 	Account string `json:"account,omitempty"` // copilot GitHub user
-	// Slots are claude's per-tier model pins (CLAUDE_<TIER>_MODEL), keyed by lower-case tier.
-	Slots map[string]string `json:"slots,omitempty"`
+	// Aliases are claude's per-alias model pins (CLAUDE_<ALIAS>_MODEL), keyed by lower-case alias.
+	Aliases map[string]string `json:"aliases,omitempty"`
 }
 
 // IsZero reports a record with nothing set.
 func (r AgentRecord) IsZero() bool {
-	return r.Profile == "" && r.Model == "" && r.Effort == "" && r.Context == "" && r.Account == "" && len(r.Slots) == 0
+	return r.Profile == "" && r.Model == "" && r.Effort == "" && r.Context == "" && r.Account == "" && len(r.Aliases) == 0
 }
 
 // LegacyAgents are the roster agents whose <AGENT>_<FIELD> pins fold into records; claude is first.
 var LegacyAgents = []string{"claude", "codex", "copilot", "gemini", "opencode"}
 
-var legacyTiers = []string{"opus", "sonnet", "haiku", "fable"}
+var legacyAliases = []string{"opus", "sonnet", "haiku", "fable"}
 
 // ParseAgentPin splits a legacy pin key into agent and field (PROFILE, MODEL, ..., claude's <TIER>_MODEL); ok=false else.
 func ParseAgentPin(key string) (agent, field string, ok bool) {
@@ -47,7 +50,7 @@ func ParseAgentPin(key string) (agent, field string, ok bool) {
 			f == "ACTIVE" && a != "claude",
 			f == "GITHUB_USER" && a == "copilot":
 			return a, f, true
-		case a == "claude" && strings.HasSuffix(f, "_MODEL") && slices.Contains(legacyTiers, strings.ToLower(strings.TrimSuffix(f, "_MODEL"))):
+		case a == "claude" && strings.HasSuffix(f, "_MODEL") && slices.Contains(legacyAliases, strings.ToLower(strings.TrimSuffix(f, "_MODEL"))):
 			return a, f, true
 		}
 	}
@@ -73,15 +76,15 @@ func (r AgentRecord) WithPin(field, val string) AgentRecord {
 			r.Profile = ""
 		}
 	default:
-		slot := strings.ToLower(strings.TrimSuffix(field, "_MODEL"))
-		slots := maps.Clone(r.Slots)
-		if slots == nil {
-			slots = map[string]string{}
+		alias := strings.ToLower(strings.TrimSuffix(field, "_MODEL"))
+		aliases := maps.Clone(r.Aliases)
+		if aliases == nil {
+			aliases = map[string]string{}
 		}
-		if slots[slot] = val; val == "" {
-			delete(slots, slot)
+		if aliases[alias] = val; val == "" {
+			delete(aliases, alias)
 		}
-		r.Slots = slots
+		r.Aliases = aliases
 	}
 	return r
 }
@@ -90,7 +93,7 @@ func (r AgentRecord) WithPin(field, val string) AgentRecord {
 func (t *Tx) AgentRecords() (map[string]AgentRecord, error) {
 	out := map[string]AgentRecord{}
 	if raw, ok := t.Get(Overlay, AgentRecordsKey); ok && raw != "" {
-		if err := json.Unmarshal([]byte(raw), &out); err != nil {
+		if err := json.Unmarshal([]byte(renameSlotsKey(raw)), &out); err != nil {
 			return nil, fmt.Errorf("vault: %s is corrupt: %w", AgentRecordsKey, err)
 		}
 	}
@@ -114,6 +117,39 @@ func (t *Tx) PutAgentRecords(recs map[string]AgentRecord) error {
 		return err
 	}
 	return t.Put(Overlay, AgentRecordsKey, string(b))
+}
+
+// renameSlotsKey rewrites each record's pre-schema-5 "slots" key to "aliases" so an unmigrated read still sees them.
+func renameSlotsKey(raw string) string {
+	if !strings.Contains(raw, `"slots"`) {
+		return raw
+	}
+	var recs map[string]map[string]json.RawMessage
+	if json.Unmarshal([]byte(raw), &recs) != nil {
+		return raw
+	}
+	for _, r := range recs {
+		if v, ok := r["slots"]; ok {
+			if _, has := r["aliases"]; !has {
+				r["aliases"] = v
+			}
+			delete(r, "slots")
+		}
+	}
+	b, err := json.Marshal(recs)
+	if err != nil {
+		return raw
+	}
+	return string(b)
+}
+
+// migrateSlotsToAliases rewrites every stored record under the "aliases" key (AgentRecords reads the old "aliases").
+func migrateSlotsToAliases(t *Tx) error {
+	recs, err := t.AgentRecords()
+	if err != nil {
+		return err
+	}
+	return t.PutAgentRecords(recs)
 }
 
 // foldAgentPins applies every legacy pin in pins to recs (ACTIVE last, so off clears the profile) and lists the keys.

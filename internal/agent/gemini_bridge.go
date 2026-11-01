@@ -151,9 +151,9 @@ func RunGemini(ctx context.Context, o GeminiOptions, stream, log io.Writer) (Res
 	}, NewTextSink(stream), func(s string) { fmt.Fprintln(log, s) })
 }
 
-// resolvedModelID resolves a slot name or provider:model to the concrete model id agy expects.
+// resolvedModelID resolves an alias name or provider:model to the concrete model id agy expects.
 func resolvedModelID(reg *providers.Registry, sel providers.Selection, p *providers.Provider, model string) string {
-	if t, ok := sel.Slots[model]; ok {
+	if t, ok := sel.Aliases[model]; ok {
 		return t.Model
 	}
 	return providers.ParseTarget(reg, model, p).Model
@@ -221,7 +221,7 @@ func printCommand(reg *providers.Registry, sel providers.Selection, p *providers
 		route, _ = p.Route(providers.ProtocolOpenAI)
 		suffix = "/chat/completions"
 	}
-	shown := geminiAgyModel(reg, sel, p, model) // a slot name or provider:id resolves the way Run will
+	shown := geminiAgyModel(reg, sel, p, model) // an alias name or provider:id resolves the way Run will
 	fmt.Fprintf(log, "POST %s%s model=%s provider=%s files=%d prompt_bytes=%d\n",
 		route, suffix, shown, p.Name, len(ctxFiles.Included), len(prompt))
 	return Result{Provider: p.Name, Model: shown}

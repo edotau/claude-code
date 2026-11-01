@@ -162,7 +162,7 @@ func TestSessionFromBanner(t *testing.T) {
 	}
 }
 
-// A hard-quota 429 (this key cannot use the model) demotes the slot for the retry instead of waiting it out.
+// A hard-quota 429 (this key cannot use the model) demotes the alias for the retry instead of waiting it out.
 func TestRunDemotesSlotOnHardQuota(t *testing.T) {
 	fastDefaultBackoff(t)
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
@@ -180,12 +180,12 @@ func TestRunDemotesSlotOnHardQuota(t *testing.T) {
 	// A transient 429 keeps the model: nothing to demote.
 	f = &fakeRunner{caps: Caps{Model: Native}, errs: []error{errors.New("HTTP 429 rate limited, try again in 1s"), nil}}
 	if _, err := Run(context.Background(), f, RunOptions{Prompt: "p", Model: "opus"}, Discard, nil); err != nil || f.seen[1].Model != "opus" {
-		t.Fatalf("transient 429 must retry the same slot: err=%v seen=%+v", err, f.seen)
+		t.Fatalf("transient 429 must retry the same alias: err=%v seen=%+v", err, f.seen)
 	}
 }
 
 // A 402 (account exhausted: no credits/plan window left) is KindQuota and IsQuota-true but ModelDenied-false:
-// a lower slot on the same account is just as exhausted, so Run must not demote and must return the error.
+// a lower alias on the same account is just as exhausted, so Run must not demote and must return the error.
 func TestRunQuotaAccountExhaustedDoesNotDemote(t *testing.T) {
 	fastDefaultBackoff(t)
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
@@ -201,7 +201,7 @@ func TestRunQuotaAccountExhaustedDoesNotDemote(t *testing.T) {
 		t.Fatalf("seen = %+v, want one attempt with the model never demoted off \"\"", f.seen)
 	}
 	if len(notes) != 0 {
-		t.Errorf("account exhaustion must not announce a slot demotion: %v", notes)
+		t.Errorf("account exhaustion must not announce an alias demotion: %v", notes)
 	}
 
 	// A body carrying BOTH the 402/payment-required account marker AND a model-denied marker
@@ -218,7 +218,7 @@ func TestRunQuotaAccountExhaustedDoesNotDemote(t *testing.T) {
 		t.Fatalf("seen = %+v, want one attempt with the model never demoted off \"\"", f.seen)
 	}
 	if len(bothNotes) != 0 {
-		t.Errorf("402+insufficient_quota must not announce a slot demotion: %v", bothNotes)
+		t.Errorf("402+insufficient_quota must not announce a alias demotion: %v", bothNotes)
 	}
 }
 
@@ -251,7 +251,7 @@ func TestDispatchUnavailable(t *testing.T) {
 		{"wrapped progressed", &fakeRunner{name: "codex"}, RunOptions{}, Result{}, fmt.Errorf("agent: %w", progressed), false},
 		{"not progressed", &fakeRunner{name: "codex"}, RunOptions{}, Result{}, &Error{Kind: KindFatal, Err: genericErr}, true},
 		{"binary missing", &fakeRunner{name: "codex"}, RunOptions{}, Result{}, genericErr, true},
-		{"claude model slot stays eligible", &fakeRunner{name: "codex"}, RunOptions{Model: "opus"}, Result{}, genericErr, true},
+		{"claude model alias stays eligible", &fakeRunner{name: "codex"}, RunOptions{Model: "opus"}, Result{}, genericErr, true},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -316,7 +316,7 @@ func TestRunWithFallback(t *testing.T) {
 		}
 	})
 
-	t.Run("the tier is kept on the claude dispatch", func(t *testing.T) {
+	t.Run("the alias is kept on the claude dispatch", func(t *testing.T) {
 		codex := &fakeRunner{name: "codex", caps: Caps{Model: Native}, errs: []error{unavailable}, emptyAnswer: true}
 		claude := &fakeRunner{name: "claude", caps: Caps{Model: Native}, errs: []error{nil}}
 		if _, err := RunWithFallback(context.Background(), chainOf([]Engine{codex, claude}, "", "opus"), RunOptions{Prompt: "p", Model: "claude-opus-5.5"}, Discard, nil); err != nil {

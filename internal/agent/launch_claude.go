@@ -57,48 +57,48 @@ func sessionSelection(o LaunchOptions, session bool) (*providers.Registry, provi
 	}
 	sel, err := providers.Select(reg, o.Provider)
 	if o.Model != "" && sel.Provider != nil {
-		applyModel(&sel, o.Model, session, o.Tier)
+		applyModel(&sel, o.Model, session, o.Alias)
 		err = nil
 	}
 	return reg, sel, err
 }
 
-// MainTier is the tier whose model is the launch's main model: the family --model names, else the verb's tier, else opus.
-func MainTier(o LaunchOptions) string {
+// MainAlias is the alias whose model is the launch's main model: the one --model names, else the verb's, else opus.
+func MainAlias(o LaunchOptions) string {
 	if t, _, _ := parseModelFlag(o.Model); t != "" {
 		return t
 	}
-	return cmp.Or(o.Tier, models.Opus)
+	return cmp.Or(o.Alias, models.Opus)
 }
 
-// parseModelFlag reads --model: tier is the Claude family it names ("" for a non-Claude wire id), canonical its
-// catalog id ("" when unknown), alias is true when the input was a bare tier alias (opus), which floats.
-func parseModelFlag(s string) (tier, canonical string, alias bool) {
+// parseModelFlag reads --model: alias is the Claude family it names ("" for a non-Claude wire id), canonical its
+// catalog id ("" when unknown), bare is true when the input was a bare alias (opus), which floats.
+func parseModelFlag(s string) (alias, canonical string, bare bool) {
 	s = strings.TrimSpace(s)
 	name := strings.ToLower(models.Strip1M(s))
-	if c, ok := models.Alias(name); ok && slices.Contains(models.Slots, name) {
+	if c, ok := models.Alias(name); ok && slices.Contains(models.AliasNames, name) {
 		return name, c, !models.Has1M(s)
 	}
 	canonical, _, ok := models.Resolve(s)
 	if !ok {
 		return "", "", false
 	}
-	if f, _, _, ok := models.ParseClaudeID(canonical); ok && slices.Contains(models.Slots, f) {
+	if f, _, _, ok := models.ParseClaudeID(canonical); ok && slices.Contains(models.AliasNames, f) {
 		return f, canonical, false
 	}
 	return "", canonical, false
 }
 
-// applyModel applies --model to sel: a bare alias keeps the tier's resolution, else the main slot.
-func applyModel(sel *providers.Selection, model string, session bool, verbTier string) {
-	tier, canonical, alias := parseModelFlag(model)
+// applyModel applies --model to sel: a bare alias keeps the alias's resolution, else the main alias.
+func applyModel(sel *providers.Selection, model string, session bool, verbAlias string) {
+	alias, canonical, bare := parseModelFlag(model)
 	dst := models.Opus
 	if session {
-		dst = MainTier(LaunchOptions{Model: model, Tier: verbTier})
+		dst = MainAlias(LaunchOptions{Model: model, Alias: verbAlias})
 	}
-	if alias {
-		if t, ok := sel.Slots[tier]; ok && dst != tier {
-			sel.Slots[dst] = t
+	if bare {
+		if t, ok := sel.Aliases[alias]; ok && dst != alias {
+			sel.Aliases[dst] = t
 		}
 		return
 	}
@@ -108,7 +108,7 @@ func applyModel(sel *providers.Selection, model string, session bool, verbTier s
 	if canonical != "" {
 		wire = sel.Provider.WireModel(canonical)
 	}
-	sel.Slots[dst] = providers.Target{Provider: sel.Provider, Model: wire, OneM: oneM}
+	sel.Aliases[dst] = providers.Target{Provider: sel.Provider, Model: wire, OneM: oneM}
 }
 
 // Claude resolves a Claude Code launch.
@@ -137,8 +137,8 @@ func Claude(ctx context.Context, o LaunchOptions, args []string) (Plan, error) {
 	if configDirEnvIsDefault() {
 		plan.Unset = append(plan.Unset, "CLAUDE_CONFIG_DIR")
 	}
-	setModelSlotEnv(&plan, sel)
-	if err := setMainModel(&plan, sel, p, MainTier(o), o.Model != "" || GetAgentRecord("claude").Model != ""); err != nil {
+	setModelAliasEnv(&plan, sel)
+	if err := setMainModel(&plan, sel, p, MainAlias(o), o.Model != "" || GetAgentRecord("claude").Model != ""); err != nil {
 		return Plan{}, err
 	}
 	set1MOff(&plan, sel, p)
@@ -163,22 +163,22 @@ func configDirEnvIsDefault() bool {
 	return err == nil && d != "" && filepath.Clean(d) == filepath.Join(home, ".claude")
 }
 
-// setModelSlotEnv stamps ANTHROPIC_DEFAULT_<SLOT>_MODEL for every slot the selection resolved.
-func setModelSlotEnv(plan *Plan, sel providers.Selection) {
-	for _, slot := range models.Slots {
-		if m := sel.ClientModel(slot); m != "" {
-			plan.Set["ANTHROPIC_DEFAULT_"+strings.ToUpper(slot)+"_MODEL"] = m
+// setModelAliasEnv stamps ANTHROPIC_DEFAULT_<SLOT>_MODEL for every alias the selection resolved.
+func setModelAliasEnv(plan *Plan, sel providers.Selection) {
+	for _, alias := range models.AliasNames {
+		if m := sel.ClientModel(alias); m != "" {
+			plan.Set["ANTHROPIC_DEFAULT_"+strings.ToUpper(alias)+"_MODEL"] = m
 		}
 	}
 }
 
 // set1MOff turns 1M off when the session endpoint lacks it: Claude Code assumes 1M for recognised ids. An explicit
-// [1m] typed on a slot keeps it on. DISABLE_1M_CONTEXT over AUTO_COMPACT_WINDOW: it also drops the 1M /model entries.
+// [1m] typed on an alias keeps it on. DISABLE_1M_CONTEXT over AUTO_COMPACT_WINDOW: it also drops the 1M /model entries.
 func set1MOff(plan *Plan, sel providers.Selection, p *providers.Provider) {
 	if p.Serves1M() {
 		return
 	}
-	for _, t := range sel.Slots {
+	for _, t := range sel.Aliases {
 		if t.OneM {
 			return
 		}
@@ -186,11 +186,11 @@ func set1MOff(plan *Plan, sel providers.Selection, p *providers.Provider) {
 	plan.Set["CLAUDE_CODE_DISABLE_1M_CONTEXT"] = "1"
 }
 
-// setMainModel sets the thinking knobs from tier's model, and ANTHROPIC_MODEL only when the user asked for one.
-func setMainModel(plan *Plan, sel providers.Selection, p *providers.Provider, tier string, asked bool) error {
-	opus := sel.ClientModel(tier)
+// setMainModel sets the thinking knobs from alias's model, and ANTHROPIC_MODEL only when the user asked for one.
+func setMainModel(plan *Plan, sel providers.Selection, p *providers.Provider, alias string, asked bool) error {
+	opus := sel.ClientModel(alias)
 	if opus == "" {
-		return fmt.Errorf("profile %s has no %s model; pin one with claude-code models --pin %s=<id>", p.Name, tier, tier)
+		return fmt.Errorf("profile %s has no %s model; pin one with claude-code models --pin %s=<id>", p.Name, alias, alias)
 	}
 	if asked {
 		plan.Set["ANTHROPIC_MODEL"] = opus
@@ -204,10 +204,10 @@ func setMainModel(plan *Plan, sel providers.Selection, p *providers.Provider, ti
 	return nil
 }
 
-// sessionProviders is the session provider plus each slot's provider.
+// sessionProviders is the session provider plus each alias's provider.
 func sessionProviders(sel providers.Selection) []*providers.Provider {
 	out := []*providers.Provider{sel.Provider}
-	for _, t := range sel.Slots {
+	for _, t := range sel.Aliases {
 		out = append(out, t.Provider)
 	}
 	return out
@@ -217,13 +217,13 @@ func sessionProviders(sel providers.Selection) []*providers.Provider {
 // returns the apiKeyHelper command for the overlay.
 func configureRouting(ctx context.Context, o LaunchOptions, reg *providers.Registry, sel providers.Selection, p *providers.Provider, passthrough bool, self string, plan *Plan) (string, error) {
 	helper := shellQuote(helperBin(self)) + " resolve --profile " + shellQuote(p.Name)
-	for _, t := range sel.Slots {
+	for _, t := range sel.Aliases {
 		if err := providers.ClaudeCodeError(t.Provider, t.Model); err != nil {
 			return "", err
 		}
 	}
 	if sel.NeedsRouter(reg) {
-		for _, t := range sel.Slots {
+		for _, t := range sel.Aliases {
 			if t.Provider.Auth.Method() == providers.AuthCLI && !passthrough {
 				return "", fmt.Errorf("model on %s: its cli login needs a cli-login session profile — claude-code switch %s, or pick a key profile", t.Provider.Name, t.Provider.Name)
 			}

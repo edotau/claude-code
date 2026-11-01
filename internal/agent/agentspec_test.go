@@ -78,7 +78,7 @@ func TestCopilotChoicePin(t *testing.T) {
 	}
 }
 
-// D10: a slot alias the provider lacks keeps the default model and says so; one it has maps through.
+// D10: an alias the provider lacks keeps the default model and says so; one it has maps through.
 func TestResolveAgentModelMissingAlias(t *testing.T) {
 	vaulttest.Use(t)
 	tg := specTarget("fallback")

@@ -38,7 +38,7 @@ func AgentRecords() map[string]vault.AgentRecord {
 func AgentRecord(agent string) vault.AgentRecord { return AgentRecords()[agent] }
 
 // CopilotModel is the one resolver every copilot agent launch, the configure page and doctor share:
-// the record's model first, else the github provider's opus slot (no pin = no behavior change).
+// the record's model first, else the github provider's opus alias (no pin = no behavior change).
 func CopilotModel(reg *Registry) (model, source string) {
 	if m := AgentRecord("copilot").Model; m != "" {
 		return m, "pin"
@@ -90,7 +90,7 @@ func GithubAccountLogin(reg *Registry, name string) string {
 }
 
 // CodexModel resolves the codex record's model: it if set, else "" — codex's own default (config.toml's
-// model, then its ChatGPT-login provider's opus slot) decides.
+// model, then its ChatGPT-login provider's opus alias) decides.
 func CodexModel() (model, source string) {
 	if m := AgentRecord("codex").Model; m != "" {
 		return m, "pin"
@@ -180,7 +180,7 @@ func AuditRecords(before, after map[string]vault.AgentRecord) {
 		case b[f] == n[f]:
 		case f == "profile":
 			audit.Log(audit.ProviderSwitch, n[f], pinCaller())
-		case f == "model" || strings.HasPrefix(f, "slots."):
+		case f == "model" || strings.HasPrefix(f, "aliases."):
 			audit.Log(audit.ModelPin, "claude."+f, cmp.Or(n[f], "unpinned"))
 		}
 	}
@@ -189,11 +189,11 @@ func AuditRecords(before, after map[string]vault.AgentRecord) {
 // AuditSwitch records a session-profile switch.
 func AuditSwitch(profile string) { audit.Log(audit.ProviderSwitch, profile, pinCaller()) }
 
-// AuditModelPin records a claude model pin for slot ("" = every slot); an empty spec is an unpin.
-func AuditModelPin(slot, spec string) {
+// AuditModelPin records a claude model pin for alias ("" = every alias); an empty spec is an unpin.
+func AuditModelPin(alias, spec string) {
 	key := "claude.model"
-	if slot != "" {
-		key = "claude.slots." + slot
+	if alias != "" {
+		key = "claude.aliases." + alias
 	}
 	audit.Log(audit.ModelPin, key, cmp.Or(spec, "unpinned"))
 }
@@ -223,11 +223,11 @@ func mergeKeys[V any](a, b map[string]V) map[string]struct{} {
 	return keys
 }
 
-// recordFields flattens r to field -> value, tier slots as slots.<tier>.
+// recordFields flattens r to field -> value, aliases as aliases.<alias>.
 func recordFields(r vault.AgentRecord) map[string]string {
 	f := map[string]string{"profile": r.Profile, "model": r.Model, "effort": r.Effort, "context": r.Context, "account": r.Account}
-	for tier, v := range r.Slots {
-		f["slots."+tier] = v
+	for alias, v := range r.Aliases {
+		f["aliases."+alias] = v
 	}
 	return f
 }

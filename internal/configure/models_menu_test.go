@@ -12,8 +12,8 @@ import (
 
 // subscriptionSelection loads the real registry and resolves the subscription provider (passthrough,
 // no live token): ListModels fails instantly with ErrPassthrough (no network dial at all), so
-// catalogForSlot falls back to RegistryModels(p) — the provider's own configured per-slot ids, in
-// models.Slots order — deterministically and without hitting the network.
+// catalogForAlias falls back to RegistryModels(p) — the provider's own configured per-alias ids, in
+// models.AliasNames order — deterministically and without hitting the network.
 func subscriptionSelection(t *testing.T) (*providers.Registry, providers.Selection) {
 	t.Helper()
 	vaulttest.Use(t)
@@ -31,20 +31,20 @@ func subscriptionSelection(t *testing.T) (*providers.Registry, providers.Selecti
 	return reg, sel
 }
 
-// TestPickModelForSlotHeaderNeverAppearsInRows: pickModelForSlot's header argument names the columns;
+// TestPickModelForSlotHeaderNeverAppearsInRows: pickModelForAlias's header argument names the columns;
 // it must never also appear as a pickable row.
 func TestPickModelForSlotHeaderNeverAppearsInRows(t *testing.T) {
 	reg, sel := subscriptionSelection(t)
-	origPick, origSlots := pickModels, pickSlots
-	t.Cleanup(func() { pickModels, pickSlots = origPick, origSlots })
+	origPick, origSlots := pickModels, pickAliases
+	t.Cleanup(func() { pickModels, pickAliases = origPick, origSlots })
 	var gotHeader [2]string
 	var gotRows [][2]string
 	pickModels = func(title string, header [2]string, rows [][2]string, start int) (int, error) {
 		gotHeader, gotRows = header, rows
 		return -1, nil
 	}
-	slot := models.Slots[0]
-	pickModelForSlot(&dialog{reg: reg, out: discardWriter{}}, sel, slot)
+	alias := models.AliasNames[0]
+	pickModelForAlias(&dialog{reg: reg, out: discardWriter{}}, sel, alias)
 	if gotHeader[0] != "ID" {
 		t.Fatalf("header = %v, want the ID/Model/Use case/Capabilities header", gotHeader)
 	}
@@ -62,31 +62,31 @@ func TestPickModelForSlotHeaderNeverAppearsInRows(t *testing.T) {
 // the header is no longer a pickable row (tui.PickTable strips it before the index reaches here).
 func TestPickModelForSlotPicksFirstPinsIt(t *testing.T) {
 	reg, sel := subscriptionSelection(t)
-	origPick, origSlots := pickModels, pickSlots
-	t.Cleanup(func() { pickModels, pickSlots = origPick, origSlots })
-	slot := models.Slots[0]
+	origPick, origSlots := pickModels, pickAliases
+	t.Cleanup(func() { pickModels, pickAliases = origPick, origSlots })
+	alias := models.AliasNames[0]
 	pickModels = func(title string, header [2]string, rows [][2]string, start int) (int, error) {
 		return 0, nil
 	}
-	pickModelForSlot(&dialog{reg: reg, out: discardWriter{}}, sel, slot)
-	want := reg.Providers["max"].Models[slot]
-	if got := agentpkg.GetAgentRecord("claude").Slots[strings.ToLower(slot)]; got != want {
-		t.Errorf("slot %s = %q, want %q (rows[0]'s id)", slot, got, want)
+	pickModelForAlias(&dialog{reg: reg, out: discardWriter{}}, sel, alias)
+	want := reg.Providers["max"].Models[alias]
+	if got := agentpkg.GetAgentRecord("claude").Aliases[strings.ToLower(alias)]; got != want {
+		t.Errorf("alias %s = %q, want %q (rows[0]'s id)", alias, got, want)
 	}
 }
 
 // TestPickModelForSlotMinusOnePinsNothing: Back/Esc from the picker must leave every pin untouched.
 func TestPickModelForSlotMinusOnePinsNothing(t *testing.T) {
 	reg, sel := subscriptionSelection(t)
-	origPick, origSlots := pickModels, pickSlots
-	t.Cleanup(func() { pickModels, pickSlots = origPick, origSlots })
-	slot := models.Slots[0]
+	origPick, origSlots := pickModels, pickAliases
+	t.Cleanup(func() { pickModels, pickAliases = origPick, origSlots })
+	alias := models.AliasNames[0]
 	pickModels = func(title string, header [2]string, rows [][2]string, start int) (int, error) {
 		return -1, nil
 	}
-	pickModelForSlot(&dialog{reg: reg, out: discardWriter{}}, sel, slot)
-	if got := agentpkg.GetAgentRecord("claude").Slots[strings.ToLower(slot)]; got != "" {
-		t.Errorf("slot %s = %q, want unset after Back/Esc", slot, got)
+	pickModelForAlias(&dialog{reg: reg, out: discardWriter{}}, sel, alias)
+	if got := agentpkg.GetAgentRecord("claude").Aliases[strings.ToLower(alias)]; got != "" {
+		t.Errorf("alias %s = %q, want unset after Back/Esc", alias, got)
 	}
 }
 

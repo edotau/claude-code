@@ -38,7 +38,7 @@ func TestParseTargetCanonicalAndOneM(t *testing.T) {
 func TestClientModelKeepsTypedOneM(t *testing.T) {
 	plain := &Provider{Name: "plain"}
 	other := &Provider{Name: "other"}
-	sel := Selection{Provider: plain, Slots: map[string]Target{
+	sel := Selection{Provider: plain, Aliases: map[string]Target{
 		"opus":   {Provider: plain, Model: "claude-opus-5-5", OneM: true},
 		"sonnet": {Provider: plain, Model: "claude-sonnet-5"},
 		"haiku":  {Provider: other, Model: "claude-haiku-4-5", OneM: true},
@@ -50,9 +50,9 @@ func TestClientModelKeepsTypedOneM(t *testing.T) {
 		"haiku":  "other:claude-haiku-4-5[1m]",
 		"fable":  "other:gpt-5",
 	}
-	for slot, w := range want {
-		if got := sel.ClientModel(slot); got != w {
-			t.Errorf("ClientModel(%s) = %q; want %q", slot, got, w)
+	for alias, w := range want {
+		if got := sel.ClientModel(alias); got != w {
+			t.Errorf("ClientModel(%s) = %q; want %q", alias, got, w)
 		}
 	}
 }
@@ -223,7 +223,7 @@ func presetSel(t *testing.T, opus, sonnet string) (*Registry, Selection) {
 	t.Helper()
 	reg := mustParse(t, `{"providers": {"databricks": {"dbx": {"preset": "databricks", "host": "https://adb-1.azuredatabricks.net", "cliProfile": "w"}}}}`)
 	p := reg.Providers["dbx"]
-	return reg, Selection{Provider: p, Slots: map[string]Target{
+	return reg, Selection{Provider: p, Aliases: map[string]Target{
 		"opus": {Provider: p, Model: opus}, "sonnet": {Provider: p, Model: sonnet}}}
 }
 
@@ -234,7 +234,7 @@ func TestNeedsRouterNonClaudeSlotOnDualRouteProvider(t *testing.T) {
 	}
 	reg, sel = presetSel(t, "databricks-claude-opus-5-5", "databricks-claude-sonnet-5-5")
 	if sel.NeedsRouter(reg) {
-		t.Error("all-Claude slots on the preset row must stay direct")
+		t.Error("all-Claude aliases on the preset row must stay direct")
 	}
 }
 
@@ -248,10 +248,10 @@ func TestNeedsRouterTwinShapedUnchanged(t *testing.T) {
 		sel  Selection
 		want bool
 	}{
-		{"claude on anthropic-only", Selection{Provider: tw, Slots: map[string]Target{"opus": {Provider: tw, Model: "databricks-claude-opus-5-5"}}}, false},
-		{"non-claude on anthropic-only (no openai route)", Selection{Provider: tw, Slots: map[string]Target{"opus": {Provider: tw, Model: "databricks-gpt-5-5"}}}, false},
-		{"cross-provider slot to the twin", Selection{Provider: tw, Slots: map[string]Target{"opus": {Provider: oai, Model: "databricks-gpt-5-5"}}}, true},
-		{"openai-only session provider", Selection{Provider: oai, Slots: map[string]Target{"opus": {Provider: oai, Model: "databricks-gpt-5-5"}}}, true},
+		{"claude on anthropic-only", Selection{Provider: tw, Aliases: map[string]Target{"opus": {Provider: tw, Model: "databricks-claude-opus-5-5"}}}, false},
+		{"non-claude on anthropic-only (no openai route)", Selection{Provider: tw, Aliases: map[string]Target{"opus": {Provider: tw, Model: "databricks-gpt-5-5"}}}, false},
+		{"cross-provider alias to the twin", Selection{Provider: tw, Aliases: map[string]Target{"opus": {Provider: oai, Model: "databricks-gpt-5-5"}}}, true},
+		{"openai-only session provider", Selection{Provider: oai, Aliases: map[string]Target{"opus": {Provider: oai, Model: "databricks-gpt-5-5"}}}, true},
 	}
 	for _, c := range cases {
 		if got := c.sel.NeedsRouter(reg); got != c.want {

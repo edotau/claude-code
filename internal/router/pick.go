@@ -20,7 +20,7 @@ const (
 	GateOff       = "off"  // the agent is deactivated (<AGENT>_ACTIVE=off)
 )
 
-// Candidate is one runnable dispatch: the agent, its cell at the tier, its account's state and its composite score.
+// Candidate is one runnable dispatch: the agent, its cell at the alias, its account's state and its composite score.
 type Candidate struct {
 	Agent string `json:"agent"`
 	Cell
@@ -41,7 +41,7 @@ type Skip struct {
 
 // PickResult is a pick: candidates in run order, the weights that scored them, then every skipped agent.
 type PickResult struct {
-	Tier       string             `json:"tier"`
+	Alias      string             `json:"alias"`
 	Want       string             `json:"want,omitempty"`
 	Weights    map[string]float64 `json:"weights"`
 	Candidates []Candidate        `json:"candidates"`
@@ -95,7 +95,7 @@ type PickScope struct {
 	Candidates []Candidate
 }
 
-// Dimension is one scored axis, 0–1 with 1 better; success rate, latency or tier fit can be added beside these.
+// Dimension is one scored axis, 0–1 with 1 better; success rate, latency or alias fit can be added beside these.
 type Dimension interface {
 	Name() string
 	Score(c Candidate, s PickScope) float64
@@ -104,9 +104,9 @@ type Dimension interface {
 // Dimensions are the scored axes; table.json's weights must name exactly these.
 var Dimensions = []Dimension{priceDim{}, headroomDim{}}
 
-// Pick gates then scores the agents for tier: want first when it passes the gates, then the other agents by
+// Pick gates then scores the agents for alias: want first when it passes the gates, then the other agents by
 // total score (low accounts after all non-low), then claude under FallbackAll. claude itself never falls back.
-func (t *RouteTable) Pick(ctx context.Context, tier, want string, st State, o PickOpts) PickResult {
+func (t *RouteTable) Pick(ctx context.Context, alias, want string, st State, o PickOpts) PickResult {
 	now, configured := time.Now(), o.Configured
 	if o.Now != nil {
 		now = o.Now()
@@ -117,12 +117,12 @@ func (t *RouteTable) Pick(ctx context.Context, tier, want string, st State, o Pi
 	if st == nil {
 		st = State{}
 	}
-	res := PickResult{Tier: tier, Want: want, Weights: t.Weights}
+	res := PickResult{Alias: alias, Want: want, Weights: t.Weights}
 	pins := o.Pins
 	reg, _ := providers.Load()
 	pg := &pickGate{reg: reg, held: map[string]bool{}}
 	gate := func(agent string) ([]Candidate, bool) {
-		return t.gateCandidate(ctx, pg, tier, agent, pins, st, o, now, configured, &res)
+		return t.gateCandidate(ctx, pg, alias, agent, pins, st, o, now, configured, &res)
 	}
 	firstG, restG, lastG := t.gatherCandidates(want, o, gate)
 	flatFirst, flatRest, flatLast := flattenGroups(firstG), flattenGroups(restG), flattenGroups(lastG)
@@ -165,15 +165,15 @@ func regroup(groups [][]Candidate, flat []Candidate) [][]Candidate {
 // gateAgent runs one agent through the row/configured/account/exhausted gates, recording a Skip on failure.
 // It returns a group of candidates from this one agent — one, unless it's opencode's free+backup pair.
 func (t *RouteTable) gateAgent(
-	ctx context.Context, tier, agent string, st State, o PickOpts, now time.Time,
+	ctx context.Context, alias, agent string, st State, o PickOpts, now time.Time,
 	configured func(agent string, c Cell) error, res *PickResult,
 ) ([]Candidate, bool) {
-	if agent == "opencode" && !t.OpencodeRowOverridden[tier] {
-		return t.gateOpencodeCandidate(ctx, tier, "", st, o, now, configured, res)
+	if agent == "opencode" && !t.OpencodeRowOverridden[alias] {
+		return t.gateOpencodeCandidate(ctx, alias, "", st, o, now, configured, res)
 	}
-	c, ok := t.Cell(agent, tier)
+	c, ok := t.Cell(agent, alias)
 	if !ok {
-		res.Skipped = append(res.Skipped, Skip{agent, GateRow, "no " + tier + " row"})
+		res.Skipped = append(res.Skipped, Skip{agent, GateRow, "no " + alias + " row"})
 		return nil, false
 	}
 	if err := configured(agent, c); err != nil {
@@ -231,14 +231,14 @@ func (t *RouteTable) opencodeOrder() []string {
 	return slices.Concat([]string{"zen-free"}, t.OpencodeLadder)
 }
 
-// gateOpencodeCandidate runs the opencode sub-pick at tier: zen-free first (skipped at opus or on a work
+// gateOpencodeCandidate runs the opencode sub-pick at alias: zen-free first (skipped at opus or on a work
 // repo, BillFree), then each ladder id in order, every one gated on its own login (configured,
 // which checks the cell's model prefix) and quota. The first to clear every gate wins; a low account sorts
 // after the non-low ones while otherwise keeping this order. ok is false when every sub-candidate was skipped.
 // When the winner bills free, the first surviving paid sub-candidate rides along right after it, so a stalled
 // free dispatch has a ready backup without a second opencode pick.
 func (t *RouteTable) gateOpencodeCandidate(
-	ctx context.Context, tier, only string, st State, o PickOpts, now time.Time,
+	ctx context.Context, alias, only string, st State, o PickOpts, now time.Time,
 	configured func(agent string, c Cell) error, res *PickResult,
 ) ([]Candidate, bool) {
 	type sub struct {
@@ -262,17 +262,17 @@ func (t *RouteTable) gateOpencodeCandidate(
 			res.Skipped = append(res.Skipped, Skip{name, GateRow, "unknown opencode ladder id"})
 			continue
 		}
-		c, has := t.OpencodeSubCell(id, tier)
+		c, has := t.OpencodeSubCell(id, alias)
 		if !has {
-			continue // e.g. zen-free carries no "opus" row — that is how it stays out of opus, not a tier check
+			continue // e.g. zen-free carries no "opus" row — that is how it stays out of opus, not an alias check
 		}
 		billing := t.Billing[c.Account]
 		if billing == BillFree && workRepo() {
 			res.Skipped = append(res.Skipped, Skip{name, GateFree, "free blocked on a work repo"})
 			continue
 		}
-		if billing == BillFree && !t.OpencodeRouting.FreeTierOK(tier) {
-			res.Skipped = append(res.Skipped, Skip{name, GateFree, "free not enabled at " + tier})
+		if billing == BillFree && !t.OpencodeRouting.FreeTierOK(alias) {
+			res.Skipped = append(res.Skipped, Skip{name, GateFree, "free not enabled at " + alias})
 			continue
 		}
 		if err := configured("opencode", c); err != nil {

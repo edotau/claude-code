@@ -115,7 +115,7 @@ func dotVersion(id, version string) string {
 // Wire builds the wire id of canonical for a named spelling rule (anthropic, databricks-serving, ...).
 func Wire(rule, canonical string) string { return load().wire(rule, canonical) }
 
-// Alias resolves a tier alias (opus, sonnet, haiku, fable) to the canonical id it currently backs.
+// Alias resolves an alias (opus, sonnet, haiku, fable) to the canonical id it currently backs.
 func Alias(name string) (canonical string, ok bool) {
 	canonical, ok = load().Aliases[strings.ToLower(strings.TrimSpace(name))]
 	return canonical, ok

@@ -25,24 +25,24 @@ func IsPoolModel(p *providers.Provider, model string) bool {
 	})
 }
 
-// PinnedModel resolves a pin and reports why a BYOK request fell back to the tier slot.
-func PinnedModel(agent, tier string, cell Cell, p *providers.Provider, pin string) (string, string) {
+// PinnedModel resolves a pin and reports why a BYOK request fell back to the alias.
+func PinnedModel(agent, alias string, cell Cell, p *providers.Provider, pin string) (string, string) {
 	now := time.Now()
 	if pin != BYOKModel {
-		return pinnedModel(agent, tier, cell, p, pin, now), ""
+		return pinnedModel(agent, alias, cell, p, pin, now), ""
 	}
 	if agent != "copilot" && agent != "opencode" {
-		return pinnedModel(agent, tier, cell, p, "", now), "byok requires copilot or opencode; using tier slot"
+		return pinnedModel(agent, alias, cell, p, "", now), "byok requires copilot or opencode; using alias"
 	}
 	if p == nil || p.Preset != providers.PresetDatabricks {
-		return pinnedModel(agent, tier, cell, p, "", now), "byok requires Databricks; using tier slot"
+		return pinnedModel(agent, alias, cell, p, "", now), "byok requires Databricks; using alias"
 	}
 	model, err := pickPool(agent, p, BYOKPool(), now)
 	if err != nil {
-		return pinnedModel(agent, tier, cell, p, "", now), "byok state unavailable; using tier slot"
+		return pinnedModel(agent, alias, cell, p, "", now), "byok state unavailable; using alias"
 	}
 	if model == "" {
-		return pinnedModel(agent, tier, cell, p, "", now), "byok pool has no served model; using tier slot"
+		return pinnedModel(agent, alias, cell, p, "", now), "byok pool has no served model; using alias"
 	}
 	return model, ""
 }

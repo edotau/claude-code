@@ -6,7 +6,7 @@ import (
 	"github.com/edotau/claude-code/internal/vault"
 )
 
-// AgentRecord is one agent's vault record (profile, model, effort, context, account; claude adds tier Slots).
+// AgentRecord is one agent's vault record (profile, model, effort, context, account; claude adds model Aliases).
 type AgentRecord = vault.AgentRecord
 
 // AgentRecords reads the vault once; every roster agent is present (zero value when unset), a read error is empty.

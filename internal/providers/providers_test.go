@@ -174,7 +174,7 @@ func TestValidateAcceptsOpencodeSubIDsWithoutProviders(t *testing.T) {
 func TestSelectPinsAndCrossProvider(t *testing.T) {
 	reg := load(t)
 	vaulttest.SetRecord(t, "claude", "model", "claude-opus-4-8")
-	vaulttest.SetRecord(t, "claude", "slots.haiku", "openai:gpt-5-nano")
+	vaulttest.SetRecord(t, "claude", "aliases.haiku", "openai:gpt-5-nano")
 	sel, err := Select(reg, "")
 	if err != nil {
 		t.Fatal(err)
@@ -189,7 +189,7 @@ func TestSelectPinsAndCrossProvider(t *testing.T) {
 		t.Errorf("haiku client model %q", got)
 	}
 	if !sel.NeedsRouter(reg) {
-		t.Error("cross-provider slot must need the router")
+		t.Error("cross-provider alias must need the router")
 	}
 	if tgt := ParseTarget(reg, "qwen3:30b[1m]", sel.Provider); tgt.Provider != sel.Provider || tgt.Model != "qwen3:30b" {
 		t.Errorf("unregistered prefix must stay a model: %+v", tgt)
@@ -212,7 +212,7 @@ func TestNeedsRouterPassthroughFallback(t *testing.T) {
 	}}
 	for name, want := range map[string]bool{"sub": false, "key": true} {
 		p := reg.Providers[name]
-		sel := Selection{Provider: p, Slots: map[string]Target{"opus": {Provider: p, Model: "o"}}}
+		sel := Selection{Provider: p, Aliases: map[string]Target{"opus": {Provider: p, Model: "o"}}}
 		if got := sel.NeedsRouter(reg); got != want {
 			t.Errorf("%s: NeedsRouter = %v, want %v", name, got, want)
 		}
@@ -225,7 +225,7 @@ func TestFailoverTarget(t *testing.T) {
 	or, _ := reg.Get("gateway")
 	oa, _ := reg.Get("openai")
 	if tg, ok := FailoverTarget(gw, "claude-sonnet-5", or); !ok || tg.Model != "anthropic/claude-sonnet-5" {
-		t.Errorf("slot mapping: %+v", tg)
+		t.Errorf("alias mapping: %+v", tg)
 	}
 	if tg, ok := FailoverTarget(gw, "claude-haiku-9-9", oa); !ok || tg.Model != "gpt-5-nano" {
 		t.Errorf("family mapping: %+v", tg)
@@ -348,13 +348,13 @@ func TestIsQuotaAndDemote(t *testing.T) {
 		t.Error("Demote(small) must stop at the bottom of the ladder")
 	}
 	if _, ok := Demote(&Provider{Name: "one", Models: map[string]string{"opus": "x", "sonnet": "x"}}, "x"); ok {
-		t.Error("Demote must not return the same model under another slot")
+		t.Error("Demote must not return the same model under another alias")
 	}
 }
 
 // TestModelDeniedVsIsQuota pins the split: ModelDenied is the narrow "this model is dead on this key, try a
-// lower slot" set; IsQuota is the broader "the account itself is exhausted" superset that also includes the
-// window/plan/credit markers ModelDenied must NOT match (those don't mean a lower slot would fare better).
+// lower alias" set; IsQuota is the broader "the account itself is exhausted" superset that also includes the
+// window/plan/credit markers ModelDenied must NOT match (those don't mean a lower alias would fare better).
 func TestModelDeniedVsIsQuota(t *testing.T) {
 	accountOnly := []string{
 		`usage limit reached, try again in 60 seconds`,
@@ -384,7 +384,7 @@ func TestModelDeniedVsIsQuota(t *testing.T) {
 	}
 	// A body carrying BOTH a hard account-exhaustion marker and a model-denied marker (OpenAI's 402 body
 	// reads this way: a 402 wrapping "insufficient_quota") is account-exhausted, not model-denied — demoting
-	// to a lower slot on the same dead account would only fail again, so ModelDenied must veto.
+	// to a lower alias on the same dead account would only fail again, so ModelDenied must veto.
 	hardOverridesModel := []string{
 		`HTTP 402 payment required: insufficient_quota`,
 		`out of credits`,
@@ -399,18 +399,18 @@ func TestModelDeniedVsIsQuota(t *testing.T) {
 	}
 	// Gemini's free-tier per-model denial reuses accountRE's "exceeded your current quota" phrase alongside
 	// "limit: 0" — hardAccountRE deliberately excludes "current" (only monthly/weekly), so this one stays
-	// model-denied: a lower slot on the same key can still serve.
+	// model-denied: a lower alias on the same key can still serve.
 	if geminiFreeTier := `exceeded your current quota, limit: 0`; !ModelDenied(geminiFreeTier) {
 		t.Errorf("ModelDenied(%q) = false, want true (model-specific denial, not account-wide)", geminiFreeTier)
 	}
 }
 
 // TestValidateRejectsUnknownRouteTierAndAgent checks Registry.Validate catches an overlay cell naming a
-// agent or tier outside RouteAgents/RouteTiers before it ever reaches router.LoadFrom.
+// agent or alias outside RouteAgents/RouteAliases before it ever reaches router.LoadFrom.
 func TestValidateRejectsUnknownRouteTierAndAgent(t *testing.T) {
 	badTier := &Registry{Providers: map[string]*Provider{}, Routing: Routing{Cells: map[string]map[string]RouteCell{"opencode": {"ultra": {Model: "x"}}}}}
-	if err := badTier.Validate(); err == nil || !strings.Contains(err.Error(), "unknown tier") {
-		t.Errorf("unknown tier: err = %v, want it to name the rule", err)
+	if err := badTier.Validate(); err == nil || !strings.Contains(err.Error(), "unknown alias") {
+		t.Errorf("unknown alias: err = %v, want it to name the rule", err)
 	}
 	badAgent := &Registry{Providers: map[string]*Provider{}, Routing: Routing{Cells: map[string]map[string]RouteCell{"ghost": {"sonnet": {Model: "x"}}}}}
 	if err := badAgent.Validate(); err == nil || !strings.Contains(err.Error(), "unknown agent") {

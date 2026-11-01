@@ -114,10 +114,10 @@ func TestHubDispatchResolveModel(t *testing.T) {
 	l := hubDispatch{agent: "codex", provider: chatgpt, reg: reg}
 
 	if got := l.resolveModel(""); got != "openai-opus" {
-		t.Errorf(`resolveModel("") = %q, want provider's opus slot`, got)
+		t.Errorf(`resolveModel("") = %q, want provider's opus alias`, got)
 	}
 	if got := l.resolveModel(models.Sonnet); got != "openai-sonnet" {
-		t.Errorf("resolveModel(slot name) = %q, want provider's sonnet slot", got)
+		t.Errorf("resolveModel(alias name) = %q, want provider's sonnet alias", got)
 	}
 	if got := l.resolveModel("raw-model-id"); got != "raw-model-id" {
 		t.Errorf("resolveModel(raw id) = %q, want it passed through", got)

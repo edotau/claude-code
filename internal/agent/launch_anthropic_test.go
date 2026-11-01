@@ -208,7 +208,7 @@ func TestAnthropicModelPicksMainTier(t *testing.T) {
 	vaulttest.Use(t)
 	hermetic(t, "")
 	cases := map[string]string{"": models.Opus, "sonnet-5": models.Sonnet, "haiku": models.Haiku, "claude-opus-5": models.Opus}
-	for model, tier := range cases {
+	for model, alias := range cases {
 		args := []string{}
 		if model != "" {
 			args = []string{"--model", model}
@@ -225,8 +225,8 @@ func TestAnthropicModelPicksMainTier(t *testing.T) {
 		if model == "" && got != "" {
 			t.Errorf("no --model: ANTHROPIC_MODEL %q, want unset", got)
 		}
-		if model != "" && !strings.Contains(got, tier) {
-			t.Errorf("--model %q: ANTHROPIC_MODEL %q, want family %q", model, got, tier)
+		if model != "" && !strings.Contains(got, alias) {
+			t.Errorf("--model %q: ANTHROPIC_MODEL %q, want family %q", model, got, alias)
 		}
 	}
 }

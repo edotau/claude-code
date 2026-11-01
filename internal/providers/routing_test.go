@@ -120,7 +120,7 @@ func TestUpdateRoutingRoundTripsAndKeepsPrev(t *testing.T) {
 
 // TestFreeTiersNoneRoundTripsAndSurvivesUnrelatedEdit checks an explicitly-empty freeTiers ("none", a
 // pointer to an empty slice, not nil/unset) round-trips through UpdateRouting and a reload, blocks zen-free
-// at every tier, and survives an unrelated field's own UpdateRouting write (the pointer distinction from
+// at every alias, and survives an unrelated field's own UpdateRouting write (the pointer distinction from
 // OpencodeRouting's doc comment: nil is unset, &[]string{} is explicitly empty).
 func TestFreeTiersNoneRoundTripsAndSurvivesUnrelatedEdit(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
@@ -136,7 +136,7 @@ func TestFreeTiersNoneRoundTripsAndSurvivesUnrelatedEdit(t *testing.T) {
 		t.Fatal(err)
 	}
 	if reg.Routing.Opencode.FreeTierOK("sonnet") || reg.Routing.Opencode.FreeTierOK("haiku") {
-		t.Errorf("freeTiers=none must block every tier, got FreeTiers=%v", reg.Routing.Opencode.FreeTiers)
+		t.Errorf("freeTiers=none must block every alias, got FreeTiers=%v", reg.Routing.Opencode.FreeTiers)
 	}
 	// an unrelated write (weights only) must not revert freeTiers back to nil (unset/default).
 	if err := UpdateRouting(func(r *Routing) error {
@@ -153,7 +153,7 @@ func TestFreeTiersNoneRoundTripsAndSurvivesUnrelatedEdit(t *testing.T) {
 		t.Fatal("an unrelated UpdateRouting write must not clear a previously-set explicit-empty freeTiers")
 	}
 	if reg.Routing.Opencode.FreeTierOK("sonnet") || reg.Routing.Opencode.FreeTierOK("haiku") {
-		t.Errorf("freeTiers=none must still block every tier after an unrelated edit, got %v", reg.Routing.Opencode.FreeTiers)
+		t.Errorf("freeTiers=none must still block every alias after an unrelated edit, got %v", reg.Routing.Opencode.FreeTiers)
 	}
 }
 

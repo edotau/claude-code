@@ -183,15 +183,15 @@ func TestOpencodeDatabricksUnknownModel(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "databricks-not-a-model") || !strings.Contains(err.Error(), "catalog list --live") {
 		t.Fatalf("unknown model err = %v", err)
 	}
-	p.Models = map[string]string{models.Slots[0]: "databricks-slot-only"}
-	c := renderOpencode(t, p, providers.ProtocolOpenAI, base, "databricks-slot-only", false)
-	if _, ok := c.Provider["harness-qa"].Models["databricks-slot-only"]; !ok || c.Model != "harness-qa/databricks-slot-only" {
-		t.Errorf("slot model not accepted: %q", c.Model)
+	p.Models = map[string]string{models.AliasNames[0]: "databricks-alias-only"}
+	c := renderOpencode(t, p, providers.ProtocolOpenAI, base, "databricks-alias-only", false)
+	if _, ok := c.Provider["harness-qa"].Models["databricks-alias-only"]; !ok || c.Model != "harness-qa/databricks-alias-only" {
+		t.Errorf("alias model not accepted: %q", c.Model)
 	}
-	p.Models = map[string]string{models.Slots[0]: "databricks-claude-opus-9-9"}
+	p.Models = map[string]string{models.AliasNames[0]: "databricks-claude-opus-9-9"}
 	cc := renderOpencode(t, p, providers.ProtocolOpenAI, testRouterBase+"/p/qa/openai", "databricks-claude-opus-9-9", true)
 	if e, ok := cc.Provider["harness-qa-claude"].Models["databricks-claude-opus-9-9"]; !ok || e.Options.ToolStreaming == nil || cc.Model != "harness-qa-claude/databricks-claude-opus-9-9" {
-		t.Errorf("claude slot model: %q %v", cc.Model, cc.Provider["harness-qa-claude"].Models)
+		t.Errorf("claude alias model: %q %v", cc.Model, cc.Provider["harness-qa-claude"].Models)
 	}
 }
 

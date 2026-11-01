@@ -49,8 +49,8 @@ func opencodeDatabricks(p *providers.Provider, id, dialect, base, model, cred st
 	if len(dropped) > 0 {
 		fmt.Fprintf(catalogWarn, "opencode: %s has no openai route; left out of the menu: %s\n", p.Name, strings.Join(dropped, ", "))
 	}
-	for _, slot := range models.Slots {
-		if s := models.Strip1M(p.Models[slot]); s != "" {
+	for _, alias := range models.AliasNames {
+		if s := models.Strip1M(p.Models[alias]); s != "" {
 			allowed[s], allowed[p.WireModel(s)] = true, true
 		}
 	}
@@ -64,7 +64,7 @@ func opencodeDatabricks(p *providers.Provider, id, dialect, base, model, cred st
 		if !allowed[model] {
 			return nil, nil, fmt.Errorf("opencode: model %q is not on the %s menu; see `claude-code opencode catalog list --live` or `claude-code opencode catalog add`", model, p.Name)
 		}
-		if claudeBase != "" && models.FamilyKind(model) == models.FamilyClaude { // a tier slot off the curated menu
+		if claudeBase != "" && models.FamilyKind(model) == models.FamilyClaude { // an alias off the curated menu
 			claude[model], defID = claudeEntry(map[string]any{"name": model}), defID+"-claude"
 		} else {
 			if _, ok, why := providers.WireFor(p, model); !ok {

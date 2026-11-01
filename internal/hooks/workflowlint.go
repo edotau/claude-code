@@ -37,7 +37,7 @@ func workflowResult(in *Input) Result {
 }
 
 func workflowInline(in *Input, script string) Result {
-	model := models.TierModel(models.EffortMedium)
+	model := models.AliasModel(models.EffortMedium)
 	out, amb := planlint.FillModel(script, model)
 	vals := badPinValueHits(planlint.LintPins(workflowLintName, []byte(out)))
 	if len(amb) > 0 || len(vals) > 0 {

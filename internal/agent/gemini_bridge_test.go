@@ -145,14 +145,14 @@ func TestBridgeRunDefaultModel(t *testing.T) {
 	}
 }
 
-// TestBridgeRunModelPin: the bridge's default model comes from the provider's own sonnet slot, bypassing
+// TestBridgeRunModelPin: the bridge's default model comes from the provider's own sonnet alias, bypassing
 // CLAUDE_SONNET_MODEL — but an explicit --model sonnet still goes through the pinned resolution.
 func TestBridgeRunModelPin(t *testing.T) {
 	var hits []gotRequest
 	srv := newServer(&hits, 0)
 	defer srv.Close()
 	setupRegistry(t, srv)
-	vaulttest.SetRecord(t, "claude", "slots.sonnet", "claude-sonnet-5")
+	vaulttest.SetRecord(t, "claude", "aliases.sonnet", "claude-sonnet-5")
 
 	dir := t.TempDir()
 
@@ -160,7 +160,7 @@ func TestBridgeRunModelPin(t *testing.T) {
 		t.Fatal(err)
 	}
 	if got := decodeBody(t, hits[len(hits)-1]).Model; got != "g-flash" {
-		t.Errorf("default model with CLAUDE_SONNET_MODEL set = %q, want g-flash (bridge default bypasses slot pins)", got)
+		t.Errorf("default model with CLAUDE_SONNET_MODEL set = %q, want g-flash (bridge default bypasses alias pins)", got)
 	}
 
 	if _, err := RunGemini(context.Background(), GeminiOptions{Provider: "tgem", Model: "sonnet", Cwd: dir, Task: "t"}, io.Discard, io.Discard); err != nil {

@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-// Slots are Claude Code's model tiers; each maps to ANTHROPIC_DEFAULT_<SLOT>_MODEL.
+// AliasNames are Claude Code's model aliases; each maps to ANTHROPIC_DEFAULT_<SLOT>_MODEL.
 const (
 	Opus   = "opus"
 	Sonnet = "sonnet"
@@ -15,13 +15,13 @@ const (
 	Fable  = "fable"
 )
 
-// Slots lists every tier in precedence order (the opus slot is the session default).
-var Slots = []string{Opus, Sonnet, Haiku, Fable}
+// AliasNames lists every alias in precedence order (the opus alias is the session default).
+var AliasNames = []string{Opus, Sonnet, Haiku, Fable}
 
-// NextSlot is the demotion ladder a quota-dead model falls down: opus → sonnet → haiku → "" (none). Fable sits
-// outside it: a distinct family, not a cheaper tier of the same one.
-func NextSlot(slot string) string {
-	switch slot {
+// NextAlias is the demotion ladder a quota-dead model falls down: opus → sonnet → haiku → "" (none). Fable sits
+// outside it: a distinct family, not a cheaper alias of the same one.
+func NextAlias(alias string) string {
+	switch alias {
 	case Opus:
 		return Sonnet
 	case Sonnet:
@@ -204,7 +204,7 @@ func ChatOnly(id string) bool {
 	return ok && load().byID[canonical].ChatOnly
 }
 
-// Use-case labels, keyed to Anthropic's own tier wording on the Claude model comparison page.
+// Use-case labels, keyed to Anthropic's own alias wording on the Claude model comparison page.
 const (
 	UseFrontier  = "Frontier reasoning" // demanding reasoning and long-horizon agentic work
 	UseAgentic   = "Agentic coding"     // long-running agentic coding and knowledge work
@@ -218,8 +218,8 @@ const (
 	UseGeneral   = "General"
 )
 
-// UseCase maps a model id (and optional display name) onto Anthropic's four tiers by family, or a
-// non-chat kind. Pure and table-driven: no vendor exposes tier metadata, so this goes by id markers.
+// UseCase maps a model id (and optional display name) onto Anthropic's four aliases by family, or a
+// non-chat kind. Pure and table-driven: no vendor exposes alias metadata, so this goes by id markers.
 func UseCase(id, name string) string {
 	s := strings.ToLower(id + " " + name)
 	switch {
@@ -292,9 +292,9 @@ const (
 	EffortHigh   = "high"
 )
 
-// TierModel is the Agent-tool alias for an effort tier ("" for an unknown tier); an alias, so `models --pin` applies.
-func TierModel(tier string) string {
-	switch tier {
+// AliasModel is the Agent-tool alias for an effort tier ("" for an unknown tier); an alias, so `models --pin` applies.
+func AliasModel(alias string) string {
+	switch alias {
 	case EffortLow:
 		return Haiku
 	case EffortMedium, EffortHigh:

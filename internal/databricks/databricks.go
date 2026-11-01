@@ -28,7 +28,7 @@ type Plan struct {
 	Check    bool
 	Provider string
 	Model    string
-	Asked    bool // the user named a model; otherwise launch leaves the choice to /model and the slots
+	Asked    bool // the user named a model; otherwise launch leaves the choice to /model and the aliases
 	NoBeta   bool // the provider's own Env carries the beta opt-out, so the verb does not inject it
 	Rest     []string
 }

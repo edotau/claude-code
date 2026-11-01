@@ -12,14 +12,14 @@ import (
 // Client assembles and executes recorded agent dispatches.
 type Client struct {
 	Launcher Launcher
-	Tier     func(task string) string
+	Alias    func(task string) string
 	Refresh  func(ctx context.Context, account string) bool
 	Notify   func(string)
 }
 
 // NewClient accepts classification and refresh seams without depending on their CLI implementations.
-func NewClient(tier func(string) string, refresh func(context.Context, string) bool, notify func(string)) *Client {
-	return &Client{Launcher: claudeLauncher{}, Tier: tier, Refresh: refresh, Notify: notify}
+func NewClient(alias func(string) string, refresh func(context.Context, string) bool, notify func(string)) *Client {
+	return &Client{Launcher: claudeLauncher{}, Alias: alias, Refresh: refresh, Notify: notify}
 }
 
 // Prepared is a routed, recorded dispatch that has not started.
@@ -135,7 +135,7 @@ func (c *Client) route(ctx context.Context, r Engine, o RunOptions) (Chain, erro
 	if err := ctx.Err(); err != nil {
 		return Chain{}, err
 	}
-	chain, _, err := RouteChainFor(ctx, o.Agent, o.Model, c.tier(o.Prompt), o.Fallback, o.Native,
+	chain, _, err := RouteChainFor(ctx, o.Agent, o.Model, c.alias(o.Prompt), o.Fallback, o.Native,
 		router.PickOpts{Refresh: c.Refresh, WorkRepo: func() bool { return router.IsWorkRepo(o.WorkDir) }})
 	return chain, err
 }
@@ -156,14 +156,14 @@ func (c *Client) explicit(r Engine, o RunOptions) (Chain, error) {
 	}
 	chain := ExplicitChain(r, o)
 	if IsHubAgent(o.Agent) && o.Model == "" {
-		chain = WithTier(chain, c.tier(o.Prompt))
+		chain = WithAlias(chain, c.alias(o.Prompt))
 	}
 	return chain, nil
 }
 
-func (c *Client) tier(prompt string) string {
-	if c.Tier != nil {
-		return c.Tier(prompt)
+func (c *Client) alias(prompt string) string {
+	if c.Alias != nil {
+		return c.Alias(prompt)
 	}
 	return ""
 }

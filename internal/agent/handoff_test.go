@@ -70,7 +70,7 @@ func TestCopilotQuotaHandoffWritesHandoffNoRerun(t *testing.T) {
 	}
 }
 
-// "<profile>:<tier>" resolves like --provider <profile> --model <tier>; anything else is left alone.
+// "<profile>:<alias>" resolves like --provider <profile> --model <alias>; anything else is left alone.
 func TestResolveTargetProfileTierRewrite(t *testing.T) {
 	vaulttest.UseKeyring(t)
 	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"databricks":{"dev":{"protocol":"anthropic","base_url":"http://127.0.0.1:1",`+
@@ -94,14 +94,14 @@ func TestResolveTargetProfileTierRewrite(t *testing.T) {
 			t.Errorf("spec %+v (%v) vs flags %+v (%v)", viaSpec, err1, viaFlags, err2)
 		}
 	})
-	t.Run("unknown row or non-tier is not rewritten", func(t *testing.T) {
+	t.Run("unknown row or non-alias is not rewritten", func(t *testing.T) {
 		_, bad, err := resolveTarget(RunOptions{Model: "unknownrow:opus"})
 		if err == nil && bad.Provider != nil && bad.Provider.Name == "unknownrow" {
 			t.Errorf("unknownrow:opus rewritten: %+v", bad)
 		}
 		_, nt, _ := resolveTarget(RunOptions{Model: "dev:notatier"})
 		if nt.Provider != nil && nt.Provider.Name == "dev" && nt.Model == want.Model {
-			t.Errorf("dev:notatier rewritten to dev's opus tier: %+v", nt)
+			t.Errorf("dev:notatier rewritten to dev's opus alias: %+v", nt)
 		}
 	})
 	t.Run("the explicit backend is still seen", func(t *testing.T) {
@@ -228,8 +228,8 @@ func TestCopilotRunnerHandoffRedacted(t *testing.T) {
 
 func TestResumeSlot(t *testing.T) {
 	for in, want := range map[string]string{"sonnet": "sonnet", "dev:haiku": "haiku", "claude-sonnet-5-5": "sonnet", "gpt-5": ""} {
-		if got := resumeSlot(in); got != want {
-			t.Errorf("resumeSlot(%q) = %q, want %q", in, got, want)
+		if got := resumeAlias(in); got != want {
+			t.Errorf("resumeAlias(%q) = %q, want %q", in, got, want)
 		}
 	}
 }

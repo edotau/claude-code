@@ -26,7 +26,7 @@ func DatabricksProfiles(r *Registry) []string { return r.ProfilesOf(GroupDatabri
 // BetaOffKey is the launch env key that disables Claude Code's experimental betas.
 const BetaOffKey = "CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS"
 
-// databricksModels are the canonical ids a databricks preset seeds into empty slots.
+// databricksModels are the canonical ids a databricks preset seeds into empty aliases.
 var databricksModels = map[string]string{
 	"opus": "claude-opus-5-5", "sonnet": "claude-sonnet-5-5", "haiku": "claude-haiku-5-5",
 }
@@ -41,15 +41,15 @@ func expandPresets(r *Registry) {
 	}
 }
 
-// decorateModels rewrites every provider's slot ids to wire ids in memory; load-only, never persisted.
+// decorateModels rewrites every provider's alias ids to wire ids in memory; load-only, never persisted.
 func decorateModels(r *Registry) {
 	for _, p := range r.Providers {
 		if p == nil || len(p.Models) == 0 || p.SpellingRule() == "" {
 			continue
 		}
 		out := make(map[string]string, len(p.Models))
-		for slot, id := range p.Models {
-			out[slot] = p.WireModel(id)
+		for alias, id := range p.Models {
+			out[alias] = p.WireModel(id)
 		}
 		p.Models = out
 	}
@@ -80,9 +80,9 @@ func expandDatabricks(p *Provider) {
 	if p.Auth.TTL == 0 {
 		p.Auth.TTL = 1800
 	}
-	for slot, id := range databricksModels {
-		if p.Models[slot] == "" {
-			p.Models = withKey(p.Models, slot, id)
+	for alias, id := range databricksModels {
+		if p.Models[alias] == "" {
+			p.Models = withKey(p.Models, alias, id)
 		}
 	}
 	if p.Env[BetaOffKey] == "" {

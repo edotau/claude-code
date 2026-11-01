@@ -31,7 +31,7 @@ func TestWireGatewayDerivation(t *testing.T) {
 		t.Errorf("headers = %v", p.Headers)
 	}
 	if got := p.Models["sonnet"]; got != "system.ai.claude-sonnet-5-5" {
-		t.Errorf("sonnet slot = %q", got)
+		t.Errorf("sonnet alias = %q", got)
 	}
 }
 

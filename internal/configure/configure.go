@@ -801,8 +801,8 @@ func modelsReport(d *dialog) bool {
 		d.println(err)
 		return false
 	}
-	for _, s := range models.Slots {
-		if t, ok := sel.Slots[s]; ok {
+	for _, s := range models.AliasNames {
+		if t, ok := sel.Aliases[s]; ok {
 			d.printf("  %-7s %-40s -> %s\n", s, sel.ClientModel(s), t.Spec())
 		}
 	}

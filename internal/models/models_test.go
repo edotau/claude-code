@@ -55,7 +55,7 @@ func TestUseCase(t *testing.T) {
 		// Copilot: bare "auto" alias, and a copilot-routed Claude id keeps its Claude family mapping.
 		{"auto", "", UseAuto},
 		{"claude-sonnet-5", "", UseBalanced},
-		// GPT family: mini/nano, o-series, and the plain chat tier.
+		// GPT family: mini/nano, o-series, and the plain chat alias.
 		{"gpt-5-mini", "", UseHighVol},
 		{"gpt-5-nano", "", UseHighVol},
 		{"o3", "", UseFrontier},
@@ -78,11 +78,11 @@ func TestUseCase(t *testing.T) {
 }
 
 func TestTierModel(t *testing.T) {
-	for tier, want := range map[string]string{
+	for alias, want := range map[string]string{
 		EffortLow: Haiku, EffortMedium: Sonnet, EffortHigh: Sonnet, "": "", "bogus": "", "LOW": "",
 	} {
-		if got := TierModel(tier); got != want {
-			t.Errorf("TierModel(%q) = %q, want %q", tier, got, want)
+		if got := AliasModel(alias); got != want {
+			t.Errorf("AliasModel(%q) = %q, want %q", alias, got, want)
 		}
 	}
 }

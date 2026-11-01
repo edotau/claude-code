@@ -197,8 +197,8 @@ func renderClaude(o Options) (Result, error) {
 	if !p.Serves1M() {
 		env["CLAUDE_CODE_DISABLE_1M_CONTEXT"] = "1"
 	}
-	for _, slot := range []string{models.Opus, models.Sonnet, models.Haiku} {
-		env["ANTHROPIC_DEFAULT_"+strings.ToUpper(slot)+"_MODEL"] = p.WireModel(aliasID(slot))
+	for _, alias := range []string{models.Opus, models.Sonnet, models.Haiku} {
+		env["ANTHROPIC_DEFAULT_"+strings.ToUpper(alias)+"_MODEL"] = p.WireModel(aliasID(alias))
 	}
 	if o.Model != "" {
 		env["ANTHROPIC_MODEL"] = p.WireModel(bareModel(o.Model))
@@ -244,7 +244,7 @@ func replaceLine(head, key, val string) string {
 	return strings.Join(lines, "\n")
 }
 
-// aliasID is the canonical id a tier alias (opus, sonnet, haiku) currently backs; the alias itself if unknown.
+// aliasID is the canonical id an alias (opus, sonnet, haiku) currently backs; the alias itself if unknown.
 func aliasID(alias string) string {
 	if id, ok := models.Alias(alias); ok {
 		return id

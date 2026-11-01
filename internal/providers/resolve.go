@@ -22,13 +22,13 @@ func (t Target) ClientModel() string {
 	return t.Model
 }
 
-// Spec is the "provider:model" form Claude Code sees for a cross-provider slot and the router parses back.
+// Spec is the "provider:model" form Claude Code sees for a cross-provider alias and the router parses back.
 func (t Target) Spec() string { return t.Provider.Name + ":" + t.Model }
 
-// Selection is a session's provider plus each slot's resolved target.
+// Selection is a session's provider plus each alias's resolved target.
 type Selection struct {
 	Provider *Provider
-	Slots    map[string]Target
+	Aliases  map[string]Target
 }
 
 // ParseTarget splits "provider:model" when the prefix names a registered provider; otherwise the
@@ -45,7 +45,7 @@ func ParseTarget(reg *Registry, spec string, def *Provider) Target {
 	return Target{Provider: def, Model: def.WireModel(base), OneM: oneM}
 }
 
-// Select resolves the session: profile = flag → CLAUDE_PROFILE pin → registry default; each slot =
+// Select resolves the session: profile = flag → CLAUDE_PROFILE pin → registry default; each alias =
 // CLAUDE_<TIER>_MODEL → CLAUDE_MODEL → the profile's model table.
 func Select(reg *Registry, providerFlag string) (Selection, error) {
 	recs, err := agentRecords()
@@ -63,32 +63,32 @@ func Select(reg *Registry, providerFlag string) (Selection, error) {
 	if err != nil {
 		return Selection{}, err
 	}
-	sel := Selection{Provider: p, Slots: map[string]Target{}}
+	sel := Selection{Provider: p, Aliases: map[string]Target{}}
 	rec := recs["claude"]
 	all := strings.TrimSpace(rec.Model)
-	for _, slot := range models.Slots {
-		spec := strings.TrimSpace(rec.Slots[slot])
+	for _, alias := range models.AliasNames {
+		spec := strings.TrimSpace(rec.Aliases[alias])
 		if spec == "" {
 			spec = all
 		}
 		if spec == "" {
-			spec = p.Models[slot]
+			spec = p.Models[alias]
 		}
 		if spec == "" {
 			continue
 		}
-		sel.Slots[slot] = ParseTarget(reg, spec, p)
+		sel.Aliases[alias] = ParseTarget(reg, spec, p)
 	}
-	if _, ok := sel.Slots[models.Opus]; !ok {
+	if _, ok := sel.Aliases[models.Opus]; !ok {
 		return sel, fmt.Errorf("provider %s: no opus model (set models.opus with `claude-code vault edit` or `claude-code models --pin opus=<id>`)", p.Name)
 	}
 	return sel, nil
 }
 
-// ClientModel is the id Claude Code is given for slot: a same-provider id (with [1m] where the provider
+// ClientModel is the id Claude Code is given for alias: a same-provider id (with [1m] where the provider
 // serves it), or a "provider:model" spec the router resolves.
-func (s Selection) ClientModel(slot string) string {
-	t, ok := s.Slots[slot]
+func (s Selection) ClientModel(alias string) string {
+	t, ok := s.Aliases[alias]
 	if !ok {
 		return ""
 	}
@@ -98,13 +98,13 @@ func (s Selection) ClientModel(slot string) string {
 	return t.ClientModel()
 }
 
-// NeedsRouter reports whether the session must go through the loopback router: a slot crosses providers, a model
+// NeedsRouter reports whether the session must go through the loopback router: an alias crosses providers, a model
 // rides a wire other than anthropic (AnthropicRoute), the provider has no Anthropic route, or a failover ladder is set.
 func (s Selection) NeedsRouter(reg *Registry) bool {
 	if _, ok := s.Provider.Route(ProtocolAnthropic); !ok {
 		return true
 	}
-	for _, t := range s.Slots {
+	for _, t := range s.Aliases {
 		if _, ok := AnthropicRoute(t.Provider, t.Model); t.Provider != s.Provider || !ok {
 			return true
 		}
@@ -113,14 +113,14 @@ func (s Selection) NeedsRouter(reg *Registry) bool {
 	return len(reg.Fallback) > 0 && s.Provider.Auth.Type != AuthCLI
 }
 
-// FailoverTarget maps a request that failed on from/model to the equivalent model on next: same slot
+// FailoverTarget maps a request that failed on from/model to the equivalent model on next: same alias
 // when from's table knows the model, else the Claude family, else next's opus.
 func FailoverTarget(from *Provider, model string, next *Provider) (Target, bool) {
-	slot := from.SlotOf(model)
-	if slot == "" {
-		slot = models.FamilyOf(model)
+	alias := from.AliasOf(model)
+	if alias == "" {
+		alias = models.FamilyOf(model)
 	}
-	if id := next.Models[slot]; id != "" {
+	if id := next.Models[alias]; id != "" {
 		return Target{Provider: next, Model: id}, true
 	}
 	if id := next.Models[models.Opus]; id != "" {

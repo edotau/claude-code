@@ -14,8 +14,8 @@ import (
 //go:embed table.json
 var tableJSON []byte
 
-// Tiers are the routed tiers, strongest first; fable stays Claude Code's own slot.
-var Tiers = providers.RouteTiers
+// Aliases are the routed aliases, strongest first; fable stays Claude Code's own alias.
+var Aliases = providers.RouteAliases
 
 // TableAgents are the table's columns in roster order; ties in a pick's cost score keep this order.
 var TableAgents = providers.RouteAgents
@@ -44,7 +44,7 @@ type Price struct {
 	Out      float64 `json:"out"`
 }
 
-// Cell is one agent × tier row.
+// Cell is one agent × alias row.
 type Cell struct {
 	Model   string `json:"model"`
 	Effort  string `json:"effort,omitempty"`
@@ -52,26 +52,26 @@ type Cell struct {
 	Price   Price  `json:"price"`
 }
 
-// RouteTable is the loaded routing table: Rows[agent][tier] for the current row of each alias, ByModel[claudeID][agent]
+// RouteTable is the loaded routing table: Rows[agent][alias] for the current row of each alias, ByModel[claudeID][agent]
 // for every row, and each account key's billing type.
 type RouteTable struct {
 	Billing map[string]string  `json:"billing"`
 	Weights map[string]float64 `json:"weights"`
-	// Rows is the tier view (opus/sonnet/haiku) of the rows the aliases currently point at.
+	// Rows is the alias view (opus/sonnet/haiku) of the rows the aliases currently point at.
 	Rows map[string]map[string]Cell `json:"-"`
 	// ByModel holds every row, keyed by canonical Claude id, then agent.
 	ByModel map[string]map[string]Cell `json:"-"`
 	// OpencodeSub are opencode's own sub-candidates, keyed by sub id (opencode-go, github-copilot, openai,
-	// nvidia, zen-free) then tier; a missing tier (zen-free has no "opus") means that id never serves it.
+	// nvidia, zen-free) then alias; a missing alias (zen-free has no "opus") means that id never serves it.
 	OpencodeSub map[string]map[string]Cell `json:"-"`
 	// OpencodeLadder is the sub-pick's paid-backend order (set from the registry in LoadFrom, not JSON):
 	// zen-free always runs first, then this order. Empty keeps whatever defaults.json/the vault overlay set.
 	OpencodeLadder []string `json:"-"`
 	// OpencodeRouting is the registry's routing.opencode object (set from the registry in LoadFrom, not
-	// JSON): work-repo markers, which tiers zen-free may serve, and the free dispatch's stall deadline.
+	// JSON): work-repo markers, which aliases zen-free may serve, and the free dispatch's stall deadline.
 	OpencodeRouting providers.OpencodeRouting `json:"-"`
-	// OpencodeRowOverridden marks a tier whose Rows["opencode"] cell a route overlay touched directly (set
-	// from the registry in LoadFrom): that explicit operator intent wins over the sub-pick at that tier.
+	// OpencodeRowOverridden marks an alias whose Rows["opencode"] cell a route overlay touched directly (set
+	// from the registry in LoadFrom): that explicit operator intent wins over the sub-pick at that alias.
 	OpencodeRowOverridden map[string]bool `json:"-"`
 }
 
@@ -83,15 +83,15 @@ type fileTable struct {
 	OpencodeSub map[string]map[string]Cell `json:"opencode_sub"`
 }
 
-// rowTier is the tier name of a Claude row id when an alias currently points at it, else "".
-func rowTier(claudeID string) string {
-	if a := models.AliasOf(claudeID); slices.Contains(Tiers, a) {
+// rowAlias is the alias name of a Claude row id when an alias currently points at it, else "".
+func rowAlias(claudeID string) string {
+	if a := models.AliasOf(claudeID); slices.Contains(Aliases, a) {
 		return a
 	}
 	return ""
 }
 
-// rowKey resolves an overlay or lookup key (tier, alias, canonical id or any Claude spelling) to a row id.
+// rowKey resolves an overlay or lookup key (alias, canonical id or any Claude spelling) to a row id.
 func rowKey(key string) string {
 	id, _, ok := models.Resolve(key)
 	if !ok {
@@ -129,7 +129,7 @@ func LoadFrom(reg *providers.Registry, ghUser string) (*RouteTable, error) {
 		return nil, fmt.Errorf("router: %w", err)
 	}
 	t.indexRows(copilotKey)
-	t.OpencodeSub = opencodeSubTiers(f.OpencodeSub)
+	t.OpencodeSub = opencodeSubAliases(f.OpencodeSub)
 	return &t, nil
 }
 
@@ -144,8 +144,8 @@ func (t *RouteTable) applyRegistry(reg *providers.Registry) error {
 			if err != nil {
 				return err
 			}
-			if tier := rowTier(id); agent == "opencode" && tier != "" {
-				t.OpencodeRowOverridden[tier] = true
+			if alias := rowAlias(id); agent == "opencode" && alias != "" {
+				t.OpencodeRowOverridden[alias] = true
 			}
 		}
 	}
@@ -157,34 +157,34 @@ func (t *RouteTable) applyRegistry(reg *providers.Registry) error {
 	return nil
 }
 
-// indexRows stamps copilot's account key on every row and builds the per-tier Rows view.
+// indexRows stamps copilot's account key on every row and builds the per-alias Rows view.
 func (t *RouteTable) indexRows(copilotKey string) {
 	t.Rows = map[string]map[string]Cell{}
 	for id, byAgent := range t.ByModel {
 		c := byAgent["copilot"]
 		c.Account = copilotKey
 		byAgent["copilot"] = c
-		tier := rowTier(id)
-		if tier == "" {
+		alias := rowAlias(id)
+		if alias == "" {
 			continue
 		}
 		for agent, cell := range byAgent {
 			if t.Rows[agent] == nil {
 				t.Rows[agent] = map[string]Cell{}
 			}
-			t.Rows[agent][tier] = cell
+			t.Rows[agent][alias] = cell
 		}
 	}
 }
 
-// opencodeSubTiers re-keys each opencode sub-candidate's rows by tier.
-func opencodeSubTiers(subs map[string]map[string]Cell) map[string]map[string]Cell {
+// opencodeSubAliases re-keys each opencode sub-candidate's rows by alias.
+func opencodeSubAliases(subs map[string]map[string]Cell) map[string]map[string]Cell {
 	out := map[string]map[string]Cell{}
 	for sub, rows := range subs {
 		out[sub] = map[string]Cell{}
 		for id, cell := range rows {
-			if tier := rowTier(id); tier != "" {
-				out[sub][tier] = cell
+			if alias := rowAlias(id); alias != "" {
+				out[sub][alias] = cell
 			}
 		}
 	}
@@ -265,46 +265,46 @@ func (t *RouteTable) Row(key string) (map[string]Cell, bool) {
 	return r, ok
 }
 
-// Cell returns the agent's row at tier; ok is false for an unknown agent or tier.
-func (t *RouteTable) Cell(agent, tier string) (Cell, bool) {
-	c, ok := t.Rows[agent][tier]
+// Cell returns the agent's row at alias; ok is false for an unknown agent or alias.
+func (t *RouteTable) Cell(agent, alias string) (Cell, bool) {
+	c, ok := t.Rows[agent][alias]
 	return c, ok
 }
 
-// OpencodeSubCell returns opencode's sub-candidate id's row at tier; ok is false when id serves no row at
-// that tier (zen-free has no "opus" row — that is how it stays out of the opus tier, not a tier check).
-func (t *RouteTable) OpencodeSubCell(id, tier string) (Cell, bool) {
-	c, ok := t.OpencodeSub[id][tier]
+// OpencodeSubCell returns opencode's sub-candidate id's row at alias; ok is false when id serves no row at
+// that alias (zen-free has no "opus" row — that is how it stays out of the opus alias, not an alias check).
+func (t *RouteTable) OpencodeSubCell(id, alias string) (Cell, bool) {
+	c, ok := t.OpencodeSub[id][alias]
 	return c, ok
 }
 
-// TierOf maps a --model value to its tier: a slot name, a table cell's model, a Claude id's family, or a
-// registry slot id; "" when nothing matches (the classifier decides then).
-func (t *RouteTable) TierOf(model string) string {
+// AliasOf maps a --model value to its alias: an alias name, a table cell's model, a Claude id's family, or a
+// registry alias id; "" when nothing matches (the classifier decides then).
+func (t *RouteTable) AliasOf(model string) string {
 	model = models.Strip1M(strings.TrimSpace(model))
 	if model == "" {
 		return ""
 	}
-	if slices.Contains(Tiers, model) {
+	if slices.Contains(Aliases, model) {
 		return model
 	}
 	_, bare, _ := strings.Cut(model, ":") // provider:model
 	if bare == "" {
 		bare = model
 	}
-	for _, tier := range Tiers {
+	for _, alias := range Aliases {
 		for _, agent := range TableAgents {
-			if m := t.Rows[agent][tier].Model; m == bare || m[strings.Index(m, "/")+1:] == bare {
-				return tier
+			if m := t.Rows[agent][alias].Model; m == bare || m[strings.Index(m, "/")+1:] == bare {
+				return alias
 			}
 		}
 	}
-	if f := models.FamilyOf(bare); slices.Contains(Tiers, f) {
+	if f := models.FamilyOf(bare); slices.Contains(Aliases, f) {
 		return f
 	}
 	if reg, err := providers.Load(); err == nil {
 		for _, name := range reg.Names() {
-			if s := reg.Providers[name].SlotOf(bare); slices.Contains(Tiers, s) {
+			if s := reg.Providers[name].AliasOf(bare); slices.Contains(Aliases, s) {
 				return s
 			}
 		}

@@ -156,7 +156,7 @@ func TestVaultAgentsTableSpansRecordsToText(t *testing.T) {
 	t.Setenv("COLUMNS", "200")
 	vaulttest.Put(t, vault.Pins, "HARNESS_PROVIDER", "anthropic")
 	for _, r := range [][3]string{
-		{"claude", "profile", "dev"}, {"claude", "model", "sonnet"}, {"claude", "slots.opus", "opus-x"},
+		{"claude", "profile", "dev"}, {"claude", "model", "sonnet"}, {"claude", "aliases.opus", "opus-x"},
 		{"codex", "profile", "personal"}, {"codex", "effort", "high"},
 	} {
 		vaulttest.SetRecord(t, r[0], r[1], r[2])

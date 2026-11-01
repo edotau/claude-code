@@ -162,7 +162,7 @@ func TestPinnedModelSwapsUnservedPin(t *testing.T) {
 	}
 }
 
-// the swap Skip names an explicit pin only: a tier-slot swap and a byok request add none.
+// the swap Skip names an explicit pin only: an alias-alias swap and a byok request add none.
 func TestGateProfileSwapSkipOnlyForExplicitPin(t *testing.T) {
 	tb := testTable(t) // first: it resets CLAUDE_CONFIG_DIR, which would orphan the vault below
 	stubServed(t, []providers.OpencodeModel{respA}, listing("dev", map[string]string{"m-a": "READY"}))

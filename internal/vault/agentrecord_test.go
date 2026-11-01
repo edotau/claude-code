@@ -45,7 +45,7 @@ func TestMigrationFoldsEveryPinShapeIntoRecords(t *testing.T) {
 	})
 	got := migrate(t)
 	want := map[string]AgentRecord{
-		"claude":   {Profile: "max", Slots: map[string]string{"opus": "o-1", "sonnet": "s-1"}},
+		"claude":   {Profile: "max", Aliases: map[string]string{"opus": "o-1", "sonnet": "s-1"}},
 		"codex":    {Profile: "chatgpt", Model: "m1", Effort: "high"},
 		"copilot":  {Account: "alice", Context: "1m"}, // ACTIVE=off beats the PROFILE pin
 		"gemini":   {Profile: "antigravity"},
@@ -121,5 +121,27 @@ func TestAgentRecordsFoldsUnmigratedPinsOnRead(t *testing.T) {
 	}
 	if got["copilot"].Profile != "dev" {
 		t.Fatalf("copilot record = %+v, want profile dev from the raw pin", got["copilot"])
+	}
+}
+
+// Given a schema-4 vault whose record stores "slots", the next Update rewrites it as "aliases" at schema 5.
+func TestMigrationRenamesSlotsToAliases(t *testing.T) {
+	useZeroRootVault(t)
+	if err := Update(func(tx *Tx) error {
+		if err := tx.Put(Overlay, AgentRecordsKey, `{"claude":{"slots":{"opus":"x"}}}`); err != nil {
+			return err
+		}
+		return tx.SetSchema(4)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	got := migrate(t)
+	if want := map[string]AgentRecord{"claude": {Aliases: map[string]string{"opus": "x"}}}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("records = %+v, want %+v", got, want)
+	}
+	var raw, schema string
+	_ = View(func(tx *Tx) error { raw, _ = tx.Get(Overlay, AgentRecordsKey); schema, _ = tx.Get(Meta, "schema"); return nil })
+	if raw != `{"claude":{"aliases":{"opus":"x"}}}` || schema != "5" {
+		t.Errorf("stored = %s schema %s, want aliases key at schema 5", raw, schema)
 	}
 }

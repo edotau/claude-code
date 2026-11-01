@@ -97,7 +97,7 @@ claude-code --profile example --model sonnet         # this launch only
 ```
 
 Precedence: `--profile` → the claude agent record's `profile` → registry `default`. Model: `--model` → the record's
-tier `slots` (`models --pin`) → the profile's `models`. Settings live in one vault record per agent; an exported
+`aliases` (`models --pin`) → the profile's `models`. Settings live in one vault record per agent; an exported
 `CLAUDE_PROFILE` marks the session, it is not a setting.
 
 ### Vault
@@ -108,7 +108,7 @@ shows secrets as `<prefix>***  N chars` and marks failing entries ✗ first (`--
 
 ```jsonc
 {
-  "agents": {"records": {"claude": {"profile": "max", "slots": {"haiku": "openai:gpt-5-nano"}},
+  "agents": {"records": {"claude": {"profile": "max", "aliases": {"haiku": "openai:gpt-5-nano"}},
                          "codex": {"profile": "chatgpt", "model": "databricks-gpt-6-astra", "effort": "medium"}}},
   "env": {"MY_PROJECT_ROOT": "/home/me/work", "SOME_API_TOKEN": "@secret"},   // @secret = vault secret of that name
   "providers": {"default": "example"}, "vault": {"key_command": ""}

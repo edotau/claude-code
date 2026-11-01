@@ -46,9 +46,9 @@ var (
 	markAuth      = router.MarkAuth
 )
 
-// modelRow resolves a --model (or tier) value to the route-table row it names: the tier the pick runs at and the
+// modelRow resolves a --model (or alias) value to the route-table row it names: the alias the pick runs at and the
 // canonical Claude id of the row. exact is the canonical id of a non-Claude model, which only agents serving it may run.
-func modelRow(model string) (tier, row, exact string) {
+func modelRow(model string) (alias, row, exact string) {
 	if model == router.BYOKModel {
 		return "", "", ""
 	}
@@ -59,26 +59,26 @@ func modelRow(model string) (tier, row, exact string) {
 	case models.FamilyKind(canonical) != models.FamilyClaude:
 		return "", "", canonical
 	}
-	tier = cmp.Or(models.AliasOf(canonical), models.FamilyOf(canonical))
-	if !slices.Contains(router.Tiers, tier) {
-		tier = ""
+	alias = cmp.Or(models.AliasOf(canonical), models.FamilyOf(canonical))
+	if !slices.Contains(router.Aliases, alias) {
+		alias = ""
 	}
-	return tier, canonical, ""
+	return alias, canonical, ""
 }
 
-// RouteChain turns a pick at tier (or a Claude row) into dispatches; each dispatch runs that row's cell of its agent.
-func RouteChain(ctx context.Context, want, tier, mode string, explicitModel, native bool, o router.PickOpts) (Chain, router.PickResult, error) {
-	t, row, _ := modelRow(tier)
-	return routeChain(ctx, want, cmp.Or(t, tier), row, "", "", mode, explicitModel, native, o)
+// RouteChain turns a pick at alias (or a Claude row) into dispatches; each dispatch runs that row's cell of its agent.
+func RouteChain(ctx context.Context, want, alias, mode string, explicitModel, native bool, o router.PickOpts) (Chain, router.PickResult, error) {
+	t, row, _ := modelRow(alias)
+	return routeChain(ctx, want, cmp.Or(t, alias), row, "", "", mode, explicitModel, native, o)
 }
 
 // RouteChainFor routes a caller's --model: an alias or Claude id picks that row's cell; a non-Claude id is exact.
-func RouteChainFor(ctx context.Context, want, model, tierHint, mode string, native bool, o router.PickOpts) (Chain, router.PickResult, error) {
-	tier, row, exact := modelRow(model)
-	return routeChain(ctx, want, cmp.Or(tier, tierHint), row, exact, strings.TrimSpace(model), mode, strings.TrimSpace(model) != "", native, o)
+func RouteChainFor(ctx context.Context, want, model, aliasHint, mode string, native bool, o router.PickOpts) (Chain, router.PickResult, error) {
+	alias, row, exact := modelRow(model)
+	return routeChain(ctx, want, cmp.Or(alias, aliasHint), row, exact, strings.TrimSpace(model), mode, strings.TrimSpace(model) != "", native, o)
 }
 
-func routeChain(ctx context.Context, want, tier, row, exact, callerModel, mode string, explicitModel, native bool, o router.PickOpts) (Chain, router.PickResult, error) {
+func routeChain(ctx context.Context, want, alias, row, exact, callerModel, mode string, explicitModel, native bool, o router.PickOpts) (Chain, router.PickResult, error) {
 	tb, err := router.Load()
 	if err != nil {
 		return Chain{}, router.PickResult{}, err
@@ -92,7 +92,7 @@ func routeChain(ctx context.Context, want, tier, row, exact, callerModel, mode s
 	if nativeLead {
 		pickWant = ""
 	}
-	pick := tb.Pick(ctx, tier, pickWant, loadState(), RosterPick(o))
+	pick := tb.Pick(ctx, alias, pickWant, loadState(), RosterPick(o))
 	reg, _ := providers.Load()
 	c := Chain{Want: want}
 	if nativeLead {
@@ -106,7 +106,7 @@ func routeChain(ctx context.Context, want, tier, row, exact, callerModel, mode s
 			c.Skipped = append(c.Skipped, s.Agent+": "+s.Reason)
 		}
 	}
-	current, _ := models.Alias(tier)
+	current, _ := models.Alias(alias)
 	pins := AgentPins()
 	rc := routeCtx{tb: tb, reg: reg, pins: pins, want: want, row: row, exact: exact, callerModel: callerModel,
 		current: current, dispatchID: nonClaudeDispatchID(exact, explicitModel, pins[want].Model),
@@ -128,7 +128,7 @@ func routeChain(ctx context.Context, want, tier, row, exact, callerModel, mode s
 			c.Skipped = append(c.Skipped, skip)
 			continue
 		}
-		disp = rc.byokCandidate(disp, cand, tier)
+		disp = rc.byokCandidate(disp, cand, alias)
 		disp.servedRepick = rc.servedRepickFor(cand)
 		disp.otherRoute = cand.Agent != want || (want != "claude" && cand.Profile != pins[want].Profile)
 		c.Dispatches = append(c.Dispatches, disp)
@@ -151,7 +151,7 @@ func (rc routeCtx) candidateCell(cand router.Candidate) (cell router.Cell, skip 
 	cell = cand.Cell
 	pinned := cand.Profile != "" && rc.pins[cand.Agent].Profile == cand.Profile
 	switch {
-	case cand.Agent == "claude" && rc.dispatchID != "": // lowest Claude tier serving the non-Claude dispatch
+	case cand.Agent == "claude" && rc.dispatchID != "": // lowest Claude alias serving the non-Claude dispatch
 		rc.claudeTierCell(&cell)
 	case pinned && cand.Agent == rc.want && rc.explicitModel && rc.callerModel != router.BYOKModel &&
 		rc.row == "" && cmp.Or(rc.exact, rc.callerModel) != "":
@@ -202,9 +202,9 @@ func (rc routeCtx) profileCell(cand router.Candidate, cell router.Cell) (router.
 	return cell, ""
 }
 
-// claudeTierCell points cell at claude's lowest tier serving the non-Claude dispatch model.
+// claudeTierCell points cell at claude's lowest alias serving the non-Claude dispatch model.
 func (rc routeCtx) claudeTierCell(cell *router.Cell) {
-	t := lowestTierServing(rc.tb, rc.want, rc.dispatchID)
+	t := lowestAliasServing(rc.tb, rc.want, rc.dispatchID)
 	if t == "" {
 		return
 	}
@@ -276,13 +276,13 @@ func nonClaudeDispatchID(exact string, explicitModel bool, pinModel string) stri
 	return ""
 }
 
-// lowestTierServing is the lowest router tier (haiku up) whose cell for agentName resolves to id, else "".
-// Several tiers may share id (codex gpt-6.1-sol at opus and sonnet); a caller that named an alias never reaches this.
-func lowestTierServing(tb *router.RouteTable, agentName, id string) string {
-	for _, tier := range slices.Backward(router.Tiers) {
-		if c, ok := tb.Rows[agentName][tier]; ok {
+// lowestAliasServing is the lowest router alias (haiku up) whose cell for agentName resolves to id, else "".
+// Several aliases may share id (codex gpt-6.1-sol at opus and sonnet); a caller that named an alias never reaches this.
+func lowestAliasServing(tb *router.RouteTable, agentName, id string) string {
+	for _, alias := range slices.Backward(router.Aliases) {
+		if c, ok := tb.Rows[agentName][alias]; ok {
 			if cid, _, ok := models.Resolve(c.Model); ok && cid == id {
-				return tier
+				return alias
 			}
 		}
 	}
@@ -311,8 +311,8 @@ func cellServing(tb *router.RouteTable, agentName, exact string) (router.Cell, b
 		return router.Cell{}, false
 	}
 	for _, sub := range slices.Sorted(maps.Keys(tb.OpencodeSub)) {
-		for _, tier := range slices.Sorted(maps.Keys(tb.OpencodeSub[sub])) {
-			if c := tb.OpencodeSub[sub][tier]; serves(c) {
+		for _, alias := range slices.Sorted(maps.Keys(tb.OpencodeSub[sub])) {
+			if c := tb.OpencodeSub[sub][alias]; serves(c) {
 				return c, true
 			}
 		}
@@ -411,7 +411,7 @@ func ExplicitChain(r Engine, req RunOptions) Chain {
 	c.Dispatches[0].Account, c.Dispatches[0].Billing = acct, billing
 	if req.Model == router.BYOKModel {
 		reg, _ := providers.Load()
-		c.Dispatches[0] = byokDispatch(c.Dispatches[0], router.Tiers[1], reg, req.Provider, false)
+		c.Dispatches[0] = byokDispatch(c.Dispatches[0], router.Aliases[1], reg, req.Provider, false)
 	}
 	if acct == "" || acct == copilotLoginAccount() { // copilot's own gate falls back to Databricks instead
 		return c
@@ -423,13 +423,13 @@ func ExplicitChain(r Engine, req RunOptions) Chain {
 	return c
 }
 
-// WithTier runs c's lone explicit dispatch on the router's tier slot when the caller named no model.
-func WithTier(c Chain, tier string) Chain {
-	if len(c.Dispatches) != 1 || tier == "" {
+// WithAlias runs c's lone explicit dispatch on the router's alias when the caller named no model.
+func WithAlias(c Chain, alias string) Chain {
+	if len(c.Dispatches) != 1 || alias == "" {
 		return c
 	}
 	disp := c.Dispatches[0]
-	disp.Model, disp.keepCaller, disp.unroutedDispatch = tier, false, false
+	disp.Model, disp.keepCaller, disp.unroutedDispatch = alias, false, false
 	c.Dispatches = []Dispatch{disp}
 	return c
 }

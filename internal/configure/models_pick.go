@@ -1,4 +1,4 @@
-// models_pick.go — an agent page's Model row: tier (with what it is for) → that account's model ids → saved.
+// models_pick.go — an agent page's Model row: alias (with what it is for) → that account's model ids → saved.
 package configure
 
 import (
@@ -17,15 +17,15 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 )
 
-// tierUse says in a few words what each tier is for; a tier row stays within 80 columns.
-var tierUse = map[string]string{
+// aliasUse says in a few words what each alias is for; an alias row stays within 80 columns.
+var aliasUse = map[string]string{
 	models.Opus:   "deepest reasoning; hard multi-step work",
 	models.Sonnet: "speed + intelligence; agentic coding",
 	models.Haiku:  "fast and cheap; classify, extract, route",
 	models.Fable:  "creative and long-form writing",
 }
 
-// modelTarget is the account an agent's model pick applies to; claude edits the session's slot pins instead.
+// modelTarget is the account an agent's model pick applies to; claude edits the session's alias pins instead.
 func modelTarget(d *dialog, name string) (p *providers.Provider, claude bool) {
 	if name == "claude" {
 		sel, err := providers.Select(d.reg, "")
@@ -41,20 +41,20 @@ func modelTarget(d *dialog, name string) (p *providers.Provider, claude bool) {
 	return p, false
 }
 
-// currentModel is slot's model for the agent: the resolved session slot for claude, the account's table otherwise.
-func currentModel(d *dialog, p *providers.Provider, claude bool, slot string) string {
+// currentModel is alias's model for the agent: the resolved session alias for claude, the account's table otherwise.
+func currentModel(d *dialog, p *providers.Provider, claude bool, alias string) string {
 	if claude {
 		if sel, err := providers.Select(d.reg, ""); err == nil {
-			return sel.Slots[slot].Model
+			return sel.Aliases[alias].Model
 		}
 		return ""
 	}
-	return p.Models[slot]
+	return p.Models[alias]
 }
 
 // modelRow is the agent page's Model row; nil for codex and gemini, or an agent with no account the hub can route to.
-// copilot's launch argv reads only the opus slot (agent.describeCopilotRoute), so its page picks
-// one model directly instead of the tier list every other agent's page shows.
+// copilot's launch argv reads only the opus alias (agent.describeCopilotRoute), so its page picks
+// one model directly instead of the alias list every other agent's page shows.
 func modelRow(d *dialog, name string) *billingRow {
 	if d.reg == nil {
 		return nil
@@ -247,7 +247,7 @@ func pickCopilotModelFallback(d *dialog, cur string) {
 	saveAgentModel(d, "copilot", ids[j])
 }
 
-// saveAgentModel stores an agent's model in its record (copilot's is independent of the github-copilot opus slot).
+// saveAgentModel stores an agent's model in its record (copilot's is independent of the github-copilot opus alias).
 func saveAgentModel(d *dialog, agent, id string) {
 	if _, err := writeAgentField(d, agent, "MODEL", id); err != nil {
 		d.printf("model: %v\n", err)
@@ -256,16 +256,16 @@ func saveAgentModel(d *dialog, agent, id string) {
 	d.printf("model: %s = %s\n", agent, id)
 }
 
-// pickModel is the tier list (tier · use · current), then the account's model ids; the pick is saved at once.
+// pickModel is the alias list (alias · use · current), then the account's model ids; the pick is saved at once.
 func pickModel(d *dialog, name string, p *providers.Provider, claude bool) {
-	slots := []string{models.Opus, models.Sonnet, models.Haiku}
+	aliases := []string{models.Opus, models.Sonnet, models.Haiku}
 	if claude {
-		slots = append(slots, models.Fable)
+		aliases = append(aliases, models.Fable)
 	}
 	for {
-		rows := make([][2]string, len(slots))
-		for i, s := range slots {
-			rows[i] = [2]string{s, padTo(tierUse[s], 42) + currentModel(d, p, claude, s)}
+		rows := make([][2]string, len(aliases))
+		for i, s := range aliases {
+			rows[i] = [2]string{s, padTo(aliasUse[s], 42) + currentModel(d, p, claude, s)}
 		}
 		idx, err := pick(d, name+" — model per alias ("+p.Name+")", rows)
 		if err != nil || idx < 0 {
@@ -276,16 +276,16 @@ func pickModel(d *dialog, name string, p *providers.Provider, claude bool) {
 			d.printf("%s: no model list available for %s\n", name, p.Name)
 			return
 		}
-		cur := currentModel(d, p, claude, slots[idx])
+		cur := currentModel(d, p, claude, aliases[idx])
 		choice := make([][2]string, len(ids))
 		for i, id := range ids {
 			choice[i] = [2]string{id, map[bool]string{true: "current", false: ""}[id == cur]}
 		}
-		j, err := pick(d, name+" — "+slots[idx]+" model alias", choice)
+		j, err := pick(d, name+" — "+aliases[idx]+" model alias", choice)
 		if err != nil || j < 0 {
 			continue
 		}
-		saveModel(d, p, claude, slots[idx], ids[j])
+		saveModel(d, p, claude, aliases[idx], ids[j])
 	}
 }
 
@@ -296,13 +296,13 @@ func padTo(s string, n int) string {
 	return s + strings.Repeat(" ", n-len([]rune(s)))
 }
 
-// saveModel writes a claude slot pin or the account's models table in the vault overlay/providers.
-func saveModel(d *dialog, p *providers.Provider, claude bool, slot, id string) {
+// saveModel writes a claude alias pin or the account's models table in the vault overlay/providers.
+func saveModel(d *dialog, p *providers.Provider, claude bool, alias, id string) {
 	var err error
 	if claude {
-		_, err = writeAgentField(d, "claude", strings.ToUpper(slot)+"_MODEL", id)
+		_, err = writeAgentField(d, "claude", strings.ToUpper(alias)+"_MODEL", id)
 	} else {
-		err = providers.SetProviderModel(p.Name, slot, id)
+		err = providers.SetProviderModel(p.Name, alias, id)
 	}
 	if err != nil {
 		d.printf("model: %v\n", err)
@@ -314,7 +314,7 @@ func saveModel(d *dialog, p *providers.Provider, claude bool, slot, id string) {
 			*p = *q
 		}
 	}
-	d.printf("model: %s %s = %s\n", p.Name, slot, id)
+	d.printf("model: %s %s = %s\n", p.Name, alias, id)
 	d.changed = true
 }
 
