@@ -373,3 +373,28 @@ func TestParseArgsRemovedFlags(t *testing.T) {
 		t.Errorf("--profile control: %+v %q %v", o, rest, err)
 	}
 }
+
+// A shell ANTHROPIC_MODEL/BASE_URL beats the vault model pin and survives the wipe; credentials are still scrubbed.
+func TestClaudeShellEndpointBeatsVault(t *testing.T) {
+	hermetic(t, `{"fallback": [], "providers": {"anthropic": {"gw": {"protocol": "anthropic", "base_url": "https://gw.example/anthropic",
+		"auth": {"type":"key", "env": "TEST_GW_KEY"}, "models": {"opus": "claude-opus-4-6"}}}}}`)
+	t.Setenv("TEST_GW_KEY", "k")
+	if err := SetAgentRecord("claude", AgentRecord{Model: "opus"}); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("ANTHROPIC_MODEL", "shell-model")
+	t.Setenv("ANTHROPIC_BASE_URL", "https://shell.example")
+	p, err := Claude(context.Background(), LaunchOptions{Provider: "gw"}, []string{"-p", "hi"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := p.Env([]string{"ANTHROPIC_MODEL=shell-model", "ANTHROPIC_BASE_URL=https://shell.example", "ANTHROPIC_AUTH_TOKEN=stale"})
+	for _, w := range []string{"ANTHROPIC_MODEL=shell-model", "ANTHROPIC_BASE_URL=https://shell.example"} {
+		if !slices.Contains(env, w) {
+			t.Errorf("env lost %s: %q", w, env)
+		}
+	}
+	if slices.Contains(env, "ANTHROPIC_AUTH_TOKEN=stale") {
+		t.Error("credential survived the scrub")
+	}
+}
