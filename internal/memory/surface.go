@@ -20,20 +20,15 @@ const (
 	indexCapChars = 2500
 )
 
-// SessionSurface composes root's local bank surface plus the home one, capped at TotalCapChars; "" when empty.
-func SessionSurface(root string) string {
-	return unifiedSurface(root)
-}
-
 // Session-surface budgets: this repo's focus and the home bank's essentials, reserved so neither starves the other.
 const (
 	focusCapChars     = 2000
 	homeFocusCapChars = 800
 )
 
-// unifiedSurface is the session preload: root's focus sections plus the home bank's, and one pointer to the other
+// SessionSurface is the session preload, capped at TotalCapChars ("" when empty): root's focus sections plus the home bank's, and one pointer to the other
 // repos (no catalog rows); Claude Code loads the repo's MEMORY.md (with its generated bank region) itself.
-func unifiedSurface(root string) string {
+func SessionSurface(root string) string {
 	dir := memstore.Dir(root)
 	var parts []string
 	if _, err := os.Stat(filepath.Join(memstore.StoreDir(), memstore.CatalogFile)); err == nil {

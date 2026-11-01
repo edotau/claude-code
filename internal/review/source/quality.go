@@ -385,15 +385,11 @@ func Quality(path, language string) (QualityReport, error) {
 			return QualityReport{}, fmt.Errorf("unsupported file type: %s", filepath.Ext(path))
 		}
 	}
-	data, readErr := os.ReadFile(path)
-	content := ""
-	if readErr == nil {
-		content = string(data)
-	}
-	if content == "" {
+	data, err := os.ReadFile(path)
+	if err != nil || len(data) == 0 {
 		return QualityReport{}, fmt.Errorf("could not read file: %s", path)
 	}
-	return QualityContent(path, content, lang)
+	return QualityContent(path, string(data), lang)
 }
 
 // QualityContent is Quality over already-read content; lang must be set.
@@ -425,43 +421,24 @@ func QualityContent(path, content, lang string) (QualityReport, error) {
 		},
 		QualityScore:    score,
 		Grade:           getGrade(score),
-		Smells:          nonNilSmells(smells),
-		SolidViolations: nonNilViolations(violations),
-		FunctionDetails: capFunctions(functions, 10),
-		ClassDetails:    capClasses(classes, 10),
+		Smells:          nonNil(smells),
+		SolidViolations: nonNil(violations),
+		FunctionDetails: capSlice(functions, 10),
+		ClassDetails:    capSlice(classes, 10),
 	}, nil
 }
 
-// nonNilSmells/nonNilViolations keep the JSON output "[]" instead of "null" for empty slices.
-func nonNilSmells(s []Smell) []Smell {
+// nonNil keeps the JSON output "[]" instead of "null" for empty slices.
+func nonNil[T any](s []T) []T {
 	if s == nil {
-		return []Smell{}
+		return []T{}
 	}
 	return s
 }
-func nonNilViolations(v []SolidViolation) []SolidViolation {
-	if v == nil {
-		return []SolidViolation{}
-	}
-	return v
-}
-func capFunctions(f []FunctionInfo, n int) []FunctionInfo {
-	if f == nil {
-		return []FunctionInfo{}
-	}
-	if len(f) > n {
-		return f[:n]
-	}
-	return f
-}
-func capClasses(c []ClassInfo, n int) []ClassInfo {
-	if c == nil {
-		return []ClassInfo{}
-	}
-	if len(c) > n {
-		return c[:n]
-	}
-	return c
+
+// capSlice is nonNil plus truncation to n entries.
+func capSlice[T any](s []T, n int) []T {
+	return nonNil(s[:min(len(s), n)])
 }
 
 var skipParts = map[string]bool{"node_modules": true, ".git": true, "__pycache__": true, ".venv": true, "venv": true, "dist": true, "build": true}

@@ -120,11 +120,6 @@ type PRReport struct {
 	ReviewOrder  []string         `json:"review_order,omitempty"`
 }
 
-func runGit(repo string, args ...string) (string, bool) {
-	out, err := runGitErr(repo, args...)
-	return out, err == nil
-}
-
 func runGitErr(repo string, args ...string) (string, error) {
 	// None of this file's git output starts a line with whitespace, so proc's TrimRight equals the old TrimSpace.
 	out, _, err := gitInherit(repo, args...)
@@ -178,11 +173,11 @@ func changedFiles(repo, base, head string) ([]PRFileAnalysis, error) {
 }
 
 func fileDiff(repo, filepath, base, head string) string {
-	out, ok := runGit(repo, "diff", base+"..."+head, "--", filepath)
-	if !ok {
-		out, ok = runGit(repo, "diff", "--cached", "--", filepath)
+	out, err := runGitErr(repo, "diff", base+"..."+head, "--", filepath)
+	if err != nil {
+		out, err = runGitErr(repo, "diff", "--cached", "--", filepath)
 	}
-	if !ok {
+	if err != nil {
 		return ""
 	}
 	return out
@@ -274,9 +269,9 @@ func calculateComplexityScore(files []PRFileAnalysis, allRisks []PRRisk) int {
 }
 
 func analyzeCommitMessages(repo, base, head string) (int, []CommitIssue) {
-	out, ok := runGit(repo, "log", "--oneline", base+"..."+head)
+	out, err := runGitErr(repo, "log", "--oneline", base+"..."+head)
 	issues := []CommitIssue{}
-	if !ok || out == "" {
+	if err != nil || out == "" {
 		return 0, issues
 	}
 	commits := strings.Split(out, "\n")

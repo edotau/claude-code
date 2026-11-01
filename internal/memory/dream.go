@@ -66,7 +66,7 @@ func PreviewDream(root string, now time.Time) DreamPreview {
 		p.HomeOversized = HomeBankStat().Oversized
 	}
 	for name, capLines := range promoteCaps {
-		n, _ := previewOverflowCount(filepath.Join(dir, name), capLines)
+		n := previewOverflowCount(filepath.Join(dir, name), capLines)
 		if memstore.IsHomeBank(root) {
 			p.Archivable += n
 		} else {
@@ -79,18 +79,18 @@ func PreviewDream(root string, now time.Time) DreamPreview {
 
 // previewOverflowCount is promoteFile/archiveFile's split, read-only: how many oldest blocks would
 // overflow path's cap.
-func previewOverflowCount(path string, capLines int) (int, error) {
+func previewOverflowCount(path string, capLines int) int {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return 0, nil // absent file — nothing to preview
+		return 0 // absent file — nothing to preview
 	}
 	if bank.LogicalLineCount(string(data)) <= capLines {
-		return 0, nil
+		return 0
 	}
 	base := filepath.Base(path)
 	header, blocks := bank.EntryBlocks(base, string(data))
 	_, overflow := settledSplit(base, header, blocks, capLines)
-	return len(overflow), nil
+	return len(overflow)
 }
 
 // previewSessionRotate is RotateSessionHistory's cap check, read-only.

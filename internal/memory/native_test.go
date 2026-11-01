@@ -430,10 +430,7 @@ func TestNativeDupesFindsOverlappingBodies(t *testing.T) {
 	write(t, filepath.Join(dir, "short.md"), "---\nname: short\n---\n\n"+shared+"\n")
 	write(t, filepath.Join(dir, "long.md"), "---\nname: long\n---\n\n"+shared+" and then escalates to the secondary rotation\n")
 
-	clusters, err := NativeDupes(dir, 0.6)
-	if err != nil {
-		t.Fatalf("NativeDupes: %v", err)
-	}
+	clusters := NativeDupes(dir, 0.6)
 	if len(clusters) != 1 {
 		t.Fatalf("clusters = %+v, want exactly 1", clusters)
 	}
@@ -651,10 +648,7 @@ func TestTopicPathsExcludeMetadataBankAndSymlink(t *testing.T) {
 		t.Errorf("TopicFiles = %d, want 4 (metadata-bank file and symlink excluded)", st.TopicFiles)
 	}
 
-	clusters, err := NativeDupes(dir, 0.5)
-	if err != nil {
-		t.Fatal(err)
-	}
+	clusters := NativeDupes(dir, 0.5)
 	var clustered []string
 	for _, c := range clusters {
 		clustered = append(append(clustered, c.Keep), c.Losers...)

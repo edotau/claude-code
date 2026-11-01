@@ -728,7 +728,7 @@ type NativeDupe struct {
 
 // NativeDupes clusters dir's topic files whose bodies overlap at or above threshold. Report-only: naming
 // a survivor is a judgement call about which one carries the better evidence, so nothing moves here.
-func NativeDupes(dir string, threshold float64) ([]NativeDupe, error) {
+func NativeDupes(dir string, threshold float64) []NativeDupe {
 	topics := topicPaths(dir)
 	sets := map[string]map[string]bool{}
 	size := map[string]int{}
@@ -775,7 +775,7 @@ func NativeDupes(dir string, threshold float64) ([]NativeDupe, error) {
 		seen[cluster.Keep] = true
 		out = append(out, cluster)
 	}
-	return out, nil
+	return out
 }
 
 // without returns names minus drop, order preserved.

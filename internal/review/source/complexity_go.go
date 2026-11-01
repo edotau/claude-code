@@ -1,7 +1,6 @@
 package source
 
 import (
-	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -20,30 +19,14 @@ func analyzeGo(path, text string, lineCount int, th ComplexityThresholds) []Find
 			findings = append(findings, goFunctionFindings(fset, fn, th)...)
 		}
 	}
-	if imports := len(file.Imports); imports > th.MaxImports {
-		findings = append(findings, Finding{Rule: "import-count", Severity: "warn",
-			Message: fmt.Sprintf("%d imports (max %d). High coupling?", imports, th.MaxImports)})
-	}
+	findings = append(findings, importCountFinding(len(file.Imports), th)...)
 	return findings
 }
 
 func goFunctionFindings(fset *token.FileSet, fn *ast.FuncDecl, th ComplexityThresholds) []Finding {
 	start, end := fset.Position(fn.Pos()), fset.Position(fn.End())
 	name, line := fn.Name.Name, start.Line
-	var out []Finding
-	if length := end.Line - start.Line + 1; length > th.MaxFunctionLines {
-		out = append(out, Finding{Rule: "function-length", Severity: "warn", Line: line,
-			Message: fmt.Sprintf("'%s' is %d lines (max %d). Split it.", name, length, th.MaxFunctionLines)})
-	}
-	if cyclo := goCyclomatic(fn.Body); cyclo > th.MaxCyclomatic {
-		out = append(out, Finding{Rule: "cyclomatic-complexity", Severity: "warn", Line: line,
-			Message: fmt.Sprintf("'%s' has cyclomatic complexity %d (max %d). Flatten branching.", name, cyclo, th.MaxCyclomatic)})
-	}
-	if nest := goNesting(fn.Body, 0); nest > th.MaxNesting {
-		out = append(out, Finding{Rule: "nesting-depth", Severity: "warn", Line: line,
-			Message: fmt.Sprintf("'%s' nests %d levels deep (max %d). Use early returns.", name, nest, th.MaxNesting)})
-	}
-	return out
+	return functionFindings(name, line, end.Line-start.Line+1, goCyclomatic(fn.Body), goNesting(fn.Body, 0), th)
 }
 
 // goCyclomatic is 1 + if/for/range/case/comm clauses + short-circuit operators.

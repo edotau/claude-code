@@ -173,8 +173,8 @@ func analyzeSimplifyFile(path string, th ComplexityThresholds) (simplifyFile, bo
 	if r, cerr := analyzeFileComplexity(path, th); cerr == nil && r != nil {
 		findings = r.Findings
 	}
-	return simplifyFile{File: path, Complexity: nonNilFindings(findings),
-		Quality: simplifyQuality{Score: q.QualityScore, Grade: q.Grade, Smells: nonNilSmells(q.Smells)}}, true
+	return simplifyFile{File: path, Complexity: nonNil(findings),
+		Quality: simplifyQuality{Score: q.QualityScore, Grade: q.Grade, Smells: nonNil(q.Smells)}}, true
 }
 
 func printSimplifyReport(w io.Writer, r simplifyReport, threshold string) {

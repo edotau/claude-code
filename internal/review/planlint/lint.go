@@ -137,7 +137,7 @@ func effortlessAgentCalls(name, src string) []string {
 // the marker must never waive (the model/agentType pin).
 func agentCallsMissingSrc(name, src string, pinned func(window string) bool, exemptMarked bool) []string {
 	var out []string
-	scanAgentCalls(src, func(line int, window string, marked bool) {
+	scanAgentCalls(src, func(_, line int, window string, marked bool) {
 		if exemptMarked && marked {
 			return
 		}
@@ -164,7 +164,7 @@ var quotedLit = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile
 // Identifier-only values (s.model, a.implModel) pass — they can't be checked statically.
 func badPinValues(name, src string) []string {
 	var out []string
-	scanAgentCalls(src, func(line int, window string, marked bool) {
+	scanAgentCalls(src, func(_, line int, window string, marked bool) {
 		if marked {
 			return
 		}
@@ -218,10 +218,10 @@ func allowedList(key string) string {
 	return strings.Join(keys, "|")
 }
 
-// scanAgentCalls calls fn once per agent( call in src — never subagent(/x.agent() — with its 1-based
+// scanAgentCalls calls fn once per agent( call in src — never subagent(/x.agent() — with its byte offset, 1-based
 // line, its option window (through the matching close paren), and whether it carries the opus-ok
 // marker on the line the call closes on.
-func scanAgentCalls(src string, fn func(line int, window string, marked bool)) {
+func scanAgentCalls(src string, fn func(at, line int, window string, marked bool)) {
 	masked := stripStrings(src) // same length as src: an `agent(` inside a string or comment is prose
 	for i := 0; i+6 <= len(src); i++ {
 		if masked[i:i+6] != "agent(" {
@@ -238,7 +238,7 @@ func scanAgentCalls(src string, fn func(line int, window string, marked bool)) {
 			markerEnd = len(src)
 		}
 		marked := strings.Contains(src[i:markerEnd], lintOpusOK)
-		fn(1+strings.Count(src[:i], "\n"), window, marked)
+		fn(i, 1+strings.Count(src[:i], "\n"), window, marked)
 	}
 }
 
@@ -418,23 +418,14 @@ func FillModel(src, model string) (string, []string) {
 	}
 	var edits []edit
 	var ambiguous []string
-	masked := stripStrings(src)
-	for i := 0; i+6 <= len(src); i++ {
-		if masked[i:i+6] != "agent(" {
-			continue
-		}
-		if i > 0 && isIdentByte(src[i-1]) {
-			continue
-		}
-		window := callWindow(src, i)
+	scanAgentCalls(src, func(i, line int, window string, _ bool) {
 		stripped := stripStrings(window)
 		if strings.Contains(stripped, "model:") {
-			continue // already pinned (agentType alone is not a pin — Explore runs opus)
+			return // already pinned (agentType alone is not a pin — Explore runs opus)
 		}
-		line := 1 + strings.Count(src[:i], "\n")
 		if len(window) < 6 || window[len(window)-1] != ')' {
 			ambiguous = append(ambiguous, fmt.Sprintf("line %d", line))
-			continue
+			return
 		}
 		argsStart := i + len("agent(")
 		argsEnd := i + len(window) - 1
@@ -442,7 +433,7 @@ func FillModel(src, model string) (string, []string) {
 		spans := splitTopLevelArgs(argsSrc)
 		if len(spans) == 1 && strings.TrimSpace(argsSrc) == "" {
 			ambiguous = append(ambiguous, fmt.Sprintf("line %d", line))
-			continue
+			return
 		}
 		switch len(spans) {
 		case 1:
@@ -452,7 +443,7 @@ func FillModel(src, model string) (string, []string) {
 			trimmed := strings.TrimLeft(opt, " \t\n")
 			if trimmed == "" || trimmed[0] != '{' {
 				ambiguous = append(ambiguous, fmt.Sprintf("line %d", line))
-				continue
+				return
 			}
 			braceAt := argsStart + spans[1].start + (len(opt) - len(trimmed))
 			rest := strings.TrimLeft(src[braceAt+1:argsEnd], " \t\n")
@@ -464,7 +455,7 @@ func FillModel(src, model string) (string, []string) {
 		default:
 			ambiguous = append(ambiguous, fmt.Sprintf("line %d", line))
 		}
-	}
+	})
 	if len(edits) == 0 {
 		return src, ambiguous
 	}

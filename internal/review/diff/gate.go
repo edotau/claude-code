@@ -2,16 +2,13 @@ package diff
 
 import (
 	"bytes"
-	"context"
 	"fmt"
 	"io"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
-	"time"
 
-	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/review/source"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
@@ -21,9 +18,7 @@ var gateVerdictLineRe = sync.OnceValue(func() *regexp.Regexp { return regexp.Mus
 var gateNoiseLineRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`Noise ratio:|Verdict:`) })
 
 func gateStagedFiles(repo string) []string {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	out, err := proc.RunGitInherit(ctx, repo, "diff", "--cached", "--name-only")
+	out, _, err := gitInherit(repo, "diff", "--cached", "--name-only")
 	if err != nil {
 		return nil
 	}
@@ -37,9 +32,7 @@ func gateStagedFiles(repo string) []string {
 }
 
 func gateComplexityFiles(repo string) []string {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	out, err := proc.RunGitInherit(ctx, repo, "diff", "--cached", "--name-only", "--relative", "--diff-filter=ACMR")
+	out, _, err := gitInherit(repo, "diff", "--cached", "--name-only", "--relative", "--diff-filter=ACMR")
 	if err != nil {
 		return nil
 	}

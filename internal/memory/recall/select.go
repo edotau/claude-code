@@ -71,18 +71,17 @@ func orderRecall(picks []RecallPick) {
 
 // recallNeed is how many distinct query terms a hit must contain: a quarter of them, clamped.
 func recallNeed(terms []string) int {
-	uniq := map[string]bool{}
-	for _, t := range terms {
-		uniq[t] = true
-	}
-	return min(max(recallMinMatched, (len(uniq)+3)/4), recallMaxMatched)
+	return min(max(recallMinMatched, (distinctCount(terms, 0)+3)/4), recallMaxMatched)
 }
 
 // distinctTokenCount gates searches on distinct tokens of at least 3 bytes, without affecting ranking.
-func distinctTokenCount(tokens []string) int {
+func distinctTokenCount(tokens []string) int { return distinctCount(tokens, 3) }
+
+// distinctCount counts the distinct tokens of at least minLen bytes.
+func distinctCount(tokens []string, minLen int) int {
 	seen := map[string]bool{}
 	for _, t := range tokens {
-		if len(t) >= 3 {
+		if len(t) >= minLen {
 			seen[t] = true
 		}
 	}
