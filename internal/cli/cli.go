@@ -239,8 +239,8 @@ func usage(w *os.File) {
 		case r.head != "":
 			fmt.Fprintln(w, paintHead(r.head))
 		case r.name != "":
-			lines := helptext.WrapRow("  "+r.name, r.summary, 2+nameWidth, menuWidth)
-			fmt.Fprintf(w, "  %s%s\n", paintName(r.name, r.frac), lines[0][2+nameWidth:])
+			lines := helptext.Row("  "+r.name, r.summary, 2+nameWidth, helptext.TermWidth(w))
+			fmt.Fprintf(w, "  %s%s\n", paintName(r.name, r.frac), lines[0][min(2+nameWidth, len(lines[0])):])
 			for _, l := range lines[1:] {
 				fmt.Fprintln(w, l)
 			}

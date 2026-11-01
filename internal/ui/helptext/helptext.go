@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"os/exec"
 	"regexp"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/ui/ansi"
 	"github.com/edotau/claude-code/internal/ui/theme"
+	"github.com/edotau/claude-code/internal/ui/tui"
 )
 
 // row is an indented command line: the left column ends at the first run of 2+ spaces (or the line, for a flag).
@@ -62,14 +64,19 @@ type Page struct {
 
 // Fprint renders p to w in the shared help layout, painted on a terminal.
 func (p Page) Fprint(w io.Writer) {
+	term := TermWidth(w)
 	var secs []string
 	if p.Usage != "" {
-		secs = append(secs, "usage: "+strings.ReplaceAll(p.Usage, "\n", "\n       "))
+		secs = append(secs, clipLines("usage: "+strings.ReplaceAll(p.Usage, "\n", "\n       "), term))
 	}
 	if p.About != "" {
 		var about []string
+		wrapAt := 80
+		if term > 0 {
+			wrapAt = min(wrapAt, term)
+		}
 		for para := range strings.SplitSeq(p.About, "\n") {
-			about = append(about, WrapRow("", para, 0, 80)...)
+			about = append(about, WrapRow("", para, 0, wrapAt)...)
 		}
 		secs = append(secs, strings.Join(about, "\n"))
 	}
@@ -80,24 +87,72 @@ func (p Page) Fprint(w io.Writer) {
 	}
 	lw = min(lw, 30)
 	if len(p.Commands) > 0 {
-		secs = append(secs, "COMMANDS\n"+rowsText(p.Commands, lw))
+		secs = append(secs, "COMMANDS\n"+rowsText(p.Commands, lw, term))
 	}
 	if len(flags) > 0 {
-		secs = append(secs, "FLAGS\n"+rowsText(flags, lw))
+		secs = append(secs, "FLAGS\n"+rowsText(flags, lw, term))
 	}
 	if p.Hint != "" {
-		secs = append(secs, strings.TrimSuffix(p.Hint, "\n"))
+		secs = append(secs, clipLines(strings.TrimSuffix(p.Hint, "\n"), term))
 	}
 	Fprint(w, strings.Join(secs, "\n\n")+"\n")
 }
 
 // rowsText lays out rows under a shared label column, keeping 2+ spaces after an over-wide label.
-func rowsText(rows [][2]string, lw int) string {
+func rowsText(rows [][2]string, lw, term int) string {
 	var lines []string
 	for _, r := range rows {
 		label := "  " + r[0]
 		w := max(lw, utf8.RuneCountInString(label)+2)
-		lines = append(lines, WrapRow(label, r[1], w, 80)...)
+		lines = append(lines, Row(label, r[1], w, term)...)
+	}
+	return strings.Join(lines, "\n")
+}
+
+// TermWidth is w's column count when w is a terminal, 0 when piped: piped help stays complete for scripts and agents.
+func TermWidth(w io.Writer) int {
+	f, ok := w.(*os.File)
+	if !ok || !ansi.IsTerminal(f) {
+		return 0
+	}
+	if n := ansi.Columns(0); n > 0 {
+		return n
+	}
+	n, _, err := tui.Size(int(f.Fd()))
+	if err != nil {
+		return 0
+	}
+	return max(n, 0)
+}
+
+// Row is one help row: a single line clipped to term on a terminal, wrapped at 80 with a hanging indent when term is 0.
+func Row(label, desc string, labelWidth, term int) []string {
+	if term <= 0 {
+		return WrapRow(label, desc, labelWidth, 80)
+	}
+	return []string{clipLine(WrapRow(label, desc, labelWidth, math.MaxInt)[0], term)}
+}
+
+// clipLine ends a line wider than n columns in "...".
+func clipLine(l string, n int) string {
+	r := []rune(l)
+	if len(r) <= n {
+		return l
+	}
+	if n <= 3 {
+		return string(r[:n])
+	}
+	return string(r[:n-3]) + "..."
+}
+
+// clipLines applies clipLine to every line of text; term 0 leaves text alone.
+func clipLines(text string, term int) string {
+	if term <= 0 {
+		return text
+	}
+	lines := strings.Split(text, "\n")
+	for i, l := range lines {
+		lines[i] = clipLine(l, term)
 	}
 	return strings.Join(lines, "\n")
 }
