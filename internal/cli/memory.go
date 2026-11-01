@@ -1,15 +1,10 @@
 package cli
 
 import (
-	"cmp"
 	"context"
-	"errors"
 	"flag"
 	"fmt"
-	"github.com/edotau/claude-code/internal/memory/recall"
-	embedding "github.com/edotau/claude-code/internal/memory/recall/embed"
 	"os"
-	"regexp"
 	"strings"
 	"time"
 
@@ -19,7 +14,6 @@ import (
 	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/memory/bank"
 	"github.com/edotau/claude-code/internal/memstore"
-	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
@@ -117,19 +111,8 @@ func cmdMemoryInit(args []string) int {
 	if code, done := helptext.Parse(fs, args); done {
 		return code
 	}
-	root := memstore.Root(*repo)
-	dir, err := memory.Init(root)
-	if err != nil {
+	if err := memory.InitBank(os.Stdout, memstore.Root(*repo)); err != nil {
 		return fail("memory init: %v", err)
-	}
-	fmt.Printf("bank:    %s\nhome:    %s\nsession-start injects it; `claude-code memory update` (or the background update) writes it.\n", dir, memstore.HomeBankDir())
-	if memory.IsProjectContextTemplate(root) {
-		ref, err := bank.Reference("init")
-		if err != nil {
-			return fail("memory init: %v", err)
-		}
-		fmt.Println()
-		fmt.Println(ref)
 	}
 	return 0
 }
@@ -169,26 +152,22 @@ func cmdMemorySearch(args []string) int {
 	if len(terms) == 0 {
 		return fail("memory search: no query (usage: %s)", memorySubPage("search").Usage)
 	}
-	now := time.Now()
-	if len(terms) == 1 && *format != helptext.JSON && memoryIDRef.MatchString(terms[0]) {
-		if path, block, err := bank.ShowBlock(terms[0]); err == nil { // a recall pointer's id expands in place
-			recall.LogShown(path, terms[0], recall.AccessSearch, now)
-			fmt.Printf("<!-- %s -->\n%s\n", path, strings.TrimSpace(block))
-			return 0
-		}
+	res := memory.Search(memory.SearchOptions{Repo: *repo, All: *all, Query: strings.Join(terms, " "), K: *k,
+		Expand: len(terms) == 1 && *format != helptext.JSON})
+	if res.Block != "" {
+		fmt.Printf("<!-- %s -->\n%s\n", res.Path, strings.TrimSpace(res.Block))
+		return 0
 	}
-	hits, root := recall.SearchRepo(*repo, *all, strings.Join(terms, " "), *k)
-	recall.LogHits(root, hits, recall.AccessSearch, now)
 	if *format == helptext.JSON {
-		if err := helptext.WriteJSON(os.Stdout, hits); err != nil {
+		if err := helptext.WriteJSON(os.Stdout, res.Hits); err != nil {
 			return fail("memory search: %v", err)
 		}
 		return 0
 	}
-	if len(hits) == 0 {
+	if len(res.Hits) == 0 {
 		fmt.Println("no matching blocks (banks empty or query all stopwords)")
 	}
-	for _, h := range hits {
+	for _, h := range res.Hits {
 		id := ""
 		if h.ID != "" {
 			id = " [" + h.ID + "]"
@@ -198,9 +177,6 @@ func cmdMemorySearch(args []string) int {
 	return 0
 }
 
-// memoryIDRef is a block reference: a persisted 8-hex id (or id-alias) or a z-prefixed ContentRef.
-var memoryIDRef = regexp.MustCompile(`^(z[0-9a-f]{8}|[0-9a-f]{8}(-[a-z0-9-]+)?)$`)
-
 func cmdMemoryShow(args []string) int {
 	fs := memoryFlagSet("show")
 	if code, done := helptext.Parse(fs, args); done {
@@ -209,11 +185,10 @@ func cmdMemoryShow(args []string) int {
 	if fs.NArg() != 1 {
 		return failUsage("memory show: give one block id (from `memory search` or a MEMORY.md region)")
 	}
-	path, block, err := bank.ShowBlock(fs.Arg(0))
+	path, block, err := memory.Show(fs.Arg(0))
 	if err != nil {
 		return fail("memory show %s: %v", fs.Arg(0), err)
 	}
-	recall.LogShown(path, fs.Arg(0), recall.AccessShow, time.Now())
 	fmt.Printf("<!-- %s -->\n%s\n", path, strings.TrimSpace(block))
 	return 0
 }
@@ -225,69 +200,10 @@ func cmdMemoryIndex(args []string) int {
 	if code, done := helptext.Parse(fs, args); done {
 		return code
 	}
-	root := memstore.Root(*repo)
-	profile := cmp.Or(embedding.EmbedProfile(), providers.SessionProfile())
-	if *reembed {
-		if code := reembedGate(profile, time.Now()); code != 0 {
-			return code
-		}
-	}
-	if *mintOnly {
-		embedIndex(root, profile, *reembed)
-		return 0
-	}
-	s, err := bank.SettleBank(root, time.Now())
-	if err != nil {
-		return fail("memory index: %v", err)
-	}
-	fmt.Printf("indexed %s", memstore.Dir(root))
-	if s.Rotated > 0 {
-		fmt.Printf(" (rotated %d sessionHistory entries to archive/)", s.Rotated)
-	}
-	if s.Promoted > 0 {
-		fmt.Printf(" (promoted %d block(s) to home)", s.Promoted)
-	}
-	if s.Archived > 0 {
-		fmt.Printf(" (archived %d block(s))", s.Archived)
-	}
-	fmt.Println()
-	embedIndex(root, profile, *reembed)
-	return 0
-}
-
-// reembedGate refuses --reembed (exit 1) before the override window opens; 0 when it is open.
-func reembedGate(profile string, now time.Time) int {
-	if profile == "" {
-		return 0
-	}
-	at, open, err := embedding.ReembedWindow(profile, now)
-	if err != nil {
-		return fail("memory index --reembed: %v", err)
-	}
-	if !open {
-		return fail("memory index --reembed: embeddings are valid; the override opens at %s", at.Format("15:04"))
+	if err := memory.Index(os.Stdout, os.Stderr, memory.IndexOptions{Repo: *repo, Reembed: *reembed, MintOnly: *mintOnly}); err != nil {
+		return fail("%v", err)
 	}
 	return 0
-}
-
-// embedIndex refreshes the entry-vector cache after an index; a missing endpoint or credential is a stderr note only.
-func embedIndex(root, profile string, reembed bool) {
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
-	defer cancel()
-	c, err := embedding.OpenEmbedClient(ctx, profile, "")
-	if err == nil {
-		var n, total int
-		embed := embedding.EmbedEntries
-		if reembed {
-			embed = embedding.ReembedEntries
-		}
-		if n, total, err = embed(ctx, root, c); err == nil && n > 0 {
-			fmt.Printf("embedded %d of %d entries (%s)\n", n, total, c.Model)
-		}
-	}
-	if err != nil && !errors.Is(err, embedding.ErrEmbedValid) { // a valid cache is the normal case, not a skip
-		fmt.Fprintf(os.Stderr, "memory index: embeddings skipped: %v\n", err)
-	}
 }
 
 func cmdMemoryPath(args []string) int {
@@ -308,36 +224,9 @@ func cmdMemoryUpdate(args []string) int {
 	if code, done := helptext.Parse(fs, args); done {
 		return code
 	}
-	root := *cwd
-	if root == "" {
-		var err error
-		if root, err = os.Getwd(); err != nil {
-			return fail("memory update: %v", err)
-		}
-	}
-	if *transcript == "" && *session == "" { // a live session updates itself
-		*session = os.Getenv(memory.SessionIDEnv)
-	}
-	if *transcript == "" {
-		*transcript = memory.LiveTranscript(root, *session)
-	}
-	if *transcript == "" { // no resolvable session: print the narrative procedure instead of refusing outright
-		ref, err := bank.Reference("update")
-		if err != nil {
-			return fail("memory update: %v", err)
-		}
-		fmt.Println(ref)
-		return 0
-	}
-	if *dryRun {
-		fmt.Printf("memory update (dry run): session %s, transcript %s, bank %s\n", *session, *transcript, memstore.Dir(root))
-		return 0
-	}
-	claude, err := claude.ClaudeBinary() // "" is fine here: Run (memoryAgent) handles the update, Claude is only its fallback
+	err := memory.UpdateSession(memory.UpdateSessionOptions{Transcript: *transcript, CWD: *cwd, Session: *session,
+		DryRun: *dryRun, ClaudeBin: claude.ClaudeBinary, Run: memoryAgent(), Out: os.Stdout, Err: os.Stderr})
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "claude-code: memory update:", err)
-	}
-	if err := memory.Update(memory.UpdateOptions{Claude: claude, Run: memoryAgent(), Transcript: *transcript, CWD: root, Session: *session, Out: os.Stdout}); err != nil {
 		return fail("memory update: %v", err)
 	}
 	return 0
@@ -351,22 +240,7 @@ func cmdMemoryDream(args []string) int {
 	if code, done := helptext.Parse(fs, args); done {
 		return code
 	}
-	root := *cwd
-	if root == "" {
-		var err error
-		if root, err = os.Getwd(); err != nil {
-			return fail("memory dream: %v", err)
-		}
-	}
-	if *dryRun {
-		fmt.Print(memory.PreviewDream(root, time.Now()).Report())
-		return 0
-	}
-	if !*force && !memory.DreamDue(root, time.Now()) {
-		fmt.Println("memory dream: not due")
-		return 0
-	}
-	if err := memory.Dream(memory.DreamOptions{CWD: root, Run: memoryAgent(), Out: os.Stdout}); err != nil {
+	if err := memory.RunDream(memory.DreamRunOptions{CWD: *cwd, Force: *force, DryRun: *dryRun, Run: memoryAgent(), Out: os.Stdout}); err != nil {
 		return fail("memory dream: %v", err)
 	}
 	return 0
@@ -377,8 +251,8 @@ func cmdMemoryDigest(args []string) int {
 	if code, done := helptext.Parse(fs, args); done {
 		return code
 	}
-	claude, _ := claude.ClaudeBinary()
-	path, err := memory.Digest(memstore.Dir(memstore.Root(*repo)), claude)
+	claudeBin, _ := claude.ClaudeBinary()
+	path, err := memory.DigestRepo(*repo, claudeBin)
 	if err != nil {
 		return fail("memory digest: %v", err)
 	}
@@ -396,22 +270,13 @@ func cmdMemoryFmt(args []string) int {
 	if code, done := helptext.Parse(fs, args); done {
 		return code
 	}
-	changed, err := bank.FormatBank(*check)
+	dirty, err := memory.FormatReport(os.Stdout, *check)
 	if err != nil {
 		return fail("memory fmt: %v", err)
 	}
-	for _, f := range changed {
-		fmt.Println(f)
+	if dirty {
+		return 1
 	}
-	if *check {
-		if len(changed) > 0 {
-			fmt.Printf("%d file(s) would change (run `claude-code memory fmt`)\n", len(changed))
-			return 1
-		}
-		fmt.Println("memory fmt --check: clean")
-		return 0
-	}
-	fmt.Printf("wrapped %d file(s)\n", len(changed))
 	return 0
 }
 
@@ -425,31 +290,10 @@ func cmdMemoryReview(args []string) int {
 	if code, done := helptext.Parse(fs, args); done {
 		return code
 	}
-	if *notice {
-		if err := memory.WriteDoctorNotice(memstore.Root(*repo), *staleDays, time.Now()); err != nil {
-			return fail("memory review: %v", err)
-		}
-		return 0
-	}
-	problems := memory.Doctor(memstore.Root(*repo), *staleDays, time.Now())
-	switch {
-	case len(problems) == 0:
-		fmt.Println("memory doctor: no problems found")
-	case *brief:
-		fmt.Printf("memory doctor: %d problem(s) found\n", len(problems))
-	default:
-		for _, p := range problems {
-			fmt.Println("- " + p)
-		}
-	}
-	fmt.Print(memory.CollectBankStats().Report())
-	if *candidates {
-		ref, err := bank.Reference("review")
-		if err != nil {
-			return fail("memory review: %v", err)
-		}
-		fmt.Println()
-		fmt.Println(ref)
+	err := memory.ReviewReport(os.Stdout, memory.ReviewOptions{Repo: *repo, StaleDays: *staleDays, Brief: *brief,
+		Notice: *notice, Candidates: *candidates})
+	if err != nil {
+		return fail("memory review: %v", err)
 	}
 	return 0
 }
@@ -460,16 +304,7 @@ func cmdMemoryTimeline(args []string) int {
 	if code, done := helptext.Parse(fs, args); done {
 		return code
 	}
-	entries, sessions := memory.Timeline(memstore.Root(*repo), *n)
-	for _, e := range entries {
-		fmt.Printf("%s  %-8s %s\n", e.Time.Format("2006-01-02 15:04"), e.Kind, e.Line)
-	}
-	if len(sessions) > 0 {
-		fmt.Println("-- sessionHistory --")
-		for _, s := range sessions {
-			fmt.Println("- " + s)
-		}
-	}
+	memory.TimelineReport(os.Stdout, *repo, *n)
 	return 0
 }
 
