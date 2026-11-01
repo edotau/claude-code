@@ -301,15 +301,15 @@ func codexAccountJSON(accessToken string) string {
 // chatgptAccessToken is an unsigned JWT carrying a chatgpt_account_id claim, matching the plans_test fixtures.
 var chatgptAccessToken = unsignedJWT(`{"https://api.openai.com/auth":{"chatgpt_account_id":"acc_1"}}`)
 
-// noVendorBin points BinDir() (paths.AgentBin reads $CLAUDE_CONFIG_DIR/bin, not $PATH) at an empty dir so
+// noAgentBin points BinDir() (paths.AgentBin reads $CLAUDE_CONFIG_DIR/bin, not $PATH) at an empty dir so
 // paths.AgentBin("codex") never finds a real CLI to shell out to.
-func noVendorBin(t *testing.T) {
+func noAgentBin(t *testing.T) {
 	t.Helper()
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 }
 
 func TestCodexAuthJSON_FilePresentKeyringNeverCalled(t *testing.T) {
-	noVendorBin(t)
+	noAgentBin(t)
 	home := t.TempDir()
 	t.Setenv("CODEX_HOME", home)
 	body := codexAccountJSON(chatgptAccessToken)
@@ -343,7 +343,7 @@ func TestCodexAuthJSON_FilePresentKeyringNeverCalled(t *testing.T) {
 }
 
 func TestCodexAuthJSON_FileAbsentKeyringHit(t *testing.T) {
-	noVendorBin(t)
+	noAgentBin(t)
 	home := t.TempDir()
 	t.Setenv("CODEX_HOME", home) // no auth.json written: forces the keyring fallback
 
@@ -368,7 +368,7 @@ func TestCodexAuthJSON_FileAbsentKeyringHit(t *testing.T) {
 }
 
 func TestCodexAuthJSON_FileAbsentKeyringMissTreatedAsAbsent(t *testing.T) {
-	noVendorBin(t)
+	noAgentBin(t)
 
 	cases := []struct {
 		name string
@@ -401,7 +401,7 @@ func TestCodexAuthJSON_FileAbsentKeyringMissTreatedAsAbsent(t *testing.T) {
 }
 
 func TestCodexAuthJSON_KeyringErrorOtherThanAbsentNotedAsKeyring(t *testing.T) {
-	noVendorBin(t)
+	noAgentBin(t)
 	home := t.TempDir()
 	t.Setenv("CODEX_HOME", home)
 
@@ -426,7 +426,7 @@ func TestCodexAuthJSON_KeyringErrorOtherThanAbsentNotedAsKeyring(t *testing.T) {
 }
 
 func TestCodexAuthJSON_CorruptKeyringJSONTreatedAsAbsent(t *testing.T) {
-	noVendorBin(t)
+	noAgentBin(t)
 	home := t.TempDir()
 	t.Setenv("CODEX_HOME", home)
 
