@@ -10,7 +10,7 @@ Use the smallest shape that fits; add orchestration only when the dependency sha
 | Shape | Tier | Do | Depth |
 |---|---|---|---|
 | A one-line edit | TRIVIAL | Inline; anything bigger is dispatched (CLAUDE.md guideline 5) | — |
-| Independent tasks, disjoint files | HIGH, or any tier with ≥2 independent tasks | `Agent` calls in one message, `code-worker` ‖ `copilot` | [dispatching-parallel-agents.md](references/dispatching-parallel-agents.md); scripted: `Workflow code-engineer` |
+| Independent tasks, disjoint files | HIGH, or any tier with ≥2 independent tasks | `Agent` calls in one message, `code-worker` (‖ `copilot` for a feature or bug fix) | [dispatching-parallel-agents.md](references/dispatching-parallel-agents.md); scripted: `Workflow code-engineer` |
 | Ordered plan, review gate per task | MEDIUM | One implementer at a time, spec → simplify → quality | [Sequential plan](#sequential-plan) |
 | Review a diff | any | One read-only `evaluate-code` leaf (quality + security lenses), or two on a large diff — what `/code-review` runs; findings go back to an implementer running `problem-solving` (`../problem-solving/references/feedback.md`) | [prompts.md#code-quality-reviewer](references/prompts.md#code-quality-reviewer) |
 | Many leaf tasks across packages | HIGH/EPIC | One Claude lane orchestrator per lane, agent leaves via `claude-code ask` | [lane-orchestrator.md](references/lane-orchestrator.md) |
@@ -143,7 +143,7 @@ established evidence.
 
 ## Sequential plan
 
-Per task: `code-worker` ‖ `copilot`, same message → spec review until `SPEC_COMPLIANT`
+Per task: `code-worker` (‖ `copilot` for a feature or bug fix, same message) → spec review until `SPEC_COMPLIANT`
 ([prompts.md#spec-reviewer](references/prompts.md#spec-reviewer)) → `Skill(simplify)` → quality review until
 `SHIP` ([prompts.md#code-quality-reviewer](references/prompts.md#code-quality-reviewer)) → run the task's
 verification yourself. Order is always spec → simplify → quality: simplifying non-compliant code polishes the
