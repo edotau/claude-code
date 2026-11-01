@@ -10,8 +10,8 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/statusline"
 	"github.com/edotau/claude-code/internal/ui/helptext"
-	"github.com/edotau/claude-code/internal/ui/statusline"
 	"github.com/edotau/claude-code/internal/ui/theme"
 )
 
