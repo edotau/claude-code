@@ -361,18 +361,18 @@ func TestPlanClaimClearedOnSpawnFailure(t *testing.T) {
 	}
 }
 
-// planGroupEnv is a hermetic config dir + HOME, optionally with an agents/Plan.md template.
+// planGroupEnv is a hermetic config dir + HOME, optionally with the docs/templates/plan.md template.
 func planGroupEnv(t *testing.T, withTemplate bool) (cfg, home string) {
 	t.Helper()
 	cfg, home = t.TempDir(), t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	t.Setenv("HOME", home)
 	if withTemplate {
-		md := "# Plan agent\n\n```markdown\n# Plan: <title>\n\n## Context\n\n## Phases\n\n## Tasks\n\n- [ ] skeleton-body-line\n```\n"
-		if err := os.MkdirAll(filepath.Join(cfg, "agents"), 0o755); err != nil {
+		md := "# Plan: <title>\n\n## Context\n\n## Phases\n\n## Tasks\n\n- [ ] skeleton-body-line\n"
+		if err := os.MkdirAll(filepath.Dir(plans.TemplatePath(cfg)), 0o755); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(filepath.Join(cfg, "agents", "Plan.md"), []byte(md), 0o644); err != nil {
+		if err := os.WriteFile(plans.TemplatePath(cfg), []byte(md), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -431,7 +431,7 @@ func TestPlanSkeletonNoTemplateFailsOpen(t *testing.T) {
 		"hook_event_name": "PostToolUse", "session_id": "s2", "tool_name": "EnterPlanMode",
 	})
 	if strings.Contains(out, "# Plan:") {
-		t.Fatalf("no Plan.md but output = %q", out)
+		t.Fatalf("no template but output = %q", out)
 	}
 }
 
@@ -684,7 +684,7 @@ func writePayload(t *testing.T, tool, cwd, path, content string) string {
 }
 
 // TestPlanTemplateTeeth proves the gate actually fires: today (no gate consulted) a free-form first write to
-// an undated draft passes; with PlanTemplate wired in, the same write is denied, and the message names Plan.md.
+// an undated draft passes; with PlanTemplate wired in, the same write is denied, and the message names plan.md.
 func TestPlanTemplateTeeth(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
@@ -698,8 +698,8 @@ func TestPlanTemplateTeeth(t *testing.T) {
 	if code != ExitBlock {
 		t.Fatalf("free-form first write: PlanTemplate = %d, want ExitBlock", code)
 	}
-	if !strings.Contains(stderr.String(), "plan-template") || !strings.Contains(stderr.String(), "Plan.md") {
-		t.Fatalf("denial message = %q, want it to name plan-template and Plan.md", &stderr)
+	if !strings.Contains(stderr.String(), "plan-template") || !strings.Contains(stderr.String(), "plan.md") {
+		t.Fatalf("denial message = %q, want it to name plan-template and plan.md", &stderr)
 	}
 	if _, err := os.Stat(draft); err == nil {
 		t.Fatalf("a denied write must not have landed on disk")

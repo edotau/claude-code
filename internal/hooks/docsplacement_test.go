@@ -3,6 +3,7 @@ package hooks
 import (
 	"bytes"
 	"encoding/json"
+	"github.com/edotau/claude-code/internal/plans"
 	"io"
 	"os"
 	"os/exec"
@@ -90,7 +91,7 @@ func TestPlanGateTemplate(t *testing.T) {
 				if c.want == ExitBlock {
 					if !strings.HasPrefix(stderr.String(), "plan-template: BLOCKED") ||
 						!strings.Contains(stderr.String(), `missing "# Plan:"`) ||
-						!strings.Contains(stderr.String(), filepath.Join(cfg, "agents", "Plan.md")) {
+						!strings.Contains(stderr.String(), plans.TemplatePath(cfg)) {
 						t.Errorf("missing first heading/template diagnostic: %s", &stderr)
 					}
 					if _, err := os.Stat(filepath.Join(cfg, c.path)); !os.IsNotExist(err) {

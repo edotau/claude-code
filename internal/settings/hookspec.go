@@ -100,13 +100,13 @@ var Registry = []Group{
 	{Name: "docs", Events: []EventSpec{
 		// Markdown writes at a repo root or into an ignored docs/ page are blocked, naming the canonical home.
 		{Name: "docs-placement", Event: EventPreToolUse, Matcher: "Write|Edit", Budget: 5 * sec, StatusMessage: "Checking doc placement", Blocks: true, Agents: []string{"codex", "copilot"}},
-		// The first write to a native plan draft must carry the Plan.md template; the denial pastes the skeleton.
+		// The first write to a native plan draft must carry the plan template; the denial pastes the skeleton.
 		{Name: "docs-plan-gate", Event: EventPreToolUse, Matcher: "Write|Edit", Budget: 5 * sec, StatusMessage: "Checking plan template", Blocks: true, Agents: []string{"codex", "copilot"}},
 		// Every write/edit to a native plan-mode draft is mirrored to its dated, repo-tagged file in plans/.
 		{Name: "docs-plan-mirror", Event: EventPostToolUse, Matcher: "Write|Edit", Budget: 10 * sec},
 		// An approved plan is filed under plans/, tagged with its repo.
 		{Name: "docs-plan-save", Event: EventPostToolUse, Matcher: "ExitPlanMode", Budget: 10 * sec},
-		// The Plan.md skeleton is injected on entering plan mode and, once per plan, on a plan-mode prompt.
+		// The plan template is injected on entering plan mode and, once per plan, on a plan-mode prompt.
 		{Name: "docs-plan-skeleton", Event: EventPostToolUse, Matcher: "EnterPlanMode", Budget: 5 * sec},
 		{Name: "docs-plan-skeleton-prompt", Event: EventUserPromptSubmit, Budget: 5 * sec},
 		// A landed git commit ticks the active plan's tasks whose owns: it covers; partial coverage is noted.
