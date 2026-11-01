@@ -3,13 +3,14 @@ package claude
 import (
 	"bytes"
 	"context"
-	"github.com/edotau/claude-code/internal/agent"
 	"os"
 	"path/filepath"
 	"reflect"
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/agent"
 
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/providers"

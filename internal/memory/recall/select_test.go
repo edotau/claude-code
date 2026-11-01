@@ -1,8 +1,9 @@
 package recall
 
 import (
-	"github.com/edotau/claude-code/internal/memory/bank"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/memory/bank"
 )
 
 // Access boosts break ties without admitting entries that fail relevance gates.

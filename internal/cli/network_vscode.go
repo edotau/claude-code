@@ -4,11 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/edotau/claude-code/internal/network/vscode"
-	"github.com/edotau/claude-code/internal/ui/helptext"
 	"os"
 	"os/exec"
 	"path/filepath"
+
+	"github.com/edotau/claude-code/internal/network/vscode"
+	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
 // cmdNetworkVSCode runs `code serve-web` as a detached daemon and maps it onto the tailnet.

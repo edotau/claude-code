@@ -1,5 +1,10 @@
 # golangci-lint v2 config for `make lint-go`; gocognit reports only under CHECK=1.
 version: "2"
+# Matches VS Code: gopls formats like gofmt and organizes imports on save like goimports.
+formatters:
+  enable:
+    - gofmt
+    - goimports
 linters:
   default: none
   enable:

@@ -2,11 +2,12 @@ package recall
 
 import (
 	"encoding/binary"
-	"github.com/edotau/claude-code/internal/memory/bank"
 	"os"
 	"path/filepath"
 	"sort"
 	"time"
+
+	"github.com/edotau/claude-code/internal/memory/bank"
 
 	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/paths"

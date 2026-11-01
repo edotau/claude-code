@@ -6,14 +6,15 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/edotau/claude-code/internal/agent"
-	render "github.com/edotau/claude-code/internal/agentconfig/render"
-	"github.com/edotau/claude-code/internal/vault"
 	"io"
 	"os"
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/edotau/claude-code/internal/agent"
+	render "github.com/edotau/claude-code/internal/agentconfig/render"
+	"github.com/edotau/claude-code/internal/vault"
 
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/models"

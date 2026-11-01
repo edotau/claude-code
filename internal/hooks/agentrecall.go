@@ -4,8 +4,9 @@ package hooks
 
 import (
 	"fmt"
-	memrecall "github.com/edotau/claude-code/internal/memory/recall"
 	"strings"
+
+	memrecall "github.com/edotau/claude-code/internal/memory/recall"
 )
 
 // Same relevance floor as recall.go's recallMinTerms; a one-line preview stays short, the whole

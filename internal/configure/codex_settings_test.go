@@ -3,11 +3,12 @@ package configure
 import (
 	"bufio"
 	"bytes"
-	"github.com/edotau/claude-code/internal/codex"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/codex"
 
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"

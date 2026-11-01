@@ -403,7 +403,7 @@ every embedded (`//go:embed`) template.
 ```bash
 go test ./internal/<pkg>   # while developing — only what you touched
 make lint                  # fmt, vet, shell, yaml, markdown (CHECK=1 reports only)
-make lint AGENT=on         # auto-fix, then Claude fixes the rest (HARNESS_LINT_AGENT=on sets the default)
+make lint AGENT=on         # auto-fix, then Claude Sonnet (medium effort) fixes the rest (HARNESS_LINT_AGENT=on sets the default)
 make test                  # full gate, once before pushing (= make audit = CI)
 ```
 

@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/edotau/claude-code/internal/opencode"
 	"io"
 	"net/http"
 	"os"
@@ -18,6 +17,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/edotau/claude-code/internal/opencode"
 
 	"github.com/edotau/claude-code/internal/paths"
 )

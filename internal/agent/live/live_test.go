@@ -2,7 +2,6 @@ package live
 
 import (
 	"context"
-	"github.com/edotau/claude-code/internal/gemini"
 	"net"
 	"os"
 	"path/filepath"
@@ -10,6 +9,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/gemini"
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/paths"

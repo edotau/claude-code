@@ -3,13 +3,14 @@ package hooks
 import (
 	"bytes"
 	"encoding/json"
-	"github.com/edotau/claude-code/internal/plans"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/plans"
 )
 
 // placementRepo makes a temp git repo with one tracked root doc, so the gate has real git state.

@@ -3,9 +3,10 @@ package configure
 import (
 	"bufio"
 	"bytes"
-	"github.com/edotau/claude-code/internal/vault"
 	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/vault"
 
 	"github.com/edotau/claude-code/internal/opencode"
 	"github.com/edotau/claude-code/internal/providers"

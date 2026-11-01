@@ -1,6 +1,10 @@
 // Markdown standard (markdownlint v0.41 rule IDs), read by VS Code's markdownlint extension.
 // make lint runs mdsmith from .mdsmith.yml: keep its rules: and ignore: in sync with this file.
 {
+  "ignores": [
+    "docs/templates/examples/memory/**",
+    "internal/review/**/testdata/**"
+  ],
   "config": {
     "default": true,
     "MD003": {

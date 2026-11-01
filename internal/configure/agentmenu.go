@@ -5,13 +5,14 @@ package configure
 import (
 	"cmp"
 	"fmt"
-	"github.com/edotau/claude-code/internal/codex"
-	"github.com/edotau/claude-code/internal/opencode"
-	"github.com/edotau/claude-code/internal/vault"
 	"os"
 	"os/exec"
 	"slices"
 	"strings"
+
+	"github.com/edotau/claude-code/internal/codex"
+	"github.com/edotau/claude-code/internal/opencode"
+	"github.com/edotau/claude-code/internal/vault"
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/copilot"

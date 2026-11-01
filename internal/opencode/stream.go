@@ -6,8 +6,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/edotau/claude-code/internal/agent"
 	"strings"
+
+	"github.com/edotau/claude-code/internal/agent"
 )
 
 type openCodeEvent struct {

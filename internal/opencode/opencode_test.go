@@ -2,11 +2,12 @@ package opencode
 
 import (
 	"encoding/json"
-	"github.com/edotau/claude-code/internal/agentconfig"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/agentconfig"
 
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"

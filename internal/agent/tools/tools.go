@@ -6,8 +6,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/edotau/claude-code/internal/clipboard"
-	"github.com/edotau/claude-code/internal/network/browser"
 	"io"
 	"os"
 	"os/exec"
@@ -15,6 +13,9 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/edotau/claude-code/internal/clipboard"
+	"github.com/edotau/claude-code/internal/network/browser"
 
 	"github.com/edotau/claude-code/internal/paths"
 )

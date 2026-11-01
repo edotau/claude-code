@@ -1,12 +1,13 @@
 package agent
 
 import (
-	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/vault/vaulttest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
 func TestResolveTargetFallsBackWhenSessionProviderCannotServe(t *testing.T) {

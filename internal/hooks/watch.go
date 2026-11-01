@@ -7,12 +7,13 @@ package hooks
 
 import (
 	"fmt"
-	memrecall "github.com/edotau/claude-code/internal/memory/recall"
 	"io"
 	"os"
 	"path/filepath"
 	"strconv"
 	"time"
+
+	memrecall "github.com/edotau/claude-code/internal/memory/recall"
 
 	"github.com/edotau/claude-code/internal/inflight"
 	"github.com/edotau/claude-code/internal/memstore"

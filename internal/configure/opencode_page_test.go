@@ -4,11 +4,12 @@ import (
 	"bufio"
 	"bytes"
 	"errors"
-	"github.com/edotau/claude-code/internal/opencode"
 	"reflect"
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/opencode"
 
 	"github.com/edotau/claude-code/internal/ui/tui"
 )

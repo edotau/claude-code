@@ -3,12 +3,13 @@ package statusline
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/edotau/claude-code/internal/providers"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/providers"
 
 	"github.com/edotau/claude-code/internal/paths"
 )

@@ -2,11 +2,12 @@ package planlint
 
 import (
 	"fmt"
-	reviewsource "github.com/edotau/claude-code/internal/review/source"
 	"io"
 	"regexp"
 	"strings"
 	"sync"
+
+	reviewsource "github.com/edotau/claude-code/internal/review/source"
 
 	"github.com/edotau/claude-code/internal/textutil"
 )

@@ -3,11 +3,12 @@ package configure
 import (
 	"bufio"
 	"context"
-	"github.com/edotau/claude-code/internal/vault"
 	"slices"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/vault"
 
 	"github.com/edotau/claude-code/internal/audit"
 	"github.com/edotau/claude-code/internal/providers"
