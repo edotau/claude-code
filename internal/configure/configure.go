@@ -31,6 +31,7 @@ import (
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/secrets"
 	"github.com/edotau/claude-code/internal/ui/ansi"
+	uidialog "github.com/edotau/claude-code/internal/ui/dialog"
 	"github.com/edotau/claude-code/internal/ui/tui"
 )
 
@@ -92,6 +93,12 @@ type dialog struct {
 // printf writes one status line with its verdict tokens painted (byte-identical text when color is off).
 func (d *dialog) printf(format string, args ...any) {
 	fmt.Fprint(d.out, ansi.Status(d.color, fmt.Sprintf(format, args...)))
+}
+
+// shell is the ui/dialog shell on d's terminal or numbered prompt, painting status lines like printf.
+func (d *dialog) shell() *uidialog.Shell {
+	return &uidialog.Shell{Out: d.out, In: d.br, TTY: isStdinTTY() && d.o.In == os.Stdin,
+		Paint: func(s string) string { return ansi.Status(d.color, s) }}
 }
 
 func (d *dialog) println(args ...any) { d.printf("%s\n", fmt.Sprint(args...)) }

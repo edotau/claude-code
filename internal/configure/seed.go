@@ -6,6 +6,7 @@ import (
 	"slices"
 
 	agentpkg "github.com/edotau/claude-code/internal/agent"
+	uidialog "github.com/edotau/claude-code/internal/ui/dialog"
 )
 
 const (
@@ -85,25 +86,23 @@ func seedPick(d *dialog, agent, cur string) (profile string, ok bool) {
 
 // runSeed shows one row per agent and writes every choice, Profile only, when Save is picked; dismissing writes nothing.
 func runSeed(d *dialog) bool {
-	choice, agents, cur := seedDefaults(d), seedAgents(), 0
-	for {
-		rows := make([][2]string, 0, len(agents)+1)
+	choice, agents, saved := seedDefaults(d), seedAgents(), false
+	d.shell().Run("Seed agent profiles", func() []uidialog.Row {
+		rows := make([]uidialog.Row, 0, len(agents)+1)
 		for _, a := range agents {
-			rows = append(rows, [2]string{displayLabel(a), seedLabel(a, choice[a])})
+			rows = append(rows, uidialog.Row{Name: displayLabel(a), Detail: seedLabel(a, choice[a]), Run: func() bool {
+				if p, ok := seedPick(d, a, choice[a]); ok {
+					choice[a] = p
+				}
+				return false
+			}})
 		}
-		rows = append(rows, [2]string{"Save", "write these choices"})
-		idx, err := pick(d, "Seed agent profiles", rows, cur)
-		if err != nil || idx < 0 {
-			return false
-		}
-		if idx == len(agents) {
-			return saveSeed(d, choice)
-		}
-		cur = idx
-		if p, ok := seedPick(d, agents[idx], choice[agents[idx]]); ok {
-			choice[agents[idx]] = p
-		}
-	}
+		return append(rows, uidialog.Row{Name: "Save", Detail: "write these choices", Run: func() bool {
+			saved = saveSeed(d, choice)
+			return true
+		}})
+	})
+	return saved
 }
 
 // saveSeed stores choice's profiles in one update, leaving every other record field as it was.
