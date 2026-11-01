@@ -93,7 +93,7 @@ func historyLog(args []string) int {
 	}
 	store := &history.Store{Dir: history.Dir()}
 	rc := 0
-	planes := map[string][]logEntry{}
+	planes := map[string][]history.LogEntry{}
 	for _, plane := range []string{"config"} {
 		lines, err := store.Log(*n, plane)
 		if err != nil {
@@ -101,7 +101,7 @@ func historyLog(args []string) int {
 			rc = 1
 		}
 		if *format == helptext.JSON {
-			planes[plane] = parseLog(lines)
+			planes[plane] = history.ParseLog(lines)
 			continue
 		}
 		printLog(plane, lines)
@@ -110,25 +110,6 @@ func historyLog(args []string) int {
 		_ = helptext.WriteJSON(os.Stdout, planes)
 	}
 	return rc
-}
-
-// logEntry is one `history log` line: Store.Log formats "%h %Y-%m-%d %H:%M <plane>: <subject>".
-type logEntry struct {
-	Rev     string `json:"rev"`
-	Date    string `json:"date"`
-	Subject string `json:"subject"`
-}
-
-func parseLog(lines []string) []logEntry {
-	out := []logEntry{}
-	for _, l := range lines {
-		f := strings.SplitN(l, " ", 4)
-		if len(f) < 4 {
-			continue
-		}
-		out = append(out, logEntry{Rev: f[0], Date: f[1] + " " + f[2], Subject: f[3]})
-	}
-	return out
 }
 
 // printLog prints one plane's header and lines; an empty history says so rather than printing nothing.

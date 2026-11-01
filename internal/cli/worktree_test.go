@@ -1,12 +1,16 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/edotau/claude-code/internal/worktree"
 )
 
 func scrubGitEnv(t *testing.T) {
@@ -310,5 +314,726 @@ func TestCmdWorktreeCreateUnusualName(t *testing.T) {
 	}
 	if _, err := os.Stat(strings.TrimSpace(out)); err != nil {
 		t.Fatalf("worktree missing: %v", err)
+	}
+}
+
+// forceFixtureDirty makes the "feature" worktree dirty (untracked file) and one commit ahead of main.
+func forceFixtureDirty(t *testing.T) (repo, wt string) {
+	t.Helper()
+	repo = mergeFixtureCLISetup(t)
+	wt = mergeFixtureCLIWorktreePath(t, repo)
+	mergeFixtureCLIWrite(t, wt, "g.txt", "feature only\n", "feature advances")
+	if err := os.WriteFile(filepath.Join(wt, "scratch.txt"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return repo, wt
+}
+
+func forceBranchList(t *testing.T, repo, branch string) string {
+	t.Helper()
+	out, err := exec.Command("git", "-C", repo, "branch", "--list", branch).Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return strings.TrimSpace(string(out))
+}
+
+func TestCmdWorktreeCleanForceRefusedWithoutFlag(t *testing.T) {
+	repo, wt := forceFixtureDirty(t)
+	code, _, _ := captureOutput(t, func() int { return cmdWorktree([]string{"clean", "feature"}) })
+	if code == 0 {
+		t.Fatal("plain clean of a dirty+unmerged worktree must fail")
+	}
+	if _, err := os.Stat(wt); err != nil {
+		t.Fatalf("worktree must survive a refused clean: %v", err)
+	}
+	if forceBranchList(t, repo, "worktree-feature") == "" {
+		t.Fatal("branch must survive a refused clean")
+	}
+}
+
+func TestCmdWorktreeCleanForceDiscardsDirtyUnmerged(t *testing.T) {
+	repo, wt := forceFixtureDirty(t)
+	code, out, errb := captureOutput(t, func() int { return cmdWorktree([]string{"clean", "--force", "feature"}) })
+	if code != 0 {
+		t.Fatalf("clean --force: code=%d stdout=%q stderr=%q", code, out, errb)
+	}
+	if _, err := os.Stat(wt); err == nil {
+		t.Fatal("worktree dir still exists after clean --force")
+	}
+	if got := forceBranchList(t, repo, "worktree-feature"); got != "" {
+		t.Fatalf("branch should be deleted with -D, branch --list = %q", got)
+	}
+	// summary names the discarded work: branch, uncommitted file, and unmerged commit
+	for _, want := range []string{"discarding:", "uncommitted files: 1", "unmerged commits: 1 on worktree-feature"} {
+		if !strings.Contains(out+errb, want) {
+			t.Errorf("summary %q lacks %q", out+errb, want)
+		}
+	}
+}
+
+func TestCmdWorktreeCleanForceNeverTouchesMainCheckout(t *testing.T) {
+	repo := mergeFixtureCLISetup(t)
+	for _, name := range []string{"..", "../" + filepath.Base(repo), repo, "."} {
+		code, _, _ := captureOutput(t, func() int { return cmdWorktree([]string{"clean", "--force", name}) })
+		if code == 0 {
+			t.Errorf("clean --force %q must fail", name)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(repo, ".git")); err != nil {
+		t.Fatalf("main checkout damaged: %v", err)
+	}
+	if forceBranchList(t, repo, "worktree-feature") == "" {
+		t.Fatal("unrelated branch lost")
+	}
+}
+
+// mergeFixtureCLIWrite writes content to file in dir and commits it with msg, with the test identity
+// also set into local repo config so the CLI's own git invocations (not just this helper's) resolve
+// a committer for any merge commit worktree merge creates.
+func mergeFixtureCLIWrite(t *testing.T, dir, file, content, msg string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(dir, file), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	mergeFixtureCLIRun(t, dir, "add", file)
+	mergeFixtureCLIRun(t, dir, "commit", "-q", "-m", msg)
+}
+
+func mergeFixtureCLIRun(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+	cmd.Env = append(os.Environ(),
+		"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t.com",
+		"GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t.com")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git %v: %v: %s", args, err, out)
+	}
+}
+
+// mergeFixtureCLISetup makes a repo + a "feature" worktree via the CLI's own create path, with
+// local git identity configured so a later `worktree merge` apply can create a merge commit.
+func mergeFixtureCLISetup(t *testing.T) (repo string) {
+	t.Helper()
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	repo = gitRepoCLI(t)
+	mergeFixtureCLIRun(t, repo, "config", "user.email", "t@t.com")
+	mergeFixtureCLIRun(t, repo, "config", "user.name", "t")
+	t.Chdir(repo)
+	code, out, errb := captureOutput(t, func() int { return cmdWorktree([]string{"create", "feature"}) })
+	if code != 0 {
+		t.Fatalf("create feature: code=%d stderr=%q", code, errb)
+	}
+	wt := strings.TrimSpace(out)
+	if _, err := os.Stat(wt); err != nil {
+		t.Fatalf("worktree missing at %s: %v", wt, err)
+	}
+	return repo
+}
+
+// mergeFixtureCLIWorktreePath resolves the "feature" worktree's path the same way the CLI itself
+// does (worktree.Root), rather than re-deriving ~/worktrees/<name> by hand.
+func mergeFixtureCLIWorktreePath(t *testing.T, repo string) string {
+	t.Helper()
+	return filepath.Join(worktree.Root(repo), "feature")
+}
+
+func cliHeadOf(t *testing.T, dir string) string {
+	t.Helper()
+	out, err := exec.Command("git", "-C", dir, "rev-parse", "HEAD").Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return strings.TrimSpace(string(out))
+}
+
+func TestCmdWorktreeMergeDryRunCleanShowsPlanWithoutMutating(t *testing.T) {
+	repo := mergeFixtureCLISetup(t)
+	wt := mergeFixtureCLIWorktreePath(t, repo)
+	mergeFixtureCLIWrite(t, wt, "g.txt", "feature only\n", "feature advances")
+	mainBefore := cliHeadOf(t, repo)
+
+	code, out, errb := captureOutput(t, func() int { return cmdWorktree([]string{"merge", "--dry-run", "feature"}) })
+	if code != 0 {
+		t.Fatalf("merge --dry-run: code=%d stderr=%q", code, errb)
+	}
+	if !strings.Contains(out, "clean") {
+		t.Fatalf("output = %q, want a clean-plan message", out)
+	}
+	if cliHeadOf(t, repo) != mainBefore {
+		t.Fatalf("main HEAD changed under --dry-run")
+	}
+	if _, err := os.Stat(wt); err != nil {
+		t.Fatalf("dry-run must not remove the worktree: %v", err)
+	}
+}
+
+func TestCmdWorktreeMergeApplyPromotesAndAutoCleans(t *testing.T) {
+	repo := mergeFixtureCLISetup(t)
+	wt := mergeFixtureCLIWorktreePath(t, repo)
+	mergeFixtureCLIWrite(t, wt, "g.txt", "feature only\n", "feature advances")
+	sourceOID := cliHeadOf(t, wt)
+
+	// The fixture repo has no detectable gate (no Makefile/go.mod/etc) — --no-verify isolates this
+	// test's intent (promote + auto-clean) from the separate verify-by-default behavior.
+	code, out, errb := captureOutput(t, func() int { return cmdWorktree([]string{"merge", "--no-verify", "feature"}) })
+	if code != 0 {
+		t.Fatalf("merge apply: code=%d stderr=%q", code, errb)
+	}
+	if !strings.Contains(out, "promoted") {
+		t.Fatalf("output = %q, want a promoted line", out)
+	}
+	if cliHeadOf(t, repo) != sourceOID {
+		t.Fatalf("main HEAD = %s, want fast-forwarded to %s", cliHeadOf(t, repo), sourceOID)
+	}
+	if _, err := os.Stat(wt); err == nil {
+		t.Fatal("worktree still on disk after a successful merge without --no-clean")
+	}
+}
+
+func TestCmdWorktreeMergeApplyNoCleanLeavesWorktree(t *testing.T) {
+	repo := mergeFixtureCLISetup(t)
+	wt := mergeFixtureCLIWorktreePath(t, repo)
+	mergeFixtureCLIWrite(t, wt, "g.txt", "feature only\n", "feature advances")
+
+	code, out, errb := captureOutput(t, func() int { return cmdWorktree([]string{"merge", "--no-verify", "--no-clean", "feature"}) })
+	if code != 0 {
+		t.Fatalf("merge --no-clean: code=%d stderr=%q", code, errb)
+	}
+	if !strings.Contains(out, "promoted") {
+		t.Fatalf("output = %q, want a promoted line", out)
+	}
+	if _, err := os.Stat(wt); err != nil {
+		t.Fatalf("--no-clean must leave the worktree on disk: %v", err)
+	}
+}
+
+// TestCmdWorktreeMergeVerifyFailurePreservesWorktreeAndSkipsPromotion is the regression test for
+// Appendix A codex-review finding #1 (internal/cli/worktree.go:191): promotion and automatic cleanup
+// must not happen without a scoped verification step — a failing --verify command must stop before
+// Promote ever runs and leave the worktree on disk for inspection.
+func TestCmdWorktreeMergeVerifyFailurePreservesWorktreeAndSkipsPromotion(t *testing.T) {
+	repo := mergeFixtureCLISetup(t)
+	wt := mergeFixtureCLIWorktreePath(t, repo)
+	mergeFixtureCLIWrite(t, wt, "g.txt", "feature only\n", "feature advances")
+	mainBefore := cliHeadOf(t, repo)
+
+	code, out, errb := captureOutput(t, func() int {
+		return cmdWorktree([]string{"merge", "--verify", "exit 1", "feature"})
+	})
+	if code == 0 {
+		t.Fatalf("want non-zero exit when --verify fails, stdout=%q stderr=%q", out, errb)
+	}
+	if strings.Contains(out, "promoted") {
+		t.Fatalf("output = %q, must never reach promotion after a failed verify", out)
+	}
+	if cliHeadOf(t, repo) != mainBefore {
+		t.Fatal("main HEAD changed despite a failed --verify — promotion must be skipped entirely")
+	}
+	if _, err := os.Stat(wt); err != nil {
+		t.Fatalf("worktree must be preserved after a failed --verify, for inspection: %v", err)
+	}
+}
+
+// TestCmdWorktreeMergeVerifySuccessRunsInsideWorktreeThenPromotes covers the success half: --verify
+// runs inside the worktree (not main) after integration, and a zero exit lets promotion proceed.
+func TestCmdWorktreeMergeVerifySuccessRunsInsideWorktreeThenPromotes(t *testing.T) {
+	repo := mergeFixtureCLISetup(t)
+	wt := mergeFixtureCLIWorktreePath(t, repo)
+	mergeFixtureCLIWrite(t, wt, "g.txt", "feature only\n", "feature advances")
+	sourceOID := cliHeadOf(t, wt)
+
+	verifyCmd := `test -f g.txt && [ "$(pwd -P)" = "` + wt + `" ]`
+	code, out, errb := captureOutput(t, func() int {
+		return cmdWorktree([]string{"merge", "--verify", verifyCmd, "feature"})
+	})
+	if code != 0 {
+		t.Fatalf("merge --verify (passing): code=%d stdout=%q stderr=%q", code, out, errb)
+	}
+	if !strings.Contains(out, "verify: passed") {
+		t.Fatalf("output = %q, want a verify-passed line", out)
+	}
+	if !strings.Contains(out, "promoted") {
+		t.Fatalf("output = %q, want a promoted line after a passing verify", out)
+	}
+	if cliHeadOf(t, repo) != sourceOID {
+		t.Fatalf("main HEAD = %s, want fast-forwarded to %s", cliHeadOf(t, repo), sourceOID)
+	}
+}
+
+func TestCmdWorktreeMergeConflictBlocksAndLeavesMainUntouched(t *testing.T) {
+	repo := mergeFixtureCLISetup(t)
+	wt := mergeFixtureCLIWorktreePath(t, repo)
+	mergeFixtureCLIWrite(t, wt, "f.txt", "feature line\n", "feature edits f")
+	mergeFixtureCLIWrite(t, repo, "f.txt", "main line\n", "main edits f")
+	mainBefore := cliHeadOf(t, repo)
+
+	code, out, errb := captureOutput(t, func() int { return cmdWorktree([]string{"merge", "feature"}) })
+	if code == 0 {
+		t.Fatalf("merge on predicted conflict: want non-zero exit, stdout=%q stderr=%q", out, errb)
+	}
+	if !strings.Contains(out, "conflict") {
+		t.Fatalf("output = %q, want the conflict issue reported", out)
+	}
+	if cliHeadOf(t, repo) != mainBefore {
+		t.Fatal("main HEAD changed despite a blocked merge")
+	}
+	if _, err := os.Stat(wt); err != nil {
+		t.Fatalf("worktree must survive a blocked merge: %v", err)
+	}
+}
+
+func TestCmdWorktreeMergeUnknownNameFails(t *testing.T) {
+	mergeFixtureCLISetup(t)
+	code, _, errb := captureOutput(t, func() int { return cmdWorktree([]string{"merge", "does-not-exist"}) })
+	if code == 0 {
+		t.Fatalf("want non-zero exit for an unknown worktree name, stderr=%q", errb)
+	}
+}
+
+func TestCmdWorktreeMergeTargetMismatchFails(t *testing.T) {
+	mergeFixtureCLISetup(t)
+	code, out, errb := captureOutput(t, func() int {
+		return cmdWorktree([]string{"merge", "--target", "some-other-branch", "feature"})
+	})
+	if code == 0 {
+		t.Fatalf("want non-zero exit on target mismatch, stdout=%q stderr=%q", out, errb)
+	}
+	if !strings.Contains(out, "target-mismatch") {
+		t.Fatalf("output = %q, want target-mismatch reported", out)
+	}
+}
+
+func TestCmdWorktreeMergeNoArgsFails(t *testing.T) {
+	mergeFixtureCLISetup(t)
+	code, _, _ := captureOutput(t, func() int { return cmdWorktree([]string{"merge"}) })
+	if code == 0 {
+		t.Fatal("want non-zero exit for merge with no name")
+	}
+}
+
+// TestCmdWorktreeMergeResolveAgentUnknownValueRejected covers --resolve-agent flag validation before
+// anything else runs — no Preflight, no git mutation, no agent invocation.
+func TestCmdWorktreeMergeResolveAgentUnknownValueRejected(t *testing.T) {
+	repo := mergeFixtureCLISetup(t)
+	mainBefore := cliHeadOf(t, repo)
+	code, _, errb := captureOutput(t, func() int {
+		return cmdWorktree([]string{"merge", "--resolve-agent", "gpt5", "feature"})
+	})
+	if code == 0 {
+		t.Fatalf("want non-zero exit for an unknown --resolve-agent value, stderr=%q", errb)
+	}
+	if !strings.Contains(errb, "unknown") {
+		t.Fatalf("stderr = %q, want it to report the unknown value", errb)
+	}
+	if cliHeadOf(t, repo) != mainBefore {
+		t.Fatal("main HEAD changed despite a rejected flag value")
+	}
+}
+
+// TestCmdWorktreeMergeResolveAgentIgnoredOnCleanPlan: --resolve-agent only ever applies to a predicted
+// conflict (onlyConflictIssue) — a clean fast-forward must proceed and promote normally without ever
+// reaching the agent-dispatch code path (there is no fake-agent seam across this package boundary, so
+// this also doubles as proof the real `claude-code ask` is never invoked for a clean plan).
+func TestCmdWorktreeMergeResolveAgentIgnoredOnCleanPlan(t *testing.T) {
+	repo := mergeFixtureCLISetup(t)
+	wt := mergeFixtureCLIWorktreePath(t, repo)
+	mergeFixtureCLIWrite(t, wt, "g.txt", "feature only\n", "feature advances")
+	sourceOID := cliHeadOf(t, wt)
+
+	// --no-verify isolates this test's intent (resolve-agent ignored on a clean plan) from the
+	// separate verify-by-default behavior — the fixture repo has no detectable gate.
+	code, out, errb := captureOutput(t, func() int {
+		return cmdWorktree([]string{"merge", "--no-verify", "--resolve-agent", "claude", "feature"})
+	})
+	if code != 0 {
+		t.Fatalf("merge --resolve-agent on a clean plan: code=%d stderr=%q", code, errb)
+	}
+	if !strings.Contains(out, "promoted") {
+		t.Fatalf("output = %q, want a promoted line", out)
+	}
+	if cliHeadOf(t, repo) != sourceOID {
+		t.Fatalf("main HEAD = %s, want fast-forwarded to %s", cliHeadOf(t, repo), sourceOID)
+	}
+}
+
+// TestCmdWorktreeMergeResumeWithNoSavedOperationFails covers --resume with nothing to resume: it must
+// surface LoadOperation's not-found error and leave main untouched, never fabricate a resolution.
+func TestCmdWorktreeMergeResumeWithNoSavedOperationFails(t *testing.T) {
+	repo := mergeFixtureCLISetup(t)
+	mainBefore := cliHeadOf(t, repo)
+	code, _, errb := captureOutput(t, func() int {
+		return cmdWorktree([]string{"merge", "--resume", "feature"})
+	})
+	if code == 0 {
+		t.Fatalf("want non-zero exit for --resume with no saved operation, stderr=%q", errb)
+	}
+	if !strings.Contains(errb, "no in-progress") {
+		t.Fatalf("stderr = %q, want the no-in-progress-operation message", errb)
+	}
+	if cliHeadOf(t, repo) != mainBefore {
+		t.Fatal("main HEAD changed despite nothing to resume")
+	}
+}
+
+// TestCmdWorktreeMergeResumeWrongRepoOperationFails hand-crafts an Operation saved for a different
+// repo.Main (e.g. left over from a previous repo at this worktree root) and confirms --resume refuses
+// it rather than resuming against the wrong checkout.
+func TestCmdWorktreeMergeResumeWrongRepoOperationFails(t *testing.T) {
+	repo := mergeFixtureCLISetup(t)
+	mainBefore := cliHeadOf(t, repo)
+	r, err := worktree.ResolveRepo(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Same basename as the real repo.Main (operationPath keys by it), different full path — so
+	// LoadOperation finds this file, but worktree.resumeMerge's op.Repo != repo.Main check must fire.
+	otherRepoWithSameBasename := filepath.Join(r.Main, "..", "other-"+filepath.Base(r.Main), filepath.Base(r.Main))
+	op := &worktree.Operation{
+		Repo:      otherRepoWithSameBasename,
+		Worktree:  "feature",
+		Phase:     "resolving",
+		Agent:     "claude",
+		StartedAt: time.Now(),
+		Deadline:  time.Now().Add(10 * time.Minute),
+	}
+	if err := worktree.SaveOperation(op); err != nil {
+		t.Fatal(err)
+	}
+
+	code, _, errb := captureOutput(t, func() int {
+		return cmdWorktree([]string{"merge", "--resume", "feature"})
+	})
+	if code == 0 {
+		t.Fatalf("want non-zero exit for a wrong-repo operation, stderr=%q", errb)
+	}
+	if !strings.Contains(errb, "belongs to") {
+		t.Fatalf("stderr = %q, want the belongs-to-a-different-repo message", errb)
+	}
+	if cliHeadOf(t, repo) != mainBefore {
+		t.Fatal("main HEAD changed despite a wrong-repo operation")
+	}
+}
+
+// TestCmdWorktreeMergeResumeStopsOnTargetMovedSinceResolutionStarted is the regression test for
+// Appendix A codex-review finding #6 (internal/cli/worktree.go:256, resume half): if main advances
+// (same branch, new OID) while an agent resolution is in flight, resuming must stop and require an
+// explicit retry rather than silently adopting the moved target — a fresh Preflight only compares
+// branch *names*, so without an explicit OID check the movement would otherwise pass unnoticed.
+func TestCmdWorktreeMergeResumeStopsOnTargetMovedSinceResolutionStarted(t *testing.T) {
+	repo := mergeFixtureCLISetup(t)
+	wt := mergeFixtureCLIWorktreePath(t, repo)
+	// Divergent edit to the same file on both sides -> a predicted conflict Preflight will report.
+	mergeFixtureCLIWrite(t, wt, "f.txt", "feature line\n", "feature edits f")
+	mergeFixtureCLIWrite(t, repo, "f.txt", "main line\n", "main edits f")
+
+	r, err := worktree.ResolveRepo(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := worktree.Preflight(context.Background(), r, "feature", "")
+	if err != nil {
+		t.Fatalf("Preflight: %v", err)
+	}
+	if len(plan.Issues) != 1 || plan.Issues[0].Code != worktree.IssueConflict {
+		t.Fatalf("Issues = %v, want exactly one conflict", plan.Issues)
+	}
+	mainBeforeResume := plan.TargetOID
+
+	// Simulate an agent having already resolved the conflict and committed it in the worktree,
+	// ancestor-correct over both pinned OIDs (CheckResolution's own contract).
+	mergeFixtureCLIWrite(t, wt, "f.txt", "resolved\n", "agent resolves f")
+	mergeFixtureCLIRun(t, wt, "merge", "--no-edit", "-s", "ours", plan.TargetOID) // records TargetOID as a merged parent
+
+	op := &worktree.Operation{
+		ID:                "op-target-moved",
+		Repo:              r.Main,
+		Worktree:          "feature",
+		TargetRef:         plan.TargetRef, // pinned to the real branch name, so only the OID move is under test below
+		TargetOID:         plan.TargetOID,
+		OriginalSourceOID: plan.SourceOID,
+		Phase:             "resolving",
+		StartedAt:         time.Now(),
+		Deadline:          time.Now().Add(10 * time.Minute),
+		Agent:             "claude",
+		AgentExitOK:       true,
+	}
+	if err := worktree.SaveOperation(op); err != nil {
+		t.Fatal(err)
+	}
+
+	// Main moves on (same branch, new commit) while the resolution was supposedly in flight.
+	mergeFixtureCLIWrite(t, repo, "unrelated.txt", "main moved on\n", "main advances during resolution")
+	movedMain := cliHeadOf(t, repo)
+	if movedMain == mainBeforeResume {
+		t.Fatal("fixture invariant broken: main must have actually moved")
+	}
+
+	code, _, errb := captureOutput(t, func() int {
+		return cmdWorktree([]string{"merge", "--resume", "feature"})
+	})
+	if code == 0 {
+		t.Fatalf("want non-zero exit when the target moved during resolution, stderr=%q", errb)
+	}
+	if !strings.Contains(errb, "moved") {
+		t.Fatalf("stderr = %q, want it to report the target movement", errb)
+	}
+	if cliHeadOf(t, repo) != movedMain {
+		t.Fatal("main HEAD changed despite target movement, which must stop before integrate/promote")
+	}
+}
+
+// TestCmdWorktreeMergeResumeStopsOnTargetBranchChangedAtSameOID covers the other half of the same
+// finding: main checked out onto a DIFFERENT branch pointing at the exact same commit the operation
+// pinned — the OID alone would pass unnoticed, so worktree.resumeMerge must also compare TargetRef.
+func TestCmdWorktreeMergeResumeStopsOnTargetBranchChangedAtSameOID(t *testing.T) {
+	repo := mergeFixtureCLISetup(t)
+	wt := mergeFixtureCLIWorktreePath(t, repo)
+	mergeFixtureCLIWrite(t, wt, "f.txt", "feature line\n", "feature edits f")
+	mergeFixtureCLIWrite(t, repo, "f.txt", "main line\n", "main edits f")
+
+	r, err := worktree.ResolveRepo(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := worktree.Preflight(context.Background(), r, "feature", "")
+	if err != nil {
+		t.Fatalf("Preflight: %v", err)
+	}
+	if len(plan.Issues) != 1 || plan.Issues[0].Code != worktree.IssueConflict {
+		t.Fatalf("Issues = %v, want exactly one conflict", plan.Issues)
+	}
+
+	mergeFixtureCLIWrite(t, wt, "f.txt", "resolved\n", "agent resolves f")
+	mergeFixtureCLIRun(t, wt, "merge", "--no-edit", "-s", "ours", plan.TargetOID)
+
+	op := &worktree.Operation{
+		ID:                "op-branch-changed",
+		Repo:              r.Main,
+		Worktree:          "feature",
+		TargetRef:         plan.TargetRef,
+		TargetOID:         plan.TargetOID,
+		OriginalSourceOID: plan.SourceOID,
+		Phase:             "resolving",
+		StartedAt:         time.Now(),
+		Deadline:          time.Now().Add(10 * time.Minute),
+		Agent:             "claude",
+		AgentExitOK:       true,
+	}
+	if err := worktree.SaveOperation(op); err != nil {
+		t.Fatal(err)
+	}
+
+	// Main switches to a NEW branch pointing at the exact same commit — the OID never moves.
+	mergeFixtureCLIRun(t, repo, "checkout", "-b", "renamed-main")
+	sameOID := cliHeadOf(t, repo)
+	if sameOID != plan.TargetOID {
+		t.Fatal("fixture invariant broken: the checkout-b must not move the OID")
+	}
+
+	code, _, errb := captureOutput(t, func() int {
+		return cmdWorktree([]string{"merge", "--resume", "feature"})
+	})
+	if code == 0 {
+		t.Fatalf("want non-zero exit when the target branch changed at the same OID, stderr=%q", errb)
+	}
+	if !strings.Contains(errb, "moved") {
+		t.Fatalf("stderr = %q, want it to report the target movement", errb)
+	}
+	if cliHeadOf(t, repo) != sameOID {
+		t.Fatal("main HEAD changed despite the branch-change refusal")
+	}
+}
+
+// TestCmdWorktreeMergeResumeMissingWorktreeFails covers an operation that names a worktree no longer
+// on disk (removed, or never existed under this name) — --resume must fail with a clear reason rather
+// than attempting to poll a path that isn't there.
+func TestCmdWorktreeMergeResumeMissingWorktreeFails(t *testing.T) {
+	repo := mergeFixtureCLISetup(t)
+	mainBefore := cliHeadOf(t, repo)
+	r, err := worktree.ResolveRepo(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	op := &worktree.Operation{
+		Repo:      r.Main,
+		Worktree:  "ghost",
+		Phase:     "resolving",
+		Agent:     "claude",
+		StartedAt: time.Now(),
+		Deadline:  time.Now().Add(10 * time.Minute),
+	}
+	if err := worktree.SaveOperation(op); err != nil {
+		t.Fatal(err)
+	}
+
+	code, _, errb := captureOutput(t, func() int {
+		return cmdWorktree([]string{"merge", "--resume", "ghost"})
+	})
+	if code == 0 {
+		t.Fatalf("want non-zero exit for a missing worktree, stderr=%q", errb)
+	}
+	if !strings.Contains(errb, "not found") {
+		t.Fatalf("stderr = %q, want a not-found message", errb)
+	}
+	if cliHeadOf(t, repo) != mainBefore {
+		t.Fatal("main HEAD changed despite a missing worktree")
+	}
+}
+
+// TestCmdWorktreeMergeNoDetectableGateRefusesWithoutNoVerify covers the default (no --verify, no
+// --no-verify) with nothing to auto-detect in the worktree: `worktree merge` must refuse outright
+// before integrating anything, leaving both main and the worktree untouched — --no-verify is the
+// only way around it.
+func TestCmdWorktreeMergeNoDetectableGateRefusesWithoutNoVerify(t *testing.T) {
+	repo := mergeFixtureCLISetup(t)
+	wt := mergeFixtureCLIWorktreePath(t, repo)
+	mergeFixtureCLIWrite(t, wt, "g.txt", "feature only\n", "feature advances")
+	mainBefore := cliHeadOf(t, repo)
+
+	code, out, errb := captureOutput(t, func() int { return cmdWorktree([]string{"merge", "feature"}) })
+	if code == 0 {
+		t.Fatalf("want non-zero exit with no detectable gate and no --verify/--no-verify, stdout=%q", out)
+	}
+	if !strings.Contains(errb, "no verification gate found") {
+		t.Fatalf("stderr = %q, want the no-gate message", errb)
+	}
+	if strings.Contains(out, "integrated") || strings.Contains(out, "promoted") {
+		t.Fatalf("output = %q, must never integrate or promote when refused for lack of a gate", out)
+	}
+	if cliHeadOf(t, repo) != mainBefore {
+		t.Fatal("main HEAD changed despite the no-gate refusal")
+	}
+	if _, err := os.Stat(wt); err != nil {
+		t.Fatalf("worktree must survive a no-gate refusal: %v", err)
+	}
+}
+
+// TestCmdWorktreeMergeNoVerifyPromotesWithoutRunningAnythingAndMarksUnverified covers --no-verify:
+// the only way to promote with no gate at all, and its output must mark the merge as unverified
+// rather than silently looking the same as a passing gate.
+func TestCmdWorktreeMergeNoVerifyPromotesWithoutRunningAnythingAndMarksUnverified(t *testing.T) {
+	repo := mergeFixtureCLISetup(t)
+	wt := mergeFixtureCLIWorktreePath(t, repo)
+	mergeFixtureCLIWrite(t, wt, "g.txt", "feature only\n", "feature advances")
+	sourceOID := cliHeadOf(t, wt)
+
+	code, out, errb := captureOutput(t, func() int { return cmdWorktree([]string{"merge", "--no-verify", "feature"}) })
+	if code != 0 {
+		t.Fatalf("merge --no-verify: code=%d stderr=%q", code, errb)
+	}
+	if !strings.Contains(out, "unverified") {
+		t.Fatalf("output = %q, want it to mark the merge as unverified", out)
+	}
+	if !strings.Contains(out, "promoted") {
+		t.Fatalf("output = %q, want a promoted line", out)
+	}
+	if cliHeadOf(t, repo) != sourceOID {
+		t.Fatalf("main HEAD = %s, want fast-forwarded to %s", cliHeadOf(t, repo), sourceOID)
+	}
+}
+
+// TestCmdWorktreeMergeAutoDetectedFailingGateRefusesAndPreservesWorktree covers detection picking up
+// a project gate (a Makefile `test:` target, inside the worktree) that fails: promotion must never
+// run, and the worktree is left on disk for inspection, exactly like an explicit --verify failure.
+func TestCmdWorktreeMergeAutoDetectedFailingGateRefusesAndPreservesWorktree(t *testing.T) {
+	repo := mergeFixtureCLISetup(t)
+	wt := mergeFixtureCLIWorktreePath(t, repo)
+	mergeFixtureCLIWrite(t, wt, "Makefile", "test:\n\texit 1\n", "add failing gate")
+	mainBefore := cliHeadOf(t, repo)
+
+	code, out, errb := captureOutput(t, func() int { return cmdWorktree([]string{"merge", "feature"}) })
+	if code == 0 {
+		t.Fatalf("want non-zero exit when the auto-detected gate fails, stdout=%q", out)
+	}
+	if strings.Contains(out, "promoted") {
+		t.Fatalf("output = %q, must never promote after a failing auto-detected gate", out)
+	}
+	if !strings.Contains(errb, "verify failed") {
+		t.Fatalf("stderr = %q, want the verify-failed message", errb)
+	}
+	if cliHeadOf(t, repo) != mainBefore {
+		t.Fatal("main HEAD changed despite the failing auto-detected gate")
+	}
+	if _, err := os.Stat(wt); err != nil {
+		t.Fatalf("worktree must survive a failing auto-detected gate: %v", err)
+	}
+}
+
+// TestCmdWorktreeMergeAutoDetectedPassingGatePromotes covers the success half: a Makefile `test:`
+// target that passes is auto-detected and run, and promotion proceeds, naming the Makefile as source.
+func TestCmdWorktreeMergeAutoDetectedPassingGatePromotes(t *testing.T) {
+	repo := mergeFixtureCLISetup(t)
+	wt := mergeFixtureCLIWorktreePath(t, repo)
+	mergeFixtureCLIWrite(t, wt, "Makefile", "test:\n\ttrue\n", "add passing gate")
+	sourceOID := cliHeadOf(t, wt)
+
+	code, out, errb := captureOutput(t, func() int { return cmdWorktree([]string{"merge", "feature"}) })
+	if code != 0 {
+		t.Fatalf("merge with a passing auto-detected gate: code=%d stderr=%q", code, errb)
+	}
+	if !strings.Contains(out, "verify: passed (Makefile)") {
+		t.Fatalf("output = %q, want a verify-passed line naming the Makefile", out)
+	}
+	if !strings.Contains(out, "promoted") {
+		t.Fatalf("output = %q, want a promoted line", out)
+	}
+	if cliHeadOf(t, repo) != sourceOID {
+		t.Fatalf("main HEAD = %s, want fast-forwarded to %s", cliHeadOf(t, repo), sourceOID)
+	}
+}
+
+// TestCmdWorktreeMergeExplicitVerifyOverridesDetection covers --verify winning over a Makefile gate
+// that would otherwise be auto-detected (and would fail): the explicit command is the only one run.
+func TestCmdWorktreeMergeExplicitVerifyOverridesDetection(t *testing.T) {
+	repo := mergeFixtureCLISetup(t)
+	wt := mergeFixtureCLIWorktreePath(t, repo)
+	mergeFixtureCLIWrite(t, wt, "Makefile", "test:\n\texit 1\n", "add a failing gate that must be skipped")
+	sourceOID := cliHeadOf(t, wt)
+
+	code, out, errb := captureOutput(t, func() int {
+		return cmdWorktree([]string{"merge", "--verify", "true", "feature"})
+	})
+	if code != 0 {
+		t.Fatalf("merge --verify overriding detection: code=%d stderr=%q", code, errb)
+	}
+	if !strings.Contains(out, "verify: passed (flag)") {
+		t.Fatalf("output = %q, want a verify-passed line naming the flag as the source", out)
+	}
+	if !strings.Contains(out, "promoted") {
+		t.Fatalf("output = %q, want a promoted line", out)
+	}
+	if cliHeadOf(t, repo) != sourceOID {
+		t.Fatalf("main HEAD = %s, want fast-forwarded to %s", cliHeadOf(t, repo), sourceOID)
+	}
+}
+
+// TestCmdWorktreeMergeVerifyPipelineFailureFailsGate is the regression test for worktree.RunVerify's
+// `set -o pipefail`: a pipeline whose first stage fails (`false | cat`) must fail the gate — without
+// pipefail, the pipeline's exit status would be `cat`'s (0), silently reading as a passing gate.
+func TestCmdWorktreeMergeVerifyPipelineFailureFailsGate(t *testing.T) {
+	repo := mergeFixtureCLISetup(t)
+	wt := mergeFixtureCLIWorktreePath(t, repo)
+	mergeFixtureCLIWrite(t, wt, "g.txt", "feature only\n", "feature advances")
+	mainBefore := cliHeadOf(t, repo)
+
+	code, out, errb := captureOutput(t, func() int {
+		return cmdWorktree([]string{"merge", "--verify", "false | cat", "feature"})
+	})
+	if code == 0 {
+		t.Fatalf("want non-zero exit for a failing pipeline stage under pipefail, stdout=%q", out)
+	}
+	if strings.Contains(out, "promoted") {
+		t.Fatalf("output = %q, must never promote after a failed pipeline verify", out)
+	}
+	if !strings.Contains(errb, "verify failed") {
+		t.Fatalf("stderr = %q, want the verify-failed message", errb)
+	}
+	if cliHeadOf(t, repo) != mainBefore {
+		t.Fatal("main HEAD changed despite the failed pipeline verify")
+	}
+	if _, err := os.Stat(wt); err != nil {
+		t.Fatalf("worktree must survive a failed pipeline verify: %v", err)
 	}
 }

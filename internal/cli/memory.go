@@ -9,7 +9,6 @@ import (
 	"github.com/edotau/claude-code/internal/memory/recall"
 	embedding "github.com/edotau/claude-code/internal/memory/recall/embed"
 	"os"
-	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
@@ -19,7 +18,6 @@ import (
 	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/memory/bank"
 	"github.com/edotau/claude-code/internal/memstore"
-	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
@@ -118,7 +116,7 @@ func cmdMemoryInit(args []string) int {
 	if code, done := helptext.Parse(fs, args); done {
 		return code
 	}
-	root := memoryRoot(*repo)
+	root := memstore.Root(*repo)
 	dir, err := memory.Init(root)
 	if err != nil {
 		return fail("memory init: %v", err)
@@ -146,7 +144,7 @@ func cmdMemoryRemember(args []string) int {
 	if len(terms) == 0 {
 		return fail("memory remember: no fact text (usage: %s)", memorySubPage("remember").Usage)
 	}
-	root := memoryRoot(*repo)
+	root := memstore.Root(*repo)
 	id, err := bank.Remember(root, *kind, strings.Join(terms, " "), time.Now())
 	if err != nil {
 		return fail("memory remember: %v", err)
@@ -157,7 +155,7 @@ func cmdMemoryRemember(args []string) int {
 
 // searchHits ranks blocks for q: every store with all, else the named store or checkout (default: cwd's).
 func searchHits(repo string, all bool, q string, k int) ([]bank.SearchHit, string) {
-	root := memoryRoot(repo)
+	root := memstore.Root(repo)
 	switch {
 	case all:
 		return recall.SearchAll(q, k), root
@@ -242,7 +240,7 @@ func cmdMemoryIndex(args []string) int {
 	if code, done := helptext.Parse(fs, args); done {
 		return code
 	}
-	root := memoryRoot(*repo)
+	root := memstore.Root(*repo)
 	profile := cmp.Or(embedding.EmbedProfile(), providers.SessionProfile())
 	if *reembed {
 		if code := reembedGate(profile, time.Now()); code != 0 {
@@ -312,7 +310,7 @@ func cmdMemoryPath(args []string) int {
 	if code, done := helptext.Parse(fs, args); done {
 		return code
 	}
-	fmt.Println(memstore.Dir(memoryRoot(*repo)))
+	fmt.Println(memstore.Dir(memstore.Root(*repo)))
 	return 0
 }
 
@@ -395,7 +393,7 @@ func cmdMemoryDigest(args []string) int {
 		return code
 	}
 	claude, _ := agent.ClaudeBinary()
-	path, err := memory.Digest(memstore.Dir(memoryRoot(*repo)), claude)
+	path, err := memory.Digest(memstore.Dir(memstore.Root(*repo)), claude)
 	if err != nil {
 		return fail("memory digest: %v", err)
 	}
@@ -443,12 +441,12 @@ func cmdMemoryReview(args []string) int {
 		return code
 	}
 	if *notice {
-		if err := memory.WriteDoctorNotice(memoryRoot(*repo), *staleDays, time.Now()); err != nil {
+		if err := memory.WriteDoctorNotice(memstore.Root(*repo), *staleDays, time.Now()); err != nil {
 			return fail("memory review: %v", err)
 		}
 		return 0
 	}
-	problems := memory.Doctor(memoryRoot(*repo), *staleDays, time.Now())
+	problems := memory.Doctor(memstore.Root(*repo), *staleDays, time.Now())
 	switch {
 	case len(problems) == 0:
 		fmt.Println("memory doctor: no problems found")
@@ -477,7 +475,7 @@ func cmdMemoryTimeline(args []string) int {
 	if code, done := helptext.Parse(fs, args); done {
 		return code
 	}
-	entries, sessions := memory.Timeline(memoryRoot(*repo), *n)
+	entries, sessions := memory.Timeline(memstore.Root(*repo), *n)
 	for _, e := range entries {
 		fmt.Printf("%s  %-8s %s\n", e.Time.Format("2006-01-02 15:04"), e.Kind, e.Line)
 	}
@@ -505,7 +503,7 @@ func cmdMemoryPromote(args []string) int {
 		fail("memory promote: usage: %s", memorySubPage("promote").Usage)
 		return 2
 	}
-	out, err := memory.Promote(memoryRoot(*repo), pos[0], *to, *dryRun, time.Now())
+	out, err := memory.Promote(memstore.Root(*repo), pos[0], *to, *dryRun, time.Now())
 	if err != nil {
 		return fail("memory promote: %v", err)
 	}
@@ -548,25 +546,6 @@ func cmdMemory(args []string) int {
 		return fail("memory: unknown subcommand %q (claude-code memory -h lists them)", sub)
 	}
 	return h(args[1:])
-}
-
-// memoryRoot resolves --repo → $CLAUDE_PROJECT_DIR (only when it is a repo or the config dir) → git toplevel → cwd.
-// A launcher may stamp CLAUDE_PROJECT_DIR with a non-repo parent (e.g. $HOME); honoring that attached every
-// bank verb to a junk root instead of the repo the user is standing in.
-func memoryRoot(repo string) string {
-	if repo != "" {
-		abs, _ := filepath.Abs(repo)
-		return abs
-	}
-	if d := os.Getenv("CLAUDE_PROJECT_DIR"); d != "" && (paths.SamePath(d, paths.ConfigDir()) || paths.SamePath(paths.MainCheckout(d), paths.ConfigDir()) || paths.SamePath(memstore.GitToplevel(d), d)) {
-		return d
-	}
-	cwd, _ := os.Getwd()
-	// Inside the store its own toplevel is the store root; keep cwd so memory/<repo>/ resolves to that repo.
-	if top := memstore.GitToplevel(cwd); top != "" && !paths.SamePath(top, memstore.StoreDir()) {
-		return top
-	}
-	return cwd
 }
 
 var memoryAliasPage = helptext.Page{
