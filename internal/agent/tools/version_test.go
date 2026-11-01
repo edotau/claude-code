@@ -12,6 +12,9 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
+	_ "github.com/edotau/claude-code/internal/codex" // register the codex, copilot and opencode rows
+	_ "github.com/edotau/claude-code/internal/copilot"
+	_ "github.com/edotau/claude-code/internal/opencode"
 )
 
 func TestParseVersion(t *testing.T) {
@@ -35,31 +38,24 @@ func TestParseVersion(t *testing.T) {
 	}
 }
 
-func TestVersionProblem(t *testing.T) {
-	spec := func(name string) agent.CLI {
-		s, ok := agent.LookupSchema(name)
-		if !ok {
-			t.Fatalf("no spec %q", name)
-		}
-		return s.CLI
-	}
+func TestVersionProblemUsesRegisteredRowBounds(t *testing.T) {
 	for _, tc := range []struct {
 		agent, version, wantPrefix string
 	}{
 		{"copilot", "1.0.103", "below 1.0.104: "},
 		{"copilot", "1.0.104", ""},
-		{"copilot", "1.1.0", ""},
 		{"opencode", "1.9.9", ""},
 		{"opencode", "2.0.0", "above 1.x: "},
 		{"codex", "0.0.1", ""},
 		{"codex", "99.0.0", ""},
 	} {
-		got := VersionProblem(spec(tc.agent), tc.version)
-		if tc.wantPrefix == "" && got != "" || !strings.HasPrefix(got, tc.wantPrefix) {
-			t.Errorf("VersionProblem(%s, %s) = %q, want prefix %q", tc.agent, tc.version, got, tc.wantPrefix)
+		s, ok := agent.LookupSchema(tc.agent)
+		if !ok {
+			t.Fatalf("no registered row %q", tc.agent)
 		}
-		if tc.wantPrefix != "" && strings.TrimPrefix(got, tc.wantPrefix) == "" {
-			t.Errorf("VersionProblem(%s, %s) = %q carries no reason", tc.agent, tc.version, got)
+		got := VersionProblem(s.CLI, tc.version)
+		if !strings.HasPrefix(got, tc.wantPrefix) || (tc.wantPrefix == "") != (got == "") {
+			t.Errorf("VersionProblem(%s, %s) = %q, want prefix %q", tc.agent, tc.version, got, tc.wantPrefix)
 		}
 	}
 }

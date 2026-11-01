@@ -4,6 +4,8 @@ import (
 	"os"
 	"testing"
 
+	_ "github.com/edotau/claude-code/internal/claude" // the vendors register their roster rows from their own init
+	_ "github.com/edotau/claude-code/internal/codex"
 	"github.com/edotau/claude-code/internal/hosttest"
 )
 

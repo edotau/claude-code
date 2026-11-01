@@ -22,6 +22,7 @@ import (
 	"github.com/edotau/claude-code/internal/clean"
 	"github.com/edotau/claude-code/internal/clipboard"
 	"github.com/edotau/claude-code/internal/copilot"
+	_ "github.com/edotau/claude-code/internal/gemini" // registers the gemini route engine the prod binary links
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/network/browser"
 	"github.com/edotau/claude-code/internal/paths"
@@ -1164,26 +1165,22 @@ func TestAltAuthUnknownProvider(t *testing.T) {
 	}
 }
 
-// RouteDetail is the per-vendor shim `vendoragent setup` calls instead of running the whole doctor
-// sweep; its detail string must match the corresponding "<v> route" row in DoctorChecks exactly.
-func TestRouteDetailMatchesDoctorChecks(t *testing.T) {
+// RouteDetail is the per-vendor shim `vendoragent setup` calls instead of the whole doctor sweep; its detail must
+// equal the "<vendor> route" row DoctorChecks prints, for every vendor whose engine is registered.
+func TestRouteDetailEqualsDoctorRouteRow(t *testing.T) {
 	doctorScratch(t)
 	t.Setenv("GH_TOKEN", "ghp_doctorFAKEtoken1234567890")
-	vaulttest.SetRecord(t, "claude", "aliases.sonnet", "gpt-5.3-codex")
-
 	checks, _ := DoctorChecks()
 	for _, vendor := range []string{"codex", "gemini", "opencode", "copilot"} {
 		detail, ok := agent.RouteDetail(vendor)
-		if !ok {
-			t.Errorf("RouteDetail(%q) ok = false, want true", vendor)
-			continue
-		}
 		c := findCheck(checks, vendor+" route")
-		if c == nil {
-			t.Fatalf("no %q check in DoctorChecks output", vendor+" route")
-		}
-		if detail != c.Detail {
-			t.Errorf("RouteDetail(%q) = %q, want DoctorChecks' %q", vendor, detail, c.Detail)
+		switch {
+		case !ok:
+			t.Errorf("RouteDetail(%q) ok = false, want true", vendor)
+		case c == nil:
+			t.Errorf("no %q row in DoctorChecks", vendor+" route")
+		case detail == "" || detail != c.Detail:
+			t.Errorf("RouteDetail(%q) = %q, doctor row = %q", vendor, detail, c.Detail)
 		}
 	}
 }
