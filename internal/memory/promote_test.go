@@ -179,3 +179,20 @@ func TestPromoteUnknownIDErrors(t *testing.T) {
 		t.Fatal("Promote with an unknown id = nil error, want one")
 	}
 }
+
+// TestPromoteLockLivesUnderGlobalLocksDir: PromoteLocalToGlobal's lock is state/harness/memory/locks/home/.promote.lock.
+func TestPromoteLockLivesUnderGlobalLocksDir(t *testing.T) {
+	cfg := tempConfig(t)
+	want := filepath.Join(cfg, "state", "harness", "memory", "locks", "home", ".promote.lock")
+	if got := homeBankLockPath(); got != want {
+		t.Fatalf("homeBankLockPath() = %q, want %q", got, want)
+	}
+	root := repoRoot(t, "proj")
+	write(t, filepath.Join(memstore.Dir(root), "conventions.md"), strings.Repeat("- rule\n", 40))
+	if _, err := PromoteLocalToGlobal(root, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(want); err != nil {
+		t.Fatalf("promote lock file missing at %s: %v", want, err)
+	}
+}
