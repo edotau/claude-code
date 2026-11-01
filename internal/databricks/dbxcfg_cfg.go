@@ -19,6 +19,8 @@ const (
 
 type profile struct {
 	name, host, authType, clientID, clientSecret, token, accountID, workspaceID string
+	pair, env                                                                   string
+	pairSet                                                                     bool
 }
 
 // DefaultPath is $DATABRICKS_CONFIG_FILE (a leading ~ expanded), else the CLI's own ~/.databrickscfg.
@@ -38,8 +40,10 @@ func DefaultPath() string {
 
 // section is one [name] block with its keys; a repeated key or header merges, last value wins.
 type section struct {
-	name string
-	keys map[string]string
+	name    string
+	keys    map[string]string
+	pair    string
+	pairSet bool
 }
 
 func isReserved(name string) bool {
@@ -51,6 +55,7 @@ func parseSections(text string) []*section {
 	var out []*section
 	byName := map[string]*section{}
 	var cur *section
+	pair, pairSet := "", false
 	sc := bufio.NewScanner(strings.NewReader(text))
 	sc.Buffer(make([]byte, 0, 64*1024), 1<<20)
 	for first := true; sc.Scan(); first = false {
@@ -59,6 +64,10 @@ func parseSections(text string) []*section {
 			line = strings.TrimPrefix(line, "\ufeff") // a UTF-8 BOM would hide the first header
 		}
 		line = strings.TrimSpace(line)
+		if v, ok := pairingComment(line); ok {
+			pair, pairSet = v, true
+			continue
+		}
 		if line == "" || line[0] == '#' || line[0] == ';' {
 			continue
 		}
@@ -68,8 +77,13 @@ func parseSections(text string) []*section {
 				byName[name] = cur
 				out = append(out, cur)
 			}
+			if pairSet {
+				cur.pair, cur.pairSet = pair, true
+			}
+			pair, pairSet = "", false
 			continue
 		}
+		pair, pairSet = "", false
 		if cur == nil { // keys above the first header belong to DEFAULT
 			if cur = byName[defaultSection]; cur == nil {
 				cur = &section{name: defaultSection, keys: map[string]string{}}
@@ -141,7 +155,7 @@ func cleanValue(raw string) string {
 func toProfile(s *section) profile {
 	k := s.keys
 	return profile{name: s.name, host: k["host"], authType: k["auth_type"], clientID: k["client_id"],
-		clientSecret: k["client_secret"], token: k["token"], accountID: k["account_id"], workspaceID: k["workspace_id"]}
+		clientSecret: k["client_secret"], token: k["token"], accountID: k["account_id"], workspaceID: k["workspace_id"], pair: s.pair, pairSet: s.pairSet, env: k["env"]}
 }
 
 // parse returns the named profiles (DEFAULT and __settings__ excluded) and whether a DEFAULT section exists.
@@ -171,4 +185,17 @@ func load(path string) ([]profile, bool, error) {
 	}
 	defer f.Close()
 	return parse(f)
+}
+
+// pairingComment recognizes the portable pairing signal above an SP section; none means explicitly unpaired.
+func pairingComment(line string) (string, bool) {
+	v, ok := strings.CutPrefix(strings.TrimSpace(line), "# claude-code: pair=")
+	if !ok {
+		return "", false
+	}
+	v = strings.TrimSpace(v)
+	if v == "none" {
+		v = ""
+	}
+	return v, true
 }
