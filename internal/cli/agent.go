@@ -204,6 +204,10 @@ func printAskFailure(format, agentName string, err error) {
 
 func reportAskResult(format string, res agent.Result, err error, dispatchID string) {
 	for _, d := range res.Dropped {
+		if d == "--read-only (tools off)" {
+			fmt.Fprintf(os.Stderr, "ask: the %s agent runs with tools off (read-only sandbox where it has one)\n", res.Agent)
+			continue
+		}
 		fmt.Fprintf(os.Stderr, "ask: %s has no channel on the %s agent — dropped\n", d, res.Agent)
 	}
 	if format == formatJSON {
