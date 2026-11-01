@@ -417,7 +417,7 @@ func TestPreCompactAndSessionEndUpdateNewUserTurns(t *testing.T) {
 	}
 }
 
-// idle backdates tr's mtime so catchUpPrevious treats the transcript as quiet.
+// idle backdates tr's mtime so the transcript reads as quiet.
 func idle(t *testing.T, path string, d time.Duration) {
 	t.Helper()
 	at := time.Now().Add(-d)
@@ -426,137 +426,8 @@ func idle(t *testing.T, path string, d time.Duration) {
 	}
 }
 
-// TestCatchUpPreviousTable drives catchUpPrevious directly against the spawnUpdate seam: each case is a
-// distinct reason the previous session's update either is or isn't missed/failed.
-func TestCatchUpPreviousTable(t *testing.T) {
-	const prevID = "prev-session"
-	const curID = "cur-session"
-
-	newTranscript := func(t *testing.T, edits int, idleFor time.Duration) string {
-		t.Helper()
-		tr := filepath.Join(t.TempDir(), "t.jsonl")
-		writeEdits(t, tr, edits)
-		idle(t, tr, idleFor)
-		return tr
-	}
-
-	cases := []struct {
-		name      string
-		setup     func(t *testing.T, tr string)
-		edits     int
-		idleFor   time.Duration
-		curID     string
-		noTr      bool // prev.transcriptPath == ""
-		wantSpawn bool
-		wantNote  bool
-	}{
-		{
-			name:      "missed update spawns",
-			edits:     5,
-			idleFor:   20 * time.Minute,
-			wantSpawn: true,
-			wantNote:  true,
-		},
-		{
-			name: "already covered by stamp: no spawn",
-			setup: func(t *testing.T, tr string) {
-				writeStamp(stampPath(prevID), time.Now().Add(-20*time.Minute), "bg", 5)
-			},
-			edits:   5,
-			idleFor: 20 * time.Minute,
-		},
-		{
-			name:    "fresh transcript (<15min): no spawn",
-			edits:   5,
-			idleFor: 2 * time.Minute,
-		},
-		{
-			name:    "same session id: no spawn",
-			edits:   5,
-			idleFor: 20 * time.Minute,
-			curID:   prevID,
-		},
-		{
-			name:    "fewer than 3 edits: no spawn",
-			edits:   2,
-			idleFor: 20 * time.Minute,
-		},
-		{
-			name: "failed result retries once",
-			setup: func(t *testing.T, tr string) {
-				_ = memory.WriteUpdateResult(prevID, memory.UpdateResult{Status: memory.UpdateFailed, Time: time.Now()})
-			},
-			edits:     2, // below the floor on its own: the failed result is what drives the retry
-			idleFor:   20 * time.Minute,
-			wantSpawn: true,
-			wantNote:  true,
-		},
-		{
-			name: "failed result already retried (catchup stamp): no second spawn",
-			setup: func(t *testing.T, tr string) {
-				_ = memory.WriteUpdateResult(prevID, memory.UpdateResult{Status: memory.UpdateFailed, Time: time.Now()})
-				writeStamp(stampPath(prevID), time.Now().Add(-20*time.Minute), "catchup", 2)
-			},
-			edits:   2,
-			idleFor: 20 * time.Minute,
-		},
-		{
-			name:    "legacy/empty transcript path: no spawn, no crash",
-			edits:   5,
-			idleFor: 20 * time.Minute,
-			noTr:    true,
-		},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-			t.Setenv(bank.UpdateChildEnv, "")
-			tr := newTranscript(t, tc.edits, tc.idleFor)
-			if tc.setup != nil {
-				tc.setup(t, tr)
-			}
-			calls := stubSpawn(t, true)
-			prev := chainEntry{sessionID: prevID, transcriptPath: tr, cwd: t.TempDir()}
-			if tc.noTr {
-				prev.transcriptPath = ""
-			}
-			cur := curID
-			if tc.curID != "" {
-				cur = tc.curID
-			}
-			note := catchUpPrevious(prev, cur, time.Now())
-			gotSpawn := calls.Load() == 1
-			if gotSpawn != tc.wantSpawn {
-				t.Errorf("spawn = %v, want %v (calls=%d)", gotSpawn, tc.wantSpawn, calls.Load())
-			}
-			if (note != "") != tc.wantNote {
-				t.Errorf("note = %q, want non-empty=%v", note, tc.wantNote)
-			}
-		})
-	}
-}
-
-// TestCatchUpPreviousSpawnFailureNoStamp: a failed spawn must not leave a "catchup" stamp behind, so the
-// next SessionStart still sees it as missed and retries rather than silently giving up forever.
-func TestCatchUpPreviousSpawnFailureNoStamp(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	t.Setenv(bank.UpdateChildEnv, "")
-	tr := filepath.Join(t.TempDir(), "t.jsonl")
-	writeEdits(t, tr, 5)
-	idle(t, tr, 20*time.Minute)
-	stubSpawn(t, false) // spawn fails
-	prev := chainEntry{sessionID: "prev2", transcriptPath: tr, cwd: t.TempDir()}
-	if note := catchUpPrevious(prev, "cur2", time.Now()); note != "" {
-		t.Errorf("a failed spawn must not report success: %q", note)
-	}
-	if _, ok := readStamp(stampPath("prev2")); ok {
-		t.Error("a failed spawn must not write a catchup stamp")
-	}
-}
-
-// TestSessionStartCatchUpUpdateChildNeverSpawns: memoryContext gates catchUpPrevious behind
-// !IsUpdateChild — an update worker's own SessionStart must never dispatch another update.
+// TestSessionStartCatchUpUpdateChildNeverSpawns: memoryContext gates the catch-up sweep behind
+// !IsUpdateChild — an update worker's own SessionStart must never dispatch another sweep.
 func TestSessionStartCatchUpUpdateChildNeverSpawns(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not installed")
@@ -575,12 +446,15 @@ func TestSessionStartCatchUpUpdateChildNeverSpawns(t *testing.T) {
 	idle(t, tr, 20*time.Minute)
 	chain := filepath.Join(memstore.StateDir(), "last-session")
 	writeChain(chain, chainEntry{sessionID: "prev3", transcriptPath: tr, cwd: repo})
-	calls := stubSpawn(t, true)
+	var sweeps int
+	orig := spawnCatchup
+	spawnCatchup = func(string, string) bool { sweeps++; return true }
+	t.Cleanup(func() { spawnCatchup = orig })
 
 	t.Setenv(bank.UpdateChildEnv, "1")
-	got := memoryContext(repo, "update-worker", "", time.Now())
-	if calls.Load() != 0 {
-		t.Errorf("an update child must never catch up the previous session, calls=%d", calls.Load())
+	got := memoryContext(repo, "44444444-4444-4444-8444-444444444445", "", time.Now())
+	if sweeps != 0 {
+		t.Errorf("an update child must never spawn the catch-up sweep, calls=%d", sweeps)
 	}
 	if strings.Contains(got, "Catching up") {
 		t.Errorf("an update child's SessionStart must not surface the catch-up note: %q", got)
@@ -607,7 +481,7 @@ func TestSessionStartChainRewrittenWithTranscriptAndCWD(t *testing.T) {
 }
 
 // TestReadChainLegacyOneLineFormat: a pre-upgrade chain file (bare session id, no transcript/cwd lines)
-// still parses, and catchUpPrevious treats its blank transcript path as "nothing to check" rather than crashing.
+// still parses with a blank transcript path.
 func TestReadChainLegacyOneLineFormat(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	chain := filepath.Join(t.TempDir(), "last-session")
@@ -617,9 +491,6 @@ func TestReadChainLegacyOneLineFormat(t *testing.T) {
 	e, ok := readChain(chain)
 	if !ok || e.sessionID != "legacy-id" || e.transcriptPath != "" || e.cwd != "" {
 		t.Fatalf("legacy chain parse = %+v ok=%v", e, ok)
-	}
-	if note := catchUpPrevious(e, "new-id", time.Now()); note != "" {
-		t.Errorf("a legacy chain entry must not attempt a catch-up: %q", note)
 	}
 }
 
@@ -703,8 +574,7 @@ func TestCountEditsOldFormatCountFileRescansUnweightedCommit(t *testing.T) {
 		t.Fatal(err)
 	}
 	countFile := filepath.Join(t.TempDir(), "count-old")
-	// Old binary's "edits|offset": 0 edits recorded, offset past the whole (unweighted) commit line.
-	if err := os.WriteFile(countFile, []byte(fmt.Sprintf("0|%d", len(commit))), 0o600); err != nil {
+	if err := os.WriteFile(countFile, fmt.Appendf(nil, "0|%d", len(commit)), 0o600); err != nil {
 		t.Fatal(err)
 	}
 

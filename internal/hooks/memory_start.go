@@ -29,7 +29,11 @@ func sessionStart(in *Input) Result {
 	}
 	memrecall.RecordSessionRoot(in.SessionID, cwd)
 	ctx := memoryContext(cwd, in.SessionID, in.TranscriptPath, time.Now())
-	return Result{Context: joinContext(ctx, preflightNotice(time.Now()))}
+	res := Result{Context: joinContext(ctx, preflightNotice(time.Now()))}
+	if !bank.IsUpdateChild() {
+		res.SystemMessage = consumeCatchupNote()
+	}
+	return res
 }
 
 // preflightNotice is the static pin check (cached listings only): one short line when something needs a fix.
@@ -59,9 +63,13 @@ func memoryContext(cwd, sessionID, transcriptPath string, now time.Time) string 
 		}
 		out = strings.TrimSpace(out + "\n" + drift)
 	}
-	// The daily dream (promote + consolidate) runs detached on Claude; never blocks launch.
+	// The daily dream (consolidate) runs detached on Claude; never blocks launch.
 	if !bank.IsUpdateChild() && memory.HasBank(cwd) && memory.DreamDue(cwd, now) {
 		spawnDream(cwd)
+	}
+	// Every start sweeps for finished sessions whose update was missed, detached; the child does all the scanning.
+	if !bank.IsUpdateChild() && memrecall.LooksLikeSessionID(sessionID) {
+		spawnCatchup(cwd, sessionID)
 	}
 	// A stale served-endpoint cache is re-listed detached; needs no memory bank.
 	if !bank.IsUpdateChild() && servedRefreshDue(now) {
@@ -98,13 +106,7 @@ func chainNote(chain, sessionID string, now time.Time) string {
 	if prevID != sessionID {
 		note = " Previous session id: " + prevID + " (reference for the prior session's transcript / claude --resume)."
 	}
-	caughtUp := ""
-	if !bank.IsUpdateChild() {
-		caughtUp = catchUpPrevious(entry, sessionID, now)
-	}
-	if caughtUp != "" {
-		note += " " + caughtUp
-	} else if res, ok := memory.ReadUpdateResult(prevID); ok && res.NeedsAttention(now) {
+	if res, ok := memory.ReadUpdateResult(prevID); ok && res.NeedsAttention(now) {
 		hint := ""
 		if res.Log != "" {
 			hint = " (log: " + res.Log + ")"
@@ -177,36 +179,6 @@ func writeChain(path string, e chainEntry) {
 	if err := paths.AtomicWrite(path, []byte(e.sessionID+"\n"+e.transcriptPath+"\n"+e.cwd+"\n"), 0o600); err != nil {
 		fmt.Fprintf(os.Stderr, "session-start: write chain %s: %v\n", path, err)
 	}
-}
-
-// catchUpPrevious spawns the previous session's missed or failed update at most once, before its chain slot is overwritten; a transcript still growing elsewhere (parallel sessions) is left alone.
-func catchUpPrevious(prev chainEntry, sessionID string, now time.Time) string {
-	if prev.sessionID == "" || prev.sessionID == sessionID || prev.transcriptPath == "" {
-		return ""
-	}
-	fi, err := os.Stat(prev.transcriptPath)
-	if err != nil || now.Sub(fi.ModTime()) < updateRearmCooldown {
-		return ""
-	}
-	stamp := stampPath(prev.sessionID)
-	st, ok := readStamp(stamp)
-	covered := 0
-	if ok {
-		covered = st.edits
-	}
-	edits := countEdits(prev.transcriptPath, countPath(prev.sessionID))
-	uncovered := edits >= updateMinEdits && edits > covered
-	res, hasResult := memory.ReadUpdateResult(prev.sessionID)
-	alreadyRetried := ok && st.state == "catchup"
-	failed := hasResult && res.NeedsAttention(now) && !alreadyRetried
-	if !uncovered && !failed {
-		return ""
-	}
-	if !spawnUpdate(prev.transcriptPath, prev.cwd, prev.sessionID) {
-		return ""
-	}
-	_ = writeStamp(stamp, now, "catchup", edits) // best effort: a lost stamp only re-dispatches later
-	return "Catching up the previous session's memory update in the background."
 }
 
 // maybeAutoInit scaffolds a bank for bank-less safe roots; returns a notice on a fresh scaffold.
