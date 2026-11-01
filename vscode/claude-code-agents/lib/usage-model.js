@@ -97,17 +97,6 @@ function buildProvider(id, account, rows) {
   return { id, account: account || null, name: meta.name, icon: meta.icon, plan, resetsAtMs, resetLabel, note, tokenExpiresAtMs, authMethod, windows };
 }
 
-/** One `agents[]` model entry → {provider, model, turns, tokens, costUsd}. */
-function buildAgentModelRow(row) {
-  return {
-    provider: row.provider || null,
-    model: row.model || null,
-    turns: row.turns || 0,
-    tokens: row.tokens || 0,
-    costUsd: typeof row.cost_usd === 'number' ? row.cost_usd : null,
-  };
-}
-
 /** `row.mix` (snake_case, optional) -> camelCase {input,output,cacheRead,cacheWrite}, or null when absent. */
 function buildAgentMix(mix) {
   if (!mix) return null;
@@ -116,6 +105,18 @@ function buildAgentMix(mix) {
     output: mix.output || 0,
     cacheRead: mix.cache_read || 0,
     cacheWrite: mix.cache_write || 0,
+  };
+}
+
+/** One `agents[]` model entry → {provider, model, turns, tokens, costUsd, mix}; `mix` is null when the server sent none. */
+function buildAgentModelRow(row) {
+  return {
+    provider: row.provider || null,
+    model: row.model || null,
+    turns: row.turns || 0,
+    tokens: row.tokens || 0,
+    costUsd: typeof row.cost_usd === 'number' ? row.cost_usd : null,
+    mix: buildAgentMix(row.mix),
   };
 }
 
@@ -142,21 +143,35 @@ function buildAgent(row) {
   };
 }
 
-/** USD estimate for one agent's token mix: its own `costUsd` (e.g. OpenCode), else priced from `topModel`'s
- * Anthropic tier applied to `mix`. `priced: false` means tokens exist but no rate could be found. */
+/** A model row's token mix: its own, else the agent's mix scaled to the row's share of the agent's tokens. */
+function rowMix(agent, row) {
+  if (row.mix) return row.mix;
+  if (!agent.mix || !agent.tokens) return null;
+  const k = row.tokens / agent.tokens;
+  const m = agent.mix;
+  return { input: m.input * k, output: m.output * k, cacheRead: m.cacheRead * k, cacheWrite: m.cacheWrite * k };
+}
+
+/** USD estimate for one agent: its own `costUsd` (e.g. OpenCode) when the server sent one, else each model row
+ * priced at its own rate. `priced: false` means some tokens had no rate; `cost` then covers only the priced rows. */
 function estimateAgentCost(agent) {
   if (agent.costUsd != null) return { cost: agent.costUsd, priced: true };
   if (!agent.tokens) return { cost: 0, priced: true };
-  const top = agent.models && agent.models[0];
-  const price = top ? priceFor(top.provider, top.model) : null;
-  if (!price || !agent.mix) return { cost: null, priced: false };
-  const m = agent.mix;
-  const cost =
-    (m.input / 1e6) * price.input +
-    (m.output / 1e6) * price.output +
-    (m.cacheRead / 1e6) * price.cacheRead +
-    (m.cacheWrite / 1e6) * price.cacheWrite;
-  return { cost, priced: true };
+  let cost = 0;
+  let pricedTokens = 0;
+  for (const row of agent.models || []) {
+    if (!row.tokens) continue;
+    const price = priceFor(row.model);
+    const m = price && rowMix(agent, row);
+    if (!m) continue;
+    pricedTokens += row.tokens;
+    cost +=
+      (m.input / 1e6) * price.input +
+      (m.output / 1e6) * price.output +
+      (m.cacheRead / 1e6) * price.cacheRead +
+      (m.cacheWrite / 1e6) * price.cacheWrite;
+  }
+  return { cost, priced: pricedTokens >= agent.tokens };
 }
 
 /** Sums each agent's `mix` into one camelCase totals object; missing mixes read as 0. */
@@ -173,8 +188,15 @@ function sumMix(agents) {
   return mix;
 }
 
-/** Per-day token totals across every agent: `windowDays` present -> every day in the window (ascending,
- * zero-filled); absent (older binary) -> just the union of whatever `daily` entries exist, sorted ascending. */
+/** `YYYY-MM-DD` of a Date in local time. */
+function localDateKey(d) {
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+/** Per-day token totals across every agent, keyed by local calendar day like the server's `daily`: `windowDays`
+ * present -> every day in the window (ascending, zero-filled); absent (older binary) -> the union of the `daily`
+ * entries, sorted ascending. */
 function buildDailyUnion(agents, windowDays, nowMs) {
   const byDate = new Map();
   for (const a of agents) {
@@ -183,8 +205,10 @@ function buildDailyUnion(agents, windowDays, nowMs) {
   if (typeof windowDays === 'number' && windowDays > 0) {
     const days = [];
     for (let i = windowDays - 1; i >= 0; i--) {
-      const iso = new Date(nowMs - i * 86400000).toISOString().slice(0, 10);
-      days.push({ date: iso, tokens: byDate.get(iso) || 0 });
+      const day = new Date(nowMs);
+      day.setDate(day.getDate() - i);
+      const key = localDateKey(day);
+      days.push({ date: key, tokens: byDate.get(key) || 0 });
     }
     return days;
   }
@@ -213,10 +237,7 @@ function buildStats(usageJson, agents, nowMs) {
   for (const a of agents) {
     if (!a.tokens) continue;
     const { cost, priced } = estimateAgentCost(a);
-    if (!priced) {
-      costPartial = true;
-      continue;
-    }
+    if (!priced) costPartial = true;
     costUsd += cost;
   }
   return { windowDays, totalTokens, sessions, turns, activeDays, costUsd, costPartial, mix, cacheShare, daily, bestDay };
