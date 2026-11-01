@@ -2,9 +2,11 @@ package cli
 
 import (
 	"bytes"
+	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
@@ -12,10 +14,10 @@ import (
 	"unicode/utf8"
 
 	"github.com/edotau/claude-code/internal/configure"
-	"github.com/edotau/claude-code/internal/network/tailscale"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/secrets"
 	"github.com/edotau/claude-code/internal/secretstore"
+	uivault "github.com/edotau/claude-code/internal/ui/vault"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -298,32 +300,6 @@ func TestVaultStoreTailscaleRefusesEmbeddedNewline(t *testing.T) {
 	}
 }
 
-func TestTailscaleAPIVerdict(t *testing.T) {
-	cred := func(id, sec, api bool) []tailscale.CredState {
-		return []tailscale.CredState{{Present: id}, {Present: sec}, {Present: api}}
-	}
-	for _, tc := range []struct {
-		name         string
-		id, sec, api bool
-		want         string
-	}{
-		{"full oauth", true, true, false, "oauth"},
-		{"full oauth plus api key", true, true, true, "oauth"},
-		{"api key only", false, false, true, "api-key"},
-		{"half oauth id plus api key falls back to api-key", true, false, true, "api-key"},
-		{"half oauth secret plus api key falls back to api-key", false, true, true, "api-key"},
-		{"half oauth id only", true, false, false, "incomplete (need both …_ID and _SECRET)"},
-		{"half oauth secret only", false, true, false, "incomplete (need both …_ID and _SECRET)"},
-		{"none", false, false, false, "none"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := tailscaleAPIVerdict(cred(tc.id, tc.sec, tc.api)); got != tc.want {
-				t.Errorf("tailscaleAPIVerdict(id=%v,sec=%v,api=%v) = %q, want %q", tc.id, tc.sec, tc.api, got, tc.want)
-			}
-		})
-	}
-}
-
 func TestCmdVaultRotateSecretRefusesWithEnvSetWithoutForce(t *testing.T) {
 	dir, _ := vaulttest.UseKeyring(t)
 	_ = dir
@@ -532,7 +508,7 @@ func TestVaultListTextEmptyVaultAllSectionsNone(t *testing.T) {
 	if code != 0 || !strings.HasPrefix(stdout, "  AGENT\n  claude\n") {
 		t.Fatalf("bare vault list = %d %q (stderr %q), want 0 and only the AGENT table", code, stdout, stderr)
 	}
-	named := append([]string{"list"}, vaultSections...)
+	named := append([]string{"list"}, uivault.Sections...)
 	code, stdout, stderr = captureOutput(t, func() int { return cmdVault(append(named[:len(named)-1], "--format", "text")) })
 	if code != 0 {
 		t.Fatalf("vault list <sections> = %d, stderr = %q", code, stderr)
@@ -648,5 +624,319 @@ func TestConfigVerbIsUnknown(t *testing.T) {
 	}
 	if !strings.Contains(stderr, `unknown command "config"`) {
 		t.Errorf("stderr = %q, want it to name config as unknown", stderr)
+	}
+}
+
+func useVaultTest(t *testing.T) string {
+	t.Helper()
+	dir := vaulttest.Use(t)
+	key := make([]byte, 32)
+	if _, err := rand.Read(key); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HARNESS_VAULT_KEY", base64.StdEncoding.EncodeToString(key))
+	return dir
+}
+
+func TestVaultSetCopilotTokenRefusesShortValue(t *testing.T) {
+	useVaultTest(t)
+	withStdin(t, "ok\n")
+
+	code, _, stderr := captureOutput(t, func() int { return cmdVault([]string{"set", "COPILOT_GITHUB_TOKEN"}) })
+	if code == 0 {
+		t.Fatal("set COPILOT_GITHUB_TOKEN accepted a short value")
+	}
+	if !strings.Contains(stderr, "not a GitHub token") {
+		t.Fatalf("stderr = %q, want the not-a-GitHub-token refusal", stderr)
+	}
+	if _, _, ok := secretstore.Get("COPILOT_GITHUB_TOKEN"); ok {
+		t.Fatal("a refused value must not be stored")
+	}
+}
+
+func TestVaultSetTailscaleCredentialRefusesMalformedShape(t *testing.T) {
+	useVaultTest(t)
+	withStdin(t, "not-a-client-id\n")
+
+	code, _, stderr := captureOutput(t, func() int { return cmdVault([]string{"set", "TAILSCALE_OAUTH_CLIENT_ID"}) })
+	if code == 0 {
+		t.Fatal("set TAILSCALE_OAUTH_CLIENT_ID accepted a malformed value")
+	}
+	if !strings.Contains(stderr, "want a client ID") {
+		t.Fatalf("stderr = %q, want the client-ID shape refusal", stderr)
+	}
+	if _, _, ok := secretstore.Get("TAILSCALE_OAUTH_CLIENT_ID"); ok {
+		t.Fatal("a refused value must not be stored")
+	}
+}
+
+// A valid-shaped GitHub token is accepted and sealed in the vault.
+func TestVaultSetCopilotTokenAcceptsValidShape(t *testing.T) {
+	useVaultTest(t)
+	const tok = "gh" + "p_validshapedFAKEtoken1234567890"
+	withStdin(t, tok+"\n")
+
+	code, stdout, stderr := captureOutput(t, func() int { return cmdVault([]string{"set", "COPILOT_GITHUB_TOKEN"}) })
+	if code != 0 {
+		t.Fatalf("set COPILOT_GITHUB_TOKEN exit = %d", code)
+	}
+	if v, _, ok := secretstore.Get("COPILOT_GITHUB_TOKEN"); !ok || secretstore.Redact(v) != secretstore.Redact(tok) {
+		t.Fatal("COPILOT_GITHUB_TOKEN was not stored correctly")
+	}
+	if strings.Contains(stdout+stderr, tok) {
+		t.Fatal("set leaked the raw value")
+	}
+	if !strings.Contains(stderr, secretstore.Redact(tok)) {
+		t.Fatal("set did not report the masked value")
+	}
+}
+
+func TestVaultSetNameDryRunStoresNothing(t *testing.T) {
+	useVaultTest(t)
+	const value = "obviously-fake-dry-run"
+	withStdin(t, value+"\n")
+	code, stdout, stderr := captureOutput(t, func() int {
+		return cmdVault([]string{"set", "VAULT_TEST_DUMMY", "--dry-run"})
+	})
+	if code != 0 || !strings.Contains(stdout, "would add VAULT_TEST_DUMMY") {
+		t.Fatalf("set --dry-run: exit %d, expected preview=%v",
+			code, strings.Contains(stdout, "would add VAULT_TEST_DUMMY"))
+	}
+	if strings.Contains(stdout+stderr, value) {
+		t.Fatal("dry run leaked the raw value")
+	}
+	if len(secretstore.Names()) != 0 {
+		t.Fatal("dry run stored a secret")
+	}
+}
+
+func TestVaultSetNameAndTailscaleRefused(t *testing.T) {
+	useVaultTest(t)
+	withStdin(t, "obviously-fake-unused\n")
+	code, _, _ := captureOutput(t, func() int {
+		return cmdVault([]string{"set", "VAULT_TEST_DUMMY", "--tailscale"})
+	})
+	if code != 2 || len(secretstore.Names()) != 0 {
+		t.Fatalf("set NAME --tailscale: exit %d, stored names=%v", code, secretstore.Names())
+	}
+}
+
+func TestVaultDeleteStoredSecret(t *testing.T) {
+	useVaultTest(t)
+	const value = "obviously-fake-delete"
+	if err := secretstore.Store("VAULT_TEST_DUMMY", value); err != nil {
+		t.Fatal(err)
+	}
+	code, stdout, stderr := captureOutput(t, func() int {
+		return cmdVault([]string{"delete", "VAULT_TEST_DUMMY"})
+	})
+	if code != 0 || len(secretstore.Names()) != 0 {
+		t.Fatalf("delete: exit %d, stored names=%v", code, secretstore.Names())
+	}
+	if strings.Contains(stdout+stderr, value) {
+		t.Fatal("delete leaked the raw value")
+	}
+}
+
+func withStdin(t *testing.T, content string) {
+	t.Helper()
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.WriteString(content); err != nil {
+		t.Fatal(err)
+	}
+	w.Close()
+	old := os.Stdin
+	os.Stdin = r
+	t.Cleanup(func() {
+		os.Stdin = old
+		r.Close()
+	})
+}
+
+func TestVaultExportRejectsStdout(t *testing.T) {
+	useVaultTest(t)
+	if err := secretstore.Store("ALPHA", "obviously-fake-alpha"); err != nil {
+		t.Fatal(err)
+	}
+	code, stdout, stderr := captureOutput(t, func() int { return cmdVault([]string{"export", "--out", "-"}) })
+	if code != 2 || stdout != "" || !strings.Contains(stderr, "vault get") {
+		t.Fatalf("export --out -: exit %d, stdout empty=%v, get hint=%v",
+			code, stdout == "", strings.Contains(stderr, "vault get"))
+	}
+}
+
+func TestVaultExportFileOnly(t *testing.T) {
+	for _, explicit := range []bool{false, true} {
+		t.Run(map[bool]string{false: "default", true: "out"}[explicit], func(t *testing.T) {
+			useVaultTest(t)
+			dir := t.TempDir()
+			t.Chdir(dir)
+			const value = "obviously-fake-alpha"
+			if err := secretstore.Store("ALPHA", value); err != nil {
+				t.Fatal(err)
+			}
+			path := filepath.Join(dir, ".env")
+			args := []string{"export"}
+			if explicit {
+				path = filepath.Join(dir, "export.env")
+				args = append(args, "--out", path)
+			}
+			for range 2 {
+				code, stdout, stderr := captureOutput(t, func() int { return cmdVault(args) })
+				if code != 0 || stdout != "" || strings.Contains(stderr, value) {
+					t.Fatalf("export: exit %d, stdout empty=%v, leaked=%v",
+						code, stdout == "", strings.Contains(stderr, value))
+				}
+			}
+			info, err := os.Stat(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if info.Mode().Perm() != 0o600 {
+				t.Errorf("export permissions = %o, want 600", info.Mode().Perm())
+			}
+			data, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			pairs, problems := secrets.ParseDotenv(strings.NewReader(string(data)))
+			if len(problems) != 0 || len(pairs) != 1 || pairs[0].Name != "ALPHA" {
+				t.Fatal("export did not preserve exactly one masked NAME=value row")
+			}
+			if secretstore.Redact(pairs[0].Value) != secretstore.Redact(value) {
+				t.Fatal("export changed the masked value")
+			}
+		})
+	}
+}
+
+func TestVaultImportDashFromPipeRequiresYes(t *testing.T) {
+	useVaultTest(t)
+	withStdin(t, "GAMMA=obviously-fake-gamma\n")
+	code, _, stderr := captureOutput(t, func() int { return cmdVault([]string{"import", "-"}) })
+	if code == 0 || !strings.Contains(stderr, "--yes") {
+		t.Fatalf("import - without --yes: exit %d, missing confirmation hint=%v",
+			code, !strings.Contains(stderr, "--yes"))
+	}
+	if v, _, _ := secretstore.Lookup("GAMMA"); v != "" {
+		t.Fatal("GAMMA stored despite missing --yes")
+	}
+}
+
+func TestVaultImportDashFromPipeWithYesStores(t *testing.T) {
+	useVaultTest(t)
+	values := map[string]string{"GAMMA": "obviously-fake-gamma", "DELTA": "obviously-fake-delta"}
+	withStdin(t, "GAMMA="+values["GAMMA"]+"\nDELTA="+values["DELTA"]+"\n")
+	code, stdout, stderr := captureOutput(t, func() int { return cmdVault([]string{"import", "-", "--yes"}) })
+	if code != 0 {
+		t.Fatalf("import - --yes exit = %d", code)
+	}
+	for name, value := range values {
+		got, source, err := secretstore.Lookup(name)
+		if err != nil || source != "vault" || secretstore.Redact(got) != secretstore.Redact(value) {
+			t.Errorf("%s was not imported into the vault correctly", name)
+		}
+		if strings.Contains(stdout+stderr, value) {
+			t.Errorf("import leaked %s", name)
+		}
+	}
+}
+
+func TestVaultImportDashMalformedWritesNothing(t *testing.T) {
+	useVaultTest(t)
+	withStdin(t, "GAMMA=obviously-fake-gamma\nnot-a-pair\n")
+	code, _, stderr := captureOutput(t, func() int { return cmdVault([]string{"import", "-", "--yes"}) })
+	if code == 0 || !strings.Contains(stderr, "nothing written") {
+		t.Fatalf("malformed import: exit %d, nothing-written hint=%v",
+			code, strings.Contains(stderr, "nothing written"))
+	}
+	if v, _, _ := secretstore.Lookup("GAMMA"); v != "" {
+		t.Fatal("GAMMA stored despite a malformed sibling line")
+	}
+}
+
+func TestVaultGetMultipleNames(t *testing.T) {
+	for _, export := range []bool{false, true} {
+		t.Run(map[bool]string{false: "plain", true: "export"}[export], func(t *testing.T) {
+			useVaultTest(t)
+			values := []string{"obviously-fake-alpha", "obviously-fake-beta's-value"}
+			for i, name := range []string{"ALPHA", "BETA"} {
+				if err := secretstore.Store(name, values[i]); err != nil {
+					t.Fatal(err)
+				}
+			}
+			args := []string{"get", "ALPHA", "BETA"}
+			if export {
+				args = append(args, "--export")
+			}
+			code, stdout, stderr := captureOutput(t, func() int { return cmdVault(args) })
+			if code != 0 || stderr != "" {
+				t.Fatalf("get: exit %d, stderr empty=%v", code, stderr == "")
+			}
+			want := ""
+			var wantSb151 strings.Builder
+			for i, name := range []string{"ALPHA", "BETA"} {
+				value := values[i]
+				if export {
+					value = "'" + strings.ReplaceAll(value, "'", `'"'"'`) + "'"
+				}
+				stdout = strings.ReplaceAll(stdout, value, secretstore.Redact(values[i]))
+				prefix := ""
+				if export {
+					prefix = "export "
+				}
+				wantSb151.WriteString(prefix)
+				wantSb151.WriteString(name)
+				wantSb151.WriteByte('=')
+				wantSb151.WriteString(secretstore.Redact(values[i]))
+				wantSb151.WriteByte('\n')
+			}
+			want += wantSb151.String()
+			if stdout != want {
+				t.Fatal("get did not produce the expected masked NAME=value rows")
+			}
+		})
+	}
+}
+
+func TestVaultGetMissingNamePrintsNothing(t *testing.T) {
+	useVaultTest(t)
+	t.Setenv("ABSENT_VAULT_TEST_KEY", "")
+	if err := secretstore.Store("ALPHA", "obviously-fake-alpha"); err != nil {
+		t.Fatal(err)
+	}
+	code, stdout, _ := captureOutput(t, func() int {
+		return cmdVault([]string{"get", "ALPHA", "ABSENT_VAULT_TEST_KEY"})
+	})
+	if code != 1 || stdout != "" {
+		t.Fatalf("missing get: exit %d, stdout empty=%v", code, stdout == "")
+	}
+}
+
+func TestVaultGetKeyRejectsNamesAndExport(t *testing.T) {
+	useVaultTest(t)
+	for _, args := range [][]string{
+		{"get", "--key", "ALPHA"},
+		{"get", "--key", "--export"},
+	} {
+		code, stdout, _ := captureOutput(t, func() int { return cmdVault(args) })
+		if code != 2 || stdout != "" {
+			t.Errorf("get --key invalid combination: exit %d, stdout empty=%v", code, stdout == "")
+		}
+	}
+}
+
+func TestVaultImportRejectsBadGitHubToken(t *testing.T) {
+	useVaultTest(t)
+	withStdin(t, "GITHUB_WORK_PAT=not-a-token\n")
+	code, _, stderr := captureOutput(t, func() int { return cmdVault([]string{"import", "-", "--yes"}) })
+	if code == 0 || !strings.Contains(stderr, "not a GitHub token") {
+		t.Fatalf("exit %d, stderr=%q, want a GitHub-token rejection", code, stderr)
+	}
+	if v, _, _ := secretstore.Lookup("GITHUB_WORK_PAT"); v != "" {
+		t.Fatal("bad GitHub token stored by import")
 	}
 }
