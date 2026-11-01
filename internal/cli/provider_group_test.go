@@ -1,21 +1,11 @@
 package cli
 
 import (
-	"slices"
 	"strings"
 	"testing"
 
 	"github.com/edotau/claude-code/internal/providers"
 )
-
-func TestEnvSortKeyKeepsDevQaProdTogether(t *testing.T) {
-	names := []string{"prod", "x-user-prod", "qa", "x-user-dev", "dev", "x-user-qa", "zeta"}
-	slices.SortStableFunc(names, func(a, b string) int { return strings.Compare(envSortKey(a), envSortKey(b)) })
-	want := []string{"dev", "qa", "prod", "x-user-dev", "x-user-qa", "x-user-prod", "zeta"}
-	if !slices.Equal(names, want) {
-		t.Fatalf("sorted = %v, want %v", names, want)
-	}
-}
 
 // The summary lists profiles whose credential resolves, folds m2m rows into MODE, and adds an agent section.
 func TestProviderTableSummary(t *testing.T) {
@@ -55,25 +45,5 @@ func TestProviderTableSummary(t *testing.T) {
 	}
 	if r := row("codex"); !strings.Contains(r, "*dev, prod") {
 		t.Fatalf("codex row = %q, want the Databricks profiles it can run on", r)
-	}
-}
-
-func TestProviderModeLabels(t *testing.T) {
-	cases := []struct {
-		p    *providers.Provider
-		want string
-	}{
-		{&providers.Provider{Auth: providers.Auth{Type: providers.AuthOAuth}}, "oauth"},
-		{&providers.Provider{Preset: providers.PresetDatabricks, Auth: providers.Auth{Type: providers.AuthKey}}, "oauth"},
-		{&providers.Provider{Auth: providers.Auth{Type: providers.AuthM2M}}, "m2m"},
-		{&providers.Provider{Auth: providers.Auth{Type: providers.AuthCLI}}, "cli"},
-		{&providers.Provider{Auth: providers.Auth{Type: providers.AuthNone}}, "-"},
-		{&providers.Provider{Auth: providers.Auth{Type: providers.AuthKey, Env: "K"}}, "key"},
-		{&providers.Provider{Auth: providers.Auth{Type: providers.AuthPAT}}, "pat"},
-	}
-	for _, c := range cases {
-		if got := providerMode(c.p); got != c.want {
-			t.Errorf("providerMode(%+v) = %q, want %q", c.p.Auth, got, c.want)
-		}
 	}
 }

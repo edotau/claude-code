@@ -23,6 +23,7 @@ import (
 	"github.com/edotau/claude-code/internal/launch"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/secrets"
 	"github.com/edotau/claude-code/internal/secretstore"
 	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/ui/ansi"
@@ -505,7 +506,8 @@ func cmdDoctor(args []string) int {
 			fail("doctor: --scan, --git and --secrets print text only")
 			return 2
 		}
-		return secretAudits(*scan || *all, *gitScan || *all, *all, fs.Args(), *rev, *since)
+		return secrets.RunAudits(os.Stdout, secrets.AuditOpts{Scan: *scan || *all, Git: *gitScan || *all, Vault: *all,
+			Targets: fs.Args(), Rev: *rev, Since: *since, VaultDoctor: launch.VaultDoctor})
 	}
 	if *auditMode {
 		return printAudit(*days, *format)

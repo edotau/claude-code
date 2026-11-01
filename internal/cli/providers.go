@@ -1,28 +1,30 @@
 package cli
 
 import (
-	"cmp"
 	"context"
 	"fmt"
 	"maps"
 	"os"
-	"slices"
-	"strings"
 	"time"
-
-	"github.com/edotau/claude-code/internal/agentconfig"
-	"github.com/edotau/claude-code/internal/vault"
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/preflight"
+	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/configure"
 	"github.com/edotau/claude-code/internal/copilot"
-	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/proxy"
 	"github.com/edotau/claude-code/internal/secrets"
 	"github.com/edotau/claude-code/internal/ui/helptext"
+	"github.com/edotau/claude-code/internal/vault"
 )
+
+// printLines prints each line of a rendered view.
+func printLines(lines []string) {
+	for _, l := range lines {
+		fmt.Println(l)
+	}
+}
 
 // configureProviderList prints every provider's credential state, or one provider's detail; json mirrors describe.
 func configureProviderList(name, format string) int {
@@ -44,146 +46,19 @@ func configureProviderList(name, format string) int {
 	if err != nil {
 		return fail("%v", err)
 	}
-	fmt.Printf("profile   %s\nprotocol  %s\nauth      %s", p.Name, p.Protocol, p.Auth.Method())
-	if p.Auth.Env != "" {
-		fmt.Printf(" (%s)", p.Auth.Env)
-	}
-	source, note := credSource(p)
-	if note != "" {
-		source += " (" + note + ")"
-	}
-	fmt.Printf("\ncred      %s\nroutes:\n", source)
-	for _, d := range p.Dialects() {
-		r, _ := p.Route(d)
-		fmt.Printf("  %-10s %s\n", d, r)
-	}
-	fmt.Println("models:")
-	for _, s := range models.AliasNames {
-		if id := p.Models[s]; id != "" {
-			fmt.Printf("  %-10s %s\n", s, id)
-		}
-	}
+	source, note := secrets.CredSource(p)
+	printLines(providers.ProfileDetail(p, source, note))
 	return 0
 }
 
-// printProviderTable prints one row per provider, then one per agent CLI: the profiles whose credential
-// resolves now (m2m service principals excluded) and the auth methods they use.
+// printProviderTable prints the provider and agent-CLI summary of the profiles whose credential resolves now.
 func printProviderTable(reg *providers.Registry) {
-	groups := map[string][]string{}
-	modes := map[string][]string{}
-	for _, n := range reg.Names() {
-		p := reg.Providers[n]
-		if cred, _ := credSource(p); cred == "missing" {
-			continue
-		}
-		g := p.Provider
-		modes[g] = appendUnique(modes[g], providerMode(p))
-		if p.Auth.Method() == providers.AuthM2M {
-			continue // a service principal mints oauth logins from a cold start; it is an auth, not a profile
-		}
-		groups[g] = append(groups[g], n)
-	}
-	var rows [][3]string
-	var ready []*providers.Provider // provider order, so the agent rows read like the provider rows
-	for _, g := range providerGroups {
-		if len(groups[g]) > 0 {
-			names := sortProfiles(g, groups[g])
-			rows = append(rows, [3]string{g, familyProfiles(reg, names), strings.Join(modes[g], ", ")})
-			for _, n := range names {
-				ready = append(ready, reg.Providers[n])
-			}
-		}
-	}
-	rows = append(rows, [3]string{})
+	var agents []providers.AgentServer
 	for _, v := range agent.Names() {
-		var names, vm []string
-		for _, p := range ready {
-			if agent.CanServe(v, p) {
-				names, vm = append(names, p.Name), appendUnique(vm, providerMode(p))
-			}
-		}
-		if len(names) > 0 {
-			rows = append(rows, [3]string{v, familyProfiles(reg, names), strings.Join(vm, ", ")})
-		}
+		agents = append(agents, providers.AgentServer{Name: v, Serves: func(p *providers.Provider) bool { return agent.CanServe(v, p) }})
 	}
-	w0, w1 := len("PROVIDERS"), len("PROFILES")
-	for _, r := range rows {
-		w0, w1 = max(w0, len(r[0])), max(w1, len(r[1]))
-	}
-	fmt.Printf("%-*s  %-*s  %s\n", w0, "PROVIDERS", w1, "PROFILES", "AUTH")
-	for _, r := range rows {
-		fmt.Println(strings.TrimRight(fmt.Sprintf("%-*s  %-*s  %s", w0, r[0], w1, r[1], r[2]), " "))
-	}
-	if len(reg.Fallback) > 0 {
-		fmt.Println()
-		fmt.Println("fallback:", strings.Join(reg.Fallback, " → "))
-	}
-}
-
-// providerMode is how p authenticates: oauth, m2m, pat, key, cli (a CLI's own login), or "-".
-func providerMode(p *providers.Provider) string {
-	switch m := p.Auth.Method(); {
-	case p.Preset == providers.PresetDatabricks && m == providers.AuthKey:
-		return providers.AuthOAuth
-	case p.Auth.Login != "":
-		return providers.AuthCLI
-	case m == providers.AuthNone || m == "":
-		return "-"
-	default:
-		return m
-	}
-}
-
-// familyProfiles joins names, marking the session default with *.
-func familyProfiles(reg *providers.Registry, names []string) string {
-	out := make([]string, len(names))
-	for i, n := range names {
-		out[i] = n
-		if n == reg.Default {
-			out[i] = "*" + n
-		}
-	}
-	return strings.Join(out, ", ")
-}
-
-// sortProfiles keeps Databricks rows in env order (dev, qa, prod); other groups stay alphabetical.
-func sortProfiles(group string, names []string) []string {
-	if group == providers.GroupDatabricks {
-		slices.SortStableFunc(names, func(a, b string) int { return cmp.Compare(envSortKey(a), envSortKey(b)) })
-	}
-	return names
-}
-
-func appendUnique(xs []string, x string) []string {
-	if slices.Contains(xs, x) {
-		return xs
-	}
-	return append(xs, x)
-}
-
-// providerGroups is the family order `configure provider --list` prints; local takes every other host.
-var providerGroups = []string{"anthropic", "openai", "github", "google", providers.GroupDatabricks, "nvidia", "local"}
-
-// envSortKey orders Databricks rows bare env first (dev, qa, prod), then each prefix's -dev, -qa, -prod.
-func envSortKey(name string) string {
-	for i, env := range []string{"dev", "qa", "prod"} {
-		if name == env {
-			return fmt.Sprintf("0 %d", i)
-		}
-		if base, ok := strings.CutSuffix(name, "-"+env); ok {
-			return fmt.Sprintf("1 %s %d", base, i)
-		}
-	}
-	return "2 " + name
-}
-
-// credSource names where p's credential resolves from (vault|env|command|auth.file|cli|none|missing).
-func credSource(p *providers.Provider) (source, note string) {
-	st := secrets.Resolve(p)
-	if st.Source == "none" && p.Auth.Method() != providers.AuthNone {
-		return "missing", st.Note
-	}
-	return st.Source, st.Note
+	ready := func(p *providers.Provider) bool { src, _ := secrets.CredSource(p); return src != "missing" }
+	printLines(providers.ListTable(reg, ready, agents))
 }
 
 // providerListEntry is the describe provider view plus where its credential resolves from.
@@ -216,7 +91,7 @@ func providerListJSON(reg *providers.Registry, name string) int {
 		e := providerListEntry{DescribeProvider: dp}
 		p := reg.Providers[dp.Name]
 		e.Group = p.Provider
-		e.Source, e.Note = credSource(p)
+		e.Source, e.Note = secrets.CredSource(p)
 		e.Host, e.AccountID, e.WorkspaceID = providers.AuthHost(p), p.Auth.AccountID, p.Auth.WorkspaceID
 		list = append(list, e)
 	}
@@ -302,137 +177,42 @@ func applyModelPins(reg *providers.Registry, provider string, unpin, dryRun bool
 	return 0, false
 }
 
-// withClaudeModels is r with the model pins in set applied: alias "" is every alias, "" spec clears.
-func withClaudeModels(r vault.AgentRecord, set map[string]string) vault.AgentRecord {
-	r.Aliases = maps.Clone(r.Aliases)
-	if r.Aliases == nil {
-		r.Aliases = map[string]string{}
-	}
-	for alias, spec := range set {
-		switch {
-		case alias == "":
-			r.Model = spec
-		case spec == "":
-			delete(r.Aliases, alias)
-		default:
-			r.Aliases[alias] = spec
-		}
-	}
-	return r
-}
-
 func renderModelSelection(reg *providers.Registry, sel providers.Selection, format string, live bool) int {
 	if live {
 		return listLive(reg, sel.Provider, format)
 	}
-	if format == "json" {
-		byAlias := map[string]string{}
-		for _, s := range models.AliasNames {
-			if t, ok := sel.Aliases[s]; ok {
-				byAlias[s] = t.Spec()
-			}
-		}
-		if err := helptext.WriteJSON(os.Stdout, map[string]any{"profile": sel.Provider.Name, "proxy": sel.NeedsRouter(reg), "models": byAlias}); err != nil {
+	if format == helptext.JSON {
+		if err := helptext.WriteJSON(os.Stdout, map[string]any{"profile": sel.Provider.Name, "proxy": sel.NeedsRouter(reg), "models": sel.SpecsByAlias()}); err != nil {
 			return fail("models: %v", err)
 		}
 		return 0
 	}
-	fmt.Printf("profile  %s   proxy:%v\n", sel.Provider.Name, sel.NeedsRouter(reg))
-	for _, s := range models.AliasNames {
-		if t, ok := sel.Aliases[s]; ok {
-			fmt.Printf("  %-7s %-40s → %s\n", s, sel.ClientModel(s), t.Spec())
-		}
-	}
+	printLines(providers.SelectionLines(reg, sel))
 	return 0
 }
 
-// liveModel is the JSON row for one catalog entry; the text view prints the same fields as an aligned table.
-type liveModel struct {
-	ID           string `json:"id"`
-	Name         string `json:"name,omitempty"`
-	UseCase      string `json:"use_case"`
-	Capabilities string `json:"capabilities,omitempty"`
-	Task         string `json:"task,omitempty"`
-	Ready        string `json:"ready,omitempty"`
-	Gateway      bool   `json:"gateway,omitempty"`
-}
-
-// listLive prints the provider's live model catalog (github-copilot's own SDK via copilot.ListModels,
-// every other provider's plain /models GET). A catalog that can't be fetched live falls back to a known,
-// offline list for the two profiles that have one (max's registry models, chatgpt's codex cache).
+// listLive prints the provider's live model catalog (github-copilot's own SDK, every other provider's /models GET).
 func listLive(reg *providers.Registry, p *providers.Provider, format string) int {
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-	defer cancel()
-	var infos []providers.ModelInfo
-	var err error
+	var own func(context.Context) ([]providers.ModelInfo, error)
 	if p.Provider == "github" {
-		infos, err = copilot.ListModels(ctx)
-	} else {
-		infos, err = providers.ListModels(ctx, reg, p)
+		own = copilot.ListModels
 	}
-	note := ""
+	cat, err := providers.LoadCatalog(reg, p, own)
 	if err != nil {
-		if infos, note, err = providers.FallbackModels(p, err); err != nil {
-			return fail("%v", err)
-		}
+		return fail("%v", err)
 	}
-	if note != "" {
-		fmt.Fprintln(os.Stderr, "claude-code: models:", note)
+	if cat.Note != "" {
+		fmt.Fprintln(os.Stderr, "claude-code: models:", cat.Note)
 	}
-	gw, gwErr := providers.GatewayModels(ctx, p)
-	if gwErr != nil {
-		fmt.Fprintln(os.Stderr, "claude-code: models: ai gateway listing unavailable:", gwErr)
+	if cat.GatewayErr != nil {
+		fmt.Fprintln(os.Stderr, "claude-code: models: ai gateway listing unavailable:", cat.GatewayErr)
 	}
 	if format == helptext.JSON {
-		rows := make([]liveModel, 0, len(infos)+len(gw))
-		for _, m := range append(slices.Clone(infos), gw...) {
-			rows = append(rows, liveModel{ID: m.ID, Name: m.Name, UseCase: m.UseCase, Capabilities: m.Capabilities,
-				Task: m.Task, Ready: m.Ready, Gateway: m.Gateway})
-		}
-		_ = helptext.WriteJSON(os.Stdout, rows)
+		_ = helptext.WriteJSON(os.Stdout, cat.Rows())
 		return 0
 	}
-	if len(infos) > 0 && infos[0].Task != "" {
-		printEndpointTable(infos)
-		if len(gw) > 0 {
-			fmt.Println("\nAI GATEWAY (anthropic)")
-			printModelTable(gw)
-		}
-		return 0
-	}
-	infos = append(infos, gw...)
-	printModelTable(infos)
+	printLines(cat.TableLines())
 	return 0
-}
-
-// printEndpointTable prints a Databricks serving-endpoints listing as aligned name/task/ready columns.
-func printEndpointTable(infos []providers.ModelInfo) {
-	nameW, taskW := len("NAME"), len("TASK")
-	for _, m := range infos {
-		nameW, taskW = max(nameW, len(m.ID)), max(taskW, len(m.Task))
-	}
-	fmt.Printf("%-*s  %-*s  %s\n", nameW, "NAME", taskW, "TASK", "READY")
-	for _, m := range infos {
-		fmt.Println(strings.TrimRight(fmt.Sprintf("%-*s  %-*s  %s", nameW, m.ID, taskW, m.Task, m.Ready), " "))
-	}
-}
-
-// printModelTable prints an aligned ID/Model/Use case/Capabilities table; widths are computed from the
-// rows, not fixed, and a gemini "models/" id prefix is dropped for display only (JSON keeps the raw id).
-func printModelTable(infos []providers.ModelInfo) {
-	idW, nameW, caseW, capW := len("ID"), len("Model"), len("Use case"), len("Capabilities")
-	ids := make([]string, len(infos))
-	for i, m := range infos {
-		ids[i] = strings.TrimPrefix(m.ID, "models/")
-		idW = max(idW, len(ids[i]))
-		nameW = max(nameW, len(m.Name))
-		caseW = max(caseW, len(m.UseCase))
-		capW = max(capW, len(m.Capabilities))
-	}
-	fmt.Println(strings.TrimRight(fmt.Sprintf("%-*s  %-*s  %-*s  %-*s", idW, "ID", nameW, "Model", caseW, "Use case", capW, "Capabilities"), " "))
-	for i, m := range infos {
-		fmt.Println(strings.TrimRight(fmt.Sprintf("%-*s  %-*s  %-*s  %-*s", idW, ids[i], nameW, m.Name, caseW, m.UseCase, capW, m.Capabilities), " "))
-	}
 }
 
 var switchPage = helptext.Page{
@@ -526,19 +306,11 @@ func keptOff(reg *providers.Registry, recs map[string]vault.AgentRecord, profile
 	return lines
 }
 
-// printRecordDiff is the shared --dry-run body for switch and models: the record change plus notes, or that there is none.
+// printRecordDiff is the shared --dry-run body for switch and models.
 func printRecordDiff(apply func(map[string]vault.AgentRecord), notes []string) int {
 	before := vault.AgentRecords(agent.RosterNames())
 	after := maps.Clone(before)
 	apply(after)
-	diff := append(providers.RecordDiff(before, after), notes...)
-	if len(diff) == 0 {
-		fmt.Println("no change to the agent records")
-		return 0
-	}
-	fmt.Println("would write the agent records:")
-	for _, l := range diff {
-		fmt.Println("  " + l)
-	}
+	printLines(providers.DryRunLines(before, after, notes))
 	return 0
 }
