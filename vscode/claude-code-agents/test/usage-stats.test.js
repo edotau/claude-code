@@ -115,6 +115,58 @@ test('buildUsageModel: stats.costPartial is false when every token-bearing agent
   assert.ok(model.stats.costUsd > 0);
 });
 
+test('buildUsageModel: cost prices each model row at its own rate, whichever provider serves it, and flags unpriced rows', () => {
+  const json = {
+    window_days: 1,
+    agents: [
+      {
+        agent: 'opencode',
+        sessions: 1,
+        turns: 3,
+        tokens: 4000000,
+        mix: { input: 1000000, output: 1000000, cache_read: 1000000, cache_write: 1000000 },
+        models: [
+          { provider: 'databricks', model: 'databricks-claude-opus-5-5', turns: 1, tokens: 2000000 }, // opus-5-5: in 4 out 20 read 0.2 write 5
+          { provider: 'github', model: 'claude-haiku-5-5', turns: 1, tokens: 1000000 }, // haiku-5-5: in 0.1 out 0.5 read 0.01 write 0.125
+          { provider: 'databricks', model: 'databricks-kimi-k3', turns: 1, tokens: 1000000 }, // no rate
+        ],
+      },
+    ],
+  };
+  const model = buildUsageModel(json, {}, NOW_MS);
+  // Each row gets its token share (1/2, 1/4, 1/4) of the agent's even mix: opus 0.5M of each kind, haiku 0.25M of each.
+  const opus = 0.5 * (4 + 20 + 0.2 + 5);
+  const haiku = 0.25 * (0.1 + 0.5 + 0.01 + 0.125);
+  assert.ok(Math.abs(model.stats.costUsd - (opus + haiku)) < 1e-9, `costUsd = ${model.stats.costUsd}`);
+  assert.equal(model.stats.costPartial, true);
+});
+
+test('buildUsageModel: a model row\'s own mix wins over the agent-level mix, and the server\'s cost_usd wins over both', () => {
+  const rows = [
+    { provider: 'anthropic', model: 'claude-sonnet-5', turns: 1, tokens: 1000000, mix: { input: 1000000, output: 0, cache_read: 0, cache_write: 0 } },
+    { provider: 'anthropic', model: 'claude-opus-5-5', turns: 1, tokens: 1000000, mix: { input: 0, output: 1000000, cache_read: 0, cache_write: 0 } },
+  ];
+  const claude = { agent: 'claude', sessions: 1, turns: 2, tokens: 2000000, mix: { input: 1000000, output: 1000000, cache_read: 0, cache_write: 0 }, models: rows };
+  let model = buildUsageModel({ window_days: 1, agents: [claude] }, {}, NOW_MS);
+  assert.ok(Math.abs(model.stats.costUsd - (2 + 20)) < 1e-9, `costUsd = ${model.stats.costUsd}`); // sonnet input 2 + opus output 20
+  assert.equal(model.stats.costPartial, false);
+  model = buildUsageModel({ window_days: 1, agents: [{ ...claude, cost_usd: 1.5 }] }, {}, NOW_MS);
+  assert.equal(model.stats.costUsd, 1.5);
+});
+
+test('buildUsageModel: the window\'s day keys are local calendar days, matching the server\'s local-time daily buckets', () => {
+  const tz = process.env.TZ;
+  process.env.TZ = 'Pacific/Auckland'; // UTC+13: 2026-10-24T20:00Z is already 2026-10-25 locally
+  try {
+    const json = { window_days: 2, agents: [{ agent: 'codex', tokens: 7, daily: [{ date: '2026-10-25', tokens: 7, turns: 1 }] }] };
+    const model = buildUsageModel(json, {}, Date.parse('2026-10-24T20:00:00Z'));
+    assert.deepEqual(model.stats.daily, [{ date: '2026-10-24', tokens: 0 }, { date: '2026-10-25', tokens: 7 }]);
+  } finally {
+    if (tz === undefined) delete process.env.TZ;
+    else process.env.TZ = tz;
+  }
+});
+
 test('renderUsageHtml: detailed mode renders the four stat tile labels', () => {
   const model = buildUsageModel(subscriptionFixture(), {}, NOW_MS);
   const html = renderUsageHtml(model, { detailed: true, show: 'used' });

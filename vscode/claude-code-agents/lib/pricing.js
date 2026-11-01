@@ -1,5 +1,6 @@
 'use strict';
-// USD per 1M tokens from the harness's claude-api skill (cached 2026-10-06); non-Anthropic models stay unpriced.
+// USD per 1M tokens from the harness's claude-api skill (cached 2026-10-06); only Claude models are priced, whichever
+// provider serves them (databricks-claude-*, github claude-opus-5.5); every other model stays unpriced.
 // Cache write defaults to 1.25× input and cache read to 0.1× input unless Anthropic publishes a figure.
 const ANTHROPIC_MODELS = [
   { pattern: /fable-5/, input: 10, output: 50, cacheRead: 0.25 },
@@ -17,10 +18,11 @@ const ANTHROPIC_MODELS = [
   { pattern: /haiku/, input: 1, output: 5 },
 ];
 
-/** USD/1M-token rates {input, output, cacheRead, cacheWrite} for an Anthropic model name, or null otherwise. */
-function priceFor(provider, model) {
-  if (provider !== 'anthropic' || !model) return null;
-  const m = ANTHROPIC_MODELS.find((t) => t.pattern.test(model));
+/** USD/1M-token rates {input, output, cacheRead, cacheWrite} for a Claude model name, or null otherwise. */
+function priceFor(model) {
+  if (!model) return null;
+  const name = String(model).toLowerCase().replace(/\./g, '-');
+  const m = ANTHROPIC_MODELS.find((t) => t.pattern.test(name));
   if (!m) return null;
   return {
     input: m.input,
