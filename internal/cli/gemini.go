@@ -15,6 +15,7 @@ import (
 	"github.com/edotau/claude-code/internal/gemini"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
@@ -25,17 +26,6 @@ func cmdGemini(args []string) int {
 		return cmdGeminiBridge(args[1:])
 	}
 	return AgentVerb("gemini", args)
-}
-
-// splitCSV splits a comma-separated flag value, trimming blanks and dropping empty entries.
-func splitCSV(s string) []string {
-	var out []string
-	for part := range strings.SplitSeq(s, ",") {
-		if part = strings.TrimSpace(part); part != "" {
-			out = append(out, part)
-		}
-	}
-	return out
 }
 
 // geminiBridgePage is `gemini bridge -h`: the harness's own large-context sweep, not agy's launcher.
@@ -95,7 +85,7 @@ func cmdGeminiBridge(args []string) int {
 	}
 	opts := gemini.GeminiOptions{
 		Task: taskText, Model: *model, Provider: *provider, Effort: *effort, Rubric: *rubric, Cwd: cwd,
-		Dirs: splitCSV(*dirs), Files: splitCSV(*files),
+		Dirs: textutil.SplitCSV(*dirs), Files: textutil.SplitCSV(*files),
 		MaxFiles: *maxFiles, MaxFileBytes: *maxFileBytes, Timeout: *timeout, IndexOnly: *maxFiles == 0,
 		Index: *index, Diff: *diff, PrintCommand: *printCommand,
 	}
