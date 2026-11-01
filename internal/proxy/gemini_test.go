@@ -237,3 +237,24 @@ func TestPassthroughGeminiChatReplyFlattened(t *testing.T) {
 		t.Errorf("non-gemini reply rewritten: %s", b)
 	}
 }
+
+// Tool schemas sent to Gemini lose the keys Google rejects; a clean schema and other models' schemas are untouched.
+func TestPassthroughGeminiChatToolSchemaCleaned(t *testing.T) {
+	body := `{"model":"databricks-gemini-3-8-flash","tools":[{"type":"function","function":{"name":"ls","parameters":` +
+		`{"$schema":"http://json-schema.org/draft-07/schema#","type":"object","properties":{"n":{"type":"integer","exclusiveMinimum":0},` +
+		`"k":{"const":"a"}},"additionalProperties":false}}}]}`
+	up, _ := sendChat(t, body, okRaw)
+	got := up.got()[0].body
+	for _, bad := range []string{"$schema", "exclusiveMinimum", "const"} {
+		if strings.Contains(got, bad) {
+			t.Errorf("%s reached gemini: %s", bad, got)
+		}
+	}
+	if !strings.Contains(got, `"enum":["a"]`) || !strings.Contains(got, `"additionalProperties":false`) {
+		t.Errorf("valid keys lost: %s", got)
+	}
+	other := strings.Replace(body, "databricks-gemini-3-8-flash", "databricks-llama", 1)
+	if up, _ := sendChat(t, other, okRaw); up.got()[0].body != other {
+		t.Errorf("non-gemini tools rewritten: %s", up.got()[0].body)
+	}
+}
