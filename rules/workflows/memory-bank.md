@@ -41,7 +41,8 @@ Typed files carry `harness_kind: bank` frontmatter. `MEMORY.md` carries a genera
 - `memory-start` (SessionStart) — injects a pointer to the catalog + this repo's Current Focus/Blockers/Next Steps and
   In Progress; the rest loads on demand. It also scaffolds a missing bank, spawns the daily `memory dream` when
   due, and spawns one detached sweep (`memory catchup`) that saves up to 3 missed interactive sessions from the last
-  14 days, skips live ones, and prints one quiet line at the next start.
+  14 days, skips live ones, and prints one quiet line at the next start. Replays run `memory update --historical`:
+  history and decision log only, never current focus.
 - `memory-recall` (UserPromptSubmit) — injects a few matching blocks; another repo's store only when the prompt names
   it.
 - `claude-code memory update` — the session-close writer: summary → sessionHistory, rewrite activeContext + progress,
