@@ -55,7 +55,7 @@ func opencodeCommands() map[string]any {
 			continue
 		}
 		fm, body := textutil.ParseFrontmatter(string(raw))
-		if tools, _ := fm["allowed-tools"].(string); slices.Contains(splitTools(tools), "Agent") {
+		if tools, _ := fm["allowed-tools"].(string); slices.Contains(textutil.SplitCSV(tools), "Agent") {
 			continue
 		}
 		cmd := map[string]any{"template": body}
@@ -66,17 +66,6 @@ func opencodeCommands() map[string]any {
 			cmd["subtask"] = true // a forked context is opencode's subtask
 		}
 		out[name] = cmd
-	}
-	return out
-}
-
-// splitTools splits an allowed-tools value on commas, trimming blanks.
-func splitTools(s string) []string {
-	var out []string
-	for t := range strings.SplitSeq(s, ",") {
-		if t = strings.TrimSpace(t); t != "" {
-			out = append(out, t)
-		}
 	}
 	return out
 }
