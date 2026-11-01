@@ -348,6 +348,12 @@ func holder(ctx context.Context, port int) (holderState, bool) {
 	return st, resp.StatusCode == http.StatusOK
 }
 
+// Inflight counts the requests in flight on port; 0 when unreadable, so a wedged proxy can still be restarted.
+func Inflight(ctx context.Context, port int) int64 {
+	st, _ := holder(ctx, port)
+	return st.Inflight
+}
+
 // reclaim stops an older claude-code proxy holding port; anything else is an error naming the holder.
 func reclaim(ctx context.Context, port int, force bool) error {
 	st, router := holder(ctx, port)

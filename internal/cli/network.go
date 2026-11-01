@@ -126,10 +126,12 @@ func cmdNetworkWebsearch(args []string) int {
 }
 
 var restartPage = helptext.Page{
-	Usage: "claude-code network restart [--dry-run] [--format text|json]",
+	Usage: "claude-code network restart [--dry-run] [--force] [--format text|json]",
 	About: "Restart each running harness daemon on the installed binary. Stopped\n" +
 		"daemons are skipped. Covers the proxy; the memory idle watcher is\n" +
-		"per-session and exits by itself, so it is not restarted.",
+		"per-session and exits by itself, so it is not restarted.\n" +
+		"A proxy with requests in flight is skipped, exit 0, unless --force;\n" +
+		"open sessions alone do not block a restart.",
 }
 
 // restartRow is one daemon's outcome in `restart`.
@@ -144,6 +146,7 @@ type restartRow struct {
 func cmdRestart(args []string) int {
 	fs := helptext.NewFlagSet("network restart", restartPage)
 	dry := fs.Bool("dry-run", false, "report what would restart; change nothing")
+	force := fs.Bool("force", false, "restart the proxy despite requests in flight")
 	format := helptext.FormatFlag(fs)
 	if code, done := helptext.Parse(fs, args); done {
 		return code
@@ -153,7 +156,7 @@ func cmdRestart(args []string) int {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
-	row := restartRouter(ctx, *dry)
+	row := restartRouter(ctx, *dry, *force)
 	if *format == helptext.JSON {
 		if err := helptext.WriteJSON(os.Stdout, map[string]any{"daemons": []restartRow{row}}); err != nil {
 			return fail("restart: %v", err)
@@ -167,14 +170,21 @@ func cmdRestart(args []string) int {
 	return 0
 }
 
-func restartRouter(ctx context.Context, dry bool) restartRow {
+func restartRouter(ctx context.Context, dry, force bool) restartRow {
 	row := restartRow{Daemon: "proxy"}
-	if dry {
-		st, ok := proxy.Running(ctx)
-		if !ok {
-			row.Status, row.Note = "skipped", "not running"
+	st, ok := proxy.Running(ctx)
+	if !ok {
+		row.Status, row.Note = "skipped", "not running"
+		return row
+	}
+	if !force {
+		if n := proxy.Inflight(ctx, st.Port); n > 0 {
+			row.Status, row.OldPID = "skipped", st.PID
+			row.Note = fmt.Sprintf("requests in flight: %d; --force restarts anyway", n)
 			return row
 		}
+	}
+	if dry {
 		row.Status, row.OldPID = "would restart", st.PID
 		return row
 	}
