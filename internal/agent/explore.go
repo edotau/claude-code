@@ -1,6 +1,4 @@
-package explore
-
-import "github.com/edotau/claude-code/internal/agent"
+package agent
 
 // explorePromptBase is the read-only Explore brief shared by every agent; web is appended when enabled.
 const explorePromptBase = `Read-only: never modify, create or delete a file.
@@ -19,8 +17,8 @@ Open questions. Stop once two more lookups wouldn't change the brief.
 
 Question: `
 
-// Prompt builds the Codebase Context Brief prompt for question; web adds the web-research dispatch.
-func Prompt(question string, web bool) string {
+// ExplorePrompt builds the Codebase Context Brief prompt for question; web adds the web-research dispatch.
+func ExplorePrompt(question string, web bool) string {
 	p := explorePromptBase
 	if web {
 		p += explorePromptWeb
@@ -28,14 +26,14 @@ func Prompt(question string, web bool) string {
 	return p + explorePromptTail + question
 }
 
-// Args builds the `ask` argv for an explore run: --tools only when the agent needs it to read.
-func Args(agentName, cwd, question string, web, background bool) []string {
+// ExploreArgs builds the `ask` argv for an explore run: --tools only when the agent needs it to read.
+func ExploreArgs(agentName, cwd, question string, web, background bool) []string {
 	args := []string{"--agent", agentName, "--workdir", cwd}
-	if s, ok := agent.LookupSchema(agentName); ok && s.CLI.ReadNeedsTools {
+	if s, ok := LookupSchema(agentName); ok && s.CLI.ReadNeedsTools {
 		args = append(args, "--tools")
 	}
 	if background {
 		args = append(args, "--background")
 	}
-	return append(args, Prompt(question, web))
+	return append(args, ExplorePrompt(question, web))
 }
