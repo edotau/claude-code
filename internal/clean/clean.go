@@ -88,10 +88,10 @@ func targets() []target {
 			},
 		},
 		{
-			// router.json/router.secret are the DAEMON's live state (removed by the daemon itself on
-			// exit); only its log is debris, and an active router keeps rewriting it past any cutoff.
-			name: "router-log", doc: "router.log (daemon stdio; router.json/secret are live state and never swept)",
-			globs: func() []string { return []string{s("router.log")} },
+			// proxy.json/router.secret are the DAEMON's live state (removed by the daemon itself on
+			// exit); only its log is debris, and an active proxy keeps rewriting it past any cutoff.
+			name: "proxy-log", doc: "proxy.log and the pre-rename router.log (daemon stdio; state and secret are never swept)",
+			globs: func() []string { return []string{s("proxy.log"), s("router.log")} },
 		},
 		{
 			// <pid>.json registries in the runtime dir carry a session token; a dead pid's file is garbage at any age.

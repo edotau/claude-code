@@ -59,7 +59,7 @@ func listen(ctx context.Context, port int) (net.Listener, error) {
 		case errors.Is(err, proxy.ErrKeptHolder):
 			return nil, nil // the live holder keeps serving; this build exits 0 without binding
 		case errors.Is(err, proxy.ErrForeignHolder) && port == proxy.DefaultPort:
-			fmt.Fprintf(os.Stderr, "proxy: %v; binding a free port (recorded in router.json)\n", err)
+			fmt.Fprintf(os.Stderr, "proxy: %v; binding a free port (recorded in proxy.json)\n", err)
 			ln, err = lc.Listen(ctx, "tcp", "127.0.0.1:0")
 		case err == nil:
 			ln, err = lc.Listen(ctx, "tcp", fmt.Sprintf("127.0.0.1:%d", port))

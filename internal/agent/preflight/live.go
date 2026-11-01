@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -230,9 +231,12 @@ func StaticLine(reg *providers.Registry, now time.Time) string {
 	return "Preflight: " + strings.Join(parts, "; ") + " (claude-code doctor)"
 }
 
-// proxyUp reads router.json and checks its pid is alive.
+// proxyUp reads the proxy state file and checks its pid is alive.
 func proxyUp() bool {
-	b, err := os.ReadFile(paths.StateDir() + "/router.json")
+	b, err := os.ReadFile(paths.StateDir() + "/proxy.json")
+	if errors.Is(err, os.ErrNotExist) {
+		b, err = os.ReadFile(paths.StateDir() + "/router.json") // a daemon from an older build; drop after 2026-11-14
+	}
 	if err != nil {
 		return false
 	}

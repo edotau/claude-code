@@ -178,14 +178,14 @@ func TestCleanRespectsOlderThan(t *testing.T) {
 func TestCleanTargetScopesToOneTarget(t *testing.T) {
 	dir := seedDebris(t)
 	var out, errw bytes.Buffer
-	if code := Run([]string{"--target", "router-log"}, &out, &errw); code != 0 {
-		t.Fatalf("Run --target router-log = %d, want 0", code)
+	if code := Run([]string{"--target", "proxy-log"}, &out, &errw); code != 0 {
+		t.Fatalf("Run --target proxy-log = %d, want 0", code)
 	}
 	if exists(t, filepath.Join(dir, "state/harness/router.log")) {
 		t.Error("the named target was still not swept")
 	}
 	if !exists(t, filepath.Join(dir, "state/harness/memory/update-20260101-000000.log")) {
-		t.Error("--target router-log also swept memory-state")
+		t.Error("--target proxy-log also swept memory-state")
 	}
 }
 

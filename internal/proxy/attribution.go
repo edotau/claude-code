@@ -20,8 +20,8 @@ const (
 	RequestTagsHeader = "Databricks-Ai-Gateway-Request-Tags" // docs.databricks.com/aws/en/ai-gateway/usage-tracking
 )
 
-// launcherHeaders are the router's own request headers; they never go upstream.
-var launcherHeaders = []string{AgentHeader, SessionHeader, "X-Claude-Code-Session-Id", ClientHeader}
+// launcherHeaders are the proxy's own request headers; they never go upstream.
+var launcherHeaders = []string{AgentHeader, SessionHeader, "X-Claude-Code-Session-Id", ClientHeader, LegacyClientHeader}
 
 // protectedHeaders can never be set from HARNESS_HEADERS: credentials, attribution, and framing.
 var protectedHeaders = map[string]bool{
