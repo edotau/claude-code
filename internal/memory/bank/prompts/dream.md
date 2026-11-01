@@ -58,6 +58,9 @@ topic files). Ask it to:
 4. Rules that recur but aren't hard prohibitions get appended straight to the matching
    `rules/standards/` or `rules/software/<lang>/` file instead (via `claude-code memory promote`).
 
+Never move entries to the home bank: list candidates in the report (`claude-code memory review
+--candidates`); only the owner runs `memory promote <id> --to home`.
+
 ## Phase 7: Report
 
 ```text

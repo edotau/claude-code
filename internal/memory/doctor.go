@@ -4,7 +4,9 @@ package memory
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/edotau/claude-code/internal/memory/bank"
@@ -56,9 +58,11 @@ func DoctorNoticePath(root string) string {
 	return filepath.Join(memstore.StateDir(), "doctor-notice-"+filepath.Base(memstore.Dir(root)))
 }
 
-// WriteDoctorNotice caches root's first problem and a count; an empty file means checked and healthy.
+// WriteDoctorNotice caches root's first problem and a count (hot hints excluded); an empty file means checked and healthy.
 func WriteDoctorNotice(root string, staleDays int, now time.Time) error {
-	problems := Doctor(root, staleDays, now)
+	problems := slices.DeleteFunc(Doctor(root, staleDays, now), func(p string) bool {
+		return strings.Contains(p, ": hot — recalled") // advice, not a problem; `memory review` still lists it
+	})
 	line := ""
 	if len(problems) > 0 {
 		line = problems[0]
@@ -115,7 +119,7 @@ func bankProblems(tier string, s BankStat, staleDays int, now time.Time) []strin
 }
 
 // bankCredentialFindings scans typed files for credential-shaped values — the visible surface for
-// promoteFile's silent refusal.
+// CommitStore's refusal to stage them.
 func bankCredentialFindings(dir string) []string {
 	var problems []string
 	for _, name := range bank.BankFiles() {

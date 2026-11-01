@@ -23,14 +23,13 @@ type DreamPreview struct {
 	Dir           string
 	Oversized     []string // local bank files over cap
 	HomeOversized []string // home bank files over cap (only when local isn't already the home bank)
-	Promotable    int      // local overflow blocks that would move to the home bank
-	Archivable    int      // overflow blocks that would move to archive/ (home bank has nowhere else to go)
+	Archivable    int      // durable-file overflow blocks that would move to this store's archive/
 	SessionRotate int      // sessionHistory entries that would rotate to archive/
 }
 
 // Any reports whether the preview found anything a real dream run would change mechanically.
 func (p DreamPreview) Any() bool {
-	return len(p.Oversized) > 0 || len(p.HomeOversized) > 0 || p.Promotable > 0 || p.Archivable > 0 || p.SessionRotate > 0
+	return len(p.Oversized) > 0 || len(p.HomeOversized) > 0 || p.Archivable > 0 || p.SessionRotate > 0
 }
 
 // Report renders the preview as `memory dream --dry-run`'s stdout.
@@ -42,9 +41,6 @@ func (p DreamPreview) Report() string {
 	}
 	if len(p.HomeOversized) > 0 {
 		fmt.Fprintf(&b, "over cap (home): %s\n", strings.Join(p.HomeOversized, ", "))
-	}
-	if p.Promotable > 0 {
-		fmt.Fprintf(&b, "would promote %d block(s) local -> home\n", p.Promotable)
 	}
 	if p.Archivable > 0 {
 		fmt.Fprintf(&b, "would archive %d block(s)\n", p.Archivable)
@@ -66,19 +62,14 @@ func PreviewDream(root string, now time.Time) DreamPreview {
 	if !memstore.IsHomeBank(root) {
 		p.HomeOversized = HomeBankStat().Oversized
 	}
-	for name, capLines := range promoteCaps {
-		n := previewOverflowCount(filepath.Join(dir, name), capLines)
-		if memstore.IsHomeBank(root) {
-			p.Archivable += n
-		} else {
-			p.Promotable += n
-		}
+	for name, capLines := range archiveCaps {
+		p.Archivable += previewOverflowCount(filepath.Join(dir, name), capLines)
 	}
 	p.SessionRotate = previewSessionRotate(dir)
 	return p
 }
 
-// previewOverflowCount is promoteFile/archiveFile's split, read-only: how many oldest blocks would
+// previewOverflowCount is archiveFile's split, read-only: how many oldest blocks would
 // overflow path's cap.
 func previewOverflowCount(path string, capLines int) int {
 	data, err := os.ReadFile(path)
@@ -108,6 +99,9 @@ func previewSessionRotate(dir string) int {
 }
 
 const dreamInterval = 24 * time.Hour
+
+// dreamRetry is how long a failed dream waits before DreamDue offers it again.
+const dreamRetry = 6 * time.Hour
 
 // DreamChildEnv marks a process spawned by `memory dream`'s agent run — the one context where
 // `memory promote --to claude-md` is allowed to print its gated procedure.
@@ -161,7 +155,7 @@ func agentDreamPrompt() (string, error) {
 		"the home bank is the memory root. Be surgical.\n\n" + ref, nil
 }
 
-// Dream promotes local blocks to the home bank, consolidates both banks on the agent, settles, and stamps.
+// Dream archives durable-file overflow, consolidates both banks on the agent, settles, and stamps.
 func Dream(o DreamOptions) error {
 	if o.Out == nil {
 		o.Out = io.Discard
@@ -172,11 +166,11 @@ func Dream(o DreamOptions) error {
 	var runErr error
 	lockErr := paths.WithFileLock(bank.LockPath(memstore.Dir(o.CWD)), func() error {
 		now := time.Now()
-		n, err := PromoteLocalToGlobal(o.CWD, now)
+		n, err := ArchiveOverflow(o.CWD, now)
 		if err != nil {
-			fmt.Fprintln(o.Out, "memory dream: promote:", err)
+			fmt.Fprintln(o.Out, "memory dream: archive:", err)
 		}
-		fmt.Fprintf(o.Out, "memory dream: promoted %d block(s) to home\n", n)
+		fmt.Fprintf(o.Out, "memory dream: archived %d block(s)\n", n)
 		if o.Run != nil {
 			prompt, perr := agentDreamPrompt()
 			if perr != nil {
@@ -198,7 +192,12 @@ func Dream(o DreamOptions) error {
 		fmt.Fprintln(o.Out, "memory dream: settle:", err)
 	}
 	if err := errors.Join(lockErr, runErr); err != nil {
-		return err // no stamp, so DreamDue retries the failed consolidation instead of waiting a day
+		// backdated, so DreamDue retries in dreamRetry
+		return errors.Join(err, stampDream(o.CWD, time.Now().Add(dreamRetry-dreamInterval)))
 	}
-	return paths.AtomicWrite(DreamStampPath(o.CWD), []byte(time.Now().Format(time.RFC3339)+"\n"), 0o600)
+	return stampDream(o.CWD, time.Now())
+}
+
+func stampDream(root string, at time.Time) error {
+	return paths.AtomicWrite(DreamStampPath(root), []byte(at.Format(time.RFC3339)+"\n"), 0o600)
 }

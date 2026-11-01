@@ -13,54 +13,32 @@ import (
 
 	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/textutil"
 )
 
-// promoteCaps are the per-file caps that trigger promote/archive on the LOCAL bank — only durable
-// files promote; the churny session-state files never do.
-var promoteCaps = map[string]int{
+// archiveCaps are the per-file caps that trigger archiving on a durable bank file; the churny
+// session-state files never do.
+var archiveCaps = map[string]int{
 	"conventions.md": FileCaps["conventions.md"],
 	"decisionLog.md": FileCaps["decisionLog.md"],
 }
-
-// promoteJaccard is the block token-overlap above which a local block already exists in the home bank.
-const promoteJaccard = 0.6
-
-// minEntryTokens filters trivially-short blocks (headers, one-word bullets) out of dedup matching.
-const minEntryTokens = 4
 
 // bottomAppended marks files whose newest entries land at the BOTTOM, so the settle split runs on
 // the reversed list; decisionLog.md is newest-first and keeps the straight split.
 var bottomAppended = map[string]bool{"conventions.md": true}
 
-// homeBankLockPath serializes all home-bank writers (promote, archive) behind one lock file under
-// state — never beside the committed home bank.
-func homeBankLockPath() string {
-	return filepath.Join(memstore.StoreLockDir(memstore.HomeBankDir()), ".promote.lock")
-}
-
-// PromoteLocalToGlobal moves settled overflow from root's local durable files into the shared home
-// bank (deduped) and prunes local back under cap. No-op when local IS the home bank.
-func PromoteLocalToGlobal(root string, now time.Time) (int, error) {
-	if memstore.IsHomeBank(root) {
-		return 0, nil
-	}
-	localDir, homeDir := memstore.Dir(root), memstore.HomeBankDir()
-	promoted := 0
-	ran, err := paths.TryFileLock(homeBankLockPath(), 2*time.Second, func() error {
-		for name, capLines := range promoteCaps {
-			n, err := promoteFile(filepath.Join(localDir, name), filepath.Join(homeDir, name), capLines, now)
-			if err != nil {
-				return err
-			}
-			promoted += n
+// ArchiveOverflow moves the oldest overflow blocks of root's durable files into the same store's
+// archive/, returning how many moved. The archive stays local, so no credential gate applies.
+func ArchiveOverflow(root string, now time.Time) (int, error) {
+	dir := memstore.Dir(root)
+	total := 0
+	for name, capLines := range archiveCaps {
+		n, err := archiveFile(filepath.Join(dir, name), capLines, now)
+		if err != nil {
+			return total, err
 		}
-		return nil
-	})
-	if !ran && err == nil {
-		return 0, errors.New("home bank busy (another worker holds the lock) — promotion deferred")
+		total += n
 	}
-	return promoted, err
+	return total, nil
 }
 
 // settledSplit splits blocks into (keep, overflow) at capLines, oldest-first into overflow.
@@ -78,75 +56,34 @@ func settledSplit(base, header string, blocks []string, capLines int) (keep, ove
 	return budgetSplit(header, blocks, capLines)
 }
 
-// archivePath is the <dir>/archive/<base>-<yyyy-mm>.md shape shared by archiveFile, promoteFile
-// (via archiveFile) and RotateSessionHistory.
+// archivePath is the <dir>/archive/<base>-<yyyy-mm>.md shape shared by archiveFile and RotateSessionHistory.
 func archivePath(dir, base string, now time.Time) string {
 	return filepath.Join(dir, "archive", strings.TrimSuffix(base, ".md")+"-"+now.Format("2006-01")+".md")
 }
 
-// promoteFile prunes localPath to capLines by promoting the OLDEST overflow blocks into homePath.
-// Near-dups of home-bank blocks simply drop (they already live there); blocks too short to dedup
-// reliably are ARCHIVED beside the local bank instead of promoted — overflow is never lost, only
-// re-homed.
-func promoteFile(localPath, homePath string, capLines int, now time.Time) (int, error) {
-	data, err := os.ReadFile(localPath)
+// archiveFile prunes path to capLines, appending its oldest overflow blocks to the archive first so
+// nothing is lost if the rewrite fails.
+func archiveFile(path string, capLines int, now time.Time) (int, error) {
+	data, err := os.ReadFile(path)
 	if err != nil {
-		return 0, nil // absent local file — nothing to promote
+		return 0, nil // absent file — nothing to archive
 	}
 	if bank.LogicalLineCount(string(data)) <= capLines {
 		return 0, nil
 	}
-	base := filepath.Base(localPath)
+	base := filepath.Base(path)
 	header, blocks := bank.EntryBlocks(base, string(data))
-
 	keep, overflow := settledSplit(base, header, blocks, capLines)
 	if len(overflow) == 0 {
 		return 0, nil
 	}
-
-	// Credential gate: refuse the whole promote rather than spread a leaked value into the shared
-	// home bank (whence it rides every session's injection). Scrub the block to unblock.
-	if slices.ContainsFunc(overflow, bank.CredentialPattern.MatchString) {
-		return 0, fmt.Errorf("%s: possible credential in overflow block — scrub it, then re-run promote", base)
-	}
-
-	// Dedup overflow against what's already in the home-bank file.
-	hData, _ := os.ReadFile(homePath)
-	_, hBlocks := bank.EntryBlocks(filepath.Base(homePath), string(hData))
-	hSets := make([]map[string]bool, 0, len(hBlocks))
-	for _, b := range hBlocks {
-		hSets = append(hSets, blockTokens(b))
-	}
-	var toAppend, dropped []string
-	for _, b := range overflow {
-		set := blockTokens(b)
-		if isNearDup(set, hSets) {
-			continue // already in the home bank → safe to drop from local
-		}
-		if len(set) < minEntryTokens {
-			dropped = append(dropped, b) // too short to dedup reliably — archive, never lose
-			continue
-		}
-		toAppend = append(toAppend, b)
-		hSets = append(hSets, set) // guard against dups WITHIN the overflow too
-	}
-
-	if len(dropped) > 0 {
-		archive := archivePath(filepath.Dir(localPath), base, now)
-		if err := bank.AppendBlocks(archive, dropped); err != nil {
-			return 0, err // archive failed — leave the source intact (never truncate unarchived content)
-		}
-	}
-	if len(toAppend) > 0 {
-		if err := bank.AppendBlocks(homePath, toAppend); err != nil {
-			return 0, err
-		}
-	}
-	// Rewrite local with header + kept blocks (every overflow block is promoted, a home-bank dup, or archived).
-	if err := paths.AtomicWrite(localPath, []byte(bank.Rejoin(header, keep)), 0o600); err != nil {
+	if err := bank.AppendBlocks(archivePath(filepath.Dir(path), base, now), overflow); err != nil {
 		return 0, err
 	}
-	return len(toAppend), nil
+	if err := paths.AtomicWrite(path, []byte(bank.Rejoin(header, keep)), 0o600); err != nil {
+		return 0, err
+	}
+	return len(overflow), nil
 }
 
 // PromoteTargets are the `memory promote --to` destinations.
@@ -259,44 +196,6 @@ func removeBlock(dir, name, id string) error {
 		}
 	}
 	return paths.AtomicWrite(path, []byte(bank.Rejoin(header, kept)), 0o600)
-}
-
-// blockTokens is a block's lowercase token set — the signal for near-dup matching.
-func blockTokens(s string) map[string]bool {
-	set := map[string]bool{}
-	for _, t := range textutil.Tokenize(s) {
-		set[t] = true
-	}
-	return set
-}
-
-// isNearDup reports whether set near-duplicates any block in sets (Jaccard over promoteJaccard).
-func isNearDup(set map[string]bool, sets []map[string]bool) bool {
-	for _, s := range sets {
-		if jaccard(set, s) > promoteJaccard {
-			return true
-		}
-	}
-	return false
-}
-
-// jaccard is |a∩b| / |a∪b|, 1 for two empty sets (vacuously identical).
-func jaccard(a, b map[string]bool) float64 {
-	if len(a) == 0 && len(b) == 0 {
-		return 1
-	}
-	inter, union := 0, len(a)
-	for t := range b {
-		if a[t] {
-			inter++
-		} else {
-			union++
-		}
-	}
-	if union == 0 {
-		return 0
-	}
-	return float64(inter) / float64(union)
 }
 
 // budgetSplit keeps blocks from the top while header+kept stays within capLines; the rest overflow.

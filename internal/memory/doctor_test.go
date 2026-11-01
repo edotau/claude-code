@@ -385,7 +385,7 @@ func equalSnap(a, b map[string]string) bool {
 }
 
 // decisionLogOver writes n decisionLog.md entries (newest-first), each carrying enough distinct
-// tokens to survive minEntryTokens and never near-dup each other.
+// tokens to stay distinct.
 func decisionLogOver(t *testing.T, path string, n int) {
 	t.Helper()
 	var b strings.Builder
@@ -396,45 +396,31 @@ func decisionLogOver(t *testing.T, path string, n int) {
 	write(t, path, b.String())
 }
 
-func TestPromoteLocalToGlobalMovesOverflow(t *testing.T) {
+func TestArchiveOverflowKeepsOldestInArchive(t *testing.T) {
 	tempConfig(t)
 	root := repoRoot(t, "proj")
 	local := memstore.Dir(root)
 	decisionLogOver(t, filepath.Join(local, "decisionLog.md"), 80)
+	homePath := filepath.Join(memstore.HomeBankDir(), "decisionLog.md")
+	homeBefore, _ := os.ReadFile(homePath)
 
-	n, err := PromoteLocalToGlobal(root, time.Now())
+	n, err := ArchiveOverflow(root, time.Now())
 	if err != nil || n == 0 {
-		t.Fatalf("promoted %d err %v", n, err)
+		t.Fatalf("archived %d err %v", n, err)
 	}
 	kept, _ := os.ReadFile(filepath.Join(local, "decisionLog.md"))
 	if bank.LineCount(string(kept)) > FileCaps["decisionLog.md"] {
 		t.Errorf("local decisionLog still over cap: %d lines", bank.LineCount(string(kept)))
 	}
-	global, err := os.ReadFile(filepath.Join(memstore.HomeBankDir(), "decisionLog.md"))
-	if err != nil || !strings.Contains(string(global), "decision 01") {
-		t.Errorf("oldest entry did not land in the global bank: %v %q", err, global)
+	arch, err := os.ReadFile(archivePath(local, "decisionLog.md", time.Now()))
+	if err != nil || !strings.Contains(string(arch), "decision 01") {
+		t.Errorf("oldest entry did not land in the archive: %v %q", err, arch)
 	}
-	// Idempotent: a second run with nothing new over cap promotes nothing.
-	if n2, err := PromoteLocalToGlobal(root, time.Now()); err != nil || n2 != 0 {
-		t.Errorf("second promote: n=%d err=%v, want a no-op", n2, err)
+	if homeAfter, _ := os.ReadFile(homePath); string(homeAfter) != string(homeBefore) {
+		t.Error("archiving must not touch the home bank")
 	}
-}
-
-func TestPromoteRefusesCredentialShapedOverflow(t *testing.T) {
-	tempConfig(t)
-	root := repoRoot(t, "proj")
-	local := memstore.Dir(root)
-	decisionLogOver(t, filepath.Join(local, "decisionLog.md"), 80)
-	// Plant a credential-shaped value in what will be the OLDEST (overflowing) block.
-	data, _ := os.ReadFile(filepath.Join(local, "decisionLog.md"))
-	tainted := strings.Replace(string(data), "decision 01", "decision 01\n\ntoken sk-abcdefghijklmnop leaked", 1)
-	write(t, filepath.Join(local, "decisionLog.md"), tainted)
-
-	if _, err := PromoteLocalToGlobal(root, time.Now()); err == nil || !strings.Contains(err.Error(), "credential") {
-		t.Fatalf("want a credential refusal, got %v", err)
-	}
-	if _, err := os.ReadFile(filepath.Join(memstore.HomeBankDir(), "decisionLog.md")); err == nil {
-		t.Error("a refused promote must not have written anything to the global bank")
+	if n2, err := ArchiveOverflow(root, time.Now()); err != nil || n2 != 0 {
+		t.Errorf("second archive: n=%d err=%v, want a no-op", n2, err)
 	}
 }
 

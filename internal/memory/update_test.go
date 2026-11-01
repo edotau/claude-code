@@ -502,14 +502,21 @@ func TestMergeFileListsKeepsUnstagedPaths(t *testing.T) {
 	}
 }
 
-func TestDreamFailedRunLeavesNoStamp(t *testing.T) {
+func TestDreamFailedRunRetriesAfterBackoff(t *testing.T) {
 	tempConfig(t)
 	root := repoRoot(t, "proj")
+	if _, err := Init(root); err != nil {
+		t.Fatal(err)
+	}
 	fail := func(context.Context, string, string) (string, error) { return "x", errors.New("boom") }
 	if err := Dream(DreamOptions{CWD: root, Run: fail}); err == nil {
 		t.Fatal("failed agent run must return an error")
 	}
-	if _, err := os.Stat(DreamStampPath(root)); err == nil {
-		t.Error("failed dream wrote a stamp, which would suppress the retry")
+	now := time.Now()
+	if DreamDue(root, now) {
+		t.Error("a failed dream is due again at once, so every session start would rerun it")
+	}
+	if !DreamDue(root, now.Add(dreamRetry+time.Minute)) {
+		t.Error("a failed dream is not due after its backoff")
 	}
 }
