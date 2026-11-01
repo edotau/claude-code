@@ -2,8 +2,12 @@ package configure
 
 import (
 	"bytes"
+	"net/http"
+	"net/http/httptest"
 	"os"
+	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/edotau/claude-code/internal/providers"
@@ -257,5 +261,178 @@ func TestRunMenuKeepsFailedKeyStagedAfterReturn(t *testing.T) {
 	}
 	if got := os.Getenv(name); got != "two\nlines" {
 		t.Error("failed key env after return must retain the staged value")
+	}
+}
+
+func TestRunMenuReturnKeyState(t *testing.T) {
+	const good = "CONFIGURE_RETURN_GOOD"
+	const other = "CONFIGURE_RETURN_OTHER"
+	const prior = "synthetic-prior"
+	const valid = "synthetic-staged"
+	const invalid = "synthetic\ninvalid"
+	for _, tc := range []struct {
+		name       string
+		save       bool
+		otherValue string
+		wantRC     int
+		failed     bool
+	}{
+		{name: "all_stored", save: true, otherValue: valid},
+		{name: "discard", otherValue: valid},
+		{name: "partial_failure", save: true, otherValue: invalid, wantRC: 1, failed: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			reg := menuTestEnv(t)
+			vaulttest.Use(t)
+			t.Setenv(good, prior)
+			t.Setenv(other, "")
+			if err := os.Unsetenv(other); err != nil {
+				t.Fatal("could not unset synthetic environment variable")
+			}
+			originalPicker, originalConfirm := pickMenu, saveConfirmed
+			t.Cleanup(func() { pickMenu, saveConfirmed = originalPicker, originalConfirm })
+			var out bytes.Buffer
+			d := &dialog{reg: reg, out: &out}
+			calls, confirmations := 0, 0
+			pickMenu = flatPick(func(string, [][2]string, int) (int, error) {
+				calls++
+				if !d.stage(good, valid) || !d.stage(other, tc.otherValue) {
+					t.Fatal("could not stage synthetic keys")
+				}
+				return -1, nil
+			})
+			saveConfirmed = func(string) bool {
+				confirmations++
+				return tc.save
+			}
+			if rc := runMenu(d); rc != tc.wantRC {
+				t.Fatalf("return code = %d, want %d", rc, tc.wantRC)
+			}
+			if calls != 1 || confirmations != 1 {
+				t.Fatal("expected exactly one picker call and one leave confirmation")
+			}
+			if os.Getenv(good) != prior {
+				t.Error("successful or discarded key did not restore its prior environment")
+			}
+			if _, pending := d.pending[good]; pending {
+				t.Error("successful or discarded key remained pending")
+			}
+			if tc.failed {
+				if _, pending := d.pending[other]; !pending || len(d.pending) != 1 {
+					t.Error("only the failed key should remain pending")
+				}
+				if os.Getenv(other) != invalid {
+					t.Error("failed key did not retain its staged environment")
+				}
+				if !strings.Contains(out.String(), other+": not saved:") {
+					t.Error("failure diagnostic did not identify the failed key by name")
+				}
+			} else {
+				if len(d.pending) != 0 {
+					t.Error("pending should be empty after success or discard")
+				}
+				if _, present := os.LookupEnv(other); present {
+					t.Error("previously absent environment variable was not removed")
+				}
+			}
+			names, err := secretstore.NamesErr()
+			if err != nil {
+				t.Fatal("could not inspect isolated vault names")
+			}
+			if slices.Contains(names, good) != tc.save {
+				t.Error("successful key vault presence does not match save choice")
+			}
+			if slices.Contains(names, other) != (tc.save && !tc.failed) {
+				t.Error("other key vault presence does not match save outcome")
+			}
+			if !tc.save && len(names) != 0 {
+				t.Error("discard unexpectedly wrote a vault secret")
+			}
+		})
+	}
+}
+
+func TestStageRejectsInvalidValueWithoutMutation(t *testing.T) {
+	for _, staged := range []bool{false, true} {
+		t.Run(map[bool]string{false: "new", true: "replacement"}[staged], func(t *testing.T) {
+			t.Setenv("HOME", t.TempDir())
+			t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+			const name = "CONFIGURE_STAGE_INVALID"
+			t.Setenv(name, "original")
+			d, _ := newDialog("")
+			d.pending = map[string]stagedKey{}
+			if staged && !d.stage(name, "already-staged") {
+				t.Fatal("valid stage failed")
+			}
+			before, seen := d.pending[name]
+			env := os.Getenv(name)
+			if d.stage(name, "invalid\x00candidate") {
+				t.Fatal("stage accepted a NUL value")
+			}
+			if got, ok := d.pending[name]; ok != seen || got != before {
+				t.Errorf("pending entry changed: got %+v, present=%v; want %+v, present=%v", got, ok, before, seen)
+			}
+			if got := os.Getenv(name); got != env {
+				t.Errorf("environment = %q, want %q", got, env)
+			}
+			discardKeys(d)
+			if got := os.Getenv(name); got != "original" {
+				t.Errorf("discard restored %q, want original", got)
+			}
+		})
+	}
+}
+
+func TestStoreValueRejectsInvalidStagingWithoutSuccess(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	const name = "CONFIGURE_STORE_INVALID"
+	t.Setenv(name, "original")
+	d, out := newDialog("")
+	d.pending = map[string]stagedKey{}
+	if storeValue(d, name, "invalid\x00candidate") {
+		t.Fatal("storeValue reported success for a NUL value")
+	}
+	if len(d.pending) != 0 || os.Getenv(name) != "original" {
+		t.Fatalf("failed store mutated pending or environment: pending=%v, env=%q", d.pending, os.Getenv(name))
+	}
+	if strings.Contains(out.String(), "staged ") || strings.Contains(out.String(), "Submit saves") {
+		t.Errorf("failed store reported staged success: %q", out.String())
+	}
+}
+
+func TestProbeValueRejectsInvalidCandidateBeforeRequest(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	const name = "CONFIGURE_PROBE_INVALID"
+	const candidate = "private-invalid\x00candidate"
+	t.Setenv(name, "prior-good-credential")
+	var requests atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requests.Add(1)
+		w.Header().Set("Content-Type", "application/json")
+		if _, err := w.Write([]byte(`{"data":[]}`)); err != nil {
+			t.Errorf("write catalog: %v", err)
+		}
+	}))
+	defer srv.Close()
+	p := &providers.Provider{
+		Name: "invalid-candidate", Protocol: providers.ProtocolAnthropic, BaseURL: srv.URL,
+		Auth: providers.Auth{Type: providers.AuthKey, Header: providers.HeaderXAPIKey, Env: name},
+	}
+	status, detail := probeValue(p, name, candidate)
+	if status != "unreachable" || detail == "" {
+		t.Errorf("probeValue = (%q, %q), want unreachable with an error detail", status, detail)
+	}
+	for _, raw := range []string{candidate, "private-invalid", "prior-good-credential"} {
+		if strings.Contains(detail, raw) {
+			t.Errorf("probe detail leaked a credential: %q", detail)
+		}
+	}
+	if got := requests.Load(); got != 0 {
+		t.Errorf("invalid candidate made %d HTTP requests with a prior credential", got)
+	}
+	if got := os.Getenv(name); got != "prior-good-credential" {
+		t.Errorf("probe changed original credential to %q", got)
 	}
 }
