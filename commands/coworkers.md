@@ -1,6 +1,6 @@
 ---
 description: "Fan out coworker leaves that run each task on other agents (codex, copilot, gemini, opencode): single, compare or relay. The cross-agent counterpart of /code-workers."
-argument-hint: "[single | compare | relay] [agents=gemini,codex,...] <task1 | task2 | ...>  (tasks '|'-separated)"
+argument-hint: "[profile=<p>] [model=<m>] [single|compare|relay] [agents=a,b] <task|…>"
 allowed-tools: Bash, Read, Grep, Glob, Agent
 ---
 
@@ -21,5 +21,6 @@ where the agents agreed and differed.
 
 A `profile=<name>` argument adds `Profile: <name>` to each brief: the leaf runs `ask --profile`,
 host and auth from the vault.
+A `model=<m>` argument puts `--model <m>` on each brief's `ask` request line (an alias or wire id).
 
 Pick and fallback: `skills/subagent-workflows/references/cost-routing.md`.

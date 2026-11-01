@@ -1,6 +1,6 @@
 ---
 description: "Fan out code-worker subagents to finish a series of tasks — parallel (independent), sequential (plan with review gate per task), or auto. The multi-leaf counterpart to a single Agent dispatch."
-argument-hint: "[parallel | sequential | auto | team] <task1 | task2 | ...>  (tasks '|'-separated; blank reads the approved plan)"
+argument-hint: "[profile=<p>] [parallel|sequential|auto|team] <task | task …>"
 allowed-tools: Bash, Read, Grep, Glob, Edit, Write, Agent
 ---
 
@@ -22,6 +22,8 @@ gates from the skill before moving to the next task (sequential) or over the int
 Default agents: when the plan or task names no agent, set each leaf's `Agent:` from the "Default agent per
 task class" table in `skills/subagent-workflows/references/cost-routing.md`,
 or in-context when cost-routing says so.
+
+A `profile=<p>` token (stripped first) adds `Profile: <p>` to every leaf brief, as in `/coworkers`.
 
 `team` mode (`/code-workers team <goal>`): `code-worker` leaves with `Agent: gemini` scan (read-only, cites
 file:line) → `Agent: codex` reviews the list (KEEP/CHANGE/DROP) → STOP and show the reviewed list for the user's

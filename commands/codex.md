@@ -1,6 +1,6 @@
 ---
 description: "Codex via `claude-code codex <verb>` — bare `/codex` is an adversarial second-opinion diff review on a different model stack, saved as a memory-store report; a leading verb (`ask`, `review`, `transfer`, `status`, `result`, …) passes straight through."
-argument-hint: "[ask|resume|review|explore|transfer|status|tail|result|cancel|setup|catalog|profile|on|off] [args…] (bare = review --adversarial)"
+argument-hint: "[profile=<p>] [model=<m>] [<verb>] <args>  (bare = diff review)"
 allowed-tools: Bash
 ---
 
@@ -8,6 +8,10 @@ allowed-tools: Bash
 
 Launcher only. Verbs, procedure and the report contract live in `agents/codex.md`;
 `claude-code codex -h` lists the surface.
+
+`profile=<p>` / `model=<m>` anywhere in `$ARGUMENTS` (strip them first) become `--profile <p>` /
+`--model <m>` on the `claude-code codex <verb>` call or the routed `ask` (not on `profile`/`on`/`off`); a verb that
+lacks the flag errors, so relay that. `<p>` is a vault profile (`dev`, `qa`, `prod`, …), `<m>` an alias or wire id.
 
 1. First token of `$ARGUMENTS` picks the verb when it is one of `ask resume review explore
    transfer status tail result cancel setup catalog profile on off`; otherwise (including empty) the verb is
