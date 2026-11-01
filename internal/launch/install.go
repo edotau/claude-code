@@ -28,6 +28,7 @@ import (
 	"github.com/edotau/claude-code/internal/network/vscode"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/proxy"
 	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/setup"
 	"github.com/edotau/claude-code/internal/ui/ansi"
@@ -98,7 +99,7 @@ func DoctorChecks() (checks []Check, ok bool) {
 		check(true, false, q.Name, q.Detail)
 	}
 	check(true, false, "in-flight", inflightDoctorDetail())
-	check(true, false, "proxy", routerStatus())
+	check(true, false, "proxy", proxyStatus())
 	check(true, false, "rtk compressor", rtkDoctorStatus())
 	tsOK, tsDetail := tailscale.Doctor(context.Background())
 	check(tsOK, false, "tailscale", tsDetail)
@@ -375,16 +376,13 @@ func opencodeProviderByID(reg *providers.Registry, id string) *providers.Provide
 	return nil
 }
 
-func routerStatus() string {
-	b, err := os.ReadFile(filepath.Join(paths.StateDir(), "router.json"))
-	if err != nil {
+func proxyStatus() string {
+	st, err := proxy.ReadState()
+	if errors.Is(err, os.ErrNotExist) {
 		return "not running"
 	}
-	var st struct {
-		Port int `json:"port"`
-	}
-	if json.Unmarshal(b, &st) != nil || st.Port == 0 {
-		return "router.json unreadable"
+	if err != nil || st.Port == 0 {
+		return "proxy.json unreadable"
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
@@ -395,7 +393,7 @@ func routerStatus() string {
 	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return "stale router.json (port " + strconv.Itoa(st.Port) + " not answering)"
+		return "stale proxy.json (port " + strconv.Itoa(st.Port) + " not answering)"
 	}
 	_ = resp.Body.Close()
 	return fmt.Sprintf("port %d %s", st.Port, resp.Status)

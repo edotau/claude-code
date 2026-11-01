@@ -51,7 +51,7 @@ opencode-models-check | cache | 1 | state/harness/opencode-models-check.json | i
 opencode-overlay | derived | 1 | state/harness/opencode/*.json | internal/agentconfig | keep
 projections | derived | 1 | state/projections/* | internal/agent/project | clean:projections
 quota | derived | 0 | state/harness/quota.json | internal/router | keep
-router-runtime | record | 1 | state/harness/router.json | internal/proxy | keep
+router-runtime | record | 1 | state/harness/proxy.json | internal/proxy | keep
 router-sessions | record | 1 | state/harness/proxy/sessions.json | internal/proxy | keep
 served-models | cache | 1 | state/harness/preflight/*.json | internal/router | keep
 settings-overlay | derived | 1 | state/harness/overlay-*.json | internal/agent | keep
