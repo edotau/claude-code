@@ -1,4 +1,4 @@
-package memory
+package recall
 
 import (
 	"github.com/edotau/claude-code/internal/memory/bank"
@@ -13,7 +13,7 @@ func SearchBanks(root, query string, k int) []bank.SearchHit {
 
 // SearchBanksTerms ranks banks using the caller's pretokenized content terms.
 func SearchBanksTerms(root, query string, terms []string, k int) []bank.SearchHit {
-	files := append(bank.CorpusFiles(root), routedFiles(root, query)...)
+	files := append(bank.CorpusFiles(root), bank.RoutedFiles(root, query)...)
 	return bank.RankFiles(terms, k, files, loadSegments(files, true))
 }
 
@@ -23,7 +23,7 @@ func SearchAll(query string, k int) []bank.SearchHit {
 	if entries, err := memstore.RepoDirs(); err == nil {
 		for _, e := range entries {
 			if e.Key != memstore.HarnessStoreKey() {
-				files = append(files, storeFiles(e)...)
+				files = append(files, bank.StoreFiles(e)...)
 			}
 		}
 	}

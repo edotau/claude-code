@@ -1,4 +1,4 @@
-package memory
+package recall
 
 import (
 	"github.com/edotau/claude-code/internal/memory/bank"
@@ -55,7 +55,7 @@ func TestRoutedFilesExcludesOwnStore(t *testing.T) {
 	write(t, filepath.Join(da, "decisionLog.md"), "# D\n\n## 2026-01-01 — proja note\n\nbody\n")
 	write(t, filepath.Join(db, "decisionLog.md"), "# D\n\n## 2026-01-01 — projb note\n\nbody\n")
 
-	files := routedFiles(a, "proja projb")
+	files := bank.RoutedFiles(a, "proja projb")
 	var blocks []bank.SearchHit
 	for i, seg := range loadSegments(files, false) {
 		if seg == nil {

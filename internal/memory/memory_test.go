@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/edotau/claude-code/internal/memory/bank"
+	"github.com/edotau/claude-code/internal/memory/recall"
 	"os"
 	"path/filepath"
 	"strings"
@@ -97,17 +98,17 @@ func TestSearchBanksRanking(t *testing.T) {
 	write(t, filepath.Join(dir, "decisionLog.md"), "# D\n\n## 2026-01-01 — router retries on 429\n\nwhy: rate limits\n\n## 2026-01-02 — unrelated choice\n\nthe router is mentioned once\n")
 	write(t, filepath.Join(memstore.HomeBankDir(), "conventions.md"), "# C\n\n- keep commits small\n")
 	write(t, filepath.Join(dir, "archive", "sessionHistory-2025-12.md"), "# old\n\n## 2025-12-01 — 429 storm\n")
-	hits := SearchBanks(root, "the router 429", 0)
+	hits := recall.SearchBanks(root, "the router 429", 0)
 	if len(hits) != 3 || !strings.Contains(hits[0].Block, "retries on 429") || hits[0].Bank != "local" {
 		t.Fatalf("hits %+v", hits)
 	}
 	if hits[0].Title() != "2026-01-01 — router retries on 429" {
 		t.Errorf("title %q", hits[0].Title())
 	}
-	if g := SearchBanks(root, "commits", 5); len(g) != 1 || g[0].Bank != "home" {
+	if g := recall.SearchBanks(root, "commits", 5); len(g) != 1 || g[0].Bank != "home" {
 		t.Errorf("global hit %+v", g)
 	}
-	if SearchBanks(root, "the and of", 5) != nil {
+	if recall.SearchBanks(root, "the and of", 5) != nil {
 		t.Error("all-stopword query must return nothing")
 	}
 }
@@ -151,7 +152,7 @@ func mustRead(t *testing.T, p string) string {
 }
 
 func TestCapCharsBelowMarkerYieldsEmpty(t *testing.T) {
-	if got := CapChars("aaaa\nbbbb", 3); got != "" {
+	if got := bank.CapChars("aaaa\nbbbb", 3); got != "" {
 		t.Errorf("a cap below the marker length yields empty, got %q", got)
 	}
 }
@@ -162,7 +163,7 @@ func TestUpdateRecordsOutcome(t *testing.T) {
 	dir, _ := Init(root)
 	bin := t.TempDir()
 	ok := filepath.Join(bin, "claude-ok")
-	write(t, ok, "#!/bin/sh\n[ \"$"+UpdateChildEnv+"\" = 1 ] || exit 3\nsleep 0.01\nprintf '\\n## 2026-09-16 — updated-by-child\\n' >> "+filepath.Join(dir, "sessionHistory.md")+"\n")
+	write(t, ok, "#!/bin/sh\n[ \"$"+bank.UpdateChildEnv+"\" = 1 ] || exit 3\nsleep 0.01\nprintf '\\n## 2026-09-16 — updated-by-child\\n' >> "+filepath.Join(dir, "sessionHistory.md")+"\n")
 	bad := filepath.Join(bin, "claude-bad")
 	write(t, bad, "#!/bin/sh\nexit 1\n")
 	_ = os.Chmod(ok, 0o755)
@@ -204,7 +205,7 @@ func TestNativeTopicsJoinSearch(t *testing.T) {
 	write(t, filepath.Join(native, "gw.md"), "---\nname: gateway\ndescription: home gateway over ssh\n---\n\nRun the status script.\n")
 	write(t, filepath.Join(native, "MEMORY.md"), "- [gateway](gw.md) — home gateway over ssh status\n")
 	write(t, filepath.Join(native, "loose.md"), "gateway ssh status without frontmatter\n")
-	hits := SearchBanks(root, "gateway ssh status", 0)
+	hits := recall.SearchBanks(root, "gateway ssh status", 0)
 	if len(hits) != 1 || hits[0].Bank != "native" || hits[0].File != "gw.md" || hits[0].Matched != 3 {
 		t.Fatalf("want only the frontmatter topic, matching 3 terms; got %+v", hits)
 	}
@@ -217,33 +218,33 @@ func TestSeenSetTracksInjectedBlocks(t *testing.T) {
 	tempConfig(t)
 	root := t.TempDir()
 	write(t, filepath.Join(memstore.HomeBankDir(), "conventions.md"), "# C\n\n- injected rule\n  continues here\n- other rule\n")
-	ResetSeen("11111111-1111-1111-1111-111111111111", root, "<!-- surface -->\n- injected   rule\ncontinues here\n")
-	seen := SeenBlocks("11111111-1111-1111-1111-111111111111")
-	if !seen[BlockKey("- injected rule\n  continues here")] || seen[BlockKey("- other rule")] || len(seen) != 1 {
+	recall.ResetSeen("11111111-1111-1111-1111-111111111111", root, "<!-- surface -->\n- injected   rule\ncontinues here\n")
+	seen := recall.SeenBlocks("11111111-1111-1111-1111-111111111111")
+	if !seen[recall.BlockKey("- injected rule\n  continues here")] || seen[recall.BlockKey("- other rule")] || len(seen) != 1 {
 		t.Fatalf("seen after reset: %v", seen)
 	}
-	MarkSeen("11111111-1111-1111-1111-111111111111", []bank.SearchHit{{Block: "- other rule"}})
-	if !SeenBlocks("11111111-1111-1111-1111-111111111111")[BlockKey("- other rule")] {
-		t.Error("MarkSeen did not record the hit")
+	recall.MarkSeen("11111111-1111-1111-1111-111111111111", []bank.SearchHit{{Block: "- other rule"}})
+	if !recall.SeenBlocks("11111111-1111-1111-1111-111111111111")[recall.BlockKey("- other rule")] {
+		t.Error("recall.MarkSeen did not record the hit")
 	}
-	ResetSeen("11111111-1111-1111-1111-111111111111", root, "")
-	if len(SeenBlocks("11111111-1111-1111-1111-111111111111")) != 0 {
+	recall.ResetSeen("11111111-1111-1111-1111-111111111111", root, "")
+	if len(recall.SeenBlocks("11111111-1111-1111-1111-111111111111")) != 0 {
 		t.Error("a SessionStart (e.g. after compact) must clear what recall injected")
 	}
 	for _, bad := range []string{"", ".."} {
-		MarkSeen(bad, []bank.SearchHit{{Block: "x"}})
-		if len(SeenBlocks(bad)) != 0 {
+		recall.MarkSeen(bad, []bank.SearchHit{{Block: "x"}})
+		if len(recall.SeenBlocks(bad)) != 0 {
 			t.Errorf("session id %q must be a no-op", bad)
 		}
 	}
 }
 
-// credentialPattern is the coarse memory tripwire: ghs_ with 10+ body characters is caught, a short stub is not.
+// bank.CredentialPattern is the coarse memory tripwire: ghs_ with 10+ body characters is caught, a short stub is not.
 func TestCredentialPatternGitHubShapes(t *testing.T) {
-	if !credentialPattern.MatchString("token ghs_abcdefghij12 leaked") {
+	if !bank.CredentialPattern.MatchString("token ghs_abcdefghij12 leaked") {
 		t.Error("ghs_ + 12 chars must match")
 	}
-	if credentialPattern.MatchString("see ghs_abc for the format") {
+	if bank.CredentialPattern.MatchString("see ghs_abc for the format") {
 		t.Error("ghs_abc is too short to be a token")
 	}
 }
@@ -274,7 +275,7 @@ func TestCompoundMatchFindsHyphenatedAndSubstringTerms(t *testing.T) {
 		"## exact candidate\nAgent routing stays on the local classifier\n\n"+
 		"## unrelated entry\nnothing to do with either term\n")
 
-	hits := SearchBanks(repo, "agent routing", 0)
+	hits := recall.SearchBanks(repo, "agent routing", 0)
 	var compoundScore, exactScore float64
 	var compoundMatched, exactMatched int
 	var compoundSeen, exactSeen bool
@@ -304,7 +305,7 @@ func TestCompoundMatchFindsHyphenatedAndSubstringTerms(t *testing.T) {
 		t.Errorf("exact match score %v did not outrank the compound match score %v", exactScore, compoundScore)
 	}
 
-	hyphen := SearchBanks(repo, "agent-routing", 0)
+	hyphen := recall.SearchBanks(repo, "agent-routing", 0)
 	var hyphenHitsCompound, hyphenHitsExact bool
 	for _, h := range hyphen {
 		if strings.Contains(h.Block, "Subagent routing") {

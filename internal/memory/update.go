@@ -242,7 +242,7 @@ func Update(o UpdateOptions) error {
 				runErr = perr
 				return nil
 			}
-			_ = os.Setenv(UpdateChildEnv, "1") // a Claude fallback dispatch must not re-trigger hooks; cannot fail for a fixed key
+			_ = os.Setenv(bank.UpdateChildEnv, "1") // a Claude fallback dispatch must not re-trigger hooks; cannot fail for a fixed key
 			who, err := o.Run(ctx, prompt, o.CWD)
 			runErr = err
 			fmt.Fprintln(o.Out, "memory update: ran on", who)
@@ -250,7 +250,7 @@ func Update(o UpdateOptions) error {
 		}
 		cmd := exec.CommandContext(ctx, o.Claude, "-p", fmt.Sprintf(UpdatePrompt, o.Transcript)+tagBlock(o.Transcript), "--max-turns", "40")
 		cmd.Dir = o.CWD
-		cmd.Env = append(os.Environ(), UpdateChildEnv+"=1")
+		cmd.Env = append(os.Environ(), bank.UpdateChildEnv+"=1")
 		// A stored setup-token keeps the unattended update working after the interactive /login session expires.
 		if os.Getenv(providers.OAuthTokenEnv) == "" {
 			if tok := providers.HeadlessOAuthToken(); tok != "" {

@@ -1,4 +1,4 @@
-package memory
+package recall
 
 import (
 	"bufio"
@@ -13,8 +13,7 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 )
 
-// AccessLogFile is the append-only recall trace beside a bank: one line per read, the signal
-// `AccessNominations` reads. Bank-adjacent beacon — NOT a typed memory file; never injected.
+// AccessLogFile is the append-only access trace; it never enters the injected bank.
 const AccessLogFile = "access.log"
 
 // Access reasons distinguishing recall injections from explicit CLI returns.
@@ -34,8 +33,7 @@ const (
 	accessLockWait    = 500 * time.Millisecond
 )
 
-// LogAccess appends one `<RFC3339> -- <entry> -- <reason>` line to dir's access log. Fail-open:
-// errors are swallowed. A credential-shaped reason is redacted whole (unscanned-sink risk).
+// LogAccess appends one read to dir's log, failing open and redacting credential-shaped reasons.
 func LogAccess(dir string, now time.Time, entry, reason string) {
 	LogAccessBatch(dir, now, []string{entry}, reason)
 }
@@ -45,7 +43,7 @@ func LogAccessBatch(dir string, now time.Time, entries []string, reason string) 
 	if dir == "" || len(entries) == 0 {
 		return
 	}
-	if credentialPattern.MatchString(reason) {
+	if bank.CredentialPattern.MatchString(reason) {
 		reason = "(reason redacted — credential-shaped)"
 	}
 	var lines strings.Builder
@@ -107,8 +105,7 @@ func maybeRotateAccessLog(path string, now time.Time) {
 	_ = os.Rename(path, path+".1")
 }
 
-// sanitizeField makes a value single-line, bounded, delimiter-free: "--" becomes an em dash so a
-// crafted value can't shift fields.
+// sanitizeField bounds a value to one line and replaces delimiters so input cannot shift fields.
 func sanitizeField(s string, max int) string {
 	s = strings.ReplaceAll(s, "--", "—")
 	s = strings.Join(strings.Fields(s), " ")
@@ -118,8 +115,7 @@ func sanitizeField(s string, max int) string {
 	return s
 }
 
-// maybeTrimAccessLog bounds the log: past the size cap, atomically rewrite keeping only the newest
-// lines fitting HALF the byte cap — the hysteresis keeps read+rewrite amortized O(1) between trims.
+// maybeTrimAccessLog keeps the newest lines within half the byte cap once the full cap is exceeded.
 func maybeTrimAccessLog(path string) {
 	fi, err := os.Stat(path)
 	if err != nil || fi.Size() <= accessLogMaxByte {
@@ -142,16 +138,14 @@ func maybeTrimAccessLog(path string) {
 	_ = paths.AtomicWrite(path, []byte(strings.Join(lines[keep:], "\n")+"\n"), 0o600)
 }
 
-// AccessStat is one entry's recall profile: total accesses, distinct UTC days within the caller's
-// window (0 when no window given), and the newest access.
+// AccessStat counts an entry's reads, distinct in-window UTC days and newest access.
 type AccessStat struct {
 	Count  int
 	Days   int
 	Newest time.Time
 }
 
-// accessStatsAt parses the log path and its rotated generations (.3, .2, .1, active) into entry → AccessStat (Days =
-// distinct UTC days in (now-windowDays, now]); 2nd return is the OLDEST timestamp, which the cold-entry gate needs.
+// accessStatsAt folds rotated logs into entry counts and returns the oldest timestamp for the cold-entry gate.
 func accessStatsAt(path string, now time.Time, windowDays int) (map[string]AccessStat, time.Time) {
 	windowStart := time.Time{}
 	if windowDays > 0 && !now.IsZero() {
@@ -273,8 +267,7 @@ func LogShown(path, id, reason string, now time.Time) {
 	LogAccess(dir, now, id, reason)
 }
 
-// AccessLogPath is dir's recall trace: state/harness/memory/access/<key>.log for a store dir (state, never
-// memory history), else access.log beside the bank.
+// AccessLogPath puts store traces in state/harness/memory/access, otherwise beside the bank.
 func AccessLogPath(dir string) string {
 	if rel, ok := memstore.InsideStore(dir); ok {
 		key := strings.ReplaceAll(rel, string(filepath.Separator), "_")

@@ -6,6 +6,8 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"github.com/edotau/claude-code/internal/memory/recall"
+	embedding "github.com/edotau/claude-code/internal/memory/recall/embed"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -158,14 +160,14 @@ func searchHits(repo string, all bool, q string, k int) ([]bank.SearchHit, strin
 	root := memoryRoot(repo)
 	switch {
 	case all:
-		return memory.SearchAll(q, k), root
+		return recall.SearchAll(q, k), root
 	case repo != "": // a store name from the catalog, else a checkout path
 		if e, ok := memstore.RepoByName(repo); ok && e.Origin.Origin != "" {
 			root = e.Origin.Origin
 		}
-		return memory.SearchBanks(root, q, k), root
+		return recall.SearchBanks(root, q, k), root
 	default:
-		return memory.SearchBanks(root, q, k), root
+		return recall.SearchBanks(root, q, k), root
 	}
 }
 
@@ -187,13 +189,13 @@ func cmdMemorySearch(args []string) int {
 	now := time.Now()
 	if len(terms) == 1 && *format != helptext.JSON && memoryIDRef.MatchString(terms[0]) {
 		if path, block, err := bank.ShowBlock(terms[0]); err == nil { // a recall pointer's id expands in place
-			memory.LogShown(path, terms[0], memory.AccessSearch, now)
+			recall.LogShown(path, terms[0], recall.AccessSearch, now)
 			fmt.Printf("<!-- %s -->\n%s\n", path, strings.TrimSpace(block))
 			return 0
 		}
 	}
 	hits, root := searchHits(*repo, *all, strings.Join(terms, " "), *k)
-	memory.LogHits(root, hits, memory.AccessSearch, now)
+	recall.LogHits(root, hits, recall.AccessSearch, now)
 	if *format == helptext.JSON {
 		if err := helptext.WriteJSON(os.Stdout, hits); err != nil {
 			return fail("memory search: %v", err)
@@ -228,7 +230,7 @@ func cmdMemoryShow(args []string) int {
 	if err != nil {
 		return fail("memory show %s: %v", fs.Arg(0), err)
 	}
-	memory.LogShown(path, fs.Arg(0), memory.AccessShow, time.Now())
+	recall.LogShown(path, fs.Arg(0), recall.AccessShow, time.Now())
 	fmt.Printf("<!-- %s -->\n%s\n", path, strings.TrimSpace(block))
 	return 0
 }
@@ -241,7 +243,7 @@ func cmdMemoryIndex(args []string) int {
 		return code
 	}
 	root := memoryRoot(*repo)
-	profile := cmp.Or(memory.EmbedProfile(), providers.SessionProfile())
+	profile := cmp.Or(embedding.EmbedProfile(), providers.SessionProfile())
 	if *reembed {
 		if code := reembedGate(profile, time.Now()); code != 0 {
 			return code
@@ -275,7 +277,7 @@ func reembedGate(profile string, now time.Time) int {
 	if profile == "" {
 		return 0
 	}
-	at, open, err := memory.ReembedWindow(profile, now)
+	at, open, err := embedding.ReembedWindow(profile, now)
 	if err != nil {
 		return fail("memory index --reembed: %v", err)
 	}
@@ -289,18 +291,18 @@ func reembedGate(profile string, now time.Time) int {
 func embedIndex(root, profile string, reembed bool) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
-	c, err := memory.OpenEmbedClient(ctx, profile, "")
+	c, err := embedding.OpenEmbedClient(ctx, profile, "")
 	if err == nil {
 		var n, total int
-		embed := memory.EmbedEntries
+		embed := embedding.EmbedEntries
 		if reembed {
-			embed = memory.ReembedEntries
+			embed = embedding.ReembedEntries
 		}
 		if n, total, err = embed(ctx, root, c); err == nil && n > 0 {
 			fmt.Printf("embedded %d of %d entries (%s)\n", n, total, c.Model)
 		}
 	}
-	if err != nil && !errors.Is(err, memory.ErrEmbedValid) { // a valid cache is the normal case, not a skip
+	if err != nil && !errors.Is(err, embedding.ErrEmbedValid) { // a valid cache is the normal case, not a skip
 		fmt.Fprintf(os.Stderr, "memory index: embeddings skipped: %v\n", err)
 	}
 }

@@ -1,7 +1,8 @@
-package memory
+package recall
 
 import (
 	"github.com/edotau/claude-code/internal/memory/bank"
+	"github.com/edotau/claude-code/internal/memory/recall/embed"
 	"sort"
 	"strings"
 )
@@ -100,7 +101,7 @@ func recallCut(s string, limit int) string {
 }
 
 // selectRecall consults archives only when no current entry passes the relevance gates.
-func selectRecall(sessionID string, terms []string, ranked []bank.SearchHit, sem *Semantic, semSeen bool, counts map[string]int, trace *RecallTrace) []RecallPick {
+func selectRecall(sessionID string, terms []string, ranked []bank.SearchHit, sem *embed.Semantic, semSeen bool, counts map[string]int, trace *RecallTrace) []RecallPick {
 	need := recallNeed(terms)
 	seen := SeenBlocks(sessionID)
 	if trace != nil {
@@ -125,7 +126,7 @@ func selectRecall(sessionID string, terms []string, ranked []bank.SearchHit, sem
 }
 
 // pickTier applies the gates before access boosts, then chooses the best final scores.
-func pickTier(ranked []bank.SearchHit, archived bool, need int, seen map[string]bool, sem *Semantic, counts map[string]int, trace *RecallTrace) ([]RecallPick, bool) {
+func pickTier(ranked []bank.SearchHit, archived bool, need int, seen map[string]bool, sem *embed.Semantic, counts map[string]int, trace *RecallTrace) ([]RecallPick, bool) {
 	cands, top := recallTier(ranked, archived, need)
 	pool := recallPool(cands, top, need, sem, trace)
 	orderRecall(pool)
@@ -177,7 +178,7 @@ func recallTier(ranked []bank.SearchHit, archived bool, need int) ([]RecallPick,
 	return cands, top
 }
 
-func scoreRecall(c RecallPick, top float64, admitted bool, sem *Semantic) (float64, bool) {
+func scoreRecall(c RecallPick, top float64, admitted bool, sem *embed.Semantic) (float64, bool) {
 	kw := 0.0
 	if top > 0 {
 		kw = min(c.Hit.Score/top, 1)
@@ -193,7 +194,7 @@ func scoreRecall(c RecallPick, top float64, admitted bool, sem *Semantic) (float
 	return blend, admitted || cos >= recallCosineAdmit
 }
 
-func recallPool(cands []RecallPick, top float64, need int, sem *Semantic, trace *RecallTrace) []RecallPick {
+func recallPool(cands []RecallPick, top float64, need int, sem *embed.Semantic, trace *RecallTrace) []RecallPick {
 	var pool []RecallPick
 	for _, c := range cands {
 		kwOK := c.Hit.Matched >= need && c.Hit.Score >= top*recallScoreFloor

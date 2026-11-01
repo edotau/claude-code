@@ -1,4 +1,4 @@
-package memory
+package embed
 
 import (
 	"context"
@@ -18,7 +18,7 @@ import (
 
 // leaseClient embeds each text as a 3-dim vector and counts the texts sent.
 func leaseClient(calls *int, hook func()) *EmbedClient {
-	return &EmbedClient{Profile: "fake", Model: "fake-gte", Namespace: "fake|h|fake-gte", Embed: func(_ context.Context, texts []string) ([][]float32, error) {
+	return &EmbedClient{Profile: "fake", Model: "fake-gte", Namespace: "fake|h|fake-gte", EmbedFunc: func(_ context.Context, texts []string) ([][]float32, error) {
 		*calls += len(texts)
 		if hook != nil {
 			hook()
@@ -32,7 +32,7 @@ func leaseClient(calls *int, hook func()) *EmbedClient {
 }
 
 // backdate rewrites the record's MintedAt to age ago.
-func backdate(t *testing.T, age time.Duration) embedCacheFile {
+func backdate(t *testing.T, age time.Duration) VectorRecord {
 	t.Helper()
 	f := loadEmbedCache("fake")
 	f.MintedAt = time.Now().Add(-age).UnixNano()
@@ -107,7 +107,7 @@ func TestEmbedLeaseEndToEnd(t *testing.T) {
 		f := loadEmbedCache("fake")
 		f.MintedAt = time.Now().UnixNano()
 		winner = f.MintedAt
-		f.Rows = map[string]embedRow{"winner": {Hash: "w", Vec: encodeVec([]float32{1, 0, 0})}}
+		f.Rows = map[string]VectorRow{"winner": {Hash: "w", Vec: encodeVec([]float32{1, 0, 0})}}
 		if err := saveEmbedCache("fake", f); err != nil {
 			t.Error(err)
 		}
@@ -120,7 +120,7 @@ func TestEmbedLeaseEndToEnd(t *testing.T) {
 
 	// (f) a partial run (embed error) leaves MintedAt unchanged
 	old = backdate(t, 2*time.Hour)
-	failing := &EmbedClient{Profile: "fake", Model: c.Model, Namespace: c.Namespace, Embed: func(context.Context, []string) ([][]float32, error) {
+	failing := &EmbedClient{Profile: "fake", Model: c.Model, Namespace: c.Namespace, EmbedFunc: func(context.Context, []string) ([][]float32, error) {
 		return nil, errors.New("boom")
 	}}
 	if _, _, err = EmbedEntries(ctx, root, failing); err == nil {
@@ -184,7 +184,7 @@ func TestEmbedBusyClaimBlocksEveryRun(t *testing.T) {
 	other := t.TempDir() // a second root with no entries of its own: nothing is pending for it
 	old := backdate(t, embedValidity+time.Minute)
 	now := time.Now()
-	if _, ok, err := claimEmbedMint("fake", 42, now, now.Add(time.Minute)); err != nil || !ok {
+	if _, ok, err := vectorStore.Claim("fake", 42, now, now.Add(time.Minute)); err != nil || !ok {
 		t.Fatalf("seed claim: ok=%v err=%v", ok, err)
 	}
 	before := calls
@@ -241,7 +241,7 @@ func TestEmbedSupersededIsReported(t *testing.T) {
 	c := leaseClient(&calls, func() {
 		f := loadEmbedCache("fake")
 		f.MintedAt = time.Now().UnixNano()
-		f.Rows = map[string]embedRow{"winner": {Hash: "w", Vec: encodeVec([]float32{1, 0, 0})}}
+		f.Rows = map[string]VectorRow{"winner": {Hash: "w", Vec: encodeVec([]float32{1, 0, 0})}}
 		if err := saveEmbedCache("fake", f); err != nil {
 			t.Error(err)
 		}
@@ -319,29 +319,29 @@ func TestNewSemanticReadErrorFallsBackToPin(t *testing.T) {
 	t.Setenv("CLAUDE_RECALL_SEMANTIC", "")
 	t.Setenv("CLAUDE_PROFILE", "qa")
 	vaulttest.SetRecord(t, "claude", "profile", "dev")
-	f := embedCacheFile{Namespace: "dev|h|gte", Model: "gte", Rows: map[string]embedRow{"aaaa0001": {Hash: "h", Vec: encodeVec([]float32{1, 0, 0})}}}
+	f := VectorRecord{Namespace: "dev|h|gte", Model: "gte", Rows: map[string]VectorRow{"aaaa0001": {Hash: "h", Vec: encodeVec([]float32{1, 0, 0})}}}
 	if err := saveEmbedCache("dev", f); err != nil {
 		t.Fatal(err)
 	}
-	prevRead, prevOpen := readProfileCache, OpenEmbedClient
-	t.Cleanup(func() { readProfileCache, OpenEmbedClient = prevRead, prevOpen })
-	readProfileCache = func(profile string) (embedCacheFile, error) {
+	prevRead, prevOpen := ReadProfileCache, OpenEmbedClient
+	t.Cleanup(func() { ReadProfileCache, OpenEmbedClient = prevRead, prevOpen })
+	ReadProfileCache = func(profile string) (VectorRecord, error) {
 		if profile == "qa" {
-			return embedCacheFile{}, errors.New("timeout")
+			return VectorRecord{}, errors.New("timeout")
 		}
 		return prevRead(profile)
 	}
 	var opened string
 	OpenEmbedClient = func(_ context.Context, profile, model string) (*EmbedClient, error) {
 		opened = profile
-		return &EmbedClient{Profile: profile, Model: model, Namespace: "dev|h|gte", Embed: func(context.Context, []string) ([][]float32, error) {
+		return &EmbedClient{Profile: profile, Model: model, Namespace: "dev|h|gte", EmbedFunc: func(context.Context, []string) ([][]float32, error) {
 			return [][]float32{{1, 0, 0}}, nil
 		}}, nil
 	}
 	if _, err := NewSemantic("q"); err != nil || opened != "dev" {
 		t.Fatalf("qa unreadable: opened %q err %v, want the pinned dev profile", opened, err)
 	}
-	readProfileCache = func(string) (embedCacheFile, error) { return embedCacheFile{}, errors.New("timeout") }
+	ReadProfileCache = func(string) (VectorRecord, error) { return VectorRecord{}, errors.New("timeout") }
 	if _, err := NewSemantic("q"); err == nil || !strings.Contains(err.Error(), "unreadable") {
 		t.Fatalf("every profile unreadable: err %v, want 'unreadable'", err)
 	}
@@ -352,7 +352,7 @@ func TestNewSemanticSuccessKeepsFreshBackoffMarker(t *testing.T) {
 	isolatedConfig1(t)
 	t.Setenv("CLAUDE_RECALL_SEMANTIC", "")
 	t.Setenv("CLAUDE_PROFILE", "fake")
-	f := embedCacheFile{Namespace: "fake|h|gte", Model: "gte", Rows: map[string]embedRow{"aaaa0001": {Hash: "h", Vec: encodeVec([]float32{1, 0, 0})}}}
+	f := VectorRecord{Namespace: "fake|h|gte", Model: "gte", Rows: map[string]VectorRow{"aaaa0001": {Hash: "h", Vec: encodeVec([]float32{1, 0, 0})}}}
 	if err := saveEmbedCache("fake", f); err != nil {
 		t.Fatal(err)
 	}
@@ -366,7 +366,7 @@ func TestNewSemanticSuccessKeepsFreshBackoffMarker(t *testing.T) {
 	prev := OpenEmbedClient
 	t.Cleanup(func() { OpenEmbedClient = prev })
 	OpenEmbedClient = func(_ context.Context, profile, model string) (*EmbedClient, error) {
-		return &EmbedClient{Profile: profile, Model: model, Namespace: "fake|h|gte", Embed: func(context.Context, []string) ([][]float32, error) {
+		return &EmbedClient{Profile: profile, Model: model, Namespace: "fake|h|gte", EmbedFunc: func(context.Context, []string) ([][]float32, error) {
 			if midQuery != nil {
 				midQuery()
 			}

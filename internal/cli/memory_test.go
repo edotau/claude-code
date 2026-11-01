@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/edotau/claude-code/internal/memory/recall"
+	"github.com/edotau/claude-code/internal/memory/recall/embed"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -669,15 +671,15 @@ func TestMemoryShowAndSearchLogAccess(t *testing.T) {
 		t.Fatalf("memory search: code=%d out=%q", code, out)
 	}
 
-	data, err := os.ReadFile(memory.AccessLogPath(memstore.HomeBankDir()))
+	data, err := os.ReadFile(recall.AccessLogPath(memstore.HomeBankDir()))
 	if err != nil {
 		t.Fatal(err)
 	}
 	log := string(data)
-	if !strings.Contains(log, "abcd1234 -- "+memory.AccessShow) {
+	if !strings.Contains(log, "abcd1234 -- "+recall.AccessShow) {
 		t.Errorf("show return not logged id-keyed: %q", log)
 	}
-	if !strings.Contains(log, "abcd1234 -- "+memory.AccessSearch) {
+	if !strings.Contains(log, "abcd1234 -- "+recall.AccessSearch) {
 		t.Errorf("search return not logged id-keyed: %q", log)
 	}
 }
@@ -687,9 +689,9 @@ func TestEmbedIndexAndGateUseTheResolvedProfile(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv("CLAUDE_PROFILE", "session")
 	var opened string
-	prev := memory.OpenEmbedClient
-	t.Cleanup(func() { memory.OpenEmbedClient = prev })
-	memory.OpenEmbedClient = func(_ context.Context, profile, _ string) (*memory.EmbedClient, error) {
+	prev := embed.OpenEmbedClient
+	t.Cleanup(func() { embed.OpenEmbedClient = prev })
+	embed.OpenEmbedClient = func(_ context.Context, profile, _ string) (*embed.EmbedClient, error) {
 		opened = profile
 		return nil, errors.New("stub")
 	}

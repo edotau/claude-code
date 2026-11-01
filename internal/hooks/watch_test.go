@@ -2,6 +2,7 @@ package hooks
 
 import (
 	"bytes"
+	"github.com/edotau/claude-code/internal/memory/bank"
 	"io"
 	"os"
 	"os/exec"
@@ -11,7 +12,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/memstore"
 )
 
@@ -123,7 +123,7 @@ func TestIdleUpdateOnceCountsSubagentEdits(t *testing.T) {
 // The Stop gate claims one watcher per session at its first dispatch — never a second.
 func TestSessionUpdateSpawnsOneIdleWatcherPerSession(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	t.Setenv(memory.UpdateChildEnv, "")
+	t.Setenv(bank.UpdateChildEnv, "")
 	tr := filepath.Join(t.TempDir(), "t.jsonl")
 	cwd := t.TempDir()
 	writeEdits(t, tr, 6)

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/edotau/claude-code/internal/memory/bank"
 	"io"
 	"os"
 	"path/filepath"
@@ -14,7 +15,6 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/settings"
 )
@@ -310,7 +310,7 @@ func TestRunDirectCapsContext(t *testing.T) {
 func TestSessionStartDriftLine(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv("HARNESS_VAULT_KEY", "0123456789abcdef0123456789abcdef")
-	t.Setenv(memory.UpdateChildEnv, "")
+	t.Setenv(bank.UpdateChildEnv, "")
 	orig := defaultsDrift
 	t.Cleanup(func() { defaultsDrift = orig })
 	cases := []struct {

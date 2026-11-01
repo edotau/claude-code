@@ -2,6 +2,7 @@ package memory
 
 import (
 	"github.com/edotau/claude-code/internal/memory/bank"
+	"github.com/edotau/claude-code/internal/memory/recall"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -16,7 +17,7 @@ import (
 func TestAccessLogPathMovesToStateAfterCutover(t *testing.T) {
 	isolatedConfig(t)
 	legacy := filepath.Join(t.TempDir(), "bank")
-	if got := AccessLogPath(legacy); got != filepath.Join(legacy, AccessLogFile) {
+	if got := recall.AccessLogPath(legacy); got != filepath.Join(legacy, recall.AccessLogFile) {
 		t.Fatalf("pre-cutover path = %s, want beside the bank", got)
 	}
 	initStore(t)
@@ -25,12 +26,12 @@ func TestAccessLogPathMovesToStateAfterCutover(t *testing.T) {
 		filepath.Join(memstore.StoreDir(), ".claude"): ".claude.log",
 		filepath.Join(memstore.StoreDir(), "repo-a"):  "repo-a.log",
 	} {
-		if got := AccessLogPath(dir); got != filepath.Join(memstore.AccessStateDir(), want) {
-			t.Errorf("AccessLogPath(%s) = %s, want %s", dir, got, want)
+		if got := recall.AccessLogPath(dir); got != filepath.Join(memstore.AccessStateDir(), want) {
+			t.Errorf("recall.AccessLogPath(%s) = %s, want %s", dir, got, want)
 		}
 	}
-	LogAccess(filepath.Join(memstore.StoreDir(), "repo-a"), time.Now(), "aa11bb22", "read")
-	if _, err := os.Stat(filepath.Join(memstore.StoreDir(), "repo-a", AccessLogFile)); !os.IsNotExist(err) {
+	recall.LogAccess(filepath.Join(memstore.StoreDir(), "repo-a"), time.Now(), "aa11bb22", "read")
+	if _, err := os.Stat(filepath.Join(memstore.StoreDir(), "repo-a", recall.AccessLogFile)); !os.IsNotExist(err) {
 		t.Errorf("access.log written inside the store: %v", err)
 	}
 	if data, _ := os.ReadFile(filepath.Join(memstore.AccessStateDir(), "repo-a.log")); !strings.Contains(string(data), "aa11bb22") {
@@ -44,7 +45,7 @@ func TestKnowledgeIsSearchedAndCataloged(t *testing.T) {
 	initStore(t)
 	write(t, filepath.Join(memstore.KnowledgeDir(memstore.HomeBankDir()), "README.md"), "# Knowledge\nzebracorn readme\n")
 	write(t, filepath.Join(memstore.KnowledgeDir(memstore.HomeBankDir()), "zebra.md"), "# Zebra\nZebracorn invariant: probes never ship.\n")
-	hits := SearchBanks(t.TempDir(), "zebracorn invariant probes", 5)
+	hits := recall.SearchBanks(t.TempDir(), "zebracorn invariant probes", 5)
 	if len(hits) == 0 || hits[0].Bank != "knowledge" || hits[0].File != "zebra.md" {
 		t.Fatalf("knowledge not ranked first: %+v", hits)
 	}
@@ -71,7 +72,7 @@ func TestRepoBankKnowledgeIsCatalogedAndSearched(t *testing.T) {
 	}
 	write(t, filepath.Join(memstore.KnowledgeDir(memstore.Dir(root)), "README.md"), "# Knowledge\nnarwhal readme\n")
 	write(t, filepath.Join(memstore.KnowledgeDir(memstore.Dir(root)), "narwhal.md"), "# Narwhal\nNarwhalcorn invariant: tusks never ship.\n")
-	hits := SearchBanks(root, "narwhalcorn invariant tusks", 5)
+	hits := recall.SearchBanks(root, "narwhalcorn invariant tusks", 5)
 	if len(hits) == 0 || hits[0].Bank != "knowledge" || hits[0].File != "narwhal.md" {
 		t.Fatalf("repo bank knowledge not ranked first: %+v", hits)
 	}
@@ -87,7 +88,7 @@ func TestLegacyDocsKnowledgeIgnored(t *testing.T) {
 	cfg, _ := isolatedConfig(t)
 	initStore(t)
 	write(t, filepath.Join(cfg, "docs", "knowledge", "yak.md"), "# Yak\nYakcorn invariant: wool never ships.\n")
-	if hits := SearchBanks(t.TempDir(), "yakcorn invariant wool", 5); len(hits) != 0 {
+	if hits := recall.SearchBanks(t.TempDir(), "yakcorn invariant wool", 5); len(hits) != 0 {
 		t.Errorf("legacy docs/knowledge note was searched: %+v", hits)
 	}
 	c, err := bank.BuildCatalog(time.Now())

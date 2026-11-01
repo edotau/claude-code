@@ -1,6 +1,8 @@
 package hooks
 
 import (
+	"github.com/edotau/claude-code/internal/memory/bank"
+	"github.com/edotau/claude-code/internal/memory/recall/embed"
 	"os"
 	"path/filepath"
 	"time"
@@ -94,10 +96,10 @@ func refreshEmbeddings(cwd string) {
 	if cwd == "" {
 		cwd, _ = os.Getwd()
 	}
-	if memory.IsUpdateChild() || !memory.HasBank(cwd) {
+	if bank.IsUpdateChild() || !memory.HasBank(cwd) {
 		return
 	}
-	if profile := memory.EmbedProfile(); profile != "" {
-		memory.RefreshEmbeddings(cwd, profile, time.Now())
+	if profile := embed.EmbedProfile(); profile != "" {
+		embed.RefreshEmbeddings(cwd, profile, time.Now())
 	}
 }

@@ -1,4 +1,4 @@
-package memory
+package embed
 
 import (
 	"github.com/edotau/claude-code/internal/memory/bank"

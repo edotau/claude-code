@@ -3,13 +3,13 @@ package hooks
 import (
 	"bytes"
 	"encoding/json"
+	"github.com/edotau/claude-code/internal/memory/bank"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/memstore"
 )
 
@@ -39,7 +39,7 @@ func recallAs(t *testing.T, session, prompt, cwd string) string {
 
 func TestMemoryRecall(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	t.Setenv(memory.UpdateChildEnv, "")
+	t.Setenv(bank.UpdateChildEnv, "")
 	cwd := t.TempDir()
 	long := strings.Repeat("alpha bravo charlie delta padding ", 40)
 	body := "# Conventions\n\n- alpha bravo charlie delta strong match " + long + "\n- alpha weak\n- unrelated rule entirely\n"
@@ -61,7 +61,7 @@ func TestMemoryRecall(t *testing.T) {
 	if strings.Contains(got, "alpha weak") || len([]rune(got)) > 1500 || !strings.Contains(got, "…") {
 		t.Errorf("floor, total cap or per-hit cap not applied (%d chars): %q", len([]rune(got)), got)
 	}
-	t.Setenv(memory.UpdateChildEnv, "1")
+	t.Setenv(bank.UpdateChildEnv, "1")
 	if recall(t, "alpha bravo charlie delta", cwd) != "" {
 		t.Error("an update worker's prompts must not recall")
 	}
@@ -69,7 +69,7 @@ func TestMemoryRecall(t *testing.T) {
 
 func TestMemoryRecallSkipsWhatIsInContext(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	t.Setenv(memory.UpdateChildEnv, "")
+	t.Setenv(bank.UpdateChildEnv, "")
 	cwd := t.TempDir()
 	for name, body := range map[string]string{
 		"activeContext.md": "# Active\n\n## Current Focus\n\n- alpha bravo charlie delta already in context\n",
@@ -83,7 +83,7 @@ func TestMemoryRecallSkipsWhatIsInContext(t *testing.T) {
 		}
 	}
 	// session_id must be UUID-shaped: memoryContext's ResetSeen (which seeds the dedup set this test
-	// exercises) only fires for a real session id, not a bare probe/test token (memory.LooksLikeSessionID).
+	// exercises) only fires for a real session id, not a bare probe/test token (recall.LooksLikeSessionID).
 	const sessionS = "44444444-4444-4444-8444-444444444444"
 	const sessionT = "55555555-5555-4555-8555-555555555555"
 	raw, _ := json.Marshal(map[string]string{"cwd": cwd, "session_id": sessionS})
@@ -107,7 +107,7 @@ func TestMemoryRecallSkipsWhatIsInContext(t *testing.T) {
 // swallowed with _, leaving root empty and degrading recall accuracy.
 func TestMemoryRecallHandlesCwdGracefully(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	t.Setenv(memory.UpdateChildEnv, "")
+	t.Setenv(bank.UpdateChildEnv, "")
 	cwd := t.TempDir()
 
 	// Create a memory bank with searchable content.

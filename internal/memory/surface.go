@@ -20,28 +20,9 @@ const (
 	indexCapChars = 2500
 )
 
-const truncatedNotice = "\n<!-- (surface truncated) -->"
-
 // SessionSurface composes root's local bank surface plus the home one, capped at TotalCapChars; "" when empty.
 func SessionSurface(root string) string {
 	return unifiedSurface(root)
-}
-
-// CapChars cuts s to at most max runes (marker included) at the last whole line.
-func CapChars(s string, max int) string {
-	r := []rune(s)
-	if len(r) <= max {
-		return s
-	}
-	room := max - len([]rune(truncatedNotice))
-	if room <= 0 {
-		return ""
-	}
-	cut := string(r[:room])
-	if i := strings.LastIndexByte(cut, '\n'); i > 0 {
-		cut = cut[:i]
-	}
-	return cut + truncatedNotice
 }
 
 // Session-surface budgets: this repo's focus and the home bank's essentials, reserved so neither starves the other.
@@ -63,19 +44,19 @@ func unifiedSurface(root string) string {
 		if focus := repoFocus(dir); len(focus) > 0 {
 			head += "\n" + strings.Join(focus, "\n\n")
 		}
-		parts = append(parts, CapChars(head, focusCapChars))
+		parts = append(parts, bank.CapChars(head, focusCapChars))
 	}
 	if home := memstore.HomeBankDir(); !memstore.IsHomeBank(root) {
 		if focus := repoFocus(home); len(focus) > 0 {
-			parts = append(parts, CapChars("<!-- HOME BANK ("+home+") — essentials -->\n"+strings.Join(focus, "\n\n"), homeFocusCapChars))
+			parts = append(parts, bank.CapChars("<!-- HOME BANK ("+home+") — essentials -->\n"+strings.Join(focus, "\n\n"), homeFocusCapChars))
 		}
 	}
 	if !nativeLinked(root, dir) { // Claude Code is reading another dir: carry the store's index ourselves
 		if data, err := os.ReadFile(filepath.Join(dir, bank.NativeIndexFile)); err == nil && len(data) > 0 {
-			parts = append(parts, CapChars("<!-- THIS REPO's MEMORY.md (native link missing or blocked) -->\n"+strings.TrimSpace(string(data)), indexCapChars))
+			parts = append(parts, bank.CapChars("<!-- THIS REPO's MEMORY.md (native link missing or blocked) -->\n"+strings.TrimSpace(string(data)), indexCapChars))
 		}
 	}
-	return CapChars(strings.Join(parts, "\n\n"), TotalCapChars)
+	return bank.CapChars(strings.Join(parts, "\n\n"), TotalCapChars)
 }
 
 // repoFocus is a bank dir's injected sections: activeContext focus/blockers/next steps and progress "In Progress".

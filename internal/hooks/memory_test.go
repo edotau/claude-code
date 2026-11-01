@@ -91,7 +91,7 @@ func updatePayload(tr, cwd string) string {
 
 func TestSessionUpdateTriggerAndReupdate(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	t.Setenv(memory.UpdateChildEnv, "")
+	t.Setenv(bank.UpdateChildEnv, "")
 	tr := filepath.Join(t.TempDir(), "t.jsonl")
 	cwd := t.TempDir()
 	calls := stubSpawn(t, true)
@@ -134,7 +134,7 @@ func TestSessionUpdateTriggerAndReupdate(t *testing.T) {
 		t.Error("session end with new edits must spawn")
 	}
 
-	t.Setenv(memory.UpdateChildEnv, "1")
+	t.Setenv(bank.UpdateChildEnv, "1")
 	_ = os.Remove(stamp)
 	if run(); calls.Load() != 3 {
 		t.Error("an update child must never spawn another")
@@ -143,7 +143,7 @@ func TestSessionUpdateTriggerAndReupdate(t *testing.T) {
 
 func TestSessionUpdateSpawnFailureBlocksThrice(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	t.Setenv(memory.UpdateChildEnv, "")
+	t.Setenv(bank.UpdateChildEnv, "")
 	tr := filepath.Join(t.TempDir(), "t.jsonl")
 	cwd := filepath.Join(t.TempDir(), "proj")
 	writeEdits(t, tr, 5)
@@ -178,7 +178,7 @@ func TestSessionStartAutoInitAndNotice(t *testing.T) {
 	}
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
-	t.Setenv(memory.UpdateChildEnv, "")
+	t.Setenv(bank.UpdateChildEnv, "")
 	cutoverStore(t)
 	repo := filepath.Join(t.TempDir(), "repo")
 	if err := exec.Command("git", "init", "-q", repo).Run(); err != nil {
@@ -201,7 +201,7 @@ func TestSessionStartAutoInitAndNotice(t *testing.T) {
 		return doc.H.AdditionalContext
 	}
 	// Real session ids are UUID-shaped; memoryContext only advances the chain/ResetSeen for those
-	// (probe/test payloads like "probe-x" must not clobber it) — see memory.LooksLikeSessionID.
+	// (probe/test payloads like "probe-x" must not clobber it) — see recall.LooksLikeSessionID.
 	const (
 		s0 = "00000000-0000-4000-8000-000000000000"
 		s1 = "11111111-1111-4111-8111-111111111111"
@@ -223,7 +223,7 @@ func TestSessionStartAutoInitAndNotice(t *testing.T) {
 	if strings.Contains(got, "scaffolded") || !strings.Contains(got, "Previous session id: "+s1) || !strings.Contains(got, "did not complete (failed) (log: /x.log)") {
 		t.Errorf("notice: %q", got[:min(len(got), 500)])
 	}
-	t.Setenv(memory.UpdateChildEnv, "1")
+	t.Setenv(bank.UpdateChildEnv, "1")
 	start("child", repo) // a non-UUID update-child id: excluded by IsUpdateChild regardless of shape
 	if e, ok := readChain(filepath.Join(memstore.StateDir(), "last-session")); !ok || e.sessionID != s2 {
 		t.Errorf("an update child advanced the session chain: %+v ok=%v", e, ok)
@@ -237,7 +237,7 @@ func TestSessionStartProbeIDDoesNotClobberLastSession(t *testing.T) {
 		t.Skip("git not installed")
 	}
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	t.Setenv(memory.UpdateChildEnv, "")
+	t.Setenv(bank.UpdateChildEnv, "")
 	repo := filepath.Join(t.TempDir(), "repo")
 	if err := exec.Command("git", "init", "-q", repo).Run(); err != nil {
 		t.Fatal(err)
@@ -270,7 +270,7 @@ func TestSessionStartLinksNativeMemoryAfterCutover(t *testing.T) {
 	}
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv("HOME", t.TempDir())
-	t.Setenv(memory.UpdateChildEnv, "")
+	t.Setenv(bank.UpdateChildEnv, "")
 	cutoverStore(t)
 
 	repo := filepath.Join(t.TempDir(), "repo")
@@ -311,7 +311,7 @@ func TestSessionStartFirstSessionLinksScaffoldedStore(t *testing.T) {
 	}
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv("HOME", t.TempDir())
-	t.Setenv(memory.UpdateChildEnv, "")
+	t.Setenv(bank.UpdateChildEnv, "")
 	cutoverStore(t)
 	repo := filepath.Join(t.TempDir(), "proj")
 	if err := exec.Command("git", "init", "-q", repo).Run(); err != nil {
@@ -337,7 +337,7 @@ func TestSessionStartFirstSessionLinksScaffoldedStore(t *testing.T) {
 // stamp, never re-dispatches covered ones, never blocks, and stays quiet while memory is paused.
 func TestPreCompactUpdatesOnlyUncoveredEdits(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	t.Setenv(memory.UpdateChildEnv, "")
+	t.Setenv(bank.UpdateChildEnv, "")
 	tr := filepath.Join(t.TempDir(), "t.jsonl")
 	cwd := t.TempDir()
 	calls := stubSpawn(t, true)
@@ -366,7 +366,7 @@ func TestPreCompactUpdatesOnlyUncoveredEdits(t *testing.T) {
 // user turns alone — 6 turns weigh 3 work units, exactly updateMinEdits — and is updated at Stop.
 func TestSessionUpdateDiscussionOnly(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	t.Setenv(memory.UpdateChildEnv, "")
+	t.Setenv(bank.UpdateChildEnv, "")
 	tr := filepath.Join(t.TempDir(), "t.jsonl")
 	cwd := t.TempDir()
 	calls := stubSpawn(t, true)
@@ -392,7 +392,7 @@ func TestSessionUpdateDiscussionOnly(t *testing.T) {
 // when nothing new arrived.
 func TestPreCompactAndSessionEndUpdateNewUserTurns(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	t.Setenv(memory.UpdateChildEnv, "")
+	t.Setenv(bank.UpdateChildEnv, "")
 	tr := filepath.Join(t.TempDir(), "t.jsonl")
 	cwd := t.TempDir()
 	calls := stubSpawn(t, true)
@@ -512,7 +512,7 @@ func TestCatchUpPreviousTable(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-			t.Setenv(memory.UpdateChildEnv, "")
+			t.Setenv(bank.UpdateChildEnv, "")
 			tr := newTranscript(t, tc.edits, tc.idleFor)
 			if tc.setup != nil {
 				tc.setup(t, tr)
@@ -542,7 +542,7 @@ func TestCatchUpPreviousTable(t *testing.T) {
 // next SessionStart still sees it as missed and retries rather than silently giving up forever.
 func TestCatchUpPreviousSpawnFailureNoStamp(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	t.Setenv(memory.UpdateChildEnv, "")
+	t.Setenv(bank.UpdateChildEnv, "")
 	tr := filepath.Join(t.TempDir(), "t.jsonl")
 	writeEdits(t, tr, 5)
 	idle(t, tr, 20*time.Minute)
@@ -563,7 +563,7 @@ func TestSessionStartCatchUpUpdateChildNeverSpawns(t *testing.T) {
 		t.Skip("git not installed")
 	}
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	t.Setenv(memory.UpdateChildEnv, "")
+	t.Setenv(bank.UpdateChildEnv, "")
 	repo := filepath.Join(t.TempDir(), "repo")
 	if err := exec.Command("git", "init", "-q", repo).Run(); err != nil {
 		t.Fatal(err)
@@ -578,7 +578,7 @@ func TestSessionStartCatchUpUpdateChildNeverSpawns(t *testing.T) {
 	writeChain(chain, chainEntry{sessionID: "prev3", transcriptPath: tr, cwd: repo})
 	calls := stubSpawn(t, true)
 
-	t.Setenv(memory.UpdateChildEnv, "1")
+	t.Setenv(bank.UpdateChildEnv, "1")
 	got := memoryContext(repo, "update-worker", "", time.Now())
 	if calls.Load() != 0 {
 		t.Errorf("an update child must never catch up the previous session, calls=%d", calls.Load())
@@ -592,7 +592,7 @@ func TestSessionStartCatchUpUpdateChildNeverSpawns(t *testing.T) {
 // fields so the NEXT SessionStart can resolve the previous session's transcript for its own catch-up check.
 func TestSessionStartChainRewrittenWithTranscriptAndCWD(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	t.Setenv(memory.UpdateChildEnv, "")
+	t.Setenv(bank.UpdateChildEnv, "")
 	cwd := t.TempDir()
 	tr := filepath.Join(t.TempDir(), "t.jsonl")
 	writeEdits(t, tr, 1)
@@ -628,7 +628,7 @@ func TestReadChainLegacyOneLineFormat(t *testing.T) {
 // the parent session's edits, and that combined total is what arms the Stop update gate.
 func TestCountEditsIncludesSubagentEdits(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	t.Setenv(memory.UpdateChildEnv, "")
+	t.Setenv(bank.UpdateChildEnv, "")
 	tr := filepath.Join(t.TempDir(), "t.jsonl")
 	writeEdits(t, tr, 1)
 	subDir := filepath.Join(strings.TrimSuffix(tr, ".jsonl"), "subagents")
@@ -653,7 +653,7 @@ func TestCountEditsIncludesSubagentEdits(t *testing.T) {
 // counts for updateMinEdits on its own and arms the Stop gate.
 func TestCountEditsGitCommitWeightArmsGate(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	t.Setenv(memory.UpdateChildEnv, "")
+	t.Setenv(bank.UpdateChildEnv, "")
 	tr := filepath.Join(t.TempDir(), "t.jsonl")
 	commit := `{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Bash","input":{"command":"git commit -m x"}}]}}` + "\n"
 	if err := os.WriteFile(tr, []byte(commit), 0o600); err != nil {
