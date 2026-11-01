@@ -186,6 +186,7 @@ func TestDispatchFailureReleasesExactAgentID(t *testing.T) {
 
 func labelOf(t *testing.T, subagentType, prompt, desc string) string {
 	t.Helper()
+	stubLabelModels(t, "", "")
 	payload := fmt.Sprintf(`{"tool_name":"Agent","tool_input":{"subagent_type":%q,"model":"sonnet","prompt":%q,"description":%q}}`,
 		subagentType, prompt, desc)
 	r := agentEffortResult(ParseInput(strings.NewReader(payload)))
@@ -194,6 +195,15 @@ func labelOf(t *testing.T, subagentType, prompt, desc string) string {
 	}
 	d, _ := r.UpdatedInput["description"].(string)
 	return d
+}
+
+// stubLabelModels makes every vendor leaf's planned model cell (route table) or prof (profile), never live lookups.
+func stubLabelModels(t *testing.T, cell, prof string) {
+	t.Helper()
+	oc, op := labelCell, labelProfileModel
+	t.Cleanup(func() { labelCell, labelProfileModel = oc, op })
+	labelCell = func(string, string) string { return cell }
+	labelProfileModel = func(string, string) string { return prof }
 }
 
 func TestDispatchAgentLabels(t *testing.T) {
@@ -211,12 +221,12 @@ func TestDispatchAgentLabels(t *testing.T) {
 		t.Errorf("Explore type relabelled: %q", got)
 	}
 	cases := []struct{ st, agent, want string }{
-		{"code-worker", "none", "claude: task"},
-		{"code-worker", "claude (in-context)", "claude: task"},
+		{"code-worker", "none", "sonnet: task"},
+		{"code-worker", "claude (in-context)", "sonnet: task"},
 		{"claude", "copilot", "copilot: task"},
-		{"copilot", "claude", "claude: task"},
+		{"copilot", "claude", "sonnet: task"},
 		{"coworker", "codex", "codex: task"},
-		{"code-worker", "claude", "claude: task"},
+		{"code-worker", "claude", "sonnet: task"},
 		{"claude", "claude (in-context)", "task"},
 		{"claude", "claude", "task"},
 		{"codex", "codex → gemini", "gemini: task"},
@@ -245,14 +255,14 @@ func TestDispatchLabelLowercase(t *testing.T) {
 	lower := []struct{ st, agent, desc, want string }{
 		{"code-worker", "copilot", "Fix bug", "copilot: fix bug"},
 		{"code-worker", "copilot", "copilot: Fix bug", "copilot: fix bug"},
-		{"code-worker", "none", "Exercising live-session cap", "claude: exercising live-session cap"},
-		{"code-worker", "none", "HTTP retry", "claude: HTTP retry"},
+		{"code-worker", "none", "Exercising live-session cap", "sonnet: exercising live-session cap"},
+		{"code-worker", "none", "HTTP retry", "sonnet: HTTP retry"},
 		{"code-worker", "copilot", "CLAUDE.md rewrite", "copilot: CLAUDE.md rewrite"},
-		{"code-worker", "none", "internal_x fix", "claude: internal_x fix"},
-		{"code-worker", "none", "Fix v2 bug", "claude: fix v2 bug"},
-		{"code-worker", "none", "V2 bug", "claude: V2 bug"},
-		{"code-worker", "none", "Done. Next", "claude: done. Next"},
-		{"code-worker", "none", "code-worker: RTK hook", "claude: RTK hook"},
+		{"code-worker", "none", "internal_x fix", "sonnet: internal_x fix"},
+		{"code-worker", "none", "Fix v2 bug", "sonnet: fix v2 bug"},
+		{"code-worker", "none", "V2 bug", "sonnet: V2 bug"},
+		{"code-worker", "none", "Done. Next", "sonnet: done. Next"},
+		{"code-worker", "none", "code-worker: RTK hook", "sonnet: RTK hook"},
 		{"copilot", "none", "copilot: repair tests", "repair tests"},
 		{"Plan", "none", "Plan: Repo-wide package consolidation", "repo-wide package consolidation"},
 	}
@@ -269,5 +279,27 @@ func TestWorkflowLeavesCountsSpacedCalls(t *testing.T) {
 	in := ParseInput(strings.NewReader(`{"tool_name":"Workflow","tool_input":{"script":` + strconv.Quote(script) + `}}`))
 	if n := workflowLeaves(in, Result{}); n != 2 {
 		t.Fatalf("workflowLeaves = %d, want 2", n)
+	}
+}
+
+// A routed leaf's label names the agent and the model it is planned to run; a Profile: line uses that profile's model.
+func TestDispatchLabelNamesRoutedModel(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	payload := func(prompt string) string {
+		return fmt.Sprintf(`{"tool_name":"Agent","tool_input":{"subagent_type":"coworker","model":"sonnet","prompt":%q,"description":"review diff"}}`, prompt)
+	}
+	stubLabelModels(t, "gpt-6.1-sol", "databricks-gpt-6-astra")
+	for prompt, want := range map[string]string{
+		"Agent: codex\nreview":               "gpt-6.1-sol: review diff",
+		"Agent: claude (in-context)\nreview": "review diff",
+	} {
+		r := agentEffortResult(ParseInput(strings.NewReader(payload(prompt))))
+		if got, _ := r.UpdatedInput["description"].(string); got != want && (want != "review diff" || r.UpdatedInput != nil) {
+			t.Errorf("%q: label = %q, want %q", prompt, got, want)
+		}
+	}
+	// A known profile is validated upstream by applyProfile; the model comes from that profile's alias map.
+	if got := labelModel(map[string]any{"model": "sonnet"}, "coworker", "Agent: codex\nProfile: qa"); got != "databricks-gpt-6-astra" {
+		t.Errorf("profile model = %q, want the profile's sonnet row", got)
 	}
 }

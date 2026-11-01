@@ -125,7 +125,7 @@ func unpinnedAgentCalls(name, src string) []string {
 }
 
 // effortlessAgentCalls returns "name:line" for each agent( call with no effort: pin — effort is the
-// second routing axis (rules/workflows/agents.md); unpinned runs at session effort, over-costing.
+// second routing axis (skills/subagent-workflows/SKILL.md → Rules); unpinned runs at session effort, over-costing.
 func effortlessAgentCalls(name, src string) []string {
 	return agentCallsMissingSrc(name, src, func(window string) bool {
 		return strings.Contains(window, "effort:")

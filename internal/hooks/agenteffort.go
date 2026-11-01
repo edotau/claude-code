@@ -8,11 +8,13 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"unicode"
 
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/textutil"
 )
@@ -102,6 +104,17 @@ func applyLabel(updated map[string]any, task string) bool {
 	}
 	if label == "" && st == "code-worker" { // a wrapper leaf names who runs it; other types are their own agent
 		label = "claude"
+	}
+	if base := label; base != "" && !modeCompareRe.MatchString(task) {
+		if rest, ok := strings.CutPrefix(desc, base+":"); ok { // a hand-typed or earlier unsuffixed label
+			desc = strings.TrimSpace(rest)
+		}
+		if m := labelModel(updated, st, task); m != "" { // the model id alone says where the work runs
+			if rest, ok := strings.CutPrefix(desc, m+":"); ok {
+				desc = strings.TrimSpace(rest)
+			}
+			label = m
+		}
 	}
 	var out string
 	switch {
@@ -220,3 +233,42 @@ func agentPinsModel(name string) bool {
 	model, _ := fm["model"].(string)
 	return model != ""
 }
+
+// labelModel is the model id a leaf is planned to run: the Claude pin in-context, else the profile's or route table's
+// model for its last agent at the leaf's tier; "" when unknown (the label falls back to the agent name).
+func labelModel(updated map[string]any, st, task string) string {
+	alias, _ := updated["model"].(string)
+	if alias == "" {
+		alias = rosterModel(st)
+	}
+	names := briefAgents(task)
+	if len(names) == 0 || names[len(names)-1] == "claude" && briefProfile(task) == "" {
+		return alias
+	}
+	if !slices.Contains(models.AliasNames, alias) {
+		alias = models.Sonnet
+	}
+	if p := briefProfile(task); p != "" {
+		return labelProfileModel(p, alias)
+	}
+	return labelCell(names[len(names)-1], alias)
+}
+
+// Label lookups are seams: tests stub them so a dispatch label never reads the live vault or route table.
+var (
+	labelProfileModel = func(profile, alias string) string {
+		reg, err := providers.Load()
+		if err != nil || reg.Providers[profile] == nil {
+			return ""
+		}
+		return models.Strip1M(reg.Providers[profile].Models[alias])
+	}
+	labelCell = func(agent, alias string) string {
+		t, err := router.Load()
+		if err != nil {
+			return ""
+		}
+		c, _ := t.Cell(agent, alias)
+		return c.Model
+	}
+)
