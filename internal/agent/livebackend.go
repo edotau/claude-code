@@ -54,33 +54,8 @@ func (s Schema) HasLive() bool {
 	return ok
 }
 
-func (claudeEngine) NewLive() LiveBackend { return &claudeLive{} }
-
-// claudeLive holds `claude --print --input-format stream-json`: one process, one user message per turn.
-type claudeLive struct{ prevCost float64 }
-
-func (*claudeLive) Build(ctx context.Context, req RunOptions) (*exec.Cmd, *TailBuffer, string, error) {
-	args := claudeArgs([]string{"--print", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
-		"--include-partial-messages"}, req)
-	cmd, tail, cl, err := claudeCmd(ctx, req, args, "")
-	return cmd, tail, cl.Set[providers.EnvSessionProfile], err
-}
-
-func (*claudeLive) WriteTurn(w io.Writer, prompt string) error {
-	return writeJSONLine(w, map[string]any{"type": "user", "message": map[string]any{"role": "user", "content": prompt}})
-}
-
-// parse prices the turn alone: claude's total_cost_usd accumulates over the process, its token counts do not.
-func (b *claudeLive) Parse(dec *bufio.Reader, sink Sink, lg func(kind, text string)) (Result, error) {
-	res, err := parseClaudeEvents(dec, true, sink, lg)
-	total := res.Usage.CostUSD
-	res.Usage.CostUSD = max(total-b.prevCost, 0)
-	b.prevCost = max(b.prevCost, total)
-	return res, err
-}
-
-// writeJSONLine writes v as one NDJSON line.
-func writeJSONLine(w io.Writer, v any) error {
+// WriteJSONLine writes v as one NDJSON line.
+func WriteJSONLine(w io.Writer, v any) error {
 	b, err := json.Marshal(v)
 	if err != nil {
 		return err
@@ -100,7 +75,7 @@ func ChildErr(ctx context.Context, name string, err error, tail *TailBuffer) err
 func StatusOf(e *Error) string { return statusOf(e) }
 
 // EventLogFor binds ctx's dispatch log; nil when the dispatch has none.
-func EventLogFor(ctx context.Context) func(kind, text string) { return eventLogFor(ctx) }
+func EventLogFor(ctx context.Context) StreamLog { return eventLogFor(ctx) }
 
 // NewRunSink stamps agent's name on sink's events and counts its text bytes.
 func NewRunSink(sink Sink, agent string) Sink { return &runSink{Sink: sink, agent: agent} }
@@ -110,3 +85,22 @@ func IsResultError(err error) bool {
 	_, ok := errors.AsType[resultError](err)
 	return ok
 }
+
+// ResolveRequestTarget is the registry and target req's provider and model resolve to.
+func ResolveRequestTarget(req RunOptions) (*providers.Registry, providers.Target, error) {
+	return resolveTarget(req)
+}
+
+// PersonaArgs is the claude argv for a persona.
+func PersonaArgs(p *Schema) []string { return personaArgs(p) }
+
+// SessionProvider is the session profile agentName runs on.
+func SessionProvider(agentName string) string { return sessionProvider(agentName) }
+
+// ScrubIsolated drops the inherited env an isolated dispatch must not see, except keepEnv.
+func ScrubIsolated(ctx context.Context, inherited, keepEnv []string) []string {
+	return scrubIsolated(ctx, inherited, keepEnv)
+}
+
+// CustomEnv is the vault env bucket resolved, as a launch layers it.
+func CustomEnv() map[string]string { return customEnv() }

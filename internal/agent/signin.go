@@ -38,12 +38,11 @@ var (
 
 // Test seams: the credential mint, the secret store, the agent probes.
 var (
-	credential         = providers.Credential
-	storeSecret        = secretstore.Store
-	claudeStatus       = providers.ClaudeLoginProbe
-	signinCopilotLogin = CopilotStoredLogin
-	runLogin           = runLoginCLI
-	ProbeTimeout       = 8 * time.Second
+	credential   = providers.Credential
+	storeSecret  = secretstore.Store
+	claudeStatus = providers.ClaudeLoginProbe
+	runLogin     = runLoginCLI
+	ProbeTimeout = 8 * time.Second
 )
 
 // SigninFor returns the sign-in for p's kind.

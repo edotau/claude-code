@@ -1,0 +1,36 @@
+package claude
+
+import (
+	"bufio"
+	"context"
+	"io"
+	"os/exec"
+
+	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/providers"
+)
+
+func (claudeEngine) NewLive() agent.LiveBackend { return &claudeLive{} }
+
+// claudeLive holds `claude --print --input-format stream-json`: one process, one user message per turn.
+type claudeLive struct{ prevCost float64 }
+
+func (*claudeLive) Build(ctx context.Context, req agent.RunOptions) (*exec.Cmd, *agent.TailBuffer, string, error) {
+	args := claudeArgs([]string{"--print", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
+		"--include-partial-messages"}, req)
+	cmd, tail, cl, err := claudeCmd(ctx, req, args, "")
+	return cmd, tail, cl.Set[providers.EnvSessionProfile], err
+}
+
+func (*claudeLive) WriteTurn(w io.Writer, prompt string) error {
+	return agent.WriteJSONLine(w, map[string]any{"type": "user", "message": map[string]any{"role": "user", "content": prompt}})
+}
+
+// parse prices the turn alone: claude's total_cost_usd accumulates over the process, its token counts do not.
+func (b *claudeLive) Parse(dec *bufio.Reader, sink agent.Sink, lg func(kind, text string)) (agent.Result, error) {
+	res, err := parseClaudeEvents(dec, true, sink, lg)
+	total := res.Usage.CostUSD
+	res.Usage.CostUSD = max(total-b.prevCost, 0)
+	b.prevCost = max(b.prevCost, total)
+	return res, err
+}

@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/claude"
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/providers"
 )
@@ -17,7 +18,7 @@ func TestMain(m *testing.M) { os.Exit(hosttest.Main(m)) }
 type testLauncher struct{}
 
 func (testLauncher) Claude(_ context.Context, o agent.ClaudeOptions, args []string) (agent.ClaudeLaunch, error) {
-	bin, err := agent.ClaudeBinary()
+	bin, err := claude.ClaudeBinary()
 	if err != nil {
 		return agent.ClaudeLaunch{}, err
 	}

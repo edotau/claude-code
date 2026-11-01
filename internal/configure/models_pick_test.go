@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/copilotsdk"
+	"github.com/edotau/claude-code/internal/copilot/sdk"
 	"github.com/edotau/claude-code/internal/providers"
 )
 
@@ -67,7 +67,7 @@ func runCopilotPicker(t *testing.T, reg *providers.Registry, modelID, answers st
 func TestPickCopilotModelShowsEffortAndContextRowsFirst(t *testing.T) {
 	reg := menuTestEnv(t)
 	fakeCopilotBin(t)
-	stubCatalog(t, []copilotsdk.Model{
+	stubCatalog(t, []sdk.Model{
 		{ID: "stub-model-1", Enabled: true, ReasoningEffort: true, Efforts: []string{"low", "medium"},
 			DefaultEffort: "medium", ContextTokens: 2_000_000},
 	}, nil)
@@ -94,7 +94,7 @@ func TestPickCopilotModelShowsEffortAndContextRowsFirst(t *testing.T) {
 func TestPickCopilotModelHidesEffortForNoEffortModel(t *testing.T) {
 	reg := menuTestEnv(t)
 	fakeCopilotBin(t)
-	stubCatalog(t, []copilotsdk.Model{
+	stubCatalog(t, []sdk.Model{
 		{ID: "plain-model", Name: "Plain Model", Enabled: true, ReasoningEffort: false, ContextTokens: 100_000},
 	}, nil)
 
@@ -111,7 +111,7 @@ func TestPickCopilotModelHidesEffortForNoEffortModel(t *testing.T) {
 func TestPickCopilotModelHidesContextForIneligibleModel(t *testing.T) {
 	reg := menuTestEnv(t)
 	fakeCopilotBin(t)
-	stubCatalog(t, []copilotsdk.Model{
+	stubCatalog(t, []sdk.Model{
 		{ID: "small-window", Name: "Small Window", Enabled: true, ReasoningEffort: true,
 			Efforts: []string{"low", "high"}, DefaultEffort: "low", ContextTokens: 50_000},
 	}, nil)
@@ -130,7 +130,7 @@ func TestPickCopilotModelHidesContextForIneligibleModel(t *testing.T) {
 
 // effortStub is a model with Effort (low/high, default low) and no Context row: Effort = row 1, model = row 2;
 // in the Effort sub-picker, 1 = unset, 2 = Low, 3 = High.
-var effortStub = []copilotsdk.Model{
+var effortStub = []sdk.Model{
 	{ID: "stub-model-1", Enabled: true, ReasoningEffort: true, Efforts: []string{"low", "high"}, DefaultEffort: "low"},
 }
 
@@ -193,7 +193,7 @@ func TestPickCopilotModelSavesModelAfterSettingEffort(t *testing.T) {
 func TestPickCopilotModelRowsFitEightyColumns(t *testing.T) {
 	menuTestEnv(t)
 	fakeCopilotBin(t)
-	stubCatalog(t, []copilotsdk.Model{
+	stubCatalog(t, []sdk.Model{
 		{ID: "gemini-3-pro-preview", Enabled: true, ReasoningEffort: true,
 			Efforts: []string{"low", "medium", "high", "xhigh"}, DefaultEffort: "xhigh", ContextTokens: 2_000_000},
 	}, nil)

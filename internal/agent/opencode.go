@@ -360,7 +360,7 @@ func (opencodeEngine) Wire(ctx context.Context, r WireRoute, h *Headless) (env, 
 }
 
 func (e opencodeEngine) FallbackTarget(reg *providers.Registry) (providers.Target, string, bool) {
-	return routeFallback(reg, e.DescribeRoute(reg))
+	return RouteFallback(reg, e.DescribeRoute(reg))
 }
 
 func (opencodeEngine) DescribeRoute(reg *providers.Registry) RouteInfo {
@@ -389,7 +389,7 @@ func (opencodeEngine) PreRoute(reg *providers.Registry, explicit bool) (provider
 }
 
 func (e opencodeEngine) NoRoute(reg *providers.Registry, _ providers.Target) error {
-	return routeErr(e.DescribeRoute(reg))
+	return RouteErr(e.DescribeRoute(reg))
 }
 
 // LaunchEnv points every opencode launch at the tracked overlay; a failed write is best-effort, opencode runs without it.
@@ -427,15 +427,15 @@ func (opencodeEngine) Render(_ *providers.Registry, _ providers.Selection, _ str
 }
 
 func (opencodeEngine) RouteDetail() (string, bool) {
-	reg, sel, selErr, ok := loadSelection()
+	reg, sel, selErr, ok := LoadSelection()
 	if !ok {
 		return "", false
 	}
 	return opencodeRouteDetail(reg, sel, selErr), true
 }
 
-// routeErr is ri's reason as an error when ri resolved no route, else nil.
-func routeErr(ri RouteInfo) error {
+// RouteErr is ri's reason as an error when ri resolved no route, else nil.
+func RouteErr(ri RouteInfo) error {
 	if !ri.OK {
 		return errors.New(ri.Reason)
 	}

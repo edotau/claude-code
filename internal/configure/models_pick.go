@@ -11,7 +11,8 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/copilotsdk"
+	"github.com/edotau/claude-code/internal/copilot"
+	"github.com/edotau/claude-code/internal/copilot/sdk"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
@@ -75,21 +76,21 @@ func modelRow(d *dialog, name string) *billingRow {
 	return &billingRow{label: "Model", desc: desc, run: func() bool { pickModel(d, name, p, claude); return true }}
 }
 
-// copilotListModelsFn is the injectable seam over copilotsdk.ListModels; tests fake the SDK catalog.
-var copilotListModelsFn = copilotsdk.ListModels
+// copilotListModelsFn is the injectable seam over sdk.ListModels; tests fake the SDK catalog.
+var copilotListModelsFn = sdk.ListModels
 
 // CopilotModels lists the copilot CLI's live catalog as the profile copilot runs as (its record profile).
-func CopilotModels(ctx context.Context) ([]copilotsdk.Model, error) {
+func CopilotModels(ctx context.Context) ([]sdk.Model, error) {
 	bin, err := paths.AgentBin("copilot")
 	if err != nil {
 		return nil, fmt.Errorf("copilot CLI not found: %w", err)
 	}
-	return copilotListModelsFn(ctx, copilotsdk.CatalogOptions(bin, agent.CopilotToken()))
+	return copilotListModelsFn(ctx, sdk.CatalogOptions(bin, copilot.CopilotToken()))
 }
 
 // copilotCatalog fetches the copilot SDK model catalog once per dialog and caches it; err is cached too,
 // so a prior failure doesn't retry (and re-spawn the runtime) on every row of the same dialog.
-func copilotCatalog(d *dialog) ([]copilotsdk.Model, error) {
+func copilotCatalog(d *dialog) ([]sdk.Model, error) {
 	if d.copilotCatalogLoaded {
 		return d.copilotCatalog, d.copilotCatalogErr
 	}
@@ -101,21 +102,21 @@ func copilotCatalog(d *dialog) ([]copilotsdk.Model, error) {
 }
 
 // copilotCatalogModel finds id in the cached catalog; ok is false when the catalog is unavailable or lacks it.
-func copilotCatalogModel(d *dialog, id string) (copilotsdk.Model, bool) {
+func copilotCatalogModel(d *dialog, id string) (sdk.Model, bool) {
 	list, err := copilotCatalog(d)
 	if err != nil {
-		return copilotsdk.Model{}, false
+		return sdk.Model{}, false
 	}
 	for _, m := range list {
 		if m.ID == id {
 			return m, true
 		}
 	}
-	return copilotsdk.Model{}, false
+	return sdk.Model{}, false
 }
 
 // copilotModelDesc is a catalog row's description: name, premium multiplier, and the current-pick marker.
-func copilotModelDesc(m copilotsdk.Model, cur string) string {
+func copilotModelDesc(m sdk.Model, cur string) string {
 	desc := m.Name
 	if m.Multiplier != nil {
 		desc += fmt.Sprintf(" · %gx", *m.Multiplier)
@@ -126,8 +127,8 @@ func copilotModelDesc(m copilotsdk.Model, cur string) string {
 	return desc
 }
 
-// copilotSourceFn is the injectable seam over agent.CopilotModelSource; tests fake the Databricks rows.
-var copilotSourceFn = agent.CopilotModelSource
+// copilotSourceFn is the injectable seam over copilot.CopilotModelSource; tests fake the Databricks rows.
+var copilotSourceFn = copilot.CopilotModelSource
 
 // pickCopilotModel is the copilot page's Model row: Effort and Context first (both acting on the
 // current model, defaulting to "default"/"auto" = pin unset), then the model list — a Databricks
@@ -146,7 +147,7 @@ func pickCopilotModel(d *dialog) {
 	for {
 		cur, _ := providers.CopilotModel(d.reg)
 		title, ids := "copilot — model (SDK catalog)", []string(nil)
-		var list []copilotsdk.Model
+		var list []sdk.Model
 		if !cat.Databricks {
 			var err error
 			if list, err = copilotCatalog(d); err != nil {
@@ -204,7 +205,7 @@ func copilotExtraRows(d *dialog, cur string) (rows [][2]string, runs []func() bo
 }
 
 // appendDatabricksCopilotRows adds one row per serving endpoint: "tested" when on the curated menu, plus current.
-func appendDatabricksCopilotRows(cat agent.CopilotCatalog, cur string, rows [][2]string) ([]string, [][2]string) {
+func appendDatabricksCopilotRows(cat copilot.CopilotCatalog, cur string, rows [][2]string) ([]string, [][2]string) {
 	var ids []string
 	for _, r := range cat.Rows {
 		var marks []string

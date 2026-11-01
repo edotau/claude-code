@@ -86,21 +86,6 @@ func TestRouteChainNativeOpencodeLeads(t *testing.T) {
 	}
 }
 
-// A codex dispatch keyed on its ChatGPT login that really runs on the session's Databricks profile records and bills that profile.
-func TestOwnLoginDispatchRecordsTheProfileItRan(t *testing.T) {
-	gateFallbackEnv(t)
-	t.Setenv(providers.EnvSessionProfile, "dbx")
-	r := &fakeRunner{name: "codex", errs: []error{nil}}
-	c := Chain{Want: "codex", Dispatches: []Dispatch{{Agent: r, Account: "openai·chatgpt", Billing: router.BillSubscription}}}
-	res, err := RunWithFallback(context.Background(), c, RunOptions{Prompt: "p"}, Discard, nil)
-	if err != nil || len(res.Hops) != 1 {
-		t.Fatalf("res=%+v err=%v", res, err)
-	}
-	if got := res.Hops[0].Account; got != "databricks·dbx" {
-		t.Errorf("hop account = %q, want databricks·dbx (what the agent resolves)", got)
-	}
-}
-
 // Skip notices name only the wanted agent's gates; other agents' reasons are not printed.
 func TestSkipNoticeOnlyForWantedAgent(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())

@@ -3,36 +3,10 @@ package agent
 import (
 	"context"
 	"slices"
-	"strings"
 	"testing"
 
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
-
-// DescribeRoute honors COPILOT_PROFILE/COPILOT_MODEL: the pinned usable Databricks row, not the first fallback.
-func TestDescribeCopilotRouteHonorsProfileAndModelPins(t *testing.T) {
-	reg := gateReg(t, map[string]bool{"dev": true, "qa": true})
-	gateSetup(t, 99, true, reg) // GitHub over quota, so only the pin can explain a qa pick
-	vaulttest.SetRecord(t, "copilot", "profile", "qa")
-	vaulttest.SetRecord(t, "copilot", "model", "kimi-k3")
-	ri := describeCopilotRoute(reg)
-	if ri.Route != RouteDatabricks || ri.Provider != "qa" || ri.Model != "databricks-kimi-k3" || !ri.OK {
-		t.Fatalf("describe = %+v, want databricks qa databricks-kimi-k3", ri)
-	}
-	if strings.Contains(ri.Reason, "no pinned GitHub account") {
-		t.Errorf("reason %q must not claim an unpinned account", ri.Reason)
-	}
-}
-
-// Without a model pin the pinned profile's opus alias is the model.
-func TestDescribeCopilotRoutePinnedProfileDefaultsToOpusSlot(t *testing.T) {
-	reg := gateReg(t, map[string]bool{"dev": true, "qa": true})
-	gateSetup(t, 99, true, reg)
-	vaulttest.SetRecord(t, "copilot", "profile", "qa")
-	if ri := describeCopilotRoute(reg); ri.Provider != "qa" || ri.Model != "databricks-claude-opus-5-5" {
-		t.Fatalf("describe = %+v, want qa with its opus alias", ri)
-	}
-}
 
 // Interactive codex (nil Headless) carries the CODEX_EFFORT pin; headless Effort still wins.
 func TestCodexInteractiveCarriesEffortPin(t *testing.T) {

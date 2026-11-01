@@ -10,7 +10,8 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/copilotsdk"
+	"github.com/edotau/claude-code/internal/copilot"
+	"github.com/edotau/claude-code/internal/copilot/sdk"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
@@ -62,7 +63,7 @@ func githubStatusRows(d *dialog) (ghOK, copilotOK bool) {
 	case !gh.found:
 		d.printf("%-16s ABSENT: gh CLI not found on PATH\n", "gh CLI")
 	case gh.loggedIn:
-		acct := agent.GHActiveAccount()
+		acct := copilot.GHActiveAccount()
 		if acct == "" {
 			acct = gh.account
 		}
@@ -72,7 +73,7 @@ func githubStatusRows(d *dialog) (ghOK, copilotOK bool) {
 		d.printf("%-16s ABSENT: not logged in\n", "gh CLI")
 	}
 
-	auth, copilotOK := agent.ResolveCopilotAuth()
+	auth, copilotOK := copilot.ResolveCopilotAuth()
 	if copilotOK {
 		d.printf("%-16s present (%s)\n", "copilot CLI", auth.Label())
 	} else {
@@ -150,8 +151,8 @@ func pickCopilotModels(d *dialog) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	opts := copilotsdk.CatalogOptions(bin, agent.CopilotToken())
-	tok, err := agent.CopilotLaunchToken()
+	opts := sdk.CatalogOptions(bin, copilot.CopilotToken())
+	tok, err := copilot.CopilotLaunchToken()
 	if err != nil {
 		d.printf("copilot models: %v\n", err)
 		return
@@ -159,7 +160,7 @@ func pickCopilotModels(d *dialog) {
 	if tok != "" {
 		opts.GitHubToken, opts.UseLoggedInUser = tok, false
 	}
-	list, err := copilotsdk.ListModels(ctx, opts)
+	list, err := sdk.ListModels(ctx, opts)
 	if err != nil {
 		d.printf("copilot models: %v\n", err)
 		return

@@ -141,7 +141,7 @@ func writeLastProfiles(ws map[string]map[string]lastProfileAt) error {
 // RecordLastProfile stores profile as this workspace's default for agentName; headless runs leave it alone.
 func RecordLastProfile(agentName, profile string, args []string) {
 	ws := workspaceKey()
-	if profile == "" || ws == "" || headless(args) {
+	if profile == "" || ws == "" || IsHeadless(args) {
 		return
 	}
 	next := map[string]map[string]lastProfileAt{}

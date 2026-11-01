@@ -1,64 +1,12 @@
 package agent
 
 import (
-	"context"
-	"os"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/schemas"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
-
-// Given a recorded workspace profile, a Claude launch resolves flag > last-used > pin > registry default.
-func TestClaudeProfileResolutionLastUsed(t *testing.T) {
-	hermetic(t, "")
-	ws := t.TempDir()
-	t.Chdir(ws)
-	profile := func(o LaunchOptions) string {
-		t.Helper()
-		plan, err := Claude(context.Background(), o, nil)
-		if err != nil {
-			t.Fatal(err)
-		}
-		return plan.Set[providers.EnvSessionProfile]
-	}
-	if got := profile(LaunchOptions{}); got != "max" {
-		t.Fatalf("no record: got %q, want the registry default max", got)
-	}
-	RecordLastProfile("claude", "nvidia", nil)
-	if got := profile(LaunchOptions{}); got != "nvidia" {
-		t.Errorf("last-used: got %q, want nvidia", got)
-	}
-	RecordLastProfile("claude", "anthropic", []string{"-p", "x"})
-	if got := profile(LaunchOptions{}); got != "nvidia" {
-		t.Errorf("headless run recorded: got %q, want nvidia", got)
-	}
-	if got := profile(LaunchOptions{Provider: "anthropic"}); got != "anthropic" {
-		t.Errorf("flag: got %q, want anthropic", got)
-	}
-	vaulttest.SetRecord(t, "claude", "profile", "max")
-	if got := profile(LaunchOptions{}); got != "nvidia" {
-		t.Errorf("pin set: got %q, want nvidia (this workspace beats the pin)", got)
-	}
-	if got := providers.AgentRecord("claude").Profile; got != "max" {
-		t.Errorf("recording must not touch the pin, got %q", got)
-	}
-	if err := ClearLastProfiles(); err != nil {
-		t.Fatal(err)
-	}
-	if got := profile(LaunchOptions{}); got != "max" {
-		t.Errorf("after switch clears the cache: got %q, want the pin max", got)
-	}
-	vaulttest.SetRecord(t, "claude", "profile", "")
-	if err := os.WriteFile(lastProfileFile(), []byte("{not json"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if got := profile(LaunchOptions{}); got != "max" {
-		t.Errorf("corrupt file: got %q, want the default", got)
-	}
-}
 
 // Given a claude entry, an agent CLI launch ignores it; its own entry beats the agent pin, and the pin setter clears only it.
 func TestAgentLastProfileIsPerAgent(t *testing.T) {

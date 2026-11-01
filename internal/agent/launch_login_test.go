@@ -90,7 +90,7 @@ func u2mRow(name, url string) *providers.Provider {
 func TestOfferLoginSuccessRetries(t *testing.T) {
 	h := loginSetup(t, true, "\n", nil)
 	var plan Plan
-	offerLogin(context.Background(), LaunchOptions{}, nil, []*providers.Provider{u2mRow("lp-ok", h.server)}, &plan)
+	OfferLogin(context.Background(), LaunchOptions{}, nil, []*providers.Provider{u2mRow("lp-ok", h.server)}, &plan)
 	if h.calls.Load() != 1 || h.mints.Load() != 1 || len(plan.Warnings) != 0 {
 		t.Fatalf("login=%d mints=%d warnings=%v", h.calls.Load(), h.mints.Load(), plan.Warnings)
 	}
@@ -102,7 +102,7 @@ func TestOfferLoginSuccessRetries(t *testing.T) {
 func TestOfferLoginFailureWarns(t *testing.T) {
 	h := loginSetup(t, true, "y\n", errors.New("browser closed"))
 	var plan Plan
-	offerLogin(context.Background(), LaunchOptions{}, nil, []*providers.Provider{u2mRow("lp-fail", h.server)}, &plan)
+	OfferLogin(context.Background(), LaunchOptions{}, nil, []*providers.Provider{u2mRow("lp-fail", h.server)}, &plan)
 	if h.calls.Load() != 1 || len(plan.Warnings) != 1 || !strings.Contains(plan.Warnings[0], "browser closed") {
 		t.Fatalf("login=%d warnings=%v", h.calls.Load(), plan.Warnings)
 	}
@@ -122,7 +122,7 @@ func TestOfferLoginSkippedWhenNotInteractive(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			h := loginSetup(t, c.tty, "y\n", nil)
 			var plan Plan
-			offerLogin(context.Background(), c.o, c.args, []*providers.Provider{u2mRow("lp-skip", h.server)}, &plan)
+			OfferLogin(context.Background(), c.o, c.args, []*providers.Provider{u2mRow("lp-skip", h.server)}, &plan)
 			if h.calls.Load() != 0 || h.out.Len() != 0 || len(plan.Warnings) != 0 {
 				t.Fatalf("login=%d out=%q warnings=%v", h.calls.Load(), h.out.String(), plan.Warnings)
 			}
@@ -133,7 +133,7 @@ func TestOfferLoginSkippedWhenNotInteractive(t *testing.T) {
 func TestOfferLoginDecliningWarns(t *testing.T) {
 	h := loginSetup(t, true, "n\n", nil)
 	var plan Plan
-	offerLogin(context.Background(), LaunchOptions{}, nil, []*providers.Provider{u2mRow("lp-no", h.server)}, &plan)
+	OfferLogin(context.Background(), LaunchOptions{}, nil, []*providers.Provider{u2mRow("lp-no", h.server)}, &plan)
 	if h.calls.Load() != 0 || len(plan.Warnings) != 1 || !strings.Contains(plan.Warnings[0], "login skipped") {
 		t.Fatalf("login=%d warnings=%v", h.calls.Load(), plan.Warnings)
 	}
@@ -146,7 +146,7 @@ func TestOfferLoginSkipsNilAndDedupes(t *testing.T) {
 	h := loginSetup(t, true, "y\n", errors.New("x"))
 	var plan Plan
 	dup := u2mRow("lp-dup", h.server)
-	offerLogin(context.Background(), LaunchOptions{}, nil, []*providers.Provider{nil, dup, dup}, &plan)
+	OfferLogin(context.Background(), LaunchOptions{}, nil, []*providers.Provider{nil, dup, dup}, &plan)
 	if h.calls.Load() != 1 {
 		t.Errorf("duplicate provider logged in %d times, want 1", h.calls.Load())
 	}
@@ -156,7 +156,7 @@ func TestOfferLoginSharesOneReaderAcrossProviders(t *testing.T) {
 	h := loginSetup(t, true, "\nn\n", nil)
 	var plan Plan
 	ps := []*providers.Provider{u2mRow("lp-a", h.server), u2mRow("lp-b", h.server)}
-	offerLogin(context.Background(), LaunchOptions{}, nil, ps, &plan)
+	OfferLogin(context.Background(), LaunchOptions{}, nil, ps, &plan)
 	if h.calls.Load() != 1 || len(plan.Warnings) != 1 || !strings.Contains(plan.Warnings[0], "lp-b") {
 		t.Fatalf("login=%d warnings=%v", h.calls.Load(), plan.Warnings)
 	}
@@ -175,9 +175,9 @@ func TestOfferLoginSlowTokenCheckLaunchesWithoutPrompt(t *testing.T) {
 	credCheckTimeout = 50 * time.Millisecond
 	var plan Plan
 	start := time.Now()
-	offerLogin(context.Background(), LaunchOptions{}, nil, []*providers.Provider{u2mRow("slow", h.server)}, &plan)
+	OfferLogin(context.Background(), LaunchOptions{}, nil, []*providers.Provider{u2mRow("slow", h.server)}, &plan)
 	if d := time.Since(start); d > 2*time.Second {
-		t.Fatalf("offerLogin took %s, want it bounded by credCheckTimeout", d)
+		t.Fatalf("OfferLogin took %s, want it bounded by credCheckTimeout", d)
 	}
 	if h.calls.Load() != 0 || strings.Contains(h.out.String(), "Log in now?") {
 		t.Fatalf("prompted or logged in on a timed-out check (logins=%d, out=%q)", h.calls.Load(), h.out.String())
@@ -209,9 +209,9 @@ func TestOfferLoginHungTokenCheckLaunchesWithoutPrompt(t *testing.T) {
 	credCheckTimeout = 100 * time.Millisecond
 	var plan Plan
 	start := time.Now()
-	offerLogin(context.Background(), LaunchOptions{}, nil, []*providers.Provider{p}, &plan)
+	OfferLogin(context.Background(), LaunchOptions{}, nil, []*providers.Provider{p}, &plan)
 	if d := time.Since(start); d > 2*time.Second {
-		t.Fatalf("offerLogin took %s, want it bounded by credCheckTimeout", d)
+		t.Fatalf("OfferLogin took %s, want it bounded by credCheckTimeout", d)
 	}
 	if h.calls.Load() != 0 || strings.Contains(h.out.String(), "Log in now?") {
 		t.Fatalf("prompted or logged in (logins=%d, out=%q)", h.calls.Load(), h.out.String())
@@ -238,9 +238,9 @@ func TestOfferLoginHungPostLoginCheckWarns(t *testing.T) {
 	credCheckTimeout = 50 * time.Millisecond
 	var plan Plan
 	start := time.Now()
-	offerLogin(context.Background(), LaunchOptions{}, nil, []*providers.Provider{u2mRow("post", h.server)}, &plan)
+	OfferLogin(context.Background(), LaunchOptions{}, nil, []*providers.Provider{u2mRow("post", h.server)}, &plan)
 	if d := time.Since(start); d > 2*time.Second {
-		t.Fatalf("offerLogin took %s, want the post-login check bounded by credCheckTimeout", d)
+		t.Fatalf("OfferLogin took %s, want the post-login check bounded by credCheckTimeout", d)
 	}
 	if h.calls.Load() != 1 || len(plan.Warnings) != 1 || !strings.Contains(plan.Warnings[0], "timed out") {
 		t.Fatalf("logins=%d warnings=%q, want one login and one timeout warning", h.calls.Load(), plan.Warnings)
@@ -277,7 +277,7 @@ func TestOfferLoginUsesSigninForAllKinds(t *testing.T) {
 				var n atomic.Int32
 				signinFor = func(*providers.Provider) Signin { return verdictSignin{v: v, logins: &n} }
 				var plan Plan
-				offerLogin(context.Background(), LaunchOptions{}, nil, []*providers.Provider{{Name: "r-" + kind, Auth: auth}}, &plan)
+				OfferLogin(context.Background(), LaunchOptions{}, nil, []*providers.Provider{{Name: "r-" + kind, Auth: auth}}, &plan)
 				if kind == "subscription" { // Claude Code shows its own login screen
 					wantLogin = false
 				}
@@ -303,7 +303,7 @@ func TestOfferLoginSubscriptionRunsNoCheck(t *testing.T) {
 			loginSetup(t, true, "y\n", nil)
 			var checks atomic.Int32
 			signinFor = func(*providers.Provider) Signin { return countSignin{&checks} }
-			offerLogin(context.Background(), LaunchOptions{}, nil, []*providers.Provider{{Name: "r-" + name, Auth: tc.auth}}, &Plan{})
+			OfferLogin(context.Background(), LaunchOptions{}, nil, []*providers.Provider{{Name: "r-" + name, Auth: tc.auth}}, &Plan{})
 			if (checks.Load() > 0) != tc.wantCheck {
 				t.Fatalf("checks=%d, want check=%v", checks.Load(), tc.wantCheck)
 			}
@@ -325,7 +325,7 @@ func TestOfferLoginSkippedHintNamesConfigureProviderAll(t *testing.T) {
 		return verdictSignin{v: providers.VerdictNeedsLogin, logins: &atomic.Int32{}}
 	}
 	var plan Plan
-	offerLogin(context.Background(), LaunchOptions{}, nil, []*providers.Provider{{Name: "qa-row", Auth: providers.Auth{Type: providers.AuthPAT}}}, &plan)
+	OfferLogin(context.Background(), LaunchOptions{}, nil, []*providers.Provider{{Name: "qa-row", Auth: providers.Auth{Type: providers.AuthPAT}}}, &plan)
 	if len(plan.Warnings) != 1 || !strings.Contains(plan.Warnings[0], "configure provider --all qa-row") {
 		t.Fatalf("warnings = %v", plan.Warnings)
 	}
@@ -383,7 +383,7 @@ func TestOfferLoginChecksConcurrentlyPromptsInOrder(t *testing.T) {
 	}
 	ps = append(ps, ps[0], nil) // duplicate and nil are skipped
 	var plan Plan
-	offerLogin(context.Background(), LaunchOptions{}, nil, ps, &plan)
+	OfferLogin(context.Background(), LaunchOptions{}, nil, ps, &plan)
 	if met.Load() != int32(len(names)) {
 		t.Fatalf("checks did not run concurrently: only %d of %d saw their siblings running", met.Load(), len(names))
 	}

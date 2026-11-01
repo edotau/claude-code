@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/copilot"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
@@ -264,13 +265,13 @@ func codexUseKey(d *dialog) bool {
 }
 
 func copilotMenu(d *dialog) agentMenu {
-	auth, loggedIn := agent.ResolveCopilotAuth()
+	auth, loggedIn := copilot.ResolveCopilotAuth()
 	tier := ""
 	if loggedIn {
 		tier = copilotTier()
 	}
 	st := loginOrKey(d, loggedIn, tier)
-	if auth.Source == agent.SrcStoredToken {
+	if auth.Source == copilot.SrcStoredToken {
 		st = agentState{mode: modeAPIKey, verified: auth.Account != ""}
 	}
 	pinned := vault.GetAgentRecord("copilot").Profile
@@ -453,13 +454,13 @@ func copilotKeyRow(d *dialog) billingRow {
 
 // pickGitHubUser lists gh's accounts; a pick is validated (gh has a token GitHub accepts for that user) and pins
 // only the name, COPILOT_PROFILE — launches fetch the token with `gh auth token --user`.
-func pickGitHubUser(d *dialog, cur agent.CopilotAuth) bool {
-	gh := agent.GHAccounts()
+func pickGitHubUser(d *dialog, cur copilot.CopilotAuth) bool {
+	gh := copilot.GHAccounts()
 	if !isStdinTTY() || d.o.In != os.Stdin {
 		d.printf("copilot: runs as %s; gh accounts: %s\n", cur.Label(), strings.Join(gh, ", "))
 		return false
 	}
-	active := agent.GHActiveAccount()
+	active := copilot.GHActiveAccount()
 	var rows [][2]string
 	for _, u := range gh {
 		desc := "personal"
@@ -483,7 +484,7 @@ func pickGitHubUser(d *dialog, cur agent.CopilotAuth) bool {
 	switch n := len(gh); {
 	case idx < n:
 		u := gh[idx]
-		if tok := agent.GHToken(u); tok == "" || agent.GitHubLogin(tok) != u {
+		if tok := copilot.GHToken(u); tok == "" || copilot.GitHubLogin(tok) != u {
 			d.printf("copilot: gh has no working token for %s; run gh auth login\n", u)
 			return false
 		}

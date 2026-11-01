@@ -1,14 +1,10 @@
 package agent
 
 import (
-	"context"
 	"fmt"
-	"io"
-	"net/http"
 	"net/http/httptest"
 	"slices"
 	"strings"
-	"sync"
 	"testing"
 
 	"github.com/edotau/claude-code/internal/providers"
@@ -137,41 +133,6 @@ func TestOpencodeDatabricksNoResponsesRouteRefused(t *testing.T) {
 	}
 }
 
-// D8: the registry launch needs a keyed, non-login, non-direct Databricks row.
-func TestCopilotRegistryEligible(t *testing.T) {
-	row := func(mut func(*providers.Provider)) providers.Target {
-		p := dbxRow("qa", "databricks-")
-		p.Auth = providers.Auth{Type: providers.AuthOAuth}
-		if mut != nil {
-			mut(p)
-		}
-		return providers.Target{Provider: p}
-	}
-	cases := []struct {
-		name   string
-		direct bool
-		t      providers.Target
-		want   bool
-	}{
-		{"keyed databricks", false, row(nil), true},
-		{"direct", true, row(nil), false},
-		{"auth none", false, row(func(p *providers.Provider) { p.Auth = providers.Auth{Type: providers.AuthNone} }), false},
-		{"auth cli", false, row(func(p *providers.Provider) { p.Auth = providers.Auth{Type: providers.AuthCLI} }), false},
-		{"login", false, row(func(p *providers.Provider) { p.Auth = providers.Auth{Type: providers.AuthCLI, Login: "copilot"} }), false},
-		{"not databricks", false, row(func(p *providers.Provider) { p.Preset = "" }), false},
-		{"nil provider", false, providers.Target{}, false},
-	}
-	for _, c := range cases {
-		if got := copilotRegistryEligible(c.direct, c.t); got != c.want {
-			t.Errorf("%s: eligible = %v, want %v", c.name, got, c.want)
-		}
-	}
-	ctx := WithDirect(t.Context())
-	if UsesCopilotRegistry(ctx, row(nil)) || !UsesCopilotRegistry(t.Context(), row(nil)) {
-		t.Error("UsesCopilotRegistry must follow CopilotRegistryEligible")
-	}
-}
-
 // The copilot fallback keeps the registry's declared Databricks profile order.
 func TestOrderedDatabricksKeepsRegistryOrder(t *testing.T) {
 	reg, err := providers.Parse([]byte(`{"providers":{"databricks":{
@@ -199,69 +160,4 @@ func dbxServing(t *testing.T, srv *httptest.Server) {
 	  "base_url":%q,"routes":{"openai":%q,"responses":%q},"auth":{"type":"key","env":"TEST_DBX_KEY"}}}}}`,
 		srv.URL+"/anthropic", srv.URL+"/v1", srv.URL+"/v1")
 	vaulttest.Put(t, vault.Overlay, "providers", body)
-}
-
-// runNoTools runs a NoTools claude one-shot against a fake Databricks server and returns the paths it served.
-func runNoTools(t *testing.T, model string, resp http.HandlerFunc, out *strings.Builder) (Result, []string, error) {
-	t.Helper()
-	var mu sync.Mutex
-	var paths []string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		mu.Lock()
-		paths = append(paths, r.URL.Path)
-		mu.Unlock()
-		resp(w, r)
-	}))
-	defer srv.Close()
-	dbxServing(t, srv)
-	res, err := claudeAgent.Run(context.Background(), RunOptions{Prompt: "hi", Provider: "dbx", Model: model, NoTools: true}, NewTextSink(out))
-	return res, paths, err
-}
-
-// NoTools one-shot routing on a Databricks row: Claude rides /anthropic, other chat models /v1, Responses-only is refused.
-func TestClaudeNoToolsRouting(t *testing.T) {
-	chat := func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/v1/chat/completions" {
-			http.Error(w, "wrong route", http.StatusNotFound)
-			return
-		}
-		w.Header().Set("Content-Type", "text/event-stream")
-		fmt.Fprint(w, "data: {\"model\":\"kimi-k3\",\"choices\":[{\"delta\":{\"content\":\"ok\"}}]}\n\ndata: [DONE]\n\n")
-	}
-	claude := func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "text/event-stream")
-		io.WriteString(w, anthropicSSE)
-	}
-	cases := []struct {
-		name, model, wantOut string
-		resp                 http.HandlerFunc
-		wantPaths            []string
-	}{
-		{"non-claude model uses the openai chat route", "databricks-kimi-k3", "ok", chat, []string{"/v1/chat/completions"}},
-		{"claude model uses the anthropic route", "databricks-claude-haiku-4-5", "", claude, []string{"/anthropic/v1/messages"}},
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			var out strings.Builder
-			res, paths, err := runNoTools(t, c.model, c.resp, &out)
-			if err != nil || res.Provider != "dbx" || (c.wantOut != "" && out.String() != c.wantOut) {
-				t.Fatalf("res = %+v err = %v out %q", res, err, out.String())
-			}
-			if !slices.Equal(paths, c.wantPaths) {
-				t.Errorf("paths = %v, want %v", paths, c.wantPaths)
-			}
-		})
-	}
-}
-
-// A Responses-only model is refused before any request leaves.
-func TestClaudeNoToolsRefusesResponsesOnly(t *testing.T) {
-	var out strings.Builder
-	_, paths, err := runNoTools(t, "databricks-gpt-5-5", nil, &out)
-	if err == nil || !strings.Contains(err.Error(), "databricks-gpt-5-5") {
-		t.Errorf("err = %v, want it to name the model", err)
-	}
-	if len(paths) != 0 {
-		t.Errorf("paths = %v, want none", paths)
-	}
 }

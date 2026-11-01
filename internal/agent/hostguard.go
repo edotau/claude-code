@@ -75,8 +75,8 @@ func ownLoginActual(disp Dispatch, req RunOptions) Dispatch {
 	return disp
 }
 
-// targetCtx is target, except a target frozen on ctx is used as is.
-func (s Schema) targetCtx(ctx context.Context, req RunOptions) (providers.Target, bool, error) {
+// TargetCtx is target, except a target frozen on ctx is used as is.
+func (s Schema) TargetCtx(ctx context.Context, req RunOptions) (providers.Target, bool, error) {
 	if f, ok := ctx.Value(frozenKey{}).(frozenTarget); ok && s.Name == "copilot" {
 		if f.note != "" {
 			fmt.Fprintln(os.Stderr, f.note)
@@ -176,9 +176,9 @@ func checkIsolation(ctx context.Context) error {
 	return err
 }
 
-// blankForeignCredentials adds NAME= for each foreign credential in the process env that env (the launch's own
+// BlankForeignCredentials adds NAME= for each foreign credential in the process env that env (the launch's own
 // values) does not set, for a child (the Copilot SDK) that merges os.Environ itself and applies env last.
-func blankForeignCredentials(ctx context.Context, env, keepEnv []string) []string {
+func BlankForeignCredentials(ctx context.Context, env, keepEnv []string) []string {
 	kept := map[string]bool{}
 	for _, kv := range scrubIsolated(ctx, os.Environ(), keepEnv) {
 		kept[kv] = true

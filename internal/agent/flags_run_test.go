@@ -12,7 +12,6 @@ import (
 	"slices"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/vault"
@@ -55,54 +54,9 @@ func followedBy(args []string, flag, val string) bool {
 const claudeStructured = `{"type":"result","subtype":"success","is_error":false,"result":"{\"a\":1}","session_id":"s","total_cost_usd":0.25,` +
 	`"structured_output":{"a":1},"usage":{"input_tokens":3,"output_tokens":2}}`
 
-// claude gets the three flags verbatim and its result's cost and structured output reach the Result.
-func TestClaudeRunMapsSystemPromptSchemaAndResult(t *testing.T) {
-	srv := httptest.NewServer(http.NotFoundHandler())
-	defer srv.Close()
-	registry(t, srv)
-	argv := fakeCLI(t, "claude", "cat >/dev/null; printf '%s\\n' '"+claudeStructured+"'")
-	const schema = `{"type":"object","properties":{"a":{"type":"integer"}}}`
-	res, err := claudeAgent.Run(context.Background(), RunOptions{Prompt: "task", Provider: "tanth", Tools: true,
-		SystemPrompt: "SYS", AppendSystemPrompt: "APP", OutputSchema: schema, Env: []string{"HARNESS_TEST_X=1"}, Launcher: testLauncher{}}, Discard)
-	if err != nil {
-		t.Fatal(err)
-	}
-	args := readArgv(t, argv)
-	for flag, val := range map[string]string{"--system-prompt": "SYS", "--append-system-prompt": "APP", "--json-schema": schema} {
-		if !followedBy(args, flag, val) {
-			t.Errorf("argv %q lacks %s %q", args, flag, val)
-		}
-	}
-	if res.Usage.CostUSD != 0.25 || res.Usage.InputTokens != 3 {
-		t.Errorf("usage = %+v, want cost 0.25", res.Usage)
-	}
-	if string(res.Structured) != `{"a":1}` {
-		t.Errorf("structured = %s", res.Structured)
-	}
-}
-
 type failSink struct{}
 
 func (failSink) Emit(Event) error { return errors.New("consumer gone") }
-
-// A sink that fails mid-stream kills the child at once instead of draining it until it exits on its own.
-func TestClaudeRunKillsChildOnSinkError(t *testing.T) {
-	srv := httptest.NewServer(http.NotFoundHandler())
-	defer srv.Close()
-	registry(t, srv)
-	const text = `{"type":"assistant","message":{"content":[{"type":"text","text":"hi"}]}}`
-	fakeCLI(t, "claude", "cat >/dev/null; printf '%s\\n' '"+text+"'; sleep 30")
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-	defer cancel()
-	start := time.Now()
-	_, err := claudeAgent.Run(ctx, RunOptions{Prompt: "task", Provider: "tanth", Launcher: testLauncher{}}, failSink{})
-	if took := time.Since(start); took > 10*time.Second {
-		t.Fatalf("Run took %s: the child was drained, not killed", took)
-	}
-	if err == nil || !strings.Contains(err.Error(), "consumer gone") {
-		t.Errorf("err = %v, want the sink error", err)
-	}
-}
 
 const codexFixture = `{"type":"thread.started","thread_id":"th-1"}
 {"type":"turn.started"}

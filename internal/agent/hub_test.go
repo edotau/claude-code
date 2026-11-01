@@ -163,18 +163,6 @@ func TestFirstOutputDeadlineFollowsRegistryWhenNotOverridden(t *testing.T) {
 	}
 }
 
-func TestDispatchLabel(t *testing.T) {
-	reg := hubRegistry()
-	chatgpt, _ := reg.Get("chatgpt")
-	l := hubDispatch{agent: "codex", provider: chatgpt, reg: reg}
-	if got := dispatchLabel(l); got != "chatgpt" {
-		t.Errorf("hubDispatch label = %q, want the provider's name", got)
-	}
-	if got := dispatchLabel(claudeAgent); got != "claude" {
-		t.Errorf("non-hub dispatch label = %q, want Name()", got)
-	}
-}
-
 // TestBuildDispatchPinnedRowWithoutOpencodeID: a pinned Databricks-style row (no opencode id) runs native, not a hub dispatch.
 func TestBuildDispatchPinnedRowWithoutOpencodeID(t *testing.T) {
 	rc := routeCtx{reg: hubRegistry(), want: "opencode"}

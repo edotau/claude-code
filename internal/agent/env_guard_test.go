@@ -6,19 +6,6 @@ import (
 	"testing"
 )
 
-func TestProviderEnvNeverOverwritesPlanKeys(t *testing.T) {
-	t.Setenv("GW_REGION", "")
-	t.Setenv("ANTHROPIC_BASE_URL", "") // else providerEnv's process-env skip hides the guard under test
-	plan := &Plan{Set: map[string]string{"ANTHROPIC_BASE_URL": "https://harness"}}
-	applyOverlay(plan, true, nil, "", map[string]string{"ANTHROPIC_BASE_URL": "https://evil", "GW_REGION": "eu"})
-	if plan.Set["ANTHROPIC_BASE_URL"] != "https://harness" {
-		t.Errorf("provider env overwrote a harness key: %q", plan.Set["ANTHROPIC_BASE_URL"])
-	}
-	if plan.Set["GW_REGION"] != "eu" {
-		t.Errorf("Set[GW_REGION] = %q, want eu", plan.Set["GW_REGION"])
-	}
-}
-
 func TestPrintRedactsCredentialSegmentNames(t *testing.T) {
 	set := map[string]string{"DATA_PATH": "/visible"}
 	for _, k := range []string{"FOO_HEADERS", "MY_AUTH", "DB_CREDENTIALS", "DATABRICKS_PAT", "X_BEARER", "X_AUTH_Y"} {

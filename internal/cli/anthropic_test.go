@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/claude"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
@@ -13,14 +13,14 @@ const cliFakeToken = "sk-ant-oat01-FAKEFAKEFAKEFAKEFAKEFAKE0123456789"
 func TestAnthropicSecretMissingOffTTYNamesVaultSet(t *testing.T) {
 	useVaultTest(t)
 	t.Setenv("MISSING_KEY_FOR_TEST", "")
-	for _, mode := range []string{agent.AuthOAuth, agent.AuthAPIKey} {
-		o := agent.AnthropicOptions{Mode: mode, Name: "MISSING_KEY_FOR_TEST"}
+	for _, mode := range []string{claude.AuthOAuth, claude.AuthAPIKey} {
+		o := claude.AnthropicOptions{Mode: mode, Name: "MISSING_KEY_FOR_TEST"}
 		_, err := anthropicSecret(o) // go test has no TTY on stdin: must error, never prompt
 		if err == nil || !strings.Contains(err.Error(), "claude-code vault set MISSING_KEY_FOR_TEST") {
 			t.Errorf("%s: err = %v", mode, err)
 		}
 	}
-	o := agent.AnthropicOptions{Mode: agent.AuthOAuth, Name: "MISSING_KEY_FOR_TEST", PrintEnv: true}
+	o := claude.AnthropicOptions{Mode: claude.AuthOAuth, Name: "MISSING_KEY_FOR_TEST", PrintEnv: true}
 	if _, err := anthropicSecret(o); err == nil || !strings.Contains(err.Error(), "claude-code vault set MISSING_KEY_FOR_TEST") {
 		t.Errorf("--print-env: err = %v", err)
 	}
@@ -29,11 +29,11 @@ func TestAnthropicSecretMissingOffTTYNamesVaultSet(t *testing.T) {
 func TestAnthropicSecretReadsVault(t *testing.T) {
 	useVaultTest(t)
 	vaulttest.Secret(t, "WORK_KEY", cliFakeToken)
-	o := agent.AnthropicOptions{Mode: agent.AuthOAuth, Name: "WORK_KEY"}
+	o := claude.AnthropicOptions{Mode: claude.AuthOAuth, Name: "WORK_KEY"}
 	if v, err := anthropicSecret(o); err != nil || v != cliFakeToken {
 		t.Errorf("oauth: %q %v", v, err)
 	}
-	o.Mode = agent.AuthAPIKey
+	o.Mode = claude.AuthAPIKey
 	if v, err := anthropicSecret(o); err != nil || v != cliFakeToken {
 		t.Errorf("api key: %q %v", v, err)
 	}
@@ -74,7 +74,7 @@ func TestAnthropicSecretMissingNamesKey(t *testing.T) {
 	vaulttest.Use(t)
 	const name = "NOPE_ABSENT_KEY_XYZ"
 	t.Setenv(name, "")
-	o := agent.AnthropicOptions{Mode: agent.AuthOAuth, Name: name, PrintEnv: true}
+	o := claude.AnthropicOptions{Mode: claude.AuthOAuth, Name: name, PrintEnv: true}
 	_, err := anthropicSecret(o)
 	if err == nil || !strings.Contains(err.Error(), name+" is not in the vault") {
 		t.Fatalf("err = %v", err)

@@ -19,7 +19,7 @@ type Client struct {
 
 // NewClient accepts classification and refresh seams without depending on their CLI implementations.
 func NewClient(alias func(string) string, refresh func(context.Context, string) bool, notify func(string)) *Client {
-	return &Client{Launcher: claudeLauncher{}, Alias: alias, Refresh: refresh, Notify: notify}
+	return &Client{Launcher: defaultLauncher, Alias: alias, Refresh: refresh, Notify: notify}
 }
 
 // Prepared is a routed, recorded dispatch that has not started.

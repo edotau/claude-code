@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/copilot"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -46,9 +47,9 @@ func workableCopilotPin(t *testing.T, user string) {
 	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"github":{"work":{"protocol":"openai",`+
 		`"base_url":"https://api.githubcopilot.com","login":"`+user+`","auth":{"type":"cli","login":"copilot"}}}}}`)
 	vaulttest.SetRecord(t, "copilot", "profile", "work")
-	prev := agent.CopilotUsedPct
-	agent.CopilotUsedPct = func(context.Context, string) (float64, bool) { return 10, true }
-	t.Cleanup(func() { agent.CopilotUsedPct = prev })
+	prev := copilot.CopilotUsedPct
+	copilot.CopilotUsedPct = func(context.Context, string) (float64, bool) { return 10, true }
+	t.Cleanup(func() { copilot.CopilotUsedPct = prev })
 }
 
 // setPins seeds vault pins (pins never read the process env).

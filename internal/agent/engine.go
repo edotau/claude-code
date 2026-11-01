@@ -70,6 +70,8 @@ type Driver interface {
 	ProfileHint(o LaunchOptions) error
 	// NativeRegistry reports whether t launches on the CLI's own model registry.
 	NativeRegistry(ctx context.Context, t providers.Target) bool
+	// RegistryLaunch builds the native-registry launch NativeRegistry reported; dry mints and writes nothing.
+	RegistryLaunch(ctx context.Context, reg *providers.Registry, t providers.Target, args []string, dry bool) (RegistryLaunch, error)
 	// RouteDetail is the "<agent> route" doctor detail; ok is false when there is none.
 	RouteDetail() (detail string, ok bool)
 }
@@ -100,11 +102,18 @@ func schemaFor(name string) Schema {
 // LoginStatus reports whether the agent's own login is present and what it is; a row with no engine has none.
 func (s Schema) LoginStatus() (present bool, source string) { return s.eng().LoginStatus() }
 
-// loginPresent is LoginStatus's presence bit; an engine whose label is costly (copilot) answers it itself.
+// RegistryLaunch is a CLI's native model-registry launch: env to set and unset, argv, args and the token to revoke.
+type RegistryLaunch struct {
+	Env, Unset, Argv, Args, Warnings []string
+	Revoke                           func()
+	Banner                           string
+}
+
+// loginPresent is LoginStatus's presence bit; an engine whose label is costly (copilot) answers it with LoginPresent.
 func (s Schema) loginPresent() bool {
 	e := s.eng()
-	if lp, ok := e.(interface{ loginPresent() bool }); ok {
-		return lp.loginPresent()
+	if lp, ok := e.(interface{ LoginPresent() bool }); ok {
+		return lp.LoginPresent()
 	}
 	present, _ := e.LoginStatus()
 	return present
@@ -118,9 +127,9 @@ type WireRoute struct {
 	Routed                     bool
 }
 
-// routeFallback is the target ri names, with ri's reason as the fallback note.
-func routeFallback(reg *providers.Registry, ri RouteInfo) (providers.Target, string, bool) {
-	if t, ok := routeTarget(reg, ri); ok {
+// RouteFallback is the target ri names, with ri's reason as the fallback note.
+func RouteFallback(reg *providers.Registry, ri RouteInfo) (providers.Target, string, bool) {
+	if t, ok := RouteTarget(reg, ri); ok {
 		return t, ri.Reason, true
 	}
 	return providers.Target{}, "", false
@@ -224,6 +233,10 @@ func (b BaseEngine) LaunchArgs(file string, args []string) ([]string, error) {
 func (BaseEngine) ProfileHint(LaunchOptions) error { return nil }
 
 func (BaseEngine) NativeRegistry(context.Context, providers.Target) bool { return false }
+
+func (b BaseEngine) RegistryLaunch(context.Context, *providers.Registry, providers.Target, []string, bool) (RegistryLaunch, error) {
+	return RegistryLaunch{}, fmt.Errorf("%s has no native model registry", b.name)
+}
 
 func (BaseEngine) RouteDetail() (string, bool) { return "", false }
 

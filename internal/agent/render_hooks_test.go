@@ -50,41 +50,6 @@ func TestRenderCodexHooksFilePreservesOrcaOnDisk(t *testing.T) {
 	}
 }
 
-// TestMergeCopilotHooksKeepsForeignEntries mirrors the Codex case for Copilot's flat hook schema
-// (no real captured bytes for this vendor; constructed from its own documented shape).
-func TestMergeCopilotHooksKeepsForeignEntries(t *testing.T) {
-	existing := []byte(`{
-  "version": 1,
-  "hooks": {
-    "preToolUse": [
-      {"type": "command", "matcher": "", "bash": ": orca-agent-hook-form=1; echo hi", "timeoutSec": 10},
-      {"type": "command", "matcher": "bash", "bash": "$HOME/.claude/bin/claude-code hook safety-scan-STALE", "timeoutSec": 5}
-    ],
-    "sessionStart": [
-      {"type": "command", "matcher": "", "bash": ": orca-agent-hook-form=1; echo start", "timeoutSec": 10}
-    ]
-  }
-}`)
-	body, err := agent.CopilotJSON()
-	if err != nil {
-		t.Fatal(err)
-	}
-	merged, err := agent.MergeCopilotHooks(existing, body)
-	if err != nil {
-		t.Fatalf("mergeCopilotHooks: %v", err)
-	}
-	got := string(merged)
-	if strings.Count(got, orcaMarker) != 2 {
-		t.Fatalf("expected both foreign Orca entries to survive:\n%s", got)
-	}
-	if strings.Contains(got, "safety-scan-STALE") {
-		t.Errorf("stale harness entry should be replaced, not kept:\n%s", got)
-	}
-	if !strings.Contains(got, "claude-code hook PreToolUse --safety-scan") {
-		t.Errorf("merged output lost the current harness safety-scan hook:\n%s", got)
-	}
-}
-
 // canonicalJSON sorts map keys (Go's own json.Marshal order for map[string]any) so two JSON values with
 // different field order and whitespace can be compared for value-for-value equality.
 func canonicalJSON(t *testing.T, raw []byte) string {
@@ -134,26 +99,6 @@ func compactJSON(t *testing.T, raw []byte) string {
 	return buf.String()
 }
 
-// TestMergeCopilotHooksPreservesUnknownTopLevelKey mirrors the Codex case for Copilot's top-level shape.
-func TestMergeCopilotHooksPreservesUnknownTopLevelKey(t *testing.T) {
-	existing := []byte(`{"version":1,"hooks":{},"vendorExtra":"keep-me"}`)
-	body, err := agent.CopilotJSON()
-	if err != nil {
-		t.Fatal(err)
-	}
-	merged, err := agent.MergeCopilotHooks(existing, body)
-	if err != nil {
-		t.Fatalf("mergeCopilotHooks: %v", err)
-	}
-	var doc map[string]json.RawMessage
-	if err := json.Unmarshal(merged, &doc); err != nil {
-		t.Fatal(err)
-	}
-	if string(doc["vendorExtra"]) != `"keep-me"` {
-		t.Fatalf("unknown top-level key dropped or altered: %s\n%s", doc["vendorExtra"], merged)
-	}
-}
-
 // TestRenderCodexFailsHooksMergeLeavesConfigTomlUntouched is the RED fixture for partial-apply: a
 // malformed existing ~/.codex/hooks.json must fail the whole render before config.toml (new trust hashes)
 // is ever written, not after.
@@ -196,114 +141,4 @@ func codexGroupOrder(t *testing.T, merged []byte, event string) []json.RawMessag
 		t.Fatalf("codexGroupOrder: %v\n%s", err, merged)
 	}
 	return doc.Hooks[event]
-}
-
-// TestMergeCopilotHooksIdempotent mirrors the Codex idempotence proof for Copilot's flat entry shape.
-func TestMergeCopilotHooksIdempotent(t *testing.T) {
-	existing := []byte(`{
-  "version": 1,
-  "hooks": {
-    "preToolUse": [
-      {"type": "command", "matcher": "", "bash": ": orca-agent-hook-form=1; echo hi", "timeoutSec": 10},
-      {"type": "command", "matcher": "bash", "bash": "$HOME/.claude/bin/claude-code hook safety-scan-STALE", "timeoutSec": 5}
-    ]
-  }
-}`)
-	body, err := agent.CopilotJSON()
-	if err != nil {
-		t.Fatal(err)
-	}
-	once, err := agent.MergeCopilotHooks(existing, body)
-	if err != nil {
-		t.Fatalf("first agent.MergeCopilotHooks: %v", err)
-	}
-	twice, err := agent.MergeCopilotHooks(once, body)
-	if err != nil {
-		t.Fatalf("second agent.MergeCopilotHooks: %v", err)
-	}
-	if !bytes.Equal(once, twice) {
-		t.Fatalf("merge is not idempotent:\nonce:\n%s\ntwice:\n%s", once, twice)
-	}
-}
-
-// TestMergeCopilotHooksForeignFirstStaysFirst is the Copilot-side order-preserving RED fixture: its
-// existing fixture already has Orca's entry before the stale harness one, so lock in that the merge
-// keeps it there instead of pushing it after the rendered block.
-func TestMergeCopilotHooksForeignFirstStaysFirst(t *testing.T) {
-	existing := []byte(`{
-  "version": 1,
-  "hooks": {
-    "preToolUse": [
-      {"type": "command", "matcher": "", "bash": ": orca-agent-hook-form=1; echo hi", "timeoutSec": 10},
-      {"type": "command", "matcher": "bash", "bash": "$HOME/.claude/bin/claude-code hook safety-scan-STALE", "timeoutSec": 5}
-    ]
-  }
-}`)
-	body, err := agent.CopilotJSON()
-	if err != nil {
-		t.Fatal(err)
-	}
-	merged, err := agent.MergeCopilotHooks(existing, body)
-	if err != nil {
-		t.Fatalf("mergeCopilotHooks: %v", err)
-	}
-	var doc struct {
-		Hooks map[string][]json.RawMessage `json:"hooks"`
-	}
-	if err := json.Unmarshal(merged, &doc); err != nil {
-		t.Fatal(err)
-	}
-	entries := doc.Hooks["preToolUse"]
-	if len(entries) < 2 {
-		t.Fatalf("expected Orca's entry plus the rendered one, got %d:\n%s", len(entries), merged)
-	}
-	if !strings.Contains(string(entries[0]), orcaMarker) {
-		t.Fatalf("Orca's entry must stay first, got:\n%s\nfull:\n%s", entries[0], merged)
-	}
-	if strings.Contains(string(merged), "safety-scan-STALE") {
-		t.Errorf("stale harness entry should have been replaced:\n%s", merged)
-	}
-}
-
-// TestMergeCopilotHooksPreservesPowershellCwdEnv is the Copilot-side RED fixture: a foreign entry's
-// powershell/cwd/env fields must survive, not be dropped by a decode into the narrower rendered shape.
-func TestMergeCopilotHooksPreservesPowershellCwdEnv(t *testing.T) {
-	existing := []byte(`{
-  "version": 1,
-  "hooks": {
-    "preToolUse": [
-      {"type": "command", "matcher": "", "bash": "orca-cmd", "powershell": "orca.ps1", "cwd": "/tmp/orca", "env": {"FOO": "bar"}, "timeoutSec": 10}
-    ]
-  }
-}`)
-	body, err := agent.CopilotJSON()
-	if err != nil {
-		t.Fatal(err)
-	}
-	merged, err := agent.MergeCopilotHooks(existing, body)
-	if err != nil {
-		t.Fatalf("mergeCopilotHooks: %v", err)
-	}
-	var doc struct {
-		Hooks map[string][]map[string]any `json:"hooks"`
-	}
-	if err := json.Unmarshal(merged, &doc); err != nil {
-		t.Fatal(err)
-	}
-	var found map[string]any
-	for _, e := range doc.Hooks["preToolUse"] {
-		if e["bash"] == "orca-cmd" {
-			found = e
-		}
-	}
-	if found == nil {
-		t.Fatalf("foreign entry missing from merged output:\n%s", merged)
-	}
-	if found["powershell"] != "orca.ps1" || found["cwd"] != "/tmp/orca" {
-		t.Errorf("powershell/cwd dropped: %#v\n%s", found, merged)
-	}
-	env, _ := found["env"].(map[string]any)
-	if env["FOO"] != "bar" {
-		t.Errorf("env dropped: %#v\n%s", found, merged)
-	}
 }

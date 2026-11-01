@@ -1,11 +1,9 @@
 package agent
 
 import (
-	"cmp"
 	"context"
 	"errors"
 	"fmt"
-	"github.com/edotau/claude-code/internal/vault"
 
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
@@ -46,48 +44,8 @@ func (s Schema) ResolveTarget(reg *providers.Registry, sel providers.Selection, 
 	return t, "", nil
 }
 
-// copilotGate keeps t unless it is copilot's GitHub login on an unworkable pin; then the Databricks fallback and its
-// notice — never another GitHub account.
-func copilotGate(reg *providers.Registry, t providers.Target) (providers.Target, string, error) {
-	if t.Provider == nil || t.Provider.Auth.Login != "copilot" {
-		return t, "", nil
-	}
-	detail, ok := copilotHeadroom(context.Background(), copilotPinLogin())
-	if ok {
-		return t, "", nil
-	}
-	return copilotFallback(reg, detail)
-}
-
-// copilotFallback is the copilot Databricks fallback target and its notice; detail names why GitHub was refused.
-func copilotFallback(reg *providers.Registry, detail string) (providers.Target, string, error) {
-	ri := copilotDatabricksFallback(reg, detail)
-	ft, ok := routeTarget(reg, ri)
-	if !ok {
-		return providers.Target{}, "", errors.New(ri.Reason)
-	}
-	return ft, ri.Reason, nil
-}
-
-// copilotDatabricksFallback: this session's (else the vault-pinned) profile when it is a signed-in Databricks row,
-// else the first Databricks profile whose credential resolves, else RouteNone. detail names why GitHub was refused.
-func copilotDatabricksFallback(reg *providers.Registry, detail string) RouteInfo {
-	pick := func(p *providers.Provider) RouteInfo {
-		return RouteInfo{Agent: "copilot", Route: RouteDatabricks, Provider: p.Name, Model: p.Models[models.Opus],
-			Reason: "copilot: " + detail + " — using databricks profile " + p.Name, OK: true}
-	}
-	pin := cmp.Or(providers.SessionProfile(), vault.GetAgentRecord("claude").Profile)
-	for _, name := range append([]string{pin}, providers.DatabricksProfiles(reg)...) {
-		if p := reg.Providers[name]; databricksUsable(p) {
-			return pick(p)
-		}
-	}
-	return RouteInfo{Agent: "copilot", Route: RouteNone,
-		Reason: "copilot: " + detail + "; no credit-free route for copilot (no Databricks profile signed in)"}
-}
-
-// databricksUsable is true for a Databricks row whose credential resolves.
-func databricksUsable(p *providers.Provider) bool {
+// DatabricksUsable is true for a Databricks row whose credential resolves.
+func DatabricksUsable(p *providers.Provider) bool {
 	if p == nil || p.Preset != providers.PresetDatabricks {
 		return false
 	}
@@ -98,8 +56,8 @@ func databricksUsable(p *providers.Provider) bool {
 // ErrOwnLogin means the agent should run on the credentials its own CLI stores (no harness route injected).
 var ErrOwnLogin = errors.New("agent runs on its own login")
 
-// keyProvider is the first profile under provider that bills on a harness-held key.
-func keyProvider(reg *providers.Registry, provider string) (*providers.Provider, bool) {
+// KeyProvider is the first profile under provider that bills on a harness-held key.
+func KeyProvider(reg *providers.Registry, provider string) (*providers.Provider, bool) {
 	for _, n := range reg.ProfilesOf(provider) {
 		if p := reg.Providers[n]; p.APIKeyAuth() {
 			return p, true

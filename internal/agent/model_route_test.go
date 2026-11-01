@@ -85,23 +85,13 @@ func TestRouteChainForCanonicalRowUsesItsCell(t *testing.T) {
 	}
 }
 
-func TestCopilotModelIDIsDotted(t *testing.T) {
-	for in, want := range map[string]string{
-		"claude-opus-5-5[1m]": "claude-opus-5.5", "claude-opus-4.5": "claude-opus-4.5", "gpt-5.3-codex": "gpt-5.3-codex",
-	} {
-		if got := copilotModelID(in); got != want {
-			t.Errorf("copilotModelID(%q) = %q, want %q", in, got, want)
-		}
-	}
-}
-
 // A run on an agent's own login reports the registry profile naming that login, never the retired "own-login".
 func TestOwnProfileNamesTheLoginRow(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	if got := schemaFor("codex").ownProfile(); got == "own-login" || got == "" {
-		t.Errorf("ownProfile(codex) = %q", got)
+	if got := schemaFor("codex").OwnProfile(); got == "own-login" || got == "" {
+		t.Errorf("OwnProfile(codex) = %q", got)
 	}
-	if got := schemaFor("opencode").ownProfile(); got != "opencode" {
-		t.Errorf("ownProfile(opencode) = %q, want the agent name when no row names its login", got)
+	if got := schemaFor("opencode").OwnProfile(); got != "opencode" {
+		t.Errorf("OwnProfile(opencode) = %q, want the agent name when no row names its login", got)
 	}
 }

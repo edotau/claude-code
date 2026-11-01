@@ -14,6 +14,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/preflight"
 	"github.com/edotau/claude-code/internal/configure"
+	"github.com/edotau/claude-code/internal/copilot"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/proxy"
@@ -427,7 +428,7 @@ func validateDatabricksCopilotPin(
 	ids, ok := served[name]
 	if !ok {
 		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-		cat, err := agent.CopilotModelSource(ctx, reg, name)
+		cat, err := copilot.CopilotModelSource(ctx, reg, name)
 		cancel()
 		if err != nil {
 			return fmt.Sprintf("could not verify against %s serving endpoints (pin written anyway): %v", name, err), nil
@@ -492,13 +493,19 @@ type liveModel struct {
 	Gateway      bool   `json:"gateway,omitempty"`
 }
 
-// listLive prints the provider's live model catalog via providers.ListModels (github-copilot's own SDK,
+// listLive prints the provider's live model catalog (github-copilot's own SDK via copilot.ListModels,
 // every other provider's plain /models GET). A catalog that can't be fetched live falls back to a known,
 // offline list for the two profiles that have one (max's registry models, chatgpt's codex cache).
 func listLive(reg *providers.Registry, p *providers.Provider, format string) int {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	infos, err := providers.ListModels(ctx, reg, p)
+	var infos []providers.ModelInfo
+	var err error
+	if p.Provider == "github" {
+		infos, err = copilot.ListModels(ctx)
+	} else {
+		infos, err = providers.ListModels(ctx, reg, p)
+	}
 	note := ""
 	if err != nil {
 		if infos, note, err = providers.FallbackModels(p, err); err != nil {

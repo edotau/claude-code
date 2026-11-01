@@ -21,6 +21,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent/preflight"
 	"github.com/edotau/claude-code/internal/agent/tools"
 	"github.com/edotau/claude-code/internal/audit"
+	"github.com/edotau/claude-code/internal/claude"
 	"github.com/edotau/claude-code/internal/clean"
 	"github.com/edotau/claude-code/internal/clipboard"
 	"github.com/edotau/claude-code/internal/hooks"
@@ -66,7 +67,7 @@ func DoctorChecks() (checks []Check, ok bool) {
 			ok = false
 		}
 	}
-	bin, err := agent.ClaudeBinary()
+	bin, err := claude.ClaudeBinary()
 	check(err == nil, true, "claude binary", orErr(bin, err))
 	for _, c := range codex.CodexConfigChecks() {
 		check(c.State == "ok", false, c.Name, c.Detail)

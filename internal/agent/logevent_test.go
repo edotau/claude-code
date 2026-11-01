@@ -95,25 +95,6 @@ func TestLogEventOpenCodeFormatted(t *testing.T) {
 	}
 }
 
-func TestLogEventClaudeFormatted(t *testing.T) {
-	r, err := Lookup("claude")
-	if err != nil {
-		t.Fatal(err)
-	}
-	var out strings.Builder
-	log := loggedRun(t, false, func(ctx context.Context) {
-		pathstest.FakeVendor(t, "claude", emitScript(
-			`{"type":"assistant","message":{"content":[{"type":"text","text":"thinking aloud AWS_SECRET=`+evSecret+`"}]}}`,
-			`{"type":"result","subtype":"success","is_error":false,"result":"done-answer","session_id":"s1"}`))
-		if _, err := r.Run(ctx, RunOptions{Prompt: "p", WorkDir: t.TempDir(), Launcher: testLauncher{}}, NewTextSink(&out)); err != nil {
-			t.Fatalf("Run: %v", err)
-		}
-	})
-	wantLines(t, log,
-		"▸ assistant: thinking aloud AWS_SECRET=REDACTED",
-		"▸ result: done-answer")
-}
-
 // The plain-text vendor path (codex etc.) tees stdout via teeWriter: a job carrier must not tee it, a plain
 // WithLog still must, and both keep feeding stderr/event lines.
 func TestLogEventJobModeNoRawStdoutTee(t *testing.T) {

@@ -13,10 +13,9 @@ var (
 		return schemaFor(name).targetNote(req)
 	}
 
-	BackupAndWrite    = backupAndWrite
-	LostLines         = lostLines
-	MergeCopilotHooks = mergeCopilotHooks
-	MirrorsOf         = mirrorsOf
+	BackupAndWrite = backupAndWrite
+	LostLines      = lostLines
+	MirrorsOf      = mirrorsOf
 )
 
 // SetChain and KeepCaller let the agent_test batch tests build a Prepared with a routed chain.
@@ -28,8 +27,6 @@ func KeepCaller(d Dispatch) Dispatch { d.keepCaller = true; return d }
 var (
 	CoolDown            = coolDown
 	AuthEnv             = authEnv
-	GhLogin             = ghLogin
-	GhProfiles          = ghProfiles
 	CountAccountMarkers = countAccountMarkers
 	SamplePeak          = samplePeak
 )
