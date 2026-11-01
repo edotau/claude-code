@@ -11,12 +11,18 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/copilot"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/proxy"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
+
+// Stale copilot accounts refresh through routeRefresh, so these tests stay offline.
+func init() {
+	copilot.RefreshAccount = func(ctx context.Context, key string) bool { return routeRefresh(ctx, key) }
+}
 
 // captureStdout runs fn with os.Stdout redirected and returns what it printed.
 func captureRouteStdout(t *testing.T, fn func() int) (string, int) {
@@ -338,7 +344,7 @@ func TestCopilotUsedPct(t *testing.T) {
 		t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 		fresh(t, 42.5, time.Minute)
 		calls := stubRefresh(t, func(string) bool { return true })
-		if pct, ok := copilotUsedPct(context.Background(), "alice"); !ok || pct != 42.5 || *calls != 0 {
+		if pct, ok := copilot.CopilotUsedPct(context.Background(), "alice"); !ok || pct != 42.5 || *calls != 0 {
 			t.Errorf("got (%v, %v), refreshes %d; want (42.5, true), 0", pct, ok, *calls)
 		}
 	})
@@ -350,7 +356,7 @@ func TestCopilotUsedPct(t *testing.T) {
 			t.Fatal(err)
 		}
 		calls := stubRefresh(t, func(string) bool { return true })
-		if pct, ok := copilotUsedPct(context.Background(), "alice"); !ok || pct != router.ExhaustedPct || *calls != 0 {
+		if pct, ok := copilot.CopilotUsedPct(context.Background(), "alice"); !ok || pct != router.ExhaustedPct || *calls != 0 {
 			t.Errorf("got (%v, %v), refreshes %d; want (100, true), 0", pct, ok, *calls)
 		}
 	})
@@ -362,7 +368,7 @@ func TestCopilotUsedPct(t *testing.T) {
 		}
 		fresh(t, 7, time.Minute)
 		stubRefresh(t, func(string) bool { return true })
-		if pct, ok := copilotUsedPct(context.Background(), "alice"); !ok || pct != 7 {
+		if pct, ok := copilot.CopilotUsedPct(context.Background(), "alice"); !ok || pct != 7 {
 			t.Errorf("got (%v, %v), want (7, true)", pct, ok)
 		}
 	})
@@ -376,7 +382,7 @@ func TestCopilotUsedPct(t *testing.T) {
 			}
 			return router.Record(key, 61, "month", now.Add(24*time.Hour), time.Now()) == nil
 		})
-		if pct, ok := copilotUsedPct(context.Background(), "alice"); !ok || pct != 61 || *calls != 1 {
+		if pct, ok := copilot.CopilotUsedPct(context.Background(), "alice"); !ok || pct != 61 || *calls != 1 {
 			t.Errorf("got (%v, %v), refreshes %d; want (61, true), 1", pct, ok, *calls)
 		}
 	})
@@ -385,7 +391,7 @@ func TestCopilotUsedPct(t *testing.T) {
 		t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 		fresh(t, 10, router.StaleAfter+time.Minute)
 		stubRefresh(t, func(string) bool { return false })
-		if pct, ok := copilotUsedPct(context.Background(), "alice"); ok || pct != 0 {
+		if pct, ok := copilot.CopilotUsedPct(context.Background(), "alice"); ok || pct != 0 {
 			t.Errorf("got (%v, %v), want (0, false)", pct, ok)
 		}
 	})
@@ -393,7 +399,7 @@ func TestCopilotUsedPct(t *testing.T) {
 	t.Run("no entry and refresh fails is unverified", func(t *testing.T) {
 		t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 		calls := stubRefresh(t, func(string) bool { return false })
-		if _, ok := copilotUsedPct(context.Background(), "alice"); ok || *calls != 1 {
+		if _, ok := copilot.CopilotUsedPct(context.Background(), "alice"); ok || *calls != 1 {
 			t.Errorf("ok=%v refreshes %d; want false, 1", ok, *calls)
 		}
 	})
@@ -401,7 +407,7 @@ func TestCopilotUsedPct(t *testing.T) {
 	t.Run("no entry and refresh succeeds without recording is unverified", func(t *testing.T) {
 		t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 		stubRefresh(t, func(string) bool { return true })
-		if _, ok := copilotUsedPct(context.Background(), "alice"); ok {
+		if _, ok := copilot.CopilotUsedPct(context.Background(), "alice"); ok {
 			t.Error("a never-seen account must stay unverified")
 		}
 	})

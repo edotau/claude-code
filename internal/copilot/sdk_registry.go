@@ -1,4 +1,4 @@
-package sdk
+package copilot
 
 import (
 	"context"
@@ -35,7 +35,7 @@ func registryEnv(base, set, unset []string, stripPrefix string) []string {
 }
 
 // validateRegistryOptions fails closed before any runtime starts: no singular BYOK, a token source, a registered pick.
-func validateRegistryOptions(o Options) error {
+func validateRegistryOptions(o SDKOptions) error {
 	switch {
 	case o.Token == nil:
 		return errors.New("copilot registry route needs a session token source")
@@ -57,7 +57,7 @@ func validateRegistryOptions(o Options) error {
 	return fmt.Errorf("%w: %q", ErrUnregisteredPick, o.Model)
 }
 
-func (o Options) multiProvider() bool { return len(o.Providers) > 0 || len(o.Models) > 0 }
+func (o SDKOptions) multiProvider() bool { return len(o.Providers) > 0 || len(o.Models) > 0 }
 
 // NamedProvider is one credential-free upstream of the multi-provider route.
 type NamedProvider struct {
@@ -72,7 +72,7 @@ type RegistryModel struct {
 }
 
 // namedProviders builds the SDK providers with credentials cleared; every one's auth goes through the token callback.
-func namedProviders(o Options) ([]copilot.NamedProviderConfig, []copilot.ProviderModelConfig) {
+func namedProviders(o SDKOptions) ([]copilot.NamedProviderConfig, []copilot.ProviderModelConfig) {
 	cb := func(copilot.ProviderTokenArgs) (string, error) { return o.Token() }
 	ps := make([]copilot.NamedProviderConfig, len(o.Providers))
 	for i, p := range o.Providers {
@@ -102,7 +102,7 @@ func probeMultiProvider(ctx context.Context, client *copilot.Client) error {
 }
 
 // selectRegistered pins the session to o.Model; an unknown id errors, so a pick never falls through to GitHub.
-func selectRegistered(ctx context.Context, session *copilot.Session, o Options) error {
+func selectRegistered(ctx context.Context, session *copilot.Session, o SDKOptions) error {
 	var opts *copilot.SetModelOptions
 	if o.ReasoningEffort != "" {
 		opts = &copilot.SetModelOptions{ReasoningEffort: &o.ReasoningEffort}
@@ -114,7 +114,7 @@ func selectRegistered(ctx context.Context, session *copilot.Session, o Options) 
 }
 
 // ClientEnv is the child process env the SDK client would start the CLI with.
-func ClientEnv(o Options) ([]string, error) {
+func ClientEnv(o SDKOptions) ([]string, error) {
 	co, err := BuildClientOptions(o)
 	if err != nil {
 		return nil, err

@@ -314,3 +314,16 @@ func SpellPin(p *Provider, pin string) string {
 	}
 	return p.WireModel(models.Strip1M(pin))
 }
+
+// copilotPlans maps GitHub's copilot_plan values to the plan names GitHub sells.
+var copilotPlans = map[string]string{
+	"free": "Free", "individual": "Pro", "individual_pro": "Pro+", "business": "Business", "enterprise": "Enterprise",
+}
+
+// CopilotPlanName is the sold name of a copilot_plan value ("individual_pro" → "Pro+"); the raw value when unknown.
+func CopilotPlanName(raw string) string {
+	if name, ok := copilotPlans[raw]; ok {
+		return name
+	}
+	return raw
+}

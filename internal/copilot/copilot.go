@@ -12,14 +12,15 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agentconfig/render"
+
+	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/vault"
 
-	"github.com/edotau/claude-code/internal/copilot/sdk"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
+	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
 // copilotEngine is copilot's engine and its Engine: it drives the CLI through the SDK; tools are denied unless asked.
@@ -76,7 +77,7 @@ func (e copilotEngine) Run(ctx context.Context, req agent.RunOptions, sink agent
 
 // options builds the SDK options for target t; env is the BYOK route env and done releases a registry route.
 func (e copilotEngine) options(ctx context.Context, cs agent.Schema, req agent.RunOptions, t providers.Target, own bool,
-) (opts sdk.Options, env []string, done func(), err error) {
+) (opts SDKOptions, env []string, done func(), err error) {
 	done = func() {}
 	var route *copilotRegistryRoute
 	switch {
@@ -101,7 +102,7 @@ func (e copilotEngine) options(ctx context.Context, cs agent.Schema, req agent.R
 	}
 	// An explicit --effort overrides the pin; there is no per-call --context, so the pin alone decides it.
 	rec := vault.GetAgentRecord("copilot")
-	opts = sdk.Options{
+	opts = SDKOptions{
 		CLIPath: bin, Env: env, KeepEnv: req.KeepEnv, Model: model,
 		ReasoningEffort: cmp.Or(req.Effort, rec.Effort),
 		Context:         rec.Context, WorkingDirectory: req.WorkDir,
@@ -130,7 +131,7 @@ func copilotPrompt(req agent.RunOptions) (prompt string, images []string, err er
 }
 
 // copilotPartial keeps a failed run's partial text and session; streamed bytes mark progress, so Run does not retry.
-func copilotPartial(res agent.Result, out sdk.Result, err error, sink agent.Sink) (agent.Result, error) {
+func copilotPartial(res agent.Result, out SDKResult, err error, sink agent.Sink) (agent.Result, error) {
 	res.SessionID, res.Answer = cmp.Or(out.SessionID, res.SessionID), out.Text
 	if strings.TrimSpace(out.Text) != "" {
 		if serr := sink.Emit(agent.Event{Type: agent.EventText, Text: out.Text}); serr != nil {
@@ -145,10 +146,10 @@ func copilotFatal(err error) error {
 }
 
 // copilotAsk is the SDK call, a var so tests reach the agent's result handling without a copilot binary.
-var copilotAsk = sdk.Ask
+var copilotAsk = SDKAsk
 
 // applyCopilotToken puts the own-login launch token, then the harness account's env token, on the SDK's token field.
-func applyCopilotToken(opts *sdk.Options, own bool, env []string) error {
+func applyCopilotToken(opts *SDKOptions, own bool, env []string) error {
 	if own {
 		tok, err := CopilotLaunchToken()
 		if err != nil {
@@ -413,6 +414,27 @@ type CopilotCatalog struct {
 	Profile    string
 	Databricks bool
 	Rows       []CopilotEndpoint
+}
+
+// Write renders a Databricks row's chat endpoints as a NAME / TESTED table, or JSON.
+func (c CopilotCatalog) Write(w io.Writer, format string) error {
+	if format == helptext.JSON {
+		return helptext.WriteJSON(w, c)
+	}
+	fmt.Fprintln(w, c.Source)
+	nameW := len("NAME")
+	for _, r := range c.Rows {
+		nameW = max(nameW, len(r.ID))
+	}
+	fmt.Fprintf(w, "%-*s  %s\n", nameW, "NAME", "TESTED")
+	for _, r := range c.Rows {
+		mark := ""
+		if r.Tested {
+			mark = "tested"
+		}
+		fmt.Fprintln(w, strings.TrimRight(fmt.Sprintf("%-*s  %s", nameW, r.ID, mark), " "))
+	}
+	return nil
 }
 
 // CopilotModelSource resolves profile (default: the session profile) and lists its chat endpoints if Databricks.

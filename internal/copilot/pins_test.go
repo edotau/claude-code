@@ -1,14 +1,16 @@
-package cli
+package copilot
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/providers"
 )
 
 func TestValidateDatabricksCopilotPin(t *testing.T) {
-	cliScratch(t)
 	served := map[string][]string{
 		"dev": {"databricks-kimi-k3", "databricks-gpt-6-1-sol"},
 	}
@@ -31,5 +33,21 @@ func TestValidateDatabricksCopilotPin(t *testing.T) {
 				t.Errorf("error = %v, want it to contain %q", err, tc.hint)
 			}
 		})
+	}
+}
+
+func TestCopilotModelIDsReportsMissingAgentBin(t *testing.T) {
+	bin := pathstest.FakeVendor(t, "copilot", "exit 99")
+	t.Setenv("PATH", filepath.Dir(bin))
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	ids, err := copilotModelIDs()
+	if ids != nil {
+		t.Errorf("ids = %v, want nil when bin/copilot is missing", ids)
+	}
+	want := "copilot CLI not found: copilot: not installed at " +
+		filepath.Join(os.Getenv("CLAUDE_CONFIG_DIR"), "bin", "copilot") +
+		" (claude-code install --tools=copilot)"
+	if err == nil || err.Error() != want {
+		t.Fatalf("error = %v, want %q", err, want)
 	}
 }

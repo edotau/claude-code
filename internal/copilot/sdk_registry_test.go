@@ -1,4 +1,4 @@
-package sdk
+package copilot
 
 import (
 	"bufio"
@@ -95,14 +95,14 @@ func cmpOr(a, b string) string {
 
 const registryPick = "dbx-openai/gpt-5-5"
 
-// registryOpts is a valid registry-route Options aimed at the fake CLI (this test binary).
-func registryOpts(t *testing.T, version, log string, known ...string) Options {
+// registryOpts is a valid registry-route SDKOptions aimed at the fake CLI (this test binary).
+func registryOpts(t *testing.T, version, log string, known ...string) SDKOptions {
 	t.Helper()
 	exe, err := os.Executable()
 	if err != nil {
 		t.Fatal(err)
 	}
-	return Options{
+	return SDKOptions{
 		CLIPath: exe, Model: registryPick,
 		Providers: []NamedProvider{{Name: "dbx-openai", Type: "openai"}},
 		Models:    []RegistryModel{{ID: "gpt-5-5", Provider: "dbx-openai"}},
@@ -112,7 +112,7 @@ func registryOpts(t *testing.T, version, log string, known ...string) Options {
 	}
 }
 
-func openSession(t *testing.T, o Options) (*copilot.Session, error) {
+func openSession(t *testing.T, o SDKOptions) (*copilot.Session, error) {
 	t.Helper()
 	co, err := BuildClientOptions(o)
 	if err != nil {
@@ -134,7 +134,7 @@ func calls(t *testing.T, log string) []string {
 	return strings.Split(strings.TrimSpace(string(b)), "\n")
 }
 
-// A pick outside the registry is refused with ErrUnregisteredPick, before any process starts (Options check) and
+// A pick outside the registry is refused with ErrUnregisteredPick, before any process starts (SDKOptions check) and
 // when the CLI itself rejects the switch (so the pick can never silently stay on a GitHub model).
 func TestRegistryUnregisteredPick(t *testing.T) {
 	o := registryOpts(t, "1.0.104", t.TempDir()+"/log")

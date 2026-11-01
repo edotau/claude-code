@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/edotau/claude-code/internal/copilot/sdk"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
@@ -13,11 +12,7 @@ import (
 
 // ListModels lists the GitHub Copilot catalog through the SDK on the launch account's token (its own login, never BYOK).
 func ListModels(ctx context.Context) ([]providers.ModelInfo, error) {
-	bin, err := paths.AgentBin("copilot")
-	if err != nil {
-		return nil, fmt.Errorf("copilot CLI not found: %w", err)
-	}
-	list, err := sdk.ListModels(ctx, sdk.CatalogOptions(bin, CopilotToken()))
+	list, err := launchCatalog(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -28,9 +23,18 @@ func ListModels(ctx context.Context) ([]providers.ModelInfo, error) {
 	return out, nil
 }
 
+// launchCatalog is the SDK's raw catalog on the launch account's token.
+func launchCatalog(ctx context.Context) ([]SDKModel, error) {
+	bin, err := paths.AgentBin("copilot")
+	if err != nil {
+		return nil, fmt.Errorf("copilot CLI not found: %w", err)
+	}
+	return SDKListModels(ctx, CatalogOptions(bin, CopilotToken()))
+}
+
 // copilotCapabilities joins copilot's capability flags and premium-billing multiplier into one
 // "vision · reasoning · x2" string; "" when the model carries none of them.
-func copilotCapabilities(m sdk.Model) string {
+func copilotCapabilities(m SDKModel) string {
 	var parts []string
 	if m.Vision {
 		parts = append(parts, "vision")

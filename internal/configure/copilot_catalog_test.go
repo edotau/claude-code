@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/copilot/sdk"
+	"github.com/edotau/claude-code/internal/copilot"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 )
@@ -34,11 +34,11 @@ func fakeCopilotBin(t *testing.T) {
 }
 
 // stubCatalog replaces copilotListModelsFn with a fixed result and restores it on cleanup.
-func stubCatalog(t *testing.T, models []sdk.Model, err error) *int {
+func stubCatalog(t *testing.T, models []copilot.SDKModel, err error) *int {
 	t.Helper()
 	orig := copilotListModelsFn
 	calls := 0
-	copilotListModelsFn = func(ctx context.Context, o sdk.Options) ([]sdk.Model, error) {
+	copilotListModelsFn = func(ctx context.Context, o copilot.SDKOptions) ([]copilot.SDKModel, error) {
 		calls++
 		return models, err
 	}
@@ -51,7 +51,7 @@ func stubCatalog(t *testing.T, models []sdk.Model, err error) *int {
 func TestCopilotCatalogFetchedOncePerDialog(t *testing.T) {
 	menuTestEnv(t)
 	fakeCopilotBin(t)
-	calls := stubCatalog(t, []sdk.Model{{ID: "claude-sonnet-5", Enabled: true}}, nil)
+	calls := stubCatalog(t, []copilot.SDKModel{{ID: "claude-sonnet-5", Enabled: true}}, nil)
 
 	d := &dialog{out: discardWriter{}}
 	if _, err := copilotCatalog(d); err != nil {
@@ -91,7 +91,7 @@ func TestCopilotCatalogCachesError(t *testing.T) {
 func TestPickCopilotModelHidesDisabledModels(t *testing.T) {
 	reg := menuTestEnv(t)
 	fakeCopilotBin(t)
-	stubCatalog(t, []sdk.Model{
+	stubCatalog(t, []copilot.SDKModel{
 		{ID: "claude-sonnet-5", Name: "Claude Sonnet 5", Enabled: true},
 		{ID: "retired-model", Name: "Retired Model", Enabled: false},
 	}, nil)
@@ -151,7 +151,7 @@ func TestPickCopilotModelFallsBackToOpencodeOnSDKError(t *testing.T) {
 func TestCopilotEffortRowListsModelsOwnEfforts(t *testing.T) {
 	menuTestEnv(t)
 	fakeCopilotBin(t)
-	stubCatalog(t, []sdk.Model{
+	stubCatalog(t, []copilot.SDKModel{
 		{ID: "claude-sonnet-5", ReasoningEffort: true, Efforts: []string{"low", "medium", "high"}, DefaultEffort: "medium"},
 	}, nil)
 
@@ -178,7 +178,7 @@ func TestCopilotEffortRowListsModelsOwnEfforts(t *testing.T) {
 func TestClearIneligibleCopilotPinsOnModelSwitch(t *testing.T) {
 	menuTestEnv(t)
 	fakeCopilotBin(t)
-	stubCatalog(t, []sdk.Model{
+	stubCatalog(t, []copilot.SDKModel{
 		{ID: "new-model", ReasoningEffort: true, Efforts: []string{"low", "medium"}, ContextTokens: 128_000},
 	}, nil)
 	putRec(t, "copilot", "EFFORT", "high")
@@ -204,7 +204,7 @@ func TestClearIneligibleCopilotPinsOnModelSwitch(t *testing.T) {
 func TestClearIneligibleCopilotPinsKeepsCompatiblePins(t *testing.T) {
 	menuTestEnv(t)
 	fakeCopilotBin(t)
-	stubCatalog(t, []sdk.Model{
+	stubCatalog(t, []copilot.SDKModel{
 		{ID: "still-fits", ReasoningEffort: true, Efforts: []string{"low", "high"}, ContextTokens: 1_000_000},
 	}, nil)
 	putRec(t, "copilot", "EFFORT", "high")
@@ -225,7 +225,7 @@ func TestClearIneligibleCopilotPinsKeepsCompatiblePins(t *testing.T) {
 func TestCopilotCatalogRowsFitEightyColumns(t *testing.T) {
 	mult := 10.0
 	id := "gemini-3-pro-preview" // a realistic worst-case id length from the live catalog
-	desc := copilotModelDesc(sdk.Model{ID: id, Name: "Gemini 3 Pro Preview", Multiplier: &mult}, id)
+	desc := copilotModelDesc(copilot.SDKModel{ID: id, Name: "Gemini 3 Pro Preview", Multiplier: &mult}, id)
 	if w := rowRenderedWidth([]string{id}, desc); w > 80 {
 		t.Errorf("Model row = %d cols, want <=80: %q", w, desc)
 	}

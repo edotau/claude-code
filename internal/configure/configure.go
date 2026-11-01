@@ -23,11 +23,12 @@ import (
 	"time"
 
 	agentrender "github.com/edotau/claude-code/internal/agentconfig/render"
+
 	"github.com/edotau/claude-code/internal/vault"
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/preflight"
-	"github.com/edotau/claude-code/internal/copilot/sdk"
+	"github.com/edotau/claude-code/internal/copilot"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
@@ -89,7 +90,7 @@ type dialog struct {
 	// changed is set by any home-page action that wrote config; runMenu re-renders settings on exit.
 	changed bool
 	// copilotCatalog caches the copilot SDK model catalog for the life of this dialog (one dialog, one fetch).
-	copilotCatalog       []sdk.Model
+	copilotCatalog       []copilot.SDKModel
 	copilotCatalogErr    error
 	copilotCatalogLoaded bool
 }
