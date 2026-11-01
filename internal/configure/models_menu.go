@@ -3,12 +3,11 @@
 package configure
 
 import (
-	"cmp"
 	"context"
-	"github.com/edotau/claude-code/internal/vault"
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/copilot"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
@@ -132,7 +131,7 @@ func catalogForAlias(ctx context.Context, reg *providers.Registry, p *providers.
 
 // pinModel writes alias's audited pin, qualified to profile when it is not the session's own (as --pin does).
 func pinModel(d *dialog, profile, alias, id string) {
-	spec := QualifyPinSpec(d.reg, profile, id)
+	spec := agentconfig.QualifyPinSpec(d.reg, profile, id)
 	if _, err := writeAgentField(d, "claude", strings.ToUpper(alias)+"_MODEL", spec); err != nil {
 		d.println(err)
 		return
@@ -141,38 +140,12 @@ func pinModel(d *dialog, profile, alias, id string) {
 	d.printf("%-7s pinned %s\n", alias, spec)
 }
 
-// QualifyPinSpec stores a cross-profile "profile:model" pin when providerFlag names a profile other than the
-// session's own, so the pin later resolves against the profile it was validated for. Qualified specs pass through.
-func QualifyPinSpec(reg *providers.Registry, providerFlag, spec string) string {
-	if providerFlag == "" {
-		return spec
-	}
-	if name, model, ok := strings.Cut(spec, ":"); ok {
-		if _, found := reg.Providers[name]; found && model != "" {
-			return spec
-		}
-	}
-	session := cmp.Or(providers.SessionProfile(), providers.AgentRecord("claude").Profile, reg.Default)
-	if providerFlag == session {
-		return spec
-	}
-	return providerFlag + ":" + spec
-}
-
 // unpinAllModels clears every model pin, same call cmdModels' --unpin flag makes, and audits each.
 func unpinAllModels(d *dialog) {
-	err := vault.UpdateAgentRecords(func(m map[string]vault.AgentRecord) {
-		r := m["claude"]
-		r.Model, r.Aliases = "", nil
-		m["claude"] = r
-	})
-	if err != nil {
+	set, _ := agentconfig.ParseModelPins(d.reg, "", true, nil)
+	if err := agentconfig.ApplyClaudeModels(set); err != nil {
 		d.println(err)
 		return
-	}
-	providers.AuditModelPin("", "")
-	for _, s := range models.AliasNames {
-		providers.AuditModelPin(s, "")
 	}
 	d.println("every model pin cleared")
 }

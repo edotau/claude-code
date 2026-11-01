@@ -4,12 +4,14 @@ import (
 	"cmp"
 	"context"
 	"fmt"
-	"github.com/edotau/claude-code/internal/vault"
 	"maps"
 	"os"
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/edotau/claude-code/internal/agentconfig"
+	"github.com/edotau/claude-code/internal/vault"
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/preflight"
@@ -280,24 +282,9 @@ func applyModelPins(reg *providers.Registry, provider string, unpin, dryRun bool
 	if !unpin && len(pins) == 0 {
 		return 0, false
 	}
-	set := map[string]string{} // alias ("" = every alias) -> spec; "" spec unpins
-	if unpin {
-		set[""] = ""
-		for _, s := range models.AliasNames {
-			set[s] = ""
-		}
-	}
-	for _, p := range pins {
-		alias, spec, ok := strings.Cut(p, "=")
-		if !ok {
-			return fail("--pin wants alias=model, got %q", p), true
-		}
-		if alias == "all" {
-			alias = ""
-		} else if !slices.Contains(models.AliasNames, alias) {
-			return fail("unknown alias %q (opus|sonnet|haiku|fable|all)", alias), true
-		}
-		set[alias] = configure.QualifyPinSpec(reg, provider, spec)
+	set, err := agentconfig.ParseModelPins(reg, provider, unpin, pins)
+	if err != nil {
+		return fail("%v", err), true
 	}
 	warn, err := copilot.ValidateCopilotPins(provider, pins)
 	if err != nil {
@@ -306,15 +293,11 @@ func applyModelPins(reg *providers.Registry, provider string, unpin, dryRun bool
 	if warn != "" {
 		fmt.Fprintln(os.Stderr, "claude-code: models:", warn)
 	}
-	apply := func(m map[string]vault.AgentRecord) { m["claude"] = withClaudeModels(m["claude"], set) }
 	if dryRun {
-		return printRecordDiff(apply, nil), true
+		return printRecordDiff(func(m map[string]vault.AgentRecord) { m["claude"] = agentconfig.WithClaudeModels(m["claude"], set) }, nil), true
 	}
-	if err := vault.UpdateAgentRecords(apply); err != nil {
+	if err := agentconfig.ApplyClaudeModels(set); err != nil {
 		return fail("%v", err), true
-	}
-	for _, alias := range slices.Sorted(maps.Keys(set)) {
-		providers.AuditModelPin(alias, set[alias])
 	}
 	return 0, false
 }
@@ -476,16 +459,11 @@ func cmdSwitch(args []string) int {
 	if _, err := reg.Get(args[0]); err != nil {
 		return fail("%v", err)
 	}
-	apply := func(m map[string]vault.AgentRecord) { switchAgents(reg, m, args[0]) }
 	if dryRun {
+		apply := func(m map[string]vault.AgentRecord) { configure.SwitchRecords(reg, m, args[0]) }
 		return printRecordDiff(apply, keptOff(reg, vault.AgentRecords(agent.RosterNames()), args[0]))
 	}
-	move, _ := switchTargets(reg, vault.AgentRecords(agent.RosterNames()), args[0])
-	if _, err := configure.ApplyProfile(move, args[0]); err != nil {
-		return fail("%v", err)
-	}
-	providers.AuditSwitch(args[0])
-	if err := agent.ClearLastProfiles(); err != nil {
+	if err := configure.SwitchProfile(reg, args[0]); err != nil {
 		return fail("%v", err)
 	}
 	fmt.Printf("profile pinned: %s (relaunch to apply)\n", args[0])
@@ -538,36 +516,9 @@ func cmdResolve(args []string) int {
 	return 0
 }
 
-// switchTargets are the agents a switch to profile moves: claude, and each external agent that is on and serves it.
-// Serves, not CanServe: a gemini gateway row is reachable only by an explicit `gemini profile`.
-func switchTargets(reg *providers.Registry, recs map[string]vault.AgentRecord, profile string) (move, off []string) {
-	for _, spec := range agent.Roster() {
-		ok, _ := agent.Serves(spec.Name, reg.Providers[profile], "")
-		switch {
-		case !spec.External():
-			move = append(move, spec.Name)
-		case ok && recs[spec.Name].Profile == "":
-			off = append(off, spec.Name)
-		case ok:
-			move = append(move, spec.Name)
-		}
-	}
-	return move, off
-}
-
-// switchAgents sets profile on claude and on every external agent that is on and can serve it (edited in m).
-func switchAgents(reg *providers.Registry, m map[string]vault.AgentRecord, profile string) {
-	move, _ := switchTargets(reg, m, profile)
-	for _, name := range move {
-		r := m[name]
-		r.Profile = profile
-		m[name] = r
-	}
-}
-
 // keptOff lists "agent: off (kept)" for each off agent that could serve profile and a switch leaves off.
 func keptOff(reg *providers.Registry, recs map[string]vault.AgentRecord, profile string) []string {
-	_, off := switchTargets(reg, recs, profile)
+	_, off := configure.SwitchTargets(reg, recs, profile)
 	lines := make([]string, len(off))
 	for i, n := range off {
 		lines[i] = n + ": off (kept)"
