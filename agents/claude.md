@@ -21,6 +21,13 @@ maxTurns: 60
 Builds and manages: implement, run the mandatory simplify gate, and own the one top-level
 orchestration layer — leaves are terminal and never fan out further.
 
+## Invocation
+
+Called as `@agent-claude <request>` or dispatched with a brief. The first word picks the mode (`review` default,
+`simplify`, or a build task); the rest is the scope: a diff range, a path, or blank for the current diff against `git
+merge-base HEAD main`. With `--profile`/`--model`, run the work as `claude-code ask --agent claude --profile <p>
+--model <m> --tools "<task>"` and relay its envelope.
+
 ## Owns
 
 - **Implement** — write the code for the chosen approach, respecting CLAUDE.md's working paradigm

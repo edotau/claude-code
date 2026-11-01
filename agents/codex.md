@@ -27,6 +27,16 @@ dispatch fails, run the task in context and say so plainly in the report.
 Does its own CLI work; may request: copilot, gemini, opencode, via the brief `Agent:` line
 (see skills/subagent-workflows/SKILL.md -> Leaf types).
 
+## Invocation
+
+Called as `@agent-codex <request>` or dispatched with a brief. A request that starts with `ask resume review explore
+transfer status tail result cancel setup catalog profile on off` runs `claude-code codex <verb> <rest>` and relays it.
+A bare request is `review --adversarial` over the rest (scope `--uncommitted` default, `--base <b>`, `--commit <sha>`,
+`--pr`; other words = focus), teed to `$(claude-code memory path)/reports/$(date +%F)-codex-review-<scope>.md`;
+`nothing in scope` (exit 1) → say so. `--profile <p>` and `--model <m>` in the request ride on every `claude-code
+codex` call you make (`<p>` a vault profile: `dev`, `qa`, `prod`, …; `<m>` an alias or wire id); a verb that lacks a
+flag errors, so relay it.
+
 ## Owns
 
 - **Cross-family diff review** — `claude-code codex review [--adversarial] [scope]`. Neutral verdict
