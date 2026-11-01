@@ -107,7 +107,7 @@ func TestRubricPrompt(t *testing.T) {
 func TestChildDeadlineKillsProcessGroup(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
-	cmd, tail := childCmd(ctx, "/bin/sh", []string{"-c", "sleep 30 & sleep 30"}, nil, "", "", nil, false)
+	cmd, tail := ChildCmd(ctx, "/bin/sh", []string{"-c", "sleep 30 & sleep 30"}, nil, "", "", nil, false)
 	start := time.Now()
 	err := childErr(ctx, "sh", cmd.Run(), tail)
 	if time.Since(start) > 3*time.Second || !errors.Is(err, context.DeadlineExceeded) {
@@ -119,14 +119,14 @@ func TestChildDeadlineKillsProcessGroup(t *testing.T) {
 // empty dir (no --workdir) must leave PWD unset so the child inherits the caller's own cwd.
 func TestChildCmdSetsPWD(t *testing.T) {
 	dir := t.TempDir()
-	cmd, _ := childCmd(context.Background(), "/bin/sh", []string{"-c", "true"}, nil, dir, "", nil, false)
+	cmd, _ := ChildCmd(context.Background(), "/bin/sh", []string{"-c", "true"}, nil, dir, "", nil, false)
 	if !slices.Contains(cmd.Env, "PWD="+dir) {
 		t.Errorf("cmd.Env = %q, want PWD=%s", cmd.Env, dir)
 	}
 
 	// dir == "" (no --workdir): childCmd must append nothing past the scrubbed environ, no PWD.
 	scrubbed, _ := proc.Scrub(os.Environ(), nil)
-	cmd, _ = childCmd(context.Background(), "/bin/sh", []string{"-c", "true"}, nil, "", "", nil, false)
+	cmd, _ = ChildCmd(context.Background(), "/bin/sh", []string{"-c", "true"}, nil, "", "", nil, false)
 	if n, want := len(cmd.Env), len(scrubbed); n != want {
 		t.Errorf("cmd.Env has %d entries, want %d (scrubbed os.Environ(), no PWD appended)", n, want)
 	}
@@ -139,11 +139,11 @@ func TestChildCmdScrubsVaultKeyForVendorOnly(t *testing.T) {
 	hasKey := func(env []string) bool {
 		return slices.ContainsFunc(env, func(s string) bool { return strings.HasPrefix(s, "HARNESS_VAULT_KEY=") })
 	}
-	cmd, _ := childCmd(context.Background(), "/bin/sh", []string{"-c", "true"}, nil, "", "", nil, true)
+	cmd, _ := ChildCmd(context.Background(), "/bin/sh", []string{"-c", "true"}, nil, "", "", nil, true)
 	if hasKey(cmd.Env) {
 		t.Errorf("vendor child env leaked HARNESS_VAULT_KEY: %v", cmd.Env)
 	}
-	cmd, _ = childCmd(context.Background(), "/bin/sh", []string{"-c", "true"}, nil, "", "", nil, false)
+	cmd, _ = ChildCmd(context.Background(), "/bin/sh", []string{"-c", "true"}, nil, "", "", nil, false)
 	if !hasKey(cmd.Env) {
 		t.Errorf("claude's own child must keep HARNESS_VAULT_KEY, env=%v", cmd.Env)
 	}
@@ -154,7 +154,7 @@ func TestSessionFromBanner(t *testing.T) {
 	if got := sessionFromBanner(banner); got != "01a0aa74-a4c4" {
 		t.Errorf("sessionFromBanner = %q, want the banner id", got)
 	}
-	var h headBuffer
+	var h HeadBuffer
 	h.Write([]byte(banner))
 	h.Write(make([]byte, 8<<10))
 	if len(h.String()) != 4<<10 || sessionFromBanner(h.String()) != "01a0aa74-a4c4" {
@@ -513,13 +513,13 @@ func TestAttachInlineRejectsBinaryKeepsText(t *testing.T) {
 	}
 	for name, data := range map[string][]byte{"nul.bin": []byte("ab\x00cd"), "bad.dat": {0xff, 0xfe, 0x80}} {
 		p := write(name, data)
-		_, err := attachInline("task", []string{p})
+		_, err := AttachInline("task", []string{p})
 		if err == nil || !strings.Contains(err.Error(), p) || !strings.Contains(err.Error(), "binary") {
 			t.Errorf("%s: err = %v, want a binary-file error naming %s", name, err, p)
 		}
 	}
 	good := write("ok.txt", []byte("héllo 世界"))
-	got, err := attachInline("task", []string{good})
+	got, err := AttachInline("task", []string{good})
 	if err != nil {
 		t.Fatal(err)
 	}

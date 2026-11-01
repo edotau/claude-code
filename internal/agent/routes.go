@@ -27,7 +27,7 @@ type RouteInfo struct {
 
 // DescribeRoute reports the fallback dispatch the agent (opencode|copilot) resolves to today, in priority
 // order. Every other agent reports RouteNone with a plain explanation — they have no fallback chain.
-func (s Schema) DescribeRoute(reg *providers.Registry) RouteInfo { return s.eng().describeRoute(reg) }
+func (s Schema) DescribeRoute(reg *providers.Registry) RouteInfo { return s.eng().DescribeRoute(reg) }
 
 // describeOpenCodeRoute: 1) opencode's own login (Go plan); 2) opencode's GitHub Copilot login; 3) none.
 func describeOpenCodeRoute(reg *providers.Registry) RouteInfo {
@@ -36,7 +36,7 @@ func describeOpenCodeRoute(reg *providers.Registry) RouteInfo {
 			Reason: "opencode's own opencode login (Go plan; OPENCODE_API_KEY from the vault when no stored login)", OK: true}
 	}
 	if OpencodeCopilotLoginPresent() {
-		if p, ok := loginProvider(reg, "github", "copilot"); ok {
+		if p, ok := LoginProvider(reg, "github", "copilot"); ok {
 			if main, small, mok := OpencodeCopilotModelIDs(reg); mok {
 				return RouteInfo{Agent: "opencode", Route: RouteCopilotLogin, Provider: p.Name, Model: main, SmallModel: small,
 					Reason: "opencode's own GitHub Copilot login (opencode auth login)", OK: true}
@@ -60,7 +60,7 @@ func describeCopilotRoute(reg *providers.Registry) RouteInfo {
 	}
 	detail, workable := copilotHeadroom(context.Background(), copilotPinLogin())
 	if a, ok := copilotAuthSource(); ok && workable {
-		if p, ok := loginProvider(reg, "github", "copilot"); ok {
+		if p, ok := LoginProvider(reg, "github", "copilot"); ok {
 			model, _ := providers.CopilotModel(reg)
 			return RouteInfo{Agent: "copilot", Route: RouteCopilotLogin, Provider: p.Name, Model: model,
 				Reason: "github-copilot (" + a.Label() + ")", OK: true}

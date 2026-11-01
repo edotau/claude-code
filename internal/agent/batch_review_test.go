@@ -150,11 +150,11 @@ func TestChildCmdOwnLoginDropsForeignCredentialsUnderIsolation(t *testing.T) {
 		`"pb":{"protocol":"anthropic","base_url":"http://127.0.0.1:1","auth":{"type":"key","env":"OPENCODE_API_KEY"},"models":{"opus":"m"}}}}}`)
 	t.Setenv("PA_BATCH_KEY", "foreign-secret")
 	has := func(cmd interface{ Environ() []string }, kv string) bool { return slices.Contains(cmd.Environ(), kv) }
-	iso, _ := childCmd(withIsolation(context.Background()), "/bin/true", nil, []string{"OPENCODE_API_KEY=native"}, "", "", nil, true)
+	iso, _ := ChildCmd(withIsolation(context.Background()), "/bin/true", nil, []string{"OPENCODE_API_KEY=native"}, "", "", nil, true)
 	if has(iso, "PA_BATCH_KEY=foreign-secret") || !has(iso, "OPENCODE_API_KEY=native") {
 		t.Errorf("isolated env leaks PA_BATCH_KEY or lost the native var: %v", iso.Env)
 	}
-	plain, _ := childCmd(context.Background(), "/bin/true", nil, nil, "", "", nil, true)
+	plain, _ := ChildCmd(context.Background(), "/bin/true", nil, nil, "", "", nil, true)
 	if !has(plain, "PA_BATCH_KEY=foreign-secret") {
 		t.Error("outside a batch the env must stay unchanged")
 	}
@@ -198,7 +198,7 @@ func TestChildCmdLaunchValuesSurviveIsolationScrub(t *testing.T) {
 		t.Fatalf("registry: %v", err)
 	}
 	ctx := withOwnProvider(withIsolation(context.Background()), reg.Providers["ocgo"])
-	cmd, _ := childCmd(ctx, "/bin/true", nil, []string{"OPENCODE_API_KEY=launch"}, "", "", nil, true)
+	cmd, _ := ChildCmd(ctx, "/bin/true", nil, []string{"OPENCODE_API_KEY=launch"}, "", "", nil, true)
 	if !slices.Contains(cmd.Env, "OPENCODE_API_KEY=launch") || slices.Contains(cmd.Env, "OPENCODE_API_KEY=inherited-foreign") {
 		t.Errorf("env keeps the inherited foreign value or lost the launch's: %v", slices.DeleteFunc(slices.Clone(cmd.Env),
 			func(kv string) bool { return !strings.HasPrefix(kv, "OPENCODE_API_KEY") }))

@@ -39,7 +39,7 @@ func claudeOneShot(ctx context.Context, req RunOptions, sink Sink) (res Result, 
 		return Result{}, true, err
 	}
 	var answer strings.Builder
-	w := io.MultiWriter(sinkWriter(sink), &answer)
+	w := io.MultiWriter(SinkWriter(sink), &answer)
 	if base, ok := providers.AnthropicRoute(p, t.Model); ok {
 		out, err := anthropicsdk.Stream(ctx, anthropicsdk.Request{
 			BaseURL: base, Model: t.Model, Prompt: prompt, Effort: req.Effort, MaxTokens: apiMaxTokens,

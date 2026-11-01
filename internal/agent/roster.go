@@ -4,8 +4,9 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"sort"
+	"sync"
 
-	"github.com/edotau/claude-code/internal/copilotsdk"
 	"github.com/edotau/claude-code/internal/providers"
 )
 
@@ -52,69 +53,66 @@ type CLI struct {
 	CatalogHint           string      // extra hint on the catalog page
 }
 
-var rosterRows = []Schema{
-	{Name: "claude", CLI: CLI{
-		Caps: Caps{Model: Native, Provider: Native, Effort: Native, WorkDir: Native, SessionID: Native,
-			Tools: Native, NoTools: Native, Autonomous: Native, NoPersist: Native, SafeMode: Native, DebugFile: Native,
-			SystemPrompt: Native, AppendSystemPrompt: Native, Env: Native, OutputSchema: Native, Persona: Native},
-		Events: []string{EventStart, EventText, EventToolUse, EventRetry, EventResult, EventError},
-		Cost:   true, ConfigureHint: "run `claude-code configure agents`", LoginArgv: []string{"claude", "auth", "login"},
-	}},
-	{Name: "codex", CLI: CLI{
-		Binary: "codex", Dialects: []string{providers.ProtocolResponses},
-		RouterSuffix: map[string]string{providers.ProtocolResponses: "/" + providers.ProtocolResponses},
-		Caps: Caps{Model: Native, Provider: Native, Effort: Native, WorkDir: Native, SessionID: Native,
-			Tools: Native, Autonomous: Native, NoPersist: Native, SafeMode: Native, Direct: Native, Env: Native,
-			SystemPrompt: Native, AppendSystemPrompt: Native, OutputSchema: Native, Persona: Emulated},
-		Events:       []string{EventStart, EventText, EventToolUse, EventToolResult, EventResult, EventError},
-		ResumeFormat: "codex resume %s", ModelsProvider: "openai", LoginArgv: []string{"codex", "login"},
-		ConfigureHint: "run `codex login` (ChatGPT) or `claude-code configure` → codex → API key",
-	}},
-	{Name: "gemini", CLI: CLI{
-		Binary: "agy",
-		Caps: Caps{Model: Native, Provider: Native, Effort: Native, WorkDir: Native, SessionID: Native,
-			Tools: Native, Autonomous: Native, DebugFile: Native, Direct: Native, Env: Native,
-			SystemPrompt: Emulated, AppendSystemPrompt: Emulated, OutputSchema: Native, Persona: Emulated},
-		Events: []string{EventStart, EventText, EventResult, EventError}, Cost: true,
-		ResumeFormat: "agy --conversation %s", ModelsArgv: []string{"models"}, ReadNeedsTools: true,
-		ConfigureHint: "sign in with `agy` (Google login)", DisplayName: "antigravity", LoginArgv: []string{"agy"},
-		ExtraUsage: [][2]string{{"bridge", "ingest files for a large-context task"}},
-	}},
-	{Name: "opencode", CLI: CLI{
-		Binary: "opencode", Dialects: []string{providers.ProtocolAnthropic, providers.ProtocolGemini, providers.ProtocolOpenAI},
-		RouterSuffix: map[string]string{providers.ProtocolAnthropic: "", providers.ProtocolGemini: "/" + providers.ProtocolGemini,
-			providers.ProtocolOpenAI: "/" + providers.ProtocolOpenAI, providers.ProtocolResponses: "/" + providers.ProtocolResponses},
-		MaxVersion: "1.x", MaxReason: "2.x broke the harness opencode route", // keep in step with opencodeMaxMajor
-		Caps: Caps{Model: Native, Provider: Native, Effort: Native, WorkDir: Native, SessionID: Native,
-			Tools: Native, Autonomous: Native, SafeMode: Native, Direct: Native, Env: Native,
-			SystemPrompt: Native, AppendSystemPrompt: Emulated, OutputSchema: Emulated, Persona: Emulated},
-		Events:       []string{EventStart, EventText, EventToolUse, EventToolResult, EventRetry, EventResult, EventError},
-		ResumeFormat: "opencode run --session %s", ModelsArgv: []string{"models"}, ReadNeedsTools: true,
-		PromptInArgv: true, DirFlag: true, Hub: true, LoginArgv: []string{"opencode", "auth", "login"},
-		ConfigureHint: "run `opencode auth login` (opencode Go) or `claude-code configure github` (Copilot)",
-		CatalogUsage:  "model menu: list|add|remove|import|reset|check|sync",
-		CatalogHint:   "Serving-only discovery: claude-code opencode catalog sync --profile P",
-	}},
-	{Name: "copilot", CLI: CLI{
-		Binary: "copilot", Dialects: []string{providers.ProtocolAnthropic, providers.ProtocolOpenAI},
-		RouterSuffix: map[string]string{providers.ProtocolAnthropic: "", providers.ProtocolOpenAI: "/" + providers.ProtocolOpenAI,
-			providers.ProtocolResponses: "/" + providers.ProtocolResponses},
-		MinVersion: copilotsdk.MinMultiProviderCLI, MinReason: "named-provider model registry needs it",
-		Caps: Caps{Model: Native, Provider: Native, Effort: Native, WorkDir: Native, SessionID: Native,
-			Tools: Native, ReadOnly: Native, Autonomous: Native, Memory: Native, Direct: Native, Env: Native,
-			SystemPrompt: Emulated, AppendSystemPrompt: Emulated, OutputSchema: Emulated, Persona: Emulated},
-		Events:       []string{EventStart, EventText, EventResult, EventError},
-		ResumeFormat: "copilot --resume %s", ModelsProvider: "github", ReadNeedsTools: true,
-		LoginArgv:     []string{"copilot", "login"},
-		ConfigureHint: "run `claude-code configure github` (Copilot) or set an Anthropic/Gemini key",
-	}},
+// rosterEntry is a registered row with its roster position.
+type rosterEntry struct {
+	pos int
+	row Schema
+}
+
+var (
+	registryMu sync.RWMutex
+	rosterRows []rosterEntry // sorted by pos; filled by RegisterRow from each agent's init
+	drivers    = map[string]Driver{}
+)
+
+// RegisterRow adds an agent's roster row at position pos (claude is 0); it runs from an init, never at call time.
+func RegisterRow(pos int, row Schema) {
+	registryMu.Lock()
+	defer registryMu.Unlock()
+	i := sort.Search(len(rosterRows), func(i int) bool { return rosterRows[i].pos > pos })
+	rosterRows = slices.Insert(rosterRows, i, rosterEntry{pos, row})
+}
+
+// Register adds an external CLI's Driver under its Name.
+func Register(d Driver) {
+	registryMu.Lock()
+	defer registryMu.Unlock()
+	drivers[d.Name()] = d
+}
+
+// driverFor is the registered Driver for name.
+func driverFor(name string) (Driver, bool) {
+	registryMu.RLock()
+	defer registryMu.RUnlock()
+	d, ok := drivers[name]
+	return d, ok
+}
+
+// mustDriver is the registered Driver for name; a name with none is a wiring bug.
+func mustDriver(name string) Driver {
+	d, ok := driverFor(name)
+	if !ok {
+		panic("agent: no driver registered for " + name)
+	}
+	return d
+}
+
+// rows is the registered roster rows in order, shared and not to be mutated; Roster returns copies.
+func rows() []Schema {
+	registryMu.RLock()
+	defer registryMu.RUnlock()
+	out := make([]Schema, len(rosterRows))
+	for i, e := range rosterRows {
+		out[i] = e.row
+	}
+	return out
 }
 
 // Roster returns independent copies of the roster rows, claude first, with external wire facts filled in.
 func Roster() []Schema {
-	rows := slices.Clone(rosterRows)
-	for i := range rows {
-		s := &rows[i]
+	rs := rows()
+	for i := range rs {
+		s := &rs[i]
 		s.Tools = slices.Clone(s.Tools)
 		s.CLI.Dialects = slices.Clone(s.CLI.Dialects)
 		s.CLI.RouterSuffix = maps.Clone(s.CLI.RouterSuffix)
@@ -123,7 +121,7 @@ func Roster() []Schema {
 		s.CLI.LoginArgv = slices.Clone(s.CLI.LoginArgv)
 		s.CLI.ExtraUsage = slices.Clone(s.CLI.ExtraUsage)
 	}
-	return rows
+	return rs
 }
 
 // LookupSchema returns a roster row by name, claude included.

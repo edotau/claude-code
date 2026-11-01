@@ -56,7 +56,7 @@ func (s Schema) targetBase(req RunOptions) (t providers.Target, own bool, note s
 	reg, t, err := resolveTarget(req)
 	if err != nil || req.Provider != "" || namesProvider(reg, req.Model) {
 		if err == nil { // an explicit login still passes the CLI's own gate
-			t, note, err = s.eng().gateExplicit(req, reg, t)
+			t, note, err = s.eng().GateExplicit(req, reg, t)
 		}
 		return t, false, note, true, err
 	}
@@ -86,59 +86,59 @@ func namesProvider(reg *providers.Registry, spec string) bool {
 }
 
 // cliEngine execs an agent CLI's headless mode wired by ConfigureHeadless; the engine supplies Name, Caps, Available.
-type cliEngine struct{ headlessEngine }
+type cliEngine struct{ HeadlessDriver }
 
 // newCLIEngine is the agent for a roster CLI with a headless engine: codex, gemini or opencode.
-func newCLIEngine(name string) cliEngine { return cliEngine{engines[name].(headlessEngine)} }
+func newCLIEngine(name string) cliEngine { return cliEngine{mustDriver(name).(HeadlessDriver)} }
 
-// cliPrep is an agent run resolved up to its child's env: the route target, the prompt and the headless argv.
-type cliPrep struct {
-	res    Result
-	t      providers.Target
-	prompt string
-	env    []string
-	argv   []string
+// CLIPrep is an agent run resolved up to its child's env: the route target, the prompt and the headless argv.
+type CLIPrep struct {
+	Result Result
+	Target providers.Target
+	Prompt string
+	Env    []string
+	Argv   []string
 }
 
 // prepare resolves req's route and headless argv; the Result comes back populated even on error.
-func (v cliEngine) prepare(ctx context.Context, req RunOptions) (cliPrep, error) {
+func (v cliEngine) prepare(ctx context.Context, req RunOptions) (CLIPrep, error) {
 	name := v.Name()
 	s := schemaFor(name)
 	t, own, err := s.target(req)
 	if err != nil {
-		return cliPrep{}, err
+		return CLIPrep{}, err
 	}
-	p := cliPrep{t: t, res: Result{Provider: s.ownProfile(), Model: t.Model, SessionID: req.SessionID}}
+	p := CLIPrep{Target: t, Result: Result{Provider: s.ownProfile(), Model: t.Model, SessionID: req.SessionID}}
 	if !own {
 		if t.Provider == nil { // agentTargetNote can report a non-own target with no provider resolved
 			return p, &Error{Kind: KindFatal, Agent: name, Err: errors.New("agent target resolved to no provider")}
 		}
-		p.res.Provider = t.Provider.Name
-		p.res.Model = v.ranModel(t)
+		p.Result.Provider = t.Provider.Name
+		p.Result.Model = v.RanModel(t)
 	}
-	p.prompt, err = v.attach(req.Prompt, req.Attach, req.Tools)
+	p.Prompt, err = v.Attach(req.Prompt, req.Attach, req.Tools)
 	if err != nil {
 		return p, &Error{Kind: KindFatal, Agent: name, Err: err}
 	}
-	ct := v.before(req, t)
-	if s.CLI.PromptInArgv && len(p.prompt) > MaxPromptBytes {
-		return p, &Error{Kind: KindFatal, Agent: name, Err: errPromptTooLarge(len(p.prompt))}
+	ct := v.Before(req, t)
+	if s.CLI.PromptInArgv && len(p.Prompt) > MaxPromptBytes {
+		return p, &Error{Kind: KindFatal, Agent: name, Err: errPromptTooLarge(len(p.Prompt))}
 	}
-	h := Headless{Prompt: p.prompt, Effort: req.Effort, SessionID: req.SessionID, Tools: req.Tools,
+	h := Headless{Prompt: p.Prompt, Effort: req.Effort, SessionID: req.SessionID, Tools: req.Tools,
 		Autonomous: req.Autonomous, Attach: req.Attach, NoPersist: req.NoPersist, SafeMode: req.SafeMode}
 	if s.CLI.DirFlag {
 		h.WorkDir = req.WorkDir // cmd.Dir alone doesn't move opencode's own cwd resolution; --dir does
 	}
 	if own {
-		p.env, p.argv, err = v.ownLogin(h)
+		p.Env, p.Argv, err = v.OwnLogin(h)
 	} else {
-		p.env, p.argv, err = s.configureHeadless(ctx, ct, h)
+		p.Env, p.Argv, err = s.configureHeadless(ctx, ct, h)
 	}
 	if err != nil {
 		return p, &Error{Kind: KindFatal, Agent: name, Err: err}
 	}
-	v.after(&p, req)
-	p.env = append(p.env, req.Env...) // --env goes last, after the route keys, so it wins
+	v.After(&p, req)
+	p.Env = append(p.Env, req.Env...) // --env goes last, after the route keys, so it wins
 	return p, nil
 }
 
@@ -156,10 +156,10 @@ func agyModel(req RunOptions, t providers.Target) string {
 }
 
 // agyRequest is the agy run for req: only the resolved credential env carries over, agy builds its own argv.
-func (p cliPrep) agyRequest(req RunOptions) agyRequest {
+func (p CLIPrep) agyRequest(req RunOptions) agyRequest {
 	return agyRequest{
-		Prompt: p.prompt, Model: agyModel(req, p.t), Effort: req.Effort, Cwd: req.WorkDir, Tools: req.Tools, Autonomous: req.Autonomous,
-		DebugFile: req.DebugFile, Env: p.env, KeepEnv: req.KeepEnv, SessionID: req.SessionID, OutputSchema: req.OutputSchema,
+		Prompt: p.Prompt, Model: agyModel(req, p.Target), Effort: req.Effort, Cwd: req.WorkDir, Tools: req.Tools, Autonomous: req.Autonomous,
+		DebugFile: req.DebugFile, Env: p.Env, KeepEnv: req.KeepEnv, SessionID: req.SessionID, OutputSchema: req.OutputSchema,
 	}
 }
 
@@ -167,14 +167,14 @@ func (v cliEngine) Run(ctx context.Context, req RunOptions, sink Sink) (Result, 
 	ctx = directCtx(ctx, req)
 	p, err := v.prepare(ctx, req)
 	if err != nil {
-		return p.res, err
+		return p.Result, err
 	}
-	return v.exec(ctx, p, req, sink)
+	return v.Exec(ctx, p, req, sink)
 }
 
 // codexImageArgs adds `-i <img>` after the exec subcommand; -i is variadic, so the next token must be a flag.
 func codexImageArgs(argv, attach []string) []string {
-	images, _ := splitImages(attach)
+	images, _ := SplitImages(attach)
 	if len(images) == 0 || len(argv) == 0 || argv[0] != "exec" {
 		return argv
 	}
@@ -185,15 +185,15 @@ func codexImageArgs(argv, attach []string) []string {
 	return append(out, argv[1:]...)
 }
 
-// emptyAnswer: a clean exit with no text is a failure the caller must see, not a blank success.
-func emptyAnswer(name string) error {
+// EmptyAnswer: a clean exit with no text is a failure the caller must see, not a blank success.
+func EmptyAnswer(name string) error {
 	return &Error{Kind: KindFatal, Agent: name,
 		Err: errors.New("the CLI exited 0 with an empty answer (model returned no text)")}
 }
 
-// runStream reads a CLI's JSON event stream: the answer, session id, usage and errors ride in it.
-func runStream(ctx context.Context, name string, cmd *exec.Cmd, tail *TailBuffer, res Result, sink Sink,
-	parse func(*bufio.Reader, Sink, func(), ...eventLog) (Result, error)) (Result, error) {
+// RunStream reads a CLI's JSON event stream: the answer, session id, usage and errors ride in it.
+func RunStream(ctx context.Context, name string, cmd *exec.Cmd, tail *TailBuffer, res Result, sink Sink,
+	parse func(*bufio.Reader, Sink, func(), ...StreamLog) (Result, error)) (Result, error) {
 	out, err := runEventStream(ctx, name, cmd, tail, sink, parse, nil)
 	res.Answer, res.Usage, res.Transport = out.Answer, out.Usage, out.Transport
 	if out.SessionID != "" {
@@ -204,7 +204,7 @@ func runStream(ctx context.Context, name string, cmd *exec.Cmd, tail *TailBuffer
 
 // runEventStream runs cmd, decoding stdout via parse while streaming live; onMeaningful fires on the first model event.
 func runEventStream(ctx context.Context, name string, cmd *exec.Cmd, tail *TailBuffer, sink Sink,
-	parse func(*bufio.Reader, Sink, func(), ...eventLog) (Result, error), onMeaningful func()) (Result, error) {
+	parse func(*bufio.Reader, Sink, func(), ...StreamLog) (Result, error), onMeaningful func()) (Result, error) {
 	var res Result
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -226,7 +226,7 @@ func runEventStream(ctx context.Context, name string, cmd *exec.Cmd, tail *TailB
 		return res, childErr(ctx, name, errors.Join(werr, perr), tail)
 	}
 	if perr == nil && res.Answer == "" {
-		return res, emptyAnswer(name)
+		return res, EmptyAnswer(name)
 	}
 	return res, perr
 }
@@ -247,7 +247,7 @@ func (i *idleReader) Read(p []byte) (int, error) {
 }
 
 // heartbeat logs a "still running" line each heartbeatEvery of stdout silence until the returned stop is called.
-func heartbeat(lg eventLog, i *idleReader, name string) (stop func()) {
+func heartbeat(lg StreamLog, i *idleReader, name string) (stop func()) {
 	if lg == nil {
 		return func() {}
 	}
@@ -309,19 +309,19 @@ func isMeaningfulOpenCodeEvent(ev openCodeEvent) bool {
 }
 
 // parseOpenCodeStream streams the root session's text parts; onMeaningful fires once on the first meaningful event.
-func parseOpenCodeStream(br *bufio.Reader, sink Sink, onMeaningful func(), logs ...eventLog) (res Result, _ error) {
-	ts := transportTracker{start: clock()}
-	defer func() { res.Transport = ts.result() }()
-	lg := pickLog(logs)
+func parseOpenCodeStream(br *bufio.Reader, sink Sink, onMeaningful func(), logs ...StreamLog) (res Result, _ error) {
+	ts := TransportTracker{Start: Clock()}
+	defer func() { res.Transport = ts.Result() }()
+	lg := PickLog(logs)
 	var texts, errs []string
 	seenTools := map[string]bool{}
 	fired := false
-	err := decodeLines(br, lg, func(raw []byte) (bool, error) {
+	err := DecodeLines(br, lg, func(raw []byte) (bool, error) {
 		var ev openCodeEvent
 		if err := json.Unmarshal(raw, &ev); err != nil {
 			return false, fmt.Errorf("decode opencode json: %w", err)
 		}
-		ts.event(clock())
+		ts.Event(Clock())
 		if ev.SessionID != "" {
 			res.SessionID = ev.SessionID
 		}
@@ -353,7 +353,7 @@ func parseOpenCodeStream(br *bufio.Reader, sink Sink, onMeaningful func(), logs 
 		case "error":
 			msg := cmp.Or(ev.Error.Data.Message, ev.Error.Name, "unknown error")
 			errs = append(errs, msg)
-			if err := emitError(lg, sink, msg); err != nil {
+			if err := EmitError(lg, sink, msg); err != nil {
 				return false, err
 			}
 		}
@@ -377,7 +377,7 @@ func emitOpenCodeTool(sink Sink, ev openCodeEvent, seen map[string]bool) error {
 	}
 	if !seen[p.CallID] {
 		seen[p.CallID] = true
-		if err := sink.Emit(toolEvent(p.Tool, p.CallID)); err != nil {
+		if err := sink.Emit(ToolEvent(p.Tool, p.CallID)); err != nil {
 			return err
 		}
 	}
@@ -387,17 +387,17 @@ func emitOpenCodeTool(sink Sink, ev openCodeEvent, seen map[string]bool) error {
 	return nil
 }
 
-// headBuffer keeps the first 4 KiB of a stream: codex prints the session id in its stderr banner.
-type headBuffer struct{ buf []byte }
+// HeadBuffer keeps the first 4 KiB of a stream: codex prints the session id in its stderr banner.
+type HeadBuffer struct{ buf []byte }
 
-func (h *headBuffer) Write(p []byte) (int, error) {
+func (h *HeadBuffer) Write(p []byte) (int, error) {
 	if room := 4<<10 - len(h.buf); room > 0 {
 		h.buf = append(h.buf, p[:min(room, len(p))]...)
 	}
 	return len(p), nil
 }
 
-func (h *headBuffer) String() string { return string(h.buf) }
+func (h *HeadBuffer) String() string { return string(h.buf) }
 
 // sessionFromBanner reads codex exec's `session id: <id>` line, so a new run's envelope can be resumed.
 func sessionFromBanner(banner string) string {

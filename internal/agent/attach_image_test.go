@@ -32,7 +32,7 @@ func TestAttachImageDelivery(t *testing.T) {
 	paths := []string{img, txt}
 
 	// codex: image rides -i right after exec; the prompt inlines only the text file.
-	prompt, err := engines["codex"].attach("ask", paths, false)
+	prompt, err := mustDriver("codex").Attach("ask", paths, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -54,7 +54,7 @@ func TestAttachImageDelivery(t *testing.T) {
 	}
 
 	// an image reaching the inline path is refused, never sent as bytes.
-	if _, err := attachInline("ask", []string{img}); !errors.Is(err, ErrBadAttach) {
+	if _, err := AttachInline("ask", []string{img}); !errors.Is(err, ErrBadAttach) {
 		t.Errorf("attachInline(image) = %v", err)
 	}
 }

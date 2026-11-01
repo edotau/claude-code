@@ -44,10 +44,10 @@ var (
 	signinCopilotLogin = CopilotStoredLogin
 	geminiPresent      = GeminiLoginPresent
 	runLogin           = runLoginCLI
-	codexStatus        = func(ctx context.Context, bin string) ([]byte, error) {
+	CodexStatus        = func(ctx context.Context, bin string) ([]byte, error) {
 		return exec.CommandContext(ctx, bin, "login", "status").CombinedOutput()
 	}
-	probeTimeout = 8 * time.Second
+	ProbeTimeout = 8 * time.Second
 )
 
 // SigninFor returns the sign-in for p's kind.
@@ -212,7 +212,7 @@ func (claudeSignin) Login(ctx context.Context, in io.Reader, out io.Writer) erro
 type cliSignin struct{ name string }
 
 func (s cliSignin) Check(ctx context.Context) (providers.AuthVerdict, string) {
-	return schemaFor(s.name).eng().checkLogin(ctx)
+	return schemaFor(s.name).eng().CheckLogin(ctx)
 }
 
 func (s cliSignin) Login(ctx context.Context, in io.Reader, out io.Writer) error {

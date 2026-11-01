@@ -102,7 +102,7 @@ func PrepareConfigs(o RenderOptions) (*RenderPlan, bool, error) {
 		if !want[name] {
 			continue
 		}
-		d, err := schemaFor(name).eng().render(reg, sel, home, o, out)
+		d, err := schemaFor(name).eng().Render(reg, sel, home, o, out)
 		if err != nil {
 			return nil, drift, err
 		}

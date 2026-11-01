@@ -22,15 +22,15 @@ func (s Schema) ResolveTarget(reg *providers.Registry, sel providers.Selection, 
 	}
 	// A CLI's own login (unrelated to the session provider) is preferred
 	// whenever it is present, ahead of a session provider that could serve it; an explicit --provider still wins.
-	if pt, pnote, ok, perr := e.preRoute(reg, explicit); ok {
+	if pt, pnote, ok, perr := e.PreRoute(reg, explicit); ok {
 		return pt, pnote, perr
 	}
-	if explicit || (CanServe(name, t.Provider) && e.followsPin(t.Provider)) {
-		return e.gate(reg, t)
+	if explicit || (CanServe(name, t.Provider) && e.FollowsPin(t.Provider)) {
+		return e.Gate(reg, t)
 	}
-	if ft, fallbackNote, ok := e.fallbackTarget(reg); ok {
+	if ft, fallbackNote, ok := e.FallbackTarget(reg); ok {
 		note = fmt.Sprintf("%s: session provider %s cannot serve %s; using %s", name, t.Provider.Name, name, fallbackNote)
-		if own, ok := e.fallbackNote(ft, fallbackNote); ok {
+		if own, ok := e.FallbackNote(ft, fallbackNote); ok {
 			note = own
 		}
 		if ft.Provider == nil {
@@ -39,7 +39,7 @@ func (s Schema) ResolveTarget(reg *providers.Registry, sel providers.Selection, 
 		return ft, note, nil
 	}
 	// opencode and copilot have a defined fallback chain (DescribeRoute); nothing in it resolved either.
-	if err := e.noRoute(reg, t); err != nil {
+	if err := e.NoRoute(reg, t); err != nil {
 		return providers.Target{}, "", err
 	}
 	return t, "", nil
@@ -107,8 +107,8 @@ func keyProvider(reg *providers.Registry, provider string) (*providers.Provider,
 	return nil, false
 }
 
-// loginProvider is the first profile under provider whose login serves agent.
-func loginProvider(reg *providers.Registry, provider, name string) (*providers.Provider, bool) {
+// LoginProvider is the first profile under provider whose login serves agent.
+func LoginProvider(reg *providers.Registry, provider, name string) (*providers.Provider, bool) {
 	for _, n := range reg.ProfilesOf(provider) {
 		if p := reg.Providers[n]; p.Auth.Login == name {
 			return p, true

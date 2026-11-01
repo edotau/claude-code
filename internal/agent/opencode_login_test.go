@@ -426,7 +426,7 @@ func TestOpencodeHeadlessToolsOffBeatsLaunchEnv(t *testing.T) {
 		}
 	}
 	h := Headless{Prompt: "hi", Tools: false}
-	env, _, err := schemaFor("opencode").eng().ownLogin(h)
+	env, _, err := schemaFor("opencode").eng().OwnLogin(h)
 	if err != nil {
 		t.Fatal(err)
 	}

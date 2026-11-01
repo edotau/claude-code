@@ -11,9 +11,9 @@ import (
 
 func tickClock(t *testing.T, ms ...int) {
 	t.Helper()
-	base, i, old := time.Unix(1000, 0), 0, clock
-	clock = func() time.Time { d := time.Duration(ms[i]) * time.Millisecond; i++; return base.Add(d) }
-	t.Cleanup(func() { clock = old })
+	base, i, old := time.Unix(1000, 0), 0, Clock
+	Clock = func() time.Time { d := time.Duration(ms[i]) * time.Millisecond; i++; return base.Add(d) }
+	t.Cleanup(func() { Clock = old })
 }
 
 func TestAgyAndOpenCodeStreamTiming(t *testing.T) {

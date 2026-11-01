@@ -9,8 +9,8 @@ import (
 	"time"
 )
 
-// decodeLines skips blank lines and logs non-JSON output without losing subsequent events.
-func decodeLines(br *bufio.Reader, lg eventLog, fn func(raw []byte) (stop bool, err error)) error {
+// DecodeLines skips blank lines and logs non-JSON output without losing subsequent events.
+func DecodeLines(br *bufio.Reader, lg StreamLog, fn func(raw []byte) (stop bool, err error)) error {
 	for {
 		raw, readErr := br.ReadBytes('\n')
 		raw = bytes.TrimSpace(raw)
@@ -36,19 +36,19 @@ func decodeLines(br *bufio.Reader, lg eventLog, fn func(raw []byte) (stop bool, 
 	}
 }
 
-var clock = time.Now
+var Clock = time.Now
 
-// transportTracker times a stream's events and records the retries it saw.
-type transportTracker struct {
-	start, last time.Time
+// TransportTracker times a stream's events and records the retries it saw.
+type TransportTracker struct {
+	Start, last time.Time
 	statuses    []int
 	events      int
 	first, gap  time.Duration
 }
 
-func (t *transportTracker) event(now time.Time) {
+func (t *TransportTracker) Event(now time.Time) {
 	if t.events == 0 {
-		t.first = now.Sub(t.start)
+		t.first = now.Sub(t.Start)
 	} else if g := now.Sub(t.last); g > t.gap {
 		t.gap = g
 	}
@@ -56,7 +56,7 @@ func (t *transportTracker) event(now time.Time) {
 	t.last = now
 }
 
-func (t *transportTracker) retry(status *int) {
+func (t *TransportTracker) retry(status *int) {
 	s := 0
 	if status != nil {
 		s = *status
@@ -64,10 +64,10 @@ func (t *transportTracker) retry(status *int) {
 	t.statuses = append(t.statuses, s)
 }
 
-func (t *transportTracker) lastStatus() int { return t.statuses[len(t.statuses)-1] }
+func (t *TransportTracker) lastStatus() int { return t.statuses[len(t.statuses)-1] }
 
-// result is nil when the stream showed neither a stream_event nor a retry.
-func (t *transportTracker) result() *Transport {
+// Result is nil when the stream showed neither a stream_event nor a retry.
+func (t *TransportTracker) Result() *Transport {
 	if t.events == 0 && len(t.statuses) == 0 {
 		return nil
 	}

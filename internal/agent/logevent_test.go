@@ -165,7 +165,7 @@ func TestLogEventJobModeNoRawStdoutTee(t *testing.T) {
 				if stderrLogFrom(ctx) == nil {
 					t.Fatal("stderrLogFrom lost the sink")
 				}
-				w := teeWriter(ctx, &caller)
+				w := TeeWriter(ctx, &caller)
 				_, _ = io.WriteString(w, "raw-stdout-answer\n")
 				logEvent(ctx, "result", "ev-line")
 			})

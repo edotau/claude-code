@@ -85,13 +85,13 @@ type stamper struct {
 
 func newStamper() stamper {
 	host, _ := os.Hostname()
-	return stamper{start: clock(), host: host}
+	return stamper{start: Clock(), host: host}
 }
 
 // stamp sets ev's schema, seq, t_ms and, when unset, host.
 func (s *stamper) stamp(ev *Event) {
 	s.seq++
-	ev.Schema, ev.Seq, ev.TMs = EventSchema, s.seq, clock().Sub(s.start).Milliseconds()
+	ev.Schema, ev.Seq, ev.TMs = EventSchema, s.seq, Clock().Sub(s.start).Milliseconds()
 	if ev.Host == "" {
 		ev.Host = s.host
 	}
@@ -163,8 +163,8 @@ func (w textWriter) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
-// sinkWriter is an io.Writer that emits its bytes as text events on s.
-func sinkWriter(s Sink) io.Writer { return textWriter{s: s} }
+// SinkWriter is an io.Writer that emits its bytes as text events on s.
+func SinkWriter(s Sink) io.Writer { return textWriter{s: s} }
 
 // runSink stamps the running agent's name and counts text bytes, so a retry never repeats streamed output.
 type runSink struct {
@@ -184,13 +184,13 @@ func (r *runSink) Emit(ev Event) error {
 }
 
 // toolEvent is a tool_use event for the named tool.
-// emitError logs msg as an error line and emits it as an EventError, returning the sink's error.
-func emitError(lg eventLog, sink Sink, msg string) error {
+// EmitError logs msg as an error line and emits it as an EventError, returning the sink's error.
+func EmitError(lg StreamLog, sink Sink, msg string) error {
 	lg.emit("error", msg)
 	return sink.Emit(Event{Type: EventError, Text: msg})
 }
 
-func toolEvent(name, id string) Event {
+func ToolEvent(name, id string) Event {
 	return Event{Type: EventToolUse, Tool: &ToolRef{Name: name, ID: id}}
 }
 

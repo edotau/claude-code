@@ -119,7 +119,7 @@ func TestOpenCodeOverlayEnvOnEveryRoute(t *testing.T) {
 // rides OPENCODE_CONFIG_CONTENT={"permission":"deny"} when tools are off, alongside the new overlay env.
 func TestOpenCodeOwnLoginHeadlessToolsOffDeny(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	env, _, err := schemaFor("opencode").eng().ownLogin(Headless{Prompt: "hi"})
+	env, _, err := schemaFor("opencode").eng().OwnLogin(Headless{Prompt: "hi"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -131,7 +131,7 @@ func TestOpenCodeOwnLoginHeadlessToolsOffDeny(t *testing.T) {
 		t.Errorf("env = %v, want both overlay paths alongside the deny", env)
 	}
 
-	env, _, err = schemaFor("opencode").eng().ownLogin(Headless{Prompt: "hi", Tools: true})
+	env, _, err = schemaFor("opencode").eng().OwnLogin(Headless{Prompt: "hi", Tools: true})
 	if err != nil {
 		t.Fatal(err)
 	}

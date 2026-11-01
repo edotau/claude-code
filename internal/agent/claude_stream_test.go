@@ -50,9 +50,9 @@ func TestParseClaudeStreamTransport(t *testing.T) {
 	base := time.Unix(1000, 0)
 	ticks := []time.Duration{0, 150 * time.Millisecond, 950 * time.Millisecond} // start, event 1, event 2
 	i := 0
-	old := clock
-	clock = func() time.Time { d := ticks[i]; i++; return base.Add(d) }
-	defer func() { clock = old }()
+	old := Clock
+	Clock = func() time.Time { d := ticks[i]; i++; return base.Add(d) }
+	defer func() { Clock = old }()
 	var out strings.Builder
 	var lines []string
 	res, err := parseClaudeStream(newBR(stream), NewTextSink(&out), func(k, x string) { lines = append(lines, k+": "+x) })

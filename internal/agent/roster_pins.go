@@ -94,8 +94,8 @@ func AgentActive(agent string) bool {
 func AgentPins() map[string]router.PinSpec {
 	recs := AgentRecords()
 	reg, _ := providers.Load()
-	out := make(map[string]router.PinSpec, len(rosterRows))
-	for _, k := range rosterRows {
+	out := make(map[string]router.PinSpec, len(rows()))
+	for _, k := range rows() {
 		r := recs[k.Name]
 		spec := router.PinSpec{Profile: r.Profile, Off: k.External() && r.Profile == ""}
 		if ownLogin(reg, k.Name, r.Profile) {

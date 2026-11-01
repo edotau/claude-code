@@ -64,7 +64,7 @@ func cliPlan(ctx context.Context, name string, o LaunchOptions, args []string) (
 	if authArgs(args) {
 		return plainPlan(spec, args) // signing in needs no model route; resolving one first blocks the very login it needs
 	}
-	args, err := spec.eng().launchArgs(o.File, args)
+	args, err := spec.eng().LaunchArgs(o.File, args)
 	if err != nil {
 		return Plan{}, err
 	}
@@ -72,7 +72,7 @@ func cliPlan(ctx context.Context, name string, o LaunchOptions, args []string) (
 	o = launchProfile(name, o)
 	reg, sel, err := selection(o)
 	if err != nil {
-		if hint := spec.eng().profileHint(o); hint != nil {
+		if hint := spec.eng().ProfileHint(o); hint != nil {
 			return Plan{}, hint
 		}
 		return Plan{}, err
@@ -97,7 +97,7 @@ func cliPlan(ctx context.Context, name string, o LaunchOptions, args []string) (
 	if err != nil {
 		return Plan{}, err
 	}
-	if spec.eng().nativeRegistry(ctx, target) {
+	if spec.eng().NativeRegistry(ctx, target) {
 		plan, err := copilotRegistryPlan(ctx, spec, reg, target, note, withFlagModel(args, flagModel), o.PrintEnv)
 		plan.Profile = o.Provider
 		return plan, err

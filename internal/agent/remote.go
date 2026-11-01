@@ -213,7 +213,7 @@ func (r remoteEngine) Run(ctx context.Context, req RunOptions, sink Sink) (Resul
 		defer wd.Stop()
 		touch = func() { wd.Reset(idle) }
 	}
-	cmd, tail := childCmd(ctx, argv[0], argv[1:], nil, "", "", nil, false)
+	cmd, tail := ChildCmd(ctx, argv[0], argv[1:], nil, "", "", nil, false)
 	cmd.Stderr = io.MultiWriter(cmd.Stderr, touchWriter(touch)) // the remote's retry notices arrive on stderr
 	in, err := cmd.StdinPipe()
 	var out io.ReadCloser

@@ -18,10 +18,10 @@ import (
 )
 
 // claudeEngine execs `claude -p --output-format stream-json` with the launcher's provider env and overlay.
-type claudeEngine struct{ baseEngine }
+type claudeEngine struct{ BaseEngine }
 
 // claudeAgent is the claude agent; Name and Caps come from the shared base, like every other agent.
-var claudeAgent = claudeEngine{baseEngine{"claude"}}
+var claudeAgent = claudeEngine{BaseEngine{"claude"}}
 
 var _ Engine = claudeAgent
 
@@ -116,7 +116,7 @@ func claudeCmd(ctx context.Context, req RunOptions, args []string, prompt string
 	if err != nil {
 		return nil, nil, cl, err
 	}
-	cmd, tail := childCmd(ctx, cl.Binary, cl.Argv, nil, req.WorkDir, prompt, req.KeepEnv, false)
+	cmd, tail := ChildCmd(ctx, cl.Binary, cl.Argv, nil, req.WorkDir, prompt, req.KeepEnv, false)
 	cmd.Env = scrubIsolated(ctx, cl.Env, append(slices.Clone(req.KeepEnv), slices.Collect(maps.Keys(cl.Set))...))
 	cmd.Env = append(cmd.Env, req.Env...) // --env goes last, after the route keys, so it wins
 	return cmd, tail, cl, nil
@@ -181,17 +181,17 @@ func (ev claudeEvent) text() string {
 }
 
 // parseClaudeStream emits top-level assistant text and tool calls to sink and returns the result event's envelope.
-func parseClaudeStream(br *bufio.Reader, sink Sink, logs ...eventLog) (res Result, _ error) {
+func parseClaudeStream(br *bufio.Reader, sink Sink, logs ...StreamLog) (res Result, _ error) {
 	return parseClaudeEvents(br, false, sink, logs...)
 }
 
 // parseClaudeEvents stops at the first result when untilResult is set, preserving buffered lines for the next turn.
-func parseClaudeEvents(br *bufio.Reader, untilResult bool, sink Sink, logs ...eventLog) (res Result, _ error) {
-	lg := pickLog(logs)
+func parseClaudeEvents(br *bufio.Reader, untilResult bool, sink Sink, logs ...StreamLog) (res Result, _ error) {
+	lg := PickLog(logs)
 	sawResult, wrote := false, false
-	ts := transportTracker{start: clock()}
-	defer func() { res.Transport = ts.result() }()
-	err := decodeLines(br, lg, func(raw []byte) (bool, error) {
+	ts := TransportTracker{Start: Clock()}
+	defer func() { res.Transport = ts.Result() }()
+	err := DecodeLines(br, lg, func(raw []byte) (bool, error) {
 		var ev claudeEvent
 		if err := json.Unmarshal(raw, &ev); err != nil {
 			return false, fmt.Errorf("decode stream-json: %w", err)
@@ -201,7 +201,7 @@ func parseClaudeEvents(br *bufio.Reader, untilResult bool, sink Sink, logs ...ev
 		}
 		switch ev.Type {
 		case "stream_event":
-			ts.event(clock())
+			ts.Event(Clock())
 		case "system":
 			if ev.Subtype == "api_retry" {
 				ts.retry(ev.ErrorStatus)
@@ -230,7 +230,7 @@ func parseClaudeEvents(br *bufio.Reader, untilResult bool, sink Sink, logs ...ev
 		case "result":
 			sawResult = true
 			if err := applyClaudeResult(&res, ev); err != nil {
-				_ = emitError(lg, sink, err.Error())
+				_ = EmitError(lg, sink, err.Error())
 				return false, err
 			}
 			lg.emit("result", ev.Result)
@@ -239,7 +239,7 @@ func parseClaudeEvents(br *bufio.Reader, untilResult bool, sink Sink, logs ...ev
 			}
 		case "error":
 			if t := ev.text(); t != "" {
-				_ = emitError(lg, sink, t)
+				_ = EmitError(lg, sink, t)
 				return false, fmt.Errorf("claude: %s", t)
 			}
 		}
@@ -256,7 +256,7 @@ func parseClaudeEvents(br *bufio.Reader, untilResult bool, sink Sink, logs ...ev
 
 var errNoResult = errors.New("claude: stream ended without a result event")
 
-func logClaudeAssistant(lg eventLog, msg claudeMessage) {
+func logClaudeAssistant(lg StreamLog, msg claudeMessage) {
 	for _, b := range msg.Content {
 		switch b.Type {
 		case "text":
@@ -272,7 +272,7 @@ func emitClaudeAssistant(sink Sink, msg claudeMessage, wrote *bool) error {
 		var ev Event
 		switch {
 		case b.Type == "tool_use":
-			ev = toolEvent(b.Name, b.ID)
+			ev = ToolEvent(b.Name, b.ID)
 		case b.Type == "text" && b.Text != "":
 			ev = Event{Type: EventText, Text: b.Text, Sep: *wrote}
 			*wrote = true
@@ -301,11 +301,11 @@ func applyClaudeResult(res *Result, ev claudeEvent) error {
 }
 
 func claudeAttach(prompt string, paths []string, tools bool) (string, error) {
-	images, rest := splitImages(paths)
+	images, rest := SplitImages(paths)
 	if len(images) > 0 && !tools {
 		return "", fmt.Errorf("--%w %s: image attach needs tools for claude", ErrBadAttach, images[0])
 	}
-	prompt, err := attachInline(prompt, rest)
+	prompt, err := AttachInline(prompt, rest)
 	if err != nil {
 		return "", err
 	}

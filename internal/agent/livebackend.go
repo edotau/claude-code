@@ -45,7 +45,7 @@ func (s Schema) Live() (LiveCapable, bool) {
 	}
 	var cli any = r
 	if v, ok := r.(cliEngine); ok {
-		cli = v.headlessEngine
+		cli = v.HeadlessDriver
 	}
 	lc, ok := cli.(LiveCapable)
 	return lc, ok
@@ -109,8 +109,8 @@ func (b *agyLive) Build(ctx context.Context, req RunOptions) (*exec.Cmd, *TailBu
 	if req.AppendSystemPrompt != "" {
 		b.intro += preamble(req.AppendSystemPrompt)
 	}
-	cmd, tail := childCmd(ctx, bin, agyArgv(areq), areq.Env, areq.Cwd, "", areq.KeepEnv, true)
-	return cmd, tail, p.res.Provider, nil
+	cmd, tail := ChildCmd(ctx, bin, agyArgv(areq), areq.Env, areq.Cwd, "", areq.KeepEnv, true)
+	return cmd, tail, p.Result.Provider, nil
 }
 
 func (b *agyLive) WriteTurn(w io.Writer, prompt string) error {

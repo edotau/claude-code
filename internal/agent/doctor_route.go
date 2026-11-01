@@ -13,7 +13,7 @@ import (
 // RouteDetail returns the "<agent> route" detail string DoctorChecks would emit for the agent, without
 // running the rest of the doctor sweep; ok is false for an unknown agent or a registry load error.
 func RouteDetail(name string) (detail string, ok bool) {
-	return schemaFor(name).eng().routeDetail()
+	return schemaFor(name).eng().RouteDetail()
 }
 
 // loadSelection is the registry and its unpinned selection; ok is false when the registry does not load.

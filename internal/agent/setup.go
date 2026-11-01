@@ -54,7 +54,7 @@ func loginCheck(s Schema) Check {
 
 // routeCheck pulls the "<name> route" detail from RouteDetail, without running the full doctor sweep.
 func (s Schema) routeCheck() Check {
-	detail, ok := s.eng().routeDetail()
+	detail, ok := s.eng().RouteDetail()
 	if !ok {
 		return Check{Name: "route", State: "warn", Detail: "no route check found for " + s.Name}
 	}

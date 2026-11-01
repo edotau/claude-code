@@ -47,7 +47,7 @@ func TestLookupKnownVendors(t *testing.T) {
 		if !slices.Equal(s.CLI.ModelsArgv, c.wantModelsArgv) {
 			t.Errorf("schema %q ModelsArgv = %v, want %v", c.name, s.CLI.ModelsArgv, c.wantModelsArgv)
 		}
-		if _, ok := engines[s.Name]; !ok {
+		if _, ok := driverFor(s.Name); !ok {
 			t.Errorf("schema %q has no engine", c.name)
 		}
 		if s.CLI.ReadNeedsTools != c.wantReadNeedsTools {
