@@ -83,7 +83,7 @@ func Doctor(root string, staleDays int, now time.Time) []string {
 }
 
 // updateProblems surfaces receipts that need a human: a failed update, or one still "pending" past the
-// grace window (the worker died before reporting) — otherwise `memory stats` counts them forever.
+// grace window (the worker died before reporting) — otherwise they pile up unreported.
 func updateProblems(now time.Time) []string {
 	var problems []string
 	for _, rc := range readReceipts() {
@@ -93,7 +93,7 @@ func updateProblems(now time.Time) []string {
 			continue
 		}
 		problems = append(problems, "update "+headID(id)+" "+r.Status+" since "+r.Time.Format("2006-01-02")+
-			" — see "+r.Log+" (claude-code memory stats)")
+			" — see "+r.Log+" (claude-code memory update --session "+id+")")
 	}
 	return problems
 }
