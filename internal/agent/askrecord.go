@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/edotau/claude-code/internal/proc/inflight"
+	"github.com/edotau/claude-code/internal/inflight"
 )
 
 // BuildAskRecord constructs the dispatch record for req, reusing jobRec's identity when resuming a job.

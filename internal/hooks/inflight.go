@@ -6,8 +6,8 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/edotau/claude-code/internal/inflight"
 	"github.com/edotau/claude-code/internal/proc"
-	"github.com/edotau/claude-code/internal/proc/inflight"
 )
 
 // spawnTools are Claude Code's subagent-spawn tool names (Agent; Task on older builds).

@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/proc/inflight"
+	"github.com/edotau/claude-code/internal/inflight"
 	"github.com/edotau/claude-code/internal/router"
 )
 
