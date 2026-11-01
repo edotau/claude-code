@@ -53,7 +53,7 @@ func cmdPlanStatus(args []string) int {
 	if err := helptext.CheckFormat(*format); err != nil {
 		return badFormat("", err)
 	}
-	summaries, err := plans.Status(planDirs(*all)...)
+	summaries, err := plans.Status(plans.Dirs(*all)...)
 	if err != nil {
 		return fail("plan status: %v", err)
 	}
@@ -83,33 +83,6 @@ func cmdPlanStatus(args []string) int {
 		}
 	}
 	return 0
-}
-
-// planDirs is the repo's Home by default, else the plans home plus every direct repo subdir.
-func planDirs(all bool) []string {
-	root := filepath.Join(paths.ConfigDir(), "plans")
-	if !all {
-		cwd, err := os.Getwd()
-		if err != nil {
-			return []string{root}
-		}
-		top, _ := paths.CheckoutOf(cwd)
-		if top == "" {
-			top = cwd
-		}
-		return []string{plans.Home(top)}
-	}
-	dirs := []string{root}
-	entries, err := os.ReadDir(root)
-	if err != nil {
-		return dirs
-	}
-	for _, e := range entries {
-		if e.IsDir() {
-			dirs = append(dirs, filepath.Join(root, e.Name()))
-		}
-	}
-	return dirs
 }
 
 func cmdPlanTick(args []string) int {

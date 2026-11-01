@@ -76,7 +76,7 @@ func cmdMemoryArchive(args []string) int {
 	if code, done := helptext.Parse(fs, args); done {
 		return code
 	}
-	dir := memstore.NativeDir(memoryRoot(*repo))
+	dir := memstore.NativeDir(memstore.Root(*repo))
 	names := fs.Args()
 
 	switch {

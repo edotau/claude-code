@@ -6,6 +6,7 @@ package memstore
 // claude-code/. HomeBankDir, Dir and NativeDir (below) are the live path resolvers.
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -105,4 +106,23 @@ func ProjectSlug(root string) string {
 		}
 	}
 	return string(b)
+}
+
+// Root resolves --repo → $CLAUDE_PROJECT_DIR (only when it is a repo or the config dir) → git toplevel → cwd.
+// A launcher may stamp CLAUDE_PROJECT_DIR with a non-repo parent (e.g. $HOME); honoring that attached every
+// bank verb to a junk root instead of the repo the user is standing in.
+func Root(repo string) string {
+	if repo != "" {
+		abs, _ := filepath.Abs(repo)
+		return abs
+	}
+	if d := os.Getenv("CLAUDE_PROJECT_DIR"); d != "" && (paths.SamePath(d, paths.ConfigDir()) || paths.SamePath(paths.MainCheckout(d), paths.ConfigDir()) || paths.SamePath(GitToplevel(d), d)) {
+		return d
+	}
+	cwd, _ := os.Getwd()
+	// Inside the store its own toplevel is the store root; keep cwd so memory/<repo>/ resolves to that repo.
+	if top := GitToplevel(cwd); top != "" && !paths.SamePath(top, StoreDir()) {
+		return top
+	}
+	return cwd
 }

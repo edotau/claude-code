@@ -498,3 +498,30 @@ func RangeCommits(ctx context.Context, dir, rng string) ([]Commit, error) {
 	}
 	return commits, nil
 }
+
+// Dirs is the repo's Home by default, else the plans home plus every direct repo subdir.
+func Dirs(all bool) []string {
+	root := filepath.Join(paths.ConfigDir(), "plans")
+	if !all {
+		cwd, err := os.Getwd()
+		if err != nil {
+			return []string{root}
+		}
+		top, _ := paths.CheckoutOf(cwd)
+		if top == "" {
+			top = cwd
+		}
+		return []string{Home(top)}
+	}
+	dirs := []string{root}
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return dirs
+	}
+	for _, e := range entries {
+		if e.IsDir() {
+			dirs = append(dirs, filepath.Join(root, e.Name()))
+		}
+	}
+	return dirs
+}

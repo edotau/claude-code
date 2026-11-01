@@ -87,7 +87,7 @@ func recallLoad(hits []bank.SearchHit, n int) {
 }
 
 func recallExplain(repo, query string) int {
-	root := memoryRoot(repo)
+	root := memstore.Root(repo)
 	if e, ok := memstore.RepoByName(repo); repo != "" && ok && e.Origin.Origin != "" {
 		root = e.Origin.Origin
 	}

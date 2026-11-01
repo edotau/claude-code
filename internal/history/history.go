@@ -298,3 +298,23 @@ func runGit(full []string) (string, error) {
 	defer cancel()
 	return proc.RunGit(ctx, "", full...)
 }
+
+// LogEntry is one `history log` line: Store.Log formats "%h %Y-%m-%d %H:%M <plane>: <subject>".
+type LogEntry struct {
+	Rev     string `json:"rev"`
+	Date    string `json:"date"`
+	Subject string `json:"subject"`
+}
+
+// ParseLog splits Store.Log lines into entries, skipping malformed ones.
+func ParseLog(lines []string) []LogEntry {
+	out := []LogEntry{}
+	for _, l := range lines {
+		f := strings.SplitN(l, " ", 4)
+		if len(f) < 4 {
+			continue
+		}
+		out = append(out, LogEntry{Rev: f[0], Date: f[1] + " " + f[2], Subject: f[3]})
+	}
+	return out
+}
