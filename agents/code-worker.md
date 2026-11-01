@@ -55,7 +55,8 @@ one task:
 3. **At the action point, write the forced notes** — `TASK:` before a behavior-changing edit, `ISSUE:` after a
    defect fix (searched pattern, other sites): `skills/problem-solving/references/notes.md`.
 4. **Verify before reporting done.** Run the exact verification command you were given (`make`,
-   `go test`, `pytest`, …). A green result is the bar; report failures with the output, don't hide them.
+   `go test`, `pytest`, …); in reorg mode (CLAUDE.md) that is `go build ./...` + `go vet` only. A green result is the
+   bar; report failures with the output, don't hide them.
 
 When the handoff names a skill, read `skills/<name>/SKILL.md` and the `references/` it points to
 before starting — progressive disclosure here is a file read.

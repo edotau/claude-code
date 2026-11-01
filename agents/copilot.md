@@ -187,7 +187,8 @@ footers, confirm first).
 Only when the user asked for a PR, after Commit:
 
 1. **Preflight** — detect the toolchain and run lint + tests scoped to the staged packages (the full suite
-   is the main thread's; pre-push `make audit` runs it); stop and report on failure, do not commit:
+   is the main thread's; pre-push `make audit` runs it); stop and report on failure, do not commit (reorg mode,
+   CLAUDE.md: build + vet only):
    `pyproject.toml`→`ruff check . && pytest` · `package.json`→`npm run lint && npm test` ·
    `Makefile`→`make lint && make test` ·
    `Cargo.toml`→`cargo clippy && cargo test` · `go.mod`→`go vet ./... && go test ./...`.

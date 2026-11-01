@@ -17,7 +17,8 @@ coupled/ordered/plan-derived ones, per the skill's work-shape table — state th
 Dispatch each task as a `code-worker` leaf per the skill's process, feature/bug-fix tasks add a `copilot` test agent
 (`rules/standards/testing-guidelines.md`). Run the spec → simplify → quality
 gates from the skill before moving to the next task (sequential) or over the integrated diff
-(parallel). Relay one consolidated report: per-task status, files, verification, overall verdict.
+(parallel); parallel leaves follow SKILL.md → Concurrency (≤2 while another session shares the checkout).
+Relay one consolidated report: per-task status, files, verification, overall verdict.
 
 Default agents: when the plan or task names no agent, set each leaf's `Agent:` from the "Default agent per
 task class" table in `skills/subagent-workflows/references/cost-routing.md`,
