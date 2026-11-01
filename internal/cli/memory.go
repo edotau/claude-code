@@ -79,13 +79,13 @@ func memorySynopsis(sub, args string) string {
 	return strings.TrimSpace("claude-code memory " + sub + " [flags] " + args)
 }
 
-// memoryAgent runs background memory jobs on the Copilot CLI (claude-opus-5.5, medium), falling back to Claude.
+// memoryAgent runs background memory jobs on Claude as the logged-in user, on their pin (medium effort).
 func memoryAgent() memory.AgentFunc {
 	return func(ctx context.Context, prompt, workdir string) (string, error) {
 		client := newClient()
 		client.Refresh = nil
 		client.Notify = func(m string) { fmt.Fprintln(os.Stderr, m) }
-		res, err := client.Run(ctx, agent.RunOptions{Agent: "copilot", Prompt: prompt, Model: "claude-opus-5.5",
+		res, err := client.Run(ctx, agent.RunOptions{Agent: "claude", Prompt: prompt,
 			Effort: "medium", Tools: true, WorkDir: workdir}, agent.NewTextSink(os.Stdout))
 		who := res.Agent
 		if res.Fallback != "" {
