@@ -15,6 +15,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/edotau/claude-code/internal/audit"
@@ -220,8 +221,18 @@ func authCredential(ctx context.Context, p *Provider, force bool) (string, error
 		return "", fmt.Errorf("%s: %w", p.Name, err)
 	}
 	if mode == IdentitySP {
-		return mintSP(ctx, p)
+		return spCredential(ctx, p, force)
 	}
+	v, err := userCredential(ctx, p, force)
+	if err != nil && mode == IdentityAuto && p.Auth.SPClientID != "" &&
+		(errors.Is(err, ErrNeedsLogin) || oauth.IsRejected(err) || oauth.IsLoginRequired(err)) {
+		return spCredential(ctx, p, force)
+	}
+	return v, err
+}
+
+// userCredential keeps user-only flights separate from automatic SP fallback.
+func userCredential(ctx context.Context, p *Provider, force bool) (string, error) {
 	return mintOnce(ctx, p, force, func(ctx context.Context) (string, error) {
 		var out string
 		// mintAuth re-reads the sealed refresh token, so a rotation by another process is picked up.
@@ -233,12 +244,6 @@ func authCredential(ctx context.Context, p *Provider, force bool) (string, error
 				}
 			}
 			v, err := mintAndCache(ctx, p)
-			if err != nil && mode == IdentityAuto && p.Auth.SPClientID != "" && (oauth.IsRejected(err) || oauth.IsLoginRequired(err)) {
-				if sp, spErr := mintSP(ctx, p); spErr == nil {
-					out = sp
-					return nil
-				}
-			}
 			out = v
 			if err == nil {
 				sealAccess(p, v)
@@ -283,7 +288,44 @@ var (
 	refreshU2M           = oauth.RefreshU2M
 	mintM2M              = oauth.MintM2M
 	spNoteOut  io.Writer = os.Stderr
+	spCache    sync.Map
+	spFlightMu sync.Mutex
+	spFlights  = map[string]*flight{}
 )
+
+// spCredential isolates SP tokens, expiry records and flights from the user's profile key.
+func spCredential(ctx context.Context, p *Provider, force bool) (string, error) {
+	for {
+		spFlightMu.Lock()
+		if !force {
+			if c, ok := spCache.Load(p.Name); ok && time.Now().Before(c.(cached).until) {
+				spFlightMu.Unlock()
+				return c.(cached).value, nil
+			}
+		}
+		f, inflight := spFlights[p.Name]
+		if !inflight {
+			f = &flight{done: make(chan struct{}), force: force}
+			spFlights[p.Name] = f
+			spFlightMu.Unlock()
+			f.val, f.err = mintSP(context.WithoutCancel(ctx), p)
+			spFlightMu.Lock()
+			delete(spFlights, p.Name)
+			close(f.done)
+			spFlightMu.Unlock()
+			return f.val, f.err
+		}
+		spFlightMu.Unlock()
+		select {
+		case <-f.done:
+		case <-ctx.Done():
+			return "", ctx.Err()
+		}
+		if f.force || !force {
+			return f.val, f.err
+		}
+	}
+}
 
 // mintSP mints the paired service principal's token (same workspace host); it never touches the user login.
 func mintSP(ctx context.Context, p *Provider) (string, error) {
@@ -302,11 +344,31 @@ func mintSP(ctx context.Context, p *Provider) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("%s: service principal: %w", p.Name, err)
 	}
-	if err := finishCredential(p, tok.Access, tok.Expiry); err != nil {
+	if err := finishSPCredential(p, tok.Access, tok.Expiry); err != nil {
 		return "", err
 	}
 	fmt.Fprintf(spNoteOut, "%s: using the service principal %s\n", p.Name, p.Auth.SPClientID)
 	return tok.Access, nil
+}
+
+// finishSPCredential caches the SP token apart from the user profile's cache.
+func finishSPCredential(p *Provider, v string, exp time.Time) error {
+	if err := checkIssuer(p, v); err != nil {
+		return err
+	}
+	ttl := time.Duration(p.Auth.TTL) * time.Second
+	if ttl <= 0 {
+		ttl = 5 * time.Minute
+	}
+	until := time.Now().Add(ttl)
+	if e, ok := jwtExp(v); ok && exp.IsZero() {
+		exp = time.Unix(e, 0)
+	}
+	if !exp.IsZero() && exp.Add(-expiryMargin).Before(until) {
+		until = exp.Add(-expiryMargin)
+	}
+	spCache.Store(p.Name, cached{value: v, until: until})
+	return nil
 }
 
 // sealedAccess returns the sealed access token when it stays valid past the expiry margin.

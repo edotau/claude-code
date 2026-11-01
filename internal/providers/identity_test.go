@@ -3,10 +3,12 @@ package providers
 import (
 	"bytes"
 	"context"
+	"errors"
 	"net/http"
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/edotau/claude-code/internal/databricks/oauth"
 )
@@ -17,6 +19,8 @@ func spHarness(t *testing.T, identity string) (p *Provider, m2mCalls, refreshCal
 	srv := oidcServer(t, func(*http.Request, url.Values) (int, map[string]any) { return 401, map[string]any{} })
 	p = mintRow(t, "sp-"+strings.ReplaceAll(t.Name(), "/", "-"), AuthOAuth, "", srv.URL)
 	p.Identity, p.Auth.SPClientID = identity, "sp-client"
+	spCache.Delete(p.Name)
+	t.Cleanup(func() { spCache.Delete(p.Name) })
 	if err := writeOAuth(p, oauthValue{Refresh: "user-refresh"}); err != nil {
 		t.Fatal(err)
 	}
@@ -88,5 +92,47 @@ func TestUnpairedRowJSONOmitsIdentity(t *testing.T) {
 	b, err := Provider{Name: "plain", Auth: Auth{Type: AuthOAuth}}.MarshalJSON()
 	if err != nil || strings.Contains(string(b), "identity") || strings.Contains(string(b), "spClientId") {
 		t.Fatalf("%s, %v", b, err)
+	}
+}
+
+func TestIdentitySPCacheCannotAuthenticateUser(t *testing.T) {
+	p, m2m, refresh, _ := spHarness(t, IdentitySP)
+	if _, err := Credential(context.Background(), p); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Credential(WithIdentity(context.Background(), IdentityUser), p); err == nil {
+		t.Fatal("user-only request accepted the cached SP credential")
+	}
+	other := *p
+	other.Name += ".sp"
+	if _, err := Credential(WithIdentity(context.Background(), IdentityUser), &other); err == nil {
+		t.Fatal("another profile accepted the cached SP credential")
+	}
+	if *m2m != 1 || *refresh != 1 {
+		t.Fatalf("m2m=%d refresh=%d; want one independent request per identity", *m2m, *refresh)
+	}
+}
+
+func TestIdentityUserCannotJoinAutoSPFlight(t *testing.T) {
+	p, _, _, _ := spHarness(t, IdentityAuto)
+	entered, release := make(chan struct{}), make(chan struct{})
+	mintM2M = func(context.Context, string, string, string) (oauth.Token, error) {
+		close(entered)
+		<-release
+		return oauth.Token{Access: "sp-token"}, nil
+	}
+	done := make(chan error, 1)
+	go func() { _, err := Credential(context.Background(), p); done <- err }()
+	t.Cleanup(func() { close(release); <-done })
+	select {
+	case <-entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("auto request never reached SP mint")
+	}
+	ctx, cancel := context.WithTimeout(WithIdentity(context.Background(), IdentityUser), time.Second)
+	defer cancel()
+	_, err := Credential(ctx, p)
+	if err == nil || errors.Is(err, context.DeadlineExceeded) {
+		t.Fatal("user-only request joined the auto fallback flight")
 	}
 }
