@@ -2,12 +2,13 @@
 package configure
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
-	agentpkg "github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/clipboard"
 	"github.com/edotau/claude-code/internal/databricks"
 	"github.com/edotau/claude-code/internal/providers"
@@ -127,6 +128,7 @@ func runDatabricksEnv(d *dialog, env string) {
 		{"Mint now", "fresh token, expiry only", func() { dbxMintNow(d, env, false) }},
 		{"Copy token", "clipboard, clears in 30s", func() { dbxMintNow(d, env, true) }},
 		{"Apply to agents", "repoint all four or one", func() { dbxApply(d, env) }},
+		{"Identity", "auto, user or sp; the paired service principal", func() { dbxIdentity(d, env) }},
 	}
 	rows := make([][2]string, len(acts))
 	for i, a := range acts {
@@ -250,16 +252,11 @@ func dbxApplyPins(d *dialog, env string) (cancelled bool, err error) {
 	if perr != nil || idx < 0 {
 		return true, nil
 	}
-	var changed []string
-	err = agentpkg.UpdateAgentRecords(func(m map[string]agentpkg.AgentRecord) {
-		for i, a := range dbxAgents {
-			if r := m[a]; (idx == 0 || idx == i+1) && r.Profile != env {
-				r.Profile = env
-				m[a] = r
-				changed = append(changed, a)
-			}
-		}
-	})
+	targets := dbxAgents
+	if idx > 0 {
+		targets = dbxAgents[idx-1 : idx]
+	}
+	changed, err := ApplyProfile(targets, env)
 	if err != nil {
 		return false, err
 	}
@@ -270,11 +267,70 @@ func dbxApplyPins(d *dialog, env string) (cancelled bool, err error) {
 	for _, a := range changed {
 		d.printf("  %s profile: %s\n", a, env)
 	}
-	if err := agentpkg.ClearLastProfilesFor(changed...); err != nil {
-		return false, err
-	}
 	d.changed = true
 	return false, nil
+}
+
+// dbxSaveIdentity writes env's identity mode and paired client id to its provider row, then seals secret (when given)
+// as DATABRICKS_<ENV>_M2M; the secret is never echoed. Mode sp needs a paired client id.
+func dbxSaveIdentity(d *dialog, env, mode, spID, secret string) error {
+	p := d.reg.Providers[env]
+	if p == nil {
+		return fmt.Errorf("%s: no such profile", env)
+	}
+	if _, err := providers.ResolveIdentity(mode, ""); err != nil {
+		return err
+	}
+	if mode == providers.IdentitySP && spID == "" {
+		return fmt.Errorf("%s: identity sp needs a service principal client id", env)
+	}
+	auth := p.Auth
+	auth.SPClientID = spID
+	if err := providers.SetProviderFields(env, map[string]any{"identity": mode, "auth": auth}); err != nil {
+		return err
+	}
+	if secret != "" {
+		if err := providers.SealSecret(providers.SecretName(providers.GroupDatabricks, env, providers.AuthM2M), secret); err != nil {
+			return err
+		}
+	}
+	d.changed = true
+	return nil
+}
+
+// dbxIdentity picks env's identity mode, then asks for the SP client id and secret when the mode can use one.
+func dbxIdentity(d *dialog, env string) {
+	p := d.reg.Providers[env]
+	if p == nil {
+		return
+	}
+	modes := []string{providers.IdentityAuto, providers.IdentityUser, providers.IdentitySP}
+	cur, _ := providers.ResolveIdentity(p.Identity, "")
+	rows := make([][2]string, len(modes))
+	for i, m := range modes {
+		rows[i] = [2]string{m, curMark(m == cur)}
+	}
+	idx, err := dbxPick("identity · "+env, rows, max(slices.Index(modes, cur), 0))
+	if err != nil || idx < 0 {
+		return
+	}
+	spID := p.Auth.SPClientID
+	id, err := dbxSecret("Service principal client id (empty keeps "+cmp.Or(spID, "none")+"): ", func(s string) string { return s })
+	if err != nil {
+		return
+	}
+	spID = cmp.Or(id, spID)
+	secret := ""
+	if spID != "" {
+		if secret, err = dbxSecret("Service principal secret (empty keeps the stored one): ", nil); err != nil {
+			return
+		}
+	}
+	if err := dbxSaveIdentity(d, env, modes[idx], spID, secret); err != nil {
+		d.printf("%s: identity: %v\n", env, err)
+		return
+	}
+	d.printf("%s: identity %s\n", env, modes[idx])
 }
 
 // reload refreshes the registry after a login, PAT or apply changed it.
