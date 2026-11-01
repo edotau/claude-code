@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agent/batch"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/vault"
@@ -114,7 +115,7 @@ func TestClientPrepareProfileIsOneDispatchUnderFallbackAll(t *testing.T) {
 // A batch task's own profile reaches the request and resolves to one dispatch, under the default --fallback all.
 func TestBatchTaskProfileIsOneDispatch(t *testing.T) {
 	profileFixture(t, "")
-	line := agent.ParsedLine{N: 1, Task: agent.TaskLine{Prompt: "p", Profile: "acme"}}
+	line := batch.ParsedLine{N: 1, Task: batch.TaskLine{Prompt: "p", Profile: "acme"}}
 	bt, err := batchTask(line, batchOpts{agent: "codex", fallback: router.FallbackAll}, agent.RunOptions{}, false, t.TempDir(), map[string]bool{})
 	if err != nil {
 		t.Fatal(err)
@@ -132,7 +133,7 @@ func TestBatchTaskProfileIsOneDispatch(t *testing.T) {
 	if err == nil || len(res.Hops) != 1 {
 		t.Fatalf("Exec: %d hops, err %v; want one unavailable dispatch", len(res.Hops), err)
 	}
-	bad := agent.ParsedLine{N: 2, Task: agent.TaskLine{Prompt: "p", Profile: "no-such-profile"}}
+	bad := batch.ParsedLine{N: 2, Task: batch.TaskLine{Prompt: "p", Profile: "no-such-profile"}}
 	bt, err = batchTask(bad, batchOpts{agent: "codex", fallback: router.FallbackAll}, agent.RunOptions{}, false, t.TempDir(), map[string]bool{})
 	if err != nil {
 		t.Fatal(err)

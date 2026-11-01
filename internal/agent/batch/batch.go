@@ -1,4 +1,4 @@
-package agent
+package batch
 
 import (
 	"bufio"
@@ -11,203 +11,19 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"path/filepath"
 	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
-	"github.com/edotau/claude-code/internal/proc/inflight"
+	"github.com/edotau/claude-code/internal/agent"
 )
-
-// DefaultPerKey caps concurrent dispatches on one billed account (one credential, one rate limit).
-const DefaultPerKey = 4
-
-// sharedTryClaim is the machine-wide limiter seam; tests count or stub it.
-var sharedTryClaim = inflight.TryClaim
-
-// sharedPoll is how often a waiting dispatch re-checks the shared limiter; a var so tests can shorten it.
-var sharedPoll = 250 * time.Millisecond
-
-// dispatchSeq makes each permit's shared marker id unique within the process.
-var dispatchSeq atomic.Uint64
 
 // DefaultJobs is the default pool size: min(4, GOMAXPROCS).
 func DefaultJobs() int { return min(4, runtime.GOMAXPROCS(0)) }
-
-// limiter is the one concurrency gate for dispatches: at most jobs run at once, and at most cap per billed account.
-// A waiting task holds nothing, so a full account never blocks another.
-type limiter struct {
-	mu        sync.Mutex
-	cond      *sync.Cond
-	running   int
-	jobs, cap int
-	per       map[string]int
-	pending   int             // prepared tasks that have not yet reached their first dispatch: each still owes a slot
-	limits    inflight.Limits // shared-limiter caps, read once per batch; zero Total = no shared limiter
-}
-
-// slot is one prepared task's claim on a global slot until its first dispatch asks for a permit (or parks, or ends).
-type slot struct{ settled bool }
-
-func newLimiter(jobs, cap int) *limiter {
-	l := &limiter{jobs: jobs, cap: cap, per: map[string]int{}}
-	l.cond = sync.NewCond(&l.mu)
-	return l
-}
-
-// wait blocks until ok() holds under the lock, or ctx is done; a cancelled ctx wins over a free slot.
-func (l *limiter) wait(ctx context.Context, ok func() bool) error {
-	defer context.AfterFunc(ctx, func() { l.mu.Lock(); l.cond.Broadcast(); l.mu.Unlock() })()
-	for {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		if ok() {
-			return nil
-		}
-		l.cond.Wait()
-	}
-}
-
-// reserve waits, holding nothing, for a global slot no prepared task is owed, so a task is prepared only when it can
-// start; the claim ends at settle.
-func (l *limiter) reserve(ctx context.Context) (*slot, error) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	if err := l.wait(ctx, func() bool { return l.running+l.pending < l.jobs }); err != nil {
-		return nil, err
-	}
-	l.pending++
-	return &slot{}, nil
-}
-
-func (l *limiter) settleLocked(s *slot) {
-	if s != nil && !s.settled {
-		s.settled = true
-		l.pending--
-		l.cond.Broadcast()
-	}
-}
-
-// settle ends ctx's slot claim; idempotent, and a no-op outside a batch.
-func settle(ctx context.Context) {
-	if l, _ := ctx.Value(limiterKey{}).(*limiter); l != nil {
-		s, _ := ctx.Value(slotKey{}).(*slot)
-		l.mu.Lock()
-		l.settleLocked(s)
-		l.mu.Unlock()
-	}
-}
-
-// acquire waits for a global slot, an account permit and one shared slot; a full shared account releases the local
-// permit before the next try, so it never holds a worker another account could use. The release func is idempotent.
-func (l *limiter) acquire(ctx context.Context, account string) (func(), error) {
-	if l.limits.Total <= 0 {
-		return l.acquireLocal(ctx, account)
-	}
-	id := inflight.DispatchPrefix + strconv.FormatInt(time.Now().UnixNano(), 36) + "-" + strconv.FormatUint(dispatchSeq.Add(1), 10)
-	c := inflight.Claim{Owner: os.Getpid(), ID: id, Account: account, N: 1}
-	for {
-		freeLocal, err := l.acquireLocal(ctx, account) // returns ctx.Err() first, so a cancelled dispatch claims nothing
-		if err != nil {
-			return nil, err
-		}
-		if ok, _ := sharedTryClaim(c, l.limits); ok {
-			var once sync.Once
-			return func() { once.Do(func() { inflight.Release(c.Owner, c.ID); freeLocal() }) }, nil
-		}
-		freeLocal()
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		case <-time.After(sharedPoll):
-		}
-	}
-}
-
-// acquireLocal is the in-process admit: a global slot and, when account is set, an account permit.
-func (l *limiter) acquireLocal(ctx context.Context, account string) (func(), error) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	s, _ := ctx.Value(slotKey{}).(*slot)
-	l.settleLocked(s) // a parked task no longer owes a slot; an admitted one takes it in this same critical section
-	if err := l.wait(ctx, func() bool { return l.running < l.jobs && (account == "" || l.per[account] < l.cap) }); err != nil {
-		return nil, err
-	}
-	l.running++
-	if account != "" {
-		l.per[account]++
-	}
-	var once sync.Once
-	return func() {
-		once.Do(func() {
-			l.mu.Lock()
-			defer l.mu.Unlock()
-			l.running--
-			if account != "" {
-				l.per[account]--
-			}
-			l.cond.Broadcast()
-		})
-	}, nil
-}
-
-// permit is a dispatch's current permit; Do swaps it out around retry waits so a backing-off dispatch holds nothing.
-type permit struct {
-	account string
-	release func()
-	recheck func() *Error // a skip when the account became unusable since the dispatch started
-}
-
-// idle runs wait with the permit released, then takes a permit again; the dispatch runs a child only while holding one.
-func (h *permit) idle(ctx context.Context, wait func()) error {
-	h.release()
-	wait()
-	r, err := acquireDispatch(ctx, h.account)
-	if err != nil {
-		h.release = func() {}
-		return err
-	}
-	h.release = r
-	return nil
-}
-
-type (
-	permitKey   struct{}
-	limiterKey  struct{}
-	failFastKey struct{}
-	slotKey     struct{}
-)
-
-func withLimiter(ctx context.Context, l *limiter) context.Context {
-	return context.WithValue(ctx, limiterKey{}, l)
-}
-
-// acquireDispatch takes a dispatch permit under ctx's limiter; outside a batch there is no limit.
-func acquireDispatch(ctx context.Context, account string) (release func(), err error) {
-	l, _ := ctx.Value(limiterKey{}).(*limiter)
-	if l == nil {
-		return func() {}, nil
-	}
-	return l.acquire(ctx, account)
-}
-
-// tripFailFast cancels the batch when err ends the task (no fallback follows), before the dispatch's permit is released.
-func tripFailFast(ctx context.Context, c Chain, i int, req RunOptions, res Result, err error) {
-	trip, _ := ctx.Value(failFastKey{}).(func())
-	if trip == nil || err == nil || errors.Is(err, context.Canceled) {
-		return
-	}
-	if i+1 < len(c.Dispatches) && (i != 0 || !ExplicitBackend(req)) && dispatchUnavailable(c.Dispatches[i].Agent, res, err) {
-		return
-	}
-	trip()
-}
 
 // TaskLine is one `ask --batch` JSONL task; Tools stays nil when absent so the flag default applies.
 type TaskLine struct {
@@ -259,8 +75,8 @@ func ReadTaskLines(r io.Reader) ([]ParsedLine, error) {
 type BatchTask struct {
 	ID      string
 	Agent   string // the agent asked for, named on a failure envelope
-	Req     RunOptions
-	Prepare func(ctx context.Context) (*Prepared, error)
+	Req     agent.RunOptions
+	Prepare func(ctx context.Context) (*agent.Prepared, error)
 	Err     error
 }
 
@@ -285,7 +101,7 @@ var batchNow = time.Now
 
 type batchDone struct {
 	i   int
-	env Envelope
+	env agent.Envelope
 	ok  bool
 }
 
@@ -293,7 +109,7 @@ type batchDone struct {
 type batchRun struct {
 	o    BatchOptions
 	logM sync.Mutex
-	lim  *limiter
+	lim  *agent.Limiter
 	stop func() // cancels the batch
 }
 
@@ -303,10 +119,9 @@ func RunBatch(ctx context.Context, tasks []BatchTask, o BatchOptions) bool {
 	jobs := max(cmp.Or(o.Jobs, DefaultJobs()), 1)
 	bctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	b := &batchRun{o: o, lim: newLimiter(jobs, DefaultPerKey), stop: cancel}
-	b.lim.limits = inflight.CurrentLimits()
+	b := &batchRun{o: o, lim: agent.NewBatchLimiter(jobs), stop: cancel}
 	allOK := true
-	emit := func(env Envelope, ok bool) {
+	emit := func(env agent.Envelope, ok bool) {
 		env.BatchID = o.ID
 		if !writeEnvelope(o.Out, env) {
 			cancel() // nobody reads stdout any more: stop spending tokens
@@ -341,20 +156,20 @@ func RunBatch(ctx context.Context, tasks []BatchTask, o BatchOptions) bool {
 func (b *batchRun) feed(ctx context.Context, tasks []BatchTask, queue []int, done chan<- batchDone) {
 	for _, i := range queue {
 		t := tasks[i]
-		sl, err := b.lim.reserve(ctx)
-		sctx := context.WithValue(withLimiter(ctx, b.lim), slotKey{}, sl) // settle needs the limiter to free the slot
-		var prepared *Prepared
+		sl, err := b.lim.Reserve(ctx)
+		sctx := agent.WithBatchSlot(ctx, b.lim, sl) // settle needs the limiter to free the slot
+		var prepared *agent.Prepared
 		if err == nil {
 			prepared, err = t.Prepare(ctx)
 		}
 		switch {
 		case err == nil:
-			go func() { defer settle(sctx); env, ok := b.run(sctx, t, prepared); done <- batchDone{i, env, ok} }()
+			go func() { defer agent.Settle(sctx); env, ok := b.run(sctx, t, prepared); done <- batchDone{i, env, ok} }()
 		case ctx.Err() != nil:
-			settle(sctx)
+			agent.Settle(sctx)
 			done <- batchDone{i, b.cancelled(t), false}
 		default:
-			settle(sctx)
+			agent.Settle(sctx)
 			if b.o.FailFast {
 				b.stop() // before the next task is considered, so it never starts
 			}
@@ -364,7 +179,7 @@ func (b *batchRun) feed(ctx context.Context, tasks []BatchTask, queue []int, don
 }
 
 // writeEnvelope writes env as one JSON line; false only when the write itself failed.
-func writeEnvelope(w io.Writer, env Envelope) bool {
+func writeEnvelope(w io.Writer, env agent.Envelope) bool {
 	body, err := json.Marshal(env)
 	if err != nil || w == nil {
 		return true
@@ -374,15 +189,15 @@ func writeEnvelope(w io.Writer, env Envelope) bool {
 }
 
 // taskFailure is the error envelope of a task that never ran.
-func taskFailure(t BatchTask, err error) Envelope {
-	env := FailureEnvelope(t.Agent, err)
+func taskFailure(t BatchTask, err error) agent.Envelope {
+	env := agent.FailureEnvelope(t.Agent, err)
 	env.TaskID = t.ID
 	return env
 }
 
 // cancelled is the envelope of a queued task the batch cancelled before it started.
-func (b *batchRun) cancelled(t BatchTask) Envelope {
-	env := FailureEnvelope(t.Agent, fmt.Errorf("cancelled before start: %w", context.Canceled))
+func (b *batchRun) cancelled(t BatchTask) agent.Envelope {
+	env := agent.FailureEnvelope(t.Agent, fmt.Errorf("cancelled before start: %w", context.Canceled))
 	env.TaskID = t.ID
 	return env
 }
@@ -398,11 +213,11 @@ func (b *batchRun) logf(id, format string, a ...any) {
 }
 
 // run executes one task with its own stream, log sink and dispatch record; a panic becomes an error envelope.
-func (b *batchRun) run(ctx context.Context, t BatchTask, p *Prepared) (env Envelope, ok bool) {
+func (b *batchRun) run(ctx context.Context, t BatchTask, p *agent.Prepared) (env agent.Envelope, ok bool) {
 	rec := &p.Record
-	ctx = withLimiter(withIsolation(ctx), b.lim)
+	ctx = agent.WithBatchRun(ctx, b.lim)
 	if b.o.FailFast {
-		ctx = context.WithValue(ctx, failFastKey{}, b.stop)
+		ctx = agent.WithFailFast(ctx, b.stop)
 	}
 	start := time.Now()
 	defer func() { // runs after the recover below has set env: any failed task cancels before its slot is settled
@@ -412,33 +227,33 @@ func (b *batchRun) run(ctx context.Context, t BatchTask, p *Prepared) (env Envel
 	}()
 	defer func() {
 		if r := recover(); r != nil {
-			err := &Error{Kind: KindFatal, Agent: t.Agent, Err: fmt.Errorf("panic: %v", r)}
-			rec.Finish(Result{Agent: t.Agent, Status: StatusError}, err, time.Since(start))
+			err := &agent.Error{Kind: agent.KindFatal, Agent: t.Agent, Err: fmt.Errorf("panic: %v", r)}
+			rec.Finish(agent.Result{Agent: t.Agent, Status: agent.StatusError}, err, time.Since(start))
 			_ = rec.Save()
-			env, ok = NewEnvelope(Result{Agent: t.Agent, Status: StatusError}, err, rec.ID), false
+			env, ok = agent.NewEnvelope(agent.Result{Agent: t.Agent, Status: agent.StatusError}, err, rec.ID), false
 			env.TaskID = t.ID
 		}
 	}()
 	_ = rec.Save() // fail-open: the log is for replay and forensics, never a gate on the run
 	notify := func(s string) { b.logf(t.ID, "%s", s) }
-	client := NewClient(nil, nil, notify)
+	client := agent.NewClient(nil, nil, notify)
 	if p.Opts.Launcher != nil {
 		client.Launcher = p.Opts.Launcher
 	}
-	res, err := client.Exec(ctx, p, Discard, RunRecordedOpts{})
+	res, err := client.Exec(ctx, p, agent.Discard, agent.RunRecordedOpts{})
 	for _, d := range res.Dropped {
 		b.logf(t.ID, "%s has no channel on the %s agent — dropped", d, res.Agent)
 	}
 	b.logf(t.ID, "dispatch %s", rec.ID)
-	env = NewEnvelope(res, err, res.DispatchID)
+	env = agent.NewEnvelope(res, err, res.DispatchID)
 	env.TaskID = t.ID
-	return env, err == nil && env.Status == StatusOK
+	return env, err == nil && env.Status == agent.StatusOK
 }
 
 var batchIDRE = regexp.MustCompile(`^[A-Za-z0-9._-]{1,64}$`)
 
 // ParseBatchTask validates one line like the ask flags; routing waits for Prepare. On error the task keeps its id and agent.
-func ParseBatchTask(l ParsedLine, agentName string, base RunOptions, timeoutSet bool, cwd string,
+func ParseBatchTask(l ParsedLine, agentName string, base agent.RunOptions, timeoutSet bool, cwd string,
 	seen map[string]bool) (BatchTask, error) {
 	t := BatchTask{ID: cmp.Or(l.Task.ID, "t"+strconv.Itoa(l.N)), Agent: cmp.Or(l.Task.Agent, agentName)}
 	if l.Err != nil {
@@ -457,11 +272,11 @@ func ParseBatchTask(l ParsedLine, agentName string, base RunOptions, timeoutSet 
 	}
 	req := base
 	req.Prompt, req.Provider, req.Model = tl.Prompt, cmp.Or(tl.Profile, base.Provider), cmp.Or(tl.Model, base.Model)
-	agent, err := selectAndOverlay(t.Agent, base.Agents, &req) // explicit line/base options win over the definition
+	name, err := agent.SelectAndOverlay(t.Agent, base.Agents, &req) // explicit line/base options win over the definition
 	if err != nil {
 		return t, fmt.Errorf("line %d: %w", l.N, err)
 	}
-	t.Agent = agent
+	t.Agent = name
 	if tl.Tools != nil {
 		req.Tools = *tl.Tools
 	}

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/proc/inflight"
+	"github.com/edotau/claude-code/internal/router"
 )
 
 // agentCallRe finds `agent(` call sites in a Workflow script.
@@ -24,7 +25,7 @@ func dispatchPre(in *Input) Result {
 	if owner == 0 {
 		return agentEffortResult(in) // an unidentifiable owner claims nothing: fail open
 	}
-	account, lim := inflight.SessionAccount(), inflight.CurrentLimits()
+	account, lim := router.SessionAccount(), router.CurrentLimits()
 	claim := inflight.Claim{Owner: owner, ID: in.nested("tool_use_id"), Account: account, N: 1, Transcript: in.TranscriptPath}
 	if claim.ID == "" {
 		claim.ID = strconv.FormatInt(time.Now().UnixNano(), 36)
