@@ -76,6 +76,18 @@ copy of the template (the plan hooks paste the same file).
 Fill the template's `Suggested slug:` line (e.g. `problem-solving-evaluate-code-split`): the mirror names the file
 `YYYY-MM-DD-<slug>.md` from it (the H1 is only the fallback).
 
+### Plan rules
+
+- **Snapshotted** — the `Date:`/`Snapshot:` line names the commit your line numbers come from.
+- **Checked** — every assumption the design rests on gets a row in the Target-shape table with a verdict and the
+  command or `file:line` that proves it; a **Wrong** row changes the design before any phase is written.
+- **Decided** — 2–3 approaches: one `DECISION:` line for the chosen one, a `Rejected:` line per alternative.
+- **Baselined** — Phase 0 captures the output of the commands the plan touches, before any change; later phases
+  diff against it. A plan with no runnable surface says so in Phase 0.
+- **Gated once** — one gate block under `## Phases` that every commit runs; a phase lists only its extra checks.
+- **Optional sections only when they apply** — `## File map` when files move or split, `## Interface` when exports
+  change, `## Tests` when tests move, break or are deleted.
+
 ### Phase rules
 
 Every phase is:
@@ -92,11 +104,13 @@ Every phase is:
   each design choice, `NEXT:` for deferred work, `BUG:` for a defect found while reading, `NOTE:` for a fact to keep;
   `memory update` files them.
 - **Explicit on dependencies** — parallel-safe phases are marked; disjoint packages run in parallel.
-- **Leaf-sized tasks** — see `## Tasks` leaf-size definition above.
+- **Leaf-sized tasks** — see the template's `## Tasks` leaf-size definition.
+- **Tickable** — every task line carries `owns:` paths: a commit touching all of them ticks it (`docs-plan-tick`).
 
 ### Self-review before returning
 
-- [ ] Every requirement maps to a phase; every phase maps to a `## Tasks` line
+- [ ] Every requirement maps to a phase; every phase maps to a `## Tasks` line, starting at Phase 0.1
+- [ ] Every Target-shape row has evidence you ran or read; every approach has a `DECISION:` or `Rejected:` line
 - [ ] File paths and line ranges are real (you read them)
 - [ ] Names and signatures are consistent across phases
 - [ ] No placeholders; every phase has a live check + scoped test command
