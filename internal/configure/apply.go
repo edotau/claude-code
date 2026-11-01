@@ -3,6 +3,7 @@ package configure
 
 import (
 	"fmt"
+
 	"github.com/edotau/claude-code/internal/vault"
 
 	agentpkg "github.com/edotau/claude-code/internal/agent"
@@ -50,4 +51,41 @@ func validProfile(agents []string, profile string) error {
 		}
 	}
 	return nil
+}
+
+// SwitchTargets are the agents a switch to profile moves: claude, and each external agent that is on and serves it.
+// Serves, not CanServe: a gemini gateway row is reachable only by an explicit `gemini profile`.
+func SwitchTargets(reg *providers.Registry, recs map[string]vault.AgentRecord, profile string) (move, off []string) {
+	for _, spec := range agentpkg.Roster() {
+		ok, _ := agentpkg.Serves(spec.Name, reg.Providers[profile], "")
+		switch {
+		case !spec.External():
+			move = append(move, spec.Name)
+		case ok && recs[spec.Name].Profile == "":
+			off = append(off, spec.Name)
+		case ok:
+			move = append(move, spec.Name)
+		}
+	}
+	return move, off
+}
+
+// SwitchRecords sets profile on every SwitchTargets mover in m (the dry-run view of SwitchProfile).
+func SwitchRecords(reg *providers.Registry, m map[string]vault.AgentRecord, profile string) {
+	move, _ := SwitchTargets(reg, m, profile)
+	for _, name := range move {
+		r := m[name]
+		r.Profile = profile
+		m[name] = r
+	}
+}
+
+// SwitchProfile moves claude and every on agent that serves profile onto it, audits it, and forgets last-used.
+func SwitchProfile(reg *providers.Registry, profile string) error {
+	move, _ := SwitchTargets(reg, vault.AgentRecords(agentpkg.RosterNames()), profile)
+	if _, err := ApplyProfile(move, profile); err != nil {
+		return err
+	}
+	providers.AuditSwitch(profile)
+	return agentpkg.ClearLastProfiles()
 }

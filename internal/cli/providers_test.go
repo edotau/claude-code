@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/configure"
+	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/copilot"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/ui/helptext"
@@ -266,7 +266,7 @@ func TestQualifyPinSpecPassesThroughAlreadyQualified(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := configure.QualifyPinSpec(reg, "personal", "anthropic:claude-opus-5.5")
+	got := agentconfig.QualifyPinSpec(reg, "personal", "anthropic:claude-opus-5.5")
 	if got != "anthropic:claude-opus-5.5" {
 		t.Errorf("qualifyPinSpec = %q, want the already-qualified spec unchanged", got)
 	}
