@@ -1,4 +1,4 @@
-package proxy
+package server
 
 import (
 	"bufio"
@@ -14,6 +14,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/proxy"
 )
 
 // rawUp is an upstream that records raw requests (the shared newUpstream insists on a JSON body).
@@ -145,15 +147,15 @@ func TestPassthroughStripsInboundAuth(t *testing.T) {
 	up := newRawUp(t, okRaw)
 	t.Setenv("PT_KEY", "prov-cred")
 	srv := setup(t, ptOverlay(up.URL))
-	// ClientHeader carries the secret so Authorization survives ServeHTTP's own strip: passthrough must drop it.
+	// proxy.ClientHeader carries the secret so Authorization survives ServeHTTP's own strip: passthrough must drop it.
 	resp := ptDo(t, http.MethodPost, srv.URL+"/p/pt/openai/chat/completions", `{}`, map[string]string{
-		"X-Api-Key": "", ClientHeader: secret,
+		"X-Api-Key": "", proxy.ClientHeader: secret,
 		"Authorization": "Bearer inbound-leak", "x-goog-api-key": "goog-leak"})
 	if resp.StatusCode != 200 {
 		t.Fatalf("status %d", resp.StatusCode)
 	}
 	h := up.got()[0].hdr
-	for _, k := range []string{"X-Api-Key", "X-Goog-Api-Key", ClientHeader} {
+	for _, k := range []string{"X-Api-Key", "X-Goog-Api-Key", proxy.ClientHeader} {
 		if v := h.Get(k); v != "" {
 			t.Errorf("header %s reached upstream: %q", k, v)
 		}
@@ -345,8 +347,7 @@ func (l *lockedBuf) Write(p []byte) (int, error) {
 }
 func (l *lockedBuf) String() string { l.mu.Lock(); defer l.mu.Unlock(); return l.b.String() }
 
-// A passthrough 429 logs the model, the real attempt count, the upstream request id, Retry-After and the
-// sanitized error code, and the client still gets the upstream body unchanged.
+// A passthrough 429 logs sanitized diagnostics and relays the upstream body unchanged.
 func TestPassthroughLogsDiagnostics(t *testing.T) {
 	const upBody = `{"error_code":"REQUEST_LIMIT_EXCEEDED","message":"slow down"}`
 	up := newRawUp(t, func(w http.ResponseWriter, _ *http.Request, _ int) {

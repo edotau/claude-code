@@ -1,4 +1,4 @@
-package proxy
+package server
 
 import (
 	"context"
@@ -11,10 +11,7 @@ import (
 	"time"
 )
 
-// guardedClient refuses a gateway hostname that RESOLVES into the local network (loopback, link-local,
-// RFC1918, unspecified): DNS must not turn a providers.json base_url into a pivot onto the router's own
-// loopback or an internal service. A literal IP or "localhost" in the config is the user's own choice
-// (Ollama, a dev gateway) and dials unguarded.
+// guardedClient rejects hostnames resolving locally; configured literal IPs and localhost remain allowed.
 func guardedClient() *http.Client {
 	t := http.DefaultTransport.(*http.Transport).Clone()
 	t.DialContext = guardedDial
@@ -26,9 +23,7 @@ var (
 	guardedDialer = &net.Dialer{Timeout: 30 * time.Second, KeepAlive: 30 * time.Second, Control: rejectLocal}
 )
 
-// guardedDial picks the dialer by how the host was spelled, before any DNS lookup. A dial to the
-// configured HTTP(S)_PROXY host is unguarded too (user-configured, like literalLocal); once connected,
-// the CONNECT target host is resolved and reached by the proxy, not dialed by us, so no further guard applies.
+// guardedDial exempts configured proxy hosts and literal local addresses before DNS resolution.
 func guardedDial(ctx context.Context, network, addr string) (net.Conn, error) {
 	host, _, err := net.SplitHostPort(addr)
 	if err == nil && (literalLocal(host) || proxyHosts[strings.ToLower(host)]) {
@@ -40,7 +35,7 @@ func guardedDial(ctx context.Context, network, addr string) (net.Conn, error) {
 // proxyHosts holds the hostnames of HTTP(S)_PROXY as seen by http.ProxyFromEnvironment, resolved once at init.
 var proxyHosts = resolveProxyHosts()
 
-// resolveProxyHosts reads HTTP_PROXY/HTTPS_PROXY (and lowercase) via the stdlib's own env-proxy resolution.
+// resolveProxyHosts runs in a fresh subprocess per case because net/http caches proxy environment values.
 func resolveProxyHosts() map[string]bool {
 	hosts := map[string]bool{}
 	for _, scheme := range []string{"http", "https"} {

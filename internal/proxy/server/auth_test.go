@@ -1,4 +1,4 @@
-package proxy
+package server
 
 import (
 	"fmt"
@@ -12,12 +12,13 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/proxy"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
-// routeState is the real router auth-mark store under a scratch CLAUDE_CONFIG_DIR; the real quota.json is never touched.
+// routeState uses the real auth-mark store under a scratch config directory.
 type routeState struct{ t *testing.T }
 
 func useGate(t *testing.T) *routeState {
@@ -353,7 +354,7 @@ func TestPassthroughFallbackUsesVaultTokenAndNeverTheRouterSecret(t *testing.T) 
 	if dump := allHeaderValues(h); strings.Contains(dump, secret) {
 		t.Fatalf("the router secret leaked upstream:\n%s", dump)
 	}
-	if h.Get("X-Api-Key") != "" || h.Get(ClientHeader) != "" {
+	if h.Get("X-Api-Key") != "" || h.Get(proxy.ClientHeader) != "" {
 		t.Errorf("client credential headers forwarded: %v", h)
 	}
 }
@@ -365,7 +366,7 @@ func TestPassthroughForwardsClientLoginOverVaultToken(t *testing.T) {
 		r.client = tsrv.Client()
 		r.oauth = func() string { return "vault-max-token" }
 	})
-	login := map[string]string{"X-Api-Key": "", ClientHeader: secret, "Authorization": "Bearer clients-own"}
+	login := map[string]string{"X-Api-Key": "", proxy.ClientHeader: secret, "Authorization": "Bearer clients-own"}
 	if resp := post(t, srv.URL+"/p/sub/v1/messages", `{"model":"m"}`, login); resp.StatusCode != 200 {
 		t.Fatalf("status %d", resp.StatusCode)
 	}

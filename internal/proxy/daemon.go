@@ -7,13 +7,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
-	"syscall"
 	"time"
 
 	"github.com/edotau/claude-code/internal/buildver"
@@ -27,16 +25,16 @@ const (
 	maxLogBytes = 10 << 20
 )
 
-// shutdownDrain bounds a SIGTERM's wait on in-flight streams; a var so a test can shorten it.
-var shutdownDrain = 30 * time.Second
+// ShutdownDrain bounds a SIGTERM's wait on in-flight streams; a var so a test can shorten it.
+var ShutdownDrain = 30 * time.Second
 
 // ErrNotRunning means no healthy router answers for router.json.
 var ErrNotRunning = errors.New("proxy is not running")
 
-var errKeptHolder = errors.New("proxy: keeping running holder with live work")
+var ErrKeptHolder = errors.New("proxy: keeping running holder with live work")
 
-// errForeignHolder: the port is held by something that is not a replaceable proxy of this config dir.
-var errForeignHolder = errors.New("proxy: holder is not this config dir's proxy")
+// ErrForeignHolder: the port is held by something that is not a replaceable proxy of this config dir.
+var ErrForeignHolder = errors.New("proxy: holder is not this config dir's proxy")
 
 var terminateHolder = terminate
 
@@ -48,7 +46,8 @@ type State struct {
 	Started time.Time `json:"started"`
 }
 
-func stateFile() string  { return filepath.Join(paths.StateDir(), "router.json") }
+func stateFile() string { return filepath.Join(paths.StateDir(), "router.json") }
+
 func secretFile() string { return filepath.Join(paths.StateDir(), "router.secret") }
 
 // LogFile receives a spawned daemon's stdio.
@@ -141,8 +140,8 @@ func Ensure(ctx context.Context) (string, error) {
 	return base, err
 }
 
-// errTestBinary: under `go test`, os.Executable is the test binary, which would re-run its own tests as a "router".
-var errTestBinary = errors.New("proxy: refusing to spawn the daemon from a test binary (stub the router seam)")
+// ErrTestBinary: under `go test`, os.Executable is the test binary, which would re-run its own tests as a "router".
+var ErrTestBinary = errors.New("proxy: refusing to spawn the daemon from a test binary (stub the router seam)")
 
 // daemonCommand builds the detached daemon's command line.
 func daemonCommand(exe string) *exec.Cmd {
@@ -155,7 +154,7 @@ func spawn() error {
 		return err
 	}
 	if proc.IsSelfUnderTest(exe) {
-		return errTestBinary
+		return ErrTestBinary
 	}
 	// Resolve shims: argv[0] `claude` would dispatch to the launcher instead of `gateway proxy --serve`.
 	if real, err := filepath.EvalSymlinks(exe); err == nil {
@@ -180,78 +179,6 @@ func spawn() error {
 	return cmd.Process.Release()
 }
 
-// serveListening runs once Serve holds its port; tests wait on it instead of sleeping.
-var serveListening = func() {}
-
-// Serve runs the router on 127.0.0.1:port until ctx ends, then drains in-flight streams.
-func Serve(ctx context.Context, port int) error {
-	// A test binary never binds (or reclaims) the live router's port: reclaim would SIGTERM the user's router.
-	if exe, err := os.Executable(); err == nil && port == DefaultPort && proc.IsSelfUnderTest(exe) {
-		return errTestBinary
-	}
-	secret, err := ClientSecret()
-	if err != nil {
-		return err
-	}
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	var lc net.ListenConfig
-	ln, err := lc.Listen(ctx, "tcp", fmt.Sprintf("127.0.0.1:%d", port))
-	if errors.Is(err, syscall.EADDRINUSE) && port != 0 {
-		// Clients hold this port: replace an older router of ours; only a foreign holder of the default moves us.
-		err = reclaim(ctx, port, false)
-		switch {
-		case errors.Is(err, errKeptHolder):
-			return nil // the live holder keeps serving; this build exits 0 without binding
-		case errors.Is(err, errForeignHolder) && port == DefaultPort:
-			fmt.Fprintf(os.Stderr, "proxy: %v; binding a free port (recorded in router.json)\n", err)
-			ln, err = lc.Listen(ctx, "tcp", "127.0.0.1:0")
-		case err == nil:
-			ln, err = lc.Listen(ctx, "tcp", fmt.Sprintf("127.0.0.1:%d", port))
-		}
-	}
-	if err != nil {
-		return err
-	}
-	st := State{Schema: stateSchema, PID: os.Getpid(), Port: ln.Addr().(*net.TCPAddr).Port, Started: time.Now().UTC()}
-	if !ownedElsewhere(st) { // a side proxy (--port N) must not clobber a live daemon's router.json
-		data, _ := json.Marshal(st)
-		if err := paths.AtomicWrite(stateFile(), data, 0o600); err != nil {
-			_ = ln.Close()
-			return err
-		}
-		defer func() {
-			if cur, err := ReadState(); err == nil && cur.PID == st.PID && cur.Port == st.Port {
-				_ = os.Remove(stateFile())
-			}
-		}()
-	}
-	srv := &http.Server{Handler: newRouter(secret), ReadHeaderTimeout: 30 * time.Second, IdleTimeout: 120 * time.Second}
-	serveListening()
-	fmt.Fprintf(os.Stderr, "proxy: listening on %s (pid %d)\n", Base(st.Port), st.PID)
-	errc := make(chan error, 1)
-	go func() { errc <- srv.Serve(ln) }()
-	select {
-	case err := <-errc:
-		return err
-	case <-ctx.Done():
-	}
-	dctx, cancel := context.WithTimeout(context.Background(), shutdownDrain)
-	defer cancel()
-	// A stream past the drain is closed, not an error: a slow stop is still a stop.
-	if err := srv.Shutdown(dctx); errors.Is(err, context.DeadlineExceeded) {
-		fmt.Fprintf(os.Stderr, "proxy: drain exceeded %s, closing the remaining streams\n", shutdownDrain)
-		_ = srv.Close()
-	} else if err != nil {
-		return err
-	}
-	if err := <-errc; err != nil && !errors.Is(err, http.ErrServerClosed) {
-		return err
-	}
-	return nil
-}
-
 // ownedElsewhere reports a live router on another port already holding router.json.
 func ownedElsewhere(st State) bool {
 	cur, err := ReadState()
@@ -274,7 +201,7 @@ func Stop(ctx context.Context) (State, error) {
 		return st, err
 	}
 	// The wait follows the daemon's drain: a busy router is still stopping, not failing to stop.
-	for deadline := time.Now().Add(shutdownDrain + 5*time.Second); time.Now().Before(deadline); time.Sleep(100 * time.Millisecond) {
+	for deadline := time.Now().Add(ShutdownDrain + 5*time.Second); time.Now().Before(deadline); time.Sleep(100 * time.Millisecond) {
 		if !alive(st.PID) {
 			return st, nil
 		}
@@ -312,8 +239,8 @@ const (
 	HeaderConfig   = "X-Claude-Code-Router-Config"
 )
 
-// configID names this process's config dir without exposing the path.
-func configID() string {
+// ConfigID names this process's config dir without exposing the path.
+func ConfigID() string {
 	sum := sha256.Sum256([]byte(paths.ConfigDir()))
 	return hex.EncodeToString(sum[:8])
 }
@@ -354,30 +281,30 @@ func Inflight(ctx context.Context, port int) int64 {
 	return st.Inflight
 }
 
-// reclaim stops an older claude-code proxy holding port; anything else is an error naming the holder.
-func reclaim(ctx context.Context, port int, force bool) error {
+// Reclaim stops an older claude-code proxy holding port; anything else is an error naming the holder.
+func Reclaim(ctx context.Context, port int, force bool) error {
 	st, router := holder(ctx, port)
 	pid := st.PID
 	switch {
 	case !router:
-		return fmt.Errorf("%w (127.0.0.1:%d is held by another process); free it or pass --port", errForeignHolder, port)
+		return fmt.Errorf("%w (127.0.0.1:%d is held by another process); free it or pass --port", ErrForeignHolder, port)
 	case pid <= 0 || pid == os.Getpid():
 		return fmt.Errorf("proxy: 127.0.0.1:%d is held by an older claude-code proxy that reports no pid; "+
 			"find it with `ss -ltnp 'sport = :%d'` and kill it", port, port)
 	}
-	if st.Config != "" && st.Config != configID() { // another config dir's proxy is never ours to replace
+	if st.Config != "" && st.Config != ConfigID() { // another config dir's proxy is never ours to replace
 		return fmt.Errorf("%w (127.0.0.1:%d answers as a proxy of another config dir or host, left alone); pass --port",
-			errForeignHolder, port)
+			ErrForeignHolder, port)
 	}
 	if !force && st.Build != buildver.Version() && (st.Inflight > 0 || st.Sessions > 0) {
 		fmt.Fprintf(os.Stderr, "proxy: keeping running proxy pid %d (build %s) with live work; this build %s not taking over\n",
 			pid, st.Build, buildver.Version())
-		return errKeptHolder
+		return ErrKeptHolder
 	}
 	if err := terminateHolder(pid); err != nil {
 		return fmt.Errorf("proxy: stop older proxy pid %d on :%d: %w", pid, port, err)
 	}
-	for deadline := time.Now().Add(shutdownDrain + 5*time.Second); time.Now().Before(deadline); time.Sleep(100 * time.Millisecond) {
+	for deadline := time.Now().Add(ShutdownDrain + 5*time.Second); time.Now().Before(deadline); time.Sleep(100 * time.Millisecond) {
 		if !alive(pid) {
 			fmt.Fprintf(os.Stderr, "proxy: replaced older proxy pid %d on :%d\n", pid, port)
 			return nil
@@ -397,10 +324,25 @@ var routerFormat = schemas.Register(schemas.Format{
 	Migrate: schemas.SameShape,
 })
 
-var routerSessionsFormat = schemas.Register(schemas.Format{
-	Name: "router-sessions", Owner: "internal/proxy", Kind: schemas.Record, Version: 1,
-	Glob:    sessionsFile,
-	New:     func() any { return new(sessionState) },
-	Keep:    "process-bound session token hashes; retained across proxy restarts and pruned when expired or revoked",
-	Migrate: schemas.SameShape,
-})
+// WriteState publishes this daemon's state and returns its conditional cleanup.
+func WriteState(st State) (func(), error) {
+	st.Schema = stateSchema
+	if ownedElsewhere(st) {
+		return func() {}, nil
+	}
+	data, _ := json.Marshal(st)
+	if err := paths.AtomicWrite(stateFile(), data, 0o600); err != nil {
+		return nil, err
+	}
+	return func() {
+		if cur, err := ReadState(); err == nil && cur.PID == st.PID && cur.Port == st.Port {
+			_ = os.Remove(stateFile())
+		}
+	}, nil
+}
+
+// Optional launcher-set request headers that attribute a ledger entry; absent today, so those fields stay empty.
+const (
+	AgentHeader   = "X-Claude-Code-Agent"
+	SessionHeader = "X-Claude-Code-Session"
+)

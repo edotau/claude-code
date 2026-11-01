@@ -1,10 +1,12 @@
-package proxy
+package server
 
 import (
 	"io"
 	"net/http"
 	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/proxy"
 )
 
 func okMsg(w http.ResponseWriter, r *http.Request, _ int) {
@@ -48,9 +50,9 @@ func TestUpstreamUserAgentOnEveryRoute(t *testing.T) {
 		for _, tc := range cases {
 			t.Run(tc.name+"/"+agent, func(t *testing.T) {
 				before := len(up.got())
-				hdr := map[string]string{"User-Agent": "client-ua/9", SessionHeader: "sess-leak"}
+				hdr := map[string]string{"User-Agent": "client-ua/9", proxy.SessionHeader: "sess-leak"}
 				if agent != "" {
-					hdr[AgentHeader] = agent
+					hdr[proxy.AgentHeader] = agent
 				}
 				resp := ptDo(t, http.MethodPost, srv.URL+tc.url, tc.body, hdr)
 				if resp.StatusCode != 200 {
@@ -61,25 +63,7 @@ func TestUpstreamUserAgentOnEveryRoute(t *testing.T) {
 				if len(reqs) != before+1 {
 					t.Fatalf("upstream hits %d, want %d", len(reqs), before+1)
 				}
-				h := reqs[before].hdr
-				ua := h.Values("User-Agent")
-				if len(ua) != 1 || !strings.HasPrefix(ua[0], "claude-code/") {
-					t.Fatalf("User-Agent = %q, want one claude-code/<version> value", ua)
-				}
-				if agent != "" && !strings.HasSuffix(ua[0], " "+agent) {
-					t.Errorf("User-Agent %q lacks agent %q", ua[0], agent)
-				}
-				if agent == "" && strings.Contains(strings.TrimSpace(ua[0]), " ") {
-					t.Errorf("User-Agent %q has an agent part without the header", ua[0])
-				}
-				for _, k := range []string{AgentHeader, SessionHeader, ClientHeader} {
-					if v := h.Get(k); v != "" {
-						t.Errorf("%s reached upstream: %q", k, v)
-					}
-				}
-				if headerHolds(h, "client-ua/9") || headerHolds(h, "sess-leak") || headerHolds(h, secret) {
-					t.Errorf("client-side value leaked upstream: %v", h)
-				}
+				checkAttribution(t, reqs[before].hdr, agent)
 			})
 		}
 	}
@@ -164,11 +148,32 @@ func TestHarnessHeadersForwarded(t *testing.T) {
 
 func TestParseHeadersWarnsOnce(t *testing.T) {
 	var log strings.Builder
-	got := ParseHeaders("A: 1\nbad name: x\nAuthorization: y\nB: v\x00\n", &log)
+	got := proxy.ParseHeaders("A: 1\nbad name: x\nAuthorization: y\nB: v\x00\n", &log)
 	if len(got) != 1 || got["A"] != "1" {
 		t.Errorf("got %v", got)
 	}
 	if strings.Count(log.String(), "\n") != 1 {
 		t.Errorf("want one warning, got %q", log.String())
+	}
+}
+
+func checkAttribution(t *testing.T, h http.Header, agent string) {
+	ua := h.Values("User-Agent")
+	if len(ua) != 1 || !strings.HasPrefix(ua[0], "claude-code/") {
+		t.Fatalf("User-Agent = %q, want one claude-code/<version> value", ua)
+	}
+	if agent != "" && !strings.HasSuffix(ua[0], " "+agent) {
+		t.Errorf("User-Agent %q lacks agent %q", ua[0], agent)
+	}
+	if agent == "" && strings.Contains(strings.TrimSpace(ua[0]), " ") {
+		t.Errorf("User-Agent %q has an agent part without the header", ua[0])
+	}
+	for _, k := range []string{proxy.AgentHeader, proxy.SessionHeader, proxy.ClientHeader} {
+		if v := h.Get(k); v != "" {
+			t.Errorf("%s reached upstream: %q", k, v)
+		}
+	}
+	if headerHolds(h, "client-ua/9") || headerHolds(h, "sess-leak") || headerHolds(h, secret) {
+		t.Errorf("client-side value leaked upstream: %v", h)
 	}
 }

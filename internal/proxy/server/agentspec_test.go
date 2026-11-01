@@ -1,21 +1,21 @@
-package proxy_test
+package server_test
 
 import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/proxy"
+	"github.com/edotau/claude-code/internal/proxy/server"
 )
 
-// Every non-empty router suffix an agent row declares lands on a wire the passthrough parser accepts, and the empty one
-// (anthropic) stays off it.
+// Declared router suffixes parse on their wire; the empty Anthropic suffix does not.
 func TestRosterRouterSuffixesParse(t *testing.T) {
 	seen := 0
 	for _, spec := range agent.Roster() {
 		for wire, suffix := range spec.CLI.RouterSuffix {
 			base := proxy.SessionBase("http://127.0.0.1:1", "prov") + suffix
 			path := base[len("http://127.0.0.1:1"):] + "/v1/x"
-			prov, dialect, rest, ok := proxy.ParsePassthrough(path)
+			prov, dialect, rest, ok := server.ParsePassthrough(path)
 			if suffix == "" {
 				if ok {
 					t.Errorf("%s/%s: empty suffix parsed as passthrough %q", spec.Name, wire, path)
