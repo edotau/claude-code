@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/edotau/claude-code/internal/memory/bank"
 	"io"
 	"os"
 	"path/filepath"
@@ -83,11 +84,11 @@ func previewOverflowCount(path string, capLines int) (int, error) {
 	if err != nil {
 		return 0, nil // absent file — nothing to preview
 	}
-	if LogicalLineCount(string(data)) <= capLines {
+	if bank.LogicalLineCount(string(data)) <= capLines {
 		return 0, nil
 	}
 	base := filepath.Base(path)
-	header, blocks := entryBlocks(base, string(data))
+	header, blocks := bank.EntryBlocks(base, string(data))
 	_, overflow := settledSplit(base, header, blocks, capLines)
 	return len(overflow), nil
 }
@@ -98,11 +99,11 @@ func previewSessionRotate(dir string) int {
 	if err != nil {
 		return 0
 	}
-	_, entries := splitHeadingBlocks(string(data))
-	if len(entries) <= SessionHistoryMaxEntries {
+	_, entries := bank.SplitHeadingBlocks(string(data))
+	if len(entries) <= bank.SessionHistoryMaxEntries {
 		return 0
 	}
-	return len(entries) - SessionHistoryMaxEntries
+	return len(entries) - bank.SessionHistoryMaxEntries
 }
 
 const dreamInterval = 24 * time.Hour
@@ -137,7 +138,7 @@ func DreamDue(cwd string, now time.Time) bool {
 	if ok && now.Sub(stamp) < dreamInterval {
 		return false
 	}
-	return NewestMtime(memstore.Dir(cwd)).After(stamp) || NewestMtime(memstore.HomeBankDir()).After(stamp)
+	return bank.NewestMtime(memstore.Dir(cwd)).After(stamp) || bank.NewestMtime(memstore.HomeBankDir()).After(stamp)
 }
 
 // DreamOptions drive one consolidation.
@@ -151,7 +152,7 @@ type DreamOptions struct {
 // agentDreamPrompt frames the model-residue consolidation pass; the procedure itself is one copy,
 // embedded at prompts/dream.md.
 func agentDreamPrompt() (string, error) {
-	ref, err := Reference("dream")
+	ref, err := bank.Reference("dream")
 	if err != nil {
 		return "", err
 	}
@@ -168,7 +169,7 @@ func Dream(o DreamOptions) error {
 		o.Timeout = UpdateTimeout
 	}
 	var runErr error
-	lockErr := paths.WithFileLock(lockPath(memstore.Dir(o.CWD)), func() error {
+	lockErr := paths.WithFileLock(bank.LockPath(memstore.Dir(o.CWD)), func() error {
 		now := time.Now()
 		n, err := PromoteLocalToGlobal(o.CWD, now)
 		if err != nil {
@@ -192,7 +193,7 @@ func Dream(o DreamOptions) error {
 		return nil
 	})
 	// Settle after the lock is released.
-	if _, err := SettleBank(o.CWD, time.Now()); err != nil {
+	if _, err := bank.SettleBank(o.CWD, time.Now()); err != nil {
 		fmt.Fprintln(o.Out, "memory dream: settle:", err)
 	}
 	stampErr := paths.AtomicWrite(DreamStampPath(o.CWD), []byte(time.Now().Format(time.RFC3339)+"\n"), 0o600)

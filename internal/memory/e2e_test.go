@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"github.com/edotau/claude-code/internal/memory/bank"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -177,12 +178,12 @@ func TestE2EMemoryLifecycle(t *testing.T) {
 		if rel, err := filepath.Rel(memstore.StoreDir(), bankDir); err != nil || strings.HasPrefix(rel, "..") {
 			t.Fatalf("bank dir %s is not under the store %s", bankDir, memstore.StoreDir())
 		}
-		for _, name := range BankFiles() {
+		for _, name := range bank.BankFiles() {
 			if _, err := os.Stat(filepath.Join(bankDir, name)); err != nil {
 				t.Errorf("bank file %s missing: %v", name, err)
 			}
 		}
-		if got := len(BankFiles()); got != 6 {
+		if got := len(bank.BankFiles()); got != 6 {
 			t.Errorf("BankFiles = %d, want 6", got)
 		}
 	})
@@ -340,7 +341,7 @@ func TestE2EMemoryLifecycle(t *testing.T) {
 		}
 		store, _ := filepath.EvalSymlinks(filepath.Join(cfg, "memory"))
 		bankNames := map[string]bool{}
-		for _, n := range BankFiles() {
+		for _, n := range bank.BankFiles() {
 			bankNames[n] = true
 		}
 		err := filepath.WalkDir(cfg, func(p string, d fs.DirEntry, err error) error {

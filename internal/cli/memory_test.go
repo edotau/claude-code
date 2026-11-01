@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/memory"
+	"github.com/edotau/claude-code/internal/memory/bank"
 	"github.com/edotau/claude-code/internal/memstore"
 )
 
@@ -158,7 +159,7 @@ func TestNoPreRenameLabelInUserOutput(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(memstore.HomeBankDir(), "conventions.md"), []byte("# C\n\n- a rule\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	catalog, err := memory.BuildCatalog(time.Now())
+	catalog, err := bank.BuildCatalog(time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -175,10 +176,10 @@ func TestNoPreRenameLabelInUserOutput(t *testing.T) {
 // settle-writer guard both name "fmt".
 func TestCmdMemoryFmt(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	bank := memstore.HomeBankDir()
-	target := filepath.Join(bank, "decisionLog.md")
+	bankDir := memstore.HomeBankDir()
+	target := filepath.Join(bankDir, "decisionLog.md")
 	longLine := "- " + strings.Repeat("xxxxxxxxxx ", 14) + "xxxxxxxxxx"
-	if err := os.MkdirAll(bank, 0o755); err != nil {
+	if err := os.MkdirAll(bankDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(target, []byte("# decisionLog\n\n"+longLine+"\n"), 0o600); err != nil {
@@ -202,7 +203,7 @@ func TestCmdMemoryFmt(t *testing.T) {
 		t.Fatal(err)
 	}
 	for l := range strings.SplitSeq(string(data), "\n") {
-		if len([]rune(l)) > memory.BankFmtMaxLine {
+		if len([]rune(l)) > bank.BankFmtMaxLine {
 			t.Errorf("rewritten decisionLog.md still has an over-width line: %q", l)
 		}
 	}
@@ -223,7 +224,7 @@ func TestCmdMemoryFmt(t *testing.T) {
 func TestMemoryRecallRanksAndFormatsUnstampedHits(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
-	if err := memory.StoreRepo().Ensure(); err != nil {
+	if err := bank.StoreRepo().Ensure(); err != nil {
 		t.Fatal(err)
 	}
 	repo := t.TempDir()
@@ -262,7 +263,7 @@ func TestMemoryRecallRanksAndFormatsUnstampedHits(t *testing.T) {
 	if contentRef == "" || !strings.HasPrefix(contentRef, "z") {
 		t.Fatalf("recall output missing a content-derived ref for the unstamped hit: %q", out)
 	}
-	if _, block, err := memory.ShowBlock(contentRef); err != nil || !strings.Contains(block, "never settled here") {
+	if _, block, err := bank.ShowBlock(contentRef); err != nil || !strings.Contains(block, "never settled here") {
 		t.Errorf("memory show %s = %q, %v; want the unstamped block", contentRef, block, err)
 	}
 }
@@ -272,7 +273,7 @@ func TestMemoryRecallRanksAndFormatsUnstampedHits(t *testing.T) {
 func TestMemoryRecallLoadResolvesUnstampedHitByContentRef(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
-	if err := memory.StoreRepo().Ensure(); err != nil {
+	if err := bank.StoreRepo().Ensure(); err != nil {
 		t.Fatal(err)
 	}
 	repo := t.TempDir()
@@ -318,7 +319,7 @@ func TestMemoryRecallLoadAppendsBodiesUnderByteCap(t *testing.T) {
 	if _, err := memory.Init(repo); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := memory.Remember(repo, "feedback", "loadable fact about widgets and gadgets", time.Now()); err != nil {
+	if _, err := bank.Remember(repo, "feedback", "loadable fact about widgets and gadgets", time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	code, out, stderr := captureOutput(t, func() int {
@@ -359,7 +360,7 @@ func TestMemoryRememberCLIRoundTripsThroughRecall(t *testing.T) {
 	}
 }
 
-// TestMemoryRememberUnknownTypeFails: the CLI surfaces memory.Remember's type-validation error.
+// TestMemoryRememberUnknownTypeFails: the CLI surfaces bank.Remember's type-validation error.
 func TestMemoryRememberUnknownTypeFails(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	code, _, stderr := captureOutput(t, func() int {
@@ -436,9 +437,9 @@ func TestMemoryReviewCandidatesPrintsProcedureAfterStats(t *testing.T) {
 	if statsIdx < 0 {
 		t.Fatalf("output missing the stats block: %q", out)
 	}
-	ref, err := memory.Reference("review")
+	ref, err := bank.Reference("review")
 	if err != nil {
-		t.Fatalf("memory.Reference(\"review\"): %v", err)
+		t.Fatalf("bank.Reference(\"review\"): %v", err)
 	}
 	refIdx := strings.Index(out, ref)
 	if refIdx < 0 {
@@ -507,9 +508,9 @@ func TestMemoryInitPrintsProcedureOnFreshBank(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("memory init: code=%d stderr=%q", code, stderr)
 	}
-	ref, err := memory.Reference("init")
+	ref, err := bank.Reference("init")
 	if err != nil {
-		t.Fatalf("memory.Reference(\"init\"): %v", err)
+		t.Fatalf("bank.Reference(\"init\"): %v", err)
 	}
 	if !strings.Contains(out, ref) {
 		t.Errorf("output missing the embedded init procedure: %q", out)
@@ -541,7 +542,7 @@ func TestMemoryPromoteCLIHomeMovesBlockAndDryRunWritesNothing(t *testing.T) {
 	if _, err := memory.Init(repo); err != nil {
 		t.Fatal(err)
 	}
-	id, err := memory.Remember(repo, "feedback", "promote via the CLI", time.Now())
+	id, err := bank.Remember(repo, "feedback", "promote via the CLI", time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -589,9 +590,9 @@ func TestMemoryUpdateMissingTranscriptPrintsTheProcedure(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("memory update with no --transcript: code=%d, want 0", code)
 	}
-	ref, err := memory.Reference("update")
+	ref, err := bank.Reference("update")
 	if err != nil {
-		t.Fatalf("memory.Reference(\"update\"): %v", err)
+		t.Fatalf("bank.Reference(\"update\"): %v", err)
 	}
 	if !strings.Contains(out, ref) {
 		t.Errorf("stdout missing the embedded update procedure: %q", out)

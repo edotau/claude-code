@@ -2,6 +2,7 @@
 package memory
 
 import (
+	"github.com/edotau/claude-code/internal/memory/bank"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -31,14 +32,14 @@ func Stat(root string) BankStat { return statBank(memstore.Dir(root)) }
 
 func statBank(dir string) BankStat {
 	s := BankStat{Dir: dir}
-	for _, name := range bankFiles {
+	for _, name := range bank.BankFiles() {
 		data, err := os.ReadFile(filepath.Join(dir, name))
 		if err != nil {
 			continue
 		}
 		s.Files++
-		s.Lines += lineCount(string(data))
-		if capLines, ok := FileCaps[name]; ok && LogicalLineCount(string(data)) > capLines {
+		s.Lines += bank.LineCount(string(data))
+		if capLines, ok := FileCaps[name]; ok && bank.LogicalLineCount(string(data)) > capLines {
 			s.Oversized = append(s.Oversized, name)
 		}
 		if fi, err := os.Stat(filepath.Join(dir, name)); err == nil && fi.ModTime().After(s.Updated) {
@@ -128,7 +129,7 @@ func bankProblems(tier string, s BankStat, staleDays int, now time.Time) []strin
 // promoteFile's silent refusal.
 func bankCredentialFindings(dir string) []string {
 	var problems []string
-	for _, name := range bankFiles {
+	for _, name := range bank.BankFiles() {
 		data, err := os.ReadFile(filepath.Join(dir, name))
 		if err != nil {
 			continue

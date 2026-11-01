@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/memory"
+	"github.com/edotau/claude-code/internal/memory/bank"
 	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
@@ -46,7 +47,7 @@ func cmdMemoryRecall(args []string) int {
 	return recallPrint(hits, *load)
 }
 
-func recallPrint(hits []memory.SearchHit, load int) int {
+func recallPrint(hits []bank.SearchHit, load int) int {
 	if len(hits) == 0 {
 		fmt.Println("no matching blocks (banks empty or query all stopwords)")
 		return 0
@@ -61,7 +62,7 @@ func recallPrint(hits []memory.SearchHit, load int) int {
 }
 
 // recallLoad appends the top n hits' full block text (ShowBlock), capped at recallLoadCap bytes total.
-func recallLoad(hits []memory.SearchHit, n int) {
+func recallLoad(hits []bank.SearchHit, n int) {
 	if n > len(hits) {
 		n = len(hits)
 	}
@@ -70,7 +71,7 @@ func recallLoad(hits []memory.SearchHit, n int) {
 		if budget <= 0 {
 			continue
 		}
-		_, block, err := memory.ShowBlock(h.ID)
+		_, block, err := bank.ShowBlock(h.ID)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "claude-code: memory recall --load: %s: %v\n", h.ID, err)
 			continue

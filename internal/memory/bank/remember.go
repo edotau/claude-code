@@ -1,4 +1,4 @@
-package memory
+package bank
 
 import (
 	"errors"
@@ -42,7 +42,7 @@ func Remember(root, kind, fact string, now time.Time) (string, error) {
 	} else {
 		label := strings.ToUpper(kind[:1]) + kind[1:]
 		line = "- " + label + ": " + fact
-		writeErr = appendBlocks(path, []string{line})
+		writeErr = AppendBlocks(path, []string{line})
 	}
 	if writeErr != nil {
 		return "", writeErr
@@ -65,9 +65,9 @@ func Remember(root, kind, fact string, now time.Time) (string, error) {
 // prependBlock inserts block at the top of path's entries — decisionLog.md is newest-first.
 func prependBlock(path, base, block string) error {
 	data, _ := os.ReadFile(path)
-	header, blocks := entryBlocks(base, string(data))
+	header, blocks := EntryBlocks(base, string(data))
 	blocks = append([]string{block}, blocks...)
-	return paths.AtomicWrite(path, []byte(rejoin(header, blocks)), 0o600)
+	return paths.AtomicWrite(path, []byte(Rejoin(header, blocks)), 0o600)
 }
 
 // lastStampedID finds the id settle just stamped onto the line it wrote (matched by exact prefix).

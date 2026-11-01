@@ -1,4 +1,4 @@
-package memory
+package bank
 
 import (
 	"crypto/sha256"
@@ -43,8 +43,8 @@ func isHex(s string) bool {
 	return true
 }
 
-// idFiles are the typed files whose blocks get IDs, with the prefix that starts a block.
-var idFiles = map[string]string{"decisionLog.md": "## ", "sessionHistory.md": "## ", "conventions.md": "- "}
+// IdFiles are the typed files whose blocks get IDs, with the prefix that starts a block.
+var IdFiles = map[string]string{"decisionLog.md": "## ", "sessionHistory.md": "## ", "conventions.md": "- "}
 
 // BlockID is the persisted ID on line ("" when it has none).
 func BlockID(line string) string {
@@ -54,15 +54,15 @@ func BlockID(line string) string {
 	return ""
 }
 
-// stripID removes the ID marker for display.
-func stripID(s string) string { return idMarker.ReplaceAllString(s, "") }
+// StripID removes the ID marker for display.
+func StripID(s string) string { return idMarker.ReplaceAllString(s, "") }
 
 // assignIDs stamps every unmarked block in dir's typed files and collapses stacked markers to the oldest (the
 // last in the block); a block is judged whole because the formatter may wrap its marker onto a later line.
 // Returns how many blocks it stamped.
 func assignIDs(dir string, now time.Time) (int, error) {
 	n := 0
-	for name, prefix := range idFiles {
+	for name, prefix := range IdFiles {
 		path := filepath.Join(dir, name)
 		data, err := os.ReadFile(path)
 		if err != nil {
@@ -196,11 +196,11 @@ func ShowBlock(ref string) (string, string, error) {
 		if !contentRef && !strings.Contains(string(data), "<!-- id:"+ref+" -->") {
 			return nil
 		}
-		_, blocks := entryBlocks(logicalName(p), string(data))
+		_, blocks := EntryBlocks(logicalName(p), string(data))
 		if contentRef { // native topics and knowledge notes are indexed whole, under their own grammar
 			base := filepath.Base(p)
-			blocks = append(blocks, parseBlocks(segNative, base, data)...)
-			blocks = append(blocks, parseBlocks(segKnowledge, base, data)...)
+			blocks = append(blocks, ParseBlocks(SegNative, base, data)...)
+			blocks = append(blocks, ParseBlocks(SegKnowledge, base, data)...)
 		}
 		for _, b := range blocks {
 			if contentRef {
@@ -224,7 +224,7 @@ func ShowBlock(ref string) (string, string, error) {
 // logicalName maps an archive file (decisionLog-2026-10.md) back to its typed file's grammar.
 func logicalName(path string) string {
 	base := filepath.Base(path)
-	for name := range idFiles {
+	for name := range IdFiles {
 		if strings.HasPrefix(base, strings.TrimSuffix(name, ".md")) {
 			return name
 		}

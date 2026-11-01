@@ -15,6 +15,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/hooks"
 	"github.com/edotau/claude-code/internal/memory"
+	"github.com/edotau/claude-code/internal/memory/bank"
 	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
@@ -122,7 +123,7 @@ func cmdMemoryInit(args []string) int {
 	}
 	fmt.Printf("bank:    %s\nhome:    %s\nsession-start injects it; `claude-code memory update` (or the background update) writes it.\n", dir, memstore.HomeBankDir())
 	if memory.IsProjectContextTemplate(root) {
-		ref, err := memory.Reference("init")
+		ref, err := bank.Reference("init")
 		if err != nil {
 			return fail("memory init: %v", err)
 		}
@@ -144,7 +145,7 @@ func cmdMemoryRemember(args []string) int {
 		return fail("memory remember: no fact text (usage: %s)", memorySubPage("remember").Usage)
 	}
 	root := memoryRoot(*repo)
-	id, err := memory.Remember(root, *kind, strings.Join(terms, " "), time.Now())
+	id, err := bank.Remember(root, *kind, strings.Join(terms, " "), time.Now())
 	if err != nil {
 		return fail("memory remember: %v", err)
 	}
@@ -153,7 +154,7 @@ func cmdMemoryRemember(args []string) int {
 }
 
 // searchHits ranks blocks for q: every store with all, else the named store or checkout (default: cwd's).
-func searchHits(repo string, all bool, q string, k int) ([]memory.SearchHit, string) {
+func searchHits(repo string, all bool, q string, k int) ([]bank.SearchHit, string) {
 	root := memoryRoot(repo)
 	switch {
 	case all:
@@ -185,7 +186,7 @@ func cmdMemorySearch(args []string) int {
 	}
 	now := time.Now()
 	if len(terms) == 1 && *format != helptext.JSON && memoryIDRef.MatchString(terms[0]) {
-		if path, block, err := memory.ShowBlock(terms[0]); err == nil { // a recall pointer's id expands in place
+		if path, block, err := bank.ShowBlock(terms[0]); err == nil { // a recall pointer's id expands in place
 			memory.LogShown(path, terms[0], memory.AccessSearch, now)
 			fmt.Printf("<!-- %s -->\n%s\n", path, strings.TrimSpace(block))
 			return 0
@@ -223,7 +224,7 @@ func cmdMemoryShow(args []string) int {
 	if fs.NArg() != 1 {
 		return failUsage("memory show: give one block id (from `memory search` or a MEMORY.md region)")
 	}
-	path, block, err := memory.ShowBlock(fs.Arg(0))
+	path, block, err := bank.ShowBlock(fs.Arg(0))
 	if err != nil {
 		return fail("memory show %s: %v", fs.Arg(0), err)
 	}
@@ -250,7 +251,7 @@ func cmdMemoryIndex(args []string) int {
 		embedIndex(root, profile, *reembed)
 		return 0
 	}
-	s, err := memory.SettleBank(root, time.Now())
+	s, err := bank.SettleBank(root, time.Now())
 	if err != nil {
 		return fail("memory index: %v", err)
 	}
@@ -336,7 +337,7 @@ func cmdMemoryUpdate(args []string) int {
 		*transcript = memory.LiveTranscript(root, *session)
 	}
 	if *transcript == "" { // no resolvable session: print the narrative procedure instead of refusing outright
-		ref, err := memory.Reference("update")
+		ref, err := bank.Reference("update")
 		if err != nil {
 			return fail("memory update: %v", err)
 		}
@@ -410,7 +411,7 @@ func cmdMemoryFmt(args []string) int {
 	if code, done := helptext.Parse(fs, args); done {
 		return code
 	}
-	changed, err := memory.FormatBank(*check)
+	changed, err := bank.FormatBank(*check)
 	if err != nil {
 		return fail("memory fmt: %v", err)
 	}
@@ -458,7 +459,7 @@ func cmdMemoryReview(args []string) int {
 	}
 	fmt.Print(memory.CollectBankStats().Report())
 	if *candidates {
-		ref, err := memory.Reference("review")
+		ref, err := bank.Reference("review")
 		if err != nil {
 			return fail("memory review: %v", err)
 		}

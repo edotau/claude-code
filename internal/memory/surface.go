@@ -1,6 +1,7 @@
 package memory
 
 import (
+	"github.com/edotau/claude-code/internal/memory/bank"
 	"os"
 	"path/filepath"
 	"strings"
@@ -70,7 +71,7 @@ func unifiedSurface(root string) string {
 		}
 	}
 	if !nativeLinked(root, dir) { // Claude Code is reading another dir: carry the store's index ourselves
-		if data, err := os.ReadFile(filepath.Join(dir, NativeIndexFile)); err == nil && len(data) > 0 {
+		if data, err := os.ReadFile(filepath.Join(dir, bank.NativeIndexFile)); err == nil && len(data) > 0 {
 			parts = append(parts, CapChars("<!-- THIS REPO's MEMORY.md (native link missing or blocked) -->\n"+strings.TrimSpace(string(data)), indexCapChars))
 		}
 	}

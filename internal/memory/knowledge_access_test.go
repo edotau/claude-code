@@ -1,6 +1,7 @@
 package memory
 
 import (
+	"github.com/edotau/claude-code/internal/memory/bank"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -52,7 +53,7 @@ func TestKnowledgeIsSearchedAndCataloged(t *testing.T) {
 			t.Errorf("the tier README was indexed as knowledge")
 		}
 	}
-	c, err := BuildCatalog(time.Now())
+	c, err := bank.BuildCatalog(time.Now())
 	if err != nil || !strings.Contains(c, "## Knowledge") || !strings.Contains(c, "home/knowledge/zebra.md — Zebracorn invariant") || strings.Contains(c, "README.md —") {
 		t.Errorf("catalog knowledge section wrong (err=%v):\n%s", err, c)
 	}
@@ -75,7 +76,7 @@ func TestRepoBankKnowledgeIsCatalogedAndSearched(t *testing.T) {
 		t.Fatalf("repo bank knowledge not ranked first: %+v", hits)
 	}
 	key := filepath.Base(dir)
-	c, err := BuildCatalog(time.Now())
+	c, err := bank.BuildCatalog(time.Now())
 	if err != nil || !strings.Contains(c, key+"/knowledge/narwhal.md — Narwhalcorn invariant") || strings.Contains(c, key+"/README.md —") {
 		t.Errorf("catalog missing repo bank knowledge row (err=%v):\n%s", err, c)
 	}
@@ -89,7 +90,7 @@ func TestLegacyDocsKnowledgeIgnored(t *testing.T) {
 	if hits := SearchBanks(t.TempDir(), "yakcorn invariant wool", 5); len(hits) != 0 {
 		t.Errorf("legacy docs/knowledge note was searched: %+v", hits)
 	}
-	c, err := BuildCatalog(time.Now())
+	c, err := bank.BuildCatalog(time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -110,7 +111,7 @@ func TestUnifiedSurfaceFallsBackWhenNativeUnlinked(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	write(t, filepath.Join(dir, NativeIndexFile), "- [Topic](topic.md) — fallback marker\n")
+	write(t, filepath.Join(dir, bank.NativeIndexFile), "- [Topic](topic.md) — fallback marker\n")
 	if s := unifiedSurface(repo); !strings.Contains(s, "native link missing") || !strings.Contains(s, "fallback marker") {
 		t.Fatalf("unlinked surface lacks the MEMORY.md fallback:\n%s", s)
 	}

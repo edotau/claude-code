@@ -67,10 +67,10 @@ func configureSections() []string {
 	return append(append([]string{}, configure.Sections...), "desktop")
 }
 
-// modelPinSlots offers "slot=" stems for --pin; the user types the model id after the "=" themselves.
-func modelPinSlots() []string {
-	out := make([]string, 0, len(models.Slots)+1)
-	for _, s := range models.Slots {
+// modelPinAliases offers "alias=" stems for --pin; the user types the model id after the "=" themselves.
+func modelPinAliases() []string {
+	out := make([]string, 0, len(models.AliasNames)+1)
+	for _, s := range models.AliasNames {
 		out = append(out, s+"=")
 	}
 	return append(out, "all=")

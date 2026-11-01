@@ -1,6 +1,7 @@
 package memory
 
 import (
+	"github.com/edotau/claude-code/internal/memory/bank"
 	"os"
 	"path/filepath"
 	"strings"
@@ -14,7 +15,7 @@ import (
 // returning its id — the subject every Promote test moves/surfaces.
 func seedConventionBlock(t *testing.T, root string) string {
 	t.Helper()
-	id, err := Remember(root, "feedback", "promote me to home", time.Now())
+	id, err := bank.Remember(root, "feedback", "promote me to home", time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -84,7 +85,7 @@ func TestPromoteHomeDryRunWritesNothing(t *testing.T) {
 // TestPromoteJudgmentTargetsWriteNothingAndPrintTheProcedure: rules/skill never move or copy the
 // block anywhere — Go prints the block, the target, and the embedded promote procedure inline.
 func TestPromoteJudgmentTargetsWriteNothingAndPrintTheProcedure(t *testing.T) {
-	ref, err := Reference("promote")
+	ref, err := bank.Reference("promote")
 	if err != nil {
 		t.Fatalf("Reference(\"promote\"): %v", err)
 	}

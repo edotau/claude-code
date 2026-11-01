@@ -1,12 +1,10 @@
-package memory
+package bank
 
 import (
 	"os"
 	"path/filepath"
 	"strings"
 
-	"github.com/edotau/claude-code/internal/memstore"
-	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
@@ -47,21 +45,21 @@ type SearchHit struct {
 // Title is the hit's first line, marker-stripped and truncated.
 func (h SearchHit) Title() string {
 	first, _, _ := strings.Cut(h.Block, "\n")
-	return truncateLine(strings.TrimLeft(stripID(first), "#- "))
+	return truncateLine(strings.TrimLeft(StripID(first), "#- "))
 }
 
 // Plain is the whole block on one line, id markers and heading/bullet marks stripped, for compact previews.
 func (h SearchHit) Plain() string {
 	var parts []string
 	for l := range strings.SplitSeq(h.Block, "\n") {
-		if l = strings.TrimSpace(strings.TrimLeft(stripID(l), "#- ")); l != "" {
+		if l = strings.TrimSpace(strings.TrimLeft(StripID(l), "#- ")); l != "" {
 			parts = append(parts, l)
 		}
 	}
 	return strings.Join(strings.Fields(strings.Join(parts, " ")), " ")
 }
 
-func contentTerms(s string) []string {
+func ContentTerms(s string) []string {
 	return ContentQueryTerms(textutil.Tokenize(s))
 }
 
@@ -76,41 +74,17 @@ func ContentQueryTerms(tokens []string) []string {
 	return out
 }
 
-// SearchBanks ranks every block of root's local, home and archive banks plus native topics; top k (0 = all).
-func SearchBanks(root, query string, k int) []SearchHit {
-	return SearchBanksTerms(root, query, contentTerms(query), k)
-}
-
-// SearchBanksTerms ranks banks using the caller's pretokenized content terms.
-func SearchBanksTerms(root, query string, terms []string, k int) []SearchHit {
-	files := append(corpusFiles(root), routedFiles(root, query)...)
-	return rankFiles(terms, k, files, loadSegments(files, true))
-}
-
-// SearchAll ranks the home tier plus every repo store as one corpus (`memory search --all`).
-func SearchAll(query string, k int) []SearchHit {
-	files := corpusFiles(paths.ConfigDir())
-	if entries, err := memstore.RepoDirs(); err == nil {
-		for _, e := range entries {
-			if e.Key != memstore.HarnessStoreKey() {
-				files = append(files, storeFiles(e)...)
-			}
-		}
-	}
-	return rankFiles(contentTerms(query), k, files, loadSegments(files, false))
-}
-
-// corpusBlocks loads every searchable block (Score 0): bank entries split by file grammar, a native topic whole.
-func corpusBlocks(root string) []SearchHit {
+// CorpusBlocks loads every searchable block (Score 0): bank entries split by file grammar, a native topic whole.
+func CorpusBlocks(root string) []SearchHit {
 	var out []SearchHit
-	for _, f := range corpusFiles(root) {
-		data, err := os.ReadFile(f.path)
+	for _, f := range CorpusFiles(root) {
+		data, err := os.ReadFile(f.Path)
 		if err != nil {
 			continue
 		}
-		base := filepath.Base(f.path)
-		for _, block := range parseBlocks(f.mode, base, data) {
-			out = append(out, SearchHit{Bank: f.bank, File: base, Block: block, Dir: ownerDir(f.bank, f.path)})
+		base := filepath.Base(f.Path)
+		for _, block := range ParseBlocks(f.Mode, base, data) {
+			out = append(out, SearchHit{Bank: f.Bank, File: base, Block: block, Dir: ownerDir(f.Bank, f.Path)})
 		}
 	}
 	return out

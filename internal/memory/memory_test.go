@@ -3,6 +3,7 @@ package memory
 import (
 	"context"
 	"fmt"
+	"github.com/edotau/claude-code/internal/memory/bank"
 	"os"
 	"path/filepath"
 	"strings"
@@ -55,7 +56,7 @@ func TestDirSlugAndInitNoOverwrite(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range bankFiles {
+	for _, name := range bank.BankFiles() {
 		if _, err := os.Stat(filepath.Join(dir, name)); err != nil {
 			t.Errorf("missing %s", name)
 		}
@@ -76,15 +77,15 @@ func TestDirSlugAndInitNoOverwrite(t *testing.T) {
 func TestSplitBlocksFenceAware(t *testing.T) {
 	t.Parallel()
 	body := "# Conventions\n> note\n\n- first rule\n  - sub\n```\n- not a block\n## nor this\n```\n- second rule\n## Heading\ntext"
-	header, blocks := entryBlocks("conventions.md", body)
+	header, blocks := bank.EntryBlocks("conventions.md", body)
 	if header != "# Conventions\n> note" || len(blocks) != 3 || !strings.Contains(blocks[0], "- not a block") {
 		t.Fatalf("header %q blocks %q", header, blocks)
 	}
-	_, hb := entryBlocks("decisionLog.md", "# D\n## a\n- bullet stays\n~~~\n## fenced\n~~~\n## b")
+	_, hb := bank.EntryBlocks("decisionLog.md", "# D\n## a\n- bullet stays\n~~~\n## fenced\n~~~\n## b")
 	if len(hb) != 2 || !strings.Contains(hb[0], "## fenced") {
 		t.Errorf("heading blocks %q", hb)
 	}
-	if got := rejoin(header, blocks[:1]); !strings.HasPrefix(got, "# Conventions\n> note\n\n- first rule") {
+	if got := bank.Rejoin(header, blocks[:1]); !strings.HasPrefix(got, "# Conventions\n> note\n\n- first rule") {
 		t.Errorf("rejoin %q", got)
 	}
 }
@@ -122,20 +123,20 @@ func TestRotateAndSettle(t *testing.T) {
 	}
 	write(t, filepath.Join(dir, "sessionHistory.md"), b.String())
 	now := time.Date(2026, 9, 16, 0, 0, 0, 0, time.UTC)
-	s, err := SettleBank(root, now)
+	s, err := bank.SettleBank(root, now)
 	if err != nil || s.Rotated != 5 {
 		t.Fatalf("rotated %d err %v", s.Rotated, err)
 	}
-	_, kept := splitHeadingBlocks(mustRead(t, filepath.Join(dir, "sessionHistory.md")))
+	_, kept := bank.SplitHeadingBlocks(mustRead(t, filepath.Join(dir, "sessionHistory.md")))
 	arch := mustRead(t, filepath.Join(dir, "archive", "sessionHistory-2026-09.md"))
-	if len(kept) != SessionHistoryMaxEntries || !strings.HasPrefix(kept[0], "## entry 35") || !strings.Contains(arch, "## entry 01") || strings.Contains(arch, "## entry 06") {
+	if len(kept) != bank.SessionHistoryMaxEntries || !strings.HasPrefix(kept[0], "## entry 35") || !strings.Contains(arch, "## entry 01") || strings.Contains(arch, "## entry 06") {
 		t.Errorf("kept %d first %q archive %q", len(kept), kept[0], arch)
 	}
-	idx := mustRead(t, filepath.Join(dir, NativeIndexFile))
+	idx := mustRead(t, filepath.Join(dir, bank.NativeIndexFile))
 	if !strings.Contains(idx, "- sessionHistory: entry 35") || strings.Contains(idx, "entry 01") {
 		t.Errorf("index %q", idx)
 	}
-	if n, _ := RotateSessionHistory(dir, now); n != 0 {
+	if n, _ := bank.RotateSessionHistory(dir, now); n != 0 {
 		t.Error("rotation under cap must be a no-op")
 	}
 }
@@ -175,7 +176,7 @@ func TestUpdateRecordsOutcome(t *testing.T) {
 	if r.Status != UpdateOK || !r.BankUpdated || r.Log != "/l.log" || r.NeedsAttention(time.Now()) {
 		t.Errorf("success result %+v", r)
 	}
-	if !strings.Contains(mustRead(t, filepath.Join(dir, NativeIndexFile)), "updated-by-child") {
+	if !strings.Contains(mustRead(t, filepath.Join(dir, bank.NativeIndexFile)), "updated-by-child") {
 		t.Error("update did not settle/index the bank")
 	}
 	if err := Update(UpdateOptions{Claude: bad, CWD: root, Session: "s2"}); err == nil {
@@ -221,7 +222,7 @@ func TestSeenSetTracksInjectedBlocks(t *testing.T) {
 	if !seen[BlockKey("- injected rule\n  continues here")] || seen[BlockKey("- other rule")] || len(seen) != 1 {
 		t.Fatalf("seen after reset: %v", seen)
 	}
-	MarkSeen("11111111-1111-1111-1111-111111111111", []SearchHit{{Block: "- other rule"}})
+	MarkSeen("11111111-1111-1111-1111-111111111111", []bank.SearchHit{{Block: "- other rule"}})
 	if !SeenBlocks("11111111-1111-1111-1111-111111111111")[BlockKey("- other rule")] {
 		t.Error("MarkSeen did not record the hit")
 	}
@@ -230,7 +231,7 @@ func TestSeenSetTracksInjectedBlocks(t *testing.T) {
 		t.Error("a SessionStart (e.g. after compact) must clear what recall injected")
 	}
 	for _, bad := range []string{"", ".."} {
-		MarkSeen(bad, []SearchHit{{Block: "x"}})
+		MarkSeen(bad, []bank.SearchHit{{Block: "x"}})
 		if len(SeenBlocks(bad)) != 0 {
 			t.Errorf("session id %q must be a no-op", bad)
 		}
@@ -250,7 +251,7 @@ func TestCredentialPatternGitHubShapes(t *testing.T) {
 // TestSearchHitPlainStripsMarkup: a preview drops heading/bullet marks and id markers but keeps every word.
 func TestSearchHitPlainStripsMarkup(t *testing.T) {
 	t.Parallel()
-	h := SearchHit{Block: "## 2026-10-23 — Routing stays local <!-- id:7e92d61b -->\n\n- Rejected the remote router.\n"}
+	h := bank.SearchHit{Block: "## 2026-10-23 — Routing stays local <!-- id:7e92d61b -->\n\n- Rejected the remote router.\n"}
 	want := "2026-10-23 — Routing stays local Rejected the remote router."
 	if got := h.Plain(); got != want {
 		t.Errorf("Plain() = %q, want %q", got, want)
@@ -359,7 +360,7 @@ var embeddedVerbs = []string{"init", "review", "promote", "update", "dream"}
 // non-empty embedded prompt — no disk path left to go missing at runtime.
 func TestReferenceEmbeddedVerbsNonEmpty(t *testing.T) {
 	for _, verb := range embeddedVerbs {
-		got, err := Reference(verb)
+		got, err := bank.Reference(verb)
 		if err != nil {
 			t.Errorf("Reference(%q): %v", verb, err)
 			continue
@@ -373,14 +374,14 @@ func TestReferenceEmbeddedVerbsNonEmpty(t *testing.T) {
 // TestReferenceUnknownVerbErrors: a verb with no embedded prompts/<verb>.md is an error, not an
 // empty string — a caller must never run a background job on a silently empty prompt.
 func TestReferenceUnknownVerbErrors(t *testing.T) {
-	if _, err := Reference("does-not-exist"); err == nil {
+	if _, err := bank.Reference("does-not-exist"); err == nil {
 		t.Fatal("Reference(\"does-not-exist\") = nil error, want one")
 	}
 }
 
 // TestReferenceEmptyVerbErrors: the empty string is also an unknown verb.
 func TestReferenceEmptyVerbErrors(t *testing.T) {
-	if _, err := Reference(""); err == nil {
+	if _, err := bank.Reference(""); err == nil {
 		t.Fatal("Reference(\"\") = nil error, want one")
 	}
 }
@@ -391,7 +392,7 @@ func TestAgentDreamPrompt_UsesReference(t *testing.T) {
 	if err != nil {
 		t.Fatalf("agentDreamPrompt: %v", err)
 	}
-	ref, err := Reference("dream")
+	ref, err := bank.Reference("dream")
 	if err != nil {
 		t.Fatalf("Reference(\"dream\"): %v", err)
 	}

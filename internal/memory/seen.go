@@ -1,6 +1,7 @@
 package memory
 
 import (
+	"github.com/edotau/claude-code/internal/memory/bank"
 	"hash/fnv"
 	"os"
 	"path/filepath"
@@ -49,7 +50,7 @@ func ResetSeen(sessionID, root, surface string) {
 	pruneSeen(filepath.Dir(p))
 	flat := strings.Join(strings.Fields(surface), " ")
 	var b strings.Builder
-	for _, h := range corpusBlocks(root) {
+	for _, h := range bank.CorpusBlocks(root) {
 		if norm := strings.Join(strings.Fields(h.Block), " "); norm != "" && strings.Contains(flat, norm) {
 			b.WriteString(BlockKey(h.Block) + "\n")
 		}
@@ -73,7 +74,7 @@ func SeenBlocks(sessionID string) map[string]bool {
 }
 
 // MarkSeen appends the injected hits to sessionID's seen set; fail-open.
-func MarkSeen(sessionID string, hits []SearchHit) {
+func MarkSeen(sessionID string, hits []bank.SearchHit) {
 	p := seenPath(sessionID)
 	if p == "" || len(hits) == 0 {
 		return

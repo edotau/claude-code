@@ -3,6 +3,7 @@ package memory
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"github.com/edotau/claude-code/internal/memory/bank"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -103,8 +104,8 @@ func TestAliasFoldsSeparateStore(t *testing.T) {
 	write(t, filepath.Join(e.da, "same.md"), "same\n")
 	write(t, filepath.Join(e.db, "same.md"), "same\n")
 	write(t, filepath.Join(e.db, "topic.md"), "only source topic\n")
-	write(t, filepath.Join(e.da, NativeIndexFile), "- [Shared](shared.md) — one\n")
-	write(t, filepath.Join(e.db, NativeIndexFile), "- [Shared](shared.md) — one\n- [Extra](extra.md) — two\n")
+	write(t, filepath.Join(e.da, bank.NativeIndexFile), "- [Shared](shared.md) — one\n")
+	write(t, filepath.Join(e.db, bank.NativeIndexFile), "- [Shared](shared.md) — one\n- [Extra](extra.md) — two\n")
 	write(t, filepath.Join(e.db, "archive", "old.md"), "old\n")
 	write(t, filepath.Join(e.db, "handoffs", "h.md"), "handoff\n")
 	write(t, filepath.Join(e.db, "reports", "r.md"), "report\n")
@@ -117,7 +118,7 @@ func TestAliasFoldsSeparateStore(t *testing.T) {
 		t.Fatal(err)
 	}
 	decoyHead := strings.TrimSpace(rawGit(t, e.cfg, "rev-parse", "HEAD"))
-	before, _ := StoreRepo().Log(50)
+	before, _ := bank.StoreRepo().Log(50)
 
 	res, err := alias(t, e, false)
 	if err != nil {
@@ -177,7 +178,7 @@ func TestAliasFoldsSeparateStore(t *testing.T) {
 		}
 	}
 	// native pointer lines appended, deduped
-	nv := aliasRead(t, filepath.Join(e.da, NativeIndexFile))
+	nv := aliasRead(t, filepath.Join(e.da, bank.NativeIndexFile))
 	if strings.Count(nv, "[Shared]") != 1 || strings.Count(nv, "[Extra]") != 1 {
 		t.Errorf("MEMORY.md:\n%s", nv)
 	}
@@ -186,14 +187,14 @@ func TestAliasFoldsSeparateStore(t *testing.T) {
 		t.Errorf("symlink -> %q err=%v, want %s", tg, err, e.da)
 	}
 	// commit landed in the memory repo, not the decoy
-	after, _ := StoreRepo().Log(50)
+	after, _ := bank.StoreRepo().Log(50)
 	if len(after) <= len(before) {
 		t.Errorf("memory repo gained no commit: before %d after %d", len(before), len(after))
 	}
 	if dh := strings.TrimSpace(rawGit(t, e.cfg, "rev-parse", "HEAD")); dh != decoyHead {
 		t.Errorf("decoy HEAD moved %s -> %s", decoyHead, dh)
 	}
-	if st, _ := StoreRepo().Status(); len(st) != 0 {
+	if st, _ := bank.StoreRepo().Status(); len(st) != 0 {
 		t.Errorf("memory repo dirty after alias: %v", st)
 	}
 	// a new commit mentions the fold in its subject
@@ -219,7 +220,7 @@ func TestAliasDryRunWritesNothing(t *testing.T) {
 		t.Fatal(err)
 	}
 	h0 := aliasTreeHash(t, e.cfg)
-	g0, _ := StoreRepo().Head()
+	g0, _ := bank.StoreRepo().Head()
 	res, err := alias(t, e, true)
 	if err != nil {
 		t.Fatal(err)
@@ -230,7 +231,7 @@ func TestAliasDryRunWritesNothing(t *testing.T) {
 	if h1 := aliasTreeHash(t, e.cfg); h0 != h1 {
 		t.Errorf("dry-run changed the tree")
 	}
-	if g1, _ := StoreRepo().Head(); g0 != g1 {
+	if g1, _ := bank.StoreRepo().Head(); g0 != g1 {
 		t.Errorf("dry-run committed")
 	}
 }

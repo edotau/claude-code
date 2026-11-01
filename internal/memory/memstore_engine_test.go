@@ -1,6 +1,7 @@
 package memory
 
 import (
+	"github.com/edotau/claude-code/internal/memory/bank"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -19,7 +20,7 @@ func TestResolveInsideStore(t *testing.T) {
 	cfg := gitRepo(t, t.TempDir(), ".claude")
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	proj := gitRepo(t, t.TempDir(), "proj")
-	if err := (Repo{Dir: memstore.StoreDir()}).Ensure(); err != nil {
+	if err := (bank.Repo{Dir: memstore.StoreDir()}).Ensure(); err != nil {
 		t.Fatal(err)
 	}
 	harness, err := memstore.EnsureRepoDir(cfg)
@@ -63,7 +64,7 @@ func TestBuildCatalogRebuildsIdenticalRowsAfterVaultLoss(t *testing.T) {
 	if err != nil || len(before) != 2 {
 		t.Fatalf("RepoDirs before = %+v, %v", before, err)
 	}
-	catalog, err := BuildCatalog(time.Now())
+	catalog, err := bank.BuildCatalog(time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}

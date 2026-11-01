@@ -1,10 +1,9 @@
-package memory
+package bank
 
 import (
 	"math"
 	"os"
 	"path/filepath"
-	"reflect"
 	"sort"
 	"strings"
 	"testing"
@@ -13,102 +12,8 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 )
 
-func TestRankFilesMatchesOracle(t *testing.T) {
-	root := isolatedConfig1(t)
-	initStore(t)
-	local, err := memstore.EnsureRepoDir(root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	routedRoot := gitRepo(t, t.TempDir(), "saturn")
-	routed, err := memstore.EnsureRepoDir(routedRoot)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	write(t, filepath.Join(local, "decisionLog.md"), "# Decisions\n\n"+
-		"## router retry <!-- id:1234abcd -->\nretry router latency\n"+
-		"```\n## fenced marker\n- fenced marker\n```\n\n"+
-		"## retry policy\nrouter retry retry retry\n\n"+
-		"## the and of\nwith the and\n")
-	write(t, filepath.Join(local, "conventions.md"), "# Conventions\n\n"+
-		"- commit small\nreview focused changes\n\n"+
-		"- router retry\nidentical tie block\n")
-	write(t, filepath.Join(memstore.HomeBankDir(), "conventions.md"), "# Global\n\n"+
-		"- router retry\nidentical tie block\n\n"+
-		"- commit small\nreview focused changes\n")
-	write(t, filepath.Join(local, "archive", "sessionHistory-old.md"),
-		"# Archive\n\n## archive storm\nrouter retry during outage\n")
-	write(t, filepath.Join(local, "recall.md"),
-		"---\nname: native recall\ndescription: router context\n---\nNative recall preserves retry details.\n")
-	write(t, filepath.Join(local, "bank-topic.md"),
-		"---\nname: excludedbanktoken\ndescription: excludedbanktoken\nharness_kind: bank\n---\nexcludedbanktoken\n")
-	write(t, filepath.Join(memstore.KnowledgeDir(memstore.HomeBankDir()), "invariant.md"),
-		"---\nname: strippedmetadata\n---\n# knowledge invariant\nRouter retry requires bounded latency.\n")
-	write(t, filepath.Join(memstore.KnowledgeDir(local), "repoinvariant.md"),
-		"---\nname: repoknowledge\n---\n# repo knowledge\nRepo-specific retry invariant.\n")
-	write(t, filepath.Join(routed, "decisionLog.md"),
-		"# Decisions\n\n## saturn deploy\nRetry deployment after rate limits.\n")
-	write(t, filepath.Join(routed, "quasar.md"),
-		"---\nname: quasar\ndescription: orbital routing\n---\nSaturn quasar deployment notes.\n")
-
-	queries := []struct {
-		query string
-		bank  string
-		file  string
-	}{
-		{"router", "local", "decisionLog.md"},
-		{"router router retry", "local", "decisionLog.md"},
-		{"retry router", "home", "conventions.md"},
-		{"commit small", "local", "conventions.md"},
-		{"fenced marker", "local", "decisionLog.md"},
-		{"native recall", "native", "recall.md"},
-		{"knowledge invariant", "knowledge", "invariant.md"},
-		{"repo knowledge", "knowledge", "repoinvariant.md"},
-		{"archive storm", "archive", "sessionHistory-old.md"},
-		{"saturn deploy", "saturn", "decisionLog.md"},
-		{"saturn quasar", "saturn", "quasar.md"},
-		{"the and of", "", ""},
-		{"excludedbanktoken", "", ""},
-	}
-	for _, tt := range queries {
-		t.Run(tt.query, func(t *testing.T) {
-			searches := []struct {
-				name string
-				got  []SearchHit
-				want []SearchHit
-			}{
-				{"SearchBanks", SearchBanks(root, tt.query, 0), oracleSearch(root, tt.query, 0)},
-				{"SearchAll", SearchAll(tt.query, 0), oracleSearchAll(tt.query, 0)},
-			}
-			for _, search := range searches {
-				if !reflect.DeepEqual(search.got, search.want) {
-					t.Errorf("%s(%q) differs from oracle:\ngot:  %#v\nwant: %#v",
-						search.name, tt.query, search.got, search.want)
-				}
-				if tt.bank == "" {
-					if search.got != nil {
-						t.Errorf("%s(%q) = %#v, want nil", search.name, tt.query, search.got)
-					}
-					continue
-				}
-				found := false
-				for _, hit := range search.got {
-					if hit.Bank == tt.bank && hit.File == tt.file {
-						found = true
-					}
-				}
-				if !found {
-					t.Errorf("%s(%q) missed intended %s/%s hit: %#v",
-						search.name, tt.query, tt.bank, tt.file, search.got)
-				}
-			}
-		})
-	}
-}
-
 func oracleSearch(root, query string, k int) []SearchHit {
-	return oracleRankTermBlocks(contentTerms(query), k, append(oracleCorpusBlocks(root), oracleRoutedBlocks(root, query)...))
+	return oracleRankTermBlocks(ContentTerms(query), k, append(oracleCorpusBlocks(root), oracleRoutedBlocks(root, query)...))
 }
 
 // The oracle below is frozen from 5942e1e; only the copied symbols have been renamed.
@@ -125,7 +30,7 @@ func oracleSearchAll(query string, k int) []SearchHit {
 }
 
 func oracleRankBlocks(query string, k int, blocks []SearchHit) []SearchHit {
-	return oracleRankTermBlocks(contentTerms(query), k, blocks)
+	return oracleRankTermBlocks(ContentTerms(query), k, blocks)
 }
 
 func oracleRankTermBlocks(qTerms []string, k int, blocks []SearchHit) []SearchHit {
@@ -143,11 +48,11 @@ func oracleRankTermBlocks(qTerms []string, k int, blocks []SearchHit) []SearchHi
 		tf := map[string]float64{}
 		var dl float64
 		first, rest, _ := strings.Cut(hit.Block, "\n")
-		for _, t := range contentTerms(first) {
+		for _, t := range ContentTerms(first) {
 			tf[t] += searchTitleWeight
 			dl += searchTitleWeight
 		}
-		for _, t := range contentTerms(rest) {
+		for _, t := range ContentTerms(rest) {
 			tf[t]++
 			dl++
 		}
@@ -161,7 +66,7 @@ func oracleRankTermBlocks(qTerms []string, k int, blocks []SearchHit) []SearchHi
 	if len(docs) == 0 {
 		return nil
 	}
-	// weighted[i][t] mirrors segView.lookupWeighted: per doc, the max of t's own exact tf and
+	// weighted[i][t] mirrors SegView.lookupWeighted: per doc, the max of t's own exact tf and
 	// compoundWeight times the tf of any other term in the same file containing t as a substring.
 	weighted := make([]map[string]float64, len(docs))
 	for i := range docs {
@@ -268,12 +173,12 @@ func oracleCorpusBlocks(root string) []SearchHit {
 				continue
 			}
 			if src.native {
-				if name, desc, body, ok := topicFrontmatter(string(data)); ok {
+				if name, desc, body, ok := TopicFrontmatter(string(data)); ok {
 					out = append(out, SearchHit{Bank: src.bank, File: base, Block: name + " — " + desc + "\n" + body, Dir: ownerDir(src.bank, path)})
 				}
 				continue
 			}
-			_, blocks := entryBlocks(base, string(data))
+			_, blocks := EntryBlocks(base, string(data))
 			for _, b := range blocks {
 				out = append(out, SearchHit{Bank: src.bank, File: base, Block: b, Dir: ownerDir(src.bank, path)})
 			}
@@ -328,7 +233,7 @@ func oracleStoreBlocks(e memstore.RepoEntry) []SearchHit {
 		if err != nil {
 			continue
 		}
-		_, blocks := entryBlocks(name, string(data))
+		_, blocks := EntryBlocks(name, string(data))
 		for _, b := range blocks {
 			out = append(out, SearchHit{Bank: e.Key, File: name, Block: b, Dir: e.Dir})
 		}
@@ -336,7 +241,7 @@ func oracleStoreBlocks(e memstore.RepoEntry) []SearchHit {
 	topics, contents := oracleTopicContents(e.Dir)
 	for _, path := range topics {
 		if data := contents[path]; data != nil {
-			if n, desc, body, ok := topicFrontmatter(string(data)); ok {
+			if n, desc, body, ok := TopicFrontmatter(string(data)); ok {
 				out = append(out, SearchHit{Bank: e.Key, File: filepath.Base(path), Block: n + " — " + desc + "\n" + body, Dir: e.Dir})
 			}
 		}
@@ -353,7 +258,7 @@ func oracleTopicContents(dir string) ([]string, map[string][]byte) {
 		if !e.Type().IsRegular() || !strings.HasSuffix(name, ".md") {
 			continue
 		}
-		if _, ok := reservedNames[name]; ok {
+		if _, ok := ReservedNames[name]; ok {
 			continue
 		}
 		if _, ok := reservedKindFold(name); ok && !hasExactEntry(dir, name) {
@@ -382,11 +287,11 @@ func TestCorpusFilesIncludesGlobalNativeTopic(t *testing.T) {
 	write(t, topic, "---\nname: global-topic\n---\n\nglobal fact\n")
 
 	var found bool
-	for _, f := range corpusFiles(root) {
-		if f.path == topic {
+	for _, f := range CorpusFiles(root) {
+		if f.Path == topic {
 			found = true
-			if f.bank != "native" {
-				t.Errorf("global topic bank = %q, want native", f.bank)
+			if f.Bank != "native" {
+				t.Errorf("global topic bank = %q, want native", f.Bank)
 			}
 		}
 	}

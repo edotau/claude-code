@@ -12,6 +12,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent/preflight"
 	"github.com/edotau/claude-code/internal/memory"
+	"github.com/edotau/claude-code/internal/memory/bank"
 	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc/inflight"
@@ -314,7 +315,7 @@ func updateIfNew(in *Input, trigger string, now time.Time) (blocked bool, work i
 			}
 			return false, 0
 		}
-		if memory.NewestMtime(memstore.Dir(in.CWD)).After(st.at) {
+		if bank.NewestMtime(memstore.Dir(in.CWD)).After(st.at) {
 			writeStamp(stamp, now, "bg", st.edits) // `claude-code memory update` ran by hand: released, re-arms
 			return false, 0
 		}

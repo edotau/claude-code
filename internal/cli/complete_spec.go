@@ -34,7 +34,7 @@ func buildSpecTree() map[string]*compNode {
 	formatFlag := func() flagInfo { return valuedFlag("format", formatValues) }
 	// gateway router's flags, which bare `gateway` also takes.
 	gatewayRouteFlags := func() []flagInfo {
-		return []flagInfo{valuedFlag("model", func() []string { return router.Tiers }),
+		return []flagInfo{valuedFlag("model", func() []string { return router.Aliases }),
 			valuedFlag("agent", func() []string { return router.TableAgents }),
 			flag("task"), valuedFlag("fallback", func() []string { return router.FallbackModes }), formatFlag()}
 	}
@@ -92,7 +92,7 @@ func buildSpecTree() map[string]*compNode {
 				boolFlag("funnel"), flag("folder"), formatFlag()}},
 		}},
 		"models": {flags: []flagInfo{valuedFlag("profile", providerNames), boolFlag("unpin"), boolFlag("live"),
-			valuedFlag("pin", modelPinSlots), boolFlag("dry-run"), formatFlag()}},
+			valuedFlag("pin", modelPinAliases), boolFlag("dry-run"), formatFlag()}},
 		"gateway": {flags: gatewayRouteFlags(), sub: map[string]*compNode{
 			"token":  {},
 			"router": {flags: gatewayRouteFlags()},
@@ -117,7 +117,7 @@ func buildSpecTree() map[string]*compNode {
 		}},
 		"databricks": {sub: map[string]*compNode{
 			"check": {flags: []flagInfo{boolFlag("all"), valuedFlag("profile", providerNames), boolFlag("1m"), flag("model")}},
-			"login": {args: []func() []string{providerNames}, flags: []flagInfo{flag("auth-type"), boolFlag("dry-run")}},
+			"login": {args: []func() []string{providerNames}, flags: []flagInfo{flag("auth-type"), boolFlag("dry-run"), boolFlag("force")}},
 			"mint":  {flags: []flagInfo{valuedFlag("profile", providerNames), boolFlag("dry-run"), boolFlag("copy")}},
 			"import": {flags: []flagInfo{flag("dbxcfg"), boolFlag("pick"), flag("rename"), boolFlag("replace"),
 				boolFlag("seal-secrets"), boolFlag("apply")}},
@@ -252,7 +252,7 @@ func reviewSubNodes() map[string]*compNode {
 
 func worktreeResolveAgents() []string { return []string{"claude", "codex"} }
 
-// memoryRememberTypes mirrors memory.RememberTypes' keys for `memory remember --type` completion.
+// memoryRememberTypes mirrors bank.RememberTypes' keys for `memory remember --type` completion.
 func memoryRememberTypes() []string { return []string{"user", "feedback", "project", "reference"} }
 
 // memoryPromoteTargets mirrors memory.PromoteTargets for `memory promote --to` completion.

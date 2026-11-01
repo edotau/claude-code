@@ -2,6 +2,7 @@ package memory
 
 import (
 	"encoding/binary"
+	"github.com/edotau/claude-code/internal/memory/bank"
 	"os"
 	"path/filepath"
 	"sort"
@@ -21,11 +22,11 @@ const (
 type exeStamp struct{ size, mtimeNs int64 }
 type fileKey struct {
 	path string
-	mode segMode
+	mode bank.SegMode
 }
 type indexed struct {
 	size, mtimeNs int64
-	seg           segView
+	seg           bank.SegView
 }
 
 func currentExeStamp() (exeStamp, bool) {
@@ -64,7 +65,7 @@ func readRecallIndex(path string, want exeStamp) map[fileKey]indexed {
 		if length+21 > uint64(len(data)) {
 			return empty()
 		}
-		key := fileKey{string(data[:length]), segMode(data[length])}
+		key := fileKey{string(data[:length]), bank.SegMode(data[length])}
 		data = data[length+1:]
 		entry := indexed{size: u64(data), mtimeNs: u64(data[8:])}
 		length = uint64(u32(data[16:]))
@@ -72,8 +73,8 @@ func readRecallIndex(path string, want exeStamp) map[fileKey]indexed {
 		if length > uint64(len(data)) {
 			return empty()
 		}
-		entry.seg = segView(data[:length])
-		if key.mode > segKnowledge || !entry.seg.valid() {
+		entry.seg = bank.SegView(data[:length])
+		if key.mode > bank.SegKnowledge || !entry.seg.Valid() {
 			return empty()
 		}
 		m[key] = entry
@@ -114,34 +115,34 @@ func writeRecallIndex(path string, stamp exeStamp, m map[fileKey]indexed) error 
 	return paths.AtomicWrite(path, data, 0o600)
 }
 
-func loadSegments(files []corpusFile, persist bool) []segView {
+func loadSegments(files []bank.CorpusFile, persist bool) []bank.SegView {
 	stamp, ok := currentExeStamp()
 	path := filepath.Join(memstore.StateDir(), recallIndexFile)
 	var index map[fileKey]indexed
 	if ok {
 		index = readRecallIndex(path, stamp)
 	}
-	segs := make([]segView, len(files))
+	segs := make([]bank.SegView, len(files))
 	// Reuse query stats when pruning so each corpus file is statted only once.
 	stats := make(map[string]bool, len(files))
 	dirty := false
 	for i, f := range files {
-		info, err := os.Stat(f.path)
-		stats[f.path] = err == nil
+		info, err := os.Stat(f.Path)
+		stats[f.Path] = err == nil
 		if err != nil {
 			continue
 		}
-		key := fileKey{f.path, f.mode}
+		key := fileKey{f.Path, f.Mode}
 		cached, found := index[key]
 		if found && cached.size == info.Size() && cached.mtimeNs == info.ModTime().UnixNano() {
 			segs[i] = cached.seg
 			continue
 		}
-		data, err := os.ReadFile(f.path)
+		data, err := os.ReadFile(f.Path)
 		if err != nil {
 			continue
 		}
-		segs[i] = encodeSegment(parseBlocks(f.mode, filepath.Base(f.path), data))
+		segs[i] = bank.EncodeSegment(bank.ParseBlocks(f.Mode, filepath.Base(f.Path), data))
 		if persist && ok && time.Since(info.ModTime()) >= racyWindow {
 			index[key] = indexed{info.Size(), info.ModTime().UnixNano(), segs[i]}
 			dirty = true

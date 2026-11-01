@@ -1,4 +1,4 @@
-package memory
+package bank
 
 // The journaled commit transaction (plan §3.1): journal under state BEFORE any write, capture the native
 // revisions the batch replaces, apply with preimage checks, write a tracked receipt, commit, then retire the
@@ -82,8 +82,8 @@ const (
 	outDiverge                // other bytes: leave untouched, report
 )
 
-// commitChangesLocked applies changes while callers hold the writable bank lock.
-func commitChangesLocked(subject string, changes []Change) (Receipt, error) {
+// CommitChangesLocked applies changes while callers hold the writable bank lock.
+func CommitChangesLocked(subject string, changes []Change) (Receipt, error) {
 	if err := recoverJournals(); err != nil {
 		return Receipt{}, err
 	}

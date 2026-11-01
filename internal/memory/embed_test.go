@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
+	"github.com/edotau/claude-code/internal/memory/bank"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -62,8 +63,8 @@ func expireEmbed(t *testing.T) {
 func TestEmbedEntriesReusesCacheByContentHash(t *testing.T) {
 	isolatedConfig1(t)
 	root := t.TempDir() // a non-repo root collapses to the home bank
-	bank := filepath.Join(memstore.HomeBankDir(), "decisionLog.md")
-	write(t, bank, "# D\n\n## 2026-10-01 — gamma choice <!-- id:aaaa0001 -->\n\nbody one\n\n## 2026-10-02 — delta choice <!-- id:aaaa0002 -->\n\nbody two\n")
+	bankFile := filepath.Join(memstore.HomeBankDir(), "decisionLog.md")
+	write(t, bankFile, "# D\n\n## 2026-10-01 — gamma choice <!-- id:aaaa0001 -->\n\nbody one\n\n## 2026-10-02 — delta choice <!-- id:aaaa0002 -->\n\nbody two\n")
 	var calls int
 	c := fakeEmbedServer(t, &calls)
 
@@ -75,7 +76,7 @@ func TestEmbedEntriesReusesCacheByContentHash(t *testing.T) {
 	if n, _, err = EmbedEntries(context.Background(), root, c); err != nil || n != 0 || calls != 2 {
 		t.Fatalf("unchanged entries re-embedded: n=%d texts sent=%d err=%v", n, calls, err)
 	}
-	write(t, bank, "# D\n\n## 2026-10-01 — gamma choice <!-- id:aaaa0001 -->\n\nbody one\n\n## 2026-10-02 — delta choice <!-- id:aaaa0002 -->\n\nbody two EDITED\n")
+	write(t, bankFile, "# D\n\n## 2026-10-01 — gamma choice <!-- id:aaaa0001 -->\n\nbody one\n\n## 2026-10-02 — delta choice <!-- id:aaaa0002 -->\n\nbody two EDITED\n")
 	expireEmbed(t)
 	if n, _, err = EmbedEntries(context.Background(), root, c); err != nil || n != 1 || calls != 3 {
 		t.Fatalf("edit must re-embed only that entry: n=%d texts sent=%d err=%v", n, calls, err)
@@ -89,8 +90,8 @@ func TestEmbedEntriesReusesCacheByContentHash(t *testing.T) {
 		t.Fatal(err)
 	}
 	var gamma, delta float64
-	for _, h := range corpusBlocks(root) {
-		e := EntryFromHit(h)
+	for _, h := range bank.CorpusBlocks(root) {
+		e := bank.EntryFromHit(h)
 		cos, ok := sem.Cosine(e)
 		if !ok {
 			t.Fatalf("entry %s has no vector", e.ID)
@@ -129,15 +130,15 @@ func TestPickEmbeddingModelPrefersGteThenBge(t *testing.T) {
 func TestEmbedEntriesConcurrentRunsMerge(t *testing.T) {
 	isolatedConfig1(t)
 	root := t.TempDir()
-	bank := filepath.Join(memstore.HomeBankDir(), "decisionLog.md")
-	write(t, bank, "# D\n\n## 2026-10-01 — gamma one <!-- id:aaaa0001 -->\n\nbody\n")
+	bankFile := filepath.Join(memstore.HomeBankDir(), "decisionLog.md")
+	write(t, bankFile, "# D\n\n## 2026-10-01 — gamma one <!-- id:aaaa0001 -->\n\nbody\n")
 	var calls int
 	inner := fakeEmbedServer(t, &calls)
 	nested := false
 	outer := &EmbedClient{Profile: "fake", Model: inner.Model, Namespace: inner.Namespace, Embed: func(ctx context.Context, texts []string) ([][]float32, error) {
 		if !nested { // while run A is mid-embed, run B indexes a second entry and finishes
 			nested = true
-			write(t, bank, "# D\n\n## 2026-10-01 — gamma one <!-- id:aaaa0001 -->\n\nbody\n\n## 2026-10-02 — delta two <!-- id:aaaa0002 -->\n\nbody\n")
+			write(t, bankFile, "# D\n\n## 2026-10-01 — gamma one <!-- id:aaaa0001 -->\n\nbody\n\n## 2026-10-02 — delta two <!-- id:aaaa0002 -->\n\nbody\n")
 			cur := freshEmbedCache(inner)
 			cur.Rows["aaaa0002"] = embedRow{Root: root, Hash: currentEntryHashes(root)["aaaa0002"], Vec: encodeVec([]float32{1, 0, 0})}
 			if err := saveEmbedCache("fake", cur); err != nil {
@@ -247,17 +248,17 @@ func TestEmbedPruneNeverCrossesRoots(t *testing.T) {
 func TestEmbedMergeKeepsVectorMatchingCurrentContent(t *testing.T) {
 	isolatedConfig1(t)
 	root := t.TempDir()
-	bank := filepath.Join(memstore.HomeBankDir(), "decisionLog.md")
+	bankFile := filepath.Join(memstore.HomeBankDir(), "decisionLog.md")
 	v1 := "# D\n\n## 2026-10-01 — gamma one <!-- id:aaaa0001 -->\n\nversion one\n"
 	v2 := "# D\n\n## 2026-10-01 — gamma one <!-- id:aaaa0001 -->\n\nversion two\n"
-	write(t, bank, v1)
+	write(t, bankFile, v1)
 	var calls int
 	inner := fakeEmbedServer(t, &calls)
 	nested := false
 	outer := &EmbedClient{Profile: "fake", Model: inner.Model, Namespace: inner.Namespace, Embed: func(ctx context.Context, texts []string) ([][]float32, error) {
 		if !nested { // the entry changes mid-run and a newer run embeds the new content first
 			nested = true
-			write(t, bank, v2)
+			write(t, bankFile, v2)
 			cur := freshEmbedCache(inner)
 			cur.Rows["aaaa0001"] = embedRow{Root: root, Hash: currentEntryHashes(root)["aaaa0001"], Vec: encodeVec([]float32{1, 0, 0})}
 			if err := saveEmbedCache("fake", cur); err != nil {
@@ -463,7 +464,7 @@ func dimEmbedClient(dim int, hook func()) *EmbedClient {
 func TestEmbedFollowsEndpointDimension(t *testing.T) {
 	isolatedConfig1(t)
 	root := t.TempDir()
-	bank := filepath.Join(memstore.HomeBankDir(), "decisionLog.md")
+	bankFile := filepath.Join(memstore.HomeBankDir(), "decisionLog.md")
 	a := "## 2026-10-01 — one <!-- id:aaaa0001 -->\n\nbody\n"
 	b := "\n## 2026-10-02 — two <!-- id:aaaa0002 -->\n\nbody\n"
 	c3 := "\n## 2026-10-03 — three <!-- id:aaaa0003 -->\n\nbody\n"
@@ -475,9 +476,9 @@ func TestEmbedFollowsEndpointDimension(t *testing.T) {
 		}
 		return n
 	}
-	write(t, bank, "# D\n\n"+a+b)
+	write(t, bankFile, "# D\n\n"+a+b)
 	run(dimEmbedClient(3, nil))
-	write(t, bank, "# D\n\n"+a+b+c3)
+	write(t, bankFile, "# D\n\n"+a+b+c3)
 	run(dimEmbedClient(2, nil)) // the endpoint now answers 2 dims; the majority rows are 3
 	for range 3 {
 		run(dimEmbedClient(2, nil))
@@ -491,8 +492,8 @@ func TestEmbedFollowsEndpointDimension(t *testing.T) {
 func TestStaleEmbedRunCannotRevertDimension(t *testing.T) {
 	isolatedConfig1(t)
 	root := t.TempDir()
-	bank := filepath.Join(memstore.HomeBankDir(), "decisionLog.md")
-	write(t, bank, "# D\n\n## 2026-10-01 — one <!-- id:aaaa0001 -->\n\nbody\n\n## 2026-10-02 — two <!-- id:aaaa0002 -->\n\nbody\n")
+	bankFile := filepath.Join(memstore.HomeBankDir(), "decisionLog.md")
+	write(t, bankFile, "# D\n\n## 2026-10-01 — one <!-- id:aaaa0001 -->\n\nbody\n\n## 2026-10-02 — two <!-- id:aaaa0002 -->\n\nbody\n")
 	newer := dimEmbedClient(2, nil)
 	old := dimEmbedClient(3, func() { // the old-dimension run is mid-embed when the migration finishes
 		cur := freshEmbedCache(newer)
@@ -522,10 +523,10 @@ func TestStaleEmbedRunCannotRevertDimension(t *testing.T) {
 func TestPruneKeepsRowsOfEntriesAddedMidRun(t *testing.T) {
 	isolatedConfig1(t)
 	root := t.TempDir()
-	bank := filepath.Join(memstore.HomeBankDir(), "decisionLog.md")
+	bankFile := filepath.Join(memstore.HomeBankDir(), "decisionLog.md")
 	e1 := "## 2026-10-01 — gamma one <!-- id:aaaa0001 -->\n\nbody\n"
 	e2 := "\n## 2026-10-02 — gamma two <!-- id:aaaa0002 -->\n\nbody\n"
-	write(t, bank, "# D\n\n"+e1)
+	write(t, bankFile, "# D\n\n"+e1)
 	var calls int
 	inner := fakeEmbedServer(t, &calls)
 	f := embedCacheFile{Namespace: inner.Namespace, Model: inner.Model, Rows: map[string]embedRow{}}
@@ -539,7 +540,7 @@ func TestPruneKeepsRowsOfEntriesAddedMidRun(t *testing.T) {
 	outer := &EmbedClient{Profile: "fake", Model: inner.Model, Namespace: inner.Namespace, Embed: func(ctx context.Context, texts []string) ([][]float32, error) {
 		if !nested { // a concurrent run adds an entry and commits its vector before this run merges
 			nested = true
-			write(t, bank, "# D\n\n"+e1+e2)
+			write(t, bankFile, "# D\n\n"+e1+e2)
 			cur := loadEmbedCache("fake")
 			cur.Rows["aaaa0002"] = embedRow{Root: root, Hash: currentEntryHashes(root)["aaaa0002"], Vec: encodeVec([]float32{1, 0, 0})}
 			if err := saveEmbedCache("fake", cur); err != nil {

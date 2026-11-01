@@ -1,16 +1,19 @@
 package memory
 
-import "sort"
+import (
+	"github.com/edotau/claude-code/internal/memory/bank"
+	"sort"
+)
 
 // Candidates returns the top k corpus entries by cosine alone, without network calls.
-func (s *Semantic) Candidates(root string, k int, floor float64, skip func(SearchHit) bool) (hits []SearchHit, skipped bool) {
+func (s *Semantic) Candidates(root string, k int, floor float64, skip func(bank.SearchHit) bool) (hits []bank.SearchHit, skipped bool) {
 	type scored struct {
-		hit SearchHit
+		hit bank.SearchHit
 		cos float64
 	}
 	var all []scored
-	for _, h := range corpusBlocks(root) {
-		e := EntryFromHit(h)
+	for _, h := range bank.CorpusBlocks(root) {
+		e := bank.EntryFromHit(h)
 		if e.Archived || e.Superseded {
 			continue
 		}

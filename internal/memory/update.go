@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/edotau/claude-code/internal/memory/bank"
 	"io"
 	"os"
 	"os/exec"
@@ -91,7 +92,7 @@ type AgentFunc func(ctx context.Context, prompt, workdir string) (who string, er
 // agentUpdatePrompt frames `claude-code memory update`'s procedure for an agent that has no slash
 // commands; the procedure itself is one copy, embedded at prompts/update.md.
 func agentUpdatePrompt(transcript, cwd string) (string, error) {
-	ref, err := Reference("update")
+	ref, err := bank.Reference("update")
 	if err != nil {
 		return "", err
 	}
@@ -187,7 +188,7 @@ func tagBlock(transcript string) string {
 		return ""
 	}
 	defer f.Close()
-	tags, err := ExtractTags(f)
+	tags, err := bank.ExtractTags(f)
 	if err != nil || len(tags) == 0 {
 		return ""
 	}
@@ -231,8 +232,8 @@ func Update(o UpdateOptions) error {
 	dir := memstore.Dir(o.CWD)
 	var before, beforeHome time.Time
 	var runErr error
-	lockErr := paths.WithFileLock(lockPath(dir), func() error {
-		before, beforeHome = NewestMtime(dir), NewestMtime(memstore.HomeBankDir())
+	lockErr := paths.WithFileLock(bank.LockPath(dir), func() error {
+		before, beforeHome = bank.NewestMtime(dir), bank.NewestMtime(memstore.HomeBankDir())
 		ctx, cancel := context.WithTimeout(context.Background(), o.Timeout)
 		defer cancel()
 		if o.Run != nil {
@@ -261,8 +262,8 @@ func Update(o UpdateOptions) error {
 		return nil
 	})
 	// An update may legitimately write only the shared home bank (cross-repo facts), so watch both tiers.
-	updated := NewestMtime(dir).After(before) || NewestMtime(memstore.HomeBankDir()).After(beforeHome)
-	if _, err := SettleBank(o.CWD, time.Now()); err != nil {
+	updated := bank.NewestMtime(dir).After(before) || bank.NewestMtime(memstore.HomeBankDir()).After(beforeHome)
+	if _, err := bank.SettleBank(o.CWD, time.Now()); err != nil {
 		fmt.Fprintln(o.Out, "memory update: settle:", err)
 	}
 	// Refresh the cached doctor notice here (background worker), never on the SessionStart launch path.

@@ -3,6 +3,7 @@
 package memory
 
 import (
+	"github.com/edotau/claude-code/internal/memory/bank"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -45,7 +46,7 @@ func Timeline(root string, limit int) (entries []TimelineEntry, sessions []strin
 		dirs = []string{memstore.Dir(root), memstore.HomeBankDir()}
 	}
 	for _, dir := range dirs {
-		for _, h := range entriesWithPrefix(filepath.Join(dir, "sessionHistory.md"), "## ") {
+		for _, h := range bank.EntriesWithPrefix(filepath.Join(dir, "sessionHistory.md"), "## ") {
 			if seen[h] {
 				continue
 			}

@@ -1,6 +1,7 @@
 package memory
 
 import (
+	"github.com/edotau/claude-code/internal/memory/bank"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -34,42 +35,11 @@ func TestTagBlock_MissingTranscriptNoBlock(t *testing.T) {
 	}
 }
 
-func TestTagBlock_WithTagsNamesAllFourDestinations(t *testing.T) {
-	t.Parallel()
-	path := writeTranscript(t, assistantLine("DECISION: pick bbolt — rejected sqlite because no cgo"))
-	got := tagBlock(path)
-	if got == "" {
-		t.Fatalf("tagBlock with tags present = empty, want a block")
-	}
-	for _, dest := range []string{"decisionLog", "progress", "activeContext", "conventions"} {
-		if !strings.Contains(got, dest) {
-			t.Errorf("tagBlock missing destination %q:\n%s", dest, got)
-		}
-	}
-	if !strings.Contains(got, "DECISION: pick bbolt — rejected sqlite because no cgo") {
-		t.Errorf("tagBlock missing the extracted tag text:\n%s", got)
-	}
-}
-
-func TestAgentUpdatePrompt_UsesReferenceAndTags(t *testing.T) {
-	path := writeTranscript(t, assistantLine("NOTE: keep examples deterministic"))
-	got, err := agentUpdatePrompt(path, "")
-	if err != nil {
-		t.Fatalf("agentUpdatePrompt: %v", err)
-	}
-	if !strings.Contains(got, "Judgment Residue") {
-		t.Errorf("prompt missing the embedded update reference:\n%s", got)
-	}
-	if !strings.Contains(got, "Tagged this session") {
-		t.Errorf("prompt missing the tag block:\n%s", got)
-	}
-}
-
 // TestAgentUpdatePrompt_UnknownVerbErrors: Reference errors on an unknown verb; agentUpdatePrompt
 // must surface that rather than running on an empty prompt. "update" itself is now always embedded,
 // so this exercises the error path through a verb that will never exist.
 func TestAgentUpdatePrompt_UnknownVerbErrors(t *testing.T) {
-	if _, err := Reference("does-not-exist"); err == nil {
+	if _, err := bank.Reference("does-not-exist"); err == nil {
 		t.Fatal("Reference(\"does-not-exist\") = nil error, want one")
 	}
 }

@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/edotau/claude-code/internal/memory/bank"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -93,7 +94,7 @@ func Digest(dir, claude string) (string, error) {
 		if err := paths.AtomicWrite(path, []byte(body), 0o600); err != nil {
 			return err
 		}
-		return commitStore("digest: " + filepath.Base(dir))
+		return bank.CommitStore("digest: " + filepath.Base(dir))
 	})
 	return path, err
 }

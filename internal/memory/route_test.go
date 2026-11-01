@@ -1,6 +1,7 @@
 package memory
 
 import (
+	"github.com/edotau/claude-code/internal/memory/bank"
 	"path/filepath"
 	"testing"
 
@@ -55,14 +56,14 @@ func TestRoutedFilesExcludesOwnStore(t *testing.T) {
 	write(t, filepath.Join(db, "decisionLog.md"), "# D\n\n## 2026-01-01 — projb note\n\nbody\n")
 
 	files := routedFiles(a, "proja projb")
-	var blocks []SearchHit
+	var blocks []bank.SearchHit
 	for i, seg := range loadSegments(files, false) {
 		if seg == nil {
 			continue
 		}
-		for j := 0; j < seg.docs(); j++ {
-			block, _ := seg.doc(j)
-			blocks = append(blocks, SearchHit{Bank: files[i].bank, File: filepath.Base(files[i].path), Block: block})
+		for j := 0; j < seg.Docs(); j++ {
+			block, _ := seg.Doc(j)
+			blocks = append(blocks, bank.SearchHit{Bank: files[i].Bank, File: filepath.Base(files[i].Path), Block: block})
 		}
 	}
 	if len(blocks) == 0 {

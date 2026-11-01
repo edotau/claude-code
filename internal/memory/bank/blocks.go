@@ -1,4 +1,4 @@
-package memory
+package bank
 
 import (
 	"os"
@@ -11,18 +11,18 @@ import (
 // indexLineMax keeps routing lines scannable; detail lives in the entry itself.
 const indexLineMax = 120
 
-// entryBlocks splits by the grammar the file NAME implies: dated logs on "## " only, others also on "- ".
-func entryBlocks(base, body string) (header string, blocks []string) {
+// EntryBlocks splits by the grammar the file NAME implies: dated logs on "## " only, others also on "- ".
+func EntryBlocks(base, body string) (header string, blocks []string) {
 	if base == "decisionLog.md" || base == "sessionHistory.md" {
-		return splitHeadingBlocks(body)
+		return SplitHeadingBlocks(body)
 	}
 	return splitOn(body, func(ln string) bool {
 		return strings.HasPrefix(ln, "- ") || strings.HasPrefix(ln, "## ")
 	})
 }
 
-// splitHeadingBlocks splits a newest-first log into its header and "## " entries (bodies may hold bullets).
-func splitHeadingBlocks(body string) (header string, blocks []string) {
+// SplitHeadingBlocks splits a newest-first log into its header and "## " entries (bodies may hold bullets).
+func SplitHeadingBlocks(body string) (header string, blocks []string) {
 	return splitOn(body, func(ln string) bool { return strings.HasPrefix(ln, "## ") })
 }
 
@@ -60,8 +60,8 @@ func splitOn(body string, isMarker func(string) bool) (header string, blocks []s
 	return strings.TrimRight(strings.Join(hdr, "\n"), "\n"), blocks
 }
 
-// rejoin reassembles a bank file from its header and kept blocks.
-func rejoin(header string, blocks []string) string {
+// Rejoin reassembles a bank file from its header and kept blocks.
+func Rejoin(header string, blocks []string) string {
 	var b strings.Builder
 	if header != "" {
 		b.WriteString(header + "\n")
@@ -76,8 +76,8 @@ func rejoin(header string, blocks []string) string {
 	return out
 }
 
-// appendBlocks appends blocks to path, creating it with a minimal header when absent.
-func appendBlocks(path string, blocks []string) error {
+// AppendBlocks appends blocks to path, creating it with a minimal header when absent.
+func AppendBlocks(path string, blocks []string) error {
 	existing, _ := os.ReadFile(path)
 	body := string(existing)
 	if strings.TrimSpace(body) == "" {
@@ -96,8 +96,8 @@ func appendBlocks(path string, blocks []string) error {
 	return paths.AtomicWrite(path, []byte(b.String()), 0o600)
 }
 
-// entriesWithPrefix returns every line starting with prefix, prefix stripped and truncated, in file order.
-func entriesWithPrefix(path, prefix string) []string {
+// EntriesWithPrefix returns every line starting with prefix, prefix stripped and truncated, in file order.
+func EntriesWithPrefix(path, prefix string) []string {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil
@@ -105,7 +105,7 @@ func entriesWithPrefix(path, prefix string) []string {
 	var out []string
 	for line := range strings.SplitSeq(string(data), "\n") {
 		if rest, ok := strings.CutPrefix(line, prefix); ok {
-			e := truncateLine(stripID(rest))
+			e := truncateLine(StripID(rest))
 			if id := BlockID(rest); id != "" {
 				e += " [" + id + "]"
 			}
@@ -128,8 +128,8 @@ func truncateLine(s string) string {
 	return cut + "…"
 }
 
-// lineCount counts lines in s (0 for empty) — the budget unit promote/archive split on.
-func lineCount(s string) int {
+// LineCount counts lines in s (0 for empty) — the budget unit promote/archive split on.
+func LineCount(s string) int {
 	if s == "" {
 		return 0
 	}

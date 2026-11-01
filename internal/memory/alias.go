@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"github.com/edotau/claude-code/internal/memory/bank"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -77,7 +78,7 @@ func AliasRepo(opt AliasOptions) (AliasResult, error) {
 type aliasPlan struct {
 	target, source string          // store dirs; source "" = origin-only alias
 	origin         memstore.Origin // the target's record after the fold
-	changes        []Change
+	changes        []bank.Change
 	links          []string // projects/*/memory symlinks that pointed at source
 }
 
@@ -136,7 +137,7 @@ func (p *aliasPlan) rel(dir, name string) string {
 }
 
 func (p *aliasPlan) addWrite(dir, name string, data []byte, res *AliasResult, line string) {
-	p.changes = append(p.changes, Change{Rel: p.rel(dir, name), Data: data})
+	p.changes = append(p.changes, bank.Change{Rel: p.rel(dir, name), Data: data})
 	res.Lines = append(res.Lines, line)
 }
 
@@ -157,15 +158,15 @@ func (p *aliasPlan) foldFiles(src, tgt memstore.RepoEntry, res *AliasResult) err
 		if err != nil {
 			return err
 		}
-		p.changes = append(p.changes, Change{Rel: p.rel(src.Dir, rel), Delete: true})
+		p.changes = append(p.changes, bank.Change{Rel: p.rel(src.Dir, rel), Delete: true})
 		dst := filepath.Join(tgt.Dir, rel)
 		cur, rerr := os.ReadFile(dst)
 		have := rerr == nil
 		switch {
 		// Migration: remove after 2026-11-17 once every machine has run a post-2026-10-20 build.
-		case rel == memstore.LegacyOriginFile || rel == BankIndexFile || strings.HasSuffix(rel, ".lock") || filepath.Base(rel) == ".postupdate":
+		case rel == memstore.LegacyOriginFile || rel == bank.BankIndexFile || strings.HasSuffix(rel, ".lock") || filepath.Base(rel) == ".postupdate":
 			return nil // identity, generated index and lock files do not travel
-		case rel == NativeIndexFile:
+		case rel == bank.NativeIndexFile:
 			merged, n, err := mergeNativeIndex(string(cur), string(data))
 			if err != nil {
 				return fmt.Errorf("%s: %w", path, err)
@@ -201,10 +202,10 @@ func (p *aliasPlan) foldFiles(src, tgt memstore.RepoEntry, res *AliasResult) err
 
 // mergeNativeIndex appends the source's pointer lines (outside the generated region) the target lacks.
 func mergeNativeIndex(tgt, src string) (string, int, error) {
-	if _, _, err := scanBankRegion(tgt); err != nil {
+	if _, _, err := bank.ScanBankRegion(tgt); err != nil {
 		return "", 0, err
 	}
-	s, e, err := scanBankRegion(src)
+	s, e, err := bank.ScanBankRegion(src)
 	if err != nil {
 		return "", 0, err
 	}
@@ -234,16 +235,16 @@ func mergeNativeIndex(tgt, src string) (string, int, error) {
 // mergeLog adds the source blocks missing from the target (by persisted id, else same text); dated logs
 // stay newest-first, conventions append.
 func mergeLog(name, tgt, src string) (string, int) {
-	hdr, blocks := entryBlocks(name, tgt)
-	_, sblocks := entryBlocks(name, src)
+	hdr, blocks := bank.EntryBlocks(name, tgt)
+	_, sblocks := bank.EntryBlocks(name, src)
 	ids, texts := map[string]bool{}, map[string]bool{}
 	for _, b := range blocks {
-		ids[BlockID(firstLine(b))] = true
-		texts[strings.TrimSpace(stripID(b))] = true
+		ids[bank.BlockID(firstLine(b))] = true
+		texts[strings.TrimSpace(bank.StripID(b))] = true
 	}
 	var add []string
 	for _, b := range sblocks {
-		id, t := BlockID(firstLine(b)), strings.TrimSpace(stripID(b))
+		id, t := bank.BlockID(firstLine(b)), strings.TrimSpace(bank.StripID(b))
 		if (id != "" && ids[id]) || texts[t] {
 			continue
 		}
@@ -274,7 +275,7 @@ func mergeLog(name, tgt, src string) (string, int) {
 	for i, j := range idx {
 		sorted[i] = all[j]
 	}
-	return rejoin(hdr, sorted), len(add)
+	return bank.Rejoin(hdr, sorted), len(add)
 }
 
 func firstLine(s string) string {
@@ -301,7 +302,7 @@ func projectLinksTo(dir string) []string {
 // apply runs under the bank lock: journaled commit, move the origin row, remove the source dir, repoint links, settle.
 func (p *aliasPlan) apply(now time.Time) error {
 	if len(p.changes) > 0 {
-		if _, err := commitChangesLocked("memory: fold "+filepath.Base(p.source)+" into "+filepath.Base(p.target), p.changes); err != nil {
+		if _, err := bank.CommitChangesLocked("memory: fold "+filepath.Base(p.source)+" into "+filepath.Base(p.target), p.changes); err != nil {
 			return err
 		}
 	}
@@ -323,14 +324,14 @@ func (p *aliasPlan) apply(now time.Time) error {
 			return errors.Join(err, os.Remove(tmp))
 		}
 	}
-	var s BankSettlement
-	if err := settleDir(p.target, now, &s); err != nil {
+	var s bank.BankSettlement
+	if err := bank.SettleDir(p.target, now, &s); err != nil {
 		return err
 	}
-	if err := writeCatalog(now); err != nil {
+	if err := bank.WriteCatalog(now); err != nil {
 		return err
 	}
-	return commitStore("settle: alias " + filepath.Base(p.target))
+	return bank.CommitStore("settle: alias " + filepath.Base(p.target))
 }
 
 // removeEmptyTree deletes dir only when no file remains in it; a survivor means a delete diverged.
