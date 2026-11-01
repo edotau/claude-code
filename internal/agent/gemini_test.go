@@ -100,7 +100,7 @@ func TestResolveTargetGeminiNoLoginNoPinRefuses(t *testing.T) {
 	reg := &providers.Registry{Providers: map[string]*providers.Provider{}}
 	p := dbxRow("qa", "databricks-")
 	reg.Providers[p.Name] = p
-	sel := providers.Selection{Provider: p, Slots: map[string]providers.Target{"opus": {Provider: p, Model: "databricks-claude-opus-5-5"}}}
+	sel := providers.Selection{Provider: p, Aliases: map[string]providers.Target{"opus": {Provider: p, Model: "databricks-claude-opus-5-5"}}}
 	_, _, err := schemaFor("gemini").ResolveTarget(reg, sel, false)
 	if err == nil || !strings.Contains(err.Error(), "GEMINI_PROFILE") {
 		t.Fatalf("err = %v, want the Google-login-or-pin refusal", err)
@@ -548,5 +548,23 @@ func TestBridgeLogCapturesRedactedAgyOutput(t *testing.T) {
 	}
 	if n := strings.Count(got, "agy-stderr-line"); n != 1 {
 		t.Errorf("stderr line appears %d times, want exactly once:\n%s", n, got)
+	}
+}
+
+// Step lines reach the dispatch log as steps start and finish, before the result event is parsed.
+func TestParseAgyStepsLogged(t *testing.T) {
+	in := `{"event":"step_update","step_update":{"step_type":"run_command","state":"RUNNING"}}
+{"event":"step_update","step_update":{"step_type":"run_command","state":"RUNNING"}}
+{"event":"step_update","step_update":{"step_type":"run_command","state":"DONE"}}
+{"event":"result","result":{"status":"SUCCESS","response":"ok"}}
+`
+	var lines []string
+	lg := func(kind, text string) { lines = append(lines, kind+": "+text) }
+	if _, err := parseAgyEvents(newBR(in), NewTextSink(&strings.Builder{}), false, lg); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"step: run_command running", "step: run_command done"}
+	if len(lines) < len(want) || !slices.Equal(lines[:len(want)], want) {
+		t.Errorf("log = %q, want it to start with %q", lines, want)
 	}
 }
