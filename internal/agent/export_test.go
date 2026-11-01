@@ -12,10 +12,6 @@ var (
 	VendorTargetNote = func(req RunOptions, name string) (providers.Target, bool, string, error) {
 		return schemaFor(name).targetNote(req)
 	}
-
-	BackupAndWrite = backupAndWrite
-	LostLines      = lostLines
-	MirrorsOf      = mirrorsOf
 )
 
 // SetChain and KeepCaller let the agent_test batch tests build a Prepared with a routed chain.

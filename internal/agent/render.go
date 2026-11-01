@@ -2,51 +2,23 @@
 package agent
 
 import (
-	"bytes"
 	"fmt"
-	"github.com/edotau/claude-code/internal/agentconfig"
 	"io"
 	"os"
+
+	"github.com/edotau/claude-code/internal/agentconfig"
+	agentrender "github.com/edotau/claude-code/internal/agentconfig/render"
 
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 )
 
-// DefaultAgents is every agent generate renders when RenderOptions.Agents is empty.
+// DefaultAgents is every agent generate renders when agentrender.RenderOptions.Agents is empty.
 var DefaultAgents = []string{"codex", "opencode", "gemini", "copilot"}
-
-// RenderOptions controls one generate pass.
-type RenderOptions struct {
-	Agents     []string  // agents to render; default DefaultAgents
-	DryRun     bool      // print the rendered blocks; write nothing
-	Check      bool      // report drift; never writes
-	Home       string    // overrides os.UserHomeDir() for agent config paths (tests)
-	Out        io.Writer // status lines; nil -> os.Stdout
-	ForceHomes bool      // force agent-config renders even when CLAUDE_CONFIG_DIR is not the default ~/.claude
-	// Confirm asks whether to overwrite path given its lost hand-edited lines; nil means write and warn.
-	Confirm func(path string, lost []string) bool
-	// PrepareConfigs' write queue: CommitFile and the JSONC retire append to it, Apply runs it.
-	staged *[]func() error
-}
-
-// RenderPlan holds ordered agent writes after all selected renders have validated.
-type RenderPlan struct {
-	writes []func() error
-}
-
-// Apply performs the staged writes in order, stopping at the first error.
-func (p *RenderPlan) Apply() error {
-	for _, write := range p.writes {
-		if err := write(); err != nil {
-			return err
-		}
-	}
-	return nil
-}
 
 // RenderConfigs renders every selected agent's config and reports whether anything
 // differs from what is on disk (Check) or would be written (DryRun never writes either way).
-func RenderConfigs(o RenderOptions) (bool, error) {
+func RenderConfigs(o agentrender.RenderOptions) (bool, error) {
 	p, drift, err := PrepareConfigs(o)
 	if err != nil {
 		return drift, err
@@ -55,9 +27,9 @@ func RenderConfigs(o RenderOptions) (bool, error) {
 }
 
 // PrepareConfigs validates all selected renders without writing; dry-run/check output remains immediate.
-func PrepareConfigs(o RenderOptions) (*RenderPlan, bool, error) {
-	p := &RenderPlan{}
-	o.staged = &p.writes
+func PrepareConfigs(o agentrender.RenderOptions) (*agentrender.RenderPlan, bool, error) {
+	p := &agentrender.RenderPlan{}
+	o = o.Stage(p)
 	var drift bool
 	var err error
 	agents := o.Agents
@@ -104,129 +76,48 @@ func PrepareConfigs(o RenderOptions) (*RenderPlan, bool, error) {
 	return p, drift, nil
 }
 
-// CommitFile is the shared dry-run/check/write decision once a renderer has the next byte slice.
-func CommitFile(path string, raw, next []byte, existed bool, o RenderOptions, out io.Writer, label string) (bool, error) {
-	changed := !bytes.Equal(next, raw)
-	switch {
-	case o.DryRun:
-		fmt.Fprintf(out, "--- %s (%s) ---\n%s\n", path, label, next)
-		return changed, nil
-	case o.Check:
-		if changed {
-			fmt.Fprintf(out, "%s: drift at %s\n", label, path)
-		}
-		lost, err := lostLinesFor(label, path, raw, next)
-		if err != nil {
-			return changed, err
-		}
-		if len(lost) > 0 {
-			fmt.Fprintf(out, "%s: %s has %d hand-edited line(s) not in this render:\n", label, path, len(lost))
-			printLostLines(out, lost)
-		}
-		return changed, nil
-	case !changed:
-		if ops := fileOps[label]; ops.LoadBaseline != nil {
-			base, err := ops.LoadBaseline(path)
-			if err != nil {
-				return false, err
-			}
-			if base == nil && existed {
-				*o.staged = append(*o.staged, func() error { return ops.SaveBaseline(path, next) })
-			}
-			fmt.Fprintf(out, "%s: %s unchanged\n", label, path)
-			return false, nil
-		}
-		// Seed a missing baseline from an unchanged file, or later hand edits go undetected.
-		if _, err := os.Stat(baselinePath(label, path)); os.IsNotExist(err) && existed {
-			_ = writeBaseline(label, path, next)
-		}
-		fmt.Fprintf(out, "%s: %s unchanged\n", label, path)
-		return false, nil
-	}
-	*o.staged = append(*o.staged, func() error { return commitWrite(path, raw, next, existed, o, out, label) })
-	return true, nil
-}
-
-// commitWrite runs the lost-lines check (prompting or warning), writes path, and refreshes its
-// baseline; it is the body of every CommitFile staged write.
-func commitWrite(path string, raw, next []byte, existed bool, o RenderOptions, out io.Writer, label string) error {
-	lost, err := lostLinesFor(label, path, raw, next)
-	if err != nil {
-		return err
-	}
-	if len(lost) > 0 {
-		if o.Confirm != nil {
-			fmt.Fprintf(out, "%s: %s has %d hand-edited line(s) that would be lost:\n", label, path, len(lost))
-			printLostLines(out, lost)
-			if !o.Confirm(path, lost) {
-				fmt.Fprintf(out, "%s: kept %s (your edits)\n", label, path)
-				return nil
-			}
-		} else {
-			fmt.Fprintf(out, "%s: overwrote %d hand-edited line(s) in %s; `claude-code configure --revert` restores\n",
-				label, len(lost), path)
-			printLostLines(out, lost)
-		}
-	}
-	write := backupAndWrite
-	if ops := fileOps[label]; ops.Write != nil {
-		write = ops.Write
-	}
-	if err := write(path, raw, next, existed); err != nil {
-		return fmt.Errorf("%s: %w", label, err)
-	}
-	if err := writeBaseline(label, path, next); err != nil {
-		fmt.Fprintf(out, "%s: baseline: %v (next run can't detect hand edits)\n", label, err)
-	}
-	fmt.Fprintf(out, "%s: wrote %s\n", label, path)
-	return nil
-}
-
 // --- opencode: a tracked overlay (state/harness/opencode/{opencode,tui}.json), never opencode's own
 // ~/.config/opencode files; the harness only writes those for the custom theme (see internal/ui/theme). ---
 
 // renderOpenCodeOverlay writes the tracked opencode.json/tui.json overlay templates.
-func renderOpenCodeOverlay(o RenderOptions, out io.Writer) (bool, error) {
+func renderOpenCodeOverlay(o agentrender.RenderOptions, out io.Writer) (bool, error) {
 	cfgPath, cfgBody, tuiPath, tuiBody, err := agentconfig.OpencodeOverlayRendered()
 	if err != nil {
 		return false, fmt.Errorf("opencode: %w", err)
 	}
 	cfgRaw, _ := os.ReadFile(cfgPath)
 	tuiRaw, _ := os.ReadFile(tuiPath)
-	cfgChanged, err := commitOverlayFile(cfgPath, cfgRaw, cfgBody, o, out, "opencode")
+	cfgChanged, err := agentrender.CommitOverlayFile(cfgPath, cfgRaw, cfgBody, o, out, "opencode")
 	if err != nil {
 		return false, err
 	}
-	tuiChanged, err := commitOverlayFile(tuiPath, tuiRaw, tuiBody, o, out, "opencode-tui")
+	tuiChanged, err := agentrender.CommitOverlayFile(tuiPath, tuiRaw, tuiBody, o, out, "opencode-tui")
 	if err != nil {
 		return false, err
 	}
 	return cfgChanged || tuiChanged, nil
 }
 
-// commitOverlayFile is CommitFile's dry-run/check/write decision, minus the lost-hand-edited-lines
-// check and baseline tracking: the overlay is never hand-edited, so there is nothing to lose.
-func commitOverlayFile(path string, raw, next []byte, o RenderOptions, out io.Writer, label string) (bool, error) {
-	changed := !bytes.Equal(raw, next)
-	switch {
-	case o.DryRun:
-		fmt.Fprintf(out, "--- %s (%s) ---\n%s\n", path, label, next)
-		return changed, nil
-	case o.Check:
-		if changed {
-			fmt.Fprintf(out, "%s: drift at %s\n", label, path)
-		}
-		return changed, nil
-	case !changed:
-		fmt.Fprintf(out, "%s: %s unchanged\n", label, path)
-		return false, nil
+// RevertConfigs restores each selected agent's files to their newest backup version, removing the restored version so a second revert steps one version further back.
+func RevertConfigs(o agentrender.RenderOptions) error {
+	agents := o.Agents
+	if len(agents) == 0 {
+		agents = DefaultAgents
 	}
-	*o.staged = append(*o.staged, func() error {
-		if _, err := paths.WriteIfChanged(path, next, 0o600); err != nil {
-			return fmt.Errorf("%s: %w", label, err)
+	out := o.Out
+	if out == nil {
+		out = os.Stdout
+	}
+	for _, a := range agents {
+		files, err := schemaFor(a).eng().ConfigPaths(o.Home)
+		if err != nil {
+			return fmt.Errorf("generate: %w", err)
 		}
-		fmt.Fprintf(out, "%s: wrote %s\n", label, path)
-		return nil
-	})
-	return true, nil
+		for _, lp := range files {
+			if err := agentrender.RevertOne(lp.Label, lp.Path, o.DryRun, out); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }

@@ -8,9 +8,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/agentconfig"
-	"github.com/edotau/claude-code/internal/vault"
 	"io"
 	"maps"
 	"os"
@@ -22,6 +19,11 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agentconfig"
+	"github.com/edotau/claude-code/internal/agentconfig/render"
+	"github.com/edotau/claude-code/internal/vault"
 
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
@@ -140,16 +142,16 @@ func (codexEngine) CheckLogin(ctx context.Context) (providers.AuthVerdict, strin
 	return providers.VerdictTransient, err.Error()
 }
 
-func (codexEngine) Render(reg *providers.Registry, sel providers.Selection, _ string, o agent.RenderOptions, out io.Writer) (bool, error) {
+func (codexEngine) Render(reg *providers.Registry, sel providers.Selection, _ string, o render.RenderOptions, out io.Writer) (bool, error) {
 	return renderCodex(reg, sel, o, out)
 }
 
-func (codexEngine) ConfigPaths(home string) ([]agent.LabelPath, error) {
+func (codexEngine) ConfigPaths(home string) ([]render.LabelPath, error) {
 	path, err := paths.CodexConfigPath(home)
 	if err != nil {
 		return nil, err
 	}
-	return []agent.LabelPath{{Label: "codex", Path: path}}, nil
+	return []render.LabelPath{{Label: "codex", Path: path}}, nil
 }
 
 // LaunchArgs prepends the -f file's codex overrides (after the harness prefix, so the file's keys win).

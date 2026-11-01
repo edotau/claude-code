@@ -7,6 +7,8 @@ import (
 	"io"
 	"strings"
 
+	agentrender "github.com/edotau/claude-code/internal/agentconfig/render"
+
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
@@ -61,9 +63,9 @@ type Driver interface {
 	// CheckLogin probes the CLI's own sign-in for the provider sign-in rows.
 	CheckLogin(ctx context.Context) (providers.AuthVerdict, string)
 	// Render writes the CLI's config files and reports drift.
-	Render(reg *providers.Registry, sel providers.Selection, home string, o RenderOptions, out io.Writer) (bool, error)
+	Render(reg *providers.Registry, sel providers.Selection, home string, o agentrender.RenderOptions, out io.Writer) (bool, error)
 	// ConfigPaths lists the files render writes, for revert.
-	ConfigPaths(home string) ([]LabelPath, error)
+	ConfigPaths(home string) ([]agentrender.LabelPath, error)
 	// LaunchArgs applies the -f file to the launch argv.
 	LaunchArgs(file string, args []string) ([]string, error)
 	// ProfileHint is the error a failed selection resolves to when the CLI knows the cause.
@@ -217,11 +219,11 @@ func (b BaseEngine) CheckLogin(context.Context) (providers.AuthVerdict, string) 
 	return providers.VerdictTransient, "unknown sign-in " + b.name
 }
 
-func (BaseEngine) Render(*providers.Registry, providers.Selection, string, RenderOptions, io.Writer) (bool, error) {
+func (BaseEngine) Render(*providers.Registry, providers.Selection, string, agentrender.RenderOptions, io.Writer) (bool, error) {
 	return false, nil
 }
 
-func (BaseEngine) ConfigPaths(string) ([]LabelPath, error) { return nil, nil }
+func (BaseEngine) ConfigPaths(string) ([]agentrender.LabelPath, error) { return nil, nil }
 
 func (b BaseEngine) LaunchArgs(file string, args []string) ([]string, error) {
 	if file != "" {

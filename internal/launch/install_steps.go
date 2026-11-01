@@ -13,6 +13,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agentconfig/render"
+
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/preflight"
 	"github.com/edotau/claude-code/internal/agent/project"
@@ -356,7 +358,7 @@ func agentConfigsSummary(w io.Writer) string {
 	var changed []string
 	for _, a := range agent.DefaultAgents {
 		var buf bytes.Buffer
-		o := agent.RenderOptions{Agents: []string{a}, Check: true, Out: &buf}
+		o := render.RenderOptions{Agents: []string{a}, Check: true, Out: &buf}
 		drift, err := agent.RenderConfigs(o)
 		if err != nil {
 			fmt.Fprintf(w, "agents   config render skip (%s)  %v\n", a, err)

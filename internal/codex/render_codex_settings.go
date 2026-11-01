@@ -4,14 +4,16 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/agentconfig"
 	"io"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
+
+	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agentconfig"
+	"github.com/edotau/claude-code/internal/agentconfig/render"
 
 	"github.com/edotau/claude-code/internal/paths"
 )
@@ -321,7 +323,7 @@ func restoreCodexConfigLocked(path string, dryRun bool, out io.Writer) error {
 	}
 	source := "encrypted vault backup"
 	if !found {
-		src, _, ok := agent.LegacyBackupSource(path)
+		src, _, ok := render.LegacyBackupSource(path)
 		if !ok {
 			fmt.Fprintf(out, "codex: no vault backup to restore for %s\n", path)
 			return nil

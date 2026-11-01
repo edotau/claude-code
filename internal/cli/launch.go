@@ -11,6 +11,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agentconfig/render"
+
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/preflight"
 	"github.com/edotau/claude-code/internal/agent/tools"
@@ -272,7 +274,7 @@ func cmdRestore(agents, out string, check, dryRun, forceHomes, noAgents bool) in
 	if err != nil {
 		return fail("%v", err)
 	}
-	var prepared *agent.RenderPlan
+	var prepared *render.RenderPlan
 	var drift bool
 	if !noAgents { // --no-agents: lint checks the repo's settings, not this machine's agent configs
 		if prepared, drift, err = renderAgentConfigs(agents, out, check, dryRun, forceHomes); err != nil {
@@ -384,13 +386,13 @@ func checkLiveSettings(rendered []byte) (bool, error) {
 }
 
 // renderAgentConfigs prepares the agent configs; they preview whenever the settings render does.
-func renderAgentConfigs(agents, out string, check, dryRun, forceHomes bool) (*agent.RenderPlan, bool, error) {
+func renderAgentConfigs(agents, out string, check, dryRun, forceHomes bool) (*render.RenderPlan, bool, error) {
 	var agentList []string
 	if agents != "" {
 		agentList = strings.Split(agents, ",")
 	}
 	preview := dryRun || (out == "" && !check)
-	opts := agent.RenderOptions{Agents: agentList, DryRun: preview, Check: check, Out: os.Stdout, ForceHomes: forceHomes}
+	opts := render.RenderOptions{Agents: agentList, DryRun: preview, Check: check, Out: os.Stdout, ForceHomes: forceHomes}
 	// Interactive only on a real terminal write: launch/configure callers never reach this function.
 	if !preview && !check && tui.StdinIsTerminal() && tui.StdoutIsTerminal() {
 		opts.Confirm = func(path string, lost []string) bool {
@@ -406,7 +408,7 @@ func cmdRevert(agents string, dryRun bool) int {
 	if agents != "" {
 		agentList = strings.Split(agents, ",")
 	}
-	if err := agent.RevertConfigs(agent.RenderOptions{Agents: agentList, DryRun: dryRun, Out: os.Stdout}); err != nil {
+	if err := agent.RevertConfigs(render.RenderOptions{Agents: agentList, DryRun: dryRun, Out: os.Stdout}); err != nil {
 		return fail("configure --revert: %v", err)
 	}
 	return 0

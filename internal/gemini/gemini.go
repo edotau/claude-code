@@ -7,15 +7,17 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/agentconfig"
-	"github.com/edotau/claude-code/internal/vault"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
+
+	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agentconfig"
+	"github.com/edotau/claude-code/internal/agentconfig/render"
+	"github.com/edotau/claude-code/internal/vault"
 
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
@@ -96,7 +98,7 @@ func (geminiEngine) CheckLogin(context.Context) (providers.AuthVerdict, string) 
 	return providers.VerdictNeedsLogin, ""
 }
 
-func (geminiEngine) Render(_ *providers.Registry, sel providers.Selection, home string, o agent.RenderOptions, out io.Writer) (bool, error) {
+func (geminiEngine) Render(_ *providers.Registry, sel providers.Selection, home string, o render.RenderOptions, out io.Writer) (bool, error) {
 	d, err := reportGemini(sel, out)
 	if err != nil {
 		return d, err
@@ -105,12 +107,12 @@ func (geminiEngine) Render(_ *providers.Registry, sel providers.Selection, home 
 	return d || gd, err
 }
 
-func (geminiEngine) ConfigPaths(home string) ([]agent.LabelPath, error) {
-	home, err := agent.HomeOr(home)
+func (geminiEngine) ConfigPaths(home string) ([]render.LabelPath, error) {
+	home, err := render.HomeOr(home)
 	if err != nil {
 		return nil, err
 	}
-	return []agent.LabelPath{{Label: "gemini-settings", Path: filepath.Join(home, ".gemini", "antigravity-cli", "settings.json")}}, nil
+	return []render.LabelPath{{Label: "gemini-settings", Path: filepath.Join(home, ".gemini", "antigravity-cli", "settings.json")}}, nil
 }
 
 func (geminiEngine) RouteDetail() (string, bool) { return geminiRouteDetail(), true }
@@ -457,7 +459,7 @@ func reportGemini(sel providers.Selection, out io.Writer) (bool, error) {
 
 // renderGeminiSettings merges the spec's exact-match guard denies into agy's
 // ~/.gemini/antigravity-cli/settings.json permissions.deny, preserving every other key.
-func renderGeminiSettings(home string, o agent.RenderOptions, out io.Writer) (bool, error) {
+func renderGeminiSettings(home string, o render.RenderOptions, out io.Writer) (bool, error) {
 	cfg, err := agentconfig.LoadConfig()
 	if err != nil {
 		fmt.Fprintf(out, "gemini-settings: skipped: %v\n", err)
@@ -518,7 +520,7 @@ func renderGeminiSettings(home string, o agent.RenderOptions, out io.Writer) (bo
 	if err != nil {
 		return false, fmt.Errorf("gemini-settings: %w", err)
 	}
-	return agent.CommitFile(path, raw, append(body, '\n'), existed, o, out, "gemini-settings")
+	return render.CommitFile(path, raw, append(body, '\n'), existed, o, out, "gemini-settings")
 }
 
 // geminiRouteDetail reports agy's own GEMINI_MODEL pin (effort rides the id's own suffix) — unset

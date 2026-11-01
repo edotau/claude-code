@@ -5,14 +5,16 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/vault"
 	"io"
 	"maps"
 	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
+
+	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agentconfig/render"
+	"github.com/edotau/claude-code/internal/vault"
 
 	"github.com/edotau/claude-code/internal/copilot/sdk"
 	"github.com/edotau/claude-code/internal/models"
@@ -253,16 +255,16 @@ func (copilotEngine) CheckLogin(context.Context) (providers.AuthVerdict, string)
 	return providers.VerdictNeedsLogin, ""
 }
 
-func (copilotEngine) Render(reg *providers.Registry, sel providers.Selection, home string, o agent.RenderOptions, out io.Writer) (bool, error) {
+func (copilotEngine) Render(reg *providers.Registry, sel providers.Selection, home string, o render.RenderOptions, out io.Writer) (bool, error) {
 	return renderCopilot(reg, sel, home, o, out)
 }
 
-func (copilotEngine) ConfigPaths(home string) ([]agent.LabelPath, error) {
-	home, err := agent.HomeOr(home)
+func (copilotEngine) ConfigPaths(home string) ([]render.LabelPath, error) {
+	home, err := render.HomeOr(home)
 	if err != nil {
 		return nil, err
 	}
-	return []agent.LabelPath{
+	return []render.LabelPath{
 		{Label: "copilot-hooks", Path: filepath.Join(home, ".copilot", "hooks", "claude-code-harness.json")},
 		{Label: "copilot-settings", Path: filepath.Join(home, ".copilot", "settings.json")},
 	}, nil

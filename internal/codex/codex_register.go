@@ -2,6 +2,7 @@ package codex
 
 import (
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agentconfig/render"
 	"github.com/edotau/claude-code/internal/providers"
 )
 
@@ -16,7 +17,7 @@ func init() {
 		ResumeFormat: "codex resume %s", ModelsProvider: "openai", LoginArgv: []string{"codex", "login"},
 		ConfigureHint: "run `codex login` (ChatGPT) or `claude-code configure` → codex → API key",
 	}})
-	agent.RegisterFileOps("codex", agent.FileOps{Write: writeCodexConfig, LoadBaseline: LoadCodexBaseline,
+	render.RegisterFileOps("codex", render.FileOps{Write: writeCodexConfig, LoadBaseline: LoadCodexBaseline,
 		SaveBaseline: SaveCodexBaseline, Revert: restoreCodexConfig})
 	agent.Register(codexEngine{agent.NewBaseEngine("codex")})
 }
