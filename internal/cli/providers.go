@@ -13,9 +13,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/preflight"
 	"github.com/edotau/claude-code/internal/configure"
-	"github.com/edotau/claude-code/internal/copilotsdk"
 	"github.com/edotau/claude-code/internal/models"
-	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/proxy"
 	"github.com/edotau/claude-code/internal/secrets"
@@ -467,15 +465,11 @@ func nearMatches(want string, ids []string) []string {
 	return out
 }
 
-// copilotModelIDs resolves the copilot CLI and lists its live catalog via the SDK (the harness never reads a token).
+// copilotModelIDs lists the live copilot catalog's model ids.
 func copilotModelIDs() ([]string, error) {
-	bin, err := paths.AgentBin("copilot")
-	if err != nil {
-		return nil, fmt.Errorf("copilot CLI not found: %w", err)
-	}
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	list, err := copilotsdk.ListModels(ctx, copilotCatalogOptions(bin))
+	list, err := configure.CopilotModels(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -707,9 +701,4 @@ func printRecordDiff(apply func(map[string]agent.AgentRecord), notes []string) i
 		fmt.Println("  " + l)
 	}
 	return 0
-}
-
-// copilotCatalogOptions lists models as the profile copilot runs as (its record profile), not its stored login.
-func copilotCatalogOptions(bin string) copilotsdk.Options {
-	return copilotsdk.CatalogOptions(bin, agent.CopilotToken())
 }

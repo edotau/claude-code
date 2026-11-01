@@ -150,7 +150,7 @@ func pickCopilotModels(d *dialog) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	opts := copilotCatalogOptions(bin)
+	opts := copilotsdk.CatalogOptions(bin, agent.CopilotToken())
 	tok, err := agent.CopilotLaunchToken()
 	if err != nil {
 		d.printf("copilot models: %v\n", err)
@@ -239,9 +239,4 @@ func WriteGithubCopilotModels(picks map[string]string, fallback string) error {
 		return errors.New("github models: no github profile in the registry")
 	}
 	return providers.SetProviderFields(p.Name, fields)
-}
-
-// copilotCatalogOptions lists models as the account copilot runs as (COPILOT_PROFILE), not its stored login.
-func copilotCatalogOptions(bin string) copilotsdk.Options {
-	return copilotsdk.CatalogOptions(bin, agent.CopilotToken())
 }
