@@ -136,7 +136,7 @@ func TestListLiveCopilotReportsMissingCLI(t *testing.T) {
 	}
 }
 
-func TestCopilotModelIDsReportsMissingVendorBin(t *testing.T) {
+func TestCopilotModelIDsReportsMissingAgentBin(t *testing.T) {
 	cliScratch(t)
 	bin := pathstest.FakeVendor(t, "copilot", "exit 99")
 	t.Setenv("PATH", filepath.Dir(bin))
