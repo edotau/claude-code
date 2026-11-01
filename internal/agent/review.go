@@ -12,6 +12,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/router"
+	"github.com/edotau/claude-code/internal/secrets/shapes"
 )
 
 // Scope is the diff range `<v> review` acts on. Kind: uncommitted|base|commit|pr; Ref holds the
@@ -236,7 +237,7 @@ func SetReviewProgress(job *Record, p string) {
 func LastDispatchError(name string) string {
 	for _, r := range RecentRecords(5) {
 		if r.Agent == name && r.Status == "error" {
-			return Preview(r.Error, 400)
+			return shapes.Preview(r.Error, 400)
 		}
 	}
 	return "see claude-code " + name + " status"
