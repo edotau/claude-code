@@ -27,10 +27,13 @@ hides `.git`/`.venv` (`not a git repository`, mass `ModuleNotFoundError`): scope
 ## Leaf types
 
 A leaf either does the work itself on your pin or requests another agent or account you are signed in to, through
-`claude-code ask --agent <x> [--profile <p>]` (a `coworker` leaf always requests). Pass the task alone as `description`: the `dispatch-effort` hook prefixes the vendors the brief's
-`Agent:` line names (minus the leaf's own type; `a → b` relay, `a, b` for `Mode: compare`) plus `·<profile>`, and
-`code-worker` with none reads `claude`. Rows: `code-worker  claude: <task>`, `copilot  gemini: scanning repo`,
-`coworker  claude·dev: <task>`. Never type the vendor name yourself.
+`claude-code ask --agent <x> [--profile <p>]` (a `coworker` leaf always requests). Pass the task alone as
+`description`: the `dispatch-effort` hook prefixes the model id the leaf is planned to run (its Claude tier
+in-context, else the route table's or `Profile:`'s model; agent names when unknown or for `Mode: compare`). Rows:
+`code-worker sonnet: <task>`, `coworker gpt-6.1-sol: <task>`. Never type the prefix yourself. A `coworker` is
+**experimental**: an external account depends on its system prompt and config being right and often cannot connect
+back when they are not, so trust it only on the `ran on` line its `ask` prints and keep a `code-worker` fallback for
+work that must land.
 
 "Terminal" means no subagents and no Workflow; an `ask` request is a subprocess call, allowed when the brief names it.
 A leaf's cost is its `model:` frontmatter: an `inherit` agent (`claude`, `codex`) runs at the parent's model, so fan out
