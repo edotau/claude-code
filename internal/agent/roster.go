@@ -8,7 +8,6 @@ import (
 	"net/url"
 	"os"
 	"slices"
-	"sort"
 	"strings"
 	"sync"
 
@@ -64,31 +63,60 @@ type CLI struct {
 	PinIDs                []string    // extra ids accepted as this agent's profile pin besides registry rows
 }
 
-// rosterEntry is a registered row with its roster position.
-type rosterEntry struct {
-	pos int
-	row Schema
+// Agent is everything one vendor package contributes at init: its roster row, driver and optional extras.
+type Agent struct {
+	Row       Schema
+	Driver    Driver
+	Launcher  Launcher                       // the default Claude launcher; at most one agent sets it
+	Hub       *Hub                           // the opencode-routed dispatch ladder; at most one agent sets it
+	Redactors map[string]func(string) string // launch env key -> redactor of its structured value
 }
 
 var (
 	registryMu sync.RWMutex
-	rosterRows []rosterEntry // sorted by pos; filled by RegisterRow from each agent's init
+	rosterRows []Schema // sorted by name; filled by Register from each agent's init
 	drivers    = map[string]Driver{}
 )
 
-// RegisterRow adds an agent's roster row at position pos (claude is 0); it runs from an init, never at call time.
-func RegisterRow(pos int, row Schema) {
+// Register adds an agent from its init; a wiring bug (nil or mismatched Driver, duplicate name, second Launcher or Hub) panics.
+func Register(a Agent) {
 	registryMu.Lock()
 	defer registryMu.Unlock()
-	i := sort.Search(len(rosterRows), func(i int) bool { return rosterRows[i].pos > pos })
-	rosterRows = slices.Insert(rosterRows, i, rosterEntry{pos, row})
+	switch {
+	case a.Driver == nil:
+		panic("agent: Register " + a.Row.Name + " with a nil Driver")
+	case a.Row.Name != a.Driver.Name():
+		panic("agent: row " + a.Row.Name + " registered with driver " + a.Driver.Name())
+	case a.Launcher != nil && defaultLauncher != nil:
+		panic("agent: second Launcher registered by " + a.Row.Name)
+	case a.Hub != nil && hub != nil:
+		panic("agent: second Hub registered by " + a.Row.Name)
+	}
+	addRow(a.Row)
+	drivers[a.Row.Name] = a.Driver
+	if a.Launcher != nil {
+		defaultLauncher = a.Launcher
+	}
+	if a.Hub != nil {
+		hub = a.Hub
+	}
+	maps.Copy(envRedactors, a.Redactors)
 }
 
-// Register adds an external CLI's Driver under its Name.
-func Register(d Driver) {
+// RegisterRowForTest adds a roster row with no driver, for tests that cannot import the vendor packages.
+func RegisterRowForTest(row Schema) {
 	registryMu.Lock()
 	defer registryMu.Unlock()
-	drivers[d.Name()] = d
+	addRow(row)
+}
+
+// addRow inserts row in name order; the caller holds registryMu.
+func addRow(row Schema) {
+	i, dup := slices.BinarySearchFunc(rosterRows, row.Name, func(r Schema, n string) int { return strings.Compare(r.Name, n) })
+	if dup {
+		panic("agent: duplicate agent " + row.Name)
+	}
+	rosterRows = slices.Insert(rosterRows, i, row)
 }
 
 // driverFor is the registered Driver for name.
@@ -112,14 +140,10 @@ func mustDriver(name string) Driver {
 func rows() []Schema {
 	registryMu.RLock()
 	defer registryMu.RUnlock()
-	out := make([]Schema, len(rosterRows))
-	for i, e := range rosterRows {
-		out[i] = e.row
-	}
-	return out
+	return slices.Clone(rosterRows)
 }
 
-// RosterNames is every roster agent's name, claude first, in roster order.
+// RosterNames is every roster agent's name, in roster order (by name).
 func RosterNames() []string {
 	rs := rows()
 	out := make([]string, len(rs))
@@ -129,7 +153,7 @@ func RosterNames() []string {
 	return out
 }
 
-// Roster returns independent copies of the roster rows, claude first, with external wire facts filled in.
+// Roster returns independent copies of the roster rows, with external wire facts filled in.
 func Roster() []Schema {
 	rs := rows()
 	for i := range rs {

@@ -49,10 +49,7 @@ type Hub struct {
 	OwnPlan func(opencodeID string) bool
 }
 
-var hub Hub
-
-// RegisterHub installs the hub ladder driver.
-func RegisterHub(h Hub) { hub = h }
+var hub *Hub
 
 // IsHubAgent reports whether name is one ask routes through opencode unless --native is set. codex and
 // copilot run their own CLI first (user decision): the hub cannot pass copilot's `auto` or its pinned account.
