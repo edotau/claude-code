@@ -1,6 +1,6 @@
 ---
 description: "Full-lifecycle coding via the claude agent — implement, review, or simplify the current change."
-argument-hint: "[review | simplify] [diff range / path / blank for current diff]"
+argument-hint: "[profile=<p>] [review|simplify] [range|path]"
 allowed-tools: Bash, Read, Grep, Glob, Edit, Write, Agent
 ---
 
@@ -15,3 +15,6 @@ current diff (`git diff ${RANGE:---cached}` against `git merge-base HEAD main`, 
 Dispatch one `Agent` with `subagent_type: "claude"`, passing the mode, resolved scope, and changed
 files (not this session's history); the leaf does its own work (bare label). For a `review`, the
 Security lens runs with the quality lenses. Relay its verdict.
+
+A `profile=<p>` token (stripped first) adds `Profile: <p>` to the brief: the leaf runs on that vault profile via
+`ask --profile`.

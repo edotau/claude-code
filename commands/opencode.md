@@ -2,7 +2,7 @@
 description: >-
   OpenCode via `claude-code opencode <verb>`: a bare task runs `claude-code ask --agent opencode --tools`
   (routed); `ask|resume|review|explore|transfer|status|tail|result|cancel|setup|catalog|profile|on|off` pass straight through.
-argument-hint: "[ask|resume|review|explore|transfer|status|tail|result|cancel|setup|catalog|profile|on|off] [args…] | <task>"
+argument-hint: "[profile=<p>] [model=<m>] [<verb>] <task>  (bare = routed ask)"
 allowed-tools: Bash
 ---
 
@@ -10,6 +10,10 @@ allowed-tools: Bash
 
 Launcher only. Modes, verbs and the report contract live in `agents/opencode.md`;
 `claude-code opencode -h` lists the surface.
+
+`profile=<p>` / `model=<m>` anywhere in `$ARGUMENTS` (strip them first) become `--profile <p>` /
+`--model <m>` on the `claude-code opencode <verb>` call or the routed `ask` (not on `profile`/`on`/`off`); a verb that
+lacks the flag errors, so relay that. `<p>` is a vault profile (`dev`, `qa`, `prod`, …), `<m>` an alias or wire id.
 
 Parse the first token of `$ARGUMENTS`:
 
