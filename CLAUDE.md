@@ -63,7 +63,8 @@ workflow and gate:
    numbers, prefer the narrowly scoped mechanism over a global knob, and let the user pick.
 3. **Dispatch, then verify what comes back.** Anything bigger than a one-line edit goes to a leaf whose brief names
    the files it owns: `code-worker` runs on your pin, `coworker` (experimental) on another agent or account you are
-   signed in to (`Agent:`, `Profile:`). Non-trivial work starts with `Explore` legs; an unrelated mid-task request
+   signed in to (`Agent:`, `Profile:`). Dispatch external agents yourself, by `coworker` leaf: a plan phase is never
+   a command handed to the owner to run. Non-trivial work starts with `Explore` legs; an unrelated mid-task request
    goes to a background leaf. Run leaves in parallel only on disjoint files, at most 2 at once while other sessions
    share the checkout, and check every leaf's claims (diff, gate, deletions) before committing. Pipeline:
    `rules/workflows/master-workflow.md`; shapes, briefs, test agent and recovery:
