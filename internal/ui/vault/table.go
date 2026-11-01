@@ -1,4 +1,5 @@
-package cli
+// Package vault renders `vault list`: the text sections, provider and agent tables, and the JSON document.
+package vault
 
 import (
 	"cmp"
@@ -22,12 +23,12 @@ import (
 	"github.com/edotau/claude-code/internal/ui/table"
 )
 
-// vaultTableWidth is $COLUMNS when set, else 120 (no live TTY-size query exists in this repo).
-func vaultTableWidth() int { return ansi.Columns(120) }
+// Width is $COLUMNS when set, else 120 (no live TTY-size query exists in this repo).
+func Width() int { return ansi.Columns(120) }
 
-// renderVaultTextStyled lays out each selected section (uppercase heading + aligned rows, in
-// vaultSections order), painting every section when color is on (agents paints its own rows).
-func renderVaultTextStyled(doc configure.Doc, stored []secrets.Stored, sel []string, width int, color bool) string {
+// Text lays out each selected section (uppercase heading + aligned rows, in
+// Sections order), painting every section when color is on (agents paints its own rows).
+func Text(doc configure.Doc, stored []secrets.Stored, sel []string, width int, color bool) string {
 	render := map[string]func() string{
 		"secrets":   func() string { return vaultSectionMax("SECRETS", vaultSecretRows(stored), width, 0, 0) },
 		"pins":      func() string { return vaultSection("PINS", vaultMapRows(doc.Pins), width) },
@@ -41,7 +42,7 @@ func renderVaultTextStyled(doc configure.Doc, stored []secrets.Stored, sel []str
 	var b strings.Builder
 	for _, s := range sel {
 		out := render[s]()
-		if len(sel) == len(vaultSections) && emptySection(out) { // bare/all hides empty sections; named ones say (none)
+		if len(sel) == len(Sections) && emptySection(out) { // bare/all hides empty sections; named ones say (none)
 			continue
 		}
 		if color && s != "agents" {
@@ -297,8 +298,8 @@ func vaultShownRows(rows [][]string) [][]string {
 	return out
 }
 
-// vaultCredOK reports whether provider name's credential resolves in the merged registry (a seam for tests).
-var vaultCredOK = func(name string) bool {
+// CredOK reports whether provider name's credential resolves in the merged registry (a seam for tests).
+var CredOK = func(name string) bool {
 	reg, err := providers.Load()
 	if err != nil {
 		return false
@@ -314,7 +315,7 @@ var dbxEnvOrder = []string{"dev", "qa", "prod"}
 func presetEnvs(names []string) string {
 	ok := map[string]bool{}
 	for _, n := range names {
-		ok[n] = vaultCredOK(n)
+		ok[n] = CredOK(n)
 	}
 	slices.SortFunc(names, func(a, b string) int { // failures first so a clipped cell still shows them
 		if ok[a] != ok[b] {

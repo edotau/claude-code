@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/configure"
-	"github.com/edotau/claude-code/internal/network/tailscale"
 	"github.com/edotau/claude-code/internal/secretstore"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 	"github.com/edotau/claude-code/internal/ui/tui"
@@ -68,35 +67,6 @@ func vaultUsageErr(sub string, args []string) int {
 	fmt.Fprintf(os.Stderr, "vault %s: unexpected argument %q\n", sub, args[0])
 	vaultPage.Fprint(os.Stderr)
 	return 2
-}
-
-// vaultListTailscale prints presence (never a value) per credential name, then the api verdict.
-func vaultListTailscale() int {
-	cs := tailscale.Credentials()
-	for _, c := range cs {
-		if c.Present {
-			fmt.Printf("%s  set (%s)\n", c.Name, c.Source)
-		} else {
-			fmt.Printf("%s  missing\n", c.Name)
-		}
-	}
-	fmt.Println("api:", tailscaleAPIVerdict(cs))
-	return 0
-}
-
-// tailscaleAPIVerdict names which admin credential, if any, Credentials (in its fixed order) resolves to.
-func tailscaleAPIVerdict(cs []tailscale.CredState) string {
-	id, sec, api := cs[0].Present, cs[1].Present, cs[2].Present
-	switch {
-	case id && sec:
-		return "oauth"
-	case api: // NewClient falls back to the API key when the OAuth pair is half-set
-		return "api-key"
-	case id != sec:
-		return "incomplete (need both …_ID and _SECRET)"
-	default:
-		return "none"
-	}
 }
 
 // cmdVaultSet stores a secret by NAME (or via the guided dialog); --tailscale adds a Tailscale credential.

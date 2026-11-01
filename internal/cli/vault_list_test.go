@@ -6,8 +6,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/configure"
-	"github.com/edotau/claude-code/internal/ui/ansi"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -110,18 +108,6 @@ func TestVaultListProviderAndVendorTables(t *testing.T) {
 	}
 }
 
-// TestVaultProvidersGroupsPresetRows: preset rows collapse into one row listing each env with its credential mark.
-func TestVaultProvidersGroupsPresetRows(t *testing.T) {
-	old := vaultCredOK
-	vaultCredOK = func(name string) bool { return name != "prod" }
-	t.Cleanup(func() { vaultCredOK = old })
-	raw := `{"providers":{"databricks":{"prod":{"preset":"databricks"},"dev":{"preset":"databricks"},"qa":{"preset":"databricks"}}}}`
-	got := strings.Join(strings.Fields(vaultProvidersText(json.RawMessage(raw), 200)), " ")
-	if !strings.Contains(got, "databricks databricks ✗prod ✓dev ✓qa") {
-		t.Errorf("preset rows not grouped failures-first, then env order, with leading marks:\n%s", got)
-	}
-}
-
 // TestVaultListNestedOverlayRowsPerProfileNoPlans: profiles render one row each under PROVIDER; no KIND, no PLANS.
 func TestVaultListNestedOverlayRowsPerProfileNoPlans(t *testing.T) {
 	useVaultTest(t)
@@ -147,43 +133,5 @@ func TestVaultListNestedOverlayRowsPerProfileNoPlans(t *testing.T) {
 	_, stdout, _ = captureOutput(t, func() int { return cmdVault([]string{"list", "--format", "text"}) })
 	if strings.Contains(stdout, "PROVIDERS") {
 		t.Errorf("a section with only empty/removed rows must not render:\n%s", stdout)
-	}
-}
-
-// TestVaultAgentsTableSpansRecordsToText: agent records fold into one AGENT table once, loose pins stay under PINS.
-func TestVaultAgentsTableSpansRecordsToText(t *testing.T) {
-	useVaultTest(t)
-	t.Setenv("COLUMNS", "200")
-	vaulttest.Put(t, vault.Pins, "HARNESS_PROVIDER", "anthropic")
-	for _, r := range [][3]string{
-		{"claude", "profile", "dev"}, {"claude", "model", "sonnet"}, {"claude", "aliases.opus", "opus-x"},
-		{"codex", "profile", "personal"}, {"codex", "effort", "high"},
-	} {
-		vaulttest.SetRecord(t, r[0], r[1], r[2])
-	}
-	raw, err := configure.Export()
-	if err != nil {
-		t.Fatal(err)
-	}
-	var doc configure.Doc
-	if err := json.Unmarshal(raw, &doc); err != nil {
-		t.Fatal(err)
-	}
-	text := renderVaultTextStyled(doc, nil, []string{"pins", "agents"}, 200, false)
-	flat := strings.Join(strings.Fields(text), " ")
-	for _, want := range []string{"AGENT PROFILE MODEL EFFORT", "claude dev sonnet opus=opus-x", "codex personal high", "gemini (off)"} {
-		if !strings.Contains(flat, want) {
-			t.Errorf("missing %q in:\n%s", want, text)
-		}
-	}
-	if strings.Contains(text, "AGENTS") || strings.Contains(text, "records") || strings.Count(text, "opus-x") != 1 {
-		t.Errorf("records repeated outside the table:\n%s", text)
-	}
-	pinsBlock, _, _ := strings.Cut(text, "AGENT")
-	if !strings.Contains(pinsBlock, "PINS\n") || !vaultTextHasRow(pinsBlock, "HARNESS_PROVIDER", "anthropic") {
-		t.Errorf("PINS must hold the non-agent pin:\n%s", pinsBlock)
-	}
-	if colored := renderVaultTextStyled(doc, nil, []string{"agents"}, 200, true); !strings.Contains(colored, ansi.Dim+"  gemini") {
-		t.Errorf("off agent with no other fields not dimmed:\n%q", colored)
 	}
 }
