@@ -1,6 +1,6 @@
-//go:build linux
+//go:build darwin
 
-package agent
+package live
 
 import (
 	"net"
@@ -8,7 +8,7 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// peerUID is the uid of the process on the other end of conn (SO_PEERCRED).
+// peerUID is the uid of the process on the other end of conn (LOCAL_PEERCRED).
 func peerUID(conn *net.UnixConn) (uint32, error) {
 	raw, err := conn.SyscallConn()
 	if err != nil {
@@ -17,8 +17,8 @@ func peerUID(conn *net.UnixConn) (uint32, error) {
 	var uid uint32
 	var gerr error
 	if err := raw.Control(func(fd uintptr) {
-		var cred *unix.Ucred
-		if cred, gerr = unix.GetsockoptUcred(int(fd), unix.SOL_SOCKET, unix.SO_PEERCRED); gerr == nil {
+		var cred *unix.Xucred
+		if cred, gerr = unix.GetsockoptXucred(int(fd), unix.SOL_LOCAL, unix.LOCAL_PEERCRED); gerr == nil {
 			uid = cred.Uid
 		}
 	}); err != nil {
