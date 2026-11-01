@@ -73,27 +73,16 @@ func (p Pong) Line() string {
 	return s
 }
 
-// envelope is the part of `ask --format json` read here (agent.Envelope imports this package's callers).
-type envelope struct {
-	Status   string  `json:"status"`
-	Provider string  `json:"provider"`
-	Model    string  `json:"model"`
-	Fallback *string `json:"fallback"`
-	Error    *struct {
-		Kind string `json:"kind"`
-	} `json:"error"`
-}
-
 // runAsk runs `<bin> ask --agent a --fallback none --format json` and returns the envelope; a seam for tests.
 var runAsk = defaultRunAsk
 
-func defaultRunAsk(ctx context.Context, bin, agentName string) (envelope, error) {
+func defaultRunAsk(ctx context.Context, bin, agentName string) (agent.Envelope, error) {
 	cmd := exec.CommandContext(ctx, bin, "ask", "--agent", agentName, "--fallback", "none", "--format", "json",
 		"Reply with the single word: pong")
 	proc.OwnGroup(cmd)
 	cmd.WaitDelay = 2 * time.Second
 	out, err := cmd.Output()
-	var env envelope
+	var env agent.Envelope
 	if jerr := json.Unmarshal(out, &env); jerr != nil {
 		if err != nil {
 			return env, err

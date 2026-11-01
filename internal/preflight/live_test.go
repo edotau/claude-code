@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -85,15 +86,13 @@ func TestInstallStepRows(t *testing.T) {
 	pinAll(t)
 	setPins(t, map[string]string{"CODEX_MODEL": "good-model", "COPILOT_MODEL": "gone-model"})
 	var asked []string
-	runAsk = func(_ context.Context, _, a string) (envelope, error) {
+	runAsk = func(_ context.Context, _, a string) (agent.Envelope, error) {
 		asked = append(asked, a)
 		if a == "opencode" {
-			return envelope{Status: "error", Error: &struct {
-				Kind string `json:"kind"`
-			}{"auth"}}, nil
+			return agent.Envelope{Status: "error", Error: &agent.EnvelopeError{Kind: "auth"}}, nil
 		}
 		fb := "gemini"
-		return envelope{Status: "ok", Provider: "dev", Model: "good-model", Fallback: &fb}, nil
+		return agent.Envelope{Status: "ok", Provider: "dev", Model: "good-model", Fallback: &fb}, nil
 	}
 	var buf bytes.Buffer
 	RunInstallStep(context.Background(), &buf, preflightRegistry(true), "claude-code", time.Now())
@@ -114,9 +113,9 @@ func TestInstallStepRows(t *testing.T) {
 func TestInstallStepSkipsWithoutCredential(t *testing.T) {
 	hermeticVault(t)
 	pinAll(t)
-	runAsk = func(context.Context, string, string) (envelope, error) {
+	runAsk = func(context.Context, string, string) (agent.Envelope, error) {
 		t.Error("ask must not run without a credential")
-		return envelope{}, nil
+		return agent.Envelope{}, nil
 	}
 	var buf bytes.Buffer
 	RunInstallStep(context.Background(), &buf, preflightRegistry(false), "claude-code", time.Now())
@@ -137,7 +136,10 @@ func TestInstallStepSharesBudget(t *testing.T) {
 		<-ctx.Done()
 		return nil, ctx.Err()
 	}
-	runAsk = func(ctx context.Context, _, _ string) (envelope, error) { <-ctx.Done(); return envelope{}, ctx.Err() }
+	runAsk = func(ctx context.Context, _, _ string) (agent.Envelope, error) {
+		<-ctx.Done()
+		return agent.Envelope{}, ctx.Err()
+	}
 	var buf bytes.Buffer
 	start := time.Now()
 	RunInstallStep(context.Background(), &buf, preflightRegistry(true), "claude-code", time.Now().Add(48*time.Hour))
