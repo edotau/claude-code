@@ -218,11 +218,14 @@ func cmdMemoryPath(args []string) int {
 func cmdMemoryUpdate(args []string) int {
 	fs := memoryFlagSet("update")
 	transcript := fs.String("transcript", "", "finished session's transcript")
-	cwd := fs.String("cwd", "", "project root whose bank to update (default: cwd)")
-	session := fs.String("session", "", "finished session's id (outcome recorded in state/memory/update-result-<id>)")
+	cwd := fs.String("cwd", "", "bank's project root (default: session's, else cwd)")
+	session := fs.String("session", "", "finished session's id; result: update-result-<id>")
 	dryRun := fs.Bool("dry-run", false, "print the resolved transcript and session; update nothing")
 	if code, done := helptext.Parse(fs, args); done {
 		return code
+	}
+	if fs.NArg() > 0 {
+		return failUsage("memory update: unexpected argument %q; name a session with --session <id>", fs.Arg(0))
 	}
 	err := memory.UpdateSession(memory.UpdateSessionOptions{Transcript: *transcript, CWD: *cwd, Session: *session,
 		DryRun: *dryRun, ClaudeBin: claude.ClaudeBinary, Run: memoryAgent(), Out: os.Stdout, Err: os.Stderr})

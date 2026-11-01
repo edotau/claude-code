@@ -170,11 +170,15 @@ func UpdateSession(o UpdateSessionOptions) error {
 		}
 	}
 	session, transcript := o.Session, o.Transcript
+	explicit := session != "" || transcript != ""
 	if transcript == "" && session == "" { // a live session updates itself
 		session = os.Getenv(SessionIDEnv)
 	}
 	if transcript == "" {
 		transcript = LiveTranscript(root, session)
+	}
+	if explicit && o.CWD == "" { // an explicit session's bank follows its project, not our cwd
+		root = cmp.Or(sessionRoot(transcript), root)
 	}
 	if transcript == "" { // no resolvable session: print the narrative procedure instead of refusing outright
 		ref, err := bank.Reference("update")
