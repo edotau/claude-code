@@ -1,4 +1,4 @@
-package agent
+package agentconfig
 
 import (
 	"github.com/edotau/claude-code/internal/providers"

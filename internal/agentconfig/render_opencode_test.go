@@ -1,4 +1,4 @@
-package agent
+package agentconfig
 
 import (
 	"encoding/json"
@@ -27,7 +27,7 @@ func TestOpencodeOverlayTemplatesParse(t *testing.T) {
 // with mode 0600, and that the cfg file's model/small_model come from the routing table, every other
 // field unchanged from the embedded template (the table-driven contract applyOpencodeTableModels keeps).
 func TestWriteOpencodeOverlayWritesBothFiles(t *testing.T) {
-	isolateOpencodeRouteEnv(t)
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	vaulttest.Use(t)
 	vaulttest.Put(t, vault.Overlay, "providers", `{"routing":{"cells":{"opencode":{"sonnet":{"model":"github-copilot/fix-sonnet"},"haiku":{"model":"github-copilot/fix-haiku"}}}}}`)
 	cfg, tui, err := WriteOpencodeOverlay()
@@ -70,7 +70,7 @@ func TestWriteOpencodeOverlayWritesBothFiles(t *testing.T) {
 
 // TestApplyOpencodeTableModelsKeepsUnparsableTemplate checks a body that is not a JSON object comes back unchanged.
 func TestApplyOpencodeTableModelsKeepsUnparsableTemplate(t *testing.T) {
-	isolateOpencodeRouteEnv(t)
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	vaulttest.Use(t)
 	bad := []byte("not json")
 	if got := applyOpencodeTableModels(bad); string(got) != string(bad) {

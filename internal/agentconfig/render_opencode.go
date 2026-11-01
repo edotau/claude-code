@@ -1,4 +1,4 @@
-package agent
+package agentconfig
 
 import (
 	"bytes"
@@ -12,6 +12,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/schemas"
 )
 
@@ -19,7 +20,7 @@ import (
 var opencodeOverlayFS embed.FS
 
 var _ = schemas.Register(schemas.Format{
-	Name: "opencode-overlay", Owner: "internal/agent", Kind: schemas.Derived,
+	Name: "opencode-overlay", Owner: "internal/agentconfig", Kind: schemas.Derived,
 	Glob:    func() string { return filepath.Join(opencodeOverlayDir(), "*.json") },
 	Version: 1, Keep: "re-rendered from the template on every launch; opencode reads it, so no schema field",
 })
@@ -49,10 +50,13 @@ func OpencodeOverlayRendered() (cfgPath string, cfgBody []byte, tuiPath string, 
 	return cfgPath, cfgBody, tuiPath, tuiBody, nil
 }
 
+// OverlayModels yields the overlay's model/small_model; internal/agent replaces it with the login-aware pick.
+var OverlayModels = router.OpencodeTableModels
+
 // applyOpencodeTableModels overwrites model/small_model from the routing table's opencode sonnet/haiku
 // cells; a table load error leaves the template's own hard-coded values (its one fallback use) untouched.
 func applyOpencodeTableModels(cfgBody []byte) []byte {
-	mainModel, smallModel, ok := opencodeOverlayModels()
+	mainModel, smallModel, ok := OverlayModels()
 	if !ok {
 		return cfgBody
 	}
