@@ -50,7 +50,7 @@ a vault profile: `dev`, `qa`, `prod`, …; `<m>` an alias or wire id); a verb th
 - **Web lookups** — `claude-code gemini ask --tools --format json "<question; cite URLs>"` (without
   `--tools` agy cannot search). When native search is unavailable, see `skills/web-search/SKILL.md`.
 - **Whole-module second-opinion review** — `claude-code gemini bridge --model opus`, the
-  `/gemini review` contract (architecture/consistency drift the 1M window sees that per-file review
+  `@agent-gemini review` contract (architecture/consistency drift the 1M window sees that per-file review
   misses).
 - **Diff review on the Gemini family** — `claude-code gemini review [--adversarial]`.
 - **Continuing an agy conversation** — `claude-code gemini resume <id> <task>`.
@@ -173,7 +173,7 @@ ids per profile are in `internal/models/catalog.json`. Resolution: `--model` →
 `GEMINI_MODEL` → the profile's `sonnet`; `--model` accepts an alias, a version or a wire id. Full flag
 reference: `claude-code gemini bridge --help`.
 
-### Review mode (`/gemini review`)
+### Review mode (`@agent-gemini review`)
 
 A first argument of `review` packs whole modules (`--dirs`) into one **`opus`-model** call
 for an architecture/consistency second opinion — the 1M window sees cross-file
