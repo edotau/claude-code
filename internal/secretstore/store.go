@@ -5,6 +5,7 @@ package secretstore
 import (
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 	"time"
 
@@ -202,4 +203,35 @@ func HasSecretErr(name string) (source string, err error) {
 		return "vault", nil
 	}
 	return "", nil
+}
+
+// Has reports whether name is a sealed vault secret.
+func Has(name string) bool { return slices.Contains(Names(), name) }
+
+// LookupAll resolves each name (vault, then process env); the first unset or unreadable name is the error.
+func LookupAll(names []string) ([]string, error) {
+	values := make([]string, len(names))
+	for i, name := range names {
+		value, _, err := Lookup(name)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %v", name, err)
+		}
+		if value == "" {
+			return nil, fmt.Errorf("%s not set (checked the vault and the process env)", name)
+		}
+		values[i] = value
+	}
+	return values, nil
+}
+
+// Remove deletes the sealed secret name and audits it; an unknown name is an error.
+func Remove(name string) error {
+	if !Has(name) {
+		return fmt.Errorf("%s not set", name)
+	}
+	if err := Delete(name); err != nil {
+		return err
+	}
+	audit.Log(audit.SecretDelete, name, "")
+	return nil
 }

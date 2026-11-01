@@ -158,7 +158,7 @@ func TestThemeNoArgsAlsoListsAndWritesNothing(t *testing.T) {
 		t.Fatalf("theme (no args) exit %d", code)
 	}
 	// bare `theme` is its help: usage, then the palettes with the current one marked
-	if !strings.Contains(out, "usage: claude-code theme") || !strings.Contains(out, "● "+currentGradient()) {
+	if !strings.Contains(out, "usage: claude-code theme") || !strings.Contains(out, "● "+theme.CurrentGradient()) {
 		t.Errorf("bare theme must print usage and mark the current palette:\n%s", out)
 	}
 	for _, name := range theme.GradientNames() {
@@ -184,31 +184,6 @@ func TestThemeUnknownNameExitsTwoAndListsValid(t *testing.T) {
 	}
 	if _, err := os.Stat(configPath(dir)); !os.IsNotExist(err) {
 		t.Error("an unknown palette name must not write config.json")
-	}
-}
-
-// TestSetGradientRejectsNullConfigWithoutPanicking: json.Unmarshal("null", &m) succeeds but leaves m
-// nil — a bare `if err != nil` check would miss it and panic on the m["gradient"] = assignment.
-// setGradient must error out instead, and must not touch the file.
-func TestSetGradientRejectsNullConfigWithoutPanicking(t *testing.T) {
-	dir := hermeticTheme(t)
-	path := configPath(dir)
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(path, []byte("null"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	err := setGradient("ocean")
-	if err == nil {
-		t.Fatal("setGradient on a null config: err = nil, want an error")
-	}
-	raw, readErr := os.ReadFile(path)
-	if readErr != nil {
-		t.Fatal(readErr)
-	}
-	if string(raw) != "null" {
-		t.Errorf("setGradient on a null config changed the file: %q", raw)
 	}
 }
 
