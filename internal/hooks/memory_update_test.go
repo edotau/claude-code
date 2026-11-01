@@ -1,13 +1,10 @@
 package hooks
 
 import (
-	"github.com/edotau/claude-code/internal/hosttest"
-	"io"
-
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"github.com/edotau/claude-code/internal/worktree"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -19,10 +16,12 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/memory/bank"
 	"github.com/edotau/claude-code/internal/memstore"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/worktree"
 )
 
 // TestMain stubs the detached dream spawn so no SessionStart test launches a real process.

@@ -3,13 +3,13 @@ package hooks
 import (
 	"bytes"
 	"fmt"
-	"github.com/edotau/claude-code/internal/memory/bank"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/memory/bank"
 	"github.com/edotau/claude-code/internal/settings"
 )
 

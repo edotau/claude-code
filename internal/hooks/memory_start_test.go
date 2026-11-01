@@ -2,11 +2,11 @@ package hooks
 
 import (
 	"fmt"
-	"github.com/edotau/claude-code/internal/memory/bank"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/memory/bank"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
