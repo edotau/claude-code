@@ -588,7 +588,7 @@ func TestDropKeepRefusesSectionOrProvider(t *testing.T) {
 	} {
 		var out bytes.Buffer
 		rc := run(&out)
-		if rc != 2 || !strings.Contains(out.String(), "configure: --drop/--keep take no section or --provider") {
+		if rc != 2 || !strings.Contains(out.String(), "configure: --drop/--keep take no section or --profile") {
 			t.Errorf("%s: rc=%d out=%q; want 2 with the new message", name, rc, out.String())
 		}
 	}

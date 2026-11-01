@@ -21,7 +21,6 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/launch"
-	"github.com/edotau/claude-code/internal/network/browser"
 	"github.com/edotau/claude-code/internal/network/tailscale"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
@@ -37,7 +36,7 @@ type homeRow struct {
 }
 
 func toolsRows(d *dialog) []homeRow {
-	return []homeRow{tailscaleRow(), webSearchRow(), browsersRow()}
+	return []homeRow{tailscaleRow(), webSearchRow()}
 }
 
 func settingsRows(d *dialog) []homeRow {
@@ -79,18 +78,6 @@ func tailscaleRow() homeRow {
 		check = host + " · " + check
 	}
 	return homeRow{"tailscale", state, check, func(d *dialog) { runRemote(d) }}
-}
-
-func browsersRow() homeRow {
-	rep := browser.Detect(browser.NewEnv())
-	state := "default " + cmp.Or(rep.Default, "none")
-	n := 0
-	for _, b := range rep.Browsers {
-		if b.Installed {
-			n++
-		}
-	}
-	return homeRow{"browsers", state, fmt.Sprintf("%d installed", n), func(d *dialog) { runBrowser(d) }}
 }
 
 // webSearchArgs is the claude-code argv every client registers for the web_search MCP server.

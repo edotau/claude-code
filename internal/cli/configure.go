@@ -27,16 +27,13 @@ var configurePage = helptext.Page{
 		{"provider", "pick the session profile; --list shows credential state"},
 		{"models", "pin models (live catalog: claude-code models --live)"},
 		{"agents", "set up each agent CLI's routing (--agent for one)"},
-		{"proxy", "start the proxy when a model crosses providers"},
 		{"github", "GitHub Copilot logins and opencode's fallback ladder"},
 		{"remote", "tailscale connectivity and remote hosts (read-only)"},
-		{"browser", "browsers Claude in Chrome can drive (read-only)"},
 		{"claude", "per-machine settings.json overrides"},
 		{"desktop", "Claude Desktop loopback profile; --revert restores selection"},
 		{"codex", "Codex preferences with encrypted config history"},
 		{"routing", "price weight, subagent offload, opencode's sub-pick knobs"},
 		{"databricks", "browser sign-in and token mint per Databricks profile"},
-		{"doctor", "read-only health checks"},
 	},
 }
 
