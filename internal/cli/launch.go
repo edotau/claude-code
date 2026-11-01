@@ -14,6 +14,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent/tools"
 	"github.com/edotau/claude-code/internal/audit"
 	"github.com/edotau/claude-code/internal/claude"
+	"github.com/edotau/claude-code/internal/copilot"
 	"github.com/edotau/claude-code/internal/databricks"
 	"github.com/edotau/claude-code/internal/hooks"
 	"github.com/edotau/claude-code/internal/launch"
@@ -415,14 +416,24 @@ func refreshServed() {
 // cmdPreflight is the hidden `preflight [--live|--refresh]`: pin rows, the post-install step, or a silent re-list.
 func cmdPreflight(args []string) int {
 	fs := helptext.NewFlagSet("preflight", helptext.Page{
-		Usage: "claude-code preflight [--live|--refresh]",
+		Usage: "claude-code preflight [--live|--refresh|--discover <profile>]",
 		About: "Print each agent's pin check; --live also refreshes stale listings and runs the post-install pong round.\n" +
-			"--refresh only re-lists stale listings, silently.",
+			"--refresh only re-lists stale listings, silently.\n" +
+			"--discover re-seals one profile's model-discovery snapshot, silently (a launch spawns it when expired).",
 	})
 	live := fs.Bool("live", false, "refresh stale listings and ask each pinned agent for pong")
 	refresh := fs.Bool("refresh", false, "re-list stale served-endpoint caches, print nothing")
+	discover := fs.String("discover", "", "re-seal this profile's model-discovery snapshot, print nothing")
 	if code, done := helptext.Parse(fs, args); done {
 		return code
+	}
+	if *discover != "" {
+		ctx, cancel := context.WithTimeout(context.Background(), preflight.Budget)
+		defer cancel()
+		if err := copilot.RefreshCopilotModels(ctx, *discover); err != nil {
+			return fail("preflight: %v", err)
+		}
+		return 0
 	}
 	reg, err := providers.Load()
 	if err != nil {

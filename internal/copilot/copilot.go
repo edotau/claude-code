@@ -447,7 +447,7 @@ func CopilotModelSource(ctx context.Context, reg *providers.Registry, profile st
 	if !ok || p == nil || p.Preset != providers.PresetDatabricks {
 		return CopilotCatalog{Source: "GitHub Copilot catalog"}, nil
 	}
-	rows, err := discoverCopilotEndpoints(ctx, reg, p)
+	rows, err := checkedCopilotEndpoints(ctx, reg, p)
 	if err != nil {
 		return CopilotCatalog{}, err
 	}

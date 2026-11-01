@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/edotau/claude-code/internal/secretstore"
 	"github.com/edotau/claude-code/internal/vault"
@@ -58,6 +59,7 @@ func ParseDotenv(r io.Reader) (pairs []Pair, problems []string) {
 type Stored struct {
 	Name, Source, Prefix string
 	Len                  int
+	SetAt                time.Time
 }
 
 func (s Stored) Masked() string {
@@ -99,7 +101,7 @@ func ListStored(only []string) ([]Stored, error) {
 			continue
 		}
 		m := meta[n]
-		out = append(out, Stored{Name: n, Source: "vault", Prefix: m.Prefix, Len: m.Len})
+		out = append(out, Stored{Name: n, Source: "vault", Prefix: m.Prefix, Len: m.Len, SetAt: m.SetAt})
 	}
 	return out, nil
 }

@@ -1,25 +1,111 @@
 package copilot
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/edotau/claude-code/internal/databricks/serving"
+	"github.com/edotau/claude-code/internal/preflight"
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 )
 
-// copilotSnapshotTTL is how long a sealed discovery snapshot stands in for a live listing.
+// copilotSnapshotTTL is the default life of a sealed discovery snapshot; copilotCacheTTLEnv overrides it.
 const copilotSnapshotTTL = 24 * time.Hour
 
-// copilotRelist forces a live listing past the snapshot; a seam for tests.
-var copilotRelist = relistCopilotEndpoints
+// copilotCacheTTLEnv holds the snapshot life as a Go duration, in the process env or the vault's custom env.
+const copilotCacheTTLEnv = "HARNESS_MODEL_CACHE_TTL"
 
-// copilotModelInfos reads p's models snapshot-first; a scope, identity or vault failure lists live as it always did.
+// Seams for tests: the forced relist and the detached refresh spawn.
+var (
+	copilotRelist       = relistCopilotEndpoints
+	copilotSpawnRefresh = spawnCopilotRefresh
+)
+
+// copilotModelCacheTTL is the snapshot life; an unset or invalid copilotCacheTTLEnv gives the default (invalid warns).
+func copilotModelCacheTTL() time.Duration {
+	raw := strings.TrimSpace(cmp.Or(os.Getenv(copilotCacheTTLEnv), providers.CustomEnv()[copilotCacheTTLEnv]))
+	if raw == "" {
+		return copilotSnapshotTTL
+	}
+	d, err := time.ParseDuration(raw)
+	if err != nil || d <= 0 {
+		fmt.Fprintf(os.Stderr, "copilot: %s=%q is not a positive Go duration; using %s\n", copilotCacheTTLEnv, raw,
+			copilotSnapshotTTL)
+		return copilotSnapshotTTL
+	}
+	return d
+}
+
+// copilotModelInfos is a launch's read of p's models: the sealed snapshot with no network when one is remembered,
+// else the identity-checked read. An expired snapshot is served and refreshed by a detached process.
 func copilotModelInfos(ctx context.Context, reg *providers.Registry, p *providers.Provider,
+) (infos []providers.ModelInfo, snapshot bool, err error) {
+	if infos, ok := copilotCachedModels(p); ok {
+		return infos, true, nil
+	}
+	return copilotCheckedModelInfos(ctx, reg, p)
+}
+
+// copilotCachedModels reads p's snapshot under its remembered subject, locally; ok is false on any miss or vault error.
+func copilotCachedModels(p *providers.Provider) (infos []providers.ModelInfo, ok bool) {
+	subject, found, err := serving.RecallSubject(p)
+	if err != nil || !found {
+		return nil, false
+	}
+	scope, err := serving.NewScope(p, subject)
+	if err != nil {
+		return nil, false
+	}
+	old, found, err := serving.Read(scope, true)
+	if err != nil || !found || len(copilotServingChatRows(old.Models, nil)) == 0 {
+		return nil, false
+	}
+	expired := time.Since(old.DiscoveredAt) >= copilotModelCacheTTL()
+	if expired && preflight.ClaimNamed("discover-"+url.PathEscape(p.Name), time.Now()) {
+		copilotSpawnRefresh(p.Name)
+	}
+	return old.Models, true
+}
+
+// spawnCopilotRefresh starts `preflight --discover <profile>` detached: a goroutine would die at the launch's exec.
+func spawnCopilotRefresh(profile string) bool {
+	self, err := os.Executable()
+	if err != nil {
+		return false
+	}
+	null, err := os.OpenFile(os.DevNull, os.O_WRONLY, 0)
+	if err != nil {
+		return false
+	}
+	defer null.Close()
+	return proc.SpawnDetached(self, []string{"preflight", "--discover", profile}, "", null)
+}
+
+// RefreshCopilotModels is the detached refresh: validate profile's identity, relist and seal; the launch never waits.
+func RefreshCopilotModels(ctx context.Context, profile string) error {
+	reg, err := providers.Load()
+	if err != nil {
+		return err
+	}
+	p := reg.Providers[profile]
+	if p == nil || p.Preset != providers.PresetDatabricks {
+		return fmt.Errorf("copilot: %q is not a Databricks profile", profile)
+	}
+	_, err = relistCopilotEndpoints(ctx, reg, p)
+	return err
+}
+
+// copilotCheckedModelInfos reads p's models snapshot-first with the identity validated; a scope, identity or vault
+// failure lists live as it always did.
+func copilotCheckedModelInfos(ctx context.Context, reg *providers.Registry, p *providers.Provider,
 ) (infos []providers.ModelInfo, snapshot bool, err error) {
 	scope, old, found, err := copilotSnapshot(ctx, p)
 	if err != nil {
@@ -30,7 +116,8 @@ func copilotModelInfos(ctx context.Context, reg *providers.Registry, p *provider
 		infos, err = copilotRefresh(ctx, reg, p, scope, old)
 		return infos, false, err
 	}
-	if time.Since(old.DiscoveredAt) < copilotSnapshotTTL {
+	if time.Since(old.DiscoveredAt) < copilotModelCacheTTL() {
+		copilotRemember(p, old)
 		return old.Models, true, nil
 	}
 	listCtx, cancel := halfRemaining(ctx) // a failed refresh must leave the launch time to use the stale snapshot
@@ -42,6 +129,16 @@ func copilotModelInfos(ctx context.Context, reg *providers.Registry, p *provider
 	fmt.Fprintf(os.Stderr, "copilot: %s live listing failed, using the %s-old snapshot: %s\n", p.Name,
 		time.Since(old.DiscoveredAt).Round(time.Minute), serving.TruncateMsg([]byte(err.Error())))
 	return old.Models, true, nil
+}
+
+// copilotRemember seals old again when p has no remembered subject or another one, so the next launch hits locally.
+func copilotRemember(p *providers.Provider, old serving.Snapshot) {
+	if subject, found, err := serving.RecallSubject(p); err == nil && found && subject == old.Scope.SubjectID {
+		return
+	}
+	if err := serving.Save(p, old); err != nil {
+		fmt.Fprintf(os.Stderr, "copilot: %s discovery snapshot not saved: %v\n", p.Name, err)
+	}
 }
 
 // relistCopilotEndpoints revalidates the subject, then lists live and seals, whatever the snapshot's age.

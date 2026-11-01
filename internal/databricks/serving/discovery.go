@@ -130,6 +130,35 @@ func servingDiscoveryKey(scope Scope) string {
 	return fmt.Sprintf(DiscoveryKeyPrefix+"%x", sha256.Sum256(data))
 }
 
+// SubjectKeyPrefix starts every sealed remembered-subject secret name.
+const SubjectKeyPrefix = "model-discovery-subject/v1/"
+
+// subjectKey names p's remembered subject: a hash of its scope minus the subject plus its non-secret auth identity.
+func subjectKey(p *providers.Provider) (string, error) {
+	scope, err := NewScope(p, "")
+	if err != nil {
+		return "", err
+	}
+	a := p.Auth
+	// only strings: a changed host, auth type or client id changes the key
+	data, _ := json.Marshal([]any{scope, a.Type, a.Header, a.Env, a.File, a.Command, a.Login, a.ClientID, a.SPClientID})
+	return fmt.Sprintf(SubjectKeyPrefix+"%x", sha256.Sum256(data)), nil
+}
+
+// RecallSubject is the subject last validated for p, read from the vault with no network; a cache-key input only.
+func RecallSubject(p *providers.Provider) (subject string, found bool, err error) {
+	name, err := subjectKey(p)
+	if err != nil {
+		return "", false, err
+	}
+	raw, found, err := vault.ReadSecret(name)
+	if err != nil {
+		return "", false, errors.New("cannot read or decrypt remembered subject")
+	}
+	subject = strings.TrimSpace(raw)
+	return subject, found && subject != "", nil
+}
+
 func Read(scope Scope, refresh bool) (Snapshot, bool, error) {
 	if _, _, err := vault.MasterKey(); err != nil {
 		return Snapshot{}, false, errors.New("discovery vault is unavailable or locked")
@@ -210,9 +239,18 @@ func Save(p *providers.Provider, snapshot Snapshot) error {
 		return errors.New("cannot encode discovery snapshot")
 	}
 	name := servingDiscoveryKey(scope)
+	subjectName, err := subjectKey(p)
+	if err != nil {
+		return err
+	}
+	label := "databricks/" + scope.Profile
 	if err := vault.UpdateSealed(func(tx *vault.Tx, key *vault.Key) error {
+		if err := tx.PutRecord(subjectName, vault.Record{Sealed: key.Seal(subjectName, scope.SubjectID), Kid: key.Kid,
+			Len: len(scope.SubjectID), Label: label, SetAt: time.Now().UTC()}); err != nil {
+			return err
+		}
 		return tx.PutRecord(name, vault.Record{Sealed: key.Seal(name, string(data)), Kid: key.Kid, Len: len(data),
-			Label: "databricks/" + scope.Profile, SetAt: time.Now().UTC()})
+			Label: label, SetAt: snapshot.DiscoveredAt})
 	}); err != nil {
 		return errors.New("cannot seal discovery cache; check vault access")
 	}
