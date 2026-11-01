@@ -44,8 +44,8 @@ type profile struct {
 	InferenceGatewayBaseURL         string            `json:"inferenceGatewayBaseUrl"`
 	InferenceGatewayAuthScheme      string            `json:"inferenceGatewayAuthScheme"`
 	InferenceCredentialKind         string            `json:"inferenceCredentialKind"`
-	InferenceCredentialHelper       string            `json:"inferenceCredentialHelper,omitempty"`
-	InferenceCredentialHelperWin    string            `json:"inferenceCredentialHelperWindows,omitempty"`
+	InferenceCredentialHelper       string            `json:"inferenceCredentialHelper"`
+	InferenceCredentialHelperTO     int               `json:"inferenceCredentialHelperTimeoutSec"`
 	InferenceCredentialHelperArgs   []string          `json:"inferenceCredentialHelperArgs"`
 	InferenceCredentialHelperTTL    int               `json:"inferenceCredentialHelperTtlSec"`
 	InferenceCredentialHelperSilent bool              `json:"inferenceCredentialHelperSilentRefreshEnabled"`
@@ -224,7 +224,7 @@ func revertChanges(meta map[string]json.RawMessage, state savedState, filtered [
 			delete(meta, "appliedId")
 		}
 	}
-	meta["profiles"] = marshal(filtered)
+	setEntries(meta, filtered)
 	if metaSnap.exists {
 		changes = append(changes, change{path: metaPath + ".revert.bak", data: metaSnap.data})
 	}
@@ -247,17 +247,13 @@ func applyChanges(opts Options, meta map[string]json.RawMessage, hasState bool, 
 		changes = append(changes, change{path: metaPath + ".bak", data: m.data})
 	}
 	filtered = append(filtered, marshal(map[string]string{"id": ProfileID, "name": opts.Profile}))
-	meta["profiles"] = marshal(filtered)
+	setEntries(meta, filtered)
 	meta["appliedId"] = marshal(ProfileID)
 	p := profile{InferenceProvider: "gateway", InferenceGatewayBaseURL: opts.BaseURL,
 		InferenceGatewayAuthScheme: "bearer", InferenceCredentialKind: "helper-script",
-		InferenceCredentialHelperArgs: opts.HelperArgs, InferenceCredentialHelperTTL: 900, InferenceCredentialHelperSilent: true,
+		InferenceCredentialHelper: opts.HelperPath, InferenceCredentialHelperArgs: opts.HelperArgs,
+		InferenceCredentialHelperTTL: 900, InferenceCredentialHelperTO: 300, InferenceCredentialHelperSilent: true,
 		InferenceModels: opts.Models, InferenceCustomHeaders: opts.Headers}
-	if opts.HelperWindows {
-		p.InferenceCredentialHelperWin = opts.HelperPath
-	} else {
-		p.InferenceCredentialHelper = opts.HelperPath
-	}
 	return append(changes, change{path: profilePath, data: marshal(p)}, change{path: metaPath, data: marshal(meta)})
 }
 
@@ -325,15 +321,30 @@ func validateOptions(opts *Options) error {
 	return nil
 }
 
+// legacyEntriesKey is the list key this package wrote before matching Desktop's (and ucode's) "entries".
+const legacyEntriesKey = "profiles"
+
+// setEntries writes the profile list under "entries", folding away a legacy "profiles" list.
+func setEntries(meta map[string]json.RawMessage, entries []json.RawMessage) {
+	delete(meta, legacyEntriesKey)
+	meta["entries"] = marshal(entries)
+}
+
 func profileEntries(meta map[string]json.RawMessage) ([]json.RawMessage, error) {
 	if id, ok := meta["appliedId"]; ok && !validAppliedID(id) {
 		return nil, errors.New("invalid Desktop appliedId")
 	}
 	var entries []json.RawMessage
-	if raw, ok := meta["profiles"]; ok {
-		if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) || json.Unmarshal(raw, &entries) != nil {
-			return nil, errors.New("invalid Desktop profiles array")
+	for _, key := range []string{"entries", legacyEntriesKey} {
+		raw, ok := meta[key]
+		if !ok {
+			continue
 		}
+		var list []json.RawMessage
+		if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) || json.Unmarshal(raw, &list) != nil {
+			return nil, fmt.Errorf("invalid Desktop %s array", key)
+		}
+		entries = append(entries, list...)
 	}
 	for _, entry := range entries {
 		var row map[string]json.RawMessage

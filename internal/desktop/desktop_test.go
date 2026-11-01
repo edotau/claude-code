@@ -126,8 +126,13 @@ func TestConfigureIdempotentRevert(t *testing.T) {
 				t.Fatal("unknown metadata lost")
 			}
 			entries, err := profileEntries(m)
-			if err != nil || len(entries) != 2 {
-				t.Fatalf("entries %s, %v", m["profiles"], err)
+			if err != nil || len(entries) != 2 || m["entries"] == nil || m[legacyEntriesKey] != nil {
+				t.Fatalf("entries %s (legacy %s), %v: want the list under entries only", m["entries"], m[legacyEntriesKey], err)
+			}
+			pf := object(t, profilePath)
+			if string(pf["inferenceCredentialHelper"]) == `""` || pf["inferenceCredentialHelper"] == nil ||
+				string(pf["inferenceCredentialHelperTimeoutSec"]) != "300" {
+				t.Fatalf("helper %s timeout %s, want both set", pf["inferenceCredentialHelper"], pf["inferenceCredentialHelperTimeoutSec"])
 			}
 			var first map[string]any
 			_ = json.Unmarshal(entries[0], &first)
