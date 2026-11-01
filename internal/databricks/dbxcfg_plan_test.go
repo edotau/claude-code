@@ -2,11 +2,196 @@ package databricks
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
+	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/edotau/claude-code/internal/providers"
 )
+
+const fixture = `[DEFAULT]
+host = https://leak.example.cloud.databricks.com
+token = dapiDEFAULTLEAK
+
+[__settings__]
+x = y
+
+[alpha]
+host = https://alpha.example.cloud.databricks.com/?o=1
+auth_type = databricks-cli
+
+[beta]
+host = beta.example.cloud.databricks.com
+client_id = cid-beta
+client_secret = shh-beta
+
+[gamma]
+host = https://gamma.example.cloud.databricks.com
+token = dapi0123
+
+[delta]
+host = http://insecure.example.com
+
+[bad name]
+host = https://bad.example.cloud.databricks.com
+`
+
+func writeFixtureCfg(t *testing.T) string {
+	t.Helper()
+	p := filepath.Join(t.TempDir(), "cfg")
+	if err := os.WriteFile(p, []byte(fixture), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
+func TestCandidates(t *testing.T) {
+	cs, err := Candidates(writeFixtureCfg(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]Candidate{}
+	for _, c := range cs {
+		got[c.Name] = c
+	}
+	if _, ok := got["DEFAULT"]; ok || got["__settings__"].Name != "" {
+		t.Fatalf("DEFAULT/__settings__ leaked: %v", got)
+	}
+	want := map[string][3]string{
+		"alpha": {providers.AuthOAuth, "https://alpha.example.cloud.databricks.com", ""},
+		"beta":  {providers.AuthM2M, "https://beta.example.cloud.databricks.com", ""},
+		"gamma": {providers.AuthPAT, "https://gamma.example.cloud.databricks.com", ""},
+	}
+	for n, w := range want {
+		if c := got[n]; c.Auth != w[0] || c.Host != w[1] {
+			t.Errorf("%s = %+v", n, c)
+		}
+	}
+	if got["delta"].Skip == "" || got["beta"].ClientID != "cid-beta" || !got["beta"].HasSecret {
+		t.Errorf("delta/beta: %+v %+v", got["delta"], got["beta"])
+	}
+	// No Candidate field may hold a secret value.
+	for _, c := range cs {
+		if strings.Contains(strings.ToLower(reflect.ValueOf(c).String()+c.Host+c.ClientID), "shh") {
+			t.Errorf("secret in candidate %+v", c)
+		}
+	}
+}
+
+func TestReadSecrets(t *testing.T) {
+	p := writeFixtureCfg(t)
+	s, err := ReadSecrets(p, "beta")
+	if err != nil || s.ClientSecret != "shh-beta" {
+		t.Fatalf("%+v %v", s, err)
+	}
+	if _, err := ReadSecrets(p, "DEFAULT"); err == nil {
+		t.Fatal("DEFAULT must not be readable")
+	}
+}
+
+func TestPlan(t *testing.T) {
+	cs, _ := Candidates(writeFixtureCfg(t))
+	existing := map[string]json.RawMessage{
+		"alpha": json.RawMessage(`{"auth":{"type":"oauth"}}`),
+		"beta":  json.RawMessage(`{"auth":{"type":"pat"}}`),
+	}
+	byID := func(o ImportOptions) map[string]Row {
+		m := map[string]Row{}
+		for _, r := range ImportPlan(cs, existing, o) {
+			m[r.Name] = r
+		}
+		return m
+	}
+	m := byID(ImportOptions{Rename: map[string]string{"gamma": "gamma2", "bad name": "fixed"}})
+	if m["alpha"].Action != "skip" || m["gamma"].ID != "gamma2" || m["gamma"].Action != "add" ||
+		m["bad name"].Action != "add" || m["delta"].Action != "skip" {
+		t.Errorf("plan: %+v", m)
+	}
+	if m := byID(ImportOptions{Replace: true}); m["alpha"].Action != "replace" ||
+		!strings.Contains(m["beta"].Reason, "never changed") || m["bad name"].Action != "skip" {
+		t.Errorf("replace plan: %+v", m)
+	}
+}
+
+func TestApplyAndSecretName(t *testing.T) {
+	top := map[string]json.RawMessage{"default": json.RawMessage(`"x"`)}
+	rows := []Row{{Host: "https://h.example.com", Auth: providers.AuthM2M, ClientID: "c", ID: "my-sp", Action: "add"}}
+	if err := Apply(top, rows); err != nil {
+		t.Fatal(err)
+	}
+	if string(top["default"]) != `"x"` || !strings.Contains(string(top["providers"]), `"clientId":"c"`) {
+		t.Errorf("top = %v", top)
+	}
+	if n := SecretNameOf(rows[0]); n != "DATABRICKS_MY_SP_M2M" {
+		t.Errorf("name %s", n)
+	}
+	if strings.Contains(string(top["providers"]), "secret") && strings.Contains(string(top["providers"]), "shh") {
+		t.Error("secret in row")
+	}
+}
+
+const orderCfg = `[prod]
+host = https://prod.cloud.databricks.com
+token = dapi1
+
+[dev]
+host = https://dev.cloud.databricks.com
+token = dapi2
+
+[qa]
+host = https://qa.cloud.databricks.com
+token = dapi3
+`
+
+func TestImportFollowsSectionOrder(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "cfg")
+	if err := os.WriteFile(p, []byte(orderCfg), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cs, err := Candidates(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, c := range cs {
+		names = append(names, c.Name)
+	}
+	if want := []string{"prod", "dev", "qa"}; !slices.Equal(names, want) {
+		t.Fatalf("Candidates = %v, want section order %v", names, want)
+	}
+	top := map[string]json.RawMessage{}
+	if err := Apply(top, ImportPlan(cs, Existing(top), ImportOptions{})); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := providers.ObjectKeys(top["providers"]), []string{"prod", "dev", "qa"}; !slices.Equal(got, want) {
+		t.Errorf("Apply order = %v, want %v (not sorted)", got, want)
+	}
+}
+
+func TestApplyKeepsExistingRowsInPlaceAndAppendsNew(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "cfg")
+	if err := os.WriteFile(p, []byte(orderCfg), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cs, err := Candidates(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ex, _ := providers.MarshalOrdered([]string{"qa", "legacy"}, map[string]json.RawMessage{
+		"qa":     json.RawMessage(`{"preset":"databricks","host":"https://qa.cloud.databricks.com","auth":{"type":"pat"}}`),
+		"legacy": json.RawMessage(`{"preset":"databricks","host":"https://l.cloud.databricks.com"}`),
+	})
+	top := map[string]json.RawMessage{"providers": ex}
+	if err := Apply(top, ImportPlan(cs, Existing(top), ImportOptions{Replace: true})); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := providers.ObjectKeys(top["providers"]), []string{"qa", "legacy", "prod", "dev"}; !slices.Equal(got, want) {
+		t.Errorf("Apply order = %v, want %v", got, want)
+	}
+}
 
 func TestPairingPlanSignalsAndSafety(t *testing.T) {
 	for _, tc := range []struct {
