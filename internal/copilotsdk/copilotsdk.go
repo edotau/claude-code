@@ -73,8 +73,12 @@ func BuildClientOptions(o Options) (*copilot.ClientOptions, error) {
 		base = registryEnv(append(base, o.Env...), o.ChildEnv, o.ChildUnset, o.ChildUnsetPrefix)
 		o.Env = nil
 	}
+	env := append(base, o.Env...)
+	if o.ReadOnlyTools { // applied last so neither the parent's env nor --env can re-arm a git helper
+		env = registryEnv(env, readOnlyGitEnv, nil, "GIT_")
+	}
 	return &copilot.ClientOptions{
-		Connection:       copilot.StdioConnection{Path: o.CLIPath, Env: append(base, o.Env...)},
+		Connection:       copilot.StdioConnection{Path: o.CLIPath, Env: env},
 		WorkingDirectory: o.WorkingDirectory,
 		UseLoggedInUser:  new(o.UseLoggedInUser),
 		GitHubToken:      o.GitHubToken,
@@ -185,16 +189,50 @@ func denyAllTools(_ copilot.PermissionRequest, _ copilot.PermissionInvocation) (
 // readOnlyKinds are the requests a read-only run approves: file reads and URL fetches, never write or memory.
 var readOnlyKinds = map[rpc.PermissionRequestKind]bool{rpc.PermissionRequestKindRead: true, rpc.PermissionRequestKindURL: true}
 
-const readOnlyFeedback = "This run is read-only: only file reads, URL fetches and read-only git (status, diff, log, show, blame, rev-parse, branch --list) are allowed. Report instead of changing anything."
+const readOnlyFeedback = "This run is read-only: only file reads, URL fetches and read-only git (status, diff, log, show, blame, rev-parse, branch --list) are allowed. git diff, log and show must start with --no-ext-diff --no-textconv, git blame with --no-textconv (git log --no-ext-diff --no-textconv -p). Report instead of changing anything."
 
 // readOnlyGit are the git subcommands a read-only run may shell out to.
 var readOnlyGit = map[string]bool{"status": true, "diff": true, "log": true, "show": true, "blame": true, "rev-parse": true, "branch": true}
 
 // gitBannedFlags also match any abbreviation git would accept (--out=x is --output=x).
-var gitBannedFlags = []string{"--output", "--exec", "--ext-diff", "--config", "--open-files-in-pager"}
+var gitBannedFlags = []string{
+	"--output", "--exec", "--ext-diff", "--config", "--open-files-in-pager",
+	"--textconv", "--remerge-diff", "--diff-merges", "--submodule", // each still reaches a textconv or merge driver
+}
 
-// gitBranchListFlags are the only dash args `git branch` may carry, and it must include --list or -l.
-var gitBranchListFlags = map[string]bool{"--list": true, "-l": true, "-a": true, "--all": true, "-r": true, "--remotes": true, "-v": true, "-vv": true}
+// gitLeadingFlags must open the verb's args: later, a value option or -- swallows them (git diff -- --no-textconv).
+var gitLeadingFlags = map[string][]string{
+	"diff": {"--no-ext-diff", "--no-textconv"}, "log": {"--no-ext-diff", "--no-textconv"},
+	"show": {"--no-ext-diff", "--no-textconv"}, "blame": {"--no-textconv"},
+}
+
+// gitVerbFlags are those verbs' only dash args: branch must carry --list or -l, and `git status -v` runs textconv.
+var gitVerbFlags = map[string]map[string]bool{
+	"branch": {"--list": true, "-l": true, "-a": true, "--all": true, "-r": true, "--remotes": true, "-v": true, "-vv": true},
+	"status": {"--short": true, "-s": true, "--branch": true, "-b": true, "--long": true, "--porcelain": true, "--porcelain=v2": true,
+		"-z": true, "--ignored": true, "-uno": true, "-uall": true, "--": true},
+}
+
+// readOnlyGitEnv replaces all inherited GIT_*; GIT_PAGER beats pager.<verb>, command-scope config beats repo files.
+var readOnlyGitEnv = slices.Concat([]string{
+	"GIT_CONFIG_NOSYSTEM=1", "GIT_TERMINAL_PROMPT=0", "GIT_PAGER=cat",
+	"GIT_NO_LAZY_FETCH=1", "GIT_ALLOW_PROTOCOL=none", // a partial clone's missing blob must not reach a transport
+	"GIT_OPTIONAL_LOCKS=0", // status and diff must not rewrite the index
+}, gitConfigEnv(
+	"core.fsmonitor=false", "core.pager=cat", "core.sshCommand=false", "core.hooksPath=/dev/null",
+	"diff.external=", "diff.submodule=short", "log.showSignature=false", "log.diffMerges=separate",
+	"gpg.program=false", "gpg.openpgp.program=false", "gpg.x509.program=false", "gpg.ssh.program=false",
+))
+
+// gitConfigEnv spells key=value pairs as the GIT_CONFIG_COUNT block.
+func gitConfigEnv(pairs ...string) []string {
+	out := []string{"GIT_CONFIG_COUNT=" + strconv.Itoa(len(pairs))}
+	for i, kv := range pairs {
+		k, v, _ := strings.Cut(kv, "=")
+		out = append(out, fmt.Sprintf("GIT_CONFIG_KEY_%d=%s", i, k), fmt.Sprintf("GIT_CONFIG_VALUE_%d=%s", i, v))
+	}
+	return out
+}
 
 // readOnlyGitCommand reports whether cmd is a single allowlisted read-only git invocation (fail closed).
 func readOnlyGitCommand(cmd string) bool {
@@ -207,18 +245,19 @@ func readOnlyGitCommand(cmd string) bool {
 	if len(f) < 2 || f[0] != "git" || !readOnlyGit[f[1]] {
 		return false
 	}
-	list := false
-	for _, a := range f[2:] {
+	args, lead := f[2:], gitLeadingFlags[f[1]]
+	if len(args) < len(lead) || !slices.Equal(args[:len(lead)], lead) {
+		return false
+	}
+	allowed, list := gitVerbFlags[f[1]], false
+	for _, a := range args {
 		if a == "-c" || strings.HasPrefix(a, "~") || bannedGitFlag(a) {
 			return false
 		}
-		if f[1] != "branch" {
-			continue
-		}
-		list = list || a == "--list" || a == "-l"
-		if strings.HasPrefix(a, "-") && !gitBranchListFlags[a] {
+		if allowed != nil && strings.HasPrefix(a, "-") && !allowed[a] {
 			return false
 		}
+		list = list || a == "--list" || a == "-l"
 	}
 	return f[1] != "branch" || list
 }
