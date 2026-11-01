@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // ErrTaskMoved means the task at the requested line no longer carries the requested title.
@@ -155,7 +156,7 @@ func addPartial(lines []string, t Task, sha string) []string {
 			continue
 		}
 		lines[i] = partialRe.ReplaceAllStringFunc(lines[i], func(comment string) string {
-			shas := splitList(partialRe.FindStringSubmatch(comment)[1])
+			shas := textutil.SplitCSV(partialRe.FindStringSubmatch(comment)[1])
 			if !hasSha(shas, sha) {
 				shas = append(shas, sha)
 			}

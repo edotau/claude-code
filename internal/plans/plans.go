@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // Task is one checklist item: its line span, state, identity, owned files and plan metadata.
@@ -154,7 +155,7 @@ func parseTaskText(text string) (id, title string, owns []string, sha, claim str
 		case claimWord.MatchString(inner):
 			claim = inner
 		case partialKey.MatchString(inner):
-			partial = append(partial, splitList(partialKey.FindStringSubmatch(inner)[1])...)
+			partial = append(partial, textutil.SplitCSV(partialKey.FindStringSubmatch(inner)[1])...)
 		}
 	}
 	cleaned := strings.Join(strings.Fields(commentRe.ReplaceAllString(text, " ")), " ")
@@ -173,20 +174,9 @@ func parseTaskText(text string) (id, title string, owns []string, sha, claim str
 	}
 	lower := strings.ToLower(cleaned)
 	if i := strings.LastIndex(lower, "owns:"); i >= 0 {
-		owns = splitList(cleaned[i+len("owns:"):])
+		owns = textutil.SplitCSV(cleaned[i+len("owns:"):])
 	}
 	return id, title, owns, sha, claim, partial
-}
-
-// splitList splits a comma-separated list, dropping empty entries.
-func splitList(s string) []string {
-	var out []string
-	for item := range strings.SplitSeq(s, ",") {
-		if item = strings.TrimSpace(item); item != "" {
-			out = append(out, item)
-		}
-	}
-	return out
 }
 
 // Home is the plans directory for repoRoot, tagged like every other repo-scoped artifact.
