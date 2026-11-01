@@ -15,6 +15,7 @@ import (
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/ui/menu"
 )
 
 // aliasUse says in a few words what each alias is for; an alias row stays within 80 columns.
@@ -269,7 +270,7 @@ func pickModel(d *dialog, name string, p *providers.Provider, claude bool) {
 	for {
 		rows := make([][2]string, len(aliases))
 		for i, s := range aliases {
-			rows[i] = [2]string{s, padTo(aliasUse[s], 42) + currentModel(d, p, claude, s)}
+			rows[i] = [2]string{s, menu.PadTo(aliasUse[s], 42) + currentModel(d, p, claude, s)}
 		}
 		idx, err := d.shell().Pick(name+" — model per alias ("+p.Name+")", rows)
 		if err != nil || idx < 0 {
@@ -291,13 +292,6 @@ func pickModel(d *dialog, name string, p *providers.Provider, claude bool) {
 		}
 		saveModel(d, p, claude, aliases[idx], ids[j])
 	}
-}
-
-func padTo(s string, n int) string {
-	if len([]rune(s)) >= n {
-		return s + "  "
-	}
-	return s + strings.Repeat(" ", n-len([]rune(s)))
 }
 
 // saveModel writes a claude alias pin or the account's models table in the vault overlay/providers.

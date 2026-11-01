@@ -31,7 +31,7 @@ const dbxDoc = `{"providers":{"databricks":{
 "prod":{"preset":"databricks","host":"https://adb-3.azuredatabricks.net","cliProfile":"prod","auth":{"type":"key","command":"echo x"}}}}}`
 
 type dbxFake struct {
-	picks    []int // popped per dbxPick call; exhausted = Back
+	picks    []int // popped per menu; exhausted = Back
 	titles   []string
 	rows     [][][2]string
 	calls    []string
@@ -80,9 +80,9 @@ func (s *dbxScreen) Read(p []byte) (int, error) {
 
 func installDbxFake(t *testing.T, f *dbxFake) {
 	t.Helper()
-	l, m, sp, pk, sc, cp, sh, shl := dbxLogin, dbxMint, dbxSetPAT, dbxPick, dbxSecret, dbxCopy, dbxSchedule, dbxShell
+	l, m, sp, sc, cp, sh, shl := dbxLogin, dbxMint, dbxSetPAT, dbxSecret, dbxCopy, dbxSchedule, dbxShell
 	t.Cleanup(func() {
-		dbxLogin, dbxMint, dbxSetPAT, dbxPick, dbxSecret, dbxCopy, dbxSchedule, dbxShell = l, m, sp, pk, sc, cp, sh, shl
+		dbxLogin, dbxMint, dbxSetPAT, dbxSecret, dbxCopy, dbxSchedule, dbxShell = l, m, sp, sc, cp, sh, shl
 	})
 	dbxLogin = func(_ context.Context, name string, _ io.Writer) error {
 		f.calls = append(f.calls, "login:"+name)
@@ -102,16 +102,6 @@ func installDbxFake(t *testing.T, f *dbxFake) {
 	dbxSetPAT = func(_ context.Context, name, v string) (string, error) {
 		f.calls = append(f.calls, "pat:"+name+":"+v)
 		return "probe ok", nil
-	}
-	dbxPick = func(title string, rows [][2]string, _ int) (int, error) {
-		f.titles = append(f.titles, title)
-		f.rows = append(f.rows, rows)
-		if len(f.picks) == 0 {
-			return -1, nil
-		}
-		i := f.picks[0]
-		f.picks = f.picks[1:]
-		return i, nil
 	}
 	dbxShell = func(*dialog) *uidialog.Shell {
 		scr := &dbxScreen{f: f}
@@ -187,13 +177,13 @@ func TestDbxStateAndHomeRow(t *testing.T) {
 	}
 	dbxExpiry(t, "qa", time.Now().Add(59*time.Minute+30*time.Second))
 	row := databricksRow(d)
-	if row.name != "databricks" || row.state != "qa · command" || row.check != "token expires in 59m" {
+	if row.Name != "databricks" || row.State != "qa · command" || row.Check != "token expires in 59m" {
 		t.Errorf("home row = %+v", row)
 	}
 	if at, text, ok := dbxState(nil, "qa"); at != "" || text != "no login" || ok {
 		t.Errorf("nil reg = %q %q %v", at, text, ok)
 	}
-	if r := databricksRow(&dialog{}); r.state != "not configured" || r.check != "no login" {
+	if r := databricksRow(&dialog{}); r.State != "not configured" || r.Check != "no login" {
 		t.Errorf("empty home row = %+v", r)
 	}
 }

@@ -1,9 +1,9 @@
 package configure
 
 import (
+	"github.com/edotau/claude-code/internal/ui/menu"
 	"github.com/edotau/claude-code/internal/ui/tui"
 	"regexp"
-	"strings"
 )
 
 // pickKey is the terminal picker seam; tests replace it.
@@ -44,21 +44,7 @@ func keyRows(targets []keyTarget) ([][2]string, bool) {
 			allOK = false
 		}
 	}
-	return withChecks(names, cols), allOK
-}
-
-// withChecks lays out name rows whose detail is two aligned columns: the mode, then the check ("verified" is green).
-func withChecks(names []string, cols [][2]string) [][2]string {
-	width := 0
-	for _, c := range cols {
-		width = max(width, len([]rune(c[0])))
-	}
-	rows := make([][2]string, len(names))
-	for i, c := range cols {
-		pad := strings.Repeat(" ", width-len([]rune(c[0])))
-		rows[i] = [2]string{names[i], strings.TrimRight(c[0]+pad+"  "+c[1], " ")}
-	}
-	return rows
+	return menu.WithChecks(names, cols), allOK
 }
 
 // keyCols is one credential's mode (how it signs in · how it bills) and check: verified, unverified, rejected or

@@ -19,6 +19,7 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/secretstore"
 	uidialog "github.com/edotau/claude-code/internal/ui/dialog"
+	"github.com/edotau/claude-code/internal/ui/menu"
 )
 
 const (
@@ -124,14 +125,6 @@ func runAgentMenu(d *dialog, name string, m agentMenu) bool {
 	return m.rows[idx].run()
 }
 
-// bracket is a row's trailing state: [yes] or [no].
-func bracket(ok bool, yes, no string) string {
-	if ok {
-		return "[" + yes + "]"
-	}
-	return "[" + no + "]"
-}
-
 // keyVerified live-probes a keyed provider; false when absent or not accepted.
 func keyVerified(p *providers.Provider) bool {
 	if p == nil || !providers.CredentialPresent(p) {
@@ -178,7 +171,7 @@ func signIn(d *dialog, label string, argv []string) bool {
 // keyRow is the API key row shared by every agent: ensure (paste, probe, store) the provider's key.
 func keyRow(d *dialog, label, provider, desc string) billingRow {
 	p, ok := keyPresent(d.reg, provider)
-	return billingRow{modeAPIKey, desc + " " + bracket(ok, "key set", "no key"), modeAPIKey, func() bool {
+	return billingRow{modeAPIKey, desc + " " + menu.Bracket(ok, "key set", "no key"), modeAPIKey, func() bool {
 		if p == nil {
 			d.printf("%s: no %s provider registered\n", label, provider)
 			return false
@@ -224,7 +217,7 @@ func codexMenu(d *dialog) agentMenu {
 		return true
 	}
 	return agentMenu{st, []billingRow{
-		{"Subscription", "ChatGPT login · plan limits " + bracket(loggedIn, withTier("logged in", tier), "not logged in"), modeSubscription, func() bool {
+		{"Subscription", "ChatGPT login · plan limits " + menu.Bracket(loggedIn, withTier("logged in", tier), "not logged in"), modeSubscription, func() bool {
 			if loggedIn {
 				d.printf("%-10s on its ChatGPT login (kept)\n", "codex")
 				return true
@@ -277,7 +270,7 @@ func copilotMenu(d *dialog) agentMenu {
 	}
 	pinned := vault.GetAgentRecord("copilot").Profile
 	rows := []billingRow{
-		{"Subscription", "GitHub Copilot · " + bracket(loggedIn, withTier(auth.Label(), tier), "not logged in"), modeSubscription, func() bool {
+		{"Subscription", "GitHub Copilot · " + menu.Bracket(loggedIn, withTier(auth.Label(), tier), "not logged in"), modeSubscription, func() bool {
 			if loggedIn {
 				d.printf("%-10s runs as %s (kept)\n", "copilot", auth.Label())
 				return true
@@ -288,7 +281,7 @@ func copilotMenu(d *dialog) agentMenu {
 		{"Login", "copilot login · browser device sign-in, refreshes the session", "", func() bool {
 			return signIn(d, "copilot", []string{"copilot", "login"})
 		}},
-		{"User", "the gh account copilot runs as " + bracket(pinned != "", pinned, "gh active"), "", func() bool {
+		{"User", "the gh account copilot runs as " + menu.Bracket(pinned != "", pinned, "gh active"), "", func() bool {
 			return pickGitHubUser(d, auth)
 		}},
 	}
@@ -320,7 +313,7 @@ func copilotEffortRow(d *dialog, modelID string) *billingRow {
 	cur := vault.GetAgentRecord("copilot").Effort
 	m, ok := copilotCatalogModel(d, modelID)
 	if !ok {
-		desc := "reasoning effort on every launch " + bracket(cur != "", cur, "unset")
+		desc := "reasoning effort on every launch " + menu.Bracket(cur != "", cur, "unset")
 		r := billingRow{"Effort", desc, "", func() bool {
 			return pickCopilotPin(d, "effort", "EFFORT", copilotEffortChoices, cur)
 		}}
@@ -333,7 +326,7 @@ func copilotEffortRow(d *dialog, modelID string) *billingRow {
 	if m.DefaultEffort != "" {
 		def += " (" + m.DefaultEffort + ")"
 	}
-	desc := "reasoning effort on every launch " + bracket(cur != "", cur, def)
+	desc := "reasoning effort on every launch " + menu.Bracket(cur != "", cur, def)
 	choices := make([][2]string, len(m.Efforts))
 	for i, e := range m.Efforts {
 		label := cmp.Or(copilotEffortLabels[e], e)
@@ -364,7 +357,7 @@ func copilotContextRow(d *dialog, modelID string) *billingRow {
 		return nil
 	}
 	cur := vault.GetAgentRecord("copilot").Context
-	desc := "context window on every launch " + bracket(cur != "", copilotContextLabel(cur), "auto")
+	desc := "context window on every launch " + menu.Bracket(cur != "", copilotContextLabel(cur), "auto")
 	r := billingRow{"Context", desc, "", func() bool {
 		return pickCopilotPin(d, "context", "CONTEXT", copilotContextChoices, cur)
 	}}
@@ -405,18 +398,12 @@ func clearCopilotPin(d *dialog, key, cur, modelID, why string) {
 
 // pickCopilotPin lists "unset" plus choices (label, value); a pick pins key to that value (or clears it).
 func pickCopilotPin(d *dialog, title, key string, choices [][2]string, cur string) bool {
-	return pickAgentPin(d, "copilot", title, key, choices, cur)
-}
-
-// pickAgentPin is pickCopilotPin generalized over the agent naming the pin (its title and printf
-// prefix); copilot, codex and gemini's Effort rows all share it.
-func pickAgentPin(d *dialog, name, title, key string, choices [][2]string, cur string) bool {
 	rows := make([][2]string, 0, len(choices)+1)
-	rows = append(rows, [2]string{"unset", name + "'s own default" + uidialog.Mark(cur == "")})
+	rows = append(rows, [2]string{"unset", "copilot's own default" + uidialog.Mark(cur == "")})
 	for _, c := range choices {
 		rows = append(rows, [2]string{c[0], c[1] + uidialog.Mark(c[1] == cur)})
 	}
-	idx, err := d.shell().Pick(name+" — "+title, rows)
+	idx, err := d.shell().Pick("copilot — "+title, rows)
 	if err != nil || idx < 0 {
 		return false
 	}
@@ -424,19 +411,11 @@ func pickAgentPin(d *dialog, name, title, key string, choices [][2]string, cur s
 	if idx > 0 {
 		val = choices[idx-1][1]
 	}
-	if _, err := writeAgentField(d, name, key, val); err != nil {
-		d.printf("%s: %v\n", name, err)
+	if _, err := writeAgentField(d, "copilot", key, val); err != nil {
+		d.printf("copilot: %v\n", err)
 		return false
 	}
 	return true
-}
-
-// curMark flags the row holding the pin's current value.
-func curMark(current bool) string {
-	if current {
-		return " (current)"
-	}
-	return ""
 }
 
 // copilotKeyRow pastes (or rotates) a GitHub token into COPILOT_GITHUB_TOKEN; it outranks gh's active account.
@@ -444,7 +423,7 @@ func copilotKeyRow(d *dialog) billingRow {
 	env := agent.CopilotTokenEnv
 	_, src, ok := secretstore.Get(env)
 	stored := ok && src != "env"
-	return billingRow{modeAPIKey, "paste a GitHub token → " + env + " " + bracket(stored, "token set", "no token"), modeAPIKey, func() bool {
+	return billingRow{modeAPIKey, "paste a GitHub token → " + env + " " + menu.Bracket(stored, "token set", "no token"), modeAPIKey, func() bool {
 		kt := keyTarget{label: "copilot", envVar: env, fixCmd: "claude-code vault set " + env}
 		if stored {
 			return ensureKey(d, kt, true)
@@ -476,7 +455,7 @@ func pickGitHubUser(d *dialog, cur copilot.CopilotAuth) bool {
 		}
 		rows = append(rows, [2]string{u, desc})
 	}
-	rows = append(rows, [2]string{"gh active", "unpin; follow gh's active account " + bracket(active != "", active, "none")},
+	rows = append(rows, [2]string{"gh active", "unpin; follow gh's active account " + menu.Bracket(active != "", active, "none")},
 		[2]string{"New sign-in", "gh auth login · adds another account to this list"})
 	idx, err := d.shell().Pick("copilot — which GitHub user? (now: "+cur.Label()+")", rows, 0)
 	if err != nil || idx < 0 {
@@ -527,7 +506,7 @@ func pinCopilotProfile(d *dialog, user string) bool {
 		d.printf("copilot: %v\n", err)
 		return false
 	}
-	d.printf("%-10s runs as %s\n", "copilot", bracket(user != "", user+" (pinned as "+profile+")", "gh's active account"))
+	d.printf("%-10s runs as %s\n", "copilot", menu.Bracket(user != "", user+" (pinned as "+profile+")", "gh's active account"))
 	return true
 }
 

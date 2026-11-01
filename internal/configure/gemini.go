@@ -12,6 +12,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
+	"github.com/edotau/claude-code/internal/ui/menu"
 	"github.com/edotau/claude-code/internal/ui/tui"
 )
 
@@ -148,7 +149,7 @@ func geminiMenu(d *dialog) agentMenu {
 		st = agentState{mode: modeSubscription, verified: true}
 	}
 	return agentMenu{st, []billingRow{
-		{"Subscription", "Google login via agy · plan limits " + bracket(loginSel, "logged in", "not logged in"), modeSubscription, func() bool {
+		{"Subscription", "Google login via agy · plan limits " + menu.Bracket(loginSel, "logged in", "not logged in"), modeSubscription, func() bool {
 			if loginSel {
 				d.printf("%-10s on its Google login (kept)\n", "agy")
 				return true

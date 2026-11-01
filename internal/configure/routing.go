@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/ui/menu"
 	"github.com/edotau/claude-code/internal/ui/tui"
 )
 
@@ -19,7 +20,7 @@ func routingRow(d *dialog) homeRow {
 	if err == nil {
 		detail = fmt.Sprintf("%d overrides", countRoutingOverrides(overlay))
 	}
-	return homeRow{"routing", detail, "price weight, subagents, opencode sub-pick", func(d *dialog) { runRouting(d) }}
+	return homeRow{Name: "routing", State: detail, Check: "price weight, subagents, opencode sub-pick", Run: func(d *dialog) { runRouting(d) }}
 }
 
 // countRoutingOverrides is how many fields the vault overlay itself sets, across every module.
@@ -72,7 +73,7 @@ func reportRouting(d *dialog, r, overlay providers.Routing) bool {
 			continue
 		}
 		if m.Name() != "routing" {
-			d.println("== " + m.Name() + " ==")
+			d.println(menu.Heading(m.Name()))
 		}
 		for _, f := range fields {
 			d.println(f.Key + "  " + f.Get(r) + "  " + routingSource(f, overlay))
@@ -105,10 +106,10 @@ func runRoutingMenu(d *dialog, r, overlay providers.Routing) bool {
 				fields = append(fields, f)
 			}
 			if len(rows) > 0 {
-				sections = append(sections, tui.Section{Title: "== " + m.Name() + " ==", Rows: rows})
+				sections = append(sections, tui.Section{Title: menu.Heading(m.Name()), Rows: rows})
 			}
 		}
-		idx, err := pickSettingsPage("routing", sections, enterRow("save and go back"), start)
+		idx, err := pickSettingsPage("routing", sections, menu.EnterRow("save and go back"), start)
 		if err != nil || idx < 0 || idx >= len(fields) {
 			return true
 		}
@@ -171,7 +172,7 @@ func editRoutingChoice(d *dialog, f agentconfig.Field, values []string) (string,
 
 // editRoutingText is the number/text/list prompt; an empty line resets to the default.
 func editRoutingText(d *dialog, f agentconfig.Field) (string, bool) {
-	input := strings.TrimSpace(textLine(d, f.Key+" (empty resets to default): "))
+	input := strings.TrimSpace(d.shell().Line(f.Key + " (empty resets to default): "))
 	if input == "" {
 		return "", true
 	}

@@ -16,6 +16,7 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/textutil"
+	"github.com/edotau/claude-code/internal/ui/menu"
 	"github.com/edotau/claude-code/internal/ui/tui"
 )
 
@@ -39,7 +40,7 @@ func claudeSettingsRow(d *dialog) homeRow {
 	if err == nil {
 		detail = fmt.Sprintf("%d overrides", len(ov))
 	}
-	return homeRow{"claude code", detail, "every claude launch", func(d *dialog) { runClaudeSettings(d) }}
+	return homeRow{Name: "claude code", State: detail, Check: "every claude launch", Run: func(d *dialog) { runClaudeSettings(d) }}
 }
 
 // settingRow renders one catalog field as a page row: key, then its effective value and source
@@ -148,7 +149,7 @@ func editChoice(d *dialog, f settings.Field, tmplVal json.RawMessage) (json.RawM
 		return nil, true
 	}
 	if idx == customIdx {
-		name := strings.TrimSpace(textLine(d, "theme custom name: "))
+		name := strings.TrimSpace(d.shell().Line("theme custom name: "))
 		if name == "" {
 			return nil, false
 		}
@@ -177,7 +178,7 @@ func removeLabel(tmplVal json.RawMessage) string {
 
 // editText is the number/text prompt; an empty line removes the key from my defaults.
 func editText(d *dialog, f settings.Field, tmplVal json.RawMessage) (json.RawMessage, bool) {
-	input := strings.TrimSpace(textLine(d, f.Key+" (empty removes): "))
+	input := strings.TrimSpace(d.shell().Line(f.Key + " (empty removes): "))
 	if input == "" {
 		return nil, true
 	}
@@ -259,7 +260,7 @@ func reportClaudeSettings(d *dialog, ov map[string]json.RawMessage, sections []s
 				continue
 			}
 			if !header {
-				d.println("== " + sec.Name + " ==")
+				d.println(menu.Heading(sec.Name))
 				header = true
 			}
 			emit(f)
@@ -269,7 +270,7 @@ func reportClaudeSettings(d *dialog, ov map[string]json.RawMessage, sections []s
 	for _, key := range slices.Sorted(maps.Keys(ov)) {
 		if f, found := settings.FieldFor(key); found && !shown[key] {
 			if !header {
-				d.println("== added ==")
+				d.println(menu.Heading("added"))
 				header = true
 			}
 			emit(f)
@@ -406,7 +407,7 @@ func pageSections(sections []settings.Section, tmpl, cur, live map[string]json.R
 			rows, fields = append(rows, r...), append(fields, fs...)
 		}
 		if len(rows) > 0 {
-			out = append(out, tui.Section{Title: "== " + sec.Name + " ==", Rows: rows})
+			out = append(out, tui.Section{Title: menu.Heading(sec.Name), Rows: rows})
 		}
 	}
 	var rows [][2]string
@@ -420,7 +421,7 @@ func pageSections(sections []settings.Section, tmpl, cur, live map[string]json.R
 		out = append(out, tui.Section{Title: "== added ==", Rows: rows})
 	}
 	actions := [][2]string{{"+ add a setting", "pick any Claude Code setting"}, {"Save to repo defaults", "write staged keys to the repo file"}}
-	return append(out, tui.Section{Title: "== actions ==", Rows: actions}), fields, shown
+	return append(out, tui.Section{Title: menu.Heading("actions"), Rows: actions}), fields, shown
 }
 
 // runClaudeSettingsMenu is the interactive page: rows grouped under Sections() headers, edits staged until
@@ -448,7 +449,7 @@ func runClaudeSettingsMenu(d *dialog, ov map[string]json.RawMessage, sections []
 		maps.Copy(cur, staged)
 
 		tuiSections, fields, shown := pageSections(sections, tmpl, cur, live)
-		idx, err := pickSettingsPage("claude code — your defaults", tuiSections, enterRow("Save as default"), start)
+		idx, err := pickSettingsPage("claude code — your defaults", tuiSections, menu.EnterRow("Save as default"), start)
 		if err != nil || idx < 0 || idx > len(fields)+1 {
 			return true
 		}
@@ -508,7 +509,7 @@ func pickSchemaKey(d *dialog, cand []settings.Key) string {
 		}
 		return cand[res.Index].Name
 	}
-	name := strings.TrimSpace(textLine(d, "setting name: "))
+	name := strings.TrimSpace(d.shell().Line("setting name: "))
 	if !slices.ContainsFunc(cand, func(k settings.Key) bool { return k.Name == name }) {
 		if name != "" {
 			d.printf("claude code: %s: not an addable setting\n", name)

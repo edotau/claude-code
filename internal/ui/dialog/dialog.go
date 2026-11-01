@@ -6,9 +6,11 @@ import (
 	"cmp"
 	"fmt"
 	"io"
+	"os"
 	"strconv"
 	"strings"
 
+	"github.com/edotau/claude-code/internal/ui/ansi"
 	"github.com/edotau/claude-code/internal/ui/tui"
 )
 
@@ -79,6 +81,48 @@ func (s *Shell) say(line string) {
 		line = s.Paint(line)
 	}
 	fmt.Fprint(s.Out, line)
+}
+
+// Confirm asks a [Y/n] question: tui.Confirm on the terminal, a line from In otherwise.
+func (s *Shell) Confirm(question string) bool {
+	if s.TTY {
+		return tui.Confirm(question, true)
+	}
+	fmt.Fprintf(s.Out, "%s [Y/n] ", question)
+	return Yes(s.In)
+}
+
+// Line reads one visible line: straight from the terminal like tui.Confirm, from In otherwise.
+func (s *Shell) Line(prompt string) string {
+	fmt.Fprint(s.Out, prompt)
+	if s.TTY {
+		return ReadLine(bufio.NewReader(os.Stdin))
+	}
+	return ReadLine(s.In)
+}
+
+// ReadLine is one line from br without its line ending; a read error yields what arrived before it.
+func ReadLine(br *bufio.Reader) string {
+	line, _ := br.ReadString('\n')
+	return strings.TrimRight(line, "\r\n")
+}
+
+// Yes reads a [Y/n] answer: blank or y/Y is yes; end of input declines, so a dry pipe never starts a login or paste.
+func Yes(br *bufio.Reader) bool {
+	raw, err := br.ReadString('\n')
+	if err != nil && raw == "" {
+		return false
+	}
+	line := strings.ToLower(strings.TrimSpace(raw))
+	return line == "" || strings.HasPrefix(line, "y")
+}
+
+// ConfirmTerminal asks question by keypress on a terminal (Enter takes def, Esc is no); non-terminal runs proceed.
+func ConfirmTerminal(question string, def bool) bool {
+	if !ansi.IsTerminal(os.Stdin) {
+		return true
+	}
+	return tui.ConfirmKey(question+"?", def)
 }
 
 // Run shows rows (rebuilt each pass, cursor kept) and runs the one Enter picks, until a row reports done (true)

@@ -12,6 +12,7 @@ import (
 
 	agentpkg "github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/ui/menu"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
@@ -93,7 +94,7 @@ func TestSeedFirstRunNonInteractivePointsAtRow(t *testing.T) {
 
 func TestSeedRowFitsEightyColumns(t *testing.T) {
 	menuTestEnv(t)
-	laid, _ := rowsOf(settingsRows(&dialog{}))
+	laid, _ := menu.RowsOf(settingsRows(&dialog{}))
 	for _, r := range laid {
 		if w := 2 + len([]rune("environment")) + 2 + len([]rune(r[1])); w > 80 {
 			t.Errorf("%s row is %d columns: %q", r[0], w, r[1])

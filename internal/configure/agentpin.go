@@ -10,12 +10,14 @@ import (
 
 	agentpkg "github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/providers"
+	uidialog "github.com/edotau/claude-code/internal/ui/dialog"
+	"github.com/edotau/claude-code/internal/ui/menu"
 )
 
 // agentPinRows is agent's one Profile row.
 func agentPinRows(d *dialog, agent string) []billingRow {
 	cur := vault.GetAgentRecord(agent).Profile
-	state := bracket(true, seedLabel(agent, cur), "")
+	state := menu.Bracket(true, seedLabel(agent, cur), "")
 	if why := agentpkg.AgentUnbillable(agent); cur != "" && why != "" {
 		state = "[off, " + why + "]"
 	}
@@ -50,7 +52,7 @@ func pickAgentProfile(d *dialog, agent, cur string) (bool, error) {
 	names := agentProfileChoices(d, agent)
 	rows := make([][2]string, len(names))
 	for i, n := range names {
-		rows[i] = [2]string{seedLabel(agent, n), curMark(n == cur)}
+		rows[i] = [2]string{seedLabel(agent, n), uidialog.Mark(n == cur)}
 	}
 	idx, err := d.shell().Pick(displayLabel(agent)+" — profile", rows, max(slices.Index(names, cur), 0))
 	if err != nil || idx < 0 || idx >= len(names) {

@@ -48,7 +48,7 @@ func replaceKey(d *dialog, kt keyTarget) bool {
 	if !actionConfirmed("Paste a new " + kt.envVar + " to rotate it") {
 		return false
 	}
-	if u := consoleURLs[kt.envVar]; u != "" && confirm(d, "Open "+u+" in your browser to create the new key?") {
+	if u := consoleURLs[kt.envVar]; u != "" && d.shell().Confirm("Open "+u+" in your browser to create the new key?") {
 		openBrowser(u)
 	}
 	val, err := secretLine(d, "Paste the new value for "+kt.envVar+" (input hidden, Enter when done): ")
@@ -61,7 +61,7 @@ func replaceKey(d *dialog, kt keyTarget) bool {
 		status, detail := probeValue(kt.provider, kt.envVar, v)
 		if status == "rejected" || status == "unreachable" {
 			d.printf("%s: new value %s (%s)\n", kt.envVar, status, detail)
-			if confirm(d, "Keep the old key and discard this paste?") {
+			if d.shell().Confirm("Keep the old key and discard this paste?") {
 				return false
 			}
 		}
@@ -134,7 +134,7 @@ func runRotate(d *dialog, kt keyTarget) bool {
 				return false
 			}
 			chosen = idx
-		} else if !confirm(d, opts[0].label()+"?") {
+		} else if !d.shell().Confirm(opts[0].label() + "?") {
 			chosen = 1
 		}
 	}
@@ -155,7 +155,7 @@ func ensureKey(d *dialog, kt keyTarget, present bool) bool {
 	if !present {
 		return resolveKey(d, kt)
 	}
-	if confirm(d, kt.label+" key present — keep it?") {
+	if d.shell().Confirm(kt.label + " key present — keep it?") {
 		return true
 	}
 	return replaceKey(d, kt)
