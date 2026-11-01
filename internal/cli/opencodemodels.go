@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/databricks/serving"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
@@ -178,7 +179,7 @@ func opencodeMenuList(live bool, provider, format string) error {
 			return err
 		}
 	}
-	var cache map[string]agent.CheckResult
+	var cache map[string]serving.CheckResult
 	if live {
 		cache, _ = agent.LoadCheckCache(p.Name)
 	}
@@ -269,7 +270,7 @@ func opencodeMenuImport(file string, apply bool) error {
 }
 
 // checkCell renders a cached probe as "ok tools", "ok no-tools", "fail 400", "missing" or "-".
-func checkCell(cache map[string]agent.CheckResult, id string) string {
+func checkCell(cache map[string]serving.CheckResult, id string) string {
 	r, ok := cache[id]
 	switch {
 	case !ok:
@@ -292,7 +293,7 @@ func opencodeMenuCheck(ids []string, all bool, provider string, timeout time.Dur
 	targets := agent.OpencodeCheckTargets(ids, all, served, p)
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
-	results, err := agent.ProbeEndpoints(ctx, p, targets, agent.CheckOptions{Concurrency: 4, Timeout: timeout})
+	results, err := serving.Probe(ctx, p, targets, serving.CheckOptions{Concurrency: 4, Timeout: timeout})
 	if err != nil && results == nil {
 		return err
 	}
@@ -364,7 +365,7 @@ func opencodeMenuSync(profile string, opts opencodeSyncOptions) error {
 		return nil
 	}
 	if !snapshot.CacheHit || opts.Verify {
-		if err := agent.SaveServingDiscovery(p, snapshot); err != nil {
+		if err := serving.Save(p, snapshot); err != nil {
 			return err
 		}
 		fmt.Println("opencode catalog: discovery snapshot sealed in vault")
@@ -379,7 +380,7 @@ func opencodeMenuSync(profile string, opts opencodeSyncOptions) error {
 	return nil
 }
 
-func opencodeSyncSummary(snapshot agent.ServingDiscovery, verified bool) {
+func opencodeSyncSummary(snapshot serving.Snapshot, verified bool) {
 	source := "live discovery"
 	if snapshot.CacheHit {
 		source = "encrypted cache hit"

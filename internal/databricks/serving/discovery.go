@@ -1,4 +1,4 @@
-package agent
+package serving
 
 import (
 	"context"
@@ -17,8 +17,8 @@ import (
 	"github.com/edotau/claude-code/internal/vault"
 )
 
-// ServingDiscoveryScope separates accounts and routes without persisting tokens or token fingerprints.
-type ServingDiscoveryScope struct {
+// Scope separates accounts and routes without persisting tokens or token fingerprints.
+type Scope struct {
 	Profile      string `json:"profile"`
 	CLIProfile   string `json:"cli_profile"`
 	Host         string `json:"host"`
@@ -29,10 +29,10 @@ type ServingDiscoveryScope struct {
 	ResponsesURL string `json:"responses_url"`
 }
 
-// ServingDiscovery is a sealed snapshot; CacheHit describes this read and is never persisted.
-type ServingDiscovery struct {
+// Snapshot is a sealed snapshot; CacheHit describes this read and is never persisted.
+type Snapshot struct {
 	Schema       int                   `json:"schema"`
-	Scope        ServingDiscoveryScope `json:"scope"`
+	Scope        Scope                 `json:"scope"`
 	DiscoveredAt time.Time             `json:"discovered_at"`
 	Models       []providers.ModelInfo `json:"models"`
 	CheckedAt    time.Time             `json:"checked_at,omitzero"`
@@ -40,21 +40,21 @@ type ServingDiscovery struct {
 	CacheHit     bool                  `json:"-"`
 }
 
-func servingDiscoveryScope(p *providers.Provider, subject string) (ServingDiscoveryScope, error) {
+func NewScope(p *providers.Provider, subject string) (Scope, error) {
 	if p == nil || p.Preset != providers.PresetDatabricks || p.SpellingRule() != "databricks-serving" ||
 		(p.Options.Wire != "" && p.Options.Wire != providers.WireServing) {
-		return ServingDiscoveryScope{}, errors.New("requires a Databricks serving profile; AI Gateway is not supported")
+		return Scope{}, errors.New("requires a Databricks serving profile; AI Gateway is not supported")
 	}
 	host := providers.PresetHost(p.Host)
 	if host == "" {
-		return ServingDiscoveryScope{}, errors.New("serving discovery requires an HTTPS workspace host")
+		return Scope{}, errors.New("serving discovery requires an HTTPS workspace host")
 	}
 	host = strings.TrimSuffix(strings.ToLower(host), ":443")
 	routes, err := servingClientRoutes(p, host)
 	if err != nil {
-		return ServingDiscoveryScope{}, err
+		return Scope{}, err
 	}
-	return ServingDiscoveryScope{Profile: p.Name, CLIProfile: p.CLIProfile, Host: host,
+	return Scope{Profile: p.Name, CLIProfile: p.CLIProfile, Host: host,
 		Spelling: p.SpellingRule(), SubjectID: subject, AnthropicURL: routes[providers.ProtocolAnthropic],
 		OpenAIURL: routes[providers.ProtocolOpenAI], ResponsesURL: routes[providers.ProtocolResponses]}, nil
 }
@@ -80,9 +80,9 @@ func servingClientRoutes(p *providers.Provider, host string) (map[string]string,
 	return routes, nil
 }
 
-// ValidateDatabricksIdentity validates current authentication, not model permissions; redirects are refused.
-func ValidateDatabricksIdentity(ctx context.Context, p *providers.Provider) (string, error) {
-	scope, err := servingDiscoveryScope(p, "")
+// ValidateIdentity validates current authentication, not model permissions; redirects are refused.
+func ValidateIdentity(ctx context.Context, p *providers.Provider) (string, error) {
+	scope, err := NewScope(p, "")
 	if err != nil {
 		return "", err
 	}
@@ -122,46 +122,46 @@ func ValidateDatabricksIdentity(ctx context.Context, p *providers.Provider) (str
 	return identity.ID, nil
 }
 
-func servingDiscoveryKey(scope ServingDiscoveryScope) string {
+func servingDiscoveryKey(scope Scope) string {
 	data, _ := json.Marshal(scope) // only string fields
 	return fmt.Sprintf("model-discovery/v1/%x", sha256.Sum256(data))
 }
 
-func readServingDiscovery(scope ServingDiscoveryScope, refresh bool) (ServingDiscovery, bool, error) {
+func Read(scope Scope, refresh bool) (Snapshot, bool, error) {
 	if _, _, err := vault.MasterKey(); err != nil {
-		return ServingDiscovery{}, false, errors.New("discovery vault is unavailable or locked")
+		return Snapshot{}, false, errors.New("discovery vault is unavailable or locked")
 	}
 	raw, found, err := vault.ReadSecret(servingDiscoveryKey(scope))
 	if err != nil {
-		return ServingDiscovery{}, false, errors.New("cannot read or decrypt discovery cache; refresh cannot bypass vault access")
+		return Snapshot{}, false, errors.New("cannot read or decrypt discovery cache; refresh cannot bypass vault access")
 	}
-	var snapshot ServingDiscovery
+	var snapshot Snapshot
 	if found && (json.Unmarshal([]byte(raw), &snapshot) != nil || snapshot.Schema != 1 || snapshot.Scope != scope ||
 		snapshot.DiscoveredAt.IsZero() || (len(snapshot.Checks) > 0 && snapshot.CheckedAt.IsZero())) {
 		if refresh {
-			return ServingDiscovery{}, false, nil // only successfully decrypted, invalid payloads may be replaced
+			return Snapshot{}, false, nil // only successfully decrypted, invalid payloads may be replaced
 		}
-		return ServingDiscovery{}, false, errors.New("invalid discovery cache payload; use --refresh to rediscover")
+		return Snapshot{}, false, errors.New("invalid discovery cache payload; use --refresh to rediscover")
 	}
-	snapshot.Checks = SanitizeServingChecks(snapshot.Checks)
+	snapshot.Checks = SanitizeChecks(snapshot.Checks)
 	return snapshot, found, nil
 }
 
-// DiscoverServingModels authenticates every read; a forced refresh never falls back to stale discovery.
-func DiscoverServingModels(ctx context.Context, p *providers.Provider, refresh bool) (ServingDiscovery, error) {
+// Discover authenticates every read; a forced refresh never falls back to stale discovery.
+func Discover(ctx context.Context, p *providers.Provider, refresh bool) (Snapshot, error) {
 	ctx, cancel := context.WithTimeout(ctx, 40*time.Second)
 	defer cancel()
-	subject, err := ValidateDatabricksIdentity(ctx, p)
+	subject, err := ValidateIdentity(ctx, p)
 	if err != nil {
-		return ServingDiscovery{}, err
+		return Snapshot{}, err
 	}
-	scope, err := servingDiscoveryScope(p, subject)
+	scope, err := NewScope(p, subject)
 	if err != nil {
-		return ServingDiscovery{}, err
+		return Snapshot{}, err
 	}
-	old, found, err := readServingDiscovery(scope, refresh)
+	old, found, err := Read(scope, refresh)
 	if err != nil {
-		return ServingDiscovery{}, err
+		return Snapshot{}, err
 	}
 	if found && !refresh {
 		old.CacheHit = true
@@ -169,14 +169,14 @@ func DiscoverServingModels(ctx context.Context, p *providers.Provider, refresh b
 	}
 	infos, err := providers.ListModels(ctx, nil, p)
 	if err != nil {
-		return ServingDiscovery{}, errors.New("serving endpoints discovery failed; no stale cache fallback")
+		return Snapshot{}, errors.New("serving endpoints discovery failed; no stale cache fallback")
 	}
-	return ServingDiscovery{Schema: 1, Scope: scope, DiscoveredAt: time.Now().UTC(), Models: infos,
+	return Snapshot{Schema: 1, Scope: scope, DiscoveredAt: time.Now().UTC(), Models: infos,
 		CheckedAt: old.CheckedAt, Checks: old.Checks}, nil
 }
 
-// SanitizeServingChecks retains only probe measurements, never error bodies or credential diagnostics.
-func SanitizeServingChecks(checks []CheckResult) []CheckResult {
+// SanitizeChecks retains only probe measurements, never error bodies or credential diagnostics.
+func SanitizeChecks(checks []CheckResult) []CheckResult {
 	var out []CheckResult
 	for _, c := range checks {
 		if c.Status != "ok" && c.Status != "fail" && c.Status != "missing" {
@@ -191,9 +191,9 @@ func SanitizeServingChecks(checks []CheckResult) []CheckResult {
 	return out
 }
 
-// SaveServingDiscovery seals the snapshot with empty plaintext Prefix metadata; it does not change the menu overlay.
-func SaveServingDiscovery(p *providers.Provider, snapshot ServingDiscovery) error {
-	scope, err := servingDiscoveryScope(p, snapshot.Scope.SubjectID)
+// Save seals the snapshot with empty plaintext Prefix metadata; it does not change the menu overlay.
+func Save(p *providers.Provider, snapshot Snapshot) error {
+	scope, err := NewScope(p, snapshot.Scope.SubjectID)
 	if err != nil {
 		return err
 	}
@@ -201,7 +201,7 @@ func SaveServingDiscovery(p *providers.Provider, snapshot ServingDiscovery) erro
 		snapshot.DiscoveredAt.IsZero() || (len(snapshot.Checks) > 0 && snapshot.CheckedAt.IsZero()) {
 		return errors.New("invalid discovery snapshot scope or schema")
 	}
-	snapshot.Checks = SanitizeServingChecks(snapshot.Checks)
+	snapshot.Checks = SanitizeChecks(snapshot.Checks)
 	data, err := json.Marshal(snapshot)
 	if err != nil {
 		return errors.New("cannot encode discovery snapshot")
