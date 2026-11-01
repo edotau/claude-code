@@ -177,3 +177,20 @@ func newBR(s string) *bufio.Reader { return bufio.NewReader(strings.NewReader(s)
 type failingStreamWriter struct{}
 
 func (failingStreamWriter) Write([]byte) (int, error) { return 0, io.ErrClosedPipe }
+
+// Reconstructed from dispatch 20261101T214810.199-claude's log (raw bytes are not kept): a background subagent
+// makes the session emit a result, resume, emit another, then close on an empty result.
+func TestParseClaudeStreamKeepsLastNonEmptyResult(t *testing.T) {
+	stream := `{"type":"assistant","session_id":"s","message":{"content":[{"type":"tool_use","name":"Agent","id":"toolu_1"}]}}
+{"type":"result","subtype":"success","is_error":false,"result":"The codex agent is still running.","session_id":"s"}
+{"type":"result","subtype":"success","is_error":false,"result":"The dispatch ran and the agent replied PONG-7.","session_id":"s","total_cost_usd":0.2154}
+{"type":"result","subtype":"success","is_error":false,"result":"","session_id":"s","total_cost_usd":0.2154}
+`
+	res, err := parseClaudeStream(newBR(stream), agent.NewTextSink(io.Discard))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "The dispatch ran and the agent replied PONG-7."; res.Answer != want {
+		t.Errorf("Answer = %q, want %q", res.Answer, want)
+	}
+}
