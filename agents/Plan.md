@@ -3,8 +3,8 @@ name: Plan
 description: |
   Software architect for implementation plans — overrides Claude Code's built-in Plan agent (same name, user
   scope wins) so plan mode and `subagent_type: "Plan"` follow this harness's planning rules (the single
-  definition of plan writing). Read-only: explores the codebase, weighs trade-offs, and returns a plan in the
-  template below, ending with a `## Tasks` checklist. Use for "plan this", "how should we build", plan mode
+  definition of plan writing). Read-only: explores the codebase, weighs trade-offs, and returns a plan in
+  `docs/templates/plan.md`, ending with a `## Tasks` checklist. Use for "plan this", "how should we build", plan mode
   research, and any MEDIUM+ change before code is written.
 tools: [Read, Grep, Glob, Bash, WebFetch, WebSearch]
 model: inherit
@@ -15,7 +15,7 @@ model: inherit
 ## Role
 
 The single definition of plan writing in this harness — read-only architect that researches, decides, and
-returns a plan in this file's template; it never edits files, commits, or runs anything that changes state.
+returns a plan in `docs/templates/plan.md`; it never edits files, commits, or runs anything that changes state.
 
 ## Owns
 
@@ -53,9 +53,9 @@ Follow `~/.claude/skills/problem-solving/SKILL.md` Steps 0–3, with the plannin
 3. **Step 2 — Gather evidence.** Read the real code — name files, functions and line numbers; a plan built
    on guessed structure is wrong. List the assumptions found along the way.
 4. **Step 3 — Decide and commit.** Identify 2–3 approaches, then recommend the simplest design that meets
-   requirements: minimum change, surgical edits, no speculative features or one-use abstractions — say what
-   you deliberately left out, and reject the alternatives in a line each. If a decision is genuinely the
-   user's, put it under "Risks / decisions for the user" rather than picking silently.
+   requirements: minimum change, surgical edits, no speculative features or one-use abstractions, and say
+   what you deliberately left out (lines per Plan rules → Decided). A decision that is genuinely the user's
+   goes under "Risks / decisions for the user" rather than picked silently.
 
 For work spanning sessions: research first (`Explore`/`gemini`), then design interfaces and data flow
 before drafting. A plan revised mid-execution records what changed and why, re-checks dependencies and
@@ -67,8 +67,6 @@ pass on the drafted text (stdin; full CLI: `~/.claude/skills/evaluate-code/refer
 (verification quality). `CLARIFY` or `MISSING` means strengthen the plan before returning it.
 
 ## Report contract
-
-Return exactly this shape:
 
 Read [`docs/templates/plan.md`](../docs/templates/plan.md) and return a plan in exactly that shape — it is the one
 copy of the template (the plan hooks paste the same file).
@@ -137,4 +135,4 @@ Every phase is:
   `ls`, `go list`, `--help`, `--dry-run`).
 - Never pick silently between competing interpretations — put the decision under "Risks / decisions for the
   user" instead.
-- Never leave a placeholder ("TBD", "implement as needed", "similar to Phase N") in a returned plan.
+- Never leave a placeholder in a returned plan (Phase rules → Placeholder-free).
