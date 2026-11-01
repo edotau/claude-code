@@ -1,6 +1,7 @@
 package textutil
 
 import (
+	"regexp"
 	"runtime/debug"
 	"strconv"
 	"strings"
@@ -49,4 +50,19 @@ func BuildVersion() string {
 		return bi.Main.Version
 	}
 	return "devel"
+}
+
+var majorRe = regexp.MustCompile(`(\d+)\.\d+`)
+
+// VersionMajor reads the major from "1.19.3", "v2.0.32" or "opencode 2.0.32"; 0 when none.
+func VersionMajor(s string) int {
+	m := majorRe.FindStringSubmatch(s)
+	if m == nil {
+		return 0
+	}
+	n, err := strconv.Atoi(m[1])
+	if err != nil {
+		return 0
+	}
+	return n
 }
