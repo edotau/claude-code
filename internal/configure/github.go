@@ -14,7 +14,7 @@ import (
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/ui/tui"
+	uidialog "github.com/edotau/claude-code/internal/ui/dialog"
 )
 
 // ghAccountRE pulls the account name out of `gh auth status`'s "Logged in to github.com account <name>" line.
@@ -112,29 +112,20 @@ func runGithub(d *dialog) bool {
 // githubMenu loops a status report + action picker until Back/Esc; each action re-checks live state
 // before the next render, so a login that just succeeded shows "present" immediately.
 func githubMenu(d *dialog) bool {
-	for {
-		githubStatusRows(d)
-		rows := [][2]string{
-			{"Log in to GitHub CLI", "gh auth login"},
-			{"Log in to Copilot", "copilot login"},
-			{"Log in to OpenCode", "opencode auth login (choose GitHub Copilot)"},
-			{"Pick fallback models", "opus/sonnet/haiku github-copilot serves to opencode"},
-		}
-		idx, err := tui.PickBack("GitHub (opencode fallback) — pick an action", rows, 0)
-		if err != nil || idx < 0 {
-			return true
-		}
-		switch idx {
-		case 0:
-			runGithubLogin(d, []string{"gh", "auth", "login"}, "gh CLI")
-		case 1:
-			runGithubLogin(d, []string{"copilot", "login"}, "copilot")
-		case 2:
-			runGithubLogin(d, []string{"opencode", "auth", "login"}, "opencode")
-		case 3:
-			pickCopilotModels(d)
-		}
+	login := func(name, detail, label string, argv ...string) uidialog.Row {
+		return uidialog.Row{Name: name, Detail: detail, Run: func() bool { runGithubLogin(d, argv, label); return false }}
 	}
+	d.shell().Run("GitHub (opencode fallback) — pick an action", func() []uidialog.Row {
+		githubStatusRows(d)
+		return []uidialog.Row{
+			login("Log in to GitHub CLI", "gh auth login", "gh CLI", "gh", "auth", "login"),
+			login("Log in to Copilot", "copilot login", "copilot", "copilot", "login"),
+			login("Log in to OpenCode", "opencode auth login (choose GitHub Copilot)", "opencode", "opencode", "auth", "login"),
+			{Name: "Pick fallback models", Detail: "opus/sonnet/haiku github-copilot serves to opencode",
+				Run: func() bool { pickCopilotModels(d); return false }},
+		}
+	})
+	return true
 }
 
 // runGithubLogin execs argv attached to the real terminal, same contract as runLogin elsewhere in configure.
@@ -183,7 +174,7 @@ func pickCopilotModels(d *dialog) {
 
 	picks := map[string]string{}
 	for _, alias := range []string{models.Opus, models.Sonnet, models.Haiku} {
-		idx, err := tui.PickBack("github fallback — "+alias+" model", rows, 0)
+		idx, err := d.shell().Pick("github fallback — "+alias+" model", rows)
 		if err != nil || idx < 0 {
 			d.printf("github fallback: cancelled at the %s model; nothing written\n", alias)
 			return
@@ -205,7 +196,7 @@ func pickCopilotModels(d *dialog) {
 			fbIDs = append(fbIDs, m.ID)
 			fbRows = append(fbRows, [2]string{m.ID, m.Name})
 		}
-		idx, err := tui.PickBack("github fallback — opencode_fallback (auto needs a concrete id)", fbRows, 0)
+		idx, err := d.shell().Pick("github fallback — opencode_fallback (auto needs a concrete id)", fbRows)
 		if err != nil || idx < 0 {
 			d.printf("github fallback: cancelled at opencode_fallback; nothing written\n")
 			return
