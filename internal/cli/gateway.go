@@ -13,7 +13,6 @@ import (
 
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/proxy"
-	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
@@ -157,9 +156,6 @@ func cmdGatewayProxy(args []string) int {
 func proxyServe(ctx context.Context, port int) int {
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	// route imports the proxy package, so the auth-mark store is injected here rather than imported by it.
-	proxy.Gate = proxy.AuthGate{Account: router.ProviderAccount, Mark: router.MarkAuth, Clear: router.ClearAuth,
-		Marked: func() func(string, time.Time) (string, bool) { return router.LoadState().AuthMarked }}
 	if err := proxy.Serve(ctx, port); err != nil {
 		return fail("proxy: %v", err)
 	}
