@@ -298,7 +298,9 @@ func emitClaudeAssistant(sink agent.Sink, msg claudeMessage, wrote *bool) error 
 }
 
 func applyClaudeResult(res *agent.Result, ev claudeEvent) error {
-	res.Answer = ev.Result
+	if ev.Result != "" {
+		res.Answer = ev.Result // a resumed session's closing empty result must not erase the last real one
+	}
 	u := ev.Usage
 	res.Usage = agent.Usage{InputTokens: u.InputTokens, CacheCreationTokens: u.CacheCreationInputTokens,
 		CacheReadTokens: u.CacheReadInputTokens, OutputTokens: u.OutputTokens, CostUSD: ev.TotalCostUSD}
